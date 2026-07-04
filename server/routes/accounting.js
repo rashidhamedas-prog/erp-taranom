@@ -480,10 +480,27 @@ router.get('/statement/:customerId/export', auth, adminOrAccounting, (req, res) 
     return res.send('﻿' + lines.join('\n')); // BOM for Excel UTF-8
   }
 
-  if (format === 'pdf') {
+  if (format === 'html') {
+    // print-in-browser view (kept for the «ارسال تصویری» flow)
     const html = renderStatementHTML(db, req.tenantId, data, { from, to });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.send(html);
+  }
+
+  if (format === 'pdf') {
+    // real server-generated PDF
+    const pdfService = require('../services/pdf');
+    const html = renderStatementHTML(db, req.tenantId, data, { from, to });
+    return pdfService.htmlToPDF(html, { format: 'A4' })
+      .then(buf => {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename=statement-${data.customer.id}.pdf`);
+        res.send(buf);
+      })
+      .catch(e => {
+        console.error('statement pdf error:', e.message);
+        res.status(500).json({ error: 'خطا در تولید PDF: ' + e.message });
+      });
   }
 
   // default: excel

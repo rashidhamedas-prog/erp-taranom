@@ -376,6 +376,33 @@ router.post('/:id/convert', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Server-generated PDF — cached on disk, regenerated with ?fresh=1
+router.get('/:id/pdf', auth, async (req, res) => {
+  const db = getDB();
+  const inv = db.prepare('SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=? AND i.tenant_id=?').get(req.params.id, req.tenantId);
+  if (!inv) return res.status(404).json({ error: 'فاکتور یافت نشد' });
+  if (req.user.role !== 'admin' && inv.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
+  const pdfService = require('../services/pdf');
+  const path = require('path');
+  const fs = require('fs');
+  const paper = (req.query.paper || 'A4').toUpperCase() === 'A5' ? 'A5' : 'A4';
+  const filename = `inv-${req.tenantId}-${inv.id}-${paper}.pdf`;
+  const filePath = path.join(pdfService.PDF_DIR, filename);
+  try {
+    if (req.query.fresh === '1' || !fs.existsSync(filePath)) {
+      const html = renderInvoiceHTML(db, req.tenantId, inv, paper);
+      await pdfService.renderToFile(html, filename, { format: paper });
+      db.prepare('UPDATE invoices SET pdf_url=? WHERE id=?').run('/uploads/pdfs/' + filename, inv.id);
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename=invoice-${(inv.num || inv.id).toString().replace(/[^\w-]/g, '')}.pdf`);
+    res.send(fs.readFileSync(filePath));
+  } catch (e) {
+    console.error('invoice pdf error:', e.message);
+    res.status(500).json({ error: 'خطا در تولید PDF: ' + e.message });
+  }
+});
+
 // Standalone printable HTML page
 router.get('/:id/print', auth, (req, res) => {
   const db = getDB();
