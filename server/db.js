@@ -311,6 +311,78 @@ function initDB() {
       FOREIGN KEY(entry_id) REFERENCES journal_entries(id)
     );
 
+    CREATE TABLE IF NOT EXISTS warehouses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL DEFAULT 1,
+      name TEXT NOT NULL,
+      address TEXT DEFAULT '',
+      type TEXT DEFAULT 'other',
+      is_default INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS warehouse_stock (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      warehouse_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      qty INTEGER DEFAULT 0,
+      UNIQUE(warehouse_id, product_id),
+      FOREIGN KEY(warehouse_id) REFERENCES warehouses(id),
+      FOREIGN KEY(product_id) REFERENCES products(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS warehouse_receipts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL DEFAULT 1,
+      warehouse_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      qty INTEGER NOT NULL,
+      unit_cost REAL DEFAULT 0,
+      ref TEXT DEFAULT 'purchase',
+      note TEXT DEFAULT '',
+      date TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS warehouse_issues (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL DEFAULT 1,
+      warehouse_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      qty INTEGER NOT NULL,
+      unit_cost REAL DEFAULT 0,
+      ref TEXT DEFAULT 'sale',
+      ref_id INTEGER,
+      note TEXT DEFAULT '',
+      date TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS warehouse_transfers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL DEFAULT 1,
+      from_warehouse_id INTEGER NOT NULL,
+      to_warehouse_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      qty INTEGER NOT NULL,
+      date TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS inventory_cost_layers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      receipt_id INTEGER,
+      qty_remaining INTEGER NOT NULL,
+      unit_cost REAL NOT NULL,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(product_id) REFERENCES products(id)
+    );
+
     CREATE TABLE IF NOT EXISTS two_factor_auth (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER UNIQUE NOT NULL,
@@ -474,6 +546,33 @@ function initDB() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(tenant_id, barcode)');
   // MAC initialization: seed mac_cost from the legacy products.cost for existing rows
   db.exec('UPDATE products SET mac_cost=COALESCE(cost,0) WHERE (mac_cost IS NULL OR mac_cost=0) AND COALESCE(cost,0)>0');
+
+  // WMS bootstrap: every tenant gets a default warehouse; existing product stock moves into it.
+  // Idempotent — only runs for tenants that have no warehouses yet.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_warehouses_tenant ON warehouses(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_wreceipts_tenant ON warehouse_receipts(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_wissues_tenant ON warehouse_issues(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_wtransfers_tenant ON warehouse_transfers(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_wstock_wh ON warehouse_stock(warehouse_id, product_id);
+    CREATE INDEX IF NOT EXISTS idx_cost_layers_product ON inventory_cost_layers(product_id);
+  `);
+  const tenantsNeedingWh = db.prepare(`
+    SELECT t.id FROM tenants t WHERE NOT EXISTS (SELECT 1 FROM warehouses w WHERE w.tenant_id=t.id)
+  `).all();
+  for (const t of tenantsNeedingWh) {
+    const wh = db.prepare("INSERT INTO warehouses (tenant_id,name,type,is_default) VALUES (?,?,?,1)")
+      .run(t.id, 'انبار اصلی', 'workshop');
+    const whId = wh.lastInsertRowid;
+    const prods = db.prepare('SELECT id, stock, mac_cost FROM products WHERE tenant_id=?').all(t.id);
+    const insStock = db.prepare('INSERT OR IGNORE INTO warehouse_stock (warehouse_id,product_id,qty) VALUES (?,?,?)');
+    const insLayer = db.prepare('INSERT INTO inventory_cost_layers (product_id,qty_remaining,unit_cost) VALUES (?,?,?)');
+    for (const p of prods) {
+      insStock.run(whId, p.id, p.stock || 0);
+      if ((p.stock || 0) > 0) insLayer.run(p.id, p.stock, p.mac_cost || 0);
+    }
+    if (prods.length) console.log(`🏬 انبار اصلی برای مستأجر ${t.id} ساخته شد (${prods.length} کالا منتقل شد)`);
+  }
 
   // ---- Seed chart of accounts for tenant 1 (only if that tenant has none) ----
   seedChartOfAccounts(db, 1);

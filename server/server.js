@@ -94,10 +94,13 @@ initDB();
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/auth/2fa', require('./routes/twofa'));
 app.use('/api/platform', require('./routes/platform'));
-app.use('/api/customers', require('./routes/customers'));
-app.use('/api/followups', require('./routes/followups'));
-app.use('/api/invoices', require('./routes/invoices'));
+// Warehouse managers only see warehouse/products modules (spec: بدون دسترسی مالی/مشتریان)
+const { noWarehouseManager } = require('./middleware/auth');
+app.use('/api/customers', require('./middleware/auth').auth, noWarehouseManager, require('./routes/customers'));
+app.use('/api/followups', require('./middleware/auth').auth, noWarehouseManager, require('./routes/followups'));
+app.use('/api/invoices', require('./middleware/auth').auth, noWarehouseManager, require('./routes/invoices'));
 app.use('/api/products', require('./routes/products'));
+app.use('/api/warehouses', require('./routes/warehouse'));
 app.use('/api/admin', require('./routes/admin'));
 
 // Manual backup endpoint — registered before admin router catch-all

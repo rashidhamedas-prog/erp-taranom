@@ -43,8 +43,10 @@ function buildRows(db, tenantId, inputRows) {
   return { rows: out, subtotal };
 }
 
-// Deduct stock for each row; returns error message if stock insufficient
-function deductStock(db, tenantId, rows, userId) {
+// Deduct stock for each row via WMS warehouse issues (MAC-costed).
+// Returns error message if aggregate stock is insufficient.
+function deductStock(db, tenantId, rows, userId, invoiceDate) {
+  const wms = require('../services/wms');
   for (const r of rows) {
     const prod = db.prepare('SELECT * FROM products WHERE id=? AND tenant_id=?').get(r.product_id, tenantId);
     if (!prod) return `محصول شناسه ${r.product_id} یافت نشد`;
@@ -52,12 +54,16 @@ function deductStock(db, tenantId, rows, userId) {
       return `موجودی ${prod.name} کافی نیست (موجود: ${prod.stock})`;
     }
   }
-  // All checks passed — deduct
-  for (const r of rows) {
-    db.prepare('UPDATE products SET stock=stock-? WHERE id=? AND tenant_id=?').run(r.qty, r.product_id, tenantId);
-    db.prepare('INSERT INTO stock_logs (tenant_id,product_id,user_id,change,note) VALUES (?,?,?,?,?)').run(
-      tenantId, r.product_id, userId || 0, -r.qty, 'کسر موجودی از فاکتور رسمی'
-    );
+  // All checks passed — issue from warehouses (default first)
+  try {
+    for (const r of rows) {
+      wms.issueForSale(db, {
+        tenantId, productId: r.product_id, qty: r.qty,
+        note: 'کسر موجودی از فاکتور رسمی', date: invoiceDate || '', userId,
+      });
+    }
+  } catch (e) {
+    return e.message;
   }
   return null;
 }
@@ -190,7 +196,7 @@ router.post('/', auth, (req, res) => {
 
   // Stock validation & deduction for final invoices
   if (invType === 'final') {
-    const stockErr = deductStock(db, req.tenantId, built.rows, req.user.id);
+    const stockErr = deductStock(db, req.tenantId, built.rows, req.user.id, date);
     if (stockErr) return res.status(400).json({ error: stockErr });
     stockDeducted = 1;
   }
@@ -262,7 +268,7 @@ router.put('/:id', auth, (req, res) => {
 
   // Only deduct stock when transitioning TO final for the first time
   if (newType === 'final' && !stockDeducted) {
-    const stockErr = deductStock(db, req.tenantId, built.rows, req.user.id);
+    const stockErr = deductStock(db, req.tenantId, built.rows, req.user.id, date);
     if (stockErr) return res.status(400).json({ error: stockErr });
     stockDeducted = 1;
     // First transition to final via edit also gets full accounting entries
@@ -288,12 +294,15 @@ router.delete('/:id', auth, (req, res) => {
 
   // Restore inventory when a final invoice with deducted stock is deleted
   if (row.stock_deducted) {
+    const wms = require('../services/wms');
     const invRows = JSON.parse(row.rows || '[]');
     for (const r of invRows) {
-      db.prepare('UPDATE products SET stock=stock+? WHERE id=? AND tenant_id=?').run(r.qty, r.product_id, req.tenantId);
-      db.prepare('INSERT INTO stock_logs (tenant_id,product_id,user_id,change,note) VALUES (?,?,?,?,?)').run(
-        req.tenantId, r.product_id, req.user.id, r.qty, `بازگشت موجودی از حذف فاکتور ${row.num}`
-      );
+      try {
+        wms.restoreForSale(db, {
+          tenantId: req.tenantId, productId: r.product_id, qty: r.qty, refId: row.id,
+          note: `بازگشت موجودی از حذف فاکتور ${row.num}`, date: row.date || '', userId: req.user.id,
+        });
+      } catch (e) { console.error('stock restore error:', e.message); }
     }
   }
 
@@ -348,7 +357,7 @@ router.post('/:id/convert', auth, (req, res) => {
   // Stock deduction if not already done
   let stockDeducted = inv.stock_deducted || 0;
   if (!stockDeducted) {
-    const stockErr = deductStock(db, req.tenantId, rows, req.user.id);
+    const stockErr = deductStock(db, req.tenantId, rows, req.user.id, inv.date);
     if (stockErr) return res.status(400).json({ error: stockErr });
     stockDeducted = 1;
   }

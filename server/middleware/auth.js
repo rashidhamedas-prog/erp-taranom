@@ -53,10 +53,18 @@ function warehouseAccess(req, res, next) {
   next();
 }
 
+// Warehouse managers have no access to customers/sales/financial modules (spec: بدون دسترسی مالی/مشتریان)
+function noWarehouseManager(req, res, next) {
+  if (req.user?.role === 'warehouse_manager') {
+    return res.status(403).json({ error: 'دسترسی ندارید' });
+  }
+  next();
+}
+
 // Platform owner only (tenant management)
 function platformOnly(req, res, next) {
   if (req.user?.role !== 'platform_owner') return res.status(403).json({ error: 'دسترسی ندارید' });
   next();
 }
 
-module.exports = { auth, adminOnly, adminOrAccounting, warehouseAccess, platformOnly, SECRET };
+module.exports = { auth, adminOnly, adminOrAccounting, warehouseAccess, noWarehouseManager, platformOnly, SECRET };
