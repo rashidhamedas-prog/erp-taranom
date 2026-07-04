@@ -11,12 +11,12 @@ function generateKey() {
   return 'trn_' + crypto.randomBytes(24).toString('hex');
 }
 
-// List all API keys (admin)
+// List all API keys of the tenant (admin)
 router.get('/', auth, adminOnly, (req, res) => {
   const db = getDB();
   const rows = db.prepare(
-    'SELECT k.id,k.name,k.key_prefix,k.scopes,k.active,k.last_used,k.created_at,u.name as owner FROM api_keys k LEFT JOIN users u ON k.user_id=u.id ORDER BY k.created_at DESC'
-  ).all();
+    'SELECT k.id,k.name,k.key_prefix,k.scopes,k.active,k.last_used,k.created_at,u.name as owner FROM api_keys k LEFT JOIN users u ON k.user_id=u.id WHERE k.tenant_id=? ORDER BY k.created_at DESC'
+  ).all(req.tenantId);
   res.json(rows);
 });
 
@@ -25,8 +25,8 @@ router.get('/usage', auth, adminOnly, (req, res) => {
   const db = getDB();
   const limit = Math.min(200, parseInt(req.query.limit || '100'));
   const rows = db.prepare(
-    'SELECT l.*,k.name as key_name FROM api_usage_log l LEFT JOIN api_keys k ON l.api_key_id=k.id ORDER BY l.created_at DESC LIMIT ?'
-  ).all(limit);
+    'SELECT l.*,k.name as key_name FROM api_usage_log l LEFT JOIN api_keys k ON l.api_key_id=k.id WHERE k.tenant_id=? ORDER BY l.created_at DESC LIMIT ?'
+  ).all(req.tenantId, limit);
   res.json(rows);
 });
 
@@ -37,9 +37,9 @@ router.post('/', auth, adminOnly, (req, res) => {
   const key = generateKey();
   const db = getDB();
   const result = db.prepare(
-    'INSERT INTO api_keys (user_id,name,key_hash,key_prefix,scopes) VALUES (?,?,?,?,?)'
-  ).run(req.user.id, name, hashKey(key), key.substring(0, 12), scopes);
-  audit(req.user.id, 'create', 'api_key', result.lastInsertRowid, `ساخت کلید API: ${name}`);
+    'INSERT INTO api_keys (tenant_id,user_id,name,key_hash,key_prefix,scopes) VALUES (?,?,?,?,?,?)'
+  ).run(req.tenantId, req.user.id, name, hashKey(key), key.substring(0, 12), scopes);
+  audit(req.tenantId, req.user.id, 'create', 'api_key', result.lastInsertRowid, `ساخت کلید API: ${name}`, req.ip);
   // Return full key only once
   res.json({ id: result.lastInsertRowid, name, key, key_prefix: key.substring(0, 12), scopes, active: 1 });
 });
@@ -48,44 +48,48 @@ router.post('/', auth, adminOnly, (req, res) => {
 router.put('/:id', auth, adminOnly, (req, res) => {
   const { name, scopes, active } = req.body;
   const db = getDB();
-  db.prepare('UPDATE api_keys SET name=?,scopes=?,active=? WHERE id=?')
-    .run(name, scopes, active ? 1 : 0, req.params.id);
-  audit(req.user.id, 'update', 'api_key', req.params.id, `ویرایش کلید API`);
+  const r = db.prepare('UPDATE api_keys SET name=?,scopes=?,active=? WHERE id=? AND tenant_id=?')
+    .run(name, scopes, active ? 1 : 0, req.params.id, req.tenantId);
+  if (!r.changes) return res.status(404).json({ error: 'کلید یافت نشد' });
+  audit(req.tenantId, req.user.id, 'update', 'api_key', req.params.id, 'ویرایش کلید API', req.ip);
   res.json({ ok: true });
 });
 
 // Delete API key (admin)
 router.delete('/:id', auth, adminOnly, (req, res) => {
   const db = getDB();
-  db.prepare('DELETE FROM api_keys WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'api_key', req.params.id, `حذف کلید API`);
+  const r = db.prepare('DELETE FROM api_keys WHERE id=? AND tenant_id=?').run(req.params.id, req.tenantId);
+  if (!r.changes) return res.status(404).json({ error: 'کلید یافت نشد' });
+  audit(req.tenantId, req.user.id, 'delete', 'api_key', req.params.id, 'حذف کلید API', req.ip);
   res.json({ ok: true });
 });
 
 // Webhook CRUD
 router.get('/webhooks', auth, adminOnly, (req, res) => {
   const db = getDB();
-  res.json(db.prepare('SELECT * FROM webhooks ORDER BY created_at DESC').all());
+  res.json(db.prepare('SELECT * FROM webhooks WHERE tenant_id=? ORDER BY created_at DESC').all(req.tenantId));
 });
 
 router.post('/webhooks', auth, adminOnly, (req, res) => {
   const { name, url, events = 'customer.created', secret = '' } = req.body;
   if (!name || !url) return res.status(400).json({ error: 'نام و آدرس الزامی است' });
   const db = getDB();
-  const r = db.prepare('INSERT INTO webhooks (user_id,name,url,events,secret) VALUES (?,?,?,?,?)')
-    .run(req.user.id, name, url, events, secret);
+  const r = db.prepare('INSERT INTO webhooks (tenant_id,user_id,name,url,events,secret) VALUES (?,?,?,?,?,?)')
+    .run(req.tenantId, req.user.id, name, url, events, secret);
   res.json({ id: r.lastInsertRowid, name, url, events, secret, active: 1 });
 });
 
 router.put('/webhooks/:id', auth, adminOnly, (req, res) => {
   const { name, url, events, secret, active } = req.body;
-  getDB().prepare('UPDATE webhooks SET name=?,url=?,events=?,secret=?,active=? WHERE id=?')
-    .run(name, url, events, secret || '', active ? 1 : 0, req.params.id);
+  const r = getDB().prepare('UPDATE webhooks SET name=?,url=?,events=?,secret=?,active=? WHERE id=? AND tenant_id=?')
+    .run(name, url, events, secret || '', active ? 1 : 0, req.params.id, req.tenantId);
+  if (!r.changes) return res.status(404).json({ error: 'یافت نشد' });
   res.json({ ok: true });
 });
 
 router.delete('/webhooks/:id', auth, adminOnly, (req, res) => {
-  getDB().prepare('DELETE FROM webhooks WHERE id=?').run(req.params.id);
+  const r = getDB().prepare('DELETE FROM webhooks WHERE id=? AND tenant_id=?').run(req.params.id, req.tenantId);
+  if (!r.changes) return res.status(404).json({ error: 'یافت نشد' });
   res.json({ ok: true });
 });
 

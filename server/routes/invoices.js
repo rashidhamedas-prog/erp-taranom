@@ -9,8 +9,8 @@ function getScope(req) {
   return req.user.id;
 }
 
-function getSetting(db, key) {
-  const r = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+function getSetting(db, tenantId, key) {
+  const r = db.prepare('SELECT value FROM settings WHERE tenant_id=? AND key=?').get(tenantId, key);
   return r ? r.value : '';
 }
 
@@ -19,33 +19,34 @@ function faNum(n) {
 }
 
 // Validate & normalize invoice rows.
-// Price is always editable by both admin and salesperson (Phase 2 change).
-// product_id must be valid.
-function buildRows(db, inputRows) {
+// Price is always editable by both admin and salesperson.
+// product_id must be valid and belong to the same tenant.
+function buildRows(db, tenantId, inputRows) {
   const out = [];
   let subtotal = 0;
   for (const r of (inputRows || [])) {
     const pid = parseInt(r.product_id);
     if (!pid) throw new Error('هر ردیف باید یک محصول معتبر داشته باشد');
-    const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
+    const prod = db.prepare('SELECT * FROM products WHERE id=? AND tenant_id=?').get(pid, tenantId);
     if (!prod) throw new Error('محصول یافت نشد (شناسه ' + pid + ')');
     const qty = Math.max(1, parseInt(r.qty) || 1);
-    // Allow price override by anyone (Phase 2: price always editable)
+    // Allow price override by anyone (price always editable)
     let price = prod.price;
     if (r.price !== undefined && r.price !== null && r.price !== '') {
       price = parseFloat(r.price) || 0;
     }
     const sum = qty * price;
     subtotal += sum;
-    out.push({ product_id: pid, name: prod.name, qty, price, sum });
+    // mac_cost snapshot at issue time — basis for the COGS journal entry
+    out.push({ product_id: pid, name: prod.name, qty, price, sum, mac_cost: prod.mac_cost || prod.cost || 0 });
   }
   return { rows: out, subtotal };
 }
 
 // Deduct stock for each row; returns error message if stock insufficient
-function deductStock(db, rows) {
+function deductStock(db, tenantId, rows, userId) {
   for (const r of rows) {
-    const prod = db.prepare('SELECT * FROM products WHERE id=?').get(r.product_id);
+    const prod = db.prepare('SELECT * FROM products WHERE id=? AND tenant_id=?').get(r.product_id, tenantId);
     if (!prod) return `محصول شناسه ${r.product_id} یافت نشد`;
     if (prod.stock < r.qty) {
       return `موجودی ${prod.name} کافی نیست (موجود: ${prod.stock})`;
@@ -53,12 +54,49 @@ function deductStock(db, rows) {
   }
   // All checks passed — deduct
   for (const r of rows) {
-    db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-    db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
-      r.product_id, 0, -r.qty, 'کسر موجودی از فاکتور رسمی'
+    db.prepare('UPDATE products SET stock=stock-? WHERE id=? AND tenant_id=?').run(r.qty, r.product_id, tenantId);
+    db.prepare('INSERT INTO stock_logs (tenant_id,product_id,user_id,change,note) VALUES (?,?,?,?,?)').run(
+      tenantId, r.product_id, userId || 0, -r.qty, 'کسر موجودی از فاکتور رسمی'
     );
   }
   return null;
+}
+
+// Total cost of goods sold for an invoice's rows at their MAC snapshot
+function rowsCOGS(rows) {
+  return rows.reduce((a, r) => a + (Number(r.mac_cost) || 0) * (Number(r.qty) || 0), 0);
+}
+
+// All accounting entries for issuing a final invoice: receivable/revenue + COGS at MAC
+function recordFinalInvoiceAccounting(db, { tenantId, invId, num, date, cust_id, final, subtotal, discAmt, rows, userId, isConversion }) {
+  createLedgerEntry(db, {
+    tenant_id: tenantId, customer_id: cust_id, date: date || '', entry_type: 'invoice',
+    ref_type: 'invoice', ref_id: invId,
+    description: isConversion ? `تبدیل پیش‌فاکتور ${num} به فاکتور رسمی` : `فاکتور رسمی ${num}`,
+    debit: final, credit: 0, user_id: userId
+  });
+  const jLines = [
+    { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: final, credit: 0 }
+  ];
+  if (discAmt > 0) jLines.push({ code: '4103', name: 'تخفیفات فروش', debit: discAmt, credit: 0, description: 'تخفیف فاکتور' });
+  jLines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: subtotal });
+  createJournalEntry(db, {
+    tenant_id: tenantId, date: date || '',
+    description: isConversion ? `فاکتور رسمی ${num} (تبدیل از پیش‌فاکتور)` : `فاکتور رسمی ${num}`,
+    ref_type: 'invoice', ref_id: invId, created_by: userId, lines: jLines
+  });
+  // COGS at moving-average cost: debit 5000, credit inventory 1104
+  const cogs = rowsCOGS(rows);
+  if (cogs > 0) {
+    createJournalEntry(db, {
+      tenant_id: tenantId, date: date || '', description: `بهای تمام‌شده فاکتور ${num}`,
+      ref_type: 'invoice_cogs', ref_id: invId, created_by: userId,
+      lines: [
+        { code: '5000', name: 'بهای تمام‌شده کالای فروش رفته', debit: cogs, credit: 0 },
+        { code: '1104', name: 'موجودی کالا', debit: 0, credit: cogs }
+      ]
+    });
+  }
 }
 
 router.get('/', auth, (req, res) => {
@@ -66,9 +104,9 @@ router.get('/', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT i.*,c.biz as cust_biz,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ORDER BY i.created_at DESC').all();
+    rows = db.prepare('SELECT i.*,c.biz as cust_biz,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id WHERE i.tenant_id=? ORDER BY i.created_at DESC').all(req.tenantId);
   } else {
-    rows = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? ORDER BY i.created_at DESC').all(scope);
+    rows = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.tenant_id=? AND i.user_id=? ORDER BY i.created_at DESC').all(req.tenantId, scope);
   }
   rows = rows.map(r => ({ ...r, rows: JSON.parse(r.rows || '[]') }));
   res.json(rows);
@@ -81,9 +119,9 @@ router.get('/export/excel', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT i.*,c.biz as cust_biz,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ORDER BY i.created_at DESC').all();
+    rows = db.prepare('SELECT i.*,c.biz as cust_biz,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id WHERE i.tenant_id=? ORDER BY i.created_at DESC').all(req.tenantId);
   } else {
-    rows = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? ORDER BY i.created_at DESC').all(scope);
+    rows = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.tenant_id=? AND i.user_id=? ORDER BY i.created_at DESC').all(req.tenantId, scope);
   }
   const data = rows.map(r => ({
     'شماره': r.num || '',
@@ -110,18 +148,29 @@ router.get('/export/excel', auth, (req, res) => {
 
 router.get('/:id', auth, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(req.params.id);
+  const row = db.prepare('SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=? AND i.tenant_id=?').get(req.params.id, req.tenantId);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   res.json({ ...row, rows: JSON.parse(row.rows || '[]') });
 });
 
 router.post('/', auth, (req, res) => {
-  const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info } = req.body;
+  const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info, client_uuid } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
+
+  // Customer must belong to this tenant
+  const cust = db.prepare('SELECT id, auto_followup FROM customers WHERE id=? AND tenant_id=?').get(cust_id, req.tenantId);
+  if (!cust) return res.status(404).json({ error: 'مشتری یافت نشد' });
+
+  // Offline-sync idempotency: an invoice with this client_uuid already exists → return it
+  if (client_uuid) {
+    const existing = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.tenant_id=? AND i.client_uuid=?').get(req.tenantId, client_uuid);
+    if (existing) return res.json({ ...existing, rows: JSON.parse(existing.rows || '[]'), deduped: true });
+  }
+
   let built;
-  try { built = buildRows(db, rows); }
+  try { built = buildRows(db, req.tenantId, rows); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
   const subtotal = built.subtotal;
@@ -129,8 +178,8 @@ router.post('/', auth, (req, res) => {
   const discAmt = Math.round(subtotal * discPct / 100);
   const final = subtotal - discAmt;
 
-  // sequential global invoice number
-  const count = db.prepare('SELECT COUNT(*) as c FROM invoices').get().c;
+  // sequential invoice number — per tenant
+  const count = db.prepare('SELECT COUNT(*) as c FROM invoices WHERE tenant_id=?').get(req.tenantId).c;
   const num = 'T-' + String(count + 1).padStart(4, '0');
 
   // capture seller info from the user record
@@ -141,57 +190,44 @@ router.post('/', auth, (req, res) => {
 
   // Stock validation & deduction for final invoices
   if (invType === 'final') {
-    const stockErr = deductStock(db, built.rows);
+    const stockErr = deductStock(db, req.tenantId, built.rows, req.user.id);
     if (stockErr) return res.status(400).json({ error: stockErr });
     stockDeducted = 1;
   }
 
   const result = db.prepare(
-    'INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(req.user.id, cust_id, num, invType, date || '', note || '',
+    'INSERT INTO invoices (tenant_id,user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted,client_uuid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(req.tenantId, req.user.id, cust_id, num, invType, date || '', note || '',
         JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
         seller ? seller.name : '', seller ? (seller.phone || '') : '',
         pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
-        stockDeducted);
+        stockDeducted, client_uuid || null);
 
   // Auto-update customer status to 'active' when a final invoice is issued
   if (invType === 'final') {
-    db.prepare("UPDATE customers SET status='active' WHERE id=?").run(cust_id);
+    db.prepare("UPDATE customers SET status='active' WHERE id=? AND tenant_id=?").run(cust_id, req.tenantId);
   }
 
   const row = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(result.lastInsertRowid);
 
-  // Customer ledger + journal entries for final invoices
+  // Customer ledger + journal + COGS entries for final invoices
   if (invType === 'final') {
-    const invId = result.lastInsertRowid;
-    createLedgerEntry(db, {
-      customer_id: cust_id, date: date || '', entry_type: 'invoice',
-      ref_type: 'invoice', ref_id: invId,
-      description: `فاکتور رسمی ${num}`,
-      debit: final, credit: 0, user_id: req.user.id
-    });
-    const jLines = [
-      { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: final, credit: 0 }
-    ];
-    if (discAmt > 0) jLines.push({ code: '4103', name: 'تخفیفات فروش', debit: discAmt, credit: 0, description: 'تخفیف فاکتور' });
-    jLines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: subtotal });
-    createJournalEntry(db, {
-      date: date || '', description: `فاکتور رسمی ${num}`,
-      ref_type: 'invoice', ref_id: invId, created_by: req.user.id, lines: jLines
+    recordFinalInvoiceAccounting(db, {
+      tenantId: req.tenantId, invId: result.lastInsertRowid, num, date, cust_id,
+      final, subtotal, discAmt, rows: built.rows, userId: req.user.id, isConversion: false
     });
   }
 
   // Auto-create a 7-day quality follow-up — only if the customer has auto-followup enabled
   try {
-    const cust = db.prepare('SELECT auto_followup FROM customers WHERE id=?').get(cust_id);
-    if (!cust || cust.auto_followup == null || cust.auto_followup) {
+    if (cust.auto_followup == null || cust.auto_followup) {
       const invoiceDate = date || todayJalali();
       const followupDate = addDaysToJalali(invoiceDate, 7);
       const productList = built.rows.map(r => r.name).join('، ') || '-';
       db.prepare(
-        'INSERT INTO followups (user_id,cust_id,date,type,subject,note,next_date,status,priority) VALUES (?,?,?,?,?,?,?,?,?)'
+        'INSERT INTO followups (tenant_id,user_id,cust_id,date,type,subject,note,next_date,status,priority) VALUES (?,?,?,?,?,?,?,?,?,?)'
       ).run(
-        req.user.id, cust_id, invoiceDate,
+        req.tenantId, req.user.id, cust_id, invoiceDate,
         '🧾 پیگیری فاکتور',
         'بررسی رضایت از کیفیت کالا',
         `پیگیری پس از فاکتور ${num}\nمحصولات: ${productList}`,
@@ -207,12 +243,14 @@ router.post('/', auth, (req, res) => {
 
 router.put('/:id', auth, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
+  const row = db.prepare('SELECT * FROM invoices WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info } = req.body;
+  const cust = db.prepare('SELECT id FROM customers WHERE id=? AND tenant_id=?').get(cust_id, req.tenantId);
+  if (!cust) return res.status(404).json({ error: 'مشتری یافت نشد' });
   let built;
-  try { built = buildRows(db, rows); }
+  try { built = buildRows(db, req.tenantId, rows); }
   catch (e) { return res.status(400).json({ error: e.message }); }
   const subtotal = built.subtotal;
   const discPct = parseFloat(disc) || 0;
@@ -224,21 +262,27 @@ router.put('/:id', auth, (req, res) => {
 
   // Only deduct stock when transitioning TO final for the first time
   if (newType === 'final' && !stockDeducted) {
-    const stockErr = deductStock(db, built.rows);
+    const stockErr = deductStock(db, req.tenantId, built.rows, req.user.id);
     if (stockErr) return res.status(400).json({ error: stockErr });
     stockDeducted = 1;
+    // First transition to final via edit also gets full accounting entries
+    recordFinalInvoiceAccounting(db, {
+      tenantId: req.tenantId, invId: row.id, num: row.num, date: date || row.date, cust_id,
+      final, subtotal, discAmt, rows: built.rows, userId: req.user.id, isConversion: false
+    });
+    db.prepare("UPDATE customers SET status='active' WHERE id=? AND tenant_id=?").run(cust_id, req.tenantId);
   }
 
-  db.prepare('UPDATE invoices SET cust_id=?,type=?,date=?,note=?,rows=?,subtotal=?,disc=?,disc_amt=?,final=?,pay_type=?,cheque_duration=?,cheque_due_date=?,cheque_info=?,stock_deducted=? WHERE id=?')
+  db.prepare('UPDATE invoices SET cust_id=?,type=?,date=?,note=?,rows=?,subtotal=?,disc=?,disc_amt=?,final=?,pay_type=?,cheque_duration=?,cheque_due_date=?,cheque_info=?,stock_deducted=? WHERE id=? AND tenant_id=?')
     .run(cust_id, newType, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
          pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
-         stockDeducted, req.params.id);
+         stockDeducted, req.params.id, req.tenantId);
   res.json({ ok: true });
 });
 
 router.delete('/:id', auth, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
+  const row = db.prepare('SELECT * FROM invoices WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
 
@@ -246,9 +290,9 @@ router.delete('/:id', auth, (req, res) => {
   if (row.stock_deducted) {
     const invRows = JSON.parse(row.rows || '[]');
     for (const r of invRows) {
-      db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
-        r.product_id, req.user.id, r.qty, `بازگشت موجودی از حذف فاکتور ${row.num}`
+      db.prepare('UPDATE products SET stock=stock+? WHERE id=? AND tenant_id=?').run(r.qty, r.product_id, req.tenantId);
+      db.prepare('INSERT INTO stock_logs (tenant_id,product_id,user_id,change,note) VALUES (?,?,?,?,?)').run(
+        req.tenantId, r.product_id, req.user.id, r.qty, `بازگشت موجودی از حذف فاکتور ${row.num}`
       );
     }
   }
@@ -256,7 +300,7 @@ router.delete('/:id', auth, (req, res) => {
   // Reverse ledger + journal entries for deleted final invoices
   if (row.type === 'final') {
     createLedgerEntry(db, {
-      customer_id: row.cust_id, date: row.date || '', entry_type: 'reversal',
+      tenant_id: req.tenantId, customer_id: row.cust_id, date: row.date || '', entry_type: 'reversal',
       ref_type: 'invoice', ref_id: row.id,
       description: `ابطال فاکتور ${row.num}`,
       debit: 0, credit: row.final, user_id: req.user.id
@@ -267,20 +311,33 @@ router.delete('/:id', auth, (req, res) => {
     if ((row.disc_amt || 0) > 0) jLines.push({ code: '4103', name: 'تخفیفات فروش', debit: 0, credit: row.disc_amt, description: 'ابطال تخفیف' });
     jLines.push({ code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: row.final });
     createJournalEntry(db, {
-      date: row.date || '', description: `ابطال فاکتور ${row.num}`,
+      tenant_id: req.tenantId, date: row.date || '', description: `ابطال فاکتور ${row.num}`,
       ref_type: 'invoice_reversal', ref_id: row.id, created_by: req.user.id, lines: jLines
     });
+    // Reverse the COGS entry (restores inventory value)
+    const invRows = JSON.parse(row.rows || '[]');
+    const cogs = rowsCOGS(invRows);
+    if (cogs > 0) {
+      createJournalEntry(db, {
+        tenant_id: req.tenantId, date: row.date || '', description: `ابطال بهای تمام‌شده فاکتور ${row.num}`,
+        ref_type: 'invoice_cogs_reversal', ref_id: row.id, created_by: req.user.id,
+        lines: [
+          { code: '1104', name: 'موجودی کالا', debit: cogs, credit: 0 },
+          { code: '5000', name: 'بهای تمام‌شده کالای فروش رفته', debit: 0, credit: cogs }
+        ]
+      });
+    }
   }
 
-  db.prepare('DELETE FROM invoices WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'invoice', req.params.id, `حذف فاکتور ${row.num}`);
+  db.prepare('DELETE FROM invoices WHERE id=? AND tenant_id=?').run(req.params.id, req.tenantId);
+  audit(req.tenantId, req.user.id, 'delete', 'invoice', req.params.id, `حذف فاکتور ${row.num}`, req.ip);
   res.json({ ok: true });
 });
 
 // Convert proforma to official invoice (type='final')
 router.post('/:id/convert', auth, (req, res) => {
   const db = getDB();
-  const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
+  const inv = db.prepare('SELECT * FROM invoices WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
   if (!inv) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && inv.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   if (inv.converted) return res.status(400).json({ error: 'قبلاً تبدیل شده' });
@@ -291,31 +348,20 @@ router.post('/:id/convert', auth, (req, res) => {
   // Stock deduction if not already done
   let stockDeducted = inv.stock_deducted || 0;
   if (!stockDeducted) {
-    const stockErr = deductStock(db, rows);
+    const stockErr = deductStock(db, req.tenantId, rows, req.user.id);
     if (stockErr) return res.status(400).json({ error: stockErr });
     stockDeducted = 1;
   }
 
-  db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=? WHERE id=?').run('final', stockDeducted, inv.id);
+  db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=? WHERE id=? AND tenant_id=?').run('final', stockDeducted, inv.id, req.tenantId);
   // Auto-update customer status to 'active' when proforma is converted to final
-  db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
-  audit(req.user.id, 'convert', 'invoice', inv.id, `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`);
+  db.prepare("UPDATE customers SET status='active' WHERE id=? AND tenant_id=?").run(inv.cust_id, req.tenantId);
+  audit(req.tenantId, req.user.id, 'convert', 'invoice', inv.id, `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`, req.ip);
 
-  // Customer ledger + journal entries on conversion
-  createLedgerEntry(db, {
-    customer_id: inv.cust_id, date: inv.date || '', entry_type: 'invoice',
-    ref_type: 'invoice', ref_id: inv.id,
-    description: `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`,
-    debit: inv.final, credit: 0, user_id: req.user.id
-  });
-  const cvLines = [
-    { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: inv.final, credit: 0 }
-  ];
-  if ((inv.disc_amt || 0) > 0) cvLines.push({ code: '4103', name: 'تخفیفات فروش', debit: inv.disc_amt, credit: 0 });
-  cvLines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: inv.subtotal });
-  createJournalEntry(db, {
-    date: inv.date || '', description: `فاکتور رسمی ${inv.num} (تبدیل از پیش‌فاکتور)`,
-    ref_type: 'invoice', ref_id: inv.id, created_by: req.user.id, lines: cvLines
+  // Customer ledger + journal + COGS entries on conversion
+  recordFinalInvoiceAccounting(db, {
+    tenantId: req.tenantId, invId: inv.id, num: inv.num, date: inv.date, cust_id: inv.cust_id,
+    final: inv.final, subtotal: inv.subtotal, discAmt: inv.disc_amt || 0, rows, userId: req.user.id, isConversion: true
   });
 
   res.json({ ok: true });
@@ -324,15 +370,22 @@ router.post('/:id/convert', auth, (req, res) => {
 // Standalone printable HTML page
 router.get('/:id/print', auth, (req, res) => {
   const db = getDB();
-  const inv = db.prepare('SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(req.params.id);
+  const inv = db.prepare('SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=? AND i.tenant_id=?').get(req.params.id, req.tenantId);
   if (!inv) return res.status(404).send('فاکتور یافت نشد');
   if (req.user.role !== 'admin' && inv.user_id !== req.user.id) return res.status(403).send('دسترسی ندارید');
+  const html = renderInvoiceHTML(db, req.tenantId, inv, (req.query.paper || 'A4'));
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+});
+
+// Shared invoice HTML renderer — used by /print (browser) and the PDF worker (Puppeteer)
+function renderInvoiceHTML(db, tenantId, inv, paper) {
   const rows = JSON.parse(inv.rows || '[]');
-  const companyName = getSetting(db, 'company_name') || 'پوشاک ترنم';
-  const companyAddr = getSetting(db, 'company_address') || '';
-  const companyPhone = getSetting(db, 'company_phone') || '';
+  const companyName = getSetting(db, tenantId, 'company_name') || 'پوشاک ترنم';
+  const companyAddr = getSetting(db, tenantId, 'company_address') || '';
+  const companyPhone = getSetting(db, tenantId, 'company_phone') || '';
   const typeLabel = inv.type === 'final' ? 'فاکتور رسمی' : 'پیش‌فاکتور';
-  const paperSize = (req.query.paper || 'A4').toUpperCase() === 'A5' ? 'A5' : 'A4';
+  const paperSize = String(paper).toUpperCase() === 'A5' ? 'A5' : 'A4';
 
   const payTypeLabel = inv.pay_type === 'cheque' ? 'چک' : 'نقد';
   let payInfo = `<div><b>نوع پرداخت:</b> ${payTypeLabel}</div>`;
@@ -341,6 +394,15 @@ router.get('/:id/print', auth, (req, res) => {
     if (inv.cheque_due_date) payInfo += `<div><b>سررسید:</b> ${inv.cheque_due_date}</div>`;
     if (inv.cheque_info) payInfo += `<div><b>اطلاعات چک:</b> ${inv.cheque_info}</div>`;
   }
+
+  // Moadian tax ID + QR (filled by the e-invoice module once the submission is confirmed)
+  let einvoiceBlock = '';
+  try {
+    const sub = db.prepare("SELECT tax_id FROM einvoice_submissions WHERE invoice_id=? AND status='confirmed' ORDER BY id DESC LIMIT 1").get(inv.id);
+    if (sub && sub.tax_id) {
+      einvoiceBlock = `<div class="einv"><b>شناسه مالیاتی مودیان:</b> ${sub.tax_id}</div>`;
+    }
+  } catch { /* einvoice table may not exist yet */ }
 
   const rowsHtml = rows.map((r, i) => `
     <tr>
@@ -353,7 +415,7 @@ router.get('/:id/print', auth, (req, res) => {
 
   const sheetMaxWidth = paperSize === 'A5' ? '560px' : '800px';
   const baseFontSize = paperSize === 'A5' ? '11px' : '13px';
-  const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -384,6 +446,7 @@ router.get('/:id/print', auth, (req, res) => {
   .totals .line{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed #e5e7eb}
   .totals .final{font-size:18px;font-weight:800;color:#059669;border:none;padding-top:10px}
   .note{margin-top:18px;font-size:12px;color:#6b7280;background:#f9fafb;border-radius:8px;padding:10px 14px}
+  .einv{margin-top:12px;font-size:12px;background:#FDF6E3;border:1px solid #C9A227;border-radius:8px;padding:8px 14px}
   .footer{margin-top:26px;text-align:center;font-size:12px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:14px;line-height:2}
   .pbtn{display:block;margin:20px auto 0;background:#1A5C38;color:#fff;border:none;padding:11px 30px;border-radius:8px;font-family:inherit;font-size:14px;cursor:pointer}
   @media print{body{background:#fff;padding:0}.sheet{box-shadow:none;border-radius:0;max-width:100%}.pbtn{display:none}@page{size:${paperSize};margin:10mm}}
@@ -437,6 +500,7 @@ router.get('/:id/print', auth, (req, res) => {
     </div>
 
     ${inv.note ? `<div class="note"><b>توضیحات:</b> ${inv.note}</div>` : ''}
+    ${einvoiceBlock}
 
     <div class="footer">
       <div>این ${typeLabel} در تاریخ ${inv.date || ''} صادر شده است.</div>
@@ -447,8 +511,7 @@ router.get('/:id/print', auth, (req, res) => {
   </div>
 </body>
 </html>`;
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(html);
-});
+}
 
 module.exports = router;
+module.exports.renderInvoiceHTML = renderInvoiceHTML;

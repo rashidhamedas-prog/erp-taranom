@@ -1,9 +1,10 @@
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { execSync } = require('child_process');
 
 const APP_ROOT = path.resolve(__dirname, '..');
-const BACKUP_DIR = '/home/taranom-admin/backups';
+const BACKUP_DIR = process.env.BACKUP_DIR || path.join(os.homedir(), 'backups');
 const BACKUP_FILE = path.join(BACKUP_DIR, 'crm-latest.tar.gz');
 
 async function runBackup() {

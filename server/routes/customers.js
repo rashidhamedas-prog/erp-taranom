@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getDB, audit } = require('../db');
+const { getDB, audit, createLedgerEntry } = require('../db');
 const { auth, adminOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 const XLSX = require('xlsx');
@@ -29,11 +29,11 @@ const DEFAULT_WELCOME_SMS = `سلام 🌸 به خانواده پوشاک ترن
 {address}
 پوشاک ترنم 🌿`;
 
-async function sendWelcomeSMSToCust(db, phone) {
+async function sendWelcomeSMSToCust(db, tenantId, phone) {
   try {
     const rows = db.prepare(
-      "SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from','welcome_sms_text','kimia_address')"
-    ).all();
+      "SELECT key,value FROM settings WHERE tenant_id=? AND key IN ('sms_provider','sms_api_key','sms_from','welcome_sms_text','kimia_address')"
+    ).all(tenantId);
     const s = {};
     for (const r of rows) s[r.key] = r.value;
     if (!s.sms_api_key || !phone) return;
@@ -49,7 +49,7 @@ function getScope(req) {
   // Accounting staff see all customers (read scope) — needed for statements & settlements
   const seesAll = req.user.role === 'admin' || req.user.role === 'accounting';
   if (req.user.role === 'admin' && req.query.user_id) return parseInt(req.query.user_id);
-  if (seesAll) return null; // all
+  if (seesAll) return null; // all (within tenant)
   return req.user.id;
 }
 
@@ -58,9 +58,9 @@ router.get('/', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT c.*,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id ORDER BY c.created_at DESC').all();
+    rows = db.prepare('SELECT c.*,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE c.tenant_id=? ORDER BY c.created_at DESC').all(req.tenantId);
   } else {
-    rows = db.prepare('SELECT c.*,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE c.user_id=? ORDER BY c.created_at DESC').all(scope);
+    rows = db.prepare('SELECT c.*,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE c.tenant_id=? AND c.user_id=? ORDER BY c.created_at DESC').all(req.tenantId, scope);
   }
   res.json(rows);
 });
@@ -74,35 +74,44 @@ router.post('/', auth, (req, res) => {
   // admin can assign customer to a specific salesperson
   const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : req.user.id;
   const result = db.prepare(
-    'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF);
-  const row = db.prepare('SELECT * FROM customers WHERE id=?').get(result.lastInsertRowid);
+    'INSERT INTO customers (tenant_id,user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(req.tenantId, uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF);
+  const custId = result.lastInsertRowid;
+  // Opening balance goes straight into the customer ledger so statements are complete
+  if (bal !== 0) {
+    createLedgerEntry(db, {
+      tenant_id: req.tenantId, customer_id: custId, date: '', entry_type: 'opening',
+      ref_type: 'opening', ref_id: custId, description: 'مانده اولیه حساب',
+      debit: bal > 0 ? bal : 0, credit: bal < 0 ? -bal : 0, user_id: req.user.id,
+    });
+  }
+  const row = db.prepare('SELECT * FROM customers WHERE id=? AND tenant_id=?').get(custId, req.tenantId);
   res.json(row);
   // Fire welcome SMS after response — non-blocking
-  if (phone) sendWelcomeSMSToCust(db, phone);
+  if (phone) sendWelcomeSMSToCust(db, req.tenantId, phone);
 });
 
 router.put('/:id', auth, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
+  const row = db.prepare('SELECT * FROM customers WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup } = req.body;
   const bal = (req.user.role === 'admin' && balance !== undefined) ? (parseFloat(balance) || 0) : row.balance || 0;
   const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : row.user_id;
   const autoF = (auto_followup === undefined) ? (row.auto_followup == null ? 1 : row.auto_followup) : (auto_followup ? 1 : 0);
-  db.prepare('UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,balance=?,assigned_to=?,auto_followup=? WHERE id=?')
-    .run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : row.assigned_to, autoF, req.params.id);
+  db.prepare('UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,balance=?,assigned_to=?,auto_followup=? WHERE id=? AND tenant_id=?')
+    .run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : row.assigned_to, autoF, req.params.id, req.tenantId);
   res.json({ ok: true });
 });
 
 router.delete('/:id', auth, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
+  const row = db.prepare('SELECT * FROM customers WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
-  db.prepare('DELETE FROM customers WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'customer', req.params.id, `حذف مشتری ${row.biz}`);
+  db.prepare('DELETE FROM customers WHERE id=? AND tenant_id=?').run(req.params.id, req.tenantId);
+  audit(req.tenantId, req.user.id, 'delete', 'customer', req.params.id, `حذف مشتری ${row.biz}`, req.ip);
   res.json({ ok: true });
 });
 
@@ -112,9 +121,9 @@ router.get('/balances', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT c.id,c.biz,c.owner,c.city,c.address,c.balance,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE c.balance<>0 ORDER BY ABS(c.balance) DESC').all();
+    rows = db.prepare('SELECT c.id,c.biz,c.owner,c.city,c.address,c.balance,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE c.tenant_id=? AND c.balance<>0 ORDER BY ABS(c.balance) DESC').all(req.tenantId);
   } else {
-    rows = db.prepare('SELECT id,biz,owner,city,address,balance FROM customers WHERE user_id=? AND balance<>0 ORDER BY ABS(balance) DESC').all(scope);
+    rows = db.prepare('SELECT id,biz,owner,city,address,balance FROM customers WHERE tenant_id=? AND user_id=? AND balance<>0 ORDER BY ABS(balance) DESC').all(req.tenantId, scope);
   }
   res.json(rows);
 });
@@ -124,9 +133,9 @@ router.get('/export/excel', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT c.*,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id ORDER BY c.created_at DESC').all();
+    rows = db.prepare('SELECT c.*,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE c.tenant_id=? ORDER BY c.created_at DESC').all(req.tenantId);
   } else {
-    rows = db.prepare('SELECT * FROM customers WHERE user_id=? ORDER BY created_at DESC').all(scope);
+    rows = db.prepare('SELECT * FROM customers WHERE tenant_id=? AND user_id=? ORDER BY created_at DESC').all(req.tenantId, scope);
   }
   const isAdmin = req.user.role === 'admin';
   const data = rows.map(r => ({
@@ -154,26 +163,27 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
     const data = XLSX.utils.sheet_to_json(ws);
     const db = getDB();
     let inserted = 0;
-    const allUsers = db.prepare('SELECT id,name FROM users').all();
+    const allUsers = db.prepare('SELECT id,name FROM users WHERE tenant_id=?').all(req.tenantId);
     const stmt = db.prepare(
-      'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,source,balance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO customers (tenant_id,user_id,biz,owner,city,province,address,phone,insta,type,status,source,balance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
     );
     const insertMany = db.transaction((rows) => {
       for (const row of rows) {
         const biz = normalizeStr(row['نام فروشگاه'] || row['biz'] || row['نام کسب‌وکار'] || '');
         if (!biz) continue;
-        // Resolve salesperson by name or id
+        // Resolve salesperson by name or id (same tenant only)
         let targetUserId = req.user.id;
         const salesRep = normalizeStr(row['کارشناس'] || row['نام کارشناس'] || row['salesperson'] || '');
         if (salesRep) {
           const found = allUsers.find(u => u.name === salesRep || String(u.id) === String(salesRep));
           if (found) targetUserId = found.id;
         } else if (row['user_id']) {
-          targetUserId = parseInt(row['user_id']);
+          const candidate = parseInt(row['user_id']);
+          if (allUsers.some(u => u.id === candidate)) targetUserId = candidate;
         }
         const balance = parseFloat(row['موجودی حساب'] || row['balance'] || 0) || 0;
         stmt.run(
-          targetUserId, biz,
+          req.tenantId, targetUserId, biz,
           normalizeStr(row['نام کامل'] || row['owner'] || row['نام مالک'] || ''),
           normalizeStr(row['شهر'] || row['city'] || ''),
           normalizeStr(row['استان'] || row['province'] || ''),
@@ -189,7 +199,7 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
       }
     });
     insertMany(data);
-    audit(req.user.id, 'import', 'customer', null, `ورود ${inserted} مشتری از اکسل`);
+    audit(req.tenantId, req.user.id, 'import', 'customer', null, `ورود ${inserted} مشتری از اکسل`, req.ip);
     res.json({ ok: true, inserted });
   } catch (e) {
     res.status(400).json({ error: 'خطا در خواندن فایل: ' + e.message });
@@ -199,10 +209,10 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
 // Manually send welcome SMS to a specific customer
 router.post('/:id/welcome-sms', auth, async (req, res) => {
   const db = getDB();
-  const c = db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
+  const c = db.prepare('SELECT * FROM customers WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
   if (!c) return res.status(404).json({ error: 'مشتری یافت نشد' });
   if (!c.phone) return res.status(400).json({ error: 'این مشتری شماره موبایل ندارد' });
-  const result = await sendWelcomeSMSToCust(db, c.phone);
+  const result = await sendWelcomeSMSToCust(db, req.tenantId, c.phone);
   res.json(result || { ok: false, reason: 'خطای نامشخص' });
 });
 

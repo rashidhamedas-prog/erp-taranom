@@ -24,6 +24,21 @@ function initDB() {
     PRAGMA journal_mode=WAL;
     PRAGMA foreign_keys=ON;
 
+    CREATE TABLE IF NOT EXISTS tenants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      subdomain TEXT UNIQUE,
+      plan TEXT DEFAULT 'basic',
+      status TEXT DEFAULT 'active',
+      brand_color TEXT DEFAULT '#1A5C38',
+      brand_color2 TEXT DEFAULT '#C9A227',
+      logo TEXT,
+      max_users INTEGER DEFAULT 10,
+      max_monthly_invoices INTEGER DEFAULT 1000,
+      max_upload_mb INTEGER DEFAULT 500,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -296,6 +311,16 @@ function initDB() {
       FOREIGN KEY(entry_id) REFERENCES journal_entries(id)
     );
 
+    CREATE TABLE IF NOT EXISTS two_factor_auth (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER UNIQUE NOT NULL,
+      secret TEXT NOT NULL,
+      enabled INTEGER DEFAULT 0,
+      recovery_codes TEXT DEFAULT '[]',
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+
     CREATE TABLE IF NOT EXISTS incentive_payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       rep_id INTEGER NOT NULL,
@@ -308,6 +333,64 @@ function initDB() {
       FOREIGN KEY(rep_id) REFERENCES users(id)
     );
   `);
+
+  // ---- v4 multi-tenancy: tenant_id on every business table (existing rows → tenant 1) ----
+  // Seed the default tenant BEFORE adding columns so FK-ish references stay valid.
+  const tenantCount = db.prepare('SELECT COUNT(*) c FROM tenants').get().c;
+  if (tenantCount === 0) {
+    db.prepare("INSERT INTO tenants (id,name,subdomain,plan,status) VALUES (1,'پوشاک ترنم','taranom','enterprise','active')").run();
+  }
+  const TENANT_TABLES = [
+    'users','customers','orders','followups','invoices','products','stock_logs','messages',
+    'reminders','sms_log','settlements','api_keys','webhooks','customer_ledger',
+    'journal_entries','incentive_payments','api_usage_log'
+  ];
+  for (const t of TENANT_TABLES) {
+    ensureColumn(db, t, 'tenant_id', 'INTEGER NOT NULL DEFAULT 1');
+  }
+  // audit_log: nullable tenant (platform-level events have no tenant) + request IP
+  ensureColumn(db, 'audit_log', 'tenant_id', 'INTEGER');
+  ensureColumn(db, 'audit_log', 'ip', "TEXT DEFAULT ''");
+  db.exec('UPDATE audit_log SET tenant_id=1 WHERE tenant_id IS NULL');
+
+  // settings: UNIQUE(key) → UNIQUE(tenant_id,key) requires a table rebuild (idempotent)
+  const settingsCols = db.prepare('PRAGMA table_info(settings)').all();
+  if (!settingsCols.some(c => c.name === 'tenant_id')) {
+    db.exec(`
+      CREATE TABLE settings_v4 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL DEFAULT 1,
+        key TEXT NOT NULL,
+        value TEXT,
+        UNIQUE(tenant_id, key)
+      );
+      INSERT INTO settings_v4 (tenant_id, key, value) SELECT 1, key, value FROM settings;
+      DROP TABLE settings;
+      ALTER TABLE settings_v4 RENAME TO settings;
+    `);
+  }
+
+  // chart_of_accounts: UNIQUE(code) → UNIQUE(tenant_id,code) requires a table rebuild (idempotent)
+  const coaCols = db.prepare('PRAGMA table_info(chart_of_accounts)').all();
+  if (!coaCols.some(c => c.name === 'tenant_id')) {
+    db.exec(`
+      CREATE TABLE chart_of_accounts_v4 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL DEFAULT 1,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        parent_code TEXT,
+        is_active INTEGER DEFAULT 1,
+        created_at INTEGER DEFAULT (strftime('%s','now')),
+        UNIQUE(tenant_id, code)
+      );
+      INSERT INTO chart_of_accounts_v4 (tenant_id,code,name,type,parent_code,is_active,created_at)
+        SELECT 1,code,name,type,parent_code,is_active,created_at FROM chart_of_accounts;
+      DROP TABLE chart_of_accounts;
+      ALTER TABLE chart_of_accounts_v4 RENAME TO chart_of_accounts;
+    `);
+  }
 
   // ---- Safe migrations for databases created by v2 ----
   ensureColumn(db, 'users', 'phone', 'TEXT');
@@ -371,41 +454,50 @@ function initDB() {
   // Per-customer automatic follow-up on invoice (default on)
   ensureColumn(db, 'customers', 'auto_followup', 'INTEGER DEFAULT 1');
 
-  // ---- Seed chart of accounts (only if empty) ----
-  const coaCount = db.prepare('SELECT COUNT(*) c FROM chart_of_accounts').get().c;
-  if (coaCount === 0) {
-    const insCoA = db.prepare('INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)');
-    const seedCoA = db.transaction(() => {
-      const accounts = [
-        ['1000','دارایی‌ها','asset',null],
-        ['1100','دارایی‌های جاری','asset','1000'],
-        ['1101','موجودی صندوق','asset','1100'],
-        ['1102','موجودی بانک','asset','1100'],
-        ['1103','حساب‌های دریافتنی از مشتریان','asset','1100'],
-        ['1104','موجودی کالا','asset','1100'],
-        ['1105','پیش‌پرداخت‌ها','asset','1100'],
-        ['2000','بدهی‌ها','liability',null],
-        ['2100','بدهی‌های جاری','liability','2000'],
-        ['2101','حساب‌های پرداختنی','liability','2100'],
-        ['2102','پیش‌دریافت از مشتریان','liability','2100'],
-        ['3000','حقوق صاحبان سرمایه','equity',null],
-        ['3101','سرمایه','equity','3000'],
-        ['4000','درآمدها','revenue',null],
-        ['4101','درآمد فروش کالا','revenue','4000'],
-        ['4102','برگشت از فروش','revenue','4000'],
-        ['4103','تخفیفات فروش','revenue','4000'],
-        ['5000','بهای تمام‌شده کالای فروش رفته','cogs',null],
-        ['6000','هزینه‌ها','expense',null],
-        ['6101','هزینه انگیزه فروش','expense','6000'],
-        ['6102','هزینه‌های عمومی و اداری','expense','6000'],
-        ['6103','هزینه‌های توزیع و فروش','expense','6000'],
-      ];
-      for (const [code,name,type,parent] of accounts) insCoA.run(code,name,type,parent);
-    });
-    seedCoA();
-  }
+  // ---- v4 columns ----
+  // Offline PWA sync: client-generated UUID prevents duplicate records on retry
+  ensureColumn(db, 'followups', 'client_uuid', 'TEXT');
+  ensureColumn(db, 'invoices', 'client_uuid', 'TEXT');
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_followups_uuid ON followups(tenant_id, client_uuid) WHERE client_uuid IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_uuid ON invoices(tenant_id, client_uuid) WHERE client_uuid IS NOT NULL;
+  `);
+  // Server-generated PDF cache path
+  ensureColumn(db, 'invoices', 'pdf_url', 'TEXT');
+  // AI churn risk score (0-100, null = not scored yet)
+  ensureColumn(db, 'customers', 'churn_score', 'INTEGER');
+  // B2B portal access flag
+  ensureColumn(db, 'customers', 'b2b_enabled', 'INTEGER DEFAULT 0');
+  // Product barcode / QR payload + weighted moving-average cost (MAC)
+  ensureColumn(db, 'products', 'barcode', 'TEXT');
+  ensureColumn(db, 'products', 'mac_cost', 'REAL DEFAULT 0');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(tenant_id, barcode)');
+  // MAC initialization: seed mac_cost from the legacy products.cost for existing rows
+  db.exec('UPDATE products SET mac_cost=COALESCE(cost,0) WHERE (mac_cost IS NULL OR mac_cost=0) AND COALESCE(cost,0)>0');
+
+  // ---- Seed chart of accounts for tenant 1 (only if that tenant has none) ----
+  seedChartOfAccounts(db, 1);
 
   // ---- Indexes ----
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_customers_tenant ON customers(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_orders_tenant ON orders(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_followups_tenant ON followups(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_invoices_tenant ON invoices(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_products_tenant ON products(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_stock_logs_tenant ON stock_logs(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_reminders_tenant ON reminders(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_settlements_tenant ON settlements(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_ledger_tenant ON customer_ledger(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_journal_tenant ON journal_entries(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_incentive_tenant ON incentive_payments(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_settings_tenant ON settings(tenant_id, key);
+    CREATE INDEX IF NOT EXISTS idx_coa_tenant ON chart_of_accounts(tenant_id, code);
+    CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_log(tenant_id, id);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON api_keys(tenant_id, id);
+  `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_customers_user ON customers(user_id);
     CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
@@ -429,34 +521,26 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_incentive_rep ON incentive_payments(rep_id);
   `);
 
-  // ---- Default admin ----
+  // ---- Default admin (tenant 1) ----
   const admin = db.prepare('SELECT id FROM users WHERE username=?').get('admin');
   if (!admin) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare('INSERT INTO users (name,username,password,role) VALUES (?,?,?,?)')
+    db.prepare('INSERT INTO users (tenant_id,name,username,password,role) VALUES (1,?,?,?,?)')
       .run('حامد رشید', 'admin', hash, 'admin');
     console.log('✅ ادمین پیش‌فرض ساخته شد (admin / admin123)');
   }
 
-  // ---- Default settings ----
-  const defaults = {
-    company_name: 'پوشاک ترنم',
-    company_address: 'مشهد',
-    company_phone: '',
-    telegram_bot_token: '',
-    telegram_chat_id: '',
-    sms_provider: 'kavenegar',
-    sms_api_key: '',
-    sms_from: '',
-    api_v1_enabled: '1',
-    api_rate_limit: '100',
-    webhook_secret: '',
-    backup_smtp_user: '',
-    backup_smtp_pass: '',
-    backup_email: ''
-  };
-  const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)');
-  for (const [k, v] of Object.entries(defaults)) insSetting.run(k, v);
+  // ---- Default platform owner (no tenant scope) ----
+  const owner = db.prepare("SELECT id FROM users WHERE role='platform_owner'").get();
+  if (!owner) {
+    const hash = bcrypt.hashSync('platform123', 10);
+    db.prepare('INSERT INTO users (tenant_id,name,username,password,role) VALUES (0,?,?,?,?)')
+      .run('مالک پلتفرم', 'platform', hash, 'platform_owner');
+    console.log('✅ مالک پلتفرم ساخته شد (platform / platform123)');
+  }
+
+  // ---- Default settings for tenant 1 ----
+  seedDefaultSettings(db, 1);
 
   // ---- Backfill accounting entries for operations recorded before the engine existed ----
   backfillAccounting(db);
@@ -470,7 +554,7 @@ function initDB() {
 // duplicates entries the live engine already produced. Runs once, then sets a flag.
 function backfillAccounting(db) {
   try {
-    const flag = db.prepare("SELECT value FROM settings WHERE key='accounting_backfill_v1'").get();
+    const flag = db.prepare("SELECT value FROM settings WHERE key='accounting_backfill_v1' ORDER BY tenant_id LIMIT 1").get();
     if (flag && flag.value === '1') return;
 
     const invHasLedger  = db.prepare("SELECT 1 FROM customer_ledger  WHERE ref_type='invoice'    AND ref_id=? LIMIT 1");
@@ -482,16 +566,16 @@ function backfillAccounting(db) {
 
     const tx = db.transaction(() => {
       // 1) Opening balances — the admin-set customers.balance becomes the ledger's opening line
-      const custs = db.prepare('SELECT id,balance,created_at FROM customers WHERE balance IS NOT NULL AND balance<>0').all();
+      const custs = db.prepare('SELECT id,tenant_id,balance,created_at FROM customers WHERE balance IS NOT NULL AND balance<>0').all();
       const insOpening = db.prepare(
-        'INSERT INTO customer_ledger (customer_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
+        'INSERT INTO customer_ledger (tenant_id,customer_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
       );
       for (const c of custs) {
         if (custHasOpening.get(c.id)) continue;
         const debit = c.balance > 0 ? c.balance : 0;
         const credit = c.balance < 0 ? -c.balance : 0;
         // use the customer's own created_at so the opening line always sorts first in the statement
-        insOpening.run(c.id, '', 'opening', 'opening', c.id, 'مانده اولیه حساب', debit, credit, null, (c.created_at || 1));
+        insOpening.run(c.tenant_id || 1, c.id, '', 'opening', 'opening', c.id, 'مانده اولیه حساب', debit, credit, null, (c.created_at || 1));
         created++;
       }
 
@@ -506,7 +590,7 @@ function backfillAccounting(db) {
           const inv = ev.row;
           if (!invHasLedger.get(inv.id)) {
             createLedgerEntry(db, {
-              customer_id: inv.cust_id, date: inv.date || '', entry_type: 'invoice',
+              tenant_id: inv.tenant_id, customer_id: inv.cust_id, date: inv.date || '', entry_type: 'invoice',
               ref_type: 'invoice', ref_id: inv.id, description: `فاکتور رسمی ${inv.num}`,
               debit: inv.final, credit: 0, user_id: inv.user_id
             });
@@ -516,14 +600,14 @@ function backfillAccounting(db) {
             const lines = [{ code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: inv.final, credit: 0 }];
             if ((inv.disc_amt || 0) > 0) lines.push({ code: '4103', name: 'تخفیفات فروش', debit: inv.disc_amt, credit: 0, description: 'تخفیف فاکتور' });
             lines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: inv.subtotal });
-            createJournalEntry(db, { date: inv.date || '', description: `فاکتور رسمی ${inv.num}`, ref_type: 'invoice', ref_id: inv.id, created_by: inv.user_id, lines });
+            createJournalEntry(db, { tenant_id: inv.tenant_id, date: inv.date || '', description: `فاکتور رسمی ${inv.num}`, ref_type: 'invoice', ref_id: inv.id, created_by: inv.user_id, lines });
           }
         } else {
           const s = ev.row;
           const payLabel = s.pay_type === 'cheque' ? 'چک' : 'نقد';
           if (!settHasLedger.get(s.id)) {
             createLedgerEntry(db, {
-              customer_id: s.cust_id, date: s.date || '', entry_type: 'settlement',
+              tenant_id: s.tenant_id, customer_id: s.cust_id, date: s.date || '', entry_type: 'settlement',
               ref_type: 'settlement', ref_id: s.id,
               description: `تسویه ${payLabel} - ${Number(s.amount || 0).toLocaleString('fa-IR')} تومان`,
               debit: 0, credit: s.amount, user_id: s.user_id
@@ -534,7 +618,7 @@ function backfillAccounting(db) {
             const cashCode = s.pay_type === 'cheque' ? '1102' : '1101';
             const cashName = s.pay_type === 'cheque' ? 'موجودی بانک' : 'موجودی صندوق';
             createJournalEntry(db, {
-              date: s.date || '', description: `تسویه ${payLabel} مشتری`,
+              tenant_id: s.tenant_id, date: s.date || '', description: `تسویه ${payLabel} مشتری`,
               ref_type: 'settlement', ref_id: s.id, created_by: s.user_id,
               lines: [
                 { code: cashCode, name: cashName, debit: s.amount, credit: 0 },
@@ -547,34 +631,113 @@ function backfillAccounting(db) {
     });
     tx();
 
-    db.prepare("INSERT INTO settings (key,value) VALUES ('accounting_backfill_v1','1') ON CONFLICT(key) DO UPDATE SET value='1'").run();
+    db.prepare("INSERT INTO settings (tenant_id,key,value) VALUES (0,'accounting_backfill_v1','1') ON CONFLICT(tenant_id,key) DO UPDATE SET value='1'").run();
+    db.prepare("DELETE FROM settings WHERE tenant_id<>0 AND key='accounting_backfill_v1'").run();
     console.log(`✅ حسابداری عملیات گذشته بازسازی شد (${created} ردیف جدید)`);
   } catch (e) {
     console.error('backfill accounting error:', e.message);
   }
 }
 
-// Helper used across routes to record audit entries
-function audit(userId, action, entity, entityId, detail) {
+// Seed the standard 22-account chart for one tenant (no-op if it already has accounts)
+function seedChartOfAccounts(db, tenantId) {
+  const count = db.prepare('SELECT COUNT(*) c FROM chart_of_accounts WHERE tenant_id=?').get(tenantId).c;
+  if (count > 0) return;
+  const insCoA = db.prepare('INSERT OR IGNORE INTO chart_of_accounts (tenant_id,code,name,type,parent_code) VALUES (?,?,?,?,?)');
+  const accounts = [
+    ['1000','دارایی‌ها','asset',null],
+    ['1100','دارایی‌های جاری','asset','1000'],
+    ['1101','موجودی صندوق','asset','1100'],
+    ['1102','موجودی بانک','asset','1100'],
+    ['1103','حساب‌های دریافتنی از مشتریان','asset','1100'],
+    ['1104','موجودی کالا','asset','1100'],
+    ['1105','پیش‌پرداخت‌ها','asset','1100'],
+    ['2000','بدهی‌ها','liability',null],
+    ['2100','بدهی‌های جاری','liability','2000'],
+    ['2101','حساب‌های پرداختنی','liability','2100'],
+    ['2102','پیش‌دریافت از مشتریان','liability','2100'],
+    ['3000','حقوق صاحبان سرمایه','equity',null],
+    ['3101','سرمایه','equity','3000'],
+    ['4000','درآمدها','revenue',null],
+    ['4101','درآمد فروش کالا','revenue','4000'],
+    ['4102','برگشت از فروش','revenue','4000'],
+    ['4103','تخفیفات فروش','revenue','4000'],
+    ['5000','بهای تمام‌شده کالای فروش رفته','cogs',null],
+    ['6000','هزینه‌ها','expense',null],
+    ['6101','هزینه انگیزه فروش','expense','6000'],
+    ['6102','هزینه‌های عمومی و اداری','expense','6000'],
+    ['6103','هزینه‌های توزیع و فروش','expense','6000'],
+  ];
+  const tx = db.transaction(() => {
+    for (const [code,name,type,parent] of accounts) insCoA.run(tenantId, code, name, type, parent);
+  });
+  tx();
+}
+
+// Seed default key-value settings for one tenant (INSERT OR IGNORE — never overwrites)
+function seedDefaultSettings(db, tenantId) {
+  const defaults = {
+    company_name: tenantId === 1 ? 'پوشاک ترنم' : '',
+    company_address: tenantId === 1 ? 'مشهد' : '',
+    company_phone: '',
+    telegram_bot_token: '',
+    telegram_chat_id: '',
+    sms_provider: 'kavenegar',
+    sms_api_key: '',
+    sms_from: '',
+    api_v1_enabled: '1',
+    api_rate_limit: '100',
+    webhook_secret: '',
+    backup_smtp_user: '',
+    backup_smtp_pass: '',
+    backup_email: '',
+    // v4 feature flags — high-risk modules ship disabled-by-default (except WMS core)
+    feature_wms: '1',
+    feature_b2b_portal: '0',
+    feature_ai_assistant: '0',
+    feature_einvoice: '0',
+    // v4 module settings
+    einvoice_memory_id: '',
+    einvoice_private_key: '',
+    einvoice_service_url: '',
+    einvoice_mode: 'sandbox',
+    twofa_required_roles: 'admin,accounting',
+    ai_api_key: '',
+    welcome_sms_text: '',
+  };
+  const insSetting = db.prepare('INSERT OR IGNORE INTO settings (tenant_id,key,value) VALUES (?,?,?)');
+  for (const [k, v] of Object.entries(defaults)) insSetting.run(tenantId, k, v);
+}
+
+// Read one setting value for a tenant
+function getSetting(tenantId, key) {
   try {
-    getDB().prepare('INSERT INTO audit_log (user_id,action,entity,entity_id,detail) VALUES (?,?,?,?,?)')
-      .run(userId || null, action, entity, entityId || null, detail || '');
+    const row = getDB().prepare('SELECT value FROM settings WHERE tenant_id=? AND key=?').get(tenantId, key);
+    return row ? row.value : null;
+  } catch { return null; }
+}
+
+// Helper used across routes to record audit entries (tenantId=null → platform-level event)
+function audit(tenantId, userId, action, entity, entityId, detail, ip) {
+  try {
+    getDB().prepare('INSERT INTO audit_log (tenant_id,user_id,action,entity,entity_id,detail,ip) VALUES (?,?,?,?,?,?,?)')
+      .run(tenantId ?? null, userId || null, action, entity, entityId || null, detail || '', ip || '');
   } catch (e) { /* never let audit failures break a request */ }
 }
 
 // Create a customer ledger entry (debit = customer owes us, credit = customer paid)
-function createLedgerEntry(db, { customer_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
+function createLedgerEntry(db, { tenant_id, customer_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
   try {
-    db.prepare('INSERT INTO customer_ledger (customer_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
-      .run(customer_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, user_id || null);
+    db.prepare('INSERT INTO customer_ledger (tenant_id,customer_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(tenant_id || 1, customer_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, user_id || null);
   } catch (e) { console.error('ledger entry error:', e.message); }
 }
 
 // Create a double-entry journal entry with lines [{code, name, debit, credit, description}]
-function createJournalEntry(db, { date, description, ref_type, ref_id, created_by, lines }) {
+function createJournalEntry(db, { tenant_id, date, description, ref_type, ref_id, created_by, lines }) {
   try {
-    const entry = db.prepare('INSERT INTO journal_entries (entry_date,description,ref_type,ref_id,created_by) VALUES (?,?,?,?,?)')
-      .run(date || '', description || '', ref_type || '', ref_id || null, created_by || null);
+    const entry = db.prepare('INSERT INTO journal_entries (tenant_id,entry_date,description,ref_type,ref_id,created_by) VALUES (?,?,?,?,?,?)')
+      .run(tenant_id || 1, date || '', description || '', ref_type || '', ref_id || null, created_by || null);
     const entryId = entry.lastInsertRowid;
     const lineStmt = db.prepare('INSERT INTO journal_lines (entry_id,account_code,account_name,debit,credit,description) VALUES (?,?,?,?,?,?)');
     for (const line of (lines || [])) {
@@ -584,4 +747,7 @@ function createJournalEntry(db, { date, description, ref_type, ref_id, created_b
   } catch (e) { console.error('journal entry error:', e.message); }
 }
 
-module.exports = { getDB, initDB, audit, createLedgerEntry, createJournalEntry, backfillAccounting };
+module.exports = {
+  getDB, initDB, audit, createLedgerEntry, createJournalEntry, backfillAccounting,
+  seedChartOfAccounts, seedDefaultSettings, getSetting, ensureColumn
+};

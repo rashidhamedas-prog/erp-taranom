@@ -92,6 +92,7 @@ app.use('/api/auth/login', authLimiter);
 initDB();
 
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/platform', require('./routes/platform'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/followups', require('./routes/followups'));
 app.use('/api/invoices', require('./routes/invoices'));
@@ -128,6 +129,16 @@ app.get('/api/system/time', (req, res) => {
   res.json({ ts: Date.now() });
 });
 
+// Health check — DB reachability + process stats (for monitoring / load balancer)
+app.get('/api/system/health', (req, res) => {
+  try {
+    getDB().prepare('SELECT 1').get();
+    res.json({ ok: true, db: 'up', uptime: Math.floor(process.uptime()), version: require('./package.json').version });
+  } catch (e) {
+    res.status(503).json({ ok: false, db: 'down' });
+  }
+});
+
 // Serve .well-known/assetlinks.json explicitly (TWA domain verification)
 app.get('/.well-known/assetlinks.json', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', '.well-known', 'assetlinks.json'));
@@ -142,140 +153,155 @@ app.get('*', (req, res, next) => {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function getSMSSettings() {
+// List active tenant ids — every cron iterates per tenant so data and SMS settings stay isolated
+function getActiveTenantIds() {
+  try {
+    return getDB().prepare("SELECT id FROM tenants WHERE status='active'").all().map(t => t.id);
+  } catch { return [1]; }
+}
+
+function getSMSSettings(tenantId) {
   try {
     const db = getDB();
-    const rows = db.prepare("SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from')").all();
+    const rows = db.prepare("SELECT key,value FROM settings WHERE tenant_id=? AND key IN ('sms_provider','sms_api_key','sms_from','niksms_api_key','smsir_api_key','smsir_line')").all(tenantId);
     const s = {};
     for (const r of rows) s[r.key] = r.value;
     return s;
   } catch { return {}; }
 }
 
-function logSMS(db, userId, custId, phone, body, status) {
+function logSMS(db, tenantId, userId, custId, phone, body, status) {
   try {
-    db.prepare('INSERT INTO sms_log (user_id,cust_id,phone,body,status) VALUES (?,?,?,?,?)')
-      .run(userId || null, custId || null, phone, body, status);
+    db.prepare('INSERT INTO sms_log (tenant_id,user_id,cust_id,phone,body,status) VALUES (?,?,?,?,?,?)')
+      .run(tenantId, userId || null, custId || null, phone, body, status);
   } catch {}
 }
 
 // ── Daily cron: batch SMS for today's follow-ups (no scheduled time) ─────────
 async function runFollowupSMSBatch() {
-  try {
-    const db = getDB();
-    const today = todayJalali();
-    const settings = getSMSSettings();
-    if (!settings.sms_api_key) return;
+  for (const tenantId of getActiveTenantIds()) {
+    try {
+      const db = getDB();
+      const today = todayJalali();
+      const settings = getSMSSettings(tenantId);
+      if (!settings.sms_api_key) continue;
 
-    // Followups due today with no specific time and SMS not yet sent
-    const followups = db.prepare(
-      "SELECT f.*,c.biz as cust_biz,c.owner as cust_owner,u.phone as user_phone,u.id as uid FROM followups f LEFT JOIN customers c ON f.cust_id=c.id LEFT JOIN users u ON f.user_id=u.id WHERE f.next_date=? AND (f.next_time IS NULL OR f.next_time='') AND f.status='open' AND f.sms_sent=0"
-    ).all(today);
+      // Followups due today with no specific time and SMS not yet sent
+      const followups = db.prepare(
+        "SELECT f.*,c.biz as cust_biz,c.owner as cust_owner,u.phone as user_phone,u.id as uid FROM followups f LEFT JOIN customers c ON f.cust_id=c.id LEFT JOIN users u ON f.user_id=u.id WHERE f.tenant_id=? AND f.next_date=? AND (f.next_time IS NULL OR f.next_time='') AND f.status='open' AND f.sms_sent=0"
+      ).all(tenantId, today);
 
-    // Group by user
-    const byUser = {};
-    for (const f of followups) {
-      if (!f.uid || !f.user_phone) continue;
-      if (!byUser[f.uid]) byUser[f.uid] = { phone: f.user_phone, items: [] };
-      byUser[f.uid].items.push(f);
-    }
-
-    for (const [uid, group] of Object.entries(byUser)) {
-      const lines = group.items.map(f => `• ${f.cust_biz || '-'}${f.cust_owner ? ' - ' + f.cust_owner : ''}`).join('\n');
-      const text = `پیگیری‌های امروز\n\n${lines}`;
-      const result = await sendSMS(settings, group.phone, text);
-      const status = result.ok ? 'sent' : 'failed';
-      // Mark all as sent regardless of result to avoid spam on retry
-      const ids = group.items.map(f => f.id);
-      db.prepare(`UPDATE followups SET sms_sent=1 WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
-      for (const f of group.items) {
-        logSMS(db, uid, f.cust_id, group.phone, text, status);
+      // Group by user
+      const byUser = {};
+      for (const f of followups) {
+        if (!f.uid || !f.user_phone) continue;
+        if (!byUser[f.uid]) byUser[f.uid] = { phone: f.user_phone, items: [] };
+        byUser[f.uid].items.push(f);
       }
-      console.log(`📱 SMS دسته‌ای برای کاربر ${uid}: ${group.items.length} پیگیری → ${status}`);
+
+      for (const [uid, group] of Object.entries(byUser)) {
+        const lines = group.items.map(f => `• ${f.cust_biz || '-'}${f.cust_owner ? ' - ' + f.cust_owner : ''}`).join('\n');
+        const text = `پیگیری‌های امروز\n\n${lines}`;
+        const result = await sendSMS(settings, group.phone, text);
+        const status = result.ok ? 'sent' : 'failed';
+        // Mark all as sent regardless of result to avoid spam on retry
+        const ids = group.items.map(f => f.id);
+        db.prepare(`UPDATE followups SET sms_sent=1 WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+        for (const f of group.items) {
+          logSMS(db, tenantId, uid, f.cust_id, group.phone, text, status);
+        }
+        console.log(`📱 SMS دسته‌ای [tenant ${tenantId}] برای کاربر ${uid}: ${group.items.length} پیگیری → ${status}`);
+      }
+    } catch (e) {
+      console.error(`cron followup-sms error (tenant ${tenantId}):`, e.message);
     }
-  } catch (e) {
-    console.error('cron followup-sms error:', e.message);
   }
 }
 
 // ── Per-minute cron: send SMS 1 hour BEFORE the scheduled follow-up time ──────
 async function runTimedFollowupSMS() {
-  try {
-    const db = getDB();
-    const today = todayJalali();
-    const now = nowHHMM();
-    const settings = getSMSSettings();
-    if (!settings.sms_api_key) return;
+  for (const tenantId of getActiveTenantIds()) {
+    try {
+      const db = getDB();
+      const today = todayJalali();
+      const now = nowHHMM();
+      const settings = getSMSSettings(tenantId);
+      if (!settings.sms_api_key) continue;
 
-    // Compute what next_time value we're looking for: 1 hour from now
-    const [h, m] = now.split(':').map(Number);
-    const targetH = h + 1;
-    if (targetH >= 24) return; // skip: reminder would land past midnight
-    const targetTime = `${String(targetH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      // Compute what next_time value we're looking for: 1 hour from now
+      const [h, m] = now.split(':').map(Number);
+      const targetH = h + 1;
+      if (targetH >= 24) continue; // skip: reminder would land past midnight
+      const targetTime = `${String(targetH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-    const followups = db.prepare(
-      "SELECT f.*,c.biz as cust_biz,c.owner as cust_owner,u.phone as user_phone,u.id as uid FROM followups f LEFT JOIN customers c ON f.cust_id=c.id LEFT JOIN users u ON f.user_id=u.id WHERE f.next_date=? AND f.next_time=? AND f.status='open' AND f.sms_sent=0"
-    ).all(today, targetTime);
+      const followups = db.prepare(
+        "SELECT f.*,c.biz as cust_biz,c.owner as cust_owner,u.phone as user_phone,u.id as uid FROM followups f LEFT JOIN customers c ON f.cust_id=c.id LEFT JOIN users u ON f.user_id=u.id WHERE f.tenant_id=? AND f.next_date=? AND f.next_time=? AND f.status='open' AND f.sms_sent=0"
+      ).all(tenantId, today, targetTime);
 
-    for (const f of followups) {
-      if (!f.uid || !f.user_phone) continue;
-      const text = `یادآور پیگیری (۱ ساعت دیگر)\n\n• ${f.cust_biz || '-'}${f.cust_owner ? ' - ' + f.cust_owner : ''}\nساعت پیگیری: ${targetTime}`;
-      const result = await sendSMS(settings, f.user_phone, text);
-      db.prepare('UPDATE followups SET sms_sent=1 WHERE id=?').run(f.id);
-      logSMS(db, f.uid, f.cust_id, f.user_phone, text, result.ok ? 'sent' : 'failed');
-      console.log(`📱 SMS ۱ ساعت قبل از پیگیری ${f.id} (ساعت ${targetTime}): ${result.ok ? 'ارسال شد' : 'خطا'}`);
+      for (const f of followups) {
+        if (!f.uid || !f.user_phone) continue;
+        const text = `یادآور پیگیری (۱ ساعت دیگر)\n\n• ${f.cust_biz || '-'}${f.cust_owner ? ' - ' + f.cust_owner : ''}\nساعت پیگیری: ${targetTime}`;
+        const result = await sendSMS(settings, f.user_phone, text);
+        db.prepare('UPDATE followups SET sms_sent=1 WHERE id=?').run(f.id);
+        logSMS(db, tenantId, f.uid, f.cust_id, f.user_phone, text, result.ok ? 'sent' : 'failed');
+        console.log(`📱 SMS ۱ ساعت قبل از پیگیری ${f.id} (ساعت ${targetTime}): ${result.ok ? 'ارسال شد' : 'خطا'}`);
+      }
+    } catch (e) {
+      console.error(`cron timed-sms error (tenant ${tenantId}):`, e.message);
     }
-  } catch (e) {
-    console.error('cron timed-sms error:', e.message);
   }
 }
 
 // ── Daily cron: flag silent customers (no order in 30+ days) ─────────────────
 function runSilentCustomerCheck() {
-  try {
-    const db = getDB();
-    const cutoff = Math.floor(Date.now() / 1000) - 30 * 24 * 3600;
-    const today = todayJalali();
-    const time = nowHHMM();
-    const customers = db.prepare('SELECT * FROM customers').all();
-    let created = 0;
-    for (const c of customers) {
-      const lastOrder = db.prepare('SELECT created_at FROM orders WHERE cust_id=? ORDER BY created_at DESC LIMIT 1').get(c.id);
-      const isSilent = lastOrder && lastOrder.created_at < cutoff;
-      if (!isSilent) continue;
-      const existing = db.prepare(
-        "SELECT id FROM followups WHERE cust_id=? AND status='open' AND subject LIKE '%مشتری خاموش%'"
-      ).get(c.id);
-      if (existing) continue;
-      db.prepare(
-        'INSERT INTO followups (user_id,cust_id,date,time,type,subject,note,status,priority) VALUES (?,?,?,?,?,?,?,?,?)'
-      ).run(c.user_id, c.id, today, time, '🔔 سیستمی', `مشتری خاموش - ${c.biz}`,
-            'بیش از ۳۰ روز است سفارشی ثبت نکرده است. لطفاً پیگیری شود.', 'open', 'high');
-      created++;
+  for (const tenantId of getActiveTenantIds()) {
+    try {
+      const db = getDB();
+      const cutoff = Math.floor(Date.now() / 1000) - 30 * 24 * 3600;
+      const today = todayJalali();
+      const time = nowHHMM();
+      const customers = db.prepare('SELECT * FROM customers WHERE tenant_id=?').all(tenantId);
+      let created = 0;
+      for (const c of customers) {
+        const lastOrder = db.prepare('SELECT created_at FROM orders WHERE tenant_id=? AND cust_id=? ORDER BY created_at DESC LIMIT 1').get(tenantId, c.id);
+        const isSilent = lastOrder && lastOrder.created_at < cutoff;
+        if (!isSilent) continue;
+        const existing = db.prepare(
+          "SELECT id FROM followups WHERE tenant_id=? AND cust_id=? AND status='open' AND subject LIKE '%مشتری خاموش%'"
+        ).get(tenantId, c.id);
+        if (existing) continue;
+        db.prepare(
+          'INSERT INTO followups (tenant_id,user_id,cust_id,date,time,type,subject,note,status,priority) VALUES (?,?,?,?,?,?,?,?,?,?)'
+        ).run(tenantId, c.user_id, c.id, today, time, '🔔 سیستمی', `مشتری خاموش - ${c.biz}`,
+              'بیش از ۳۰ روز است سفارشی ثبت نکرده است. لطفاً پیگیری شود.', 'open', 'high');
+        created++;
+      }
+      if (created) console.log(`🔔 [tenant ${tenantId}] ${created} پیگیری خودکار برای مشتریان خاموش ساخته شد`);
+    } catch (e) {
+      console.error(`cron silent-check error (tenant ${tenantId}):`, e.message);
     }
-    if (created) console.log(`🔔 ${created} پیگیری خودکار برای مشتریان خاموش ساخته شد`);
-  } catch (e) {
-    console.error('cron silent-check error:', e.message);
   }
 }
 
 // ── Daily cron: active customers with no final invoice in 14 days → 'followup' ──
 function runActiveToFollowupCheck() {
-  try {
-    const db = getDB();
-    const cutoff = Math.floor(Date.now() / 1000) - 14 * 24 * 3600;
-    const customers = db.prepare("SELECT * FROM customers WHERE status='active'").all();
-    let updated = 0;
-    for (const c of customers) {
-      const lastInv = db.prepare("SELECT created_at FROM invoices WHERE cust_id=? AND type='final' ORDER BY created_at DESC LIMIT 1").get(c.id);
-      if (!lastInv || lastInv.created_at < cutoff) {
-        db.prepare("UPDATE customers SET status='followup' WHERE id=?").run(c.id);
-        updated++;
+  for (const tenantId of getActiveTenantIds()) {
+    try {
+      const db = getDB();
+      const cutoff = Math.floor(Date.now() / 1000) - 14 * 24 * 3600;
+      const customers = db.prepare("SELECT * FROM customers WHERE tenant_id=? AND status='active'").all(tenantId);
+      let updated = 0;
+      for (const c of customers) {
+        const lastInv = db.prepare("SELECT created_at FROM invoices WHERE tenant_id=? AND cust_id=? AND type='final' ORDER BY created_at DESC LIMIT 1").get(tenantId, c.id);
+        if (!lastInv || lastInv.created_at < cutoff) {
+          db.prepare("UPDATE customers SET status='followup' WHERE id=? AND tenant_id=?").run(c.id, tenantId);
+          updated++;
+        }
       }
+      if (updated) console.log(`🔄 [tenant ${tenantId}] ${updated} مشتری فعال بدون خرید ۱۴ روزه به وضعیت پیگیری تغییر یافت`);
+    } catch (e) {
+      console.error(`cron active-to-followup error (tenant ${tenantId}):`, e.message);
     }
-    if (updated) console.log(`🔄 ${updated} مشتری فعال بدون خرید ۱۴ روزه به وضعیت پیگیری تغییر یافت`);
-  } catch (e) {
-    console.error('cron active-to-followup error:', e.message);
   }
 }
 

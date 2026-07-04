@@ -15,9 +15,9 @@ router.get('/', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT f.*,c.biz as cust_biz,u.name as salesperson FROM followups f LEFT JOIN customers c ON f.cust_id=c.id LEFT JOIN users u ON f.user_id=u.id ORDER BY f.created_at DESC').all();
+    rows = db.prepare('SELECT f.*,c.biz as cust_biz,u.name as salesperson FROM followups f LEFT JOIN customers c ON f.cust_id=c.id LEFT JOIN users u ON f.user_id=u.id WHERE f.tenant_id=? ORDER BY f.created_at DESC').all(req.tenantId);
   } else {
-    rows = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.user_id=? ORDER BY f.created_at DESC').all(scope);
+    rows = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.tenant_id=? AND f.user_id=? ORDER BY f.created_at DESC').all(req.tenantId, scope);
   }
   res.json(rows);
 });
@@ -26,27 +26,36 @@ router.get('/', auth, (req, res) => {
 router.get('/by-customer/:cust_id', auth, (req, res) => {
   const db = getDB();
   const rows = db.prepare(
-    'SELECT f.*,u.name as salesperson FROM followups f LEFT JOIN users u ON f.user_id=u.id WHERE f.cust_id=? ORDER BY f.created_at DESC'
-  ).all(req.params.cust_id);
+    'SELECT f.*,u.name as salesperson FROM followups f LEFT JOIN users u ON f.user_id=u.id WHERE f.tenant_id=? AND f.cust_id=? ORDER BY f.created_at DESC'
+  ).all(req.tenantId, req.params.cust_id);
   res.json(rows);
 });
 
 router.post('/', auth, (req, res) => {
   const { cust_id, date, type, subject, note, action, next_date, next_time, status, priority,
-          interest_level, purchase_prob, pipeline_stage, tags, lost_reason, assigned_to } = req.body;
+          interest_level, purchase_prob, pipeline_stage, tags, lost_reason, assigned_to, client_uuid } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
+  // Customer must belong to the same tenant
+  const cust = db.prepare('SELECT id FROM customers WHERE id=? AND tenant_id=?').get(cust_id, req.tenantId);
+  if (!cust) return res.status(404).json({ error: 'مشتری یافت نشد' });
+  // Offline-sync idempotency: same client_uuid → return the already-created row
+  if (client_uuid) {
+    const existing = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.tenant_id=? AND f.client_uuid=?').get(req.tenantId, client_uuid);
+    if (existing) return res.json(existing);
+  }
   const finalDate = date && String(date).trim() ? date : todayJalali();
   const time = nowHHMM();
   const result = db.prepare(
-    'INSERT INTO followups (user_id,cust_id,date,time,type,subject,note,action,next_date,next_time,status,priority,interest_level,purchase_prob,pipeline_stage,tags,lost_reason,assigned_to) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    'INSERT INTO followups (tenant_id,user_id,cust_id,date,time,type,subject,note,action,next_date,next_time,status,priority,interest_level,purchase_prob,pipeline_stage,tags,lost_reason,assigned_to,client_uuid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
   ).run(
-    req.user.id, cust_id, finalDate, time,
+    req.tenantId, req.user.id, cust_id, finalDate, time,
     type || '📱 تلفن', subject || '', note || '', action || '', next_date || '', next_time || '',
     status || 'open', priority || 'mid',
     interest_level || 'mid', parseInt(purchase_prob) || 50,
     pipeline_stage || 'lead', tags || '', lost_reason || '',
-    assigned_to ? parseInt(assigned_to) : null
+    assigned_to ? parseInt(assigned_to) : null,
+    client_uuid || null
   );
   const row = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.id=?').get(result.lastInsertRowid);
   res.json(row);
@@ -54,7 +63,7 @@ router.post('/', auth, (req, res) => {
 
 router.put('/:id', auth, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT * FROM followups WHERE id=?').get(req.params.id);
+  const row = db.prepare('SELECT * FROM followups WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   const { cust_id, date, type, subject, note, action, next_date, next_time, status, priority,
@@ -63,7 +72,7 @@ router.put('/:id', auth, (req, res) => {
   // Reset sms_sent when next_date/next_time changes so reminder fires again
   const smsReset = (next_date !== row.next_date || next_time !== row.next_time) ? 0 : row.sms_sent;
   db.prepare(
-    'UPDATE followups SET cust_id=?,date=?,type=?,subject=?,note=?,action=?,next_date=?,next_time=?,status=?,priority=?,interest_level=?,purchase_prob=?,pipeline_stage=?,tags=?,lost_reason=?,assigned_to=?,sms_sent=? WHERE id=?'
+    'UPDATE followups SET cust_id=?,date=?,type=?,subject=?,note=?,action=?,next_date=?,next_time=?,status=?,priority=?,interest_level=?,purchase_prob=?,pipeline_stage=?,tags=?,lost_reason=?,assigned_to=?,sms_sent=? WHERE id=? AND tenant_id=?'
   ).run(
     cust_id, finalDate,
     type || '📱 تلفن', subject || '', note || '', action || '', next_date || '', next_time || '',
@@ -71,17 +80,17 @@ router.put('/:id', auth, (req, res) => {
     interest_level || 'mid', parseInt(purchase_prob) || 50,
     pipeline_stage || 'lead', tags || '', lost_reason || '',
     assigned_to ? parseInt(assigned_to) : null, smsReset,
-    req.params.id
+    req.params.id, req.tenantId
   );
   res.json({ ok: true });
 });
 
 router.delete('/:id', auth, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT * FROM followups WHERE id=?').get(req.params.id);
+  const row = db.prepare('SELECT * FROM followups WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
-  db.prepare('DELETE FROM followups WHERE id=?').run(req.params.id);
+  db.prepare('DELETE FROM followups WHERE id=? AND tenant_id=?').run(req.params.id, req.tenantId);
   res.json({ ok: true });
 });
 
@@ -90,9 +99,9 @@ router.get('/export/excel', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id ORDER BY f.created_at DESC').all();
+    rows = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.tenant_id=? ORDER BY f.created_at DESC').all(req.tenantId);
   } else {
-    rows = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.user_id=? ORDER BY f.created_at DESC').all(scope);
+    rows = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.tenant_id=? AND f.user_id=? ORDER BY f.created_at DESC').all(req.tenantId, scope);
   }
   const data = rows.map(r => ({
     'مشتری': r.cust_biz, 'تاریخ': r.date, 'ساعت': r.time, 'نوع تماس': r.type,

@@ -8,11 +8,10 @@ router.get('/summary', auth, adminOnly, (req, res) => {
   const db = getDB();
   const from = req.query.from || '';
   const to = req.query.to || '';
-  const invWhere = [];
-  const invParams = [];
-  invWhere.push("type='final'");
-  if (from) { invWhere.push("date>=?"); invParams.push(from); }
-  if (to)   { invWhere.push("date<=?"); invParams.push(to); }
+  const invWhere = ['tenant_id=?', "type='final'"];
+  const invParams = [req.tenantId];
+  if (from) { invWhere.push('date>=?'); invParams.push(from); }
+  if (to)   { invWhere.push('date<=?'); invParams.push(to); }
   const invSql = 'WHERE ' + invWhere.join(' AND ');
 
   const invAgg = db.prepare(
@@ -20,8 +19,8 @@ router.get('/summary', auth, adminOnly, (req, res) => {
   ).get(...invParams);
 
   // Outstanding debt = total invoiced minus total settled (not date-filtered on settlements)
-  const totalInvoiced = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final'").get().s;
-  const totalSettled  = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM settlements").get().s;
+  const totalInvoiced = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE tenant_id=? AND type='final'").get(req.tenantId).s;
+  const totalSettled  = db.prepare('SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE tenant_id=?').get(req.tenantId).s;
   const debt = Math.max(0, totalInvoiced - totalSettled);
 
   // distinct customers with a final invoice in range
@@ -45,25 +44,25 @@ router.get('/monthly', auth, adminOnly, (req, res) => {
   const rows = db.prepare(`
     SELECT substr(date,1,7) as ym, COUNT(*) orders, COALESCE(SUM(final),0) revenue
     FROM invoices
-    WHERE type='final' AND date IS NOT NULL AND date<>'' AND length(date)>=7
+    WHERE tenant_id=? AND type='final' AND date IS NOT NULL AND date<>'' AND length(date)>=7
     GROUP BY ym
     ORDER BY ym ASC
-  `).all();
+  `).all(req.tenantId);
   res.json(rows);
 });
 
 // Per-salesperson breakdown using invoices
 router.get('/salesperson', auth, adminOnly, (req, res) => {
   const db = getDB();
-  const users = db.prepare("SELECT id,name,username FROM users WHERE active=1 ORDER BY name").all();
+  const users = db.prepare('SELECT id,name,username FROM users WHERE tenant_id=? AND active=1 ORDER BY name').all(req.tenantId);
   const data = users.map(u => {
-    const inv = db.prepare("SELECT COUNT(*) c, COALESCE(SUM(final),0) revenue FROM invoices WHERE user_id=? AND type='final'").get(u.id);
-    const customers = db.prepare('SELECT COUNT(*) c FROM customers WHERE user_id=?').get(u.id).c;
-    const openFollowups = db.prepare("SELECT COUNT(*) c FROM followups WHERE user_id=? AND status='open'").get(u.id).c;
-    const invoices = db.prepare("SELECT COUNT(*) c FROM invoices WHERE user_id=?").get(u.id).c;
+    const inv = db.prepare("SELECT COUNT(*) c, COALESCE(SUM(final),0) revenue FROM invoices WHERE tenant_id=? AND user_id=? AND type='final'").get(req.tenantId, u.id);
+    const customers = db.prepare('SELECT COUNT(*) c FROM customers WHERE tenant_id=? AND user_id=?').get(req.tenantId, u.id).c;
+    const openFollowups = db.prepare("SELECT COUNT(*) c FROM followups WHERE tenant_id=? AND user_id=? AND status='open'").get(req.tenantId, u.id).c;
+    const invoices = db.prepare('SELECT COUNT(*) c FROM invoices WHERE tenant_id=? AND user_id=?').get(req.tenantId, u.id).c;
     // Per-user outstanding: invoiced minus settled
-    const userInvoiced = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final'").get(u.id).s;
-    const userSettled  = db.prepare("SELECT COALESCE(SUM(s.amount),0) s FROM settlements s JOIN invoices i ON s.invoice_id=i.id WHERE i.user_id=?").get(u.id).s;
+    const userInvoiced = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE tenant_id=? AND user_id=? AND type='final'").get(req.tenantId, u.id).s;
+    const userSettled  = db.prepare('SELECT COALESCE(SUM(s.amount),0) s FROM settlements s JOIN invoices i ON s.invoice_id=i.id WHERE s.tenant_id=? AND i.user_id=?').get(req.tenantId, u.id).s;
     return {
       id: u.id, name: u.name, username: u.username,
       orders: inv.c, revenue: inv.revenue, debt: Math.max(0, userInvoiced - userSettled),
@@ -79,13 +78,14 @@ router.get('/top-customers', auth, adminOnly, (req, res) => {
   const rows = db.prepare(`
     SELECT c.id, c.biz, c.city, c.owner,
            COUNT(i.id) orders, COALESCE(SUM(i.final),0) total,
-           COALESCE(SUM(i.final),0) - COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.cust_id=c.id),0) debt
+           COALESCE(SUM(i.final),0) - COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.cust_id=c.id AND s.tenant_id=c.tenant_id),0) debt
     FROM customers c
-    JOIN invoices i ON i.cust_id=c.id AND i.type='final'
+    JOIN invoices i ON i.cust_id=c.id AND i.type='final' AND i.tenant_id=c.tenant_id
+    WHERE c.tenant_id=?
     GROUP BY c.id
     ORDER BY total DESC
     LIMIT 10
-  `).all();
+  `).all(req.tenantId);
   res.json(rows);
 });
 
@@ -95,14 +95,15 @@ router.get('/debt', auth, adminOnly, (req, res) => {
   const rows = db.prepare(`
     SELECT c.id, c.biz as cust_biz, c.phone as cust_phone, u.name as salesperson,
            COALESCE(SUM(i.final),0) as total_invoiced,
-           COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.cust_id=c.id),0) as total_settled
+           COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.cust_id=c.id AND s.tenant_id=c.tenant_id),0) as total_settled
     FROM customers c
-    JOIN invoices i ON i.cust_id=c.id AND i.type='final'
+    JOIN invoices i ON i.cust_id=c.id AND i.type='final' AND i.tenant_id=c.tenant_id
     LEFT JOIN users u ON c.user_id=u.id
+    WHERE c.tenant_id=?
     GROUP BY c.id
     HAVING total_invoiced > total_settled
     ORDER BY (total_invoiced - total_settled) DESC
-  `).all();
+  `).all(req.tenantId);
   rows.forEach(r => { r.debt = r.total_invoiced - r.total_settled; });
   const totalDebt = rows.reduce((a, r) => a + r.debt, 0);
   res.json({ rows, totalDebt });
