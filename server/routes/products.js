@@ -98,6 +98,47 @@ router.post('/:id/generate-barcode', auth, adminOnly, (req, res) => {
   res.json({ ok: true, barcode });
 });
 
+// Printable barcode label page (single product or all barcoded products with ?all=1)
+router.get('/:id/label', auth, (req, res) => {
+  const db = getDB();
+  const count = Math.min(50, Math.max(1, parseInt(req.query.count || '1')));
+  const prod = db.prepare('SELECT * FROM products WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
+  if (!prod) return res.status(404).send('محصول یافت نشد');
+  if (!prod.barcode) return res.status(400).send('این محصول بارکد ندارد — ابتدا بارکد تولید کنید');
+  const labels = Array.from({ length: count }, () => `
+    <div class="label">
+      <div class="name">${(prod.name || '').replace(/</g, '&lt;')}</div>
+      <svg class="bc" data-code="${prod.barcode}"></svg>
+      <div class="meta">${prod.code || ''} — ${Number(prod.price || 0).toLocaleString('fa-IR')} تومان</div>
+    </div>`).join('');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
+<title>برچسب ${prod.name}</title>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Vazirmatn',sans-serif}
+body{padding:16px;display:flex;flex-wrap:wrap;gap:8px}
+.label{width:58mm;height:40mm;border:1px dashed #bbb;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;page-break-inside:avoid}
+.name{font-size:11px;font-weight:700;text-align:center;max-height:28px;overflow:hidden}
+.bc{width:52mm;height:18mm}
+.meta{font-size:10px;color:#444}
+.pbtn{position:fixed;bottom:14px;left:14px;background:#1A5C38;color:#fff;border:none;padding:10px 26px;border-radius:8px;font-family:inherit;font-size:14px;cursor:pointer}
+@media print{.pbtn{display:none}.label{border-color:transparent}}
+</style></head><body>
+${labels}
+<button class="pbtn" onclick="window.print()">چاپ 🖨️</button>
+<script>
+document.querySelectorAll('svg.bc').forEach(el=>{
+  const code = el.dataset.code;
+  const fmt = /^\\d{13}$/.test(code) ? 'EAN13' : 'CODE128';
+  try { JsBarcode(el, code, { format: fmt, height: 44, fontSize: 13, margin: 0 }); }
+  catch(e) { JsBarcode(el, code, { format: 'CODE128', height: 44, fontSize: 13, margin: 0 }); }
+});
+</script>
+</body></html>`);
+});
+
 // Create product (admin only) — multipart form-data for optional image
 router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
   const { category, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, barcode } = req.body;
