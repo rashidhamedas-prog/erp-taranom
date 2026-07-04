@@ -92,6 +92,7 @@ app.use('/api/auth/login', authLimiter);
 initDB();
 
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/auth/2fa', require('./routes/twofa'));
 app.use('/api/platform', require('./routes/platform'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/followups', require('./routes/followups'));
