@@ -383,6 +383,34 @@ function initDB() {
       FOREIGN KEY(product_id) REFERENCES products(id)
     );
 
+    CREATE TABLE IF NOT EXISTS sync_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL DEFAULT 1,
+      user_id INTEGER,
+      client_uuid TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      action TEXT DEFAULT 'create',
+      payload TEXT,
+      status TEXT DEFAULT 'pending',
+      error TEXT DEFAULT '',
+      device TEXT DEFAULT '',
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      processed_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_conflicts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL DEFAULT 1,
+      entity TEXT NOT NULL,
+      entity_id INTEGER,
+      client_uuid TEXT,
+      loser_payload TEXT,
+      winner_payload TEXT,
+      resolution TEXT DEFAULT 'last-write-wins',
+      reviewed INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
     CREATE TABLE IF NOT EXISTS two_factor_auth (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER UNIQUE NOT NULL,
@@ -536,6 +564,13 @@ function initDB() {
   `);
   // Server-generated PDF cache path
   ensureColumn(db, 'invoices', 'pdf_url', 'TEXT');
+  // Last-write-wins conflict resolution needs a server-side modification timestamp
+  ensureColumn(db, 'followups', 'updated_at', 'INTEGER');
+  ensureColumn(db, 'invoices', 'updated_at', 'INTEGER');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sync_queue_tenant ON sync_queue(tenant_id, status);
+    CREATE INDEX IF NOT EXISTS idx_sync_conflicts_tenant ON sync_conflicts(tenant_id, reviewed);
+  `);
   // AI churn risk score (0-100, null = not scored yet)
   ensureColumn(db, 'customers', 'churn_score', 'INTEGER');
   // B2B portal access flag
