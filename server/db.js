@@ -371,6 +371,119 @@ function initDB() {
   // Per-customer automatic follow-up on invoice (default on)
   ensureColumn(db, 'customers', 'auto_followup', 'INTEGER DEFAULT 1');
 
+  // ---- ERP expansion: customer groups (account nature), suppliers, purchasing, returns, cost centers ----
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS customer_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      nature TEXT NOT NULL DEFAULT 'debit',
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS suppliers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      phone TEXT DEFAULT '',
+      address TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      balance REAL DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS purchase_invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      supplier_id INTEGER NOT NULL,
+      num TEXT,
+      date TEXT,
+      note TEXT,
+      rows TEXT,
+      subtotal REAL DEFAULT 0,
+      disc REAL DEFAULT 0,
+      disc_amt REAL DEFAULT 0,
+      final REAL DEFAULT 0,
+      pay_type TEXT DEFAULT 'credit',
+      cheque_duration TEXT DEFAULT '',
+      cheque_due_date TEXT DEFAULT '',
+      cheque_info TEXT DEFAULT '',
+      stock_added INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(user_id) REFERENCES users(id),
+      FOREIGN KEY(supplier_id) REFERENCES suppliers(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS purchase_returns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      supplier_id INTEGER NOT NULL,
+      purchase_invoice_id INTEGER,
+      date TEXT,
+      note TEXT,
+      rows TEXT,
+      amount REAL DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(supplier_id) REFERENCES suppliers(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS sales_returns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      cust_id INTEGER NOT NULL,
+      invoice_id INTEGER,
+      date TEXT,
+      note TEXT,
+      rows TEXT,
+      amount REAL DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(cust_id) REFERENCES customers(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS supplier_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      supplier_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      entry_type TEXT NOT NULL,
+      ref_type TEXT,
+      ref_id INTEGER,
+      description TEXT,
+      debit REAL DEFAULT 0,
+      credit REAL DEFAULT 0,
+      user_id INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(supplier_id) REFERENCES suppliers(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS supplier_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      supplier_id INTEGER NOT NULL,
+      purchase_invoice_id INTEGER,
+      amount REAL DEFAULT 0,
+      pay_type TEXT DEFAULT 'cash',
+      date TEXT,
+      note TEXT,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(supplier_id) REFERENCES suppliers(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS cost_centers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT,
+      name TEXT NOT NULL,
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+  `);
+  ensureColumn(db, 'customers', 'group_id', 'INTEGER');
+  ensureColumn(db, 'journal_entries', 'cost_center_id', 'INTEGER');
+  ensureColumn(db, 'settlements', 'cost_center_id', 'INTEGER');
+
+  // Seed a default customer group (Debit nature — the standard for receivables)
+  const grpCount = db.prepare('SELECT COUNT(*) c FROM customer_groups').get().c;
+  if (grpCount === 0) {
+    db.prepare("INSERT INTO customer_groups (name,nature) VALUES ('مشتریان عمومی','debit')").run();
+  }
+
   // ---- Seed chart of accounts (only if empty) ----
   const coaCount = db.prepare('SELECT COUNT(*) c FROM chart_of_accounts').get().c;
   if (coaCount === 0) {
@@ -427,6 +540,12 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_settlements_cust ON settlements(cust_id);
     CREATE INDEX IF NOT EXISTS idx_invoices_type ON invoices(type);
     CREATE INDEX IF NOT EXISTS idx_incentive_rep ON incentive_payments(rep_id);
+    CREATE INDEX IF NOT EXISTS idx_journal_lines_account ON journal_lines(account_code);
+    CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier ON supplier_ledger(supplier_id);
+    CREATE INDEX IF NOT EXISTS idx_purchase_invoices_supplier ON purchase_invoices(supplier_id);
+    CREATE INDEX IF NOT EXISTS idx_purchase_returns_supplier ON purchase_returns(supplier_id);
+    CREATE INDEX IF NOT EXISTS idx_sales_returns_cust ON sales_returns(cust_id);
+    CREATE INDEX IF NOT EXISTS idx_customers_group ON customers(group_id);
   `);
 
   // ---- Default admin ----

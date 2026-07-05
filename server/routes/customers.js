@@ -58,24 +58,27 @@ router.get('/', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT c.*,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id ORDER BY c.created_at DESC').all();
+    rows = db.prepare('SELECT c.*,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ORDER BY c.created_at DESC').all();
   } else {
-    rows = db.prepare('SELECT c.*,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE c.user_id=? ORDER BY c.created_at DESC').all(scope);
+    rows = db.prepare('SELECT c.*,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id WHERE c.user_id=? ORDER BY c.created_at DESC').all(scope);
   }
   res.json(rows);
 });
 
 router.post('/', auth, (req, res) => {
-  const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup } = req.body;
+  const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id } = req.body;
   if (!biz) return res.status(400).json({ error: 'نام فروشگاه الزامی است' });
   const db = getDB();
   const bal = (req.user.role === 'admin') ? (parseFloat(balance) || 0) : 0;
   const autoF = (auto_followup === undefined) ? 1 : (auto_followup ? 1 : 0);
+  // Only admin/accounting may set the customer's account-nature group
+  const canSetGroup = req.user.role === 'admin' || req.user.role === 'accounting';
+  const gid = (canSetGroup && group_id) ? parseInt(group_id) : null;
   // admin can assign customer to a specific salesperson
   const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : req.user.id;
   const result = db.prepare(
-    'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF);
+    'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup,group_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF, gid);
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(result.lastInsertRowid);
   res.json(row);
   // Fire welcome SMS after response — non-blocking
@@ -87,12 +90,14 @@ router.put('/:id', auth, (req, res) => {
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
-  const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup } = req.body;
+  const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id } = req.body;
   const bal = (req.user.role === 'admin' && balance !== undefined) ? (parseFloat(balance) || 0) : row.balance || 0;
   const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : row.user_id;
   const autoF = (auto_followup === undefined) ? (row.auto_followup == null ? 1 : row.auto_followup) : (auto_followup ? 1 : 0);
-  db.prepare('UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,balance=?,assigned_to=?,auto_followup=? WHERE id=?')
-    .run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : row.assigned_to, autoF, req.params.id);
+  const canSetGroup = req.user.role === 'admin' || req.user.role === 'accounting';
+  const gid = canSetGroup ? (group_id ? parseInt(group_id) : null) : row.group_id;
+  db.prepare('UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,balance=?,assigned_to=?,auto_followup=?,group_id=? WHERE id=?')
+    .run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : row.assigned_to, autoF, gid, req.params.id);
   res.json({ ok: true });
 });
 

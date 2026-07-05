@@ -414,12 +414,13 @@ router.get('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
 // Journal entries with lines (paginated, date-filtered)
 router.get('/journal', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const { from, to, page = '1' } = req.query;
+  const { from, to, page = '1', ref_type } = req.query;
   const pageNum = Math.max(1, parseInt(page));
   const limit = 50, offset = (pageNum - 1) * limit;
   const where = [], params = [];
   if (from) { where.push('je.entry_date >= ?'); params.push(from); }
   if (to)   { where.push('je.entry_date <= ?'); params.push(to); }
+  if (ref_type) { where.push('je.ref_type = ?'); params.push(ref_type); }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const total = db.prepare(`SELECT COUNT(*) c FROM journal_entries je ${whereSql}`).get(...params).c;
   const entries = db.prepare(`
@@ -543,6 +544,284 @@ router.post('/backfill', auth, adminOnly, (req, res) => {
   db.prepare("INSERT INTO settings (key,value) VALUES ('accounting_backfill_v1','0') ON CONFLICT(key) DO UPDATE SET value='0'").run();
   backfillAccounting(db);
   audit(req.user.id, 'backfill', 'accounting', null, 'همگام‌سازی حسابداری عملیات گذشته');
+  res.json({ ok: true });
+});
+
+// ============================================================
+// Sales returns — customer sends goods back; restocks inventory,
+// credits the customer's receivable, reverses revenue (contra account 4102)
+// ============================================================
+router.get('/sales-returns', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare(`
+    SELECT sr.*, c.biz as cust_biz FROM sales_returns sr
+    LEFT JOIN customers c ON sr.cust_id=c.id ORDER BY sr.created_at DESC
+  `).all();
+  res.json(rows.map(r => ({ ...r, rows: JSON.parse(r.rows || '[]') })));
+});
+
+router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
+  const { cust_id, invoice_id, date, note, rows } = req.body;
+  if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
+  const db = getDB();
+  const built = [];
+  let amount = 0;
+  for (const r of (rows || [])) {
+    const pid = parseInt(r.product_id);
+    const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
+    if (!prod) continue;
+    const qty = Math.max(1, parseInt(r.qty) || 1);
+    const price = parseFloat(r.price) || prod.price;
+    const sum = qty * price;
+    amount += sum;
+    built.push({ product_id: pid, name: prod.name, qty, price, sum });
+  }
+  if (!built.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
+
+  const result = db.prepare(
+    'INSERT INTO sales_returns (user_id,cust_id,invoice_id,date,note,rows,amount) VALUES (?,?,?,?,?,?,?)'
+  ).run(req.user.id, cust_id, invoice_id || null, date || '', note || '', JSON.stringify(built), amount);
+  const retId = result.lastInsertRowid;
+
+  for (const r of built) {
+    db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+    db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `برگشت از فروش #${retId}`);
+  }
+  createLedgerEntry(db, {
+    customer_id: cust_id, date: date || '', entry_type: 'reversal', ref_type: 'sales_return', ref_id: retId,
+    description: `برگشت از فروش #${retId}`, debit: 0, credit: amount, user_id: req.user.id
+  });
+  createJournalEntry(db, {
+    date: date || '', description: `برگشت از فروش #${retId}`, ref_type: 'sales_return', ref_id: retId, created_by: req.user.id,
+    lines: [
+      { code: '4102', name: 'برگشت از فروش', debit: amount, credit: 0 },
+      { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: amount }
+    ]
+  });
+  audit(req.user.id, 'create', 'sales_return', retId, `برگشت از فروش به مبلغ ${amount}`);
+  res.json({ id: retId, ok: true });
+});
+
+router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM sales_returns WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  const invRows = JSON.parse(row.rows || '[]');
+  for (const r of invRows) {
+    db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
+    db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `ابطال برگشت از فروش #${row.id}`);
+  }
+  createLedgerEntry(db, {
+    customer_id: row.cust_id, date: row.date || '', entry_type: 'reversal', ref_type: 'sales_return_reversal', ref_id: row.id,
+    description: `ابطال برگشت از فروش #${row.id}`, debit: row.amount, credit: 0, user_id: req.user.id
+  });
+  createJournalEntry(db, {
+    date: row.date || '', description: `ابطال برگشت از فروش #${row.id}`, ref_type: 'sales_return_reversal', ref_id: row.id, created_by: req.user.id,
+    lines: [
+      { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: row.amount, credit: 0 },
+      { code: '4102', name: 'برگشت از فروش', debit: 0, credit: row.amount }
+    ]
+  });
+  db.prepare('DELETE FROM sales_returns WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ============================================================
+// Manual journal vouchers — double-entry, must balance exactly
+// ============================================================
+router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
+  const { date, description, cost_center_id, lines } = req.body;
+  if (!Array.isArray(lines) || lines.length < 2) {
+    return res.status(400).json({ error: 'سند باید حداقل دو ردیف (بدهکار و بستانکار) داشته باشد' });
+  }
+  const db = getDB();
+  let totalDebit = 0, totalCredit = 0;
+  const cleanLines = [];
+  for (const l of lines) {
+    const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(l.code);
+    if (!acc) return res.status(400).json({ error: `کد حساب ${l.code} یافت نشد` });
+    const debit = parseFloat(l.debit) || 0, credit = parseFloat(l.credit) || 0;
+    if (debit && credit) return res.status(400).json({ error: 'هر ردیف فقط باید بدهکار یا بستانکار باشد، نه هر دو' });
+    if (!debit && !credit) continue;
+    totalDebit += debit; totalCredit += credit;
+    cleanLines.push({ code: acc.code, name: acc.name, debit, credit, description: l.description || '' });
+  }
+  if (cleanLines.length < 2) return res.status(400).json({ error: 'سند باید حداقل دو ردیف معتبر داشته باشد' });
+  // Mandatory balance validation — the core rule of double-entry bookkeeping
+  if (Math.abs(totalDebit - totalCredit) > 0.01) {
+    return res.status(400).json({
+      error: `سند نامتوازن است: بدهکار ${totalDebit.toLocaleString('fa-IR')} ≠ بستانکار ${totalCredit.toLocaleString('fa-IR')}`
+    });
+  }
+  const entryId = createJournalEntry(db, {
+    date: date || '', description: description || 'سند دستی', ref_type: 'manual_voucher', ref_id: null,
+    created_by: req.user.id, lines: cleanLines
+  });
+  if (cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(cost_center_id, entryId);
+  audit(req.user.id, 'create', 'journal_voucher', entryId, `ثبت سند دستی: ${description || ''}`);
+  res.json({ id: entryId, ok: true });
+});
+
+router.delete('/vouchers/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const entry = db.prepare("SELECT * FROM journal_entries WHERE id=? AND ref_type='manual_voucher'").get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'سند دستی یافت نشد' });
+  db.prepare('DELETE FROM journal_lines WHERE entry_id=?').run(req.params.id);
+  db.prepare('DELETE FROM journal_entries WHERE id=?').run(req.params.id);
+  audit(req.user.id, 'delete', 'journal_voucher', req.params.id, 'حذف سند دستی');
+  res.json({ ok: true });
+});
+
+// ============================================================
+// General Ledger — account-level ledger (counterpart to per-customer ledger)
+// ============================================================
+router.get('/general-ledger/:code', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const account = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(req.params.code);
+  if (!account) return res.status(404).json({ error: 'حساب یافت نشد' });
+  const lines = db.prepare(`
+    SELECT jl.*, je.entry_date, je.description as entry_description, je.ref_type, je.ref_id
+    FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
+    WHERE jl.account_code=?
+    ORDER BY je.entry_date ASC, je.id ASC
+  `).all(req.params.code);
+  // Normal balance side determines running-balance sign: debit-normal accounts (asset/expense/cogs) add debit, subtract credit
+  const debitNormal = ['asset', 'expense', 'cogs'].includes(account.type);
+  let balance = 0;
+  lines.forEach(l => {
+    balance += debitNormal ? (l.debit - l.credit) : (l.credit - l.debit);
+    l.running_balance = balance;
+  });
+  res.json({ account, lines, balance });
+});
+
+// ============================================================
+// Trial Balance — sum of debit/credit per account, must balance system-wide
+// ============================================================
+router.get('/trial-balance', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const { from, to } = req.query;
+  const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
+  const sf = safeDate(from), st = safeDate(to);
+  const dateWhere = (sf || st) ? `WHERE je.entry_date >= '${sf || ''}' AND je.entry_date <= '${st || '9999'}'` : '';
+  const rows = db.prepare(`
+    SELECT jl.account_code, jl.account_name,
+      COALESCE(SUM(jl.debit),0) as total_debit, COALESCE(SUM(jl.credit),0) as total_credit
+    FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
+    ${dateWhere}
+    GROUP BY jl.account_code, jl.account_name
+    ORDER BY jl.account_code
+  `).all();
+  const coaMap = {};
+  db.prepare('SELECT code,type FROM chart_of_accounts').all().forEach(a => { coaMap[a.code] = a.type; });
+  let totalDebit = 0, totalCredit = 0;
+  rows.forEach(r => {
+    r.type = coaMap[r.account_code] || '';
+    const debitNormal = ['asset', 'expense', 'cogs'].includes(r.type);
+    const net = r.total_debit - r.total_credit;
+    r.debit_balance = debitNormal ? Math.max(0, net) : Math.max(0, -net);
+    r.credit_balance = debitNormal ? Math.max(0, -net) : Math.max(0, net);
+    totalDebit += r.debit_balance; totalCredit += r.credit_balance;
+  });
+  res.json({ rows, totalDebit, totalCredit, balanced: Math.abs(totalDebit - totalCredit) < 1 });
+});
+
+// ============================================================
+// Balance Sheet — assets vs liabilities + equity, as of the given date
+// Note: equity here = capital account balance + accumulated net profit
+// computed from all-time revenue/COGS/expense postings (no period-close
+// entries are booked), which is a pragmatic approximation appropriate
+// for a single-business ledger of this scale.
+// ============================================================
+router.get('/balance-sheet', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const { asOf } = req.query;
+  const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
+  const s = safeDate(asOf);
+  const dateWhere = s ? `WHERE je.entry_date <= '${s}'` : '';
+  const rows = db.prepare(`
+    SELECT jl.account_code, COALESCE(SUM(jl.debit),0) d, COALESCE(SUM(jl.credit),0) c
+    FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
+    ${dateWhere}
+    GROUP BY jl.account_code
+  `).all();
+  const accounts = db.prepare('SELECT * FROM chart_of_accounts').all();
+  const accMap = {}; accounts.forEach(a => { accMap[a.code] = a; });
+  const byType = { asset: [], liability: [], equity: [], revenue: [], cogs: [], expense: [] };
+  let revenueTotal = 0, cogsTotal = 0, expenseTotal = 0;
+  for (const r of rows) {
+    const acc = accMap[r.account_code]; if (!acc) continue;
+    const debitNormal = ['asset', 'expense', 'cogs'].includes(acc.type);
+    const balance = debitNormal ? (r.d - r.c) : (r.c - r.d);
+    if (acc.type === 'revenue') revenueTotal += balance;
+    else if (acc.type === 'cogs') cogsTotal += balance;
+    else if (acc.type === 'expense') expenseTotal += balance;
+    else if (byType[acc.type]) byType[acc.type].push({ code: acc.code, name: acc.name, balance });
+  }
+  const netProfit = revenueTotal - cogsTotal - expenseTotal;
+  const totalAssets = byType.asset.reduce((a, x) => a + x.balance, 0);
+  const totalLiabilities = byType.liability.reduce((a, x) => a + x.balance, 0);
+  const capital = byType.equity.reduce((a, x) => a + x.balance, 0);
+  const totalEquity = capital + netProfit;
+  res.json({
+    assets: byType.asset, liabilities: byType.liability, equity: byType.equity,
+    totalAssets, totalLiabilities, capital, retainedEarnings: netProfit, totalEquity,
+    balanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 1
+  });
+});
+
+// ============================================================
+// Cost centers
+// ============================================================
+router.get('/cost-centers', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  res.json(db.prepare('SELECT * FROM cost_centers ORDER BY name').all());
+});
+router.post('/cost-centers', auth, adminOrAccounting, (req, res) => {
+  const { name, code } = req.body;
+  if (!name) return res.status(400).json({ error: 'نام مرکز هزینه الزامی است' });
+  const db = getDB();
+  const result = db.prepare('INSERT INTO cost_centers (name,code) VALUES (?,?)').run(name, code || '');
+  res.json(db.prepare('SELECT * FROM cost_centers WHERE id=?').get(result.lastInsertRowid));
+});
+router.put('/cost-centers/:id', auth, adminOrAccounting, (req, res) => {
+  const { name, code, active } = req.body;
+  const db = getDB();
+  db.prepare('UPDATE cost_centers SET name=?,code=?,active=? WHERE id=?').run(name, code || '', active ? 1 : 0, req.params.id);
+  res.json({ ok: true });
+});
+router.delete('/cost-centers/:id', auth, adminOrAccounting, (req, res) => {
+  getDB().prepare('DELETE FROM cost_centers WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ============================================================
+// Customer groups — accounting nature (Debit by default; Credit for
+// special groups). Only admin/accounting may change the nature.
+// ============================================================
+router.get('/customer-groups', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  res.json(db.prepare('SELECT * FROM customer_groups ORDER BY id').all());
+});
+router.post('/customer-groups', auth, adminOrAccounting, (req, res) => {
+  const { name, nature } = req.body;
+  if (!name) return res.status(400).json({ error: 'نام گروه الزامی است' });
+  const db = getDB();
+  const result = db.prepare("INSERT INTO customer_groups (name,nature) VALUES (?,?)").run(name, nature === 'credit' ? 'credit' : 'debit');
+  res.json(db.prepare('SELECT * FROM customer_groups WHERE id=?').get(result.lastInsertRowid));
+});
+router.put('/customer-groups/:id', auth, adminOrAccounting, (req, res) => {
+  const { name, nature } = req.body;
+  const db = getDB();
+  db.prepare("UPDATE customer_groups SET name=?,nature=? WHERE id=?").run(name, nature === 'credit' ? 'credit' : 'debit', req.params.id);
+  audit(req.user.id, 'update', 'customer_group', req.params.id, `تغییر ماهیت حساب گروه به ${nature}`);
+  res.json({ ok: true });
+});
+router.delete('/customer-groups/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const inUse = db.prepare('SELECT COUNT(*) c FROM customers WHERE group_id=?').get(req.params.id).c;
+  if (inUse) return res.status(400).json({ error: 'این گروه به مشتریانی نسبت داده شده و قابل حذف نیست' });
+  db.prepare('DELETE FROM customer_groups WHERE id=?').run(req.params.id);
   res.json({ ok: true });
 });
 

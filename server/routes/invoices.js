@@ -20,8 +20,11 @@ function faNum(n) {
 
 // Validate & normalize invoice rows.
 // Price is always editable by both admin and salesperson (Phase 2 change).
+// Line-item discount is only honored when canDiscount is true — enforced
+// server-side so a non-privileged client can never smuggle a row discount
+// through by editing the request body directly.
 // product_id must be valid.
-function buildRows(db, inputRows) {
+function buildRows(db, inputRows, canDiscount) {
   const out = [];
   let subtotal = 0;
   for (const r of (inputRows || [])) {
@@ -35,9 +38,12 @@ function buildRows(db, inputRows) {
     if (r.price !== undefined && r.price !== null && r.price !== '') {
       price = parseFloat(r.price) || 0;
     }
-    const sum = qty * price;
+    const disc = canDiscount ? Math.min(100, Math.max(0, parseFloat(r.disc) || 0)) : 0;
+    const gross = qty * price;
+    const discAmt = Math.round(gross * disc / 100);
+    const sum = gross - discAmt;
     subtotal += sum;
-    out.push({ product_id: pid, name: prod.name, qty, price, sum });
+    out.push({ product_id: pid, name: prod.name, qty, price, disc, disc_amt: discAmt, sum });
   }
   return { rows: out, subtotal };
 }
@@ -121,7 +127,8 @@ router.post('/', auth, (req, res) => {
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
   let built;
-  try { built = buildRows(db, rows); }
+  const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting';
+  try { built = buildRows(db, rows, canDiscount); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
   const subtotal = built.subtotal;
@@ -212,7 +219,8 @@ router.put('/:id', auth, (req, res) => {
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info } = req.body;
   let built;
-  try { built = buildRows(db, rows); }
+  const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting';
+  try { built = buildRows(db, rows, canDiscount); }
   catch (e) { return res.status(400).json({ error: e.message }); }
   const subtotal = built.subtotal;
   const discPct = parseFloat(disc) || 0;
