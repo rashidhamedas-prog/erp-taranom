@@ -383,6 +383,32 @@ function initDB() {
       FOREIGN KEY(product_id) REFERENCES products(id)
     );
 
+    CREATE TABLE IF NOT EXISTS b2b_portal_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL DEFAULT 1,
+      customer_id INTEGER UNIQUE NOT NULL,
+      phone TEXT NOT NULL,
+      password TEXT,
+      otp_hash TEXT,
+      otp_expires INTEGER,
+      active INTEGER DEFAULT 1,
+      last_login INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(customer_id) REFERENCES customers(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS b2b_portal_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL DEFAULT 1,
+      customer_id INTEGER NOT NULL,
+      rows TEXT,
+      note TEXT DEFAULT '',
+      status TEXT DEFAULT 'pending',
+      invoice_id INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(customer_id) REFERENCES customers(id)
+    );
+
     CREATE TABLE IF NOT EXISTS sync_queue (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER NOT NULL DEFAULT 1,

@@ -102,6 +102,7 @@ app.use('/api/invoices', require('./middleware/auth').auth, noWarehouseManager, 
 app.use('/api/products', require('./routes/products'));
 app.use('/api/warehouses', require('./routes/warehouse'));
 app.use('/api/sync', require('./routes/sync'));
+app.use('/api/b2b', require('./routes/b2b'));
 app.use('/api/admin', require('./routes/admin'));
 
 // Manual backup endpoint — registered before admin router catch-all

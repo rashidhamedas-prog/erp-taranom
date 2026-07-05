@@ -44,6 +44,10 @@ const ALLOWLIST = [
   /UPDATE orders SET stock_deducted=1 WHERE id=\?/,    // order row already fetched tenant-scoped
   /UPDATE api_keys SET last_used=\? WHERE id=\?/,      // key row located by unique hash
   /FROM einvoice_submissions WHERE invoice_id=\?/,     // invoice already fetched tenant-scoped
+  // B2B portal auth entry points: the account row IS the credential; tenant read from the row
+  /FROM b2b_portal_accounts a JOIN customers c ON a\.customer_id=c\.id WHERE a\.(id|phone)=\?/,
+  /UPDATE b2b_portal_accounts SET (last_login|otp_hash)/, // keyed by id from the tenant-resolved account row
+  /UPDATE b2b_portal_orders SET invoice_id=\? WHERE id=\?/, // id from row inserted in the same transaction
 ];
 
 function extractSQLStrings(src) {
