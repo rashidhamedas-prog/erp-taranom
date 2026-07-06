@@ -139,9 +139,10 @@ router.post('/', auth, (req, res) => {
   const discAmt = Math.round(subtotal * discPct / 100);
   const final = subtotal - discAmt;
 
-  // sequential global invoice number
+  // sequential global invoice number (prefix configurable in the admin panel)
   const count = db.prepare('SELECT COUNT(*) as c FROM invoices').get().c;
-  const num = 'T-' + String(count + 1).padStart(4, '0');
+  const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
+  const num = (prefixRow?.value || 'T') + '-' + String(count + 1).padStart(4, '0');
 
   // capture seller info from the user record
   const seller = db.prepare('SELECT name,phone FROM users WHERE id=?').get(req.user.id);

@@ -976,8 +976,22 @@ const ACC_NAV = [
 let IN_ACC_SHELL = false;
 let CURRENT_PAGE = 'dash';
 
+// Maps nav-item id -> the module flag that gates it (Phase 10 admin panel).
+// Absent from this map = always shown (core features aren't toggleable).
+const ACC_MODULE_MAP={
+  'acc-petty-cash':'module_petty_cash','acc-trust-checks':'module_trust_checks',
+  'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
+  'acc-consignments':'module_consignments','acc-production':'module_production',
+  'acc-payroll':'module_payroll'
+};
 function navItems(){
-  if(IN_ACC_SHELL) return ACC_NAV;
+  if(IN_ACC_SHELL){
+    const flags=CACHE.moduleFlags||{};
+    return ACC_NAV.filter(it=>{
+      const key=ACC_MODULE_MAP[it.id];
+      return !key || flags[key]!=='0';
+    });
+  }
   if(ME.role==='admin') return NAV_ADMIN;
   if(ME.role==='accounting') return NAV_ACCOUNTING;
   return NAV_SALES;
@@ -994,16 +1008,18 @@ function buildNav(){
 
 // Dashboard "View Statement" quick action — jumps straight into the
 // Accounting shell's Persons Statement page, preselected on this customer.
-function viewCustStatementFromDash(custId){
+async function viewCustStatementFromDash(custId){
   stmtCustId = String(custId);
   IN_ACC_SHELL = true;
   el('brandRole').textContent = '🧮 ماژول حسابداری';
+  if(!CACHE.moduleFlags) CACHE.moduleFlags = await api('GET','/settings/modules')||{};
   buildNav();
   go('acc-statement');
 }
-function enterAccountingShell(){
+async function enterAccountingShell(){
   IN_ACC_SHELL = true;
   el('brandRole').textContent = '🧮 ماژول حسابداری';
+  if(!CACHE.moduleFlags) CACHE.moduleFlags = await api('GET','/settings/modules')||{};
   buildNav();
   go('acc-dash');
 }
@@ -5500,14 +5516,37 @@ ROUTES.settings = async function(){
 پوشاک ترنم 🌿</span>
       </div>
     </div></div>
+    <div class="panel"><div class="panel-head"><h4>🛠️ پنل مدیریت جامع ماژول‌های حسابداری</h4></div><div class="panel-body">
+      <div class="form-grid" style="margin-bottom:14px">
+        <div class="fg"><label>پیشوند شماره فاکتور فروش ${hlp('پیش‌فرض: T — مثال: فاکتور شماره T-0001')}</label><input id="s-invoice_num_prefix" value="${esc(s.invoice_num_prefix||'T')}"></div>
+        <div class="fg"><label>پیشوند شماره فاکتور خرید ${hlp('پیش‌فرض: PO')}</label><input id="s-purchase_num_prefix" value="${esc(s.purchase_num_prefix||'PO')}"></div>
+        <div class="fg"><label>شروع سال مالی (ماه شمسی) ${hlp('برای گزارش‌های آینده مبتنی بر سال مالی — پیش‌فرض فروردین.')}</label>
+          <select id="s-fiscal_year_start_month">
+            ${['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'].map((m,i)=>`<option value="${i+1}" ${(+s.fiscal_year_start_month||1)===i+1?'selected':''}>${m}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">ماژول‌های زیر را می‌توانید بر اساس نیاز کسب‌وکار خود از منوی حسابداری پنهان کنید (بدون حذف داده‌های موجود):</div>
+      <div class="form-grid">
+        <div class="fg"><label><input type="checkbox" id="s-module_petty_cash" ${s.module_petty_cash!=='0'?'checked':''} style="width:auto;margin-left:6px"> تنخواه گردان</label></div>
+        <div class="fg"><label><input type="checkbox" id="s-module_trust_checks" ${s.module_trust_checks!=='0'?'checked':''} style="width:auto;margin-left:6px"> چک‌های امانی</label></div>
+        <div class="fg"><label><input type="checkbox" id="s-module_warehouses" ${s.module_warehouses!=='0'?'checked':''} style="width:auto;margin-left:6px"> انبارها و عملیات انبار</label></div>
+        <div class="fg"><label><input type="checkbox" id="s-module_consignments" ${s.module_consignments!=='0'?'checked':''} style="width:auto;margin-left:6px"> کالای امانی</label></div>
+        <div class="fg"><label><input type="checkbox" id="s-module_production" ${s.module_production!=='0'?'checked':''} style="width:auto;margin-left:6px"> تحلیل هزینه تولید</label></div>
+        <div class="fg"><label><input type="checkbox" id="s-module_payroll" ${s.module_payroll!=='0'?'checked':''} style="width:auto;margin-left:6px"> حقوق و دستمزد</label></div>
+      </div>
+    </div></div>
     <button class="btn green" onclick="saveSettings()">💾 ذخیره تنظیمات</button>`;
   // Show hint for current provider on page load
   toggleSmsProviderHint(s.sms_provider||'kavenegar');
 };
 async function saveSettings(){
-  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email'];
+  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month'];
   const data={}; keys.forEach(k=>{ const e=el('s-'+k); if(e)data[k]=e.value; });
+  const moduleKeys=['module_petty_cash','module_trust_checks','module_warehouses','module_consignments','module_production','module_payroll'];
+  moduleKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.checked?'1':'0'; });
   CACHE.settings = await api('PUT','/settings',data);
+  CACHE.moduleFlags=null; // force re-fetch next time the Accounting shell is entered
   showToast('تنظیمات ذخیره شد');
 }
 async function testSMS(){
@@ -5959,6 +5998,11 @@ function renderAdminGuide(){
         <li>هنگام ثبت مشتری جدیدِ دارای موبایل، پیامک خوش‌آمد با لینک کانال‌ها (روبیکا، تلگرام، بله) خودکار ارسال می‌شود</li>
         <li>متن پیام و «آدرس دفتر کیمیا» در تنظیمات قابل ویرایش است — جای‌نگهدار {address} با آدرس جایگزین می‌شود</li>
         <li>ارسال دستی: دکمه 📤 در لیست مشتریان</li>
+      </ul>
+      <h5>پنل مدیریت جامع ماژول‌های حسابداری</h5><ul>
+        <li><b>پیشوند شماره فاکتور فروش/خرید</b>: قابل تغییر (پیش‌فرض T و PO)</li>
+        <li><b>شروع سال مالی</b>: تعیین ماه شمسی شروع سال مالی (برای گزارش‌های آینده)</li>
+        <li><b>فعال/غیرفعال کردن ماژول‌ها</b>: تنخواه‌گردان، چک‌های امانی، انبارها، کالای امانی، تحلیل هزینه تولید و حقوق و دستمزد را می‌توانید بر اساس نیاز کسب‌وکار از منوی حسابداری پنهان کنید — داده‌های موجود حذف نمی‌شود، فقط از منو مخفی می‌شود</li>
       </ul>`),
     helpSec('🔌','API و یکپارچه‌سازی',`
       <p>اتصال نرم‌افزارهای خارجی به CRM ترنم از طریق API.</p>

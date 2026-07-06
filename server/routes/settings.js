@@ -10,8 +10,28 @@ const ALLOWED_KEYS = [
   'company_name', 'company_phone', 'company_address',
   'kimia_address', 'welcome_sms_text',
   'api_v1_enabled', 'api_rate_limit', 'webhook_secret',
-  'backup_smtp_user', 'backup_smtp_pass', 'backup_email'
+  'backup_smtp_user', 'backup_smtp_pass', 'backup_email',
+  // Admin panel (Phase 10): numbering sequences, fiscal year, module toggles
+  'invoice_num_prefix', 'purchase_num_prefix', 'fiscal_year_start_month',
+  'module_petty_cash', 'module_trust_checks', 'module_warehouses',
+  'module_consignments', 'module_production', 'module_payroll'
 ];
+
+// Module flags a non-admin (e.g. accounting role) also needs, to know which
+// Accounting-shell nav items to hide — safe to expose (no secrets), unlike
+// the full settings list which is admin-only.
+const MODULE_KEYS = [
+  'module_petty_cash', 'module_trust_checks', 'module_warehouses',
+  'module_consignments', 'module_production', 'module_payroll'
+];
+router.get('/modules', auth, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare(`SELECT key,value FROM settings WHERE key IN (${MODULE_KEYS.map(() => '?').join(',')})`).all(...MODULE_KEYS);
+  const obj = {};
+  for (const k of MODULE_KEYS) obj[k] = '1'; // default: enabled
+  for (const r of rows) obj[r.key] = r.value;
+  res.json(obj);
+});
 
 // GET all settings (admin only)
 router.get('/', auth, adminOnly, (req, res) => {

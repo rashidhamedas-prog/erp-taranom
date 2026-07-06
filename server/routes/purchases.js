@@ -60,7 +60,8 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const discAmt = Math.round(subtotal * discPct / 100);
   const final = subtotal - discAmt;
   const count = db.prepare('SELECT COUNT(*) c FROM purchase_invoices').get().c;
-  const num = 'PO-' + String(count + 1).padStart(4, '0');
+  const prefixRow = db.prepare("SELECT value FROM settings WHERE key='purchase_num_prefix'").get();
+  const num = (prefixRow?.value || 'PO') + '-' + String(count + 1).padStart(4, '0');
   const pType = pay_type || 'credit';
 
   const result = db.prepare(
