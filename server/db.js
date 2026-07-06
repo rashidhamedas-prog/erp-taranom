@@ -169,6 +169,27 @@ function initDB() {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
 
+    CREATE TABLE IF NOT EXISTS payroll_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id INTEGER NOT NULL,
+      period_label TEXT DEFAULT '',
+      regular_hours REAL DEFAULT 0,
+      overtime_hours REAL DEFAULT 0,
+      hourly_rate REAL DEFAULT 0,
+      overtime_rate REAL DEFAULT 0,
+      bonuses REAL DEFAULT 0,
+      deductions REAL DEFAULT 0,
+      insurance_deduction REAL DEFAULT 0,
+      tax_deduction REAL DEFAULT 0,
+      gross_pay REAL DEFAULT 0,
+      net_pay REAL DEFAULT 0,
+      date TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      paid INTEGER DEFAULT 0,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
     CREATE TABLE IF NOT EXISTS production_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       product_id INTEGER NOT NULL,
@@ -732,6 +753,7 @@ function initDB() {
         ['2100','بدهی‌های جاری','liability','2000'],
         ['2101','حساب‌های پرداختنی','liability','2100'],
         ['2102','پیش‌دریافت از مشتریان','liability','2100'],
+        ['2104','بدهی بیمه و مالیات کارکنان','liability','2100'],
         ['3000','حقوق صاحبان سرمایه','equity',null],
         ['3101','سرمایه','equity','3000'],
         ['4000','درآمدها','revenue',null],
@@ -752,6 +774,9 @@ function initDB() {
   // existing databases that already had a non-empty chart of accounts still
   // get this control account.
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1106','حساب اشخاص متفرقه','asset','1100')").run();
+  // Added for the Payroll module (Phase 9) — same unconditional-insert pattern.
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6104','هزینه حقوق و دستمزد','expense','6000')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2104','بدهی بیمه و مالیات کارکنان','liability','2100')").run();
 
   // ---- Indexes ----
   db.exec(`

@@ -971,6 +971,7 @@ const ACC_NAV = [
   {id:'acc-statement', icon:'📄', label:'صورت‌حساب مشتری'},
   {id:'acc-adv-reports', icon:'📊', label:'گزارشات پیشرفته'},
   {id:'acc-production', icon:'🏗️', label:'تحلیل هزینه تولید'},
+  {id:'acc-payroll', icon:'🧑‍🏭', label:'حقوق و دستمزد (ساعتی)'},
 ];
 let IN_ACC_SHELL = false;
 let CURRENT_PAGE = 'dash';
@@ -2401,7 +2402,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll']);
 
 // Generic wrapper: every accounting page shares the same header (title + optional
 // date-range filter) and delegates the body to loadAccTab(tabKey).
@@ -2454,6 +2455,7 @@ ROUTES['acc-warehouse-ops']=()=>renderAccPage('warehouse-ops','📦','عملیا
 ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای امانی');
 ROUTES['acc-adv-reports']=()=>renderAccPage('adv-reports','📊','گزارشات پیشرفته');
 ROUTES['acc-production']=()=>renderAccPage('production','🏗️','تحلیل هزینه تولید');
+ROUTES['acc-payroll']=()=>renderAccPage('payroll','🧑‍🏭','حقوق و دستمزد (ساعتی)');
 ROUTES['acc-vouchers']=()=>renderAccPage('vouchers','📝','اسناد حسابداری دستی (سند دوطرفه)');
 ROUTES['acc-general-ledger']=()=>renderAccPage('general-ledger','📒','دفتر کل حساب‌ها');
 ROUTES['acc-trial-balance']=()=>renderAccPage('trial-balance','⚖️','تراز آزمایشی');
@@ -2608,6 +2610,8 @@ async function loadAccTab(tab){
     await renderAdvReportsTab(body);
   } else if(tab==='production'){
     await renderProductionTab(body);
+  } else if(tab==='payroll'){
+    await renderPayrollTab(body);
   } else if(tab==='cheques'){
     const statusFilter=el('chqStatus')?.value||'';
     const bankFilter=el('chqBank')?.value||'';
@@ -3548,6 +3552,118 @@ async function saveProductionRun(){
 async function deleteProductionRun(id){
   if(!confirm('این اجرای تولید حذف شود؟ در صورت افزایش موجودی/بهای تمام‌شده، هر دو بازگردانده می‌شوند.')) return;
   try{ await api('DELETE','/production/'+id); showToast('حذف شد'); loadAccTab('production'); }catch(e){}
+}
+
+/* ============================================================
+   HOURLY PAYROLL (حقوق و دستمزد ساعتی) — employees are Persons (category
+   کارمند). Each record accrues an automatic double-entry posting (Dr
+   payroll expense / Cr the employee's payable + Cr insurance/tax payable);
+   paying it out is a separate step that debits the payable and credits
+   cash/bank, mirroring a supplier payment.
+============================================================ */
+async function renderPayrollTab(body){
+  if(!CACHE.persons) CACHE.persons=await api('GET','/persons')||[];
+  const records=await api('GET','/payroll')||[];
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="payrollModal()">➕ ثبت حقوق</button></div>
+    <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <th>دوره</th><th>کارمند</th><th>ساعت عادی</th><th>ساعت اضافه‌کاری</th><th>ناخالص (ت)</th><th>کسورات (ت)</th><th>خالص (ت)</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>${records.map(r=>`<tr>
+      <td>${esc(r.period_label||'-')}</td><td>${esc(r.person_name||'-')}</td>
+      <td class="mono">${fmt(r.regular_hours)}</td><td class="mono">${fmt(r.overtime_hours)}</td>
+      <td class="mono">${fmt(r.gross_pay)}</td>
+      <td class="mono" style="color:var(--red)">${fmt((r.deductions||0)+(r.insurance_deduction||0)+(r.tax_deduction||0))}</td>
+      <td class="mono" style="font-weight:700">${fmt(r.net_pay)}</td>
+      <td>${r.paid?'<span class="tag t-done">پرداخت شده</span>':'<span class="tag t-pending">پرداخت‌نشده</span>'}</td>
+      <td style="white-space:nowrap">
+        ${!r.paid?`<button class="btn sm green" onclick="payrollPayModal(${r.id},'${esc(r.person_name||'')}',${r.net_pay})">💵 پرداخت</button>
+        <button class="btn sm red" onclick="deletePayrollRecord(${r.id})">🗑️</button>`:''}
+      </td>
+    </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
+}
+function payrollModal(){
+  openModal(`
+    <div class="modal-head"><h3>🧑‍🏭 ثبت حقوق ساعتی</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>کارمند * ${hlp('از ماژول «اشخاص» با دسته «کارمند» انتخاب کنید — در صورت نبود، ابتدا از آنجا اضافه کنید.')}</label><select id="pr-person">${personOptions()}</select></div>
+      <div class="fg"><label>دوره (مثال: 1403/04)</label><input id="pr-period" placeholder="1403/04"></div>
+      <div class="fg"><label>تاریخ</label><input id="pr-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>ساعت کارکرد عادی</label><input id="pr-reg-hours" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>نرخ ساعتی عادی (ت)</label><input id="pr-hourly-rate" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>ساعت اضافه‌کاری</label><input id="pr-ot-hours" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>نرخ اضافه‌کاری (ت)</label><input id="pr-ot-rate" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>پاداش (ت)</label><input id="pr-bonus" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>کسورات دیگر (ت) ${hlp('مثال: مرخصی بدون حقوق — از هزینه و بدهی نیز کسر می‌شود.')}</label><input id="pr-deduct" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>کسر بیمه (ت)</label><input id="pr-insurance" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>کسر مالیات (ت)</label><input id="pr-tax" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg full"><label>یادداشت</label><textarea id="pr-note"></textarea></div>
+    </div>
+    <div id="prPreview" style="margin-top:10px;font-weight:700;font-size:13px"></div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="savePayrollRecord()">💾 ثبت</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+  updatePayrollPreview();
+}
+function updatePayrollPreview(){
+  const regH=+el('pr-reg-hours')?.value||0, hRate=+el('pr-hourly-rate')?.value||0;
+  const otH=+el('pr-ot-hours')?.value||0, otRate=+el('pr-ot-rate')?.value||0;
+  const bon=+el('pr-bonus')?.value||0, ded=+el('pr-deduct')?.value||0, ins=+el('pr-insurance')?.value||0, tax=+el('pr-tax')?.value||0;
+  const gross=regH*hRate+otH*otRate+bon;
+  const net=gross-ded-ins-tax;
+  const box=el('prPreview'); if(!box) return;
+  box.innerHTML=`ناخالص: ${fmt(gross)} ت &nbsp;|&nbsp; خالص قابل پرداخت: <span style="color:${net>=0?'var(--green)':'var(--red)'}">${fmt(net)} ت</span>`;
+}
+async function savePayrollRecord(){
+  const person_id=+el('pr-person').value;
+  if(!person_id){ showToast('کارمند را انتخاب کنید','error'); return; }
+  try{
+    await api('POST','/payroll',{
+      person_id, period_label:el('pr-period').value,
+      regular_hours:+el('pr-reg-hours').value||0, overtime_hours:+el('pr-ot-hours').value||0,
+      hourly_rate:+el('pr-hourly-rate').value||0, overtime_rate:+el('pr-ot-rate').value||0,
+      bonuses:+el('pr-bonus').value||0, deductions:+el('pr-deduct').value||0,
+      insurance_deduction:+el('pr-insurance').value||0, tax_deduction:+el('pr-tax').value||0,
+      date:el('pr-date').value, note:el('pr-note').value
+    });
+    closeModal(); showToast('حقوق ثبت شد'); loadAccTab('payroll');
+  }catch(e){}
+}
+async function payrollPayModal(id,personName,netPay){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  openModal(`
+    <div class="modal-head"><h3>💵 پرداخت حقوق: ${esc(personName)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>مبلغ قابل پرداخت</label><input value="${fmt(netPay)} تومان" disabled style="background:#f9fafb;font-weight:700"></div>
+      <div class="fg"><label>نوع پرداخت</label><select id="pp-paytype" onchange="toggleBankFields('pp')"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
+      <div class="fg"><label>پرداخت از بانک</label><select id="pp-bank">
+        <option value="">— بدون بانک مشخص —</option>
+        ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>پرداخت از صندوق</label><select id="pp-cashbox">
+        <option value="">— بدون صندوق مشخص —</option>
+        ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg" id="pp-cc-wrap" style="display:none"></div>
+      <div class="fg"><label>تاریخ</label><input id="pp-date" data-jdate value="${todayJalali()}"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn green" onclick="savePayrollPayment(${id})">💾 ثبت پرداخت</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function savePayrollPayment(id){
+  try{
+    await api('POST','/payroll/'+id+'/pay',{
+      pay_type:el('pp-paytype').value, bank_id:+el('pp-bank').value||null, cash_box_id:+el('pp-cashbox')?.value||null,
+      date:el('pp-date').value
+    });
+    closeModal(); showToast('حقوق پرداخت شد'); loadAccTab('payroll');
+  }catch(e){}
+}
+async function deletePayrollRecord(id){
+  if(!confirm('این رکورد حقوق حذف شود؟')) return;
+  try{ await api('DELETE','/payroll/'+id); showToast('حذف شد'); loadAccTab('payroll'); }catch(e){}
 }
 
 async function supplierPaymentModal(id,name){
@@ -5804,6 +5920,7 @@ function renderAdminGuide(){
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: برای هر اجرای تولید، هزینه مواد اولیه، دستمزد، سربار، بسته‌بندی و ضایعات وارد می‌شود و سیستم بهای تمام‌شده واحد، حاشیه سود (نسبت به قیمت فروش فعلی) و درصد کارایی (نسبت تولید سالم به کل) را محاسبه می‌کند. با گزینه‌های اختیاری، می‌توان موجودی کالای ساخته‌شده را افزایش داد و/یا بهای تمام‌شده محصول را با عدد محاسبه‌شده جایگزین کرد. <span class="muted">این بخش سند حسابداری ایجاد نمی‌کند — صرفاً ابزار تحلیل هزینه و کارایی تولید است.</span></li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: کارمندان از ماژول «اشخاص» (دسته «کارمند») انتخاب می‌شوند. با ثبت حقوق هر دوره (ساعت عادی/اضافه‌کاری × نرخ + پاداش − کسورات/بیمه/مالیات)، سند حسابداری خودکار ثبت می‌شود (بدهکار هزینه حقوق، بستانکار حساب اشخاص برای مبلغ خالص، و بستانکار بدهی بیمه و مالیات). دکمه «پرداخت» جداگانه، واقعاً وجه را از صندوق/بانک پرداخت و بدهی به کارمند را تسویه می‌کند — دقیقاً مثل پرداخت به تأمین‌کننده.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>
