@@ -4,8 +4,11 @@ const { auth } = require('../middleware/auth');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 
 function getScope(req) {
+  // Accounting staff see all invoices (read scope) — needed for the Sales
+  // Invoices list inside the Accounting module, same as customers.js's getScope.
+  const seesAll = req.user.role === 'admin' || req.user.role === 'accounting';
   if (req.user.role === 'admin' && req.query.user_id) return parseInt(req.query.user_id);
-  if (req.user.role === 'admin') return null;
+  if (seesAll) return null;
   return req.user.id;
 }
 

@@ -950,9 +950,11 @@ const ACC_NAV = [
   {id:'acc-transfers', icon:'🔄', label:'انتقال وجه'},
   {id:'acc-suppliers', icon:'🚚', label:'تأمین‌کنندگان'},
   {id:'acc-persons', icon:'🧑‍💼', label:'اشخاص (کارمند/شریک/سایر)'},
+  {id:'acc-sales-invoices', icon:'🧾', label:'فاکتورهای فروش'},
   {id:'acc-purchases', icon:'📦', label:'فاکتور خرید'},
   {id:'acc-purchase-returns', icon:'↩️', label:'برگشت از خرید'},
   {id:'acc-sales-returns', icon:'↪️', label:'برگشت از فروش'},
+  {id:'acc-item-kardex', icon:'📋', label:'کاردکس کالا'},
   {id:'acc-vouchers', icon:'📝', label:'اسناد حسابداری (دستی)'},
   {id:'acc-general-ledger', icon:'📒', label:'دفتر کل حساب‌ها'},
   {id:'acc-trial-balance', icon:'⚖️', label:'تراز آزمایشی'},
@@ -982,6 +984,15 @@ function buildNav(){
     </a>`).join('');
 }
 
+// Dashboard "View Statement" quick action — jumps straight into the
+// Accounting shell's Persons Statement page, preselected on this customer.
+function viewCustStatementFromDash(custId){
+  stmtCustId = String(custId);
+  IN_ACC_SHELL = true;
+  el('brandRole').textContent = '🧮 ماژول حسابداری';
+  buildNav();
+  go('acc-statement');
+}
 function enterAccountingShell(){
   IN_ACC_SHELL = true;
   el('brandRole').textContent = '🧮 ماژول حسابداری';
@@ -1163,17 +1174,18 @@ async function renderDashContent(){
         </div>
         <div class="panel-body tbl-wrap">
           <table class="tbl">
-            <thead><tr><th>فروشگاه</th><th>نام کامل</th><th>مانده حساب</th><th>آدرس</th><th>کارشناس</th></tr></thead>
+            <thead><tr><th>فروشگاه</th><th>نام کامل</th><th>مانده حساب</th><th>آدرس</th><th>کارشناس</th><th>عملیات</th></tr></thead>
             <tbody id="dashBalTbody">${balRows.map(c=>`<tr>
               <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
               <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} تومان</td>
               <td>${esc(c.address||c.city||'-')}</td>
               <td class="muted">${esc(c.salesperson||'-')}</td>
+              <td><button class="btn sm blue" onclick="viewCustStatementFromDash(${c.id})">📄 صورت‌حساب</button></td>
             </tr>`).join('')}</tbody>
             <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light)">
               <td colspan="2" style="font-weight:700">جمع کل مانده حساب مشتریان</td>
               <td class="mono" id="dashBalTotal" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} تومان</td>
-              <td colspan="2"></td>
+              <td colspan="3"></td>
             </tr></tfoot>
           </table>
         </div>
@@ -1242,7 +1254,8 @@ function filterDashBalances(name){
     <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} تومان</td>
     <td>${esc(c.address||c.city||'-')}</td>
     <td class="muted">${esc(c.salesperson||'-')}</td>
-  </tr>`).join('') || '<tr><td colspan="5" class="empty">موردی یافت نشد</td></tr>';
+    <td><button class="btn sm blue" onclick="viewCustStatementFromDash(${c.id})">📄 صورت‌حساب</button></td>
+  </tr>`).join('') || '<tr><td colspan="6" class="empty">موردی یافت نشد</td></tr>';
   // Live total — recalculates from the filtered rows
   const totCell = el('dashBalTotal');
   if(totCell){
@@ -2381,7 +2394,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex']);
 
 // Generic wrapper: every accounting page shares the same header (title + optional
 // date-range filter) and delegates the body to loadAccTab(tabKey).
@@ -2422,9 +2435,11 @@ ROUTES['acc-cash-boxes']=()=>renderAccPage('cash-boxes','💰','صندوق‌ه�
 ROUTES['acc-transfers']=()=>renderAccPage('transfers','🔄','انتقال وجه بین حساب‌ها');
 ROUTES['acc-suppliers']=()=>renderAccPage('suppliers','🚚','تأمین‌کنندگان');
 ROUTES['acc-persons']=()=>renderAccPage('persons','🧑‍💼','اشخاص (کارمند، شریک، سرمایه‌گذار، پیمانکار، ...)');
+ROUTES['acc-sales-invoices']=()=>renderAccPage('sales-invoices','🧾','فاکتورهای فروش');
 ROUTES['acc-purchases']=()=>renderAccPage('purchases','📦','فاکتور خرید');
 ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','برگشت از خرید');
 ROUTES['acc-sales-returns']=()=>renderAccPage('sales-returns','↪️','برگشت از فروش');
+ROUTES['acc-item-kardex']=()=>renderAccPage('item-kardex','📋','کاردکس کالا');
 ROUTES['acc-vouchers']=()=>renderAccPage('vouchers','📝','اسناد حسابداری دستی (سند دوطرفه)');
 ROUTES['acc-general-ledger']=()=>renderAccPage('general-ledger','📒','دفتر کل حساب‌ها');
 ROUTES['acc-trial-balance']=()=>renderAccPage('trial-balance','⚖️','تراز آزمایشی');
@@ -2565,6 +2580,10 @@ async function loadAccTab(tab){
     await renderPaymentOpsTab(body);
   } else if(tab==='persons'){
     await renderPersonsTab(body);
+  } else if(tab==='sales-invoices'){
+    await renderSalesInvoicesTab(body);
+  } else if(tab==='item-kardex'){
+    await renderItemKardexTab(body);
   } else if(tab==='cheques'){
     const statusFilter=el('chqStatus')?.value||'';
     const bankFilter=el('chqBank')?.value||'';
@@ -2997,6 +3016,80 @@ async function deletePersonCategory(id){
     CACHE.personCategories=await api('GET','/persons/categories')||[];
     personCategoriesModal();
   }catch(e){}
+}
+/* ============================================================
+   SALES INVOICES LIST (فاکتورهای فروش) — read-only accounting-shell view
+   of every sales invoice, mirrors the existing Purchase Invoices list.
+============================================================ */
+async function renderSalesInvoicesTab(body){
+  const rows=(await api('GET','/invoices')||[]).filter(i=>{
+    if(accDateFrom && (i.date||'')<accDateFrom) return false;
+    if(accDateTo && (i.date||'')>accDateTo) return false;
+    return true;
+  }).sort((a,b)=>(b.created_at||0)-(a.created_at||0));
+  const typeLabel={proforma:'پیش‌فاکتور',final:'فاکتور رسمی'};
+  const payLabel={cash:'نقد',cheque:'چک'};
+  body.innerHTML=`
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>شماره</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی (ت)</th><th>نوع پرداخت</th><th>فروشنده</th><th>عملیات</th>
+    </tr></thead><tbody>${rows.map(i=>`<tr>
+      <td class="mono" style="font-weight:700">${esc(i.num||'-')}</td><td>${esc(i.cust_biz||'-')}</td>
+      <td>${typeLabel[i.type]||i.type}${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" style="font-size:10px">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
+      <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
+      <td>${payLabel[i.pay_type]||i.pay_type||'-'}</td>
+      <td class="muted">${esc(i.seller_name||i.salesperson||'-')}</td>
+      <td><button class="btn sm blue" onclick="printInvoice(${i.id})">🖨️</button></td>
+    </tr>`).join('')||emptyRow(8)}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+      <td colspan="4">جمع (${fmt(rows.length)} فاکتور)</td>
+      <td class="mono" style="font-weight:800">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
+      <td colspan="3"></td>
+    </tr></tfoot></table></div>`;
+}
+
+/* ============================================================
+   ITEM KARDEX (کاردکس کالا) — per-product stock movement ledger with a
+   running balance, reconstructed from stock_logs.
+============================================================ */
+async function renderItemKardexTab(body){
+  if(!CACHE.products) CACHE.products=await api('GET','/products')||[];
+  const products=CACHE.products;
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px">
+      <select id="kardexProduct" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px" onchange="loadItemKardex(this.value)">
+        <option value="">-- انتخاب کالا --</option>
+        ${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.code||'-')})</option>`).join('')}
+      </select>
+    </div>
+    <div id="kardexBody"></div>`;
+}
+async function loadItemKardex(productId){
+  const box=el('kardexBody'); if(!box) return;
+  if(!productId){ box.innerHTML=''; return; }
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const d=await api('GET','/products/'+productId+'/kardex');
+  if(!d){ box.innerHTML='<div class="empty">خطا در دریافت کاردکس</div>'; return; }
+  const logs=d.logs||[];
+  box.innerHTML=`
+    <div class="panel">
+      <div class="panel-head"><h4>${esc(d.product.name)} <span class="muted" style="font-size:12px">(${esc(d.product.code||'-')})</span></h4>
+        <span class="muted" style="font-size:12px">موجودی فعلی: ${fmt(d.product.stock||0)} ${esc(d.product.unit||'')}</span>
+      </div>
+      <div class="panel-body tbl-wrap">
+        <table class="tbl" style="font-size:12px"><thead><tr>
+          <th>تاریخ</th><th>شرح</th><th>ورود</th><th>خروج</th><th>موجودی</th><th>ثبت‌کننده</th>
+        </tr></thead><tbody>
+        ${logs.map(l=>`<tr>
+          <td class="mono">${new Date((l.created_at||0)*1000).toLocaleDateString('fa-IR')}</td>
+          <td>${esc(l.note||'-')}</td>
+          <td class="mono" style="color:var(--green)">${l.change>0?fmt(l.change):'-'}</td>
+          <td class="mono" style="color:var(--red)">${l.change<0?fmt(-l.change):'-'}</td>
+          <td class="mono" style="font-weight:700">${fmt(l.running_balance||0)}</td>
+          <td class="muted">${esc(l.user_name||'-')}</td>
+        </tr>`).join('')||'<tr><td colspan="6" class="empty">تراکنشی ثبت نشده</td></tr>'}
+        </tbody></table>
+      </div>
+    </div>`;
 }
 async function supplierPaymentModal(id,name){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
@@ -4802,7 +4895,7 @@ function renderAdminGuide(){
         <li>آمار تعداد مشتریان، فاکتورها و پیگیری‌های باز</li>
         <li>نمودار فروش ماهانه (بر اساس فاکتورهای رسمی)</li>
         <li>جدول عملکرد هر کارشناس: تعداد مشتری، فروش کل، پیگیری‌های باز</li>
-        <li>جدول مانده حساب مشتریان با فیلتر کارشناس و <b>جمع کل زنده</b> در پایین جدول</li>
+        <li>جدول مانده حساب مشتریان با فیلتر کارشناس و <b>جمع کل زنده</b> در پایین جدول — دکمه «📄 صورت‌حساب» کنار هر مشتری مستقیماً صورت‌حساب کامل او را در ماژول حسابداری باز می‌کند</li>
       </ul>
       <h5>فیلتر زمانی</h5><ul>
         <li>پیش‌فرض داشبورد <b>ماه جاری</b> است</li>
@@ -4895,8 +4988,10 @@ function renderAdminGuide(){
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
+        <li><b>فاکتورهای فروش</b>: نمای فقط-خواندنی همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ — برای دسترسی سریع تیم حسابداری بدون نیاز به رفتن به بخش CRM</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: کاهش/افزایش موجودی انبار و اصلاح خودکار حساب طرف مقابل</li>
+        <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد)</li>
         <li><b>دفتر کل حساب‌ها</b>: انتخاب هر حساب از کدینگ حسابداری و مشاهده گردش کامل آن با مانده لحظه‌ای</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>

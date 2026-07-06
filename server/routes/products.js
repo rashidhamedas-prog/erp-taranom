@@ -61,6 +61,25 @@ router.get('/', auth, (req, res) => {
   res.json(rows);
 });
 
+// Item Kardex — per-product stock movement ledger with a running balance.
+// stock_logs has no explicit "opening" row, so the running balance is
+// reconstructed backward from the product's current stock (i.e. the
+// starting point is whatever stock existed before the earliest logged
+// change) so the final computed balance always reconciles with reality.
+router.get('/:id/kardex', auth, (req, res) => {
+  const db = getDB();
+  const product = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  if (!product) return res.status(404).json({ error: 'محصول یافت نشد' });
+  const logs = db.prepare(`
+    SELECT sl.*, u.name as user_name FROM stock_logs sl LEFT JOIN users u ON sl.user_id=u.id
+    WHERE sl.product_id=? ORDER BY sl.created_at ASC, sl.id ASC
+  `).all(req.params.id);
+  const totalChange = logs.reduce((a, l) => a + (l.change || 0), 0);
+  let running = (product.stock || 0) - totalChange;
+  logs.forEach(l => { running += (l.change || 0); l.running_balance = running; });
+  res.json({ product, logs });
+});
+
 // Distinct categories (for filter dropdown)
 router.get('/categories', auth, (req, res) => {
   const db = getDB();
