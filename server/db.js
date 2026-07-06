@@ -514,6 +514,58 @@ function initDB() {
       user_id INTEGER,
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
+
+    CREATE TABLE IF NOT EXISTS person_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      nature TEXT NOT NULL DEFAULT 'debit',
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS persons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category_id INTEGER,
+      name TEXT NOT NULL,
+      phone TEXT DEFAULT '',
+      address TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      credit_limit REAL DEFAULT 0,
+      debit_limit REAL DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(category_id) REFERENCES person_categories(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS person_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      entry_type TEXT NOT NULL,
+      ref_type TEXT,
+      ref_id INTEGER,
+      description TEXT,
+      debit REAL DEFAULT 0,
+      credit REAL DEFAULT 0,
+      user_id INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(person_id) REFERENCES persons(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS expense_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL DEFAULT 'admin',
+      title TEXT DEFAULT '',
+      amount REAL NOT NULL,
+      pay_type TEXT DEFAULT 'cash',
+      bank_id INTEGER,
+      cash_box_id INTEGER,
+      check_category_id INTEGER,
+      cost_center_id INTEGER,
+      date TEXT NOT NULL,
+      note TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
   `);
   ensureColumn(db, 'customers', 'group_id', 'INTEGER');
   ensureColumn(db, 'journal_entries', 'cost_center_id', 'INTEGER');
@@ -538,6 +590,19 @@ function initDB() {
   const grpCount = db.prepare('SELECT COUNT(*) c FROM customer_groups').get().c;
   if (grpCount === 0) {
     db.prepare("INSERT INTO customer_groups (name,nature) VALUES ('مشتریان عمومی','debit')").run();
+  }
+
+  // Seed default person categories for the general Persons module (employees,
+  // partners, investors, ... — anyone who isn't already a customer/supplier)
+  const personCatCount = db.prepare('SELECT COUNT(*) c FROM person_categories').get().c;
+  if (personCatCount === 0) {
+    const insPC = db.prepare('INSERT INTO person_categories (name,nature) VALUES (?,?)');
+    insPC.run('کارمند', 'credit');
+    insPC.run('شریک', 'credit');
+    insPC.run('سرمایه‌گذار', 'credit');
+    insPC.run('پیمانکار', 'credit');
+    insPC.run('ارائه‌دهنده خدمات', 'credit');
+    insPC.run('سایر', 'debit');
   }
 
   // ---- Seed chart of accounts (only if empty) ----

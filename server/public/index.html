@@ -941,13 +941,15 @@ const ACC_NAV = [
   {id:'acc-dash', icon:'📊', label:'داشبورد حسابداری'},
   {id:'acc-general', icon:'📈', label:'حسابداری کل (سود و زیان)'},
   {id:'acc-receivables', icon:'🧾', label:'مطالبات مشتریان'},
-  {id:'acc-settlements', icon:'💵', label:'تسویه‌ها'},
+  {id:'acc-settlements', icon:'💵', label:'عملیات دریافت (تسویه با مشتریان)'},
+  {id:'acc-payments', icon:'💸', label:'عملیات پرداخت'},
   {id:'acc-cheques', icon:'🏦', label:'مدیریت چک‌ها'},
   {id:'acc-banks', icon:'🏦', label:'بانک‌ها'},
   {id:'acc-check-categories', icon:'📑', label:'دسته‌های چک'},
   {id:'acc-cash-boxes', icon:'💰', label:'صندوق‌های نقدی'},
   {id:'acc-transfers', icon:'🔄', label:'انتقال وجه'},
   {id:'acc-suppliers', icon:'🚚', label:'تأمین‌کنندگان'},
+  {id:'acc-persons', icon:'🧑‍💼', label:'اشخاص (کارمند/شریک/سایر)'},
   {id:'acc-purchases', icon:'📦', label:'فاکتور خرید'},
   {id:'acc-purchase-returns', icon:'↩️', label:'برگشت از خرید'},
   {id:'acc-sales-returns', icon:'↪️', label:'برگشت از فروش'},
@@ -2379,7 +2381,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons']);
 
 // Generic wrapper: every accounting page shares the same header (title + optional
 // date-range filter) and delegates the body to loadAccTab(tabKey).
@@ -2409,7 +2411,8 @@ function renderAccPage(tabKey, icon, title){
 }
 ROUTES['acc-general']=()=>renderAccPage('general','📈','حسابداری کل (سود و زیان)');
 ROUTES['acc-receivables']=()=>renderAccPage('receivables','🧾','مطالبات مشتریان');
-ROUTES['acc-settlements']=()=>renderAccPage('settlements','💵','تسویه‌ها');
+ROUTES['acc-settlements']=()=>renderAccPage('settlements','💵','عملیات دریافت (تسویه با مشتریان)');
+ROUTES['acc-payments']=()=>renderAccPage('payments','💸','عملیات پرداخت');
 ROUTES['acc-cheques']=()=>renderAccPage('cheques','🏦','مدیریت چک‌ها');
 ROUTES['acc-commissions']=()=>renderAccPage('commissions','🎯','تأیید و انگیزه فروش');
 ROUTES['acc-statement']=()=>renderAccPage('statement','📄','صورت‌حساب مشتری');
@@ -2418,6 +2421,7 @@ ROUTES['acc-check-categories']=()=>renderAccPage('check-categories','📑','دس
 ROUTES['acc-cash-boxes']=()=>renderAccPage('cash-boxes','💰','صندوق‌های نقدی');
 ROUTES['acc-transfers']=()=>renderAccPage('transfers','🔄','انتقال وجه بین حساب‌ها');
 ROUTES['acc-suppliers']=()=>renderAccPage('suppliers','🚚','تأمین‌کنندگان');
+ROUTES['acc-persons']=()=>renderAccPage('persons','🧑‍💼','اشخاص (کارمند، شریک، سرمایه‌گذار، پیمانکار، ...)');
 ROUTES['acc-purchases']=()=>renderAccPage('purchases','📦','فاکتور خرید');
 ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','برگشت از خرید');
 ROUTES['acc-sales-returns']=()=>renderAccPage('sales-returns','↪️','برگشت از فروش');
@@ -2557,6 +2561,10 @@ async function loadAccTab(tab){
         <td class="mono" style="color:var(--green);font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.amount||0),0))}</td>
         <td colspan="5"></td>
       </tr></tfoot></table></div>`;
+  } else if(tab==='payments'){
+    await renderPaymentOpsTab(body);
+  } else if(tab==='persons'){
+    await renderPersonsTab(body);
   } else if(tab==='cheques'){
     const statusFilter=el('chqStatus')?.value||'';
     const bankFilter=el('chqBank')?.value||'';
@@ -2851,6 +2859,144 @@ async function showSupplierLedger(id,name){
       </div>
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+}
+/* ============================================================
+   PERSONS (اشخاص) — general-purpose counterparties who aren't already a
+   customer or supplier: employees, partners, investors, contractors,
+   service providers, or any custom category the user defines.
+   Ledger convention matches customer_ledger: debit = person owes us,
+   credit = we owe the person.
+============================================================ */
+async function renderPersonsTab(body){
+  const [persons,cats]=await Promise.all([api('GET','/persons')||[],api('GET','/persons/categories')||[]]);
+  CACHE.persons=persons; CACHE.personCategories=cats;
+  const total=persons.reduce((a,p)=>a+(p.balance||0),0);
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="personModal()">➕ شخص جدید</button>
+      <button class="btn ghost" onclick="personCategoriesModal()">🏷️ مدیریت دسته‌ها</button>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>نام</th><th>دسته</th><th>تلفن</th><th>مانده حساب (ت)</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>${persons.map(p=>`<tr>
+      <td>${esc(p.name)}</td><td>${esc(p.category_name||'-')}</td><td class="mono">${esc(p.phone||'-')}</td>
+      <td class="mono" style="font-weight:700;color:${(p.balance||0)>0?'var(--red)':(p.balance||0)<0?'var(--green)':'var(--muted)'}">${(p.balance||0)!==0?fmt(p.balance):'-'}</td>
+      <td>${p.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sm ghost" onclick="personModal(${p.id})">✏️</button>
+        <button class="btn sm blue" onclick="showPersonLedger(${p.id},'${esc(p.name)}')">📋 دفتر معین</button>
+        <button class="btn sm red" onclick="deletePerson(${p.id})">🗑️</button>
+      </td>
+    </tr>`).join('')||emptyRow(6)}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+      <td colspan="3">جمع کل مانده حساب</td>
+      <td class="mono" style="font-weight:800;color:${total>0?'var(--red)':'var(--green)'}">${fmt(total)}</td><td colspan="2"></td>
+    </tr></tfoot></table></div>`;
+}
+function personModal(id){
+  const p=id?(CACHE.persons||[]).find(x=>x.id===id):{active:1};
+  const cats=CACHE.personCategories||[];
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>نام * ${hlp('نام کامل شخص (کارمند، شریک، سرمایه‌گذار، پیمانکار و ...).')}</label><input id="pr-name" value="${esc(p?.name||'')}"></div>
+      <div class="fg"><label>دسته ${hlp('دسته‌بندی این شخص — از «مدیریت دسته‌ها» قابل تعریف است.')}</label><select id="pr-category">
+        <option value="">-- بدون دسته --</option>
+        ${cats.map(c=>`<option value="${c.id}" ${p?.category_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>تلفن</label><input id="pr-phone" value="${esc(p?.phone||'')}"></div>
+      <div class="fg full"><label>آدرس</label><input id="pr-address" value="${esc(p?.address||'')}"></div>
+      ${!id?`<div class="fg"><label>مانده اولیه (تومان) ${hlp('مثبت = این شخص به ما بدهکار است. منفی = ما به این شخص بدهکاریم.')}</label><input id="pr-opening" type="number" value="0"></div>`:''}
+      <div class="fg"><label>سقف بستانکاری (تومان)</label><input id="pr-credit-limit" type="number" value="${p?.credit_limit||0}"></div>
+      <div class="fg"><label>سقف بدهکاری (تومان)</label><input id="pr-debit-limit" type="number" value="${p?.debit_limit||0}"></div>
+      ${id?`<div class="fg"><label>وضعیت</label><select id="pr-active">
+        <option value="1" ${p.active?'selected':''}>فعال</option><option value="0" ${!p.active?'selected':''}>غیرفعال</option>
+      </select></div>`:''}
+      <div class="fg full"><label>یادداشت</label><textarea id="pr-note">${esc(p?.note||'')}</textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="savePerson(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function savePerson(id){
+  const name=el('pr-name').value.trim();
+  if(!name){ showToast('نام الزامی است','error'); return; }
+  const data={
+    name, category_id:+el('pr-category').value||null, phone:el('pr-phone').value,
+    address:el('pr-address').value, note:el('pr-note').value,
+    credit_limit:+el('pr-credit-limit').value||0, debit_limit:+el('pr-debit-limit').value||0
+  };
+  if(!id) data.opening_balance=+el('pr-opening')?.value||0;
+  else data.active=+el('pr-active').value;
+  try{
+    if(id) await api('PUT','/persons/'+id,data); else await api('POST','/persons',data);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('persons');
+  }catch(e){}
+}
+async function deletePerson(id){
+  if(!confirm('این شخص حذف شود؟')) return;
+  try{ await api('DELETE','/persons/'+id); showToast('حذف شد'); loadAccTab('persons'); }catch(e){}
+}
+async function showPersonLedger(id,name){
+  const d=await api('GET','/persons/'+id+'/ledger')||{entries:[]};
+  const entries=d.entries||[];
+  openModal(`
+    <div class="modal-head"><h3>📋 دفتر معین: ${esc(name)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="padding:0">
+      <div class="tbl-wrap" style="max-height:70vh">
+        <table class="tbl" style="font-size:12px"><thead><tr>
+          <th>تاریخ</th><th>شرح</th><th>بدهکار (ت)</th><th>بستانکار (ت)</th><th>مانده (ت)</th>
+        </tr></thead><tbody>
+        ${entries.map(e=>`<tr>
+          <td class="mono">${esc(e.date||'-')}</td><td>${esc(e.description||'-')}</td>
+          <td class="mono" style="color:var(--orange)">${e.debit>0?fmt(e.debit):'-'}</td>
+          <td class="mono" style="color:var(--green)">${e.credit>0?fmt(e.credit):'-'}</td>
+          <td class="mono" style="font-weight:700">${fmt(Math.abs(e.running_balance||0))}</td>
+        </tr>`).join('')||'<tr><td colspan="5" class="empty">سابقه‌ای ثبت نشده</td></tr>'}
+        </tbody></table>
+      </div>
+      <div style="padding:12px 16px;border-top:1px solid var(--border);font-weight:700">
+        مانده نهایی: <span style="color:${(d.balance||0)>0?'var(--red)':'var(--green)'}">${fmt(Math.abs(d.balance||0))} تومان ${(d.balance||0)>0?'(بدهکار به ما)':'(بستانکار)'}</span>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+}
+function personCategoriesModal(){
+  const cats=CACHE.personCategories||[];
+  openModal(`
+    <div class="modal-head"><h3>🏷️ مدیریت دسته‌های اشخاص</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام دسته</th><th>ماهیت</th><th>عملیات</th></tr></thead>
+      <tbody>${cats.map(c=>`<tr>
+        <td>${esc(c.name)}</td><td>${c.nature==='credit'?'بستانکار':'بدهکار'}</td>
+        <td><button class="btn sm red" onclick="deletePersonCategory(${c.id})">🗑️</button></td>
+      </tr>`).join('')||emptyRow(3)}</tbody></table></div>
+      <div class="form-grid" style="margin-top:14px">
+        <div class="fg"><label>نام دسته جدید</label><input id="pc-name" placeholder="مثال: مشاور حقوقی"></div>
+        <div class="fg"><label>ماهیت پیش‌فرض</label><select id="pc-nature">
+          <option value="debit">بدهکار</option><option value="credit" selected>بستانکار</option>
+        </select></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn" onclick="savePersonCategory()">➕ افزودن دسته</button>
+      <button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+}
+async function savePersonCategory(){
+  const name=el('pc-name').value.trim();
+  if(!name){ showToast('نام دسته الزامی است','error'); return; }
+  try{
+    await api('POST','/persons/categories',{name,nature:el('pc-nature').value});
+    showToast('دسته اضافه شد');
+    CACHE.personCategories=await api('GET','/persons/categories')||[];
+    personCategoriesModal();
+  }catch(e){}
+}
+async function deletePersonCategory(id){
+  if(!confirm('این دسته حذف شود؟')) return;
+  try{
+    await api('DELETE','/persons/categories/'+id);
+    CACHE.personCategories=await api('GET','/persons/categories')||[];
+    personCategoriesModal();
+  }catch(e){}
 }
 async function supplierPaymentModal(id,name){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
@@ -3664,6 +3810,104 @@ async function saveTransfer(){
 async function deleteTransfer(id){
   if(!confirm('این انتقال حذف شود؟ سند حسابداری آن نیز ابطال می‌شود.')) return;
   try{ await api('DELETE','/transfers/'+id); showToast('حذف شد'); loadAccTab('transfers'); }catch(e){}
+}
+
+/* ============================================================
+   PAYMENT OPERATIONS (عملیات پرداخت) — unified view of every outgoing
+   payment: supplier payments, sales-incentive payments, and general expense
+   payments. Receiving side (customer settlements) lives in acc-settlements.
+============================================================ */
+async function renderPaymentOpsTab(body){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
+  const [supPay,incPay,expPay]=await Promise.all([
+    api('GET','/purchases/payments/list')||[],
+    api('GET','/accounting/incentive-payments')||[],
+    api('GET','/expenses')||[]
+  ]);
+  const rows=[
+    ...(supPay||[]).map(r=>({...r,kind:'supplier',target:r.supplier_name||'-'})),
+    ...(incPay||[]).map(r=>({...r,kind:'incentive',target:r.rep_name||'-'})),
+    ...(expPay||[]).map(r=>({...r,kind:'expense',target:r.title||(r.category==='sales'?'هزینه توزیع و فروش':'هزینه عمومی و اداری')}))
+  ].sort((a,b)=>(b.created_at||0)-(a.created_at||0));
+  const kindLabel={supplier:'🚚 تأمین‌کننده',incentive:'🎯 انگیزه فروش',expense:'🧾 هزینه عمومی'};
+  const payLabel=p=>p==='cheque'?'🧾 چک':p==='bank'?'🏦 بانکی':'💵 نقد';
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="paymentOpChooser()">➕ پرداخت جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>تاریخ</th><th>نوع</th><th>به/بابت</th><th>مبلغ (ت)</th><th>نوع پرداخت</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
+    </tr></thead><tbody>${rows.map(r=>`<tr>
+      <td class="mono">${escDate(r.date)}</td>
+      <td>${kindLabel[r.kind]}</td>
+      <td>${esc(r.target)}</td>
+      <td class="mono" style="color:var(--red);font-weight:700">${fmt(r.amount)}</td>
+      <td>${payLabel(r.pay_type)}</td>
+      <td class="muted">${esc(r.note||'-')}</td>
+      <td class="muted">${esc(r.recorder||'-')}</td>
+      <td><button class="btn sm red" onclick="deletePaymentOp('${r.kind}',${r.id})">🗑️</button></td>
+    </tr>`).join('')||emptyRow(8)}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+      <td colspan="3">جمع (${fmt(rows.length)} پرداخت)</td>
+      <td class="mono" style="color:var(--red);font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.amount||0),0))}</td>
+      <td colspan="4"></td>
+    </tr></tfoot></table></div>`;
+}
+function paymentOpChooser(){
+  openModal(`
+    <div class="modal-head"><h3>نوع پرداخت را انتخاب کنید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:10px">
+      <button class="btn" onclick="closeModal();go('acc-suppliers')">🚚 پرداخت به تأمین‌کننده (از لیست تأمین‌کنندگان)</button>
+      <button class="btn" onclick="closeModal();go('acc-commissions')">🎯 پرداخت انگیزه فروش (از لیست کارشناسان)</button>
+      <button class="btn green" onclick="expensePaymentModal()">🧾 پرداخت هزینه عمومی</button>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+function expensePaymentModal(){
+  openModal(`
+    <div class="modal-head"><h3>🧾 ثبت پرداخت هزینه</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>دسته هزینه</label><select id="ex-category">
+        <option value="admin">عمومی و اداری</option><option value="sales">توزیع و فروش</option>
+      </select></div>
+      <div class="fg full"><label>عنوان/بابت *</label><input id="ex-title" placeholder="مثال: اجاره دفتر، قبض برق، ..."></div>
+      <div class="fg"><label>مبلغ (تومان) *</label><input id="ex-amount" type="number" min="1"></div>
+      <div class="fg"><label>نوع پرداخت</label><select id="ex-paytype" onchange="toggleBankFields('ex')"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
+      <div class="fg"><label>پرداخت از بانک</label><select id="ex-bank" onchange="updateCheckCategoryOptions('ex')">
+        <option value="">— بدون بانک مشخص —</option>
+        ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>پرداخت از صندوق</label><select id="ex-cashbox">
+        <option value="">— بدون صندوق مشخص —</option>
+        ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg" id="ex-cc-wrap" style="display:none"><label>دسته چک</label><select id="ex-checkcat"><option value="">— انتخاب نشده —</option></select></div>
+      <div class="fg"><label>تاریخ</label><input id="ex-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>یادداشت</label><textarea id="ex-note"></textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn green" onclick="saveExpensePayment()">💾 ثبت پرداخت</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function saveExpensePayment(){
+  const title=el('ex-title').value.trim();
+  const amount=+el('ex-amount').value;
+  if(!title){ showToast('عنوان هزینه الزامی است','error'); return; }
+  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  try{
+    await api('POST','/expenses',{
+      category:el('ex-category').value, title, amount,
+      pay_type:el('ex-paytype').value, date:el('ex-date').value, note:el('ex-note').value,
+      bank_id:+el('ex-bank').value||null, cash_box_id:+el('ex-cashbox')?.value||null,
+      check_category_id:+el('ex-checkcat')?.value||null
+    });
+    closeModal(); showToast('پرداخت هزینه ثبت شد'); loadAccTab('payments');
+  }catch(e){}
+}
+async function deletePaymentOp(kind,id){
+  if(!confirm('این پرداخت حذف شود؟')) return;
+  const endpoint = kind==='supplier' ? '/purchases/payments/'+id : kind==='incentive' ? '/accounting/incentive-payments/'+id : '/expenses/'+id;
+  try{ await api('DELETE',endpoint); showToast('حذف شد'); loadAccTab('payments'); }catch(e){}
 }
 
 function stmtQuery(){
@@ -4642,13 +4886,15 @@ function renderAdminGuide(){
         <li><b>داشبورد حسابداری</b>: آمار کلی، مانده مطالبات/پرداختنی، وضعیت تراز آزمایشی و دسترسی سریع به همه بخش‌ها</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل (فروش ← تخفیف ← بهای تمام‌شده ← سود ناخالص ← انگیزه فروش ← سود عملیاتی) و جریان وجوه</li>
         <li><b>مطالبات مشتریان</b>: بدهی هر مشتری با جمع زنده و دکمه ثبت تسویه</li>
-        <li><b>تسویه‌ها</b>: تاریخچه دریافت‌های نقد/چک از مشتریان — با انتخاب اختیاری «واریز به بانک»</li>
+        <li><b>عملیات دریافت (تسویه با مشتریان)</b>: تاریخچه دریافت‌های نقد/چک از مشتریان — با انتخاب اختیاری «واریز به بانک» یا «واریز به صندوق»</li>
+        <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد (قابل مشاهده در «دفتر کل حساب‌ها»)</li>
         <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>
         <li><b>صندوق‌های نقدی</b>: ساخت و مدیریت صندوق‌های نقدی شرکت بدون محدودیت در تعداد (مثلاً صندوق فروشگاه، صندوق دفتر مرکزی) — درست مثل بانک‌ها، هر صندوق یک حساب دفتر کل مستقل دارد. در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب صندوق (مثل بانک) اختیاری است</li>
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
+        <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: کاهش/افزایش موجودی انبار و اصلاح خودکار حساب طرف مقابل</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد)</li>
