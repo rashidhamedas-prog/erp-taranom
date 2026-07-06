@@ -131,6 +131,7 @@ app.use('/api/persons', require('./routes/persons'));
 app.use('/api/trust-checks', require('./routes/trust-checks'));
 app.use('/api/warehouses', require('./routes/warehouses'));
 app.use('/api/consignments', require('./routes/consignments'));
+app.use('/api/adv-reports', require('./routes/adv-reports'));
 app.use('/api/api-keys', require('./routes/api_keys').router);
 app.use('/api/v1', require('./routes/api_v1'));
 

@@ -969,6 +969,7 @@ const ACC_NAV = [
   {id:'acc-cost-centers', icon:'🏷️', label:'مراکز هزینه'},
   {id:'acc-customer-groups', icon:'👥', label:'گروه‌های مشتری (ماهیت حساب)'},
   {id:'acc-statement', icon:'📄', label:'صورت‌حساب مشتری'},
+  {id:'acc-adv-reports', icon:'📊', label:'گزارشات پیشرفته'},
 ];
 let IN_ACC_SHELL = false;
 let CURRENT_PAGE = 'dash';
@@ -2399,7 +2400,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports']);
 
 // Generic wrapper: every accounting page shares the same header (title + optional
 // date-range filter) and delegates the body to loadAccTab(tabKey).
@@ -2450,6 +2451,7 @@ ROUTES['acc-item-kardex']=()=>renderAccPage('item-kardex','📋','کاردکس �
 ROUTES['acc-warehouses']=()=>renderAccPage('warehouses','🏭','انبارها');
 ROUTES['acc-warehouse-ops']=()=>renderAccPage('warehouse-ops','📦','عملیات انبار (رسید / حواله / انتقال)');
 ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای امانی');
+ROUTES['acc-adv-reports']=()=>renderAccPage('adv-reports','📊','گزارشات پیشرفته');
 ROUTES['acc-vouchers']=()=>renderAccPage('vouchers','📝','اسناد حسابداری دستی (سند دوطرفه)');
 ROUTES['acc-general-ledger']=()=>renderAccPage('general-ledger','📒','دفتر کل حساب‌ها');
 ROUTES['acc-trial-balance']=()=>renderAccPage('trial-balance','⚖️','تراز آزمایشی');
@@ -2600,6 +2602,8 @@ async function loadAccTab(tab){
     await renderWarehouseOpsTab(body);
   } else if(tab==='consignments'){
     await renderConsignmentsTab(body);
+  } else if(tab==='adv-reports'){
+    await renderAdvReportsTab(body);
   } else if(tab==='cheques'){
     const statusFilter=el('chqStatus')?.value||'';
     const bankFilter=el('chqBank')?.value||'';
@@ -3353,6 +3357,129 @@ async function setConsignmentStatus(id,status){
 async function deleteConsignment(id){
   if(!confirm('این رکورد حذف شود؟ در صورت باز بودن و ارسالی بودن، موجودی بازگردانده می‌شود.')) return;
   try{ await api('DELETE','/consignments/'+id); showToast('حذف شد'); loadAccTab('consignments'); }catch(e){}
+}
+
+/* ============================================================
+   ADVANCED REPORTS (گزارشات پیشرفته) — Aging, Cash Flow, Sales by Product,
+   Inventory Valuation, Inventory Health (negative/slow/fast moving).
+   Tax/VAT reports are intentionally not included — this app has no VAT
+   calculation engine to report on.
+============================================================ */
+let advReportTab='aging', advReportFrom='', advReportTo='';
+const ADV_REPORT_TABS=[
+  {id:'aging',label:'سنی مطالبات'},
+  {id:'cash-flow',label:'جریان وجه نقد'},
+  {id:'sales-by-product',label:'فروش به تفکیک کالا'},
+  {id:'inventory-valuation',label:'ارزش‌گذاری موجودی'},
+  {id:'inventory-health',label:'سلامت موجودی'}
+];
+async function renderAdvReportsTab(body){
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:6px">
+      ${ADV_REPORT_TABS.map(t=>`<button class="btn ${advReportTab===t.id?'':'ghost'} sm" onclick="advReportTab='${t.id}';renderAdvReportsTab(el('accBody'))">${t.label}</button>`).join('')}
+    </div>
+    <div id="advReportBody"><div class="muted">در حال بارگذاری...</div></div>`;
+  await loadAdvReport();
+}
+async function loadAdvReport(){
+  const box=el('advReportBody'); if(!box) return;
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  if(advReportTab==='aging') return renderAgingReport(box);
+  if(advReportTab==='cash-flow') return renderCashFlowReport(box);
+  if(advReportTab==='sales-by-product') return renderSalesByProductReport(box);
+  if(advReportTab==='inventory-valuation') return renderInventoryValuationReport(box);
+  if(advReportTab==='inventory-health') return renderInventoryHealthReport(box);
+}
+function advDateFilterBar(){
+  return `<div class="toolbar" style="margin-bottom:10px;gap:8px">
+    <input id="advFrom" data-jdate placeholder="از تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${advReportFrom}">
+    <input id="advTo" data-jdate placeholder="تا تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${advReportTo}">
+    <button class="btn sm ghost" onclick="advReportFrom=el('advFrom').value;advReportTo=el('advTo').value;loadAdvReport()">🔍 اعمال</button>
+    <button class="btn sm ghost" onclick="advReportFrom='';advReportTo='';loadAdvReport()">✕ حذف فیلتر</button>
+  </div>`;
+}
+async function renderAgingReport(box){
+  const d=await api('GET','/adv-reports/aging')||{rows:[],totals:{}};
+  box.innerHTML=`
+    <div class="tbl-wrap"><table class="tbl" style="font-size:13px"><thead><tr>
+      <th>مشتری</th><th>کارشناس</th><th>۰ تا ۳۰ روز</th><th>۳۱ تا ۶۰ روز</th><th>۶۱ تا ۹۰ روز</th><th>بیش از ۹۰ روز</th><th>جمع (ت)</th>
+    </tr></thead><tbody>${d.rows.map(r=>`<tr>
+      <td>${esc(r.cust_biz)}</td><td class="muted">${esc(r.salesperson||'-')}</td>
+      <td class="mono">${r.b0_30>0?fmt(r.b0_30):'-'}</td>
+      <td class="mono" style="color:var(--orange)">${r.b31_60>0?fmt(r.b31_60):'-'}</td>
+      <td class="mono" style="color:var(--red)">${r.b61_90>0?fmt(r.b61_90):'-'}</td>
+      <td class="mono" style="color:var(--red);font-weight:700">${r.b90plus>0?fmt(r.b90plus):'-'}</td>
+      <td class="mono" style="font-weight:800">${fmt(r.total)}</td>
+    </tr>`).join('')||emptyRow(7)}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+      <td colspan="2">جمع کل</td>
+      <td class="mono">${fmt(d.totals.b0_30||0)}</td><td class="mono">${fmt(d.totals.b31_60||0)}</td>
+      <td class="mono">${fmt(d.totals.b61_90||0)}</td><td class="mono">${fmt(d.totals.b90plus||0)}</td>
+      <td class="mono" style="font-weight:800">${fmt(d.totals.total||0)}</td>
+    </tr></tfoot></table></div>
+    <div class="muted" style="font-size:11px;margin-top:8px">تخصیص مبالغ دریافتی به فاکتورها به روش FIFO (اول‌ورودی، اول‌تسویه) برآورد می‌شود — چون سیستم دریافت‌های تجمیعی را به‌طور صریح به فاکتور خاصی متصل نمی‌کند.</div>`;
+}
+async function renderCashFlowReport(box){
+  const qp=[]; if(advReportFrom) qp.push('from='+encodeURIComponent(advReportFrom)); if(advReportTo) qp.push('to='+encodeURIComponent(advReportTo));
+  const d=await api('GET','/adv-reports/cash-flow'+(qp.length?'?'+qp.join('&'):''))||{};
+  box.innerHTML=advDateFilterBar()+`
+    <div class="panel"><div class="panel-body">
+      <table class="tbl" style="font-size:13px"><tbody>
+        <tr style="background:var(--purple-light)"><td style="font-weight:700">ورودی نقد (دریافت از مشتریان)</td><td class="mono" style="color:var(--green);font-weight:700;text-align:left;direction:ltr">${fmt(d.cashIn||0)} ت</td></tr>
+        <tr><td>پرداخت به تأمین‌کنندگان</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.supplierOut||0)} ت</td></tr>
+        <tr><td>پرداخت انگیزه فروش</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.incentiveOut||0)} ت</td></tr>
+        <tr><td>پرداخت هزینه‌های عمومی</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.expenseOut||0)} ت</td></tr>
+        <tr><td>خرید نقدی/چکی (غیرنسیه)</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.purchaseCashOut||0)} ت</td></tr>
+        <tr style="border-top:2px solid var(--border)"><td style="font-weight:700">مجموع خروجی نقد</td><td class="mono" style="color:var(--red);font-weight:700;text-align:left;direction:ltr">-${fmt(d.totalOut||0)} ت</td></tr>
+        <tr style="border-top:2px solid var(--border);background:var(--purple-light)"><td style="font-weight:800">جریان نقد خالص</td><td class="mono" style="font-weight:800;color:${(d.net||0)>=0?'var(--green)':'var(--red)'};text-align:left;direction:ltr">${fmt(d.net||0)} ت</td></tr>
+      </tbody></table>
+    </div></div>`;
+  attachDatepickers(box);
+}
+async function renderSalesByProductReport(box){
+  const qp=[]; if(advReportFrom) qp.push('from='+encodeURIComponent(advReportFrom)); if(advReportTo) qp.push('to='+encodeURIComponent(advReportTo));
+  const d=await api('GET','/adv-reports/sales-by-product'+(qp.length?'?'+qp.join('&'):''))||{rows:[],totals:{}};
+  box.innerHTML=advDateFilterBar()+`
+    <div class="tbl-wrap"><table class="tbl" style="font-size:13px"><thead><tr><th>کالا</th><th>تعداد فروخته‌شده</th><th>درآمد (ت)</th></tr></thead>
+    <tbody>${d.rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmt(r.qty)}</td><td class="mono" style="font-weight:700">${fmt(r.revenue)}</td></tr>`).join('')||emptyRow(3)}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+      <td>جمع کل</td><td class="mono">${fmt(d.totals.qty||0)}</td><td class="mono">${fmt(d.totals.revenue||0)}</td>
+    </tr></tfoot></table></div>`;
+  attachDatepickers(box);
+}
+async function renderInventoryValuationReport(box){
+  const d=await api('GET','/adv-reports/inventory-valuation')||{rows:[],totals:{}};
+  box.innerHTML=`
+    <div class="tbl-wrap"><table class="tbl" style="font-size:13px"><thead><tr>
+      <th>کد</th><th>نام کالا</th><th>موجودی</th><th>بهای تمام‌شده واحد</th><th>ارزش به بهای تمام‌شده</th><th>ارزش به قیمت فروش</th>
+    </tr></thead><tbody>${d.rows.map(p=>`<tr>
+      <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td><td class="mono">${fmt(p.stock)}</td>
+      <td class="mono">${fmt(p.cost)}</td><td class="mono">${fmt(p.cost_value)}</td><td class="mono">${fmt(p.retail_value)}</td>
+    </tr>`).join('')||emptyRow(6)}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+      <td colspan="2">جمع کل (${fmt(d.rows.length)} کالا)</td><td class="mono">${fmt(d.totals.stock||0)}</td>
+      <td></td><td class="mono">${fmt(d.totals.cost_value||0)}</td><td class="mono">${fmt(d.totals.retail_value||0)}</td>
+    </tr></tfoot></table></div>`;
+}
+async function renderInventoryHealthReport(box){
+  const qp=[]; if(advReportFrom) qp.push('from='+encodeURIComponent(advReportFrom)); if(advReportTo) qp.push('to='+encodeURIComponent(advReportTo));
+  const d=await api('GET','/adv-reports/inventory-health'+(qp.length?'?'+qp.join('&'):''))||{negative:[],fastMoving:[],slowMoving:[]};
+  box.innerHTML=advDateFilterBar()+`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="panel"><div class="panel-head"><h4>⚠️ موجودی منفی/صفر</h4></div>
+        <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>کالا</th><th>موجودی</th></tr></thead>
+        <tbody>${d.negative.map(p=>`<tr><td>${esc(p.name)}</td><td class="mono" style="color:var(--red)">${fmt(p.stock)}</td></tr>`).join('')||emptyRow(2)}</tbody></table></div>
+      </div>
+      <div class="panel"><div class="panel-head"><h4>🔥 پرفروش‌ترین (این بازه)</h4></div>
+        <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>کالا</th><th>تعداد فروخته‌شده</th></tr></thead>
+        <tbody>${d.fastMoving.map(p=>`<tr><td>${esc(p.name)}</td><td class="mono" style="color:var(--green);font-weight:700">${fmt(p.qty)}</td></tr>`).join('')||emptyRow(2)}</tbody></table></div>
+      </div>
+      <div class="panel" style="grid-column:1/-1"><div class="panel-head"><h4>🐌 کم‌فروش‌ترین / بدون فروش (این بازه، موجودی بالا)</h4></div>
+        <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>کالا</th><th>موجودی فعلی</th></tr></thead>
+        <tbody>${d.slowMoving.map(p=>`<tr><td>${esc(p.name)}</td><td class="mono">${fmt(p.stock)}</td></tr>`).join('')||emptyRow(2)}</tbody></table></div>
+      </div>
+    </div>`;
+  attachDatepickers(box);
 }
 
 async function supplierPaymentModal(id,name){
@@ -5600,6 +5727,14 @@ function renderAdminGuide(){
         <li><b>مراکز هزینه</b>: تعریف واحد/شعبه/خط تولید برای تفکیک هزینه‌ها در گزارش‌های آینده</li>
         <li><b>گروه‌های مشتری (ماهیت حساب)</b>: تعیین اینکه هر گروه از مشتریان «بدهکار» (پیش‌فرض) یا «بستانکار» باشند — فقط مدیر و حسابدار</li>
         <li><b>صورت‌حساب مشتری</b>: گردش کامل حساب هر مشتری با مانده اول دوره و مانده لحظه‌ای، خروجی اکسل/CSV/PDF و ارسال تصویری به پیام‌رسان</li>
+        <li><b>گزارشات پیشرفته</b>: پنج گزارش تخصصی در یک صفحه —
+          <b>سنی مطالبات</b> (تفکیک مطالبات معوق هر مشتری در بازه‌های ۰-۳۰، ۳۱-۶۰، ۶۱-۹۰ و بیش از ۹۰ روز، با تخصیص FIFO دریافتی‌ها به فاکتورها)،
+          <b>جریان وجه نقد</b> (ورودی از مشتریان در برابر خروجی به تأمین‌کنندگان/انگیزه فروش/هزینه‌ها/خرید نقدی در یک بازه)،
+          <b>فروش به تفکیک کالا</b> (تعداد و درآمد هر کالا در یک بازه)،
+          <b>ارزش‌گذاری موجودی</b> (ارزش کل انبار به بهای تمام‌شده و به قیمت فروش)،
+          و <b>سلامت موجودی</b> (کالاهای با موجودی منفی/صفر، پرفروش‌ترین‌ها و کم‌فروش‌ترین‌های دارای موجودی بالا در یک بازه).
+          <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
+        </li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>
