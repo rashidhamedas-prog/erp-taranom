@@ -2007,7 +2007,10 @@ async function saveInvoice(id){
   };
   try{
     if(id) await api('PUT','/invoices/'+id,data); else await api('POST','/invoices',data);
-    CACHE.invoices=await api('GET','/invoices'); closeModal(); renderInvTable(); showToast('فاکتور ذخیره شد');
+    CACHE.invoices=await api('GET','/invoices'); closeModal();
+    if(el('invTable')) renderInvTable();
+    else if(IN_ACC_SHELL && accTab==='sales-invoices') loadAccTab('sales-invoices');
+    showToast('فاکتور ذخیره شد');
   }catch(e){}
 }
 async function convertProforma(id){
@@ -3066,11 +3069,15 @@ async function deletePersonCategory(id){
   }catch(e){}
 }
 /* ============================================================
-   SALES INVOICES LIST (فاکتورهای فروش) — read-only accounting-shell view
-   of every sales invoice, mirrors the existing Purchase Invoices list.
+   SALES INVOICES LIST (فاکتورهای فروش) — accounting-shell view of every
+   sales invoice; supports issuing new invoices via the same builder/modal
+   used on the main Invoices page (openInvBuilder/saveInvoice).
 ============================================================ */
 async function renderSalesInvoicesTab(body){
-  const rows=(await api('GET','/invoices')||[]).filter(i=>{
+  if(!CACHE.customers||!CACHE.customers.length) CACHE.customers=await api('GET','/customers')||[];
+  if(!CACHE.allProducts||!CACHE.allProducts.length){ CACHE.allProducts=await api('GET','/products')||[]; CACHE.products=CACHE.allProducts; }
+  CACHE.invoices=await api('GET','/invoices')||[];
+  const rows=CACHE.invoices.filter(i=>{
     if(accDateFrom && (i.date||'')<accDateFrom) return false;
     if(accDateTo && (i.date||'')>accDateTo) return false;
     return true;
@@ -3078,6 +3085,7 @@ async function renderSalesInvoicesTab(body){
   const typeLabel={proforma:'پیش‌فاکتور',final:'فاکتور رسمی'};
   const payLabel={cash:'نقد',cheque:'چک'};
   body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="openInvBuilder()">➕ فاکتور جدید</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
       <th>شماره</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی (ت)</th><th>نوع پرداخت</th><th>فروشنده</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(i=>`<tr>
@@ -5934,7 +5942,7 @@ function renderAdminGuide(){
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
-        <li><b>فاکتورهای فروش</b>: نمای فقط-خواندنی همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ — برای دسترسی سریع تیم حسابداری بدون نیاز به رفتن به بخش CRM</li>
+        <li><b>فاکتورهای فروش</b>: لیست همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ، به‌همراه دکمهٔ «فاکتور جدید» — تیم حسابداری می‌تواند بدون نیاز به رفتن به بخش CRM، فاکتور جدید صادر کند (همان فرم انتخاب مشتری/کالا و سبد فاکتور صفحهٔ اصلی فاکتورها)</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی</li>
