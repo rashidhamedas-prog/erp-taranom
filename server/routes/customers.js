@@ -206,6 +206,24 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
   }
 });
 
+// Churn risk score for one customer (computed live if not yet scored)
+router.get('/:id/churn-score', auth, (req, res) => {
+  const db = getDB();
+  const c = db.prepare('SELECT * FROM customers WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
+  if (!c) return res.status(404).json({ error: 'مشتری یافت نشد' });
+  if (!['admin', 'accounting'].includes(req.user.role) && c.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'دسترسی ندارید' });
+  }
+  let score = c.churn_score;
+  if (score == null) {
+    try {
+      score = require('../services/ai').computeChurnScore(db, req.tenantId, c);
+      db.prepare('UPDATE customers SET churn_score=? WHERE id=? AND tenant_id=?').run(score, c.id, req.tenantId);
+    } catch { score = null; }
+  }
+  res.json({ id: c.id, biz: c.biz, churn_score: score });
+});
+
 // Manually send welcome SMS to a specific customer
 router.post('/:id/welcome-sms', auth, async (req, res) => {
   const db = getDB();

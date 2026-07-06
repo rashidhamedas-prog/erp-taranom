@@ -437,6 +437,19 @@ function initDB() {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
 
+    CREATE TABLE IF NOT EXISTS ai_insights (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL DEFAULT 1,
+      customer_id INTEGER,
+      user_id INTEGER,
+      kind TEXT NOT NULL,
+      score INTEGER,
+      title TEXT,
+      body TEXT,
+      period TEXT,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
     CREATE TABLE IF NOT EXISTS einvoice_submissions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER NOT NULL DEFAULT 1,
@@ -611,6 +624,7 @@ function initDB() {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_sync_queue_tenant ON sync_queue(tenant_id, status);
     CREATE INDEX IF NOT EXISTS idx_einvoice_tenant ON einvoice_submissions(tenant_id, status, next_attempt_at);
+    CREATE INDEX IF NOT EXISTS idx_ai_insights_tenant ON ai_insights(tenant_id, kind, created_at);
     CREATE INDEX IF NOT EXISTS idx_einvoice_invoice ON einvoice_submissions(invoice_id);
     CREATE INDEX IF NOT EXISTS idx_sync_conflicts_tenant ON sync_conflicts(tenant_id, reviewed);
   `);
