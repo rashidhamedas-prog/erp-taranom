@@ -473,10 +473,39 @@ function initDB() {
       active INTEGER DEFAULT 1,
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
+
+    CREATE TABLE IF NOT EXISTS banks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      account_number TEXT DEFAULT '',
+      branch TEXT DEFAULT '',
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS check_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bank_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      serial_from TEXT DEFAULT '',
+      serial_to TEXT DEFAULT '',
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(bank_id) REFERENCES banks(id)
+    );
   `);
   ensureColumn(db, 'customers', 'group_id', 'INTEGER');
   ensureColumn(db, 'journal_entries', 'cost_center_id', 'INTEGER');
   ensureColumn(db, 'settlements', 'cost_center_id', 'INTEGER');
+  // Unrestricted bank management — every settlement/payment can be tied to a specific
+  // bank ledger account, and (for cheques we ourselves issue) a specific checkbook.
+  ensureColumn(db, 'settlements', 'bank_id', 'INTEGER');
+  ensureColumn(db, 'purchase_invoices', 'bank_id', 'INTEGER');
+  ensureColumn(db, 'purchase_invoices', 'check_category_id', 'INTEGER');
+  ensureColumn(db, 'supplier_payments', 'bank_id', 'INTEGER');
+  ensureColumn(db, 'supplier_payments', 'check_category_id', 'INTEGER');
+  ensureColumn(db, 'incentive_payments', 'bank_id', 'INTEGER');
+  ensureColumn(db, 'incentive_payments', 'check_category_id', 'INTEGER');
 
   // Seed a default customer group (Debit nature — the standard for receivables)
   const grpCount = db.prepare('SELECT COUNT(*) c FROM customer_groups').get().c;
@@ -546,6 +575,11 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_purchase_returns_supplier ON purchase_returns(supplier_id);
     CREATE INDEX IF NOT EXISTS idx_sales_returns_cust ON sales_returns(cust_id);
     CREATE INDEX IF NOT EXISTS idx_customers_group ON customers(group_id);
+    CREATE INDEX IF NOT EXISTS idx_check_categories_bank ON check_categories(bank_id);
+    CREATE INDEX IF NOT EXISTS idx_settlements_bank ON settlements(bank_id);
+    CREATE INDEX IF NOT EXISTS idx_purchase_invoices_bank ON purchase_invoices(bank_id);
+    CREATE INDEX IF NOT EXISTS idx_supplier_payments_bank ON supplier_payments(bank_id);
+    CREATE INDEX IF NOT EXISTS idx_incentive_payments_bank ON incentive_payments(bank_id);
   `);
 
   // ---- Default admin ----
@@ -703,4 +737,36 @@ function createJournalEntry(db, { date, description, ref_type, ref_id, created_b
   } catch (e) { console.error('journal entry error:', e.message); }
 }
 
-module.exports = { getDB, initDB, audit, createLedgerEntry, createJournalEntry, backfillAccounting };
+// Resolve which ledger account a cash/cheque payment posts against.
+// If a specific bank is chosen, use that bank's own sub-account (created by
+// syncBankAccount below) so each bank reconciles independently; otherwise fall
+// back to the generic صندوق/بانک buckets — fully backward-compatible with
+// records created before banks existed.
+function resolveCashAccount(db, payType, bankId) {
+  if (bankId) {
+    const bank = db.prepare('SELECT * FROM banks WHERE id=?').get(bankId);
+    if (bank) return { code: '1102-' + bank.id, name: bank.name };
+  }
+  // 'cheque' and 'bank' (e.g. card-to-card / wire transfer) both fall back to the
+  // generic bank bucket when no specific bank was chosen; only true cash uses صندوق
+  if (payType === 'cheque' || payType === 'bank') return { code: '1102', name: 'موجودی بانک' };
+  return { code: '1101', name: 'موجودی صندوق' };
+}
+
+// Create/update the chart-of-accounts sub-ledger row that represents a bank,
+// so every bank is a first-class, fully unrestricted ledger account nested
+// under 1102 (موجودی بانک) — reportable in General Ledger / Trial Balance /
+// Balance Sheet exactly like any other account.
+function syncBankAccount(db, bank) {
+  try {
+    db.prepare(`
+      INSERT INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)
+      ON CONFLICT(code) DO UPDATE SET name=excluded.name
+    `).run('1102-' + bank.id, bank.name, 'asset', '1102');
+  } catch (e) { console.error('bank ledger sync error:', e.message); }
+}
+
+module.exports = {
+  getDB, initDB, audit, createLedgerEntry, createJournalEntry, backfillAccounting,
+  resolveCashAccount, syncBankAccount
+};

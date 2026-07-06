@@ -943,6 +943,8 @@ const ACC_NAV = [
   {id:'acc-receivables', icon:'🧾', label:'مطالبات مشتریان'},
   {id:'acc-settlements', icon:'💵', label:'تسویه‌ها'},
   {id:'acc-cheques', icon:'🏦', label:'مدیریت چک‌ها'},
+  {id:'acc-banks', icon:'🏦', label:'بانک‌ها'},
+  {id:'acc-check-categories', icon:'📑', label:'دسته‌های چک'},
   {id:'acc-suppliers', icon:'🚚', label:'تأمین‌کنندگان'},
   {id:'acc-purchases', icon:'📦', label:'فاکتور خرید'},
   {id:'acc-purchase-returns', icon:'↩️', label:'برگشت از خرید'},
@@ -2375,7 +2377,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories']);
 
 // Generic wrapper: every accounting page shares the same header (title + optional
 // date-range filter) and delegates the body to loadAccTab(tabKey).
@@ -2409,6 +2411,8 @@ ROUTES['acc-settlements']=()=>renderAccPage('settlements','💵','تسویه‌�
 ROUTES['acc-cheques']=()=>renderAccPage('cheques','🏦','مدیریت چک‌ها');
 ROUTES['acc-commissions']=()=>renderAccPage('commissions','🎯','تأیید و انگیزه فروش');
 ROUTES['acc-statement']=()=>renderAccPage('statement','📄','صورت‌حساب مشتری');
+ROUTES['acc-banks']=()=>renderAccPage('banks','🏦','بانک‌ها');
+ROUTES['acc-check-categories']=()=>renderAccPage('check-categories','📑','دسته‌های چک');
 ROUTES['acc-suppliers']=()=>renderAccPage('suppliers','🚚','تأمین‌کنندگان');
 ROUTES['acc-purchases']=()=>renderAccPage('purchases','📦','فاکتور خرید');
 ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','برگشت از خرید');
@@ -2697,6 +2701,10 @@ async function loadAccTab(tab){
     await renderCostCentersTab(body);
   } else if(tab==='customer-groups'){
     await renderCustomerGroupsTab(body);
+  } else if(tab==='banks'){
+    await renderBanksTab(body);
+  } else if(tab==='check-categories'){
+    await renderCheckCategoriesTab(body);
   }
 }
 
@@ -2836,25 +2844,52 @@ async function showSupplierLedger(id,name){
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
 }
-function supplierPaymentModal(id,name){
+async function supplierPaymentModal(id,name){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
   openModal(`
     <div class="modal-head"><h3>💵 پرداخت به تأمین‌کننده</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>تأمین‌کننده</label><input value="${esc(name)}" disabled style="background:#f9fafb"></div>
       <div class="fg"><label>مبلغ (تومان) *</label><input id="sp-amount" type="number" min="1"></div>
-      <div class="fg"><label>نوع پرداخت</label><select id="sp-paytype"><option value="cash">نقد</option><option value="cheque">چک</option></select></div>
+      <div class="fg"><label>نوع پرداخت</label><select id="sp-paytype" onchange="toggleBankFields('sp')"><option value="cash">نقد</option><option value="cheque">چک</option></select></div>
+      <div class="fg"><label>پرداخت از بانک ${hlp('این پرداخت از کدام حساب بانکی شرکت انجام می‌شود.')}</label><select id="sp-bank" onchange="updateCheckCategoryOptions('sp')">
+        <option value="">— بدون بانک مشخص —</option>
+        ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg" id="sp-cc-wrap" style="display:none"><label>دسته چک ${hlp('چک از کدام دسته‌چک (دفترچه) ما صادر می‌شود.')}</label><select id="sp-checkcat"><option value="">— انتخاب نشده —</option></select></div>
       <div class="fg"><label>تاریخ</label><input id="sp-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت</label><textarea id="sp-note"></textarea></div>
     </div></div>
     <div class="modal-foot"><button class="btn green" onclick="saveSupplierPayment(${id})">💾 ثبت پرداخت</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  toggleBankFields('sp');
+}
+// Shared: show the دسته چک field only when pay type is cheque
+function toggleBankFields(prefix){
+  const pt=el(prefix+'-paytype')?.value;
+  const wrap=el(prefix+'-cc-wrap'); if(!wrap) return;
+  wrap.style.display=pt==='cheque'?'flex':'none';
+  if(pt==='cheque') updateCheckCategoryOptions(prefix);
+}
+// Shared: repopulate the دسته چک select to only show checkbooks for the chosen bank
+function updateCheckCategoryOptions(prefix){
+  const bankId=+el(prefix+'-bank')?.value||0;
+  const sel=el(prefix+'-checkcat'); if(!sel) return;
+  const opts=(CACHE.checkCategories||[]).filter(c=>c.active&&(!bankId||c.bank_id===bankId));
+  sel.innerHTML='<option value="">— انتخاب نشده —</option>'+opts.map(c=>`<option value="${c.id}">${esc(c.name)} (${esc(c.bank_name||'')})</option>`).join('');
 }
 async function saveSupplierPayment(id){
   const amount=+el('sp-amount').value;
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
-    await api('POST','/purchases/payments',{supplier_id:id,amount,pay_type:el('sp-paytype').value,date:el('sp-date').value,note:el('sp-note').value});
+    await api('POST','/purchases/payments',{
+      supplier_id:id, amount, pay_type:el('sp-paytype').value,
+      date:el('sp-date').value, note:el('sp-note').value,
+      bank_id:+el('sp-bank').value||null,
+      check_category_id:+el('sp-checkcat')?.value||null
+    });
     closeModal(); showToast('پرداخت ثبت شد'); loadAccTab('suppliers');
   }catch(e){}
 }
@@ -2881,18 +2916,25 @@ async function renderPurchasesTab(body){
       <td class="mono" style="font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.final||0),0))}</td><td colspan="3"></td>
     </tr></tfoot></table></div>`;
 }
-function purchaseInvoiceModal(){
+async function purchaseInvoiceModal(){
   genCart=[]; genCartDiscInputId='po-disc'; GEN_CART_PRICE_FIELD='cost';
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
   openModal(`
     <div class="modal-head"><h3>📦 فاکتور خرید جدید</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:14px">
         <div class="fg"><label>تأمین‌کننده * ${hlp('تأمین‌کننده‌ای که این خرید از او انجام شده. نام را جستجو کنید.')}</label>${supplierSelect('po-supplier',0)}</div>
         <div class="fg"><label>تاریخ</label><input id="po-date" data-jdate value="${todayJalali()}"></div>
-        <div class="fg"><label>نوع پرداخت ${hlp('نسیه: مبلغ به حساب پرداختنی تأمین‌کننده اضافه می‌شود. نقد/چک: بلافاصله از صندوق/بانک کسر می‌شود.')}</label><select id="po-paytype">
+        <div class="fg"><label>نوع پرداخت ${hlp('نسیه: مبلغ به حساب پرداختنی تأمین‌کننده اضافه می‌شود. نقد/چک: بلافاصله از صندوق/بانک کسر می‌شود.')}</label><select id="po-paytype" onchange="togglePoBankFields()">
           <option value="credit">نسیه (حساب باز)</option><option value="cash">نقد</option><option value="cheque">چک</option>
         </select></div>
         <div class="fg"><label>تخفیف (٪)</label><input id="po-disc" type="number" value="0" oninput="renderGenCart()"></div>
+        <div class="fg" id="po-bank-wrap" style="display:none"><label>پرداخت از بانک</label><select id="po-bank" onchange="updateCheckCategoryOptions('po')">
+          <option value="">— بدون بانک مشخص —</option>
+          ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+        </select></div>
+        <div class="fg" id="po-cc-wrap" style="display:none"><label>دسته چک</label><select id="po-checkcat"><option value="">— انتخاب نشده —</option></select></div>
         <div class="fg full"><label>یادداشت</label><input id="po-note"></div>
       </div>
       <div class="inv-layout">
@@ -2911,6 +2953,14 @@ function purchaseInvoiceModal(){
   attachDatepickers(el('modalRoot')); initSupplierSearches(el('modalRoot'));
   renderGenCart();
 }
+// Purchase invoices add a third state (نسیه/credit) where no cash moves at all,
+// so the bank/checkbook fields are hidden entirely rather than just the checkbook.
+function togglePoBankFields(){
+  const pt=el('po-paytype')?.value;
+  const bankWrap=el('po-bank-wrap'); if(bankWrap) bankWrap.style.display=pt==='credit'?'none':'flex';
+  const ccWrap=el('po-cc-wrap'); if(ccWrap) ccWrap.style.display=pt==='cheque'?'flex':'none';
+  if(pt==='cheque') updateCheckCategoryOptions('po');
+}
 async function savePurchaseInvoice(){
   const supplier_id=+el('po-supplier').value;
   if(!supplier_id){ showToast('تأمین‌کننده را انتخاب کنید','error'); return; }
@@ -2919,6 +2969,8 @@ async function savePurchaseInvoice(){
     await api('POST','/purchases',{
       supplier_id, date:el('po-date').value, note:el('po-note').value,
       disc:+el('po-disc').value||0, pay_type:el('po-paytype').value,
+      bank_id:+el('po-bank')?.value||null,
+      check_category_id:+el('po-checkcat')?.value||null,
       rows: genCart.map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}))
     });
     closeModal(); showToast('فاکتور خرید ثبت شد'); loadAccTab('purchases');
@@ -3333,6 +3385,133 @@ async function deleteCustomerGroup(id){
   try{ await api('DELETE','/accounting/customer-groups/'+id); showToast('حذف شد'); loadAccTab('customer-groups'); }catch(e){}
 }
 
+/* ============================================================
+   BANKS — unrestricted bank management. Each bank is simultaneously a real
+   chart-of-accounts ledger row (1102-<id>), reportable in General Ledger /
+   Trial Balance / Balance Sheet like any other account.
+============================================================ */
+async function renderBanksTab(body){
+  const banks=await api('GET','/banks')||[];
+  CACHE.banks=banks;
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="bankModal()">➕ بانک جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>نام بانک</th><th>شماره حساب</th><th>شعبه</th><th>کد حساب</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>${banks.map(b=>`<tr>
+      <td>${esc(b.name)}</td><td class="mono">${esc(b.account_number||'-')}</td><td>${esc(b.branch||'-')}</td>
+      <td class="mono muted">1102-${b.id}</td>
+      <td>${b.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sm ghost" onclick="bankModal(${b.id})">✏️</button>
+        <button class="btn sm blue" onclick="viewBankLedger(${b.id})">📒 دفتر کل</button>
+        <button class="btn sm red" onclick="deleteBank(${b.id})">🗑️</button>
+      </td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>
+    <div class="muted" style="font-size:11px;margin-top:8px">هر بانک به‌صورت خودکار یک حساب دفتر کل مستقل دارد — بدون محدودیت در تعداد بانک‌ها.</div>`;
+}
+function bankModal(id){
+  const b=id?(CACHE.banks||[]).find(x=>x.id===id):{active:1};
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش بانک':'بانک جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>نام بانک * ${hlp('نام بانک یا حساب بانکی شرکت، مثال: بانک ملی — حساب جاری.')}</label><input id="bk-name" value="${esc(b?.name||'')}"></div>
+      <div class="fg"><label>شماره حساب</label><input id="bk-account" value="${esc(b?.account_number||'')}"></div>
+      <div class="fg"><label>شعبه</label><input id="bk-branch" value="${esc(b?.branch||'')}"></div>
+      ${id?`<div class="fg"><label>وضعیت</label><select id="bk-active">
+        <option value="1" ${b.active?'selected':''}>فعال</option><option value="0" ${!b.active?'selected':''}>غیرفعال</option>
+      </select></div>`:''}
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveBank(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveBank(id){
+  const name=el('bk-name').value.trim();
+  if(!name){ showToast('نام بانک الزامی است','error'); return; }
+  const data={name,account_number:el('bk-account').value,branch:el('bk-branch').value};
+  if(id) data.active=+el('bk-active').value;
+  try{
+    if(id) await api('PUT','/banks/'+id,data); else await api('POST','/banks',data);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('banks');
+  }catch(e){}
+}
+async function deleteBank(id){
+  if(!confirm('این بانک حذف شود؟')) return;
+  try{ await api('DELETE','/banks/'+id); showToast('حذف شد'); loadAccTab('banks'); }catch(e){}
+}
+function viewBankLedger(id){
+  go('acc-general-ledger');
+  // The ledger page's account picker renders asynchronously (fetches chart of
+  // accounts first) — poll briefly rather than guessing a fixed delay.
+  let tries=0;
+  const tryPreselect=()=>{
+    const sel=el('glAccount');
+    if(sel && sel.querySelector(`option[value="1102-${id}"]`)){
+      sel.value='1102-'+id;
+      loadGeneralLedger('1102-'+id);
+    } else if(tries++<40){
+      setTimeout(tryPreselect,100);
+    }
+  };
+  tryPreselect();
+}
+
+/* ============================================================
+   CHECK CATEGORIES (دسته چک) — our own checkbooks, each tied to a bank.
+   Used whenever WE issue a cheque (supplier payments, incentive payments,
+   cash-basis purchase invoices).
+============================================================ */
+async function renderCheckCategoriesTab(body){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  const rows=await api('GET','/check-categories')||[];
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px">
+      <button class="btn" onclick="checkCategoryModal()" ${(CACHE.banks||[]).length?'':'disabled title="ابتدا یک بانک بسازید"'}>➕ دسته چک جدید</button>
+      ${(CACHE.banks||[]).length?'':'<span class="muted" style="font-size:12px">ابتدا از تب «بانک‌ها» یک بانک بسازید</span>'}
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>نام دسته چک</th><th>بانک</th><th>از سریال</th><th>تا سریال</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>${rows.map(c=>`<tr>
+      <td>${esc(c.name)}</td><td>${esc(c.bank_name||'-')}</td>
+      <td class="mono">${esc(c.serial_from||'-')}</td><td class="mono">${esc(c.serial_to||'-')}</td>
+      <td>${c.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
+      <td><button class="btn sm ghost" onclick="checkCategoryModal(${c.id})">✏️</button>
+          <button class="btn sm red" onclick="deleteCheckCategory(${c.id})">🗑️</button></td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+}
+async function checkCategoryModal(id){
+  const list=id?await api('GET','/check-categories'):[];
+  const c=id?(list.find(x=>x.id===id)||{}):{active:1};
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش دسته چک':'دسته چک جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>بانک * ${hlp('این دسته چک متعلق به کدام حساب بانکی شرکت است.')}</label><select id="cc-bank">
+        ${(CACHE.banks||[]).map(b=>`<option value="${b.id}" ${c.bank_id===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg full"><label>نام دسته چک * ${hlp('برچسبی برای شناسایی این دفترچه چک، مثال: دسته چک شماره ۱.')}</label><input id="cc-name" value="${esc(c.name||'')}"></div>
+      <div class="fg"><label>از سریال</label><input id="cc-from" value="${esc(c.serial_from||'')}"></div>
+      <div class="fg"><label>تا سریال</label><input id="cc-to" value="${esc(c.serial_to||'')}"></div>
+      ${id?`<div class="fg"><label>وضعیت</label><select id="cc-active">
+        <option value="1" ${c.active?'selected':''}>فعال</option><option value="0" ${!c.active?'selected':''}>غیرفعال</option>
+      </select></div>`:''}
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveCheckCategory(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveCheckCategory(id){
+  const name=el('cc-name').value.trim();
+  if(!name){ showToast('نام دسته چک الزامی است','error'); return; }
+  const data={bank_id:+el('cc-bank').value,name,serial_from:el('cc-from').value,serial_to:el('cc-to').value};
+  if(id) data.active=+el('cc-active').value;
+  try{
+    if(id) await api('PUT','/check-categories/'+id,data); else await api('POST','/check-categories',data);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('check-categories');
+  }catch(e){}
+}
+async function deleteCheckCategory(id){
+  if(!confirm('این دسته چک حذف شود؟')) return;
+  try{ await api('DELETE','/check-categories/'+id); showToast('حذف شد'); loadAccTab('check-categories'); }catch(e){}
+}
+
 function stmtQuery(){
   const p=[];
   if(accDateFrom) p.push('from='+encodeURIComponent(accDateFrom));
@@ -3492,7 +3671,8 @@ async function updateChequeStatus(id, status){
   }catch(e){}
 }
 
-function settlementModal(custId){
+async function settlementModal(custId){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   openModal(`
     <div class="modal-head"><h3>ثبت تسویه حساب</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -3500,6 +3680,10 @@ function settlementModal(custId){
       <div class="fg"><label>مبلغ تسویه (تومان) * ${hlp('مبلغ دریافتی به تومان — از بدهی مشتری کم و در دفتر معین بستانکار می‌شود.')}</label><input id="st-amount" type="number" min="1" placeholder="0"></div>
       <div class="fg"><label>نوع پرداخت ${hlp('نقد: واریز نقدی/کارتی. چک: پرداخت با چک — اطلاعات چک را در فرم پایین وارد کنید.')}</label><select id="st-paytype" onchange="toggleStlCheque()">
         <option value="cash">نقد</option><option value="cheque">چک</option></select></div>
+      <div class="fg"><label>واریز به بانک ${hlp('این وجه به کدام حساب بانکی شرکت واریز می‌شود — اختیاری؛ اگر انتخاب نشود در حساب عمومی صندوق/بانک ثبت می‌شود.')}</label><select id="st-bank">
+        <option value="">— بدون بانک مشخص —</option>
+        ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
       <div class="fg"><label>تاریخ ${hlp('تاریخ دریافت وجه — گزارش‌های دوره‌ای بر اساس این تاریخ فیلتر می‌شوند.')}</label><input id="st-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت ${hlp('توضیح اختیاری: شماره پیگیری واریز، توافق پرداخت و…')}</label><textarea id="st-note" placeholder="توضیحات اختیاری..."></textarea></div>
       <div id="chequeFields" class="fg full" style="display:none">
@@ -3539,6 +3723,7 @@ async function saveSettlement(){
       cust_id, amount, pay_type,
       date:el('st-date').value,
       note:el('st-note').value,
+      bank_id:+el('st-bank').value||null,
       cheque_bank:pay_type==='cheque'?(el('st-cbank')?.value||''):'',
       cheque_sayadi:pay_type==='cheque'?(el('st-csayadi')?.value||''):'',
       cheque_number:pay_type==='cheque'?(el('st-cnum')?.value||''):'',
@@ -3562,14 +3747,21 @@ async function deleteSettlement(id){
   }catch(e){}
 }
 
-function incentivePayModal(repId, repName, payable){
+async function incentivePayModal(repId, repName, payable){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
   openModal(`
     <div class="modal-head"><h3>💵 پرداخت انگیزه فروش</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>کارشناس</label><input value="${esc(repName)}" disabled style="background:#f9fafb"></div>
       <div class="fg full"><label>مانده قابل پرداخت</label><input value="${fmt(payable)} تومان" disabled style="background:#f9fafb;color:var(--red);font-weight:700"></div>
       <div class="fg"><label>مبلغ پرداخت (تومان) * ${hlp('مبلغی که به کارشناس پرداخت می‌کنید — از مانده انگیزه فروش او کم می‌شود.')}</label><input id="ip-amount" type="number" min="1" value="${payable>0?payable:''}" placeholder="0"></div>
-      <div class="fg"><label>نوع پرداخت ${hlp('روش پرداخت انگیزه: نقد، چک یا واریز بانکی — در سند حسابداری خودکار ثبت می‌شود.')}</label><select id="ip-paytype"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
+      <div class="fg"><label>نوع پرداخت ${hlp('روش پرداخت انگیزه: نقد، چک یا واریز بانکی — در سند حسابداری خودکار ثبت می‌شود.')}</label><select id="ip-paytype" onchange="toggleBankFields('ip')"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
+      <div class="fg"><label>پرداخت از بانک</label><select id="ip-bank" onchange="updateCheckCategoryOptions('ip')">
+        <option value="">— بدون بانک مشخص —</option>
+        ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg" id="ip-cc-wrap" style="display:none"><label>دسته چک</label><select id="ip-checkcat"><option value="">— انتخاب نشده —</option></select></div>
       <div class="fg"><label>تاریخ ${hlp('تاریخ پرداخت انگیزه فروش.')}</label><input id="ip-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت ${hlp('توضیح اختیاری: بابت کدام دوره، شماره پیگیری واریز و…')}</label><textarea id="ip-note" placeholder="توضیحات اختیاری..."></textarea></div>
     </div></div>
@@ -3578,6 +3770,7 @@ function incentivePayModal(repId, repName, payable){
       <button class="btn ghost" onclick="closeModal()">انصراف</button>
     </div>`);
   attachDatepickers(el('modalRoot'));
+  toggleBankFields('ip');
 }
 
 async function saveIncentivePayment(repId){
@@ -3588,7 +3781,9 @@ async function saveIncentivePayment(repId){
       rep_id:repId, amount,
       pay_type:el('ip-paytype').value,
       date:el('ip-date').value,
-      note:el('ip-note').value
+      note:el('ip-note').value,
+      bank_id:+el('ip-bank').value||null,
+      check_category_id:+el('ip-checkcat')?.value||null
     });
     closeModal(); showToast('پرداخت انگیزه ثبت شد');
     loadAccTab('commissions');
@@ -4280,8 +4475,10 @@ function renderAdminGuide(){
         <li><b>داشبورد حسابداری</b>: آمار کلی، مانده مطالبات/پرداختنی، وضعیت تراز آزمایشی و دسترسی سریع به همه بخش‌ها</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل (فروش ← تخفیف ← بهای تمام‌شده ← سود ناخالص ← انگیزه فروش ← سود عملیاتی) و جریان وجوه</li>
         <li><b>مطالبات مشتریان</b>: بدهی هر مشتری با جمع زنده و دکمه ثبت تسویه</li>
-        <li><b>تسویه‌ها</b>: تاریخچه دریافت‌های نقد/چک از مشتریان</li>
+        <li><b>تسویه‌ها</b>: تاریخچه دریافت‌های نقد/چک از مشتریان — با انتخاب اختیاری «واریز به بانک»</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول</li>
+        <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد (قابل مشاهده در «دفتر کل حساب‌ها»)</li>
+        <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: کاهش/افزایش موجودی انبار و اصلاح خودکار حساب طرف مقابل</li>
@@ -4298,6 +4495,7 @@ function renderAdminGuide(){
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>
       <div class="tip">برای محاسبه درست سود ناخالص، «بهای تمام‌شده» هر محصول را در بخش محصولات وارد کنید.</div>
+      <div class="tip">در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب «بانک» اختیاری است — اگر انتخاب نشود، تراکنش در حساب عمومی صندوق/بانک ثبت می‌شود؛ با انتخاب بانک، دقیقاً همان حساب بانکی در دفتر کل و گزارش‌ها بالا/پایین می‌رود. فیلد «دسته چک» فقط برای چک‌هایی که خودمان صادر می‌کنیم نمایش داده می‌شود.</div>
       <div class="warn">ترازنامه سود انباشته را از مجموع درآمد منهای هزینه‌ها از ابتدای فعالیت محاسبه می‌کند (بدون سند اختتامیه دوره‌ای رسمی) — برای کسب‌وکاری در این مقیاس تقریب مناسبی است.</div>`),
     helpSec('📊','گزارشات',`
       <p>تحلیل عملکرد فروش و کارشناسان.</p><ul>
