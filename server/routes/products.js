@@ -96,11 +96,14 @@ router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
   if (req.file) {
     try { image = await saveImage(req.file.buffer, req.file.originalname); } catch (e) { image = null; }
   }
+  // New products default into the first warehouse so warehouse_id is never
+  // null — Warehouse Transfer can relocate them afterward.
+  const defaultWarehouse = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
   const result = db.prepare(
-    'INSERT INTO products (user_id,category,code,name,price,cost,stock,stock_alert,unit,note,image,colors,pack_size) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    'INSERT INTO products (user_id,category,code,name,price,cost,stock,stock_alert,unit,note,image,colors,pack_size,warehouse_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
   ).run(req.user.id, category || '', code || '', name, parseFloat(price) || 0, parseFloat(cost) || 0, parseInt(stock) || 0,
         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
-        parseInt(colors) || 1, parseInt(pack_size) || 1);
+        parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null);
   audit(req.user.id, 'create', 'product', result.lastInsertRowid, `ساخت محصول ${name}`);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid));
 });

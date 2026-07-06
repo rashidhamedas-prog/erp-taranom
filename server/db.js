@@ -133,6 +133,42 @@ function initDB() {
       FOREIGN KEY(user_id) REFERENCES users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS warehouses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      address TEXT DEFAULT '',
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS warehouse_moves (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      product_id INTEGER NOT NULL,
+      from_warehouse_id INTEGER,
+      to_warehouse_id INTEGER,
+      qty INTEGER NOT NULL,
+      date TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS consignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      direction TEXT NOT NULL,
+      party_name TEXT NOT NULL,
+      party_phone TEXT DEFAULT '',
+      product_id INTEGER NOT NULL,
+      qty INTEGER NOT NULL,
+      unit_price REAL DEFAULT 0,
+      date TEXT DEFAULT '',
+      status TEXT DEFAULT 'open',
+      note TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
     CREATE TABLE IF NOT EXISTS stock_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       product_id INTEGER NOT NULL,
@@ -629,6 +665,16 @@ function initDB() {
   // Petty cash: any existing cash box can be flagged as a custodian-managed
   // petty cash fund (تنخواه‌گردان) — reuses the cash box's own ledger account.
   ensureColumn(db, 'cash_boxes', 'is_petty_cash', 'INTEGER');
+  // Warehouses: each product belongs to one primary warehouse. products.stock
+  // stays the single source of truth for total quantity (untouched by every
+  // existing invoice/purchase/return code path); warehouse_id is purely a
+  // location tag, and warehouse_moves records receipt/issue/transfer history.
+  ensureColumn(db, 'products', 'warehouse_id', 'INTEGER');
+  const whCount = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
+  if (whCount === 0) {
+    const mainWhId = db.prepare("INSERT INTO warehouses (name,address) VALUES ('انبار مرکزی','')").run().lastInsertRowid;
+    db.prepare('UPDATE products SET warehouse_id=? WHERE warehouse_id IS NULL').run(mainWhId);
+  }
 
   // Seed a default customer group (Debit nature — the standard for receivables)
   const grpCount = db.prepare('SELECT COUNT(*) c FROM customer_groups').get().c;

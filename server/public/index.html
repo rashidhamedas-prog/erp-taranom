@@ -957,6 +957,9 @@ const ACC_NAV = [
   {id:'acc-purchase-returns', icon:'↩️', label:'برگشت از خرید'},
   {id:'acc-sales-returns', icon:'↪️', label:'برگشت از فروش'},
   {id:'acc-item-kardex', icon:'📋', label:'کاردکس کالا'},
+  {id:'acc-warehouses', icon:'🏭', label:'انبارها'},
+  {id:'acc-warehouse-ops', icon:'📦', label:'عملیات انبار (رسید/حواله/انتقال)'},
+  {id:'acc-consignments', icon:'🔄', label:'کالای امانی'},
   {id:'acc-vouchers', icon:'📝', label:'اسناد حسابداری (دستی)'},
   {id:'acc-general-ledger', icon:'📒', label:'دفتر کل حساب‌ها'},
   {id:'acc-trial-balance', icon:'⚖️', label:'تراز آزمایشی'},
@@ -2396,7 +2399,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments']);
 
 // Generic wrapper: every accounting page shares the same header (title + optional
 // date-range filter) and delegates the body to loadAccTab(tabKey).
@@ -2444,6 +2447,9 @@ ROUTES['acc-purchases']=()=>renderAccPage('purchases','📦','فاکتور خر�
 ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','برگشت از خرید');
 ROUTES['acc-sales-returns']=()=>renderAccPage('sales-returns','↪️','برگشت از فروش');
 ROUTES['acc-item-kardex']=()=>renderAccPage('item-kardex','📋','کاردکس کالا');
+ROUTES['acc-warehouses']=()=>renderAccPage('warehouses','🏭','انبارها');
+ROUTES['acc-warehouse-ops']=()=>renderAccPage('warehouse-ops','📦','عملیات انبار (رسید / حواله / انتقال)');
+ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای امانی');
 ROUTES['acc-vouchers']=()=>renderAccPage('vouchers','📝','اسناد حسابداری دستی (سند دوطرفه)');
 ROUTES['acc-general-ledger']=()=>renderAccPage('general-ledger','📒','دفتر کل حساب‌ها');
 ROUTES['acc-trial-balance']=()=>renderAccPage('trial-balance','⚖️','تراز آزمایشی');
@@ -2588,6 +2594,12 @@ async function loadAccTab(tab){
     await renderSalesInvoicesTab(body);
   } else if(tab==='item-kardex'){
     await renderItemKardexTab(body);
+  } else if(tab==='warehouses'){
+    await renderWarehousesTab(body);
+  } else if(tab==='warehouse-ops'){
+    await renderWarehouseOpsTab(body);
+  } else if(tab==='consignments'){
+    await renderConsignmentsTab(body);
   } else if(tab==='cheques'){
     const statusFilter=el('chqStatus')?.value||'';
     const bankFilter=el('chqBank')?.value||'';
@@ -3099,6 +3111,250 @@ async function loadItemKardex(productId){
       </div>
     </div>`;
 }
+/* ============================================================
+   WAREHOUSES (انبارها) — each product belongs to exactly one warehouse;
+   products.stock remains the single total. See routes/warehouses.js for
+   the documented limits of this simplified (non-per-warehouse-quantity) model.
+============================================================ */
+function productOptions(selectedId){
+  return `<option value="">-- انتخاب کالا --</option>` + (CACHE.allProducts||[]).map(p=>`<option value="${p.id}" ${p.id===selectedId?'selected':''}>${esc(p.name)} (${esc(p.code||'-')}) — موجودی: ${fmt(p.stock||0)}</option>`).join('');
+}
+async function renderWarehousesTab(body){
+  const warehouses=await api('GET','/warehouses')||[];
+  CACHE.warehouses=warehouses;
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="warehouseModal()">➕ انبار جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>نام انبار</th><th>آدرس</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>${warehouses.map(w=>`<tr>
+      <td>${esc(w.name)}</td><td class="muted">${esc(w.address||'-')}</td>
+      <td>${w.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sm blue" onclick="viewWarehouseStock(${w.id},'${esc(w.name)}')">📦 موجودی</button>
+        <button class="btn sm ghost" onclick="warehouseModal(${w.id})">✏️</button>
+        <button class="btn sm red" onclick="deleteWarehouse(${w.id})">🗑️</button>
+      </td>
+    </tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
+}
+function warehouseModal(id){
+  const w=id?(CACHE.warehouses||[]).find(x=>x.id===id):{active:1};
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش انبار':'انبار جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>نام انبار *</label><input id="wh-name" value="${esc(w?.name||'')}"></div>
+      <div class="fg full"><label>آدرس</label><input id="wh-address" value="${esc(w?.address||'')}"></div>
+      ${id?`<div class="fg"><label>وضعیت</label><select id="wh-active">
+        <option value="1" ${w.active?'selected':''}>فعال</option><option value="0" ${!w.active?'selected':''}>غیرفعال</option>
+      </select></div>`:''}
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveWarehouse(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveWarehouse(id){
+  const name=el('wh-name').value.trim();
+  if(!name){ showToast('نام انبار الزامی است','error'); return; }
+  const data={name,address:el('wh-address').value};
+  if(id) data.active=+el('wh-active').value;
+  try{
+    if(id) await api('PUT','/warehouses/'+id,data); else await api('POST','/warehouses',data);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('warehouses');
+  }catch(e){}
+}
+async function deleteWarehouse(id){
+  if(!confirm('این انبار حذف شود؟')) return;
+  try{ await api('DELETE','/warehouses/'+id); showToast('حذف شد'); loadAccTab('warehouses'); }catch(e){}
+}
+async function viewWarehouseStock(id,name){
+  const rows=await api('GET','/warehouses/'+id+'/stock')||[];
+  openModal(`
+    <div class="modal-head"><h3>📦 موجودی انبار: ${esc(name)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="padding:0">
+      <div class="tbl-wrap" style="max-height:70vh"><table class="tbl" style="font-size:13px"><thead><tr>
+        <th>کد</th><th>نام کالا</th><th>موجودی</th><th>واحد</th>
+      </tr></thead><tbody>${rows.map(p=>`<tr>
+        <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td>
+        <td class="mono" style="font-weight:700;color:${p.stock<=p.stock_alert?'var(--red)':'inherit'}">${fmt(p.stock)}</td>
+        <td class="muted">${esc(p.unit||'-')}</td>
+      </tr>`).join('')||'<tr><td colspan="4" class="empty">کالایی در این انبار نیست</td></tr>'}</tbody></table></div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+}
+
+/* ============================================================
+   WAREHOUSE OPERATIONS (رسید / حواله / انتقال انبار)
+============================================================ */
+async function renderWarehouseOpsTab(body){
+  if(!CACHE.warehouses) CACHE.warehouses=await api('GET','/warehouses')||[];
+  if(!CACHE.allProducts||!CACHE.allProducts.length) CACHE.allProducts=await api('GET','/products')||[];
+  const moves=await api('GET','/warehouses/moves/list')||[];
+  const typeLabel={receipt:'⬇️ رسید',issue:'⬆️ حواله',transfer:'🔄 انتقال'};
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <button class="btn green" onclick="warehouseReceiptModal()">⬇️ رسید انبار</button>
+      <button class="btn orange" onclick="warehouseIssueModal()">⬆️ حواله انبار</button>
+      <button class="btn" onclick="warehouseTransferModal()">🔄 انتقال بین انبارها</button>
+    </div>
+    <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <th>تاریخ</th><th>نوع</th><th>کالا</th><th>از انبار</th><th>به انبار</th><th>تعداد</th><th>یادداشت</th><th>ثبت‌کننده</th>
+    </tr></thead><tbody>${moves.map(m=>`<tr>
+      <td class="mono">${escDate(m.date)}</td><td>${typeLabel[m.type]||m.type}</td>
+      <td>${esc(m.product_name||'-')}</td><td class="muted">${esc(m.from_warehouse_name||'-')}</td><td class="muted">${esc(m.to_warehouse_name||'-')}</td>
+      <td class="mono">${fmt(m.qty)}</td><td class="muted">${esc(m.note||'-')}</td><td class="muted">${esc(m.recorder||'-')}</td>
+    </tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+}
+function warehouseReceiptModal(){
+  openModal(`
+    <div class="modal-head"><h3>⬇️ رسید انبار</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>کالا * ${hlp('اگر کالا در انبار دیگری بود، با ثبت رسید در این انبار جابه‌جا می‌شود.')}</label><select id="wr-product">${productOptions()}</select></div>
+      <div class="fg"><label>انبار مقصد *</label><select id="wr-warehouse">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>تعداد *</label><input id="wr-qty" type="number" min="1"></div>
+      <div class="fg"><label>تاریخ</label><input id="wr-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>یادداشت</label><input id="wr-note" placeholder="مثال: موجودی اولیه، کالای یافت‌شده، ..."></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn green" onclick="saveWarehouseReceipt()">💾 ثبت رسید</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function saveWarehouseReceipt(){
+  const product_id=+el('wr-product').value, warehouse_id=+el('wr-warehouse').value, qty=+el('wr-qty').value;
+  if(!product_id||!warehouse_id||!qty){ showToast('همه فیلدهای الزامی را پر کنید','error'); return; }
+  try{
+    await api('POST','/warehouses/moves/receipt',{product_id,warehouse_id,qty,date:el('wr-date').value,note:el('wr-note').value});
+    closeModal(); showToast('رسید انبار ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
+  }catch(e){}
+}
+function warehouseIssueModal(){
+  openModal(`
+    <div class="modal-head"><h3>⬆️ حواله انبار</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>کالا *</label><select id="wi-product">${productOptions()}</select></div>
+      <div class="fg"><label>انبار مبدأ *</label><select id="wi-warehouse">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>تعداد *</label><input id="wi-qty" type="number" min="1"></div>
+      <div class="fg"><label>تاریخ</label><input id="wi-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>یادداشت</label><input id="wi-note" placeholder="مثال: ضایعات، مصرف داخلی، ..."></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn orange" onclick="saveWarehouseIssue()">💾 ثبت حواله</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function saveWarehouseIssue(){
+  const product_id=+el('wi-product').value, warehouse_id=+el('wi-warehouse').value, qty=+el('wi-qty').value;
+  if(!product_id||!warehouse_id||!qty){ showToast('همه فیلدهای الزامی را پر کنید','error'); return; }
+  try{
+    await api('POST','/warehouses/moves/issue',{product_id,warehouse_id,qty,date:el('wi-date').value,note:el('wi-note').value});
+    closeModal(); showToast('حواله انبار ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
+  }catch(e){}
+}
+function warehouseTransferModal(){
+  openModal(`
+    <div class="modal-head"><h3>🔄 انتقال بین انبارها</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>کالا * ${hlp('کل موجودی فعلی این کالا به انبار مقصد منتقل می‌شود.')}</label><select id="wt-product">${productOptions()}</select></div>
+      <div class="fg"><label>انبار مبدأ *</label><select id="wt-from">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>انبار مقصد *</label><select id="wt-to">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>تاریخ</label><input id="wt-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>یادداشت</label><input id="wt-note"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveWarehouseTransfer()">💾 ثبت انتقال</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function saveWarehouseTransfer(){
+  const product_id=+el('wt-product').value, from_warehouse_id=+el('wt-from').value, to_warehouse_id=+el('wt-to').value;
+  if(!product_id||!from_warehouse_id||!to_warehouse_id){ showToast('همه فیلدهای الزامی را پر کنید','error'); return; }
+  try{
+    await api('POST','/warehouses/moves/transfer',{product_id,from_warehouse_id,to_warehouse_id,date:el('wt-date').value,note:el('wt-note').value});
+    closeModal(); showToast('انتقال ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
+  }catch(e){}
+}
+
+/* ============================================================
+   CONSIGNMENT GOODS (کالای امانی) — ownership stays with the original
+   owner until settled. "out" reduces our stock immediately (goods leave
+   physically); "in" never touches our stock (never ours to begin with).
+============================================================ */
+const CS_STATUS_LABEL={open:'باز',settled:'تسویه شده (فروخته شد)',returned:'مسترد شده'};
+const CS_STATUS_COLOR={open:'var(--orange)',settled:'var(--green)',returned:'var(--muted)'};
+async function renderConsignmentsTab(body){
+  if(!CACHE.allProducts||!CACHE.allProducts.length) CACHE.allProducts=await api('GET','/products')||[];
+  const dirFilter=el('csDirFilter')?.value||'';
+  const statusFilter=el('csStatusFilter')?.value||'';
+  const qp=[]; if(dirFilter) qp.push('direction='+dirFilter); if(statusFilter) qp.push('status='+statusFilter);
+  const rows=await api('GET','/consignments'+(qp.length?'?'+qp.join('&'):''))||[];
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <button class="btn" onclick="consignmentModal()">➕ ثبت کالای امانی</button>
+      <select id="csDirFilter" onchange="loadAccTab('consignments')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px">
+        <option value="">همه جهت‌ها</option>
+        <option value="out" ${dirFilter==='out'?'selected':''}>ارسالی (نزد دیگران)</option>
+        <option value="in" ${dirFilter==='in'?'selected':''}>دریافتی (نزد ما)</option>
+      </select>
+      <select id="csStatusFilter" onchange="loadAccTab('consignments')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px">
+        <option value="">همه وضعیت‌ها</option>
+        ${Object.entries(CS_STATUS_LABEL).map(([k,v])=>`<option value="${k}" ${statusFilter===k?'selected':''}>${v}</option>`).join('')}
+      </select>
+    </div>
+    <div class="tbl-wrap"><table class="tbl" style="font-size:13px"><thead><tr>
+      <th>جهت</th><th>طرف حساب</th><th>کالا</th><th>تعداد</th><th>قیمت واحد (ت)</th><th>تاریخ</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>${rows.map(r=>`<tr>
+      <td>${r.direction==='out'?'📤 ارسالی':'📥 دریافتی'}</td>
+      <td>${esc(r.party_name)}</td><td>${esc(r.product_name||'-')}</td>
+      <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.unit_price)}</td>
+      <td class="mono">${escDate(r.date)}</td>
+      <td><span class="tag" style="background:${CS_STATUS_COLOR[r.status]};color:#fff">${CS_STATUS_LABEL[r.status]||r.status}</span></td>
+      <td style="white-space:nowrap">
+        ${r.status==='open'?`
+          <button class="btn sm green" onclick="setConsignmentStatus(${r.id},'settled')">✅ تسویه (فروخته شد)</button>
+          <button class="btn sm ghost" onclick="setConsignmentStatus(${r.id},'returned')">↩️ استرداد</button>`:''}
+        <button class="btn sm red icon" onclick="deleteConsignment(${r.id})">🗑️</button>
+      </td>
+    </tr>`).join('')||emptyRow(8)}</tbody></table></div>
+    <div class="muted" style="font-size:11px;margin-top:8px">با «تسویه»، مالکیت کالا نهایی می‌شود — فروش/پرداخت واقعی را جداگانه از فاکتور فروش یا عملیات پرداخت ثبت کنید. با «استرداد» کالای ارسالی به موجودی انبار بازمی‌گردد.</div>`;
+}
+function consignmentModal(){
+  openModal(`
+    <div class="modal-head"><h3>🔄 ثبت کالای امانی</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>جهت *</label><select id="cs-direction">
+        <option value="out">ارسالی (کالای ما نزد دیگران است)</option>
+        <option value="in">دریافتی (کالای دیگران نزد ماست)</option>
+      </select></div>
+      <div class="fg"><label>طرف حساب * ${hlp('نام مشتری، تأمین‌کننده یا شخصی که این کالا نزد او امانت است.')}</label><input id="cs-party"></div>
+      <div class="fg"><label>تلفن طرف حساب</label><input id="cs-phone"></div>
+      <div class="fg full"><label>کالا *</label><select id="cs-product">${productOptions()}</select></div>
+      <div class="fg"><label>تعداد *</label><input id="cs-qty" type="number" min="1"></div>
+      <div class="fg"><label>قیمت واحد مرجع (تومان)</label><input id="cs-price" type="number" min="0"></div>
+      <div class="fg"><label>تاریخ</label><input id="cs-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>یادداشت</label><textarea id="cs-note"></textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveConsignment()">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function saveConsignment(){
+  const party_name=el('cs-party').value.trim();
+  const product_id=+el('cs-product').value, qty=+el('cs-qty').value;
+  if(!party_name){ showToast('نام طرف حساب الزامی است','error'); return; }
+  if(!product_id||!qty){ showToast('کالا و تعداد معتبر الزامی است','error'); return; }
+  try{
+    await api('POST','/consignments',{
+      direction:el('cs-direction').value, party_name, party_phone:el('cs-phone').value,
+      product_id, qty, unit_price:+el('cs-price').value||0, date:el('cs-date').value, note:el('cs-note').value
+    });
+    closeModal(); showToast('کالای امانی ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('consignments');
+  }catch(e){}
+}
+async function setConsignmentStatus(id,status){
+  const labels={settled:'تسویه شود',returned:'مسترد شود'};
+  if(!confirm(`وضعیت این کالای امانی به «${labels[status]||status}» تغییر کند؟`)) return;
+  try{ await api('PATCH','/consignments/'+id+'/status',{status}); showToast('وضعیت به‌روزرسانی شد'); loadAccTab('consignments'); }catch(e){}
+}
+async function deleteConsignment(id){
+  if(!confirm('این رکورد حذف شود؟ در صورت باز بودن و ارسالی بودن، موجودی بازگردانده می‌شود.')) return;
+  try{ await api('DELETE','/consignments/'+id); showToast('حذف شد'); loadAccTab('consignments'); }catch(e){}
+}
+
 async function supplierPaymentModal(id,name){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
@@ -5332,6 +5588,9 @@ function renderAdminGuide(){
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی</li>
+        <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
+        <li><b>عملیات انبار</b>: <b>رسید انبار</b> (افزودن موجودی به یک انبار مشخص)، <b>حواله انبار</b> (کسر موجودی از یک انبار، مثلاً ضایعات یا مصرف داخلی)، و <b>انتقال بین انبارها</b> (جابه‌جایی کامل موجودی یک کالا به انبار دیگر) — همراه با تاریخچه کامل عملیات</li>
+        <li><b>کالای امانی</b>: پیگیری کالاهایی که مالکیتشان هنوز نهایی نشده — <b>ارسالی</b> (کالای ما نزد دیگران، بلافاصله از موجودی کسر می‌شود) و <b>دریافتی</b> (کالای دیگران نزد ما، به موجودی خودمان اضافه نمی‌شود). با «تسویه» فروش قطعی می‌شود (فاکتور/پرداخت واقعی را جداگانه ثبت کنید) و با «استرداد» کالای ارسالی به موجودی برمی‌گردد</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده</li>
         <li><b>دفتر کل حساب‌ها</b>: انتخاب هر حساب از کدینگ حسابداری و مشاهده گردش کامل آن با مانده لحظه‌ای</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
