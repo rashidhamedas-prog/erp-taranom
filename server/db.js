@@ -493,6 +493,27 @@ function initDB() {
       created_at INTEGER DEFAULT (strftime('%s','now')),
       FOREIGN KEY(bank_id) REFERENCES banks(id)
     );
+
+    CREATE TABLE IF NOT EXISTS cash_boxes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      custodian TEXT DEFAULT '',
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS account_transfers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      from_type TEXT NOT NULL,
+      from_id INTEGER,
+      to_type TEXT NOT NULL,
+      to_id INTEGER,
+      amount REAL NOT NULL,
+      note TEXT DEFAULT '',
+      user_id INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
   `);
   ensureColumn(db, 'customers', 'group_id', 'INTEGER');
   ensureColumn(db, 'journal_entries', 'cost_center_id', 'INTEGER');
@@ -506,6 +527,12 @@ function initDB() {
   ensureColumn(db, 'supplier_payments', 'check_category_id', 'INTEGER');
   ensureColumn(db, 'incentive_payments', 'bank_id', 'INTEGER');
   ensureColumn(db, 'incentive_payments', 'check_category_id', 'INTEGER');
+  // Unrestricted cash-box management — mirrors banks: every payment/receipt can
+  // optionally be tied to a specific cash box's own ledger sub-account.
+  ensureColumn(db, 'settlements', 'cash_box_id', 'INTEGER');
+  ensureColumn(db, 'purchase_invoices', 'cash_box_id', 'INTEGER');
+  ensureColumn(db, 'supplier_payments', 'cash_box_id', 'INTEGER');
+  ensureColumn(db, 'incentive_payments', 'cash_box_id', 'INTEGER');
 
   // Seed a default customer group (Debit nature — the standard for receivables)
   const grpCount = db.prepare('SELECT COUNT(*) c FROM customer_groups').get().c;
@@ -746,13 +773,18 @@ function createJournalEntry(db, { date, description, ref_type, ref_id, created_b
 
 // Resolve which ledger account a cash/cheque payment posts against.
 // If a specific bank is chosen, use that bank's own sub-account (created by
-// syncBankAccount below) so each bank reconciles independently; otherwise fall
-// back to the generic صندوق/بانک buckets — fully backward-compatible with
-// records created before banks existed.
-function resolveCashAccount(db, payType, bankId) {
+// syncBankAccount below) so each bank reconciles independently; if a specific
+// cash box is chosen, use its own sub-account (syncCashBoxAccount) the same
+// way; otherwise fall back to the generic صندوق/بانک buckets — fully
+// backward-compatible with records created before banks/cash boxes existed.
+function resolveCashAccount(db, payType, bankId, cashBoxId) {
   if (bankId) {
     const bank = db.prepare('SELECT * FROM banks WHERE id=?').get(bankId);
     if (bank) return { code: '1102-' + bank.id, name: bank.name };
+  }
+  if (cashBoxId) {
+    const box = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(cashBoxId);
+    if (box) return { code: '1101-' + box.id, name: box.name };
   }
   // 'cheque' and 'bank' (e.g. card-to-card / wire transfer) both fall back to the
   // generic bank bucket when no specific bank was chosen; only true cash uses صندوق
@@ -773,7 +805,17 @@ function syncBankAccount(db, bank) {
   } catch (e) { console.error('bank ledger sync error:', e.message); }
 }
 
+// Same as syncBankAccount but for cash boxes, nested under 1101 (موجودی صندوق).
+function syncCashBoxAccount(db, box) {
+  try {
+    db.prepare(`
+      INSERT INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)
+      ON CONFLICT(code) DO UPDATE SET name=excluded.name
+    `).run('1101-' + box.id, box.name, 'asset', '1101');
+  } catch (e) { console.error('cash box ledger sync error:', e.message); }
+}
+
 module.exports = {
   getDB, initDB, audit, createLedgerEntry, createJournalEntry, backfillAccounting,
-  resolveCashAccount, syncBankAccount
+  resolveCashAccount, syncBankAccount, syncCashBoxAccount
 };

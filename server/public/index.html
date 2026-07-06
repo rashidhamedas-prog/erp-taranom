@@ -945,6 +945,8 @@ const ACC_NAV = [
   {id:'acc-cheques', icon:'🏦', label:'مدیریت چک‌ها'},
   {id:'acc-banks', icon:'🏦', label:'بانک‌ها'},
   {id:'acc-check-categories', icon:'📑', label:'دسته‌های چک'},
+  {id:'acc-cash-boxes', icon:'💰', label:'صندوق‌های نقدی'},
+  {id:'acc-transfers', icon:'🔄', label:'انتقال وجه'},
   {id:'acc-suppliers', icon:'🚚', label:'تأمین‌کنندگان'},
   {id:'acc-purchases', icon:'📦', label:'فاکتور خرید'},
   {id:'acc-purchase-returns', icon:'↩️', label:'برگشت از خرید'},
@@ -2377,7 +2379,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes']);
 
 // Generic wrapper: every accounting page shares the same header (title + optional
 // date-range filter) and delegates the body to loadAccTab(tabKey).
@@ -2413,6 +2415,8 @@ ROUTES['acc-commissions']=()=>renderAccPage('commissions','🎯','تأیید و 
 ROUTES['acc-statement']=()=>renderAccPage('statement','📄','صورت‌حساب مشتری');
 ROUTES['acc-banks']=()=>renderAccPage('banks','🏦','بانک‌ها');
 ROUTES['acc-check-categories']=()=>renderAccPage('check-categories','📑','دسته‌های چک');
+ROUTES['acc-cash-boxes']=()=>renderAccPage('cash-boxes','💰','صندوق‌های نقدی');
+ROUTES['acc-transfers']=()=>renderAccPage('transfers','🔄','انتقال وجه بین حساب‌ها');
 ROUTES['acc-suppliers']=()=>renderAccPage('suppliers','🚚','تأمین‌کنندگان');
 ROUTES['acc-purchases']=()=>renderAccPage('purchases','📦','فاکتور خرید');
 ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','برگشت از خرید');
@@ -2705,6 +2709,10 @@ async function loadAccTab(tab){
     await renderBanksTab(body);
   } else if(tab==='check-categories'){
     await renderCheckCategoriesTab(body);
+  } else if(tab==='cash-boxes'){
+    await renderCashBoxesTab(body);
+  } else if(tab==='transfers'){
+    await renderTransfersTab(body,dq);
   }
 }
 
@@ -2846,6 +2854,7 @@ async function showSupplierLedger(id,name){
 }
 async function supplierPaymentModal(id,name){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
   openModal(`
     <div class="modal-head"><h3>💵 پرداخت به تأمین‌کننده</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -2856,6 +2865,10 @@ async function supplierPaymentModal(id,name){
       <div class="fg"><label>پرداخت از بانک ${hlp('این پرداخت از کدام حساب بانکی شرکت انجام می‌شود.')}</label><select id="sp-bank" onchange="updateCheckCategoryOptions('sp')">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>پرداخت از صندوق ${hlp('اگر این پرداخت نقداً از یکی از صندوق‌ها انجام شده — اختیاری.')}</label><select id="sp-cashbox">
+        <option value="">— بدون صندوق مشخص —</option>
+        ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
       <div class="fg" id="sp-cc-wrap" style="display:none"><label>دسته چک ${hlp('چک از کدام دسته‌چک (دفترچه) ما صادر می‌شود.')}</label><select id="sp-checkcat"><option value="">— انتخاب نشده —</option></select></div>
       <div class="fg"><label>تاریخ</label><input id="sp-date" data-jdate value="${todayJalali()}"></div>
@@ -2888,6 +2901,7 @@ async function saveSupplierPayment(id){
       supplier_id:id, amount, pay_type:el('sp-paytype').value,
       date:el('sp-date').value, note:el('sp-note').value,
       bank_id:+el('sp-bank').value||null,
+      cash_box_id:+el('sp-cashbox')?.value||null,
       check_category_id:+el('sp-checkcat')?.value||null
     });
     closeModal(); showToast('پرداخت ثبت شد'); loadAccTab('suppliers');
@@ -2919,6 +2933,7 @@ async function renderPurchasesTab(body){
 async function purchaseInvoiceModal(){
   genCart=[]; genCartDiscInputId='po-disc'; GEN_CART_PRICE_FIELD='cost';
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
   openModal(`
     <div class="modal-head"><h3>📦 فاکتور خرید جدید</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -2933,6 +2948,10 @@ async function purchaseInvoiceModal(){
         <div class="fg" id="po-bank-wrap" style="display:none"><label>پرداخت از بانک</label><select id="po-bank" onchange="updateCheckCategoryOptions('po')">
           <option value="">— بدون بانک مشخص —</option>
           ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+        </select></div>
+        <div class="fg" id="po-cashbox-wrap" style="display:none"><label>پرداخت از صندوق</label><select id="po-cashbox">
+          <option value="">— بدون صندوق مشخص —</option>
+          ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
         </select></div>
         <div class="fg" id="po-cc-wrap" style="display:none"><label>دسته چک</label><select id="po-checkcat"><option value="">— انتخاب نشده —</option></select></div>
         <div class="fg full"><label>یادداشت</label><input id="po-note"></div>
@@ -2958,6 +2977,7 @@ async function purchaseInvoiceModal(){
 function togglePoBankFields(){
   const pt=el('po-paytype')?.value;
   const bankWrap=el('po-bank-wrap'); if(bankWrap) bankWrap.style.display=pt==='credit'?'none':'flex';
+  const cashboxWrap=el('po-cashbox-wrap'); if(cashboxWrap) cashboxWrap.style.display=pt==='credit'?'none':'flex';
   const ccWrap=el('po-cc-wrap'); if(ccWrap) ccWrap.style.display=pt==='cheque'?'flex':'none';
   if(pt==='cheque') updateCheckCategoryOptions('po');
 }
@@ -2970,6 +2990,7 @@ async function savePurchaseInvoice(){
       supplier_id, date:el('po-date').value, note:el('po-note').value,
       disc:+el('po-disc').value||0, pay_type:el('po-paytype').value,
       bank_id:+el('po-bank')?.value||null,
+      cash_box_id:+el('po-cashbox')?.value||null,
       check_category_id:+el('po-checkcat')?.value||null,
       rows: genCart.map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}))
     });
@@ -3512,6 +3533,139 @@ async function deleteCheckCategory(id){
   try{ await api('DELETE','/check-categories/'+id); showToast('حذف شد'); loadAccTab('check-categories'); }catch(e){}
 }
 
+/* ============================================================
+   CASH BOXES (صندوق‌های نقدی) — unrestricted, mirrors Banks. Each cash box
+   is simultaneously its own chart-of-accounts ledger row (1101-<id>).
+============================================================ */
+async function renderCashBoxesTab(body){
+  const boxes=await api('GET','/cash-boxes')||[];
+  CACHE.cashBoxes=boxes;
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="cashBoxModal()">➕ صندوق جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>نام صندوق</th><th>مسئول صندوق</th><th>کد حساب</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>${boxes.map(b=>`<tr>
+      <td>${esc(b.name)}</td><td>${esc(b.custodian||'-')}</td>
+      <td class="mono muted">1101-${b.id}</td>
+      <td>${b.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sm ghost" onclick="cashBoxModal(${b.id})">✏️</button>
+        <button class="btn sm blue" onclick="viewCashBoxLedger(${b.id})">📒 دفتر کل</button>
+        <button class="btn sm red" onclick="deleteCashBox(${b.id})">🗑️</button>
+      </td>
+    </tr>`).join('')||emptyRow(5)}</tbody></table></div>
+    <div class="muted" style="font-size:11px;margin-top:8px">هر صندوق به‌صورت خودکار یک حساب دفتر کل مستقل دارد — بدون محدودیت در تعداد صندوق‌ها.</div>`;
+}
+function cashBoxModal(id){
+  const b=id?(CACHE.cashBoxes||[]).find(x=>x.id===id):{active:1};
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش صندوق':'صندوق جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>نام صندوق * ${hlp('نام صندوق نقدی، مثال: صندوق فروشگاه یا صندوق دفتر مرکزی.')}</label><input id="cb-name" value="${esc(b?.name||'')}"></div>
+      <div class="fg full"><label>مسئول صندوق</label><input id="cb-custodian" value="${esc(b?.custodian||'')}"></div>
+      ${id?`<div class="fg"><label>وضعیت</label><select id="cb-active">
+        <option value="1" ${b.active?'selected':''}>فعال</option><option value="0" ${!b.active?'selected':''}>غیرفعال</option>
+      </select></div>`:''}
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveCashBox(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveCashBox(id){
+  const name=el('cb-name').value.trim();
+  if(!name){ showToast('نام صندوق الزامی است','error'); return; }
+  const data={name,custodian:el('cb-custodian').value};
+  if(id) data.active=+el('cb-active').value;
+  try{
+    if(id) await api('PUT','/cash-boxes/'+id,data); else await api('POST','/cash-boxes',data);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('cash-boxes');
+  }catch(e){}
+}
+async function deleteCashBox(id){
+  if(!confirm('این صندوق حذف شود؟')) return;
+  try{ await api('DELETE','/cash-boxes/'+id); showToast('حذف شد'); loadAccTab('cash-boxes'); }catch(e){}
+}
+function viewCashBoxLedger(id){
+  go('acc-general-ledger');
+  let tries=0;
+  const tryPreselect=()=>{
+    const sel=el('glAccount');
+    if(sel && sel.querySelector(`option[value="1101-${id}"]`)){
+      sel.value='1101-'+id;
+      loadGeneralLedger('1101-'+id);
+    } else if(tries++<40){
+      setTimeout(tryPreselect,100);
+    }
+  };
+  tryPreselect();
+}
+
+/* ============================================================
+   ACCOUNT TRANSFERS (انتقال وجه) — internal movement between the company's
+   own cash/bank accounts: cash<->cash, cash<->bank, bank<->bank.
+============================================================ */
+async function renderTransfersTab(body,dq){
+  const [rows,boxes,banks]=await Promise.all([
+    api('GET','/transfers'+dq)||[], api('GET','/cash-boxes')||[], api('GET','/banks')||[]
+  ]);
+  CACHE.cashBoxes=boxes; CACHE.banks=banks;
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="transferModal()">➕ انتقال جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>تاریخ</th><th>از</th><th>به</th><th>مبلغ (ت)</th><th>شرح</th><th>ثبت‌کننده</th><th>عملیات</th>
+    </tr></thead><tbody>${rows.map(t=>`<tr>
+      <td class="mono">${escDate(t.date)}</td>
+      <td>${esc(t.from_name)}</td>
+      <td>${esc(t.to_name)}</td>
+      <td class="mono" style="font-weight:700">${fmt(t.amount)}</td>
+      <td>${esc(t.note||'-')}</td>
+      <td class="muted">${esc(t.recorder||'-')}</td>
+      <td><button class="btn sm red" onclick="deleteTransfer(${t.id})">🗑️</button></td>
+    </tr>`).join('')||emptyRow(7)}</tbody></table></div>`;
+}
+function transferSideOptions(type,selectedId){
+  const list = type==='bank' ? (CACHE.banks||[]) : (CACHE.cashBoxes||[]);
+  return `<option value="">-- عمومی (بدون انتخاب مشخص) --</option>` +
+    list.map(x=>`<option value="${x.id}" ${selectedId==x.id?'selected':''}>${esc(x.name)}</option>`).join('');
+}
+function transferModal(){
+  openModal(`
+    <div class="modal-head"><h3>انتقال وجه جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>تاریخ</label><input id="tr-date" value="${todayJalali()}"></div>
+      <div class="fg"><label>مبلغ (تومان) *</label><input id="tr-amount" type="number" min="1"></div>
+      <div class="fg"><label>از (مبدأ) *</label><select id="tr-from-type" onchange="updateTransferSideOptions('from')"><option value="cash">صندوق نقدی</option><option value="bank">بانک</option></select></div>
+      <div class="fg"><label>حساب مبدأ</label><select id="tr-from-id">${transferSideOptions('cash')}</select></div>
+      <div class="fg"><label>به (مقصد) *</label><select id="tr-to-type" onchange="updateTransferSideOptions('to')"><option value="cash">صندوق نقدی</option><option value="bank" selected>بانک</option></select></div>
+      <div class="fg"><label>حساب مقصد</label><select id="tr-to-id">${transferSideOptions('bank')}</select></div>
+      <div class="fg full"><label>شرح</label><input id="tr-note"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveTransfer()">💾 ثبت انتقال</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  el('tr-to-type').value='bank';
+}
+function updateTransferSideOptions(side){
+  const type=el('tr-'+side+'-type').value;
+  el('tr-'+side+'-id').innerHTML=transferSideOptions(type);
+}
+async function saveTransfer(){
+  const amount=parseFloat(el('tr-amount').value)||0;
+  if(!amount){ showToast('مبلغ الزامی است','error'); return; }
+  const data={
+    date:el('tr-date').value, amount,
+    from_type:el('tr-from-type').value, from_id:el('tr-from-id').value||null,
+    to_type:el('tr-to-type').value, to_id:el('tr-to-id').value||null,
+    note:el('tr-note').value
+  };
+  try{
+    await api('POST','/transfers',data);
+    closeModal(); showToast('انتقال ثبت شد'); loadAccTab('transfers');
+  }catch(e){}
+}
+async function deleteTransfer(id){
+  if(!confirm('این انتقال حذف شود؟ سند حسابداری آن نیز ابطال می‌شود.')) return;
+  try{ await api('DELETE','/transfers/'+id); showToast('حذف شد'); loadAccTab('transfers'); }catch(e){}
+}
+
 function stmtQuery(){
   const p=[];
   if(accDateFrom) p.push('from='+encodeURIComponent(accDateFrom));
@@ -3673,6 +3827,7 @@ async function updateChequeStatus(id, status){
 
 async function settlementModal(custId){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   openModal(`
     <div class="modal-head"><h3>ثبت تسویه حساب</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -3683,6 +3838,10 @@ async function settlementModal(custId){
       <div class="fg"><label>واریز به بانک ${hlp('این وجه به کدام حساب بانکی شرکت واریز می‌شود — اختیاری؛ اگر انتخاب نشود در حساب عمومی صندوق/بانک ثبت می‌شود.')}</label><select id="st-bank">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>واریز به صندوق ${hlp('اگر این وجه به‌صورت نقد در یکی از صندوق‌ها دریافت شده — اختیاری.')}</label><select id="st-cashbox">
+        <option value="">— بدون صندوق مشخص —</option>
+        ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
       <div class="fg"><label>تاریخ ${hlp('تاریخ دریافت وجه — گزارش‌های دوره‌ای بر اساس این تاریخ فیلتر می‌شوند.')}</label><input id="st-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت ${hlp('توضیح اختیاری: شماره پیگیری واریز، توافق پرداخت و…')}</label><textarea id="st-note" placeholder="توضیحات اختیاری..."></textarea></div>
@@ -3724,6 +3883,7 @@ async function saveSettlement(){
       date:el('st-date').value,
       note:el('st-note').value,
       bank_id:+el('st-bank').value||null,
+      cash_box_id:+el('st-cashbox').value||null,
       cheque_bank:pay_type==='cheque'?(el('st-cbank')?.value||''):'',
       cheque_sayadi:pay_type==='cheque'?(el('st-csayadi')?.value||''):'',
       cheque_number:pay_type==='cheque'?(el('st-cnum')?.value||''):'',
@@ -3749,6 +3909,7 @@ async function deleteSettlement(id){
 
 async function incentivePayModal(repId, repName, payable){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
   openModal(`
     <div class="modal-head"><h3>💵 پرداخت انگیزه فروش</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -3760,6 +3921,10 @@ async function incentivePayModal(repId, repName, payable){
       <div class="fg"><label>پرداخت از بانک</label><select id="ip-bank" onchange="updateCheckCategoryOptions('ip')">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>پرداخت از صندوق</label><select id="ip-cashbox">
+        <option value="">— بدون صندوق مشخص —</option>
+        ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
       <div class="fg" id="ip-cc-wrap" style="display:none"><label>دسته چک</label><select id="ip-checkcat"><option value="">— انتخاب نشده —</option></select></div>
       <div class="fg"><label>تاریخ ${hlp('تاریخ پرداخت انگیزه فروش.')}</label><input id="ip-date" data-jdate value="${todayJalali()}"></div>
@@ -3783,6 +3948,7 @@ async function saveIncentivePayment(repId){
       date:el('ip-date').value,
       note:el('ip-note').value,
       bank_id:+el('ip-bank').value||null,
+      cash_box_id:+el('ip-cashbox')?.value||null,
       check_category_id:+el('ip-checkcat')?.value||null
     });
     closeModal(); showToast('پرداخت انگیزه ثبت شد');
@@ -4480,6 +4646,8 @@ function renderAdminGuide(){
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد (قابل مشاهده در «دفتر کل حساب‌ها»)</li>
         <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>
+        <li><b>صندوق‌های نقدی</b>: ساخت و مدیریت صندوق‌های نقدی شرکت بدون محدودیت در تعداد (مثلاً صندوق فروشگاه، صندوق دفتر مرکزی) — درست مثل بانک‌ها، هر صندوق یک حساب دفتر کل مستقل دارد. در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب صندوق (مثل بانک) اختیاری است</li>
+        <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: کاهش/افزایش موجودی انبار و اصلاح خودکار حساب طرف مقابل</li>

@@ -48,7 +48,7 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { supplier_id, date, note, rows, disc, pay_type, bank_id, check_category_id } = req.body;
+  const { supplier_id, date, note, rows, disc, pay_type, bank_id, check_category_id, cash_box_id } = req.body;
   if (!supplier_id) return res.status(400).json({ error: 'تأمین‌کننده الزامی است' });
   const db = getDB();
   let built;
@@ -64,8 +64,8 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const pType = pay_type || 'credit';
 
   const result = db.prepare(
-    'INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,pay_type,stock_added,bank_id,check_category_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?)'
-  ).run(req.user.id, supplier_id, num, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, pType, bank_id || null, check_category_id || null);
+    'INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,pay_type,stock_added,bank_id,check_category_id,cash_box_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)'
+  ).run(req.user.id, supplier_id, num, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, pType, bank_id || null, check_category_id || null, cash_box_id || null);
   const invId = result.lastInsertRowid;
 
   // Stock increases immediately on purchase
@@ -83,7 +83,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   }
 
   // Journal: Dr Inventory / Cr Payable (credit) or Cr Cash/specific bank (cash/cheque)
-  const cr = pType === 'credit' ? { code: '2101', name: 'حساب‌های پرداختنی' } : resolveCashAccount(db, pType, bank_id);
+  const cr = pType === 'credit' ? { code: '2101', name: 'حساب‌های پرداختنی' } : resolveCashAccount(db, pType, bank_id, cash_box_id);
   createJournalEntry(db, {
     date: date || '', description: `فاکتور خرید ${num}`, ref_type: 'purchase', ref_id: invId, created_by: req.user.id,
     lines: [
@@ -114,7 +114,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
       description: `ابطال فاکتور خرید ${row.num}`, debit: row.final, credit: 0, user_id: req.user.id
     });
   }
-  const cr = row.pay_type === 'credit' ? { code: '2101', name: 'حساب‌های پرداختنی' } : resolveCashAccount(db, row.pay_type, row.bank_id);
+  const cr = row.pay_type === 'credit' ? { code: '2101', name: 'حساب‌های پرداختنی' } : resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
   createJournalEntry(db, {
     date: row.date || '', description: `ابطال فاکتور خرید ${row.num}`, ref_type: 'purchase_reversal', ref_id: row.id, created_by: req.user.id,
     lines: [
@@ -212,19 +212,19 @@ router.get('/payments/list', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/payments', auth, adminOrAccounting, (req, res) => {
-  const { supplier_id, purchase_invoice_id, amount, pay_type, date, note, bank_id, check_category_id } = req.body;
+  const { supplier_id, purchase_invoice_id, amount, pay_type, date, note, bank_id, check_category_id, cash_box_id } = req.body;
   if (!supplier_id || !amount) return res.status(400).json({ error: 'تأمین‌کننده و مبلغ الزامی است' });
   const db = getDB();
   const result = db.prepare(
-    'INSERT INTO supplier_payments (supplier_id,purchase_invoice_id,amount,pay_type,date,note,created_by,bank_id,check_category_id) VALUES (?,?,?,?,?,?,?,?,?)'
-  ).run(supplier_id, purchase_invoice_id || null, parseFloat(amount), pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null);
+    'INSERT INTO supplier_payments (supplier_id,purchase_invoice_id,amount,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ).run(supplier_id, purchase_invoice_id || null, parseFloat(amount), pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null);
   const payId = result.lastInsertRowid;
 
   createSupplierLedgerEntry(db, {
     supplier_id, date: date || todayJalali(), entry_type: 'payment', ref_type: 'supplier_payment', ref_id: payId,
     description: `پرداخت به تأمین‌کننده — ${Number(amount).toLocaleString('fa-IR')} تومان`, debit: parseFloat(amount), credit: 0, user_id: req.user.id
   });
-  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id);
+  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
   createJournalEntry(db, {
     date: date || todayJalali(), description: 'پرداخت به تأمین‌کننده', ref_type: 'supplier_payment', ref_id: payId, created_by: req.user.id,
     lines: [
@@ -245,7 +245,7 @@ router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
     supplier_id: row.supplier_id, date: row.date || '', entry_type: 'reversal', ref_type: 'supplier_payment', ref_id: row.id,
     description: `ابطال پرداخت #${row.id}`, debit: 0, credit: row.amount, user_id: req.user.id
   });
-  const cash = resolveCashAccount(db, row.pay_type, row.bank_id);
+  const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
   createJournalEntry(db, {
     date: row.date || '', description: `ابطال پرداخت به تأمین‌کننده #${row.id}`, ref_type: 'supplier_payment_reversal', ref_id: row.id, created_by: req.user.id,
     lines: [

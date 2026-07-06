@@ -105,19 +105,19 @@ router.get('/settlements', auth, adminOrAccounting, (req, res) => {
 
 // Add settlement
 router.post('/settlements', auth, adminOrAccounting, (req, res) => {
-  const { cust_id, invoice_id, amount, pay_type, date, note, bank_id,
+  const { cust_id, invoice_id, amount, pay_type, date, note, bank_id, cash_box_id,
           cheque_bank, cheque_sayadi, cheque_number, cheque_account,
           cheque_amount, cheque_owner, cheque_due, cheque_status } = req.body;
   if (!cust_id || !amount) return res.status(400).json({ error: 'مشتری و مبلغ الزامی است' });
   const db = getDB();
   const result = db.prepare(
     `INSERT INTO settlements
-      (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,
+      (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,
        cheque_bank,cheque_sayadi,cheque_number,cheque_account,
        cheque_amount,cheque_owner,cheque_due,cheque_status)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(req.user.id, cust_id, invoice_id || null, parseFloat(amount), pay_type || 'cash',
-        date || '', note || '', bank_id || null,
+        date || '', note || '', bank_id || null, cash_box_id || null,
         cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
         parseFloat(cheque_amount || 0), cheque_owner || '', cheque_due || '',
         cheque_status || 'pending');
@@ -134,7 +134,7 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
   });
   // Journal entry: Dr Cash/Bank / Cr Receivables — posts to the specific bank's
   // own ledger sub-account when one was selected, else the generic صندوق/بانک
-  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id);
+  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
   createJournalEntry(db, {
     date: date || '', description: `تسویه ${payLabel} مشتری`,
     ref_type: 'settlement', ref_id: settlementId, created_by: req.user.id,
@@ -153,8 +153,8 @@ router.delete('/settlements/:id', auth, adminOrAccounting, (req, res) => {
   const settlement = db.prepare('SELECT * FROM settlements WHERE id=?').get(req.params.id);
   if (!settlement) return res.status(404).json({ error: 'تسویه یافت نشد' });
 
-  // Reversal ledger + journal entries — reverse against the same bank account originally used
-  const cash = resolveCashAccount(db, settlement.pay_type, settlement.bank_id);
+  // Reversal ledger + journal entries — reverse against the same bank/cash-box account originally used
+  const cash = resolveCashAccount(db, settlement.pay_type, settlement.bank_id, settlement.cash_box_id);
   createLedgerEntry(db, {
     customer_id: settlement.cust_id, date: settlement.date || '', entry_type: 'reversal',
     ref_type: 'settlement', ref_id: settlement.id,
@@ -244,17 +244,17 @@ router.get('/incentive-payments', auth, adminOrAccounting, (req, res) => {
 
 // Record an incentive payment to a sales representative
 router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
-  const { rep_id, amount, pay_type, date, note, bank_id, check_category_id } = req.body;
+  const { rep_id, amount, pay_type, date, note, bank_id, check_category_id, cash_box_id } = req.body;
   if (!rep_id || !amount) return res.status(400).json({ error: 'کارشناس و مبلغ الزامی است' });
   const db = getDB();
   const rep = db.prepare('SELECT id,name FROM users WHERE id=?').get(rep_id);
   if (!rep) return res.status(404).json({ error: 'کارشناس یافت نشد' });
   const result = db.prepare(
-    'INSERT INTO incentive_payments (rep_id,amount,pay_type,date,note,created_by,bank_id,check_category_id) VALUES (?,?,?,?,?,?,?,?)'
-  ).run(rep_id, parseFloat(amount), pay_type || 'cash', date || '', note || '', req.user.id, bank_id || null, check_category_id || null);
+    'INSERT INTO incentive_payments (rep_id,amount,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id) VALUES (?,?,?,?,?,?,?,?,?)'
+  ).run(rep_id, parseFloat(amount), pay_type || 'cash', date || '', note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null);
   audit(req.user.id, 'create', 'incentive_payment', result.lastInsertRowid, `پرداخت انگیزه ${amount} تومان به ${rep.name}`);
-  // Background journal entry: Dr incentive expense / Cr cash or the specific bank chosen
-  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id);
+  // Background journal entry: Dr incentive expense / Cr cash or the specific bank/cash-box chosen
+  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
   createJournalEntry(db, {
     date: date || '', description: `پرداخت انگیزه فروش به ${rep.name}`,
     ref_type: 'incentive_payment', ref_id: result.lastInsertRowid, created_by: req.user.id,
@@ -274,7 +274,7 @@ router.delete('/incentive-payments/:id', auth, adminOrAccounting, (req, res) => 
   const rep = db.prepare('SELECT name FROM users WHERE id=?').get(row.rep_id);
   // Reversal journal entry — was previously missing, leaving a dangling one-sided
   // entry in the books whenever a payment was deleted
-  const cash = resolveCashAccount(db, row.pay_type, row.bank_id);
+  const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
   createJournalEntry(db, {
     date: row.date || '', description: `ابطال پرداخت انگیزه فروش به ${rep ? rep.name : ''}`,
     ref_type: 'incentive_payment_reversal', ref_id: row.id, created_by: req.user.id,
