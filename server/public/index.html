@@ -970,6 +970,7 @@ const ACC_NAV = [
   {id:'acc-customer-groups', icon:'👥', label:'گروه‌های مشتری (ماهیت حساب)'},
   {id:'acc-statement', icon:'📄', label:'صورت‌حساب مشتری'},
   {id:'acc-adv-reports', icon:'📊', label:'گزارشات پیشرفته'},
+  {id:'acc-production', icon:'🏗️', label:'تحلیل هزینه تولید'},
 ];
 let IN_ACC_SHELL = false;
 let CURRENT_PAGE = 'dash';
@@ -2400,7 +2401,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production']);
 
 // Generic wrapper: every accounting page shares the same header (title + optional
 // date-range filter) and delegates the body to loadAccTab(tabKey).
@@ -2452,6 +2453,7 @@ ROUTES['acc-warehouses']=()=>renderAccPage('warehouses','🏭','انبارها')
 ROUTES['acc-warehouse-ops']=()=>renderAccPage('warehouse-ops','📦','عملیات انبار (رسید / حواله / انتقال)');
 ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای امانی');
 ROUTES['acc-adv-reports']=()=>renderAccPage('adv-reports','📊','گزارشات پیشرفته');
+ROUTES['acc-production']=()=>renderAccPage('production','🏗️','تحلیل هزینه تولید');
 ROUTES['acc-vouchers']=()=>renderAccPage('vouchers','📝','اسناد حسابداری دستی (سند دوطرفه)');
 ROUTES['acc-general-ledger']=()=>renderAccPage('general-ledger','📒','دفتر کل حساب‌ها');
 ROUTES['acc-trial-balance']=()=>renderAccPage('trial-balance','⚖️','تراز آزمایشی');
@@ -2604,6 +2606,8 @@ async function loadAccTab(tab){
     await renderConsignmentsTab(body);
   } else if(tab==='adv-reports'){
     await renderAdvReportsTab(body);
+  } else if(tab==='production'){
+    await renderProductionTab(body);
   } else if(tab==='cheques'){
     const statusFilter=el('chqStatus')?.value||'';
     const bankFilter=el('chqBank')?.value||'';
@@ -3480,6 +3484,70 @@ async function renderInventoryHealthReport(box){
       </div>
     </div>`;
   attachDatepickers(box);
+}
+
+/* ============================================================
+   PRODUCTION COST ANALYSIS (تحلیل هزینه تولید) — tracking/analysis only,
+   no journal entry (this app has no raw-materials/WIP ledger to post
+   against honestly). Optionally increases finished-goods stock and/or
+   updates the product's standard cost.
+============================================================ */
+async function renderProductionTab(body){
+  if(!CACHE.allProducts||!CACHE.allProducts.length) CACHE.allProducts=await api('GET','/products')||[];
+  const runs=await api('GET','/production')||[];
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="productionModal()">➕ ثبت اجرای تولید</button></div>
+    <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <th>تاریخ</th><th>کالا</th><th>تعداد تولیدی</th><th>ضایعات</th><th>بهای کل (ت)</th><th>بهای واحد (ت)</th><th>حاشیه سود واحد (ت)</th><th>کارایی</th><th>عملیات</th>
+    </tr></thead><tbody>${runs.map(r=>`<tr>
+      <td class="mono">${escDate(r.date)}</td><td>${esc(r.product_name||'-')}</td>
+      <td class="mono">${fmt(r.qty_produced)}</td><td class="mono">${fmt(r.waste_qty||0)}</td>
+      <td class="mono">${fmt(r.total_cost)}</td><td class="mono" style="font-weight:700">${fmt(Math.round(r.unit_cost))}</td>
+      <td class="mono" style="color:${r.margin>=0?'var(--green)':'var(--red)'}">${fmt(Math.round(r.margin))}</td>
+      <td class="mono">${Math.round(r.efficiency*100)}٪</td>
+      <td><button class="btn sm red" onclick="deleteProductionRun(${r.id})">🗑️</button></td>
+    </tr>`).join('')||emptyRow(9)}</tbody></table></div>
+    <div class="muted" style="font-size:11px;margin-top:8px">این بخش صرفاً برای تحلیل هزینه و کارایی تولید است و سند حسابداری ایجاد نمی‌کند (سیستم دفتر مواد اولیه/در جریان ساخت جداگانه ندارد). در صورت فعال بودن گزینه‌های مربوطه، موجودی کالای ساخته‌شده و بهای تمام‌شده محصول به‌روزرسانی می‌شود.</div>`;
+}
+function productionModal(){
+  openModal(`
+    <div class="modal-head"><h3>🏗️ ثبت اجرای تولید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>کالای تولیدی *</label><select id="pd-product">${productOptions()}</select></div>
+      <div class="fg"><label>تعداد تولیدی *</label><input id="pd-qty" type="number" min="1"></div>
+      <div class="fg"><label>تعداد ضایعات</label><input id="pd-waste-qty" type="number" min="0" value="0"></div>
+      <div class="fg"><label>هزینه مواد اولیه (ت)</label><input id="pd-material" type="number" min="0" value="0"></div>
+      <div class="fg"><label>هزینه دستمزد (ت)</label><input id="pd-labor" type="number" min="0" value="0"></div>
+      <div class="fg"><label>سربار تولید (ت)</label><input id="pd-overhead" type="number" min="0" value="0"></div>
+      <div class="fg"><label>هزینه بسته‌بندی (ت)</label><input id="pd-packaging" type="number" min="0" value="0"></div>
+      <div class="fg"><label>هزینه ضایعات (ت)</label><input id="pd-waste-cost" type="number" min="0" value="0"></div>
+      <div class="fg"><label>تاریخ</label><input id="pd-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label><input type="checkbox" id="pd-update-stock" checked style="width:auto;margin-left:6px"> موجودی کالای ساخته‌شده افزایش یابد</label></div>
+      <div class="fg full"><label><input type="checkbox" id="pd-update-cost" style="width:auto;margin-left:6px"> بهای تمام‌شده محصول با بهای واحد محاسبه‌شده جایگزین شود</label></div>
+      <div class="fg full"><label>یادداشت</label><textarea id="pd-note"></textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveProductionRun()">💾 ثبت</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function saveProductionRun(){
+  const product_id=+el('pd-product').value, qty_produced=+el('pd-qty').value;
+  if(!product_id||!qty_produced){ showToast('کالا و تعداد تولیدی الزامی است','error'); return; }
+  try{
+    await api('POST','/production',{
+      product_id, qty_produced,
+      material_cost:+el('pd-material').value||0, labor_cost:+el('pd-labor').value||0,
+      overhead_cost:+el('pd-overhead').value||0, packaging_cost:+el('pd-packaging').value||0,
+      waste_qty:+el('pd-waste-qty').value||0, waste_cost:+el('pd-waste-cost').value||0,
+      date:el('pd-date').value, note:el('pd-note').value,
+      update_stock:el('pd-update-stock').checked, update_cost:el('pd-update-cost').checked
+    });
+    closeModal(); showToast('اجرای تولید ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('production');
+  }catch(e){}
+}
+async function deleteProductionRun(id){
+  if(!confirm('این اجرای تولید حذف شود؟ در صورت افزایش موجودی/بهای تمام‌شده، هر دو بازگردانده می‌شوند.')) return;
+  try{ await api('DELETE','/production/'+id); showToast('حذف شد'); loadAccTab('production'); }catch(e){}
 }
 
 async function supplierPaymentModal(id,name){
@@ -5735,6 +5803,7 @@ function renderAdminGuide(){
           و <b>سلامت موجودی</b> (کالاهای با موجودی منفی/صفر، پرفروش‌ترین‌ها و کم‌فروش‌ترین‌های دارای موجودی بالا در یک بازه).
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
+        <li><b>تحلیل هزینه تولید</b>: برای هر اجرای تولید، هزینه مواد اولیه، دستمزد، سربار، بسته‌بندی و ضایعات وارد می‌شود و سیستم بهای تمام‌شده واحد، حاشیه سود (نسبت به قیمت فروش فعلی) و درصد کارایی (نسبت تولید سالم به کل) را محاسبه می‌کند. با گزینه‌های اختیاری، می‌توان موجودی کالای ساخته‌شده را افزایش داد و/یا بهای تمام‌شده محصول را با عدد محاسبه‌شده جایگزین کرد. <span class="muted">این بخش سند حسابداری ایجاد نمی‌کند — صرفاً ابزار تحلیل هزینه و کارایی تولید است.</span></li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>

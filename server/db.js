@@ -169,6 +169,25 @@ function initDB() {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
 
+    CREATE TABLE IF NOT EXISTS production_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      qty_produced INTEGER NOT NULL,
+      material_cost REAL DEFAULT 0,
+      labor_cost REAL DEFAULT 0,
+      overhead_cost REAL DEFAULT 0,
+      packaging_cost REAL DEFAULT 0,
+      waste_qty INTEGER DEFAULT 0,
+      waste_cost REAL DEFAULT 0,
+      date TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      stock_added INTEGER DEFAULT 0,
+      cost_updated INTEGER DEFAULT 0,
+      previous_cost REAL,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
     CREATE TABLE IF NOT EXISTS stock_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       product_id INTEGER NOT NULL,
