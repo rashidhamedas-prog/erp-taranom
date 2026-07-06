@@ -895,10 +895,16 @@ router.get('/trial-balance', auth, adminOrAccounting, (req, res) => {
   let totalDebit = 0, totalCredit = 0;
   rows.forEach(r => {
     r.type = coaMap[r.account_code] || '';
-    const debitNormal = ['asset', 'expense', 'cogs'].includes(r.type);
+    // A trial balance places each account's net into whichever column it
+    // actually falls on — debit column if debits exceed credits, credit
+    // column otherwise — regardless of the account's "normal" side. (An
+    // earlier version of this branched on debitNormal and had the two
+    // ternaries swapped for credit-normal accounts, which zeroed out every
+    // revenue/liability/equity balance and made the trial balance appear
+    // permanently unbalanced.)
     const net = r.total_debit - r.total_credit;
-    r.debit_balance = debitNormal ? Math.max(0, net) : Math.max(0, -net);
-    r.credit_balance = debitNormal ? Math.max(0, -net) : Math.max(0, net);
+    r.debit_balance = Math.max(0, net);
+    r.credit_balance = Math.max(0, -net);
     totalDebit += r.debit_balance; totalCredit += r.credit_balance;
   });
   res.json({ rows, totalDebit, totalCredit, balanced: Math.abs(totalDebit - totalCredit) < 1 });
