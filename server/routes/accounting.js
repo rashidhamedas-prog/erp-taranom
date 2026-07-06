@@ -1,6 +1,19 @@
 const router = require('express').Router();
-const { getDB, audit, createLedgerEntry, createJournalEntry, backfillAccounting, resolveCashAccount } = require('../db');
+const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting, resolveCashAccount } = require('../db');
 const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+const VOUCHER_UPLOAD_DIR = path.join(__dirname, '..', 'public', 'uploads', 'vouchers');
+fs.mkdirSync(VOUCHER_UPLOAD_DIR, { recursive: true });
+const voucherUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, VOUCHER_UPLOAD_DIR),
+    filename: (req, file, cb) => cb(null, 'v_' + Date.now() + '_' + Math.round(Math.random() * 1e6) + path.extname(file.originalname || ''))
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
 
 const ENTRY_LABEL = {
   invoice: 'فاکتور فروش',
@@ -685,38 +698,143 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 // ============================================================
-// Manual journal vouchers — double-entry, must balance exactly
+// Manual journal vouchers — double-entry, must balance exactly.
+// A line can target either a raw chart-of-accounts code (l.code) or a
+// specific Person (l.person_id) — the latter posts to the generic 1106
+// control account in the journal while also recording the movement in
+// that person's own ledger, mirroring how customer/supplier sub-ledgers
+// work against their own control accounts (1103/2101).
 // ============================================================
+function validateAndBuildVoucherLines(db, lines) {
+  let totalDebit = 0, totalCredit = 0;
+  const cleanLines = [];
+  const personPostings = [];
+  for (const l of (lines || [])) {
+    const debit = parseFloat(l.debit) || 0, credit = parseFloat(l.credit) || 0;
+    if (debit && credit) return { error: 'هر ردیف فقط باید بدهکار یا بستانکار باشد، نه هر دو' };
+    if (!debit && !credit) continue;
+    if (l.person_id) {
+      const person = db.prepare('SELECT * FROM persons WHERE id=?').get(l.person_id);
+      if (!person) return { error: `شخص با شناسه ${l.person_id} یافت نشد` };
+      cleanLines.push({ code: '1106', name: 'حساب اشخاص متفرقه', debit, credit, description: l.description || person.name });
+      personPostings.push({ person_id: person.id, debit, credit, description: l.description || '' });
+    } else {
+      const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(l.code);
+      if (!acc) return { error: `کد حساب ${l.code} یافت نشد` };
+      cleanLines.push({ code: acc.code, name: acc.name, debit, credit, description: l.description || '' });
+    }
+    totalDebit += debit; totalCredit += credit;
+  }
+  if (cleanLines.length < 2) return { error: 'سند باید حداقل دو ردیف معتبر داشته باشد' };
+  if (Math.abs(totalDebit - totalCredit) > 0.01) {
+    return { error: `سند نامتوازن است: بدهکار ${totalDebit.toLocaleString('fa-IR')} ≠ بستانکار ${totalCredit.toLocaleString('fa-IR')}` };
+  }
+  return { cleanLines, personPostings };
+}
+
 router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
   const { date, description, cost_center_id, lines } = req.body;
   if (!Array.isArray(lines) || lines.length < 2) {
     return res.status(400).json({ error: 'سند باید حداقل دو ردیف (بدهکار و بستانکار) داشته باشد' });
   }
   const db = getDB();
-  let totalDebit = 0, totalCredit = 0;
-  const cleanLines = [];
-  for (const l of lines) {
-    const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(l.code);
-    if (!acc) return res.status(400).json({ error: `کد حساب ${l.code} یافت نشد` });
-    const debit = parseFloat(l.debit) || 0, credit = parseFloat(l.credit) || 0;
-    if (debit && credit) return res.status(400).json({ error: 'هر ردیف فقط باید بدهکار یا بستانکار باشد، نه هر دو' });
-    if (!debit && !credit) continue;
-    totalDebit += debit; totalCredit += credit;
-    cleanLines.push({ code: acc.code, name: acc.name, debit, credit, description: l.description || '' });
-  }
-  if (cleanLines.length < 2) return res.status(400).json({ error: 'سند باید حداقل دو ردیف معتبر داشته باشد' });
-  // Mandatory balance validation — the core rule of double-entry bookkeeping
-  if (Math.abs(totalDebit - totalCredit) > 0.01) {
-    return res.status(400).json({
-      error: `سند نامتوازن است: بدهکار ${totalDebit.toLocaleString('fa-IR')} ≠ بستانکار ${totalCredit.toLocaleString('fa-IR')}`
-    });
-  }
+  const built = validateAndBuildVoucherLines(db, lines);
+  if (built.error) return res.status(400).json({ error: built.error });
   const entryId = createJournalEntry(db, {
     date: date || '', description: description || 'سند دستی', ref_type: 'manual_voucher', ref_id: null,
-    created_by: req.user.id, lines: cleanLines
+    created_by: req.user.id, lines: built.cleanLines
   });
   if (cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(cost_center_id, entryId);
+  for (const p of built.personPostings) {
+    createPersonLedgerEntry(db, {
+      person_id: p.person_id, date: date || '', entry_type: 'manual_voucher', ref_type: 'manual_voucher', ref_id: entryId,
+      description: p.description || description || 'سند دستی', debit: p.debit, credit: p.credit, user_id: req.user.id
+    });
+  }
   audit(req.user.id, 'create', 'journal_voucher', entryId, `ثبت سند دستی: ${description || ''}`);
+  res.json({ id: entryId, ok: true });
+});
+
+// Attach a single file (receipt/photo/scan) to a manual voucher
+router.post('/vouchers/:id/attachment', auth, adminOrAccounting, voucherUpload.single('file'), (req, res) => {
+  const db = getDB();
+  const entry = db.prepare("SELECT * FROM journal_entries WHERE id=? AND ref_type='manual_voucher'").get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'سند دستی یافت نشد' });
+  if (!req.file) return res.status(400).json({ error: 'فایلی آپلود نشد' });
+  if (entry.attachment) {
+    const oldPath = path.join(VOUCHER_UPLOAD_DIR, entry.attachment);
+    fs.unlink(oldPath, () => {});
+  }
+  db.prepare('UPDATE journal_entries SET attachment=? WHERE id=?').run(req.file.filename, req.params.id);
+  res.json({ ok: true, attachment: req.file.filename });
+});
+
+// ---- Journal templates (recurring entries) ----
+router.get('/vouchers/templates', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare('SELECT * FROM journal_templates ORDER BY name').all();
+  res.json(rows.map(r => ({ ...r, lines: JSON.parse(r.lines_json || '[]') })));
+});
+router.post('/vouchers/templates', auth, adminOrAccounting, (req, res) => {
+  const { name, description, cost_center_id, lines } = req.body;
+  if (!name) return res.status(400).json({ error: 'نام قالب الزامی است' });
+  if (!Array.isArray(lines) || lines.length < 2) return res.status(400).json({ error: 'قالب باید حداقل دو ردیف داشته باشد' });
+  const db = getDB();
+  const result = db.prepare('INSERT INTO journal_templates (name,description,lines_json,cost_center_id,created_by) VALUES (?,?,?,?,?)')
+    .run(name, description || '', JSON.stringify(lines), cost_center_id || null, req.user.id);
+  audit(req.user.id, 'create', 'journal_template', result.lastInsertRowid, `ساخت قالب سند: ${name}`);
+  res.json({ id: result.lastInsertRowid, ok: true });
+});
+router.delete('/vouchers/templates/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  db.prepare('DELETE FROM journal_templates WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ---- Voucher drafts (draft mode — saved but not yet posted to the ledger) ----
+router.get('/vouchers/drafts', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare(`
+    SELECT d.*, u.name as created_by_name FROM voucher_drafts d LEFT JOIN users u ON d.created_by=u.id ORDER BY d.created_at DESC
+  `).all();
+  res.json(rows.map(r => ({ ...r, lines: JSON.parse(r.lines_json || '[]') })));
+});
+router.post('/vouchers/drafts', auth, adminOrAccounting, (req, res) => {
+  const { date, description, cost_center_id, lines } = req.body;
+  if (!Array.isArray(lines) || !lines.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
+  const db = getDB();
+  const result = db.prepare('INSERT INTO voucher_drafts (date,description,lines_json,cost_center_id,created_by) VALUES (?,?,?,?,?)')
+    .run(date || '', description || '', JSON.stringify(lines), cost_center_id || null, req.user.id);
+  res.json({ id: result.lastInsertRowid, ok: true });
+});
+router.delete('/vouchers/drafts/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  db.prepare('DELETE FROM voucher_drafts WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+// Posting a draft runs it through the exact same validation/posting path as
+// a normal voucher, then removes the draft — this is the "review, then
+// confirm" step that stands in for a full approval workflow.
+router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const draft = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(req.params.id);
+  if (!draft) return res.status(404).json({ error: 'پیش‌نویس یافت نشد' });
+  const lines = JSON.parse(draft.lines_json || '[]');
+  const built = validateAndBuildVoucherLines(db, lines);
+  if (built.error) return res.status(400).json({ error: built.error });
+  const entryId = createJournalEntry(db, {
+    date: draft.date || '', description: draft.description || 'سند دستی', ref_type: 'manual_voucher', ref_id: null,
+    created_by: req.user.id, lines: built.cleanLines
+  });
+  if (draft.cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(draft.cost_center_id, entryId);
+  for (const p of built.personPostings) {
+    createPersonLedgerEntry(db, {
+      person_id: p.person_id, date: draft.date || '', entry_type: 'manual_voucher', ref_type: 'manual_voucher', ref_id: entryId,
+      description: p.description || draft.description || 'سند دستی', debit: p.debit, credit: p.credit, user_id: req.user.id
+    });
+  }
+  db.prepare('DELETE FROM voucher_drafts WHERE id=?').run(req.params.id);
+  audit(req.user.id, 'create', 'journal_voucher', entryId, `ثبت سند از پیش‌نویس: ${draft.description || ''}`);
   res.json({ id: entryId, ok: true });
 });
 
@@ -724,6 +842,8 @@ router.delete('/vouchers/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const entry = db.prepare("SELECT * FROM journal_entries WHERE id=? AND ref_type='manual_voucher'").get(req.params.id);
   if (!entry) return res.status(404).json({ error: 'سند دستی یافت نشد' });
+  if (entry.attachment) fs.unlink(path.join(VOUCHER_UPLOAD_DIR, entry.attachment), () => {});
+  db.prepare("DELETE FROM person_ledger WHERE ref_type='manual_voucher' AND ref_id=?").run(req.params.id);
   db.prepare('DELETE FROM journal_lines WHERE entry_id=?').run(req.params.id);
   db.prepare('DELETE FROM journal_entries WHERE id=?').run(req.params.id);
   audit(req.user.id, 'delete', 'journal_voucher', req.params.id, 'حذف سند دستی');

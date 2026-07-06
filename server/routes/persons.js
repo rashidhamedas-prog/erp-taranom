@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getDB, audit } = require('../db');
+const { getDB, audit, createPersonLedgerEntry } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 
@@ -65,8 +65,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const personId = result.lastInsertRowid;
   const ob = parseFloat(opening_balance) || 0;
   if (ob !== 0) {
-    db.prepare('INSERT INTO person_ledger (person_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
-      .run(personId, todayJalali(), 'opening', 'opening', personId, 'مانده اولیه حساب', ob > 0 ? ob : 0, ob < 0 ? -ob : 0, req.user.id);
+    createPersonLedgerEntry(db, {
+      person_id: personId, date: todayJalali(), entry_type: 'opening', ref_type: 'opening', ref_id: personId,
+      description: 'مانده اولیه حساب', debit: ob > 0 ? ob : 0, credit: ob < 0 ? -ob : 0, user_id: req.user.id
+    });
   }
   audit(req.user.id, 'create', 'person', personId, `ساخت شخص ${name}`);
   res.json(db.prepare('SELECT * FROM persons WHERE id=?').get(personId));

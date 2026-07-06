@@ -551,6 +551,26 @@ function initDB() {
       FOREIGN KEY(person_id) REFERENCES persons(id)
     );
 
+    CREATE TABLE IF NOT EXISTS journal_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      lines_json TEXT NOT NULL,
+      cost_center_id INTEGER,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS voucher_drafts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT DEFAULT '',
+      description TEXT DEFAULT '',
+      lines_json TEXT NOT NULL,
+      cost_center_id INTEGER,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
     CREATE TABLE IF NOT EXISTS expense_payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       category TEXT NOT NULL DEFAULT 'admin',
@@ -585,6 +605,8 @@ function initDB() {
   ensureColumn(db, 'purchase_invoices', 'cash_box_id', 'INTEGER');
   ensureColumn(db, 'supplier_payments', 'cash_box_id', 'INTEGER');
   ensureColumn(db, 'incentive_payments', 'cash_box_id', 'INTEGER');
+  // Manual journal voucher expansion: optional single attachment per entry.
+  ensureColumn(db, 'journal_entries', 'attachment', 'TEXT');
 
   // Seed a default customer group (Debit nature — the standard for receivables)
   const grpCount = db.prepare('SELECT COUNT(*) c FROM customer_groups').get().c;
@@ -618,6 +640,7 @@ function initDB() {
         ['1103','حساب‌های دریافتنی از مشتریان','asset','1100'],
         ['1104','موجودی کالا','asset','1100'],
         ['1105','پیش‌پرداخت‌ها','asset','1100'],
+        ['1106','حساب اشخاص متفرقه','asset','1100'],
         ['2000','بدهی‌ها','liability',null],
         ['2100','بدهی‌های جاری','liability','2000'],
         ['2101','حساب‌های پرداختنی','liability','2100'],
@@ -638,6 +661,10 @@ function initDB() {
     });
     seedCoA();
   }
+  // Added after the initial seed (Persons module) — insert unconditionally so
+  // existing databases that already had a non-empty chart of accounts still
+  // get this control account.
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1106','حساب اشخاص متفرقه','asset','1100')").run();
 
   // ---- Indexes ----
   db.exec(`
@@ -822,6 +849,16 @@ function createLedgerEntry(db, { customer_id, date, entry_type, ref_type, ref_id
   } catch (e) { console.error('ledger entry error:', e.message); }
 }
 
+// Create a person ledger entry (debit = person owes us, credit = we owe person)
+// — used by the Persons module and by manual journal vouchers that post
+// against a specific person instead of a raw chart-of-accounts code.
+function createPersonLedgerEntry(db, { person_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
+  try {
+    db.prepare('INSERT INTO person_ledger (person_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(person_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, user_id || null);
+  } catch (e) { console.error('person ledger entry error:', e.message); }
+}
+
 // Create a double-entry journal entry with lines [{code, name, debit, credit, description}]
 function createJournalEntry(db, { date, description, ref_type, ref_id, created_by, lines }) {
   try {
@@ -881,6 +918,6 @@ function syncCashBoxAccount(db, box) {
 }
 
 module.exports = {
-  getDB, initDB, audit, createLedgerEntry, createJournalEntry, backfillAccounting,
+  getDB, initDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting,
   resolveCashAccount, syncBankAccount, syncCashBoxAccount
 };

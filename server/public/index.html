@@ -3413,15 +3413,38 @@ async function deleteSalesReturn(id){
    MANUAL JOURNAL VOUCHERS — double-entry, must balance
 ============================================================ */
 async function renderVouchersTab(body){
-  const d=await api('GET','/accounting/journal?ref_type=manual_voucher')||{entries:[]};
+  const [d,drafts]=await Promise.all([
+    api('GET','/accounting/journal?ref_type=manual_voucher')||{entries:[]},
+    api('GET','/accounting/vouchers/drafts')||[]
+  ]);
   body.innerHTML=`
-    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="voucherModal()">➕ سند دستی جدید</button></div>
+    <div class="toolbar" style="margin-bottom:12px">
+      <button class="btn" onclick="voucherModal()">➕ سند دستی جدید</button>
+      <button class="btn ghost" onclick="voucherTemplatesModal()">📑 قالب‌های سند</button>
+    </div>
+    ${drafts.length?`<div class="panel" style="margin-bottom:14px">
+      <div class="panel-head"><h4>📋 پیش‌نویس‌ها (${drafts.length})</h4></div>
+      <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>تاریخ</th><th>شرح</th><th>ثبت‌کننده</th><th>عملیات</th>
+      </tr></thead><tbody>${drafts.map(dr=>`<tr>
+        <td class="mono">${escDate(dr.date)}</td><td>${esc(dr.description||'-')}</td><td class="muted">${esc(dr.created_by_name||'-')}</td>
+        <td style="white-space:nowrap">
+          <button class="btn sm green" onclick="postVoucherDraft(${dr.id})">▶️ ثبت نهایی</button>
+          <button class="btn sm red" onclick="deleteVoucherDraft(${dr.id})">🗑️</button>
+        </td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>`:''}
     <div class="muted" style="margin-bottom:10px;font-size:12px">${d.total||0} سند دستی ثبت شده</div>
     ${(d.entries||[]).map(e=>`
       <div style="border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden">
         <div style="background:var(--purple-light);padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:12px">
           <span style="font-weight:700">📝 <span class="mono">${esc(e.entry_date||'-')}</span> — ${esc(e.description||'-')}</span>
-          <span style="display:flex;align-items:center;gap:8px"><span class="muted">${esc(e.created_by_name||'-')}</span> <button class="btn sm red icon" onclick="deleteVoucher(${e.id})">🗑️</button></span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <span class="muted">${esc(e.created_by_name||'-')}</span>
+            ${e.attachment?`<a href="/uploads/vouchers/${esc(e.attachment)}" target="_blank" class="btn sm blue icon" title="مشاهده پیوست">📎</a>`:''}
+            <button class="btn sm ghost icon" title="افزودن/تعویض پیوست" onclick="uploadVoucherAttachment(${e.id})">📎</button>
+            <button class="btn sm red icon" onclick="deleteVoucher(${e.id})">🗑️</button>
+          </span>
         </div>
         <table class="tbl" style="font-size:12px;margin:0"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار (ت)</th><th>بستانکار (ت)</th></tr></thead>
         <tbody>${(e.lines||[]).map(l=>`<tr>
@@ -3435,29 +3458,62 @@ let voucherLines=[];
 function accountOptions(selectedCode){
   return `<option value="">-- انتخاب --</option>` + (CACHE.chartOfAccounts||[]).map(a=>`<option value="${a.code}" ${a.code===selectedCode?'selected':''}>${a.code} — ${esc(a.name)}</option>`).join('');
 }
+function personOptions(selectedId){
+  return `<option value="">-- انتخاب شخص --</option>` + (CACHE.persons||[]).map(p=>`<option value="${p.id}" ${p.id===selectedId?'selected':''}>${esc(p.name)}${p.category_name?' ('+esc(p.category_name)+')':''}</option>`).join('');
+}
 async function voucherModal(){
   if(!CACHE.chartOfAccounts) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
-  voucherLines=[{code:'',debit:0,credit:0,description:''},{code:'',debit:0,credit:0,description:''}];
+  if(!CACHE.persons) CACHE.persons=await api('GET','/persons')||[];
+  if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers')||[];
+  if(!CACHE.voucherTemplates) CACHE.voucherTemplates=await api('GET','/accounting/vouchers/templates')||[];
+  voucherLines=[{target_type:'account',code:'',person_id:'',debit:0,credit:0,description:''},{target_type:'account',code:'',person_id:'',debit:0,credit:0,description:''}];
   openModal(`
     <div class="modal-head"><h3>📝 سند حسابداری دستی</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:14px">
         <div class="fg"><label>تاریخ</label><input id="vc-date" data-jdate value="${todayJalali()}"></div>
         <div class="fg full"><label>شرح سند * ${hlp('توضیح کلی سند، مثال: پرداخت اجاره دفتر، ثبت هزینه تبلیغات.')}</label><input id="vc-desc"></div>
+        ${CACHE.voucherTemplates.length?`<div class="fg full"><label>بارگذاری از قالب</label><select onchange="loadVoucherTemplate(this.value)">
+          <option value="">-- بدون قالب --</option>
+          ${CACHE.voucherTemplates.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')}
+        </select></div>`:''}
+        ${(CACHE.costCenters||[]).length?`<div class="fg full"><label>مرکز هزینه (اختیاری)</label><select id="vc-cc">
+          <option value="">-- بدون مرکز هزینه --</option>
+          ${CACHE.costCenters.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}
+        </select></div>`:''}
       </div>
       <div id="vcLines"></div>
       <button class="btn sm ghost" style="margin-top:8px" onclick="addVoucherLine()">➕ ردیف جدید</button>
       <div id="vcBalance" style="margin-top:12px;font-weight:700;font-size:13px"></div>
     </div>
-    <div class="modal-foot"><button class="btn green" onclick="saveVoucher()">💾 ثبت سند</button>
-      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`,true);
+    <div class="modal-foot">
+      <button class="btn green" onclick="saveVoucher()">💾 ثبت سند</button>
+      <button class="btn orange" onclick="saveVoucherAsDraft()">📋 ذخیره به‌عنوان پیش‌نویس</button>
+      <button class="btn ghost" onclick="saveVoucherAsTemplate()">📑 ذخیره به‌عنوان قالب</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button>
+    </div>`,true);
   attachDatepickers(el('modalRoot'));
+  renderVoucherLines();
+}
+function loadVoucherTemplate(id){
+  if(!id) return;
+  const t=(CACHE.voucherTemplates||[]).find(x=>x.id===+id);
+  if(!t) return;
+  voucherLines=t.lines.map(l=>({target_type:l.person_id?'person':'account',code:l.code||'',person_id:l.person_id||'',debit:l.debit||0,credit:l.credit||0,description:l.description||''}));
+  if(t.description) el('vc-desc').value=t.description;
+  if(t.cost_center_id && el('vc-cc')) el('vc-cc').value=t.cost_center_id;
   renderVoucherLines();
 }
 function renderVoucherLines(){
   el('vcLines').innerHTML = voucherLines.map((l,i)=>`
     <div class="form-grid" style="margin-bottom:6px">
-      <div class="fg"><label>حساب</label><select onchange="voucherLines[${i}].code=this.value">${accountOptions(l.code)}</select></div>
+      <div class="fg"><label>نوع طرف حساب</label><select onchange="voucherLines[${i}].target_type=this.value;renderVoucherLines()">
+        <option value="account" ${l.target_type!=='person'?'selected':''}>حساب (کدینگ)</option>
+        <option value="person" ${l.target_type==='person'?'selected':''}>شخص</option>
+      </select></div>
+      <div class="fg">${l.target_type==='person'
+        ?`<label>شخص</label><select onchange="voucherLines[${i}].person_id=+this.value">${personOptions(l.person_id)}</select>`
+        :`<label>حساب</label><select onchange="voucherLines[${i}].code=this.value">${accountOptions(l.code)}</select>`}</div>
       <div class="fg"><label>بدهکار</label><input type="number" value="${l.debit||''}" oninput="voucherLines[${i}].debit=+this.value||0;voucherLines[${i}].credit=0;updateVoucherBalance()"></div>
       <div class="fg"><label>بستانکار</label><input type="number" value="${l.credit||''}" oninput="voucherLines[${i}].credit=+this.value||0;voucherLines[${i}].debit=0;updateVoucherBalance()"></div>
       <div class="fg"><label>شرح ردیف</label><div style="display:flex;gap:6px">
@@ -3467,7 +3523,7 @@ function renderVoucherLines(){
     </div>`).join('');
   updateVoucherBalance();
 }
-function addVoucherLine(){ voucherLines.push({code:'',debit:0,credit:0,description:''}); renderVoucherLines(); }
+function addVoucherLine(){ voucherLines.push({target_type:'account',code:'',person_id:'',debit:0,credit:0,description:''}); renderVoucherLines(); }
 function removeVoucherLine(i){ voucherLines.splice(i,1); renderVoucherLines(); }
 function updateVoucherBalance(){
   const totD=voucherLines.reduce((a,l)=>a+(l.debit||0),0);
@@ -3477,18 +3533,86 @@ function updateVoucherBalance(){
   bal.innerHTML=`بدهکار: ${fmt(totD)} ت &nbsp;|&nbsp; بستانکار: ${fmt(totC)} ت &nbsp;—&nbsp;
     <span style="color:${balanced?'var(--green)':'var(--red)'}">${balanced?'✓ متوازن':'✗ نامتوازن — سند قابل ثبت نیست'}</span>`;
 }
+function buildVoucherLinesPayload(){
+  return voucherLines
+    .filter(l=>(l.target_type==='person'?l.person_id:l.code)&&(l.debit||l.credit))
+    .map(l=>l.target_type==='person'
+      ?{person_id:l.person_id,debit:l.debit,credit:l.credit,description:l.description}
+      :{code:l.code,debit:l.debit,credit:l.credit,description:l.description});
+}
 async function saveVoucher(){
   const desc=el('vc-desc').value.trim();
   if(!desc){ showToast('شرح سند الزامی است','error'); return; }
   const totD=voucherLines.reduce((a,l)=>a+(l.debit||0),0);
   const totC=voucherLines.reduce((a,l)=>a+(l.credit||0),0);
   if(Math.abs(totD-totC)>0.01){ showToast('سند نامتوازن است — بدهکار باید با بستانکار برابر باشد','error'); return; }
-  const lines=voucherLines.filter(l=>l.code&&(l.debit||l.credit));
+  const lines=buildVoucherLinesPayload();
   if(lines.length<2){ showToast('حداقل دو ردیف معتبر لازم است','error'); return; }
   try{
-    await api('POST','/accounting/vouchers',{date:el('vc-date').value,description:desc,lines});
+    await api('POST','/accounting/vouchers',{date:el('vc-date').value,description:desc,cost_center_id:+el('vc-cc')?.value||null,lines});
     closeModal(); showToast('سند ثبت شد'); loadAccTab('vouchers');
   }catch(e){}
+}
+async function saveVoucherAsDraft(){
+  const desc=el('vc-desc').value.trim();
+  const lines=buildVoucherLinesPayload();
+  if(!lines.length){ showToast('حداقل یک ردیف معتبر لازم است','error'); return; }
+  try{
+    await api('POST','/accounting/vouchers/drafts',{date:el('vc-date').value,description:desc,cost_center_id:+el('vc-cc')?.value||null,lines});
+    closeModal(); showToast('پیش‌نویس ذخیره شد'); loadAccTab('vouchers');
+  }catch(e){}
+}
+async function saveVoucherAsTemplate(){
+  const name=prompt('نام قالب را وارد کنید:');
+  if(!name) return;
+  const lines=buildVoucherLinesPayload();
+  if(lines.length<2){ showToast('حداقل دو ردیف معتبر لازم است','error'); return; }
+  try{
+    await api('POST','/accounting/vouchers/templates',{name,description:el('vc-desc').value,cost_center_id:+el('vc-cc')?.value||null,lines});
+    showToast('قالب ذخیره شد');
+    CACHE.voucherTemplates=await api('GET','/accounting/vouchers/templates')||[];
+  }catch(e){}
+}
+async function postVoucherDraft(id){
+  try{ await api('POST','/accounting/vouchers/drafts/'+id+'/post'); showToast('سند ثبت شد'); loadAccTab('vouchers'); }catch(e){}
+}
+async function deleteVoucherDraft(id){
+  if(!confirm('این پیش‌نویس حذف شود؟')) return;
+  try{ await api('DELETE','/accounting/vouchers/drafts/'+id); showToast('حذف شد'); loadAccTab('vouchers'); }catch(e){}
+}
+function voucherTemplatesModal(){
+  const templates=CACHE.voucherTemplates||[];
+  openModal(`
+    <div class="modal-head"><h3>📑 قالب‌های سند</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام قالب</th><th>شرح</th><th>تعداد ردیف</th><th>عملیات</th></tr></thead>
+      <tbody>${templates.map(t=>`<tr>
+        <td>${esc(t.name)}</td><td class="muted">${esc(t.description||'-')}</td><td class="mono">${t.lines.length}</td>
+        <td><button class="btn sm red" onclick="deleteVoucherTemplate(${t.id})">🗑️</button></td>
+      </tr>`).join('')||emptyRow(4)}</tbody></table></div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+}
+async function deleteVoucherTemplate(id){
+  if(!confirm('این قالب حذف شود؟')) return;
+  await api('DELETE','/accounting/vouchers/templates/'+id);
+  CACHE.voucherTemplates=await api('GET','/accounting/vouchers/templates')||[];
+  voucherTemplatesModal();
+}
+async function uploadVoucherAttachment(id){
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='image/*,.pdf';
+  inp.onchange=async()=>{
+    if(!inp.files[0]) return;
+    const fd=new FormData(); fd.append('file',inp.files[0]);
+    try{
+      const token=localStorage.getItem('crm_token');
+      const res=await fetch('/api/accounting/vouchers/'+id+'/attachment',{method:'POST',headers:{Authorization:'Bearer '+token},body:fd});
+      if(!res.ok) throw new Error();
+      showToast('پیوست اضافه شد'); loadAccTab('vouchers');
+    }catch(e){ showToast('خطا در آپلود پیوست','error'); }
+  };
+  inp.click();
 }
 async function deleteVoucher(id){
   if(!confirm('این سند حذف شود؟')) return;
@@ -5054,7 +5178,7 @@ function renderAdminGuide(){
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی</li>
-        <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد)</li>
+        <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده</li>
         <li><b>دفتر کل حساب‌ها</b>: انتخاب هر حساب از کدینگ حسابداری و مشاهده گردش کامل آن با مانده لحظه‌ای</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص</li>
