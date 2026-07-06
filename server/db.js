@@ -716,10 +716,17 @@ function audit(userId, action, entity, entityId, detail) {
 }
 
 // Create a customer ledger entry (debit = customer owes us, credit = customer paid)
-function createLedgerEntry(db, { customer_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
+// created_at may be passed explicitly (e.g. the customer's own created_at) so an
+// opening-balance line always sorts first in the statement instead of using "now".
+function createLedgerEntry(db, { customer_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id, created_at }) {
   try {
-    db.prepare('INSERT INTO customer_ledger (customer_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
-      .run(customer_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, user_id || null);
+    if (created_at) {
+      db.prepare('INSERT INTO customer_ledger (customer_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(customer_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, user_id || null, created_at);
+    } else {
+      db.prepare('INSERT INTO customer_ledger (customer_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(customer_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, user_id || null);
+    }
   } catch (e) { console.error('ledger entry error:', e.message); }
 }
 

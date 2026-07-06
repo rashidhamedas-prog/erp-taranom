@@ -134,11 +134,14 @@ router.get('/audit', auth, adminOnly, (req, res) => {
 // Customer balances — admin sees all, others handled in /customers/balances
 router.get('/customer-balances', auth, adminOnly, (req, res) => {
   const db = getDB();
+  // Live-computed from the ledger (source of truth) — invoices/settlements never touch
+  // the static customers.balance column, so reading it directly here would go stale.
+  const LIVE_BAL = "(SELECT COALESCE(SUM(cl.debit)-SUM(cl.credit),0) FROM customer_ledger cl WHERE cl.customer_id=c.id)";
   const rows = db.prepare(`
-    SELECT c.id, c.biz, c.owner, c.city, c.balance, u.name as salesperson
+    SELECT c.id, c.biz, c.owner, c.city, ${LIVE_BAL} AS balance, u.name as salesperson
     FROM customers c LEFT JOIN users u ON c.user_id=u.id
-    WHERE c.balance <> 0
-    ORDER BY ABS(c.balance) DESC
+    WHERE ${LIVE_BAL} <> 0
+    ORDER BY ABS(${LIVE_BAL}) DESC
   `).all();
   res.json(rows);
 });

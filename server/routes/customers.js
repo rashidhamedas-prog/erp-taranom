@@ -1,11 +1,30 @@
 const router = require('express').Router();
-const { getDB, audit } = require('../db');
+const { getDB, audit, createLedgerEntry } = require('../db');
 const { auth, adminOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 const XLSX = require('xlsx');
 const multer = require('multer');
 
 const memUpload = multer({ storage: multer.memoryStorage() });
+
+// Live-computed account balance from the customer ledger (source of truth), aliased as
+// "balance" so it overrides the raw (static, write-only) customers.balance column in c.*
+// results — invoices/settlements only ever update customer_ledger, never that column.
+const LIVE_BAL = "(SELECT COALESCE(SUM(cl.debit)-SUM(cl.credit),0) FROM customer_ledger cl WHERE cl.customer_id=c.id)";
+
+// Keep the customer's opening-ledger line in sync with the admin-set opening balance.
+// Deletes any existing opening line and re-inserts one dated at the customer's own
+// created_at so it still sorts first in the statement.
+function syncOpeningLedger(db, customerId, bal, createdAt, userId) {
+  db.prepare("DELETE FROM customer_ledger WHERE customer_id=? AND ref_type='opening'").run(customerId);
+  if (bal) {
+    createLedgerEntry(db, {
+      customer_id: customerId, date: '', entry_type: 'opening', ref_type: 'opening', ref_id: customerId,
+      description: 'مانده اولیه حساب', debit: bal > 0 ? bal : 0, credit: bal < 0 ? -bal : 0,
+      user_id: userId, created_at: createdAt || 1
+    });
+  }
+}
 
 // Normalize Arabic characters to Persian and convert Arabic/Persian digits to ASCII
 function normalizeStr(s) {
@@ -58,9 +77,9 @@ router.get('/', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT c.*,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ORDER BY c.created_at DESC').all();
+    rows = db.prepare(`SELECT c.*,${LIVE_BAL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ORDER BY c.created_at DESC`).all();
   } else {
-    rows = db.prepare('SELECT c.*,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id WHERE c.user_id=? ORDER BY c.created_at DESC').all(scope);
+    rows = db.prepare(`SELECT c.*,${LIVE_BAL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
   }
   res.json(rows);
 });
@@ -80,6 +99,7 @@ router.post('/', auth, (req, res) => {
     'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup,group_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
   ).run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF, gid);
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(result.lastInsertRowid);
+  if (bal) syncOpeningLedger(db, row.id, bal, row.created_at, req.user.id);
   res.json(row);
   // Fire welcome SMS after response — non-blocking
   if (phone) sendWelcomeSMSToCust(db, phone);
@@ -98,6 +118,9 @@ router.put('/:id', auth, (req, res) => {
   const gid = canSetGroup ? (group_id ? parseInt(group_id) : null) : row.group_id;
   db.prepare('UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,balance=?,assigned_to=?,auto_followup=?,group_id=? WHERE id=?')
     .run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : row.assigned_to, autoF, gid, req.params.id);
+  if (req.user.role === 'admin' && balance !== undefined && bal !== (row.balance || 0)) {
+    syncOpeningLedger(db, req.params.id, bal, row.created_at, req.user.id);
+  }
   res.json({ ok: true });
 });
 
@@ -117,9 +140,9 @@ router.get('/balances', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT c.id,c.biz,c.owner,c.city,c.address,c.balance,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE c.balance<>0 ORDER BY ABS(c.balance) DESC').all();
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${LIVE_BAL} AS balance,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE ${LIVE_BAL}<>0 ORDER BY ABS(${LIVE_BAL}) DESC`).all();
   } else {
-    rows = db.prepare('SELECT id,biz,owner,city,address,balance FROM customers WHERE user_id=? AND balance<>0 ORDER BY ABS(balance) DESC').all(scope);
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${LIVE_BAL} AS balance FROM customers c WHERE c.user_id=? AND ${LIVE_BAL}<>0 ORDER BY ABS(${LIVE_BAL}) DESC`).all(scope);
   }
   res.json(rows);
 });
@@ -129,9 +152,9 @@ router.get('/export/excel', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT c.*,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id ORDER BY c.created_at DESC').all();
+    rows = db.prepare(`SELECT c.*,${LIVE_BAL} AS balance,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id ORDER BY c.created_at DESC`).all();
   } else {
-    rows = db.prepare('SELECT * FROM customers WHERE user_id=? ORDER BY created_at DESC').all(scope);
+    rows = db.prepare(`SELECT c.*,${LIVE_BAL} AS balance FROM customers c WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
   }
   const isAdmin = req.user.role === 'admin';
   const data = rows.map(r => ({

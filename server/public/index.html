@@ -1162,13 +1162,13 @@ async function renderDashContent(){
             <thead><tr><th>فروشگاه</th><th>نام کامل</th><th>مانده حساب</th><th>آدرس</th><th>کارشناس</th></tr></thead>
             <tbody id="dashBalTbody">${balRows.map(c=>`<tr>
               <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
-              <td class="mono" style="font-weight:600;color:${c.balance>0?'var(--green)':'#dc2626'}">${fmt(c.balance)} تومان</td>
+              <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} تومان</td>
               <td>${esc(c.address||c.city||'-')}</td>
               <td class="muted">${esc(c.salesperson||'-')}</td>
             </tr>`).join('')}</tbody>
             <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light)">
               <td colspan="2" style="font-weight:700">جمع کل مانده حساب مشتریان</td>
-              <td class="mono" id="dashBalTotal" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'var(--green)':'#dc2626'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} تومان</td>
+              <td class="mono" id="dashBalTotal" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} تومان</td>
               <td colspan="2"></td>
             </tr></tfoot>
           </table>
@@ -1206,12 +1206,12 @@ async function renderDashContent(){
             <thead><tr><th>فروشگاه</th><th>نام کامل</th><th>مانده حساب</th><th>آدرس</th></tr></thead>
             <tbody>${balRows.map(c=>`<tr>
               <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
-              <td class="mono" style="font-weight:600;color:${c.balance>0?'var(--green)':'#dc2626'}">${fmt(c.balance)} تومان</td>
+              <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} تومان</td>
               <td>${esc(c.address||c.city||'-')}</td>
             </tr>`).join('')}</tbody>
             <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light)">
               <td colspan="2" style="font-weight:700">جمع کل مانده حساب</td>
-              <td class="mono" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'var(--green)':'#dc2626'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} تومان</td>
+              <td class="mono" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} تومان</td>
               <td></td>
             </tr></tfoot>
           </table>
@@ -1235,7 +1235,7 @@ function filterDashBalances(name){
   const tb = el('dashBalTbody'); if(!tb) return;
   tb.innerHTML = filtered.map(c=>`<tr>
     <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
-    <td class="mono" style="font-weight:600;color:${c.balance>0?'var(--green)':'#dc2626'}">${fmt(c.balance)} تومان</td>
+    <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} تومان</td>
     <td>${esc(c.address||c.city||'-')}</td>
     <td class="muted">${esc(c.salesperson||'-')}</td>
   </tr>`).join('') || '<tr><td colspan="5" class="empty">موردی یافت نشد</td></tr>';
@@ -1320,7 +1320,7 @@ function renderCustTable(){
     <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
     <td>${esc(c.province||'')}${c.province&&c.city?' / ':''}<span class="muted">${esc(c.city||'-')}</span></td>
     <td class="mono">${esc(c.phone||'-')}</td><td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}</td>
-    ${isAdmin?`<td class="muted">${esc(c.salesperson||'-')}</td><td class="mono" style="color:${(c.balance||0)>0?'var(--green)':(c.balance||0)<0?'#dc2626':'var(--muted)'}">${(c.balance||0)!==0?fmt(c.balance)+' ت':'-'}</td>`:''}
+    ${isAdmin?`<td class="muted">${esc(c.salesperson||'-')}</td><td class="mono" style="color:${(c.balance||0)>0?'#dc2626':(c.balance||0)<0?'var(--green)':'var(--muted)'}">${(c.balance||0)!==0?fmt(c.balance)+' ت':'-'}</td>`:''}
     <td style="white-space:nowrap">
       <button class="btn sm ghost" onclick="custModal(${c.id})">✏️</button>
       <button class="btn sm blue icon" onclick="custActivityModal(${c.id})" title="تاریخچه پیگیری">📋</button>
@@ -1330,7 +1330,7 @@ function renderCustTable(){
   ${isAdmin?`<tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
     <td colspan="7">جمع (${fmt(rows.length)} مشتری)</td>
     <td></td>
-    <td class="mono" style="font-weight:800;color:${rows.reduce((a,c)=>a+(c.balance||0),0)>=0?'var(--green)':'#dc2626'}">${fmt(rows.reduce((a,c)=>a+(c.balance||0),0))} ت</td>
+    <td class="mono" style="font-weight:800;color:${rows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(rows.reduce((a,c)=>a+(c.balance||0),0))} ت</td>
     <td></td>
   </tr></tfoot>`:''}</table>`;
 }
@@ -1408,7 +1408,7 @@ async function custModal(id){
       <div class="fg full"><label>یادداشت ${hlp('هر توضیح آزاد درباره مشتری: سلیقه، شرایط پرداخت، نکات مهم مذاکره.')}</label><textarea id="c-note">${esc(c.note||'')}</textarea></div>
       ${canAccounting()?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
         <div class="form-grid">
-          <div class="fg"><label style="color:var(--purple);font-weight:600">💰 موجودی حساب (ت) ${hlp('مانده اولیه حساب مشتری به تومان. مثبت = بستانکاری شما از مشتری. در دفتر معین به‌عنوان «مانده اولیه» ثبت می‌شود.')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— فقط مدیر/حسابدار</span></label>
+          <div class="fg"><label style="color:var(--purple);font-weight:600">💰 موجودی حساب (ت) ${hlp('مانده اولیه حساب مشتری به تومان. مثبت = مشتری بدهکار است (به شما بدهکار است). منفی = مشتری بستانکار است (شما به او بدهکارید). در دفتر معین به‌عنوان «مانده اولیه» ثبت می‌شود.')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— فقط مدیر/حسابدار</span></label>
             <input id="c-balance" type="number" value="${c.balance||0}" style="font-family:monospace;direction:ltr">
           </div>
           <div class="fg"><label style="color:var(--purple);font-weight:600">📊 گروه مشتری (ماهیت حساب) ${hlp('ماهیت حساب این مشتری را تعیین می‌کند — پیش‌فرض «بدهکار» است. فقط مدیر/حسابدار می‌توانند تغییر دهند.')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— فقط مدیر/حسابدار</span></label>
@@ -4418,6 +4418,7 @@ function renderAdminGuide(){
       <h5>پیگیری خودکار فاکتور</h5><p>چک‌باکس «ایجاد خودکار پیگیری هنگام صدور فاکتور» بالای فرم مشتری: اگر فعال باشد، با هر فاکتور، پیگیری کیفیت ۷ روزه خودکار ساخته می‌شود. برای مشتریانی که نمی‌خواهید، آن را خاموش کنید.</p>
       <h5>پیامک خوش‌آمدگویی</h5><p>با ثبت مشتری جدید دارای موبایل، پیامک خوش‌آمد خودکار ارسال می‌شود. ارسال دستی: دکمه 📤 در ردیف مشتری.</p>
       <h5>ورود از اکسل</h5><p>از دکمه «ورود اکسل» می‌توانید لیست مشتریان را از فایل اکسل وارد کنید. ستون‌های اجباری: نام فروشگاه.</p>
+      <h5>موجودی حساب (مانده)</h5><p>مقدار «موجودی حساب» در فرم مشتری، <b>مانده اولیه</b> است و همیشه با دفتر معین مشتری همگام می‌ماند: با ثبت یا ویرایش آن، یک ردیف «مانده اول دوره» در دفتر معین ساخته/به‌روزرسانی می‌شود. تمام نمایش‌های موجودی حساب در برنامه (داشبورد، لیست مشتریان، صورت‌حساب) از همین دفتر معین به‌صورت زنده محاسبه می‌شوند — با ثبت هر فاکتور یا تسویه، همه‌جا هم‌زمان به‌روز می‌شود. رنگ‌بندی در همه‌جا یکسان است: <span style="color:#dc2626">قرمز = بدهکار</span> (مشتری به شما بدهکار است)، <span style="color:var(--green)">سبز = بستانکار</span> (شما به مشتری بدهکارید یا پیش‌پرداخت دارد).</p>
       <div class="warn">حذف مشتری قابل بازگشت نیست. قبل از حذف، از نداشتن فاکتور و پیگیری مطمئن شوید.</div>`),
     helpSec('📞','پیگیری‌ها',`
       <p>پیگیری یعنی ثبت هر تماس یا فعالیتی که با مشتری انجام می‌دهید.</p>
