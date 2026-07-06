@@ -37,6 +37,8 @@ const ALLOWLIST = [
   /UPDATE followups SET sms_sent=1 WHERE id/,          // cron marks rows selected by a tenant-scoped query
   /UPDATE sync_queue SET/, /FROM sync_queue WHERE id=\?/, // worker: row ids from tenant-scoped selects
   /UPDATE einvoice_submissions SET/,                   // worker: row ids from tenant-scoped selects
+  /FROM einvoice_submissions WHERE id=\? AND status IN/, // queue worker: manual retry by pk (tenant re-checked per row)
+  /FROM einvoice_submissions WHERE status='pending' AND next_attempt_at<=\?/, // queue worker drains ALL tenants by design; per-row tenant check inside loop
   // Re-fetch by primary key immediately after a tenant-scoped INSERT/lookup (lastInsertRowid)
   /WHERE f\.id=\?$/, /WHERE i\.id=\?$/, /WHERE m\.id=\?$/, /WHERE o\.id=\? AND o\.tenant_id=\?$/,
   /^SELECT \* FROM products WHERE id=\?$/,

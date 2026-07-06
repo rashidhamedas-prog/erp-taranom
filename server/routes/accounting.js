@@ -328,7 +328,11 @@ router.post('/invoices/:id/approve', auth, adminOrAccounting, (req, res) => {
     .run(Math.floor(Date.now() / 1000), req.user.id, inv.id, req.tenantId);
   audit(req.tenantId, req.user.id, 'approve', 'invoice', inv.id, `تأیید فاکتور ${inv.num} برای انگیزه فروش`, req.ip);
   // Queue for Moadian e-invoice submission if the feature is enabled (hooked in einvoice service)
-  try { require('../services/einvoice').queueSubmission(db, req.tenantId, inv.id); } catch { /* module optional */ }
+  try {
+    const einvoice = require('../services/einvoice');
+    einvoice.queueSubmission(db, req.tenantId, inv.id);
+    einvoice.processQueue(db).catch(() => {}); // fire-and-forget; cron covers retries
+  } catch { /* module optional */ }
   res.json({ ok: true });
 });
 

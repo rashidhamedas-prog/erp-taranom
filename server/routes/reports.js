@@ -109,4 +109,38 @@ router.get('/debt', auth, adminOnly, (req, res) => {
   res.json({ rows, totalDebt });
 });
 
+// Moadian compliance: share of final invoices in the period that reached the tax authority
+router.get('/einvoice-compliance', auth, adminOnly, (req, res) => {
+  const db = getDB();
+  const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
+  const sf = safeDate(req.query.from), st = safeDate(req.query.to);
+  const dateClause = sf || st ? ` AND i.date >= '${sf || ''}' AND i.date <= '${st || '9999'}'` : '';
+  const total = db.prepare(`SELECT COUNT(*) c FROM invoices i WHERE i.tenant_id=? AND i.type='final'${dateClause}`).get(req.tenantId).c;
+  const byStatus = db.prepare(`
+    SELECT s.status, COUNT(DISTINCT s.invoice_id) c
+    FROM einvoice_submissions s JOIN invoices i ON s.invoice_id=i.id
+    WHERE s.tenant_id=? AND i.type='final'${dateClause}
+    GROUP BY s.status
+  `).all(req.tenantId);
+  const statusMap = Object.fromEntries(byStatus.map(r => [r.status, r.c]));
+  const confirmed = statusMap.confirmed || 0;
+  const notSubmitted = Math.max(0, total - byStatus.reduce((a, r) => a + r.c, 0));
+  const rows = db.prepare(`
+    SELECT i.id, i.num, i.date, i.final, c.biz as cust_biz,
+           COALESCE(s.status,'not_submitted') as einvoice_status, s.tax_id, s.error, s.attempts
+    FROM invoices i
+    LEFT JOIN einvoice_submissions s ON s.invoice_id=i.id AND s.tenant_id=i.tenant_id
+      AND s.id=(SELECT MAX(id) FROM einvoice_submissions WHERE invoice_id=i.id)
+    LEFT JOIN customers c ON i.cust_id=c.id
+    WHERE i.tenant_id=? AND i.type='final'${dateClause}
+    ORDER BY i.created_at DESC LIMIT 500
+  `).all(req.tenantId);
+  res.json({
+    total, confirmed, pending: statusMap.pending || 0, error: statusMap.error || 0,
+    cancelled: statusMap.cancelled || 0, not_submitted: notSubmitted,
+    compliance_pct: total ? Math.round(confirmed / total * 100) : 0,
+    rows,
+  });
+});
+
 module.exports = router;

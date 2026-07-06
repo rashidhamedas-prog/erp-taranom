@@ -437,6 +437,21 @@ function initDB() {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
 
+    CREATE TABLE IF NOT EXISTS einvoice_submissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL DEFAULT 1,
+      invoice_id INTEGER NOT NULL,
+      status TEXT DEFAULT 'pending',
+      tax_id TEXT,
+      raw_response TEXT,
+      error TEXT DEFAULT '',
+      attempts INTEGER DEFAULT 0,
+      next_attempt_at INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      updated_at INTEGER,
+      FOREIGN KEY(invoice_id) REFERENCES invoices(id)
+    );
+
     CREATE TABLE IF NOT EXISTS two_factor_auth (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER UNIQUE NOT NULL,
@@ -595,6 +610,8 @@ function initDB() {
   ensureColumn(db, 'invoices', 'updated_at', 'INTEGER');
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_sync_queue_tenant ON sync_queue(tenant_id, status);
+    CREATE INDEX IF NOT EXISTS idx_einvoice_tenant ON einvoice_submissions(tenant_id, status, next_attempt_at);
+    CREATE INDEX IF NOT EXISTS idx_einvoice_invoice ON einvoice_submissions(invoice_id);
     CREATE INDEX IF NOT EXISTS idx_sync_conflicts_tenant ON sync_conflicts(tenant_id, reviewed);
   `);
   // AI churn risk score (0-100, null = not scored yet)

@@ -338,6 +338,9 @@ router.delete('/:id', auth, (req, res) => {
     }
   }
 
+  // Void any Moadian submission tied to this invoice
+  try { require('../services/einvoice').cancelSubmission(db, req.tenantId, row.id); } catch {}
+
   db.prepare('DELETE FROM invoices WHERE id=? AND tenant_id=?').run(req.params.id, req.tenantId);
   audit(req.tenantId, req.user.id, 'delete', 'invoice', req.params.id, `حذف فاکتور ${row.num}`, req.ip);
   res.json({ ok: true });

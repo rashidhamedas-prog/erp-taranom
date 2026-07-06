@@ -103,6 +103,7 @@ app.use('/api/products', require('./routes/products'));
 app.use('/api/warehouses', require('./routes/warehouse'));
 app.use('/api/sync', require('./routes/sync'));
 app.use('/api/b2b', require('./routes/b2b'));
+app.use('/api/einvoice', require('./routes/einvoice'));
 app.use('/api/admin', require('./routes/admin'));
 
 // Manual backup endpoint — registered before admin router catch-all
@@ -323,6 +324,13 @@ cron.schedule('* * * * *', runTimedFollowupSMS);
 
 // Daily at 00:00: full app backup → local file + Gmail
 cron.schedule('0 0 * * *', runBackup);
+
+// Every 5 minutes: drain the Moadian e-invoice queue (exponential backoff on failures)
+cron.schedule('*/5 * * * *', () => {
+  try {
+    require('./services/einvoice').processQueue(getDB()).catch(e => console.error('einvoice queue error:', e.message));
+  } catch (e) { console.error('einvoice cron error:', e.message); }
+});
 
 // Global error handler — never leak stack traces to clients
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars

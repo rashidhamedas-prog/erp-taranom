@@ -139,6 +139,21 @@ document.querySelectorAll('svg.bc').forEach(el=>{
 </body></html>`);
 });
 
+// Bring the WMS default-warehouse quantity in line with a directly-set stock value.
+// Positive delta → adjustment receipt at the given cost; negative → adjustment issue.
+function syncWmsToStock(db, tenantId, productId, targetStock, unitCost, userId, note) {
+  const wms = require('../services/wms');
+  const wh = wms.getDefaultWarehouse(db, tenantId);
+  if (!wh) return; // no warehouse yet — startup bootstrap will pick it up
+  const cur = db.prepare('SELECT COALESCE(SUM(qty),0) s FROM warehouse_stock ws JOIN warehouses w ON ws.warehouse_id=w.id WHERE w.tenant_id=? AND ws.product_id=?').get(tenantId, productId).s;
+  const delta = (parseInt(targetStock) || 0) - cur;
+  if (delta > 0) {
+    wms.addReceipt(db, { tenantId, warehouseId: wh.id, productId, qty: delta, unitCost: unitCost || 0, ref: 'adjustment', note: note || 'تنظیم دستی موجودی', userId });
+  } else if (delta < 0) {
+    wms.addIssue(db, { tenantId, warehouseId: wh.id, productId, qty: -delta, ref: 'adjustment', note: note || 'تنظیم دستی موجودی', userId, allowNegative: true });
+  }
+}
+
 // Create product (admin only) — multipart form-data for optional image
 router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
   const { category, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, barcode } = req.body;
@@ -150,9 +165,15 @@ router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
   }
   const result = db.prepare(
     'INSERT INTO products (tenant_id,user_id,category,code,name,price,cost,mac_cost,stock,stock_alert,unit,note,image,colors,pack_size,barcode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(req.tenantId, req.user.id, category || '', code || '', name, parseFloat(price) || 0, parseFloat(cost) || 0, parseFloat(cost) || 0, parseInt(stock) || 0,
+  ).run(req.tenantId, req.user.id, category || '', code || '', name, parseFloat(price) || 0, parseFloat(cost) || 0, parseFloat(cost) || 0, 0,
         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
         parseInt(colors) || 1, parseInt(pack_size) || 1, (barcode || '').trim() || null);
+  // Initial stock enters through a WMS receipt so warehouse totals, MAC and journals stay consistent
+  const initialStock = parseInt(stock) || 0;
+  if (initialStock > 0) {
+    try { syncWmsToStock(db, req.tenantId, result.lastInsertRowid, initialStock, parseFloat(cost) || 0, req.user.id, 'موجودی اولیه محصول'); }
+    catch (e) { console.error('initial stock receipt error:', e.message); }
+  }
   audit(req.tenantId, req.user.id, 'create', 'product', result.lastInsertRowid, `ساخت محصول ${name}`, req.ip);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid));
 });
@@ -170,13 +191,18 @@ router.put('/:id', auth, adminOnly, upload.single('image'), async (req, res) => 
       if (prod.image) { try { fs.unlinkSync(path.join(UPLOAD_DIR, prod.image)); } catch (e) {} }
     } catch (e) { image = prod.image; }
   }
-  db.prepare('UPDATE products SET category=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,barcode=? WHERE id=? AND tenant_id=?')
+  db.prepare('UPDATE products SET category=?,code=?,name=?,price=?,cost=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,barcode=? WHERE id=? AND tenant_id=?')
     .run(category || '', code || '', name || prod.name, parseFloat(price) || 0,
-         cost !== undefined ? (parseFloat(cost) || 0) : (prod.cost || 0), parseInt(stock) || 0,
+         cost !== undefined ? (parseFloat(cost) || 0) : (prod.cost || 0),
          parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
          parseInt(colors) || prod.colors || 1, parseInt(pack_size) || prod.pack_size || 1,
          barcode !== undefined ? ((barcode || '').trim() || null) : prod.barcode,
          req.params.id, req.tenantId);
+  // Direct stock edits flow through WMS as adjustment receipt/issue (keeps products.stock in sync)
+  if (stock !== undefined && parseInt(stock) !== prod.stock) {
+    try { syncWmsToStock(db, req.tenantId, prod.id, parseInt(stock) || 0, parseFloat(cost) || prod.mac_cost || prod.cost || 0, req.user.id, 'ویرایش موجودی از فرم محصول'); }
+    catch (e) { console.error('stock sync error:', e.message); }
+  }
   audit(req.tenantId, req.user.id, 'update', 'product', req.params.id, `ویرایش محصول ${name || prod.name}`, req.ip);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id));
 });
@@ -188,10 +214,13 @@ router.patch('/:id/stock', auth, adminOnly, (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
-  const change = parseInt(stock) - prod.stock;
-  db.prepare('UPDATE products SET stock=? WHERE id=? AND tenant_id=?').run(parseInt(stock), req.params.id, req.tenantId);
-  db.prepare('INSERT INTO stock_logs (tenant_id,product_id,user_id,change,note) VALUES (?,?,?,?,?)').run(req.tenantId, req.params.id, req.user.id, change, note || '');
-  res.json({ ok: true, new_stock: parseInt(stock) });
+  try {
+    syncWmsToStock(db, req.tenantId, prod.id, parseInt(stock) || 0, prod.mac_cost || prod.cost || 0, req.user.id, note || 'تنظیم موجودی');
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  const updated = db.prepare('SELECT stock FROM products WHERE id=? AND tenant_id=?').get(req.params.id, req.tenantId);
+  res.json({ ok: true, new_stock: updated.stock });
 });
 
 // Delete (admin only)
@@ -223,25 +252,31 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
     const data = XLSX.utils.sheet_to_json(ws);
     const db = getDB();
     let inserted = 0;
-    const stmt = db.prepare('INSERT INTO products (tenant_id,user_id,category,code,name,price,stock,stock_alert,unit,colors,pack_size,barcode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+    const stmt = db.prepare('INSERT INTO products (tenant_id,user_id,category,code,name,price,cost,mac_cost,stock,stock_alert,unit,colors,pack_size,barcode) VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?)');
     const insertMany = db.transaction((rows) => {
       for (const row of rows) {
         const name = normalizeStr(row['نام محصول'] || row['name'] || row['Name'] || '');
         if (!name) continue;
-        stmt.run(
+        const cost = parseFloat(row['بهای تمام‌شده'] || row['cost'] || 0) || 0;
+        const r = stmt.run(
           req.tenantId,
           req.user.id,
           normalizeStr(row['دسته‌بندی'] || row['category'] || ''),
           normalizeStr(row['کد محصول'] || row['code'] || ''),
           name,
           parseFloat(row['قیمت'] || row['price'] || 0),
-          parseInt(row['موجودی'] || row['stock'] || 0),
+          cost, cost,
           parseInt(row['هشدار موجودی'] || row['stock_alert'] || 5),
           row['واحد'] || row['unit'] || 'عدد',
           parseInt(row['تعداد رنگ'] || row['colors'] || 1),
           parseInt(row['تعداد در پک'] || row['pack_size'] || 1),
           normalizeStr(row['بارکد'] || row['barcode'] || '') || null
         );
+        // Imported opening stock goes through a WMS receipt (warehouse totals + cost layers)
+        const importStock = parseInt(row['موجودی'] || row['stock'] || 0) || 0;
+        if (importStock > 0) {
+          syncWmsToStock(db, req.tenantId, r.lastInsertRowid, importStock, cost, req.user.id, 'ورود از اکسل');
+        }
         inserted++;
       }
     });
