@@ -947,6 +947,8 @@ const ACC_NAV = [
   {id:'acc-banks', icon:'🏦', label:'بانک‌ها'},
   {id:'acc-check-categories', icon:'📑', label:'دسته‌های چک'},
   {id:'acc-cash-boxes', icon:'💰', label:'صندوق‌های نقدی'},
+  {id:'acc-petty-cash', icon:'👛', label:'تنخواه گردان'},
+  {id:'acc-trust-checks', icon:'🔖', label:'چک‌های امانی'},
   {id:'acc-transfers', icon:'🔄', label:'انتقال وجه'},
   {id:'acc-suppliers', icon:'🚚', label:'تأمین‌کنندگان'},
   {id:'acc-persons', icon:'🧑‍💼', label:'اشخاص (کارمند/شریک/سایر)'},
@@ -2394,7 +2396,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks']);
 
 // Generic wrapper: every accounting page shares the same header (title + optional
 // date-range filter) and delegates the body to loadAccTab(tabKey).
@@ -2432,6 +2434,8 @@ ROUTES['acc-statement']=()=>renderAccPage('statement','📄','صورت‌حسا�
 ROUTES['acc-banks']=()=>renderAccPage('banks','🏦','بانک‌ها');
 ROUTES['acc-check-categories']=()=>renderAccPage('check-categories','📑','دسته‌های چک');
 ROUTES['acc-cash-boxes']=()=>renderAccPage('cash-boxes','💰','صندوق‌های نقدی');
+ROUTES['acc-petty-cash']=()=>renderAccPage('petty-cash','👛','تنخواه گردان');
+ROUTES['acc-trust-checks']=()=>renderAccPage('trust-checks','🔖','چک‌های امانی');
 ROUTES['acc-transfers']=()=>renderAccPage('transfers','🔄','انتقال وجه بین حساب‌ها');
 ROUTES['acc-suppliers']=()=>renderAccPage('suppliers','🚚','تأمین‌کنندگان');
 ROUTES['acc-persons']=()=>renderAccPage('persons','🧑‍💼','اشخاص (کارمند، شریک، سرمایه‌گذار، پیمانکار، ...)');
@@ -2738,6 +2742,10 @@ async function loadAccTab(tab){
     await renderCheckCategoriesTab(body);
   } else if(tab==='cash-boxes'){
     await renderCashBoxesTab(body);
+  } else if(tab==='petty-cash'){
+    await renderPettyCashTab(body);
+  } else if(tab==='trust-checks'){
+    await renderTrustChecksTab(body);
   } else if(tab==='transfers'){
     await renderTransfersTab(body,dq);
   }
@@ -3988,6 +3996,7 @@ function cashBoxModal(id){
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>نام صندوق * ${hlp('نام صندوق نقدی، مثال: صندوق فروشگاه یا صندوق دفتر مرکزی.')}</label><input id="cb-name" value="${esc(b?.name||'')}"></div>
       <div class="fg full"><label>مسئول صندوق</label><input id="cb-custodian" value="${esc(b?.custodian||'')}"></div>
+      <div class="fg full"><label><input type="checkbox" id="cb-petty" ${b?.is_petty_cash?'checked':''} style="width:auto;margin-left:6px"> این صندوق تنخواه‌گردان است ${hlp('صندوق‌های تنخواه‌گردان جداگانه در صفحه «تنخواه گردان» نمایش داده می‌شوند.')}</label></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="cb-active">
         <option value="1" ${b.active?'selected':''}>فعال</option><option value="0" ${!b.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -3998,7 +4007,7 @@ function cashBoxModal(id){
 async function saveCashBox(id){
   const name=el('cb-name').value.trim();
   if(!name){ showToast('نام صندوق الزامی است','error'); return; }
-  const data={name,custodian:el('cb-custodian').value};
+  const data={name,custodian:el('cb-custodian').value,is_petty_cash:el('cb-petty').checked};
   if(id) data.active=+el('cb-active').value;
   try{
     if(id) await api('PUT','/cash-boxes/'+id,data); else await api('POST','/cash-boxes',data);
@@ -4022,6 +4031,149 @@ function viewCashBoxLedger(id){
     }
   };
   tryPreselect();
+}
+
+/* ============================================================
+   PETTY CASH (تنخواه گردان) — a cash box flagged as custodian-managed.
+   Reuses Cash Boxes' own ledger account; "replenish" is just an Account
+   Transfer into the box, "expense" reuses the general Expense Payment flow
+   pre-locked to this specific box.
+============================================================ */
+async function renderPettyCashTab(body){
+  CACHE.cashBoxes=await api('GET','/cash-boxes')||[]; // refresh full cache for modals that need it
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  const boxes=CACHE.cashBoxes.filter(b=>b.is_petty_cash);
+  if(!boxes.length){
+    body.innerHTML=`<div class="empty">هنوز صندوق تنخواه‌گردانی تعریف نشده — از صفحه «صندوق‌های نقدی»، یک صندوق بسازید و گزینه «تنخواه‌گردان» را فعال کنید.</div>`;
+    return;
+  }
+  const balances=await Promise.all(boxes.map(b=>api('GET','/accounting/general-ledger/1101-'+b.id).catch(()=>null)));
+  body.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr>
+    <th>نام صندوق</th><th>مسئول</th><th>موجودی فعلی (ت)</th><th>عملیات</th>
+  </tr></thead><tbody>${boxes.map((b,i)=>`<tr>
+    <td>${esc(b.name)}</td><td>${esc(b.custodian||'-')}</td>
+    <td class="mono" style="font-weight:700">${fmt(balances[i]?.balance||0)}</td>
+    <td style="white-space:nowrap">
+      <button class="btn sm green" onclick="pettyCashExpenseModal(${b.id},'${esc(b.name)}')">🧾 ثبت هزینه</button>
+      <button class="btn sm orange" onclick="pettyCashReplenishModal(${b.id},'${esc(b.name)}')">➕ افزایش تنخواه</button>
+      <button class="btn sm blue" onclick="viewCashBoxLedger(${b.id})">📒 دفتر کل</button>
+    </td>
+  </tr>`).join('')}</tbody></table></div>`;
+}
+async function pettyCashExpenseModal(boxId,boxName){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
+  expensePaymentModal();
+  // Lock the payment type/cash-box to this fund and clear/disable the bank
+  // select — a petty cash expense is always a cash payment from this specific
+  // fund (resolveCashAccount would otherwise prefer a selected bank over the
+  // cash box).
+  setTimeout(()=>{
+    const pt=el('ex-paytype'); if(pt){ pt.value='cash'; pt.disabled=true; }
+    const bank=el('ex-bank'); if(bank){ bank.value=''; bank.disabled=true; }
+    const cb=el('ex-cashbox'); if(cb){ cb.value=boxId; cb.disabled=true; }
+    const head=document.querySelector('#modalRoot .modal-head h3'); if(head) head.textContent='🧾 ثبت هزینه از تنخواه: '+boxName;
+  },50);
+}
+function pettyCashReplenishModal(boxId,boxName){
+  transferModal();
+  setTimeout(()=>{
+    el('tr-to-type').value='cash'; updateTransferSideOptions('to');
+    el('tr-to-id').value=boxId;
+    const fromType=el('tr-from-type'); if(fromType) fromType.value='bank';
+    updateTransferSideOptions('from');
+    const head=document.querySelector('#modalRoot .modal-head h3'); if(head) head.textContent='➕ افزایش تنخواه: '+boxName;
+  },50);
+}
+
+/* ============================================================
+   TRUST / GUARANTEE CHECKS (چک‌های امانی) — held as collateral, not yet
+   posted to accounting. Actual cash movement (if realized) is recorded
+   separately through Receipt/Payment Operations.
+============================================================ */
+const TC_STATUS_LABEL={held:'نزد ما / نزد طرف مقابل',returned:'مسترد شده',realized:'وصول/پرداخت شده',bounced:'برگشت خورده'};
+const TC_STATUS_COLOR={held:'var(--orange)',returned:'var(--muted)',realized:'var(--green)',bounced:'var(--red)'};
+async function renderTrustChecksTab(body){
+  const dirFilter=el('tcDirFilter')?.value||'';
+  const statusFilter=el('tcStatusFilter')?.value||'';
+  const qp=[]; if(dirFilter) qp.push('direction='+dirFilter); if(statusFilter) qp.push('status='+statusFilter);
+  const rows=await api('GET','/trust-checks'+(qp.length?'?'+qp.join('&'):''))||[];
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <button class="btn" onclick="trustCheckModal()">➕ ثبت چک امانی</button>
+      <select id="tcDirFilter" onchange="loadAccTab('trust-checks')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px">
+        <option value="">همه جهت‌ها</option>
+        <option value="in" ${dirFilter==='in'?'selected':''}>دریافتی</option>
+        <option value="out" ${dirFilter==='out'?'selected':''}>پرداختی</option>
+      </select>
+      <select id="tcStatusFilter" onchange="loadAccTab('trust-checks')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px">
+        <option value="">همه وضعیت‌ها</option>
+        ${Object.entries(TC_STATUS_LABEL).map(([k,v])=>`<option value="${k}" ${statusFilter===k?'selected':''}>${v}</option>`).join('')}
+      </select>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>جهت</th><th>طرف حساب</th><th>بانک</th><th>شماره صیادی</th><th>مبلغ (ت)</th><th>سررسید</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>${rows.map(r=>`<tr>
+      <td>${r.direction==='in'?'⬇️ دریافتی':'⬆️ پرداختی'}</td>
+      <td>${esc(r.party_name)}</td><td>${esc(r.bank_name||'-')}</td><td class="mono">${esc(r.sayadi||'-')}</td>
+      <td class="mono" style="font-weight:700">${fmt(r.amount)}</td><td class="mono">${escDate(r.due_date)}</td>
+      <td><span class="tag" style="background:${TC_STATUS_COLOR[r.status]};color:#fff">${TC_STATUS_LABEL[r.status]||r.status}</span></td>
+      <td style="white-space:nowrap">
+        ${r.status==='held'?`
+          <button class="btn sm green" onclick="setTrustCheckStatus(${r.id},'realized')">✅ وصول/پرداخت شد</button>
+          <button class="btn sm ghost" onclick="setTrustCheckStatus(${r.id},'returned')">↩️ استرداد</button>
+          <button class="btn sm red" onclick="setTrustCheckStatus(${r.id},'bounced')">❌ برگشت خورد</button>`:''}
+        <button class="btn sm red icon" onclick="deleteTrustCheck(${r.id})">🗑️</button>
+      </td>
+    </tr>`).join('')||emptyRow(8)}</tbody></table></div>
+    <div class="muted" style="font-size:11px;margin-top:8px">چک‌های امانی صرفاً برای پیگیری امانت هستند و در سند حسابداری ثبت نمی‌شوند — در صورت وصول/پرداخت واقعی، آن را جداگانه از «عملیات دریافت» یا «عملیات پرداخت» ثبت کنید.</div>`;
+}
+function trustCheckModal(){
+  openModal(`
+    <div class="modal-head"><h3>🔖 ثبت چک امانی</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>جهت چک *</label><select id="tc-direction">
+        <option value="in">دریافتی (نزد ما امانت است)</option>
+        <option value="out">پرداختی (نزد طرف مقابل امانت است)</option>
+      </select></div>
+      <div class="fg"><label>طرف حساب * ${hlp('نام مشتری، تأمین‌کننده یا شخصی که این چک را داده/گرفته است.')}</label><input id="tc-party"></div>
+      <div class="fg"><label>تلفن طرف حساب</label><input id="tc-phone"></div>
+      <div class="fg"><label>مبلغ (تومان) *</label><input id="tc-amount" type="number" min="1"></div>
+      <div class="fg"><label>نام بانک</label><input id="tc-bank"></div>
+      <div class="fg"><label>شماره صیادی</label><input id="tc-sayadi"></div>
+      <div class="fg"><label>شماره چک</label><input id="tc-number"></div>
+      <div class="fg"><label>شماره حساب</label><input id="tc-account"></div>
+      <div class="fg"><label>نام صادرکننده</label><input id="tc-owner"></div>
+      <div class="fg"><label>تاریخ سررسید *</label><input id="tc-due" data-jdate></div>
+      <div class="fg full"><label>یادداشت</label><textarea id="tc-note"></textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveTrustCheck()">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function saveTrustCheck(){
+  const party_name=el('tc-party').value.trim();
+  const amount=+el('tc-amount').value;
+  if(!party_name){ showToast('نام طرف حساب الزامی است','error'); return; }
+  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  try{
+    await api('POST','/trust-checks',{
+      direction:el('tc-direction').value, party_name, party_phone:el('tc-phone').value,
+      bank_name:el('tc-bank').value, sayadi:el('tc-sayadi').value, cheque_number:el('tc-number').value,
+      account_number:el('tc-account').value, amount, owner_name:el('tc-owner').value,
+      due_date:el('tc-due').value, note:el('tc-note').value
+    });
+    closeModal(); showToast('چک امانی ثبت شد'); loadAccTab('trust-checks');
+  }catch(e){}
+}
+async function setTrustCheckStatus(id,status){
+  const labels={realized:'وصول/پرداخت شد',returned:'مسترد شود',bounced:'برگشت خورد'};
+  if(!confirm(`وضعیت این چک به «${labels[status]||status}» تغییر کند؟`)) return;
+  try{ await api('PATCH','/trust-checks/'+id+'/status',{status}); showToast('وضعیت به‌روزرسانی شد'); loadAccTab('trust-checks'); }catch(e){}
+}
+async function deleteTrustCheck(id){
+  if(!confirm('این چک امانی حذف شود؟')) return;
+  try{ await api('DELETE','/trust-checks/'+id); showToast('حذف شد'); loadAccTab('trust-checks'); }catch(e){}
 }
 
 /* ============================================================
@@ -5171,6 +5323,8 @@ function renderAdminGuide(){
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد (قابل مشاهده در «دفتر کل حساب‌ها»)</li>
         <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>
         <li><b>صندوق‌های نقدی</b>: ساخت و مدیریت صندوق‌های نقدی شرکت بدون محدودیت در تعداد (مثلاً صندوق فروشگاه، صندوق دفتر مرکزی) — درست مثل بانک‌ها، هر صندوق یک حساب دفتر کل مستقل دارد. در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب صندوق (مثل بانک) اختیاری است</li>
+        <li><b>تنخواه گردان</b>: هر صندوق نقدی را می‌توان با گزینه «این صندوق تنخواه‌گردان است» به‌عنوان صندوق تنخواه مشخص کرد تا در این صفحهٔ جداگانه با موجودی زنده نمایش داده شود — دکمهٔ «ثبت هزینه» یک هزینهٔ نقدی از همان صندوق ثبت می‌کند و دکمهٔ «افزایش تنخواه» یک انتقال وجه به آن صندوق انجام می‌دهد</li>
+        <li><b>چک‌های امانی</b>: پیگیری چک‌های دریافتی/پرداختی که صرفاً به‌عنوان امانت/ضمانت نزد ما یا نزد طرف مقابل هستند — <b>در سند حسابداری ثبت نمی‌شوند</b> چون هنوز پول واقعی جابه‌جا نشده. با تغییر وضعیت به «وصول/پرداخت شد»، «مسترد شد» یا «برگشت خورد» فقط وضعیت پیگیری به‌روز می‌شود؛ ثبت واقعی وجه (در صورت وصول) باید جداگانه از «عملیات دریافت» یا «عملیات پرداخت» انجام شود</li>
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>

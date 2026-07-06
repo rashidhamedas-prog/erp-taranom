@@ -498,7 +498,26 @@ function initDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       custodian TEXT DEFAULT '',
+      is_petty_cash INTEGER DEFAULT 0,
       active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS trust_checks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      direction TEXT NOT NULL,
+      party_name TEXT NOT NULL,
+      party_phone TEXT DEFAULT '',
+      bank_name TEXT DEFAULT '',
+      sayadi TEXT DEFAULT '',
+      cheque_number TEXT DEFAULT '',
+      account_number TEXT DEFAULT '',
+      amount REAL NOT NULL,
+      owner_name TEXT DEFAULT '',
+      due_date TEXT DEFAULT '',
+      status TEXT DEFAULT 'held',
+      note TEXT DEFAULT '',
+      created_by INTEGER,
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
 
@@ -607,6 +626,9 @@ function initDB() {
   ensureColumn(db, 'incentive_payments', 'cash_box_id', 'INTEGER');
   // Manual journal voucher expansion: optional single attachment per entry.
   ensureColumn(db, 'journal_entries', 'attachment', 'TEXT');
+  // Petty cash: any existing cash box can be flagged as a custodian-managed
+  // petty cash fund (تنخواه‌گردان) — reuses the cash box's own ledger account.
+  ensureColumn(db, 'cash_boxes', 'is_petty_cash', 'INTEGER');
 
   // Seed a default customer group (Debit nature — the standard for receivables)
   const grpCount = db.prepare('SELECT COUNT(*) c FROM customer_groups').get().c;

@@ -128,6 +128,7 @@ app.use('/api/cash-boxes', require('./routes/cash-boxes'));
 app.use('/api/transfers', require('./routes/transfers'));
 app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/persons', require('./routes/persons'));
+app.use('/api/trust-checks', require('./routes/trust-checks'));
 app.use('/api/api-keys', require('./routes/api_keys').router);
 app.use('/api/v1', require('./routes/api_v1'));
 
