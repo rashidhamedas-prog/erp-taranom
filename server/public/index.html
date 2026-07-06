@@ -3258,34 +3258,65 @@ async function renderPurchaseReturnsTab(body){
     </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
 }
 function purchaseReturnModal(){
-  genCart=[]; genCartDiscInputId=null; GEN_CART_PRICE_FIELD='cost';
   openModal(`
     <div class="modal-head"><h3>↩️ برگشت از خرید</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:14px">
-        <div class="fg"><label>تأمین‌کننده *</label>${supplierSelect('pr-supplier',0)}</div>
+        <div class="fg"><label>تأمین‌کننده * ${hlp('پس از انتخاب تأمین‌کننده، فاکتورهای خرید او برای انتخاب نمایش داده می‌شود.')}</label>${supplierSelect('pr-supplier',0)}</div>
+        <div class="fg"><label>فاکتور خرید * ${hlp('فقط از روی یک فاکتور واقعی می‌توان برگشت ثبت کرد — قیمت اصلی همان فاکتور حفظ می‌شود.')}</label>
+          <select id="pr-invoice" onchange="loadPrReturnRows()" disabled><option value="">-- ابتدا تأمین‌کننده را انتخاب کنید --</option></select>
+        </div>
         <div class="fg"><label>تاریخ</label><input id="pr-date" data-jdate value="${todayJalali()}"></div>
         <div class="fg full"><label>یادداشت</label><input id="pr-note"></div>
       </div>
-      <div class="inv-layout">
-        <div>${genProductSearchHtml()}</div>
-        <div class="inv-cart"><h4 style="color:var(--purple);margin-bottom:10px">اقلام برگشتی</h4>
-          <div id="genCartRows"></div><div class="cart-tot" id="genCartTot"></div>
-        </div>
-      </div>
+      <div id="prRowsContainer"><div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div></div>
     </div>
     <div class="modal-foot"><button class="btn orange" onclick="savePurchaseReturn()">💾 ثبت برگشت</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`,true);
   attachDatepickers(el('modalRoot')); initSupplierSearches(el('modalRoot'));
-  renderGenCart();
+  const supEl=el('pr-supplier');
+  if(supEl) supEl.addEventListener('change', loadPrInvoices);
+}
+async function loadPrInvoices(){
+  const supId=+el('pr-supplier')?.value||0;
+  const invSel=el('pr-invoice');
+  const rowsBox=el('prRowsContainer');
+  if(!supId){ invSel.disabled=true; invSel.innerHTML='<option value="">-- ابتدا تأمین‌کننده را انتخاب کنید --</option>'; rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; return; }
+  const allPurchases=await api('GET','/purchases')||[];
+  const invs=allPurchases.filter(i=>i.supplier_id===supId);
+  if(!invs.length){
+    invSel.disabled=true; invSel.innerHTML='<option value="">-- این تأمین‌کننده فاکتور خرید ندارد --</option>';
+    rowsBox.innerHTML='<div class="empty">این تأمین‌کننده فاکتور خریدی برای برگشت ندارد</div>';
+    return;
+  }
+  invSel.disabled=false;
+  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}">${esc(i.num)} — ${escDate(i.date)} — ${fmt(i.final)} ت</option>`).join('');
+  rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>';
+}
+async function loadPrReturnRows(){
+  const invId=+el('pr-invoice')?.value||0;
+  const box=el('prRowsContainer');
+  if(!invId){ box.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; return; }
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const d=await api('GET','/purchases/returns/available/'+invId);
+  if(!d||!d.rows.length){ box.innerHTML='<div class="empty">همه اقلام این فاکتور قبلاً برگشت داده شده‌اند</div>'; return; }
+  box.innerHTML=`<div class="tbl-wrap"><table class="tbl" style="font-size:13px"><thead><tr>
+    <th>کالا</th><th>تعداد خریداری‌شده</th><th>قبلاً برگشتی</th><th>قابل برگشت</th><th>قیمت واحد (ت)</th><th>تعداد برگشتی</th>
+  </tr></thead><tbody>${d.rows.map(r=>`<tr>
+    <td>${esc(r.name)}</td><td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
+    <td class="mono" style="font-weight:700">${fmt(r.max_returnable)}</td><td class="mono">${fmt(r.price)}</td>
+    <td><input type="number" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" class="pr-qty-input" style="width:80px"></td>
+  </tr>`).join('')}</tbody></table></div>`;
 }
 async function savePurchaseReturn(){
   const supplier_id=+el('pr-supplier').value;
+  const purchase_invoice_id=+el('pr-invoice')?.value||0;
   if(!supplier_id){ showToast('تأمین‌کننده را انتخاب کنید','error'); return; }
-  if(!genCart.length){ showToast('حداقل یک ردیف اضافه کنید','error'); return; }
+  if(!purchase_invoice_id){ showToast('یک فاکتور را انتخاب کنید','error'); return; }
+  const rows=[...document.querySelectorAll('.pr-qty-input')].map(inp=>({product_id:+inp.dataset.pid,qty:+inp.value||0})).filter(r=>r.qty>0);
+  if(!rows.length){ showToast('حداقل برای یک کالا تعداد برگشتی وارد کنید','error'); return; }
   try{
-    await api('POST','/purchases/returns',{supplier_id,date:el('pr-date').value,note:el('pr-note').value,
-      rows:genCart.map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}))});
+    await api('POST','/purchases/returns',{supplier_id,purchase_invoice_id,date:el('pr-date').value,note:el('pr-note').value,rows});
     closeModal(); showToast('برگشت از خرید ثبت شد'); loadAccTab('purchase-returns');
   }catch(e){}
 }
@@ -3311,34 +3342,65 @@ async function renderSalesReturnsTab(body){
     </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
 }
 function salesReturnModal(){
-  genCart=[]; genCartDiscInputId=null; GEN_CART_PRICE_FIELD='price';
   openModal(`
     <div class="modal-head"><h3>↪️ برگشت از فروش</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:14px">
-        <div class="fg"><label>مشتری *</label>${custSelect('sr-cust',0)}</div>
+        <div class="fg"><label>مشتری * ${hlp('پس از انتخاب مشتری، فاکتورهای رسمی او برای انتخاب نمایش داده می‌شود.')}</label>${custSelect('sr-cust',0)}</div>
+        <div class="fg"><label>فاکتور فروش * ${hlp('فقط از روی یک فاکتور واقعی می‌توان برگشت ثبت کرد — قیمت و تخفیف اصلی همان فاکتور حفظ می‌شود.')}</label>
+          <select id="sr-invoice" onchange="loadSrReturnRows()" disabled><option value="">-- ابتدا مشتری را انتخاب کنید --</option></select>
+        </div>
         <div class="fg"><label>تاریخ</label><input id="sr-date" data-jdate value="${todayJalali()}"></div>
         <div class="fg full"><label>یادداشت</label><input id="sr-note"></div>
       </div>
-      <div class="inv-layout">
-        <div>${genProductSearchHtml()}</div>
-        <div class="inv-cart"><h4 style="color:var(--purple);margin-bottom:10px">اقلام برگشتی</h4>
-          <div id="genCartRows"></div><div class="cart-tot" id="genCartTot"></div>
-        </div>
-      </div>
+      <div id="srRowsContainer"><div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div></div>
     </div>
     <div class="modal-foot"><button class="btn orange" onclick="saveSalesReturn()">💾 ثبت برگشت</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`,true);
   attachDatepickers(el('modalRoot')); initCustSearches(el('modalRoot'));
-  renderGenCart();
+  const custEl=el('sr-cust');
+  if(custEl) custEl.addEventListener('change', loadSrInvoices);
+}
+async function loadSrInvoices(){
+  const custId=+el('sr-cust')?.value||0;
+  const invSel=el('sr-invoice');
+  const rowsBox=el('srRowsContainer');
+  if(!custId){ invSel.disabled=true; invSel.innerHTML='<option value="">-- ابتدا مشتری را انتخاب کنید --</option>'; rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; return; }
+  CACHE.invoices=await api('GET','/invoices')||[];
+  const invs=CACHE.invoices.filter(i=>i.cust_id===custId && i.type==='final');
+  if(!invs.length){
+    invSel.disabled=true; invSel.innerHTML='<option value="">-- این مشتری فاکتور رسمی ندارد --</option>';
+    rowsBox.innerHTML='<div class="empty">این مشتری فاکتور رسمی‌ای برای برگشت ندارد</div>';
+    return;
+  }
+  invSel.disabled=false;
+  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}">${esc(i.num)} — ${escDate(i.date)} — ${fmt(i.final)} ت</option>`).join('');
+  rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>';
+}
+async function loadSrReturnRows(){
+  const invId=+el('sr-invoice')?.value||0;
+  const box=el('srRowsContainer');
+  if(!invId){ box.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>'; return; }
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const d=await api('GET','/accounting/sales-returns/available/'+invId);
+  if(!d||!d.rows.length){ box.innerHTML='<div class="empty">همه اقلام این فاکتور قبلاً برگشت داده شده‌اند</div>'; return; }
+  box.innerHTML=`<div class="tbl-wrap"><table class="tbl" style="font-size:13px"><thead><tr>
+    <th>کالا</th><th>تعداد فروخته‌شده</th><th>قبلاً برگشتی</th><th>قابل برگشت</th><th>قیمت واحد (ت)</th><th>تعداد برگشتی</th>
+  </tr></thead><tbody>${d.rows.map(r=>`<tr>
+    <td>${esc(r.name)}</td><td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
+    <td class="mono" style="font-weight:700">${fmt(r.max_returnable)}</td><td class="mono">${fmt(r.price)}</td>
+    <td><input type="number" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" class="sr-qty-input" style="width:80px"></td>
+  </tr>`).join('')}</tbody></table></div>`;
 }
 async function saveSalesReturn(){
   const cust_id=+el('sr-cust').value;
+  const invoice_id=+el('sr-invoice')?.value||0;
   if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
-  if(!genCart.length){ showToast('حداقل یک ردیف اضافه کنید','error'); return; }
+  if(!invoice_id){ showToast('یک فاکتور را انتخاب کنید','error'); return; }
+  const rows=[...document.querySelectorAll('.sr-qty-input')].map(inp=>({product_id:+inp.dataset.pid,qty:+inp.value||0})).filter(r=>r.qty>0);
+  if(!rows.length){ showToast('حداقل برای یک کالا تعداد برگشتی وارد کنید','error'); return; }
   try{
-    await api('POST','/accounting/sales-returns',{cust_id,date:el('sr-date').value,note:el('sr-note').value,
-      rows:genCart.map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}))});
+    await api('POST','/accounting/sales-returns',{cust_id,invoice_id,date:el('sr-date').value,note:el('sr-note').value,rows});
     closeModal(); showToast('برگشت از فروش ثبت شد'); loadAccTab('sales-returns');
   }catch(e){}
 }
@@ -4990,7 +5052,7 @@ function renderAdminGuide(){
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>فاکتورهای فروش</b>: نمای فقط-خواندنی همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ — برای دسترسی سریع تیم حسابداری بدون نیاز به رفتن به بخش CRM</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد</li>
-        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: کاهش/افزایش موجودی انبار و اصلاح خودکار حساب طرف مقابل</li>
+        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد)</li>
         <li><b>دفتر کل حساب‌ها</b>: انتخاب هر حساب از کدینگ حسابداری و مشاهده گردش کامل آن با مانده لحظه‌ای</li>

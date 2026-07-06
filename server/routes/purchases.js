@@ -139,14 +139,66 @@ router.get('/returns/list', auth, adminOrAccounting, (req, res) => {
   res.json(rows.map(r => ({ ...r, rows: JSON.parse(r.rows || '[]') })));
 });
 
+// Invoice-linked return picker — mirrors /accounting/sales-returns/available/:id
+router.get('/returns/available/:invoiceId', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const inv = db.prepare('SELECT p.*,s.name as supplier_name FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=?').get(req.params.invoiceId);
+  if (!inv) return res.status(404).json({ error: 'فاکتور خرید یافت نشد' });
+  const invRows = JSON.parse(inv.rows || '[]');
+  const alreadyReturned = {};
+  db.prepare('SELECT rows FROM purchase_returns WHERE purchase_invoice_id=?').all(req.params.invoiceId).forEach(pr => {
+    JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturned[r.product_id] = (alreadyReturned[r.product_id] || 0) + r.qty; });
+  });
+  const rows = invRows.map(r => ({
+    ...r, already_returned: alreadyReturned[r.product_id] || 0,
+    max_returnable: r.qty - (alreadyReturned[r.product_id] || 0)
+  })).filter(r => r.max_returnable > 0);
+  res.json({ invoice: inv, rows });
+});
+
 router.post('/returns', auth, adminOrAccounting, (req, res) => {
   const { supplier_id, purchase_invoice_id, date, note, rows } = req.body;
   if (!supplier_id) return res.status(400).json({ error: 'تأمین‌کننده الزامی است' });
   const db = getDB();
+
+  // Invoice-linked return: original price is always taken from the invoice
+  // itself, and returned quantity per product is capped at what's still
+  // returnable (original qty minus whatever has already been returned).
+  let invoiceLineMap = null, alreadyReturnedMap = {};
+  if (purchase_invoice_id) {
+    const inv = db.prepare('SELECT * FROM purchase_invoices WHERE id=? AND supplier_id=?').get(purchase_invoice_id, supplier_id);
+    if (!inv) return res.status(400).json({ error: 'فاکتور خرید یافت نشد یا متعلق به این تأمین‌کننده نیست' });
+    invoiceLineMap = {};
+    JSON.parse(inv.rows || '[]').forEach(r => { invoiceLineMap[r.product_id] = r; });
+    db.prepare('SELECT rows FROM purchase_returns WHERE purchase_invoice_id=?').all(purchase_invoice_id).forEach(pr => {
+      JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturnedMap[r.product_id] = (alreadyReturnedMap[r.product_id] || 0) + r.qty; });
+    });
+  }
+
   let built;
-  try { built = buildRows(db, rows); }
-  catch (e) { return res.status(400).json({ error: e.message }); }
-  if (!built.rows.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
+  if (invoiceLineMap) {
+    built = { rows: [], subtotal: 0 };
+    for (const r of (rows || [])) {
+      const pid = parseInt(r.product_id);
+      const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
+      if (!prod) return res.status(400).json({ error: `محصول یافت نشد (شناسه ${pid})` });
+      const origLine = invoiceLineMap[pid];
+      if (!origLine) return res.status(400).json({ error: `کالای ${prod.name} در این فاکتور خرید وجود ندارد` });
+      const already = alreadyReturnedMap[pid] || 0;
+      const maxReturnable = origLine.qty - already;
+      const qty = Math.max(1, parseInt(r.qty) || 1);
+      if (qty > maxReturnable) return res.status(400).json({ error: `حداکثر مقدار قابل برگشت برای ${prod.name}: ${maxReturnable}` });
+      const price = origLine.price;
+      const sum = qty * price;
+      built.rows.push({ product_id: pid, name: prod.name, qty, price, sum });
+      built.subtotal += sum;
+    }
+    if (!built.rows.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
+  } else {
+    try { built = buildRows(db, rows); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+    if (!built.rows.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
+  }
 
   const amount = built.subtotal;
   const result = db.prepare(
