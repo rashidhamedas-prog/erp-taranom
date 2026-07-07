@@ -5,7 +5,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const VOUCHER_UPLOAD_DIR = path.join(__dirname, '..', 'public', 'uploads', 'vouchers');
+const { UPLOADS_ROOT } = require('../paths');
+const VOUCHER_UPLOAD_DIR = path.join(UPLOADS_ROOT, 'vouchers');
 fs.mkdirSync(VOUCHER_UPLOAD_DIR, { recursive: true });
 const voucherUpload = multer({
   storage: multer.diskStorage({

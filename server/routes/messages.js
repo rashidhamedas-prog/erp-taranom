@@ -5,7 +5,8 @@ const multer = require('multer');
 const { getDB } = require('../db');
 const { auth } = require('../middleware/auth');
 
-const MSG_UPLOAD_DIR = path.join(__dirname, '..', 'public', 'uploads', 'messages');
+const { UPLOADS_ROOT } = require('../paths');
+const MSG_UPLOAD_DIR = path.join(UPLOADS_ROOT, 'messages');
 fs.mkdirSync(MSG_UPLOAD_DIR, { recursive: true });
 const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 

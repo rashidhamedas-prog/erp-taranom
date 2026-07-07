@@ -22,7 +22,8 @@ try {
 } catch { /* compression optional — run without it if the module is missing */ }
 
 // Ensure uploads directory exists
-const UPLOADS = path.join(__dirname, 'public', 'uploads', 'products');
+const { UPLOADS_ROOT } = require('./paths');
+const UPLOADS = path.join(UPLOADS_ROOT, 'products');
 fs.mkdirSync(UPLOADS, { recursive: true });
 
 // Security headers (helmet if available, manual fallback)
@@ -70,7 +71,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 // Uploaded images are content-addressed by unique filename → safe to cache long-term
-app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads'), {
+app.use('/uploads', express.static(UPLOADS_ROOT, {
   maxAge: '30d',
   immutable: true,
 }));

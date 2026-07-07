@@ -9,7 +9,8 @@ const fs = require('fs');
 let sharp = null;
 try { sharp = require('sharp'); } catch (e) { /* optional — falls back to raw storage */ }
 
-const UPLOAD_DIR = path.join(__dirname, '..', 'public', 'uploads', 'products');
+const { UPLOADS_ROOT } = require('../paths');
+const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'products');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const storage = multer.memoryStorage();
