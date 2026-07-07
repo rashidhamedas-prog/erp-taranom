@@ -476,6 +476,7 @@ table.tbl tr:hover td{background:#F7FAF7}
           <h3 id="pageTitle">داشبورد</h3>
         </div>
         <div class="right">
+          <span id="syncBadge" style="display:none;cursor:pointer;font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px;background:#f3f4f6;color:#6b7280;white-space:nowrap" onclick="openSyncPanel()" title="وضعیت همگام‌سازی با سرور مرکزی"></span>
           <span class="clock" id="clock"></span>
           <div class="user">
             <div class="avatar" id="avatar">؟</div>
@@ -1086,6 +1087,7 @@ async function boot(){
   refreshRemBadge();
   setInterval(refreshMsgBadge, 30000);
   setInterval(refreshRemBadge, 60000);
+  initSyncUI();
 }
 
 async function loadInitial(){
@@ -1109,6 +1111,164 @@ async function loadInitial(){
 
 async function reloadCustomers(){ CACHE.customers = await api('GET','/customers')||[]; }
 async function reloadProducts(q=''){ CACHE.products = await api('GET','/products'+q)||[]; }
+
+/* ============================================================
+   OFFLINE SYNC UI (device builds only)
+   The desktop/mobile apps run an embedded local server (SYNC_ROLE=device)
+   that exposes /api/sync/status. On the central web server that endpoint
+   doesn't exist, so this whole UI stays dormant there.
+============================================================ */
+let SYNC_MODE = false, SYNC_STATUS = null;
+
+async function fetchSyncStatus(){
+  const token = localStorage.getItem('crm_token');
+  const r = await fetch('/api/sync/status',{headers:{'Authorization':'Bearer '+token}});
+  if(!r.ok) return null;
+  return await r.json();
+}
+
+async function initSyncUI(){
+  try{
+    SYNC_STATUS = await fetchSyncStatus();
+    if(!SYNC_STATUS || SYNC_STATUS.role!=='device') return;
+    SYNC_MODE = true;
+    renderSyncBadge();
+    setInterval(async ()=>{ try{ SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge(); }catch(e){} }, 20000);
+    if(!SYNC_STATUS.paired && isAdmin()) openSyncPairModal();
+  }catch(e){ /* central server — no sync UI */ }
+}
+
+function renderSyncBadge(){
+  const b = el('syncBadge'); if(!b || !SYNC_STATUS) return;
+  b.style.display='inline-block';
+  const s = SYNC_STATUS;
+  if(!s.paired){
+    b.textContent='🔗 اتصال به سرور مرکزی'; b.style.background='#fef3c7'; b.style.color='#b45309';
+  } else if(s.conflicts>0){
+    b.textContent=`⚠️ ${fmt(s.conflicts)} تعارض`; b.style.background='#fee2e2'; b.style.color='#b91c1c';
+  } else if(s.syncing){
+    b.textContent='🔄 در حال همگام‌سازی...'; b.style.background='#dbeafe'; b.style.color='#1d4ed8';
+  } else if(!s.online){
+    b.textContent=`📡 آفلاین${s.pending?` · ${fmt(s.pending)} در صف`:''}`; b.style.background='#f3f4f6'; b.style.color='#6b7280';
+  } else if(s.pending>0){
+    b.textContent=`🔄 ${fmt(s.pending)} در انتظار ارسال`; b.style.background='#fef3c7'; b.style.color='#b45309';
+  } else {
+    b.textContent='🟢 همگام با مرکز'; b.style.background='#dcfce7'; b.style.color='#15803d';
+  }
+}
+
+async function openSyncPanel(){
+  SYNC_STATUS = await fetchSyncStatus() || SYNC_STATUS;
+  renderSyncBadge();
+  const s = SYNC_STATUS || {};
+  if(!s.paired){ if(isAdmin()) openSyncPairModal(); else showToast('دستگاه هنوز متصل نشده — از مدیر سیستم بخواهید اتصال را انجام دهد','error'); return; }
+  const token = localStorage.getItem('crm_token');
+  const [pending, conflicts] = await Promise.all([
+    fetch('/api/sync/pending',{headers:{'Authorization':'Bearer '+token}}).then(r=>r.ok?r.json():[]),
+    fetch('/api/sync/conflicts',{headers:{'Authorization':'Bearer '+token}}).then(r=>r.ok?r.json():[])
+  ]);
+  const opLabel = o=>{
+    const act = o.method==='POST'?'ثبت':o.method==='DELETE'?'حذف':'ویرایش';
+    const ent = {invoices:'فاکتور',customers:'مشتری',settlements:'تسویه',sales_returns:'برگشت از فروش',purchase_invoices:'فاکتور خرید',purchase_returns:'برگشت از خرید',supplier_payments:'پرداخت تأمین‌کننده',expense_payments:'هزینه',account_transfers:'انتقال وجه',followups:'پیگیری',products:'محصول',suppliers:'تأمین‌کننده',persons:'شخص',journal_entries:'سند دستی',payroll_records:'حقوق'}[o.entity_table]||o.entity_table||o.path;
+    return `${act} ${ent}`;
+  };
+  openModal(`
+    <div class="modal-head"><h3>🔄 همگام‌سازی با سرور مرکزی</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <span class="tag ${s.online?'t-done':'t-cancel'}">${s.online?'🟢 متصل به مرکز':'📡 آفلاین'}</span>
+        <span class="tag">${fmt(s.pending)} عملیات در صف</span>
+        <span class="tag ${s.conflicts?'t-cancel':'t-done'}">${fmt(s.conflicts)} تعارض</span>
+        ${s.last_sync_at?`<span class="tag">آخرین همگام‌سازی: ${new Date(s.last_sync_at*1000).toLocaleTimeString('fa-IR')}</span>`:''}
+      </div>
+      ${s.last_error?`<div style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px">${esc(s.last_error)}</div>`:''}
+      <button class="btn" style="margin-bottom:14px" onclick="syncNowUI()">🔄 همگام‌سازی اکنون</button>
+      ${pending.filter(p=>p.status==='pending').length?`
+        <h4 style="margin:10px 0 6px">⏳ در صف ارسال</h4>
+        <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><tbody>
+          ${pending.filter(p=>p.status==='pending').map(o=>`<tr><td>${esc(opLabel(o))}</td><td class="mono muted">${new Date((o.created_at||0)*1000).toLocaleString('fa-IR')}</td></tr>`).join('')}
+        </tbody></table></div>`:''}
+      ${conflicts.length?`
+        <h4 style="margin:14px 0 6px;color:var(--red)">⚠️ تعارض‌ها — نیاز به تصمیم شما</h4>
+        <p class="muted" style="font-size:12px;margin-bottom:8px">این عملیات‌ها روی سرور مرکزی پذیرفته نشدند (مثلاً موجودی کافی نبود). می‌توانید آن‌ها را «لغو» کنید تا اثر محلی‌شان برگردد، و در صورت نیاز عملیات را با شرایط جدید دوباره ثبت کنید.</p>
+        <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>عملیات</th><th>علت رد شدن</th><th></th></tr></thead><tbody>
+          ${conflicts.map(c=>`<tr>
+            <td>${esc(opLabel(c))}</td>
+            <td style="color:var(--red)">${esc(c.reason||'-')}</td>
+            <td><button class="btn sm red" onclick="discardSyncConflict(${c.id})">🗑️ لغو عملیات</button></td>
+          </tr>`).join('')}
+        </tbody></table></div>`:''}
+    </div>`, true);
+}
+
+async function syncNowUI(){
+  const token = localStorage.getItem('crm_token');
+  showToast('همگام‌سازی شروع شد...');
+  const r = await fetch('/api/sync/now',{method:'POST',headers:{'Authorization':'Bearer '+token}});
+  const j = await r.json().catch(()=>({}));
+  if(j.ok){ showToast(`همگام‌سازی انجام شد (${fmt(j.confirmed||0)} عملیات تأیید شد)`); }
+  else showToast(j.error||'همگام‌سازی ناموفق بود','error');
+  SYNC_STATUS = await fetchSyncStatus(); renderSyncBadge();
+  closeModal(); openSyncPanel();
+}
+
+async function discardSyncConflict(outboxId){
+  if(!confirm('این عملیات به‌طور کامل لغو و اثر محلی آن برگردانده شود؟')) return;
+  const token = localStorage.getItem('crm_token');
+  const r = await fetch('/api/sync/conflicts/'+outboxId+'/discard',{method:'POST',headers:{'Authorization':'Bearer '+token}});
+  const j = await r.json().catch(()=>({}));
+  if(j.ok){ showToast('عملیات لغو شد'); SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge(); closeModal(); openSyncPanel(); }
+  else showToast(j.error||'لغو ناموفق بود','error');
+}
+
+function openSyncPairModal(){
+  openModal(`
+    <div class="modal-head"><h3>🔗 اتصال به سرور مرکزی</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <p class="muted" style="font-size:13px;margin-bottom:14px">این برنامه به‌صورت آفلاین کار می‌کند و تغییرات را با سرور مرکزی همگام می‌سازد. برای شروع، یک‌بار اتصال را با اطلاعات مدیر سیستم انجام دهید (نیاز به اینترنت دارد).</p>
+      <div class="form-grid">
+        <div class="fg full"><label>آدرس سرور مرکزی *</label><input id="pair-url" dir="ltr" placeholder="http://45.90.98.99:3000" value="http://45.90.98.99:3000"></div>
+        <div class="fg"><label>نام کاربری مدیر *</label><input id="pair-user" dir="ltr"></div>
+        <div class="fg"><label>رمز عبور *</label><input id="pair-pass" type="password" dir="ltr"></div>
+        <div class="fg full"><label>نام این دستگاه</label><input id="pair-name" placeholder="مثلاً: لپ‌تاپ فروش ۱"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="doSyncPair()">🔗 اتصال</button>
+      <button class="btn ghost" onclick="closeModal()">بعداً</button>
+    </div>`);
+}
+
+async function doSyncPair(){
+  const central_url = el('pair-url').value.trim();
+  const username = el('pair-user').value.trim();
+  const password = el('pair-pass').value;
+  const device_name = el('pair-name').value.trim() || 'دستگاه آفلاین';
+  if(!central_url||!username||!password){ showToast('همه فیلدهای ستاره‌دار الزامی است','error'); return; }
+  showToast('در حال اتصال و دریافت اطلاعات از سرور مرکزی...');
+  const token = localStorage.getItem('crm_token');
+  const r = await fetch('/api/sync/pair-device',{method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+    body: JSON.stringify({central_url,username,password,device_name})});
+  const j = await r.json().catch(()=>({}));
+  if(j.ok){
+    showToast('دستگاه با موفقیت متصل شد — اطلاعات دریافت شد');
+    closeModal();
+    // The placeholder admin was replaced by central's real users — re-login required
+    setTimeout(()=>{ alert('اتصال انجام شد. لطفاً با نام کاربری و رمز عبور اصلی خود (همان سرور مرکزی) دوباره وارد شوید.'); logout(); }, 800);
+  } else {
+    showToast(j.error||'اتصال ناموفق بود','error');
+  }
+}
+
+// Provisional (not-yet-synced) invoice numbers get a warning badge
+function invNumCell(num){
+  const n = esc(num||'-');
+  if(num && String(num).startsWith('موقت')){
+    return `${n} <span class="tag t-pending" style="font-size:10px" title="این فاکتور هنوز با سرور مرکزی همگام نشده و شماره رسمی ندارد">⏳ موقت</span>`;
+  }
+  return n;
+}
 
 /* ============================================================
    MODAL HELPERS
@@ -1849,7 +2009,7 @@ function renderInvTable(){
   el('invTable').innerHTML=`<table class="tbl"><thead><tr>
     <th>شماره</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی</th><th>فروشنده</th><th>عملیات</th>
   </tr></thead><tbody>${rows.map(i=>`<tr>
-    <td class="mono" style="font-weight:700">${esc(i.num||'-')}</td><td>${esc(i.cust_biz||'-')}</td>
+    <td class="mono" style="font-weight:700">${invNumCell(i.num)}</td><td>${esc(i.cust_biz||'-')}</td>
     <td>${statusTag(i.type)}${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" style="font-size:10px">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
     <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
     <td class="muted">${esc(i.seller_name||'-')}</td>
@@ -3089,7 +3249,7 @@ async function renderSalesInvoicesTab(body){
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
       <th>شماره</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی (ت)</th><th>نوع پرداخت</th><th>فروشنده</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(i=>`<tr>
-      <td class="mono" style="font-weight:700">${esc(i.num||'-')}</td><td>${esc(i.cust_biz||'-')}</td>
+      <td class="mono" style="font-weight:700">${invNumCell(i.num)}</td><td>${esc(i.cust_biz||'-')}</td>
       <td>${typeLabel[i.type]||i.type}${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" style="font-size:10px">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
       <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
       <td>${payLabel[i.pay_type]||i.pay_type||'-'}</td>
@@ -6024,6 +6184,23 @@ function renderAdminGuide(){
         <li><b>شروع سال مالی</b>: تعیین ماه شمسی شروع سال مالی (برای گزارش‌های آینده)</li>
         <li><b>فعال/غیرفعال کردن ماژول‌ها</b>: تنخواه‌گردان، چک‌های امانی، انبارها، کالای امانی، تحلیل هزینه تولید و حقوق و دستمزد را می‌توانید بر اساس نیاز کسب‌وکار از منوی حسابداری پنهان کنید — داده‌های موجود حذف نمی‌شود، فقط از منو مخفی می‌شود</li>
       </ul>`),
+    helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
+      <p>نسخه دسکتاپ (ویندوز) و اندرویدِ برنامه به‌صورت <b>کاملاً آفلاین</b> کار می‌کنند: همه اطلاعات روی خود دستگاه ذخیره می‌شود و به محض دسترسی به اینترنت، تغییرات به‌طور خودکار با سرور مرکزی همگام می‌شود.</p>
+      <h5>اتصال اولیه دستگاه</h5><ol>
+        <li>در اولین اجرا، با کاربر پیش‌فرض وارد شوید — پنجره «اتصال به سرور مرکزی» باز می‌شود</li>
+        <li>آدرس سرور مرکزی و نام کاربری/رمز <b>مدیر سیستم</b> را وارد کنید (این مرحله یک‌بار است و اینترنت لازم دارد)</li>
+        <li>پس از اتصال، همه اطلاعات (مشتریان، محصولات، فاکتورها، کاربران و...) از مرکز دریافت می‌شود و از آن پس با نام کاربری اصلی خودتان — حتی بدون اینترنت — وارد می‌شوید</li>
+      </ol>
+      <h5>نشانگر وضعیت (بالای صفحه)</h5><ul>
+        <li><b>🟢 همگام با مرکز</b>: همه‌چیز ارسال و دریافت شده</li>
+        <li><b>📡 آفلاین</b>: اینترنت/سرور در دسترس نیست — کار عادی ادامه دارد و عملیات در صف می‌ماند</li>
+        <li><b>🔄 در انتظار ارسال</b>: تعدادی عملیات محلی هنوز به مرکز نرسیده</li>
+        <li><b>⚠️ تعارض</b>: عملیاتی در مرکز پذیرفته نشده و منتظر تصمیم شماست — روی نشانگر بزنید</li>
+      </ul>
+      <h5>شماره فاکتور موقت</h5><p>فاکتوری که آفلاین صادر شود ابتدا شماره <b>«موقت-...»</b> می‌گیرد و چاپ آن واترمارک «پیش‌نویس» دارد. بعد از همگام‌سازی، شماره رسمی سراسری (T-xxxx) از مرکز دریافت و به‌طور خودکار جایگزین می‌شود — بنابراین شماره فاکتور دو دستگاه هرگز تداخل پیدا نمی‌کند.</p>
+      <h5>تعارض‌ها</h5><p>اگر عملیات آفلاین شما با واقعیت مرکز ناسازگار باشد (مثلاً کالایی فروخته‌اید که هم‌زمان در مرکز تمام شده)، آن عملیات <b>هرگز بی‌صدا اعمال نمی‌شود</b> — در پنل همگام‌سازی با ذکر دلیل نمایش داده می‌شود و می‌توانید آن را «لغو» کنید (اثر محلی برمی‌گردد) و در صورت نیاز با شرایط جدید دوباره ثبت کنید.</p>
+      <div class="warn">تنظیمات سیستم، مدیریت کاربران و اصلاح مستقیم موجودی فقط روی سرور مرکزی امکان‌پذیر است. تغییر رمز کاربران با اولین همگام‌سازی به دستگاه‌های آفلاین می‌رسد.</div>
+      <div class="tip">همگام‌سازی خودکار هر یک دقیقه انجام می‌شود؛ با دکمه «همگام‌سازی اکنون» در پنل وضعیت می‌توانید فوراً اجرا کنید.</div>`),
     helpSec('🔌','API و یکپارچه‌سازی',`
       <p>اتصال نرم‌افزارهای خارجی به CRM ترنم از طریق API.</p>
       <h5>ساخت کلید API</h5><ol>
@@ -6105,7 +6282,14 @@ function renderSalesGuide(){
         <li>مجموع فروش (فاکتورهای رسمی)</li>
         <li>تعداد پیگیری‌های باز</li>
       </ul>
-      <div class="tip">برای دیدن جزئیات بیشتر، از بخش «گزارشات» (فقط مدیر) درخواست دهید.</div>`)
+      <div class="tip">برای دیدن جزئیات بیشتر، از بخش «گزارشات» (فقط مدیر) درخواست دهید.</div>`),
+    helpSec('📴','کار آفلاین (نسخه ویندوز/اندروید)',`
+      <p>در برنامه دسکتاپ و اندروید، همه کارها (ثبت مشتری، فاکتور، پیگیری و...) <b>بدون اینترنت</b> هم انجام می‌شود و به محض اتصال، خودکار با سرور مرکزی همگام می‌شود.</p>
+      <ul>
+        <li>نشانگر بالای صفحه وضعیت را نشان می‌دهد: 🟢 همگام / 📡 آفلاین / 🔄 در انتظار ارسال / ⚠️ تعارض</li>
+        <li>فاکتور آفلاین ابتدا شماره «موقت» می‌گیرد؛ بعد از همگام‌سازی شماره رسمی جایگزین می‌شود</li>
+        <li>اگر عملیاتی در مرکز رد شود (⚠️)، روی نشانگر بزنید و طبق دلیل نمایش‌داده‌شده تصمیم بگیرید</li>
+      </ul>`)
   ].join('');
 }
 function toggleHelpSec(el_){ el_.closest('.help-section').classList.toggle('open'); }

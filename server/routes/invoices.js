@@ -371,6 +371,9 @@ router.get('/:id/print', auth, (req, res) => {
   const companyPhone = getSetting(db, 'company_phone') || '';
   const typeLabel = inv.type === 'final' ? 'فاکتور رسمی' : 'پیش‌فاکتور';
   const paperSize = (req.query.paper || 'A4').toUpperCase() === 'A5' ? 'A5' : 'A4';
+  // Invoices created offline carry a provisional number until they sync with
+  // central — the printout must be visibly non-official.
+  const isProvisional = String(inv.num || '').startsWith('موقت');
 
   const payTypeLabel = inv.pay_type === 'cheque' ? 'چک' : 'نقد';
   let payInfo = `<div><b>نوع پرداخت:</b> ${payTypeLabel}</div>`;
@@ -428,7 +431,10 @@ router.get('/:id/print', auth, (req, res) => {
 </style>
 </head>
 <body>
-  <div class="sheet">
+  <div class="sheet" style="position:relative">
+    ${isProvisional ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:5">
+      <div style="transform:rotate(-25deg);font-size:44px;font-weight:800;color:rgba(220,38,38,.16);border:4px solid rgba(220,38,38,.16);border-radius:14px;padding:10px 30px;white-space:nowrap">پیش‌نویس — در انتظار شماره رسمی</div>
+    </div>` : ''}
     <div class="head">
       <div class="logo">
         <img src="/logo-sm.png" onerror="this.src='/logo.png';this.onerror=()=>{this.style.display='none';this.nextElementSibling.style.display='inline'}">
