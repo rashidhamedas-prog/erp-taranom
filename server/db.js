@@ -879,10 +879,169 @@ function initDB() {
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_purchases_num_unique ON purchase_invoices(num)'); }
   catch (e) { console.warn('⚠️ ایندکس یکتای شماره فاکتور خرید ایجاد نشد:', e.message); }
 
+  // ---- Sync engine schema (offline-first desktop/mobile devices) ----
+  initSyncSchema(db);
+
   // ---- Backfill accounting entries for operations recorded before the engine existed ----
   backfillAccounting(db);
 
   console.log('✅ دیتابیس آماده شد');
+}
+
+// Sync engine schema. Central keeps a monotonic global sequence stamped onto
+// every row change via triggers (plus tombstones for deletes) so devices can
+// pull incrementally; devices keep an outbox of locally-performed operations
+// to replay against central. See sync/tables.js for the table registry and
+// the provisional id-space partitioning that makes offline creation safe.
+function initSyncSchema(db) {
+  const { SYNCABLE_TABLES } = require('./sync/tables');
+
+  // Columns every syncable table needs (both roles — devices receive central
+  // values via pull; version powers optimistic concurrency for offline edits).
+  for (const t of SYNCABLE_TABLES) {
+    ensureColumn(db, t.name, 'sync_seq', 'INTEGER');
+    ensureColumn(db, t.name, 'version', 'INTEGER DEFAULT 0');
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS global_seq (
+      id INTEGER PRIMARY KEY CHECK (id=1),
+      value INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT OR IGNORE INTO global_seq (id, value) VALUES (1, 0);
+
+    CREATE TABLE IF NOT EXISTS sync_devices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      paired_by INTEGER,
+      active INTEGER DEFAULT 1,
+      last_push_at INTEGER,
+      last_pull_at INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_applied_ops (
+      idempotency_key TEXT PRIMARY KEY,
+      device_id INTEGER NOT NULL,
+      device_seq INTEGER NOT NULL,
+      method TEXT, path TEXT,
+      status TEXT NOT NULL,             -- applied | conflict
+      result_json TEXT,
+      applied_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_id_map (
+      device_id INTEGER NOT NULL,
+      local_id INTEGER NOT NULL,
+      tbl TEXT NOT NULL,
+      central_id INTEGER NOT NULL,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      PRIMARY KEY (device_id, local_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_conflicts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER NOT NULL,
+      device_seq INTEGER NOT NULL,
+      idempotency_key TEXT,
+      method TEXT, path TEXT,
+      payload TEXT,
+      reason TEXT,
+      central_snapshot TEXT,
+      status TEXT DEFAULT 'open',       -- open | resolved
+      resolved_by INTEGER, resolved_at INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_tombstones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tbl TEXT NOT NULL,
+      row_key TEXT NOT NULL,
+      sync_seq INTEGER NOT NULL,
+      deleted_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tombstones_seq ON sync_tombstones(sync_seq);
+
+    -- Device-side outbox: one row per locally-performed operation awaiting
+    -- replay on central. Local-only — never part of push/pull payloads.
+    CREATE TABLE IF NOT EXISTS sync_outbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, -- doubles as device_seq (ordering)
+      method TEXT NOT NULL,
+      path TEXT NOT NULL,
+      body_json TEXT,
+      user_id INTEGER,
+      base_version INTEGER,
+      entity_table TEXT,
+      entity_local_id INTEGER,
+      captured_rows_json TEXT,          -- rows this op created locally (for cleanup on confirm)
+      has_file INTEGER DEFAULT 0,
+      file_path TEXT,
+      status TEXT DEFAULT 'pending',    -- pending | confirmed | conflict | discarded
+      central_result TEXT,
+      reason TEXT,
+      attempts INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      resolved_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_outbox_status ON sync_outbox(status);
+
+    -- Device-side key/value config (central_url, device_id, device_token, last_pull_seq)
+    CREATE TABLE IF NOT EXISTS sync_local_kv (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+
+  // Central-only: triggers stamp every insert/update with the next global
+  // sequence value (and bump version on update) and write a tombstone on
+  // delete, so the pull endpoint can serve incremental changes with zero
+  // cooperation from route handlers. Non-recursive triggers (SQLite default)
+  // mean the trigger's own UPDATE doesn't re-fire itself.
+  if (!isDevice()) {
+    for (const t of SYNCABLE_TABLES) {
+      const keyCol = t.upsertKey;
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS trg_sync_ins_${t.name} AFTER INSERT ON ${t.name} BEGIN
+          UPDATE global_seq SET value = value + 1 WHERE id = 1;
+          UPDATE ${t.name} SET sync_seq = (SELECT value FROM global_seq WHERE id = 1) WHERE id = NEW.id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_sync_upd_${t.name} AFTER UPDATE ON ${t.name} BEGIN
+          UPDATE global_seq SET value = value + 1 WHERE id = 1;
+          UPDATE ${t.name} SET sync_seq = (SELECT value FROM global_seq WHERE id = 1),
+                              version = COALESCE(OLD.version, 0) + 1
+          WHERE id = NEW.id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_sync_del_${t.name} AFTER DELETE ON ${t.name} BEGIN
+          UPDATE global_seq SET value = value + 1 WHERE id = 1;
+          INSERT INTO sync_tombstones (tbl, row_key, sync_seq)
+          VALUES ('${t.name}', OLD.${keyCol}, (SELECT value FROM global_seq WHERE id = 1));
+        END;
+      `);
+    }
+    // Stamp pre-existing rows once so a device's first pull sees them.
+    // The UPDATE fires the trigger above, which assigns the real sequence.
+    for (const t of SYNCABLE_TABLES) {
+      db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+    }
+  }
+}
+
+// Device-side: reserve this device's provisional id ranges by pre-seeding
+// sqlite_sequence for every syncable table, so ordinary AUTOINCREMENT inserts
+// naturally allocate ids in the device's own disjoint high range with no
+// changes to any route handler. Idempotent; called at pairing and every boot.
+function seedProvisionalSequences(db, deviceId) {
+  const { SYNCABLE_TABLES, tableBase } = require('./sync/tables');
+  SYNCABLE_TABLES.forEach((t, i) => {
+    const base = tableBase(deviceId, i);
+    const row = db.prepare('SELECT seq FROM sqlite_sequence WHERE name=?').get(t.name);
+    if (!row) {
+      db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(t.name, base);
+    } else if (row.seq < base) {
+      db.prepare('UPDATE sqlite_sequence SET seq=? WHERE name=?').run(base, t.name);
+    }
+  });
 }
 
 // Atomically allocate the next business number (e.g. invoice 'T-0042').
@@ -1092,5 +1251,5 @@ function syncCashBoxAccount(db, box) {
 module.exports = {
   getDB, initDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting,
   resolveCashAccount, syncBankAccount, syncCashBoxAccount,
-  SYNC_ROLE, isDevice, allocateNumber
+  SYNC_ROLE, isDevice, allocateNumber, seedProvisionalSequences
 };

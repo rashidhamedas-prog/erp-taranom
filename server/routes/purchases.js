@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getDB, audit, createJournalEntry, resolveCashAccount, allocateNumber } = require('../db');
+const { getDB, audit, createJournalEntry, resolveCashAccount, allocateNumber, isDevice } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 
@@ -68,7 +68,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   // All mutations commit atomically: number allocation, purchase row,
   // stock increase, supplier ledger and journal postings.
   const { invId, num } = db.transaction(() => {
-    const num = allocateNumber(db, 'purchase', prefixRow?.value || 'PO');
+    // Device builds issue a provisional number; central assigns the real one at sync
+    const num = isDevice()
+      ? ('موقت-' + Date.now().toString(36).toUpperCase())
+      : allocateNumber(db, 'purchase', prefixRow?.value || 'PO');
     const result = db.prepare(
       'INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,pay_type,stock_added,bank_id,check_category_id,cash_box_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)'
     ).run(req.user.id, supplier_id, num, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, pType, bank_id || null, check_category_id || null, cash_box_id || null);

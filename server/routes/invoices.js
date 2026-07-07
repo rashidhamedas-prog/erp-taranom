@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getDB, audit, createLedgerEntry, createJournalEntry, allocateNumber } = require('../db');
+const { getDB, audit, createLedgerEntry, createJournalEntry, allocateNumber, isDevice } = require('../db');
 const { auth } = require('../middleware/auth');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 
@@ -151,9 +151,14 @@ router.post('/', auth, (req, res) => {
   let created;
   try {
     created = db.transaction(() => {
-      // sequential global invoice number (prefix configurable in the admin
-      // panel); allocated atomically so numbers are never reused after deletions
-      const num = allocateNumber(db, 'invoice', prefixRow?.value || 'T');
+      // Sequential global invoice number (prefix configurable in the admin
+      // panel), allocated atomically so numbers are never reused after
+      // deletions. Offline device builds never allocate official numbers —
+      // they issue a clearly-marked provisional one; the real number is
+      // assigned by central when the operation syncs.
+      const num = isDevice()
+        ? ('موقت-' + Date.now().toString(36).toUpperCase())
+        : allocateNumber(db, 'invoice', prefixRow?.value || 'T');
 
       let stockDeducted = 0;
       if (invType === 'final') {
@@ -191,10 +196,12 @@ router.post('/', auth, (req, res) => {
         });
       }
 
-      // Auto-create a 7-day quality follow-up — only if the customer has auto-followup enabled
+      // Auto-create a 7-day quality follow-up — only if the customer has
+      // auto-followup enabled. Central-only: on a device this would duplicate
+      // the follow-up central generates when the invoice op is replayed.
       try {
-        const cust = db.prepare('SELECT auto_followup FROM customers WHERE id=?').get(cust_id);
-        if (!cust || cust.auto_followup == null || cust.auto_followup) {
+        const cust = isDevice() ? null : db.prepare('SELECT auto_followup FROM customers WHERE id=?').get(cust_id);
+        if (!isDevice() && (!cust || cust.auto_followup == null || cust.auto_followup)) {
           const invoiceDate = date || todayJalali();
           const followupDate = addDaysToJalali(invoiceDate, 7);
           const productList = built.rows.map(r => r.name).join('، ') || '-';

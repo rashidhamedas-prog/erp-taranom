@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
 const { initDB, getDB, isDevice } = require('./db');
@@ -74,8 +75,17 @@ app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads'), {
   immutable: true,
 }));
 
+// Per-process secret marking loopback replay requests (sync engine): the
+// central push endpoint re-executes device operations against its own routes;
+// those internal requests must not consume the public rate-limit budget.
+const INTERNAL_REPLAY_TOKEN = crypto.randomBytes(24).toString('hex');
+app.set('internalReplayToken', INTERNAL_REPLAY_TOKEN);
+
 // General API rate limit (generous — protects against runaway loops)
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 1000, standardHeaders: true, legacyHeaders: false });
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 1000, standardHeaders: true, legacyHeaders: false,
+  skip: (req) => req.headers['x-internal-replay'] === INTERNAL_REPLAY_TOKEN
+});
 app.use('/api', limiter);
 
 // Strict rate limit on authentication endpoints — brute-force protection
@@ -91,6 +101,14 @@ app.use('/api/auth/login', authLimiter);
 
 initDB();
 
+// Device builds record every successful mutating API call into the sync
+// outbox for later replay against central (see sync/capture.js).
+if (isDevice()) {
+  const { captureMiddleware } = require('./sync/capture');
+  app.use(captureMiddleware);
+}
+
+app.use('/api/sync', require('./routes/sync'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/followups', require('./routes/followups'));
@@ -323,4 +341,10 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 
 app.listen(PORT, () => {
   console.log(`CRM ترنم نسخه ۳ روی پورت ${PORT} اجرا شد`);
+  if (isDevice()) {
+    // Offline-first device: background sync loop (push outbox → pull changes)
+    const { startClientLoop } = require('./sync/client');
+    startClientLoop(parseInt(process.env.SYNC_INTERVAL_MS) || 60000);
+    console.log('🔄 حالت دستگاه آفلاین فعال است — همگام‌سازی خودکار با سرور مرکزی');
+  }
 });
