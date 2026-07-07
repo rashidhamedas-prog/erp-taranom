@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOnly } = require('../middleware/auth');
+const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 
 const ALLOWED_KEYS = [
@@ -43,7 +43,7 @@ router.get('/', auth, adminOnly, (req, res) => {
 });
 
 // PUT upsert key-value pairs (admin only)
-router.put('/', auth, adminOnly, (req, res) => {
+router.put('/', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const stmt = db.prepare(`
     INSERT INTO settings (key,value) VALUES (?,?)

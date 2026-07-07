@@ -59,17 +59,20 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const { category_id, name, phone, address, note, credit_limit, debit_limit, opening_balance } = req.body;
   if (!name) return res.status(400).json({ error: 'نام شخص الزامی است' });
   const db = getDB();
-  const result = db.prepare(
-    'INSERT INTO persons (category_id,name,phone,address,note,credit_limit,debit_limit) VALUES (?,?,?,?,?,?,?)'
-  ).run(category_id || null, name, phone || '', address || '', note || '', parseFloat(credit_limit) || 0, parseFloat(debit_limit) || 0);
-  const personId = result.lastInsertRowid;
-  const ob = parseFloat(opening_balance) || 0;
-  if (ob !== 0) {
-    createPersonLedgerEntry(db, {
-      person_id: personId, date: todayJalali(), entry_type: 'opening', ref_type: 'opening', ref_id: personId,
-      description: 'مانده اولیه حساب', debit: ob > 0 ? ob : 0, credit: ob < 0 ? -ob : 0, user_id: req.user.id
-    });
-  }
+  const personId = db.transaction(() => {
+    const result = db.prepare(
+      'INSERT INTO persons (category_id,name,phone,address,note,credit_limit,debit_limit) VALUES (?,?,?,?,?,?,?)'
+    ).run(category_id || null, name, phone || '', address || '', note || '', parseFloat(credit_limit) || 0, parseFloat(debit_limit) || 0);
+    const personId = result.lastInsertRowid;
+    const ob = parseFloat(opening_balance) || 0;
+    if (ob !== 0) {
+      createPersonLedgerEntry(db, {
+        person_id: personId, date: todayJalali(), entry_type: 'opening', ref_type: 'opening', ref_id: personId,
+        description: 'مانده اولیه حساب', debit: ob > 0 ? ob : 0, credit: ob < 0 ? -ob : 0, user_id: req.user.id
+      });
+    }
+    return personId;
+  })();
   audit(req.user.id, 'create', 'person', personId, `ساخت شخص ${name}`);
   res.json(db.prepare('SELECT * FROM persons WHERE id=?').get(personId));
 });

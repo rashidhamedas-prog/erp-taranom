@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
-const { initDB, getDB } = require('./db');
+const { initDB, getDB, isDevice } = require('./db');
 const { todayJalali, nowHHMM } = require('./jalali');
 const { sendSMS } = require('./sms');
 const { hashKey } = require('./routes/api_keys');
@@ -98,15 +98,17 @@ app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/admin', require('./routes/admin'));
 
-// Manual backup endpoint — registered before admin router catch-all
-const { auth, adminOnly } = require('./middleware/auth');
-app.post('/api/admin/backup-now', auth, adminOnly, async (req, res) => {
+// Manual backup endpoint — registered before admin router catch-all.
+// Central-only: the tar/Gmail backup pipeline belongs to the production
+// server; device builds have their own local DB file the OS backs up.
+const { auth, adminOnly, centralOnly } = require('./middleware/auth');
+app.post('/api/admin/backup-now', auth, adminOnly, centralOnly, async (req, res) => {
   const result = await runBackup();
   res.json(result);
 });
 
 // Download latest backup file directly to admin's browser
-app.get('/api/admin/backup-download', auth, adminOnly, async (req, res) => {
+app.get('/api/admin/backup-download', auth, adminOnly, centralOnly, async (req, res) => {
   const { BACKUP_FILE } = require('./backup');
   if (!fs.existsSync(BACKUP_FILE)) {
     // No backup yet — create one first
@@ -293,18 +295,25 @@ function runActiveToFollowupCheck() {
   }
 }
 
-// Daily at 08:00: batch SMS + silent customer check + active→followup
-cron.schedule('0 8 * * *', () => {
-  runFollowupSMSBatch();
-  runSilentCustomerCheck();
-  runActiveToFollowupCheck();
-});
+// Cron jobs run ONLY on the central server. Device instances (offline-first
+// desktop/mobile builds, SYNC_ROLE=device) must never send SMS, mutate
+// customer statuses on a schedule, or run the tar-based backup — those are
+// central responsibilities, and running them per-device would duplicate SMS
+// sends and create diverging automated edits that fight the sync engine.
+if (!isDevice()) {
+  // Daily at 08:00: batch SMS + silent customer check + active→followup
+  cron.schedule('0 8 * * *', () => {
+    runFollowupSMSBatch();
+    runSilentCustomerCheck();
+    runActiveToFollowupCheck();
+  });
 
-// Every minute: timed follow-up SMS
-cron.schedule('* * * * *', runTimedFollowupSMS);
+  // Every minute: timed follow-up SMS
+  cron.schedule('* * * * *', runTimedFollowupSMS);
 
-// Daily at 00:00: full app backup → local file + Gmail
-cron.schedule('0 0 * * *', runBackup);
+  // Daily at 00:00: full app backup → local file + Gmail
+  cron.schedule('0 0 * * *', runBackup);
+}
 
 // Global error handler — never leak stack traces to clients
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars

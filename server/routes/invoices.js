@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getDB, audit, createLedgerEntry, createJournalEntry } = require('../db');
+const { getDB, audit, createLedgerEntry, createJournalEntry, allocateNumber } = require('../db');
 const { auth } = require('../middleware/auth');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 
@@ -139,80 +139,86 @@ router.post('/', auth, (req, res) => {
   const discAmt = Math.round(subtotal * discPct / 100);
   const final = subtotal - discAmt;
 
-  // sequential global invoice number (prefix configurable in the admin panel)
-  const count = db.prepare('SELECT COUNT(*) as c FROM invoices').get().c;
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
-  const num = (prefixRow?.value || 'T') + '-' + String(count + 1).padStart(4, '0');
 
   // capture seller info from the user record
   const seller = db.prepare('SELECT name,phone FROM users WHERE id=?').get(req.user.id);
 
   const invType = type || 'proforma';
-  let stockDeducted = 0;
 
-  // Stock validation & deduction for final invoices
-  if (invType === 'final') {
-    const stockErr = deductStock(db, built.rows);
-    if (stockErr) return res.status(400).json({ error: stockErr });
-    stockDeducted = 1;
-  }
-
-  const result = db.prepare(
-    'INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(req.user.id, cust_id, num, invType, date || '', note || '',
-        JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
-        seller ? seller.name : '', seller ? (seller.phone || '') : '',
-        pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
-        stockDeducted);
-
-  // Auto-update customer status to 'active' when a final invoice is issued
-  if (invType === 'final') {
-    db.prepare("UPDATE customers SET status='active' WHERE id=?").run(cust_id);
-  }
-
-  const row = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(result.lastInsertRowid);
-
-  // Customer ledger + journal entries for final invoices
-  if (invType === 'final') {
-    const invId = result.lastInsertRowid;
-    createLedgerEntry(db, {
-      customer_id: cust_id, date: date || '', entry_type: 'invoice',
-      ref_type: 'invoice', ref_id: invId,
-      description: `فاکتور رسمی ${num}`,
-      debit: final, credit: 0, user_id: req.user.id
-    });
-    const jLines = [
-      { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: final, credit: 0 }
-    ];
-    if (discAmt > 0) jLines.push({ code: '4103', name: 'تخفیفات فروش', debit: discAmt, credit: 0, description: 'تخفیف فاکتور' });
-    jLines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: subtotal });
-    createJournalEntry(db, {
-      date: date || '', description: `فاکتور رسمی ${num}`,
-      ref_type: 'invoice', ref_id: invId, created_by: req.user.id, lines: jLines
-    });
-  }
-
-  // Auto-create a 7-day quality follow-up — only if the customer has auto-followup enabled
+  // All mutations commit atomically: number allocation, stock deduction,
+  // invoice row, customer status, ledger and journal postings.
+  let created;
   try {
-    const cust = db.prepare('SELECT auto_followup FROM customers WHERE id=?').get(cust_id);
-    if (!cust || cust.auto_followup == null || cust.auto_followup) {
-      const invoiceDate = date || todayJalali();
-      const followupDate = addDaysToJalali(invoiceDate, 7);
-      const productList = built.rows.map(r => r.name).join('، ') || '-';
-      db.prepare(
-        'INSERT INTO followups (user_id,cust_id,date,type,subject,note,next_date,status,priority) VALUES (?,?,?,?,?,?,?,?,?)'
-      ).run(
-        req.user.id, cust_id, invoiceDate,
-        '🧾 پیگیری فاکتور',
-        'بررسی رضایت از کیفیت کالا',
-        `پیگیری پس از فاکتور ${num}\nمحصولات: ${productList}`,
-        followupDate, 'open', 'mid'
-      );
-    }
+    created = db.transaction(() => {
+      // sequential global invoice number (prefix configurable in the admin
+      // panel); allocated atomically so numbers are never reused after deletions
+      const num = allocateNumber(db, 'invoice', prefixRow?.value || 'T');
+
+      let stockDeducted = 0;
+      if (invType === 'final') {
+        const stockErr = deductStock(db, built.rows);
+        if (stockErr) throw new Error(stockErr);
+        stockDeducted = 1;
+      }
+
+      const result = db.prepare(
+        'INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+      ).run(req.user.id, cust_id, num, invType, date || '', note || '',
+            JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
+            seller ? seller.name : '', seller ? (seller.phone || '') : '',
+            pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
+            stockDeducted);
+      const invId = result.lastInsertRowid;
+
+      if (invType === 'final') {
+        // Auto-update customer status to 'active' when a final invoice is issued
+        db.prepare("UPDATE customers SET status='active' WHERE id=?").run(cust_id);
+        createLedgerEntry(db, {
+          customer_id: cust_id, date: date || '', entry_type: 'invoice',
+          ref_type: 'invoice', ref_id: invId,
+          description: `فاکتور رسمی ${num}`,
+          debit: final, credit: 0, user_id: req.user.id
+        });
+        const jLines = [
+          { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: final, credit: 0 }
+        ];
+        if (discAmt > 0) jLines.push({ code: '4103', name: 'تخفیفات فروش', debit: discAmt, credit: 0, description: 'تخفیف فاکتور' });
+        jLines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: subtotal });
+        createJournalEntry(db, {
+          date: date || '', description: `فاکتور رسمی ${num}`,
+          ref_type: 'invoice', ref_id: invId, created_by: req.user.id, lines: jLines
+        });
+      }
+
+      // Auto-create a 7-day quality follow-up — only if the customer has auto-followup enabled
+      try {
+        const cust = db.prepare('SELECT auto_followup FROM customers WHERE id=?').get(cust_id);
+        if (!cust || cust.auto_followup == null || cust.auto_followup) {
+          const invoiceDate = date || todayJalali();
+          const followupDate = addDaysToJalali(invoiceDate, 7);
+          const productList = built.rows.map(r => r.name).join('، ') || '-';
+          db.prepare(
+            'INSERT INTO followups (user_id,cust_id,date,type,subject,note,next_date,status,priority) VALUES (?,?,?,?,?,?,?,?,?)'
+          ).run(
+            req.user.id, cust_id, invoiceDate,
+            '🧾 پیگیری فاکتور',
+            'بررسی رضایت از کیفیت کالا',
+            `پیگیری پس از فاکتور ${num}\nمحصولات: ${productList}`,
+            followupDate, 'open', 'mid'
+          );
+        }
+      } catch (e) {
+        console.error('auto-followup error:', e.message);
+      }
+
+      return { id: invId };
+    })();
   } catch (e) {
-    console.error('auto-followup error:', e.message);
+    return res.status(400).json({ error: e.message });
   }
 
+  const row = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(created.id);
   res.json({ ...row, rows: JSON.parse(row.rows || '[]') });
 });
 
@@ -232,19 +238,24 @@ router.put('/:id', auth, (req, res) => {
   const final = subtotal - discAmt;
 
   const newType = type || 'proforma';
-  let stockDeducted = row.stock_deducted || 0;
 
-  // Only deduct stock when transitioning TO final for the first time
-  if (newType === 'final' && !stockDeducted) {
-    const stockErr = deductStock(db, built.rows);
-    if (stockErr) return res.status(400).json({ error: stockErr });
-    stockDeducted = 1;
+  try {
+    db.transaction(() => {
+      let stockDeducted = row.stock_deducted || 0;
+      // Only deduct stock when transitioning TO final for the first time
+      if (newType === 'final' && !stockDeducted) {
+        const stockErr = deductStock(db, built.rows);
+        if (stockErr) throw new Error(stockErr);
+        stockDeducted = 1;
+      }
+      db.prepare('UPDATE invoices SET cust_id=?,type=?,date=?,note=?,rows=?,subtotal=?,disc=?,disc_amt=?,final=?,pay_type=?,cheque_duration=?,cheque_due_date=?,cheque_info=?,stock_deducted=? WHERE id=?')
+        .run(cust_id, newType, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
+             pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
+             stockDeducted, req.params.id);
+    })();
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
   }
-
-  db.prepare('UPDATE invoices SET cust_id=?,type=?,date=?,note=?,rows=?,subtotal=?,disc=?,disc_amt=?,final=?,pay_type=?,cheque_duration=?,cheque_due_date=?,cheque_info=?,stock_deducted=? WHERE id=?')
-    .run(cust_id, newType, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
-         pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
-         stockDeducted, req.params.id);
   res.json({ ok: true });
 });
 
@@ -254,37 +265,39 @@ router.delete('/:id', auth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
 
-  // Restore inventory when a final invoice with deducted stock is deleted
-  if (row.stock_deducted) {
-    const invRows = JSON.parse(row.rows || '[]');
-    for (const r of invRows) {
-      db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
-        r.product_id, req.user.id, r.qty, `بازگشت موجودی از حذف فاکتور ${row.num}`
-      );
+  db.transaction(() => {
+    // Restore inventory when a final invoice with deducted stock is deleted
+    if (row.stock_deducted) {
+      const invRows = JSON.parse(row.rows || '[]');
+      for (const r of invRows) {
+        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
+          r.product_id, req.user.id, r.qty, `بازگشت موجودی از حذف فاکتور ${row.num}`
+        );
+      }
     }
-  }
 
-  // Reverse ledger + journal entries for deleted final invoices
-  if (row.type === 'final') {
-    createLedgerEntry(db, {
-      customer_id: row.cust_id, date: row.date || '', entry_type: 'reversal',
-      ref_type: 'invoice', ref_id: row.id,
-      description: `ابطال فاکتور ${row.num}`,
-      debit: 0, credit: row.final, user_id: req.user.id
-    });
-    const jLines = [
-      { code: '4101', name: 'درآمد فروش کالا', debit: row.subtotal, credit: 0, description: 'ابطال' }
-    ];
-    if ((row.disc_amt || 0) > 0) jLines.push({ code: '4103', name: 'تخفیفات فروش', debit: 0, credit: row.disc_amt, description: 'ابطال تخفیف' });
-    jLines.push({ code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: row.final });
-    createJournalEntry(db, {
-      date: row.date || '', description: `ابطال فاکتور ${row.num}`,
-      ref_type: 'invoice_reversal', ref_id: row.id, created_by: req.user.id, lines: jLines
-    });
-  }
+    // Reverse ledger + journal entries for deleted final invoices
+    if (row.type === 'final') {
+      createLedgerEntry(db, {
+        customer_id: row.cust_id, date: row.date || '', entry_type: 'reversal',
+        ref_type: 'invoice', ref_id: row.id,
+        description: `ابطال فاکتور ${row.num}`,
+        debit: 0, credit: row.final, user_id: req.user.id
+      });
+      const jLines = [
+        { code: '4101', name: 'درآمد فروش کالا', debit: row.subtotal, credit: 0, description: 'ابطال' }
+      ];
+      if ((row.disc_amt || 0) > 0) jLines.push({ code: '4103', name: 'تخفیفات فروش', debit: 0, credit: row.disc_amt, description: 'ابطال تخفیف' });
+      jLines.push({ code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: row.final });
+      createJournalEntry(db, {
+        date: row.date || '', description: `ابطال فاکتور ${row.num}`,
+        ref_type: 'invoice_reversal', ref_id: row.id, created_by: req.user.id, lines: jLines
+      });
+    }
 
-  db.prepare('DELETE FROM invoices WHERE id=?').run(req.params.id);
+    db.prepare('DELETE FROM invoices WHERE id=?').run(req.params.id);
+  })();
   audit(req.user.id, 'delete', 'invoice', req.params.id, `حذف فاکتور ${row.num}`);
   res.json({ ok: true });
 });
@@ -300,35 +313,41 @@ router.post('/:id/convert', auth, (req, res) => {
 
   const rows = JSON.parse(inv.rows || '[]');
 
-  // Stock deduction if not already done
-  let stockDeducted = inv.stock_deducted || 0;
-  if (!stockDeducted) {
-    const stockErr = deductStock(db, rows);
-    if (stockErr) return res.status(400).json({ error: stockErr });
-    stockDeducted = 1;
+  try {
+    db.transaction(() => {
+      // Stock deduction if not already done
+      let stockDeducted = inv.stock_deducted || 0;
+      if (!stockDeducted) {
+        const stockErr = deductStock(db, rows);
+        if (stockErr) throw new Error(stockErr);
+        stockDeducted = 1;
+      }
+
+      db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=? WHERE id=?').run('final', stockDeducted, inv.id);
+      // Auto-update customer status to 'active' when proforma is converted to final
+      db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
+
+      // Customer ledger + journal entries on conversion
+      createLedgerEntry(db, {
+        customer_id: inv.cust_id, date: inv.date || '', entry_type: 'invoice',
+        ref_type: 'invoice', ref_id: inv.id,
+        description: `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`,
+        debit: inv.final, credit: 0, user_id: req.user.id
+      });
+      const cvLines = [
+        { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: inv.final, credit: 0 }
+      ];
+      if ((inv.disc_amt || 0) > 0) cvLines.push({ code: '4103', name: 'تخفیفات فروش', debit: inv.disc_amt, credit: 0 });
+      cvLines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: inv.subtotal });
+      createJournalEntry(db, {
+        date: inv.date || '', description: `فاکتور رسمی ${inv.num} (تبدیل از پیش‌فاکتور)`,
+        ref_type: 'invoice', ref_id: inv.id, created_by: req.user.id, lines: cvLines
+      });
+    })();
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
   }
-
-  db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=? WHERE id=?').run('final', stockDeducted, inv.id);
-  // Auto-update customer status to 'active' when proforma is converted to final
-  db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
   audit(req.user.id, 'convert', 'invoice', inv.id, `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`);
-
-  // Customer ledger + journal entries on conversion
-  createLedgerEntry(db, {
-    customer_id: inv.cust_id, date: inv.date || '', entry_type: 'invoice',
-    ref_type: 'invoice', ref_id: inv.id,
-    description: `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`,
-    debit: inv.final, credit: 0, user_id: req.user.id
-  });
-  const cvLines = [
-    { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: inv.final, credit: 0 }
-  ];
-  if ((inv.disc_amt || 0) > 0) cvLines.push({ code: '4103', name: 'تخفیفات فروش', debit: inv.disc_amt, credit: 0 });
-  cvLines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: inv.subtotal });
-  createJournalEntry(db, {
-    date: inv.date || '', description: `فاکتور رسمی ${inv.num} (تبدیل از پیش‌فاکتور)`,
-    ref_type: 'invoice', ref_id: inv.id, created_by: req.user.id, lines: cvLines
-  });
 
   res.json({ ok: true });
 });

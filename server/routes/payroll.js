@@ -39,25 +39,28 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const netPay = grossPay - ded - ins - tax;
   if (netPay < 0) return res.status(400).json({ error: 'مجموع کسورات از حقوق ناخالص بیشتر است' });
 
-  const result = db.prepare(
-    `INSERT INTO payroll_records (person_id,period_label,regular_hours,overtime_hours,hourly_rate,overtime_rate,bonuses,deductions,insurance_deduction,tax_deduction,gross_pay,net_pay,date,note,created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(person_id, period_label || '', regH, otH, hRate, otRate, bon, ded, ins, tax, grossPay, netPay, date || todayJalali(), note || '', req.user.id);
-  const recId = result.lastInsertRowid;
+  const recId = db.transaction(() => {
+    const result = db.prepare(
+      `INSERT INTO payroll_records (person_id,period_label,regular_hours,overtime_hours,hourly_rate,overtime_rate,bonuses,deductions,insurance_deduction,tax_deduction,gross_pay,net_pay,date,note,created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(person_id, period_label || '', regH, otH, hRate, otRate, bon, ded, ins, tax, grossPay, netPay, date || todayJalali(), note || '', req.user.id);
+    const recId = result.lastInsertRowid;
 
-  const lines = [
-    { code: '6104', name: 'هزینه حقوق و دستمزد', debit: grossPay - ded, credit: 0, description: `حقوق ${person.name} - ${period_label || ''}` },
-    { code: '1106', name: 'حساب اشخاص متفرقه', debit: 0, credit: netPay }
-  ];
-  if (ins + tax > 0) lines.push({ code: '2104', name: 'بدهی بیمه و مالیات کارکنان', debit: 0, credit: ins + tax });
-  createJournalEntry(db, {
-    date: date || todayJalali(), description: `حقوق ${person.name} (${period_label || ''})`,
-    ref_type: 'payroll', ref_id: recId, created_by: req.user.id, lines
-  });
-  createPersonLedgerEntry(db, {
-    person_id, date: date || todayJalali(), entry_type: 'payroll', ref_type: 'payroll', ref_id: recId,
-    description: `حقوق ${period_label || ''}`, debit: 0, credit: netPay, user_id: req.user.id
-  });
+    const lines = [
+      { code: '6104', name: 'هزینه حقوق و دستمزد', debit: grossPay - ded, credit: 0, description: `حقوق ${person.name} - ${period_label || ''}` },
+      { code: '1106', name: 'حساب اشخاص متفرقه', debit: 0, credit: netPay }
+    ];
+    if (ins + tax > 0) lines.push({ code: '2104', name: 'بدهی بیمه و مالیات کارکنان', debit: 0, credit: ins + tax });
+    createJournalEntry(db, {
+      date: date || todayJalali(), description: `حقوق ${person.name} (${period_label || ''})`,
+      ref_type: 'payroll', ref_id: recId, created_by: req.user.id, lines
+    });
+    createPersonLedgerEntry(db, {
+      person_id, date: date || todayJalali(), entry_type: 'payroll', ref_type: 'payroll', ref_id: recId,
+      description: `حقوق ${period_label || ''}`, debit: 0, credit: netPay, user_id: req.user.id
+    });
+    return recId;
+  })();
 
   audit(req.user.id, 'create', 'payroll_record', recId, `ثبت حقوق ${person.name}: خالص ${netPay}`);
   res.json({ id: recId, ok: true, gross_pay: grossPay, net_pay: netPay });
@@ -72,20 +75,22 @@ router.post('/:id/pay', auth, adminOrAccounting, (req, res) => {
   if (row.paid) return res.status(400).json({ error: 'این حقوق قبلاً پرداخت شده است' });
   const person = db.prepare('SELECT * FROM persons WHERE id=?').get(row.person_id);
 
-  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-  createJournalEntry(db, {
-    date: date || todayJalali(), description: `پرداخت حقوق ${person ? person.name : ''} (${row.period_label || ''})`,
-    ref_type: 'payroll_payment', ref_id: row.id, created_by: req.user.id,
-    lines: [
-      { code: '1106', name: 'حساب اشخاص متفرقه', debit: row.net_pay, credit: 0 },
-      { code: cash.code, name: cash.name, debit: 0, credit: row.net_pay }
-    ]
-  });
-  createPersonLedgerEntry(db, {
-    person_id: row.person_id, date: date || todayJalali(), entry_type: 'payroll_payment', ref_type: 'payroll_payment', ref_id: row.id,
-    description: `پرداخت حقوق ${row.period_label || ''}`, debit: row.net_pay, credit: 0, user_id: req.user.id
-  });
-  db.prepare('UPDATE payroll_records SET paid=1 WHERE id=?').run(row.id);
+  db.transaction(() => {
+    const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+    createJournalEntry(db, {
+      date: date || todayJalali(), description: `پرداخت حقوق ${person ? person.name : ''} (${row.period_label || ''})`,
+      ref_type: 'payroll_payment', ref_id: row.id, created_by: req.user.id,
+      lines: [
+        { code: '1106', name: 'حساب اشخاص متفرقه', debit: row.net_pay, credit: 0 },
+        { code: cash.code, name: cash.name, debit: 0, credit: row.net_pay }
+      ]
+    });
+    createPersonLedgerEntry(db, {
+      person_id: row.person_id, date: date || todayJalali(), entry_type: 'payroll_payment', ref_type: 'payroll_payment', ref_id: row.id,
+      description: `پرداخت حقوق ${row.period_label || ''}`, debit: row.net_pay, credit: 0, user_id: req.user.id
+    });
+    db.prepare('UPDATE payroll_records SET paid=1 WHERE id=?').run(row.id);
+  })();
   audit(req.user.id, 'update', 'payroll_record', row.id, `پرداخت حقوق ${person ? person.name : ''}`);
   res.json({ ok: true });
 });
@@ -95,13 +100,15 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.paid) return res.status(400).json({ error: 'این حقوق پرداخت شده و قابل حذف نیست' });
-  db.prepare("DELETE FROM person_ledger WHERE ref_type='payroll' AND ref_id=?").run(row.id);
-  const entry = db.prepare("SELECT id FROM journal_entries WHERE ref_type='payroll' AND ref_id=?").get(row.id);
-  if (entry) {
-    db.prepare('DELETE FROM journal_lines WHERE entry_id=?').run(entry.id);
-    db.prepare('DELETE FROM journal_entries WHERE id=?').run(entry.id);
-  }
-  db.prepare('DELETE FROM payroll_records WHERE id=?').run(row.id);
+  db.transaction(() => {
+    db.prepare("DELETE FROM person_ledger WHERE ref_type='payroll' AND ref_id=?").run(row.id);
+    const entry = db.prepare("SELECT id FROM journal_entries WHERE ref_type='payroll' AND ref_id=?").get(row.id);
+    if (entry) {
+      db.prepare('DELETE FROM journal_lines WHERE entry_id=?').run(entry.id);
+      db.prepare('DELETE FROM journal_entries WHERE id=?').run(entry.id);
+    }
+    db.prepare('DELETE FROM payroll_records WHERE id=?').run(row.id);
+  })();
   audit(req.user.id, 'delete', 'payroll_record', req.params.id, `حذف رکورد حقوق #${req.params.id}`);
   res.json({ ok: true });
 });

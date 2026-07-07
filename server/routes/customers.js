@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getDB, audit, createLedgerEntry } = require('../db');
+const { getDB, audit, createLedgerEntry, isDevice } = require('../db');
 const { auth, adminOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 const XLSX = require('xlsx');
@@ -95,14 +95,19 @@ router.post('/', auth, (req, res) => {
   const gid = (canSetGroup && group_id) ? parseInt(group_id) : null;
   // admin can assign customer to a specific salesperson
   const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : req.user.id;
-  const result = db.prepare(
-    'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup,group_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF, gid);
-  const row = db.prepare('SELECT * FROM customers WHERE id=?').get(result.lastInsertRowid);
-  if (bal) syncOpeningLedger(db, row.id, bal, row.created_at, req.user.id);
+  const newId = db.transaction(() => {
+    const result = db.prepare(
+      'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup,group_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF, gid);
+    const created = db.prepare('SELECT id,created_at FROM customers WHERE id=?').get(result.lastInsertRowid);
+    if (bal) syncOpeningLedger(db, created.id, bal, created.created_at, req.user.id);
+    return created.id;
+  })();
+  const row = db.prepare('SELECT * FROM customers WHERE id=?').get(newId);
   res.json(row);
-  // Fire welcome SMS after response — non-blocking
-  if (phone) sendWelcomeSMSToCust(db, phone);
+  // Fire welcome SMS after response — non-blocking. Central-only: device
+  // builds never send SMS (the central replay of this op sends it once).
+  if (phone && !isDevice()) sendWelcomeSMSToCust(db, phone);
 });
 
 router.put('/:id', auth, (req, res) => {
@@ -116,11 +121,13 @@ router.put('/:id', auth, (req, res) => {
   const autoF = (auto_followup === undefined) ? (row.auto_followup == null ? 1 : row.auto_followup) : (auto_followup ? 1 : 0);
   const canSetGroup = req.user.role === 'admin' || req.user.role === 'accounting';
   const gid = canSetGroup ? (group_id ? parseInt(group_id) : null) : row.group_id;
-  db.prepare('UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,balance=?,assigned_to=?,auto_followup=?,group_id=? WHERE id=?')
-    .run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : row.assigned_to, autoF, gid, req.params.id);
-  if (req.user.role === 'admin' && balance !== undefined && bal !== (row.balance || 0)) {
-    syncOpeningLedger(db, req.params.id, bal, row.created_at, req.user.id);
-  }
+  db.transaction(() => {
+    db.prepare('UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,balance=?,assigned_to=?,auto_followup=?,group_id=? WHERE id=?')
+      .run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : row.assigned_to, autoF, gid, req.params.id);
+    if (req.user.role === 'admin' && balance !== undefined && bal !== (row.balance || 0)) {
+      syncOpeningLedger(db, req.params.id, bal, row.created_at, req.user.id);
+    }
+  })();
   res.json({ ok: true });
 });
 

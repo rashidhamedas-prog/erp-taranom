@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { getDB } = require('../db');
+const { getDB, isDevice } = require('../db');
 const SECRET = process.env.JWT_SECRET || 'taranom-crm-secret-2024';
 
 function auth(req, res, next) {
@@ -30,4 +30,15 @@ function adminOrAccounting(req, res, next) {
   next();
 }
 
-module.exports = { auth, adminOnly, adminOrAccounting, SECRET };
+// Central-server-only operations: settings, user management, backfill,
+// API keys, absolute stock overwrite. Rejected on offline-first device
+// builds (SYNC_ROLE=device) regardless of connectivity — these must have
+// exactly one source of truth and are excluded from the sync engine.
+function centralOnly(req, res, next) {
+  if (isDevice()) {
+    return res.status(403).json({ error: 'این عملیات فقط روی سرور مرکزی امکان‌پذیر است' });
+  }
+  next();
+}
+
+module.exports = { auth, adminOnly, adminOrAccounting, centralOnly, SECRET };

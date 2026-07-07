@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOnly } = require('../middleware/auth');
+const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const XLSX = require('xlsx');
 const multer = require('multer');
 const path = require('path');
@@ -132,7 +132,7 @@ router.put('/:id', auth, adminOnly, upload.single('image'), async (req, res) => 
 });
 
 // Update stock (admin only)
-router.patch('/:id/stock', auth, adminOnly, (req, res) => {
+router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
   const { stock, note } = req.body;
   if (stock === undefined) return res.status(400).json({ error: 'موجودی الزامی است' });
   const db = getDB();

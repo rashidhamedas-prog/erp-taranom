@@ -29,21 +29,24 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   if (!amt) return res.status(400).json({ error: 'مبلغ الزامی است' });
   const acc = EXPENSE_ACCOUNTS[category] || EXPENSE_ACCOUNTS.admin;
   const db = getDB();
-  const result = db.prepare(
-    'INSERT INTO expense_payments (category,title,amount,pay_type,bank_id,cash_box_id,check_category_id,cost_center_id,date,note,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(category || 'admin', title || '', amt, pay_type || 'cash', bank_id || null, cash_box_id || null, check_category_id || null, cost_center_id || null, date || todayJalali(), note || '', req.user.id);
-  const expId = result.lastInsertRowid;
+  const expId = db.transaction(() => {
+    const result = db.prepare(
+      'INSERT INTO expense_payments (category,title,amount,pay_type,bank_id,cash_box_id,check_category_id,cost_center_id,date,note,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(category || 'admin', title || '', amt, pay_type || 'cash', bank_id || null, cash_box_id || null, check_category_id || null, cost_center_id || null, date || todayJalali(), note || '', req.user.id);
+    const expId = result.lastInsertRowid;
 
-  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-  const entryId = createJournalEntry(db, {
-    date: date || todayJalali(), description: `پرداخت هزینه: ${title || acc.name}`,
-    ref_type: 'expense_payment', ref_id: expId, created_by: req.user.id,
-    lines: [
-      { code: acc.code, name: acc.name, debit: amt, credit: 0, description: title || '' },
-      { code: cash.code, name: cash.name, debit: 0, credit: amt }
-    ]
-  });
-  if (cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(cost_center_id, entryId);
+    const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+    const entryId = createJournalEntry(db, {
+      date: date || todayJalali(), description: `پرداخت هزینه: ${title || acc.name}`,
+      ref_type: 'expense_payment', ref_id: expId, created_by: req.user.id,
+      lines: [
+        { code: acc.code, name: acc.name, debit: amt, credit: 0, description: title || '' },
+        { code: cash.code, name: cash.name, debit: 0, credit: amt }
+      ]
+    });
+    if (cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(cost_center_id, entryId);
+    return expId;
+  })();
 
   audit(req.user.id, 'create', 'expense_payment', expId, `پرداخت هزینه ${amt} تومان (${title || acc.name})`);
   res.json({ id: expId, ok: true });
@@ -54,16 +57,18 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const row = db.prepare('SELECT * FROM expense_payments WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   const acc = EXPENSE_ACCOUNTS[row.category] || EXPENSE_ACCOUNTS.admin;
-  const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
-  createJournalEntry(db, {
-    date: row.date || '', description: `ابطال پرداخت هزینه #${row.id}`,
-    ref_type: 'expense_payment_reversal', ref_id: row.id, created_by: req.user.id,
-    lines: [
-      { code: cash.code, name: cash.name, debit: row.amount, credit: 0 },
-      { code: acc.code, name: acc.name, debit: 0, credit: row.amount }
-    ]
-  });
-  db.prepare('DELETE FROM expense_payments WHERE id=?').run(req.params.id);
+  db.transaction(() => {
+    const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
+    createJournalEntry(db, {
+      date: row.date || '', description: `ابطال پرداخت هزینه #${row.id}`,
+      ref_type: 'expense_payment_reversal', ref_id: row.id, created_by: req.user.id,
+      lines: [
+        { code: cash.code, name: cash.name, debit: row.amount, credit: 0 },
+        { code: acc.code, name: acc.name, debit: 0, credit: row.amount }
+      ]
+    });
+    db.prepare('DELETE FROM expense_payments WHERE id=?').run(req.params.id);
+  })();
   audit(req.user.id, 'delete', 'expense_payment', req.params.id, `حذف پرداخت هزینه #${req.params.id}`);
   res.json({ ok: true });
 });

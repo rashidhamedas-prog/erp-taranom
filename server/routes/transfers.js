@@ -42,21 +42,24 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     return res.status(400).json({ error: 'حساب مبدأ و مقصد نمی‌تواند یکسان باشد' });
   }
   const db = getDB();
-  const result = db.prepare(
-    'INSERT INTO account_transfers (date,from_type,from_id,to_type,to_id,amount,note,user_id) VALUES (?,?,?,?,?,?,?,?)'
-  ).run(date || todayJalali(), from_type, from_id || null, to_type, to_id || null, amt, note || '', req.user.id);
-  const transferId = result.lastInsertRowid;
+  const transferId = db.transaction(() => {
+    const result = db.prepare(
+      'INSERT INTO account_transfers (date,from_type,from_id,to_type,to_id,amount,note,user_id) VALUES (?,?,?,?,?,?,?,?)'
+    ).run(date || todayJalali(), from_type, from_id || null, to_type, to_id || null, amt, note || '', req.user.id);
+    const transferId = result.lastInsertRowid;
 
-  const src = resolveSide(db, from_type, from_id);
-  const dst = resolveSide(db, to_type, to_id);
-  createJournalEntry(db, {
-    date: date || todayJalali(), description: `انتقال وجه: ${sideName(db, from_type, from_id)} ← ${sideName(db, to_type, to_id)}`,
-    ref_type: 'transfer', ref_id: transferId, created_by: req.user.id,
-    lines: [
-      { code: dst.code, name: dst.name, debit: amt, credit: 0 },
-      { code: src.code, name: src.name, debit: 0, credit: amt }
-    ]
-  });
+    const src = resolveSide(db, from_type, from_id);
+    const dst = resolveSide(db, to_type, to_id);
+    createJournalEntry(db, {
+      date: date || todayJalali(), description: `انتقال وجه: ${sideName(db, from_type, from_id)} ← ${sideName(db, to_type, to_id)}`,
+      ref_type: 'transfer', ref_id: transferId, created_by: req.user.id,
+      lines: [
+        { code: dst.code, name: dst.name, debit: amt, credit: 0 },
+        { code: src.code, name: src.name, debit: 0, credit: amt }
+      ]
+    });
+    return transferId;
+  })();
 
   audit(req.user.id, 'create', 'transfer', transferId, `انتقال ${amt} تومان بین حساب‌های داخلی`);
   res.json({ id: transferId, ok: true });
@@ -67,18 +70,20 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const row = db.prepare('SELECT * FROM account_transfers WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
 
-  const src = resolveSide(db, row.from_type, row.from_id);
-  const dst = resolveSide(db, row.to_type, row.to_id);
-  createJournalEntry(db, {
-    date: row.date || '', description: `ابطال انتقال وجه #${row.id}`,
-    ref_type: 'transfer_reversal', ref_id: row.id, created_by: req.user.id,
-    lines: [
-      { code: src.code, name: src.name, debit: row.amount, credit: 0 },
-      { code: dst.code, name: dst.name, debit: 0, credit: row.amount }
-    ]
-  });
+  db.transaction(() => {
+    const src = resolveSide(db, row.from_type, row.from_id);
+    const dst = resolveSide(db, row.to_type, row.to_id);
+    createJournalEntry(db, {
+      date: row.date || '', description: `ابطال انتقال وجه #${row.id}`,
+      ref_type: 'transfer_reversal', ref_id: row.id, created_by: req.user.id,
+      lines: [
+        { code: src.code, name: src.name, debit: row.amount, credit: 0 },
+        { code: dst.code, name: dst.name, debit: 0, credit: row.amount }
+      ]
+    });
 
-  db.prepare('DELETE FROM account_transfers WHERE id=?').run(req.params.id);
+    db.prepare('DELETE FROM account_transfers WHERE id=?').run(req.params.id);
+  })();
   audit(req.user.id, 'delete', 'transfer', req.params.id, `حذف انتقال وجه #${req.params.id}`);
   res.json({ ok: true });
 });

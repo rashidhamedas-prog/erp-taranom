@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { getDB, audit } = require('../db');
-const { auth, adminOnly } = require('../middleware/auth');
+const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 
 // Get all users (include incentive fields)
 router.get('/users', auth, adminOnly, (req, res) => {
@@ -11,7 +11,7 @@ router.get('/users', auth, adminOnly, (req, res) => {
 });
 
 // Create user (salesperson or admin) — incentive is locked immediately after creation
-router.post('/users', auth, adminOnly, (req, res) => {
+router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
   const { name, username, password, phone, role = 'salesperson', commission_cash = 0, commission_cheque = 0 } = req.body;
   if (!name || !username || !password) return res.status(400).json({ error: 'اطلاعات ناقص' });
   const db = getDB();
@@ -25,7 +25,7 @@ router.post('/users', auth, adminOnly, (req, res) => {
 });
 
 // Update user — if incentive rate changed on a locked user, require force:true
-router.put('/users/:id', auth, adminOnly, (req, res) => {
+router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   const { name, password, active, role, phone, commission_cash = 0, commission_cheque = 0, force } = req.body;
   const db = getDB();
   const existing = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
@@ -56,7 +56,7 @@ router.put('/users/:id', auth, adminOnly, (req, res) => {
 });
 
 // Delete (deactivate) user
-router.delete('/users/:id', auth, adminOnly, (req, res) => {
+router.delete('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   if (req.params.id == req.user.id) return res.status(400).json({ error: 'نمی‌توانید خودتان را حذف کنید' });
   const db = getDB();
   const u = db.prepare('SELECT name FROM users WHERE id=?').get(req.params.id);

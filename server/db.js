@@ -2,8 +2,18 @@ const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, 'crm.db');
+// DB_PATH is env-overridable so device builds (desktop/mobile) can keep their
+// local database in a per-user writable directory instead of the app folder.
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'crm.db');
 let db;
+
+// SYNC_ROLE: 'central' (the one authoritative server — default) or 'device'
+// (an embedded offline-first instance inside the desktop/mobile app).
+// Device instances write locally-first and sync via the sync engine; several
+// central-only behaviors (cron, SMS, backups, settings/user management,
+// invoice-number allocation) are gated on this.
+const SYNC_ROLE = process.env.SYNC_ROLE === 'device' ? 'device' : 'central';
+function isDevice() { return SYNC_ROLE === 'device'; }
 
 function getDB() {
   if (!db) db = new Database(DB_PATH);
@@ -842,10 +852,49 @@ function initDB() {
   const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)');
   for (const [k, v] of Object.entries(defaults)) insSetting.run(k, v);
 
+  // ---- Atomic business-number sequences (invoice/purchase) ----
+  // Replaces the old COUNT(*)+1 numbering, which reused numbers after
+  // deletions and collides across offline sync devices. Seeded once from the
+  // highest numeric suffix already present so existing numbering continues.
+  db.exec(`CREATE TABLE IF NOT EXISTS number_sequences (
+    key TEXT PRIMARY KEY,
+    current_value INTEGER NOT NULL DEFAULT 0
+  )`);
+  const seedSeq = (key, table) => {
+    if (db.prepare('SELECT 1 FROM number_sequences WHERE key=?').get(key)) return;
+    let max = 0;
+    for (const r of db.prepare(`SELECT num FROM ${table} WHERE num IS NOT NULL`).all()) {
+      const m = String(r.num).match(/(\d+)\s*$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,?)').run(key, max);
+  };
+  seedSeq('invoice', 'invoices');
+  seedSeq('purchase', 'purchase_invoices');
+  // Backstop: business numbers must be unique. A legacy database can contain
+  // historical duplicates from the COUNT(*)-based numbering; in that case the
+  // index is skipped (logged) and only the atomic sequence protects new rows.
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_num_unique ON invoices(num)'); }
+  catch (e) { console.warn('⚠️ ایندکس یکتای شماره فاکتور ایجاد نشد (شماره تکراری قدیمی در داده‌ها):', e.message); }
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_purchases_num_unique ON purchase_invoices(num)'); }
+  catch (e) { console.warn('⚠️ ایندکس یکتای شماره فاکتور خرید ایجاد نشد:', e.message); }
+
   // ---- Backfill accounting entries for operations recorded before the engine existed ----
   backfillAccounting(db);
 
   console.log('✅ دیتابیس آماده شد');
+}
+
+// Atomically allocate the next business number (e.g. invoice 'T-0042').
+// Safe inside an enclosing db.transaction() — better-sqlite3 nests via savepoints.
+// Central-only in the sync architecture: device builds issue provisional
+// numbers instead and receive the real number from central at sync time.
+function allocateNumber(db, key, prefix) {
+  const next = db.transaction(() => {
+    db.prepare('UPDATE number_sequences SET current_value=current_value+1 WHERE key=?').run(key);
+    return db.prepare('SELECT current_value v FROM number_sequences WHERE key=?').get(key).v;
+  })();
+  return prefix + '-' + String(next).padStart(4, '0');
 }
 
 // Retroactively generate customer-ledger + journal entries for every invoice, settlement,
@@ -958,7 +1007,12 @@ function createLedgerEntry(db, { customer_id, date, entry_type, ref_type, ref_id
       db.prepare('INSERT INTO customer_ledger (customer_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
         .run(customer_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, user_id || null);
     }
-  } catch (e) { console.error('ledger entry error:', e.message); }
+  } catch (e) {
+    // Inside a transaction the error must propagate so the whole operation
+    // rolls back atomically; standalone (legacy) calls stay tolerant.
+    if (db.inTransaction) throw e;
+    console.error('ledger entry error:', e.message);
+  }
 }
 
 // Create a person ledger entry (debit = person owes us, credit = we owe person)
@@ -968,7 +1022,10 @@ function createPersonLedgerEntry(db, { person_id, date, entry_type, ref_type, re
   try {
     db.prepare('INSERT INTO person_ledger (person_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
       .run(person_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, user_id || null);
-  } catch (e) { console.error('person ledger entry error:', e.message); }
+  } catch (e) {
+    if (db.inTransaction) throw e;
+    console.error('person ledger entry error:', e.message);
+  }
 }
 
 // Create a double-entry journal entry with lines [{code, name, debit, credit, description}]
@@ -982,7 +1039,10 @@ function createJournalEntry(db, { date, description, ref_type, ref_id, created_b
       lineStmt.run(entryId, line.code, line.name, line.debit || 0, line.credit || 0, line.description || '');
     }
     return entryId;
-  } catch (e) { console.error('journal entry error:', e.message); }
+  } catch (e) {
+    if (db.inTransaction) throw e;
+    console.error('journal entry error:', e.message);
+  }
 }
 
 // Resolve which ledger account a cash/cheque payment posts against.
@@ -1031,5 +1091,6 @@ function syncCashBoxAccount(db, box) {
 
 module.exports = {
   getDB, initDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting,
-  resolveCashAccount, syncBankAccount, syncCashBoxAccount
+  resolveCashAccount, syncBankAccount, syncCashBoxAccount,
+  SYNC_ROLE, isDevice, allocateNumber
 };
