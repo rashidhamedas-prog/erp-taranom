@@ -14,7 +14,12 @@ const state = {
   online: false,
   syncing: false,
   lastSyncAt: null,
-  lastError: null
+  lastError: null,
+  // Bumps whenever a sync cycle changes local data (id remap, pulled rows,
+  // pulled deletes). The frontend polls this and refreshes its on-screen
+  // data/caches when it changes — otherwise a background sync would leave the
+  // browser showing stale ids (delete → 404) or already-deleted rows.
+  dataVersion: 0
 };
 
 function kvGet(db, key) {
@@ -142,6 +147,7 @@ async function pushPending(db, cfg) {
     if (result.status === 'applied') {
       confirmOp(db, op, result.result || {});
       confirmed++;
+      state.dataVersion++; // ids were remapped locally — UI must refresh
       if (op.has_file && op.file_path) await replayFile(cfg, op).catch(e => console.error('file relay:', e.message));
     } else if (result.status === 'conflict') {
       db.prepare("UPDATE sync_outbox SET status='conflict', reason=?, resolved_at=NULL WHERE id=?")
@@ -225,6 +231,7 @@ function tableColumns(db, tbl) {
 
 function applyChanges(db, changes, pulledUserIds) {
   if (!changes.length) return;
+  state.dataVersion++; // pulled rows/deletes changed local data — UI must refresh
   db.pragma('foreign_keys = OFF');
   try {
     db.transaction(() => {
@@ -343,7 +350,8 @@ function getStatus() {
     conflicts: conflictCount(db),
     last_sync_at: state.lastSyncAt,
     last_pull_seq: cfg.lastPullSeq,
-    last_error: state.lastError
+    last_error: state.lastError,
+    data_version: state.dataVersion
   };
 }
 

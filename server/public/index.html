@@ -1130,15 +1130,35 @@ async function fetchSyncStatus(){
   return await r.json();
 }
 
+let _lastDataVersion = null;
 async function initSyncUI(){
   try{
     SYNC_STATUS = await fetchSyncStatus();
     if(!SYNC_STATUS || SYNC_STATUS.role!=='device') return;
     SYNC_MODE = true;
+    _lastDataVersion = SYNC_STATUS.data_version;
     renderSyncBadge();
-    setInterval(async ()=>{ try{ SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge(); }catch(e){} }, 20000);
+    setInterval(async ()=>{ try{
+      SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge();
+      maybeRefreshAfterSync();
+    }catch(e){} }, 20000);
     if(!SYNC_STATUS.paired && isAdmin()) openSyncPairModal();
   }catch(e){ /* central server — no sync UI */ }
+}
+
+// When a background sync changed local data (id remap, pulled rows/deletes),
+// drop stale caches and re-render the current view — otherwise the browser
+// keeps showing old ids (delete → "یافت نشد") or already-deleted rows.
+function maybeRefreshAfterSync(){
+  if(!SYNC_STATUS || SYNC_STATUS.data_version==null) return;
+  if(_lastDataVersion===null){ _lastDataVersion=SYNC_STATUS.data_version; return; }
+  if(SYNC_STATUS.data_version===_lastDataVersion) return;
+  _lastDataVersion = SYNC_STATUS.data_version;
+  // invalidate cached lists so the next render re-fetches from the local DB
+  CACHE.customers=[]; CACHE.products=[]; CACHE.allProducts=[]; CACHE.invoices=[];
+  if(document.querySelector('.overlay.open')) return; // don't yank a modal the user is filling
+  if(IN_ACC_SHELL){ if(typeof accTab!=='undefined' && accTab) loadAccTab(accTab); }
+  else { reloadCustomers().then(()=>{ if(CURRENT_PAGE) go(CURRENT_PAGE); }).catch(()=>{ if(CURRENT_PAGE) go(CURRENT_PAGE); }); }
 }
 
 function renderSyncBadge(){
@@ -1212,7 +1232,8 @@ async function syncNowUI(){
   if(j.ok){ showToast(`همگام‌سازی انجام شد (${fmt(j.confirmed||0)} عملیات تأیید شد)`); }
   else showToast(j.error||'همگام‌سازی ناموفق بود','error');
   SYNC_STATUS = await fetchSyncStatus(); renderSyncBadge();
-  closeModal(); openSyncPanel();
+  closeModal();
+  maybeRefreshAfterSync(); // refresh lists/ids if sync changed local data
 }
 
 async function discardSyncConflict(outboxId){
