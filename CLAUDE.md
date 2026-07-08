@@ -8,7 +8,22 @@ After **every** change (minor or major) to features or behavior, you MUST update
 
 ## Project Overview
 
-CRM ترنم (CRM Taranom) is a wholesale customer management system for a women's clothing manufacturer ("پوشاک ترنم", based in Mashhad). The entire application lives in a **single file**: `index.html`. There is no build process, package manager, or test suite — edit the file and open it in a browser.
+CRM ترنم (CRM Taranom) is a wholesale customer management + full accounting system for a women's clothing manufacturer ("پوشاک ترنم", based in Mashhad).
+
+## Current Architecture (v3 — authoritative; sections further below describe the legacy v1 prototype)
+
+- **Backend**: Node.js/Express + better-sqlite3, in `server/`. Entry: `server/server.js`; schema+migrations are code-embedded in `server/db.js` (`initDB()` + `ensureColumn()` — idempotent on every boot, no separate migration files).
+- **Frontend**: single file `server/public/index.html` (CSS+HTML+JS), served by the same Express app; talks to `/api/*` with relative fetches only.
+- **Accounting**: double-entry (journal_entries/journal_lines + chart_of_accounts) with customer/supplier/person sub-ledgers posting to control accounts (1103/2101/1106). Invoice/PO numbers come from the atomic `number_sequences` table — never COUNT(*)+1.
+- **Offline-first devices + sync** (see `docs/OFFLINE-SYNC.md`): the same server runs embedded in the Windows app (`desktop/`, Electron) and Android app (`android/`, nodejs-mobile) with `SYNC_ROLE=device`. Sync is operation-replay: devices record successful mutating API calls in `sync_outbox` (capture middleware) and central re-executes them through its real route handlers via loopback HTTP; pull is incremental via trigger-stamped `sync_seq` + tombstones. Device-created rows use a reserved high id range per device (`sync/tables.js` — its table array is APPEND-ONLY). Conflicts are flagged for human review, never silently applied.
+- **Central-only surfaces** (403 on device builds via `centralOnly` middleware): settings, user management, API keys, backups, SMS/cron, `PATCH /products/:id/stock`, accounting backfill.
+- **Tests**: `node server/scripts/test-sms.js` (22 assertions) and `node server/scripts/test-sync.js` (25-assertion end-to-end central+2-devices harness). Run both after backend changes. Frontend check: extract the `<script>` block from index.html and `new Function(it)`.
+- **Env flags**: `SYNC_ROLE=central|device`, `DB_PATH`, `UPLOADS_DIR`, `PORT`, `JWT_SECRET`, `SYNC_INTERVAL_MS`.
+- Multi-statement business operations must run inside `db.transaction()`; the ledger/journal helpers rethrow inside transactions so failures roll back atomically.
+
+The sections below describe the original single-file prototype and are kept for history — the production system is the `server/` app above.
+
+The original prototype lived in a **single file**: `index.html` at the repo root. There is no build process, package manager, or test suite for it — edit the file and open it in a browser.
 
 ## Running the App
 
