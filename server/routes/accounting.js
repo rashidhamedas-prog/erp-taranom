@@ -119,49 +119,31 @@ router.get('/settlements', auth, adminOrAccounting, (req, res) => {
 
 // Add settlement
 router.post('/settlements', auth, adminOrAccounting, (req, res) => {
-  const { cust_id, invoice_id, amount, pay_type, date, note, bank_id, cash_box_id,
-          cheque_bank, cheque_sayadi, cheque_number, cheque_account,
-          cheque_amount, cheque_owner, cheque_due, cheque_status } = req.body;
+  const { cust_id, amount } = req.body;
   if (!cust_id || !amount) return res.status(400).json({ error: 'مشتری و مبلغ الزامی است' });
   const db = getDB();
-  const settlementId = db.transaction(() => {
-    const result = db.prepare(
-      `INSERT INTO settlements
-        (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,
-         cheque_bank,cheque_sayadi,cheque_number,cheque_account,
-         cheque_amount,cheque_owner,cheque_due,cheque_status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(req.user.id, cust_id, invoice_id || null, parseFloat(amount), pay_type || 'cash',
-          date || '', note || '', bank_id || null, cash_box_id || null,
-          cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
-          parseFloat(cheque_amount || 0), cheque_owner || '', cheque_due || '',
-          cheque_status || 'pending');
-    const settlementId = result.lastInsertRowid;
-
-    // Customer ledger entry
-    const payLabel = (pay_type || 'cash') === 'cheque' ? 'چک' : 'نقد';
-    createLedgerEntry(db, {
-      customer_id: cust_id, date: date || '', entry_type: 'settlement',
-      ref_type: 'settlement', ref_id: settlementId,
-      description: `تسویه ${payLabel} - ${parseFloat(amount).toLocaleString('fa-IR')} تومان`,
-      debit: 0, credit: parseFloat(amount), user_id: req.user.id
-    });
-    // Journal entry: Dr Cash/Bank / Cr Receivables — posts to the specific bank's
-    // own ledger sub-account when one was selected, else the generic صندوق/بانک
-    const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    createJournalEntry(db, {
-      date: date || '', description: `تسویه ${payLabel} مشتری`,
-      ref_type: 'settlement', ref_id: settlementId, created_by: req.user.id,
-      lines: [
-        { code: cash.code, name: cash.name, debit: parseFloat(amount), credit: 0 },
-        { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: parseFloat(amount) }
-      ]
-    });
-    return settlementId;
-  })();
+  const settlementId = db.transaction(() => recordSettlement(db, req.user.id, req.body))();
   audit(req.user.id, 'create', 'settlement', settlementId, `تسویه ${amount} تومان - مشتری ${cust_id}`);
-
   res.json({ id: settlementId, ok: true });
+});
+
+// Batch settlements (installments) — all or nothing
+router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
+  const { installments } = req.body;
+  if (!Array.isArray(installments) || !installments.length) {
+    return res.status(400).json({ error: 'حداقل یک قسط الزامی است' });
+  }
+  const db = getDB();
+  const ids = db.transaction(() => {
+    const created = [];
+    for (const inst of installments) {
+      if (!inst.cust_id || !inst.amount) throw new Error('مشتری و مبلغ هر قسط الزامی است');
+      created.push(recordSettlement(db, req.user.id, inst));
+    }
+    return created;
+  })();
+  ids.forEach(id => audit(req.user.id, 'create', 'settlement', id, 'قسط دریافت'));
+  res.json({ ok: true, ids, count: ids.length });
 });
 
 // Delete settlement
@@ -439,6 +421,100 @@ router.get('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
   const accounts = db.prepare('SELECT * FROM chart_of_accounts WHERE is_active=1 ORDER BY code').all();
   res.json(accounts);
 });
+
+const COA_TYPES = new Set(['asset', 'liability', 'equity', 'revenue', 'cogs', 'expense']);
+
+router.post('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
+  const { code, name, type, parent_code } = req.body;
+  if (!code || !name || !type) return res.status(400).json({ error: 'کد، نام و نوع حساب الزامی است' });
+  if (!COA_TYPES.has(type)) return res.status(400).json({ error: 'نوع حساب نامعتبر است' });
+  const db = getDB();
+  const exists = db.prepare('SELECT id FROM chart_of_accounts WHERE code=?').get(String(code).trim());
+  if (exists) return res.status(400).json({ error: 'این کد حساب قبلاً ثبت شده' });
+  if (parent_code) {
+    const parent = db.prepare('SELECT code FROM chart_of_accounts WHERE code=? AND is_active=1').get(parent_code);
+    if (!parent) return res.status(400).json({ error: 'حساب والد یافت نشد' });
+  }
+  db.prepare('INSERT INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)')
+    .run(String(code).trim(), name.trim(), type, parent_code || null);
+  audit(req.user.id, 'create', 'chart_of_accounts', null, `ساخت حساب ${code} — ${name}`);
+  res.json(db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(String(code).trim()));
+});
+
+router.put('/chart-of-accounts/:code', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(req.params.code);
+  if (!row) return res.status(404).json({ error: 'حساب یافت نشد' });
+  const { name, type, parent_code, is_active } = req.body;
+  if (type && !COA_TYPES.has(type)) return res.status(400).json({ error: 'نوع حساب نامعتبر است' });
+  if (parent_code) {
+    const parent = db.prepare('SELECT code FROM chart_of_accounts WHERE code=? AND is_active=1').get(parent_code);
+    if (!parent) return res.status(400).json({ error: 'حساب والد یافت نشد' });
+  }
+  db.prepare('UPDATE chart_of_accounts SET name=?,type=?,parent_code=?,is_active=? WHERE code=?')
+    .run(
+      name != null ? name.trim() : row.name,
+      type || row.type,
+      parent_code !== undefined ? (parent_code || null) : row.parent_code,
+      is_active != null ? (is_active ? 1 : 0) : row.is_active,
+      req.params.code
+    );
+  audit(req.user.id, 'update', 'chart_of_accounts', null, `ویرایش حساب ${req.params.code}`);
+  res.json({ ok: true });
+});
+
+// Open final invoices for a customer (for payment allocation)
+router.get('/customers/:custId/invoices-for-payment', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare(`
+    SELECT i.id, i.num, i.date, i.final,
+      COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.invoice_id=i.id), 0) AS paid
+    FROM invoices i
+    WHERE i.cust_id=? AND i.type='final'
+    ORDER BY i.date DESC, i.id DESC
+  `).all(req.params.custId);
+  rows.forEach(r => { r.outstanding = Math.max(0, (r.final || 0) - (r.paid || 0)); });
+  res.json(rows.filter(r => r.outstanding > 0));
+});
+
+function recordSettlement(db, userId, data) {
+  const {
+    cust_id, invoice_id, amount, pay_type, date, note, bank_id, cash_box_id,
+    cheque_bank, cheque_sayadi, cheque_number, cheque_account,
+    cheque_amount, cheque_owner, cheque_due, cheque_status
+  } = data;
+  const result = db.prepare(
+    `INSERT INTO settlements
+      (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,
+       cheque_bank,cheque_sayadi,cheque_number,cheque_account,
+       cheque_amount,cheque_owner,cheque_due,cheque_status)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).run(
+    userId, cust_id, invoice_id || null, parseFloat(amount), pay_type || 'cash',
+    date || '', note || '', bank_id || null, cash_box_id || null,
+    cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
+    parseFloat(cheque_amount || 0), cheque_owner || '', cheque_due || '',
+    cheque_status || 'pending'
+  );
+  const settlementId = result.lastInsertRowid;
+  const payLabel = (pay_type || 'cash') === 'cheque' ? 'چک' : 'نقد';
+  createLedgerEntry(db, {
+    customer_id: cust_id, date: date || '', entry_type: 'settlement',
+    ref_type: 'settlement', ref_id: settlementId,
+    description: `تسویه ${payLabel} - ${parseFloat(amount).toLocaleString('fa-IR')} تومان`,
+    debit: 0, credit: parseFloat(amount), user_id: userId
+  });
+  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+  createJournalEntry(db, {
+    date: date || '', description: `تسویه ${payLabel} مشتری`,
+    ref_type: 'settlement', ref_id: settlementId, created_by: userId,
+    lines: [
+      { code: cash.code, name: cash.name, debit: parseFloat(amount), credit: 0 },
+      { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: parseFloat(amount) }
+    ]
+  });
+  return settlementId;
+}
 
 // Journal entries with lines (paginated, date-filtered)
 router.get('/journal', auth, adminOrAccounting, (req, res) => {

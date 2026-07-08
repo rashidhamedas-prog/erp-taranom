@@ -56,13 +56,23 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { category_id, name, phone, address, note, credit_limit, debit_limit, opening_balance } = req.body;
+  const {
+    category_id, name, phone, address, note, credit_limit, debit_limit, opening_balance,
+    employee_no, card_no, hourly_rate, overtime_rate, insurance_percent, tax_percent
+  } = req.body;
   if (!name) return res.status(400).json({ error: 'نام شخص الزامی است' });
   const db = getDB();
   const personId = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO persons (category_id,name,phone,address,note,credit_limit,debit_limit) VALUES (?,?,?,?,?,?,?)'
-    ).run(category_id || null, name, phone || '', address || '', note || '', parseFloat(credit_limit) || 0, parseFloat(debit_limit) || 0);
+      `INSERT INTO persons (category_id,name,phone,address,note,credit_limit,debit_limit,employee_no,card_no,hourly_rate,overtime_rate,insurance_percent,tax_percent)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(
+      category_id || null, name, phone || '', address || '', note || '',
+      parseFloat(credit_limit) || 0, parseFloat(debit_limit) || 0,
+      employee_no ? String(employee_no).trim() : '', card_no ? String(card_no).trim() : '',
+      parseFloat(hourly_rate) || 0, parseFloat(overtime_rate) || 0,
+      parseFloat(insurance_percent) || 0, parseFloat(tax_percent) || 0
+    );
     const personId = result.lastInsertRowid;
     const ob = parseFloat(opening_balance) || 0;
     if (ob !== 0) {
@@ -81,12 +91,25 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM persons WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { category_id, name, phone, address, note, credit_limit, debit_limit, active } = req.body;
-  db.prepare('UPDATE persons SET category_id=?,name=?,phone=?,address=?,note=?,credit_limit=?,debit_limit=?,active=? WHERE id=?')
-    .run(category_id || row.category_id, name || row.name, phone ?? row.phone, address ?? row.address, note ?? row.note,
-         credit_limit !== undefined ? (parseFloat(credit_limit) || 0) : row.credit_limit,
-         debit_limit !== undefined ? (parseFloat(debit_limit) || 0) : row.debit_limit,
-         active != null ? (active ? 1 : 0) : row.active, req.params.id);
+  const {
+    category_id, name, phone, address, note, credit_limit, debit_limit, active,
+    employee_no, card_no, hourly_rate, overtime_rate, insurance_percent, tax_percent
+  } = req.body;
+  db.prepare(`UPDATE persons SET category_id=?,name=?,phone=?,address=?,note=?,credit_limit=?,debit_limit=?,active=?,
+    employee_no=?,card_no=?,hourly_rate=?,overtime_rate=?,insurance_percent=?,tax_percent=? WHERE id=?`)
+    .run(
+      category_id || row.category_id, name || row.name, phone ?? row.phone, address ?? row.address, note ?? row.note,
+      credit_limit !== undefined ? (parseFloat(credit_limit) || 0) : row.credit_limit,
+      debit_limit !== undefined ? (parseFloat(debit_limit) || 0) : row.debit_limit,
+      active != null ? (active ? 1 : 0) : row.active,
+      employee_no !== undefined ? String(employee_no || '').trim() : (row.employee_no || ''),
+      card_no !== undefined ? String(card_no || '').trim() : (row.card_no || ''),
+      hourly_rate !== undefined ? (parseFloat(hourly_rate) || 0) : (row.hourly_rate || 0),
+      overtime_rate !== undefined ? (parseFloat(overtime_rate) || 0) : (row.overtime_rate || 0),
+      insurance_percent !== undefined ? (parseFloat(insurance_percent) || 0) : (row.insurance_percent || 0),
+      tax_percent !== undefined ? (parseFloat(tax_percent) || 0) : (row.tax_percent || 0),
+      req.params.id
+    );
   audit(req.user.id, 'update', 'person', req.params.id, `ویرایش شخص ${name || row.name}`);
   res.json({ ok: true });
 });

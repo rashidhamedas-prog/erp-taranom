@@ -3,38 +3,53 @@ const { getDB, audit, createJournalEntry, resolveCashAccount } = require('../db'
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 
-// General expense payments — a "Payment Operation" not tied to a supplier or
-// salesperson (rent, utilities, office supplies, ...). Posts Dr expense / Cr cash.
-
 const EXPENSE_ACCOUNTS = {
   admin: { code: '6102', name: 'هزینه‌های عمومی و اداری' },
   sales: { code: '6103', name: 'هزینه‌های توزیع و فروش' }
 };
 
+function resolveExpenseAccount(db, category, expense_account_code) {
+  if (expense_account_code) {
+    const acc = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=? AND is_active=1').get(expense_account_code);
+    if (acc) return { code: acc.code, name: acc.name };
+  }
+  return EXPENSE_ACCOUNTS[category] || EXPENSE_ACCOUNTS.admin;
+}
+
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
-    SELECT e.*, u.name as recorder, cc.name as cost_center_name
+    SELECT e.*, u.name as recorder, cc.name as cost_center_name,
+      pi.num as purchase_invoice_num
     FROM expense_payments e
     LEFT JOIN users u ON e.created_by=u.id
     LEFT JOIN cost_centers cc ON e.cost_center_id=cc.id
+    LEFT JOIN purchase_invoices pi ON e.purchase_invoice_id=pi.id
     ORDER BY e.created_at DESC LIMIT 300
   `).all();
   res.json(rows);
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { category, title, amount, pay_type, date, note, bank_id, cash_box_id, check_category_id, cost_center_id } = req.body;
+  const {
+    category, title, amount, pay_type, date, note, bank_id, cash_box_id,
+    check_category_id, cost_center_id, expense_account_code, purchase_invoice_id, is_overhead
+  } = req.body;
   const amt = parseFloat(amount) || 0;
   if (!amt) return res.status(400).json({ error: 'مبلغ الزامی است' });
-  const acc = EXPENSE_ACCOUNTS[category] || EXPENSE_ACCOUNTS.admin;
   const db = getDB();
+  const acc = resolveExpenseAccount(db, category, expense_account_code);
   const expId = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO expense_payments (category,title,amount,pay_type,bank_id,cash_box_id,check_category_id,cost_center_id,date,note,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-    ).run(category || 'admin', title || '', amt, pay_type || 'cash', bank_id || null, cash_box_id || null, check_category_id || null, cost_center_id || null, date || todayJalali(), note || '', req.user.id);
+      `INSERT INTO expense_payments (category,title,amount,pay_type,bank_id,cash_box_id,check_category_id,cost_center_id,date,note,created_by,expense_account_code,purchase_invoice_id,is_overhead)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(
+      category || 'admin', title || '', amt, pay_type || 'cash',
+      bank_id || null, cash_box_id || null, check_category_id || null, cost_center_id || null,
+      date || todayJalali(), note || '', req.user.id,
+      acc.code, purchase_invoice_id || null, is_overhead ? 1 : 0
+    );
     const expId = result.lastInsertRowid;
-
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
     const entryId = createJournalEntry(db, {
       date: date || todayJalali(), description: `پرداخت هزینه: ${title || acc.name}`,
@@ -47,7 +62,6 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     if (cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(cost_center_id, entryId);
     return expId;
   })();
-
   audit(req.user.id, 'create', 'expense_payment', expId, `پرداخت هزینه ${amt} تومان (${title || acc.name})`);
   res.json({ id: expId, ok: true });
 });
@@ -56,7 +70,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM expense_payments WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const acc = EXPENSE_ACCOUNTS[row.category] || EXPENSE_ACCOUNTS.admin;
+  const acc = resolveExpenseAccount(db, row.category, row.expense_account_code);
   db.transaction(() => {
     const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
     createJournalEntry(db, {

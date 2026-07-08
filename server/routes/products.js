@@ -45,20 +45,23 @@ router.get('/', auth, (req, res) => {
   const params = [];
 
   const category = (req.query.category || '').trim();
-  if (category && category !== 'all') { where.push('category = ?'); params.push(category); }
+  if (category && category !== 'all') { where.push('p.category = ?'); params.push(category); }
 
   const search = (req.query.search || '').trim();
   if (search) {
-    where.push('(name LIKE ? OR code LIKE ?)');
+    where.push('(p.name LIKE ? OR p.code LIKE ?)');
     params.push('%' + search + '%', '%' + search + '%');
   }
 
   const stockStatus = (req.query.stock_status || 'all').trim();
-  if (stockStatus === 'low') where.push('stock <= stock_alert');
-  else if (stockStatus === 'ok') where.push('stock > stock_alert');
+  if (stockStatus === 'low') where.push('p.stock <= p.stock_alert');
+  else if (stockStatus === 'ok') where.push('p.stock > p.stock_alert');
+
+  const warehouseId = parseInt(req.query.warehouse_id);
+  if (warehouseId) { where.push('p.warehouse_id = ?'); params.push(warehouseId); }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
-  const rows = db.prepare(`SELECT * FROM products ${whereSql} ORDER BY created_at DESC`).all(...params);
+  const rows = db.prepare(`SELECT p.*, w.name as warehouse_name FROM products p LEFT JOIN warehouses w ON p.warehouse_id=w.id ${whereSql} ORDER BY p.created_at DESC`).all(...params);
   res.json(rows);
 });
 
@@ -81,16 +84,53 @@ router.get('/:id/kardex', auth, (req, res) => {
   res.json({ product, logs });
 });
 
-// Distinct categories (for filter dropdown)
+// Distinct categories (for filter dropdown) — from managed product_categories table
 router.get('/categories', auth, (req, res) => {
   const db = getDB();
-  const rows = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>'' ORDER BY category").all();
-  res.json(rows.map(r => r.category));
+  const rows = db.prepare('SELECT id, name, sort_order FROM product_categories ORDER BY sort_order, name').all();
+  res.json(rows.length ? rows : db.prepare("SELECT DISTINCT category as name FROM products WHERE category IS NOT NULL AND category<>'' ORDER BY category").all());
+});
+
+router.post('/categories', auth, adminOnly, (req, res) => {
+  const { name } = req.body;
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'نام دسته الزامی است' });
+  const db = getDB();
+  try {
+    const result = db.prepare('INSERT INTO product_categories (name) VALUES (?)').run(String(name).trim());
+    res.json(db.prepare('SELECT * FROM product_categories WHERE id=?').get(result.lastInsertRowid));
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) return res.status(400).json({ error: 'این دسته قبلاً ثبت شده' });
+    throw e;
+  }
+});
+
+router.put('/categories/:id', auth, adminOnly, (req, res) => {
+  const { name } = req.body;
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'نام دسته الزامی است' });
+  const db = getDB();
+  const old = db.prepare('SELECT * FROM product_categories WHERE id=?').get(req.params.id);
+  if (!old) return res.status(404).json({ error: 'یافت نشد' });
+  const newName = String(name).trim();
+  db.transaction(() => {
+    db.prepare('UPDATE product_categories SET name=? WHERE id=?').run(newName, req.params.id);
+    db.prepare('UPDATE products SET category=? WHERE category=?').run(newName, old.name);
+  })();
+  res.json({ ok: true });
+});
+
+router.delete('/categories/:id', auth, adminOnly, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM product_categories WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  const inUse = db.prepare('SELECT COUNT(*) c FROM products WHERE category=?').get(row.name).c;
+  if (inUse > 0) return res.status(400).json({ error: 'این دسته برای محصولاتی استفاده شده — ابتدا محصولات را جابجا کنید' });
+  db.prepare('DELETE FROM product_categories WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
 });
 
 // Create product (admin only) — multipart form-data for optional image
 router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
-  const { category, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size } = req.body;
+  const { category, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, warehouse_id } = req.body;
   if (!name) return res.status(400).json({ error: 'نام محصول الزامی است' });
   const db = getDB();
   let image = null;
@@ -100,11 +140,12 @@ router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
   // New products default into the first warehouse so warehouse_id is never
   // null — Warehouse Transfer can relocate them afterward.
   const defaultWarehouse = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
+  const whId = warehouse_id ? parseInt(warehouse_id) : (defaultWarehouse ? defaultWarehouse.id : null);
   const result = db.prepare(
     'INSERT INTO products (user_id,category,code,name,price,cost,stock,stock_alert,unit,note,image,colors,pack_size,warehouse_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
   ).run(req.user.id, category || '', code || '', name, parseFloat(price) || 0, parseFloat(cost) || 0, parseInt(stock) || 0,
         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
-        parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null);
+        parseInt(colors) || 1, parseInt(pack_size) || 1, whId);
   audit(req.user.id, 'create', 'product', result.lastInsertRowid, `ساخت محصول ${name}`);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid));
 });
@@ -114,7 +155,7 @@ router.put('/:id', auth, adminOnly, upload.single('image'), async (req, res) => 
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
-  const { category, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size } = req.body;
+  const { category, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, warehouse_id } = req.body;
   let image = prod.image;
   if (req.file) {
     try {
@@ -122,12 +163,13 @@ router.put('/:id', auth, adminOnly, upload.single('image'), async (req, res) => 
       if (prod.image) { try { fs.unlinkSync(path.join(UPLOAD_DIR, prod.image)); } catch (e) {} }
     } catch (e) { image = prod.image; }
   }
-  db.prepare('UPDATE products SET category=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=? WHERE id=?')
+  const whId = warehouse_id !== undefined && warehouse_id !== '' ? parseInt(warehouse_id) : prod.warehouse_id;
+  db.prepare('UPDATE products SET category=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=? WHERE id=?')
     .run(category || '', code || '', name || prod.name, parseFloat(price) || 0,
          cost !== undefined ? (parseFloat(cost) || 0) : (prod.cost || 0), parseInt(stock) || 0,
          parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
          parseInt(colors) || prod.colors || 1, parseInt(pack_size) || prod.pack_size || 1,
-         req.params.id);
+         whId, req.params.id);
   audit(req.user.id, 'update', 'product', req.params.id, `ویرایش محصول ${name || prod.name}`);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id));
 });

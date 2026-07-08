@@ -962,7 +962,7 @@ const NAV_ACCOUNTING = [
 // as a real, working nav entry (not nested tabs). ----
 const ACC_NAV = [
   {id:'exit-acc-shell', icon:'🔙', label:'بازگشت به CRM'},
-  {id:'acc-dash', icon:'📊', label:'داشبورد حسابداری'},
+  {id:'acc-dash', icon:'📊', label:'داشبورد و دفتر کل'},
   {id:'acc-general', icon:'📈', label:'حسابداری کل (سود و زیان)'},
   {id:'acc-receivables', icon:'🧾', label:'مطالبات مشتریان'},
   {id:'acc-settlements', icon:'💵', label:'عملیات دریافت (تسویه با مشتریان)'},
@@ -985,7 +985,6 @@ const ACC_NAV = [
   {id:'acc-warehouse-ops', icon:'📦', label:'عملیات انبار (رسید/حواله/انتقال)'},
   {id:'acc-consignments', icon:'🔄', label:'کالای امانی'},
   {id:'acc-vouchers', icon:'📝', label:'اسناد حسابداری (دستی)'},
-  {id:'acc-general-ledger', icon:'📒', label:'دفتر کل حساب‌ها'},
   {id:'acc-trial-balance', icon:'⚖️', label:'تراز آزمایشی'},
   {id:'acc-balance-sheet', icon:'🏛️', label:'ترازنامه'},
   {id:'acc-chart', icon:'📚', label:'کدینگ حساب‌ها'},
@@ -2579,6 +2578,8 @@ let accTab = 'general';
 let accDateFrom = '', accDateTo = '', accPreset = 'month';
 let accHideZero = true;
 let stmtCustId = '', stmtType = '';
+let glPreselectCode = '';
+function catLabel(c){ return typeof c==='object' ? (c.name||'') : String(c||''); }
 function applyAccPreset(p){
   accPreset=p;
   if(p!=='custom') [accDateFrom,accDateTo]=jPresetRange(p);
@@ -3179,6 +3180,12 @@ function personModal(id){
         ${cats.map(c=>`<option value="${c.id}" ${p?.category_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
       </select></div>
       <div class="fg"><label>تلفن</label><input id="pr-phone" value="${esc(p?.phone||'')}"></div>
+      <div class="fg"><label>شماره پرسنلی (فراننکو)</label><input id="pers-employee-no" value="${esc(p?.employee_no||'')}"></div>
+      <div class="fg"><label>شماره کارت (فراننکو)</label><input id="pers-card-no" value="${esc(p?.card_no||'')}"></div>
+      <div class="fg"><label>نرخ ساعتی (ت)</label><input id="pers-hourly-rate" class="money" type="text" inputmode="numeric" value="${moneyInit(p?.hourly_rate)}"></div>
+      <div class="fg"><label>نرخ اضافه‌کاری (ت)</label><input id="pers-ot-rate" class="money" type="text" inputmode="numeric" value="${moneyInit(p?.overtime_rate)}"></div>
+      <div class="fg"><label>کسر بیمه (٪)</label><input id="pers-insurance" type="number" min="0" step="0.1" value="${p?.insurance_percent||0}"></div>
+      <div class="fg"><label>کسر مالیات (٪)</label><input id="pers-tax" type="number" min="0" step="0.1" value="${p?.tax_percent||0}"></div>
       <div class="fg full"><label>آدرس</label><input id="pr-address" value="${esc(p?.address||'')}"></div>
       ${!id?`<div class="fg"><label>مانده اولیه (تومان) ${hlp('مثبت = این شخص به ما بدهکار است. منفی = ما به این شخص بدهکاریم.')}</label><input id="pr-opening" type="number" value="0"></div>`:''}
       <div class="fg"><label>سقف بستانکاری (تومان)</label><input id="pr-credit-limit" type="number" value="${p?.credit_limit||0}"></div>
@@ -3197,7 +3204,13 @@ async function savePerson(id){
   const data={
     name, category_id:+el('pr-category').value||null, phone:el('pr-phone').value,
     address:el('pr-address').value, note:el('pr-note').value,
-    credit_limit:+el('pr-credit-limit').value||0, debit_limit:+el('pr-debit-limit').value||0
+    credit_limit:+el('pr-credit-limit').value||0, debit_limit:+el('pr-debit-limit').value||0,
+    employee_no:el('pers-employee-no')?.value||'',
+    card_no:el('pers-card-no')?.value||'',
+    hourly_rate:moneyVal('pers-hourly-rate'),
+    overtime_rate:moneyVal('pers-ot-rate'),
+    insurance_percent:+el('pers-insurance')?.value||0,
+    tax_percent:+el('pers-tax')?.value||0
   };
   if(!id) data.opening_balance=+el('pr-opening')?.value||0;
   else data.active=+el('pr-active').value;
@@ -3793,7 +3806,10 @@ async function renderPayrollTab(body){
   if(!CACHE.persons) CACHE.persons=await api('GET','/persons')||[];
   const records=await api('GET','/payroll')||[];
   body.innerHTML=`
-    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="payrollModal()">➕ ثبت حقوق</button></div>
+    <div class="toolbar" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="payrollModal()">➕ ثبت حقوق</button>
+      <button class="btn ghost" onclick="farankenouImportModal()">📥 ورود از فراننکو (.lwte)</button>
+    </div>
     <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
       <th>دوره</th><th>کارمند</th><th>ساعت عادی</th><th>ساعت اضافه‌کاری</th><th>ناخالص (ت)</th><th>کسورات (ت)</th><th>خالص (ت)</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${records.map(r=>`<tr>
@@ -3892,6 +3908,107 @@ async function savePayrollPayment(id){
 async function deletePayrollRecord(id){
   if(!confirm('این رکورد حقوق حذف شود؟')) return;
   try{ await api('DELETE','/payroll/'+id); showToast('حذف شد'); loadAccTab('payroll'); }catch(e){}
+}
+
+let FARANKENOU_PREVIEW = null;
+
+function farankenouImportModal(){
+  FARANKENOU_PREVIEW = null;
+  openModal(`
+    <div class="modal-head"><h3>📥 ورود کارکرد از فراننکو</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>فایل کارکرد (.lwte) * ${hlp('خروجی نرم‌افزار فراننکو — TAB جدا، UTF-8')}</label>
+        <input type="file" id="fk-file" accept=".lwte,.txt,.csv" onchange="previewFarankenou()"></div>
+      <div class="fg"><label>نرخ ساعتی پیش‌فرض (ت) ${hlp('برای کارمندانی که نرخ در پروندهٔ شخص ندارند')}</label>
+        <input id="fk-hourly" class="money" type="text" inputmode="numeric" value="0"></div>
+      <div class="fg"><label>نرخ اضافه‌کاری پیش‌فرض (ت)</label>
+        <input id="fk-ot" class="money" type="text" inputmode="numeric" value="0" placeholder="خالی = ۱۴۰٪ نرخ عادی"></div>
+      <div class="fg"><label>کسر بیمه (٪)</label><input id="fk-ins" type="number" min="0" step="0.1" value="0"></div>
+      <div class="fg"><label>کسر مالیات (٪)</label><input id="fk-tax" type="number" min="0" step="0.1" value="0"></div>
+      <div class="fg"><label>تاریخ ثبت</label><input id="fk-date" data-jdate value="${todayJalali()}"></div>
+    </div>
+    <div id="fkPreview" style="margin-top:12px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn green" id="fkCommitBtn" style="display:none" onclick="commitFarankenou()">💾 ثبت حقوق انتخاب‌شده</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button>
+    </div>`, true);
+  attachDatepickers(el('modalRoot'));
+}
+
+async function previewFarankenou(){
+  const inp=el('fk-file'); if(!inp?.files?.[0]) return;
+  const fd=new FormData();
+  fd.append('file', inp.files[0]);
+  fd.append('default_hourly_rate', moneyVal('fk-hourly'));
+  fd.append('default_overtime_rate', moneyVal('fk-ot'));
+  fd.append('insurance_percent', el('fk-ins')?.value||0);
+  fd.append('tax_percent', el('fk-tax')?.value||0);
+  const box=el('fkPreview'); if(box) box.innerHTML='<div class="muted">در حال پردازش...</div>';
+  try{
+    const data=await api('POST','/payroll/farankenou/preview', fd, true);
+    FARANKENOU_PREVIEW=data;
+    renderFarankenouPreview(data);
+    const btn=el('fkCommitBtn'); if(btn) btn.style.display=data.matched>0?'':'none';
+  }catch(e){
+    if(box) box.innerHTML='<div class="muted" style="color:var(--red)">خطا در خواندن فایل</div>';
+  }
+}
+
+function renderFarankenouPreview(data){
+  const box=el('fkPreview'); if(!box) return;
+  box.innerHTML=`
+    <div class="cards" style="margin-bottom:10px">
+      <div class="card"><div class="lbl">دوره</div><div class="val">${esc(data.period_label||'-')}</div></div>
+      <div class="card"><div class="lbl">کل ردیف‌ها</div><div class="val">${fmt(data.total)}</div></div>
+      <div class="card"><div class="lbl">تطبیق‌شده</div><div class="val" style="color:var(--green)">${fmt(data.matched)}</div></div>
+      <div class="card"><div class="lbl">بدون تطبیق</div><div class="val" style="color:${data.unmatched?'var(--red)':'var(--muted)'}">${fmt(data.unmatched)}</div></div>
+    </div>
+    ${data.unmatched?`<div class="muted" style="margin-bottom:8px;font-size:12px">⚠️ کارمندان بدون تطبیق: شماره پرسنلی/کارت یا نام را در ماژول «اشخاص» ثبت کنید.</div>`:''}
+    <div class="tbl-wrap" style="max-height:50vh;overflow:auto">
+      <table class="tbl" style="font-size:11px"><thead><tr>
+        <th><input type="checkbox" checked onchange="toggleFarankenouAll(this.checked)"></th>
+        <th>نام</th><th>پرسنلی</th><th>ساعت عادی</th><th>اضافه‌کاری</th><th>ناخالص</th><th>خالص</th><th>وضعیت</th>
+      </tr></thead><tbody>
+      ${(data.rows||[]).map((r,i)=>`<tr style="${!r.matched?'opacity:.65':''}">
+        <td>${r.matched?`<input type="checkbox" class="fk-row-chk" data-idx="${i}" ${r.selected?'checked':''}>`:'—'}</td>
+        <td>${esc(r.full_name)}</td><td class="mono">${esc(r.employee_no||'-')}</td>
+        <td class="mono">${fmt(r.regular_hours)}</td><td class="mono">${fmt(r.overtime_hours)}</td>
+        <td class="mono">${fmt(r.gross_pay)}</td><td class="mono" style="font-weight:700">${fmt(r.net_pay)}</td>
+        <td>${r.matched?'<span class="tag t-done">✓ '+esc(r.person_name||'')+'</span>':'<span class="tag t-cancel">بدون تطبیق</span>'}</td>
+      </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+}
+
+function toggleFarankenouAll(checked){
+  document.querySelectorAll('.fk-row-chk').forEach(c=>{ c.checked=checked; });
+}
+
+async function commitFarankenou(){
+  if(!FARANKENOU_PREVIEW?.rows?.length){ showToast('ابتدا فایل را بارگذاری کنید','error'); return; }
+  const selected=[];
+  document.querySelectorAll('.fk-row-chk').forEach(chk=>{
+    if(!chk.checked) return;
+    const idx=+chk.dataset.idx;
+    const row=FARANKENOU_PREVIEW.rows[idx];
+    if(row?.person_id) selected.push({ ...row, selected:true });
+  });
+  if(!selected.length){ showToast('حداقل یک کارمند تطبیق‌شده را انتخاب کنید','error'); return; }
+  if(!confirm(`${selected.length} رکورد حقوق با سند حسابداری ثبت شود؟`)) return;
+  try{
+    const res=await api('POST','/payroll/farankenou/commit',{
+      period_label: FARANKENOU_PREVIEW.period_label,
+      date: el('fk-date')?.value||todayJalali(),
+      rows: selected
+    });
+    closeModal();
+    const msg=res.errors?.length
+      ? `${res.created} ثبت شد — ${res.errors.length} خطا`
+      : `${res.created} رکورد حقوق ثبت شد`;
+    showToast(msg, res.errors?.length?'error':'ok');
+    loadAccTab('payroll');
+  }catch(e){}
 }
 
 async function supplierPaymentModal(id,name){
@@ -6207,7 +6324,7 @@ function renderAdminGuide(){
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: برای هر اجرای تولید، هزینه مواد اولیه، دستمزد، سربار، بسته‌بندی و ضایعات وارد می‌شود و سیستم بهای تمام‌شده واحد، حاشیه سود (نسبت به قیمت فروش فعلی) و درصد کارایی (نسبت تولید سالم به کل) را محاسبه می‌کند. با گزینه‌های اختیاری، می‌توان موجودی کالای ساخته‌شده را افزایش داد و/یا بهای تمام‌شده محصول را با عدد محاسبه‌شده جایگزین کرد. <span class="muted">این بخش سند حسابداری ایجاد نمی‌کند — صرفاً ابزار تحلیل هزینه و کارایی تولید است.</span></li>
-        <li><b>حقوق و دستمزد (ساعتی)</b>: کارمندان از ماژول «اشخاص» (دسته «کارمند») انتخاب می‌شوند. با ثبت حقوق هر دوره (ساعت عادی/اضافه‌کاری × نرخ + پاداش − کسورات/بیمه/مالیات)، سند حسابداری خودکار ثبت می‌شود (بدهکار هزینه حقوق، بستانکار حساب اشخاص برای مبلغ خالص، و بستانکار بدهی بیمه و مالیات). دکمه «پرداخت» جداگانه، واقعاً وجه را از صندوق/بانک پرداخت و بدهی به کارمند را تسویه می‌کند — دقیقاً مثل پرداخت به تأمین‌کننده.</li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: کارمندان از ماژول «اشخاص» (دسته «کارمند») انتخاب می‌شوند — شماره پرسنلی/کارت و نرخ ساعتی را در پروندهٔ شخص ثبت کنید تا ورود از فراننکو خودکار تطبیق دهد. با ثبت حقوق هر دوره (ساعت عادی/اضافه‌کاری × نرخ + پاداش − کسورات/بیمه/مالیات)، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند، حقوق را محاسبه و پس از تأیید شما ثبت می‌کند. دکمه «پرداخت» جداگانه، واقعاً وجه را از صندوق/بانک پرداخت می‌کند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>

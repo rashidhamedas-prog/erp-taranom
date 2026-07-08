@@ -691,6 +691,13 @@ function initDB() {
       created_by INTEGER,
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
+
+    CREATE TABLE IF NOT EXISTS product_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      sort_order INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
   `);
   ensureColumn(db, 'customers', 'group_id', 'INTEGER');
   ensureColumn(db, 'journal_entries', 'cost_center_id', 'INTEGER');
@@ -720,6 +727,17 @@ function initDB() {
   // existing invoice/purchase/return code path); warehouse_id is purely a
   // location tag, and warehouse_moves records receipt/issue/transfer history.
   ensureColumn(db, 'products', 'warehouse_id', 'INTEGER');
+  // Farankenou payroll + employee payroll defaults on persons
+  ensureColumn(db, 'persons', 'employee_no', 'TEXT');
+  ensureColumn(db, 'persons', 'card_no', 'TEXT');
+  ensureColumn(db, 'persons', 'hourly_rate', 'REAL DEFAULT 0');
+  ensureColumn(db, 'persons', 'overtime_rate', 'REAL DEFAULT 0');
+  ensureColumn(db, 'persons', 'insurance_percent', 'REAL DEFAULT 0');
+  ensureColumn(db, 'persons', 'tax_percent', 'REAL DEFAULT 0');
+  ensureColumn(db, 'expense_payments', 'expense_account_code', 'TEXT');
+  ensureColumn(db, 'expense_payments', 'purchase_invoice_id', 'INTEGER');
+  ensureColumn(db, 'expense_payments', 'is_overhead', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'production_runs', 'warehouse_id', 'INTEGER');
   const whCount = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
   if (whCount === 0) {
     const mainWhId = db.prepare("INSERT INTO warehouses (name,address) VALUES ('انبار مرکزی','')").run().lastInsertRowid;
@@ -744,6 +762,11 @@ function initDB() {
     insPC.run('ارائه‌دهنده خدمات', 'credit');
     insPC.run('سایر', 'debit');
   }
+
+  // Seed product_categories from existing product.category strings
+  const insProdCat = db.prepare('INSERT OR IGNORE INTO product_categories (name) VALUES (?)');
+  db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>''").all()
+    .forEach(r => insProdCat.run(r.category));
 
   // ---- Seed chart of accounts (only if empty) ----
   const coaCount = db.prepare('SELECT COUNT(*) c FROM chart_of_accounts').get().c;
@@ -847,7 +870,9 @@ function initDB() {
     webhook_secret: '',
     backup_smtp_user: '',
     backup_smtp_pass: '',
-    backup_email: ''
+    backup_email: '',
+    overhead_method: 'both',
+    overhead_rate_percent: '15'
   };
   const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)');
   for (const [k, v] of Object.entries(defaults)) insSetting.run(k, v);
