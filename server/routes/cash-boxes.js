@@ -12,6 +12,20 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
   res.json(db.prepare('SELECT * FROM cash_boxes ORDER BY name').all());
 });
 
+// Batch ledger balances for all cash boxes — avoids N separate general-ledger calls from the UI.
+router.get('/balances', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare(`
+    SELECT cb.*,
+      COALESCE(SUM(jl.debit - jl.credit), 0) as balance
+    FROM cash_boxes cb
+    LEFT JOIN journal_lines jl ON jl.account_code = '1101-' || cb.id
+    GROUP BY cb.id
+    ORDER BY cb.name
+  `).all();
+  res.json(rows);
+});
+
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const { name, custodian, is_petty_cash } = req.body;
   if (!name) return res.status(400).json({ error: 'نام صندوق الزامی است' });

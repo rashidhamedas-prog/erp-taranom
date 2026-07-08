@@ -7,10 +7,12 @@ const multer = require('multer');
 
 const memUpload = multer({ storage: multer.memoryStorage() });
 
-// Live-computed account balance from the customer ledger (source of truth), aliased as
-// "balance" so it overrides the raw (static, write-only) customers.balance column in c.*
-// results — invoices/settlements only ever update customer_ledger, never that column.
-const LIVE_BAL = "(SELECT COALESCE(SUM(cl.debit)-SUM(cl.credit),0) FROM customer_ledger cl WHERE cl.customer_id=c.id)";
+// Pre-aggregated ledger balances — one GROUP BY pass instead of a correlated subquery per row.
+const LEDGER_BAL_JOIN = `LEFT JOIN (
+  SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS balance
+  FROM customer_ledger GROUP BY customer_id
+) lb ON lb.customer_id=c.id`;
+const BAL_COL = 'COALESCE(lb.balance,0)';
 
 // Keep the customer's opening-ledger line in sync with the admin-set opening balance.
 // Deletes any existing opening line and re-inserts one dated at the customer's own
@@ -77,9 +79,9 @@ router.get('/', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.*,${LIVE_BAL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ORDER BY c.created_at DESC`).all();
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ORDER BY c.created_at DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.*,${LIVE_BAL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
   }
   res.json(rows);
 });
@@ -147,9 +149,9 @@ router.get('/balances', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${LIVE_BAL} AS balance,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE ${LIVE_BAL}<>0 ORDER BY ABS(${LIVE_BAL}) DESC`).all();
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id WHERE ${BAL_COL}<>0 ORDER BY ABS(${BAL_COL}) DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${LIVE_BAL} AS balance FROM customers c WHERE c.user_id=? AND ${LIVE_BAL}<>0 ORDER BY ABS(${LIVE_BAL}) DESC`).all(scope);
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=? AND ${BAL_COL}<>0 ORDER BY ABS(${BAL_COL}) DESC`).all(scope);
   }
   res.json(rows);
 });
@@ -159,9 +161,9 @@ router.get('/export/excel', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.*,${LIVE_BAL} AS balance,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id ORDER BY c.created_at DESC`).all();
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id ORDER BY c.created_at DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.*,${LIVE_BAL} AS balance FROM customers c WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
   }
   const isAdmin = req.user.role === 'admin';
   const data = rows.map(r => ({

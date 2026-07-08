@@ -61,9 +61,11 @@ router.get('/', auth, (req, res) => {
   if (warehouseId) { where.push('(p.warehouse_id=? OR EXISTS (SELECT 1 FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=? AND ws.qty>0))'); params.push(warehouseId, warehouseId); }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const whSelect = warehouseId
+    ? `, (SELECT COALESCE(ws.qty, p.stock) FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=${warehouseId} LIMIT 1) as wh_qty`
+    : '';
   const rows = db.prepare(`
-    SELECT p.*, w.name as warehouse_name,
-      (SELECT COALESCE(ws.qty, p.stock) FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=p.warehouse_id LIMIT 1) as wh_qty
+    SELECT p.*, w.name as warehouse_name${whSelect}
     FROM products p LEFT JOIN warehouses w ON p.warehouse_id=w.id
     ${whereSql} ORDER BY p.created_at DESC
   `).all(...params);

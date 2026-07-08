@@ -16,14 +16,29 @@ const { todayJalali } = require('../jalali');
 router.get('/stock/overview', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const warehouses = db.prepare('SELECT * FROM warehouses WHERE active=1 ORDER BY name').all();
+  const stockRows = db.prepare(`
+    SELECT p.id, p.code, p.name, p.unit, p.warehouse_id, p.stock,
+      ws.warehouse_id as ws_wh, ws.qty as ws_qty
+    FROM products p
+    LEFT JOIN warehouse_stock ws ON ws.product_id=p.id
+    ORDER BY p.name
+  `).all();
   const result = warehouses.map(w => {
-    const products = db.prepare(`
-      SELECT p.id, p.code, p.name, p.unit, COALESCE(ws.qty, p.stock) as qty
-      FROM products p
-      LEFT JOIN warehouse_stock ws ON ws.product_id=p.id AND ws.warehouse_id=?
-      WHERE p.warehouse_id=? OR ws.warehouse_id=?
-      ORDER BY p.name
-    `).all(w.id, w.id, w.id);
+    const products = [];
+    const seen = new Set();
+    for (const p of stockRows) {
+      if (p.warehouse_id === w.id && !seen.has(p.id)) {
+        products.push({ id: p.id, code: p.code, name: p.name, unit: p.unit, qty: p.stock || 0 });
+        seen.add(p.id);
+      }
+      if (p.ws_wh === w.id) {
+        const qty = p.ws_qty != null ? p.ws_qty : (p.warehouse_id === w.id ? p.stock : 0);
+        if (!seen.has(p.id)) {
+          products.push({ id: p.id, code: p.code, name: p.name, unit: p.unit, qty: qty || 0 });
+          seen.add(p.id);
+        }
+      }
+    }
     const totalQty = products.reduce((a, p) => a + (p.qty || 0), 0);
     return { ...w, product_count: products.length, total_qty: totalQty, products };
   });

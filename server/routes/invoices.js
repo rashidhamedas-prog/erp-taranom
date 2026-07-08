@@ -73,13 +73,15 @@ function deductStock(db, rows) {
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
+  // List view omits the heavy `rows` JSON blob — fetch line items via GET /:id when editing.
+  const cols = `i.id,i.num,i.cust_id,i.user_id,i.type,i.date,i.subtotal,i.disc,i.disc_amt,i.final,i.pay_type,
+    i.cheque_duration,i.cheque_due_date,i.cheque_info,i.approved,i.converted,i.note,i.created_at`;
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT i.*,c.biz as cust_biz,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ORDER BY i.created_at DESC').all();
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ORDER BY i.created_at DESC`).all();
   } else {
-    rows = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? ORDER BY i.created_at DESC').all(scope);
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? ORDER BY i.created_at DESC`).all(scope);
   }
-  rows = rows.map(r => ({ ...r, rows: JSON.parse(r.rows || '[]') }));
   res.json(rows);
 });
 

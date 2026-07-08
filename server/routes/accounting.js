@@ -84,9 +84,12 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
     SELECT c.id, c.biz, c.owner, c.city, c.phone,
       u.name as salesperson,
       COALESCE(SUM(i.final),0) as total_invoiced,
-      COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.cust_id=c.id${settDateFilter}),0) as total_settled
+      COALESCE(st.total_settled, 0) as total_settled
     FROM customers c
     LEFT JOIN invoices i ON i.cust_id=c.id AND i.type='final'${dateFilter}
+    LEFT JOIN (
+      SELECT cust_id, SUM(amount) as total_settled FROM settlements s WHERE 1=1${settDateFilter} GROUP BY cust_id
+    ) st ON st.cust_id=c.id
     LEFT JOIN users u ON c.user_id=u.id
     GROUP BY c.id
     HAVING total_invoiced > 0
@@ -101,10 +104,11 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
     SELECT i.id, i.num, i.date, i.final, c.id as cust_id, c.biz, c.owner, u.name as salesperson,
-      COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.invoice_id=i.id), 0) as paid
+      COALESCE(sp.paid, 0) as paid
     FROM invoices i
     JOIN customers c ON i.cust_id=c.id
     LEFT JOIN users u ON c.user_id=u.id
+    LEFT JOIN (SELECT invoice_id, SUM(amount) as paid FROM settlements WHERE invoice_id IS NOT NULL GROUP BY invoice_id) sp ON sp.invoice_id=i.id
     WHERE i.type='final'
     ORDER BY i.date DESC, i.id DESC
     LIMIT 500

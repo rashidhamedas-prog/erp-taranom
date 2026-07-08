@@ -1113,17 +1113,21 @@ async function boot(){
 
 async function loadInitial(){
   try{
-    const [customers, products] = await Promise.all([
-      api('GET','/customers'),
-      api('GET','/products')
-    ]);
-    CACHE.customers = customers||[];
-    CACHE.products = products||[];
-    CACHE.allProducts = products||[];
     CACHE.reminders = [];
+    if(ME.role==='accounting'){
+      // Accounting users land in acc-dash — defer heavy sales lists until needed.
+      CACHE.customers=[]; CACHE.products=[]; CACHE.allProducts=[]; CACHE.users=[];
+      return;
+    }
+    const fetches = [api('GET','/customers'), api('GET','/products')];
+    if(ME.role==='admin') fetches.push(api('GET','/auth/users'), api('GET','/settings'));
+    const results = await Promise.all(fetches);
+    CACHE.customers = results[0]||[];
+    CACHE.products = results[1]||[];
+    CACHE.allProducts = results[1]||[];
     if(ME.role==='admin'){
-      CACHE.users = await api('GET','/auth/users') || [];
-      CACHE.settings = await api('GET','/settings') || {};
+      CACHE.users = results[2]||[];
+      CACHE.settings = results[3]||{};
     } else {
       CACHE.users = [];
     }
@@ -1174,6 +1178,7 @@ function maybeRefreshAfterSync(){
   _lastDataVersion = SYNC_STATUS.data_version;
   // invalidate cached lists so the next render re-fetches from the local DB
   CACHE.customers=[]; CACHE.products=[]; CACHE.allProducts=[]; CACHE.invoices=[];
+  CACHE.followups=[]; _followupsFetched=false; _invoicesFetched=false; _accRecvCache=null;
   if(document.querySelector('.overlay.open')) return; // don't yank a modal the user is filling
   if(IN_ACC_SHELL){ if(typeof accTab!=='undefined' && accTab) loadAccTab(accTab); }
   else { reloadCustomers().then(()=>{ if(CURRENT_PAGE) go(CURRENT_PAGE); }).catch(()=>{ if(CURRENT_PAGE) go(CURRENT_PAGE); }); }
@@ -1423,6 +1428,7 @@ async function renderDashContent(){
       api('GET','/customers/balances')
     ]);
     CACHE.followups=followups||[]; CACHE.invoices=invoices||[];
+    _followupsFetched=true; _invoicesFetched=true;
     let myComm = { totalComm:0, commRate:{cash:0,cheque:0} };
     try { myComm = await api('GET','/accounting/my-commission') || myComm; } catch(e){}
     let finalInvs = (invoices||[]).filter(i=>i.type==='final');
@@ -1508,7 +1514,8 @@ function emptyRow(cols){ return `<tr><td colspan="${cols}" class="empty">مور�
 ============================================================ */
 let custFilter = {q:'', status:'', user_id:''};
 let custSelected = new Set();
-ROUTES.customers = function(){
+ROUTES.customers = async function(){
+  if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
   custSelected.clear();
   const v = el('view');
   v.innerHTML = `
@@ -1538,7 +1545,7 @@ ROUTES.customers = function(){
       <button class="btn sm ghost" onclick="custSelected.clear();renderCustTable()">✕ لغو</button>
     </div>
     <div class="panel"><div class="panel-body tbl-wrap"><div id="custTable"></div></div></div>`;
-  el('cSearch').addEventListener('input', e=>{ custFilter.q=e.target.value; renderCustTable(); });
+  el('cSearch').addEventListener('input', e=>{ custFilter.q=e.target.value; debounceCust(); });
   el('cStatus').addEventListener('change', e=>{ custFilter.status=e.target.value; renderCustTable(); });
   const cUser=el('cUser'); if(cUser) cUser.addEventListener('change',e=>{ custFilter.user_id=e.target.value; renderCustTable(); });
   renderCustTable();
@@ -1739,10 +1746,64 @@ const INTEREST_LEVELS = [
 const CONTACT_TYPES = ['📱 تلفن','💬 واتساپ','📸 اینستاگرام','📲 تلگرام','🏪 حضوری','✉️ پیامک','💰 مانده حساب'];
 
 let fupFilter={q:'',status:'',stage:'',view:''};
+let _followupsFetched=false, _invoicesFetched=false;
+let _accRecvCache=null;
+let custTimer;
+function debounceCust(){ clearTimeout(custTimer); custTimer=setTimeout(renderCustTable,300); }
+function accRecvCacheKey(){ return (accDateFrom||'')+'|'+(accDateTo||''); }
+function renderAccReceivablesBody(body){
+  if(!body) body=el('accBody');
+  if(!body||!_accRecvCache) return;
+  const viewMode=accRecvViewMode||'customer';
+  const allRows=_accRecvCache[viewMode]||[];
+  const rows=accHideZero ? allRows.filter(r=>r.outstanding>0) : allRows;
+  const hiddenCount=allRows.length-rows.length;
+  body.innerHTML=`
+      <div class="toolbar" style="margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="chkHideZero" ${accHideZero?'checked':''} onchange="accHideZero=this.checked;renderAccReceivablesBody()">
+          فقط با مانده بدهی
+        </label>
+        <select id="recvViewMode" onchange="accRecvViewMode=this.value;renderAccReceivablesBody()" style="padding:6px 10px;border-radius:8px">
+          <option value="customer" ${viewMode==='customer'?'selected':''}>نمایش به تفکیک مشتری</option>
+          <option value="invoice" ${viewMode==='invoice'?'selected':''}>نمایش به تفکیک فاکتور</option>
+        </select>
+        ${hiddenCount>0?`<span class="muted" style="font-size:12px">${hiddenCount} مورد تسویه‌شده پنهان شده</span>`:''}
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr>
+        ${viewMode==='invoice'
+          ? '<th>شماره فاکتور</th><th>تاریخ</th><th>مشتری</th><th>کارشناس</th><th>مبلغ فاکتور (ت)</th><th>پرداخت شده (ت)</th><th>مانده (ت)</th><th>عملیات</th>'
+          : '<th>نام فروشگاه</th><th>نام کامل</th><th>کارشناس</th><th>کل فاکتور (ت)</th><th>پرداخت شده (ت)</th><th>مانده (ت)</th><th>عملیات</th>'}
+      </tr></thead><tbody>${rows.map(r=>{
+        const oc=r.outstanding>0?'var(--red)':'var(--green)';
+        if(viewMode==='invoice') return `<tr>
+          <td class="mono">${esc(r.num||'-')}</td><td class="mono">${escDate(r.date)}</td>
+          <td>${esc(r.biz||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
+          <td class="mono">${fmt(r.final)}</td>
+          <td class="mono" style="color:var(--green)">${fmt(r.paid)}</td>
+          <td class="mono" style="color:${oc};font-weight:700">${fmt(r.outstanding)}</td>
+          <td><button class="btn sm green" onclick="settlementModal(${r.cust_id})">💵 ثبت پرداخت</button></td>
+        </tr>`;
+        return `<tr>
+          <td>${esc(r.biz)}</td><td>${esc(r.owner||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
+          <td class="mono">${fmt(r.total_invoiced)}</td>
+          <td class="mono" style="color:var(--green)">${fmt(r.total_settled)}</td>
+          <td class="mono" style="color:${oc};font-weight:700">${fmt(r.outstanding)}</td>
+          <td style="white-space:nowrap"><button class="btn sm green" onclick="settlementModal(${r.id})">💵 ثبت پرداخت</button> <button class="btn sm ghost" onclick="showCustLedger(${r.id},'${esc(r.biz)}')">📋 معین</button></td>
+        </tr>`;
+      }).join('')||emptyRow(8)}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+        <td colspan="${viewMode==='invoice'?4:3}">جمع (${fmt(rows.length)} ${viewMode==='invoice'?'فاکتور':'مشتری'})</td>
+        <td class="mono">${fmt(rows.reduce((a,r)=>a+(viewMode==='invoice'?(r.final||0):(r.total_invoiced||0)),0))}</td>
+        <td class="mono" style="color:var(--green)">${fmt(rows.reduce((a,r)=>a+(viewMode==='invoice'?(r.paid||0):(r.total_settled||0)),0))}</td>
+        <td class="mono" style="color:var(--red);font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.outstanding||0),0))}</td>
+        <td></td>
+      </tr></tfoot></table></div>`;
+}
 
 ROUTES.followups = async function(){
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  CACHE.followups=await api('GET','/followups')||[];
+  if(!_followupsFetched){ CACHE.followups=await api('GET','/followups')||[]; _followupsFetched=true; }
   // Managers land on the per-user folder view first — flat lists get unwieldy fast at scale.
   if(!fupFilter.view) fupFilter.view = (ME.role==='admin'||ME.role==='accounting') ? 'folders' : 'list';
   const showFolders = ME.role==='admin'||ME.role==='accounting';
@@ -2025,7 +2086,7 @@ let invCart = [];
 let invFilter = {q:'', type:''};
 ROUTES.invoices = async function(){
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  CACHE.invoices=await api('GET','/invoices')||[];
+  if(!_invoicesFetched){ CACHE.invoices=await api('GET','/invoices')||[]; _invoicesFetched=true; }
   el('view').innerHTML=`
     <div class="toolbar">
       <input class="search" id="iSearch" placeholder="جستجوی فاکتور..." value="${esc(invFilter.q)}">
@@ -2076,8 +2137,14 @@ async function _openInvBuilder(id){
     CACHE.allProducts=await api('GET','/products')||[];
     if(!CACHE.products?.length) CACHE.products=CACHE.allProducts;
   }
-  const inv = id ? CACHE.invoices.find(x=>x.id===id) : null;
-  invCart = inv ? inv.rows.map(r=>({product_id:r.product_id,name:r.name,qty:r.qty,price:r.price,disc:r.disc||0})) : [];
+  let inv = null;
+  if(id){
+    inv = CACHE.invoices.find(x=>x.id===id) || null;
+    if(!inv?.rows?.length){
+      try{ inv = await api('GET','/invoices/'+id); }catch(e){ inv=null; }
+    }
+  }
+  invCart = inv ? (inv.rows||[]).map(r=>({product_id:r.product_id,name:r.name,qty:r.qty,price:r.price,disc:r.disc||0})) : [];
   const isAdmin = ME.role==='admin';
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش فاکتور':'فاکتور جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -2129,7 +2196,10 @@ function renderInvPicker(){
     const hay=((p.name||'')+' '+(p.code||'')+' '+(p.category||'')).toLowerCase();
     return words.every(w=>hay.includes(w));
   });
-  el('invPicker').innerHTML = prods.map(p=>{
+  const INV_PICK_LIMIT=60;
+  const extra=Math.max(0,prods.length-INV_PICK_LIMIT);
+  const shown=prods.slice(0,INV_PICK_LIMIT);
+  el('invPicker').innerHTML = shown.map(p=>{
     // Real-time available stock = current stock minus qty already reserved in this invoice's cart
     const reserved=invCart.filter(r=>r.product_id===p.id).reduce((a,r)=>a+r.qty,0);
     const avail=(p.stock||0)-reserved;
@@ -2140,7 +2210,7 @@ function renderInvPicker(){
       <div class="pp">${fmt(p.price)} ت</div>
       <div class="pst" style="font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}">موجودی: ${fmt(avail)}</div>
     </div>`;
-  }).join('') || `<div class="empty" style="padding:16px;text-align:center">
+  }).join('') + (extra?`<div class="muted" style="padding:10px;text-align:center;font-size:12px">${fmt(extra)} محصول دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" style="padding:16px;text-align:center">
     <div style="margin-bottom:10px">محصولی یافت نشد</div>
     <button type="button" class="btn sm" onclick="invProdQuickModal('${esc((el('invProdSearch')?.value||'').trim())}')">➕ ساخت محصول «${esc((el('invProdSearch')?.value||'').trim()||'جدید')}»</button>
   </div>`;
@@ -2254,7 +2324,7 @@ async function saveInvoice(id){
   };
   try{
     if(id) await api('PUT','/invoices/'+id,data); else await api('POST','/invoices',data);
-    CACHE.invoices=await api('GET','/invoices'); closeModal();
+    CACHE.invoices=await api('GET','/invoices'); _invoicesFetched=true; closeModal();
     if(el('invTable')) renderInvTable();
     else if(IN_ACC_SHELL && accTab==='sales-invoices') loadAccTab('sales-invoices');
     showToast('فاکتور ذخیره شد');
@@ -2264,7 +2334,7 @@ async function convertProforma(id){
   if(!confirm('پیش‌فاکتور به فاکتور رسمی تبدیل شود؟')) return;
   try{
     await api('POST','/invoices/'+id+'/convert',{});
-    CACHE.invoices = await api('GET','/invoices');
+    CACHE.invoices = await api('GET','/invoices'); _invoicesFetched=true;
     renderInvTable();
     showToast('تبدیل شد');
   }catch(e){}
@@ -2684,7 +2754,9 @@ let stmtCustId = '', stmtType = '';
 function applyAccPreset(p){
   accPreset=p;
   if(p!=='custom') [accDateFrom,accDateTo]=jPresetRange(p);
-  if(ROUTES[CURRENT_PAGE]) ROUTES[CURRENT_PAGE](); else ROUTES.accounting();
+  _accRecvCache=null;
+  if(IN_ACC_SHELL && accTab && el('accBody')) loadAccTab(accTab);
+  else if(ROUTES[CURRENT_PAGE]) ROUTES[CURRENT_PAGE]();
 }
 
 // ---- Accounting Shell dashboard (merged with General Ledger + Chart of Accounts) ----
@@ -2887,53 +2959,15 @@ async function loadAccTab(tab){
       </div>`;
     fitStatNums();
   } else if(tab==='receivables'){
-    const viewMode=accRecvViewMode||'customer';
-    const allRows=viewMode==='invoice'
-      ? await api('GET','/accounting/receivables/by-invoice'+dq)||[]
-      : await api('GET','/accounting/receivables'+dq)||[];
-    const rows=accHideZero ? allRows.filter(r=>r.outstanding>0) : allRows;
-    const hiddenCount=allRows.length-rows.length;
-    body.innerHTML=`
-      <div class="toolbar" style="margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-          <input type="checkbox" id="chkHideZero" ${accHideZero?'checked':''} onchange="accHideZero=this.checked;loadAccTab('receivables')">
-          فقط با مانده بدهی
-        </label>
-        <select id="recvViewMode" onchange="accRecvViewMode=this.value;loadAccTab('receivables')" style="padding:6px 10px;border-radius:8px">
-          <option value="customer" ${viewMode==='customer'?'selected':''}>نمایش به تفکیک مشتری</option>
-          <option value="invoice" ${viewMode==='invoice'?'selected':''}>نمایش به تفکیک فاکتور</option>
-        </select>
-        ${hiddenCount>0?`<span class="muted" style="font-size:12px">${hiddenCount} مورد تسویه‌شده پنهان شده</span>`:''}
-      </div>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr>
-        ${viewMode==='invoice'
-          ? '<th>شماره فاکتور</th><th>تاریخ</th><th>مشتری</th><th>کارشناس</th><th>مبلغ فاکتور (ت)</th><th>پرداخت شده (ت)</th><th>مانده (ت)</th><th>عملیات</th>'
-          : '<th>نام فروشگاه</th><th>نام کامل</th><th>کارشناس</th><th>کل فاکتور (ت)</th><th>پرداخت شده (ت)</th><th>مانده (ت)</th><th>عملیات</th>'}
-      </tr></thead><tbody>${rows.map(r=>{
-        const oc=r.outstanding>0?'var(--red)':'var(--green)';
-        if(viewMode==='invoice') return `<tr>
-          <td class="mono">${esc(r.num||'-')}</td><td class="mono">${escDate(r.date)}</td>
-          <td>${esc(r.biz||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
-          <td class="mono">${fmt(r.final)}</td>
-          <td class="mono" style="color:var(--green)">${fmt(r.paid)}</td>
-          <td class="mono" style="color:${oc};font-weight:700">${fmt(r.outstanding)}</td>
-          <td><button class="btn sm green" onclick="settlementModal(${r.cust_id})">💵 ثبت پرداخت</button></td>
-        </tr>`;
-        return `<tr>
-          <td>${esc(r.biz)}</td><td>${esc(r.owner||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
-          <td class="mono">${fmt(r.total_invoiced)}</td>
-          <td class="mono" style="color:var(--green)">${fmt(r.total_settled)}</td>
-          <td class="mono" style="color:${oc};font-weight:700">${fmt(r.outstanding)}</td>
-          <td style="white-space:nowrap"><button class="btn sm green" onclick="settlementModal(${r.id})">💵 ثبت پرداخت</button> <button class="btn sm ghost" onclick="showCustLedger(${r.id},'${esc(r.biz)}')">📋 معین</button></td>
-        </tr>`;
-      }).join('')||emptyRow(8)}</tbody>
-      <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
-        <td colspan="${viewMode==='invoice'?4:3}">جمع (${fmt(rows.length)} ${viewMode==='invoice'?'فاکتور':'مشتری'})</td>
-        <td class="mono">${fmt(rows.reduce((a,r)=>a+(viewMode==='invoice'?(r.final||0):(r.total_invoiced||0)),0))}</td>
-        <td class="mono" style="color:var(--green)">${fmt(rows.reduce((a,r)=>a+(viewMode==='invoice'?(r.paid||0):(r.total_settled||0)),0))}</td>
-        <td class="mono" style="color:var(--red);font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.outstanding||0),0))}</td>
-        <td></td>
-      </tr></tfoot></table></div>`;
+    const ck=accRecvCacheKey();
+    if(!_accRecvCache || _accRecvCache.key!==ck){
+      const [custRows, invRows]=await Promise.all([
+        api('GET','/accounting/receivables'+dq)||[],
+        api('GET','/accounting/receivables/by-invoice'+dq)||[]
+      ]);
+      _accRecvCache={ key:ck, customer:custRows, invoice:invRows };
+    }
+    renderAccReceivablesBody(body);
   } else if(tab==='settlements'){
     const rows=await api('GET','/accounting/settlements'+dq)||[];
     body.innerHTML=`
@@ -3465,9 +3499,9 @@ async function deletePersonCategory(id){
    used on the main Invoices page (openInvBuilder/saveInvoice).
 ============================================================ */
 async function renderSalesInvoicesTab(body){
-  if(!CACHE.customers||!CACHE.customers.length) CACHE.customers=await api('GET','/customers')||[];
-  if(!CACHE.allProducts||!CACHE.allProducts.length){ CACHE.allProducts=await api('GET','/products')||[]; CACHE.products=CACHE.allProducts; }
-  CACHE.invoices=await api('GET','/invoices')||[];
+  if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
+  if(!CACHE.allProducts?.length){ CACHE.allProducts=await api('GET','/products')||[]; CACHE.products=CACHE.allProducts; }
+  if(!_invoicesFetched){ CACHE.invoices=await api('GET','/invoices')||[]; _invoicesFetched=true; }
   const rows=CACHE.invoices.filter(i=>{
     if(accDateFrom && (i.date||'')<accDateFrom) return false;
     if(accDateTo && (i.date||'')>accDateTo) return false;
@@ -5325,19 +5359,25 @@ function viewCashBoxLedger(id){
    pre-locked to this specific box.
 ============================================================ */
 async function renderPettyCashTab(body){
-  CACHE.cashBoxes=await api('GET','/cash-boxes')||[]; // refresh full cache for modals that need it
+  const [boxes, balRows]=await Promise.all([
+    api('GET','/cash-boxes')||[],
+    api('GET','/cash-boxes/balances')||[]
+  ]);
+  CACHE.cashBoxes=boxes;
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  const boxes=CACHE.cashBoxes.filter(b=>b.is_petty_cash);
-  if(!boxes.length){
+  const petty=boxes.filter(b=>b.is_petty_cash);
+  const balMap={};
+  (balRows||[]).forEach(b=>{ balMap[b.id]=b.balance; });
+  if(!petty.length){
     body.innerHTML=`<div class="empty">هنوز صندوق تنخواه‌گردانی تعریف نشده — از صفحه «صندوق‌های نقدی»، یک صندوق بسازید و گزینه «تنخواه‌گردان» را فعال کنید.</div>`;
     return;
   }
-  const balances=await Promise.all(boxes.map(b=>api('GET','/accounting/general-ledger/1101-'+b.id).catch(()=>null)));
+  const pettyBalances=petty.map(b=>balMap[b.id]||0);
   body.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr>
     <th>نام صندوق</th><th>مسئول</th><th>موجودی فعلی (ت)</th><th>عملیات</th>
-  </tr></thead><tbody>${boxes.map((b,i)=>`<tr>
+  </tr></thead><tbody>${petty.map((b,i)=>`<tr>
     <td>${esc(b.name)}</td><td>${esc(b.custodian||'-')}</td>
-    <td class="mono" style="font-weight:700">${fmt(balances[i]?.balance||0)}</td>
+    <td class="mono" style="font-weight:700">${fmt(pettyBalances[i]||0)}</td>
     <td style="white-space:nowrap">
       <button class="btn sm green" onclick="pettyCashExpenseModal(${b.id},'${esc(b.name)}')">🧾 ثبت هزینه</button>
       <button class="btn sm orange" onclick="pettyCashReplenishModal(${b.id},'${esc(b.name)}')">➕ افزایش تنخواه</button>
@@ -5940,7 +5980,7 @@ async function saveSettlement(){
     if(!payments.length){ showToast('حداقل یک قسط وارد کنید','error'); return; }
     try{
       await api('POST','/accounting/settlements/batch',{cust_id,payments,note:el('st-note-multi')?.value||''});
-      closeModal(); showToast(payments.length+' قسط ثبت شد'); loadAccTab(accTab);
+      _accRecvCache=null; closeModal(); showToast(payments.length+' قسط ثبت شد'); loadAccTab(accTab);
     }catch(e){}
     return;
   }
@@ -5967,7 +6007,7 @@ async function saveSettlement(){
       cheque_due:pay_type==='cheque'?(el('st-cdue')?.value||''):'',
       cheque_status:'pending'
     });
-    closeModal(); showToast('پرداخت ثبت شد');
+    _accRecvCache=null; closeModal(); showToast('پرداخت ثبت شد');
     loadAccTab(accTab);
   }catch(e){}
 }

@@ -869,6 +869,12 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_purchase_invoices_bank ON purchase_invoices(bank_id);
     CREATE INDEX IF NOT EXISTS idx_supplier_payments_bank ON supplier_payments(bank_id);
     CREATE INDEX IF NOT EXISTS idx_incentive_payments_bank ON incentive_payments(bank_id);
+    CREATE INDEX IF NOT EXISTS idx_settlements_invoice ON settlements(invoice_id);
+    CREATE INDEX IF NOT EXISTS idx_journal_entries_date ON journal_entries(entry_date);
+    CREATE INDEX IF NOT EXISTS idx_products_warehouse ON products(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_warehouse_stock_wh ON warehouse_stock(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_stock_logs_product ON stock_logs(product_id);
+    CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at DESC);
   `);
 
   // ---- Default admin ----
@@ -952,6 +958,7 @@ function initSyncSchema(db) {
   for (const t of SYNCABLE_TABLES) {
     ensureColumn(db, t.name, 'sync_seq', 'INTEGER');
     ensureColumn(db, t.name, 'version', 'INTEGER DEFAULT 0');
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_${t.name}_sync_seq ON ${t.name}(sync_seq)`);
   }
 
   db.exec(`
