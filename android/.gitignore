@@ -1,0 +1,11 @@
+.gradle/
+build/
+app/build/
+app/libs/*.aar
+app/libnode/
+app/libnode-aar/
+app/src/main/assets/nodejs-project/server/
+app/src/main/assets/nodejs-project/node_modules/
+local.properties
+.idea/
+*.iml

@@ -1,44 +1,53 @@
-# ساخت APK برای اندروید
+# ساخت اپلیکیشن اندروید (CRM ترنم — نسخه آفلاین)
+
+**نسخه ۲ (این نسخه):** اپلیکیشن دیگر پوستهٔ آنلاین TWA نیست. یک **Node.js داخلی** (nodejs-mobile) همان بک‌اند سرور مرکزی را با `SYNC_ROLE=device` روی خود گوشی اجرا می‌کند: همه داده‌ها روی دستگاه ذخیره می‌شود، همه عملیات **بدون اینترنت** انجام می‌شود و به‌محض اتصال، تغییرات خودکار با سرور مرکزی همگام می‌شود — دقیقاً مثل نسخه دسکتاپ ویندوز.
 
 ## پیش‌نیازها
 
-- Android Studio (دانلود از developer.android.com/studio)
-- Java JDK 17+
+- **Android Studio** (Hedgehog یا جدیدتر) + **Android SDK 34**
+- **NDK** (نسخه پیشنهادی 25.x) و **CMake 3.22.1** — از SDK Manager نصب کنید
+- **Node.js 18** روی سیستم توسعه (برای آماده‌سازی node_modules)
+- **Java JDK 17**
 
-## روش ۱: Android Studio (ساده‌ترین روش)
+## مرحله ۱ — دریافت nodejs-mobile
 
-1. پوشه `android/` را در Android Studio باز کنید
-2. منتظر sync شدن Gradle بمانید
-3. از منو: `Build → Generate Signed Bundle / APK`
-4. گزینه **APK** را انتخاب کنید
-5. فایل Keystore موجود را انتخاب کنید:
-   - Keystore path: `android/crm-taranom.jks`
-   - Store password: `CrmTaranom2024!`
-   - Key alias: `crm-taranom`
-   - Key password: `CrmTaranom2024!`
-6. Release → Finish
-7. APK در `app/release/app-release.apk` ساخته می‌شود
+1. از صفحه Releases پروژه nodejs-mobile ( github.com/nodejs-mobile/nodejs-mobile ) آخرین نسخه `nodejs-mobile-v*-android.zip` را دانلود کنید (شامل AAR است)
+2. فایل AAR داخل آن را با نام **`nodejs-mobile.aar`** در مسیر `android/app/libs/` قرار دهید
+3. تسک‌های Gradle (`extractNodeLibs` / `layoutNodeLibs`) به‌طور خودکار `libnode.so` و هدرها را برای CMake استخراج می‌کنند
 
-## روش ۲: Command Line (بدون Android Studio)
+## مرحله ۲ — آماده‌سازی node_modules (یک‌بار برای هر نسخه nodejs-mobile)
+
+بک‌اند به `better-sqlite3` (ماژول Native) نیاز دارد که باید برای اندروید کراس‌کامپایل شود:
 
 ```bash
-# نصب Android SDK از https://developer.android.com/tools/sdkmanager
-export ANDROID_HOME=/path/to/android-sdk
-cd android
-./gradlew assembleRelease
-# APK: app/build/outputs/apk/release/app-release.apk
+cd android/app/src/main/assets/nodejs-project
+npm install --omit=dev            # نصب وابستگی‌های خالص جاوااسکریپت
+
+# کراس‌کامپایل better-sqlite3 برای هر ABI (مثال: arm64-v8a)
+# مطابق مستندات nodejs-mobile «Native Modules»:
+export ANDROID_NDK_HOME=/path/to/ndk/25.2.9519653
+export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+export TARGET=aarch64-linux-android
+export API=24
+export AR=$TOOLCHAIN/bin/llvm-ar
+export CC=$TOOLCHAIN/bin/$TARGET$API-clang
+export CXX=$TOOLCHAIN/bin/$TARGET$API-clang++
+export LINK=$CXX
+npm rebuild better-sqlite3 --build-from-source \
+  --arch=arm64 --platform=android \
+  --nodedir=/path/to/nodejs-mobile/headers
 ```
 
-## روش ۳: PWABuilder (آسان‌ترین - آنلاین)
+> ⚠️ این سخت‌ترین بخش ساخت است. راه ساده‌تر: از **پلاگین nodejs-mobile-react-native** فقط برای تسک Gradle آمادهٔ «BuildNativeModules» آن استفاده کنید، یا باینری از پیش‌ساختهٔ better-sqlite3 برای nodejs-mobile را از جامعه کاربری بردارید. جزئیات: مستندات رسمی nodejs-mobile → «Node.js native modules».
 
-1. به https://www.pwabuilder.com بروید
-2. آدرس سرور CRM (`http://45.90.98.99:3000`) را وارد کنید
-3. دکمه `Package for stores` را بزنید
-4. گزینه Android را انتخاب کنید
-5. Keystore موجود را آپلود کنید (crm-taranom.jks)
-6. APK دریافت کنید
+نکته: `sharp` عمداً در package.json اندروید حذف شده — کد سرور آن را اختیاری می‌داند و بدون آن، تصاویر بدون فشرده‌سازی ذخیره می‌شوند.
 
-## اطلاعات Keystore
+## مرحله ۳ — ساخت APK
+
+1. پوشه `android/` را در Android Studio باز کنید و منتظر Gradle Sync بمانید
+2. تسک `copyServerSources` به‌طور خودکار آخرین سورس `server/` را داخل assets کپی می‌کند
+3. `Build → Generate Signed Bundle / APK → APK`
+4. Keystore موجود:
 
 | مشخصه | مقدار |
 |-------|-------|
@@ -46,12 +55,36 @@ cd android
 | Store Password | `CrmTaranom2024!` |
 | Key Alias | `crm-taranom` |
 | Key Password | `CrmTaranom2024!` |
-| SHA-256 | `06:7B:BD:8E:AA:0E:3D:6F:26:CB:8F:ED:CB:FD:9E:D3:97:EE:46:91:90:C4:3C:CD:25:DB:4D:74:64:54:99:69` |
 
-## نکات مهم
+یا از خط فرمان:
 
-- فایل `assetlinks.json` در مسیر `/.well-known/assetlinks.json` روی سرور قرار دارد
-- این فایل برای TWA (Trusted Web Activity) الزامی است
-- اپلیکیشن از Chrome برای رندر استفاده می‌کند (نه WebView ساده)
-- اگر Chrome نصب نباشد، WebView Fallback فعال می‌شود
-- Package ID: `ir.taranom.crm`
+```bash
+cd android
+./gradlew assembleRelease
+# خروجی: app/build/outputs/apk/release/app-release.apk
+```
+
+## راه‌اندازی اولیه (کاربر نهایی)
+
+1. APK را نصب و باز کنید — چند ثانیه اول، سرور داخلی بالا می‌آید
+2. ورود با کاربر پیش‌فرض: `admin` / `admin123`
+3. پنجره «اتصال به سرور مرکزی» → آدرس `http://45.90.98.99:3000` + نام کاربری/رمز مدیر (یک‌بار، با اینترنت)
+4. از این پس با نام کاربری اصلی خودتان وارد می‌شوید و برنامه کاملاً آفلاین کار می‌کند؛ نشانگر بالای صفحه وضعیت همگام‌سازی را نشان می‌دهد
+
+## معماری
+
+```
+MainActivity (WebView) ──► http://127.0.0.1:3210
+        │
+        └─ nodejs-mobile (libnode.so) ─► assets/nodejs-project/main.js
+                                          └─ server/server.js  (SYNC_ROLE=device)
+                                              ├─ SQLite:  <files>/crm-data/crm.db
+                                              ├─ آپلودها: <files>/crm-data/uploads/
+                                              └─ sync client ⇄ سرور مرکزی
+```
+
+## نکات
+
+- دادهٔ برنامه در حافظه داخلی خود اپ است (`/data/data/ir.taranom.crm/files/crm-data`) و با حذف اپ پاک می‌شود — قبل از حذف، همگام‌سازی کامل بگیرید
+- فایل `assetlinks.json` روی سرور مرکزی برای نسخه TWA قبلی بود؛ نگه داشتن آن ضرری ندارد
+- نسخه قبلی (TWA فقط-آنلاین) در تاریخچه گیت موجود است
