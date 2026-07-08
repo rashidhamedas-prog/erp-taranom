@@ -53,8 +53,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "CRM ترنم",
-      "installerLanguages": ["fa_IR", "en_US"]
+      "shortcutName": "CRM ترنم"
     },
     "linux": { "target": ["AppImage"], "icon": "build/icon.png", "category": "Office" }
   }
