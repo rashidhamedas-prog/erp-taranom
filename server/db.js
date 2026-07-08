@@ -28,6 +28,63 @@ function ensureColumn(db, table, column, definition) {
   }
 }
 
+function tableExists(db, table) {
+  return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table);
+}
+
+function tableColumns(db, table) {
+  try { return db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name); }
+  catch { return []; }
+}
+
+// Legacy DBs may have partial warehouse/category tables without an id column —
+// CREATE TABLE IF NOT EXISTS won't fix them, and later migrations crash on boot.
+function repairWarehousesSchema(db) {
+  if (!tableExists(db, 'warehouses')) return;
+  const cols = tableColumns(db, 'warehouses');
+  if (cols.includes('id')) return;
+  console.warn('⚠️ repairing warehouses table (missing id column)');
+  db.pragma('foreign_keys = OFF');
+  const hasName = cols.includes('name');
+  const addrExpr = cols.includes('address') ? 'address' : "''";
+  db.exec(`
+    CREATE TABLE warehouses__fix (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      address TEXT DEFAULT '',
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    )`);
+  if (hasName) {
+    db.exec(`INSERT INTO warehouses__fix (name, address) SELECT name, ${addrExpr} FROM warehouses`);
+  }
+  db.exec('DROP TABLE warehouses');
+  db.exec('ALTER TABLE warehouses__fix RENAME TO warehouses');
+  db.pragma('foreign_keys = ON');
+}
+
+function repairProductCategoriesSchema(db) {
+  if (!tableExists(db, 'product_categories')) return;
+  const cols = tableColumns(db, 'product_categories');
+  if (cols.includes('id')) return;
+  console.warn('⚠️ repairing product_categories table (missing id column)');
+  db.pragma('foreign_keys = OFF');
+  db.exec(`
+    CREATE TABLE product_categories__fix (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      sort_order INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    )`);
+  if (cols.includes('name')) {
+    db.exec('INSERT OR IGNORE INTO product_categories__fix (name) SELECT name FROM product_categories');
+  }
+  db.exec('DROP TABLE product_categories');
+  db.exec('ALTER TABLE product_categories__fix RENAME TO product_categories');
+  db.pragma('foreign_keys = ON');
+}
+
 function initDB() {
   const db = getDB();
   db.exec(`
@@ -750,6 +807,8 @@ function initDB() {
   ensureColumn(db, 'settlements', 'installment_group', 'TEXT');
   ensureColumn(db, 'production_runs', 'warehouse_id', 'INTEGER');
   ensureColumn(db, 'products', 'category_id', 'INTEGER');
+  repairWarehousesSchema(db);
+  repairProductCategoriesSchema(db);
   const whCount = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
   if (whCount === 0) {
     const mainWhId = db.prepare("INSERT INTO warehouses (name,address) VALUES ('انبار مرکزی','')").run().lastInsertRowid;
@@ -757,22 +816,30 @@ function initDB() {
   }
 
   // Migrate free-text product.category → product_categories + category_id
-  const distinctCats = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>''").all();
-  const insCat = db.prepare('INSERT OR IGNORE INTO product_categories (name) VALUES (?)');
-  for (const { category } of distinctCats) insCat.run(category);
-  db.prepare(`
-    UPDATE products SET category_id=(
-      SELECT id FROM product_categories WHERE name=products.category LIMIT 1
-    ) WHERE category_id IS NULL AND category IS NOT NULL AND category<>''
-  `).run();
+  try {
+    const distinctCats = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>''").all();
+    const insCat = db.prepare('INSERT OR IGNORE INTO product_categories (name) VALUES (?)');
+    for (const { category } of distinctCats) insCat.run(category);
+    db.prepare(`
+      UPDATE products SET category_id=(
+        SELECT id FROM product_categories WHERE name=products.category LIMIT 1
+      ) WHERE category_id IS NULL AND category IS NOT NULL AND category<>''
+    `).run();
+  } catch (e) {
+    console.warn('⚠️ product category migration skipped:', e.message);
+  }
 
   // Seed warehouse_stock from products (one row per product at its warehouse)
-  db.prepare(`
-    INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty)
-    SELECT p.id, COALESCE(p.warehouse_id, (SELECT id FROM warehouses ORDER BY id LIMIT 1)), p.stock
-    FROM products p
-    WHERE p.warehouse_id IS NOT NULL OR EXISTS (SELECT 1 FROM warehouses)
-  `).run();
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty)
+      SELECT p.id, COALESCE(p.warehouse_id, (SELECT id FROM warehouses ORDER BY id LIMIT 1)), p.stock
+      FROM products p
+      WHERE p.warehouse_id IS NOT NULL OR EXISTS (SELECT 1 FROM warehouses)
+    `).run();
+  } catch (e) {
+    console.warn('⚠️ warehouse_stock seed skipped:', e.message);
+  }
 
   // Seed a default customer group (Debit nature — the standard for receivables)
   const grpCount = db.prepare('SELECT COUNT(*) c FROM customer_groups').get().c;
