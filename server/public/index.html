@@ -3954,6 +3954,10 @@ async function renderPurchasesTab(body){
 }
 async function purchaseInvoiceModal(){
   genCart=[]; genCartDiscInputId='po-disc'; GEN_CART_PRICE_FIELD='cost';
+  // Ensure the product list is loaded — the picker reads CACHE.allProducts /
+  // CACHE.products, which are empty if the user reached Purchases directly via
+  // the Accounting shell without visiting the Products page first.
+  if(!CACHE.allProducts || !CACHE.allProducts.length){ CACHE.allProducts=await api('GET','/products')||[]; if(!CACHE.products||!CACHE.products.length) CACHE.products=CACHE.allProducts; }
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
