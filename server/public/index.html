@@ -7,9 +7,12 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1A5C38">
 <link rel="apple-touch-icon" href="/logo.png">
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<!-- همه دارایی‌ها محلی هستند — هیچ وابستگی به CDN خارجی (Google Fonts / jsDelivr)
+     تا زیر فیلترینگ/اینترنت داخلی هم برنامه فوری و کامل بارگذاری شود.
+     اسکریپت‌ها defer دارند تا رندر صفحه را بلوکه نکنند. -->
+<link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
+<script src="/vendor/chart.umd.js" defer></script>
+<script src="/vendor/html2canvas.min.js" defer></script>
 <style>
 :root{
   --purple:#1A5C38; --purple2:#2E7D4F; --purple-light:#E8F5EE;
