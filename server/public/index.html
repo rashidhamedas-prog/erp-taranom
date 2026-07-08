@@ -579,6 +579,26 @@ async function api(method, path, data, isFormData){
    UTILITIES
 ============================================================ */
 function fmt(n){ return Number(n||0).toLocaleString('fa-IR'); }
+
+/* ---- Money inputs: live thousand-separator formatting (spec item 1) ----
+   Amount fields use class="money" (type=text inputmode=numeric). A single
+   delegated listener formats them as the user types (1000000 → 1,000,000),
+   and moneyVal(id) reads back the raw integer. Applied globally to every
+   monetary input across the app; quantity/percent/hour fields stay plain. */
+function formatMoneyInput(elm){
+  const digits=(elm.value||'').replace(/[^\d]/g,'');
+  const fromEnd=(elm.value||'').length-(elm.selectionStart||0);
+  elm.value = digits ? Number(digits).toLocaleString('en-US') : '';
+  const pos=Math.max(0, elm.value.length-fromEnd);
+  try{ elm.setSelectionRange(pos,pos); }catch(e){}
+}
+function moneyVal(id){ const e=el(id); if(!e) return 0; return parseInt((e.value||'').replace(/[^\d]/g,''))||0; }
+// Pre-fill a money input with a formatted initial value
+function moneyInit(v){ v=parseInt(v)||0; return v?Number(v).toLocaleString('en-US'):''; }
+document.addEventListener('input', function(e){
+  const t=e.target;
+  if(t && t.classList && t.classList.contains('money')) formatMoneyInput(t);
+}, true);
 function toFa(n){ return String(n||0).replace(/[0-9]/g,d=>'۰۱۲۳۴۵۶۷۸۹'[d]); }
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function escDate(s){ // validate and display Jalali date; if corrupted, show '-'
@@ -1634,7 +1654,7 @@ async function custModal(id){
       ${canAccounting()?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
         <div class="form-grid">
           <div class="fg"><label style="color:var(--purple);font-weight:600">💰 موجودی حساب (ت) ${hlp('مانده اولیه حساب مشتری به تومان. مثبت = مشتری بدهکار است (به شما بدهکار است). منفی = مشتری بستانکار است (شما به او بدهکارید). در دفتر معین به‌عنوان «مانده اولیه» ثبت می‌شود.')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— فقط مدیر/حسابدار</span></label>
-            <input id="c-balance" type="number" value="${c.balance||0}" style="font-family:monospace;direction:ltr">
+            <input id="c-balance" type="text" inputmode="numeric" class="money" value="${moneyInit(c.balance)}" style="font-family:monospace;direction:ltr">
           </div>
           <div class="fg"><label style="color:var(--purple);font-weight:600">📊 گروه مشتری (ماهیت حساب) ${hlp('ماهیت حساب این مشتری را تعیین می‌کند — پیش‌فرض «بدهکار» است. فقط مدیر/حسابدار می‌توانند تغییر دهند.')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— فقط مدیر/حسابدار</span></label>
             <select id="c-group_id">
@@ -1671,7 +1691,7 @@ async function saveCust(id){
     auto_followup: el('c-autofollow') ? (el('c-autofollow').checked ? 1 : 0) : 1
   };
   if(canAccounting()){
-    if(el('c-balance')) data.balance = parseFloat(el('c-balance').value)||0;
+    if(el('c-balance')) data.balance = moneyVal('c-balance');
     if(el('c-group_id')) data.group_id = +el('c-group_id').value||null;
   }
   if(isAdmin()){
@@ -2335,8 +2355,8 @@ function prodModal(id){
       <div class="fg full"><label>نام محصول * ${hlp('نام کامل محصول همان‌طور که روی فاکتور چاپ می‌شود.')}</label><input id="p-name" value="${esc(p.name||'')}"></div>
       <div class="fg"><label>دسته‌بندی ${hlp('گروه محصول (مثلاً مانتو، شلوار، بلوز) — برای فیلتر سریع کاتالوگ.')}</label><input id="p-cat" value="${esc(p.category||'')}"></div>
       <div class="fg"><label>کد محصول ${hlp('کد یکتای محصول — برای جستجوی سریع در فاکتورساز.')}</label><input id="p-code" value="${esc(p.code||'')}"></div>
-      <div class="fg"><label>قیمت فروش (تومان) ${hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="number" value="${p.price||0}"></div>
-      <div class="fg"><label>بهای تمام‌شده (تومان) ${hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="number" value="${p.cost||0}"></div>
+      <div class="fg"><label>قیمت فروش (تومان) ${hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.price)}"></div>
+      <div class="fg"><label>بهای تمام‌شده (تومان) ${hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
       <div class="fg"><label>موجودی ${hlp('تعداد موجودی فعلی انبار. با صدور فاکتور رسمی خودکار کم می‌شود.')}</label><input id="p-stock" type="number" value="${p.stock!=null?p.stock:0}"></div>
       <div class="fg"><label>هشدار موجودی ${hlp('وقتی موجودی به این عدد یا کمتر برسد، هشدار قرمز نمایش داده می‌شود.')}</label><input id="p-alert" type="number" value="${p.stock_alert!=null?p.stock_alert:5}"></div>
       <div class="fg"><label>واحد ${hlp('واحد شمارش محصول: عدد، دست، بسته و…')}</label><input id="p-unit" value="${esc(p.unit||'عدد')}"></div>
@@ -2356,8 +2376,8 @@ async function saveProduct(id){
   fd.append('name',name);
   fd.append('category',el('p-cat').value.trim());
   fd.append('code',el('p-code').value);
-  fd.append('price',el('p-price').value||0);
-  fd.append('cost',el('p-cost')?.value||0);
+  fd.append('price',moneyVal('p-price'));
+  fd.append('cost',moneyVal('p-cost'));
   fd.append('stock',el('p-stock').value);
   fd.append('stock_alert',el('p-alert').value||5);
   fd.append('unit',el('p-unit').value||'عدد');
@@ -2588,7 +2608,7 @@ ROUTES['acc-dash'] = async function(){
       <div class="panel-head"><h4>🚀 دسترسی سریع</h4></div>
       <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:10px">
         <button class="btn" onclick="go('acc-receivables')">🧾 مطالبات مشتریان</button>
-        <button class="btn" onclick="go('acc-settlements')">💵 ثبت تسویه</button>
+        <button class="btn" onclick="go('acc-settlements')">💵 ثبت پرداخت</button>
         <button class="btn" onclick="go('acc-purchases')">📦 ثبت فاکتور خرید</button>
         <button class="btn" onclick="go('acc-vouchers')">📝 سند حسابداری دستی</button>
         <button class="btn" onclick="go('acc-trial-balance')">⚖️ تراز آزمایشی</button>
@@ -2764,7 +2784,7 @@ async function loadAccTab(tab){
           <td class="mono">${fmt(r.total_invoiced)}</td>
           <td class="mono" style="color:var(--green)">${fmt(r.total_settled)}</td>
           <td class="mono" style="color:${oc};font-weight:700">${fmt(r.outstanding)}</td>
-          <td style="white-space:nowrap"><button class="btn sm green" onclick="settlementModal(${r.id})">💵 ثبت تسویه</button> <button class="btn sm ghost" onclick="showCustLedger(${r.id},'${esc(r.biz)}')">📋 معین</button></td>
+          <td style="white-space:nowrap"><button class="btn sm green" onclick="settlementModal(${r.id})">💵 ثبت پرداخت</button> <button class="btn sm ghost" onclick="showCustLedger(${r.id},'${esc(r.biz)}')">📋 معین</button></td>
         </tr>`;
       }).join('')||emptyRow(7)}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
@@ -2777,7 +2797,7 @@ async function loadAccTab(tab){
   } else if(tab==='settlements'){
     const rows=await api('GET','/accounting/settlements'+dq)||[];
     body.innerHTML=`
-      <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="settlementModal()">➕ ثبت تسویه جدید</button></div>
+      <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="settlementModal()">➕ ثبت پرداخت جدید</button></div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
         <th>تاریخ</th><th>مشتری</th><th>مبلغ (ت)</th><th>نوع پرداخت</th><th>اطلاعات چک</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
       </tr></thead><tbody>${rows.map(r=>`<tr>
@@ -3882,7 +3902,7 @@ async function supplierPaymentModal(id,name){
     <div class="modal-head"><h3>💵 پرداخت به تأمین‌کننده</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>تأمین‌کننده</label><input value="${esc(name)}" disabled style="background:#f9fafb"></div>
-      <div class="fg"><label>مبلغ (تومان) *</label><input id="sp-amount" type="number" min="1"></div>
+      <div class="fg"><label>مبلغ (تومان) *</label><input id="sp-amount" type="text" inputmode="numeric" class="money" min="1"></div>
       <div class="fg"><label>نوع پرداخت</label><select id="sp-paytype" onchange="toggleBankFields('sp')"><option value="cash">نقد</option><option value="cheque">چک</option></select></div>
       <div class="fg"><label>پرداخت از بانک ${hlp('این پرداخت از کدام حساب بانکی شرکت انجام می‌شود.')}</label><select id="sp-bank" onchange="updateCheckCategoryOptions('sp')">
         <option value="">— بدون بانک مشخص —</option>
@@ -3916,7 +3936,7 @@ function updateCheckCategoryOptions(prefix){
   sel.innerHTML='<option value="">— انتخاب نشده —</option>'+opts.map(c=>`<option value="${c.id}">${esc(c.name)} (${esc(c.bank_name||'')})</option>`).join('');
 }
 async function saveSupplierPayment(id){
-  const amount=+el('sp-amount').value;
+  const amount=moneyVal('sp-amount');
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
     await api('POST','/purchases/payments',{
@@ -4245,6 +4265,38 @@ let voucherLines=[];
 function accountOptions(selectedCode){
   return `<option value="">-- انتخاب --</option>` + (CACHE.chartOfAccounts||[]).map(a=>`<option value="${a.code}" ${a.code===selectedCode?'selected':''}>${a.code} — ${esc(a.name)}</option>`).join('');
 }
+// Searchable account picker for manual-voucher lines (spec item 8).
+// Mirrors the product-search dropdown: a text input filters the chart of
+// accounts by code or name as you type, and picking sets the line's code.
+function acctSearchHtml(i, code){
+  const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
+  return `<div style="position:relative">
+    <input type="text" id="vc-acct-${i}" class="search" style="width:100%" autocomplete="off"
+      placeholder="جستجوی حساب: کد یا نام..." value="${a?esc(a.code+' — '+a.name):''}"
+      oninput="vcAcctShow(${i},this.value)" onfocus="vcAcctShow(${i},this.value)"
+      onblur="setTimeout(()=>{const d=el('vc-acctdrop-${i}');if(d)d.style.display='none'},200)">
+    <div id="vc-acctdrop-${i}" class="cust-si-drop" style="display:none;position:fixed;width:280px;max-height:220px"></div>
+  </div>`;
+}
+function vcAcctShow(i, q){
+  const drop=el('vc-acctdrop-'+i), inp=el('vc-acct-'+i); if(!drop||!inp) return;
+  const term=(q||'').trim().toLowerCase();
+  let list=(CACHE.chartOfAccounts||[]);
+  if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
+  const rect=inp.getBoundingClientRect();
+  drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
+  drop.innerHTML = list.slice(0,50).map(a=>`
+    <div class="cust-si-item" onmousedown="vcAcctPick(${i},'${esc(a.code)}')">
+      <span>${esc(a.name)}</span><span class="cust-si-meta">${esc(a.code)}${a.type?' · '+esc(ACC_TYPE_FA[a.type]||a.type):''}</span>
+    </div>`).join('') || '<div class="cust-si-item muted">حسابی یافت نشد</div>';
+}
+function vcAcctPick(i, code){
+  voucherLines[i].code=code;
+  const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
+  const inp=el('vc-acct-'+i); if(inp&&a) inp.value=a.code+' — '+a.name;
+  const drop=el('vc-acctdrop-'+i); if(drop) drop.style.display='none';
+}
+const ACC_TYPE_FA={asset:'دارایی',liability:'بدهی',equity:'سرمایه',revenue:'درآمد',cogs:'بهای تمام‌شده',expense:'هزینه'};
 function personOptions(selectedId){
   return `<option value="">-- انتخاب شخص --</option>` + (CACHE.persons||[]).map(p=>`<option value="${p.id}" ${p.id===selectedId?'selected':''}>${esc(p.name)}${p.category_name?' ('+esc(p.category_name)+')':''}</option>`).join('');
 }
@@ -4300,9 +4352,9 @@ function renderVoucherLines(){
       </select></div>
       <div class="fg">${l.target_type==='person'
         ?`<label>شخص</label><select onchange="voucherLines[${i}].person_id=+this.value">${personOptions(l.person_id)}</select>`
-        :`<label>حساب</label><select onchange="voucherLines[${i}].code=this.value">${accountOptions(l.code)}</select>`}</div>
-      <div class="fg"><label>بدهکار</label><input type="number" value="${l.debit||''}" oninput="voucherLines[${i}].debit=+this.value||0;voucherLines[${i}].credit=0;updateVoucherBalance()"></div>
-      <div class="fg"><label>بستانکار</label><input type="number" value="${l.credit||''}" oninput="voucherLines[${i}].credit=+this.value||0;voucherLines[${i}].debit=0;updateVoucherBalance()"></div>
+        :`<label>حساب</label>${acctSearchHtml(i,l.code)}`}</div>
+      <div class="fg"><label>بدهکار</label><input type="text" inputmode="numeric" class="money" value="${moneyInit(l.debit)}" oninput="voucherLines[${i}].debit=(+this.value.replace(/[^\d]/g,''))||0;voucherLines[${i}].credit=0;updateVoucherBalance()"></div>
+      <div class="fg"><label>بستانکار</label><input type="text" inputmode="numeric" class="money" value="${moneyInit(l.credit)}" oninput="voucherLines[${i}].credit=(+this.value.replace(/[^\d]/g,''))||0;voucherLines[${i}].debit=0;updateVoucherBalance()"></div>
       <div class="fg"><label>شرح ردیف</label><div style="display:flex;gap:6px">
         <input value="${esc(l.description||'')}" oninput="voucherLines[${i}].description=this.value" style="flex:1">
         ${voucherLines.length>2?`<button class="btn sm red icon" onclick="removeVoucherLine(${i})">🗑️</button>`:''}
@@ -4988,7 +5040,7 @@ function transferModal(){
     <div class="modal-head"><h3>انتقال وجه جدید</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>تاریخ</label><input id="tr-date" value="${todayJalali()}"></div>
-      <div class="fg"><label>مبلغ (تومان) *</label><input id="tr-amount" type="number" min="1"></div>
+      <div class="fg"><label>مبلغ (تومان) *</label><input id="tr-amount" type="text" inputmode="numeric" class="money" min="1"></div>
       <div class="fg"><label>از (مبدأ) *</label><select id="tr-from-type" onchange="updateTransferSideOptions('from')"><option value="cash">صندوق نقدی</option><option value="bank">بانک</option></select></div>
       <div class="fg"><label>حساب مبدأ</label><select id="tr-from-id">${transferSideOptions('cash')}</select></div>
       <div class="fg"><label>به (مقصد) *</label><select id="tr-to-type" onchange="updateTransferSideOptions('to')"><option value="cash">صندوق نقدی</option><option value="bank" selected>بانک</option></select></div>
@@ -5004,7 +5056,7 @@ function updateTransferSideOptions(side){
   el('tr-'+side+'-id').innerHTML=transferSideOptions(type);
 }
 async function saveTransfer(){
-  const amount=parseFloat(el('tr-amount').value)||0;
+  const amount=moneyVal('tr-amount');
   if(!amount){ showToast('مبلغ الزامی است','error'); return; }
   const data={
     date:el('tr-date').value, amount,
@@ -5081,7 +5133,7 @@ function expensePaymentModal(){
         <option value="admin">عمومی و اداری</option><option value="sales">توزیع و فروش</option>
       </select></div>
       <div class="fg full"><label>عنوان/بابت *</label><input id="ex-title" placeholder="مثال: اجاره دفتر، قبض برق، ..."></div>
-      <div class="fg"><label>مبلغ (تومان) *</label><input id="ex-amount" type="number" min="1"></div>
+      <div class="fg"><label>مبلغ (تومان) *</label><input id="ex-amount" type="text" inputmode="numeric" class="money" min="1"></div>
       <div class="fg"><label>نوع پرداخت</label><select id="ex-paytype" onchange="toggleBankFields('ex')"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
       <div class="fg"><label>پرداخت از بانک</label><select id="ex-bank" onchange="updateCheckCategoryOptions('ex')">
         <option value="">— بدون بانک مشخص —</option>
@@ -5101,7 +5153,7 @@ function expensePaymentModal(){
 }
 async function saveExpensePayment(){
   const title=el('ex-title').value.trim();
-  const amount=+el('ex-amount').value;
+  const amount=moneyVal('ex-amount');
   if(!title){ showToast('عنوان هزینه الزامی است','error'); return; }
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
@@ -5283,10 +5335,10 @@ async function settlementModal(custId){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   openModal(`
-    <div class="modal-head"><h3>ثبت تسویه حساب</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>ثبت پرداخت</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>مشتری * ${hlp('مشتری‌ای که این پرداخت را انجام داده است.')}</label>${custSelect('st-cust', custId)}</div>
-      <div class="fg"><label>مبلغ تسویه (تومان) * ${hlp('مبلغ دریافتی به تومان — از بدهی مشتری کم و در دفتر معین بستانکار می‌شود.')}</label><input id="st-amount" type="number" min="1" placeholder="0"></div>
+      <div class="fg"><label>مبلغ تسویه (تومان) * ${hlp('مبلغ دریافتی به تومان — از بدهی مشتری کم و در دفتر معین بستانکار می‌شود.')}</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
       <div class="fg"><label>نوع پرداخت ${hlp('نقد: واریز نقدی/کارتی. چک: پرداخت با چک — اطلاعات چک را در فرم پایین وارد کنید.')}</label><select id="st-paytype" onchange="toggleStlCheque()">
         <option value="cash">نقد</option><option value="cheque">چک</option></select></div>
       <div class="fg"><label>واریز به بانک ${hlp('این وجه به کدام حساب بانکی شرکت واریز می‌شود — اختیاری؛ اگر انتخاب نشود در حساب عمومی صندوق/بانک ثبت می‌شود.')}</label><select id="st-bank">
@@ -5305,14 +5357,14 @@ async function settlementModal(custId){
           <div class="fg"><label>شماره صیادی * ${hlp('شماره ۱۶ رقمی صیاد چک — شناسه یکتای پیگیری چک.')}</label><input id="st-csayadi" placeholder="شماره صیادی چک"></div>
           <div class="fg"><label>شماره چک ${hlp('شماره سری چک (اختیاری).')}</label><input id="st-cnum" placeholder="شماره چک (اختیاری)"></div>
           <div class="fg"><label>شماره حساب ${hlp('شماره حساب صادرکننده چک (اختیاری).')}</label><input id="st-caccnum" placeholder="شماره حساب (اختیاری)"></div>
-          <div class="fg"><label>مبلغ چک (تومان) ${hlp('فقط اگر مبلغ چک با مبلغ تسویه فرق دارد پر کنید؛ خالی = برابر مبلغ تسویه.')}</label><input id="st-camount" type="number" min="0" placeholder="در صورت تفاوت با مبلغ تسویه"></div>
+          <div class="fg"><label>مبلغ چک (تومان) ${hlp('فقط اگر مبلغ چک با مبلغ تسویه فرق دارد پر کنید؛ خالی = برابر مبلغ تسویه.')}</label><input id="st-camount" type="text" inputmode="numeric" class="money" placeholder="در صورت تفاوت با مبلغ تسویه"></div>
           <div class="fg"><label>نام صادرکننده ${hlp('نام صاحب حساب چک.')}</label><input id="st-cowner" placeholder="نام صاحب چک"></div>
           <div class="fg full"><label>تاریخ سررسید * ${hlp('تاریخ وصول چک — چک‌های سررسید گذشته در جدول چک‌ها قرمز نمایش داده می‌شوند.')}</label><input id="st-cdue" data-jdate></div>
         </div>
       </div>
     </div></div>
     <div class="modal-foot">
-      <button class="btn green" onclick="saveSettlement()">💾 ثبت تسویه</button>
+      <button class="btn green" onclick="saveSettlement()">💾 ثبت پرداخت</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button>
     </div>`);
   attachDatepickers(el('modalRoot'));
@@ -5324,7 +5376,7 @@ function toggleStlCheque(){
 }
 
 async function saveSettlement(){
-  const cust_id=+el('st-cust').value, amount=+el('st-amount').value;
+  const cust_id=+el('st-cust').value, amount=moneyVal('st-amount');
   const pay_type=el('st-paytype').value;
   if(!cust_id||!amount){ showToast('مشتری و مبلغ الزامی است','error'); return; }
   if(pay_type==='cheque'){
@@ -5342,7 +5394,7 @@ async function saveSettlement(){
       cheque_sayadi:pay_type==='cheque'?(el('st-csayadi')?.value||''):'',
       cheque_number:pay_type==='cheque'?(el('st-cnum')?.value||''):'',
       cheque_account:pay_type==='cheque'?(el('st-caccnum')?.value||''):'',
-      cheque_amount:pay_type==='cheque'?(parseFloat(el('st-camount')?.value||'0')||amount):0,
+      cheque_amount:pay_type==='cheque'?(moneyVal('st-camount')||amount):0,
       cheque_owner:pay_type==='cheque'?(el('st-cowner')?.value||''):'',
       cheque_due:pay_type==='cheque'?(el('st-cdue')?.value||''):'',
       cheque_status:'pending'
@@ -6118,7 +6170,7 @@ function renderAdminGuide(){
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد حسابداری</b>: آمار کلی، مانده مطالبات/پرداختنی، وضعیت تراز آزمایشی و دسترسی سریع به همه بخش‌ها</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل (فروش ← تخفیف ← بهای تمام‌شده ← سود ناخالص ← انگیزه فروش ← سود عملیاتی) و جریان وجوه</li>
-        <li><b>مطالبات مشتریان</b>: بدهی هر مشتری با جمع زنده و دکمه ثبت تسویه</li>
+        <li><b>مطالبات مشتریان</b>: بدهی هر مشتری با جمع زنده و دکمه ثبت پرداخت</li>
         <li><b>عملیات دریافت (تسویه با مشتریان)</b>: تاریخچه دریافت‌های نقد/چک از مشتریان — با انتخاب اختیاری «واریز به بانک» یا «واریز به صندوق»</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول</li>
@@ -6137,7 +6189,7 @@ function renderAdminGuide(){
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b> (افزودن موجودی به یک انبار مشخص)، <b>حواله انبار</b> (کسر موجودی از یک انبار، مثلاً ضایعات یا مصرف داخلی)، و <b>انتقال بین انبارها</b> (جابه‌جایی کامل موجودی یک کالا به انبار دیگر) — همراه با تاریخچه کامل عملیات</li>
         <li><b>کالای امانی</b>: پیگیری کالاهایی که مالکیتشان هنوز نهایی نشده — <b>ارسالی</b> (کالای ما نزد دیگران، بلافاصله از موجودی کسر می‌شود) و <b>دریافتی</b> (کالای دیگران نزد ما، به موجودی خودمان اضافه نمی‌شود). با «تسویه» فروش قطعی می‌شود (فاکتور/پرداخت واقعی را جداگانه ثبت کنید) و با «استرداد» کالای ارسالی به موجودی برمی‌گردد</li>
-        <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده</li>
+        <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده</li>
         <li><b>دفتر کل حساب‌ها</b>: انتخاب هر حساب از کدینگ حسابداری و مشاهده گردش کامل آن با مانده لحظه‌ای</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص</li>
