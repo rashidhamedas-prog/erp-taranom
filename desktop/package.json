@@ -2,7 +2,7 @@
   "name": "crm-taranom-desktop",
   "productName": "CRM Taranom",
   "version": "1.0.0",
-  "description": "CRM ترنم — نسخه دسکتاپ آفلاین (ویندوز) با همگام‌سازی خودکار با سرور مرکزی",
+  "description": "CRM Taranom - Offline Desktop (Windows) with central-server sync",
   "main": "main.js",
   "author": "Taranom",
   "license": "UNLICENSED",
@@ -53,7 +53,9 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "CRM ترنم"
+      "shortcutName": "CRM Taranom",
+      "installerLanguages": ["en_US"],
+      "unicode": true
     },
     "linux": { "target": ["AppImage"], "icon": "build/icon.png", "category": "Office" }
   }
