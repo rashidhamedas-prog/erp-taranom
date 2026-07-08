@@ -85,6 +85,22 @@ function repairProductCategoriesSchema(db) {
   db.pragma('foreign_keys = ON');
 }
 
+// Sync triggers must match each table's real primary/business key — not every
+// syncable table has an `id` column (e.g. warehouse_stock, legacy settings).
+function syncTriggerMatch(t, db) {
+  if (t.name === 'warehouse_stock') {
+    return {
+      updateWhere: 'product_id = NEW.product_id AND warehouse_id = NEW.warehouse_id',
+      tombstone: "CAST(OLD.product_id AS TEXT) || ':' || CAST(OLD.warehouse_id AS TEXT)"
+    };
+  }
+  const cols = tableColumns(db, t.name);
+  const key = (t.upsertKey && cols.includes(t.upsertKey)) ? t.upsertKey
+    : cols.includes('id') ? 'id' : null;
+  if (!key) return null;
+  return { updateWhere: `${key} = NEW.${key}`, tombstone: `OLD.${key}` };
+}
+
 function initDB() {
   const db = getDB();
   db.exec(`
@@ -1125,29 +1141,43 @@ function initSyncSchema(db) {
   // mean the trigger's own UPDATE doesn't re-fire itself.
   if (!isDevice()) {
     for (const t of SYNCABLE_TABLES) {
-      const keyCol = t.upsertKey;
+      if (!tableExists(db, t.name)) continue;
+      const match = syncTriggerMatch(t, db);
+      if (!match) {
+        console.warn(`⚠️ skipping sync triggers for ${t.name} (no row key)`);
+        continue;
+      }
+      const { updateWhere, tombstone } = match;
+      db.exec(`DROP TRIGGER IF EXISTS trg_sync_ins_${t.name}`);
+      db.exec(`DROP TRIGGER IF EXISTS trg_sync_upd_${t.name}`);
+      db.exec(`DROP TRIGGER IF EXISTS trg_sync_del_${t.name}`);
       db.exec(`
-        CREATE TRIGGER IF NOT EXISTS trg_sync_ins_${t.name} AFTER INSERT ON ${t.name} BEGIN
+        CREATE TRIGGER trg_sync_ins_${t.name} AFTER INSERT ON ${t.name} BEGIN
           UPDATE global_seq SET value = value + 1 WHERE id = 1;
-          UPDATE ${t.name} SET sync_seq = (SELECT value FROM global_seq WHERE id = 1) WHERE id = NEW.id;
+          UPDATE ${t.name} SET sync_seq = (SELECT value FROM global_seq WHERE id = 1) WHERE ${updateWhere};
         END;
-        CREATE TRIGGER IF NOT EXISTS trg_sync_upd_${t.name} AFTER UPDATE ON ${t.name} BEGIN
+        CREATE TRIGGER trg_sync_upd_${t.name} AFTER UPDATE ON ${t.name} BEGIN
           UPDATE global_seq SET value = value + 1 WHERE id = 1;
           UPDATE ${t.name} SET sync_seq = (SELECT value FROM global_seq WHERE id = 1),
                               version = COALESCE(OLD.version, 0) + 1
-          WHERE id = NEW.id;
+          WHERE ${updateWhere};
         END;
-        CREATE TRIGGER IF NOT EXISTS trg_sync_del_${t.name} AFTER DELETE ON ${t.name} BEGIN
+        CREATE TRIGGER trg_sync_del_${t.name} AFTER DELETE ON ${t.name} BEGIN
           UPDATE global_seq SET value = value + 1 WHERE id = 1;
           INSERT INTO sync_tombstones (tbl, row_key, sync_seq)
-          VALUES ('${t.name}', OLD.${keyCol}, (SELECT value FROM global_seq WHERE id = 1));
+          VALUES ('${t.name}', ${tombstone}, (SELECT value FROM global_seq WHERE id = 1));
         END;
       `);
     }
     // Stamp pre-existing rows once so a device's first pull sees them.
-    // The UPDATE fires the trigger above, which assigns the real sequence.
     for (const t of SYNCABLE_TABLES) {
-      db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+      if (!tableExists(db, t.name)) continue;
+      if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+      try {
+        db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+      } catch (e) {
+        console.warn(`⚠️ sync_seq backfill skipped for ${t.name}:`, e.message);
+      }
     }
   }
 }
