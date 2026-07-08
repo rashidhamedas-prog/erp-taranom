@@ -12,6 +12,24 @@ const { todayJalali } = require('../jalali');
 // simplified model — a real per-warehouse quantity ledger would be a much
 // larger change across every stock-adjusting route in the app.
 
+// Stock overview — all warehouses with product quantities
+router.get('/stock/overview', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const warehouses = db.prepare('SELECT * FROM warehouses WHERE active=1 ORDER BY name').all();
+  const result = warehouses.map(w => {
+    const products = db.prepare(`
+      SELECT p.id, p.code, p.name, p.unit, COALESCE(ws.qty, p.stock) as qty
+      FROM products p
+      LEFT JOIN warehouse_stock ws ON ws.product_id=p.id AND ws.warehouse_id=?
+      WHERE p.warehouse_id=? OR ws.warehouse_id=?
+      ORDER BY p.name
+    `).all(w.id, w.id, w.id);
+    const totalQty = products.reduce((a, p) => a + (p.qty || 0), 0);
+    return { ...w, product_count: products.length, total_qty: totalQty, products };
+  });
+  res.json(result);
+});
+
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   res.json(db.prepare('SELECT * FROM warehouses ORDER BY name').all());
@@ -81,6 +99,10 @@ router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
   const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(warehouse_id);
   if (!warehouse) return res.status(404).json({ error: 'انبار یافت نشد' });
   db.prepare('UPDATE products SET stock=stock+?, warehouse_id=? WHERE id=?').run(q, warehouse_id, product_id);
+  db.prepare(`
+    INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)
+    ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+?
+  `).run(product_id, warehouse_id, q, q);
   db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
     .run(product_id, req.user.id, q, `رسید انبار (${warehouse.name})${note ? ' - ' + note : ''}`);
   const result = db.prepare('INSERT INTO warehouse_moves (type,product_id,to_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?)')
@@ -100,6 +122,10 @@ router.post('/moves/issue', auth, adminOrAccounting, (req, res) => {
   if (product.stock < q) return res.status(400).json({ error: `موجودی کافی نیست (موجود: ${product.stock})` });
   const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(warehouse_id);
   db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(q, product_id);
+  db.prepare(`
+    UPDATE warehouse_stock SET qty=CASE WHEN qty-? < 0 THEN 0 ELSE qty-? END
+    WHERE product_id=? AND warehouse_id=?
+  `).run(q, q, product_id, warehouse_id);
   db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
     .run(product_id, req.user.id, -q, `حواله انبار (${warehouse.name})${note ? ' - ' + note : ''}`);
   const result = db.prepare('INSERT INTO warehouse_moves (type,product_id,from_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?)')

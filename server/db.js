@@ -164,6 +164,23 @@ function initDB() {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
 
+    CREATE TABLE IF NOT EXISTS product_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      sort_order INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS warehouse_stock (
+      product_id INTEGER NOT NULL,
+      warehouse_id INTEGER NOT NULL,
+      qty INTEGER DEFAULT 0,
+      PRIMARY KEY (product_id, warehouse_id),
+      FOREIGN KEY(product_id) REFERENCES products(id),
+      FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
+    );
+
     CREATE TABLE IF NOT EXISTS consignments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       direction TEXT NOT NULL,
@@ -691,13 +708,6 @@ function initDB() {
       created_by INTEGER,
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
-
-    CREATE TABLE IF NOT EXISTS product_categories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      sort_order INTEGER DEFAULT 0,
-      created_at INTEGER DEFAULT (strftime('%s','now'))
-    );
   `);
   ensureColumn(db, 'customers', 'group_id', 'INTEGER');
   ensureColumn(db, 'journal_entries', 'cost_center_id', 'INTEGER');
@@ -734,15 +744,35 @@ function initDB() {
   ensureColumn(db, 'persons', 'overtime_rate', 'REAL DEFAULT 0');
   ensureColumn(db, 'persons', 'insurance_percent', 'REAL DEFAULT 0');
   ensureColumn(db, 'persons', 'tax_percent', 'REAL DEFAULT 0');
-  ensureColumn(db, 'expense_payments', 'expense_account_code', 'TEXT');
+  ensureColumn(db, 'expense_payments', 'account_code', 'TEXT');
   ensureColumn(db, 'expense_payments', 'purchase_invoice_id', 'INTEGER');
   ensureColumn(db, 'expense_payments', 'is_overhead', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'settlements', 'installment_group', 'TEXT');
   ensureColumn(db, 'production_runs', 'warehouse_id', 'INTEGER');
+  ensureColumn(db, 'products', 'category_id', 'INTEGER');
   const whCount = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
   if (whCount === 0) {
     const mainWhId = db.prepare("INSERT INTO warehouses (name,address) VALUES ('انبار مرکزی','')").run().lastInsertRowid;
     db.prepare('UPDATE products SET warehouse_id=? WHERE warehouse_id IS NULL').run(mainWhId);
   }
+
+  // Migrate free-text product.category → product_categories + category_id
+  const distinctCats = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>''").all();
+  const insCat = db.prepare('INSERT OR IGNORE INTO product_categories (name) VALUES (?)');
+  for (const { category } of distinctCats) insCat.run(category);
+  db.prepare(`
+    UPDATE products SET category_id=(
+      SELECT id FROM product_categories WHERE name=products.category LIMIT 1
+    ) WHERE category_id IS NULL AND category IS NOT NULL AND category<>''
+  `).run();
+
+  // Seed warehouse_stock from products (one row per product at its warehouse)
+  db.prepare(`
+    INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty)
+    SELECT p.id, COALESCE(p.warehouse_id, (SELECT id FROM warehouses ORDER BY id LIMIT 1)), p.stock
+    FROM products p
+    WHERE p.warehouse_id IS NOT NULL OR EXISTS (SELECT 1 FROM warehouses)
+  `).run();
 
   // Seed a default customer group (Debit nature — the standard for receivables)
   const grpCount = db.prepare('SELECT COUNT(*) c FROM customer_groups').get().c;
@@ -762,11 +792,6 @@ function initDB() {
     insPC.run('ارائه‌دهنده خدمات', 'credit');
     insPC.run('سایر', 'debit');
   }
-
-  // Seed product_categories from existing product.category strings
-  const insProdCat = db.prepare('INSERT OR IGNORE INTO product_categories (name) VALUES (?)');
-  db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>''").all()
-    .forEach(r => insProdCat.run(r.category));
 
   // ---- Seed chart of accounts (only if empty) ----
   const coaCount = db.prepare('SELECT COUNT(*) c FROM chart_of_accounts').get().c;
@@ -871,8 +896,9 @@ function initDB() {
     backup_smtp_user: '',
     backup_smtp_pass: '',
     backup_email: '',
-    overhead_method: 'both',
-    overhead_rate_percent: '15'
+    overhead_method: 'tag',
+    overhead_fixed_rate: '0',
+    overhead_period_production_qty: '0'
   };
   const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)');
   for (const [k, v] of Object.entries(defaults)) insSetting.run(k, v);

@@ -965,7 +965,7 @@ const ACC_NAV = [
   {id:'acc-dash', icon:'📊', label:'داشبورد و دفتر کل'},
   {id:'acc-general', icon:'📈', label:'حسابداری کل (سود و زیان)'},
   {id:'acc-receivables', icon:'🧾', label:'مطالبات مشتریان'},
-  {id:'acc-settlements', icon:'💵', label:'عملیات دریافت (تسویه با مشتریان)'},
+  {id:'acc-settlements', icon:'💵', label:'عملیات دریافت (پرداخت)'},
   {id:'acc-payments', icon:'💸', label:'عملیات پرداخت'},
   {id:'acc-cheques', icon:'🏦', label:'مدیریت چک‌ها'},
   {id:'acc-banks', icon:'🏦', label:'بانک‌ها'},
@@ -987,7 +987,6 @@ const ACC_NAV = [
   {id:'acc-vouchers', icon:'📝', label:'اسناد حسابداری (دستی)'},
   {id:'acc-trial-balance', icon:'⚖️', label:'تراز آزمایشی'},
   {id:'acc-balance-sheet', icon:'🏛️', label:'ترازنامه'},
-  {id:'acc-chart', icon:'📚', label:'کدینگ حساب‌ها'},
   {id:'acc-commissions', icon:'🎯', label:'تأیید و انگیزه فروش'},
   {id:'acc-cost-centers', icon:'🏷️', label:'مراکز هزینه'},
   {id:'acc-customer-groups', icon:'👥', label:'گروه‌های مشتری (ماهیت حساب)'},
@@ -2070,6 +2069,13 @@ function renderInvTable(){
   </tr></tfoot></table>`;
 }
 function openInvBuilder(id){
+  _openInvBuilder(id);
+}
+async function _openInvBuilder(id){
+  if(!CACHE.allProducts?.length){
+    CACHE.allProducts=await api('GET','/products')||[];
+    if(!CACHE.products?.length) CACHE.products=CACHE.allProducts;
+  }
   const inv = id ? CACHE.invoices.find(x=>x.id===id) : null;
   invCart = inv ? inv.rows.map(r=>({product_id:r.product_id,name:r.name,qty:r.qty,price:r.price,disc:r.disc||0})) : [];
   const isAdmin = ME.role==='admin';
@@ -2099,6 +2105,7 @@ function openInvBuilder(id){
       <div class="inv-layout">
         <div>
           <input class="search" id="invProdSearch" placeholder="جستجوی محصول..." style="margin-bottom:6px;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" oninput="renderInvPicker()">
+          <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:8px" onclick="invProdQuickModal(el('invProdSearch')?.value||'')">➕ ساخت محصول جدید</button>
           <div id="mobPickHint" style="display:none;font-size:11px;color:var(--muted);margin-bottom:8px;text-align:center">👆 برای افزودن، دو بار روی محصول بزنید</div>
           <div class="inv-products"><div class="inv-pick" id="invPicker"></div></div>
         </div>
@@ -2133,7 +2140,44 @@ function renderInvPicker(){
       <div class="pp">${fmt(p.price)} ت</div>
       <div class="pst" style="font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}">موجودی: ${fmt(avail)}</div>
     </div>`;
-  }).join('') || '<div class="empty">محصولی نیست</div>';
+  }).join('') || `<div class="empty" style="padding:16px;text-align:center">
+    <div style="margin-bottom:10px">محصولی یافت نشد</div>
+    <button type="button" class="btn sm" onclick="invProdQuickModal('${esc((el('invProdSearch')?.value||'').trim())}')">➕ ساخت محصول «${esc((el('invProdSearch')?.value||'').trim()||'جدید')}»</button>
+  </div>`;
+}
+async function invProdQuickModal(prefill){
+  if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
+  const name=(prefill||'').trim();
+  openModal(`
+    <div class="modal-head"><h3>➕ ساخت سریع محصول</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>نام محصول *</label><input id="iq-name" value="${esc(name)}"></div>
+      <div class="fg"><label>دسته‌بندی</label><select id="iq-cat"><option value="">— بدون دسته —</option>
+        ${(CACHE.productCategories||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>کد</label><input id="iq-code"></div>
+      <div class="fg"><label>قیمت فروش (ت)</label><input id="iq-price" type="text" inputmode="numeric" class="money" value="0"></div>
+      <div class="fg"><label>بهای تمام‌شده (ت)</label><input id="iq-cost" type="text" inputmode="numeric" class="money" value="0"></div>
+      <div class="fg"><label>موجودی</label><input id="iq-stock" type="number" value="0"></div>
+      <div class="fg"><label>واحد</label><input id="iq-unit" value="عدد"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveInvProdQuick()">💾 ساخت و افزودن به سبد</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveInvProdQuick(){
+  const name=el('iq-name').value.trim();
+  if(!name){ showToast('نام محصول الزامی است','error'); return; }
+  try{
+    const p=await api('POST','/products/quick',{
+      name, category_id:+el('iq-cat').value||null, code:el('iq-code').value,
+      price:moneyVal('iq-price'), cost:moneyVal('iq-cost'), unit:el('iq-unit').value||'عدد',
+      stock:+el('iq-stock').value||0
+    });
+    if(!CACHE.allProducts) CACHE.allProducts=[];
+    if(!CACHE.products) CACHE.products=[];
+    CACHE.allProducts.unshift(p); CACHE.products.unshift(p);
+    addToCart(p.id); closeModal(); showToast('محصول ساخته و به سبد اضافه شد');
+  }catch(e){}
 }
 function addToCart(pid){
   const p = CACHE.products.find(x=>x.id===pid); if(!p) return;
@@ -2253,7 +2297,7 @@ async function printInvoice(id, paper){
 /* ============================================================
    PRODUCTS (admin)  /  CATALOG (salesperson)
 ============================================================ */
-let prodFilter={category:'',search:'',stock_status:'all'};
+let prodFilter={category:'',search:'',stock_status:'all',warehouse_id:''};
 let _prodCanEdit = true;
 let prodSelected = new Set();
 async function loadProductsFiltered(){
@@ -2261,7 +2305,8 @@ async function loadProductsFiltered(){
   if(prodFilter.category) qs.set('category',prodFilter.category);
   if(prodFilter.search) qs.set('search',prodFilter.search);
   if(prodFilter.stock_status && prodFilter.stock_status!=='all') qs.set('stock_status',prodFilter.stock_status);
-  const noFilters = !prodFilter.category && !prodFilter.search && (!prodFilter.stock_status || prodFilter.stock_status==='all');
+  if(prodFilter.warehouse_id) qs.set('warehouse_id',prodFilter.warehouse_id);
+  const noFilters = !prodFilter.category && !prodFilter.search && (!prodFilter.stock_status || prodFilter.stock_status==='all') && !prodFilter.warehouse_id;
   CACHE.products = await api('GET','/products?'+qs.toString())||[];
   if(noFilters) CACHE.allProducts = CACHE.products;
 }
@@ -2272,19 +2317,28 @@ async function productsPage(canEdit){
   _prodCanEdit = canEdit;
   prodSelected.clear();
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const cats = await api('GET','/products/categories')||[];
+  const [cats, warehouses, pCats] = await Promise.all([
+    api('GET','/products/categories'),
+    api('GET','/warehouses'),
+    canEdit ? api('GET','/product-categories') : Promise.resolve([])
+  ]);
+  CACHE.productCategories=pCats||[];
   await loadProductsFiltered();
   el('view').innerHTML=`
     <div class="toolbar">
       <input class="search" id="pSearch" placeholder="جستجو نام یا کد..." value="${esc(prodFilter.search)}">
       <select id="pCat"><option value="">همه دسته‌ها</option>
-        ${cats.map(c=>`<option value="${esc(c)}" ${prodFilter.category===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+        ${(cats||[]).map(c=>`<option value="${esc(c)}" ${prodFilter.category===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+      <select id="pWarehouse"><option value="">همه انبارها</option>
+        ${(warehouses||[]).map(w=>`<option value="${w.id}" ${String(prodFilter.warehouse_id)===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>
       <select id="pStock">
         <option value="all" ${prodFilter.stock_status==='all'?'selected':''}>همه موجودی</option>
         <option value="ok" ${prodFilter.stock_status==='ok'?'selected':''}>موجود</option>
         <option value="low" ${prodFilter.stock_status==='low'?'selected':''}>موجودی کم</option>
       </select>
       ${canEdit?`<button class="btn" onclick="prodModal()">➕ محصول</button>
+        <button class="btn ghost" onclick="productCategoriesModal()">🏷️ دسته‌بندی‌ها</button>
+        <button class="btn ghost" onclick="enterAccountingShell().then(()=>go('acc-warehouses'))">🏭 موجودی انبارها</button>
         <button class="btn ghost" onclick="importProducts()">📤 ورود اکسل</button>
         <button class="btn ghost" onclick="downloadTemplate()">📄 قالب</button>
         <button class="btn ghost" onclick="exportExcel('products')">📥 خروجی</button>`:''}
@@ -2297,6 +2351,7 @@ async function productsPage(canEdit){
     <div id="prodGrid" class="pgrid"></div>`;
   el('pSearch').addEventListener('input',()=>{prodFilter.search=el('pSearch').value;debounceProd(canEdit);});
   el('pCat').addEventListener('change',()=>{prodFilter.category=el('pCat').value;refreshProd(canEdit);});
+  el('pWarehouse').addEventListener('change',()=>{prodFilter.warehouse_id=el('pWarehouse').value;refreshProd(canEdit);});
   el('pStock').addEventListener('change',()=>{prodFilter.stock_status=el('pStock').value;refreshProd(canEdit);});
   renderProdGrid(canEdit);
 }
@@ -2328,9 +2383,9 @@ function renderProdGrid(canEdit){
       <div class="img" ${p.image?`onclick="showImgPreview('/uploads/products/${esc(p.image)}')" style="cursor:zoom-in"`:''}>${p.image?`<img src="/uploads/products/${esc(p.image)}" loading="lazy" decoding="async">`:'🧥'}</div>
       <div class="body">
         <div class="name">${esc(p.name)}</div>
-        <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}</div>
+        <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}${p.warehouse_name?' · 🏭 '+esc(p.warehouse_name):''}</div>
         <div class="price">${fmt(p.price)} تومان</div>
-        <div class="stock ${low?'low':''}">موجودی: ${fmt(p.stock)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
+        <div class="stock ${low?'low':''}">موجودی: ${fmt(prodFilter.warehouse_id && p.wh_qty!=null ? p.wh_qty : p.stock)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
         ${(p.colors>1||p.pack_size>1)?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.colors>1?`🎨 ${p.colors} رنگ`:''}${p.colors>1&&p.pack_size>1?' · ':''}${p.pack_size>1?`📦 ${p.pack_size} عدد/پک`:''}</div>`:''}
         ${canEdit?`<div class="acts">
           <button class="btn sm ghost" onclick="prodModal(${p.id})">✏️</button>
@@ -2346,13 +2401,54 @@ async function bulkProdDelete(){
   for(const id of prodSelected) await api('DELETE','/products/'+id);
   prodSelected.clear(); await _refreshProdWithCats(_prodCanEdit); showToast('حذف شد');
 }
-function prodModal(id){
+async function productCategoriesModal(){
+  const cats=await api('GET','/product-categories')||[];
+  CACHE.productCategories=cats;
+  openModal(`
+    <div class="modal-head"><h3>🏷️ مدیریت دسته‌بندی محصولات</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="toolbar" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <input id="pc-new-name" placeholder="نام دسته جدید..." style="flex:1;min-width:160px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px">
+        <button class="btn" onclick="addProductCategory()">➕ افزودن</button>
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr>
+        <th>نام</th><th>تعداد محصول</th><th>ترتیب</th><th>وضعیت</th><th>عملیات</th>
+      </tr></thead><tbody>${cats.map(c=>`<tr>
+        <td><input value="${esc(c.name)}" onchange="updateProductCategory(${c.id},{name:this.value})" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px"></td>
+        <td class="mono">${fmt(c.product_count||0)}</td>
+        <td><input type="number" value="${c.sort_order||0}" style="width:70px" onchange="updateProductCategory(${c.id},{sort_order:+this.value})"></td>
+        <td>${c.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
+        <td><button class="btn sm red" onclick="deleteProductCategory(${c.id})">🗑️</button></td>
+      </tr>`).join('')||emptyRow(5)}</tbody></table></div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+}
+async function addProductCategory(){
+  const name=el('pc-new-name')?.value?.trim();
+  if(!name){ showToast('نام دسته الزامی است','error'); return; }
+  try{ await api('POST','/product-categories',{name}); showToast('دسته اضافه شد'); productCategoriesModal(); }catch(e){}
+}
+async function updateProductCategory(id,data){
+  try{ await api('PUT','/product-categories/'+id,data); }catch(e){}
+}
+async function deleteProductCategory(id){
+  if(!confirm('این دسته حذف شود؟')) return;
+  try{ await api('DELETE','/product-categories/'+id); showToast('حذف شد'); productCategoriesModal(); }catch(e){}
+}
+async function prodModal(id){
+  if(!CACHE.warehouses) CACHE.warehouses=await api('GET','/warehouses')||[];
+  if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
   const p = id ? CACHE.products.find(x=>x.id===id) : {};
+  const cats=CACHE.productCategories||[];
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش محصول':'محصول جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>نام محصول * ${hlp('نام کامل محصول همان‌طور که روی فاکتور چاپ می‌شود.')}</label><input id="p-name" value="${esc(p.name||'')}"></div>
-      <div class="fg"><label>دسته‌بندی ${hlp('گروه محصول (مثلاً مانتو، شلوار، بلوز) — برای فیلتر سریع کاتالوگ.')}</label><input id="p-cat" value="${esc(p.category||'')}"></div>
+      <div class="fg"><label>دسته‌بندی ${hlp('از لیست دسته‌های تعریف‌شده انتخاب کنید — یا از دکمه «دسته‌بندی‌ها» دسته جدید بسازید.')}</label>
+        <select id="p-cat-id"><option value="">— بدون دسته / متن آزاد —</option>
+          ${cats.map(c=>`<option value="${c.id}" ${p.category_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
+        </select></div>
+      <div class="fg"><label>دسته (متن آزاد — اختیاری)</label><input id="p-cat" value="${esc(p.category||'')}" placeholder="اگر از لیست بالا انتخاب نکردید"></div>
       <div class="fg"><label>کد محصول ${hlp('کد یکتای محصول — برای جستجوی سریع در فاکتورساز.')}</label><input id="p-code" value="${esc(p.code||'')}"></div>
       <div class="fg"><label>قیمت فروش (تومان) ${hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.price)}"></div>
       <div class="fg"><label>بهای تمام‌شده (تومان) ${hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
@@ -2361,6 +2457,10 @@ function prodModal(id){
       <div class="fg"><label>واحد ${hlp('واحد شمارش محصول: عدد، دست، بسته و…')}</label><input id="p-unit" value="${esc(p.unit||'عدد')}"></div>
       <div class="fg"><label>تعداد رنگ ${hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" value="${p.colors!=null?p.colors:1}"></div>
       <div class="fg"><label>تعداد در پک ${hlp('تعداد پیش‌فرض هر بسته. در فاکتور به صورت خودکار اعمال می‌شود.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
+      <div class="fg"><label>انبار اصلی ${hlp('انباری که این محصول در آن نگهداری می‌شود.')}</label>
+        <select id="p-warehouse"><option value="">— پیش‌فرض —</option>
+          ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}" ${p.warehouse_id===w.id?'selected':''}>${esc(w.name)}</option>`).join('')}
+        </select></div>
       <div class="fg full"><label>تصویر محصول ${hlp('عکس محصول — در کاتالوگ و کارت انتخاب محصولِ فاکتورساز نمایش داده می‌شود.')}</label><input id="p-image" type="file" accept="image/*"></div>
       <div class="fg full"><label>یادداشت ${hlp('توضیح آزاد درباره محصول: جنس پارچه، سایزبندی، رنگ‌بندی و…')}</label><textarea id="p-note">${esc(p.note||'')}</textarea></div>
       ${p.image?`<div class="fg full"><img src="/uploads/products/${esc(p.image)}" style="height:90px;border-radius:8px"></div>`:''}
@@ -2374,6 +2474,7 @@ async function saveProduct(id){
   const fd = new FormData();
   fd.append('name',name);
   fd.append('category',el('p-cat').value.trim());
+  fd.append('category_id',el('p-cat-id')?.value||'');
   fd.append('code',el('p-code').value);
   fd.append('price',moneyVal('p-price'));
   fd.append('cost',moneyVal('p-cost'));
@@ -2382,6 +2483,7 @@ async function saveProduct(id){
   fd.append('unit',el('p-unit').value||'عدد');
   fd.append('colors',el('p-colors')?.value||1);
   fd.append('pack_size',el('p-pack_size')?.value||1);
+  fd.append('warehouse_id',el('p-warehouse')?.value||'');
   fd.append('note',el('p-note').value);
   const f = el('p-image').files[0];
   if(f) fd.append('image',f);
@@ -2577,24 +2679,25 @@ function drawChart(monthly){
 let accTab = 'general';
 let accDateFrom = '', accDateTo = '', accPreset = 'month';
 let accHideZero = true;
+let accRecvViewMode = 'customer';
 let stmtCustId = '', stmtType = '';
-let glPreselectCode = '';
-function catLabel(c){ return typeof c==='object' ? (c.name||'') : String(c||''); }
 function applyAccPreset(p){
   accPreset=p;
   if(p!=='custom') [accDateFrom,accDateTo]=jPresetRange(p);
   if(ROUTES[CURRENT_PAGE]) ROUTES[CURRENT_PAGE](); else ROUTES.accounting();
 }
 
-// ---- Accounting Shell dashboard (its own home page) ----
+// ---- Accounting Shell dashboard (merged with General Ledger + Chart of Accounts) ----
 ROUTES['acc-dash'] = async function(){
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const [ov, tb, payables] = await Promise.all([
+  const [ov, tb, payables, accounts] = await Promise.all([
     api('GET','/accounting/overview'),
     api('GET','/accounting/trial-balance'),
-    api('GET','/suppliers/balances/list')
+    api('GET','/suppliers/balances/list'),
+    api('GET','/accounting/chart-of-accounts')
   ]);
   if(!ov) return;
+  CACHE.chartOfAccounts=accounts||[];
   const totalPayable=(payables||[]).reduce((a,s)=>a+(s.payable||0),0);
   el('view').innerHTML=`
     <div class="cards">
@@ -2605,7 +2708,7 @@ ROUTES['acc-dash'] = async function(){
       ${statCard('p','🔔',fmt(ov.pendingApproval),'فاکتور منتظر تأیید')}
       ${statCard(tb&&tb.balanced?'g':'r','⚖️',tb?(tb.balanced?'متوازن ✓':'نامتوازن!'):'-','وضعیت تراز آزمایشی')}
     </div>
-    <div class="panel">
+    <div class="panel" style="margin-bottom:16px">
       <div class="panel-head"><h4>🚀 دسترسی سریع</h4></div>
       <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:10px">
         <button class="btn" onclick="go('acc-receivables')">🧾 مطالبات مشتریان</button>
@@ -2617,6 +2720,25 @@ ROUTES['acc-dash'] = async function(){
         <button class="btn" onclick="go('acc-general')">📈 سود و زیان</button>
         <button class="btn" onclick="go('acc-statement')">📄 صورت‌حساب مشتری</button>
       </div>
+    </div>
+    <div class="panel" style="margin-bottom:16px">
+      <div class="panel-head"><h4>📒 دفتر کل حساب‌ها</h4></div>
+      <div class="panel-body">
+        <div class="toolbar" style="margin-bottom:12px">
+          <select id="glAccount" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px" onchange="loadGeneralLedger(this.value)">
+            <option value="">-- انتخاب حساب --</option>
+            ${(accounts||[]).map(a=>`<option value="${a.code}">${a.code} — ${esc(a.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div id="glBody"><div class="empty" style="padding:30px">یک حساب را برای مشاهده دفتر کل انتخاب کنید</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h4>📚 کدینگ حساب‌ها (دسته‌بندی‌شده)</h4>
+        ${isAdmin()||ME.role==='accounting'?`<button class="btn sm" onclick="chartAccountModal()">➕ حساب جدید</button>`:''}
+      </div>
+      <div class="panel-body" id="accDashChart">${chartOfAccountsGroupedHtml(accounts||[])}</div>
     </div>`;
   fitStatNums();
 };
@@ -2626,7 +2748,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','general-ledger','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll']);
 
 // Generic wrapper: every accounting page shares the same header (title + optional
 // date-range filter) and delegates the body to loadAccTab(tabKey).
@@ -2656,7 +2778,7 @@ function renderAccPage(tabKey, icon, title){
 }
 ROUTES['acc-general']=()=>renderAccPage('general','📈','حسابداری کل (سود و زیان)');
 ROUTES['acc-receivables']=()=>renderAccPage('receivables','🧾','مطالبات مشتریان');
-ROUTES['acc-settlements']=()=>renderAccPage('settlements','💵','عملیات دریافت (تسویه با مشتریان)');
+ROUTES['acc-settlements']=()=>renderAccPage('settlements','💵','عملیات دریافت (پرداخت)');
 ROUTES['acc-payments']=()=>renderAccPage('payments','💸','عملیات پرداخت');
 ROUTES['acc-cheques']=()=>renderAccPage('cheques','🏦','مدیریت چک‌ها');
 ROUTES['acc-commissions']=()=>renderAccPage('commissions','🎯','تأیید و انگیزه فروش');
@@ -2681,10 +2803,10 @@ ROUTES['acc-adv-reports']=()=>renderAccPage('adv-reports','📊','گزارشات
 ROUTES['acc-production']=()=>renderAccPage('production','🏗️','تحلیل هزینه تولید');
 ROUTES['acc-payroll']=()=>renderAccPage('payroll','🧑‍🏭','حقوق و دستمزد (ساعتی)');
 ROUTES['acc-vouchers']=()=>renderAccPage('vouchers','📝','اسناد حسابداری دستی (سند دوطرفه)');
-ROUTES['acc-general-ledger']=()=>renderAccPage('general-ledger','📒','دفتر کل حساب‌ها');
+ROUTES['acc-general-ledger']=()=>go('acc-dash');
 ROUTES['acc-trial-balance']=()=>renderAccPage('trial-balance','⚖️','تراز آزمایشی');
 ROUTES['acc-balance-sheet']=()=>renderAccPage('balance-sheet','🏛️','ترازنامه');
-ROUTES['acc-chart']=()=>renderAccPage('chart','📚','کدینگ حساب‌ها');
+ROUTES['acc-chart']=()=>go('acc-dash');
 ROUTES['acc-cost-centers']=()=>renderAccPage('cost-centers','🏷️','مراکز هزینه');
 ROUTES['acc-customer-groups']=()=>renderAccPage('customer-groups','👥','گروه‌های مشتری (ماهیت حساب)');
 
@@ -2765,21 +2887,38 @@ async function loadAccTab(tab){
       </div>`;
     fitStatNums();
   } else if(tab==='receivables'){
-    const allRows=await api('GET','/accounting/receivables'+dq)||[];
+    const viewMode=accRecvViewMode||'customer';
+    const allRows=viewMode==='invoice'
+      ? await api('GET','/accounting/receivables/by-invoice'+dq)||[]
+      : await api('GET','/accounting/receivables'+dq)||[];
     const rows=accHideZero ? allRows.filter(r=>r.outstanding>0) : allRows;
     const hiddenCount=allRows.length-rows.length;
     body.innerHTML=`
-      <div class="toolbar" style="margin-bottom:10px">
+      <div class="toolbar" style="margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
           <input type="checkbox" id="chkHideZero" ${accHideZero?'checked':''} onchange="accHideZero=this.checked;loadAccTab('receivables')">
-          فقط مشتریان با مانده بدهی
+          فقط با مانده بدهی
         </label>
-        ${hiddenCount>0?`<span class="muted" style="font-size:12px">${hiddenCount} مشتری تسویه‌شده پنهان شده</span>`:''}
+        <select id="recvViewMode" onchange="accRecvViewMode=this.value;loadAccTab('receivables')" style="padding:6px 10px;border-radius:8px">
+          <option value="customer" ${viewMode==='customer'?'selected':''}>نمایش به تفکیک مشتری</option>
+          <option value="invoice" ${viewMode==='invoice'?'selected':''}>نمایش به تفکیک فاکتور</option>
+        </select>
+        ${hiddenCount>0?`<span class="muted" style="font-size:12px">${hiddenCount} مورد تسویه‌شده پنهان شده</span>`:''}
       </div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
-        <th>نام فروشگاه</th><th>نام کامل</th><th>کارشناس</th><th>کل فاکتور (ت)</th><th>تسویه شده (ت)</th><th>مانده (ت)</th><th>عملیات</th>
+        ${viewMode==='invoice'
+          ? '<th>شماره فاکتور</th><th>تاریخ</th><th>مشتری</th><th>کارشناس</th><th>مبلغ فاکتور (ت)</th><th>پرداخت شده (ت)</th><th>مانده (ت)</th><th>عملیات</th>'
+          : '<th>نام فروشگاه</th><th>نام کامل</th><th>کارشناس</th><th>کل فاکتور (ت)</th><th>پرداخت شده (ت)</th><th>مانده (ت)</th><th>عملیات</th>'}
       </tr></thead><tbody>${rows.map(r=>{
         const oc=r.outstanding>0?'var(--red)':'var(--green)';
+        if(viewMode==='invoice') return `<tr>
+          <td class="mono">${esc(r.num||'-')}</td><td class="mono">${escDate(r.date)}</td>
+          <td>${esc(r.biz||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
+          <td class="mono">${fmt(r.final)}</td>
+          <td class="mono" style="color:var(--green)">${fmt(r.paid)}</td>
+          <td class="mono" style="color:${oc};font-weight:700">${fmt(r.outstanding)}</td>
+          <td><button class="btn sm green" onclick="settlementModal(${r.cust_id})">💵 ثبت پرداخت</button></td>
+        </tr>`;
         return `<tr>
           <td>${esc(r.biz)}</td><td>${esc(r.owner||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
           <td class="mono">${fmt(r.total_invoiced)}</td>
@@ -2787,11 +2926,11 @@ async function loadAccTab(tab){
           <td class="mono" style="color:${oc};font-weight:700">${fmt(r.outstanding)}</td>
           <td style="white-space:nowrap"><button class="btn sm green" onclick="settlementModal(${r.id})">💵 ثبت پرداخت</button> <button class="btn sm ghost" onclick="showCustLedger(${r.id},'${esc(r.biz)}')">📋 معین</button></td>
         </tr>`;
-      }).join('')||emptyRow(7)}</tbody>
+      }).join('')||emptyRow(8)}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
-        <td colspan="3">جمع (${fmt(rows.length)} مشتری)</td>
-        <td class="mono">${fmt(rows.reduce((a,r)=>a+(r.total_invoiced||0),0))}</td>
-        <td class="mono" style="color:var(--green)">${fmt(rows.reduce((a,r)=>a+(r.total_settled||0),0))}</td>
+        <td colspan="${viewMode==='invoice'?4:3}">جمع (${fmt(rows.length)} ${viewMode==='invoice'?'فاکتور':'مشتری'})</td>
+        <td class="mono">${fmt(rows.reduce((a,r)=>a+(viewMode==='invoice'?(r.final||0):(r.total_invoiced||0)),0))}</td>
+        <td class="mono" style="color:var(--green)">${fmt(rows.reduce((a,r)=>a+(viewMode==='invoice'?(r.paid||0):(r.total_settled||0)),0))}</td>
         <td class="mono" style="color:var(--red);font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.outstanding||0),0))}</td>
         <td></td>
       </tr></tfoot></table></div>`;
@@ -2800,21 +2939,23 @@ async function loadAccTab(tab){
     body.innerHTML=`
       <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="settlementModal()">➕ ثبت پرداخت جدید</button></div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
-        <th>تاریخ</th><th>مشتری</th><th>مبلغ (ت)</th><th>نوع پرداخت</th><th>اطلاعات چک</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
+        <th>تاریخ</th><th>مشتری</th><th>فاکتور</th><th>مبلغ (ت)</th><th>نوع</th><th>گروه قسط</th><th>چک</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
       </tr></thead><tbody>${rows.map(r=>`<tr>
         <td class="mono">${escDate(r.date)}</td>
         <td>${esc(r.cust_biz||'-')}</td>
+        <td class="mono">${r.invoice_num?esc(r.invoice_num):'-'}</td>
         <td class="mono" style="color:var(--green);font-weight:700">${fmt(r.amount)}</td>
         <td>${r.pay_type==='cheque'?'🧾 چک':'💵 نقد'}</td>
-        <td class="muted" style="font-size:12px">${r.pay_type==='cheque'?(esc(r.cheque_bank||'')+' | '+esc(r.cheque_sayadi||'')+' | '+esc(r.cheque_owner||'')+(r.cheque_due?' | سررسید: '+escDate(r.cheque_due):'')):'-'}</td>
+        <td class="muted" style="font-size:11px">${r.installment_group?esc(r.installment_group):'-'}</td>
+        <td class="muted" style="font-size:12px">${r.pay_type==='cheque'?(esc(r.cheque_bank||'')+' | '+esc(r.cheque_sayadi||'')):'-'}</td>
         <td class="muted">${esc(r.note||'-')}</td>
         <td class="muted">${esc(r.recorder_name||'-')}</td>
         <td><button class="btn sm red" onclick="deleteSettlement(${r.id})">🗑️</button></td>
-      </tr>`).join('')||emptyRow(8)}</tbody>
+      </tr>`).join('')||emptyRow(10)}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
-        <td colspan="2">جمع (${fmt(rows.length)} تسویه)</td>
+        <td colspan="3">جمع (${fmt(rows.length)} پرداخت)</td>
         <td class="mono" style="color:var(--green);font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.amount||0),0))}</td>
-        <td colspan="5"></td>
+        <td colspan="6"></td>
       </tr></tfoot></table></div>`;
   } else if(tab==='payments'){
     await renderPaymentOpsTab(body);
@@ -2972,8 +3113,6 @@ async function loadAccTab(tab){
     await renderSalesReturnsTab(body);
   } else if(tab==='vouchers'){
     await renderVouchersTab(body);
-  } else if(tab==='general-ledger'){
-    await renderGeneralLedgerTab(body);
   } else if(tab==='trial-balance'){
     await renderTrialBalanceTab(body);
   } else if(tab==='balance-sheet'){
@@ -3040,6 +3179,7 @@ function genProductSearchHtml(){
   return `<div style="position:relative">
     <input type="text" id="genProdSearch" class="search" style="width:100%;margin-bottom:10px" placeholder="جستجوی محصول برای افزودن..." oninput="genProdShowDrop(this.value)" onfocus="genProdShowDrop(this.value)">
     <div id="genProdDrop" class="cust-si-drop" style="display:none;position:fixed;width:280px;max-height:220px"></div>
+    <button type="button" class="btn sm ghost" style="width:100%" onclick="genProdQuickModal(el('genProdSearch')?.value||'')">➕ ساخت محصول جدید</button>
   </div>`;
 }
 function genProdShowDrop(q){
@@ -3049,10 +3189,44 @@ function genProdShowDrop(q){
   if(term){ const words=term.split(/\s+/); list=list.filter(p=>{const hay=((p.name||'')+' '+(p.code||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
   const rect=inp.getBoundingClientRect();
   drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
-  drop.innerHTML = list.slice(0,40).map(p=>`
+  const items=list.slice(0,40).map(p=>`
     <div class="cust-si-item" onclick="genCartAdd(${p.id});el('genProdSearch').value='';el('genProdDrop').style.display='none'">
       <span>${esc(p.name)}</span><span class="cust-si-meta">موجودی: ${fmt(p.stock||0)}</span>
-    </div>`).join('') || '<div class="cust-si-empty">محصولی یافت نشد</div>';
+    </div>`).join('');
+  const quickBtn=term?`<div class="cust-si-item" style="color:var(--purple);font-weight:600" onclick="genProdQuickModal('${esc(term)}')">➕ ساخت محصول «${esc(term)}»</div>`:'';
+  drop.innerHTML = items || quickBtn || '<div class="cust-si-empty">محصولی یافت نشد — دکمه ساخت محصول جدید را بزنید</div>';
+  if(items && quickBtn) drop.innerHTML += quickBtn;
+}
+async function genProdQuickModal(prefill){
+  if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
+  const name=(prefill||'').trim();
+  openModal(`
+    <div class="modal-head"><h3>➕ ساخت سریع محصول</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>نام محصول *</label><input id="gq-name" value="${esc(name)}"></div>
+      <div class="fg"><label>دسته‌بندی</label><select id="gq-cat"><option value="">— بدون دسته —</option>
+        ${(CACHE.productCategories||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>کد</label><input id="gq-code"></div>
+      <div class="fg"><label>قیمت فروش (ت)</label><input id="gq-price" type="text" inputmode="numeric" class="money" value="0"></div>
+      <div class="fg"><label>بهای تمام‌شده (ت)</label><input id="gq-cost" type="text" inputmode="numeric" class="money" value="0"></div>
+      <div class="fg"><label>واحد</label><input id="gq-unit" value="عدد"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveGenProdQuick()">💾 ساخت و افزودن به سبد</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveGenProdQuick(){
+  const name=el('gq-name').value.trim();
+  if(!name){ showToast('نام محصول الزامی است','error'); return; }
+  try{
+    const p=await api('POST','/products/quick',{
+      name, category_id:+el('gq-cat').value||null, code:el('gq-code').value,
+      price:moneyVal('gq-price'), cost:moneyVal('gq-cost'), unit:el('gq-unit').value||'عدد'
+    });
+    if(!CACHE.allProducts) CACHE.allProducts=[];
+    CACHE.allProducts.unshift(p); CACHE.products.unshift(p);
+    genCartAdd(p.id); closeModal(); showToast('محصول ساخته و به سبد اضافه شد');
+  }catch(e){}
 }
 document.addEventListener('click',e=>{ if(!e.target.closest('#genProdSearch')&&!e.target.closest('#genProdDrop')){ const d=el('genProdDrop'); if(d) d.style.display='none'; } });
 
@@ -3739,12 +3913,33 @@ async function renderInventoryHealthReport(box){
 ============================================================ */
 async function renderProductionTab(body){
   if(!CACHE.allProducts||!CACHE.allProducts.length) CACHE.allProducts=await api('GET','/products')||[];
-  const runs=await api('GET','/production')||[];
+  const [runs,cfg]=await Promise.all([api('GET','/production'),api('GET','/production/config')]);
+  const c=cfg||{overhead_method:'tag',overhead_fixed_rate:'0',overhead_period_production_qty:'0',overhead_auto_suggest:'0'};
   body.innerHTML=`
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-head" style="padding:12px 16px;font-weight:700;color:var(--purple)">⚙️ تنظیمات سربار تولید</div>
+      <div class="panel-body" style="padding:14px 16px">
+        <div class="form-grid" style="margin-bottom:10px">
+          <div class="fg"><label>روش محاسبه</label>
+            <select id="oh-method">
+              <option value="tag" ${c.overhead_method==='tag'?'selected':''}>هزینه‌های برچسب‌خورده سربار</option>
+              <option value="fixed" ${c.overhead_method==='fixed'?'selected':''}>نرخ ثابت به ازای هر واحد</option>
+              <option value="both" ${c.overhead_method==='both'?'selected':''}>هر دو روش</option>
+            </select></div>
+          <div class="fg"><label>نرخ ثابت سربار (ت/واحد)</label><input id="oh-fixed" type="text" inputmode="numeric" class="money" value="${moneyInit(c.overhead_fixed_rate)}"></div>
+          <div class="fg"><label>تعداد تولید دوره (اختیاری)</label><input id="oh-period-qty" type="number" min="0" value="${c.overhead_period_production_qty||0}" placeholder="خالی = جمع اجراهای دوره"></div>
+        </div>
+        <button class="btn sm" onclick="saveOverheadConfig()">💾 ذخیره تنظیمات سربار</button>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-right:12px">
+          <input type="checkbox" id="oh-auto" ${c.overhead_auto_suggest==='1'?'checked':''} style="width:auto"> پیشنهاد خودکار سربار هنگام ثبت تولید (اگر خالی باشد)
+        </label>
+        <div class="muted" style="font-size:11px;margin-top:8px">هزینه‌هایی که در «عملیات پرداخت» با گزینه «سربار تولید» ثبت می‌شوند، در محاسبه خودکار سربار لحاظ می‌شوند.</div>
+      </div>
+    </div>
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="productionModal()">➕ ثبت اجرای تولید</button></div>
     <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
       <th>تاریخ</th><th>کالا</th><th>تعداد تولیدی</th><th>ضایعات</th><th>بهای کل (ت)</th><th>بهای واحد (ت)</th><th>حاشیه سود واحد (ت)</th><th>کارایی</th><th>عملیات</th>
-    </tr></thead><tbody>${runs.map(r=>`<tr>
+    </tr></thead><tbody>${(runs||[]).map(r=>`<tr>
       <td class="mono">${escDate(r.date)}</td><td>${esc(r.product_name||'-')}</td>
       <td class="mono">${fmt(r.qty_produced)}</td><td class="mono">${fmt(r.waste_qty||0)}</td>
       <td class="mono">${fmt(r.total_cost)}</td><td class="mono" style="font-weight:700">${fmt(Math.round(r.unit_cost))}</td>
@@ -3754,16 +3949,36 @@ async function renderProductionTab(body){
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>
     <div class="muted" style="font-size:11px;margin-top:8px">این بخش صرفاً برای تحلیل هزینه و کارایی تولید است و سند حسابداری ایجاد نمی‌کند (سیستم دفتر مواد اولیه/در جریان ساخت جداگانه ندارد). در صورت فعال بودن گزینه‌های مربوطه، موجودی کالای ساخته‌شده و بهای تمام‌شده محصول به‌روزرسانی می‌شود.</div>`;
 }
-function productionModal(){
+async function saveOverheadConfig(){
+  try{
+    await api('PUT','/production/config',{
+      overhead_method:el('oh-method').value,
+      overhead_fixed_rate:moneyVal('oh-fixed'),
+      overhead_period_production_qty:+el('oh-period-qty').value||0,
+      overhead_auto_suggest:el('oh-auto')?.checked?'1':'0'
+    });
+    showToast('تنظیمات سربار ذخیره شد');
+  }catch(e){}
+}
+async function productionModal(){
+  if(!CACHE.warehouses) CACHE.warehouses=await api('GET','/warehouses')||[];
   openModal(`
     <div class="modal-head"><h3>🏗️ ثبت اجرای تولید</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>کالای تولیدی *</label><select id="pd-product">${productOptions()}</select></div>
+      <div class="fg"><label>انبار مقصد</label>
+        <select id="pd-warehouse"><option value="">— انبار محصول —</option>
+          ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
+        </select></div>
       <div class="fg"><label>تعداد تولیدی *</label><input id="pd-qty" type="number" min="1"></div>
       <div class="fg"><label>تعداد ضایعات</label><input id="pd-waste-qty" type="number" min="0" value="0"></div>
       <div class="fg"><label>هزینه مواد اولیه (ت)</label><input id="pd-material" type="number" min="0" value="0"></div>
       <div class="fg"><label>هزینه دستمزد (ت)</label><input id="pd-labor" type="number" min="0" value="0"></div>
-      <div class="fg"><label>سربار تولید (ت)</label><input id="pd-overhead" type="number" min="0" value="0"></div>
+      <div class="fg"><label>سربار تولید (ت)</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input id="pd-overhead" type="number" min="0" value="0" style="flex:1">
+          <button type="button" class="btn sm ghost" onclick="suggestProductionOverhead()" title="محاسبه خودکار از هزینه‌های سربار">🔄 پیشنهاد</button>
+        </div></div>
       <div class="fg"><label>هزینه بسته‌بندی (ت)</label><input id="pd-packaging" type="number" min="0" value="0"></div>
       <div class="fg"><label>هزینه ضایعات (ت)</label><input id="pd-waste-cost" type="number" min="0" value="0"></div>
       <div class="fg"><label>تاریخ</label><input id="pd-date" data-jdate value="${todayJalali()}"></div>
@@ -3775,9 +3990,29 @@ function productionModal(){
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
 }
+async function suggestProductionOverhead(){
+  const qty=+el('pd-qty').value||1;
+  const date=el('pd-date')?.value||'';
+  try{
+    const q=new URLSearchParams({qty});
+    if(date){ q.set('from',date.slice(0,8)+'01'); q.set('to',date); }
+    const r=await api('GET','/production/overhead-suggest?'+q);
+    if(r?.suggested_for_qty!=null){
+      el('pd-overhead').value=r.suggested_for_qty;
+      showToast(`سربار پیشنهادی: ${fmt(r.suggested_for_qty)} ت (استخر از ${fmt(r.overhead_pool||0)} ت)`);
+    }
+  }catch(e){}
+}
 async function saveProductionRun(){
   const product_id=+el('pd-product').value, qty_produced=+el('pd-qty').value;
   if(!product_id||!qty_produced){ showToast('کالا و تعداد تولیدی الزامی است','error'); return; }
+  const ohEl=el('pd-overhead');
+  if(ohEl && !(+ohEl.value)){
+    try{
+      const cfg=await api('GET','/production/config');
+      if(cfg?.overhead_auto_suggest==='1') await suggestProductionOverhead();
+    }catch(e){}
+  }
   try{
     await api('POST','/production',{
       product_id, qty_produced,
@@ -3785,6 +4020,7 @@ async function saveProductionRun(){
       overhead_cost:+el('pd-overhead').value||0, packaging_cost:+el('pd-packaging').value||0,
       waste_qty:+el('pd-waste-qty').value||0, waste_cost:+el('pd-waste-cost').value||0,
       date:el('pd-date').value, note:el('pd-note').value,
+      warehouse_id:+el('pd-warehouse')?.value||null,
       update_stock:el('pd-update-stock').checked, update_cost:el('pd-update-cost').checked
     });
     closeModal(); showToast('اجرای تولید ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('production');
@@ -4576,19 +4812,8 @@ async function deleteVoucher(id){
 }
 
 /* ============================================================
-   GENERAL LEDGER (account-level)
+   GENERAL LEDGER (account-level) — embedded in acc-dash; loadGeneralLedger below
 ============================================================ */
-async function renderGeneralLedgerTab(body){
-  if(!CACHE.chartOfAccounts) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
-  body.innerHTML=`
-    <div class="toolbar" style="margin-bottom:12px">
-      <select id="glAccount" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px" onchange="loadGeneralLedger(this.value)">
-        <option value="">-- انتخاب حساب --</option>
-        ${(CACHE.chartOfAccounts||[]).map(a=>`<option value="${a.code}">${a.code} — ${esc(a.name)}</option>`).join('')}
-      </select>
-    </div>
-    <div id="glBody"><div class="empty" style="padding:30px">یک حساب را برای مشاهده دفتر کل انتخاب کنید</div></div>`;
-}
 async function loadGeneralLedger(code){
   const box=el('glBody'); if(!box||!code) return;
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
@@ -4684,19 +4909,133 @@ async function loadBalanceSheet(){
 ============================================================ */
 async function renderChartOfAccountsTab(body){
   const accounts=await api('GET','/accounting/chart-of-accounts')||[];
+  CACHE.chartOfAccounts=accounts;
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px">
+      <button class="btn" onclick="chartAccountModal()">➕ حساب جدید</button>
+      <button class="btn ghost" onclick="go('acc-dash')">📊 بازگشت به داشبورد و دفتر کل</button>
+    </div>
+    ${chartOfAccountsGroupedHtml(accounts)}`;
+}
+function chartAccountsTreeOrder(accounts){
+  const list=accounts||[];
+  const byCode={}; list.forEach(a=>{ byCode[a.code]=a; });
+  const sorted=[];
+  function walk(a,depth){
+    sorted.push({...a,_depth:depth});
+    list.filter(c=>c.parent_code===a.code).sort((x,y)=>String(x.code).localeCompare(String(y.code),undefined,{numeric:true}))
+      .forEach(c=>walk(c,depth+1));
+  }
+  const roots=list.filter(a=>!a.parent_code||!byCode[a.parent_code])
+    .sort((x,y)=>String(x.code).localeCompare(String(y.code),undefined,{numeric:true}));
+  roots.forEach(r=>walk(r,0));
+  const seen=new Set(sorted.map(s=>s.code));
+  list.filter(a=>!seen.has(a.code)).forEach(a=>sorted.push({...a,_depth:1}));
+  return sorted;
+}
+function chartOfAccountsGroupedHtml(accounts){
   const typeLabel={asset:'دارایی',liability:'بدهی',equity:'حقوق صاحبان سرمایه',revenue:'درآمد',cogs:'بهای تمام‌شده',expense:'هزینه'};
   const typeColor={asset:'var(--blue)',liability:'var(--orange)',equity:'var(--purple)',revenue:'var(--green)',cogs:'var(--red)',expense:'var(--red)'};
-  body.innerHTML=`
-    <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>کد</th><th>نام حساب</th><th>نوع</th><th>حساب والد</th>
-    </tr></thead><tbody>
-    ${accounts.map(a=>`<tr style="${!a.parent_code?'font-weight:700;background:var(--purple-light)':''}">
-      <td class="mono">${esc(a.code)}</td>
-      <td style="padding-right:${a.parent_code?24:8}px">${!a.parent_code?'':'↳ '}${esc(a.name)}</td>
-      <td><span style="color:${typeColor[a.type]||'var(--muted)'};font-weight:600">${typeLabel[a.type]||a.type}</span></td>
-      <td class="mono muted">${a.parent_code||'-'}</td>
-    </tr>`).join('')||emptyRow(4)}
-    </tbody></table></div>`;
+  const order=['asset','liability','equity','revenue','cogs','expense'];
+  const byType={}; chartAccountsTreeOrder(accounts).forEach(a=>{ (byType[a.type]=byType[a.type]||[]).push(a); });
+  const canEdit=isAdmin()||ME.role==='accounting';
+  return order.filter(t=>byType[t]?.length).map(t=>`
+    <div style="margin-bottom:16px">
+      <h5 style="margin:0 0 8px;color:${typeColor[t]||'var(--text)'}">${typeLabel[t]||t} (${fmt(byType[t].length)})</h5>
+      <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>کد</th><th>نام حساب</th><th>حساب والد</th><th>عملیات</th>
+      </tr></thead><tbody>
+      ${byType[t].map(a=>`<tr style="${!a.parent_code?'font-weight:700;background:var(--purple-light)':''}">
+        <td class="mono">${esc(a.code)}</td>
+        <td style="padding-right:${8+(a._depth||0)*16}px">${a._depth?('↳ '.repeat(Math.min(a._depth,3))):''}${esc(a.name)}</td>
+        <td class="mono muted">${a.parent_code||'-'}</td>
+        <td style="white-space:nowrap">
+          <button class="btn sm blue" onclick="go('acc-dash');dashPreselectGL('${esc(a.code)}')">📒</button>
+          ${canEdit?`<button class="btn sm ghost" onclick="chartAccountEditModal('${esc(a.code)}')">✏️</button>`:''}
+        </td>
+      </tr>`).join('')}
+      </tbody></table></div>
+    </div>`).join('') || '<div class="empty">حسابی ثبت نشده</div>';
+}
+function dashPreselectGL(code){
+  let tries=0;
+  const trySel=()=>{
+    const sel=el('glAccount');
+    if(sel){ sel.value=code; loadGeneralLedger(code); return; }
+    if(tries++<40) setTimeout(trySel,100);
+  };
+  trySel();
+}
+function chartAccountModal(){
+  const parents=(CACHE.chartOfAccounts||[]).filter(a=>a.is_active!==0);
+  openModal(`
+    <div class="modal-head"><h3>➕ حساب جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>کد حساب *</label><input id="coa-code" placeholder="مثال: 6105" class="mono"></div>
+      <div class="fg"><label>نام حساب *</label><input id="coa-name" placeholder="نام حساب"></div>
+      <div class="fg"><label>نوع حساب *</label><select id="coa-type">
+        <option value="asset">دارایی</option><option value="liability">بدهی</option>
+        <option value="equity">حقوق صاحبان سرمایه</option><option value="revenue">درآمد</option>
+        <option value="cogs">بهای تمام‌شده</option><option value="expense" selected>هزینه</option>
+      </select></div>
+      <div class="fg"><label>حساب والد (اختیاری)</label>
+        <select id="coa-parent"><option value="">— بدون والد —</option>
+        ${parents.map(p=>`<option value="${esc(p.code)}">${esc(p.code)} — ${esc(p.name)}</option>`).join('')}
+        </select></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveChartAccount()">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+function chartAccountEditModal(code){
+  const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
+  if(!a){ showToast('حساب یافت نشد','error'); return; }
+  const parents=(CACHE.chartOfAccounts||[]).filter(x=>x.code!==code);
+  openModal(`
+    <div class="modal-head"><h3>✏️ ویرایش حساب ${esc(code)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>کد</label><input value="${esc(a.code)}" disabled class="mono"></div>
+      <div class="fg"><label>نام حساب *</label><input id="coa-edit-name" value="${esc(a.name)}"></div>
+      <div class="fg"><label>نوع</label><select id="coa-edit-type">
+        ${['asset','liability','equity','revenue','cogs','expense'].map(t=>`<option value="${t}" ${a.type===t?'selected':''}>${t}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>حساب والد</label>
+        <select id="coa-edit-parent"><option value="">— بدون والد —</option>
+        ${parents.map(p=>`<option value="${esc(p.code)}" ${a.parent_code===p.code?'selected':''}>${esc(p.code)} — ${esc(p.name)}</option>`).join('')}
+        </select></div>
+      <div class="fg"><label>وضعیت</label><select id="coa-edit-active">
+        <option value="1" ${a.is_active!==0?'selected':''}>فعال</option>
+        <option value="0" ${a.is_active===0?'selected':''}>غیرفعال</option>
+      </select></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveChartAccountEdit('${esc(code)}')">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveChartAccountEdit(code){
+  try{
+    await api('PUT','/accounting/chart-of-accounts/'+encodeURIComponent(code),{
+      name:el('coa-edit-name').value.trim(),
+      type:el('coa-edit-type').value,
+      parent_code:el('coa-edit-parent').value||null,
+      is_active:+el('coa-edit-active').value
+    });
+    closeModal(); showToast('حساب به‌روز شد');
+    CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
+    if(CURRENT_PAGE==='acc-dash') ROUTES['acc-dash']();
+    else if(accTab==='chart') loadAccTab('chart');
+    const dashChart=el('accDashChart'); if(dashChart) dashChart.innerHTML=chartOfAccountsGroupedHtml(CACHE.chartOfAccounts);
+  }catch(e){}
+}
+async function saveChartAccount(){
+  const code=el('coa-code').value.trim(), name=el('coa-name').value.trim(), type=el('coa-type').value;
+  const parent_code=el('coa-parent')?.value||null;
+  if(!code||!name){ showToast('کد و نام حساب الزامی است','error'); return; }
+  try{
+    await api('POST','/accounting/chart-of-accounts',{code,name,type,parent_code});
+    closeModal(); showToast('حساب ثبت شد');
+    if(CURRENT_PAGE==='acc-dash') ROUTES['acc-dash']();
+    else if(accTab==='chart') loadAccTab('chart');
+    else if(el('accDashChart')) el('accDashChart').innerHTML=chartOfAccountsGroupedHtml(await api('GET','/accounting/chart-of-accounts')||[]);
+  }catch(e){}
 }
 
 /* ============================================================
@@ -4841,9 +5180,7 @@ async function deleteBank(id){
   try{ await api('DELETE','/banks/'+id); showToast('حذف شد'); loadAccTab('banks'); }catch(e){}
 }
 function viewBankLedger(id){
-  go('acc-general-ledger');
-  // The ledger page's account picker renders asynchronously (fetches chart of
-  // accounts first) — poll briefly rather than guessing a fixed delay.
+  go('acc-dash');
   let tries=0;
   const tryPreselect=()=>{
     const sel=el('glAccount');
@@ -4967,7 +5304,7 @@ async function deleteCashBox(id){
   try{ await api('DELETE','/cash-boxes/'+id); showToast('حذف شد'); loadAccTab('cash-boxes'); }catch(e){}
 }
 function viewCashBoxLedger(id){
-  go('acc-general-ledger');
+  go('acc-dash');
   let tries=0;
   const tryPreselect=()=>{
     const sel=el('glAccount');
@@ -5249,8 +5586,17 @@ function expensePaymentModal(){
       <div class="fg"><label>دسته هزینه</label><select id="ex-category">
         <option value="admin">عمومی و اداری</option><option value="sales">توزیع و فروش</option>
       </select></div>
+      <div class="fg full"><label>حساب هزینه (دفتر کل) ${hlp('جستجو و انتخاب حساب از کدینگ — اگر خالی بماند از دسته پیش‌فرض استفاده می‌شود.')}</label>
+        <input type="hidden" id="ex-account-code" value="">
+        <input type="text" id="ex-account-search" class="search" placeholder="جستجوی حساب: کد یا نام..." autocomplete="off"
+          oninput="exAcctShow(this.value)" onfocus="exAcctShow(this.value)"
+          onblur="setTimeout(()=>{const d=el('ex-acct-drop');if(d)d.style.display='none'},200)">
+        <div id="ex-acct-drop" class="cust-si-drop" style="display:none;position:fixed;width:280px;max-height:220px"></div>
+      </div>
       <div class="fg full"><label>عنوان/بابت *</label><input id="ex-title" placeholder="مثال: اجاره دفتر، قبض برق، ..."></div>
       <div class="fg"><label>مبلغ (تومان) *</label><input id="ex-amount" type="text" inputmode="numeric" class="money" min="1"></div>
+      <div class="fg"><label>فاکتور خرید مرتبط (اختیاری)</label><select id="ex-purchase"><option value="">— بدون ارتباط —</option></select></div>
+      <div class="fg full"><label><input type="checkbox" id="ex-overhead" style="width:auto;margin-left:6px"> این هزینه سربار تولید است</label></div>
       <div class="fg"><label>نوع پرداخت</label><select id="ex-paytype" onchange="toggleBankFields('ex')"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
       <div class="fg"><label>پرداخت از بانک</label><select id="ex-bank" onchange="updateCheckCategoryOptions('ex')">
         <option value="">— بدون بانک مشخص —</option>
@@ -5267,6 +5613,33 @@ function expensePaymentModal(){
     <div class="modal-foot"><button class="btn green" onclick="saveExpensePayment()">💾 ثبت پرداخت</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  loadExpenseModalData();
+}
+async function loadExpenseModalData(){
+  if(!CACHE.chartOfAccounts) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
+  const purchases=await api('GET','/purchases')||[];
+  const sel=el('ex-purchase');
+  if(sel) sel.innerHTML='<option value="">— بدون ارتباط —</option>'+
+    purchases.slice(0,100).map(p=>`<option value="${p.id}">${esc(p.num||'#'+p.id)} — ${esc(p.supplier_name||'-')} — ${fmt(p.final||p.total||0)} ت</option>`).join('');
+}
+function exAcctShow(q){
+  const drop=el('ex-acct-drop'), inp=el('ex-account-search'); if(!drop||!inp) return;
+  const term=(q||'').trim().toLowerCase();
+  let list=(CACHE.chartOfAccounts||[]).filter(a=>a.type==='expense'||a.type==='cogs');
+  if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
+  const rect=inp.getBoundingClientRect();
+  drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
+  drop.innerHTML=list.slice(0,40).map(a=>`
+    <div class="cust-si-item" onmousedown="exAcctPick('${esc(a.code)}')">
+      <span>${esc(a.name)}</span><span class="cust-si-meta">${esc(a.code)}</span>
+    </div>`).join('')||'<div class="cust-si-empty">حسابی یافت نشد</div>';
+}
+function exAcctPick(code){
+  const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
+  const hid=el('ex-account-code'), inp=el('ex-account-search');
+  if(hid) hid.value=code;
+  if(inp&&a) inp.value=a.code+' — '+a.name;
+  const drop=el('ex-acct-drop'); if(drop) drop.style.display='none';
 }
 async function saveExpensePayment(){
   const title=el('ex-title').value.trim();
@@ -5278,7 +5651,10 @@ async function saveExpensePayment(){
       category:el('ex-category').value, title, amount,
       pay_type:el('ex-paytype').value, date:el('ex-date').value, note:el('ex-note').value,
       bank_id:+el('ex-bank').value||null, cash_box_id:+el('ex-cashbox')?.value||null,
-      check_category_id:+el('ex-checkcat')?.value||null
+      check_category_id:+el('ex-checkcat')?.value||null,
+      account_code:el('ex-account-code')?.value||null,
+      purchase_invoice_id:+el('ex-purchase')?.value||null,
+      is_overhead:el('ex-overhead')?.checked||false
     });
     closeModal(); showToast('پرداخت هزینه ثبت شد'); loadAccTab('payments');
   }catch(e){}
@@ -5448,35 +5824,55 @@ async function updateChequeStatus(id, status){
   }catch(e){}
 }
 
+let stlRows = [];
+let stlOpenInvoices = [];
 async function settlementModal(custId){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  stlRows=[{amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:''}];
+  stlOpenInvoices=[];
+  if(custId) stlOpenInvoices=await api('GET','/accounting/customers/'+custId+'/open-invoices')||[];
   openModal(`
-    <div class="modal-head"><h3>ثبت پرداخت</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>💵 ثبت پرداخت</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>مشتری * ${hlp('مشتری‌ای که این پرداخت را انجام داده است.')}</label>${custSelect('st-cust', custId)}</div>
-      <div class="fg"><label>مبلغ تسویه (تومان) * ${hlp('مبلغ دریافتی به تومان — از بدهی مشتری کم و در دفتر معین بستانکار می‌شود.')}</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
-      <div class="fg"><label>نوع پرداخت ${hlp('نقد: واریز نقدی/کارتی. چک: پرداخت با چک — اطلاعات چک را در فرم پایین وارد کنید.')}</label><select id="st-paytype" onchange="toggleStlCheque()">
-        <option value="cash">نقد</option><option value="cheque">چک</option></select></div>
-      <div class="fg"><label>واریز به بانک ${hlp('این وجه به کدام حساب بانکی شرکت واریز می‌شود — اختیاری؛ اگر انتخاب نشود در حساب عمومی صندوق/بانک ثبت می‌شود.')}</label><select id="st-bank">
-        <option value="">— بدون بانک مشخص —</option>
-        ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
-      </select></div>
-      <div class="fg"><label>واریز به صندوق ${hlp('اگر این وجه به‌صورت نقد در یکی از صندوق‌ها دریافت شده — اختیاری.')}</label><select id="st-cashbox">
-        <option value="">— بدون صندوق مشخص —</option>
-        ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
-      </select></div>
-      <div class="fg"><label>تاریخ ${hlp('تاریخ دریافت وجه — گزارش‌های دوره‌ای بر اساس این تاریخ فیلتر می‌شوند.')}</label><input id="st-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg full"><label>یادداشت ${hlp('توضیح اختیاری: شماره پیگیری واریز، توافق پرداخت و…')}</label><textarea id="st-note" placeholder="توضیحات اختیاری..."></textarea></div>
+      <div class="fg full"><label>فاکتور مرتبط (اختیاری) ${hlp('اگر این پرداخت بابت یک فاکتور خاص است، آن را انتخاب کنید — فقط فاکتورهای رسمی با مانده باز نمایش داده می‌شوند.')}</label>
+        <select id="st-invoice" onchange="stlApplyInvoiceAmt()"><option value="">— بدون تخصیص به فاکتور —</option>
+        ${stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ت</option>`).join('')}
+        </select></div>
+      <div class="fg full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="st-multi" onchange="stlToggleMulti()" style="width:auto"> ثبت چند قسط / مرحله‌ای
+      </label></div>
+      <div id="stlSingleBlock">
+        <div class="form-grid">
+          <div class="fg"><label>مبلغ (تومان) *</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
+          <div class="fg"><label>نوع پرداخت</label><select id="st-paytype" onchange="toggleStlCheque()"><option value="cash">نقد</option><option value="cheque">چک</option></select></div>
+          <div class="fg"><label>واریز به بانک</label><select id="st-bank"><option value="">— بدون بانک —</option>
+            ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+          </select></div>
+          <div class="fg"><label>واریز به صندوق</label><select id="st-cashbox"><option value="">— بدون صندوق —</option>
+            ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+          </select></div>
+          <div class="fg"><label>تاریخ</label><input id="st-date" data-jdate value="${todayJalali()}"></div>
+          <div class="fg full"><label>یادداشت</label><textarea id="st-note" placeholder="توضیحات..."></textarea></div>
+        </div>
+      </div>
+      <div id="stlMultiBlock" style="display:none">
+        <div class="tbl-wrap" style="margin-bottom:8px"><table class="tbl" style="font-size:12px"><thead><tr>
+          <th>مبلغ (ت)</th><th>نوع</th><th>تاریخ</th><th>فاکتور</th><th></th>
+        </tr></thead><tbody id="stlRowsBody"></tbody></table></div>
+        <button class="btn sm ghost" onclick="stlAddRow()">➕ قسط دیگر</button>
+        <div class="fg" style="margin-top:10px"><label>یادداشت مشترک</label><textarea id="st-note-multi" placeholder="توضیحات..."></textarea></div>
+      </div>
       <div id="chequeFields" class="fg full" style="display:none">
         <div class="form-grid">
-          <div class="fg"><label>نام بانک * ${hlp('بانک صادرکننده چک — در فیلتر مدیریت چک‌ها استفاده می‌شود.')}</label><input id="st-cbank" placeholder="مثال: ملی، صادرات"></div>
-          <div class="fg"><label>شماره صیادی * ${hlp('شماره ۱۶ رقمی صیاد چک — شناسه یکتای پیگیری چک.')}</label><input id="st-csayadi" placeholder="شماره صیادی چک"></div>
-          <div class="fg"><label>شماره چک ${hlp('شماره سری چک (اختیاری).')}</label><input id="st-cnum" placeholder="شماره چک (اختیاری)"></div>
-          <div class="fg"><label>شماره حساب ${hlp('شماره حساب صادرکننده چک (اختیاری).')}</label><input id="st-caccnum" placeholder="شماره حساب (اختیاری)"></div>
-          <div class="fg"><label>مبلغ چک (تومان) ${hlp('فقط اگر مبلغ چک با مبلغ تسویه فرق دارد پر کنید؛ خالی = برابر مبلغ تسویه.')}</label><input id="st-camount" type="text" inputmode="numeric" class="money" placeholder="در صورت تفاوت با مبلغ تسویه"></div>
-          <div class="fg"><label>نام صادرکننده ${hlp('نام صاحب حساب چک.')}</label><input id="st-cowner" placeholder="نام صاحب چک"></div>
-          <div class="fg full"><label>تاریخ سررسید * ${hlp('تاریخ وصول چک — چک‌های سررسید گذشته در جدول چک‌ها قرمز نمایش داده می‌شوند.')}</label><input id="st-cdue" data-jdate></div>
+          <div class="fg"><label>نام بانک *</label><input id="st-cbank" placeholder="مثال: ملی"></div>
+          <div class="fg"><label>شماره صیادی *</label><input id="st-csayadi"></div>
+          <div class="fg"><label>شماره چک</label><input id="st-cnum"></div>
+          <div class="fg"><label>شماره حساب</label><input id="st-caccnum"></div>
+          <div class="fg"><label>مبلغ چک (ت)</label><input id="st-camount" type="text" inputmode="numeric" class="money"></div>
+          <div class="fg"><label>نام صادرکننده</label><input id="st-cowner"></div>
+          <div class="fg full"><label>تاریخ سررسید *</label><input id="st-cdue" data-jdate></div>
         </div>
       </div>
     </div></div>
@@ -5485,24 +5881,79 @@ async function settlementModal(custId){
       <button class="btn ghost" onclick="closeModal()">انصراف</button>
     </div>`);
   attachDatepickers(el('modalRoot'));
+  initCustSearches(el('modalRoot'));
+  const hid=el('st-cust'); if(hid) hid.addEventListener('change', stlCustChanged);
+  renderStlRows();
+}
+async function stlCustChanged(){
+  const custId=+el('st-cust')?.value;
+  stlOpenInvoices=custId?await api('GET','/accounting/customers/'+custId+'/open-invoices')||[]:[];
+  const sel=el('st-invoice');
+  if(sel) sel.innerHTML='<option value="">— بدون تخصیص به فاکتور —</option>'+
+    stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ت</option>`).join('');
+  renderStlRows();
+}
+function stlApplyInvoiceAmt(){
+  const opt=el('st-invoice')?.selectedOptions?.[0];
+  if(!opt||!opt.dataset.out) return;
+  const amt=el('st-amount');   if(amt && !amt.value) amt.value=moneyInit(+opt.dataset.out);
+}
+function stlToggleMulti(){
+  const multi=el('st-multi')?.checked;
+  const s=el('stlSingleBlock'), m=el('stlMultiBlock'), cf=el('chequeFields');
+  if(s) s.style.display=multi?'none':'block';
+  if(m) m.style.display=multi?'block':'none';
+  if(cf && multi) cf.style.display='none';
+  if(multi) renderStlRows();
+}
+function stlAddRow(){ stlRows.push({amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:''}); renderStlRows(); }
+function renderStlRows(){
+  const body=el('stlRowsBody'); if(!body) return;
+  const invOpts='<option value="">—</option>'+stlOpenInvoices.map(i=>`<option value="${i.id}">${esc(i.num)} (${fmt(i.outstanding)} ت)</option>`).join('');
+  body.innerHTML=stlRows.map((r,i)=>`<tr>
+    <td><input type="text" inputmode="numeric" class="money" value="${r.amount}" onchange="stlRows[${i}].amount=this.value" style="width:110px"></td>
+    <td><select onchange="stlRows[${i}].pay_type=this.value"><option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option><option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option></select></td>
+    <td><input data-jdate value="${esc(r.date)}" onchange="stlRows[${i}].date=this.value" style="width:100px"></td>
+    <td><select onchange="stlRows[${i}].invoice_id=this.value">${'<option value="">—</option>'+stlOpenInvoices.map(inv=>`<option value="${inv.id}" ${String(r.invoice_id)===String(inv.id)?'selected':''}>${esc(inv.num)} (${fmt(inv.outstanding)} ت)</option>`).join('')}</select></td>
+    <td>${stlRows.length>1?`<button class="btn sm red" onclick="stlRows.splice(${i},1);renderStlRows()">×</button>`:''}</td>
+  </tr>`).join('');
+  attachDatepickers(body);
 }
 function toggleStlCheque(){
   const pt=el('st-paytype'); if(!pt) return;
   const cf=el('chequeFields'); if(!cf) return;
-  cf.style.display=pt.value==='cheque'?'block':'none';
+  cf.style.display=(pt.value==='cheque' && !el('st-multi')?.checked)?'block':'none';
 }
 
 async function saveSettlement(){
-  const cust_id=+el('st-cust').value, amount=moneyVal('st-amount');
-  const pay_type=el('st-paytype').value;
-  if(!cust_id||!amount){ showToast('مشتری و مبلغ الزامی است','error'); return; }
+  const cust_id=+el('st-cust').value;
+  if(!cust_id){ showToast('مشتری الزامی است','error'); return; }
+  const multi=el('st-multi')?.checked;
+  if(multi){
+    const payments=[];
+    for(let i=0;i<stlRows.length;i++){
+      const r=stlRows[i];
+      const amount=parseInt(String(r.amount).replace(/[^\d]/g,''))||0;
+      if(!amount||amount<=0){ showToast('مبلغ هر قسط باید معتبر باشد','error'); return; }
+      payments.push({amount,pay_type:r.pay_type||'cash',date:r.date||todayJalali(),invoice_id:+r.invoice_id||null,note:r.note||''});
+    }
+    if(!payments.length){ showToast('حداقل یک قسط وارد کنید','error'); return; }
+    try{
+      await api('POST','/accounting/settlements/batch',{cust_id,payments,note:el('st-note-multi')?.value||''});
+      closeModal(); showToast(payments.length+' قسط ثبت شد'); loadAccTab(accTab);
+    }catch(e){}
+    return;
+  }
+  const amount=moneyVal('st-amount'), pay_type=el('st-paytype').value;
+  if(!amount){ showToast('مبلغ الزامی است','error'); return; }
   if(pay_type==='cheque'){
     const bank=el('st-cbank')?.value?.trim(), sayadi=el('st-csayadi')?.value?.trim(), due=el('st-cdue')?.value?.trim();
-    if(!bank||!sayadi||!due){ showToast('برای پرداخت چک، نام بانک، شماره صیادی و سررسید الزامی است','error'); return; }
+    if(!bank||!sayadi||!due){ showToast('برای چک، نام بانک، صیادی و سررسید الزامی است','error'); return; }
   }
+  const invoice_id=+el('st-invoice')?.value||null;
   try{
     await api('POST','/accounting/settlements',{
-      cust_id, amount, pay_type,
+      cust_id, amount, pay_type, invoice_id,
       date:el('st-date').value,
       note:el('st-note').value,
       bank_id:+el('st-bank').value||null,
@@ -5516,7 +5967,7 @@ async function saveSettlement(){
       cheque_due:pay_type==='cheque'?(el('st-cdue')?.value||''):'',
       cheque_status:'pending'
     });
-    closeModal(); showToast('تسویه ثبت شد');
+    closeModal(); showToast('پرداخت ثبت شد');
     loadAccTab(accTab);
   }catch(e){}
 }
@@ -6261,8 +6712,14 @@ function renderAdminGuide(){
       <div class="tip">احتمال خرید (۰-۱۰۰٪) و سطح علاقه‌مندی را دقیق وارد کنید تا گزارش‌های پیش‌بینی دقیق‌تر باشد.</div>`),
     helpSec('🛍️','محصولات و موجودی',`
       <p>کاتالوگ محصولات و مدیریت انبار.</p>
+      <h5>دسته‌بندی محصولات</h5><ul>
+        <li>از دکمه «🏷️ دسته‌بندی‌ها» در بالای صفحه، دسته‌های محصول را بسازید، ویرایش یا حذف کنید</li>
+        <li>هنگام افزودن/ویرایش محصول، دسته را از لیست انتخاب کنید — یا متن آزاد وارد کنید</li>
+        <li>در صفحه محصولات می‌توانید بر اساس انبار فیلتر کنید</li>
+      </ul>
       <h5>افزودن محصول</h5><ul>
         <li>کد، نام، دسته‌بندی، قیمت فروش و موجودی را وارد کنید</li>
+        <li><b>انبار اصلی</b>: انباری که این محصول در آن نگهداری می‌شود (در کارت محصول و فیلتر انبار نمایش داده می‌شود)</li>
         <li><b>بهای تمام‌شده</b> (قیمت تولید/خرید هر واحد) را وارد کنید — مبنای محاسبه سود ناخالص در گزارش سود و زیان است</li>
         <li>حد هشدار موجودی را تنظیم کنید — وقتی کمتر شد، هشدار قرمز نشان می‌دهد</li>
         <li>عکس محصول را آپلود کنید (نمایش در فاکتور)</li>
@@ -6273,7 +6730,8 @@ function renderAdminGuide(){
       <p>صدور پیش‌فاکتور و فاکتور رسمی.</p>
       <h5>صدور فاکتور</h5><ul>
         <li>مشتری را انتخاب کنید</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — کنار هر محصول <b>موجودی لحظه‌ای انبار</b> نمایش داده می‌شود (با کم‌شدن تعداد رزروشده در سبد فاکتور، عدد بلافاصله به‌روز می‌شود؛ قرمز = ناموجود، نارنجی = رو به اتمام)</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — اگر محصولی وجود نداشت، دکمه «➕ ساخت محصول جدید» آن را همان‌جا می‌سازد و به سبد اضافه می‌کند</li>
+        <li>کنار هر محصول <b>موجودی لحظه‌ای انبار</b> نمایش داده می‌شود (با کم‌شدن تعداد رزروشده در سبد فاکتور، عدد بلافاصله به‌روز می‌شود؛ قرمز = ناموجود، نارنجی = رو به اتمام)</li>
         <li>تعداد و قیمت هر ردیف را تنظیم کنید</li>
         <li>درصد تخفیف کل فاکتور را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور رسمی</li>
@@ -6285,10 +6743,10 @@ function renderAdminGuide(){
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی CRM. برای بازگشت، از دکمه «🔙 بازگشت به CRM» بالای منوی کناری آن استفاده کنید.</p>
       <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا و پرداخت انگیزه، سند حسابداری دوطرفه خودکار ثبت می‌شود — نیازی به ثبت دستی نیست (مگر برای مواردی که با سند دستی مشخص می‌شوند).</p>
       <h5>منوی ماژول حسابداری</h5><ul>
-        <li><b>داشبورد حسابداری</b>: آمار کلی، مانده مطالبات/پرداختنی، وضعیت تراز آزمایشی و دسترسی سریع به همه بخش‌ها</li>
-        <li><b>حسابداری کل</b>: صورت سود و زیان کامل (فروش ← تخفیف ← بهای تمام‌شده ← سود ناخالص ← انگیزه فروش ← سود عملیاتی) و جریان وجوه</li>
-        <li><b>مطالبات مشتریان</b>: بدهی هر مشتری با جمع زنده و دکمه ثبت پرداخت</li>
-        <li><b>عملیات دریافت (تسویه با مشتریان)</b>: تاریخچه دریافت‌های نقد/چک از مشتریان — با انتخاب اختیاری «واریز به بانک» یا «واریز به صندوق»</li>
+        <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
+        <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
+        <li><b>مطالبات مشتریان</b>: نمایش به تفکیک مشتری یا فاکتور، با دکمه ثبت پرداخت</li>
+        <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد (قابل مشاهده در «دفتر کل حساب‌ها»)</li>
@@ -6300,17 +6758,17 @@ function renderAdminGuide(){
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>فاکتورهای فروش</b>: لیست همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ، به‌همراه دکمهٔ «فاکتور جدید» — تیم حسابداری می‌تواند بدون نیاز به رفتن به بخش CRM، فاکتور جدید صادر کند (همان فرم انتخاب مشتری/کالا و سبد فاکتور صفحهٔ اصلی فاکتورها)</li>
-        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد</li>
+        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. در سبد خرید می‌توانید محصول را جستجو کنید یا با «➕ ساخت محصول جدید» همان‌جا بسازید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی</li>
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b> (افزودن موجودی به یک انبار مشخص)، <b>حواله انبار</b> (کسر موجودی از یک انبار، مثلاً ضایعات یا مصرف داخلی)، و <b>انتقال بین انبارها</b> (جابه‌جایی کامل موجودی یک کالا به انبار دیگر) — همراه با تاریخچه کامل عملیات</li>
         <li><b>کالای امانی</b>: پیگیری کالاهایی که مالکیتشان هنوز نهایی نشده — <b>ارسالی</b> (کالای ما نزد دیگران، بلافاصله از موجودی کسر می‌شود) و <b>دریافتی</b> (کالای دیگران نزد ما، به موجودی خودمان اضافه نمی‌شود). با «تسویه» فروش قطعی می‌شود (فاکتور/پرداخت واقعی را جداگانه ثبت کنید) و با «استرداد» کالای ارسالی به موجودی برمی‌گردد</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده</li>
-        <li><b>دفتر کل حساب‌ها</b>: انتخاب هر حساب از کدینگ حسابداری و مشاهده گردش کامل آن با مانده لحظه‌ای</li>
+        <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب و مشاهده گردش با مانده لحظه‌ای</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص</li>
-        <li><b>کدینگ حساب‌ها</b>: فهرست کامل حساب‌های حسابداری (برای انتخاب در سند دستی)</li>
+        <li><b>کدینگ حساب‌ها</b>: در همان داشبورد یکپارچه — ساخت و ویرایش حساب با سلسله‌مراتب والد/فرزند</li>
         <li><b>تأیید و انگیزه فروش</b>: تأیید فاکتورها، محاسبه انگیزه هر کارشناس، ثبت پرداخت انگیزه (💵) و تاریخچه (📜)</li>
         <li><b>مراکز هزینه</b>: تعریف واحد/شعبه/خط تولید برای تفکیک هزینه‌ها در گزارش‌های آینده</li>
         <li><b>گروه‌های مشتری (ماهیت حساب)</b>: تعیین اینکه هر گروه از مشتریان «بدهکار» (پیش‌فرض) یا «بستانکار» باشند — فقط مدیر و حسابدار</li>
@@ -6323,7 +6781,7 @@ function renderAdminGuide(){
           و <b>سلامت موجودی</b> (کالاهای با موجودی منفی/صفر، پرفروش‌ترین‌ها و کم‌فروش‌ترین‌های دارای موجودی بالا در یک بازه).
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
-        <li><b>تحلیل هزینه تولید</b>: برای هر اجرای تولید، هزینه مواد اولیه، دستمزد، سربار، بسته‌بندی و ضایعات وارد می‌شود و سیستم بهای تمام‌شده واحد، حاشیه سود (نسبت به قیمت فروش فعلی) و درصد کارایی (نسبت تولید سالم به کل) را محاسبه می‌کند. با گزینه‌های اختیاری، می‌توان موجودی کالای ساخته‌شده را افزایش داد و/یا بهای تمام‌شده محصول را با عدد محاسبه‌شده جایگزین کرد. <span class="muted">این بخش سند حسابداری ایجاد نمی‌کند — صرفاً ابزار تحلیل هزینه و کارایی تولید است.</span></li>
+        <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
         <li><b>حقوق و دستمزد (ساعتی)</b>: کارمندان از ماژول «اشخاص» (دسته «کارمند») انتخاب می‌شوند — شماره پرسنلی/کارت و نرخ ساعتی را در پروندهٔ شخص ثبت کنید تا ورود از فراننکو خودکار تطبیق دهد. با ثبت حقوق هر دوره (ساعت عادی/اضافه‌کاری × نرخ + پاداش − کسورات/بیمه/مالیات)، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند، حقوق را محاسبه و پس از تأیید شما ثبت می‌کند. دکمه «پرداخت» جداگانه، واقعاً وجه را از صندوق/بانک پرداخت می‌کند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>

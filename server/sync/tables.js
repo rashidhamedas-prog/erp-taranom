@@ -47,7 +47,9 @@ const SYNCABLE_TABLES = [
   { name: 'journal_templates', upsertKey: 'id' },
   { name: 'voucher_drafts', upsertKey: 'id' },
   { name: 'messages', upsertKey: 'id' },
-  { name: 'reminders', upsertKey: 'id' }
+  { name: 'reminders', upsertKey: 'id' },
+  { name: 'product_categories', upsertKey: 'id' },
+  { name: 'warehouse_stock', upsertKey: 'id' }
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
