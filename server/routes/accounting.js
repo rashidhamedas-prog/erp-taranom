@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting, resolveCashAccount } = require('../db');
+const { recordCommissionAccrual } = require('../lib/rep-ledger');
 const { auth, adminOnly, adminOrAccounting, centralOnly } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
@@ -319,7 +320,7 @@ router.get('/commissions', auth, adminOrAccounting, (req, res) => {
     return {
       ...u,
       roleLabel: u.role === 'inside_sales' ? 'تلفنی' : 'میدانی',
-      basisLabel: u.commission_basis === 'collection' ? 'وصول' : 'فاکتور',
+      basisLabel: u.commission_basis === 'collection' ? 'وصول' : u.commission_basis === 'profit' ? 'سود' : 'فاکتور',
       ...comm,
       paid,
       payable: view?.payable ?? Math.max(0, comm.totalComm - paid),
@@ -416,7 +417,7 @@ router.get('/my-commission', auth, (req, res) => {
     paid, payable: view?.payable ?? Math.max(0, comm.totalComm - paid),
     balance: view?.balance ?? 0, advancesRemaining: view?.advancesRemaining ?? 0,
     commRate: { cash: u.commission_cash || 0, cheque: u.commission_cheque || 0 },
-    basisLabel: u.commission_basis === 'collection' ? 'بر اساس وصول' : 'بر اساس فاکتور',
+    basisLabel: u.commission_basis === 'collection' ? 'بر اساس وصول' : u.commission_basis === 'profit' ? 'بر اساس سود' : 'بر اساس فاکتور',
     pendingExpenses: pendingExp
   });
 });
@@ -446,9 +447,12 @@ router.post('/invoices/:id/approve', auth, adminOrAccounting, (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'یافت نشد' });
   if (inv.type !== 'final') return res.status(400).json({ error: 'فقط فاکتور رسمی قابل تأیید است' });
-  db.prepare('UPDATE invoices SET approved=1, approved_at=?, approved_by=? WHERE id=?')
-    .run(Math.floor(Date.now() / 1000), req.user.id, inv.id);
-  audit(req.user.id, 'approve', 'invoice', inv.id, `تأیید فاکتور ${inv.num} برای انگیزه فروش`);
+  db.transaction(() => {
+    db.prepare('UPDATE invoices SET approved=1, approved_at=?, approved_by=? WHERE id=?')
+      .run(Math.floor(Date.now() / 1000), req.user.id, inv.id);
+    recordCommissionAccrual(db, inv, req.user.id, createJournalEntry);
+  })();
+  audit(req.user.id, 'approve', 'invoice', inv.id, `تأیید فاکتور ${inv.num} برای انگیزه فروش`, req);
   res.json({ ok: true });
 });
 

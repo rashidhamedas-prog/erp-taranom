@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { getDB, audit, createJournalEntry, resolveCashAccount } = require('../db');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOrAccounting, repModuleAdmin } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const {
   EXPENSE_CATEGORIES, REP_ROLES_SQL, isRepRole, addRepLedger, buildRepLedgerView, buildRepStatement,
@@ -49,22 +49,37 @@ router.get('/expense-categories', auth, (req, res) => {
   res.json(EXPENSE_CATEGORIES);
 });
 
-router.get('/ranking', auth, adminOrAccounting, (req, res) => {
+router.get('/ranking', auth, repModuleAdmin, (req, res) => {
   res.json(getRepRanking(getDB(), { from: req.query.from, to: req.query.to }));
 });
 
-router.get('/territories', auth, adminOrAccounting, (req, res) => {
-  res.json(getDB().prepare('SELECT * FROM rep_territories WHERE active=1 ORDER BY name').all());
+router.get('/territories', auth, repModuleAdmin, (req, res) => {
+  res.json(getDB().prepare(`
+    SELECT t.*, u.name as rep_name FROM rep_territories t
+    LEFT JOIN users u ON t.rep_id=u.id WHERE t.active=1 ORDER BY t.name
+  `).all());
 });
 
-router.post('/territories', auth, adminOrAccounting, (req, res) => {
-  const { name, description } = req.body;
+router.post('/territories', auth, repModuleAdmin, (req, res) => {
+  const { name, description, rep_id, cities } = req.body;
   if (!name) return res.status(400).json({ error: 'نام منطقه الزامی است' });
-  const r = getDB().prepare('INSERT INTO rep_territories (name,description) VALUES (?,?)').run(name, description || '');
+  const r = getDB().prepare('INSERT INTO rep_territories (name,description,rep_id,cities) VALUES (?,?,?,?)')
+    .run(name, description || '', rep_id ? parseInt(rep_id) : null, cities || '');
   res.json({ id: r.lastInsertRowid, ok: true });
 });
 
-router.get('/expenses/pending', auth, adminOrAccounting, (req, res) => {
+router.put('/territories/:id', auth, repModuleAdmin, (req, res) => {
+  const { name, description, rep_id, cities, active } = req.body;
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM rep_territories WHERE id=?').get(+req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  db.prepare('UPDATE rep_territories SET name=?,description=?,rep_id=?,cities=?,active=? WHERE id=?')
+    .run(name || row.name, description ?? row.description, rep_id != null ? parseInt(rep_id) : row.rep_id,
+      cities ?? row.cities, active != null ? (active ? 1 : 0) : row.active, row.id);
+  res.json({ ok: true });
+});
+
+router.get('/expenses/pending', auth, repModuleAdmin, (req, res) => {
   const db = getDB();
   res.json(db.prepare(`
     SELECT e.*, u.name as rep_name, r.name as recorder
@@ -73,7 +88,7 @@ router.get('/expenses/pending', auth, adminOrAccounting, (req, res) => {
   `).all());
 });
 
-router.get('/alerts', auth, adminOrAccounting, (req, res) => {
+router.get('/alerts', auth, repModuleAdmin, (req, res) => {
   const db = getDB();
   const pendingExpenses = db.prepare("SELECT COUNT(*) c FROM rep_expenses WHERE status='pending'").get().c;
   const reps = db.prepare(`SELECT id,name,monthly_target FROM users WHERE active=1 AND role IN ${REP_ROLES_SQL} AND monthly_target>0`).all();
@@ -90,7 +105,7 @@ router.get('/alerts', auth, adminOrAccounting, (req, res) => {
   res.json({ pendingExpenses, targetHits, overdueCheques });
 });
 
-router.get('/assignment-history', auth, adminOrAccounting, (req, res) => {
+router.get('/assignment-history', auth, repModuleAdmin, (req, res) => {
   const db = getDB();
   const { customer_id, rep_id } = req.query;
   let where = '1=1';
@@ -107,7 +122,7 @@ router.get('/assignment-history', auth, adminOrAccounting, (req, res) => {
   `).all(...params));
 });
 
-router.post('/transfer-customer', auth, adminOrAccounting, (req, res) => {
+router.post('/transfer-customer', auth, repModuleAdmin, (req, res) => {
   const { customer_id, to_rep_id, note } = req.body;
   if (!customer_id || !to_rep_id) return res.status(400).json({ error: 'مشتری و نماینده مقصد الزامی است' });
   const db = getDB();
@@ -127,7 +142,7 @@ router.post('/transfer-customer', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/bulk-transfer', auth, adminOrAccounting, (req, res) => {
+router.post('/bulk-transfer', auth, repModuleAdmin, (req, res) => {
   const { customer_ids, to_rep_id, note } = req.body;
   if (!Array.isArray(customer_ids) || !customer_ids.length || !to_rep_id) {
     return res.status(400).json({ error: 'لیست مشتریان و نماینده الزامی است' });
@@ -149,7 +164,7 @@ router.post('/bulk-transfer', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true, transferred: n });
 });
 
-router.post('/expenses/:expenseId/approve', auth, adminOrAccounting, (req, res) => {
+router.post('/expenses/:expenseId/approve', auth, repModuleAdmin, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT e.*, u.name as rep_name FROM rep_expenses e JOIN users u ON e.rep_id=u.id WHERE e.id=?').get(+req.params.expenseId);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
@@ -175,7 +190,7 @@ router.post('/expenses/:expenseId/approve', auth, adminOrAccounting, (req, res) 
   res.json({ ok: true });
 });
 
-router.post('/expenses/:expenseId/reject', auth, adminOrAccounting, (req, res) => {
+router.post('/expenses/:expenseId/reject', auth, repModuleAdmin, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM rep_expenses WHERE id=?').get(+req.params.expenseId);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
@@ -195,7 +210,7 @@ router.delete('/commission-tiers/:tierId', auth, adminOrAccounting, (req, res) =
   res.json({ ok: true });
 });
 
-router.get('/export/all-excel', auth, adminOrAccounting, (req, res) => {
+router.get('/export/all-excel', auth, repModuleAdmin, (req, res) => {
   const XLSX = require('xlsx');
   const db = getDB();
   const { from, to } = req.query;
@@ -229,7 +244,7 @@ router.get('/my/ledger', auth, (req, res) => {
 });
 
 // List reps
-router.get('/', auth, adminOrAccounting, (req, res) => {
+router.get('/', auth, repModuleAdmin, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
   const reps = db.prepare(`
@@ -245,7 +260,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
     return {
       ...r,
       roleLabel: r.role === 'inside_sales' ? 'تلفنی' : 'میدانی',
-      basisLabel: r.commission_basis === 'collection' ? 'وصول' : 'فاکتور',
+      basisLabel: r.commission_basis === 'collection' ? 'وصول' : r.commission_basis === 'profit' ? 'سود' : 'فاکتور',
       customers: custMap[r.id] || 0,
       ...(view?.commission || {}),
       paid: view?.paid || 0,
@@ -319,19 +334,29 @@ router.get('/:id/expenses', auth, adminRepOrSelf, (req, res) => {
   `).all(+req.params.id));
 });
 
-router.post('/:id/expenses', auth, adminRepOrSelf, (req, res) => {
+router.post('/:id/expenses', auth, adminRepOrSelf, repUpload.single('receipt'), (req, res) => {
   const db = getDB();
   const repId = +req.params.id;
   if (!repGuard(db, repId)) return res.status(404).json({ error: 'نماینده یافت نشد' });
   const { category, amount, date, description, receipt_file, cost_center_id } = req.body;
   const amt = parseFloat(amount);
   if (!amt || amt <= 0) return res.status(400).json({ error: 'مبلغ معتبر الزامی است' });
+  const receiptName = req.file?.filename || receipt_file || '';
   const r = db.prepare(`
     INSERT INTO rep_expenses (rep_id,category,amount,date,description,receipt_file,cost_center_id,status,created_by)
     VALUES (?,?,?,?,?,?,?,'pending',?)
-  `).run(repId, category || 'other', amt, date || todayJalali(), description || '', receipt_file || '', cost_center_id || null, req.user.id);
-  audit(req.user.id, 'create', 'rep_expense', r.lastInsertRowid, `هزینه نماینده: ${amt}`);
-  res.json({ id: r.lastInsertRowid, ok: true });
+  `).run(repId, category || 'other', amt, date || todayJalali(), description || '', receiptName, cost_center_id || null, req.user.id);
+  audit(req.user.id, 'create', 'rep_expense', r.lastInsertRowid, `هزینه نماینده: ${amt}`, req);
+  res.json({ id: r.lastInsertRowid, ok: true, receipt_file: receiptName });
+});
+
+router.post('/:id/expenses/:expenseId/receipt', auth, adminRepOrSelf, repUpload.single('file'), (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM rep_expenses WHERE id=? AND rep_id=?').get(+req.params.expenseId, +req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (!req.file) return res.status(400).json({ error: 'فایل الزامی است' });
+  db.prepare('UPDATE rep_expenses SET receipt_file=? WHERE id=?').run(req.file.filename, row.id);
+  res.json({ ok: true, file: req.file.filename });
 });
 
 router.get('/:id/advances', auth, adminRepOrSelf, (req, res) => {

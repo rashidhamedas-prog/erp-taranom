@@ -40,6 +40,14 @@ function adminOrAccounting(req, res, next) {
   next();
 }
 
+// Rep module admin: finance + sales managers
+function repModuleAdmin(req, res, next) {
+  if (!['admin', 'accounting', 'sales_manager'].includes(req.user?.role)) {
+    return res.status(403).json({ error: 'دسترسی ندارید' });
+  }
+  next();
+}
+
 // Central-server-only operations: settings, user management, backfill,
 // API keys, absolute stock overwrite. Rejected on offline-first device
 // builds (SYNC_ROLE=device) regardless of connectivity — these must have
@@ -51,4 +59,4 @@ function centralOnly(req, res, next) {
   next();
 }
 
-module.exports = { auth, adminOnly, adminOrAccounting, centralOnly, SECRET };
+module.exports = { auth, adminOnly, adminOrAccounting, repModuleAdmin, centralOnly, SECRET };

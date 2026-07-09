@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { getDB, audit, createLedgerEntry, isDevice } = require('../db');
+const { assignCustomerByTerritory } = require('../lib/rep-ledger');
 const { auth, adminOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 const XLSX = require('xlsx');
@@ -106,6 +107,9 @@ router.post('/', auth, (req, res) => {
     return created.id;
   })();
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(newId);
+  if (!(req.user.role === 'admin' && assigned_to) && (city || province)) {
+    assignCustomerByTerritory(db, newId, city, province, req.user.id);
+  }
   res.json(row);
   // Fire welcome SMS after response — non-blocking. Central-only: device
   // builds never send SMS (the central replay of this op sends it once).
@@ -130,6 +134,9 @@ router.put('/:id', auth, (req, res) => {
       syncOpeningLedger(db, req.params.id, bal, row.created_at, req.user.id);
     }
   })();
+  if (!(req.user.role === 'admin' && assigned_to) && city && city !== row.city) {
+    assignCustomerByTerritory(db, req.params.id, city, province, req.user.id);
+  }
   res.json({ ok: true });
 });
 

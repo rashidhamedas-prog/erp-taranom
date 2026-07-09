@@ -943,6 +943,7 @@ function initDB() {
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6104','هزینه حقوق و دستمزد','expense','6000')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2104','بدهی بیمه و مالیات کارکنان','liability','2100')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1107','مساعده نمایندگان فروش','asset','1100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2107','بستانکاران انگیزه نمایندگان','liability','2100')").run();
 
   // ---- Marketing representatives module ----
   ensureColumn(db, 'users', 'rep_code', 'TEXT');
@@ -1035,6 +1036,11 @@ function initDB() {
   ensureColumn(db, 'users', 'bonus_pct', 'REAL DEFAULT 0');
   ensureColumn(db, 'users', 'commission_fixed', 'REAL DEFAULT 0');
   ensureColumn(db, 'users', 'supervisor_commission_pct', 'REAL DEFAULT 0');
+  ensureColumn(db, 'users', 'penalty_pct', 'REAL DEFAULT 0');
+  ensureColumn(db, 'audit_log', 'ip_address', "TEXT DEFAULT ''");
+  ensureColumn(db, 'audit_log', 'user_agent', "TEXT DEFAULT ''");
+  ensureColumn(db, 'rep_territories', 'rep_id', 'INTEGER');
+  ensureColumn(db, 'rep_territories', 'cities', "TEXT DEFAULT ''");
   ensureColumn(db, 'products', 'brand', "TEXT DEFAULT ''");
   ensureColumn(db, 'customers', 'rep_territory', "TEXT DEFAULT ''");
   ensureColumn(db, 'rep_commission_rules', 'scope_label', "TEXT DEFAULT ''");
@@ -1521,10 +1527,19 @@ function backfillAccounting(db) {
 }
 
 // Helper used across routes to record audit entries
-function audit(userId, action, entity, entityId, detail) {
+function audit(userId, action, entity, entityId, detail, reqOrMeta) {
   try {
-    getDB().prepare('INSERT INTO audit_log (user_id,action,entity,entity_id,detail) VALUES (?,?,?,?,?)')
-      .run(userId || null, action, entity, entityId || null, detail || '');
+    let ip = '', ua = '';
+    if (reqOrMeta && reqOrMeta.headers) {
+      ip = (reqOrMeta.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+        reqOrMeta.socket?.remoteAddress || reqOrMeta.ip || '';
+      ua = String(reqOrMeta.headers['user-agent'] || '').slice(0, 500);
+    } else if (reqOrMeta && typeof reqOrMeta === 'object') {
+      ip = reqOrMeta.ip || '';
+      ua = String(reqOrMeta.user_agent || '').slice(0, 500);
+    }
+    getDB().prepare('INSERT INTO audit_log (user_id,action,entity,entity_id,detail,ip_address,user_agent) VALUES (?,?,?,?,?,?,?)')
+      .run(userId || null, action, entity, entityId || null, detail || '', ip, ua);
   } catch (e) { /* never let audit failures break a request */ }
 }
 
