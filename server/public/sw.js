@@ -1,5 +1,5 @@
 // CRM ترنم - service worker: network-first for HTML, cache-first for assets
-const CACHE = 'crm-taranom-v6';
+const CACHE = 'crm-taranom-v7';
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
@@ -17,6 +17,9 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || req.url.includes('/api/')) return;
+  // User uploads (product photos etc.) must always hit the server — device
+  // builds pull missing files from central on demand.
+  if (req.url.includes('/uploads/')) return;
 
   const isHTML = req.headers.get('accept')?.includes('text/html') ||
                  req.url.endsWith('/') || req.url.endsWith('.html');

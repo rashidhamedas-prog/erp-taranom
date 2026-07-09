@@ -23,8 +23,9 @@ try {
 
 // Ensure uploads directory exists
 const { UPLOADS_ROOT } = require('./paths');
-const UPLOADS = path.join(UPLOADS_ROOT, 'products');
-fs.mkdirSync(UPLOADS, { recursive: true });
+for (const sub of ['products', 'messages', 'vouchers']) {
+  fs.mkdirSync(path.join(UPLOADS_ROOT, sub), { recursive: true });
+}
 
 // Security headers (helmet if available, manual fallback)
 let helmet = null;
@@ -61,7 +62,7 @@ app.use(cors({
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
-// Static assets (includes /uploads/products/* and /logo.png if present)
+// Static assets (includes /logo.png if present; /uploads served separately below)
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     if (filePath.endsWith('assetlinks.json')) {
@@ -70,6 +71,13 @@ app.use(express.static(path.join(__dirname, 'public'), {
     }
   }
 }));
+// Device builds: pull missing uploads from central on first request
+if (isDevice()) {
+  const { uploadFallbackMiddleware } = require('./sync/files');
+  const { getConfig } = require('./sync/client');
+  const { getDB } = require('./db');
+  app.use('/uploads', uploadFallbackMiddleware(() => getConfig(getDB())));
+}
 // Uploaded images are content-addressed by unique filename → safe to cache long-term
 app.use('/uploads', express.static(UPLOADS_ROOT, {
   maxAge: '30d',
@@ -162,6 +170,45 @@ app.use('/api/v1', require('./routes/api_v1'));
 // Server time endpoint — returns Unix timestamp (UTC) for reliable client clock sync
 app.get('/api/system/time', (req, res) => {
   res.json({ ts: Date.now() });
+});
+
+const { readManifest, buildUpdateResponse } = require('./lib/app-update');
+
+// App version info (bundled manifest — used by offline builds to know their own version)
+app.get('/api/system/app-info', (req, res) => {
+  const manifest = readManifest();
+  const platform = process.env.APP_PLATFORM || (isDevice() ? 'device' : 'web');
+  const version = process.env.APP_VERSION || manifest.web?.version || '0';
+  res.json({ manifest, role: isDevice() ? 'device' : 'central', platform, version });
+});
+
+// Check for newer desktop/android/web builds
+app.get('/api/system/app-update', async (req, res) => {
+  const platform = req.query.platform || 'web';
+  const current = req.query.version || '0';
+  if (isDevice()) {
+    try {
+      const client = require('./sync/client');
+      const remote = await client.fetchCentralAppUpdate(platform, current);
+      if (remote) return res.json(remote);
+      return res.json(client.getLocalAppUpdate(platform, current));
+    } catch { /* fall through */ }
+  }
+  const base = process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  res.json(buildUpdateResponse(platform, current, readManifest(), base));
+});
+
+// Feed URL for electron-updater (desktop auto-update)
+app.get('/api/system/update-feed', (req, res) => {
+  if (isDevice()) {
+    try {
+      const client = require('./sync/client');
+      const url = client.getUpdateFeedUrl();
+      return res.json({ url });
+    } catch { return res.json({ url: null }); }
+  }
+  const base = process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  res.json({ url: base.replace(/\/$/, '') + '/releases/' });
 });
 
 // Serve .well-known/assetlinks.json explicitly (TWA domain verification)

@@ -9,6 +9,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { getDB, seedProvisionalSequences } = require('../db');
 const { SYNCABLE_TABLES, FK_COLUMNS, isProvisionalId } = require('./tables');
+const { pullMissingFiles, countMissingFiles } = require('./files');
+const { readManifest, buildUpdateResponse } = require('../lib/app-update');
 
 const state = {
   online: false,
@@ -88,7 +90,9 @@ async function pair(centralUrl, username, password, deviceName) {
 
   // Initial full pull. Then remove the pre-pairing placeholder admin: any
   // local user row whose id wasn't in the pulled user set is a seed artifact.
-  const pulledUserIds = await pullAll(db, getConfig(db));
+  const cfg = getConfig(db);
+  const pulledUserIds = await pullAll(db, cfg);
+  await pullMissingFiles(db, cfg).catch(e => console.error('initial file sync:', e.message));
   if (pulledUserIds.size) {
     const ids = [...pulledUserIds];
     db.prepare(`DELETE FROM users WHERE id NOT IN (${ids.map(() => '?').join(',')})`).run(...ids);
@@ -111,9 +115,12 @@ async function syncNow() {
 
     const pushRes = await pushPending(db, cfg);
     await pullAll(db, cfg);
+    const fileRes = await pullMissingFiles(db, cfg);
+    if (fileRes.pulled > 0) state.dataVersion++;
     state.lastSyncAt = Math.floor(Date.now() / 1000);
     state.lastError = null;
-    return { ok: true, ...pushRes, pending: pendingCount(db), conflicts: conflictCount(db) };
+    return { ok: true, ...pushRes, ...fileRes, pending: pendingCount(db), conflicts: conflictCount(db) };
+
   } catch (e) {
     state.lastError = e.message;
     return { ok: false, error: e.message };
@@ -339,6 +346,8 @@ function conflictCount(db) {
 function getStatus() {
   const db = getDB();
   const cfg = getConfig(db);
+  let filesMissing = 0;
+  try { filesMissing = isPaired(db) ? countMissingFiles(db) : 0; } catch { /* */ }
   return {
     role: 'device',
     paired: isPaired(db),
@@ -348,11 +357,24 @@ function getStatus() {
     syncing: state.syncing,
     pending: pendingCount(db),
     conflicts: conflictCount(db),
+    files_missing: filesMissing,
     last_sync_at: state.lastSyncAt,
     last_pull_seq: cfg.lastPullSeq,
     last_error: state.lastError,
     data_version: state.dataVersion
   };
+}
+
+async function pullFilesNow() {
+  const db = getDB();
+  if (!isPaired(db)) return { ok: false, error: 'دستگاه هنوز به سرور مرکزی متصل نشده است' };
+  const cfg = getConfig(db);
+  if (!(state.online || await probe(cfg.centralUrl))) {
+    return { ok: false, error: 'سرور مرکزی در دسترس نیست' };
+  }
+  const fileRes = await pullMissingFiles(db, cfg);
+  if (fileRes.pulled > 0) state.dataVersion++;
+  return { ok: true, ...fileRes, files_missing: countMissingFiles(db) };
 }
 
 // Background loop: sync shortly after boot, then every interval. Re-seeds the
@@ -370,4 +392,32 @@ function startClientLoop(intervalMs) {
   return loopTimer;
 }
 
-module.exports = { pair, syncNow, discardConflict, getStatus, startClientLoop, isPaired };
+async function fetchCentralAppUpdate(platform, current) {
+  const db = getDB();
+  const cfg = getConfig(db);
+  if (!cfg.centralUrl) return null;
+  try {
+    const r = await fetch(
+      `${cfg.centralUrl.replace(/\/$/, '')}/api/system/app-update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(current)}`
+    );
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+
+function getUpdateFeedUrl() {
+  const db = getDB();
+  const cfg = getConfig(db);
+  return cfg.centralUrl ? cfg.centralUrl.replace(/\/$/, '') + '/releases/' : null;
+}
+
+function getLocalAppUpdate(platform, current) {
+  const manifest = readManifest();
+  const base = getConfig(getDB()).centralUrl || '';
+  return buildUpdateResponse(platform, current, manifest, base);
+}
+
+module.exports = {
+  pair, syncNow, pullFilesNow, discardConflict, getStatus, getConfig, startClientLoop, isPaired,
+  fetchCentralAppUpdate, getUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles
+};

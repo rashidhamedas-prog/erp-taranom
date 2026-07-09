@@ -430,6 +430,11 @@ table.tbl tr:hover td{background:#F7FAF7}
 #installBanner.show{display:flex}
 #installBanner button{background:var(--gold);color:#1A5C38;border:none;padding:8px 16px;border-radius:9px;font-weight:700;font-size:13px}
 #installBanner .x-btn{background:rgba(255,255,255,.2);border:none;color:#fff;width:28px;height:28px;border-radius:50%;font-size:16px;flex-shrink:0}
+#updateBanner{display:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);
+  background:#1e3a5f;color:#fff;padding:10px 14px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);
+  z-index:801;align-items:center;gap:10px;max-width:min(520px,calc(100vw - 24px));font-size:13px}
+#updateBanner button{background:#fbbf24;color:#1A5C38;border:none;padding:7px 14px;border-radius:9px;font-weight:700;font-size:12px;white-space:nowrap}
+#updateBanner .x-btn{background:rgba(255,255,255,.15);border:none;color:#fff;width:26px;height:26px;border-radius:50%;font-size:15px;flex-shrink:0}
 </style>
 </head>
 <body>
@@ -509,6 +514,13 @@ table.tbl tr:hover td{background:#F7FAF7}
   <button class="x-btn" onclick="dismissInstall()">×</button>
 </div>
 
+<!-- ===== App Update Banner (desktop / android) ===== -->
+<div id="updateBanner">
+  <span id="updateBannerText" style="flex:1"></span>
+  <button onclick="doAppUpdate()">⬇️ دانلود</button>
+  <button class="x-btn" onclick="dismissAppUpdate()">×</button>
+</div>
+
 <!-- ===== Toasts ===== -->
 <div id="toasts"></div>
 
@@ -519,6 +531,26 @@ table.tbl tr:hover td{background:#F7FAF7}
 let ME = null;
 let CACHE = { customers:[], products:[], allProducts:[], users:[], orders:[], followups:[], invoices:[], settings:{} };
 let mChart = null;
+let APP_INFO = null, PENDING_UPDATE = null;
+
+// Product image URLs — device builds pull missing files from central on demand
+function prodImgUrl(name){ return name ? '/uploads/products/'+encodeURIComponent(name) : ''; }
+function prodImgTag(name, extra=''){
+  if(!name) return '🧥';
+  const safe = String(name).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  return `<img src="${prodImgUrl(name)}" loading="lazy" decoding="async" ${extra} onerror="retryProdImg(this,'${safe}')">`;
+}
+async function retryProdImg(img, name){
+  if(img.dataset.retried){ img.replaceWith(document.createTextNode('🧥')); return; }
+  img.dataset.retried='1';
+  if(SYNC_MODE){
+    try{
+      const token=localStorage.getItem('crm_token');
+      await fetch('/api/sync/pull-files',{method:'POST',headers:{'Authorization':'Bearer '+token}});
+    }catch(e){}
+  }
+  img.src=prodImgUrl(name)+'?t='+Date.now();
+}
 
 // Iran provinces with major cities
 const IRAN_PROVINCES = {
@@ -1109,6 +1141,7 @@ async function boot(){
   setInterval(refreshMsgBadge, 30000);
   setInterval(refreshRemBadge, 60000);
   initSyncUI();
+  initAppUpdate();
 }
 
 async function loadInitial(){
@@ -1165,7 +1198,19 @@ async function initSyncUI(){
       maybeRefreshAfterSync();
     }catch(e){} }, 20000);
     if(!SYNC_STATUS.paired && isAdmin()) openSyncPairModal();
+    else if(SYNC_STATUS.paired && SYNC_STATUS.files_missing>0) pullProductImages(true);
   }catch(e){ /* central server — no sync UI */ }
+}
+
+async function pullProductImages(silent){
+  const token = localStorage.getItem('crm_token');
+  const r = await fetch('/api/sync/pull-files',{method:'POST',headers:{'Authorization':'Bearer '+token}});
+  const j = await r.json().catch(()=>({}));
+  if(j.ok && j.pulled>0){
+    if(!silent) showToast(`${fmt(j.pulled)} تصویر از سرور مرکزی دریافت شد`);
+    SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge();
+    maybeRefreshAfterSync();
+  } else if(!silent && !j.ok) showToast(j.error||'دریافت تصاویر ناموفق بود','error');
 }
 
 // When a background sync changed local data (id remap, pulled rows/deletes),
@@ -1198,6 +1243,8 @@ function renderSyncBadge(){
     b.textContent=`📡 آفلاین${s.pending?` · ${fmt(s.pending)} در صف`:''}`; b.style.background='#f3f4f6'; b.style.color='#6b7280';
   } else if(s.pending>0){
     b.textContent=`🔄 ${fmt(s.pending)} در انتظار ارسال`; b.style.background='#fef3c7'; b.style.color='#b45309';
+  } else if(s.files_missing>0){
+    b.textContent=`🖼️ ${fmt(s.files_missing)} تصویر در انتظار`; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else {
     b.textContent='🟢 همگام با مرکز'; b.style.background='#dcfce7'; b.style.color='#15803d';
   }
@@ -1225,10 +1272,14 @@ async function openSyncPanel(){
         <span class="tag ${s.online?'t-done':'t-cancel'}">${s.online?'🟢 متصل به مرکز':'📡 آفلاین'}</span>
         <span class="tag">${fmt(s.pending)} عملیات در صف</span>
         <span class="tag ${s.conflicts?'t-cancel':'t-done'}">${fmt(s.conflicts)} تعارض</span>
+        ${s.files_missing?`<span class="tag t-pending">🖼️ ${fmt(s.files_missing)} تصویر محلی نیست</span>`:''}
         ${s.last_sync_at?`<span class="tag">آخرین همگام‌سازی: ${new Date(s.last_sync_at*1000).toLocaleTimeString('fa-IR')}</span>`:''}
       </div>
       ${s.last_error?`<div style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px">${esc(s.last_error)}</div>`:''}
-      <button class="btn" style="margin-bottom:14px" onclick="syncNowUI()">🔄 همگام‌سازی اکنون</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        <button class="btn" onclick="syncNowUI()">🔄 همگام‌سازی اکنون</button>
+        ${s.files_missing?`<button class="btn ghost" onclick="pullProductImages()">🖼️ دریافت تصاویر</button>`:''}
+      </div>
       ${pending.filter(p=>p.status==='pending').length?`
         <h4 style="margin:10px 0 6px">⏳ در صف ارسال</h4>
         <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><tbody>
@@ -1252,7 +1303,10 @@ async function syncNowUI(){
   showToast('همگام‌سازی شروع شد...');
   const r = await fetch('/api/sync/now',{method:'POST',headers:{'Authorization':'Bearer '+token}});
   const j = await r.json().catch(()=>({}));
-  if(j.ok){ showToast(`همگام‌سازی انجام شد (${fmt(j.confirmed||0)} عملیات تأیید شد)`); }
+  if(j.ok){
+    const extra = j.pulled ? ` · ${fmt(j.pulled)} تصویر` : '';
+    showToast(`همگام‌سازی انجام شد (${fmt(j.confirmed||0)} عملیات تأیید شد${extra})`);
+  }
   else showToast(j.error||'همگام‌سازی ناموفق بود','error');
   SYNC_STATUS = await fetchSyncStatus(); renderSyncBadge();
   closeModal();
@@ -2206,7 +2260,7 @@ function renderInvPicker(){
     const avail=(p.stock||0)-reserved;
     return `
     <div class="pick-card" id="pc-${p.id}" onclick="pickCardTap(event,${p.id})">
-      <div class="pimg">${p.image?`<img src="/uploads/products/${esc(p.image)}" loading="lazy" decoding="async">`:'🧥'}</div>
+      <div class="pimg">${p.image?prodImgTag(p.image):'🧥'}</div>
       <div class="pn">${esc(p.name)}</div>
       <div class="pp">${fmt(p.price)} ت</div>
       <div class="pst" style="font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}">موجودی: ${fmt(avail)}</div>
@@ -2451,7 +2505,7 @@ function renderProdGrid(canEdit){
       <div style="position:absolute;top:8px;right:8px;z-index:2">
         <input type="checkbox" ${sel?'checked':''} onchange="toggleProd(${p.id},this.checked)" style="width:16px;height:16px;cursor:pointer">
       </div>
-      <div class="img" ${p.image?`onclick="showImgPreview('/uploads/products/${esc(p.image)}')" style="cursor:zoom-in"`:''}>${p.image?`<img src="/uploads/products/${esc(p.image)}" loading="lazy" decoding="async">`:'🧥'}</div>
+      <div class="img" ${p.image?`onclick="showImgPreview(prodImgUrl('${String(p.image).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}'))" style="cursor:zoom-in"`:''}>${p.image?prodImgTag(p.image):'🧥'}</div>
       <div class="body">
         <div class="name">${esc(p.name)}</div>
         <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}${p.warehouse_name?' · 🏭 '+esc(p.warehouse_name):''}</div>
@@ -2534,7 +2588,7 @@ async function prodModal(id){
         </select></div>
       <div class="fg full"><label>تصویر محصول ${hlp('عکس محصول — در کاتالوگ و کارت انتخاب محصولِ فاکتورساز نمایش داده می‌شود.')}</label><input id="p-image" type="file" accept="image/*"></div>
       <div class="fg full"><label>یادداشت ${hlp('توضیح آزاد درباره محصول: جنس پارچه، سایزبندی، رنگ‌بندی و…')}</label><textarea id="p-note">${esc(p.note||'')}</textarea></div>
-      ${p.image?`<div class="fg full"><img src="/uploads/products/${esc(p.image)}" style="height:90px;border-radius:8px"></div>`:''}
+      ${p.image?`<div class="fg full">${prodImgTag(p.image,'style="height:90px;border-radius:8px"')}</div>`:''}
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveProduct(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
@@ -7053,6 +7107,65 @@ function doPWAInstall(){
   _pwaPrompt.userChoice.then(r=>{ if(r.outcome==='accepted') dismissInstall(); });
 }
 function dismissInstall(){ el('installBanner').classList.remove('show'); localStorage.setItem('pwa_dismissed','1'); }
+
+/* ============================================================
+   APP UPDATE (desktop / android device builds)
+============================================================ */
+function detectClientPlatform(){
+  const ua = navigator.userAgent || '';
+  if(ua.includes('CRMTaranomAndroid')) return 'android';
+  if(ua.includes('Electron')) return 'desktop';
+  return 'web';
+}
+
+async function initAppUpdate(){
+  try{
+    APP_INFO = await fetch('/api/system/app-info').then(r=>r.json());
+    if(!APP_INFO || APP_INFO.role!=='device') return;
+    const platform = APP_INFO.platform==='device' ? detectClientPlatform() : APP_INFO.platform;
+    if(platform==='web') return;
+    const r = await fetch(`/api/system/app-update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(APP_INFO.version||'0')}`);
+    if(!r.ok) return;
+    PENDING_UPDATE = await r.json();
+    PENDING_UPDATE.platform = platform;
+    if(PENDING_UPDATE.update_available && !localStorage.getItem('upd_dismiss_'+PENDING_UPDATE.latest_version)){
+      showUpdateBanner();
+    }
+    setInterval(checkAppUpdate, 6*60*60*1000);
+  }catch(e){}
+}
+
+async function checkAppUpdate(){
+  if(!APP_INFO || APP_INFO.role!=='device') return;
+  const platform = APP_INFO.platform==='device' ? detectClientPlatform() : APP_INFO.platform;
+  if(platform==='web') return;
+  try{
+    const r = await fetch(`/api/system/app-update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(APP_INFO.version||'0')}`);
+    if(!r.ok) return;
+    PENDING_UPDATE = await r.json();
+    PENDING_UPDATE.platform = platform;
+    if(PENDING_UPDATE.update_available && !localStorage.getItem('upd_dismiss_'+PENDING_UPDATE.latest_version)) showUpdateBanner();
+  }catch(e){}
+}
+
+function showUpdateBanner(){
+  const b = el('updateBanner'), t = el('updateBannerText');
+  if(!b || !t || !PENDING_UPDATE) return;
+  const plat = PENDING_UPDATE.platform || detectClientPlatform();
+  const label = plat==='android' ? 'نسخه جدید اپ اندروید' : 'نسخه جدید دسکتاپ';
+  t.textContent = `⬆️ ${label} (${PENDING_UPDATE.latest_version}) موجود است` + (PENDING_UPDATE.notes ? ' — '+PENDING_UPDATE.notes : '');
+  b.style.display = 'flex';
+}
+
+function doAppUpdate(){
+  if(!PENDING_UPDATE || !PENDING_UPDATE.url){ showToast('لینک دانلود در دسترس نیست','error'); return; }
+  window.open(PENDING_UPDATE.url, '_blank');
+}
+
+function dismissAppUpdate(){
+  el('updateBanner').style.display='none';
+  if(PENDING_UPDATE) localStorage.setItem('upd_dismiss_'+PENDING_UPDATE.latest_version,'1');
+}
 
 /* ============================================================
    CLOCK + SW + INIT

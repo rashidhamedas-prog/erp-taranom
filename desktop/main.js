@@ -10,6 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const net = require('net');
 const crypto = require('crypto');
+const pkg = require('./package.json');
 
 let mainWindow = null;
 
@@ -40,6 +41,8 @@ async function startEmbeddedServer() {
 
   const port = await getFreePort();
   process.env.SYNC_ROLE = 'device';
+  process.env.APP_PLATFORM = 'desktop';
+  process.env.APP_VERSION = pkg.version;
   process.env.PORT = String(port);
   process.env.DB_PATH = path.join(dataDir, 'crm.db');
   process.env.UPLOADS_DIR = path.join(dataDir, 'uploads');
@@ -48,6 +51,47 @@ async function startEmbeddedServer() {
   // server.js starts listening at require time
   require(path.join(__dirname, 'server', 'server.js'));
   return port;
+}
+
+async function setupAutoUpdate(port) {
+  let autoUpdater;
+  try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  const applyFeed = async () => {
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/api/system/update-feed`);
+      const { url } = await r.json();
+      if (!url) return false;
+      autoUpdater.setFeedURL({ provider: 'generic', url: url.endsWith('/') ? url : url + '/' });
+      return true;
+    } catch { return false; }
+  };
+
+  autoUpdater.on('update-downloaded', () => {
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'CRM ترنم',
+      message: 'نسخه جدید دانلود شد.',
+      detail: 'برای نصب، برنامه را ببندید و دوباره باز کنید (یا همین الان ری‌استارت کنید).',
+      buttons: ['بعداً', 'ری‌استارت و نصب'],
+      defaultId: 1
+    }).then(({ response }) => {
+      if (response === 1) autoUpdater.quitAndInstall(false, true);
+    });
+  });
+
+  autoUpdater.on('error', (e) => console.error('auto-update:', e.message));
+
+  const check = async () => {
+    if (!(await applyFeed())) return;
+    try { await autoUpdater.checkForUpdates(); } catch (e) { console.error('auto-update check:', e.message); }
+  };
+
+  setTimeout(check, 15000);
+  setInterval(check, 4 * 60 * 60 * 1000);
 }
 
 async function createWindow() {
@@ -65,7 +109,7 @@ async function createWindow() {
     height: 860,
     minWidth: 900,
     minHeight: 600,
-    title: 'CRM ترنم',
+    title: 'CRM Taranom',
     icon: path.join(__dirname, 'build', 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
@@ -82,6 +126,8 @@ async function createWindow() {
     });
   };
   setTimeout(() => tryLoad(0), 300);
+
+  setupAutoUpdate(port);
 
   // External links (e.g. Instagram) open in the system browser, not the app
   mainWindow.webContents.setWindowOpenHandler(({ url: target }) => {

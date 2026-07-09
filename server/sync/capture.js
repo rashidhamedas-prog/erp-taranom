@@ -11,7 +11,10 @@
 // time, so the diff can only contain this op's rows). Those captured rows are
 // deleted when central confirms the op, and central's authoritative versions
 // arrive via pull.
+const fs = require('fs');
+const path = require('path');
 const { getDB } = require('../db');
+const { UPLOADS_ROOT } = require('../paths');
 const { SYNCABLE_TABLES } = require('./tables');
 
 // Paths that must never be captured/replayed:
@@ -79,6 +82,26 @@ function snapshotSequences(db) {
 }
 
 // Rows created between two snapshots, restricted to syncable tables.
+// Multer memoryStorage has no .path — resolve the saved filename from DB/response.
+function resolveUploadedFilePath(db, reqPath, entityTable, entityLocalId, responseBody) {
+  const id = entityLocalId || (responseBody && Number.isInteger(responseBody.id) ? responseBody.id : null);
+  if (!id) return null;
+  try {
+    if (entityTable === 'products') {
+      const row = db.prepare('SELECT image FROM products WHERE id=?').get(id);
+      if (row && row.image) return path.join(UPLOADS_ROOT, 'products', row.image);
+    }
+    if (reqPath.includes('/attachment')) {
+      const row = db.prepare('SELECT attachment FROM journal_entries WHERE id=?').get(id);
+      if (row && row.attachment) return path.join(UPLOADS_ROOT, 'vouchers', row.attachment);
+    }
+    if (reqPath.includes('/with-image') && responseBody && responseBody.image) {
+      return path.join(UPLOADS_ROOT, 'messages', responseBody.image);
+    }
+  } catch { /* schema drift */ }
+  return null;
+}
+
 function diffSequences(before, after) {
   const created = {};
   for (const t of SYNCABLE_TABLES) {
@@ -100,13 +123,13 @@ function captureMiddleware(req, res, next) {
   if (req.headers['x-sync-suppress']) return next(); // internal ops (discard etc.)
 
   const db = getDB();
-  const path = req.path;
-  const entityTable = tableForPath(path);
+  const reqPath = req.path;
+  const entityTable = tableForPath(reqPath);
 
   // Optimistic-concurrency base version for edits of already-synced rows
   let baseVersion = null;
   if ((method === 'PUT' || method === 'PATCH') && entityTable) {
-    const m = path.match(/\/(\d+)(?:\/[a-z-]+)?$/);
+    const m = reqPath.match(/\/(\d+)(?:\/[a-z-]+)?$/);
     if (m) {
       try {
         const row = db.prepare(`SELECT version FROM ${entityTable} WHERE id=?`).get(+m[1]);
@@ -125,15 +148,29 @@ function captureMiddleware(req, res, next) {
         if (method === 'POST' && body && typeof body === 'object' && Number.isInteger(body.id)) {
           entityLocalId = body.id;
         } else {
-          const m = path.match(/\/(\d+)(?:\/[a-z-]+)?$/);
+          const m = reqPath.match(/\/(\d+)(?:\/[a-z-]+)?$/);
           if (m) entityLocalId = +m[1];
+        }
+        let filePath = null;
+        if (req.file) {
+          if (req.file.path && fs.existsSync(req.file.path)) filePath = req.file.path;
+          else if (req.file.buffer) {
+            const pendingDir = path.join(path.dirname(UPLOADS_ROOT), 'sync-pending');
+            fs.mkdirSync(pendingDir, { recursive: true });
+            const fname = `${Date.now()}-${(req.file.originalname || 'upload').replace(/[^\w.-]/g, '_')}`;
+            filePath = path.join(pendingDir, fname);
+            fs.writeFileSync(filePath, req.file.buffer);
+          }
+        }
+        if (req.file && !filePath) {
+          filePath = resolveUploadedFilePath(db, reqPath, entityTable, entityLocalId, body);
         }
         db.prepare(`INSERT INTO sync_outbox
           (method, path, body_json, user_id, base_version, entity_table, entity_local_id, captured_rows_json, has_file, file_path)
           VALUES (?,?,?,?,?,?,?,?,?,?)`)
-          .run(method, req.originalUrl || path, JSON.stringify(req.body || {}),
+          .run(method, req.originalUrl || reqPath, JSON.stringify(req.body || {}),
                req.user ? req.user.id : null, baseVersion, entityTable, entityLocalId,
-               JSON.stringify(captured), req.file ? 1 : 0, req.file ? req.file.path : null);
+               JSON.stringify(captured), req.file ? 1 : 0, filePath);
       }
     } catch (e) {
       console.error('sync capture error:', e.message);

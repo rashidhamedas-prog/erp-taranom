@@ -21,6 +21,8 @@
 // operations can never post differently than direct ones.
 const router = require('express').Router();
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getDB, isDevice, audit } = require('../db');
@@ -249,6 +251,21 @@ if (!isDevice()) {
     return null;
   }
 
+  // ---- File download for device sync (product images, attachments) ----
+  router.get('/files', deviceAuth, (req, res) => {
+    const rel = req.query.path;
+    if (!rel || typeof rel !== 'string' || rel.includes('..')) {
+      return res.status(400).json({ error: 'مسیر فایل نامعتبر است' });
+    }
+    const { UPLOADS_ROOT } = require('../paths');
+    const filePath = path.join(UPLOADS_ROOT, rel);
+    const root = path.resolve(UPLOADS_ROOT);
+    if (!path.resolve(filePath).startsWith(root) || !fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'فایل یافت نشد' });
+    }
+    res.sendFile(filePath);
+  });
+
   // ---- File relay: product images / voucher attachments created offline ----
   const multer = require('multer');
   const relayUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
@@ -337,6 +354,15 @@ if (isDevice()) {
   router.post('/now', auth, async (req, res) => {
     try {
       const result = await client.syncNow();
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  router.post('/pull-files', auth, async (req, res) => {
+    try {
+      const result = await client.pullFilesNow();
       res.json(result);
     } catch (e) {
       res.status(500).json({ error: e.message });
