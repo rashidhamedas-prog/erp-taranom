@@ -11,6 +11,7 @@
     "postinstall": "electron-builder install-app-deps",
     "start": "npm run prepare-server && electron .",
     "dist:win": "npm run prepare-server && electron-builder --win nsis --x64",
+    "publish:win": "node ../scripts/publish-desktop.js",
     "dist:linux": "npm run prepare-server && electron-builder --linux AppImage --x64"
   },
   "dependencies": {
