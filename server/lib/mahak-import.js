@@ -20,7 +20,25 @@ function extractZip(zipPath) {
   fs.mkdirSync(dest, { recursive: true });
   const zip = new AdmZip(zipPath);
   zip.extractAllTo(dest, true);
+  extractNestedZips(dest);
   return dest;
+}
+
+// Mahak FullBackup.zip often wraps mahak.zip / mahak1.zip — each holds a .bak
+function extractNestedZips(dir) {
+  const AdmZip = require('adm-zip');
+  let rounds = 0;
+  while (rounds < 5) {
+    const zips = walkFiles(dir, '.zip');
+    if (!zips.length) break;
+    for (const fp of zips) {
+      const sub = fp.replace(/\.zip$/i, '') + '__inner';
+      if (fs.existsSync(sub)) continue;
+      fs.mkdirSync(sub, { recursive: true });
+      new AdmZip(fp).extractAllTo(sub, true);
+    }
+    rounds++;
+  }
 }
 
 function walkFiles(dir, ext, out = []) {
@@ -49,7 +67,7 @@ function analyzeExtracted(dir) {
     suggested_databases: [...new Set(dbNames)],
     note: bakFiles.length
       ? 'فایل‌های .bak باید روی SQL Server بازگردانی شوند. سپس اتصال MAHAK_MSSQL را تنظیم کنید و «اجرای واردات» را بزنید.'
-      : 'فایل .bak در آرشیو یافت نشد — مطمئن شوید FullBackup محک است.'
+      : 'فایل .bak در آرشیو یافت نشد — اگر FullBackup محک است، ممکن است داخل mahak.zip تودرتو باشد؛ دوباره آپلود کنید.'
   };
 }
 
