@@ -3,6 +3,7 @@ module.exports = {
     name: 'crm-taranom',
     script: 'server.js',
     cwd: '/home/taranom-admin/crm-taranom/server',
+    exec_mode: 'fork', // cluster + Express listen() → EADDRINUSE on port 3000
     instances: 1,
     autorestart: true,
     watch: false,
