@@ -105,7 +105,9 @@ const FK_COLUMNS = [
   ['account_transfers', 'from_id'], ['account_transfers', 'to_id'],
   ['journal_entries', 'cost_center_id'],
   ['journal_lines', 'entry_id'],
-  ['check_categories', 'bank_id']
+  ['check_categories', 'bank_id'],
+  ['rep_expenses', 'rep_id'], ['rep_advances', 'rep_id'], ['rep_ledger', 'rep_id'],
+  ['rep_assignment_history', 'customer_id'], ['rep_assignment_history', 'from_rep_id'], ['rep_assignment_history', 'to_rep_id']
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, tableBase, isProvisionalId };
