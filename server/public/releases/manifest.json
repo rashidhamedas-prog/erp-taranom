@@ -4,9 +4,9 @@
     "notes": "به‌روزرسانی رابط وب — با باز کردن سایت در مرورگر خودکار اعمال می‌شود."
   },
   "desktop": {
-    "version": "1.0.4",
-    "url": "/releases/CRM-Taranom-Setup-1.0.4.exe",
-    "notes": "همگام‌سازی عکس محصولات، به‌روزرسانی خودکار برنامه."
+    "version": "1.0.5",
+    "url": "/releases/CRM-Taranom-Setup-1.0.5.exe",
+    "notes": "ماژule کامل نمایندگان فروش، GPS/امضای بازدید، گزارش سود، SMS اعلان."
   },
   "android": {
     "version": "2.0.1",

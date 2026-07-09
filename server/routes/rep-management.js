@@ -274,10 +274,31 @@ router.get('/', auth, repModuleAdmin, (req, res) => {
 
 router.get('/team/:supervisorId', auth, (req, res) => {
   const supId = +req.params.supervisorId;
-  if (req.user.role !== 'admin' && req.user.role !== 'accounting' && req.user.id !== supId) {
+  if (!['admin', 'accounting', 'sales_manager'].includes(req.user.role) && req.user.id !== supId) {
     return res.status(403).json({ error: 'دسترسی ندارید' });
   }
   res.json(getTeamRollup(getDB(), supId, { from: req.query.from, to: req.query.to }));
+});
+
+router.post('/assign-by-type', auth, repModuleAdmin, (req, res) => {
+  const { customer_type, to_rep_id, note } = req.body;
+  if (!customer_type || !to_rep_id) return res.status(400).json({ error: 'نوع مشتری و نماینده الزامی است' });
+  const db = getDB();
+  const toRep = repGuard(db, +to_rep_id);
+  if (!toRep) return res.status(400).json({ error: 'نماینده نامعتبر' });
+  const customers = db.prepare('SELECT id,user_id,biz FROM customers WHERE type=?').all(customer_type);
+  let n = 0;
+  db.transaction(() => {
+    for (const c of customers) {
+      if (c.user_id === +to_rep_id) continue;
+      db.prepare('UPDATE customers SET user_id=?, assigned_to=? WHERE id=?').run(to_rep_id, to_rep_id, c.id);
+      db.prepare(`INSERT INTO rep_assignment_history (customer_id,from_rep_id,to_rep_id,date,note,created_by) VALUES (?,?,?,?,?,?)`)
+        .run(c.id, c.user_id, to_rep_id, todayJalali(), note || `انتساب گروهی نوع ${customer_type}`, req.user.id);
+      n++;
+    }
+  })();
+  notifyRep(db, +to_rep_id, `📦 ${n} مشتری نوع «${customer_type}» به شما اختصاص یافت.`, req.user.id, { sms: true });
+  res.json({ ok: true, transferred: n });
 });
 
 // ---- Per-rep routes ----
@@ -452,13 +473,23 @@ router.post('/:id/ledger/adjustment', auth, adminOrAccounting, (req, res) => {
   res.json({ id: r.lastInsertRowid, ok: true });
 });
 
+router.get('/:id/contract', auth, adminRepOrSelf, (req, res) => {
+  const db = getDB();
+  const rep = repGuard(db, +req.params.id);
+  if (!rep) return res.status(404).json({ error: 'نماینده یافت نشد' });
+  const u = db.prepare('SELECT contract_file FROM users WHERE id=?').get(rep.id);
+  if (!u?.contract_file) return res.json({ file: null });
+  res.json({ file: u.contract_file, url: `/uploads/reps/${u.contract_file}` });
+});
+
 router.post('/:id/contract', auth, adminOrAccounting, repUpload.single('file'), (req, res) => {
   const db = getDB();
   const rep = repGuard(db, +req.params.id);
   if (!rep) return res.status(404).json({ error: 'نماینده یافت نشد' });
   if (!req.file) return res.status(400).json({ error: 'فایل الزامی است' });
   db.prepare('UPDATE users SET contract_file=? WHERE id=?').run(req.file.filename, rep.id);
-  res.json({ ok: true, file: req.file.filename });
+  audit(req.user.id, 'update', 'user', rep.id, `آپلود قرارداد نماینده ${rep.name}`, req);
+  res.json({ ok: true, file: req.file.filename, url: `/uploads/reps/${req.file.filename}` });
 });
 
 router.get('/:id/commission-rules', auth, adminOrAccounting, (req, res) => {

@@ -381,17 +381,24 @@ function getRepAgingReceivables(db, repId) {
 }
 
 function getTeamRollup(db, supervisorId, opts = {}) {
+  const supervisor = db.prepare('SELECT id,name,supervisor_commission_pct FROM users WHERE id=?').get(supervisorId);
+  const overridePct = supervisor?.supervisor_commission_pct || 0;
   const team = db.prepare(`SELECT id,name,role FROM users WHERE active=1 AND supervisor_id=? AND role IN ${REP_ROLES_SQL}`).all(supervisorId);
   const members = team.map(m => {
     const comm = computeRepCommission(db, m.id, opts);
     const view = buildRepLedgerView(db, m.id, opts);
-    return { ...m, ...comm, payable: view?.payable || 0, balance: view?.balance || 0 };
+    const overrideComm = (comm.totalComm || 0) * overridePct / 100;
+    return { ...m, ...comm, payable: view?.payable || 0, balance: view?.balance || 0, overrideComm };
   });
+  const supervisorComm = members.reduce((a, m) => a + (m.overrideComm || 0), 0);
   return {
     supervisor_id: supervisorId,
+    supervisor_name: supervisor?.name || '',
+    overridePct,
     teamSize: members.length,
     salesTotal: members.reduce((a, m) => a + (m.salesTotal || 0), 0),
     totalComm: members.reduce((a, m) => a + (m.totalComm || 0), 0),
+    supervisorComm,
     payable: members.reduce((a, m) => a + (m.payable || 0), 0),
     members
   };
