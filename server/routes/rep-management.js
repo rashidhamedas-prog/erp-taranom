@@ -3,8 +3,10 @@ const { getDB, audit, createJournalEntry, resolveCashAccount } = require('../db'
 const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const {
-  REP_ROLES, EXPENSE_CATEGORIES, isRepRole, addRepLedger, buildRepLedgerView, computeRepCommission
+  EXPENSE_CATEGORIES, isRepRole, addRepLedger, buildRepLedgerView, computeRepCommission, notifyRep
 } = require('../lib/rep-ledger');
+
+const REP_ROLES = "('field_sales','inside_sales')";
 
 function repGuard(db, id) {
   const u = db.prepare(`SELECT * FROM users WHERE id=? AND active=1 AND role IN ${REP_ROLES}`).get(id);
@@ -17,7 +19,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
   const { from, to } = req.query;
   const reps = db.prepare(`
     SELECT u.id,u.name,u.username,u.role,u.phone,u.rep_code,u.rep_subtype,u.territory,u.employment_status,
-      u.commission_cash,u.commission_cheque,u.supervisor_id,s.name as supervisor_name
+      u.commission_cash,u.commission_cheque,u.commission_basis,u.monthly_target,u.supervisor_id,s.name as supervisor_name
     FROM users u
     LEFT JOIN users s ON u.supervisor_id=s.id
     WHERE u.active=1 AND u.role IN ${REP_ROLES}
@@ -32,6 +34,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
     return {
       ...r,
       roleLabel: r.role === 'inside_sales' ? 'تلفنی' : 'میدانی',
+      basisLabel: r.commission_basis === 'collection' ? 'وصول' : 'فاکتور',
       customers: custMap[r.id] || 0,
       ...comm,
       paid,
@@ -183,7 +186,42 @@ router.post('/expenses/:expenseId/approve', auth, adminOrAccounting, (req, res) 
       ]
     });
   })();
+  notifyRep(db, row.rep_id, `✅ هزینه شما به مبلغ ${row.amount} تومان تأیید شد.`, req.user.id);
   res.json({ ok: true });
+});
+
+router.post('/expenses/:expenseId/reject', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM rep_expenses WHERE id=?').get(+req.params.expenseId);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status !== 'pending') return res.status(400).json({ error: 'فقط هزینه‌های در انتظار قابل رد هستند' });
+  db.prepare("UPDATE rep_expenses SET status='rejected',approved_by=?,approved_at=strftime('%s','now') WHERE id=?")
+    .run(req.user.id, row.id);
+  notifyRep(db, row.rep_id, `❌ هزینه ${row.amount} تومان رد شد.${req.body.note ? ' — ' + req.body.note : ''}`, req.user.id);
+  res.json({ ok: true });
+});
+
+router.get('/expenses/pending', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  res.json(db.prepare(`
+    SELECT e.*, u.name as rep_name, r.name as recorder
+    FROM rep_expenses e
+    JOIN users u ON e.rep_id=u.id
+    LEFT JOIN users r ON e.created_by=r.id
+    WHERE e.status='pending' ORDER BY e.created_at DESC LIMIT 100
+  `).all());
+});
+
+router.get('/alerts', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const pendingExpenses = db.prepare("SELECT COUNT(*) c FROM rep_expenses WHERE status='pending'").get().c;
+  const reps = db.prepare(`SELECT id,name,monthly_target FROM users WHERE active=1 AND role IN ${REP_ROLES} AND monthly_target>0`).all();
+  const targetHits = [];
+  for (const r of reps) {
+    const comm = computeRepCommission(db, r.id, {});
+    if (comm.targetPct >= 100) targetHits.push({ id: r.id, name: r.name, pct: comm.targetPct });
+  }
+  res.json({ pendingExpenses, targetHits });
 });
 
 // Advances
@@ -260,6 +298,63 @@ router.get('/:id/reports/sales', auth, adminOrAccounting, (req, res) => {
 
 router.get('/expense-categories', auth, (req, res) => {
   res.json(EXPENSE_CATEGORIES);
+});
+
+router.get('/:id/commission-rules', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  if (!repGuard(db, +req.params.id)) return res.status(404).json({ error: 'نماینده یافت نشد' });
+  res.json(db.prepare('SELECT * FROM rep_commission_rules WHERE rep_id=? ORDER BY scope_type, scope_id').all(+req.params.id));
+});
+
+router.post('/:id/commission-rules', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const repId = +req.params.id;
+  if (!repGuard(db, repId)) return res.status(404).json({ error: 'نماینده یافت نشد' });
+  const { scope_type, scope_id, rate_cash, rate_cheque } = req.body;
+  if (!scope_type || !['product', 'category'].includes(scope_type)) {
+    return res.status(400).json({ error: 'نوع محدوده باید product یا category باشد' });
+  }
+  const r = db.prepare(`
+    INSERT INTO rep_commission_rules (rep_id,scope_type,scope_id,rate_cash,rate_cheque) VALUES (?,?,?,?,?)
+  `).run(repId, scope_type, scope_id ? parseInt(scope_id) : null, parseFloat(rate_cash) || 0, parseFloat(rate_cheque) || 0);
+  res.json({ id: r.lastInsertRowid, ok: true });
+});
+
+router.delete('/commission-rules/:ruleId', auth, adminOrAccounting, (req, res) => {
+  getDB().prepare('UPDATE rep_commission_rules SET active=0 WHERE id=?').run(+req.params.ruleId);
+  res.json({ ok: true });
+});
+
+router.get('/:id/export/excel', auth, adminOrAccounting, (req, res) => {
+  const XLSX = require('xlsx');
+  const db = getDB();
+  const repId = +req.params.id;
+  const rep = repGuard(db, repId);
+  if (!rep) return res.status(404).json({ error: 'نماینده یافت نشد' });
+  const { from, to } = req.query;
+  let where = 'i.user_id=?';
+  const p = [repId];
+  if (from) { where += ' AND i.date>=?'; p.push(from); }
+  if (to) { where += ' AND i.date<=?'; p.push(to); }
+  const invRows = db.prepare(`
+    SELECT i.num as 'شماره', i.date as 'تاریخ', c.biz as 'مشتری', i.final as 'مبلغ',
+      i.pay_type as 'نوع پرداخت', i.approved as 'تأیید', i.sales_channel as 'کانال'
+    FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id
+    WHERE ${where} ORDER BY i.date DESC
+  `).all(...p);
+  const comm = computeRepCommission(db, repId, { from, to });
+  const summary = [{
+    'نماینده': rep.name, 'فروش نقد': comm.cashSales, 'فروش چک': comm.chequeSales,
+    'انگیزه': Math.round(comm.totalComm), 'مبنای محاسبه': comm.basis === 'collection' ? 'وصول' : 'فاکتور',
+    'هدف ماهانه': comm.monthlyTarget, 'درصد هدف': comm.targetPct + '%'
+  }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'خلاصه');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(invRows), 'فاکتورها');
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Disposition', `attachment; filename=rep-${repId}.xlsx`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buf);
 });
 
 module.exports = router;

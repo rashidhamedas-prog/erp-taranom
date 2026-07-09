@@ -53,7 +53,8 @@ const SYNCABLE_TABLES = [
   { name: 'rep_assignment_history', upsertKey: 'id' },
   { name: 'rep_ledger', upsertKey: 'id' },
   { name: 'rep_expenses', upsertKey: 'id' },
-  { name: 'rep_advances', upsertKey: 'id' }
+  { name: 'rep_advances', upsertKey: 'id' },
+  { name: 'rep_commission_rules', upsertKey: 'id' }
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -107,6 +108,7 @@ const FK_COLUMNS = [
   ['journal_lines', 'entry_id'],
   ['check_categories', 'bank_id'],
   ['rep_expenses', 'rep_id'], ['rep_advances', 'rep_id'], ['rep_ledger', 'rep_id'],
+  ['rep_commission_rules', 'rep_id'],
   ['rep_assignment_history', 'customer_id'], ['rep_assignment_history', 'from_rep_id'], ['rep_assignment_history', 'to_rep_id']
 ];
 

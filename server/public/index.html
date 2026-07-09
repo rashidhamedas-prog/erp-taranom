@@ -1597,8 +1597,11 @@ async function renderDashContent(){
         ${statCard('o','🧾', fmt(finalInvs.length),'فاکتور رسمی'+(dq?' در بازه':''))}
         ${statCard('b','📋', fmt(allInvs.filter(i=>i.type==='proforma').length),'پیش‌فاکتور'+(dq?' در بازه':''))}
         ${statCard('b','📞', fmt(openF),'پیگیری باز')}
-        ${statCard('g','🎯', fmt(Math.round(myComm.totalComm||0)),'انگیزه فروش تأیید شده (ت)')}
+        ${statCard('g','🎯', fmt(Math.round(myComm.totalComm||0)),'انگیزه فروش (ت)')}
+        ${statCard('r','💵', fmt(Math.round(myComm.payable||0)),'مانده انگیزه (ت)')}
+        ${myComm.monthlyTarget?statCard('b','📊', (myComm.targetPct||0)+'٪','تحقق هدف ماهانه'):''}
       </div>
+      ${myComm.basisLabel?`<div class="muted" style="margin:-8px 0 12px;font-size:12px">مبنای محاسبه: ${esc(myComm.basisLabel)}${myComm.pendingExpenses?` — ${myComm.pendingExpenses} هزینه در انتظار تأیید`:''}</div>`:''}
       ${balRows.length?`<div class="panel">
         <div class="panel-head"><h4>💰 موجودی حساب مشتریان من</h4></div>
         <div class="panel-body tbl-wrap">
@@ -2789,6 +2792,11 @@ function userModal(id){
         <option value="0" ${!u.active?'selected':''}>غیرفعال</option></select></div>
       <div class="fg"><label>انگیزه فروش نقد (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای نقدی تأییدشده. بعد از اولین ذخیره قفل می‌شود.')} ${u.incentive_locked?'<span style="font-size:11px;color:var(--orange)">🔒 قفل</span>':''}</label><input id="u-comm-cash" type="number" step="0.1" value="${u.commission_cash||0}" data-orig="${u.commission_cash||0}" data-locked="${u.incentive_locked||0}"></div>
       <div class="fg"><label>انگیزه فروش چک (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای چکی تأییدشده.')}</label><input id="u-comm-cheque" type="number" step="0.1" value="${u.commission_cheque||0}" data-orig="${u.commission_cheque||0}"></div>
+      <div class="fg"><label>مبنای محاسبه انگیزه ${hlp('فاکتور: بر اساس فاکتورهای تأییدشده. وصول: بر اساس مبالغ دریافت‌شده از مشتری.')}</label><select id="u-comm-basis">
+        <option value="invoice" ${(u.commission_basis||'invoice')==='invoice'?'selected':''}>بر اساس فاکتور</option>
+        <option value="collection" ${u.commission_basis==='collection'?'selected':''}>بر اساس وصول</option>
+      </select></div>
+      <div class="fg"><label>هدف فروش ماهانه (ت) ${hlp('برای نمایش درصد تحقق هدف در داشبورد و گزارش‌ها.')}</label><input id="u-monthly-target" type="number" min="0" value="${u.monthly_target||0}"></div>
       ${(u.role==='field_sales'||u.role==='inside_sales'||!id)?`
       <div class="fg full" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px"><b>اطلاعات نماینده فروش</b></div>
       <div class="fg"><label>کد نماینده</label><input id="u-rep-code" value="${esc(u.rep_code||'')}"></div>
@@ -2823,6 +2831,7 @@ async function saveUser(id){
   const rateChanged=id&&(Math.abs(commission_cash-origCash)>0.001||Math.abs(commission_cheque-origCheque)>0.001);
   if(id && isLocked && rateChanged){
     _pendingUserSave={id,name,username,pass,role,phone,active,commission_cash,commission_cheque,
+      commission_basis:el('u-comm-basis')?.value||'invoice', monthly_target:+(el('u-monthly-target')?.value||0),
       rep_code:el('u-rep-code')?.value||'', rep_subtype:el('u-rep-subtype')?.value||'',
       territory:el('u-territory')?.value||'', rep_opening_balance:+(el('u-rep-opening')?.value||0),
       bank_name:el('u-bank-name')?.value||'', bank_account:el('u-bank-account')?.value||'', bank_iban:el('u-bank-iban')?.value||''};
@@ -2840,6 +2849,7 @@ async function saveUser(id){
     return;
   }
   await _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,
+    commission_basis:el('u-comm-basis')?.value||'invoice', monthly_target:+(el('u-monthly-target')?.value||0),
     rep_code:el('u-rep-code')?.value||'', rep_subtype:el('u-rep-subtype')?.value||'',
     territory:el('u-territory')?.value||'', rep_opening_balance:+(el('u-rep-opening')?.value||0),
     bank_name:el('u-bank-name')?.value||'', bank_account:el('u-bank-account')?.value||'', bank_iban:el('u-bank-iban')?.value||''});
@@ -2850,14 +2860,14 @@ async function confirmIncentiveChange(yes){
   const {id,...data}=_pendingUserSave; _pendingUserSave=null;
   if(yes) await _doSaveUser(id,{...data,force:true});
 }
-async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban}){
+async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,commission_basis,monthly_target,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban}){
   try{
     if(id){
-      await api('PUT','/admin/users/'+id,{name,role,phone,active,password:pass||undefined,commission_cash,commission_cheque,force:force||undefined,
+      await api('PUT','/admin/users/'+id,{name,role,phone,active,password:pass||undefined,commission_cash,commission_cheque,commission_basis,monthly_target,force:force||undefined,
         rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban});
     } else {
       if(!username||!pass){ showToast('نام کاربری و رمز الزامی است','error'); return; }
-      await api('POST','/admin/users',{name,username,password:pass,phone,role,commission_cash,commission_cheque});
+      await api('POST','/admin/users',{name,username,password:pass,phone,role,commission_cash,commission_cheque,commission_basis,monthly_target});
     }
     CACHE.users=await api('GET','/auth/users'); closeModal(); ROUTES.users(); showToast('ذخیره شد');
   }catch(e){}
@@ -3018,7 +3028,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll','reps']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -3259,7 +3269,7 @@ async function loadAccTab(tab){
   } else if(tab==='commissions'){
     const [pending,comms]=await Promise.all([
       api('GET','/accounting/pending-approvals'),
-      api('GET','/accounting/commissions')
+      api('GET','/accounting/commissions'+dq)
     ]);
     const pendingRows=(pending||[]).map(i=>`<tr>
       <td class="mono" style="font-weight:700">${esc(i.num)}</td>
@@ -3272,6 +3282,7 @@ async function loadAccTab(tab){
     </tr>`).join('');
     const commRows=(comms||[]).map(c=>`<tr>
       <td>${esc(c.name)} <span class="tag" style="font-size:10px">${esc(c.roleLabel||'')}</span></td>
+      <td class="muted" style="font-size:11px">${esc(c.basisLabel||'فاکتور')}${c.monthlyTarget?`<br>هدف: ${fmt(c.monthlyTarget)} (${c.targetPct||0}٪)`:''}</td>
       <td class="mono">${fmt(c.commission_cash)}٪ / ${fmt(c.commission_cheque)}٪</td>
       <td class="mono">${fmt(c.cashSales)}</td>
       <td class="mono">${fmt(c.chequeSales)}</td>
@@ -3292,12 +3303,12 @@ async function loadAccTab(tab){
         </tr></thead><tbody>${pendingRows}</tbody></table></div>
       </div>` : `<div class="muted" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;margin-bottom:16px">✅ همه فاکتورهای رسمی تأیید شده‌اند</div>`}
       <div class="panel">
-        <div class="panel-head"><h4>📊 گزارش و پرداخت انگیزه فروش کارشناسان</h4></div>
+        <div class="panel-head"><h4>📊 گزارش و پرداخت انگیزه فروش کارشناسان${dq?' (بازه انتخاب‌شده)':''}</h4></div>
         <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
-          <th>کارشناس</th><th>نرخ نقد/چک</th><th>فروش نقد تأیید</th><th>فروش چک تأیید</th><th>جمع انگیزه</th><th>پرداخت شده</th><th>مانده پرداخت</th><th>عملیات</th>
-        </tr></thead><tbody>${commRows||emptyRow(8)}</tbody>
+          <th>کارشناس</th><th>مبنای محاسبه</th><th>نرخ نقد/چک</th><th>فروش نقد</th><th>فروش چک</th><th>جمع انگیزه</th><th>پرداخت شده</th><th>مانده پرداخت</th><th>عملیات</th>
+        </tr></thead><tbody>${commRows||emptyRow(9)}</tbody>
         <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
-          <td>جمع کل</td><td></td>
+          <td>جمع کل</td><td></td><td></td>
           <td class="mono">${fmt((comms||[]).reduce((a,c)=>a+(c.cashSales||0),0))}</td>
           <td class="mono">${fmt((comms||[]).reduce((a,c)=>a+(c.chequeSales||0),0))}</td>
           <td class="mono" style="color:var(--purple);font-weight:800">${fmt(Math.round((comms||[]).reduce((a,c)=>a+(c.totalComm||0),0)))}</td>
@@ -6275,13 +6286,25 @@ async function saveSettlement(){
    REP MANAGEMENT (نمایندگان فروش)
 ============================================================ */
 let _selectedRepId = null;
+function repDateQuery(){
+  const q=[];
+  if(accDateFrom) q.push('from='+encodeURIComponent(accDateFrom));
+  if(accDateTo) q.push('to='+encodeURIComponent(accDateTo));
+  return q.length?'?'+q.join('&'):'';
+}
 async function renderRepsTab(body){
-  const reps=await api('GET','/reps')||[];
+  const dq=repDateQuery();
+  const [reps,pending,alerts]=await Promise.all([
+    api('GET','/reps'+dq)||[],
+    api('GET','/reps/expenses/pending')||[],
+    api('GET','/reps/alerts')||{}
+  ]);
   if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
   const rows=reps.map(r=>`<tr style="cursor:pointer" onclick="selectRepDetail(${r.id})">
     <td>${esc(r.name)}</td>
     <td class="mono muted">${esc(r.rep_code||'-')}</td>
     <td><span class="tag">${esc(r.roleLabel||'')}</span></td>
+    <td class="muted" style="font-size:11px">${esc(r.basisLabel||'فاکتور')}</td>
     <td class="muted">${esc(r.territory||'-')}</td>
     <td class="mono">${fmt(r.customers)}</td>
     <td class="mono">${fmt(r.cashSales+r.chequeSales)}</td>
@@ -6291,37 +6314,70 @@ async function renderRepsTab(body){
       <button class="btn sm green" onclick="event.stopPropagation();incentivePayModal(${r.id},${JSON.stringify(r.name)},${Math.round(r.payable||0)})">💵</button>
       <button class="btn sm" onclick="event.stopPropagation();repExpenseModal(${r.id},${JSON.stringify(r.name)})">🧾</button>
       <button class="btn sm" onclick="event.stopPropagation();repAdvanceModal(${r.id},${JSON.stringify(r.name)})">💰</button>
+      <button class="btn sm ghost" onclick="event.stopPropagation();repCommissionRulesModal(${r.id},${JSON.stringify(r.name)})">📐</button>
+      <button class="btn sm ghost" onclick="event.stopPropagation();repExportExcel(${r.id})">📥</button>
     </td>
   </tr>`).join('');
+  const pendingBlock=(pending||[]).length?`
+    <div class="panel" style="margin:0 0 16px;border-color:#fde68a">
+      <div class="panel-head"><h4>⏳ هزینه‌های در انتظار تأیید (${pending.length})</h4>
+        <button class="btn sm ghost" onclick="repPendingExpensesModal()">مشاهده همه</button></div>
+      <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>نماینده</th><th>دسته</th><th>مبلغ</th><th>تاریخ</th><th>شرح</th><th>عملیات</th>
+      </tr></thead><tbody>${pending.slice(0,5).map(e=>`<tr>
+        <td>${esc(e.rep_name)}</td><td>${esc(e.category)}</td><td class="mono">${fmt(e.amount)}</td>
+        <td class="mono">${escDate(e.date)}</td><td class="muted">${esc(e.description||'-')}</td>
+        <td style="white-space:nowrap">
+          <button class="btn sm green" onclick="approveRepExpense(${e.id})">✅</button>
+          <button class="btn sm red" onclick="rejectRepExpense(${e.id})">❌</button>
+        </td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>`:'';
+  const alertBlock=(alerts.targetHits||[]).length?`
+    <div class="muted" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:12px">
+      🎉 ${alerts.targetHits.map(t=>`${esc(t.name)} (${t.pct}٪ هدف)`).join(' — ')}
+    </div>`:'';
   body.innerHTML=`
+    ${alertBlock}
+    ${pendingBlock}
     <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <button class="btn" onclick="repTransferCustModal()">🔄 انتقال مشتری</button>
       <button class="btn ghost" onclick="repAssignmentHistoryModal()">📜 تاریخچه انتقال</button>
+      <button class="btn ghost" onclick="repPendingExpensesModal()">🧾 تأیید هزینه‌ها${pending.length?` (${pending.length})`:''}</button>
     </div>
     <div class="tbl-wrap" style="margin-bottom:16px"><table class="tbl"><thead><tr>
-      <th>نماینده</th><th>کد</th><th>نوع</th><th>منطقه</th><th>مشتریان</th><th>فروش تأیید</th><th>انگیزه</th><th>مانده</th><th>عملیات</th>
-    </tr></thead><tbody>${rows||emptyRow(9)}</tbody></table></div>
+      <th>نماینده</th><th>کد</th><th>نوع</th><th>مبنا</th><th>منطقه</th><th>مشتریان</th><th>فروش</th><th>انگیزه</th><th>مانده</th><th>عملیات</th>
+    </tr></thead><tbody>${rows||emptyRow(10)}</tbody></table></div>
     <div id="repDetailPanel">${_selectedRepId?'<div class="muted">در حال بارگذاری...</div>':''}</div>`;
   if(_selectedRepId) loadRepDetail(_selectedRepId);
 }
 async function selectRepDetail(id){ _selectedRepId=id; loadRepDetail(id); }
 async function loadRepDetail(id){
   const panel=el('repDetailPanel'); if(!panel) return;
+  const dq=repDateQuery();
   const [ledger,dash]=await Promise.all([
-    api('GET','/reps/'+id+'/ledger'),
-    api('GET','/reps/'+id+'/dashboard')
+    api('GET','/reps/'+id+'/ledger'+dq),
+    api('GET','/reps/'+id+'/dashboard'+dq)
   ]);
   if(!ledger){ panel.innerHTML='<div class="empty">نماینده یافت نشد</div>'; return; }
+  const comm=ledger.commission||{};
   panel.innerHTML=`
     <div class="panel">
-      <div class="panel-head"><h4>📒 دفتر مالی — ${esc(ledger.rep.name)}</h4></div>
+      <div class="panel-head"><h4>📒 دفتر مالی — ${esc(ledger.rep.name)}</h4>
+        <div style="display:flex;gap:6px">
+          <button class="btn sm ghost" onclick="repCommissionRulesModal(${id},${JSON.stringify(ledger.rep.name)})">📐 قوانین کمیسیون</button>
+          <button class="btn sm ghost" onclick="repExportExcel(${id})">📥 اکسل</button>
+        </div>
+      </div>
       <div class="panel-body">
         <div class="cards" style="margin-bottom:12px">
           ${statCard('g','📈',fmt(dash?.salesTotal||0),'کل فروش (ت)')}
           ${statCard('b','✅',fmt(dash?.collected||0),'وصولی (ت)')}
-          ${statCard('p','🎯',fmt(Math.round(ledger.commission?.totalComm||0)),'انگیزه (ت)')}
+          ${statCard('p','🎯',fmt(Math.round(comm.totalComm||0)),'انگیزه (ت)')}
           ${statCard('r','💵',fmt(Math.round(ledger.payable||0)),'مانده پرداخت (ت)')}
+          ${comm.monthlyTarget?statCard('o','📊',(comm.targetPct||0)+'٪','تحقق هدف'):''}
         </div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px">مبنای انگیزه: ${comm.basis==='collection'?'وصول':'فاکتور'}</div>
         <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><tbody>
           <tr><td>مانده افتتاحیه</td><td class="mono">${fmt(ledger.opening)}</td></tr>
           <tr><td>هزینه‌های تأییدشده</td><td class="mono" style="color:var(--red)">${fmt(ledger.expenses)}</td></tr>
@@ -6331,6 +6387,89 @@ async function loadRepDetail(id){
         </tbody></table></div>
       </div>
     </div>`;
+}
+async function repPendingExpensesModal(){
+  const rows=await api('GET','/reps/expenses/pending')||[];
+  const cats=await api('GET','/reps/expense-categories')||{};
+  openModal(`
+    <div class="modal-head"><h3>🧾 تأیید هزینه‌های نمایندگان</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <th>نماینده</th><th>دسته</th><th>مبلغ</th><th>تاریخ</th><th>شرح</th><th>عملیات</th>
+    </tr></thead><tbody>${rows.map(e=>`<tr>
+      <td>${esc(e.rep_name)}</td><td>${esc(cats[e.category]||e.category)}</td><td class="mono">${fmt(e.amount)}</td>
+      <td class="mono">${escDate(e.date)}</td><td class="muted">${esc(e.description||'-')}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sm green" onclick="approveRepExpense(${e.id})">✅ تأیید</button>
+        <button class="btn sm red" onclick="rejectRepExpense(${e.id})">❌ رد</button>
+      </td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`,true);
+}
+async function approveRepExpense(id){
+  try{
+    await api('POST','/reps/expenses/'+id+'/approve',{pay_type:'cash'});
+    showToast('هزینه تأیید شد'); closeModal(); loadAccTab('reps');
+  }catch(e){}
+}
+async function rejectRepExpense(id){
+  const note=prompt('دلیل رد (اختیاری):')||'';
+  try{
+    await api('POST','/reps/expenses/'+id+'/reject',{note});
+    showToast('هزینه رد شد'); closeModal(); loadAccTab('reps');
+  }catch(e){}
+}
+async function repCommissionRulesModal(repId,repName){
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
+  const rules=await api('GET','/reps/'+repId+'/commission-rules')||[];
+  openModal(`
+    <div class="modal-head"><h3>📐 قوانین کمیسیون — ${esc(repName)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <p class="muted" style="font-size:12px;margin-bottom:12px">نرخ‌های خاص محصول/دسته بر نرخ پایه کاربر اولویت دارند.</p>
+      <div class="form-grid" style="margin-bottom:16px">
+        <div class="fg"><label>نوع</label><select id="rcr-type"><option value="product">محصول</option><option value="category">دسته</option></select></div>
+        <div class="fg"><label>انتخاب</label><select id="rcr-id">
+          <optgroup label="محصولات">${(CACHE.allProducts||[]).slice(0,200).map(p=>`<option value="${p.id}" data-type="product">${esc(p.name)}</option>`).join('')}</optgroup>
+          <optgroup label="دسته‌ها">${(CACHE.productCategories||[]).map(c=>`<option value="${c.id}" data-type="category">${esc(c.name)}</option>`).join('')}</optgroup>
+        </select></div>
+        <div class="fg"><label>نقد (٪)</label><input id="rcr-cash" type="number" step="0.1"></div>
+        <div class="fg"><label>چک (٪)</label><input id="rcr-cheque" type="number" step="0.1"></div>
+        <div class="fg"><button class="btn sm" onclick="saveRepCommissionRule(${repId},${JSON.stringify(repName)})">➕ افزودن</button></div>
+      </div>
+      <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>نوع</th><th>شناسه</th><th>نقد</th><th>چک</th><th></th>
+      </tr></thead><tbody>${rules.filter(r=>r.active!==0).map(r=>{
+        const label=r.scope_type==='product'?(CACHE.allProducts||[]).find(p=>p.id===r.scope_id)?.name||r.scope_id
+          :(CACHE.productCategories||[]).find(c=>c.id===r.scope_id)?.name||r.scope_id;
+        return `<tr><td>${r.scope_type==='product'?'محصول':'دسته'}</td><td>${esc(label)}</td>
+          <td class="mono">${fmt(r.rate_cash)}٪</td><td class="mono">${fmt(r.rate_cheque)}٪</td>
+          <td><button class="btn sm red" onclick="deleteRepCommissionRule(${r.id},${repId},${JSON.stringify(repName)})">🗑️</button></td></tr>`;
+      }).join('')||emptyRow(5)}</tbody></table></div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`,true);
+}
+async function saveRepCommissionRule(repId, repName){
+  const sel=el('rcr-id'); const opt=sel?.selectedOptions?.[0];
+  const scope_type=el('rcr-type')?.value||opt?.dataset?.type||'product';
+  try{
+    await api('POST','/reps/'+repId+'/commission-rules',{
+      scope_type, scope_id:+sel.value,
+      rate_cash:+(el('rcr-cash')?.value||0), rate_cheque:+(el('rcr-cheque')?.value||0)
+    });
+    showToast('قانون اضافه شد');
+    closeModal();
+    repCommissionRulesModal(repId, repName||'');
+  }catch(e){}
+}
+async function deleteRepCommissionRule(ruleId,repId,repName){
+  if(!confirm('این قانون حذف شود؟')) return;
+  try{
+    await api('DELETE','/reps/commission-rules/'+ruleId);
+    showToast('حذف شد'); repCommissionRulesModal(repId, repName);
+  }catch(e){}
+}
+function repExportExcel(repId){
+  downloadAuth('/reps/'+repId+'/export/excel'+repDateQuery(), 'rep-'+repId+'.xlsx');
 }
 function repTransferCustModal(){
   const reps=(CACHE.users||[]).filter(u=>u.role==='field_sales'||u.role==='inside_sales');

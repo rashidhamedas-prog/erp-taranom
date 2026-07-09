@@ -193,7 +193,7 @@ router.post('/reset-password', auth, adminOnly, (req, res) => {
 
 router.get('/users', auth, adminOnly, (req, res) => {
   const db = getDB();
-  const users = db.prepare(`SELECT id,name,username,role,phone,active,last_login,commission_cash,commission_cheque,incentive_locked,created_at,
+  const users = db.prepare(`SELECT id,name,username,role,phone,active,last_login,commission_cash,commission_cheque,commission_basis,monthly_target,incentive_locked,created_at,
     rep_code,rep_subtype,territory,supervisor_id,employment_status,bank_name,bank_account,bank_iban,rep_opening_balance
     FROM users ORDER BY created_at DESC`).all();
   res.json(users);

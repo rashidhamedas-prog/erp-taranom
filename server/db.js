@@ -1016,7 +1016,20 @@ function initDB() {
       created_at INTEGER DEFAULT (strftime('%s','now')),
       FOREIGN KEY(rep_id) REFERENCES users(id)
     );
+    CREATE TABLE IF NOT EXISTS rep_commission_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rep_id INTEGER NOT NULL,
+      scope_type TEXT NOT NULL,
+      scope_id INTEGER,
+      rate_cash REAL DEFAULT 0,
+      rate_cheque REAL DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(rep_id) REFERENCES users(id)
+    );
   `);
+  ensureColumn(db, 'users', 'commission_basis', "TEXT DEFAULT 'invoice'");
+  ensureColumn(db, 'users', 'monthly_target', 'REAL DEFAULT 0');
 
   // ---- Indexes ----
   db.exec(`
@@ -1069,6 +1082,7 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_rep_expenses_rep ON rep_expenses(rep_id);
     CREATE INDEX IF NOT EXISTS idx_rep_advances_rep ON rep_advances(rep_id);
     CREATE INDEX IF NOT EXISTS idx_rep_assign_cust ON rep_assignment_history(customer_id);
+    CREATE INDEX IF NOT EXISTS idx_rep_comm_rules_rep ON rep_commission_rules(rep_id);
   `);
 
   // ---- Default admin ----

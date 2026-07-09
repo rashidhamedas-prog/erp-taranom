@@ -306,45 +306,22 @@ router.patch('/cheques/:id/status', auth, adminOrAccounting, (req, res) => {
 router.get('/commissions', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
+  const { computeRepCommission } = require('../lib/rep-ledger');
   const users = db.prepare(
-    "SELECT id,name,role,commission_cash,commission_cheque FROM users WHERE active=1 AND role IN ('field_sales','inside_sales')"
+    "SELECT id,name,role,commission_cash,commission_cheque,commission_basis,monthly_target FROM users WHERE active=1 AND role IN ('field_sales','inside_sales')"
   ).all();
-  let salesSql = "SELECT user_id, pay_type, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND approved=1";
-  const salesParams = [];
-  if (from) { salesSql += ' AND date>=?'; salesParams.push(from); }
-  if (to) { salesSql += ' AND date<=?'; salesParams.push(to); }
-  salesSql += ' GROUP BY user_id, pay_type';
-  const salesRows = db.prepare(salesSql).all(...salesParams);
-  let retSql = 'SELECT user_id, COALESCE(SUM(amount),0) s FROM sales_returns WHERE 1=1';
-  const retParams = [];
-  if (from) { retSql += ' AND date>=?'; retParams.push(from); }
-  if (to) { retSql += ' AND date<=?'; retParams.push(to); }
-  retSql += ' GROUP BY user_id';
-  const retRows = db.prepare(retSql).all(...retParams);
-  const paidRows = db.prepare(
-    'SELECT rep_id, COALESCE(SUM(amount),0) s FROM incentive_payments GROUP BY rep_id'
-  ).all();
-  const salesMap = {};
-  for (const r of salesRows) {
-    if (!salesMap[r.user_id]) salesMap[r.user_id] = { cash: 0, cheque: 0 };
-    if (r.pay_type === 'cheque') salesMap[r.user_id].cheque = r.s;
-    else salesMap[r.user_id].cash = r.s;
-  }
-  const retMap = Object.fromEntries(retRows.map(r => [r.user_id, r.s]));
+  const paidRows = db.prepare('SELECT rep_id, COALESCE(SUM(amount),0) s FROM incentive_payments GROUP BY rep_id').all();
   const paidMap = Object.fromEntries(paidRows.map(r => [r.rep_id, r.s]));
   const result = users.map(u => {
-    const s = salesMap[u.id] || { cash: 0, cheque: 0 };
-    const returns = retMap[u.id] || 0;
-    const cashComm = s.cash * (u.commission_cash || 0) / 100;
-    const chequeComm = s.cheque * (u.commission_cheque || 0) / 100;
-    const returnPenalty = returns * ((u.commission_cash || 0) + (u.commission_cheque || 0)) / 200;
-    const totalComm = Math.max(0, cashComm + chequeComm - returnPenalty);
+    const comm = computeRepCommission(db, u.id, { from, to });
     const paid = paidMap[u.id] || 0;
     return {
       ...u,
       roleLabel: u.role === 'inside_sales' ? 'تلفنی' : 'میدانی',
-      cashSales: s.cash, chequeSales: s.cheque, returns,
-      cashComm, chequeComm, totalComm, paid, payable: totalComm - paid
+      basisLabel: u.commission_basis === 'collection' ? 'وصول' : 'فاکتور',
+      ...comm,
+      paid,
+      payable: Math.max(0, comm.totalComm - paid)
     };
   });
   res.json(result);
@@ -409,22 +386,28 @@ router.delete('/incentive-payments/:id', auth, adminOrAccounting, (req, res) => 
 // My commission — salesperson views their own (no adminOnly)
 router.get('/my-commission', auth, (req, res) => {
   const db = getDB();
-  const u = db.prepare('SELECT id,name,commission_cash,commission_cheque FROM users WHERE id=?').get(req.user.id);
-  if (!u) return res.json({ cashComm: 0, chequeComm: 0, totalComm: 0, commRate: { cash: 0, cheque: 0 } });
-  const cashSales = db.prepare(
-    "SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND pay_type='cash'"
-  ).get(u.id).s;
-  const chequeSales = db.prepare(
-    "SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND pay_type='cheque'"
-  ).get(u.id).s;
-  const cashComm = cashSales * (u.commission_cash || 0) / 100;
-  const chequeComm = chequeSales * (u.commission_cheque || 0) / 100;
+  const { computeRepCommission } = require('../lib/rep-ledger');
+  const u = db.prepare('SELECT id,name,commission_cash,commission_cheque,commission_basis,monthly_target FROM users WHERE id=?').get(req.user.id);
+  if (!u || !isRepRole(u.role)) {
+    return res.json({ cashComm: 0, chequeComm: 0, totalComm: 0, paid: 0, payable: 0, commRate: { cash: 0, cheque: 0 } });
+  }
+  const comm = computeRepCommission(db, u.id, {});
+  const paid = db.prepare('SELECT COALESCE(SUM(amount),0) s FROM incentive_payments WHERE rep_id=?').get(u.id).s;
+  const pendingExp = db.prepare("SELECT COUNT(*) c FROM rep_expenses WHERE rep_id=? AND status='pending'").get(u.id).c;
   res.json({
-    cashSales, chequeSales, cashComm, chequeComm,
-    totalComm: cashComm + chequeComm,
-    commRate: { cash: u.commission_cash || 0, cheque: u.commission_cheque || 0 }
+    ...comm,
+    cashSales: comm.cashSales, chequeSales: comm.chequeSales,
+    cashComm: comm.cashComm, chequeComm: comm.chequeComm, totalComm: comm.totalComm,
+    paid, payable: Math.max(0, comm.totalComm - paid),
+    commRate: { cash: u.commission_cash || 0, cheque: u.commission_cheque || 0 },
+    basisLabel: u.commission_basis === 'collection' ? 'بر اساس وصول' : 'بر اساس فاکتور',
+    pendingExpenses: pendingExp
   });
 });
+
+function isRepRole(role) {
+  return role === 'field_sales' || role === 'inside_sales';
+}
 
 // Invoices pending approval
 router.get('/pending-approvals', auth, adminOrAccounting, (req, res) => {
