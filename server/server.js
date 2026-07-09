@@ -9,7 +9,8 @@ const { initDB, getDB, isDevice } = require('./db');
 const { todayJalali, nowHHMM } = require('./jalali');
 const { sendSMS } = require('./sms');
 const { hashKey } = require('./routes/api_keys');
-const { runBackup } = require('./backup');
+const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile } = require('./backup');
+const { assertSecurityConfig } = require('./lib/security');
 
 const app = express();
 app.set('trust proxy', 1); // trust Nginx reverse proxy
@@ -107,7 +108,10 @@ const authLimiter = rateLimit({
   skipSuccessfulRequests: true,
 });
 app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/forgot', authLimiter);
+app.use('/api/auth/forgot-reset', authLimiter);
 
+assertSecurityConfig();
 initDB();
 
 // Device builds record every successful mutating API call into the sync
@@ -135,16 +139,28 @@ app.post('/api/admin/backup-now', auth, adminOnly, centralOnly, async (req, res)
   res.json(result);
 });
 
-// Download latest backup file directly to admin's browser
+app.get('/api/admin/backups', auth, adminOnly, centralOnly, (req, res) => {
+  res.json(listBackups());
+});
+
 app.get('/api/admin/backup-download', auth, adminOnly, centralOnly, async (req, res) => {
-  const { BACKUP_FILE } = require('./backup');
-  if (!fs.existsSync(BACKUP_FILE)) {
-    // No backup yet — create one first
+  let filePath = getLatestBackupFile();
+  if (!fs.existsSync(filePath)) {
     const result = await runBackup();
     if (!result.ok) return res.status(500).json({ error: result.error });
+    filePath = getLatestBackupFile();
   }
-  res.download(BACKUP_FILE, 'crm-latest.tar.gz');
+  const base = path.basename(filePath);
+  res.download(filePath, base);
 });
+
+app.get('/api/admin/backup-download/:name', auth, adminOnly, centralOnly, (req, res) => {
+  const filePath = resolveBackupFile(req.params.name);
+  if (!filePath) return res.status(404).json({ error: 'فایل پشتیبان یافت نشد' });
+  res.download(filePath, req.params.name);
+});
+
+app.use('/api/import', require('./routes/import'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/reminders', require('./routes/reminders'));
 app.use('/api/reports', require('./routes/reports'));

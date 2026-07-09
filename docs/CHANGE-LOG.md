@@ -27,22 +27,37 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۱۸)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۱۸ — بعدازظهر)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `391fd66` |
+| آخرین commit روی GitHub | `5fd4002` (+ تغییرات commit‌نشده امنیت/محک) |
 | سرور production | `taranom-admin@45.90.98.99` — مسیر `/home/taranom-admin/crm-taranom` |
 | PM2 | `crm-taranom` — پورت `3000` |
-| وضعیت سرور (۱۸ تیر) | HTTP 200 — repair جدول `warehouses` انجام شد، ۴۸ ردیف `warehouse_stock` seed شد |
-| Deploy بعدی لازم | `git pull` برای رسیدن به `391fd66` (sync عکس + auto-update) |
+| وضعیت سرور | احتمالاً روی `6a9f240` یا قدیمی‌تر (کاربر reset کرده) — **نیاز به pull** |
+| Deploy بعدی لازم | `git pull` + rebuild دسکتاپ `1.0.2` |
 
 ---
 
 ## تاریخچه
 
-### ۱۴۰۴/۰۴/۱۸ — همگام‌سازی عکس محصولات + auto-update دسکتاپ/اندروید
+### ۱۴۰۴/۰۴/۱۸ — امنیت، فراموشی رمز، بک‌آپ پیشرفته، واردات محک، رفع build دسکتاپ
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (در انتظار commit/push این نشست)
+- **خلاصه:**
+  - رفع build دسکتاپ: `better-sqlite3` v11 + `electron-updater`
+  - امنیت: `JWT_SECRET` اجباری در production، سیاست رمز ۸+ حرف و عدد (`lib/security.js`)
+  - فراموشی رمز: OTP پیامکی از صفحه ورود
+  - بک‌آپ: چرخشی (۱۴ نسخه)، ZIP روی ویندوز / tar.gz روی لینوکس، شامل DB + uploads
+  - واردات محک: آپلود FullBackup.zip، تحلیل .bak، import از SQL Server
+  - راهنمای داخل برنامه به‌روز شد
+- **فایل‌های کلیدی:** `server/lib/security.js`, `server/backup.js`, `server/routes/auth.js`, `server/routes/import.js`, `server/lib/mahak-import.js`, `desktop/package.json`, `docs/MAHAK-IMPORT.md`
+- **Deploy:** ⏳
+- **یادداشت:** واردات کامل محک نیاز به SQL Server + restore فایل‌های .bak دارد
+
+---
+
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `391fd66`
 - **خلاصه:**

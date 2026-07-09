@@ -50,6 +50,16 @@ npm start
 
 ## عیب‌یابی
 
+- **خطای `CopyablePersistentTraits` / `better-sqlite3` با Electron 31**: نسخهٔ قدیمی `better-sqlite3` (۹.x) با Electron 31 سازگار نیست. پاک‌سازی و نصب مجدد:
+  ```powershell
+  cd desktop
+  Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
+  Remove-Item package-lock.json -ErrorAction SilentlyContinue
+  npm install
+  npm run postinstall
+  npm run dist:win
+  ```
+  در `package.json` باید `"better-sqlite3": "11.10.0"` (دقیق) باشد — نه `^9.x`.
 - **خطای ساخت better-sqlite3**: مطمئن شوید Build Tools ویندوز نصب است؛ سپس `npm install` را دوباره اجرا کنید
 - **برنامه باز می‌شود ولی صفحه سفید است**: چند ثانیه صبر کنید (سرور داخلی در حال بالا آمدن است)؛ اگر ادامه داشت از منوی View → Reload استفاده کنید
 - **همگام‌سازی انجام نمی‌شود**: نشانگر وضعیت بالای صفحه را بزنید — آدرس سرور مرکزی و اتصال اینترنت را بررسی کنید

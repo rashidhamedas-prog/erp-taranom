@@ -42,7 +42,7 @@ async function startEmbeddedServer() {
   const port = await getFreePort();
   process.env.SYNC_ROLE = 'device';
   process.env.APP_PLATFORM = 'desktop';
-  process.env.APP_VERSION = pkg.version;
+  process.env.APP_VERSION = '1.0.2';
   process.env.PORT = String(port);
   process.env.DB_PATH = path.join(dataDir, 'crm.db');
   process.env.UPLOADS_DIR = path.join(dataDir, 'uploads');

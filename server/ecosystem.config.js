@@ -10,6 +10,7 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: 3000,
+      // ⚠️ قبل از deploy نسخهٔ امنیتی: JWT_SECRET باید ≥۳۲ کاراکتر باشد (node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
       JWT_SECRET: 'taranom-crm-secret-2024-change-this'
     }
   }]
