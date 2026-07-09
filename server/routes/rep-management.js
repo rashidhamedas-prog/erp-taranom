@@ -8,7 +8,7 @@ const { todayJalali } = require('../jalali');
 const {
   EXPENSE_CATEGORIES, REP_ROLES_SQL, isRepRole, addRepLedger, buildRepLedgerView, buildRepStatement,
   computeRepCommission, computeRepPayable, settleAdvancesAgainstPayment, notifyRep, getRepRanking,
-  getRepAgingReceivables, getTeamRollup, canAccessRep
+  getRepAgingReceivables, getTeamRollup, canAccessRep, getRepProfitReport
 } = require('../lib/rep-ledger');
 
 const UPLOADS = process.env.UPLOADS_DIR || path.join(__dirname, '..', 'uploads');
@@ -186,7 +186,7 @@ router.post('/expenses/:expenseId/approve', auth, repModuleAdmin, (req, res) => 
       ]
     });
   })();
-  notifyRep(db, row.rep_id, `✅ هزینه ${row.amount} تومان تأیید شد.`, req.user.id);
+  notifyRep(db, row.rep_id, `✅ هزینه ${row.amount} تومان تأیید شد.`, req.user.id, { sms: true });
   res.json({ ok: true });
 });
 
@@ -428,7 +428,7 @@ router.post('/:id/settle', auth, adminOrAccounting, (req, res) => {
     `).run(repId, date || todayJalali(), 'combined', amt, advSettled, amt, balanceBefore, balanceBefore - amt, note || '', pay.lastInsertRowid, req.user.id);
     return { paymentId: pay.lastInsertRowid, advSettled };
   })();
-  notifyRep(db, repId, `💵 تسویه ${amt} تومان انجام شد.${result.advSettled ? ` (مساعده: ${result.advSettled})` : ''}`, req.user.id);
+  notifyRep(db, repId, `💵 تسویه ${amt} تومان انجام شد.${result.advSettled ? ` (مساعده: ${result.advSettled})` : ''}`, req.user.id, { sms: true });
   res.json({ ok: true, ...result });
 });
 
@@ -537,6 +537,12 @@ router.get('/:id/reports/customers', auth, adminRepOrSelf, (req, res) => {
   `).all(+req.params.id));
 });
 
+router.get('/:id/reports/profit', auth, adminRepOrSelf, (req, res) => {
+  const db = getDB();
+  if (!repGuard(db, +req.params.id)) return res.status(404).json({ error: 'نماینده یافت نشد' });
+  res.json(getRepProfitReport(db, +req.params.id, { from: req.query.from, to: req.query.to }));
+});
+
 router.get('/:id/reports/aging', auth, adminRepOrSelf, (req, res) => {
   if (!repGuard(getDB(), +req.params.id)) return res.status(404).json({ error: 'نماینده یافت نشد' });
   res.json(getRepAgingReceivables(getDB(), +req.params.id));
@@ -558,16 +564,18 @@ router.get('/:id/visits', auth, adminRepOrSelf, (req, res) => {
   res.json(db.prepare('SELECT v.*, c.biz as customer_name FROM rep_visit_logs v LEFT JOIN customers c ON v.customer_id=c.id WHERE v.rep_id=? ORDER BY v.created_at DESC LIMIT 200').all(+req.params.id));
 });
 
-router.post('/:id/visits', auth, adminRepOrSelf, (req, res) => {
+router.post('/:id/visits', auth, adminRepOrSelf, repUpload.fields([{ name: 'photo', maxCount: 1 }, { name: 'signature', maxCount: 1 }]), (req, res) => {
   const db = getDB();
   const repId = +req.params.id;
   if (!repGuard(db, repId)) return res.status(404).json({ error: 'نماینده یافت نشد' });
   const { customer_id, date, note, lat, lng, check_in_at, check_out_at, signature_file, photo_file } = req.body;
+  const photo = req.files?.photo?.[0]?.filename || photo_file || '';
+  const signature = req.files?.signature?.[0]?.filename || signature_file || '';
   const r = db.prepare(`
     INSERT INTO rep_visit_logs (rep_id,customer_id,date,note,lat,lng,check_in_at,check_out_at,signature_file,photo_file)
     VALUES (?,?,?,?,?,?,?,?,?,?)
   `).run(repId, customer_id || null, date || todayJalali(), note || '', lat || null, lng || null,
-    check_in_at || Math.floor(Date.now() / 1000), check_out_at || null, signature_file || '', photo_file || '');
+    check_in_at || Math.floor(Date.now() / 1000), check_out_at || null, signature, photo);
   res.json({ id: r.lastInsertRowid, ok: true });
 });
 

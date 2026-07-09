@@ -1193,7 +1193,8 @@ function initDB() {
     backup_email: '',
     overhead_method: 'tag',
     overhead_fixed_rate: '0',
-    overhead_period_production_qty: '0'
+    overhead_period_production_qty: '0',
+    rep_sms_notify: '1'
   };
   const insSetting = db.prepare('INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)');
   for (const [k, v] of Object.entries(defaults)) insSetting.run(k, v);

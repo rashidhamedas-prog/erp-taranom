@@ -6623,15 +6623,24 @@ async function deleteRepTier(id,repId,repName){
 }
 async function repReportsModal(repId,repName){
   const dq=repDateQuery();
-  const [sales,collections,customers,aging]=await Promise.all([
+  const [sales,collections,customers,aging,profit]=await Promise.all([
     api('GET','/reps/'+repId+'/reports/sales'+dq),
     api('GET','/reps/'+repId+'/reports/collections'+dq),
     api('GET','/reps/'+repId+'/reports/customers'),
-    api('GET','/reps/'+repId+'/reports/aging')
+    api('GET','/reps/'+repId+'/reports/aging'),
+    api('GET','/reps/'+repId+'/reports/profit'+dq)
   ]);
   openModal(`
     <div class="modal-head"><h3>📋 گزارشات — ${esc(repName)}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body" style="max-height:70vh;overflow:auto">
+      <div class="cards" style="margin-bottom:12px">
+        ${statCard('g','📈',fmt(profit?.revenue||0),'فروش (ت)')}
+        ${statCard('r','📉',fmt(profit?.cogs||0),'بهای تمام‌شده')}
+        ${statCard('p','💹',fmt(profit?.profit||0),'سود خالص (ت)')}
+      </div>
+      <h4 style="margin:12px 0 6px">سود به تفکیک فاکتور</h4>
+      <div class="tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr><th>شماره</th><th>تاریخ</th><th>مشتری</th><th>فروش</th><th>بها</th><th>سود</th></tr></thead>
+      <tbody>${(profit?.rows||[]).slice(0,15).map(i=>`<tr><td>${esc(i.num)}</td><td>${escDate(i.date)}</td><td>${esc(i.cust_biz)}</td><td class="mono">${fmt(i.revenue)}</td><td class="mono">${fmt(i.cost)}</td><td class="mono" style="color:var(--green)">${fmt(i.profit)}</td></tr>`).join('')||emptyRow(6)}</tbody></table></div>
       <h4 style="margin:12px 0 6px">فاکتورها (${(sales||[]).length})</h4>
       <div class="tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr><th>شماره</th><th>تاریخ</th><th>مشتری</th><th>مبلغ</th></tr></thead>
       <tbody>${(sales||[]).slice(0,20).map(i=>`<tr><td>${esc(i.num)}</td><td>${escDate(i.date)}</td><td>${esc(i.cust_biz)}</td><td class="mono">${fmt(i.final)}</td></tr>`).join('')||emptyRow(4)}</tbody></table></div>
@@ -6710,22 +6719,59 @@ async function repVisitModal(repId){
       <div class="fg full">${custSelect('rv-cust',0)}</div>
       <div class="fg"><label>تاریخ</label><input id="rv-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg"><label>GPS</label><input id="rv-gps" readonly placeholder="در حال دریافت..." style="font-size:11px"></div>
+      <div class="fg full"><label>عکس بازدید</label><input id="rv-photo" type="file" accept="image/*"></div>
+      <div class="fg full"><label>امضا</label>
+        <canvas id="rv-sig" width="300" height="100" style="border:1px solid var(--border);border-radius:8px;touch-action:none;background:#fff"></canvas>
+        <button type="button" class="btn sm ghost" style="margin-top:6px" onclick="clearVisitSig()">پاک کردن امضا</button>
+      </div>
       <div class="fg full"><label>یادداشت</label><input id="rv-note"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveRepVisit(${repId})">💾</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
   attachDatepickers(el('modalRoot')); initCustSearches(el('modalRoot'));
+  initVisitSigCanvas();
   if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(p=>{
       const inp=el('rv-gps'); if(inp) inp.value=p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5);
     },()=>{ const inp=el('rv-gps'); if(inp) inp.value='موقعیت در دسترس نیست'; },{enableHighAccuracy:true,timeout:8000});
   }
 }
+let _visitSigCtx=null,_visitSigDrawing=false;
+function initVisitSigCanvas(){
+  const c=el('rv-sig'); if(!c) return;
+  _visitSigCtx=c.getContext('2d');
+  _visitSigCtx.strokeStyle='#111'; _visitSigCtx.lineWidth=2; _visitSigCtx.lineCap='round';
+  const start=(x,y)=>{_visitSigDrawing=true;_visitSigCtx.beginPath();_visitSigCtx.moveTo(x,y);};
+  const move=(x,y)=>{if(!_visitSigDrawing)return;_visitSigCtx.lineTo(x,y);_visitSigCtx.stroke();};
+  c.onmousedown=e=>{const r=c.getBoundingClientRect();start(e.clientX-r.left,e.clientY-r.top);};
+  c.onmousemove=e=>{const r=c.getBoundingClientRect();move(e.clientX-r.left,e.clientY-r.top);};
+  c.onmouseup=()=>{_visitSigDrawing=false;};
+  c.onmouseleave=()=>{_visitSigDrawing=false;};
+  c.ontouchstart=e=>{e.preventDefault();const t=e.touches[0],r=c.getBoundingClientRect();start(t.clientX-r.left,t.clientY-r.top);};
+  c.ontouchmove=e=>{e.preventDefault();const t=e.touches[0],r=c.getBoundingClientRect();move(t.clientX-r.left,t.clientY-r.top);};
+  c.ontouchend=()=>{_visitSigDrawing=false;};
+}
+function clearVisitSig(){
+  const c=el('rv-sig'); if(c&&_visitSigCtx) _visitSigCtx.clearRect(0,0,c.width,c.height);
+}
 async function saveRepVisit(repId){
   let lat=null,lng=null;
   const gps=(el('rv-gps')?.value||'').split(',');
   if(gps.length===2){ lat=parseFloat(gps[0]); lng=parseFloat(gps[1]); }
   try{
-    await api('POST','/reps/'+repId+'/visits',{customer_id:+el('rv-cust').value,date:el('rv-date').value,note:el('rv-note').value,lat,lng});
+    const fd=new FormData();
+    fd.append('customer_id',+el('rv-cust').value);
+    fd.append('date',el('rv-date').value);
+    fd.append('note',el('rv-note').value);
+    if(lat!=null) fd.append('lat',lat);
+    if(lng!=null) fd.append('lng',lng);
+    const photoInp=el('rv-photo');
+    if(photoInp?.files?.[0]) fd.append('photo',photoInp.files[0]);
+    const sigC=el('rv-sig');
+    if(sigC){
+      const blob=await new Promise(r=>sigC.toBlob(r,'image/png'));
+      if(blob&&blob.size>500) fd.append('signature',blob,'signature.png');
+    }
+    await api('POST','/reps/'+repId+'/visits',fd,true);
     closeModal(); showToast('بازدید ثبت شد');
   }catch(e){}
 }

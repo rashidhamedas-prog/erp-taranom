@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting, resolveCashAccount } = require('../db');
-const { recordCommissionAccrual } = require('../lib/rep-ledger');
+const { recordCommissionAccrual, recordSettlementCommissionAccrual } = require('../lib/rep-ledger');
 const { auth, adminOnly, adminOrAccounting, centralOnly } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
@@ -180,6 +180,12 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
         { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: parseFloat(amount) }
       ]
     });
+    if (invoice_id) {
+      const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(invoice_id);
+      if (inv) {
+        recordSettlementCommissionAccrual(db, { id: settlementId, amount: parseFloat(amount), date: date || '' }, inv, req.user.id, createJournalEntry);
+      }
+    }
     return settlementId;
   })();
   audit(req.user.id, 'create', 'settlement', settlementId, `تسویه ${amount} تومان - مشتری ${cust_id}`);
@@ -230,6 +236,12 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
           { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: amount }
         ]
       });
+      if (p.invoice_id) {
+        const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(p.invoice_id);
+        if (inv) {
+          recordSettlementCommissionAccrual(db, { id: settlementId, amount, date: p.date || '' }, inv, req.user.id, createJournalEntry);
+        }
+      }
       created.push({ id: settlementId, amount });
     }
   })();

@@ -385,11 +385,16 @@ function runActiveToFollowupCheck() {
 // central responsibilities, and running them per-device would duplicate SMS
 // sends and create diverging automated edits that fight the sync engine.
 if (!isDevice()) {
-  // Daily at 08:00: batch SMS + silent customer check + active→followup
+  // Daily at 08:00: batch SMS + silent customer check + active→followup + rep alerts
   cron.schedule('0 8 * * *', () => {
     runFollowupSMSBatch();
     runSilentCustomerCheck();
     runActiveToFollowupCheck();
+    try {
+      const { runRepDailyAlerts } = require('./lib/rep-ledger');
+      const n = runRepDailyAlerts(getDB());
+      if (n) console.log(`📣 ${n} اعلان نماینده ارسال شد`);
+    } catch (e) { console.error('cron rep-alerts error:', e.message); }
   });
 
   // Every minute: timed follow-up SMS

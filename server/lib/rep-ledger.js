@@ -445,8 +445,117 @@ function recordCommissionAccrual(db, inv, userId, createJournalEntry) {
     rep_id: inv.user_id, date: inv.date || '', entry_type: 'commission_accrual', ref_type: 'invoice', ref_id: inv.id,
     description: `تعهد انگیزه فاکتور ${inv.num}`, debit: 0, credit: amount, created_by: userId
   });
-  notifyRep(db, inv.user_id, `🎯 انگیزه فاکتور ${inv.num} تأیید شد: ${amount.toLocaleString('fa-IR')} تومان`, userId);
+  notifyRep(db, inv.user_id, `🎯 انگیزه فاکتور ${inv.num} تأیید شد: ${amount.toLocaleString('fa-IR')} تومان`, userId, { sms: true });
   return amount;
+}
+
+function computeSettlementCommission(db, settlement, inv) {
+  if (!inv || !inv.approved) return 0;
+  const repId = inv.user_id;
+  const u = db.prepare(`SELECT id, role, commission_basis, commission_fixed, commission_cash, commission_cheque FROM users WHERE id=?`).get(repId);
+  if (!u || !isRepRole(u.role) || u.commission_basis !== 'collection') return 0;
+  const amt = settlement.amount || 0;
+  if (amt <= 0) return 0;
+  const hasRules = db.prepare('SELECT 1 FROM rep_commission_rules WHERE rep_id=? AND active=1 LIMIT 1').get(repId);
+  let comm = 0;
+  if (u.commission_fixed > 0) {
+    comm = u.commission_fixed * (amt / (inv.final || amt || 1));
+  } else if (hasRules && inv.rows) {
+    let invRows = [];
+    try { invRows = JSON.parse(inv.rows || '[]'); } catch { invRows = []; }
+    const invTotal = invRows.reduce((a, x) => a + lineTotal(x), 0) || 1;
+    for (const row of invRows) {
+      const { comm: c, lt } = applyLineCommission(db, repId, inv, row, inv.cust_id, 'collection');
+      const share = amt * (lineTotal(row) / invTotal);
+      comm += c * (share / (lt || 1));
+    }
+  } else {
+    const payType = inv.pay_type === 'cheque' ? 'cheque' : 'cash';
+    comm = amt * ((payType === 'cheque' ? u.commission_cheque : u.commission_cash) || 0) / 100;
+  }
+  return Math.round(comm * 100) / 100;
+}
+
+function recordSettlementCommissionAccrual(db, settlement, inv, userId, createJournalEntry) {
+  const amount = computeSettlementCommission(db, settlement, inv);
+  if (amount <= 0) return null;
+  const repId = inv.user_id;
+  const existing = db.prepare("SELECT id FROM rep_ledger WHERE rep_id=? AND ref_type='settlement' AND ref_id=? AND entry_type='commission_accrual'").get(repId, settlement.id);
+  if (existing) return amount;
+  const rep = db.prepare('SELECT name FROM users WHERE id=?').get(repId);
+  createJournalEntry(db, {
+    date: settlement.date || '', description: `تعهد انگیزه وصول — فاکتور ${inv.num} — ${rep?.name || ''}`,
+    ref_type: 'commission_accrual', ref_id: settlement.id, created_by: userId,
+    lines: [
+      { code: '6101', name: 'هزینه انگیزه فروش', debit: amount, credit: 0 },
+      { code: '2107', name: 'بستانکاران انگیزه نمایندگان', debit: 0, credit: amount }
+    ]
+  });
+  addRepLedger(db, {
+    rep_id: repId, date: settlement.date || '', entry_type: 'commission_accrual', ref_type: 'settlement', ref_id: settlement.id,
+    description: `تعهد انگیزه وصول فاکتور ${inv.num}`, debit: 0, credit: amount, created_by: userId
+  });
+  notifyRep(db, repId, `💰 انگیزه وصول ${amount.toLocaleString('fa-IR')} تومان ثبت شد (فاکتور ${inv.num})`, userId, { sms: true });
+  return amount;
+}
+
+function getRepProfitReport(db, repId, { from, to } = {}) {
+  let sql = "SELECT id,num,date,rows,final,cust_id FROM invoices WHERE user_id=? AND type='final' AND approved=1";
+  const p = [repId];
+  if (from) { sql += ' AND date>=?'; p.push(from); }
+  if (to) { sql += ' AND date<=?'; p.push(to); }
+  const invs = db.prepare(sql).all(...p);
+  const costMap = Object.fromEntries(db.prepare('SELECT id,cost FROM products').all().map(x => [x.id, x.cost || 0]));
+  const custMap = Object.fromEntries(db.prepare('SELECT id,biz FROM customers').all().map(x => [x.id, x.biz]));
+  let revenue = 0, cogs = 0;
+  const rows = [];
+  for (const inv of invs) {
+    let parsed = [];
+    try { parsed = JSON.parse(inv.rows || '[]'); } catch { parsed = []; }
+    let invRev = 0, invCost = 0;
+    for (const r of parsed) {
+      const lt = lineTotal(r);
+      invRev += lt;
+      invCost += (r.qty || 0) * (costMap[r.product_id] || 0);
+    }
+    if (!parsed.length) { invRev = inv.final || 0; }
+    revenue += invRev;
+    cogs += invCost;
+    rows.push({
+      id: inv.id, num: inv.num, date: inv.date, cust_biz: custMap[inv.cust_id] || '-',
+      revenue: invRev, cost: invCost, profit: invRev - invCost
+    });
+  }
+  return { revenue, cogs, profit: revenue - cogs, rows };
+}
+
+function runRepDailyAlerts(db) {
+  const reps = db.prepare(`SELECT id,name,monthly_target FROM users WHERE active=1 AND role IN ${REP_ROLES_SQL}`).all();
+  const today = require('../jalali').todayJalali();
+  let n = 0;
+  for (const r of reps) {
+    const aging = getRepAgingReceivables(db, r.id);
+    if (aging.total > 100000) {
+      const key = `rep_alert_receivable_${r.id}_${today.slice(0, 7)}`;
+      const sent = db.prepare("SELECT value FROM settings WHERE key=?").get(key);
+      if (!sent) {
+        notifyRep(db, r.id, `⚠️ مطالبات مشتریان شما: ${Math.round(aging.total).toLocaleString('fa-IR')} تومان`, 1, { sms: true });
+        db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)").run(key, '1');
+        n++;
+      }
+    }
+    const comm = computeRepCommission(db, r.id, {});
+    if (comm.targetPct >= 100 && comm.monthlyTarget > 0) {
+      const key = `rep_alert_target_${r.id}_${today.slice(0, 7)}`;
+      const sent = db.prepare("SELECT value FROM settings WHERE key=?").get(key);
+      if (!sent) {
+        notifyRep(db, r.id, `🎉 تبریک! هدف فروش ماه (${comm.targetPct}٪) محقق شد.`, 1, { sms: true });
+        db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)").run(key, '1');
+        n++;
+      }
+    }
+  }
+  return n;
 }
 
 function assignCustomerByTerritory(db, customerId, city, province, createdBy) {
@@ -471,9 +580,21 @@ function assignCustomerByTerritory(db, customerId, city, province, createdBy) {
   return null;
 }
 
-function notifyRep(db, repId, body, fromId) {
+function notifyRep(db, repId, body, fromId, opts = {}) {
   try {
     db.prepare('INSERT INTO messages (from_id,to_id,body) VALUES (?,?,?)').run(fromId || 1, repId, body);
+  } catch { /* optional */ }
+  if (!opts.sms) return;
+  try {
+    const flag = db.prepare("SELECT value FROM settings WHERE key='rep_sms_notify'").get();
+    if (flag && flag.value === '0') return;
+    const rep = db.prepare('SELECT phone FROM users WHERE id=?').get(repId);
+    if (!rep?.phone) return;
+    const rows = db.prepare("SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from')").all();
+    const settings = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    if (!settings.sms_api_key) return;
+    const { sendSMS } = require('../sms');
+    sendSMS(settings, rep.phone, body).catch(() => {});
   } catch { /* optional */ }
 }
 
@@ -481,6 +602,6 @@ module.exports = {
   EXPENSE_CATEGORIES, REP_ROLES_SQL, isRepRole, addRepLedger, computeRepCommission, buildRepLedgerView,
   buildRepStatement, settleAdvancesAgainstPayment, recordIncentivePaymentLedger, getRepRanking,
   getRepAgingReceivables, getTeamRollup, canAccessRep, notifyRep, getRepRates, getAdvanceBalance,
-  computeRepPayable, computeSingleInvoiceCommission, recordCommissionAccrual, assignCustomerByTerritory,
-  lineProfit
+  computeRepPayable, computeSingleInvoiceCommission, recordCommissionAccrual, recordSettlementCommissionAccrual,
+  assignCustomerByTerritory, getRepProfitReport, runRepDailyAlerts, lineProfit
 };
