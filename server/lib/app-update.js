@@ -5,7 +5,7 @@ const MANIFEST_PATH = path.join(__dirname, '..', 'public', 'releases', 'manifest
 
 const DEFAULT_MANIFEST = {
   web: { version: '2.1.0', notes: '' },
-  desktop: { version: '1.0.3', url: '/releases/CRM-Taranom-Setup-1.0.3.exe', notes: '' },
+  desktop: { version: '1.0.4', url: '/releases/CRM-Taranom-Setup-1.0.4.exe', notes: 'دکمه به‌روزرسانی در تنظیمات برنامه' },
   android: { version: '2.0.1', versionCode: 3, url: '/releases/crm-taranom.apk', notes: '' }
 };
 

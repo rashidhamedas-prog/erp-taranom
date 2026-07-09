@@ -1106,9 +1106,21 @@ function navItems(){
     });
   }
   if(ME.role==='admin') return NAV_ADMIN;
-  if(ME.role==='accounting') return NAV_ACCOUNTING;
-  return NAV_SALES;
+  if(ME.role==='accounting'){
+    let items = NAV_ACCOUNTING;
+    if(isDesktopApp()){
+      items = [...items.slice(0, -1), { id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' }, items[items.length - 1]];
+    }
+    return items;
+  }
+  let items = NAV_SALES;
+  if(isDesktopApp()){
+    items = [...items.slice(0, -1), { id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' }, items[items.length - 1]];
+  }
+  return items;
 }
+function isDesktopApp(){ return detectClientPlatform()==='desktop'; }
+
 function buildNav(){
   const items = navItems();
   el('nav').innerHTML = items.map(it=>`
@@ -6839,6 +6851,7 @@ ROUTES.settings = async function(){
   if(!CACHE.settings || !Object.keys(CACHE.settings).length) CACHE.settings=await api('GET','/settings')||{};
   const s = CACHE.settings;
   el('view').innerHTML=`
+    ${isDesktopApp()?desktopUpdatePanelHtml():''}
     <div class="panel"><div class="panel-head"><h4>اطلاعات شرکت</h4></div><div class="panel-body"><div class="form-grid">
       <div class="fg"><label>نام شرکت</label><input id="s-company_name" value="${esc(s.company_name||'')}"></div>
       <div class="fg"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}"></div>
@@ -6923,6 +6936,11 @@ ROUTES.settings = async function(){
     <button class="btn green" onclick="saveSettings()">💾 ذخیره تنظیمات</button>`;
   // Show hint for current provider on page load
   toggleSmsProviderHint(s.sms_provider||'kavenegar');
+  if(isDesktopApp()) renderDesktopUpdateUI();
+};
+ROUTES['desktop-settings'] = async function(){
+  el('view').innerHTML = desktopUpdatePanelHtml() + `<div class="muted" style="font-size:12px;margin-top:12px">پس از نصب به‌روزرسانی، برنامه خودکار مجدداً راه‌اندازی می‌شود.</div>`;
+  renderDesktopUpdateUI();
 };
 async function saveSettings(){
   const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month'];
@@ -7658,8 +7676,10 @@ async function initAppUpdate(){
     if(!APP_INFO || APP_INFO.role!=='device') return;
     const platform = APP_INFO.platform==='device' ? detectClientPlatform() : APP_INFO.platform;
     if(platform==='web') return;
-    // Desktop Electron uses electron-updater in main.js — silent auto-install
-    if(platform==='desktop' && navigator.userAgent.includes('Electron')) return;
+    if(platform==='desktop'){
+      await initDesktopUpdate();
+      return;
+    }
     const r = await fetch(`/api/system/app-update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(APP_INFO.version||'0')}`);
     if(!r.ok) return;
     PENDING_UPDATE = await r.json();
@@ -7669,6 +7689,117 @@ async function initAppUpdate(){
     }
     setInterval(checkAppUpdate, 6*60*60*1000);
   }catch(e){}
+}
+
+let DESKTOP_UPDATE = { status:'idle', currentVersion:'', latestVersion:null, percent:0, error:null, fallbackUrl:null };
+
+function desktopUpdatePanelHtml(){
+  return `
+    <div class="panel" id="desktopUpdatePanel" style="margin-bottom:16px">
+      <div class="panel-head"><h4>⬆️ به‌روزرسانی نرم‌افزار</h4></div>
+      <div class="panel-body">
+        <p style="margin-bottom:8px">نسخه فعلی: <strong class="mono" id="du-current">—</strong></p>
+        <p id="du-status-msg" class="muted" style="font-size:13px;margin-bottom:12px">در حال بررسی...</p>
+        <div id="du-progress-wrap" style="display:none;margin-bottom:12px">
+          <div style="height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden">
+            <div id="du-progress-bar" style="height:100%;width:0;background:var(--purple);transition:width .3s"></div>
+          </div>
+          <div class="muted" style="font-size:11px;margin-top:4px" id="du-progress-label"></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn green" id="du-install-btn" disabled onclick="desktopInstallUpdate()">نصب به‌روزرسانی</button>
+          <button class="btn ghost" id="du-check-btn" onclick="desktopCheckUpdate()">بررسی مجدد</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderDesktopUpdateUI(){
+  const cur=el('du-current'), msg=el('du-status-msg'), btn=el('du-install-btn'), check=el('du-check-btn');
+  const progWrap=el('du-progress-wrap'), progBar=el('du-progress-bar'), progLabel=el('du-progress-label');
+  if(!cur) return;
+  const s=DESKTOP_UPDATE;
+  cur.textContent = s.currentVersion || APP_INFO?.version || '—';
+  if(progWrap) progWrap.style.display = s.status==='downloading'?'block':'none';
+  if(progBar) progBar.style.width = (s.percent||0)+'%';
+  if(progLabel) progLabel.textContent = s.percent? `دانلود: ${s.percent}٪` : '';
+  let msgText='', installEnabled=false, installLabel='نصب به‌روزرسانی';
+  switch(s.status){
+    case 'checking': msgText='در حال بررسی به‌روزرسانی...'; break;
+    case 'downloading': msgText=`نسخه ${s.latestVersion||''} در حال دانلود است...`; break;
+    case 'ready': msgText=`نسخه ${s.latestVersion} آماده نصب است — دکمه را بزنید.`; installEnabled=true; break;
+    case 'uptodate': msgText='✅ شما از آخرین نسخه استفاده می‌کنید.'; break;
+    case 'error': msgText='❌ '+(s.error||'خطا در به‌روزرسانی'); break;
+    case 'available-fallback': msgText=`نسخه ${s.latestVersion} موجود است.`; installEnabled=true; installLabel='⬇️ دانلود نسخه جدید'; break;
+    default: msgText='برای بررسی، دکمه «بررسی مجدد» را بزنید.';
+  }
+  if(msg) msg.textContent=msgText;
+  if(btn){ btn.disabled=!installEnabled; btn.textContent=installLabel; btn.classList.toggle('green',installEnabled); btn.classList.toggle('ghost',!installEnabled); }
+  if(check) check.disabled = s.status==='checking'||s.status==='downloading';
+  updateDesktopNavBadge();
+}
+
+function updateDesktopNavBadge(){
+  const ready=DESKTOP_UPDATE.status==='ready'||DESKTOP_UPDATE.status==='available-fallback';
+  document.querySelectorAll('[data-page="settings"],[data-page="desktop-settings"]').forEach(a=>{
+    a.style.fontWeight = ready ? '700' : '';
+  });
+}
+
+async function initDesktopUpdate(){
+  if(!isDesktopApp()) return;
+  if(APP_INFO?.version) DESKTOP_UPDATE.currentVersion=APP_INFO.version;
+  if(window.desktopAPI){
+    try{
+      DESKTOP_UPDATE = await window.desktopAPI.getUpdateStatus();
+      if(!DESKTOP_UPDATE.currentVersion) DESKTOP_UPDATE.currentVersion=APP_INFO?.version;
+      window.desktopAPI.onUpdateStatus(st=>{ DESKTOP_UPDATE=st; renderDesktopUpdateUI(); });
+      renderDesktopUpdateUI();
+      await window.desktopAPI.checkForUpdates();
+    }catch(e){}
+    return;
+  }
+  await desktopCheckUpdateFallback();
+}
+
+async function desktopCheckUpdateFallback(){
+  if(!APP_INFO||APP_INFO.role!=='device') return;
+  DESKTOP_UPDATE.status='checking';
+  renderDesktopUpdateUI();
+  try{
+    const r=await fetch(`/api/system/app-update?platform=desktop&version=${encodeURIComponent(APP_INFO.version||'0')}`);
+    if(!r.ok){ DESKTOP_UPDATE.status='error'; DESKTOP_UPDATE.error='خطا در ارتباط با سرور'; renderDesktopUpdateUI(); return; }
+    const u=await r.json();
+    if(u.update_available){
+      DESKTOP_UPDATE={...DESKTOP_UPDATE, status:'available-fallback', latestVersion:u.latest_version, fallbackUrl:u.url};
+    }else{
+      DESKTOP_UPDATE={...DESKTOP_UPDATE, status:'uptodate', latestVersion:null, fallbackUrl:null};
+    }
+    renderDesktopUpdateUI();
+  }catch(e){ DESKTOP_UPDATE.status='error'; DESKTOP_UPDATE.error='خطا در بررسی'; renderDesktopUpdateUI(); }
+}
+
+async function desktopCheckUpdate(){
+  if(window.desktopAPI){
+    DESKTOP_UPDATE.status='checking';
+    renderDesktopUpdateUI();
+    DESKTOP_UPDATE=await window.desktopAPI.checkForUpdates();
+    renderDesktopUpdateUI();
+    return;
+  }
+  await desktopCheckUpdateFallback();
+}
+
+async function desktopInstallUpdate(){
+  if(DESKTOP_UPDATE.status==='available-fallback'&&DESKTOP_UPDATE.fallbackUrl){
+    window.open(DESKTOP_UPDATE.fallbackUrl,'_blank');
+    showToast('فایل نصب باز شد — پس از نصب، برنامه را مجدداً اجرا کنید');
+    return;
+  }
+  if(!window.desktopAPI) return;
+  if(DESKTOP_UPDATE.status!=='ready'){ showToast('به‌روزرسانی هنوز آماده نیست','error'); return; }
+  const r=await window.desktopAPI.installUpdate();
+  if(r&&!r.ok) showToast(r.error||'خطا در نصب','error');
 }
 
 async function checkAppUpdate(){

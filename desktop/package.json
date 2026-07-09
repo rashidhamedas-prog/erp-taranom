@@ -1,7 +1,7 @@
 {
   "name": "crm-taranom-desktop",
   "productName": "CRM Taranom",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "CRM Taranom - Offline Desktop (Windows) with central-server sync",
   "main": "main.js",
   "author": "Taranom",
@@ -43,6 +43,7 @@
     "buildDependenciesFromSource": false,
     "files": [
       "main.js",
+      "preload.js",
       "server/**/*",
       "!server/node_modules",
       "!server/crm.db*",

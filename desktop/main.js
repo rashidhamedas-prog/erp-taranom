@@ -5,7 +5,7 @@
 // built-in sync client pushes/pulls changes to the central server whenever a
 // connection is available. The window simply loads the local server's URL —
 // the UI is byte-identical to the web app.
-const { app, BrowserWindow, shell, dialog } = require('electron');
+const { app, BrowserWindow, shell, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -13,6 +13,20 @@ const crypto = require('crypto');
 const pkg = require('./package.json');
 
 let mainWindow = null;
+let autoUpdater = null;
+let updateState = {
+  status: 'idle',
+  currentVersion: pkg.version || '1.0.4',
+  latestVersion: null,
+  percent: 0,
+  error: null
+};
+
+function broadcastUpdateState() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('desktop:update-status', { ...updateState });
+  }
+}
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -25,8 +39,6 @@ function getFreePort() {
   });
 }
 
-// A per-installation JWT secret so local sessions can't be forged with the
-// publicly-known default. Persisted in userData alongside the database.
 function getOrCreateSecret(dir) {
   const f = path.join(dir, 'jwt-secret');
   if (fs.existsSync(f)) return fs.readFileSync(f, 'utf8').trim();
@@ -42,65 +54,116 @@ async function startEmbeddedServer() {
   const port = await getFreePort();
   process.env.SYNC_ROLE = 'device';
   process.env.APP_PLATFORM = 'desktop';
-  process.env.APP_VERSION = pkg.version || '1.0.3';
+  process.env.APP_VERSION = pkg.version || '1.0.4';
   process.env.PORT = String(port);
   process.env.DB_PATH = path.join(dataDir, 'crm.db');
   process.env.UPLOADS_DIR = path.join(dataDir, 'uploads');
   process.env.JWT_SECRET = getOrCreateSecret(dataDir);
 
-  // server.js starts listening at require time
   require(path.join(__dirname, 'server', 'server.js'));
   return port;
 }
 
-async function setupAutoUpdate(port) {
-  let autoUpdater;
-  try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
+async function applyUpdateFeed(port) {
+  if (!autoUpdater) return false;
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/system/update-feed`);
+    const { url } = await r.json();
+    if (!url) return false;
+    autoUpdater.setFeedURL({ provider: 'generic', url: url.endsWith('/') ? url : url + '/' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function checkForUpdates(port) {
+  if (!autoUpdater) return updateState;
+  updateState.error = null;
+  updateState.status = 'checking';
+  broadcastUpdateState();
+  if (!(await applyUpdateFeed(port))) {
+    updateState.status = 'error';
+    updateState.error = 'اتصال به سرور مرکزی برای بررسی به‌روزرسانی برقرار نیست';
+    broadcastUpdateState();
+    return updateState;
+  }
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (e) {
+    updateState.status = 'error';
+    updateState.error = e.message;
+    broadcastUpdateState();
+  }
+  return updateState;
+}
+
+function setupAutoUpdate(port) {
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch {
+    return;
+  }
 
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
 
-  const applyFeed = async () => {
+  autoUpdater.on('checking-for-update', () => {
+    updateState.status = 'checking';
+    updateState.error = null;
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    updateState.status = 'uptodate';
+    updateState.latestVersion = null;
+    updateState.percent = 0;
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    updateState.status = 'downloading';
+    updateState.latestVersion = info.version;
+    updateState.percent = 0;
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('download-progress', (p) => {
+    updateState.status = 'downloading';
+    updateState.percent = Math.round(p.percent || 0);
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    updateState.status = 'ready';
+    updateState.latestVersion = info.version;
+    updateState.percent = 100;
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('error', (e) => {
+    updateState.status = 'error';
+    updateState.error = e.message;
+    broadcastUpdateState();
+  });
+
+  ipcMain.handle('desktop:get-update-status', () => ({ ...updateState }));
+  ipcMain.handle('desktop:check-update', () => checkForUpdates(port));
+  ipcMain.handle('desktop:install-update', () => {
+    if (updateState.status !== 'ready') {
+      return { ok: false, error: 'به‌روزرسانی هنوز آماده نصب نیست' };
+    }
     try {
-      const r = await fetch(`http://127.0.0.1:${port}/api/system/update-feed`);
-      const { url } = await r.json();
-      if (!url) return false;
-      autoUpdater.setFeedURL({ provider: 'generic', url: url.endsWith('/') ? url : url + '/' });
-      return true;
-    } catch { return false; }
-  };
-
-  autoUpdater.on('update-available', () => {
-    console.log('auto-update: new version available — downloading...');
+      autoUpdater.quitAndInstall(false, true);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
   });
 
-  autoUpdater.on('update-downloaded', () => {
-    dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      title: 'CRM ترنم',
-      message: 'نسخه جدید دانلود شد.',
-      detail: 'برنامه تا چند ثانیه دیگر به‌روزرسانی و مجدداً راه‌اندازی می‌شود.',
-      buttons: ['همین الان', 'بعد از بستن برنامه'],
-      defaultId: 0,
-      cancelId: 1
-    }).then(({ response }) => {
-      if (response === 0) autoUpdater.quitAndInstall(false, true);
-    });
-    setTimeout(() => {
-      try { autoUpdater.quitAndInstall(false, true); } catch (e) { console.error('auto-install:', e.message); }
-    }, 8000);
-  });
-
-  autoUpdater.on('error', (e) => console.error('auto-update:', e.message));
-
-  const check = async () => {
-    if (!(await applyFeed())) return;
-    try { await autoUpdater.checkForUpdates(); } catch (e) { console.error('auto-update check:', e.message); }
-  };
-
-  setTimeout(check, 8000);
-  setInterval(check, 60 * 60 * 1000);
+  setTimeout(() => checkForUpdates(port), 10000);
+  setInterval(() => checkForUpdates(port), 60 * 60 * 1000);
 }
 
 async function createWindow() {
@@ -123,11 +186,11 @@ async function createWindow() {
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js')
     }
   });
 
-  // Give Express a moment to bind, then load the local app
   const url = `http://127.0.0.1:${port}`;
   const tryLoad = (attempt) => {
     mainWindow.loadURL(url).catch(() => {
@@ -138,9 +201,8 @@ async function createWindow() {
 
   setupAutoUpdate(port);
 
-  // External links (e.g. Instagram) open in the system browser, not the app
   mainWindow.webContents.setWindowOpenHandler(({ url: target }) => {
-    if (target.startsWith(url)) return { action: 'allow' }; // invoice print windows
+    if (target.startsWith(url)) return { action: 'allow' };
     shell.openExternal(target);
     return { action: 'deny' };
   });
