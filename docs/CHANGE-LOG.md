@@ -44,7 +44,7 @@
 
 ### ۱۴۰۴/۰۴/۱۸ — امنیت، فراموشی رمز، بک‌آپ پیشرفته، واردات محک، رفع build دسکتاپ
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (در انتظار commit/push این نشست)
+- **Commit:** `f322106`
 - **خلاصه:**
   - رفع build دسکتاپ: `better-sqlite3` v11 + `electron-updater`
   - امنیت: `JWT_SECRET` اجباری در production، سیاست رمز ۸+ حرف و عدد (`lib/security.js`)
