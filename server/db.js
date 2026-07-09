@@ -108,6 +108,8 @@ function syncTriggerMatch(t, db) {
 
 function seedWarehouseStock(db) {
   if (!tableExists(db, 'warehouse_stock') || !tableExists(db, 'products')) return;
+  const flag = db.prepare("SELECT value FROM settings WHERE key='warehouse_stock_seeded_v1'").get();
+  if (flag && flag.value === '1') return;
   const pCols = tableColumns(db, 'products');
   if (!pCols.includes('id')) return;
   const wCols = tableColumns(db, 'warehouses');
@@ -125,6 +127,7 @@ function seedWarehouseStock(db) {
     n++;
   }
   if (n) console.log(`✅ warehouse_stock: ${n} ردیف`);
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('warehouse_stock_seeded_v1','1')").run();
 }
 
 function initDB() {
@@ -980,6 +983,13 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_stock_logs_product ON stock_logs(product_id);
     CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_invoices_commission ON invoices(user_id, type, approved, pay_type);
+    CREATE INDEX IF NOT EXISTS idx_invoices_type_date ON invoices(type, date);
+    CREATE INDEX IF NOT EXISTS idx_invoices_type_cust_date ON invoices(type, cust_id, date);
+    CREATE INDEX IF NOT EXISTS idx_settlements_cust ON settlements(cust_id);
+    CREATE INDEX IF NOT EXISTS idx_settlements_date ON settlements(date);
+    CREATE INDEX IF NOT EXISTS idx_ledger_cust_created ON customer_ledger(customer_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_followups_status_next ON followups(status, next_date);
+    CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status);
   `);
 
   // ---- Default admin ----

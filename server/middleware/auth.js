@@ -2,14 +2,24 @@ const jwt = require('jsonwebtoken');
 const { getDB, isDevice } = require('../db');
 const SECRET = process.env.JWT_SECRET || 'taranom-crm-secret-2024';
 
+const _activeCache = new Map(); // userId -> { active, t }
+const ACTIVE_TTL_MS = 30000;
+
+function isUserActive(id) {
+  const hit = _activeCache.get(id);
+  if (hit && Date.now() - hit.t < ACTIVE_TTL_MS) return hit.active;
+  const user = getDB().prepare('SELECT active FROM users WHERE id=?').get(id);
+  const active = !!(user && user.active);
+  _activeCache.set(id, { active, t: Date.now() });
+  return active;
+}
+
 function auth(req, res, next) {
   const token = req.headers['authorization']?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'توکن یافت نشد' });
   try {
     const payload = jwt.verify(token, SECRET);
-    // Verify the account is still active on every request (blocks deactivated users immediately)
-    const user = getDB().prepare('SELECT active FROM users WHERE id=?').get(payload.id);
-    if (!user || !user.active) return res.status(401).json({ error: 'حساب کاربری غیرفعال است' });
+    if (!isUserActive(payload.id)) return res.status(401).json({ error: 'حساب کاربری غیرفعال است' });
     req.user = payload;
     next();
   } catch {

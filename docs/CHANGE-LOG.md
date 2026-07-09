@@ -27,20 +27,31 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۱۸ — بعدازظهر)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۱۹)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit روی GitHub | `5fd4002` (+ تغییرات commit‌نشده امنیت/محک) |
-| سرور production | `taranom-admin@45.90.98.99` — مسیر `/home/taranom-admin/crm-taranom` |
-| PM2 | `crm-taranom` — پورت `3000` |
-| وضعیت سرور | احتمالاً روی `6a9f240` یا قدیمی‌تر (کاربر reset کرده) — **نیاز به pull** |
-| Deploy بعدی لازم | `git pull` + rebuild دسکتاپ `1.0.2` |
+| آخرین commit | `4958c4a` |
+| وضعیت سرور | ⏳ در حال deploy |
+| Deploy بعدی لازم | rebuild دسکتاپ `1.0.2` برای کاربران ویندوز |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۱۹ — بهینه‌سازی سرعت ناوبری و بارگذاری صفحات
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `4958c4a`
+- **خلاصه:**
+  - فرانت: لایه cache برای API و HTML داشبورد/گزارشات؛ reuse پنل حسابداری بین تب‌ها؛ debounce جستجو؛ fetch یک‌باره پیام‌ها/یادآورها
+  - بک‌اند: indexهای جدید SQLite؛ cache وضعیت کاربر فعال در auth (۳۰ثانیه)؛ رفع N+1 در `/reports/salesperson`؛ `seedWarehouseStock` فقط یک‌بار
+  - Service Worker: bump به `crm-taranom-v8`
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/db.js`, `server/middleware/auth.js`, `server/routes/reports.js`, `server/public/sw.js`
+- **Deploy:** ⏳
+- **یادداشت:** سرور API از قبل سریع بود (~۵ms)؛ گلوگاه اصلی فرانت و queryهای تکراری بود
+
+---
 
 ### ۱۴۰۴/۰۴/۱۸ — امنیت، فراموشی رمز، بک‌آپ پیشرفته، واردات محک، رفع build دسکتاپ
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

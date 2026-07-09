@@ -97,7 +97,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .stat:has(.ic.r){border-bottom-color:var(--red)}
 .stat:has(.ic.b){border-bottom-color:var(--blue)}
 .stat .ic{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
-.stat .v{font-size:20px;font-weight:800;white-space:nowrap;overflow:hidden}
+.stat .v{font-size:20px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .stat .l{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stat > div:last-child{min-width:0;overflow:hidden}
 .ic.p{background:var(--purple-light);color:var(--purple)}
@@ -532,9 +532,22 @@ table.tbl tr:hover td{background:#F7FAF7}
    STATE & API
 ============================================================ */
 let ME = null;
-let CACHE = { customers:[], products:[], allProducts:[], users:[], orders:[], followups:[], invoices:[], settings:{} };
+let CACHE = { customers:[], products:[], allProducts:[], users:[], orders:[], followups:[], invoices:[], settings:{}, productCategories:[], warehouses:[], productCats:[] };
 let mChart = null;
 let APP_INFO = null, PENDING_UPDATE = null;
+const _apiCache = {};
+let _dashHtmlCache = { key:'', html:'', t:0 };
+function cacheGet(key, ttlMs=45000){ const h=_apiCache[key]; return h && Date.now()-h.t<ttlMs ? h.v : null; }
+function cacheSet(key,v){ _apiCache[key]= { t:Date.now(), v }; }
+function clearPageCache(){ Object.keys(_apiCache).forEach(k=>delete _apiCache[k]); _dashHtmlCache={key:'',html:'',t:0}; }
+async function apiCached(method,path,ttlMs=45000){
+  const k=method+':'+path;
+  const hit=cacheGet(k,ttlMs);
+  if(hit!==null) return hit;
+  const r=await api(method,path);
+  cacheSet(k,r);
+  return r;
+}
 
 // Product image URLs — device builds pull missing files from central on demand
 function prodImgUrl(name){ return name ? '/uploads/products/'+encodeURIComponent(name) : ''; }
@@ -1270,6 +1283,7 @@ function maybeRefreshAfterSync(){
   // invalidate cached lists so the next render re-fetches from the local DB
   CACHE.customers=[]; CACHE.products=[]; CACHE.allProducts=[]; CACHE.invoices=[];
   CACHE.followups=[]; _followupsFetched=false; _invoicesFetched=false; _accRecvCache=null;
+  clearPageCache();
   if(document.querySelector('.overlay.open')) return; // don't yank a modal the user is filling
   if(IN_ACC_SHELL){ if(typeof accTab!=='undefined' && accTab) loadAccTab(accTab); }
   else { reloadCustomers().then(()=>{ if(CURRENT_PAGE) go(CURRENT_PAGE); }).catch(()=>{ if(CURRENT_PAGE) go(CURRENT_PAGE); }); }
@@ -1461,15 +1475,20 @@ ROUTES.dash = async function(){
 };
 async function renderDashContent(){
   const body = el('dashContent'); if(!body) return;
-  body.innerHTML = '<div class="muted">در حال بارگذاری...</div>';
   const dq = (dashDateFrom||dashDateTo)
     ? '?'+(dashDateFrom?'from='+encodeURIComponent(dashDateFrom):'')+(dashDateFrom&&dashDateTo?'&':'')+(dashDateTo?'to='+encodeURIComponent(dashDateTo):'')
     : '';
+  const dk = (dashDateFrom||'')+'|'+(dashDateTo||'')+'|'+ME.role;
+  if(_dashHtmlCache.key===dk && Date.now()-_dashHtmlCache.t<45000){
+    body.innerHTML = _dashHtmlCache.html;
+    return;
+  }
+  body.innerHTML = '<div class="muted">در حال بارگذاری...</div>';
   if(ME.role==='admin'){
     const [ov, board, balances] = await Promise.all([
-      api('GET','/admin/stats/overview'+dq),
-      api('GET','/admin/dashboard'+dq),
-      api('GET','/admin/customer-balances')
+      apiCached('GET','/admin/stats/overview'+dq),
+      apiCached('GET','/admin/dashboard'+dq),
+      apiCached('GET','/admin/customer-balances',60000)
     ]);
     if(!ov) return;
     window._adminBalRows = (balances||[]);
@@ -1521,16 +1540,23 @@ async function renderDashContent(){
           </table>
         </div>
       </div>`:''}`;
-    fitStatNums();
+    _dashHtmlCache = { key:dk, html:body.innerHTML, t:Date.now() };
   } else {
-    const [followups, invoices, balances] = await Promise.all([
-      api('GET','/followups'), api('GET','/invoices'),
-      api('GET','/customers/balances')
-    ]);
-    CACHE.followups=followups||[]; CACHE.invoices=invoices||[];
-    _followupsFetched=true; _invoicesFetched=true;
+    const balances = await apiCached('GET','/customers/balances',30000);
+    let followups, invoices;
+    if(_followupsFetched && _invoicesFetched){
+      followups = CACHE.followups;
+      invoices = CACHE.invoices;
+    } else {
+      [followups, invoices] = await Promise.all([
+        api('GET','/followups'),
+        api('GET','/invoices')
+      ]);
+      CACHE.followups=followups||[]; CACHE.invoices=invoices||[];
+      _followupsFetched=true; _invoicesFetched=true;
+    }
     let myComm = { totalComm:0, commRate:{cash:0,cheque:0} };
-    try { myComm = await api('GET','/accounting/my-commission') || myComm; } catch(e){}
+    try { myComm = await apiCached('GET','/accounting/my-commission',60000) || myComm; } catch(e){}
     let finalInvs = (invoices||[]).filter(i=>i.type==='final');
     let allInvs = invoices||[];
     if(dashDateFrom) { finalInvs=finalInvs.filter(i=>i.date>=dashDateFrom); allInvs=allInvs.filter(i=>i.date>=dashDateFrom); }
@@ -1574,7 +1600,7 @@ async function renderDashContent(){
           </tr>`).join('')||emptyRow(4)}</tbody></table>
         </div>
       </div>`;
-    fitStatNums();
+    _dashHtmlCache = { key:dk, html:body.innerHTML, t:Date.now() };
   }
 };
 function filterDashBalances(name){
@@ -1597,17 +1623,7 @@ function filterDashBalances(name){
   }
 }
 function statCard(c,ic,v,l){ return `<div class="stat"><div class="ic ${c}">${ic}</div><div><div class="v mono">${v}</div><div class="l">${l}</div></div></div>`; }
-function fitStatNums(){
-  requestAnimationFrame(()=>{
-    const root=el('view'); if(!root) return;
-    root.querySelectorAll('.stat .v').forEach(el=>{
-      el.style.fontSize='';
-      let fs=parseInt(getComputedStyle(el).fontSize)||20;
-      // shrink until text fits inside its own box (scrollWidth = real text width; clientWidth = visible box width)
-      while(el.scrollWidth>el.clientWidth+1&&fs>11){fs--;el.style.fontSize=fs+'px';}
-    });
-  });
-}
+function fitStatNums(){ /* CSS text-overflow handles stat sizing — avoids layout thrashing */ }
 function emptyRow(cols){ return `<tr><td colspan="${cols}" class="empty">موردی یافت نشد</td></tr>`; }
 
 /* ============================================================
@@ -1847,10 +1863,14 @@ const INTEREST_LEVELS = [
 const CONTACT_TYPES = ['📱 تلفن','💬 واتساپ','📸 اینستاگرام','📲 تلگرام','🏪 حضوری','✉️ پیامک','💰 مانده حساب'];
 
 let fupFilter={q:'',status:'',stage:'',view:''};
-let _followupsFetched=false, _invoicesFetched=false;
+let _followupsFetched=false, _invoicesFetched=false, _msgsFetched=false, _remindersFetched=false;
 let _accRecvCache=null;
-let custTimer;
+let custTimer, fupTimer, invTimer, remTimer, msgTimer;
 function debounceCust(){ clearTimeout(custTimer); custTimer=setTimeout(renderCustTable,300); }
+function debounceFup(){ clearTimeout(fupTimer); fupTimer=setTimeout(renderFupView,250); }
+function debounceInv(){ clearTimeout(invTimer); invTimer=setTimeout(renderInvTable,250); }
+function debounceRem(){ clearTimeout(remTimer); remTimer=setTimeout(renderRemList,250); }
+function debounceMsg(){ clearTimeout(msgTimer); msgTimer=setTimeout(renderMsgs,250); }
 function accRecvCacheKey(){ return (accDateFrom||'')+'|'+(accDateTo||''); }
 function renderAccReceivablesBody(body){
   if(!body) body=el('accBody');
@@ -1926,7 +1946,7 @@ ROUTES.followups = async function(){
       <button class="btn ghost" onclick="exportExcel('followups')">📥 اکسل</button>
     </div>
     <div id="fupView"></div>`;
-  el('fSearch').addEventListener('input',e=>{fupFilter.q=e.target.value;renderFupView();});
+  el('fSearch').addEventListener('input',e=>{fupFilter.q=e.target.value;debounceFup();});
   el('fStatus').addEventListener('change',e=>{fupFilter.status=e.target.value;renderFupView();});
   el('fStage').addEventListener('change',e=>{fupFilter.stage=e.target.value;renderFupView();});
   renderFupView();
@@ -2200,7 +2220,7 @@ ROUTES.invoices = async function(){
       <button class="btn ghost" onclick="exportExcel('invoices')">📥 اکسل</button>
     </div>
     <div class="panel"><div class="panel-body tbl-wrap"><div id="invTable"></div></div></div>`;
-  el('iSearch').addEventListener('input',e=>{invFilter.q=e.target.value;renderInvTable();});
+  el('iSearch').addEventListener('input',e=>{invFilter.q=e.target.value;debounceInv();});
   el('iType').addEventListener('change',e=>{invFilter.type=e.target.value;renderInvTable();});
   renderInvTable();
 };
@@ -2487,21 +2507,27 @@ ROUTES.catalog = function(){ productsPage(false); };
 async function productsPage(canEdit){
   _prodCanEdit = canEdit;
   prodSelected.clear();
-  el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const [cats, warehouses, pCats] = await Promise.all([
-    api('GET','/products/categories'),
-    api('GET','/warehouses'),
-    canEdit ? api('GET','/product-categories') : Promise.resolve([])
-  ]);
-  CACHE.productCategories=pCats||[];
+  const needMeta = !CACHE._prodMetaLoaded;
+  if(needMeta){
+    el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
+    const [cats, warehouses, pCats] = await Promise.all([
+      apiCached('GET','/products/categories', 300000),
+      apiCached('GET','/warehouses', 300000),
+      canEdit ? apiCached('GET','/product-categories', 300000) : Promise.resolve([])
+    ]);
+    CACHE._prodCats = cats||[];
+    CACHE._prodWarehouses = warehouses||[];
+    CACHE.productCategories = pCats||[];
+    CACHE._prodMetaLoaded = true;
+  }
   await loadProductsFiltered();
   el('view').innerHTML=`
     <div class="toolbar">
       <input class="search" id="pSearch" placeholder="جستجو نام یا کد..." value="${esc(prodFilter.search)}">
       <select id="pCat"><option value="">همه دسته‌ها</option>
-        ${(cats||[]).map(c=>`<option value="${esc(c)}" ${prodFilter.category===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+        ${(CACHE._prodCats||[]).map(c=>`<option value="${esc(c)}" ${prodFilter.category===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
       <select id="pWarehouse"><option value="">همه انبارها</option>
-        ${(warehouses||[]).map(w=>`<option value="${w.id}" ${String(prodFilter.warehouse_id)===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>
+        ${(CACHE._prodWarehouses||[]).map(w=>`<option value="${w.id}" ${String(prodFilter.warehouse_id)===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>
       <select id="pStock">
         <option value="all" ${prodFilter.stock_status==='all'?'selected':''}>همه موجودی</option>
         <option value="ok" ${prodFilter.stock_status==='ok'?'selected':''}>موجود</option>
@@ -2690,8 +2716,7 @@ async function downloadAuth(path,filename){
    USERS (admin)
 ============================================================ */
 ROUTES.users = async function(){
-  el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  CACHE.users=await api('GET','/auth/users')||[];
+  if(!CACHE.users?.length) CACHE.users=await apiCached('GET','/auth/users', 60000)||[];
   el('view').innerHTML=`
     <div class="toolbar"><button class="btn" onclick="userModal()">➕ کاربر جدید</button></div>
     <div class="panel"><div class="panel-body tbl-wrap">
@@ -2805,11 +2830,14 @@ ROUTES.reports = async function(){
 async function loadReports(){
   repRange.from=el('rep-from')?.value||''; repRange.to=el('rep-to')?.value||'';
   const qs=new URLSearchParams(); if(repRange.from)qs.set('from',repRange.from); if(repRange.to)qs.set('to',repRange.to);
+  const qk = qs.toString();
+  const cached = cacheGet('reports:'+qk, 60000);
+  if(cached){ el('repBody').innerHTML=cached; if(_lastMonthly.length) drawChart(_lastMonthly); return; }
   const [summary, monthly, sales, top] = await Promise.all([
-    api('GET','/reports/summary?'+qs.toString()),
-    api('GET','/reports/monthly'),
-    api('GET','/reports/salesperson'),
-    api('GET','/reports/top-customers')
+    apiCached('GET','/reports/summary?'+qk),
+    apiCached('GET','/reports/monthly', 120000),
+    apiCached('GET','/reports/salesperson', 60000),
+    apiCached('GET','/reports/top-customers', 60000)
   ]);
   el('repBody').innerHTML=`
     <div class="cards">
@@ -2831,9 +2859,11 @@ async function loadReports(){
         <th>مشتری</th><th>شهر</th><th>تعداد سفارش</th><th>مجموع خرید</th><th>بدهی</th></tr></thead>
         <tbody>${top.map(t=>`<tr><td>${esc(t.biz)}</td><td>${esc(t.city||'-')}</td><td>${fmt(t.orders)}</td>
           <td class="mono">${fmt(t.total)}</td><td class="mono" style="color:var(--red)">${fmt(t.debt)}</td></tr>`).join('')||emptyRow(5)}</tbody></table></div></div>`;
-  fitStatNums();
+  cacheSet('reports:'+qk, el('repBody').innerHTML);
+  _lastMonthly = monthly;
   drawChart(monthly);
 }
+let _lastMonthly = [];
 function drawChart(monthly){
   const ctx=el('repChart'); if(!ctx)return;
   if(mChart)mChart.destroy();
@@ -2862,12 +2892,16 @@ function applyAccPreset(p){
 
 // ---- Accounting Shell dashboard (merged with General Ledger + Chart of Accounts) ----
 ROUTES['acc-dash'] = async function(){
+  const cached = cacheGet('page:acc-dash', 45000);
+  if(cached){ el('view').innerHTML=cached; return; }
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const [ov, tb, payables, accounts] = await Promise.all([
-    api('GET','/accounting/overview'),
-    api('GET','/accounting/trial-balance'),
-    api('GET','/suppliers/balances/list'),
-    api('GET','/accounting/chart-of-accounts')
+  const accounts = CACHE.chartOfAccounts?.length
+    ? CACHE.chartOfAccounts
+    : await apiCached('GET','/accounting/chart-of-accounts', 120000);
+  const [ov, tb, payables] = await Promise.all([
+    apiCached('GET','/accounting/overview', 45000),
+    apiCached('GET','/accounting/trial-balance', 45000),
+    apiCached('GET','/suppliers/balances/list', 45000)
   ]);
   if(!ov) return;
   CACHE.chartOfAccounts=accounts||[];
@@ -2913,7 +2947,7 @@ ROUTES['acc-dash'] = async function(){
       </div>
       <div class="panel-body" id="accDashChart">${chartOfAccountsGroupedHtml(accounts||[])}</div>
     </div>`;
-  fitStatNums();
+  cacheSet('page:acc-dash', el('view').innerHTML);
 };
 
 // Legacy alias — in case anything still calls the old direct route
@@ -2923,30 +2957,43 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 // picker/date logic inline in the body, e.g. account code, as-of date).
 const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll']);
 
-// Generic wrapper: every accounting page shares the same header (title + optional
-// date-range filter) and delegates the body to loadAccTab(tabKey).
+// Generic wrapper: accounting pages share header; reuse shell when switching tabs.
+function buildAccFilterHtml(tabKey){
+  return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    ${presetSelect('accPresetSel',accPreset,'applyAccPreset')}
+    ${accPreset==='custom'?`
+    <input id="accFrom" data-jdate placeholder="از تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${accDateFrom}" onchange="accDateFrom=this.value">
+    <input id="accTo" data-jdate placeholder="تا تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${accDateTo}" onchange="accDateTo=this.value">
+    <button class="btn sm ghost" onclick="loadAccTab(accTab)">🔍 اعمال</button>
+    <button class="btn sm ghost" onclick="accDateFrom='';accDateTo='';el('accFrom').value='';el('accTo').value='';loadAccTab(accTab)">✕</button>`:
+    `<span class="tag" style="background:var(--purple-light);color:var(--purple)">${accDateFrom||'ابتدا'} تا ${accDateTo||'انتها'}</span>`}
+    ${(tabKey==='general'&&isAdmin())?`<button class="btn sm ghost" title="بازسازی اسناد حسابداری برای همه عملیات گذشته" onclick="resyncAccounting()">🔄 همگام‌سازی</button>`:''}
+  </div>`;
+}
 function renderAccPage(tabKey, icon, title){
   accTab = tabKey;
   if(accPreset!=='custom'&&accPreset!=='all'&&!accDateFrom) [accDateFrom,accDateTo]=jPresetRange(accPreset);
   const showFilter = !ACC_NOFILTER_TABS.has(tabKey);
+  const shell = el('accShellPanel');
+  if(shell){
+    el('accShellTitle').textContent = `${icon} ${title}`;
+    const fw = el('accShellFilterWrap');
+    if(fw){
+      fw.style.display = showFilter ? '' : 'none';
+      if(showFilter){ fw.innerHTML = buildAccFilterHtml(tabKey); attachDatepickers(fw); }
+    }
+    loadAccTab(tabKey);
+    return;
+  }
   el('view').innerHTML = `
-    <div class="panel">
-      <div class="panel-head">
-        <h4>${icon} ${title}</h4>
-        ${showFilter?`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          ${presetSelect('accPresetSel',accPreset,'applyAccPreset')}
-          ${accPreset==='custom'?`
-          <input id="accFrom" data-jdate placeholder="از تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${accDateFrom}" onchange="accDateFrom=this.value">
-          <input id="accTo" data-jdate placeholder="تا تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${accDateTo}" onchange="accDateTo=this.value">
-          <button class="btn sm ghost" onclick="loadAccTab(accTab)">🔍 اعمال</button>
-          <button class="btn sm ghost" onclick="accDateFrom='';accDateTo='';el('accFrom').value='';el('accTo').value='';loadAccTab(accTab)">✕</button>`:
-          `<span class="tag" style="background:var(--purple-light);color:var(--purple)">${accDateFrom||'ابتدا'} تا ${accDateTo||'انتها'}</span>`}
-          ${(tabKey==='general'&&isAdmin())?`<button class="btn sm ghost" title="بازسازی اسناد حسابداری برای همه عملیات گذشته" onclick="resyncAccounting()">🔄 همگام‌سازی</button>`:''}
-        </div>`:''}
+    <div class="panel" id="accShellPanel">
+      <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h4 id="accShellTitle">${icon} ${title}</h4>
+        <div id="accShellFilterWrap" style="${showFilter?'':'display:none'}">${showFilter?buildAccFilterHtml(tabKey):''}</div>
       </div>
       <div class="panel-body" id="accBody"><div class="muted">در حال بارگذاری...</div></div>
     </div>`;
-  attachDatepickers(el('view'));
+  if(showFilter) attachDatepickers(el('accShellFilterWrap'));
   loadAccTab(tabKey);
 }
 ROUTES['acc-general']=()=>renderAccPage('general','📈','حسابداری کل (سود و زیان)');
@@ -6213,8 +6260,7 @@ async function deleteIncentivePayment(id, repId, repName){
 ============================================================ */
 let msgTab='inbox', MSGS=[], msgSearch='';
 ROUTES.messages = async function(){
-  el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  MSGS=await api('GET','/messages')||[];
+  if(!_msgsFetched){ MSGS=await api('GET','/messages')||[]; _msgsFetched=true; }
   const inbox = MSGS.filter(m=>m.direction==='received');
   const sent = MSGS.filter(m=>m.direction==='sent');
   const unread = inbox.filter(m=>!m.is_read).length;
@@ -6224,7 +6270,7 @@ ROUTES.messages = async function(){
         📥 دریافتی ${unread>0?`<span style="background:#dc2626;color:#fff;border-radius:12px;padding:1px 7px;font-size:11px;margin-right:4px">${unread}</span>`:''}
       </button>
       <button id="tabSent" class="btn${msgTab==='sent'?' green':' ghost'}" onclick="switchMsgTab('sent')">📤 ارسالی (${sent.length})</button>
-      <input id="msgSearchInput" class="search" placeholder="جستجو در پیام‌ها..." value="${esc(msgSearch)}" style="flex:1;min-width:140px" oninput="msgSearch=this.value;renderMsgs()">
+      <input id="msgSearchInput" class="search" placeholder="جستجو در پیام‌ها..." value="${esc(msgSearch)}" style="flex:1;min-width:140px" oninput="msgSearch=this.value;debounceMsg()">
       <button class="btn ghost" onclick="markAllRead()">✔️ خواندن همه</button>
       <button class="btn" onclick="composeMsg()">✉️ پیام جدید</button>
     </div>
@@ -6324,8 +6370,7 @@ async function refreshRemBadge(){
 ============================================================ */
 let remFilter = {q:'', done:'0'};
 ROUTES.reminders = async function(){
-  const rows = await api('GET','/reminders')||[];
-  CACHE.reminders = rows;
+  if(!_remindersFetched){ CACHE.reminders = await api('GET','/reminders')||[]; _remindersFetched=true; }
   const v=el('view');
   v.innerHTML=`
     <div class="toolbar">
@@ -6338,7 +6383,7 @@ ROUTES.reminders = async function(){
       <button class="btn" onclick="remModal()">➕ یادآور جدید</button>
     </div>
     <div class="panel"><div class="panel-body" id="remList"></div></div>`;
-  el('remSearch').addEventListener('input',e=>{remFilter.q=e.target.value;renderRemList();});
+  el('remSearch').addEventListener('input',e=>{remFilter.q=e.target.value;debounceRem();});
   el('remDone').addEventListener('change',e=>{remFilter.done=e.target.value;renderRemList();});
   renderRemList();
 };

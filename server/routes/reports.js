@@ -56,18 +56,33 @@ router.get('/monthly', auth, adminOnly, (req, res) => {
 router.get('/salesperson', auth, adminOnly, (req, res) => {
   const db = getDB();
   const users = db.prepare("SELECT id,name,username FROM users WHERE active=1 ORDER BY name").all();
+  const invMap = Object.fromEntries(
+    db.prepare("SELECT user_id, COUNT(*) c, COALESCE(SUM(final),0) revenue FROM invoices WHERE type='final' GROUP BY user_id").all()
+      .map(r => [r.user_id, { c: r.c, revenue: r.revenue }])
+  );
+  const custMap = Object.fromEntries(
+    db.prepare('SELECT user_id, COUNT(*) c FROM customers GROUP BY user_id').all().map(r => [r.user_id, r.c])
+  );
+  const fupMap = Object.fromEntries(
+    db.prepare("SELECT user_id, COUNT(*) c FROM followups WHERE status='open' GROUP BY user_id").all().map(r => [r.user_id, r.c])
+  );
+  const invCountMap = Object.fromEntries(
+    db.prepare('SELECT user_id, COUNT(*) c FROM invoices GROUP BY user_id').all().map(r => [r.user_id, r.c])
+  );
+  const invoicedMap = Object.fromEntries(
+    db.prepare("SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' GROUP BY user_id").all().map(r => [r.user_id, r.s])
+  );
+  const settledMap = Object.fromEntries(
+    db.prepare('SELECT i.user_id uid, COALESCE(SUM(s.amount),0) s FROM settlements s JOIN invoices i ON s.invoice_id=i.id GROUP BY i.user_id').all().map(r => [r.uid, r.s])
+  );
   const data = users.map(u => {
-    const inv = db.prepare("SELECT COUNT(*) c, COALESCE(SUM(final),0) revenue FROM invoices WHERE user_id=? AND type='final'").get(u.id);
-    const customers = db.prepare('SELECT COUNT(*) c FROM customers WHERE user_id=?').get(u.id).c;
-    const openFollowups = db.prepare("SELECT COUNT(*) c FROM followups WHERE user_id=? AND status='open'").get(u.id).c;
-    const invoices = db.prepare("SELECT COUNT(*) c FROM invoices WHERE user_id=?").get(u.id).c;
-    // Per-user outstanding: invoiced minus settled
-    const userInvoiced = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final'").get(u.id).s;
-    const userSettled  = db.prepare("SELECT COALESCE(SUM(s.amount),0) s FROM settlements s JOIN invoices i ON s.invoice_id=i.id WHERE i.user_id=?").get(u.id).s;
+    const inv = invMap[u.id] || { c: 0, revenue: 0 };
+    const userInvoiced = invoicedMap[u.id] || 0;
+    const userSettled = settledMap[u.id] || 0;
     return {
       id: u.id, name: u.name, username: u.username,
       orders: inv.c, revenue: inv.revenue, debt: Math.max(0, userInvoiced - userSettled),
-      customers, openFollowups, invoices
+      customers: custMap[u.id] || 0, openFollowups: fupMap[u.id] || 0, invoices: invCountMap[u.id] || 0
     };
   });
   res.json(data);
