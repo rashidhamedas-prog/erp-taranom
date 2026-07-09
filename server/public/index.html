@@ -1114,12 +1114,16 @@ function navItems(){
     return items;
   }
   let items = NAV_SALES;
+  if(isRepRole(ME?.role)){
+    items = [{id:'my-rep', icon:'💼', label:'حساب من'}, ...items.slice(0, -1), items[items.length - 1]];
+  }
   if(isDesktopApp()){
     items = [...items.slice(0, -1), { id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' }, items[items.length - 1]];
   }
   return items;
 }
 function isDesktopApp(){ return detectClientPlatform()==='desktop'; }
+function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
 
 function buildNav(){
   const items = navItems();
@@ -2809,6 +2813,10 @@ function userModal(id){
         <option value="collection" ${u.commission_basis==='collection'?'selected':''}>بر اساس وصول</option>
       </select></div>
       <div class="fg"><label>هدف فروش ماهانه (ت) ${hlp('برای نمایش درصد تحقق هدف در داشبورد و گزارش‌ها.')}</label><input id="u-monthly-target" type="number" min="0" value="${u.monthly_target||0}"></div>
+      <div class="fg"><label>هدف فصلی (ت)</label><input id="u-quarterly-target" type="number" min="0" value="${u.quarterly_target||0}"></div>
+      <div class="fg"><label>هدف سالانه (ت)</label><input id="u-annual-target" type="number" min="0" value="${u.annual_target||0}"></div>
+      <div class="fg"><label>پاداش اضافه هدف (٪)</label><input id="u-bonus-pct" type="number" step="0.1" value="${u.bonus_pct||0}"></div>
+      <div class="fg"><label>انگیزه ثابت هر فاکتور (ت)</label><input id="u-comm-fixed" type="number" min="0" value="${u.commission_fixed||0}"></div>
       ${(u.role==='field_sales'||u.role==='inside_sales'||!id)?`
       <div class="fg full" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px"><b>اطلاعات نماینده فروش</b></div>
       <div class="fg"><label>کد نماینده</label><input id="u-rep-code" value="${esc(u.rep_code||'')}"></div>
@@ -2820,6 +2828,8 @@ function userModal(id){
         <option value="agent" ${u.rep_subtype==='agent'?'selected':''}>نماینده مستقل</option>
       </select></div>
       <div class="fg"><label>منطقه/قلمرو</label><input id="u-territory" value="${esc(u.territory||'')}"></div>
+      <div class="fg"><label>سرپرست</label><select id="u-supervisor"><option value="">—</option>${(CACHE.users||[]).filter(x=>x.id!==u.id&&(x.role==='field_sales'||x.role==='inside_sales'||x.role==='admin')).map(x=>`<option value="${x.id}" ${u.supervisor_id==x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>وضعیت اشتغال</label><select id="u-employment"><option value="active" ${(u.employment_status||'active')==='active'?'selected':''}>فعال</option><option value="leave" ${u.employment_status==='leave'?'selected':''}>مرخصی</option><option value="terminated" ${u.employment_status==='terminated'?'selected':''}>قطع همکاری</option></select></div>
       <div class="fg"><label>مانده افتتاحیه (ت)</label><input id="u-rep-opening" type="number" value="${u.rep_opening_balance||0}"></div>
       <div class="fg"><label>بانک</label><input id="u-bank-name" value="${esc(u.bank_name||'')}"></div>
       <div class="fg"><label>شماره حساب</label><input id="u-bank-account" value="${esc(u.bank_account||'')}"></div>
@@ -2827,6 +2837,20 @@ function userModal(id){
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveUser(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+function userRepFieldsFromForm(){
+  return {
+    commission_basis:el('u-comm-basis')?.value||'invoice',
+    monthly_target:+(el('u-monthly-target')?.value||0),
+    quarterly_target:+(el('u-quarterly-target')?.value||0),
+    annual_target:+(el('u-annual-target')?.value||0),
+    bonus_pct:+(el('u-bonus-pct')?.value||0),
+    commission_fixed:+(el('u-comm-fixed')?.value||0),
+    rep_code:el('u-rep-code')?.value||'', rep_subtype:el('u-rep-subtype')?.value||'',
+    territory:el('u-territory')?.value||'', rep_opening_balance:+(el('u-rep-opening')?.value||0),
+    supervisor_id:+el('u-supervisor')?.value||null, employment_status:el('u-employment')?.value||'active',
+    bank_name:el('u-bank-name')?.value||'', bank_account:el('u-bank-account')?.value||'', bank_iban:el('u-bank-iban')?.value||''
+  };
 }
 let _pendingUserSave = null;
 async function saveUser(id){
@@ -2842,11 +2866,7 @@ async function saveUser(id){
   const origCheque=parseFloat(el('u-comm-cheque')?.dataset.orig||0);
   const rateChanged=id&&(Math.abs(commission_cash-origCash)>0.001||Math.abs(commission_cheque-origCheque)>0.001);
   if(id && isLocked && rateChanged){
-    _pendingUserSave={id,name,username,pass,role,phone,active,commission_cash,commission_cheque,
-      commission_basis:el('u-comm-basis')?.value||'invoice', monthly_target:+(el('u-monthly-target')?.value||0),
-      rep_code:el('u-rep-code')?.value||'', rep_subtype:el('u-rep-subtype')?.value||'',
-      territory:el('u-territory')?.value||'', rep_opening_balance:+(el('u-rep-opening')?.value||0),
-      bank_name:el('u-bank-name')?.value||'', bank_account:el('u-bank-account')?.value||'', bank_iban:el('u-bank-iban')?.value||''};
+    _pendingUserSave={id,name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm()};
     openModal(`
       <div class="modal-head"><h3>🔒 تغییر نرخ انگیزه فروش</h3><button class="x" onclick="closeModal()">×</button></div>
       <div class="modal-body">
@@ -2860,11 +2880,7 @@ async function saveUser(id){
       </div>`);
     return;
   }
-  await _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,
-    commission_basis:el('u-comm-basis')?.value||'invoice', monthly_target:+(el('u-monthly-target')?.value||0),
-    rep_code:el('u-rep-code')?.value||'', rep_subtype:el('u-rep-subtype')?.value||'',
-    territory:el('u-territory')?.value||'', rep_opening_balance:+(el('u-rep-opening')?.value||0),
-    bank_name:el('u-bank-name')?.value||'', bank_account:el('u-bank-account')?.value||'', bank_iban:el('u-bank-iban')?.value||''});
+  await _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm()});
 }
 async function confirmIncentiveChange(yes){
   closeModal();
@@ -2872,14 +2888,14 @@ async function confirmIncentiveChange(yes){
   const {id,...data}=_pendingUserSave; _pendingUserSave=null;
   if(yes) await _doSaveUser(id,{...data,force:true});
 }
-async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,commission_basis,monthly_target,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban}){
+async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban}){
   try{
+    const repFields={commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban};
     if(id){
-      await api('PUT','/admin/users/'+id,{name,role,phone,active,password:pass||undefined,commission_cash,commission_cheque,commission_basis,monthly_target,force:force||undefined,
-        rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban});
+      await api('PUT','/admin/users/'+id,{name,role,phone,active,password:pass||undefined,commission_cash,commission_cheque,force:force||undefined,...repFields});
     } else {
       if(!username||!pass){ showToast('نام کاربری و رمز الزامی است','error'); return; }
-      await api('POST','/admin/users',{name,username,password:pass,phone,role,commission_cash,commission_cheque,commission_basis,monthly_target});
+      await api('POST','/admin/users',{name,username,password:pass,phone,role,commission_cash,commission_cheque,...repFields});
     }
     CACHE.users=await api('GET','/auth/users'); closeModal(); ROUTES.users(); showToast('ذخیره شد');
   }catch(e){}
@@ -6295,6 +6311,39 @@ async function saveSettlement(){
 }
 
 /* ============================================================
+   MY REP ACCOUNT (self-service)
+============================================================ */
+ROUTES['my-rep'] = async function(){
+  if(!isRepRole(ME?.role)){ el('view').innerHTML='<div class="empty">فقط نمایندگان فروش</div>'; return; }
+  el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const [dash, stmt]=await Promise.all([
+    api('GET','/reps/my/dashboard'),
+    api('GET','/reps/my/ledger')
+  ]);
+  const comm=dash?.commission||{};
+  el('view').innerHTML=`
+    <div class="cards" style="margin-bottom:16px">
+      ${statCard('g','💰',fmt(comm.salesTotal||0),'فروش کل (ت)')}
+      ${statCard('p','🎯',fmt(Math.round(comm.totalComm||0)),'انگیزه (ت)')}
+      ${statCard('r','💵',fmt(Math.round(dash?.payable||0)),'مانده پرداخت (ت)')}
+      ${comm.monthlyTarget?statCard('b','📊',(comm.targetPct||0)+'٪','تحقق هدف'):''}
+    </div>
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="repExpenseModal(${ME.id},${JSON.stringify(ME.name||'')})">🧾 ثبت هزینه</button>
+      <button class="btn ghost" onclick="repVisitModal(${ME.id})">📍 ثبت بازدید</button>
+      <button class="btn ghost" onclick="repCallModal(${ME.id})">📞 ثبت تماس</button>
+    </div>
+    <div class="panel"><div class="panel-head"><h4>📒 گردش حساب من</h4></div>
+      <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>تاریخ</th><th>نوع</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th>
+      </tr></thead><tbody>${(stmt?.entries||[]).map(e=>`<tr>
+        <td class="mono">${escDate(e.date)}</td><td>${esc(e.type_label||'')}</td><td>${esc(e.description||'-')}</td>
+        <td class="mono">${e.debit?fmt(e.debit):'-'}</td><td class="mono">${e.credit?fmt(e.credit):'-'}</td>
+      </tr>`).join('')||emptyRow(5)}</tbody></table></div>
+    </div>`;
+};
+
+/* ============================================================
    REP MANAGEMENT (نمایندگان فروش)
 ============================================================ */
 let _selectedRepId = null;
@@ -6306,10 +6355,11 @@ function repDateQuery(){
 }
 async function renderRepsTab(body){
   const dq=repDateQuery();
-  const [reps,pending,alerts]=await Promise.all([
+  const [reps,pending,alerts,ranking]=await Promise.all([
     api('GET','/reps'+dq)||[],
     api('GET','/reps/expenses/pending')||[],
-    api('GET','/reps/alerts')||{}
+    api('GET','/reps/alerts')||{},
+    api('GET','/reps/ranking'+dq)||[]
   ]);
   if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
   const rows=reps.map(r=>`<tr style="cursor:pointer" onclick="selectRepDetail(${r.id})">
@@ -6318,6 +6368,7 @@ async function renderRepsTab(body){
     <td><span class="tag">${esc(r.roleLabel||'')}</span></td>
     <td class="muted" style="font-size:11px">${esc(r.basisLabel||'فاکتور')}</td>
     <td class="muted">${esc(r.territory||'-')}</td>
+    <td class="muted">${esc(r.supervisor_name||'-')}</td>
     <td class="mono">${fmt(r.customers)}</td>
     <td class="mono">${fmt(r.cashSales+r.chequeSales)}</td>
     <td class="mono" style="font-weight:700;color:var(--purple)">${fmt(Math.round(r.totalComm))}</td>
@@ -6326,8 +6377,9 @@ async function renderRepsTab(body){
       <button class="btn sm green" onclick="event.stopPropagation();incentivePayModal(${r.id},${JSON.stringify(r.name)},${Math.round(r.payable||0)})">💵</button>
       <button class="btn sm" onclick="event.stopPropagation();repExpenseModal(${r.id},${JSON.stringify(r.name)})">🧾</button>
       <button class="btn sm" onclick="event.stopPropagation();repAdvanceModal(${r.id},${JSON.stringify(r.name)})">💰</button>
-      <button class="btn sm ghost" onclick="event.stopPropagation();repCommissionRulesModal(${r.id},${JSON.stringify(r.name)})">📐</button>
-      <button class="btn sm ghost" onclick="event.stopPropagation();repExportExcel(${r.id})">📥</button>
+      <button class="btn sm green" onclick="event.stopPropagation();repSettleModal(${r.id},${JSON.stringify(r.name)},${Math.round(r.payable||0)})">⚖️</button>
+      <button class="btn sm ghost" onclick="event.stopPropagation();repCommissionTiersModal(${r.id},${JSON.stringify(r.name)})">📊</button>
+      <button class="btn sm ghost" onclick="event.stopPropagation();repExportPdf(${r.id})">🖨️</button>
     </td>
   </tr>`).join('');
   const pendingBlock=(pending||[]).length?`
@@ -6349,17 +6401,30 @@ async function renderRepsTab(body){
     <div class="muted" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:12px">
       🎉 ${alerts.targetHits.map(t=>`${esc(t.name)} (${t.pct}٪ هدف)`).join(' — ')}
     </div>`:'';
+  const rankBlock=(ranking||[]).length?`
+    <div class="panel" style="margin:0 0 16px"><div class="panel-head"><h4>🏆 رتبه‌بندی نمایندگان</h4>
+      <button class="btn sm ghost" onclick="downloadAuth('/reps/export/all-excel'+repDateQuery(),'reps.xlsx')">📥 اکسل همه</button></div>
+      <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>#</th><th>نماینده</th><th>فروش</th><th>انگیزه</th><th>وصول</th><th>هدف٪</th><th>مانده</th>
+      </tr></thead><tbody>${ranking.slice(0,10).map((r,i)=>`<tr>
+        <td>${i+1}</td><td>${esc(r.name)}</td><td class="mono">${fmt(r.salesTotal)}</td>
+        <td class="mono">${fmt(Math.round(r.totalComm))}</td><td class="mono">${fmt(r.collected)}</td>
+        <td>${r.targetPct||0}٪</td><td class="mono">${fmt(Math.round(r.payable))}</td>
+      </tr>`).join('')}</tbody></table></div></div>`:'';
   body.innerHTML=`
     ${alertBlock}
+    ${rankBlock}
     ${pendingBlock}
     <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <button class="btn" onclick="repTransferCustModal()">🔄 انتقال مشتری</button>
+      <button class="btn ghost" onclick="repBulkTransferModal()">📦 انتقال گروهی</button>
       <button class="btn ghost" onclick="repAssignmentHistoryModal()">📜 تاریخچه انتقال</button>
       <button class="btn ghost" onclick="repPendingExpensesModal()">🧾 تأیید هزینه‌ها${pending.length?` (${pending.length})`:''}</button>
+      <button class="btn ghost" onclick="repTerritoriesModal()">🗺️ مناطق</button>
     </div>
     <div class="tbl-wrap" style="margin-bottom:16px"><table class="tbl"><thead><tr>
-      <th>نماینده</th><th>کد</th><th>نوع</th><th>مبنا</th><th>منطقه</th><th>مشتریان</th><th>فروش</th><th>انگیزه</th><th>مانده</th><th>عملیات</th>
-    </tr></thead><tbody>${rows||emptyRow(10)}</tbody></table></div>
+      <th>نماینده</th><th>کد</th><th>نوع</th><th>مبنا</th><th>منطقه</th><th>سرپرست</th><th>مشتریان</th><th>فروش</th><th>انگیزه</th><th>مانده</th><th>عملیات</th>
+    </tr></thead><tbody>${rows||emptyRow(11)}</tbody></table></div>
     <div id="repDetailPanel">${_selectedRepId?'<div class="muted">در حال بارگذاری...</div>':''}</div>`;
   if(_selectedRepId) loadRepDetail(_selectedRepId);
 }
@@ -6376,9 +6441,13 @@ async function loadRepDetail(id){
   panel.innerHTML=`
     <div class="panel">
       <div class="panel-head"><h4>📒 دفتر مالی — ${esc(ledger.rep.name)}</h4>
-        <div style="display:flex;gap:6px">
-          <button class="btn sm ghost" onclick="repCommissionRulesModal(${id},${JSON.stringify(ledger.rep.name)})">📐 قوانین کمیسیون</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn sm ghost" onclick="repCommissionRulesModal(${id},${JSON.stringify(ledger.rep.name)})">📐 قوانین</button>
+          <button class="btn sm ghost" onclick="repCommissionTiersModal(${id},${JSON.stringify(ledger.rep.name)})">📊 پله‌ای</button>
+          <button class="btn sm ghost" onclick="repReportsModal(${id},${JSON.stringify(ledger.rep.name)})">📋 گزارشات</button>
+          <button class="btn sm ghost" onclick="repAdjustModal(${id})">✏️ تعدیل</button>
           <button class="btn sm ghost" onclick="repExportExcel(${id})">📥 اکسل</button>
+          <button class="btn sm ghost" onclick="repExportPdf(${id})">🖨️ PDF</button>
         </div>
       </div>
       <div class="panel-body">
@@ -6387,7 +6456,8 @@ async function loadRepDetail(id){
           ${statCard('b','✅',fmt(dash?.collected||0),'وصولی (ت)')}
           ${statCard('p','🎯',fmt(Math.round(comm.totalComm||0)),'انگیزه (ت)')}
           ${statCard('r','💵',fmt(Math.round(ledger.payable||0)),'مانده پرداخت (ت)')}
-          ${comm.monthlyTarget?statCard('o','📊',(comm.targetPct||0)+'٪','تحقق هدف'):''}
+          ${dash?.rank?statCard('o','🏆','#'+dash.rank,'رتبه فروش'):''}
+          ${comm.monthlyTarget?statCard('b','📊',(comm.targetPct||0)+'٪','تحقق هدف'):''}
         </div>
         <div class="muted" style="font-size:12px;margin-bottom:10px">مبنای انگیزه: ${comm.basis==='collection'?'وصول':'فاکتور'}</div>
         <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><tbody>
@@ -6482,6 +6552,168 @@ async function deleteRepCommissionRule(ruleId,repId,repName){
 }
 function repExportExcel(repId){
   downloadAuth('/reps/'+repId+'/export/excel'+repDateQuery(), 'rep-'+repId+'.xlsx');
+}
+async function repExportPdf(repId){
+  const token=localStorage.getItem('crm_token');
+  try{
+    const r=await fetch('/api/reps/'+repId+'/export/pdf'+repDateQuery(),{headers:{'Authorization':'Bearer '+token}});
+    const html=await r.text();
+    const w=window.open('','_blank'); w.document.write(html); w.document.close();
+  }catch(e){ showToast('خطا در PDF','error'); }
+}
+async function repSettleModal(repId,repName,payable){
+  openModal(`
+    <div class="modal-head"><h3>⚖️ تسویه — ${esc(repName)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>مانده قابل پرداخت</label><input disabled value="${fmt(payable)} ت"></div>
+      <div class="fg"><label>مبلغ (ت) *</label><input id="rs-amount" type="number" value="${payable>0?payable:''}"></div>
+      <div class="fg"><label>تاریخ</label><input id="rs-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>یادداشت</label><input id="rs-note"></div>
+      <div class="fg full"><label><input type="checkbox" id="rs-adv" checked style="width:auto;margin-left:6px"> کسر خودکار از مساعده</label></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn green" onclick="saveRepSettle(${repId})">💾 ثبت تسویه</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function saveRepSettle(repId){
+  const amount=+el('rs-amount').value; if(!amount){ showToast('مبلغ الزامی','error'); return; }
+  try{
+    await api('POST','/reps/'+repId+'/settle',{amount,date:el('rs-date').value,note:el('rs-note').value,settle_advances:el('rs-adv').checked});
+    closeModal(); showToast('تسویه ثبت شد'); loadAccTab('reps');
+  }catch(e){}
+}
+async function repCommissionTiersModal(repId,repName){
+  const tiers=await api('GET','/reps/'+repId+'/commission-tiers')||[];
+  openModal(`
+    <div class="modal-head"><h3>📊 کمیسیون پلکانی — ${esc(repName)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-bottom:12px">
+        <div class="fg"><label>از مبلغ (ت)</label><input id="rt-from" type="number"></div>
+        <div class="fg"><label>تا مبلغ (ت)</label><input id="rt-to" type="number" placeholder="خالی=بی‌نهایت"></div>
+        <div class="fg"><label>نقد (٪)</label><input id="rt-cash" type="number" step="0.1"></div>
+        <div class="fg"><label>چک (٪)</label><input id="rt-cheque" type="number" step="0.1"></div>
+        <div class="fg"><button class="btn sm" onclick="saveRepTier(${repId},${JSON.stringify(repName)})">➕</button></div>
+      </div>
+      <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>از</th><th>تا</th><th>نقد</th><th>چک</th><th></th></tr></thead>
+      <tbody>${tiers.map(t=>`<tr><td class="mono">${fmt(t.from_amount)}</td><td class="mono">${t.to_amount?fmt(t.to_amount):'∞'}</td>
+        <td>${fmt(t.rate_cash)}٪</td><td>${fmt(t.rate_cheque)}٪</td>
+        <td><button class="btn sm red" onclick="deleteRepTier(${t.id},${repId},${JSON.stringify(repName)})">🗑️</button></td></tr>`).join('')||emptyRow(5)}</tbody></table></div>
+    </div><div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`,true);
+}
+async function saveRepTier(repId,repName){
+  try{
+    await api('POST','/reps/'+repId+'/commission-tiers',{from_amount:+(el('rt-from')?.value||0),to_amount:el('rt-to')?.value?+(el('rt-to').value):null,rate_cash:+(el('rt-cash')?.value||0),rate_cheque:+(el('rt-cheque')?.value||0)});
+    showToast('اضافه شد'); closeModal(); repCommissionTiersModal(repId,repName);
+  }catch(e){}
+}
+async function deleteRepTier(id,repId,repName){
+  if(!confirm('حذف شود؟')) return;
+  await api('DELETE','/reps/commission-tiers/'+id); repCommissionTiersModal(repId,repName);
+}
+async function repReportsModal(repId,repName){
+  const dq=repDateQuery();
+  const [sales,collections,customers,aging]=await Promise.all([
+    api('GET','/reps/'+repId+'/reports/sales'+dq),
+    api('GET','/reps/'+repId+'/reports/collections'+dq),
+    api('GET','/reps/'+repId+'/reports/customers'),
+    api('GET','/reps/'+repId+'/reports/aging')
+  ]);
+  openModal(`
+    <div class="modal-head"><h3>📋 گزارشات — ${esc(repName)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="max-height:70vh;overflow:auto">
+      <h4 style="margin:12px 0 6px">فاکتورها (${(sales||[]).length})</h4>
+      <div class="tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr><th>شماره</th><th>تاریخ</th><th>مشتری</th><th>مبلغ</th></tr></thead>
+      <tbody>${(sales||[]).slice(0,20).map(i=>`<tr><td>${esc(i.num)}</td><td>${escDate(i.date)}</td><td>${esc(i.cust_biz)}</td><td class="mono">${fmt(i.final)}</td></tr>`).join('')||emptyRow(4)}</tbody></table></div>
+      <h4 style="margin:12px 0 6px">وصولی‌ها (${(collections||[]).length}) — جمع مطالبات: ${fmt(aging?.total||0)}</h4>
+      <div class="tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr><th>تاریخ</th><th>مشتری</th><th>مبلغ</th></tr></thead>
+      <tbody>${(collections||[]).slice(0,15).map(c=>`<tr><td>${escDate(c.date)}</td><td>${esc(c.cust_biz)}</td><td class="mono">${fmt(c.amount)}</td></tr>`).join('')||emptyRow(3)}</tbody></table></div>
+      <h4 style="margin:12px 0 6px">مشتریان (${(customers||[]).length})</h4>
+    </div><div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`,true);
+}
+async function repAdjustModal(repId){
+  openModal(`
+    <div class="modal-head"><h3>✏️ تعدیل دستی دفتر</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>تاریخ</label><input id="ra-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>بدهکار</label><input id="ra-debit" type="number"></div>
+      <div class="fg"><label>بستانکار</label><input id="ra-credit" type="number"></div>
+      <div class="fg full"><label>شرح</label><input id="ra-desc"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveRepAdjust(${repId})">💾</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function saveRepAdjust(repId){
+  try{
+    await api('POST','/reps/'+repId+'/ledger/adjustment',{date:el('ra-date').value,debit:+(el('ra-debit').value||0),credit:+(el('ra-credit').value||0),description:el('ra-desc').value});
+    closeModal(); showToast('ثبت شد'); loadRepDetail(repId);
+  }catch(e){}
+}
+function repBulkTransferModal(){
+  const reps=(CACHE.users||[]).filter(u=>u.role==='field_sales'||u.role==='inside_sales');
+  openModal(`
+    <div class="modal-head"><h3>📦 انتقال گروهی مشتریان</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>مشتریان (با کاما جدا)</label><input id="rbt-ids" placeholder="1,2,3"></div>
+      <div class="fg full"><label>نماینده مقصد</label><select id="rbt-rep">${reps.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveRepBulkTransfer()">💾</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveRepBulkTransfer(){
+  const ids=(el('rbt-ids').value||'').split(',').map(x=>+x.trim()).filter(Boolean);
+  if(!ids.length){ showToast('شناسه مشتری وارد کنید','error'); return; }
+  try{
+    await api('POST','/reps/bulk-transfer',{customer_ids:ids,to_rep_id:+el('rbt-rep').value});
+    closeModal(); showToast('انتقال انجام شد'); loadAccTab('reps');
+  }catch(e){}
+}
+async function repTerritoriesModal(){
+  const rows=await api('GET','/reps/territories')||[];
+  openModal(`
+    <div class="modal-head"><h3>🗺️ مناطق فروش</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div style="display:flex;gap:8px;margin-bottom:12px"><input id="rt-name" placeholder="نام منطقه" style="flex:1"><button class="btn sm" onclick="saveTerritory()">➕</button></div>
+      <ul>${rows.map(t=>`<li>${esc(t.name)} ${t.description?`— ${esc(t.description)}`:''}</li>`).join('')||'<li class="muted">منطقه‌ای ثبت نشده</li>'}</ul>
+    </div><div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`,true);
+}
+async function saveTerritory(){
+  const name=el('rt-name')?.value?.trim(); if(!name) return;
+  await api('POST','/reps/territories',{name}); showToast('ثبت شد'); repTerritoriesModal();
+}
+async function repVisitModal(repId){
+  if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
+  openModal(`
+    <div class="modal-head"><h3>📍 ثبت بازدید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full">${custSelect('rv-cust',0)}</div>
+      <div class="fg"><label>تاریخ</label><input id="rv-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>یادداشت</label><input id="rv-note"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveRepVisit(${repId})">💾</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot')); initCustSearches(el('modalRoot'));
+}
+async function saveRepVisit(repId){
+  try{
+    await api('POST','/reps/'+repId+'/visits',{customer_id:+el('rv-cust').value,date:el('rv-date').value,note:el('rv-note').value,lat:null,lng:null});
+    closeModal(); showToast('بازدید ثبت شد');
+  }catch(e){}
+}
+async function repCallModal(repId){
+  if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
+  openModal(`
+    <div class="modal-head"><h3>📞 ثبت تماس</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full">${custSelect('rc-cust',0)}</div>
+      <div class="fg"><label>مدت (دقیقه)</label><input id="rc-dur" type="number"></div>
+      <div class="fg"><label>نتیجه</label><input id="rc-outcome" placeholder="پاسخ داد / بی‌پاسخ"></div>
+      <div class="fg full"><label>یادداشت</label><input id="rc-note"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveRepCall(${repId})">💾</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  initCustSearches(el('modalRoot'));
+}
+async function saveRepCall(repId){
+  try{
+    await api('POST','/reps/'+repId+'/calls',{customer_id:+el('rc-cust').value,duration_min:+(el('rc-dur').value||0),outcome:el('rc-outcome').value,note:el('rc-note').value});
+    closeModal(); showToast('تماس ثبت شد');
+  }catch(e){}
 }
 function repTransferCustModal(){
   const reps=(CACHE.users||[]).filter(u=>u.role==='field_sales'||u.role==='inside_sales');

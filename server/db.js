@@ -1030,8 +1030,79 @@ function initDB() {
   `);
   ensureColumn(db, 'users', 'commission_basis', "TEXT DEFAULT 'invoice'");
   ensureColumn(db, 'users', 'monthly_target', 'REAL DEFAULT 0');
-
-  // ---- Indexes ----
+  ensureColumn(db, 'users', 'quarterly_target', 'REAL DEFAULT 0');
+  ensureColumn(db, 'users', 'annual_target', 'REAL DEFAULT 0');
+  ensureColumn(db, 'users', 'bonus_pct', 'REAL DEFAULT 0');
+  ensureColumn(db, 'users', 'commission_fixed', 'REAL DEFAULT 0');
+  ensureColumn(db, 'users', 'supervisor_commission_pct', 'REAL DEFAULT 0');
+  ensureColumn(db, 'products', 'brand', "TEXT DEFAULT ''");
+  ensureColumn(db, 'customers', 'rep_territory', "TEXT DEFAULT ''");
+  ensureColumn(db, 'rep_commission_rules', 'scope_label', "TEXT DEFAULT ''");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rep_commission_tiers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rep_id INTEGER NOT NULL,
+      from_amount REAL DEFAULT 0,
+      to_amount REAL,
+      rate_cash REAL DEFAULT 0,
+      rate_cheque REAL DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(rep_id) REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS rep_settlements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rep_id INTEGER NOT NULL,
+      date TEXT,
+      settlement_type TEXT DEFAULT 'combined',
+      commission_paid REAL DEFAULT 0,
+      expense_settled REAL DEFAULT 0,
+      advance_settled REAL DEFAULT 0,
+      total_amount REAL DEFAULT 0,
+      balance_before REAL DEFAULT 0,
+      balance_after REAL DEFAULT 0,
+      note TEXT,
+      ref_payment_id INTEGER,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(rep_id) REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS rep_territories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE TABLE IF NOT EXISTS rep_visit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rep_id INTEGER NOT NULL,
+      customer_id INTEGER,
+      date TEXT,
+      check_in_at INTEGER,
+      check_out_at INTEGER,
+      lat REAL,
+      lng REAL,
+      note TEXT,
+      signature_file TEXT,
+      photo_file TEXT,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(rep_id) REFERENCES users(id),
+      FOREIGN KEY(customer_id) REFERENCES customers(id)
+    );
+    CREATE TABLE IF NOT EXISTS rep_call_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rep_id INTEGER NOT NULL,
+      customer_id INTEGER,
+      date TEXT,
+      duration_min INTEGER DEFAULT 0,
+      outcome TEXT DEFAULT '',
+      note TEXT,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(rep_id) REFERENCES users(id),
+      FOREIGN KEY(customer_id) REFERENCES customers(id)
+    );
+  `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_customers_user ON customers(user_id);
     CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
@@ -1083,6 +1154,10 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_rep_advances_rep ON rep_advances(rep_id);
     CREATE INDEX IF NOT EXISTS idx_rep_assign_cust ON rep_assignment_history(customer_id);
     CREATE INDEX IF NOT EXISTS idx_rep_comm_rules_rep ON rep_commission_rules(rep_id);
+    CREATE INDEX IF NOT EXISTS idx_rep_comm_tiers_rep ON rep_commission_tiers(rep_id);
+    CREATE INDEX IF NOT EXISTS idx_rep_settlements_rep ON rep_settlements(rep_id);
+    CREATE INDEX IF NOT EXISTS idx_rep_visits_rep ON rep_visit_logs(rep_id);
+    CREATE INDEX IF NOT EXISTS idx_rep_calls_rep ON rep_call_logs(rep_id);
   `);
 
   // ---- Default admin ----

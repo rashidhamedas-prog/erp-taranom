@@ -1,9 +1,11 @@
-// Representative sub-ledger helpers — loosely coupled to core accounting.
+// Representative sub-ledger + commission engine — loosely coupled to core accounting.
 const EXPENSE_CATEGORIES = {
   transport: 'حمل‌ونقل', fuel: 'سوخت', hotel: 'هتل', meals: 'پذیرایی',
   gifts: 'هدایا', advertising: 'تبلیغات', entertainment: 'پذیرایی مشتری',
   office: 'اداری', other: 'سایر'
 };
+
+const REP_ROLES_SQL = "('field_sales','inside_sales')";
 
 function isRepRole(role) {
   return role === 'field_sales' || role === 'inside_sales';
@@ -16,78 +18,145 @@ function addRepLedger(db, { rep_id, date, entry_type, ref_type, ref_id, descript
   `).run(rep_id, date || '', entry_type, ref_type || '', ref_id || null, description || '', debit || 0, credit || 0, created_by || null);
 }
 
-function getRepRates(db, repId, productId, categoryId) {
-  const u = db.prepare('SELECT commission_cash, commission_cheque FROM users WHERE id=?').get(repId);
-  const base = { cash: u?.commission_cash || 0, cheque: u?.commission_cheque || 0 };
-  if (productId) {
-    const pr = db.prepare("SELECT rate_cash, rate_cheque FROM rep_commission_rules WHERE rep_id=? AND scope_type='product' AND scope_id=? AND active=1").get(repId, productId);
-    if (pr) return { cash: pr.rate_cash, cheque: pr.rate_cheque };
-  }
-  if (categoryId) {
-    const cr = db.prepare("SELECT rate_cash, rate_cheque FROM rep_commission_rules WHERE rep_id=? AND scope_type='category' AND scope_id=? AND active=1").get(repId, categoryId);
-    if (cr) return { cash: cr.rate_cash, cheque: cr.rate_cheque };
-  }
-  return base;
-}
-
 function lineTotal(row) {
   const qty = row.qty || 0, price = row.price || 0, disc = row.disc || 0;
   return qty * price * (1 - disc / 100);
 }
 
+function getTierRates(db, repId, salesTotal, payType) {
+  const tiers = db.prepare(`
+    SELECT * FROM rep_commission_tiers WHERE rep_id=? AND active=1
+    ORDER BY from_amount ASC
+  `).all(repId);
+  if (!tiers.length) return null;
+  const field = payType === 'cheque' ? 'rate_cheque' : 'rate_cash';
+  for (const t of tiers) {
+    const from = t.from_amount || 0;
+    const to = t.to_amount != null ? t.to_amount : Infinity;
+    if (salesTotal >= from && salesTotal <= to) return t[field] || 0;
+  }
+  const last = tiers[tiers.length - 1];
+  return last[field] || 0;
+}
+
+function getRepRates(db, repId, productId, categoryId, brand, customerId) {
+  const u = db.prepare('SELECT commission_cash, commission_cheque, commission_fixed FROM users WHERE id=?').get(repId);
+  const base = { cash: u?.commission_cash || 0, cheque: u?.commission_cheque || 0, fixed: u?.commission_fixed || 0 };
+  const scopes = [
+    ['customer', customerId],
+    ['product', productId],
+    ['category', categoryId],
+    ['brand', brand]
+  ];
+  for (const [type, sid] of scopes) {
+    if (!sid && type !== 'brand') continue;
+    if (type === 'brand' && brand) {
+      const br = db.prepare("SELECT rate_cash, rate_cheque FROM rep_commission_rules WHERE rep_id=? AND scope_type='brand' AND scope_label=? AND active=1").get(repId, brand);
+      if (br) return { cash: br.rate_cash, cheque: br.rate_cheque, fixed: 0 };
+      continue;
+    }
+    const row = db.prepare(`SELECT rate_cash, rate_cheque FROM rep_commission_rules WHERE rep_id=? AND scope_type=? AND scope_id=? AND active=1`).get(repId, type, sid);
+    if (row) return { cash: row.rate_cash, cheque: row.rate_cheque, fixed: 0 };
+  }
+  return base;
+}
+
+function applyLineCommission(db, repId, inv, row, customerId) {
+  const prod = row.product_id ? db.prepare('SELECT category, brand FROM products WHERE id=?').get(row.product_id) : null;
+  const rates = getRepRates(db, repId, row.product_id, prod?.category, prod?.brand, customerId);
+  const lt = lineTotal(row);
+  const payType = inv.pay_type === 'cheque' ? 'cheque' : 'cash';
+  let comm = 0;
+  if (rates.fixed > 0) comm = rates.fixed;
+  else comm = lt * (payType === 'cheque' ? rates.cheque : rates.cash) / 100;
+  return { lt, comm, payType };
+}
+
 function computeRepCommission(db, repId, { from, to } = {}) {
-  const u = db.prepare('SELECT commission_cash, commission_cheque, commission_basis, monthly_target FROM users WHERE id=?').get(repId);
-  if (!u) return { cashSales: 0, chequeSales: 0, returns: 0, cashComm: 0, chequeComm: 0, totalComm: 0, basis: 'invoice', monthlyTarget: 0, targetPct: 0 };
+  const u = db.prepare(`
+    SELECT commission_cash, commission_cheque, commission_basis, monthly_target, quarterly_target,
+      annual_target, bonus_pct, commission_fixed
+    FROM users WHERE id=?
+  `).get(repId);
+  if (!u) {
+    return {
+      cashSales: 0, chequeSales: 0, returns: 0, cashComm: 0, chequeComm: 0, totalComm: 0,
+      basis: 'invoice', monthlyTarget: 0, quarterlyTarget: 0, annualTarget: 0,
+      targetPct: 0, quarterlyPct: 0, annualPct: 0, salesTotal: 0, bonusComm: 0, invoiceCount: 0
+    };
+  }
 
   const hasRules = db.prepare('SELECT 1 FROM rep_commission_rules WHERE rep_id=? AND active=1 LIMIT 1').get(repId);
+  const hasTiers = db.prepare('SELECT 1 FROM rep_commission_tiers WHERE rep_id=? AND active=1 LIMIT 1').get(repId);
   const basis = u.commission_basis || 'invoice';
-
-  let cashSales = 0, chequeSales = 0, cashComm = 0, chequeComm = 0;
+  let cashSales = 0, chequeSales = 0, cashComm = 0, chequeComm = 0, invoiceCount = 0;
 
   if (basis === 'collection') {
     let sql = `
-      SELECT i.pay_type, COALESCE(SUM(s.amount),0) s
+      SELECT i.id, i.pay_type, i.cust_id, i.rows, s.amount as collected
       FROM settlements s JOIN invoices i ON s.invoice_id=i.id
       WHERE i.user_id=? AND i.type='final' AND i.approved=1`;
     const p = [repId];
     if (from) { sql += ' AND s.date>=?'; p.push(from); }
     if (to) { sql += ' AND s.date<=?'; p.push(to); }
-    sql += ' GROUP BY i.pay_type';
-    for (const r of db.prepare(sql).all(...p)) {
-      if (r.pay_type === 'cheque') chequeSales = r.s; else cashSales = r.s;
-    }
-    cashComm = cashSales * (u.commission_cash || 0) / 100;
-    chequeComm = chequeSales * (u.commission_cheque || 0) / 100;
-  } else if (hasRules) {
-    let sql = "SELECT * FROM invoices WHERE user_id=? AND type='final' AND approved=1";
-    const p = [repId];
-    if (from) { sql += ' AND date>=?'; p.push(from); }
-    if (to) { sql += ' AND date<=?'; p.push(to); }
-    for (const inv of db.prepare(sql).all(...p)) {
-      let rows = [];
-      try { rows = JSON.parse(inv.rows || '[]'); } catch { rows = []; }
-      for (const row of rows) {
-        const prod = row.product_id ? db.prepare('SELECT category FROM products WHERE id=?').get(row.product_id) : null;
-        const rates = getRepRates(db, repId, row.product_id, prod?.category);
-        const lt = lineTotal(row);
-        if (inv.pay_type === 'cheque') {
-          chequeSales += lt;
-          chequeComm += lt * rates.cheque / 100;
+    const rows = db.prepare(sql).all(...p);
+    for (const r of rows) {
+      const amt = r.collected || 0;
+      if (r.pay_type === 'cheque') chequeSales += amt; else cashSales += amt;
+      if (hasRules && r.rows) {
+        let invRows = [];
+        try { invRows = JSON.parse(r.rows || '[]'); } catch { invRows = []; }
+        const invTotal = invRows.reduce((a, x) => a + lineTotal(x), 0) || 1;
+        for (const row of invRows) {
+          const { comm } = applyLineCommission(db, repId, r, row, r.cust_id);
+          const share = amt * (lineTotal(row) / invTotal);
+          if (r.pay_type === 'cheque') chequeComm += comm * (share / (lineTotal(row) || 1));
+          else cashComm += comm * (share / (lineTotal(row) || 1));
+        }
+      } else {
+        const tierCash = hasTiers ? getTierRates(db, repId, cashSales + chequeSales, 'cash') : null;
+        const tierCheque = hasTiers ? getTierRates(db, repId, cashSales + chequeSales, 'cheque') : null;
+        if (r.pay_type === 'cheque') {
+          chequeComm += amt * ((tierCheque != null ? tierCheque : u.commission_cheque) || 0) / 100;
         } else {
-          cashSales += lt;
-          cashComm += lt * rates.cash / 100;
+          cashComm += amt * ((tierCash != null ? tierCash : u.commission_cash) || 0) / 100;
         }
       }
     }
   } else {
-    let invWhere = "user_id=? AND type='final' AND approved=1";
-    const invParams = [repId];
-    if (from) { invWhere += ' AND date>=?'; invParams.push(from); }
-    if (to) { invWhere += ' AND date<=?'; invParams.push(to); }
-    cashSales = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${invWhere} AND pay_type='cash'`).get(...invParams).s;
-    chequeSales = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${invWhere} AND pay_type='cheque'`).get(...invParams).s;
-    cashComm = cashSales * (u.commission_cash || 0) / 100;
-    chequeComm = chequeSales * (u.commission_cheque || 0) / 100;
+    let sql = "SELECT * FROM invoices WHERE user_id=? AND type='final' AND approved=1";
+    const p = [repId];
+    if (from) { sql += ' AND date>=?'; p.push(from); }
+    if (to) { sql += ' AND date<=?'; p.push(to); }
+    const invs = db.prepare(sql).all(...p);
+    invoiceCount = invs.length;
+    for (const inv of invs) {
+      if (u.commission_fixed > 0) {
+        if (inv.pay_type === 'cheque') { chequeSales += inv.final || 0; chequeComm += u.commission_fixed; }
+        else { cashSales += inv.final || 0; cashComm += u.commission_fixed; }
+        continue;
+      }
+      if (hasRules) {
+        let rows = [];
+        try { rows = JSON.parse(inv.rows || '[]'); } catch { rows = []; }
+        for (const row of rows) {
+          const { lt, comm, payType } = applyLineCommission(db, repId, inv, row, inv.cust_id);
+          if (payType === 'cheque') { chequeSales += lt; chequeComm += comm; }
+          else { cashSales += lt; cashComm += comm; }
+        }
+      } else {
+        const lt = inv.final || 0;
+        const salesSoFar = cashSales + chequeSales + lt;
+        const tierRate = hasTiers ? getTierRates(db, repId, salesSoFar, inv.pay_type) : null;
+        if (inv.pay_type === 'cheque') {
+          chequeSales += lt;
+          chequeComm += lt * ((tierRate != null ? tierRate : u.commission_cheque) || 0) / 100;
+        } else {
+          cashSales += lt;
+          cashComm += lt * ((tierRate != null ? tierRate : u.commission_cash) || 0) / 100;
+        }
+      }
+    }
   }
 
   let retWhere = 'user_id=?';
@@ -96,22 +165,50 @@ function computeRepCommission(db, repId, { from, to } = {}) {
   if (to) { retWhere += ' AND date<=?'; retParams.push(to); }
   const returns = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM sales_returns WHERE ${retWhere}`).get(...retParams).s;
   const returnPenalty = returns * ((u.commission_cash || 0) + (u.commission_cheque || 0)) / 200;
-  const totalComm = Math.max(0, cashComm + chequeComm - returnPenalty);
+  let totalComm = Math.max(0, cashComm + chequeComm - returnPenalty);
   const salesTotal = cashSales + chequeSales;
+
   const monthlyTarget = u.monthly_target || 0;
-  const targetPct = monthlyTarget > 0 ? Math.min(100, Math.round(salesTotal / monthlyTarget * 100)) : 0;
+  const quarterlyTarget = u.quarterly_target || 0;
+  const annualTarget = u.annual_target || 0;
+  const targetPct = monthlyTarget > 0 ? Math.min(999, Math.round(salesTotal / monthlyTarget * 100)) : 0;
+  const quarterlyPct = quarterlyTarget > 0 ? Math.min(999, Math.round(salesTotal / quarterlyTarget * 100)) : 0;
+  const annualPct = annualTarget > 0 ? Math.min(999, Math.round(salesTotal / annualTarget * 100)) : 0;
+
+  let bonusComm = 0;
+  if ((u.bonus_pct || 0) > 0 && targetPct >= 100) {
+    bonusComm = totalComm * (u.bonus_pct / 100);
+    totalComm += bonusComm;
+  }
 
   return {
-    cashSales, chequeSales, returns, cashComm, chequeComm, totalComm,
-    basis, monthlyTarget, targetPct, salesTotal
+    cashSales, chequeSales, returns, cashComm, chequeComm, totalComm, bonusComm,
+    basis: u.commission_basis || 'invoice', monthlyTarget, quarterlyTarget, annualTarget,
+    targetPct, quarterlyPct, annualPct, salesTotal, invoiceCount
   };
+}
+
+function getAdvanceBalance(db, repId, { from, to } = {}) {
+  let sql = `SELECT COALESCE(SUM(amount),0) s, COALESCE(SUM(settled_amount),0) settled FROM rep_advances WHERE rep_id=?`;
+  const p = [repId];
+  if (from) { sql += ' AND date>=?'; p.push(from); }
+  if (to) { sql += ' AND date<=?'; p.push(to); }
+  const r = db.prepare(sql).get(...p);
+  return { total: r.s || 0, settled: r.settled || 0, remaining: Math.max(0, (r.s || 0) - (r.settled || 0)) };
+}
+
+function computeRepPayable(db, repId, opts = {}) {
+  const view = buildRepLedgerView(db, repId, opts);
+  if (!view) return { payable: 0, netBalance: 0 };
+  const netPayable = Math.max(0, view.commission.totalComm - view.paid - view.advancesRemaining);
+  return { payable: netPayable, netBalance: view.balance, ...view };
 }
 
 function buildRepLedgerView(db, repId, { from, to } = {}) {
   const u = db.prepare(`
     SELECT id,name,username,role,phone,active,rep_code,rep_subtype,territory,supervisor_id,
       employment_status,bank_name,bank_account,bank_iban,contract_file,rep_opening_balance,
-      commission_cash,commission_cheque,commission_basis,monthly_target
+      commission_cash,commission_cheque,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct
     FROM users WHERE id=?
   `).get(repId);
   if (!u) return null;
@@ -129,42 +226,178 @@ function buildRepLedgerView(db, repId, { from, to } = {}) {
   if (to) { expSql += ' AND date<=?'; expParams.push(to); }
   const expenses = db.prepare(expSql).get(...expParams).s;
 
-  let advSql = `SELECT COALESCE(SUM(amount),0) s, COALESCE(SUM(settled_amount),0) settled FROM rep_advances WHERE rep_id=?`;
-  const advParams = [repId];
-  if (from) { advSql += ' AND date>=?'; advParams.push(from); }
-  if (to) { advSql += ' AND date<=?'; advParams.push(to); }
-  const advances = db.prepare(advSql).get(...advParams);
+  const adv = getAdvanceBalance(db, repId, { from, to });
+  const opening = u.rep_opening_balance || 0;
+  const balance = opening + comm.totalComm - paid - (expenses || 0) - adv.remaining;
+  const payable = Math.max(0, comm.totalComm - paid - adv.remaining);
 
   let manSql = `SELECT * FROM rep_ledger WHERE rep_id=?`;
   const manParams = [repId];
   if (from) { manSql += ' AND date>=?'; manParams.push(from); }
   if (to) { manSql += ' AND date<=?'; manParams.push(to); }
-  manSql += ' ORDER BY created_at DESC LIMIT 200';
+  manSql += ' ORDER BY created_at DESC LIMIT 500';
   const manual = db.prepare(manSql).all(...manParams);
-
-  const opening = u.rep_opening_balance || 0;
-  const balance = opening + comm.totalComm - paid - (expenses || 0) - ((advances.s || 0) - (advances.settled || 0));
 
   return {
     rep: u,
     commission: comm,
     paid,
     expenses: expenses || 0,
-    advances: advances.s || 0,
-    advancesSettled: advances.settled || 0,
+    advances: adv.total,
+    advancesSettled: adv.settled,
+    advancesRemaining: adv.remaining,
     opening,
     balance,
-    payable: Math.max(0, comm.totalComm - paid),
+    payable,
     manualEntries: manual
   };
+}
+
+function buildRepStatement(db, repId, { from, to } = {}) {
+  const view = buildRepLedgerView(db, repId, { from, to });
+  if (!view) return null;
+  const entries = [];
+
+  entries.push({
+    date: from || '', type: 'summary', type_label: 'خلاصه', description: 'انگیزه محاسبه‌شده دوره',
+    debit: 0, credit: view.commission.totalComm, running_balance: null
+  });
+
+  const pays = db.prepare(`SELECT * FROM incentive_payments WHERE rep_id=?${from ? ' AND date>=?' : ''}${to ? ' AND date<=?' : ''} ORDER BY date DESC, id DESC LIMIT 200`).all(repId, ...(from ? [from] : []), ...(to ? [to] : []));
+  for (const p of pays) {
+    entries.push({ date: p.date, type: 'payment', type_label: 'پرداخت انگیزه', description: p.note || '', debit: p.amount, credit: 0, reference: `#${p.id}` });
+  }
+
+  const exps = db.prepare(`SELECT * FROM rep_expenses WHERE rep_id=? AND status='approved'${from ? ' AND date>=?' : ''}${to ? ' AND date<=?' : ''} ORDER BY date DESC LIMIT 200`).all(repId, ...(from ? [from] : []), ...(to ? [to] : []));
+  for (const e of exps) {
+    entries.push({ date: e.date, type: 'expense', type_label: EXPENSE_CATEGORIES[e.category] || 'هزینه', description: e.description || '', debit: e.amount, credit: 0, reference: `#${e.id}` });
+  }
+
+  const advs = db.prepare(`SELECT * FROM rep_advances WHERE rep_id=?${from ? ' AND date>=?' : ''}${to ? ' AND date<=?' : ''} ORDER BY date DESC LIMIT 200`).all(repId, ...(from ? [from] : []), ...(to ? [to] : []));
+  for (const a of advs) {
+    entries.push({ date: a.date, type: 'advance', type_label: 'مساعده', description: a.note || '', debit: a.amount, credit: 0, reference: `#${a.id}` });
+  }
+
+  for (const m of view.manualEntries) {
+    entries.push({ date: m.date, type: m.entry_type, type_label: m.entry_type, description: m.description || '', debit: m.debit, credit: m.credit, reference: `#${m.id}` });
+  }
+
+  return {
+    rep: view.rep,
+    opening: view.opening,
+    closing: view.balance,
+    commission: view.commission,
+    payable: view.payable,
+    paid: view.paid,
+    expenses: view.expenses,
+    advancesRemaining: view.advancesRemaining,
+    entries
+  };
+}
+
+function settleAdvancesAgainstPayment(db, repId, amount, paymentId, userId) {
+  let remaining = amount;
+  const rows = db.prepare(`
+    SELECT id, amount, settled_amount FROM rep_advances
+    WHERE rep_id=? AND (amount - COALESCE(settled_amount,0)) > 0.01
+    ORDER BY created_at ASC
+  `).all(repId);
+  let totalSettled = 0;
+  for (const a of rows) {
+    if (remaining <= 0) break;
+    const open = a.amount - (a.settled_amount || 0);
+    const take = Math.min(open, remaining);
+    db.prepare('UPDATE rep_advances SET settled_amount=COALESCE(settled_amount,0)+? WHERE id=?').run(take, a.id);
+    addRepLedger(db, {
+      rep_id: repId, date: '', entry_type: 'advance_settle', ref_type: 'incentive_payment', ref_id: paymentId,
+      description: `تسویه مساعده #${a.id}`, debit: 0, credit: take, created_by: userId
+    });
+    remaining -= take;
+    totalSettled += take;
+  }
+  return totalSettled;
+}
+
+function recordIncentivePaymentLedger(db, { rep_id, amount, date, payment_id, created_by }) {
+  addRepLedger(db, {
+    rep_id, date, entry_type: 'commission_paid', ref_type: 'incentive_payment', ref_id: payment_id,
+    description: 'پرداخت انگیزه فروش', debit: amount, credit: 0, created_by
+  });
+}
+
+function getRepRanking(db, { from, to } = {}) {
+  const reps = db.prepare(`SELECT id,name,role,territory,monthly_target FROM users WHERE active=1 AND role IN ${REP_ROLES_SQL}`).all();
+  return reps.map(r => {
+    const comm = computeRepCommission(db, r.id, { from, to });
+    const view = buildRepLedgerView(db, r.id, { from, to });
+    const collected = db.prepare(`
+      SELECT COALESCE(SUM(s.amount),0) s FROM settlements s
+      JOIN invoices i ON s.invoice_id=i.id WHERE i.user_id=?
+      ${from ? ' AND s.date>=?' : ''}${to ? ' AND s.date<=?' : ''}
+    `).get(r.id, ...(from ? [from] : []), ...(to ? [to] : [])).s;
+    const customers = db.prepare('SELECT COUNT(*) c FROM customers WHERE user_id=?').get(r.id).c;
+    return {
+      id: r.id, name: r.name, role: r.role, territory: r.territory,
+      roleLabel: r.role === 'inside_sales' ? 'تلفنی' : 'میدانی',
+      salesTotal: comm.salesTotal, totalComm: comm.totalComm, collected,
+      customers, targetPct: comm.targetPct, payable: view?.payable || 0, balance: view?.balance || 0
+    };
+  }).sort((a, b) => b.salesTotal - a.salesTotal);
+}
+
+function getRepAgingReceivables(db, repId) {
+  const today = require('../jalali').todayJalali();
+  const rows = db.prepare(`
+    SELECT c.id, c.biz, c.owner,
+      COALESCE(lb.balance,0) AS balance
+    FROM customers c
+    LEFT JOIN (SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS balance FROM customer_ledger GROUP BY customer_id) lb ON lb.customer_id=c.id
+    WHERE c.user_id=? AND COALESCE(lb.balance,0) > 0
+    ORDER BY balance DESC
+  `).all(repId);
+  const buckets = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
+  for (const r of rows) {
+    const lastInv = db.prepare("SELECT date FROM invoices WHERE cust_id=? AND type='final' ORDER BY date DESC LIMIT 1").get(r.id);
+    buckets.current += r.balance;
+    if (lastInv?.date && lastInv.date < today) buckets.d30 += r.balance * 0.3;
+  }
+  return { rows, buckets, total: rows.reduce((a, r) => a + r.balance, 0) };
+}
+
+function getTeamRollup(db, supervisorId, opts = {}) {
+  const team = db.prepare(`SELECT id,name,role FROM users WHERE active=1 AND supervisor_id=? AND role IN ${REP_ROLES_SQL}`).all(supervisorId);
+  const members = team.map(m => {
+    const comm = computeRepCommission(db, m.id, opts);
+    const view = buildRepLedgerView(db, m.id, opts);
+    return { ...m, ...comm, payable: view?.payable || 0, balance: view?.balance || 0 };
+  });
+  return {
+    supervisor_id: supervisorId,
+    teamSize: members.length,
+    salesTotal: members.reduce((a, m) => a + (m.salesTotal || 0), 0),
+    totalComm: members.reduce((a, m) => a + (m.totalComm || 0), 0),
+    payable: members.reduce((a, m) => a + (m.payable || 0), 0),
+    members
+  };
+}
+
+function canAccessRep(db, user, repId) {
+  if (!user) return false;
+  if (user.role === 'admin' || user.role === 'accounting') return true;
+  if (user.id === repId) return true;
+  const rep = db.prepare('SELECT supervisor_id FROM users WHERE id=?').get(repId);
+  return rep && rep.supervisor_id === user.id;
 }
 
 function notifyRep(db, repId, body, fromId) {
   try {
     db.prepare('INSERT INTO messages (from_id,to_id,body) VALUES (?,?,?)').run(fromId || 1, repId, body);
-  } catch { /* messages table optional */ }
+  } catch { /* optional */ }
 }
 
 module.exports = {
-  EXPENSE_CATEGORIES, isRepRole, addRepLedger, computeRepCommission, buildRepLedgerView, notifyRep, getRepRates
+  EXPENSE_CATEGORIES, REP_ROLES_SQL, isRepRole, addRepLedger, computeRepCommission, buildRepLedgerView,
+  buildRepStatement, settleAdvancesAgainstPayment, recordIncentivePaymentLedger, getRepRanking,
+  getRepAgingReceivables, getTeamRollup, canAccessRep, notifyRep, getRepRates, getAdvanceBalance,
+  computeRepPayable
 };

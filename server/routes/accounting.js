@@ -306,7 +306,7 @@ router.patch('/cheques/:id/status', auth, adminOrAccounting, (req, res) => {
 router.get('/commissions', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
-  const { computeRepCommission } = require('../lib/rep-ledger');
+  const { computeRepCommission, buildRepLedgerView, recordIncentivePaymentLedger, settleAdvancesAgainstPayment, notifyRep, isRepRole } = require('../lib/rep-ledger');
   const users = db.prepare(
     "SELECT id,name,role,commission_cash,commission_cheque,commission_basis,monthly_target FROM users WHERE active=1 AND role IN ('field_sales','inside_sales')"
   ).all();
@@ -314,6 +314,7 @@ router.get('/commissions', auth, adminOrAccounting, (req, res) => {
   const paidMap = Object.fromEntries(paidRows.map(r => [r.rep_id, r.s]));
   const result = users.map(u => {
     const comm = computeRepCommission(db, u.id, { from, to });
+    const view = buildRepLedgerView(db, u.id, { from, to });
     const paid = paidMap[u.id] || 0;
     return {
       ...u,
@@ -321,7 +322,9 @@ router.get('/commissions', auth, adminOrAccounting, (req, res) => {
       basisLabel: u.commission_basis === 'collection' ? 'وصول' : 'فاکتور',
       ...comm,
       paid,
-      payable: Math.max(0, comm.totalComm - paid)
+      payable: view?.payable ?? Math.max(0, comm.totalComm - paid),
+      balance: view?.balance ?? 0,
+      advancesRemaining: view?.advancesRemaining ?? 0
     };
   });
   res.json(result);
@@ -339,6 +342,7 @@ router.get('/incentive-payments', auth, adminOrAccounting, (req, res) => {
 
 // Record an incentive payment to a sales representative
 router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
+  const { recordIncentivePaymentLedger, settleAdvancesAgainstPayment, notifyRep } = require('../lib/rep-ledger');
   const { rep_id, amount, pay_type, date, note, bank_id, check_category_id, cash_box_id } = req.body;
   if (!rep_id || !amount) return res.status(400).json({ error: 'کارشناس و مبلغ الزامی است' });
   const db = getDB();
@@ -347,6 +351,14 @@ router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
   const result = db.prepare(
     'INSERT INTO incentive_payments (rep_id,amount,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id) VALUES (?,?,?,?,?,?,?,?,?)'
   ).run(rep_id, parseFloat(amount), pay_type || 'cash', date || '', note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null);
+  db.transaction(() => {
+    recordIncentivePaymentLedger(db, {
+      rep_id, amount: parseFloat(amount), date: date || '', payment_id: result.lastInsertRowid, created_by: req.user.id
+    });
+    if (req.body.settle_advances !== false) {
+      settleAdvancesAgainstPayment(db, rep_id, parseFloat(amount), result.lastInsertRowid, req.user.id);
+    }
+  })();
   audit(req.user.id, 'create', 'incentive_payment', result.lastInsertRowid, `پرداخت انگیزه ${amount} تومان به ${rep.name}`);
   // Background journal entry: Dr incentive expense / Cr cash or the specific bank/cash-box chosen
   const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
@@ -358,6 +370,7 @@ router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
       { code: cash.code, name: cash.name, debit: 0, credit: parseFloat(amount) }
     ]
   });
+  notifyRep(db, rep_id, `💵 انگیزه ${amount} تومان به حساب شما پرداخت شد.`, req.user.id);
   res.json({ id: result.lastInsertRowid, ok: true });
 });
 
@@ -386,19 +399,22 @@ router.delete('/incentive-payments/:id', auth, adminOrAccounting, (req, res) => 
 // My commission — salesperson views their own (no adminOnly)
 router.get('/my-commission', auth, (req, res) => {
   const db = getDB();
-  const { computeRepCommission } = require('../lib/rep-ledger');
+  const { computeRepCommission, buildRepLedgerView, recordIncentivePaymentLedger, settleAdvancesAgainstPayment, notifyRep, isRepRole } = require('../lib/rep-ledger');
   const u = db.prepare('SELECT id,name,commission_cash,commission_cheque,commission_basis,monthly_target FROM users WHERE id=?').get(req.user.id);
   if (!u || !isRepRole(u.role)) {
     return res.json({ cashComm: 0, chequeComm: 0, totalComm: 0, paid: 0, payable: 0, commRate: { cash: 0, cheque: 0 } });
   }
   const comm = computeRepCommission(db, u.id, {});
-  const paid = db.prepare('SELECT COALESCE(SUM(amount),0) s FROM incentive_payments WHERE rep_id=?').get(u.id).s;
+  const view = buildRepLedgerView(db, u.id, {});
+  const paid = view?.paid ?? db.prepare('SELECT COALESCE(SUM(amount),0) s FROM incentive_payments WHERE rep_id=?').get(u.id).s;
   const pendingExp = db.prepare("SELECT COUNT(*) c FROM rep_expenses WHERE rep_id=? AND status='pending'").get(u.id).c;
   res.json({
     ...comm,
+    ...(view?.commission || {}),
     cashSales: comm.cashSales, chequeSales: comm.chequeSales,
     cashComm: comm.cashComm, chequeComm: comm.chequeComm, totalComm: comm.totalComm,
-    paid, payable: Math.max(0, comm.totalComm - paid),
+    paid, payable: view?.payable ?? Math.max(0, comm.totalComm - paid),
+    balance: view?.balance ?? 0, advancesRemaining: view?.advancesRemaining ?? 0,
     commRate: { cash: u.commission_cash || 0, cheque: u.commission_cheque || 0 },
     basisLabel: u.commission_basis === 'collection' ? 'بر اساس وصول' : 'بر اساس فاکتور',
     pendingExpenses: pendingExp

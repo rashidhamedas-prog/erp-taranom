@@ -13,15 +13,22 @@ router.get('/users', auth, adminOnly, (req, res) => {
 // Create user (salesperson or admin) — incentive is locked immediately after creation
 router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
   const { name, username, password, phone, role = 'salesperson', commission_cash = 0, commission_cheque = 0,
-    commission_basis = 'invoice', monthly_target = 0 } = req.body;
+    commission_basis = 'invoice', monthly_target = 0, quarterly_target = 0, annual_target = 0, bonus_pct = 0, commission_fixed = 0,
+    rep_code, rep_subtype, territory, supervisor_id, employment_status, bank_name, bank_account, bank_iban, rep_opening_balance } = req.body;
   if (!name || !username || !password) return res.status(400).json({ error: 'اطلاعات ناقص' });
   const db = getDB();
   const exists = db.prepare('SELECT id FROM users WHERE username=?').get(username);
   if (exists) return res.status(400).json({ error: 'این نام کاربری قبلاً ثبت شده' });
   const hash = bcrypt.hashSync(password, 10);
-  const result = db.prepare('INSERT INTO users (name,username,password,phone,role,commission_cash,commission_cheque,commission_basis,monthly_target,incentive_locked) VALUES (?,?,?,?,?,?,?,?,?,1)')
-    .run(name, username, hash, phone || '', role, parseFloat(commission_cash) || 0, parseFloat(commission_cheque) || 0,
-      commission_basis === 'collection' ? 'collection' : 'invoice', parseFloat(monthly_target) || 0);
+  const result = db.prepare(`
+    INSERT INTO users (name,username,password,phone,role,commission_cash,commission_cheque,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,incentive_locked,
+      rep_code,rep_subtype,territory,supervisor_id,employment_status,bank_name,bank_account,bank_iban,rep_opening_balance)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)
+  `).run(name, username, hash, phone || '', role, parseFloat(commission_cash) || 0, parseFloat(commission_cheque) || 0,
+    commission_basis === 'collection' ? 'collection' : 'invoice', parseFloat(monthly_target) || 0,
+    parseFloat(quarterly_target) || 0, parseFloat(annual_target) || 0, parseFloat(bonus_pct) || 0, parseFloat(commission_fixed) || 0,
+    rep_code || '', rep_subtype || '', territory || '', supervisor_id ? parseInt(supervisor_id) : null,
+    employment_status || 'active', bank_name || '', bank_account || '', bank_iban || '', parseFloat(rep_opening_balance) || 0);
   audit(req.user.id, 'create', 'user', result.lastInsertRowid, `ساخت کاربر ${name} با انگیزه فروش نقد ${commission_cash}٪ چک ${commission_cheque}٪`);
   res.json({ id: result.lastInsertRowid, name, username, phone: phone || '', role, commission_cash: parseFloat(commission_cash) || 0, commission_cheque: parseFloat(commission_cheque) || 0, incentive_locked: 1 });
 });
@@ -29,7 +36,7 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
 // Update user — if incentive rate changed on a locked user, require force:true
 router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   const { name, password, active, role, phone, commission_cash = 0, commission_cheque = 0, force,
-    commission_basis, monthly_target,
+    commission_basis, monthly_target, quarterly_target, annual_target, bonus_pct, commission_fixed,
     rep_code, rep_subtype, territory, supervisor_id, employment_status,
     bank_name, bank_account, bank_iban, rep_opening_balance } = req.body;
   const db = getDB();
@@ -38,6 +45,10 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   const basis = commission_basis === 'collection' ? 'collection'
     : (commission_basis === 'invoice' ? 'invoice' : (existing.commission_basis || 'invoice'));
   const target = monthly_target != null ? parseFloat(monthly_target) || 0 : (existing.monthly_target || 0);
+  const qTarget = quarterly_target != null ? parseFloat(quarterly_target) || 0 : (existing.quarterly_target || 0);
+  const aTarget = annual_target != null ? parseFloat(annual_target) || 0 : (existing.annual_target || 0);
+  const bonus = bonus_pct != null ? parseFloat(bonus_pct) || 0 : (existing.bonus_pct || 0);
+  const fixed = commission_fixed != null ? parseFloat(commission_fixed) || 0 : (existing.commission_fixed || 0);
 
   const newCash = parseFloat(commission_cash) || 0;
   const newCheque = parseFloat(commission_cheque) || 0;
@@ -49,9 +60,9 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   }
 
   if (password) {
-    db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,password=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,incentive_locked=1,
+    db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,password=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,incentive_locked=1,
       rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=? WHERE id=?`)
-      .run(name, active, role, phone || '', bcrypt.hashSync(password, 10), newCash, newCheque, basis, target,
+      .run(name, active, role, phone || '', bcrypt.hashSync(password, 10), newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed,
         rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
         supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
         employment_status || existing.employment_status || 'active',
@@ -59,9 +70,9 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
         rep_opening_balance != null ? parseFloat(rep_opening_balance) : (existing.rep_opening_balance || 0),
         req.params.id);
   } else {
-    db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,incentive_locked=1,
+    db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,incentive_locked=1,
       rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=? WHERE id=?`)
-      .run(name, active, role, phone || '', newCash, newCheque, basis, target,
+      .run(name, active, role, phone || '', newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed,
         rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
         supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
         employment_status || existing.employment_status || 'active',
