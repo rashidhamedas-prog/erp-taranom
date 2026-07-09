@@ -424,6 +424,21 @@ table.tbl tr:hover td{background:#F7FAF7}
 #installBanner.show{display:flex}
 #installBanner button{background:var(--gold);color:#1A5C38;border:none;padding:8px 16px;border-radius:9px;font-weight:700;font-size:13px}
 #installBanner .x-btn{background:rgba(255,255,255,.2);border:none;color:#fff;width:28px;height:28px;border-radius:50%;font-size:16px;flex-shrink:0}
+
+/* ===== B2B customer portal ===== */
+#b2bPortal{min-height:100vh;background:linear-gradient(135deg,#1A5C38 0%,#2d7a52 100%);display:flex;align-items:center;justify-content:center;padding:20px}
+.b2b-wrap{width:100%;max-width:960px}
+.b2b-card{background:#fff;border-radius:16px;padding:28px;box-shadow:0 12px 40px rgba(0,0,0,.2)}
+.b2b-head{text-align:center;margin-bottom:20px}
+.b2b-head h2{color:var(--purple);margin-bottom:4px}
+.b2b-tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+.b2b-tabs button{flex:1;min-width:90px;padding:10px;border:1.5px solid var(--border);background:#fff;border-radius:10px;font-family:inherit;cursor:pointer;font-size:13px}
+.b2b-tabs button.active{background:var(--purple);color:#fff;border-color:var(--purple)}
+.b2b-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.b2b-prod{border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center;font-size:12px}
+.b2b-prod.unavail{opacity:.5}
+.b2b-cart{margin-top:16px;padding-top:12px;border-top:1px dashed var(--border)}
+.b2b-back{color:rgba(255,255,255,.9);font-size:13px;cursor:pointer;display:inline-block;margin-bottom:12px}
 </style>
 </head>
 <body>
@@ -446,7 +461,18 @@ table.tbl tr:hover td{background:#F7FAF7}
       <button type="submit">ورود به سامانه</button>
       <div class="login-err" id="loginErr"></div>
     </form>
-    <div class="login-hint">نسخه ۳ · پوشاک ترنم مشهد</div>
+    <p style="margin-top:14px;text-align:center;font-size:13px">
+      <a href="#portal" onclick="openB2BPortal();return false" style="color:var(--purple);font-weight:600">🛒 ورود پورتال مشتریان (B2B)</a>
+    </p>
+    <div class="login-hint">نسخه ۴ · پوشاک ترنم مشهد</div>
+  </div>
+</div>
+
+<!-- ===== B2B PORTAL ===== -->
+<div id="b2bPortal" style="display:none">
+  <div class="b2b-wrap">
+    <span class="b2b-back" onclick="closeB2BPortal()">← بازگشت به ورود کارکنان</span>
+    <div class="b2b-card" id="b2bContent"></div>
   </div>
 </div>
 
@@ -874,10 +900,12 @@ const NAV_ADMIN = [
   {id:'followups', icon:'📞', label:'پیگیری‌ها'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'products', icon:'🛍️', label:'محصولات'},
+  {id:'b2bOrders', icon:'🛒', label:'سفارشات B2B', flag:'feature_b2b_portal'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'users', icon:'👤', label:'کاربران'},
   {id:'reports', icon:'📈', label:'گزارشات'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
+  {id:'ai', icon:'🤖', label:'دستیار AI', flag:'feature_ai_assistant'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'settings', icon:'⚙️', label:'تنظیمات'},
   {id:'backup', icon:'📦', label:'پشتیبان'},
@@ -902,10 +930,13 @@ const NAV_ACCOUNTING = [
 ];
 let CURRENT_PAGE = 'dash';
 
+function featureOn(k){ return !!(CACHE.settings && CACHE.settings[k]==='1'); }
 function navItems(){
-  if(ME.role==='admin') return NAV_ADMIN;
-  if(ME.role==='accounting') return NAV_ACCOUNTING;
-  return NAV_SALES;
+  let items;
+  if(ME.role==='admin') items = NAV_ADMIN.slice();
+  else if(ME.role==='accounting') items = NAV_ACCOUNTING.slice();
+  else items = NAV_SALES.slice();
+  return items.filter(it => !it.flag || featureOn(it.flag));
 }
 function buildNav(){
   const items = navItems();
@@ -1237,12 +1268,13 @@ function renderCustTable(){
     <td><input type="checkbox" ${custSelected.has(c.id)?'checked':''} onchange="toggleCust(${c.id},this.checked)"></td>
     <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
     <td>${esc(c.province||'')}${c.province&&c.city?' / ':''}<span class="muted">${esc(c.city||'-')}</span></td>
-    <td class="mono">${esc(c.phone||'-')}</td><td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}</td>
+    <td class="mono">${esc(c.phone||'-')}</td><td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" style="background:#dbeafe;color:#1d4ed8" title="پورتال B2B">B2B</span>`:''}</td>
     ${isAdmin?`<td class="muted">${esc(c.salesperson||'-')}</td><td class="mono" style="color:${(c.balance||0)>0?'var(--green)':(c.balance||0)<0?'#dc2626':'var(--muted)'}">${(c.balance||0)!==0?fmt(c.balance)+' ت':'-'}</td>`:''}
     <td style="white-space:nowrap">
       <button class="btn sm ghost" onclick="custModal(${c.id})">✏️</button>
       <button class="btn sm blue icon" onclick="custActivityModal(${c.id})" title="تاریخچه پیگیری">📋</button>
       ${c.phone?`<button class="btn sm ghost" onclick="sendWelcomeSMS(${c.id})" title="ارسال پیامک خوش‌آمدگویی">📤</button>`:''}
+      ${isAdmin&&featureOn('feature_b2b_portal')?`<button class="btn sm blue" onclick="b2bAccessModal(${c.id})" title="دسترسی پورتال B2B">🛒</button>`:''}
       <button class="btn sm red" onclick="confirmDelete('customers',${c.id},'${esc(c.biz)}')">🗑️</button></td>
   </tr>`).join('')||emptyRow(isAdmin?10:8)}</tbody>
   ${isAdmin?`<tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
@@ -1335,6 +1367,16 @@ function custModal(id){
           </div>
         </div>
       </div>`:''}
+      ${id&&ME.role==='admin'&&featureOn('feature_b2b_portal')?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
+        <p style="font-weight:600;margin-bottom:8px">🛒 پورتال B2B</p>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
+          <input type="checkbox" id="c-b2b-enabled" ${c.b2b_enabled?'checked':''} style="width:auto">
+          دسترسی پورتال برای این مشتری فعال باشد
+        </label>
+        <div class="fg"><label>رمز ورود پورتال ${hlp('حداقل ۶ کاراکتر. اگر خالی بگذارید، رمز قبلی حفظ می‌شود.')}</label>
+          <input id="c-b2b-pass" type="password" placeholder="رمز جدید (اختیاری)" autocomplete="new-password"></div>
+        <button class="btn sm blue" type="button" onclick="saveB2BAccess(${id})">💾 ذخیره دسترسی B2B</button>
+      </div>`:''}
     </div></div>
     <div class="modal-foot">
       <button class="btn" onclick="saveCust(${id||0})">💾 ذخیره</button>
@@ -1364,6 +1406,19 @@ async function saveCust(id){
   if(id) await api('PUT','/customers/'+id, data); else await api('POST','/customers', data);
   await reloadCustomers(); closeModal(); renderCustTable(); showToast('ذخیره شد');
 };
+async function saveB2BAccess(id){
+  const c = CACHE.customers.find(x=>x.id===id);
+  if(!c) return;
+  const enabled = el('c-b2b-enabled')?.checked;
+  const password = el('c-b2b-pass')?.value||'';
+  if(enabled && !c.phone){ showToast('مشتری باید شماره موبایل داشته باشد','error'); return; }
+  if(enabled && password && password.length<6){ showToast('رمز حداقل ۶ کاراکتر','error'); return; }
+  await api('POST','/b2b/admin/customers/'+id+'/access',{enabled:!!enabled, phone:c.phone, password});
+  await reloadCustomers(); showToast(enabled?'دسترسی B2B فعال شد':'دسترسی B2B غیرفعال شد');
+};
+function b2bAccessModal(id){
+  custModal(id);
+}
 
 /* ============================================================
    CUSTOMER IMPORT
@@ -3050,15 +3105,50 @@ ROUTES.settings = async function(){
 پوشاک ترنم 🌿</span>
       </div>
     </div></div>
+    <div class="panel"><div class="panel-head"><h4>قابلیت‌های نسخه ۴</h4></div><div class="panel-body">
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px">فعال‌سازی ماژول‌های جدید CRM v4. پس از ذخیره، منوی کناری به‌روز می‌شود.</p>
+      <div class="form-grid">
+        <div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="s-feature_wms" ${s.feature_wms==='1'?'checked':''} style="width:auto"> انبار چندمستأجری (WMS)</label></div>
+        <div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="s-feature_b2b_portal" ${s.feature_b2b_portal==='1'?'checked':''} style="width:auto"> پورتال مشتریان B2B</label></div>
+        <div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="s-feature_ai_assistant" ${s.feature_ai_assistant==='1'?'checked':''} style="width:auto"> دستیار فروش AI</label></div>
+        <div class="fg"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="s-feature_einvoice" ${s.feature_einvoice==='1'?'checked':''} style="width:auto"> فاکتور الکترونیک مودیان</label></div>
+      </div>
+    </div></div>
+    <div class="panel"><div class="panel-head"><h4>تنظیمات مودیان (e-Invoice)</h4></div><div class="panel-body"><div class="form-grid">
+      <div class="fg"><label>Memory ID</label><input id="s-einvoice_memory_id" value="${esc(s.einvoice_memory_id||'')}"></div>
+      <div class="fg"><label>حالت</label><select id="s-einvoice_mode">
+        <option value="sandbox" ${(s.einvoice_mode||'sandbox')==='sandbox'?'selected':''}>آزمایشی (Sandbox)</option>
+        <option value="production" ${s.einvoice_mode==='production'?'selected':''}>عملیاتی</option>
+      </select></div>
+      <div class="fg full"><label>آدرس سرویس</label><input id="s-einvoice_service_url" value="${esc(s.einvoice_service_url||'')}" placeholder="https://..."></div>
+      <div class="fg full"><label>کلید خصوصی ${s.einvoice_private_key==='__set__'?'<span style="color:var(--green)">(ثبت شده)</span>':''}</label>
+        <input id="s-einvoice_private_key" type="password" placeholder="${s.einvoice_private_key==='__set__'?'برای تغییر وارد کنید':'کلید PEM'}" autocomplete="new-password"></div>
+    </div>
+    <button class="btn sm" style="margin-top:10px" onclick="saveEinvoiceSettings()">💾 ذخیره تنظیمات مودیان</button>
+    </div></div>
     <button class="btn green" onclick="saveSettings()">💾 ذخیره تنظیمات</button>`;
   // Show hint for current provider on page load
   toggleSmsProviderHint(s.sms_provider||'kavenegar');
 };
 async function saveSettings(){
   const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email'];
-  const data={}; keys.forEach(k=>{ const e=el('s-'+k); if(e)data[k]=e.value; });
+  const data={};
+  keys.forEach(k=>{ const e=el('s-'+k); if(e)data[k]=e.value; });
+  ['feature_wms','feature_b2b_portal','feature_ai_assistant','feature_einvoice'].forEach(k=>{
+    const cb=el('s-'+k); if(cb) data[k]=cb.checked?'1':'0';
+  });
   CACHE.settings = await api('PUT','/settings',data);
+  buildNav();
   showToast('تنظیمات ذخیره شد');
+}
+async function saveEinvoiceSettings(){
+  const body={};
+  ['einvoice_memory_id','einvoice_mode','einvoice_service_url'].forEach(k=>{ const e=el('s-'+k); if(e) body[k]=e.value; });
+  const pk=el('s-einvoice_private_key')?.value;
+  if(pk) body.einvoice_private_key=pk;
+  await api('PUT','/settings/einvoice',body);
+  CACHE.settings = await api('GET','/settings')||{};
+  showToast('تنظیمات مودیان ذخیره شد');
 }
 async function testSMS(){
   const phone = (el('sms-test-phone')?.value||'').trim();
@@ -3601,6 +3691,220 @@ async function doChangePass(){
 }
 
 /* ============================================================
+   B2B ADMIN — portal orders queue
+============================================================ */
+ROUTES.b2bOrders = async function(){
+  if(!isAdmin()){ el('view').innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
+  const rows = await api('GET','/b2b/admin/orders')||[];
+  el('view').innerHTML=`
+    <div class="panel"><div class="panel-head"><h4>🛒 سفارشات پورتال B2B</h4>
+      <button class="btn sm ghost" onclick="ROUTES.b2bOrders()">🔄 بروزرسانی</button></div>
+    <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
+      <th>#</th><th>مشتری</th><th>پیش‌فاکتور</th><th>وضعیت</th><th>تاریخ</th><th>ردیف</th>
+    </tr></thead><tbody>
+      ${rows.map(o=>`<tr>
+        <td>${o.id}</td><td>${esc(o.cust_biz||'-')}</td>
+        <td>${o.invoice_num?`<a href="#" onclick="go('invoices');return false">${esc(o.invoice_num)}</a>`:'-'}</td>
+        <td>${statusTag(o.status||'pending')}</td>
+        <td>${escDate(o.created_at?new Date(o.created_at*1000).toLocaleDateString('fa-IR'):'')}</td>
+        <td>${(o.rows||[]).length} قلم</td>
+      </tr>`).join('')||emptyRow(6)}
+    </tbody></table></div></div>`;
+};
+
+/* ============================================================
+   AI ASSISTANT
+============================================================ */
+ROUTES.ai = async function(){
+  if(!isAdmin()){ el('view').innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
+  el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const [insights, summary] = await Promise.all([
+    api('GET','/ai/insights')||[],
+    api('GET','/ai/weekly-summary').catch(()=>null)
+  ]);
+  el('view').innerHTML=`
+    <div class="panel"><div class="panel-head"><h4>🤖 دستیار فروش AI</h4>
+      <button class="btn sm" onclick="runAiRefresh()">🔄 تحلیل مجدد</button></div>
+    <div class="panel-body">
+      ${summary?`<div style="padding:12px;background:var(--purple-light);border-radius:10px;margin-bottom:14px;line-height:1.9">
+        <strong>خلاصه هفتگی (${escDate(summary.created_at?new Date(summary.created_at*1000).toLocaleDateString('fa-IR'):'')})</strong><br>${esc(summary.body||'')}</div>`:''}
+      <table class="tbl"><thead><tr><th>نوع</th><th>مشتری</th><th>امتیاز</th><th>پیام</th></tr></thead><tbody>
+        ${(insights||[]).map(i=>`<tr>
+          <td>${esc(i.kind||'-')}</td><td>${esc(i.cust_biz||'-')}</td>
+          <td class="mono">${i.score!=null?i.score:'-'}</td>
+          <td style="max-width:360px">${esc(i.body||'')}</td>
+        </tr>`).join('')||emptyRow(4)}
+      </tbody></table>
+    </div></div>`;
+};
+async function runAiRefresh(){
+  showToast('در حال اجرای تحلیل AI...');
+  await api('POST','/ai/insights/refresh',{weekly:true});
+  ROUTES.ai();
+  showToast('تحلیل AI انجام شد');
+}
+
+/* ============================================================
+   B2B CUSTOMER PORTAL
+============================================================ */
+let B2B = { customer:null, tab:'catalog', cart:[] };
+
+async function b2bApi(method, path, data){
+  const opts={method,headers:{'Content-Type':'application/json'}};
+  const token=localStorage.getItem('b2b_token');
+  if(token) opts.headers['Authorization']='Bearer '+token;
+  if(data) opts.body=JSON.stringify(data);
+  const r=await fetch('/api/b2b'+path,opts);
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||'خطا');
+  return j;
+}
+
+function openB2BPortal(){
+  el('login').style.display='none';
+  el('app').style.display='none';
+  el('b2bPortal').style.display='flex';
+  location.hash='portal';
+  const token=localStorage.getItem('b2b_token');
+  if(token) b2bBoot(); else renderB2BLogin();
+}
+function closeB2BPortal(){
+  el('b2bPortal').style.display='none';
+  el('login').style.display='flex';
+  location.hash='';
+}
+function renderB2BLogin(){
+  el('b2bContent').innerHTML=`
+    <div class="b2b-head"><h2>🛒 پورتال مشتریان</h2><p class="muted">سفارش آنلاین · صورتحساب · تاریخچه فاکتور</p></div>
+    <div class="form-grid">
+      <div class="fg full"><label>شماره موبایل</label><input id="b2b-phone" placeholder="09123456789" dir="ltr"></div>
+      <div class="fg full"><label>رمز عبور</label><input id="b2b-pass" type="password"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn green" style="flex:1" onclick="b2bLogin()">ورود</button>
+      <button class="btn ghost" onclick="b2bRequestOtp()">ورود با OTP</button>
+    </div>
+    <div id="b2b-otp-box" style="display:none;margin-top:12px">
+      <div class="fg full"><label>کد پیامک</label><input id="b2b-otp" dir="ltr" maxlength="6"></div>
+      <button class="btn" onclick="b2bVerifyOtp()">تأیید کد</button>
+    </div>
+    <div class="login-err" id="b2b-err"></div>`;
+}
+async function b2bLogin(){
+  el('b2b-err').textContent='';
+  try{
+    const r=await b2bApi('POST','/auth/login',{phone:el('b2b-phone').value,password:el('b2b-pass').value});
+    localStorage.setItem('b2b_token',r.token);
+    B2B.customer=r.customer;
+    await b2bBoot();
+  }catch(e){ el('b2b-err').textContent=e.message; }
+}
+async function b2bRequestOtp(){
+  el('b2b-err').textContent='';
+  try{
+    await b2bApi('POST','/auth/otp',{phone:el('b2b-phone').value});
+    el('b2b-otp-box').style.display='block';
+    showToast('در صورت فعال بودن حساب، کد ارسال شد');
+  }catch(e){ el('b2b-err').textContent=e.message; }
+}
+async function b2bVerifyOtp(){
+  el('b2b-err').textContent='';
+  try{
+    const r=await b2bApi('POST','/auth/otp/verify',{phone:el('b2b-phone').value,code:el('b2b-otp').value});
+    localStorage.setItem('b2b_token',r.token);
+    B2B.customer=r.customer;
+    await b2bBoot();
+  }catch(e){ el('b2b-err').textContent=e.message; }
+}
+function b2bLogout(){
+  localStorage.removeItem('b2b_token');
+  B2B={customer:null,tab:'catalog',cart:[]};
+  renderB2BLogin();
+}
+async function b2bBoot(){
+  B2B.cart=[];
+  el('b2bContent').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div><strong>${esc(B2B.customer?.biz||'پورتال B2B')}</strong></div>
+      <button class="btn sm ghost" onclick="b2bLogout()">خروج</button>
+    </div>
+    <div class="b2b-tabs">
+      <button class="${B2B.tab==='catalog'?'active':''}" onclick="b2bTab('catalog')">🛍️ کاتالوگ</button>
+      <button class="${B2B.tab==='orders'?'active':''}" onclick="b2bTab('orders')">📦 سفارشات</button>
+      <button class="${B2B.tab==='statement'?'active':''}" onclick="b2bTab('statement')">💰 صورتحساب</button>
+    </div>
+    <div id="b2bTabBody"><div class="muted">بارگذاری...</div></div>`;
+  await b2bTab(B2B.tab);
+}
+async function b2bTab(tab){
+  B2B.tab=tab;
+  document.querySelectorAll('.b2b-tabs button').forEach((b,i)=>{
+    b.classList.toggle('active',['catalog','orders','statement'][i]===tab);
+  });
+  const body=el('b2bTabBody');
+  if(tab==='catalog') await b2bRenderCatalog(body);
+  else if(tab==='orders') await b2bRenderOrders(body);
+  else await b2bRenderStatement(body);
+}
+async function b2bRenderCatalog(body){
+  const prods=await b2bApi('GET','/me/catalog');
+  body.innerHTML=`
+    <div class="b2b-grid">${prods.map(p=>`
+      <div class="b2b-prod ${p.available?'':'unavail'}">
+        <div style="font-weight:600;margin-bottom:4px">${esc(p.name)}</div>
+        <div class="muted">${esc(p.category||'')}</div>
+        <div class="mono" style="margin:6px 0">${fmt(p.price)} ت</div>
+        ${p.available?`<button class="btn sm" onclick="b2bAddCart(${p.id})">➕</button>`:'<span class="tag t-silent">ناموجود</span>'}
+      </div>`).join('')||'<div class="empty">محصولی یافت نشد</div>'}
+    </div>
+    <div class="b2b-cart">
+      <strong>سبد خرید (${B2B.cart.length})</strong>
+      <div id="b2bCartList" style="margin:8px 0;font-size:13px"></div>
+      <textarea id="b2b-note" rows="2" placeholder="یادداشت سفارش (اختیاری)" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:inherit"></textarea>
+      <button class="btn green" style="margin-top:8px" onclick="b2bSubmitOrder()" ${B2B.cart.length?'':'disabled'}>ثبت سفارش</button>
+    </div>`;
+  b2bRenderCart();
+}
+function b2bAddCart(id){
+  const ex=B2B.cart.find(x=>x.product_id===id);
+  if(ex) ex.qty++; else B2B.cart.push({product_id:id,qty:1});
+  b2bRenderCart();
+}
+function b2bRenderCart(){
+  const list=el('b2bCartList'); if(!list) return;
+  list.innerHTML=B2B.cart.length?B2B.cart.map((c,i)=>`#${c.product_id} × ${c.qty} <button class="btn sm red" onclick="B2B.cart.splice(${i},1);b2bRenderCart()">×</button>`).join('<br>'):'<span class="muted">سبد خالی است</span>';
+}
+async function b2bSubmitOrder(){
+  if(!B2B.cart.length) return;
+  const r=await b2bApi('POST','/me/orders',{rows:B2B.cart,note:el('b2b-note')?.value||''});
+  B2B.cart=[];
+  showToast(`سفارش ثبت شد — پیش‌فاکتور ${r.invoiceNum||''}`);
+  b2bTab('orders');
+}
+async function b2bRenderOrders(body){
+  const rows=await b2bApi('GET','/me/orders');
+  body.innerHTML=`<table class="tbl"><thead><tr><th>#</th><th>پیش‌فاکتور</th><th>وضعیت</th><th>اقلام</th></tr></thead><tbody>
+    ${rows.map(o=>`<tr><td>${o.id}</td><td>${esc(o.invoice_num||'-')}</td><td>${statusTag(o.status||'pending')}</td><td>${(o.rows||[]).length}</td></tr>`).join('')||emptyRow(4)}
+  </tbody></table>`;
+}
+async function b2bRenderStatement(body){
+  const data=await b2bApi('GET','/me/statement');
+  const bal=data.closing??data.customer?.balance??0;
+  body.innerHTML=`
+    <div style="padding:12px;background:var(--purple-light);border-radius:10px;margin-bottom:12px">
+      مانده حساب: <strong class="mono">${fmt(bal)} تومان</strong>
+    </div>
+    <table class="tbl"><thead><tr><th>تاریخ</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th></tr></thead><tbody>
+      ${(data.entries||[]).slice(0,50).map(r=>`<tr>
+        <td>${escDate(r.date)}</td><td>${esc(r.description||r.type_label||'')}</td>
+        <td class="mono">${r.debit?fmt(r.debit):'-'}</td>
+        <td class="mono">${r.credit?fmt(r.credit):'-'}</td>
+        <td class="mono">${r.running_balance!=null?fmt(r.running_balance):'-'}</td>
+      </tr>`).join('')||emptyRow(5)}
+    </tbody></table>`;
+}
+
+/* ============================================================
    IMAGE LIGHTBOX PREVIEW
 ============================================================ */
 function showImgPreview(src){
@@ -3638,8 +3942,11 @@ setInterval(()=>{
 window.addEventListener('resize', ()=>{ clearTimeout(window._rsz); window._rsz=setTimeout(fitStatNums,120); });
 window.addEventListener('DOMContentLoaded', async ()=>{
   if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('/sw.js'); }catch(e){} }
-  // Sync server time first (no auth needed) so all date defaults are accurate
   await syncServerTime();
+  if(location.hash==='#portal'){
+    openB2BPortal();
+    return;
+  }
   const token = localStorage.getItem('crm_token');
   if(token){
     try{ ME = JSON.parse(localStorage.getItem('crm_user')); await boot(); }
