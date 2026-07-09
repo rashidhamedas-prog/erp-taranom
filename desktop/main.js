@@ -42,7 +42,7 @@ async function startEmbeddedServer() {
   const port = await getFreePort();
   process.env.SYNC_ROLE = 'device';
   process.env.APP_PLATFORM = 'desktop';
-  process.env.APP_VERSION = '1.0.2';
+  process.env.APP_VERSION = pkg.version || '1.0.3';
   process.env.PORT = String(port);
   process.env.DB_PATH = path.join(dataDir, 'crm.db');
   process.env.UPLOADS_DIR = path.join(dataDir, 'uploads');
@@ -59,6 +59,7 @@ async function setupAutoUpdate(port) {
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowDowngrade = false;
 
   const applyFeed = async () => {
     try {
@@ -70,17 +71,25 @@ async function setupAutoUpdate(port) {
     } catch { return false; }
   };
 
+  autoUpdater.on('update-available', () => {
+    console.log('auto-update: new version available — downloading...');
+  });
+
   autoUpdater.on('update-downloaded', () => {
     dialog.showMessageBox(mainWindow, {
       type: 'info',
       title: 'CRM ترنم',
       message: 'نسخه جدید دانلود شد.',
-      detail: 'برای نصب، برنامه را ببندید و دوباره باز کنید (یا همین الان ری‌استارت کنید).',
-      buttons: ['بعداً', 'ری‌استارت و نصب'],
-      defaultId: 1
+      detail: 'برنامه تا چند ثانیه دیگر به‌روزرسانی و مجدداً راه‌اندازی می‌شود.',
+      buttons: ['همین الان', 'بعد از بستن برنامه'],
+      defaultId: 0,
+      cancelId: 1
     }).then(({ response }) => {
-      if (response === 1) autoUpdater.quitAndInstall(false, true);
+      if (response === 0) autoUpdater.quitAndInstall(false, true);
     });
+    setTimeout(() => {
+      try { autoUpdater.quitAndInstall(false, true); } catch (e) { console.error('auto-install:', e.message); }
+    }, 8000);
   });
 
   autoUpdater.on('error', (e) => console.error('auto-update:', e.message));
@@ -90,8 +99,8 @@ async function setupAutoUpdate(port) {
     try { await autoUpdater.checkForUpdates(); } catch (e) { console.error('auto-update check:', e.message); }
   };
 
-  setTimeout(check, 15000);
-  setInterval(check, 4 * 60 * 60 * 1000);
+  setTimeout(check, 8000);
+  setInterval(check, 60 * 60 * 1000);
 }
 
 async function createWindow() {

@@ -369,6 +369,22 @@ if (isDevice()) {
     }
   });
 
+  router.get('/missing-files', auth, (req, res) => {
+    const { listMissingFiles } = require('../sync/files');
+    const db = getDB();
+    res.json(listMissingFiles(db));
+  });
+
+  router.post('/skip-file', auth, (req, res) => {
+    const { subdir, name } = req.body || {};
+    if (!subdir || !name) return res.status(400).json({ error: 'subdir و name الزامی است' });
+    try {
+      res.json(client.skipSyncFile(subdir, name));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   router.get('/conflicts', auth, (req, res) => {
     const db = getDB();
     res.json(db.prepare("SELECT * FROM sync_outbox WHERE status='conflict' ORDER BY id").all()

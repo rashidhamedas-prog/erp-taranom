@@ -149,20 +149,48 @@ router.post('/moves/issue', auth, adminOrAccounting, (req, res) => {
   res.json({ id: result.lastInsertRowid, ok: true });
 });
 
+function warehouseQty(db, product_id, warehouse_id) {
+  const ws = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(product_id, warehouse_id);
+  if (ws && ws.qty != null) return ws.qty;
+  const p = db.prepare('SELECT warehouse_id, stock FROM products WHERE id=?').get(product_id);
+  if (p && p.warehouse_id === parseInt(warehouse_id)) return p.stock || 0;
+  return 0;
+}
+
+function adjustWarehouseStock(db, product_id, warehouse_id, delta) {
+  const cur = warehouseQty(db, product_id, warehouse_id);
+  const next = Math.max(0, cur + delta);
+  db.prepare(`
+    INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
+    ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=?
+  `).run(product_id, warehouse_id, next, next);
+}
+
 router.post('/moves/transfer', auth, adminOrAccounting, (req, res) => {
-  const { product_id, from_warehouse_id, to_warehouse_id, date, note } = req.body;
+  const { product_id, from_warehouse_id, to_warehouse_id, qty, date, note } = req.body;
+  const q = parseInt(qty);
   if (!product_id || !from_warehouse_id || !to_warehouse_id) return res.status(400).json({ error: 'کالا، انبار مبدأ و مقصد الزامی است' });
+  if (!q || q <= 0) return res.status(400).json({ error: 'تعداد انتقال معتبر الزامی است' });
   if (String(from_warehouse_id) === String(to_warehouse_id)) return res.status(400).json({ error: 'انبار مبدأ و مقصد نمی‌تواند یکسان باشد' });
   const db = getDB();
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
   if (!product) return res.status(404).json({ error: 'کالا یافت نشد' });
-  if (product.warehouse_id !== parseInt(from_warehouse_id)) return res.status(400).json({ error: 'این کالا در انبار مبدأ انتخاب‌شده موجود نیست' });
+  const available = warehouseQty(db, product_id, from_warehouse_id);
+  if (available <= 0) return res.status(400).json({ error: 'این کالا در انبار مبدأ موجود نیست' });
+  if (q > available) return res.status(400).json({ error: `موجودی کافی نیست (موجود: ${available})` });
   const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(to_warehouse_id);
   if (!toWarehouse) return res.status(404).json({ error: 'انبار مقصد یافت نشد' });
-  db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(to_warehouse_id, product_id);
+  const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(from_warehouse_id);
+  adjustWarehouseStock(db, product_id, from_warehouse_id, -q);
+  adjustWarehouseStock(db, product_id, to_warehouse_id, q);
+  if (product.warehouse_id === parseInt(from_warehouse_id) && q >= available) {
+    db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(to_warehouse_id, product_id);
+  }
+  db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
+    .run(product_id, req.user.id, 0, `انتقال ${q} عدد از ${fromWarehouse?.name || from_warehouse_id} به ${toWarehouse.name}${note ? ' - ' + note : ''}`);
   const result = db.prepare('INSERT INTO warehouse_moves (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?,?)')
-    .run('transfer', product_id, from_warehouse_id, to_warehouse_id, product.stock, date || todayJalali(), note || '', req.user.id);
-  audit(req.user.id, 'create', 'warehouse_move', result.lastInsertRowid, `انتقال کالا: ${product.name} به ${toWarehouse.name}`);
+    .run('transfer', product_id, from_warehouse_id, to_warehouse_id, q, date || todayJalali(), note || '', req.user.id);
+  audit(req.user.id, 'create', 'warehouse_move', result.lastInsertRowid, `انتقال کالا: ${q} عدد ${product.name} به ${toWarehouse.name}`);
   res.json({ id: result.lastInsertRowid, ok: true });
 });
 

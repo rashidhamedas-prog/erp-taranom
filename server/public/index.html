@@ -1056,8 +1056,7 @@ const ACC_NAV = [
   {id:'acc-dash', icon:'📊', label:'داشبورد و دفتر کل'},
   {id:'acc-general', icon:'📈', label:'حسابداری کل (سود و زیان)'},
   {id:'acc-receivables', icon:'🧾', label:'مطالبات مشتریان'},
-  {id:'acc-settlements', icon:'💵', label:'عملیات دریافت (پرداخت)'},
-  {id:'acc-payments', icon:'💸', label:'عملیات پرداخت'},
+  {id:'acc-settlements', icon:'💵', label:'عملیات دریافت و پرداخت'},
   {id:'acc-cheques', icon:'🏦', label:'مدیریت چک‌ها'},
   {id:'acc-banks', icon:'🏦', label:'بانک‌ها'},
   {id:'acc-check-categories', icon:'📑', label:'دسته‌های چک'},
@@ -1125,16 +1124,20 @@ async function viewCustStatementFromDash(custId){
   stmtCustId = String(custId);
   IN_ACC_SHELL = true;
   el('brandRole').textContent = '🧮 ماژول حسابداری';
-  if(!CACHE.moduleFlags) CACHE.moduleFlags = await api('GET','/settings/modules')||{};
   buildNav();
+  if(!CACHE.moduleFlags){
+    api('GET','/settings/modules').then(f=>{ CACHE.moduleFlags=f||{}; buildNav(); }).catch(()=>{});
+  }
   go('acc-statement');
 }
 async function enterAccountingShell(){
   IN_ACC_SHELL = true;
   el('brandRole').textContent = '🧮 ماژول حسابداری';
-  if(!CACHE.moduleFlags) CACHE.moduleFlags = await api('GET','/settings/modules')||{};
   buildNav();
   go('acc-dash');
+  if(!CACHE.moduleFlags){
+    api('GET','/settings/modules').then(f=>{ CACHE.moduleFlags=f||{}; buildNav(); }).catch(()=>{});
+  }
 }
 function exitAccountingShell(){
   IN_ACC_SHELL = false;
@@ -1266,10 +1269,22 @@ async function pullProductImages(silent){
   const r = await fetch('/api/sync/pull-files',{method:'POST',headers:{'Authorization':'Bearer '+token}});
   const j = await r.json().catch(()=>({}));
   if(j.ok && j.pulled>0){
-    if(!silent) showToast(`${fmt(j.pulled)} تصویر از سرور مرکزی دریافت شد`);
+    if(!silent) showToast(`${fmt(j.pulled)} فایل از سرور مرکزی دریافت شد`);
     SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge();
     maybeRefreshAfterSync();
+  } else if(j.ok && j.failed>0){
+    if(!silent) showToast(`${fmt(j.failed)} فایل روی سرور مرکزی یافت نشد — از پنل همگام‌سازی جزئیات را ببینید`,'error');
+    SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge();
   } else if(!silent && !j.ok) showToast(j.error||'دریافت تصاویر ناموفق بود','error');
+  else if(!silent && j.ok && !j.pulled) showToast('همه فایل‌های موجود همگام شدند');
+}
+async function skipSyncMissingFile(subdir,name){
+  if(!confirm('این فایل روی سرور مرکزی موجود نیست. از لیست انتظار حذف شود؟ (تصویر شکسته می‌ماند)')) return;
+  const token=localStorage.getItem('crm_token');
+  const r=await fetch('/api/sync/skip-file',{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({subdir,name})});
+  const j=await r.json().catch(()=>({}));
+  if(r.ok){ showToast('از لیست انتظار حذف شد'); SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge(); openSyncPanel(); }
+  else showToast(j.error||'خطا','error');
 }
 
 // When a background sync changed local data (id remap, pulled rows/deletes),
@@ -1316,9 +1331,10 @@ async function openSyncPanel(){
   const s = SYNC_STATUS || {};
   if(!s.paired){ if(isAdmin()) openSyncPairModal(); else showToast('دستگاه هنوز متصل نشده — از مدیر سیستم بخواهید اتصال را انجام دهد','error'); return; }
   const token = localStorage.getItem('crm_token');
-  const [pending, conflicts] = await Promise.all([
+  const [pending, conflicts, missingFiles] = await Promise.all([
     fetch('/api/sync/pending',{headers:{'Authorization':'Bearer '+token}}).then(r=>r.ok?r.json():[]),
-    fetch('/api/sync/conflicts',{headers:{'Authorization':'Bearer '+token}}).then(r=>r.ok?r.json():[])
+    fetch('/api/sync/conflicts',{headers:{'Authorization':'Bearer '+token}}).then(r=>r.ok?r.json():[]),
+    fetch('/api/sync/missing-files',{headers:{'Authorization':'Bearer '+token}}).then(r=>r.ok?r.json():[])
   ]);
   const opLabel = o=>{
     const act = o.method==='POST'?'ثبت':o.method==='DELETE'?'حذف':'ویرایش';
@@ -1338,8 +1354,17 @@ async function openSyncPanel(){
       ${s.last_error?`<div style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px">${esc(s.last_error)}</div>`:''}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
         <button class="btn" onclick="syncNowUI()">🔄 همگام‌سازی اکنون</button>
-        ${s.files_missing?`<button class="btn ghost" onclick="pullProductImages()">🖼️ دریافت تصاویر</button>`:''}
+        ${s.files_missing?`<button class="btn ghost" onclick="pullProductImages()">🖼️ دریافت فایل‌ها</button>`:''}
       </div>
+      ${(missingFiles||[]).length?`
+        <h4 style="margin:10px 0 6px">🖼️ فایل‌های محلی نیست (${fmt(missingFiles.length)})</h4>
+        <p class="muted" style="font-size:12px;margin-bottom:8px">اگر فایل روی سرور مرکزی وجود ندارد، می‌توانید آن را از لیست انتظار حذف کنید.</p>
+        <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>نوع</th><th>نام فایل</th><th></th></tr></thead><tbody>
+          ${missingFiles.map(f=>`<tr>
+            <td>${esc(f.subdir)}</td><td class="mono">${esc(f.name)}</td>
+            <td><button class="btn sm ghost" onclick='skipSyncMissingFile(${JSON.stringify(f.subdir)}, ${JSON.stringify(f.name)})'>✕ حذف از لیست</button></td>
+          </tr>`).join('')}
+        </tbody></table></div>`:''}
       ${pending.filter(p=>p.status==='pending').length?`
         <h4 style="margin:10px 0 6px">⏳ در صف ارسال</h4>
         <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><tbody>
@@ -2945,9 +2970,13 @@ ROUTES['acc-dash'] = async function(){
         <h4>📚 کدینگ حساب‌ها (دسته‌بندی‌شده)</h4>
         ${isAdmin()||ME.role==='accounting'?`<button class="btn sm" onclick="chartAccountModal()">➕ حساب جدید</button>`:''}
       </div>
-      <div class="panel-body" id="accDashChart">${chartOfAccountsGroupedHtml(accounts||[])}</div>
+      <div class="panel-body" id="accDashChart"><div class="muted">در حال بارگذاری کدینگ...</div></div>
     </div>`;
   cacheSet('page:acc-dash', el('view').innerHTML);
+  requestAnimationFrame(()=>{
+    const c=el('accDashChart');
+    if(c){ c.innerHTML=chartOfAccountsGroupedHtml(accounts||[]); cacheSet('page:acc-dash', el('view').innerHTML); }
+  });
 };
 
 // Legacy alias — in case anything still calls the old direct route
@@ -2955,7 +2984,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','payments','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -2998,8 +3027,8 @@ function renderAccPage(tabKey, icon, title){
 }
 ROUTES['acc-general']=()=>renderAccPage('general','📈','حسابداری کل (سود و زیان)');
 ROUTES['acc-receivables']=()=>renderAccPage('receivables','🧾','مطالبات مشتریان');
-ROUTES['acc-settlements']=()=>renderAccPage('settlements','💵','عملیات دریافت (پرداخت)');
-ROUTES['acc-payments']=()=>renderAccPage('payments','💸','عملیات پرداخت');
+ROUTES['acc-settlements']=()=>renderAccPage('settlements','💵','عملیات دریافت و پرداخت');
+ROUTES['acc-payments']=()=>go('acc-settlements');
 ROUTES['acc-cheques']=()=>renderAccPage('cheques','🏦','مدیریت چک‌ها');
 ROUTES['acc-commissions']=()=>renderAccPage('commissions','🎯','تأیید و انگیزه فروش');
 ROUTES['acc-statement']=()=>renderAccPage('statement','📄','صورت‌حساب مشتری');
@@ -3117,30 +3146,9 @@ async function loadAccTab(tab){
     }
     renderAccReceivablesBody(body);
   } else if(tab==='settlements'){
-    const rows=await api('GET','/accounting/settlements'+dq)||[];
-    body.innerHTML=`
-      <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="settlementModal()">➕ ثبت پرداخت جدید</button></div>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr>
-        <th>تاریخ</th><th>مشتری</th><th>فاکتور</th><th>مبلغ (ت)</th><th>نوع</th><th>گروه قسط</th><th>چک</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
-      </tr></thead><tbody>${rows.map(r=>`<tr>
-        <td class="mono">${escDate(r.date)}</td>
-        <td>${esc(r.cust_biz||'-')}</td>
-        <td class="mono">${r.invoice_num?esc(r.invoice_num):'-'}</td>
-        <td class="mono" style="color:var(--green);font-weight:700">${fmt(r.amount)}</td>
-        <td>${r.pay_type==='cheque'?'🧾 چک':'💵 نقد'}</td>
-        <td class="muted" style="font-size:11px">${r.installment_group?esc(r.installment_group):'-'}</td>
-        <td class="muted" style="font-size:12px">${r.pay_type==='cheque'?(esc(r.cheque_bank||'')+' | '+esc(r.cheque_sayadi||'')):'-'}</td>
-        <td class="muted">${esc(r.note||'-')}</td>
-        <td class="muted">${esc(r.recorder_name||'-')}</td>
-        <td><button class="btn sm red" onclick="deleteSettlement(${r.id})">🗑️</button></td>
-      </tr>`).join('')||emptyRow(10)}</tbody>
-      <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
-        <td colspan="3">جمع (${fmt(rows.length)} پرداخت)</td>
-        <td class="mono" style="color:var(--green);font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.amount||0),0))}</td>
-        <td colspan="6"></td>
-      </tr></tfoot></table></div>`;
+    await renderCashOpsTab(body, dq);
   } else if(tab==='payments'){
-    await renderPaymentOpsTab(body);
+    await renderCashOpsTab(body, dq);
   } else if(tab==='persons'){
     await renderPersonsTab(body);
   } else if(tab==='sales-invoices'){
@@ -3859,9 +3867,10 @@ function warehouseTransferModal(){
   openModal(`
     <div class="modal-head"><h3>🔄 انتقال بین انبارها</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>کالا * ${hlp('کل موجودی فعلی این کالا به انبار مقصد منتقل می‌شود.')}</label><select id="wt-product">${productOptions()}</select></div>
+      <div class="fg full"><label>کالا *</label><select id="wt-product">${productOptions()}</select></div>
       <div class="fg"><label>انبار مبدأ *</label><select id="wt-from">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>انبار مقصد *</label><select id="wt-to">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>تعداد انتقال * ${hlp('مقدار کالایی که از انبار مبدأ به مقصد منتقل می‌شود.')}</label><input id="wt-qty" type="number" min="1" value="1"></div>
       <div class="fg"><label>تاریخ</label><input id="wt-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت</label><input id="wt-note"></div>
     </div></div>
@@ -3870,10 +3879,10 @@ function warehouseTransferModal(){
   attachDatepickers(el('modalRoot'));
 }
 async function saveWarehouseTransfer(){
-  const product_id=+el('wt-product').value, from_warehouse_id=+el('wt-from').value, to_warehouse_id=+el('wt-to').value;
-  if(!product_id||!from_warehouse_id||!to_warehouse_id){ showToast('همه فیلدهای الزامی را پر کنید','error'); return; }
+  const product_id=+el('wt-product').value, from_warehouse_id=+el('wt-from').value, to_warehouse_id=+el('wt-to').value, qty=+el('wt-qty').value;
+  if(!product_id||!from_warehouse_id||!to_warehouse_id||!qty){ showToast('همه فیلدهای الزامی را پر کنید','error'); return; }
   try{
-    await api('POST','/warehouses/moves/transfer',{product_id,from_warehouse_id,to_warehouse_id,date:el('wt-date').value,note:el('wt-note').value});
+    await api('POST','/warehouses/moves/transfer',{product_id,from_warehouse_id,to_warehouse_id,qty,date:el('wt-date').value,note:el('wt-note').value});
     closeModal(); showToast('انتقال ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
   }catch(e){}
 }
@@ -5717,6 +5726,71 @@ async function deleteTransfer(id){
 }
 
 /* ============================================================
+   CASH OPS — unified receive (settlements) + pay (outgoing) tab
+============================================================ */
+async function renderCashOpsTab(body, dq){
+  const rows=await api('GET','/accounting/settlements'+dq)||[];
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
+  const [supPay,incPay,expPay]=await Promise.all([
+    api('GET','/purchases/payments/list')||[],
+    api('GET','/accounting/incentive-payments')||[],
+    api('GET','/expenses')||[]
+  ]);
+  const payRows=[
+    ...(supPay||[]).map(r=>({...r,kind:'supplier',target:r.supplier_name||'-'})),
+    ...(incPay||[]).map(r=>({...r,kind:'incentive',target:r.rep_name||'-'})),
+    ...(expPay||[]).map(r=>({...r,kind:'expense',target:r.title||(r.category==='sales'?'هزینه توزیع و فروش':'هزینه عمومی و اداری')}))
+  ].sort((a,b)=>(b.created_at||0)-(a.created_at||0));
+  const kindLabel={supplier:'🚚 تأمین‌کننده',incentive:'🎯 انگیزه فروش',expense:'🧾 هزینه عمومی'};
+  const payLabel=p=>p==='cheque'?'🧾 چک':p==='bank'?'🏦 بانکی':'💵 نقد';
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <button class="btn green" onclick="settlementModal()">➕ ثبت دریافت (از مشتری)</button>
+      <button class="btn" onclick="paymentOpChooser()">➕ ثبت پرداخت (خروجی)</button>
+    </div>
+    <h4 style="margin:0 0 8px">💵 دریافت‌ها (از مشتریان)</h4>
+    <div class="tbl-wrap" style="margin-bottom:20px"><table class="tbl"><thead><tr>
+      <th>تاریخ</th><th>مشتری</th><th>فاکتور</th><th>مبلغ (ت)</th><th>نوع</th><th>گروه قسط</th><th>چک</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
+    </tr></thead><tbody>${rows.map(r=>`<tr>
+      <td class="mono">${escDate(r.date)}</td>
+      <td>${esc(r.cust_biz||'-')}</td>
+      <td class="mono">${r.invoice_num?esc(r.invoice_num):'-'}</td>
+      <td class="mono" style="color:var(--green);font-weight:700">${fmt(r.amount)}</td>
+      <td>${r.pay_type==='cheque'?'🧾 چک':'💵 نقد'}</td>
+      <td class="muted" style="font-size:11px">${r.installment_group?esc(r.installment_group):'-'}</td>
+      <td class="muted" style="font-size:12px">${r.pay_type==='cheque'?(esc(r.cheque_bank||'')+' | '+esc(r.cheque_sayadi||'')):'-'}</td>
+      <td class="muted">${esc(r.note||'-')}</td>
+      <td class="muted">${esc(r.recorder_name||'-')}</td>
+      <td><button class="btn sm red" onclick="deleteSettlement(${r.id})">🗑️</button></td>
+    </tr>`).join('')||emptyRow(10)}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+      <td colspan="3">جمع دریافت (${fmt(rows.length)})</td>
+      <td class="mono" style="color:var(--green);font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.amount||0),0))}</td>
+      <td colspan="6"></td>
+    </tr></tfoot></table></div>
+    <h4 style="margin:0 0 8px">💸 پرداخت‌ها (خروجی)</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>تاریخ</th><th>نوع</th><th>به/بابت</th><th>مبلغ (ت)</th><th>نوع پرداخت</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
+    </tr></thead><tbody>${payRows.map(r=>`<tr>
+      <td class="mono">${escDate(r.date)}</td>
+      <td>${kindLabel[r.kind]}</td>
+      <td>${esc(r.target)}</td>
+      <td class="mono" style="color:var(--red);font-weight:700">${fmt(r.amount)}</td>
+      <td>${payLabel(r.pay_type)}</td>
+      <td class="muted">${esc(r.note||'-')}</td>
+      <td class="muted">${esc(r.recorder||'-')}</td>
+      <td><button class="btn sm red" onclick="deletePaymentOp('${r.kind}',${r.id})">🗑️</button></td>
+    </tr>`).join('')||emptyRow(8)}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+      <td colspan="3">جمع پرداخت (${fmt(payRows.length)})</td>
+      <td class="mono" style="color:var(--red);font-weight:800">${fmt(payRows.reduce((a,r)=>a+(r.amount||0),0))}</td>
+      <td colspan="4"></td>
+    </tr></tfoot></table></div>`;
+}
+
+/* ============================================================
    PAYMENT OPERATIONS (عملیات پرداخت) — unified view of every outgoing
    payment: supplier payments, sales-incentive payments, and general expense
    payments. Receiving side (customer settlements) lives in acc-settlements.
@@ -5844,13 +5918,13 @@ async function saveExpensePayment(){
       purchase_invoice_id:+el('ex-purchase')?.value||null,
       is_overhead:el('ex-overhead')?.checked||false
     });
-    closeModal(); showToast('پرداخت هزینه ثبت شد'); loadAccTab('payments');
+    closeModal(); showToast('پرداخت هزینه ثبت شد'); loadAccTab('settlements');
   }catch(e){}
 }
 async function deletePaymentOp(kind,id){
   if(!confirm('این پرداخت حذف شود؟')) return;
   const endpoint = kind==='supplier' ? '/purchases/payments/'+id : kind==='incentive' ? '/accounting/incentive-payments/'+id : '/expenses/'+id;
-  try{ await api('DELETE',endpoint); showToast('حذف شد'); loadAccTab('payments'); }catch(e){}
+  try{ await api('DELETE',endpoint); showToast('حذف شد'); loadAccTab('settlements'); }catch(e){}
 }
 
 function stmtQuery(){
@@ -7276,6 +7350,8 @@ async function initAppUpdate(){
     if(!APP_INFO || APP_INFO.role!=='device') return;
     const platform = APP_INFO.platform==='device' ? detectClientPlatform() : APP_INFO.platform;
     if(platform==='web') return;
+    // Desktop Electron uses electron-updater in main.js — silent auto-install
+    if(platform==='desktop' && navigator.userAgent.includes('Electron')) return;
     const r = await fetch(`/api/system/app-update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(APP_INFO.version||'0')}`);
     if(!r.ok) return;
     PENDING_UPDATE = await r.json();

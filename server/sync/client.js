@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { getDB, seedProvisionalSequences } = require('../db');
 const { SYNCABLE_TABLES, FK_COLUMNS, isProvisionalId } = require('./tables');
-const { pullMissingFiles, countMissingFiles } = require('./files');
+const { pullMissingFiles, countMissingFiles, listMissingFiles } = require('./files');
 const { readManifest, buildUpdateResponse } = require('../lib/app-update');
 
 const state = {
@@ -374,7 +374,20 @@ async function pullFilesNow() {
   }
   const fileRes = await pullMissingFiles(db, cfg);
   if (fileRes.pulled > 0) state.dataVersion++;
-  return { ok: true, ...fileRes, files_missing: countMissingFiles(db) };
+  const missing = listMissingFiles(db);
+  return {
+    ok: true,
+    ...fileRes,
+    files_missing: missing.length,
+    missing_files: missing
+  };
+}
+
+function skipSyncFile(subdir, name) {
+  const db = getDB();
+  const { skipMissingFile } = require('./files');
+  skipMissingFile(db, subdir, name);
+  return { files_missing: countMissingFiles(db) };
 }
 
 // Background loop: sync shortly after boot, then every interval. Re-seeds the
@@ -418,6 +431,6 @@ function getLocalAppUpdate(platform, current) {
 }
 
 module.exports = {
-  pair, syncNow, pullFilesNow, discardConflict, getStatus, getConfig, startClientLoop, isPaired,
+  pair, syncNow, pullFilesNow, skipSyncFile, discardConflict, getStatus, getConfig, startClientLoop, isPaired,
   fetchCentralAppUpdate, getUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles
 };
