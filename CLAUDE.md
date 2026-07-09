@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 After **every** change (minor or major) to features or behavior, you MUST update the in-app Help/Guide section (`ROUTES.help` → `renderAdminGuide()` / `renderSalesGuide()` in `server/public/index.html`) in the same commit. A feature change without a matching Help update is an incomplete change.
 
+Also append an entry to **`docs/CHANGE-LOG.md`** (date, commit hash, summary, key files, deploy status) so future Claude Code sessions know what was already applied.
+
 ## Project Overview
 
 CRM ترنم (CRM Taranom) is a wholesale customer management + full accounting system for a women's clothing manufacturer ("پوشاک ترنم", based in Mashhad).
