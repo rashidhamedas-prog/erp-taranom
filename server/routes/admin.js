@@ -74,12 +74,22 @@ router.get('/dashboard', auth, adminOnly, (req, res) => {
     ? ` AND date >= '${sf || ''}' AND date <= '${st || '9999'}'`
     : '';
   const users = db.prepare("SELECT id,name,username FROM users WHERE active=1").all();
-  const stats = users.map(u => {
-    const custCount = db.prepare('SELECT COUNT(*) as c FROM customers WHERE user_id=?').get(u.id).c;
-    const totalSales = db.prepare(`SELECT COALESCE(SUM(final),0) as s FROM invoices WHERE user_id=? AND type='final'${dateClause}`).get(u.id).s;
-    const openFup = db.prepare("SELECT COUNT(*) as c FROM followups WHERE user_id=? AND status='open'").get(u.id).c;
-    return { ...u, custCount, totalSales, totalDebt: 0, openFup };
-  });
+  const custMap = Object.fromEntries(
+    db.prepare('SELECT user_id, COUNT(*) c FROM customers GROUP BY user_id').all().map(r => [r.user_id, r.c])
+  );
+  const salesMap = Object.fromEntries(
+    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE type='final'${dateClause} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
+  );
+  const fupMap = Object.fromEntries(
+    db.prepare("SELECT user_id, COUNT(*) c FROM followups WHERE status='open' GROUP BY user_id").all().map(r => [r.user_id, r.c])
+  );
+  const stats = users.map(u => ({
+    ...u,
+    custCount: custMap[u.id] || 0,
+    totalSales: salesMap[u.id] || 0,
+    totalDebt: 0,
+    openFup: fupMap[u.id] || 0
+  }));
   res.json(stats);
 });
 
@@ -134,14 +144,17 @@ router.get('/audit', auth, adminOnly, (req, res) => {
 // Customer balances — admin sees all, others handled in /customers/balances
 router.get('/customer-balances', auth, adminOnly, (req, res) => {
   const db = getDB();
-  // Live-computed from the ledger (source of truth) — invoices/settlements never touch
-  // the static customers.balance column, so reading it directly here would go stale.
-  const LIVE_BAL = "(SELECT COALESCE(SUM(cl.debit)-SUM(cl.credit),0) FROM customer_ledger cl WHERE cl.customer_id=c.id)";
+  const LEDGER_BAL_JOIN = `LEFT JOIN (
+    SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS balance
+    FROM customer_ledger GROUP BY customer_id
+  ) lb ON lb.customer_id=c.id`;
+  const BAL = 'COALESCE(lb.balance,0)';
   const rows = db.prepare(`
-    SELECT c.id, c.biz, c.owner, c.city, ${LIVE_BAL} AS balance, u.name as salesperson
-    FROM customers c LEFT JOIN users u ON c.user_id=u.id
-    WHERE ${LIVE_BAL} <> 0
-    ORDER BY ABS(${LIVE_BAL}) DESC
+    SELECT c.id, c.biz, c.owner, c.city, ${BAL} AS balance, u.name as salesperson
+    FROM customers c ${LEDGER_BAL_JOIN}
+    LEFT JOIN users u ON c.user_id=u.id
+    WHERE ${BAL} <> 0
+    ORDER BY ABS(${BAL}) DESC
   `).all();
   res.json(rows);
 });

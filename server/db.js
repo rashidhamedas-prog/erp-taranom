@@ -44,23 +44,28 @@ function repairWarehousesSchema(db) {
   const cols = tableColumns(db, 'warehouses');
   if (cols.includes('id')) return;
   console.warn('⚠️ repairing warehouses table (missing id column)');
-  db.pragma('foreign_keys = OFF');
-  const hasName = cols.includes('name');
-  const addrExpr = cols.includes('address') ? 'address' : "''";
-  db.exec(`
-    CREATE TABLE warehouses__fix (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      address TEXT DEFAULT '',
-      active INTEGER DEFAULT 1,
-      created_at INTEGER DEFAULT (strftime('%s','now'))
-    )`);
-  if (hasName) {
-    db.exec(`INSERT INTO warehouses__fix (name, address) SELECT name, ${addrExpr} FROM warehouses`);
+  try {
+    db.pragma('foreign_keys = OFF');
+    const hasName = cols.includes('name');
+    const addrExpr = cols.includes('address') ? 'address' : "''";
+    db.exec(`
+      CREATE TABLE warehouses__fix (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        address TEXT DEFAULT '',
+        active INTEGER DEFAULT 1,
+        created_at INTEGER DEFAULT (strftime('%s','now'))
+      )`);
+    if (hasName) {
+      db.exec(`INSERT INTO warehouses__fix (name, address) SELECT name, ${addrExpr} FROM warehouses`);
+    }
+    db.exec('DROP TABLE warehouses');
+    db.exec('ALTER TABLE warehouses__fix RENAME TO warehouses');
+    db.pragma('foreign_keys = ON');
+  } catch (e) {
+    db.pragma('foreign_keys = ON');
+    console.error('⚠️ warehouse schema repair failed:', e.message);
   }
-  db.exec('DROP TABLE warehouses');
-  db.exec('ALTER TABLE warehouses__fix RENAME TO warehouses');
-  db.pragma('foreign_keys = ON');
 }
 
 function repairProductCategoriesSchema(db) {
@@ -101,10 +106,35 @@ function syncTriggerMatch(t, db) {
   return { updateWhere: `${key} = NEW.${key}`, tombstone: `OLD.${key}` };
 }
 
+function seedWarehouseStock(db) {
+  if (!tableExists(db, 'warehouse_stock') || !tableExists(db, 'products')) return;
+  const pCols = tableColumns(db, 'products');
+  if (!pCols.includes('id')) return;
+  const wCols = tableColumns(db, 'warehouses');
+  let defaultWh = null;
+  if (tableExists(db, 'warehouses') && wCols.includes('id')) {
+    defaultWh = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get()?.id ?? null;
+  }
+  const ins = db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?, ?, ?)');
+  const products = db.prepare('SELECT id, warehouse_id, stock FROM products').all();
+  let n = 0;
+  for (const p of products) {
+    const whId = p.warehouse_id || defaultWh;
+    if (!whId) continue;
+    ins.run(p.id, whId, p.stock || 0);
+    n++;
+  }
+  if (n) console.log(`✅ warehouse_stock: ${n} ردیف`);
+}
+
 function initDB() {
   const db = getDB();
+  db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');
+  db.pragma('cache_size = -64000');
+  db.pragma('temp_store = MEMORY');
+  try { db.pragma('mmap_size = 268435456'); } catch { /* optional */ }
   db.exec(`
-    PRAGMA journal_mode=WAL;
     PRAGMA foreign_keys=ON;
 
     CREATE TABLE IF NOT EXISTS users (
@@ -845,17 +875,8 @@ function initDB() {
     console.warn('⚠️ product category migration skipped:', e.message);
   }
 
-  // Seed warehouse_stock from products (one row per product at its warehouse)
-  try {
-    db.prepare(`
-      INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty)
-      SELECT p.id, COALESCE(p.warehouse_id, (SELECT id FROM warehouses ORDER BY id LIMIT 1)), p.stock
-      FROM products p
-      WHERE p.warehouse_id IS NOT NULL OR EXISTS (SELECT 1 FROM warehouses)
-    `).run();
-  } catch (e) {
-    console.warn('⚠️ warehouse_stock seed skipped:', e.message);
-  }
+  // Seed warehouse_stock from products (safe JS loop — legacy warehouses may lack id)
+  seedWarehouseStock(db);
 
   // Seed a default customer group (Debit nature — the standard for receivables)
   const grpCount = db.prepare('SELECT COUNT(*) c FROM customer_groups').get().c;
@@ -958,6 +979,7 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_warehouse_stock_wh ON warehouse_stock(warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_stock_logs_product ON stock_logs(product_id);
     CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_invoices_commission ON invoices(user_id, type, approved, pay_type);
   `);
 
   // ---- Default admin ----
@@ -1039,9 +1061,14 @@ function initSyncSchema(db) {
   // Columns every syncable table needs (both roles — devices receive central
   // values via pull; version powers optimistic concurrency for offline edits).
   for (const t of SYNCABLE_TABLES) {
+    if (!tableExists(db, t.name)) continue;
     ensureColumn(db, t.name, 'sync_seq', 'INTEGER');
     ensureColumn(db, t.name, 'version', 'INTEGER DEFAULT 0');
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_${t.name}_sync_seq ON ${t.name}(sync_seq)`);
+    try {
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_${t.name}_sync_seq ON ${t.name}(sync_seq)`);
+    } catch (e) {
+      console.warn(`⚠️ sync_seq index skipped for ${t.name}:`, e.message);
+    }
   }
 
   db.exec(`
@@ -1169,15 +1196,19 @@ function initSyncSchema(db) {
         END;
       `);
     }
-    // Stamp pre-existing rows once so a device's first pull sees them.
-    for (const t of SYNCABLE_TABLES) {
-      if (!tableExists(db, t.name)) continue;
-      if (!tableColumns(db, t.name).includes('sync_seq')) continue;
-      try {
-        db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
-      } catch (e) {
-        console.warn(`⚠️ sync_seq backfill skipped for ${t.name}:`, e.message);
+    // Stamp pre-existing rows once (first boot only — avoids re-scanning all tables every restart).
+    const backfillFlag = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v1'").get();
+    if (!backfillFlag || backfillFlag.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill skipped for ${t.name}:`, e.message);
+        }
       }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v1','1')").run();
     }
   }
 }

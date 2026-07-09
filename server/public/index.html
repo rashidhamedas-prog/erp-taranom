@@ -1499,7 +1499,8 @@ function filterDashBalances(name){
 function statCard(c,ic,v,l){ return `<div class="stat"><div class="ic ${c}">${ic}</div><div><div class="v mono">${v}</div><div class="l">${l}</div></div></div>`; }
 function fitStatNums(){
   requestAnimationFrame(()=>{
-    document.querySelectorAll('.stat .v').forEach(el=>{
+    const root=el('view'); if(!root) return;
+    root.querySelectorAll('.stat .v').forEach(el=>{
       el.style.fontSize='';
       let fs=parseInt(getComputedStyle(el).fontSize)||20;
       // shrink until text fits inside its own box (scrollWidth = real text width; clientWidth = visible box width)
@@ -6308,7 +6309,7 @@ async function remDelete(id){
    SETTINGS (admin)
 ============================================================ */
 ROUTES.settings = async function(){
-  CACHE.settings = await api('GET','/settings')||{};
+  if(!CACHE.settings || !Object.keys(CACHE.settings).length) CACHE.settings=await api('GET','/settings')||{};
   const s = CACHE.settings;
   el('view').innerHTML=`
     <div class="panel"><div class="panel-head"><h4>اطلاعات شرکت</h4></div><div class="panel-body"><div class="form-grid">

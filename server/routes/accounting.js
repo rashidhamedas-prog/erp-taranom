@@ -308,18 +308,26 @@ router.get('/commissions', auth, adminOrAccounting, (req, res) => {
   const users = db.prepare(
     "SELECT id,name,commission_cash,commission_cheque FROM users WHERE active=1 AND role='field_sales'"
   ).all();
+  const salesRows = db.prepare(
+    "SELECT user_id, pay_type, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND approved=1 GROUP BY user_id, pay_type"
+  ).all();
+  const paidRows = db.prepare(
+    'SELECT rep_id, COALESCE(SUM(amount),0) s FROM incentive_payments GROUP BY rep_id'
+  ).all();
+  const salesMap = {};
+  for (const r of salesRows) {
+    if (!salesMap[r.user_id]) salesMap[r.user_id] = { cash: 0, cheque: 0 };
+    if (r.pay_type === 'cheque') salesMap[r.user_id].cheque = r.s;
+    else salesMap[r.user_id].cash = r.s;
+  }
+  const paidMap = Object.fromEntries(paidRows.map(r => [r.rep_id, r.s]));
   const result = users.map(u => {
-    const cashSales = db.prepare(
-      "SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND pay_type='cash'"
-    ).get(u.id).s;
-    const chequeSales = db.prepare(
-      "SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND pay_type='cheque'"
-    ).get(u.id).s;
-    const cashComm = cashSales * (u.commission_cash || 0) / 100;
-    const chequeComm = chequeSales * (u.commission_cheque || 0) / 100;
+    const s = salesMap[u.id] || { cash: 0, cheque: 0 };
+    const cashComm = s.cash * (u.commission_cash || 0) / 100;
+    const chequeComm = s.cheque * (u.commission_cheque || 0) / 100;
     const totalComm = cashComm + chequeComm;
-    const paid = db.prepare('SELECT COALESCE(SUM(amount),0) s FROM incentive_payments WHERE rep_id=?').get(u.id).s;
-    return { ...u, cashSales, chequeSales, cashComm, chequeComm, totalComm, paid, payable: totalComm - paid };
+    const paid = paidMap[u.id] || 0;
+    return { ...u, cashSales: s.cash, chequeSales: s.cheque, cashComm, chequeComm, totalComm, paid, payable: totalComm - paid };
   });
   res.json(result);
 });
