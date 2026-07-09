@@ -305,12 +305,22 @@ router.patch('/cheques/:id/status', auth, adminOrAccounting, (req, res) => {
 // Incentive (commission) report per salesperson (only approved invoices)
 router.get('/commissions', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  const { from, to } = req.query;
   const users = db.prepare(
-    "SELECT id,name,commission_cash,commission_cheque FROM users WHERE active=1 AND role='field_sales'"
+    "SELECT id,name,role,commission_cash,commission_cheque FROM users WHERE active=1 AND role IN ('field_sales','inside_sales')"
   ).all();
-  const salesRows = db.prepare(
-    "SELECT user_id, pay_type, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND approved=1 GROUP BY user_id, pay_type"
-  ).all();
+  let salesSql = "SELECT user_id, pay_type, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND approved=1";
+  const salesParams = [];
+  if (from) { salesSql += ' AND date>=?'; salesParams.push(from); }
+  if (to) { salesSql += ' AND date<=?'; salesParams.push(to); }
+  salesSql += ' GROUP BY user_id, pay_type';
+  const salesRows = db.prepare(salesSql).all(...salesParams);
+  let retSql = 'SELECT user_id, COALESCE(SUM(amount),0) s FROM sales_returns WHERE 1=1';
+  const retParams = [];
+  if (from) { retSql += ' AND date>=?'; retParams.push(from); }
+  if (to) { retSql += ' AND date<=?'; retParams.push(to); }
+  retSql += ' GROUP BY user_id';
+  const retRows = db.prepare(retSql).all(...retParams);
   const paidRows = db.prepare(
     'SELECT rep_id, COALESCE(SUM(amount),0) s FROM incentive_payments GROUP BY rep_id'
   ).all();
@@ -320,14 +330,22 @@ router.get('/commissions', auth, adminOrAccounting, (req, res) => {
     if (r.pay_type === 'cheque') salesMap[r.user_id].cheque = r.s;
     else salesMap[r.user_id].cash = r.s;
   }
+  const retMap = Object.fromEntries(retRows.map(r => [r.user_id, r.s]));
   const paidMap = Object.fromEntries(paidRows.map(r => [r.rep_id, r.s]));
   const result = users.map(u => {
     const s = salesMap[u.id] || { cash: 0, cheque: 0 };
+    const returns = retMap[u.id] || 0;
     const cashComm = s.cash * (u.commission_cash || 0) / 100;
     const chequeComm = s.cheque * (u.commission_cheque || 0) / 100;
-    const totalComm = cashComm + chequeComm;
+    const returnPenalty = returns * ((u.commission_cash || 0) + (u.commission_cheque || 0)) / 200;
+    const totalComm = Math.max(0, cashComm + chequeComm - returnPenalty);
     const paid = paidMap[u.id] || 0;
-    return { ...u, cashSales: s.cash, chequeSales: s.cheque, cashComm, chequeComm, totalComm, paid, payable: totalComm - paid };
+    return {
+      ...u,
+      roleLabel: u.role === 'inside_sales' ? 'تلفنی' : 'میدانی',
+      cashSales: s.cash, chequeSales: s.cheque, returns,
+      cashComm, chequeComm, totalComm, paid, payable: totalComm - paid
+    };
   });
   res.json(result);
 });

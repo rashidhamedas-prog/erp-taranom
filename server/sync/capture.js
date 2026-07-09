@@ -62,6 +62,9 @@ const PATH_TABLE_MAP = [
 ];
 
 function tableForPath(path) {
+  if (path.startsWith('/api/reps/') && path.includes('/expenses')) return 'rep_expenses';
+  if (path.startsWith('/api/reps/') && path.includes('/advances')) return 'rep_advances';
+  if (path === '/api/reps/transfer-customer') return 'customers';
   for (const [prefix, tbl] of PATH_TABLE_MAP) {
     if (path === prefix || path.startsWith(prefix + '/')) return tbl;
   }

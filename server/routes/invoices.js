@@ -170,12 +170,12 @@ router.post('/', auth, (req, res) => {
       }
 
       const result = db.prepare(
-        'INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        'INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted,sales_channel,lead_source,campaign) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
       ).run(req.user.id, cust_id, num, invType, date || '', note || '',
             JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
             seller ? seller.name : '', seller ? (seller.phone || '') : '',
             pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
-            stockDeducted);
+            stockDeducted, req.body.sales_channel || '', req.body.lead_source || '', req.body.campaign || '');
       const invId = result.lastInsertRowid;
 
       if (invType === 'final') {
@@ -236,7 +236,7 @@ router.put('/:id', auth, (req, res) => {
   const row = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
-  const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info } = req.body;
+  const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info, sales_channel, lead_source, campaign } = req.body;
   let built;
   const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting';
   try { built = buildRows(db, rows, canDiscount); }
@@ -257,10 +257,10 @@ router.put('/:id', auth, (req, res) => {
         if (stockErr) throw new Error(stockErr);
         stockDeducted = 1;
       }
-      db.prepare('UPDATE invoices SET cust_id=?,type=?,date=?,note=?,rows=?,subtotal=?,disc=?,disc_amt=?,final=?,pay_type=?,cheque_duration=?,cheque_due_date=?,cheque_info=?,stock_deducted=? WHERE id=?')
+      db.prepare('UPDATE invoices SET cust_id=?,type=?,date=?,note=?,rows=?,subtotal=?,disc=?,disc_amt=?,final=?,pay_type=?,cheque_duration=?,cheque_due_date=?,cheque_info=?,stock_deducted=?,sales_channel=?,lead_source=?,campaign=? WHERE id=?')
         .run(cust_id, newType, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
              pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
-             stockDeducted, req.params.id);
+             stockDeducted, sales_channel || '', lead_source || '', campaign || '', req.params.id);
     })();
   } catch (e) {
     return res.status(400).json({ error: e.message });

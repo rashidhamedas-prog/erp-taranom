@@ -942,6 +942,81 @@ function initDB() {
   // Added for the Payroll module (Phase 9) — same unconditional-insert pattern.
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6104','هزینه حقوق و دستمزد','expense','6000')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2104','بدهی بیمه و مالیات کارکنان','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1107','مساعده نمایندگان فروش','asset','1100')").run();
+
+  // ---- Marketing representatives module ----
+  ensureColumn(db, 'users', 'rep_code', 'TEXT');
+  ensureColumn(db, 'users', 'rep_subtype', "TEXT DEFAULT ''");
+  ensureColumn(db, 'users', 'territory', "TEXT DEFAULT ''");
+  ensureColumn(db, 'users', 'supervisor_id', 'INTEGER');
+  ensureColumn(db, 'users', 'employment_status', "TEXT DEFAULT 'active'");
+  ensureColumn(db, 'users', 'bank_name', "TEXT DEFAULT ''");
+  ensureColumn(db, 'users', 'bank_account', "TEXT DEFAULT ''");
+  ensureColumn(db, 'users', 'bank_iban', "TEXT DEFAULT ''");
+  ensureColumn(db, 'users', 'contract_file', "TEXT DEFAULT ''");
+  ensureColumn(db, 'users', 'rep_opening_balance', 'REAL DEFAULT 0');
+  ensureColumn(db, 'invoices', 'sales_channel', "TEXT DEFAULT ''");
+  ensureColumn(db, 'invoices', 'lead_source', "TEXT DEFAULT ''");
+  ensureColumn(db, 'invoices', 'campaign', "TEXT DEFAULT ''");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rep_assignment_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL,
+      from_rep_id INTEGER,
+      to_rep_id INTEGER NOT NULL,
+      date TEXT,
+      note TEXT,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(customer_id) REFERENCES customers(id),
+      FOREIGN KEY(from_rep_id) REFERENCES users(id),
+      FOREIGN KEY(to_rep_id) REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS rep_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rep_id INTEGER NOT NULL,
+      date TEXT,
+      entry_type TEXT NOT NULL,
+      ref_type TEXT,
+      ref_id INTEGER,
+      description TEXT,
+      debit REAL DEFAULT 0,
+      credit REAL DEFAULT 0,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(rep_id) REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS rep_expenses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rep_id INTEGER NOT NULL,
+      category TEXT DEFAULT 'other',
+      amount REAL DEFAULT 0,
+      date TEXT,
+      description TEXT,
+      receipt_file TEXT,
+      cost_center_id INTEGER,
+      status TEXT DEFAULT 'pending',
+      approved_by INTEGER,
+      approved_at INTEGER,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(rep_id) REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS rep_advances (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rep_id INTEGER NOT NULL,
+      amount REAL DEFAULT 0,
+      pay_type TEXT DEFAULT 'cash',
+      date TEXT,
+      note TEXT,
+      settled_amount REAL DEFAULT 0,
+      bank_id INTEGER,
+      cash_box_id INTEGER,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(rep_id) REFERENCES users(id)
+    );
+  `);
 
   // ---- Indexes ----
   db.exec(`
@@ -990,6 +1065,10 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_ledger_cust_created ON customer_ledger(customer_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_followups_status_next ON followups(status, next_date);
     CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status);
+    CREATE INDEX IF NOT EXISTS idx_rep_ledger_rep ON rep_ledger(rep_id);
+    CREATE INDEX IF NOT EXISTS idx_rep_expenses_rep ON rep_expenses(rep_id);
+    CREATE INDEX IF NOT EXISTS idx_rep_advances_rep ON rep_advances(rep_id);
+    CREATE INDEX IF NOT EXISTS idx_rep_assign_cust ON rep_assignment_history(customer_id);
   `);
 
   // ---- Default admin ----

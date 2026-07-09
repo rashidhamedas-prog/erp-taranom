@@ -49,7 +49,11 @@ const SYNCABLE_TABLES = [
   { name: 'messages', upsertKey: 'id' },
   { name: 'reminders', upsertKey: 'id' },
   { name: 'product_categories', upsertKey: 'id' },
-  { name: 'warehouse_stock', upsertKey: 'id' }
+  { name: 'warehouse_stock', upsertKey: 'id' },
+  { name: 'rep_assignment_history', upsertKey: 'id' },
+  { name: 'rep_ledger', upsertKey: 'id' },
+  { name: 'rep_expenses', upsertKey: 'id' },
+  { name: 'rep_advances', upsertKey: 'id' }
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes

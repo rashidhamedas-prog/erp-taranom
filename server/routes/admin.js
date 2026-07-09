@@ -26,7 +26,9 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
 
 // Update user — if incentive rate changed on a locked user, require force:true
 router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
-  const { name, password, active, role, phone, commission_cash = 0, commission_cheque = 0, force } = req.body;
+  const { name, password, active, role, phone, commission_cash = 0, commission_cheque = 0, force,
+    rep_code, rep_subtype, territory, supervisor_id, employment_status,
+    bank_name, bank_account, bank_iban, rep_opening_balance } = req.body;
   const db = getDB();
   const existing = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'کاربر یافت نشد' });
@@ -41,11 +43,25 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   }
 
   if (password) {
-    db.prepare('UPDATE users SET name=?,active=?,role=?,phone=?,password=?,commission_cash=?,commission_cheque=?,incentive_locked=1 WHERE id=?')
-      .run(name, active, role, phone || '', bcrypt.hashSync(password, 10), newCash, newCheque, req.params.id);
+    db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,password=?,commission_cash=?,commission_cheque=?,incentive_locked=1,
+      rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=? WHERE id=?`)
+      .run(name, active, role, phone || '', bcrypt.hashSync(password, 10), newCash, newCheque,
+        rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
+        supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
+        employment_status || existing.employment_status || 'active',
+        bank_name || existing.bank_name || '', bank_account || existing.bank_account || '', bank_iban || existing.bank_iban || '',
+        rep_opening_balance != null ? parseFloat(rep_opening_balance) : (existing.rep_opening_balance || 0),
+        req.params.id);
   } else {
-    db.prepare('UPDATE users SET name=?,active=?,role=?,phone=?,commission_cash=?,commission_cheque=?,incentive_locked=1 WHERE id=?')
-      .run(name, active, role, phone || '', newCash, newCheque, req.params.id);
+    db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,commission_cash=?,commission_cheque=?,incentive_locked=1,
+      rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=? WHERE id=?`)
+      .run(name, active, role, phone || '', newCash, newCheque,
+        rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
+        supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
+        employment_status || existing.employment_status || 'active',
+        bank_name || existing.bank_name || '', bank_account || existing.bank_account || '', bank_iban || existing.bank_iban || '',
+        rep_opening_balance != null ? parseFloat(rep_opening_balance) : (existing.rep_opening_balance || 0),
+        req.params.id);
   }
   if (rateChanged) {
     audit(req.user.id, 'update', 'user', req.params.id, `تغییر نرخ انگیزه فروش ${name}: نقد ${existing.commission_cash}%→${newCash}% چک ${existing.commission_cheque}%→${newCheque}%`);
