@@ -33,7 +33,7 @@
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
 | آخرین commit | `b921b73` |
-| نسخه وب/دسکتاپ | `1.0.6` / SW `v18` |
+| نسخه وب/دسکتاپ | `1.0.6` وب / دسکتاپ `1.0.7` (نیاز به build) / SW `v18` |
 | وضعیت سرور | ✅ deploy (`6350292`) |
 | دسکتاپ | exe ~93MB — **GitHub Releases** (نه SCP به سرور) |
 
@@ -43,7 +43,7 @@
 
 ### ۱۴۰۴/۰۴/۲۱ — رفع خطای دسکتاپ: no such table rep_territories
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `5158586`
 - **خلاصه:**
   - `ensureColumn` روی `rep_territories` **قبل از** `CREATE TABLE` اجرا می‌شد → initDB روی DB تازه دسکتاپ crash
   - ستون‌های `rep_id` و `cities` به تعریف جدول منتقل شد؛ migration بعد از CREATE
