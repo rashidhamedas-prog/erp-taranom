@@ -49,7 +49,7 @@
   - manifest + latest.yml به‌روز — دانلود از `/releases/` سرور production
   - رفع crash `rep_territories` در initDB
 - **فایل‌های کلیدی:** `desktop/dist/`, `server/public/releases/manifest.json`, `server/public/releases/latest.yml`
-- **Deploy:** ✅ metadata (`eb50d4b`) + ⏳ آپلود exe به سرور (SCP در حال انجام)
+- **Deploy:** ✅ کامل — metadata + exe روی production (97082265 bytes)
 - **یادداشت:** نصب تازه یا جایگزینی 1.0.6
 
 ### ۱۴۰۴/۰۴/۲۱ — رفع خطای دسکتاپ: no such table rep_territories
