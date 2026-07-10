@@ -217,14 +217,17 @@ app.get('/api/system/app-update', async (req, res) => {
 });
 
 // Feed URL for electron-updater (desktop auto-update)
-app.get('/api/system/update-feed', (req, res) => {
+app.get('/api/system/update-feed', async (req, res) => {
   if (isDevice()) {
     try {
       const client = require('./sync/client');
-      const url = client.getUpdateFeedUrl();
+      const url = await client.fetchCentralUpdateFeedUrl();
       return res.json({ url });
     } catch { return res.json({ url: null }); }
   }
+  const manifest = readManifest();
+  const external = process.env.DESKTOP_UPDATE_FEED_URL || manifest.desktop?.feed_url;
+  if (external) return res.json({ url: external });
   const base = process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
   res.json({ url: base.replace(/\/$/, '') + '/releases/' });
 });

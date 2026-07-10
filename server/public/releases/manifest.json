@@ -5,8 +5,9 @@
   },
   "desktop": {
     "version": "1.0.6",
-    "url": "/releases/CRM-Taranom-Setup-1.0.6.exe",
-    "notes": "همگام‌سازی عکس محصولات، به‌روزرسانی خودکار برنامه."
+    "url": "https://github.com/rashidhamedas-prog/crm-taranom/releases/download/v1.0.6/CRM Taranom Setup 1.0.6.exe",
+    "feed_url": "https://github.com/rashidhamedas-prog/crm-taranom/releases/download/v1.0.6/",
+    "notes": "به‌روزرسانی دسکتاپ — دانلود از GitHub Releases"
   },
   "android": {
     "version": "2.0.1",

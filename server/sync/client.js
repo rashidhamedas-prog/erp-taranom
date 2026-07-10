@@ -418,10 +418,22 @@ async function fetchCentralAppUpdate(platform, current) {
   } catch { return null; }
 }
 
-function getUpdateFeedUrl() {
+async function fetchCentralUpdateFeedUrl() {
   const db = getDB();
   const cfg = getConfig(db);
-  return cfg.centralUrl ? cfg.centralUrl.replace(/\/$/, '') + '/releases/' : null;
+  if (!cfg.centralUrl) return null;
+  try {
+    const r = await fetch(`${cfg.centralUrl.replace(/\/$/, '')}/api/system/update-feed`);
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j.url || null;
+  } catch {
+    return null;
+  }
+}
+
+function getUpdateFeedUrl() {
+  return fetchCentralUpdateFeedUrl();
 }
 
 function getLocalAppUpdate(platform, current) {
@@ -432,5 +444,5 @@ function getLocalAppUpdate(platform, current) {
 
 module.exports = {
   pair, syncNow, pullFilesNow, skipSyncFile, discardConflict, getStatus, getConfig, startClientLoop, isPaired,
-  fetchCentralAppUpdate, getUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles
+  fetchCentralAppUpdate, getUpdateFeedUrl, fetchCentralUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles
 };

@@ -1,8 +1,8 @@
 version: 1.0.6
 files:
-  - url: CRM-Taranom-Setup-1.0.6.exe
-    sha512: +0d1ZBklAf5HzWVFdbWHqTs5Id6IJRQk5bEM3LjLwwVOX+XpTePfjBv9j7XuL4pR4sqBHHXytjG+Nq9cq0VdZg==
-    size: 1162481215
-path: CRM-Taranom-Setup-1.0.6.exe
-sha512: +0d1ZBklAf5HzWVFdbWHqTs5Id6IJRQk5bEM3LjLwwVOX+XpTePfjBv9j7XuL4pR4sqBHHXytjG+Nq9cq0VdZg==
-releaseDate: '2026-07-10T17:30:19.561Z'
+  - url: CRM Taranom Setup 1.0.6.exe
+    sha512: e+hxVa/f/dIJ1+xvYpoxX54QGHMQBjR44NZdiiEsd2ItWYFFLcXqKMMElHn+iY9Ed7LmFdtf8S2tLzkvJiyRbg==
+    size: 97081885
+path: CRM Taranom Setup 1.0.6.exe
+sha512: e+hxVa/f/dIJ1+xvYpoxX54QGHMQBjR44NZdiiEsd2ItWYFFLcXqKMMElHn+iY9Ed7LmFdtf8S2tLzkvJiyRbg==
+releaseDate: '2026-07-10T21:00:32.347Z'

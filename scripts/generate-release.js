@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Generate electron-updater latest.yml + refresh manifest.json after building
-// desktop/android installers. Usage:
-//   node scripts/generate-release.js [releasesDir] [version]
+// Generate electron-updater latest.yml + refresh manifest.json after building desktop.
+// The .exe itself stays in desktop/dist — upload to GitHub Releases separately.
 const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
@@ -14,27 +13,28 @@ function sha512File(filePath) {
   return crypto.createHash('sha512').update(fs.readFileSync(filePath)).digest('base64');
 }
 
-function writeLatestYml(exeName) {
-  const exePath = path.join(releasesDir, exeName);
+function writeLatestYml(exePath) {
   if (!fs.existsSync(exePath)) {
     console.warn('⚠️  skip latest.yml — not found:', exePath);
-    return;
+    return false;
   }
+  const urlName = path.basename(exePath);
   const sha512 = sha512File(exePath);
   const size = fs.statSync(exePath).size;
   const yml = [
     `version: ${version}`,
     'files:',
-    `  - url: ${exeName}`,
+    `  - url: ${urlName}`,
     `    sha512: ${sha512}`,
     `    size: ${size}`,
-    `path: ${exeName}`,
+    `path: ${urlName}`,
     `sha512: ${sha512}`,
     `releaseDate: '${new Date().toISOString()}'`,
     ''
   ].join('\n');
   fs.writeFileSync(path.join(releasesDir, 'latest.yml'), yml);
   console.log('✅ latest.yml');
+  return true;
 }
 
 const manifest = {
@@ -42,7 +42,8 @@ const manifest = {
   desktop: {
     version,
     url: `/releases/CRM-Taranom-Setup-${version}.exe`,
-    notes: 'همگام‌سازی عکس محصولات، به‌روزرسانی خودکار برنامه.'
+    feed_url: '',
+    notes: 'به‌روزرسانی دسکتاپ — دانلود از GitHub Releases'
   },
   android: {
     version: process.argv[4] || '2.0.1',
@@ -53,11 +54,15 @@ const manifest = {
 };
 
 fs.mkdirSync(releasesDir, { recursive: true });
-writeLatestYml(`CRM-Taranom-Setup-${version}.exe`);
-writeLatestYml('CRM Taranom Setup ' + version + '.exe');
+const distExe = path.join(ROOT, 'desktop', 'dist', `CRM Taranom Setup ${version}.exe`);
+const distExeAlt = path.join(ROOT, 'desktop', 'dist', `CRM-Taranom-Setup-${version}.exe`);
+const builtExe = fs.existsSync(distExe) ? distExe : (fs.existsSync(distExeAlt) ? distExeAlt : null);
+if (!builtExe) {
+  writeLatestYml(path.join(releasesDir, `CRM-Taranom-Setup-${version}.exe`));
+} else {
+  writeLatestYml(builtExe);
+}
 fs.writeFileSync(path.join(releasesDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 console.log('✅ manifest.json');
-console.log('\nUpload to server/public/releases/:');
-console.log('  - CRM-Taranom-Setup-' + version + '.exe (or copy from desktop/dist/)');
-console.log('  - crm-taranom.apk (from android build)');
-console.log('  - latest.yml + manifest.json');
+console.log('\nMetadata written to server/public/releases/');
+console.log('Upload the .exe to GitHub Releases — see docs/DESKTOP-UPDATE.md');

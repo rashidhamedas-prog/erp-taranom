@@ -10,12 +10,15 @@ const DST = path.join(__dirname, '..', 'server');
 
 const EXCLUDE = new Set(['node_modules', 'backups']);
 const EXCLUDE_FILE = /\.db(-wal|-shm)?$|^\.env$/;
+// Never bundle installer binaries into the next installer (was causing 1GB+ bloat).
+const RELEASES_SKIP = new Set(['.exe', '.apk', '.blockmap']);
 
 function copyDir(src, dst) {
   fs.mkdirSync(dst, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     if (EXCLUDE.has(entry.name)) continue;
     if (entry.isFile() && EXCLUDE_FILE.test(entry.name)) continue;
+    if (src.replace(/\\/g, '/').includes('/public/releases') && RELEASES_SKIP.has(path.extname(entry.name).toLowerCase())) continue;
     // uploaded user content stays on each machine — don't bake it into the app
     if (src.endsWith(path.join('public')) && entry.name === 'uploads') continue;
     const s = path.join(src, entry.name);
