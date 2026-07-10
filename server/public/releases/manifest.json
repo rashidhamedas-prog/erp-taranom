@@ -4,10 +4,10 @@
     "notes": "به‌روزرسانی رابط وب — با باز کردن سایت در مرورگر خودکار اعمال می‌شود."
   },
   "desktop": {
-    "version": "1.0.6",
-    "url": "https://github.com/rashidhamedas-prog/crm-taranom/releases/download/v1.0.6/CRM Taranom Setup 1.0.6.exe",
-    "feed_url": "https://github.com/rashidhamedas-prog/crm-taranom/releases/download/v1.0.6/",
-    "notes": "به‌روزرسانی دسکتاپ — دانلود از GitHub Releases"
+    "version": "1.0.7",
+    "url": "/releases/CRM-Taranom-Setup-1.0.7.exe",
+    "feed_url": "",
+    "notes": "رفع crash راه‌اندازی (rep_territories) — نصب مجدد یا به‌روزرسانی از تنظیمات برنامه"
   },
   "android": {
     "version": "2.0.1",

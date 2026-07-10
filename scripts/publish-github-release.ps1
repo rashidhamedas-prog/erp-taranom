@@ -32,7 +32,7 @@ gh release create $Tag `
   $Yml `
   --repo rashidhamedas-prog/crm-taranom `
   --title "CRM Taranom Desktop $Version" `
-  --notes "به‌روزرسانی 1.0.6 — UX، پشتیبان دسکتاپ، پرداخت میدانی"
+  --notes "رفع crash راه‌اندازی (rep_territories) + بهبودهای 1.0.6"
 
 if ($LASTEXITCODE -eq 0) {
   Write-Host "`n✅ تمام! لینک دانلود:" -ForegroundColor Green
