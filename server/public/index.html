@@ -1296,14 +1296,15 @@ async function loadInitial(){
       return;
     }
     const fetches = [api('GET','/customers'), api('GET','/products')];
-    if(ME.role==='admin') fetches.push(api('GET','/auth/users'), api('GET','/settings'));
+    if(ME.role==='admin') fetches.push(api('GET','/auth/users'));
     const results = await Promise.all(fetches);
     CACHE.customers = results[0]||[];
     CACHE.products = results[1]||[];
     CACHE.allProducts = results[1]||[];
     if(ME.role==='admin'){
       CACHE.users = results[2]||[];
-      CACHE.settings = results[3]||{};
+      CACHE.settings = {};
+      api('GET','/settings').then(s=>{ CACHE.settings=s||{}; }).catch(()=>{});
     } else {
       CACHE.users = [];
     }
@@ -3119,17 +3120,10 @@ ROUTES['acc-dash'] = async function(){
   const cached = cacheGet('page:acc-dash', 45000);
   if(cached){ el('view').innerHTML=cached; return; }
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const accounts = CACHE.chartOfAccounts?.length
-    ? CACHE.chartOfAccounts
-    : await apiCached('GET','/accounting/chart-of-accounts', 120000);
-  const [ov, tb, payables] = await Promise.all([
-    apiCached('GET','/accounting/overview', 45000),
-    apiCached('GET','/accounting/trial-balance', 45000),
-    apiCached('GET','/suppliers/balances/list', 45000)
-  ]);
+  const ov = await apiCached('GET','/accounting/overview', 45000);
   if(!ov) return;
-  CACHE.chartOfAccounts=accounts||[];
-  const totalPayable=(payables||[]).reduce((a,s)=>a+(s.payable||0),0);
+  const totalPayable = ov.totalPayable || 0;
+  const tbBalanced = ov.trialBalanced;
   el('view').innerHTML=`
     <div class="cards">
       ${statCard('g','🧾',fmt(ov.totalInvoiced),'کل فاکتور رسمی (ت)')}
@@ -3137,7 +3131,7 @@ ROUTES['acc-dash'] = async function(){
       ${statCard('r','⏳',fmt(Math.max(0,ov.outstanding)),'مانده مطالبات مشتریان (ت)')}
       ${statCard('o','🚚',fmt(totalPayable),'مانده پرداختنی تأمین‌کنندگان (ت)')}
       ${statCard('p','🔔',fmt(ov.pendingApproval),'فاکتور منتظر تأیید')}
-      ${statCard(tb&&tb.balanced?'g':'r','⚖️',tb?(tb.balanced?'متوازن ✓':'نامتوازن!'):'-','وضعیت تراز آزمایشی')}
+      ${statCard(tbBalanced?'g':'r','⚖️',tbBalanced?'متوازن ✓':'نامتوازن!','وضعیت تراز آزمایشی')}
     </div>
     <div class="panel" style="margin-bottom:16px">
       <div class="panel-head"><h4>🚀 دسترسی سریع</h4></div>
@@ -3159,7 +3153,6 @@ ROUTES['acc-dash'] = async function(){
         <div class="toolbar" style="margin-bottom:12px">
           <select id="glAccount" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px" onchange="loadGeneralLedger(this.value)">
             <option value="">-- انتخاب حساب --</option>
-            ${(accounts||[]).map(a=>`<option value="${a.code}">${a.code} — ${esc(a.name)}</option>`).join('')}
           </select>
         </div>
         <div id="glBody"><div class="empty" style="padding:30px">یک حساب را برای مشاهده دفتر کل انتخاب کنید</div></div>
@@ -3173,6 +3166,15 @@ ROUTES['acc-dash'] = async function(){
       <div class="panel-body" id="accDashChart"><div class="muted">در حال بارگذاری کدینگ...</div></div>
     </div>`;
   cacheSet('page:acc-dash', el('view').innerHTML);
+  const accounts = CACHE.chartOfAccounts?.length
+    ? CACHE.chartOfAccounts
+    : await apiCached('GET','/accounting/chart-of-accounts', 120000);
+  CACHE.chartOfAccounts=accounts||[];
+  const sel=el('glAccount');
+  if(sel){
+    sel.innerHTML='<option value="">-- انتخاب حساب --</option>'+
+      (accounts||[]).map(a=>`<option value="${a.code}">${a.code} — ${esc(a.name)}</option>`).join('');
+  }
   requestAnimationFrame(()=>{
     const c=el('accDashChart');
     if(c){ c.innerHTML=chartOfAccountsGroupedHtml(accounts||[]); cacheSet('page:acc-dash', el('view').innerHTML); }

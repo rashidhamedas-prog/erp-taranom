@@ -27,19 +27,32 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۰)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۱)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `2227b62` + desktop pipeline |
-| نسخه وب/دسکتاپ | `1.0.6` / SW `v17` |
-| وضعیت سرور | ✅ deploy |
+| آخرین commit | (پس از commit این تسک) |
+| نسخه وب/دسکتاپ | `1.0.6` / SW `v18` |
+| وضعیت سرور | ⏳ نیاز به pull |
 | دسکتاپ | exe ~93MB — **GitHub Releases** (نه SCP به سرور) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۱ — رفع 502 + بهینه‌سازی بنیادی سرعت وب و حسابداری
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:**
+  - **رفع 502:** import گم‌شده `adminOnly` در `invoices.js` — PM2 در crash loop بود (۴۵۰k+ restart)
+  - **حسابداری:** داشبورد acc-dash دیگر trial-balance و suppliers/list را بلوک نمی‌کند؛ overview غنی‌شده با `trialBalanced` + `totalPayable`
+  - **SQL:** query تأمین‌کنندگان از correlated subquery به JOIN تبدیل شد
+  - **boot admin:** `/settings` به‌صورت lazy load (مسدود نکردن login)
+  - SW bump به `v18`
+- **فایل‌های کلیدی:** `server/routes/invoices.js`, `server/routes/accounting.js`, `server/routes/suppliers.js`, `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ⏳ نیاز به pull
+- **یادداشت:** `git pull origin claude/claude-md-docs-2ssrpy && cd server && pm2 restart crm-taranom`
 
 ### ۱۴۰۴/۰۴/۲۰ — زیرساخت به‌روزرسانی دسکتاپ (GitHub Releases، بدون SCP)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

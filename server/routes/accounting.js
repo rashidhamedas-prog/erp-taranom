@@ -65,7 +65,28 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const totalSettled = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM settlements").get().s;
   const pendingApproval = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=0").get().c;
   const approvedCount = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=1").get().c;
-  res.json({ totalInvoiced, totalSettled, outstanding: totalInvoiced - totalSettled, pendingApproval, approvedCount });
+  const tb = db.prepare(`
+    SELECT COALESCE(SUM(jl.debit),0) d, COALESCE(SUM(jl.credit),0) c
+    FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
+  `).get();
+  const trialBalanced = Math.abs((tb.d || 0) - (tb.c || 0)) < 1;
+  const payRow = db.prepare(`
+    SELECT COALESCE(SUM(
+      COALESCE(s.balance,0)
+      + COALESCE(pi.total_purchased,0)
+      - COALESCE(sp.total_paid,0)
+      - COALESCE(pr.total_returned,0)
+    ),0) total
+    FROM suppliers s
+    LEFT JOIN (SELECT supplier_id, SUM(final) total_purchased FROM purchase_invoices WHERE pay_type='credit' GROUP BY supplier_id) pi ON pi.supplier_id=s.id
+    LEFT JOIN (SELECT supplier_id, SUM(amount) total_paid FROM supplier_payments GROUP BY supplier_id) sp ON sp.supplier_id=s.id
+    LEFT JOIN (SELECT supplier_id, SUM(amount) total_returned FROM purchase_returns GROUP BY supplier_id) pr ON pr.supplier_id=s.id
+  `).get();
+  res.json({
+    totalInvoiced, totalSettled, outstanding: totalInvoiced - totalSettled,
+    pendingApproval, approvedCount, trialBalanced,
+    totalPayable: payRow.total || 0
+  });
 });
 
 // Receivables per customer (only customers with at least one final invoice)
