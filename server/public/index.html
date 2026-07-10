@@ -90,6 +90,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
 
 /* ===== Cards / Generic ===== */
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:22px;width:100%}
+.nav-section{margin-bottom:14px}
+.nav-section-title{font-size:10px;font-weight:700;color:var(--muted);padding:8px 14px 4px;text-transform:uppercase;letter-spacing:.04em}
 .stat{background:var(--card);border-radius:18px;padding:18px;box-shadow:0 8px 24px rgba(26,92,56,.08);
   border:none;border-bottom:4px solid var(--purple);display:flex;align-items:center;gap:14px;min-width:0;overflow:hidden}
 .stat:has(.ic.g){border-bottom-color:var(--green)}
@@ -627,6 +629,24 @@ async function api(method, path, data, isFormData){
    UTILITIES
 ============================================================ */
 function fmt(n){ return Number(n||0).toLocaleString('fa-IR'); }
+function fmtCompact(n){
+  n=Number(n)||0;
+  const neg=n<0; n=Math.abs(n);
+  let s;
+  if(n>=1e9) s=(n/1e9).toFixed(1).replace(/\.0$/,'')+'B';
+  else if(n>=1e6) s=(n/1e6).toFixed(1).replace(/\.0$/,'')+'M';
+  else if(n>=1e4) s=(n/1e3).toFixed(1).replace(/\.0$/,'')+'k';
+  else return fmt(neg?-n:n);
+  return (neg?'-':'')+s;
+}
+function phoneCell(phone){
+  const p=(phone||'').trim();
+  if(!p) return '<span class="muted">-</span>';
+  const tel=p.replace(/[^\d+]/g,'');
+  const html=esc(p);
+  if(window.innerWidth<=900 && tel) return `<a href="tel:${tel}" class="mono">${html}</a>`;
+  return `<span class="mono">${html}</span>`;
+}
 
 /* ---- Money inputs: live thousand-separator formatting (spec item 1) ----
    Amount fields use class="money" (type=text inputmode=numeric). A single
@@ -1051,41 +1071,58 @@ const NAV_ACCOUNTING = [
 // ---- Independent Accounting module shell — its own sidebar, reached via the
 // main hamburger's "حسابداری" item, with every commercial/accounting function
 // as a real, working nav entry (not nested tabs). ----
-const ACC_NAV = [
-  {id:'exit-acc-shell', icon:'🔙', label:'بازگشت به CRM'},
-  {id:'acc-dash', icon:'📊', label:'داشبورد و دفتر کل'},
-  {id:'acc-general', icon:'📈', label:'حسابداری کل (سود و زیان)'},
-  {id:'acc-receivables', icon:'🧾', label:'مطالبات مشتریان'},
-  {id:'acc-settlements', icon:'💵', label:'عملیات دریافت و پرداخت'},
-  {id:'acc-cheques', icon:'🏦', label:'مدیریت چک‌ها'},
-  {id:'acc-banks', icon:'🏦', label:'بانک‌ها'},
-  {id:'acc-check-categories', icon:'📑', label:'دسته‌های چک'},
-  {id:'acc-cash-boxes', icon:'💰', label:'صندوق‌های نقدی'},
-  {id:'acc-petty-cash', icon:'👛', label:'تنخواه گردان'},
-  {id:'acc-trust-checks', icon:'🔖', label:'چک‌های امانی'},
-  {id:'acc-transfers', icon:'🔄', label:'انتقال وجه'},
-  {id:'acc-suppliers', icon:'🚚', label:'تأمین‌کنندگان'},
-  {id:'acc-persons', icon:'🧑‍💼', label:'اشخاص (کارمند/شریک/سایر)'},
-  {id:'acc-sales-invoices', icon:'🧾', label:'فاکتورهای فروش'},
-  {id:'acc-purchases', icon:'📦', label:'فاکتور خرید'},
-  {id:'acc-purchase-returns', icon:'↩️', label:'برگشت از خرید'},
-  {id:'acc-sales-returns', icon:'↪️', label:'برگشت از فروش'},
-  {id:'acc-item-kardex', icon:'📋', label:'کاردکس کالا'},
-  {id:'acc-warehouses', icon:'🏭', label:'انبارها'},
-  {id:'acc-warehouse-ops', icon:'📦', label:'عملیات انبار (رسید/حواله/انتقال)'},
-  {id:'acc-consignments', icon:'🔄', label:'کالای امانی'},
-  {id:'acc-vouchers', icon:'📝', label:'اسناد حسابداری (دستی)'},
-  {id:'acc-trial-balance', icon:'⚖️', label:'تراز آزمایشی'},
-  {id:'acc-balance-sheet', icon:'🏛️', label:'ترازنامه'},
-  {id:'acc-commissions', icon:'🎯', label:'تأیید و انگیزه فروش'},
-  {id:'acc-reps', icon:'👔', label:'نمایندگان فروش'},
-  {id:'acc-cost-centers', icon:'🏷️', label:'مراکز هزینه'},
-  {id:'acc-customer-groups', icon:'👥', label:'گروه‌های مشتری (ماهیت حساب)'},
-  {id:'acc-statement', icon:'📄', label:'صورت‌حساب مشتری'},
-  {id:'acc-adv-reports', icon:'📊', label:'گزارشات پیشرفته'},
-  {id:'acc-production', icon:'🏗️', label:'تحلیل هزینه تولید'},
-  {id:'acc-payroll', icon:'🧑‍🏭', label:'حقوق و دستمزد (ساعتی)'},
+// ---- Accounting module nav — grouped by category for clearer hierarchy ----
+const ACC_NAV_SECTIONS = [
+  { title: 'پیشخوان', items: [
+    {id:'exit-acc-shell', icon:'🔙', label:'بازگشت به CRM'},
+    {id:'acc-dash', icon:'📊', label:'داشبورد و دفتر کل'},
+  ]},
+  { title: 'گزارش‌های مالی', items: [
+    {id:'acc-general', icon:'📈', label:'حسابداری کل (سود و زیان)'},
+    {id:'acc-trial-balance', icon:'⚖️', label:'تراز آزمایشی'},
+    {id:'acc-balance-sheet', icon:'🏛️', label:'ترازنامه'},
+    {id:'acc-adv-reports', icon:'📊', label:'گزارشات پیشرفته'},
+    {id:'acc-production', icon:'🏗️', label:'تحلیل هزینه تولید'},
+  ]},
+  { title: 'فروش و مطالبات', items: [
+    {id:'acc-receivables', icon:'🧾', label:'مطالبات مشتریان'},
+    {id:'acc-sales-invoices', icon:'🧾', label:'فاکتورهای فروش'},
+    {id:'acc-sales-returns', icon:'↪️', label:'برگشت از فروش'},
+    {id:'acc-statement', icon:'📄', label:'صورت‌حساب مشتری'},
+    {id:'acc-commissions', icon:'🎯', label:'تأیید و انگیزه فروش'},
+    {id:'acc-reps', icon:'👔', label:'نمایندگان فروش'},
+    {id:'acc-customer-groups', icon:'👥', label:'گروه‌های مشتری (ماهیت حساب)'},
+  ]},
+  { title: 'دریافت، پرداخت و بانک', items: [
+    {id:'acc-settlements', icon:'💵', label:'عملیات دریافت و پرداخت'},
+    {id:'acc-cheques', icon:'🏦', label:'مدیریت چک‌ها'},
+    {id:'acc-banks', icon:'🏦', label:'بانک‌ها'},
+    {id:'acc-check-categories', icon:'📑', label:'دسته‌های چک'},
+    {id:'acc-cash-boxes', icon:'💰', label:'صندوق‌های نقدی'},
+    {id:'acc-transfers', icon:'🔄', label:'انتقال وجه'},
+    {id:'acc-trust-checks', icon:'🔖', label:'چک‌های امانی'},
+    {id:'acc-petty-cash', icon:'👛', label:'تنخواه گردان'},
+  ]},
+  { title: 'خرید و تأمین', items: [
+    {id:'acc-purchases', icon:'📦', label:'فاکتور خرید'},
+    {id:'acc-purchase-returns', icon:'↩️', label:'برگشت از خرید'},
+    {id:'acc-suppliers', icon:'🚚', label:'تأمین‌کنندگان'},
+    {id:'acc-persons', icon:'🧑‍💼', label:'اشخاص (کارمند/شریک/سایر)'},
+  ]},
+  { title: 'انبار و کالا', items: [
+    {id:'acc-item-kardex', icon:'📋', label:'کاردکس کالا'},
+    {id:'acc-warehouses', icon:'🏭', label:'انبارها'},
+    {id:'acc-warehouse-ops', icon:'📦', label:'عملیات انبار (رسید/حواله/انتقال)'},
+    {id:'acc-consignments', icon:'🔄', label:'کالای امانی'},
+  ]},
+  { title: 'سایر', items: [
+    {id:'acc-vouchers', icon:'📝', label:'اسناد حسابداری (دستی)'},
+    {id:'acc-cost-centers', icon:'🏷️', label:'مراکز هزینه'},
+    {id:'acc-payroll', icon:'🧑‍🏭', label:'حقوق و دستمزد (ساعتی)'},
+  ]},
 ];
+function accNavFlat(){ return ACC_NAV_SECTIONS.flatMap(s=>s.items); }
+const ACC_NAV = accNavFlat();
 let IN_ACC_SHELL = false;
 let CURRENT_PAGE = 'dash';
 
@@ -1095,20 +1132,24 @@ const ACC_MODULE_MAP={
   'acc-petty-cash':'module_petty_cash','acc-trust-checks':'module_trust_checks',
   'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
   'acc-consignments':'module_consignments','acc-production':'module_production',
-  'acc-payroll':'module_payroll'
+  'acc-payroll':'module_payroll','acc-reps':'module_reps'
 };
+function filterAccNavItem(it){
+  const key=ACC_MODULE_MAP[it.id];
+  const flags=CACHE.moduleFlags||{};
+  return !key || flags[key]!=='0';
+}
+function accNavForRole(){
+  let nav=accNavFlat().filter(filterAccNavItem);
+  if(ME?.role==='sales_manager'){
+    const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements']);
+    nav=nav.filter(it=>allowed.has(it.id));
+  }
+  return nav;
+}
 function navItems(){
   if(IN_ACC_SHELL){
-    const flags=CACHE.moduleFlags||{};
-    let nav = ACC_NAV.filter(it=>{
-      const key=ACC_MODULE_MAP[it.id];
-      return !key || flags[key]!=='0';
-    });
-    if(ME?.role==='sales_manager'){
-      const allowed = new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements']);
-      nav = nav.filter(it => allowed.has(it.id));
-    }
-    return nav;
+    return accNavForRole();
   }
   if(ME.role==='admin') return NAV_ADMIN;
   if(ME.role==='accounting' || ME.role==='sales_manager'){
@@ -1131,13 +1172,28 @@ function isDesktopApp(){ return detectClientPlatform()==='desktop'; }
 function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
 
 function buildNav(){
-  const items = navItems();
-  el('nav').innerHTML = items.map(it=>`
+  const linkHtml = it=>`
     <a href="#" data-page="${it.id}" onclick="go('${it.id}');return false;">
       <span class="ico">${it.icon}</span><span>${it.label}</span>
       ${it.id==='messages'?'<span class="badge hide" id="msgBadge">0</span>':''}
       ${it.id==='reminders'?'<span class="badge hide" id="remBadge">0</span>':''}
-    </a>`).join('');
+    </a>`;
+  if(IN_ACC_SHELL){
+    el('nav').innerHTML = ACC_NAV_SECTIONS.map(sec=>{
+      const items = sec.items.filter(filterAccNavItem);
+      if(ME?.role==='sales_manager'){
+        const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements']);
+        const filtered=items.filter(it=>allowed.has(it.id));
+        if(!filtered.length) return '';
+        return `<div class="nav-section"><div class="nav-section-title">${sec.title}</div>${filtered.map(linkHtml).join('')}</div>`;
+      }
+      if(!items.length) return '';
+      return `<div class="nav-section"><div class="nav-section-title">${sec.title}</div>${items.map(linkHtml).join('')}</div>`;
+    }).join('');
+    return;
+  }
+  const items = navItems();
+  el('nav').innerHTML = items.map(linkHtml).join('');
 }
 
 // Dashboard "View Statement" quick action — jumps straight into the
@@ -1201,6 +1257,7 @@ function roleLabel(r){
   if(r==='sales_manager') return 'مدیر فروش';
   if(r==='inside_sales') return 'کارشناس داخلی';
   if(r==='field_sales') return 'کارشناس میدانی';
+  if(r==='distribution_office') return 'دفتر پخش';
   return 'کارشناس فروش';
 }
 /* Render a contextual help tooltip icon */
@@ -1674,7 +1731,20 @@ function filterDashBalances(name){
     totCell.style.color = tot>0 ? 'var(--green)' : '#dc2626';
   }
 }
-function statCard(c,ic,v,l){ return `<div class="stat"><div class="ic ${c}">${ic}</div><div><div class="v mono">${v}</div><div class="l">${l}</div></div></div>`; }
+function parseStatNum(val){
+  if(typeof val==='number' && isFinite(val)) return val;
+  if(typeof val!=='string') return NaN;
+  const en=val.replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[^\d.-]/g,'');
+  const n=parseFloat(en);
+  return isNaN(n)?NaN:n;
+}
+function statCard(c,ic,val,l){
+  const n=parseStatNum(val);
+  const isNum=!isNaN(n) && String(val).match(/[\d۰-۹]/) && !String(val).match(/[#✓]/);
+  const display=isNum?fmtCompact(n):String(val);
+  const tip=isNum?fmt(n):'';
+  return `<div class="stat"${tip?` title="${tip}"`:''}><div class="ic ${c}">${ic}</div><div><div class="v mono">${display}</div><div class="l">${l}</div></div></div>`;
+}
 function fitStatNums(){ /* CSS text-overflow handles stat sizing — avoids layout thrashing */ }
 function emptyRow(cols){ return `<tr><td colspan="${cols}" class="empty">موردی یافت نشد</td></tr>`; }
 
@@ -1699,9 +1769,9 @@ ROUTES.customers = async function(){
         ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}" ${String(custFilter.user_id)===String(u.id)?'selected':''}>${esc(u.name)}</option>`).join('')}
       </select>`:''}
       <button class="btn" onclick="custModal()">➕ مشتری جدید</button>
-      ${ME.role==='admin'?`<button class="btn ghost" onclick="importCustomers()">📤 ورود اکسل</button>
-      <button class="btn ghost" onclick="downloadCustTemplate()">📄 قالب</button>`:''}
-      <button class="btn ghost" onclick="exportExcel('customers')">📥 اکسل</button>
+      ${isAdmin()?`<button class="btn ghost" onclick="importCustomers()">📤 ورود اکسل</button>
+      <button class="btn ghost" onclick="downloadCustTemplate()">📄 قالب</button>
+      <button class="btn ghost" onclick="exportExcel('customers')">📥 اکسل</button>`:''}
     </div>
     <div id="cBulkBar" style="display:none;background:var(--purple-light);border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <span id="cSelCount" style="font-weight:600;color:var(--purple)">۰ مورد انتخاب شده</span>
@@ -1733,24 +1803,25 @@ function renderCustTable(){
   const allChecked = allIds.length>0 && allIds.every(id=>custSelected.has(id));
   el('custTable').innerHTML = `<table class="tbl"><thead><tr>
     <th style="width:36px"><input type="checkbox" ${allChecked?'checked':''} onchange="toggleAllCust(this,${JSON.stringify(allIds)})"></th>
-    <th>نام فروشگاه</th><th>نام کامل</th><th>استان/شهر</th><th>موبایل</th><th>نوع</th><th>وضعیت</th>${isAdmin?'<th>کارشناس</th><th>موجودی</th>':''}<th>عملیات</th>
+    <th>نام کامل</th><th>نام فروشگاه</th><th>موبایل</th><th>عملیات</th><th>شهر</th><th>آدرس</th><th>نوع</th><th>وضعیت</th>${isAdmin?'<th>کارشناس</th><th>موجودی</th>':''}
   </tr></thead><tbody>${rows.map(c=>`<tr ${custSelected.has(c.id)?'style="background:var(--purple-light)"':''}>
     <td><input type="checkbox" ${custSelected.has(c.id)?'checked':''} onchange="toggleCust(${c.id},this.checked)"></td>
-    <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
-    <td>${esc(c.province||'')}${c.province&&c.city?' / ':''}<span class="muted">${esc(c.city||'-')}</span></td>
-    <td class="mono">${esc(c.phone||'-')}</td><td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}</td>
-    ${isAdmin?`<td class="muted">${esc(c.salesperson||'-')}</td><td class="mono" style="color:${(c.balance||0)>0?'#dc2626':(c.balance||0)<0?'var(--green)':'var(--muted)'}">${(c.balance||0)!==0?fmt(c.balance)+' ت':'-'}</td>`:''}
+    <td>${esc(c.owner||'-')}</td><td>${esc(c.biz)}</td>
+    <td>${phoneCell(c.phone)}</td>
     <td style="white-space:nowrap">
       <button class="btn sm ghost" onclick="custModal(${c.id})">✏️</button>
       <button class="btn sm blue icon" onclick="custActivityModal(${c.id})" title="تاریخچه پیگیری">📋</button>
       ${c.phone?`<button class="btn sm ghost" onclick="sendWelcomeSMS(${c.id})" title="ارسال پیامک خوش‌آمدگویی">📤</button>`:''}
       <button class="btn sm red" onclick="confirmDelete('customers',${c.id},'${esc(c.biz)}')">🗑️</button></td>
-  </tr>`).join('')||emptyRow(isAdmin?10:8)}</tbody>
+    <td>${esc(c.city||'-')}</td>
+    <td class="muted" style="font-size:12px;max-width:180px">${esc(c.address||'-')}</td>
+    <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}</td>
+    ${isAdmin?`<td class="muted">${esc(c.salesperson||'-')}</td><td class="mono" style="color:${(c.balance||0)>0?'#dc2626':(c.balance||0)<0?'var(--green)':'var(--muted)'}">${(c.balance||0)!==0?fmt(c.balance)+' ت':'-'}</td>`:''}
+  </tr>`).join('')||emptyRow(isAdmin?11:9)}</tbody>
   ${isAdmin?`<tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
-    <td colspan="7">جمع (${fmt(rows.length)} مشتری)</td>
+    <td colspan="9">جمع (${fmt(rows.length)} مشتری)</td>
     <td></td>
     <td class="mono" style="font-weight:800;color:${rows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(rows.reduce((a,c)=>a+(c.balance||0),0))} ت</td>
-    <td></td>
   </tr></tfoot>`:''}</table>`;
 }
 function toggleCust(id, checked){ if(checked) custSelected.add(id); else custSelected.delete(id); renderCustTable(); }
@@ -1912,7 +1983,7 @@ const INTEREST_LEVELS = [
   {id:'high',      label:'زیاد',        cls:'int-high'},
   {id:'very_high', label:'خیلی زیاد',   cls:'int-very_high'}
 ];
-const CONTACT_TYPES = ['📱 تلفن','💬 واتساپ','📸 اینستاگرام','📲 تلگرام','🏪 حضوری','✉️ پیامک','💰 مانده حساب'];
+const CONTACT_TYPES = ['📱 تلفن','💬 واتساپ','📸 اینستاگرام','📲 تلگرام','🏪 حضوری','✉️ پیامک'];
 
 let fupFilter={q:'',status:'',stage:'',view:''};
 let _followupsFetched=false, _invoicesFetched=false, _msgsFetched=false, _remindersFetched=false;
@@ -1995,7 +2066,7 @@ ROUTES.followups = async function(){
         <button id="btnList" class="btn sm ${fupFilter.view==='list'?'':'ghost'}" onclick="setFupView('list')">📋 لیست</button>
       </div>
       <button class="btn" onclick="fupModal()">➕ جدید</button>
-      <button class="btn ghost" onclick="exportExcel('followups')">📥 اکسل</button>
+      ${isAdmin()?`<button class="btn ghost" onclick="exportExcel('followups')">📥 اکسل</button>`:''}
     </div>
     <div id="fupView"></div>`;
   el('fSearch').addEventListener('input',e=>{fupFilter.q=e.target.value;debounceFup();});
@@ -2054,7 +2125,40 @@ function fupRowsHtml(rows, showSalesperson){
 function renderFupTable(){
   const rows=filterFups();
   const isAdmin=ME.role==='admin'||ME.role==='accounting';
-  el('fupView').innerHTML=`<div class="panel"><div class="panel-body tbl-wrap">${fupRowsHtml(rows,isAdmin)}</div></div>`;
+  const groups={};
+  rows.forEach(f=>{
+    const key=String(f.cust_id||0);
+    if(!groups[key]) groups[key]={cust_biz:f.cust_biz||'-',cust_id:f.cust_id,items:[]};
+    groups[key].items.push(f);
+  });
+  const keys=Object.keys(groups).sort((a,b)=>groups[b].items.length-groups[a].items.length);
+  el('fupView').innerHTML=`<div class="panel"><div class="panel-body">
+    ${keys.map((key,gi)=>{
+      const g=groups[key];
+      const openCount=g.items.filter(f=>f.status==='open').length;
+      return `<div class="fup-folder" style="border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden">
+        <div class="fup-folder-head" onclick="toggleFupCustFolder(${gi})" style="display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;background:var(--purple-light)">
+          <span style="font-weight:700;color:var(--purple)">👤 ${esc(g.cust_biz)}</span>
+          <span class="tag t-new">${g.items.length} پیگیری</span>
+          ${openCount?`<span class="tag t-open">${openCount} باز</span>`:''}
+          <span style="margin-right:auto" id="fcArrow${gi}">▾</span>
+        </div>
+        <div class="fup-folder-body tbl-wrap" id="fcBody${gi}" style="display:none"></div>
+      </div>`;
+    }).join('')||'<div class="empty">پیگیری‌ای یافت نشد</div>'}
+  </div></div>`;
+  window._fupCustGroups=keys.map(k=>groups[k].items);
+}
+let _fupCustGroups=[];
+function toggleFupCustFolder(gi){
+  const body=el('fcBody'+gi), arrow=el('fcArrow'+gi); if(!body) return;
+  const opening=body.style.display==='none';
+  body.style.display=opening?'block':'none';
+  if(arrow) arrow.textContent=opening?'▴':'▾';
+  if(opening && !body.dataset.rendered){
+    body.innerHTML=fupRowsHtml(_fupCustGroups[gi]||[], ME.role==='admin'||ME.role==='accounting');
+    body.dataset.rendered='1';
+  }
 }
 
 // Folder view: group by salesperson, collapsed by default, rows only rendered on
@@ -2103,6 +2207,7 @@ function renderFupKanban(){
         const interest=INTEREST_LEVELS.find(l=>l.id===(f.interest_level||'mid'))||INTEREST_LEVELS[2];
         return `<div class="f-card" onclick="fupModal(${f.id})">
           <div class="fc-cust">${esc(f.cust_biz||'-')}</div>
+          ${stage.id==='lead' && (f.account_balance||0)>0?`<div style="font-size:11px;color:#dc2626;font-weight:600;margin-top:4px">💰 مانده: ${fmt(f.account_balance)} ت</div>`:''}
           ${f.subject?`<div class="fc-sub">${esc(f.subject)}</div>`:''}
           <div class="fc-meta">
             ${statusTag(f.priority)}
@@ -2153,6 +2258,8 @@ function fupModal(id, defaultStage, presetCustId){
           <div class="fg"><label>احتمال خرید (٪) ${hlp('به نظر شما چند درصد احتمال دارد این مشتری بخرد؟ صادقانه تخمین بزنید — برای پیش‌بینی دقیق‌تر فروش استفاده می‌شود.')}</label><input id="f-prob" type="number" min="0" max="100" value="${f.purchase_prob!=null?f.purchase_prob:50}"></div>
           <div class="fg"><label>اولویت ${hlp('فوری: باید همین روزها پیگیری شود. معمولی: در روال عادی. کم: وقتی فرصت بود.')}</label><select id="f-priority">
             ${['high','mid','low'].map(p=>`<option value="${p}" ${(f.priority||'mid')===p?'selected':''}>${STATUS_LABEL[p]}</option>`).join('')}</select></div>
+          <div class="fg"><label>مانده حساب (ت) ${hlp('مانده حساب مشتری در این مرحله — برای پیگیری مطالبات در ستون اول پایپ‌لاین نمایش داده می‌شود.')}</label>
+            <input id="f-balance" type="text" inputmode="numeric" class="money" value="${moneyInit(f.account_balance||0)}"></div>
         </div>
         <div id="lostReasonDiv" style="${(f.pipeline_stage||'lead')==='lost'?'':'display:none'};margin-top:8px">
           <div class="fg full"><label>دلیل از دست دادن فروش</label>
@@ -2203,7 +2310,8 @@ async function saveFup(id){
     pipeline_stage:el('f-stage').value,
     tags:el('f-tags').value,
     lost_reason:el('f-lost')?.value||'',
-    assigned_to:el('f-assigned')?.value||null
+    assigned_to:el('f-assigned')?.value||null,
+    account_balance:moneyVal('f-balance')
   };
   try{
     if(id) await api('PUT','/followups/'+id,data); else await api('POST','/followups',data);
@@ -2269,7 +2377,7 @@ ROUTES.invoices = async function(){
         <option value="final" ${invFilter.type==='final'?'selected':''}>فاکتور رسمی</option>
       </select>
       <button class="btn" onclick="openInvBuilder()">➕ فاکتور جدید</button>
-      <button class="btn ghost" onclick="exportExcel('invoices')">📥 اکسل</button>
+      ${isAdmin()?`<button class="btn ghost" onclick="exportExcel('invoices')">📥 اکسل</button>`:''}
     </div>
     <div class="panel"><div class="panel-body tbl-wrap"><div id="invTable"></div></div></div>`;
   el('iSearch').addEventListener('input',e=>{invFilter.q=e.target.value;debounceInv();});
@@ -2279,13 +2387,14 @@ ROUTES.invoices = async function(){
 function renderInvTable(){
   let rows=CACHE.invoices.slice();
   const q=invFilter.q.toLowerCase();
-  if(q)rows=rows.filter(i=>((i.num||'')+' '+(i.cust_biz||'')).toLowerCase().includes(q));
+  if(q)rows=rows.filter(i=>((i.num||'')+' '+(i.cust_biz||'')+' '+(i.cust_owner||'')).toLowerCase().includes(q));
   if(invFilter.type)rows=rows.filter(i=>i.type===invFilter.type);
   const isAdmin=ME.role==='admin';
   el('invTable').innerHTML=`<table class="tbl"><thead><tr>
     <th>شماره</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی</th><th>فروشنده</th><th>عملیات</th>
   </tr></thead><tbody>${rows.map(i=>`<tr>
-    <td class="mono" style="font-weight:700">${invNumCell(i.num)}</td><td>${esc(i.cust_biz||'-')}</td>
+    <td class="mono" style="font-weight:700">${invNumCell(i.num)}</td>
+    <td>${esc(i.cust_biz||'-')}${i.cust_owner?`<br><span class="muted" style="font-size:11px">${esc(i.cust_owner)}</span>`:''}</td>
     <td>${statusTag(i.type)}${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" style="font-size:10px">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
     <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
     <td class="muted">${esc(i.seller_name||'-')}</td>
@@ -2763,7 +2872,10 @@ function importProducts(){
   inp.click();
 }
 function downloadTemplate(){ downloadAuth('/products/template','products-template.xlsx'); }
-function exportExcel(entity){ downloadAuth('/'+entity+'/export/excel', entity+'.xlsx'); }
+function exportExcel(entity){
+  if(!isAdmin()){ showToast('فقط مدیر سیستم می‌تواند خروجی اکسل بگیرد','error'); return; }
+  downloadAuth('/'+entity+'/export/excel', entity+'.xlsx');
+}
 async function downloadAuth(path,filename){
   const token=localStorage.getItem('crm_token');
   try{
@@ -2807,6 +2919,7 @@ function userModal(id){
       <div class="fg"><label>نقش ${hlp('میدانی/داخلی: کارشناس فروش با دسترسی به مشتریان خود. حسابدار: دسترسی کامل به بخش حسابداری و مشاهده همه مشتریان. مدیر: دسترسی کامل به همه بخش‌ها.')}</label><select id="u-role">
         <option value="field_sales" ${(u.role==='field_sales'||u.role==='salesperson')?'selected':''}>کارشناس میدانی (حضوری)</option>
         <option value="inside_sales" ${u.role==='inside_sales'?'selected':''}>کارشناس داخلی (تلفنی)</option>
+        <option value="distribution_office" ${u.role==='distribution_office'?'selected':''}>دفتر پخش</option>
         <option value="sales_manager" ${u.role==='sales_manager'?'selected':''}>مدیر فروش</option>
         <option value="accounting" ${u.role==='accounting'?'selected':''}>حسابدار (بخش حسابداری)</option>
         <option value="admin" ${u.role==='admin'?'selected':''}>مدیر سیستم</option></select></div>
@@ -2966,9 +3079,10 @@ async function loadReports(){
           <td>${fmt(s.openFollowups)}</td><td>${fmt(s.invoices)}</td></tr>`).join('')||emptyRow(7)}</tbody></table></div></div>
     <div class="panel"><div class="panel-head"><h4>۱۰ مشتری برتر</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
-        <th>مشتری</th><th>شهر</th><th>تعداد سفارش</th><th>مجموع خرید</th><th>بدهی</th></tr></thead>
-        <tbody>${top.map(t=>`<tr><td>${esc(t.biz)}</td><td>${esc(t.city||'-')}</td><td>${fmt(t.orders)}</td>
-          <td class="mono">${fmt(t.total)}</td><td class="mono" style="color:var(--red)">${fmt(t.debt)}</td></tr>`).join('')||emptyRow(5)}</tbody></table></div></div>`;
+        <th>مشتری</th><th>نام کامل</th><th>تعداد سفارش</th><th>مجموع خرید</th><th>بدهی</th><th>شهر</th><th>آدرس</th></tr></thead>
+        <tbody>${top.map(t=>`<tr><td>${esc(t.biz)}</td><td>${esc(t.owner||'-')}</td><td>${fmt(t.orders)}</td>
+          <td class="mono">${fmt(t.total)}</td><td class="mono" style="color:var(--red)">${fmt(t.debt)}</td>
+          <td>${esc(t.city||'-')}</td><td class="muted" style="font-size:12px">${esc(t.address||'-')}</td></tr>`).join('')||emptyRow(7)}</tbody></table></div></div>`;
   cacheSet('reports:'+qk, el('repBody').innerHTML);
   _lastMonthly = monthly;
   drawChart(monthly);
@@ -3029,6 +3143,7 @@ ROUTES['acc-dash'] = async function(){
       <div class="panel-head"><h4>🚀 دسترسی سریع</h4></div>
       <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:10px">
         <button class="btn" onclick="go('acc-receivables')">🧾 مطالبات مشتریان</button>
+        <button class="btn" onclick="go('acc-sales-invoices')">🧾 فاکتور فروش</button>
         <button class="btn" onclick="go('acc-settlements')">💵 ثبت پرداخت</button>
         <button class="btn" onclick="go('acc-purchases')">📦 ثبت فاکتور خرید</button>
         <button class="btn" onclick="go('acc-vouchers')">📝 سند حسابداری دستی</button>
@@ -5819,6 +5934,7 @@ async function deleteTransfer(id){
 ============================================================ */
 async function renderCashOpsTab(body, dq){
   const rows=await api('GET','/accounting/settlements'+dq)||[];
+  const pendingRepPay=await api('GET','/reps/payments/pending').catch(()=>[]);
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
@@ -5835,6 +5951,22 @@ async function renderCashOpsTab(body, dq){
   const kindLabel={supplier:'🚚 تأمین‌کننده',incentive:'🎯 انگیزه فروش',expense:'🧾 هزینه عمومی'};
   const payLabel=p=>p==='cheque'?'🧾 چک':p==='bank'?'🏦 بانکی':'💵 نقد';
   body.innerHTML=`
+    ${(pendingRepPay||[]).length?`<div class="panel" style="margin-bottom:16px;border-color:#fde68a">
+      <div class="panel-head"><h4>⏳ دریافت‌های میدانی در انتظار تأیید (${pendingRepPay.length})</h4></div>
+      <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>تاریخ</th><th>نماینده</th><th>مشتری</th><th>نوع</th><th>مبلغ</th><th>رسید</th><th>عملیات</th>
+      </tr></thead><tbody>${pendingRepPay.map(p=>`<tr>
+        <td class="mono">${escDate(p.date)}</td><td>${esc(p.rep_name)}</td>
+        <td>${esc(p.cust_biz||'-')}${p.cust_owner?`<br><span class="muted">${esc(p.cust_owner)}</span>`:''}</td>
+        <td>${p.pay_type==='cheque'?'🧾 چک':p.pay_type==='bank_transfer'?'🏦 واریز':'💵 نقد'}</td>
+        <td class="mono">${fmt(p.amount)}</td>
+        <td>${p.receipt_file?`<a href="/uploads/reps/${esc(p.receipt_file)}" target="_blank">🖼️ مشاهده</a>`:'-'}</td>
+        <td style="white-space:nowrap">
+          <button class="btn sm green" onclick="approveRepPayment(${p.id})">✅ تأیید</button>
+          <button class="btn sm red" onclick="rejectRepPayment(${p.id})">❌ رد</button>
+        </td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>`:''}
     <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <button class="btn green" onclick="settlementModal()">➕ ثبت دریافت (از مشتری)</button>
       <button class="btn" onclick="paymentOpChooser()">➕ ثبت پرداخت (خروجی)</button>
@@ -6329,10 +6461,14 @@ async function saveSettlement(){
 ROUTES['my-rep'] = async function(){
   if(!isRepRole(ME?.role)){ el('view').innerHTML='<div class="empty">فقط نمایندگان فروش</div>'; return; }
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const [dash, stmt]=await Promise.all([
+  const isField = ME.role==='field_sales';
+  const reqs = [
     api('GET','/reps/my/dashboard'),
     api('GET','/reps/my/ledger')
-  ]);
+  ];
+  if(isField) reqs.push(api('GET','/reps/payments/mine').catch(()=>[]));
+  const results = await Promise.all(reqs);
+  const dash=results[0], stmt=results[1], myPayments=isField?results[2]:[];
   const comm=dash?.commission||{};
   el('view').innerHTML=`
     <div class="cards" style="margin-bottom:16px">
@@ -6342,10 +6478,21 @@ ROUTES['my-rep'] = async function(){
       ${comm.monthlyTarget?statCard('b','📊',(comm.targetPct||0)+'٪','تحقق هدف'):''}
     </div>
     <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      ${isField?`<button class="btn green" onclick="repPaymentModal()">💵 ثبت دریافت از مشتری</button>`:''}
       <button class="btn" onclick="repExpenseModal(${ME.id},${JSON.stringify(ME.name||'')})">🧾 ثبت هزینه</button>
       <button class="btn ghost" onclick="repVisitModal(${ME.id})">📍 ثبت بازدید</button>
       <button class="btn ghost" onclick="repCallModal(${ME.id})">📞 ثبت تماس</button>
     </div>
+    ${isField && (myPayments||[]).length?`<div class="panel" style="margin-bottom:16px"><div class="panel-head"><h4>⏳ پرداخت‌های در انتظار تأیید</h4></div>
+      <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>تاریخ</th><th>مشتری</th><th>نوع</th><th>مبلغ</th><th>وضعیت</th><th>رسید</th>
+      </tr></thead><tbody>${(myPayments||[]).slice(0,20).map(p=>`<tr>
+        <td class="mono">${escDate(p.date)}</td><td>${esc(p.cust_biz||'-')}</td>
+        <td>${p.pay_type==='cheque'?'🧾 چک':p.pay_type==='bank_transfer'?'🏦 واریز':'💵 نقد'}</td>
+        <td class="mono">${fmt(p.amount)}</td>
+        <td>${p.status==='pending'?'<span class="tag t-pending">⏳ در انتظار</span>':p.status==='approved'?'<span class="tag t-done">✅ تأیید</span>':'<span class="tag t-lost">❌ رد</span>'}</td>
+        <td>${p.receipt_file?`<a href="/uploads/reps/${esc(p.receipt_file)}" target="_blank">🖼️</a>`:'-'}</td>
+      </tr>`).join('')||emptyRow(6)}</tbody></table></div></div>`:''}
     <div class="panel"><div class="panel-head"><h4>📒 گردش حساب من</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
         <th>تاریخ</th><th>نوع</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th>
@@ -6355,6 +6502,84 @@ ROUTES['my-rep'] = async function(){
       </tr>`).join('')||emptyRow(5)}</tbody></table></div>
     </div>`;
 };
+
+async function repPaymentModal(){
+  if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
+  openModal(`
+    <div class="modal-head"><h3>💵 ثبت دریافت از مشتری</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>مشتری *</label>${custSelect('rp-cust',0)}</div>
+      <div class="fg"><label>مبلغ (ت) *</label><input id="rp-amount" type="text" inputmode="numeric" class="money"></div>
+      <div class="fg"><label>نوع</label><select id="rp-paytype" onchange="toggleRepPayFields()">
+        <option value="cash">💵 نقد</option>
+        <option value="bank_transfer">🏦 واریز بانکی</option>
+        <option value="cheque">🧾 چک</option>
+      </select></div>
+      <div class="fg"><label>تاریخ</label><input id="rp-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>یادداشت</label><input id="rp-note" placeholder="توضیحات..."></div>
+      <div id="rp-bank-block" class="fg full" style="display:none"><label>شماره پیگیری / مرجع واریز</label><input id="rp-bankref"></div>
+      <div id="rp-cheque-block" class="fg full" style="display:none"><div class="form-grid">
+        <div class="fg"><label>بانک *</label><input id="rp-cbank"></div>
+        <div class="fg"><label>صیادی *</label><input id="rp-csayadi"></div>
+        <div class="fg"><label>شماره چک</label><input id="rp-cnum"></div>
+        <div class="fg"><label>صادرکننده</label><input id="rp-cowner"></div>
+        <div class="fg"><label>مبلغ چک</label><input id="rp-camount" type="text" inputmode="numeric" class="money"></div>
+        <div class="fg full"><label>سررسید *</label><input id="rp-cdue" data-jdate></div>
+      </div></div>
+      <div class="fg full"><label>عکس رسید / چک *</label><input type="file" id="rp-receipt" accept="image/*"></div>
+      <p class="muted" style="font-size:12px;grid-column:1/-1">تا تأیید حسابدار، این مبلغ روی مانده مشتری اعمال نمی‌شود.</p>
+    </div></div>
+    <div class="modal-foot">
+      <button class="btn green" onclick="saveRepPayment()">📤 ارسال برای تأیید</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button>
+    </div>`, true);
+  attachDatepickers(el('modalRoot'));
+  initCustSearches(el('modalRoot'));
+}
+function toggleRepPayFields(){
+  const pt=el('rp-paytype')?.value;
+  const cb=el('rp-cheque-block'), bb=el('rp-bank-block');
+  if(cb) cb.style.display=pt==='cheque'?'block':'none';
+  if(bb) bb.style.display=pt==='bank_transfer'?'block':'none';
+}
+async function saveRepPayment(){
+  const cust_id=+el('rp-cust')?.value;
+  const amount=moneyVal('rp-amount');
+  const pay_type=el('rp-paytype')?.value||'cash';
+  const f=el('rp-receipt')?.files?.[0];
+  if(!cust_id||!amount){ showToast('مشتری و مبلغ الزامی است','error'); return; }
+  if(!f){ showToast('عکس رسید الزامی است','error'); return; }
+  const fd=new FormData();
+  fd.append('cust_id',cust_id); fd.append('amount',amount); fd.append('pay_type',pay_type);
+  fd.append('date',el('rp-date')?.value||''); fd.append('note',el('rp-note')?.value||'');
+  fd.append('receipt',f);
+  if(pay_type==='bank_transfer') fd.append('bank_ref',el('rp-bankref')?.value||'');
+  if(pay_type==='cheque'){
+    fd.append('cheque_bank',el('rp-cbank')?.value||'');
+    fd.append('cheque_sayadi',el('rp-csayadi')?.value||'');
+    fd.append('cheque_number',el('rp-cnum')?.value||'');
+    fd.append('cheque_owner',el('rp-cowner')?.value||'');
+    fd.append('cheque_amount',moneyVal('rp-camount')||amount);
+    fd.append('cheque_due',el('rp-cdue')?.value||'');
+    if(!el('rp-cbank')?.value||!el('rp-csayadi')?.value||!el('rp-cdue')?.value){
+      showToast('اطلاعات چک ناقص است','error'); return;
+    }
+  }
+  const token=localStorage.getItem('crm_token');
+  const r=await fetch('/api/reps/payments',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){ showToast(j.error||'خطا','error'); return; }
+  closeModal(); showToast('برای تأیید حسابدار ارسال شد'); ROUTES['my-rep']();
+}
+async function approveRepPayment(id){
+  await api('POST','/reps/payments/'+id+'/approve');
+  showToast('تأیید شد — تسویه ثبت گردید'); loadAccTab(accTab);
+}
+async function rejectRepPayment(id){
+  const note=prompt('دلیل رد (اختیاری):')||'';
+  await api('POST','/reps/payments/'+id+'/reject',{note});
+  showToast('رد شد'); loadAccTab(accTab);
+}
 
 /* ============================================================
    REP MANAGEMENT (نمایندگان فروش)
@@ -7039,7 +7264,7 @@ async function deleteIncentivePayment(id, repId, repName){
 /* ============================================================
    MESSAGES
 ============================================================ */
-let msgTab='inbox', MSGS=[], msgSearch='';
+let msgTab='inbox', MSGS=[], msgSearch='', msgSelected=new Set(), msgFolderUser='';
 ROUTES.messages = async function(){
   if(!_msgsFetched){ MSGS=await api('GET','/messages')||[]; _msgsFetched=true; }
   const inbox = MSGS.filter(m=>m.direction==='received');
@@ -7053,6 +7278,7 @@ ROUTES.messages = async function(){
       <button id="tabSent" class="btn${msgTab==='sent'?' green':' ghost'}" onclick="switchMsgTab('sent')">📤 ارسالی (${sent.length})</button>
       <input id="msgSearchInput" class="search" placeholder="جستجو در پیام‌ها..." value="${esc(msgSearch)}" style="flex:1;min-width:140px" oninput="msgSearch=this.value;debounceMsg()">
       <button class="btn ghost" onclick="markAllRead()">✔️ خواندن همه</button>
+      ${msgSelected.size?`<button class="btn sm red" onclick="deleteSelectedMsgs()">🗑️ حذف (${msgSelected.size})</button>`:''}
       <button class="btn" onclick="composeMsg()">✉️ پیام جدید</button>
     </div>
     <div id="msgList"></div>`;
@@ -7060,7 +7286,7 @@ ROUTES.messages = async function(){
   setTimeout(async()=>{ await api('POST','/messages/read-all'); refreshMsgBadge(); }, 800);
 };
 function switchMsgTab(t){
-  msgTab=t;
+  msgTab=t; msgFolderUser=''; msgSelected.clear();
   const ib=el('tabInbox'), sn=el('tabSent');
   if(ib){ ib.className=t==='inbox'?'btn green':'btn ghost'; }
   if(sn){ sn.className=t==='sent'?'btn green':'btn ghost'; }
@@ -7070,12 +7296,25 @@ function renderMsgs(){
   let list = MSGS.filter(m=> msgTab==='inbox' ? m.direction==='received' : m.direction==='sent');
   if(msgSearch){ const q=msgSearch.toLowerCase(); list=list.filter(m=>(m.body||'').toLowerCase().includes(q)||(m.from_name||'').toLowerCase().includes(q)||(m.to_name||'').toLowerCase().includes(q)); }
   const canDelete = ME.role==='admin';
-  el('msgList').innerHTML = list.map(m=>`
+  const folderKey = m=> msgTab==='inbox' ? (m.from_name||'سیستم') : (m.to_name||'📢 همه');
+  const folders={};
+  list.forEach(m=>{ const k=folderKey(m); (folders[k]=folders[k]||[]).push(m); });
+  const folderNames=Object.keys(folders).sort((a,b)=>folders[b].length-folders[a].length);
+  if(!msgFolderUser && folderNames.length) msgFolderUser=folderNames[0];
+  const folderBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${folderNames.map(name=>`
+    <button class="btn sm ${msgFolderUser===name?'green':'ghost'}" onclick="setMsgFolder(${JSON.stringify(name)})">
+      📁 ${esc(name)} <span class="muted">(${folders[name].length})</span>
+    </button>`).join('')}</div>`;
+  const flist = msgFolderUser ? (folders[msgFolderUser]||[]) : list;
+  el('msgList').innerHTML = folderBar + flist.map(m=>{
+    const peer=msgTab==='inbox'?(m.from_name||'?'):(m.to_name||'؟');
+    return `
     <div class="msg ${(msgTab==='inbox'&&!m.is_read)?'unread':''}" style="border-radius:10px;margin-bottom:8px;border:1.5px solid ${(msgTab==='inbox'&&!m.is_read)?'var(--purple)':'var(--border)'}">
       <div class="mh" style="display:flex;justify-content:space-between;align-items:center">
         <span style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" ${msgSelected.has(m.id)?'checked':''} onchange="toggleMsgSel(${m.id},this.checked)" onclick="event.stopPropagation()" style="width:auto">
           <span style="width:34px;height:34px;border-radius:50%;background:var(--purple-light);color:var(--purple);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700">
-            ${(msgTab==='inbox'?(m.from_name||'?'):(m.to_name||'؟'))[0]}
+            ${peer[0]}
           </span>
           <span>
             <div style="font-weight:600;font-size:13px">${msgTab==='inbox'?'از: '+esc(m.from_name||'سیستم'):'به: '+esc(m.to_name||'📢 همه')}</div>
@@ -7090,7 +7329,16 @@ function renderMsgs(){
       </div>
       <div class="mb" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-wrap;font-size:13px">${esc(m.body)}</div>
       ${m.image?`<div style="margin-top:8px"><a href="/uploads/messages/${esc(m.image)}" target="_blank"><img src="/uploads/messages/${esc(m.image)}" style="max-width:100%;border-radius:8px;border:1px solid var(--border);cursor:zoom-in"></a></div>`:''}
-    </div>`).join('') || '<div class="empty" style="padding:40px;text-align:center">📭 پیامی یافت نشد</div>';
+    </div>`;
+  }).join('') || '<div class="empty" style="padding:40px;text-align:center">📭 پیامی یافت نشد</div>';
+}
+function setMsgFolder(name){ msgFolderUser=name; renderMsgs(); }
+function toggleMsgSel(id, on){ if(on) msgSelected.add(id); else msgSelected.delete(id); renderMsgs(); }
+async function deleteSelectedMsgs(){
+  if(!msgSelected.size) return;
+  if(!confirm(msgSelected.size+' پیام حذف شود؟')) return;
+  for(const id of [...msgSelected]) await api('DELETE','/messages/'+id);
+  msgSelected.clear(); MSGS=await api('GET','/messages'); renderMsgs(); showToast('حذف شد');
 }
 async function markVisibleRead(){ setTimeout(async()=>{ await api('POST','/messages/read-all'); refreshMsgBadge(); }, 800); }
 async function markAllRead(){ await api('POST','/messages/read-all'); MSGS=await api('GET','/messages'); renderMsgs(); refreshMsgBadge(); showToast('همه خوانده شد'); }
@@ -7320,6 +7568,7 @@ ROUTES.settings = async function(){
         <div class="fg"><label><input type="checkbox" id="s-module_consignments" ${s.module_consignments!=='0'?'checked':''} style="width:auto;margin-left:6px"> کالای امانی</label></div>
         <div class="fg"><label><input type="checkbox" id="s-module_production" ${s.module_production!=='0'?'checked':''} style="width:auto;margin-left:6px"> تحلیل هزینه تولید</label></div>
         <div class="fg"><label><input type="checkbox" id="s-module_payroll" ${s.module_payroll!=='0'?'checked':''} style="width:auto;margin-left:6px"> حقوق و دستمزد</label></div>
+        <div class="fg"><label><input type="checkbox" id="s-module_reps" ${s.module_reps!=='0'?'checked':''} style="width:auto;margin-left:6px"> نمایندگان فروش</label></div>
       </div>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>📜 گزارش ممیزی (Audit)</h4>
@@ -7337,7 +7586,7 @@ ROUTES['desktop-settings'] = async function(){
 async function saveSettings(){
   const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month'];
   const data={}; keys.forEach(k=>{ const e=el('s-'+k); if(e)data[k]=e.value; });
-  const moduleKeys=['module_petty_cash','module_trust_checks','module_warehouses','module_consignments','module_production','module_payroll'];
+  const moduleKeys=['module_petty_cash','module_trust_checks','module_warehouses','module_consignments','module_production','module_payroll','module_reps'];
   moduleKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.checked?'1':'0'; });
   data.rep_sms_notify = el('s-rep_sms_notify')?.checked ? '1' : '0';
   CACHE.settings = await api('PUT','/settings',data);
@@ -7399,6 +7648,9 @@ ROUTES.backup = async function(){
   const backups = await api('GET','/admin/backups').catch(()=>[]);
   const mahak = await api('GET','/import/mahak/status').catch(()=>({}));
   el('view').innerHTML=`
+    ${isDesktopApp()?`<div class="panel" style="margin-bottom:16px;border-color:#bfdbfe"><div class="panel-body" style="font-size:13px;line-height:1.8;color:var(--muted)">
+      💻 <strong>نسخه دسکتاپ:</strong> پشتیبان از <strong>دیتابیس محلی</strong> این دستگاه (شامل داده آفلاین) ساخته می‌شود. پشتیبان کامل سرور مرکزی از نسخه وب در دسترس است.
+    </div></div>`:''}
     <div class="panel">
       <div class="panel-head"><h4>📦 پشتیبان‌گیری پیشرفته</h4></div>
       <div class="panel-body">

@@ -27,28 +27,42 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۱۹)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۰)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `4958c4a` |
-| وضعیت سرور | ⏳ در حال deploy |
-| Deploy بعدی لازم | rebuild دسکتاپ `1.0.2` برای کاربران ویندوز |
+| آخرین commit | (پس از commit 1.0.6) |
+| نسخه وب/دسکتاپ | `1.0.6` / SW `v17` |
+| Deploy بعدی لازم | pull روی production + rebuild exe دسکتاپ |
 
 ---
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۰ — به‌روزرسانی 1.0.6 (update1.0.6.md — ۱۴ مورد)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (در حال commit)
+- **خلاصه:**
+  - دسکتاپ: تأیید خروج؛ پشتیبان محلی بدون خطای centralOnly
+  - UX: fmtCompact در statCard؛ ستون‌های استاندارد مشتری + tel: موبایل
+  - پیگیری: مانده حساب در مرحله؛ kanban ستون سرنخ؛ لیست accordion مشتری
+  - اکسل فقط admin؛ گزارش top10؛ فاکتور با نام کامل؛ نقش دفتر پخش
+  - پیام‌ها: checkbox + پوشه کاربر؛ تنظیمات module_reps؛ ACC_NAV دسته‌بندی
+  - پرداخت میدانی: rep_payment_submissions + تأیید حسابدار
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/db.js`, `server/routes/rep-management.js`, `desktop/main.js`
+- **Deploy:** ⏳
+- **یادداشت:** `git pull && cd server && pm2 restart crm-taranom`
+
 ### ۱۴۰۴/۰۴/۱۹ — بهینه‌سازی سرعت ناوبری و بارگذاری صفحات
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** `4958c4a`
+- **Commit:** `dc95426`
 - **خلاصه:**
   - فرانت: لایه cache برای API و HTML داشبورد/گزارشات؛ reuse پنل حسابداری بین تب‌ها؛ debounce جستجو؛ fetch یک‌باره پیام‌ها/یادآورها
   - بک‌اند: indexهای جدید SQLite؛ cache وضعیت کاربر فعال در auth (۳۰ثانیه)؛ رفع N+1 در `/reports/salesperson`؛ `seedWarehouseStock` فقط یک‌بار
   - Service Worker: bump به `crm-taranom-v8`
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/db.js`, `server/middleware/auth.js`, `server/routes/reports.js`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ production (`dc95426` — HTTP 200)
 - **یادداشت:** سرور API از قبل سریع بود (~۵ms)؛ گلوگاه اصلی فرانت و queryهای تکراری بود
 
 ---

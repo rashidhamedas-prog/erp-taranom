@@ -134,16 +134,17 @@ app.use('/api/admin', require('./routes/admin'));
 // Central-only: the tar/Gmail backup pipeline belongs to the production
 // server; device builds have their own local DB file the OS backs up.
 const { auth, adminOnly, centralOnly } = require('./middleware/auth');
-app.post('/api/admin/backup-now', auth, adminOnly, centralOnly, async (req, res) => {
+// Backup endpoints work on central and desktop (local DB_PATH); no centralOnly gate.
+app.post('/api/admin/backup-now', auth, adminOnly, async (req, res) => {
   const result = await runBackup();
-  res.json(result);
+  res.json({ ...result, role: isDevice() ? 'device' : 'central' });
 });
 
-app.get('/api/admin/backups', auth, adminOnly, centralOnly, (req, res) => {
+app.get('/api/admin/backups', auth, adminOnly, (req, res) => {
   res.json(listBackups());
 });
 
-app.get('/api/admin/backup-download', auth, adminOnly, centralOnly, async (req, res) => {
+app.get('/api/admin/backup-download', auth, adminOnly, async (req, res) => {
   let filePath = getLatestBackupFile();
   if (!fs.existsSync(filePath)) {
     const result = await runBackup();
@@ -154,7 +155,7 @@ app.get('/api/admin/backup-download', auth, adminOnly, centralOnly, async (req, 
   res.download(filePath, base);
 });
 
-app.get('/api/admin/backup-download/:name', auth, adminOnly, centralOnly, (req, res) => {
+app.get('/api/admin/backup-download/:name', auth, adminOnly, (req, res) => {
   const filePath = resolveBackupFile(req.params.name);
   if (!filePath) return res.status(404).json({ error: 'فایل پشتیبان یافت نشد' });
   res.download(filePath, req.params.name);

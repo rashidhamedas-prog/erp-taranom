@@ -163,7 +163,7 @@ router.get('/balances', auth, (req, res) => {
   res.json(rows);
 });
 
-router.get('/export/excel', auth, (req, res) => {
+router.get('/export/excel', auth, adminOnly, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
   let rows;
@@ -221,7 +221,7 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
           normalizeStr(row['نام کامل'] || row['owner'] || row['نام مالک'] || ''),
           normalizeStr(row['شهر'] || row['city'] || ''),
           normalizeStr(row['استان'] || row['province'] || ''),
-          normalizeStr(row['آدرس'] || row['address'] || ''),
+          normalizeStr(row['آدرس'] || row['آدرس کامل'] || row['address'] || ''),
           normalizeStr(row['موبایل'] || row['phone'] || ''),
           row['اینستاگرام'] || row['insta'] || '',
           row['نوع'] || row['type'] || 'بوتیک',
@@ -255,8 +255,8 @@ router.get('/template', auth, adminOnly, (req, res) => {
   const XLSX = require('xlsx');
   const wb = XLSX.utils.book_new();
   const data = [
-    { 'نام فروشگاه': 'بوتیک بهار', 'نام کامل': 'زهره احمدی', 'شهر': 'مشهد', 'موبایل': '09151234567', 'اینستاگرام': 'bahar_boutique', 'نوع': 'بوتیک', 'وضعیت': 'active', 'منبع آشنایی': 'instagram', 'کارشناس': '', 'موجودی حساب': 0 },
-    { 'نام فروشگاه': 'فروشگاه نسیم', 'نام کامل': 'فاطمه حسینی', 'شهر': 'تهران', 'موبایل': '09121234567', 'اینستاگرام': 'nasim_shop', 'نوع': 'فروشگاه', 'وضعیت': 'new', 'منبع آشنایی': 'referral', 'کارشناس': '', 'موجودی حساب': 0 },
+    { 'نام فروشگاه': 'بوتیک بهار', 'نام کامل': 'زهره احمدی', 'استان': 'خراسان رضوی', 'شهر': 'مشهد', 'آدرس کامل': 'بلوار فردوسی، پلاک ۱۲', 'موبایل': '09151234567', 'اینستاگرام': 'bahar_boutique', 'نوع': 'بوتیک', 'وضعیت': 'active', 'منبع آشنایی': 'instagram', 'کارشناس': '', 'موجودی حساب': 0 },
+    { 'نام فروشگاه': 'فروشگاه نسیم', 'نام کامل': 'فاطمه حسینی', 'استان': 'تهران', 'شهر': 'تهران', 'آدرس کامل': 'خیابان ولیعصر', 'موبایل': '09121234567', 'اینستاگرام': 'nasim_shop', 'نوع': 'فروشگاه', 'وضعیت': 'new', 'منبع آشنایی': 'referral', 'کارشناس': '', 'موجودی حساب': 0 },
   ];
   const ws = XLSX.utils.json_to_sheet(data);
   // Add column widths

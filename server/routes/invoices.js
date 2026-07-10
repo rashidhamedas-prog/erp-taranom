@@ -78,15 +78,15 @@ router.get('/', auth, (req, res) => {
     i.cheque_duration,i.cheque_due_date,i.cheque_info,i.approved,i.converted,i.note,i.created_at`;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ORDER BY i.created_at DESC`).all();
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ORDER BY i.created_at DESC`).all();
   } else {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? ORDER BY i.created_at DESC`).all(scope);
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? ORDER BY i.created_at DESC`).all(scope);
   }
   res.json(rows);
 });
 
 // Export invoices to Excel (must be before /:id to avoid route capture)
-router.get('/export/excel', auth, (req, res) => {
+router.get('/export/excel', auth, adminOnly, (req, res) => {
   const XLSX = require('xlsx');
   const db = getDB();
   const scope = getScope(req);

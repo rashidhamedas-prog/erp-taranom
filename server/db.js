@@ -559,6 +559,7 @@ function initDB() {
   // Follow-up scheduled time for timed SMS reminders
   ensureColumn(db, 'followups', 'next_time', "TEXT DEFAULT ''");
   ensureColumn(db, 'followups', 'sms_sent', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'followups', 'account_balance', 'REAL DEFAULT 0');
   // Customer CRM fields
   ensureColumn(db, 'customers', 'source', "TEXT DEFAULT ''");
   // Customer account balance (admin-only, applied as initial credit/debit)
@@ -1108,6 +1109,33 @@ function initDB() {
       FOREIGN KEY(rep_id) REFERENCES users(id),
       FOREIGN KEY(customer_id) REFERENCES customers(id)
     );
+    CREATE TABLE IF NOT EXISTS rep_payment_submissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rep_id INTEGER NOT NULL,
+      cust_id INTEGER NOT NULL,
+      pay_type TEXT DEFAULT 'cash',
+      amount REAL DEFAULT 0,
+      date TEXT,
+      note TEXT,
+      receipt_file TEXT,
+      cheque_bank TEXT DEFAULT '',
+      cheque_sayadi TEXT DEFAULT '',
+      cheque_number TEXT DEFAULT '',
+      cheque_account TEXT DEFAULT '',
+      cheque_amount REAL DEFAULT 0,
+      cheque_owner TEXT DEFAULT '',
+      cheque_due TEXT DEFAULT '',
+      bank_ref TEXT DEFAULT '',
+      status TEXT DEFAULT 'pending',
+      settlement_id INTEGER,
+      approved_by INTEGER,
+      approved_at INTEGER,
+      rejection_note TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(rep_id) REFERENCES users(id),
+      FOREIGN KEY(cust_id) REFERENCES customers(id)
+    );
   `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_customers_user ON customers(user_id);
@@ -1164,6 +1192,8 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_rep_settlements_rep ON rep_settlements(rep_id);
     CREATE INDEX IF NOT EXISTS idx_rep_visits_rep ON rep_visit_logs(rep_id);
     CREATE INDEX IF NOT EXISTS idx_rep_calls_rep ON rep_call_logs(rep_id);
+    CREATE INDEX IF NOT EXISTS idx_rep_pay_sub_rep ON rep_payment_submissions(rep_id);
+    CREATE INDEX IF NOT EXISTS idx_rep_pay_sub_status ON rep_payment_submissions(status);
   `);
 
   // ---- Default admin ----

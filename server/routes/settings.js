@@ -14,7 +14,7 @@ const ALLOWED_KEYS = [
   // Admin panel (Phase 10): numbering sequences, fiscal year, module toggles
   'invoice_num_prefix', 'purchase_num_prefix', 'fiscal_year_start_month',
   'module_petty_cash', 'module_trust_checks', 'module_warehouses',
-  'module_consignments', 'module_production', 'module_payroll'
+  'module_consignments', 'module_production', 'module_payroll', 'module_reps'
 ];
 
 // Module flags a non-admin (e.g. accounting role) also needs, to know which
@@ -22,7 +22,7 @@ const ALLOWED_KEYS = [
 // the full settings list which is admin-only.
 const MODULE_KEYS = [
   'module_petty_cash', 'module_trust_checks', 'module_warehouses',
-  'module_consignments', 'module_production', 'module_payroll'
+  'module_consignments', 'module_production', 'module_payroll', 'module_reps'
 ];
 router.get('/modules', auth, (req, res) => {
   const db = getDB();

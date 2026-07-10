@@ -92,7 +92,7 @@ router.get('/salesperson', auth, adminOnly, (req, res) => {
 router.get('/top-customers', auth, adminOnly, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
-    SELECT c.id, c.biz, c.city, c.owner,
+    SELECT c.id, c.biz, c.city, c.owner, c.address,
            COUNT(i.id) orders, COALESCE(SUM(i.final),0) total,
            COALESCE(SUM(i.final),0) - COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.cust_id=c.id),0) debt
     FROM customers c

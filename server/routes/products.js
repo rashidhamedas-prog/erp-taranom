@@ -256,7 +256,7 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
 });
 
 // Export all products
-router.get('/export/excel', auth, (req, res) => {
+router.get('/export/excel', auth, adminOnly, (req, res) => {
   const db = getDB();
   const rows = db.prepare('SELECT * FROM products ORDER BY created_at DESC').all();
   const data = rows.map(r => ({

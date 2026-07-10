@@ -54,7 +54,7 @@ async function startEmbeddedServer() {
   const port = await getFreePort();
   process.env.SYNC_ROLE = 'device';
   process.env.APP_PLATFORM = 'desktop';
-  process.env.APP_VERSION = pkg.version || '1.0.4';
+  process.env.APP_VERSION = pkg.version || '1.0.6';
   process.env.PORT = String(port);
   process.env.DB_PATH = path.join(dataDir, 'crm.db');
   process.env.UPLOADS_DIR = path.join(dataDir, 'uploads');
@@ -205,6 +205,24 @@ async function createWindow() {
     if (target.startsWith(url)) return { action: 'allow' };
     shell.openExternal(target);
     return { action: 'deny' };
+  });
+
+  mainWindow.on('close', (e) => {
+    if (mainWindow._forceClose) return;
+    e.preventDefault();
+    dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['خیر', 'بله'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'CRM ترنم',
+      message: 'آیا مطمئن هستید که می‌خواهید از برنامه خارج شوید؟'
+    }).then(({ response }) => {
+      if (response === 1) {
+        mainWindow._forceClose = true;
+        mainWindow.close();
+      }
+    });
   });
 }
 

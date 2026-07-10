@@ -2,13 +2,13 @@ const router = require('express').Router();
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { getDB, audit, createJournalEntry, resolveCashAccount } = require('../db');
+const { getDB, audit, createJournalEntry, resolveCashAccount, createLedgerEntry } = require('../db');
 const { auth, adminOrAccounting, repModuleAdmin } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const {
   EXPENSE_CATEGORIES, REP_ROLES_SQL, isRepRole, addRepLedger, buildRepLedgerView, buildRepStatement,
   computeRepCommission, computeRepPayable, settleAdvancesAgainstPayment, notifyRep, getRepRanking,
-  getRepAgingReceivables, getTeamRollup, canAccessRep, getRepProfitReport
+  getRepAgingReceivables, getTeamRollup, canAccessRep, getRepProfitReport, recordSettlementCommissionAccrual
 } = require('../lib/rep-ledger');
 
 const UPLOADS = process.env.UPLOADS_DIR || path.join(__dirname, '..', 'uploads');
@@ -86,6 +86,123 @@ router.get('/expenses/pending', auth, repModuleAdmin, (req, res) => {
     FROM rep_expenses e JOIN users u ON e.rep_id=u.id LEFT JOIN users r ON e.created_by=r.id
     WHERE e.status='pending' ORDER BY e.created_at DESC LIMIT 100
   `).all());
+});
+
+function applyRepPaymentAsSettlement(db, sub, userId) {
+  const pay_type = sub.pay_type === 'cheque' ? 'cheque' : 'cash';
+  const amount = parseFloat(sub.amount) || 0;
+  const noteParts = [sub.note || ''];
+  if (sub.pay_type === 'bank_transfer' && sub.bank_ref) noteParts.push('شماره پیگیری: ' + sub.bank_ref);
+  const note = noteParts.filter(Boolean).join(' — ');
+  const result = db.prepare(
+    `INSERT INTO settlements
+      (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,
+       cheque_bank,cheque_sayadi,cheque_number,cheque_account,
+       cheque_amount,cheque_owner,cheque_due,cheque_status)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).run(userId, sub.cust_id, null, amount, pay_type, sub.date || todayJalali(), note,
+    null, null,
+    sub.cheque_bank || '', sub.cheque_sayadi || '', sub.cheque_number || '', sub.cheque_account || '',
+    parseFloat(sub.cheque_amount || sub.amount) || amount, sub.cheque_owner || '', sub.cheque_due || '',
+    pay_type === 'cheque' ? 'pending' : '');
+  const settlementId = result.lastInsertRowid;
+  const payLabel = pay_type === 'cheque' ? 'چک' : (sub.pay_type === 'bank_transfer' ? 'واریز بانکی' : 'نقد');
+  createLedgerEntry(db, {
+    customer_id: sub.cust_id, date: sub.date || '', entry_type: 'settlement',
+    ref_type: 'settlement', ref_id: settlementId,
+    description: `تسویه ${payLabel} (تأیید پرداخت میدانی) - ${amount.toLocaleString('fa-IR')} تومان`,
+    debit: 0, credit: amount, user_id: userId
+  });
+  const cash = resolveCashAccount(db, pay_type, null, null);
+  createJournalEntry(db, {
+    date: sub.date || '', description: `تسویه ${payLabel} مشتری (نماینده میدانی)`,
+    ref_type: 'settlement', ref_id: settlementId, created_by: userId,
+    lines: [
+      { code: cash.code, name: cash.name, debit: amount, credit: 0 },
+      { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: amount }
+    ]
+  });
+  return settlementId;
+}
+
+router.get('/payments/pending', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  res.json(db.prepare(`
+    SELECT p.*, u.name as rep_name, c.biz as cust_biz, c.owner as cust_owner, c.phone as cust_phone
+    FROM rep_payment_submissions p
+    JOIN users u ON p.rep_id=u.id
+    JOIN customers c ON p.cust_id=c.id
+    WHERE p.status='pending'
+    ORDER BY p.created_at DESC LIMIT 200
+  `).all());
+});
+
+router.get('/payments/mine', auth, (req, res) => {
+  if (req.user.role !== 'field_sales') return res.status(403).json({ error: 'فقط کارشناس میدانی' });
+  const db = getDB();
+  res.json(db.prepare(`
+    SELECT p.*, c.biz as cust_biz FROM rep_payment_submissions p
+    LEFT JOIN customers c ON p.cust_id=c.id
+    WHERE p.rep_id=? ORDER BY p.created_at DESC LIMIT 100
+  `).all(req.user.id));
+});
+
+router.post('/payments', auth, repUpload.single('receipt'), (req, res) => {
+  if (req.user.role !== 'field_sales') return res.status(403).json({ error: 'فقط کارشناس میدانی' });
+  const db = getDB();
+  const {
+    cust_id, pay_type, amount, date, note, bank_ref,
+    cheque_bank, cheque_sayadi, cheque_number, cheque_account,
+    cheque_amount, cheque_owner, cheque_due
+  } = req.body;
+  const custId = parseInt(cust_id);
+  const amt = parseFloat(amount);
+  if (!custId || !amt || amt <= 0) return res.status(400).json({ error: 'مشتری و مبلغ الزامی است' });
+  const pt = ['cash', 'cheque', 'bank_transfer'].includes(pay_type) ? pay_type : 'cash';
+  if (pt === 'cheque' && (!cheque_bank || !cheque_sayadi || !cheque_due)) {
+    return res.status(400).json({ error: 'اطلاعات چک ناقص است' });
+  }
+  const receiptName = req.file?.filename || '';
+  if (!receiptName) return res.status(400).json({ error: 'عکس رسید/چک الزامی است' });
+  const r = db.prepare(`
+    INSERT INTO rep_payment_submissions
+      (rep_id,cust_id,pay_type,amount,date,note,receipt_file,bank_ref,
+       cheque_bank,cheque_sayadi,cheque_number,cheque_account,cheque_amount,cheque_owner,cheque_due,status,created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)
+  `).run(req.user.id, custId, pt, amt, date || todayJalali(), note || '', receiptName, bank_ref || '',
+    cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
+    parseFloat(cheque_amount || amt) || amt, cheque_owner || '', cheque_due || '', req.user.id);
+  audit(req.user.id, 'create', 'rep_payment', r.lastInsertRowid, `ثبت پرداخت میدانی ${amt} ت — مشتری ${custId}`);
+  res.json({ id: r.lastInsertRowid, ok: true });
+});
+
+router.post('/payments/:id/approve', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare(`
+    SELECT p.*, c.biz as cust_biz FROM rep_payment_submissions p
+    LEFT JOIN customers c ON p.cust_id=c.id WHERE p.id=?
+  `).get(+req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status !== 'pending') return res.json({ ok: true, status: row.status });
+  const settlementId = db.transaction(() => {
+    const sid = applyRepPaymentAsSettlement(db, row, req.user.id);
+    db.prepare("UPDATE rep_payment_submissions SET status='approved',settlement_id=?,approved_by=?,approved_at=strftime('%s','now') WHERE id=?")
+      .run(sid, req.user.id, row.id);
+    return sid;
+  })();
+  audit(req.user.id, 'approve', 'rep_payment', row.id, `تأیید پرداخت میدانی → تسویه #${settlementId}`);
+  res.json({ ok: true, settlement_id: settlementId });
+});
+
+router.post('/payments/:id/reject', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM rep_payment_submissions WHERE id=?').get(+req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status !== 'pending') return res.json({ ok: true });
+  db.prepare("UPDATE rep_payment_submissions SET status='rejected',approved_by=?,approved_at=strftime('%s','now'),rejection_note=? WHERE id=?")
+    .run(req.user.id, req.body.note || '', row.id);
+  audit(req.user.id, 'reject', 'rep_payment', row.id, 'رد پرداخت میدانی');
+  res.json({ ok: true });
 });
 
 router.get('/alerts', auth, repModuleAdmin, (req, res) => {
