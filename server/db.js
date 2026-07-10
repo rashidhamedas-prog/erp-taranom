@@ -1040,8 +1040,6 @@ function initDB() {
   ensureColumn(db, 'users', 'penalty_pct', 'REAL DEFAULT 0');
   ensureColumn(db, 'audit_log', 'ip_address', "TEXT DEFAULT ''");
   ensureColumn(db, 'audit_log', 'user_agent', "TEXT DEFAULT ''");
-  ensureColumn(db, 'rep_territories', 'rep_id', 'INTEGER');
-  ensureColumn(db, 'rep_territories', 'cities', "TEXT DEFAULT ''");
   ensureColumn(db, 'products', 'brand', "TEXT DEFAULT ''");
   ensureColumn(db, 'customers', 'rep_territory', "TEXT DEFAULT ''");
   ensureColumn(db, 'rep_commission_rules', 'scope_label', "TEXT DEFAULT ''");
@@ -1078,8 +1076,11 @@ function initDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
+      rep_id INTEGER,
+      cities TEXT DEFAULT '',
       active INTEGER DEFAULT 1,
-      created_at INTEGER DEFAULT (strftime('%s','now'))
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(rep_id) REFERENCES users(id)
     );
     CREATE TABLE IF NOT EXISTS rep_visit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1137,6 +1138,8 @@ function initDB() {
       FOREIGN KEY(cust_id) REFERENCES customers(id)
     );
   `);
+  ensureColumn(db, 'rep_territories', 'rep_id', 'INTEGER');
+  ensureColumn(db, 'rep_territories', 'cities', "TEXT DEFAULT ''");
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_customers_user ON customers(user_id);
     CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);

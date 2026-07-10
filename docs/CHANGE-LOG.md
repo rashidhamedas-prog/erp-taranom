@@ -41,6 +41,16 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۱ — رفع خطای دسکتاپ: no such table rep_territories
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:**
+  - `ensureColumn` روی `rep_territories` **قبل از** `CREATE TABLE` اجرا می‌شد → initDB روی DB تازه دسکتاپ crash
+  - ستون‌های `rep_id` و `cities` به تعریف جدول منتقل شد؛ migration بعد از CREATE
+- **فایل‌های کلیدی:** `server/db.js`
+- **Deploy:** ⏳ وب + **نیاز به rebuild دسکتاپ 1.0.7**
+- **یادداشت:** نسخه دسکتاپ فعلی 1.0.6 این باگ را دارد — installer جدید لازم است
+
 ### ۱۴۰۴/۰۴/۲۱ — رفع 502 + بهینه‌سازی بنیادی سرعت وب و حسابداری
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `b921b73`
