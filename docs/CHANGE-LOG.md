@@ -43,14 +43,14 @@
 
 ### ۱۴۰۴/۰۴/۲۰ — زیرساخت به‌روزرسانی دسکتاپ (GitHub Releases، بدون SCP)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (pending)
+- **Commit:** `a69f5d8`
 - **خلاصه:**
   - رفع installer bloated: حذف exeهای قدیمی از بسته نصب (۹۳MB به‌جای ۱.۱GB)
   - exe دیگر روی سرور production آپلود نمی‌شود — فقط manifest + latest.yml
   - لینک دانلود از GitHub Releases در manifest.desktop.url
   - `update-feed` از feed_url خارجی پشتیبانی می‌کند
 - **فایل‌های کلیدی:** `desktop/scripts/prepare-server.js`, `scripts/publish-desktop.js`, `docs/DESKTOP-UPDATE.md`, `server/server.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ production (`a69f5d8`)
 - **یادداشت:** `gh release create v1.0.6 ...` — راهنما در docs/DESKTOP-UPDATE.md
 
 ### ۱۴۰۴/۰۴/۲۰ — به‌روزرسانی 1.0.6 (update1.0.6.md — ۱۴ مورد)
