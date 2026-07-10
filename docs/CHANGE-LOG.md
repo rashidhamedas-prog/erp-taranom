@@ -32,9 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (پس از commit 1.0.6) |
+| آخرین commit | `41be9d1` |
 | نسخه وب/دسکتاپ | `1.0.6` / SW `v17` |
-| Deploy بعدی لازم | pull روی production + rebuild exe دسکتاپ |
+| وضعیت سرور | ✅ deploy `41be9d1` |
+| Deploy بعدی لازم | rebuild exe دسکتاپ `1.0.6` |
 
 ---
 
@@ -42,7 +43,7 @@
 
 ### ۱۴۰۴/۰۴/۲۰ — به‌روزرسانی 1.0.6 (update1.0.6.md — ۱۴ مورد)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (در حال commit)
+- **Commit:** `41be9d1`
 - **خلاصه:**
   - دسکتاپ: تأیید خروج؛ پشتیبان محلی بدون خطای centralOnly
   - UX: fmtCompact در statCard؛ ستون‌های استاندارد مشتری + tel: موبایل
@@ -51,7 +52,7 @@
   - پیام‌ها: checkbox + پوشه کاربر؛ تنظیمات module_reps؛ ACC_NAV دسته‌بندی
   - پرداخت میدانی: rep_payment_submissions + تأیید حسابدار
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/db.js`, `server/routes/rep-management.js`, `desktop/main.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ production (`41be9d1`)
 - **یادداشت:** `git pull && cd server && pm2 restart crm-taranom`
 
 ### ۱۴۰۴/۰۴/۱۹ — بهینه‌سازی سرعت ناوبری و بارگذاری صفحات
