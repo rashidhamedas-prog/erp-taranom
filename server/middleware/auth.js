@@ -2,24 +2,47 @@ const jwt = require('jsonwebtoken');
 const { getDB, isDevice } = require('../db');
 const SECRET = process.env.JWT_SECRET || 'taranom-crm-secret-2024';
 
-const _activeCache = new Map(); // userId -> { active, t }
+const _activeCache = new Map(); // userId -> { active, mustChange, t }
 const ACTIVE_TTL_MS = 30000;
 
-function isUserActive(id) {
+function getUserState(id) {
   const hit = _activeCache.get(id);
-  if (hit && Date.now() - hit.t < ACTIVE_TTL_MS) return hit.active;
-  const user = getDB().prepare('SELECT active FROM users WHERE id=?').get(id);
-  const active = !!(user && user.active);
-  _activeCache.set(id, { active, t: Date.now() });
-  return active;
+  if (hit && Date.now() - hit.t < ACTIVE_TTL_MS) return hit;
+  const user = getDB().prepare('SELECT active, must_change_password FROM users WHERE id=?').get(id);
+  const state = {
+    active: !!(user && user.active),
+    mustChange: !!(user && user.must_change_password),
+    t: Date.now()
+  };
+  _activeCache.set(id, state);
+  return state;
 }
+
+// Invalidate the cached state after password/active changes take effect immediately
+function invalidateUserCache(id) { _activeCache.delete(id); }
+
+// While a forced password change is pending, only these endpoints stay usable.
+const MUST_CHANGE_ALLOWED = ['/api/auth/change-password', '/api/auth/me'];
 
 function auth(req, res, next) {
   const token = req.headers['authorization']?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'توکن یافت نشد' });
   try {
     const payload = jwt.verify(token, SECRET);
-    if (!isUserActive(payload.id)) return res.status(401).json({ error: 'حساب کاربری غیرفعال است' });
+    const state = getUserState(payload.id);
+    if (!state.active) return res.status(401).json({ error: 'حساب کاربری غیرفعال است' });
+    // Forced password change is enforced on central only. Device builds pull
+    // the users table from central, and a local change would be overwritten
+    // by the next sync pull — the change must happen on central.
+    if (state.mustChange && !isDevice()) {
+      const p = (req.originalUrl || '').split('?')[0];
+      if (!MUST_CHANGE_ALLOWED.includes(p)) {
+        return res.status(403).json({
+          error: 'برای ادامه باید ابتدا رمز عبور خود را تغییر دهید',
+          code: 'must_change_password'
+        });
+      }
+    }
     req.user = payload;
     next();
   } catch {
@@ -59,4 +82,4 @@ function centralOnly(req, res, next) {
   next();
 }
 
-module.exports = { auth, adminOnly, adminOrAccounting, repModuleAdmin, centralOnly, SECRET };
+module.exports = { auth, adminOnly, adminOrAccounting, repModuleAdmin, centralOnly, invalidateUserCache, SECRET };

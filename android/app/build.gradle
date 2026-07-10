@@ -19,19 +19,35 @@ android {
         }
     }
 
+    // اسرار امضا هرگز در گیت نیستند: از android/keystore.properties (در .gitignore)
+    // یا متغیرهای محیطی CRM_KEYSTORE_* خوانده می‌شوند — نمونه در BUILD.md
+    def keystoreProps = new Properties()
+    def keystorePropsFile = rootProject.file('keystore.properties')
+    if (keystorePropsFile.exists()) {
+        keystorePropsFile.withInputStream { keystoreProps.load(it) }
+    }
+    def ksFile   = keystoreProps.getProperty('storeFile')   ?: System.getenv('CRM_KEYSTORE_FILE')
+    def ksPass   = keystoreProps.getProperty('storePassword') ?: System.getenv('CRM_KEYSTORE_PASSWORD')
+    def ksAlias  = keystoreProps.getProperty('keyAlias')    ?: System.getenv('CRM_KEY_ALIAS')
+    def ksKeyPass = keystoreProps.getProperty('keyPassword') ?: System.getenv('CRM_KEY_PASSWORD')
+
     signingConfigs {
-        release {
-            storeFile file('../crm-taranom.jks')
-            storePassword 'CrmTaranom2024!'
-            keyAlias 'crm-taranom'
-            keyPassword 'CrmTaranom2024!'
+        if (ksFile && ksPass && ksAlias && ksKeyPass) {
+            release {
+                storeFile rootProject.file(ksFile)
+                storePassword ksPass
+                keyAlias ksAlias
+                keyPassword ksKeyPass
+            }
         }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig signingConfigs.release
+            if (ksFile && ksPass && ksAlias && ksKeyPass) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 

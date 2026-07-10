@@ -1,2 +1,9 @@
 .claude/
 .server
+
+# اسرار — هرگز کامیت نشوند
+server/jwt-secret.txt
+android/keystore.properties
+*.jks
+*.keystore
+.env

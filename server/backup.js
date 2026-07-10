@@ -20,10 +20,49 @@ function tsName() {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
+// ── Backup encryption (AES-256-GCM) ──────────────────────────────────────────
+// Password comes from env BACKUP_PASSWORD, or the settings key backup_password
+// (set by the admin in the backup page). If neither is set, backups stay plain.
+// File format: MAGIC(8) + salt(16) + iv(12) + ciphertext + authTag(16)
+const ENC_MAGIC = Buffer.from('TRNMBKP1', 'ascii');
+
+function getBackupPassword() {
+  if (process.env.BACKUP_PASSWORD) return process.env.BACKUP_PASSWORD;
+  try {
+    const { getDB } = require('./db');
+    const row = getDB().prepare("SELECT value FROM settings WHERE key='backup_password'").get();
+    return (row && row.value) ? row.value : null;
+  } catch { return null; }
+}
+
+function encryptFile(srcPath, destPath, password) {
+  const salt = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(12);
+  const key = crypto.scryptSync(password, salt, 32);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const data = fs.readFileSync(srcPath);
+  const enc = Buffer.concat([cipher.update(data), cipher.final()]);
+  fs.writeFileSync(destPath, Buffer.concat([ENC_MAGIC, salt, iv, enc, cipher.getAuthTag()]));
+}
+
+function decryptFile(srcPath, destPath, password) {
+  const buf = fs.readFileSync(srcPath);
+  if (!buf.subarray(0, 8).equals(ENC_MAGIC)) throw new Error('فایل رمزنگاری‌شدهٔ معتبر نیست');
+  const salt = buf.subarray(8, 24);
+  const iv = buf.subarray(24, 36);
+  const tag = buf.subarray(buf.length - 16);
+  const enc = buf.subarray(36, buf.length - 16);
+  const key = crypto.scryptSync(password, salt, 32);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  const out = Buffer.concat([decipher.update(enc), decipher.final()]);
+  fs.writeFileSync(destPath, out);
+}
+
 function listBackups() {
   ensureDir();
   return fs.readdirSync(BACKUP_DIR)
-    .filter(f => /^crm-backup-.*\.(tar\.gz|zip)$/i.test(f))
+    .filter(f => /^crm-backup-.*\.(tar\.gz|zip)(\.enc)?$/i.test(f))
     .map(name => {
       const fp = path.join(BACKUP_DIR, name);
       const st = fs.statSync(fp);
@@ -31,6 +70,7 @@ function listBackups() {
         name,
         size: st.size,
         sizeMB: (st.size / 1024 / 1024).toFixed(2),
+        encrypted: name.endsWith('.enc'),
         created_at: Math.floor(st.mtimeMs / 1000)
       };
     })
@@ -98,8 +138,8 @@ async function runBackup() {
     ensureDir();
     const useZip = process.platform === 'win32';
     const ext = useZip ? 'zip' : 'tar.gz';
-    const fileName = `crm-backup-${tsName()}.${ext}`;
-    const outPath = path.join(BACKUP_DIR, fileName);
+    let fileName = `crm-backup-${tsName()}.${ext}`;
+    let outPath = path.join(BACKUP_DIR, fileName);
 
     if (useZip) createZipBackup(outPath);
     else {
@@ -107,15 +147,30 @@ async function runBackup() {
       catch { createZipBackup(outPath); }
     }
 
+    // Encrypt when a backup password is configured (env or settings)
+    const password = getBackupPassword();
+    let encrypted = false;
+    if (password) {
+      const encPath = outPath + '.enc';
+      encryptFile(outPath, encPath, password);
+      fs.unlinkSync(outPath);
+      outPath = encPath;
+      fileName += '.enc';
+      encrypted = true;
+    }
+
     // Symlink/copy latest for backward-compatible download endpoint
-    const latest = path.join(BACKUP_DIR, useZip ? 'crm-latest.zip' : 'crm-latest.tar.gz');
-    try { fs.unlinkSync(latest); } catch { /* */ }
+    const latestBase = path.join(BACKUP_DIR, useZip ? 'crm-latest.zip' : 'crm-latest.tar.gz');
+    for (const p of [latestBase, latestBase + '.enc']) {
+      try { fs.unlinkSync(p); } catch { /* */ }
+    }
+    const latest = encrypted ? latestBase + '.enc' : latestBase;
     fs.copyFileSync(outPath, latest);
 
     pruneOld();
     const sizeMB = (fs.statSync(outPath).size / 1024 / 1024).toFixed(2);
-    console.log(`✅ پشتیبان: ${fileName} (${sizeMB} MB)`);
-    return { ok: true, file: fileName, path: outPath, local: outPath, sizeMB, latest };
+    console.log(`✅ پشتیبان: ${fileName} (${sizeMB} MB)${encrypted ? ' 🔒 رمزنگاری‌شده' : ''}`);
+    return { ok: true, file: fileName, path: outPath, local: outPath, sizeMB, encrypted, latest };
   } catch (e) {
     console.error('backup error:', e.message);
     return { ok: false, error: e.message };
@@ -131,11 +186,15 @@ function resolveBackupFile(name) {
 
 function getLatestBackupFile() {
   ensureDir();
-  const zip = path.join(BACKUP_DIR, 'crm-latest.zip');
-  const tar = path.join(BACKUP_DIR, 'crm-latest.tar.gz');
-  if (fs.existsSync(zip)) return zip;
-  if (fs.existsSync(tar)) return tar;
-  return tar;
+  const candidates = [
+    'crm-latest.zip.enc', 'crm-latest.tar.gz.enc',
+    'crm-latest.zip', 'crm-latest.tar.gz'
+  ].map(n => path.join(BACKUP_DIR, n));
+  for (const p of candidates) if (fs.existsSync(p)) return p;
+  return candidates[candidates.length - 1];
 }
 
-module.exports = { runBackup, listBackups, resolveBackupFile, getLatestBackupFile, BACKUP_DIR };
+module.exports = {
+  runBackup, listBackups, resolveBackupFile, getLatestBackupFile,
+  getBackupPassword, encryptFile, decryptFile, BACKUP_DIR
+};

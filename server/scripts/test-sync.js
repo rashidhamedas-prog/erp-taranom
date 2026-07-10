@@ -54,7 +54,16 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
   start('devB', { JWT_SECRET: 'b', PORT: '4102', DB_PATH: `${S}/e2e-devB.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
   await sleep(3000);
 
-  const ct = (await req(C, 'POST', '/api/auth/login', null, { username: 'admin', password: 'admin123' })).body.token;
+  const CENTRAL_PASS = 'sync-test-1234';
+  const loginC = (await req(C, 'POST', '/api/auth/login', null, { username: 'admin', password: 'admin123' })).body;
+  const ct = loginC.token;
+  ok(loginC.must_change_password === true, 'central flags default password for forced change');
+  // Until the password changes, central rejects everything else
+  const blocked = await req(C, 'GET', '/api/customers', ct);
+  ok(blocked.status === 403 && blocked.body.code === 'must_change_password', 'central blocks API calls until password change');
+  const chg = await req(C, 'POST', '/api/auth/change-password', ct, { oldPass: 'admin123', newPass: CENTRAL_PASS });
+  ok(chg.status === 200, 'central admin password changed');
+  // Devices skip forced-change locally (their users table is overwritten by pull)
   let at = (await req(A, 'POST', '/api/auth/login', null, { username: 'admin', password: 'admin123' })).body.token;
   let bt = (await req(B, 'POST', '/api/auth/login', null, { username: 'admin', password: 'admin123' })).body.token;
   ok(ct && at && bt, 'all three instances up + login');
@@ -65,8 +74,8 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
   await req(C, 'POST', '/api/followups', ct, { cust_id: custC.id, date: '1405/04/01', type: 'تماس', subject: 'برای حذف', status: 'open' });
 
   console.log('— scenario 1: pair both devices —');
-  const pA = await req(A, 'POST', '/api/sync/pair-device', at, { central_url: C, username: 'admin', password: 'admin123', device_name: 'دستگاه A' });
-  const pB = await req(B, 'POST', '/api/sync/pair-device', bt, { central_url: C, username: 'admin', password: 'admin123', device_name: 'دستگاه B' });
+  const pA = await req(A, 'POST', '/api/sync/pair-device', at, { central_url: C, username: 'admin', password: CENTRAL_PASS, device_name: 'دستگاه A' });
+  const pB = await req(B, 'POST', '/api/sync/pair-device', bt, { central_url: C, username: 'admin', password: CENTRAL_PASS, device_name: 'دستگاه B' });
   ok(pA.body.ok && pB.body.ok, `pairing (A=device ${pA.body.device_id}, B=device ${pB.body.device_id})`);
   const aCust = (await req(A, 'GET', '/api/customers', at)).body;
   const bProd = (await req(B, 'GET', '/api/products', bt)).body;

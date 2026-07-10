@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, centralOnly } = require('../middleware/auth');
+const { auth, adminOnly, centralOnly, invalidateUserCache } = require('../middleware/auth');
 
 // Get all users (include incentive fields)
 router.get('/users', auth, adminOnly, (req, res) => {
@@ -20,10 +20,11 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
   const exists = db.prepare('SELECT id FROM users WHERE username=?').get(username);
   if (exists) return res.status(400).json({ error: 'این نام کاربری قبلاً ثبت شده' });
   const hash = bcrypt.hashSync(password, 10);
+  // must_change_password=1 → رمزی که مدیر تعیین کرده موقتی است و در اولین ورود عوض می‌شود
   const result = db.prepare(`
-    INSERT INTO users (name,username,password,phone,role,commission_cash,commission_cheque,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,incentive_locked,
+    INSERT INTO users (name,username,password,phone,role,commission_cash,commission_cheque,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,incentive_locked,must_change_password,
       rep_code,rep_subtype,territory,supervisor_id,employment_status,bank_name,bank_account,bank_iban,rep_opening_balance)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,1,?,?,?,?,?,?,?,?,?)
   `).run(name, username, hash, phone || '', role, parseFloat(commission_cash) || 0, parseFloat(commission_cheque) || 0,
     ['collection', 'profit'].includes(commission_basis) ? commission_basis : 'invoice',
     parseFloat(monthly_target) || 0,
@@ -63,7 +64,7 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   }
 
   if (password) {
-    db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,password=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,penalty_pct=?,supervisor_commission_pct=?,incentive_locked=1,
+    db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,password=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,penalty_pct=?,supervisor_commission_pct=?,incentive_locked=1,must_change_password=1,
       rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=? WHERE id=?`)
       .run(name, active, role, phone || '', bcrypt.hashSync(password, 10), newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
         rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
@@ -83,6 +84,7 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
         rep_opening_balance != null ? parseFloat(rep_opening_balance) : (existing.rep_opening_balance || 0),
         req.params.id);
   }
+  invalidateUserCache(+req.params.id);
   if (rateChanged) {
     audit(req.user.id, 'update', 'user', req.params.id, `تغییر نرخ انگیزه فروش ${name}: نقد ${existing.commission_cash}%→${newCash}% چک ${existing.commission_cheque}%→${newCheque}%`);
   } else {
@@ -97,6 +99,7 @@ router.delete('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const u = db.prepare('SELECT name FROM users WHERE id=?').get(req.params.id);
   db.prepare('UPDATE users SET active=0 WHERE id=?').run(req.params.id);
+  invalidateUserCache(+req.params.id);
   audit(req.user.id, 'delete', 'user', req.params.id, `غیرفعال‌سازی کاربر ${u ? u.name : ''}`);
   res.json({ ok: true });
 });

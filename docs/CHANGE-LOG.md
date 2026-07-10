@@ -27,19 +27,34 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۰)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۱۹)
 
 | مورد | مقدار |
 |------|--------|
-| شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `41be9d1` |
+| شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` (سخت‌سازی امنیتی روی `cursor/security-hardening-605f`) |
+| آخرین commit | `2227b62` + شاخهٔ امنیتی |
 | نسخه وب/دسکتاپ | `1.0.6` / SW `v17` |
 | وضعیت سرور | ✅ deploy `41be9d1` |
-| Deploy بعدی لازم | rebuild exe دسکتاپ `1.0.6` |
+| Deploy بعدی لازم | merge شاخهٔ امنیتی + چک‌لیست `docs/SECURITY-HARDENING.md` روی سرور |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۵/۰۴/۱۹ — سخت‌سازی امنیتی (بند «ب» handoff)
+- **شاخه:** `cursor/security-hardening-605f` (PR به `claude/claude-md-docs-2ssrpy`)
+- **Commit:** (در PR)
+- **خلاصه:**
+  - تغییر اجباری رمز پیش‌فرض/موقت در اولین ورود: ستون `users.must_change_password`، گیت 403 در میان‌افزار `auth` (فقط سرور مرکزی)، مودال بدون فرار در فرانت؛ ساخت کاربر و بازنشانی رمز توسط مدیر هم پرچم را فعال می‌کند؛ انتخاب دوباره `admin123` ممنوع
+  - رمزنگاری بکاپ AES-256-GCM: کلید تنظیمات `backup_password` (پنل «پشتیبان» + ستون 🔒 در لیست) یا env `BACKUP_PASSWORD`؛ بازگشایی با `server/scripts/decrypt-backup.js`
+  - حذف اسرار از مخزن: `crm-taranom.jks` حذف، رمز keystore → `android/keystore.properties` (gitignore) یا env `CRM_KEYSTORE_*`، `JWT_SECRET` هاردکد → `server/jwt-secret.txt` (gitignore)
+  - سند جدید `docs/SECURITY-HARDENING.md`: چک‌لیست سرور (JWT، چرخش keystore، رمز بکاپ) + نمونه کامل Nginx TLS/certbot
+  - **۲ رفع باگ boot** (پیش‌زمینهٔ تست): `ensureColumn(rep_territories,…)` قبل از CREATE TABLE روی DB تازه crash می‌کرد؛ `adminOnly` در `routes/invoices.js` import نشده بود (crash هر بوت — از `41be9d1`)
+  - راهنمای داخل برنامه (مدیر: کاربران/تنظیمات/پشتیبان + کارشناس: اولین ورود) به‌روز شد
+  - تست‌ها: test-sms ۲۲/۲۲ ✅ — test-sync ۲۸/۲۸ ✅ (۳ تست جدید forced-change) — بکاپ رمزنگاری‌شده e2e ✅
+- **فایل‌های کلیدی:** `server/middleware/auth.js`, `server/routes/{auth,admin,invoices,settings}.js`, `server/db.js`, `server/backup.js`, `server/scripts/decrypt-backup.js`, `server/ecosystem.config.js`, `server/public/index.html`, `android/app/build.gradle`, `android/BUILD.md`, `docs/SECURITY-HARDENING.md`
+- **Deploy:** ❌ اعمال نشده — بعد از merge، چک‌لیست بخش ۲ `docs/SECURITY-HARDENING.md` روی سرور اجرا شود (ساخت `jwt-secret.txt` قبل از restart الزامی است، وگرنه سرور در production بالا نمی‌آید)
+- **یادداشت:** بعد از deploy، اولین ورود admin مودال تغییر رمز می‌آورد؛ با تغییر JWT_SECRET همه باید دوباره login کنند
 
 ### ۱۴۰۴/۰۴/۲۰ — به‌روزرسانی 1.0.6 (update1.0.6.md — ۱۴ مورد)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

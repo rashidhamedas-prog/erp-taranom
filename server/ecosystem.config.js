@@ -1,3 +1,13 @@
+// رمز JWT هرگز اینجا (داخل گیت) نوشته نشود.
+// از فایل server/jwt-secret.txt (خارج از گیت — در .gitignore) یا متغیر محیطی JWT_SECRET خوانده می‌شود:
+//   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > jwt-secret.txt
+//   chmod 600 jwt-secret.txt
+const fs = require('fs');
+let JWT_SECRET = process.env.JWT_SECRET || '';
+try {
+  JWT_SECRET = fs.readFileSync(__dirname + '/jwt-secret.txt', 'utf8').trim() || JWT_SECRET;
+} catch { /* فایل هنوز ساخته نشده — server.js در production بدون JWT_SECRET بالا نمی‌آید */ }
+
 module.exports = {
   apps: [{
     name: 'crm-taranom',
@@ -11,8 +21,7 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: 3000,
-      // ⚠️ قبل از deploy نسخهٔ امنیتی: JWT_SECRET باید ≥۳۲ کاراکتر باشد (node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-      JWT_SECRET: 'taranom-crm-secret-2024-change-this'
+      JWT_SECRET
     }
   }]
 };

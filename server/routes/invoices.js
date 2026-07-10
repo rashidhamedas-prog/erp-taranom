@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { getDB, audit, createLedgerEntry, createJournalEntry, allocateNumber, isDevice } = require('../db');
-const { auth } = require('../middleware/auth');
+const { auth, adminOnly } = require('../middleware/auth');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 
 function getScope(req) {

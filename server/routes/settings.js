@@ -10,7 +10,7 @@ const ALLOWED_KEYS = [
   'company_name', 'company_phone', 'company_address',
   'kimia_address', 'welcome_sms_text',
   'api_v1_enabled', 'api_rate_limit', 'webhook_secret',
-  'backup_smtp_user', 'backup_smtp_pass', 'backup_email',
+  'backup_smtp_user', 'backup_smtp_pass', 'backup_email', 'backup_password',
   // Admin panel (Phase 10): numbering sequences, fiscal year, module toggles
   'invoice_num_prefix', 'purchase_num_prefix', 'fiscal_year_start_month',
   'module_petty_cash', 'module_trust_checks', 'module_warehouses',

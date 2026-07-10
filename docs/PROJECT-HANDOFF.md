@@ -108,12 +108,12 @@ cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssr
 **الف) داخلی‌کردن وابستگی‌های خارجی — ✅ انجام شد.**
 هر سه دارایی حالا محلی در `server/public/vendor/` هستند (Chart.js، html2canvas، فونت متغیر وزیرمتن) و اسکریپت‌ها `defer` شده‌اند. هیچ درخواست CDN خارجی باقی نمانده. زمان بارگذاری زیر فیلترینگ از ~۱۳ ثانیه (یا هنگ کامل) به ~۰.۴ ثانیه رسید. اگر نسخهٔ Chart.js/html2canvas را به‌روز کردید، فایل محلی در `vendor/` را هم جایگزین کنید.
 
-**ب) سخت‌سازی امنیتی (قبل از استفادهٔ تجاری — الزامی):**
-- **HTTPS**: برنامه الان روی HTTP ساده است. دامنه + گواهی TLS لازم است (برای اینترنت داخلی از CA ایرانی).
-- **کلید JWT پیش‌فرض**: `middleware/auth.js` مقدار پشتیبان `'taranom-crm-secret-2024'` دارد؛ باید `JWT_SECRET` تصادفی و محرمانه روی سرور مرکزی ست شود (در نسخه‌های آفلاین خودکار شده).
-- **رمز پیش‌فرض `admin/admin123`**: تغییر اجباری در اولین ورود.
-- **اسرار در گیت**: رمز keystore در `android/BUILD.md` و `desktop/BUILD-WINDOWS.md` هست — باید rotate و از تاریخچه پاک شوند.
-- **رمزنگاری بکاپ**: `backup.js` الان `tar.gz` ساده می‌سازد؛ باید رمزنگاری‌شده شود.
+**ب) سخت‌سازی امنیتی — ✅ کد کامل شد (مرجع: `docs/SECURITY-HARDENING.md`). فقط چک‌لیست سرور مانده:**
+- **رمز پیش‌فرض `admin/admin123`** ✅ — تغییر اجباری در اولین ورود پیاده شد (`users.must_change_password` + گیت در میان‌افزار `auth` + مودال بدون فرار در فرانت). فقط روی سرور مرکزی اعمال می‌شود (دستگاه‌ها رمز را از مرکز pull می‌کنند). رمز تعیین‌شده توسط مدیر (ساخت کاربر/بازنشانی) هم موقتی است.
+- **رمزنگاری بکاپ** ✅ — AES-256-GCM با رمزِ کلید تنظیمات `backup_password` (صفحهٔ «پشتیبان») یا env `BACKUP_PASSWORD`؛ بازگشایی با `server/scripts/decrypt-backup.js`.
+- **اسرار در گیت** ✅ (فایل‌ها) — رمز keystore از `android/app/build.gradle` و `android/BUILD.md` حذف شد (حالا `android/keystore.properties` در gitignore)، `crm-taranom.jks` از مخزن حذف شد، `JWT_SECRET` هاردکد از `ecosystem.config.js` حذف شد (حالا `server/jwt-secret.txt` در gitignore). ⚠️ تاریخچهٔ گیت پاک نشده — **چرخش keystore و رمزها الزامی است** (دستور در `docs/SECURITY-HARDENING.md`).
+- **کلید JWT پیش‌فرض**: `middleware/auth.js` هنوز مقدار پشتیبان توسعه دارد، اما `assertSecurityConfig()` در production بدون `JWT_SECRET` معتبر سرور را بالا نمی‌آورد. روی سرور: `node -e "..." > server/jwt-secret.txt` (جزئیات در `docs/SECURITY-HARDENING.md`).
+- **HTTPS**: هنوز روی HTTP ساده است — نمونهٔ کامل پیکربندی Nginx + certbot در `docs/SECURITY-HARDENING.md` بخش «د». هنگام مهاجرت به سرور ایرانی اجرا شود.
 
 **ج) هوش مصنوعی (تصمیم معماری):**
 - سرویس‌های AI خارجی (Anthropic/OpenAI/Google) آی‌پی ایران را تحریمی مسدود می‌کنند و ToS استفاده از ایران را ممنوع کرده.

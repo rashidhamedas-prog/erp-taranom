@@ -2,8 +2,8 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const { getDB, audit } = require('../db');
-const { auth, adminOnly, SECRET } = require('../middleware/auth');
+const { getDB, audit, isDevice } = require('../db');
+const { auth, adminOnly, invalidateUserCache, SECRET } = require('../middleware/auth');
 const { validatePassword } = require('../lib/security');
 const { sendSMS } = require('../sms');
 
@@ -76,11 +76,29 @@ router.post('/login', (req, res) => {
 
   failedLogins.delete(username);
   db.prepare("UPDATE users SET last_login=strftime('%s','now') WHERE id=?").run(user.id);
+
+  // Central only: default/assigned passwords must be changed on first login.
+  // Logging in with the factory password flags the account even on old DBs
+  // that predate the must_change_password column.
+  let mustChange = false;
+  if (!isDevice()) {
+    mustChange = !!user.must_change_password;
+    if (!mustChange && password === 'admin123') {
+      db.prepare('UPDATE users SET must_change_password=1 WHERE id=?').run(user.id);
+      mustChange = true;
+    }
+    invalidateUserCache(user.id);
+  }
+
   const token = jwt.sign(
     { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '' },
     SECRET, { expiresIn: '30d' }
   );
-  res.json({ token, user: { id: user.id, name: user.name, username: user.username, role: user.role, phone: user.phone || '' } });
+  res.json({
+    token,
+    must_change_password: mustChange,
+    user: { id: user.id, name: user.name, username: user.username, role: user.role, phone: user.phone || '' }
+  });
 });
 
 // Forgot password — step 1: send OTP via SMS
@@ -152,15 +170,16 @@ router.post('/forgot-reset', (req, res) => {
     return res.status(400).json({ error: 'کد اشتباه است' });
   }
 
-  db.prepare('UPDATE users SET password=? WHERE id=?').run(bcrypt.hashSync(newPass, 10), user.id);
+  db.prepare('UPDATE users SET password=?, must_change_password=0 WHERE id=?').run(bcrypt.hashSync(newPass, 10), user.id);
   db.prepare('DELETE FROM password_reset_otps WHERE user_id=?').run(user.id);
+  invalidateUserCache(user.id);
   audit(user.id, 'reset_password', 'user', user.id, 'بازیابی رمز از طریق پیامک');
   res.json({ ok: true, message: 'رمز جدید ذخیره شد. اکنون وارد شوید.' });
 });
 
 router.get('/me', auth, (req, res) => {
   const db = getDB();
-  const user = db.prepare('SELECT id,name,username,role,phone,last_login FROM users WHERE id=?').get(req.user.id);
+  const user = db.prepare('SELECT id,name,username,role,phone,last_login,must_change_password FROM users WHERE id=?').get(req.user.id);
   res.json(user);
 });
 
@@ -169,11 +188,13 @@ router.post('/change-password', auth, (req, res) => {
   const newPass = (req.body.newPass || '').slice(0, 128);
   const passErr = validatePassword(newPass);
   if (passErr) return res.status(400).json({ error: passErr });
+  if (newPass === 'admin123') return res.status(400).json({ error: 'این رمز مجاز نیست — رمز جدیدی انتخاب کنید' });
   const db = getDB();
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
   if (!bcrypt.compareSync(oldPass, user.password))
     return res.status(400).json({ error: 'رمز قدیمی اشتباه است' });
-  db.prepare('UPDATE users SET password=? WHERE id=?').run(bcrypt.hashSync(newPass, 10), req.user.id);
+  db.prepare('UPDATE users SET password=?, must_change_password=0 WHERE id=?').run(bcrypt.hashSync(newPass, 10), req.user.id);
+  invalidateUserCache(req.user.id);
   res.json({ ok: true });
 });
 
@@ -186,7 +207,9 @@ router.post('/reset-password', auth, adminOnly, (req, res) => {
   const db = getDB();
   const target = db.prepare('SELECT id,name FROM users WHERE id=?').get(user_id);
   if (!target) return res.status(404).json({ error: 'کاربر یافت نشد' });
-  db.prepare('UPDATE users SET password=? WHERE id=?').run(bcrypt.hashSync(new_pass, 10), user_id);
+  // رمزی که مدیر تعیین کرده موقتی است — کاربر در اولین ورود باید عوضش کند
+  db.prepare('UPDATE users SET password=?, must_change_password=1 WHERE id=?').run(bcrypt.hashSync(new_pass, 10), user_id);
+  invalidateUserCache(+user_id);
   audit(req.user.id, 'reset_password', 'user', user_id, `بازنشانی رمز ${target.name}`);
   res.json({ ok: true });
 });

@@ -521,6 +521,8 @@ function initDB() {
   // ---- Safe migrations for databases created by v2 ----
   ensureColumn(db, 'users', 'phone', 'TEXT');
   ensureColumn(db, 'users', 'last_login', 'INTEGER');
+  // امنیت: الزام تغییر رمز در اولین ورود (ادمین پیش‌فرض / رمز تعیین‌شده توسط مدیر)
+  ensureColumn(db, 'users', 'must_change_password', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'users', 'commission_cash', 'REAL DEFAULT 0');
   ensureColumn(db, 'users', 'commission_cheque', 'REAL DEFAULT 0');
   ensureColumn(db, 'products', 'image', 'TEXT');
@@ -1040,8 +1042,6 @@ function initDB() {
   ensureColumn(db, 'users', 'penalty_pct', 'REAL DEFAULT 0');
   ensureColumn(db, 'audit_log', 'ip_address', "TEXT DEFAULT ''");
   ensureColumn(db, 'audit_log', 'user_agent', "TEXT DEFAULT ''");
-  ensureColumn(db, 'rep_territories', 'rep_id', 'INTEGER');
-  ensureColumn(db, 'rep_territories', 'cities', "TEXT DEFAULT ''");
   ensureColumn(db, 'products', 'brand', "TEXT DEFAULT ''");
   ensureColumn(db, 'customers', 'rep_territory', "TEXT DEFAULT ''");
   ensureColumn(db, 'rep_commission_rules', 'scope_label', "TEXT DEFAULT ''");
@@ -1137,6 +1137,9 @@ function initDB() {
       FOREIGN KEY(cust_id) REFERENCES customers(id)
     );
   `);
+  // این دو ستون باید بعد از CREATE TABLE rep_territories اضافه شوند (روی DB تازه، قبل از ساخت جدول crash می‌کرد)
+  ensureColumn(db, 'rep_territories', 'rep_id', 'INTEGER');
+  ensureColumn(db, 'rep_territories', 'cities', "TEXT DEFAULT ''");
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_customers_user ON customers(user_id);
     CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
@@ -1200,9 +1203,10 @@ function initDB() {
   const admin = db.prepare('SELECT id FROM users WHERE username=?').get('admin');
   if (!admin) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare('INSERT INTO users (name,username,password,role) VALUES (?,?,?,?)')
+    // must_change_password=1 → رمز پیش‌فرض باید در اولین ورود عوض شود (روی سرور مرکزی)
+    db.prepare('INSERT INTO users (name,username,password,role,must_change_password) VALUES (?,?,?,?,1)')
       .run('حامد رشید', 'admin', hash, 'admin');
-    console.log('✅ ادمین پیش‌فرض ساخته شد (admin / admin123)');
+    console.log('✅ ادمین پیش‌فرض ساخته شد (admin / admin123) — تغییر رمز در اولین ورود الزامی است');
   }
 
   // ---- Default settings ----

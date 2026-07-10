@@ -47,14 +47,23 @@ npm rebuild better-sqlite3 --build-from-source \
 1. پوشه `android/` را در Android Studio باز کنید و منتظر Gradle Sync بمانید
 2. تسک `copyServerSources` به‌طور خودکار آخرین سورس `server/` را داخل assets کپی می‌کند
 3. `Build → Generate Signed Bundle / APK → APK`
-4. Keystore موجود:
+4. Keystore و رمزهایش **در گیت نیستند** (و نباید باشند). فایل `android/keystore.properties` را محلی بسازید (این فایل در `.gitignore` است):
 
-| مشخصه | مقدار |
-|-------|-------|
-| فایل | `android/crm-taranom.jks` |
-| Store Password | `CrmTaranom2024!` |
-| Key Alias | `crm-taranom` |
-| Key Password | `CrmTaranom2024!` |
+```properties
+storeFile=crm-taranom.jks
+storePassword=<رمز keystore>
+keyAlias=crm-taranom
+keyPassword=<رمز کلید>
+```
+
+فایل `.jks` را هم کنار آن در پوشه `android/` قرار دهید (مسیر `storeFile` نسبت به پوشه `android/` است). به‌جای فایل properties می‌توانید متغیرهای محیطی `CRM_KEYSTORE_FILE` / `CRM_KEYSTORE_PASSWORD` / `CRM_KEY_ALIAS` / `CRM_KEY_PASSWORD` را ست کنید. اگر هیچ‌کدام تنظیم نشود، بیلد release بدون امضا ساخته می‌شود.
+
+> ⚠️ **چرخش keystore الزامی است**: keystore قبلی و رمز آن در تاریخچه گیت این مخزن افشا شده‌اند. یک keystore جدید بسازید و نسخه‌های بعدی را با آن امضا کنید (کاربران باید نسخه قدیمی را یک‌بار حذف و نسخه جدید را نصب کنند، چون امضا عوض می‌شود):
+>
+> ```bash
+> keytool -genkeypair -v -keystore crm-taranom.jks -alias crm-taranom \
+>   -keyalg RSA -keysize 2048 -validity 10000
+> ```
 
 یا از خط فرمان:
 

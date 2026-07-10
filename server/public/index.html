@@ -618,7 +618,11 @@ async function api(method, path, data, isFormData){
   const ct = r.headers.get('content-type')||'';
   if(ct.includes('application/json')){
     const j = await r.json();
-    if(!r.ok){ showToast(j.error || 'خطا رخ داد','error'); throw new Error(j.error||'error'); }
+    if(!r.ok){
+      // تغییر اجباری رمز: تا وقتی رمز عوض نشود، سرور بقیه درخواست‌ها را رد می‌کند
+      if(r.status===403 && j.code==='must_change_password' && !el('fc-old')) openForcePassChange();
+      showToast(j.error || 'خطا رخ داد','error'); throw new Error(j.error||'error');
+    }
     return j;
   }
   if(!r.ok){ showToast('خطا رخ داد','error'); throw new Error('error'); }
@@ -978,9 +982,44 @@ el('loginForm').addEventListener('submit', async (e)=>{
     localStorage.setItem('crm_token', j.token);
     localStorage.setItem('crm_user', JSON.stringify(j.user));
     ME = j.user;
+    if(j.must_change_password){ openForcePassChange(); return; }
     await boot();
   }catch(err){ el('loginErr').textContent='خطای ارتباط با سرور'; }
 });
+
+/* تغییر اجباری رمز عبور (رمز پیش‌فرض/موقت) — مودال بدون راه فرار به‌جز خروج */
+function openForcePassChange(){
+  el('modalRoot').innerHTML = `<div class="overlay open">
+    <div class="modal">
+      <div class="modal-head"><h3>🔐 تغییر اجباری رمز عبور</h3></div>
+      <div class="modal-body">
+        <p class="muted" style="font-size:13px;margin-bottom:12px;line-height:1.9">
+          رمز فعلی شما پیش‌فرض یا توسط مدیر تعیین شده است و به دلایل امنیتی باید همین حالا عوض شود.
+          رمز جدید باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد.</p>
+        <div class="form-grid">
+          <div class="fg full"><label>رمز فعلی</label><input id="fc-old" type="password" dir="ltr" autocomplete="current-password"></div>
+          <div class="fg full"><label>رمز جدید</label><input id="fc-new" type="password" dir="ltr" autocomplete="new-password"></div>
+          <div class="fg full"><label>تکرار رمز جدید</label><input id="fc-new2" type="password" dir="ltr" autocomplete="new-password"></div>
+        </div>
+        <div id="fc-err" class="login-err" style="margin-top:8px"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="doForcePassChange()">💾 ذخیره رمز جدید</button>
+        <button class="btn ghost" onclick="closeModal();logout()">خروج</button>
+      </div>
+    </div></div>`;
+}
+async function doForcePassChange(){
+  const err=el('fc-err'); if(err) err.textContent='';
+  const oldPass=el('fc-old').value, newPass=el('fc-new').value;
+  if(!newPass){ if(err) err.textContent='رمز جدید را وارد کنید'; return; }
+  if(newPass!==el('fc-new2').value){ if(err) err.textContent='تکرار رمز جدید یکسان نیست'; return; }
+  try{ await api('POST','/auth/change-password',{oldPass,newPass}); }
+  catch(e){ if(err) err.textContent=e.message||'خطا'; return; }
+  closeModal();
+  showToast('رمز عبور با موفقیت تغییر کرد');
+  if(el('app').style.display!=='block') await boot();
+}
 
 function openForgotPass(){
   openModal(`
@@ -7647,6 +7686,8 @@ ROUTES.backup = async function(){
   if(!isAdmin()){ el('view').innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
   const backups = await api('GET','/admin/backups').catch(()=>[]);
   const mahak = await api('GET','/import/mahak/status').catch(()=>({}));
+  const settings = await api('GET','/settings').catch(()=>({}));
+  const encOn = !!(settings && settings.backup_password);
   el('view').innerHTML=`
     ${isDesktopApp()?`<div class="panel" style="margin-bottom:16px;border-color:#bfdbfe"><div class="panel-body" style="font-size:13px;line-height:1.8;color:var(--muted)">
       💻 <strong>نسخه دسکتاپ:</strong> پشتیبان از <strong>دیتابیس محلی</strong> این دستگاه (شامل داده آفلاین) ساخته می‌شود. پشتیبان کامل سرور مرکزی از نسخه وب در دسترس است.
@@ -7663,14 +7704,34 @@ ROUTES.backup = async function(){
           <button class="btn" onclick="refreshBackupList()">🔄 بروزرسانی لیست</button>
           <span id="bk-status" style="font-size:13px;color:var(--muted);align-self:center"></span>
         </div>
-        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>فایل</th><th>حجم</th><th>تاریخ</th><th></th></tr></thead><tbody id="bk-tbody">
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>فایل</th><th>حجم</th><th>رمزنگاری</th><th>تاریخ</th><th></th></tr></thead><tbody id="bk-tbody">
           ${(backups||[]).map(b=>`<tr>
             <td class="mono" dir="ltr">${esc(b.name)}</td>
             <td>${esc(b.sizeMB)} MB</td>
+            <td>${b.encrypted?'🔒':'—'}</td>
             <td>${new Date(b.created_at*1000).toLocaleString('fa-IR')}</td>
             <td><button class="btn sm" onclick="downloadNamedBackup('${esc(b.name)}')">⬇️</button></td>
-          </tr>`).join('') || '<tr><td colspan="4" class="muted">هنوز پشتیبانی ثبت نشده</td></tr>'}
+          </tr>`).join('') || '<tr><td colspan="5" class="muted">هنوز پشتیبانی ثبت نشده</td></tr>'}
         </tbody></table></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <div class="panel-head"><h4>🔐 رمزنگاری پشتیبان</h4></div>
+      <div class="panel-body">
+        <p style="font-size:13px;margin-bottom:12px;color:${encOn?'var(--green)':'var(--orange)'}">
+          ${encOn?'✅ رمزنگاری فعال است — پشتیبان‌های جدید به‌صورت AES-256 رمزنگاری می‌شوند (پسوند .enc)':'⚠️ رمزنگاری غیرفعال است — فایل پشتیبان شامل کل دیتابیس (مشتریان، حساب‌ها، کاربران) به‌صورت خام است. تعیین رمز به‌شدت توصیه می‌شود.'}
+        </p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <input id="bk-enc-pass" type="password" dir="ltr" placeholder="رمز پشتیبان (حداقل ۸ کاراکتر)" style="max-width:280px">
+          <button class="btn" onclick="saveBackupPassword()">💾 ذخیره رمز</button>
+          ${encOn?'<button class="btn ghost" onclick="clearBackupPassword()">حذف رمز (غیرفعال‌سازی)</button>':''}
+        </div>
+        <p style="font-size:12px;color:var(--muted);margin-top:12px;line-height:1.9">
+          این رمز را جای امن نگه دارید — <b>بدون آن هیچ پشتیبان رمزنگاری‌شده‌ای قابل بازیابی نیست</b>.
+          بازگشایی فایل: <code dir="ltr">node server/scripts/decrypt-backup.js فایل.tar.gz.enc</code>
+          ${isDesktopApp()?'<br>ℹ️ تعیین/تغییر رمز فقط روی سرور مرکزی انجام می‌شود و با همگام‌سازی به این دستگاه می‌رسد.':''}
+        </p>
       </div>
     </div>
 
@@ -7694,6 +7755,19 @@ ROUTES.backup = async function(){
     </div>`;
 };
 async function refreshBackupList(){ ROUTES.backup(); }
+async function saveBackupPassword(){
+  const p = el('bk-enc-pass').value;
+  if(!p || p.length<8){ showToast('رمز پشتیبان باید حداقل ۸ کاراکتر باشد','error'); return; }
+  await api('PUT','/settings',{backup_password:p});
+  showToast('رمز پشتیبان ذخیره شد — پشتیبان‌های بعدی رمزنگاری می‌شوند');
+  ROUTES.backup();
+}
+async function clearBackupPassword(){
+  if(!confirm('رمزنگاری پشتیبان غیرفعال شود؟ پشتیبان‌های بعدی بدون رمز ساخته می‌شوند.')) return;
+  await api('PUT','/settings',{backup_password:''});
+  showToast('رمزنگاری پشتیبان غیرفعال شد');
+  ROUTES.backup();
+}
 async function downloadNamedBackup(name){
   const token=localStorage.getItem('crm_token');
   const res=await fetch('/api/admin/backup-download/'+encodeURIComponent(name),{headers:{'Authorization':'Bearer '+token}});
@@ -8112,6 +8186,7 @@ function renderAdminGuide(){
         <li><b>کارشناس داخلی (تلفنی)</b>: فروش و پیگیری تلفنی</li>
       </ul>
       <h5>انگیزه فروش</h5><p>درصد انگیزه فروش نقد و چک هر کارشناس را جداگانه تنظیم کنید. پس از ذخیره اولیه، نرخ قفل می‌شود و تغییر آن نیاز به تأیید مدیر دارد.</p>
+      <h5>رمز موقت و تغییر اجباری</h5><p>رمزی که هنگام ساخت کاربر یا بازنشانی رمز تعیین می‌کنید <b>موقتی</b> است: کاربر در اولین ورود به سرور مرکزی مجبور می‌شود رمز شخصی خودش را انتخاب کند (حداقل ۸ کاراکتر، شامل حرف و عدد). کاربر پیش‌فرض <code>admin</code> هم تا وقتی رمز کارخانه‌ای دارد، اجازهٔ هیچ کاری جز تغییر رمز ندارد.</p>
       <h5>گروه مشتری و ماهیت حساب</h5><p>در فرم ویرایش هر مشتری (فقط برای مدیر/حسابدار)، می‌توانید مشتری را به یک «گروه مشتری» نسبت دهید. هر گروه یک ماهیت حساب دارد: <b>بدهکار</b> (پیش‌فرض همه مشتریان) یا <b>بستانکار</b> (برای موارد خاص مثل مشتریانی که پیش‌پرداخت کرده‌اند). مدیریت گروه‌ها از داخل ماژول حسابداری → «گروه‌های مشتری» انجام می‌شود.</p>
       <div class="warn">شماره موبایل کارشناس را حتماً وارد کنید تا یادآور پیامکی دریافت کند.</div>`),
     helpSec('⚙️','تنظیمات',`
@@ -8135,10 +8210,12 @@ function renderAdminGuide(){
         <li><b>فعال/غیرفعال کردن ماژول‌ها</b>: تنخواه‌گردان، چک‌های امانی، انبارها، کالای امانی، تحلیل هزینه تولید و حقوق و دستمزد را می‌توانید بر اساس نیاز کسب‌وکار از منوی حسابداری پنهان کنید — داده‌های موجود حذف نمی‌شود، فقط از منو مخفی می‌شود</li>
       </ul>
       <h5>بازیابی رمز عبور</h5><p>در صفحه ورود، لینک «رمز عبور را فراموش کرده‌اید؟» کد یک‌بارمصرف (OTP) را به موبایل ثبت‌شده کاربر پیامک می‌کند. پس از وارد کردن کد، رمز جدید باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد. اگر پیامک ارسال نشد، تنظیمات سرویس پیامک را بررسی کنید.</p>
+      <h5>تغییر اجباری رمز در اولین ورود</h5><p>در اولین ورود با رمز پیش‌فرض (<code>admin123</code>) یا هر رمزی که مدیر برای کاربر تعیین کرده، پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود و تا رمز شخصی جدید انتخاب نشود، هیچ عملیات دیگری در برنامه ممکن نیست. این الزام روی سرور مرکزی اعمال می‌شود؛ در دستگاه‌های آفلاین رمز جدید با اولین همگام‌سازی از مرکز می‌رسد.</p>
       <h5>پشتیبان‌گیری پیشرفته (فقط سرور مرکزی)</h5><ul>
         <li>هر شب ساعت ۰۰:۰۰ پشتیبان خودکار ساخته می‌شود — شامل دیتابیس و تصاویر آپلودشده</li>
         <li>تا ۱۴ نسخهٔ قبلی نگه داشته می‌شود؛ نسخه‌های قدیمی‌تر خودکار حذف می‌شوند</li>
         <li>لیست پشتیبان‌ها و دانلود هر نسخه از منوی «پشتیبان»</li>
+        <li><b>رمزنگاری پشتیبان</b>: در منوی «پشتیبان» می‌توانید رمز پشتیبان تعیین کنید؛ از آن پس همه پشتیبان‌ها با AES-256 رمزنگاری می‌شوند (پسوند <code>.enc</code>). بازگشایی با <code dir="ltr">node server/scripts/decrypt-backup.js</code> انجام می‌شود. <b>رمز را گم نکنید — بدون آن پشتیبان قابل بازیابی نیست.</b></li>
       </ul>
       <h5>واردات از محک (Mahak)</h5><p>فایل <code>FullBackup.zip</code> محک حاوی فایل‌های <code>.bak</code> (SQL Server) است — مستقیماً به SQLite وارد نمی‌شود. ابتدا ZIP را آپلود کنید تا فایل‌های داخلش تحلیل شوند؛ سپس هر <code>.bak</code> را روی SQL Server بازگردانی کنید و متغیرهای <code>MAHAK_MSSQL_*</code> را تنظیم کنید؛ در نهایت «اجرای واردات» مشتریان و محصولات را وارد می‌کند. جزئیات در <code>docs/MAHAK-IMPORT.md</code>.</p>`),
     helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
@@ -8182,6 +8259,7 @@ function renderSalesGuide(){
   return [
     helpSec('🚀','شروع کار',`
       <p>خوش آمدید! این راهنما به شما کمک می‌کند از سیستم CRM ترنم استفاده کنید.</p>
+      <h5>اولین ورود</h5><p>اگر رمز شما را مدیر تعیین کرده باشد، در اولین ورود پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود: باید رمز شخصی جدیدی (حداقل ۸ کاراکتر، شامل حرف و عدد) انتخاب کنید تا بتوانید کار کنید. این رمز را فقط خودتان می‌دانید.</p>
       <h5>اولین قدم‌ها</h5><ol>
         <li>از منو سمت چپ بخش مشتریان را باز کنید</li>
         <li>مشتریان فعلی خود را ببینید یا مشتری جدید اضافه کنید</li>
