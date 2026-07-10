@@ -43,13 +43,13 @@
 
 ### ۱۴۰۴/۰۴/۲۱ — انتشار دسکتاپ 1.0.7 (build + deploy)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `eb50d4b`
 - **خلاصه:**
   - build: `CRM Taranom Setup 1.0.7.exe` (~93MB)
   - manifest + latest.yml به‌روز — دانلود از `/releases/` سرور production
   - رفع crash `rep_territories` در initDB
 - **فایل‌های کلیدی:** `desktop/dist/`, `server/public/releases/manifest.json`, `server/public/releases/latest.yml`
-- **Deploy:** ⏳ metadata via git + exe via SCP
+- **Deploy:** ✅ metadata (`eb50d4b`) + ⏳ آپلود exe به سرور (SCP در حال انجام)
 - **یادداشت:** نصب تازه یا جایگزینی 1.0.6
 
 ### ۱۴۰۴/۰۴/۲۱ — رفع خطای دسکتاپ: no such table rep_territories
