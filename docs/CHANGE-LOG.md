@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (پس از commit این تسک) |
+| آخرین commit | `b921b73` |
 | نسخه وب/دسکتاپ | `1.0.6` / SW `v18` |
 | وضعیت سرور | ⏳ نیاز به pull |
 | دسکتاپ | exe ~93MB — **GitHub Releases** (نه SCP به سرور) |
@@ -43,7 +43,7 @@
 
 ### ۱۴۰۴/۰۴/۲۱ — رفع 502 + بهینه‌سازی بنیادی سرعت وب و حسابداری
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `b921b73`
 - **خلاصه:**
   - **رفع 502:** import گم‌شده `adminOnly` در `invoices.js` — PM2 در crash loop بود (۴۵۰k+ restart)
   - **حسابداری:** داشبورد acc-dash دیگر trial-balance و suppliers/list را بلوک نمی‌کند؛ overview غنی‌شده با `trialBalanced` + `totalPayable`
