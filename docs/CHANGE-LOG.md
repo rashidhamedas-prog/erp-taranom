@@ -34,7 +34,7 @@
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
 | آخرین commit | `b921b73` |
 | نسخه وب/دسکتاپ | `1.0.6` / SW `v18` |
-| وضعیت سرور | ⏳ نیاز به pull |
+| وضعیت سرور | ✅ deploy (`6350292`) |
 | دسکتاپ | exe ~93MB — **GitHub Releases** (نه SCP به سرور) |
 
 ---
@@ -51,7 +51,7 @@
   - **boot admin:** `/settings` به‌صورت lazy load (مسدود نکردن login)
   - SW bump به `v18`
 - **فایل‌های کلیدی:** `server/routes/invoices.js`, `server/routes/accounting.js`, `server/routes/suppliers.js`, `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳ نیاز به pull
+- **Deploy:** ✅ production (`6350292` — PM2 stable, HTTP 200)
 - **یادداشت:** `git pull origin claude/claude-md-docs-2ssrpy && cd server && pm2 restart crm-taranom`
 
 ### ۱۴۰۴/۰۴/۲۰ — زیرساخت به‌روزرسانی دسکتاپ (GitHub Releases، بدون SCP)
