@@ -54,6 +54,7 @@ const PATH_TABLE_MAP = [
   ['/api/transfers', 'account_transfers'],
   ['/api/trust-checks', 'trust_checks'],
   ['/api/warehouses', 'warehouses'],
+  ['/api/stocktaking', 'stocktaking_sessions'],
   ['/api/consignments', 'consignments'],
   ['/api/production', 'production_runs'],
   ['/api/payroll', 'payroll_records'],

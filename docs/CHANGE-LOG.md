@@ -27,19 +27,30 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۱)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۳)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `b921b73` |
-| نسخه وب/دسکتاپ | `1.0.6` وب / دسکتاپ **`1.0.7`** / SW `v18` |
-| وضعیت سرور | ✅ deploy |
-| دسکتاپ | installer **1.0.7** (~93MB) — روی سرور production + manifest |
+| آخرین commit | (پس از commit 1.0.8) |
+| نسخه وب/دسکتاپ | **`1.0.8`** / SW `v19` |
+| اندروید | **`2.0.3`** (versionCode 5) |
+| وضعیت سرور | ⏳ deploy |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۳ — نسخه 1.0.8 (وب + دسکتاپ) و 2.0.3 (اندروید)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:**
+  - **UI:** اعداد کامل داشبورد + فونت adaptive؛ accordion منوی حسابداری (پیش‌فرض بسته)؛ عنوان «ثبت دریافت از مشتری»
+  - **باگ:** lightbox رسید نماینده (مسیر upload)؛ جستجوی مشتری نام+فروشگاه؛ dropdown GL هزینه؛ followups sub-group (`_fupCustGroups`)
+  - **ویژگی:** widget تسویه‌های منتظر تأیید؛ فیلتر ممیزی (تاریخ امروز + کاربر)؛ مرتب‌سازی followups نزولی؛ sync خودکار debounced 2s
+  - **ماژول جدید:** انبارگردانی (`stocktaking_sessions` + `stocktaking_items` + UI + API)
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/routes/stocktaking.js`, `server/db.js`, `server/sync/tables.js`, `server/public/sw.js`
+- **Deploy:** ⏳ `git pull && pm2 restart` + installer 1.0.8 + APK 2.0.3
 
 ### ۱۴۰۴/۰۴/۲۱ — انتشار دسکتاپ 1.0.7 (build + deploy)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

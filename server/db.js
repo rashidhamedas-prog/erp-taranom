@@ -1137,6 +1137,28 @@ function initDB() {
       FOREIGN KEY(rep_id) REFERENCES users(id),
       FOREIGN KEY(cust_id) REFERENCES customers(id)
     );
+    CREATE TABLE IF NOT EXISTS stocktaking_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      warehouse_id INTEGER NOT NULL,
+      date TEXT,
+      responsible_user_id INTEGER,
+      status TEXT DEFAULT 'draft',
+      note TEXT DEFAULT '',
+      created_by INTEGER,
+      approved_by INTEGER,
+      approved_at INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
+    );
+    CREATE TABLE IF NOT EXISTS stocktaking_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      system_qty INTEGER DEFAULT 0,
+      counted_qty INTEGER DEFAULT 0,
+      FOREIGN KEY(session_id) REFERENCES stocktaking_sessions(id),
+      FOREIGN KEY(product_id) REFERENCES products(id)
+    );
   `);
   ensureColumn(db, 'rep_territories', 'rep_id', 'INTEGER');
   ensureColumn(db, 'rep_territories', 'cities', "TEXT DEFAULT ''");
@@ -1176,7 +1198,9 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_journal_entries_date ON journal_entries(entry_date);
     CREATE INDEX IF NOT EXISTS idx_products_warehouse ON products(warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_warehouse_stock_wh ON warehouse_stock(warehouse_id);
-    CREATE INDEX IF NOT EXISTS idx_stock_logs_product ON stock_logs(product_id);
+    CREATE INDEX IF NOT EXISTS idx_stocktaking_wh ON stocktaking_sessions(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_stocktaking_status ON stocktaking_sessions(status);
+    CREATE INDEX IF NOT EXISTS idx_stocktaking_items_sess ON stocktaking_items(session_id);
     CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_invoices_commission ON invoices(user_id, type, approved, pay_type);
     CREATE INDEX IF NOT EXISTS idx_invoices_type_date ON invoices(type, date);

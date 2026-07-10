@@ -99,7 +99,10 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .stat:has(.ic.r){border-bottom-color:var(--red)}
 .stat:has(.ic.b){border-bottom-color:var(--blue)}
 .stat .ic{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
-.stat .v{font-size:20px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.nav-section-title.nav-acc-head{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.nav-section-title.nav-acc-head:hover{color:var(--purple)}
+.nav-acc-items{padding-bottom:4px}
+.stat .v{font-size:clamp(11px,2.2vw,20px);font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;line-height:1.25}
 .stat .l{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stat > div:last-child{min-width:0;overflow:hidden}
 .ic.p{background:var(--purple-light);color:var(--purple)}
@@ -619,9 +622,11 @@ async function api(method, path, data, isFormData){
   if(ct.includes('application/json')){
     const j = await r.json();
     if(!r.ok){ showToast(j.error || 'خطا رخ داد','error'); throw new Error(j.error||'error'); }
+    if(SYNC_MODE && ['POST','PUT','PATCH','DELETE'].includes(method)) scheduleBgSync();
     return j;
   }
   if(!r.ok){ showToast('خطا رخ داد','error'); throw new Error('error'); }
+  if(SYNC_MODE && ['POST','PUT','PATCH','DELETE'].includes(method)) scheduleBgSync();
   return r;
 }
 
@@ -846,9 +851,9 @@ function showCustDrop(id, q){
   drop.style.display='block';
   let html='';
   if(optional) html+=`<div class="cust-si-item" onclick="pickCust('${id}',0)"><span>بدون مشتری</span></div>`;
-  html+=list.slice(0,40).map(c=>`
+  html+=list.slice(0,80).map(c=>`
     <div class="cust-si-item" onclick="pickCust('${id}',${c.id})">
-      <span>${esc(c.biz)}</span>
+      <span>${esc(c.biz)}${c.owner?` <span class="muted">(${esc(c.owner)})</span>`:''}</span>
       <span class="cust-si-meta">${esc(c.phone||'')}</span>
     </div>`).join('');
   if(!html) html='<div class="cust-si-empty">مشتری یافت نشد</div>';
@@ -860,7 +865,7 @@ function pickCust(id, custId){
   if(inp){
     if(custId){
       const c=CACHE.customers.find(x=>x.id===+custId);
-      inp.value=c?c.biz:'';
+      inp.value=c?(c.biz+(c.owner?' — '+c.owner:'')):'';
     } else { inp.value=''; }
   }
   hideCustDrop(id);
@@ -1123,6 +1128,11 @@ const ACC_NAV_SECTIONS = [
 ];
 function accNavFlat(){ return ACC_NAV_SECTIONS.flatMap(s=>s.items); }
 const ACC_NAV = accNavFlat();
+const ACC_NAV_COLLAPSED = new Set(ACC_NAV_SECTIONS.map((_, i) => i));
+function toggleAccNavSection(si){
+  if(ACC_NAV_COLLAPSED.has(si)) ACC_NAV_COLLAPSED.delete(si); else ACC_NAV_COLLAPSED.add(si);
+  buildNav();
+}
 let IN_ACC_SHELL = false;
 let CURRENT_PAGE = 'dash';
 
@@ -1179,16 +1189,20 @@ function buildNav(){
       ${it.id==='reminders'?'<span class="badge hide" id="remBadge">0</span>':''}
     </a>`;
   if(IN_ACC_SHELL){
-    el('nav').innerHTML = ACC_NAV_SECTIONS.map(sec=>{
+    el('nav').innerHTML = ACC_NAV_SECTIONS.map((sec, secIdx)=>{
       const items = sec.items.filter(filterAccNavItem);
       if(ME?.role==='sales_manager'){
         const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements']);
         const filtered=items.filter(it=>allowed.has(it.id));
         if(!filtered.length) return '';
-        return `<div class="nav-section"><div class="nav-section-title">${sec.title}</div>${filtered.map(linkHtml).join('')}</div>`;
+        return `<div class="nav-section"><div class="nav-section-title nav-acc-head" onclick="toggleAccNavSection(${secIdx})">${sec.title}<span>${ACC_NAV_COLLAPSED.has(secIdx)?'▸':'▾'}</span></div><div class="nav-acc-items" style="display:${ACC_NAV_COLLAPSED.has(secIdx)?'none':'block'}">${filtered.map(linkHtml).join('')}</div></div>`;
       }
       if(!items.length) return '';
-      return `<div class="nav-section"><div class="nav-section-title">${sec.title}</div>${items.map(linkHtml).join('')}</div>`;
+      const collapsed = ACC_NAV_COLLAPSED.has(secIdx);
+      return `<div class="nav-section">
+        <div class="nav-section-title nav-acc-head" onclick="toggleAccNavSection(${secIdx})">${sec.title}<span>${collapsed?'▸':'▾'}</span></div>
+        <div class="nav-acc-items" style="display:${collapsed?'none':'block'}">${items.map(linkHtml).join('')}</div>
+      </div>`;
     }).join('');
     return;
   }
@@ -1480,6 +1494,22 @@ async function syncNowUI(){
   maybeRefreshAfterSync(); // refresh lists/ids if sync changed local data
 }
 
+let _bgSyncTimer=null;
+async function bgSyncSilent(){
+  if(!SYNC_MODE) return;
+  const token=localStorage.getItem('crm_token');
+  try{
+    const r=await fetch('/api/sync/now',{method:'POST',headers:{'Authorization':'Bearer '+token}});
+    const j=await r.json().catch(()=>({}));
+    if(j.ok){ SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge(); maybeRefreshAfterSync(); }
+  }catch(e){}
+}
+function scheduleBgSync(){
+  if(!SYNC_MODE) return;
+  clearTimeout(_bgSyncTimer);
+  _bgSyncTimer=setTimeout(bgSyncSilent, 2000);
+}
+
 async function discardSyncConflict(outboxId){
   if(!confirm('این عملیات به‌طور کامل لغو و اثر محلی آن برگردانده شود؟')) return;
   const token = localStorage.getItem('crm_token');
@@ -1588,6 +1618,7 @@ async function renderDashContent(){
   const dk = (dashDateFrom||'')+'|'+(dashDateTo||'')+'|'+ME.role;
   if(_dashHtmlCache.key===dk && Date.now()-_dashHtmlCache.t<45000){
     body.innerHTML = _dashHtmlCache.html;
+    requestAnimationFrame(fitStatNums);
     return;
   }
   body.innerHTML = '<div class="muted">در حال بارگذاری...</div>';
@@ -1648,6 +1679,7 @@ async function renderDashContent(){
         </div>
       </div>`:''}`;
     _dashHtmlCache = { key:dk, html:body.innerHTML, t:Date.now() };
+    requestAnimationFrame(fitStatNums);
   } else {
     const balances = await apiCached('GET','/customers/balances',30000);
     let followups, invoices;
@@ -1711,6 +1743,7 @@ async function renderDashContent(){
         </div>
       </div>`;
     _dashHtmlCache = { key:dk, html:body.innerHTML, t:Date.now() };
+    requestAnimationFrame(fitStatNums);
   }
 };
 function filterDashBalances(name){
@@ -1742,11 +1775,16 @@ function parseStatNum(val){
 function statCard(c,ic,val,l){
   const n=parseStatNum(val);
   const isNum=!isNaN(n) && String(val).match(/[\d۰-۹]/) && !String(val).match(/[#✓]/);
-  const display=isNum?fmtCompact(n):String(val);
-  const tip=isNum?fmt(n):'';
-  return `<div class="stat"${tip?` title="${tip}"`:''}><div class="ic ${c}">${ic}</div><div><div class="v mono">${display}</div><div class="l">${l}</div></div></div>`;
+  const display=isNum?fmt(n):String(val);
+  return `<div class="stat"><div class="ic ${c}">${ic}</div><div><div class="v mono">${display}</div><div class="l">${l}</div></div></div>`;
 }
-function fitStatNums(){ /* CSS text-overflow handles stat sizing — avoids layout thrashing */ }
+function fitStatNums(){
+  document.querySelectorAll('.stat .v').forEach(v=>{
+    v.style.fontSize='';
+    let fs=20;
+    while(fs>10 && v.scrollWidth>v.clientWidth){ fs-=1; v.style.fontSize=fs+'px'; }
+  });
+}
 function emptyRow(cols){ return `<tr><td colspan="${cols}" class="empty">موردی یافت نشد</td></tr>`; }
 
 /* ============================================================
@@ -1760,7 +1798,7 @@ ROUTES.customers = async function(){
   const v = el('view');
   v.innerHTML = `
     <div class="toolbar">
-      <input class="search" id="cSearch" placeholder="جستجوی مشتری..." value="${esc(custFilter.q)}">
+      <input class="search" id="cSearch" placeholder="جستجو: نام کامل یا نام فروشگاه..." value="${esc(custFilter.q)}">
       <select id="cStatus">
         <option value="">همه وضعیت‌ها</option>
         ${['vip','active','followup','silent','new'].map(s=>`<option value="${s}" ${custFilter.status===s?'selected':''}>${STATUS_LABEL[s]}</option>`).join('')}
@@ -2085,7 +2123,7 @@ function setFupView(v){
   renderFupView();
 }
 function filterFups(){
-  let rows=CACHE.followups.slice();
+  let rows=CACHE.followups.slice().sort((a,b)=>(b.created_at||0)-(a.created_at||0));
   if(fupFilter.q){const q=fupFilter.q.toLowerCase();rows=rows.filter(f=>((f.cust_biz||'')+' '+(f.subject||'')+' '+(f.note||'')+' '+(f.tags||'')).toLowerCase().includes(q));}
   if(fupFilter.status)rows=rows.filter(f=>f.status===fupFilter.status);
   if(fupFilter.stage)rows=rows.filter(f=>(f.pipeline_stage||'lead')===fupFilter.stage);
@@ -2148,7 +2186,7 @@ function renderFupTable(){
       </div>`;
     }).join('')||'<div class="empty">پیگیری‌ای یافت نشد</div>'}
   </div></div>`;
-  window._fupCustGroups=keys.map(k=>groups[k].items);
+  _fupCustGroups=keys.map(k=>groups[k].items);
 }
 let _fupCustGroups=[];
 function toggleFupCustFolder(gi){
@@ -2709,6 +2747,7 @@ async function productsPage(canEdit){
       ${canEdit?`<button class="btn" onclick="prodModal()">➕ محصول</button>
         <button class="btn ghost" onclick="productCategoriesModal()">🏷️ دسته‌بندی‌ها</button>
         <button class="btn ghost" onclick="enterAccountingShell().then(()=>go('acc-warehouses'))">🏭 موجودی انبارها</button>
+        <button class="btn ghost" onclick="go('stocktaking')">📋 انبارگردانی</button>
         <button class="btn ghost" onclick="importProducts()">📤 ورود اکسل</button>
         <button class="btn ghost" onclick="downloadTemplate()">📄 قالب</button>
         <button class="btn ghost" onclick="exportExcel('products')">📥 خروجی</button>`:''}
@@ -2886,6 +2925,157 @@ async function downloadAuth(path,filename){
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
     URL.revokeObjectURL(a.href);
   }catch(e){ showToast('خطا در دانلود','error'); }
+}
+
+/* ============================================================
+   STOCKTAKING (انبارگردانی)
+============================================================ */
+const STK_STATUS = { draft:'پیش‌نویس', completed:'تکمیل‌شده', adjusted:'اعمال‌شده' };
+let stkFilter = { warehouse_id:'', user_id:'', date_from:'', date_to:'', status:'' };
+let _stkDetailId = null;
+ROUTES.stocktaking = async function(){
+  if(ME.role!=='admin' && ME.role!=='accounting'){ el('view').innerHTML='<div class="empty">دسترسی محدود</div>'; return; }
+  if(!CACHE._prodWarehouses?.length) CACHE._prodWarehouses=await apiCached('GET','/warehouses',300000)||[];
+  if(!CACHE.users?.length) CACHE.users=await apiCached('GET','/auth/users',60000)||[];
+  el('view').innerHTML=`<div class="toolbar" style="flex-wrap:wrap;gap:8px">
+    <select id="stkWh"><option value="">همه انبارها</option>
+      ${(CACHE._prodWarehouses||[]).map(w=>`<option value="${w.id}" ${String(stkFilter.warehouse_id)===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}
+    </select>
+    <select id="stkUser"><option value="">همه مسئولین</option>
+      ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}" ${String(stkFilter.user_id)===String(u.id)?'selected':''}>${esc(u.name)}</option>`).join('')}
+    </select>
+    <input id="stkFrom" data-jdate placeholder="از تاریخ" value="${esc(stkFilter.date_from)}" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;width:120px">
+    <input id="stkTo" data-jdate placeholder="تا تاریخ" value="${esc(stkFilter.date_to)}" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;width:120px">
+    <select id="stkStatus"><option value="">همه وضعیت‌ها</option>
+      ${Object.entries(STK_STATUS).map(([k,l])=>`<option value="${k}" ${stkFilter.status===k?'selected':''}>${l}</option>`).join('')}
+    </select>
+    <button class="btn sm" onclick="loadStocktakingList()">🔍 اعمال</button>
+    <button class="btn green" onclick="stkNewModal()">➕ شروع انبارگردانی</button>
+    <button class="btn ghost" onclick="go('products')">← بازگشت به محصولات</button>
+  </div>
+  <div id="stkBody"><div class="muted">در حال بارگذاری...</div></div>`;
+  attachDatepickers(el('view'));
+  await loadStocktakingList();
+};
+function stkQuery(){
+  const p=[];
+  if(stkFilter.warehouse_id) p.push('warehouse_id='+encodeURIComponent(stkFilter.warehouse_id));
+  if(stkFilter.user_id) p.push('user_id='+encodeURIComponent(stkFilter.user_id));
+  if(stkFilter.date_from) p.push('date_from='+encodeURIComponent(stkFilter.date_from));
+  if(stkFilter.date_to) p.push('date_to='+encodeURIComponent(stkFilter.date_to));
+  if(stkFilter.status) p.push('status='+encodeURIComponent(stkFilter.status));
+  return p.length?'?'+p.join('&'):'';
+}
+async function loadStocktakingList(){
+  stkFilter.warehouse_id=el('stkWh')?.value||'';
+  stkFilter.user_id=el('stkUser')?.value||'';
+  stkFilter.date_from=el('stkFrom')?.value||'';
+  stkFilter.date_to=el('stkTo')?.value||'';
+  stkFilter.status=el('stkStatus')?.value||'';
+  const box=el('stkBody'); if(!box) return;
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const rows=await api('GET','/stocktaking'+stkQuery())||[];
+  if(_stkDetailId){
+    const found=rows.some(r=>r.id===_stkDetailId);
+    if(found) return stkOpenDetail(_stkDetailId);
+    _stkDetailId=null;
+  }
+  box.innerHTML=`<div class="panel"><div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
+    <th>#</th><th>تاریخ</th><th>انبار</th><th>مسئول</th><th>وضعیت</th><th>ثبت‌کننده</th><th>عملیات</th>
+  </tr></thead><tbody>${rows.map(r=>`<tr>
+    <td class="mono">${r.id}</td>
+    <td class="mono">${escDate(r.date)}</td>
+    <td>${esc(r.warehouse_name||'-')}</td>
+    <td>${esc(r.responsible_name||'-')}</td>
+    <td><span class="tag ${r.status==='adjusted'?'t-done':r.status==='completed'?'t-open':'t-new'}">${STK_STATUS[r.status]||r.status}</span></td>
+    <td class="muted">${esc(r.creator_name||'-')}</td>
+    <td style="white-space:nowrap">
+      <button class="btn sm" onclick="stkOpenDetail(${r.id})">📋 جزئیات</button>
+      ${r.status!=='adjusted'?`<button class="btn sm red" onclick="stkDelete(${r.id})">🗑️</button>`:''}
+    </td>
+  </tr>`).join('')||emptyRow(7)}</tbody></table></div></div>`;
+}
+async function stkOpenDetail(id){
+  _stkDetailId=id;
+  const box=el('stkBody'); if(!box) return;
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const d=await api('GET','/stocktaking/'+id);
+  if(!d?.session){ box.innerHTML='<div class="empty">یافت نشد</div>'; return; }
+  const s=d.session, items=d.items||[];
+  const editable=s.status!=='adjusted';
+  const varianceTotal=items.reduce((a,it)=>a+((it.counted_qty||0)-(it.system_qty||0)),0);
+  box.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <button class="btn ghost sm" onclick="_stkDetailId=null;loadStocktakingList()">← لیست</button>
+      <span class="tag t-new">انبار: ${esc(s.warehouse_name||'-')}</span>
+      <span class="tag">${STK_STATUS[s.status]||s.status}</span>
+      <span class="muted">تاریخ: ${escDate(s.date)} — مسئول: ${esc(s.responsible_name||'-')}</span>
+      ${editable?`<button class="btn sm" onclick="stkSaveItems(${s.id})">💾 ذخیره شمارش</button>
+        <button class="btn sm blue" onclick="stkComplete(${s.id})">✅ تکمیل</button>
+        <button class="btn sm green" onclick="stkApply(${s.id})">📦 تأیید و اعمال اصلاحات</button>`:''}
+    </div>
+    <div class="panel"><div class="panel-head"><h4>اقلام انبارگردانی #${s.id} (${items.length} قلم)</h4>
+      <span class="muted">جمع اختلاف: <b style="color:${varianceTotal>0?'var(--green)':varianceTotal<0?'var(--red)':'inherit'}">${varianceTotal>0?'+':''}${fmt(varianceTotal)}</b></span>
+    </div>
+    <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <th>کد</th><th>محصول</th><th>واحد</th><th>موجودی سیستم</th><th>موجودی شمارش‌شده</th><th>اختلاف</th>
+    </tr></thead><tbody>${items.map(it=>{
+      const v=(it.counted_qty||0)-(it.system_qty||0);
+      return `<tr>
+        <td class="mono">${esc(it.code||'-')}</td>
+        <td>${esc(it.name||'-')}</td>
+        <td>${esc(it.unit||'-')}</td>
+        <td class="mono">${fmt(it.system_qty||0)}</td>
+        <td>${editable?`<input type="number" min="0" class="stk-count" data-id="${it.id}" value="${it.counted_qty||0}" style="width:90px;padding:4px 8px;border:1.5px solid var(--border);border-radius:6px">`:`<span class="mono">${fmt(it.counted_qty||0)}</span>`}</td>
+        <td class="mono" style="font-weight:600;color:${v>0?'var(--green)':v<0?'var(--red)':'var(--muted)'}">${v>0?'+':''}${fmt(v)}</td>
+      </tr>`;
+    }).join('')||emptyRow(6)}</tbody></table></div></div>
+    ${s.note?`<div class="muted" style="margin-top:8px">یادداشت: ${esc(s.note)}</div>`:''}`;
+}
+function stkNewModal(){
+  openModal(`
+    <div class="modal-head"><h3>📋 شروع انبارگردانی جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>انبار *</label><select id="stk-new-wh"><option value="">— انتخاب —</option>
+        ${(CACHE._prodWarehouses||[]).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>تاریخ</label><input id="stk-new-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>مسئول</label><select id="stk-new-user"><option value="">— خودم —</option>
+        ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg full"><label>یادداشت</label><textarea id="stk-new-note" placeholder="توضیحات..."></textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn green" onclick="stkCreate()">➕ ایجاد</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function stkCreate(){
+  const whId=+el('stk-new-wh').value;
+  if(!whId){ showToast('انبار را انتخاب کنید','error'); return; }
+  try{
+    const r=await api('POST','/stocktaking',{ warehouse_id:whId, date:el('stk-new-date').value, responsible_user_id:+el('stk-new-user').value||null, note:el('stk-new-note').value||'' });
+    closeModal(); showToast(`انبارگردانی #${r.id} با ${r.item_count} قلم ایجاد شد`);
+    _stkDetailId=r.id; await loadStocktakingList();
+  }catch(e){}
+}
+async function stkSaveItems(id){
+  const items=[...document.querySelectorAll('.stk-count')].map(inp=>({ id:+inp.dataset.id, counted_qty:+inp.value||0 }));
+  try{ await api('PUT','/stocktaking/'+id+'/items',{items}); showToast('شمارش ذخیره شد'); stkOpenDetail(id); }catch(e){}
+}
+async function stkComplete(id){
+  if(!confirm('انبارگردانی تکمیل شود؟')) return;
+  try{ await api('POST','/stocktaking/'+id+'/complete'); showToast('تکمیل شد'); stkOpenDetail(id); }catch(e){}
+}
+async function stkApply(id){
+  if(!confirm('اصلاحات موجودی اعمال شود؟ این عمل برگشت‌پذیر نیست.')) return;
+  try{
+    await api('POST','/stocktaking/'+id+'/apply');
+    showToast('اصلاحات اعمال شد'); CACHE.allProducts=[]; CACHE.products=[]; _stkDetailId=id; stkOpenDetail(id);
+  }catch(e){}
+}
+async function stkDelete(id){
+  if(!confirm('این انبارگردانی حذف شود؟')) return;
+  try{ await api('DELETE','/stocktaking/'+id); showToast('حذف شد'); _stkDetailId=null; loadStocktakingList(); }catch(e){}
 }
 
 /* ============================================================
@@ -3122,6 +3312,7 @@ ROUTES['acc-dash'] = async function(){
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
   const ov = await apiCached('GET','/accounting/overview', 45000);
   if(!ov) return;
+  const pendingRep = await apiCached('GET','/reps/payments/pending', 30000).catch(()=>[]);
   const totalPayable = ov.totalPayable || 0;
   const tbBalanced = ov.trialBalanced;
   el('view').innerHTML=`
@@ -3131,8 +3322,21 @@ ROUTES['acc-dash'] = async function(){
       ${statCard('r','⏳',fmt(Math.max(0,ov.outstanding)),'مانده مطالبات مشتریان (ت)')}
       ${statCard('o','🚚',fmt(totalPayable),'مانده پرداختنی تأمین‌کنندگان (ت)')}
       ${statCard('p','🔔',fmt(ov.pendingApproval),'فاکتور منتظر تأیید')}
+      ${statCard('o','⏳',fmt(ov.pendingSettlements||0),'تسویه منتظر تأیید')}
       ${statCard(tbBalanced?'g':'r','⚖️',tbBalanced?'متوازن ✓':'نامتوازن!','وضعیت تراز آزمایشی')}
     </div>
+    ${(pendingRep||[]).length?`<div class="panel" style="margin-bottom:16px;border-color:#fde68a">
+      <div class="panel-head"><h4>⏳ تسویه‌های میدانی منتظر تأیید (${pendingRep.length})</h4>
+        <button class="btn sm" onclick="go('acc-settlements')">مشاهده همه</button></div>
+      <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>تاریخ</th><th>نماینده</th><th>مشتری</th><th>مبلغ</th><th>رسید</th><th></th>
+      </tr></thead><tbody>${pendingRep.slice(0,8).map(p=>`<tr>
+        <td class="mono">${escDate(p.date)}</td><td>${esc(p.rep_name)}</td>
+        <td>${esc(p.cust_biz||'-')}</td><td class="mono">${fmt(p.amount)}</td>
+        <td>${repReceiptBtn(p.receipt_file)}</td>
+        <td><button class="btn sm green" onclick="approveRepPayment(${p.id}).then(()=>go('acc-dash'))">✅</button></td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>`:''}
     <div class="panel" style="margin-bottom:16px">
       <div class="panel-head"><h4>🚀 دسترسی سریع</h4></div>
       <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:10px">
@@ -3178,6 +3382,7 @@ ROUTES['acc-dash'] = async function(){
   requestAnimationFrame(()=>{
     const c=el('accDashChart');
     if(c){ c.innerHTML=chartOfAccountsGroupedHtml(accounts||[]); cacheSet('page:acc-dash', el('view').innerHTML); }
+    fitStatNums();
   });
 };
 
@@ -5962,7 +6167,7 @@ async function renderCashOpsTab(body, dq){
         <td>${esc(p.cust_biz||'-')}${p.cust_owner?`<br><span class="muted">${esc(p.cust_owner)}</span>`:''}</td>
         <td>${p.pay_type==='cheque'?'🧾 چک':p.pay_type==='bank_transfer'?'🏦 واریز':'💵 نقد'}</td>
         <td class="mono">${fmt(p.amount)}</td>
-        <td>${p.receipt_file?`<a href="/uploads/reps/${esc(p.receipt_file)}" target="_blank">🖼️ مشاهده</a>`:'-'}</td>
+        <td>${repReceiptBtn(p.receipt_file)}</td>
         <td style="white-space:nowrap">
           <button class="btn sm green" onclick="approveRepPayment(${p.id})">✅ تأیید</button>
           <button class="btn sm red" onclick="rejectRepPayment(${p.id})">❌ رد</button>
@@ -6064,7 +6269,8 @@ function paymentOpChooser(){
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
 }
-function expensePaymentModal(){
+async function expensePaymentModal(){
+  if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   openModal(`
     <div class="modal-head"><h3>🧾 ثبت پرداخت هزینه</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -6114,7 +6320,7 @@ function exAcctShow(q){
   if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
   const rect=inp.getBoundingClientRect();
   drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
-  drop.innerHTML=list.slice(0,40).map(a=>`
+  drop.innerHTML=list.slice(0,120).map(a=>`
     <div class="cust-si-item" onmousedown="exAcctPick('${esc(a.code)}')">
       <span>${esc(a.name)}</span><span class="cust-si-meta">${esc(a.code)}</span>
     </div>`).join('')||'<div class="cust-si-empty">حسابی یافت نشد</div>';
@@ -6318,7 +6524,7 @@ async function settlementModal(custId){
   stlOpenInvoices=[];
   if(custId) stlOpenInvoices=await api('GET','/accounting/customers/'+custId+'/open-invoices')||[];
   openModal(`
-    <div class="modal-head"><h3>💵 ثبت پرداخت</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>💵 ثبت دریافت از مشتری</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>مشتری * ${hlp('مشتری‌ای که این پرداخت را انجام داده است.')}</label>${custSelect('st-cust', custId)}</div>
       <div class="fg full"><label>فاکتور مرتبط (اختیاری) ${hlp('اگر این پرداخت بابت یک فاکتور خاص است، آن را انتخاب کنید — فقط فاکتورهای رسمی با مانده باز نمایش داده می‌شوند.')}</label>
@@ -6362,7 +6568,7 @@ async function settlementModal(custId){
       </div>
     </div></div>
     <div class="modal-foot">
-      <button class="btn green" onclick="saveSettlement()">💾 ثبت پرداخت</button>
+      <button class="btn green" onclick="saveSettlement()">💾 ثبت دریافت</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button>
     </div>`);
   attachDatepickers(el('modalRoot'));
@@ -6493,7 +6699,7 @@ ROUTES['my-rep'] = async function(){
         <td>${p.pay_type==='cheque'?'🧾 چک':p.pay_type==='bank_transfer'?'🏦 واریز':'💵 نقد'}</td>
         <td class="mono">${fmt(p.amount)}</td>
         <td>${p.status==='pending'?'<span class="tag t-pending">⏳ در انتظار</span>':p.status==='approved'?'<span class="tag t-done">✅ تأیید</span>':'<span class="tag t-lost">❌ رد</span>'}</td>
-        <td>${p.receipt_file?`<a href="/uploads/reps/${esc(p.receipt_file)}" target="_blank">🖼️</a>`:'-'}</td>
+        <td>${repReceiptBtn(p.receipt_file)}</td>
       </tr>`).join('')||emptyRow(6)}</tbody></table></div></div>`:''}
     <div class="panel"><div class="panel-head"><h4>📒 گردش حساب من</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
@@ -6724,7 +6930,7 @@ async function repPendingExpensesModal(){
     </tr></thead><tbody>${rows.map(e=>`<tr>
       <td>${esc(e.rep_name)}</td><td>${esc(cats[e.category]||e.category)}</td><td class="mono">${fmt(e.amount)}</td>
       <td class="mono">${escDate(e.date)}</td><td class="muted">${esc(e.description||'-')}</td>
-      <td>${e.receipt_file?`<a href="/uploads/reps/${esc(e.receipt_file)}" target="_blank">📎</a>`:'-'}</td>
+      <td>${repReceiptBtn(e.receipt_file)}</td>
       <td style="white-space:nowrap">
         <button class="btn sm green" onclick="approveRepExpense(${e.id})">✅ تأیید</button>
         <button class="btn sm red" onclick="rejectRepExpense(${e.id})">❌ رد</button>
@@ -7573,12 +7779,22 @@ ROUTES.settings = async function(){
         <div class="fg"><label><input type="checkbox" id="s-module_reps" ${s.module_reps!=='0'?'checked':''} style="width:auto;margin-left:6px"> نمایندگان فروش</label></div>
       </div>
     </div></div>
-    <div class="panel"><div class="panel-head"><h4>📜 گزارش ممیزی (Audit)</h4>
-      <button class="btn sm ghost" onclick="loadAuditLog()">🔄 بارگذاری</button></div>
-      <div class="panel-body" id="audit-log-body"><p class="muted">برای مشاهده رویدادها دکمه بارگذاری را بزنید.</p></div></div>
+    <div class="panel"><div class="panel-head" style="flex-wrap:wrap;gap:8px"><h4>📜 گزارش ممیزی (Audit)</h4>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input id="auditFrom" data-jdate placeholder="از تاریخ" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${todayJalali()}">
+        <input id="auditTo" data-jdate placeholder="تا تاریخ" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${todayJalali()}">
+        <select id="auditUser" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px">
+          <option value="">همه کاربران</option>
+          ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('')}
+        </select>
+        <button class="btn sm ghost" onclick="loadAuditLog()">🔄 بارگذاری</button>
+      </div></div>
+      <div class="panel-body" id="audit-log-body"><p class="muted">در حال بارگذاری...</p></div></div>
     <button class="btn green" onclick="saveSettings()">💾 ذخیره تنظیمات</button>`;
   // Show hint for current provider on page load
   toggleSmsProviderHint(s.sms_provider||'kavenegar');
+  attachDatepickers(el('view'));
+  loadAuditLog();
   if(isDesktopApp()) renderDesktopUpdateUI();
 };
 ROUTES['desktop-settings'] = async function(){
@@ -7599,7 +7815,12 @@ async function loadAuditLog(){
   const body=el('audit-log-body'); if(!body) return;
   body.innerHTML='<p class="muted">در حال بارگذاری...</p>';
   try{
-    const r=await api('GET','/admin/audit?limit=80')||{};
+    const df=el('auditFrom')?.value||todayJalali();
+    const dt=el('auditTo')?.value||df;
+    const uid=el('auditUser')?.value||'';
+    let q='?limit=120&date_from='+encodeURIComponent(df)+'&date_to='+encodeURIComponent(dt);
+    if(uid) q+='&user_id='+encodeURIComponent(uid);
+    const r=await api('GET','/admin/audit'+q)||{};
     const rows=r.rows||[];
     body.innerHTML=`<div class="tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr>
       <th>زمان</th><th>کاربر</th><th>عملیات</th><th>موجودیت</th><th>جزئیات</th><th>IP</th>
@@ -8300,6 +8521,11 @@ async function doChangePass(){
 /* ============================================================
    IMAGE LIGHTBOX PREVIEW
 ============================================================ */
+function repReceiptBtn(file){
+  if(!file) return '-';
+  const src='/uploads/reps/'+encodeURIComponent(file);
+  return `<button type="button" class="btn sm ghost" onclick="showImgPreview('${src.replace(/'/g,"\\'")}')">🖼️ مشاهده</button>`;
+}
 function showImgPreview(src){
   const ov = document.createElement('div');
   ov.className = 'img-overlay';

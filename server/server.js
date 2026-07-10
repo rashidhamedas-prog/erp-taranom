@@ -24,7 +24,7 @@ try {
 
 // Ensure uploads directory exists
 const { UPLOADS_ROOT } = require('./paths');
-for (const sub of ['products', 'messages', 'vouchers']) {
+for (const sub of ['products', 'messages', 'vouchers', 'reps']) {
   fs.mkdirSync(path.join(UPLOADS_ROOT, sub), { recursive: true });
 }
 
@@ -178,6 +178,7 @@ app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/persons', require('./routes/persons'));
 app.use('/api/trust-checks', require('./routes/trust-checks'));
 app.use('/api/warehouses', require('./routes/warehouses'));
+app.use('/api/stocktaking', require('./routes/stocktaking'));
 app.use('/api/consignments', require('./routes/consignments'));
 app.use('/api/adv-reports', require('./routes/adv-reports'));
 app.use('/api/production', require('./routes/production'));

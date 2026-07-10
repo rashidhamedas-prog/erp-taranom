@@ -64,6 +64,7 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const totalInvoiced = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final'").get().s;
   const totalSettled = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM settlements").get().s;
   const pendingApproval = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=0").get().c;
+  const pendingSettlements = db.prepare("SELECT COUNT(*) c FROM rep_payment_submissions WHERE status='pending'").get().c;
   const approvedCount = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=1").get().c;
   const tb = db.prepare(`
     SELECT COALESCE(SUM(jl.debit),0) d, COALESCE(SUM(jl.credit),0) c
@@ -85,7 +86,8 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   res.json({
     totalInvoiced, totalSettled, outstanding: totalInvoiced - totalSettled,
     pendingApproval, approvedCount, trialBalanced,
-    totalPayable: payRow.total || 0
+    totalPayable: payRow.total || 0,
+    pendingSettlements
   });
 });
 
