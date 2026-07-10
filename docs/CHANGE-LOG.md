@@ -35,7 +35,7 @@
 | آخرین commit | `66e3c56` |
 | نسخه وب/دسکتاپ | **`1.0.8`** / SW `v19` |
 | اندروید | **`2.0.3`** (versionCode 5) |
-| وضعیت سرور | ⏳ deploy |
+| وضعیت سرور | ✅ deploy (وب + manifest دسکتاپ 1.0.8) |
 
 ---
 
@@ -50,7 +50,7 @@
   - **ویژگی:** widget تسویه‌های منتظر تأیید؛ فیلتر ممیزی (تاریخ امروز + کاربر)؛ مرتب‌سازی followups نزولی؛ sync خودکار debounced 2s
   - **ماژول جدید:** انبارگردانی (`stocktaking_sessions` + `stocktaking_items` + UI + API)
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/routes/stocktaking.js`, `server/db.js`, `server/sync/tables.js`, `server/public/sw.js`
-- **Deploy:** ⏳ `git pull && pm2 restart` + installer 1.0.8 + APK 2.0.3
+- **Deploy:** ✅ وب + installer دسکتاپ 1.0.8 (~97MB) روی production — ⏳ APK اندروید 2.0.3 (نیاز Android Studio + libnode)
 
 ### ۱۴۰۴/۰۴/۲۱ — انتشار دسکتاپ 1.0.7 (build + deploy)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
