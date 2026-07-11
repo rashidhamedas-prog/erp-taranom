@@ -43,7 +43,7 @@
 
 ### ۱۴۰۴/۰۴/۲۳ — انتقال مزیت‌های CRM v4: امنیت 2FA + دستیار AI + بارکد محصولات
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** `d29e7ef` (rebased)
+- **Commit:** `87a6469`
 - **خلاصه:** آنالیز کامل پروژه `crm v4` و انتقال ۳ مزیت اصلی آن (بدون multi-tenancy/B2B/مودیان/puppeteer که به معماری آسیب می‌زدند):
   - **2FA (TOTP):** جدول `two_factor_auth` (خارج از sync — فقط مرکزی)، route جدید `/api/auth/2fa/*` (setup/verify/recovery-code/disable/status/admin-reset/admin-status)، رمزنگاری اسرار با AES-256-GCM (`services/crypto.js`)، مرحله کد ۶ رقمی در ورود + کدهای بازیابی یک‌بارمصرف، پنل «🔐 امنیت» در سایدبار، rate-limit روی verify. دستگاه‌های آفلاین: ورود بدون 2FA (جدول خالی)، مدیریت 2FA فقط از وب (`centralOnly`).
   - **دستیار فروش AI:** ستون `customers.churn_score` + جدول `ai_insights`؛ سرویس heuristic (ریسک ریزش ۰-۱۰۰، فرصت فروش مجدد بر اساس الگوی خرید، اقدام روزانه هر کارشناس، خلاصه هفتگی مدیر) بدون نیاز به API خارجی؛ لایه اختیاری Claude API (تنظیمات: `feature_ai_assistant`, `ai_api_key`, `ai_model`)؛ cron شبانه ۰۲:۰۰ فقط مرکزی؛ صفحه «🤖 دستیار AI» در منوی ادمین و فروش؛ برچسب قرمز ریسک در لیست مشتریان.
