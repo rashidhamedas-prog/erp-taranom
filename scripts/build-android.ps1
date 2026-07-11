@@ -73,6 +73,12 @@ if (-not (Test-Path (Join-Path $npDir 'node_modules\express'))) {
   Pop-Location
 }
 
+# --- strip pre-gzipped dist files: AAPT drops the .gz extension when merging
+# assets, so foo.min.js + foo.min.js.gz collide as "Duplicate resources"
+# (bcryptjs ships one). The runtime never reads .gz dists - safe to delete. ---
+Get-ChildItem -Path $npDir -Recurse -Filter '*.gz' -File -ErrorAction SilentlyContinue | Remove-Item -Force
+Get-ChildItem -Path $npDir -Recurse -Filter '*.br' -File -ErrorAction SilentlyContinue | Remove-Item -Force
+
 # --- local.properties (UTF8 *without* BOM - java.util.Properties cannot read a BOM'd key) ---
 $localProps = Join-Path $Android 'local.properties'
 [IO.File]::WriteAllText($localProps, "sdk.dir=$($Sdk -replace '\\','/')`n")
