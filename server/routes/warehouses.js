@@ -45,7 +45,10 @@ router.get('/stock/overview', auth, adminOrAccounting, (req, res) => {
   res.json(result);
 });
 
-router.get('/', auth, adminOrAccounting, (req, res) => {
+// Read-only list is open to all authenticated users — the products/catalog
+// page needs it for its warehouse filter (spec 1.0.9 §2: sales users were
+// getting "access denied" on the catalog). Mutations below stay restricted.
+router.get('/', auth, (req, res) => {
   const db = getDB();
   res.json(db.prepare('SELECT * FROM warehouses ORDER BY name').all());
 });

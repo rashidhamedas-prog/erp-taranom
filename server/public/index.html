@@ -62,7 +62,8 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .sidebar .brand small{font-size:11px;opacity:.8;display:block}
 .nav{flex:1;overflow-y:auto;padding:12px 0}
 .nav a{display:flex;align-items:center;gap:12px;padding:12px 22px;color:rgba(255,255,255,.85);font-size:14px;position:relative}
-.nav a .ico{font-size:18px;width:24px;text-align:center}
+.nav a .ico{font-size:18px;width:24px;text-align:center;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.nav a .ico svg{width:19px;height:19px;display:block;opacity:.95}
 .nav a:hover{background:rgba(255,255,255,.1);color:#fff}
 .nav a.active{background:rgba(255,255,255,.18);color:#fff;font-weight:600}
 .nav a.active::before{content:'';position:absolute;right:0;top:0;bottom:0;width:4px;background:var(--gold)}
@@ -99,6 +100,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .stat:has(.ic.r){border-bottom-color:var(--red)}
 .stat:has(.ic.b){border-bottom-color:var(--blue)}
 .stat .ic{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+.stat .ic svg{width:22px;height:22px;display:block;opacity:.92}
 .nav-section-title.nav-acc-head{
   cursor:pointer;user-select:none;
   display:flex;align-items:center;justify-content:space-between;gap:8px;
@@ -254,14 +256,60 @@ table.tbl tr:hover td{background:#F7FAF7}
 .cart-tot .l{display:flex;justify-content:space-between;padding:5px 0}
 .cart-tot .final{font-weight:800;font-size:16px;color:var(--green);border-top:1px solid var(--border);padding-top:8px;margin-top:4px}
 
-/* ===== Messages ===== */
-.msg-tabs{display:flex;gap:8px;margin-bottom:14px}
-.msg-tabs button{padding:8px 16px;border:none;border-radius:9px;background:#f3f4f6;color:var(--muted);font-weight:600}
-.msg-tabs button.active{background:var(--purple);color:#fff}
-.msg{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px}
-.msg.unread{border-right:4px solid var(--purple);background:#faf8ff}
-.msg .mh{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
-.msg .mb{font-size:14px}
+/* ===== Messages — Telegram-style chat ===== */
+.tg{display:grid;grid-template-columns:330px 1fr;height:calc(100dvh - 150px);min-height:430px;
+  background:var(--card);border-radius:16px;overflow:hidden;border:1px solid var(--border);
+  box-shadow:0 8px 24px rgba(26,92,56,.08)}
+.tg-side{border-inline-end:1px solid var(--border);display:flex;flex-direction:column;min-width:0;background:var(--card)}
+.tg-side-head{display:flex;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);align-items:center}
+.tg-side-head input{flex:1;min-width:0;padding:8px 12px;border:1.5px solid var(--border);border-radius:20px;font-family:inherit;font-size:13px;background:#f5f6f8}
+.tg-new{width:38px;height:38px;border-radius:50%;border:none;background:var(--purple);color:#fff;font-size:17px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.tg-list{overflow-y:auto;flex:1}
+.tg-item{display:flex;gap:10px;padding:10px 12px;cursor:pointer;align-items:center;border-bottom:1px solid #f2f3f5;transition:background .12s}
+.tg-item:hover{background:#f5f6f8}
+.tg-item.active{background:var(--purple);color:#fff}
+.tg-item.active .tg-i-snip,.tg-item.active .tg-i-time{color:rgba(255,255,255,.8)}
+.tg-av{width:46px;height:46px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:17px;user-select:none}
+.tg-i-main{flex:1;min-width:0}
+.tg-i-top{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tg-i-name{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tg-i-time{font-size:10.5px;color:var(--muted);flex-shrink:0}
+.tg-i-bot{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:3px}
+.tg-i-snip{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tg-i-badge{background:var(--green);color:#fff;border-radius:12px;min-width:19px;height:19px;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0}
+.tg-chat{display:flex;flex-direction:column;min-width:0;background:#e7ebe0 url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" opacity="0.05"><circle cx="30" cy="30" r="2" fill="%231a5c38"/></svg>')}
+.tg-head{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--card);border-bottom:1px solid var(--border);min-height:56px}
+.tg-head .tg-av{width:38px;height:38px;font-size:15px}
+.tg-back{display:none;border:none;background:none;font-size:20px;cursor:pointer;padding:4px 8px;color:var(--purple)}
+.tg-body{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column}
+.tg-date{align-self:center;background:rgba(0,0,0,.25);color:#fff;font-size:11px;padding:3px 12px;border-radius:12px;margin:8px 0}
+.tg-row{display:flex;margin-bottom:4px;justify-content:flex-start}
+.tg-row.me{justify-content:flex-end}
+.tg-bub{max-width:76%;padding:7px 11px 5px;border-radius:14px 14px 14px 4px;background:#fff;font-size:13.5px;line-height:1.75;
+  white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;box-shadow:0 1px 1px rgba(0,0,0,.08);position:relative}
+.tg-row.me .tg-bub{background:#dff3d1;border-radius:14px 14px 4px 14px}
+.tg-meta{display:flex;justify-content:flex-end;align-items:center;gap:4px;font-size:10px;color:#8aa17f;margin-top:1px;direction:ltr}
+.tg-ticks{font-size:12px;line-height:1;letter-spacing:-3px;color:#9aa5af}
+.tg-ticks.read{color:#3ba0e0}
+.tg-bub img{max-width:280px;max-height:280px;width:100%;border-radius:9px;cursor:zoom-in;display:block;margin:2px 0 4px}
+.tg-bub .tg-del{position:absolute;top:-7px;inset-inline-start:-7px;width:20px;height:20px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:11px;cursor:pointer;display:none;align-items:center;justify-content:center;line-height:1}
+.tg-bub:hover .tg-del{display:flex}
+.tg-sender{font-size:11px;font-weight:700;color:var(--purple);margin-bottom:1px}
+.tg-compose{display:flex;gap:8px;padding:9px 12px;background:var(--card);border-top:1px solid var(--border);align-items:flex-end}
+.tg-compose textarea{flex:1;min-width:0;resize:none;max-height:110px;border:1.5px solid var(--border);border-radius:18px;padding:9px 14px;font-family:inherit;font-size:13.5px;line-height:1.6;outline:none}
+.tg-compose textarea:focus{border-color:var(--purple)}
+.tg-iconbtn{width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;font-size:17px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.tg-send{background:var(--purple);color:#fff}
+.tg-attach{background:#f0f1f3;color:var(--muted)}
+.tg-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);font-size:14px}
+@media(max-width:900px){
+  .tg{grid-template-columns:1fr;height:calc(100dvh - 125px)}
+  .tg-chat{display:none}
+  .tg.chat-open .tg-chat{display:flex}
+  .tg.chat-open .tg-side{display:none}
+  .tg-back{display:block}
+  .tg-bub{max-width:86%}
+}
 
 /* ===== Toast ===== */
 #toasts{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:900;display:flex;flex-direction:column;gap:8px;align-items:center}
@@ -1144,6 +1192,81 @@ function logout(){
 /* ============================================================
    NAV / ROUTING
 ============================================================ */
+/* Modern icon set (Lucide, inlined as SVG — offline-safe, no CDN, colors via
+   currentColor so they follow the design system). Spec 1.0.9 §7. */
+const LU = (()=> {
+  const w = inner => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+  const d = {
+    dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+    home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+    users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+    receipt: '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 7h8"/><path d="M8 11h8"/><path d="M8 15h5"/>',
+    bag: '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+    bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+    trending: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+    bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+    cart: '<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
+    wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+    chat: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+    settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+    plug: '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+    book: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+    briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+    scale: '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
+    landmark: '<line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
+    chart: '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+    linechart: '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>',
+    factory: '<path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/>',
+    file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+    undo: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+    redo: '<polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/>',
+    target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+    banknote: '<rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
+    card: '<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>',
+    folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+    repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+    bookmark: '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
+    box: '<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73Z"/><path d="M12 22V12"/><path d="m3.3 7 8.7 5 8.7-5"/>',
+    truck: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35a1 1 0 0 0-.78-.38H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+    person: '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+    clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+    warehouse: '<path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z"/><path d="M6 22V12h12v10"/><path d="M6 17h12"/>',
+    pen: '<path d="M12.5 22H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9l5 5v4"/><path d="m21.4 14.6-6.8 6.8-3.1.7.7-3.1 6.8-6.8a1.7 1.7 0 0 1 2.4 2.4Z"/>',
+    tags: '<path d="m15 5 6.3 6.3a2.4 2.4 0 0 1 0 3.4L17 19"/><path d="M9.586 5.586A2 2 0 0 0 8.172 5H3a1 1 0 0 0-1 1v5.172a2 2 0 0 0 .586 1.414L8.29 18.29a2.426 2.426 0 0 0 3.42 0l3.58-3.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="6.5" cy="9.5" r=".5" fill="currentColor"/>',
+    coins: '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>',
+    back: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+    monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+  };
+  const byNav = {
+    dash:'dashboard', customers:'users', followups:'phone', invoices:'receipt', products:'bag',
+    reminders:'bell', users:'user', reports:'trending', ai:'bot', b2bOrders:'cart',
+    accounting:'wallet', messages:'chat', settings:'settings', backup:'archive', api:'plug',
+    help:'book', catalog:'bag', 'my-rep':'briefcase', 'desktop-settings':'monitor',
+    'exit-acc-shell':'back', 'acc-dash':'dashboard', 'acc-general':'linechart',
+    'acc-trial-balance':'scale', 'acc-balance-sheet':'landmark', 'acc-adv-reports':'chart',
+    'acc-production':'factory', 'acc-receivables':'receipt', 'acc-sales-invoices':'file',
+    'acc-sales-returns':'undo', 'acc-statement':'file', 'acc-commissions':'target',
+    'acc-reps':'briefcase', 'acc-customer-groups':'users', 'acc-settlements':'banknote',
+    'acc-cheques':'card', 'acc-banks':'landmark', 'acc-check-categories':'folder',
+    'acc-cash-boxes':'wallet', 'acc-transfers':'repeat', 'acc-trust-checks':'bookmark',
+    'acc-petty-cash':'coins', 'acc-purchases':'box', 'acc-purchase-returns':'redo',
+    'acc-suppliers':'truck', 'acc-persons':'person', 'acc-item-kardex':'clipboard',
+    'acc-warehouses':'warehouse', 'acc-warehouse-ops':'box', 'acc-consignments':'repeat',
+    'acc-vouchers':'pen', 'acc-cost-centers':'tags', 'acc-payroll':'coins',
+  };
+  const out = {};
+  for (const [nav, key] of Object.entries(byNav)) out[nav] = w(d[key]);
+  out._w = w; out._d = d;
+  return out;
+})();
+function lucide(k){ return LU._w(LU._d[k]||''); }
+function navIcon(it){ return LU[it.id] || it.icon || ''; }
+// Emoji → Lucide key for stat cards (spec 1.0.9 §7)
+const EMO_LU = {'👥':'users','💰':'coins','🧾':'receipt','📋':'file','🛍️':'bag','📞':'phone','📉':'trending','🎯':'target','💵':'wallet','📊':'chart','📦':'box','⚠️':'bell','✅':'bookmark','⏳':'bell','🚚':'truck','🔔':'bell','⚖️':'scale','💴':'banknote','💹':'trending','📈':'linechart','💼':'briefcase','🏆':'target','📅':'file'};
+
 const NAV_ADMIN = [
   {id:'dash', icon:'📊', label:'داشبورد'},
   {id:'customers', icon:'👥', label:'مشتریان'},
@@ -1291,7 +1414,7 @@ function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
 function buildNav(){
   const linkHtml = it=>`
     <a href="#" data-page="${it.id}" onclick="go('${it.id}');return false;">
-      <span class="ico">${it.icon}</span><span>${it.label}</span>
+      <span class="ico">${navIcon(it)}</span><span>${it.label}</span>
       ${it.id==='messages'?'<span class="badge hide" id="msgBadge">0</span>':''}
       ${it.id==='reminders'?'<span class="badge hide" id="remBadge">0</span>':''}
     </a>`;
@@ -1348,12 +1471,15 @@ function exitAccountingShell(){
 function go(page){
   if(page==='accounting'){ enterAccountingShell(); return; }
   if(page==='exit-acc-shell'){ exitAccountingShell(); return; }
+  if(page!=='messages' && typeof stopMsgPoll==='function') stopMsgPoll();
   CURRENT_PAGE = page;
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
   const it = navItems().find(x=>x.id===page);
   el('pageTitle').textContent = it?it.label:'';
   if(window.innerWidth<=900) closeSidebar();
-  ROUTES[page] ? ROUTES[page]() : (el('view').innerHTML='');
+  // After every page render, shrink stat-card numbers that overflow their card
+  // (large totals like فروش کل on حساب من were spilling out — spec 1.0.9 §4)
+  ROUTES[page] ? Promise.resolve(ROUTES[page]()).finally(()=>setTimeout(fitStatNums,60)) : (el('view').innerHTML='');
 }
 function toggleSidebar(){
   if(window.innerWidth<=900){
@@ -1883,13 +2009,16 @@ function statCard(c,ic,val,l){
   const n=parseStatNum(val);
   const isNum=!isNaN(n) && String(val).match(/[\d۰-۹]/) && !String(val).match(/[#✓]/);
   const display=isNum?fmt(n):String(val);
-  return `<div class="stat"><div class="ic ${c}">${ic}</div><div><div class="v mono">${display}</div><div class="l">${l}</div></div></div>`;
+  const iconHtml = ic.startsWith('<') ? ic : (EMO_LU[ic] ? lucide(EMO_LU[ic]) : ic);
+  return `<div class="stat"><div class="ic ${c}">${iconHtml}</div><div><div class="v mono">${display}</div><div class="l">${l}</div></div></div>`;
 }
 function fitStatNums(){
   document.querySelectorAll('.stat .v').forEach(v=>{
     v.style.fontSize='';
-    let fs=20;
-    while(fs>10 && v.scrollWidth>v.clientWidth){ fs-=1; v.style.fontSize=fs+'px'; }
+    // Start from the actual computed size (respects mobile media queries),
+    // then step down until the number fits — never clip with ellipsis.
+    let fs=Math.min(20, Math.round(parseFloat(getComputedStyle(v).fontSize)||20));
+    while(fs>9 && v.scrollWidth>v.clientWidth){ fs-=1; v.style.fontSize=fs+'px'; }
   });
 }
 function emptyRow(cols){ return `<tr><td colspan="${cols}" class="empty">موردی یافت نشد</td></tr>`; }
@@ -2160,7 +2289,7 @@ function debounceCust(){ clearTimeout(custTimer); custTimer=setTimeout(renderCus
 function debounceFup(){ clearTimeout(fupTimer); fupTimer=setTimeout(renderFupView,250); }
 function debounceInv(){ clearTimeout(invTimer); invTimer=setTimeout(renderInvTable,250); }
 function debounceRem(){ clearTimeout(remTimer); remTimer=setTimeout(renderRemList,250); }
-function debounceMsg(){ clearTimeout(msgTimer); msgTimer=setTimeout(renderMsgs,250); }
+function debounceMsg(){ clearTimeout(msgTimer); msgTimer=setTimeout(tgRenderThreads,250); }
 function accRecvCacheKey(){ return (accDateFrom||'')+'|'+(accDateTo||''); }
 function renderAccReceivablesBody(body){
   if(!body) body=el('accBody');
@@ -2610,12 +2739,6 @@ async function _openInvBuilder(id){
           <option value="cash" ${inv&&inv.pay_type==='cheque'?'':'selected'}>نقد</option>
           <option value="cheque" ${inv&&inv.pay_type==='cheque'?'selected':''}>چک</option>
         </select></div>
-        <div class="fg"><label>کانال فروش</label><select id="inv-channel">
-          <option value="">—</option>
-          <option value="field" ${inv&&inv.sales_channel==='field'?'selected':''}>میدانی</option>
-          <option value="phone" ${inv&&inv.sales_channel==='phone'?'selected':''}>تلفنی</option>
-          <option value="online" ${inv&&inv.sales_channel==='online'?'selected':''}>آنلاین</option>
-        </select></div>
         <div class="fg"><label>منبع سرنخ</label><input id="inv-lead" value="${esc(inv?inv.lead_source:'')}" placeholder="مثال: اینستاگرام، نمایشگاه"></div>
         <div class="fg"><label>کمپین</label><input id="inv-campaign" value="${esc(inv?inv.campaign:'')}" placeholder="اختیاری"></div>
       </div>
@@ -2629,7 +2752,6 @@ async function _openInvBuilder(id){
       <div class="inv-layout">
         <div>
           <input class="search" id="invProdSearch" placeholder="جستجوی محصول..." style="margin-bottom:6px;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" oninput="renderInvPicker()">
-          <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:6px" onclick="invProdQuickModal(el('invProdSearch')?.value||'')">➕ ساخت محصول جدید</button>
           <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:8px" onclick="openBarcodeScanner(scanBarcodeToCart)">📷 اسکن بارکد</button>
           <div id="mobPickHint" style="display:none;font-size:11px;color:var(--muted);margin-bottom:8px;text-align:center">👆 برای افزودن، دو بار روی محصول بزنید</div>
           <div class="inv-products"><div class="inv-pick" id="invPicker"></div></div>
@@ -2668,10 +2790,7 @@ function renderInvPicker(){
       <div class="pp">${fmt(p.price)} ت</div>
       <div class="pst" style="font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}">موجودی: ${fmt(avail)}</div>
     </div>`;
-  }).join('') + (extra?`<div class="muted" style="padding:10px;text-align:center;font-size:12px">${fmt(extra)} محصول دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" style="padding:16px;text-align:center">
-    <div style="margin-bottom:10px">محصولی یافت نشد</div>
-    <button type="button" class="btn sm" onclick="invProdQuickModal('${esc((el('invProdSearch')?.value||'').trim())}')">➕ ساخت محصول «${esc((el('invProdSearch')?.value||'').trim()||'جدید')}»</button>
-  </div>`;
+  }).join('') + (extra?`<div class="muted" style="padding:10px;text-align:center;font-size:12px">${fmt(extra)} محصول دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" style="padding:16px;text-align:center">محصولی یافت نشد — از بخش محصولات، کالای جدید اضافه کنید</div>`;
 }
 async function invProdQuickModal(prefill){
   if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
@@ -2778,7 +2897,6 @@ async function saveInvoice(id){
     cheque_duration: pay_type==='cheque' ? (el('inv-cheque-dur')?.value||'') : '',
     cheque_due_date: pay_type==='cheque' ? (el('inv-cheque-due')?.value||'') : '',
     cheque_info: pay_type==='cheque' ? (el('inv-cheque-info')?.value||'') : '',
-    sales_channel: el('inv-channel')?.value||'',
     lead_source: el('inv-lead')?.value||'',
     campaign: el('inv-campaign')?.value||'',
     rows: invCart.map(r=>({product_id:r.product_id, qty:r.qty, price:r.price, disc:r.disc||0}))
@@ -2850,10 +2968,12 @@ async function productsPage(canEdit){
   const needMeta = !CACHE._prodMetaLoaded;
   if(needMeta){
     el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
+    // Each meta call is independent — one failure (e.g. a permission gap)
+    // must not blank the whole catalog page for sales users
     const [cats, warehouses, pCats] = await Promise.all([
-      apiCached('GET','/products/categories', 300000),
-      apiCached('GET','/warehouses', 300000),
-      canEdit ? apiCached('GET','/product-categories', 300000) : Promise.resolve([])
+      apiCached('GET','/products/categories', 300000).catch(()=>[]),
+      apiCached('GET','/warehouses', 300000).catch(()=>[]),
+      canEdit ? apiCached('GET','/product-categories', 300000).catch(()=>[]) : Promise.resolve([])
     ]);
     CACHE._prodCats = cats||[];
     CACHE._prodWarehouses = warehouses||[];
@@ -7701,118 +7821,200 @@ async function deleteIncentivePayment(id, repId, repName){
 /* ============================================================
    MESSAGES
 ============================================================ */
-let msgTab='inbox', MSGS=[], msgSearch='', msgSelected=new Set(), msgFolderUser='';
+/* Telegram-style chat (spec 1.0.9 §3). "Real-time" is simulated with a
+   lightweight 5s poll — the stack (embedded SQLite, offline device builds)
+   has no WebSocket infrastructure and polling keeps sync semantics intact. */
+let TG={threads:[],peer:null,peerName:'',peerRole:'',msgs:[],poll:null,q:'',sending:false};
+function stopMsgPoll(){ if(TG.poll){ clearInterval(TG.poll); TG.poll=null; } }
+const TG_AV_COLORS=['#e17076','#7bc862','#65aadd','#a695e7','#ee7aae','#6ec9cb','#faa774','#8d9aa8'];
+function tgAvatar(name,pid){
+  if(pid==='broadcast') return `<span class="tg-av" style="background:#f5a623">📢</span>`;
+  if(pid==='self') return `<span class="tg-av" style="background:#65aadd">📌</span>`;
+  let h=0; const s=String(name||'?'); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0;
+  return `<span class="tg-av" style="background:${TG_AV_COLORS[h%TG_AV_COLORS.length]}">${esc(s.trim().charAt(0)||'?')}</span>`;
+}
+function tgTime(ts){ return new Date(ts*1000).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}); }
+function tgDay(ts){ return new Date(ts*1000).toLocaleDateString('fa-IR',{day:'numeric',month:'long',year:'numeric'}); }
+function tgListTime(ts){
+  const d=new Date(ts*1000), now=new Date();
+  return d.toDateString()===now.toDateString() ? tgTime(ts) : d.toLocaleDateString('fa-IR',{day:'numeric',month:'short'});
+}
+function tgTicks(m){
+  return `<span class="tg-ticks ${m.is_read?'read':''}">${m.is_read?'✓✓':'✓'}</span>`;
+}
 ROUTES.messages = async function(){
-  if(!_msgsFetched){ MSGS=await api('GET','/messages')||[]; _msgsFetched=true; }
-  const inbox = MSGS.filter(m=>m.direction==='received');
-  const sent = MSGS.filter(m=>m.direction==='sent');
-  const unread = inbox.filter(m=>!m.is_read).length;
+  stopMsgPoll();
   el('view').innerHTML=`
-    <div class="msg-tabs" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <button id="tabInbox" class="btn${msgTab==='inbox'?' green':' ghost'}" onclick="switchMsgTab('inbox')">
-        📥 دریافتی ${unread>0?`<span style="background:#dc2626;color:#fff;border-radius:12px;padding:1px 7px;font-size:11px;margin-right:4px">${unread}</span>`:''}
-      </button>
-      <button id="tabSent" class="btn${msgTab==='sent'?' green':' ghost'}" onclick="switchMsgTab('sent')">📤 ارسالی (${sent.length})</button>
-      <input id="msgSearchInput" class="search" placeholder="جستجو در پیام‌ها..." value="${esc(msgSearch)}" style="flex:1;min-width:140px" oninput="msgSearch=this.value;debounceMsg()">
-      <button class="btn ghost" onclick="markAllRead()">✔️ خواندن همه</button>
-      ${msgSelected.size?`<button class="btn sm red" onclick="deleteSelectedMsgs()">🗑️ حذف (${msgSelected.size})</button>`:''}
-      <button class="btn" onclick="composeMsg()">✉️ پیام جدید</button>
-    </div>
-    <div id="msgList"></div>`;
-  renderMsgs();
-  setTimeout(async()=>{ await api('POST','/messages/read-all'); refreshMsgBadge(); }, 800);
-};
-function switchMsgTab(t){
-  msgTab=t; msgFolderUser=''; msgSelected.clear();
-  const ib=el('tabInbox'), sn=el('tabSent');
-  if(ib){ ib.className=t==='inbox'?'btn green':'btn ghost'; }
-  if(sn){ sn.className=t==='sent'?'btn green':'btn ghost'; }
-  renderMsgs();
-}
-function renderMsgs(){
-  let list = MSGS.filter(m=> msgTab==='inbox' ? m.direction==='received' : m.direction==='sent');
-  if(msgSearch){ const q=msgSearch.toLowerCase(); list=list.filter(m=>(m.body||'').toLowerCase().includes(q)||(m.from_name||'').toLowerCase().includes(q)||(m.to_name||'').toLowerCase().includes(q)); }
-  const canDelete = ME.role==='admin';
-  const folderKey = m=> msgTab==='inbox' ? (m.from_name||'سیستم') : (m.to_name||'📢 همه');
-  const folders={};
-  list.forEach(m=>{ const k=folderKey(m); (folders[k]=folders[k]||[]).push(m); });
-  const folderNames=Object.keys(folders).sort((a,b)=>folders[b].length-folders[a].length);
-  if(!msgFolderUser && folderNames.length) msgFolderUser=folderNames[0];
-  const folderBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${folderNames.map(name=>`
-    <button class="btn sm ${msgFolderUser===name?'green':'ghost'}" onclick="setMsgFolder(${JSON.stringify(name)})">
-      📁 ${esc(name)} <span class="muted">(${folders[name].length})</span>
-    </button>`).join('')}</div>`;
-  const flist = msgFolderUser ? (folders[msgFolderUser]||[]) : list;
-  el('msgList').innerHTML = folderBar + flist.map(m=>{
-    const peer=msgTab==='inbox'?(m.from_name||'?'):(m.to_name||'؟');
-    return `
-    <div class="msg ${(msgTab==='inbox'&&!m.is_read)?'unread':''}" style="border-radius:10px;margin-bottom:8px;border:1.5px solid ${(msgTab==='inbox'&&!m.is_read)?'var(--purple)':'var(--border)'}">
-      <div class="mh" style="display:flex;justify-content:space-between;align-items:center">
-        <span style="display:flex;align-items:center;gap:8px">
-          <input type="checkbox" ${msgSelected.has(m.id)?'checked':''} onchange="toggleMsgSel(${m.id},this.checked)" onclick="event.stopPropagation()" style="width:auto">
-          <span style="width:34px;height:34px;border-radius:50%;background:var(--purple-light);color:var(--purple);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700">
-            ${peer[0]}
-          </span>
-          <span>
-            <div style="font-weight:600;font-size:13px">${msgTab==='inbox'?'از: '+esc(m.from_name||'سیستم'):'به: '+esc(m.to_name||'📢 همه')}</div>
-            <div style="font-size:11px;color:var(--muted)">${new Date(m.created_at*1000).toLocaleString('fa-IR',{dateStyle:'short',timeStyle:'short'})}</div>
-          </span>
-        </span>
-        <span style="display:flex;gap:6px;align-items:center">
-          ${(msgTab==='inbox'&&!m.is_read)?'<span style="width:8px;height:8px;border-radius:50%;background:var(--purple);display:inline-block"></span>':''}
-          <button class="btn sm ghost" title="پاسخ" onclick="replyMsg(${m.id},'${esc(m.from_name||'')}',${m.from_id||0})">↩️</button>
-          ${(canDelete||m.from_id===ME.id)?`<button class="btn sm red" onclick="deleteMsg(${m.id})">🗑️</button>`:''}
-        </span>
+    <div class="tg" id="tgRoot">
+      <div class="tg-side">
+        <div class="tg-side-head">
+          <input id="msgSearchInput" placeholder="جستجو..." value="${esc(TG.q)}" oninput="TG.q=this.value;debounceMsg()">
+          <button class="tg-new" title="گفتگوی جدید" onclick="tgNewChat()">✏️</button>
+        </div>
+        <div class="tg-list" id="tgList"><div class="muted" style="padding:20px;text-align:center">در حال بارگذاری...</div></div>
       </div>
-      <div class="mb" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-wrap;font-size:13px">${esc(m.body)}</div>
-      ${m.image?`<div style="margin-top:8px"><a href="/uploads/messages/${esc(m.image)}" target="_blank"><img src="/uploads/messages/${esc(m.image)}" style="max-width:100%;border-radius:8px;border:1px solid var(--border);cursor:zoom-in"></a></div>`:''}
+      <div class="tg-chat" id="tgChat">
+        <div class="tg-empty"><span style="font-size:44px">💬</span><span>برای شروع، یک گفتگو را انتخاب کنید</span></div>
+      </div>
     </div>`;
-  }).join('') || '<div class="empty" style="padding:40px;text-align:center">📭 پیامی یافت نشد</div>';
+  await tgLoadThreads();
+  // Desktop: auto-open latest conversation; mobile keeps the list in view
+  if(window.innerWidth>900 && !TG.peer && TG.threads.length) tgOpen(TG.threads[0].peer_id, TG.threads[0].peer_name, TG.threads[0].peer_role);
+  else if(TG.peer) tgOpen(TG.peer, TG.peerName, TG.peerRole);
+  TG.poll=setInterval(async()=>{
+    if(CURRENT_PAGE!=='messages'){ stopMsgPoll(); return; }
+    await tgLoadThreads(true);
+    if(TG.peer) await tgRefreshThread(true);
+    refreshMsgBadge();
+  }, 5000);
+};
+async function tgLoadThreads(silent){
+  try{ TG.threads=await api('GET','/messages/threads')||[]; }catch(e){ if(!silent) showToast('خطا در دریافت گفتگوها','error'); return; }
+  tgRenderThreads();
 }
-function setMsgFolder(name){ msgFolderUser=name; renderMsgs(); }
-function toggleMsgSel(id, on){ if(on) msgSelected.add(id); else msgSelected.delete(id); renderMsgs(); }
-async function deleteSelectedMsgs(){
-  if(!msgSelected.size) return;
-  if(!confirm(msgSelected.size+' پیام حذف شود؟')) return;
-  for(const id of [...msgSelected]) await api('DELETE','/messages/'+id);
-  msgSelected.clear(); MSGS=await api('GET','/messages'); renderMsgs(); showToast('حذف شد');
+function tgRenderThreads(){
+  const box=el('tgList'); if(!box) return;
+  let list=TG.threads;
+  if(TG.q){ const q=TG.q.toLowerCase(); list=list.filter(t=>(t.peer_name||'').toLowerCase().includes(q)||(t.last_body||'').toLowerCase().includes(q)); }
+  box.innerHTML=list.map(t=>`
+    <div class="tg-item ${String(TG.peer)===String(t.peer_id)?'active':''}" onclick="tgOpen('${t.peer_id}',${esc(JSON.stringify(t.peer_name||'?'))},${esc(JSON.stringify(t.peer_role||''))})">
+      ${tgAvatar(t.peer_name,t.peer_id)}
+      <div class="tg-i-main">
+        <div class="tg-i-top">
+          <span class="tg-i-name">${esc(t.peer_name)}</span>
+          <span class="tg-i-time">${t.last_from_me?tgTicks({is_read:t.last_read}):''} ${tgListTime(t.last_at)}</span>
+        </div>
+        <div class="tg-i-bot">
+          <span class="tg-i-snip">${t.last_image?'🖼️ تصویر ':''}${esc((t.last_body||'').slice(0,60))}</span>
+          ${t.unread?`<span class="tg-i-badge">${fmt(t.unread)}</span>`:''}
+        </div>
+      </div>
+    </div>`).join('') || '<div class="empty" style="padding:30px;text-align:center">📭 گفتگویی نیست<br><br><button class="btn sm" onclick="tgNewChat()">✏️ شروع گفتگو</button></div>';
 }
-async function markVisibleRead(){ setTimeout(async()=>{ await api('POST','/messages/read-all'); refreshMsgBadge(); }, 800); }
-async function markAllRead(){ await api('POST','/messages/read-all'); MSGS=await api('GET','/messages'); renderMsgs(); refreshMsgBadge(); showToast('همه خوانده شد'); }
-async function deleteMsg(id){
-  if(!confirm('این پیام حذف شود؟')) return;
-  await api('DELETE','/messages/'+id);
-  MSGS=MSGS.filter(m=>m.id!==id); renderMsgs(); showToast('پیام حذف شد');
+async function tgOpen(peer, name, role){
+  TG.peer=peer; TG.peerName=name; TG.peerRole=role||'';
+  el('tgRoot')?.classList.add('chat-open');
+  const chat=el('tgChat'); if(!chat) return;
+  const canSend = peer!=='broadcast' && peer!=='self' ? true : (peer==='broadcast' && ME.role==='admin');
+  chat.innerHTML=`
+    <div class="tg-head">
+      <button class="tg-back" onclick="tgBack()">→</button>
+      ${tgAvatar(name,peer)}
+      <div style="min-width:0">
+        <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>
+        <div class="muted" style="font-size:11px">${peer==='broadcast'?'اطلاعیه‌های عمومی':peer==='self'?'اعلان‌های سیستمی شما':(role?esc(roleLabel(role)):'')}</div>
+      </div>
+    </div>
+    <div class="tg-body" id="tgBody"><div class="muted" style="margin:auto">در حال بارگذاری...</div></div>
+    ${canSend?`
+    <div class="tg-compose">
+      <button class="tg-iconbtn tg-attach" title="ارسال تصویر" onclick="el('tgFile').click()">📎</button>
+      <input type="file" id="tgFile" accept="image/*" style="display:none" onchange="tgAttach(this)">
+      <textarea id="tgInput" rows="1" placeholder="پیام..." onkeydown="tgKey(event)" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,110)+'px'"></textarea>
+      <button class="tg-iconbtn tg-send" onclick="tgSend()" title="ارسال">➤</button>
+    </div>`:`<div style="padding:12px;text-align:center;font-size:12px;color:var(--muted);background:var(--card);border-top:1px solid var(--border)">این گفتگو فقط‌خواندنی است</div>`}`;
+  tgRenderThreads();
+  await tgRefreshThread();
+  api('POST','/messages/thread/'+peer+'/read').then(()=>{ refreshMsgBadge(); tgLoadThreads(true); }).catch(()=>{});
 }
-async function composeMsg(toId, toName){
-  let recipients;
-  try{ recipients=await api('GET','/messages/users')||[]; }catch(e){ recipients=[]; }
-  const opts = recipients.map(u=>`<option value="${u.id}" ${(toId&&toId===u.id)?'selected':''}>${esc(u.name)}</option>`).join('');
-  const broadcastOpt = ME.role==='admin' ? '<option value="">📢 همه کاربران</option>' : '';
-  openModal(`
-    <div class="modal-head"><h3>✉️ پیام جدید</h3><button class="x" onclick="closeModal()">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>گیرنده</label><select id="m-to">${broadcastOpt}${opts}</select></div>
-      <div class="fg full"><label>متن پیام</label><textarea id="m-body" style="min-height:110px" placeholder="متن پیام خود را اینجا بنویسید..."></textarea></div>
-    </div></div>
-    <div class="modal-foot"><button class="btn green" onclick="sendMsg()">📤 ارسال پیام</button>
-      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
-  if(toName && !toId){ /* broadcast default */ }
+async function tgRefreshThread(silent){
+  try{
+    const msgs=await api('GET','/messages/thread/'+TG.peer)||[];
+    const changed = msgs.length!==TG.msgs.length || (msgs.length && TG.msgs.length && (msgs[msgs.length-1].id!==TG.msgs[TG.msgs.length-1].id || msgs[msgs.length-1].is_read!==TG.msgs[TG.msgs.length-1].is_read));
+    // Re-render also when read-state of older messages flips (ticks turn blue)
+    const readSig=msgs.map(m=>m.is_read).join(''), oldSig=TG.msgs.map(m=>m.is_read).join('');
+    TG.msgs=msgs;
+    if(!silent || changed || readSig!==oldSig) tgRenderMsgs(!silent);
+    if(silent && changed){
+      tgRenderMsgs(false);
+      api('POST','/messages/thread/'+TG.peer+'/read').catch(()=>{});
+    }
+  }catch(e){ if(!silent) showToast('خطا در دریافت پیام‌ها','error'); }
 }
-function replyMsg(id, fromName, fromId){
-  if(!fromId || fromId===ME.id) return;
-  composeMsg(fromId, fromName);
+function tgRenderMsgs(forceScroll){
+  const body=el('tgBody'); if(!body) return;
+  const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 120;
+  const canDelete = m => ME.role==='admin' || m.from_id===ME.id;
+  let lastDay='';
+  body.innerHTML=TG.msgs.map(m=>{
+    const day=tgDay(m.created_at);
+    const sep=day!==lastDay?`<div class="tg-date">${day}</div>`:''; lastDay=day;
+    const showSender = TG.peer==='broadcast' && !m.mine;
+    return sep+`
+    <div class="tg-row ${m.mine?'me':''}">
+      <div class="tg-bub">
+        ${canDelete(m)?`<button class="tg-del" title="حذف پیام" onclick="tgDelete(${m.id})">×</button>`:''}
+        ${showSender?`<div class="tg-sender">${esc(m.from_name||'سیستم')}</div>`:''}
+        ${m.image?`<img src="/uploads/messages/${esc(m.image)}" onclick="showImgPreview('/uploads/messages/${esc(m.image)}')">`:''}
+        ${esc(m.body||'')}
+        <div class="tg-meta">${m.mine?tgTicks(m):''} <span>${tgTime(m.created_at)}</span></div>
+      </div>
+    </div>`;
+  }).join('') || '<div class="tg-empty"><span style="font-size:36px">🕊️</span><span>هنوز پیامی رد و بدل نشده</span></div>';
+  if(forceScroll || nearBottom) body.scrollTop=body.scrollHeight;
 }
-async function sendMsg(){
-  const toVal = el('m-to').value;
-  const to_id = toVal ? +toVal : null;
-  const body = el('m-body').value.trim();
-  if(!body){ showToast('متن پیام الزامی است','error'); return; }
+function tgKey(e){
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); tgSend(); }
+}
+async function tgSend(){
+  if(TG.sending) return;
+  const inp=el('tgInput'); const body=(inp?.value||'').trim();
+  if(!body || !TG.peer) return;
+  const to_id = TG.peer==='broadcast' ? null : +TG.peer;
+  TG.sending=true;
   try{
     await api('POST','/messages',{to_id,body});
-    closeModal(); MSGS=await api('GET','/messages'); renderMsgs(); showToast('پیام ارسال شد');
+    if(inp){ inp.value=''; inp.style.height='auto'; }
+    await tgRefreshThread(); tgLoadThreads(true);
+  }catch(e){}
+  TG.sending=false;
+  el('tgInput')?.focus();
+}
+async function tgAttach(input){
+  const f=input.files?.[0]; input.value='';
+  if(!f || !TG.peer || TG.peer==='self') return;
+  const fd=new FormData();
+  if(TG.peer!=='broadcast') fd.append('to_id',TG.peer);
+  fd.append('body','');
+  fd.append('image',f);
+  try{
+    await api('POST','/messages/with-image',fd,true);
+    await tgRefreshThread(); tgLoadThreads(true);
+    showToast('تصویر ارسال شد');
   }catch(e){}
 }
+async function tgDelete(id){
+  if(!confirm('این پیام حذف شود؟')) return;
+  try{
+    await api('DELETE','/messages/'+id);
+    TG.msgs=TG.msgs.filter(m=>m.id!==id);
+    tgRenderMsgs(false); tgLoadThreads(true);
+  }catch(e){}
+}
+function tgBack(){
+  TG.peer=null;
+  el('tgRoot')?.classList.remove('chat-open');
+  const chat=el('tgChat');
+  if(chat) chat.innerHTML='<div class="tg-empty"><span style="font-size:44px">💬</span><span>برای شروع، یک گفتگو را انتخاب کنید</span></div>';
+  tgRenderThreads();
+}
+async function tgNewChat(){
+  let recipients;
+  try{ recipients=await api('GET','/messages/users')||[]; }catch(e){ recipients=[]; }
+  openModal(`
+    <div class="modal-head"><h3>✏️ گفتگوی جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      ${ME.role==='admin'?`<div class="tg-item" style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px" onclick="closeModal();tgOpen('broadcast','📢 اطلاعیه‌ها','')">
+        ${tgAvatar('','broadcast')}<div class="tg-i-main"><div class="tg-i-name">📢 اطلاعیه به همه</div><div class="tg-i-snip">ارسال پیام همگانی به تمام کاربران</div></div>
+      </div>`:''}
+      ${recipients.map(u=>`
+      <div class="tg-item" style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px" onclick="closeModal();tgOpen('${u.id}',${esc(JSON.stringify(u.name))},${esc(JSON.stringify(u.role||''))})">
+        ${tgAvatar(u.name,u.id)}<div class="tg-i-main"><div class="tg-i-name">${esc(u.name)}</div><div class="tg-i-snip">${esc(roleLabel(u.role))}</div></div>
+      </div>`).join('')||'<div class="empty">کاربری یافت نشد</div>'}
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+}
+async function markVisibleRead(){ setTimeout(async()=>{ await api('POST','/messages/read-all'); refreshMsgBadge(); }, 800); }
 async function refreshMsgBadge(){
   try{
     const r=await api('GET','/messages/unread-count');
@@ -7930,9 +8132,10 @@ const AI_KIND_META = {
 };
 ROUTES.ai = async function(){
   el('view').innerHTML='<div class="muted" style="padding:20px">در حال بارگذاری تحلیل...</div>';
-  let insights=[], summary=null;
+  let insights=[], summary=null, mine=null;
   try{ insights = await api('GET','/ai/insights')||[]; }catch{}
   if(ME.role==='admin'){ try{ summary = await api('GET','/ai/weekly-summary'); }catch{} }
+  else { try{ mine = await api('GET','/ai/my-summary'); }catch{} }
   const isDeviceBuild = APP_INFO && APP_INFO.role==='device';
   const kinds=['churn_risk','opportunity','daily_action'];
   const byKind = k=>insights.filter(i=>i.kind===k);
@@ -7955,6 +8158,19 @@ ROUTES.ai = async function(){
     </div>`:''}
     ${summary?`<div class="panel"><div class="panel-head"><h4>📊 خلاصه هفتگی مدیر</h4></div>
       <div class="panel-body" style="font-size:13.5px;line-height:2.1">${esc(summary.body||'')}</div></div>`:''}
+    ${mine?`
+    <div class="cards" style="margin-bottom:16px">
+      ${statCard('g','💰',fmt(mine.stats.week_sales),'فروش هفته من (ت)')}
+      ${statCard('p','📅',fmt(mine.stats.month_sales),'فروش این ماه من (ت)')}
+      ${statCard('b','🧾',fmt(mine.stats.month_invoices),'فاکتور این ماه')}
+      ${statCard('o','📞',fmt(mine.stats.open_followups),'پیگیری باز')}
+    </div>
+    <div class="panel"><div class="panel-head"><h4>🤖 تحلیل عملکرد من</h4>
+      <button class="btn sm" onclick="runMyAiSummary()">✨ تحلیل هوشمند</button></div>
+      <div class="panel-body" id="myAiBody" style="font-size:13.5px;line-height:2.1">
+        ${mine.stats.top_customers?.length?`<div style="margin-bottom:8px"><b>برترین مشتریان این ماه:</b> ${mine.stats.top_customers.map(t=>`${esc(t.biz)} (${fmt(t.total)} ت)`).join('، ')}</div>`:''}
+        <div class="muted" style="font-size:12px">برای دریافت تحلیل متنی عملکرد شخصی خود، روی «تحلیل هوشمند» بزنید. تحلیل فقط بر اساس داده‌های خود شماست.</div>
+      </div></div>`:''}
     ${kinds.map(k=>{
       const rows=byKind(k); if(!rows.length) return '';
       const m=AI_KIND_META[k];
@@ -7967,6 +8183,14 @@ async function runAiRefresh(){
   showToast('در حال اجرای تحلیل AI...');
   const r = await api('POST','/ai/insights/refresh',{weekly:true});
   if(r && r.ok){ showToast('تحلیل AI انجام شد'); CACHE.customers=[]; ROUTES.ai(); }
+}
+async function runMyAiSummary(){
+  const box=el('myAiBody'); if(!box) return;
+  box.innerHTML='<div class="muted">در حال تحلیل عملکرد شما...</div>';
+  try{
+    const r=await api('GET','/ai/my-summary?narrative=1');
+    box.innerHTML=`<div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:12px 14px">✨ ${esc(r?.narrative||'تحلیلی تولید نشد')}</div>`;
+  }catch(e){ box.innerHTML='<div class="muted">خطا در تولید تحلیل</div>'; }
 }
 
 /* ============================================================
@@ -8784,12 +9008,14 @@ function renderAdminGuide(){
         <li>عکس محصول را آپلود کنید (نمایش در فاکتور)</li>
       </ul>
       <div class="tip">کد محصول باید منحصربه‌فرد باشد — از آن برای جستجوی سریع در فاکتورساز استفاده کنید.</div>
-      <div class="tip">در موبایل، برای افزودن محصول به فاکتور <b>دو بار</b> روی کارت محصول بزنید (لمس اول انتخاب، لمس دوم افزودن).</div>`),
+      <div class="tip">در موبایل، برای افزودن محصول به فاکتور <b>دو بار</b> روی کارت محصول بزنید (لمس اول انتخاب، لمس دوم افزودن).</div>
+      <div class="tip">صفحه «کاتالوگ» برای همه کارشناسان فعال است — دیگر خطای دسترسی نمی‌گیرید.</div>`),
     helpSec('🧾','فاکتور',`
       <p>صدور پیش‌فاکتور و فاکتور رسمی.</p>
       <h5>صدور فاکتور</h5><ul>
         <li>مشتری را انتخاب کنید</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — اگر محصولی وجود نداشت، دکمه «➕ ساخت محصول جدید» آن را همان‌جا می‌سازد و به سبد اضافه می‌کند</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — اگر محصولی در سیستم نیست، ابتدا از بخش «محصولات» آن را ثبت کنید (در فاکتورساز امکان ساخت سریع محصول وجود ندارد)</li>
+        <li><b>کانال فروش</b> به‌صورت خودکار از نقش کاربر ثبت‌کننده تعیین می‌شود (میدانی/تلفنی) — فیلد دستی در فرم فاکتور نیست</li>
         <li>کنار هر محصول <b>موجودی لحظه‌ای انبار</b> نمایش داده می‌شود (با کم‌شدن تعداد رزروشده در سبد فاکتور، عدد بلافاصله به‌روز می‌شود؛ قرمز = ناموجود، نارنجی = رو به اتمام)</li>
         <li>تعداد و قیمت هر ردیف را تنظیم کنید</li>
         <li>درصد تخفیف کل فاکتور را وارد کنید</li>
@@ -8798,6 +9024,23 @@ function renderAdminGuide(){
       <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، یک فیلد تخفیف درصدی جداگانه فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلد را اصلاً نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
       <h5>چاپ</h5><p>از دکمه «چاپ» روی صفحه نمایش فاکتور استفاده کنید. تنها فاکتور چاپ می‌شود، بقیه رابط کاربری پنهان می‌شود.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
+    helpSec('💬','پیام‌ها (رابط شبیه تلگرام)',`
+      <p>بخش پیام‌ها با ظاهر و تجربهٔ شبیه تلگرام بازطراحی شده است.</p>
+      <h5>امکانات</h5><ul>
+        <li><b>لیست گفتگوها</b> در سمت راست — آخرین پیام، زمان و تعداد خوانده‌نشده</li>
+        <li><b>پنجره چت</b> با حباب‌های پیام (راست = شما، چپ = طرف مقابل)</li>
+        <li><b>تیک دوبل</b>: یک تیک = ارسال شد، دو تیک خاکستری = تحویل، دو تیک آبی = خوانده شد</li>
+        <li>ارسال متن و تصویر (رسید، صورت‌حساب و...)</li>
+        <li>جستجو در گفتگوها</li>
+        <li>اعلان‌های سیستمی (سفارش B2B، وضعیت پرداخت و...) در گفتگوی «اعلان‌های من»</li>
+      </ul>
+      <div class="tip">به‌روزرسانی پیام‌ها هر چند ثانیه خودکار انجام می‌شود — نیازی به رفرش دستی نیست.</div>`),
+    helpSec('🤖','دستیار AI',`
+      <p>دستیار هوشمند برای مدیر و کارشناسان فعال است.</p>
+      <ul>
+        <li><b>مدیر:</b> خلاصه هفتگی، ریسک ریزش مشتری، فرصت فروش مجدد، اقدام روزانه</li>
+        <li><b>کارشناس:</b> آمار شخصی (فروش هفته/ماه، فاکتور، پیگیری باز) + دکمه «تحلیل هوشمند» — فقط بر اساس داده‌های خود شما، بدون دسترسی به اطلاعات دیگران</li>
+      </ul>`),
     helpSec('💰','حسابداری — ماژول مستقل',`
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی CRM. برای بازگشت، از دکمه «🔙 بازگشت به CRM» بالای منوی کناری آن استفاده کنید.</p>
       <p>منوی کناری این ماژول <b>آکاردئونی</b> است: سرفصل‌های عملیات (مثل «گزارش‌های مالی»، «فروش و مطالبات») به‌صورت کارت‌های برجسته با فلش بازشو نمایش داده می‌شوند — کلیک روی هر سرفصل زیرمنوهای آن را باز/بسته می‌کند و سرفصل باز با رنگ طلایی مشخص می‌شود. به‌صورت پیش‌فرض همه بسته‌اند تا منو خلوت بماند.</p>
@@ -8806,7 +9049,7 @@ function renderAdminGuide(){
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
         <li><b>مطالبات مشتریان</b>: نمایش به تفکیک مشتری یا فاکتور، با دکمه ثبت پرداخت</li>
-        <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق</li>
+        <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی)</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد (قابل مشاهده در «دفتر کل حساب‌ها»)</li>
@@ -9053,12 +9296,21 @@ function renderSalesGuide(){
         <li>از منو «فاکتور» را باز کنید</li>
         <li>«فاکتور جدید» را بزنید</li>
         <li>مشتری را انتخاب کنید</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — کنار هر محصول موجودی لحظه‌ای انبار نمایش داده می‌شود</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — کنار هر محصول موجودی لحظه‌ای انبار نمایش داده می‌شود. محصول جدید را از بخش «محصولات» یا «کاتالوگ» بسازید، نه از داخل فاکتور</li>
+        <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور</li>
         <li>ذخیره کنید و در صورت نیاز چاپ بگیرید</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور رسمی برای ثبت فروش قطعی.</div>`),
+    helpSec('💬','پیام‌ها',`
+      <p>پیام‌ها با ظاهر شبیه تلگرام کار می‌کند: لیست گفتگو، حباب پیام، تیک خوانده‌شدن.</p>
+      <ul>
+        <li>به مدیر یا کسی که قبلاً به شما پیام داده پاسخ دهید</li>
+        <li>اعلان‌های سیستمی (مثل سفارش B2B) در «اعلان‌های من» نمایش داده می‌شود</li>
+      </ul>`),
+    helpSec('🤖','دستیار AI من',`
+      <p>از منو «دستیار AI» آمار فروش شخصی خود را ببینید و با «تحلیل هوشمند» خلاصه متنی عملکردتان را دریافت کنید — فقط داده‌های خودتان، نه کل شرکت.</p>`),
     helpSec('🔔','یادآورها',`
       <p>یادآورها برای کارهایی است که نمی‌خواهید فراموش کنید — غیر از پیگیری مشتری.</p>
       <h5>مثال‌ها</h5><ul>

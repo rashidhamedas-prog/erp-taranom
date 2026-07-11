@@ -73,6 +73,26 @@ router.get('/', auth, (req, res) => {
   res.json(rows);
 });
 
+// Distinct categories (for filter dropdown) — MUST be registered before /:id/*
+// routes so GET /categories is never captured as an id (spec 1.0.9 §2 catalog).
+router.get('/categories', auth, (req, res) => {
+  const db = getDB();
+  const fromTable = db.prepare('SELECT name FROM product_categories WHERE active=1 ORDER BY sort_order, name').all().map(r => r.name);
+  const fromLegacy = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>'' ORDER BY category").all().map(r => r.category);
+  const seen = new Set();
+  res.json([...fromTable, ...fromLegacy].filter(c => { if (seen.has(c)) return false; seen.add(c); return true; }));
+});
+
+// Lookup by barcode or product code — used by the invoice builder camera scanner
+router.get('/by-barcode/:code', auth, (req, res) => {
+  const db = getDB();
+  const code = String(req.params.code || '').trim();
+  if (!code) return res.status(400).json({ error: 'کد الزامی است' });
+  const row = db.prepare('SELECT * FROM products WHERE barcode=? OR code=?').get(code, code);
+  if (!row) return res.status(404).json({ error: 'محصولی با این بارکد یافت نشد' });
+  res.json(row);
+});
+
 // Item Kardex — per-product stock movement ledger with a running balance.
 // stock_logs has no explicit "opening" row, so the running balance is
 // reconstructed backward from the product's current stock (i.e. the
@@ -92,15 +112,6 @@ router.get('/:id/kardex', auth, (req, res) => {
   res.json({ product, logs });
 });
 
-// Distinct categories (for filter dropdown) — product_categories + legacy text
-router.get('/categories', auth, (req, res) => {
-  const db = getDB();
-  const fromTable = db.prepare('SELECT name FROM product_categories WHERE active=1 ORDER BY sort_order, name').all().map(r => r.name);
-  const fromLegacy = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>'' ORDER BY category").all().map(r => r.category);
-  const seen = new Set();
-  res.json([...fromTable, ...fromLegacy].filter(c => { if (seen.has(c)) return false; seen.add(c); return true; }));
-});
-
 // ── Barcode support (ported from CRM v4) ────────────────────────────────────
 
 // EAN-13 style internal barcode: prefix 200 (in-store use) + 000 + product id + check digit
@@ -111,16 +122,6 @@ function generateBarcode(productId) {
   const check = (10 - (sum % 10)) % 10;
   return base + check;
 }
-
-// Lookup by barcode or product code — used by the invoice builder camera scanner
-router.get('/by-barcode/:code', auth, (req, res) => {
-  const db = getDB();
-  const code = String(req.params.code || '').trim();
-  if (!code) return res.status(400).json({ error: 'کد الزامی است' });
-  const row = db.prepare('SELECT * FROM products WHERE barcode=? OR code=?').get(code, code);
-  if (!row) return res.status(404).json({ error: 'محصولی با این بارکد یافت نشد' });
-  res.json(row);
-});
 
 // Generate a barcode for a product that lacks one (admin only).
 // Deterministic per product id → device replay converges with central.
@@ -176,8 +177,10 @@ document.querySelectorAll('svg.bc').forEach(function(el){
 </script></body></html>`);
 });
 
-// Quick create from invoice modals (JSON, no image)
-router.post('/quick', auth, (req, res) => {
+// Quick create from invoice modals (JSON, no image).
+// Admin-only (spec 1.0.9 §1): sales experts must not create products on the
+// fly while invoicing — the catalog is curated centrally.
+router.post('/quick', auth, adminOnly, (req, res) => {
   const { name, category_id, category, code, price, cost, warehouse_id, unit } = req.body;
   if (!name) return res.status(400).json({ error: 'نام محصول الزامی است' });
   const db = getDB();

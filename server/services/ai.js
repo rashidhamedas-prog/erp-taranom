@@ -198,4 +198,63 @@ async function runNightlyAnalysis(db, { weekly = false } = {}) {
   console.log(`🤖 تحلیل AI: ${customers.length} مشتری امتیازدهی شد، ${atRisk.length} در ریسک`);
 }
 
-module.exports = { runNightlyAnalysis, computeChurnScore };
+// ── Personal performance summary (spec 1.0.9 §6) ────────────────────────────
+// Everything here is filtered by ONE user id — the aggregates handed to the
+// model contain no other user's data, so scoping is enforced by construction.
+async function buildMySummary(db, userId, { narrative = false } = {}) {
+  const { todayJalali } = require('../jalali');
+  const now = nowSec();
+  const weekAgo = now - 7 * DAY;
+  const monthPrefix = todayJalali().slice(0, 8); // '1405/04/'
+
+  const week = db.prepare(
+    "SELECT COUNT(*) c, COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND created_at>=?"
+  ).get(userId, weekAgo);
+  const month = db.prepare(
+    "SELECT COUNT(*) c, COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND date LIKE ?"
+  ).get(userId, monthPrefix + '%');
+  const prevWeek = db.prepare(
+    "SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND created_at>=? AND created_at<?"
+  ).get(userId, now - 14 * DAY, weekAgo);
+  const openFups = db.prepare("SELECT COUNT(*) c FROM followups WHERE user_id=? AND status='open'").get(userId).c;
+  const myCustomers = db.prepare('SELECT COUNT(*) c FROM customers WHERE user_id=?').get(userId).c;
+  const atRisk = db.prepare(
+    'SELECT biz, churn_score FROM customers WHERE user_id=? AND churn_score>=60 ORDER BY churn_score DESC LIMIT 5'
+  ).all(userId);
+  const topCustomers = db.prepare(`
+    SELECT c.biz, COALESCE(SUM(i.final),0) total FROM invoices i JOIN customers c ON i.cust_id=c.id
+    WHERE i.user_id=? AND i.type='final' AND i.date LIKE ?
+    GROUP BY i.cust_id ORDER BY total DESC LIMIT 3
+  `).all(userId, monthPrefix + '%');
+
+  const stats = {
+    week_sales: week.s, week_invoices: week.c,
+    month_sales: month.s, month_invoices: month.c,
+    prev_week_sales: prevWeek.s,
+    open_followups: openFups, my_customers: myCustomers,
+    at_risk: atRisk, top_customers: topCustomers,
+  };
+
+  let body = null;
+  const apiKey = getSettingValue(db, 'feature_ai_assistant') === '1' ? getApiKey(db) : null;
+  if (narrative && apiKey) {
+    const model = getSettingValue(db, 'ai_model') || 'claude-haiku-4-5-20251001';
+    try {
+      const text = await callClaude(apiKey, model,
+        'تو دستیار فروش شخصی یک کارشناس فروش پوشاک عمده هستی. فقط بر اساس داده‌ای که داده می‌شود تحلیل کن و از خودت عدد نساز. خروجی فقط JSON: {"summary": "تحلیل فارسی عملکرد شخصی در ۳-۵ جمله + یک توصیه مشخص برای این هفته"}',
+        `آمار شخصی این کارشناس: ${JSON.stringify(stats)}`, 600);
+      body = extractJSON(text).summary;
+    } catch (e) {
+      console.error(`ai my-summary claude error (user ${userId}):`, e.message);
+    }
+  }
+  if (narrative && !body) {
+    const trend = prevWeek.s > 0
+      ? (week.s >= prevWeek.s ? `فروش این هفته نسبت به هفته قبل ${prevWeek.s ? Math.round(((week.s - prevWeek.s) / prevWeek.s) * 100) : 0}٪ رشد داشته.` : `فروش این هفته نسبت به هفته قبل ${Math.round(((prevWeek.s - week.s) / prevWeek.s) * 100)}٪ کمتر بوده.`)
+      : '';
+    body = `این هفته ${week.c} فاکتور رسمی به مبلغ ${Number(week.s).toLocaleString('fa-IR')} تومان ثبت کرده‌ای و فروش این ماه به ${Number(month.s).toLocaleString('fa-IR')} تومان رسیده. ${trend} ${openFups ? `${openFups} پیگیری باز داری.` : ''} ${atRisk.length ? `مشتریان در ریسک: ${atRisk.map(c => `«${c.biz}»`).join('، ')} — امروز با آن‌ها تماس بگیر.` : 'مشتری پرریسکی نداری — روی جذب مشتری جدید تمرکز کن.'}`;
+  }
+  return { stats, narrative: body };
+}
+
+module.exports = { runNightlyAnalysis, computeChurnScore, buildMySummary };

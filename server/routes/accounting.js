@@ -297,6 +297,21 @@ router.delete('/settlements/:id', auth, adminOrAccounting, (req, res) => {
       ]
     });
 
+    // Spec 1.0.9 §5: if this settlement came from an approved field-rep
+    // payment submission, deleting it flips that submission back to
+    // "rejected" (soft status update — the submission row + receipt photo
+    // stay for the audit trail) so the rep's «حساب من» reflects reality.
+    const sub = db.prepare("SELECT * FROM rep_payment_submissions WHERE settlement_id=? AND status='approved'").get(settlement.id);
+    if (sub) {
+      db.prepare("UPDATE rep_payment_submissions SET status='rejected', rejection_note=?, approved_by=?, approved_at=strftime('%s','now') WHERE id=?")
+        .run('تأیید اشتباه بود — تسویه توسط حسابدار ابطال شد', req.user.id, sub.id);
+      const { notifyRep } = require('../lib/rep-ledger');
+      notifyRep(db, sub.rep_id,
+        `❌ پرداختی که قبلاً تأیید شده بود ابطال شد\nمبلغ: ${Number(sub.amount || 0).toLocaleString('fa-IR')} تومان\nوضعیت جدید: رد شده`,
+        req.user.id);
+      audit(req.user.id, 'reject', 'rep_payment', sub.id, `ابطال تأیید پرداخت میدانی (حذف تسویه #${settlement.id})`);
+    }
+
     db.prepare('DELETE FROM settlements WHERE id=?').run(req.params.id);
   })();
   audit(req.user.id, 'delete', 'settlement', req.params.id, 'حذف تسویه');

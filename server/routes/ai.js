@@ -42,6 +42,19 @@ router.get('/insights/customer/:id', auth, (req, res) => {
   res.json({ customer: cust, insights: rows });
 });
 
+// Personal performance summary — any authenticated user, ALWAYS scoped to
+// their own user id (spec 1.0.9 §6). ?narrative=1 additionally produces the
+// AI/heuristic text analysis.
+router.get('/my-summary', auth, async (req, res) => {
+  const db = getDB();
+  try {
+    const out = await ai.buildMySummary(db, req.user.id, { narrative: req.query.narrative === '1' });
+    res.json(out);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Latest weekly summary (admin)
 router.get('/weekly-summary', auth, adminOnly, (req, res) => {
   const db = getDB();
