@@ -8,6 +8,17 @@ After **every** change (minor or major) to features or behavior, you MUST update
 
 Also append an entry to **`docs/CHANGE-LOG.md`** (date, commit hash, summary, key files, deploy status) so future Claude Code sessions know what was already applied.
 
+## ⚠️ MANDATORY RULE: Coordination with Cursor (dual-assistant workflow)
+
+This project is developed by **two assistants in parallel**: Cursor (on the user's Windows machine, working folder `D:\soft\claud\porje\CursorCrm`) and Claude Code (remote, git-only). Git on branch `claude/claude-md-docs-2ssrpy` is the ONLY shared channel — neither assistant can see the other's uncommitted work.
+
+Therefore, after **every** task (even docs-only or no-op sessions worth recording):
+
+1. **Read `docs/CHANGE-LOG.md` first** before starting any work — the other assistant may have already done it or changed the surrounding code.
+2. **Append an entry** at the top of the تاریخچه section (format is defined at the top of that file) describing what was done, key files, and deploy status — written so the other assistant is fully briefed without reading the diff.
+3. **Commit and push** to `claude/claude-md-docs-2ssrpy` in the same session. An unpushed change is invisible to the other assistant and to production.
+4. Before large or overlapping work, `git fetch` and rebase/align to `origin/claude/claude-md-docs-2ssrpy` to avoid collisions.
+
 ## Project Overview
 
 CRM ترنم (CRM Taranom) is a wholesale customer management + full accounting system for a women's clothing manufacturer ("پوشاک ترنم", based in Mashhad).
