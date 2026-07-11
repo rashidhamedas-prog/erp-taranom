@@ -277,25 +277,26 @@ table.tbl tr:hover td{background:#F7FAF7}
 .tg-i-bot{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:3px}
 .tg-i-snip{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tg-i-badge{background:var(--green);color:#fff;border-radius:12px;min-width:19px;height:19px;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0}
-.tg-chat{display:flex;flex-direction:column;min-width:0;background:#e7ebe0 url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" opacity="0.05"><circle cx="30" cy="30" r="2" fill="%231a5c38"/></svg>')}
-.tg-head{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--card);border-bottom:1px solid var(--border);min-height:56px}
+.tg-chat{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:#e7ebe0 url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" opacity="0.05"><circle cx="30" cy="30" r="2" fill="%231a5c38"/></svg>')}
+.tg-head{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--card);border-bottom:1px solid var(--border);min-height:56px;flex-shrink:0}
 .tg-head .tg-av{width:38px;height:38px;font-size:15px}
 .tg-back{display:none;border:none;background:none;font-size:20px;cursor:pointer;padding:4px 8px;color:var(--purple)}
-.tg-body{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column}
-.tg-date{align-self:center;background:rgba(0,0,0,.25);color:#fff;font-size:11px;padding:3px 12px;border-radius:12px;margin:8px 0}
-.tg-row{display:flex;margin-bottom:4px;justify-content:flex-start}
+.tg-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  padding:14px 14px 8px;display:flex;flex-direction:column;align-items:stretch;scroll-behavior:smooth}
+.tg-date{align-self:center;background:rgba(0,0,0,.25);color:#fff;font-size:11px;padding:3px 12px;border-radius:12px;margin:8px 0;flex-shrink:0}
+.tg-row{display:flex;margin-bottom:4px;justify-content:flex-start;width:100%;flex-shrink:0}
 .tg-row.me{justify-content:flex-end}
-.tg-bub{max-width:76%;padding:7px 11px 5px;border-radius:14px 14px 14px 4px;background:#fff;font-size:13.5px;line-height:1.75;
-  white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;box-shadow:0 1px 1px rgba(0,0,0,.08);position:relative}
+.tg-bub{width:fit-content;max-width:min(76%,420px);padding:7px 11px 5px;border-radius:14px 14px 14px 4px;background:#fff;font-size:13.5px;line-height:1.75;
+  white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;box-shadow:0 1px 1px rgba(0,0,0,.08);position:relative;flex-shrink:0}
 .tg-row.me .tg-bub{background:#dff3d1;border-radius:14px 14px 4px 14px}
 .tg-meta{display:flex;justify-content:flex-end;align-items:center;gap:4px;font-size:10px;color:#8aa17f;margin-top:1px;direction:ltr}
 .tg-ticks{font-size:12px;line-height:1;letter-spacing:-3px;color:#9aa5af}
 .tg-ticks.read{color:#3ba0e0}
-.tg-bub img{max-width:280px;max-height:280px;width:100%;border-radius:9px;cursor:zoom-in;display:block;margin:2px 0 4px}
+.tg-bub img{max-width:min(280px,100%);max-height:280px;width:auto;height:auto;border-radius:9px;cursor:zoom-in;display:block;margin:2px 0 4px}
 .tg-bub .tg-del{position:absolute;top:-7px;inset-inline-start:-7px;width:20px;height:20px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:11px;cursor:pointer;display:none;align-items:center;justify-content:center;line-height:1}
 .tg-bub:hover .tg-del{display:flex}
 .tg-sender{font-size:11px;font-weight:700;color:var(--purple);margin-bottom:1px}
-.tg-compose{display:flex;gap:8px;padding:9px 12px;background:var(--card);border-top:1px solid var(--border);align-items:flex-end}
+.tg-compose{display:flex;gap:8px;padding:9px 12px;background:var(--card);border-top:1px solid var(--border);align-items:flex-end;flex-shrink:0}
 .tg-compose textarea{flex:1;min-width:0;resize:none;max-height:110px;border:1.5px solid var(--border);border-radius:18px;padding:9px 14px;font-family:inherit;font-size:13.5px;line-height:1.6;outline:none}
 .tg-compose textarea:focus{border-color:var(--purple)}
 .tg-iconbtn{width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;font-size:17px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
@@ -308,7 +309,7 @@ table.tbl tr:hover td{background:#F7FAF7}
   .tg.chat-open .tg-chat{display:flex}
   .tg.chat-open .tg-side{display:none}
   .tg-back{display:block}
-  .tg-bub{max-width:86%}
+  .tg-bub{max-width:min(86%,360px)}
 }
 
 /* ===== Toast ===== */
@@ -7934,6 +7935,7 @@ async function tgRefreshThread(silent){
 function tgRenderMsgs(forceScroll){
   const body=el('tgBody'); if(!body) return;
   const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 120;
+  const prevTop = body.scrollTop, prevH = body.scrollHeight;
   const canDelete = m => ME.role==='admin' || m.from_id===ME.id;
   let lastDay='';
   body.innerHTML=TG.msgs.map(m=>{
@@ -7952,6 +7954,7 @@ function tgRenderMsgs(forceScroll){
     </div>`;
   }).join('') || '<div class="tg-empty"><span style="font-size:36px">🕊️</span><span>هنوز پیامی رد و بدل نشده</span></div>';
   if(forceScroll || nearBottom) body.scrollTop=body.scrollHeight;
+  else if(prevH) body.scrollTop=prevTop+(body.scrollHeight-prevH);
 }
 function tgKey(e){
   if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); tgSend(); }
@@ -9034,7 +9037,7 @@ function renderAdminGuide(){
         <li>جستجو در گفتگوها</li>
         <li>اعلان‌های سیستمی (سفارش B2B، وضعیت پرداخت و...) در گفتگوی «اعلان‌های من»</li>
       </ul>
-      <div class="tip">به‌روزرسانی پیام‌ها هر چند ثانیه خودکار انجام می‌شود — نیازی به رفرش دستی نیست.</div>`),
+      <div class="tip">به‌روزرسانی پیام‌ها هر چند ثانیه خودکار انجام می‌شود — نیازی به رفرش دستی نیست. در پنجره مکالمه می‌توانید بالا/پایین اسکرول کنید؛ کادر هر پیام فقط به اندازه متن است.</div>`),
     helpSec('🤖','دستیار AI',`
       <p>دستیار هوشمند برای مدیر و کارشناسان فعال است.</p>
       <ul>
