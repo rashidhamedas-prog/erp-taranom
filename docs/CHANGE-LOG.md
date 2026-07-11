@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (پس از push) |
+| آخرین commit | `2696eda` |
 | نسخه وب/دسکتاپ | **`1.0.10`** / SW `v26` |
 | اندروید | **`2.0.6`** (versionCode 8) |
-| وضعیت سرور | ⏳ APK 2.0.6 در حال آپلود |
+| وضعیت سرور | ✅ deploy + APK 2.0.6 آپلود شده |
 
 ---
 
@@ -50,7 +50,7 @@
   - **APK جدید:** SHA256 `6247752D…`, ~۳۴۱MB — ELF سبز (libnode + ۳ prebuilt + fix در main.js).
   - راهنمای داخل برنامه: یادآوری «اولین اجرای اندروید چند دقیقه طول می‌کشد».
 - **فایل‌های کلیدی:** `android/.../main.js`, `android/app/build.gradle`, `scripts/build-android.ps1`, `scripts/build-better-sqlite3-android.ps1`, `server/public/releases/manifest.json`, `server/public/index.html`
-- **Deploy:** ⏳ APK+manifest آپلود به `/releases/` + commit/push + pull سرور
+- **Deploy:** ✅ APK 2.0.6 آپلود شد (`SHA256=6247752D…`) + commit `2696eda` + pull/pm2 سرور
 
 ### ۱۴۰۴/۰۴/۲۴ — [Claude Code] انتشار 1.0.10 انجام شد: exe + APK ساخته و آپلود شد — فقط pull سرور مانده
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
