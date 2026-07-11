@@ -41,6 +41,17 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۴ — [Claude Code] رفع «برنامه اندروید بالا نمی‌آید»: صبر بوت از ~۳۰ ثانیه به ۱۰ دقیقه + اسپلش
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت
+- **خلاصه:**
+  - ریشهٔ احتمالی گزارش کاربر پیدا شد: اولین اجرای APK هزاران فایل nodejs-project را استخراج می‌کند (چند دقیقه روی حافظه کند)، ولی `loadWhenReady` قدیمی فقط ۲۰×۱.۵ثانیه (~۳۰s) تلاش می‌کرد و بعد **برای همیشه صفحه خالی** می‌ماند.
+  - حالا: اسپلش فارسی «در حال آماده‌سازی... اولین اجرا ممکن است چند دقیقه طول بکشد» فوراً نمایش داده می‌شود؛ یک thread پس‌زمینه تا ۱۰ دقیقه سرور داخلی را poll می‌کند (HttpURLConnection، هر ۱ ثانیه) و به‌محض HTTP 200 برنامه را load می‌کند؛ اگر هرگز بالا نیامد صفحه خطای صادقانه.
+  - hash کاربر (`43563CC8...`) نشان داد APK محلی همان build مردهٔ قبلی **نیست** — پس این سناریوی بوتِ کند محتمل‌ترین علت است. Play Protect هم نصب را بلاک می‌کرد (راهنمایی شد: More details → Install anyway).
+  - `git pull` کاربر به‌خاطر تغییرات uncommitted شما (Cursor) رد شد: `android/app/build.gradle`, `docs/CHANGE-LOG.md`, `scripts/build-android.ps1`, `manifest.json` — به کاربر گفته شد stash کند (`git stash push -m cursor-wip-before-1.0.10`). ⚠️ **Cursor:** stash را بررسی/ادغام کن و لطفاً کارها را commit کن.
+- **فایل‌های کلیدی:** `android/app/src/main/java/ir/taranom/crm/MainActivity.java`
+- **Deploy:** ❌ در build اندروید 2.0.5 (از طریق `scripts/release.ps1`) اعمال می‌شود
+
 ### ۱۴۰۴/۰۴/۲۴ — [Claude Code] زیرساخت انتشار 1.0.10 — اسکریپت یک‌دستوری release.ps1 + bump نسخه‌ها
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت

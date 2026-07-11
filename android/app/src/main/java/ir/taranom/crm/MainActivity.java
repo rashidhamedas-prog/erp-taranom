@@ -102,21 +102,43 @@ public class MainActivity extends Activity {
         }
 
         // Poll the embedded server until it answers, then load the app
-        loadWhenReady(0);
+        loadWhenReady();
     }
 
-    private void loadWhenReady(final int attempt) {
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            webView.loadUrl("http://127.0.0.1:" + LOCAL_PORT + "/");
-        }, attempt == 0 ? 2500 : 1500);
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                if (attempt < 20 && failingUrl != null && failingUrl.contains("127.0.0.1")) {
-                    loadWhenReady(attempt + 1);
-                }
+    /**
+     * First run extracts the whole Node project (thousands of files) which can
+     * take minutes on slow storage — the old 20×1.5s retry gave up after ~30s
+     * and left a blank screen forever. Now: show a splash immediately and poll
+     * the embedded server from a background thread (up to 10 minutes) before
+     * loading the UI, with an honest error page if it never comes up.
+     */
+    private void loadWhenReady() {
+        webView.loadDataWithBaseURL(null,
+                "<html dir='rtl'><body style='display:flex;align-items:center;justify-content:center;height:96vh;margin:0;font-family:sans-serif;background:#0D1512;color:#E8F1EB'>"
+                        + "<div style='text-align:center'><div style='font-size:52px'>🌿</div><h2 style='margin:8px 0'>CRM ترنم</h2>"
+                        + "<p style='color:#7F978A;line-height:1.9'>در حال آماده‌سازی برنامه...<br>اولین اجرا ممکن است چند دقیقه طول بکشد — برنامه را نبندید.</p></div></body></html>",
+                "text/html", "utf-8", null);
+        new Thread(() -> {
+            for (int i = 0; i < 600; i++) {
+                try {
+                    java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                            new java.net.URL("http://127.0.0.1:" + LOCAL_PORT + "/").openConnection();
+                    c.setConnectTimeout(1500);
+                    c.setReadTimeout(1500);
+                    int code = c.getResponseCode();
+                    c.disconnect();
+                    if (code == 200) {
+                        runOnUiThread(() -> webView.loadUrl("http://127.0.0.1:" + LOCAL_PORT + "/"));
+                        return;
+                    }
+                } catch (Exception ignored) { /* server not up yet */ }
+                try { Thread.sleep(1000); } catch (InterruptedException e) { return; }
             }
-        });
+            runOnUiThread(() -> webView.loadDataWithBaseURL(null,
+                    "<html dir='rtl'><body style='font-family:sans-serif;padding:40px;text-align:center;background:#0D1512;color:#E8F1EB'>"
+                            + "<h3>خطا در راه‌اندازی سرور داخلی</h3><p style='color:#7F978A'>برنامه را کامل ببندید و دوباره باز کنید. اگر تکرار شد، برنامه را حذف و نسخه جدید را نصب کنید.</p></body></html>",
+                    "text/html", "utf-8", null));
+        }).start();
     }
 
     @Override
