@@ -43,7 +43,7 @@
 
 ### ۱۴۰۴/۰۴/۲۴ — رفع اسکرول پیام‌ها + build اندروید 2.0.4
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (این کامیت)
+- **Commit:** `d5e079b`
 - **خلاصه:**
   - **پیام‌ها:** اسکرول عمودی در پنجره مکالمه (`min-height:0` + `overflow-y:auto`)؛ حباب پیام `fit-content`؛ حفظ موقعیت اسکرول هنگام polling؛ SW → `v24`.
   - **اندروید 2.0.4:** Gradle wrapper + JDK 17 + libnode از zip رسمی nodejs-mobile؛ `buildConfig` فعال؛ exclude فایل‌های `.exe` دسکتاپ از assets (رفع OOM ۲GB)؛ APK release ساخته و آپلود به `/releases/crm-taranom.apk` (~148MB).
