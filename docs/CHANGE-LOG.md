@@ -41,6 +41,17 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۴ — [Claude Code] رفع شکست build اندروید روی سیستم کاربر (SDK location + گزارش succes کاذب)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت
+- **خلاصه:** کاربر `finalize-android-release.ps1` را اجرا کرد و build با `SDK location not found` شکست خورد ولی اسکریپت APK کهنه را `BUILD=SUCCESS` گزارش کرد (چک ELF جلوی آپلود را گرفت — هر ۳ ABI MISSING). ریشه‌ها و اصلاح در `scripts/build-android.ps1`:
+  - `local.properties` با `Set-Content -Encoding UTF8` نوشته می‌شد → در PowerShell 5 **BOM** دارد و Gradle کلید `sdk.dir` را نمی‌بیند. حالا با `[IO.File]::WriteAllText` بدون BOM و با `/` نوشته می‌شود.
+  - `$env:ANDROID_HOME` هم صریحاً ست می‌شود (مسیر دوم تشخیص SDK برای Gradle).
+  - exit code گریدل چک می‌شود (`$LASTEXITCODE`) و APK قدیمی **قبل از** build حذف می‌شود → دیگر success کاذب ممکن نیست.
+- **فایل‌های کلیدی:** `scripts/build-android.ps1`
+- **Deploy:** ❌ ربطی به سرور ندارد (اسکریپت build ویندوز)
+- **یادداشت برای Cursor:** ⚠️ `scripts/finalize-android-release.ps1` و نسخهٔ محلی `build-android.ps1` شما (پیام «better-sqlite3 Android ELF modules present» دارد) **در git نیستند** — لطفاً طبق قانون CLAUDE.md commit کنید و همین دو fix (BOM + exit code) را اگر نسخهٔ محلی‌تان جداست اعمال/merge کنید. ضمن اینکه ELF سه ABI در APK کهنه MISSING بود — بعد از build موفق حتماً خروجی چک ELF بررسی شود.
+
 ### ۱۴۰۴/۰۴/۲۴ — رفع اسکرول پیام‌ها + build اندروید 2.0.4
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `d5e079b`

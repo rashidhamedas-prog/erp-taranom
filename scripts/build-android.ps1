@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Android = Join-Path $Root 'android'
 $Sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
+$env:ANDROID_HOME = $Sdk
 
 Write-Host "==> CRM Taranom Android build"
 Write-Host "    Root: $Root"
@@ -72,9 +73,9 @@ if (-not (Test-Path (Join-Path $npDir 'node_modules\express'))) {
   Pop-Location
 }
 
-# --- local.properties ---
+# --- local.properties (UTF8 *without* BOM — java.util.Properties can't read a BOM'd key) ---
 $localProps = Join-Path $Android 'local.properties'
-"sdk.dir=$($Sdk -replace '\\','\\')" | Set-Content $localProps -Encoding UTF8
+[IO.File]::WriteAllText($localProps, "sdk.dir=$($Sdk -replace '\\','/')`n")
 
 # --- Gradle wrapper ---
 Set-Location $Android
@@ -93,9 +94,13 @@ if (-not (Test-Path 'gradlew.bat')) {
   }
 }
 
-  Write-Host '==> assembleRelease (this may take several minutes)...'
-  & .\gradlew.bat assembleRelease --no-daemon --rerun-tasks
+# Remove stale artifacts so a failed build can never be reported as success
 $apk = Join-Path $Android 'app\build\outputs\apk\release\app-release.apk'
+if (Test-Path $apk) { Remove-Item $apk -Force }
+
+Write-Host '==> assembleRelease (this may take several minutes)...'
+& .\gradlew.bat assembleRelease --no-daemon --rerun-tasks
+if ($LASTEXITCODE -ne 0) { throw "gradlew assembleRelease failed (exit $LASTEXITCODE)" }
 if (-not (Test-Path $apk)) { throw "APK not found at $apk" }
 
 $dest = Join-Path $Root 'server\public\releases\crm-taranom.apk'
