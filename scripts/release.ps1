@@ -2,8 +2,8 @@
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\release.ps1
 #
-# Does EVERYTHING to final result:
-#   1. git pull (get latest code)
+# Steps (each one checks its exit code - a failed build can never be published):
+#   1. git pull
 #   2. build Windows installer (electron-builder NSIS)
 #   3. build Android release APK (scripts/build-android.ps1)
 #   4. verify the APK is bootable: libnode.so per ABI + better_sqlite3 .node are real ELF
@@ -12,8 +12,8 @@
 #   7. scp the .exe + .apk to the production server
 #   8. ssh deploy: git pull + npm install + pm2 restart, then health-check
 #
-# Every step checks its exit code — a failed build can never be published.
-# Use -SkipDesktop / -SkipAndroid to release one platform only.
+# NOTE: keep this file pure ASCII - Windows PowerShell 5.1 parses BOM-less
+# files as ANSI and multi-byte characters (em-dash etc.) break the parser.
 param(
   [string]$Version = '1.0.10',
   [string]$AndroidVersion = '2.0.5',
@@ -34,7 +34,7 @@ Write-Host "==> CRM Taranom release $Version (android $AndroidVersion/$AndroidCo
 
 # --- 0) fresh code ---
 git pull origin $Branch
-if ($LASTEXITCODE -ne 0) { throw 'git pull failed — resolve conflicts first' }
+if ($LASTEXITCODE -ne 0) { throw 'git pull failed - resolve conflicts first' }
 
 # --- 1) Desktop installer ---
 $exeDash = Join-Path $Root "desktop\dist\CRM-Taranom-Setup-$Version.exe"
@@ -56,7 +56,7 @@ if (-not $SkipAndroid) {
   if ($LASTEXITCODE -ne 0) { throw 'android build failed' }
   if (-not (Test-Path $apk)) { throw 'crm-taranom.apk not produced' }
 
-  # --- 3) APK bootability check (the bug that shipped a dead APK once) ---
+  # --- 3) APK bootability check (a dead APK was shipped once - never again) ---
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $zip = [IO.Compression.ZipFile]::OpenRead($apk)
   try {
@@ -66,11 +66,11 @@ if (-not $SkipAndroid) {
     }
     foreach ($abi in 'arm64-v8a', 'armeabi-v7a', 'x86_64') {
       $e = $zip.Entries | Where-Object { $_.FullName -eq "lib/$abi/libnode.so" }
-      if (-not $e) { throw "lib/$abi/libnode.so missing from APK — app cannot boot" }
+      if (-not $e) { throw "lib/$abi/libnode.so missing from APK - app cannot boot" }
       if (-not (Test-Elf $e)) { throw "lib/$abi/libnode.so is not a real ELF binary" }
     }
     $sq = $zip.Entries | Where-Object { $_.FullName -match 'better.?sqlite3' -and $_.FullName -match '\.node$' }
-    if (-not $sq) { throw 'better_sqlite3 .node missing from APK — DB cannot open, app will hang on boot' }
+    if (-not $sq) { throw 'better_sqlite3 .node missing from APK - DB cannot open, app will hang on boot' }
     foreach ($e in $sq) { if (-not (Test-Elf $e)) { throw "$($e.FullName) is not a real ELF binary" } }
     Write-Host "==> APK ELF check OK ($(@($sq).Count) better_sqlite3 module(s), 3 ABIs libnode)"
   } finally { $zip.Dispose() }
@@ -100,11 +100,11 @@ if (-not $SkipAndroid) {
   if ($LASTEXITCODE -ne 0) { throw 'scp apk failed' }
 }
 
-# --- 7) deploy web (pull + deps + restart) & health-check ---
+# --- 7) deploy web (pull + deps + restart) and health-check ---
 ssh -p $SshPort -i $SshKey $Server "cd /home/taranom-admin/crm-taranom && git pull origin $Branch && cd server && npm install --omit=dev && pm2 restart crm-taranom && sleep 3 && curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:3000/"
-if ($LASTEXITCODE -ne 0) { throw 'remote deploy failed — check server manually' }
+if ($LASTEXITCODE -ne 0) { throw 'remote deploy failed - check server manually' }
 
 Write-Host ''
-Write-Host "✅ release $Version complete: web deployed, installer + APK live on /releases/"
-Write-Host "   desktop: http://45.90.98.99:3000/releases/CRM-Taranom-Setup-$Version.exe"
-Write-Host "   android: http://45.90.98.99:3000/releases/crm-taranom.apk"
+Write-Host "[OK] release $Version complete: web deployed, installer + APK live on /releases/"
+Write-Host "   desktop: http://45.90.98.99/releases/CRM-Taranom-Setup-$Version.exe"
+Write-Host "   android: http://45.90.98.99/releases/crm-taranom.apk"

@@ -73,7 +73,7 @@ if (-not (Test-Path (Join-Path $npDir 'node_modules\express'))) {
   Pop-Location
 }
 
-# --- local.properties (UTF8 *without* BOM — java.util.Properties can't read a BOM'd key) ---
+# --- local.properties (UTF8 *without* BOM - java.util.Properties cannot read a BOM'd key) ---
 $localProps = Join-Path $Android 'local.properties'
 [IO.File]::WriteAllText($localProps, "sdk.dir=$($Sdk -replace '\\','/')`n")
 
