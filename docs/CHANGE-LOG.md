@@ -52,8 +52,8 @@
   - **ایمنی:** rate-limit روی `/api/b2b/auth/*`؛ `/api/b2b` در BLOCKLIST سینک؛ کلیدهای `feature_*`/`ai_*` به ALLOWED_KEYS تنظیمات اضافه شد (قبلاً ذخیره AI هم silently drop می‌شد — رفع شد)؛ روی device build همه endpointها 403 و منو/لینک مخفی.
   - **تست:** `scripts/test-b2b.js` جدید (۲۹ assertion: فلگ، provisioning، ورود/OTP، جداسازی توکن دوطرفه، قیمت server-side، صف ادمین، لغو دسترسی). هر ۴ suite سبز: 22 sms + 25 sync + 24 v4 + 29 b2b. راهنمای ادمین/فروش به‌روز شد؛ SW → `v22`.
 - **فایل‌های کلیدی:** `server/routes/b2b.js`, `server/db.js`, `server/middleware/auth.js`, `server/server.js`, `server/routes/settings.js`, `server/routes/accounting.js`, `server/sync/capture.js`, `server/public/index.html`, `server/scripts/test-b2b.js`
-- **Deploy:** ⏳ نیاز به pull
-- **یادداشت:** بعد از deploy، ادمین باید در تنظیمات «پورتال B2B» را روشن کند و برای هر مشتری از فرم ویرایش، دسترسی بدهد. آدرس پورتال: `/#portal`.
+- **Deploy:** ✅ deploy شده (pull + pm2 restart — جداول ساخته شدند، endpoint ها verify شدند: login بدون فلگ → 403 صحیح، admin/orders بدون توکن → 401، app-info فیلد `b2b_portal` برمی‌گرداند. dependency جدیدی ندارد.)
+- **یادداشت:** پورتال هنوز **خاموش** است — برای فعال‌سازی: تنظیمات → «پورتال مشتریان B2B» → فعال‌سازی + ذخیره، سپس برای هر مشتری از فرم ویرایش او دسترسی و رمز تعیین کنید. آدرس پورتال: `/#portal`.
 
 ### ۱۴۰۴/۰۴/۲۳ — انتقال مزیت‌های CRM v4: امنیت 2FA + دستیار AI + بارکد محصولات
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
