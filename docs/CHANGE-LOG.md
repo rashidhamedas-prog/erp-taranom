@@ -43,7 +43,7 @@
 
 ### ۱۴۰۴/۰۴/۲۴ — پورتال مشتریان B2B (انتقال از CRM v4 — فقط مرکزی)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (در ورودی بعدی ثبت می‌شود)
+- **Commit:** `3acd305`
 - **خلاصه:** پورتال سفارش آنلاین مشتریان عمده — کاملاً افزودنی، بدون دست زدن به جریان‌های موجود:
   - **Backend:** جداول `b2b_portal_accounts` + `b2b_portal_orders` (خارج از SYNCABLE_TABLES — فقط مرکزی)؛ ستون `customers.b2b_enabled` (از طریق sync معمولی مشتری به دستگاه‌ها می‌رسد، فقط برای نمایش برچسب)؛ route جدید `routes/b2b.js` با `centralOnly` روی کل router: ورود با موبایل+رمز یا OTP پیامکی (پاسخ uniform — بدون افشای وجود شماره)، کاتالوگ، ثبت سفارش، تاریخچه سفارش/فاکتور، صورتحساب زنده (همان `buildStatement` حسابداری — export شد).
   - **جداسازی توکن:** توکن پورتال `scope:'b2b'` دارد؛ middleware داخلی `auth` هر توکن دارای scope را رد می‌کند (توکن‌های staff موجود بدون scope هستند → backward compatible) و `b2bAuth` فقط scope='b2b' می‌پذیرد — تست دوطرفه دارد.
