@@ -35,7 +35,7 @@
 | آخرین commit | `843ecd2` |
 | نسخه وب/دسکتاپ | **`1.0.9`** / SW `v23` |
 | اندروید | **`2.0.3`** (versionCode 5) |
-| وضعیت سرور | ⏳ نیاز به pull (1.0.9) |
+| وضعیت سرور | ✅ deploy شده (v1.0.9 / SW v23) |
 
 ---
 
@@ -43,7 +43,7 @@
 
 ### ۱۴۰۴/۰۴/۲۴ — نسخه 1.0.9 (فاکتور، کاتالوگ، پیام‌ها، AI کاربر، آیکون‌ها)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `843ecd2`
 - **خلاصه:** پیاده‌سازی کامل `update1.0.9.md`:
   - **§1 فاکتور:** حذف فیلد کانال فروش از UI؛ `resolveSalesChannel()` در backend از نقش کاربر (میدانی→field، تلفنی→phone)؛ حذف «ساخت محصول» از فاکتورساز؛ `/products/quick` فقط admin.
   - **§2 کاتالوگ:** `GET /warehouses` برای همه کاربران auth؛ ترتیب routeهای محصولات (`/categories`، `/by-barcode` قبل از `/:id`).
@@ -54,8 +54,7 @@
   - **§7 آیکون‌ها:** Lucide SVG در منو و کارت‌های آمار (`lucide()` + `EMO_LU`).
   - **تست:** `scripts/test-1.0.9.js` (۲۱ assertion). راهنمای ادمین/فروش به‌روز شد؛ SW → `v23`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/routes/invoices.js`, `server/routes/products.js`, `server/routes/warehouses.js`, `server/routes/messages.js`, `server/routes/accounting.js`, `server/routes/ai.js`, `server/services/ai.js`, `server/scripts/test-1.0.9.js`, `server/scripts/cleanup-aref-pending.js`, `server/public/sw.js`
-- **Deploy:** ⏳ نیاز به pull
-- **یادداشت:** پاکسازی aref روی production: `DB_PATH=/home/taranom-admin/crm-taranom/server/crm.db node server/scripts/cleanup-aref-pending.js --dry-run` سپس بدون dry-run.
+- **Deploy:** ✅ deploy شده (pull + pm2 restart — aref: کاربر #3 یافت شد، رکورد pending نداشت)
 
 ### ۱۴۰۴/۰۴/۲۴ — پورتال مشتریان B2B (انتقال از CRM v4 — فقط مرکزی)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
