@@ -71,11 +71,22 @@ router.post('/login', (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE username=? AND active=1').get(username);
   if (!user || !bcrypt.compareSync(password, user.password)) {
     recordFailure(username);
+    if (user) audit(user.id, 'login_failed', 'user', user.id, 'رمز اشتباه', req);
     return res.status(401).json({ error: 'نام کاربری یا رمز عبور اشتباه است' });
   }
 
   failedLogins.delete(username);
+
+  // 2FA: enabled for this user → require TOTP verification before issuing the real token.
+  // Device builds never have two_factor_auth rows (central-only table) → step is skipped.
+  const tfa = db.prepare('SELECT enabled FROM two_factor_auth WHERE user_id=?').get(user.id);
+  if (tfa && tfa.enabled) {
+    const preToken = jwt.sign({ id: user.id, scope: 'pre-2fa' }, SECRET, { expiresIn: '5m' });
+    return res.json({ twofa_required: true, pre_token: preToken });
+  }
+
   db.prepare("UPDATE users SET last_login=strftime('%s','now') WHERE id=?").run(user.id);
+  audit(user.id, 'login', 'user', user.id, 'ورود موفق', req);
   const token = jwt.sign(
     { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '' },
     SECRET, { expiresIn: '30d' }

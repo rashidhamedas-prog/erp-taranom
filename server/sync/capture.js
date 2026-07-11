@@ -23,7 +23,7 @@ const { SYNCABLE_TABLES } = require('./tables');
 //  - direct message/SMS sends (replaying would double-send)
 const BLOCKLIST = [
   '/api/auth', '/api/sync', '/api/admin', '/api/api-keys', '/api/settings',
-  '/api/messages', '/api/v1'
+  '/api/messages', '/api/v1', '/api/ai'
 ];
 const BLOCK_PATTERNS = [/\/import/, /\/export/, /\/backup/, /\/backfill/, /\/stock$/];
 

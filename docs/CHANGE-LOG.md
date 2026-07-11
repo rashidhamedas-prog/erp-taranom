@@ -41,6 +41,19 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۳ — انتقال مزیت‌های CRM v4: امنیت 2FA + دستیار AI + بارکد محصولات
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `d29e7ef` (rebased)
+- **خلاصه:** آنالیز کامل پروژه `crm v4` و انتقال ۳ مزیت اصلی آن (بدون multi-tenancy/B2B/مودیان/puppeteer که به معماری آسیب می‌زدند):
+  - **2FA (TOTP):** جدول `two_factor_auth` (خارج از sync — فقط مرکزی)، route جدید `/api/auth/2fa/*` (setup/verify/recovery-code/disable/status/admin-reset/admin-status)، رمزنگاری اسرار با AES-256-GCM (`services/crypto.js`)، مرحله کد ۶ رقمی در ورود + کدهای بازیابی یک‌بارمصرف، پنل «🔐 امنیت» در سایدبار، rate-limit روی verify. دستگاه‌های آفلاین: ورود بدون 2FA (جدول خالی)، مدیریت 2FA فقط از وب (`centralOnly`).
+  - **دستیار فروش AI:** ستون `customers.churn_score` + جدول `ai_insights`؛ سرویس heuristic (ریسک ریزش ۰-۱۰۰، فرصت فروش مجدد بر اساس الگوی خرید، اقدام روزانه هر کارشناس، خلاصه هفتگی مدیر) بدون نیاز به API خارجی؛ لایه اختیاری Claude API (تنظیمات: `feature_ai_assistant`, `ai_api_key`, `ai_model`)؛ cron شبانه ۰۲:۰۰ فقط مرکزی؛ صفحه «🤖 دستیار AI» در منوی ادمین و فروش؛ برچسب قرمز ریسک در لیست مشتریان.
+  - **بارکد محصولات:** ستون `products.barcode`؛ تولید EAN-13 استاندارد (deterministic → سازگار با replay سینک)؛ `/by-barcode/:code`؛ صفحه چاپ برچسب 58×40mm (توکن از query)؛ اسکنر دوربین (html5-qrcode با lazy-load CDN و ورود دستی جایگزین) در فاکتورساز (افزودن مستقیم به سبد) و صفحه محصولات؛ پشتیبانی بارکد در جستجو/اکسل.
+  - **سایر:** audit ورود موفق/ناموفق؛ `/api/ai` در BLOCKLIST سینک؛ راهنمای ادمین و فروش (۳ بخش جدید هرکدام)؛ SW bump به `v21`؛ وابستگی جدید `otplib@12` (هر ۳ package.json).
+  - **تست:** `scripts/test-v4-features.js` جدید (۲۴ assertion end-to-end روی سرور واقعی: چرخه کامل 2FA، اعتبار check-digit بارکد، تحلیل AI). هر ۳ suite سبز: 22 sms + 25 sync + 24 v4.
+- **فایل‌های کلیدی:** `server/routes/twofa.js`, `server/routes/ai.js`, `server/services/ai.js`, `server/services/crypto.js`, `server/routes/auth.js`, `server/routes/products.js`, `server/db.js`, `server/server.js`, `server/sync/capture.js`, `server/public/index.html`, `server/scripts/test-v4-features.js`
+- **Deploy:** ⏳
+- **یادداشت:** روی سرور بعد از pull حتماً `npm install` اجرا شود (otplib جدید است).
+
 ### ۱۴۰۴/۰۴/۲۳ — [Claude Code] هماهنگی با Cursor + قانون یادداشت‌گذاری مشترک
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت (فقط مستندات — بدون تغییر کد)

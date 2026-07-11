@@ -110,6 +110,8 @@ const authLimiter = rateLimit({
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/forgot', authLimiter);
 app.use('/api/auth/forgot-reset', authLimiter);
+app.use('/api/auth/2fa/verify', authLimiter);
+app.use('/api/auth/2fa/recovery-code', authLimiter);
 
 assertSecurityConfig();
 initDB();
@@ -122,7 +124,9 @@ if (isDevice()) {
 }
 
 app.use('/api/sync', require('./routes/sync'));
+app.use('/api/auth/2fa', require('./routes/twofa'));
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/ai', require('./routes/ai'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/followups', require('./routes/followups'));
 app.use('/api/invoices', require('./routes/invoices'));
@@ -407,6 +411,14 @@ if (!isDevice()) {
 
   // Daily at 00:00: full app backup → local file + Gmail
   cron.schedule('0 0 * * *', runBackup);
+
+  // Daily at 02:00: AI churn scoring + insights (heuristics always; Claude narratives if configured)
+  cron.schedule('0 2 * * *', async () => {
+    try {
+      const { runNightlyAnalysis } = require('./services/ai');
+      await runNightlyAnalysis(getDB());
+    } catch (e) { console.error('cron ai-analysis error:', e.message); }
+  });
 }
 
 // Global error handler — never leak stack traces to clients

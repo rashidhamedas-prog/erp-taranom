@@ -1411,7 +1411,34 @@ function initSyncSchema(db) {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_reset_otp_user ON password_reset_otps(user_id);
+
+    -- 2FA (TOTP): central-only — NOT in SYNCABLE_TABLES, device builds keep it empty
+    CREATE TABLE IF NOT EXISTS two_factor_auth (
+      user_id INTEGER PRIMARY KEY,
+      secret TEXT NOT NULL,
+      enabled INTEGER DEFAULT 0,
+      recovery_codes TEXT DEFAULT '[]',
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+
+    -- AI sales assistant insights (heuristic churn/opportunity + optional LLM narratives)
+    CREATE TABLE IF NOT EXISTS ai_insights (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER,
+      user_id INTEGER,
+      kind TEXT NOT NULL,
+      score INTEGER,
+      title TEXT DEFAULT '',
+      body TEXT DEFAULT '',
+      period TEXT DEFAULT '',
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_insights_kind ON ai_insights(kind, period);
+    CREATE INDEX IF NOT EXISTS idx_ai_insights_cust ON ai_insights(customer_id);
   `);
+  ensureColumn(db, 'customers', 'churn_score', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'products', 'barcode', 'TEXT');
 
   // Central-only: triggers stamp every insert/update with the next global
   // sequence value (and bump version on update) and write a tombstone on

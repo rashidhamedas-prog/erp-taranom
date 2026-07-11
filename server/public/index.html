@@ -497,6 +497,7 @@ table.tbl tr:hover td{background:#F7FAF7}
       <div class="foot">
         <div id="footUser" class="muted" style="color:rgba(255,255,255,.85)"></div>
         <button onclick="openChangePass()">🔑 تغییر رمز</button>
+        <button onclick="openSecurityModal()">🔐 امنیت</button>
         <button onclick="logout()">🚪 خروج</button>
       </div>
     </aside>
@@ -996,12 +997,71 @@ el('loginForm').addEventListener('submit', async (e)=>{
     const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
     const j = await r.json();
     if(!r.ok){ el('loginErr').textContent = j.error || 'خطا در ورود'; return; }
+    if(j.twofa_required){ show2FALogin(j.pre_token); return; }
     localStorage.setItem('crm_token', j.token);
     localStorage.setItem('crm_user', JSON.stringify(j.user));
     ME = j.user;
     await boot();
   }catch(err){ el('loginErr').textContent='خطای ارتباط با سرور'; }
 });
+
+/* ---- 2FA login step (TOTP) ---- */
+let _pre2faToken = null;
+function show2FALogin(preToken){
+  _pre2faToken = preToken;
+  openModal(`
+    <div class="modal-head"><h3>🔐 کد تأیید دو مرحله‌ای</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <p class="muted" style="font-size:13px;margin-bottom:12px">کد ۶ رقمی برنامه Authenticator را وارد کنید.</p>
+      <div class="form-grid">
+        <div class="fg full"><label>کد تأیید</label>
+          <input id="tfa-code" dir="ltr" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+                 onkeydown="if(event.key==='Enter')verify2FALogin()"></div>
+        <div class="fg full" id="tfa-rec-wrap" style="display:none"><label>کد بازیابی (۸ کاراکتری)</label>
+          <input id="tfa-recovery" dir="ltr" maxlength="8"
+                 onkeydown="if(event.key==='Enter')verify2FARecovery()"></div>
+      </div>
+      <div id="tfa-err" class="muted" style="font-size:12px;margin-top:8px;color:#dc2626"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="tfa-btn" onclick="verify2FALogin()">تأیید و ورود</button>
+      <button class="btn ghost" onclick="toggle2FARecovery()">استفاده از کد بازیابی</button>
+    </div>`);
+  setTimeout(()=>el('tfa-code')?.focus(), 100);
+}
+function toggle2FARecovery(){
+  const w = el('tfa-rec-wrap');
+  const showing = w.style.display!=='none';
+  w.style.display = showing ? 'none' : 'block';
+  el('tfa-btn').setAttribute('onclick', showing ? 'verify2FALogin()' : 'verify2FARecovery()');
+  if(!showing) el('tfa-recovery').focus();
+}
+async function finish2FALogin(r){
+  const j = await r.json();
+  if(!r.ok){ el('tfa-err').textContent = j.error || 'خطا'; return; }
+  closeModal();
+  localStorage.setItem('crm_token', j.token);
+  localStorage.setItem('crm_user', JSON.stringify(j.user));
+  ME = j.user;
+  if(j.remaining_codes !== undefined) showToast(`ورود با کد بازیابی — ${j.remaining_codes} کد باقی مانده`, 'warn');
+  await boot();
+}
+async function verify2FALogin(){
+  const code = el('tfa-code').value.trim();
+  if(!code){ el('tfa-err').textContent='کد را وارد کنید'; return; }
+  try{
+    const r = await fetch('/api/auth/2fa/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})});
+    await finish2FALogin(r);
+  }catch{ el('tfa-err').textContent='خطای ارتباط با سرور'; }
+}
+async function verify2FARecovery(){
+  const code = el('tfa-recovery').value.trim();
+  if(!code){ el('tfa-err').textContent='کد بازیابی را وارد کنید'; return; }
+  try{
+    const r = await fetch('/api/auth/2fa/recovery-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})});
+    await finish2FALogin(r);
+  }catch{ el('tfa-err').textContent='خطای ارتباط با سرور'; }
+}
 
 function openForgotPass(){
   openModal(`
@@ -1066,6 +1126,7 @@ const NAV_ADMIN = [
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'users', icon:'👤', label:'کاربران'},
   {id:'reports', icon:'📈', label:'گزارشات'},
+  {id:'ai', icon:'🤖', label:'دستیار AI'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'settings', icon:'⚙️', label:'تنظیمات'},
@@ -1079,6 +1140,7 @@ const NAV_SALES = [
   {id:'followups', icon:'📞', label:'پیگیری‌ها'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'catalog', icon:'🛍️', label:'کاتالوگ'},
+  {id:'ai', icon:'🤖', label:'دستیار AI'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'help', icon:'📖', label:'راهنما'},
@@ -1870,7 +1932,7 @@ function renderCustTable(){
       <button class="btn sm red" onclick="confirmDelete('customers',${c.id},'${esc(c.biz)}')">🗑️</button></td>
     <td>${esc(c.city||'-')}</td>
     <td class="muted" style="font-size:12px;max-width:180px">${esc(c.address||'-')}</td>
-    <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}</td>
+    <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="ریسک ریزش مشتری (تحلیل AI)">⚠️${c.churn_score}٪</span>`:''}</td>
     ${isAdmin?`<td class="muted">${esc(c.salesperson||'-')}</td><td class="mono" style="color:${(c.balance||0)>0?'#dc2626':(c.balance||0)<0?'var(--green)':'var(--muted)'}">${(c.balance||0)!==0?fmt(c.balance)+' ت':'-'}</td>`:''}
   </tr>`).join('')||emptyRow(isAdmin?11:9)}</tbody>
   ${isAdmin?`<tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
@@ -2517,7 +2579,8 @@ async function _openInvBuilder(id){
       <div class="inv-layout">
         <div>
           <input class="search" id="invProdSearch" placeholder="جستجوی محصول..." style="margin-bottom:6px;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" oninput="renderInvPicker()">
-          <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:8px" onclick="invProdQuickModal(el('invProdSearch')?.value||'')">➕ ساخت محصول جدید</button>
+          <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:6px" onclick="invProdQuickModal(el('invProdSearch')?.value||'')">➕ ساخت محصول جدید</button>
+          <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:8px" onclick="openBarcodeScanner(scanBarcodeToCart)">📷 اسکن بارکد</button>
           <div id="mobPickHint" style="display:none;font-size:11px;color:var(--muted);margin-bottom:8px;text-align:center">👆 برای افزودن، دو بار روی محصول بزنید</div>
           <div class="inv-products"><div class="inv-pick" id="invPicker"></div></div>
         </div>
@@ -2764,6 +2827,7 @@ async function productsPage(canEdit){
         <button class="btn ghost" onclick="productCategoriesModal()">🏷️ دسته‌بندی‌ها</button>
         <button class="btn ghost" onclick="enterAccountingShell().then(()=>go('acc-warehouses'))">🏭 موجودی انبارها</button>
         <button class="btn ghost" onclick="go('stocktaking')">📋 انبارگردانی</button>
+        <button class="btn ghost" onclick="openBarcodeScanner(async c=>{ try{ const p=await api('GET','/products/by-barcode/'+encodeURIComponent(c)); if(p&&p.id){ showToast(p.name+' — موجودی: '+fmt(p.stock)); prodModal(p.id); } }catch(e){} })">📷 اسکن بارکد</button>
         <button class="btn ghost" onclick="importProducts()">📤 ورود اکسل</button>
         <button class="btn ghost" onclick="downloadTemplate()">📄 قالب</button>
         <button class="btn ghost" onclick="exportExcel('products')">📥 خروجی</button>`:''}
@@ -2814,6 +2878,7 @@ function renderProdGrid(canEdit){
         ${(p.colors>1||p.pack_size>1)?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.colors>1?`🎨 ${p.colors} رنگ`:''}${p.colors>1&&p.pack_size>1?' · ':''}${p.pack_size>1?`📦 ${p.pack_size} عدد/پک`:''}</div>`:''}
         ${canEdit?`<div class="acts">
           <button class="btn sm ghost" onclick="prodModal(${p.id})">✏️</button>
+          ${p.barcode?`<button class="btn sm ghost" onclick="openBarcodeLabels(${p.id})" title="چاپ برچسب بارکد">🏷️</button>`:''}
           <button class="btn sm red" onclick="confirmDelete('products',${p.id},'${esc(p.name)}')">🗑️</button>
         </div>`:''}
       </div></div>`;
@@ -2882,6 +2947,12 @@ async function prodModal(id){
       <div class="fg"><label>واحد ${hlp('واحد شمارش محصول: عدد، دست، بسته و…')}</label><input id="p-unit" value="${esc(p.unit||'عدد')}"></div>
       <div class="fg"><label>تعداد رنگ ${hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" value="${p.colors!=null?p.colors:1}"></div>
       <div class="fg"><label>تعداد در پک ${hlp('تعداد پیش‌فرض هر بسته. در فاکتور به صورت خودکار اعمال می‌شود.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
+      <div class="fg"><label>بارکد (EAN-13) ${hlp('بارکد محصول برای اسکن با دوربین در فاکتورساز و چاپ برچسب. اگر خالی باشد می‌توانید بعد از ذخیره، خودکار تولید کنید.')}</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input id="p-barcode" dir="ltr" value="${esc(p.barcode||'')}" placeholder="مثلاً 2000000001234" style="flex:1">
+          ${id&&!p.barcode?`<button type="button" class="btn sm ghost" onclick="genBarcode(${id})" title="تولید خودکار بارکد">⚡ تولید</button>`:''}
+          ${id&&p.barcode?`<button type="button" class="btn sm ghost" onclick="openBarcodeLabels(${id})" title="چاپ برچسب بارکد">🏷️ برچسب</button>`:''}
+        </div></div>
       <div class="fg"><label>انبار اصلی ${hlp('انباری که این محصول در آن نگهداری می‌شود.')}</label>
         <select id="p-warehouse"><option value="">— پیش‌فرض —</option>
           ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}" ${p.warehouse_id===w.id?'selected':''}>${esc(w.name)}</option>`).join('')}
@@ -2908,6 +2979,7 @@ async function saveProduct(id){
   fd.append('unit',el('p-unit').value||'عدد');
   fd.append('colors',el('p-colors')?.value||1);
   fd.append('pack_size',el('p-pack_size')?.value||1);
+  fd.append('barcode',el('p-barcode')?.value||'');
   fd.append('warehouse_id',el('p-warehouse')?.value||'');
   fd.append('note',el('p-note').value);
   const f = el('p-image').files[0];
@@ -2919,6 +2991,97 @@ async function saveProduct(id){
     showToast('ذخیره شد');
   }catch(e){ showToast('خطا در ذخیره محصول','error'); }
 }
+/* ============================================================
+   BARCODE — generate, print labels, camera scan  [ported from v4]
+============================================================ */
+async function genBarcode(id){
+  try{
+    const r=await api('POST','/products/'+id+'/generate-barcode');
+    if(r&&r.barcode){
+      showToast('بارکد تولید شد: '+r.barcode);
+      const inp=el('p-barcode'); if(inp) inp.value=r.barcode;
+      const p=(CACHE.products||[]).find(x=>x.id===id); if(p) p.barcode=r.barcode;
+      const ap=(CACHE.allProducts||[]).find(x=>x.id===id); if(ap) ap.barcode=r.barcode;
+    }
+  }catch(e){}
+}
+function openBarcodeLabels(id){
+  const token=localStorage.getItem('crm_token');
+  window.open('/api/products/'+id+'/labels?count=12&token='+encodeURIComponent(token),'_blank');
+}
+let _bcScanner=null, _bcOnScan=null, _bcLibLoading=null;
+function loadBarcodeLib(){
+  if(typeof Html5Qrcode!=='undefined') return Promise.resolve(true);
+  if(_bcLibLoading) return _bcLibLoading;
+  _bcLibLoading=new Promise(resolve=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
+    s.onload=()=>resolve(true);
+    s.onerror=()=>{ _bcLibLoading=null; resolve(false); };
+    document.head.appendChild(s);
+  });
+  return _bcLibLoading;
+}
+// The scanner uses its OWN overlay (not modalRoot) so it can be opened on top
+// of other modals (e.g. the invoice builder) without destroying them.
+async function openBarcodeScanner(onScan){
+  _bcOnScan=onScan;
+  closeBarcodeOverlay();
+  const ov=document.createElement('div');
+  ov.id='bcOverlay';
+  ov.className='overlay open';
+  ov.style.zIndex='10050';
+  ov.onclick=e=>{ if(e.target===ov) closeBarcodeOverlay(); };
+  ov.innerHTML=`<div class="modal" style="max-width:420px">
+    <div class="modal-head"><h3>📷 اسکن بارکد</h3><button class="x" onclick="closeBarcodeOverlay()">×</button></div>
+    <div class="modal-body" style="text-align:center">
+      <div id="bcReader" style="max-width:340px;margin:0 auto"></div>
+      <p id="bcCamHint" class="muted" style="font-size:12px;margin-top:8px">در حال راه‌اندازی دوربین...</p>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <input id="bcManual" dir="ltr" placeholder="یا کد را دستی وارد کنید" style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" onkeydown="if(event.key==='Enter')submitManualBarcode()">
+        <button class="btn sm" onclick="submitManualBarcode()">جستجو</button>
+      </div>
+    </div></div>`;
+  document.body.appendChild(ov);
+  const ok=await loadBarcodeLib();
+  const hint=el('bcCamHint');
+  if(!ok||typeof Html5Qrcode==='undefined'){ if(hint) hint.textContent='اسکنر بارگذاری نشد (نیاز به اینترنت) — کد را دستی وارد کنید'; return; }
+  try{
+    _bcScanner=new Html5Qrcode('bcReader');
+    await _bcScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:250,height:150}},
+      code=>handleBarcodeScan(code),()=>{});
+    if(el('bcCamHint')) el('bcCamHint').textContent='دوربین فعال — بارکد را مقابل دوربین بگیرید';
+  }catch(e){
+    if(el('bcCamHint')) el('bcCamHint').textContent='دوربین در دسترس نیست — کد را دستی وارد کنید';
+  }
+}
+function stopBarcodeScanner(){
+  if(_bcScanner){ _bcScanner.stop().catch(()=>{}); try{_bcScanner.clear();}catch(e){} _bcScanner=null; }
+}
+function closeBarcodeOverlay(){
+  stopBarcodeScanner();
+  document.getElementById('bcOverlay')?.remove();
+}
+function submitManualBarcode(){
+  const code=el('bcManual')?.value?.trim();
+  if(code) handleBarcodeScan(code);
+}
+function handleBarcodeScan(raw){
+  const code=String(raw||'').trim();
+  if(!code) return;
+  closeBarcodeOverlay();
+  if(_bcOnScan) _bcOnScan(code);
+}
+async function scanBarcodeToCart(code){
+  try{
+    const p=await api('GET','/products/by-barcode/'+encodeURIComponent(code));
+    if(p&&p.id){
+      if(!(CACHE.products||[]).find(x=>x.id===p.id)) (CACHE.products=CACHE.products||[]).push(p);
+      addToCart(p.id); showToast('افزوده شد: '+p.name);
+    }
+  }catch(e){}
+}
+
 function importProducts(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
   inp.onchange=async()=>{
@@ -7706,6 +7869,56 @@ async function remDelete(id){
 /* ============================================================
    SETTINGS (admin)
 ============================================================ */
+/* ============================================================
+   AI SALES ASSISTANT — churn scores & insights  [ported from v4]
+============================================================ */
+const AI_KIND_META = {
+  churn_risk:   {icon:'⚠️', label:'ریسک ریزش', bg:'#fef2f2', color:'#dc2626'},
+  opportunity:  {icon:'💡', label:'فرصت فروش', bg:'#f0fdf4', color:'#16a34a'},
+  daily_action: {icon:'📌', label:'اقدام امروز', bg:'#eff6ff', color:'#1d4ed8'},
+  weekly_summary:{icon:'📊', label:'خلاصه هفتگی', bg:'#faf5ff', color:'#7c3aed'},
+};
+ROUTES.ai = async function(){
+  el('view').innerHTML='<div class="muted" style="padding:20px">در حال بارگذاری تحلیل...</div>';
+  let insights=[], summary=null;
+  try{ insights = await api('GET','/ai/insights')||[]; }catch{}
+  if(ME.role==='admin'){ try{ summary = await api('GET','/ai/weekly-summary'); }catch{} }
+  const isDeviceBuild = APP_INFO && APP_INFO.role==='device';
+  const kinds=['churn_risk','opportunity','daily_action'];
+  const byKind = k=>insights.filter(i=>i.kind===k);
+  const card = i=>{
+    const m = AI_KIND_META[i.kind]||{icon:'🤖',label:i.kind,bg:'#f9fafb',color:'#374151'};
+    return `<div style="padding:12px 14px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;background:#fff">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+        <span class="tag" style="background:${m.bg};color:${m.color}">${m.icon} ${m.label}</span>
+        ${i.score!=null?`<span class="tag" style="background:#f3f4f6;color:#374151">${i.score}٪</span>`:''}
+        <b style="font-size:13px">${esc(i.title||'')}</b>
+      </div>
+      <div style="font-size:13px;line-height:1.9;color:#374151">${esc(i.body||'')}</div>
+      ${i.cust_biz?`<div class="muted" style="font-size:11px;margin-top:4px">مشتری: ${esc(i.cust_biz)}</div>`:''}
+    </div>`;
+  };
+  el('view').innerHTML=`
+    ${ME.role==='admin'?`<div class="toolbar">
+      <button class="btn" onclick="runAiRefresh()" ${isDeviceBuild?'disabled title="فقط روی سرور مرکزی"':''}>🔄 تحلیل مجدد</button>
+      <span class="muted" style="font-size:12px">تحلیل هر شب ساعت ۲ بامداد به‌صورت خودکار روی سرور مرکزی اجرا می‌شود.</span>
+    </div>`:''}
+    ${summary?`<div class="panel"><div class="panel-head"><h4>📊 خلاصه هفتگی مدیر</h4></div>
+      <div class="panel-body" style="font-size:13.5px;line-height:2.1">${esc(summary.body||'')}</div></div>`:''}
+    ${kinds.map(k=>{
+      const rows=byKind(k); if(!rows.length) return '';
+      const m=AI_KIND_META[k];
+      return `<div class="panel"><div class="panel-head"><h4>${m.icon} ${m.label} (${fmt(rows.length)})</h4></div>
+        <div class="panel-body">${rows.map(card).join('')}</div></div>`;
+    }).join('')||''}
+    ${!insights.length&&!summary?`<div class="empty">هنوز تحلیلی تولید نشده است.${ME.role==='admin'&&!isDeviceBuild?' روی «تحلیل مجدد» بزنید.':''}</div>`:''}`;
+};
+async function runAiRefresh(){
+  showToast('در حال اجرای تحلیل AI...');
+  const r = await api('POST','/ai/insights/refresh',{weekly:true});
+  if(r && r.ok){ showToast('تحلیل AI انجام شد'); CACHE.customers=[]; ROUTES.ai(); }
+}
+
 ROUTES.settings = async function(){
   if(!CACHE.settings || !Object.keys(CACHE.settings).length) CACHE.settings=await api('GET','/settings')||{};
   const s = CACHE.settings;
@@ -7795,6 +8008,19 @@ ROUTES.settings = async function(){
         <div class="fg"><label><input type="checkbox" id="s-module_reps" ${s.module_reps!=='0'?'checked':''} style="width:auto;margin-left:6px"> نمایندگان فروش</label></div>
       </div>
     </div></div>
+    <div class="panel"><div class="panel-head"><h4>🤖 دستیار فروش AI</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:10px;line-height:1.9">
+        امتیاز ریسک ریزش مشتری، فرصت‌های فروش مجدد و پیشنهاد اقدام روزانه به‌صورت خودکار (بدون نیاز به کلید API) هر شب محاسبه می‌شود.
+        در صورت وارد کردن کلید Claude API، متن پیشنهادها و خلاصه هفتگی با هوش مصنوعی تولید می‌شود.
+      </div>
+      <div class="form-grid">
+        <div class="fg"><label><input type="checkbox" id="s-feature_ai_assistant" ${s.feature_ai_assistant==='1'?'checked':''} style="width:auto;margin-left:6px"> استفاده از Claude API (اختیاری)</label></div>
+        <div class="fg"><label>کلید Claude API ${hlp('اختیاری — از console.anthropic.com. بدون کلید هم تحلیل‌های heuristic کار می‌کنند.')}</label>
+          <input id="s-ai_api_key" dir="ltr" value="${esc(s.ai_api_key||'')}" placeholder="sk-ant-..."></div>
+        <div class="fg"><label>مدل ${hlp('پیش‌فرض: claude-haiku-4-5 — سریع و ارزان')}</label>
+          <input id="s-ai_model" dir="ltr" value="${esc(s.ai_model||'')}" placeholder="claude-haiku-4-5-20251001"></div>
+      </div>
+    </div></div>
     <div class="panel"><div class="panel-head" style="flex-wrap:wrap;gap:8px"><h4>📜 گزارش ممیزی (Audit)</h4>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <input id="auditFrom" data-jdate placeholder="از تاریخ" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${todayJalali()}">
@@ -7818,11 +8044,12 @@ ROUTES['desktop-settings'] = async function(){
   renderDesktopUpdateUI();
 };
 async function saveSettings(){
-  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month'];
+  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','ai_api_key','ai_model'];
   const data={}; keys.forEach(k=>{ const e=el('s-'+k); if(e)data[k]=e.value; });
   const moduleKeys=['module_petty_cash','module_trust_checks','module_warehouses','module_consignments','module_production','module_payroll','module_reps'];
   moduleKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.checked?'1':'0'; });
   data.rep_sms_notify = el('s-rep_sms_notify')?.checked ? '1' : '0';
+  if(el('s-feature_ai_assistant')) data.feature_ai_assistant = el('s-feature_ai_assistant').checked ? '1' : '0';
   CACHE.settings = await api('PUT','/settings',data);
   CACHE.moduleFlags=null; // force re-fetch next time the Accounting shell is entered
   showToast('تنظیمات ذخیره شد');
@@ -8415,7 +8642,52 @@ function renderAdminGuide(){
       </ol>
       <h5>استفاده از API</h5>
       <div class="api-reveal">curl -H "Authorization: Bearer trn_xxxx" /api/v1/customers</div>
-      <h5>Webhook</h5><p>آدرس URL دریافت رویداد را ثبت کنید تا هنگام ایجاد مشتری یا پیگیری، داده به آدرس شما ارسال شود.</p>`)
+      <h5>Webhook</h5><p>آدرس URL دریافت رویداد را ثبت کنید تا هنگام ایجاد مشتری یا پیگیری، داده به آدرس شما ارسال شود.</p>`),
+    helpSec('🔐','امنیت — احراز هویت دو مرحله‌ای (2FA)',`
+      <p>هر کاربر می‌تواند برای ورود خود «کد دوم» (TOTP) فعال کند — حتی اگر رمز عبور لو برود، بدون کد ۶ رقمی برنامه Authenticator ورود ممکن نیست.</p>
+      <h5>فعال‌سازی</h5><ol>
+        <li>در منوی کناری، دکمه «🔐 امنیت» را بزنید</li>
+        <li>«فعال‌سازی 2FA» → کلید نمایش‌داده‌شده را در برنامه Google Authenticator (یا Aegis، Authy و مشابه) ثبت کنید</li>
+        <li>کد ۶ رقمی ساخته‌شده را وارد کنید تا فعال شود</li>
+        <li><b>کدهای بازیابی</b> فقط یک‌بار نمایش داده می‌شوند — آن‌ها را در جای امن ذخیره کنید</li>
+      </ol>
+      <h5>ورود با 2FA</h5><ul>
+        <li>بعد از نام کاربری و رمز، کد ۶ رقمی Authenticator خواسته می‌شود</li>
+        <li>اگر موبایل در دسترس نیست: «استفاده از کد بازیابی» — هر کد فقط یک‌بار مصرف می‌شود</li>
+        <li>اگر کدهای بازیابی هم تمام شد: مدیر سیستم از پنل امنیت، 2FA شما را «بازنشانی» می‌کند</li>
+      </ul>
+      <h5>نکات</h5><ul>
+        <li>مدیر در پنل امنیت وضعیت 2FA همه کاربران را می‌بیند</li>
+        <li>فعال/غیرفعال‌سازی فقط از نسخه وب (سرور مرکزی) انجام می‌شود</li>
+        <li>ورود در برنامه‌های آفلاین ویندوز/اندروید بدون کد 2FA است (خود دستگاه پس از اتصال اولیه، امن و معتمد است)</li>
+      </ul>`),
+    helpSec('🤖','دستیار فروش AI',`
+      <p>سیستم هر شب ساعت ۲ بامداد رفتار خرید همه مشتریان را تحلیل می‌کند و نتیجه در منوی «🤖 دستیار AI» نمایش داده می‌شود.</p>
+      <h5>تحلیل‌ها</h5><ul>
+        <li><b>⚠️ ریسک ریزش</b>: به هر مشتری امتیاز ۰ تا ۱۰۰ می‌دهد (بر اساس فاصله از آخرین خرید/پیگیری). مشتریان با ریسک ۶۰٪ به بالا در لیست مشتریان هم با برچسب قرمز مشخص می‌شوند</li>
+        <li><b>💡 فرصت فروش مجدد</b>: مشتریانی که الگوی خرید منظم دارند و اکنون زمان معمول خریدشان گذشته است</li>
+        <li><b>📌 اقدام امروز</b>: پیشنهاد روزانه برای هر کارشناس فروش (با چه کسانی تماس بگیرد)</li>
+        <li><b>📊 خلاصه هفتگی مدیر</b>: جمع‌بندی فروش، وصولی، مشتریان جدید و در ریسک (یکشنبه‌ها)</li>
+      </ul>
+      <h5>نکات</h5><ul>
+        <li>همه تحلیل‌ها <b>بدون نیاز به اینترنت یا کلید API</b> کار می‌کنند (محاسبه داخلی)</li>
+        <li>اختیاری: با وارد کردن کلید Claude API در تنظیمات، متن پیشنهادها و خلاصه هفتگی با هوش مصنوعی تولید می‌شود</li>
+        <li>دکمه «🔄 تحلیل مجدد» تحلیل را همان لحظه اجرا می‌کند (فقط مدیر، روی سرور مرکزی)</li>
+        <li>کارشناسان فروش فقط بینش‌های مربوط به مشتریان خودشان را می‌بینند</li>
+      </ul>`),
+    helpSec('📷','بارکد محصولات',`
+      <p>هر محصول می‌تواند بارکد EAN-13 داشته باشد — برای اسکن سریع با دوربین موبایل/وبکم و چاپ برچسب.</p>
+      <h5>تولید و چاپ</h5><ul>
+        <li>ویرایش محصول → فیلد «بارکد» → دکمه «⚡ تولید» بارکد استاندارد می‌سازد (یا بارکد موجود کالا را دستی وارد کنید)</li>
+        <li>دکمه 🏷️ (در کارت محصول یا فرم ویرایش) صفحه چاپ برچسب ۵۸×۴۰ میلی‌متری را باز می‌کند (۱۲ برچسب در هر صفحه)</li>
+      </ul>
+      <h5>اسکن</h5><ul>
+        <li><b>در فاکتورساز</b>: دکمه «📷 اسکن بارکد» — با اسکن هر بارکد، محصول مستقیم به سبد فاکتور اضافه می‌شود</li>
+        <li><b>در صفحه محصولات</b>: اسکن، محصول را پیدا کرده و فرم آن را باز می‌کند</li>
+        <li>اگر دوربین در دسترس نباشد، کد را دستی وارد کنید (با دستگاه بارکدخوان USB هم کار می‌کند)</li>
+        <li>جستجوی محصولات، بارکد را هم پوشش می‌دهد</li>
+      </ul>
+      <div class="tip">ستون «بارکد» در ورود/خروج اکسل محصولات نیز پشتیبانی می‌شود.</div>`)
   ].join('');
 }
 function renderSalesGuide(){
@@ -8493,7 +8765,23 @@ function renderSalesGuide(){
         <li>نشانگر بالای صفحه وضعیت را نشان می‌دهد: 🟢 همگام / 📡 آفلاین / 🔄 در انتظار ارسال / ⚠️ تعارض</li>
         <li>فاکتور آفلاین ابتدا شماره «موقت» می‌گیرد؛ بعد از همگام‌سازی شماره رسمی جایگزین می‌شود</li>
         <li>اگر عملیاتی در مرکز رد شود (⚠️)، روی نشانگر بزنید و طبق دلیل نمایش‌داده‌شده تصمیم بگیرید</li>
-      </ul>`)
+      </ul>`),
+    helpSec('🔐','امنیت ورود (2FA)',`
+      <p>می‌توانید برای حساب خود «کد دوم» فعال کنید تا ورود امن‌تر شود.</p>
+      <ul>
+        <li>از منوی کناری «🔐 امنیت» → «فعال‌سازی 2FA» → کلید را در برنامه Google Authenticator ثبت و کد ۶ رقمی را وارد کنید</li>
+        <li>کدهای بازیابی را در جای امن نگه دارید — اگر موبایل در دسترس نبود با آن‌ها وارد می‌شوید</li>
+        <li>از این پس هنگام ورود، بعد از رمز، کد ۶ رقمی خواسته می‌شود</li>
+      </ul>`),
+    helpSec('🤖','پیشنهادهای هوشمند فروش',`
+      <p>سیستم هر شب مشتریان شما را تحلیل می‌کند و در منوی «دستیار AI» به شما می‌گوید:</p>
+      <ul>
+        <li><b>⚠️ ریسک ریزش</b>: کدام مشتری‌ها مدت زیادی است خرید یا پیگیری نداشته‌اند (برچسب قرمز در لیست مشتریان)</li>
+        <li><b>💡 فرصت فروش</b>: کدام مشتری‌ها طبق الگوی خریدشان الان آماده سفارش مجدد هستند</li>
+        <li><b>📌 اقدام امروز</b>: پیشنهاد روزانه — امروز با چه کسانی تماس بگیرید</li>
+      </ul>`),
+    helpSec('📷','اسکن بارکد در فاکتور',`
+      <p>در فاکتورساز، دکمه «📷 اسکن بارکد» را بزنید و بارکد کالا را مقابل دوربین بگیرید — محصول خودکار به سبد اضافه می‌شود. اگر دوربین ندارید، کد را دستی وارد کنید یا از دستگاه بارکدخوان استفاده کنید.</p>`)
   ].join('');
 }
 function toggleHelpSec(el_){ el_.closest('.help-section').classList.toggle('open'); }
@@ -8533,6 +8821,73 @@ async function doChangePass(){
   if(!newPass){ showToast('رمز جدید الزامی است','error'); return; }
   await api('POST','/auth/change-password',{oldPass,newPass});
   closeModal(); showToast('رمز تغییر کرد');
+}
+
+/* ============================================================
+   SECURITY — 2FA (TOTP) setup & admin oversight  [ported from v4]
+============================================================ */
+async function openSecurityModal(){
+  const isDeviceBuild = APP_INFO && APP_INFO.role==='device';
+  let myStatus=null, team=[];
+  try{ myStatus = await api('GET','/auth/2fa/status'); }catch{}
+  if(ME.role==='admin'){ try{ team = await api('GET','/auth/2fa/admin-status')||[]; }catch{} }
+  openModal(`
+    <div class="modal-head"><h3>🔐 امنیت — احراز هویت دو مرحله‌ای</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      ${isDeviceBuild?'<div class="warn" style="margin-bottom:10px">فعال/غیرفعال‌سازی 2FA فقط از نسخه وب (سرور مرکزی) امکان‌پذیر است. ورود روی این دستگاه بدون کد 2FA انجام می‌شود.</div>':''}
+      <p style="font-size:13px">وضعیت شما:
+        ${myStatus&&myStatus.enabled?'<span class="tag t-done">فعال</span>':'<span class="tag t-pending">غیرفعال</span>'}
+        ${myStatus&&myStatus.enabled?` · ${myStatus.remaining_recovery_codes} کد بازیابی باقی‌مانده`:''}</p>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        ${!isDeviceBuild&&myStatus&&!myStatus.enabled?'<button class="btn sm" onclick="start2FASetup()">فعال‌سازی 2FA</button>':''}
+        ${!isDeviceBuild&&myStatus&&myStatus.enabled?'<button class="btn sm red" onclick="disable2FA()">غیرفعال‌سازی</button>':''}
+      </div>
+      <div id="twofaSetupBox" style="display:none;margin-top:12px;padding:12px;background:#f9fafb;border-radius:10px"></div>
+      ${ME.role==='admin'&&team.length?`
+        <h4 style="margin:16px 0 8px">وضعیت 2FA کاربران</h4>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>نقش</th><th>2FA</th><th></th></tr></thead><tbody>
+          ${team.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.role)}</td>
+            <td>${u.twofa_enabled?'<span class="tag t-done">فعال</span>':'<span class="tag t-silent">خاموش</span>'}</td>
+            <td>${u.twofa_enabled&&!isDeviceBuild?`<button class="btn sm red" onclick="adminReset2FA(${u.id},'${esc(u.name)}')">بازنشانی</button>`:'-'}</td></tr>`).join('')}
+        </tbody></table></div>`:''}
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`, true);
+}
+async function start2FASetup(){
+  const r = await api('POST','/auth/2fa/setup');
+  if(!r || !r.secret) return;
+  const box = el('twofaSetupBox');
+  box.style.display='block';
+  box.innerHTML=`
+    <p style="font-size:13px;margin-bottom:8px"><b>۱.</b> در برنامه Google Authenticator (یا مشابه) یک حساب جدید با این کلید بسازید:<br>
+      <span class="mono" style="font-size:12px;direction:ltr;display:inline-block;margin-top:4px;padding:4px 8px;background:#fff;border:1px solid var(--border);border-radius:6px;user-select:all">${esc(r.secret)}</span></p>
+    <p style="font-size:12px;margin-bottom:8px;color:var(--muted)">یا لینک <a href="${esc(r.otpauth)}" style="direction:ltr">otpauth</a> را روی موبایل باز کنید.</p>
+    <p style="font-size:13px;margin-bottom:8px"><b>۲.</b> کد ۶ رقمی ساخته‌شده را وارد کنید:</p>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="twofa-setup-code" dir="ltr" maxlength="6" inputmode="numeric" style="padding:8px;border:1px solid var(--border);border-radius:8px;width:140px" onkeydown="if(event.key==='Enter')confirm2FASetup()">
+      <button class="btn sm" onclick="confirm2FASetup()">تأیید و فعال‌سازی</button>
+    </div>
+    <div id="twofa-recovery-codes" style="display:none;margin-top:10px;padding:10px;background:#fffbeb;border-radius:8px"></div>`;
+}
+async function confirm2FASetup(){
+  const r = await api('POST','/auth/2fa/verify',{code:el('twofa-setup-code').value.trim()});
+  if(!r || !r.ok) return;
+  const div = el('twofa-recovery-codes');
+  div.style.display='block';
+  div.innerHTML=`<strong>کدهای بازیابی (فقط یک‌بار نمایش داده می‌شوند — در جای امن ذخیره کنید):</strong><br>
+    <span class="mono" style="direction:ltr;display:inline-block;line-height:2;user-select:all">${(r.recovery_codes||[]).map(esc).join(' · ')}</span>`;
+  showToast('احراز هویت دو مرحله‌ای فعال شد');
+}
+async function disable2FA(){
+  const code = prompt('کد فعلی 2FA را برای غیرفعال‌سازی وارد کنید:');
+  if(!code) return;
+  const r = await api('POST','/auth/2fa/disable',{code:code.trim()});
+  if(r && r.ok){ showToast('2FA غیرفعال شد'); openSecurityModal(); }
+}
+async function adminReset2FA(userId, name){
+  if(!confirm(`2FA کاربر ${name} بازنشانی شود؟ (برای دستگاه گم‌شده)`)) return;
+  const r = await api('POST','/auth/2fa/admin-reset/'+userId);
+  if(r && r.ok){ showToast('بازنشانی شد'); openSecurityModal(); }
 }
 
 /* ============================================================
