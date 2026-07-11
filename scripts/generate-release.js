@@ -37,19 +37,21 @@ function writeLatestYml(exePath) {
   return true;
 }
 
+const NOTES = process.argv[6] ||
+  'تم جدید زمرد/شب مخملی (حالت تاریک)، اعداد انگلیسی خودکار، نوار پیشرفت دانلود آپدیت، آیکون جدید';
 const manifest = {
   web: { version: '2.1.0', notes: 'به‌روزرسانی رابط وب — با باز کردن سایت در مرورگر خودکار اعمال می‌شود.' },
   desktop: {
     version,
     url: `/releases/CRM-Taranom-Setup-${version}.exe`,
     feed_url: '',
-    notes: 'به‌روزرسانی دسکتاپ — دانلود از GitHub Releases'
+    notes: NOTES
   },
   android: {
     version: process.argv[4] || '2.0.1',
     versionCode: parseInt(process.argv[5] || '3', 10),
     url: '/releases/crm-taranom.apk',
-    notes: 'همگام‌سازی عکس محصولات، اعلان نسخه جدید.'
+    notes: NOTES
   }
 };
 

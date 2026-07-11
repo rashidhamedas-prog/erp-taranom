@@ -41,6 +41,18 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۴ — [Claude Code] زیرساخت انتشار 1.0.10 — اسکریپت یک‌دستوری release.ps1 + bump نسخه‌ها
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت
+- **خلاصه:**
+  - **نسخه‌ها bump شد:** دسکتاپ `1.0.10` (desktop/package.json)، اندروید `2.0.5` / versionCode `7` (build.gradle). محتوای 1.0.10: تم زمرد/شب مخملی، اعداد انگلیسی خودکار، UX جدید آپدیت (پیشرفت دانلود+نصب خودکار اندروید)، آیکون واقعی لوگو، SW v26.
+  - **`scripts/release.ps1` جدید:** انتشار کامل با یک دستور روی سیستم ویندوز: git pull → build دسکتاپ → build اندروید → **راستی‌آزمایی ELF داخل APK** (libnode هر ۳ ABI + ماژول‌های better_sqlite3 — jلوگیری از تکرار فاجعه APK مرده) → تولید manifest/latest.yml (generate-release) → commit+push متادیتا → scp نصب‌کننده‌ها به سرور → ssh deploy وب (pull+npm install+pm2 restart) + health-check. هر مرحله exit code چک می‌کند.
+  - `generate-release.js`: notes نسخه از آرگومان/پیش‌فرض ۱.۰.۱۰.
+  - **تشخیص مشکل «برنامه بالا نمی‌آید» روی گوشی کاربر:** عکس نشان داد Google Play Protect نصب را بلاک کرده («developer ناشناس») — مشکل کد نیست؛ راه عبور به کاربر داده شد. مشکوک دوم: APK روی سرور ممکن است همان build مردهٔ ELF-MISSING باشد — منتظر SHA256 از کاربر.
+- **فایل‌های کلیدی:** `scripts/release.ps1`, `scripts/generate-release.js`, `desktop/package.json`, `android/app/build.gradle`
+- **Deploy:** ⏳ اجرای `scripts/release.ps1` روی سیستم کاربر = انتشار کامل 1.0.10 (وب+دسکتاپ+اندروید)
+- **یادداشت برای Cursor:** از این به بعد انتشار فقط با `release.ps1` انجام شود — manifest/latest.yml/exe/apk را دیگر دستی و جدا از هم به‌روز نکنید (ریشهٔ حلقهٔ آپدیت کاذب و APK مرده همین ناهماهنگی دستی بود).
+
 ### ۱۴۰۴/۰۴/۲۴ — [Claude Code] آیکون اندروید از لوگوی واقعی ترنم (گزارش کاربر: آیکون لوگو نبود)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت
