@@ -101,7 +101,10 @@ if (-not $SkipAndroid) {
 }
 
 # --- 7) deploy web (pull + deps + restart) and health-check ---
-ssh -p $SshPort -i $SshKey $Server "cd /home/taranom-admin/crm-taranom && git pull origin $Branch && cd server && npm install --omit=dev && pm2 restart crm-taranom && sleep 3 && curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:3000/"
+# Release metadata on the server may have been hand-edited in the past and
+# would block the pull; git is the source of truth for those two files, so
+# drop the local copies first (never touches code or data).
+ssh -p $SshPort -i $SshKey $Server "cd /home/taranom-admin/crm-taranom && git checkout -- server/public/releases/manifest.json server/public/releases/latest.yml 2>/dev/null; git pull origin $Branch && cd server && npm install --omit=dev && pm2 restart crm-taranom && sleep 3 && curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:3000/"
 if ($LASTEXITCODE -ne 0) { throw 'remote deploy failed - check server manually' }
 
 Write-Host ''

@@ -41,6 +41,17 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۴ — [Claude Code] انتشار 1.0.10 انجام شد: exe + APK ساخته و آپلود شد — فقط pull سرور مانده
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `57f25f9` (متادیتا — توسط release.ps1 روی سیستم کاربر) + همین کامیت (fix)
+- **خلاصه:**
+  - کاربر `release.ps1` را اجرا کرد: **دسکتاپ `CRM-Taranom-Setup-1.0.10.exe` (۹۳MB) ساخته شد** ✅ و **APK اندروید 2.0.5 (۲۲۰MB) ساخته شد** ✅ — بازرسی ELF سبز (۳ ماژول better_sqlite3 + libnode هر ۳ ABI؛ SHA256 `61856EB8...`). هر دو با scp روی `/releases/` سرور آپلود شدند.
+  - دو باگ build حین راه رفع شد: (۱) اسکریپت‌های ps1 باید ASCII خالص باشند (PS 5.1 + بدون BOM → em-dash بایت نقل‌قول هوشمند دارد و parser می‌شکند)؛ (۲) فایل‌های `.gz` داخل node_modules (bcryptjs) با AAPT تداخل «Duplicate resources» می‌دهند → قبل از build حذف می‌شوند.
+  - **قدم آخر (deploy وب) خطا داد:** روی production فایل `manifest.json` تغییر محلی دستی داشت و pull را بلاک کرد. `release.ps1` اصلاح شد: قبل از pull، فقط دو فایل متادیتای releases را `git checkout --` می‌کند (git منبع حقیقت آن‌هاست). دستور یک‌خطی رفع به کاربر داده شد.
+- **فایل‌های کلیدی:** `scripts/release.ps1`, `scripts/build-android.ps1`, `server/public/releases/{manifest.json,latest.yml}`
+- **Deploy:** ⏳ فقط `git pull` سرور مانده (exe/apk از قبل روی سرور هستند)
+- **یادداشت برای Cursor:** روی production فایل‌های releases را دیگر دستی ویرایش نکنید — همیشه از مسیر git + release.ps1.
+
 ### ۱۴۰۴/۰۴/۲۴ — [Claude Code] رفع «برنامه اندروید بالا نمی‌آید»: صبر بوت از ~۳۰ ثانیه به ۱۰ دقیقه + اسپلش
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت
