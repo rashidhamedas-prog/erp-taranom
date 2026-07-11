@@ -37,16 +37,15 @@ if (-not (Test-Path $sdkmanager)) {
   $sdkmanager = Get-ChildItem (Join-Path $Sdk 'cmdline-tools') -Recurse -Filter 'sdkmanager.bat' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
 }
 if ($sdkmanager) {
-  Write-Host '==> Installing SDK platform 34, build-tools, NDK, CMake...'
-  & $sdkmanager --sdk_root=$Sdk 'platforms;android-34' 'build-tools;34.0.0' 'ndk;25.2.9519653' 'cmake;3.22.1' | Out-Host
+  Write-Host '==> Installing SDK platform 36, build-tools, NDK, CMake...'
+  & $sdkmanager --sdk_root=$Sdk 'platforms;android-36' 'build-tools;36.0.0' 'ndk;25.2.9519653' 'cmake;3.22.1' | Out-Host
   yes | & $sdkmanager --sdk_root=$Sdk --licenses 2>$null
 }
 
-# --- nodejs-mobile AAR ---
-$libsDir = Join-Path $Android 'app\libs'
-New-Item -ItemType Directory -Force -Path $libsDir | Out-Null
-$aar = Join-Path $libsDir 'nodejs-mobile.aar'
-if (-not (Test-Path $aar)) {
+# --- nodejs-mobile libnode (zip has bin/ + include/, not an AAR) ---
+$libnodeDir = Join-Path $Android 'app\libnode'
+$libnodeSo = Join-Path $libnodeDir 'bin\arm64-v8a\libnode.so'
+if (-not (Test-Path $libnodeSo)) {
   $zipUrl = 'https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-android.zip'
   $zipPath = Join-Path $env:TEMP 'nodejs-mobile-v18.20.4-android.zip'
   if (-not (Test-Path $zipPath)) {
@@ -56,10 +55,21 @@ if (-not (Test-Path $aar)) {
   $extract = Join-Path $env:TEMP 'nm-android-full'
   if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
   Expand-Archive -Path $zipPath -DestinationPath $extract -Force
-  $foundAar = Get-ChildItem $extract -Recurse -Filter '*.aar' | Select-Object -First 1
-  if (-not $foundAar) { throw 'nodejs-mobile.aar not found in zip' }
-  Copy-Item $foundAar.FullName $aar -Force
-  Write-Host "==> AAR copied to $aar"
+  New-Item -ItemType Directory -Force -Path (Join-Path $libnodeDir 'bin') | Out-Null
+  New-Item -ItemType Directory -Force -Path (Join-Path $libnodeDir 'include') | Out-Null
+  Copy-Item (Join-Path $extract 'bin\*') (Join-Path $libnodeDir 'bin') -Recurse -Force
+  Copy-Item (Join-Path $extract 'include\*') (Join-Path $libnodeDir 'include') -Recurse -Force
+  Write-Host "==> libnode copied to $libnodeDir"
+}
+
+# --- nodejs-project JS dependencies (pure-JS modules; better-sqlite3 needs NDK rebuild) ---
+$npDir = Join-Path $Android 'app\src\main\assets\nodejs-project'
+if (-not (Test-Path (Join-Path $npDir 'node_modules\express'))) {
+  Write-Host '==> npm install (nodejs-project assets)...'
+  Push-Location $npDir
+  npm install --omit=dev
+  if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'npm install failed' }
+  Pop-Location
 }
 
 # --- local.properties ---
@@ -83,8 +93,8 @@ if (-not (Test-Path 'gradlew.bat')) {
   }
 }
 
-Write-Host '==> assembleRelease (this may take several minutes)...'
-& .\gradlew.bat assembleRelease --no-daemon
+  Write-Host '==> assembleRelease (this may take several minutes)...'
+  & .\gradlew.bat assembleRelease --no-daemon --rerun-tasks
 $apk = Join-Path $Android 'app\build\outputs\apk\release\app-release.apk'
 if (-not (Test-Path $apk)) { throw "APK not found at $apk" }
 

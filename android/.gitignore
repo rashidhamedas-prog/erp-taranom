@@ -9,3 +9,6 @@ app/src/main/assets/nodejs-project/node_modules/
 local.properties
 .idea/
 *.iml
+hs_err_pid*.log
+java_pid*.hprof
+app/.cxx/

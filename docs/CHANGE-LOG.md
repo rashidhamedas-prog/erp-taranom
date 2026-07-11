@@ -32,14 +32,24 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `843ecd2` |
-| نسخه وب/دسکتاپ | **`1.0.9`** / SW `v23` |
-| اندروید | **`2.0.3`** (versionCode 5) |
-| وضعیت سرور | ✅ deploy شده (v1.0.9 / SW v23) |
+| آخرین commit | `0b199a4` |
+| نسخه وب/دسکتاپ | **`1.0.9`** / SW `v24` |
+| اندروید | **`2.0.4`** (versionCode 6) |
+| وضعیت سرور | ✅ deploy + APK 2.0.4 آپلود شده |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۴ — رفع اسکرول پیام‌ها + build اندروید 2.0.4
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (این کامیت)
+- **خلاصه:**
+  - **پیام‌ها:** اسکرول عمودی در پنجره مکالمه (`min-height:0` + `overflow-y:auto`)؛ حباب پیام `fit-content`؛ حفظ موقعیت اسکرول هنگام polling؛ SW → `v24`.
+  - **اندروید 2.0.4:** Gradle wrapper + JDK 17 + libnode از zip رسمی nodejs-mobile؛ `buildConfig` فعال؛ exclude فایل‌های `.exe` دسکتاپ از assets (رفع OOM ۲GB)؛ APK release ساخته و آپلود به `/releases/crm-taranom.apk` (~148MB).
+  - **اسکریپت:** `scripts/build-android.ps1` برای buildهای بعدی.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `android/app/build.gradle`, `android/gradle.properties`, `android/gradlew*`, `scripts/build-android.ps1`, `server/public/releases/manifest.json`
+- **Deploy:** ✅ وب (pull+pm2) + APK روی سرور
 
 ### ۱۴۰۴/۰۴/۲۴ — نسخه 1.0.9 (فاکتور، کاتالوگ، پیام‌ها، AI کاربر، آیکون‌ها)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
