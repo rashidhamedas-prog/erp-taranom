@@ -41,6 +41,17 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۴ — [Claude Code] اسپک کامل تم «زمرد مدرن + شب مخملی» برای اجرا توسط Cursor
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت (فقط docs — کد برنامه دست نخورده)
+- **خلاصه:**
+  - کاربر ترکیب تأییدشده را انتخاب کرد: **بورد ۱ (زمرد مدرن) تم اصلی روشن + بورد ۲ (شب مخملی) دارک‌مود**.
+  - سند اجرایی کامل برای Cursor نوشته شد: `docs/design/THEME-IMPLEMENTATION.md` — شامل توکن‌های کامل CSS هر دو تم، بلوک `html[data-theme=dark]`، اسکریپت ضد-FOUC، سوییچ 🌙 (localStorage `crm_theme`)، جدول پاک‌سازی رنگ‌های هاردکد، helper تم‌آگاه Chart.js، چاپِ همیشه‌روشن، bump SW، و چک‌لیست QA.
+  - فایل‌های مرجع گرافیکی در repo: `docs/design/board1-modern-emerald.png`، `docs/design/board2-velvet-night.png`، `docs/design/design-boards-reference.html` (HTML زندهٔ هر ۴ بورد با مقادیر دقیق CSS).
+- **فایل‌های کلیدی:** `docs/design/THEME-IMPLEMENTATION.md`, `docs/design/*.png`, `docs/design/design-boards-reference.html`
+- **Deploy:** ❌ لازم نیست (اجرا با Cursor است؛ بعد از پیاده‌سازی deploy می‌شود)
+- **یادداشت برای Cursor:** لطفاً `docs/design/THEME-IMPLEMENTATION.md` را گام‌به‌گام اجرا کن — قوانین بند ۲ (توکن-محور، data-theme روی html، چاپ روشن) الزامی‌اند. نکته: سند قبل از 1.0.9 نوشته شده؛ SW الان `v23` است → به `v24` bump کن و آیکون‌های جدید Lucide با توکن‌های تم سازگار باشند.
+
 ### ۱۴۰۴/۰۴/۲۴ — نسخه 1.0.9 (فاکتور، کاتالوگ، پیام‌ها، AI کاربر، آیکون‌ها)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `843ecd2`
@@ -82,7 +93,6 @@
 - **فایل‌های کلیدی:** `server/routes/twofa.js`, `server/routes/ai.js`, `server/services/ai.js`, `server/services/crypto.js`, `server/routes/auth.js`, `server/routes/products.js`, `server/db.js`, `server/server.js`, `server/sync/capture.js`, `server/public/index.html`, `server/scripts/test-v4-features.js`
 - **Deploy:** ✅ deploy شده (pull + npm install + pm2 restart — HTTP 200، endpointهای 2fa/ai روی production mount شدند، SW v21 سرو می‌شود)
 - **یادداشت:** روی سرور بعد از pull حتماً `npm install` اجرا شود (otplib جدید است).
-
 ### ۱۴۰۴/۰۴/۲۳ — [Claude Code] هماهنگی با Cursor + قانون یادداشت‌گذاری مشترک
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت (فقط مستندات — بدون تغییر کد)
