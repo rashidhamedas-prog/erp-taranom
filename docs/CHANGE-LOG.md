@@ -32,14 +32,25 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `d5e079b` |
-| نسخه وب/دسکتاپ | **`1.0.9`** / SW `v24` |
-| اندروید | **`2.0.4`** (versionCode 6) |
-| وضعیت سرور | ✅ deploy + APK 2.0.4 آپلود شده |
+| آخرین commit | (پس از push) |
+| نسخه وب/دسکتاپ | **`1.0.10`** / SW `v26` |
+| اندروید | **`2.0.6`** (versionCode 8) |
+| وضعیت سرور | ⏳ APK 2.0.6 در حال آپلود |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۴ — [Cursor] انتشار اندروید 2.0.6 — رفع بوت SQLite (better-sqlite3 path)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین session)
+- **خلاصه:**
+  - **باگ 2.0.5:** APK دارای `prebuilt/android/*/better_sqlite3.node` بود ولی `bindings()` فقط `build/Release/` را می‌خواند → سرور Node کرش → اپ اجرا نمی‌شد.
+  - **رفع:** `main.js` در runtime باینری ABI درست را کپی می‌کند؛ rebuild با prebuilt هر ۳ ABI؛ نسخه **2.0.6 (vc8)**.
+  - **APK جدید:** SHA256 `6247752D…`, ~۳۴۱MB — ELF سبز (libnode + ۳ prebuilt + fix در main.js).
+  - راهنمای داخل برنامه: یادآوری «اولین اجرای اندروید چند دقیقه طول می‌کشد».
+- **فایل‌های کلیدی:** `android/.../main.js`, `android/app/build.gradle`, `scripts/build-android.ps1`, `scripts/build-better-sqlite3-android.ps1`, `server/public/releases/manifest.json`, `server/public/index.html`
+- **Deploy:** ⏳ APK+manifest آپلود به `/releases/` + commit/push + pull سرور
 
 ### ۱۴۰۴/۰۴/۲۴ — [Claude Code] انتشار 1.0.10 انجام شد: exe + APK ساخته و آپلود شد — فقط pull سرور مانده
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -51,6 +62,12 @@
 - **فایل‌های کلیدی:** `scripts/release.ps1`, `scripts/build-android.ps1`, `server/public/releases/{manifest.json,latest.yml}`
 - **Deploy:** ⏳ فقط `git pull` سرور مانده (exe/apk از قبل روی سرور هستند)
 - **یادداشت برای Cursor:** روی production فایل‌های releases را دیگر دستی ویرایش نکنید — همیشه از مسیر git + release.ps1.
+
+### ۱۴۰۴/۰۴/۲۴ — [Cursor] تشخیص باگ بحرانی بوت اندروید: better-sqlite3 در مسیر اشتباه (2.0.5)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **خلاصه:** APK 2.0.5 (`SHA256=61856eb8…`) ELF معتبر داشت ولی `build/Release/better_sqlite3.node` نداشت — رفع در 2.0.6 بالا.
+- **فایل‌های کلیدی:** `android/.../nodejs-project/main.js`
+- **Deploy:** ❌ → جایگزین با 2.0.6
 
 ### ۱۴۰۴/۰۴/۲۴ — [Claude Code] رفع «برنامه اندروید بالا نمی‌آید»: صبر بوت از ~۳۰ ثانیه به ۱۰ دقیقه + اسپلش
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

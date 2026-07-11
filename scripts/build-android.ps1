@@ -65,6 +65,12 @@ if (-not (Test-Path $libnodeSo)) {
 
 # --- nodejs-project JS dependencies (pure-JS modules; better-sqlite3 needs NDK rebuild) ---
 $npDir = Join-Path $Android 'app\src\main\assets\nodejs-project'
+$bsPrebuilt = Join-Path $npDir 'node_modules\better-sqlite3\prebuilt\android\arm64-v8a\better_sqlite3.node'
+if (-not (Test-Path $bsPrebuilt)) {
+  Write-Host '==> better-sqlite3 Android native modules missing - cross-compiling...'
+  & (Join-Path $Root 'scripts\build-better-sqlite3-android.ps1')
+  if ($LASTEXITCODE -ne 0) { throw 'build-better-sqlite3-android.ps1 failed' }
+}
 if (-not (Test-Path (Join-Path $npDir 'node_modules\express'))) {
   Write-Host '==> npm install (nodejs-project assets)...'
   Push-Location $npDir

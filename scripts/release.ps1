@@ -72,6 +72,8 @@ if (-not $SkipAndroid) {
     $sq = $zip.Entries | Where-Object { $_.FullName -match 'better.?sqlite3' -and $_.FullName -match '\.node$' }
     if (-not $sq) { throw 'better_sqlite3 .node missing from APK - DB cannot open, app will hang on boot' }
     foreach ($e in $sq) { if (-not (Test-Elf $e)) { throw "$($e.FullName) is not a real ELF binary" } }
+    $prebuilt = @($sq | Where-Object { $_.FullName -match 'prebuilt/android/(arm64-v8a|armeabi-v7a|x86_64)/better_sqlite3\.node$' })
+    if ($prebuilt.Count -lt 3) { throw 'prebuilt/android better_sqlite3.node missing for one or more ABIs' }
     Write-Host "==> APK ELF check OK ($(@($sq).Count) better_sqlite3 module(s), 3 ABIs libnode)"
   } finally { $zip.Dispose() }
   Write-Host "    SHA256: $((Get-FileHash $apk -Algorithm SHA256).Hash)"
