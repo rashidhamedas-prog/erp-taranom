@@ -3,4 +3,6 @@
     <color name="colorPrimary">#1A5C38</color>
     <color name="colorPrimaryDark">#1A5C38</color>
     <color name="colorAccent">#C9A843</color>
+    <!-- Adaptive launcher icon background (real logo sits on white) -->
+    <color name="iconBackground">#FFFFFF</color>
 </resources>

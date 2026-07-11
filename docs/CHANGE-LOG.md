@@ -41,6 +41,16 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۴ — [Claude Code] آیکون اندروید از لوگوی واقعی ترنم (گزارش کاربر: آیکون لوگو نبود)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت
+- **خلاصه:**
+  - آیکون لانچر اندروید یک وکتور عمومی دستی بود، نه لوگوی برند. از `server/public/logo.png` (۳۰۰۰×۳۰۰۰ شفاف) با sharp آیکون واقعی ساخته شد: `ic_launcher.png` + `ic_launcher_round.png` برای ۵ چگالی (mdpi تا xxxhdpi، زمینه سفید گرد) + `ic_launcher_foreground.png` برای adaptive icon (اندروید ۸+، زمینه سفید `@color/iconBackground`).
+  - گزارش دیگر کاربر: APK نصب می‌شود ولی **برنامه اصلاً بالا نمی‌آید** — مشکوک به آپلود همان APK کهنه‌ای که ELF هر ۳ ABI آن MISSING بود (`SHA256=5341B460...`, ۲۲۲MB). دستور تشخیص به کاربر داده شد؛ سرور از این محیط قابل دسترسی نیست (پروکسی).
+- **فایل‌های کلیدی:** `android/app/src/main/res/mipmap-*/ic_launcher*.png`, `mipmap-anydpi-v26/*.xml`, `values/colors.xml`
+- **Deploy:** ❌ نیاز به build اندروید بعدی (2.0.5)
+- **یادداشت برای Cursor:** قبل از build بعدی حتماً `git pull` — آیکون‌ها + تغییرات MainActivity (پیشرفت دانلود/نصب خودکار) + fix های `build-android.ps1` (BOM/exit-code) همه در git هستند. اگر APK روی سرور همان فایل ۲۳۲٬۷۴۷٬۱۹۹ بایتی است، خراب است و باید rebuild+re-upload شود.
+
 ### ۱۴۰۴/۰۴/۲۴ — [Claude Code] پیاده‌سازی کامل تم: «زمرد مدرن» (روشن، پیش‌فرض) + «شب مخملی» (دارک‌مود)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت
