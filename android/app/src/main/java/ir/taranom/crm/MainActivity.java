@@ -60,12 +60,17 @@ public class MainActivity extends Activity {
         ws.setUserAgentString(ws.getUserAgentString() + " CRMTaranomAndroid/" + BuildConfig.VERSION_NAME);
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             try {
+                String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
                 DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
                 req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,
-                        URLUtil.guessFileName(url, contentDisposition, mimeType));
+                req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
                 DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-                if (dm != null) dm.enqueue(req);
+                if (dm != null) {
+                    long id = dm.enqueue(req);
+                    boolean isApk = fileName.endsWith(".apk")
+                            || "application/vnd.android.package-archive".equals(mimeType);
+                    if (isApk) trackApkDownload(dm, id);
+                }
             } catch (Exception e) {
                 startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
             }
@@ -118,6 +123,47 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if (webView.canGoBack()) webView.goBack();
         else super.onBackPressed();
+    }
+
+    /**
+     * In-app update progress: poll DownloadManager for an APK download and
+     * report bytes to the web UI via window.onApkDownloadProgress(done,total,status).
+     * status: 'downloading' | 'done' | 'failed'. When the download finishes,
+     * hand the content URI to the package installer (REQUEST_INSTALL_PACKAGES).
+     */
+    private void trackApkDownload(final DownloadManager dm, final long id) {
+        final Handler h = new Handler(Looper.getMainLooper());
+        h.post(new Runnable() {
+            @Override
+            public void run() {
+                long done = 0, total = 0;
+                int status = DownloadManager.STATUS_RUNNING;
+                DownloadManager.Query q = new DownloadManager.Query().setFilterById(id);
+                try (android.database.Cursor c = dm.query(q)) {
+                    if (c != null && c.moveToFirst()) {
+                        done = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+                        total = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+                        status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+                    }
+                } catch (Exception ignored) { }
+                String jsStatus = status == DownloadManager.STATUS_SUCCESSFUL ? "done"
+                        : status == DownloadManager.STATUS_FAILED ? "failed" : "downloading";
+                final String js = "window.onApkDownloadProgress&&window.onApkDownloadProgress("
+                        + done + "," + total + ",'" + jsStatus + "')";
+                webView.evaluateJavascript(js, null);
+                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                    try {
+                        Uri apk = dm.getUriForDownloadedFile(id);
+                        Intent install = new Intent(Intent.ACTION_VIEW)
+                                .setDataAndType(apk, "application/vnd.android.package-archive")
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(install);
+                    } catch (Exception ignored) { /* user can still tap the notification */ }
+                } else if (status != DownloadManager.STATUS_FAILED) {
+                    h.postDelayed(this, 600);
+                }
+            }
+        });
     }
 
     // ---- asset extraction helpers ----

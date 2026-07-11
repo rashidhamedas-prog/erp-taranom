@@ -41,6 +41,19 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۴ — [Claude Code] اعداد انگلیسی خودکار + UX جدید آپدیت (دکمه تبدیل‌شونده + پیشرفت دانلود) + رفع حلقه آپدیت کاذب دسکتاپ
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت
+- **خلاصه:**
+  - **اعداد انگلیسی خودکار:** listener سراسری — در فیلدهای عددی (type number/tel، inputmode numeric/decimal، class money، data-jdate، idهای phone/qty/price/barcode/...) رقم فارسی/عربی همان لحظه تایپ به انگلیسی تبدیل می‌شود (با حفظ caret). متن آزاد (textarea/یادداشت) دست نمی‌خورد. قبلاً فیلد money رقم فارسی را کلاً حذف می‌کرد — حالا می‌پذیرد.
+  - **UX آپدیت دسکتاپ:** پنل به‌روزرسانی حالا **یک دکمه تبدیل‌شونده** دارد: «🔄 بررسی» → (در حال دانلود + نوار پیشرفت با «X از Y مگابایت — حدود N ثانیه/دقیقه مانده») → «🚀 نصب نسخه X و راه‌اندازی مجدد». `desktop/main.js` هم transferred/total/bps را از electron-updater به UI می‌فرستد (**نیاز به build دسکتاپ جدید برای ETA؛ UI با buildهای قدیمی هم سازگار است — فقط درصد نشان می‌دهد**).
+  - **UX آپدیت اندروید:** `MainActivity` دانلود APK را از DownloadManager رصد و پیشرفت را به `window.onApkDownloadProgress` می‌فرستد (مگابایت/درصد/زمان باقی‌مانده در بنر) و پس از پایان دانلود، پنجره نصب **خودکار** باز می‌شود (permission جدید `REQUEST_INSTALL_PACKAGES` در manifest). **نیاز به build اندروید بعدی.**
+  - **رفع حلقه آپدیت کاذب:** `manifest.json` ادعای desktop=1.0.9 داشت ولی url به exe نسخه 1.0.8 اشاره می‌کرد (installer 1.0.9 هرگز ساخته نشده) → کاربر آپدیت می‌زد، 1.0.8 نصب می‌شد و دوباره پیام آپدیت می‌گرفت. نسخه به `1.0.8` صادقانه شد.
+  - **تست:** curl روی `/api/system/app-update` (سه سناریو) + ۱۶ assertion جدید Playwright (state machine دکمه، برچسب MB/ETA، callback اندروید، تبدیل ارقام money/jdate/tel و مصون ماندن textarea) + ۲۲ تست SMS سبز + parse اسکریپت. راهنمای ادمین/فروش به‌روز شد؛ SW → `v25`.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `server/public/releases/manifest.json`, `desktop/main.js`, `android/.../MainActivity.java`, `android/app/src/main/AndroidManifest.xml`
+- **Deploy:** ⏳ نیاز به pull + pm2 restart (فرانت/manifest). دسکتاپ و اندروید در build بعدی.
+- **یادداشت برای Cursor:** ⚠️ installer دسکتاپ **1.0.9 هنوز ساخته نشده** — بعد از build حتماً manifest+latest.yml را با هم bump کنید (ریشه حلقه آپدیت کاذب همین ناهماهنگی بود). در build بعدی اندروید، تغییرات MainActivity/manifest من هم سوار می‌شود.
+
 ### ۱۴۰۴/۰۴/۲۴ — [Claude Code] رفع شکست build اندروید روی سیستم کاربر (SDK location + گزارش succes کاذب)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت

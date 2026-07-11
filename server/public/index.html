@@ -761,9 +761,35 @@ function formatMoneyInput(elm){
 function moneyVal(id){ const e=el(id); if(!e) return 0; return parseInt((e.value||'').replace(/[^\d]/g,''))||0; }
 // Pre-fill a money input with a formatted initial value
 function moneyInit(v){ v=parseInt(v)||0; return v?Number(v).toLocaleString('en-US'):''; }
+/* ---- Auto-English digits: any field that must hold Latin numerals converts
+   Persian/Arabic digits the moment they are typed (hardware keyboards on a
+   Persian layout), and inputmode already gives mobile users the digit pad.
+   Covered: number/tel inputs, inputmode numeric/decimal, money fields,
+   Jalali date fields (data-jdate) and common numeric ids (phone/qty/…). */
+const RE_FA_DIGIT=/[۰-۹٠-٩]/;
+function toEnDigits(s){
+  return String(s==null?'':s)
+    .replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+    .replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+}
+function wantsEnDigits(t){
+  if(!t || t.tagName!=='INPUT') return false;
+  const type=(t.type||'').toLowerCase();
+  if(type==='number'||type==='tel') return true;
+  const im=(t.getAttribute('inputmode')||'').toLowerCase();
+  if(im==='numeric'||im==='decimal'||im==='tel') return true;
+  if(t.classList.contains('money')||t.classList.contains('en-digits')||t.hasAttribute('data-jdate')) return true;
+  return /phone|mobile|qty|price|amount|percent|rate|hour|barcode|sheba|card|balance|stock|-num|-no$|-code|otp/i.test(t.id||t.name||'');
+}
 document.addEventListener('input', function(e){
   const t=e.target;
-  if(t && t.classList && t.classList.contains('money')) formatMoneyInput(t);
+  if(!t) return;
+  if(wantsEnDigits(t) && RE_FA_DIGIT.test(t.value||'')){
+    const pos=t.selectionStart;
+    t.value=toEnDigits(t.value);
+    try{ t.setSelectionRange(pos,pos); }catch(_){}
+  }
+  if(t.classList && t.classList.contains('money')) formatMoneyInput(t);
 }, true);
 function toFa(n){ return String(n||0).replace(/[0-9]/g,d=>'۰۱۲۳۴۵۶۷۸۹'[d]); }
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -9168,10 +9194,11 @@ function renderAdminGuide(){
       </ul>
       <h5>تصاویر محصولات آفلاین</h5><p>همگام‌سازی داده فقط نام فایل عکس را منتقل می‌کند؛ خود فایل تصویر هنگام همگام‌سازی یا اولین بار نمایش از سرور مرکزی دریافت و محلی ذخیره می‌شود. اگر عکسی نمایش داده نشد، «دریافت تصاویر» را بزنید یا همگام‌سازی اکنون را اجرا کنید.</p>
       <h5>به‌روزرسانی خودکار برنامه</h5><ul>
-        <li><b>ویندوز</b>: نسخه جدید از سرور مرکزی دانلود و هنگام بستن برنامه نصب می‌شود (electron-updater)</li>
-        <li><b>اندروید</b>: بنر «نسخه جدید» با لینک دانلود APK — فایل در پوشه Downloads ذخیره می‌شود</li>
+        <li><b>ویندوز</b>: در تنظیمات، دکمه «🔄 بررسی به‌روزرسانی» را بزنید — اگر نسخه جدیدی باشد، دانلود شروع می‌شود و <b>همان دکمه به «🚀 نصب» تبدیل می‌شود</b>. حین دانلود، درصد، حجم باقی‌مانده و زمان تقریبی نمایش داده می‌شود</li>
+        <li><b>اندروید</b>: بنر «نسخه جدید» → دکمه دانلود؛ پیشرفت دانلود (مگابایت و زمان باقی‌مانده) در همان بنر نشان داده می‌شود و پس از پایان، پنجره نصب خودکار باز می‌شود</li>
         <li>نسخه دسکتاپ از <strong>GitHub Releases</strong> دانلود می‌شود — فقط <code>manifest.json</code> و <code>latest.yml</code> روی سرور مرکزی deploy می‌شوند (بدون آپلود exe)</li>
       </ul>
+      <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
       <h5>شماره فاکتور موقت</h5><p>فاکتوری که آفلاین صادر شود ابتدا شماره <b>«موقت-...»</b> می‌گیرد و چاپ آن واترمارک «پیش‌نویس» دارد. بعد از همگام‌سازی، شماره رسمی سراسری (T-xxxx) از مرکز دریافت و به‌طور خودکار جایگزین می‌شود — بنابراین شماره فاکتور دو دستگاه هرگز تداخل پیدا نمی‌کند.</p>
       <h5>تعارض‌ها</h5><p>اگر عملیات آفلاین شما با واقعیت مرکز ناسازگار باشد (مثلاً کالایی فروخته‌اید که هم‌زمان در مرکز تمام شده)، آن عملیات <b>هرگز بی‌صدا اعمال نمی‌شود</b> — در پنل همگام‌سازی با ذکر دلیل نمایش داده می‌شود و می‌توانید آن را «لغو» کنید (اثر محلی برمی‌گردد) و در صورت نیاز با شرایط جدید دوباره ثبت کنید.</p>
       <div class="warn">تنظیمات سیستم، مدیریت کاربران و اصلاح مستقیم موجودی فقط روی سرور مرکزی امکان‌پذیر است. تغییر رمز کاربران با اولین همگام‌سازی به دستگاه‌های آفلاین می‌رسد.</div>
@@ -9261,7 +9288,8 @@ function renderSalesGuide(){
         <li>بعد از هر تماس، پیگیری ثبت کنید</li>
         <li>تاریخ پیگیری بعدی را فراموش نکنید — سیستم به شما پیامک می‌فرستد</li>
       </ol>
-      <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز.</div>`),
+      <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز.</div>
+      <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
       <h5>ثبت مشتری جدید</h5><ul>
@@ -9540,42 +9568,78 @@ function desktopUpdatePanelHtml(){
         <p style="margin-bottom:8px">نسخه فعلی: <strong class="mono" id="du-current">—</strong></p>
         <p id="du-status-msg" class="muted" style="font-size:13px;margin-bottom:12px">در حال بررسی...</p>
         <div id="du-progress-wrap" style="display:none;margin-bottom:12px">
-          <div style="height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden">
+          <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
             <div id="du-progress-bar" style="height:100%;width:0;background:var(--purple);transition:width .3s"></div>
           </div>
           <div class="muted" style="font-size:11px;margin-top:4px" id="du-progress-label"></div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn green" id="du-install-btn" disabled onclick="desktopInstallUpdate()">نصب به‌روزرسانی</button>
-          <button class="btn ghost" id="du-check-btn" onclick="desktopCheckUpdate()">بررسی مجدد</button>
+          <button class="btn" id="du-main-btn" onclick="desktopUpdateMainAction()">🔄 بررسی به‌روزرسانی</button>
         </div>
       </div>
     </div>`;
 }
 
+// Human-readable download progress: "۴۵٫۲ از ۹۷٫۰ مگابایت — حدود ۲۵ ثانیه مانده"
+function fmtDlProgress(transferred, total, bps){
+  if(!total) return '';
+  const mb=b=>(b/1048576).toFixed(1);
+  let out=`${mb(transferred)} از ${mb(total)} مگابایت (${Math.round(transferred/total*100)}٪)`;
+  if(bps>1024){
+    const secs=Math.max(1,Math.round((total-transferred)/bps));
+    const t = secs>=120 ? `حدود ${Math.round(secs/60)} دقیقه` : `حدود ${secs} ثانیه`;
+    out+=` — ${t} مانده`;
+  }
+  return out;
+}
+
+/* Single transforming button: بررسی → نصب (per user request). One primary
+   button whose label/action follows the state machine; check-again is only
+   offered when there is nothing to install. */
 function renderDesktopUpdateUI(){
-  const cur=el('du-current'), msg=el('du-status-msg'), btn=el('du-install-btn'), check=el('du-check-btn');
+  const cur=el('du-current'), msg=el('du-status-msg'), btn=el('du-main-btn');
   const progWrap=el('du-progress-wrap'), progBar=el('du-progress-bar'), progLabel=el('du-progress-label');
   if(!cur) return;
   const s=DESKTOP_UPDATE;
   cur.textContent = s.currentVersion || APP_INFO?.version || '—';
   if(progWrap) progWrap.style.display = s.status==='downloading'?'block':'none';
   if(progBar) progBar.style.width = (s.percent||0)+'%';
-  if(progLabel) progLabel.textContent = s.percent? `دانلود: ${s.percent}٪` : '';
-  let msgText='', installEnabled=false, installLabel='نصب به‌روزرسانی';
+  if(progLabel) progLabel.textContent = fmtDlProgress(s.transferred||0, s.total||0, s.bps||0) || (s.percent?`دانلود: ${s.percent}٪`:'');
+  let msgText='', btnLabel='🔄 بررسی به‌روزرسانی', btnDisabled=false, btnGreen=false;
   switch(s.status){
-    case 'checking': msgText='در حال بررسی به‌روزرسانی...'; break;
-    case 'downloading': msgText=`نسخه ${s.latestVersion||''} در حال دانلود است...`; break;
-    case 'ready': msgText=`نسخه ${s.latestVersion} آماده نصب است — دکمه را بزنید.`; installEnabled=true; break;
-    case 'uptodate': msgText='✅ شما از آخرین نسخه استفاده می‌کنید.'; break;
-    case 'error': msgText='❌ '+(s.error||'خطا در به‌روزرسانی'); break;
-    case 'available-fallback': msgText=`نسخه ${s.latestVersion} موجود است.`; installEnabled=true; installLabel='⬇️ دانلود نسخه جدید'; break;
-    default: msgText='برای بررسی، دکمه «بررسی مجدد» را بزنید.';
+    case 'checking':
+      msgText='در حال بررسی به‌روزرسانی...'; btnLabel='در حال بررسی...'; btnDisabled=true; break;
+    case 'downloading':
+      msgText=`نسخه ${s.latestVersion||''} در حال دانلود است — پس از پایان دانلود، دکمه به «نصب» تبدیل می‌شود.`;
+      btnLabel='⬇️ در حال دانلود...'; btnDisabled=true; break;
+    case 'ready':
+      msgText=`نسخه ${s.latestVersion} دانلود شد و آماده نصب است.`;
+      btnLabel=`🚀 نصب نسخه ${s.latestVersion} و راه‌اندازی مجدد`; btnGreen=true; break;
+    case 'available-fallback':
+      msgText=`نسخه ${s.latestVersion} موجود است.`;
+      btnLabel=`⬇️ دانلود و نصب نسخه ${s.latestVersion}`; btnGreen=true; break;
+    case 'uptodate':
+      msgText='✅ شما از آخرین نسخه استفاده می‌کنید.'; break;
+    case 'error':
+      msgText='❌ '+(s.error||'خطا در به‌روزرسانی'); break;
+    default:
+      msgText='برای بررسی نسخه جدید، دکمه را بزنید.';
   }
   if(msg) msg.textContent=msgText;
-  if(btn){ btn.disabled=!installEnabled; btn.textContent=installLabel; btn.classList.toggle('green',installEnabled); btn.classList.toggle('ghost',!installEnabled); }
-  if(check) check.disabled = s.status==='checking'||s.status==='downloading';
+  if(btn){
+    btn.disabled=btnDisabled;
+    btn.textContent=btnLabel;
+    btn.classList.toggle('green',btnGreen);
+    btn.classList.toggle('ghost',!btnGreen&&!btnDisabled);
+  }
   updateDesktopNavBadge();
+}
+
+// The one button: install when an update is staged, otherwise (re)check.
+function desktopUpdateMainAction(){
+  const s=DESKTOP_UPDATE.status;
+  if(s==='ready'||s==='available-fallback') return desktopInstallUpdate();
+  return desktopCheckUpdate();
 }
 
 function updateDesktopNavBadge(){
@@ -9666,7 +9730,43 @@ function showUpdateBanner(){
 function doAppUpdate(){
   if(!PENDING_UPDATE || !PENDING_UPDATE.url){ showToast('لینک دانلود در دسترس نیست','error'); return; }
   window.open(PENDING_UPDATE.url, '_blank');
+  // On Android the native shell tracks the DownloadManager job and streams
+  // progress back through window.onApkDownloadProgress (see MainActivity).
+  if((PENDING_UPDATE.platform||detectClientPlatform())==='android'){
+    APK_DL={t0:Date.now(),shown:true};
+    const t=el('updateBannerText');
+    if(t) t.textContent='⬇️ دانلود نسخه جدید شروع شد...';
+  }
 }
+
+// Fed by the Android shell: bytes downloaded / total / 'downloading'|'done'|'failed'
+let APK_DL=null;
+window.onApkDownloadProgress=function(done,total,status){
+  const b=el('updateBanner'), t=el('updateBannerText');
+  if(!t){ return; }
+  if(b) b.style.display='flex';
+  if(status==='failed'){
+    t.textContent='❌ دانلود ناموفق بود — دوباره تلاش کنید یا از مرورگر دانلود کنید.';
+    APK_DL=null; return;
+  }
+  if(status==='done'){
+    t.textContent='✅ دانلود کامل شد — نصب را در پنجره بازشده تأیید کنید.';
+    APK_DL=null; return;
+  }
+  let label='⬇️ در حال دانلود نسخه جدید';
+  if(total>0){
+    const mb=x=>(x/1048576).toFixed(1);
+    label+=`: ${mb(done)} از ${mb(total)} مگابایت (${Math.round(done/total*100)}٪)`;
+    if(APK_DL&&APK_DL.t0&&done>0){
+      const bps=done/Math.max(1,(Date.now()-APK_DL.t0)/1000);
+      if(bps>1024){
+        const secs=Math.max(1,Math.round((total-done)/bps));
+        label+= secs>=120 ? ` — حدود ${Math.round(secs/60)} دقیقه مانده` : ` — حدود ${secs} ثانیه مانده`;
+      }
+    }
+  }
+  t.textContent=label;
+};
 
 function dismissAppUpdate(){
   el('updateBanner').style.display='none';

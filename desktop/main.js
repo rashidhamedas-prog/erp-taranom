@@ -132,6 +132,9 @@ function setupAutoUpdate(port) {
   autoUpdater.on('download-progress', (p) => {
     updateState.status = 'downloading';
     updateState.percent = Math.round(p.percent || 0);
+    updateState.transferred = p.transferred || 0;
+    updateState.total = p.total || 0;
+    updateState.bps = p.bytesPerSecond || 0;
     broadcastUpdateState();
   });
 
