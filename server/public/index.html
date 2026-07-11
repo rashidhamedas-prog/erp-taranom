@@ -456,6 +456,22 @@ table.tbl tr:hover td{background:#F7FAF7}
   z-index:801;align-items:center;gap:10px;max-width:min(520px,calc(100vw - 24px));font-size:13px}
 #updateBanner button{background:#fbbf24;color:#1A5C38;border:none;padding:7px 14px;border-radius:9px;font-weight:700;font-size:12px;white-space:nowrap}
 #updateBanner .x-btn{background:rgba(255,255,255,.15);border:none;color:#fff;width:26px;height:26px;border-radius:50%;font-size:15px;flex-shrink:0}
+
+/* ===== B2B customer portal ===== */
+#b2bPortal{display:none;min-height:100vh;background:linear-gradient(135deg,var(--purple) 0%,#7c3aed 100%);align-items:flex-start;justify-content:center;padding:24px 14px}
+.b2b-wrap{width:100%;max-width:960px}
+.b2b-card{background:#fff;border-radius:16px;padding:26px;box-shadow:0 12px 40px rgba(0,0,0,.22)}
+.b2b-head{text-align:center;margin-bottom:18px}
+.b2b-head h2{color:var(--purple);margin-bottom:4px}
+.b2b-tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+.b2b-tabs button{flex:1;min-width:90px;padding:10px;border:1.5px solid var(--border);background:#fff;border-radius:10px;font-family:inherit;cursor:pointer;font-size:13px}
+.b2b-tabs button.active{background:var(--purple);color:#fff;border-color:var(--purple)}
+.b2b-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.b2b-prod{border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center;font-size:12px;background:#fff}
+.b2b-prod.unavail{opacity:.55}
+.b2b-prod img{width:100%;height:90px;object-fit:cover;border-radius:8px;margin-bottom:6px}
+.b2b-cart{margin-top:16px;padding-top:12px;border-top:1px dashed var(--border)}
+.b2b-back{color:rgba(255,255,255,.92);font-size:13px;cursor:pointer;display:inline-block;margin-bottom:12px}
 </style>
 </head>
 <body>
@@ -479,9 +495,20 @@ table.tbl tr:hover td{background:#F7FAF7}
       <div style="text-align:center;margin-top:12px">
         <a href="#" onclick="openForgotPass();return false" style="font-size:13px;color:var(--purple)">رمز عبور را فراموش کرده‌اید؟</a>
       </div>
+      <div id="b2bEntryLink" style="text-align:center;margin-top:10px;display:none">
+        <a href="#portal" onclick="openB2BPortal();return false" style="font-size:13px;color:var(--purple);font-weight:600">🛒 ورود پورتال مشتریان (B2B)</a>
+      </div>
       <div class="login-err" id="loginErr"></div>
     </form>
     <div class="login-hint">نسخه ۳ · پوشاک ترنم مشهد</div>
+  </div>
+</div>
+
+<!-- ===== B2B CUSTOMER PORTAL ===== -->
+<div id="b2bPortal">
+  <div class="b2b-wrap">
+    <span class="b2b-back" onclick="closeB2BPortal()">← بازگشت به ورود کارکنان</span>
+    <div class="b2b-card" id="b2bContent"></div>
   </div>
 </div>
 
@@ -1127,6 +1154,7 @@ const NAV_ADMIN = [
   {id:'users', icon:'👤', label:'کاربران'},
   {id:'reports', icon:'📈', label:'گزارشات'},
   {id:'ai', icon:'🤖', label:'دستیار AI'},
+  {id:'b2bOrders', icon:'🛒', label:'سفارشات B2B'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'settings', icon:'⚙️', label:'تنظیمات'},
@@ -1239,7 +1267,8 @@ function navItems(){
   if(IN_ACC_SHELL){
     return accNavForRole();
   }
-  if(ME.role==='admin') return NAV_ADMIN;
+  // B2B portal is central-only — hide its admin menu on offline device builds
+  if(ME.role==='admin') return (APP_INFO&&APP_INFO.role==='device') ? NAV_ADMIN.filter(it=>it.id!=='b2bOrders') : NAV_ADMIN;
   if(ME.role==='accounting' || ME.role==='sales_manager'){
     let items = NAV_ACCOUNTING;
     if(isDesktopApp()){
@@ -1932,7 +1961,7 @@ function renderCustTable(){
       <button class="btn sm red" onclick="confirmDelete('customers',${c.id},'${esc(c.biz)}')">🗑️</button></td>
     <td>${esc(c.city||'-')}</td>
     <td class="muted" style="font-size:12px;max-width:180px">${esc(c.address||'-')}</td>
-    <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="ریسک ریزش مشتری (تحلیل AI)">⚠️${c.churn_score}٪</span>`:''}</td>
+    <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" style="background:#dbeafe;color:#1d4ed8" title="دسترسی پورتال B2B فعال">B2B</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="ریسک ریزش مشتری (تحلیل AI)">⚠️${c.churn_score}٪</span>`:''}</td>
     ${isAdmin?`<td class="muted">${esc(c.salesperson||'-')}</td><td class="mono" style="color:${(c.balance||0)>0?'#dc2626':(c.balance||0)<0?'var(--green)':'var(--muted)'}">${(c.balance||0)!==0?fmt(c.balance)+' ت':'-'}</td>`:''}
   </tr>`).join('')||emptyRow(isAdmin?11:9)}</tbody>
   ${isAdmin?`<tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
@@ -2031,11 +2060,32 @@ async function custModal(id){
           </div>`:''}
         </div>
       </div>`:''}
+      ${id&&isAdmin()&&!(APP_INFO&&APP_INFO.role==='device')?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
+        <p style="font-weight:600;margin-bottom:8px">🛒 پورتال B2B ${hlp('با فعال‌سازی، مشتری می‌تواند با شماره موبایل خود وارد پورتال شود، کاتالوگ را ببیند، سفارش ثبت کند و صورتحسابش را مشاهده کند. سفارش‌ها به‌صورت پیش‌فاکتور به نام کارشناس مشتری ثبت می‌شوند.')}</p>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500;margin-bottom:8px">
+          <input type="checkbox" id="c-b2b-enabled" ${c.b2b_enabled?'checked':''} style="width:auto">
+          دسترسی مشتری به پورتال فعال باشد
+        </label>
+        <div class="fg" style="margin-bottom:8px"><label>رمز عبور پورتال ${hlp('حداقل ۶ کاراکتر. اگر خالی بگذارید رمز قبلی حفظ می‌شود (یا مشتری با کد پیامکی وارد می‌شود).')}</label>
+          <input id="c-b2b-pass" type="password" placeholder="رمز جدید (اختیاری)" autocomplete="new-password"></div>
+        <button class="btn sm blue" type="button" onclick="saveB2BAccess(${id})">💾 ذخیره دسترسی B2B</button>
+      </div>`:''}
     </div></div>
     <div class="modal-foot">
       <button class="btn" onclick="saveCust(${id||0})">💾 ذخیره</button>
       ${id?`<button class="btn blue" onclick="closeModal();custActivityModal(${id})">📋 تاریخچه</button>`:''}
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveB2BAccess(id){
+  const c = CACHE.customers.find(x=>x.id===id);
+  if(!c) return;
+  const enabled = el('c-b2b-enabled')?.checked;
+  const password = el('c-b2b-pass')?.value||'';
+  if(enabled && !c.phone){ showToast('این مشتری شماره موبایل ندارد — ابتدا موبایل را ثبت و ذخیره کنید','error'); return; }
+  await api('POST','/b2b/admin/customers/'+id+'/access',{enabled:!!enabled, phone:c.phone, password});
+  await reloadCustomers();
+  if(CURRENT_PAGE==='customers') renderCustTable();
+  showToast(enabled?'دسترسی پورتال B2B فعال شد':'دسترسی پورتال B2B غیرفعال شد');
 }
 function updateCityDropdown(prov){
   const sel = el('c-city'); if(!sel) return;
@@ -7919,6 +7969,242 @@ async function runAiRefresh(){
   if(r && r.ok){ showToast('تحلیل AI انجام شد'); CACHE.customers=[]; ROUTES.ai(); }
 }
 
+/* ============================================================
+   B2B ADMIN — portal orders queue
+============================================================ */
+ROUTES.b2bOrders = async function(){
+  if(!isAdmin()){ el('view').innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
+  if(APP_INFO && APP_INFO.role==='device'){
+    el('view').innerHTML='<div class="empty">پورتال B2B فقط روی سرور مرکزی (نسخه وب) فعال است.</div>'; return;
+  }
+  el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  let rows=[];
+  try{ rows = await api('GET','/b2b/admin/orders')||[]; }catch(e){ el('view').innerHTML='<div class="empty">خطا در دریافت سفارشات</div>'; return; }
+  const featureOff = !(CACHE.settings&&CACHE.settings.feature_b2b_portal==='1');
+  el('view').innerHTML=`
+    ${featureOff?`<div class="panel"><div class="panel-body" style="background:#fffbeb;border-radius:12px">
+      ⚠️ پورتال B2B غیرفعال است — از <a href="#" onclick="go('settings');return false" style="color:var(--purple);font-weight:600">تنظیمات</a> بخش «پورتال مشتریان B2B» آن را فعال کنید.
+    </div></div>`:''}
+    <div class="panel"><div class="panel-head"><h4>🛒 سفارشات پورتال B2B</h4>
+      <button class="btn sm ghost" onclick="ROUTES.b2bOrders()">🔄 بروزرسانی</button></div>
+    <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
+      <th>#</th><th>مشتری</th><th>پیش‌فاکتور</th><th>اقلام</th><th>مبلغ</th><th>یادداشت</th><th>تاریخ ثبت</th><th>وضعیت فاکتور</th>
+    </tr></thead><tbody>
+      ${rows.map(o=>{
+        const total=(o.rows||[]).reduce((a,r)=>a+(r.sum||0),0);
+        return `<tr>
+        <td>${o.id}</td><td>${esc(o.cust_biz||'-')}</td>
+        <td>${o.invoice_num?`<a href="#" onclick="go('invoices');return false" style="color:var(--purple);font-weight:600">${esc(o.invoice_num)}</a>`:'-'}</td>
+        <td>${fmt((o.rows||[]).length)} قلم</td>
+        <td class="mono">${fmt(total)} ت</td>
+        <td class="muted" style="font-size:12px;max-width:200px">${esc(o.note||'-')}</td>
+        <td>${o.created_at?new Date(o.created_at*1000).toLocaleDateString('fa-IR'):'-'}</td>
+        <td>${o.invoice_type==='final'?'<span class="tag t-done">تبدیل به فاکتور رسمی</span>':o.invoice_num?'<span class="tag t-pending">پیش‌فاکتور — در انتظار بررسی</span>':'-'}</td>
+      </tr>`;}).join('')||emptyRow(8)}
+    </tbody></table></div></div>
+    <p class="muted" style="font-size:12px;margin-top:8px">برای تأیید سفارش، پیش‌فاکتور مربوطه را از صفحه «فاکتور» باز کرده و به فاکتور رسمی تبدیل کنید — موجودی و حسابداری همان‌جا اعمال می‌شود.</p>`;
+};
+
+/* ============================================================
+   B2B CUSTOMER PORTAL (client side)
+============================================================ */
+let B2B = { customer:null, tab:'catalog', cart:[], catalog:[] };
+
+async function b2bApi(method, path, data){
+  const opts={method,headers:{}};
+  const token=localStorage.getItem('b2b_token');
+  if(token) opts.headers['Authorization']='Bearer '+token;
+  if(data){ opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(data); }
+  const r=await fetch('/api/b2b'+path,opts);
+  const j=await r.json().catch(()=>({}));
+  if(r.status===401 && path.startsWith('/me')){ localStorage.removeItem('b2b_token'); renderB2BLogin(); throw new Error(j.error||'نشست منقضی شد'); }
+  if(!r.ok) throw new Error(j.error||'خطا');
+  return j;
+}
+
+function openB2BPortal(){
+  el('login').style.display='none';
+  el('app').style.display='none';
+  el('b2bPortal').style.display='flex';
+  location.hash='portal';
+  const token=localStorage.getItem('b2b_token');
+  if(token) b2bBoot().catch(()=>renderB2BLogin()); else renderB2BLogin();
+}
+function closeB2BPortal(){
+  el('b2bPortal').style.display='none';
+  el('login').style.display='flex';
+  if(location.hash==='#portal') history.replaceState(null,'',location.pathname);
+}
+function b2bErr(msg){ const e=el('b2b-err'); if(e) e.textContent=msg||''; }
+function renderB2BLogin(){
+  B2B={customer:null,tab:'catalog',cart:[],catalog:[]};
+  el('b2bContent').innerHTML=`
+    <div class="b2b-head"><h2>🛒 پورتال مشتریان ترنم</h2><p class="muted">سفارش آنلاین · صورتحساب · تاریخچه فاکتور</p></div>
+    <div class="form-grid">
+      <div class="fg full"><label>شماره موبایل</label><input id="b2b-phone" placeholder="09123456789" dir="ltr" inputmode="tel"></div>
+      <div class="fg full"><label>رمز عبور</label><input id="b2b-pass" type="password" autocomplete="current-password"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn green" style="flex:1" onclick="b2bLogin()">ورود</button>
+      <button class="btn ghost" onclick="b2bRequestOtp()">ورود با کد پیامکی</button>
+    </div>
+    <div id="b2b-otp-box" style="display:none;margin-top:12px">
+      <div class="fg full"><label>کد پیامک شده</label><input id="b2b-otp" dir="ltr" maxlength="6" inputmode="numeric"></div>
+      <button class="btn" style="margin-top:8px" onclick="b2bVerifyOtp()">تأیید کد</button>
+    </div>
+    <div class="login-err" id="b2b-err"></div>
+    <p style="margin-top:16px;font-size:11px;color:var(--muted);line-height:1.8;text-align:right">
+      دسترسی به پورتال باید توسط مدیر فروش برای شما فعال شده باشد.
+    </p>`;
+}
+async function b2bLogin(){
+  b2bErr('');
+  try{
+    const r=await b2bApi('POST','/auth/login',{phone:el('b2b-phone').value,password:el('b2b-pass').value});
+    localStorage.setItem('b2b_token',r.token);
+    B2B.customer=r.customer;
+    await b2bBoot();
+  }catch(e){ b2bErr(e.message); }
+}
+async function b2bRequestOtp(){
+  b2bErr('');
+  try{
+    await b2bApi('POST','/auth/otp',{phone:el('b2b-phone').value});
+    el('b2b-otp-box').style.display='block';
+    b2bErr('در صورت فعال بودن حساب، کد ورود پیامک شد');
+  }catch(e){ b2bErr(e.message); }
+}
+async function b2bVerifyOtp(){
+  b2bErr('');
+  try{
+    const r=await b2bApi('POST','/auth/otp/verify',{phone:el('b2b-phone').value,code:el('b2b-otp').value});
+    localStorage.setItem('b2b_token',r.token);
+    B2B.customer=r.customer;
+    await b2bBoot();
+  }catch(e){ b2bErr(e.message); }
+}
+function b2bLogout(){
+  localStorage.removeItem('b2b_token');
+  renderB2BLogin();
+}
+async function b2bBoot(){
+  B2B.cart=[];
+  el('b2bContent').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div><strong>${esc(B2B.customer?.biz||'پورتال B2B')}</strong></div>
+      <button class="btn sm ghost" onclick="b2bLogout()">خروج</button>
+    </div>
+    <div class="b2b-tabs">
+      <button class="active" onclick="b2bTab('catalog')">🛍️ کاتالوگ و سفارش</button>
+      <button onclick="b2bTab('orders')">📦 سفارشات من</button>
+      <button onclick="b2bTab('statement')">💰 صورتحساب</button>
+    </div>
+    <div id="b2bTabBody"><div class="muted">بارگذاری...</div></div>`;
+  await b2bTab('catalog');
+}
+async function b2bTab(tab){
+  B2B.tab=tab;
+  document.querySelectorAll('.b2b-tabs button').forEach((b,i)=>{
+    b.classList.toggle('active',['catalog','orders','statement'][i]===tab);
+  });
+  const body=el('b2bTabBody');
+  if(!body) return;
+  body.innerHTML='<div class="muted">بارگذاری...</div>';
+  try{
+    if(tab==='catalog') await b2bRenderCatalog(body);
+    else if(tab==='orders') await b2bRenderOrders(body);
+    else await b2bRenderStatement(body);
+  }catch(e){ body.innerHTML=`<div class="empty">${esc(e.message||'خطا')}</div>`; }
+}
+async function b2bRenderCatalog(body){
+  if(!B2B.catalog.length) B2B.catalog=await b2bApi('GET','/me/catalog');
+  const prods=B2B.catalog;
+  body.innerHTML=`
+    <div class="b2b-grid">${prods.map(p=>`
+      <div class="b2b-prod ${p.available?'':'unavail'}">
+        ${p.image?`<img src="${esc(p.image)}" loading="lazy" alt="">`:''}
+        <div style="font-weight:600;margin-bottom:2px">${esc(p.name)}</div>
+        <div class="muted">${esc(p.category||'')}</div>
+        <div class="mono" style="margin:6px 0">${fmt(p.price)} ت</div>
+        ${p.available?`<button class="btn sm" onclick="b2bAddCart(${p.id})">➕ افزودن</button>`:'<span class="tag t-silent">ناموجود</span>'}
+      </div>`).join('')||'<div class="empty">محصولی یافت نشد</div>'}
+    </div>
+    <div class="b2b-cart">
+      <strong>🧺 سبد سفارش (<span id="b2bCartCount">${B2B.cart.length}</span>)</strong>
+      <div id="b2bCartList" style="margin:8px 0;font-size:13px"></div>
+      <textarea id="b2b-note" rows="2" placeholder="یادداشت سفارش (اختیاری)" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:inherit"></textarea>
+      <button class="btn green" id="b2bSubmitBtn" style="margin-top:8px" onclick="b2bSubmitOrder()" ${B2B.cart.length?'':'disabled'}>✅ ثبت سفارش</button>
+    </div>`;
+  b2bRenderCart();
+}
+function b2bAddCart(id){
+  const ex=B2B.cart.find(x=>x.product_id===id);
+  if(ex) ex.qty++; else B2B.cart.push({product_id:id,qty:1});
+  b2bRenderCart();
+}
+function b2bSetQty(i,delta){
+  const item=B2B.cart[i]; if(!item) return;
+  item.qty+=delta;
+  if(item.qty<=0) B2B.cart.splice(i,1);
+  b2bRenderCart();
+}
+function b2bRenderCart(){
+  const list=el('b2bCartList'); if(!list) return;
+  const cnt=el('b2bCartCount'); if(cnt) cnt.textContent=fmt(B2B.cart.length);
+  const btn=el('b2bSubmitBtn'); if(btn) btn.disabled=!B2B.cart.length;
+  let total=0;
+  list.innerHTML=B2B.cart.length?B2B.cart.map((c,i)=>{
+    const p=B2B.catalog.find(x=>x.id===c.product_id)||{};
+    total+=(p.price||0)*c.qty;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px dashed var(--border)">
+      <span style="flex:1">${esc(p.name||('#'+c.product_id))}</span>
+      <button class="btn sm ghost" onclick="b2bSetQty(${i},-1)">−</button>
+      <span class="mono">${fmt(c.qty)}</span>
+      <button class="btn sm ghost" onclick="b2bSetQty(${i},1)">+</button>
+      <span class="mono" style="min-width:80px;text-align:left">${fmt((p.price||0)*c.qty)} ت</span>
+    </div>`;
+  }).join('')+`<div style="text-align:left;font-weight:700;padding-top:6px">جمع: ${fmt(total)} تومان</div>`
+  :'<span class="muted">سبد خالی است — از کاتالوگ بالا محصول اضافه کنید</span>';
+}
+async function b2bSubmitOrder(){
+  if(!B2B.cart.length) return;
+  const btn=el('b2bSubmitBtn'); if(btn) btn.disabled=true;
+  try{
+    const r=await b2bApi('POST','/me/orders',{rows:B2B.cart,note:el('b2b-note')?.value||''});
+    B2B.cart=[];
+    showToast(`سفارش ثبت شد — پیش‌فاکتور ${r.invoiceNum||''}`);
+    await b2bTab('orders');
+  }catch(e){ if(btn) btn.disabled=false; showToast(e.message||'ثبت سفارش ناموفق بود','error'); }
+}
+async function b2bRenderOrders(body){
+  const rows=await b2bApi('GET','/me/orders');
+  body.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>پیش‌فاکتور</th><th>اقلام</th><th>مبلغ</th><th>تاریخ</th><th>وضعیت</th></tr></thead><tbody>
+    ${rows.map(o=>{
+      const total=(o.rows||[]).reduce((a,r)=>a+(r.sum||0),0);
+      return `<tr><td>${o.id}</td><td class="mono">${esc(o.invoice_num||'-')}</td>
+      <td>${fmt((o.rows||[]).length)}</td><td class="mono">${fmt(total)} ت</td>
+      <td>${o.created_at?new Date(o.created_at*1000).toLocaleDateString('fa-IR'):'-'}</td>
+      <td>${o.invoice_type==='final'?'<span class="tag t-done">تأیید شده</span>':'<span class="tag t-pending">در انتظار بررسی</span>'}</td></tr>`;
+    }).join('')||emptyRow(6)}
+  </tbody></table></div>`;
+}
+async function b2bRenderStatement(body){
+  const data=await b2bApi('GET','/me/statement');
+  const bal=data.closing??data.customer?.balance??0;
+  body.innerHTML=`
+    <div style="padding:12px;background:${bal>0?'#fef2f2':'#f0fdf4'};border-radius:10px;margin-bottom:12px">
+      مانده حساب: <strong class="mono">${fmt(Math.abs(bal))} تومان ${bal>0?'(بدهکار)':bal<0?'(بستانکار)':''}</strong>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th></tr></thead><tbody>
+      ${(data.entries||[]).slice(-50).reverse().map(r=>`<tr>
+        <td>${escDate(r.date)}</td><td>${esc(r.description||r.type_label||'')}</td>
+        <td class="mono">${r.debit?fmt(r.debit):'-'}</td>
+        <td class="mono">${r.credit?fmt(r.credit):'-'}</td>
+        <td class="mono">${r.running_balance!=null?fmt(r.running_balance):'-'}</td>
+      </tr>`).join('')||emptyRow(5)}
+    </tbody></table></div>`;
+}
+
 ROUTES.settings = async function(){
   if(!CACHE.settings || !Object.keys(CACHE.settings).length) CACHE.settings=await api('GET','/settings')||{};
   const s = CACHE.settings;
@@ -8021,6 +8307,17 @@ ROUTES.settings = async function(){
           <input id="s-ai_model" dir="ltr" value="${esc(s.ai_model||'')}" placeholder="claude-haiku-4-5-20251001"></div>
       </div>
     </div></div>
+    <div class="panel"><div class="panel-head"><h4>🛒 پورتال مشتریان B2B</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:10px;line-height:1.9">
+        مشتریان عمده می‌توانند با شماره موبایل خود وارد پورتال شوند، کاتالوگ محصولات را ببینند، سفارش ثبت کنند و صورتحساب خود را مشاهده کنند.
+        سفارش هر مشتری به‌صورت پیش‌فاکتور به نام کارشناس فروش او ثبت و در منوی «سفارشات B2B» دیده می‌شود.
+        دسترسی هر مشتری از فرم ویرایش همان مشتری فعال می‌شود.
+      </div>
+      <div class="form-grid">
+        <div class="fg"><label><input type="checkbox" id="s-feature_b2b_portal" ${s.feature_b2b_portal==='1'?'checked':''} style="width:auto;margin-left:6px"> فعال‌سازی پورتال B2B</label></div>
+        <div class="fg"><label>آدرس پورتال</label><input dir="ltr" readonly value="${location.origin}/#portal" onclick="this.select()"></div>
+      </div>
+    </div></div>
     <div class="panel"><div class="panel-head" style="flex-wrap:wrap;gap:8px"><h4>📜 گزارش ممیزی (Audit)</h4>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <input id="auditFrom" data-jdate placeholder="از تاریخ" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${todayJalali()}">
@@ -8050,6 +8347,7 @@ async function saveSettings(){
   moduleKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.checked?'1':'0'; });
   data.rep_sms_notify = el('s-rep_sms_notify')?.checked ? '1' : '0';
   if(el('s-feature_ai_assistant')) data.feature_ai_assistant = el('s-feature_ai_assistant').checked ? '1' : '0';
+  if(el('s-feature_b2b_portal')) data.feature_b2b_portal = el('s-feature_b2b_portal').checked ? '1' : '0';
   CACHE.settings = await api('PUT','/settings',data);
   CACHE.moduleFlags=null; // force re-fetch next time the Accounting shell is entered
   showToast('تنظیمات ذخیره شد');
@@ -8675,6 +8973,23 @@ function renderAdminGuide(){
         <li>دکمه «🔄 تحلیل مجدد» تحلیل را همان لحظه اجرا می‌کند (فقط مدیر، روی سرور مرکزی)</li>
         <li>کارشناسان فروش فقط بینش‌های مربوط به مشتریان خودشان را می‌بینند</li>
       </ul>`),
+    helpSec('🛒','پورتال مشتریان B2B',`
+      <p>مشتریان عمده می‌توانند بدون تماس با کارشناس، خودشان آنلاین سفارش ثبت کنند و صورتحساب خود را ببینند.</p>
+      <h5>راه‌اندازی (مدیر)</h5><ol>
+        <li>تنظیمات → بخش «پورتال مشتریان B2B» → گزینه «فعال‌سازی پورتال B2B» را بزنید و ذخیره کنید</li>
+        <li>در صفحه مشتریان، مشتری موردنظر را ویرایش کنید → بخش «🛒 پورتال B2B» → «دسترسی مشتری به پورتال فعال باشد» + یک رمز (حداقل ۶ کاراکتر) → «ذخیره دسترسی B2B»</li>
+        <li>آدرس پورتال را برای مشتری بفرستید: <code dir="ltr">/#portal</code> (لینک «ورود پورتال مشتریان» در صفحه ورود هم دیده می‌شود)</li>
+      </ol>
+      <h5>ورود مشتری</h5><ul>
+        <li>با شماره موبایل + رمز، یا با «کد پیامکی» (نیازمند تنظیم بودن سرویس پیامک)</li>
+        <li>مشتریان دارای دسترسی، در لیست مشتریان با برچسب آبی «B2B» مشخص می‌شوند</li>
+      </ul>
+      <h5>گردش سفارش</h5><ul>
+        <li>مشتری از کاتالوگ سفارش می‌دهد → یک <b>پیش‌فاکتور</b> خودکار به نام کارشناسِ همان مشتری ثبت می‌شود و پیامی برای کارشناس ارسال می‌شود</li>
+        <li>سفارش‌ها در منوی «🛒 سفارشات B2B» دیده می‌شوند؛ برای تأیید، پیش‌فاکتور را از صفحه فاکتور به فاکتور رسمی تبدیل کنید — موجودی و ثبت حسابداری همان‌جا انجام می‌شود</li>
+        <li>قیمت‌ها همیشه از کاتالوگ محصولات خوانده می‌شوند — مشتری امکان تغییر قیمت ندارد</li>
+      </ul>
+      <div class="warn">پورتال B2B فقط روی سرور مرکزی (نسخه وب) فعال است — روی نسخه‌های آفلاین ویندوز/اندروید در دسترس نیست. حساب پورتال از حساب کاربران داخلی کاملاً جداست.</div>`),
     helpSec('📷','بارکد محصولات',`
       <p>هر محصول می‌تواند بارکد EAN-13 داشته باشد — برای اسکن سریع با دوربین موبایل/وبکم و چاپ برچسب.</p>
       <h5>تولید و چاپ</h5><ul>
@@ -8781,7 +9096,14 @@ function renderSalesGuide(){
         <li><b>📌 اقدام امروز</b>: پیشنهاد روزانه — امروز با چه کسانی تماس بگیرید</li>
       </ul>`),
     helpSec('📷','اسکن بارکد در فاکتور',`
-      <p>در فاکتورساز، دکمه «📷 اسکن بارکد» را بزنید و بارکد کالا را مقابل دوربین بگیرید — محصول خودکار به سبد اضافه می‌شود. اگر دوربین ندارید، کد را دستی وارد کنید یا از دستگاه بارکدخوان استفاده کنید.</p>`)
+      <p>در فاکتورساز، دکمه «📷 اسکن بارکد» را بزنید و بارکد کالا را مقابل دوربین بگیرید — محصول خودکار به سبد اضافه می‌شود. اگر دوربین ندارید، کد را دستی وارد کنید یا از دستگاه بارکدخوان استفاده کنید.</p>`),
+    helpSec('🛒','سفارشات پورتال B2B',`
+      <p>اگر مدیر برای مشتریانِ شما دسترسی پورتال B2B فعال کرده باشد، مشتری می‌تواند خودش آنلاین سفارش ثبت کند.</p>
+      <ul>
+        <li>با ثبت هر سفارش، یک <b>پیش‌فاکتور به نام شما</b> صادر می‌شود و پیامی در بخش «پیام‌ها» دریافت می‌کنید</li>
+        <li>سفارش را بررسی کنید و در صورت تأیید، پیش‌فاکتور را از صفحه «فاکتور» به فاکتور رسمی تبدیل کنید</li>
+        <li>مشتریان دارای پورتال در لیست مشتریان با برچسب آبی «B2B» مشخص می‌شوند</li>
+      </ul>`)
   ].join('');
 }
 function toggleHelpSec(el_){ el_.closest('.help-section').classList.toggle('open'); }
@@ -9109,6 +9431,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('/sw.js'); }catch(e){} }
   // Sync server time first (no auth needed) so all date defaults are accurate
   await syncServerTime();
+  // B2B portal deep link (#portal) — customers land here directly
+  if(location.hash==='#portal'){ openB2BPortal(); return; }
+  // Show the portal link on the staff login page only when the feature is
+  // enabled on the central server (app-info is public, returns no secrets)
+  fetch('/api/system/app-info').then(r=>r.json()).then(info=>{
+    APP_INFO = APP_INFO || info;
+    if(info && info.role==='central' && info.b2b_portal){ const l=el('b2bEntryLink'); if(l) l.style.display='block'; }
+  }).catch(()=>{});
   const token = localStorage.getItem('crm_token');
   if(token){
     try{ ME = JSON.parse(localStorage.getItem('crm_user')); await boot(); }

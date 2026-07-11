@@ -1436,8 +1436,38 @@ function initSyncSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_ai_insights_kind ON ai_insights(kind, period);
     CREATE INDEX IF NOT EXISTS idx_ai_insights_cust ON ai_insights(customer_id);
+
+    -- B2B customer portal (ported from CRM v4): central-only — NOT in
+    -- SYNCABLE_TABLES. Portal login + orders live only on the central web
+    -- server; approved orders become normal proforma invoices which sync.
+    CREATE TABLE IF NOT EXISTS b2b_portal_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER UNIQUE NOT NULL,
+      phone TEXT NOT NULL,
+      password TEXT,
+      otp_hash TEXT,
+      otp_expires INTEGER,
+      active INTEGER DEFAULT 1,
+      last_login INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(customer_id) REFERENCES customers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_b2b_acc_phone ON b2b_portal_accounts(phone);
+
+    CREATE TABLE IF NOT EXISTS b2b_portal_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL,
+      rows TEXT,
+      note TEXT DEFAULT '',
+      status TEXT DEFAULT 'pending',
+      invoice_id INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(customer_id) REFERENCES customers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_b2b_orders_cust ON b2b_portal_orders(customer_id);
   `);
   ensureColumn(db, 'customers', 'churn_score', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'customers', 'b2b_enabled', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'products', 'barcode', 'TEXT');
 
   // Central-only: triggers stamp every insert/update with the next global

@@ -1223,3 +1223,6 @@ router.delete('/customer-groups/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 module.exports = router;
+// Shared with the B2B portal (routes/b2b.js) so customers see the exact same
+// statement the accounting module produces.
+module.exports.buildStatement = buildStatement;

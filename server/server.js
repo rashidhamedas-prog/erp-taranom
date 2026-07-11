@@ -112,6 +112,7 @@ app.use('/api/auth/forgot', authLimiter);
 app.use('/api/auth/forgot-reset', authLimiter);
 app.use('/api/auth/2fa/verify', authLimiter);
 app.use('/api/auth/2fa/recovery-code', authLimiter);
+app.use('/api/b2b/auth', authLimiter);
 
 assertSecurityConfig();
 initDB();
@@ -127,6 +128,7 @@ app.use('/api/sync', require('./routes/sync'));
 app.use('/api/auth/2fa', require('./routes/twofa'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/ai', require('./routes/ai'));
+app.use('/api/b2b', require('./routes/b2b'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/followups', require('./routes/followups'));
 app.use('/api/invoices', require('./routes/invoices'));
@@ -202,7 +204,16 @@ app.get('/api/system/app-info', (req, res) => {
   const manifest = readManifest();
   const platform = process.env.APP_PLATFORM || (isDevice() ? 'device' : 'web');
   const version = process.env.APP_VERSION || manifest.web?.version || '0';
-  res.json({ manifest, role: isDevice() ? 'device' : 'central', platform, version });
+  // b2b_portal: lets the login page show/hide the customer portal link
+  // (no secrets — just a boolean feature flag; portal only exists on central)
+  let b2bPortal = false;
+  if (!isDevice()) {
+    try {
+      const row = getDB().prepare("SELECT value FROM settings WHERE key='feature_b2b_portal'").get();
+      b2bPortal = row?.value === '1';
+    } catch { /* db not ready */ }
+  }
+  res.json({ manifest, role: isDevice() ? 'device' : 'central', platform, version, b2b_portal: b2bPortal });
 });
 
 // Check for newer desktop/android/web builds

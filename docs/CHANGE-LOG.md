@@ -41,6 +41,20 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۴ — پورتال مشتریان B2B (انتقال از CRM v4 — فقط مرکزی)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (در ورودی بعدی ثبت می‌شود)
+- **خلاصه:** پورتال سفارش آنلاین مشتریان عمده — کاملاً افزودنی، بدون دست زدن به جریان‌های موجود:
+  - **Backend:** جداول `b2b_portal_accounts` + `b2b_portal_orders` (خارج از SYNCABLE_TABLES — فقط مرکزی)؛ ستون `customers.b2b_enabled` (از طریق sync معمولی مشتری به دستگاه‌ها می‌رسد، فقط برای نمایش برچسب)؛ route جدید `routes/b2b.js` با `centralOnly` روی کل router: ورود با موبایل+رمز یا OTP پیامکی (پاسخ uniform — بدون افشای وجود شماره)، کاتالوگ، ثبت سفارش، تاریخچه سفارش/فاکتور، صورتحساب زنده (همان `buildStatement` حسابداری — export شد).
+  - **جداسازی توکن:** توکن پورتال `scope:'b2b'` دارد؛ middleware داخلی `auth` هر توکن دارای scope را رد می‌کند (توکن‌های staff موجود بدون scope هستند → backward compatible) و `b2bAuth` فقط scope='b2b' می‌پذیرد — تست دوطرفه دارد.
+  - **گردش سفارش:** سفارش پورتال → پیش‌فاکتور با شماره اتمیک (`allocateNumber` — نه COUNT+1 مثل v4) به نام کارشناسِ مشتری + پیام داخلی به او؛ قیمت همیشه server-side از جدول محصولات (قیمت کلاینت نادیده گرفته می‌شود — تست دارد)؛ تأیید = تبدیل همان پیش‌فاکتور به رسمی از مسیر موجود (موجودی/دفتر/سند همان‌جا).
+  - **Frontend:** صفحه پورتال `#portal` (ورود، کاتالوگ با تصویر و سبد با +/−، سفارشات من، صورتحساب با مانده بدهکار/بستانکار)؛ لینک «ورود پورتال مشتریان» در صفحه ورود (فقط وقتی feature روشن است — از `app-info` که فیلد بولین `b2b_portal` گرفت)؛ بخش «🛒 پورتال B2B» در فرم ویرایش مشتری (ادمین، غیر device)؛ منوی ادمین «🛒 سفارشات B2B»؛ برچسب آبی B2B در لیست مشتریان؛ پنل تنظیمات با کلید `feature_b2b_portal`.
+  - **ایمنی:** rate-limit روی `/api/b2b/auth/*`؛ `/api/b2b` در BLOCKLIST سینک؛ کلیدهای `feature_*`/`ai_*` به ALLOWED_KEYS تنظیمات اضافه شد (قبلاً ذخیره AI هم silently drop می‌شد — رفع شد)؛ روی device build همه endpointها 403 و منو/لینک مخفی.
+  - **تست:** `scripts/test-b2b.js` جدید (۲۹ assertion: فلگ، provisioning، ورود/OTP، جداسازی توکن دوطرفه، قیمت server-side، صف ادمین، لغو دسترسی). هر ۴ suite سبز: 22 sms + 25 sync + 24 v4 + 29 b2b. راهنمای ادمین/فروش به‌روز شد؛ SW → `v22`.
+- **فایل‌های کلیدی:** `server/routes/b2b.js`, `server/db.js`, `server/middleware/auth.js`, `server/server.js`, `server/routes/settings.js`, `server/routes/accounting.js`, `server/sync/capture.js`, `server/public/index.html`, `server/scripts/test-b2b.js`
+- **Deploy:** ⏳ نیاز به pull
+- **یادداشت:** بعد از deploy، ادمین باید در تنظیمات «پورتال B2B» را روشن کند و برای هر مشتری از فرم ویرایش، دسترسی بدهد. آدرس پورتال: `/#portal`.
+
 ### ۱۴۰۴/۰۴/۲۳ — انتقال مزیت‌های CRM v4: امنیت 2FA + دستیار AI + بارکد محصولات
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `87a6469`
