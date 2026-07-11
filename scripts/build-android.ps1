@@ -89,6 +89,15 @@ Get-ChildItem -Path $npDir -Recurse -Filter '*.br' -File -ErrorAction SilentlyCo
 $localProps = Join-Path $Android 'local.properties'
 [IO.File]::WriteAllText($localProps, "sdk.dir=$($Sdk -replace '\\','/')`n")
 
+# Remove nested APK from server tree before copyServerSources (prevents 300MB+ recursive packaging)
+$releasesApk = Join-Path $Root 'server\public\releases\crm-taranom.apk'
+if (Test-Path $releasesApk) {
+  Write-Host '==> Moving previous release APK out of server tree (avoid nested packaging)...'
+  $hold = Join-Path $Root '.tmp-build\last-crm-taranom.apk'
+  New-Item -ItemType Directory -Force -Path (Split-Path $hold) | Out-Null
+  Move-Item $releasesApk $hold -Force
+}
+
 # --- Gradle wrapper ---
 Set-Location $Android
 if (-not (Test-Path 'gradlew.bat')) {
@@ -119,3 +128,7 @@ $dest = Join-Path $Root 'server\public\releases\crm-taranom.apk'
 Copy-Item $apk $dest -Force
 Write-Host "==> APK ready: $dest"
 Write-Host "    Size: $([math]::Round((Get-Item $dest).Length/1MB, 1)) MB"
+
+Write-Host '==> Running APK validation tests...'
+& (Join-Path $Root 'scripts\test-android-apk.ps1') $dest
+if ($LASTEXITCODE -ne 0) { throw 'test-android-apk.ps1 failed' }

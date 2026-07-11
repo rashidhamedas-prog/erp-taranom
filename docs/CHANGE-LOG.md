@@ -32,14 +32,24 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `2696eda` |
+| آخرین commit | (پس از push) |
 | نسخه وب/دسکتاپ | **`1.0.10`** / SW `v26` |
-| اندروید | **`2.0.6`** (versionCode 8) |
-| وضعیت سرور | ✅ deploy + APK 2.0.6 آپلود شده |
+| اندروید | **`2.0.7`** (versionCode 9) |
+| وضعیت سرور | ⏳ APK 2.0.7 در حال آپلود |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۴ — [Cursor] رفع کرش فوری اندروید 2.0.7 — APK تودرتو ۲۹۴MB حذف شد
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین session)
+- **خلاصه:**
+  - **ریشهٔ کرش فوری:** `copyServerSources` فایل `crm-taranom.apk` (۲۹۴MB) را داخل assets بسته‌بندی می‌کرد → اولین استخراج OOM/کرش → برنامه فوراً بسته می‌شد.
+  - **رفع:** exclude کل `public/releases/**`؛ قبل از build جابجایی APK از پوشه server؛ `MainActivity` با کپی iterative + catch خطا (بدون RuntimeException روی thread)؛ `largeHeap` + `extractNativeLibs`؛ `main.js` با boot.log و throw اگر sqlite نباشد.
+  - **تست:** `scripts/test-android-apk.ps1` (۱۴ assertion: بدون nested apk، ELF libnode+sqlite، نسخه 2.0.7، حجم <250MB) — همه سبز. SMS 22/22 سبز. APK جدید **۶۲MB** SHA256 `265EDC4B…`.
+- **فایل‌های کلیدی:** `android/app/build.gradle`, `MainActivity.java`, `main.js`, `AndroidManifest.xml`, `scripts/test-android-apk.ps1`, `scripts/build-android.ps1`
+- **Deploy:** ⏳ آپلود APK 2.0.7
 
 ### ۱۴۰۴/۰۴/۲۴ — [Cursor] انتشار اندروید 2.0.6 — رفع بوت SQLite (better-sqlite3 path)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

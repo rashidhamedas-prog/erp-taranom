@@ -74,6 +74,9 @@ if (-not $SkipAndroid) {
     foreach ($e in $sq) { if (-not (Test-Elf $e)) { throw "$($e.FullName) is not a real ELF binary" } }
     $prebuilt = @($sq | Where-Object { $_.FullName -match 'prebuilt/android/(arm64-v8a|armeabi-v7a|x86_64)/better_sqlite3\.node$' })
     if ($prebuilt.Count -lt 3) { throw 'prebuilt/android better_sqlite3.node missing for one or more ABIs' }
+    $nested = @($zip.Entries | Where-Object { $_.FullName -match '\.apk$' })
+    if ($nested.Count -gt 0) { throw "nested .apk inside release APK ($($nested.Count)) - will crash on boot" }
+    if ((Get-Item $apk).Length -gt 250MB) { throw 'APK too large (>250MB) - likely nested packaging' }
     Write-Host "==> APK ELF check OK ($(@($sq).Count) better_sqlite3 module(s), 3 ABIs libnode)"
   } finally { $zip.Dispose() }
   Write-Host "    SHA256: $((Get-FileHash $apk -Algorithm SHA256).Hash)"

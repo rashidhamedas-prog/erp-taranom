@@ -10,8 +10,8 @@ android {
         applicationId "ir.taranom.crm"
         minSdk 24
         targetSdk 34
-        versionCode 8
-        versionName "2.0.6"
+        versionCode 9
+        versionName "2.0.7"
 
         ndk {
             // ABIs shipped by nodejs-mobile
@@ -90,7 +90,7 @@ tasks.register('copyServerSources', Copy) {
     from(file('../../server')) {
         exclude 'node_modules/**', 'backups/**', '*.db', '*.db-wal', '*.db-shm', '.env',
                 'public/uploads/**',
-                'public/releases/*.exe', 'public/releases/*.blockmap', 'public/releases/latest.yml'
+                'public/releases/**'
     }
     into file('src/main/assets/nodejs-project/server')
 }
