@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (همین جلسه — release 1.0.11) |
+| آخرین commit | `dc97a18` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
 | اندروید | **`2.0.7`** live / **`2.0.8` unsigned built** (نیاز به keystore.properties) |
-| وضعیت سرور | ⏳ در حال آپلود installer دسکتاپ |
+| وضعیت سرور | ✅ deploy شده (`dc97a18` + installer 1.0.11) |
 
 ---
 
