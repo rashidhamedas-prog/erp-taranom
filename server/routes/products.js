@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const { allocTafsili } = require('../lib/coa-map');
 const jwt = require('jsonwebtoken');
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnly, SECRET, requirePermission } = require('../middleware/auth');
@@ -197,6 +198,8 @@ router.post('/quick', auth, requirePermission('products', 'create'), (req, res) 
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
       .run(pid, defaultWarehouse);
   }
+  // حالت کدینگ محک: تفصیلی اختصاصی کالا زیر معین موجودی (برای سند COGS)
+  try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, pid); } catch (_) {}
   audit(req.user.id, 'create', 'product', pid, `ساخت سریع محصول ${name}`);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(pid));
 });
@@ -225,6 +228,8 @@ router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
         parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null,
         (barcode || '').trim() || null);
+  // حالت کدینگ محک: تفصیلی اختصاصی کالا (برای سند COGS)
+  try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
   audit(req.user.id, 'create', 'product', result.lastInsertRowid, `ساخت محصول ${name}`);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid));
 });

@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const multer = require('multer');
 const { getDB, audit, createJournalEntry, createPersonLedgerEntry, resolveCashAccount } = require('../db');
+const { acct: coaAcct } = require('../lib/coa-map');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const {
@@ -51,11 +52,11 @@ function createPayrollRecord(db, userId, data) {
     const recId = result.lastInsertRowid;
 
     const lines = [
-      { code: '6104', name: 'هزینه حقوق و دستمزد', debit: grossPay - ded, credit: 0, description: `حقوق ${person.name} - ${period_label || ''}` },
-      { code: '1106', name: 'حساب اشخاص متفرقه', debit: 0, credit: netPay }
+      { ...coaAcct(db,'coa_payroll_expense'), debit: grossPay - ded, credit: 0, description: `حقوق ${person.name} - ${period_label || ''}` },
+      { ...coaAcct(db,'coa_misc_persons'), debit: 0, credit: netPay }
     ];
     if (ins + tax > 0) {
-      lines.push({ code: '2104', name: 'بدهی بیمه و مالیات کارکنان', debit: 0, credit: ins + tax });
+      lines.push({ ...coaAcct(db,'coa_payroll_payable'), debit: 0, credit: ins + tax });
     }
     createJournalEntry(db, {
       date: date || todayJalali(),
@@ -207,7 +208,7 @@ router.post('/:id/pay', auth, adminOrAccounting, (req, res) => {
       date: date || todayJalali(), description: `پرداخت حقوق ${person ? person.name : ''} (${row.period_label || ''})`,
       ref_type: 'payroll_payment', ref_id: row.id, created_by: req.user.id,
       lines: [
-        { code: '1106', name: 'حساب اشخاص متفرقه', debit: row.net_pay, credit: 0 },
+        { ...coaAcct(db,'coa_misc_persons'), debit: row.net_pay, credit: 0 },
         { code: cash.code, name: cash.name, debit: 0, credit: row.net_pay }
       ]
     });

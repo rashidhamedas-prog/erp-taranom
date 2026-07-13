@@ -1,5 +1,46 @@
 const router = require('express').Router();
 const { getDB, audit, createLedgerEntry, createJournalEntry, allocateNumber, isDevice } = require('../db');
+const { acct, coaMode } = require('../lib/coa-map');
+
+// دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
+function receivableAcct(db, custId) {
+  const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId);
+  if (c && c.coa_code) {
+    const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(c.coa_code);
+    if (a) return a;
+  }
+  return acct(db, 'coa_receivable');
+}
+
+// سند بهای تمام‌شده مثل محک (تصمیم ۸ مهاجرت): Dr بهای تمام‌شده / Cr موجودی هر کالا.
+// فقط در حالت کدینگ محک و با کلید feature_cogs_voucher. reverse=true برای ابطال.
+function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
+  if (coaMode(db) !== 'mahak') return;
+  const on = db.prepare("SELECT value FROM settings WHERE key='feature_cogs_voucher'").get();
+  if (!on || on.value !== '1') return;
+  if (reverse) {
+    // فقط اگر سند اصلی وجود دارد معکوس بزن
+    const orig = db.prepare("SELECT id FROM journal_entries WHERE ref_type='invoice_cogs' AND ref_id=? AND COALESCE(deleted_at,0)=0").get(invId);
+    if (!orig) return;
+  }
+  const lines = [];
+  let total = 0;
+  for (const r of rows || []) {
+    const p = db.prepare('SELECT cost,coa_code,name FROM products WHERE id=?').get(r.product_id);
+    if (!p || !p.cost || !p.coa_code) continue;
+    const amt = Math.round(p.cost * (parseInt(r.qty) || 0));
+    if (amt <= 0) continue;
+    total += amt;
+    lines.push({ code: p.coa_code, name: p.name, debit: reverse ? amt : 0, credit: reverse ? 0 : amt });
+  }
+  if (!total) return;
+  const cogs = acct(db, 'coa_cogs');
+  lines.unshift({ code: cogs.code, name: cogs.name, debit: reverse ? 0 : total, credit: reverse ? total : 0 });
+  createJournalEntry(db, {
+    date: date || '', description: `بهای تمام‌شده فاکتور ${num}${reverse ? ' (ابطال)' : ''}`,
+    ref_type: reverse ? 'invoice_cogs_reversal' : 'invoice_cogs', ref_id: invId, created_by: userId, lines
+  });
+}
 const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 const notif = require('../lib/notifications');
@@ -201,15 +242,18 @@ router.post('/', auth, (req, res) => {
           description: `فاکتور رسمی ${num}`,
           debit: final, credit: 0, user_id: req.user.id
         });
+        const recv = receivableAcct(db, cust_id);
+        const sales = acct(db, 'coa_sales'), salesDisc = acct(db, 'coa_sales_discount');
         const jLines = [
-          { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: final, credit: 0 }
+          { code: recv.code, name: recv.name, debit: final, credit: 0 }
         ];
-        if (discAmt > 0) jLines.push({ code: '4103', name: 'تخفیفات فروش', debit: discAmt, credit: 0, description: 'تخفیف فاکتور' });
-        jLines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: subtotal });
+        if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: discAmt, credit: 0, description: 'تخفیف فاکتور' });
+        jLines.push({ code: sales.code, name: sales.name, debit: 0, credit: subtotal });
         createJournalEntry(db, {
           date: date || '', description: `فاکتور رسمی ${num}`,
           ref_type: 'invoice', ref_id: invId, created_by: req.user.id, lines: jLines
         });
+        postCogsVoucher(db, invId, num, date, built.rows, req.user.id, false);
       }
 
       // Auto-create a 7-day quality follow-up — only if the customer has
@@ -314,15 +358,18 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
         description: `ابطال فاکتور ${row.num}`,
         debit: 0, credit: row.final, user_id: req.user.id
       });
+      const recv = receivableAcct(db, row.cust_id);
+      const sales = acct(db, 'coa_sales'), salesDisc = acct(db, 'coa_sales_discount');
       const jLines = [
-        { code: '4101', name: 'درآمد فروش کالا', debit: row.subtotal, credit: 0, description: 'ابطال' }
+        { code: sales.code, name: sales.name, debit: row.subtotal, credit: 0, description: 'ابطال' }
       ];
-      if ((row.disc_amt || 0) > 0) jLines.push({ code: '4103', name: 'تخفیفات فروش', debit: 0, credit: row.disc_amt, description: 'ابطال تخفیف' });
-      jLines.push({ code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: row.final });
+      if ((row.disc_amt || 0) > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: 0, credit: row.disc_amt, description: 'ابطال تخفیف' });
+      jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: row.final });
       createJournalEntry(db, {
         date: row.date || '', description: `ابطال فاکتور ${row.num}`,
         ref_type: 'invoice_reversal', ref_id: row.id, created_by: req.user.id, lines: jLines
       });
+      postCogsVoucher(db, row.id, row.num, row.date, JSON.parse(row.rows || '[]'), req.user.id, true);
     }
 
     db.prepare('UPDATE invoices SET deleted_at=strftime(\'%s\',\'now\'), deleted_by=? WHERE id=?').run(req.user.id, req.params.id);
@@ -363,15 +410,18 @@ router.post('/:id/convert', auth, (req, res) => {
         description: `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`,
         debit: inv.final, credit: 0, user_id: req.user.id
       });
+      const recv = receivableAcct(db, inv.cust_id);
+      const sales = acct(db, 'coa_sales'), salesDisc = acct(db, 'coa_sales_discount');
       const cvLines = [
-        { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: inv.final, credit: 0 }
+        { code: recv.code, name: recv.name, debit: inv.final, credit: 0 }
       ];
-      if ((inv.disc_amt || 0) > 0) cvLines.push({ code: '4103', name: 'تخفیفات فروش', debit: inv.disc_amt, credit: 0 });
-      cvLines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: inv.subtotal });
+      if ((inv.disc_amt || 0) > 0) cvLines.push({ code: salesDisc.code, name: salesDisc.name, debit: inv.disc_amt, credit: 0 });
+      cvLines.push({ code: sales.code, name: sales.name, debit: 0, credit: inv.subtotal });
       createJournalEntry(db, {
         date: inv.date || '', description: `فاکتور رسمی ${inv.num} (تبدیل از پیش‌فاکتور)`,
         ref_type: 'invoice', ref_id: inv.id, created_by: req.user.id, lines: cvLines
       });
+      postCogsVoucher(db, inv.id, inv.num, inv.date, rows, req.user.id, false);
     })();
   } catch (e) {
     return res.status(400).json({ error: e.message });

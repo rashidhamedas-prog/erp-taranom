@@ -41,6 +41,19 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۶ — [Claude Code] ✅ فاز ۲ مهاجرت محک کامل شد — عملیات جاری روی کدینگ محک + COGS خودکار (۱۴/۱۴ تست E2E سبز)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت
+- **خلاصه:**
+  - **تزریق coa-map به عملیات جاری:** فاکتور (دریافتنی/فروش/تخفیف + ابطال + تبدیل)، دریافت‌ها (۴ سایت 1103 در accounting.js → تفصیلی مشتری)، خرید (پرداختنی تأمین‌کننده/موجودی، ۷ سایت)، حقوق (۷۰۱/۲۰۴/501)، و `resolveCashAccount` → اول `coa_code` بانک/صندوق. همه backward-compatible: بدون coa_mode=mahak رفتار قدیمی عیناً حفظ (fallback به 1103/2101/...).
+  - **سند COGS خودکار (تصمیم ۸):** `postCogsVoucher` در invoices.js — فاکتور رسمی: Dr بهای تمام‌شده (801) / Cr تفصیلی هر کالا؛ در ابطال و تبدیل پیش‌فاکتور هم دقیقاً معکوس/ثبت. فقط mahak-mode + `feature_cogs_voucher=1`.
+  - **تفصیلی‌ساز خودکار (`allocTafsili` در coa-map):** مشتری/تأمین‌کننده/محصول (هر دو مسیر ساخت)/بانک/صندوق جدید → حساب تفصیلی ۱۲رقمی زیر معین نگاشت‌شده (شماره از MAX سراسری+1).
+  - کلیدهای `coa_*` و `feature_cogs_voucher` به ALLOWED_KEYS تنظیمات اضافه شد.
+  - **تست:** `scripts/test-mahak-phase2.js` جدید — E2E روی کپی DB واقعی محک: **۱۴/۱۴ سبز** (تفصیلی مشتری 203004960031، سند فروش روی 601، COGS با مبلغ cost×qty، دریافت به تفصیلی صندوق 206003500001، ابطال معکوس، تراز متوازن در هر مرحله). رگرسیون: SMS **22/22** + Sync **33/33** سبز. راهنمای ادمین بخش «حالت کدینگ محک» + SW → `v29`.
+  - نکته باز (cosmetic): نام حساب‌های سطح ۳ ساخته‌شده توسط importer گاهی از شیت معینِ هم‌کد اشتباه برداشته می‌شود (کد درست است، فقط برچسب) — اصلاح در اجرای بعدی importer.
+- **فایل‌های کلیدی:** `server/lib/coa-map.js`, `server/routes/{invoices,accounting,purchases,payroll,customers,suppliers,products,banks,cash-boxes,settings}.js`, `server/db.js`, `server/scripts/test-mahak-phase2.js`, `server/public/{index.html,sw.js}`
+- **Deploy:** ⏳ pull + pm2 restart (کد)؛ **go-live دیتابیس محک** طبق MAHAK-MIGRATION.md بخش ۵ — دستورها در پیام Claude به مالک.
+
 ### ۱۴۰۴/۰۴/۲۶ — [Claude Code] ورود موجودی محک (فاز ۱ تکمیل) + 📋 گزارش کامل تحویل به Cursor
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت

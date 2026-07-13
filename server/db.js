@@ -1793,10 +1793,13 @@ function createJournalEntry(db, { date, description, ref_type, ref_id, created_b
 function resolveCashAccount(db, payType, bankId, cashBoxId) {
   if (bankId) {
     const bank = db.prepare('SELECT * FROM banks WHERE id=?').get(bankId);
+    // در حالت کدینگ محک، بانک مستقیماً به تفصیلی خودش می‌خورد
+    if (bank && bank.coa_code) return { code: bank.coa_code, name: bank.name };
     if (bank) return { code: '1102-' + bank.id, name: bank.name };
   }
   if (cashBoxId) {
     const box = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(cashBoxId);
+    if (box && box.coa_code) return { code: box.coa_code, name: box.name };
     if (box) return { code: '1101-' + box.id, name: box.name };
   }
   // 'cheque' and 'bank' (e.g. card-to-card / wire transfer) both fall back to the

@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const { allocTafsili } = require('../lib/coa-map');
 const { getDB, audit, syncBankAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 
@@ -19,6 +20,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const result = db.prepare(
     'INSERT INTO banks (name,account_number,branch) VALUES (?,?,?)'
   ).run(name, account_number || '', branch || '');
+  try { const cc = allocTafsili(db, 'bank', name); if (cc) db.prepare('UPDATE banks SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
   const bank = db.prepare('SELECT * FROM banks WHERE id=?').get(result.lastInsertRowid);
   syncBankAccount(db, bank);
   audit(req.user.id, 'create', 'bank', bank.id, `ساخت بانک ${name}`);

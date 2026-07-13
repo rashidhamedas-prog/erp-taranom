@@ -4,6 +4,7 @@ const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 
 const ALLOWED_KEYS = [
+  'coa_mode','coa_receivable','coa_payable','coa_sales','coa_sales_discount','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_misc_persons','feature_cogs_voucher',
   'telegram_bot_token', 'telegram_chat_id',
   'sms_provider', 'sms_api_key', 'sms_from',
   'niksms_api_key', 'smsir_api_key', 'smsir_line',

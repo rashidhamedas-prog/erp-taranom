@@ -1,4 +1,14 @@
 const router = require('express').Router();
+const { acct: coaAcct } = require('../lib/coa-map');
+// دریافتنیِ مشتری: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
+function recvAcct(db, custId) {
+  const c = custId ? db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId) : null;
+  if (c && c.coa_code) {
+    const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(c.coa_code);
+    if (a) return a;
+  }
+  return coaAcct(db, 'coa_receivable');
+}
 const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting, resolveCashAccount } = require('../db');
 const { recordCommissionAccrual, recordSettlementCommissionAccrual } = require('../lib/rep-ledger');
 const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
@@ -200,7 +210,7 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
       ref_type: 'settlement', ref_id: settlementId, created_by: req.user.id,
       lines: [
         { code: cash.code, name: cash.name, debit: parseFloat(amount), credit: 0 },
-        { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: parseFloat(amount) }
+        (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: parseFloat(amount) };})()
       ]
     });
     if (invoice_id) {
@@ -256,7 +266,7 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
         ref_type: 'settlement', ref_id: settlementId, created_by: req.user.id,
         lines: [
           { code: cash.code, name: cash.name, debit: amount, credit: 0 },
-          { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: amount }
+          (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: amount };})()
         ]
       });
       if (p.invoice_id) {
@@ -292,7 +302,7 @@ router.delete('/settlements/:id', auth, adminOrAccounting, (req, res) => {
       date: settlement.date || '', description: `ابطال تسویه شماره ${settlement.id}`,
       ref_type: 'settlement_reversal', ref_id: settlement.id, created_by: req.user.id,
       lines: [
-        { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: settlement.amount, credit: 0 },
+        (()=>{const a=recvAcct(db,settlement.cust_id);return { code: a.code, name: a.name, debit: settlement.amount, credit: 0 };})(),
         { code: cash.code, name: cash.name, debit: 0, credit: settlement.amount }
       ]
     });
@@ -869,7 +879,7 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
       date: date || '', description: `برگشت از فروش #${retId}`, ref_type: 'sales_return', ref_id: retId, created_by: req.user.id,
       lines: [
         { code: '4102', name: 'برگشت از فروش', debit: amount, credit: 0 },
-        { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: amount }
+        (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: amount };})()
       ]
     });
     return retId;
@@ -895,7 +905,7 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
     createJournalEntry(db, {
       date: row.date || '', description: `ابطال برگشت از فروش #${row.id}`, ref_type: 'sales_return_reversal', ref_id: row.id, created_by: req.user.id,
       lines: [
-        { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: row.amount, credit: 0 },
+        (()=>{const a=recvAcct(db,row.cust_id);return { code: a.code, name: a.name, debit: row.amount, credit: 0 };})(),
         { code: '4102', name: 'برگشت از فروش', debit: 0, credit: row.amount }
       ]
     });

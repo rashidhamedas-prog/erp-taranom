@@ -15,7 +15,7 @@ const LEGACY = {
   coa_payable:         { code: '2101',   name: 'حساب‌های پرداختنی' },
   coa_misc_persons:    { code: '1106',   name: 'حساب اشخاص متفرقه' },
   coa_sales:           { code: '4101',   name: 'درآمد فروش' },
-  coa_sales_discount:  { code: '4102',   name: 'تخفیفات فروش' },
+  coa_sales_discount:  { code: '4103',   name: 'تخفیفات فروش' },
   coa_cogs:            { code: '5101',   name: 'بهای تمام‌شده کالای فروش رفته' },
   coa_inventory:       { code: '1104',   name: 'موجودی کالا' },
   coa_cash_default:    { code: '1101',   name: 'موجودی صندوق' },
@@ -57,4 +57,27 @@ function acct(db, key) {
 
 function clearCoaCache() { _cache = null; }
 
-module.exports = { acct, coaMode, clearCoaCache, LEGACY };
+// In Mahak mode, every new operational entity gets its own tafsili account
+// under the mapped معین. Returns the new full code, or null outside Mahak
+// mode / on any failure (callers treat this as best-effort).
+const KIND_KEY = { customer: 'coa_receivable', supplier: 'coa_payable', product: 'coa_inventory', bank: 'coa_bank_default', cashbox: 'coa_cash_default', person: 'coa_misc_persons' };
+const KIND_TYPE = { customer: 'اشخاص', supplier: 'اشخاص', product: 'کالاها', bank: 'بانک ها', cashbox: 'صندوق ها', person: 'اشخاص' };
+function allocTafsili(db, kind, name) {
+  try {
+    if (coaMode(db) !== 'mahak') return null;
+    const base = acct(db, KIND_KEY[kind]).code;
+    const moein = base.length > 6 ? base.slice(0, 6) : base;      // والد سطح ۳
+    if (moein.length !== 6) return null;
+    const parent = db.prepare('SELECT code,type FROM chart_of_accounts WHERE code=?').get(moein);
+    if (!parent) return null;
+    // شماره تفصیلی بعدی: بیشینهٔ ۶ رقم آخر همهٔ حساب‌های سطح ۴ + ۱ (سراسری تا تصادم نشود)
+    const row = db.prepare("SELECT MAX(CAST(substr(code,7) AS INTEGER)) m FROM chart_of_accounts WHERE level=4 AND length(code)=12").get();
+    const next = String((row && row.m ? row.m : 0) + 1).padStart(6, '0');
+    const full = moein + next;
+    db.prepare('INSERT INTO chart_of_accounts (code,name,type,parent_code,level,nature,tafsili_type) VALUES (?,?,?,?,4,NULL,?)')
+      .run(full, String(name || '').trim() || ('حساب ' + full), parent.type, moein, KIND_TYPE[kind] || null);
+    return full;
+  } catch { return null; }
+}
+
+module.exports = { acct, coaMode, clearCoaCache, allocTafsili, LEGACY };

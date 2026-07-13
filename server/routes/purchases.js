@@ -1,4 +1,14 @@
 const router = require('express').Router();
+const { acct: coaAcct } = require('../lib/coa-map');
+// پرداختنیِ تأمین‌کننده: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
+function payableAcct(db, supplierId) {
+  const s = supplierId ? db.prepare('SELECT coa_code FROM suppliers WHERE id=?').get(supplierId) : null;
+  if (s && s.coa_code) {
+    const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(s.coa_code);
+    if (a) return a;
+  }
+  return coaAcct(db, 'coa_payable');
+}
 const { getDB, audit, createJournalEntry, resolveCashAccount, allocateNumber, isDevice } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
@@ -92,11 +102,11 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     }
 
     // Journal: Dr Inventory / Cr Payable (credit) or Cr Cash/specific bank (cash/cheque)
-    const cr = pType === 'credit' ? { code: '2101', name: 'حساب‌های پرداختنی' } : resolveCashAccount(db, pType, bank_id, cash_box_id);
+    const cr = pType === 'credit' ? payableAcct(db, supplier_id) : resolveCashAccount(db, pType, bank_id, cash_box_id);
     createJournalEntry(db, {
       date: date || '', description: `فاکتور خرید ${num}`, ref_type: 'purchase', ref_id: invId, created_by: req.user.id,
       lines: [
-        { code: '1104', name: 'موجودی کالا', debit: final, credit: 0 },
+        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: final, credit: 0 },
         { code: cr.code, name: cr.name, debit: 0, credit: final }
       ]
     });
@@ -126,12 +136,12 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
         description: `ابطال فاکتور خرید ${row.num}`, debit: row.final, credit: 0, user_id: req.user.id
       });
     }
-    const cr = row.pay_type === 'credit' ? { code: '2101', name: 'حساب‌های پرداختنی' } : resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
+    const cr = row.pay_type === 'credit' ? payableAcct(db, row.supplier_id) : resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
     createJournalEntry(db, {
       date: row.date || '', description: `ابطال فاکتور خرید ${row.num}`, ref_type: 'purchase_reversal', ref_id: row.id, created_by: req.user.id,
       lines: [
         { code: cr.code, name: cr.name, debit: row.final, credit: 0 },
-        { code: '1104', name: 'موجودی کالا', debit: 0, credit: row.final }
+        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: 0, credit: row.final }
       ]
     });
 
@@ -233,8 +243,8 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
     createJournalEntry(db, {
       date: date || todayJalali(), description: `برگشت از خرید #${retId}`, ref_type: 'purchase_return', ref_id: retId, created_by: req.user.id,
       lines: [
-        { code: '2101', name: 'حساب‌های پرداختنی', debit: amount, credit: 0 },
-        { code: '1104', name: 'موجودی کالا', debit: 0, credit: amount }
+        (()=>{const a=payableAcct(db, supplier_id);return { code: a.code, name: a.name, debit: amount, credit: 0 };})(),
+        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: 0, credit: amount }
       ]
     });
     return retId;
@@ -261,8 +271,8 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
     createJournalEntry(db, {
       date: row.date || '', description: `ابطال برگشت از خرید #${row.id}`, ref_type: 'purchase_return_reversal', ref_id: row.id, created_by: req.user.id,
       lines: [
-        { code: '1104', name: 'موجودی کالا', debit: row.amount, credit: 0 },
-        { code: '2101', name: 'حساب‌های پرداختنی', debit: 0, credit: row.amount }
+        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: row.amount, credit: 0 },
+        (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: row.amount };})()
       ]
     });
     db.prepare('DELETE FROM purchase_returns WHERE id=?').run(req.params.id);
@@ -299,7 +309,7 @@ router.post('/payments', auth, adminOrAccounting, (req, res) => {
     createJournalEntry(db, {
       date: date || todayJalali(), description: 'پرداخت به تأمین‌کننده', ref_type: 'supplier_payment', ref_id: payId, created_by: req.user.id,
       lines: [
-        { code: '2101', name: 'حساب‌های پرداختنی', debit: parseFloat(amount), credit: 0 },
+        (()=>{const a=payableAcct(db, supplier_id);return { code: a.code, name: a.name, debit: parseFloat(amount), credit: 0 };})(),
         { code: cash.code, name: cash.name, debit: 0, credit: parseFloat(amount) }
       ]
     });
@@ -324,7 +334,7 @@ router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
       date: row.date || '', description: `ابطال پرداخت به تأمین‌کننده #${row.id}`, ref_type: 'supplier_payment_reversal', ref_id: row.id, created_by: req.user.id,
       lines: [
         { code: cash.code, name: cash.name, debit: row.amount, credit: 0 },
-        { code: '2101', name: 'حساب‌های پرداختنی', debit: 0, credit: row.amount }
+        (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: row.amount };})()
       ]
     });
     db.prepare('DELETE FROM supplier_payments WHERE id=?').run(req.params.id);

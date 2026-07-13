@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const { allocTafsili } = require('../lib/coa-map');
 const { getDB, audit, createLedgerEntry, isDevice } = require('../db');
 const { assignCustomerByTerritory } = require('../lib/rep-ledger');
 const { auth, adminOnly } = require('../middleware/auth');
@@ -107,6 +108,8 @@ router.post('/', auth, (req, res) => {
     return created.id;
   })();
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(newId);
+  // حالت کدینگ محک: تفصیلی اختصاصی مشتری زیر معین دریافتنی
+  try { const cc = allocTafsili(db, 'customer', biz); if (cc) { db.prepare('UPDATE customers SET coa_code=? WHERE id=?').run(cc, newId); row.coa_code = cc; } } catch (_) {}
   if (!(req.user.role === 'admin' && assigned_to) && (city || province)) {
     assignCustomerByTerritory(db, newId, city, province, req.user.id);
   }

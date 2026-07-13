@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const { allocTafsili } = require('../lib/coa-map');
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
@@ -25,6 +26,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const result = db.prepare(
     'INSERT INTO suppliers (name,phone,address,note,balance) VALUES (?,?,?,?,?)'
   ).run(name, phone || '', address || '', note || '', bal);
+  try { const cc = allocTafsili(db, 'supplier', name); if (cc) db.prepare('UPDATE suppliers SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
   const supplierId = result.lastInsertRowid;
   // Opening balance becomes the first supplier-ledger entry (credit = we owe them)
   if (bal !== 0) {
