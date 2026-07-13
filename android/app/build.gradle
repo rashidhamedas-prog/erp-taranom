@@ -4,14 +4,14 @@ plugins {
 
 android {
     namespace 'ir.taranom.crm'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId "ir.taranom.crm"
         minSdk 24
         targetSdk 34
-        versionCode 4
-        versionName "2.0.2"
+        versionCode 9
+        versionName "2.0.7"
 
         ndk {
             // ABIs shipped by nodejs-mobile
@@ -69,6 +69,10 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    buildFeatures {
+        buildConfig true
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -98,9 +102,11 @@ tasks.register('layoutNodeLibs', Copy) {
 }
 
 tasks.register('copyServerSources', Copy) {
+    doFirst { delete file('src/main/assets/nodejs-project/server') }
     from(file('../../server')) {
         exclude 'node_modules/**', 'backups/**', '*.db', '*.db-wal', '*.db-shm', '.env',
-                'public/uploads/**'
+                'public/uploads/**',
+                'public/releases/**'
     }
     into file('src/main/assets/nodejs-project/server')
 }

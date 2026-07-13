@@ -1078,8 +1078,11 @@ function initDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
+      rep_id INTEGER,
+      cities TEXT DEFAULT '',
       active INTEGER DEFAULT 1,
-      created_at INTEGER DEFAULT (strftime('%s','now'))
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(rep_id) REFERENCES users(id)
     );
     CREATE TABLE IF NOT EXISTS rep_visit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1136,6 +1139,28 @@ function initDB() {
       FOREIGN KEY(rep_id) REFERENCES users(id),
       FOREIGN KEY(cust_id) REFERENCES customers(id)
     );
+    CREATE TABLE IF NOT EXISTS stocktaking_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      warehouse_id INTEGER NOT NULL,
+      date TEXT,
+      responsible_user_id INTEGER,
+      status TEXT DEFAULT 'draft',
+      note TEXT DEFAULT '',
+      created_by INTEGER,
+      approved_by INTEGER,
+      approved_at INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
+    );
+    CREATE TABLE IF NOT EXISTS stocktaking_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      system_qty INTEGER DEFAULT 0,
+      counted_qty INTEGER DEFAULT 0,
+      FOREIGN KEY(session_id) REFERENCES stocktaking_sessions(id),
+      FOREIGN KEY(product_id) REFERENCES products(id)
+    );
   `);
   // این دو ستون باید بعد از CREATE TABLE rep_territories اضافه شوند (روی DB تازه، قبل از ساخت جدول crash می‌کرد)
   ensureColumn(db, 'rep_territories', 'rep_id', 'INTEGER');
@@ -1176,7 +1201,9 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_journal_entries_date ON journal_entries(entry_date);
     CREATE INDEX IF NOT EXISTS idx_products_warehouse ON products(warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_warehouse_stock_wh ON warehouse_stock(warehouse_id);
-    CREATE INDEX IF NOT EXISTS idx_stock_logs_product ON stock_logs(product_id);
+    CREATE INDEX IF NOT EXISTS idx_stocktaking_wh ON stocktaking_sessions(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_stocktaking_status ON stocktaking_sessions(status);
+    CREATE INDEX IF NOT EXISTS idx_stocktaking_items_sess ON stocktaking_items(session_id);
     CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_invoices_commission ON invoices(user_id, type, approved, pay_type);
     CREATE INDEX IF NOT EXISTS idx_invoices_type_date ON invoices(type, date);
@@ -1388,7 +1415,64 @@ function initSyncSchema(db) {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_reset_otp_user ON password_reset_otps(user_id);
+
+    -- 2FA (TOTP): central-only — NOT in SYNCABLE_TABLES, device builds keep it empty
+    CREATE TABLE IF NOT EXISTS two_factor_auth (
+      user_id INTEGER PRIMARY KEY,
+      secret TEXT NOT NULL,
+      enabled INTEGER DEFAULT 0,
+      recovery_codes TEXT DEFAULT '[]',
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+
+    -- AI sales assistant insights (heuristic churn/opportunity + optional LLM narratives)
+    CREATE TABLE IF NOT EXISTS ai_insights (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER,
+      user_id INTEGER,
+      kind TEXT NOT NULL,
+      score INTEGER,
+      title TEXT DEFAULT '',
+      body TEXT DEFAULT '',
+      period TEXT DEFAULT '',
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_insights_kind ON ai_insights(kind, period);
+    CREATE INDEX IF NOT EXISTS idx_ai_insights_cust ON ai_insights(customer_id);
+
+    -- B2B customer portal (ported from CRM v4): central-only — NOT in
+    -- SYNCABLE_TABLES. Portal login + orders live only on the central web
+    -- server; approved orders become normal proforma invoices which sync.
+    CREATE TABLE IF NOT EXISTS b2b_portal_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER UNIQUE NOT NULL,
+      phone TEXT NOT NULL,
+      password TEXT,
+      otp_hash TEXT,
+      otp_expires INTEGER,
+      active INTEGER DEFAULT 1,
+      last_login INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(customer_id) REFERENCES customers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_b2b_acc_phone ON b2b_portal_accounts(phone);
+
+    CREATE TABLE IF NOT EXISTS b2b_portal_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL,
+      rows TEXT,
+      note TEXT DEFAULT '',
+      status TEXT DEFAULT 'pending',
+      invoice_id INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(customer_id) REFERENCES customers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_b2b_orders_cust ON b2b_portal_orders(customer_id);
   `);
+  ensureColumn(db, 'customers', 'churn_score', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'customers', 'b2b_enabled', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'products', 'barcode', 'TEXT');
 
   // Central-only: triggers stamp every insert/update with the next global
   // sequence value (and bump version on update) and write a tombstone on

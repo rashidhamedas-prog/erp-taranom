@@ -61,10 +61,13 @@ router.get('/balances/list', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
     SELECT s.id, s.name, s.phone, s.balance as opening_balance,
-      COALESCE((SELECT SUM(final) FROM purchase_invoices WHERE supplier_id=s.id AND pay_type='credit'),0) as total_purchased,
-      COALESCE((SELECT SUM(amount) FROM supplier_payments WHERE supplier_id=s.id),0) as total_paid,
-      COALESCE((SELECT SUM(amount) FROM purchase_returns WHERE supplier_id=s.id),0) as total_returned
+      COALESCE(pi.total_purchased, 0) as total_purchased,
+      COALESCE(sp.total_paid, 0) as total_paid,
+      COALESCE(pr.total_returned, 0) as total_returned
     FROM suppliers s
+    LEFT JOIN (SELECT supplier_id, SUM(final) total_purchased FROM purchase_invoices WHERE pay_type='credit' GROUP BY supplier_id) pi ON pi.supplier_id=s.id
+    LEFT JOIN (SELECT supplier_id, SUM(amount) total_paid FROM supplier_payments GROUP BY supplier_id) sp ON sp.supplier_id=s.id
+    LEFT JOIN (SELECT supplier_id, SUM(amount) total_returned FROM purchase_returns GROUP BY supplier_id) pr ON pr.supplier_id=s.id
   `).all();
   rows.forEach(r => { r.payable = (r.opening_balance || 0) + r.total_purchased - r.total_paid - r.total_returned; });
   res.json(rows.filter(r => r.payable !== 0));

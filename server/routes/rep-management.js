@@ -11,11 +11,11 @@ const {
   getRepAgingReceivables, getTeamRollup, canAccessRep, getRepProfitReport, recordSettlementCommissionAccrual
 } = require('../lib/rep-ledger');
 
-const UPLOADS = process.env.UPLOADS_DIR || path.join(__dirname, '..', 'uploads');
+const { UPLOADS_ROOT } = require('../paths');
 const repUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
-      const dir = path.join(UPLOADS, 'reps');
+      const dir = path.join(UPLOADS_ROOT, 'reps');
       fs.mkdirSync(dir, { recursive: true });
       cb(null, dir);
     },

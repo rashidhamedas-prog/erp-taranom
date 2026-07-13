@@ -21,6 +21,19 @@ function faNum(n) {
   return Number(n || 0).toLocaleString('fa-IR');
 }
 
+// Sales channel is derived from WHO issues the invoice — never from the
+// request body for sales roles (spec 1.0.9 §1).
+const ROLE_CHANNEL = { field_sales: 'field', inside_sales: 'phone', salesperson: 'field' };
+function resolveSalesChannel(req) {
+  const forced = ROLE_CHANNEL[req.user.role];
+  if (forced) return forced;
+  // Admin/accounting may set explicitly when creating on behalf of the company
+  if (['admin', 'accounting', 'sales_manager'].includes(req.user.role)) {
+    return req.body.sales_channel || '';
+  }
+  return '';
+}
+
 // Validate & normalize invoice rows.
 // Price is always editable by both admin and salesperson (Phase 2 change).
 // Line-item discount is only honored when canDiscount is true — enforced
@@ -175,7 +188,7 @@ router.post('/', auth, (req, res) => {
             JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
             seller ? seller.name : '', seller ? (seller.phone || '') : '',
             pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
-            stockDeducted, req.body.sales_channel || '', req.body.lead_source || '', req.body.campaign || '');
+            stockDeducted, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '');
       const invId = result.lastInsertRowid;
 
       if (invType === 'final') {
@@ -260,7 +273,7 @@ router.put('/:id', auth, (req, res) => {
       db.prepare('UPDATE invoices SET cust_id=?,type=?,date=?,note=?,rows=?,subtotal=?,disc=?,disc_amt=?,final=?,pay_type=?,cheque_duration=?,cheque_due_date=?,cheque_info=?,stock_deducted=?,sales_channel=?,lead_source=?,campaign=? WHERE id=?')
         .run(cust_id, newType, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
              pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
-             stockDeducted, sales_channel || '', lead_source || '', campaign || '', req.params.id);
+             stockDeducted, resolveSalesChannel(req), lead_source || '', campaign || '', req.params.id);
     })();
   } catch (e) {
     return res.status(400).json({ error: e.message });

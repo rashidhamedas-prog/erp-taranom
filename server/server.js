@@ -24,7 +24,7 @@ try {
 
 // Ensure uploads directory exists
 const { UPLOADS_ROOT } = require('./paths');
-for (const sub of ['products', 'messages', 'vouchers']) {
+for (const sub of ['products', 'messages', 'vouchers', 'reps']) {
   fs.mkdirSync(path.join(UPLOADS_ROOT, sub), { recursive: true });
 }
 
@@ -110,6 +110,9 @@ const authLimiter = rateLimit({
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/forgot', authLimiter);
 app.use('/api/auth/forgot-reset', authLimiter);
+app.use('/api/auth/2fa/verify', authLimiter);
+app.use('/api/auth/2fa/recovery-code', authLimiter);
+app.use('/api/b2b/auth', authLimiter);
 
 assertSecurityConfig();
 initDB();
@@ -122,7 +125,10 @@ if (isDevice()) {
 }
 
 app.use('/api/sync', require('./routes/sync'));
+app.use('/api/auth/2fa', require('./routes/twofa'));
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/ai', require('./routes/ai'));
+app.use('/api/b2b', require('./routes/b2b'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/followups', require('./routes/followups'));
 app.use('/api/invoices', require('./routes/invoices'));
@@ -178,6 +184,7 @@ app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/persons', require('./routes/persons'));
 app.use('/api/trust-checks', require('./routes/trust-checks'));
 app.use('/api/warehouses', require('./routes/warehouses'));
+app.use('/api/stocktaking', require('./routes/stocktaking'));
 app.use('/api/consignments', require('./routes/consignments'));
 app.use('/api/adv-reports', require('./routes/adv-reports'));
 app.use('/api/production', require('./routes/production'));
@@ -197,7 +204,16 @@ app.get('/api/system/app-info', (req, res) => {
   const manifest = readManifest();
   const platform = process.env.APP_PLATFORM || (isDevice() ? 'device' : 'web');
   const version = process.env.APP_VERSION || manifest.web?.version || '0';
-  res.json({ manifest, role: isDevice() ? 'device' : 'central', platform, version });
+  // b2b_portal: lets the login page show/hide the customer portal link
+  // (no secrets — just a boolean feature flag; portal only exists on central)
+  let b2bPortal = false;
+  if (!isDevice()) {
+    try {
+      const row = getDB().prepare("SELECT value FROM settings WHERE key='feature_b2b_portal'").get();
+      b2bPortal = row?.value === '1';
+    } catch { /* db not ready */ }
+  }
+  res.json({ manifest, role: isDevice() ? 'device' : 'central', platform, version, b2b_portal: b2bPortal });
 });
 
 // Check for newer desktop/android/web builds
@@ -217,14 +233,17 @@ app.get('/api/system/app-update', async (req, res) => {
 });
 
 // Feed URL for electron-updater (desktop auto-update)
-app.get('/api/system/update-feed', (req, res) => {
+app.get('/api/system/update-feed', async (req, res) => {
   if (isDevice()) {
     try {
       const client = require('./sync/client');
-      const url = client.getUpdateFeedUrl();
+      const url = await client.fetchCentralUpdateFeedUrl();
       return res.json({ url });
     } catch { return res.json({ url: null }); }
   }
+  const manifest = readManifest();
+  const external = process.env.DESKTOP_UPDATE_FEED_URL || manifest.desktop?.feed_url;
+  if (external) return res.json({ url: external });
   const base = process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
   res.json({ url: base.replace(/\/$/, '') + '/releases/' });
 });
@@ -403,6 +422,14 @@ if (!isDevice()) {
 
   // Daily at 00:00: full app backup → local file + Gmail
   cron.schedule('0 0 * * *', runBackup);
+
+  // Daily at 02:00: AI churn scoring + insights (heuristics always; Claude narratives if configured)
+  cron.schedule('0 2 * * *', async () => {
+    try {
+      const { runNightlyAnalysis } = require('./services/ai');
+      await runNightlyAnalysis(getDB());
+    } catch (e) { console.error('cron ai-analysis error:', e.message); }
+  });
 }
 
 // Global error handler — never leak stack traces to clients

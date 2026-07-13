@@ -2,6 +2,15 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnly, invalidateUserCache } = require('../middleware/auth');
+const { j2g } = require('../jalali');
+
+function jalaliDayBounds(jStr) {
+  const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(String(jStr || '').trim());
+  if (!m) return null;
+  const [gy, gm, gd] = j2g(+m[1], +m[2], +m[3]);
+  const start = Math.floor(new Date(gy, gm - 1, gd, 0, 0, 0).getTime() / 1000);
+  return { start, end: start + 86400 - 1 };
+}
 
 // Get all users (include incentive fields)
 router.get('/users', auth, adminOnly, (req, res) => {
@@ -170,6 +179,18 @@ router.get('/audit', auth, adminOnly, (req, res) => {
   const params = [];
   if (req.query.user_id) { where.push('a.user_id=?'); params.push(req.query.user_id); }
   if (req.query.entity) { where.push('a.entity=?'); params.push(req.query.entity); }
+  if (req.query.date) {
+    const b = jalaliDayBounds(req.query.date);
+    if (b) { where.push('a.created_at>=?'); params.push(b.start); where.push('a.created_at<=?'); params.push(b.end); }
+  }
+  if (req.query.date_from) {
+    const b = jalaliDayBounds(req.query.date_from);
+    if (b) { where.push('a.created_at>=?'); params.push(b.start); }
+  }
+  if (req.query.date_to) {
+    const b = jalaliDayBounds(req.query.date_to);
+    if (b) { where.push('a.created_at<=?'); params.push(b.end); }
+  }
   if (req.query.from) { where.push('a.created_at>=?'); params.push(parseInt(req.query.from)); }
   if (req.query.to) { where.push('a.created_at<=?'); params.push(parseInt(req.query.to)); }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';

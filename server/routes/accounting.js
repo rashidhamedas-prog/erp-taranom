@@ -64,8 +64,31 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const totalInvoiced = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final'").get().s;
   const totalSettled = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM settlements").get().s;
   const pendingApproval = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=0").get().c;
+  const pendingSettlements = db.prepare("SELECT COUNT(*) c FROM rep_payment_submissions WHERE status='pending'").get().c;
   const approvedCount = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=1").get().c;
-  res.json({ totalInvoiced, totalSettled, outstanding: totalInvoiced - totalSettled, pendingApproval, approvedCount });
+  const tb = db.prepare(`
+    SELECT COALESCE(SUM(jl.debit),0) d, COALESCE(SUM(jl.credit),0) c
+    FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
+  `).get();
+  const trialBalanced = Math.abs((tb.d || 0) - (tb.c || 0)) < 1;
+  const payRow = db.prepare(`
+    SELECT COALESCE(SUM(
+      COALESCE(s.balance,0)
+      + COALESCE(pi.total_purchased,0)
+      - COALESCE(sp.total_paid,0)
+      - COALESCE(pr.total_returned,0)
+    ),0) total
+    FROM suppliers s
+    LEFT JOIN (SELECT supplier_id, SUM(final) total_purchased FROM purchase_invoices WHERE pay_type='credit' GROUP BY supplier_id) pi ON pi.supplier_id=s.id
+    LEFT JOIN (SELECT supplier_id, SUM(amount) total_paid FROM supplier_payments GROUP BY supplier_id) sp ON sp.supplier_id=s.id
+    LEFT JOIN (SELECT supplier_id, SUM(amount) total_returned FROM purchase_returns GROUP BY supplier_id) pr ON pr.supplier_id=s.id
+  `).get();
+  res.json({
+    totalInvoiced, totalSettled, outstanding: totalInvoiced - totalSettled,
+    pendingApproval, approvedCount, trialBalanced,
+    totalPayable: payRow.total || 0,
+    pendingSettlements
+  });
 });
 
 // Receivables per customer (only customers with at least one final invoice)
@@ -273,6 +296,21 @@ router.delete('/settlements/:id', auth, adminOrAccounting, (req, res) => {
         { code: cash.code, name: cash.name, debit: 0, credit: settlement.amount }
       ]
     });
+
+    // Spec 1.0.9 §5: if this settlement came from an approved field-rep
+    // payment submission, deleting it flips that submission back to
+    // "rejected" (soft status update — the submission row + receipt photo
+    // stay for the audit trail) so the rep's «حساب من» reflects reality.
+    const sub = db.prepare("SELECT * FROM rep_payment_submissions WHERE settlement_id=? AND status='approved'").get(settlement.id);
+    if (sub) {
+      db.prepare("UPDATE rep_payment_submissions SET status='rejected', rejection_note=?, approved_by=?, approved_at=strftime('%s','now') WHERE id=?")
+        .run('تأیید اشتباه بود — تسویه توسط حسابدار ابطال شد', req.user.id, sub.id);
+      const { notifyRep } = require('../lib/rep-ledger');
+      notifyRep(db, sub.rep_id,
+        `❌ پرداختی که قبلاً تأیید شده بود ابطال شد\nمبلغ: ${Number(sub.amount || 0).toLocaleString('fa-IR')} تومان\nوضعیت جدید: رد شده`,
+        req.user.id);
+      audit(req.user.id, 'reject', 'rep_payment', sub.id, `ابطال تأیید پرداخت میدانی (حذف تسویه #${settlement.id})`);
+    }
 
     db.prepare('DELETE FROM settlements WHERE id=?').run(req.params.id);
   })();
@@ -1200,3 +1238,6 @@ router.delete('/customer-groups/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 module.exports = router;
+// Shared with the B2B portal (routes/b2b.js) so customers see the exact same
+// statement the accounting module produces.
+module.exports.buildStatement = buildStatement;

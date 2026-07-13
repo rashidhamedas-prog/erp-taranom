@@ -29,6 +29,9 @@ function auth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'توکن یافت نشد' });
   try {
     const payload = jwt.verify(token, SECRET);
+    // Scoped tokens (B2B portal customers, pre-2FA step) share the signing
+    // secret but must never pass internal staff auth.
+    if (payload.scope) return res.status(401).json({ error: 'توکن نامعتبر' });
     const state = getUserState(payload.id);
     if (!state.active) return res.status(401).json({ error: 'حساب کاربری غیرفعال است' });
     // Forced password change is enforced on central only. Device builds pull

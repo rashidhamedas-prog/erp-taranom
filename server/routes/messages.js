@@ -56,6 +56,86 @@ router.get('/', auth, (req, res) => {
   })));
 });
 
+// ── Telegram-like chat threads (spec 1.0.9 §3) ───────────────────────────────
+// A "thread" is one conversation partner. Special ids:
+//   'broadcast' — admin announcements (to_id IS NULL), read-only for non-admins
+//   'self'      — system notifications recorded from/to the same user
+//                 (B2B order alerts, payment status changes, …)
+function peerOf(m, me) {
+  if (m.to_id == null) return 'broadcast';
+  if (m.from_id === me && m.to_id === me) return 'self';
+  return m.from_id === me ? m.to_id : m.from_id;
+}
+
+router.get('/threads', auth, (req, res) => {
+  const db = getDB();
+  const me = req.user.id;
+  const rows = db.prepare(`
+    SELECT m.*, f.name as from_name, f.role as from_role, t.name as to_name
+    FROM messages m
+    LEFT JOIN users f ON m.from_id=f.id
+    LEFT JOIN users t ON m.to_id=t.id
+    WHERE m.to_id=? OR m.from_id=? OR m.to_id IS NULL
+    ORDER BY m.created_at ASC LIMIT 2000
+  `).all(me, me);
+  const threads = new Map();
+  for (const m of rows) {
+    const pid = peerOf(m, me);
+    let th = threads.get(pid);
+    if (!th) {
+      th = { peer_id: pid, peer_name: '', peer_role: '', last_body: '', last_at: 0, last_from_me: false, last_read: 0, last_image: null, unread: 0 };
+      threads.set(pid, th);
+    }
+    if (pid === 'broadcast') th.peer_name = '📢 اطلاعیه‌ها';
+    else if (pid === 'self') th.peer_name = '📌 اعلان‌های من';
+    else { th.peer_name = m.from_id === me ? (m.to_name || '?') : (m.from_name || '?'); th.peer_role = m.from_id === me ? '' : (m.from_role || ''); }
+    th.last_body = m.body || '';
+    th.last_at = m.created_at;
+    th.last_from_me = m.from_id === me && pid !== 'self' && pid !== 'broadcast';
+    th.last_read = m.is_read;
+    th.last_image = m.image || null;
+    if (m.from_id !== me && !m.is_read && (m.to_id === me)) th.unread++;
+    if (pid === 'self' && !m.is_read) th.unread++;
+  }
+  res.json([...threads.values()].sort((a, b) => b.last_at - a.last_at));
+});
+
+// Full conversation with one peer (ascending). Marks nothing read by itself.
+router.get('/thread/:peer', auth, (req, res) => {
+  const db = getDB();
+  const me = req.user.id;
+  const peer = req.params.peer;
+  let rows;
+  const SEL = `
+    SELECT m.*, f.name as from_name, t.name as to_name
+    FROM messages m LEFT JOIN users f ON m.from_id=f.id LEFT JOIN users t ON m.to_id=t.id`;
+  if (peer === 'broadcast') {
+    rows = db.prepare(SEL + ' WHERE m.to_id IS NULL ORDER BY m.created_at ASC LIMIT 300').all();
+  } else if (peer === 'self') {
+    rows = db.prepare(SEL + ' WHERE m.from_id=? AND m.to_id=? ORDER BY m.created_at ASC LIMIT 300').all(me, me);
+  } else {
+    const pid = parseInt(peer);
+    if (!pid) return res.status(400).json({ error: 'گفتگو نامعتبر' });
+    rows = db.prepare(SEL + ` WHERE (m.from_id=? AND m.to_id=?) OR (m.from_id=? AND m.to_id=?)
+      ORDER BY m.created_at ASC LIMIT 300`).all(me, pid, pid, me);
+  }
+  res.json(rows.map(m => ({ ...m, mine: m.from_id === me && peer !== 'self' && peer !== 'broadcast' })));
+});
+
+// Mark a whole thread read (drives the double-tick on the sender's side)
+router.post('/thread/:peer/read', auth, (req, res) => {
+  const db = getDB();
+  const me = req.user.id;
+  const peer = req.params.peer;
+  if (peer === 'self') {
+    db.prepare('UPDATE messages SET is_read=1 WHERE from_id=? AND to_id=?').run(me, me);
+  } else if (peer !== 'broadcast') {
+    const pid = parseInt(peer);
+    if (pid) db.prepare('UPDATE messages SET is_read=1 WHERE from_id=? AND to_id=?').run(pid, me);
+  }
+  res.json({ ok: true });
+});
+
 // Unread count for current user
 router.get('/unread-count', auth, (req, res) => {
   const db = getDB();
@@ -65,22 +145,32 @@ router.get('/unread-count', auth, (req, res) => {
     r = db.prepare('SELECT COUNT(*) as c FROM messages WHERE (to_id=? OR to_id IS NULL) AND from_id<>? AND is_read=0')
       .get(req.user.id, req.user.id);
   } else {
-    // Non-admin: only direct unread messages
-    r = db.prepare('SELECT COUNT(*) as c FROM messages WHERE to_id=? AND from_id<>? AND is_read=0')
-      .get(req.user.id, req.user.id);
+    // Non-admin: direct unread + self-notifications (from_id=to_id=me, e.g.
+    // B2B order alerts) — previously excluded so the badge never showed them
+    r = db.prepare('SELECT COUNT(*) as c FROM messages WHERE to_id=? AND is_read=0')
+      .get(req.user.id);
   }
   res.json({ count: r.c });
 });
+
+// A non-admin may message an admin, or REPLY to any user who has already
+// messaged them (so chat threads started by accounting/managers are two-way)
+function canMessage(db, fromUser, toId) {
+  if (fromUser.role === 'admin') return true;
+  const target = db.prepare('SELECT role FROM users WHERE id=?').get(toId);
+  if (!target) return false;
+  if (target.role === 'admin') return true;
+  const prior = db.prepare('SELECT 1 FROM messages WHERE from_id=? AND to_id=? LIMIT 1').get(toId, fromUser.id);
+  return !!prior;
+}
 
 // Send message
 router.post('/', auth, (req, res) => {
   const { to_id, body } = req.body;
   if (!body || !body.trim()) return res.status(400).json({ error: 'متن پیام الزامی است' });
-  // Non-admins can only send to admins (to_id must be an admin or null)
   const db = getDB();
   if (req.user.role !== 'admin' && to_id) {
-    const target = db.prepare('SELECT role FROM users WHERE id=?').get(to_id);
-    if (!target || target.role !== 'admin') return res.status(403).json({ error: 'فقط می‌توانید به مدیر پیام بفرستید' });
+    if (!canMessage(db, req.user, to_id)) return res.status(403).json({ error: 'فقط می‌توانید به مدیر یا کسی که به شما پیام داده پاسخ دهید' });
   }
   // Only admin can broadcast (to_id = null)
   const recipient = (req.user.role === 'admin') ? (to_id || null) : (to_id || null);
@@ -99,10 +189,8 @@ router.post('/with-image', auth, memUpload.single('image'), async (req, res) => 
   const { to_id, body } = req.body;
   if (!req.file) return res.status(400).json({ error: 'تصویر الزامی است' });
   const db = getDB();
-  // Non-admins can only send to admins
   if (req.user.role !== 'admin' && to_id) {
-    const target = db.prepare('SELECT role FROM users WHERE id=?').get(to_id);
-    if (!target || target.role !== 'admin') return res.status(403).json({ error: 'فقط می‌توانید به مدیر پیام بفرستید' });
+    if (!canMessage(db, req.user, to_id)) return res.status(403).json({ error: 'فقط می‌توانید به مدیر یا کسی که به شما پیام داده پاسخ دهید' });
   }
   if (!to_id && req.user.role !== 'admin') return res.status(403).json({ error: 'ارسال همگانی فقط توسط مدیر' });
   let image;

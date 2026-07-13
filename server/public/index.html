@@ -2,6 +2,8 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
+<!-- Set the theme before first paint (anti-FOUC) — must stay the first script in <head> -->
+<script>(function(){var t=localStorage.getItem('crm_theme')||'light';document.documentElement.setAttribute('data-theme',t);})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>CRM ترنم</title>
 <link rel="manifest" href="/manifest.json">
@@ -14,12 +16,68 @@
 <script src="/vendor/chart.umd.js" defer></script>
 <script src="/vendor/html2canvas.min.js" defer></script>
 <style>
+/* ===== Theme tokens — «زمرد مدرن» (light, default) =====
+   Components must read colors only through these tokens; the dark block
+   below (شب مخملی) redefines the same names. docs/design/THEME-IMPLEMENTATION.md */
 :root{
-  --purple:#1A5C38; --purple2:#2E7D4F; --purple-light:#E8F5EE;
-  --gold:#C9A227; --gold-light:#FBF5E1;
+  color-scheme:light;
+  --purple:#1A5C38; --purple2:#2E7D4F; --purple-light:#EAF4EE;
+  --gold:#C9A843; --gold-light:#FDF3D9;
   --green:#059669; --red:#DC2626; --orange:#D97706; --blue:#2563EB;
-  --bg:#f5f3ee; --card:#ffffff; --text:#22301f; --muted:#6b7280; --border:#e8e6df;
-  --hero:linear-gradient(120deg,#1A5C38 0%,#2E7D4F 55%,#C9A227 135%);
+  --bg:#F5F8F4; --card:#FFFFFF; --text:#12271C; --muted:#5F7268; --border:rgba(18,39,28,.11);
+  --hero:linear-gradient(120deg,#1A5C38 0%,#2E7D4F 55%,#C9A843 135%);
+  --on-accent:#FFFFFF;
+  --side-bg:linear-gradient(180deg,var(--purple),var(--purple2));
+  --shadow-card:0 1px 0 var(--border),0 18px 30px -28px rgba(18,39,28,.45);
+  --input-bg:#FFFFFF; --scroll-thumb:#A8C8B4;
+  --th-bg:#F2F7F3; --row-hover:#F7FAF7; --well:#EDF3EE;
+  --tip-bg:#f0fdf4; --warnbox-bg:#fffbeb;
+  --chat-bg:#E7EBE0; --bub-me:#DFF3D1;
+  --ok-bg:var(--ok-bg); --ok-fg:var(--ok-fg);
+  --bad-bg:var(--bad-bg); --bad-fg:var(--bad-fg);
+  --amber-bg:var(--amber-bg); --amber-fg:var(--amber-fg);
+  --info-bg:var(--info-bg); --info-fg:var(--info-fg);
+  --violet-bg:var(--violet-bg); --violet-fg:var(--violet-fg);
+}
+/* ===== Dark theme — «شب مخملی» (luminous dark finance) ===== */
+html[data-theme="dark"]{
+  color-scheme:dark;
+  --purple:#3DDC8C; --purple2:#1A9E63; --purple-light:rgba(61,220,140,.14);
+  --gold:#E7C876; --gold-light:rgba(231,200,118,.16);
+  --green:#34D399; --red:#F87171; --orange:#FBBF24; --blue:#60A5FA;
+  --bg:#0D1512; --card:#131F1A; --text:#E8F1EB; --muted:#7F978A; --border:rgba(120,220,170,.13);
+  --hero:linear-gradient(160deg,#101A15 0%,#13241B 60%,#1A2E14 135%);
+  --on-accent:#04150C;
+  --side-bg:linear-gradient(180deg,#101A15,#0D1512);
+  --shadow-card:inset 0 1px 0 rgba(255,255,255,.04),0 20px 40px -30px #000;
+  --input-bg:#18271F; --scroll-thumb:#2E4A3A;
+  --th-bg:#18271F; --row-hover:rgba(61,220,140,.06); --well:#101B15;
+  --tip-bg:rgba(61,220,140,.09); --warnbox-bg:rgba(231,200,118,.09);
+  --chat-bg:#0F1913; --bub-me:#1C3A2A;
+  --ok-bg:rgba(61,220,140,.16); --ok-fg:#7FE8B3;
+  --bad-bg:rgba(248,113,113,.16); --bad-fg:#FCA5A5;
+  --amber-bg:rgba(231,200,118,.16); --amber-fg:#E7C876;
+  --info-bg:rgba(96,165,250,.16); --info-fg:#93C5FD;
+  --violet-bg:rgba(167,139,250,.16); --violet-fg:#C4B5FD;
+}
+/* Velvet-night signature touches (the only theme-specific selectors) */
+html[data-theme="dark"] body{
+  background:radial-gradient(40rem 30rem at 85% -8rem,rgba(61,220,140,.08),transparent 65%),var(--bg)}
+html[data-theme="dark"] .stat,html[data-theme="dark"] .panel{
+  background:linear-gradient(160deg,#18271F,#131F1A)}
+html[data-theme="dark"] .sidebar .brand .emoji,html[data-theme="dark"] .sidebar .brand img{
+  filter:drop-shadow(0 0 10px rgba(61,220,140,.55))}
+/* Print stays light regardless of theme (invoices/reports) */
+@media print{
+  html[data-theme="dark"]{
+    --bg:#fff; --card:#fff; --text:#111; --muted:#555; --border:#ddd;
+    --purple:#1A5C38; --purple2:#2E7D4F; --gold:#C9A843; --on-accent:#fff;
+    --input-bg:#fff; --th-bg:#f2f2f2; --row-hover:#fff;
+    --ok-bg:var(--ok-bg); --ok-fg:var(--ok-fg); --bad-bg:var(--bad-bg); --bad-fg:var(--bad-fg);
+    --amber-bg:var(--amber-bg); --amber-fg:var(--amber-fg); --info-bg:var(--info-bg); --info-fg:var(--info-fg);
+  }
+  html[data-theme="dark"] body{background:#fff}
+  html[data-theme="dark"] .stat,html[data-theme="dark"] .panel{background:#fff}
 }
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Vazirmatn',sans-serif}
 html,body{height:100%;overflow-x:hidden}
@@ -28,12 +86,12 @@ a{color:inherit;text-decoration:none}
 button{cursor:pointer;font-family:inherit}
 input,select,textarea{font-family:inherit;font-size:14px}
 ::-webkit-scrollbar{width:8px;height:8px}
-::-webkit-scrollbar-thumb{background:#a8c8b4;border-radius:8px}
+::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:8px}
 
 /* ===== Login ===== */
 #login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
   background:var(--hero);padding:20px;z-index:1000}
-.login-card{background:#fff;border-radius:20px;padding:38px 30px;width:100%;max-width:380px;
+.login-card{background:var(--card);border-radius:20px;padding:38px 30px;width:100%;max-width:380px;
   box-shadow:0 20px 60px rgba(0,0,0,.25);text-align:center}
 .login-card .logo{font-size:54px;margin-bottom:8px}
 .login-card h1{color:var(--purple);font-size:24px;margin-bottom:4px}
@@ -42,7 +100,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .login-card label{display:block;font-size:13px;margin-bottom:6px;color:var(--muted)}
 .login-card input{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;outline:none}
 .login-card input:focus{border-color:var(--purple2)}
-.login-card button{width:100%;background:var(--purple);color:#fff;border:none;padding:13px;border-radius:10px;
+.login-card button{width:100%;background:var(--purple);color:var(--on-accent);border:none;padding:13px;border-radius:10px;
   font-size:15px;font-weight:600;margin-top:8px}
 .login-card button:hover{background:var(--purple2)}
 .login-err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}
@@ -51,7 +109,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 /* ===== Layout ===== */
 #app{display:none}
 .layout{display:flex;min-height:100vh}
-.sidebar{width:240px;background:linear-gradient(180deg,var(--purple),var(--purple2));color:#fff;
+.sidebar{width:240px;background:var(--side-bg);color:#fff;
   position:fixed;top:0;right:0;bottom:0;display:flex;flex-direction:column;z-index:50;
   transition:transform .25s cubic-bezier(.4,0,.2,1)}
 .sidebar.collapsed{transform:translateX(110%)}
@@ -62,11 +120,12 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .sidebar .brand small{font-size:11px;opacity:.8;display:block}
 .nav{flex:1;overflow-y:auto;padding:12px 0}
 .nav a{display:flex;align-items:center;gap:12px;padding:12px 22px;color:rgba(255,255,255,.85);font-size:14px;position:relative}
-.nav a .ico{font-size:18px;width:24px;text-align:center}
+.nav a .ico{font-size:18px;width:24px;text-align:center;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.nav a .ico svg{width:19px;height:19px;display:block;opacity:.95}
 .nav a:hover{background:rgba(255,255,255,.1);color:#fff}
 .nav a.active{background:rgba(255,255,255,.18);color:#fff;font-weight:600}
 .nav a.active::before{content:'';position:absolute;right:0;top:0;bottom:0;width:4px;background:var(--gold)}
-.nav .badge{position:absolute;left:18px;background:var(--red);color:#fff;font-size:10px;
+.nav .badge{position:absolute;left:18px;background:var(--red);color:var(--on-accent);font-size:10px;
   min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px}
 .sidebar .foot{padding:14px 20px;border-top:1px solid rgba(255,255,255,.15);font-size:12px}
 .sidebar .foot button{width:100%;background:rgba(255,255,255,.15);color:#fff;border:none;padding:9px;border-radius:8px;margin-top:8px}
@@ -90,40 +149,66 @@ input,select,textarea{font-family:inherit;font-size:14px}
 
 /* ===== Cards / Generic ===== */
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:22px;width:100%}
-.nav-section{margin-bottom:14px}
+.nav-section{margin-bottom:3px}
 .nav-section-title{font-size:10px;font-weight:700;color:var(--muted);padding:8px 14px 4px;text-transform:uppercase;letter-spacing:.04em}
-.stat{background:var(--card);border-radius:18px;padding:18px;box-shadow:0 8px 24px rgba(26,92,56,.08);
+.stat{background:var(--card);border-radius:18px;padding:18px;box-shadow:var(--shadow-card);
   border:none;border-bottom:4px solid var(--purple);display:flex;align-items:center;gap:14px;min-width:0;overflow:hidden}
 .stat:has(.ic.g){border-bottom-color:var(--green)}
 .stat:has(.ic.o){border-bottom-color:var(--gold)}
 .stat:has(.ic.r){border-bottom-color:var(--red)}
 .stat:has(.ic.b){border-bottom-color:var(--blue)}
 .stat .ic{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
-.stat .v{font-size:20px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.stat .ic svg{width:22px;height:22px;display:block;opacity:.92}
+/* Signature hero stat (بورد زمرد مدرن): the first KPI card carries the brand gradient */
+.cards .stat:first-child{background:linear-gradient(155deg,var(--purple),var(--purple2));border-bottom-color:var(--gold)}
+.cards .stat:first-child .v{color:var(--on-accent)}
+.cards .stat:first-child .l{color:var(--on-accent);opacity:.82}
+.cards .stat:first-child .ic{background:rgba(255,255,255,.18);color:var(--on-accent)}
+html[data-theme="dark"] .cards .stat:first-child{background:linear-gradient(155deg,#3DDC8C,#1A9E63)}
+.nav-section-title.nav-acc-head{
+  cursor:pointer;user-select:none;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  margin:3px 10px;padding:10px 13px;
+  font-size:13.5px;font-weight:800;letter-spacing:0;text-transform:none;line-height:1.4;
+  color:rgba(255,255,255,.95);
+  background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:11px;
+  transition:background .18s ease,border-color .18s ease,color .18s ease}
+.nav-section-title.nav-acc-head:hover{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.22);color:#fff}
+.nav-section-title.nav-acc-head.open{
+  background:linear-gradient(90deg,rgba(201,162,39,.28),rgba(201,162,39,.12));
+  border-color:rgba(201,162,39,.5);color:#FBF5E1}
+.nav-acc-head .chev{font-size:10px;opacity:.85;flex-shrink:0;
+  transition:transform .22s cubic-bezier(.4,0,.2,1);transform:rotate(90deg)}
+.nav-acc-head.open .chev{transform:rotate(0deg)}
+.nav-acc-items{padding:3px 0 7px}
+.nav-acc-items a{font-size:13px;padding:10px 28px 10px 22px}
+.stat .v{font-size:clamp(11px,2.2vw,20px);font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;line-height:1.25}
 .stat .l{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stat > div:last-child{min-width:0;overflow:hidden}
 .ic.p{background:var(--purple-light);color:var(--purple)}
-.ic.g{background:#d1fae5;color:var(--green)}
-.ic.r{background:#fee2e2;color:var(--red)}
-.ic.o{background:#fef3c7;color:var(--orange)}
-.ic.b{background:#dbeafe;color:var(--blue)}
+.ic.g{background:var(--ok-bg);color:var(--green)}
+.ic.r{background:var(--bad-bg);color:var(--red)}
+.ic.o{background:var(--amber-bg);color:var(--orange)}
+.ic.b{background:var(--info-bg);color:var(--blue)}
 
 .panel{background:var(--card);border-radius:18px;border:1px solid var(--border);
-  box-shadow:0 2px 10px rgba(34,48,31,.05);margin-bottom:20px;overflow:hidden}
+  box-shadow:var(--shadow-card);margin-bottom:20px;overflow:hidden}
 .panel-head{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;
   align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 .panel-head h4{font-size:15px;color:var(--purple)}
 .panel-body{padding:18px}
 
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
-.toolbar input,.toolbar select{padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;outline:none;background:#fff}
+.toolbar input,.toolbar select{padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;outline:none;background:var(--input-bg);color:var(--text)}
 .toolbar input:focus,.toolbar select:focus{border-color:var(--purple2)}
 .search{flex:1;min-width:180px}
 
-.btn{background:var(--purple);color:#fff;border:none;padding:9px 16px;border-radius:9px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.btn{background:var(--purple);color:var(--on-accent);border:none;padding:9px 16px;border-radius:9px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
 .btn:hover{background:var(--purple2)}
 .btn.green{background:var(--green)}.btn.red{background:var(--red)}.btn.blue{background:var(--blue)}.btn.orange{background:var(--orange)}
-.btn.ghost{background:#fff;color:var(--purple);border:1.5px solid var(--purple)}
+.btn.ghost{background:var(--card);color:var(--purple);border:1.5px solid var(--purple)}
 .btn.ghost:hover{background:var(--purple-light)}
 .btn.sm{padding:6px 10px;font-size:12px}
 .btn.icon{padding:6px 9px}
@@ -131,53 +216,53 @@ input,select,textarea{font-family:inherit;font-size:14px}
 /* ===== Table ===== */
 .tbl-wrap{overflow-x:auto}
 table.tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:600px}
-table.tbl th{background:#F2F7F3;color:var(--purple);text-align:right;padding:11px 12px;font-weight:700;border-bottom:2px solid var(--border);white-space:nowrap}
+table.tbl th{background:var(--th-bg);color:var(--purple);text-align:right;padding:11px 12px;font-weight:700;border-bottom:2px solid var(--border);white-space:nowrap}
 table.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
-table.tbl tr:hover td{background:#F7FAF7}
+table.tbl tr:hover td{background:var(--row-hover)}
 .empty{text-align:center;color:var(--muted);padding:36px 10px}
 
 .tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
-.t-vip{background:#fef3c7;color:#92400e}.t-active{background:#d1fae5;color:#065f46}
-.t-followup{background:#dbeafe;color:#1e40af}.t-silent{background:#fee2e2;color:#991b1b}
+.t-vip{background:var(--amber-bg);color:var(--amber-fg)}.t-active{background:var(--ok-bg);color:var(--ok-fg)}
+.t-followup{background:var(--info-bg);color:var(--info-fg)}.t-silent{background:var(--bad-bg);color:var(--bad-fg)}
 .t-new{background:var(--purple-light);color:var(--purple)}
-.t-pending{background:#fef3c7;color:#92400e}.t-onway{background:#dbeafe;color:#1e40af}
-.t-done{background:#d1fae5;color:#065f46}.t-cancel{background:#fee2e2;color:#991b1b}
-.t-open{background:#dbeafe;color:#1e40af}
-.t-high{background:#fee2e2;color:#991b1b}.t-mid{background:#fef3c7;color:#92400e}.t-low{background:#d1fae5;color:#065f46}
-.t-proforma{background:var(--purple-light);color:var(--purple)}.t-final{background:#d1fae5;color:#065f46}
+.t-pending{background:var(--amber-bg);color:var(--amber-fg)}.t-onway{background:var(--info-bg);color:var(--info-fg)}
+.t-done{background:var(--ok-bg);color:var(--ok-fg)}.t-cancel{background:var(--bad-bg);color:var(--bad-fg)}
+.t-open{background:var(--info-bg);color:var(--info-fg)}
+.t-high{background:var(--bad-bg);color:var(--bad-fg)}.t-mid{background:var(--amber-bg);color:var(--amber-fg)}.t-low{background:var(--ok-bg);color:var(--ok-fg)}
+.t-proforma{background:var(--purple-light);color:var(--purple)}.t-final{background:var(--ok-bg);color:var(--ok-fg)}
 
 /* ===== Modal ===== */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;
   justify-content:center;z-index:200;padding:16px}
 .overlay.open{display:flex}
-.modal{background:#fff;border-radius:16px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;
+.modal{background:var(--card);border-radius:16px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;
   box-shadow:0 20px 60px rgba(0,0,0,.3)}
 .modal.lg{max-width:820px}
-.modal-head{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:2}
+.modal-head{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--card);z-index:2}
 .modal-head h3{font-size:17px;color:var(--purple)}
-.modal-head .x{background:#f3f4f6;border:none;width:32px;height:32px;border-radius:8px;font-size:18px;color:var(--muted)}
+.modal-head .x{background:var(--bg);border:none;width:32px;height:32px;border-radius:8px;font-size:18px;color:var(--muted)}
 .modal-body{padding:20px}
-.modal-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-start;position:sticky;bottom:0;background:#fff}
+.modal-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-start;position:sticky;bottom:0;background:var(--card)}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .fg{display:flex;flex-direction:column;gap:6px}
 .fg.full{grid-column:1/-1}
 .fg label{font-size:13px;color:var(--muted)}
-.fg input,.fg select,.fg textarea{padding:10px 12px;border:1.5px solid var(--border);border-radius:9px;outline:none;background:#fff}
+.fg input,.fg select,.fg textarea{padding:10px 12px;border:1.5px solid var(--border);border-radius:9px;outline:none;background:var(--input-bg);color:var(--text)}
 .fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--purple2)}
 .fg textarea{resize:vertical;min-height:70px}
-.fg input[readonly]{background:#f3f4f6;color:var(--muted)}
+.fg input[readonly]{background:var(--bg);color:var(--muted)}
 
 /* ===== Jalali datepicker (minimal) ===== */
 .dp-overlay{position:fixed;inset:0;z-index:599;display:none}
 .dp-overlay.open{display:block}
-.dp{position:fixed;background:#fff;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.16);border:1px solid var(--border);width:224px;z-index:600;display:none;padding:10px}
+.dp{position:fixed;background:var(--card);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.16);border:1px solid var(--border);width:224px;z-index:600;display:none;padding:10px}
 .dp.open{display:block;animation:dpPop .12s ease}
 @keyframes dpPop{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
 /* Nav row */
 .dp-nav{display:flex;align-items:center;gap:4px;margin-bottom:8px}
 .dp-nav button{background:none;color:var(--text);border:1px solid var(--border);width:24px;height:24px;border-radius:5px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.1s;flex-shrink:0;padding:0}
 .dp-nav button:hover{background:var(--purple-light);border-color:var(--purple);color:var(--purple)}
-.dp-nav select{flex:1;background:#fff;color:var(--text);border:1px solid var(--border);border-radius:5px;padding:2px 4px;font-size:11px;font-family:inherit;cursor:pointer;outline:none;direction:rtl;text-align:center;height:24px}
+.dp-nav select{flex:1;background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:2px 4px;font-size:11px;font-family:inherit;cursor:pointer;outline:none;direction:rtl;text-align:center;height:24px}
 .dp-nav .dp-month-lbl{flex:1;text-align:center;font-size:12px;font-weight:700;color:var(--text)}
 /* Weekday headers */
 .dp-week{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:3px}
@@ -187,13 +272,13 @@ table.tbl tr:hover td{background:#F7FAF7}
 .dp-days button{width:100%;aspect-ratio:1;border:1px solid transparent;background:transparent;border-radius:4px;font-size:11px;color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .08s,color .08s;position:relative;font-family:inherit;padding:0}
 .dp-days button:hover:not(.empty):not(.sel){background:var(--purple-light);color:var(--purple);border-color:var(--purple)}
 .dp-days button.today{font-weight:800;color:var(--purple);border-color:var(--purple)}
-.dp-days button.sel{background:var(--purple)!important;color:#fff!important;font-weight:700;border-color:var(--purple)!important}
+.dp-days button.sel{background:var(--purple)!important;color:var(--on-accent)!important;font-weight:700;border-color:var(--purple)!important}
 .dp-days button.empty{visibility:hidden;cursor:default;pointer-events:none}
 /* Footer */
 .dp-foot{display:flex;gap:5px;margin-top:8px;padding-top:7px;border-top:1px solid var(--border)}
-.dp-foot button{flex:1;font-size:11px;padding:4px 0;border:1px solid var(--border);border-radius:5px;cursor:pointer;font-family:inherit;font-weight:600;background:#fff;color:var(--text);transition:.1s}
-.dp-foot .today-btn:hover{background:var(--purple);color:#fff;border-color:var(--purple)}
-.dp-foot .clear-btn:hover{background:#f3f4f6}
+.dp-foot button{flex:1;font-size:11px;padding:4px 0;border:1px solid var(--border);border-radius:5px;cursor:pointer;font-family:inherit;font-weight:600;background:var(--card);color:var(--text);transition:.1s}
+.dp-foot .today-btn:hover{background:var(--purple);color:var(--on-accent);border-color:var(--purple)}
+.dp-foot .clear-btn:hover{background:var(--bg)}
 @media(max-width:480px){
   .dp{width:calc(100vw - 24px);left:12px!important;right:12px!important;bottom:12px!important;top:auto!important;border-radius:10px;animation:dpSlideUp .15s ease}
   @keyframes dpSlideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
@@ -202,7 +287,7 @@ table.tbl tr:hover td{background:#F7FAF7}
 
 /* ===== Product grid ===== */
 .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px}
-.pcard{background:#fff;border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05);transition:.15s;position:relative}
+.pcard{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05);transition:.15s;position:relative}
 .pcard:hover{box-shadow:0 6px 18px rgba(107,33,168,.15);transform:translateY(-2px)}
 .pcard .img{aspect-ratio:1;background:var(--purple-light);display:flex;align-items:center;justify-content:center;font-size:42px;overflow:hidden}
 .pcard .img img{width:100%;height:100%;object-fit:cover;object-position:center}
@@ -219,35 +304,82 @@ table.tbl tr:hover td{background:#F7FAF7}
 .inv-layout{display:grid;grid-template-columns:1fr 380px;gap:18px}
 .inv-products{max-height:560px;overflow-y:auto}
 .inv-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
-.pick-card{border:1px solid var(--border);border-radius:10px;padding:8px;cursor:pointer;text-align:center;background:#fff}
+.pick-card{border:1px solid var(--border);border-radius:10px;padding:8px;cursor:pointer;text-align:center;background:var(--card)}
 .pick-card:hover{border-color:var(--purple2);background:var(--purple-light)}
 .pick-card .pimg{aspect-ratio:1;background:var(--purple-light);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:30px;overflow:hidden;margin-bottom:6px}
 .pick-card .pimg img{width:100%;height:100%;object-fit:cover;object-position:center}
 .pick-card .pn{font-size:12px;font-weight:600;min-height:32px}
 .pick-card .pp{font-size:12px;color:var(--green);font-weight:700}
-.inv-cart{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;position:sticky;top:80px;align-self:start}
+.inv-cart{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;position:sticky;top:80px;align-self:start}
 .cart-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:13px}
 .cart-row .cn{flex:1}
 .cart-row input{width:54px;padding:5px;text-align:center;border:1px solid var(--border);border-radius:6px}
 .cart-row .price-in{width:84px}
-.cart-row .rm{background:#fee2e2;color:var(--red);border:none;width:26px;height:26px;border-radius:6px}
+.cart-row .rm{background:var(--bad-bg);color:var(--red);border:none;width:26px;height:26px;border-radius:6px}
 .cart-tot{margin-top:12px;font-size:13px}
 .cart-tot .l{display:flex;justify-content:space-between;padding:5px 0}
 .cart-tot .final{font-weight:800;font-size:16px;color:var(--green);border-top:1px solid var(--border);padding-top:8px;margin-top:4px}
 
-/* ===== Messages ===== */
-.msg-tabs{display:flex;gap:8px;margin-bottom:14px}
-.msg-tabs button{padding:8px 16px;border:none;border-radius:9px;background:#f3f4f6;color:var(--muted);font-weight:600}
-.msg-tabs button.active{background:var(--purple);color:#fff}
-.msg{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px}
-.msg.unread{border-right:4px solid var(--purple);background:#faf8ff}
-.msg .mh{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
-.msg .mb{font-size:14px}
+/* ===== Messages — Telegram-style chat ===== */
+.tg{display:grid;grid-template-columns:330px 1fr;height:calc(100dvh - 150px);min-height:430px;
+  background:var(--card);border-radius:16px;overflow:hidden;border:1px solid var(--border);
+  box-shadow:0 8px 24px rgba(26,92,56,.08)}
+.tg-side{border-inline-end:1px solid var(--border);display:flex;flex-direction:column;min-width:0;background:var(--card)}
+.tg-side-head{display:flex;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);align-items:center}
+.tg-side-head input{flex:1;min-width:0;padding:8px 12px;border:1.5px solid var(--border);border-radius:20px;font-family:inherit;font-size:13px;background:var(--input-bg)}
+.tg-new{width:38px;height:38px;border-radius:50%;border:none;background:var(--purple);color:var(--on-accent);font-size:17px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.tg-list{overflow-y:auto;flex:1}
+.tg-item{display:flex;gap:10px;padding:10px 12px;cursor:pointer;align-items:center;border-bottom:1px solid var(--border);transition:background .12s}
+.tg-item:hover{background:var(--row-hover)}
+.tg-item.active{background:var(--purple);color:var(--on-accent)}
+.tg-item.active .tg-i-snip,.tg-item.active .tg-i-time{color:var(--on-accent);opacity:.75}
+.tg-av{width:46px;height:46px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:17px;user-select:none}
+.tg-i-main{flex:1;min-width:0}
+.tg-i-top{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tg-i-name{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tg-i-time{font-size:10.5px;color:var(--muted);flex-shrink:0}
+.tg-i-bot{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:3px}
+.tg-i-snip{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tg-i-badge{background:var(--green);color:var(--on-accent);border-radius:12px;min-width:19px;height:19px;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0}
+.tg-chat{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--chat-bg) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" opacity="0.05"><circle cx="30" cy="30" r="2" fill="%231a5c38"/></svg>')}
+.tg-head{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--card);border-bottom:1px solid var(--border);min-height:56px;flex-shrink:0}
+.tg-head .tg-av{width:38px;height:38px;font-size:15px}
+.tg-back{display:none;border:none;background:none;font-size:20px;cursor:pointer;padding:4px 8px;color:var(--purple)}
+.tg-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  padding:14px 14px 8px;display:flex;flex-direction:column;align-items:stretch;scroll-behavior:smooth}
+.tg-date{align-self:center;background:rgba(0,0,0,.25);color:#fff;font-size:11px;padding:3px 12px;border-radius:12px;margin:8px 0;flex-shrink:0}
+.tg-row{display:flex;margin-bottom:4px;justify-content:flex-start;width:100%;flex-shrink:0}
+.tg-row.me{justify-content:flex-end}
+.tg-bub{width:fit-content;max-width:min(76%,420px);padding:7px 11px 5px;border-radius:14px 14px 14px 4px;background:var(--card);font-size:13.5px;line-height:1.75;
+  white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;box-shadow:0 1px 1px rgba(0,0,0,.08);position:relative;flex-shrink:0}
+.tg-row.me .tg-bub{background:var(--bub-me);border-radius:14px 14px 4px 14px}
+.tg-meta{display:flex;justify-content:flex-end;align-items:center;gap:4px;font-size:10px;color:#8aa17f;margin-top:1px;direction:ltr}
+.tg-ticks{font-size:12px;line-height:1;letter-spacing:-3px;color:#9aa5af}
+.tg-ticks.read{color:#3ba0e0}
+.tg-bub img{max-width:min(280px,100%);max-height:280px;width:auto;height:auto;border-radius:9px;cursor:zoom-in;display:block;margin:2px 0 4px}
+.tg-bub .tg-del{position:absolute;top:-7px;inset-inline-start:-7px;width:20px;height:20px;border-radius:50%;background:var(--red);color:var(--on-accent);border:none;font-size:11px;cursor:pointer;display:none;align-items:center;justify-content:center;line-height:1}
+.tg-bub:hover .tg-del{display:flex}
+.tg-sender{font-size:11px;font-weight:700;color:var(--purple);margin-bottom:1px}
+.tg-compose{display:flex;gap:8px;padding:9px 12px;background:var(--card);border-top:1px solid var(--border);align-items:flex-end;flex-shrink:0}
+.tg-compose textarea{flex:1;min-width:0;resize:none;max-height:110px;border:1.5px solid var(--border);border-radius:18px;padding:9px 14px;font-family:inherit;font-size:13.5px;line-height:1.6;outline:none}
+.tg-compose textarea:focus{border-color:var(--purple)}
+.tg-iconbtn{width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;font-size:17px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.tg-send{background:var(--purple);color:var(--on-accent)}
+.tg-attach{background:var(--bg);color:var(--muted)}
+.tg-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);font-size:14px}
+@media(max-width:900px){
+  .tg{grid-template-columns:1fr;height:calc(100dvh - 125px)}
+  .tg-chat{display:none}
+  .tg.chat-open .tg-chat{display:flex}
+  .tg.chat-open .tg-side{display:none}
+  .tg-back{display:block}
+  .tg-bub{max-width:min(86%,360px)}
+}
 
 /* ===== Toast ===== */
 #toasts{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:900;display:flex;flex-direction:column;gap:8px;align-items:center}
 .toast{background:#1f2937;color:#fff;padding:12px 22px;border-radius:10px;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.25);animation:slideup .25s}
-.toast.success{background:var(--green)}.toast.error{background:var(--red)}.toast.info{background:var(--blue)}
+.toast.success{background:var(--green);color:var(--on-accent)}.toast.error{background:var(--red);color:var(--on-accent)}.toast.info{background:var(--blue);color:var(--on-accent)}
 @keyframes slideup{from{opacity:0;transform:translateY(20px)}to{opacity:1}}
 
 .muted{color:var(--muted)}
@@ -258,9 +390,9 @@ table.tbl tr:hover td{background:#F7FAF7}
 
 /* ===== Searchable Customer Select ===== */
 .cust-sw{position:relative}
-.cust-si{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:9px;outline:none;background:#fff;font-family:inherit;font-size:14px;color:var(--text)}
+.cust-si{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:9px;outline:none;background:var(--input-bg);font-family:inherit;font-size:14px;color:var(--text)}
 .cust-si:focus{border-color:var(--purple2);box-shadow:0 0 0 3px rgba(35,107,68,.08)}
-.cust-si-drop{background:#fff;border:1.5px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.16);overflow-y:auto;z-index:2000;direction:rtl}
+.cust-si-drop{background:var(--card);border:1.5px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.16);overflow-y:auto;z-index:2000;direction:rtl}
 .cust-si-item{padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px}
 .cust-si-item:last-child{border-bottom:none}
 .cust-si-item:hover{background:var(--purple-light);color:var(--purple)}
@@ -281,41 +413,41 @@ table.tbl tr:hover td{background:#F7FAF7}
 
 /* ===== Help Page ===== */
 .help-tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
-.help-tabs button{padding:9px 18px;border:none;border-radius:10px;background:#f3f4f6;color:var(--muted);font-weight:600;cursor:pointer;font-family:inherit;font-size:14px}
-.help-tabs button.active{background:var(--purple);color:#fff}
-.help-section{background:#fff;border:1px solid var(--border);border-radius:14px;margin-bottom:12px;overflow:hidden}
+.help-tabs button{padding:9px 18px;border:none;border-radius:10px;background:var(--bg);color:var(--muted);font-weight:600;cursor:pointer;font-family:inherit;font-size:14px}
+.help-tabs button.active{background:var(--purple);color:var(--on-accent)}
+.help-section{background:var(--card);border:1px solid var(--border);border-radius:14px;margin-bottom:12px;overflow:hidden}
 .help-section .hs-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer;font-weight:700;font-size:15px;user-select:none}
 .help-section .hs-head:hover{background:var(--purple-light)}
 .help-section .hs-head .hs-icon{font-size:20px;margin-left:10px}
-.help-section .hs-body{padding:0 16px 16px;font-size:14px;line-height:1.9;color:#374151;display:none}
+.help-section .hs-body{padding:0 16px 16px;font-size:14px;line-height:1.9;color:var(--text);display:none}
 .help-section.open .hs-body{display:block}
 .help-section .hs-body h5{color:var(--purple);margin:14px 0 6px;font-size:14px}
 .help-section .hs-body ul{padding-right:18px;margin:6px 0}
 .help-section .hs-body ul li{margin-bottom:4px}
-.help-section .hs-body .tip{background:#f0fdf4;border-right:3px solid var(--green);padding:10px 14px;border-radius:8px;margin:10px 0;font-size:13px}
-.help-section .hs-body .warn{background:#fffbeb;border-right:3px solid #f59e0b;padding:10px 14px;border-radius:8px;margin:10px 0;font-size:13px}
+.help-section .hs-body .tip{background:var(--tip-bg);border-right:3px solid var(--green);padding:10px 14px;border-radius:8px;margin:10px 0;font-size:13px}
+.help-section .hs-body .warn{background:var(--warnbox-bg);border-right:3px solid #f59e0b;padding:10px 14px;border-radius:8px;margin:10px 0;font-size:13px}
 
 /* ===== API Page ===== */
-.api-key-row{display:flex;align-items:center;gap:10px;padding:12px;background:#fff;border:1px solid var(--border);border-radius:10px;margin-bottom:8px}
+.api-key-row{display:flex;align-items:center;gap:10px;padding:12px;background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:8px}
 .api-key-row .key-name{font-weight:700;flex:1}
-.api-key-row .key-prefix{font-family:monospace;font-size:12px;color:var(--muted);background:#f3f4f6;padding:3px 8px;border-radius:6px}
-.api-key-row .key-scope{font-size:12px;color:var(--blue);background:#eff6ff;padding:3px 8px;border-radius:6px}
+.api-key-row .key-prefix{font-family:monospace;font-size:12px;color:var(--muted);background:var(--bg);padding:3px 8px;border-radius:6px}
+.api-key-row .key-scope{font-size:12px;color:var(--blue);background:var(--info-bg);padding:3px 8px;border-radius:6px}
 .api-reveal{font-family:monospace;font-size:13px;background:#1f2937;color:#86efac;padding:14px;border-radius:10px;word-break:break-all;margin:12px 0;direction:ltr;text-align:left}
-.webhook-row{display:flex;align-items:center;gap:10px;padding:12px;background:#fff;border:1px solid var(--border);border-radius:10px;margin-bottom:8px}
+.webhook-row{display:flex;align-items:center;gap:10px;padding:12px;background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:8px}
 .usage-tbl{font-size:12px;width:100%}
 .usage-tbl td,.usage-tbl th{padding:6px 8px;border-bottom:1px solid var(--border)}
 .usage-tbl th{color:var(--muted);font-weight:600}
 
 /* Role tags */
-.t-inside{background:#ede9fe;color:#5b21b6}
-.t-field{background:#e0f2fe;color:#0c4a6e}
+.t-inside{background:var(--violet-bg);color:var(--violet-fg)}
+.t-field{background:var(--info-bg);color:var(--info-fg)}
 
 /* ===== Pipeline Kanban Board ===== */
 .pipeline-board{display:flex;gap:12px;overflow-x:auto;padding-bottom:16px;align-items:flex-start;width:100%;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
-.pipeline-col{flex:0 0 210px;background:#f4f7f5;border-radius:12px;padding:10px;min-height:160px;scroll-snap-align:start;min-width:0}
+.pipeline-col{flex:0 0 210px;background:var(--well);border-radius:12px;padding:10px;min-height:160px;scroll-snap-align:start;min-width:0}
 .pipeline-col .col-head{display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:700;color:var(--purple);padding-bottom:8px;margin-bottom:8px;border-bottom:2px solid var(--border)}
-.pipeline-col .col-head .cnt{background:var(--purple);color:#fff;border-radius:10px;min-width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;padding:0 5px}
-.f-card{background:#fff;border-radius:10px;padding:11px;margin-bottom:8px;border:1px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,.05);cursor:pointer;transition:.15s;min-width:0;overflow:hidden}
+.pipeline-col .col-head .cnt{background:var(--purple);color:var(--on-accent);border-radius:10px;min-width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;padding:0 5px}
+.f-card{background:var(--card);border-radius:10px;padding:11px;margin-bottom:8px;border:1px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,.05);cursor:pointer;transition:.15s;min-width:0;overflow:hidden}
 .f-card:hover{border-color:var(--purple2);box-shadow:0 4px 12px rgba(26,92,56,.12)}
 .f-card .fc-cust{font-weight:700;font-size:13px;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .f-card .fc-sub{font-size:12px;color:var(--muted);margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -327,19 +459,19 @@ table.tbl tr:hover td{background:#F7FAF7}
 .int-very_low{background:#9ca3af}.int-low{background:#f59e0b}.int-mid{background:#3b82f6}.int-high{background:#10b981}.int-very_high{background:#7c3aed}
 
 /* Pipeline stage tag colors */
-.t-lead{background:#ede9fe;color:#5b21b6}
-.t-contact{background:#dbeafe;color:#1e40af}
-.t-proposal{background:#fef3c7;color:#92400e}
-.t-negotiation{background:#fee2e2;color:#991b1b}
-.t-won{background:#d1fae5;color:#065f46}
-.t-lost{background:#f3f4f6;color:#6b7280}
+.t-lead{background:var(--violet-bg);color:var(--violet-fg)}
+.t-contact{background:var(--info-bg);color:var(--info-fg)}
+.t-proposal{background:var(--amber-bg);color:var(--amber-fg)}
+.t-negotiation{background:var(--bad-bg);color:var(--bad-fg)}
+.t-won{background:var(--ok-bg);color:var(--ok-fg)}
+.t-lost{background:var(--bg);color:var(--muted)}
 
 /* ===== Activity Timeline ===== */
 .timeline{list-style:none;padding:0;position:relative}
 .timeline::before{content:'';position:absolute;right:15px;top:0;bottom:0;width:2px;background:var(--border)}
 .timeline-item{display:flex;gap:12px;padding-bottom:18px;position:relative}
-.timeline-dot{width:30px;height:30px;border-radius:50%;background:var(--purple-light);color:var(--purple);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;z-index:1;border:2px solid #fff;box-shadow:0 0 0 2px var(--purple-light)}
-.timeline-body{flex:1;background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px}
+.timeline-dot{width:30px;height:30px;border-radius:50%;background:var(--purple-light);color:var(--purple);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;z-index:1;border:2px solid var(--card);box-shadow:0 0 0 2px var(--purple-light)}
+.timeline-body{flex:1;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px}
 .tm-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
 .tm-type{font-weight:700;font-size:13px;color:var(--purple)}
 .tm-date{font-size:11px;color:var(--muted)}
@@ -437,12 +569,29 @@ table.tbl tr:hover td{background:#F7FAF7}
   z-index:801;align-items:center;gap:10px;max-width:min(520px,calc(100vw - 24px));font-size:13px}
 #updateBanner button{background:#fbbf24;color:#1A5C38;border:none;padding:7px 14px;border-radius:9px;font-weight:700;font-size:12px;white-space:nowrap}
 #updateBanner .x-btn{background:rgba(255,255,255,.15);border:none;color:#fff;width:26px;height:26px;border-radius:50%;font-size:15px;flex-shrink:0}
+
+/* ===== B2B customer portal ===== */
+#b2bPortal{display:none;min-height:100vh;background:linear-gradient(135deg,var(--purple) 0%,#7c3aed 100%);align-items:flex-start;justify-content:center;padding:24px 14px}
+.b2b-wrap{width:100%;max-width:960px}
+.b2b-card{background:var(--card);border-radius:16px;padding:26px;box-shadow:0 12px 40px rgba(0,0,0,.22)}
+.b2b-head{text-align:center;margin-bottom:18px}
+.b2b-head h2{color:var(--purple);margin-bottom:4px}
+.b2b-tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+.b2b-tabs button{flex:1;min-width:90px;padding:10px;border:1.5px solid var(--border);background:var(--card);border-radius:10px;font-family:inherit;cursor:pointer;font-size:13px}
+.b2b-tabs button.active{background:var(--purple);color:var(--on-accent);border-color:var(--purple)}
+.b2b-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.b2b-prod{border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center;font-size:12px;background:var(--card)}
+.b2b-prod.unavail{opacity:.55}
+.b2b-prod img{width:100%;height:90px;object-fit:cover;border-radius:8px;margin-bottom:6px}
+.b2b-cart{margin-top:16px;padding-top:12px;border-top:1px dashed var(--border)}
+.b2b-back{color:rgba(255,255,255,.92);font-size:13px;cursor:pointer;display:inline-block;margin-bottom:12px}
 </style>
 </head>
 <body>
 
 <!-- ===== LOGIN ===== -->
 <div id="login">
+  <button class="theme-toggle-btn" onclick="toggleTheme()" style="position:fixed;top:14px;left:14px;background:rgba(255,255,255,.15);color:#fff;border:none;padding:8px 14px;border-radius:20px;font-size:12px;font-weight:700;backdrop-filter:blur(4px)">🌙 حالت تاریک</button>
   <div class="login-card">
     <div class="logo"><img src="/logo-sm.png" alt="ترنم" style="height:110px;margin-bottom:6px" onerror="this.src='/logo.png';this.onerror=()=>{this.style.display='none';this.nextElementSibling.style.display='block'}"><span style="display:none;font-size:54px">🌿</span></div>
     <h1>CRM ترنم</h1>
@@ -460,9 +609,20 @@ table.tbl tr:hover td{background:#F7FAF7}
       <div style="text-align:center;margin-top:12px">
         <a href="#" onclick="openForgotPass();return false" style="font-size:13px;color:var(--purple)">رمز عبور را فراموش کرده‌اید؟</a>
       </div>
+      <div id="b2bEntryLink" style="text-align:center;margin-top:10px;display:none">
+        <a href="#portal" onclick="openB2BPortal();return false" style="font-size:13px;color:var(--purple);font-weight:600">🛒 ورود پورتال مشتریان (B2B)</a>
+      </div>
       <div class="login-err" id="loginErr"></div>
     </form>
     <div class="login-hint">نسخه ۳ · پوشاک ترنم مشهد</div>
+  </div>
+</div>
+
+<!-- ===== B2B CUSTOMER PORTAL ===== -->
+<div id="b2bPortal">
+  <div class="b2b-wrap">
+    <span class="b2b-back" onclick="closeB2BPortal()">← بازگشت به ورود کارکنان</span>
+    <div class="b2b-card" id="b2bContent"></div>
   </div>
 </div>
 
@@ -477,7 +637,9 @@ table.tbl tr:hover td{background:#F7FAF7}
       <nav class="nav" id="nav"></nav>
       <div class="foot">
         <div id="footUser" class="muted" style="color:rgba(255,255,255,.85)"></div>
+        <button class="theme-toggle-btn" onclick="toggleTheme()">🌙 حالت تاریک</button>
         <button onclick="openChangePass()">🔑 تغییر رمز</button>
+        <button onclick="openSecurityModal()">🔐 امنیت</button>
         <button onclick="logout()">🚪 خروج</button>
       </div>
     </aside>
@@ -623,9 +785,11 @@ async function api(method, path, data, isFormData){
       if(r.status===403 && j.code==='must_change_password' && !el('fc-old')) openForcePassChange();
       showToast(j.error || 'خطا رخ داد','error'); throw new Error(j.error||'error');
     }
+    if(SYNC_MODE && ['POST','PUT','PATCH','DELETE'].includes(method)) scheduleBgSync();
     return j;
   }
   if(!r.ok){ showToast('خطا رخ داد','error'); throw new Error('error'); }
+  if(SYNC_MODE && ['POST','PUT','PATCH','DELETE'].includes(method)) scheduleBgSync();
   return r;
 }
 
@@ -667,10 +831,64 @@ function formatMoneyInput(elm){
 function moneyVal(id){ const e=el(id); if(!e) return 0; return parseInt((e.value||'').replace(/[^\d]/g,''))||0; }
 // Pre-fill a money input with a formatted initial value
 function moneyInit(v){ v=parseInt(v)||0; return v?Number(v).toLocaleString('en-US'):''; }
+/* ---- Auto-English digits: any field that must hold Latin numerals converts
+   Persian/Arabic digits the moment they are typed (hardware keyboards on a
+   Persian layout), and inputmode already gives mobile users the digit pad.
+   Covered: number/tel inputs, inputmode numeric/decimal, money fields,
+   Jalali date fields (data-jdate) and common numeric ids (phone/qty/…). */
+const RE_FA_DIGIT=/[۰-۹٠-٩]/;
+function toEnDigits(s){
+  return String(s==null?'':s)
+    .replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+    .replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+}
+function wantsEnDigits(t){
+  if(!t || t.tagName!=='INPUT') return false;
+  const type=(t.type||'').toLowerCase();
+  if(type==='number'||type==='tel') return true;
+  const im=(t.getAttribute('inputmode')||'').toLowerCase();
+  if(im==='numeric'||im==='decimal'||im==='tel') return true;
+  if(t.classList.contains('money')||t.classList.contains('en-digits')||t.hasAttribute('data-jdate')) return true;
+  return /phone|mobile|qty|price|amount|percent|rate|hour|barcode|sheba|card|balance|stock|-num|-no$|-code|otp/i.test(t.id||t.name||'');
+}
 document.addEventListener('input', function(e){
   const t=e.target;
-  if(t && t.classList && t.classList.contains('money')) formatMoneyInput(t);
+  if(!t) return;
+  if(wantsEnDigits(t) && RE_FA_DIGIT.test(t.value||'')){
+    const pos=t.selectionStart;
+    t.value=toEnDigits(t.value);
+    try{ t.setSelectionRange(pos,pos); }catch(_){}
+  }
+  if(t.classList && t.classList.contains('money')) formatMoneyInput(t);
 }, true);
+/* ---- Theme (زمرد مدرن / شب مخملی) — docs/design/THEME-IMPLEMENTATION.md ----
+   data-theme lives on <html>, set pre-paint by the inline head script;
+   everything styles itself through the :root tokens. */
+function currentTheme(){ return document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light'; }
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  try{ localStorage.setItem('crm_theme', t); }catch(_){}
+  const meta=document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.content = t==='dark' ? '#0D1512' : '#1A5C38';
+  document.querySelectorAll('.theme-toggle-btn').forEach(b=>{
+    b.textContent = t==='dark' ? '☀️ حالت روشن' : '🌙 حالت تاریک';
+  });
+  rebuildChartsForTheme();
+}
+function toggleTheme(){ applyTheme(currentTheme()==='dark'?'light':'dark'); }
+function chartTheme(){
+  const dark=currentTheme()==='dark';
+  return {
+    grid:  dark?'rgba(120,220,170,.08)':'rgba(18,39,28,.07)',
+    ticks: dark?'#7F978A':'#5F7268',
+    bar:   dark?'#3DDC8C':'#1A5C38',
+    fill:  dark?'rgba(61,220,140,.14)':'rgba(26,92,56,.10)',
+    gold:  dark?'#E7C876':'#C9A843'
+  };
+}
+function rebuildChartsForTheme(){
+  try{ if(typeof mChart!=='undefined' && mChart && _lastMonthly && _lastMonthly.length) drawChart(_lastMonthly); }catch(_){}
+}
 function toFa(n){ return String(n||0).replace(/[0-9]/g,d=>'۰۱۲۳۴۵۶۷۸۹'[d]); }
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function escDate(s){ // validate and display Jalali date; if corrupted, show '-'
@@ -850,9 +1068,9 @@ function showCustDrop(id, q){
   drop.style.display='block';
   let html='';
   if(optional) html+=`<div class="cust-si-item" onclick="pickCust('${id}',0)"><span>بدون مشتری</span></div>`;
-  html+=list.slice(0,40).map(c=>`
+  html+=list.slice(0,80).map(c=>`
     <div class="cust-si-item" onclick="pickCust('${id}',${c.id})">
-      <span>${esc(c.biz)}</span>
+      <span>${esc(c.biz)}${c.owner?` <span class="muted">(${esc(c.owner)})</span>`:''}</span>
       <span class="cust-si-meta">${esc(c.phone||'')}</span>
     </div>`).join('');
   if(!html) html='<div class="cust-si-empty">مشتری یافت نشد</div>';
@@ -864,7 +1082,7 @@ function pickCust(id, custId){
   if(inp){
     if(custId){
       const c=CACHE.customers.find(x=>x.id===+custId);
-      inp.value=c?c.biz:'';
+      inp.value=c?(c.biz+(c.owner?' — '+c.owner:'')):'';
     } else { inp.value=''; }
   }
   hideCustDrop(id);
@@ -979,6 +1197,7 @@ el('loginForm').addEventListener('submit', async (e)=>{
     const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
     const j = await r.json();
     if(!r.ok){ el('loginErr').textContent = j.error || 'خطا در ورود'; return; }
+    if(j.twofa_required){ show2FALogin(j.pre_token); return; }
     localStorage.setItem('crm_token', j.token);
     localStorage.setItem('crm_user', JSON.stringify(j.user));
     ME = j.user;
@@ -1019,6 +1238,65 @@ async function doForcePassChange(){
   closeModal();
   showToast('رمز عبور با موفقیت تغییر کرد');
   if(el('app').style.display!=='block') await boot();
+}
+
+/* ---- 2FA login step (TOTP) ---- */
+let _pre2faToken = null;
+function show2FALogin(preToken){
+  _pre2faToken = preToken;
+  openModal(`
+    <div class="modal-head"><h3>🔐 کد تأیید دو مرحله‌ای</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <p class="muted" style="font-size:13px;margin-bottom:12px">کد ۶ رقمی برنامه Authenticator را وارد کنید.</p>
+      <div class="form-grid">
+        <div class="fg full"><label>کد تأیید</label>
+          <input id="tfa-code" dir="ltr" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+                 onkeydown="if(event.key==='Enter')verify2FALogin()"></div>
+        <div class="fg full" id="tfa-rec-wrap" style="display:none"><label>کد بازیابی (۸ کاراکتری)</label>
+          <input id="tfa-recovery" dir="ltr" maxlength="8"
+                 onkeydown="if(event.key==='Enter')verify2FARecovery()"></div>
+      </div>
+      <div id="tfa-err" class="muted" style="font-size:12px;margin-top:8px;color:#dc2626"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="tfa-btn" onclick="verify2FALogin()">تأیید و ورود</button>
+      <button class="btn ghost" onclick="toggle2FARecovery()">استفاده از کد بازیابی</button>
+    </div>`);
+  setTimeout(()=>el('tfa-code')?.focus(), 100);
+}
+function toggle2FARecovery(){
+  const w = el('tfa-rec-wrap');
+  const showing = w.style.display!=='none';
+  w.style.display = showing ? 'none' : 'block';
+  el('tfa-btn').setAttribute('onclick', showing ? 'verify2FALogin()' : 'verify2FARecovery()');
+  if(!showing) el('tfa-recovery').focus();
+}
+async function finish2FALogin(r){
+  const j = await r.json();
+  if(!r.ok){ el('tfa-err').textContent = j.error || 'خطا'; return; }
+  closeModal();
+  localStorage.setItem('crm_token', j.token);
+  localStorage.setItem('crm_user', JSON.stringify(j.user));
+  ME = j.user;
+  if(j.remaining_codes !== undefined) showToast(`ورود با کد بازیابی — ${j.remaining_codes} کد باقی مانده`, 'warn');
+  if(j.must_change_password){ openForcePassChange(); return; }
+  await boot();
+}
+async function verify2FALogin(){
+  const code = el('tfa-code').value.trim();
+  if(!code){ el('tfa-err').textContent='کد را وارد کنید'; return; }
+  try{
+    const r = await fetch('/api/auth/2fa/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})});
+    await finish2FALogin(r);
+  }catch{ el('tfa-err').textContent='خطای ارتباط با سرور'; }
+}
+async function verify2FARecovery(){
+  const code = el('tfa-recovery').value.trim();
+  if(!code){ el('tfa-err').textContent='کد بازیابی را وارد کنید'; return; }
+  try{
+    const r = await fetch('/api/auth/2fa/recovery-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})});
+    await finish2FALogin(r);
+  }catch{ el('tfa-err').textContent='خطای ارتباط با سرور'; }
 }
 
 function openForgotPass(){
@@ -1075,6 +1353,81 @@ function logout(){
 /* ============================================================
    NAV / ROUTING
 ============================================================ */
+/* Modern icon set (Lucide, inlined as SVG — offline-safe, no CDN, colors via
+   currentColor so they follow the design system). Spec 1.0.9 §7. */
+const LU = (()=> {
+  const w = inner => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+  const d = {
+    dashboard: '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+    home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+    users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+    receipt: '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 7h8"/><path d="M8 11h8"/><path d="M8 15h5"/>',
+    bag: '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+    bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+    trending: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+    bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+    cart: '<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
+    wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+    chat: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+    settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+    plug: '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+    book: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+    briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+    scale: '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
+    landmark: '<line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
+    chart: '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+    linechart: '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>',
+    factory: '<path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/>',
+    file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+    undo: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+    redo: '<polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/>',
+    target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+    banknote: '<rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
+    card: '<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>',
+    folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+    repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+    bookmark: '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
+    box: '<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73Z"/><path d="M12 22V12"/><path d="m3.3 7 8.7 5 8.7-5"/>',
+    truck: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35a1 1 0 0 0-.78-.38H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+    person: '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+    clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+    warehouse: '<path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z"/><path d="M6 22V12h12v10"/><path d="M6 17h12"/>',
+    pen: '<path d="M12.5 22H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9l5 5v4"/><path d="m21.4 14.6-6.8 6.8-3.1.7.7-3.1 6.8-6.8a1.7 1.7 0 0 1 2.4 2.4Z"/>',
+    tags: '<path d="m15 5 6.3 6.3a2.4 2.4 0 0 1 0 3.4L17 19"/><path d="M9.586 5.586A2 2 0 0 0 8.172 5H3a1 1 0 0 0-1 1v5.172a2 2 0 0 0 .586 1.414L8.29 18.29a2.426 2.426 0 0 0 3.42 0l3.58-3.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="6.5" cy="9.5" r=".5" fill="currentColor"/>',
+    coins: '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>',
+    back: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+    monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+  };
+  const byNav = {
+    dash:'dashboard', customers:'users', followups:'phone', invoices:'receipt', products:'bag',
+    reminders:'bell', users:'user', reports:'trending', ai:'bot', b2bOrders:'cart',
+    accounting:'wallet', messages:'chat', settings:'settings', backup:'archive', api:'plug',
+    help:'book', catalog:'bag', 'my-rep':'briefcase', 'desktop-settings':'monitor',
+    'exit-acc-shell':'back', 'acc-dash':'dashboard', 'acc-general':'linechart',
+    'acc-trial-balance':'scale', 'acc-balance-sheet':'landmark', 'acc-adv-reports':'chart',
+    'acc-production':'factory', 'acc-receivables':'receipt', 'acc-sales-invoices':'file',
+    'acc-sales-returns':'undo', 'acc-statement':'file', 'acc-commissions':'target',
+    'acc-reps':'briefcase', 'acc-customer-groups':'users', 'acc-settlements':'banknote',
+    'acc-cheques':'card', 'acc-banks':'landmark', 'acc-check-categories':'folder',
+    'acc-cash-boxes':'wallet', 'acc-transfers':'repeat', 'acc-trust-checks':'bookmark',
+    'acc-petty-cash':'coins', 'acc-purchases':'box', 'acc-purchase-returns':'redo',
+    'acc-suppliers':'truck', 'acc-persons':'person', 'acc-item-kardex':'clipboard',
+    'acc-warehouses':'warehouse', 'acc-warehouse-ops':'box', 'acc-consignments':'repeat',
+    'acc-vouchers':'pen', 'acc-cost-centers':'tags', 'acc-payroll':'coins',
+  };
+  const out = {};
+  for (const [nav, key] of Object.entries(byNav)) out[nav] = w(d[key]);
+  out._w = w; out._d = d;
+  return out;
+})();
+function lucide(k){ return LU._w(LU._d[k]||''); }
+function navIcon(it){ return LU[it.id] || it.icon || ''; }
+// Emoji → Lucide key for stat cards (spec 1.0.9 §7)
+const EMO_LU = {'👥':'users','💰':'coins','🧾':'receipt','📋':'file','🛍️':'bag','📞':'phone','📉':'trending','🎯':'target','💵':'wallet','📊':'chart','📦':'box','⚠️':'bell','✅':'bookmark','⏳':'bell','🚚':'truck','🔔':'bell','⚖️':'scale','💴':'banknote','💹':'trending','📈':'linechart','💼':'briefcase','🏆':'target','📅':'file'};
+
 const NAV_ADMIN = [
   {id:'dash', icon:'📊', label:'داشبورد'},
   {id:'customers', icon:'👥', label:'مشتریان'},
@@ -1084,6 +1437,8 @@ const NAV_ADMIN = [
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'users', icon:'👤', label:'کاربران'},
   {id:'reports', icon:'📈', label:'گزارشات'},
+  {id:'ai', icon:'🤖', label:'دستیار AI'},
+  {id:'b2bOrders', icon:'🛒', label:'سفارشات B2B'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'settings', icon:'⚙️', label:'تنظیمات'},
@@ -1097,6 +1452,7 @@ const NAV_SALES = [
   {id:'followups', icon:'📞', label:'پیگیری‌ها'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'catalog', icon:'🛍️', label:'کاتالوگ'},
+  {id:'ai', icon:'🤖', label:'دستیار AI'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'help', icon:'📖', label:'راهنما'},
@@ -1162,6 +1518,11 @@ const ACC_NAV_SECTIONS = [
 ];
 function accNavFlat(){ return ACC_NAV_SECTIONS.flatMap(s=>s.items); }
 const ACC_NAV = accNavFlat();
+const ACC_NAV_COLLAPSED = new Set(ACC_NAV_SECTIONS.map((_, i) => i));
+function toggleAccNavSection(si){
+  if(ACC_NAV_COLLAPSED.has(si)) ACC_NAV_COLLAPSED.delete(si); else ACC_NAV_COLLAPSED.add(si);
+  buildNav();
+}
 let IN_ACC_SHELL = false;
 let CURRENT_PAGE = 'dash';
 
@@ -1190,7 +1551,8 @@ function navItems(){
   if(IN_ACC_SHELL){
     return accNavForRole();
   }
-  if(ME.role==='admin') return NAV_ADMIN;
+  // B2B portal is central-only — hide its admin menu on offline device builds
+  if(ME.role==='admin') return (APP_INFO&&APP_INFO.role==='device') ? NAV_ADMIN.filter(it=>it.id!=='b2bOrders') : NAV_ADMIN;
   if(ME.role==='accounting' || ME.role==='sales_manager'){
     let items = NAV_ACCOUNTING;
     if(isDesktopApp()){
@@ -1213,21 +1575,25 @@ function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
 function buildNav(){
   const linkHtml = it=>`
     <a href="#" data-page="${it.id}" onclick="go('${it.id}');return false;">
-      <span class="ico">${it.icon}</span><span>${it.label}</span>
+      <span class="ico">${navIcon(it)}</span><span>${it.label}</span>
       ${it.id==='messages'?'<span class="badge hide" id="msgBadge">0</span>':''}
       ${it.id==='reminders'?'<span class="badge hide" id="remBadge">0</span>':''}
     </a>`;
   if(IN_ACC_SHELL){
-    el('nav').innerHTML = ACC_NAV_SECTIONS.map(sec=>{
+    el('nav').innerHTML = ACC_NAV_SECTIONS.map((sec, secIdx)=>{
       const items = sec.items.filter(filterAccNavItem);
       if(ME?.role==='sales_manager'){
         const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements']);
         const filtered=items.filter(it=>allowed.has(it.id));
         if(!filtered.length) return '';
-        return `<div class="nav-section"><div class="nav-section-title">${sec.title}</div>${filtered.map(linkHtml).join('')}</div>`;
+        return `<div class="nav-section"><div class="nav-section-title nav-acc-head ${ACC_NAV_COLLAPSED.has(secIdx)?'':'open'}" onclick="toggleAccNavSection(${secIdx})">${sec.title}<span class="chev">▾</span></div><div class="nav-acc-items" style="display:${ACC_NAV_COLLAPSED.has(secIdx)?'none':'block'}">${filtered.map(linkHtml).join('')}</div></div>`;
       }
       if(!items.length) return '';
-      return `<div class="nav-section"><div class="nav-section-title">${sec.title}</div>${items.map(linkHtml).join('')}</div>`;
+      const collapsed = ACC_NAV_COLLAPSED.has(secIdx);
+      return `<div class="nav-section">
+        <div class="nav-section-title nav-acc-head ${collapsed?'':'open'}" onclick="toggleAccNavSection(${secIdx})">${sec.title}<span class="chev">▾</span></div>
+        <div class="nav-acc-items" style="display:${collapsed?'none':'block'}">${items.map(linkHtml).join('')}</div>
+      </div>`;
     }).join('');
     return;
   }
@@ -1266,12 +1632,15 @@ function exitAccountingShell(){
 function go(page){
   if(page==='accounting'){ enterAccountingShell(); return; }
   if(page==='exit-acc-shell'){ exitAccountingShell(); return; }
+  if(page!=='messages' && typeof stopMsgPoll==='function') stopMsgPoll();
   CURRENT_PAGE = page;
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
   const it = navItems().find(x=>x.id===page);
   el('pageTitle').textContent = it?it.label:'';
   if(window.innerWidth<=900) closeSidebar();
-  ROUTES[page] ? ROUTES[page]() : (el('view').innerHTML='');
+  // After every page render, shrink stat-card numbers that overflow their card
+  // (large totals like فروش کل on حساب من were spilling out — spec 1.0.9 §4)
+  ROUTES[page] ? Promise.resolve(ROUTES[page]()).finally(()=>setTimeout(fitStatNums,60)) : (el('view').innerHTML='');
 }
 function toggleSidebar(){
   if(window.innerWidth<=900){
@@ -1335,14 +1704,15 @@ async function loadInitial(){
       return;
     }
     const fetches = [api('GET','/customers'), api('GET','/products')];
-    if(ME.role==='admin') fetches.push(api('GET','/auth/users'), api('GET','/settings'));
+    if(ME.role==='admin') fetches.push(api('GET','/auth/users'));
     const results = await Promise.all(fetches);
     CACHE.customers = results[0]||[];
     CACHE.products = results[1]||[];
     CACHE.allProducts = results[1]||[];
     if(ME.role==='admin'){
       CACHE.users = results[2]||[];
-      CACHE.settings = results[3]||{};
+      CACHE.settings = {};
+      api('GET','/settings').then(s=>{ CACHE.settings=s||{}; }).catch(()=>{});
     } else {
       CACHE.users = [];
     }
@@ -1518,6 +1888,22 @@ async function syncNowUI(){
   maybeRefreshAfterSync(); // refresh lists/ids if sync changed local data
 }
 
+let _bgSyncTimer=null;
+async function bgSyncSilent(){
+  if(!SYNC_MODE) return;
+  const token=localStorage.getItem('crm_token');
+  try{
+    const r=await fetch('/api/sync/now',{method:'POST',headers:{'Authorization':'Bearer '+token}});
+    const j=await r.json().catch(()=>({}));
+    if(j.ok){ SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge(); maybeRefreshAfterSync(); }
+  }catch(e){}
+}
+function scheduleBgSync(){
+  if(!SYNC_MODE) return;
+  clearTimeout(_bgSyncTimer);
+  _bgSyncTimer=setTimeout(bgSyncSilent, 2000);
+}
+
 async function discardSyncConflict(outboxId){
   if(!confirm('این عملیات به‌طور کامل لغو و اثر محلی آن برگردانده شود؟')) return;
   const token = localStorage.getItem('crm_token');
@@ -1626,6 +2012,7 @@ async function renderDashContent(){
   const dk = (dashDateFrom||'')+'|'+(dashDateTo||'')+'|'+ME.role;
   if(_dashHtmlCache.key===dk && Date.now()-_dashHtmlCache.t<45000){
     body.innerHTML = _dashHtmlCache.html;
+    requestAnimationFrame(fitStatNums);
     return;
   }
   body.innerHTML = '<div class="muted">در حال بارگذاری...</div>';
@@ -1686,6 +2073,7 @@ async function renderDashContent(){
         </div>
       </div>`:''}`;
     _dashHtmlCache = { key:dk, html:body.innerHTML, t:Date.now() };
+    requestAnimationFrame(fitStatNums);
   } else {
     const balances = await apiCached('GET','/customers/balances',30000);
     let followups, invoices;
@@ -1749,6 +2137,7 @@ async function renderDashContent(){
         </div>
       </div>`;
     _dashHtmlCache = { key:dk, html:body.innerHTML, t:Date.now() };
+    requestAnimationFrame(fitStatNums);
   }
 };
 function filterDashBalances(name){
@@ -1780,11 +2169,19 @@ function parseStatNum(val){
 function statCard(c,ic,val,l){
   const n=parseStatNum(val);
   const isNum=!isNaN(n) && String(val).match(/[\d۰-۹]/) && !String(val).match(/[#✓]/);
-  const display=isNum?fmtCompact(n):String(val);
-  const tip=isNum?fmt(n):'';
-  return `<div class="stat"${tip?` title="${tip}"`:''}><div class="ic ${c}">${ic}</div><div><div class="v mono">${display}</div><div class="l">${l}</div></div></div>`;
+  const display=isNum?fmt(n):String(val);
+  const iconHtml = ic.startsWith('<') ? ic : (EMO_LU[ic] ? lucide(EMO_LU[ic]) : ic);
+  return `<div class="stat"><div class="ic ${c}">${iconHtml}</div><div><div class="v mono">${display}</div><div class="l">${l}</div></div></div>`;
 }
-function fitStatNums(){ /* CSS text-overflow handles stat sizing — avoids layout thrashing */ }
+function fitStatNums(){
+  document.querySelectorAll('.stat .v').forEach(v=>{
+    v.style.fontSize='';
+    // Start from the actual computed size (respects mobile media queries),
+    // then step down until the number fits — never clip with ellipsis.
+    let fs=Math.min(20, Math.round(parseFloat(getComputedStyle(v).fontSize)||20));
+    while(fs>9 && v.scrollWidth>v.clientWidth){ fs-=1; v.style.fontSize=fs+'px'; }
+  });
+}
 function emptyRow(cols){ return `<tr><td colspan="${cols}" class="empty">موردی یافت نشد</td></tr>`; }
 
 /* ============================================================
@@ -1798,7 +2195,7 @@ ROUTES.customers = async function(){
   const v = el('view');
   v.innerHTML = `
     <div class="toolbar">
-      <input class="search" id="cSearch" placeholder="جستجوی مشتری..." value="${esc(custFilter.q)}">
+      <input class="search" id="cSearch" placeholder="جستجو: نام کامل یا نام فروشگاه..." value="${esc(custFilter.q)}">
       <select id="cStatus">
         <option value="">همه وضعیت‌ها</option>
         ${['vip','active','followup','silent','new'].map(s=>`<option value="${s}" ${custFilter.status===s?'selected':''}>${STATUS_LABEL[s]}</option>`).join('')}
@@ -1854,7 +2251,7 @@ function renderCustTable(){
       <button class="btn sm red" onclick="confirmDelete('customers',${c.id},'${esc(c.biz)}')">🗑️</button></td>
     <td>${esc(c.city||'-')}</td>
     <td class="muted" style="font-size:12px;max-width:180px">${esc(c.address||'-')}</td>
-    <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}</td>
+    <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" style="background:#dbeafe;color:#1d4ed8" title="دسترسی پورتال B2B فعال">B2B</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="ریسک ریزش مشتری (تحلیل AI)">⚠️${c.churn_score}٪</span>`:''}</td>
     ${isAdmin?`<td class="muted">${esc(c.salesperson||'-')}</td><td class="mono" style="color:${(c.balance||0)>0?'#dc2626':(c.balance||0)<0?'var(--green)':'var(--muted)'}">${(c.balance||0)!==0?fmt(c.balance)+' ت':'-'}</td>`:''}
   </tr>`).join('')||emptyRow(isAdmin?11:9)}</tbody>
   ${isAdmin?`<tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
@@ -1953,11 +2350,32 @@ async function custModal(id){
           </div>`:''}
         </div>
       </div>`:''}
+      ${id&&isAdmin()&&!(APP_INFO&&APP_INFO.role==='device')?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
+        <p style="font-weight:600;margin-bottom:8px">🛒 پورتال B2B ${hlp('با فعال‌سازی، مشتری می‌تواند با شماره موبایل خود وارد پورتال شود، کاتالوگ را ببیند، سفارش ثبت کند و صورتحسابش را مشاهده کند. سفارش‌ها به‌صورت پیش‌فاکتور به نام کارشناس مشتری ثبت می‌شوند.')}</p>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500;margin-bottom:8px">
+          <input type="checkbox" id="c-b2b-enabled" ${c.b2b_enabled?'checked':''} style="width:auto">
+          دسترسی مشتری به پورتال فعال باشد
+        </label>
+        <div class="fg" style="margin-bottom:8px"><label>رمز عبور پورتال ${hlp('حداقل ۶ کاراکتر. اگر خالی بگذارید رمز قبلی حفظ می‌شود (یا مشتری با کد پیامکی وارد می‌شود).')}</label>
+          <input id="c-b2b-pass" type="password" placeholder="رمز جدید (اختیاری)" autocomplete="new-password"></div>
+        <button class="btn sm blue" type="button" onclick="saveB2BAccess(${id})">💾 ذخیره دسترسی B2B</button>
+      </div>`:''}
     </div></div>
     <div class="modal-foot">
       <button class="btn" onclick="saveCust(${id||0})">💾 ذخیره</button>
       ${id?`<button class="btn blue" onclick="closeModal();custActivityModal(${id})">📋 تاریخچه</button>`:''}
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveB2BAccess(id){
+  const c = CACHE.customers.find(x=>x.id===id);
+  if(!c) return;
+  const enabled = el('c-b2b-enabled')?.checked;
+  const password = el('c-b2b-pass')?.value||'';
+  if(enabled && !c.phone){ showToast('این مشتری شماره موبایل ندارد — ابتدا موبایل را ثبت و ذخیره کنید','error'); return; }
+  await api('POST','/b2b/admin/customers/'+id+'/access',{enabled:!!enabled, phone:c.phone, password});
+  await reloadCustomers();
+  if(CURRENT_PAGE==='customers') renderCustTable();
+  showToast(enabled?'دسترسی پورتال B2B فعال شد':'دسترسی پورتال B2B غیرفعال شد');
 }
 function updateCityDropdown(prov){
   const sel = el('c-city'); if(!sel) return;
@@ -2032,7 +2450,7 @@ function debounceCust(){ clearTimeout(custTimer); custTimer=setTimeout(renderCus
 function debounceFup(){ clearTimeout(fupTimer); fupTimer=setTimeout(renderFupView,250); }
 function debounceInv(){ clearTimeout(invTimer); invTimer=setTimeout(renderInvTable,250); }
 function debounceRem(){ clearTimeout(remTimer); remTimer=setTimeout(renderRemList,250); }
-function debounceMsg(){ clearTimeout(msgTimer); msgTimer=setTimeout(renderMsgs,250); }
+function debounceMsg(){ clearTimeout(msgTimer); msgTimer=setTimeout(tgRenderThreads,250); }
 function accRecvCacheKey(){ return (accDateFrom||'')+'|'+(accDateTo||''); }
 function renderAccReceivablesBody(body){
   if(!body) body=el('accBody');
@@ -2123,7 +2541,7 @@ function setFupView(v){
   renderFupView();
 }
 function filterFups(){
-  let rows=CACHE.followups.slice();
+  let rows=CACHE.followups.slice().sort((a,b)=>(b.created_at||0)-(a.created_at||0));
   if(fupFilter.q){const q=fupFilter.q.toLowerCase();rows=rows.filter(f=>((f.cust_biz||'')+' '+(f.subject||'')+' '+(f.note||'')+' '+(f.tags||'')).toLowerCase().includes(q));}
   if(fupFilter.status)rows=rows.filter(f=>f.status===fupFilter.status);
   if(fupFilter.stage)rows=rows.filter(f=>(f.pipeline_stage||'lead')===fupFilter.stage);
@@ -2186,7 +2604,7 @@ function renderFupTable(){
       </div>`;
     }).join('')||'<div class="empty">پیگیری‌ای یافت نشد</div>'}
   </div></div>`;
-  window._fupCustGroups=keys.map(k=>groups[k].items);
+  _fupCustGroups=keys.map(k=>groups[k].items);
 }
 let _fupCustGroups=[];
 function toggleFupCustFolder(gi){
@@ -2482,12 +2900,6 @@ async function _openInvBuilder(id){
           <option value="cash" ${inv&&inv.pay_type==='cheque'?'':'selected'}>نقد</option>
           <option value="cheque" ${inv&&inv.pay_type==='cheque'?'selected':''}>چک</option>
         </select></div>
-        <div class="fg"><label>کانال فروش</label><select id="inv-channel">
-          <option value="">—</option>
-          <option value="field" ${inv&&inv.sales_channel==='field'?'selected':''}>میدانی</option>
-          <option value="phone" ${inv&&inv.sales_channel==='phone'?'selected':''}>تلفنی</option>
-          <option value="online" ${inv&&inv.sales_channel==='online'?'selected':''}>آنلاین</option>
-        </select></div>
         <div class="fg"><label>منبع سرنخ</label><input id="inv-lead" value="${esc(inv?inv.lead_source:'')}" placeholder="مثال: اینستاگرام، نمایشگاه"></div>
         <div class="fg"><label>کمپین</label><input id="inv-campaign" value="${esc(inv?inv.campaign:'')}" placeholder="اختیاری"></div>
       </div>
@@ -2501,7 +2913,7 @@ async function _openInvBuilder(id){
       <div class="inv-layout">
         <div>
           <input class="search" id="invProdSearch" placeholder="جستجوی محصول..." style="margin-bottom:6px;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" oninput="renderInvPicker()">
-          <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:8px" onclick="invProdQuickModal(el('invProdSearch')?.value||'')">➕ ساخت محصول جدید</button>
+          <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:8px" onclick="openBarcodeScanner(scanBarcodeToCart)">📷 اسکن بارکد</button>
           <div id="mobPickHint" style="display:none;font-size:11px;color:var(--muted);margin-bottom:8px;text-align:center">👆 برای افزودن، دو بار روی محصول بزنید</div>
           <div class="inv-products"><div class="inv-pick" id="invPicker"></div></div>
         </div>
@@ -2539,10 +2951,7 @@ function renderInvPicker(){
       <div class="pp">${fmt(p.price)} ت</div>
       <div class="pst" style="font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}">موجودی: ${fmt(avail)}</div>
     </div>`;
-  }).join('') + (extra?`<div class="muted" style="padding:10px;text-align:center;font-size:12px">${fmt(extra)} محصول دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" style="padding:16px;text-align:center">
-    <div style="margin-bottom:10px">محصولی یافت نشد</div>
-    <button type="button" class="btn sm" onclick="invProdQuickModal('${esc((el('invProdSearch')?.value||'').trim())}')">➕ ساخت محصول «${esc((el('invProdSearch')?.value||'').trim()||'جدید')}»</button>
-  </div>`;
+  }).join('') + (extra?`<div class="muted" style="padding:10px;text-align:center;font-size:12px">${fmt(extra)} محصول دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" style="padding:16px;text-align:center">محصولی یافت نشد — از بخش محصولات، کالای جدید اضافه کنید</div>`;
 }
 async function invProdQuickModal(prefill){
   if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
@@ -2649,7 +3058,6 @@ async function saveInvoice(id){
     cheque_duration: pay_type==='cheque' ? (el('inv-cheque-dur')?.value||'') : '',
     cheque_due_date: pay_type==='cheque' ? (el('inv-cheque-due')?.value||'') : '',
     cheque_info: pay_type==='cheque' ? (el('inv-cheque-info')?.value||'') : '',
-    sales_channel: el('inv-channel')?.value||'',
     lead_source: el('inv-lead')?.value||'',
     campaign: el('inv-campaign')?.value||'',
     rows: invCart.map(r=>({product_id:r.product_id, qty:r.qty, price:r.price, disc:r.disc||0}))
@@ -2721,10 +3129,12 @@ async function productsPage(canEdit){
   const needMeta = !CACHE._prodMetaLoaded;
   if(needMeta){
     el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
+    // Each meta call is independent — one failure (e.g. a permission gap)
+    // must not blank the whole catalog page for sales users
     const [cats, warehouses, pCats] = await Promise.all([
-      apiCached('GET','/products/categories', 300000),
-      apiCached('GET','/warehouses', 300000),
-      canEdit ? apiCached('GET','/product-categories', 300000) : Promise.resolve([])
+      apiCached('GET','/products/categories', 300000).catch(()=>[]),
+      apiCached('GET','/warehouses', 300000).catch(()=>[]),
+      canEdit ? apiCached('GET','/product-categories', 300000).catch(()=>[]) : Promise.resolve([])
     ]);
     CACHE._prodCats = cats||[];
     CACHE._prodWarehouses = warehouses||[];
@@ -2747,6 +3157,8 @@ async function productsPage(canEdit){
       ${canEdit?`<button class="btn" onclick="prodModal()">➕ محصول</button>
         <button class="btn ghost" onclick="productCategoriesModal()">🏷️ دسته‌بندی‌ها</button>
         <button class="btn ghost" onclick="enterAccountingShell().then(()=>go('acc-warehouses'))">🏭 موجودی انبارها</button>
+        <button class="btn ghost" onclick="go('stocktaking')">📋 انبارگردانی</button>
+        <button class="btn ghost" onclick="openBarcodeScanner(async c=>{ try{ const p=await api('GET','/products/by-barcode/'+encodeURIComponent(c)); if(p&&p.id){ showToast(p.name+' — موجودی: '+fmt(p.stock)); prodModal(p.id); } }catch(e){} })">📷 اسکن بارکد</button>
         <button class="btn ghost" onclick="importProducts()">📤 ورود اکسل</button>
         <button class="btn ghost" onclick="downloadTemplate()">📄 قالب</button>
         <button class="btn ghost" onclick="exportExcel('products')">📥 خروجی</button>`:''}
@@ -2797,6 +3209,7 @@ function renderProdGrid(canEdit){
         ${(p.colors>1||p.pack_size>1)?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.colors>1?`🎨 ${p.colors} رنگ`:''}${p.colors>1&&p.pack_size>1?' · ':''}${p.pack_size>1?`📦 ${p.pack_size} عدد/پک`:''}</div>`:''}
         ${canEdit?`<div class="acts">
           <button class="btn sm ghost" onclick="prodModal(${p.id})">✏️</button>
+          ${p.barcode?`<button class="btn sm ghost" onclick="openBarcodeLabels(${p.id})" title="چاپ برچسب بارکد">🏷️</button>`:''}
           <button class="btn sm red" onclick="confirmDelete('products',${p.id},'${esc(p.name)}')">🗑️</button>
         </div>`:''}
       </div></div>`;
@@ -2865,6 +3278,12 @@ async function prodModal(id){
       <div class="fg"><label>واحد ${hlp('واحد شمارش محصول: عدد، دست، بسته و…')}</label><input id="p-unit" value="${esc(p.unit||'عدد')}"></div>
       <div class="fg"><label>تعداد رنگ ${hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" value="${p.colors!=null?p.colors:1}"></div>
       <div class="fg"><label>تعداد در پک ${hlp('تعداد پیش‌فرض هر بسته. در فاکتور به صورت خودکار اعمال می‌شود.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
+      <div class="fg"><label>بارکد (EAN-13) ${hlp('بارکد محصول برای اسکن با دوربین در فاکتورساز و چاپ برچسب. اگر خالی باشد می‌توانید بعد از ذخیره، خودکار تولید کنید.')}</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input id="p-barcode" dir="ltr" value="${esc(p.barcode||'')}" placeholder="مثلاً 2000000001234" style="flex:1">
+          ${id&&!p.barcode?`<button type="button" class="btn sm ghost" onclick="genBarcode(${id})" title="تولید خودکار بارکد">⚡ تولید</button>`:''}
+          ${id&&p.barcode?`<button type="button" class="btn sm ghost" onclick="openBarcodeLabels(${id})" title="چاپ برچسب بارکد">🏷️ برچسب</button>`:''}
+        </div></div>
       <div class="fg"><label>انبار اصلی ${hlp('انباری که این محصول در آن نگهداری می‌شود.')}</label>
         <select id="p-warehouse"><option value="">— پیش‌فرض —</option>
           ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}" ${p.warehouse_id===w.id?'selected':''}>${esc(w.name)}</option>`).join('')}
@@ -2891,6 +3310,7 @@ async function saveProduct(id){
   fd.append('unit',el('p-unit').value||'عدد');
   fd.append('colors',el('p-colors')?.value||1);
   fd.append('pack_size',el('p-pack_size')?.value||1);
+  fd.append('barcode',el('p-barcode')?.value||'');
   fd.append('warehouse_id',el('p-warehouse')?.value||'');
   fd.append('note',el('p-note').value);
   const f = el('p-image').files[0];
@@ -2902,6 +3322,97 @@ async function saveProduct(id){
     showToast('ذخیره شد');
   }catch(e){ showToast('خطا در ذخیره محصول','error'); }
 }
+/* ============================================================
+   BARCODE — generate, print labels, camera scan  [ported from v4]
+============================================================ */
+async function genBarcode(id){
+  try{
+    const r=await api('POST','/products/'+id+'/generate-barcode');
+    if(r&&r.barcode){
+      showToast('بارکد تولید شد: '+r.barcode);
+      const inp=el('p-barcode'); if(inp) inp.value=r.barcode;
+      const p=(CACHE.products||[]).find(x=>x.id===id); if(p) p.barcode=r.barcode;
+      const ap=(CACHE.allProducts||[]).find(x=>x.id===id); if(ap) ap.barcode=r.barcode;
+    }
+  }catch(e){}
+}
+function openBarcodeLabels(id){
+  const token=localStorage.getItem('crm_token');
+  window.open('/api/products/'+id+'/labels?count=12&token='+encodeURIComponent(token),'_blank');
+}
+let _bcScanner=null, _bcOnScan=null, _bcLibLoading=null;
+function loadBarcodeLib(){
+  if(typeof Html5Qrcode!=='undefined') return Promise.resolve(true);
+  if(_bcLibLoading) return _bcLibLoading;
+  _bcLibLoading=new Promise(resolve=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
+    s.onload=()=>resolve(true);
+    s.onerror=()=>{ _bcLibLoading=null; resolve(false); };
+    document.head.appendChild(s);
+  });
+  return _bcLibLoading;
+}
+// The scanner uses its OWN overlay (not modalRoot) so it can be opened on top
+// of other modals (e.g. the invoice builder) without destroying them.
+async function openBarcodeScanner(onScan){
+  _bcOnScan=onScan;
+  closeBarcodeOverlay();
+  const ov=document.createElement('div');
+  ov.id='bcOverlay';
+  ov.className='overlay open';
+  ov.style.zIndex='10050';
+  ov.onclick=e=>{ if(e.target===ov) closeBarcodeOverlay(); };
+  ov.innerHTML=`<div class="modal" style="max-width:420px">
+    <div class="modal-head"><h3>📷 اسکن بارکد</h3><button class="x" onclick="closeBarcodeOverlay()">×</button></div>
+    <div class="modal-body" style="text-align:center">
+      <div id="bcReader" style="max-width:340px;margin:0 auto"></div>
+      <p id="bcCamHint" class="muted" style="font-size:12px;margin-top:8px">در حال راه‌اندازی دوربین...</p>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <input id="bcManual" dir="ltr" placeholder="یا کد را دستی وارد کنید" style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" onkeydown="if(event.key==='Enter')submitManualBarcode()">
+        <button class="btn sm" onclick="submitManualBarcode()">جستجو</button>
+      </div>
+    </div></div>`;
+  document.body.appendChild(ov);
+  const ok=await loadBarcodeLib();
+  const hint=el('bcCamHint');
+  if(!ok||typeof Html5Qrcode==='undefined'){ if(hint) hint.textContent='اسکنر بارگذاری نشد (نیاز به اینترنت) — کد را دستی وارد کنید'; return; }
+  try{
+    _bcScanner=new Html5Qrcode('bcReader');
+    await _bcScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:250,height:150}},
+      code=>handleBarcodeScan(code),()=>{});
+    if(el('bcCamHint')) el('bcCamHint').textContent='دوربین فعال — بارکد را مقابل دوربین بگیرید';
+  }catch(e){
+    if(el('bcCamHint')) el('bcCamHint').textContent='دوربین در دسترس نیست — کد را دستی وارد کنید';
+  }
+}
+function stopBarcodeScanner(){
+  if(_bcScanner){ _bcScanner.stop().catch(()=>{}); try{_bcScanner.clear();}catch(e){} _bcScanner=null; }
+}
+function closeBarcodeOverlay(){
+  stopBarcodeScanner();
+  document.getElementById('bcOverlay')?.remove();
+}
+function submitManualBarcode(){
+  const code=el('bcManual')?.value?.trim();
+  if(code) handleBarcodeScan(code);
+}
+function handleBarcodeScan(raw){
+  const code=String(raw||'').trim();
+  if(!code) return;
+  closeBarcodeOverlay();
+  if(_bcOnScan) _bcOnScan(code);
+}
+async function scanBarcodeToCart(code){
+  try{
+    const p=await api('GET','/products/by-barcode/'+encodeURIComponent(code));
+    if(p&&p.id){
+      if(!(CACHE.products||[]).find(x=>x.id===p.id)) (CACHE.products=CACHE.products||[]).push(p);
+      addToCart(p.id); showToast('افزوده شد: '+p.name);
+    }
+  }catch(e){}
+}
+
 function importProducts(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
   inp.onchange=async()=>{
@@ -2924,6 +3435,157 @@ async function downloadAuth(path,filename){
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
     URL.revokeObjectURL(a.href);
   }catch(e){ showToast('خطا در دانلود','error'); }
+}
+
+/* ============================================================
+   STOCKTAKING (انبارگردانی)
+============================================================ */
+const STK_STATUS = { draft:'پیش‌نویس', completed:'تکمیل‌شده', adjusted:'اعمال‌شده' };
+let stkFilter = { warehouse_id:'', user_id:'', date_from:'', date_to:'', status:'' };
+let _stkDetailId = null;
+ROUTES.stocktaking = async function(){
+  if(ME.role!=='admin' && ME.role!=='accounting'){ el('view').innerHTML='<div class="empty">دسترسی محدود</div>'; return; }
+  if(!CACHE._prodWarehouses?.length) CACHE._prodWarehouses=await apiCached('GET','/warehouses',300000)||[];
+  if(!CACHE.users?.length) CACHE.users=await apiCached('GET','/auth/users',60000)||[];
+  el('view').innerHTML=`<div class="toolbar" style="flex-wrap:wrap;gap:8px">
+    <select id="stkWh"><option value="">همه انبارها</option>
+      ${(CACHE._prodWarehouses||[]).map(w=>`<option value="${w.id}" ${String(stkFilter.warehouse_id)===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}
+    </select>
+    <select id="stkUser"><option value="">همه مسئولین</option>
+      ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}" ${String(stkFilter.user_id)===String(u.id)?'selected':''}>${esc(u.name)}</option>`).join('')}
+    </select>
+    <input id="stkFrom" data-jdate placeholder="از تاریخ" value="${esc(stkFilter.date_from)}" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;width:120px">
+    <input id="stkTo" data-jdate placeholder="تا تاریخ" value="${esc(stkFilter.date_to)}" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;width:120px">
+    <select id="stkStatus"><option value="">همه وضعیت‌ها</option>
+      ${Object.entries(STK_STATUS).map(([k,l])=>`<option value="${k}" ${stkFilter.status===k?'selected':''}>${l}</option>`).join('')}
+    </select>
+    <button class="btn sm" onclick="loadStocktakingList()">🔍 اعمال</button>
+    <button class="btn green" onclick="stkNewModal()">➕ شروع انبارگردانی</button>
+    <button class="btn ghost" onclick="go('products')">← بازگشت به محصولات</button>
+  </div>
+  <div id="stkBody"><div class="muted">در حال بارگذاری...</div></div>`;
+  attachDatepickers(el('view'));
+  await loadStocktakingList();
+};
+function stkQuery(){
+  const p=[];
+  if(stkFilter.warehouse_id) p.push('warehouse_id='+encodeURIComponent(stkFilter.warehouse_id));
+  if(stkFilter.user_id) p.push('user_id='+encodeURIComponent(stkFilter.user_id));
+  if(stkFilter.date_from) p.push('date_from='+encodeURIComponent(stkFilter.date_from));
+  if(stkFilter.date_to) p.push('date_to='+encodeURIComponent(stkFilter.date_to));
+  if(stkFilter.status) p.push('status='+encodeURIComponent(stkFilter.status));
+  return p.length?'?'+p.join('&'):'';
+}
+async function loadStocktakingList(){
+  stkFilter.warehouse_id=el('stkWh')?.value||'';
+  stkFilter.user_id=el('stkUser')?.value||'';
+  stkFilter.date_from=el('stkFrom')?.value||'';
+  stkFilter.date_to=el('stkTo')?.value||'';
+  stkFilter.status=el('stkStatus')?.value||'';
+  const box=el('stkBody'); if(!box) return;
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const rows=await api('GET','/stocktaking'+stkQuery())||[];
+  if(_stkDetailId){
+    const found=rows.some(r=>r.id===_stkDetailId);
+    if(found) return stkOpenDetail(_stkDetailId);
+    _stkDetailId=null;
+  }
+  box.innerHTML=`<div class="panel"><div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
+    <th>#</th><th>تاریخ</th><th>انبار</th><th>مسئول</th><th>وضعیت</th><th>ثبت‌کننده</th><th>عملیات</th>
+  </tr></thead><tbody>${rows.map(r=>`<tr>
+    <td class="mono">${r.id}</td>
+    <td class="mono">${escDate(r.date)}</td>
+    <td>${esc(r.warehouse_name||'-')}</td>
+    <td>${esc(r.responsible_name||'-')}</td>
+    <td><span class="tag ${r.status==='adjusted'?'t-done':r.status==='completed'?'t-open':'t-new'}">${STK_STATUS[r.status]||r.status}</span></td>
+    <td class="muted">${esc(r.creator_name||'-')}</td>
+    <td style="white-space:nowrap">
+      <button class="btn sm" onclick="stkOpenDetail(${r.id})">📋 جزئیات</button>
+      ${r.status!=='adjusted'?`<button class="btn sm red" onclick="stkDelete(${r.id})">🗑️</button>`:''}
+    </td>
+  </tr>`).join('')||emptyRow(7)}</tbody></table></div></div>`;
+}
+async function stkOpenDetail(id){
+  _stkDetailId=id;
+  const box=el('stkBody'); if(!box) return;
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const d=await api('GET','/stocktaking/'+id);
+  if(!d?.session){ box.innerHTML='<div class="empty">یافت نشد</div>'; return; }
+  const s=d.session, items=d.items||[];
+  const editable=s.status!=='adjusted';
+  const varianceTotal=items.reduce((a,it)=>a+((it.counted_qty||0)-(it.system_qty||0)),0);
+  box.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <button class="btn ghost sm" onclick="_stkDetailId=null;loadStocktakingList()">← لیست</button>
+      <span class="tag t-new">انبار: ${esc(s.warehouse_name||'-')}</span>
+      <span class="tag">${STK_STATUS[s.status]||s.status}</span>
+      <span class="muted">تاریخ: ${escDate(s.date)} — مسئول: ${esc(s.responsible_name||'-')}</span>
+      ${editable?`<button class="btn sm" onclick="stkSaveItems(${s.id})">💾 ذخیره شمارش</button>
+        <button class="btn sm blue" onclick="stkComplete(${s.id})">✅ تکمیل</button>
+        <button class="btn sm green" onclick="stkApply(${s.id})">📦 تأیید و اعمال اصلاحات</button>`:''}
+    </div>
+    <div class="panel"><div class="panel-head"><h4>اقلام انبارگردانی #${s.id} (${items.length} قلم)</h4>
+      <span class="muted">جمع اختلاف: <b style="color:${varianceTotal>0?'var(--green)':varianceTotal<0?'var(--red)':'inherit'}">${varianceTotal>0?'+':''}${fmt(varianceTotal)}</b></span>
+    </div>
+    <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <th>کد</th><th>محصول</th><th>واحد</th><th>موجودی سیستم</th><th>موجودی شمارش‌شده</th><th>اختلاف</th>
+    </tr></thead><tbody>${items.map(it=>{
+      const v=(it.counted_qty||0)-(it.system_qty||0);
+      return `<tr>
+        <td class="mono">${esc(it.code||'-')}</td>
+        <td>${esc(it.name||'-')}</td>
+        <td>${esc(it.unit||'-')}</td>
+        <td class="mono">${fmt(it.system_qty||0)}</td>
+        <td>${editable?`<input type="number" min="0" class="stk-count" data-id="${it.id}" value="${it.counted_qty||0}" style="width:90px;padding:4px 8px;border:1.5px solid var(--border);border-radius:6px">`:`<span class="mono">${fmt(it.counted_qty||0)}</span>`}</td>
+        <td class="mono" style="font-weight:600;color:${v>0?'var(--green)':v<0?'var(--red)':'var(--muted)'}">${v>0?'+':''}${fmt(v)}</td>
+      </tr>`;
+    }).join('')||emptyRow(6)}</tbody></table></div></div>
+    ${s.note?`<div class="muted" style="margin-top:8px">یادداشت: ${esc(s.note)}</div>`:''}`;
+}
+function stkNewModal(){
+  openModal(`
+    <div class="modal-head"><h3>📋 شروع انبارگردانی جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>انبار *</label><select id="stk-new-wh"><option value="">— انتخاب —</option>
+        ${(CACHE._prodWarehouses||[]).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>تاریخ</label><input id="stk-new-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>مسئول</label><select id="stk-new-user"><option value="">— خودم —</option>
+        ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg full"><label>یادداشت</label><textarea id="stk-new-note" placeholder="توضیحات..."></textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn green" onclick="stkCreate()">➕ ایجاد</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function stkCreate(){
+  const whId=+el('stk-new-wh').value;
+  if(!whId){ showToast('انبار را انتخاب کنید','error'); return; }
+  try{
+    const r=await api('POST','/stocktaking',{ warehouse_id:whId, date:el('stk-new-date').value, responsible_user_id:+el('stk-new-user').value||null, note:el('stk-new-note').value||'' });
+    closeModal(); showToast(`انبارگردانی #${r.id} با ${r.item_count} قلم ایجاد شد`);
+    _stkDetailId=r.id; await loadStocktakingList();
+  }catch(e){}
+}
+async function stkSaveItems(id){
+  const items=[...document.querySelectorAll('.stk-count')].map(inp=>({ id:+inp.dataset.id, counted_qty:+inp.value||0 }));
+  try{ await api('PUT','/stocktaking/'+id+'/items',{items}); showToast('شمارش ذخیره شد'); stkOpenDetail(id); }catch(e){}
+}
+async function stkComplete(id){
+  if(!confirm('انبارگردانی تکمیل شود؟')) return;
+  try{ await api('POST','/stocktaking/'+id+'/complete'); showToast('تکمیل شد'); stkOpenDetail(id); }catch(e){}
+}
+async function stkApply(id){
+  if(!confirm('اصلاحات موجودی اعمال شود؟ این عمل برگشت‌پذیر نیست.')) return;
+  try{
+    await api('POST','/stocktaking/'+id+'/apply');
+    showToast('اصلاحات اعمال شد'); CACHE.allProducts=[]; CACHE.products=[]; _stkDetailId=id; stkOpenDetail(id);
+  }catch(e){}
+}
+async function stkDelete(id){
+  if(!confirm('این انبارگردانی حذف شود؟')) return;
+  try{ await api('DELETE','/stocktaking/'+id); showToast('حذف شد'); _stkDetailId=null; loadStocktakingList(); }catch(e){}
 }
 
 /* ============================================================
@@ -3130,11 +3792,13 @@ let _lastMonthly = [];
 function drawChart(monthly){
   const ctx=el('repChart'); if(!ctx)return;
   if(mChart)mChart.destroy();
+  const th=chartTheme();
   mChart=new Chart(ctx,{type:'bar',data:{
     labels:monthly.map(m=>m.ym),
-    datasets:[{label:'فروش (تومان)',data:monthly.map(m=>m.revenue),backgroundColor:'#7C3AED',borderRadius:6}]
-  },options:{responsive:true,plugins:{legend:{labels:{font:{family:'Vazirmatn'}}}},
-    scales:{x:{ticks:{font:{family:'Vazirmatn'}}},y:{ticks:{font:{family:'Vazirmatn'},callback:v=>fmt(v)}}}}});
+    datasets:[{label:'فروش (تومان)',data:monthly.map(m=>m.revenue),backgroundColor:th.bar,borderRadius:6}]
+  },options:{responsive:true,plugins:{legend:{labels:{font:{family:'Vazirmatn'},color:th.ticks}}},
+    scales:{x:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks}},
+            y:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks,callback:v=>fmt(v)}}}}});
 }
 
 /* ============================================================
@@ -3158,17 +3822,11 @@ ROUTES['acc-dash'] = async function(){
   const cached = cacheGet('page:acc-dash', 45000);
   if(cached){ el('view').innerHTML=cached; return; }
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const accounts = CACHE.chartOfAccounts?.length
-    ? CACHE.chartOfAccounts
-    : await apiCached('GET','/accounting/chart-of-accounts', 120000);
-  const [ov, tb, payables] = await Promise.all([
-    apiCached('GET','/accounting/overview', 45000),
-    apiCached('GET','/accounting/trial-balance', 45000),
-    apiCached('GET','/suppliers/balances/list', 45000)
-  ]);
+  const ov = await apiCached('GET','/accounting/overview', 45000);
   if(!ov) return;
-  CACHE.chartOfAccounts=accounts||[];
-  const totalPayable=(payables||[]).reduce((a,s)=>a+(s.payable||0),0);
+  const pendingRep = await apiCached('GET','/reps/payments/pending', 30000).catch(()=>[]);
+  const totalPayable = ov.totalPayable || 0;
+  const tbBalanced = ov.trialBalanced;
   el('view').innerHTML=`
     <div class="cards">
       ${statCard('g','🧾',fmt(ov.totalInvoiced),'کل فاکتور رسمی (ت)')}
@@ -3176,8 +3834,21 @@ ROUTES['acc-dash'] = async function(){
       ${statCard('r','⏳',fmt(Math.max(0,ov.outstanding)),'مانده مطالبات مشتریان (ت)')}
       ${statCard('o','🚚',fmt(totalPayable),'مانده پرداختنی تأمین‌کنندگان (ت)')}
       ${statCard('p','🔔',fmt(ov.pendingApproval),'فاکتور منتظر تأیید')}
-      ${statCard(tb&&tb.balanced?'g':'r','⚖️',tb?(tb.balanced?'متوازن ✓':'نامتوازن!'):'-','وضعیت تراز آزمایشی')}
+      ${statCard('o','⏳',fmt(ov.pendingSettlements||0),'تسویه منتظر تأیید')}
+      ${statCard(tbBalanced?'g':'r','⚖️',tbBalanced?'متوازن ✓':'نامتوازن!','وضعیت تراز آزمایشی')}
     </div>
+    ${(pendingRep||[]).length?`<div class="panel" style="margin-bottom:16px;border-color:#fde68a">
+      <div class="panel-head"><h4>⏳ تسویه‌های میدانی منتظر تأیید (${pendingRep.length})</h4>
+        <button class="btn sm" onclick="go('acc-settlements')">مشاهده همه</button></div>
+      <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>تاریخ</th><th>نماینده</th><th>مشتری</th><th>مبلغ</th><th>رسید</th><th></th>
+      </tr></thead><tbody>${pendingRep.slice(0,8).map(p=>`<tr>
+        <td class="mono">${escDate(p.date)}</td><td>${esc(p.rep_name)}</td>
+        <td>${esc(p.cust_biz||'-')}</td><td class="mono">${fmt(p.amount)}</td>
+        <td>${repReceiptBtn(p.receipt_file)}</td>
+        <td><button class="btn sm green" onclick="approveRepPayment(${p.id}).then(()=>go('acc-dash'))">✅</button></td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>`:''}
     <div class="panel" style="margin-bottom:16px">
       <div class="panel-head"><h4>🚀 دسترسی سریع</h4></div>
       <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:10px">
@@ -3198,7 +3869,6 @@ ROUTES['acc-dash'] = async function(){
         <div class="toolbar" style="margin-bottom:12px">
           <select id="glAccount" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px" onchange="loadGeneralLedger(this.value)">
             <option value="">-- انتخاب حساب --</option>
-            ${(accounts||[]).map(a=>`<option value="${a.code}">${a.code} — ${esc(a.name)}</option>`).join('')}
           </select>
         </div>
         <div id="glBody"><div class="empty" style="padding:30px">یک حساب را برای مشاهده دفتر کل انتخاب کنید</div></div>
@@ -3212,9 +3882,19 @@ ROUTES['acc-dash'] = async function(){
       <div class="panel-body" id="accDashChart"><div class="muted">در حال بارگذاری کدینگ...</div></div>
     </div>`;
   cacheSet('page:acc-dash', el('view').innerHTML);
+  const accounts = CACHE.chartOfAccounts?.length
+    ? CACHE.chartOfAccounts
+    : await apiCached('GET','/accounting/chart-of-accounts', 120000);
+  CACHE.chartOfAccounts=accounts||[];
+  const sel=el('glAccount');
+  if(sel){
+    sel.innerHTML='<option value="">-- انتخاب حساب --</option>'+
+      (accounts||[]).map(a=>`<option value="${a.code}">${a.code} — ${esc(a.name)}</option>`).join('');
+  }
   requestAnimationFrame(()=>{
     const c=el('accDashChart');
     if(c){ c.innerHTML=chartOfAccountsGroupedHtml(accounts||[]); cacheSet('page:acc-dash', el('view').innerHTML); }
+    fitStatNums();
   });
 };
 
@@ -5999,7 +6679,7 @@ async function renderCashOpsTab(body, dq){
         <td>${esc(p.cust_biz||'-')}${p.cust_owner?`<br><span class="muted">${esc(p.cust_owner)}</span>`:''}</td>
         <td>${p.pay_type==='cheque'?'🧾 چک':p.pay_type==='bank_transfer'?'🏦 واریز':'💵 نقد'}</td>
         <td class="mono">${fmt(p.amount)}</td>
-        <td>${p.receipt_file?`<a href="/uploads/reps/${esc(p.receipt_file)}" target="_blank">🖼️ مشاهده</a>`:'-'}</td>
+        <td>${repReceiptBtn(p.receipt_file)}</td>
         <td style="white-space:nowrap">
           <button class="btn sm green" onclick="approveRepPayment(${p.id})">✅ تأیید</button>
           <button class="btn sm red" onclick="rejectRepPayment(${p.id})">❌ رد</button>
@@ -6101,7 +6781,8 @@ function paymentOpChooser(){
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
 }
-function expensePaymentModal(){
+async function expensePaymentModal(){
+  if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   openModal(`
     <div class="modal-head"><h3>🧾 ثبت پرداخت هزینه</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -6151,7 +6832,7 @@ function exAcctShow(q){
   if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
   const rect=inp.getBoundingClientRect();
   drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
-  drop.innerHTML=list.slice(0,40).map(a=>`
+  drop.innerHTML=list.slice(0,120).map(a=>`
     <div class="cust-si-item" onmousedown="exAcctPick('${esc(a.code)}')">
       <span>${esc(a.name)}</span><span class="cust-si-meta">${esc(a.code)}</span>
     </div>`).join('')||'<div class="cust-si-empty">حسابی یافت نشد</div>';
@@ -6355,7 +7036,7 @@ async function settlementModal(custId){
   stlOpenInvoices=[];
   if(custId) stlOpenInvoices=await api('GET','/accounting/customers/'+custId+'/open-invoices')||[];
   openModal(`
-    <div class="modal-head"><h3>💵 ثبت پرداخت</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>💵 ثبت دریافت از مشتری</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>مشتری * ${hlp('مشتری‌ای که این پرداخت را انجام داده است.')}</label>${custSelect('st-cust', custId)}</div>
       <div class="fg full"><label>فاکتور مرتبط (اختیاری) ${hlp('اگر این پرداخت بابت یک فاکتور خاص است، آن را انتخاب کنید — فقط فاکتورهای رسمی با مانده باز نمایش داده می‌شوند.')}</label>
@@ -6399,7 +7080,7 @@ async function settlementModal(custId){
       </div>
     </div></div>
     <div class="modal-foot">
-      <button class="btn green" onclick="saveSettlement()">💾 ثبت پرداخت</button>
+      <button class="btn green" onclick="saveSettlement()">💾 ثبت دریافت</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button>
     </div>`);
   attachDatepickers(el('modalRoot'));
@@ -6530,7 +7211,7 @@ ROUTES['my-rep'] = async function(){
         <td>${p.pay_type==='cheque'?'🧾 چک':p.pay_type==='bank_transfer'?'🏦 واریز':'💵 نقد'}</td>
         <td class="mono">${fmt(p.amount)}</td>
         <td>${p.status==='pending'?'<span class="tag t-pending">⏳ در انتظار</span>':p.status==='approved'?'<span class="tag t-done">✅ تأیید</span>':'<span class="tag t-lost">❌ رد</span>'}</td>
-        <td>${p.receipt_file?`<a href="/uploads/reps/${esc(p.receipt_file)}" target="_blank">🖼️</a>`:'-'}</td>
+        <td>${repReceiptBtn(p.receipt_file)}</td>
       </tr>`).join('')||emptyRow(6)}</tbody></table></div></div>`:''}
     <div class="panel"><div class="panel-head"><h4>📒 گردش حساب من</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
@@ -6761,7 +7442,7 @@ async function repPendingExpensesModal(){
     </tr></thead><tbody>${rows.map(e=>`<tr>
       <td>${esc(e.rep_name)}</td><td>${esc(cats[e.category]||e.category)}</td><td class="mono">${fmt(e.amount)}</td>
       <td class="mono">${escDate(e.date)}</td><td class="muted">${esc(e.description||'-')}</td>
-      <td>${e.receipt_file?`<a href="/uploads/reps/${esc(e.receipt_file)}" target="_blank">📎</a>`:'-'}</td>
+      <td>${repReceiptBtn(e.receipt_file)}</td>
       <td style="white-space:nowrap">
         <button class="btn sm green" onclick="approveRepExpense(${e.id})">✅ تأیید</button>
         <button class="btn sm red" onclick="rejectRepExpense(${e.id})">❌ رد</button>
@@ -7303,118 +7984,202 @@ async function deleteIncentivePayment(id, repId, repName){
 /* ============================================================
    MESSAGES
 ============================================================ */
-let msgTab='inbox', MSGS=[], msgSearch='', msgSelected=new Set(), msgFolderUser='';
+/* Telegram-style chat (spec 1.0.9 §3). "Real-time" is simulated with a
+   lightweight 5s poll — the stack (embedded SQLite, offline device builds)
+   has no WebSocket infrastructure and polling keeps sync semantics intact. */
+let TG={threads:[],peer:null,peerName:'',peerRole:'',msgs:[],poll:null,q:'',sending:false};
+function stopMsgPoll(){ if(TG.poll){ clearInterval(TG.poll); TG.poll=null; } }
+const TG_AV_COLORS=['#e17076','#7bc862','#65aadd','#a695e7','#ee7aae','#6ec9cb','#faa774','#8d9aa8'];
+function tgAvatar(name,pid){
+  if(pid==='broadcast') return `<span class="tg-av" style="background:#f5a623">📢</span>`;
+  if(pid==='self') return `<span class="tg-av" style="background:#65aadd">📌</span>`;
+  let h=0; const s=String(name||'?'); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0;
+  return `<span class="tg-av" style="background:${TG_AV_COLORS[h%TG_AV_COLORS.length]}">${esc(s.trim().charAt(0)||'?')}</span>`;
+}
+function tgTime(ts){ return new Date(ts*1000).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}); }
+function tgDay(ts){ return new Date(ts*1000).toLocaleDateString('fa-IR',{day:'numeric',month:'long',year:'numeric'}); }
+function tgListTime(ts){
+  const d=new Date(ts*1000), now=new Date();
+  return d.toDateString()===now.toDateString() ? tgTime(ts) : d.toLocaleDateString('fa-IR',{day:'numeric',month:'short'});
+}
+function tgTicks(m){
+  return `<span class="tg-ticks ${m.is_read?'read':''}">${m.is_read?'✓✓':'✓'}</span>`;
+}
 ROUTES.messages = async function(){
-  if(!_msgsFetched){ MSGS=await api('GET','/messages')||[]; _msgsFetched=true; }
-  const inbox = MSGS.filter(m=>m.direction==='received');
-  const sent = MSGS.filter(m=>m.direction==='sent');
-  const unread = inbox.filter(m=>!m.is_read).length;
+  stopMsgPoll();
   el('view').innerHTML=`
-    <div class="msg-tabs" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <button id="tabInbox" class="btn${msgTab==='inbox'?' green':' ghost'}" onclick="switchMsgTab('inbox')">
-        📥 دریافتی ${unread>0?`<span style="background:#dc2626;color:#fff;border-radius:12px;padding:1px 7px;font-size:11px;margin-right:4px">${unread}</span>`:''}
-      </button>
-      <button id="tabSent" class="btn${msgTab==='sent'?' green':' ghost'}" onclick="switchMsgTab('sent')">📤 ارسالی (${sent.length})</button>
-      <input id="msgSearchInput" class="search" placeholder="جستجو در پیام‌ها..." value="${esc(msgSearch)}" style="flex:1;min-width:140px" oninput="msgSearch=this.value;debounceMsg()">
-      <button class="btn ghost" onclick="markAllRead()">✔️ خواندن همه</button>
-      ${msgSelected.size?`<button class="btn sm red" onclick="deleteSelectedMsgs()">🗑️ حذف (${msgSelected.size})</button>`:''}
-      <button class="btn" onclick="composeMsg()">✉️ پیام جدید</button>
-    </div>
-    <div id="msgList"></div>`;
-  renderMsgs();
-  setTimeout(async()=>{ await api('POST','/messages/read-all'); refreshMsgBadge(); }, 800);
-};
-function switchMsgTab(t){
-  msgTab=t; msgFolderUser=''; msgSelected.clear();
-  const ib=el('tabInbox'), sn=el('tabSent');
-  if(ib){ ib.className=t==='inbox'?'btn green':'btn ghost'; }
-  if(sn){ sn.className=t==='sent'?'btn green':'btn ghost'; }
-  renderMsgs();
-}
-function renderMsgs(){
-  let list = MSGS.filter(m=> msgTab==='inbox' ? m.direction==='received' : m.direction==='sent');
-  if(msgSearch){ const q=msgSearch.toLowerCase(); list=list.filter(m=>(m.body||'').toLowerCase().includes(q)||(m.from_name||'').toLowerCase().includes(q)||(m.to_name||'').toLowerCase().includes(q)); }
-  const canDelete = ME.role==='admin';
-  const folderKey = m=> msgTab==='inbox' ? (m.from_name||'سیستم') : (m.to_name||'📢 همه');
-  const folders={};
-  list.forEach(m=>{ const k=folderKey(m); (folders[k]=folders[k]||[]).push(m); });
-  const folderNames=Object.keys(folders).sort((a,b)=>folders[b].length-folders[a].length);
-  if(!msgFolderUser && folderNames.length) msgFolderUser=folderNames[0];
-  const folderBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${folderNames.map(name=>`
-    <button class="btn sm ${msgFolderUser===name?'green':'ghost'}" onclick="setMsgFolder(${JSON.stringify(name)})">
-      📁 ${esc(name)} <span class="muted">(${folders[name].length})</span>
-    </button>`).join('')}</div>`;
-  const flist = msgFolderUser ? (folders[msgFolderUser]||[]) : list;
-  el('msgList').innerHTML = folderBar + flist.map(m=>{
-    const peer=msgTab==='inbox'?(m.from_name||'?'):(m.to_name||'؟');
-    return `
-    <div class="msg ${(msgTab==='inbox'&&!m.is_read)?'unread':''}" style="border-radius:10px;margin-bottom:8px;border:1.5px solid ${(msgTab==='inbox'&&!m.is_read)?'var(--purple)':'var(--border)'}">
-      <div class="mh" style="display:flex;justify-content:space-between;align-items:center">
-        <span style="display:flex;align-items:center;gap:8px">
-          <input type="checkbox" ${msgSelected.has(m.id)?'checked':''} onchange="toggleMsgSel(${m.id},this.checked)" onclick="event.stopPropagation()" style="width:auto">
-          <span style="width:34px;height:34px;border-radius:50%;background:var(--purple-light);color:var(--purple);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700">
-            ${peer[0]}
-          </span>
-          <span>
-            <div style="font-weight:600;font-size:13px">${msgTab==='inbox'?'از: '+esc(m.from_name||'سیستم'):'به: '+esc(m.to_name||'📢 همه')}</div>
-            <div style="font-size:11px;color:var(--muted)">${new Date(m.created_at*1000).toLocaleString('fa-IR',{dateStyle:'short',timeStyle:'short'})}</div>
-          </span>
-        </span>
-        <span style="display:flex;gap:6px;align-items:center">
-          ${(msgTab==='inbox'&&!m.is_read)?'<span style="width:8px;height:8px;border-radius:50%;background:var(--purple);display:inline-block"></span>':''}
-          <button class="btn sm ghost" title="پاسخ" onclick="replyMsg(${m.id},'${esc(m.from_name||'')}',${m.from_id||0})">↩️</button>
-          ${(canDelete||m.from_id===ME.id)?`<button class="btn sm red" onclick="deleteMsg(${m.id})">🗑️</button>`:''}
-        </span>
+    <div class="tg" id="tgRoot">
+      <div class="tg-side">
+        <div class="tg-side-head">
+          <input id="msgSearchInput" placeholder="جستجو..." value="${esc(TG.q)}" oninput="TG.q=this.value;debounceMsg()">
+          <button class="tg-new" title="گفتگوی جدید" onclick="tgNewChat()">✏️</button>
+        </div>
+        <div class="tg-list" id="tgList"><div class="muted" style="padding:20px;text-align:center">در حال بارگذاری...</div></div>
       </div>
-      <div class="mb" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);white-space:pre-wrap;font-size:13px">${esc(m.body)}</div>
-      ${m.image?`<div style="margin-top:8px"><a href="/uploads/messages/${esc(m.image)}" target="_blank"><img src="/uploads/messages/${esc(m.image)}" style="max-width:100%;border-radius:8px;border:1px solid var(--border);cursor:zoom-in"></a></div>`:''}
+      <div class="tg-chat" id="tgChat">
+        <div class="tg-empty"><span style="font-size:44px">💬</span><span>برای شروع، یک گفتگو را انتخاب کنید</span></div>
+      </div>
     </div>`;
-  }).join('') || '<div class="empty" style="padding:40px;text-align:center">📭 پیامی یافت نشد</div>';
+  await tgLoadThreads();
+  // Desktop: auto-open latest conversation; mobile keeps the list in view
+  if(window.innerWidth>900 && !TG.peer && TG.threads.length) tgOpen(TG.threads[0].peer_id, TG.threads[0].peer_name, TG.threads[0].peer_role);
+  else if(TG.peer) tgOpen(TG.peer, TG.peerName, TG.peerRole);
+  TG.poll=setInterval(async()=>{
+    if(CURRENT_PAGE!=='messages'){ stopMsgPoll(); return; }
+    await tgLoadThreads(true);
+    if(TG.peer) await tgRefreshThread(true);
+    refreshMsgBadge();
+  }, 5000);
+};
+async function tgLoadThreads(silent){
+  try{ TG.threads=await api('GET','/messages/threads')||[]; }catch(e){ if(!silent) showToast('خطا در دریافت گفتگوها','error'); return; }
+  tgRenderThreads();
 }
-function setMsgFolder(name){ msgFolderUser=name; renderMsgs(); }
-function toggleMsgSel(id, on){ if(on) msgSelected.add(id); else msgSelected.delete(id); renderMsgs(); }
-async function deleteSelectedMsgs(){
-  if(!msgSelected.size) return;
-  if(!confirm(msgSelected.size+' پیام حذف شود؟')) return;
-  for(const id of [...msgSelected]) await api('DELETE','/messages/'+id);
-  msgSelected.clear(); MSGS=await api('GET','/messages'); renderMsgs(); showToast('حذف شد');
+function tgRenderThreads(){
+  const box=el('tgList'); if(!box) return;
+  let list=TG.threads;
+  if(TG.q){ const q=TG.q.toLowerCase(); list=list.filter(t=>(t.peer_name||'').toLowerCase().includes(q)||(t.last_body||'').toLowerCase().includes(q)); }
+  box.innerHTML=list.map(t=>`
+    <div class="tg-item ${String(TG.peer)===String(t.peer_id)?'active':''}" onclick="tgOpen('${t.peer_id}',${esc(JSON.stringify(t.peer_name||'?'))},${esc(JSON.stringify(t.peer_role||''))})">
+      ${tgAvatar(t.peer_name,t.peer_id)}
+      <div class="tg-i-main">
+        <div class="tg-i-top">
+          <span class="tg-i-name">${esc(t.peer_name)}</span>
+          <span class="tg-i-time">${t.last_from_me?tgTicks({is_read:t.last_read}):''} ${tgListTime(t.last_at)}</span>
+        </div>
+        <div class="tg-i-bot">
+          <span class="tg-i-snip">${t.last_image?'🖼️ تصویر ':''}${esc((t.last_body||'').slice(0,60))}</span>
+          ${t.unread?`<span class="tg-i-badge">${fmt(t.unread)}</span>`:''}
+        </div>
+      </div>
+    </div>`).join('') || '<div class="empty" style="padding:30px;text-align:center">📭 گفتگویی نیست<br><br><button class="btn sm" onclick="tgNewChat()">✏️ شروع گفتگو</button></div>';
 }
-async function markVisibleRead(){ setTimeout(async()=>{ await api('POST','/messages/read-all'); refreshMsgBadge(); }, 800); }
-async function markAllRead(){ await api('POST','/messages/read-all'); MSGS=await api('GET','/messages'); renderMsgs(); refreshMsgBadge(); showToast('همه خوانده شد'); }
-async function deleteMsg(id){
-  if(!confirm('این پیام حذف شود؟')) return;
-  await api('DELETE','/messages/'+id);
-  MSGS=MSGS.filter(m=>m.id!==id); renderMsgs(); showToast('پیام حذف شد');
+async function tgOpen(peer, name, role){
+  TG.peer=peer; TG.peerName=name; TG.peerRole=role||'';
+  el('tgRoot')?.classList.add('chat-open');
+  const chat=el('tgChat'); if(!chat) return;
+  const canSend = peer!=='broadcast' && peer!=='self' ? true : (peer==='broadcast' && ME.role==='admin');
+  chat.innerHTML=`
+    <div class="tg-head">
+      <button class="tg-back" onclick="tgBack()">→</button>
+      ${tgAvatar(name,peer)}
+      <div style="min-width:0">
+        <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>
+        <div class="muted" style="font-size:11px">${peer==='broadcast'?'اطلاعیه‌های عمومی':peer==='self'?'اعلان‌های سیستمی شما':(role?esc(roleLabel(role)):'')}</div>
+      </div>
+    </div>
+    <div class="tg-body" id="tgBody"><div class="muted" style="margin:auto">در حال بارگذاری...</div></div>
+    ${canSend?`
+    <div class="tg-compose">
+      <button class="tg-iconbtn tg-attach" title="ارسال تصویر" onclick="el('tgFile').click()">📎</button>
+      <input type="file" id="tgFile" accept="image/*" style="display:none" onchange="tgAttach(this)">
+      <textarea id="tgInput" rows="1" placeholder="پیام..." onkeydown="tgKey(event)" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,110)+'px'"></textarea>
+      <button class="tg-iconbtn tg-send" onclick="tgSend()" title="ارسال">➤</button>
+    </div>`:`<div style="padding:12px;text-align:center;font-size:12px;color:var(--muted);background:var(--card);border-top:1px solid var(--border)">این گفتگو فقط‌خواندنی است</div>`}`;
+  tgRenderThreads();
+  await tgRefreshThread();
+  api('POST','/messages/thread/'+peer+'/read').then(()=>{ refreshMsgBadge(); tgLoadThreads(true); }).catch(()=>{});
 }
-async function composeMsg(toId, toName){
-  let recipients;
-  try{ recipients=await api('GET','/messages/users')||[]; }catch(e){ recipients=[]; }
-  const opts = recipients.map(u=>`<option value="${u.id}" ${(toId&&toId===u.id)?'selected':''}>${esc(u.name)}</option>`).join('');
-  const broadcastOpt = ME.role==='admin' ? '<option value="">📢 همه کاربران</option>' : '';
-  openModal(`
-    <div class="modal-head"><h3>✉️ پیام جدید</h3><button class="x" onclick="closeModal()">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>گیرنده</label><select id="m-to">${broadcastOpt}${opts}</select></div>
-      <div class="fg full"><label>متن پیام</label><textarea id="m-body" style="min-height:110px" placeholder="متن پیام خود را اینجا بنویسید..."></textarea></div>
-    </div></div>
-    <div class="modal-foot"><button class="btn green" onclick="sendMsg()">📤 ارسال پیام</button>
-      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
-  if(toName && !toId){ /* broadcast default */ }
+async function tgRefreshThread(silent){
+  try{
+    const msgs=await api('GET','/messages/thread/'+TG.peer)||[];
+    const changed = msgs.length!==TG.msgs.length || (msgs.length && TG.msgs.length && (msgs[msgs.length-1].id!==TG.msgs[TG.msgs.length-1].id || msgs[msgs.length-1].is_read!==TG.msgs[TG.msgs.length-1].is_read));
+    // Re-render also when read-state of older messages flips (ticks turn blue)
+    const readSig=msgs.map(m=>m.is_read).join(''), oldSig=TG.msgs.map(m=>m.is_read).join('');
+    TG.msgs=msgs;
+    if(!silent || changed || readSig!==oldSig) tgRenderMsgs(!silent);
+    if(silent && changed){
+      tgRenderMsgs(false);
+      api('POST','/messages/thread/'+TG.peer+'/read').catch(()=>{});
+    }
+  }catch(e){ if(!silent) showToast('خطا در دریافت پیام‌ها','error'); }
 }
-function replyMsg(id, fromName, fromId){
-  if(!fromId || fromId===ME.id) return;
-  composeMsg(fromId, fromName);
+function tgRenderMsgs(forceScroll){
+  const body=el('tgBody'); if(!body) return;
+  const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 120;
+  const prevTop = body.scrollTop, prevH = body.scrollHeight;
+  const canDelete = m => ME.role==='admin' || m.from_id===ME.id;
+  let lastDay='';
+  body.innerHTML=TG.msgs.map(m=>{
+    const day=tgDay(m.created_at);
+    const sep=day!==lastDay?`<div class="tg-date">${day}</div>`:''; lastDay=day;
+    const showSender = TG.peer==='broadcast' && !m.mine;
+    return sep+`
+    <div class="tg-row ${m.mine?'me':''}">
+      <div class="tg-bub">
+        ${canDelete(m)?`<button class="tg-del" title="حذف پیام" onclick="tgDelete(${m.id})">×</button>`:''}
+        ${showSender?`<div class="tg-sender">${esc(m.from_name||'سیستم')}</div>`:''}
+        ${m.image?`<img src="/uploads/messages/${esc(m.image)}" onclick="showImgPreview('/uploads/messages/${esc(m.image)}')">`:''}
+        ${esc(m.body||'')}
+        <div class="tg-meta">${m.mine?tgTicks(m):''} <span>${tgTime(m.created_at)}</span></div>
+      </div>
+    </div>`;
+  }).join('') || '<div class="tg-empty"><span style="font-size:36px">🕊️</span><span>هنوز پیامی رد و بدل نشده</span></div>';
+  if(forceScroll || nearBottom) body.scrollTop=body.scrollHeight;
+  else if(prevH) body.scrollTop=prevTop+(body.scrollHeight-prevH);
 }
-async function sendMsg(){
-  const toVal = el('m-to').value;
-  const to_id = toVal ? +toVal : null;
-  const body = el('m-body').value.trim();
-  if(!body){ showToast('متن پیام الزامی است','error'); return; }
+function tgKey(e){
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); tgSend(); }
+}
+async function tgSend(){
+  if(TG.sending) return;
+  const inp=el('tgInput'); const body=(inp?.value||'').trim();
+  if(!body || !TG.peer) return;
+  const to_id = TG.peer==='broadcast' ? null : +TG.peer;
+  TG.sending=true;
   try{
     await api('POST','/messages',{to_id,body});
-    closeModal(); MSGS=await api('GET','/messages'); renderMsgs(); showToast('پیام ارسال شد');
+    if(inp){ inp.value=''; inp.style.height='auto'; }
+    await tgRefreshThread(); tgLoadThreads(true);
+  }catch(e){}
+  TG.sending=false;
+  el('tgInput')?.focus();
+}
+async function tgAttach(input){
+  const f=input.files?.[0]; input.value='';
+  if(!f || !TG.peer || TG.peer==='self') return;
+  const fd=new FormData();
+  if(TG.peer!=='broadcast') fd.append('to_id',TG.peer);
+  fd.append('body','');
+  fd.append('image',f);
+  try{
+    await api('POST','/messages/with-image',fd,true);
+    await tgRefreshThread(); tgLoadThreads(true);
+    showToast('تصویر ارسال شد');
   }catch(e){}
 }
+async function tgDelete(id){
+  if(!confirm('این پیام حذف شود؟')) return;
+  try{
+    await api('DELETE','/messages/'+id);
+    TG.msgs=TG.msgs.filter(m=>m.id!==id);
+    tgRenderMsgs(false); tgLoadThreads(true);
+  }catch(e){}
+}
+function tgBack(){
+  TG.peer=null;
+  el('tgRoot')?.classList.remove('chat-open');
+  const chat=el('tgChat');
+  if(chat) chat.innerHTML='<div class="tg-empty"><span style="font-size:44px">💬</span><span>برای شروع، یک گفتگو را انتخاب کنید</span></div>';
+  tgRenderThreads();
+}
+async function tgNewChat(){
+  let recipients;
+  try{ recipients=await api('GET','/messages/users')||[]; }catch(e){ recipients=[]; }
+  openModal(`
+    <div class="modal-head"><h3>✏️ گفتگوی جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      ${ME.role==='admin'?`<div class="tg-item" style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px" onclick="closeModal();tgOpen('broadcast','📢 اطلاعیه‌ها','')">
+        ${tgAvatar('','broadcast')}<div class="tg-i-main"><div class="tg-i-name">📢 اطلاعیه به همه</div><div class="tg-i-snip">ارسال پیام همگانی به تمام کاربران</div></div>
+      </div>`:''}
+      ${recipients.map(u=>`
+      <div class="tg-item" style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px" onclick="closeModal();tgOpen('${u.id}',${esc(JSON.stringify(u.name))},${esc(JSON.stringify(u.role||''))})">
+        ${tgAvatar(u.name,u.id)}<div class="tg-i-main"><div class="tg-i-name">${esc(u.name)}</div><div class="tg-i-snip">${esc(roleLabel(u.role))}</div></div>
+      </div>`).join('')||'<div class="empty">کاربری یافت نشد</div>'}
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+}
+async function markVisibleRead(){ setTimeout(async()=>{ await api('POST','/messages/read-all'); refreshMsgBadge(); }, 800); }
 async function refreshMsgBadge(){
   try{
     const r=await api('GET','/messages/unread-count');
@@ -7521,6 +8286,314 @@ async function remDelete(id){
 /* ============================================================
    SETTINGS (admin)
 ============================================================ */
+/* ============================================================
+   AI SALES ASSISTANT — churn scores & insights  [ported from v4]
+============================================================ */
+const AI_KIND_META = {
+  churn_risk:   {icon:'⚠️', label:'ریسک ریزش', bg:'#fef2f2', color:'#dc2626'},
+  opportunity:  {icon:'💡', label:'فرصت فروش', bg:'#f0fdf4', color:'#16a34a'},
+  daily_action: {icon:'📌', label:'اقدام امروز', bg:'#eff6ff', color:'#1d4ed8'},
+  weekly_summary:{icon:'📊', label:'خلاصه هفتگی', bg:'#faf5ff', color:'#7c3aed'},
+};
+ROUTES.ai = async function(){
+  el('view').innerHTML='<div class="muted" style="padding:20px">در حال بارگذاری تحلیل...</div>';
+  let insights=[], summary=null, mine=null;
+  try{ insights = await api('GET','/ai/insights')||[]; }catch{}
+  if(ME.role==='admin'){ try{ summary = await api('GET','/ai/weekly-summary'); }catch{} }
+  else { try{ mine = await api('GET','/ai/my-summary'); }catch{} }
+  const isDeviceBuild = APP_INFO && APP_INFO.role==='device';
+  const kinds=['churn_risk','opportunity','daily_action'];
+  const byKind = k=>insights.filter(i=>i.kind===k);
+  const card = i=>{
+    const m = AI_KIND_META[i.kind]||{icon:'🤖',label:i.kind,bg:'#f9fafb',color:'#374151'};
+    return `<div style="padding:12px 14px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;background:#fff">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+        <span class="tag" style="background:${m.bg};color:${m.color}">${m.icon} ${m.label}</span>
+        ${i.score!=null?`<span class="tag" style="background:#f3f4f6;color:#374151">${i.score}٪</span>`:''}
+        <b style="font-size:13px">${esc(i.title||'')}</b>
+      </div>
+      <div style="font-size:13px;line-height:1.9;color:#374151">${esc(i.body||'')}</div>
+      ${i.cust_biz?`<div class="muted" style="font-size:11px;margin-top:4px">مشتری: ${esc(i.cust_biz)}</div>`:''}
+    </div>`;
+  };
+  el('view').innerHTML=`
+    ${ME.role==='admin'?`<div class="toolbar">
+      <button class="btn" onclick="runAiRefresh()" ${isDeviceBuild?'disabled title="فقط روی سرور مرکزی"':''}>🔄 تحلیل مجدد</button>
+      <span class="muted" style="font-size:12px">تحلیل هر شب ساعت ۲ بامداد به‌صورت خودکار روی سرور مرکزی اجرا می‌شود.</span>
+    </div>`:''}
+    ${summary?`<div class="panel"><div class="panel-head"><h4>📊 خلاصه هفتگی مدیر</h4></div>
+      <div class="panel-body" style="font-size:13.5px;line-height:2.1">${esc(summary.body||'')}</div></div>`:''}
+    ${mine?`
+    <div class="cards" style="margin-bottom:16px">
+      ${statCard('g','💰',fmt(mine.stats.week_sales),'فروش هفته من (ت)')}
+      ${statCard('p','📅',fmt(mine.stats.month_sales),'فروش این ماه من (ت)')}
+      ${statCard('b','🧾',fmt(mine.stats.month_invoices),'فاکتور این ماه')}
+      ${statCard('o','📞',fmt(mine.stats.open_followups),'پیگیری باز')}
+    </div>
+    <div class="panel"><div class="panel-head"><h4>🤖 تحلیل عملکرد من</h4>
+      <button class="btn sm" onclick="runMyAiSummary()">✨ تحلیل هوشمند</button></div>
+      <div class="panel-body" id="myAiBody" style="font-size:13.5px;line-height:2.1">
+        ${mine.stats.top_customers?.length?`<div style="margin-bottom:8px"><b>برترین مشتریان این ماه:</b> ${mine.stats.top_customers.map(t=>`${esc(t.biz)} (${fmt(t.total)} ت)`).join('، ')}</div>`:''}
+        <div class="muted" style="font-size:12px">برای دریافت تحلیل متنی عملکرد شخصی خود، روی «تحلیل هوشمند» بزنید. تحلیل فقط بر اساس داده‌های خود شماست.</div>
+      </div></div>`:''}
+    ${kinds.map(k=>{
+      const rows=byKind(k); if(!rows.length) return '';
+      const m=AI_KIND_META[k];
+      return `<div class="panel"><div class="panel-head"><h4>${m.icon} ${m.label} (${fmt(rows.length)})</h4></div>
+        <div class="panel-body">${rows.map(card).join('')}</div></div>`;
+    }).join('')||''}
+    ${!insights.length&&!summary?`<div class="empty">هنوز تحلیلی تولید نشده است.${ME.role==='admin'&&!isDeviceBuild?' روی «تحلیل مجدد» بزنید.':''}</div>`:''}`;
+};
+async function runAiRefresh(){
+  showToast('در حال اجرای تحلیل AI...');
+  const r = await api('POST','/ai/insights/refresh',{weekly:true});
+  if(r && r.ok){ showToast('تحلیل AI انجام شد'); CACHE.customers=[]; ROUTES.ai(); }
+}
+async function runMyAiSummary(){
+  const box=el('myAiBody'); if(!box) return;
+  box.innerHTML='<div class="muted">در حال تحلیل عملکرد شما...</div>';
+  try{
+    const r=await api('GET','/ai/my-summary?narrative=1');
+    box.innerHTML=`<div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:12px 14px">✨ ${esc(r?.narrative||'تحلیلی تولید نشد')}</div>`;
+  }catch(e){ box.innerHTML='<div class="muted">خطا در تولید تحلیل</div>'; }
+}
+
+/* ============================================================
+   B2B ADMIN — portal orders queue
+============================================================ */
+ROUTES.b2bOrders = async function(){
+  if(!isAdmin()){ el('view').innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
+  if(APP_INFO && APP_INFO.role==='device'){
+    el('view').innerHTML='<div class="empty">پورتال B2B فقط روی سرور مرکزی (نسخه وب) فعال است.</div>'; return;
+  }
+  el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  let rows=[];
+  try{ rows = await api('GET','/b2b/admin/orders')||[]; }catch(e){ el('view').innerHTML='<div class="empty">خطا در دریافت سفارشات</div>'; return; }
+  const featureOff = !(CACHE.settings&&CACHE.settings.feature_b2b_portal==='1');
+  el('view').innerHTML=`
+    ${featureOff?`<div class="panel"><div class="panel-body" style="background:#fffbeb;border-radius:12px">
+      ⚠️ پورتال B2B غیرفعال است — از <a href="#" onclick="go('settings');return false" style="color:var(--purple);font-weight:600">تنظیمات</a> بخش «پورتال مشتریان B2B» آن را فعال کنید.
+    </div></div>`:''}
+    <div class="panel"><div class="panel-head"><h4>🛒 سفارشات پورتال B2B</h4>
+      <button class="btn sm ghost" onclick="ROUTES.b2bOrders()">🔄 بروزرسانی</button></div>
+    <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
+      <th>#</th><th>مشتری</th><th>پیش‌فاکتور</th><th>اقلام</th><th>مبلغ</th><th>یادداشت</th><th>تاریخ ثبت</th><th>وضعیت فاکتور</th>
+    </tr></thead><tbody>
+      ${rows.map(o=>{
+        const total=(o.rows||[]).reduce((a,r)=>a+(r.sum||0),0);
+        return `<tr>
+        <td>${o.id}</td><td>${esc(o.cust_biz||'-')}</td>
+        <td>${o.invoice_num?`<a href="#" onclick="go('invoices');return false" style="color:var(--purple);font-weight:600">${esc(o.invoice_num)}</a>`:'-'}</td>
+        <td>${fmt((o.rows||[]).length)} قلم</td>
+        <td class="mono">${fmt(total)} ت</td>
+        <td class="muted" style="font-size:12px;max-width:200px">${esc(o.note||'-')}</td>
+        <td>${o.created_at?new Date(o.created_at*1000).toLocaleDateString('fa-IR'):'-'}</td>
+        <td>${o.invoice_type==='final'?'<span class="tag t-done">تبدیل به فاکتور رسمی</span>':o.invoice_num?'<span class="tag t-pending">پیش‌فاکتور — در انتظار بررسی</span>':'-'}</td>
+      </tr>`;}).join('')||emptyRow(8)}
+    </tbody></table></div></div>
+    <p class="muted" style="font-size:12px;margin-top:8px">برای تأیید سفارش، پیش‌فاکتور مربوطه را از صفحه «فاکتور» باز کرده و به فاکتور رسمی تبدیل کنید — موجودی و حسابداری همان‌جا اعمال می‌شود.</p>`;
+};
+
+/* ============================================================
+   B2B CUSTOMER PORTAL (client side)
+============================================================ */
+let B2B = { customer:null, tab:'catalog', cart:[], catalog:[] };
+
+async function b2bApi(method, path, data){
+  const opts={method,headers:{}};
+  const token=localStorage.getItem('b2b_token');
+  if(token) opts.headers['Authorization']='Bearer '+token;
+  if(data){ opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(data); }
+  const r=await fetch('/api/b2b'+path,opts);
+  const j=await r.json().catch(()=>({}));
+  if(r.status===401 && path.startsWith('/me')){ localStorage.removeItem('b2b_token'); renderB2BLogin(); throw new Error(j.error||'نشست منقضی شد'); }
+  if(!r.ok) throw new Error(j.error||'خطا');
+  return j;
+}
+
+function openB2BPortal(){
+  el('login').style.display='none';
+  el('app').style.display='none';
+  el('b2bPortal').style.display='flex';
+  location.hash='portal';
+  const token=localStorage.getItem('b2b_token');
+  if(token) b2bBoot().catch(()=>renderB2BLogin()); else renderB2BLogin();
+}
+function closeB2BPortal(){
+  el('b2bPortal').style.display='none';
+  el('login').style.display='flex';
+  if(location.hash==='#portal') history.replaceState(null,'',location.pathname);
+}
+function b2bErr(msg){ const e=el('b2b-err'); if(e) e.textContent=msg||''; }
+function renderB2BLogin(){
+  B2B={customer:null,tab:'catalog',cart:[],catalog:[]};
+  el('b2bContent').innerHTML=`
+    <div class="b2b-head"><h2>🛒 پورتال مشتریان ترنم</h2><p class="muted">سفارش آنلاین · صورتحساب · تاریخچه فاکتور</p></div>
+    <div class="form-grid">
+      <div class="fg full"><label>شماره موبایل</label><input id="b2b-phone" placeholder="09123456789" dir="ltr" inputmode="tel"></div>
+      <div class="fg full"><label>رمز عبور</label><input id="b2b-pass" type="password" autocomplete="current-password"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="btn green" style="flex:1" onclick="b2bLogin()">ورود</button>
+      <button class="btn ghost" onclick="b2bRequestOtp()">ورود با کد پیامکی</button>
+    </div>
+    <div id="b2b-otp-box" style="display:none;margin-top:12px">
+      <div class="fg full"><label>کد پیامک شده</label><input id="b2b-otp" dir="ltr" maxlength="6" inputmode="numeric"></div>
+      <button class="btn" style="margin-top:8px" onclick="b2bVerifyOtp()">تأیید کد</button>
+    </div>
+    <div class="login-err" id="b2b-err"></div>
+    <p style="margin-top:16px;font-size:11px;color:var(--muted);line-height:1.8;text-align:right">
+      دسترسی به پورتال باید توسط مدیر فروش برای شما فعال شده باشد.
+    </p>`;
+}
+async function b2bLogin(){
+  b2bErr('');
+  try{
+    const r=await b2bApi('POST','/auth/login',{phone:el('b2b-phone').value,password:el('b2b-pass').value});
+    localStorage.setItem('b2b_token',r.token);
+    B2B.customer=r.customer;
+    await b2bBoot();
+  }catch(e){ b2bErr(e.message); }
+}
+async function b2bRequestOtp(){
+  b2bErr('');
+  try{
+    await b2bApi('POST','/auth/otp',{phone:el('b2b-phone').value});
+    el('b2b-otp-box').style.display='block';
+    b2bErr('در صورت فعال بودن حساب، کد ورود پیامک شد');
+  }catch(e){ b2bErr(e.message); }
+}
+async function b2bVerifyOtp(){
+  b2bErr('');
+  try{
+    const r=await b2bApi('POST','/auth/otp/verify',{phone:el('b2b-phone').value,code:el('b2b-otp').value});
+    localStorage.setItem('b2b_token',r.token);
+    B2B.customer=r.customer;
+    await b2bBoot();
+  }catch(e){ b2bErr(e.message); }
+}
+function b2bLogout(){
+  localStorage.removeItem('b2b_token');
+  renderB2BLogin();
+}
+async function b2bBoot(){
+  B2B.cart=[];
+  el('b2bContent').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div><strong>${esc(B2B.customer?.biz||'پورتال B2B')}</strong></div>
+      <button class="btn sm ghost" onclick="b2bLogout()">خروج</button>
+    </div>
+    <div class="b2b-tabs">
+      <button class="active" onclick="b2bTab('catalog')">🛍️ کاتالوگ و سفارش</button>
+      <button onclick="b2bTab('orders')">📦 سفارشات من</button>
+      <button onclick="b2bTab('statement')">💰 صورتحساب</button>
+    </div>
+    <div id="b2bTabBody"><div class="muted">بارگذاری...</div></div>`;
+  await b2bTab('catalog');
+}
+async function b2bTab(tab){
+  B2B.tab=tab;
+  document.querySelectorAll('.b2b-tabs button').forEach((b,i)=>{
+    b.classList.toggle('active',['catalog','orders','statement'][i]===tab);
+  });
+  const body=el('b2bTabBody');
+  if(!body) return;
+  body.innerHTML='<div class="muted">بارگذاری...</div>';
+  try{
+    if(tab==='catalog') await b2bRenderCatalog(body);
+    else if(tab==='orders') await b2bRenderOrders(body);
+    else await b2bRenderStatement(body);
+  }catch(e){ body.innerHTML=`<div class="empty">${esc(e.message||'خطا')}</div>`; }
+}
+async function b2bRenderCatalog(body){
+  if(!B2B.catalog.length) B2B.catalog=await b2bApi('GET','/me/catalog');
+  const prods=B2B.catalog;
+  body.innerHTML=`
+    <div class="b2b-grid">${prods.map(p=>`
+      <div class="b2b-prod ${p.available?'':'unavail'}">
+        ${p.image?`<img src="${esc(p.image)}" loading="lazy" alt="">`:''}
+        <div style="font-weight:600;margin-bottom:2px">${esc(p.name)}</div>
+        <div class="muted">${esc(p.category||'')}</div>
+        <div class="mono" style="margin:6px 0">${fmt(p.price)} ت</div>
+        ${p.available?`<button class="btn sm" onclick="b2bAddCart(${p.id})">➕ افزودن</button>`:'<span class="tag t-silent">ناموجود</span>'}
+      </div>`).join('')||'<div class="empty">محصولی یافت نشد</div>'}
+    </div>
+    <div class="b2b-cart">
+      <strong>🧺 سبد سفارش (<span id="b2bCartCount">${B2B.cart.length}</span>)</strong>
+      <div id="b2bCartList" style="margin:8px 0;font-size:13px"></div>
+      <textarea id="b2b-note" rows="2" placeholder="یادداشت سفارش (اختیاری)" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:inherit"></textarea>
+      <button class="btn green" id="b2bSubmitBtn" style="margin-top:8px" onclick="b2bSubmitOrder()" ${B2B.cart.length?'':'disabled'}>✅ ثبت سفارش</button>
+    </div>`;
+  b2bRenderCart();
+}
+function b2bAddCart(id){
+  const ex=B2B.cart.find(x=>x.product_id===id);
+  if(ex) ex.qty++; else B2B.cart.push({product_id:id,qty:1});
+  b2bRenderCart();
+}
+function b2bSetQty(i,delta){
+  const item=B2B.cart[i]; if(!item) return;
+  item.qty+=delta;
+  if(item.qty<=0) B2B.cart.splice(i,1);
+  b2bRenderCart();
+}
+function b2bRenderCart(){
+  const list=el('b2bCartList'); if(!list) return;
+  const cnt=el('b2bCartCount'); if(cnt) cnt.textContent=fmt(B2B.cart.length);
+  const btn=el('b2bSubmitBtn'); if(btn) btn.disabled=!B2B.cart.length;
+  let total=0;
+  list.innerHTML=B2B.cart.length?B2B.cart.map((c,i)=>{
+    const p=B2B.catalog.find(x=>x.id===c.product_id)||{};
+    total+=(p.price||0)*c.qty;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px dashed var(--border)">
+      <span style="flex:1">${esc(p.name||('#'+c.product_id))}</span>
+      <button class="btn sm ghost" onclick="b2bSetQty(${i},-1)">−</button>
+      <span class="mono">${fmt(c.qty)}</span>
+      <button class="btn sm ghost" onclick="b2bSetQty(${i},1)">+</button>
+      <span class="mono" style="min-width:80px;text-align:left">${fmt((p.price||0)*c.qty)} ت</span>
+    </div>`;
+  }).join('')+`<div style="text-align:left;font-weight:700;padding-top:6px">جمع: ${fmt(total)} تومان</div>`
+  :'<span class="muted">سبد خالی است — از کاتالوگ بالا محصول اضافه کنید</span>';
+}
+async function b2bSubmitOrder(){
+  if(!B2B.cart.length) return;
+  const btn=el('b2bSubmitBtn'); if(btn) btn.disabled=true;
+  try{
+    const r=await b2bApi('POST','/me/orders',{rows:B2B.cart,note:el('b2b-note')?.value||''});
+    B2B.cart=[];
+    showToast(`سفارش ثبت شد — پیش‌فاکتور ${r.invoiceNum||''}`);
+    await b2bTab('orders');
+  }catch(e){ if(btn) btn.disabled=false; showToast(e.message||'ثبت سفارش ناموفق بود','error'); }
+}
+async function b2bRenderOrders(body){
+  const rows=await b2bApi('GET','/me/orders');
+  body.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>پیش‌فاکتور</th><th>اقلام</th><th>مبلغ</th><th>تاریخ</th><th>وضعیت</th></tr></thead><tbody>
+    ${rows.map(o=>{
+      const total=(o.rows||[]).reduce((a,r)=>a+(r.sum||0),0);
+      return `<tr><td>${o.id}</td><td class="mono">${esc(o.invoice_num||'-')}</td>
+      <td>${fmt((o.rows||[]).length)}</td><td class="mono">${fmt(total)} ت</td>
+      <td>${o.created_at?new Date(o.created_at*1000).toLocaleDateString('fa-IR'):'-'}</td>
+      <td>${o.invoice_type==='final'?'<span class="tag t-done">تأیید شده</span>':'<span class="tag t-pending">در انتظار بررسی</span>'}</td></tr>`;
+    }).join('')||emptyRow(6)}
+  </tbody></table></div>`;
+}
+async function b2bRenderStatement(body){
+  const data=await b2bApi('GET','/me/statement');
+  const bal=data.closing??data.customer?.balance??0;
+  body.innerHTML=`
+    <div style="padding:12px;background:${bal>0?'#fef2f2':'#f0fdf4'};border-radius:10px;margin-bottom:12px">
+      مانده حساب: <strong class="mono">${fmt(Math.abs(bal))} تومان ${bal>0?'(بدهکار)':bal<0?'(بستانکار)':''}</strong>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th></tr></thead><tbody>
+      ${(data.entries||[]).slice(-50).reverse().map(r=>`<tr>
+        <td>${escDate(r.date)}</td><td>${esc(r.description||r.type_label||'')}</td>
+        <td class="mono">${r.debit?fmt(r.debit):'-'}</td>
+        <td class="mono">${r.credit?fmt(r.credit):'-'}</td>
+        <td class="mono">${r.running_balance!=null?fmt(r.running_balance):'-'}</td>
+      </tr>`).join('')||emptyRow(5)}
+    </tbody></table></div>`;
+}
+
 ROUTES.settings = async function(){
   if(!CACHE.settings || !Object.keys(CACHE.settings).length) CACHE.settings=await api('GET','/settings')||{};
   const s = CACHE.settings;
@@ -7610,12 +8683,46 @@ ROUTES.settings = async function(){
         <div class="fg"><label><input type="checkbox" id="s-module_reps" ${s.module_reps!=='0'?'checked':''} style="width:auto;margin-left:6px"> نمایندگان فروش</label></div>
       </div>
     </div></div>
-    <div class="panel"><div class="panel-head"><h4>📜 گزارش ممیزی (Audit)</h4>
-      <button class="btn sm ghost" onclick="loadAuditLog()">🔄 بارگذاری</button></div>
-      <div class="panel-body" id="audit-log-body"><p class="muted">برای مشاهده رویدادها دکمه بارگذاری را بزنید.</p></div></div>
+    <div class="panel"><div class="panel-head"><h4>🤖 دستیار فروش AI</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:10px;line-height:1.9">
+        امتیاز ریسک ریزش مشتری، فرصت‌های فروش مجدد و پیشنهاد اقدام روزانه به‌صورت خودکار (بدون نیاز به کلید API) هر شب محاسبه می‌شود.
+        در صورت وارد کردن کلید Claude API، متن پیشنهادها و خلاصه هفتگی با هوش مصنوعی تولید می‌شود.
+      </div>
+      <div class="form-grid">
+        <div class="fg"><label><input type="checkbox" id="s-feature_ai_assistant" ${s.feature_ai_assistant==='1'?'checked':''} style="width:auto;margin-left:6px"> استفاده از Claude API (اختیاری)</label></div>
+        <div class="fg"><label>کلید Claude API ${hlp('اختیاری — از console.anthropic.com. بدون کلید هم تحلیل‌های heuristic کار می‌کنند.')}</label>
+          <input id="s-ai_api_key" dir="ltr" value="${esc(s.ai_api_key||'')}" placeholder="sk-ant-..."></div>
+        <div class="fg"><label>مدل ${hlp('پیش‌فرض: claude-haiku-4-5 — سریع و ارزان')}</label>
+          <input id="s-ai_model" dir="ltr" value="${esc(s.ai_model||'')}" placeholder="claude-haiku-4-5-20251001"></div>
+      </div>
+    </div></div>
+    <div class="panel"><div class="panel-head"><h4>🛒 پورتال مشتریان B2B</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:10px;line-height:1.9">
+        مشتریان عمده می‌توانند با شماره موبایل خود وارد پورتال شوند، کاتالوگ محصولات را ببینند، سفارش ثبت کنند و صورتحساب خود را مشاهده کنند.
+        سفارش هر مشتری به‌صورت پیش‌فاکتور به نام کارشناس فروش او ثبت و در منوی «سفارشات B2B» دیده می‌شود.
+        دسترسی هر مشتری از فرم ویرایش همان مشتری فعال می‌شود.
+      </div>
+      <div class="form-grid">
+        <div class="fg"><label><input type="checkbox" id="s-feature_b2b_portal" ${s.feature_b2b_portal==='1'?'checked':''} style="width:auto;margin-left:6px"> فعال‌سازی پورتال B2B</label></div>
+        <div class="fg"><label>آدرس پورتال</label><input dir="ltr" readonly value="${location.origin}/#portal" onclick="this.select()"></div>
+      </div>
+    </div></div>
+    <div class="panel"><div class="panel-head" style="flex-wrap:wrap;gap:8px"><h4>📜 گزارش ممیزی (Audit)</h4>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input id="auditFrom" data-jdate placeholder="از تاریخ" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${todayJalali()}">
+        <input id="auditTo" data-jdate placeholder="تا تاریخ" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${todayJalali()}">
+        <select id="auditUser" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px">
+          <option value="">همه کاربران</option>
+          ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('')}
+        </select>
+        <button class="btn sm ghost" onclick="loadAuditLog()">🔄 بارگذاری</button>
+      </div></div>
+      <div class="panel-body" id="audit-log-body"><p class="muted">در حال بارگذاری...</p></div></div>
     <button class="btn green" onclick="saveSettings()">💾 ذخیره تنظیمات</button>`;
   // Show hint for current provider on page load
   toggleSmsProviderHint(s.sms_provider||'kavenegar');
+  attachDatepickers(el('view'));
+  loadAuditLog();
   if(isDesktopApp()) renderDesktopUpdateUI();
 };
 ROUTES['desktop-settings'] = async function(){
@@ -7623,11 +8730,13 @@ ROUTES['desktop-settings'] = async function(){
   renderDesktopUpdateUI();
 };
 async function saveSettings(){
-  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month'];
+  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','ai_api_key','ai_model'];
   const data={}; keys.forEach(k=>{ const e=el('s-'+k); if(e)data[k]=e.value; });
   const moduleKeys=['module_petty_cash','module_trust_checks','module_warehouses','module_consignments','module_production','module_payroll','module_reps'];
   moduleKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.checked?'1':'0'; });
   data.rep_sms_notify = el('s-rep_sms_notify')?.checked ? '1' : '0';
+  if(el('s-feature_ai_assistant')) data.feature_ai_assistant = el('s-feature_ai_assistant').checked ? '1' : '0';
+  if(el('s-feature_b2b_portal')) data.feature_b2b_portal = el('s-feature_b2b_portal').checked ? '1' : '0';
   CACHE.settings = await api('PUT','/settings',data);
   CACHE.moduleFlags=null; // force re-fetch next time the Accounting shell is entered
   showToast('تنظیمات ذخیره شد');
@@ -7636,7 +8745,12 @@ async function loadAuditLog(){
   const body=el('audit-log-body'); if(!body) return;
   body.innerHTML='<p class="muted">در حال بارگذاری...</p>';
   try{
-    const r=await api('GET','/admin/audit?limit=80')||{};
+    const df=el('auditFrom')?.value||todayJalali();
+    const dt=el('auditTo')?.value||df;
+    const uid=el('auditUser')?.value||'';
+    let q='?limit=120&date_from='+encodeURIComponent(df)+'&date_to='+encodeURIComponent(dt);
+    if(uid) q+='&user_id='+encodeURIComponent(uid);
+    const r=await api('GET','/admin/audit'+q)||{};
     const rows=r.rows||[];
     body.innerHTML=`<div class="tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr>
       <th>زمان</th><th>کاربر</th><th>عملیات</th><th>موجودیت</th><th>جزئیات</th><th>IP</th>
@@ -8094,12 +9208,14 @@ function renderAdminGuide(){
         <li>عکس محصول را آپلود کنید (نمایش در فاکتور)</li>
       </ul>
       <div class="tip">کد محصول باید منحصربه‌فرد باشد — از آن برای جستجوی سریع در فاکتورساز استفاده کنید.</div>
-      <div class="tip">در موبایل، برای افزودن محصول به فاکتور <b>دو بار</b> روی کارت محصول بزنید (لمس اول انتخاب، لمس دوم افزودن).</div>`),
+      <div class="tip">در موبایل، برای افزودن محصول به فاکتور <b>دو بار</b> روی کارت محصول بزنید (لمس اول انتخاب، لمس دوم افزودن).</div>
+      <div class="tip">صفحه «کاتالوگ» برای همه کارشناسان فعال است — دیگر خطای دسترسی نمی‌گیرید.</div>`),
     helpSec('🧾','فاکتور',`
       <p>صدور پیش‌فاکتور و فاکتور رسمی.</p>
       <h5>صدور فاکتور</h5><ul>
         <li>مشتری را انتخاب کنید</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — اگر محصولی وجود نداشت، دکمه «➕ ساخت محصول جدید» آن را همان‌جا می‌سازد و به سبد اضافه می‌کند</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — اگر محصولی در سیستم نیست، ابتدا از بخش «محصولات» آن را ثبت کنید (در فاکتورساز امکان ساخت سریع محصول وجود ندارد)</li>
+        <li><b>کانال فروش</b> به‌صورت خودکار از نقش کاربر ثبت‌کننده تعیین می‌شود (میدانی/تلفنی) — فیلد دستی در فرم فاکتور نیست</li>
         <li>کنار هر محصول <b>موجودی لحظه‌ای انبار</b> نمایش داده می‌شود (با کم‌شدن تعداد رزروشده در سبد فاکتور، عدد بلافاصله به‌روز می‌شود؛ قرمز = ناموجود، نارنجی = رو به اتمام)</li>
         <li>تعداد و قیمت هر ردیف را تنظیم کنید</li>
         <li>درصد تخفیف کل فاکتور را وارد کنید</li>
@@ -8108,14 +9224,32 @@ function renderAdminGuide(){
       <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، یک فیلد تخفیف درصدی جداگانه فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلد را اصلاً نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
       <h5>چاپ</h5><p>از دکمه «چاپ» روی صفحه نمایش فاکتور استفاده کنید. تنها فاکتور چاپ می‌شود، بقیه رابط کاربری پنهان می‌شود.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
+    helpSec('💬','پیام‌ها (رابط شبیه تلگرام)',`
+      <p>بخش پیام‌ها با ظاهر و تجربهٔ شبیه تلگرام بازطراحی شده است.</p>
+      <h5>امکانات</h5><ul>
+        <li><b>لیست گفتگوها</b> در سمت راست — آخرین پیام، زمان و تعداد خوانده‌نشده</li>
+        <li><b>پنجره چت</b> با حباب‌های پیام (راست = شما، چپ = طرف مقابل)</li>
+        <li><b>تیک دوبل</b>: یک تیک = ارسال شد، دو تیک خاکستری = تحویل، دو تیک آبی = خوانده شد</li>
+        <li>ارسال متن و تصویر (رسید، صورت‌حساب و...)</li>
+        <li>جستجو در گفتگوها</li>
+        <li>اعلان‌های سیستمی (سفارش B2B، وضعیت پرداخت و...) در گفتگوی «اعلان‌های من»</li>
+      </ul>
+      <div class="tip">به‌روزرسانی پیام‌ها هر چند ثانیه خودکار انجام می‌شود — نیازی به رفرش دستی نیست. در پنجره مکالمه می‌توانید بالا/پایین اسکرول کنید؛ کادر هر پیام فقط به اندازه متن است.</div>`),
+    helpSec('🤖','دستیار AI',`
+      <p>دستیار هوشمند برای مدیر و کارشناسان فعال است.</p>
+      <ul>
+        <li><b>مدیر:</b> خلاصه هفتگی، ریسک ریزش مشتری، فرصت فروش مجدد، اقدام روزانه</li>
+        <li><b>کارشناس:</b> آمار شخصی (فروش هفته/ماه، فاکتور، پیگیری باز) + دکمه «تحلیل هوشمند» — فقط بر اساس داده‌های خود شما، بدون دسترسی به اطلاعات دیگران</li>
+      </ul>`),
     helpSec('💰','حسابداری — ماژول مستقل',`
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی CRM. برای بازگشت، از دکمه «🔙 بازگشت به CRM» بالای منوی کناری آن استفاده کنید.</p>
+      <p>منوی کناری این ماژول <b>آکاردئونی</b> است: سرفصل‌های عملیات (مثل «گزارش‌های مالی»، «فروش و مطالبات») به‌صورت کارت‌های برجسته با فلش بازشو نمایش داده می‌شوند — کلیک روی هر سرفصل زیرمنوهای آن را باز/بسته می‌کند و سرفصل باز با رنگ طلایی مشخص می‌شود. به‌صورت پیش‌فرض همه بسته‌اند تا منو خلوت بماند.</p>
       <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا و پرداخت انگیزه، سند حسابداری دوطرفه خودکار ثبت می‌شود — نیازی به ثبت دستی نیست (مگر برای مواردی که با سند دستی مشخص می‌شوند).</p>
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
         <li><b>مطالبات مشتریان</b>: نمایش به تفکیک مشتری یا فاکتور، با دکمه ثبت پرداخت</li>
-        <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق</li>
+        <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی)</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد (قابل مشاهده در «دفتر کل حساب‌ها»)</li>
@@ -8221,6 +9355,7 @@ function renderAdminGuide(){
     helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
       <p>نسخه دسکتاپ (ویندوز) و اندرویدِ برنامه به‌صورت <b>کاملاً آفلاین</b> کار می‌کنند: همه اطلاعات روی خود دستگاه ذخیره می‌شود و به محض دسترسی به اینترنت، تغییرات به‌طور خودکار با سرور مرکزی همگام می‌شود.</p>
       <h5>اتصال اولیه دستگاه</h5><ol>
+        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۱–۳ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر فوراً بسته شد، نسخه قدیمی را حذف و آخرین APK را از تنظیمات دانلود کنید</li>
         <li>در اولین اجرا، با کاربر پیش‌فرض وارد شوید — پنجره «اتصال به سرور مرکزی» باز می‌شود</li>
         <li>آدرس سرور مرکزی و نام کاربری/رمز <b>مدیر سیستم</b> را وارد کنید (این مرحله یک‌بار است و اینترنت لازم دارد)</li>
         <li>پس از اتصال، همه اطلاعات (مشتریان، محصولات، فاکتورها، کاربران و...) از مرکز دریافت می‌شود و از آن پس با نام کاربری اصلی خودتان — حتی بدون اینترنت — وارد می‌شوید</li>
@@ -8234,10 +9369,12 @@ function renderAdminGuide(){
       </ul>
       <h5>تصاویر محصولات آفلاین</h5><p>همگام‌سازی داده فقط نام فایل عکس را منتقل می‌کند؛ خود فایل تصویر هنگام همگام‌سازی یا اولین بار نمایش از سرور مرکزی دریافت و محلی ذخیره می‌شود. اگر عکسی نمایش داده نشد، «دریافت تصاویر» را بزنید یا همگام‌سازی اکنون را اجرا کنید.</p>
       <h5>به‌روزرسانی خودکار برنامه</h5><ul>
-        <li><b>ویندوز</b>: نسخه جدید از سرور مرکزی دانلود و هنگام بستن برنامه نصب می‌شود (electron-updater)</li>
-        <li><b>اندروید</b>: بنر «نسخه جدید» با لینک دانلود APK — فایل در پوشه Downloads ذخیره می‌شود</li>
-        <li>فایل‌های نصب باید در <code>server/public/releases/</code> روی سرور مرکزی قرار گیرند</li>
+        <li><b>ویندوز</b>: در تنظیمات، دکمه «🔄 بررسی به‌روزرسانی» را بزنید — اگر نسخه جدیدی باشد، دانلود شروع می‌شود و <b>همان دکمه به «🚀 نصب» تبدیل می‌شود</b>. حین دانلود، درصد، حجم باقی‌مانده و زمان تقریبی نمایش داده می‌شود</li>
+        <li><b>اندروید</b>: بنر «نسخه جدید» → دکمه دانلود؛ پیشرفت دانلود (مگابایت و زمان باقی‌مانده) در همان بنر نشان داده می‌شود و پس از پایان، پنجره نصب خودکار باز می‌شود</li>
+        <li>نسخه دسکتاپ از <strong>GitHub Releases</strong> دانلود می‌شود — فقط <code>manifest.json</code> و <code>latest.yml</code> روی سرور مرکزی deploy می‌شوند (بدون آپلود exe)</li>
       </ul>
+      <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
+      <h5>حالت تاریک (شب مخملی)</h5><p>با دکمه <b>🌙 حالت تاریک</b> در پایین منوی کناری (یا گوشه صفحه ورود) ظاهر برنامه بین تم روشن «زمرد مدرن» و تم تاریک «شب مخملی» جابه‌جا می‌شود. انتخاب شما روی همین دستگاه ذخیره می‌ماند. چاپ فاکتور و گزارش‌ها همیشه با پس‌زمینه روشن انجام می‌شود، حتی در حالت تاریک.</p>
       <h5>شماره فاکتور موقت</h5><p>فاکتوری که آفلاین صادر شود ابتدا شماره <b>«موقت-...»</b> می‌گیرد و چاپ آن واترمارک «پیش‌نویس» دارد. بعد از همگام‌سازی، شماره رسمی سراسری (T-xxxx) از مرکز دریافت و به‌طور خودکار جایگزین می‌شود — بنابراین شماره فاکتور دو دستگاه هرگز تداخل پیدا نمی‌کند.</p>
       <h5>تعارض‌ها</h5><p>اگر عملیات آفلاین شما با واقعیت مرکز ناسازگار باشد (مثلاً کالایی فروخته‌اید که هم‌زمان در مرکز تمام شده)، آن عملیات <b>هرگز بی‌صدا اعمال نمی‌شود</b> — در پنل همگام‌سازی با ذکر دلیل نمایش داده می‌شود و می‌توانید آن را «لغو» کنید (اثر محلی برمی‌گردد) و در صورت نیاز با شرایط جدید دوباره ثبت کنید.</p>
       <div class="warn">تنظیمات سیستم، مدیریت کاربران و اصلاح مستقیم موجودی فقط روی سرور مرکزی امکان‌پذیر است. تغییر رمز کاربران با اولین همگام‌سازی به دستگاه‌های آفلاین می‌رسد.</div>
@@ -8252,7 +9389,69 @@ function renderAdminGuide(){
       </ol>
       <h5>استفاده از API</h5>
       <div class="api-reveal">curl -H "Authorization: Bearer trn_xxxx" /api/v1/customers</div>
-      <h5>Webhook</h5><p>آدرس URL دریافت رویداد را ثبت کنید تا هنگام ایجاد مشتری یا پیگیری، داده به آدرس شما ارسال شود.</p>`)
+      <h5>Webhook</h5><p>آدرس URL دریافت رویداد را ثبت کنید تا هنگام ایجاد مشتری یا پیگیری، داده به آدرس شما ارسال شود.</p>`),
+    helpSec('🔐','امنیت — احراز هویت دو مرحله‌ای (2FA)',`
+      <p>هر کاربر می‌تواند برای ورود خود «کد دوم» (TOTP) فعال کند — حتی اگر رمز عبور لو برود، بدون کد ۶ رقمی برنامه Authenticator ورود ممکن نیست.</p>
+      <h5>فعال‌سازی</h5><ol>
+        <li>در منوی کناری، دکمه «🔐 امنیت» را بزنید</li>
+        <li>«فعال‌سازی 2FA» → کلید نمایش‌داده‌شده را در برنامه Google Authenticator (یا Aegis، Authy و مشابه) ثبت کنید</li>
+        <li>کد ۶ رقمی ساخته‌شده را وارد کنید تا فعال شود</li>
+        <li><b>کدهای بازیابی</b> فقط یک‌بار نمایش داده می‌شوند — آن‌ها را در جای امن ذخیره کنید</li>
+      </ol>
+      <h5>ورود با 2FA</h5><ul>
+        <li>بعد از نام کاربری و رمز، کد ۶ رقمی Authenticator خواسته می‌شود</li>
+        <li>اگر موبایل در دسترس نیست: «استفاده از کد بازیابی» — هر کد فقط یک‌بار مصرف می‌شود</li>
+        <li>اگر کدهای بازیابی هم تمام شد: مدیر سیستم از پنل امنیت، 2FA شما را «بازنشانی» می‌کند</li>
+      </ul>
+      <h5>نکات</h5><ul>
+        <li>مدیر در پنل امنیت وضعیت 2FA همه کاربران را می‌بیند</li>
+        <li>فعال/غیرفعال‌سازی فقط از نسخه وب (سرور مرکزی) انجام می‌شود</li>
+        <li>ورود در برنامه‌های آفلاین ویندوز/اندروید بدون کد 2FA است (خود دستگاه پس از اتصال اولیه، امن و معتمد است)</li>
+      </ul>`),
+    helpSec('🤖','دستیار فروش AI',`
+      <p>سیستم هر شب ساعت ۲ بامداد رفتار خرید همه مشتریان را تحلیل می‌کند و نتیجه در منوی «🤖 دستیار AI» نمایش داده می‌شود.</p>
+      <h5>تحلیل‌ها</h5><ul>
+        <li><b>⚠️ ریسک ریزش</b>: به هر مشتری امتیاز ۰ تا ۱۰۰ می‌دهد (بر اساس فاصله از آخرین خرید/پیگیری). مشتریان با ریسک ۶۰٪ به بالا در لیست مشتریان هم با برچسب قرمز مشخص می‌شوند</li>
+        <li><b>💡 فرصت فروش مجدد</b>: مشتریانی که الگوی خرید منظم دارند و اکنون زمان معمول خریدشان گذشته است</li>
+        <li><b>📌 اقدام امروز</b>: پیشنهاد روزانه برای هر کارشناس فروش (با چه کسانی تماس بگیرد)</li>
+        <li><b>📊 خلاصه هفتگی مدیر</b>: جمع‌بندی فروش، وصولی، مشتریان جدید و در ریسک (یکشنبه‌ها)</li>
+      </ul>
+      <h5>نکات</h5><ul>
+        <li>همه تحلیل‌ها <b>بدون نیاز به اینترنت یا کلید API</b> کار می‌کنند (محاسبه داخلی)</li>
+        <li>اختیاری: با وارد کردن کلید Claude API در تنظیمات، متن پیشنهادها و خلاصه هفتگی با هوش مصنوعی تولید می‌شود</li>
+        <li>دکمه «🔄 تحلیل مجدد» تحلیل را همان لحظه اجرا می‌کند (فقط مدیر، روی سرور مرکزی)</li>
+        <li>کارشناسان فروش فقط بینش‌های مربوط به مشتریان خودشان را می‌بینند</li>
+      </ul>`),
+    helpSec('🛒','پورتال مشتریان B2B',`
+      <p>مشتریان عمده می‌توانند بدون تماس با کارشناس، خودشان آنلاین سفارش ثبت کنند و صورتحساب خود را ببینند.</p>
+      <h5>راه‌اندازی (مدیر)</h5><ol>
+        <li>تنظیمات → بخش «پورتال مشتریان B2B» → گزینه «فعال‌سازی پورتال B2B» را بزنید و ذخیره کنید</li>
+        <li>در صفحه مشتریان، مشتری موردنظر را ویرایش کنید → بخش «🛒 پورتال B2B» → «دسترسی مشتری به پورتال فعال باشد» + یک رمز (حداقل ۶ کاراکتر) → «ذخیره دسترسی B2B»</li>
+        <li>آدرس پورتال را برای مشتری بفرستید: <code dir="ltr">/#portal</code> (لینک «ورود پورتال مشتریان» در صفحه ورود هم دیده می‌شود)</li>
+      </ol>
+      <h5>ورود مشتری</h5><ul>
+        <li>با شماره موبایل + رمز، یا با «کد پیامکی» (نیازمند تنظیم بودن سرویس پیامک)</li>
+        <li>مشتریان دارای دسترسی، در لیست مشتریان با برچسب آبی «B2B» مشخص می‌شوند</li>
+      </ul>
+      <h5>گردش سفارش</h5><ul>
+        <li>مشتری از کاتالوگ سفارش می‌دهد → یک <b>پیش‌فاکتور</b> خودکار به نام کارشناسِ همان مشتری ثبت می‌شود و پیامی برای کارشناس ارسال می‌شود</li>
+        <li>سفارش‌ها در منوی «🛒 سفارشات B2B» دیده می‌شوند؛ برای تأیید، پیش‌فاکتور را از صفحه فاکتور به فاکتور رسمی تبدیل کنید — موجودی و ثبت حسابداری همان‌جا انجام می‌شود</li>
+        <li>قیمت‌ها همیشه از کاتالوگ محصولات خوانده می‌شوند — مشتری امکان تغییر قیمت ندارد</li>
+      </ul>
+      <div class="warn">پورتال B2B فقط روی سرور مرکزی (نسخه وب) فعال است — روی نسخه‌های آفلاین ویندوز/اندروید در دسترس نیست. حساب پورتال از حساب کاربران داخلی کاملاً جداست.</div>`),
+    helpSec('📷','بارکد محصولات',`
+      <p>هر محصول می‌تواند بارکد EAN-13 داشته باشد — برای اسکن سریع با دوربین موبایل/وبکم و چاپ برچسب.</p>
+      <h5>تولید و چاپ</h5><ul>
+        <li>ویرایش محصول → فیلد «بارکد» → دکمه «⚡ تولید» بارکد استاندارد می‌سازد (یا بارکد موجود کالا را دستی وارد کنید)</li>
+        <li>دکمه 🏷️ (در کارت محصول یا فرم ویرایش) صفحه چاپ برچسب ۵۸×۴۰ میلی‌متری را باز می‌کند (۱۲ برچسب در هر صفحه)</li>
+      </ul>
+      <h5>اسکن</h5><ul>
+        <li><b>در فاکتورساز</b>: دکمه «📷 اسکن بارکد» — با اسکن هر بارکد، محصول مستقیم به سبد فاکتور اضافه می‌شود</li>
+        <li><b>در صفحه محصولات</b>: اسکن، محصول را پیدا کرده و فرم آن را باز می‌کند</li>
+        <li>اگر دوربین در دسترس نباشد، کد را دستی وارد کنید (با دستگاه بارکدخوان USB هم کار می‌کند)</li>
+        <li>جستجوی محصولات، بارکد را هم پوشش می‌دهد</li>
+      </ul>
+      <div class="tip">ستون «بارکد» در ورود/خروج اکسل محصولات نیز پشتیبانی می‌شود.</div>`)
   ].join('');
 }
 function renderSalesGuide(){
@@ -8266,7 +9465,8 @@ function renderSalesGuide(){
         <li>بعد از هر تماس، پیگیری ثبت کنید</li>
         <li>تاریخ پیگیری بعدی را فراموش نکنید — سیستم به شما پیامک می‌فرستد</li>
       </ol>
-      <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز.</div>`),
+      <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز.</div>
+      <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
       <h5>ثبت مشتری جدید</h5><ul>
@@ -8304,12 +9504,21 @@ function renderSalesGuide(){
         <li>از منو «فاکتور» را باز کنید</li>
         <li>«فاکتور جدید» را بزنید</li>
         <li>مشتری را انتخاب کنید</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — کنار هر محصول موجودی لحظه‌ای انبار نمایش داده می‌شود</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — کنار هر محصول موجودی لحظه‌ای انبار نمایش داده می‌شود. محصول جدید را از بخش «محصولات» یا «کاتالوگ» بسازید، نه از داخل فاکتور</li>
+        <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور</li>
         <li>ذخیره کنید و در صورت نیاز چاپ بگیرید</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور رسمی برای ثبت فروش قطعی.</div>`),
+    helpSec('💬','پیام‌ها',`
+      <p>پیام‌ها با ظاهر شبیه تلگرام کار می‌کند: لیست گفتگو، حباب پیام، تیک خوانده‌شدن.</p>
+      <ul>
+        <li>به مدیر یا کسی که قبلاً به شما پیام داده پاسخ دهید</li>
+        <li>اعلان‌های سیستمی (مثل سفارش B2B) در «اعلان‌های من» نمایش داده می‌شود</li>
+      </ul>`),
+    helpSec('🤖','دستیار AI من',`
+      <p>از منو «دستیار AI» آمار فروش شخصی خود را ببینید و با «تحلیل هوشمند» خلاصه متنی عملکردتان را دریافت کنید — فقط داده‌های خودتان، نه کل شرکت.</p>`),
     helpSec('🔔','یادآورها',`
       <p>یادآورها برای کارهایی است که نمی‌خواهید فراموش کنید — غیر از پیگیری مشتری.</p>
       <h5>مثال‌ها</h5><ul>
@@ -8328,9 +9537,33 @@ function renderSalesGuide(){
     helpSec('📴','کار آفلاین (نسخه ویندوز/اندروید)',`
       <p>در برنامه دسکتاپ و اندروید، همه کارها (ثبت مشتری، فاکتور، پیگیری و...) <b>بدون اینترنت</b> هم انجام می‌شود و به محض اتصال، خودکار با سرور مرکزی همگام می‌شود.</p>
       <ul>
+        <li><b>اندروید — اولین باز کردن:</b> ممکن است چند دقیقه «در حال آماده‌سازی…» ببینید — صبر کنید و برنامه را نبندید</li>
         <li>نشانگر بالای صفحه وضعیت را نشان می‌دهد: 🟢 همگام / 📡 آفلاین / 🔄 در انتظار ارسال / ⚠️ تعارض</li>
         <li>فاکتور آفلاین ابتدا شماره «موقت» می‌گیرد؛ بعد از همگام‌سازی شماره رسمی جایگزین می‌شود</li>
         <li>اگر عملیاتی در مرکز رد شود (⚠️)، روی نشانگر بزنید و طبق دلیل نمایش‌داده‌شده تصمیم بگیرید</li>
+      </ul>`),
+    helpSec('🔐','امنیت ورود (2FA)',`
+      <p>می‌توانید برای حساب خود «کد دوم» فعال کنید تا ورود امن‌تر شود.</p>
+      <ul>
+        <li>از منوی کناری «🔐 امنیت» → «فعال‌سازی 2FA» → کلید را در برنامه Google Authenticator ثبت و کد ۶ رقمی را وارد کنید</li>
+        <li>کدهای بازیابی را در جای امن نگه دارید — اگر موبایل در دسترس نبود با آن‌ها وارد می‌شوید</li>
+        <li>از این پس هنگام ورود، بعد از رمز، کد ۶ رقمی خواسته می‌شود</li>
+      </ul>`),
+    helpSec('🤖','پیشنهادهای هوشمند فروش',`
+      <p>سیستم هر شب مشتریان شما را تحلیل می‌کند و در منوی «دستیار AI» به شما می‌گوید:</p>
+      <ul>
+        <li><b>⚠️ ریسک ریزش</b>: کدام مشتری‌ها مدت زیادی است خرید یا پیگیری نداشته‌اند (برچسب قرمز در لیست مشتریان)</li>
+        <li><b>💡 فرصت فروش</b>: کدام مشتری‌ها طبق الگوی خریدشان الان آماده سفارش مجدد هستند</li>
+        <li><b>📌 اقدام امروز</b>: پیشنهاد روزانه — امروز با چه کسانی تماس بگیرید</li>
+      </ul>`),
+    helpSec('📷','اسکن بارکد در فاکتور',`
+      <p>در فاکتورساز، دکمه «📷 اسکن بارکد» را بزنید و بارکد کالا را مقابل دوربین بگیرید — محصول خودکار به سبد اضافه می‌شود. اگر دوربین ندارید، کد را دستی وارد کنید یا از دستگاه بارکدخوان استفاده کنید.</p>`),
+    helpSec('🛒','سفارشات پورتال B2B',`
+      <p>اگر مدیر برای مشتریانِ شما دسترسی پورتال B2B فعال کرده باشد، مشتری می‌تواند خودش آنلاین سفارش ثبت کند.</p>
+      <ul>
+        <li>با ثبت هر سفارش، یک <b>پیش‌فاکتور به نام شما</b> صادر می‌شود و پیامی در بخش «پیام‌ها» دریافت می‌کنید</li>
+        <li>سفارش را بررسی کنید و در صورت تأیید، پیش‌فاکتور را از صفحه «فاکتور» به فاکتور رسمی تبدیل کنید</li>
+        <li>مشتریان دارای پورتال در لیست مشتریان با برچسب آبی «B2B» مشخص می‌شوند</li>
       </ul>`)
   ].join('');
 }
@@ -8374,8 +9607,80 @@ async function doChangePass(){
 }
 
 /* ============================================================
+   SECURITY — 2FA (TOTP) setup & admin oversight  [ported from v4]
+============================================================ */
+async function openSecurityModal(){
+  const isDeviceBuild = APP_INFO && APP_INFO.role==='device';
+  let myStatus=null, team=[];
+  try{ myStatus = await api('GET','/auth/2fa/status'); }catch{}
+  if(ME.role==='admin'){ try{ team = await api('GET','/auth/2fa/admin-status')||[]; }catch{} }
+  openModal(`
+    <div class="modal-head"><h3>🔐 امنیت — احراز هویت دو مرحله‌ای</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      ${isDeviceBuild?'<div class="warn" style="margin-bottom:10px">فعال/غیرفعال‌سازی 2FA فقط از نسخه وب (سرور مرکزی) امکان‌پذیر است. ورود روی این دستگاه بدون کد 2FA انجام می‌شود.</div>':''}
+      <p style="font-size:13px">وضعیت شما:
+        ${myStatus&&myStatus.enabled?'<span class="tag t-done">فعال</span>':'<span class="tag t-pending">غیرفعال</span>'}
+        ${myStatus&&myStatus.enabled?` · ${myStatus.remaining_recovery_codes} کد بازیابی باقی‌مانده`:''}</p>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        ${!isDeviceBuild&&myStatus&&!myStatus.enabled?'<button class="btn sm" onclick="start2FASetup()">فعال‌سازی 2FA</button>':''}
+        ${!isDeviceBuild&&myStatus&&myStatus.enabled?'<button class="btn sm red" onclick="disable2FA()">غیرفعال‌سازی</button>':''}
+      </div>
+      <div id="twofaSetupBox" style="display:none;margin-top:12px;padding:12px;background:#f9fafb;border-radius:10px"></div>
+      ${ME.role==='admin'&&team.length?`
+        <h4 style="margin:16px 0 8px">وضعیت 2FA کاربران</h4>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>نقش</th><th>2FA</th><th></th></tr></thead><tbody>
+          ${team.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.role)}</td>
+            <td>${u.twofa_enabled?'<span class="tag t-done">فعال</span>':'<span class="tag t-silent">خاموش</span>'}</td>
+            <td>${u.twofa_enabled&&!isDeviceBuild?`<button class="btn sm red" onclick="adminReset2FA(${u.id},'${esc(u.name)}')">بازنشانی</button>`:'-'}</td></tr>`).join('')}
+        </tbody></table></div>`:''}
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`, true);
+}
+async function start2FASetup(){
+  const r = await api('POST','/auth/2fa/setup');
+  if(!r || !r.secret) return;
+  const box = el('twofaSetupBox');
+  box.style.display='block';
+  box.innerHTML=`
+    <p style="font-size:13px;margin-bottom:8px"><b>۱.</b> در برنامه Google Authenticator (یا مشابه) یک حساب جدید با این کلید بسازید:<br>
+      <span class="mono" style="font-size:12px;direction:ltr;display:inline-block;margin-top:4px;padding:4px 8px;background:#fff;border:1px solid var(--border);border-radius:6px;user-select:all">${esc(r.secret)}</span></p>
+    <p style="font-size:12px;margin-bottom:8px;color:var(--muted)">یا لینک <a href="${esc(r.otpauth)}" style="direction:ltr">otpauth</a> را روی موبایل باز کنید.</p>
+    <p style="font-size:13px;margin-bottom:8px"><b>۲.</b> کد ۶ رقمی ساخته‌شده را وارد کنید:</p>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="twofa-setup-code" dir="ltr" maxlength="6" inputmode="numeric" style="padding:8px;border:1px solid var(--border);border-radius:8px;width:140px" onkeydown="if(event.key==='Enter')confirm2FASetup()">
+      <button class="btn sm" onclick="confirm2FASetup()">تأیید و فعال‌سازی</button>
+    </div>
+    <div id="twofa-recovery-codes" style="display:none;margin-top:10px;padding:10px;background:#fffbeb;border-radius:8px"></div>`;
+}
+async function confirm2FASetup(){
+  const r = await api('POST','/auth/2fa/verify',{code:el('twofa-setup-code').value.trim()});
+  if(!r || !r.ok) return;
+  const div = el('twofa-recovery-codes');
+  div.style.display='block';
+  div.innerHTML=`<strong>کدهای بازیابی (فقط یک‌بار نمایش داده می‌شوند — در جای امن ذخیره کنید):</strong><br>
+    <span class="mono" style="direction:ltr;display:inline-block;line-height:2;user-select:all">${(r.recovery_codes||[]).map(esc).join(' · ')}</span>`;
+  showToast('احراز هویت دو مرحله‌ای فعال شد');
+}
+async function disable2FA(){
+  const code = prompt('کد فعلی 2FA را برای غیرفعال‌سازی وارد کنید:');
+  if(!code) return;
+  const r = await api('POST','/auth/2fa/disable',{code:code.trim()});
+  if(r && r.ok){ showToast('2FA غیرفعال شد'); openSecurityModal(); }
+}
+async function adminReset2FA(userId, name){
+  if(!confirm(`2FA کاربر ${name} بازنشانی شود؟ (برای دستگاه گم‌شده)`)) return;
+  const r = await api('POST','/auth/2fa/admin-reset/'+userId);
+  if(r && r.ok){ showToast('بازنشانی شد'); openSecurityModal(); }
+}
+
+/* ============================================================
    IMAGE LIGHTBOX PREVIEW
 ============================================================ */
+function repReceiptBtn(file){
+  if(!file) return '-';
+  const src='/uploads/reps/'+encodeURIComponent(file);
+  return `<button type="button" class="btn sm ghost" onclick="showImgPreview('${src.replace(/'/g,"\\'")}')">🖼️ مشاهده</button>`;
+}
 function showImgPreview(src){
   const ov = document.createElement('div');
   ov.className = 'img-overlay';
@@ -8441,42 +9746,78 @@ function desktopUpdatePanelHtml(){
         <p style="margin-bottom:8px">نسخه فعلی: <strong class="mono" id="du-current">—</strong></p>
         <p id="du-status-msg" class="muted" style="font-size:13px;margin-bottom:12px">در حال بررسی...</p>
         <div id="du-progress-wrap" style="display:none;margin-bottom:12px">
-          <div style="height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden">
+          <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
             <div id="du-progress-bar" style="height:100%;width:0;background:var(--purple);transition:width .3s"></div>
           </div>
           <div class="muted" style="font-size:11px;margin-top:4px" id="du-progress-label"></div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn green" id="du-install-btn" disabled onclick="desktopInstallUpdate()">نصب به‌روزرسانی</button>
-          <button class="btn ghost" id="du-check-btn" onclick="desktopCheckUpdate()">بررسی مجدد</button>
+          <button class="btn" id="du-main-btn" onclick="desktopUpdateMainAction()">🔄 بررسی به‌روزرسانی</button>
         </div>
       </div>
     </div>`;
 }
 
+// Human-readable download progress: "۴۵٫۲ از ۹۷٫۰ مگابایت — حدود ۲۵ ثانیه مانده"
+function fmtDlProgress(transferred, total, bps){
+  if(!total) return '';
+  const mb=b=>(b/1048576).toFixed(1);
+  let out=`${mb(transferred)} از ${mb(total)} مگابایت (${Math.round(transferred/total*100)}٪)`;
+  if(bps>1024){
+    const secs=Math.max(1,Math.round((total-transferred)/bps));
+    const t = secs>=120 ? `حدود ${Math.round(secs/60)} دقیقه` : `حدود ${secs} ثانیه`;
+    out+=` — ${t} مانده`;
+  }
+  return out;
+}
+
+/* Single transforming button: بررسی → نصب (per user request). One primary
+   button whose label/action follows the state machine; check-again is only
+   offered when there is nothing to install. */
 function renderDesktopUpdateUI(){
-  const cur=el('du-current'), msg=el('du-status-msg'), btn=el('du-install-btn'), check=el('du-check-btn');
+  const cur=el('du-current'), msg=el('du-status-msg'), btn=el('du-main-btn');
   const progWrap=el('du-progress-wrap'), progBar=el('du-progress-bar'), progLabel=el('du-progress-label');
   if(!cur) return;
   const s=DESKTOP_UPDATE;
   cur.textContent = s.currentVersion || APP_INFO?.version || '—';
   if(progWrap) progWrap.style.display = s.status==='downloading'?'block':'none';
   if(progBar) progBar.style.width = (s.percent||0)+'%';
-  if(progLabel) progLabel.textContent = s.percent? `دانلود: ${s.percent}٪` : '';
-  let msgText='', installEnabled=false, installLabel='نصب به‌روزرسانی';
+  if(progLabel) progLabel.textContent = fmtDlProgress(s.transferred||0, s.total||0, s.bps||0) || (s.percent?`دانلود: ${s.percent}٪`:'');
+  let msgText='', btnLabel='🔄 بررسی به‌روزرسانی', btnDisabled=false, btnGreen=false;
   switch(s.status){
-    case 'checking': msgText='در حال بررسی به‌روزرسانی...'; break;
-    case 'downloading': msgText=`نسخه ${s.latestVersion||''} در حال دانلود است...`; break;
-    case 'ready': msgText=`نسخه ${s.latestVersion} آماده نصب است — دکمه را بزنید.`; installEnabled=true; break;
-    case 'uptodate': msgText='✅ شما از آخرین نسخه استفاده می‌کنید.'; break;
-    case 'error': msgText='❌ '+(s.error||'خطا در به‌روزرسانی'); break;
-    case 'available-fallback': msgText=`نسخه ${s.latestVersion} موجود است.`; installEnabled=true; installLabel='⬇️ دانلود نسخه جدید'; break;
-    default: msgText='برای بررسی، دکمه «بررسی مجدد» را بزنید.';
+    case 'checking':
+      msgText='در حال بررسی به‌روزرسانی...'; btnLabel='در حال بررسی...'; btnDisabled=true; break;
+    case 'downloading':
+      msgText=`نسخه ${s.latestVersion||''} در حال دانلود است — پس از پایان دانلود، دکمه به «نصب» تبدیل می‌شود.`;
+      btnLabel='⬇️ در حال دانلود...'; btnDisabled=true; break;
+    case 'ready':
+      msgText=`نسخه ${s.latestVersion} دانلود شد و آماده نصب است.`;
+      btnLabel=`🚀 نصب نسخه ${s.latestVersion} و راه‌اندازی مجدد`; btnGreen=true; break;
+    case 'available-fallback':
+      msgText=`نسخه ${s.latestVersion} موجود است.`;
+      btnLabel=`⬇️ دانلود و نصب نسخه ${s.latestVersion}`; btnGreen=true; break;
+    case 'uptodate':
+      msgText='✅ شما از آخرین نسخه استفاده می‌کنید.'; break;
+    case 'error':
+      msgText='❌ '+(s.error||'خطا در به‌روزرسانی'); break;
+    default:
+      msgText='برای بررسی نسخه جدید، دکمه را بزنید.';
   }
   if(msg) msg.textContent=msgText;
-  if(btn){ btn.disabled=!installEnabled; btn.textContent=installLabel; btn.classList.toggle('green',installEnabled); btn.classList.toggle('ghost',!installEnabled); }
-  if(check) check.disabled = s.status==='checking'||s.status==='downloading';
+  if(btn){
+    btn.disabled=btnDisabled;
+    btn.textContent=btnLabel;
+    btn.classList.toggle('green',btnGreen);
+    btn.classList.toggle('ghost',!btnGreen&&!btnDisabled);
+  }
   updateDesktopNavBadge();
+}
+
+// The one button: install when an update is staged, otherwise (re)check.
+function desktopUpdateMainAction(){
+  const s=DESKTOP_UPDATE.status;
+  if(s==='ready'||s==='available-fallback') return desktopInstallUpdate();
+  return desktopCheckUpdate();
 }
 
 function updateDesktopNavBadge(){
@@ -8567,7 +9908,43 @@ function showUpdateBanner(){
 function doAppUpdate(){
   if(!PENDING_UPDATE || !PENDING_UPDATE.url){ showToast('لینک دانلود در دسترس نیست','error'); return; }
   window.open(PENDING_UPDATE.url, '_blank');
+  // On Android the native shell tracks the DownloadManager job and streams
+  // progress back through window.onApkDownloadProgress (see MainActivity).
+  if((PENDING_UPDATE.platform||detectClientPlatform())==='android'){
+    APK_DL={t0:Date.now(),shown:true};
+    const t=el('updateBannerText');
+    if(t) t.textContent='⬇️ دانلود نسخه جدید شروع شد...';
+  }
 }
+
+// Fed by the Android shell: bytes downloaded / total / 'downloading'|'done'|'failed'
+let APK_DL=null;
+window.onApkDownloadProgress=function(done,total,status){
+  const b=el('updateBanner'), t=el('updateBannerText');
+  if(!t){ return; }
+  if(b) b.style.display='flex';
+  if(status==='failed'){
+    t.textContent='❌ دانلود ناموفق بود — دوباره تلاش کنید یا از مرورگر دانلود کنید.';
+    APK_DL=null; return;
+  }
+  if(status==='done'){
+    t.textContent='✅ دانلود کامل شد — نصب را در پنجره بازشده تأیید کنید.';
+    APK_DL=null; return;
+  }
+  let label='⬇️ در حال دانلود نسخه جدید';
+  if(total>0){
+    const mb=x=>(x/1048576).toFixed(1);
+    label+=`: ${mb(done)} از ${mb(total)} مگابایت (${Math.round(done/total*100)}٪)`;
+    if(APK_DL&&APK_DL.t0&&done>0){
+      const bps=done/Math.max(1,(Date.now()-APK_DL.t0)/1000);
+      if(bps>1024){
+        const secs=Math.max(1,Math.round((total-done)/bps));
+        label+= secs>=120 ? ` — حدود ${Math.round(secs/60)} دقیقه مانده` : ` — حدود ${secs} ثانیه مانده`;
+      }
+    }
+  }
+  t.textContent=label;
+};
 
 function dismissAppUpdate(){
   el('updateBanner').style.display='none';
@@ -8585,8 +9962,18 @@ setInterval(()=>{
 window.addEventListener('resize', ()=>{ clearTimeout(window._rsz); window._rsz=setTimeout(fitStatNums,120); });
 window.addEventListener('DOMContentLoaded', async ()=>{
   if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('/sw.js'); }catch(e){} }
+  // Sync toggle-button labels + meta theme-color with the pre-paint theme
+  applyTheme(currentTheme());
   // Sync server time first (no auth needed) so all date defaults are accurate
   await syncServerTime();
+  // B2B portal deep link (#portal) — customers land here directly
+  if(location.hash==='#portal'){ openB2BPortal(); return; }
+  // Show the portal link on the staff login page only when the feature is
+  // enabled on the central server (app-info is public, returns no secrets)
+  fetch('/api/system/app-info').then(r=>r.json()).then(info=>{
+    APP_INFO = APP_INFO || info;
+    if(info && info.role==='central' && info.b2b_portal){ const l=el('b2bEntryLink'); if(l) l.style.display='block'; }
+  }).catch(()=>{});
   const token = localStorage.getItem('crm_token');
   if(token){
     try{ ME = JSON.parse(localStorage.getItem('crm_user')); await boot(); }
