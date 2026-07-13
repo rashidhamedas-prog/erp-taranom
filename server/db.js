@@ -1492,6 +1492,9 @@ function initSyncSchema(db) {
   ensureColumn(db, 'journal_entries', 'src_system', 'TEXT');
   ensureColumn(db, 'journal_entries', 'src_doc_no', 'TEXT');
   ensureColumn(db, 'journal_entries', 'src_atf', 'TEXT');
+  for (const tbl of ['invoices', 'purchase_invoices', 'settlements', 'supplier_payments', 'expense_payments', 'warehouse_moves', 'account_transfers', 'payroll_records']) {
+    ensureColumn(db, tbl, 'mahak_doc_no', 'TEXT');
+  }
   ensureColumn(db, 'chart_of_accounts', 'level', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'chart_of_accounts', 'nature', 'TEXT');
   ensureColumn(db, 'chart_of_accounts', 'tafsili_type', 'TEXT');

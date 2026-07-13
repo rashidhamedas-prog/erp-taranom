@@ -32,21 +32,28 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `3866833` |
+| آخرین commit | `104e8bd` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ⏳ نیاز به re-import با importer جدید (مشتری/تأمین‌کننده) |
+| وضعیت سرور | ⏳ نیاز به go-live با فاز ۳ (اسناد عملیاتی) |
 
 ---
 
 ## تاریخچه
 
-### ۱۴۰۴/۰۴/۲۸ — [Cursor] import محک: مشتری، تأمین‌کننده، دسته‌بندی کالا
+### ۱۴۰۴/۰۴/۲۸ — [Cursor] بازسازی اسناد عملیاتی محک (فروش/خرید/انبار/دریافت/پرداخت)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** «در حال commit»
+- **خلاصه:** `import-mahak-documents.js` — ۲۰۶ فاکتور فروش، ۱۵۳ دریافت، ۳۹ خرید، ۲۸۹ پرداخت تأمین، ۲۲۴ هزینه، ۱۱۸ حواله/رسید انبار، ۵ انتقال بانکی؛ اتصال ۱۰۳۲ سند حسابداری به `ref_type` عملیاتی.
+- **فایل‌های کلیدی:** `server/scripts/import-mahak-documents.js`, `server/lib/mahak-import-helpers.js`, `server/scripts/mahak-classify-vouchers.js`
+- **Deploy:** ⏳
+
+### ۱۴۰۴/۰۴/۲۸ — [Cursor] import محک: مشتری، تأمین‌کننده، دسته‌بندی کالا
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `104e8bd`
 - **خلاصه:** تحلیل عمیق روزنامه + کدینگ؛ ایجاد **۸۵ مشتری** و **۷۰ تأمین‌کننده** از اشخاص محک با `coa_code` و مانده از گردش حساب؛ دسته‌بندی مواد اولیه/محصول نهایی؛ `mahak-analyze.js` + `mahak-import-helpers.js`.
 - **فایل‌های کلیدی:** `server/scripts/import-mahak-journal.js`, `server/lib/mahak-import-helpers.js`, `server/scripts/mahak-analyze.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ production — ورود: `admin`/`admin123`
 - **یادداشت:** ۱۵۳۰ سند، ۵۹۰۵ آرتیکل، ۵۲۳ کالا، ۷۱٬۸۳۱ موجودی — تراز ۵۰٬۹۹۸٬۶۴۳٬۸۸۹ تومان
 
 ### ۱۴۰۴/۰۴/۲۷ — [Cursor] go-live محک از صفر (سه فایل Excel)

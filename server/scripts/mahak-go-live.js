@@ -61,11 +61,14 @@ function run(script, scriptArgs) {
   if (r.status !== 0) process.exit(r.status || 1);
 }
 
-console.log('\n==> phase 1/2: journal + coding import...');
+console.log('\n==> phase 1/3: journal + coding import...');
 run('import-mahak-journal.js', [codingPath, journalPath, dbPath]);
 
-console.log('\n==> phase 2/2: stock import...');
+console.log('\n==> phase 2/3: stock import...');
 run('import-mahak-stock.js', [codingPath, mojodiPath, dbPath]);
+
+console.log('\n==> phase 3/3: operational documents reconstruction...');
+run('import-mahak-documents.js', [journalPath, dbPath]);
 
 const db = require('better-sqlite3')(dbPath, { readonly: true });
 const summary = {
@@ -80,6 +83,11 @@ const summary = {
   customers: db.prepare('SELECT COUNT(*) c FROM customers').get().c,
   suppliers: db.prepare('SELECT COUNT(*) c FROM suppliers').get().c,
   persons: db.prepare('SELECT COUNT(*) c FROM persons').get().c,
+  invoices: db.prepare('SELECT COUNT(*) c FROM invoices').get().c,
+  purchase_invoices: db.prepare('SELECT COUNT(*) c FROM purchase_invoices').get().c,
+  settlements: db.prepare('SELECT COUNT(*) c FROM settlements').get().c,
+  warehouse_moves: db.prepare('SELECT COUNT(*) c FROM warehouse_moves').get().c,
+  linked_journals: db.prepare("SELECT COUNT(*) c FROM journal_entries WHERE src_system='mahak' AND ref_type!='mahak_import'").get().c,
   banks: db.prepare('SELECT COUNT(*) c FROM banks').get().c,
   cash_boxes: db.prepare('SELECT COUNT(*) c FROM cash_boxes').get().c,
 };
