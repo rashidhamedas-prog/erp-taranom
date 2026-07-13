@@ -125,6 +125,7 @@ cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssr
 
 - IP: `45.90.98.99`، پورت SSH: `2299`، کاربر: `taranom-admin`
 - مسیر برنامه: `/home/taranom-admin/crm-taranom`، مدیر پردازش: PM2 (نام: `crm-taranom`)
+- **Deploy:** `bash scripts/deploy-production.sh` روی سرور، یا GitHub Actions → workflow «Deploy CRM ترنم» (secrets: `SERVER_HOST`, `SERVER_USER`, `SSH_PRIVATE_KEY`, `SERVER_PORT=2299`)
 - **در حال مهاجرت به سرور ایرانی** (تصمیم گرفته‌شده). هنگام مهاجرت، بند «الف» بالا حتماً انجام شود.
 - رمزها و کلید SSH **هرگز در مخزن نباشند** — جداگانه نگه‌داری شوند.
 
