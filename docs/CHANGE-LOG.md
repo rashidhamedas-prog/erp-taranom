@@ -32,15 +32,23 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `31a3f42` |
+| آخرین commit | `afc669e` |
 | نسخه وب/دسکتاپ | **`1.0.10`** / SW `v26` |
 | اندروید | **`2.0.7`** (versionCode 9) |
-| وضعیت سرور | ⏳ نیاز به pull (`31a3f42`) + `jwt-secret.txt` قبل از restart |
-| Deploy بعدی لازم | چک‌لیست `docs/SECURITY-HARDENING.md` روی سرور |
+| وضعیت سرور | ⏳ نیاز به deploy (`scripts/deploy-production.sh` یا GitHub Actions) |
+| Deploy بعدی لازم | اجرای deploy + چک‌لیست `docs/SECURITY-HARDENING.md` روی سرور |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۵/۰۴/۲۲ — اسکریپت deploy خودکار + keystore example
+- **شاخه:** `cursor/deploy-automation-605f`
+- **Commit:** `80ee40b`
+- **خلاصه:** `scripts/deploy-production.sh` (git pull + jwt-secret + npm + pm2 + health check)، به‌روزرسانی `.github/workflows/deploy.yml` با bootstrap inline، `android/keystore.properties.example`
+- **فایل‌های کلیدی:** `scripts/deploy-production.sh`, `.github/workflows/deploy.yml`, `android/keystore.properties.example`, `docs/PROJECT-HANDOFF.md`
+- **Deploy:** ⏳ نیاز به merge + اجرای workflow یا SSH
+- **یادداشت:** `bash scripts/deploy-production.sh` روی سرور یا GitHub Actions «Deploy CRM ترنم»
 
 ### ۱۴۰۵/۰۴/۲۲ — سخت‌سازی امنیتی (بند «ب» handoff) + merge با v4
 - **شاخه:** `cursor/security-hardening-605f` → `claude/claude-md-docs-2ssrpy`
@@ -410,10 +418,9 @@
 
 ## کارهای انجام‌نشده / در صف
 
-- [ ] `git pull` روی production برای `391fd66`
-- [ ] آپلود `CRM-Taranom-Setup-1.0.1.exe` + `latest.yml` + `crm-taranom.apk` به `server/public/releases/`
-- [ ] rebuild و توزیع APK/EXE جدید به کاربران (یک‌بار دستی، بعد auto-update)
-- [ ] فایل‌های Farankenou (`server/lib/farankenou.js`, payroll, persons) — تغییرات uncommitted جداگانه
+- [ ] **deploy production** برای `d4c4d8d` (امنیت): `bash scripts/deploy-production.sh` روی سرور — Cloud Agent به SSH دسترسی ندارد (publickey)
+- [ ] پس از deploy: رمزنگاری بکاپ از پنل «پشتیبان» + چرخش keystore اندروید (`keystore.properties.example`)
+- [ ] HTTPS طبق `docs/SECURITY-HARDENING.md` بخش «د»
 - [ ] pagination برای لیست‌های بزرگ
 - [ ] merge شاخه به `main`
 
@@ -422,12 +429,20 @@
 ## دستور deploy استاندارد (سرور)
 
 ```bash
+# یک‌خطی (توصیه‌شده — شامل jwt-secret و health check):
+bash /home/taranom-admin/crm-taranom/scripts/deploy-production.sh
+
+# یا دستی:
 cd /home/taranom-admin/crm-taranom
 git fetch origin
 git checkout claude/claude-md-docs-2ssrpy
 git pull origin claude/claude-md-docs-2ssrpy
-cd server && pm2 restart crm-taranom
-curl -I http://127.0.0.1:3000/
+cd server
+# فقط اگر jwt-secret.txt ندارید:
+# node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > jwt-secret.txt && chmod 600 jwt-secret.txt
+npm install --omit=dev
+pm2 restart crm-taranom --update-env
+curl -s http://127.0.0.1:3000/api/system/time
 ```
 
 **هرگز** `git reset --hard` روی production نزنید مگر برای rollback آگاهانه.
