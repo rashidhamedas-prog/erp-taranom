@@ -90,7 +90,7 @@ router.post('/factory-reset', auth, adminOnly, centralOnly, (req, res) => {
       'journal_lines', 'journal_entries', 'customer_ledger', 'person_ledger',
       'settlements', 'invoices', 'purchase_invoices', 'supplier_payments',
       'sales_returns', 'purchase_returns', 'expense_payments', 'incentive_payments',
-      'rep_payments', 'rep_expenses', 'rep_advances', 'payroll_records',
+      'rep_payment_submissions', 'rep_expenses', 'rep_advances', 'payroll_records',
       'production_runs', 'stocktaking_items', 'stocktaking_sessions',
       'warehouse_moves', 'stock_logs', 'voucher_drafts', 'ai_insights',
       'app_notifications',

@@ -48,7 +48,7 @@ router.get('/pending-actions', auth, (req, res) => {
     }));
     const pendingRep = db.prepare(`
       SELECT rp.id, rp.amount, rp.date, c.biz
-      FROM rep_payments rp JOIN customers c ON rp.customer_id=c.id
+      FROM rep_payment_submissions rp JOIN customers c ON rp.cust_id=c.id
       WHERE rp.status='pending' ORDER BY rp.created_at DESC LIMIT 10
     `).all();
     pendingRep.forEach(p => actions.push({
