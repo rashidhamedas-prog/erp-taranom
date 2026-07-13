@@ -44,7 +44,7 @@
 
 ### ۱۴۰۵/۰۴/۲۲ — سخت‌سازی امنیتی (بند «ب» handoff) + merge با v4
 - **شاخه:** `cursor/security-hardening-605f` → `claude/claude-md-docs-2ssrpy`
-- **Commit:** `2058ba8` + follow-up
+- **Commit:** `f8ba6f4` (merge به `claude/claude-md-docs-2ssrpy`)
 - **خلاصه:**
   - تغییر اجباری رمز پیش‌فرض/موقت در اولین ورود (سازگار با 2FA v4): ستون `users.must_change_password`، گیت 403 در `auth` (فقط مرکزی)، مودال فرانت؛ پرچم قبل از مرحله 2FA برای رمز `admin123`
   - رمزنگاری بکاپ AES-256-GCM + `server/scripts/decrypt-backup.js`
