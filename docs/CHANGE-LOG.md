@@ -41,6 +41,33 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۶ — [Claude Code] ورود موجودی محک (فاز ۱ تکمیل) + 📋 گزارش کامل تحویل به Cursor
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت
+- **خلاصه:**
+  - **`scripts/import-mahak-stock.js` جدید:** ورود تعداد موجودی از فایل mojodi.xlsx محک (join با «کد عملیاتی» شیت تفصیلی، فقط نوع کالاها). اجرای واقعی: **۳۵۲/۳۵۲ قلم تطبیق، صفر بدون تطبیق**؛ ۱۷۱ کالای خارج از فایل → موجودی صفر؛ بهای واحد ۲۸۷ قلم از ارزش افتتاحیه ÷ تعداد؛ جمع موجودی ۷۱٬۸۳۱ عدد؛ `needs_qty` همه پاک شد. گزارش: mahak-stock-report.md کنار DB.
+- **فایل‌های کلیدی:** `server/scripts/import-mahak-stock.js`
+- **Deploy:** طبق runbook پایین — نه خودکار.
+
+#### 📋 وضعیت کامل مهاجرت محک برای Cursor (اگر Claude در دسترس نبود از اینجا ادامه بده)
+
+**✅ انجام‌شده و تست‌شده (فاز ۱):**
+1. تصمیمات ۸گانهٔ مالک در `docs/MAHAK-MIGRATION.md` بخش ۲ — **غیرقابل تغییر بدون تأیید مجدد**.
+2. Schema (db.js): coa_code ×۶ جدول، needs_qty، src_system/src_doc_no/src_atf، level/nature/tafsili_type.
+3. `lib/coa-map.js`: نگاشت حساب‌های کنترلی از settings با fallback به کدهای قدیمی (کش ۱۵ثانیه‌ای — بعد از تغییر settings، `clearCoaCache()`).
+4. `scripts/import-mahak-journal.js` — نتیجهٔ اجرای واقعی: ۱٬۵۳۰ سند/۵٬۹۰۵ آرتیکل، تراز ۵۰٬۹۹۸٬۶۴۳٬۸۸۹=۵۰٬۹۹۸٬۶۴۳٬۸۸۹ تومان، ۴۳ تعدیل به 906001، کدینگ ۱٬۱۲۴ حساب، ۵۲۳ محصول/۱۳ بانک/۲ صندوق/۱۵ انبار، settings کلیدهای coa_* + coa_mode=mahak + feature_cogs_voucher=1 ست می‌شود. راستی‌آزمایی داخل تراکنش (خطا=rollback کامل).
+5. `scripts/import-mahak-stock.js` — بالا.
+6. DB تست‌شده در scratchpad جلسهٔ Claude است؛ **روی سرور باید از نو با فایل‌های مالک اجرا شود** (فایل‌های اکسل عمداً در git نیستند — حاوی اطلاعات مالی؛ مالک محلی دارد).
+
+**⏳ ماندهٔ فاز ۲ (طبق MAHAK-MIGRATION.md بخش ۳.۲–۳.۵):**
+1. تزریق `coa-map.acct()` به همهٔ کدهای hardcode در routes: invoices (1103/4101/4102)، accounting/settlements و statement (1103/2101)، purchases (2101/1104)، expenses، payroll (6104/1106/2104)، production؛ و `resolveCashAccount` در db.js → اول `coa_code` رکورد بانک/صندوق.
+2. سند COGS خودکار در فاکتور رسمی وقتی `feature_cogs_voucher=1` (Dr coa_cogs / Cr products.coa_code به تفکیک؛ حذف/برگشت/تبدیل = معکوس دقیق).
+3. تفصیلی‌ساز خودکار برای موجودیت جدید در حالت coa_mode=mahak (تخصیص کد از MAX+1 با number_sequences).
+4. UI: پنل «نگاشت کدینگ» در تنظیمات + نمایش کد تفصیلی در فرم‌ها + راهنما + bump SW.
+5. **Go-live:** runbook بخش ۵ سند — بک‌آپ DB فعلی، اجرای دو importer روی سرور، سوییچ DB_PATH، چک‌لیست پذیرش حسابدار (بخش ۶).
+
+**⚠️ دام‌هایی که Claude به آن‌ها خورد (تکرار نکن):** (۱) فایل‌های page-script حتماً IIFE — barcode-input شما کل صفحه را کشته بود، فیکس شد؛ (۲) ÷۱۰ ریال→تومان فقط در سطح آرتیکل، هرگز روی جمع؛ (۳) «کد عملیاتی» تفصیلی محک per-type است نه یکتا — همیشه با نوع فیلتر کن؛ (۴) gate تغییر رمز اجباری 1.0.11 روی DB تازه فعال است (admin/admin123 → مودال تغییر رمز).
+
 ### ۱۴۰۴/۰۴/۲۶ — [Claude Code] 🚨 هات‌فیکس ورود (barcode-input) + اجرای فاز ۱ مهاجرت محک (importer تأییدشده)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت
