@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (این commit) |
+| آخرین commit | `57f5544` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
 | وضعیت سرور | ✅ آنلاین — DB از `crm-pre-mahak.db` بازیابی شد |
@@ -43,7 +43,7 @@
 
 ### ۱۴۰۴/۰۴/۲۴ — [Cursor] رفع فوری HTTP 502 + سیاست APK محلی (بدون آپلود سرور)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (این commit)
+- **Commit:** `57f5544`
 - **خلاصه:**
   - **ریشه 502:** `crm.db` خراب (`SQLITE_CORRUPT: database disk image is malformed`) — PM2 بیش از ۵۱٬۰۰۰ بار restart → پورت 3000 بالا نمی‌آمد → nginx/Chrome 502.
   - **رفع production:** بازیابی DB از `crm-pre-mahak.db` (integrity ok) + `pm2 restart` → `http://45.90.98.99:3000` و `/api/system/health` هر دو **200**.
