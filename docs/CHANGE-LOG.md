@@ -32,14 +32,27 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `dc97a18` |
+| آخرین commit | (همین جلسه) |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
-| اندروید | **`2.0.7`** live / **`2.0.8` unsigned built** (نیاز به keystore.properties) |
-| وضعیت سرور | ✅ deploy شده (`dc97a18` + installer 1.0.11) |
+| اندروید | **`2.0.8`** (versionCode 10) |
+| وضعیت سرور | ⏳ آپلود APK 2.0.8 |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۶ — [Cursor] انتشار اندروید 2.0.8 + تکمیل release 1.0.11
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین جلسه)
+- **خلاصه:**
+  - APK **2.0.8** (کد 1.0.11) از بیلد قبلی امضا و اعتبارسنجی شد — **۱۷/۱۷ assertion سبز** (`test-android-apk.ps1`).
+  - manifest اندروید → `2.0.8` / versionCode `10`.
+  - رگرسیون: SMS 22/22، barcode 12/12، fiscal-year 4/4.
+  - `android/build.gradle`: اضافه شدن `maven.google.com` برای resolve AGP در شبکه‌های فیلترشده.
+  - راهنما: اگر نصب روی نسخه قبلی خطا داد → حذف و نصب تازه.
+  - **مهاجرت محک go-live:** فایل‌های Excel محلی یافت نشد — دست مالک.
+- **فایل‌های کلیدی:** `server/public/releases/manifest.json`, `android/build.gradle`, `server/public/index.html`
+- **Deploy:** ⏳ scp APK + git pull
 
 ### ۱۴۰۴/۰۴/۲۶ — [Cursor] انتشار نهایی 1.0.11 — installer دسکتاپ ساخته + deploy
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
