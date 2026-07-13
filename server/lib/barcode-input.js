@@ -1,6 +1,10 @@
 'use strict';
 
-/** Shared barcode scan helpers (camera + USB wedge). Tested by scripts/test-barcode-input.js */
+/** Shared barcode scan helpers (camera + USB wedge). Tested by scripts/test-barcode-input.js
+ *  Wrapped in an IIFE: this file is loaded as a classic <script> in the app page,
+ *  so top-level const declarations (especially `api`) would collide with the
+ *  page's own globals and kill the whole app script. */
+(function () {
 
 const DEFAULT_DEBOUNCE_MS = 400;
 const WEDGE_MAX_GAP_MS = 80;
@@ -75,3 +79,5 @@ if (typeof module !== 'undefined' && module.exports) {
 if (typeof globalThis !== 'undefined') {
   globalThis.BarcodeInput = api;
 }
+
+})();

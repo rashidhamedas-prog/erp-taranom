@@ -41,6 +41,20 @@
 
 ## تاریخچه
 
+### ۱۴۰۴/۰۴/۲۶ — [Claude Code] 🚨 هات‌فیکس ورود (barcode-input) + اجرای فاز ۱ مهاجرت محک (importer تأییدشده)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت
+- **خلاصه:**
+  - **🚨 باگ بحرانی 1.0.11:** `lib/barcode-input.js` در سطح global صفحه `const api` اعلان می‌کرد → تصادم با تابع `api()` برنامه → «Identifier api has already been declared» → **کل JS صفحه می‌مرد و ورود کار نمی‌کرد** (تست Node سبز بود چون فقط در مرورگر رخ می‌دهد). فیکس: کل فایل در IIFE پیچیده شد؛ ۱۲/۱۲ تست بارکد سبز. **⚠️ اگر production روی 516a088 است الان صفحه ورود مرده است — فوراً pull+restart کنید.**
+  - **مهاجرت محک — فاز ۱ اجرا و تأیید شد:**
+    - schema: `coa_code` روی customers/suppliers/products/banks/cash_boxes/persons + `needs_qty` + `src_system/src_doc_no/src_atf` روی journal_entries + `level/nature/tafsili_type` روی chart_of_accounts.
+    - `lib/coa-map.js`: لایهٔ نگاشت حساب‌های کنترلی (settings-driven، fallback به کدهای قدیمی — backward compatible).
+    - `scripts/import-mahak-journal.js`: ورود کامل در یک تراکنش + راستی‌آزمایی داخلی (rollback خودکار در خطا) + گزارش md.
+    - **اجرای واقعی موفق روی فایل‌های مالک:** ۱٬۵۳۰ سند / ۵٬۹۰۵ آرتیکل (۴۳ تعدیل کسری به ۹۰۶) — **بدهکار=بستانکار=۵۰٬۹۹۸٬۶۴۳٬۸۸۹ تومان** ✅؛ کدینگ ۱٬۱۲۴ حساب ۴سطحی، ۵۲۳ محصول (needs_qty)، ۱۳ بانک، ۲ صندوق، ۱۵ انبار. گردش هر ۱۴ حساب کل == منبع. UI تست شد: «متوازن ✓».
+- **فایل‌های کلیدی:** `server/lib/barcode-input.js`, `server/db.js`, `server/lib/coa-map.js`, `server/scripts/import-mahak-journal.js`
+- **Deploy:** ⏳ **هات‌فیکس فوری لازم** (pull + pm2 restart). مهاجرت محک طبق بخش ۵ سند اجرا می‌شود، نه خودکار.
+- **یادداشت برای Cursor:** فاز ۲ مهاجرت مانده: تزریق coa-map به routeها + سند COGS خودکار در فاکتور + تفصیلی‌ساز + پنل نگاشت — طبق MAHAK-MIGRATION.md بخش ۳.۲ تا ۳.۵. قانون: فایل‌های page-script حتماً IIFE.
+
 ### ۱۴۰۴/۰۴/۲۶ — [Claude Code] سند اجرایی مهاجرت کامل حسابداری محک → ترنم (docs/MAHAK-MIGRATION.md)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت (فقط سند — کد بعد از این سند پیاده می‌شود)

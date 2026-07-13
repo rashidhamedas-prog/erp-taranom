@@ -1480,6 +1480,22 @@ function initSyncSchema(db) {
   ensureColumn(db, 'journal_entries', 'deleted_at', 'INTEGER');
   ensureColumn(db, 'journal_entries', 'deleted_by', 'INTEGER');
 
+  // Mahak migration (docs/MAHAK-MIGRATION.md) — operational entities can be
+  // bound to a chart-of-accounts code; imported vouchers keep their Mahak ids.
+  ensureColumn(db, 'customers',  'coa_code', 'TEXT');
+  ensureColumn(db, 'suppliers',  'coa_code', 'TEXT');
+  ensureColumn(db, 'products',   'coa_code', 'TEXT');
+  ensureColumn(db, 'banks',      'coa_code', 'TEXT');
+  ensureColumn(db, 'cash_boxes', 'coa_code', 'TEXT');
+  ensureColumn(db, 'persons',    'coa_code', 'TEXT');
+  ensureColumn(db, 'products',   'needs_qty', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'journal_entries', 'src_system', 'TEXT');
+  ensureColumn(db, 'journal_entries', 'src_doc_no', 'TEXT');
+  ensureColumn(db, 'journal_entries', 'src_atf', 'TEXT');
+  ensureColumn(db, 'chart_of_accounts', 'level', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'chart_of_accounts', 'nature', 'TEXT');
+  ensureColumn(db, 'chart_of_accounts', 'tafsili_type', 'TEXT');
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_permissions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
