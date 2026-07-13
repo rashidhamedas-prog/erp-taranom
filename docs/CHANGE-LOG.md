@@ -31,12 +31,12 @@
 
 | مورد | مقدار |
 |------|--------|
-| شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` (+ merge `cursor/security-hardening-605f`) |
-| آخرین commit | `72118af` + امنیت |
+| شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
+| آخرین commit | `31a3f42` |
 | نسخه وب/دسکتاپ | **`1.0.10`** / SW `v26` |
 | اندروید | **`2.0.7`** (versionCode 9) |
-| وضعیت سرور | ✅ deploy `72118af` |
-| Deploy بعدی لازم | merge امنیت + چک‌لیست `docs/SECURITY-HARDENING.md` (ساخت `jwt-secret.txt` قبل از restart) |
+| وضعیت سرور | ⏳ نیاز به pull (`31a3f42`) + `jwt-secret.txt` قبل از restart |
+| Deploy بعدی لازم | چک‌لیست `docs/SECURITY-HARDENING.md` روی سرور |
 
 ---
 
