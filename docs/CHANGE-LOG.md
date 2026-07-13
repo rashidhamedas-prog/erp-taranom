@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `41d3bab` + Cursor تکمیل UI (در حال commit) |
+| آخرین commit | `3218acd` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
 | اندروید | **`2.0.7`** (versionCode 9) |
-| وضعیت سرور | ⏳ نیاز به pull (هات‌فیکس barcode + Mahak phase 2 + UI) |
+| وضعیت سرور | ✅ deploy شده (`3218acd` + pm2 restart) |
 
 ---
 
@@ -43,7 +43,7 @@
 
 ### ۱۴۰۴/۰۴/۲۶ — [Cursor] تکمیل UI فاز ۲ محک + deploy production
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین جلسه)
+- **Commit:** `3218acd`
 - **خلاصه:**
   - **پنل «⚙️ نگاشت کدینگ»** در تنظیمات: ویرایش ۱۲ کلید coa_* + checkbox سند COGS؛ `saveSettings()` ذخیره می‌کند؛ `clearCoaCache()` بعد از PUT.
   - **فرم‌ها:** نمایش readonly کد تفصیلی + دکمه «🔗 اتصال به حساب موجود» برای مشتری/محصول/تأمین‌کننده/بانک/صندوق؛ API جدید `PATCH /accounting/link-coa`.
@@ -53,7 +53,7 @@
   - **`test-mahak-phase2.js`:** handle `must_change_password` بعد از login.
   - SW → **v30**؛ راهنما به‌روز.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `server/routes/{settings,accounting,fiscal-year}.js`, `server/scripts/test-mahak-phase2.js`
-- **Deploy:** ⏳ pull + pm2 restart روی `45.90.98.99`
+- **Deploy:** ✅ pull + pm2 restart (`3218acd` روی `45.90.98.99`)
 - **یادداشت:** go-live دیتابیس محک (importer روی سرور) هنوز دست مالک — طبق `docs/MAHAK-MIGRATION.md` بخش ۵.
 
 ### ۱۴۰۴/۰۴/۲۶ — [Claude Code] ✅ فاز ۲ مهاجرت محک کامل شد — عملیات جاری روی کدینگ محک + COGS خودکار (۱۴/۱۴ تست E2E سبز)
