@@ -442,7 +442,46 @@ function getLocalAppUpdate(platform, current) {
   return buildUpdateResponse(platform, current, manifest, base);
 }
 
+// Password changes on paired devices must go through central — local-only
+// updates are overwritten on the next users-table pull (see capture blocklist).
+async function changePasswordOnCentral(username, oldPass, newPass) {
+  const db = getDB();
+  if (!isPaired(db)) return { ok: false, notPaired: true };
+  const cfg = getConfig(db);
+  const base = cfg.centralUrl.replace(/\/$/, '');
+  if (!(state.online || await probe(cfg.centralUrl))) {
+    return { ok: false, offline: true };
+  }
+  const loginR = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password: oldPass })
+  });
+  const loginData = await loginR.json().catch(() => ({}));
+  if (!loginR.ok) {
+    return { ok: false, error: loginData.error || 'رمز قدیمی اشتباه است' };
+  }
+  if (loginData.twofa_required) {
+    return {
+      ok: false,
+      code: 'twofa_required',
+      error: 'با احراز هویت دو مرحله‌ای فعال، تغییر رمز فقط از نسخه وب (سرور مرکزی) امکان‌پذیر است.'
+    };
+  }
+  const changeR = await fetch(base + '/api/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + loginData.token },
+    body: JSON.stringify({ oldPass, newPass })
+  });
+  const changeData = await changeR.json().catch(() => ({}));
+  if (!changeR.ok) {
+    return { ok: false, error: changeData.error || 'خطا در تغییر رمز روی سرور مرکزی' };
+  }
+  return { ok: true };
+}
+
 module.exports = {
   pair, syncNow, pullFilesNow, skipSyncFile, discardConflict, getStatus, getConfig, startClientLoop, isPaired,
-  fetchCentralAppUpdate, getUpdateFeedUrl, fetchCentralUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles
+  fetchCentralAppUpdate, getUpdateFeedUrl, fetchCentralUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles,
+  changePasswordOnCentral
 };
