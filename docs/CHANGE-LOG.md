@@ -51,7 +51,7 @@
   - **build-android.ps1:** پشتیبانی از `app-release-unsigned.apk` + امضای خودکار اگر keystore موجود باشد.
   - راهنما: بخش «به‌روزرسانی دسکتاپ 1.0.11» اضافه شد.
 - **فایل‌های کلیدی:** `desktop/package.json`, `desktop/dist/`, `server/public/releases/{manifest.json,latest.yml}`, `scripts/build-android.ps1`, `server/public/index.html`
-- **Deploy:** ⏳ scp installer + git pull
+- **Deploy:** ✅ installer آپلود + git pull + pm2 restart — API آپدیت: 1.0.10→1.0.11
 - **یادداشت اندروید:** `android/keystore.properties` بسازید → `scripts/build-android.ps1` → scp `crm-taranom.apk` → manifest android را 2.0.8/10 کنید.
 
 ### ۱۴۰۴/۰۴/۲۶ — [Cursor] تکمیل UI فاز ۲ محک + deploy production
