@@ -27,15 +27,15 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۶)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۷)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `7b877ed` |
+| آخرین commit | `3fec142` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
 | اندروید | **`2.0.9`** (versionCode 11) |
-| وضعیت سرور | ✅ deploy کامل (desktop 1.0.11 + android 2.0.8) |
+| وضعیت سرور | ✅ کد deploy شد — ⏳ APK 2.0.9 آپلود نشده |
 
 ---
 
@@ -52,7 +52,8 @@
   - **Build:** AGP 8.5.2 + Gradle 8.7 + mirror Aliyun (دسترسی Google Maven)، NDK 25.1.8937393، prune node_modules.
   - **APK 2.0.9** (versionCode 11) ساخته و **۲۳/۲۳ assertion سبز** — 60MB SHA256 `C4C5F47E…`
 - **فایل‌های کلیدی:** `MainActivity.java`, `main.js`, `server.js`, `index.html`, `android/build.gradle`, `settings.gradle`, `manifest.json`, `scripts/build-android.ps1`, `scripts/test-android-apk.ps1`
-- **Deploy:** ⏳ نیاز به scp APK + git pull + pm2 restart
+- **Commit:** `3fec142`
+- **Deploy:** ✅ کد + manifest روی سرور (`git pull` + `pm2 restart`) — ⏳ APK 2.0.9 هنوز hash قدیمی روی سرور؛ scp/sftp قطع می‌شود — آپلود محلی لازم
 - **یادداشت نصب:** کاربران باید **نسخه قبلی را حذف** و APK 2.0.9 را تازه نصب کنند. اولین باز کردن ۲–۵ دقیقه طول می‌کشد.
 
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
