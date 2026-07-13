@@ -204,6 +204,16 @@ app.get('/api/system/time', (req, res) => {
   res.json({ ts: Date.now() });
 });
 
+// Lightweight health check — used by Android WebView boot poll
+app.get('/api/system/health', (req, res) => {
+  res.json({
+    ok: true,
+    role: isDevice() ? 'device' : 'central',
+    platform: process.env.APP_PLATFORM || (isDevice() ? 'device' : 'web'),
+    version: process.env.APP_VERSION || '0',
+  });
+});
+
 const { readManifest, buildUpdateResponse } = require('./lib/app-update');
 
 // App version info (bundled manifest — used by offline builds to know their own version)
@@ -445,8 +455,14 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   res.status(err.status || 500).json({ error: 'خطای داخلی سرور' });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, process.env.LISTEN_HOST || '0.0.0.0', () => {
   console.log(`CRM ترنم نسخه ۳ روی پورت ${PORT} اجرا شد`);
+  if (process.env.APP_PLATFORM === 'android' && process.env.DB_PATH) {
+    try {
+      const ready = path.join(path.dirname(process.env.DB_PATH), 'server.ready');
+      fs.writeFileSync(ready, String(Date.now()));
+    } catch (e) { console.error('server.ready write failed:', e.message); }
+  }
   if (isDevice()) {
     // Offline-first device: background sync loop (push outbox → pull changes)
     const { startClientLoop } = require('./sync/client');

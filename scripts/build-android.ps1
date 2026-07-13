@@ -39,7 +39,7 @@ if (-not (Test-Path $sdkmanager)) {
 }
 if ($sdkmanager) {
   Write-Host '==> Installing SDK platform 36, build-tools, NDK, CMake...'
-  & $sdkmanager --sdk_root=$Sdk 'platforms;android-36' 'build-tools;36.0.0' 'ndk;25.2.9519653' 'cmake;3.22.1' | Out-Host
+  & $sdkmanager --sdk_root=$Sdk 'platforms;android-36' 'build-tools;36.1.0' 'ndk;25.1.8937393' 'cmake;3.22.1' | Out-Host
   yes | & $sdkmanager --sdk_root=$Sdk --licenses 2>$null
 }
 
@@ -84,6 +84,20 @@ if (-not (Test-Path (Join-Path $npDir 'node_modules\express'))) {
 # (bcryptjs ships one). The runtime never reads .gz dists - safe to delete. ---
 Get-ChildItem -Path $npDir -Recurse -Filter '*.gz' -File -ErrorAction SilentlyContinue | Remove-Item -Force
 Get-ChildItem -Path $npDir -Recurse -Filter '*.br' -File -ErrorAction SilentlyContinue | Remove-Item -Force
+
+# --- prune node_modules bloat (speeds first-launch extraction on low-RAM phones) ---
+Write-Host '==> Pruning node_modules for Android assets...'
+$prunePatterns = @('*.md', '*.markdown', '*.map', '*.ts', '*.flow', 'CHANGELOG*', 'README*', 'LICENSE*', 'test', 'tests', '__tests__', 'docs', 'example', 'examples')
+foreach ($pat in $prunePatterns) {
+  Get-ChildItem -Path (Join-Path $npDir 'node_modules') -Recurse -Include $pat -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.PSIsContainer -or $true } |
+    ForEach-Object {
+      try {
+        if ($_.PSIsContainer) { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+        else { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+      } catch { }
+    }
+}
 
 # --- local.properties (UTF8 *without* BOM - java.util.Properties cannot read a BOM'd key) ---
 $localProps = Join-Path $Android 'local.properties'

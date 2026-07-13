@@ -5,7 +5,7 @@ $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Np = Join-Path $Root 'android\app\src\main\assets\nodejs-project'
 $Nodedir = Join-Path $Root 'android\app\libnode'
 $Sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
-$NdkVer = if ($env:NDK_VERSION) { $env:NDK_VERSION } else { '25.2.9519653' }
+$NdkVer = if ($env:NDK_VERSION) { $env:NDK_VERSION } else { '25.1.8937393' }
 $NdkHome = if ($env:ANDROID_NDK_HOME) { $env:ANDROID_NDK_HOME } else { Join-Path $Sdk "ndk\$NdkVer" }
 if (-not (Test-Path $NdkHome)) {
   $found = Get-ChildItem (Join-Path $Sdk 'ndk') -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1

@@ -9681,7 +9681,7 @@ function renderAdminGuide(){
     helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
       <p>نسخه دسکتاپ (ویندوز) و اندرویدِ برنامه به‌صورت <b>کاملاً آفلاین</b> کار می‌کنند: همه اطلاعات روی خود دستگاه ذخیره می‌شود و به محض دسترسی به اینترنت، تغییرات به‌طور خودکار با سرور مرکزی همگام می‌شود.</p>
       <h5>اتصال اولیه دستگاه</h5><ol>
-        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۱–۳ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر فوراً بسته شد، نسخه قدیمی را حذف و آخرین APK را از تنظیمات دانلود کنید</li>
+        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر خطا دیدید، متن خطا را بخوانید؛ معمولاً حذف نسخه قبلی + نصب APK جدید (۲.0.9+) مشکل را حل می‌کند</li>
         <li>در اولین اجرا، با کاربر پیش‌فرض وارد شوید — پنجره «اتصال به سرور مرکزی» باز می‌شود</li>
         <li>آدرس سرور مرکزی و نام کاربری/رمز <b>مدیر سیستم</b> را وارد کنید (این مرحله یک‌بار است و اینترنت لازم دارد)</li>
         <li>پس از اتصال، همه اطلاعات (مشتریان، محصولات، فاکتورها، کاربران و...) از مرکز دریافت می‌شود و از آن پس با نام کاربری اصلی خودتان — حتی بدون اینترنت — وارد می‌شوید</li>
@@ -9887,7 +9887,7 @@ function renderSalesGuide(){
     helpSec('📴','کار آفلاین (نسخه ویندوز/اندروید)',`
       <p>در برنامه دسکتاپ و اندروید، همه کارها (ثبت مشتری، فاکتور، پیگیری و...) <b>بدون اینترنت</b> هم انجام می‌شود و به محض اتصال، خودکار با سرور مرکزی همگام می‌شود.</p>
       <ul>
-        <li><b>اندروید — اولین باز کردن:</b> ممکن است چند دقیقه «در حال آماده‌سازی…» ببینید — صبر کنید و برنامه را نبندید</li>
+        <li><b>اندروید — اولین باز کردن:</b> ممکن است ۲–۵ دقیقه «در حال آماده‌سازی…» ببینید — صبر کنید و برنامه را نبندید. اگر خطا دیدید، نسخه قبلی را حذف و APK جدید نصب کنید</li>
         <li>نشانگر بالای صفحه وضعیت را نشان می‌دهد: 🟢 همگام / 📡 آفلاین / 🔄 در انتظار ارسال / ⚠️ تعارض</li>
         <li>فاکتور آفلاین ابتدا شماره «موقت» می‌گیرد؛ بعد از همگام‌سازی شماره رسمی جایگزین می‌شود</li>
         <li>اگر عملیاتی در مرکز رد شود (⚠️)، روی نشانگر بزنید و طبق دلیل نمایش‌داده‌شده تصمیم بگیرید</li>
@@ -10314,7 +10314,16 @@ setInterval(()=>{
 
 window.addEventListener('resize', ()=>{ clearTimeout(window._rsz); window._rsz=setTimeout(fitStatNums,120); });
 window.addEventListener('DOMContentLoaded', async ()=>{
-  if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('/sw.js'); }catch(e){} }
+  // Service worker breaks embedded Android WebView (stale cache / hung boot)
+  const isAndroidApp = navigator.userAgent.includes('CRMTaranomAndroid');
+  if(isAndroidApp && 'serviceWorker' in navigator){
+    try{
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for(const r of regs) await r.unregister();
+    }catch(e){}
+  } else if('serviceWorker' in navigator){
+    try{ navigator.serviceWorker.register('/sw.js'); }catch(e){}
+  }
   // Sync toggle-button labels + meta theme-color with the pre-paint theme
   applyTheme(currentTheme());
   // Sync server time first (no auth needed) so all date defaults are accurate

@@ -10,9 +10,9 @@
     "notes": "نسخه 1.0.11: Command Palette، مرکز اقدامات، RBAC، مشاور AI، سال مالی، مهاجرت محک، هات‌فیکس ورود، بارکد wedge، SW v30"
   },
   "android": {
-    "version": "2.0.8",
-    "versionCode": 10,
+    "version": "2.0.9",
+    "versionCode": 11,
     "url": "/releases/crm-taranom.apk",
-    "notes": "نسخه 1.0.11: Command Palette، RBAC، مشاور AI، سال مالی، مهاجرت محک، هات‌فیکس ورود — نصب تازه یا حذف نسخه قبلی قبل از آپدیت"
+    "notes": "نسخه 2.0.9: رفع بنیادی بوت اندروید — WebView سازگار سامسونگ/نوکیا، health check، بدون Service Worker، نمایش boot.log در خطا"
   }
 }

@@ -6,12 +6,14 @@ android {
     namespace 'ir.taranom.crm'
     compileSdk 36
 
+    ndkVersion "25.1.8937393"
+
     defaultConfig {
         applicationId "ir.taranom.crm"
         minSdk 24
         targetSdk 34
-        versionCode 10
-        versionName "2.0.8"
+        versionCode 11
+        versionName "2.0.9"
 
         ndk {
             // ABIs shipped by nodejs-mobile

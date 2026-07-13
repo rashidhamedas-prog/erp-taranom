@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const dataDir = process.argv[2];
 const port = process.argv[3] || '3210';
 const bootLog = path.join(dataDir, 'boot.log');
+const readyFile = path.join(dataDir, 'server.ready');
 
 function logBoot(msg) {
   try {
@@ -17,21 +18,32 @@ function logBoot(msg) {
 // bindings() only looks under build/Release/, but cross-compiled binaries live
 // under prebuilt/android/<abi>/ — copy the correct one before opening SQLite.
 function ensureBetterSqlite3Native() {
-  const archToAbi = { arm64: 'arm64-v8a', arm: 'armeabi-v7a', x64: 'x86_64' };
+  const archToAbi = {
+    arm64: 'arm64-v8a',
+    arm: 'armeabi-v7a',
+    ia32: 'armeabi-v7a',
+    x64: 'x86_64',
+  };
   const abi = archToAbi[process.arch];
-  if (!abi) {
-    logBoot(`better-sqlite3: unknown process.arch=${process.arch}`);
-    return;
+  const prebuiltRoot = path.join(__dirname, 'node_modules', 'better-sqlite3', 'prebuilt', 'android');
+  const candidates = abi ? [abi] : [];
+  for (const name of ['arm64-v8a', 'armeabi-v7a', 'x86_64']) {
+    if (!candidates.includes(name)) candidates.push(name);
   }
-  const src = path.join(__dirname, 'node_modules', 'better-sqlite3', 'prebuilt', 'android', abi, 'better_sqlite3.node');
-  if (!fs.existsSync(src)) {
-    throw new Error(`better_sqlite3 native module missing for ${abi} at ${src}`);
+  let src = null;
+  let pickedAbi = null;
+  for (const name of candidates) {
+    const p = path.join(prebuiltRoot, name, 'better_sqlite3.node');
+    if (fs.existsSync(p)) { src = p; pickedAbi = name; break; }
+  }
+  if (!src) {
+    throw new Error(`better_sqlite3 native module missing (arch=${process.arch}, tried ${candidates.join(', ')})`);
   }
   const destDir = path.join(__dirname, 'node_modules', 'better-sqlite3', 'build', 'Release');
   const dest = path.join(destDir, 'better_sqlite3.node');
   fs.mkdirSync(destDir, { recursive: true });
   fs.copyFileSync(src, dest);
-  logBoot(`better-sqlite3 ready: ${abi} (${fs.statSync(dest).size} bytes)`);
+  logBoot(`better-sqlite3 ready: ${pickedAbi} via arch=${process.arch} (${fs.statSync(dest).size} bytes)`);
 }
 
 process.on('uncaughtException', (err) => {
@@ -45,6 +57,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 try {
+  try { fs.unlinkSync(readyFile); } catch { /* first boot */ }
   logBoot(`boot start arch=${process.arch} node=${process.version}`);
   ensureBetterSqlite3Native();
 
@@ -58,8 +71,9 @@ try {
 
   process.env.SYNC_ROLE = 'device';
   process.env.APP_PLATFORM = 'android';
-  process.env.APP_VERSION = '2.0.8';
+  process.env.APP_VERSION = '2.0.9';
   process.env.PORT = port;
+  process.env.LISTEN_HOST = '127.0.0.1';
   process.env.DB_PATH = path.join(dataDir, 'crm.db');
   process.env.UPLOADS_DIR = path.join(dataDir, 'uploads');
   process.env.JWT_SECRET = getOrCreateSecret(dataDir);

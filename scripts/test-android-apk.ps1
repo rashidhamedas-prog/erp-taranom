@@ -49,7 +49,15 @@ if ($main) {
   $sr = New-Object IO.StreamReader($main.Open())
   $txt = $sr.ReadToEnd(); $sr.Close()
   Assert ($txt -match 'ensureBetterSqlite3Native') 'main.js has sqlite path fix'
-  Assert ($txt -match "APP_VERSION = '2.0.8'") 'main.js version 2.0.8'
+  Assert ($txt -match "APP_VERSION = '2.0.9'") 'main.js version 2.0.9'
+  Assert ($txt -match 'LISTEN_HOST') 'main.js binds localhost'
+}
+
+# 6) native-lib JNI bridge per ABI
+foreach ($abi in 'arm64-v8a', 'armeabi-v7a', 'x86_64') {
+  $e = $zip.Entries | Where-Object { $_.FullName -eq "lib/$abi/libnative-lib.so" }
+  Assert ($e) "lib/$abi/libnative-lib.so present"
+  if ($e) { Assert (Test-Elf $e) "lib/$abi/libnative-lib.so is ELF" }
 }
 
 # 5) Size sanity (nested APK builds were ~340MB; healthy ~120-200MB)

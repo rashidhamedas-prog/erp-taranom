@@ -34,14 +34,27 @@
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
 | آخرین commit | `7b877ed` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
-| اندروید | **`2.0.8`** (versionCode 10) |
+| اندروید | **`2.0.9`** (versionCode 11) |
 | وضعیت سرور | ✅ deploy کامل (desktop 1.0.11 + android 2.0.8) |
 
 ---
 
 ## تاریخچه
 
-### ۱۴۰۴/۰۴/۲۶ — [Cursor] انتشار اندروید 2.0.8 + تکمیل release 1.0.11
+### ۱۴۰۴/۰۴/۲۷ — [Cursor] رفع بنیادی اندروید 2.0.9 — بوت قابل‌اعتماد روی سامسونگ/نوکیا
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** «بدون commit»
+- **خلاصه:**
+  - **MainActivity:** WebView سازگار (mixed content، database، safe browsing off)، WebChromeClient/WebViewClient با نمایش خطا، اسپلش پیشرفته در استخراج assets، اعتبارسنجی projectIsValid، health poll به `/api/system/health` + `server.ready`، نمایش boot.log در صفحه خطا، Node در thread جدا.
+  - **main.js:** fallback بهتر better-sqlite3 برای همه ABIها، `LISTEN_HOST=127.0.0.1`، نسخه 2.0.9.
+  - **server.js:** endpoint `/api/system/health` + نوشتن `server.ready` برای اندروید.
+  - **index.html:** غیرفعال‌سازی Service Worker در WebView اندروید (علت cache/hang)، راهنما به‌روز.
+  - **Build:** AGP 8.5.2 + Gradle 8.7 + mirror Aliyun (دسترسی Google Maven)، NDK 25.1.8937393، prune node_modules.
+  - **APK 2.0.9** (versionCode 11) ساخته و **۲۳/۲۳ assertion سبز** — 60MB SHA256 `C4C5F47E…`
+- **فایل‌های کلیدی:** `MainActivity.java`, `main.js`, `server.js`, `index.html`, `android/build.gradle`, `settings.gradle`, `manifest.json`, `scripts/build-android.ps1`, `scripts/test-android-apk.ps1`
+- **Deploy:** ⏳ نیاز به scp APK + git pull + pm2 restart
+- **یادداشت نصب:** کاربران باید **نسخه قبلی را حذف** و APK 2.0.9 را تازه نصب کنند. اولین باز کردن ۲–۵ دقیقه طول می‌کشد.
+
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `79a44f7` (+ debug-sign fallback در `android/app/build.gradle`)
 - **خلاصه:**
