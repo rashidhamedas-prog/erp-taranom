@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `f5caa02` (پس از rebase) |
+| آخرین commit | `516a088` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v28` |
 | اندروید | **`2.0.7`** (versionCode 9) |
-| وضعیت سرور | ⏳ نیاز به pull + pm2 |
+| وضعیت سرور | ✅ deploy شده (`516a088` + pm2 restart) |
 
 ---
 
@@ -43,7 +43,7 @@
 
 ### ۱۴۰۴/۰۴/۲۶ — [Cursor] نسخه 1.0.11 کامل (فاز ۱–۴)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** `f5caa02`
+- **Commit:** `516a088`
 - **خلاصه:**
   - **فاز ۱:** debounce بارکد + wedge؛ backup فقط central.
   - **فاز ۲:** حذف API/UI گردش حساب (ledger)؛ soft-delete فاکتور/سند دستی؛ سال مالی rollover + factory reset؛ انبارگردانی به منوی حسابداری + سند GL.
@@ -51,7 +51,7 @@
   - **فاز ۴:** RBAC ماتریس per-user؛ مشاور AI فقط مدیر (admin/sales_manager).
   - تست: barcode 12/12، fiscal 4/4، SMS 22/22. SW → v28.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/lib/rbac.js`, `server/routes/{notifications,search,fiscal-year,rbac}.js`, `server/services/ai.js`, `server/db.js`, `server/scripts/test-fiscal-year.js`
-- **Deploy:** ⏳ نیاز به pull + pm2
+- **Deploy:** ✅ pull + pm2 restart سرور production
 
 ### ۱۴۰۵/۰۴/۲۲ — اسکریپت deploy خودکار + keystore example
 - **شاخه:** `cursor/deploy-automation-605f`
@@ -168,7 +168,7 @@
   - **چاپ:** در `@media print` توکن‌های دارک به روشن برمی‌گردند — فاکتور/گزارش همیشه روشن چاپ می‌شود.
   - **تست:** اسکرین‌شات Playwright از ورود/داشبورد/مشتریان/فاکتور/مودال/شل حسابداری/گزارشات در هر دو تم — بدون لکه سفید یا متن کم‌کنتراست؛ تم بعد از reload حفظ می‌شود (anti-FOUC)؛ parse اسکریپت سبز. راهنما به‌روز شد؛ SW → `v26`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳ نیاز به pull + pm2 restart
+- **Deploy:** ✅ pull + pm2 restart سرور production restart
 - **یادداشت برای Cursor:** تم token-محور است — از این به بعد **هیچ رنگ سطحی را هاردکد نکنید**؛ از توکن‌های `:root` استفاده کنید وگرنه در دارک‌مود لکه می‌شود. برای رنگ متن روی دکمه سبز از `var(--on-accent)` استفاده کنید نه `#fff`.
 
 ### ۱۴۰۴/۰۴/۲۴ — [Claude Code] اعداد انگلیسی خودکار + UX جدید آپدیت (دکمه تبدیل‌شونده + پیشرفت دانلود) + رفع حلقه آپدیت کاذب دسکتاپ
@@ -181,7 +181,7 @@
   - **رفع حلقه آپدیت کاذب:** `manifest.json` ادعای desktop=1.0.9 داشت ولی url به exe نسخه 1.0.8 اشاره می‌کرد (installer 1.0.9 هرگز ساخته نشده) → کاربر آپدیت می‌زد، 1.0.8 نصب می‌شد و دوباره پیام آپدیت می‌گرفت. نسخه به `1.0.8` صادقانه شد.
   - **تست:** curl روی `/api/system/app-update` (سه سناریو) + ۱۶ assertion جدید Playwright (state machine دکمه، برچسب MB/ETA، callback اندروید، تبدیل ارقام money/jdate/tel و مصون ماندن textarea) + ۲۲ تست SMS سبز + parse اسکریپت. راهنمای ادمین/فروش به‌روز شد؛ SW → `v25`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `server/public/releases/manifest.json`, `desktop/main.js`, `android/.../MainActivity.java`, `android/app/src/main/AndroidManifest.xml`
-- **Deploy:** ⏳ نیاز به pull + pm2 restart (فرانت/manifest). دسکتاپ و اندروید در build بعدی.
+- **Deploy:** ✅ pull + pm2 restart سرور production restart (فرانت/manifest). دسکتاپ و اندروید در build بعدی.
 - **یادداشت برای Cursor:** ⚠️ installer دسکتاپ **1.0.9 هنوز ساخته نشده** — بعد از build حتماً manifest+latest.yml را با هم bump کنید (ریشه حلقه آپدیت کاذب همین ناهماهنگی بود). در build بعدی اندروید، تغییرات MainActivity/manifest من هم سوار می‌شود.
 
 ### ۱۴۰۴/۰۴/۲۴ — [Claude Code] رفع شکست build اندروید روی سیستم کاربر (SDK location + گزارش succes کاذب)
