@@ -72,6 +72,14 @@ router.post('/factory-reset', auth, adminOnly, centralOnly, (req, res) => {
   const { confirm_password, confirm_text } = req.body;
   if (confirm_text !== 'RESET-FISCAL') return res.status(400).json({ error: 'متن تأیید نادرست است — RESET-FISCAL را تایپ کنید' });
   const db = getDB();
+  const coaMode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get();
+  if (coaMode && coaMode.value === 'mahak') {
+    return res.status(400).json({ error: 'در حالت کدینگ محک، بازنشانی کامل مجاز نیست — اسناد واردشده از محک حفظ می‌شوند. برای شروع از نو از اسکریپت importer استفاده کنید.' });
+  }
+  const mahakDocs = db.prepare("SELECT COUNT(*) c FROM journal_entries WHERE src_system='mahak' AND COALESCE(deleted_at,0)=0").get().c;
+  if (mahakDocs > 0) {
+    return res.status(400).json({ error: `بازنشانی کامل با ${mahakDocs} سند واردشده از محک ممکن نیست.` });
+  }
   const user = db.prepare('SELECT password FROM users WHERE id=?').get(req.user.id);
   if (!user || !bcrypt.compareSync(confirm_password || '', user.password)) {
     return res.status(403).json({ error: 'رمز عبور نادرست است' });

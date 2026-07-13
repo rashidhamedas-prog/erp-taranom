@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
+const { clearCoaCache } = require('../lib/coa-map');
 
 const ALLOWED_KEYS = [
   'coa_mode','coa_receivable','coa_payable','coa_sales','coa_sales_discount','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_misc_persons','feature_cogs_voucher',
@@ -25,13 +26,14 @@ const ALLOWED_KEYS = [
 // the full settings list which is admin-only.
 const MODULE_KEYS = [
   'module_petty_cash', 'module_trust_checks', 'module_warehouses',
-  'module_consignments', 'module_production', 'module_payroll', 'module_reps'
+  'module_consignments', 'module_production', 'module_payroll', 'module_reps',
+  'coa_mode'
 ];
 router.get('/modules', auth, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`SELECT key,value FROM settings WHERE key IN (${MODULE_KEYS.map(() => '?').join(',')})`).all(...MODULE_KEYS);
   const obj = {};
-  for (const k of MODULE_KEYS) obj[k] = '1'; // default: enabled
+  for (const k of MODULE_KEYS) obj[k] = k === 'coa_mode' ? '' : '1'; // default: enabled (coa_mode empty = legacy)
   for (const r of rows) obj[r.key] = r.value;
   res.json(obj);
 });
@@ -58,7 +60,9 @@ router.put('/', auth, adminOnly, centralOnly, (req, res) => {
       stmt.run(k, v == null ? '' : String(v));
     }
   });
-  tx(Object.entries(req.body || {}));
+  const entries = Object.entries(req.body || {});
+  tx(entries);
+  if (entries.some(([k]) => k.startsWith('coa_') || k === 'feature_cogs_voucher')) clearCoaCache();
   audit(req.user.id, 'update', 'settings', null, 'بروزرسانی تنظیمات');
   const rows = db.prepare('SELECT key,value FROM settings').all();
   const obj = {};

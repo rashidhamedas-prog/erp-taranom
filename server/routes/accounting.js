@@ -631,6 +631,25 @@ router.put('/chart-of-accounts/:code', auth, adminOrAccounting, (req, res) => {
   res.json(db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(code));
 });
 
+// Link an operational entity to an existing chart account (Mahak mode)
+const COA_ENTITY_TABLE = { customer: 'customers', supplier: 'suppliers', product: 'products', bank: 'banks', cashbox: 'cash_boxes', person: 'persons' };
+router.patch('/link-coa', auth, adminOnly, centralOnly, (req, res) => {
+  const { entity_type, entity_id, coa_code } = req.body || {};
+  const table = COA_ENTITY_TABLE[entity_type];
+  if (!table) return res.status(400).json({ error: 'نوع موجودیت نامعتبر است' });
+  const id = parseInt(entity_id, 10);
+  const code = String(coa_code || '').trim();
+  if (!id || !code) return res.status(400).json({ error: 'شناسه و کد حساب الزامی است' });
+  const db = getDB();
+  const acc = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=? AND is_active=1').get(code);
+  if (!acc) return res.status(400).json({ error: 'حساب در کدینگ یافت نشد' });
+  const row = db.prepare(`SELECT id FROM ${table} WHERE id=?`).get(id);
+  if (!row) return res.status(404).json({ error: 'رکورد یافت نشد' });
+  db.prepare(`UPDATE ${table} SET coa_code=? WHERE id=?`).run(code, id);
+  audit(req.user.id, 'link_coa', entity_type, id, `اتصال به ${code} ${acc.name}`);
+  res.json({ ok: true, coa_code: acc.code, coa_name: acc.name });
+});
+
 // Open invoices for a customer (for payment allocation)
 router.get('/customers/:custId/open-invoices', auth, adminOrAccounting, (req, res) => {
   const db = getDB();

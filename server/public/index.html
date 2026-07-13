@@ -2502,8 +2502,9 @@ async function custModal(id){
               ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}" ${(c.assigned_to||c.user_id)===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}
             </select>
           </div>`:''}
+          ${coaCodeFieldHtml('customer', id, c.coa_code)}
         </div>
-      </div>`:''}
+      </div>`:coaCodeFieldHtml('customer', id, c.coa_code)}
       ${id&&isAdmin()&&!(APP_INFO&&APP_INFO.role==='device')?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
         <p style="font-weight:600;margin-bottom:8px">🛒 پورتال B2B ${hlp('با فعال‌سازی، مشتری می‌تواند با شماره موبایل خود وارد پورتال شود، کاتالوگ را ببیند، سفارش ثبت کند و صورتحسابش را مشاهده کند. سفارش‌ها به‌صورت پیش‌فاکتور به نام کارشناس مشتری ثبت می‌شوند.')}</p>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500;margin-bottom:8px">
@@ -3446,6 +3447,7 @@ async function prodModal(id){
       <div class="fg full"><label>تصویر محصول ${hlp('عکس محصول — در کاتالوگ و کارت انتخاب محصولِ فاکتورساز نمایش داده می‌شود.')}</label><input id="p-image" type="file" accept="image/*"></div>
       <div class="fg full"><label>یادداشت ${hlp('توضیح آزاد درباره محصول: جنس پارچه، سایزبندی، رنگ‌بندی و…')}</label><textarea id="p-note">${esc(p.note||'')}</textarea></div>
       ${p.image?`<div class="fg full">${prodImgTag(p.image,'style="height:90px;border-radius:8px"')}</div>`:''}
+      ${coaCodeFieldHtml('product', id, p.coa_code)}
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveProduct(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
@@ -4633,6 +4635,7 @@ function supplierModal(id){
       <div class="fg full"><label>آدرس</label><input id="sup-address" value="${esc(s.address||'')}"></div>
       ${!id?`<div class="fg"><label>مانده اولیه (تومان) ${hlp('مبلغی که از قبل به این تأمین‌کننده بدهکاریم — به‌عنوان مانده اول دوره در دفتر معین ثبت می‌شود.')}</label><input id="sup-balance" type="number" value="0"></div>`:''}
       <div class="fg full"><label>یادداشت</label><textarea id="sup-note">${esc(s.note||'')}</textarea></div>
+      ${coaCodeFieldHtml('supplier', id, s.coa_code)}
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveSupplier(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
@@ -6310,11 +6313,14 @@ function chartOfAccountsGroupedHtml(accounts){
     <div style="margin-bottom:16px">
       <h5 style="margin:0 0 8px;color:${typeColor[t]||'var(--text)'}">${typeLabel[t]||t} (${fmt(byType[t].length)})</h5>
       <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
-        <th>کد</th><th>نام حساب</th><th>حساب والد</th><th>عملیات</th>
+        <th>کد</th><th>نام حساب</th><th>سطح</th><th>ماهیت</th><th>نوع تفصیلی</th><th>حساب والد</th><th>عملیات</th>
       </tr></thead><tbody>
       ${byType[t].map(a=>`<tr style="${!a.parent_code?'font-weight:700;background:var(--purple-light)':''}">
         <td class="mono">${esc(a.code)}</td>
         <td style="padding-right:${8+(a._depth||0)*16}px">${a._depth?('↳ '.repeat(Math.min(a._depth,3))):''}${esc(a.name)}</td>
+        <td class="mono muted">${a.level||'-'}</td>
+        <td class="muted">${esc(a.nature||'-')}</td>
+        <td class="muted">${esc(a.tafsili_type||'-')}</td>
         <td class="mono muted">${a.parent_code||'-'}</td>
         <td style="white-space:nowrap">
           <button class="btn sm blue" onclick="go('acc-dash');dashPreselectGL('${esc(a.code)}')">📒</button>
@@ -6507,7 +6513,7 @@ async function renderBanksTab(body){
       <th>نام بانک</th><th>شماره حساب</th><th>شعبه</th><th>کد حساب</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${banks.map(b=>`<tr>
       <td>${esc(b.name)}</td><td class="mono">${esc(b.account_number||'-')}</td><td>${esc(b.branch||'-')}</td>
-      <td class="mono muted">1102-${b.id}</td>
+      <td class="mono muted">${entityCoaDisplay(b,'1102-')}</td>
       <td>${b.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td style="white-space:nowrap">
         <button class="btn sm ghost" onclick="bankModal(${b.id})">✏️</button>
@@ -6528,6 +6534,7 @@ function bankModal(id){
       ${id?`<div class="fg"><label>وضعیت</label><select id="bk-active">
         <option value="1" ${b.active?'selected':''}>فعال</option><option value="0" ${!b.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
+      ${coaCodeFieldHtml('bank', id, b.coa_code)}
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveBank(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
@@ -6547,13 +6554,15 @@ async function deleteBank(id){
   try{ await api('DELETE','/banks/'+id); showToast('حذف شد'); loadAccTab('banks'); }catch(e){}
 }
 function viewBankLedger(id){
+  const b=(CACHE.banks||[]).find(x=>x.id===id);
+  const glCode=(isMahakMode()&&b?.coa_code)?b.coa_code:('1102-'+id);
   go('acc-dash');
   let tries=0;
   const tryPreselect=()=>{
     const sel=el('glAccount');
-    if(sel && sel.querySelector(`option[value="1102-${id}"]`)){
-      sel.value='1102-'+id;
-      loadGeneralLedger('1102-'+id);
+    if(sel && sel.querySelector(`option[value="${glCode}"]`)){
+      sel.value=glCode;
+      loadGeneralLedger(glCode);
     } else if(tries++<40){
       setTimeout(tryPreselect,100);
     }
@@ -6631,7 +6640,7 @@ async function renderCashBoxesTab(body){
       <th>نام صندوق</th><th>مسئول صندوق</th><th>کد حساب</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${boxes.map(b=>`<tr>
       <td>${esc(b.name)}</td><td>${esc(b.custodian||'-')}</td>
-      <td class="mono muted">1101-${b.id}</td>
+      <td class="mono muted">${entityCoaDisplay(b,'1101-')}</td>
       <td>${b.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td style="white-space:nowrap">
         <button class="btn sm ghost" onclick="cashBoxModal(${b.id})">✏️</button>
@@ -6652,6 +6661,7 @@ function cashBoxModal(id){
       ${id?`<div class="fg"><label>وضعیت</label><select id="cb-active">
         <option value="1" ${b.active?'selected':''}>فعال</option><option value="0" ${!b.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
+      ${coaCodeFieldHtml('cashbox', id, b?.coa_code)}
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveCashBox(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
@@ -6671,13 +6681,15 @@ async function deleteCashBox(id){
   try{ await api('DELETE','/cash-boxes/'+id); showToast('حذف شد'); loadAccTab('cash-boxes'); }catch(e){}
 }
 function viewCashBoxLedger(id){
+  const b=(CACHE.cashBoxes||[]).find(x=>x.id===id);
+  const glCode=(isMahakMode()&&b?.coa_code)?b.coa_code:('1101-'+id);
   go('acc-dash');
   let tries=0;
   const tryPreselect=()=>{
     const sel=el('glAccount');
-    if(sel && sel.querySelector(`option[value="1101-${id}"]`)){
-      sel.value='1101-'+id;
-      loadGeneralLedger('1101-'+id);
+    if(sel && sel.querySelector(`option[value="${glCode}"]`)){
+      sel.value=glCode;
+      loadGeneralLedger(glCode);
     } else if(tries++<40){
       setTimeout(tryPreselect,100);
     }
@@ -8826,6 +8838,49 @@ async function b2bRenderStatement(body){
     </tbody></table></div>`;
 }
 
+function isMahakMode(){ return (CACHE.settings?.coa_mode || CACHE.moduleFlags?.coa_mode) === 'mahak'; }
+const COA_MAP_LABELS = {
+  coa_receivable: 'حساب دریافتنی (معین)',
+  coa_payable: 'حساب پرداختنی (معین)',
+  coa_misc_persons: 'حساب اشخاص متفرقه (معین)',
+  coa_sales: 'حساب درآمد فروش',
+  coa_sales_discount: 'حساب تخفیفات فروش',
+  coa_cogs: 'حساب بهای تمام‌شده',
+  coa_inventory: 'حساب موجودی کالا (معین)',
+  coa_cash_default: 'حساب صندوق پیش‌فرض (معین)',
+  coa_bank_default: 'حساب بانک پیش‌فرض (معین)',
+  coa_adjustment: 'حساب اصلاحات و تعدیلات',
+  coa_payroll_expense: 'حساب هزینه حقوق',
+  coa_payroll_payable: 'حساب بدهی حقوق/بیمه'
+};
+function coaCodeFieldHtml(type, id, coaCode){
+  if(!isMahakMode()) return '';
+  return `<div class="fg full" style="border-top:1px dashed var(--border);padding-top:8px;margin-top:4px">
+    <label>کد تفصیلی حساب ${hlp('حساب تفصیلی ۱۲ رقمی در کدینگ محک — برای اسناد خودکار استفاده می‌شود.')}</label>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input readonly dir="ltr" class="mono" value="${esc(coaCode||'')}" placeholder="پس از ذخیره خودکار تخصیص می‌شود" style="flex:1;min-width:180px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;background:#f9fafb">
+      ${id?`<button type="button" class="btn sm" onclick="linkCoaCode('${type}',${id})">🔗 اتصال به حساب موجود</button>`:''}
+    </div>
+  </div>`;
+}
+function entityCoaDisplay(row, legacyPrefix){
+  return (isMahakMode() && row.coa_code) ? row.coa_code : (legacyPrefix + row.id);
+}
+async function linkCoaCode(type, id){
+  const code = prompt('کد حساب تفصیلی (۱۲ رقم) یا معین (۶ رقم) را وارد کنید:');
+  if(!code || !code.trim()) return;
+  try{
+    const r = await api('PATCH','/accounting/link-coa',{ entity_type:type, entity_id:id, coa_code:code.trim() });
+    showToast('اتصال انجام شد: '+r.coa_code);
+    if(type==='customer'){ await reloadCustomers(); if(CURRENT_PAGE==='customers') renderCustTable(); }
+    else if(type==='product'){ await _refreshProdWithCats(_prodCanEdit); }
+    else if(type==='supplier') loadAccTab('suppliers');
+    else if(type==='bank') loadAccTab('banks');
+    else if(type==='cashbox') loadAccTab('cash-boxes');
+    closeModal();
+  }catch(e){ showToast('خطا در اتصال حساب','error'); }
+}
+
 ROUTES.settings = async function(){
   if(!CACHE.settings || !Object.keys(CACHE.settings).length) CACHE.settings=await api('GET','/settings')||{};
   const s = CACHE.settings;
@@ -8894,10 +8949,21 @@ ROUTES.settings = async function(){
 پوشاک ترنم 🌿</span>
       </div>
     </div></div>
+    <div class="panel"><div class="panel-head"><h4>⚙️ نگاشت کدینگ (حسابداری)</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
+        نگاشت حساب‌های کنترلی برای اسناد خودکار (فاکتور، دریافت، خرید، حقوق). در نصب عادی (بدون مهاجرت محک) نیازی به تغییر نیست — مقادیر پیش‌فرض ترنم استفاده می‌شود.
+        ${s.coa_mode==='mahak'?'<br><b style="color:var(--purple)">حالت فعلی: کدینگ محک</b> — importer این مقادیر را ست کرده است.':''}
+      </div>
+      <div class="form-grid">
+        ${Object.keys(COA_MAP_LABELS).map(k=>`<div class="fg"><label>${COA_MAP_LABELS[k]} ${hlp('کد معین یا تفصیلی در دفتر کل')}</label>
+          <input id="s-${k}" dir="ltr" class="mono" value="${esc(s[k]||'')}" placeholder="پیش‌فرض سیستم"></div>`).join('')}
+        <div class="fg full"><label><input type="checkbox" id="s-feature_cogs_voucher" ${s.feature_cogs_voucher==='1'?'checked':''} style="width:auto;margin-left:6px"> سند بهای تمام‌شده خودکار در فاکتور رسمی (مثل محک)</label></div>
+      </div>
+    </div></div>
     <div class="panel"><div class="panel-head"><h4>📅 مدیریت سال مالی</h4></div><div class="panel-body">
       <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
         <b>مسیر ۱ — انتقال (Rollover):</b> بستن سال جاری و افتتاح سال جدید با انتقال سود انباشته.<br>
-        <b>مسیر ۲ — بازنشانی (Factory Reset):</b> حذف همه تراکنش‌ها؛ فقط اطلاعات پایه (مشتری، محصول، تنظیمات) باقی می‌ماند — نیاز به تأیید رمز و تایپ RESET-FISCAL.
+        <b>مسیر ۲ — بازنشانی (Factory Reset):</b> حذف همه تراکنش‌ها؛ فقط اطلاعات پایه (مشتری، محصول، تنظیمات) باقی می‌ماند — نیاز به تأیید رمز و تایپ RESET-FISCAL. <b>در حالت کدینگ محک غیرفعال است.</b>
       </div>
       <div class="form-grid">
         <div class="fg"><label>برچسب سال جدید</label><input id="fy-label" placeholder="سال مالی 1405"></div>
@@ -8985,6 +9051,9 @@ async function saveSettings(){
   data.rep_sms_notify = el('s-rep_sms_notify')?.checked ? '1' : '0';
   if(el('s-feature_ai_assistant')) data.feature_ai_assistant = el('s-feature_ai_assistant').checked ? '1' : '0';
   if(el('s-feature_b2b_portal')) data.feature_b2b_portal = el('s-feature_b2b_portal').checked ? '1' : '0';
+  const coaKeys=['coa_receivable','coa_payable','coa_misc_persons','coa_sales','coa_sales_discount','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_adjustment','coa_payroll_expense','coa_payroll_payable'];
+  coaKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value.trim(); });
+  if(el('s-feature_cogs_voucher')) data.feature_cogs_voucher = el('s-feature_cogs_voucher').checked ? '1' : '0';
   CACHE.settings = await api('PUT','/settings',data);
   CACHE.moduleFlags=null; // force re-fetch next time the Accounting shell is entered
   showToast('تنظیمات ذخیره شد');
@@ -9714,6 +9783,8 @@ function renderAdminGuide(){
         <li>مشتری/تأمین‌کننده/کالا/بانک/صندوق جدید، خودکار <b>حساب تفصیلی اختصاصی</b> می‌گیرد</li>
         <li>هر فاکتور رسمی علاوه بر سند فروش، <b>سند بهای تمام‌شده</b> (بدهکار ۸۰۱ / بستانکار موجودی همان کالا) می‌زند — مثل محک؛ با حذف فاکتور دقیقاً معکوس می‌شود</li>
         <li>اسناد واردشده از محک با شماره سند اصلی محک قابل ردیابی‌اند</li>
+        <li>تنظیمات → «⚙️ نگاشت کدینگ»: ویرایش حساب‌های کنترلی و فعال/غیرفعال کردن سند COGS خودکار</li>
+        <li>در فرم مشتری/محصول/بانک/صندوق/تأمین‌کننده، کد تفصیلی نمایش داده می‌شود — برای رکوردهای قدیمی «🔗 اتصال به حساب موجود»</li>
       </ul>
       <div class="tip">در نصب‌های عادی (بدون مهاجرت محک) هیچ رفتاری تغییر نمی‌کند.</div>`),
     helpSec('📷','بارکد محصولات',`

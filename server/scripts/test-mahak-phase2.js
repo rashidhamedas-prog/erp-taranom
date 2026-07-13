@@ -11,6 +11,7 @@ const { spawn } = require('child_process');
 const DB = path.resolve(process.argv[2] || 'mahak-test.db');
 const USER = process.argv[3] || 'admin';
 const PASS = process.argv[4] || 'admin123';
+const TEST_PASS = PASS + 'Mh2!';
 const PORT = 4507;
 const BASE = `http://127.0.0.1:${PORT}`;
 let TOKEN = '';
@@ -33,7 +34,18 @@ async function api(method, p, body) {
   });
   try {
     for (let i = 0; i < 40; i++) { try { if ((await fetch(BASE + '/api/system/time')).ok) break; } catch { } await new Promise(r => setTimeout(r, 500)); }
-    TOKEN = (await api('POST', '/auth/login', { username: USER, password: PASS })).token;
+    let login = await api('POST', '/auth/login', { username: USER, password: PASS });
+    if (login.must_change_password && login.token) {
+      const chg = await fetch(BASE + '/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + login.token },
+        body: JSON.stringify({ oldPass: PASS, newPass: TEST_PASS })
+      });
+      const cd = await chg.json().catch(() => ({}));
+      if (!chg.ok) throw new Error('change-password → ' + (cd.error || chg.status));
+      login = await api('POST', '/auth/login', { username: USER, password: TEST_PASS });
+    }
+    TOKEN = login.token;
 
     const db = require('better-sqlite3')(DB);
     const tb = () => db.prepare(`SELECT ROUND(SUM(debit)) d, ROUND(SUM(credit)) c FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id WHERE COALESCE(je.deleted_at,0)=0`).get();

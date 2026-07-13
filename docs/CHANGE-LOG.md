@@ -32,14 +32,29 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `516a088` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v28` |
+| آخرین commit | `41d3bab` + Cursor تکمیل UI (در حال commit) |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
 | اندروید | **`2.0.7`** (versionCode 9) |
-| وضعیت سرور | ✅ deploy شده (`516a088` + pm2 restart) |
+| وضعیت سرور | ⏳ نیاز به pull (هات‌فیکس barcode + Mahak phase 2 + UI) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۶ — [Cursor] تکمیل UI فاز ۲ محک + deploy production
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین جلسه)
+- **خلاصه:**
+  - **پنل «⚙️ نگاشت کدینگ»** در تنظیمات: ویرایش ۱۲ کلید coa_* + checkbox سند COGS؛ `saveSettings()` ذخیره می‌کند؛ `clearCoaCache()` بعد از PUT.
+  - **فرم‌ها:** نمایش readonly کد تفصیلی + دکمه «🔗 اتصال به حساب موجود» برای مشتری/محصول/تأمین‌کننده/بانک/صندوق؛ API جدید `PATCH /accounting/link-coa`.
+  - **کدینگ:** ستون‌های سطح/ماهیت/نوع تفصیلی در جدول COA.
+  - **سال مالی:** Factory Reset در `coa_mode=mahak` یا با اسناد `src_system=mahak` مسدود شد.
+  - **`coa_mode`** در `/settings/modules` برای کاربران حسابداری (بدون دسترسی کامل تنظیمات).
+  - **`test-mahak-phase2.js`:** handle `must_change_password` بعد از login.
+  - SW → **v30**؛ راهنما به‌روز.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `server/routes/{settings,accounting,fiscal-year}.js`, `server/scripts/test-mahak-phase2.js`
+- **Deploy:** ⏳ pull + pm2 restart روی `45.90.98.99`
+- **یادداشت:** go-live دیتابیس محک (importer روی سرور) هنوز دست مالک — طبق `docs/MAHAK-MIGRATION.md` بخش ۵.
 
 ### ۱۴۰۴/۰۴/۲۶ — [Claude Code] ✅ فاز ۲ مهاجرت محک کامل شد — عملیات جاری روی کدینگ محک + COGS خودکار (۱۴/۱۴ تست E2E سبز)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -72,12 +87,16 @@
 5. `scripts/import-mahak-stock.js` — بالا.
 6. DB تست‌شده در scratchpad جلسهٔ Claude است؛ **روی سرور باید از نو با فایل‌های مالک اجرا شود** (فایل‌های اکسل عمداً در git نیستند — حاوی اطلاعات مالی؛ مالک محلی دارد).
 
-**⏳ ماندهٔ فاز ۲ (طبق MAHAK-MIGRATION.md بخش ۳.۲–۳.۵):**
-1. تزریق `coa-map.acct()` به همهٔ کدهای hardcode در routes: invoices (1103/4101/4102)، accounting/settlements و statement (1103/2101)، purchases (2101/1104)، expenses، payroll (6104/1106/2104)، production؛ و `resolveCashAccount` در db.js → اول `coa_code` رکورد بانک/صندوق.
-2. سند COGS خودکار در فاکتور رسمی وقتی `feature_cogs_voucher=1` (Dr coa_cogs / Cr products.coa_code به تفکیک؛ حذف/برگشت/تبدیل = معکوس دقیق).
-3. تفصیلی‌ساز خودکار برای موجودیت جدید در حالت coa_mode=mahak (تخصیص کد از MAX+1 با number_sequences).
-4. UI: پنل «نگاشت کدینگ» در تنظیمات + نمایش کد تفصیلی در فرم‌ها + راهنما + bump SW.
-5. **Go-live:** runbook بخش ۵ سند — بک‌آپ DB فعلی، اجرای دو importer روی سرور، سوییچ DB_PATH، چک‌لیست پذیرش حسابدار (بخش ۶).
+**✅ انجام‌شده (فاز ۲ — backend Claude + UI Cursor):**
+1. تزریق `coa-map.acct()` به routeها + COGS خودکار + allocTafsili (commit `41d3bab`).
+2. UI: پنل نگاشت کدینگ + کد تفصیلی در فرم‌ها + link-coa + ستون‌های COA + SW v30.
+3. **Go-live:** runbook بخش ۵ — بک‌آپ DB فعلی، اجرای دو importer روی سرور، سوییچ DB_PATH، چک‌لیست پذیرش حسابدار (بخش ۶).
+
+**⏳ مانده (دست مالک / ops):**
+- اجرای importerها روی production با فایل‌های Excel محلی
+- rebuild اندروید برای 1.0.11+Mahak
+
+**~~⏳ ماندهٔ فاز ۲ (قدیمی — انجام شد)~~**
 
 **⚠️ دام‌هایی که Claude به آن‌ها خورد (تکرار نکن):** (۱) فایل‌های page-script حتماً IIFE — barcode-input شما کل صفحه را کشته بود، فیکس شد؛ (۲) ÷۱۰ ریال→تومان فقط در سطح آرتیکل، هرگز روی جمع؛ (۳) «کد عملیاتی» تفصیلی محک per-type است نه یکتا — همیشه با نوع فیلتر کن؛ (۴) gate تغییر رمز اجباری 1.0.11 روی DB تازه فعال است (admin/admin123 → مودال تغییر رمز).
 
