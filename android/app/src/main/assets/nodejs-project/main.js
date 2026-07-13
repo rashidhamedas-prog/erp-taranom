@@ -58,7 +58,7 @@ try {
 
   process.env.SYNC_ROLE = 'device';
   process.env.APP_PLATFORM = 'android';
-  process.env.APP_VERSION = '2.0.7';
+  process.env.APP_VERSION = '2.0.8';
   process.env.PORT = port;
   process.env.DB_PATH = path.join(dataDir, 'crm.db');
   process.env.UPLOADS_DIR = path.join(dataDir, 'uploads');

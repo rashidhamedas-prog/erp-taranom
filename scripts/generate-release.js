@@ -38,7 +38,7 @@ function writeLatestYml(exePath) {
 }
 
 const NOTES = process.argv[6] ||
-  'تم جدید زمرد/شب مخملی (حالت تاریک)، اعداد انگلیسی خودکار، نوار پیشرفت دانلود آپدیت، آیکون جدید';
+  'نسخه 1.0.11: Command Palette، مرکز اقدامات، RBAC، مشاور AI، سال مالی، مهاجرت محک، هات‌فیکس ورود، بارکد wedge، SW v30';
 const manifest = {
   web: { version: '2.1.0', notes: 'به‌روزرسانی رابط وب — با باز کردن سایت در مرورگر خودکار اعمال می‌شود.' },
   desktop: {

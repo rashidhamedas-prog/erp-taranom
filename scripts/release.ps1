@@ -15,9 +15,9 @@
 # NOTE: keep this file pure ASCII - Windows PowerShell 5.1 parses BOM-less
 # files as ANSI and multi-byte characters (em-dash etc.) break the parser.
 param(
-  [string]$Version = '1.0.10',
-  [string]$AndroidVersion = '2.0.5',
-  [int]$AndroidCode = 7,
+  [string]$Version = '1.0.11',
+  [string]$AndroidVersion = '2.0.8',
+  [int]$AndroidCode = 10,
   [switch]$SkipDesktop,
   [switch]$SkipAndroid,
   [switch]$SkipDeploy,

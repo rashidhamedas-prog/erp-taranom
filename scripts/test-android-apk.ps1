@@ -49,7 +49,7 @@ if ($main) {
   $sr = New-Object IO.StreamReader($main.Open())
   $txt = $sr.ReadToEnd(); $sr.Close()
   Assert ($txt -match 'ensureBetterSqlite3Native') 'main.js has sqlite path fix'
-  Assert ($txt -match "APP_VERSION = '2.0.7'") 'main.js version 2.0.7'
+  Assert ($txt -match "APP_VERSION = '2.0.8'") 'main.js version 2.0.8'
 }
 
 # 5) Size sanity (nested APK builds were ~340MB; healthy ~120-200MB)
