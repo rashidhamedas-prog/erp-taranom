@@ -54,9 +54,9 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
   start('devB', { JWT_SECRET: 'b', PORT: '4102', DB_PATH: `${S}/e2e-devB.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
   await sleep(3000);
 
-  const CENTRAL_PASS = 'sync-test-1234';
-  const loginC = (await req(C, 'POST', '/api/auth/login', null, { username: 'admin', password: 'admin123' })).body;
-  const ct = loginC.token;
+  let CENTRAL_PASS = 'sync-test-1234';
+  let loginC = (await req(C, 'POST', '/api/auth/login', null, { username: 'admin', password: 'admin123' })).body;
+  let ct = loginC.token;
   ok(loginC.must_change_password === true, 'central flags default password for forced change');
   // Until the password changes, central rejects everything else
   const blocked = await req(C, 'GET', '/api/customers', ct);
@@ -81,6 +81,23 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
   const bProd = (await req(B, 'GET', '/api/products', bt)).body;
   ok(aCust.some(c => c.biz === 'مشتری مشترک'), 'A pulled central customer');
   ok(bProd.some(p => p.code === 'M-1' && p.stock === 100), 'B pulled central product');
+
+  console.log('— scenario 1b: device password change proxies to central —');
+  const DEV_NEW_PASS = 'device-new-5678';
+  const chgA = await req(A, 'POST', '/api/auth/change-password', at, { oldPass: CENTRAL_PASS, newPass: DEV_NEW_PASS });
+  ok(chgA.status === 200, 'device A change-password proxies to central');
+  const loginCNew = await req(C, 'POST', '/api/auth/login', null, { username: 'admin', password: DEV_NEW_PASS });
+  ok(loginCNew.status === 200, 'central accepts new password after device change');
+  const loginCOld = await req(C, 'POST', '/api/auth/login', null, { username: 'admin', password: CENTRAL_PASS });
+  ok(loginCOld.status === 401, 'central rejects old password');
+  await req(A, 'POST', '/api/sync/now', at);
+  const loginAOld = await req(A, 'POST', '/api/auth/login', null, { username: 'admin', password: CENTRAL_PASS });
+  ok(loginAOld.status === 401, 'device A rejects old password after sync');
+  const loginANew = await req(A, 'POST', '/api/auth/login', null, { username: 'admin', password: DEV_NEW_PASS });
+  ok(loginANew.status === 200, 'device A accepts new password');
+  CENTRAL_PASS = DEV_NEW_PASS;
+  ct = loginCNew.body.token;
+  at = loginANew.body.token;
 
   console.log('— scenario 2: TRUE offline — central down, device A keeps working —');
   stop('central');

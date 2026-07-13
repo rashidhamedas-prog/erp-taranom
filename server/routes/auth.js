@@ -114,6 +114,12 @@ router.post('/login', (req, res) => {
 
 // Forgot password — step 1: send OTP via SMS
 router.post('/forgot', async (req, res) => {
+  if (isDevice()) {
+    const { isPaired } = require('../sync/client');
+    if (isPaired(getDB())) {
+      return res.status(403).json({ error: 'بازیابی رمز فقط از نسخه وب (سرور مرکزی) امکان‌پذیر است.' });
+    }
+  }
   const username = (req.body.username || '').trim().slice(0, 64);
   const phone = normalizePhone(req.body.phone);
   if (!username || !phone) return res.status(400).json({ error: 'نام کاربری و شماره موبایل الزامی است' });
@@ -153,6 +159,12 @@ router.post('/forgot', async (req, res) => {
 
 // Forgot password — step 2: verify OTP and set new password
 router.post('/forgot-reset', (req, res) => {
+  if (isDevice()) {
+    const { isPaired } = require('../sync/client');
+    if (isPaired(getDB())) {
+      return res.status(403).json({ error: 'بازیابی رمز فقط از نسخه وب (سرور مرکزی) امکان‌پذیر است.' });
+    }
+  }
   const username = (req.body.username || '').trim().slice(0, 64);
   const code = String(req.body.code || '').trim();
   const newPass = (req.body.newPass || '').slice(0, 128);
@@ -194,7 +206,7 @@ router.get('/me', auth, (req, res) => {
   res.json(user);
 });
 
-router.post('/change-password', auth, (req, res) => {
+router.post('/change-password', auth, async (req, res) => {
   const oldPass = (req.body.oldPass || '').slice(0, 128);
   const newPass = (req.body.newPass || '').slice(0, 128);
   const passErr = validatePassword(newPass);
@@ -202,6 +214,31 @@ router.post('/change-password', auth, (req, res) => {
   if (newPass === 'admin123') return res.status(400).json({ error: 'این رمز مجاز نیست — رمز جدیدی انتخاب کنید' });
   const db = getDB();
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+
+  // Paired devices: change on central first, then mirror locally — otherwise
+  // the next sync pull overwrites users.password with the old central hash.
+  if (isDevice()) {
+    const { isPaired, changePasswordOnCentral } = require('../sync/client');
+    if (isPaired(db)) {
+      const proxied = await changePasswordOnCentral(user.username, oldPass, newPass);
+      if (proxied.offline) {
+        return res.status(503).json({
+          error: 'اتصال به سرور مرکزی برقرار نیست. برای تغییر رمز باید آنلاین باشید یا از نسخه وب استفاده کنید.'
+        });
+      }
+      if (!proxied.ok) {
+        return res.status(proxied.code === 'twofa_required' ? 403 : 400).json({
+          error: proxied.error,
+          code: proxied.code || undefined
+        });
+      }
+      db.prepare('UPDATE users SET password=?, must_change_password=0 WHERE id=?')
+        .run(bcrypt.hashSync(newPass, 10), req.user.id);
+      invalidateUserCache(req.user.id);
+      return res.json({ ok: true });
+    }
+  }
+
   if (!bcrypt.compareSync(oldPass, user.password))
     return res.status(400).json({ error: 'رمز قدیمی اشتباه است' });
   db.prepare('UPDATE users SET password=?, must_change_password=0 WHERE id=?').run(bcrypt.hashSync(newPass, 10), req.user.id);

@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `40ff2aa` (merge PR #3) |
+| آخرین commit | (پس از merge PR بعدی) |
 | نسخه وب/دسکتاپ | **`1.0.10`** / SW `v26` |
 | اندروید | **`2.0.7`** (versionCode 9) |
-| وضعیت سرور | ⏳ نیاز به deploy (`scripts/deploy-production.sh` یا GitHub Actions) |
+| وضعیت سرور | ⏳ نیاز به deploy |
 | Deploy بعدی لازم | اجرای deploy + چک‌لیست `docs/SECURITY-HARDENING.md` روی سرور |
 
 ---
