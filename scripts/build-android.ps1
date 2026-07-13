@@ -116,13 +116,39 @@ if (-not (Test-Path 'gradlew.bat')) {
 }
 
 # Remove stale artifacts so a failed build can never be reported as success
-$apk = Join-Path $Android 'app\build\outputs\apk\release\app-release.apk'
-if (Test-Path $apk) { Remove-Item $apk -Force }
+$apkRelease = Join-Path $Android 'app\build\outputs\apk\release\app-release.apk'
+$apkUnsigned = Join-Path $Android 'app\build\outputs\apk\release\app-release-unsigned.apk'
+if (Test-Path $apkRelease) { Remove-Item $apkRelease -Force }
+if (Test-Path $apkUnsigned) { Remove-Item $apkUnsigned -Force }
 
 Write-Host '==> assembleRelease (this may take several minutes)...'
 & .\gradlew.bat assembleRelease --no-daemon --rerun-tasks
 if ($LASTEXITCODE -ne 0) { throw "gradlew assembleRelease failed (exit $LASTEXITCODE)" }
-if (-not (Test-Path $apk)) { throw "APK not found at $apk" }
+
+$apk = if (Test-Path $apkRelease) { $apkRelease } elseif (Test-Path $apkUnsigned) { $apkUnsigned } else { $null }
+if (-not $apk) { throw "APK not found (expected app-release.apk or app-release-unsigned.apk)" }
+
+# Sign unsigned release when keystore.properties or CRM_KEYSTORE_* env is configured
+$ksProps = Join-Path $Android 'keystore.properties'
+if ($apk -like '*-unsigned.apk' -and (Test-Path $ksProps)) {
+  $props = @{}
+  Get-Content $ksProps | ForEach-Object {
+    if ($_ -match '^\s*([^#=]+)=(.*)$') { $props[$matches[1].Trim()] = $matches[2].Trim() }
+  }
+  $ksFile = Join-Path $Android ($props['storeFile'])
+  if (Test-Path $ksFile) {
+    $bt = Get-ChildItem (Join-Path $Sdk 'build-tools') -Directory | Sort-Object Name -Descending | Select-Object -First 1
+    $apksigner = Join-Path $bt.FullName 'apksigner.bat'
+    if (Test-Path $apksigner) {
+      $signed = Join-Path (Split-Path $apk) 'app-release-signed.apk'
+      & $apksigner sign --ks $ksFile --ks-key-alias $props['keyAlias'] --ks-pass "pass:$($props['storePassword'])" --key-pass "pass:$($props['keyPassword'])" --out $signed $apk
+      if ($LASTEXITCODE -eq 0 -and (Test-Path $signed)) { $apk = $signed; Write-Host "==> APK signed: $apk" }
+    }
+  }
+}
+if ($apk -like '*-unsigned.apk') {
+  Write-Warning 'APK is UNSIGNED — create android/keystore.properties to sign for device install'
+}
 
 $dest = Join-Path $Root 'server\public\releases\crm-taranom.apk'
 Copy-Item $apk $dest -Force

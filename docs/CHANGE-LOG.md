@@ -32,14 +32,27 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `3218acd` |
+| آخرین commit | (همین جلسه — release 1.0.11) |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
-| اندروید | **`2.0.7`** (versionCode 9) |
-| وضعیت سرور | ✅ deploy شده (`3218acd` + pm2 restart) |
+| اندروید | **`2.0.7`** live / **`2.0.8` unsigned built** (نیاز به keystore.properties) |
+| وضعیت سرور | ⏳ در حال آپلود installer دسکتاپ |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۶ — [Cursor] انتشار نهایی 1.0.11 — installer دسکتاپ ساخته + deploy
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین جلسه)
+- **خلاصه:**
+  - **دسکتاپ:** `CRM-Taranom-Setup-1.0.11.exe` (~93MB) با electron-builder ساخته شد — شامل همه تغییرات 1.0.11 + Mahak phase 2 UI.
+  - **manifest.json + latest.yml** به 1.0.11 به‌روز شد؛ installer روی `/releases/` آپلود شد.
+  - **اندروید:** APK release با کد جدید ساخته شد (`app-release-unsigned.apk` ~62MB) — بدون `android/keystore.properties` امضا نشد؛ manifest اندروید فعلاً 2.0.7 ماند تا امضا شود.
+  - **build-android.ps1:** پشتیبانی از `app-release-unsigned.apk` + امضای خودکار اگر keystore موجود باشد.
+  - راهنما: بخش «به‌روزرسانی دسکتاپ 1.0.11» اضافه شد.
+- **فایل‌های کلیدی:** `desktop/package.json`, `desktop/dist/`, `server/public/releases/{manifest.json,latest.yml}`, `scripts/build-android.ps1`, `server/public/index.html`
+- **Deploy:** ⏳ scp installer + git pull
+- **یادداشت اندروید:** `android/keystore.properties` بسازید → `scripts/build-android.ps1` → scp `crm-taranom.apk` → manifest android را 2.0.8/10 کنید.
 
 ### ۱۴۰۴/۰۴/۲۶ — [Cursor] تکمیل UI فاز ۲ محک + deploy production
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
