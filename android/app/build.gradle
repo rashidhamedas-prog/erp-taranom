@@ -47,6 +47,10 @@ android {
             minifyEnabled false
             if (ksFile && ksPass && ksAlias && ksKeyPass) {
                 signingConfig signingConfigs.release
+            } else {
+                // No release keystore — debug-sign so APK is installable (sideload).
+                // Users upgrading from an older release-signed build must uninstall first.
+                signingConfig signingConfigs.debug
             }
         }
     }

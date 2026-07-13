@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (همین جلسه) |
+| آخرین commit | `79a44f7` (+ build.gradle debug-sign) |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
 | اندروید | **`2.0.8`** (versionCode 10) |
-| وضعیت سرور | ⏳ آپلود APK 2.0.8 |
+| وضعیت سرور | ✅ deploy کامل (desktop 1.0.11 + android 2.0.8) |
 
 ---
 
@@ -43,20 +43,20 @@
 
 ### ۱۴۰۴/۰۴/۲۶ — [Cursor] انتشار اندروید 2.0.8 + تکمیل release 1.0.11
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین جلسه)
+- **Commit:** `79a44f7` (+ debug-sign fallback در `android/app/build.gradle`)
 - **خلاصه:**
-  - APK **2.0.8** (کد 1.0.11) از بیلد قبلی امضا و اعتبارسنجی شد — **۱۷/۱۷ assertion سبز** (`test-android-apk.ps1`).
-  - manifest اندروید → `2.0.8` / versionCode `10`.
+  - APK **2.0.8** (کد 1.0.11) امضا و اعتبارسنجی شد — **۱۷/۱۷ assertion سبز** (`test-android-apk.ps1`).
+  - manifest اندروید → `2.0.8` / versionCode `10`؛ APK روی `/releases/crm-taranom.apk` (~62MB).
+  - API آپدیت: `2.0.7 → 2.0.8` فعال.
   - رگرسیون: SMS 22/22، barcode 12/12، fiscal-year 4/4.
-  - `android/build.gradle`: اضافه شدن `maven.google.com` برای resolve AGP در شبکه‌های فیلترشده.
-  - راهنما: اگر نصب روی نسخه قبلی خطا داد → حذف و نصب تازه.
-  - **مهاجرت محک go-live:** فایل‌های Excel محلی یافت نشد — دست مالک.
-- **فایل‌های کلیدی:** `server/public/releases/manifest.json`, `android/build.gradle`, `server/public/index.html`
-- **Deploy:** ⏳ scp APK + git pull
+  - `android/build.gradle`: `maven.google.com` برای AGP؛ `android/app/build.gradle`: fallback امضای debug اگر keystore نباشد.
+  - **مهاجرت محک go-live:** فایل‌های Excel محلی یافت نشد — دست مالک (`docs/MAHAK-MIGRATION.md` §۵).
+- **فایل‌های کلیدی:** `server/public/releases/manifest.json`, `android/build.gradle`, `android/app/build.gradle`, `server/public/index.html`
+- **Deploy:** ✅ scp APK + manifest + git pull + pm2 restart
 
 ### ۱۴۰۴/۰۴/۲۶ — [Cursor] انتشار نهایی 1.0.11 — installer دسکتاپ ساخته + deploy
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین جلسه)
+- **Commit:** `dc97a18`
 - **خلاصه:**
   - **دسکتاپ:** `CRM-Taranom-Setup-1.0.11.exe` (~93MB) با electron-builder ساخته شد — شامل همه تغییرات 1.0.11 + Mahak phase 2 UI.
   - **manifest.json + latest.yml** به 1.0.11 به‌روز شد؛ installer روی `/releases/` آپلود شد.
