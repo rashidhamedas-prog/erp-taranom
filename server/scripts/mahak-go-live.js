@@ -77,6 +77,9 @@ const summary = {
   mahak_entries: db.prepare("SELECT COUNT(*) c FROM journal_entries WHERE src_system='mahak'").get().c,
   products: db.prepare('SELECT COUNT(*) c FROM products').get().c,
   product_stock: db.prepare('SELECT SUM(stock) s FROM products').get().s,
+  customers: db.prepare('SELECT COUNT(*) c FROM customers').get().c,
+  suppliers: db.prepare('SELECT COUNT(*) c FROM suppliers').get().c,
+  persons: db.prepare('SELECT COUNT(*) c FROM persons').get().c,
   banks: db.prepare('SELECT COUNT(*) c FROM banks').get().c,
   cash_boxes: db.prepare('SELECT COUNT(*) c FROM cash_boxes').get().c,
 };

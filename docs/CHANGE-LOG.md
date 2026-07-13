@@ -35,11 +35,19 @@
 | آخرین commit | `3866833` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ✅ محک go-live — ۱۵۳۰ سند / ۱٬۱۲۴ حساب / ۵۲۳ کالا |
+| وضعیت سرور | ⏳ نیاز به re-import با importer جدید (مشتری/تأمین‌کننده) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۸ — [Cursor] import محک: مشتری، تأمین‌کننده، دسته‌بندی کالا
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** «در حال commit»
+- **خلاصه:** تحلیل عمیق روزنامه + کدینگ؛ ایجاد **۸۵ مشتری** و **۷۰ تأمین‌کننده** از اشخاص محک با `coa_code` و مانده از گردش حساب؛ دسته‌بندی مواد اولیه/محصول نهایی؛ `mahak-analyze.js` + `mahak-import-helpers.js`.
+- **فایل‌های کلیدی:** `server/scripts/import-mahak-journal.js`, `server/lib/mahak-import-helpers.js`, `server/scripts/mahak-analyze.js`
+- **Deploy:** ⏳
+- **یادداشت:** ۱۵۳۰ سند، ۵۹۰۵ آرتیکل، ۵۲۳ کالا، ۷۱٬۸۳۱ موجودی — تراز ۵۰٬۹۹۸٬۶۴۳٬۸۸۹ تومان
 
 ### ۱۴۰۴/۰۴/۲۷ — [Cursor] go-live محک از صفر (سه فایل Excel)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

@@ -13,6 +13,7 @@
 const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
+const { fa, parsePersonName, guessProductCategory, buildAccountUsage, mapPersonAccounts } = require('../lib/mahak-import-helpers');
 
 const [codingPath, journalPath, dbPath] = process.argv.slice(2);
 const FORCE = process.argv.includes('--force');
@@ -26,7 +27,7 @@ const { initDB, getDB } = require('../db');
 initDB();
 const db = getDB();
 
-const fa = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+const faLocal = fa;
 const num = v => parseFloat(String(v == null ? '' : v).replace(/,/g, '')) || 0;
 const toman = rial => Math.round(rial / 10);          // decision #1: rial ÷ 10, per line
 
@@ -132,24 +133,48 @@ const stats = db.transaction(() => {
     }
   }
 
-  // operational entities from tafsili types (decisions #5, #6)
+  // operational entities from tafsili types (decisions #5, #6 — CRM profiles from Mahak persons)
+  const accountUsage = buildAccountUsage(docList);
+  const personAccounts = mapPersonAccounts(accountUsage, tafBestFull);
+  const nameForTaf = taf => {
+    if (tafInfo[taf]) return tafInfo[taf].name;
+    for (const [, v] of docList) for (const l of v.lines) if (l.code.slice(6) === taf) return faLocal(l.name.split(' - ').pop());
+    return 'شخص ' + taf;
+  };
+  const balOf = (full, kind) => {
+    const u = accountUsage.get(full);
+    if (!u) return 0;
+    return kind === 'payable' ? u.credit - u.debit : u.debit - u.credit;
+  };
+
   const wh = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
-  const insProd = db.prepare(`INSERT INTO products (user_id,category,code,name,price,cost,stock,stock_alert,unit,coa_code,needs_qty,note,warehouse_id)
-                              VALUES (?,?,?,?,0,0,0,5,'عدد',?,1,?,?)`);
+  const ensureCat = db.prepare('INSERT OR IGNORE INTO product_categories (name) VALUES (?)');
+  const getCatId = db.prepare('SELECT id FROM product_categories WHERE name=? LIMIT 1');
+  const insProd = db.prepare(`INSERT INTO products (user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,coa_code,needs_qty,note,warehouse_id)
+                              VALUES (?,?,?,?,?,0,0,0,5,'عدد',?,1,?,?)`);
   const insBank = db.prepare('INSERT INTO banks (name,account_number,branch,coa_code) VALUES (?,?,?,?)');
   const insBox = db.prepare('INSERT INTO cash_boxes (name,coa_code) VALUES (?,?)');
   const insWh = db.prepare('INSERT INTO warehouses (name) VALUES (?)');
+  db.exec(`INSERT OR IGNORE INTO person_categories (name,nature) VALUES ('سایر اشخاص','debit')`);
+  const miscCatId = db.prepare("SELECT id FROM person_categories WHERE name='سایر اشخاص' LIMIT 1").get()?.id;
+  const insCust = db.prepare(`INSERT INTO customers (user_id,biz,owner,phone,coa_code,balance,note,status,type,source)
+                              VALUES (?,?,?,?,?,?,?,?,?,?)`);
+  const insSup = db.prepare('INSERT INTO suppliers (name,phone,note,coa_code,balance) VALUES (?,?,?,?,?)');
+  const insPerson = db.prepare('INSERT INTO persons (category_id,name,phone,note,coa_code) VALUES (?,?,?,?,?)');
   // opening values from voucher #1 (1405/01/01) — kept for the report/product note
   const opening = new Map();
   const v1 = vouchers.get('1');
   if (v1) for (const l of v1.lines) if (l.debit > 0) opening.set(l.code.slice(6), l.debit);
 
-  let products = 0, banks = 0, boxes = 0, whs = 0;
+  let products = 0, banks = 0, boxes = 0, whs = 0, customers = 0, suppliers = 0, persons = 0;
   for (const [taf, info] of Object.entries(tafInfo)) {
     const full = tafBestFull.get(taf) || (TAF_DEFAULT_MOEIN[info.type] || '204001') + taf;
     if (info.type === 'کالاها') {
       const opv = opening.get(taf);
-      insProd.run(adminId, 'محک', taf, info.name, full,
+      const catName = guessProductCategory(info.name);
+      ensureCat.run(catName);
+      const catId = getCatId.get(catName)?.id || null;
+      insProd.run(adminId, catName, catId, taf, info.name, full,
         opv ? `ارزش افتتاحیه محک: ${opv.toLocaleString('en-US')} تومان — تعداد را تعیین کنید` : 'ورود از محک — تعداد را تعیین کنید',
         wh ? wh.id : null);
       if (opv) report.openings.push({ taf, name: info.name, value: opv });
@@ -157,6 +182,44 @@ const stats = db.transaction(() => {
     } else if (info.type === 'بانک ها') { insBank.run(info.name, '', 'ورود از محک', full); banks++; }
     else if (info.type === 'صندوق ها') { insBox.run(info.name, full); boxes++; }
     else if (info.type === 'انبارها') { insWh.run(info.name); whs++; }
+  }
+
+  const handledTafs = new Set();
+  const createPersonEntities = (taf, rawName) => {
+    const accts = personAccounts.get(taf) || {};
+    const parsed = parsePersonName(rawName);
+    const best = tafBestFull.get(taf);
+    const recvFull = accts.receivable || (best && best.startsWith('203') ? best : (!accts.payable ? `203004${taf}` : null));
+    const payFull = accts.payable || (best && best.startsWith('501') ? best : null);
+    const miscFull = accts.misc || (best && best.startsWith('204') ? best : null);
+
+    if (recvFull) {
+      const bal = balOf(recvFull, 'receivable');
+      insCust.run(adminId, parsed.biz, parsed.owner, parsed.phone, recvFull, bal,
+        `ورود از محک — کد ${recvFull}`, bal > 0 ? 'active' : 'followup', 'عمده', 'mahak');
+      customers++;
+    }
+    if (payFull) {
+      const bal = balOf(payFull, 'payable');
+      insSup.run(parsed.biz || rawName, parsed.phone, `ورود از محک — کد ${payFull}`, payFull, bal);
+      suppliers++;
+    }
+    if (miscFull && !recvFull && !payFull) {
+      insPerson.run(miscCatId, rawName, parsed.phone, `ورود از محک — کد ${miscFull}`, miscFull);
+      persons++;
+    }
+  };
+  for (const [taf, info] of Object.entries(tafInfo)) {
+    if (info.type !== 'اشخاص') continue;
+    handledTafs.add(taf);
+    createPersonEntities(taf, info.name);
+  }
+  for (const [taf] of personAccounts) {
+    if (handledTafs.has(taf)) continue;
+    const info = tafInfo[taf];
+    if (info && info.type !== 'اشخاص') continue;
+    handledTafs.add(taf);
+    createPersonEntities(taf, nameForTaf(taf));
   }
 
   // vouchers
@@ -222,7 +285,7 @@ const stats = db.transaction(() => {
   if (orphan) failures.push(`${orphan} آرتیکل با کد حساب خارج از کدینگ`);
   if (failures.length) throw new Error('VERIFY_FAILED:\n' + failures.join('\n'));
 
-  return { entries, lines, tafCount, products, banks, boxes, whs, mapping, tb, perKol };
+  return { entries, lines, tafCount, products, banks, boxes, whs, customers, suppliers, persons, mapping, tb, perKol };
 })();
 const { tb, perKol } = stats;
 const failures = [];
@@ -232,7 +295,8 @@ const rep = [];
 rep.push('# گزارش ورود اسناد محک به CRM ترنم');
 rep.push(`- تاریخ اجرا: ${new Date().toISOString()}`);
 rep.push(`- سند: **${stats.entries}** | آرتیکل: **${stats.lines}** (شامل ${report.adjustments.length} خط تعدیل)`);
-rep.push(`- حساب تفصیلی: ${stats.tafCount} | محصول: ${stats.products} (همه نیازمند تعیین تعداد) | بانک: ${stats.banks} | صندوق: ${stats.boxes} | انبار: ${stats.whs}`);
+rep.push(`- حساب تفصیلی: ${stats.tafCount} | محصول: ${stats.products} | مشتری: ${stats.customers} | تأمین‌کننده: ${stats.suppliers} | شخص: ${stats.persons}`);
+rep.push(`- بانک: ${stats.banks} | صندوق: ${stats.boxes} | انبار: ${stats.whs}`);
 rep.push(`- جمع بدهکار=بستانکار: **${Math.round(tb.d).toLocaleString('en-US')} تومان** ${Math.round(tb.d) === Math.round(tb.c) ? '✅' : '❌'}`);
 rep.push('\n## گردش حساب‌های کل (تومان — مقایسه با محک ÷۱۰)');
 rep.push('| کل | نام | بدهکار | بستانکار |'); rep.push('|---|---|---|---|');
@@ -248,7 +312,7 @@ if (failures.length) { rep.push('\n## ❌ خطاهای راستی‌آزمایی
 const repPath = path.join(path.dirname(path.resolve(dbPath)), 'mahak-import-report.md');
 fs.writeFileSync(repPath, rep.join('\n') + '\n');
 
-console.log(`\n${failures.length ? '❌ FAILED' : '✅ OK'} — entries=${stats.entries} lines=${stats.lines} adjustments=${report.adjustments.length}`);
+console.log(`\n${failures.length ? '❌ FAILED' : '✅ OK'} — entries=${stats.entries} lines=${stats.lines} customers=${stats.customers} suppliers=${stats.suppliers} adjustments=${report.adjustments.length}`);
 console.log(`   debit=credit=${Math.round(tb.d).toLocaleString('en-US')} toman`);
 console.log(`   report: ${repPath}`);
 if (failures.length) { failures.forEach(f => console.error('  ✗ ' + f)); process.exit(1); }

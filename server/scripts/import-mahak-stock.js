@@ -12,6 +12,7 @@
 const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
+const { guessProductCategory } = require('../lib/mahak-import-helpers');
 
 const [codingPath, mojodiPath, dbPath] = process.argv.slice(2);
 if (!codingPath || !mojodiPath || !dbPath) {
@@ -37,10 +38,12 @@ const rows = XLSX.utils.sheet_to_json(mwb.Sheets[mwb.SheetNames[0]], { header: 1
 
 const byCode = db.prepare('SELECT id,name,note FROM products WHERE code=?');
 const byName = db.prepare('SELECT id,name,note FROM products WHERE name=?');
-const upd = db.prepare('UPDATE products SET stock=?, unit=?, cost=?, needs_qty=0 WHERE id=?');
+const upd = db.prepare('UPDATE products SET stock=?, unit=?, cost=?, needs_qty=0, category=?, category_id=? WHERE id=?');
 const report = { matched: 0, unmatched: [], zeroed: 0, withCost: 0 };
 
 db.transaction(() => {
+  const ensureCat = db.prepare('INSERT OR IGNORE INTO product_categories (name) VALUES (?)');
+  const getCatId = db.prepare('SELECT id FROM product_categories WHERE name=? LIMIT 1');
   const seen = new Set();
   for (const r of rows) {
     const op = fa(r[0]), name = fa(r[1]), q = qty(r[2]), unit = fa(r[3]) || 'عدد';
@@ -48,11 +51,14 @@ db.transaction(() => {
     let prod = taf ? byCode.get(taf) : null;
     if (!prod) prod = byName.get(name);
     if (!prod) { report.unmatched.push(`${op} | ${name} | qty=${q}`); continue; }
+    const catName = guessProductCategory(prod.name || name);
+    ensureCat.run(catName);
+    const catId = getCatId.get(catName)?.id || null;
     // unit cost from the opening value the journal importer left in the note
     let cost = 0;
     const m = /ارزش افتتاحیه محک: ([\d,]+)/.exec(prod.note || '');
     if (m && q > 0) { cost = Math.round(parseInt(m[1].replace(/,/g, ''), 10) / q); report.withCost++; }
-    upd.run(q, unit, cost, prod.id);
+    upd.run(q, unit, cost, catName, catId, prod.id);
     seen.add(prod.id);
     report.matched++;
   }
