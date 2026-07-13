@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `79a44f7` (+ build.gradle debug-sign) |
+| آخرین commit | `7b877ed` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
 | اندروید | **`2.0.8`** (versionCode 10) |
 | وضعیت سرور | ✅ deploy کامل (desktop 1.0.11 + android 2.0.8) |
