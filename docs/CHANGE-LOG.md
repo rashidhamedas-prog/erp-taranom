@@ -27,21 +27,31 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۴)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۷)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `57f5544` |
+| آخرین commit | `b4e6d0d` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ✅ آنلاین — DB از `crm-pre-mahak.db` بازیابی شد |
+| وضعیت سرور | ⚠️ آنلاین — DB قبل از محک (`mahak=0`) — نیاز به re-import اکسل |
 
 ---
 
 ## تاریخچه
 
-### ۱۴۰۴/۰۴/۲۴ — [Cursor] رفع فوری HTTP 502 + سیاست APK محلی (بدون آپلود سرور)
+### ۱۴۰۴/۰۴/۲۷ — [Cursor] رفع خطای داخلی سرور + تلاش بازیابی محک
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `b4e6d0d`
+- **خلاصه:**
+  - **خطای داخلی:** `notifications.js` جدول اشتباه `rep_payments` → `rep_payment_submissions` — رفع و deploy شد.
+  - **کدینگ/اسناد محک نیست:** برای رفع 502 DB به pre-mahak برگشت؛ import محک (۱۵۳۰ سند) در `crm.db.corrupted-` بود، `.recover` ناموفق.
+  - **DB فعلی:** integrity ok، `journal_entries=42`، `mahak=0` — اکسل محک روی سرور یافت نشد.
+- **فایل‌های کلیدی:** `server/routes/notifications.js`, `server/scripts/recover-production-db.sh`
+- **Deploy:** ✅ pull + pm2 restart
+- **یادداشت:** `coding_hesbha.xlsx` + `daftar_roznameh.xlsx` (+ `mojodi.xlsx`) را روی سرور بگذارید → `import-mahak-journal.js`
+
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `57f5544`
 - **خلاصه:**
