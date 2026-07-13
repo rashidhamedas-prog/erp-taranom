@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const jwt = require('jsonwebtoken');
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, centralOnly, SECRET } = require('../middleware/auth');
+const { auth, adminOnly, centralOnly, SECRET, requirePermission } = require('../middleware/auth');
 const XLSX = require('xlsx');
 const multer = require('multer');
 const path = require('path');
@@ -177,10 +177,8 @@ document.querySelectorAll('svg.bc').forEach(function(el){
 </script></body></html>`);
 });
 
-// Quick create from invoice modals (JSON, no image).
-// Admin-only (spec 1.0.9 §1): sales experts must not create products on the
-// fly while invoicing — the catalog is curated centrally.
-router.post('/quick', auth, adminOnly, (req, res) => {
+// Quick create from invoice modals — managers and accountants (v1.0.11)
+router.post('/quick', auth, requirePermission('products', 'create'), (req, res) => {
   const { name, category_id, category, code, price, cost, warehouse_id, unit } = req.body;
   if (!name) return res.status(400).json({ error: 'نام محصول الزامی است' });
   const db = getDB();

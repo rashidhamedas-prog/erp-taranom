@@ -63,6 +63,11 @@ app.use(cors({
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
+// Barcode wedge/debounce helpers (browser + unit tests share this file)
+app.get('/barcode-input.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'lib', 'barcode-input.js'));
+});
+
 // Static assets (includes /logo.png if present; /uploads served separately below)
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
@@ -128,6 +133,10 @@ app.use('/api/sync', require('./routes/sync'));
 app.use('/api/auth/2fa', require('./routes/twofa'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/ai', require('./routes/ai'));
+app.use('/api/search', require('./routes/search'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/fiscal-year', require('./routes/fiscal-year'));
+app.use('/api/rbac', require('./routes/rbac'));
 app.use('/api/b2b', require('./routes/b2b'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/followups', require('./routes/followups'));
@@ -137,20 +146,18 @@ app.use('/api/product-categories', require('./routes/product-categories'));
 app.use('/api/admin', require('./routes/admin'));
 
 // Manual backup endpoint — registered before admin router catch-all.
-// Central-only: the tar/Gmail backup pipeline belongs to the production
-// server; device builds have their own local DB file the OS backs up.
+// Central-only: device/desktop builds sync data but cannot dump the DB here.
 const { auth, adminOnly, centralOnly } = require('./middleware/auth');
-// Backup endpoints work on central and desktop (local DB_PATH); no centralOnly gate.
-app.post('/api/admin/backup-now', auth, adminOnly, async (req, res) => {
+app.post('/api/admin/backup-now', auth, adminOnly, centralOnly, async (req, res) => {
   const result = await runBackup();
-  res.json({ ...result, role: isDevice() ? 'device' : 'central' });
+  res.json({ ...result, role: 'central' });
 });
 
-app.get('/api/admin/backups', auth, adminOnly, (req, res) => {
+app.get('/api/admin/backups', auth, adminOnly, centralOnly, (req, res) => {
   res.json(listBackups());
 });
 
-app.get('/api/admin/backup-download', auth, adminOnly, async (req, res) => {
+app.get('/api/admin/backup-download', auth, adminOnly, centralOnly, async (req, res) => {
   let filePath = getLatestBackupFile();
   if (!fs.existsSync(filePath)) {
     const result = await runBackup();
@@ -161,7 +168,7 @@ app.get('/api/admin/backup-download', auth, adminOnly, async (req, res) => {
   res.download(filePath, base);
 });
 
-app.get('/api/admin/backup-download/:name', auth, adminOnly, (req, res) => {
+app.get('/api/admin/backup-download/:name', auth, adminOnly, centralOnly, (req, res) => {
   const filePath = resolveBackupFile(req.params.name);
   if (!filePath) return res.status(404).json({ error: 'فایل پشتیبان یافت نشد' });
   res.download(filePath, req.params.name);

@@ -85,4 +85,22 @@ function centralOnly(req, res, next) {
   next();
 }
 
-module.exports = { auth, adminOnly, adminOrAccounting, repModuleAdmin, centralOnly, invalidateUserCache, SECRET };
+// Granular RBAC — checks user_permissions overrides + role defaults
+function requirePermission(resource, action) {
+  const { getDB } = require('../db');
+  const { hasPermission } = require('../lib/rbac');
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'توکن یافت نشد' });
+    if (hasPermission(getDB(), req.user, resource, action)) return next();
+    return res.status(403).json({ error: 'دسترسی ندارید' });
+  };
+}
+
+function managerOnly(req, res, next) {
+  if (!req.user || !['admin', 'sales_manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'دسترسی ندارید — فقط مدیر' });
+  }
+  next();
+}
+
+module.exports = { auth, adminOnly, adminOrAccounting, repModuleAdmin, centralOnly, requirePermission, managerOnly, invalidateUserCache, SECRET };

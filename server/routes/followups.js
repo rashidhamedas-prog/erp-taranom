@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { getDB } = require('../db');
+const notif = require('../lib/notifications');
 const { auth, adminOnly } = require('../middleware/auth');
 const { todayJalali, nowHHMM } = require('../jalali');
 const XLSX = require('xlsx');
@@ -50,6 +51,10 @@ router.post('/', auth, (req, res) => {
     parseFloat(account_balance) || 0
   );
   const row = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.id=?').get(result.lastInsertRowid);
+  try {
+    const cust = db.prepare('SELECT biz FROM customers WHERE id=?').get(cust_id);
+    notif.notifyNewFollowup(db, row, cust);
+  } catch (e) { console.error('notify followup:', e.message); }
   res.json(row);
 });
 

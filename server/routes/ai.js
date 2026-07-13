@@ -1,15 +1,16 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, centralOnly } = require('../middleware/auth');
+const { auth, adminOnly, centralOnly, managerOnly } = require('../middleware/auth');
 const ai = require('../services/ai');
 
-// Insights feed — admins/accounting see everything; salespeople see their own + their customers'
+// Insights feed — managers see everything; salespeople see their own
 router.get('/insights', auth, (req, res) => {
   const db = getDB();
   const kind = req.query.kind || null;
-  const isManager = ['admin', 'accounting'].includes(req.user.role);
+  const isManager = ['admin', 'sales_manager'].includes(req.user.role);
+  const isFinance = req.user.role === 'accounting';
   let rows;
-  if (isManager) {
+  if (isManager || isFinance) {
     rows = db.prepare(`
       SELECT a.*, c.biz as cust_biz, u.name as rep_name FROM ai_insights a
       LEFT JOIN customers c ON a.customer_id=c.id
@@ -55,8 +56,8 @@ router.get('/my-summary', auth, async (req, res) => {
   }
 });
 
-// Latest weekly summary (admin)
-router.get('/weekly-summary', auth, adminOnly, (req, res) => {
+// Latest weekly summary (admin + sales_manager)
+router.get('/weekly-summary', auth, managerOnly, (req, res) => {
   const db = getDB();
   const row = db.prepare("SELECT * FROM ai_insights WHERE kind='weekly_summary' ORDER BY created_at DESC LIMIT 1").get();
   res.json(row || null);
@@ -71,6 +72,20 @@ router.post('/insights/refresh', auth, adminOnly, centralOnly, async (req, res) 
     audit(req.user.id, 'ai_refresh', 'ai_insights', null, 'بازتولید دستی تحلیل AI', req);
     const count = db.prepare('SELECT COUNT(*) c FROM ai_insights').get().c;
     res.json({ ok: true, insights: count });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// AI Business Consultant — manager only (v1.0.11 §4.2)
+router.post('/consult', auth, managerOnly, centralOnly, async (req, res) => {
+  const db = getDB();
+  const { question } = req.body;
+  if (!question || !String(question).trim()) return res.status(400).json({ error: 'سؤال الزامی است' });
+  try {
+    const answer = await ai.buildConsultantReply(db, String(question).trim());
+    audit(req.user.id, 'ai_consult', 'ai_insights', null, 'مشاوره هوشمند مدیر', req);
+    res.json(answer);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

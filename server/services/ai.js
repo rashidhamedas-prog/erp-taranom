@@ -198,9 +198,67 @@ async function runNightlyAnalysis(db, { weekly = false } = {}) {
   console.log(`🤖 تحلیل AI: ${customers.length} مشتری امتیازدهی شد، ${atRisk.length} در ریسک`);
 }
 
-// ── Personal performance summary (spec 1.0.9 §6) ────────────────────────────
-// Everything here is filtered by ONE user id — the aggregates handed to the
-// model contain no other user's data, so scoping is enforced by construction.
+// Business consultant for managers — aggregated anonymized business context
+async function buildConsultantReply(db, question) {
+  const now = nowSec();
+  const weekAgo = now - 7 * DAY;
+  const monthPrefix = require('../jalali').todayJalali().slice(0, 8);
+
+  const weekSales = db.prepare("SELECT COUNT(*) c, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND created_at>=? AND COALESCE(deleted_at,0)=0").get(weekAgo);
+  const monthSales = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND date LIKE ? AND COALESCE(deleted_at,0)=0").get(monthPrefix + '%');
+  const overdue = db.prepare(`
+    SELECT c.biz, SUM(cl.debit - cl.credit) as balance
+    FROM customer_ledger cl JOIN customers c ON cl.customer_id=c.id
+    GROUP BY c.id HAVING balance > 1000000 ORDER BY balance DESC LIMIT 5
+  `).all();
+  const lowStock = db.prepare('SELECT name, stock FROM products WHERE stock <= stock_alert ORDER BY stock LIMIT 5').all();
+  let topProducts = [];
+  try {
+    topProducts = db.prepare(`
+      SELECT p.name, COUNT(*) as qty
+      FROM invoices i, json_each(i.rows) je
+      JOIN products p ON p.id = CAST(json_extract(je.value,'$.product_id') AS INTEGER)
+      WHERE i.type='final' AND COALESCE(i.deleted_at,0)=0 AND i.created_at>=?
+      GROUP BY p.id ORDER BY qty DESC LIMIT 5
+    `).all(weekAgo);
+  } catch { /* json_each may fail on empty rows */ }
+
+  const context = {
+    week_invoices: weekSales.c, week_revenue: weekSales.s,
+    month_revenue: monthSales.s,
+    overdue_customers: overdue.map(o => ({ label: o.biz, balance: Math.round(o.balance) })),
+    low_stock: lowStock.map(p => ({ name: p.name, stock: p.stock })),
+    at_risk_count: db.prepare('SELECT COUNT(*) c FROM customers WHERE churn_score>=60').get().c,
+  };
+
+  const systemPrompt = `شما یک مشاور ارشد کسب‌وکار و مالی برای یک تولیدی پوشاک عمده‌فروشی (برند ترنم) هستید.
+نقش شما: تحلیل داده‌های تجمیع‌شده، ارائه بینش عملی، پیشنهاد اقدام مشخص.
+محدودیت‌ها: فقط از داده‌های ارائه‌شده استفاده کنید؛ عدد نسازید؛ پاسخ فارسی، حرفه‌ای و مختصر (حداکثر ۶ جمله).
+اگر داده کافی نیست، صریح بگویید چه اطلاعاتی لازم است.`;
+
+  const apiKey = getSettingValue(db, 'feature_ai_assistant') === '1' ? getApiKey(db) : null;
+  const model = getSettingValue(db, 'ai_model') || 'claude-haiku-4-5-20251001';
+
+  if (apiKey) {
+    try {
+      const text = await callClaude(apiKey, model, systemPrompt,
+        `داده‌های تجمیع‌شده (بدون نام مشتری خاص در سؤال):\n${JSON.stringify(context)}\n\nسؤال مدیر: ${question}`, 800);
+      return { answer: text, context_summary: context, source: 'claude' };
+    } catch (e) {
+      console.error('ai consult claude error:', e.message);
+    }
+  }
+
+  const parts = [];
+  parts.push(`این هفته ${weekSales.c} فاکتور رسمی به مبلغ ${Number(weekSales.s).toLocaleString('fa-IR')} تومان ثبت شده.`);
+  parts.push(`فروش این ماه: ${Number(monthSales.s).toLocaleString('fa-IR')} تومان.`);
+  if (overdue.length) parts.push(`${overdue.length} مشتری با مانده بالای ۱ میلیون تومان دارید — اولویت وصول.`);
+  if (lowStock.length) parts.push(`${lowStock.length} محصول موجودی کم دارند.`);
+  parts.push(`سؤال شما: «${question}» — برای تحلیل عمیق‌تر، کلید API هوش مصنوعی را در تنظیمات فعال کنید.`);
+  return { answer: parts.join(' '), context_summary: context, source: 'heuristic' };
+}
+
+// Personal performance summary (spec 1.0.9 §6)
 async function buildMySummary(db, userId, { narrative = false } = {}) {
   const { todayJalali } = require('../jalali');
   const now = nowSec();
@@ -257,4 +315,4 @@ async function buildMySummary(db, userId, { narrative = false } = {}) {
   return { stats, narrative: body };
 }
 
-module.exports = { runNightlyAnalysis, computeChurnScore, buildMySummary };
+module.exports = { runNightlyAnalysis, computeChurnScore, buildMySummary, buildConsultantReply };

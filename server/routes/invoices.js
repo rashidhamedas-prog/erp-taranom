@@ -1,7 +1,8 @@
 const router = require('express').Router();
 const { getDB, audit, createLedgerEntry, createJournalEntry, allocateNumber, isDevice } = require('../db');
-const { auth, adminOnly } = require('../middleware/auth');
+const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { todayJalali, addDaysToJalali } = require('../jalali');
+const notif = require('../lib/notifications');
 
 function getScope(req) {
   // Accounting staff see all invoices (read scope) — needed for the Sales
@@ -91,9 +92,9 @@ router.get('/', auth, (req, res) => {
     i.cheque_duration,i.cheque_due_date,i.cheque_info,i.approved,i.converted,i.note,i.created_at`;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ORDER BY i.created_at DESC`).all();
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id WHERE COALESCE(i.deleted_at,0)=0 ORDER BY i.created_at DESC`).all();
   } else {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? ORDER BY i.created_at DESC`).all(scope);
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? AND COALESCE(i.deleted_at,0)=0 ORDER BY i.created_at DESC`).all(scope);
   }
   res.json(rows);
 });
@@ -241,6 +242,12 @@ router.post('/', auth, (req, res) => {
   }
 
   const row = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(created.id);
+  if (!isDevice()) {
+    try {
+      const cust = db.prepare('SELECT biz FROM customers WHERE id=?').get(cust_id);
+      notif.notifyNewInvoice(db, row, cust);
+    } catch (e) { console.error('notify invoice:', e.message); }
+  }
   res.json({ ...row, rows: JSON.parse(row.rows || '[]') });
 });
 
@@ -281,14 +288,15 @@ router.put('/:id', auth, (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/:id', auth, (req, res) => {
+router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
+  const row = db.prepare('SELECT * FROM invoices WHERE id=? AND COALESCE(deleted_at,0)=0').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
+  if (req.user.role !== 'admin' && req.user.role !== 'accounting' && row.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'دسترسی ندارید' });
+  }
 
   db.transaction(() => {
-    // Restore inventory when a final invoice with deducted stock is deleted
     if (row.stock_deducted) {
       const invRows = JSON.parse(row.rows || '[]');
       for (const r of invRows) {
@@ -299,7 +307,6 @@ router.delete('/:id', auth, (req, res) => {
       }
     }
 
-    // Reverse ledger + journal entries for deleted final invoices
     if (row.type === 'final') {
       createLedgerEntry(db, {
         customer_id: row.cust_id, date: row.date || '', entry_type: 'reversal',
@@ -318,9 +325,9 @@ router.delete('/:id', auth, (req, res) => {
       });
     }
 
-    db.prepare('DELETE FROM invoices WHERE id=?').run(req.params.id);
+    db.prepare('UPDATE invoices SET deleted_at=strftime(\'%s\',\'now\'), deleted_by=? WHERE id=?').run(req.user.id, req.params.id);
   })();
-  audit(req.user.id, 'delete', 'invoice', req.params.id, `حذف فاکتور ${row.num}`);
+  audit(req.user.id, 'soft_delete', 'invoice', req.params.id, `حذف نرم فاکتور ${row.num}`);
   res.json({ ok: true });
 });
 

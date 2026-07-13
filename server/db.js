@@ -1474,6 +1474,62 @@ function initSyncSchema(db) {
   ensureColumn(db, 'customers', 'b2b_enabled', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'products', 'barcode', 'TEXT');
 
+  // v1.0.11 — soft-delete, RBAC, fiscal years, notifications
+  ensureColumn(db, 'invoices', 'deleted_at', 'INTEGER');
+  ensureColumn(db, 'invoices', 'deleted_by', 'INTEGER');
+  ensureColumn(db, 'journal_entries', 'deleted_at', 'INTEGER');
+  ensureColumn(db, 'journal_entries', 'deleted_by', 'INTEGER');
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_permissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      resource TEXT NOT NULL,
+      action TEXT NOT NULL,
+      allowed INTEGER DEFAULT 1,
+      UNIQUE(user_id, resource, action),
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS fiscal_years (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      label TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT DEFAULT '',
+      status TEXT DEFAULT 'open',
+      opening_retained REAL DEFAULT 0,
+      opening_receivables REAL DEFAULT 0,
+      opening_inventory REAL DEFAULT 0,
+      created_by INTEGER,
+      closed_by INTEGER,
+      closed_at INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE TABLE IF NOT EXISTS app_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id INTEGER,
+      title TEXT DEFAULT '',
+      body TEXT DEFAULT '',
+      target_roles TEXT DEFAULT '[]',
+      resolved_at INTEGER,
+      resolved_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_notif_unresolved ON app_notifications(resolved_at);
+  `);
+
+  // Seed first fiscal year if none exists
+  const fyCount = db.prepare('SELECT COUNT(*) c FROM fiscal_years').get().c;
+  if (!fyCount) {
+    const { todayJalali } = require('./jalali');
+    const yr = todayJalali().slice(0, 4);
+    const fyId = db.prepare(`
+      INSERT INTO fiscal_years (label, start_date, status) VALUES (?, ?, 'open')
+    `).run('سال مالی ' + yr, yr + '/01/01').lastInsertRowid;
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('active_fiscal_year_id',?)").run(String(fyId));
+  }
+
   // Central-only: triggers stamp every insert/update with the next global
   // sequence value (and bump version on update) and write a tombstone on
   // delete, so the pull endpoint can serve incremental changes with zero

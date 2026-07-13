@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getDB, audit } = require('../db');
+const { getDB, audit, createJournalEntry } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 
@@ -129,6 +129,7 @@ router.post('/:id/apply', auth, adminOrAccounting, (req, res) => {
   if (!session) return res.status(404).json({ error: 'یافت نشد' });
   if (session.status === 'adjusted') return res.status(400).json({ error: 'قبلاً اعمال شده' });
   const items = db.prepare('SELECT * FROM stocktaking_items WHERE session_id=?').all(session.id);
+  let totalGain = 0, totalLoss = 0;
   db.transaction(() => {
     for (const it of items) {
       const counted = Math.max(0, parseInt(it.counted_qty, 10) || 0);
@@ -138,7 +139,7 @@ router.post('/:id/apply', auth, adminOrAccounting, (req, res) => {
         INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)
         ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=?
       `).run(it.product_id, session.warehouse_id, counted, counted);
-      const prod = db.prepare('SELECT warehouse_id, stock FROM products WHERE id=?').get(it.product_id);
+      const prod = db.prepare('SELECT warehouse_id, stock, cost, name FROM products WHERE id=?').get(it.product_id);
       if (prod && prod.warehouse_id === session.warehouse_id) {
         db.prepare('UPDATE products SET stock=? WHERE id=?').run(counted, it.product_id);
       } else if (diff !== 0) {
@@ -147,7 +148,25 @@ router.post('/:id/apply', auth, adminOrAccounting, (req, res) => {
       if (diff !== 0) {
         db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
           .run(it.product_id, req.user.id, diff, `انبارگردانی #${session.id}`);
+        const val = Math.abs(diff) * (prod?.cost || 0);
+        if (diff > 0) totalGain += val; else totalLoss += val;
       }
+    }
+    if (totalGain > 0 || totalLoss > 0) {
+      const lines = [];
+      if (totalGain > 0) {
+        lines.push({ code: '1101', name: 'موجودی کالا', debit: totalGain, credit: 0, description: 'انبارگردانی — اضافه' });
+        lines.push({ code: '5101', name: 'تعدیلات انبارگردانی', debit: 0, credit: totalGain, description: 'انبارگردانی' });
+      }
+      if (totalLoss > 0) {
+        lines.push({ code: '5101', name: 'تعدیلات انبارگردانی', debit: totalLoss, credit: 0, description: 'انبارگردانی — کسری' });
+        lines.push({ code: '1101', name: 'موجودی کالا', debit: 0, credit: totalLoss, description: 'انبارگردانی' });
+      }
+      createJournalEntry(db, {
+        date: session.date || todayJalali(),
+        description: `سند انبارگردانی #${session.id}`,
+        ref_type: 'stocktaking', ref_id: session.id, created_by: req.user.id, lines,
+      });
     }
     db.prepare("UPDATE stocktaking_sessions SET status='adjusted',approved_by=?,approved_at=strftime('%s','now') WHERE id=?")
       .run(req.user.id, session.id);

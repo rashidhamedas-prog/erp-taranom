@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting, resolveCashAccount } = require('../db');
 const { recordCommissionAccrual, recordSettlementCommissionAccrual } = require('../lib/rep-ledger');
-const { auth, adminOnly, adminOrAccounting, centralOnly } = require('../middleware/auth');
+const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -569,21 +569,7 @@ router.get('/general', auth, adminOrAccounting, (req, res) => {
   });
 });
 
-// Customer ledger (transaction history)
-router.get('/ledger/:customerId', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
-  const customer = db.prepare('SELECT id,biz,owner,phone FROM customers WHERE id=?').get(req.params.customerId);
-  if (!customer) return res.status(404).json({ error: 'مشتری یافت نشد' });
-  const entries = db.prepare(`
-    SELECT cl.*, u.name as user_name
-    FROM customer_ledger cl LEFT JOIN users u ON cl.user_id=u.id
-    WHERE cl.customer_id=?
-    ORDER BY cl.created_at ASC, cl.id ASC
-  `).all(req.params.customerId);
-  let balance = 0;
-  entries.forEach(e => { balance += (e.debit || 0) - (e.credit || 0); e.running_balance = balance; });
-  res.json({ customer, entries, balance });
-});
+// Customer ledger (transaction history) — REMOVED in v1.0.11 (use acc-statement instead)
 
 // Chart of accounts
 router.get('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
@@ -659,6 +645,7 @@ router.get('/journal', auth, adminOrAccounting, (req, res) => {
   if (from) { where.push('je.entry_date >= ?'); params.push(from); }
   if (to)   { where.push('je.entry_date <= ?'); params.push(to); }
   if (ref_type) { where.push('je.ref_type = ?'); params.push(ref_type); }
+  where.push('COALESCE(je.deleted_at,0)=0');
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const total = db.prepare(`SELECT COUNT(*) c FROM journal_entries je ${whereSql}`).get(...params).c;
   const entries = db.prepare(`
@@ -1064,17 +1051,15 @@ router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => 
   res.json({ id: entryId, ok: true });
 });
 
-router.delete('/vouchers/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/vouchers/:id', auth, adminOrAccounting, requirePermission('accounting', 'delete'), (req, res) => {
   const db = getDB();
-  const entry = db.prepare("SELECT * FROM journal_entries WHERE id=? AND ref_type='manual_voucher'").get(req.params.id);
+  const entry = db.prepare("SELECT * FROM journal_entries WHERE id=? AND ref_type='manual_voucher' AND COALESCE(deleted_at,0)=0").get(req.params.id);
   if (!entry) return res.status(404).json({ error: 'سند دستی یافت نشد' });
-  if (entry.attachment) fs.unlink(path.join(VOUCHER_UPLOAD_DIR, entry.attachment), () => {});
   db.transaction(() => {
-    db.prepare("DELETE FROM person_ledger WHERE ref_type='manual_voucher' AND ref_id=?").run(req.params.id);
-    db.prepare('DELETE FROM journal_lines WHERE entry_id=?').run(req.params.id);
-    db.prepare('DELETE FROM journal_entries WHERE id=?').run(req.params.id);
+    db.prepare("UPDATE person_ledger SET description=description||' [حذف‌شده]' WHERE ref_type='manual_voucher' AND ref_id=?").run(req.params.id);
+    db.prepare('UPDATE journal_entries SET deleted_at=strftime(\'%s\',\'now\'), deleted_by=? WHERE id=?').run(req.user.id, req.params.id);
   })();
-  audit(req.user.id, 'delete', 'journal_voucher', req.params.id, 'حذف سند دستی');
+  audit(req.user.id, 'soft_delete', 'journal_voucher', req.params.id, 'حذف نرم سند دستی');
   res.json({ ok: true });
 });
 
@@ -1088,7 +1073,7 @@ router.get('/general-ledger/:code', auth, adminOrAccounting, (req, res) => {
   const lines = db.prepare(`
     SELECT jl.*, je.entry_date, je.description as entry_description, je.ref_type, je.ref_id
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
-    WHERE jl.account_code=?
+    WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0
     ORDER BY je.entry_date ASC, je.id ASC
   `).all(req.params.code);
   // Normal balance side determines running-balance sign: debit-normal accounts (asset/expense/cogs) add debit, subtract credit

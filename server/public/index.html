@@ -552,6 +552,22 @@ table.tbl tr:hover td{background:var(--row-hover)}
   body{background:#fff}
 }
 
+/* Command Palette (v1.0.11) */
+.omnibox-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:none;align-items:flex-start;justify-content:center;padding:12vh 16px 16px}
+.omnibox-overlay.open{display:flex}
+.omnibox{width:min(560px,100%);background:var(--card);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;border:1px solid var(--border)}
+.omnibox input{width:100%;padding:14px 16px;border:none;border-bottom:1px solid var(--border);font-size:15px;font-family:inherit;background:var(--card)}
+.omnibox-results{max-height:50vh;overflow:auto}
+.omnibox-item{padding:10px 16px;cursor:pointer;display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border)}
+.omnibox-item:hover,.omnibox-item.active{background:var(--purple-light)}
+.omnibox-item .sub{font-size:11px;color:var(--muted)}
+.omnibox-hint{padding:8px 16px;font-size:11px;color:var(--muted);background:var(--bg)}
+.notif-bell{position:relative;cursor:pointer;font-size:18px;padding:6px 10px;border-radius:10px;background:rgba(255,255,255,.16)}
+.notif-bell .nbadge{position:absolute;top:2px;right:4px;background:#ef4444;color:#fff;font-size:10px;min-width:16px;height:16px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-weight:700}
+.notif-bell .nbadge.hide{display:none}
+.pending-action-item{padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;cursor:pointer;background:#fff}
+.pending-action-item:hover{background:var(--purple-light)}
+
 /* ===== Image lightbox preview ===== */
 .img-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;
   justify-content:center;z-index:1000;cursor:zoom-out}
@@ -651,6 +667,8 @@ table.tbl tr:hover td{background:var(--row-hover)}
           <h3 id="pageTitle">داشبورد</h3>
         </div>
         <div class="right">
+          <button class="notif-bell" id="notifBell" onclick="toggleNotifPanel()" title="اعلان‌ها" style="display:none">🔔<span class="nbadge hide" id="notifBadge">0</span></button>
+          <button class="btn sm ghost" onclick="openOmnibox()" title="جستجوی سریع (Ctrl+K)" style="color:#fff;background:rgba(255,255,255,.12);border:none;padding:6px 12px;border-radius:10px;font-size:12px">⌘K</button>
           <span id="syncBadge" style="display:none;cursor:pointer;font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px;background:#f3f4f6;color:#6b7280;white-space:nowrap" onclick="openSyncPanel()" title="وضعیت همگام‌سازی با سرور مرکزی"></span>
           <span class="clock" id="clock"></span>
           <div class="user">
@@ -666,6 +684,15 @@ table.tbl tr:hover td{background:var(--row-hover)}
 
 <!-- ===== MODAL ROOT ===== -->
 <div id="modalRoot"></div>
+
+<!-- ===== Command Palette ===== -->
+<div id="omniboxOverlay" class="omnibox-overlay" onclick="if(event.target===this)closeOmnibox()">
+  <div class="omnibox" onclick="event.stopPropagation()">
+    <input id="omniboxInput" placeholder="جستجو: مشتری، محصول، فاکتور، صفحه..." autocomplete="off">
+    <div class="omnibox-hint">Ctrl+K — مشتریان، محصولات، فاکتورها، صفحات</div>
+    <div class="omnibox-results" id="omniboxResults"></div>
+  </div>
+</div>
 
 <!-- ===== Jalali datepicker root ===== -->
 <div id="dpOverlay" class="dp-overlay" onclick="closeDP()"></div>
@@ -691,6 +718,7 @@ table.tbl tr:hover td{background:var(--row-hover)}
 <!-- ===== Toasts ===== -->
 <div id="toasts"></div>
 
+<script src="/barcode-input.js"></script>
 <script>
 /* ============================================================
    STATE & API
@@ -1437,7 +1465,7 @@ const NAV_ADMIN = [
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'users', icon:'👤', label:'کاربران'},
   {id:'reports', icon:'📈', label:'گزارشات'},
-  {id:'ai', icon:'🤖', label:'دستیار AI'},
+  {id:'ai', icon:'🤖', label:'مشاور هوشمند'},
   {id:'b2bOrders', icon:'🛒', label:'سفارشات B2B'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
@@ -1452,7 +1480,6 @@ const NAV_SALES = [
   {id:'followups', icon:'📞', label:'پیگیری‌ها'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'catalog', icon:'🛍️', label:'کاتالوگ'},
-  {id:'ai', icon:'🤖', label:'دستیار AI'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'help', icon:'📖', label:'راهنما'},
@@ -1460,6 +1487,7 @@ const NAV_SALES = [
 const NAV_ACCOUNTING = [
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'customers', icon:'👥', label:'مشتریان'},
+  {id:'ai', icon:'🤖', label:'مشاور هوشمند'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'help', icon:'📖', label:'راهنما'},
 ];
@@ -1508,6 +1536,7 @@ const ACC_NAV_SECTIONS = [
     {id:'acc-item-kardex', icon:'📋', label:'کاردکس کالا'},
     {id:'acc-warehouses', icon:'🏭', label:'انبارها'},
     {id:'acc-warehouse-ops', icon:'📦', label:'عملیات انبار (رسید/حواله/انتقال)'},
+    {id:'stocktaking', icon:'📋', label:'انبارگردانی'},
     {id:'acc-consignments', icon:'🔄', label:'کالای امانی'},
   ]},
   { title: 'سایر', items: [
@@ -1552,7 +1581,7 @@ function navItems(){
     return accNavForRole();
   }
   // B2B portal is central-only — hide its admin menu on offline device builds
-  if(ME.role==='admin') return (APP_INFO&&APP_INFO.role==='device') ? NAV_ADMIN.filter(it=>it.id!=='b2bOrders') : NAV_ADMIN;
+  if(ME.role==='admin') return (APP_INFO&&APP_INFO.role==='device') ? NAV_ADMIN.filter(it=>it.id!=='b2bOrders'&&it.id!=='backup') : NAV_ADMIN;
   if(ME.role==='accounting' || ME.role==='sales_manager'){
     let items = NAV_ACCOUNTING;
     if(isDesktopApp()){
@@ -1570,6 +1599,20 @@ function navItems(){
   return items;
 }
 function isDesktopApp(){ return detectClientPlatform()==='desktop'; }
+function isOfflineDevice(){ return !!(APP_INFO && APP_INFO.role==='device'); }
+function showBackupAccessDenied(){
+  openModal(`<div class="modal-head"><h3>⛔ دسترسی محدود</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="warn" style="margin-bottom:12px;line-height:1.8"><strong>Access Denied:</strong> Backup operations are strictly restricted to the Central Server environment.</div>
+      <p style="font-size:13px;line-height:1.9;color:var(--muted)">پشتیبان‌گیری فقط روی <strong>سرور مرکزی</strong> (نسخه وب) انجام می‌شود. نسخه دسکتاپ و اندروید فقط داده را همگام‌سازی می‌کنند و نمی‌توانند از اینجا dump دیتابیس بگیرند.</p>
+      <button class="btn" onclick="closeModal()">متوجه شدم</button>
+    </div>`);
+}
+function guardBackupAccess(){
+  if(!isOfflineDevice()) return true;
+  showBackupAccessDenied();
+  return false;
+}
 function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
 
 function buildNav(){
@@ -1671,6 +1714,14 @@ function roleLabel(r){
 /* Render a contextual help tooltip icon */
 function hlp(tip){ return `<span class="hlp" data-tip="${tip.replace(/"/g,'&quot;')}">?</span>`; }
 function isAdmin(){ return ME && ME.role==='admin'; }
+function isManager(){ return ME && (ME.role==='admin' || ME.role==='sales_manager'); }
+let USER_PERMS = null;
+function canPerm(resource, action){
+  if(!ME) return false;
+  if(ME.role==='admin') return true;
+  if(!USER_PERMS) return ME.role==='accounting' && ['accounting','invoices','customers','products','stocktaking'].includes(resource);
+  return !!(USER_PERMS[resource] && USER_PERMS[resource][action]);
+}
 function canAccounting(){ return ME && (ME.role==='admin' || ME.role==='accounting' || ME.role==='sales_manager'); }
 function canRepAdmin(){ return canAccounting(); }
 
@@ -1693,6 +1744,99 @@ async function boot(){
   setInterval(refreshRemBadge, 60000);
   initSyncUI();
   initAppUpdate();
+  bindBarcodeWedgeListener();
+  try{ USER_PERMS = await api('GET','/rbac/me')||{}; }catch{ USER_PERMS=null; }
+  initOmnibox();
+  initNotifications();
+}
+
+/* ===== Command Palette (Ctrl+K) ===== */
+let _omniboxIdx = 0, _omniboxResults = [];
+function initOmnibox(){
+  document.addEventListener('keydown', e=>{
+    if((e.ctrlKey||e.metaKey) && e.key==='k'){ e.preventDefault(); openOmnibox(); }
+    if(e.key==='Escape') closeOmnibox();
+  });
+  const inp = el('omniboxInput');
+  if(inp) inp.addEventListener('input', debounceOmnibox);
+  if(inp) inp.addEventListener('keydown', omniboxKeyNav);
+}
+let _omniboxTimer;
+function debounceOmnibox(){ clearTimeout(_omniboxTimer); _omniboxTimer=setTimeout(runOmniboxSearch,200); }
+function openOmnibox(){
+  el('omniboxOverlay').classList.add('open');
+  const inp=el('omniboxInput'); if(inp){ inp.value=''; inp.focus(); }
+  el('omniboxResults').innerHTML='<div class="muted" style="padding:12px 16px">حداقل ۲ حرف تایپ کنید...</div>';
+  _omniboxResults=[]; _omniboxIdx=0;
+}
+function closeOmnibox(){ el('omniboxOverlay').classList.remove('open'); }
+async function runOmniboxSearch(){
+  const q=(el('omniboxInput')?.value||'').trim();
+  const box=el('omniboxResults');
+  if(q.length<2){ box.innerHTML='<div class="muted" style="padding:12px 16px">حداقل ۲ حرف...</div>'; return; }
+  box.innerHTML='<div class="muted" style="padding:12px 16px">جستجو...</div>';
+  _omniboxResults = await api('GET','/search?q='+encodeURIComponent(q))||[];
+  _omniboxIdx=0;
+  renderOmniboxResults();
+}
+function renderOmniboxResults(){
+  const box=el('omniboxResults');
+  if(!_omniboxResults.length){ box.innerHTML='<div class="empty" style="padding:16px">نتیجه‌ای یافت نشد</div>'; return; }
+  box.innerHTML=_omniboxResults.map((r,i)=>`<div class="omnibox-item ${i===_omniboxIdx?'active':''}" onclick="pickOmnibox(${i})">
+    <span>${esc(r.label)}</span><span class="sub">${esc(r.sub||r.type||'')}</span></div>`).join('');
+}
+function omniboxKeyNav(e){
+  if(!_omniboxResults.length) return;
+  if(e.key==='ArrowDown'){ e.preventDefault(); _omniboxIdx=(_omniboxIdx+1)%_omniboxResults.length; renderOmniboxResults(); }
+  if(e.key==='ArrowUp'){ e.preventDefault(); _omniboxIdx=(_omniboxIdx-1+_omniboxResults.length)%_omniboxResults.length; renderOmniboxResults(); }
+  if(e.key==='Enter'){ e.preventDefault(); pickOmnibox(_omniboxIdx); }
+}
+function pickOmnibox(i){
+  const r=_omniboxResults[i]; if(!r) return;
+  closeOmnibox();
+  if(r.type==='customer'){ go('customers'); setTimeout(()=>{ const s=el('cSearch'); if(s){ s.value=r.label; s.dispatchEvent(new Event('input')); }},300); }
+  else if(r.type==='product'){ go('products'); }
+  else if(r.type==='invoice'){ go('invoices'); setTimeout(()=>openInvBuilder(r.id),300); }
+  else if(r.route==='accounting'||String(r.route||'').startsWith('acc-')){ enterAccountingShell().then(()=>go(r.route)); }
+  else if(r.route){ go(r.route); }
+  if(r.entity_type&&r.entity_id) api('POST','/notifications/entity-viewed',{entity_type:r.entity_type,entity_id:r.entity_id}).catch(()=>{});
+}
+
+/* ===== Notifications (polling + optional SSE) ===== */
+function initNotifications(){
+  const bell=el('notifBell');
+  if(!bell) return;
+  if(!['admin','accounting','sales_manager'].includes(ME?.role)){ bell.style.display='none'; return; }
+  bell.style.display='block';
+  refreshPendingBadge();
+  pollNotifications();
+  setInterval(pollNotifications, 45000);
+}
+async function pollNotifications(){
+  if(!['admin','accounting','sales_manager'].includes(ME?.role)) return;
+  try{
+    const d=await api('GET','/notifications/pending-actions')||{};
+    const n=(d.notifications||[]).length;
+    const badge=el('notifBadge');
+    if(badge){ badge.textContent=n; badge.classList.toggle('hide',!n); }
+    window._pendingActions=d.actions||[];
+    window._notifications=d.notifications||[];
+  }catch{}
+}
+function refreshPendingBadge(){ pollNotifications(); }
+function toggleNotifPanel(){
+  const items=(window._notifications||[]);
+  openModal(`<div class="modal-head"><h3>🔔 اعلان‌ها</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">${items.length?items.map(n=>`<div class="pending-action-item" onclick="notifClick(${n.id},'${n.entity_type}',${n.entity_id||0},'${n.kind}')">
+      <b>${esc(n.title)}</b><div class="muted" style="font-size:12px">${esc(n.body||'')}</div></div>`).join(''):'<div class="empty">اعلان جدیدی نیست</div>'}
+    </div><div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+}
+async function notifClick(id, entityType, entityId, kind){
+  await api('POST','/notifications/'+id+'/resolve').catch(()=>{});
+  closeModal(); refreshPendingBadge();
+  if(entityType==='invoice'&&entityId){ enterAccountingShell().then(()=>go('acc-sales-invoices')); }
+  else if(entityType==='followup'&&entityId) go('followups');
+  else if(kind==='invoice_approval') enterAccountingShell().then(()=>go('acc-commissions'));
 }
 
 async function loadInitial(){
@@ -1971,7 +2115,7 @@ function openModal(html, lg){
   attachDatepickers(el('modalRoot'));
   initCustSearches(el('modalRoot'));
 }
-function closeModal(){ el('modalRoot').innerHTML=''; }
+function closeModal(){ el('modalRoot').innerHTML=''; _bcWedgeHandler=null; }
 
 /* ============================================================
    DASHBOARD
@@ -2004,6 +2148,11 @@ ROUTES.dash = async function(){
   attachDatepickers(v);
   await renderDashContent();
 };
+function pendingActionClick(route, entityType, entityId){
+  if(route && route.startsWith('acc-')) enterAccountingShell().then(()=>go(route));
+  else if(route) go(route);
+  if(entityType&&entityId) api('POST','/notifications/entity-viewed',{entity_type:entityType,entity_id:entityId}).catch(()=>{});
+}
 async function renderDashContent(){
   const body = el('dashContent'); if(!body) return;
   const dq = (dashDateFrom||dashDateTo)
@@ -2025,7 +2174,12 @@ async function renderDashContent(){
     if(!ov) return;
     window._adminBalRows = (balances||[]);
     const balRows = window._adminBalRows;
+    const pending = window._pendingActions || [];
     body.innerHTML = `
+      ${pending.length?`<div class="panel"><div class="panel-head"><h4>⚡ اقدامات در انتظار (${fmt(pending.length)})</h4>
+        <button class="btn sm ghost" onclick="pollNotifications().then(()=>renderDashContent())">🔄</button></div>
+        <div class="panel-body">${pending.slice(0,8).map(a=>`<div class="pending-action-item" onclick="pendingActionClick('${a.route||''}','${a.entity_type||''}',${a.entity_id||0})">
+          <b>${esc(a.title)}</b><div class="muted" style="font-size:12px">${esc(a.body||'')}</div></div>`).join('')}</div></div>`:''}
       <div class="cards">
         ${statCard('p','👥', fmt(ov.totalCustomers),'کل مشتریان')}
         ${statCard('g','💰', fmt(ov.totalRevenue),'فروش کل (تومان)'+(dq?' در بازه':''))}
@@ -2490,7 +2644,7 @@ function renderAccReceivablesBody(body){
           <td class="mono">${fmt(r.total_invoiced)}</td>
           <td class="mono" style="color:var(--green)">${fmt(r.total_settled)}</td>
           <td class="mono" style="color:${oc};font-weight:700">${fmt(r.outstanding)}</td>
-          <td style="white-space:nowrap"><button class="btn sm green" onclick="settlementModal(${r.id})">💵 ثبت پرداخت</button> <button class="btn sm ghost" onclick="showCustLedger(${r.id},'${esc(r.biz)}')">📋 معین</button></td>
+          <td style="white-space:nowrap"><button class="btn sm green" onclick="settlementModal(${r.id})">💵 ثبت پرداخت</button></td>
         </tr>`;
       }).join('')||emptyRow(8)}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
@@ -2913,6 +3067,7 @@ async function _openInvBuilder(id){
       <div class="inv-layout">
         <div>
           <input class="search" id="invProdSearch" placeholder="جستجوی محصول..." style="margin-bottom:6px;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" oninput="renderInvPicker()">
+          ${canPerm('products','create')?`<button type="button" class="btn sm" style="width:100%;margin-bottom:6px" onclick="invProdQuickModal(el('invProdSearch')?.value)">➕ ساخت محصول جدید</button>`:''}
           <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:8px" onclick="openBarcodeScanner(scanBarcodeToCart)">📷 اسکن بارکد</button>
           <div id="mobPickHint" style="display:none;font-size:11px;color:var(--muted);margin-bottom:8px;text-align:center">👆 برای افزودن، دو بار روی محصول بزنید</div>
           <div class="inv-products"><div class="inv-pick" id="invPicker"></div></div>
@@ -2928,6 +3083,7 @@ async function _openInvBuilder(id){
     </div>`, true);
   renderInvPicker();
   renderCart();
+  _bcWedgeHandler = scanBarcodeToCart;
   const hint=el('mobPickHint'); if(hint) hint.style.display=window.matchMedia('(hover:none)').matches?'block':'none';
 }
 function renderInvPicker(){
@@ -3157,7 +3313,6 @@ async function productsPage(canEdit){
       ${canEdit?`<button class="btn" onclick="prodModal()">➕ محصول</button>
         <button class="btn ghost" onclick="productCategoriesModal()">🏷️ دسته‌بندی‌ها</button>
         <button class="btn ghost" onclick="enterAccountingShell().then(()=>go('acc-warehouses'))">🏭 موجودی انبارها</button>
-        <button class="btn ghost" onclick="go('stocktaking')">📋 انبارگردانی</button>
         <button class="btn ghost" onclick="openBarcodeScanner(async c=>{ try{ const p=await api('GET','/products/by-barcode/'+encodeURIComponent(c)); if(p&&p.id){ showToast(p.name+' — موجودی: '+fmt(p.stock)); prodModal(p.id); } }catch(e){} })">📷 اسکن بارکد</button>
         <button class="btn ghost" onclick="importProducts()">📤 ورود اکسل</button>
         <button class="btn ghost" onclick="downloadTemplate()">📄 قالب</button>
@@ -3341,6 +3496,35 @@ function openBarcodeLabels(id){
   window.open('/api/products/'+id+'/labels?count=12&token='+encodeURIComponent(token),'_blank');
 }
 let _bcScanner=null, _bcOnScan=null, _bcLibLoading=null;
+let _bcLastScanAt=0, _bcProcessing=false, _bcOpening=false;
+let _bcWedgeState=null, _bcWedgeHandler=null, _bcWedgeBound=false;
+const _bcDebounceMs=(typeof BarcodeInput!=='undefined'&&BarcodeInput.DEFAULT_DEBOUNCE_MS)||400;
+
+function _bcNorm(raw){
+  return (typeof BarcodeInput!=='undefined'&&BarcodeInput.normalizeBarcode)
+    ? BarcodeInput.normalizeBarcode(raw) : String(raw||'').trim();
+}
+function bindBarcodeWedgeListener(){
+  if(_bcWedgeBound) return;
+  _bcWedgeBound=true;
+  _bcWedgeState=(typeof BarcodeInput!=='undefined'&&BarcodeInput.createWedgeState)?BarcodeInput.createWedgeState():{chars:'',lastKeyAt:0};
+  document.addEventListener('keydown', onBarcodeWedgeKeydown, true);
+}
+function onBarcodeWedgeKeydown(e){
+  if(e.ctrlKey||e.altKey||e.metaKey) return;
+  const tgt=e.target;
+  const typing=(typeof BarcodeInput!=='undefined'&&BarcodeInput.isWedgeTypingTarget)
+    ? BarcodeInput.isWedgeTypingTarget(tgt)
+    : (tgt&&(tgt.tagName==='TEXTAREA'||(tgt.tagName==='INPUT'&&tgt.id!=='bcManual'&&tgt.type!=='button'&&tgt.type!=='checkbox')));
+  if(typing && tgt?.id!=='bcManual') return;
+  if(typeof BarcodeInput==='undefined'||!BarcodeInput.feedWedgeKey) return;
+  const r=BarcodeInput.feedWedgeKey(_bcWedgeState, e.key);
+  _bcWedgeState=r.state;
+  if(!r.code) return;
+  e.preventDefault();
+  const handler=_bcOnScan||_bcWedgeHandler;
+  if(handler) queueBarcodeScan(r.code, handler);
+}
 function loadBarcodeLib(){
   if(typeof Html5Qrcode!=='undefined') return Promise.resolve(true);
   if(_bcLibLoading) return _bcLibLoading;
@@ -3353,55 +3537,84 @@ function loadBarcodeLib(){
   });
   return _bcLibLoading;
 }
-// The scanner uses its OWN overlay (not modalRoot) so it can be opened on top
-// of other modals (e.g. the invoice builder) without destroying them.
 async function openBarcodeScanner(onScan){
-  _bcOnScan=onScan;
-  closeBarcodeOverlay();
-  const ov=document.createElement('div');
-  ov.id='bcOverlay';
-  ov.className='overlay open';
-  ov.style.zIndex='10050';
-  ov.onclick=e=>{ if(e.target===ov) closeBarcodeOverlay(); };
-  ov.innerHTML=`<div class="modal" style="max-width:420px">
-    <div class="modal-head"><h3>📷 اسکن بارکد</h3><button class="x" onclick="closeBarcodeOverlay()">×</button></div>
-    <div class="modal-body" style="text-align:center">
-      <div id="bcReader" style="max-width:340px;margin:0 auto"></div>
-      <p id="bcCamHint" class="muted" style="font-size:12px;margin-top:8px">در حال راه‌اندازی دوربین...</p>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <input id="bcManual" dir="ltr" placeholder="یا کد را دستی وارد کنید" style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" onkeydown="if(event.key==='Enter')submitManualBarcode()">
-        <button class="btn sm" onclick="submitManualBarcode()">جستجو</button>
-      </div>
-    </div></div>`;
-  document.body.appendChild(ov);
-  const ok=await loadBarcodeLib();
-  const hint=el('bcCamHint');
-  if(!ok||typeof Html5Qrcode==='undefined'){ if(hint) hint.textContent='اسکنر بارگذاری نشد (نیاز به اینترنت) — کد را دستی وارد کنید'; return; }
+  if(_bcOpening) return;
+  _bcOpening=true;
   try{
-    _bcScanner=new Html5Qrcode('bcReader');
-    await _bcScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:250,height:150}},
-      code=>handleBarcodeScan(code),()=>{});
-    if(el('bcCamHint')) el('bcCamHint').textContent='دوربین فعال — بارکد را مقابل دوربین بگیرید';
-  }catch(e){
-    if(el('bcCamHint')) el('bcCamHint').textContent='دوربین در دسترس نیست — کد را دستی وارد کنید';
+    _bcOnScan=onScan;
+    bindBarcodeWedgeListener();
+    closeBarcodeOverlay();
+    const ov=document.createElement('div');
+    ov.id='bcOverlay';
+    ov.className='overlay open';
+    ov.style.zIndex='10050';
+    ov.onclick=e=>{ if(e.target===ov) closeBarcodeOverlay(); };
+    ov.innerHTML=`<div class="modal" style="max-width:420px">
+      <div class="modal-head"><h3>📷 اسکن بارکد</h3><button class="x" onclick="closeBarcodeOverlay()">×</button></div>
+      <div class="modal-body" style="text-align:center">
+        <div id="bcReader" style="max-width:340px;margin:0 auto"></div>
+        <p id="bcCamHint" class="muted" style="font-size:12px;margin-top:8px">در حال راه‌اندازی دوربین...</p>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <input id="bcManual" dir="ltr" placeholder="یا کد را دستی وارد کنید" style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" onkeydown="if(event.key==='Enter'){event.preventDefault();submitManualBarcode();}">
+          <button class="btn sm" onclick="submitManualBarcode()">جستجو</button>
+        </div>
+        <p class="muted" style="font-size:11px;margin-top:8px">اسکنر USB (wedge) هم پشتیبانی می‌شود — کد را اسکن کنید یا در فیلد بالا Enter بزنید.</p>
+      </div></div>`;
+    document.body.appendChild(ov);
+    const ok=await loadBarcodeLib();
+    const hint=el('bcCamHint');
+    if(!ok||typeof Html5Qrcode==='undefined'){
+      if(hint) hint.textContent='اسکنر دوربین در دسترس نیست — کد را دستی وارد کنید یا از اسکنر USB استفاده کنید';
+      return;
+    }
+    try{
+      _bcScanner=new Html5Qrcode('bcReader');
+      await _bcScanner.start(
+        {facingMode:'environment'},
+        {fps:8,qrbox:{width:250,height:150},disableFlip:true},
+        code=>queueBarcodeScan(code, onScan),
+        ()=>{}
+      );
+      if(el('bcCamHint')) el('bcCamHint').textContent='دوربین فعال — بارکد را مقابل دوربین بگیرید';
+    }catch(e){
+      if(el('bcCamHint')) el('bcCamHint').textContent='دوربین در دسترس نیست — کد را دستی وارد کنید یا از اسکنر USB استفاده کنید';
+    }
+  }finally{
+    _bcOpening=false;
   }
 }
-function stopBarcodeScanner(){
-  if(_bcScanner){ _bcScanner.stop().catch(()=>{}); try{_bcScanner.clear();}catch(e){} _bcScanner=null; }
+async function stopBarcodeScanner(){
+  if(!_bcScanner) return;
+  const sc=_bcScanner;
+  _bcScanner=null;
+  try{ await sc.stop(); }catch(e){}
+  try{ sc.clear(); }catch(e){}
 }
 function closeBarcodeOverlay(){
   stopBarcodeScanner();
+  _bcOnScan=null;
   document.getElementById('bcOverlay')?.remove();
 }
 function submitManualBarcode(){
   const code=el('bcManual')?.value?.trim();
-  if(code) handleBarcodeScan(code);
+  if(code) queueBarcodeScan(code, _bcOnScan||_bcWedgeHandler);
 }
-function handleBarcodeScan(raw){
-  const code=String(raw||'').trim();
-  if(!code) return;
+function queueBarcodeScan(raw, handler){
+  const code=_bcNorm(raw);
+  if(!code||!handler) return;
+  const now=Date.now();
+  const accept=(typeof BarcodeInput!=='undefined'&&BarcodeInput.shouldAcceptScan)
+    ? BarcodeInput.shouldAcceptScan(_bcLastScanAt, now, _bcDebounceMs)
+    : (!_bcLastScanAt || (now-_bcLastScanAt)>=_bcDebounceMs);
+  if(!accept||_bcProcessing) return;
+  _bcLastScanAt=now;
+  _bcProcessing=true;
   closeBarcodeOverlay();
-  if(_bcOnScan) _bcOnScan(code);
+  setTimeout(async()=>{
+    try{ await handler(code); }
+    catch(e){ showToast('خطا در پردازش بارکد','error'); }
+    finally{ _bcProcessing=false; }
+  }, 0);
 }
 async function scanBarcodeToCart(code){
   try{
@@ -3410,7 +3623,7 @@ async function scanBarcodeToCart(code){
       if(!(CACHE.products||[]).find(x=>x.id===p.id)) (CACHE.products=CACHE.products||[]).push(p);
       addToCart(p.id); showToast('افزوده شد: '+p.name);
     }
-  }catch(e){}
+  }catch(e){ showToast('محصولی با این بارکد یافت نشد','error'); }
 }
 
 function importProducts(){
@@ -3661,7 +3874,47 @@ function userModal(id){
       <div class="fg full"><label>شبا</label><input id="u-bank-iban" value="${esc(u.bank_iban||'')}"></div>`:''}
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveUser(${id||0})">💾 ذخیره</button>
+      ${id?`<button class="btn ghost" onclick="openRbacMatrix(${id})">🔐 دسترسی‌ها</button>`:''}
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function openRbacMatrix(userId){
+  const data=await api('GET','/rbac/matrix/'+userId);
+  if(!data) return;
+  const { resources, actions, permissions } = data;
+  const rows=resources.map(r=>`<tr><td>${esc(r)}</td>${actions.map(a=>{
+    const on=permissions[r]&&permissions[r][a];
+    return `<td style="text-align:center"><input type="checkbox" data-r="${r}" data-a="${a}" ${on?'checked':''}></td>`;
+  }).join('')}</tr>`).join('');
+  openModal(`<div class="modal-head"><h3>🔐 ماتریس دسترسی کاربر #${userId}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr><th>بخش</th>${actions.map(a=>`<th>${a}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="modal-foot"><button class="btn" onclick="saveRbacMatrix(${userId})">💾 ذخیره دسترسی‌ها</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveRbacMatrix(userId){
+  const perms={};
+  document.querySelectorAll('#modalRoot input[data-r]').forEach(cb=>{
+    const r=cb.dataset.r, a=cb.dataset.a;
+    if(!perms[r]) perms[r]={};
+    perms[r][a]=cb.checked;
+  });
+  await api('PUT','/rbac/matrix/'+userId,{permissions:perms});
+  showToast('دسترسی‌ها ذخیره شد'); closeModal();
+}
+async function fiscalRollover(){
+  const label=el('fy-label')?.value?.trim(), start=el('fy-start')?.value?.trim(), end=el('fy-end')?.value?.trim();
+  if(!label||!start){ showToast('برچسب و تاریخ شروع الزامی است','error'); return; }
+  if(!confirm('سال مالی جاری بسته و سال جدید افتتاح شود؟')) return;
+  const r=await api('POST','/fiscal-year/rollover',{new_year_label:label,start_date:start,end_date:end});
+  if(r?.ok){ showToast('سال مالی جدید افتتاح شد'); el('fy-status').textContent='✅ '+label; }
+}
+async function fiscalFactoryReset(){
+  const text=prompt('برای تأیید بازنشانی کامل، عبارت RESET-FISCAL را تایپ کنید:');
+  if(text!=='RESET-FISCAL') return;
+  const pass=prompt('رمز عبور مدیر را وارد کنید:');
+  if(!pass) return;
+  if(!confirm('هشدار نهایی: همه فاکتورها، اسناد و تراکنش‌ها حذف می‌شوند. ادامه؟')) return;
+  const r=await api('POST','/fiscal-year/factory-reset',{confirm_text:text,confirm_password:pass});
+  if(r?.ok){ showToast('بازنشانی انجام شد — صفحه را رفرش کنید'); location.reload(); }
 }
 function userRepFieldsFromForm(){
   return {
@@ -6983,32 +7236,6 @@ async function openHtmlAuth(url){
   }catch(e){ showToast('خطا','error'); }
 }
 
-async function showCustLedger(custId, custName){
-  const d = await api('GET','/accounting/ledger/'+custId)||{entries:[]};
-  const entries = d.entries||[];
-  openModal(`
-    <div class="modal-head"><h3>📋 دفتر معین: ${esc(custName)}</h3><button class="x" onclick="closeModal()">×</button></div>
-    <div class="modal-body" style="padding:0">
-      <div class="tbl-wrap" style="max-height:70vh">
-        <table class="tbl" style="font-size:12px"><thead><tr>
-          <th>تاریخ</th><th>شرح</th><th>بدهکار (ت)</th><th>بستانکار (ت)</th><th>مانده (ت)</th>
-        </tr></thead><tbody>
-        ${entries.map(e=>`<tr>
-          <td class="mono">${esc(e.date||'-')}</td>
-          <td>${esc(e.description||'-')}</td>
-          <td class="mono" style="color:var(--orange)">${e.debit>0?fmt(e.debit):'-'}</td>
-          <td class="mono" style="color:var(--green)">${e.credit>0?fmt(e.credit):'-'}</td>
-          <td class="mono" style="font-weight:700;color:${(e.running_balance||0)>0?'var(--red)':'var(--green)'}">${fmt(Math.abs(e.running_balance||0))} ${(e.running_balance||0)>0?'بد':'بس'}</td>
-        </tr>`).join('')||'<tr><td colspan="5" class="empty">سابقه‌ای ثبت نشده</td></tr>'}
-        </tbody></table>
-      </div>
-      <div style="padding:12px 16px;border-top:1px solid var(--border);font-weight:700">
-        مانده نهایی: <span style="color:${(d.balance||0)>0?'var(--red)':'var(--green)'}"> ${fmt(Math.abs(d.balance||0))} تومان ${(d.balance||0)>0?'(بدهکار)':'(بستانکار)'}</span>
-      </div>
-    </div>
-    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
-}
-
 async function approveInvoice(id){
   if(!confirm('این فاکتور تأیید و در محاسبه انگیزه فروش لحاظ شود؟')) return;
   try{
@@ -8296,11 +8523,14 @@ const AI_KIND_META = {
   weekly_summary:{icon:'📊', label:'خلاصه هفتگی', bg:'#faf5ff', color:'#7c3aed'},
 };
 ROUTES.ai = async function(){
-  el('view').innerHTML='<div class="muted" style="padding:20px">در حال بارگذاری تحلیل...</div>';
-  let insights=[], summary=null, mine=null;
+  if(!isManager() && ME.role!=='accounting'){
+    el('view').innerHTML='<div class="empty">مشاور هوشمند فقط برای مدیران در دسترس است.</div>';
+    return;
+  }
+  el('view').innerHTML='<div class="muted" style="padding:20px">در حال بارگذاری...</div>';
+  let insights=[], summary=null;
   try{ insights = await api('GET','/ai/insights')||[]; }catch{}
-  if(ME.role==='admin'){ try{ summary = await api('GET','/ai/weekly-summary'); }catch{} }
-  else { try{ mine = await api('GET','/ai/my-summary'); }catch{} }
+  if(isManager()){ try{ summary = await api('GET','/ai/weekly-summary'); }catch{} }
   const isDeviceBuild = APP_INFO && APP_INFO.role==='device';
   const kinds=['churn_risk','opportunity','daily_action'];
   const byKind = k=>insights.filter(i=>i.kind===k);
@@ -8317,33 +8547,35 @@ ROUTES.ai = async function(){
     </div>`;
   };
   el('view').innerHTML=`
-    ${ME.role==='admin'?`<div class="toolbar">
+    ${isManager()?`<div class="panel"><div class="panel-head"><h4>💼 مشاور کسب‌وکار (مدیر)</h4></div>
+      <div class="panel-body">
+        <p class="muted" style="font-size:12px;margin-bottom:10px">سؤال خود را درباره فروش، مطالبات، موجودی یا استراتژی بپرسید — پاسخ بر اساس داده‌های تجمیع‌شده سیستم است.</p>
+        <textarea id="aiConsultQ" rows="3" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-family:inherit" placeholder="مثال: کدام محصولات این ماه افت فروش داشته‌اند؟"></textarea>
+        <button class="btn" style="margin-top:8px" onclick="runAiConsult()" ${isDeviceBuild?'disabled':''}>✨ پرسش از مشاور</button>
+        <div id="aiConsultAns" style="margin-top:12px;font-size:13.5px;line-height:2"></div>
+      </div></div>
+    <div class="toolbar">
       <button class="btn" onclick="runAiRefresh()" ${isDeviceBuild?'disabled title="فقط روی سرور مرکزی"':''}>🔄 تحلیل مجدد</button>
-      <span class="muted" style="font-size:12px">تحلیل هر شب ساعت ۲ بامداد به‌صورت خودکار روی سرور مرکزی اجرا می‌شود.</span>
+      <span class="muted" style="font-size:12px">تحلیل هر شب ساعت ۲ بامداد خودکار اجرا می‌شود.</span>
     </div>`:''}
-    ${summary?`<div class="panel"><div class="panel-head"><h4>📊 خلاصه هفتگی مدیر</h4></div>
+    ${summary?`<div class="panel"><div class="panel-head"><h4>📊 خلاصه هفتگی</h4></div>
       <div class="panel-body" style="font-size:13.5px;line-height:2.1">${esc(summary.body||'')}</div></div>`:''}
-    ${mine?`
-    <div class="cards" style="margin-bottom:16px">
-      ${statCard('g','💰',fmt(mine.stats.week_sales),'فروش هفته من (ت)')}
-      ${statCard('p','📅',fmt(mine.stats.month_sales),'فروش این ماه من (ت)')}
-      ${statCard('b','🧾',fmt(mine.stats.month_invoices),'فاکتور این ماه')}
-      ${statCard('o','📞',fmt(mine.stats.open_followups),'پیگیری باز')}
-    </div>
-    <div class="panel"><div class="panel-head"><h4>🤖 تحلیل عملکرد من</h4>
-      <button class="btn sm" onclick="runMyAiSummary()">✨ تحلیل هوشمند</button></div>
-      <div class="panel-body" id="myAiBody" style="font-size:13.5px;line-height:2.1">
-        ${mine.stats.top_customers?.length?`<div style="margin-bottom:8px"><b>برترین مشتریان این ماه:</b> ${mine.stats.top_customers.map(t=>`${esc(t.biz)} (${fmt(t.total)} ت)`).join('، ')}</div>`:''}
-        <div class="muted" style="font-size:12px">برای دریافت تحلیل متنی عملکرد شخصی خود، روی «تحلیل هوشمند» بزنید. تحلیل فقط بر اساس داده‌های خود شماست.</div>
-      </div></div>`:''}
     ${kinds.map(k=>{
       const rows=byKind(k); if(!rows.length) return '';
       const m=AI_KIND_META[k];
       return `<div class="panel"><div class="panel-head"><h4>${m.icon} ${m.label} (${fmt(rows.length)})</h4></div>
         <div class="panel-body">${rows.map(card).join('')}</div></div>`;
     }).join('')||''}
-    ${!insights.length&&!summary?`<div class="empty">هنوز تحلیلی تولید نشده است.${ME.role==='admin'&&!isDeviceBuild?' روی «تحلیل مجدد» بزنید.':''}</div>`:''}`;
+    ${!insights.length&&!summary?`<div class="empty">هنوز تحلیلی تولید نشده است.${isManager()&&!isDeviceBuild?' روی «تحلیل مجدد» بزنید.':''}</div>`:''}`;
 };
+async function runAiConsult(){
+  const q=el('aiConsultQ')?.value?.trim(); if(!q){ showToast('سؤال را بنویسید','error'); return; }
+  const box=el('aiConsultAns'); if(box) box.innerHTML='<div class="muted">در حال تحلیل...</div>';
+  try{
+    const r=await api('POST','/ai/consult',{question:q});
+    if(box) box.innerHTML=`<div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:12px 14px">${esc(r?.answer||'')}</div>`;
+  }catch(e){ if(box) box.innerHTML='<div class="muted">خطا در دریافت پاسخ</div>'; }
+}
 async function runAiRefresh(){
   showToast('در حال اجرای تحلیل AI...');
   const r = await api('POST','/ai/insights/refresh',{weekly:true});
@@ -8662,6 +8894,22 @@ ROUTES.settings = async function(){
 پوشاک ترنم 🌿</span>
       </div>
     </div></div>
+    <div class="panel"><div class="panel-head"><h4>📅 مدیریت سال مالی</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
+        <b>مسیر ۱ — انتقال (Rollover):</b> بستن سال جاری و افتتاح سال جدید با انتقال سود انباشته.<br>
+        <b>مسیر ۲ — بازنشانی (Factory Reset):</b> حذف همه تراکنش‌ها؛ فقط اطلاعات پایه (مشتری، محصول، تنظیمات) باقی می‌ماند — نیاز به تأیید رمز و تایپ RESET-FISCAL.
+      </div>
+      <div class="form-grid">
+        <div class="fg"><label>برچسب سال جدید</label><input id="fy-label" placeholder="سال مالی 1405"></div>
+        <div class="fg"><label>تاریخ شروع</label><input id="fy-start" data-jdate placeholder="1405/01/01"></div>
+        <div class="fg"><label>تاریخ پایان (اختیاری)</label><input id="fy-end" data-jdate placeholder="1405/12/29"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn" onclick="fiscalRollover()">📆 انتقال به سال جدید</button>
+        <button class="btn red" onclick="fiscalFactoryReset()">⚠️ بازنشانی کامل مالی</button>
+      </div>
+      <div id="fy-status" class="muted" style="font-size:12px;margin-top:10px"></div>
+    </div></div>
     <div class="panel"><div class="panel-head"><h4>🛠️ پنل مدیریت جامع ماژول‌های حسابداری</h4></div><div class="panel-body">
       <div class="form-grid" style="margin-bottom:14px">
         <div class="fg"><label>پیشوند شماره فاکتور فروش ${hlp('پیش‌فرض: T — مثال: فاکتور شماره T-0001')}</label><input id="s-invoice_num_prefix" value="${esc(s.invoice_num_prefix||'T')}"></div>
@@ -8786,6 +9034,7 @@ function toggleSmsProviderHint(provider){
   hint.innerHTML = hints[provider] || '';
 }
 async function triggerBackupNow(){
+  if(!guardBackupAccess()) return;
   const st=el('backup-status'); if(st) st.textContent='در حال پشتیبان‌گیری...';
   const r=await api('POST','/admin/backup-now');
   if(!st) return;
@@ -8798,14 +9047,19 @@ async function triggerBackupNow(){
 ============================================================ */
 ROUTES.backup = async function(){
   if(!isAdmin()){ el('view').innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
+  if(isOfflineDevice()){
+    el('view').innerHTML=`<div class="panel"><div class="panel-body" style="line-height:1.9">
+      <h4 style="margin-bottom:10px">⛔ پشتیبان‌گیری فقط روی سرور مرکزی</h4>
+      <p class="muted">Access Denied: Backup operations are strictly restricted to the Central Server environment.</p>
+      <p style="margin-top:12px;font-size:13px">نسخه دسکتاپ و اندروید فقط داده را همگام‌سازی می‌کنند. برای ساخت یا دانلود پشتیبان از <strong>نسخه وب</strong> روی سرور مرکزی استفاده کنید.</p>
+    </div></div>`;
+    return;
+  }
   const backups = await api('GET','/admin/backups').catch(()=>[]);
   const mahak = await api('GET','/import/mahak/status').catch(()=>({}));
   const settings = await api('GET','/settings').catch(()=>({}));
   const encOn = !!(settings && settings.backup_password);
   el('view').innerHTML=`
-    ${isDesktopApp()?`<div class="panel" style="margin-bottom:16px;border-color:#bfdbfe"><div class="panel-body" style="font-size:13px;line-height:1.8;color:var(--muted)">
-      💻 <strong>نسخه دسکتاپ:</strong> پشتیبان از <strong>دیتابیس محلی</strong> این دستگاه (شامل داده آفلاین) ساخته می‌شود. پشتیبان کامل سرور مرکزی از نسخه وب در دسترس است.
-    </div></div>`:''}
     <div class="panel">
       <div class="panel-head"><h4>📦 پشتیبان‌گیری پیشرفته</h4></div>
       <div class="panel-body">
@@ -8883,6 +9137,7 @@ async function clearBackupPassword(){
   ROUTES.backup();
 }
 async function downloadNamedBackup(name){
+  if(!guardBackupAccess()) return;
   const token=localStorage.getItem('crm_token');
   const res=await fetch('/api/admin/backup-download/'+encodeURIComponent(name),{headers:{'Authorization':'Bearer '+token}});
   if(!res.ok){ showToast('خطا در دانلود','error'); return; }
@@ -8908,6 +9163,7 @@ async function runMahakImport(){
   showToast('واردات انجام شد');
 }
 async function downloadBackup(){
+  if(!guardBackupAccess()) return;
   const st=el('bk-status'); if(st) st.textContent='در حال ساخت پشتیبان...';
   try {
     const token=localStorage.getItem('crm_token');
@@ -9346,6 +9602,7 @@ function renderAdminGuide(){
       <h5>بازیابی رمز عبور</h5><p>در صفحه ورود، لینک «رمز عبور را فراموش کرده‌اید؟» کد یک‌بارمصرف (OTP) را به موبایل ثبت‌شده کاربر پیامک می‌کند. پس از وارد کردن کد، رمز جدید باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد. اگر پیامک ارسال نشد، تنظیمات سرویس پیامک را بررسی کنید.</p>
       <h5>تغییر اجباری رمز در اولین ورود</h5><p>در اولین ورود با رمز پیش‌فرض (<code>admin123</code>) یا هر رمزی که مدیر برای کاربر تعیین کرده، پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود و تا رمز شخصی جدید انتخاب نشود، هیچ عملیات دیگری در برنامه ممکن نیست. این الزام روی سرور مرکزی اعمال می‌شود؛ در دستگاه‌های آفلاین رمز جدید با اولین همگام‌سازی از مرکز می‌رسد.</p>
       <h5>پشتیبان‌گیری پیشرفته (فقط سرور مرکزی)</h5><ul>
+        <li>منوی «پشتیبان» و ساخت/دانلود dump فقط روی <strong>نسخه وب سرور مرکزی</strong> — در دسکتاپ و اندروید غیرفعال است</li>
         <li>هر شب ساعت ۰۰:۰۰ پشتیبان خودکار ساخته می‌شود — شامل دیتابیس و تصاویر آپلودشده</li>
         <li>تا ۱۴ نسخهٔ قبلی نگه داشته می‌شود؛ نسخه‌های قدیمی‌تر خودکار حذف می‌شوند</li>
         <li>لیست پشتیبان‌ها و دانلود هر نسخه از منوی «پشتیبان»</li>
@@ -9440,6 +9697,17 @@ function renderAdminGuide(){
         <li>قیمت‌ها همیشه از کاتالوگ محصولات خوانده می‌شوند — مشتری امکان تغییر قیمت ندارد</li>
       </ul>
       <div class="warn">پورتال B2B فقط روی سرور مرکزی (نسخه وب) فعال است — روی نسخه‌های آفلاین ویندوز/اندروید در دسترس نیست. حساب پورتال از حساب کاربران داخلی کاملاً جداست.</div>`),
+    helpSec('🆕','نسخه 1.0.11 — تغییرات کلیدی',`
+      <h5>جستجوی سراسری (Ctrl+K)</h5><p>از هر صفحه با <b>Ctrl+K</b> (یا دکمه ⌘K بالای صفحه) مشتری، محصول، فاکتور و صفحات را جستجو کنید.</p>
+      <h5>اقدامات در انتظار و اعلان‌ها</h5><p>داشبورد مدیر ویجت «اقدامات در انتظار» دارد؛ آیکن 🔔 اعلان‌های فاکتور و پیگیری جدید را نشان می‌دهد.</p>
+      <h5>حذف نرم فاکتور و سند</h5><p>حذف فاکتور و اسناد دستی «نرم» است (در audit_log ثبت می‌شود) — فقط نقش‌های دارای دسترسی Delete.</p>
+      <h5>گردش حساب مشتریان</h5><p>صفحه «دفتر معین» (گردش حساب) حذف شد — از <b>صورت‌حساب مشتری</b> در حسابداری استفاده کنید.</p>
+      <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. اعمال اصلاحات، سند حسابداری تولید می‌کند.</p>
+      <h5>سال مالی</h5><p>تنظیمات → مدیریت سال مالی: انتقال (Rollover) یا بازنشانی کامل (Factory Reset با تأیید RESET-FISCAL).</p>
+      <h5>ساخت سریع محصول در فاکتور</h5><p>مدیر و حسابدار در فاکتورساز دکمه «➕ ساخت محصول جدید» دارند.</p>
+      <h5>مشاور هوشمند (مدیر)</h5><p>منوی «مشاور هوشمند» فقط برای مدیر سیستم و مدیر فروش — پرسش آزاد با داده‌های تجمیع‌شده.</p>
+      <h5>دسترسی‌های granular</h5><p>کاربران → ویرایش → «🔐 دسترسی‌ها» — ماتریس View/Create/Edit/Delete/Approve/Export.</p>
+      <h5>پشتیبان</h5><p>فقط سرور مرکزی (وب) — دسکتاپ/اندروید Access Denied.</p>`),
     helpSec('📷','بارکد محصولات',`
       <p>هر محصول می‌تواند بارکد EAN-13 داشته باشد — برای اسکن سریع با دوربین موبایل/وبکم و چاپ برچسب.</p>
       <h5>تولید و چاپ</h5><ul>
@@ -9449,7 +9717,8 @@ function renderAdminGuide(){
       <h5>اسکن</h5><ul>
         <li><b>در فاکتورساز</b>: دکمه «📷 اسکن بارکد» — با اسکن هر بارکد، محصول مستقیم به سبد فاکتور اضافه می‌شود</li>
         <li><b>در صفحه محصولات</b>: اسکن، محصول را پیدا کرده و فرم آن را باز می‌کند</li>
-        <li>اگر دوربین در دسترس نباشد، کد را دستی وارد کنید (با دستگاه بارکدخوان USB هم کار می‌کند)</li>
+        <li><b>اسکنر USB (wedge)</b>: در فاکتورساز بدون باز کردن دوربین هم کار می‌کند — کد را اسکن کنید (با debounce برای جلوگیری از تکرار)</li>
+        <li>اگر دوربین در دسترس نباشد، کد را دستی وارد کنید</li>
         <li>جستجوی محصولات، بارکد را هم پوشش می‌دهد</li>
       </ul>
       <div class="tip">ستون «بارکد» در ورود/خروج اکسل محصولات نیز پشتیبانی می‌شود.</div>`)
@@ -9505,7 +9774,7 @@ function renderSalesGuide(){
         <li>از منو «فاکتور» را باز کنید</li>
         <li>«فاکتور جدید» را بزنید</li>
         <li>مشتری را انتخاب کنید</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — کنار هر محصول موجودی لحظه‌ای انبار نمایش داده می‌شود. محصول جدید را از بخش «محصولات» یا «کاتالوگ» بسازید، نه از داخل فاکتور</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — مدیر/حسابدار می‌توانند با «➕ ساخت محصول جدید» در همان صفحه کالا بسازند</li>
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور</li>
@@ -9558,7 +9827,7 @@ function renderSalesGuide(){
         <li><b>📌 اقدام امروز</b>: پیشنهاد روزانه — امروز با چه کسانی تماس بگیرید</li>
       </ul>`),
     helpSec('📷','اسکن بارکد در فاکتور',`
-      <p>در فاکتورساز، دکمه «📷 اسکن بارکد» را بزنید و بارکد کالا را مقابل دوربین بگیرید — محصول خودکار به سبد اضافه می‌شود. اگر دوربین ندارید، کد را دستی وارد کنید یا از دستگاه بارکدخوان استفاده کنید.</p>`),
+      <p>در فاکتورساز، دکمه «📷 اسکن بارکد» را بزنید — محصول به سبد اضافه می‌شود. اسکنر USB (wedge) هم در همین صفحه بدون باز کردن دوربین کار می‌کند؛ کافی است بارکد را اسکن کنید.</p>`),
     helpSec('🛒','سفارشات پورتال B2B',`
       <p>اگر مدیر برای مشتریانِ شما دسترسی پورتال B2B فعال کرده باشد، مشتری می‌تواند خودش آنلاین سفارش ثبت کند.</p>
       <ul>

@@ -27,20 +27,31 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۲۲)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۶)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (پس از merge PR بعدی) |
-| نسخه وب/دسکتاپ | **`1.0.10`** / SW `v26` |
+| آخرین commit | `f5caa02` (پس از rebase) |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v28` |
 | اندروید | **`2.0.7`** (versionCode 9) |
-| وضعیت سرور | ⏳ نیاز به deploy |
-| Deploy بعدی لازم | اجرای deploy + چک‌لیست `docs/SECURITY-HARDENING.md` روی سرور |
+| وضعیت سرور | ⏳ نیاز به pull + pm2 |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۶ — [Cursor] نسخه 1.0.11 کامل (فاز ۱–۴)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `f5caa02`
+- **خلاصه:**
+  - **فاز ۱:** debounce بارکد + wedge؛ backup فقط central.
+  - **فاز ۲:** حذف API/UI گردش حساب (ledger)؛ soft-delete فاکتور/سند دستی؛ سال مالی rollover + factory reset؛ انبارگردانی به منوی حسابداری + سند GL.
+  - **فاز ۳:** Command Palette Ctrl+K؛ ویجت اقدامات + اعلان‌ها؛ ساخت سریع محصول در فاکتور.
+  - **فاز ۴:** RBAC ماتریس per-user؛ مشاور AI فقط مدیر (admin/sales_manager).
+  - تست: barcode 12/12، fiscal 4/4، SMS 22/22. SW → v28.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/lib/rbac.js`, `server/routes/{notifications,search,fiscal-year,rbac}.js`, `server/services/ai.js`, `server/db.js`, `server/scripts/test-fiscal-year.js`
+- **Deploy:** ⏳ نیاز به pull + pm2
 
 ### ۱۴۰۵/۰۴/۲۲ — اسکریپت deploy خودکار + keystore example
 - **شاخه:** `cursor/deploy-automation-605f`
