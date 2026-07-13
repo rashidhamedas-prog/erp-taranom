@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `80ee40b` |
+| آخرین commit | `afc669e` |
 | نسخه وب/دسکتاپ | **`1.0.10`** / SW `v26` |
 | اندروید | **`2.0.7`** (versionCode 9) |
 | وضعیت سرور | ⏳ نیاز به deploy (`scripts/deploy-production.sh` یا GitHub Actions) |
@@ -43,12 +43,12 @@
 ## تاریخچه
 
 ### ۱۴۰۵/۰۴/۲۲ — اسکریپت deploy خودکار + keystore example
-- **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین session)
-- **خلاصه:** `scripts/deploy-production.sh` (git pull + jwt-secret + npm + pm2 + health check)، به‌روزرسانی `.github/workflows/deploy.yml`، `android/keystore.properties.example`
-- **فایل‌های کلیدی:** `scripts/deploy-production.sh`, `.github/workflows/deploy.yml`, `android/keystore.properties.example`
-- **Deploy:** ⏳ نیاز به اجرای اسکریپت روی سرور (SSH از Cloud Agent ممکن نیست — publickey)
-- **یادداشت:** `bash scripts/deploy-production.sh` روی سرور
+- **شاخه:** `cursor/deploy-automation-605f`
+- **Commit:** `80ee40b`
+- **خلاصه:** `scripts/deploy-production.sh` (git pull + jwt-secret + npm + pm2 + health check)، به‌روزرسانی `.github/workflows/deploy.yml` با bootstrap inline، `android/keystore.properties.example`
+- **فایل‌های کلیدی:** `scripts/deploy-production.sh`, `.github/workflows/deploy.yml`, `android/keystore.properties.example`, `docs/PROJECT-HANDOFF.md`
+- **Deploy:** ⏳ نیاز به merge + اجرای workflow یا SSH
+- **یادداشت:** `bash scripts/deploy-production.sh` روی سرور یا GitHub Actions «Deploy CRM ترنم»
 
 ### ۱۴۰۵/۰۴/۲۲ — سخت‌سازی امنیتی (بند «ب» handoff) + merge با v4
 - **شاخه:** `cursor/security-hardening-605f` → `claude/claude-md-docs-2ssrpy`
