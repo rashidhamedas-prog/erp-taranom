@@ -73,6 +73,15 @@ cd android
 # خروجی: app/build/outputs/apk/release/app-release.apk
 ```
 
+## توزیع APK (سیاست ۱۴۰۴/۰۴/۲۴)
+
+**APK هرگز روی سرور production آپلود نمی‌شود.** دلایل: فایل ~۶۰MB، آپلود ناپایدار (قطع scp)، و APK خراب روی سرور باعث بنر آپدیت شکسته می‌شد.
+
+1. `scripts/build-android.ps1` را روی ویندوز اجرا کنید
+2. خروجی: `server/public/releases/crm-taranom.apk` (فقط محلی)
+3. نصب روی گوشی: USB / sideload / ارسال مستقیم — **نه** از `http://45.90.98.99/releases/`
+4. `manifest.json` اندروید `url` خالی دارد (`distribution: local`) تا بنر آپدیت لینک شکسته نشان ندهد
+
 ## راه‌اندازی اولیه (کاربر نهایی)
 
 1. APK را نصب و باز کنید — چند ثانیه اول، سرور داخلی بالا می‌آید

@@ -1,4 +1,5 @@
 # Build CRM Taranom Android release APK (Windows).
+# Output: server/public/releases/crm-taranom.apk (LOCAL ONLY — never scp to production server)
 # Prerequisites: Android SDK (sdkmanager), JDK 17, nodejs-mobile.aar in app/libs/
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/build-android.ps1
 $ErrorActionPreference = 'Stop'

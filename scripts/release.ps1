@@ -9,7 +9,7 @@
 #   4. verify the APK is bootable: libnode.so per ABI + better_sqlite3 .node are real ELF
 #   5. regenerate manifest.json + latest.yml (scripts/generate-release.js)
 #   6. commit+push the metadata
-#   7. scp the .exe + .apk to the production server
+#   7. scp the .exe to the production server (APK stays local — never upload to server)
 #   8. ssh deploy: git pull + npm install + pm2 restart, then health-check
 #
 # NOTE: keep this file pure ASCII - Windows PowerShell 5.1 parses BOM-less
@@ -94,15 +94,15 @@ if ($LASTEXITCODE -ne 0) { throw 'git push failed' }
 
 if ($SkipDeploy) { Write-Host '==> SkipDeploy: artifacts built, metadata pushed. Done.'; exit 0 }
 
-# --- 6) upload artifacts to production ---
+# --- 6) upload desktop installer to production (APK is local-only — never scp) ---
 $dest = "${Server}:/home/taranom-admin/crm-taranom/server/public/releases/"
 if (-not $SkipDesktop) {
   scp -P $SshPort -i $SshKey $exeDash $dest
   if ($LASTEXITCODE -ne 0) { throw 'scp installer failed' }
 }
 if (-not $SkipAndroid) {
-  scp -P $SshPort -i $SshKey $apk $dest
-  if ($LASTEXITCODE -ne 0) { throw 'scp apk failed' }
+  Write-Host "==> APK kept local only: $apk"
+  Write-Host "    Install via USB/sideload — server /releases/ must NOT host APK (policy 2026-07-14)."
 }
 
 # --- 7) deploy web (pull + deps + restart) and health-check ---
@@ -113,6 +113,6 @@ ssh -p $SshPort -i $SshKey $Server "cd /home/taranom-admin/crm-taranom && git ch
 if ($LASTEXITCODE -ne 0) { throw 'remote deploy failed - check server manually' }
 
 Write-Host ''
-Write-Host "[OK] release $Version complete: web deployed, installer + APK live on /releases/"
-Write-Host "   desktop: http://45.90.98.99/releases/CRM-Taranom-Setup-$Version.exe"
-Write-Host "   android: http://45.90.98.99/releases/crm-taranom.apk"
+Write-Host "[OK] release $Version complete: web deployed, desktop installer on /releases/"
+Write-Host "   desktop: http://45.90.98.99:3000/releases/CRM-Taranom-Setup-$Version.exe"
+Write-Host "   android: local sideload only -> server\public\releases\crm-taranom.apk (do NOT upload)"

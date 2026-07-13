@@ -6,7 +6,7 @@ const MANIFEST_PATH = path.join(__dirname, '..', 'public', 'releases', 'manifest
 const DEFAULT_MANIFEST = {
   web: { version: '2.1.0', notes: '' },
   desktop: { version: '1.0.4', url: '/releases/CRM-Taranom-Setup-1.0.4.exe', notes: 'دکمه به‌روزرسانی در تنظیمات برنامه' },
-  android: { version: '2.0.1', versionCode: 3, url: '/releases/crm-taranom.apk', notes: '' }
+  android: { version: '2.0.1', versionCode: 3, url: '', distribution: 'local', notes: '' }
 };
 
 function readManifest() {
@@ -34,8 +34,9 @@ function compareVersion(a, b) {
 function buildUpdateResponse(platform, current, manifest, baseUrl) {
   const latest = manifest[platform] || {};
   const latestVersion = latest.version || '0';
-  const updateAvailable = compareVersion(current, latestVersion) < 0;
-  let url = latest.url || null;
+  const hasUrl = !!(latest.url && String(latest.url).trim());
+  const updateAvailable = hasUrl && compareVersion(current, latestVersion) < 0;
+  let url = hasUrl ? latest.url : null;
   if (url && !url.startsWith('http') && baseUrl) {
     url = baseUrl.replace(/\/$/, '') + url;
   }
@@ -45,6 +46,7 @@ function buildUpdateResponse(platform, current, manifest, baseUrl) {
     latest_version: latestVersion,
     version_code: latest.versionCode || null,
     update_available: updateAvailable,
+    distribution: latest.distribution || (platform === 'android' && !hasUrl ? 'local' : 'server'),
     url,
     notes: latest.notes || ''
   };

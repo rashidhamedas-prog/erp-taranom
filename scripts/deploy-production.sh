@@ -49,5 +49,6 @@ fi
 
 echo ""
 echo "✅ Deploy کامل شد."
+echo "   یادآوری: APK اندروید هرگز روی سرور آپلود نشود — فقط build محلی (scripts/build-android.ps1)."
 echo "   یادآوری: از پنل «پشتیبان» رمزنگاری بکاپ را فعال کنید (docs/SECURITY-HARDENING.md)"
 echo "   اولین ورود admin: مودال تغییر اجباری رمز نمایش داده می‌شود."

@@ -27,19 +27,31 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۷)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۴)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `3fec142` |
+| آخرین commit | (این commit) |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
-| اندروید | **`2.0.9`** (versionCode 11) |
-| وضعیت سرور | ✅ کد deploy شد — ⏳ APK 2.0.9 آپلود نشده |
+| اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
+| وضعیت سرور | ✅ آنلاین — DB از `crm-pre-mahak.db` بازیابی شد |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۴ — [Cursor] رفع فوری HTTP 502 + سیاست APK محلی (بدون آپلود سرور)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (این commit)
+- **خلاصه:**
+  - **ریشه 502:** `crm.db` خراب (`SQLITE_CORRUPT: database disk image is malformed`) — PM2 بیش از ۵۱٬۰۰۰ بار restart → پورت 3000 بالا نمی‌آمد → nginx/Chrome 502.
+  - **رفع production:** بازیابی DB از `crm-pre-mahak.db` (integrity ok) + `pm2 restart` → `http://45.90.98.99:3000` و `/api/system/health` هر دو **200**.
+  - **APK:** فایل خراب/partial (`apk.part0`/`apk.part1` ~۶MB) و `crm-taranom.apk` از `/releases/` سرور حذف شد.
+  - **سیاست جدید:** APK فقط build محلی — `release.ps1`، `finalize-android-release.ps1`، `deploy-production.sh`، `android/BUILD.md`، `CLAUDE.md` به‌روز شد؛ `manifest.json` اندروید `url: ""` + `distribution: local`؛ `app-update.js` بدون URL آپدیت اعلام نمی‌کند.
+- **فایل‌های کلیدی:** `scripts/release.ps1`, `scripts/finalize-android-release.ps1`, `scripts/deploy-production.sh`, `scripts/generate-release.js`, `scripts/check-db-integrity.js`, `server/lib/app-update.js`, `server/public/releases/manifest.json`, `android/BUILD.md`, `CLAUDE.md`
+- **Deploy:** ✅ DB بازیابی + سرور آنلاین — ⏳ `git pull` برای manifest/اسکریپت‌های جدید
+- **یادداشت:** مهاجرت محک (۱۶:۲۴) احتمالاً DB را خراب کرد — دادهٔ post-mahak در `crm.db.corrupted` باقی است؛ mahak را دوباره با احتیاط اجرا کنید.
 
 ### ۱۴۰۴/۰۴/۲۷ — [Cursor] رفع بنیادی اندروید 2.0.9 — بوت قابل‌اعتماد روی سامسونگ/نوکیا
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

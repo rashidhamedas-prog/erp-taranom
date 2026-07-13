@@ -12,7 +12,8 @@
   "android": {
     "version": "2.0.9",
     "versionCode": 11,
-    "url": "/releases/crm-taranom.apk",
-    "notes": "نسخه 2.0.9: رفع بنیادی بوت اندروید — WebView سازگار سامسونگ/نوکیا، health check، بدون Service Worker، نمایش boot.log در خطا"
+    "url": "",
+    "distribution": "local",
+    "notes": "نسخه 2.0.9: نصب فقط از APK محلی (sideload/USB) — سرور APK ارائه نمی‌دهد. رفع بنیادی بوت اندروید."
   }
 }

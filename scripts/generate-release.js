@@ -50,8 +50,9 @@ const manifest = {
   android: {
     version: process.argv[4] || '2.0.1',
     versionCode: parseInt(process.argv[5] || '3', 10),
-    url: '/releases/crm-taranom.apk',
-    notes: NOTES
+    url: '',
+    distribution: 'local',
+    notes: NOTES + ' — نصب اندروید فقط از APK محلی (sideload/USB). سرور APK ارائه نمی‌دهد.'
   }
 };
 

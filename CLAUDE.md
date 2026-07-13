@@ -124,3 +124,5 @@ Deploy command (run on server):
 ```bash
 cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssrpy && cd server && npm install && pm2 restart crm-taranom
 ```
+
+**Android APK policy:** build locally with `scripts/build-android.ps1` only. Never `scp` APK to production `/releases/`. Sideload to devices via USB or direct file transfer.
