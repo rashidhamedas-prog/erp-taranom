@@ -9,6 +9,19 @@ const { authenticator } = require('otplib');
 const PORT = 3477;
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-v4feat-'));
+const TEST_PASS = 'V4featTest1';
+let adminPass = 'admin123';
+
+async function loginAdmin() {
+  let r = await j('POST', '/api/auth/login', { username: 'admin', password: adminPass });
+  if (r.status === 200 && r.data.must_change_password && r.data.token) {
+    const chg = await j('POST', '/api/auth/change-password', { oldPass: adminPass, newPass: TEST_PASS }, r.data.token);
+    if (chg.status !== 200) throw new Error('forced password change failed: ' + JSON.stringify(chg.data));
+    adminPass = TEST_PASS;
+    return j('POST', '/api/auth/login', { username: 'admin', password: adminPass });
+  }
+  return r;
+}
 
 let passed = 0, failed = 0;
 function ok(cond, name) {
@@ -47,7 +60,7 @@ async function waitUp() {
   try {
     await waitUp();
     console.log('— login & 2FA —');
-    let r = await j('POST', '/api/auth/login', { username: 'admin', password: 'admin123' });
+    let r = await loginAdmin();
     ok(r.status === 200 && r.data.token, 'plain login works (no 2FA yet)');
     const token = r.data.token;
 
@@ -65,7 +78,7 @@ async function waitUp() {
     ok(r.status === 200 && Array.isArray(r.data.recovery_codes) && r.data.recovery_codes.length === 8, 'enable with valid TOTP → 8 recovery codes');
     const recovery = r.data.recovery_codes;
 
-    r = await j('POST', '/api/auth/login', { username: 'admin', password: 'admin123' });
+    r = await loginAdmin();
     ok(r.status === 200 && r.data.twofa_required && r.data.pre_token, 'login now requires 2FA (pre_token issued)');
     const pre = r.data.pre_token;
 
@@ -75,11 +88,11 @@ async function waitUp() {
     r = await j('POST', '/api/auth/2fa/verify', { pre_token: pre, code: authenticator.generate(secret) });
     ok(r.status === 200 && r.data.token, 'correct TOTP at login → real token');
 
-    let r2 = await j('POST', '/api/auth/login', { username: 'admin', password: 'admin123' });
+    let r2 = await loginAdmin();
     r = await j('POST', '/api/auth/2fa/recovery-code', { pre_token: r2.data.pre_token, code: recovery[0] });
     ok(r.status === 200 && r.data.token && r.data.remaining_codes === 7, 'recovery code login works & consumes code');
 
-    r2 = await j('POST', '/api/auth/login', { username: 'admin', password: 'admin123' });
+    r2 = await loginAdmin();
     r = await j('POST', '/api/auth/2fa/recovery-code', { pre_token: r2.data.pre_token, code: recovery[0] });
     ok(r.status === 401, 'same recovery code cannot be reused');
 
@@ -89,7 +102,7 @@ async function waitUp() {
     r = await j('POST', '/api/auth/2fa/disable', { code: authenticator.generate(secret) }, token);
     ok(r.status === 200 && r.data.ok, 'disable own 2FA with valid code');
 
-    r = await j('POST', '/api/auth/login', { username: 'admin', password: 'admin123' });
+    r = await loginAdmin();
     ok(r.status === 200 && r.data.token, 'plain login restored after disable');
 
     console.log('— product barcode —');

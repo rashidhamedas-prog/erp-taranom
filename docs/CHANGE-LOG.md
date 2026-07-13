@@ -44,13 +44,14 @@
 
 ### ۱۴۰۵/۰۴/۲۲ — سخت‌سازی امنیتی (بند «ب» handoff) + merge با v4
 - **شاخه:** `cursor/security-hardening-605f` → `claude/claude-md-docs-2ssrpy`
-- **Commit:** (merge commit)
+- **Commit:** `2058ba8` + follow-up
 - **خلاصه:**
   - تغییر اجباری رمز پیش‌فرض/موقت در اولین ورود (سازگار با 2FA v4): ستون `users.must_change_password`، گیت 403 در `auth` (فقط مرکزی)، مودال فرانت؛ پرچم قبل از مرحله 2FA برای رمز `admin123`
   - رمزنگاری بکاپ AES-256-GCM + `server/scripts/decrypt-backup.js`
   - حذف اسرار از مخزن (keystore، JWT هاردکد) + `docs/SECURITY-HARDENING.md`
   - merge با v4: 2FA/TOTP، پورتال B2B، انبارگردانی، audit log، …
-- **فایل‌های کلیدی:** `server/middleware/auth.js`, `server/routes/{auth,twofa,admin}.js`, `server/backup.js`, `server/public/index.html`, `docs/SECURITY-HARDENING.md`
+  - `test-v4-features.js` با تغییر اجباری رمز سازگار شد (`loginAdmin` helper)
+- **فایل‌های کلیدی:** `server/middleware/auth.js`, `server/routes/{auth,twofa,admin}.js`, `server/backup.js`, `server/public/index.html`, `server/scripts/test-v4-features.js`, `docs/SECURITY-HARDENING.md`
 - **Deploy:** ❌ اعمال نشده — `jwt-secret.txt` قبل از restart الزامی
 - **یادداشت:** بعد از deploy، admin مودال تغییر رمز می‌بیند؛ همه با تغییر JWT یک‌بار re-login
 
