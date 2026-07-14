@@ -54,10 +54,20 @@ router.get('/', auth, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { name, address } = req.body;
+  const { name, address, code, entity, warehouse_type, cost_center_id, is_default } = req.body;
   if (!name) return res.status(400).json({ error: 'نام انبار الزامی است' });
   const db = getDB();
-  const result = db.prepare('INSERT INTO warehouses (name,address) VALUES (?,?)').run(name, address || '');
+  const whCode = code || ('WH-' + Date.now().toString(36).toUpperCase());
+  const result = db.prepare(`
+    INSERT INTO warehouses (name,address,code,entity,warehouse_type,cost_center_id,is_default)
+    VALUES (?,?,?,?,?,?,?)
+  `).run(
+    name, address || '', whCode,
+    entity || 'distribution_office',
+    warehouse_type || 'finished_goods',
+    cost_center_id ? parseInt(cost_center_id, 10) : null,
+    is_default ? 1 : 0
+  );
   audit(req.user.id, 'create', 'warehouse', result.lastInsertRowid, `ساخت انبار ${name}`);
   res.json(db.prepare('SELECT * FROM warehouses WHERE id=?').get(result.lastInsertRowid));
 });
@@ -66,9 +76,20 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM warehouses WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { name, address, active } = req.body;
-  db.prepare('UPDATE warehouses SET name=?,address=?,active=? WHERE id=?')
-    .run(name || row.name, address ?? row.address, active != null ? (active ? 1 : 0) : row.active, req.params.id);
+  const { name, address, active, entity, warehouse_type, cost_center_id, is_default, code } = req.body;
+  db.prepare(`
+    UPDATE warehouses SET name=?,address=?,active=?,entity=?,warehouse_type=?,cost_center_id=?,is_default=?,code=?
+    WHERE id=?
+  `).run(
+    name || row.name, address ?? row.address,
+    active != null ? (active ? 1 : 0) : row.active,
+    entity || row.entity || 'distribution_office',
+    warehouse_type || row.warehouse_type || 'finished_goods',
+    cost_center_id != null ? (cost_center_id ? parseInt(cost_center_id, 10) : null) : row.cost_center_id,
+    is_default != null ? (is_default ? 1 : 0) : (row.is_default || 0),
+    code || row.code || null,
+    req.params.id
+  );
   audit(req.user.id, 'update', 'warehouse', req.params.id, `ویرایش انبار ${name || row.name}`);
   res.json({ ok: true });
 });

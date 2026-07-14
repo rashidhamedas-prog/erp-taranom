@@ -201,6 +201,7 @@ app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/parties', require('./routes/parties'));
 app.use('/api/detail-accounts', require('./routes/detail-accounts'));
+app.use('/api/units', require('./routes/units'));
 app.use('/api/api-keys', require('./routes/api_keys').router);
 app.use('/api/v1', require('./routes/api_v1'));
 

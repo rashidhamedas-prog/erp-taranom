@@ -824,7 +824,15 @@ async function api(method, path, data, isFormData){
 /* ============================================================
    UTILITIES
 ============================================================ */
-function fmt(n){ return Number(n||0).toLocaleString('fa-IR'); }
+function currencyDisplay(){ return (CACHE.settings?.currency_display || CACHE.moduleFlags?.currency_display || 'rial'); }
+function currencyUnit(){ return currencyDisplay()==='toman' ? 'تومان' : 'ریال'; }
+function currencyUnitShort(){ return currencyDisplay()==='toman' ? 'ت' : 'ر'; }
+function toDisplayAmount(stored){ const v=Math.round(parseFloat(stored)||0); return currencyDisplay()==='toman' ? Math.round(v/10) : v; }
+function fromInputAmount(input){ const v=Math.round(parseFloat(input)||0); return currencyDisplay()==='toman' ? v*10 : v; }
+function fmt(n){ return Number(toDisplayAmount(n||0)).toLocaleString('fa-IR'); }
+const MAHAK_DOC_LABELS={sales_invoice:'فاکتور فروش',sales_return:'برگشت فروش',receipt:'دریافت',purchase:'فاکتور خرید',purchase_return:'برگشت خرید',supplier_payment:'پرداخت تأمین',expense_payment:'پرداخت هزینه',warehouse_issue:'حواله انبار',warehouse_receipt:'رسید انبار',warehouse_transfer:'انتقال انبار',transfer:'انتقال وجه',payroll:'حقوق',cheque_settlement:'عملیات چک',opening:'افتتاحیه',account_transfer:'حواله حساب',stocktaking:'انبارگردانی',production:'تولید'};
+function mahakDocCell(docNo,docType){ if(!docNo) return '<span class="muted">-</span>'; const lbl=MAHAK_DOC_LABELS[docType]||docType||''; return `<span class="mono" title="${esc(lbl)}">محک ${esc(String(docNo))}</span>`; }
+function moneyColLabel(){ return `(${currencyUnitShort()})`; }
 function fmtCompact(n){
   n=Number(n)||0;
   const neg=n<0; n=Math.abs(n);
@@ -856,9 +864,9 @@ function formatMoneyInput(elm){
   const pos=Math.max(0, elm.value.length-fromEnd);
   try{ elm.setSelectionRange(pos,pos); }catch(e){}
 }
-function moneyVal(id){ const e=el(id); if(!e) return 0; return parseInt((e.value||'').replace(/[^\d]/g,''))||0; }
-// Pre-fill a money input with a formatted initial value
-function moneyInit(v){ v=parseInt(v)||0; return v?Number(v).toLocaleString('en-US'):''; }
+function moneyVal(id){ const e=el(id); if(!e) return 0; const raw=parseInt((e.value||'').replace(/[^\d]/g,''))||0; return fromInputAmount(raw); }
+// Pre-fill a money input with a formatted initial value (stored Rial → display unit)
+function moneyInit(v){ v=toDisplayAmount(parseInt(v)||0); return v?Number(v).toLocaleString('en-US'):''; }
 /* ---- Auto-English digits: any field that must hold Latin numerals converts
    Persian/Arabic digits the moment they are typed (hardware keyboards on a
    Persian layout), and inputmode already gives mobile users the digit pad.
@@ -1500,48 +1508,52 @@ const ACC_NAV_SECTIONS = [
     {id:'exit-acc-shell', icon:'🔙', label:'بازگشت به CRM'},
     {id:'acc-dash', icon:'📊', label:'داشبورد و دفتر کل'},
   ]},
-  { title: 'گزارش‌های مالی', items: [
+  { title: 'اطلاعات پایه', items: [
+    {id:'acc-parties', icon:'👥', label:'اشخاص (مشتری/تأمین‌کننده)'},
+    {id:'acc-party-groups', icon:'👤', label:'گروه‌های اشخاص', mahakOnly:true},
+    {id:'acc-product-groups', icon:'🏷️', label:'گروه‌های کالا'},
+    {id:'acc-customer-groups', icon:'📂', label:'گروه‌های مشتری (ماهیت حساب)'},
+    {id:'acc-banks', icon:'🏦', label:'بانک‌ها'},
+    {id:'acc-cash-boxes', icon:'💰', label:'صندوق‌های نقدی'},
+    {id:'acc-check-categories', icon:'📑', label:'دسته‌های چک'},
+    {id:'acc-warehouses', icon:'🏭', label:'انبارها'},
+    {id:'acc-persons', icon:'🧑‍💼', label:'اشخاص (کارمند/شریک/سایر)'},
+    {id:'acc-suppliers', icon:'🚚', label:'تأمین‌کنندگان'},
+    {id:'acc-cost-centers', icon:'🏷️', label:'مراکز هزینه'},
+  ]},
+  { title: 'عملیات (فروش و خرید)', items: [
+    {id:'acc-sales-invoices', icon:'🧾', label:'فاکتورهای فروش'},
+    {id:'acc-sales-returns', icon:'↪️', label:'برگشت از فروش'},
+    {id:'acc-purchases', icon:'📦', label:'فاکتور خرید'},
+    {id:'acc-purchase-returns', icon:'↩️', label:'برگشت از خرید'},
+    {id:'acc-settlements', icon:'💵', label:'عملیات دریافت و پرداخت'},
+    {id:'acc-cheques', icon:'🏦', label:'مدیریت چک‌ها'},
+    {id:'acc-mahak-cheques', icon:'📒', label:'دفتر چک محک', mahakOnly:true},
+  ]},
+  { title: 'عملیات خاص', items: [
+    {id:'acc-item-kardex', icon:'📋', label:'کاردکس کالا'},
+    {id:'acc-warehouse-ops', icon:'📦', label:'عملیات انبار (رسید/حواله/انتقال)'},
+    {id:'stocktaking', icon:'📋', label:'انبارگردانی'},
+    {id:'acc-transfers', icon:'🔄', label:'انتقال وجه'},
+    {id:'acc-trust-checks', icon:'🔖', label:'چک‌های امانی'},
+    {id:'acc-petty-cash', icon:'👛', label:'تنخواه گردان'},
+    {id:'acc-consignments', icon:'🔄', label:'کالای امانی'},
+    {id:'acc-production', icon:'🏗️', label:'تحلیل هزینه تولید'},
+  ]},
+  { title: 'عملیات حسابداری', items: [
+    {id:'acc-vouchers', icon:'📝', label:'اسناد حسابداری (دستی)'},
     {id:'acc-general', icon:'📈', label:'حسابداری کل (سود و زیان)'},
     {id:'acc-trial-balance', icon:'⚖️', label:'تراز آزمایشی'},
     {id:'acc-balance-sheet', icon:'🏛️', label:'ترازنامه'},
     {id:'acc-adv-reports', icon:'📊', label:'گزارشات پیشرفته'},
-    {id:'acc-production', icon:'🏗️', label:'تحلیل هزینه تولید'},
   ]},
-  { title: 'فروش و مطالبات', items: [
+  { title: 'گزارش‌ها و مطالبات', items: [
     {id:'acc-receivables', icon:'🧾', label:'مطالبات مشتریان'},
-    {id:'acc-sales-invoices', icon:'🧾', label:'فاکتورهای فروش'},
-    {id:'acc-sales-returns', icon:'↪️', label:'برگشت از فروش'},
     {id:'acc-statement', icon:'📄', label:'صورت‌حساب مشتری'},
     {id:'acc-commissions', icon:'🎯', label:'تأیید و انگیزه فروش'},
     {id:'acc-reps', icon:'👔', label:'نمایندگان فروش'},
-    {id:'acc-customer-groups', icon:'👥', label:'گروه‌های مشتری (ماهیت حساب)'},
-  ]},
-  { title: 'دریافت، پرداخت و بانک', items: [
-    {id:'acc-settlements', icon:'💵', label:'عملیات دریافت و پرداخت'},
-    {id:'acc-cheques', icon:'🏦', label:'مدیریت چک‌ها'},
-    {id:'acc-banks', icon:'🏦', label:'بانک‌ها'},
-    {id:'acc-check-categories', icon:'📑', label:'دسته‌های چک'},
-    {id:'acc-cash-boxes', icon:'💰', label:'صندوق‌های نقدی'},
-    {id:'acc-transfers', icon:'🔄', label:'انتقال وجه'},
-    {id:'acc-trust-checks', icon:'🔖', label:'چک‌های امانی'},
-    {id:'acc-petty-cash', icon:'👛', label:'تنخواه گردان'},
-  ]},
-  { title: 'خرید و تأمین', items: [
-    {id:'acc-purchases', icon:'📦', label:'فاکتور خرید'},
-    {id:'acc-purchase-returns', icon:'↩️', label:'برگشت از خرید'},
-    {id:'acc-suppliers', icon:'🚚', label:'تأمین‌کنندگان'},
-    {id:'acc-persons', icon:'🧑‍💼', label:'اشخاص (کارمند/شریک/سایر)'},
-  ]},
-  { title: 'انبار و کالا', items: [
-    {id:'acc-item-kardex', icon:'📋', label:'کاردکس کالا'},
-    {id:'acc-warehouses', icon:'🏭', label:'انبارها'},
-    {id:'acc-warehouse-ops', icon:'📦', label:'عملیات انبار (رسید/حواله/انتقال)'},
-    {id:'stocktaking', icon:'📋', label:'انبارگردانی'},
-    {id:'acc-consignments', icon:'🔄', label:'کالای امانی'},
   ]},
   { title: 'سایر', items: [
-    {id:'acc-vouchers', icon:'📝', label:'اسناد حسابداری (دستی)'},
-    {id:'acc-cost-centers', icon:'🏷️', label:'مراکز هزینه'},
     {id:'acc-payroll', icon:'🧑‍🏭', label:'حقوق و دستمزد (ساعتی)'},
   ]},
 ];
@@ -1564,6 +1576,7 @@ const ACC_MODULE_MAP={
   'acc-payroll':'module_payroll','acc-reps':'module_reps'
 };
 function filterAccNavItem(it){
+  if(it.mahakOnly && !isMahakMode()) return false;
   const key=ACC_MODULE_MAP[it.id];
   const flags=CACHE.moduleFlags||{};
   return !key || flags[key]!=='0';
@@ -2454,6 +2467,8 @@ async function bulkWelcomeSMS(){
 async function custModal(id){
   const c = id ? CACHE.customers.find(x=>x.id===id) : {};
   if(canAccounting() && !CACHE.customerGroups) CACHE.customerGroups = await api('GET','/accounting/customer-groups')||[];
+  if(canAccounting() && !CACHE.partyGroups) CACHE.partyGroups = await api('GET','/party-groups')||[];
+  const custPartyGroups = (CACHE.partyGroups||[]).filter(g=>g.entity_type==='customer'||g.entity_type==='all');
   const curProv = c.province||'';
   const provOptions = Object.keys(IRAN_PROVINCES).map(p=>`<option value="${esc(p)}" ${curProv===p?'selected':''}>${p}</option>`).join('');
   const cityOptions = curProv && IRAN_PROVINCES[curProv] ? IRAN_PROVINCES[curProv].map(ci=>`<option value="${esc(ci)}" ${(c.city||'')===ci?'selected':''}>${ci}</option>`).join('') : '';
@@ -2488,7 +2503,13 @@ async function custModal(id){
       <div class="fg full"><label>یادداشت ${hlp('هر توضیح آزاد درباره مشتری: سلیقه، شرایط پرداخت، نکات مهم مذاکره.')}</label><textarea id="c-note">${esc(c.note||'')}</textarea></div>
       ${canAccounting()?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
         <div class="form-grid">
-          <div class="fg"><label style="color:var(--purple);font-weight:600">💰 موجودی حساب (ت) ${hlp('مانده اولیه حساب مشتری به تومان. مثبت = مشتری بدهکار است (به شما بدهکار است). منفی = مشتری بستانکار است (شما به او بدهکارید). در دفتر معین به‌عنوان «مانده اولیه» ثبت می‌شود.')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— فقط مدیر/حسابدار</span></label>
+          <div class="fg"><label style="color:var(--purple);font-weight:600">👤 گروه اشخاص (محک) ${hlp('گروه‌بندی استاندارد محک: مشتریان، فروشگاه‌های ترنم، ...')}</label>
+            <select id="c-party_group_id">
+              <option value="">-- بدون گروه --</option>
+              ${custPartyGroups.map(g=>`<option value="${g.id}" ${c.party_group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="fg"><label style="color:var(--purple);font-weight:600">💰 موجودی حساب ${moneyColLabel()} ${hlp('مانده اولیه حساب مشتری. مثبت = مشتری بدهکار است. منفی = مشتری بستانکار است.')}
             <input id="c-balance" type="text" inputmode="numeric" class="money" value="${moneyInit(c.balance)}" style="font-family:monospace;direction:ltr">
           </div>
           <div class="fg"><label style="color:var(--purple);font-weight:600">📊 گروه مشتری (ماهیت حساب) ${hlp('ماهیت حساب این مشتری را تعیین می‌کند — پیش‌فرض «بدهکار» است. فقط مدیر/حسابدار می‌توانند تغییر دهند.')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— فقط مدیر/حسابدار</span></label>
@@ -2505,6 +2526,7 @@ async function custModal(id){
           ${coaCodeFieldHtml('customer', id, c.coa_code)}
         </div>
       </div>`:coaCodeFieldHtml('customer', id, c.coa_code)}
+      ${mahakCustFieldsHtml(c)}
       ${id&&isAdmin()&&!(APP_INFO&&APP_INFO.role==='device')?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
         <p style="font-weight:600;margin-bottom:8px">🛒 پورتال B2B ${hlp('با فعال‌سازی، مشتری می‌تواند با شماره موبایل خود وارد پورتال شود، کاتالوگ را ببیند، سفارش ثبت کند و صورتحسابش را مشاهده کند. سفارش‌ها به‌صورت پیش‌فاکتور به نام کارشناس مشتری ثبت می‌شوند.')}</p>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500;margin-bottom:8px">
@@ -2550,6 +2572,20 @@ async function saveCust(id){
   if(canAccounting()){
     if(el('c-balance')) data.balance = moneyVal('c-balance');
     if(el('c-group_id')) data.group_id = +el('c-group_id').value||null;
+    if(el('c-party_group_id')) data.party_group_id = +el('c-party_group_id').value||null;
+    if(isMahakMode()){
+      if(el('c-prefix')) data.prefix=el('c-prefix').value;
+      if(el('c-phone2')) data.phone2=el('c-phone2').value;
+      if(el('c-fax')) data.fax=el('c-fax').value;
+      if(el('c-mobile')) data.mobile=el('c-mobile').value;
+      if(el('c-email')) data.email=el('c-email').value;
+      if(el('c-national_id')) data.national_id=el('c-national_id').value;
+      if(el('c-economic_code')) data.economic_code=el('c-economic_code').value;
+      if(el('c-postal_code')) data.postal_code=el('c-postal_code').value;
+      if(el('c-referrer')) data.referrer=el('c-referrer').value;
+      if(el('c-birth_date')) data.birth_date=el('c-birth_date').value;
+      if(el('c-company_name')) data.company_name=el('c-company_name').value;
+    }
   }
   if(isAdmin()){
     if(el('c-assigned_to')) data.assigned_to = +el('c-assigned_to').value||null;
@@ -3448,6 +3484,7 @@ async function prodModal(id){
       <div class="fg full"><label>یادداشت ${hlp('توضیح آزاد درباره محصول: جنس پارچه، سایزبندی، رنگ‌بندی و…')}</label><textarea id="p-note">${esc(p.note||'')}</textarea></div>
       ${p.image?`<div class="fg full">${prodImgTag(p.image,'style="height:90px;border-radius:8px"')}</div>`:''}
       ${coaCodeFieldHtml('product', id, p.coa_code)}
+      ${mahakProdFieldsHtml(p)}
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveProduct(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
@@ -3470,6 +3507,16 @@ async function saveProduct(id){
   fd.append('barcode',el('p-barcode')?.value||'');
   fd.append('warehouse_id',el('p-warehouse')?.value||'');
   fd.append('note',el('p-note').value);
+  if(isMahakMode()){
+    fd.append('full_name',el('p-full_name')?.value||'');
+    fd.append('product_type',el('p-product_type')?.value||'');
+    fd.append('product_index',el('p-product_index')?.value||'');
+    fd.append('tax_id',el('p-tax_id')?.value||'');
+    fd.append('consumer_price',moneyVal('p-consumer_price'));
+    fd.append('opening_price',moneyVal('p-opening_price'));
+    fd.append('location',el('p-location')?.value||'');
+    fd.append('sms_code',el('p-sms_code')?.value||'');
+  }
   const f = el('p-image').files[0];
   if(f) fd.append('image',f);
   try{
@@ -4158,7 +4205,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll']);
+const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll','mahak-cheques']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -4204,6 +4251,7 @@ ROUTES['acc-receivables']=()=>renderAccPage('receivables','🧾','مطالبات
 ROUTES['acc-settlements']=()=>renderAccPage('settlements','💵','عملیات دریافت و پرداخت');
 ROUTES['acc-payments']=()=>go('acc-settlements');
 ROUTES['acc-cheques']=()=>renderAccPage('cheques','🏦','مدیریت چک‌ها');
+ROUTES['acc-mahak-cheques']=()=>renderAccPage('mahak-cheques','📒','دفتر چک محک');
 ROUTES['acc-commissions']=()=>renderAccPage('commissions','🎯','تأیید و انگیزه فروش');
 ROUTES['acc-reps']=()=>renderAccPage('reps','👔','مدیریت نمایندگان فروش');
 ROUTES['acc-statement']=()=>renderAccPage('statement','📄','صورت‌حساب مشتری');
@@ -4213,6 +4261,7 @@ ROUTES['acc-cash-boxes']=()=>renderAccPage('cash-boxes','💰','صندوق‌ه�
 ROUTES['acc-petty-cash']=()=>renderAccPage('petty-cash','👛','تنخواه گردان');
 ROUTES['acc-trust-checks']=()=>renderAccPage('trust-checks','🔖','چک‌های امانی');
 ROUTES['acc-transfers']=()=>renderAccPage('transfers','🔄','انتقال وجه بین حساب‌ها');
+ROUTES['acc-parties']=()=>renderAccPage('parties','👥','اشخاص (مشتری/تأمین‌کننده)');
 ROUTES['acc-suppliers']=()=>renderAccPage('suppliers','🚚','تأمین‌کنندگان');
 ROUTES['acc-persons']=()=>renderAccPage('persons','🧑‍💼','اشخاص (کارمند، شریک، سرمایه‌گذار، پیمانکار، ...)');
 ROUTES['acc-sales-invoices']=()=>renderAccPage('sales-invoices','🧾','فاکتورهای فروش');
@@ -4233,6 +4282,8 @@ ROUTES['acc-balance-sheet']=()=>renderAccPage('balance-sheet','🏛️','ترا�
 ROUTES['acc-chart']=()=>go('acc-dash');
 ROUTES['acc-cost-centers']=()=>renderAccPage('cost-centers','🏷️','مراکز هزینه');
 ROUTES['acc-customer-groups']=()=>renderAccPage('customer-groups','👥','گروه‌های مشتری (ماهیت حساب)');
+ROUTES['acc-party-groups']=()=>renderAccPage('party-groups','👤','گروه‌های اشخاص (محک)');
+ROUTES['acc-product-groups']=()=>renderAccPage('product-groups','🏷️','گروه‌های کالا (محک)');
 
 async function resyncAccounting(){
   if(!confirm('اسناد حسابداری برای تمام فاکتورها، تسویه‌ها و مانده‌های اولیه گذشته بازسازی شود؟\n(این عملیات ایمن است و اسناد تکراری ایجاد نمی‌کند)')) return;
@@ -4396,6 +4447,45 @@ async function loadAccTab(tab){
         <td class="mono" style="font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.cheque_amount||r.amount||0),0))}</td>
         <td colspan="7"></td>
       </tr></tfoot></table></div>`;
+  } else if(tab==='mahak-cheques'){
+    const dirFilter=el('mchqDir')?.value||'';
+    const statusFilter=el('mchqStatus')?.value||'';
+    const qps=[];
+    if(dirFilter) qps.push('direction='+encodeURIComponent(dirFilter));
+    if(statusFilter) qps.push('status='+encodeURIComponent(statusFilter));
+    const qp=qps.length?'?'+qps.join('&'):'';
+    const rows=await api('GET','/cheque-records'+qp)||[];
+    const dirLabel={in:'📥 دریافتی',out:'📤 پرداختی'};
+    body.innerHTML=`
+      <div class="muted" style="font-size:12px;margin-bottom:10px">دفتر چک محک — واردشده از <code>full data.xlsx</code> (لیست چک‌های دریافتی/پرداختی)</div>
+      <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <select id="mchqDir" onchange="loadAccTab('mahak-cheques')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px">
+          <option value="">همه جهت‌ها</option>
+          <option value="in" ${dirFilter==='in'?'selected':''}>دریافتی</option>
+          <option value="out" ${dirFilter==='out'?'selected':''}>پرداختی</option>
+        </select>
+        <input id="mchqStatus" placeholder="فیلتر وضعیت..." value="${esc(statusFilter)}" onchange="loadAccTab('mahak-cheques')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;width:160px">
+      </div>
+      <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>جهت</th><th>شماره چک</th><th>مبلغ ${moneyColLabel()}</th><th>بانک</th><th>شعبه</th><th>طرف حساب</th><th>سررسید</th><th>صیاد</th><th>وضعیت</th><th>شرح</th><th>عملیات</th>
+      </tr></thead><tbody>${rows.map(r=>`<tr>
+        <td>${dirLabel[r.direction]||r.direction}</td>
+        <td class="mono">${esc(r.cheque_number||'-')}</td>
+        <td class="mono" style="font-weight:700">${fmt(r.amount)}</td>
+        <td>${esc(r.bank_name||'-')}</td>
+        <td class="muted">${esc(r.branch||'-')}</td>
+        <td>${esc(r.party_name||'-')}</td>
+        <td class="mono">${escDate(r.due_date||r.receive_date||r.issue_date||'-')}</td>
+        <td class="mono">${esc(r.sayadi||'-')}</td>
+        <td>${esc(r.status||'-')}${r.status_note?`<br><span class="muted">${esc(r.status_note)}</span>`:''}</td>
+        <td class="muted">${esc(r.note||'-')}</td>
+        <td><button class="btn sm ghost" onclick="editMahakChequeStatus(${r.id},'${esc(r.status||'')}')">✏️ وضعیت</button></td>
+      </tr>`).join('')||emptyRow(11)}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+        <td colspan="2">جمع (${fmt(rows.length)} چک)</td>
+        <td class="mono" style="font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.amount||0),0))}</td>
+        <td colspan="8"></td>
+      </tr></tfoot></table></div>`;
   } else if(tab==='commissions'){
     const [pending,comms]=await Promise.all([
       api('GET','/accounting/pending-approvals'),
@@ -4471,6 +4561,8 @@ async function loadAccTab(tab){
     initCustSearches(body);
     const stmtCustEl=el('stmtCust'); if(stmtCustEl) stmtCustEl.addEventListener('change',()=>{stmtCustId=stmtCustEl.value; loadStatement();});
     if(stmtCustId) loadStatement();
+  } else if(tab==='parties'){
+    await renderPartiesTab(body);
   } else if(tab==='suppliers'){
     await renderSuppliersTab(body);
   } else if(tab==='purchases'){
@@ -4491,6 +4583,10 @@ async function loadAccTab(tab){
     await renderCostCentersTab(body);
   } else if(tab==='customer-groups'){
     await renderCustomerGroupsTab(body);
+  } else if(tab==='party-groups'){
+    await renderPartyGroupsTab(body);
+  } else if(tab==='product-groups'){
+    await renderProductGroupsTab(body);
   } else if(tab==='banks'){
     await renderBanksTab(body);
   } else if(tab==='check-categories'){
@@ -4601,6 +4697,77 @@ document.addEventListener('click',e=>{ if(!e.target.closest('#genProdSearch')&&!
 /* ============================================================
    SUPPLIERS
 ============================================================ */
+async function renderPartiesTab(body){
+  const typeFilter=el('partyTypeFilter')?.value||'';
+  const search=el('partySearch')?.value||'';
+  let qp='?'; const qps=[];
+  if(typeFilter) qps.push('type='+encodeURIComponent(typeFilter));
+  if(search) qps.push('search='+encodeURIComponent(search));
+  qp+=qps.join('&');
+  const resp=await api('GET','/parties'+qp)||{};
+  const rows=resp.data||resp||[];
+  CACHE.parties=rows;
+  const typeLabel={customer:'مشتری',supplier:'تأمین‌کننده',both:'هر دو',other:'سایر'};
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <button class="btn" onclick="partyModal()">➕ شخص جدید</button>
+      <select id="partyTypeFilter" onchange="loadAccTab('parties')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px">
+        <option value="">همه انواع</option>
+        <option value="customer" ${typeFilter==='customer'?'selected':''}>مشتری</option>
+        <option value="supplier" ${typeFilter==='supplier'?'selected':''}>تأمین‌کننده</option>
+        <option value="both" ${typeFilter==='both'?'selected':''}>هر دو</option>
+        <option value="other" ${typeFilter==='other'?'selected':''}>سایر</option>
+      </select>
+      <input id="partySearch" placeholder="جستجو نام/تلفن/کد..." value="${esc(search)}" onchange="loadAccTab('parties')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:180px">
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>کد</th><th>نوع</th><th>نام</th><th>تلفن</th><th>شهر</th><th>عملیات</th>
+    </tr></thead><tbody>${rows.map(p=>`<tr>
+      <td class="mono">${esc(p.person_code||'-')}</td>
+      <td>${typeLabel[p.party_type]||p.party_type}</td>
+      <td>${esc(p.full_name||p.biz||'-')}</td>
+      <td class="mono">${esc(p.phone||'-')}</td>
+      <td>${esc(p.city||'-')}</td>
+      <td><button class="btn sm ghost" onclick="partyModal(${p.id})">✏️</button></td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+}
+function partyModal(id){
+  const p=id?(CACHE.parties||[]).find(x=>x.id===id):{party_type:'customer'};
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>نوع *</label><select id="pty-type">
+        <option value="customer" ${p.party_type==='customer'?'selected':''}>مشتری</option>
+        <option value="supplier" ${p.party_type==='supplier'?'selected':''}>تأمین‌کننده</option>
+        <option value="both" ${p.party_type==='both'?'selected':''}>هر دو</option>
+        <option value="other" ${p.party_type==='other'?'selected':''}>سایر</option>
+      </select></div>
+      <div class="fg"><label>نام / نام فروشگاه *</label><input id="pty-name" value="${esc(p.full_name||p.biz||'')}"></div>
+      <div class="fg"><label>تلفن *</label><input id="pty-phone" value="${esc(p.phone||'')}"></div>
+      <div class="fg"><label>شهر</label><input id="pty-city" value="${esc(p.city||'')}"></div>
+      <div class="fg"><label>کد ملی</label><input id="pty-national_id" value="${esc(p.national_id||'')}"></div>
+      <div class="fg"><label>کد اقتصادی</label><input id="pty-economic_code" value="${esc(p.economic_code||'')}"></div>
+      <div class="fg full"><label>یادداشت</label><textarea id="pty-note">${esc(p.notes||p.note||'')}</textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveParty(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveParty(id){
+  const full_name=el('pty-name').value.trim();
+  const phone=el('pty-phone').value.trim();
+  if(!full_name||!phone){ showToast('نام و تلفن الزامی است','error'); return; }
+  const data={
+    party_type:el('pty-type').value, full_name, phone,
+    city:el('pty-city').value, national_id:el('pty-national_id').value,
+    economic_code:el('pty-economic_code').value, notes:el('pty-note').value,
+    biz:full_name
+  };
+  try{
+    if(id) await api('PUT','/parties/'+id,data); else await api('POST','/parties',data);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('parties');
+  }catch(e){}
+}
+
 async function renderSuppliersTab(body){
   const [suppliers,balances]=await Promise.all([api('GET','/suppliers'),api('GET','/suppliers/balances/list')]);
   CACHE.suppliers=suppliers||[];
@@ -4625,17 +4792,24 @@ async function renderSuppliersTab(body){
       <td class="mono" style="font-weight:800;color:var(--red)">${fmt(total)}</td><td></td>
     </tr></tfoot></table></div>`;
 }
-function supplierModal(id){
+async function supplierModal(id){
+  if(canAccounting()&&!CACHE.partyGroups) CACHE.partyGroups=await api('GET','/party-groups')||[];
   const s=id?(CACHE.suppliers||[]).find(x=>x.id===id):{};
+  const supPartyGroups=(CACHE.partyGroups||[]).filter(g=>g.entity_type==='supplier'||g.entity_type==='all');
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش تأمین‌کننده':'تأمین‌کننده جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>نام * ${hlp('نام شرکت یا تولیدی تأمین‌کننده کالا.')}</label><input id="sup-name" value="${esc(s.name||'')}"></div>
       <div class="fg"><label>تلفن</label><input id="sup-phone" value="${esc(s.phone||'')}"></div>
       <div class="fg full"><label>آدرس</label><input id="sup-address" value="${esc(s.address||'')}"></div>
-      ${!id?`<div class="fg"><label>مانده اولیه (تومان) ${hlp('مبلغی که از قبل به این تأمین‌کننده بدهکاریم — به‌عنوان مانده اول دوره در دفتر معین ثبت می‌شود.')}</label><input id="sup-balance" type="number" value="0"></div>`:''}
+      ${!id?`<div class="fg"><label>مانده اولیه ${moneyColLabel()} ${hlp('مبلغی که از قبل به این تأمین‌کننده بدهکاریم.')}</label><input id="sup-balance" type="text" inputmode="numeric" class="money" value="0"></div>`:''}
+      <div class="fg full"><label>گروه اشخاص (محک)</label><select id="sup-party_group_id">
+        <option value="">-- بدون گروه --</option>
+        ${supPartyGroups.map(g=>`<option value="${g.id}" ${s.party_group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}
+      </select></div>
       <div class="fg full"><label>یادداشت</label><textarea id="sup-note">${esc(s.note||'')}</textarea></div>
       ${coaCodeFieldHtml('supplier', id, s.coa_code)}
+      ${mahakSupFieldsHtml(s)}
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveSupplier(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
@@ -4644,7 +4818,9 @@ async function saveSupplier(id){
   const name=el('sup-name').value.trim();
   if(!name){ showToast('نام الزامی است','error'); return; }
   const data={name,phone:el('sup-phone').value,address:el('sup-address').value,note:el('sup-note').value};
-  if(!id) data.balance=+el('sup-balance')?.value||0;
+  if(el('sup-party_group_id')) data.party_group_id=+el('sup-party_group_id').value||null;
+  if(isMahakMode()) Object.assign(data,collectMahakPartyData('sup'));
+  if(!id) data.balance=moneyVal('sup-balance');
   try{
     if(id) await api('PUT','/suppliers/'+id,data); else await api('POST','/suppliers',data);
     closeModal(); showToast('ذخیره شد'); loadAccTab('suppliers');
@@ -4686,7 +4862,10 @@ async function showSupplierLedger(id,name){
    credit = we owe the person.
 ============================================================ */
 async function renderPersonsTab(body){
-  const [persons,cats]=await Promise.all([api('GET','/persons')||[],api('GET','/persons/categories')||[]]);
+  const reqs=[api('GET','/persons')||[],api('GET','/persons/categories')||[]];
+  if(canAccounting()) reqs.push(api('GET','/party-groups')||[]);
+  const [persons,cats,partyGroups]=await Promise.all(reqs);
+  if(partyGroups) CACHE.partyGroups=partyGroups;
   CACHE.persons=persons; CACHE.personCategories=cats;
   const total=persons.reduce((a,p)=>a+(p.balance||0),0);
   body.innerHTML=`
@@ -4714,6 +4893,7 @@ async function renderPersonsTab(body){
 function personModal(id){
   const p=id?(CACHE.persons||[]).find(x=>x.id===id):{active:1};
   const cats=CACHE.personCategories||[];
+  const personPartyGroups=(CACHE.partyGroups||[]).filter(g=>g.entity_type==='person'||g.entity_type==='all');
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -4721,6 +4901,10 @@ function personModal(id){
       <div class="fg"><label>دسته ${hlp('دسته‌بندی این شخص — از «مدیریت دسته‌ها» قابل تعریف است.')}</label><select id="pr-category">
         <option value="">-- بدون دسته --</option>
         ${cats.map(c=>`<option value="${c.id}" ${p?.category_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>گروه اشخاص (محک)</label><select id="pr-party_group_id">
+        <option value="">-- بدون گروه --</option>
+        ${personPartyGroups.map(g=>`<option value="${g.id}" ${p?.party_group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}
       </select></div>
       <div class="fg"><label>تلفن</label><input id="pr-phone" value="${esc(p?.phone||'')}"></div>
       <div class="fg"><label>شماره پرسنلی (فراننکو)</label><input id="pers-employee-no" value="${esc(p?.employee_no||'')}"></div>
@@ -4737,6 +4921,8 @@ function personModal(id){
         <option value="1" ${p.active?'selected':''}>فعال</option><option value="0" ${!p.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
       <div class="fg full"><label>یادداشت</label><textarea id="pr-note">${esc(p?.note||'')}</textarea></div>
+      ${coaCodeFieldHtml('person', id, p?.coa_code)}
+      ${mahakPersonFieldsHtml(p)}
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="savePerson(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
@@ -4755,6 +4941,8 @@ async function savePerson(id){
     insurance_percent:+el('pers-insurance')?.value||0,
     tax_percent:+el('pers-tax')?.value||0
   };
+  if(el('pr-party_group_id')) data.party_group_id=+el('pr-party_group_id').value||null;
+  if(isMahakMode()) Object.assign(data,collectMahakPartyData('pm'));
   if(!id) data.opening_balance=+el('pr-opening')?.value||0;
   else data.active=+el('pr-active').value;
   try{
@@ -4847,17 +5035,19 @@ async function renderSalesInvoicesTab(body){
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="openInvBuilder()">➕ فاکتور جدید</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>شماره</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی (ت)</th><th>نوع پرداخت</th><th>فروشنده</th><th>عملیات</th>
+      <th>شماره</th><th>سند محک</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(i=>`<tr>
-      <td class="mono" style="font-weight:700">${invNumCell(i.num)}</td><td>${esc(i.cust_biz||'-')}</td>
+      <td class="mono" style="font-weight:700">${invNumCell(i.num)}</td>
+      <td>${mahakDocCell(i.mahak_doc_no,i.mahak_doc_type)}</td>
+      <td>${esc(i.cust_biz||'-')}</td>
       <td>${typeLabel[i.type]||i.type}${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" style="font-size:10px">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
       <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
       <td>${payLabel[i.pay_type]||i.pay_type||'-'}</td>
       <td class="muted">${esc(i.seller_name||i.salesperson||'-')}</td>
       <td><button class="btn sm blue" onclick="printInvoice(${i.id})">🖨️</button></td>
-    </tr>`).join('')||emptyRow(8)}</tbody>
+    </tr>`).join('')||emptyRow(9)}</tbody>
     <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
-      <td colspan="4">جمع (${fmt(rows.length)} فاکتور)</td>
+      <td colspan="5">جمع (${fmt(rows.length)} فاکتور)</td>
       <td class="mono" style="font-weight:800">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
       <td colspan="3"></td>
     </tr></tfoot></table></div>`;
@@ -4918,27 +5108,46 @@ function productOptions(selectedId){
 async function renderWarehousesTab(body){
   const warehouses=await api('GET','/warehouses')||[];
   CACHE.warehouses=warehouses;
+  const entityLabel={workshop:'کارگاه',distribution_office:'دفتر توزیع'};
+  const typeLabel={raw_material:'مواد اولیه',finished_goods:'محصول نهایی',consignment:'امانی',scrap:'ضایعات'};
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="warehouseModal()">➕ انبار جدید</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>نام انبار</th><th>آدرس</th><th>وضعیت</th><th>عملیات</th>
+      <th>کد</th><th>نام انبار</th><th>واحد</th><th>نوع</th><th>آدرس</th><th>پیش‌فرض</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${warehouses.map(w=>`<tr>
-      <td>${esc(w.name)}</td><td class="muted">${esc(w.address||'-')}</td>
+      <td class="mono">${esc(w.code||'-')}</td>
+      <td>${esc(w.name)}</td>
+      <td>${entityLabel[w.entity]||w.entity||'-'}</td>
+      <td>${typeLabel[w.warehouse_type]||w.warehouse_type||'-'}</td>
+      <td class="muted">${esc(w.address||'-')}</td>
+      <td>${w.is_default?'<span class="tag t-done">✓</span>':'-'}</td>
       <td>${w.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td style="white-space:nowrap">
         <button class="btn sm blue" onclick="viewWarehouseStock(${w.id},'${esc(w.name)}')">📦 موجودی</button>
         <button class="btn sm ghost" onclick="warehouseModal(${w.id})">✏️</button>
         <button class="btn sm red" onclick="deleteWarehouse(${w.id})">🗑️</button>
       </td>
-    </tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
+    </tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
 }
 function warehouseModal(id){
-  const w=id?(CACHE.warehouses||[]).find(x=>x.id===id):{active:1};
+  const w=id?(CACHE.warehouses||[]).find(x=>x.id===id):{active:1,entity:'distribution_office',warehouse_type:'finished_goods'};
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش انبار':'انبار جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>کد</label><input id="wh-code" value="${esc(w?.code||'')}"></div>
       <div class="fg full"><label>نام انبار *</label><input id="wh-name" value="${esc(w?.name||'')}"></div>
+      <div class="fg"><label>واحد عملیاتی</label><select id="wh-entity">
+        <option value="workshop" ${w.entity==='workshop'?'selected':''}>کارگاه (نوبرت)</option>
+        <option value="distribution_office" ${w.entity==='distribution_office'||!w.entity?'selected':''}>دفتر توزیع (کیمیا)</option>
+      </select></div>
+      <div class="fg"><label>نوع انبار</label><select id="wh-type">
+        <option value="raw_material" ${w.warehouse_type==='raw_material'?'selected':''}>مواد اولیه</option>
+        <option value="finished_goods" ${w.warehouse_type==='finished_goods'||!w.warehouse_type?'selected':''}>محصول نهایی</option>
+        <option value="consignment" ${w.warehouse_type==='consignment'?'selected':''}>امانی</option>
+        <option value="scrap" ${w.warehouse_type==='scrap'?'selected':''}>ضایعات</option>
+      </select></div>
       <div class="fg full"><label>آدرس</label><input id="wh-address" value="${esc(w?.address||'')}"></div>
+      <div class="fg"><label><input type="checkbox" id="wh-default" ${w.is_default?'checked':''}> انبار پیش‌فرض</label></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="wh-active">
         <option value="1" ${w.active?'selected':''}>فعال</option><option value="0" ${!w.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -4949,7 +5158,11 @@ function warehouseModal(id){
 async function saveWarehouse(id){
   const name=el('wh-name').value.trim();
   if(!name){ showToast('نام انبار الزامی است','error'); return; }
-  const data={name,address:el('wh-address').value};
+  const data={
+    name, address:el('wh-address').value, code:el('wh-code').value.trim(),
+    entity:el('wh-entity').value, warehouse_type:el('wh-type').value,
+    is_default:el('wh-default')?.checked?1:0
+  };
   if(id) data.active=+el('wh-active').value;
   try{
     if(id) await api('PUT','/warehouses/'+id,data); else await api('POST','/warehouses',data);
@@ -4991,9 +5204,11 @@ async function renderWarehouseOpsTab(body){
       <button class="btn" onclick="warehouseTransferModal()">🔄 انتقال بین انبارها</button>
     </div>
     <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
-      <th>تاریخ</th><th>نوع</th><th>کالا</th><th>از انبار</th><th>به انبار</th><th>تعداد</th><th>یادداشت</th><th>ثبت‌کننده</th>
+      <th>تاریخ</th><th>سند محک</th><th>نوع</th><th>کالا</th><th>از انبار</th><th>به انبار</th><th>تعداد</th><th>یادداشت</th><th>ثبت‌کننده</th>
     </tr></thead><tbody>${moves.map(m=>`<tr>
-      <td class="mono">${escDate(m.date)}</td><td>${typeLabel[m.type]||m.type}</td>
+      <td class="mono">${escDate(m.date)}</td>
+      <td>${mahakDocCell(m.mahak_doc_no,m.mahak_doc_type)}</td>
+      <td>${typeLabel[m.type]||m.type}</td>
       <td>${esc(m.product_name||'-')}</td><td class="muted">${esc(m.from_warehouse_name||'-')}</td><td class="muted">${esc(m.to_warehouse_name||'-')}</td>
       <td class="mono">${fmt(m.qty)}</td><td class="muted">${esc(m.note||'-')}</td><td class="muted">${esc(m.recorder||'-')}</td>
     </tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
@@ -5683,15 +5898,17 @@ async function renderPurchasesTab(body){
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="purchaseInvoiceModal()">➕ فاکتور خرید جدید</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>شماره</th><th>تأمین‌کننده</th><th>تاریخ</th><th>مبلغ نهایی (ت)</th><th>نوع پرداخت</th><th>ثبت‌کننده</th><th>عملیات</th>
+      <th>شماره</th><th>سند محک</th><th>تأمین‌کننده</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>ثبت‌کننده</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr>
-      <td class="mono" style="font-weight:700">${esc(r.num)}</td><td>${esc(r.supplier_name||'-')}</td>
+      <td class="mono" style="font-weight:700">${esc(r.num)}</td>
+      <td>${mahakDocCell(r.mahak_doc_no,r.mahak_doc_type)}</td>
+      <td>${esc(r.supplier_name||'-')}</td>
       <td class="mono">${escDate(r.date)}</td><td class="mono">${fmt(r.final)}</td>
       <td>${payLabel[r.pay_type]||r.pay_type}</td><td class="muted">${esc(r.recorder||'-')}</td>
       <td><button class="btn sm red" onclick="deletePurchaseInvoice(${r.id})">🗑️</button></td>
-    </tr>`).join('')||emptyRow(7)}</tbody>
+    </tr>`).join('')||emptyRow(8)}</tbody>
     <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
-      <td colspan="3">جمع (${fmt(rows.length)} فاکتور)</td>
+      <td colspan="4">جمع (${fmt(rows.length)} فاکتور)</td>
       <td class="mono" style="font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.final||0),0))}</td><td colspan="3"></td>
     </tr></tfoot></table></div>`;
 }
@@ -5779,9 +5996,11 @@ async function renderPurchaseReturnsTab(body){
   const rows=await api('GET','/purchases/returns/list')||[];
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="purchaseReturnModal()">➕ برگشت از خرید جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>تأمین‌کننده</th><th>مبلغ (ت)</th><th>یادداشت</th><th>عملیات</th></tr></thead>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>سند محک</th><th>تأمین‌کننده</th><th>مبلغ (ت)</th><th>یادداشت</th><th>عملیات</th></tr></thead>
     <tbody>${rows.map(r=>`<tr>
-      <td class="mono">${escDate(r.date)}</td><td>${esc(r.supplier_name||'-')}</td>
+      <td class="mono">${escDate(r.date)}</td>
+      <td>${mahakDocCell(r.mahak_doc_no,r.mahak_doc_type)}</td>
+      <td>${esc(r.supplier_name||'-')}</td>
       <td class="mono" style="font-weight:700;color:var(--red)">${fmt(r.amount)}</td>
       <td class="muted">${esc(r.note||'-')}</td>
       <td><button class="btn sm red" onclick="deletePurchaseReturn(${r.id})">🗑️</button></td>
@@ -5863,9 +6082,11 @@ async function renderSalesReturnsTab(body){
   const rows=await api('GET','/accounting/sales-returns')||[];
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="salesReturnModal()">➕ برگشت از فروش جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>مشتری</th><th>مبلغ (ت)</th><th>یادداشت</th><th>عملیات</th></tr></thead>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>سند محک</th><th>مشتری</th><th>مبلغ (ت)</th><th>یادداشت</th><th>عملیات</th></tr></thead>
     <tbody>${rows.map(r=>`<tr>
-      <td class="mono">${escDate(r.date)}</td><td>${esc(r.cust_biz||'-')}</td>
+      <td class="mono">${escDate(r.date)}</td>
+      <td>${mahakDocCell(r.mahak_doc_no,r.mahak_doc_type)}</td>
+      <td>${esc(r.cust_biz||'-')}</td>
       <td class="mono" style="font-weight:700;color:var(--red)">${fmt(r.amount)}</td>
       <td class="muted">${esc(r.note||'-')}</td>
       <td><button class="btn sm red" onclick="deleteSalesReturn(${r.id})">🗑️</button></td>
@@ -6500,6 +6721,103 @@ async function deleteCustomerGroup(id){
 }
 
 /* ============================================================
+   PARTY GROUPS — Mahak-style person groups (گروه اشخاص)
+============================================================ */
+const PARTY_ENTITY_LABELS = {all:'همه',customer:'مشتری',supplier:'تأمین‌کننده',person:'شخص'};
+async function renderPartyGroupsTab(body){
+  const rows=await api('GET','/party-groups')||[];
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="partyGroupModal()">➕ گروه جدید</button></div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">گروه‌های استاندارد محک: مشتریان، فروشندگان، پرسنل، وام‌ها، بازاریاب، دوزندگان بیرون بر، فروشگاه‌های ترنم</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام گروه</th><th>نوع موجودیت</th><th>تعداد</th><th>عملیات</th></tr></thead>
+    <tbody>${rows.map(g=>`<tr>
+      <td class="mono">${g.code||'-'}</td>
+      <td>${esc(g.name)}</td>
+      <td><span class="tag t-new">${PARTY_ENTITY_LABELS[g.entity_type]||g.entity_type}</span></td>
+      <td class="mono">${g.entity_count||0}</td>
+      <td><button class="btn sm ghost" onclick="partyGroupModal(${g.id})">✏️</button>
+          <button class="btn sm red" onclick="deletePartyGroup(${g.id})">🗑️</button></td>
+    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+}
+async function partyGroupModal(id){
+  const list=await api('GET','/party-groups')||[];
+  const g=id?(list.find(x=>x.id===id)||{}):{entity_type:'all'};
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش گروه اشخاص':'گروه اشخاص جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>کد</label><input id="pg-code" type="number" value="${g.code||''}" placeholder="خودکار"></div>
+      <div class="fg full"><label>نام گروه *</label><input id="pg-name" value="${esc(g.name||'')}"></div>
+      <div class="fg full"><label>نوع موجودیت ${hlp('مشتریان→customers، فروشندگان→suppliers، پرسنل→persons')}</label>
+        <select id="pg-entity">${Object.entries(PARTY_ENTITY_LABELS).map(([k,v])=>`<option value="${k}" ${g.entity_type===k?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="fg full"><label>توضیحات</label><textarea id="pg-desc">${esc(g.description||'')}</textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="savePartyGroup(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function savePartyGroup(id){
+  const name=el('pg-name').value.trim();
+  if(!name){ showToast('نام گروه الزامی است','error'); return; }
+  const data={name,code:el('pg-code').value,entity_type:el('pg-entity').value,description:el('pg-desc').value};
+  try{
+    if(id) await api('PUT','/party-groups/'+id,data); else await api('POST','/party-groups',data);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('party-groups');
+  }catch(e){}
+}
+async function deletePartyGroup(id){
+  if(!confirm('این گروه حذف شود؟')) return;
+  try{ await api('DELETE','/party-groups/'+id); showToast('حذف شد'); loadAccTab('party-groups'); }catch(e){}
+}
+
+/* ============================================================
+   PRODUCT GROUPS — Mahak-style product categories (گروه کالا)
+============================================================ */
+async function renderProductGroupsTab(body){
+  const rows=await api('GET','/product-categories')||[];
+  const byId=Object.fromEntries(rows.map(r=>[r.id,r]));
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="productGroupModal()">➕ گروه جدید</button></div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">گروه‌های استاندارد محک: پارچه، خرج کار، زیپ‌ها، لایی، جین، زمستانی، لی، کتان، برش خورده، متفرقه</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام گروه</th><th>گروه والد</th><th>تعداد کالا</th><th>عملیات</th></tr></thead>
+    <tbody>${rows.map(g=>`<tr>
+      <td class="mono">${g.code||'-'}</td>
+      <td>${esc(g.name)}</td>
+      <td class="muted">${g.parent_id?(byId[g.parent_id]?.name||'-'):'-'}</td>
+      <td class="mono">${g.product_count||0}</td>
+      <td><button class="btn sm ghost" onclick="productGroupModal(${g.id})">✏️</button>
+          <button class="btn sm red" onclick="deleteProductGroup(${g.id})">🗑️</button></td>
+    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+}
+async function productGroupModal(id){
+  const list=await api('GET','/product-categories')||[];
+  const g=id?(list.find(x=>x.id===id)||{}):{};
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش گروه کالا':'گروه کالا جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>کد</label><input id="prg-code" type="number" value="${g.code||''}"></div>
+      <div class="fg full"><label>نام گروه *</label><input id="prg-name" value="${esc(g.name||'')}"></div>
+      <div class="fg full"><label>گروه والد</label>
+        <select id="prg-parent"><option value="">— بدون والد —</option>
+        ${list.filter(x=>x.id!==id).map(x=>`<option value="${x.id}" ${g.parent_id==x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="fg full"><label>توضیحات</label><textarea id="prg-desc">${esc(g.description||'')}</textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveProductGroup(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveProductGroup(id){
+  const name=el('prg-name').value.trim();
+  if(!name){ showToast('نام گروه الزامی است','error'); return; }
+  const data={name,code:el('prg-code').value,parent_id:el('prg-parent').value||null,description:el('prg-desc').value};
+  try{
+    if(id) await api('PUT','/product-categories/'+id,data); else await api('POST','/product-categories',data);
+    CACHE.productCategories=null; closeModal(); showToast('ذخیره شد'); loadAccTab('product-groups');
+  }catch(e){}
+}
+async function deleteProductGroup(id){
+  if(!confirm('این گروه حذف شود؟')) return;
+  try{ await api('DELETE','/product-categories/'+id); CACHE.productCategories=null; showToast('حذف شد'); loadAccTab('product-groups'); }catch(e){}
+}
+
+/* ============================================================
    BANKS — unrestricted bank management. Each bank is simultaneously a real
    chart-of-accounts ledger row (1102-<id>), reportable in General Ledger /
    Trial Balance / Balance Sheet like any other account.
@@ -6535,6 +6853,7 @@ function bankModal(id){
         <option value="1" ${b.active?'selected':''}>فعال</option><option value="0" ${!b.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
       ${coaCodeFieldHtml('bank', id, b.coa_code)}
+      ${mahakBankFieldsHtml(b)}
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveBank(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
@@ -6544,6 +6863,14 @@ async function saveBank(id){
   if(!name){ showToast('نام بانک الزامی است','error'); return; }
   const data={name,account_number:el('bk-account').value,branch:el('bk-branch').value};
   if(id) data.active=+el('bk-active').value;
+  if(isMahakMode()){
+    data.account_type=el('bk-account_type')?.value||'';
+    data.phone=el('bk-phone')?.value||'';
+    data.card_number=el('bk-card')?.value||'';
+    data.card_expiry=el('bk-card_exp')?.value||'';
+    data.sheba=el('bk-sheba')?.value||'';
+    data.note=el('bk-note')?.value||'';
+  }
   try{
     if(id) await api('PUT','/banks/'+id,data); else await api('POST','/banks',data);
     closeModal(); showToast('ذخیره شد'); loadAccTab('banks');
@@ -6957,9 +7284,10 @@ async function renderCashOpsTab(body, dq){
     </div>
     <h4 style="margin:0 0 8px">💵 دریافت‌ها (از مشتریان)</h4>
     <div class="tbl-wrap" style="margin-bottom:20px"><table class="tbl"><thead><tr>
-      <th>تاریخ</th><th>مشتری</th><th>فاکتور</th><th>مبلغ (ت)</th><th>نوع</th><th>گروه قسط</th><th>چک</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
+      <th>تاریخ</th><th>سند محک</th><th>مشتری</th><th>فاکتور</th><th>مبلغ ${moneyColLabel()}</th><th>نوع</th><th>گروه قسط</th><th>چک</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr>
       <td class="mono">${escDate(r.date)}</td>
+      <td>${mahakDocCell(r.mahak_doc_no,r.mahak_doc_type)}</td>
       <td>${esc(r.cust_biz||'-')}</td>
       <td class="mono">${r.invoice_num?esc(r.invoice_num):'-'}</td>
       <td class="mono" style="color:var(--green);font-weight:700">${fmt(r.amount)}</td>
@@ -6977,9 +7305,10 @@ async function renderCashOpsTab(body, dq){
     </tr></tfoot></table></div>
     <h4 style="margin:0 0 8px">💸 پرداخت‌ها (خروجی)</h4>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>تاریخ</th><th>نوع</th><th>به/بابت</th><th>مبلغ (ت)</th><th>نوع پرداخت</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
+      <th>تاریخ</th><th>سند محک</th><th>نوع</th><th>به/بابت</th><th>مبلغ ${moneyColLabel()}</th><th>نوع پرداخت</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
     </tr></thead><tbody>${payRows.map(r=>`<tr>
       <td class="mono">${escDate(r.date)}</td>
+      <td>${mahakDocCell(r.mahak_doc_no,r.mahak_doc_type)}</td>
       <td>${kindLabel[r.kind]}</td>
       <td>${esc(r.target)}</td>
       <td class="mono" style="color:var(--red);font-weight:700">${fmt(r.amount)}</td>
@@ -8863,6 +9192,111 @@ function coaCodeFieldHtml(type, id, coaCode){
     </div>
   </div>`;
 }
+function mahakCustFieldsHtml(c){
+  if(!isMahakMode()) return '';
+  c=c||{};
+  return `<div class="fg full" style="border-top:1px dashed var(--purple);margin-top:8px;padding-top:10px">
+    <div style="font-weight:600;color:var(--purple);margin-bottom:8px">📋 فیلدهای محک (اشخاص)</div>
+    <div class="form-grid">
+      <div class="fg"><label>کد عملیاتی محک</label><input id="c-mahak_op" dir="ltr" class="mono" value="${esc(c.mahak_op_code||'')}" readonly></div>
+      <div class="fg"><label>پیشوند</label><input id="c-prefix" value="${esc(c.prefix||'')}"></div>
+      <div class="fg"><label>موبایل ۲</label><input id="c-phone2" value="${esc(c.phone2||'')}"></div>
+      <div class="fg"><label>فکس</label><input id="c-fax" value="${esc(c.fax||'')}"></div>
+      <div class="fg"><label>موبایل همراه</label><input id="c-mobile" value="${esc(c.mobile||'')}"></div>
+      <div class="fg"><label>ایمیل</label><input id="c-email" value="${esc(c.email||'')}"></div>
+      <div class="fg"><label>کد ملی / شناسه ملی</label><input id="c-national_id" dir="ltr" value="${esc(c.national_id||'')}"></div>
+      <div class="fg"><label>شماره اقتصادی</label><input id="c-economic_code" value="${esc(c.economic_code||'')}"></div>
+      <div class="fg"><label>کد پستی</label><input id="c-postal_code" value="${esc(c.postal_code||'')}"></div>
+      <div class="fg"><label>معرف</label><input id="c-referrer" value="${esc(c.referrer||'')}"></div>
+      <div class="fg"><label>تاریخ تولد</label><input id="c-birth_date" data-jdate value="${esc(c.birth_date||'')}"></div>
+      <div class="fg"><label>نام شرکت</label><input id="c-company_name" value="${esc(c.company_name||'')}"></div>
+      <div class="fg"><label>ماهیت فعلی</label><input id="c-account_nature" value="${esc(c.account_nature||'')}" readonly></div>
+    </div>
+  </div>`;
+}
+function mahakProdFieldsHtml(p){
+  if(!isMahakMode()) return '';
+  p=p||{};
+  return `<div class="fg full" style="border-top:1px dashed var(--purple);margin-top:8px;padding-top:10px">
+    <div style="font-weight:600;color:var(--purple);margin-bottom:8px">📋 فیلدهای محک (کالا)</div>
+    <div class="form-grid">
+      <div class="fg"><label>کد عملیاتی محک</label><input id="p-mahak_op" dir="ltr" class="mono" value="${esc(p.mahak_op_code||'')}" readonly></div>
+      <div class="fg"><label>نام کامل کالا</label><input id="p-full_name" value="${esc(p.full_name||'')}"></div>
+      <div class="fg"><label>نوع کالا</label><input id="p-product_type" value="${esc(p.product_type||'')}"></div>
+      <div class="fg"><label>شاخص کالا</label><input id="p-product_index" value="${esc(p.product_index||'')}"></div>
+      <div class="fg"><label>شناسه مالیاتی</label><input id="p-tax_id" value="${esc(p.tax_id||'')}"></div>
+      <div class="fg"><label>فی مصرف‌کننده ${moneyColLabel()}</label><input id="p-consumer_price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.consumer_price)}"></div>
+      <div class="fg"><label>فی اول دوره ${moneyColLabel()}</label><input id="p-opening_price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.opening_price)}"></div>
+      <div class="fg"><label>مکان کالا</label><input id="p-location" value="${esc(p.location||'')}"></div>
+      <div class="fg"><label>کد پیامکی</label><input id="p-sms_code" value="${esc(p.sms_code||'')}"></div>
+    </div>
+  </div>`;
+}
+function mahakBankFieldsHtml(b){
+  if(!isMahakMode()) return '';
+  b=b||{};
+  return `<div class="fg full" style="border-top:1px dashed var(--purple);margin-top:8px;padding-top:10px">
+    <div style="font-weight:600;color:var(--purple);margin-bottom:8px">📋 فیلدهای محک (بانک)</div>
+    <div class="form-grid">
+      <div class="fg"><label>کد عملیاتی محک</label><input id="bk-mahak_op" dir="ltr" class="mono" value="${esc(b.mahak_op_code||'')}" readonly></div>
+      <div class="fg"><label>نوع حساب</label><input id="bk-account_type" value="${esc(b.account_type||'')}"></div>
+      <div class="fg"><label>تلفن</label><input id="bk-phone" value="${esc(b.phone||'')}"></div>
+      <div class="fg"><label>شماره کارت</label><input id="bk-card" dir="ltr" value="${esc(b.card_number||'')}"></div>
+      <div class="fg"><label>تاریخ انقضاء</label><input id="bk-card_exp" data-jdate value="${esc(b.card_expiry||'')}"></div>
+      <div class="fg full"><label>شبا</label><input id="bk-sheba" dir="ltr" value="${esc(b.sheba||'')}"></div>
+      <div class="fg full"><label>توضیحات</label><input id="bk-note" value="${esc(b.note||'')}"></div>
+    </div>
+  </div>`;
+}
+function mahakPartyFieldsInner(prefix, entity, title){
+  const e=entity||{};
+  return `<div class="form-grid">
+    <div class="fg"><label>کد عملیاتی محک</label><input id="${prefix}-mahak_op" dir="ltr" class="mono" value="${esc(e.mahak_op_code||'')}" readonly></div>
+    <div class="fg"><label>پیشوند</label><input id="${prefix}-prefix" value="${esc(e.prefix||'')}"></div>
+    <div class="fg"><label>تلفن ۲</label><input id="${prefix}-phone2" value="${esc(e.phone2||'')}"></div>
+    <div class="fg"><label>فکس</label><input id="${prefix}-fax" value="${esc(e.fax||'')}"></div>
+    <div class="fg"><label>موبایل همراه</label><input id="${prefix}-mobile" value="${esc(e.mobile||'')}"></div>
+    <div class="fg"><label>ایمیل</label><input id="${prefix}-email" value="${esc(e.email||'')}"></div>
+    <div class="fg"><label>کد ملی / شناسه ملی</label><input id="${prefix}-national_id" dir="ltr" value="${esc(e.national_id||'')}"></div>
+    <div class="fg"><label>شماره اقتصادی</label><input id="${prefix}-economic_code" value="${esc(e.economic_code||'')}"></div>
+    <div class="fg"><label>کد پستی</label><input id="${prefix}-postal_code" value="${esc(e.postal_code||'')}"></div>
+    <div class="fg"><label>معرف</label><input id="${prefix}-referrer" value="${esc(e.referrer||'')}"></div>
+    <div class="fg"><label>تاریخ تولد</label><input id="${prefix}-birth_date" data-jdate value="${esc(e.birth_date||'')}"></div>
+    <div class="fg"><label>نام شرکت</label><input id="${prefix}-company_name" value="${esc(e.company_name||'')}"></div>
+    <div class="fg"><label>ماهیت فعلی</label><input id="${prefix}-account_nature" value="${esc(e.account_nature||'')}" readonly></div>
+  </div>`;
+}
+function mahakSupFieldsHtml(s){
+  if(!isMahakMode()) return '';
+  return `<div class="fg full" style="border-top:1px dashed var(--purple);margin-top:8px;padding-top:10px">
+    <div style="font-weight:600;color:var(--purple);margin-bottom:8px">📋 فیلدهای محک (فروشنده)</div>
+    ${mahakPartyFieldsInner('sup',s,'فروشنده')}
+  </div>`;
+}
+function mahakPersonFieldsHtml(p){
+  if(!isMahakMode()) return '';
+  return `<div class="fg full" style="border-top:1px dashed var(--purple);margin-top:8px;padding-top:10px">
+    <div style="font-weight:600;color:var(--purple);margin-bottom:8px">📋 فیلدهای محک (شخص)</div>
+    ${mahakPartyFieldsInner('pm',p,'شخص')}
+  </div>`;
+}
+function collectMahakPartyData(prefix){
+  const data={};
+  for(const k of ['prefix','phone2','fax','mobile','email','national_id','economic_code','postal_code','referrer','birth_date','company_name']){
+    const inp=el(prefix+'-'+k);
+    if(inp) data[k]=inp.value;
+  }
+  return data;
+}
+async function editMahakChequeStatus(id,current){
+  const status=prompt('وضعیت جدید چک:',current||'');
+  if(status===null) return;
+  const note=prompt('شرح وضعیت (اختیاری):','')||'';
+  try{
+    await api('PATCH','/cheque-records/'+id+'/status',{status,status_note:note});
+    showToast('وضعیت چک به‌روز شد'); loadAccTab('mahak-cheques');
+  }catch(e){}
+}
 function entityCoaDisplay(row, legacyPrefix){
   return (isMahakMode() && row.coa_code) ? row.coa_code : (legacyPrefix + row.id);
 }
@@ -8877,6 +9311,7 @@ async function linkCoaCode(type, id){
     else if(type==='supplier') loadAccTab('suppliers');
     else if(type==='bank') loadAccTab('banks');
     else if(type==='cashbox') loadAccTab('cash-boxes');
+    else if(type==='person') loadAccTab('persons');
     closeModal();
   }catch(e){ showToast('خطا در اتصال حساب','error'); }
 }
@@ -8886,6 +9321,24 @@ ROUTES.settings = async function(){
   const s = CACHE.settings;
   el('view').innerHTML=`
     ${isDesktopApp()?desktopUpdatePanelHtml():''}
+    <div class="panel"><div class="panel-head"><h4>💱 تنظیمات واحد پولی</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
+        <b>مبنای ذخیره‌سازی:</b> ریال (مطابق محک) — همه مبالغ در دیتابیس به ریال ذخیره می‌شوند.<br>
+        <b>نمایش:</b> می‌توانید مبالغ را در رابط کاربری به ریال یا تومان ببینید (تومان = ریال ÷ ۱۰).
+        ${s.coa_mode==='mahak'?'<br><b style="color:var(--purple)">اسناد محک به ریال وارد شده‌اند.</b>':''}
+      </div>
+      <div class="form-grid">
+        <div class="fg"><label>نمایش مبالغ در برنامه ${hlp('این تنظیم فقط نحوه نمایش را تغییر می‌دهد — مبنای ذخیره‌سازی همیشه ریال است.')}</label>
+          <select id="s-currency_display">
+            <option value="rial" ${(s.currency_display||'rial')==='rial'?'selected':''}>ریال (پیش‌فرض — مطابق محک)</option>
+            <option value="toman" ${s.currency_display==='toman'?'selected':''}>تومان (ریال ÷ ۱۰)</option>
+          </select>
+        </div>
+        <div class="fg"><label>مبنای ذخیره‌سازی</label>
+          <input value="ریال (ثابت)" disabled style="background:#f5f5f5">
+        </div>
+      </div>
+    </div></div>
     <div class="panel"><div class="panel-head"><h4>اطلاعات شرکت</h4></div><div class="panel-body"><div class="form-grid">
       <div class="fg"><label>نام شرکت</label><input id="s-company_name" value="${esc(s.company_name||'')}"></div>
       <div class="fg"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}"></div>
@@ -9054,6 +9507,8 @@ async function saveSettings(){
   const coaKeys=['coa_receivable','coa_payable','coa_misc_persons','coa_sales','coa_sales_discount','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_adjustment','coa_payroll_expense','coa_payroll_payable'];
   coaKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value.trim(); });
   if(el('s-feature_cogs_voucher')) data.feature_cogs_voucher = el('s-feature_cogs_voucher').checked ? '1' : '0';
+  if(el('s-currency_display')) data.currency_display = el('s-currency_display').value;
+  data.currency_base = 'rial';
   CACHE.settings = await api('PUT','/settings',data);
   CACHE.moduleFlags=null; // force re-fetch next time the Accounting shell is entered
   showToast('تنظیمات ذخیره شد');
@@ -9785,7 +10240,10 @@ function renderAdminGuide(){
         <li>هر فاکتور رسمی علاوه بر سند فروش، <b>سند بهای تمام‌شده</b> (بدهکار ۸۰۱ / بستانکار موجودی همان کالا) می‌زند — مثل محک؛ با حذف فاکتور دقیقاً معکوس می‌شود</li>
         <li>اسناد واردشده از محک با شماره سند اصلی محک قابل ردیابی‌اند</li>
         <li>تنظیمات → «⚙️ نگاشت کدینگ»: ویرایش حساب‌های کنترلی و فعال/غیرفعال کردن سند COGS خودکار</li>
-        <li>در فرم مشتری/محصول/بانک/صندوق/تأمین‌کننده، کد تفصیلی نمایش داده می‌شود — برای رکوردهای قدیمی «🔗 اتصال به حساب موجود»</li>
+        <li>در فرم مشتری/محصول/بانک/صندوق/تأمین‌کننده/شخص، کد تفصیلی و فیلدهای محک نمایش داده می‌شود — برای رکوردهای قدیمی «🔗 اتصال به حساب موجود»</li>
+        <li>حسابداری → «گروه‌های اشخاص (محک)» و «گروه‌های کالا (محک)»: زیرگروه‌های استاندارد محک</li>
+        <li>حسابداری → «دفتر چک محک»: چک‌های دریافتی/پرداختی از فایل <code>full data.xlsx</code></li>
+        <li>در لیست فاکتورها، دریافت‌ها و حواله‌های انبار ستون «سند محک» شماره سند اصلی را نشان می‌دهد</li>
       </ul>
       <div class="tip">در نصب‌های عادی (بدون مهاجرت محک) هیچ رفتاری تغییر نمی‌کند.</div>`),
     helpSec('📷','بارکد محصولات',`

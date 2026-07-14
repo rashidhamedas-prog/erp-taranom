@@ -1719,6 +1719,43 @@ function initSyncSchema(db) {
     db.prepare("INSERT OR IGNORE INTO cost_centers (name,code,entity) VALUES ('دفتر توزیع — کیمیا','CC-DISTRIBUTION','distribution_office')").run();
   }
 
+  // ---- Phase 2: units of measure + warehouse/product master extensions ----
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS units_of_measure (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      is_active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+  `);
+  const uomCount = db.prepare('SELECT COUNT(*) c FROM units_of_measure').get().c;
+  if (!uomCount) {
+    const insUom = db.prepare('INSERT OR IGNORE INTO units_of_measure (code,name) VALUES (?,?)');
+    [['PCS', 'عدد'], ['M', 'متر'], ['KG', 'کیلوگرم'], ['SET', 'ست'], ['PAIR', 'جفت']].forEach(([c, n]) => insUom.run(c, n));
+  }
+
+  ensureColumn(db, 'warehouses', 'code', 'TEXT');
+  ensureColumn(db, 'warehouses', 'warehouse_type', "TEXT DEFAULT 'finished_goods'");
+  ensureColumn(db, 'warehouses', 'is_default', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'products', 'unit_id', 'INTEGER');
+  ensureColumn(db, 'products', 'vat_class', "TEXT DEFAULT 'standard'");
+  ensureColumn(db, 'products', 'barcode', 'TEXT');
+  ensureColumn(db, 'products', 'reorder_point', 'INTEGER DEFAULT 12');
+  ensureColumn(db, 'products', 'costing_method', "TEXT DEFAULT 'moving_average'");
+  ensureColumn(db, 'products', 'average_cost_rial', 'INTEGER DEFAULT 0');
+
+  // Default warehouses for workshop + distribution office
+  const whCount = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
+  if (!whCount) {
+    const ccW = db.prepare("SELECT id FROM cost_centers WHERE code='CC-WORKSHOP'").get()?.id;
+    const ccD = db.prepare("SELECT id FROM cost_centers WHERE code='CC-DISTRIBUTION'").get()?.id;
+    db.prepare(`INSERT INTO warehouses (code,name,address,entity,warehouse_type,cost_center_id,is_default,active) VALUES (?,?,?,?,?,?,?,1)`)
+      .run('WH-WORKSHOP', 'انبار کارگاه — نوبرت', 'بلوار نوبرت', 'workshop', 'raw_material', ccW, 0);
+    db.prepare(`INSERT INTO warehouses (code,name,address,entity,warehouse_type,cost_center_id,is_default,active) VALUES (?,?,?,?,?,?,?,1)`)
+      .run('WH-DIST', 'انبار دفتر توزیع — کیمیا', 'پاساژ کیمیا، ۱۷ شهریور', 'distribution_office', 'finished_goods', ccD, 1);
+  }
+
   // Company profile defaults (§2.31)
   const profileKeys = {
     company_name: 'پوشاک ترنم',

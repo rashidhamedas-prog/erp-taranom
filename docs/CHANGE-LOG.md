@@ -41,9 +41,19 @@
 
 ## تاریخچه
 
-### ۱۴۰۴/۰۴/۲۴ — [Cursor] فاز ۱ ماژول حسابداری (پایه + parties + dashboard)
+### ۱۴۰۴/۰۴/۲۴ — [Cursor] فاز ۲ اطلاعات پایه + deploy فاز ۱
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** (پس از push)
+- **خلاصه:**
+  - **units_of_measure** + API `/api/units`
+  - انبار دو واحدی (کارگاه/دفتر توزیع) با entity و warehouse_type
+  - UI **اشخاص یکپارچه** (`acc-parties`) + مخفی‌سازی منوی محک در حالت standard
+  - hotfix: `currency.js`, `party-groups.js`, `cheque-records.js` برای boot سرور
+- **Deploy:** ⏳ push + pull
+
+### ۱۴۰۴/۰۴/۲۴ — [Cursor] فاز ۱ ماژول حسابداری (پایه + parties + dashboard)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `b5776d7`, `710bf84`
 - **خلاصه:**
   - مشخصات تطبیق‌یافته: `docs/ACCOUNTING-MODULE-SPEC-ADAPTED.md` (ریال INTEGER، حذف محک، ادغام parties)
   - جدول **`parties`** + dual-write از customers/suppliers

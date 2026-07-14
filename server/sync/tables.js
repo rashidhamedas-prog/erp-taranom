@@ -66,6 +66,7 @@ const SYNCABLE_TABLES = [
   { name: 'detail_categories', upsertKey: 'id' },
   { name: 'detail_accounts', upsertKey: 'id' },
   { name: 'fiscal_years', upsertKey: 'id' },
+  { name: 'units_of_measure', upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
