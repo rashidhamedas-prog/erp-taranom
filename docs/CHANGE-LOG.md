@@ -27,19 +27,45 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۷)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۸)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
 | آخرین commit | `25094b0` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v32` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ✅ import کامل — **۱۵۳۰/۱۵۳۰** سند متصل، ۲۰۸ فاکتور، ۱۷۹ دریافت، ۱۱۸ حواله انبار |
+| وضعیت سرور | ✅ import کامل — **۱۵۳۰/۱۵۳۰** سند متصل + UI محک (گروه‌ها، فیلدها، دفتر چک) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۴/۰۴/۲۴ — [Cursor] فاز ۱ ماژول حسابداری (پایه + parties + dashboard)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:**
+  - مشخصات تطبیق‌یافته: `docs/ACCOUNTING-MODULE-SPEC-ADAPTED.md` (ریال INTEGER، حذف محک، ادغام parties)
+  - جدول **`parties`** + dual-write از customers/suppliers
+  - **`detail_accounts`** / **`detail_categories`** (کدینگ سطح ۴)
+  - موتور **`postToLedger`**, **`integrity-check`**, API **`/api/dashboard/*`**
+  - رفع باگ CoA (5101/3201) + soft-delete در تراز آزمایشی
+  - مراکز هزینه seed: کارگاه نوبرت / دفتر توزیع کیمیا
+- **فایل‌های کلیدی:** `server/db.js`, `server/lib/ledger.js`, `server/routes/parties.js`, `server/routes/dashboard.js`
+- **Deploy:** ⏳ push + pull
+
+### ۱۴۰۴/۰۴/۲۸ — [Cursor] تکمیل UI/فیلدهای محک + دفتر چک + enrich pipeline
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** بدون commit
+- **خلاصه:**
+  - **دفتر چک محک** (`acc-mahak-cheques`): لیست چک‌های دریافتی/پرداختی از `full data.xlsx` + ویرایش وضعیت
+  - **فرم‌های محک:** فیلدهای اشخاص/فروشنده/شخص/بانک در UI + ذخیره در API
+  - **گروه‌های اشخاص و کالا** در منوی حسابداری + `party_groups` / `product_categories`
+  - **`import-mahak-full-data.js`** + فاز ۵ در `mahak-go-live.js` + `mahak-enrich-production.js`
+  - ستون **سند محک** در برگشت فروش/خرید، فاکتور، دریافت، انبار
+  - SW → **v32**
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/scripts/import-mahak-full-data.js`, `server/scripts/mahak-enrich-production.js`, `server/lib/currency.js`, `server/routes/cheque-records.js`, `server/routes/party-groups.js`
+- **Deploy:** ⏳ نیاز به push + pull روی سرور
 
 ### ۱۴۰۴/۰۴/۲۸ — [Cursor] تکمیل بازسازی — ۱۵۳۰/۱۵۳۰ سند متصل
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

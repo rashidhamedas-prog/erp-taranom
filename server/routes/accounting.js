@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { acct: coaAcct } = require('../lib/coa-map');
+const { DELETED_FILTER } = require('../lib/ledger');
 // دریافتنیِ مشتری: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
 function recvAcct(db, custId) {
   const c = custId ? db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId) : null;
@@ -1123,7 +1124,7 @@ router.get('/trial-balance', auth, adminOrAccounting, (req, res) => {
   const { from, to } = req.query;
   const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
   const sf = safeDate(from), st = safeDate(to);
-  const dateWhere = (sf || st) ? `WHERE je.entry_date >= '${sf || ''}' AND je.entry_date <= '${st || '9999'}'` : '';
+  const dateWhere = (sf || st) ? `WHERE je.entry_date >= '${sf || ''}' AND je.entry_date <= '${st || '9999'}' AND ${DELETED_FILTER}` : `WHERE ${DELETED_FILTER}`;
   const rows = db.prepare(`
     SELECT jl.account_code, jl.account_name,
       COALESCE(SUM(jl.debit),0) as total_debit, COALESCE(SUM(jl.credit),0) as total_credit
@@ -1164,7 +1165,7 @@ router.get('/balance-sheet', auth, adminOrAccounting, (req, res) => {
   const { asOf } = req.query;
   const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
   const s = safeDate(asOf);
-  const dateWhere = s ? `WHERE je.entry_date <= '${s}'` : '';
+  const dateWhere = s ? `WHERE je.entry_date <= '${s}' AND ${DELETED_FILTER}` : `WHERE ${DELETED_FILTER}`;
   const rows = db.prepare(`
     SELECT jl.account_code, COALESCE(SUM(jl.debit),0) d, COALESCE(SUM(jl.credit),0) c
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id

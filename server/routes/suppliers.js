@@ -3,6 +3,7 @@ const { allocTafsili } = require('../lib/coa-map');
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
+const { syncSupplierToParty } = require('../lib/parties-sync');
 
 // Suppliers are shared company-wide (not owned by a salesperson) — accounting/admin only
 router.get('/', auth, adminOrAccounting, (req, res) => {
@@ -18,16 +19,27 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
   res.json(row);
 });
 
+const PARTY_MAHAK_COLS = ['prefix', 'phone2', 'fax', 'mobile', 'email', 'economic_code', 'postal_code', 'national_id', 'referrer', 'company_name', 'account_nature'];
+
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { name, phone, address, note, balance } = req.body;
+  const { name, phone, address, note, balance, party_group_id, ...mahak } = req.body;
   if (!name) return res.status(400).json({ error: 'نام تأمین‌کننده الزامی است' });
   const db = getDB();
   const bal = parseFloat(balance) || 0;
+  const pgid = party_group_id ? parseInt(party_group_id) : null;
+  const mvals = PARTY_MAHAK_COLS.map(k => mahak[k] || '');
   const result = db.prepare(
-    'INSERT INTO suppliers (name,phone,address,note,balance) VALUES (?,?,?,?,?)'
-  ).run(name, phone || '', address || '', note || '', bal);
-  try { const cc = allocTafsili(db, 'supplier', name); if (cc) db.prepare('UPDATE suppliers SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
+    `INSERT INTO suppliers (name,phone,address,note,balance,party_group_id,${PARTY_MAHAK_COLS.join(',')}) VALUES (?,?,?,?,?,?,${PARTY_MAHAK_COLS.map(() => '?').join(',')})`
+  ).run(name, phone || '', address || '', note || '', bal, pgid, ...mvals);
+  try {
+    const mode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get()?.value;
+    if (mode === 'mahak') {
+      const cc = allocTafsili(db, 'supplier', name);
+      if (cc) db.prepare('UPDATE suppliers SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid);
+    }
+  } catch (_) {}
   const supplierId = result.lastInsertRowid;
+  try { syncSupplierToParty(db, supplierId); } catch (_) {}
   // Opening balance becomes the first supplier-ledger entry (credit = we owe them)
   if (bal !== 0) {
     db.prepare('INSERT INTO supplier_ledger (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
@@ -41,9 +53,13 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM suppliers WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { name, phone, address, note } = req.body;
-  db.prepare('UPDATE suppliers SET name=?,phone=?,address=?,note=? WHERE id=?')
-    .run(name || row.name, phone || '', address || '', note || '', req.params.id);
+  const { name, phone, address, note, party_group_id, ...mahak } = req.body;
+  const pgid = party_group_id !== undefined ? (party_group_id ? parseInt(party_group_id) : null) : row.party_group_id;
+  const mset = PARTY_MAHAK_COLS.map(k => `${k}=?`).join(',');
+  const mvals = PARTY_MAHAK_COLS.map(k => mahak[k] ?? row[k] ?? '');
+  db.prepare(`UPDATE suppliers SET name=?,phone=?,address=?,note=?,party_group_id=?,${mset} WHERE id=?`)
+    .run(name || row.name, phone || '', address || '', note || '', pgid, ...mvals, req.params.id);
+  try { syncSupplierToParty(db, req.params.id); } catch (_) {}
   res.json({ ok: true });
 });
 

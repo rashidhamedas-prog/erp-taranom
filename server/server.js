@@ -143,6 +143,7 @@ app.use('/api/followups', require('./routes/followups'));
 app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/product-categories', require('./routes/product-categories'));
+app.use('/api/party-groups', require('./routes/party-groups'));
 app.use('/api/admin', require('./routes/admin'));
 
 // Manual backup endpoint — registered before admin router catch-all.
@@ -190,18 +191,35 @@ app.use('/api/transfers', require('./routes/transfers'));
 app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/persons', require('./routes/persons'));
 app.use('/api/trust-checks', require('./routes/trust-checks'));
+app.use('/api/cheque-records', require('./routes/cheque-records'));
 app.use('/api/warehouses', require('./routes/warehouses'));
 app.use('/api/stocktaking', require('./routes/stocktaking'));
 app.use('/api/consignments', require('./routes/consignments'));
 app.use('/api/adv-reports', require('./routes/adv-reports'));
 app.use('/api/production', require('./routes/production'));
 app.use('/api/payroll', require('./routes/payroll'));
+app.use('/api/dashboard', require('./routes/dashboard'));
+app.use('/api/parties', require('./routes/parties'));
+app.use('/api/detail-accounts', require('./routes/detail-accounts'));
 app.use('/api/api-keys', require('./routes/api_keys').router);
 app.use('/api/v1', require('./routes/api_v1'));
 
 // Server time endpoint — returns Unix timestamp (UTC) for reliable client clock sync
 app.get('/api/system/time', (req, res) => {
   res.json({ ts: Date.now() });
+});
+
+const { runIntegrityCheck, getLastIntegrityResult } = require('./lib/integrity-check');
+const { auth: authMw, adminOnly: adminOnlyMw } = require('./middleware/auth');
+
+app.post('/api/system/integrity-check', authMw, adminOnlyMw, (req, res) => {
+  const { getDB } = require('./db');
+  res.json({ success: true, data: runIntegrityCheck(getDB()) });
+});
+app.get('/api/system/integrity-check/last-result', authMw, adminOnlyMw, (req, res) => {
+  const { getDB } = require('./db');
+  const data = getLastIntegrityResult(getDB());
+  res.json({ success: true, data });
 });
 
 // Lightweight health check — used by Android WebView boot poll

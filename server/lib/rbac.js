@@ -3,8 +3,9 @@
 const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'export'];
 
 const RESOURCES = [
-  'customers', 'products', 'invoices', 'followups', 'accounting', 'reports',
-  'ai', 'settings', 'backup', 'users', 'stocktaking', 'messages', 'reps',
+  'customers', 'parties', 'products', 'invoices', 'followups', 'accounting', 'reports',
+  'ai', 'settings', 'backup', 'users', 'stocktaking', 'messages', 'reps', 'dashboard',
+  'journal_vouchers', 'payroll', 'fixed_assets', 'moadian',
 ];
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));
@@ -16,6 +17,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
   admin: Object.fromEntries(RESOURCES.map(r => [r, { ...ALL }])),
   accounting: {
     customers: { view: true, create: true, edit: true, delete: false, approve: false, export: true },
+    parties: { view: true, create: true, edit: true, delete: false, approve: false, export: true },
     products: { view: true, create: true, edit: true, delete: false, approve: false, export: true },
     invoices: { view: true, create: true, edit: true, delete: true, approve: true, export: true },
     followups: VIEW_ONLY,

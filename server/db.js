@@ -1279,6 +1279,9 @@ function initDB() {
   };
   seedSeq('invoice', 'invoices');
   seedSeq('purchase', 'purchase_invoices');
+  if (!db.prepare('SELECT 1 FROM number_sequences WHERE key=?').get('journal_voucher')) {
+    db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,0)').run('journal_voucher');
+  }
   // Backstop: business numbers must be unique. A legacy database can contain
   // historical duplicates from the COUNT(*)-based numbering; in that case the
   // index is skipped (logged) and only the atomic sequence protects new rows.
@@ -1492,8 +1495,71 @@ function initSyncSchema(db) {
   ensureColumn(db, 'journal_entries', 'src_system', 'TEXT');
   ensureColumn(db, 'journal_entries', 'src_doc_no', 'TEXT');
   ensureColumn(db, 'journal_entries', 'src_atf', 'TEXT');
-  for (const tbl of ['invoices', 'purchase_invoices', 'settlements', 'supplier_payments', 'expense_payments', 'warehouse_moves', 'account_transfers', 'payroll_records']) {
+  for (const tbl of ['invoices', 'purchase_invoices', 'settlements', 'supplier_payments', 'expense_payments', 'warehouse_moves', 'account_transfers', 'payroll_records', 'sales_returns', 'purchase_returns']) {
     ensureColumn(db, tbl, 'mahak_doc_no', 'TEXT');
+    ensureColumn(db, tbl, 'mahak_doc_type', 'TEXT');
+  }
+  ensureColumn(db, 'product_categories', 'code', 'INTEGER');
+  ensureColumn(db, 'product_categories', 'parent_id', 'INTEGER');
+  ensureColumn(db, 'product_categories', 'description', 'TEXT');
+  ensureColumn(db, 'customers', 'party_group_id', 'INTEGER');
+  ensureColumn(db, 'suppliers', 'party_group_id', 'INTEGER');
+  ensureColumn(db, 'persons', 'party_group_id', 'INTEGER');
+  // Mahak operational codes + extra fields from full data.xlsx
+  for (const tbl of ['customers', 'suppliers', 'persons', 'products', 'banks']) {
+    ensureColumn(db, tbl, 'mahak_op_code', 'TEXT');
+  }
+  for (const [tbl, cols] of [
+    ['customers', [
+      ['prefix', 'TEXT'], ['phone2', 'TEXT'], ['fax', 'TEXT'], ['mobile', 'TEXT'],
+      ['email', 'TEXT'], ['economic_code', 'TEXT'], ['postal_code', 'TEXT'],
+      ['national_id', 'TEXT'], ['referrer', 'TEXT'], ['birth_date', 'TEXT'],
+      ['company_name', 'TEXT'], ['account_nature', 'TEXT'],
+    ]],
+    ['suppliers', [
+      ['prefix', 'TEXT'], ['phone2', 'TEXT'], ['fax', 'TEXT'], ['mobile', 'TEXT'],
+      ['email', 'TEXT'], ['economic_code', 'TEXT'], ['postal_code', 'TEXT'],
+      ['national_id', 'TEXT'], ['referrer', 'TEXT'], ['company_name', 'TEXT'],
+      ['account_nature', 'TEXT'],
+    ]],
+    ['persons', [
+      ['prefix', 'TEXT'], ['phone2', 'TEXT'], ['fax', 'TEXT'], ['mobile', 'TEXT'],
+      ['email', 'TEXT'], ['economic_code', 'TEXT'], ['postal_code', 'TEXT'],
+      ['national_id', 'TEXT'], ['referrer', 'TEXT'], ['birth_date', 'TEXT'],
+      ['company_name', 'TEXT'], ['account_nature', 'TEXT'],
+    ]],
+    ['products', [
+      ['full_name', 'TEXT'], ['product_type', 'TEXT'], ['product_index', 'TEXT'],
+      ['tax_id', 'TEXT'], ['consumer_price', 'REAL DEFAULT 0'], ['location', 'TEXT'],
+      ['opening_price', 'REAL DEFAULT 0'], ['sms_code', 'TEXT'],
+    ]],
+    ['banks', [
+      ['account_type', 'TEXT'], ['phone', 'TEXT'], ['card_number', 'TEXT'],
+      ['card_expiry', 'TEXT'], ['sheba', 'TEXT'], ['note', 'TEXT'],
+    ]],
+    ['invoices', [
+      ['mahak_invoice_code', 'TEXT'], ['atf_no', 'TEXT'], ['settlement_date', 'TEXT'],
+      ['freight_amount', 'REAL DEFAULT 0'], ['freight_type', 'TEXT'],
+      ['settled_amount', 'REAL DEFAULT 0'], ['balance_due', 'REAL DEFAULT 0'],
+      ['driver', 'TEXT'], ['entry_method', 'TEXT'], ['delivery_date', 'TEXT'],
+      ['delivered', 'INTEGER DEFAULT 0'], ['settlement_status', 'TEXT'],
+      ['settlement_type', 'TEXT'], ['invoice_address', 'TEXT'], ['visitor', 'TEXT'],
+    ]],
+    ['settlements', [
+      ['mahak_receipt_code', 'TEXT'], ['atf_no', 'TEXT'], ['invoice_ref', 'TEXT'],
+      ['visitor', 'TEXT'], ['purpose', 'TEXT'], ['cash_amount', 'REAL DEFAULT 0'],
+      ['cheque_total', 'REAL DEFAULT 0'], ['transfer_total', 'REAL DEFAULT 0'],
+    ]],
+    ['purchase_invoices', [
+      ['atf_no', 'TEXT'], ['settled_amount', 'REAL DEFAULT 0'],
+      ['balance_due', 'REAL DEFAULT 0'], ['settlement_status', 'TEXT'],
+    ]],
+    ['supplier_payments', [
+      ['atf_no', 'TEXT'], ['purpose', 'TEXT'], ['cash_amount', 'REAL DEFAULT 0'],
+      ['cheque_total', 'REAL DEFAULT 0'], ['transfer_total', 'REAL DEFAULT 0'],
+    ]],
+  ]) {
+    for (const [col, def] of cols) ensureColumn(db, tbl, col, def);
   }
   ensureColumn(db, 'chart_of_accounts', 'level', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'chart_of_accounts', 'nature', 'TEXT');
@@ -1536,7 +1602,183 @@ function initSyncSchema(db) {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_notif_unresolved ON app_notifications(resolved_at);
+    CREATE TABLE IF NOT EXISTS cheque_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      direction TEXT NOT NULL,
+      cheque_number TEXT DEFAULT '',
+      issue_date TEXT DEFAULT '',
+      receive_date TEXT DEFAULT '',
+      due_date TEXT DEFAULT '',
+      bank_name TEXT DEFAULT '',
+      branch TEXT DEFAULT '',
+      sayadi TEXT DEFAULT '',
+      sheba TEXT DEFAULT '',
+      account_number TEXT DEFAULT '',
+      party_name TEXT DEFAULT '',
+      status TEXT DEFAULT '',
+      status_note TEXT DEFAULT '',
+      amount REAL NOT NULL DEFAULT 0,
+      mahak_row_id TEXT DEFAULT '',
+      mahak_reg_id TEXT DEFAULT '',
+      note TEXT DEFAULT '',
+      created_by_name TEXT DEFAULT '',
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_cheque_records_dir ON cheque_records(direction);
+    CREATE INDEX IF NOT EXISTS idx_cheque_records_due ON cheque_records(due_date);
   `);
+
+  // ---- Accounting module foundation (spec phase 1) ----
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS detail_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      is_active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE TABLE IF NOT EXISTS detail_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      detail_category_id INTEGER REFERENCES detail_categories(id),
+      linked_table TEXT,
+      linked_id INTEGER,
+      is_active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE TABLE IF NOT EXISTS parties (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_code TEXT UNIQUE NOT NULL,
+      party_type TEXT NOT NULL DEFAULT 'customer',
+      legal_type TEXT DEFAULT 'real',
+      full_name TEXT NOT NULL,
+      company_name TEXT,
+      national_id TEXT,
+      economic_code TEXT,
+      phone TEXT NOT NULL,
+      secondary_phone TEXT,
+      email TEXT,
+      city TEXT,
+      province TEXT,
+      address TEXT,
+      postal_code TEXT,
+      store_type TEXT,
+      segment TEXT DEFAULT 'C',
+      source TEXT,
+      detail_account_id INTEGER REFERENCES detail_accounts(id),
+      credit_limit INTEGER DEFAULT 0,
+      opening_balance INTEGER DEFAULT 0,
+      opening_balance_date TEXT,
+      notes TEXT,
+      is_active INTEGER DEFAULT 1,
+      legacy_table TEXT,
+      legacy_id INTEGER,
+      user_id INTEGER,
+      biz TEXT,
+      owner TEXT,
+      insta TEXT,
+      status TEXT DEFAULT 'new',
+      type TEXT DEFAULT 'بوتیک',
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      updated_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_parties_type ON parties(party_type);
+    CREATE INDEX IF NOT EXISTS idx_parties_phone ON parties(phone);
+  `);
+
+  ensureColumn(db, 'journal_entries', 'fiscal_year_id', 'INTEGER');
+  ensureColumn(db, 'journal_entries', 'voucher_number', 'TEXT');
+  ensureColumn(db, 'journal_entries', 'voucher_type', "TEXT DEFAULT 'auto'");
+  ensureColumn(db, 'journal_entries', 'status', "TEXT DEFAULT 'approved'");
+  ensureColumn(db, 'journal_entries', 'total_debit_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'journal_entries', 'total_credit_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'journal_lines', 'line_no', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'journal_lines', 'detail_account_id', 'INTEGER');
+  ensureColumn(db, 'journal_lines', 'debit_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'journal_lines', 'credit_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'invoices', 'party_id', 'INTEGER');
+  ensureColumn(db, 'settlements', 'party_id', 'INTEGER');
+  ensureColumn(db, 'customers', 'party_id', 'INTEGER');
+  ensureColumn(db, 'suppliers', 'party_id', 'INTEGER');
+  ensureColumn(db, 'warehouses', 'entity', "TEXT DEFAULT 'distribution_office'");
+  ensureColumn(db, 'warehouses', 'cost_center_id', 'INTEGER');
+  ensureColumn(db, 'cost_centers', 'entity', 'TEXT');
+
+  // Seed detail categories
+  const dcCount = db.prepare('SELECT COUNT(*) c FROM detail_categories').get().c;
+  if (!dcCount) {
+    const insDC = db.prepare('INSERT OR IGNORE INTO detail_categories (code,name) VALUES (?,?)');
+    [['person', 'اشخاص'], ['cost_center', 'مراکز هزینه'], ['employee', 'کارکنان'], ['asset', 'دارایی'], ['product', 'کالا'], ['other', 'سایر']].forEach(([c, n]) => insDC.run(c, n));
+  }
+
+  // Seed cost centers for two operational units
+  const ccWorkshop = db.prepare("SELECT id FROM cost_centers WHERE code='CC-WORKSHOP'").get();
+  if (!ccWorkshop) {
+    db.prepare("INSERT OR IGNORE INTO cost_centers (name,code,entity) VALUES ('کارگاه تولید — نوبرت','CC-WORKSHOP','workshop')").run();
+    db.prepare("INSERT OR IGNORE INTO cost_centers (name,code,entity) VALUES ('دفتر توزیع — کیمیا','CC-DISTRIBUTION','distribution_office')").run();
+  }
+
+  // Company profile defaults (§2.31)
+  const profileKeys = {
+    company_name: 'پوشاک ترنم',
+    company_legal_name: 'پوشاک ترنم',
+    fiscal_year_start: '01/01',
+    coa_mode: 'standard',
+    currency_base: 'IRR',
+    currency_display: 'toman',
+    workshop_address: 'بلوار نوبرت',
+    distribution_address: 'پاساژ کیمیا، میدان ۱۷ شهریور',
+  };
+  for (const [k, v] of Object.entries(profileKeys)) {
+    db.prepare('INSERT OR IGNORE INTO settings (key,value) VALUES (?,?)').run(k, v);
+  }
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('coa_mode','standard')").run();
+
+  // CoA fixes: 5101 COGS child, 3201 retained earnings
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('5101','بهای تمام‌شده فروش','cogs','5000')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('3201','سود انباشته','equity','3000')").run();
+
+  // Migrate legacy customers/suppliers/persons → parties (idempotent)
+  try {
+    const partyCount = db.prepare('SELECT COUNT(*) c FROM parties').get().c;
+    if (!partyCount) {
+      const custs = db.prepare('SELECT * FROM customers').all();
+      const insParty = db.prepare(`
+        INSERT INTO parties (person_code,party_type,full_name,phone,city,notes,user_id,biz,owner,insta,status,type,legacy_table,legacy_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `);
+      for (const c of custs) {
+        const code = 'CUST-' + String(c.id).padStart(5, '0');
+        const r = insParty.run(code, 'customer', c.owner || c.biz, c.phone || '-', c.city, c.note, c.user_id, c.biz, c.owner, c.insta, c.status, c.type, 'customers', c.id);
+        db.prepare('UPDATE customers SET party_id=? WHERE id=?').run(r.lastInsertRowid, c.id);
+      }
+      const sups = db.prepare('SELECT * FROM suppliers').all();
+      for (const s of sups) {
+        const code = 'SUPP-' + String(s.id).padStart(5, '0');
+        const r = insParty.run(code, 'supplier', s.name, s.phone || '-', null, s.note, null, s.name, null, null, 'active', null, 'suppliers', s.id);
+        db.prepare('UPDATE suppliers SET party_id=? WHERE id=?').run(r.lastInsertRowid, s.id);
+      }
+      const misc = db.prepare('SELECT * FROM persons').all();
+      for (const p of misc) {
+        const code = 'PART-' + String(p.id).padStart(5, '0');
+        insParty.run(code, 'other', p.name, p.phone || '-', null, p.note, null, p.name, null, null, p.active ? 'active' : 'inactive', null, 'persons', p.id);
+      }
+    }
+  } catch (e) { console.warn('parties migration:', e.message); }
+
+  // Rial INTEGER migration for key monetary columns (×10 from toman REAL)
+  try {
+    const { migrateRealToRial } = require('./lib/money');
+    ensureColumn(db, 'invoices', 'final_rial', 'INTEGER DEFAULT 0');
+    ensureColumn(db, 'invoices', 'subtotal_rial', 'INTEGER DEFAULT 0');
+    ensureColumn(db, 'products', 'price_rial', 'INTEGER DEFAULT 0');
+    ensureColumn(db, 'settlements', 'amount_rial', 'INTEGER DEFAULT 0');
+    migrateRealToRial(db, 'invoices', 'final', 'final_rial');
+    migrateRealToRial(db, 'invoices', 'subtotal', 'subtotal_rial');
+    migrateRealToRial(db, 'products', 'price', 'price_rial');
+    migrateRealToRial(db, 'settlements', 'amount', 'amount_rial');
+  } catch (e) { console.warn('rial migration:', e.message); }
 
   // Seed first fiscal year if none exists
   const fyCount = db.prepare('SELECT COUNT(*) c FROM fiscal_years').get().c;
@@ -1599,6 +1841,15 @@ function initSyncSchema(db) {
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v1','1')").run();
     }
   }
+
+  // Currency: مبنای ذخیره‌سازی ریال (مطابق محک) + مهاجرت یک‌باره از تومان
+  const { migrateTomanToRial, seedMahakSubgroups } = require('./lib/currency');
+  migrateTomanToRial(db);
+  seedMahakSubgroups(db);
+  const curBase = db.prepare("SELECT value FROM settings WHERE key='currency_base'").get();
+  if (!curBase) db.prepare("INSERT INTO settings (key,value) VALUES ('currency_base','rial')").run();
+  const curDisp = db.prepare("SELECT value FROM settings WHERE key='currency_display'").get();
+  if (!curDisp) db.prepare("INSERT INTO settings (key,value) VALUES ('currency_display','rial')").run();
 }
 
 // Device-side: reserve this device's provisional id ranges by pre-seeding
@@ -1771,14 +2022,40 @@ function createPersonLedgerEntry(db, { person_id, date, entry_type, ref_type, re
 }
 
 // Create a double-entry journal entry with lines [{code, name, debit, credit, description}]
-function createJournalEntry(db, { date, description, ref_type, ref_id, created_by, lines }) {
+function createJournalEntry(db, opts) {
+  const {
+    date, description, ref_type, ref_id, created_by, lines,
+    fiscal_year_id, voucher_number, voucher_type, status,
+    total_debit_rial, total_credit_rial,
+  } = opts;
   try {
-    const entry = db.prepare('INSERT INTO journal_entries (entry_date,description,ref_type,ref_id,created_by) VALUES (?,?,?,?,?)')
-      .run(date || '', description || '', ref_type || '', ref_id || null, created_by || null);
+    const entry = db.prepare(`
+      INSERT INTO journal_entries (
+        entry_date, description, ref_type, ref_id, created_by,
+        fiscal_year_id, voucher_number, voucher_type, status,
+        total_debit_rial, total_credit_rial
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      date || '', description || '', ref_type || '', ref_id || null, created_by || null,
+      fiscal_year_id || null, voucher_number || null, voucher_type || 'auto', status || 'approved',
+      total_debit_rial || 0, total_credit_rial || 0
+    );
     const entryId = entry.lastInsertRowid;
-    const lineStmt = db.prepare('INSERT INTO journal_lines (entry_id,account_code,account_name,debit,credit,description) VALUES (?,?,?,?,?,?)');
+    const lineStmt = db.prepare(`
+      INSERT INTO journal_lines (entry_id,account_code,account_name,debit,credit,description,line_no,detail_account_id,debit_rial,credit_rial)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
+    `);
+    let lineNo = 0;
     for (const line of (lines || [])) {
-      lineStmt.run(entryId, line.code, line.name, line.debit || 0, line.credit || 0, line.description || '');
+      lineNo++;
+      const dr = line.debit || 0;
+      const cr = line.credit || 0;
+      lineStmt.run(
+        entryId, line.code, line.name, dr, cr, line.description || '', lineNo,
+        line.detail_account_id || null,
+        line.debit_rial != null ? line.debit_rial : Math.round(dr * 10),
+        line.credit_rial != null ? line.credit_rial : Math.round(cr * 10)
+      );
     }
     return entryId;
   } catch (e) {

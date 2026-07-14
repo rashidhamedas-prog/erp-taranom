@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { allocTafsili } = require('../lib/coa-map');
 const { getDB, audit, createLedgerEntry, isDevice } = require('../db');
 const { assignCustomerByTerritory } = require('../lib/rep-ledger');
+const { syncCustomerToParty } = require('../lib/parties-sync');
 const { auth, adminOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 const XLSX = require('xlsx');
@@ -81,15 +82,16 @@ router.get('/', auth, (req, res) => {
   const scope = getScope(req);
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ORDER BY c.created_at DESC`).all();
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature,pg.name as party_group_name FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id LEFT JOIN party_groups pg ON c.party_group_id=pg.id ORDER BY c.created_at DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature,pg.name as party_group_name FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id LEFT JOIN party_groups pg ON c.party_group_id=pg.id WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
   }
   res.json(rows);
 });
 
 router.post('/', auth, (req, res) => {
-  const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id } = req.body;
+  const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id, party_group_id,
+    prefix, phone2, fax, mobile, email, economic_code, postal_code, national_id, referrer, birth_date, company_name, account_nature } = req.body;
   if (!biz) return res.status(400).json({ error: 'نام فروشگاه الزامی است' });
   const db = getDB();
   const bal = (req.user.role === 'admin') ? (parseFloat(balance) || 0) : 0;
@@ -97,19 +99,30 @@ router.post('/', auth, (req, res) => {
   // Only admin/accounting may set the customer's account-nature group
   const canSetGroup = req.user.role === 'admin' || req.user.role === 'accounting';
   const gid = (canSetGroup && group_id) ? parseInt(group_id) : null;
+  const pgid = (canSetGroup && party_group_id) ? parseInt(party_group_id) : null;
   // admin can assign customer to a specific salesperson
   const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : req.user.id;
   const newId = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup,group_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-    ).run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF, gid);
+      `INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup,group_id,party_group_id,
+        prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF, gid, pgid,
+      prefix || '', phone2 || '', fax || '', mobile || '', email || '', economic_code || '', postal_code || '', national_id || '', referrer || '', birth_date || '', company_name || '', account_nature || '');
     const created = db.prepare('SELECT id,created_at FROM customers WHERE id=?').get(result.lastInsertRowid);
     if (bal) syncOpeningLedger(db, created.id, bal, created.created_at, req.user.id);
     return created.id;
   })();
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(newId);
-  // حالت کدینگ محک: تفصیلی اختصاصی مشتری زیر معین دریافتنی
-  try { const cc = allocTafsili(db, 'customer', biz); if (cc) { db.prepare('UPDATE customers SET coa_code=? WHERE id=?').run(cc, newId); row.coa_code = cc; } } catch (_) {}
+  try { syncCustomerToParty(db, newId); } catch (_) {}
+  // حالت کدینگ محک (deprecated): فقط اگر coa_mode=mahak
+  try {
+    const mode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get()?.value;
+    if (mode === 'mahak') {
+      const cc = allocTafsili(db, 'customer', biz);
+      if (cc) { db.prepare('UPDATE customers SET coa_code=? WHERE id=?').run(cc, newId); row.coa_code = cc; }
+    }
+  } catch (_) {}
   if (!(req.user.role === 'admin' && assigned_to) && (city || province)) {
     assignCustomerByTerritory(db, newId, city, province, req.user.id);
   }
@@ -124,19 +137,27 @@ router.put('/:id', auth, (req, res) => {
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
-  const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id } = req.body;
+  const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id, party_group_id,
+    prefix, phone2, fax, mobile, email, economic_code, postal_code, national_id, referrer, birth_date, company_name, account_nature } = req.body;
   const bal = (req.user.role === 'admin' && balance !== undefined) ? (parseFloat(balance) || 0) : row.balance || 0;
   const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : row.user_id;
   const autoF = (auto_followup === undefined) ? (row.auto_followup == null ? 1 : row.auto_followup) : (auto_followup ? 1 : 0);
   const canSetGroup = req.user.role === 'admin' || req.user.role === 'accounting';
   const gid = canSetGroup ? (group_id ? parseInt(group_id) : null) : row.group_id;
+  const pgid = canSetGroup ? (party_group_id ? parseInt(party_group_id) : null) : row.party_group_id;
   db.transaction(() => {
-    db.prepare('UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,balance=?,assigned_to=?,auto_followup=?,group_id=? WHERE id=?')
-      .run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : row.assigned_to, autoF, gid, req.params.id);
+    db.prepare(`UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,balance=?,assigned_to=?,auto_followup=?,group_id=?,party_group_id=?,
+      prefix=?,phone2=?,fax=?,mobile=?,email=?,economic_code=?,postal_code=?,national_id=?,referrer=?,birth_date=?,company_name=?,account_nature=? WHERE id=?`)
+      .run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : row.assigned_to, autoF, gid, pgid,
+        prefix ?? row.prefix ?? '', phone2 ?? row.phone2 ?? '', fax ?? row.fax ?? '', mobile ?? row.mobile ?? '',
+        email ?? row.email ?? '', economic_code ?? row.economic_code ?? '', postal_code ?? row.postal_code ?? '',
+        national_id ?? row.national_id ?? '', referrer ?? row.referrer ?? '', birth_date ?? row.birth_date ?? '',
+        company_name ?? row.company_name ?? '', account_nature ?? row.account_nature ?? '', req.params.id);
     if (req.user.role === 'admin' && balance !== undefined && bal !== (row.balance || 0)) {
       syncOpeningLedger(db, req.params.id, bal, row.created_at, req.user.id);
     }
   })();
+  try { syncCustomerToParty(db, req.params.id); } catch (_) {}
   if (!(req.user.role === 'admin' && assigned_to) && city && city !== row.city) {
     assignCustomerByTerritory(db, req.params.id, city, province, req.user.id);
   }
