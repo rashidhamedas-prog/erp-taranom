@@ -106,6 +106,7 @@ function classifyMahakVoucher(docNo, v) {
   if (/حواله\s*انبار.*خروج|حواله انبار - خروج/.test(d)) return 'warehouse_issue';
   if (/رسيد\s*انبار.*ورود|رسید انبار - ورود/.test(d)) return 'warehouse_receipt';
   if (/حواله\s*انبار/.test(d)) return 'warehouse_issue';
+  if (/چک|چك|خواباندن|واگذار|عودت\s*چک|اسناد\s*دریافت/.test(d) && !v.lines.some(l => l.code.startsWith('203004'))) return 'cheque_ops';
   if (/دريافت|دریافت|واریز|واريز/.test(d) && !/پرداخت/.test(d)) return 'receipt';
   if (/پرداخت\s*حقوق|حقوق\s|دستمزد/.test(d)) return 'payroll';
   if (/پرداخت/.test(d)) return 'payment';
@@ -122,7 +123,12 @@ function classifyMahakVoucher(docNo, v) {
 
   if (cr601 > 0 && dr203 > 0) return 'sales_invoice';
   if (dr206 > 0 && cr203 > 0 && !hasKol(v, '601')) return 'receipt';
+  if (dr203 > 0 && cr203 > 0 && v.lines.some(l => l.code.startsWith('203001')) && v.lines.some(l => l.code.startsWith('203004'))) return 'receipt';
+  if (dr203 > 0 && cr203 > 0 && !v.lines.some(l => l.code.startsWith('203004'))
+    && v.lines.some(l => l.code.startsWith('203001') || l.code.startsWith('203002'))) return 'cheque_ops';
   if (dr501 > 0 && cr206 > 0 && !hasKol(v, '202')) return 'supplier_payment';
+  if (dr501 > 0 && v.lines.some(l => l.code.startsWith('203001') && l.credit > 0)) return 'supplier_payment';
+  if (v.lines.some(l => l.code.startsWith('203004') && l.debit > 0) && v.lines.some(l => l.code.startsWith('203001') && l.credit > 0)) return 'cheque_settlement';
   if (dr702 > 0 && cr206 > 0) return 'expense_payment';
   if (dr704 > 0 && cr202 > 0) return 'warehouse_issue';
   if (dr202 > 0 && cr501 > 0) return 'purchase';

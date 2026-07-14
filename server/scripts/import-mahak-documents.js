@@ -85,9 +85,48 @@ function resolveCashFrom206(v, lookups) {
   return { pay_type: 'cash', bank_id: null, cash_box_id: null };
 }
 
-function custFrom203(v, lookups) {
-  const l = v.lines.find(x => x.kol === '203' && (x.debit > 0 || x.credit > 0));
-  return l ? lookups.custByCoa.get(l.code) : null;
+function custFrom203(v, lookups, mode = 'invoice') {
+  const commercial = v.lines.filter(x => x.kol === '203' && x.code.startsWith('203004'));
+  const pick = mode === 'receipt'
+    ? commercial.find(x => x.credit > 0) || commercial.find(x => x.debit > 0)
+    : commercial.find(x => x.debit > 0) || commercial.find(x => x.credit > 0);
+  return pick ? lookups.custByCoa.get(pick.code) : null;
+}
+
+function ensureCustomer(db, lookups, adminId, fullCode, lineName) {
+  const existing = lookups.custByCoa.get(fullCode);
+  if (existing) return existing;
+  const { parsePersonName } = require('../lib/mahak-import-helpers');
+  const parsed = parsePersonName((lineName || '').split(' - ').pop());
+  const cid = db.prepare(`INSERT INTO customers (user_id,biz,owner,phone,coa_code,balance,note,status,type,source)
+                          VALUES (?,?,?,?,0,?,?,?,?,?)`).run(
+    adminId, parsed.biz || lineName || 'مشتری محک', parsed.owner, parsed.phone, fullCode,
+    'ایجاد خودکار هنگام بازسازی سند محک', 'followup', 'عمده', 'mahak').lastInsertRowid;
+  lookups.custByCoa.set(fullCode, cid);
+  return cid;
+}
+
+function resolveCustomer(v, lookups, adminId, mode) {
+  let line = v.lines.find(x => x.kol === '203' && x.code.startsWith('203004') && (mode === 'receipt' ? x.credit > 0 : x.debit > 0));
+  if (!line) line = v.lines.find(x => x.kol === '203' && x.code.startsWith('203004'));
+  if (!line) return null;
+  let cid = lookups.custByCoa.get(line.code);
+  if (!cid) cid = ensureCustomer(db, lookups, adminId, line.code, line.name);
+  return cid;
+}
+
+function receiptAmount(v) {
+  const commercial = v.lines.filter(x => x.kol === '203' && x.code.startsWith('203004'));
+  const cr = commercial.reduce((a, l) => a + l.credit, 0);
+  const dr = commercial.reduce((a, l) => a + l.debit, 0);
+  return sumKol(v, '206', 'debit') || cr || dr || sumKol(v, '203', 'credit') || sumKol(v, '203', 'debit');
+}
+
+function receiptPayType(v) {
+  const has206 = v.lines.some(l => l.kol === '206');
+  const hasNoteRecv = v.lines.some(l => l.code.startsWith('203001') && l.debit > 0);
+  if (!has206 && hasNoteRecv) return 'cheque';
+  return 'cash';
 }
 
 function supFrom501(v, lookups, side) {
@@ -123,7 +162,7 @@ const stats = db.transaction(() => {
   const report = {
     sales_invoice: 0, receipt: 0, purchase: 0, supplier_payment: 0, expense_payment: 0,
     warehouse_issue: 0, warehouse_receipt: 0, transfer: 0, payroll: 0,
-    opening: 0, person_transfer: 0, production: 0, cogs_only: 0, other: 0, adjustment: 0,
+    opening: 0, person_transfer: 0, production: 0, cogs_only: 0, cheque_ops: 0, cheque_settlement: 0, payment_misc: 0, other: 0, adjustment: 0,
     skipped: [], warnings: [],
   };
 
@@ -139,13 +178,15 @@ const stats = db.transaction(() => {
     // Refine generic payment
     if (type === 'payment') {
       if (sumKol(v, '501', 'debit') > 0 && sumKol(v, '206', 'credit') > 0) type = 'supplier_payment';
+      else if (sumKol(v, '501', 'debit') > 0 && v.lines.some(l => l.code.startsWith('203001') && l.credit > 0)) type = 'supplier_payment';
       else if (sumKol(v, '702', 'debit') > 0 || sumKol(v, '704', 'debit') > 0) type = 'expense_payment';
       else if (sumKol(v, '203', 'credit') > 0 && sumKol(v, '206', 'debit') > 0) type = 'receipt';
+      else if (v.lines.some(l => l.code.startsWith('203004') && l.debit > 0) && v.lines.some(l => l.code.startsWith('203001') && l.credit > 0)) type = 'cheque_settlement';
     }
 
     if (type === 'opening') {
       for (const l of v.lines) {
-        if (l.kol === '203' && l.debit > 0) {
+        if (l.kol === '203' && l.debit > 0 && l.code.startsWith('203004')) {
           const cid = lookups.custByCoa.get(l.code);
           if (cid) createLedgerEntry(db, {
             customer_id: cid, date: v.date, entry_type: 'opening', ref_type: 'opening', ref_id: null,
@@ -154,11 +195,12 @@ const stats = db.transaction(() => {
         }
       }
       report.opening++;
+      linkJournal(docNo, 'fiscal_opening', null);
       continue;
     }
 
     if (type === 'sales_invoice') {
-      const custId = custFrom203(v, lookups);
+      const custId = resolveCustomer(v, lookups, adminId, 'invoice');
       if (!custId) { report.skipped.push(`فاکتور ${docNo}: مشتری یافت نشد`); report.other++; continue; }
       const rawRows = extractSalesRows(v);
       const rows = mapRows(rawRows, lookups);
@@ -179,13 +221,20 @@ const stats = db.transaction(() => {
     }
 
     if (type === 'receipt') {
-      const custId = custFrom203(v, lookups);
-      const amount = sumKol(v, '206', 'debit') || sumKol(v, '203', 'credit');
+      const hasCommercial = v.lines.some(l => l.code.startsWith('203004'));
+      if (!hasCommercial && v.lines.some(l => l.code.startsWith('203001') || l.code.startsWith('203002'))) {
+        linkJournal(docNo, 'manual_voucher', null);
+        report.cheque_ops++;
+        continue;
+      }
+      const custId = resolveCustomer(v, lookups, adminId, 'receipt');
+      const amount = receiptAmount(v);
       if (!custId || !amount) { report.skipped.push(`دریافت ${docNo}: مشتری/مبلغ نامشخص`); report.other++; continue; }
       const cash = resolveCashFrom206(v, lookups);
+      const payType = receiptPayType(v);
       const r = db.prepare(`INSERT INTO settlements (user_id,cust_id,amount,pay_type,date,note,bank_id,cash_box_id,mahak_doc_no)
                             VALUES (?,?,?,?,?,?,?,?,?)`).run(
-        adminId, custId, amount, cash.pay_type || 'cash', v.date, `[محک:${docNo}] ${desc}`,
+        adminId, custId, amount, payType, v.date, `[محک:${docNo}] ${desc}`,
         cash.bank_id ?? null, cash.cash_box_id ?? null, String(docNo));
       createLedgerEntry(db, {
         customer_id: custId, date: v.date, entry_type: 'settlement', ref_type: 'settlement', ref_id: r.lastInsertRowid,
@@ -217,12 +266,14 @@ const stats = db.transaction(() => {
 
     if (type === 'supplier_payment') {
       const supId = supFrom501(v, lookups, 'debit');
-      const amount = sumKol(v, '501', 'debit') || sumKol(v, '206', 'credit');
+      const amount = sumKol(v, '501', 'debit') || sumKol(v, '206', 'credit') || sumKol(v, '203', 'credit');
       if (!supId || !amount) { report.skipped.push(`پرداخت تأمین ${docNo}`); report.other++; continue; }
       const cash = resolveCashFrom206(v, lookups);
+      const payType = v.lines.some(l => l.code.startsWith('206') && l.credit > 0) ? (cash.pay_type || 'cash')
+        : v.lines.some(l => l.code.startsWith('203001') && l.credit > 0) ? 'cheque' : 'cash';
       const r = db.prepare(`INSERT INTO supplier_payments (supplier_id,amount,pay_type,date,note,bank_id,cash_box_id,mahak_doc_no)
                             VALUES (?,?,?,?,?,?,?,?)`).run(
-        supId, amount, cash.pay_type, v.date, `[محک:${docNo}] ${desc}`, cash.bank_id, cash.cash_box_id, docNo);
+        supId, amount, payType, v.date, `[محک:${docNo}] ${desc}`, cash.bank_id ?? null, cash.cash_box_id ?? null, docNo);
       db.prepare(`INSERT INTO supplier_ledger (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
                   VALUES (?,?,?,?,?,?,?,?,?)`).run(
         supId, v.date, 'payment', 'supplier_payment', r.lastInsertRowid, desc, amount, 0, adminId);
@@ -304,6 +355,33 @@ const stats = db.transaction(() => {
       continue;
     }
 
+    if (type === 'cheque_settlement') {
+      const custId = resolveCustomer(v, lookups, adminId, 'invoice');
+      const amount = v.lines.filter(l => l.code.startsWith('203004') && l.debit > 0).reduce((a, l) => a + l.debit, 0)
+        || v.lines.filter(l => l.code.startsWith('203001') && l.credit > 0).reduce((a, l) => a + l.credit, 0);
+      if (!custId || !amount) {
+        linkJournal(docNo, 'manual_voucher', null);
+        report.cheque_ops++;
+        continue;
+      }
+      const r = db.prepare(`INSERT INTO settlements (user_id,cust_id,amount,pay_type,date,note,bank_id,cash_box_id,mahak_doc_no)
+                            VALUES (?,?,?,?,?,?,?,?,?)`).run(
+        adminId, custId, amount, 'cheque', v.date, `[محک:${docNo}] ${desc}`, null, null, String(docNo));
+      createLedgerEntry(db, {
+        customer_id: custId, date: v.date, entry_type: 'settlement', ref_type: 'settlement', ref_id: r.lastInsertRowid,
+        description: `عملیات چک — ${desc}`, debit: 0, credit: amount, user_id: adminId,
+      });
+      linkJournal(docNo, 'settlement', r.lastInsertRowid);
+      report.cheque_settlement++;
+      continue;
+    }
+
+    if (type === 'payment') {
+      linkJournal(docNo, 'manual_voucher', null);
+      report.payment_misc++;
+      continue;
+    }
+
     if (type === 'production') {
       const prodLine = v.lines.find(l => l.kol === '202' && (l.debit > 0 || l.credit > 0));
       const prod = prodLine ? lookups.prodByCode.get(prodLine.taf) : null;
@@ -314,6 +392,19 @@ const stats = db.transaction(() => {
       }
       linkJournal(docNo, 'manual_voucher', null);
       report.production++;
+      continue;
+    }
+
+    if (type === 'person_transfer' || type === 'cogs_only' || type === 'adjustment' || type === 'cheque_ops') {
+      linkJournal(docNo, 'manual_voucher', null);
+      report[type]++;
+      continue;
+    }
+
+    if (type === 'other') {
+      // حواله حساب‌ها / بستن حساب / انبارگردانی — سند دستی با همان آرتیکل‌های محک
+      linkJournal(docNo, 'manual_voucher', null);
+      report.other++;
       continue;
     }
 
@@ -343,7 +434,7 @@ rep.push(`- پرداخت هزینه: **${stats.expense_payment}**`);
 rep.push(`- حواله انبار (خروج): **${stats.warehouse_issue}**`);
 rep.push(`- رسید انبار (ورود): **${stats.warehouse_receipt}**`);
 rep.push(`- انتقال وجه: **${stats.transfer}**`);
-rep.push(`- حقوق: **${stats.payroll}**`);
+rep.push(`- حقوق: **${stats.payroll}** | عملیات چک: **${stats.cheque_ops || 0}** | تسویه چک: **${stats.cheque_settlement || 0}**`);
 rep.push(`- افتتاحیه: ${stats.opening} | سایر/دستی: ${stats.other + stats.person_transfer + stats.production + stats.cogs_only + stats.adjustment}`);
 if (stats.skipped.length) {
   rep.push(`\n## رد شده (${stats.skipped.length})`);
@@ -353,9 +444,10 @@ if (stats.warnings.length) {
   rep.push(`\n## هشدار (${stats.warnings.length})`);
   stats.warnings.slice(0, 20).forEach(w => rep.push('- ' + w));
 }
-const linked = db.prepare("SELECT COUNT(*) c FROM journal_entries WHERE src_system='mahak' AND ref_type!='mahak_import'").get().c;
+const linked = db.prepare("SELECT COUNT(*) c FROM journal_entries WHERE src_system='mahak' AND ref_type NOT IN ('mahak_import')").get().c;
 const remaining = db.prepare("SELECT COUNT(*) c FROM journal_entries WHERE src_system='mahak' AND ref_type='mahak_import'").get().c;
-rep.push(`\n- اسناد حسابداری متصل به عملیات: **${linked}** | باقی‌مانده تاریخی: **${remaining}**`);
+const manual = db.prepare("SELECT COUNT(*) c FROM journal_entries WHERE src_system='mahak' AND ref_type='manual_voucher'").get().c;
+rep.push(`\n- اسناد حسابداری متصل: **${linked}** (سند دستی: ${manual}) | باقی‌مانده: **${remaining}**`);
 
 const repPath = path.join(path.dirname(path.resolve(dbPath)), 'mahak-documents-report.md');
 fs.writeFileSync(repPath, rep.join('\n') + '\n');

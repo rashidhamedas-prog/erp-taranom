@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `104e8bd` |
+| آخرین commit | `66664aa` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v30` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ⏳ نیاز به go-live با فاز ۳ (اسناد عملیاتی) |
+| وضعیت سرور | ✅ go-live کامل — ۲۰۶ فاکتور / ۱۵۳ دریافت / ۱۱۸ حواله انبار |
 
 ---
 
@@ -43,10 +43,10 @@
 
 ### ۱۴۰۴/۰۴/۲۸ — [Cursor] بازسازی اسناد عملیاتی محک (فروش/خرید/انبار/دریافت/پرداخت)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** «در حال commit»
+- **Commit:** `66664aa`
 - **خلاصه:** `import-mahak-documents.js` — ۲۰۶ فاکتور فروش، ۱۵۳ دریافت، ۳۹ خرید، ۲۸۹ پرداخت تأمین، ۲۲۴ هزینه، ۱۱۸ حواله/رسید انبار، ۵ انتقال بانکی؛ اتصال ۱۰۳۲ سند حسابداری به `ref_type` عملیاتی.
 - **فایل‌های کلیدی:** `server/scripts/import-mahak-documents.js`, `server/lib/mahak-import-helpers.js`, `server/scripts/mahak-classify-vouchers.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ production — ورود: `admin`/`admin123`
 
 ### ۱۴۰۴/۰۴/۲۸ — [Cursor] import محک: مشتری، تأمین‌کننده، دسته‌بندی کالا
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
