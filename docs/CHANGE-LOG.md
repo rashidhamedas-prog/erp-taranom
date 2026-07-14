@@ -43,7 +43,7 @@
 
 ### ۱۴۰۴/۰۴/۲۸ — [Cursor] فاز ۳–۸ ماژول حسابداری (VAT، مودیان، گزارشات، HR، دارایی ثابت، backup)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `cdae070`
 - **خلاصه:**
   - **فاز ۳:** VAT در فاکتور فروش/خرید + صف **مودیان** + حساب‌های 2103/1108
   - **فاز ۴:** گزارش VAT + گردش اشخاص + vatOutput در سود و زیان
@@ -52,7 +52,7 @@
   - **فاز ۷:** CRUD دارایی ثابت + استهلاک ماهانه
   - **فاز ۸:** activity log در audit + قفل سال مالی + backup restore
 - **فایل‌های کلیدی:** `server/lib/vat.js`, `server/routes/moadian.js`, `server/routes/fixed-assets.js`, `server/routes/invoices.js`, `server/routes/purchases.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ production (health 200, test 10/10)
 
 ### ۱۴۰۴/۰۴/۲۴ — [Cursor] فاز ۲ اطلاعات پایه + deploy فاز ۱
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
