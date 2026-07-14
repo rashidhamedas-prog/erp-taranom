@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { getDB, audit, createLedgerEntry, createJournalEntry, allocateNumber, isDevice } = require('../db');
 const { acct, coaMode } = require('../lib/coa-map');
 const { calcDocTotals } = require('../lib/vat');
+const { postToLedger } = require('../lib/ledger');
 const { enqueueMoadian } = require('./moadian');
 
 // دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
@@ -46,7 +47,6 @@ function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
 const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 const notif = require('../lib/notifications');
-const { assertFiscalYearWritable } = require('../lib/fiscal-period');
 
 function salesJournalLines(db, custId, totals, reverse) {
   const recv = receivableAcct(db, custId);
@@ -220,8 +220,6 @@ router.post('/', auth, (req, res) => {
   const totals = calcDocTotals(db, built, discPct);
   const { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
   const entryDate = date || todayJalali();
-  const fyCheck = assertFiscalYearWritable(getDB(), entryDate);
-  if (!fyCheck.ok) return res.status(422).json({ error: fyCheck.error });
 
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
 
@@ -270,10 +268,10 @@ router.post('/', auth, (req, res) => {
           description: `فاکتور رسمی ${num}`,
           debit: final, credit: 0, user_id: req.user.id
         });
-        createJournalEntry(db, {
-          date: entryDate, description: `فاکتور رسمی ${num}`,
-          ref_type: 'invoice', ref_id: invId, created_by: req.user.id,
-          lines: salesJournalLines(db, cust_id, totals, false)
+        postToLedger(db, {
+          sourceType: 'invoice', sourceId: invId, date: entryDate,
+          description: `فاکتور رسمی ${num}`, createdBy: req.user.id,
+          lines: salesJournalLines(db, cust_id, totals, false),
         });
         postCogsVoucher(db, invId, num, entryDate, built.rows, req.user.id, false);
         enqueueMoadian(db, 'sales', invId);
@@ -385,10 +383,10 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
         subtotal: row.subtotal, discAmt: row.disc_amt || 0, final: row.final,
         vatAmount: row.vat_amount || 0, netBeforeVat: (row.subtotal || 0) - (row.disc_amt || 0)
       };
-      createJournalEntry(db, {
-        date: row.date || '', description: `ابطال فاکتور ${row.num}`,
-        ref_type: 'invoice_reversal', ref_id: row.id, created_by: req.user.id,
-        lines: salesJournalLines(db, row.cust_id, invTotals, true)
+      postToLedger(db, {
+        sourceType: 'invoice_reversal', sourceId: row.id, date: row.date || '',
+        description: `ابطال فاکتور ${row.num}`, createdBy: req.user.id,
+        lines: salesJournalLines(db, row.cust_id, invTotals, true),
       });
       postCogsVoucher(db, row.id, row.num, row.date, JSON.parse(row.rows || '[]'), req.user.id, true);
     }
@@ -436,10 +434,10 @@ router.post('/:id/convert', auth, (req, res) => {
         debit: totals.final, credit: 0, user_id: req.user.id
       });
       const invTotals = totals;
-      createJournalEntry(db, {
-        date: inv.date || '', description: `فاکتور رسمی ${inv.num} (تبدیل از پیش‌فاکتور)`,
-        ref_type: 'invoice', ref_id: inv.id, created_by: req.user.id,
-        lines: salesJournalLines(db, inv.cust_id, invTotals, false)
+      postToLedger(db, {
+        sourceType: 'invoice', sourceId: inv.id, date: inv.date || '',
+        description: `فاکتور رسمی ${inv.num} (تبدیل از پیش‌فاکتور)`,
+        createdBy: req.user.id, lines: salesJournalLines(db, inv.cust_id, invTotals, false),
       });
       postCogsVoucher(db, inv.id, inv.num, inv.date, rows, req.user.id, false);
       enqueueMoadian(db, 'sales', inv.id);

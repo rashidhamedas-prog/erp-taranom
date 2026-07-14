@@ -3968,6 +3968,25 @@ async function fiscalFactoryReset(){
   const r=await api('POST','/fiscal-year/factory-reset',{confirm_text:text,confirm_password:pass});
   if(r?.ok){ showToast('بازنشانی انجام شد — صفحه را رفرش کنید'); location.reload(); }
 }
+async function fiscalLock(id){
+  if(!confirm('سال مالی قفل شود؟ ثبت سند جدید در این سال مسدود می‌شود.')) return;
+  await api('POST','/fiscal-year/'+id+'/lock',{});
+  showToast('سال مالی قفل شد'); ROUTES.settings();
+}
+async function fiscalUnlock(id){
+  if(!confirm('سال مالی بازگشایی شود؟')) return;
+  await api('POST','/fiscal-year/'+id+'/unlock',{});
+  showToast('سال مالی باز شد'); ROUTES.settings();
+}
+async function runIntegrityCheck(){
+  const box=el('integrity-result'); if(box) box.textContent='در حال بررسی...';
+  try{
+    const r=await api('POST','/system/integrity-check',{});
+    const d=r?.data||{};
+    const ok=d.ok!==false && !(d.errors||[]).length;
+    if(box) box.innerHTML=ok?`<span style="color:var(--green)">✅ یکپارچگی تأیید شد</span>`:`<span style="color:var(--red)">⚠️ ${esc((d.errors||[]).join('؛ ')||d.message||'مشکل یافت شد')}</span>`;
+  }catch(e){ if(box) box.textContent='خطا در بررسی'; }
+}
 function userRepFieldsFromForm(){
   return {
     commission_basis:el('u-comm-basis')?.value||'invoice',
@@ -4310,6 +4329,9 @@ async function loadAccTab(tab){
       {label:'فروش ناخالص (مجموع فاکتورهای رسمی)',val:g.subtotal||0,color:'var(--green)'},
       {label:'تخفیفات اعمال شده',val:-(g.discAmt||0),color:'var(--red)'},
       {label:'درآمد خالص فروش',val:g.revenue||0,color:'var(--purple)',bold:true},
+      {label:'مالیات فروش (خروجی VAT)',val:g.vatOutput||0,color:'var(--orange)'},
+      {label:'مالیات خرید (ورودی VAT)',val:-(g.vatInput||0),color:'var(--blue)'},
+      {label:'مالیات خالص قابل پرداخت',val:g.netVatPayable||0,color:(g.netVatPayable||0)>=0?'var(--red)':'var(--green)',bold:true},
       {label:'بهای تمام‌شده کالای فروش‌رفته',val:-(g.cogs||0),color:'var(--red)'},
       {label:'سود ناخالص',val:g.grossProfit||0,color:(g.grossProfit||0)>=0?'var(--green)':'var(--red)',bold:true},
       {label:'انگیزه فروش کارشناسان (هزینه)',val:-(g.commExpense||0),color:'var(--red)'},
@@ -9283,7 +9305,10 @@ const COA_MAP_LABELS = {
   coa_bank_default: 'حساب بانک پیش‌فرض (معین)',
   coa_adjustment: 'حساب اصلاحات و تعدیلات',
   coa_payroll_expense: 'حساب هزینه حقوق',
-  coa_payroll_payable: 'حساب بدهی حقوق/بیمه'
+  coa_payroll_payable: 'حساب بدهی حقوق/بیمه',
+  coa_vat_payable: 'مالیات بر ارزش افزوده پرداختنی',
+  coa_vat_receivable: 'مالیات بر ارزش افزوده دریافتنی',
+  coa_depreciation_expense: 'هزینه استهلاک دارایی'
 };
 function coaCodeFieldHtml(type, id, coaCode){
   if(!isMahakMode()) return '';
@@ -9422,6 +9447,9 @@ async function linkCoaCode(type, id){
 ROUTES.settings = async function(){
   if(!CACHE.settings || !Object.keys(CACHE.settings).length) CACHE.settings=await api('GET','/settings')||{};
   const s = CACHE.settings;
+  const fyData = await api('GET','/fiscal-year').catch(()=>({current:null,years:[]}));
+  const curFy = fyData.current;
+  const fyRows = (fyData.years||[]).slice(0,8);
   el('view').innerHTML=`
     ${isDesktopApp()?desktopUpdatePanelHtml():''}
     <div class="panel"><div class="panel-head"><h4>💱 تنظیمات واحد پولی</h4></div><div class="panel-body">
@@ -9529,8 +9557,18 @@ ROUTES.settings = async function(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
         <button class="btn" onclick="fiscalRollover()">📆 انتقال به سال جدید</button>
         <button class="btn red" onclick="fiscalFactoryReset()">⚠️ بازنشانی کامل مالی</button>
+        ${curFy?`<button class="btn ghost" onclick="fiscalLock(${curFy.id})">🔒 قفل سال جاری</button>
+        <button class="btn ghost" onclick="fiscalUnlock(${curFy.id})">🔓 بازگشایی سال</button>`:''}
+        <button class="btn ghost" onclick="runIntegrityCheck()">🔍 بررسی یکپارچگی حسابداری</button>
       </div>
-      <div id="fy-status" class="muted" style="font-size:12px;margin-top:10px"></div>
+      <div id="fy-status" class="muted" style="font-size:12px;margin-top:10px">${curFy?`سال فعال: <b>${esc(curFy.label)}</b> (${esc(curFy.status||'open')}) — ${esc(curFy.start_date||'')} تا ${esc(curFy.end_date||'—')}`:''}</div>
+      <div id="integrity-result" class="muted" style="font-size:12px;margin-top:8px"></div>
+      ${fyRows.length?`<div class="tbl-wrap" style="margin-top:12px"><table class="tbl" style="font-size:12px"><thead><tr><th>سال</th><th>شروع</th><th>پایان</th><th>وضعیت</th><th></th></tr></thead><tbody>
+        ${fyRows.map(f=>`<tr><td>${esc(f.label)}</td><td class="mono">${esc(f.start_date||'')}</td><td class="mono">${esc(f.end_date||'')}</td>
+        <td>${esc(f.status||'open')}</td><td style="white-space:nowrap">
+          ${f.status==='open'?`<button class="btn sm ghost" onclick="fiscalLock(${f.id})">🔒</button>`:''}
+          ${f.status==='locked'?`<button class="btn sm ghost" onclick="fiscalUnlock(${f.id})">🔓</button>`:''}
+        </td></tr>`).join('')}</tbody></table></div>`:''}
     </div></div>
     <div class="panel"><div class="panel-head"><h4>🛠️ پنل مدیریت جامع ماژول‌های حسابداری</h4></div><div class="panel-body">
       <div class="form-grid" style="margin-bottom:14px">
@@ -9541,6 +9579,7 @@ ROUTES.settings = async function(){
             ${['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'].map((m,i)=>`<option value="${i+1}" ${(+s.fiscal_year_start_month||1)===i+1?'selected':''}>${m}</option>`).join('')}
           </select>
         </div>
+        <div class="fg"><label>نرخ VAT پیش‌فرض (٪) ${hlp('مالیات بر ارزش افزوده — پیش‌فرض ۱۰٪')}</label><input id="s-vat_rate" type="number" min="0" max="100" step="0.1" value="${esc(s.vat_rate||'10')}"></div>
       </div>
       <div class="muted" style="font-size:12px;margin-bottom:8px">ماژول‌های زیر را می‌توانید بر اساس نیاز کسب‌وکار خود از منوی حسابداری پنهان کنید (بدون حذف داده‌های موجود):</div>
       <div class="form-grid">
@@ -9551,6 +9590,8 @@ ROUTES.settings = async function(){
         <div class="fg"><label><input type="checkbox" id="s-module_production" ${s.module_production!=='0'?'checked':''} style="width:auto;margin-left:6px"> تحلیل هزینه تولید</label></div>
         <div class="fg"><label><input type="checkbox" id="s-module_payroll" ${s.module_payroll!=='0'?'checked':''} style="width:auto;margin-left:6px"> حقوق و دستمزد</label></div>
         <div class="fg"><label><input type="checkbox" id="s-module_reps" ${s.module_reps!=='0'?'checked':''} style="width:auto;margin-left:6px"> نمایندگان فروش</label></div>
+        <div class="fg"><label><input type="checkbox" id="s-module_moadian" ${s.module_moadian!=='0'?'checked':''} style="width:auto;margin-left:6px"> سامانه مودیان</label></div>
+        <div class="fg"><label><input type="checkbox" id="s-module_fixed_assets" ${s.module_fixed_assets!=='0'?'checked':''} style="width:auto;margin-left:6px"> دارایی ثابت</label></div>
       </div>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>🤖 دستیار فروش AI</h4></div><div class="panel-body">
@@ -9600,14 +9641,14 @@ ROUTES['desktop-settings'] = async function(){
   renderDesktopUpdateUI();
 };
 async function saveSettings(){
-  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','ai_api_key','ai_model'];
+  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model'];
   const data={}; keys.forEach(k=>{ const e=el('s-'+k); if(e)data[k]=e.value; });
-  const moduleKeys=['module_petty_cash','module_trust_checks','module_warehouses','module_consignments','module_production','module_payroll','module_reps'];
+  const moduleKeys=['module_petty_cash','module_trust_checks','module_warehouses','module_consignments','module_production','module_payroll','module_reps','module_moadian','module_fixed_assets'];
   moduleKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.checked?'1':'0'; });
   data.rep_sms_notify = el('s-rep_sms_notify')?.checked ? '1' : '0';
   if(el('s-feature_ai_assistant')) data.feature_ai_assistant = el('s-feature_ai_assistant').checked ? '1' : '0';
   if(el('s-feature_b2b_portal')) data.feature_b2b_portal = el('s-feature_b2b_portal').checked ? '1' : '0';
-  const coaKeys=['coa_receivable','coa_payable','coa_misc_persons','coa_sales','coa_sales_discount','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_adjustment','coa_payroll_expense','coa_payroll_payable'];
+  const coaKeys=['coa_receivable','coa_payable','coa_misc_persons','coa_sales','coa_sales_discount','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_vat_payable','coa_vat_receivable','coa_depreciation_expense'];
   coaKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value.trim(); });
   if(el('s-feature_cogs_voucher')) data.feature_cogs_voucher = el('s-feature_cogs_voucher').checked ? '1' : '0';
   if(el('s-currency_display')) data.currency_display = el('s-currency_display').value;
@@ -9731,6 +9772,21 @@ ROUTES.backup = async function(){
     </div>
 
     <div class="panel" style="margin-top:16px">
+      <div class="panel-head"><h4>♻️ بازیابی از پشتیبان</h4></div>
+      <div class="panel-body">
+        <p style="font-size:13px;color:var(--red);margin-bottom:12px;line-height:1.9">
+          <b>هشدار:</b> بازیابی دیتابیس فعلی را جایگزین می‌کند. قبل از بازیابی حتماً یک پشتیبان تازه بگیرید.
+          پس از بازیابی PM2/سرور را مجدداً راه‌اندازی کنید.
+        </p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <input type="file" id="bk-restore-file" accept=".zip,.tar.gz,.enc" style="max-width:320px">
+          <button class="btn red" onclick="restoreBackupUpload()">♻️ بازیابی</button>
+          <span id="bk-restore-status" class="muted" style="font-size:12px"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
       <div class="panel-head"><h4>📥 واردات از محک (Mahak)</h4></div>
       <div class="panel-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.9">
@@ -9750,6 +9806,22 @@ ROUTES.backup = async function(){
     </div>`;
 };
 async function refreshBackupList(){ ROUTES.backup(); }
+async function restoreBackupUpload(){
+  if(!guardBackupAccess()) return;
+  const f=el('bk-restore-file')?.files?.[0];
+  if(!f){ showToast('فایل پشتیبان انتخاب کنید','error'); return; }
+  if(!confirm('دیتابیس فعلی با این پشتیبان جایگزین شود؟ این عمل برگشت‌ناپذیر است مگر پشتیبان قبلی داشته باشید.')) return;
+  const st=el('bk-restore-status'); if(st) st.textContent='در حال بازیابی...';
+  const fd=new FormData(); fd.append('backup',f);
+  const token=localStorage.getItem('crm_token');
+  try{
+    const res=await fetch('/api/admin/backup-restore',{method:'POST',headers:{'Authorization':'Bearer '+token},body:fd});
+    const j=await res.json().catch(()=>({}));
+    if(!res.ok){ if(st) st.textContent='❌ '+(j.error||'خطا'); showToast(j.error||'خطا','error'); return; }
+    if(st) st.textContent='✅ '+ (j.message||'بازیابی انجام شد');
+    showToast('بازیابی انجام شد — سرور را راه‌اندازی مجدد کنید');
+  }catch(e){ if(st) st.textContent='❌ '+e.message; }
+}
 async function saveBackupPassword(){
   const p = el('bk-enc-pass').value;
   if(!p || p.length<8){ showToast('رمز پشتیبان باید حداقل ۸ کاراکتر باشد','error'); return; }

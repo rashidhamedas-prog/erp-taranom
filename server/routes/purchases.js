@@ -13,7 +13,7 @@ const { getDB, audit, createJournalEntry, resolveCashAccount, allocateNumber, is
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { calcDocTotals } = require('../lib/vat');
-const { assertFiscalYearWritable } = require('../lib/fiscal-period');
+const { postToLedger } = require('../lib/ledger');
 
 // Create a supplier ledger entry (debit = we owe less / paid, credit = we owe more / purchased)
 function createSupplierLedgerEntry(db, { supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
@@ -74,8 +74,6 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const totals = calcDocTotals(db, built, discPct);
   const { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
   const entryDate = date || todayJalali();
-  const fyCheck = assertFiscalYearWritable(db, entryDate);
-  if (!fyCheck.ok) return res.status(422).json({ error: fyCheck.error });
   const whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='purchase_num_prefix'").get();
   const pType = pay_type || 'credit';
@@ -117,9 +115,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     const jLines = [{ code: invAcct.code, name: invAcct.name, debit: netBeforeVat, credit: 0 }];
     if (vatAmount > 0) jLines.push({ code: vatRec.code, name: vatRec.name, debit: vatAmount, credit: 0, description: 'VAT خرید' });
     jLines.push({ code: cr.code, name: cr.name, debit: 0, credit: final });
-    createJournalEntry(db, {
-      date: entryDate, description: `فاکتور خرید ${num}`, ref_type: 'purchase', ref_id: invId, created_by: req.user.id,
-      lines: jLines
+    postToLedger(db, {
+      sourceType: 'purchase', sourceId: invId, date: entryDate,
+      description: `فاکتور خرید ${num}`, createdBy: req.user.id, lines: jLines,
     });
     return { invId, num };
   })();
