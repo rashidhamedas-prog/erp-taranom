@@ -1842,10 +1842,11 @@ function initSyncSchema(db) {
     }
   }
 
-  // Currency: مبنای ذخیره‌سازی ریال (مطابق محک) + مهاجرت یک‌باره از تومان
+  // Currency: مبنای ذخیره‌سازی ریال + مهاجرت یک‌باره از تومان
   const { migrateTomanToRial, seedMahakSubgroups } = require('./lib/currency');
   migrateTomanToRial(db);
-  seedMahakSubgroups(db);
+  const coaMode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get()?.value;
+  if (coaMode === 'mahak') seedMahakSubgroups(db);
   const curBase = db.prepare("SELECT value FROM settings WHERE key='currency_base'").get();
   if (!curBase) db.prepare("INSERT INTO settings (key,value) VALUES ('currency_base','rial')").run();
   const curDisp = db.prepare("SELECT value FROM settings WHERE key='currency_display'").get();
