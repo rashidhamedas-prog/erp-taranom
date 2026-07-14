@@ -41,19 +41,33 @@
 
 ## تاریخچه
 
-### ۱۴۰۴/۰۴/۲۴ — [Cursor] فاز ۲ اطلاعات پایه + deploy فاز ۱
+### ۱۴۰۴/۰۴/۲۸ — [Cursor] فاز ۳–۸ ماژول حسابداری (VAT، مودیان، گزارشات، HR، دارایی ثابت، backup)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** (پس از push)
+- **خلاصه:**
+  - **فاز ۳:** VAT در فاکتور فروش/خرید + صف **مودیان** + حساب‌های 2103/1108
+  - **فاز ۴:** گزارش VAT + گردش اشخاص + vatOutput در سود و زیان
+  - **فاز ۵:** انبار در خرید + `/cash-boxes/petty-cash/summary`
+  - **فاز ۶:** فیلدهای HR روی persons + `/payroll/monthly-batch`
+  - **فاز ۷:** CRUD دارایی ثابت + استهلاک ماهانه
+  - **فاز ۸:** activity log در audit + قفل سال مالی + backup restore
+- **فایل‌های کلیدی:** `server/lib/vat.js`, `server/routes/moadian.js`, `server/routes/fixed-assets.js`, `server/routes/invoices.js`, `server/routes/purchases.js`
+- **Deploy:** ⏳
+
+### ۱۴۰۴/۰۴/۲۴ — [Cursor] فاز ۲ اطلاعات پایه + deploy فاز ۱
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `475aafb`
 - **خلاصه:**
   - **units_of_measure** + API `/api/units`
   - انبار دو واحدی (کارگاه/دفتر توزیع) با entity و warehouse_type
   - UI **اشخاص یکپارچه** (`acc-parties`) + مخفی‌سازی منوی محک در حالت standard
   - hotfix: `currency.js`, `party-groups.js`, `cheque-records.js` برای boot سرور
-- **Deploy:** ⏳ push + pull
+- **Deploy:** ✅ production (`475aafb` — health 200)
 
 ### ۱۴۰۴/۰۴/۲۴ — [Cursor] فاز ۱ ماژول حسابداری (پایه + parties + dashboard)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `b5776d7`, `710bf84`
+- **Deploy:** ✅ production
 - **خلاصه:**
   - مشخصات تطبیق‌یافته: `docs/ACCOUNTING-MODULE-SPEC-ADAPTED.md` (ریال INTEGER، حذف محک، ادغام parties)
   - جدول **`parties`** + dual-write از customers/suppliers
@@ -62,7 +76,6 @@
   - رفع باگ CoA (5101/3201) + soft-delete در تراز آزمایشی
   - مراکز هزینه seed: کارگاه نوبرت / دفتر توزیع کیمیا
 - **فایل‌های کلیدی:** `server/db.js`, `server/lib/ledger.js`, `server/routes/parties.js`, `server/routes/dashboard.js`
-- **Deploy:** ⏳ push + pull
 
 ### ۱۴۰۴/۰۴/۲۸ — [Cursor] تکمیل UI/فیلدهای محک + دفتر چک + enrich pipeline
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

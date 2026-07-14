@@ -1,6 +1,8 @@
 const router = require('express').Router();
 const { getDB, audit, createLedgerEntry, createJournalEntry, allocateNumber, isDevice } = require('../db');
 const { acct, coaMode } = require('../lib/coa-map');
+const { calcDocTotals } = require('../lib/vat');
+const { enqueueMoadian } = require('./moadian');
 
 // دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
 function receivableAcct(db, custId) {
@@ -44,6 +46,27 @@ function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
 const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 const notif = require('../lib/notifications');
+const { assertFiscalYearWritable } = require('../lib/fiscal-period');
+
+function salesJournalLines(db, custId, totals, reverse) {
+  const recv = receivableAcct(db, custId);
+  const sales = acct(db, 'coa_sales');
+  const salesDisc = acct(db, 'coa_sales_discount');
+  const vatPay = acct(db, 'coa_vat_payable');
+  const { subtotal, discAmt, final, vatAmount, netBeforeVat } = totals;
+  if (!reverse) {
+    const jLines = [{ code: recv.code, name: recv.name, debit: final, credit: 0 }];
+    if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: discAmt, credit: 0, description: 'تخفیف فاکتور' });
+    jLines.push({ code: sales.code, name: sales.name, debit: 0, credit: netBeforeVat });
+    if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: 0, credit: vatAmount, description: 'مالیات بر ارزش افزوده' });
+    return jLines;
+  }
+  const jLines = [{ code: sales.code, name: sales.name, debit: netBeforeVat, credit: 0, description: 'ابطال' }];
+  if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: vatAmount, credit: 0, description: 'ابطال VAT' });
+  if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: 0, credit: discAmt, description: 'ابطال تخفیف' });
+  jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: final });
+  return jLines;
+}
 
 function getScope(req) {
   // Accounting staff see all invoices (read scope) — needed for the Sales
@@ -130,7 +153,9 @@ router.get('/', auth, (req, res) => {
   const scope = getScope(req);
   // List view omits the heavy `rows` JSON blob — fetch line items via GET /:id when editing.
   const cols = `i.id,i.num,i.cust_id,i.user_id,i.type,i.date,i.subtotal,i.disc,i.disc_amt,i.final,i.pay_type,
-    i.cheque_duration,i.cheque_due_date,i.cheque_info,i.approved,i.converted,i.note,i.created_at`;
+    i.cheque_duration,i.cheque_due_date,i.cheque_info,i.approved,i.converted,i.note,i.created_at,
+    i.seller_name,i.mahak_doc_no,i.mahak_doc_type,i.mahak_invoice_code,i.atf_no,i.visitor,i.freight_amount,
+    i.settled_amount,i.balance_due,i.settlement_status,i.delivered`;
   let rows;
   if (scope === null) {
     rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id WHERE COALESCE(i.deleted_at,0)=0 ORDER BY i.created_at DESC`).all();
@@ -191,10 +216,12 @@ router.post('/', auth, (req, res) => {
   try { built = buildRows(db, rows, canDiscount); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
-  const subtotal = built.subtotal;
   const discPct = parseFloat(disc) || 0;
-  const discAmt = Math.round(subtotal * discPct / 100);
-  const final = subtotal - discAmt;
+  const totals = calcDocTotals(db, built, discPct);
+  const { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
+  const entryDate = date || todayJalali();
+  const fyCheck = assertFiscalYearWritable(getDB(), entryDate);
+  if (!fyCheck.ok) return res.status(422).json({ error: fyCheck.error });
 
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
 
@@ -225,9 +252,10 @@ router.post('/', auth, (req, res) => {
       }
 
       const result = db.prepare(
-        'INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted,sales_channel,lead_source,campaign) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-      ).run(req.user.id, cust_id, num, invType, date || '', note || '',
-            JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
+        'INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,subtotal_rial,final_rial,vat_amount_rial,seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted,sales_channel,lead_source,campaign) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+      ).run(req.user.id, cust_id, num, invType, entryDate, note || '',
+            JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate,
+            Math.round(subtotal * 10), Math.round(final * 10), Math.round(vatAmount * 10),
             seller ? seller.name : '', seller ? (seller.phone || '') : '',
             pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
             stockDeducted, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '');
@@ -237,23 +265,18 @@ router.post('/', auth, (req, res) => {
         // Auto-update customer status to 'active' when a final invoice is issued
         db.prepare("UPDATE customers SET status='active' WHERE id=?").run(cust_id);
         createLedgerEntry(db, {
-          customer_id: cust_id, date: date || '', entry_type: 'invoice',
+          customer_id: cust_id, date: entryDate, entry_type: 'invoice',
           ref_type: 'invoice', ref_id: invId,
           description: `فاکتور رسمی ${num}`,
           debit: final, credit: 0, user_id: req.user.id
         });
-        const recv = receivableAcct(db, cust_id);
-        const sales = acct(db, 'coa_sales'), salesDisc = acct(db, 'coa_sales_discount');
-        const jLines = [
-          { code: recv.code, name: recv.name, debit: final, credit: 0 }
-        ];
-        if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: discAmt, credit: 0, description: 'تخفیف فاکتور' });
-        jLines.push({ code: sales.code, name: sales.name, debit: 0, credit: subtotal });
         createJournalEntry(db, {
-          date: date || '', description: `فاکتور رسمی ${num}`,
-          ref_type: 'invoice', ref_id: invId, created_by: req.user.id, lines: jLines
+          date: entryDate, description: `فاکتور رسمی ${num}`,
+          ref_type: 'invoice', ref_id: invId, created_by: req.user.id,
+          lines: salesJournalLines(db, cust_id, totals, false)
         });
-        postCogsVoucher(db, invId, num, date, built.rows, req.user.id, false);
+        postCogsVoucher(db, invId, num, entryDate, built.rows, req.user.id, false);
+        enqueueMoadian(db, 'sales', invId);
       }
 
       // Auto-create a 7-day quality follow-up — only if the customer has
@@ -305,10 +328,9 @@ router.put('/:id', auth, (req, res) => {
   const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting';
   try { built = buildRows(db, rows, canDiscount); }
   catch (e) { return res.status(400).json({ error: e.message }); }
-  const subtotal = built.subtotal;
   const discPct = parseFloat(disc) || 0;
-  const discAmt = Math.round(subtotal * discPct / 100);
-  const final = subtotal - discAmt;
+  const totals = calcDocTotals(db, built, discPct);
+  const { subtotal, discAmt, final, vatAmount, vatRate } = totals;
 
   const newType = type || 'proforma';
 
@@ -321,8 +343,9 @@ router.put('/:id', auth, (req, res) => {
         if (stockErr) throw new Error(stockErr);
         stockDeducted = 1;
       }
-      db.prepare('UPDATE invoices SET cust_id=?,type=?,date=?,note=?,rows=?,subtotal=?,disc=?,disc_amt=?,final=?,pay_type=?,cheque_duration=?,cheque_due_date=?,cheque_info=?,stock_deducted=?,sales_channel=?,lead_source=?,campaign=? WHERE id=?')
+      db.prepare('UPDATE invoices SET cust_id=?,type=?,date=?,note=?,rows=?,subtotal=?,disc=?,disc_amt=?,final=?,vat_amount=?,vat_rate=?,subtotal_rial=?,final_rial=?,vat_amount_rial=?,pay_type=?,cheque_duration=?,cheque_due_date=?,cheque_info=?,stock_deducted=?,sales_channel=?,lead_source=?,campaign=? WHERE id=?')
         .run(cust_id, newType, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
+             vatAmount, vatRate, Math.round(subtotal * 10), Math.round(final * 10), Math.round(vatAmount * 10),
              pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
              stockDeducted, resolveSalesChannel(req), lead_source || '', campaign || '', req.params.id);
     })();
@@ -358,16 +381,14 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
         description: `ابطال فاکتور ${row.num}`,
         debit: 0, credit: row.final, user_id: req.user.id
       });
-      const recv = receivableAcct(db, row.cust_id);
-      const sales = acct(db, 'coa_sales'), salesDisc = acct(db, 'coa_sales_discount');
-      const jLines = [
-        { code: sales.code, name: sales.name, debit: row.subtotal, credit: 0, description: 'ابطال' }
-      ];
-      if ((row.disc_amt || 0) > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: 0, credit: row.disc_amt, description: 'ابطال تخفیف' });
-      jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: row.final });
+      const invTotals = {
+        subtotal: row.subtotal, discAmt: row.disc_amt || 0, final: row.final,
+        vatAmount: row.vat_amount || 0, netBeforeVat: (row.subtotal || 0) - (row.disc_amt || 0)
+      };
       createJournalEntry(db, {
         date: row.date || '', description: `ابطال فاکتور ${row.num}`,
-        ref_type: 'invoice_reversal', ref_id: row.id, created_by: req.user.id, lines: jLines
+        ref_type: 'invoice_reversal', ref_id: row.id, created_by: req.user.id,
+        lines: salesJournalLines(db, row.cust_id, invTotals, true)
       });
       postCogsVoucher(db, row.id, row.num, row.date, JSON.parse(row.rows || '[]'), req.user.id, true);
     }
@@ -388,6 +409,8 @@ router.post('/:id/convert', auth, (req, res) => {
   if (inv.type === 'final') return res.status(400).json({ error: 'این فاکتور رسمی است' });
 
   const rows = JSON.parse(inv.rows || '[]');
+  const built = { rows, subtotal: inv.subtotal };
+  const totals = calcDocTotals(db, built, inv.disc || 0);
 
   try {
     db.transaction(() => {
@@ -399,7 +422,9 @@ router.post('/:id/convert', auth, (req, res) => {
         stockDeducted = 1;
       }
 
-      db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=? WHERE id=?').run('final', stockDeducted, inv.id);
+      db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=?,final=?,vat_amount=?,vat_rate=?,final_rial=?,vat_amount_rial=? WHERE id=?')
+        .run('final', stockDeducted, totals.final, totals.vatAmount, totals.vatRate,
+          Math.round(totals.final * 10), Math.round(totals.vatAmount * 10), inv.id);
       // Auto-update customer status to 'active' when proforma is converted to final
       db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
 
@@ -408,20 +433,16 @@ router.post('/:id/convert', auth, (req, res) => {
         customer_id: inv.cust_id, date: inv.date || '', entry_type: 'invoice',
         ref_type: 'invoice', ref_id: inv.id,
         description: `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`,
-        debit: inv.final, credit: 0, user_id: req.user.id
+        debit: totals.final, credit: 0, user_id: req.user.id
       });
-      const recv = receivableAcct(db, inv.cust_id);
-      const sales = acct(db, 'coa_sales'), salesDisc = acct(db, 'coa_sales_discount');
-      const cvLines = [
-        { code: recv.code, name: recv.name, debit: inv.final, credit: 0 }
-      ];
-      if ((inv.disc_amt || 0) > 0) cvLines.push({ code: salesDisc.code, name: salesDisc.name, debit: inv.disc_amt, credit: 0 });
-      cvLines.push({ code: sales.code, name: sales.name, debit: 0, credit: inv.subtotal });
+      const invTotals = totals;
       createJournalEntry(db, {
         date: inv.date || '', description: `فاکتور رسمی ${inv.num} (تبدیل از پیش‌فاکتور)`,
-        ref_type: 'invoice', ref_id: inv.id, created_by: req.user.id, lines: cvLines
+        ref_type: 'invoice', ref_id: inv.id, created_by: req.user.id,
+        lines: salesJournalLines(db, inv.cust_id, invTotals, false)
       });
       postCogsVoucher(db, inv.id, inv.num, inv.date, rows, req.user.id, false);
+      enqueueMoadian(db, 'sales', inv.id);
     })();
   } catch (e) {
     return res.status(400).json({ error: e.message });

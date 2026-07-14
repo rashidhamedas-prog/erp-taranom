@@ -5,6 +5,7 @@ const { sendSMS } = require('../sms');
 const { clearCoaCache } = require('../lib/coa-map');
 
 const ALLOWED_KEYS = [
+  'currency_base','currency_display',
   'coa_mode','coa_receivable','coa_payable','coa_sales','coa_sales_discount','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_misc_persons','feature_cogs_voucher',
   'telegram_bot_token', 'telegram_chat_id',
   'sms_provider', 'sms_api_key', 'sms_from',
@@ -17,6 +18,8 @@ const ALLOWED_KEYS = [
   'invoice_num_prefix', 'purchase_num_prefix', 'fiscal_year_start_month',
   'module_petty_cash', 'module_trust_checks', 'module_warehouses',
   'module_consignments', 'module_production', 'module_payroll', 'module_reps',
+  'module_moadian', 'module_fixed_assets',
+  'vat_rate', 'moadian_enabled', 'moadian_fiscal_id', 'moadian_private_key_path',
   // AI assistant (v4 port) + B2B customer portal feature flags
   'feature_ai_assistant', 'ai_api_key', 'ai_model', 'feature_b2b_portal'
 ];
@@ -27,13 +30,14 @@ const ALLOWED_KEYS = [
 const MODULE_KEYS = [
   'module_petty_cash', 'module_trust_checks', 'module_warehouses',
   'module_consignments', 'module_production', 'module_payroll', 'module_reps',
-  'coa_mode'
+  'module_moadian', 'module_fixed_assets',
+  'coa_mode', 'currency_display'
 ];
 router.get('/modules', auth, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`SELECT key,value FROM settings WHERE key IN (${MODULE_KEYS.map(() => '?').join(',')})`).all(...MODULE_KEYS);
   const obj = {};
-  for (const k of MODULE_KEYS) obj[k] = k === 'coa_mode' ? '' : '1'; // default: enabled (coa_mode empty = legacy)
+  for (const k of MODULE_KEYS) obj[k] = (k === 'coa_mode') ? '' : (k === 'currency_display' ? 'rial' : '1');
   for (const r of rows) obj[r.key] = r.value;
   res.json(obj);
 });

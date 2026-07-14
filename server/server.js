@@ -9,7 +9,7 @@ const { initDB, getDB, isDevice } = require('./db');
 const { todayJalali, nowHHMM } = require('./jalali');
 const { sendSMS } = require('./sms');
 const { hashKey } = require('./routes/api_keys');
-const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile } = require('./backup');
+const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile, restoreBackup } = require('./backup');
 const { assertSecurityConfig } = require('./lib/security');
 
 const app = express();
@@ -175,6 +175,20 @@ app.get('/api/admin/backup-download/:name', auth, adminOnly, centralOnly, (req, 
   res.download(filePath, req.params.name);
 });
 
+const multer = require('multer');
+const backupUpload = multer({ dest: path.join(__dirname, 'backups'), limits: { fileSize: 512 * 1024 * 1024 } });
+app.post('/api/admin/backup-restore', auth, adminOnly, centralOnly, backupUpload.single('backup'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'فایل پشتیبان الزامی است' });
+  try {
+    const result = restoreBackup(req.file.path);
+    try { fs.unlinkSync(req.file.path); } catch { /* */ }
+    res.json({ success: true, data: result, message: 'بازیابی انجام شد — PM2 را مجدداً راه‌اندازی کنید' });
+  } catch (e) {
+    try { fs.unlinkSync(req.file.path); } catch { /* */ }
+    res.status(500).json({ error: e.message || 'خطا در بازیابی' });
+  }
+});
+
 app.use('/api/import', require('./routes/import'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/reminders', require('./routes/reminders'));
@@ -202,6 +216,9 @@ app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/parties', require('./routes/parties'));
 app.use('/api/detail-accounts', require('./routes/detail-accounts'));
 app.use('/api/units', require('./routes/units'));
+app.use('/api/moadian', require('./routes/moadian'));
+app.use('/api/fixed-assets', require('./routes/fixed-assets'));
+app.use('/api/activity-log', require('./routes/activity-log'));
 app.use('/api/api-keys', require('./routes/api_keys').router);
 app.use('/api/v1', require('./routes/api_v1'));
 

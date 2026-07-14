@@ -1772,9 +1772,86 @@ function initSyncSchema(db) {
   }
   db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('coa_mode','standard')").run();
 
-  // CoA fixes: 5101 COGS child, 3201 retained earnings
+  // CoA fixes: 5101 COGS child, 3201 retained earnings + Phase 3-7 accounts
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('5101','بهای تمام‌شده فروش','cogs','5000')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('3201','سود انباشته','equity','3000')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2103','مالیات بر ارزش افزوده پرداختنی','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1108','مالیات بر ارزش افزوده دریافتنی','asset','1100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1201','دارایی‌های ثابت','asset','1100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1202','استهلاک انباشته دارایی','asset','1100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6105','هزینه استهلاک دارایی','expense','6000')").run();
+  db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('vat_rate','10')").run();
+  db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('moadian_enabled','0')").run();
+  db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('module_moadian','1')").run();
+  db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('module_fixed_assets','1')").run();
+
+  // Phase 3-8 schema
+  ensureColumn(db, 'invoices', 'vat_amount', 'REAL DEFAULT 0');
+  ensureColumn(db, 'invoices', 'vat_rate', 'REAL DEFAULT 10');
+  ensureColumn(db, 'invoices', 'vat_amount_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'invoices', 'moadian_tax_id', 'TEXT');
+  ensureColumn(db, 'invoices', 'moadian_status', "TEXT DEFAULT 'not_sent'");
+  ensureColumn(db, 'invoices', 'doc_status', "TEXT DEFAULT 'confirmed'");
+  ensureColumn(db, 'purchase_invoices', 'vat_amount', 'REAL DEFAULT 0');
+  ensureColumn(db, 'purchase_invoices', 'vat_rate', 'REAL DEFAULT 10');
+  ensureColumn(db, 'purchase_invoices', 'warehouse_id', 'INTEGER');
+  ensureColumn(db, 'persons', 'hire_date', 'TEXT');
+  ensureColumn(db, 'persons', 'salary_type', "TEXT DEFAULT 'hourly'");
+  ensureColumn(db, 'persons', 'monthly_salary_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'persons', 'department', 'TEXT');
+  ensureColumn(db, 'persons', 'bank_iban', 'TEXT');
+  ensureColumn(db, 'cost_centers', 'entity', 'TEXT');
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS moadian_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      doc_type TEXT NOT NULL,
+      doc_id INTEGER NOT NULL,
+      status TEXT DEFAULT 'pending',
+      tax_id TEXT,
+      response_json TEXT,
+      error_message TEXT,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      sent_at INTEGER,
+      UNIQUE(doc_type, doc_id)
+    );
+    CREATE TABLE IF NOT EXISTS fixed_assets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT DEFAULT '',
+      purchase_date TEXT DEFAULT '',
+      cost_rial INTEGER NOT NULL DEFAULT 0,
+      salvage_rial INTEGER DEFAULT 0,
+      useful_life_months INTEGER DEFAULT 60,
+      accumulated_depreciation_rial INTEGER DEFAULT 0,
+      coa_asset_code TEXT DEFAULT '1201',
+      location TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      status TEXT DEFAULT 'active',
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE TABLE IF NOT EXISTS fixed_asset_depreciation (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      asset_id INTEGER NOT NULL,
+      period_label TEXT NOT NULL,
+      amount_rial INTEGER NOT NULL,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(asset_id) REFERENCES fixed_assets(id)
+    );
+    CREATE TABLE IF NOT EXISTS user_activity_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      username TEXT,
+      action TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id INTEGER,
+      ip_address TEXT,
+      details TEXT,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_created ON user_activity_log(created_at);
+  `);
 
   // Migrate legacy customers/suppliers/persons → parties (idempotent)
   try {
@@ -2023,6 +2100,13 @@ function audit(userId, action, entity, entityId, detail, reqOrMeta) {
     }
     getDB().prepare('INSERT INTO audit_log (user_id,action,entity,entity_id,detail,ip_address,user_agent) VALUES (?,?,?,?,?,?,?)')
       .run(userId || null, action, entity, entityId || null, detail || '', ip, ua);
+    try {
+      const u = userId ? getDB().prepare('SELECT username,name FROM users WHERE id=?').get(userId) : null;
+      getDB().prepare(`
+        INSERT INTO user_activity_log (user_id, username, action, entity_type, entity_id, ip_address, details)
+        VALUES (?,?,?,?,?,?,?)
+      `).run(userId || null, u?.username || u?.name || '', action, entity || null, entityId || null, ip, detail || '');
+    } catch (_) { /* table may not exist during boot */ }
   } catch (e) { /* never let audit failures break a request */ }
 }
 

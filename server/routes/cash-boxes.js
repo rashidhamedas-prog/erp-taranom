@@ -55,6 +55,18 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 
+router.get('/petty-cash/summary', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare(`
+    SELECT cb.*, COALESCE(SUM(jl.debit - jl.credit), 0) as balance
+    FROM cash_boxes cb
+    LEFT JOIN journal_lines jl ON jl.account_code = '1101-' || cb.id
+    WHERE cb.is_petty_cash=1 AND cb.active=1
+    GROUP BY cb.id ORDER BY cb.name
+  `).all();
+  res.json({ success: true, data: rows });
+});
+
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);

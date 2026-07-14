@@ -113,4 +113,24 @@ router.post('/factory-reset', auth, adminOnly, centralOnly, (req, res) => {
   res.json({ ok: true });
 });
 
+router.post('/:id/lock', auth, adminOnly, centralOnly, (req, res) => {
+  const db = getDB();
+  const fy = db.prepare('SELECT * FROM fiscal_years WHERE id=?').get(req.params.id);
+  if (!fy) return res.status(404).json({ error: 'سال مالی یافت نشد' });
+  db.prepare("UPDATE fiscal_years SET status='locked', closed_at=strftime('%s','now'), closed_by=? WHERE id=?")
+    .run(req.user.id, fy.id);
+  audit(req.user.id, 'fiscal_lock', 'fiscal_year', fy.id, `قفل سال مالی ${fy.label}`);
+  res.json({ success: true, data: { id: fy.id, status: 'locked' } });
+});
+
+router.post('/:id/unlock', auth, adminOnly, centralOnly, (req, res) => {
+  const db = getDB();
+  const fy = db.prepare('SELECT * FROM fiscal_years WHERE id=?').get(req.params.id);
+  if (!fy) return res.status(404).json({ error: 'سال مالی یافت نشد' });
+  db.prepare("UPDATE fiscal_years SET status='open', closed_at=NULL, closed_by=NULL WHERE id=?").run(fy.id);
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('active_fiscal_year_id',?)").run(String(fy.id));
+  audit(req.user.id, 'fiscal_unlock', 'fiscal_year', fy.id, `بازگشایی سال مالی ${fy.label}`);
+  res.json({ success: true, data: { id: fy.id, status: 'open' } });
+});
+
 module.exports = router;

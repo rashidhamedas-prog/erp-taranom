@@ -12,6 +12,8 @@ function payableAcct(db, supplierId) {
 const { getDB, audit, createJournalEntry, resolveCashAccount, allocateNumber, isDevice } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
+const { calcDocTotals } = require('../lib/vat');
+const { assertFiscalYearWritable } = require('../lib/fiscal-period');
 
 // Create a supplier ledger entry (debit = we owe less / paid, credit = we owe more / purchased)
 function createSupplierLedgerEntry(db, { supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
@@ -61,17 +63,20 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { supplier_id, date, note, rows, disc, pay_type, bank_id, check_category_id, cash_box_id } = req.body;
+  const { supplier_id, date, note, rows, disc, pay_type, bank_id, check_category_id, cash_box_id, warehouse_id } = req.body;
   if (!supplier_id) return res.status(400).json({ error: 'تأمین‌کننده الزامی است' });
   const db = getDB();
   let built;
   try { built = buildRows(db, rows); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
-  const subtotal = built.subtotal;
   const discPct = parseFloat(disc) || 0;
-  const discAmt = Math.round(subtotal * discPct / 100);
-  const final = subtotal - discAmt;
+  const totals = calcDocTotals(db, built, discPct);
+  const { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
+  const entryDate = date || todayJalali();
+  const fyCheck = assertFiscalYearWritable(db, entryDate);
+  if (!fyCheck.ok) return res.status(422).json({ error: fyCheck.error });
+  const whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='purchase_num_prefix'").get();
   const pType = pay_type || 'credit';
 
@@ -83,14 +88,18 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       ? ('موقت-' + Date.now().toString(36).toUpperCase())
       : allocateNumber(db, 'purchase', prefixRow?.value || 'PO');
     const result = db.prepare(
-      'INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,pay_type,stock_added,bank_id,check_category_id,cash_box_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)'
-    ).run(req.user.id, supplier_id, num, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, pType, bank_id || null, check_category_id || null, cash_box_id || null);
+      'INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,pay_type,stock_added,bank_id,check_category_id,cash_box_id,warehouse_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)'
+    ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, bank_id || null, check_category_id || null, cash_box_id || null, whId);
     const invId = result.lastInsertRowid;
 
     // Stock increases immediately on purchase
     for (const r of built.rows) {
       db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
       db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `افزودن موجودی از فاکتور خرید ${num}`);
+      if (whId) {
+        db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
+          .run(r.product_id, whId, r.qty);
+      }
     }
 
     // Supplier ledger: credit = we now owe the supplier (only tracked for on-account purchases)
@@ -101,14 +110,16 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       });
     }
 
-    // Journal: Dr Inventory / Cr Payable (credit) or Cr Cash/specific bank (cash/cheque)
+    // Journal: Dr Inventory + Dr VAT receivable / Cr Payable or Cash
     const cr = pType === 'credit' ? payableAcct(db, supplier_id) : resolveCashAccount(db, pType, bank_id, cash_box_id);
+    const invAcct = coaAcct(db, 'coa_inventory');
+    const vatRec = coaAcct(db, 'coa_vat_receivable');
+    const jLines = [{ code: invAcct.code, name: invAcct.name, debit: netBeforeVat, credit: 0 }];
+    if (vatAmount > 0) jLines.push({ code: vatRec.code, name: vatRec.name, debit: vatAmount, credit: 0, description: 'VAT خرید' });
+    jLines.push({ code: cr.code, name: cr.name, debit: 0, credit: final });
     createJournalEntry(db, {
-      date: date || '', description: `فاکتور خرید ${num}`, ref_type: 'purchase', ref_id: invId, created_by: req.user.id,
-      lines: [
-        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: final, credit: 0 },
-        { code: cr.code, name: cr.name, debit: 0, credit: final }
-      ]
+      date: entryDate, description: `فاکتور خرید ${num}`, ref_type: 'purchase', ref_id: invId, created_by: req.user.id,
+      lines: jLines
     });
     return { invId, num };
   })();

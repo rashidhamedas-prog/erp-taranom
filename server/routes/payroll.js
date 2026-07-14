@@ -240,4 +240,35 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 
+// Monthly salary batch — persons with salary_type=monthly
+router.post('/monthly-batch', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const { period_label, date, person_ids } = req.body;
+  const period = period_label || todayJalali().slice(0, 7);
+  let employees = db.prepare("SELECT * FROM persons WHERE active=1 AND salary_type='monthly' AND monthly_salary_rial>0").all();
+  if (Array.isArray(person_ids) && person_ids.length) {
+    const ids = new Set(person_ids.map(Number));
+    employees = employees.filter(p => ids.has(p.id));
+  }
+  const results = [];
+  const errors = [];
+  for (const p of employees) {
+    const grossToman = Math.round((p.monthly_salary_rial || 0) / 10);
+    const ins = Math.round(grossToman * (p.insurance_percent || 0) / 100);
+    const tax = Math.round(grossToman * (p.tax_percent || 0) / 100);
+    try {
+      const { recId, netPay } = createPayrollRecord(db, req.user.id, {
+        person_id: p.id, period_label: period, regular_hours: 0, overtime_hours: 0,
+        hourly_rate: 0, overtime_rate: 0, bonuses: grossToman, deductions: 0,
+        insurance_deduction: ins, tax_deduction: tax, date: date || todayJalali(),
+        note: `حقوق ماهانه ${period}`
+      });
+      results.push({ person_id: p.id, name: p.name, record_id: recId, net_pay: netPay });
+    } catch (e) {
+      errors.push({ person_id: p.id, name: p.name, error: e.message });
+    }
+  }
+  res.json({ success: true, data: { period, created: results.length, results, errors } });
+});
+
 module.exports = router;

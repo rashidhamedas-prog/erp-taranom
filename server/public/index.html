@@ -1555,6 +1555,8 @@ const ACC_NAV_SECTIONS = [
   ]},
   { title: 'سایر', items: [
     {id:'acc-payroll', icon:'🧑‍🏭', label:'حقوق و دستمزد (ساعتی)'},
+    {id:'acc-moadian', icon:'📡', label:'سامانه مودیان'},
+    {id:'acc-fixed-assets', icon:'🏢', label:'دارایی ثابت'},
   ]},
 ];
 function accNavFlat(){ return ACC_NAV_SECTIONS.flatMap(s=>s.items); }
@@ -1573,7 +1575,8 @@ const ACC_MODULE_MAP={
   'acc-petty-cash':'module_petty_cash','acc-trust-checks':'module_trust_checks',
   'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
   'acc-consignments':'module_consignments','acc-production':'module_production',
-  'acc-payroll':'module_payroll','acc-reps':'module_reps'
+  'acc-payroll':'module_payroll','acc-reps':'module_reps',
+  'acc-moadian':'module_moadian','acc-fixed-assets':'module_fixed_assets'
 };
 function filterAccNavItem(it){
   if(it.mahakOnly && !isMahakMode()) return false;
@@ -4275,6 +4278,8 @@ ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای �
 ROUTES['acc-adv-reports']=()=>renderAccPage('adv-reports','📊','گزارشات پیشرفته');
 ROUTES['acc-production']=()=>renderAccPage('production','🏗️','تحلیل هزینه تولید');
 ROUTES['acc-payroll']=()=>renderAccPage('payroll','🧑‍🏭','حقوق و دستمزد (ساعتی)');
+ROUTES['acc-moadian']=()=>renderAccPage('moadian','📡','سامانه مودیان');
+ROUTES['acc-fixed-assets']=()=>renderAccPage('fixed-assets','🏢','دارایی ثابت');
 ROUTES['acc-vouchers']=()=>renderAccPage('vouchers','📝','اسناد حسابداری دستی (سند دوطرفه)');
 ROUTES['acc-general-ledger']=()=>go('acc-dash');
 ROUTES['acc-trial-balance']=()=>renderAccPage('trial-balance','⚖️','تراز آزمایشی');
@@ -4393,6 +4398,10 @@ async function loadAccTab(tab){
     await renderProductionTab(body);
   } else if(tab==='payroll'){
     await renderPayrollTab(body);
+  } else if(tab==='moadian'){
+    await renderMoadianTab(body);
+  } else if(tab==='fixed-assets'){
+    await renderFixedAssetsTab(body);
   } else if(tab==='cheques'){
     const statusFilter=el('chqStatus')?.value||'';
     const bankFilter=el('chqBank')?.value||'';
@@ -5379,7 +5388,9 @@ const ADV_REPORT_TABS=[
   {id:'cash-flow',label:'جریان وجه نقد'},
   {id:'sales-by-product',label:'فروش به تفکیک کالا'},
   {id:'inventory-valuation',label:'ارزش‌گذاری موجودی'},
-  {id:'inventory-health',label:'سلامت موجودی'}
+  {id:'inventory-health',label:'سلامت موجودی'},
+  {id:'vat-summary',label:'گزارش VAT'},
+  {id:'party-turnover',label:'گردش اشخاص'}
 ];
 async function renderAdvReportsTab(body){
   body.innerHTML=`
@@ -5397,6 +5408,8 @@ async function loadAdvReport(){
   if(advReportTab==='sales-by-product') return renderSalesByProductReport(box);
   if(advReportTab==='inventory-valuation') return renderInventoryValuationReport(box);
   if(advReportTab==='inventory-health') return renderInventoryHealthReport(box);
+  if(advReportTab==='vat-summary') return renderVatSummaryReport(box);
+  if(advReportTab==='party-turnover') return renderPartyTurnoverReport(box);
 }
 function advDateFilterBar(){
   return `<div class="toolbar" style="margin-bottom:10px;gap:8px">
@@ -5488,6 +5501,96 @@ async function renderInventoryHealthReport(box){
       </div>
     </div>`;
   attachDatepickers(box);
+}
+async function renderVatSummaryReport(box){
+  const qp=[]; if(advReportFrom) qp.push('from='+encodeURIComponent(advReportFrom)); if(advReportTo) qp.push('to='+encodeURIComponent(advReportTo));
+  const d=await api('GET','/adv-reports/vat-summary'+(qp.length?'?'+qp.join('&'):''))||{};
+  box.innerHTML=advDateFilterBar()+`
+    <div class="panel"><div class="panel-body">
+      <table class="tbl" style="font-size:13px"><tbody>
+        <tr><td>فروش (جمع فاکتور)</td><td class="mono">${fmt(d.sales_total||0)} ت</td></tr>
+        <tr><td>مالیات فروش (خروجی)</td><td class="mono" style="color:var(--green)">${fmt(d.output_vat||0)} ت</td></tr>
+        <tr><td>خرید (جمع فاکتور)</td><td class="mono">${fmt(d.purchase_total||0)} ت</td></tr>
+        <tr><td>مالیات خرید (ورودی)</td><td class="mono" style="color:var(--blue)">${fmt(d.input_vat||0)} ت</td></tr>
+        <tr style="border-top:2px solid var(--border);font-weight:800"><td>مالیات قابل پرداخت (خالص)</td>
+          <td class="mono" style="color:${(d.net_payable||0)>=0?'var(--red)':'var(--green)'}">${fmt(d.net_payable||0)} ت</td></tr>
+      </tbody></table>
+    </div></div>`;
+  attachDatepickers(box);
+}
+async function renderPartyTurnoverReport(box){
+  const qp=[]; if(advReportFrom) qp.push('from='+encodeURIComponent(advReportFrom)); if(advReportTo) qp.push('to='+encodeURIComponent(advReportTo));
+  const d=await api('GET','/adv-reports/party-turnover'+(qp.length?'?'+qp.join('&'):''))||{sales:[],purchases:[]};
+  box.innerHTML=advDateFilterBar()+`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="panel"><div class="panel-head"><h4>🛒 گردش مشتریان</h4></div>
+        <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>مشتری</th><th>تعداد</th><th>گردش (ت)</th></tr></thead>
+        <tbody>${(d.sales||[]).map(r=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmt(r.doc_count)}</td><td class="mono">${fmt(r.turnover)}</td></tr>`).join('')||emptyRow(3)}</tbody></table></div>
+      </div>
+      <div class="panel"><div class="panel-head"><h4>🚚 گردش تأمین‌کنندگان</h4></div>
+        <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>تأمین‌کننده</th><th>تعداد</th><th>گردش (ت)</th></tr></thead>
+        <tbody>${(d.purchases||[]).map(r=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmt(r.doc_count)}</td><td class="mono">${fmt(r.turnover)}</td></tr>`).join('')||emptyRow(3)}</tbody></table></div>
+      </div>
+    </div>`;
+  attachDatepickers(box);
+}
+async function renderMoadianTab(body){
+  const queue=await api('GET','/moadian/queue')||{};
+  const settings=await api('GET','/moadian/settings')||{};
+  const rows=queue.data||[];
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <label class="muted" style="font-size:12px">فعال‌سازی مودیان:
+        <select id="moadianEn" style="padding:6px 8px;border-radius:6px">
+          <option value="0" ${settings.data?.moadian_enabled!=='1'?'selected':''}>خاموش</option>
+          <option value="1" ${settings.data?.moadian_enabled==='1'?'selected':''}>روشن</option>
+        </select>
+      </label>
+      <button class="btn sm" onclick="saveMoadianSettings()">💾 ذخیره تنظیمات</button>
+    </div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">صف ارسال فاکتورهای رسمی — اتصال SDK واقعی در فاز بعدی</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>فاکتور</th><th>مشتری</th><th>مبلغ</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td class="mono">${esc(r.invoice_num||r.doc_id)}</td><td>${esc(r.cust_biz||'-')}</td>
+      <td class="mono">${fmt(r.final||0)}</td><td>${esc(r.status||'-')}</td>
+      <td>${r.status==='pending'?`<button class="btn sm" onclick="submitMoadian(${r.id})">ارسال</button>`:'-'}</td>
+    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+}
+async function saveMoadianSettings(){
+  await api('PUT','/moadian/settings',{moadian_enabled:el('moadianEn').value});
+  showToast('تنظیمات مودیان ذخیره شد');
+}
+async function submitMoadian(id){
+  try{ await api('POST','/moadian/queue/'+id+'/submit',{}); showToast('ارسال آزمایشی انجام شد'); loadAccTab('moadian'); }catch(e){}
+}
+async function renderFixedAssetsTab(body){
+  const rows=await api('GET','/fixed-assets')||[];
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;gap:8px">
+      <button class="btn sm" onclick="openFixedAssetModal()">➕ دارایی جدید</button>
+      <button class="btn sm ghost" onclick="runDepreciation()">📉 اجرای استهلاک ماهانه</button>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>کد</th><th>نام</th><th>بهای تمام‌شده (ریال)</th><th>استهلاک انباشته</th><th>ارزش دفتری</th><th>وضعیت</th>
+    </tr></thead><tbody>${rows.map(a=>`<tr>
+      <td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td>
+      <td class="mono">${fmt(Math.round((a.cost_rial||0)/10))} ت</td>
+      <td class="mono">${fmt(Math.round((a.accumulated_depreciation_rial||0)/10))} ت</td>
+      <td class="mono" style="font-weight:700">${fmt(Math.round((a.book_value_rial||0)/10))} ت</td>
+      <td>${esc(a.status||'active')}</td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+}
+async function openFixedAssetModal(){
+  const name=prompt('نام دارایی:'); if(!name) return;
+  const cost=prompt('بهای تمام‌شده (ریال):'); if(!cost) return;
+  await api('POST','/fixed-assets',{name,cost_rial:parseInt(cost,10)});
+  showToast('دارایی ثبت شد'); loadAccTab('fixed-assets');
+}
+async function runDepreciation(){
+  if(!confirm('استهلاک ماه جاری برای همه دارایی‌های فعال ثبت شود؟')) return;
+  const r=await api('POST','/fixed-assets/run-depreciation',{});
+  showToast('استهلاک: '+fmt(Math.round((r.data?.total_depreciation_rial||0)/10))+' ت');
+  loadAccTab('fixed-assets');
 }
 
 /* ============================================================

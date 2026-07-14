@@ -22,7 +22,11 @@ const LEGACY = {
   coa_bank_default:    { code: '1102',   name: 'موجودی بانک' },
   coa_adjustment:      { code: '9999',   name: 'اصلاحات و تعدیلات' },
   coa_payroll_expense: { code: '6104',   name: 'هزینه حقوق و دستمزد' },
-  coa_payroll_payable: { code: '2104',   name: 'بدهی بیمه و مالیات کارکنان' }
+  coa_payroll_payable: { code: '2104',   name: 'بدهی بیمه و مالیات کارکنان' },
+  coa_vat_payable:     { code: '2103',   name: 'مالیات بر ارزش افزوده پرداختنی' },
+  coa_vat_receivable:  { code: '1108',   name: 'مالیات بر ارزش افزوده دریافتنی' },
+  coa_depreciation_expense: { code: '6105', name: 'هزینه استهلاک دارایی' },
+  coa_fixed_assets:    { code: '1201',   name: 'دارایی‌های ثابت' },
 };
 
 let _cache = null, _cacheAt = 0;

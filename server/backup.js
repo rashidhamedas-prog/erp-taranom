@@ -194,7 +194,45 @@ function getLatestBackupFile() {
   return candidates[candidates.length - 1];
 }
 
+function restoreBackup(archivePath) {
+  const path = require('path');
+  const fs = require('fs');
+  const { execSync } = require('child_process');
+  const AdmZip = require('adm-zip');
+  const tmp = path.join(BACKUP_DIR, `.restore-${Date.now()}`);
+  fs.mkdirSync(tmp, { recursive: true });
+  try {
+    if (archivePath.endsWith('.zip') || archivePath.endsWith('.zip.enc')) {
+      let zipPath = archivePath;
+      if (archivePath.endsWith('.enc')) {
+        const password = getBackupPassword();
+        if (!password) throw new Error('رمز پشتیبان برای بازگشایی لازم است');
+        zipPath = archivePath.replace(/\.enc$/, '');
+        decryptFile(archivePath, zipPath, password);
+      }
+      const zip = new AdmZip(zipPath);
+      zip.extractAllTo(tmp, true);
+      if (zipPath !== archivePath) try { fs.unlinkSync(zipPath); } catch { /* */ }
+    } else {
+      execSync(`tar -xzf "${archivePath}" -C "${tmp}"`, { stdio: 'pipe', timeout: 300000 });
+    }
+    const dbSrc = path.join(tmp, 'crm.db');
+    if (!fs.existsSync(dbSrc)) throw new Error('crm.db در پشتیبان یافت نشد');
+    const pre = DB_PATH + '.pre-restore-' + Date.now();
+    if (fs.existsSync(DB_PATH)) fs.copyFileSync(DB_PATH, pre);
+    fs.copyFileSync(dbSrc, DB_PATH);
+    const uploadsSrc = path.join(tmp, 'uploads');
+    if (fs.existsSync(uploadsSrc)) {
+      fs.rmSync(UPLOADS_ROOT, { recursive: true, force: true });
+      fs.cpSync(uploadsSrc, UPLOADS_ROOT, { recursive: true });
+    }
+    return { ok: true, pre_restore_db: pre };
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 module.exports = {
   runBackup, listBackups, resolveBackupFile, getLatestBackupFile,
-  getBackupPassword, encryptFile, decryptFile, BACKUP_DIR
+  getBackupPassword, encryptFile, decryptFile, restoreBackup, BACKUP_DIR
 };

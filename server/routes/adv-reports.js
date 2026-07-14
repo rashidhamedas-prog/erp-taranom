@@ -3,12 +3,6 @@ const { getDB } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { j2g, todayJalali } = require('../jalali');
 
-// Advanced accounting/inventory reports that go beyond what already exists
-// (Receivables, General Ledger, Trial Balance, P&L, Balance Sheet, Item
-// Kardex, Warehouse Stock). Tax/VAT reports are intentionally NOT included —
-// this app has no VAT calculation engine, and building an empty report
-// shell around a feature that doesn't exist would be a placeholder.
-
 function daysSinceJalali(dateStr) {
   try {
     const [jy, jm, jd] = (dateStr || '').split('/').map(Number);
@@ -20,10 +14,6 @@ function daysSinceJalali(dateStr) {
   } catch { return 0; }
 }
 
-// ---- Aging report — FIFO-allocates each customer's total settlements
-// against their invoices oldest-first, then buckets whatever remains
-// unpaid on each invoice by its age. This is the standard approximation
-// used whenever settlements aren't explicitly linked to individual invoices.
 router.get('/aging', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const customers = db.prepare(`
@@ -60,7 +50,6 @@ router.get('/aging', auth, adminOrAccounting, (req, res) => {
   res.json({ rows, totals });
 });
 
-// ---- Cash flow summary for a period ----
 router.get('/cash-flow', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
@@ -72,19 +61,14 @@ router.get('/cash-flow', auth, adminOrAccounting, (req, res) => {
   };
   const settl = dateFilter('date');
   const cashIn = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM settlements ${settl.sql}`).get(...settl.params).s;
-
   const supPay = dateFilter('date');
   const supplierOut = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM supplier_payments ${supPay.sql}`).get(...supPay.params).s;
-
   const incPay = dateFilter('date');
   const incentiveOut = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM incentive_payments ${incPay.sql}`).get(...incPay.params).s;
-
   const expPay = dateFilter('date');
   const expenseOut = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM expense_payments ${expPay.sql}`).get(...expPay.params).s;
-
   const poWhere = dateFilter('date');
   const purchaseCashOut = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM purchase_invoices ${poWhere.sql}${poWhere.sql ? ' AND ' : ' WHERE '}pay_type<>'credit'`).get(...poWhere.params).s;
-
   const totalOut = supplierOut + incentiveOut + expenseOut + purchaseCashOut;
   res.json({
     from: from || '', to: to || '',
@@ -93,7 +77,6 @@ router.get('/cash-flow', auth, adminOrAccounting, (req, res) => {
   });
 });
 
-// Shared helper: aggregate final-invoice line items by product for a period
 function aggregateSalesByProduct(db, from, to) {
   const where = ["type='final'"];
   const params = [];
@@ -139,6 +122,51 @@ router.get('/inventory-health', auth, adminOrAccounting, (req, res) => {
   const soldIds = new Set(Object.keys(soldByProduct).map(Number));
   const slowMoving = products.filter(p => !soldIds.has(p.id) && (p.stock || 0) > 0).sort((a, b) => (b.stock || 0) - (a.stock || 0)).slice(0, 20);
   res.json({ negative, fastMoving, slowMoving, period: { from: from || '', to: to || todayJalali() } });
+});
+
+router.get('/vat-summary', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const { from, to } = req.query;
+  const where = ["type='final'"], params = [];
+  if (from) { where.push('date>=?'); params.push(from); }
+  if (to) { where.push('date<=?'); params.push(to); }
+  const salesVat = db.prepare(`SELECT COALESCE(SUM(vat_amount),0) s, COALESCE(SUM(final),0) f FROM invoices WHERE ${where.join(' AND ')}`).get(...params);
+  const pWhere = ['1=1'], pParams = [];
+  if (from) { pWhere.push('date>=?'); pParams.push(from); }
+  if (to) { pWhere.push('date<=?'); pParams.push(to); }
+  const purchaseVat = db.prepare(`SELECT COALESCE(SUM(vat_amount),0) s, COALESCE(SUM(final),0) f FROM purchase_invoices WHERE ${pWhere.join(' AND ')}`).get(...pParams);
+  const outputVat = salesVat?.s || 0;
+  const inputVat = purchaseVat?.s || 0;
+  res.json({
+    from: from || '', to: to || '',
+    output_vat: outputVat, input_vat: inputVat, net_payable: outputVat - inputVat,
+    sales_total: salesVat?.f || 0, purchase_total: purchaseVat?.f || 0
+  });
+});
+
+router.get('/party-turnover', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const { from, to, limit } = req.query;
+  const lim = Math.min(parseInt(limit, 10) || 50, 200);
+  const invWhere = ["i.type='final'"], invParams = [];
+  if (from) { invWhere.push('i.date>=?'); invParams.push(from); }
+  if (to) { invWhere.push('i.date<=?'); invParams.push(to); }
+  const sales = db.prepare(`
+    SELECT c.id, c.biz as name, 'customer' as party_type, COUNT(i.id) doc_count, COALESCE(SUM(i.final),0) turnover
+    FROM invoices i JOIN customers c ON i.cust_id=c.id
+    WHERE ${invWhere.join(' AND ')}
+    GROUP BY c.id ORDER BY turnover DESC LIMIT ?
+  `).all(...invParams, lim);
+  const purWhere = ['1=1'], purParams = [];
+  if (from) { purWhere.push('p.date>=?'); purParams.push(from); }
+  if (to) { purWhere.push('p.date<=?'); purParams.push(to); }
+  const purchases = db.prepare(`
+    SELECT s.id, s.name, 'supplier' as party_type, COUNT(p.id) doc_count, COALESCE(SUM(p.final),0) turnover
+    FROM purchase_invoices p JOIN suppliers s ON p.supplier_id=s.id
+    WHERE ${purWhere.join(' AND ')}
+    GROUP BY s.id ORDER BY turnover DESC LIMIT ?
+  `).all(...purParams, lim);
+  res.json({ from: from || '', to: to || '', sales, purchases });
 });
 
 module.exports = router;

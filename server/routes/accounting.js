@@ -529,6 +529,9 @@ router.get('/general', auth, adminOrAccounting, (req, res) => {
   const revenue     = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final' ${invDateWhere}`).get().s;
   const subtotal    = db.prepare(`SELECT COALESCE(SUM(subtotal),0) s FROM invoices WHERE type='final' ${invDateWhere}`).get().s;
   const discAmt     = db.prepare(`SELECT COALESCE(SUM(disc_amt),0) s FROM invoices WHERE type='final' ${invDateWhere}`).get().s;
+  const vatOutput   = db.prepare(`SELECT COALESCE(SUM(vat_amount),0) s FROM invoices WHERE type='final' ${invDateWhere}`).get().s;
+  const purDateWhere = sf || st ? `AND date >= '${sf||''}' AND date <= '${st||'9999'}'` : '';
+  const vatInput    = db.prepare(`SELECT COALESCE(SUM(vat_amount),0) s FROM purchase_invoices WHERE 1=1 ${purDateWhere}`).get().s;
 
   // Cost of goods sold: sum of (qty × unit cost) across all final invoice rows in range
   const costMap = {};
@@ -576,8 +579,14 @@ router.get('/general', auth, adminOrAccounting, (req, res) => {
     cogs, grossProfit,
     commExpense,
     netProfit: grossProfit - commExpense,
+    vatOutput, vatInput, netVatPayable: vatOutput - vatInput,
     monthlyInv, monthlySett, journal
   });
+});
+
+router.get('/income-statement', auth, adminOrAccounting, (req, res, next) => {
+  req.url = '/general' + (req.originalUrl.includes('?') ? '?' + req.originalUrl.split('?').slice(1).join('?') : '');
+  router.handle(req, res, next);
 });
 
 // Customer ledger (transaction history) — REMOVED in v1.0.11 (use acc-statement instead)
