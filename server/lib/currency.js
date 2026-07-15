@@ -116,16 +116,9 @@ const MAHAK_PRODUCT_GROUPS = [
   { code: 14, name: 'محصول نهایی', parent: 0 },
 ];
 
-/** Mahak person groups from full data.xlsx — گروه اشخاص sheet. */
+/** فقط گروه مجازی «کلیه اشخاص» — بقیه گروه‌ها توسط کاربر تعریف می‌شوند. */
 const MAHAK_PARTY_GROUPS = [
   { code: 0, name: 'کلیه اشخاص', entity_type: 'all' },
-  { code: 1, name: 'مشتریان', entity_type: 'customer' },
-  { code: 2, name: 'فروشندگان', entity_type: 'supplier' },
-  { code: 3, name: 'پرسنل', entity_type: 'person' },
-  { code: 4, name: 'وام‌ها', entity_type: 'person' },
-  { code: 5, name: 'بازاریاب', entity_type: 'person' },
-  { code: 6, name: 'دوزندگان بیرون بر', entity_type: 'person' },
-  { code: 7, name: 'فروشگاه‌های ترنم', entity_type: 'customer' },
 ];
 
 function guessMahakProductGroup(name) {
@@ -166,8 +159,8 @@ function seedStandardSubgroups(db) {
   const insPg = db.prepare('INSERT OR IGNORE INTO party_groups (code,name,entity_type,description) VALUES (?,?,?,?)');
   const updPg = db.prepare('UPDATE party_groups SET entity_type=?,description=? WHERE name=?');
   for (const g of MAHAK_PARTY_GROUPS) {
-    insPg.run(g.code, g.name, g.entity_type, 'گروه استاندارد');
-    updPg.run(g.entity_type, 'گروه استاندارد', g.name);
+    insPg.run(g.code, g.name, g.entity_type, '');
+    updPg.run(g.entity_type, '', g.name);
   }
 
   const insCat = db.prepare('INSERT OR IGNORE INTO product_categories (name,code,parent_id,sort_order,description) VALUES (?,?,?,?,?)');

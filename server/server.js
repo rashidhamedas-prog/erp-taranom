@@ -200,6 +200,7 @@ app.use('/api/reps', require('./routes/rep-management'));
 app.use('/api/accounting', require('./routes/accounting'));
 app.use('/api/suppliers', require('./routes/suppliers'));
 app.use('/api/purchases', require('./routes/purchases'));
+app.use('/api/orders', require('./routes/orders'));
 app.use('/api/banks', require('./routes/banks'));
 app.use('/api/check-categories', require('./routes/check-categories'));
 app.use('/api/cash-boxes', require('./routes/cash-boxes'));

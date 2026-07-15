@@ -4109,6 +4109,7 @@ function drawChart(monthly){
    ACCOUNTING (admin)
 ============================================================ */
 let accTab = 'general';
+let accNavId = '';
 let accDateFrom = '', accDateTo = '', accPreset = 'month';
 let accHideZero = true;
 let accRecvViewMode = 'customer';
@@ -4207,7 +4208,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll','cheque-register']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll','cheque-register','units','fiscal-period','company-settings','orders']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -4222,8 +4223,9 @@ function buildAccFilterHtml(tabKey){
     ${(tabKey==='general'&&isAdmin())?`<button class="btn sm ghost" title="بازسازی اسناد حسابداری برای همه عملیات گذشته" onclick="resyncAccounting()">🔄 همگام‌سازی</button>`:''}
   </div>`;
 }
-function renderAccPage(tabKey, icon, title){
+function renderAccPage(tabKey, icon, title, navId){
   accTab = tabKey;
+  accNavId = navId || '';
   if(accPreset!=='custom'&&accPreset!=='all'&&!accDateFrom) [accDateFrom,accDateTo]=jPresetRange(accPreset);
   const showFilter = !ACC_NOFILTER_TABS.has(tabKey);
   const shell = el('accShellPanel');
@@ -4252,6 +4254,7 @@ ROUTES['acc-general']=()=>renderAccPage('general','📈','حسابداری کل 
 ROUTES['acc-receivables']=()=>renderAccPage('receivables','🧾','مطالبات مشتریان');
 ROUTES['acc-settlements']=()=>renderAccPage('settlements','💵','عملیات دریافت و پرداخت');
 ROUTES['acc-payments']=()=>go('acc-settlements');
+ROUTES['acc-receipts']=()=>go('acc-settlements');
 ROUTES['acc-cheques']=()=>renderAccPage('cheques','🏦','مدیریت چک‌ها');
 ROUTES['acc-cheque-register']=()=>renderAccPage('cheque-register','📒','دفتر چک');
 ROUTES['acc-commissions']=()=>renderAccPage('commissions','🎯','تأیید و انگیزه فروش');
@@ -4585,12 +4588,37 @@ async function loadAccTab(tab){
     await renderSalesReturnsTab(body);
   } else if(tab==='vouchers'){
     await renderVouchersTab(body);
+    if(accNavId==='acc-journal-entry') setTimeout(()=>voucherModal(),300);
   } else if(tab==='trial-balance'){
     await renderTrialBalanceTab(body);
   } else if(tab==='balance-sheet'){
     await renderBalanceSheetTab(body);
-  } else if(tab==='chart'){
-    await renderChartOfAccountsTab(body);
+  } else if(tab==='chart'||tab==='coa-codes'||tab==='account-groups'||tab==='ledger-accounts'||tab==='subsidiary-accounts'){
+    await renderCoaSectionTab(body, tab);
+  } else if(tab==='detail-categories'){
+    await renderDetailCategoriesTab(body);
+  } else if(tab==='other-details'){
+    await renderOtherDetailsTab(body);
+  } else if(tab==='equity-info'){
+    await renderEquityInfoTab(body);
+  } else if(tab==='shareholders'){
+    await renderShareholdersTab(body);
+  } else if(tab==='currencies'){
+    await renderCurrenciesTab(body);
+  } else if(tab==='fx-rates'){
+    await renderFxRatesTab(body);
+  } else if(tab==='pos-devices'){
+    await renderPosDevicesTab(body);
+  } else if(tab==='scale-settings'){
+    await renderScaleSettingsTab(body);
+  } else if(tab==='company-profile'){
+    await renderCompanyProfileTab(body);
+  } else if(tab==='opening-recv-cheques'){
+    await renderOpeningChequesTab(body,'in');
+  } else if(tab==='opening-pay-cheques'){
+    await renderOpeningChequesTab(body,'out');
+  } else if(tab==='journal-docs'){
+    await renderJournalDocsTab(body);
   } else if(tab==='cost-centers'){
     await renderCostCentersTab(body);
   } else if(tab==='customer-groups'){
@@ -4746,7 +4774,10 @@ async function renderPartiesTab(body){
   body.innerHTML=`
     <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
       <aside style="min-width:180px;max-width:220px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px">
-        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--purple)">گروه اشخاص <span class="muted">F11</span></div>
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--purple);display:flex;justify-content:space-between;align-items:center">
+          <span>گروه اشخاص</span>
+          <button type="button" class="btn sm icon" title="گروه جدید" onclick="partyGroupModal()">➕</button>
+        </div>
         <div id="partyGroupFilter" data-value="${esc(groupFilter)}" style="display:flex;flex-direction:column;gap:4px;font-size:13px">
           <button type="button" class="btn sm ${!groupFilter?'':'ghost'}" style="justify-content:flex-start;text-align:right" onclick="filterPartyGroup('')">کلیه اشخاص</button>
           ${(CACHE.partyGroups||[]).filter(g=>g.code!==0).map(g=>`
@@ -4756,7 +4787,7 @@ async function renderPartiesTab(body){
       </aside>
       <div style="flex:1;min-width:280px">
         <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
-          <button class="btn" onclick="partyModal()">➕ شخص جدید <span class="muted">F4</span></button>
+          <button class="btn" onclick="partyModal()" ${!groupFilter?'disabled title="ابتدا یک گروه اشخاص انتخاب یا ایجاد کنید"':''}>➕ شخص جدید <span class="muted">F4</span></button>
           <input id="partySearch" placeholder="جستجو نام/تلفن/کد... F10" value="${esc(search)}" onchange="loadAccTab('parties')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px">
         </div>
         <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
@@ -4812,11 +4843,18 @@ async function showPartyTurnover(id,name){
 }
 async function partyModal(id){
   if(!CACHE.partyGroups) CACHE.partyGroups=await api('GET','/party-groups')||[];
+  const userGroups=(CACHE.partyGroups||[]).filter(g=>g.code!==0);
+  if(!id && !PARTY_GROUP_FILTER && !userGroups.length){
+    showToast('ابتدا با دکمه ➕ یک گروه اشخاص تعریف کنید','error');
+    return;
+  }
   let p={party_type:'customer',party_roles:['customer']};
   if(id){
     const r=await api('GET','/parties/'+id);
     p=r.data||r||{};
     if(!p.party_roles) p.party_roles=['customer'];
+  } else if(PARTY_GROUP_FILTER){
+    p.party_group_id=+PARTY_GROUP_FILTER;
   }
   const roles=p.party_roles||[];
   const roleChk=(k,l)=>`<label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="checkbox" class="pty-role" value="${k}" ${roles.includes(k)?'checked':''} style="width:auto"> ${l}</label>`;
@@ -4841,9 +4879,9 @@ async function partyModal(id){
       <div class="fg"><label>شهر</label><input id="pty-city" value="${esc(p.city||'')}"></div>
       <div class="fg"><label>استان</label><input id="pty-province" value="${esc(p.province||'')}"></div>
       <div class="fg full"><label>آدرس</label><textarea id="pty-address">${esc(p.address||'')}</textarea></div>
-      <div class="fg full"><label>گروه اشخاص</label><select id="pty-party_group_id">
-        <option value="">— بدون گروه —</option>
-        ${(CACHE.partyGroups||[]).filter(g=>g.code!==0).map(g=>`<option value="${g.id}" ${p.party_group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}
+      <div class="fg full"><label>گروه اشخاص *</label><select id="pty-party_group_id" ${!id&&!userGroups.length?'disabled':''}>
+        <option value="">— انتخاب گروه —</option>
+        ${userGroups.map(g=>`<option value="${g.id}" ${p.party_group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}
       </select></div>
       <div class="fg full"><label>سمت‌ها و جایگاه‌ها (چند انتخابی)</label>
         <div style="display:flex;flex-wrap:wrap;gap:10px 16px;padding:8px 0">
@@ -4869,6 +4907,8 @@ async function saveParty(id){
   if(!full_name||!phone){ showToast('نام و تلفن الزامی است','error'); return; }
   const roles=[...document.querySelectorAll('.pty-role:checked')].map(x=>x.value);
   if(!roles.length){ showToast('حداقل یک سمت انتخاب کنید','error'); return; }
+  const party_group_id=el('pty-party_group_id').value;
+  if(!party_group_id){ showToast('انتخاب گروه اشخاص الزامی است','error'); return; }
   const data={
     person_code:el('pty-code').value.trim()||undefined,
     coa_code:el('pty-coa').value.trim(),
@@ -4880,7 +4920,7 @@ async function saveParty(id){
     postal_code:el('pty-postal_code').value, birth_date:el('pty-birth_date').value,
     referrer:el('pty-referrer').value, city:el('pty-city').value, province:el('pty-province').value,
     address:el('pty-address').value,
-    party_group_id:el('pty-party_group_id').value||null,
+    party_group_id,
     party_roles:roles,
     credit_limit:moneyVal('pty-credit'), opening_balance:moneyVal('pty-opening'),
     account_nature:el('pty-nature').value, notes:el('pty-note').value,
@@ -6902,7 +6942,7 @@ async function saveChartAccountEdit(code){
     closeModal(); showToast('حساب به‌روز شد');
     CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
     if(CURRENT_PAGE==='acc-dash') ROUTES['acc-dash']();
-    else if(accTab==='chart') loadAccTab('chart');
+    else if(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts'].includes(accTab)) loadAccTab(accTab);
     const dashChart=el('accDashChart'); if(dashChart) dashChart.innerHTML=chartOfAccountsGroupedHtml(CACHE.chartOfAccounts);
   }catch(e){}
 }
@@ -6914,7 +6954,7 @@ async function saveChartAccount(){
     await api('POST','/accounting/chart-of-accounts',{code,name,type,parent_code});
     closeModal(); showToast('حساب ثبت شد');
     if(CURRENT_PAGE==='acc-dash') ROUTES['acc-dash']();
-    else if(accTab==='chart') loadAccTab('chart');
+    else if(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts'].includes(accTab)) loadAccTab(accTab);
     else if(el('accDashChart')) el('accDashChart').innerHTML=chartOfAccountsGroupedHtml(await api('GET','/accounting/chart-of-accounts')||[]);
   }catch(e){}
 }
@@ -7033,7 +7073,7 @@ async function renderPartyGroupsTab(body){
   const rows=await api('GET','/party-groups')||[];
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="partyGroupModal()">➕ گروه جدید</button></div>
-    <div class="muted" style="font-size:12px;margin-bottom:10px">گروه‌های استاندارد: مشتریان، فروشندگان، پرسنل، وام‌ها، بازاریاب، دوزندگان بیرون بر، فروشگاه‌های ترنم</div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">گروه‌های اشخاص را خودتان تعریف کنید؛ سپس هنگام ثبت شخص جدید، گروه را انتخاب کنید.</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام گروه</th><th>نوع موجودیت</th><th>تعداد</th><th>عملیات</th></tr></thead>
     <tbody>${rows.map(g=>`<tr>
       <td class="mono">${g.code||'-'}</td>
@@ -7065,12 +7105,13 @@ async function savePartyGroup(id){
   const data={name,code:el('pg-code').value,entity_type:el('pg-entity').value,description:el('pg-desc').value};
   try{
     if(id) await api('PUT','/party-groups/'+id,data); else await api('POST','/party-groups',data);
-    closeModal(); showToast('ذخیره شد'); loadAccTab('party-groups');
+    CACHE.partyGroups=null;
+    closeModal(); showToast('ذخیره شد'); loadAccTab(accTab);
   }catch(e){}
 }
 async function deletePartyGroup(id){
   if(!confirm('این گروه حذف شود؟')) return;
-  try{ await api('DELETE','/party-groups/'+id); showToast('حذف شد'); loadAccTab('party-groups'); }catch(e){}
+  try{ await api('DELETE','/party-groups/'+id); CACHE.partyGroups=null; showToast('حذف شد'); loadAccTab(accTab); }catch(e){}
 }
 
 /* ---- Accounting sub-modules (منوی کامل) ---- */
@@ -7111,13 +7152,352 @@ async function renderAccIncomesTab(body){
       <button class="btn sm" style="margin-top:12px" onclick="loadAccTab('general')">📈 صورت سود و زیان</button>
     </div></div>`;
 }
+/* ---- Iranian accounting sub-modules (منوی تفکیک‌شده) ---- */
+const REF_TYPE_FA={
+  manual_voucher:'سند دستی',invoice:'فاکتور فروش',settlement:'تسویه',settlement_reversal:'ابطال تسویه',
+  purchase:'فاکتور خرید',purchase_return:'برگشت خرید',sales_return:'برگشت فروش',sales_return_reversal:'ابطال برگشت فروش',
+  opening:'مانده اول دوره',incentive_payment:'پرداخت انگیزه',incentive_payment_reversal:'ابطال انگیزه',
+  bank_transfer:'انتقال بانکی',expense:'هزینه',vat:'مالیات',depreciation:'استهلاک',revaluation:'تسعیر'
+};
+function coaDepthOf(accounts){
+  const byCode={}; (accounts||[]).forEach(a=>{ byCode[a.code]=a; });
+  function depth(code,seen=new Set()){
+    if(!code||seen.has(code)) return 0;
+    seen.add(code);
+    const p=byCode[code]?.parent_code;
+    return p?1+depth(p,seen):0;
+  }
+  return (accounts||[]).map(a=>({...a,_depth:depth(a.code)}));
+}
+function filterCoaByMode(accounts, mode){
+  const list=coaDepthOf(accounts);
+  if(mode==='coa-codes') return list;
+  if(mode==='account-groups') return list.filter(a=>!a.parent_code);
+  if(mode==='ledger-accounts') return list.filter(a=>a._depth===1);
+  if(mode==='subsidiary-accounts') return list.filter(a=>a._depth>=2);
+  return list;
+}
+const COA_SECTION_META={
+  'coa-codes':{title:'کدهای حسابداری (کامل)',hint:'فهرست کامل ساختار کدینگ حساب‌ها — کل، معین و تفصیلی شناور'},
+  'account-groups':{title:'گروه‌های حساب',hint:'سطح اول کدینگ (دارایی، بدهی، حقوق صاحبان سرمایه، درآمد، هزینه)'},
+  'ledger-accounts':{title:'حساب‌های کل',hint:'حساب‌های سطح دوم زیر هر گروه — مثال: ۱۱ موجودی نقد و بانک، ۲۱ بدهی‌های جاری'},
+  'subsidiary-accounts':{title:'حساب‌های معین',hint:'حساب‌های سطح سوم — تفصیل‌پذیر و قابل گردش در دفاتر'}
+};
+async function renderCoaSectionTab(body, mode){
+  const accounts=await api('GET','/accounting/chart-of-accounts')||[];
+  CACHE.chartOfAccounts=accounts;
+  const meta=COA_SECTION_META[mode]||COA_SECTION_META['coa-codes'];
+  const filtered=filterCoaByMode(accounts, mode);
+  const typeLabel={asset:'دارایی',liability:'بدهی',equity:'حقوق صاحبان سرمایه',revenue:'درآمد',cogs:'بهای تمام‌شده',expense:'هزینه'};
+  const canEdit=isAdmin()||ME.role==='accounting';
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">${meta.hint}</div>
+    <div class="toolbar" style="margin-bottom:12px">
+      ${canEdit?`<button class="btn" onclick="chartAccountModal()">➕ حساب جدید</button>`:''}
+      <button class="btn ghost" onclick="go('acc-dash')">📊 داشبورد</button>
+    </div>
+    <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <th>کد</th><th>نام حساب</th><th>سطح</th><th>گروه</th><th>ماهیت</th><th>نوع تفصیلی</th><th>حساب والد</th>${canEdit?'<th>عملیات</th>':''}
+    </tr></thead><tbody>
+    ${filtered.map(a=>`<tr style="${!a.parent_code?'font-weight:700;background:var(--purple-light)':''}">
+      <td class="mono">${esc(a.code)}</td>
+      <td style="padding-right:${8+(a._depth||0)*12}px">${a._depth?('↳ '.repeat(Math.min(a._depth,3))):''}${esc(a.name)}</td>
+      <td class="mono muted">${a._depth===0?'گروه':a._depth===1?'کل':a._depth===2?'معین':'تفصیلی'}</td>
+      <td class="muted">${typeLabel[a.type]||a.type||'-'}</td>
+      <td class="muted">${esc(a.nature||(a.type==='asset'||a.type==='expense'||a.type==='cogs'?'بدهکار':'بستانکار'))}</td>
+      <td class="muted">${esc(a.tafsili_type||'-')}</td>
+      <td class="mono muted">${a.parent_code||'-'}</td>
+      ${canEdit?`<td style="white-space:nowrap">
+        <button class="btn sm blue" onclick="go('acc-dash');dashPreselectGL('${esc(a.code)}')">📒</button>
+        <button class="btn sm ghost" onclick="chartAccountEditModal('${esc(a.code)}')">✏️</button>
+      </td>`:''}
+    </tr>`).join('')||emptyRow(canEdit?8:7)}
+    </tbody></table></div>`;
+}
+async function renderDetailCategoriesTab(body){
+  const cats=await api('GET','/detail-accounts/categories')||[];
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">دسته‌بندی حساب‌های تفصیلی شناور — اشخاص، بانک، صندوق، پروژه، مرکز هزینه (استاندارد حسابداری ایران)</div>
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="detailCategoryModal()">➕ دسته جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد دسته</th><th>عنوان دسته</th><th>توضیح</th></tr></thead>
+    <tbody>${cats.map(c=>`<tr>
+      <td class="mono">${esc(c.code)}</td><td>${esc(c.name)}</td>
+      <td class="muted">${esc({person:'اشخاص (مشتری/تأمین‌کننده/کارمند)',bank:'بانک',cash:'صندوق',project:'پروژه',cost_center:'مرکز هزینه'}[c.code]||'سایر')}</td>
+    </tr>`).join('')||emptyRow(3)}</tbody></table></div>`;
+}
+function detailCategoryModal(){
+  openModal(`<div class="modal-head"><h3>دسته تفصیلی جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>کد دسته *</label><input id="dc-code" placeholder="person" class="mono"></div>
+      <div class="fg full"><label>نام دسته *</label><input id="dc-name" placeholder="اشخاص"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveDetailCategory()">💾 ذخیره</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveDetailCategory(){
+  const code=el('dc-code').value.trim(), name=el('dc-name').value.trim();
+  if(!code||!name){ showToast('کد و نام الزامی است','error'); return; }
+  try{ await api('POST','/detail-accounts/categories',{code,name}); closeModal(); showToast('ذخیره شد'); loadAccTab('detail-categories'); }catch(e){}
+}
+async function renderOtherDetailsTab(body){
+  const rows=await api('GET','/detail-accounts?category=project')||[];
+  const all=await api('GET','/detail-accounts')||[];
+  const other=all.filter(d=>!['person','bank','cash'].includes((d.category_code||'').toLowerCase()));
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">سایر حساب‌های تفصیلی — پروژه، مرکز هزینه، دارایی ثابت و حساب‌های کمکی</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد تفصیلی</th><th>عنوان</th><th>دسته</th><th>مرتبط با</th></tr></thead>
+    <tbody>${other.map(d=>`<tr>
+      <td class="mono">${esc(d.code)}</td><td>${esc(d.name)}</td><td class="muted">${esc(d.category_name||'-')}</td>
+      <td class="muted">${d.linked_table?esc(d.linked_table)+' #'+d.linked_id:'-'}</td>
+    </tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
+}
+async function renderEquityInfoTab(body){
+  const accounts=(CACHE.chartOfAccounts||await api('GET','/accounting/chart-of-accounts')||[]).filter(a=>a.type==='equity');
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">اطلاعات سهام و حقوق صاحبان سرمایه — سرمایه، اندوخته، سود انباشته (طبق استاندارد حسابداری ایران)</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>عنوان حساب</th><th>حساب والد</th></tr></thead>
+    <tbody>${accounts.map(a=>`<tr><td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td><td class="mono muted">${a.parent_code||'-'}</td></tr>`).join('')||emptyRow(3)}</tbody></table></div>`;
+}
+async function renderShareholdersTab(body){
+  if(!CACHE.parties) CACHE.parties=(await api('GET','/parties')||{}).data||[];
+  const rows=(CACHE.parties||[]).filter(p=>(p.party_roles||[]).includes('partner'));
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">فهرست سهامداران و شرکا — از اشخاص با سمت «شریک/سهامدار»</div>
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="go('acc-parties')">👥 مدیریت اشخاص</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>کد ملی</th><th>تلفن</th><th>مانده ${moneyColLabel()}</th></tr></thead>
+    <tbody>${rows.map(p=>`<tr>
+      <td class="mono">${esc(p.person_code||'-')}</td><td>${esc(p.full_name||p.biz||'-')}</td>
+      <td class="mono">${esc(p.national_id||'-')}</td><td class="mono">${esc(p.phone||'-')}</td>
+      <td class="mono">${fmt(p.opening_balance_toman||0)}</td>
+    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+}
+const IR_CURRENCIES=[
+  {code:'IRR',name:'ریال ایران',symbol:'ریال',rate:1},
+  {code:'IRT',name:'تومان',symbol:'تومان',rate:10},
+  {code:'USD',name:'دلار آمریکا',symbol:'$',rate:0},
+  {code:'EUR',name:'یورو',symbol:'€',rate:0},
+  {code:'AED',name:'درهم امارات',symbol:'د.إ',rate:0},
+  {code:'TRY',name:'لیر ترکیه',symbol:'₺',rate:0},
+  {code:'CNY',name:'یوان چین',symbol:'¥',rate:0}
+];
+let FX_RATES_STORE=JSON.parse(localStorage.getItem('crm_fx_rates')||'null')||{};
+async function renderCurrenciesTab(body){
+  const display=(await api('GET','/settings/modules')||{}).currency_display||'rial';
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">فهرست ارزهای قابل استفاده در سیستم — ارز پایه: ریال (IRR) طبق قوانین مالیاتی ایران</div>
+    <div class="panel" style="margin-bottom:12px"><div class="panel-body">
+      <span class="tag">نمایش فعلی: ${display==='toman'?'تومان':'ریال'}</span>
+      ${isAdmin()?`<button class="btn sm ghost" style="margin-right:8px" onclick="go('settings')">تغییر در تنظیمات</button>`:''}
+    </div></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد ISO</th><th>نام ارز</th><th>نماد</th><th>ارز پایه</th></tr></thead>
+    <tbody>${IR_CURRENCIES.map(c=>`<tr>
+      <td class="mono">${esc(c.code)}</td><td>${esc(c.name)}</td><td>${esc(c.symbol)}</td>
+      <td>${c.code==='IRR'?'<span class="tag t-new">بله</span>':'-'}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+async function renderFxRatesTab(body){
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">تغییرات نرخ ارز — نرخ هر واحد ارز به ریال (برای تسعیر و گزارشات ارزی)</div>
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="fxRateModal()">➕ ثبت نرخ جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>ارز</th><th>نرخ (ریال)</th><th>منبع</th></tr></thead>
+    <tbody id="fxRatesBody"></tbody></table></div>`;
+  renderFxRatesTable();
+}
+function renderFxRatesTable(){
+  const tbody=el('fxRatesBody'); if(!tbody) return;
+  const rows=Object.entries(FX_RATES_STORE).flatMap(([cur,list])=>(list||[]).map(r=>({...r,currency:cur}))).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  tbody.innerHTML=rows.map(r=>`<tr>
+    <td class="mono">${escDate(r.date)}</td><td class="mono">${esc(r.currency)}</td>
+    <td class="mono">${fmt(r.rate)}</td><td class="muted">${esc(r.source||'دستی')}</td>
+  </tr>`).join('')||emptyRow(4);
+}
+function fxRateModal(){
+  openModal(`<div class="modal-head"><h3>ثبت نرخ ارز</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>تاریخ *</label><input id="fx-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>ارز *</label><select id="fx-cur">${IR_CURRENCIES.filter(c=>c.code!=='IRR').map(c=>`<option value="${c.code}">${c.code} — ${c.name}</option>`).join('')}</select></div>
+      <div class="fg"><label>نرخ به ریال *</label><input id="fx-rate" type="text" inputmode="numeric" class="money"></div>
+      <div class="fg"><label>منبع</label><input id="fx-src" placeholder="بانک مرکزی / بازار آزاد"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveFxRate()">💾 ذخیره</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+function saveFxRate(){
+  const date=el('fx-date').value, currency=el('fx-cur').value, rate=+(el('fx-rate').value.replace(/[^\d.]/g,''))||0;
+  if(!date||!rate){ showToast('تاریخ و نرخ الزامی است','error'); return; }
+  if(!FX_RATES_STORE[currency]) FX_RATES_STORE[currency]=[];
+  FX_RATES_STORE[currency].unshift({date,rate,source:el('fx-src').value||'دستی'});
+  localStorage.setItem('crm_fx_rates',JSON.stringify(FX_RATES_STORE));
+  closeModal(); showToast('نرخ ثبت شد'); renderFxRatesTable();
+}
+let POS_DEVICES=JSON.parse(localStorage.getItem('crm_pos_devices')||'[]');
+async function renderPosDevicesTab(body){
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">دستگاه‌های کارت‌خوان (POS) — شماره پایانه، بانک پذیرنده، حساب واریزی</div>
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="posDeviceModal()">➕ دستگاه جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>شماره پایانه</th><th>بانک</th><th>حساب واریزی</th><th>عملیات</th></tr></thead>
+    <tbody>${POS_DEVICES.map((d,i)=>`<tr>
+      <td>${esc(d.name)}</td><td class="mono">${esc(d.terminal_id)}</td><td>${esc(d.bank||'-')}</td>
+      <td class="mono muted">${esc(d.account||'-')}</td>
+      <td><button class="btn sm red" onclick="deletePosDevice(${i})">🗑️</button></td>
+    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+}
+function posDeviceModal(){
+  openModal(`<div class="modal-head"><h3>دستگاه کارت‌خوان</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>نام / محل *</label><input id="pos-name" placeholder="صندوق فروشگاه"></div>
+      <div class="fg"><label>شماره پایانه *</label><input id="pos-term" class="mono"></div>
+      <div class="fg"><label>بانک پذیرنده</label><input id="pos-bank"></div>
+      <div class="fg full"><label>شماره حساب واریزی</label><input id="pos-acct" class="mono"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="savePosDevice()">💾 ذخیره</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+function savePosDevice(){
+  const name=el('pos-name').value.trim(), terminal_id=el('pos-term').value.trim();
+  if(!name||!terminal_id){ showToast('نام و شماره پایانه الزامی است','error'); return; }
+  POS_DEVICES.push({name,terminal_id,bank:el('pos-bank').value,account:el('pos-acct').value});
+  localStorage.setItem('crm_pos_devices',JSON.stringify(POS_DEVICES));
+  closeModal(); showToast('ذخیره شد'); loadAccTab('pos-devices');
+}
+function deletePosDevice(i){ POS_DEVICES.splice(i,1); localStorage.setItem('crm_pos_devices',JSON.stringify(POS_DEVICES)); loadAccTab('pos-devices'); }
+let SCALE_SETTINGS=JSON.parse(localStorage.getItem('crm_scale_settings')||'null')||{port:'COM1',baud:9600,unit:'kg',prefix:'',enabled:false};
+async function renderScaleSettingsTab(body){
+  const s=SCALE_SETTINGS;
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">تنظیمات اتصال ترازو دیجیتال — پورت سریال، نرخ انتقال، واحد وزن</div>
+    <div class="panel"><div class="panel-body"><div class="form-grid">
+      <div class="fg"><label>فعال</label><select id="sc-en"><option value="1" ${s.enabled?'selected':''}>بله</option><option value="0" ${!s.enabled?'selected':''}>خیر</option></select></div>
+      <div class="fg"><label>پورت</label><input id="sc-port" value="${esc(s.port||'COM1')}" class="mono"></div>
+      <div class="fg"><label>Baud Rate</label><input id="sc-baud" type="number" value="${s.baud||9600}"></div>
+      <div class="fg"><label>واحد</label><select id="sc-unit"><option value="kg" ${s.unit==='kg'?'selected':''}>کیلوگرم</option><option value="g" ${s.unit==='g'?'selected':''}>گرم</option></select></div>
+      <div class="fg full"><label>پیشوند داده</label><input id="sc-prefix" value="${esc(s.prefix||'')}"></div>
+    </div>
+    <button class="btn" style="margin-top:12px" onclick="saveScaleSettings()">💾 ذخیره تنظیمات</button></div></div>`;
+}
+function saveScaleSettings(){
+  SCALE_SETTINGS={enabled:el('sc-en').value==='1',port:el('sc-port').value,baud:+el('sc-baud').value||9600,unit:el('sc-unit').value,prefix:el('sc-prefix').value};
+  localStorage.setItem('crm_scale_settings',JSON.stringify(SCALE_SETTINGS));
+  showToast('تنظیمات ترازو ذخیره شد');
+}
+async function renderCompanyProfileTab(body){
+  let s={};
+  try{ if(isAdmin()) s=await api('GET','/settings')||{}; }catch{}
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">مشخصات شرکت — نام تجاری، شناسه ملی، شماره اقتصادی، آدرس (برای فاکتور و مودیان)</div>
+    <div class="panel"><div class="panel-body"><div class="form-grid">
+      <div class="fg full"><label>نام شرکت</label><input id="cp-name" value="${esc(s.company_name||'')}" ${!isAdmin()?'disabled':''}></div>
+      <div class="fg"><label>تلفن</label><input id="cp-phone" value="${esc(s.company_phone||'')}" ${!isAdmin()?'disabled':''}></div>
+      <div class="fg"><label>شناسه ملی / اقتصادی</label><input id="cp-economic" value="${esc(s.moadian_fiscal_id||'')}" ${!isAdmin()?'disabled':''}></div>
+      <div class="fg full"><label>آدرس</label><textarea id="cp-addr" ${!isAdmin()?'disabled':''}>${esc(s.company_address||'')}</textarea></div>
+    </div>
+    ${isAdmin()?`<button class="btn" style="margin-top:12px" onclick="saveCompanyProfile()">💾 ذخیره</button>`:'<p class="muted">فقط مدیر سیستم می‌تواند ویرایش کند.</p>'}
+    </div></div>`;
+}
+async function saveCompanyProfile(){
+  try{
+    await api('PUT','/settings',{company_name:el('cp-name').value,company_phone:el('cp-phone').value,company_address:el('cp-addr').value,moadian_fiscal_id:el('cp-economic').value});
+    showToast('مشخصات شرکت ذخیره شد');
+  }catch(e){}
+}
+async function renderOpeningChequesTab(body, direction){
+  const label=direction==='in'?'دریافتنی':'پرداختنی';
+  const rows=await api('GET','/cheque-records?direction='+direction+'&opening=1')||[];
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">چک‌های ${label} مانده اول دوره — ثبت چک‌های نزد صندوق/بانک قبل از شروع دوره مالی جاری</div>
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="openingChequeModal('${direction}')">➕ ثبت چک اول دوره</button></div>
+    <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <th>شماره چک</th><th>مبلغ ${moneyColLabel()}</th><th>بانک</th><th>شعبه</th><th>طرف حساب</th><th>سررسید</th><th>صیادی</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>${rows.map(r=>`<tr>
+      <td class="mono">${esc(r.cheque_number||'-')}</td>
+      <td class="mono" style="font-weight:700">${fmt(r.amount)}</td>
+      <td>${esc(r.bank_name||'-')}</td><td class="muted">${esc(r.branch||'-')}</td>
+      <td>${esc(r.party_name||'-')}</td>
+      <td class="mono">${escDate(r.due_date||'-')}</td>
+      <td class="mono">${esc(r.sayadi||'-')}</td>
+      <td>${esc(r.status||'-')}</td>
+      <td><button class="btn sm red" onclick="deleteOpeningCheque(${r.id})">🗑️</button></td>
+    </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
+}
+function openingChequeModal(direction){
+  openModal(`<div class="modal-head"><h3>چک ${direction==='in'?'دریافتنی':'پرداختنی'} اول دوره</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>شماره چک</label><input id="oc-num" class="mono"></div>
+      <div class="fg"><label>مبلغ ${moneyColLabel()} *</label><input id="oc-amt" type="text" inputmode="numeric" class="money"></div>
+      <div class="fg"><label>بانک</label><input id="oc-bank"></div>
+      <div class="fg"><label>شعبه</label><input id="oc-branch"></div>
+      <div class="fg"><label>طرف حساب</label><input id="oc-party"></div>
+      <div class="fg"><label>تاریخ سررسید</label><input id="oc-due" data-jdate></div>
+      <div class="fg"><label>شماره صیادی</label><input id="oc-sayadi" class="mono"></div>
+      <div class="fg full"><label>شرح</label><input id="oc-note" placeholder="مانده اول دوره"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveOpeningCheque('${direction}')">💾 ثبت</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function saveOpeningCheque(direction){
+  const amount=moneyVal('oc-amt');
+  if(!amount){ showToast('مبلغ الزامی است','error'); return; }
+  try{
+    await api('POST','/cheque-records',{direction,amount,opening:true,
+      cheque_number:el('oc-num').value,bank_name:el('oc-bank').value,branch:el('oc-branch').value,
+      party_name:el('oc-party').value,due_date:el('oc-due').value,sayadi:el('oc-sayadi').value,note:el('oc-note').value});
+    closeModal(); showToast('ثبت شد'); loadAccTab(direction==='in'?'opening-recv-cheques':'opening-pay-cheques');
+  }catch(e){}
+}
+async function deleteOpeningCheque(id){
+  if(!confirm('این چک حذف شود؟')) return;
+  try{ await api('DELETE','/cheque-records/'+id); showToast('حذف شد'); loadAccTab(accTab); }catch(e){}
+}
+async function renderJournalDocsTab(body){
+  const dq=(accDateFrom||accDateTo)?'?'+(accDateFrom?'from='+encodeURIComponent(accDateFrom):'')+(accDateFrom&&accDateTo?'&':'')+(accDateTo?'to='+encodeURIComponent(accDateTo):''):'';
+  const d=await api('GET','/accounting/journal'+dq)||{entries:[]};
+  const entries=d.entries||[];
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">لیست تمامی اسناد حسابداری ثبت‌شده — فاکتور، تسویه، سند دستی و سایر عملیات</div>
+    <div class="toolbar" style="margin-bottom:12px">
+      <button class="btn" onclick="voucherModal()">➕ سند دستی</button>
+      <span class="tag">${fmt(entries.length)} سند</span>
+    </div>
+    ${entries.map(e=>`
+      <div style="border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden">
+        <div style="background:var(--purple-light);padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:12px;flex-wrap:wrap;gap:6px">
+          <span style="font-weight:700">#${e.id} <span class="mono">${escDate(e.entry_date||'-')}</span> — ${esc(e.description||'-')}</span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <span class="tag">${REF_TYPE_FA[e.ref_type]||e.ref_type||'سند'}</span>
+            <span class="muted">${esc(e.created_by_name||'-')}</span>
+          </span>
+        </div>
+        <table class="tbl" style="font-size:12px;margin:0"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار</th><th>بستانکار</th></tr></thead>
+        <tbody>${(e.lines||[]).map(l=>`<tr>
+          <td class="mono">${esc(l.account_code)}</td><td>${esc(l.account_name)}</td>
+          <td class="mono" style="color:var(--orange)">${l.debit>0?fmt(l.debit):'-'}</td>
+          <td class="mono" style="color:var(--green)">${l.credit>0?fmt(l.credit):'-'}</td>
+        </tr>`).join('')}</tbody></table>
+      </div>`).join('')||'<div class="empty">سندی ثبت نشده</div>'}`;
+}
+
 async function renderDetailAccountsTab(body){
   const [cats,rows]=await Promise.all([api('GET','/detail-accounts/categories')||[], api('GET','/detail-accounts')||[]]);
   body.innerHTML=`
-    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="loadAccTab('chart')">📒 دفتر کل و کدینگ</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>دسته</th></tr></thead>
-    <tbody>${rows.map(d=>`<tr><td class="mono">${esc(d.code)}</td><td>${esc(d.name)}</td><td class="muted">${esc(d.category_name||'-')}</td></tr>`).join('')||emptyRow(3)}</tbody></table></div>
-    <div class="muted" style="font-size:11px;margin-top:8px">دسته‌ها: ${(cats||[]).map(c=>esc(c.name)).join('، ')}</div>`;
+    <div class="muted" style="font-size:12px;margin-bottom:10px">حساب‌های تفصیلی شناور — کد تفصیلی اشخاص، بانک‌ها و سایر طرف‌حساب‌ها (سطح چهارم کدینگ)</div>
+    <div class="toolbar" style="margin-bottom:12px">
+      <button class="btn" onclick="detailAccountModal()">➕ تفصیلی جدید</button>
+      <button class="btn ghost" onclick="loadAccTab('detail-categories')">🏷️ دسته‌ها</button>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد تفصیلی</th><th>نام</th><th>دسته</th><th>مرتبط</th></tr></thead>
+    <tbody>${rows.map(d=>`<tr><td class="mono">${esc(d.code)}</td><td>${esc(d.name)}</td><td class="muted">${esc(d.category_name||'-')}</td>
+      <td class="muted">${d.linked_table?esc(d.linked_table)+' #'+d.linked_id:'-'}</td></tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
+}
+function detailAccountModal(){
+  openModal(`<div class="modal-head"><h3>حساب تفصیلی جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>کد تفصیلی *</label><input id="da-code" class="mono"></div>
+      <div class="fg full"><label>نام *</label><input id="da-name"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveDetailAccount()">💾 ذخیره</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveDetailAccount(){
+  const code=el('da-code').value.trim(), name=el('da-name').value.trim();
+  if(!code||!name){ showToast('کد و نام الزامی است','error'); return; }
+  try{ await api('POST','/detail-accounts',{code,name}); closeModal(); showToast('ذخیره شد'); loadAccTab('detail-accounts'); }catch(e){}
 }
 async function renderUnitsTab(body){
   const rows=await api('GET','/units')||[];
