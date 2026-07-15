@@ -14,6 +14,7 @@ const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
+const { tomanToRial } = require('../lib/money');
 
 // Create a supplier ledger entry (debit = we owe less / paid, credit = we owe more / purchased)
 function createSupplierLedgerEntry(db, { supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
@@ -63,7 +64,8 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { supplier_id, date, note, rows, disc, pay_type, bank_id, check_category_id, cash_box_id, warehouse_id } = req.body;
+  const { supplier_id, date, note, rows, disc, pay_type, bank_id, check_category_id, cash_box_id, warehouse_id,
+    freight_amount, freight_type, vat_exempt, cost_center_id } = req.body;
   if (!supplier_id) return res.status(400).json({ error: 'تأمین‌کننده الزامی است' });
   const db = getDB();
   let built;
@@ -71,23 +73,26 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   catch (e) { return res.status(400).json({ error: e.message }); }
 
   const discPct = parseFloat(disc) || 0;
-  const totals = calcDocTotals(db, built, discPct);
-  const { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
+  const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vat_exempt });
+  const freightRial = tomanToRial(parseFloat(freight_amount) || 0);
+  const freightToman = Math.round(freightRial / 10);
+  let { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
+  final += freightToman;
+  netBeforeVat += freightToman;
   const entryDate = date || todayJalali();
   const whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='purchase_num_prefix'").get();
   const pType = pay_type || 'credit';
+  const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
 
-  // All mutations commit atomically: number allocation, purchase row,
-  // stock increase, supplier ledger and journal postings.
   const { invId, num } = db.transaction(() => {
-    // Device builds issue a provisional number; central assigns the real one at sync
     const num = isDevice()
       ? ('موقت-' + Date.now().toString(36).toUpperCase())
       : allocateNumber(db, 'purchase', prefixRow?.value || 'PO');
     const result = db.prepare(
-      'INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,pay_type,stock_added,bank_id,check_category_id,cash_box_id,warehouse_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)'
-    ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, bank_id || null, check_category_id || null, cash_box_id || null, whId);
+      `INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,pay_type,stock_added,bank_id,check_category_id,cash_box_id,warehouse_id,freight_amount,freight_type,vat_exempt,cost_center_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)`
+    ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', vat_exempt ? 1 : 0, ccId);
     const invId = result.lastInsertRowid;
 
     // Stock increases immediately on purchase
@@ -109,15 +114,18 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     }
 
     // Journal: Dr Inventory + Dr VAT receivable / Cr Payable or Cash
-    const cr = pType === 'credit' ? payableAcct(db, supplier_id) : resolveCashAccount(db, pType, bank_id, cash_box_id);
     const invAcct = coaAcct(db, 'coa_inventory');
     const vatRec = coaAcct(db, 'coa_vat_receivable');
-    const jLines = [{ code: invAcct.code, name: invAcct.name, debit: netBeforeVat, credit: 0 }];
-    if (vatAmount > 0) jLines.push({ code: vatRec.code, name: vatRec.name, debit: vatAmount, credit: 0, description: 'VAT خرید' });
+    const inventoryDebit = netBeforeVat;
+    const jLines = [{ code: invAcct.code, name: invAcct.name, debit: inventoryDebit, credit: 0 }];
+    if (vatAmount > 0) jLines.push({ code: vatRec.code, name: vatRec.name, debit: vatAmount, credit: 0, description: 'مالیات خرید' });
+    const payTypeResolved = pType === 'bank_transfer' ? 'bank' : pType;
+    const cr = pType === 'credit' ? payableAcct(db, supplier_id) : resolveCashAccount(db, payTypeResolved, bank_id, cash_box_id);
     jLines.push({ code: cr.code, name: cr.name, debit: 0, credit: final });
     postToLedger(db, {
       sourceType: 'purchase', sourceId: invId, date: entryDate,
-      description: `فاکتور خرید ${num}`, createdBy: req.user.id, lines: jLines,
+      description: `فاکتور خرید ${num}${freightRial ? ' (با کرایه حمل)' : ''}`, createdBy: req.user.id, lines: jLines,
+      costCenterId: ccId,
     });
     return { invId, num };
   })();
@@ -137,6 +145,9 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
       for (const r of invRows) {
         db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
         db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `بازگشت موجودی از حذف فاکتور خرید ${row.num}`);
+        if (row.warehouse_id) {
+          db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, row.warehouse_id);
+        }
       }
     }
     if (row.pay_type === 'credit') {
@@ -145,13 +156,19 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
         description: `ابطال فاکتور خرید ${row.num}`, debit: row.final, credit: 0, user_id: req.user.id
       });
     }
-    const cr = row.pay_type === 'credit' ? payableAcct(db, row.supplier_id) : resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
+    const payTypeResolved = row.pay_type === 'bank_transfer' ? 'bank' : row.pay_type;
+    const cr = row.pay_type === 'credit' ? payableAcct(db, row.supplier_id) : resolveCashAccount(db, payTypeResolved, row.bank_id, row.cash_box_id);
+    const invAcct = coaAcct(db, 'coa_inventory');
+    const vatRec = coaAcct(db, 'coa_vat_receivable');
+    const netBeforeVat = (row.subtotal || 0) - (row.disc_amt || 0) + Math.round((row.freight_amount || 0) / 10);
+    const revLines = [
+      { code: cr.code, name: cr.name, debit: row.final, credit: 0 },
+      { code: invAcct.code, name: invAcct.name, debit: 0, credit: netBeforeVat },
+    ];
+    if (row.vat_amount > 0) revLines.push({ code: vatRec.code, name: vatRec.name, debit: 0, credit: row.vat_amount, description: 'ابطال VAT خرید' });
     createJournalEntry(db, {
       date: row.date || '', description: `ابطال فاکتور خرید ${row.num}`, ref_type: 'purchase_reversal', ref_id: row.id, created_by: req.user.id,
-      lines: [
-        { code: cr.code, name: cr.name, debit: row.final, credit: 0 },
-        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: 0, credit: row.final }
-      ]
+      lines: revLines,
     });
 
     db.prepare('DELETE FROM purchase_invoices WHERE id=?').run(req.params.id);

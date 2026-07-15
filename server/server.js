@@ -62,6 +62,8 @@ app.use(cors({
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+const { refDocResponseMiddleware } = require('./lib/ref-doc-sanitize');
+app.use('/api', refDocResponseMiddleware);
 
 // Barcode wedge/debounce helpers (browser + unit tests share this file)
 app.get('/barcode-input.js', (req, res) => {

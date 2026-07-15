@@ -1304,11 +1304,8 @@ function initDB() {
 // pull incrementally; devices keep an outbox of locally-performed operations
 // to replay against central. See sync/tables.js for the table registry and
 // the provisional id-space partitioning that makes offline creation safe.
-function initSyncSchema(db) {
+function ensureSyncColumnsForAllTables(db) {
   const { SYNCABLE_TABLES } = require('./sync/tables');
-
-  // Columns every syncable table needs (both roles — devices receive central
-  // values via pull; version powers optimistic concurrency for offline edits).
   for (const t of SYNCABLE_TABLES) {
     if (!tableExists(db, t.name)) continue;
     ensureColumn(db, t.name, 'sync_seq', 'INTEGER');
@@ -1319,6 +1316,13 @@ function initSyncSchema(db) {
       console.warn(`⚠️ sync_seq index skipped for ${t.name}:`, e.message);
     }
   }
+}
+
+function initSyncSchema(db) {
+  const { SYNCABLE_TABLES } = require('./sync/tables');
+
+  // First pass — tables that already exist from earlier initDB DDL.
+  ensureSyncColumnsForAllTables(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS global_seq (
@@ -1714,6 +1718,18 @@ function initSyncSchema(db) {
     ['current_leaf', 'TEXT'], ['note', 'TEXT'],
   ]) ensureColumn(db, 'check_categories', col, def);
   ensureColumn(db, 'banks', 'extra_accounts', "TEXT DEFAULT '[]'");
+  ensureColumn(db, 'purchase_invoices', 'freight_amount', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'purchase_invoices', 'freight_type', 'TEXT');
+  ensureColumn(db, 'purchase_invoices', 'vat_exempt', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'purchase_invoices', 'cost_center_id', 'INTEGER');
+  ensureColumn(db, 'invoices', 'warehouse_id', 'INTEGER');
+  ensureColumn(db, 'invoices', 'freight_amount', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'invoices', 'freight_type', 'TEXT');
+  ensureColumn(db, 'invoices', 'vat_exempt', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'invoices', 'bank_id', 'INTEGER');
+  ensureColumn(db, 'invoices', 'cash_box_id', 'INTEGER');
+  ensureColumn(db, 'invoices', 'cost_center_id', 'INTEGER');
+  ensureColumn(db, 'invoices', 'check_category_id', 'INTEGER');
 
   // Seed detail categories
   const dcCount = db.prepare('SELECT COUNT(*) c FROM detail_categories').get().c;
@@ -1920,6 +1936,8 @@ function initSyncSchema(db) {
   // delete, so the pull endpoint can serve incremental changes with zero
   // cooperation from route handlers. Non-recursive triggers (SQLite default)
   // mean the trigger's own UPDATE doesn't re-fire itself.
+  // Second pass — tables created above in this function (parties, fiscal_years, …).
+  ensureSyncColumnsForAllTables(db);
   if (!isDevice()) {
     for (const t of SYNCABLE_TABLES) {
       if (!tableExists(db, t.name)) continue;
@@ -1967,10 +1985,14 @@ function initSyncSchema(db) {
   }
 
   // Currency: مبنای ذخیره‌سازی ریال + مهاجرت یک‌باره از تومان
-  const { migrateTomanToRial, seedMahakSubgroups } = require('./lib/currency');
+  const { migrateTomanToRial, seedStandardSubgroups } = require('./lib/currency');
   migrateTomanToRial(db);
   // party_groups + product_categories seeds are required in standard mode too (CRM customers API joins party_groups).
-  seedMahakSubgroups(db);
+  seedStandardSubgroups(db);
+  const cmLegacy = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get();
+  if (cmLegacy?.value === 'mahak') {
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('coa_mode','extended')").run();
+  }
   const curBase = db.prepare("SELECT value FROM settings WHERE key='currency_base'").get();
   if (!curBase) db.prepare("INSERT INTO settings (key,value) VALUES ('currency_base','rial')").run();
   const curDisp = db.prepare("SELECT value FROM settings WHERE key='currency_display'").get();
@@ -2205,7 +2227,7 @@ function createJournalEntry(db, opts) {
 function resolveCashAccount(db, payType, bankId, cashBoxId) {
   if (bankId) {
     const bank = db.prepare('SELECT * FROM banks WHERE id=?').get(bankId);
-    // در حالت کدینگ محک، بانک مستقیماً به تفصیلی خودش می‌خورد
+    // بانک مستقیماً به تفصیلی خودش می‌خورد
     if (bank && bank.coa_code) return { code: bank.coa_code, name: bank.name };
     if (bank) return { code: '1102-' + bank.id, name: bank.name };
   }

@@ -1,15 +1,4 @@
-// Control-account mapping layer (docs/MAHAK-MIGRATION.md §3.2).
-//
-// Route handlers historically hardcode Taranom's original chart codes
-// (1103 receivables, 2101 payables, 1101 cash, ...). On a Mahak-based
-// database those postings must land on the Mahak codes instead. This module
-// resolves each logical account through the settings table with the legacy
-// code as fallback, so existing installs keep working unchanged: as long as
-// no coa_* settings row exists, every lookup returns the legacy code.
-//
-// A DB is in "Mahak mode" when settings.coa_mode = 'mahak' (written by the
-// importer). The importer also writes every coa_* key explicitly, so lookups
-// never guess.
+// Control-account mapping — settings coa_* keys override legacy defaults.
 const LEGACY = {
   coa_receivable:      { code: '1103',   name: 'حساب‌های دریافتنی' },
   coa_payable:         { code: '2101',   name: 'حساب‌های پرداختنی' },
@@ -38,6 +27,11 @@ function coaMode(db) {
   } catch { return ''; }
 }
 
+function usesExtendedCoa(db) {
+  const m = coaMode(db);
+  return m === 'extended' || m === 'mahak';
+}
+
 // Resolve a logical account key → { code, name }.
 // In Mahak mode the settings row holds the mapped code and the name comes
 // from chart_of_accounts; otherwise the legacy pair is returned untouched.
@@ -61,14 +55,13 @@ function acct(db, key) {
 
 function clearCoaCache() { _cache = null; }
 
-// In Mahak mode, every new operational entity gets its own tafsili account
-// under the mapped معین. Returns the new full code, or null outside Mahak
-// mode / on any failure (callers treat this as best-effort).
 const KIND_KEY = { customer: 'coa_receivable', supplier: 'coa_payable', product: 'coa_inventory', bank: 'coa_bank_default', cashbox: 'coa_cash_default', person: 'coa_misc_persons' };
 const KIND_TYPE = { customer: 'اشخاص', supplier: 'اشخاص', product: 'کالاها', bank: 'بانک ها', cashbox: 'صندوق ها', person: 'اشخاص' };
+
+// In extended coa mode, new entities get tafsili accounts under mapped معین.
 function allocTafsili(db, kind, name) {
   try {
-    if (coaMode(db) !== 'mahak') return null;
+    if (!usesExtendedCoa(db)) return null;
     const base = acct(db, KIND_KEY[kind]).code;
     const moein = base.length > 6 ? base.slice(0, 6) : base;      // والد سطح ۳
     if (moein.length !== 6) return null;
@@ -84,4 +77,4 @@ function allocTafsili(db, kind, name) {
   } catch { return null; }
 }
 
-module.exports = { acct, coaMode, clearCoaCache, allocTafsili, LEGACY };
+module.exports = { acct, coaMode, usesExtendedCoa, clearCoaCache, allocTafsili, LEGACY };

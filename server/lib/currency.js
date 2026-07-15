@@ -149,7 +149,7 @@ function guessMahakProductGroup(name) {
   return 'متفرقه';
 }
 
-function seedMahakSubgroups(db) {
+function seedStandardSubgroups(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS party_groups (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,8 +166,8 @@ function seedMahakSubgroups(db) {
   const insPg = db.prepare('INSERT OR IGNORE INTO party_groups (code,name,entity_type,description) VALUES (?,?,?,?)');
   const updPg = db.prepare('UPDATE party_groups SET entity_type=?,description=? WHERE name=?');
   for (const g of MAHAK_PARTY_GROUPS) {
-    insPg.run(g.code, g.name, g.entity_type, 'گروه استاندارد محک');
-    updPg.run(g.entity_type, 'گروه استاندارد محک', g.name);
+    insPg.run(g.code, g.name, g.entity_type, 'گروه استاندارد');
+    updPg.run(g.entity_type, 'گروه استاندارد', g.name);
   }
 
   const insCat = db.prepare('INSERT OR IGNORE INTO product_categories (name,code,parent_id,sort_order,description) VALUES (?,?,?,?,?)');
@@ -181,8 +181,8 @@ function seedMahakSubgroups(db) {
   };
 
   for (const g of MAHAK_PRODUCT_GROUPS) {
-    insCat.run(g.name, g.code, null, g.code, 'گروه استاندارد محک');
-    updCat.run(g.code, g.code, 'گروه استاندارد محک', g.name);
+    insCat.run(g.name, g.code, null, g.code, 'گروه استاندارد');
+    updCat.run(g.code, g.code, 'گروه استاندارد', g.name);
   }
   for (const g of MAHAK_PRODUCT_GROUPS) {
     if (g.parent == null) continue;
@@ -194,6 +194,7 @@ function seedMahakSubgroups(db) {
 
 module.exports = {
   BASE, storeRial, toDisplay, fromInput, unitLabel, displayMode,
-  migrateTomanToRial, seedMahakSubgroups, guessMahakProductGroup,
+  migrateTomanToRial, seedStandardSubgroups, guessMahakProductGroup,
+  seedMahakSubgroups: seedStandardSubgroups,
   MAHAK_PRODUCT_GROUPS, MAHAK_PARTY_GROUPS,
 };

@@ -239,7 +239,8 @@ router.put('/:id', auth, adminOnly, upload.single('image'), async (req, res) => 
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
-  const { category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, warehouse_id, barcode } = req.body;
+  const { category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, warehouse_id, barcode,
+    full_name, product_type, product_index, tax_id, consumer_price, location, opening_price, sms_code } = req.body;
   let catName = category || prod.category || '';
   let catId = category_id != null && category_id !== '' ? (parseInt(category_id) || null) : prod.category_id;
   if (catId) {
@@ -254,12 +255,18 @@ router.put('/:id', auth, adminOnly, upload.single('image'), async (req, res) => 
     } catch (e) { image = prod.image; }
   }
   const whId = warehouse_id != null && warehouse_id !== '' ? (parseInt(warehouse_id) || null) : prod.warehouse_id;
-  db.prepare('UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=? WHERE id=?')
+  db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=?,
+    full_name=?,product_type=?,product_index=?,tax_id=?,consumer_price=?,location=?,opening_price=?,sms_code=? WHERE id=?`)
     .run(catName, catId, code || '', name || prod.name, parseFloat(price) || 0,
          cost !== undefined ? (parseFloat(cost) || 0) : (prod.cost || 0), parseInt(stock) || 0,
          parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
          parseInt(colors) || prod.colors || 1, parseInt(pack_size) || prod.pack_size || 1,
-         whId, barcode !== undefined ? ((barcode || '').trim() || null) : prod.barcode, req.params.id);
+         whId, barcode !== undefined ? ((barcode || '').trim() || null) : prod.barcode,
+         full_name ?? prod.full_name ?? '', product_type ?? prod.product_type ?? '',
+         product_index ?? prod.product_index ?? '', tax_id ?? prod.tax_id ?? '',
+         consumer_price !== undefined ? (parseFloat(consumer_price) || 0) : (prod.consumer_price || 0),
+         location ?? prod.location ?? '', opening_price !== undefined ? (parseFloat(opening_price) || 0) : (prod.opening_price || 0),
+         sms_code ?? prod.sms_code ?? '', req.params.id);
   if (whId) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
       .run(req.params.id, whId, parseInt(stock) || prod.stock || 0);

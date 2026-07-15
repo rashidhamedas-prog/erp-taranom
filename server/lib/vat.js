@@ -19,6 +19,10 @@ function calcDocTotals(db, builtRows, discPct, options = {}) {
   const discAmt = Math.round(subtotal * (parseFloat(discPct) || 0) / 100);
   const netBeforeVat = subtotal - discAmt;
 
+  if (options.vatExempt) {
+    return { subtotal, discAmt, netBeforeVat, vatAmount: 0, vatRate: 0, final: netBeforeVat, taxableBase: 0 };
+  }
+
   let taxableBase = 0;
   for (const r of builtRows.rows || []) {
     const prod = db.prepare('SELECT vat_class FROM products WHERE id=?').get(r.product_id);
