@@ -17,15 +17,16 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { bank_id, name, serial_from, serial_to } = req.body;
+  const { bank_id, name, serial_from, serial_to, holder_name, leaf_count, current_leaf, note } = req.body;
   if (!bank_id) return res.status(400).json({ error: 'بانک الزامی است' });
   if (!name) return res.status(400).json({ error: 'نام دسته چک الزامی است' });
   const db = getDB();
   const bank = db.prepare('SELECT id FROM banks WHERE id=?').get(bank_id);
   if (!bank) return res.status(404).json({ error: 'بانک یافت نشد' });
   const result = db.prepare(
-    'INSERT INTO check_categories (bank_id,name,serial_from,serial_to) VALUES (?,?,?,?)'
-  ).run(bank_id, name, serial_from || '', serial_to || '');
+    'INSERT INTO check_categories (bank_id,name,serial_from,serial_to,holder_name,leaf_count,current_leaf,note) VALUES (?,?,?,?,?,?,?,?)'
+  ).run(bank_id, name, serial_from || '', serial_to || '', holder_name || '',
+    parseInt(leaf_count, 10) || 0, current_leaf || '', note || '');
   audit(req.user.id, 'create', 'check_category', result.lastInsertRowid, `ساخت دسته چک ${name}`);
   res.json(db.prepare('SELECT * FROM check_categories WHERE id=?').get(result.lastInsertRowid));
 });
@@ -34,9 +35,13 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM check_categories WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { bank_id, name, serial_from, serial_to, active } = req.body;
-  db.prepare('UPDATE check_categories SET bank_id=?,name=?,serial_from=?,serial_to=?,active=? WHERE id=?')
-    .run(bank_id || row.bank_id, name || row.name, serial_from ?? row.serial_from, serial_to ?? row.serial_to, active != null ? (active ? 1 : 0) : row.active, req.params.id);
+  const { bank_id, name, serial_from, serial_to, active, holder_name, leaf_count, current_leaf, note } = req.body;
+  db.prepare(`UPDATE check_categories SET bank_id=?,name=?,serial_from=?,serial_to=?,active=?,
+    holder_name=?,leaf_count=?,current_leaf=?,note=? WHERE id=?`)
+    .run(bank_id || row.bank_id, name || row.name, serial_from ?? row.serial_from, serial_to ?? row.serial_to,
+      active != null ? (active ? 1 : 0) : row.active,
+      holder_name ?? row.holder_name ?? '', leaf_count != null ? parseInt(leaf_count, 10) : (row.leaf_count || 0),
+      current_leaf ?? row.current_leaf ?? '', note ?? row.note ?? '', req.params.id);
   audit(req.user.id, 'update', 'check_category', req.params.id, `ویرایش دسته چک`);
   res.json({ ok: true });
 });

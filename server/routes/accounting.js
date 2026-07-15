@@ -1214,16 +1214,22 @@ router.get('/cost-centers', auth, adminOrAccounting, (req, res) => {
   res.json(db.prepare('SELECT * FROM cost_centers ORDER BY name').all());
 });
 router.post('/cost-centers', auth, adminOrAccounting, (req, res) => {
-  const { name, code } = req.body;
+  const { name, code, entity } = req.body;
   if (!name) return res.status(400).json({ error: 'نام مرکز هزینه الزامی است' });
   const db = getDB();
-  const result = db.prepare('INSERT INTO cost_centers (name,code) VALUES (?,?)').run(name, code || '');
+  let cc = code || '';
+  if (!cc) {
+    const n = (db.prepare('SELECT COUNT(*) c FROM cost_centers').get().c || 0) + 1;
+    cc = 'CC-' + String(n).padStart(3, '0');
+  }
+  const result = db.prepare('INSERT INTO cost_centers (name,code,entity) VALUES (?,?,?)').run(name, cc, entity || '');
   res.json(db.prepare('SELECT * FROM cost_centers WHERE id=?').get(result.lastInsertRowid));
 });
 router.put('/cost-centers/:id', auth, adminOrAccounting, (req, res) => {
-  const { name, code, active } = req.body;
+  const { name, code, active, entity } = req.body;
   const db = getDB();
-  db.prepare('UPDATE cost_centers SET name=?,code=?,active=? WHERE id=?').run(name, code || '', active ? 1 : 0, req.params.id);
+  db.prepare('UPDATE cost_centers SET name=?,code=?,active=?,entity=? WHERE id=?')
+    .run(name, code || '', active ? 1 : 0, entity ?? '', req.params.id);
   res.json({ ok: true });
 });
 router.delete('/cost-centers/:id', auth, adminOrAccounting, (req, res) => {

@@ -80,11 +80,14 @@ function getScope(req) {
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
+  const hasPartyGroups = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='party_groups'").get();
+  const pgJoin = hasPartyGroups ? 'LEFT JOIN party_groups pg ON c.party_group_id=pg.id' : '';
+  const pgCol = hasPartyGroups ? ',pg.name as party_group_name' : ",'' as party_group_name";
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature,pg.name as party_group_name FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id LEFT JOIN party_groups pg ON c.party_group_id=pg.id ORDER BY c.created_at DESC`).all();
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} ORDER BY c.created_at DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature,pg.name as party_group_name FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id LEFT JOIN party_groups pg ON c.party_group_id=pg.id WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
   }
   res.json(rows);
 });

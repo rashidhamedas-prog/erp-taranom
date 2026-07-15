@@ -218,4 +218,45 @@ router.post('/moves/transfer', auth, adminOrAccounting, (req, res) => {
   res.json({ id: result.lastInsertRowid, ok: true });
 });
 
+const DEFAULT_WAREHOUSE_ENTITIES = [
+  { value: 'workshop', label: 'کارگاه (نوبرت)' },
+  { value: 'distribution_office', label: 'دفتر توزیع (کیمیا)' },
+];
+const DEFAULT_WAREHOUSE_TYPES = [
+  { value: 'raw_material', label: 'مواد اولیه' },
+  { value: 'finished_goods', label: 'محصول نهایی' },
+  { value: 'consignment', label: 'امانی' },
+  { value: 'scrap', label: 'ضایعات' },
+];
+
+function readLookupOptions(db, key, defaults) {
+  const row = db.prepare("SELECT value FROM settings WHERE key=?").get(key);
+  if (!row?.value) return defaults;
+  try {
+    const parsed = JSON.parse(row.value);
+    return Array.isArray(parsed) && parsed.length ? parsed : defaults;
+  } catch (_) { return defaults; }
+}
+
+router.get('/lookup-options', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  res.json({
+    entities: readLookupOptions(db, 'warehouse_entities', DEFAULT_WAREHOUSE_ENTITIES),
+    types: readLookupOptions(db, 'warehouse_types', DEFAULT_WAREHOUSE_TYPES),
+  });
+});
+
+router.post('/lookup-options', auth, adminOrAccounting, (req, res) => {
+  const { kind, value, label } = req.body;
+  if (!kind || !value || !label) return res.status(400).json({ error: 'نوع، مقدار و برچسب الزامی است' });
+  const key = kind === 'type' ? 'warehouse_types' : 'warehouse_entities';
+  const defaults = kind === 'type' ? DEFAULT_WAREHOUSE_TYPES : DEFAULT_WAREHOUSE_ENTITIES;
+  const db = getDB();
+  const list = readLookupOptions(db, key, defaults);
+  if (!list.some(x => x.value === value)) list.push({ value: String(value), label: String(label) });
+  db.prepare("INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+    .run(key, JSON.stringify(list));
+  res.json({ ok: true, list });
+});
+
 module.exports = router;

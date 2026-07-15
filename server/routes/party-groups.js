@@ -8,7 +8,8 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
     SELECT g.*,
       (SELECT COUNT(*) FROM customers c WHERE c.party_group_id=g.id) +
       (SELECT COUNT(*) FROM suppliers s WHERE s.party_group_id=g.id) +
-      (SELECT COUNT(*) FROM persons p WHERE p.party_group_id=g.id) AS entity_count
+      (SELECT COUNT(*) FROM persons p WHERE p.party_group_id=g.id) +
+      (SELECT COUNT(*) FROM parties pt WHERE pt.party_group_id=g.id) AS entity_count
     FROM party_groups g ORDER BY g.code
   `).all();
   res.json(rows);
@@ -45,8 +46,9 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const inUse = db.prepare(`
     SELECT (SELECT COUNT(*) FROM customers WHERE party_group_id=?) +
            (SELECT COUNT(*) FROM suppliers WHERE party_group_id=?) +
-           (SELECT COUNT(*) FROM persons WHERE party_group_id=?) c
-  `).get(req.params.id, req.params.id, req.params.id).c;
+           (SELECT COUNT(*) FROM persons WHERE party_group_id=?) +
+           (SELECT COUNT(*) FROM parties WHERE party_group_id=?) c
+  `).get(req.params.id, req.params.id, req.params.id, req.params.id).c;
   if (inUse > 0) return res.status(400).json({ error: 'این گروه برای اشخاصی استفاده شده و قابل حذف نیست' });
   db.prepare('DELETE FROM party_groups WHERE id=?').run(req.params.id);
   audit(req.user.id, 'delete', 'party_group', req.params.id, `حذف گروه ${row.name}`);

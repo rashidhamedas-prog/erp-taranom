@@ -1704,6 +1704,16 @@ function initSyncSchema(db) {
   ensureColumn(db, 'warehouses', 'entity', "TEXT DEFAULT 'distribution_office'");
   ensureColumn(db, 'warehouses', 'cost_center_id', 'INTEGER');
   ensureColumn(db, 'cost_centers', 'entity', 'TEXT');
+  for (const [col, def] of [
+    ['party_group_id', 'INTEGER'], ['prefix', 'TEXT'], ['fax', 'TEXT'], ['mobile', 'TEXT'],
+    ['birth_date', 'TEXT'], ['referrer', 'TEXT'], ['account_nature', 'TEXT'],
+    ['coa_code', 'TEXT'], ['party_roles', 'TEXT'],
+  ]) ensureColumn(db, 'parties', col, def);
+  for (const [col, def] of [
+    ['holder_name', 'TEXT'], ['leaf_count', 'INTEGER DEFAULT 0'],
+    ['current_leaf', 'TEXT'], ['note', 'TEXT'],
+  ]) ensureColumn(db, 'check_categories', col, def);
+  ensureColumn(db, 'banks', 'extra_accounts', "TEXT DEFAULT '[]'");
 
   // Seed detail categories
   const dcCount = db.prepare('SELECT COUNT(*) c FROM detail_categories').get().c;
@@ -1959,8 +1969,8 @@ function initSyncSchema(db) {
   // Currency: مبنای ذخیره‌سازی ریال + مهاجرت یک‌باره از تومان
   const { migrateTomanToRial, seedMahakSubgroups } = require('./lib/currency');
   migrateTomanToRial(db);
-  const coaMode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get()?.value;
-  if (coaMode === 'mahak') seedMahakSubgroups(db);
+  // party_groups + product_categories seeds are required in standard mode too (CRM customers API joins party_groups).
+  seedMahakSubgroups(db);
   const curBase = db.prepare("SELECT value FROM settings WHERE key='currency_base'").get();
   if (!curBase) db.prepare("INSERT INTO settings (key,value) VALUES ('currency_base','rial')").run();
   const curDisp = db.prepare("SELECT value FROM settings WHERE key='currency_display'").get();

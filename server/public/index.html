@@ -1509,16 +1509,14 @@ const ACC_NAV_SECTIONS = [
     {id:'acc-dash', icon:'📊', label:'داشبورد و دفتر کل'},
   ]},
   { title: 'اطلاعات پایه', items: [
-    {id:'acc-parties', icon:'👥', label:'اشخاص (مشتری/تأمین‌کننده)'},
-    {id:'acc-party-groups', icon:'👤', label:'گروه‌های اشخاص', mahakOnly:true},
+    {id:'acc-parties', icon:'👥', label:'اشخاص'},
+    {id:'acc-party-groups', icon:'👤', label:'گروه‌های اشخاص'},
     {id:'acc-product-groups', icon:'🏷️', label:'گروه‌های کالا'},
     {id:'acc-customer-groups', icon:'📂', label:'گروه‌های مشتری (ماهیت حساب)'},
     {id:'acc-banks', icon:'🏦', label:'بانک‌ها'},
     {id:'acc-cash-boxes', icon:'💰', label:'صندوق‌های نقدی'},
     {id:'acc-check-categories', icon:'📑', label:'دسته‌های چک'},
     {id:'acc-warehouses', icon:'🏭', label:'انبارها'},
-    {id:'acc-persons', icon:'🧑‍💼', label:'اشخاص (کارمند/شریک/سایر)'},
-    {id:'acc-suppliers', icon:'🚚', label:'تأمین‌کنندگان'},
     {id:'acc-cost-centers', icon:'🏷️', label:'مراکز هزینه'},
   ]},
   { title: 'عملیات (فروش و خرید)', items: [
@@ -4283,9 +4281,9 @@ ROUTES['acc-cash-boxes']=()=>renderAccPage('cash-boxes','💰','صندوق‌ه�
 ROUTES['acc-petty-cash']=()=>renderAccPage('petty-cash','👛','تنخواه گردان');
 ROUTES['acc-trust-checks']=()=>renderAccPage('trust-checks','🔖','چک‌های امانی');
 ROUTES['acc-transfers']=()=>renderAccPage('transfers','🔄','انتقال وجه بین حساب‌ها');
-ROUTES['acc-parties']=()=>renderAccPage('parties','👥','اشخاص (مشتری/تأمین‌کننده)');
-ROUTES['acc-suppliers']=()=>renderAccPage('suppliers','🚚','تأمین‌کنندگان');
-ROUTES['acc-persons']=()=>renderAccPage('persons','🧑‍💼','اشخاص (کارمند، شریک، سرمایه‌گذار، پیمانکار، ...)');
+ROUTES['acc-parties']=()=>renderAccPage('parties','👥','اشخاص');
+ROUTES['acc-suppliers']=()=>go('acc-parties');
+ROUTES['acc-persons']=()=>go('acc-parties');
 ROUTES['acc-sales-invoices']=()=>renderAccPage('sales-invoices','🧾','فاکتورهای فروش');
 ROUTES['acc-purchases']=()=>renderAccPage('purchases','📦','فاکتور خرید');
 ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','برگشت از خرید');
@@ -4728,69 +4726,161 @@ document.addEventListener('click',e=>{ if(!e.target.closest('#genProdSearch')&&!
 /* ============================================================
    SUPPLIERS
 ============================================================ */
+let PARTY_GROUP_FILTER='';
 async function renderPartiesTab(body){
-  const typeFilter=el('partyTypeFilter')?.value||'';
+  const groupFilter=PARTY_GROUP_FILTER;
   const search=el('partySearch')?.value||'';
+  if(!CACHE.partyGroups) CACHE.partyGroups=await api('GET','/party-groups')||[];
   let qp='?'; const qps=[];
-  if(typeFilter) qps.push('type='+encodeURIComponent(typeFilter));
+  if(groupFilter) qps.push('party_group_id='+encodeURIComponent(groupFilter));
   if(search) qps.push('search='+encodeURIComponent(search));
   qp+=qps.join('&');
   const resp=await api('GET','/parties'+qp)||{};
   const rows=resp.data||resp||[];
   CACHE.parties=rows;
-  const typeLabel={customer:'مشتری',supplier:'تأمین‌کننده',both:'هر دو',other:'سایر'};
+  const natureLabel={debit:'بدهکار',credit:'بستانکار','':'بی‌حساب'};
+  const roleLabel={customer:'مشتری',supplier:'تأمین‌کننده',employee:'کارمند',partner:'شریک',marketer:'بازاریاب',other:'سایر'};
   body.innerHTML=`
-    <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <button class="btn" onclick="partyModal()">➕ شخص جدید</button>
-      <select id="partyTypeFilter" onchange="loadAccTab('parties')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px">
-        <option value="">همه انواع</option>
-        <option value="customer" ${typeFilter==='customer'?'selected':''}>مشتری</option>
-        <option value="supplier" ${typeFilter==='supplier'?'selected':''}>تأمین‌کننده</option>
-        <option value="both" ${typeFilter==='both'?'selected':''}>هر دو</option>
-        <option value="other" ${typeFilter==='other'?'selected':''}>سایر</option>
-      </select>
-      <input id="partySearch" placeholder="جستجو نام/تلفن/کد..." value="${esc(search)}" onchange="loadAccTab('parties')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:180px">
-    </div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>کد</th><th>نوع</th><th>نام</th><th>تلفن</th><th>شهر</th><th>عملیات</th>
-    </tr></thead><tbody>${rows.map(p=>`<tr>
-      <td class="mono">${esc(p.person_code||'-')}</td>
-      <td>${typeLabel[p.party_type]||p.party_type}</td>
-      <td>${esc(p.full_name||p.biz||'-')}</td>
-      <td class="mono">${esc(p.phone||'-')}</td>
-      <td>${esc(p.city||'-')}</td>
-      <td><button class="btn sm ghost" onclick="partyModal(${p.id})">✏️</button></td>
-    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+    <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <aside style="min-width:180px;max-width:220px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--purple)">گروه اشخاص <span class="muted">F11</span></div>
+        <div id="partyGroupFilter" data-value="${esc(groupFilter)}" style="display:flex;flex-direction:column;gap:4px;font-size:13px">
+          <button type="button" class="btn sm ${!groupFilter?'':'ghost'}" style="justify-content:flex-start;text-align:right" onclick="filterPartyGroup('')">کلیه اشخاص</button>
+          ${(CACHE.partyGroups||[]).filter(g=>g.code!==0).map(g=>`
+            <button type="button" class="btn sm ${groupFilter==String(g.id)?'':'ghost'}" style="justify-content:flex-start;text-align:right" onclick="filterPartyGroup('${g.id}')">${esc(g.name)}</button>
+          `).join('')}
+        </div>
+      </aside>
+      <div style="flex:1;min-width:280px">
+        <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <button class="btn" onclick="partyModal()">➕ شخص جدید <span class="muted">F4</span></button>
+          <input id="partySearch" placeholder="جستجو نام/تلفن/کد... F10" value="${esc(search)}" onchange="loadAccTab('parties')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px">
+        </div>
+        <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+          <th>کد</th><th>کد تفصیلی</th><th>نام</th><th>تلفن ۱</th><th>شهر</th><th>گروه</th><th>سمت‌ها</th><th>ماهیت</th><th>مانده ${moneyColLabel()}</th><th>عملیات</th>
+        </tr></thead><tbody>${rows.map(p=>`<tr>
+          <td class="mono">${esc(p.person_code||'-')}</td>
+          <td class="mono muted">${esc(p.coa_code||'-')}</td>
+          <td>${esc(p.prefix||'')} ${esc(p.full_name||p.company_name||p.biz||'-')}</td>
+          <td class="mono">${esc(p.phone||'-')}</td>
+          <td>${esc(p.city||'-')}</td>
+          <td>${esc(p.party_group_name||'-')}</td>
+          <td>${(p.party_roles||[]).map(r=>roleLabel[r]||r).join('، ')||'-'}</td>
+          <td>${natureLabel[p.account_nature]||p.account_nature||'-'}</td>
+          <td class="mono">${fmt(p.opening_balance_toman||0)}</td>
+          <td style="white-space:nowrap">
+            <button class="btn sm ghost" onclick="partyModal(${p.id})">✏️</button>
+            <button class="btn sm blue" onclick="showPartyTurnover(${p.id},'${esc(p.full_name||p.biz||'')}')">📒 گردش</button>
+          </td>
+        </tr>`).join('')||emptyRow(10)}</tbody></table></div>
+      </div>
+    </div>`;
 }
-function partyModal(id){
-  const p=id?(CACHE.parties||[]).find(x=>x.id===id):{party_type:'customer'};
+function filterPartyGroup(id){ PARTY_GROUP_FILTER=id; loadAccTab('parties'); }
+async function showPartyTurnover(id,name){
+  try{
+    const pr=await api('GET','/parties/'+id);
+    const p=pr.data||pr;
+    let entries=[], title=name;
+    const [customers,suppliers]=await Promise.all([api('GET','/customers')||[], api('GET','/suppliers')||[]]);
+    const cust=customers.find(c=>c.party_id===p.id)||(p.legacy_table==='customers'&&p.legacy_id?customers.find(c=>c.id===p.legacy_id):null);
+    const sup=suppliers.find(s=>s.party_id===p.id)||(p.legacy_table==='suppliers'&&p.legacy_id?suppliers.find(s=>s.id===p.legacy_id):null);
+    if(cust&&((p.party_roles||[]).includes('customer')||p.party_type==='customer'||p.party_type==='both')){
+      const d=await api('GET','/accounting/statement/'+cust.id)||{};
+      entries=(d.entries||[]).map(e=>({date:e.date,description:e.type_label||e.note||'-',debit:e.debit||0,credit:e.credit||0,balance:e.running_balance||0}));
+      title='گردش مشتری: '+name;
+    } else if(sup){
+      const d=await api('GET','/purchases/ledger/'+sup.id)||{entries:[]};
+      entries=(d.entries||[]).map(e=>({date:e.date,description:e.description||e.note||'-',debit:e.debit||0,credit:e.credit||0,balance:e.balance||0}));
+      title='گردش تأمین‌کننده: '+name;
+    }
+    if(!entries.length){ showToast('دفتر گردش برای این شخص یافت نشد — پس از ذخیره با سمت مشتری/تأمین‌کننده دوباره امتحان کنید','error'); return; }
+    openModal(`
+      <div class="modal-head"><h3>📒 ${esc(title)}</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body" style="padding:0"><div class="tbl-wrap" style="max-height:70vh"><table class="tbl"><thead><tr>
+        <th>تاریخ</th><th>شرح</th><th>بدهکار ${moneyColLabel()}</th><th>بستانکار</th><th>مانده</th>
+      </tr></thead><tbody>${entries.map(r=>`<tr>
+        <td class="mono">${escDate(r.date)}</td><td>${esc(r.description||'-')}</td>
+        <td class="mono">${fmt(r.debit||0)}</td><td class="mono">${fmt(r.credit||0)}</td>
+        <td class="mono">${fmt(r.balance||0)}</td>
+      </tr>`).join('')||emptyRow(5)}</tbody></table></div></div>
+      <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+  }catch(e){ showToast('خطا در بارگذاری گردش','error'); }
+}
+async function partyModal(id){
+  if(!CACHE.partyGroups) CACHE.partyGroups=await api('GET','/party-groups')||[];
+  let p={party_type:'customer',party_roles:['customer']};
+  if(id){
+    const r=await api('GET','/parties/'+id);
+    p=r.data||r||{};
+    if(!p.party_roles) p.party_roles=['customer'];
+  }
+  const roles=p.party_roles||[];
+  const roleChk=(k,l)=>`<label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="checkbox" class="pty-role" value="${k}" ${roles.includes(k)?'checked':''} style="width:auto"> ${l}</label>`;
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>نوع *</label><select id="pty-type">
-        <option value="customer" ${p.party_type==='customer'?'selected':''}>مشتری</option>
-        <option value="supplier" ${p.party_type==='supplier'?'selected':''}>تأمین‌کننده</option>
-        <option value="both" ${p.party_type==='both'?'selected':''}>هر دو</option>
-        <option value="other" ${p.party_type==='other'?'selected':''}>سایر</option>
-      </select></div>
-      <div class="fg"><label>نام / نام فروشگاه *</label><input id="pty-name" value="${esc(p.full_name||p.biz||'')}"></div>
-      <div class="fg"><label>تلفن *</label><input id="pty-phone" value="${esc(p.phone||'')}"></div>
+    <div class="modal-body" style="max-height:75vh;overflow:auto"><div class="form-grid">
+      <div class="fg"><label>کد</label><input id="pty-code" dir="ltr" class="mono" value="${esc(p.person_code||'')}" placeholder="خودکار"></div>
+      <div class="fg"><label>کد حساب تفصیلی</label><input id="pty-coa" dir="ltr" class="mono" value="${esc(p.coa_code||'')}"></div>
+      <div class="fg"><label>پیشوند (آقا/خانم)</label><input id="pty-prefix" value="${esc(p.prefix||'')}"></div>
+      <div class="fg full"><label>نام / نام فروشگاه *</label><input id="pty-name" value="${esc(p.full_name||p.biz||'')}"></div>
+      <div class="fg full"><label>نام شرکت</label><input id="pty-company" value="${esc(p.company_name||'')}"></div>
+      <div class="fg"><label>تلفن ۱ *</label><input id="pty-phone" value="${esc(p.phone||'')}"></div>
+      <div class="fg"><label>تلفن ۲</label><input id="pty-phone2" value="${esc(p.secondary_phone||'')}"></div>
+      <div class="fg"><label>موبایل</label><input id="pty-mobile" value="${esc(p.mobile||'')}"></div>
+      <div class="fg"><label>فکس</label><input id="pty-fax" value="${esc(p.fax||'')}"></div>
+      <div class="fg"><label>ایمیل</label><input id="pty-email" value="${esc(p.email||'')}"></div>
+      <div class="fg"><label>کد ملی</label><input id="pty-national_id" dir="ltr" value="${esc(p.national_id||'')}"></div>
+      <div class="fg"><label>شماره اقتصادی</label><input id="pty-economic_code" value="${esc(p.economic_code||'')}"></div>
+      <div class="fg"><label>کد پستی</label><input id="pty-postal_code" value="${esc(p.postal_code||'')}"></div>
+      <div class="fg"><label>تاریخ تولد</label><input id="pty-birth_date" data-jdate value="${esc(p.birth_date||'')}"></div>
+      <div class="fg"><label>معرف</label><input id="pty-referrer" value="${esc(p.referrer||'')}"></div>
       <div class="fg"><label>شهر</label><input id="pty-city" value="${esc(p.city||'')}"></div>
-      <div class="fg"><label>کد ملی</label><input id="pty-national_id" value="${esc(p.national_id||'')}"></div>
-      <div class="fg"><label>کد اقتصادی</label><input id="pty-economic_code" value="${esc(p.economic_code||'')}"></div>
+      <div class="fg"><label>استان</label><input id="pty-province" value="${esc(p.province||'')}"></div>
+      <div class="fg full"><label>آدرس</label><textarea id="pty-address">${esc(p.address||'')}</textarea></div>
+      <div class="fg full"><label>گروه اشخاص</label><select id="pty-party_group_id">
+        <option value="">— بدون گروه —</option>
+        ${(CACHE.partyGroups||[]).filter(g=>g.code!==0).map(g=>`<option value="${g.id}" ${p.party_group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg full"><label>سمت‌ها و جایگاه‌ها (چند انتخابی)</label>
+        <div style="display:flex;flex-wrap:wrap;gap:10px 16px;padding:8px 0">
+          ${roleChk('customer','مشتری')} ${roleChk('supplier','تأمین‌کننده')} ${roleChk('employee','کارمند')}
+          ${roleChk('partner','شریک/سهامدار')} ${roleChk('marketer','بازاریاب')} ${roleChk('other','سایر')}
+        </div></div>
+      <div class="fg"><label>سقف اعتبار ${moneyColLabel()}</label><input id="pty-credit" type="text" inputmode="numeric" class="money" value="${moneyInit(p.credit_limit_toman||0)}"></div>
+      <div class="fg"><label>مانده اول دوره ${moneyColLabel()}</label><input id="pty-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(p.opening_balance_toman||0)}"></div>
+      <div class="fg"><label>ماهیت حساب</label><select id="pty-nature">
+        <option value="" ${!p.account_nature?'selected':''}>—</option>
+        <option value="debit" ${p.account_nature==='debit'?'selected':''}>بدهکار</option>
+        <option value="credit" ${p.account_nature==='credit'?'selected':''}>بستانکار</option>
+      </select></div>
       <div class="fg full"><label>یادداشت</label><textarea id="pty-note">${esc(p.notes||p.note||'')}</textarea></div>
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveParty(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  initJalaliPickers();
 }
 async function saveParty(id){
   const full_name=el('pty-name').value.trim();
   const phone=el('pty-phone').value.trim();
   if(!full_name||!phone){ showToast('نام و تلفن الزامی است','error'); return; }
+  const roles=[...document.querySelectorAll('.pty-role:checked')].map(x=>x.value);
+  if(!roles.length){ showToast('حداقل یک سمت انتخاب کنید','error'); return; }
   const data={
-    party_type:el('pty-type').value, full_name, phone,
-    city:el('pty-city').value, national_id:el('pty-national_id').value,
-    economic_code:el('pty-economic_code').value, notes:el('pty-note').value,
+    person_code:el('pty-code').value.trim()||undefined,
+    coa_code:el('pty-coa').value.trim(),
+    prefix:el('pty-prefix').value,
+    full_name, company_name:el('pty-company').value,
+    phone, secondary_phone:el('pty-phone2').value, mobile:el('pty-mobile').value,
+    fax:el('pty-fax').value, email:el('pty-email').value,
+    national_id:el('pty-national_id').value, economic_code:el('pty-economic_code').value,
+    postal_code:el('pty-postal_code').value, birth_date:el('pty-birth_date').value,
+    referrer:el('pty-referrer').value, city:el('pty-city').value, province:el('pty-province').value,
+    address:el('pty-address').value,
+    party_group_id:el('pty-party_group_id').value||null,
+    party_roles:roles,
+    credit_limit:moneyVal('pty-credit'), opening_balance:moneyVal('pty-opening'),
+    account_nature:el('pty-nature').value, notes:el('pty-note').value,
     biz:full_name
   };
   try{
@@ -5137,10 +5227,14 @@ function productOptions(selectedId){
   return `<option value="">-- انتخاب کالا --</option>` + (CACHE.allProducts||[]).map(p=>`<option value="${p.id}" ${p.id===selectedId?'selected':''}>${esc(p.name)} (${esc(p.code||'-')}) — موجودی: ${fmt(p.stock||0)}</option>`).join('');
 }
 async function renderWarehousesTab(body){
-  const warehouses=await api('GET','/warehouses')||[];
+  const [warehouses,lookup]=await Promise.all([
+    api('GET','/warehouses')||[],
+    api('GET','/warehouses/lookup-options')||{}
+  ]);
   CACHE.warehouses=warehouses;
-  const entityLabel={workshop:'کارگاه',distribution_office:'دفتر توزیع'};
-  const typeLabel={raw_material:'مواد اولیه',finished_goods:'محصول نهایی',consignment:'امانی',scrap:'ضایعات'};
+  CACHE.warehouseLookup=lookup;
+  const entityMap=Object.fromEntries((lookup.entities||[]).map(o=>[o.value,o.label]));
+  const typeMap=Object.fromEntries((lookup.types||[]).map(o=>[o.value,o.label]));
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="warehouseModal()">➕ انبار جدید</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
@@ -5148,8 +5242,8 @@ async function renderWarehousesTab(body){
     </tr></thead><tbody>${warehouses.map(w=>`<tr>
       <td class="mono">${esc(w.code||'-')}</td>
       <td>${esc(w.name)}</td>
-      <td>${entityLabel[w.entity]||w.entity||'-'}</td>
-      <td>${typeLabel[w.warehouse_type]||w.warehouse_type||'-'}</td>
+      <td>${entityMap[w.entity]||w.entity||'-'}</td>
+      <td>${typeMap[w.warehouse_type]||w.warehouse_type||'-'}</td>
       <td class="muted">${esc(w.address||'-')}</td>
       <td>${w.is_default?'<span class="tag t-done">✓</span>':'-'}</td>
       <td>${w.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
@@ -5162,21 +5256,22 @@ async function renderWarehousesTab(body){
 }
 function warehouseModal(id){
   const w=id?(CACHE.warehouses||[]).find(x=>x.id===id):{active:1,entity:'distribution_office',warehouse_type:'finished_goods'};
+  const lookup=CACHE.warehouseLookup||{entities:[],types:[]};
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش انبار':'انبار جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>کد</label><input id="wh-code" value="${esc(w?.code||'')}"></div>
       <div class="fg full"><label>نام انبار *</label><input id="wh-name" value="${esc(w?.name||'')}"></div>
       <div class="fg"><label>واحد عملیاتی</label><select id="wh-entity">
-        <option value="workshop" ${w.entity==='workshop'?'selected':''}>کارگاه (نوبرت)</option>
-        <option value="distribution_office" ${w.entity==='distribution_office'||!w.entity?'selected':''}>دفتر توزیع (کیمیا)</option>
+        ${(lookup.entities||[]).map(o=>`<option value="${esc(o.value)}" ${w.entity===o.value?'selected':''}>${esc(o.label)}</option>`).join('')}
+        <option value="__new__">➕ مورد جدید...</option>
       </select></div>
+      <div class="fg" id="wh-entity-new-wrap" style="display:none"><label>نام واحد جدید</label><input id="wh-entity-new" placeholder="مثال: شعبه تهران"></div>
       <div class="fg"><label>نوع انبار</label><select id="wh-type">
-        <option value="raw_material" ${w.warehouse_type==='raw_material'?'selected':''}>مواد اولیه</option>
-        <option value="finished_goods" ${w.warehouse_type==='finished_goods'||!w.warehouse_type?'selected':''}>محصول نهایی</option>
-        <option value="consignment" ${w.warehouse_type==='consignment'?'selected':''}>امانی</option>
-        <option value="scrap" ${w.warehouse_type==='scrap'?'selected':''}>ضایعات</option>
+        ${(lookup.types||[]).map(o=>`<option value="${esc(o.value)}" ${w.warehouse_type===o.value?'selected':''}>${esc(o.label)}</option>`).join('')}
+        <option value="__new__">➕ نوع جدید...</option>
       </select></div>
+      <div class="fg" id="wh-type-new-wrap" style="display:none"><label>نام نوع جدید</label><input id="wh-type-new" placeholder="مثال: انبار ضایعات"></div>
       <div class="fg full"><label>آدرس</label><input id="wh-address" value="${esc(w?.address||'')}"></div>
       <div class="fg"><label><input type="checkbox" id="wh-default" ${w.is_default?'checked':''}> انبار پیش‌فرض</label></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="wh-active">
@@ -5185,13 +5280,28 @@ function warehouseModal(id){
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveWarehouse(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  el('wh-entity')?.addEventListener('change',()=>{ el('wh-entity-new-wrap').style.display=el('wh-entity').value==='__new__'?'block':'none'; });
+  el('wh-type')?.addEventListener('change',()=>{ el('wh-type-new-wrap').style.display=el('wh-type').value==='__new__'?'block':'none'; });
 }
 async function saveWarehouse(id){
   const name=el('wh-name').value.trim();
   if(!name){ showToast('نام انبار الزامی است','error'); return; }
+  let entity=el('wh-entity').value, warehouse_type=el('wh-type').value;
+  if(entity==='__new__'){
+    const label=el('wh-entity-new').value.trim();
+    if(!label){ showToast('نام واحد عملیاتی جدید الزامی است','error'); return; }
+    entity=label.replace(/\s+/g,'_').toLowerCase();
+    await api('POST','/warehouses/lookup-options',{kind:'entity',value:entity,label});
+  }
+  if(warehouse_type==='__new__'){
+    const label=el('wh-type-new').value.trim();
+    if(!label){ showToast('نام نوع انبار جدید الزامی است','error'); return; }
+    warehouse_type=label.replace(/\s+/g,'_').toLowerCase();
+    await api('POST','/warehouses/lookup-options',{kind:'type',value:warehouse_type,label});
+  }
   const data={
     name, address:el('wh-address').value, code:el('wh-code').value.trim(),
-    entity:el('wh-entity').value, warehouse_type:el('wh-type').value,
+    entity, warehouse_type,
     is_default:el('wh-default')?.checked?1:0
   };
   if(id) data.active=+el('wh-active').value;
@@ -5602,11 +5712,51 @@ async function renderFixedAssetsTab(body){
       <td>${esc(a.status||'active')}</td>
     </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
 }
-async function openFixedAssetModal(){
-  const name=prompt('نام دارایی:'); if(!name) return;
-  const cost=prompt('بهای تمام‌شده (ریال):'); if(!cost) return;
-  await api('POST','/fixed-assets',{name,cost_rial:parseInt(cost,10)});
-  showToast('دارایی ثبت شد'); loadAccTab('fixed-assets');
+async function openFixedAssetModal(id){
+  let a={status:'active',useful_life_months:60,category:'تجهیزات',coa_asset_code:'1201'};
+  if(id){
+    const rows=await api('GET','/fixed-assets')||[];
+    a=rows.find(x=>x.id===id)||a;
+  }
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش دارایی':'دارایی ثابت جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>کد</label><input id="fa-code" dir="ltr" class="mono" value="${esc(a.code||'')}" placeholder="خودکار"></div>
+      <div class="fg full"><label>نام دارایی *</label><input id="fa-name" value="${esc(a.name||'')}"></div>
+      <div class="fg"><label>دسته</label><select id="fa-category">
+        ${['تجهیزات','ماشین‌آلات','وسایل نقلیه','اثاثه','ساختمان','نرم‌افزار','سایر'].map(c=>`<option ${a.category===c?'selected':''}>${c}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>تاریخ خرید</label><input id="fa-date" data-jdate value="${esc(a.purchase_date||'')}"></div>
+      <div class="fg"><label>بهای تمام‌شده ${moneyColLabel()} *</label><input id="fa-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(Math.round((a.cost_rial||0)/10))}"></div>
+      <div class="fg"><label>ارزش اسقاط ${moneyColLabel()}</label><input id="fa-salvage" type="text" inputmode="numeric" class="money" value="${moneyInit(Math.round((a.salvage_rial||0)/10))}"></div>
+      <div class="fg"><label>عمر مفید (ماه)</label><input id="fa-life" type="number" min="1" value="${a.useful_life_months||60}"></div>
+      <div class="fg"><label>کد حساب دارایی</label><input id="fa-coa" dir="ltr" class="mono" value="${esc(a.coa_asset_code||'1201')}"></div>
+      <div class="fg full"><label>محل استقرار</label><input id="fa-location" value="${esc(a.location||'')}"></div>
+      <div class="fg full"><label>توضیحات</label><textarea id="fa-note">${esc(a.notes||'')}</textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveFixedAsset(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  initJalaliPickers();
+}
+async function saveFixedAsset(id){
+  const name=el('fa-name').value.trim();
+  const costToman=moneyVal('fa-cost');
+  if(!name||!costToman){ showToast('نام و بهای دارایی الزامی است','error'); return; }
+  const data={
+    code:el('fa-code').value.trim()||undefined,
+    name, category:el('fa-category').value,
+    purchase_date:el('fa-date').value,
+    cost_rial:Math.round(costToman*10),
+    salvage_rial:Math.round(moneyVal('fa-salvage')*10),
+    useful_life_months:+el('fa-life').value||60,
+    coa_asset_code:el('fa-coa').value||'1201',
+    location:el('fa-location').value,
+    notes:el('fa-note').value
+  };
+  try{
+    if(id) await api('PUT','/fixed-assets/'+id,data); else await api('POST','/fixed-assets',data);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('fixed-assets');
+  }catch(e){}
 }
 async function runDepreciation(){
   if(!confirm('استهلاک ماه جاری برای همه دارایی‌های فعال ثبت شود؟')) return;
@@ -6762,11 +6912,13 @@ async function saveChartAccount(){
 ============================================================ */
 async function renderCostCentersTab(body){
   const rows=await api('GET','/accounting/cost-centers')||[];
+  const entityLabel={workshop:'کارگاه تولید',distribution_office:'دفتر توزیع',admin:'اداری',sales:'فروش',production:'تولید'};
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="costCenterModal()">➕ مرکز هزینه جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>واحد</th><th>وضعیت</th><th>عملیات</th></tr></thead>
     <tbody>${rows.map(c=>`<tr>
       <td class="mono">${esc(c.code||'-')}</td><td>${esc(c.name)}</td>
+      <td>${entityLabel[c.entity]||c.entity||'-'}</td>
       <td>${c.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td><button class="btn sm ghost" onclick="costCenterModal(${c.id})">✏️</button>
           <button class="btn sm red" onclick="deleteCostCenter(${c.id})">🗑️</button></td>
@@ -6775,11 +6927,27 @@ async function renderCostCentersTab(body){
 async function costCenterModal(id){
   const list=await api('GET','/accounting/cost-centers')||[];
   const c=id?(list.find(x=>x.id===id)||{}):{active:1};
+  const entityOpts=[
+    {v:'workshop',l:'کارگاه تولید — نوبرت'},
+    {v:'distribution_office',l:'دفتر توزیع — کیمیا'},
+    {v:'admin',l:'اداری'},
+    {v:'sales',l:'فروش'},
+    {v:'production',l:'تولید'},
+  ];
+  const codePresets=list.filter(x=>!id||x.id!==id).map(x=>x.code).filter(Boolean);
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش مرکز هزینه':'مرکز هزینه جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>نام * ${hlp('واحد یا فعالیتی که هزینه‌ها/درآمدها به آن نسبت داده می‌شود، مثال: فروشگاه مشهد، خط تولید ۱.')}</label><input id="cc-name" value="${esc(c.name||'')}"></div>
-      <div class="fg"><label>کد</label><input id="cc-code" value="${esc(c.code||'')}"></div>
+      <div class="fg full"><label>نام مرکز هزینه * ${hlp('واحد یا فعالیتی که هزینه‌ها/درآمدها به آن نسبت داده می‌شود.')}</label><input id="cc-name" value="${esc(c.name||'')}"></div>
+      <div class="fg"><label>کد ${hlp('کد یکتا برای شناسایی در گزارشات — می‌توانید از پیشنهادها انتخاب کنید.')}</label>
+        <input id="cc-code" list="cc-code-list" value="${esc(c.code||'')}" placeholder="مثال: CC-001">
+        <datalist id="cc-code-list">
+          ${['CC-WORKSHOP','CC-DISTRIBUTION','CC-001','CC-002','CC-003'].concat(codePresets).map(x=>`<option value="${esc(x)}">`).join('')}
+        </datalist></div>
+      <div class="fg"><label>واحد عملیاتی</label><select id="cc-entity">
+        <option value="">— انتخاب —</option>
+        ${entityOpts.map(o=>`<option value="${o.v}" ${c.entity===o.v?'selected':''}>${o.l}</option>`).join('')}
+      </select></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="cc-active">
         <option value="1" ${c.active?'selected':''}>فعال</option><option value="0" ${!c.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -6790,7 +6958,7 @@ async function costCenterModal(id){
 async function saveCostCenter(id){
   const name=el('cc-name').value.trim();
   if(!name){ showToast('نام الزامی است','error'); return; }
-  const data={name,code:el('cc-code').value, active: id?(+el('cc-active').value):1};
+  const data={name,code:el('cc-code').value,entity:el('cc-entity').value, active: id?(+el('cc-active').value):1};
   try{
     if(id) await api('PUT','/accounting/cost-centers/'+id,data); else await api('POST','/accounting/cost-centers',data);
     closeModal(); showToast('ذخیره شد'); loadAccTab('cost-centers');
@@ -6986,16 +7154,16 @@ function bankModal(id){
 async function saveBank(id){
   const name=el('bk-name').value.trim();
   if(!name){ showToast('نام بانک الزامی است','error'); return; }
-  const data={name,account_number:el('bk-account').value,branch:el('bk-branch').value};
+  const data={name,account_number:el('bk-account').value,branch:el('bk-branch').value,
+    account_type:el('bk-account_type')?.value||'',
+    phone:el('bk-phone')?.value||'',
+    card_number:el('bk-card')?.value||'',
+    card_expiry:el('bk-card_exp')?.value||'',
+    sheba:el('bk-sheba')?.value||'',
+    note:el('bk-note')?.value||'',
+    extra_accounts:collectBankExtraAccounts()
+  };
   if(id) data.active=+el('bk-active').value;
-  if(isMahakMode()){
-    data.account_type=el('bk-account_type')?.value||'';
-    data.phone=el('bk-phone')?.value||'';
-    data.card_number=el('bk-card')?.value||'';
-    data.card_expiry=el('bk-card_exp')?.value||'';
-    data.sheba=el('bk-sheba')?.value||'';
-    data.note=el('bk-note')?.value||'';
-  }
   try{
     if(id) await api('PUT','/banks/'+id,data); else await api('POST','/banks',data);
     closeModal(); showToast('ذخیره شد'); loadAccTab('banks');
@@ -7055,8 +7223,12 @@ async function checkCategoryModal(id){
         ${(CACHE.banks||[]).map(b=>`<option value="${b.id}" ${c.bank_id===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
       </select></div>
       <div class="fg full"><label>نام دسته چک * ${hlp('برچسبی برای شناسایی این دفترچه چک، مثال: دسته چک شماره ۱.')}</label><input id="cc-name" value="${esc(c.name||'')}"></div>
-      <div class="fg"><label>از سریال</label><input id="cc-from" value="${esc(c.serial_from||'')}"></div>
-      <div class="fg"><label>تا سریال</label><input id="cc-to" value="${esc(c.serial_to||'')}"></div>
+      <div class="fg"><label>از سریال</label><input id="cc-from" dir="ltr" class="mono" value="${esc(c.serial_from||'')}"></div>
+      <div class="fg"><label>تا سریال</label><input id="cc-to" dir="ltr" class="mono" value="${esc(c.serial_to||'')}"></div>
+      <div class="fg"><label>تعداد برگ</label><input id="cc-leaf_count" type="number" min="0" value="${c.leaf_count||''}"></div>
+      <div class="fg"><label>برگ جاری</label><input id="cc-current_leaf" dir="ltr" class="mono" value="${esc(c.current_leaf||'')}"></div>
+      <div class="fg full"><label>نام صاحب حساب / شرکت</label><input id="cc-holder" value="${esc(c.holder_name||'')}"></div>
+      <div class="fg full"><label>توضیحات</label><textarea id="cc-note">${esc(c.note||'')}</textarea></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="cc-active">
         <option value="1" ${c.active?'selected':''}>فعال</option><option value="0" ${!c.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -7067,7 +7239,9 @@ async function checkCategoryModal(id){
 async function saveCheckCategory(id){
   const name=el('cc-name').value.trim();
   if(!name){ showToast('نام دسته چک الزامی است','error'); return; }
-  const data={bank_id:+el('cc-bank').value,name,serial_from:el('cc-from').value,serial_to:el('cc-to').value};
+  const data={bank_id:+el('cc-bank').value,name,serial_from:el('cc-from').value,serial_to:el('cc-to').value,
+    leaf_count:+el('cc-leaf_count').value||0,current_leaf:el('cc-current_leaf').value,
+    holder_name:el('cc-holder').value,note:el('cc-note').value};
   if(id) data.active=+el('cc-active').value;
   try{
     if(id) await api('PUT','/check-categories/'+id,data); else await api('POST','/check-categories',data);
@@ -9361,20 +9535,57 @@ function mahakProdFieldsHtml(p){
   </div>`;
 }
 function mahakBankFieldsHtml(b){
-  if(!isMahakMode()) return '';
   b=b||{};
+  let extra=[];
+  try{ extra=JSON.parse(b.extra_accounts||'[]'); }catch(_){ extra=[]; }
+  const extraRows=extra.map((a,i)=>`
+    <div class="form-grid" style="border:1px dashed var(--border);padding:8px;border-radius:8px;margin-bottom:8px" data-extra-idx="${i}">
+      <div class="fg"><label>شماره حساب</label><input class="bk-extra-acct" value="${esc(a.account_number||'')}"></div>
+      <div class="fg"><label>شعبه</label><input class="bk-extra-branch" value="${esc(a.branch||'')}"></div>
+      <div class="fg"><label>نوع</label><input class="bk-extra-type" value="${esc(a.account_type||'')}"></div>
+      <div class="fg"><label>شبا</label><input class="bk-extra-sheba" dir="ltr" value="${esc(a.sheba||'')}"></div>
+      <div class="fg"><label>کارت</label><input class="bk-extra-card" dir="ltr" value="${esc(a.card_number||'')}"></div>
+    </div>`).join('');
   return `<div class="fg full" style="border-top:1px dashed var(--purple);margin-top:8px;padding-top:10px">
-    <div style="font-weight:600;color:var(--purple);margin-bottom:8px">📋 فیلدهای محک (بانک)</div>
+    <div style="font-weight:600;color:var(--purple);margin-bottom:8px">📋 اطلاعات تکمیلی بانک</div>
     <div class="form-grid">
-      <div class="fg"><label>کد عملیاتی محک</label><input id="bk-mahak_op" dir="ltr" class="mono" value="${esc(b.mahak_op_code||'')}" readonly></div>
-      <div class="fg"><label>نوع حساب</label><input id="bk-account_type" value="${esc(b.account_type||'')}"></div>
+      <div class="fg"><label>نوع حساب</label><select id="bk-account_type">
+        <option value="">—</option>
+        <option value="جاری" ${b.account_type==='جاری'?'selected':''}>جاری</option>
+        <option value="پس‌انداز" ${b.account_type==='پس‌انداز'?'selected':''}>پس‌انداز</option>
+        <option value="قرض‌الحسنه" ${b.account_type==='قرض‌الحسنه'?'selected':''}>قرض‌الحسنه</option>
+        <option value="ارزی" ${b.account_type==='ارزی'?'selected':''}>ارزی</option>
+      </select></div>
       <div class="fg"><label>تلفن</label><input id="bk-phone" value="${esc(b.phone||'')}"></div>
       <div class="fg"><label>شماره کارت</label><input id="bk-card" dir="ltr" value="${esc(b.card_number||'')}"></div>
       <div class="fg"><label>تاریخ انقضاء</label><input id="bk-card_exp" data-jdate value="${esc(b.card_expiry||'')}"></div>
       <div class="fg full"><label>شبا</label><input id="bk-sheba" dir="ltr" value="${esc(b.sheba||'')}"></div>
       <div class="fg full"><label>توضیحات</label><input id="bk-note" value="${esc(b.note||'')}"></div>
     </div>
+    <div style="margin-top:12px;font-weight:600;font-size:13px">حساب‌های اضافی</div>
+    <div id="bk-extra-wrap">${extraRows}</div>
+    <button type="button" class="btn sm ghost" onclick="addBankExtraRow()">➕ حساب بانکی دیگر</button>
   </div>`;
+}
+function addBankExtraRow(){
+  const wrap=el('bk-extra-wrap'); if(!wrap) return;
+  wrap.insertAdjacentHTML('beforeend',`
+    <div class="form-grid" style="border:1px dashed var(--border);padding:8px;border-radius:8px;margin-bottom:8px">
+      <div class="fg"><label>شماره حساب</label><input class="bk-extra-acct"></div>
+      <div class="fg"><label>شعبه</label><input class="bk-extra-branch"></div>
+      <div class="fg"><label>نوع</label><input class="bk-extra-type"></div>
+      <div class="fg"><label>شبا</label><input class="bk-extra-sheba" dir="ltr"></div>
+      <div class="fg"><label>کارت</label><input class="bk-extra-card" dir="ltr"></div>
+    </div>`);
+}
+function collectBankExtraAccounts(){
+  return [...document.querySelectorAll('#bk-extra-wrap > .form-grid')].map(row=>({
+    account_number:row.querySelector('.bk-extra-acct')?.value||'',
+    branch:row.querySelector('.bk-extra-branch')?.value||'',
+    account_type:row.querySelector('.bk-extra-type')?.value||'',
+    sheba:row.querySelector('.bk-extra-sheba')?.value||'',
+    card_number:row.querySelector('.bk-extra-card')?.value||'',
+  })).filter(a=>a.account_number||a.sheba||a.card_number);
 }
 function mahakPartyFieldsInner(prefix, entity, title){
   const e=entity||{};

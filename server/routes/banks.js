@@ -14,12 +14,13 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { name, account_number, branch } = req.body;
+  const { name, account_number, branch, account_type, phone, card_number, card_expiry, sheba, note, extra_accounts } = req.body;
   if (!name) return res.status(400).json({ error: 'نام بانک الزامی است' });
   const db = getDB();
+  const extraJson = extra_accounts != null ? (typeof extra_accounts === 'string' ? extra_accounts : JSON.stringify(extra_accounts)) : '[]';
   const result = db.prepare(
-    'INSERT INTO banks (name,account_number,branch) VALUES (?,?,?)'
-  ).run(name, account_number || '', branch || '');
+    'INSERT INTO banks (name,account_number,branch,account_type,phone,card_number,card_expiry,sheba,note,extra_accounts) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ).run(name, account_number || '', branch || '', account_type || '', phone || '', card_number || '', card_expiry || '', sheba || '', note || '', extraJson);
   try { const cc = allocTafsili(db, 'bank', name); if (cc) db.prepare('UPDATE banks SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
   const bank = db.prepare('SELECT * FROM banks WHERE id=?').get(result.lastInsertRowid);
   syncBankAccount(db, bank);
@@ -31,9 +32,16 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM banks WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { name, account_number, branch, active } = req.body;
-  db.prepare('UPDATE banks SET name=?,account_number=?,branch=?,active=? WHERE id=?')
-    .run(name || row.name, account_number ?? row.account_number, branch ?? row.branch, active != null ? (active ? 1 : 0) : row.active, req.params.id);
+  const { name, account_number, branch, active, account_type, phone, card_number, card_expiry, sheba, note, extra_accounts } = req.body;
+  const extraJson = extra_accounts != null
+    ? (typeof extra_accounts === 'string' ? extra_accounts : JSON.stringify(extra_accounts))
+    : (row.extra_accounts || '[]');
+  db.prepare('UPDATE banks SET name=?,account_number=?,branch=?,active=?,account_type=?,phone=?,card_number=?,card_expiry=?,sheba=?,note=?,extra_accounts=? WHERE id=?')
+    .run(name || row.name, account_number ?? row.account_number, branch ?? row.branch,
+      active != null ? (active ? 1 : 0) : row.active,
+      account_type ?? row.account_type ?? '', phone ?? row.phone ?? '',
+      card_number ?? row.card_number ?? '', card_expiry ?? row.card_expiry ?? '',
+      sheba ?? row.sheba ?? '', note ?? row.note ?? '', extraJson, req.params.id);
   const updated = db.prepare('SELECT * FROM banks WHERE id=?').get(req.params.id);
   syncBankAccount(db, updated); // keep the linked ledger account's name in sync on rename
   audit(req.user.id, 'update', 'bank', req.params.id, `ویرایش بانک ${updated.name}`);
