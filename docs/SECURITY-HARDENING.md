@@ -100,9 +100,61 @@ EOF
 
 ---
 
-## ۳) وضعیت باقی‌مانده
+## ۳) سخت‌سازی سیستم‌عامل (VPS اوبونتو ایران)
 
-- [ ] اجرای چک‌لیست بخش ۲ روی سرور production (دستی — نیاز به دسترسی SSH)
+اسکریپت‌ها در `scripts/`:
+
+| فایل | نقش |
+|------|-----|
+| `ubuntu-harden.sh` | UFW + Fail2Ban + SSH drop-in + sysctl + unattended-upgrades |
+| `bootstrap-server-harden.py` | نصب کلید عمومی از ماشین محلی + اجرای harden |
+| `disable-ssh-password.sh` | بعد از تست کلید، قطع ورود با رمز |
+| `ssh-config-taranom-ir.example` | نمونه `~/.ssh/config` |
+
+### باگ‌های اسکریپت قدیمی که اصلاح شد
+1. **ساخت کلید روی سرور** اشتباه است — کلید باید روی لپ‌تاپ ساخته شود و فقط pubkey روی سرور برود.
+2. مسیر حافظه مشترک درست **`/dev/shm`** است نه `/run/shm`.
+3. `dpkg-reconfigure` تعاملی بود → تنظیم noninteractive.
+4. Fail2Ban روی Ubuntu 24.04 با **`backend = systemd`**.
+5. قبل از `restart ssh` باید **`sshd -t`** اجرا شود تا سرور قفل نشود.
+6. `PermitRootLogin no` + `AllowUsers` + `MaxAuthTries` اضافه شد.
+7. پورت 80/443 عمداً بسته می‌ماند تا Nginx بعد از انتقال پروژه باز شود.
+
+### اجرای دستی (بعد از ورود موفق به سرور)
+```bash
+# روی ویندوز (یک‌بار):
+ssh-keygen -t ed25519 -f %USERPROFILE%\.ssh\id_ed25519_taranom -N ""
+
+# کپی کلید (وقتی رمز/پنل کنسول کار می‌کند):
+type %USERPROFILE%\.ssh\id_ed25519_taranom.pub | ssh taranom@SERVER_IP "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+
+# روی سرور:
+sudo bash ubuntu-harden.sh
+# تست کلید در ترمینال جدید، سپس:
+sudo bash disable-ssh-password.sh
+passwd   # رمز چت‌شده را عوض کنید
+```
+
+یا یک‌جا از ویندوز (رمز فقط در env — هرگز در گیت):
+```powershell
+$env:TARANOM_SSH_PASS='...'
+$env:TARANOM_SSH_HOST='94.249.244.208'
+python scripts/bootstrap-server-harden.py
+```
+
+### قبل از انتقال پروژه (هنوز انجام نشود تا harden تمام شود)
+1. باز کردن 80/443: `sudo ufw allow 80/tcp && sudo ufw allow 443/tcp`
+2. نصب Node 20 + PM2 + Nginx + certbot
+3. `git clone` / `deploy-production.sh`
+4. دامنه `.ir` → A record به IP سرور → SSL
+
+---
+
+## ۴) وضعیت باقی‌مانده
+
+- [ ] اجرای harden روی VPS ایران (`94.249.244.208`) — **ورود SSH با رمز داده‌شده ناموفق بود؛ ریست رمز از پنل هاست لازم است**
+- [ ] اجرای چک‌لیست بخش ۲ روی سرور production (JWT / بکاپ / HTTPS)
 - [x] تغییر اجباری رمز پیش‌فرض — کد کامل
 - [x] رمزنگاری بکاپ — کد کامل (فعال‌سازی: تعیین رمز از UI)
 - [x] حذف اسرار از فایل‌های مخزن (تاریخچه دست‌نخورده — پوشش با چرخش)
+- [x] اسکریپت harden اصلاح‌شده در مخزن

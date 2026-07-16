@@ -2,11 +2,12 @@
 # استقرار CRM ترنم روی سرور مرکزی (production)
 # اجرا روی سرور:  bash scripts/deploy-production.sh
 #
-# پیش‌نیاز: git، node 20+، pm2، دسترسی به /home/taranom-admin/crm-taranom
+# پیش‌نیاز: git، node 20+، pm2
+# APP_ROOT پیش‌فرض: خانهٔ کاربر فعلی (مثلاً /home/taranom/crm-taranom)
 set -euo pipefail
 
 BRANCH="${DEPLOY_BRANCH:-claude/claude-md-docs-2ssrpy}"
-APP_ROOT="${APP_ROOT:-/home/taranom-admin/crm-taranom}"
+APP_ROOT="${APP_ROOT:-$HOME/crm-taranom}"
 SERVER_DIR="$APP_ROOT/server"
 JWT_FILE="$SERVER_DIR/jwt-secret.txt"
 
