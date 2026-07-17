@@ -48,7 +48,7 @@ ok('prod-ui.js attaches window.ProdUI', js.includes('global.ProdUI = ProdUI') ||
 });
 
 // ── 4. acc-nav.js has the 5 new PRODUCTION menu items ──
-['acc-production-estimate', 'acc-production-kanban', 'acc-production-variance', 'acc-production-mrp', 'acc-production-rates'].forEach(id => {
+['acc-production-estimate', 'acc-production-kanban', 'acc-production-variance', 'acc-production-mrp', 'acc-production-rates', 'acc-production-access'].forEach(id => {
   ok(`acc-nav.js registers ${id}`, nav.includes(`'${id}'`) || nav.includes(`"${id}"`));
 });
 
@@ -66,15 +66,16 @@ ok('index.html sets window.__canSeeCost', html.includes('window.__canSeeCost'));
   'renderProductionVarianceTab',
   'renderProductionMrpTab',
   'renderProductionRatesTab',
+  'renderProductionAccessTab',
 ].forEach(fn => {
   ok(`index.html defines ${fn}()`, new RegExp(`async function ${fn}\\s*\\(`).test(html));
 });
 
 // ── 8. index.html routes + tab dispatch for the new tabs ──
-['production-estimate', 'production-kanban', 'production-variance', 'production-mrp', 'production-rates'].forEach(tab => {
+['production-estimate', 'production-kanban', 'production-variance', 'production-mrp', 'production-rates', 'production-access'].forEach(tab => {
   ok(`index.html dispatches tab '${tab}' in loadAccTab`, html.includes(`tab==='${tab}'`));
 });
-['acc-production-estimate', 'acc-production-kanban', 'acc-production-variance', 'acc-production-mrp', 'acc-production-rates'].forEach(id => {
+['acc-production-estimate', 'acc-production-kanban', 'acc-production-variance', 'acc-production-mrp', 'acc-production-rates', 'acc-production-access'].forEach(id => {
   ok(`index.html registers ROUTES['${id}']`, html.includes(`ROUTES['${id}']`));
 });
 
@@ -85,6 +86,9 @@ ok('index.html has stage detail modal (prodOrderStagesModal)', html.includes('fu
 ok('index.html has variable material issue modal (prodOrderIssueModal)', html.includes('function prodOrderIssueModal'));
 ok('index.html posts stage output endpoint', html.includes('/stages/\'+stageId+\'/output'));
 ok('index.html posts stage issue endpoint', html.includes('/stages/\'+stageId+\'/issue'));
+ok('index.html has subcontract send', html.includes('subcontract/send'));
+ok('index.html has subcontract receive', html.includes('subcontract/receive'));
+ok('prod-ui.js defines debounce()', /function debounce\s*\(/.test(js));
 
 // ── 10. BOM tab enhancements: has_routing + activate ──
 ok('index.html BOM tab shows has_routing', html.includes('has_routing'));

@@ -2,6 +2,7 @@
 /** Optional production health checks — non-blocking in main suite */
 const { ok, freshDb, summary } = require('./lib/test-harness');
 const close = require('../lib/production/close');
+const { runHealthCheck } = require('../lib/production/health-check');
 
 console.log('\n══ Production Health (optional) ══\n');
 
@@ -31,6 +32,10 @@ const bad5210 = db.prepare(`
   SELECT COUNT(*) c FROM journal_lines WHERE account_code IN ('5210','5211')
 `).get()?.c || 0;
 ok('no 5210/5211 journal lines', bad5210 === 0);
+
+const hc = runHealthCheck(db);
+ok('runHealthCheck ok on fresh db', hc.ok === true);
+ok('runHealthCheck returns checks array', Array.isArray(hc.checks) && hc.checks.length >= 12);
 
 cleanup();
 summary('Production Health');

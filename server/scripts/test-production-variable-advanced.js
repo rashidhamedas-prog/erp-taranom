@@ -2,7 +2,7 @@
 /**
  * P8 — Variable advanced (ADR-011: no 5210/5211 JE)
  */
-const { ok, eq, freshDb, summary } = require('./lib/test-harness');
+const { ok, eq, throws, freshDb, summary } = require('./lib/test-harness');
 const bom = require('../lib/production/bom');
 const advBom = require('../lib/production/bom-advanced');
 const engine = require('../lib/production/engine');
@@ -195,6 +195,59 @@ const fin = adv.finalizeAdvancedOrder(db, {
   userId: adminId,
 });
 eq('T8-20 unit_cost', fin.unit_cost_rial, 2366463, 5000);
+
+stages = adv.stageList(db, po.id);
+ok('T8 smoke six stages', stages.length === 6);
+ok('T8 smoke all done', stages.every(s => s.status === 'done'));
+
+const issueRows = db.prepare(`
+  SELECT qty_standard, qty_actual, unit_cost_rial, std_cost_rial, var_price_rial, var_qty_rial
+  FROM production_material_issues WHERE order_id=?
+`).all(po.id);
+let aqAp = 0;
+let sqSp = 0;
+let varSum = 0;
+for (const r of issueRows) {
+  aqAp += Number(r.qty_actual) * Number(r.unit_cost_rial);
+  sqSp += Number(r.qty_standard) * Number(r.std_cost_rial);
+  varSum += Number(r.var_price_rial) + Number(r.var_qty_rial);
+}
+eq('T8-08 variance identity Σvar = ΣAQ×AP − ΣSQ×SP', varSum, Math.round(aqAp - sqSp), 50);
+ok('T8-08 variance total > 0', varSum > 0);
+
+const memoVars = db.prepare(`
+  SELECT status FROM production_variances WHERE order_id=?
+`).all(po.id);
+ok('T8 memo variances only', memoVars.length > 0 && memoVars.every(v => v.status === 'memo'));
+
+const memoIssues = db.prepare(`
+  SELECT variance_status FROM production_material_issues WHERE order_id=?
+`).all(po.id);
+ok('T8 issue variance_status memo', memoIssues.length > 0 && memoIssues.every(v => v.variance_status === 'memo'));
+
+const varJe5210 = db.prepare(`
+  SELECT COUNT(*) c FROM journal_lines jl
+  JOIN journal_entries je ON je.id=jl.entry_id
+  WHERE jl.account_code IN (?, ?) AND COALESCE(je.deleted_at,0)=0
+`).get(a5210.code, a5211).c;
+ok('T8-09 no variance account JE lines', varJe5210 === 0);
+
+// T8-11 already covered by T8-09b stage10 OH (4791960)
+
+const poNoIssue = engine.createOrder(db, {
+  product_id: p101, bom_id: draft.id, qty_planned: 50,
+  analysis_type: 'variable_adv', date: DATE,
+  warehouse_raw_id: whRaw, warehouse_fg_id: whFg, cost_center_id: cc['CC-30'],
+}, adminId);
+engine.releaseOrder(db, poNoIssue.id, adminId);
+const stNoIssue = adv.stageList(db, poNoIssue.id).find(s => s.seq === 10);
+throws('T8 E_NO_MATERIAL_ISSUED', () => {
+  adv.postStageOutputVariable(db, {
+    orderId: poNoIssue.id, stageId: stNoIssue.id,
+    body: { date: DATE, qty_out: stNoIssue.qty_in, waste_normal: 0, waste_abnormal: 0 },
+    userId: adminId,
+  });
+}, 'E_NO_MATERIAL_ISSUED');
 
 cleanup();
 summary('P8 Variable Advanced');

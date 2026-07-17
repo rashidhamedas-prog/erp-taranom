@@ -192,5 +192,30 @@ throws('T4-21 حلقه چندسطحی', () => {
   bom.activateBom(db, bB.id, '1405/01/01', adminId);
 }, 'E_BOM_CIRCULAR');
 
+// T4-24 NRV zero on by-product
+throws('T4-24 NRV صفر', () => {
+  const d5 = bom.createBom(db, {
+    product_id: p101, name: 'nrv0', yield_percent: 100, has_routing: 1, has_coproducts: 1,
+    lines: [{ component_product_id: p201, qty_per_base: 1, scrap_percent: 0, line_type: 'material', stage_cost_center_id: cc['CC-10'] }],
+  }, adminId);
+  adv.applyRoutingTemplate(db, d5.id, adminId);
+  adv.addOutput(db, d5.id, { product_id: p101, output_type: 'main', cost_share_percent: 100, cost_method: 'share' });
+  adv.addOutput(db, d5.id, { product_id: p299, output_type: 'by', qty_per_base: 0.1, cost_method: 'nrv', nrv_rial: 0 });
+  adv.rollUpBom(db, { bomId: d5.id, qtyTarget: 10, period: PERIOD });
+}, 'E_NRV_ZERO');
+
+// T4-25 routing forces yield 100 on activate validate
+try {
+  const d6 = bom.createBom(db, {
+    product_id: p101, name: 'route yield', yield_percent: 97, has_routing: 1,
+    lines: [{ component_product_id: p201, qty_per_base: 1, scrap_percent: 0, line_type: 'material', stage_cost_center_id: cc['CC-10'] }],
+  }, adminId);
+  adv.applyRoutingTemplate(db, d6.id, adminId);
+  db.prepare('UPDATE bom_headers SET yield_percent=97 WHERE id=?').run(d6.id);
+  throws('T4-25 activate routing+yield≠100', () => adv.validateAdvancedBom(db, d6.id), 'E_YIELD_DOUBLE_COUNT');
+} catch (e) {
+  ok('T4-25 activate routing+yield≠100', false, e.message);
+}
+
 cleanup();
 summary('P4 Advanced BOM');

@@ -272,5 +272,33 @@ throws('T1-23 حذف کالای درگیر', () => bom.assertProductNotInBom(db,
   ok('T1-24 Sync', names.includes('bom_headers') && names.includes('bom_lines'));
 }
 
+// T1-25 yield range
+throws('T1-25 yield صفر', () => {
+  const d = bom.createBom(db, { product_id: P.p102, name: 'yield0', yield_percent: 0 }, adminId);
+  bom.addLine(db, d.id, { component_product_id: P.p201, qty_per_base: 1, line_type: 'material' }, adminId);
+  bom.activateBom(db, d.id, '1405/06/01', adminId);
+}, 'E_BOM_YIELD_RANGE');
+
+// T1-26 duplicate line
+throws('T1-26 قلم تکراری', () => {
+  const d = bom.createBom(db, {
+    product_id: P.p102, name: 'dup', yield_percent: 100,
+    lines: [
+      { component_product_id: P.p201, qty_per_base: 1, line_type: 'material' },
+      { component_product_id: P.p201, qty_per_base: 2, line_type: 'material' },
+    ],
+  }, adminId);
+  bom.activateBom(db, d.id, '1405/06/01', adminId);
+}, 'E_BOM_DUP_LINE');
+
+// T1-27 qty zero
+throws('T1-27 مقدار صفر', () => {
+  const d = bom.createBom(db, {
+    product_id: P.p102, name: 'qty0', yield_percent: 100,
+    lines: [{ component_product_id: P.p201, qty_per_base: 0, line_type: 'material' }],
+  }, adminId);
+  bom.activateBom(db, d.id, '1405/06/01', adminId);
+}, 'E_BOM_QTY_ZERO');
+
 cleanup();
 summary('P1 BOM');

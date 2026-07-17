@@ -35,6 +35,7 @@ const cc = {};
 for (const code of ['CC-10', 'CC-20', 'CC-30', 'CC-40', 'CC-50', 'CC-60']) {
   cc[code] = db.prepare('SELECT id FROM cost_centers WHERE code=?').get(code)?.id;
 }
+const whRaw = db.prepare("SELECT id FROM warehouses WHERE code='WH-RAW'").get()?.id;
 
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('pricing_margin_percent','35')").run();
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('rep_commission_percent','4.5')").run();
@@ -115,6 +116,70 @@ for (const id of [p201, p202, p203, p204, p205, p206]) {
 
 const mrp = mrpRun(db, { horizonDays: 30, date: '1405/04/10', userId: adminId });
 ok('T5 MRP run', mrp.ok && mrp.run_id > 0);
+
+// T5-13 Low-Level Code — shared component aggregated once across BOMs
+{
+  const p102 = seedProduct('شومیز ساتن', 0, 'finished', 1, 0);
+  const draft2 = bom.createBom(db, {
+    product_id: p102, name: 'BOM est 2', yield_percent: 97, base_qty: 1,
+    lines: [{ component_product_id: p201, qty_per_base: 2, scrap_percent: 0, line_type: 'material' }],
+  }, adminId);
+  bom.activateBom(db, draft2.id, '1405/01/01', adminId);
+  db.prepare(`
+    INSERT INTO production_orders (order_no, product_id, bom_id, analysis_type, qty_planned, date, status)
+    VALUES ('PO-MRP-A', ?, ?, 'fixed', 100, '1405/04/10', 'released')
+  `).run(p101, draft.id);
+  db.prepare(`
+    INSERT INTO production_orders (order_no, product_id, bom_id, analysis_type, qty_planned, date, status)
+    VALUES ('PO-MRP-B', ?, ?, 'fixed', 50, '1405/04/10', 'released')
+  `).run(p102, draft2.id);
+  const mrpLlc = mrpRun(db, { horizonDays: 30, date: '1405/04/10', userId: adminId });
+  const fabricRows = mrpLlc.requirements.filter(r => r.product_id === p201);
+  ok('T5-13 shared material one row', fabricRows.length === 1);
+  ok('T5-13 gross combines demand', Number(fabricRows[0]?.gross_req_qty) > 100);
+}
+
+// T5 MRP shortage when stock low
+{
+  db.prepare('UPDATE products SET stock=? WHERE id=?').run(10, p201);
+  if (whRaw) {
+    db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+      .run(10, p201, whRaw);
+  }
+  db.prepare(`
+    INSERT INTO production_orders (order_no, product_id, bom_id, analysis_type, qty_planned, date, status)
+    VALUES ('PO-SHORT', ?, ?, 'fixed', 200, '1405/04/12', 'released')
+  `).run(p101, draft.id);
+  const mrpShort = mrpRun(db, { horizonDays: 30, date: '1405/04/12', userId: adminId });
+  const need = mrpShort.requirements.find(r => r.product_id === p201);
+  ok('T5 shortage action purchase', need?.action === 'purchase');
+  ok('T5 shortage qty > 0', Number(need?.suggested_qty) > 0);
+  ok('T5 shortage items counted', mrpShort.shortage_items >= 1);
+}
+
+// Markup / margin edge cases (note: estimate.js uses `parseFloat(...) || 35` so 0 → 35)
+{
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('pricing_margin_percent','0')").run();
+  const e0 = estimateCost(db, { productId: p101, qty: 100, period: PERIOD });
+  eq('T5 margin 0 fallback markup', e0.pricing.markup_price_rial, Math.round(e0.cost.unit_cost_rial * 1.35), 5);
+  ok('T5 margin 0 effective percent 35', e0.pricing.margin_percent === 35);
+
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('pricing_margin_percent','50')").run();
+  const e50 = estimateCost(db, { productId: p101, qty: 100, period: PERIOD });
+  eq('T5 margin 50 markup', e50.pricing.markup_price_rial, Math.round(e50.cost.unit_cost_rial * 1.5), 5);
+  ok('T5 margin 50 margin > markup', e50.pricing.margin_price_rial > e50.pricing.markup_price_rial);
+
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('pricing_margin_percent','99')").run();
+  const e99 = estimateCost(db, { productId: p101, qty: 100, period: PERIOD });
+  ok('T5 margin 99 margin_price finite', Number.isFinite(e99.pricing.margin_price_rial) && e99.pricing.margin_price_rial > 0);
+
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('pricing_margin_percent','100')").run();
+  const e100 = estimateCost(db, { productId: p101, qty: 100, period: PERIOD });
+  ok('T5 margin 100 margin_price zero', e100.pricing.margin_price_rial === 0);
+  eq('T5 margin 100 markup double', e100.pricing.markup_price_rial, Math.round(e100.cost.unit_cost_rial * 2), 5);
+
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('pricing_margin_percent','35')").run();
+}
 
 cleanup();
 summary('P5 Estimation + MRP');

@@ -6,6 +6,7 @@ const { ok, eq, freshDb, summary } = require('./lib/test-harness');
 const bom = require('../lib/production/bom');
 const advBom = require('../lib/production/bom-advanced');
 const engine = require('../lib/production/engine');
+const { wipResidual } = engine;
 const adv = require('../lib/production/engine-advanced');
 const { acct } = require('../lib/coa-map');
 
@@ -182,6 +183,112 @@ const fin = adv.finalizeAdvancedOrder(db, {
 eq('T7-28 receipt amount', fin.amount_rial, 694933300, 50);
 eq('T7-29 unit_cost', fin.unit_cost_rial, 2315880, 50);
 eq('T7-30 WIP residual', fin.wip_residual_rial, 0, 5);
+
+// T7 skip / block / unblock + releaseAdvancedOrder smoke
+{
+  const po2 = engine.createOrder(db, {
+    product_id: p101, bom_id: draft.id, qty_planned: 50,
+    analysis_type: 'fixed_adv', date: DATE,
+    warehouse_raw_id: whRaw, warehouse_fg_id: whFg, cost_center_id: cc['CC-30'],
+  }, adminId);
+  const rel2 = adv.releaseAdvancedOrder(db, po2.id, adminId);
+  ok('T7 releaseAdvancedOrder', rel2.ok && rel2.stages.length === 6);
+
+  let st2 = adv.stageList(db, po2.id);
+  const s20 = st2.find(s => s.seq === 20);
+  adv.skipStage(db, po2.id, s20.id, adminId, 'تست رد مرحله');
+  ok('T7 skip stage 20', db.prepare('SELECT status FROM production_order_stages WHERE id=?')
+    .get(s20.id).status === 'skipped');
+
+  const s10 = st2.find(s => s.seq === 10);
+  adv.blockStage(db, po2.id, s10.id, adminId, 'توقف موقت');
+  ok('T7 block stage 10', db.prepare('SELECT status FROM production_order_stages WHERE id=?')
+    .get(s10.id).status === 'blocked');
+  const un = adv.unblockStage(db, po2.id, s10.id, adminId);
+  ok('T7 unblock stage 10', un.status === 'in_progress');
+}
+
+// T7 reverse last stage + block non-last reverse
+{
+  const poRev = engine.createOrder(db, {
+    product_id: p101, bom_id: draft.id, qty_planned: 300,
+    analysis_type: 'fixed_adv', date: DATE,
+    warehouse_raw_id: whRaw, warehouse_fg_id: whFg, cost_center_id: cc['CC-30'],
+  }, adminId);
+  engine.releaseOrder(db, poRev.id, adminId);
+  let stRev = adv.stageList(db, poRev.id);
+
+  for (const spec of STAGES) {
+    const st = stRev.find(s => s.seq === spec.seq);
+    adv.postStageOutputFixed(db, {
+      orderId: poRev.id, stageId: st.id,
+      body: {
+        date: DATE,
+        qty_out: spec.qty_out,
+        waste_normal: spec.waste_normal,
+        waste_abnormal: 0,
+        rework: 0,
+        auto_subcontract_fee: spec.auto_subcontract_fee,
+        qc_passed: spec.qc_passed,
+        supplier_id: supplierId,
+      },
+      userId: adminId,
+    });
+    stRev = adv.stageList(db, poRev.id);
+  }
+
+  const s60 = stRev.find(s => s.seq === 60);
+  const wipBefore = wipResidual(db, poRev.id);
+  eq('T7-40 wip before reverse', wipBefore, GOLDEN_COST_OUT[60], 500);
+
+  const rev = adv.reverseStage(db, {
+    orderId: poRev.id, stageId: s60.id,
+    reason: 'تست ابطال', userId: adminId, date: DATE,
+  });
+  ok('T7-40 reverse ok', rev.ok && rev.status === 'in_progress');
+
+  const s60After = db.prepare('SELECT * FROM production_order_stages WHERE id=?').get(s60.id);
+  ok('T7-40 stage60 in_progress', s60After.status === 'in_progress');
+  eq('T7-40 stage60 qty_out cleared', s60After.qty_out, 0, 0.01);
+  eq('T7-40 stage60 cost_out cleared', s60After.cost_out_rial, 0, 1);
+
+  const s50 = stRev.find(s => s.seq === 50);
+  eq('T7-41 wip after reverse', rev.wip_residual_rial, GOLDEN_COST_OUT[50], 500);
+
+  // Non-last stage: stages 10–40 done, try reverse 30 while 40 is still done
+  const poMid = engine.createOrder(db, {
+    product_id: p101, bom_id: draft.id, qty_planned: 300,
+    analysis_type: 'fixed_adv', date: DATE,
+    warehouse_raw_id: whRaw, warehouse_fg_id: whFg, cost_center_id: cc['CC-30'],
+  }, adminId);
+  engine.releaseOrder(db, poMid.id, adminId);
+  let stMid = adv.stageList(db, poMid.id);
+  for (const spec of STAGES.filter(s => s.seq <= 40)) {
+    const st = stMid.find(s => s.seq === spec.seq);
+    adv.postStageOutputFixed(db, {
+      orderId: poMid.id, stageId: st.id,
+      body: {
+        date: DATE, qty_out: spec.qty_out, waste_normal: spec.waste_normal,
+        waste_abnormal: 0, rework: 0,
+        auto_subcontract_fee: spec.auto_subcontract_fee,
+        qc_passed: spec.qc_passed, supplier_id: supplierId,
+      },
+      userId: adminId,
+    });
+    stMid = adv.stageList(db, poMid.id);
+  }
+  const s30mid = stMid.find(s => s.seq === 30);
+  let blocked = false;
+  try {
+    adv.reverseStage(db, {
+      orderId: poMid.id, stageId: s30mid.id,
+      reason: 'نباید', userId: adminId, date: DATE,
+    });
+  } catch (e) {
+    blocked = e.code === 'E_CANNOT_REVERSE';
+  }
+  ok('T7-41 cannot reverse non-last stage', blocked);
+}
 
 cleanup();
 summary('P7 Fixed Advanced');

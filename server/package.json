@@ -18,13 +18,14 @@
     "test:production:reports": "node scripts/test-production-reports.js",
     "test:production:rbac": "node scripts/test-production-rbac.js",
     "test:production:health": "node scripts/test-production-health.js",
+    "test:production:access": "node scripts/test-production-access-api.js",
     "test:production:perf": "node scripts/test-production-reports-perf.js",
     "test:production:export": "node scripts/test-production-export.js",
     "test:production:api-smoke": "node scripts/test-production-api-smoke.js",
     "test:production:permissions": "node scripts/test-production-permissions-matrix.js",
     "test:production:ui-smoke": "node scripts/test-production-ui-smoke.js",
     "production:go-live": "node scripts/production-go-live-check.js",
-    "test:production": "node scripts/test-production-schema.js && node scripts/test-production-bom.js && node scripts/test-production-fixed.js && node scripts/test-production-variable.js && node scripts/test-production-bom-advanced.js && node scripts/test-production-fixed-advanced.js && node scripts/test-production-variable-advanced.js && node scripts/test-production-estimation.js && node scripts/test-production-close.js && node scripts/test-production-reports.js && node scripts/test-production-rbac.js && node scripts/test-production-reports-perf.js && node scripts/test-production-export.js && node scripts/test-production-api-smoke.js && node scripts/test-production-permissions-matrix.js && node scripts/test-production-health.js && node scripts/test-production-ui-smoke.js"
+    "test:production": "node scripts/test-production-schema.js && node scripts/test-production-bom.js && node scripts/test-production-fixed.js && node scripts/test-production-variable.js && node scripts/test-production-bom-advanced.js && node scripts/test-production-fixed-advanced.js && node scripts/test-production-variable-advanced.js && node scripts/test-production-estimation.js && node scripts/test-production-close.js && node scripts/test-production-reports.js && node scripts/test-production-rbac.js && node scripts/test-production-reports-perf.js && node scripts/test-production-export.js && node scripts/test-production-api-smoke.js && node scripts/test-production-permissions-matrix.js && node scripts/test-production-health.js && node scripts/test-production-access-api.js && node scripts/test-production-ui-smoke.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",

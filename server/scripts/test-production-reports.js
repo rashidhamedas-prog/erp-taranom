@@ -234,5 +234,28 @@ seedCloseScenario();
   eq('PR-14 partial variance sum', reports.overheadVariance(db, { period: PERIOD }).totals.variance_rial, 1_481_162, 500000);
 }
 
+// T6 catalog PR-23 / PR-24
+{
+  const codes = reports.catalog().map(c => c.code);
+  ok('T6 catalog PR-23', codes.includes('PR-23'));
+  ok('T6 catalog PR-24', codes.includes('PR-24'));
+  ok('T6 catalog PR-01..24 complete', Array.from({ length: 24 }, (_, i) =>
+    `PR-${String(i + 1).padStart(2, '0')}`).every(c => codes.includes(c)));
+}
+
+// T6 empty period — no error, empty meta
+{
+  const emptyPeriod = '1400/01';
+  const waste = reports.runReport(db, { name: 'PR-15', params: { period: emptyPeriod }, user: adminUser });
+  ok('T6 empty period PR-15 ok', waste.report === 'PR-15');
+  ok('T6 empty period rows=0', (waste.data?.rows || []).length === 0);
+  ok('T6 empty period meta.empty', waste.meta?.empty === true || waste.meta?.row_count === 0);
+
+  const dashEmpty = reports.runReport(db, { name: 'PR-24', params: { period: emptyPeriod }, user: adminUser });
+  const yld = dashEmpty.data?.kpis?.yield?.value_pct;
+  ok('T6 empty yield not NaN', yld === 0 || yld === null || Number.isFinite(yld));
+  ok('T6 empty yield no NaN literal', !Number.isNaN(Number(yld)));
+}
+
 cleanup();
 summary('P9 Production Reports');
