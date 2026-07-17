@@ -15,7 +15,7 @@ router.get('/', auth, requirePermission('production', 'view'), (req, res) => {
   handle(res, () => {
     const rows = getDB().prepare(`
       SELECT * FROM cost_centers
-      WHERE COALESCE(is_active,1)=1 OR is_active IS NULL
+      WHERE COALESCE(active,1)=1
       ORDER BY COALESCE(seq,0), code
     `).all();
     return { rows };

@@ -190,7 +190,6 @@ const ACC_NAV_SECTIONS = [
     { id: 'acc-production-close', icon: '🔒', label: 'بستن دوره' },
     { id: 'acc-production-monthly-profit', icon: '💰', label: 'سود ماهانه' },
     { id: 'acc-production-cost-sheet', icon: '📄', label: 'برگه بهای تمام‌شده' },
-    { id: 'acc-production', icon: '🏗️', label: 'تحلیل هزینه تولید (قدیمی)' },
   ]},
   { title: 'حقوق و دستمزد', items: [
     { id: 'acc-payroll', icon: '🧑‍🏭', label: 'حقوق و دستمزد' },

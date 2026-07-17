@@ -691,26 +691,40 @@ function dashboard(db, { period } = {}) {
   const old = db.prepare(kpiSql).get(prev) || {};
   const delta = (a, b) => (b ? round2((Number(a) - Number(b)) / Number(b) * 100) : 0);
 
-  const wipRows = db.prepare(`
-    SELECT COUNT(*) c, COALESCE(SUM(wip_rial), 0) s FROM v_wip_by_order WHERE wip_rial > 0
-  `).get();
-  const oh = overheadVariance(db, { period });
-  const vm = varianceMatrix(db, { period });
-  const openOrders = db.prepare(`
-    SELECT po.id, po.order_no, p.name AS product_name, po.qty_planned, po.status, po.date
-    FROM production_orders po JOIN products p ON p.id = po.product_id
-    WHERE po.status IN ('released', 'in_progress') ORDER BY po.date LIMIT 20
-  `).all();
+  let wipRows = { c: 0, s: 0 };
+  try {
+    wipRows = db.prepare(`
+      SELECT COUNT(*) c, COALESCE(SUM(wip_rial), 0) s FROM v_wip_by_order WHERE wip_rial > 0
+    `).get() || wipRows;
+  } catch { /* view may be missing on fresh boot */ }
 
-  const mp = monthlyProfit(db, { period });
+  let oh = { totals: { variance_rial: 0 } };
+  let vm = { data: { matrix: [] } };
+  let costMix = {};
+  let trend = { data: { series: [] } };
+  let mp = { totals: { gross_margin_pct: 0, gross_profit_rial: 0 } };
+  try { oh = overheadVariance(db, { period }); } catch { /* empty period ok */ }
+  try { vm = varianceMatrix(db, { period }); } catch { /* empty */ }
+  try { costMix = periodCost(db, { period }).data?.current || {}; } catch { /* empty */ }
+  try { trend = unitCostTrend(db, { months: 6 }); } catch { /* empty */ }
+  try { mp = monthlyProfit(db, { period }); } catch { /* ledger/CoA gaps */ }
+
+  let openOrders = [];
+  try {
+    openOrders = db.prepare(`
+      SELECT po.id, po.order_no, p.name AS product_name, po.qty_planned, po.status, po.date
+      FROM production_orders po JOIN products p ON p.id = po.product_id
+      WHERE po.status IN ('released', 'in_progress') ORDER BY po.date LIMIT 20
+    `).all();
+  } catch { openOrders = []; }
 
   const data = {
     period,
     kpis: {
-      produced: { value: cur.qty, delta_pct: delta(cur.qty, old.qty) },
-      unit_cost: { value_rial: cur.unit_cost, delta_pct: delta(cur.unit_cost, old.unit_cost) },
-      yield: { value_pct: cur.yield, delta_pct: delta(cur.yield, old.yield) },
-      abnormal: { value_rial: cur.abnormal, delta_pct: delta(cur.abnormal, old.abnormal) },
+      produced: { value: cur.qty || 0, delta_pct: delta(cur.qty, old.qty) },
+      unit_cost: { value_rial: cur.unit_cost || 0, delta_pct: delta(cur.unit_cost, old.unit_cost) },
+      yield: { value_pct: cur.yield || 0, delta_pct: delta(cur.yield, old.yield) },
+      abnormal: { value_rial: cur.abnormal || 0, delta_pct: delta(cur.abnormal, old.abnormal) },
       wip: { value_rial: Math.round(Number(wipRows?.s) || 0), orders: wipRows?.c || 0 },
       oh_variance: { value_rial: oh.totals?.variance_rial || 0 },
       gross_margin: {
@@ -718,14 +732,14 @@ function dashboard(db, { period } = {}) {
         profit_rial: mp.totals?.gross_profit_rial || 0,
       },
     },
-    trends: { unit_cost: unitCostTrend(db, { months: 6 }) },
+    trends: { unit_cost: trend },
     variances: vm.data?.matrix || [],
     alerts: [],
     open_orders: openOrders,
-    cost_mix: periodCost(db, { period }).data?.current || {},
+    cost_mix: costMix,
   };
 
-  if (Math.abs(cur.abnormal) > 0 && delta(cur.abnormal, old.abnormal) > 20) {
+  if (Math.abs(cur.abnormal || 0) > 0 && delta(cur.abnormal, old.abnormal) > 20) {
     data.alerts.push({ level: 'warning', message: 'رشد ضایعات غیرعادی' });
   }
 

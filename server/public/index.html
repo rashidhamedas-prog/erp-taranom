@@ -813,7 +813,19 @@ async function api(method, path, data, isFormData){
     if(!r.ok){
       // تغییر اجباری رمز: تا وقتی رمز عوض نشود، سرور بقیه درخواست‌ها را رد می‌کند
       if(r.status===403 && j.code==='must_change_password' && !el('fc-old')) openForcePassChange();
-      showToast(j.error || 'خطا رخ داد','error'); throw new Error(j.error||'error');
+      const code=j.code||j.error||'error';
+      const prodFriendly={
+        E_NO_ACTIVE_BOM:'برای این کالا فرمول BOM فعال وجود ندارد — ابتدا فرمول بسازید و فعال کنید',
+        E_BOM_NOT_ACTIVE:'فرمول انتخاب‌شده فعال نیست',
+        E_QTY_INVALID:'محصول و تعداد برنامه را درست وارد کنید',
+        E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
+        E_NOT_FOUND:'مورد درخواستی یافت نشد',
+        E_ALREADY_CLOSED:'این دوره قبلاً بسته شده',
+        E_FORBIDDEN:'دسترسی کافی ندارید',
+        'no such column: is_active':'خطای ستون پایگاه‌داده — سرور را به‌روز کنید',
+      };
+      showToast(prodFriendly[code] || j.error || 'خطا رخ داد','error');
+      const err=new Error(j.error||'error'); err.code=code; err.status=r.status; err.payload=j; throw err;
     }
     if(SYNC_MODE && ['POST','PUT','PATCH','DELETE'].includes(method)) scheduleBgSync();
     return j;
@@ -4289,7 +4301,7 @@ ROUTES['acc-warehouses']=()=>renderAccPage('warehouses','🏭','انبارها')
 ROUTES['acc-warehouse-ops']=()=>renderAccPage('warehouse-ops','📦','عملیات انبار (رسید / حواله / انتقال)');
 ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای امانی');
 ROUTES['acc-adv-reports']=()=>renderAccPage('adv-reports','📊','گزارشات پیشرفته');
-ROUTES['acc-production']=()=>renderAccPage('production','🏗️','تحلیل هزینه تولید');
+ROUTES['acc-production']=()=>{ location.hash='acc-production-dashboard'; };
 ROUTES['acc-production-orders']=()=>renderAccPage('production-orders','🏭','سفارش‌های تولید');
 ROUTES['acc-production-boms']=()=>renderAccPage('production-boms','📋','فرمول تولید (BOM)');
 ROUTES['acc-production-dashboard']=()=>renderAccPage('production-dashboard','📊','داشبورد تولید');
@@ -4424,7 +4436,7 @@ async function loadAccTab(tab){
   } else if(tab==='adv-reports'){
     await renderAdvReportsTab(body);
   } else if(tab==='production'){
-    await renderProductionTab(body);
+    await renderProductionDashboardTab(body);
   } else if(tab==='production-orders'){
     await renderProductionOrdersTab(body);
   } else if(tab==='production-boms'){
@@ -5985,36 +5997,43 @@ async function prodDashRenderCharts(dash){
 async function renderProductionDashboardTab(body){
   destroyProdCharts();
   const period=(window._prodDashPeriod||todayJalali().slice(0,7));
-  let dash=null, catalog=[];
-  try{ dash=await api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)); }catch(e){ dash=null; }
+  let dash=null, catalog=[], dashErr='';
+  try{ dash=await api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)); }
+  catch(e){ dash=null; dashErr=e.message||e.code||'خطا در داشبورد'; }
   try{ catalog=(await api('GET','/production/reports'))?.reports||[]; }catch(e){ catalog=[]; }
   window._prodDashPeriod=period;
   const k=dash?.data?.kpis||{};
+  const openOrders=dash?.data?.open_orders||[];
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
       <label>دوره: <input id="pd-period" value="${esc(period)}" placeholder="1405/04" style="width:90px"></label>
       <button class="btn" onclick="prodDashLoad()">🔄 بارگذاری</button>
     </div>
-    ${dash?`<div class="cards" style="margin-bottom:16px">
+    ${dashErr?`<div class="muted" style="color:var(--state-danger,#C0392B);margin-bottom:8px">${esc(dashErr)}</div>`:''}
+    <div class="cards" style="margin-bottom:16px">
       ${statCard('g','📦',fmt(k.produced?.value||0),'تولید (عدد)')}
       ${statCard('b','💰',prodFmtToman(k.unit_cost?.value_rial),'بهای واحد (ت)')}
-      ${statCard('o','⚙️',(k.yield?.value_pct??'—')+'٪','بهره‌وری')}
+      ${statCard('o','⚙️',(k.yield?.value_pct??0)+'٪','بهره‌وری')}
       ${statCard('r','🏗',prodFmtToman(k.wip?.value_rial),'WIP (ت)')}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
       <div class="panel"><div class="panel-head"><h4>روند بهای واحد</h4></div>
-        <div class="panel-body" style="height:220px;position:relative"><canvas id="pd-chart-unit-cost"></canvas></div></div>
+        <div class="panel-body" style="height:220px;position:relative"><canvas id="pd-chart-unit-cost"></canvas>
+          ${!(dash?.data?.trends?.unit_cost?.data?.series||[]).length?'<div class="muted" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">هنوز رسیدی ثبت نشده</div>':''}
+        </div></div>
       <div class="panel"><div class="panel-head"><h4>ترکیب هزینه دوره</h4></div>
-        <div class="panel-body" style="height:220px;position:relative"><canvas id="pd-chart-cost-mix"></canvas></div></div>
+        <div class="panel-body" style="height:220px;position:relative"><canvas id="pd-chart-cost-mix"></canvas>
+          ${!Object.values(dash?.data?.cost_mix||{}).some(v=>Number(v)>0)?'<div class="muted" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">داده هزینه دوره خالی است</div>':''}
+        </div></div>
     </div>
     <div class="panel"><div class="panel-head"><h4>سفارش‌های باز</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>شماره</th><th>محصول</th><th>برنامه</th><th>وضعیت</th></tr></thead><tbody>
-        ${(dash.data.open_orders||[]).map(o=>`<tr><td>${esc(o.order_no)}</td><td>${esc(o.product_name||'')}</td><td class="num">${o.qty_planned||0}</td><td>${esc(o.status)}</td></tr>`).join('')||emptyRow(4)}
+        ${openOrders.map(o=>`<tr><td>${esc(o.order_no)}</td><td>${esc(o.product_name||'')}</td><td class="num">${o.qty_planned||0}</td><td>${esc(o.status)}</td></tr>`).join('')||emptyRow(4)}
       </tbody></table></div></div>
     <div class="panel" style="margin-top:12px"><div class="panel-head"><h4>فهرست گزارشات تولید</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>کد</th><th>عنوان</th><th>نیاز به هزینه</th></tr></thead><tbody>
         ${catalog.map(r=>`<tr><td class="mono">${esc(r.code)}</td><td>${esc(r.title)}</td><td>${r.requires_cost?'✓':'—'}</td></tr>`).join('')||emptyRow(3)}
-      </tbody></table></div></div>`:'<div class="muted">داده‌ای یافت نشد یا دسترسی ندارید.</div>'}`;
+      </tbody></table></div></div>`;
   if(dash) await prodDashRenderCharts(dash);
 }
 function prodDashLoad(){
@@ -6025,17 +6044,25 @@ function prodDashLoad(){
 async function renderProductionCloseTab(body){
   const period=(window._prodClosePeriod||todayJalali().slice(0,7));
   window._prodClosePeriod=period;
-  let periods=[], pre=null, calc=null;
+  let periods=[], pre=null, calc=null, errMsg='';
   try{ periods=(await api('GET','/production/close'))?.periods||[]; }catch(e){}
-  try{ pre=await api('POST','/production/close/'+encodeURIComponent(period)+'/precheck',{}); }catch(e){}
-  try{ calc=await api('POST','/production/close/'+encodeURIComponent(period)+'/calculate',{method:'proration'}); }catch(e){}
+  try{
+    // open period if missing (idempotent)
+    await api('POST','/production/close/'+encodeURIComponent(period)+'/open',{});
+  }catch(e){ /* already open/closed ok */ }
+  try{ pre=await api('POST','/production/close/'+encodeURIComponent(period)+'/precheck',{}); }
+  catch(e){ errMsg=e.message||e.code||'خطا در پیش‌بررسی'; }
+  try{ calc=await api('POST','/production/close/'+encodeURIComponent(period)+'/calculate',{method:'proration'}); }
+  catch(e){ if(!errMsg) errMsg=e.message||e.code||'خطا در محاسبه'; }
   const checks=(pre?.checks||[]).map(c=>`<tr><td>${esc(c.label||c.code)}</td><td>${c.status==='pass'?'✅':'❌'} ${esc(c.message||'')}</td></tr>`).join('');
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
       <label>دوره: <input id="pc-period" value="${esc(period)}" placeholder="1405/04" style="width:90px"></label>
       <button class="btn secondary" onclick="prodCloseReload()">۱. بارگذاری</button>
+      <button class="btn secondary" onclick="prodCloseOpenPeriod()">باز کردن دوره</button>
       <button class="btn" onclick="prodCloseExecute()" ${pre&&!pre.can_close?'disabled':''}>۴. اجرای بستن</button>
     </div>
+    ${errMsg?`<div class="muted" style="color:var(--state-danger,#C0392B);margin-bottom:8px">${esc(errMsg)}</div>`:''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="panel"><div class="panel-head"><h4>۲. پیش‌بررسی</h4></div>
         <div class="panel-body tbl-wrap"><table class="tbl"><tbody>${checks||emptyRow(2)}</tbody></table></div></div>
@@ -6045,11 +6072,19 @@ async function renderProductionCloseTab(body){
           <p>انحراف سربار: <b>${prodFmtToman(calc.overhead?.variance_rial)}</b> ت</p>
           <p>روش: ${esc(calc.materiality?.method_auto||'—')}</p>`:'<span class="muted">محاسبه در دسترس نیست</span>'}
         </div></div>
-    </div>`;
+    </div>
+    ${periods.length?`<div class="muted" style="margin-top:10px;font-size:12px">دوره‌های ثبت‌شده: ${periods.map(p=>esc(p.period_label)+' ('+esc(p.status)+')').join(' · ')}</div>`:''}`;
 }
 function prodCloseReload(){
   window._prodClosePeriod=el('pc-period')?.value||todayJalali().slice(0,7);
   loadAccTab('production-close');
+}
+async function prodCloseOpenPeriod(){
+  const period=el('pc-period')?.value||window._prodClosePeriod;
+  try{
+    await api('POST','/production/close/'+encodeURIComponent(period)+'/open',{});
+    showToast('دوره '+period+' باز شد'); loadAccTab('production-close');
+  }catch(e){ showToast(e.message||e.code||'خطا','error'); }
 }
 async function prodCloseExecute(){
   const period=el('pc-period')?.value||window._prodClosePeriod;
@@ -6057,7 +6092,7 @@ async function prodCloseExecute(){
   try{
     await api('POST','/production/close/'+encodeURIComponent(period)+'/execute',{method:'proration'});
     showToast('دوره بسته شد'); loadAccTab('production-close');
-  }catch(e){ showToast(e.message||'خطا','error'); }
+  }catch(e){ showToast(e.message||e.code||'خطا','error'); }
 }
 
 async function renderProductionMonthlyProfitTab(body){
@@ -6617,12 +6652,32 @@ async function renderProductionOrdersTab(body){
     </tbody></table></div>
     </div>`;
 }
+function prodOrderErrMsg(e){
+  const code=e?.code||e?.message||'';
+  const map={
+    E_NO_ACTIVE_BOM:'برای این کالا فرمول BOM فعال وجود ندارد — ابتدا در «فرمول تولید» بسازید و فعال کنید',
+    E_BOM_NOT_ACTIVE:'فرمول انتخاب‌شده فعال نیست',
+    E_QTY_INVALID:'محصول و تعداد برنامه را درست وارد کنید',
+    E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
+    E_FORBIDDEN:'مجوز ایجاد سفارش ندارید',
+  };
+  return map[code]||e?.error||e?.message||code||'خطا در ایجاد سفارش';
+}
 async function prodOrderCreateModal(){
   if(!CACHE.allProducts) CACHE.allProducts=await api('GET','/products')||[];
-  const mfg=(CACHE.allProducts||[]).filter(p=>p.is_manufactured==1||p.item_type==='finished');
+  let boms=[];
+  try{ boms=(await api('GET','/production/boms?status=active'))?.rows||(await api('GET','/production/boms'))?.rows||[]; }catch(e){ boms=[]; }
+  const activeBomProductIds=new Set((boms||[]).filter(b=>b.status==='active'||!b.status).map(b=>Number(b.product_id)));
+  const all=CACHE.allProducts||[];
+  let mfg=all.filter(p=>p.is_manufactured==1||p.item_type==='finished'||activeBomProductIds.has(Number(p.id)));
+  if(!mfg.length) mfg=all.slice(0,200);
+  const warn=!activeBomProductIds.size?'⚠️ هنوز BOM فعال ندارید — اول فرمول بسازید و فعال کنید.':'';
   showModal('سفارش تولید جدید',`
+    ${warn?`<div class="muted" style="margin-bottom:10px;color:var(--state-warn,#E67E22)">${warn}</div>`:''}
     <div class="form-grid">
-      <div class="fg"><label>محصول</label><select id="po-product">${mfg.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>محصول</label>
+        <select id="po-product">${mfg.length?mfg.map(p=>`<option value="${p.id}">${esc(p.name)}${activeBomProductIds.has(Number(p.id))?' ✓BOM':''}</option>`).join(''):'<option value="">کالایی یافت نشد</option>'}</select>
+      </div>
       <div class="fg"><label>تعداد برنامه</label><input id="po-qty" type="number" min="1" value="300"></div>
       <div class="fg"><label>نوع آنالیز</label>
         <select id="po-analysis">
@@ -6635,17 +6690,20 @@ async function prodOrderCreateModal(){
     </div>
     <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
       <button class="btn secondary" onclick="closeModal()">انصراف</button>
-      <button class="btn" onclick="prodOrderCreateSave()">ثبت پیش‌نویس</button>
+      <button class="btn" onclick="prodOrderCreateSave()" ${mfg.length?'':'disabled'}>ثبت پیش‌نویس</button>
     </div>`);
 }
 async function prodOrderCreateSave(){
+  const pid=+el('po-product')?.value;
+  const qty=+el('po-qty')?.value;
+  if(!pid||!(qty>0)){ showToast('محصول و تعداد را وارد کنید','error'); return; }
   try{
     await api('POST','/production/orders',{
-      product_id:+el('po-product').value, qty_planned:+el('po-qty').value,
+      product_id:pid, qty_planned:qty,
       analysis_type:el('po-analysis').value, date:el('po-date').value
     });
     closeModal(); showToast('سفارش ایجاد شد'); loadAccTab('production-orders');
-  }catch(e){ showToast(e.message||'خطا','error'); }
+  }catch(e){ /* toast already shown by api() with friendly message */ }
 }
 async function prodOrderRelease(id){
   try{ await api('POST','/production/orders/'+id+'/release',{}); showToast('آزاد شد'); loadAccTab('production-orders'); }

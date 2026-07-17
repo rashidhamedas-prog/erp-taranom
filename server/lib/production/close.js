@@ -38,8 +38,12 @@ function getPeriodRow(db, period) {
   return db.prepare('SELECT * FROM production_period_close WHERE period_label=?').get(period);
 }
 
-function requireOpenPeriod(db, period) {
-  const row = getPeriodRow(db, period);
+function requireOpenPeriod(db, period, { autoOpen = true } = {}) {
+  let row = getPeriodRow(db, period);
+  if (!row && autoOpen) {
+    openPeriod(db, { period });
+    row = getPeriodRow(db, period);
+  }
   if (!row) throw err('E_NOT_FOUND', 404, { period });
   if (row.status === 'closed') throw err('E_ALREADY_CLOSED', 409, { period });
   return row;
@@ -381,9 +385,19 @@ function assertControlsZero(db, { period, asOfDate }) {
   return { ok: true };
 }
 
-function precheck(db, { period }) {
-  const row = getPeriodRow(db, period);
+/** Ensure period row exists (auto-open) — UI can call precheck without prior /open */
+function ensurePeriodRow(db, period, userId = null) {
+  let row = getPeriodRow(db, period);
+  if (!row) {
+    openPeriod(db, { period, userId });
+    row = getPeriodRow(db, period);
+  }
   if (!row) throw err('E_NOT_FOUND', 404, { period });
+  return row;
+}
+
+function precheck(db, { period }) {
+  const row = ensurePeriodRow(db, period);
   const endDate = periodEndDate(period, row);
   const checks = [];
 
@@ -730,8 +744,7 @@ function listPeriods(db) {
 }
 
 function getPeriodStatus(db, period) {
-  const row = getPeriodRow(db, period);
-  if (!row) throw err('E_NOT_FOUND', 404, { period });
+  const row = ensurePeriodRow(db, period);
   const checklist = safeJson(row.checklist_json) || {};
   return { ...row, last_calculate: checklist.last_calculate || null };
 }
