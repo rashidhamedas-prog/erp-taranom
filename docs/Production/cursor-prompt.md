@@ -17,7 +17,7 @@
 
 ## مخزن
 rashidhamedas-prog/crm-taranom
-مسیر production: /var/www/crm-taranom/  ·  VPS: 45.90.98.99  ·  PM2: crm-taranom
+مسیر production: /home/taranom/crm-taranom/  ·  VPS ایران: 94.249.244.208  ·  PM2: crm-taranom
 
 ## استک موجود (تغییر نده)
 - Node.js + Express (بدون TypeScript)
@@ -454,34 +454,33 @@ server/scripts/test-production-close.js — ۱۸ تست (test-cases.md §3)
 ## ۳.۶ Deploy
 
 ```bash
-# روی VPS
-ssh -p 2299 taranom-admin@45.90.98.99
-cd /var/www/crm-taranom
+# روی VPS ایران
+ssh -i ~/.ssh/id_ed25519_taranom taranom@94.249.244.208
+cd ~/crm-taranom
 
 # ۱) بکاپ اجباری
-node server/backup.js --now
-cp server/data/crm.db /root/backup/crm-$(date +%F-%H%M).db
+mkdir -p server/backups
+cp -a server/crm.db "server/backups/crm-$(date +%F-%H%M).db"
 
 # ۲) به‌روزرسانی
-git pull origin main
-cd server && npm ci
+git pull origin claude/claude-md-docs-2ssrpy
+cd server && npm install --omit=dev
 
-# ۳) تست
-npm run test:production                    # همه سبز؟
-node scripts/test-production-health.js     # روی DB واقعی — قبل از restart
+# ۳) تست (اختیاری روی production)
+npm run test:production:health
 
 # ۴) restart
-pm2 restart crm-taranom
-pm2 logs crm-taranom --lines 50            # خطا؟
+pm2 restart crm-taranom --update-env
+pm2 logs crm-taranom --lines 50
 
 # ۵) تأیید
-curl -s localhost:3000/api/production/health-check | jq
-node scripts/test-production-health.js     # بعد از restart
+curl -sf http://127.0.0.1:3000/api/system/health
+node scripts/production-go-live-check.js
 
 # ۶) rollback در صورت مشکل
 pm2 stop crm-taranom
-cp /root/backup/crm-<timestamp>.db server/data/crm.db
-git reset --hard HEAD~1 && npm ci
+cp server/backups/crm-<timestamp>.db server/crm.db
+git reset --hard HEAD~1 && npm install --omit=dev
 pm2 start crm-taranom
 ```
 

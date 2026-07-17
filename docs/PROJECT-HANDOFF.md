@@ -113,7 +113,7 @@ cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssr
 - **رمزنگاری بکاپ** ✅ — AES-256-GCM با رمزِ کلید تنظیمات `backup_password` (صفحهٔ «پشتیبان») یا env `BACKUP_PASSWORD`؛ بازگشایی با `server/scripts/decrypt-backup.js`.
 - **اسرار در گیت** ✅ (فایل‌ها) — رمز keystore از `android/app/build.gradle` و `android/BUILD.md` حذف شد (حالا `android/keystore.properties` در gitignore)، `crm-taranom.jks` از مخزن حذف شد، `JWT_SECRET` هاردکد از `ecosystem.config.js` حذف شد (حالا `server/jwt-secret.txt` در gitignore). ⚠️ تاریخچهٔ گیت پاک نشده — **چرخش keystore و رمزها الزامی است** (دستور در `docs/SECURITY-HARDENING.md`).
 - **کلید JWT پیش‌فرض**: `middleware/auth.js` هنوز مقدار پشتیبان توسعه دارد، اما `assertSecurityConfig()` در production بدون `JWT_SECRET` معتبر سرور را بالا نمی‌آورد. روی سرور: `node -e "..." > server/jwt-secret.txt` (جزئیات در `docs/SECURITY-HARDENING.md`).
-- **HTTPS**: هنوز روی HTTP ساده است — نمونهٔ کامل پیکربندی Nginx + certbot در `docs/SECURITY-HARDENING.md` بخش «د». هنگام مهاجرت به سرور ایرانی اجرا شود.
+- **HTTPS**: نمونهٔ کامل Nginx + certbot در `docs/SECURITY-HARDENING.md` بخش «د» — روی سرور ایران با دامنه `.ir` اجرا شود.
 
 **ج) هوش مصنوعی (تصمیم معماری):**
 - سرویس‌های AI خارجی (Anthropic/OpenAI/Google) آی‌پی ایران را تحریمی مسدود می‌کنند و ToS استفاده از ایران را ممنوع کرده.
@@ -123,10 +123,11 @@ cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssr
 
 ## ۷) سرور تولید
 
-- IP: `45.90.98.99`، پورت SSH: `2299`، کاربر: `taranom-admin`
-- مسیر برنامه: `/home/taranom-admin/crm-taranom`، مدیر پردازش: PM2 (نام: `crm-taranom`)
-- **Deploy:** `bash scripts/deploy-production.sh` روی سرور، یا GitHub Actions → workflow «Deploy CRM ترنم» (secrets: `SERVER_HOST`, `SERVER_USER`, `SSH_PRIVATE_KEY`, `SERVER_PORT=2299`)
-- **در حال مهاجرت به سرور ایرانی** (تصمیم گرفته‌شده). هنگام مهاجرت، بند «الف» بالا حتماً انجام شود.
+- **تنها سرور production:** ایران `94.249.244.208`
+- SSH: کاربر `taranom`، کلید محلی (مثلاً `~/.ssh/id_ed25519_taranom`)، پورت پیش‌فرض `22`
+- مسیر برنامه: `/home/taranom/crm-taranom` · PM2: `crm-taranom`
+- **Deploy:** روی سرور `bash scripts/deploy-production.sh` (یا `git pull` + `pm2 restart`)
+- سرور آلمان (`45.90.98.99`) **از رده خارج و پاک‌سازی شد** — دیگر استفاده نشود.
 - رمزها و کلید SSH **هرگز در مخزن نباشند** — جداگانه نگه‌داری شوند.
 
 ---
