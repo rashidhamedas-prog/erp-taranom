@@ -20,6 +20,7 @@
     "test:production:health": "node scripts/test-production-health.js",
     "test:production:perf": "node scripts/test-production-reports-perf.js",
     "test:production:export": "node scripts/test-production-export.js",
+    "production:go-live": "node scripts/production-go-live-check.js",
     "test:production": "node scripts/test-production-schema.js && node scripts/test-production-bom.js && node scripts/test-production-fixed.js && node scripts/test-production-variable.js && node scripts/test-production-bom-advanced.js && node scripts/test-production-fixed-advanced.js && node scripts/test-production-variable-advanced.js && node scripts/test-production-estimation.js && node scripts/test-production-close.js && node scripts/test-production-reports.js && node scripts/test-production-rbac.js && node scripts/test-production-reports-perf.js && node scripts/test-production-export.js && node scripts/test-production-health.js"
   },
   "dependencies": {
