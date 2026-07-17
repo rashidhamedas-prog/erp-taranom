@@ -3,6 +3,7 @@ const { getDB, audit } = require('../db');
 const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
 const { tomanToRial } = require('../lib/money');
 const { syncPartyToLegacy } = require('../lib/parties-sync');
+const { allocTafsili } = require('../lib/coa-map');
 
 const PARTY_TYPES = ['customer', 'supplier', 'both', 'other'];
 const ROLE_KEYS = ['customer', 'supplier', 'employee', 'partner', 'marketer', 'other'];
@@ -40,6 +41,12 @@ function derivePartyType(roles) {
   return 'other';
 }
 
+function coaKindForRoles(roles) {
+  if (roles.includes('customer')) return 'customer';
+  if (roles.includes('supplier')) return 'supplier';
+  return 'person';
+}
+
 function mapPartyRow(row) {
   if (!row) return row;
   let party_roles = [];
@@ -54,13 +61,89 @@ function mapPartyRow(row) {
   };
 }
 
+router.get('/export/excel', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare(`
+    SELECT p.*, pg.name AS party_group_name, u.name AS expert_name
+    FROM parties p
+    LEFT JOIN party_groups pg ON p.party_group_id = pg.id
+    LEFT JOIN users u ON u.id = p.user_id
+    WHERE p.is_active=1 ORDER BY p.id DESC
+  `).all().map(mapPartyRow);
+  const header = ['کد', 'نام', 'پیشوند', 'تلفن', 'موبایل', 'شهر', 'گروه', 'سمت‌ها', 'کد تفصیلی', 'کارشناس', 'ایمیل', 'کد ملی'];
+  const lines = [header.join(',')];
+  for (const p of rows) {
+    const cols = [
+      p.person_code, p.full_name || p.biz, p.prefix, p.phone, p.mobile, p.city,
+      p.party_group_name, (p.party_roles || []).join('|'), p.coa_code, p.expert_name, p.email, p.national_id
+    ].map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"');
+    lines.push(cols.join(','));
+  }
+  const bom = '\uFEFF';
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="parties.csv"');
+  res.send(bom + lines.join('\n'));
+});
+
+router.get('/import/template', auth, adminOrAccounting, (req, res) => {
+  const bom = '\uFEFF';
+  const csv = 'نام*,تلفن*,پیشوند,موبایل,شهر,گروه,سمت‌ها,ایمیل,کد ملی\nنمونه فروشگاه,09120000000,آقا,,تهران,مشتریان,customer,,';
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="parties-template.csv"');
+  res.send(bom + csv);
+});
+
+router.post('/import', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  if (!rows.length) return res.status(400).json({ error: 'ردیفی برای ورود نیست' });
+  let created = 0, skipped = 0;
+  const groups = db.prepare('SELECT id,name FROM party_groups').all();
+  const groupByName = {};
+  groups.forEach(g => { groupByName[String(g.name || '').trim()] = g.id; });
+
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      const full_name = String(r.full_name || r.name || '').trim();
+      const phone = String(r.phone || '').trim();
+      if (!full_name || !phone) { skipped++; continue; }
+      const exists = db.prepare('SELECT id FROM parties WHERE phone=? AND is_active=1').get(phone);
+      if (exists) { skipped++; continue; }
+      const roles = parseRoles(r.party_roles || r.roles || ['customer'], r.party_type);
+      const partyType = derivePartyType(roles);
+      let pgid = r.party_group_id ? parseInt(r.party_group_id, 10) : null;
+      if (!pgid && r.party_group_name) pgid = groupByName[String(r.party_group_name).trim()] || null;
+      const personCode = nextPartyCode(db);
+      const nameForCoa = full_name;
+      const coa = allocTafsili(db, coaKindForRoles(roles), nameForCoa);
+      const ins = db.prepare(`
+        INSERT INTO parties (
+          person_code, party_type, party_roles, legal_type, full_name, company_name,
+          phone, mobile, city, email, national_id, user_id, biz, status, type,
+          party_group_id, prefix, coa_code, is_active
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+      `).run(
+        personCode, partyType, JSON.stringify(roles), 'real', full_name, r.company_name || null,
+        phone, r.mobile || null, r.city || null, r.email || null, r.national_id || null,
+        r.user_id || req.user.id, full_name, 'new', 'بوتیک',
+        pgid, r.prefix || null, coa || null
+      );
+      try { syncPartyToLegacy(db, ins.lastInsertRowid); } catch (_) {}
+      created++;
+    }
+  });
+  try { tx(); } catch (e) { return res.status(500).json({ error: e.message }); }
+  res.json({ ok: true, created, skipped });
+});
+
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const { type, segment, city, search, party_group_id, page = 1, limit = 50 } = req.query;
   let sql = `
-    SELECT p.*, pg.name AS party_group_name
+    SELECT p.*, pg.name AS party_group_name, u.name AS expert_name
     FROM parties p
     LEFT JOIN party_groups pg ON p.party_group_id = pg.id
+    LEFT JOIN users u ON u.id = p.user_id
     WHERE p.is_active=1
   `;
   const params = [];
@@ -73,7 +156,8 @@ router.get('/', auth, (req, res) => {
     const q = '%' + search + '%';
     params.push(q, q, q, q, q, q);
   }
-  const total = db.prepare(sql.replace('SELECT p.*, pg.name AS party_group_name', 'SELECT COUNT(*) AS c')).get(...params)?.c || 0;
+  const countSql = sql.replace(/SELECT[\s\S]+?FROM parties p/, 'SELECT COUNT(*) AS c FROM parties p');
+  const total = db.prepare(countSql).get(...params)?.c || 0;
   sql += ' ORDER BY p.id DESC LIMIT ? OFFSET ?';
   params.push(Math.min(200, parseInt(limit, 10) || 50), (Math.max(1, parseInt(page, 10)) - 1) * (parseInt(limit, 10) || 50));
   const rows = db.prepare(sql).all(...params).map(mapPartyRow);
@@ -83,8 +167,10 @@ router.get('/', auth, (req, res) => {
 router.get('/:id', auth, (req, res) => {
   const db = getDB();
   const row = db.prepare(`
-    SELECT p.*, pg.name AS party_group_name
-    FROM parties p LEFT JOIN party_groups pg ON p.party_group_id = pg.id
+    SELECT p.*, pg.name AS party_group_name, pg.entity_type AS party_group_entity, u.name AS expert_name
+    FROM parties p
+    LEFT JOIN party_groups pg ON p.party_group_id = pg.id
+    LEFT JOIN users u ON u.id = p.user_id
     WHERE p.id=?
   `).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
@@ -103,6 +189,11 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const creditRial = b.credit_limit_rial != null ? parseInt(b.credit_limit_rial, 10) : tomanToRial(b.credit_limit || 0);
   const openRial = b.opening_balance_rial != null ? parseInt(b.opening_balance_rial, 10) : tomanToRial(b.opening_balance || 0);
   const pgid = b.party_group_id ? parseInt(b.party_group_id, 10) : null;
+  const displayName = b.full_name || b.company_name;
+  let coaCode = b.coa_code || null;
+  if (!coaCode) {
+    try { coaCode = allocTafsili(db, coaKindForRoles(roles), displayName); } catch (_) { coaCode = null; }
+  }
 
   try {
     const r = db.prepare(`
@@ -120,9 +211,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       b.city || null, b.province || null, b.address || null, b.postal_code || null,
       b.segment || 'C', b.store_type || null, b.source || null,
       creditRial, openRial, b.opening_balance_date || null, b.notes || null,
-      b.user_id || req.user.id, b.biz || b.company_name || b.full_name, b.owner || null,
+      b.user_id || b.assigned_to || req.user.id, b.biz || b.company_name || b.full_name, b.owner || null,
       b.insta || null, b.status || 'new', b.type || 'بوتیک',
-      pgid, b.prefix || null, b.birth_date || null, b.referrer || null, b.account_nature || null, b.coa_code || null
+      pgid, b.prefix || null, b.birth_date || null, b.referrer || null, b.account_nature || null, coaCode
     );
     audit(req.user.id, 'create', 'party', r.lastInsertRowid, personCode);
     try { syncPartyToLegacy(db, r.lastInsertRowid); } catch (_) {}
@@ -144,6 +235,13 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const creditRial = b.credit_limit_rial != null ? parseInt(b.credit_limit_rial, 10)
     : (b.credit_limit != null ? tomanToRial(b.credit_limit) : row.credit_limit);
   const pgid = b.party_group_id != null ? (b.party_group_id ? parseInt(b.party_group_id, 10) : null) : row.party_group_id;
+  let coaCode = b.coa_code != null ? b.coa_code : row.coa_code;
+  if (!coaCode) {
+    try { coaCode = allocTafsili(db, coaKindForRoles(roles), b.full_name || row.full_name); } catch (_) {}
+  }
+  const userId = b.user_id != null || b.assigned_to != null
+    ? parseInt(b.user_id || b.assigned_to, 10) || row.user_id
+    : row.user_id;
 
   db.prepare(`
     UPDATE parties SET
@@ -152,6 +250,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       national_id=?, economic_code=?, credit_limit=?, notes=?,
       biz=?, owner=?, insta=?, status=?, type=?, party_type=?, party_roles=?,
       party_group_id=?, prefix=?, birth_date=?, referrer=?, account_nature=?, coa_code=?,
+      user_id=?,
       updated_at=strftime('%s','now')
     WHERE id=?
   `).run(
@@ -164,7 +263,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
     b.biz ?? row.biz, b.owner ?? row.owner, b.insta ?? row.insta, b.status ?? row.status, b.type ?? row.type,
     partyType, JSON.stringify(roles), pgid,
     b.prefix ?? row.prefix, b.birth_date ?? row.birth_date, b.referrer ?? row.referrer,
-    b.account_nature ?? row.account_nature, b.coa_code ?? row.coa_code,
+    b.account_nature ?? row.account_nature, coaCode, userId,
     req.params.id
   );
   audit(req.user.id, 'update', 'party', req.params.id, '');
@@ -172,7 +271,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ success: true, data: mapPartyRow(db.prepare('SELECT * FROM parties WHERE id=?').get(req.params.id)) });
 });
 
-router.delete('/:id', auth, adminOnly, (req, res) => {
+router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM parties WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });

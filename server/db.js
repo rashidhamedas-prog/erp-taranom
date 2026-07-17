@@ -551,6 +551,23 @@ function initDB() {
   ensureColumn(db, 'settlements', 'cheque_owner', "TEXT DEFAULT ''");
   ensureColumn(db, 'settlements', 'cheque_due', "TEXT DEFAULT ''");
   ensureColumn(db, 'settlements', 'cheque_status', "TEXT DEFAULT 'pending'");
+  ensureColumn(db, 'settlements', 'cheque_branch', "TEXT DEFAULT ''");
+  ensureColumn(db, 'settlements', 'cheque_sheba', "TEXT DEFAULT ''");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS expense_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT,
+      name TEXT NOT NULL,
+      account_code TEXT,
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    )
+  `);
+  const expCatCount = db.prepare('SELECT COUNT(*) c FROM expense_categories').get().c;
+  if (!expCatCount) {
+    db.prepare('INSERT INTO expense_categories (code,name,account_code) VALUES (?,?,?)').run('admin', 'عمومی و اداری', '6102');
+    db.prepare('INSERT INTO expense_categories (code,name,account_code) VALUES (?,?,?)').run('sales', 'توزیع و فروش', '6103');
+  }
   // Followup CRM pipeline fields
   ensureColumn(db, 'followups', 'interest_level', "TEXT DEFAULT 'mid'");
   ensureColumn(db, 'followups', 'purchase_prob', 'INTEGER DEFAULT 50');

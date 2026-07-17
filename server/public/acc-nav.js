@@ -1,5 +1,5 @@
 /**
- * ساختار منوی حسابداری — استاندارد حسابداری ایران (بدون تکرار و بدون نام‌گذاری خارجی).
+ * ساختار منوی حسابداری — استاندارد حسابداری ایران (بدون تکرار).
  * ACC_TAB_RESOLVE: نگاشت شناسه منو → handler داخلی loadAccTab
  */
 const ACC_TAB_RESOLVE = {
@@ -29,9 +29,6 @@ const ACC_TAB_RESOLVE = {
   'acc-settlements': 'settlements',
   'acc-receipts': 'settlements',
   'acc-payments': 'settlements',
-  'acc-inbound-remittance': 'settlements',
-  'acc-remittance-settle': 'settlements',
-  'acc-party-settlements': 'settlements',
   'acc-cheques-recv': 'cheques',
   'acc-cheques-pay': 'cheque-register',
   'acc-proforma': 'sales-invoices',
@@ -41,16 +38,15 @@ const ACC_TAB_RESOLVE = {
   'acc-purchase-returns': 'purchase-returns',
   'acc-orders-list': 'orders',
   'acc-account-transfer': 'transfers',
+  'acc-warehouse-ops': 'warehouse-ops',
   'acc-inter-warehouse': 'warehouse-ops',
-  'acc-stocktaking': 'stocktaking',
-  'acc-bank-fees': 'settlements',
   'acc-warehouse-voucher': 'warehouse-ops',
+  'acc-warehouse-receipt': 'warehouse-ops',
+  'acc-stocktaking': 'stocktaking',
   'acc-consignment-in': 'consignments',
   'acc-consignment-out': 'consignments',
   'acc-moadian-hub': 'moadian',
   'acc-petty-cash-ops': 'petty-cash',
-  'acc-installments': 'settlements',
-  'acc-warehouse-receipt': 'warehouse-ops',
   'acc-item-kardex': 'item-kardex',
   'acc-consignments': 'consignments',
   'acc-trust-checks': 'trust-checks',
@@ -100,6 +96,7 @@ const ACC_TAB_RESOLVE = {
   'acc-settings': 'company-settings',
   'acc-backup': 'company-settings',
   'acc-fiscal-ops': 'fiscal-period',
+  'acc-expense-categories': 'expense-categories',
 };
 
 const ACC_NAV_SECTIONS = [
@@ -117,6 +114,7 @@ const ACC_NAV_SECTIONS = [
     { id: 'acc-incomes', icon: '📈', label: 'درآمدها' },
     { id: 'acc-opening-recv-cheques', icon: '📥', label: 'چک‌های دریافتنی اول دوره' },
     { id: 'acc-expenses', icon: '📉', label: 'هزینه‌ها' },
+    { id: 'acc-expense-categories', icon: '🗂️', label: 'دسته‌بندی هزینه‌ها' },
     { id: 'acc-check-categories', icon: '📑', label: 'دسته چک‌ها' },
     { id: 'acc-opening-pay-cheques', icon: '📤', label: 'چک‌های پرداختنی اول دوره' },
     { id: 'acc-coa-codes', icon: '🔢', label: 'کدهای حسابداری' },
@@ -137,9 +135,6 @@ const ACC_NAV_SECTIONS = [
     { id: 'acc-sales-invoices', icon: '🧾', label: 'فاکتورهای فروش' },
     { id: 'acc-purchases', icon: '📦', label: 'فاکتورهای خرید' },
     { id: 'acc-settlements', icon: '💵', label: 'عملیات دریافت و پرداخت' },
-    { id: 'acc-inbound-remittance', icon: '📨', label: 'حواله‌های دریافتی' },
-    { id: 'acc-remittance-settle', icon: '✅', label: 'تسویه حواله‌های دریافتی' },
-    { id: 'acc-party-settlements', icon: '🤝', label: 'لیست تسویه طرف‌حساب‌ها' },
     { id: 'acc-cheques-recv', icon: '📥', label: 'چک‌های دریافتی' },
     { id: 'acc-cheques-pay', icon: '📤', label: 'چک‌های پرداختی' },
     { id: 'acc-proforma', icon: '📄', label: 'پیش‌فاکتور' },
@@ -148,23 +143,19 @@ const ACC_NAV_SECTIONS = [
     { id: 'acc-orders-list', icon: '🛒', label: 'لیست سفارشات' },
   ]},
   { title: 'عملیات خاص', items: [
-    { id: 'acc-account-transfer', icon: '🔄', label: 'حواله حساب‌ها' },
-    { id: 'acc-inter-warehouse', icon: '🏭', label: 'حواله بین انبارها' },
+    { id: 'acc-account-transfer', icon: '🔄', label: 'انتقال بین بانک و صندوق' },
+    { id: 'acc-warehouse-ops', icon: '🏭', label: 'عملیات انبار' },
     { id: 'acc-stocktaking', icon: '📋', label: 'انبارگردانی' },
-    { id: 'acc-bank-fees', icon: '🏦', label: 'کارمزد بانک‌ها' },
-    { id: 'acc-warehouse-voucher', icon: '📦', label: 'حواله انبارها' },
     { id: 'acc-consignment-in', icon: '📥', label: 'کالاهای امانی گرفته‌شده' },
     { id: 'acc-consignment-out', icon: '📤', label: 'کالاهای امانی داده‌شده' },
     { id: 'acc-moadian-hub', icon: '📡', label: 'سامانه مودیان' },
     { id: 'acc-petty-cash-ops', icon: '👛', label: 'تنخواه‌گردان' },
-    { id: 'acc-installments', icon: '📆', label: 'اقساط' },
-    { id: 'acc-warehouse-receipt', icon: '📥', label: 'رسید انبار' },
     { id: 'acc-item-kardex', icon: '📋', label: 'کاردکس کالا' },
     { id: 'acc-trust-checks', icon: '🔖', label: 'چک‌های امانی' },
     { id: 'acc-cheque-register', icon: '📒', label: 'دفتر چک' },
   ]},
   { title: 'عملیات حسابداری', items: [
-    { id: 'acc-journal-docs', icon: '📝', label: 'اسناد حسابداری' },
+    { id: 'acc-journal-docs', icon: '📝', label: 'فهرست اسناد' },
     { id: 'acc-journal-entry', icon: '✍️', label: 'سند حسابداری' },
     { id: 'acc-opening-voucher', icon: '🟢', label: 'سند افتتاحیه' },
     { id: 'acc-close-temp', icon: '🟡', label: 'اختتامیه حساب‌های موقت' },
@@ -173,7 +164,6 @@ const ACC_NAV_SECTIONS = [
     { id: 'acc-trial-balance', icon: '⚖️', label: 'تراز آزمایشی' },
     { id: 'acc-financial-statement', icon: '🏛️', label: 'ترازنامه' },
     { id: 'acc-pl-statement', icon: '📈', label: 'صورت سود و زیان' },
-    { id: 'acc-journal-book', icon: '📖', label: 'دفتر روزنامه' },
     { id: 'acc-invoice-list-tax', icon: '🧾', label: 'لیست صورتحساب‌های مالیاتی' },
     { id: 'acc-reconciliation', icon: '🔍', label: 'مغایرت‌گیری گردش حساب‌ها' },
   ]},
@@ -231,9 +221,7 @@ function registerAccNavRoutes(ROUTES, renderAccPage) {
     for (const it of sec.items) {
       if (!it.id.startsWith('acc-') || ROUTES[it.id]) continue;
       const tab = resolveAccTab(it.id);
-      const icon = it.icon;
-      const label = it.label;
-      ROUTES[it.id] = () => renderAccPage(tab, icon, label, it.id);
+      ROUTES[it.id] = () => renderAccPage(tab, it.icon, it.label, it.id);
     }
   }
 }

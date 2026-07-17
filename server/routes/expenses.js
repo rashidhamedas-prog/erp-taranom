@@ -3,7 +3,7 @@ const { getDB, audit, createJournalEntry, resolveCashAccount } = require('../db'
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 
-const EXPENSE_ACCOUNTS = {
+const FALLBACK_ACCOUNTS = {
   admin: { code: '6102', name: 'هزینه‌های عمومی و اداری' },
   sales: { code: '6103', name: 'هزینه‌های توزیع و فروش' }
 };
@@ -13,8 +13,51 @@ function resolveExpenseAccount(db, category, account_code) {
     const row = db.prepare('SELECT code, name FROM chart_of_accounts WHERE code=? AND is_active=1').get(account_code);
     if (row) return { code: row.code, name: row.name };
   }
-  return EXPENSE_ACCOUNTS[category] || EXPENSE_ACCOUNTS.admin;
+  if (category) {
+    const cat = db.prepare('SELECT account_code, name FROM expense_categories WHERE (code=? OR id=?) AND active=1').get(category, parseInt(category, 10) || -1);
+    if (cat?.account_code) {
+      const row = db.prepare('SELECT code, name FROM chart_of_accounts WHERE code=?').get(cat.account_code);
+      if (row) return { code: row.code, name: row.name };
+      return { code: cat.account_code, name: cat.name };
+    }
+  }
+  return FALLBACK_ACCOUNTS[category] || FALLBACK_ACCOUNTS.admin;
 }
+
+router.get('/categories', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  res.json(db.prepare('SELECT * FROM expense_categories WHERE active=1 ORDER BY id').all());
+});
+
+router.post('/categories', auth, adminOrAccounting, (req, res) => {
+  const { name, code, account_code } = req.body;
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'نام دسته‌بندی الزامی است' });
+  const db = getDB();
+  const r = db.prepare('INSERT INTO expense_categories (code,name,account_code) VALUES (?,?,?)')
+    .run(code || null, String(name).trim(), account_code || null);
+  audit(req.user.id, 'create', 'expense_category', r.lastInsertRowid, name);
+  res.json(db.prepare('SELECT * FROM expense_categories WHERE id=?').get(r.lastInsertRowid));
+});
+
+router.put('/categories/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM expense_categories WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  const { name, code, account_code, active } = req.body;
+  db.prepare('UPDATE expense_categories SET name=?, code=?, account_code=?, active=? WHERE id=?').run(
+    name || row.name, code ?? row.code, account_code ?? row.account_code,
+    active != null ? (active ? 1 : 0) : row.active, req.params.id
+  );
+  res.json({ ok: true });
+});
+
+router.delete('/categories/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM expense_categories WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  db.prepare('UPDATE expense_categories SET active=0 WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
 
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();

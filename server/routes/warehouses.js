@@ -259,4 +259,74 @@ router.post('/lookup-options', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true, list });
 });
 
+/** Multi-line warehouse document — lines: [{product_id, qty}] */
+router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
+  const { type, warehouse_id, from_warehouse_id, to_warehouse_id, lines, date, note } = req.body;
+  if (!['receipt', 'issue', 'transfer'].includes(type)) return res.status(400).json({ error: 'نوع سند نامعتبر است' });
+  if (!Array.isArray(lines) || !lines.length) return res.status(400).json({ error: 'حداقل یک ردیف کالا لازم است' });
+  const db = getDB();
+  const ids = [];
+  try {
+    db.transaction(() => {
+      for (const line of lines) {
+        const product_id = parseInt(line.product_id, 10);
+        const qty = parseInt(line.qty, 10);
+        if (!product_id || !qty || qty <= 0) throw new Error('هر ردیف باید کالا و تعداد معتبر داشته باشد');
+        const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
+        if (!product) throw new Error('کالا یافت نشد');
+        if (type === 'receipt') {
+          const whId = parseInt(warehouse_id || to_warehouse_id, 10);
+          if (!whId) throw new Error('انبار مقصد الزامی است');
+          const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(whId);
+          if (!warehouse) throw new Error('انبار یافت نشد');
+          db.prepare('UPDATE products SET stock=stock+?, warehouse_id=? WHERE id=?').run(qty, whId, product_id);
+          db.prepare(`INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)
+            ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+?`).run(product_id, whId, qty, qty);
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
+            .run(product_id, req.user.id, qty, `رسید انبار (${warehouse.name})${note ? ' - ' + note : ''}`);
+          const r = db.prepare('INSERT INTO warehouse_moves (type,product_id,to_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?)')
+            .run('receipt', product_id, whId, qty, date || todayJalali(), note || '', req.user.id);
+          ids.push(r.lastInsertRowid);
+        } else if (type === 'issue') {
+          const whId = parseInt(warehouse_id || from_warehouse_id, 10);
+          if (!whId) throw new Error('انبار مبدأ الزامی است');
+          const available = warehouseQty(db, product_id, whId);
+          if (available < qty) throw new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`);
+          const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(whId);
+          db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(qty, product_id);
+          adjustWarehouseStock(db, product_id, whId, -qty);
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
+            .run(product_id, req.user.id, -qty, `حواله انبار (${warehouse?.name || whId})${note ? ' - ' + note : ''}`);
+          const r = db.prepare('INSERT INTO warehouse_moves (type,product_id,from_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?)')
+            .run('issue', product_id, whId, qty, date || todayJalali(), note || '', req.user.id);
+          ids.push(r.lastInsertRowid);
+        } else {
+          const fromId = parseInt(from_warehouse_id, 10);
+          const toId = parseInt(to_warehouse_id, 10);
+          if (!fromId || !toId) throw new Error('انبار مبدأ و مقصد الزامی است');
+          if (fromId === toId) throw new Error('انبار مبدأ و مقصد نمی‌تواند یکسان باشد');
+          const available = warehouseQty(db, product_id, fromId);
+          if (available < qty) throw new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`);
+          const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(toId);
+          const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromId);
+          adjustWarehouseStock(db, product_id, fromId, -qty);
+          adjustWarehouseStock(db, product_id, toId, qty);
+          if (product.warehouse_id === fromId && qty >= available) {
+            db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(toId, product_id);
+          }
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
+            .run(product_id, req.user.id, 0, `انتقال ${qty} عدد از ${fromWarehouse?.name} به ${toWarehouse?.name}${note ? ' - ' + note : ''}`);
+          const r = db.prepare('INSERT INTO warehouse_moves (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?,?)')
+            .run('transfer', product_id, fromId, toId, qty, date || todayJalali(), note || '', req.user.id);
+          ids.push(r.lastInsertRowid);
+        }
+      }
+    })();
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  audit(req.user.id, 'create', 'warehouse_move_batch', ids[0] || 0, `${type} ${ids.length} ردیف`);
+  res.json({ ok: true, ids, count: ids.length });
+});
+
 module.exports = router;

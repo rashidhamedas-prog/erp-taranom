@@ -322,7 +322,7 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
       for (const row of rows) {
         const name = normalizeStr(row['نام محصول'] || row['name'] || row['Name'] || '');
         if (!name) continue;
-        stmt.run(
+        const r = stmt.run(
           req.user.id,
           normalizeStr(row['دسته‌بندی'] || row['category'] || ''),
           normalizeStr(row['کد محصول'] || row['code'] || ''),
@@ -335,6 +335,7 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
           parseInt(row['تعداد در پک'] || row['pack_size'] || 1),
           normalizeStr(row['بارکد'] || row['barcode'] || '') || null
         );
+        try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, r.lastInsertRowid); } catch (_) {}
         inserted++;
       }
     });

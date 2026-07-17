@@ -128,35 +128,61 @@ function buildRows(db, inputRows, canDiscount) {
     const discAmt = Math.round(gross * disc / 100);
     const sum = gross - discAmt;
     subtotal += sum;
-    out.push({ product_id: pid, name: prod.name, qty, price, disc, disc_amt: discAmt, sum });
+    const wh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : null;
+    out.push({ product_id: pid, name: prod.name, qty, price, disc, disc_amt: discAmt, sum, warehouse_id: wh || null });
   }
   return { rows: out, subtotal };
 }
 
-// Deduct stock for each row; returns error message if stock insufficient
-function deductStock(db, rows, warehouseId, userId) {
+function resolveRowWarehouseId(db, row, headerWarehouseId) {
+  if (row && row.warehouse_id) return parseInt(row.warehouse_id, 10);
+  if (headerWarehouseId) return parseInt(headerWarehouseId, 10);
+  const def = db.prepare('SELECT id FROM warehouses WHERE active=1 AND is_default=1 ORDER BY id LIMIT 1').get();
+  if (def) return def.id;
+  const prod = row?.product_id ? db.prepare('SELECT warehouse_id FROM products WHERE id=?').get(row.product_id) : null;
+  if (prod?.warehouse_id) return prod.warehouse_id;
+  const any = db.prepare('SELECT id FROM warehouses WHERE active=1 ORDER BY id LIMIT 1').get();
+  return any ? any.id : null;
+}
+
+// Deduct stock for each row; returns error message if stock insufficient.
+// Also returns { usedWarehouses: [{id,name}] } via out param on success when 3rd-party wants toast info.
+function deductStock(db, rows, warehouseId, userId, metaOut) {
+  const used = new Map();
   for (const r of rows) {
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(r.product_id);
     if (!prod) return `محصول شناسه ${r.product_id} یافت نشد`;
     if (prod.stock < r.qty) {
       return `موجودی ${prod.name} کافی نیست (موجود: ${prod.stock})`;
     }
-    if (warehouseId) {
-      const ws = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(r.product_id, warehouseId);
-      if (!ws || ws.qty < r.qty) {
-        return `موجودی انبار برای ${prod.name} کافی نیست`;
+    const whId = resolveRowWarehouseId(db, r, warehouseId);
+    if (whId) {
+      const ws = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(r.product_id, whId);
+      const avail = ws ? ws.qty : (prod.warehouse_id === whId ? prod.stock : 0);
+      if (avail < r.qty) {
+        const wh = db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId);
+        return `موجودی انبار «${wh?.name || whId}» برای ${prod.name} کافی نیست (موجود: ${avail})`;
       }
+      used.set(whId, (db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId)?.name) || String(whId));
     }
   }
   for (const r of rows) {
+    const whId = resolveRowWarehouseId(db, r, warehouseId);
     db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
+    const whName = whId ? (used.get(whId) || '') : '';
     db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
-      r.product_id, userId || 0, -r.qty, 'کسر موجودی از فاکتور رسمی'
+      r.product_id, userId || 0, -r.qty, 'کسر موجودی از فاکتور رسمی' + (whName ? ` (${whName})` : '')
     );
-    if (warehouseId) {
-      db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, warehouseId);
+    if (whId) {
+      db.prepare(`
+        INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)
+        ON CONFLICT(product_id,warehouse_id) DO NOTHING
+      `).run(r.product_id, whId);
+      db.prepare('UPDATE warehouse_stock SET qty=CASE WHEN qty-? < 0 THEN 0 ELSE qty-? END WHERE product_id=? AND warehouse_id=?')
+        .run(r.qty, r.qty, r.product_id, whId);
     }
   }
+  if (metaOut) metaOut.usedWarehouses = [...used.entries()].map(([id, name]) => ({ id, name }));
   return null;
 }
 
@@ -254,8 +280,9 @@ router.post('/', auth, (req, res) => {
         : allocateNumber(db, 'invoice', prefixRow?.value || 'T');
 
       let stockDeducted = 0;
+      const stockMeta = {};
       if (invType === 'final') {
-        const stockErr = deductStock(db, built.rows, whId, req.user.id);
+        const stockErr = deductStock(db, built.rows, whId, req.user.id, stockMeta);
         if (stockErr) throw new Error(stockErr);
         stockDeducted = 1;
       }
@@ -318,7 +345,7 @@ router.post('/', auth, (req, res) => {
         console.error('auto-followup error:', e.message);
       }
 
-      return { id: invId };
+      return { id: invId, usedWarehouses: stockMeta.usedWarehouses || [] };
     })();
   } catch (e) {
     return res.status(400).json({ error: e.message });
@@ -331,7 +358,7 @@ router.post('/', auth, (req, res) => {
       notif.notifyNewInvoice(db, row, cust);
     } catch (e) { console.error('notify invoice:', e.message); }
   }
-  res.json({ ...row, rows: JSON.parse(row.rows || '[]') });
+  res.json({ ...row, rows: JSON.parse(row.rows || '[]'), used_warehouses: created.usedWarehouses || [] });
 });
 
 router.put('/:id', auth, (req, res) => {

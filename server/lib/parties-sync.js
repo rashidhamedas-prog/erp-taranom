@@ -57,8 +57,16 @@ function syncPartyToLegacy(db, partyId) {
   const roles = (() => {
     try { return p.party_roles ? JSON.parse(p.party_roles) : []; } catch (_) { return []; }
   })();
-  const isCustomer = roles.includes('customer') || p.party_type === 'customer' || p.party_type === 'both';
-  const isSupplier = roles.includes('supplier') || p.party_type === 'supplier' || p.party_type === 'both';
+  // Only sync to CRM customers panel when party group is customer-type (or no group + customer role).
+  let groupEntity = null;
+  if (p.party_group_id) {
+    const g = db.prepare('SELECT entity_type FROM party_groups WHERE id=?').get(p.party_group_id);
+    groupEntity = g?.entity_type || null;
+  }
+  const roleCustomer = roles.includes('customer') || p.party_type === 'customer' || p.party_type === 'both';
+  const roleSupplier = roles.includes('supplier') || p.party_type === 'supplier' || p.party_type === 'both';
+  const isCustomer = roleCustomer && (groupEntity == null || groupEntity === 'customer' || groupEntity === 'all');
+  const isSupplier = roleSupplier;
 
   if (isCustomer) {
     let cust = p.legacy_table === 'customers' && p.legacy_id

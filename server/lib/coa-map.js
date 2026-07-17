@@ -85,17 +85,42 @@ const KIND_TYPE = {
   production_order: 'سفارش تولید', cost_center_oh: 'مراکز هزینه', cost_center_lb: 'مراکز هزینه',
 };
 
-// In extended coa mode, new entities get tafsili accounts under mapped معین.
+/** Ensure parent کل/معین exists for mapped control account; then allocate تفصیلی. */
+function ensureControlParents(db, kind) {
+  const key = KIND_KEY[kind];
+  if (!key) return null;
+  const mapped = acct(db, key);
+  let code = String(mapped.code || '');
+  if (!code) return null;
+  // Prefer 6-digit معین; if only 4-digit کل, append 01
+  let moein = code.length >= 6 ? code.slice(0, 6) : (code.length === 4 ? code + '01' : code);
+  if (moein.length !== 6) return null;
+  const kol = moein.slice(0, 4);
+  const existingMoein = db.prepare('SELECT code,type FROM chart_of_accounts WHERE code=?').get(moein);
+  if (existingMoein) return existingMoein;
+  const kolRow = db.prepare('SELECT code,type FROM chart_of_accounts WHERE code=?').get(kol);
+  const type = kolRow?.type || (kind === 'supplier' ? 'liability' : kind === 'product' ? 'asset' : 'asset');
+  if (!kolRow) {
+    try {
+      db.prepare('INSERT INTO chart_of_accounts (code,name,type,parent_code,level) VALUES (?,?,?,?,1)')
+        .run(kol, mapped.name || ('حساب ' + kol), type, null);
+    } catch { /* ignore */ }
+  }
+  try {
+    db.prepare('INSERT INTO chart_of_accounts (code,name,type,parent_code,level) VALUES (?,?,?,?,3)')
+      .run(moein, mapped.name || ('معین ' + moein), type, kol);
+  } catch { /* ignore */ }
+  return db.prepare('SELECT code,type FROM chart_of_accounts WHERE code=?').get(moein) || null;
+}
+
+// New entities get tafsili accounts under mapped معین (creates parents if needed).
 function allocTafsili(db, kind, name) {
   try {
-    if (!usesExtendedCoa(db)) return null;
-    const base = acct(db, KIND_KEY[kind]).code;
-    const moein = base.length > 6 ? base.slice(0, 6) : base;      // والد سطح ۳
-    if (moein.length !== 6) return null;
-    const parent = db.prepare('SELECT code,type FROM chart_of_accounts WHERE code=?').get(moein);
+    if (!KIND_KEY[kind]) return null;
+    const parent = ensureControlParents(db, kind);
     if (!parent) return null;
-    // شماره تفصیلی بعدی: بیشینهٔ ۶ رقم آخر همهٔ حساب‌های سطح ۴ + ۱ (سراسری تا تصادم نشود)
-    const row = db.prepare("SELECT MAX(CAST(substr(code,7) AS INTEGER)) m FROM chart_of_accounts WHERE level=4 AND length(code)=12").get();
+    const moein = parent.code;
+    const row = db.prepare("SELECT MAX(CAST(substr(code,7) AS INTEGER)) m FROM chart_of_accounts WHERE level=4 AND length(code)=12 AND substr(code,1,6)=?").get(moein);
     const next = String((row && row.m ? row.m : 0) + 1).padStart(6, '0');
     const full = moein + next;
     db.prepare('INSERT INTO chart_of_accounts (code,name,type,parent_code,level,nature,tafsili_type) VALUES (?,?,?,?,4,NULL,?)')
@@ -104,4 +129,4 @@ function allocTafsili(db, kind, name) {
   } catch { return null; }
 }
 
-module.exports = { acct, coaMode, usesExtendedCoa, clearCoaCache, allocTafsili, LEGACY };
+module.exports = { acct, coaMode, usesExtendedCoa, clearCoaCache, allocTafsili, ensureControlParents, LEGACY };
