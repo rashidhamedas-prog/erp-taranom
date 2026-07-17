@@ -235,6 +235,16 @@
     return _chartJsPromise;
   }
 
+  /** debounce برای فرم‌ها — پیش‌فرض ۴۰۰ms */
+  function debounce(fn, ms) {
+    ms = ms == null ? 400 : ms;
+    let timer;
+    return function debounced(...args) {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
+
   /** Skeleton برای جدول در حال بارگذاری */
   function skeletonRows(cols, rows) {
     rows = rows || 3;
@@ -251,7 +261,7 @@
     toman, rial, qty, pct, variance, short,
     badge, moneyCell, varianceCell,
     stageFlow, kpiCard, loadBar, lockedBanner, jePreview,
-    checkReasonRequired, calcVariance,
+    checkReasonRequired, calcVariance, debounce,
     loadChartJs, skeletonRows,
     canSeeCost,
   };

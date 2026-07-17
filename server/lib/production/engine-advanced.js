@@ -7,9 +7,9 @@ const { todayJalali } = require('../../jalali');
 const { assertFiscalYearWritable } = require('../fiscal-period');
 const { explodeBom } = require('./bom');
 const { backwardQty, stageLabor, stageDriverQty } = require('./bom-advanced');
-const { dr, cr, plug, postEvent, err } = require('./posting');
+const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
 const {
-  issueFromStock, updateMovingAverage, receiveScrap, setting,
+  issueFromStock, updateMovingAverage, receiveScrap, restoreStock, setting,
 } = require('./costing');
 const { getOverheadRate } = require('./overhead');
 const { postLabor } = require('./labor');
@@ -863,6 +863,221 @@ function unblockStage(db, orderId, stageId, userId) {
   return { ok: true, stage_id: stageId, status: target };
 }
 
+function lastDoneStage(db, orderId) {
+  return db.prepare(`
+    SELECT * FROM production_order_stages
+    WHERE order_id=? AND status='done'
+    ORDER BY seq DESC LIMIT 1
+  `).get(orderId);
+}
+
+function resetDownstreamStages(db, orderId, afterSeq) {
+  const rows = db.prepare(`
+    SELECT * FROM production_order_stages
+    WHERE order_id=? AND seq > ? ORDER BY seq
+  `).all(orderId, afterSeq);
+  for (const st of rows) {
+    if (st.status === 'done') continue;
+    db.prepare(`
+      UPDATE production_order_stages SET
+        qty_in=0, material_in_rial=0,
+        qty_out=0, qty_waste_normal=0, qty_waste_abnormal=0, qty_rework=0,
+        material_added_rial=0, labor_rial=0, overhead_rial=0, subcontract_rial=0,
+        waste_abnormal_rial=0, scrap_credit_rial=0, cost_out_rial=0, unit_cost_out_rial=0,
+        driver_qty=0, status='pending', started_at=NULL, ended_at=NULL
+      WHERE id=?
+    `).run(st.id);
+  }
+}
+
+/**
+ * PRD-99 stage reversal — only the last completed stage (R12: reverse, not delete).
+ */
+function reverseStage(db, { orderId, stageId, reason, userId, date }) {
+  return db.transaction(() => {
+    const po = getOrder(db, orderId);
+    if (!['fixed_adv', 'variable_adv'].includes(po.analysis_type)) {
+      throw err('E_WRONG_ANALYSIS', 409);
+    }
+    if (['closed', 'cancelled'].includes(po.status)) throw err('E_ORDER_CLOSED', 409);
+    if (po.status === 'completed') throw err('E_ORDER_FINALIZED', 409);
+
+    const stage = getStage(db, orderId, stageId);
+    if (stage.status !== 'done') throw err('E_INVALID_STATUS', 409, { status: stage.status });
+
+    const lastDone = lastDoneStage(db, orderId);
+    if (!lastDone || lastDone.id !== stage.id) {
+      throw err('E_CANNOT_REVERSE', 409, { last_done_seq: lastDone?.seq });
+    }
+
+    if (stage.is_subcontract) {
+      const pending = db.prepare(`
+        SELECT COALESCE(SUM(CASE WHEN direction='out' THEN qty ELSE 0 END),0) -
+               COALESCE(SUM(CASE WHEN direction='in' THEN COALESCE(qty_returned, qty) ELSE 0 END),0) AS p
+        FROM production_subcontract WHERE stage_id=? AND status='posted'
+      `).get(stageId);
+      if (num(pending?.p) > 0.0001) throw err('E_SUBCON_IN_TRANSIT', 409);
+    }
+
+    const revDate = date || todayJalali();
+    const fy = assertFiscalYearWritable(db, revDate);
+    if (!fy.ok) throw err('E_PERIOD_CLOSED', 409, { detail: fy.error });
+
+    const jeIds = [];
+
+    const scrapJes = db.prepare(`
+      SELECT id FROM journal_entries
+      WHERE ref_type='production_scrap' AND ref_id=?
+        AND description LIKE ? AND COALESCE(deleted_at,0)=0
+    `).all(orderId, `%مرحله ${stage.seq}%`);
+    for (const j of scrapJes) jeIds.push(j.id);
+
+    const wastes = db.prepare(`
+      SELECT * FROM production_waste WHERE stage_id=? AND status='posted' ORDER BY id DESC
+    `).all(stageId);
+    for (const w of wastes) {
+      if (w.je_id) jeIds.push(w.je_id);
+    }
+
+    const subs = db.prepare(`
+      SELECT * FROM production_subcontract WHERE stage_id=? AND status='posted' ORDER BY id DESC
+    `).all(stageId);
+    for (const s of subs.filter(x => x.direction === 'in' && x.je_id)) jeIds.push(s.je_id);
+    for (const s of subs.filter(x => x.direction === 'in')) {
+      const lostJes = db.prepare(`
+        SELECT id FROM journal_entries
+        WHERE ref_type='production_waste' AND ref_id=? AND COALESCE(deleted_at,0)=0
+      `).all(s.id);
+      for (const j of lostJes) jeIds.push(j.id);
+    }
+    for (const s of subs.filter(x => x.direction === 'out' && x.je_id)) jeIds.push(s.je_id);
+
+    const ohs = db.prepare(`
+      SELECT * FROM production_overhead_applications WHERE stage_id=? AND status='posted'
+    `).all(stageId);
+    for (const o of ohs) if (o.je_id) jeIds.push(o.je_id);
+
+    const labs = db.prepare(`
+      SELECT * FROM production_labor_entries WHERE stage_id=? AND status='posted'
+    `).all(stageId);
+    for (const l of labs) if (l.je_id) jeIds.push(l.je_id);
+
+    const issues = db.prepare(`
+      SELECT * FROM production_material_issues WHERE stage_id=? AND status='posted'
+    `).all(stageId);
+    for (const i of issues) if (i.je_id) jeIds.push(i.je_id);
+
+    const reversedJeIds = [];
+    const seen = new Set();
+    for (const jeId of jeIds) {
+      if (!jeId || seen.has(jeId)) continue;
+      seen.add(jeId);
+      const revId = reverseEvent(db, { jeId, reason, userId, date: revDate });
+      reversedJeIds.push(revId);
+      db.prepare(`
+        UPDATE production_waste SET reversed_je_id=?, status='reversed' WHERE je_id=?
+      `).run(revId, jeId);
+      db.prepare(`
+        UPDATE production_overhead_applications SET reversed_je_id=?, status='reversed' WHERE je_id=?
+      `).run(revId, jeId);
+      db.prepare(`
+        UPDATE production_labor_entries SET reversed_je_id=?, status='reversed' WHERE je_id=?
+      `).run(revId, jeId);
+      db.prepare(`
+        UPDATE production_material_issues SET reversed_je_id=?, status='reversed' WHERE je_id=?
+      `).run(revId, jeId);
+      db.prepare(`
+        UPDATE production_subcontract SET status='reversed' WHERE je_id=?
+      `).run(jeId);
+    }
+
+    for (const i of issues) {
+      restoreStock(db, {
+        productId: i.product_id,
+        warehouseId: i.warehouse_id || po.warehouse_raw_id,
+        qty: i.qty_actual,
+        userId,
+        note: `ابطال مرحله ${stage.seq} — ${po.order_no}`,
+      });
+      db.prepare(`UPDATE production_material_issues SET status='reversed' WHERE id=?`).run(i.id);
+    }
+
+    for (const w of wastes) {
+      db.prepare(`UPDATE production_waste SET status='reversed' WHERE id=?`).run(w.id);
+    }
+    for (const s of subs) {
+      db.prepare(`UPDATE production_subcontract SET status='reversed' WHERE id=?`).run(s.id);
+    }
+    for (const o of ohs) {
+      if (o.status === 'posted') {
+        db.prepare(`UPDATE production_overhead_applications SET status='reversed' WHERE id=?`).run(o.id);
+      }
+    }
+    for (const l of labs) {
+      if (l.status === 'posted') {
+        db.prepare(`UPDATE production_labor_entries SET status='reversed' WHERE id=?`).run(l.id);
+      }
+    }
+
+    const issued = sumStageIssued(db, stageId);
+    const matAdded = Math.round(num(stage.material_added_rial));
+    const matRial = issued.total ? issued.matRial : matAdded;
+    const pkgRial = issued.total ? issued.pkgRial : 0;
+
+    resetDownstreamStages(db, orderId, stage.seq);
+
+    db.prepare(`
+      UPDATE production_order_stages SET
+        qty_out=0, qty_waste_normal=0, qty_waste_abnormal=0, qty_rework=0,
+        material_added_rial=0, labor_rial=0, overhead_rial=0, subcontract_rial=0,
+        waste_abnormal_rial=0, scrap_credit_rial=0, cost_out_rial=0, unit_cost_out_rial=0,
+        driver_qty=0, status='in_progress', ended_at=NULL
+      WHERE id=?
+    `).run(stageId);
+
+    db.prepare(`
+      UPDATE production_orders SET
+        material_cost_rial = material_cost_rial - ?,
+        packaging_cost_rial = packaging_cost_rial - ?,
+        labor_cost_rial = labor_cost_rial - ?,
+        overhead_cost_rial = overhead_cost_rial - ?,
+        subcontract_cost_rial = subcontract_cost_rial - ?,
+        abnormal_waste_rial = abnormal_waste_rial - ?,
+        scrap_credit_rial = scrap_credit_rial - ?,
+        qty_waste_normal = qty_waste_normal - ?,
+        qty_waste_abnormal = qty_waste_abnormal - ?,
+        status = CASE WHEN status='completed' THEN 'in_progress' ELSE status END,
+        updated_at = strftime('%s','now')
+      WHERE id=?
+    `).run(
+      matRial,
+      pkgRial,
+      Math.round(num(stage.labor_rial)),
+      Math.round(num(stage.overhead_rial)),
+      Math.round(num(stage.subcontract_rial)),
+      Math.round(num(stage.waste_abnormal_rial)),
+      Math.round(num(stage.scrap_credit_rial)),
+      num(stage.qty_waste_normal),
+      num(stage.qty_waste_abnormal),
+      orderId
+    );
+
+    audit(userId, 'update', 'production_order_stage', stageId,
+      `ابطال مرحله ${stage.seq} — ${po.order_no}: ${reason || ''}`);
+    emit(db, 'production.stage.reversed', { orderId, stageId, reason });
+
+    const refreshed = getStage(db, orderId, stageId);
+    return {
+      ok: true,
+      stage_id: stageId,
+      seq: stage.seq,
+      status: refreshed.status,
+      reversed_je_ids: reversedJeIds,
+      wip_residual_rial: wipResidual(db, orderId),
+    };
+  })();
+}
+
 function issueStageMaterials(db, { orderId, stageId, body, userId }) {
   return db.transaction(() => {
     const po = getOrder(db, orderId);
@@ -997,6 +1212,7 @@ module.exports = {
   skipStage,
   blockStage,
   unblockStage,
+  reverseStage,
   issueStageMaterials,
   stageList,
 };

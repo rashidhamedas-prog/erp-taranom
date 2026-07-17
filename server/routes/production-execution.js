@@ -97,6 +97,22 @@ router.post('/orders/:id/stages/:stageId/unblock', auth, requirePermission('prod
   handle(res, () => adv.unblockStage(getDB(), orderId(req), stageId(req), req.user.id));
 });
 
+router.post('/orders/:id/stages/:stageId/reverse', auth, requirePermission('production', 'edit'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const st = stageCc(db, orderId(req), stageId(req));
+    if (!st) throw Object.assign(new Error('E_NOT_FOUND'), { code: 'E_NOT_FOUND', status: 404 });
+    assertUserCostCenter(db, req.user.id, st.cost_center_id);
+    return adv.reverseStage(db, {
+      orderId: orderId(req),
+      stageId: stageId(req),
+      reason: req.body?.reason || '',
+      userId: req.user.id,
+      date: req.body?.date,
+    });
+  }, req);
+});
+
 router.post('/orders/:id/stages/:stageId/subcontract/send', auth, requirePermission('production', 'create'), (req, res) => {
   handle(res, () => sub.sendToSubcontractor(getDB(), {
     orderId: orderId(req),

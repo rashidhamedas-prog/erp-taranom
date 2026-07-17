@@ -1528,11 +1528,12 @@ const ACC_MODULE_MAP={
   'acc-production-monthly-profit':'module_production','acc-production-cost-sheet':'module_production',
   'acc-production-estimate':'module_production','acc-production-kanban':'module_production',
   'acc-production-variance':'module_production','acc-production-mrp':'module_production',
-  'acc-production-rates':'module_production',
+  'acc-production-rates':'module_production','acc-production-access':'module_production',
   'acc-payroll':'module_payroll','acc-reps':'module_reps',
   'acc-moadian':'module_moadian','acc-fixed-assets':'module_fixed_assets'
 };
 function filterAccNavItem(it){
+  if(it.id==='acc-production-access' && ME?.role!=='admin' && ME?.role!=='accounting') return false;
   const key=ACC_MODULE_MAP[it.id];
   const flags=CACHE.moduleFlags||{};
   return !key || flags[key]!=='0';
@@ -4218,7 +4219,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','payroll','cheque-register','units','fiscal-period','company-settings','orders']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -4300,6 +4301,7 @@ ROUTES['acc-production-kanban']=()=>renderAccPage('production-kanban','📋','ت
 ROUTES['acc-production-variance']=()=>renderAccPage('production-variance','🔍','ماتریس انحراف');
 ROUTES['acc-production-mrp']=()=>renderAccPage('production-mrp','📦','برنامه‌ریزی مواد (MRP)');
 ROUTES['acc-production-rates']=()=>renderAccPage('production-rates','⚙️','نرخ سربار مراکز');
+ROUTES['acc-production-access']=()=>renderAccPage('production-access','🔐','دسترسی تولید');
 ROUTES['acc-payroll']=()=>renderAccPage('payroll','🧑‍🏭','حقوق و دستمزد (ساعتی)');
 ROUTES['acc-moadian']=()=>renderAccPage('moadian','📡','سامانه مودیان');
 ROUTES['acc-fixed-assets']=()=>renderAccPage('fixed-assets','🏢','دارایی ثابت');
@@ -4445,6 +4447,8 @@ async function loadAccTab(tab){
     await renderProductionMrpTab(body);
   } else if(tab==='production-rates'){
     await renderProductionRatesTab(body);
+  } else if(tab==='production-access'){
+    await renderProductionAccessTab(body);
   } else if(tab==='payroll'){
     await renderPayrollTab(body);
   } else if(tab==='moadian'){
@@ -6483,6 +6487,98 @@ async function prodRateSave(){
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 
+/* ============================================================
+   دسترسی تولید — user_cost_centers (permissions.md §9)
+============================================================ */
+async function renderProductionAccessTab(body){
+  if(!isAdmin() && ME.role!=='accounting'){
+    body.innerHTML='<div class="muted">فقط مدیر یا حسابدار می‌تواند دسترسی تولید را تنظیم کند.</div>';
+    return;
+  }
+  let listData={users:[]};
+  try{ listData=await api('GET','/production/user-cost-centers')||{users:[]}; }catch(e){
+    body.innerHTML=`<div class="muted">${esc(e.message||'خطا در بارگذاری')}</div>`;
+    return;
+  }
+  const users=listData.users||[];
+  window._prodAccessUserId=window._prodAccessUserId||(users[0]?.id||null);
+  body.innerHTML=`<div class="prod-scope">
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <label>کاربر:
+        <select id="pacc-user" onchange="prodAccessSelectUser(+this.value)">
+          ${users.map(u=>`<option value="${u.id}" ${u.id===window._prodAccessUserId?'selected':''}>${esc(u.name)} (@${esc(u.username)}) — ${esc(u.role)}</option>`).join('')}
+        </select>
+      </label>
+      <button class="btn secondary" onclick="loadAccTab('production-access')">🔄 بارگذاری</button>
+    </div>
+    <div id="pacc-detail"><div class="muted">در حال بارگذاری...</div></div>
+  </div>`;
+  if(window._prodAccessUserId) await prodAccessLoadDetail(window._prodAccessUserId);
+  else if(el('pacc-detail')) el('pacc-detail').innerHTML='<div class="muted">کاربری با نقش تولید یافت نشد.</div>';
+}
+function prodAccessSelectUser(uid){
+  window._prodAccessUserId=uid;
+  prodAccessLoadDetail(uid);
+}
+async function prodAccessLoadDetail(userId){
+  const area=el('pacc-detail');
+  if(!area) return;
+  let data=null;
+  try{ data=await api('GET','/production/user-cost-centers?user_id='+userId); }catch(e){
+    area.innerHTML=`<div class="muted">${esc(e.message||'خطا')}</div>`; return;
+  }
+  const assigned={};
+  (data.centers||[]).forEach(c=>{ assigned[c.cost_center_id]={can_view:!!c.can_view,can_post:!!c.can_post}; });
+  const ccRows=data.all_cost_centers||[];
+  area.innerHTML=`
+    <div class="panel"><div class="panel-head"><h4>مراکز هزینه — ${esc(data.user?.name||'')}</h4></div>
+      <div class="panel-body">
+        <p class="muted" style="font-size:12px;margin-bottom:10px">ℹ️ اگر هیچ مرکزی انتخاب نشود، دسترسی به <b>همه</b> مراکز آزاد است.</p>
+        <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+          <th>انتخاب</th><th>کد</th><th>نام</th><th>مشاهده</th><th>ثبت</th>
+        </tr></thead><tbody>
+          ${ccRows.map(cc=>{
+            const a=assigned[cc.id];
+            const on=!!a;
+            return `<tr>
+              <td><input type="checkbox" class="pacc-on" data-cc="${cc.id}" ${on?'checked':''} onchange="prodAccessToggleRow(this)"></td>
+              <td class="mono">${esc(cc.code)}</td>
+              <td>${esc(cc.name)}</td>
+              <td><input type="checkbox" class="pacc-view" data-cc="${cc.id}" ${on&&a.can_view?'checked':''} ${on?'':'disabled'}></td>
+              <td><input type="checkbox" class="pacc-post" data-cc="${cc.id}" ${on&&a.can_post?'checked':''} ${on?'':'disabled'}></td>
+            </tr>`;
+          }).join('')||emptyRow(5)}
+        </tbody></table></div>
+        <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn" onclick="prodAccessSave(${userId})">💾 ذخیره</button>
+        </div>
+      </div>
+    </div>`;
+}
+function prodAccessToggleRow(cb){
+  const view=cb.closest('tr')?.querySelector('.pacc-view');
+  const post=cb.closest('tr')?.querySelector('.pacc-post');
+  if(view){ view.disabled=!cb.checked; if(cb.checked && !view.checked) view.checked=true; if(!cb.checked) view.checked=false; }
+  if(post){ post.disabled=!cb.checked; if(cb.checked && !post.checked) post.checked=true; if(!cb.checked) post.checked=false; }
+}
+async function prodAccessSave(userId){
+  const centers=[];
+  document.querySelectorAll('.pacc-on:checked').forEach(cb=>{
+    const ccId=+cb.dataset.cc;
+    const row=cb.closest('tr');
+    centers.push({
+      cost_center_id:ccId,
+      can_view:row?.querySelector('.pacc-view')?.checked?1:0,
+      can_post:row?.querySelector('.pacc-post')?.checked?1:0,
+    });
+  });
+  try{
+    await api('PUT','/production/user-cost-centers/'+userId,{centers});
+    showToast('دسترسی ذخیره شد');
+    prodAccessLoadDetail(userId);
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+
 const PROD_ANALYSIS_LABEL={fixed:'ثابت',variable:'متغیر',fixed_adv:'ثابت پیشرفته (مرحله‌ای)',variable_adv:'متغیر پیشرفته (مرحله‌ای)'};
 async function renderProductionOrdersTab(body){
   let data={rows:[]};
@@ -6678,7 +6774,7 @@ async function prodOrderStagesModal(orderId){
     <div class="tbl-wrap" style="margin-top:12px"><table class="tbl" style="font-size:12px"><thead><tr>
       <th>#</th><th>مرکز هزینه</th><th>وضعیت</th><th>ورودی</th><th>خروجی</th><th>عملیات</th>
     </tr></thead><tbody>
-      ${stages.map(s=>`<tr>
+      ${(()=>{ const lastDone=(stages.filter(x=>x.status==='done').pop()); return stages.map(s=>{ const canRev=lastDone&&s.id===lastDone.id; return `<tr>
         <td>${esc(s.seq)}</td>
         <td>${esc(s.cc_code||'')} ${esc(s.cc_name||'')}</td>
         <td>${PU?PU.badge(s.status):esc(s.status)}</td>
@@ -6688,10 +6784,13 @@ async function prodOrderStagesModal(orderId){
           ${s.status==='pending'?`<button class="btn sm" onclick="prodStageStart(${orderId},${s.id})">شروع</button>`:''}
           ${s.status==='in_progress'&&order.analysis_type==='variable_adv'?`<button class="btn sm ghost" onclick="prodStageIssueModal(${orderId},${s.id})">حواله مواد</button>`:''}
           ${s.status==='in_progress'?`<button class="btn sm" onclick="prodStageOutputModal(${orderId},${s.id})">ثبت خروجی</button>`:''}
+          ${s.is_subcontract && s.status==='in_progress'?`<button class="btn sm ghost" onclick="prodStageSubSend(${orderId},${s.id})">📤 ارسال پیمانکار</button>`:''}
+          ${s.is_subcontract && ['in_progress','done'].includes(s.status)?`<button class="btn sm ghost" onclick="prodStageSubReceive(${orderId},${s.id})">📥 دریافت پیمانکار</button>`:''}
           ${['pending','in_progress'].includes(s.status)?`<button class="btn sm ghost" onclick="prodStageBlock(${orderId},${s.id})">توقف</button>`:''}
           ${s.status==='blocked'?`<button class="btn sm ghost" onclick="prodStageUnblock(${orderId},${s.id})">رفع توقف</button>`:''}
+          ${canRev?`<button class="btn sm ghost" style="color:var(--red)" onclick="prodStageReverse(${orderId},${s.id})">ابطال مرحله</button>`:''}
         </td>
-      </tr>`).join('')||emptyRow(6)}
+      </tr>`; }).join('') || emptyRow(6); })()}
     </tbody></table></div>
     ${stages.length && stages[stages.length-1].status==='done'?`<div style="margin-top:12px;text-align:left">
       <button class="btn" onclick="prodOrderFinalize(${orderId})">✅ نهایی‌سازی سفارش و رسید تولید</button>
@@ -6710,6 +6809,15 @@ async function prodStageBlock(orderId,stageId){
 async function prodStageUnblock(orderId,stageId){
   try{ await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/unblock',{}); showToast('رفع توقف شد'); prodOrderStagesModal(orderId); }
   catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function prodStageReverse(orderId,stageId){
+  const reason=prompt('دلیل ابطال مرحله:')||'';
+  if(!reason.trim()){ showToast('دلیل الزامی است','error'); return; }
+  if(!confirm('ابطال این مرحله و معکوس اسناد حسابداری — ادامه؟')) return;
+  try{
+    await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/reverse',{reason});
+    showToast('مرحله ابطال شد'); prodOrderStagesModal(orderId);
+  }catch(e){ showToast(e.message||e.code||'خطا','error'); }
 }
 function prodStageOutputModal(orderId,stageId){
   showModal('ثبت خروجی مرحله',`
@@ -6779,6 +6887,58 @@ async function prodOrderFinalize(orderId){
     closeModal();
     showToast('نهایی شد — بهای واحد '+fmt(Math.round((r.unit_cost_rial||0)/10))+' ت');
     loadAccTab('production-orders');
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+
+function prodStageSubSend(orderId,stageId){
+  showModal('ارسال به پیمانکار',`
+    <div class="form-grid">
+      <div class="fg"><label>شناسه تأمین‌کننده</label><input id="pss-supplier" type="number" min="1" placeholder="supplier_id"></div>
+      <div class="fg"><label>مقدار (خالی = کل ورودی)</label><input id="pss-qty" type="number" min="0" step="0.01"></div>
+      <div class="fg"><label>تاریخ</label><input id="pss-date" value="${todayJalali()}"></div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn secondary" onclick="closeModal()">انصراف</button>
+      <button class="btn" onclick="prodStageSubSendSave(${orderId},${stageId})">ارسال</button>
+    </div>`);
+}
+async function prodStageSubSendSave(orderId,stageId){
+  const body={date:el('pss-date').value};
+  const sid=+el('pss-supplier').value||0;
+  const qty=+el('pss-qty').value;
+  if(sid) body.supplier_id=sid;
+  if(qty>0) body.qty=qty;
+  try{
+    await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/subcontract/send',body);
+    closeModal(); showToast('ارسال به پیمانکار ثبت شد'); prodOrderStagesModal(orderId);
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+function prodStageSubReceive(orderId,stageId){
+  showModal('دریافت از پیمانکار',`
+    <div class="form-grid">
+      <div class="fg"><label>مقدار دریافتی *</label><input id="psr-qty" type="number" min="0" step="0.01" value="0"></div>
+      <div class="fg"><label>ضایعات</label><input id="psr-waste" type="number" min="0" step="0.01" value="0"></div>
+      <div class="fg"><label>مفقودی</label><input id="psr-lost" type="number" min="0" step="0.01" value="0"></div>
+      <div class="fg"><label>کارمزد واحد (تومان)</label><input id="psr-fee" type="number" min="0" value="0"></div>
+      <div class="fg"><label>تاریخ</label><input id="psr-date" value="${todayJalali()}"></div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn secondary" onclick="closeModal()">انصراف</button>
+      <button class="btn" onclick="prodStageSubReceiveSave(${orderId},${stageId})">دریافت</button>
+    </div>`);
+}
+async function prodStageSubReceiveSave(orderId,stageId){
+  const qty=+el('psr-qty').value||0;
+  if(qty<=0){ showToast('مقدار دریافتی الزامی است','error'); return; }
+  try{
+    await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/subcontract/receive',{
+      qty_received:qty,
+      qty_waste:+el('psr-waste').value||0,
+      qty_lost:+el('psr-lost').value||0,
+      fee_unit_rial:(+el('psr-fee').value||0)*10,
+      date:el('psr-date').value,
+    });
+    closeModal(); showToast('دریافت از پیمانکار ثبت شد'); prodOrderStagesModal(orderId);
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 
