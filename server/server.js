@@ -213,6 +213,13 @@ app.use('/api/warehouses', require('./routes/warehouses'));
 app.use('/api/stocktaking', require('./routes/stocktaking'));
 app.use('/api/consignments', require('./routes/consignments'));
 app.use('/api/adv-reports', require('./routes/adv-reports'));
+app.use('/api/production/close', require('./routes/production-close'));
+app.use('/api/production/reports', require('./routes/production-reports'));
+app.use('/api/production/boms', require('./routes/production-boms'));
+app.use('/api/production/orders', require('./routes/production-orders'));
+app.use('/api/production/cost-centers', require('./routes/production-cost-centers'));
+app.use('/api/production/execution', require('./routes/production-execution'));
+app.use('/api/production/mrp', require('./routes/production-mrp'));
 app.use('/api/production', require('./routes/production'));
 app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/dashboard', require('./routes/dashboard'));
@@ -485,6 +492,44 @@ if (!isDevice()) {
       const { runNightlyAnalysis } = require('./services/ai');
       await runNightlyAnalysis(getDB());
     } catch (e) { console.error('cron ai-analysis error:', e.message); }
+  });
+
+  // Nightly production health (03:15) — notify admin if controls or ADR checks fail
+  cron.schedule('15 3 * * *', () => {
+    try {
+      const db = getDB();
+      const { accountBalance } = require('./lib/production/close');
+      const fails = [];
+      for (const code of ['5201', '5202', '5203']) {
+        const closed = db.prepare(`
+          SELECT 1 FROM production_period_close WHERE status='closed' LIMIT 1
+        `).get();
+        if (closed && Math.abs(accountBalance(db, code)) > 5) fails.push(`مانده ${code}≠۰`);
+      }
+      const badMat = db.prepare(`
+        SELECT COUNT(*) c FROM journal_lines WHERE account_code IN ('5210','5211')
+      `).get()?.c || 0;
+      if (badMat > 0) fails.push(`سند انحراف مواد 5210/5211: ${badMat}`);
+      const stageXfer = db.prepare(`
+        SELECT COUNT(*) c FROM journal_entries
+        WHERE ref_type LIKE '%stage_transfer%' AND COALESCE(deleted_at,0)=0
+      `).get()?.c || 0;
+      if (stageXfer > 0) fails.push(`سند انتقال مرحله: ${stageXfer}`);
+      if (fails.length) {
+        const msg = 'سلامت تولید ناموفق: ' + fails.join(' · ');
+        console.error('cron production-health:', msg);
+        try {
+          db.prepare(`
+            INSERT INTO app_notifications (kind, entity_type, entity_id, title, body, target_roles, created_at)
+            VALUES ('alert', 'production_health', NULL, 'هشدار سلامت تولید', ?, '["admin","accounting"]', strftime('%s','now'))
+          `).run(msg);
+        } catch (ne) {
+          console.error('cron production-health notify:', ne.message);
+        }
+      } else {
+        console.log('cron production-health: OK');
+      }
+    } catch (e) { console.error('cron production-health error:', e.message); }
   });
 }
 

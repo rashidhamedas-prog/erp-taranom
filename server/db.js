@@ -1936,7 +1936,15 @@ function initSyncSchema(db) {
   // delete, so the pull endpoint can serve incremental changes with zero
   // cooperation from route handlers. Non-recursive triggers (SQLite default)
   // mean the trigger's own UPDATE doesn't re-fire itself.
-  // Second pass — tables created above in this function (parties, fiscal_years, …).
+  // Production module P0 — schema/triggers/views/seed (before sync column pass)
+  try {
+    require('./lib/production/schema').initProductionSchema(db);
+  } catch (e) {
+    console.error('❌ production schema init failed:', e.message);
+    throw e;
+  }
+
+  // Second pass — tables created above in this function (parties, fiscal_years, production, …).
   ensureSyncColumnsForAllTables(db);
   if (!isDevice()) {
     for (const t of SYNCABLE_TABLES) {

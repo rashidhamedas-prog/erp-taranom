@@ -67,6 +67,32 @@ const SYNCABLE_TABLES = [
   { name: 'detail_accounts', upsertKey: 'id' },
   { name: 'fiscal_years', upsertKey: 'id' },
   { name: 'units_of_measure', upsertKey: 'id' },
+
+  // ===== Production module — appended 1405/04 (APPEND-ONLY) =====
+  { name: 'bom_headers',                      upsertKey: 'id' },
+  { name: 'bom_lines',                        upsertKey: 'id' },
+  { name: 'bom_operations',                   upsertKey: 'id' },
+  { name: 'bom_outputs',                      upsertKey: 'id' },
+  { name: 'bom_change_log',                   upsertKey: 'id' },
+  { name: 'cost_center_rates',                upsertKey: 'id' },
+  { name: 'overhead_allocation_rules',        upsertKey: 'id' },
+  { name: 'overhead_allocation_weights',      upsertKey: 'id' },
+  { name: 'production_orders',                upsertKey: 'id' },
+  { name: 'production_order_stages',          upsertKey: 'id' },
+  { name: 'production_material_issues',       upsertKey: 'id' },
+  { name: 'production_labor_entries',         upsertKey: 'id' },
+  { name: 'production_overhead_applications', upsertKey: 'id' },
+  { name: 'production_waste',                 upsertKey: 'id' },
+  { name: 'production_rework',                upsertKey: 'id' },
+  { name: 'production_receipts',              upsertKey: 'id' },
+  { name: 'production_subcontract',           upsertKey: 'id' },
+  { name: 'production_variances',             upsertKey: 'id' },
+  { name: 'production_period_close',          upsertKey: 'period_label' },
+  { name: 'production_estimates',             upsertKey: 'id' },
+  { name: 'production_estimate_lines',        upsertKey: 'id' },
+  { name: 'mrp_runs',                         upsertKey: 'id' },
+  { name: 'mrp_requirements',                 upsertKey: 'id' },
+  { name: 'production_reservations',          upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -122,7 +148,22 @@ const FK_COLUMNS = [
   ['rep_expenses', 'rep_id'], ['rep_advances', 'rep_id'], ['rep_ledger', 'rep_id'],
   ['rep_commission_rules', 'rep_id'], ['rep_commission_tiers', 'rep_id'], ['rep_settlements', 'rep_id'],
   ['rep_visit_logs', 'rep_id'], ['rep_visit_logs', 'customer_id'], ['rep_call_logs', 'rep_id'], ['rep_call_logs', 'customer_id'],
-  ['rep_assignment_history', 'customer_id'], ['rep_assignment_history', 'from_rep_id'], ['rep_assignment_history', 'to_rep_id']
+  ['rep_assignment_history', 'customer_id'], ['rep_assignment_history', 'from_rep_id'], ['rep_assignment_history', 'to_rep_id'],
+  // Production FKs (append-only)
+  ['bom_lines', 'bom_id'], ['bom_lines', 'component_product_id'],
+  ['bom_operations', 'bom_id'], ['bom_operations', 'cost_center_id'],
+  ['bom_outputs', 'bom_id'], ['bom_outputs', 'product_id'],
+  ['production_orders', 'product_id'], ['production_orders', 'bom_id'], ['production_orders', 'cost_center_id'],
+  ['production_order_stages', 'order_id'], ['production_order_stages', 'cost_center_id'],
+  ['production_material_issues', 'order_id'], ['production_material_issues', 'product_id'],
+  ['production_labor_entries', 'order_id'],
+  ['production_overhead_applications', 'order_id'], ['production_overhead_applications', 'cost_center_id'],
+  ['production_waste', 'order_id'],
+  ['production_receipts', 'order_id'], ['production_receipts', 'product_id'],
+  ['production_subcontract', 'order_id'], ['production_subcontract', 'supplier_id'],
+  ['production_estimate_lines', 'estimate_id'],
+  ['mrp_requirements', 'run_id'],
+  ['production_reservations', 'order_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, tableBase, isProvisionalId };

@@ -6,12 +6,29 @@ const RESOURCES = [
   'customers', 'parties', 'products', 'invoices', 'followups', 'accounting', 'reports',
   'ai', 'settings', 'backup', 'users', 'stocktaking', 'messages', 'reps', 'dashboard',
   'journal_vouchers', 'payroll', 'fixed_assets', 'moadian',
+  // Production module (append-only)
+  'production', 'production_bom', 'production_cost', 'production_close', 'production_reports',
 ];
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));
 const VIEW_ONLY = { view: true, create: false, edit: false, delete: false, approve: false, export: false };
 const SALES_CRUD = { view: true, create: true, edit: true, delete: false, approve: false, export: true };
 const ACC_FULL = { ...ALL };
+const PROD_MGR = {
+  production: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
+  production_bom: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
+  production_cost: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
+  production_close: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
+  production_reports: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
+};
+const NONE = { view: false, create: false, edit: false, delete: false, approve: false, export: false };
+const PROD_OP = {
+  production: { view: true, create: true, edit: false, delete: false, approve: false, export: false },
+  production_bom: { view: true, create: false, edit: false, delete: false, approve: false, export: false },
+  production_cost: { ...NONE },
+  production_close: { ...NONE },
+  production_reports: { view: true, create: false, edit: false, delete: false, approve: false, export: false },
+};
 
 const DEFAULT_ROLE_PERMISSIONS = {
   admin: Object.fromEntries(RESOURCES.map(r => [r, { ...ALL }])),
@@ -30,6 +47,11 @@ const DEFAULT_ROLE_PERMISSIONS = {
     stocktaking: ACC_FULL,
     messages: SALES_CRUD,
     reps: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
+    production: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
+    production_bom: { view: true, create: true, edit: true, delete: false, approve: false, export: true },
+    production_cost: ALL,
+    production_close: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
+    production_reports: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
   },
   sales_manager: {
     customers: SALES_CRUD,
@@ -45,6 +67,11 @@ const DEFAULT_ROLE_PERMISSIONS = {
     stocktaking: VIEW_ONLY,
     messages: SALES_CRUD,
     reps: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
+    production: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
+    production_bom: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
+    production_cost: { ...NONE },
+    production_close: { ...NONE },
+    production_reports: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
   },
   field_sales: {
     customers: SALES_CRUD,
@@ -60,6 +87,11 @@ const DEFAULT_ROLE_PERMISSIONS = {
     stocktaking: VIEW_ONLY,
     messages: SALES_CRUD,
     reps: VIEW_ONLY,
+    production: { ...NONE },
+    production_bom: { ...NONE },
+    production_cost: { ...NONE },
+    production_close: { ...NONE },
+    production_reports: { ...NONE },
   },
   inside_sales: {
     customers: SALES_CRUD,
@@ -90,6 +122,38 @@ const DEFAULT_ROLE_PERMISSIONS = {
     stocktaking: VIEW_ONLY,
     messages: VIEW_ONLY,
     reps: VIEW_ONLY,
+  },
+  production_manager: {
+    customers: VIEW_ONLY,
+    products: { view: true, create: true, edit: true, delete: false, approve: false, export: true },
+    invoices: VIEW_ONLY,
+    followups: VIEW_ONLY,
+    accounting: VIEW_ONLY,
+    reports: VIEW_ONLY,
+    ai: VIEW_ONLY,
+    settings: VIEW_ONLY,
+    backup: VIEW_ONLY,
+    users: VIEW_ONLY,
+    stocktaking: VIEW_ONLY,
+    messages: VIEW_ONLY,
+    reps: VIEW_ONLY,
+    ...PROD_MGR,
+  },
+  production_operator: {
+    customers: VIEW_ONLY,
+    products: VIEW_ONLY,
+    invoices: VIEW_ONLY,
+    followups: VIEW_ONLY,
+    accounting: VIEW_ONLY,
+    reports: VIEW_ONLY,
+    ai: VIEW_ONLY,
+    settings: VIEW_ONLY,
+    backup: VIEW_ONLY,
+    users: VIEW_ONLY,
+    stocktaking: VIEW_ONLY,
+    messages: VIEW_ONLY,
+    reps: VIEW_ONLY,
+    ...PROD_OP,
   },
 };
 

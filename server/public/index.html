@@ -13,7 +13,6 @@
      تا زیر فیلترینگ/اینترنت داخلی هم برنامه فوری و کامل بارگذاری شود.
      اسکریپت‌ها defer دارند تا رندر صفحه را بلوکه نکنند. -->
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<script src="/vendor/chart.umd.js" defer></script>
 <script src="/vendor/html2canvas.min.js" defer></script>
 <style>
 /* ===== Theme tokens — «زمرد مدرن» (light, default) =====
@@ -233,7 +232,7 @@ table.tbl tr:hover td{background:var(--row-hover)}
 
 /* ===== Modal ===== */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;
-  justify-content:center;z-index:200;padding:16px}
+  justify-content:center;z-index:1100;padding:16px}
 .overlay.open{display:flex}
 .modal{background:var(--card);border-radius:16px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;
   box-shadow:0 20px 60px rgba(0,0,0,.3)}
@@ -630,7 +629,7 @@ table.tbl tr:hover td{background:var(--row-hover)}
       </div>
       <div class="login-err" id="loginErr"></div>
     </form>
-    <div class="login-hint">نسخه ۳ · پوشاک ترنم مشهد</div>
+    <div class="login-hint">نسخه ۳ · پوشاک ترنم مشهد<br><span style="opacity:.85">اولین ورود: admin / admin123</span></div>
   </div>
 </div>
 
@@ -1239,13 +1238,15 @@ el('loginForm').addEventListener('submit', async (e)=>{
     localStorage.setItem('crm_token', j.token);
     localStorage.setItem('crm_user', JSON.stringify(j.user));
     ME = j.user;
-    if(j.must_change_password){ openForcePassChange(); return; }
+    if(j.must_change_password){ el('login').style.display='none'; openForcePassChange(); return; }
     await boot();
   }catch(err){ el('loginErr').textContent='خطای ارتباط با سرور'; }
 });
 
 /* تغییر اجباری رمز عبور (رمز پیش‌فرض/موقت) — مودال بدون راه فرار به‌جز خروج */
 function openForcePassChange(){
+  // Login screen is z-index 1000 — hide it so the force-change modal is visible
+  if(el('login')) el('login').style.display='none';
   el('modalRoot').innerHTML = `<div class="overlay open">
     <div class="modal">
       <div class="modal-head"><h3>🔐 تغییر اجباری رمز عبور</h3></div>
@@ -1317,7 +1318,7 @@ async function finish2FALogin(r){
   localStorage.setItem('crm_user', JSON.stringify(j.user));
   ME = j.user;
   if(j.remaining_codes !== undefined) showToast(`ورود با کد بازیابی — ${j.remaining_codes} کد باقی مانده`, 'warn');
-  if(j.must_change_password){ openForcePassChange(); return; }
+  if(j.must_change_password){ el('login').style.display='none'; openForcePassChange(); return; }
   await boot();
 }
 async function verify2FALogin(){
@@ -1520,6 +1521,9 @@ const ACC_MODULE_MAP={
   'acc-petty-cash':'module_petty_cash','acc-trust-checks':'module_trust_checks',
   'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
   'acc-consignments':'module_consignments','acc-production':'module_production',
+  'acc-production-orders':'module_production','acc-production-boms':'module_production',
+  'acc-production-dashboard':'module_production','acc-production-close':'module_production',
+  'acc-production-monthly-profit':'module_production','acc-production-cost-sheet':'module_production',
   'acc-payroll':'module_payroll','acc-reps':'module_reps',
   'acc-moadian':'module_moadian','acc-fixed-assets':'module_fixed_assets'
 };
@@ -4208,7 +4212,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','payroll','cheque-register','units','fiscal-period','company-settings','orders']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','payroll','cheque-register','units','fiscal-period','company-settings','orders']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -4279,6 +4283,12 @@ ROUTES['acc-warehouse-ops']=()=>renderAccPage('warehouse-ops','📦','عملیا
 ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای امانی');
 ROUTES['acc-adv-reports']=()=>renderAccPage('adv-reports','📊','گزارشات پیشرفته');
 ROUTES['acc-production']=()=>renderAccPage('production','🏗️','تحلیل هزینه تولید');
+ROUTES['acc-production-orders']=()=>renderAccPage('production-orders','🏭','سفارش‌های تولید');
+ROUTES['acc-production-boms']=()=>renderAccPage('production-boms','📋','فرمول تولید (BOM)');
+ROUTES['acc-production-dashboard']=()=>renderAccPage('production-dashboard','📊','داشبورد تولید');
+ROUTES['acc-production-close']=()=>renderAccPage('production-close','🔒','بستن دوره تولید');
+ROUTES['acc-production-monthly-profit']=()=>renderAccPage('production-monthly-profit','💰','سود دقیق ماهانه');
+ROUTES['acc-production-cost-sheet']=()=>renderAccPage('production-cost-sheet','📄','برگه بهای تمام‌شده');
 ROUTES['acc-payroll']=()=>renderAccPage('payroll','🧑‍🏭','حقوق و دستمزد (ساعتی)');
 ROUTES['acc-moadian']=()=>renderAccPage('moadian','📡','سامانه مودیان');
 ROUTES['acc-fixed-assets']=()=>renderAccPage('fixed-assets','🏢','دارایی ثابت');
@@ -4402,6 +4412,18 @@ async function loadAccTab(tab){
     await renderAdvReportsTab(body);
   } else if(tab==='production'){
     await renderProductionTab(body);
+  } else if(tab==='production-orders'){
+    await renderProductionOrdersTab(body);
+  } else if(tab==='production-boms'){
+    await renderProductionBomsTab(body);
+  } else if(tab==='production-dashboard'){
+    await renderProductionDashboardTab(body);
+  } else if(tab==='production-close'){
+    await renderProductionCloseTab(body);
+  } else if(tab==='production-monthly-profit'){
+    await renderProductionMonthlyProfitTab(body);
+  } else if(tab==='production-cost-sheet'){
+    await renderProductionCostSheetTab(body);
   } else if(tab==='payroll'){
     await renderPayrollTab(body);
   } else if(tab==='moadian'){
@@ -5806,6 +5828,408 @@ async function runDepreciation(){
   const r=await api('POST','/fixed-assets/run-depreciation',{});
   showToast('استهلاک: '+fmt(Math.round((r.data?.total_depreciation_rial||0)/10))+' ت');
   loadAccTab('fixed-assets');
+}
+
+/* ============================================================
+   PRODUCTION MODULE (P1/P2) — BOM + Orders
+============================================================ */
+async function renderProductionBomsTab(body){
+  let rows=[];
+  try{ rows=(await api('GET','/production/boms'))?.rows||(await api('GET','/production/boms'))||[]; if(!Array.isArray(rows)) rows=rows.rows||[]; }catch(e){ rows=[]; }
+  const st={draft:'پیش‌نویس',active:'فعال',archived:'بایگانی'};
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px">
+      <button class="btn" onclick="loadAccTab('production-boms')">🔄 تازه‌سازی</button>
+      <span style="color:var(--muted);font-size:13px;margin-right:8px">فرمول‌های ساخت (BOM) — بدون ثبت سند حسابداری</span>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>کد/نام</th><th>محصول</th><th>نسخه</th><th>بازده٪</th><th>وضعیت</th><th>اعتبار</th>
+    </tr></thead><tbody>
+      ${(rows||[]).map(b=>`<tr>
+        <td>${esc(b.name||b.code||'—')}</td>
+        <td>#${b.product_id}</td>
+        <td>v${b.version||1}-${esc(b.revision||'A')}</td>
+        <td class="num">${b.yield_percent??100}</td>
+        <td>${st[b.status]||b.status}</td>
+        <td style="font-size:12px">${esc(b.valid_from||'')} → ${esc(b.valid_to||'…')}</td>
+      </tr>`).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--muted)">فرمولی ثبت نشده</td></tr>'}
+    </tbody></table></div>`;
+}
+
+function prodFmtToman(rial){
+  if(rial==null||rial==='') return '—';
+  return fmt(Math.round(Number(rial)/10));
+}
+
+window._prodChartJsPromise=null;
+window._prodCharts=window._prodCharts||{};
+function destroyProdCharts(){
+  Object.values(window._prodCharts||{}).forEach(c=>{ try{ c.destroy(); }catch(e){} });
+  window._prodCharts={};
+}
+function loadProdChartJs(){
+  if(window.Chart) return Promise.resolve(window.Chart);
+  if(window._prodChartJsPromise) return window._prodChartJsPromise;
+  window._prodChartJsPromise=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='/vendor/chart.umd.js';
+    s.onload=()=>resolve(window.Chart);
+    s.onerror=()=>reject(new Error('Chart.js load failed'));
+    document.head.appendChild(s);
+  });
+  return window._prodChartJsPromise;
+}
+function prodChartColors(){
+  const cs=getComputedStyle(document.documentElement);
+  return {
+    primary:(cs.getPropertyValue('--purple')||'#1A5C38').trim(),
+    secondary:(cs.getPropertyValue('--purple2')||'#2E7D4F').trim(),
+    gold:(cs.getPropertyValue('--gold')||'#C9A843').trim(),
+    blue:(cs.getPropertyValue('--blue')||'#2563EB').trim(),
+    orange:(cs.getPropertyValue('--orange')||'#D97706').trim(),
+  };
+}
+async function prodDashRenderCharts(dash){
+  if(!dash?.data) return;
+  try{
+    await loadProdChartJs();
+    const c=prodChartColors();
+    const palette=[c.primary,c.secondary,c.gold,c.blue,c.orange,c.primary+'99'];
+    const trendSeries=dash.data.trends?.unit_cost?.data?.series||[];
+    const trendCtx=el('pd-chart-unit-cost');
+    if(trendCtx&&trendSeries.length){
+      window._prodCharts.unitCost=new Chart(trendCtx,{
+        type:'line',
+        data:{
+          labels:trendSeries.map(p=>p.period_label),
+          datasets:[{
+            label:'بهای واحد (ریال)',
+            data:trendSeries.map(p=>Number(p.unit_cost_rial)||0),
+            borderColor:c.primary,
+            backgroundColor:c.primary+'22',
+            fill:true,
+            tension:0.25,
+            pointRadius:3
+          }]
+        },
+        options:{
+          responsive:true,
+          maintainAspectRatio:false,
+          plugins:{legend:{display:false}},
+          scales:{y:{ticks:{callback:v=>fmt(v)}}}
+        }
+      });
+    }
+    const mix=dash.data.cost_mix||{};
+    const mixDefs=[
+      ['material_rial','مواد'],['labor_rial','دستمزد'],['overhead_rial','سربار'],
+      ['packaging_rial','بسته‌بندی'],['subcontract_rial','پیمانکاری']
+    ];
+    const mixLabels=[], mixData=[], mixColors=[];
+    mixDefs.forEach(([k,label],i)=>{
+      const v=Number(mix[k]||0);
+      if(v>0){ mixLabels.push(label); mixData.push(v); mixColors.push(palette[i%palette.length]); }
+    });
+    const mixCtx=el('pd-chart-cost-mix');
+    if(mixCtx&&mixData.length){
+      window._prodCharts.costMix=new Chart(mixCtx,{
+        type:'doughnut',
+        data:{labels:mixLabels,datasets:[{data:mixData,backgroundColor:mixColors,borderWidth:0}]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:12,font:{size:11}}}}}
+      });
+    }
+  }catch(e){ console.warn('prod charts',e); }
+}
+
+async function renderProductionDashboardTab(body){
+  destroyProdCharts();
+  const period=(window._prodDashPeriod||todayJalali().slice(0,7));
+  let dash=null, catalog=[];
+  try{ dash=await api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)); }catch(e){ dash=null; }
+  try{ catalog=(await api('GET','/production/reports'))?.reports||[]; }catch(e){ catalog=[]; }
+  window._prodDashPeriod=period;
+  const k=dash?.data?.kpis||{};
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <label>دوره: <input id="pd-period" value="${esc(period)}" placeholder="1405/04" style="width:90px"></label>
+      <button class="btn" onclick="prodDashLoad()">🔄 بارگذاری</button>
+    </div>
+    ${dash?`<div class="cards" style="margin-bottom:16px">
+      ${statCard('g','📦',fmt(k.produced?.value||0),'تولید (عدد)')}
+      ${statCard('b','💰',prodFmtToman(k.unit_cost?.value_rial),'بهای واحد (ت)')}
+      ${statCard('o','⚙️',(k.yield?.value_pct??'—')+'٪','بهره‌وری')}
+      ${statCard('r','🏗',prodFmtToman(k.wip?.value_rial),'WIP (ت)')}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div class="panel"><div class="panel-head"><h4>روند بهای واحد</h4></div>
+        <div class="panel-body" style="height:220px;position:relative"><canvas id="pd-chart-unit-cost"></canvas></div></div>
+      <div class="panel"><div class="panel-head"><h4>ترکیب هزینه دوره</h4></div>
+        <div class="panel-body" style="height:220px;position:relative"><canvas id="pd-chart-cost-mix"></canvas></div></div>
+    </div>
+    <div class="panel"><div class="panel-head"><h4>سفارش‌های باز</h4></div>
+      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>شماره</th><th>محصول</th><th>برنامه</th><th>وضعیت</th></tr></thead><tbody>
+        ${(dash.data.open_orders||[]).map(o=>`<tr><td>${esc(o.order_no)}</td><td>${esc(o.product_name||'')}</td><td class="num">${o.qty_planned||0}</td><td>${esc(o.status)}</td></tr>`).join('')||emptyRow(4)}
+      </tbody></table></div></div>
+    <div class="panel" style="margin-top:12px"><div class="panel-head"><h4>فهرست گزارشات تولید</h4></div>
+      <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>کد</th><th>عنوان</th><th>نیاز به هزینه</th></tr></thead><tbody>
+        ${catalog.map(r=>`<tr><td class="mono">${esc(r.code)}</td><td>${esc(r.title)}</td><td>${r.requires_cost?'✓':'—'}</td></tr>`).join('')||emptyRow(3)}
+      </tbody></table></div></div>`:'<div class="muted">داده‌ای یافت نشد یا دسترسی ندارید.</div>'}`;
+  if(dash) await prodDashRenderCharts(dash);
+}
+function prodDashLoad(){
+  window._prodDashPeriod=el('pd-period')?.value||todayJalali().slice(0,7);
+  loadAccTab('production-dashboard');
+}
+
+async function renderProductionCloseTab(body){
+  const period=(window._prodClosePeriod||todayJalali().slice(0,7));
+  window._prodClosePeriod=period;
+  let periods=[], pre=null, calc=null;
+  try{ periods=(await api('GET','/production/close'))?.periods||[]; }catch(e){}
+  try{ pre=await api('POST','/production/close/'+encodeURIComponent(period)+'/precheck',{}); }catch(e){}
+  try{ calc=await api('POST','/production/close/'+encodeURIComponent(period)+'/calculate',{method:'proration'}); }catch(e){}
+  const checks=(pre?.checks||[]).map(c=>`<tr><td>${esc(c.label||c.code)}</td><td>${c.status==='pass'?'✅':'❌'} ${esc(c.message||'')}</td></tr>`).join('');
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <label>دوره: <input id="pc-period" value="${esc(period)}" placeholder="1405/04" style="width:90px"></label>
+      <button class="btn secondary" onclick="prodCloseReload()">۱. بارگذاری</button>
+      <button class="btn" onclick="prodCloseExecute()" ${pre&&!pre.can_close?'disabled':''}>۴. اجرای بستن</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="panel"><div class="panel-head"><h4>۲. پیش‌بررسی</h4></div>
+        <div class="panel-body tbl-wrap"><table class="tbl"><tbody>${checks||emptyRow(2)}</tbody></table></div></div>
+      <div class="panel"><div class="panel-head"><h4>۳. خلاصه محاسبه</h4></div>
+        <div class="panel-body" style="font-size:13px">
+          ${calc?`<p>انحراف دستمزد: <b>${prodFmtToman(calc.labor?.variance_rial)}</b> ت</p>
+          <p>انحراف سربار: <b>${prodFmtToman(calc.overhead?.variance_rial)}</b> ت</p>
+          <p>روش: ${esc(calc.materiality?.method_auto||'—')}</p>`:'<span class="muted">محاسبه در دسترس نیست</span>'}
+        </div></div>
+    </div>`;
+}
+function prodCloseReload(){
+  window._prodClosePeriod=el('pc-period')?.value||todayJalali().slice(0,7);
+  loadAccTab('production-close');
+}
+async function prodCloseExecute(){
+  const period=el('pc-period')?.value||window._prodClosePeriod;
+  if(!confirm('بستن دوره '+period+' — ادامه؟')) return;
+  try{
+    await api('POST','/production/close/'+encodeURIComponent(period)+'/execute',{method:'proration'});
+    showToast('دوره بسته شد'); loadAccTab('production-close');
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+
+async function renderProductionMonthlyProfitTab(body){
+  const period=(window._prodProfitPeriod||todayJalali().slice(0,7));
+  window._prodProfitPeriod=period;
+  let r=null;
+  try{ r=await api('GET','/production/reports/monthly-profit?period='+encodeURIComponent(period)); }catch(e){}
+  const d=r?.data||{};
+  const chk=d.checks||{};
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px">
+      <label>دوره: <input id="pp-period" value="${esc(period)}" style="width:90px"></label>
+      <button class="btn" onclick="prodProfitLoad()">🔄</button>
+    </div>
+    ${r?`<div class="panel"><div class="panel-head"><h4>صورت سود — ${esc(period)} (${esc(d.period_status||'')})</h4></div>
+      <div class="panel-body"><table class="tbl" style="font-size:13px"><tbody>
+        <tr><td>فروش خالص</td><td class="mono">${prodFmtToman(d.sales?.net_rial)} ت</td></tr>
+        <tr><td>بهای تمام‌شده (COGS)</td><td class="mono">${prodFmtToman(d.cogs?.total_rial)} ت</td></tr>
+        <tr style="font-weight:700"><td>سود ناخالص</td><td class="mono">${prodFmtToman(r.totals?.gross_profit_rial)} ت (${r.totals?.gross_margin_pct||0}٪)</td></tr>
+        <tr style="font-weight:700"><td>سود عملیاتی</td><td class="mono">${prodFmtToman(r.totals?.operating_profit_rial)} ت</td></tr>
+      </tbody></table>
+      <h4 style="margin-top:16px">کنترل‌های صحت</h4>
+      <ul style="list-style:none;padding:0;font-size:13px">
+        <li>${chk.labor_control_zero?'✅':'🔴'} کنترل دستمزد ۵۲۰۱</li>
+        <li>${chk.overhead_control_zero?'✅':'🔴'} کنترل سربار ۵۲۰۲</li>
+        <li>${chk.overhead_applied_zero?'✅':'🔴'} سربار جذب‌شده ۵۲۰۳</li>
+        <li>${chk.wip_matches_ledger?'✅':'🔴'} WIP = دفتر کل</li>
+      </ul></div></div>`:'<div class="muted">گزارش در دسترس نیست (نیاز به نقش admin/accounting)</div>'}`;
+}
+function prodProfitLoad(){
+  window._prodProfitPeriod=el('pp-period')?.value||todayJalali().slice(0,7);
+  loadAccTab('production-monthly-profit');
+}
+
+async function renderProductionCostSheetTab(body){
+  const presetId=window._prodCostSheetOrderId||'';
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <label>شناسه سفارش: <input id="pcs-order-id" type="number" min="1" value="${esc(String(presetId||''))}" style="width:100px"></label>
+      <button class="btn" onclick="prodCostSheetLoad()">📄 بارگذاری</button>
+      <button class="btn secondary" onclick="prodCostSheetPrint()" disabled id="pcs-btn-print">🖨 چاپ</button>
+      <button class="btn secondary" onclick="prodCostSheetExcel()" disabled id="pcs-btn-excel">📥 Excel</button>
+    </div>
+    <div id="pcs-sheet-area"><div class="muted">شناسه سفارش را وارد کنید.</div></div>`;
+  if(presetId) await prodCostSheetLoad();
+}
+async function prodCostSheetLoad(){
+  const id=el('pcs-order-id')?.value;
+  if(!id){ showToast('شناسه سفارش را وارد کنید','error'); return; }
+  window._prodCostSheetOrderId=id;
+  const area=el('pcs-sheet-area');
+  if(area) area.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  let sheet=null;
+  try{ sheet=await api('GET','/production/reports/cost-sheet?order_id='+encodeURIComponent(id)); }
+  catch(e){
+    if(area) area.innerHTML=`<div class="muted">${esc(e.message||'خطا در بارگذاری')}</div>`;
+    el('pcs-btn-print')&&(el('pcs-btn-print').disabled=true);
+    el('pcs-btn-excel')&&(el('pcs-btn-excel').disabled=true);
+    return;
+  }
+  const s=sheet.data?.summary||{};
+  const stages=sheet.data?.stages||[];
+  el('pcs-btn-print')&&(el('pcs-btn-print').disabled=false);
+  el('pcs-btn-excel')&&(el('pcs-btn-excel').disabled=false);
+  if(!area) return;
+  area.innerHTML=`
+    <style>
+      #pcs-print-sheet{background:var(--card);padding:20px;border:1px solid var(--border);border-radius:8px;max-width:210mm;margin:0 auto}
+      #pcs-print-sheet h2{margin:0 0 4px;font-size:18px;color:var(--purple)}
+      #pcs-print-sheet .pcs-meta{color:var(--muted);font-size:12px;margin-bottom:14px}
+      #pcs-print-sheet .pcs-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:13px;margin-bottom:16px}
+      #pcs-print-sheet .pcs-grid div{display:flex;justify-content:space-between;border-bottom:1px dashed var(--border);padding:4px 0}
+      @media print{
+        body *{visibility:hidden}
+        #pcs-print-sheet,#pcs-print-sheet *{visibility:visible}
+        #pcs-print-sheet{position:absolute;left:0;top:0;width:100%;border:none;padding:0;margin:0}
+        .toolbar,.sidebar,.acc-shell-head{display:none!important}
+      }
+    </style>
+    <div id="pcs-print-sheet">
+      <h2>برگه بهای تمام‌شده — ${esc(s.order_no||'')}</h2>
+      <div class="pcs-meta">${esc(s.product_name||'')} · دوره ${esc(s.period_label||'')} · ${esc(s.status||'')}</div>
+      <div class="pcs-grid">
+        <div><span>تعداد برنامه</span><strong class="mono">${s.qty_planned??'—'}</strong></div>
+        <div><span>تعداد تولید</span><strong class="mono">${s.qty_produced??'—'}</strong></div>
+        <div><span>بهره‌وری</span><strong class="mono">${s.yield_pct??'—'}٪</strong></div>
+        <div><span>بهای واحد</span><strong class="mono">${prodFmtToman(s.unit_cost_rial)} ت</strong></div>
+        <div><span>مواد</span><strong class="mono">${prodFmtToman(s.material_cost_rial)} ت</strong></div>
+        <div><span>دستمزد</span><strong class="mono">${prodFmtToman(s.labor_cost_rial)} ت</strong></div>
+        <div><span>سربار</span><strong class="mono">${prodFmtToman(s.overhead_cost_rial)} ت</strong></div>
+        <div><span>بسته‌بندی</span><strong class="mono">${prodFmtToman(s.packaging_cost_rial)} ت</strong></div>
+        <div><span>پیمانکاری</span><strong class="mono">${prodFmtToman(s.subcontract_cost_rial)} ت</strong></div>
+        <div><span>جمع کل</span><strong class="mono">${prodFmtToman(s.total_cost_rial)} ت</strong></div>
+      </div>
+      <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>مرحله</th><th>مرکز هزینه</th><th>ورودی</th><th>خروجی</th>
+        <th>مواد (ت)</th><th>دستمزد (ت)</th><th>سربار (ت)</th><th>بهای مرحله (ت)</th>
+      </tr></thead><tbody>
+        ${stages.map(st=>`<tr>
+          <td>${esc(st.seq)}</td>
+          <td>${esc(st.cc_code||'')} ${esc(st.cc_name||'')}</td>
+          <td class="num">${st.qty_in??'—'}</td>
+          <td class="num">${st.qty_out??'—'}</td>
+          <td class="num">${prodFmtToman(st.material_in_rial)}</td>
+          <td class="num">${prodFmtToman(st.labor_rial)}</td>
+          <td class="num">${prodFmtToman(st.overhead_rial)}</td>
+          <td class="num">${prodFmtToman(st.cost_out_rial)}</td>
+        </tr>`).join('')||emptyRow(8)}
+      </tbody></table></div>
+      <p style="font-size:11px;color:var(--muted);margin-top:12px">WIP باقیمانده: ${prodFmtToman(sheet.data?.wip_rial)} ت · ${sheet.data?.balanced?'✅ متوازن':'⚠️ نامتوازن'}</p>
+    </div>`;
+}
+function prodCostSheetPrint(){ window.print(); }
+function prodCostSheetExcel(){
+  const id=el('pcs-order-id')?.value;
+  if(!id){ showToast('شناسه سفارش را وارد کنید','error'); return; }
+  downloadAuth('/production/reports/PR-02/export?order_id='+encodeURIComponent(id)+'&format=xlsx','cost-sheet-'+id+'.xlsx');
+}
+function prodOrderCostSheet(id){
+  window._prodCostSheetOrderId=String(id);
+  go('acc-production-cost-sheet');
+}
+
+async function renderProductionOrdersTab(body){
+  let data={rows:[]};
+  try{ data=await api('GET','/production/orders')||{rows:[]}; }catch(e){ data={rows:[]}; }
+  const rows=data.rows||[];
+  const st={draft:'پیش‌نویس',released:'آزاد',in_progress:'در جریان',completed:'تکمیل',closed:'بسته',cancelled:'لغو'};
+  const stc={draft:'#95A5A6',released:'#C9A84C',in_progress:'#E67E22',completed:'#2980B9',closed:'#2D7A5F',cancelled:'#C0392B'};
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="prodOrderCreateModal()">➕ سفارش جدید (ثابت)</button>
+      <button class="btn secondary" onclick="loadAccTab('production-orders')">🔄 تازه‌سازی</button>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>شماره</th><th>محصول</th><th>نوع</th><th>برنامه</th><th>تولید</th><th>بهای واحد (ت)</th><th>وضعیت</th><th>عملیات</th>
+    </tr></thead><tbody>
+      ${rows.map(o=>`<tr>
+        <td>${esc(o.order_no)}</td>
+        <td>${esc(o.product_name||('#'+o.product_id))}</td>
+        <td>${o.analysis_type==='variable'?'متغیر':'ثابت'}</td>
+        <td class="num">${o.qty_planned||0}</td>
+        <td class="num">${o.qty_produced||0}</td>
+        <td class="num money">${o.unit_cost_rial?fmt(Math.round(o.unit_cost_rial/10)):'—'}</td>
+        <td><span style="color:${stc[o.status]||'#333'}">${st[o.status]||o.status}</span></td>
+        <td style="white-space:nowrap">
+          <button class="btn sm ghost" onclick="prodOrderCostSheet(${o.id})" title="برگه بها">📄</button>
+          ${o.status==='draft'?`<button class="btn sm" onclick="prodOrderRelease(${o.id})">آزادسازی</button>`:''}
+          ${o.status==='released'||o.status==='in_progress'?`<button class="btn sm" onclick="prodOrderReceiptModal(${o.id})">رسید</button>`:''}
+          ${o.status==='completed'?`<button class="btn sm" onclick="prodOrderClose(${o.id})">بستن</button>`:''}
+        </td>
+      </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--muted)">سفارشی نیست</td></tr>'}
+    </tbody></table></div>`;
+}
+async function prodOrderCreateModal(){
+  if(!CACHE.allProducts) CACHE.allProducts=await api('GET','/products')||[];
+  const mfg=(CACHE.allProducts||[]).filter(p=>p.is_manufactured==1||p.item_type==='finished');
+  showModal('سفارش تولید (آنالیز ثابت)',`
+    <div class="form-grid">
+      <div class="fg"><label>محصول</label><select id="po-product">${mfg.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>تعداد برنامه</label><input id="po-qty" type="number" min="1" value="300"></div>
+      <div class="fg"><label>تاریخ</label><input id="po-date" value="${todayJalali()}"></div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn secondary" onclick="closeModal()">انصراف</button>
+      <button class="btn" onclick="prodOrderCreateSave()">ثبت پیش‌نویس</button>
+    </div>`);
+}
+async function prodOrderCreateSave(){
+  try{
+    await api('POST','/production/orders',{
+      product_id:+el('po-product').value, qty_planned:+el('po-qty').value,
+      analysis_type:'fixed', date:el('po-date').value
+    });
+    closeModal(); showToast('سفارش ایجاد شد'); loadAccTab('production-orders');
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function prodOrderRelease(id){
+  try{ await api('POST','/production/orders/'+id+'/release',{}); showToast('آزاد شد'); loadAccTab('production-orders'); }
+  catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function prodOrderClose(id){
+  try{ await api('POST','/production/orders/'+id+'/close',{}); showToast('بسته شد'); loadAccTab('production-orders'); }
+  catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function prodOrderReceiptModal(id){
+  showModal('رسید تولید',`
+    <div class="form-grid">
+      <div class="fg"><label>سالم پذیرفته‌شده</label><input id="pr-good" type="number" value="294"></div>
+      <div class="fg"><label>ضایعات عادی</label><input id="pr-wn" type="number" value="4"></div>
+      <div class="fg"><label>ضایعات غیرعادی</label><input id="pr-wa" type="number" value="2"></div>
+      <div class="fg"><label>تاریخ</label><input id="pr-date" value="${todayJalali()}"></div>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin-top:8px">دستمزد پیش‌فرض: کارمزدی ۲۵۰٬۰۰۰ + ماهانه ۴۰٬۰۰۰ ریال/عدد · سربار از نرخ مرکز هزینه</p>
+    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn secondary" onclick="closeModal()">انصراف</button>
+      <button class="btn" onclick="prodOrderReceiptSave(${id})">ثبت نهایی</button>
+    </div>`);
+}
+async function prodOrderReceiptSave(id){
+  try{
+    const r=await api('POST','/production/orders/'+id+'/receipt',{
+      date:el('pr-date').value,
+      qty_produced:+el('pr-good').value,
+      waste_normal:+el('pr-wn').value||0,
+      waste_abnormal:+el('pr-wa').value||0,
+      labor:[{method:'piece',rate_rial:250000},{method:'monthly',rate_rial:40000}],
+      auto_labor:true
+    });
+    closeModal();
+    showToast('ثبت شد — بهای واحد '+fmt(Math.round((r.costs?.unit_cost_rial||0)/10))+' ت');
+    loadAccTab('production-orders');
+  }catch(e){ showToast(e.message||'خطا','error'); }
 }
 
 /* ============================================================

@@ -1,0 +1,41 @@
+name: Production Module Tests
+
+on:
+  push:
+    paths:
+      - 'server/lib/production/**'
+      - 'server/routes/production*.js'
+      - 'server/scripts/test-production*.js'
+      - 'server/scripts/lib/**'
+      - 'server/db.js'
+      - 'server/lib/coa-map.js'
+      - 'server/lib/rbac.js'
+      - 'server/sync/tables.js'
+      - 'server/package.json'
+      - '.github/workflows/production-tests.yml'
+  pull_request:
+    paths:
+      - 'server/lib/production/**'
+      - 'server/routes/production*.js'
+      - 'server/scripts/test-production*.js'
+      - 'server/package.json'
+
+jobs:
+  production-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install dependencies
+        run: npm ci || npm install
+      - name: Production suite
+        run: npm run test:production
+      - name: Health check
+        run: npm run test:production:health

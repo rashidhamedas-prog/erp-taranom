@@ -16,6 +16,25 @@ const LEGACY = {
   coa_vat_receivable:  { code: '1108',   name: 'مالیات بر ارزش افزوده دریافتنی' },
   coa_depreciation_expense: { code: '6105', name: 'هزینه استهلاک دارایی' },
   coa_fixed_assets:    { code: '1201',   name: 'دارایی‌های ثابت' },
+  // Production module (docs/Production Master §2.1)
+  coa_raw_materials:          { code: '1110', name: 'موجودی مواد اولیه' },
+  coa_packaging_materials:    { code: '1112', name: 'موجودی مواد بسته‌بندی' },
+  coa_wip:                    { code: '1111', name: 'کالای در جریان ساخت' },
+  coa_finished_goods:         { code: '1104', name: 'موجودی کالای ساخته‌شده' },
+  coa_scrap_inventory:        { code: '1113', name: 'موجودی ضایعات قابل فروش' },
+  coa_subcontract_inventory:  { code: '1114', name: 'موجودی نزد پیمانکار' },
+  coa_labor_control:          { code: '5201', name: 'کنترل دستمزد مستقیم' },
+  coa_overhead_control:       { code: '5202', name: 'کنترل سربار ساخت' },
+  coa_overhead_applied:       { code: '5203', name: 'سربار جذب‌شده' },
+  coa_var_material_price:     { code: '5210', name: 'انحراف نرخ مواد' },
+  coa_var_material_qty:       { code: '5211', name: 'انحراف مقدار مواد' },
+  coa_var_labor_rate:         { code: '5212', name: 'انحراف نرخ دستمزد' },
+  coa_var_labor_eff:          { code: '5213', name: 'انحراف کارایی دستمزد' },
+  coa_var_oh_budget:          { code: '5214', name: 'انحراف بودجه سربار' },
+  coa_var_oh_volume:          { code: '5215', name: 'انحراف حجم سربار' },
+  coa_abnormal_waste:         { code: '5221', name: 'هزینه ضایعات غیرعادی' },
+  coa_rework_cost:            { code: '5222', name: 'هزینه دوباره‌کاری' },
+  coa_subcontract_fee:        { code: '5230', name: 'کارمزد ساخت پیمانکاری' },
 };
 
 let _cache = null, _cacheAt = 0;
@@ -55,8 +74,16 @@ function acct(db, key) {
 
 function clearCoaCache() { _cache = null; }
 
-const KIND_KEY = { customer: 'coa_receivable', supplier: 'coa_payable', product: 'coa_inventory', bank: 'coa_bank_default', cashbox: 'coa_cash_default', person: 'coa_misc_persons' };
-const KIND_TYPE = { customer: 'اشخاص', supplier: 'اشخاص', product: 'کالاها', bank: 'بانک ها', cashbox: 'صندوق ها', person: 'اشخاص' };
+const KIND_KEY = {
+  customer: 'coa_receivable', supplier: 'coa_payable', product: 'coa_inventory',
+  bank: 'coa_bank_default', cashbox: 'coa_cash_default', person: 'coa_misc_persons',
+  production_order: 'coa_wip', cost_center_oh: 'coa_overhead_control', cost_center_lb: 'coa_labor_control',
+};
+const KIND_TYPE = {
+  customer: 'اشخاص', supplier: 'اشخاص', product: 'کالاها',
+  bank: 'بانک ها', cashbox: 'صندوق ها', person: 'اشخاص',
+  production_order: 'سفارش تولید', cost_center_oh: 'مراکز هزینه', cost_center_lb: 'مراکز هزینه',
+};
 
 // In extended coa mode, new entities get tafsili accounts under mapped معین.
 function allocTafsili(db, kind, name) {
