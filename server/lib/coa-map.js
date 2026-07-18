@@ -35,6 +35,9 @@ const LEGACY = {
   coa_abnormal_waste:         { code: '5221', name: 'هزینه ضایعات غیرعادی' },
   coa_rework_cost:            { code: '5222', name: 'هزینه دوباره‌کاری' },
   coa_subcontract_fee:        { code: '5230', name: 'کارمزد ساخت پیمانکاری' },
+  coa_inventory_gain:         { code: '4205', name: 'اضافی انبارگردانی' },
+  coa_inventory_loss:         { code: '6108', name: 'کسری و ضایعات انبار' },
+  coa_inventory_in_transit:   { code: '1115', name: 'موجودی در راه (حمل)' },
 };
 
 let _cache = null, _cacheAt = 0;

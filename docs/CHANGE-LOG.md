@@ -27,27 +27,47 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۲۶)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۲۷)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `7947c11` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v38` |
+| آخرین commit | (پس از commit انبار) |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v40` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ✅ production روی `7947c11` (pm2 restart شده) — بستهٔ اصلاحات UI حسابداری فعال است |
+| وضعیت سرور | ⏳ commit انبار + deploy bundle در این جلسه |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
 
+### ۱۴۰۵/۰۴/۲۷ — [Cursor] ماژول انبار سازمانی (ledger / batch / reservation / landed cost)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین commit)
+- **خلاصه:**
+  - لایهٔ `server/lib/inventory/*` + API `/api/inventory` + منوی «عملیات انبار» (بچ/سریال، رزرو، landed cost، کاردکس، رسید/حواله).
+  - انبارگردانی و عملیات انبار به ledger جدید وصل شد؛ جداول sync APPEND-ONLY.
+  - تست دود: `node scripts/test-inventory-smoke.js` → **۲۴/۲۴**.
+  - هم‌ترازسازی قبلی لوکال تا `7947c11` + اسکریپت‌های محک نگه داشته شد.
+- **فایل‌های کلیدی:** `server/lib/inventory/*`, `server/routes/inventory.js`, `server/routes/warehouses.js`, `server/public/acc-nav.js`, `server/public/index.html`, `server/sync/tables.js`
+- **Deploy:** ⏳ bundle به ایران پس از push
+
 ### ۱۴۰۵/۰۴/۲۶ — [Cursor] pm2 restart production برای اعمال تغییرات UI
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** همین commit (docs) — کد از قبل روی سرور در `7947c11` بود
-- **خلاصه:** به درخواست مالک، روی سرور ایران `pm2 restart crm-taranom --update-env` اجرا شد. health `/api/system/time` سبز، فرآیند online (restarts=9). مارکرهای کلیدی در فایل مستقر تأیید شد: `seedQty`، `cheque_row`، «ثبت چک بعدی»، `z-index:3000` برای دیت‌پیکر.
+- **Commit:** `d7bee5e` (docs) — کد از قبل روی سرور در `7947c11` بود
+- **خلاصه:** به درخواست مالک، روی سرور ایران `pm2 restart crm-taranom --update-env` اجرا شد. health `/api/system/time` سبز، فرآیند online. مارکرهای کلیدی در فایل مستقر تأیید شد: `seedQty`، `cheque_row`، «ثبت چک بعدی»، `z-index:3000` برای دیت‌پیکر.
 - **فایل‌های کلیدی:** `docs/CHANGE-LOG.md`
 - **Deploy:** ✅ restart انجام شد
+
+### ۱۴۰۵/۰۴/۲۷ — [Cursor] هم‌ترازسازی لوکال + deploy bundle ایران تا `7947c11`
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `7947c11` (fast-forward لوکال از `13dbcaf`)
+- **خلاصه:**
+  - workspace لوکال از `13dbcaf` به `7947c11` هم‌تراز شد؛ UI چک (`stlSyncChequesFromDom` / `oninput` / SW `v39`) روی دیسک محلی تأیید شد.
+  - سرور ایران با **git bundle** از `ae016a3` → `7947c11` + `pm2 restart`؛ health ۲۰۰.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `docs/CHANGE-LOG.md`
+- **Deploy:** ✅ ایران `94.249.244.208` — HEAD=`7947c11`
 
 ### ۱۴۰۵/۰۴/۲۷ — [Claude Code] 🐞 رفع باگ واقعی ناهماهنگی موجودی انبار (products.stock ⇄ warehouse_stock) + بازبینی کامل پروژه
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -62,7 +82,7 @@
   - نکتهٔ هماهنگی: اصلاح staleٔ تست sync برای VAT را Cursor در `e488a30` با تطبیق روی `subtotal` (مستقل از VAT) انجام داده بود؛ تغییر موازی من revert شد تا پوشش VAT+sync حفظ شود.
   - Help در این تغییر نیاز به به‌روزرسانی ندارد (رفع باگ داخلی، بدون سطح کاربری جدید).
 - **فایل‌های کلیدی:** `server/routes/products.js`
-- **Deploy:** ✅ با `pm2 restart` روی `7947c11` (همان session Cursor) اعمال شد.
+- **Deploy:** ✅ با `pm2 restart` / bundle روی `7947c11` اعمال شد.
 
 ### ۱۴۰۵/۰۴/۲۶ — [Cursor] بستهٔ اصلاحات UI حسابداری (instructions_7685): چک، محصول، جستجو، z-index
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -79,7 +99,7 @@
   - راهنمای داخل برنامه (بخش «قابلیت‌های جدید») + SW به `v38`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/acc-nav.js`, `server/public/sw.js`, `server/db.js`, `server/routes/accounting.js`, `server/routes/products.js`
 - **وضعیت تست:** SMS 22/22، Sync 33/33، تست تولید ۴۲۷ سبز، پارس فرانت سالم. GUI: رفع z-index تقویم و بازهٔ ۱۳۰۰ **تأیید بصری شد**؛ backend ثبت چند چک با `cheque_row` و همهٔ فیلدها **با curl تأیید شد** (۲ چک، installment_group مشترک). دموی کامل ذخیرهٔ چک از مسیر GUI به‌خاطر دشواری computerUse در پرکردن فیلد نام بانک ردیف دوم و انتخاب مشتری (کش قدیمی، رفع با reload) به‌طور کامل ضبط نشد — منطق درست است.
-- **Deploy:** ✅ روی production ایران (`94.249.244.208`) — HEAD `7947c11`، `pm2 restart crm-taranom --update-env` انجام شد، health ۲۰۰، مارکرهای UI (ثبت چک بعدی، z-index:3000) در فایل مستقر تأیید شد.
+- **Deploy:** ✅ روی production ایران (`94.249.244.208`) — HEAD `7947c11`، bundle + `pm2 restart`، health ۲۰۰.
 
 ### ۱۴۰۵/۰۴/۲۶ — [Cursor] تأیید سلامت شاخه + رفع باگ divergence موجودی انبار (سبزسازی مجدد test-sync)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

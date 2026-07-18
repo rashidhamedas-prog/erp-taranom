@@ -210,6 +210,7 @@ app.use('/api/persons', require('./routes/persons'));
 app.use('/api/trust-checks', require('./routes/trust-checks'));
 app.use('/api/cheque-records', require('./routes/cheque-records'));
 app.use('/api/warehouses', require('./routes/warehouses'));
+app.use('/api/inventory', require('./routes/inventory'));
 app.use('/api/stocktaking', require('./routes/stocktaking'));
 app.use('/api/consignments', require('./routes/consignments'));
 app.use('/api/adv-reports', require('./routes/adv-reports'));

@@ -93,6 +93,16 @@ const SYNCABLE_TABLES = [
   { name: 'mrp_runs',                         upsertKey: 'id' },
   { name: 'mrp_requirements',                 upsertKey: 'id' },
   { name: 'production_reservations',          upsertKey: 'id' },
+
+  // ===== Inventory module — appended 1405/04 (APPEND-ONLY) =====
+  { name: 'inventory_ledger',                 upsertKey: 'id' },
+  { name: 'inventory_cost_layers',            upsertKey: 'id' },
+  { name: 'inventory_batches',                upsertKey: 'id' },
+  { name: 'inventory_serials',                upsertKey: 'id' },
+  { name: 'inventory_reservations',           upsertKey: 'id' },
+  { name: 'landed_cost_docs',                 upsertKey: 'id' },
+  { name: 'landed_cost_lines',                upsertKey: 'id' },
+  { name: 'landed_cost_allocations',          upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -164,6 +174,14 @@ const FK_COLUMNS = [
   ['production_estimate_lines', 'estimate_id'],
   ['mrp_requirements', 'run_id'],
   ['production_reservations', 'order_id'],
+  // Inventory FKs (append-only)
+  ['inventory_ledger', 'product_id'], ['inventory_ledger', 'warehouse_id'],
+  ['inventory_cost_layers', 'product_id'], ['inventory_cost_layers', 'warehouse_id'],
+  ['inventory_batches', 'product_id'], ['inventory_batches', 'warehouse_id'],
+  ['inventory_serials', 'product_id'], ['inventory_serials', 'warehouse_id'], ['inventory_serials', 'batch_id'],
+  ['inventory_reservations', 'product_id'], ['inventory_reservations', 'warehouse_id'],
+  ['landed_cost_lines', 'doc_id'],
+  ['landed_cost_allocations', 'doc_id'], ['landed_cost_allocations', 'product_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, tableBase, isProvisionalId };

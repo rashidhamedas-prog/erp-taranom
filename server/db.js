@@ -1975,6 +1975,13 @@ function initSyncSchema(db) {
     throw e;
   }
 
+  try {
+    require('./lib/inventory/schema').initInventorySchema(db);
+  } catch (e) {
+    console.error('❌ inventory schema init failed:', e.message);
+    throw e;
+  }
+
   // Second pass — tables created above in this function (parties, fiscal_years, production, …).
   ensureSyncColumnsForAllTables(db);
   if (!isDevice()) {

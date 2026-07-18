@@ -114,14 +114,52 @@ router.get('/:id/kardex', auth, (req, res) => {
   const db = getDB();
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!product) return res.status(404).json({ error: 'محصول یافت نشد' });
+
+  // Prefer immutable inventory_ledger when present
+  const hasLedger = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'"
+  ).get();
+  if (hasLedger) {
+    const rows = db.prepare(`
+      SELECT l.*, u.name as user_name, w.name as warehouse_name
+      FROM inventory_ledger l
+      LEFT JOIN users u ON l.created_by=u.id
+      LEFT JOIN warehouses w ON l.warehouse_id=w.id
+      WHERE l.product_id=? AND l.status IN ('posted','reversed')
+      ORDER BY l.id ASC
+    `).all(req.params.id);
+    if (rows.length) {
+      const logs = rows.map(l => ({
+        id: l.id,
+        tx_no: l.tx_no,
+        event_type: l.event_type,
+        change: (Number(l.qty_in) || 0) - (Number(l.qty_out) || 0),
+        qty_in: l.qty_in,
+        qty_out: l.qty_out,
+        running_balance: l.qty_balance,
+        unit_cost_rial: l.unit_cost_rial,
+        amount_rial: l.amount_rial,
+        avg_cost_after_rial: l.avg_cost_after_rial,
+        note: l.note,
+        date: l.date,
+        warehouse_name: l.warehouse_name,
+        user_name: l.user_name,
+        created_at: l.created_at,
+        status: l.status,
+        source: 'inventory_ledger',
+      }));
+      return res.json({ product, logs, source: 'inventory_ledger' });
+    }
+  }
+
   const logs = db.prepare(`
     SELECT sl.*, u.name as user_name FROM stock_logs sl LEFT JOIN users u ON sl.user_id=u.id
     WHERE sl.product_id=? ORDER BY sl.created_at ASC, sl.id ASC
   `).all(req.params.id);
   const totalChange = logs.reduce((a, l) => a + (l.change || 0), 0);
   let running = (product.stock || 0) - totalChange;
-  logs.forEach(l => { running += (l.change || 0); l.running_balance = running; });
-  res.json({ product, logs });
+  logs.forEach(l => { running += (l.change || 0); l.running_balance = running; l.source = 'stock_logs'; });
+  res.json({ product, logs, source: 'stock_logs' });
 });
 
 // ── Barcode support (ported from CRM v4) ────────────────────────────────────

@@ -1537,6 +1537,9 @@ let CURRENT_PAGE = 'dash';
 const ACC_MODULE_MAP={
   'acc-petty-cash':'module_petty_cash','acc-trust-checks':'module_trust_checks',
   'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
+  'acc-stocktaking':'module_warehouses','acc-item-kardex':'module_warehouses',
+  'acc-inv-batches':'module_warehouses','acc-inv-reservations':'module_warehouses',
+  'acc-inv-landed':'module_warehouses',
   'acc-consignments':'module_consignments','acc-production':'module_production',
   'acc-production-orders':'module_production','acc-production-boms':'module_production',
   'acc-production-dashboard':'module_production','acc-production-close':'module_production',
@@ -2135,6 +2138,11 @@ function openModal(html, lg){
     <div class="modal ${lg?'lg':''}">${html}</div></div>`;
   attachDatepickers(el('modalRoot'));
   initCustSearches(el('modalRoot'));
+}
+/** Title + body helper used by production modals (was missing → silent click no-op). */
+function showModal(title, bodyHtml, lg){
+  openModal(`<div class="modal-head"><h3>${title||''}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">${bodyHtml||''}</div>`, lg);
 }
 function closeModal(){ el('modalRoot').innerHTML=''; _bcWedgeHandler=null; }
 
@@ -4274,7 +4282,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -4340,6 +4348,9 @@ ROUTES['acc-purchases']=()=>renderAccPage('purchases','📦','فاکتور خر�
 ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','برگشت از خرید');
 ROUTES['acc-sales-returns']=()=>renderAccPage('sales-returns','↪️','برگشت از فروش');
 ROUTES['acc-item-kardex']=()=>renderAccPage('item-kardex','📋','کاردکس کالا');
+ROUTES['acc-inv-batches']=()=>renderAccPage('inv-batches','🏷️','بچ و سریال');
+ROUTES['acc-inv-reservations']=()=>renderAccPage('inv-reservations','🔒','رزرو موجودی');
+ROUTES['acc-inv-landed']=()=>renderAccPage('inv-landed','🚢','هزینه حمل (Landed Cost)');
 ROUTES['acc-warehouses']=()=>renderAccPage('warehouses','🏭','انبارها');
 ROUTES['acc-warehouse-ops']=()=>renderAccPage('warehouse-ops','📦','عملیات انبار (رسید / حواله / انتقال)');
 ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای امانی');
@@ -4472,6 +4483,12 @@ async function loadAccTab(tab){
     await renderSalesInvoicesTab(body);
   } else if(tab==='item-kardex'){
     await renderItemKardexTab(body);
+  } else if(tab==='inv-batches'){
+    await renderInvBatchesTab(body);
+  } else if(tab==='inv-reservations'){
+    await renderInvReservationsTab(body);
+  } else if(tab==='inv-landed'){
+    await renderInvLandedTab(body);
   } else if(tab==='warehouses'){
     await renderWarehousesTab(body);
   } else if(tab==='warehouse-ops'){
@@ -5404,24 +5421,216 @@ async function loadItemKardex(productId){
   box.innerHTML=`
     <div class="panel">
       <div class="panel-head"><h4>${esc(d.product.name)} <span class="muted" style="font-size:12px">(${esc(d.product.code||'-')})</span></h4>
-        <span class="muted" style="font-size:12px">موجودی فعلی: ${fmt(d.product.stock||0)} ${esc(d.product.unit||'')}</span>
+        <span class="muted" style="font-size:12px">موجودی فعلی: ${fmt(d.product.stock||0)} ${esc(d.product.unit||'')}
+          ${d.source==='inventory_ledger'?' · دفتر کل انبار':''}
+          ${d.product.average_cost_rial!=null&&window.__canSeeCost?' · میانگین: '+fmt(Math.round((d.product.average_cost_rial||0)/10))+' ت':''}
+        </span>
       </div>
       <div class="panel-body tbl-wrap">
         <table class="tbl" style="font-size:12px"><thead><tr>
-          <th>تاریخ</th><th>شرح</th><th>ورود</th><th>خروج</th><th>موجودی</th><th>ثبت‌کننده</th>
+          <th>تاریخ</th><th>شماره/نوع</th><th>شرح</th><th>انبار</th><th>ورود</th><th>خروج</th><th>موجودی</th>
+          ${window.__canSeeCost?'<th>بهای واحد</th><th>مبلغ</th>':''}
+          <th>ثبت‌کننده</th>
         </tr></thead><tbody>
-        ${logs.map(l=>`<tr>
-          <td class="mono">${new Date((l.created_at||0)*1000).toLocaleDateString('fa-IR')}</td>
+        ${logs.map(l=>{
+          const dt=l.date||(l.created_at?new Date((l.created_at||0)*1000).toLocaleDateString('fa-IR'):'-');
+          const ch=l.change!=null?l.change:((l.qty_in||0)-(l.qty_out||0));
+          return `<tr style="${l.status==='reversed'?'opacity:.55':''}">
+          <td class="mono">${esc(dt)}</td>
+          <td class="mono" style="font-size:11px">${esc(l.tx_no||l.event_type||'-')}</td>
           <td>${esc(l.note||'-')}</td>
-          <td class="mono" style="color:var(--green)">${l.change>0?fmt(l.change):'-'}</td>
-          <td class="mono" style="color:var(--red)">${l.change<0?fmt(-l.change):'-'}</td>
+          <td class="muted">${esc(l.warehouse_name||'-')}</td>
+          <td class="mono" style="color:var(--green)">${ch>0?fmt(ch):'-'}</td>
+          <td class="mono" style="color:var(--red)">${ch<0?fmt(-ch):'-'}</td>
           <td class="mono" style="font-weight:700">${fmt(l.running_balance||0)}</td>
+          ${window.__canSeeCost?`<td class="mono">${l.unit_cost_rial!=null?fmt(Math.round(l.unit_cost_rial/10)):('-')}</td>
+          <td class="mono">${l.amount_rial!=null?fmt(Math.round(l.amount_rial/10)):('-')}</td>`:''}
           <td class="muted">${esc(l.user_name||'-')}</td>
-        </tr>`).join('')||'<tr><td colspan="6" class="empty">تراکنشی ثبت نشده</td></tr>'}
+        </tr>`;
+        }).join('')||'<tr><td colspan="10" class="empty">تراکنشی ثبت نشده</td></tr>'}
         </tbody></table>
       </div>
     </div>`;
 }
+/* ============================================================
+   INVENTORY — batches / serials / reservations / landed cost UI
+============================================================ */
+async function renderInvBatchesTab(body){
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  const [batches, serials]=await Promise.all([
+    api('GET','/inventory/batches')||{rows:[]},
+    api('GET','/inventory/serials')||{rows:[]}
+  ]);
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="invBatchModal()">➕ بچ جدید</button>
+      <button class="btn secondary" onclick="invSerialModal()">➕ سریال جدید</button>
+      <button class="btn ghost" onclick="loadAccTab('inv-batches')">🔄</button>
+    </div>
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-head"><h4>بچ‌ها (Lot)</h4></div>
+      <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>شماره</th><th>کالا</th><th>انقضا</th><th>موجودی</th><th>وضعیت</th>
+      </tr></thead><tbody>
+      ${(batches.rows||[]).map(b=>{
+        const p=(CACHE.allProducts||[]).find(x=>x.id===b.product_id);
+        return `<tr><td class="mono">${esc(b.batch_no)}</td><td>${esc(p?.name||('#'+b.product_id))}</td>
+          <td class="mono">${esc(b.expiry_date||'-')}</td><td class="num">${fmt(b.qty_on_hand||0)}</td>
+          <td>${esc(b.status)}</td></tr>`;
+      }).join('')||'<tr><td colspan="5" class="empty">بچ ثبت نشده</td></tr>'}
+      </tbody></table></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h4>سریال‌ها</h4></div>
+      <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>سریال</th><th>کالا</th><th>وضعیت</th><th>گارانتی</th>
+      </tr></thead><tbody>
+      ${(serials.rows||[]).map(s=>{
+        const p=(CACHE.allProducts||[]).find(x=>x.id===s.product_id);
+        return `<tr><td class="mono">${esc(s.serial_no)}</td><td>${esc(p?.name||('#'+s.product_id))}</td>
+          <td>${esc(s.status)}</td><td class="mono">${esc(s.warranty_until||'-')}</td></tr>`;
+      }).join('')||'<tr><td colspan="4" class="empty">سریال ثبت نشده</td></tr>'}
+      </tbody></table></div>
+    </div>`;
+}
+function invBatchModal(){
+  const prods=CACHE.allProducts||[];
+  showModal('بچ جدید',`
+    <div class="form-grid">
+      <div class="fg"><label>کالا</label><select id="ib-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>شماره بچ (اختیاری)</label><input id="ib-no" placeholder="خودکار"></div>
+      <div class="fg"><label>تاریخ انقضا</label><input id="ib-exp" data-jdate></div>
+      <div class="fg"><label>تعداد اولیه</label><input id="ib-qty" type="number" min="0" value="0"></div>
+    </div>
+    <div style="margin-top:12px;text-align:left"><button class="btn" onclick="invBatchSave()">ثبت</button></div>`);
+}
+async function invBatchSave(){
+  try{
+    await api('POST','/inventory/batches',{
+      product_id:+el('ib-prod').value, batch_no:el('ib-no').value||undefined,
+      expiry_date:el('ib-exp').value||'', qty:+el('ib-qty').value||0
+    });
+    closeModal(); showToast('بچ ثبت شد'); loadAccTab('inv-batches');
+  }catch(e){}
+}
+function invSerialModal(){
+  const prods=CACHE.allProducts||[];
+  showModal('سریال جدید',`
+    <div class="form-grid">
+      <div class="fg"><label>کالا</label><select id="is-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>شماره سریال</label><input id="is-no"></div>
+      <div class="fg"><label>گارانتی تا</label><input id="is-warr" data-jdate></div>
+    </div>
+    <div style="margin-top:12px;text-align:left"><button class="btn" onclick="invSerialSave()">ثبت</button></div>`);
+}
+async function invSerialSave(){
+  if(!el('is-no').value.trim()){ showToast('شماره سریال الزامی است','error'); return; }
+  try{
+    await api('POST','/inventory/serials',{
+      product_id:+el('is-prod').value, serial_no:el('is-no').value.trim(),
+      warranty_until:el('is-warr').value||''
+    });
+    closeModal(); showToast('سریال ثبت شد'); loadAccTab('inv-batches');
+  }catch(e){}
+}
+
+async function renderInvReservationsTab(body){
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  const data=await api('GET','/inventory/reservations')||{rows:[]};
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;gap:8px">
+      <button class="btn" onclick="invRsvModal()">➕ رزرو جدید</button>
+      <button class="btn ghost" onclick="loadAccTab('inv-reservations')">🔄</button>
+    </div>
+    <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <th>شماره</th><th>نوع</th><th>کالا</th><th>تعداد</th><th>مصرف‌شده</th><th>وضعیت</th><th></th>
+    </tr></thead><tbody>
+    ${(data.rows||[]).map(r=>{
+      const p=(CACHE.allProducts||[]).find(x=>x.id===r.product_id);
+      return `<tr>
+        <td class="mono">${esc(r.reservation_no)}</td><td>${esc(r.kind)}</td>
+        <td>${esc(p?.name||('#'+r.product_id))}</td>
+        <td class="num">${fmt(r.qty)}</td><td class="num">${fmt(r.qty_consumed||0)}</td>
+        <td>${esc(r.status)}</td>
+        <td>${r.status==='active'?`<button class="btn sm" onclick="invRsvRelease(${r.id})">آزادسازی</button>`:''}</td>
+      </tr>`;
+    }).join('')||'<tr><td colspan="7" class="empty">رزروی نیست</td></tr>'}
+    </tbody></table></div>`;
+}
+function invRsvModal(){
+  const prods=CACHE.allProducts||[];
+  showModal('رزرو موجودی',`
+    <div class="form-grid">
+      <div class="fg"><label>کالا</label><select id="ir-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)} (موجودی ${fmt(p.stock||0)})</option>`).join('')}</select></div>
+      <div class="fg"><label>تعداد</label><input id="ir-qty" type="number" min="1" value="1"></div>
+      <div class="fg"><label>نوع</label><select id="ir-kind"><option value="sales">فروش</option><option value="production">تولید</option><option value="project">پروژه</option><option value="manual">دستی</option></select></div>
+      <div class="fg"><label>یادداشت</label><input id="ir-note"></div>
+    </div>
+    <div style="margin-top:12px;text-align:left"><button class="btn" onclick="invRsvSave()">ثبت رزرو</button></div>`);
+}
+async function invRsvSave(){
+  try{
+    await api('POST','/inventory/reservations',{
+      product_id:+el('ir-prod').value, qty:+el('ir-qty').value,
+      kind:el('ir-kind').value, note:el('ir-note').value||''
+    });
+    closeModal(); showToast('رزرو ثبت شد'); loadAccTab('inv-reservations');
+  }catch(e){}
+}
+async function invRsvRelease(id){
+  if(!confirm('این رزرو آزاد شود؟')) return;
+  try{ await api('POST','/inventory/reservations/'+id+'/release',{}); showToast('آزاد شد'); loadAccTab('inv-reservations'); }catch(e){}
+}
+
+async function renderInvLandedTab(body){
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  body.innerHTML=`
+    <div class="panel">
+      <div class="panel-head"><h4>ثبت هزینه حمل / گمرک / بیمه (Landed Cost)</h4></div>
+      <div class="panel-body">
+        <p class="muted" style="margin-bottom:12px;line-height:1.8">هزینه‌های جانبی خرید را ثبت کنید؛ پس از تسهیم روی کالاها، میانگین موزون و دفتر کل انبار به‌روز می‌شود و سند حسابداری خودکار زده می‌شود.</p>
+        <div class="form-grid">
+          <div class="fg"><label>تاریخ</label><input id="lc-date" data-jdate value="${todayJalali()}"></div>
+          <div class="fg"><label>روش تسهیم</label>
+            <select id="lc-method"><option value="value">بر اساس ارزش</option><option value="qty">بر اساس تعداد</option><option value="manual">دستی</option></select>
+          </div>
+          <div class="fg"><label>حمل (ریال)</label><input id="lc-freight" type="number" min="0" value="0"></div>
+          <div class="fg"><label>گمرک (ریال)</label><input id="lc-customs" type="number" min="0" value="0"></div>
+          <div class="fg"><label>بیمه (ریال)</label><input id="lc-ins" type="number" min="0" value="0"></div>
+          <div class="fg"><label>کالا برای تسهیم</label>
+            <select id="lc-prod">${(CACHE.allProducts||[]).slice(0,300).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+          </div>
+          <div class="fg"><label>تعداد مبنا</label><input id="lc-qty" type="number" min="0" value="1"></div>
+          <div class="fg"><label>ارزش مبنا (ریال)</label><input id="lc-base" type="number" min="0" value="0"></div>
+        </div>
+        <div style="margin-top:14px"><button class="btn" onclick="invLandedPost()">ثبت و تسهیم</button></div>
+      </div>
+    </div>`;
+}
+async function invLandedPost(){
+  const lines=[];
+  const f=+el('lc-freight').value||0, c=+el('lc-customs').value||0, i=+el('lc-ins').value||0;
+  if(f>0) lines.push({cost_type:'freight', amount_rial:f});
+  if(c>0) lines.push({cost_type:'customs', amount_rial:c});
+  if(i>0) lines.push({cost_type:'insurance', amount_rial:i});
+  if(!lines.length){ showToast('حداقل یک مبلغ هزینه وارد کنید','error'); return; }
+  try{
+    const doc=await api('POST','/inventory/landed-cost',{
+      date:el('lc-date').value, alloc_method:el('lc-method').value, lines
+    });
+    await api('POST','/inventory/landed-cost/'+doc.id+'/post',{
+      date:el('lc-date').value,
+      allocations:[{
+        product_id:+el('lc-prod').value,
+        qty:+el('lc-qty').value||0,
+        base_value_rial:+el('lc-base').value||0,
+        allocated_rial: lines.reduce((a,l)=>a+l.amount_rial,0)
+      }]
+    });
+    showToast('هزینه حمل ثبت و تسهیم شد');
+  }catch(e){}
+}
+
 /* ============================================================
    WAREHOUSES (انبارها) — each product belongs to exactly one warehouse;
    products.stock remains the single total. See routes/warehouses.js for
@@ -6780,34 +6989,38 @@ function prodOrderErrMsg(e){
   return map[code]||e?.error||e?.message||code||'خطا در ایجاد سفارش';
 }
 async function prodOrderCreateModal(){
-  if(!CACHE.allProducts) CACHE.allProducts=await api('GET','/products')||[];
-  let boms=[];
-  try{ boms=(await api('GET','/production/boms?status=active'))?.rows||(await api('GET','/production/boms'))?.rows||[]; }catch(e){ boms=[]; }
-  const activeBomProductIds=new Set((boms||[]).filter(b=>b.status==='active'||!b.status).map(b=>Number(b.product_id)));
-  const all=CACHE.allProducts||[];
-  let mfg=all.filter(p=>p.is_manufactured==1||p.item_type==='finished'||activeBomProductIds.has(Number(p.id)));
-  if(!mfg.length) mfg=all.slice(0,200);
-  const warn=!activeBomProductIds.size?'⚠️ هنوز BOM فعال ندارید — اول فرمول بسازید و فعال کنید.':'';
-  showModal('سفارش تولید جدید',`
-    ${warn?`<div class="muted" style="margin-bottom:10px;color:var(--state-warn,#E67E22)">${warn}</div>`:''}
-    <div class="form-grid">
-      <div class="fg"><label>محصول</label>
-        <select id="po-product">${mfg.length?mfg.map(p=>`<option value="${p.id}">${esc(p.name)}${activeBomProductIds.has(Number(p.id))?' ✓BOM':''}</option>`).join(''):'<option value="">کالایی یافت نشد</option>'}</select>
+  try{
+    if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+    let boms=[];
+    try{ boms=(await api('GET','/production/boms?status=active'))?.rows||(await api('GET','/production/boms'))?.rows||[]; }catch(e){ boms=[]; }
+    const activeBomProductIds=new Set((boms||[]).filter(b=>b.status==='active'||!b.status).map(b=>Number(b.product_id)));
+    const all=CACHE.allProducts||[];
+    let mfg=all.filter(p=>p.is_manufactured==1||p.item_type==='finished'||activeBomProductIds.has(Number(p.id)));
+    if(!mfg.length) mfg=all.slice(0,200);
+    const warn=!activeBomProductIds.size?'⚠️ هنوز BOM فعال ندارید — اول فرمول بسازید و فعال کنید.':'';
+    showModal('سفارش تولید جدید',`
+      ${warn?`<div class="muted" style="margin-bottom:10px;color:var(--state-warn,#E67E22)">${warn}</div>`:''}
+      <div class="form-grid">
+        <div class="fg"><label>محصول</label>
+          <select id="po-product">${mfg.length?mfg.map(p=>`<option value="${p.id}">${esc(p.name)}${activeBomProductIds.has(Number(p.id))?' ✓BOM':''}</option>`).join(''):'<option value="">کالایی یافت نشد</option>'}</select>
+        </div>
+        <div class="fg"><label>تعداد برنامه</label><input id="po-qty" type="number" min="1" value="300"></div>
+        <div class="fg"><label>نوع آنالیز</label>
+          <select id="po-analysis">
+            <option value="fixed">ثابت (Module 2)</option>
+            <option value="variable">متغیر (Module 3)</option>
+            <option value="fixed_adv">ثابت پیشرفته — مرحله‌ای (Module 7)</option>
+            <option value="variable_adv">متغیر پیشرفته — مرحله‌ای (Module 8)</option>
+          </select></div>
+        <div class="fg"><label>تاریخ</label><input id="po-date" value="${todayJalali()}"></div>
       </div>
-      <div class="fg"><label>تعداد برنامه</label><input id="po-qty" type="number" min="1" value="300"></div>
-      <div class="fg"><label>نوع آنالیز</label>
-        <select id="po-analysis">
-          <option value="fixed">ثابت (Module 2)</option>
-          <option value="variable">متغیر (Module 3)</option>
-          <option value="fixed_adv">ثابت پیشرفته — مرحله‌ای (Module 7)</option>
-          <option value="variable_adv">متغیر پیشرفته — مرحله‌ای (Module 8)</option>
-        </select></div>
-      <div class="fg"><label>تاریخ</label><input id="po-date" value="${todayJalali()}"></div>
-    </div>
-    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn secondary" onclick="closeModal()">انصراف</button>
-      <button class="btn" onclick="prodOrderCreateSave()" ${mfg.length?'':'disabled'}>ثبت پیش‌نویس</button>
-    </div>`);
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn secondary" onclick="closeModal()">انصراف</button>
+        <button class="btn" onclick="prodOrderCreateSave()" ${mfg.length?'':'disabled'}>ثبت پیش‌نویس</button>
+      </div>`);
+  }catch(e){
+    showToast(e?.message||e?.error||'خطا در باز کردن فرم سفارش','error');
+  }
 }
 async function prodOrderCreateSave(){
   const pid=+el('po-product')?.value;

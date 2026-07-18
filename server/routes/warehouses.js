@@ -2,15 +2,8 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
+const { postInventoryMovement, warehouseQty, invErr } = require('../lib/inventory/ledger');
 
-// Multiple warehouses — each product belongs to exactly one warehouse
-// (products.stock stays the single total, untouched by this module so every
-// existing invoice/purchase/return code path keeps working unchanged).
-// Receipt/Issue adjust total stock at a location; Transfer relocates a
-// product's full current stock to a different warehouse. Splitting one
-// product's stock across multiple warehouses isn't supported by this
-// simplified model — a real per-warehouse quantity ledger would be a much
-// larger change across every stock-adjusting route in the app.
 
 // Stock overview — all warehouses with product quantities
 router.get('/stock/overview', auth, adminOrAccounting, (req, res) => {
@@ -129,7 +122,7 @@ router.get('/moves/list', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
-  const { product_id, warehouse_id, qty, date, note } = req.body;
+  const { product_id, warehouse_id, qty, date, note, unit_cost_rial, batch_id } = req.body;
   const q = parseInt(qty);
   if (!product_id || !warehouse_id || !q || q <= 0) return res.status(400).json({ error: 'کالا، انبار و تعداد معتبر الزامی است' });
   const db = getDB();
@@ -137,58 +130,76 @@ router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
   if (!product) return res.status(404).json({ error: 'کالا یافت نشد' });
   const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(warehouse_id);
   if (!warehouse) return res.status(404).json({ error: 'انبار یافت نشد' });
-  db.prepare('UPDATE products SET stock=stock+?, warehouse_id=? WHERE id=?').run(q, warehouse_id, product_id);
-  db.prepare(`
-    INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)
-    ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+?
-  `).run(product_id, warehouse_id, q, q);
-  db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-    .run(product_id, req.user.id, q, `رسید انبار (${warehouse.name})${note ? ' - ' + note : ''}`);
-  const result = db.prepare('INSERT INTO warehouse_moves (type,product_id,to_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?)')
-    .run('receipt', product_id, warehouse_id, q, date || todayJalali(), note || '', req.user.id);
-  audit(req.user.id, 'create', 'warehouse_move', result.lastInsertRowid, `رسید انبار: ${q} عدد ${product.name} به ${warehouse.name}`);
-  res.json({ id: result.lastInsertRowid, ok: true });
+  let moveId, led;
+  try {
+    db.transaction(() => {
+      led = postInventoryMovement(db, {
+        eventType: 'receipt',
+        productId: +product_id,
+        warehouseId: +warehouse_id,
+        qty: q,
+        unitCostRial: unit_cost_rial != null ? +unit_cost_rial : Math.round(Number(product.average_cost_rial) || 0),
+        batchId: batch_id ? +batch_id : null,
+        sourceType: 'warehouse_move',
+        date: date || todayJalali(),
+        note: `رسید انبار (${warehouse.name})${note ? ' - ' + note : ''}`,
+        createdBy: req.user.id,
+      });
+      const result = db.prepare(`
+        INSERT INTO warehouse_moves
+          (type,product_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,batch_id,status)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,'posted')
+      `).run('receipt', product_id, warehouse_id, q, date || todayJalali(), note || '', req.user.id,
+        led.id, led.unit_cost_rial, led.amount_rial, batch_id || null);
+      moveId = result.lastInsertRowid;
+      db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(moveId, led.id);
+    })();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  audit(req.user.id, 'create', 'warehouse_move', moveId, `رسید انبار: ${q} عدد ${product.name} به ${warehouse.name}`);
+  res.json({ id: moveId, ledger_id: led.id, ok: true });
 });
 
 router.post('/moves/issue', auth, adminOrAccounting, (req, res) => {
-  const { product_id, warehouse_id, qty, date, note } = req.body;
+  const { product_id, warehouse_id, qty, date, note, batch_id } = req.body;
   const q = parseInt(qty);
   if (!product_id || !warehouse_id || !q || q <= 0) return res.status(400).json({ error: 'کالا، انبار و تعداد معتبر الزامی است' });
   const db = getDB();
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
   if (!product) return res.status(404).json({ error: 'کالا یافت نشد' });
-  if (product.warehouse_id !== parseInt(warehouse_id)) return res.status(400).json({ error: 'این کالا در انبار انتخاب‌شده موجود نیست' });
-  if (product.stock < q) return res.status(400).json({ error: `موجودی کافی نیست (موجود: ${product.stock})` });
+  const available = warehouseQty(db, product_id, warehouse_id);
+  if (available < q) return res.status(400).json({ error: `موجودی کافی نیست (موجود: ${available})` });
   const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(warehouse_id);
-  db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(q, product_id);
-  db.prepare(`
-    UPDATE warehouse_stock SET qty=CASE WHEN qty-? < 0 THEN 0 ELSE qty-? END
-    WHERE product_id=? AND warehouse_id=?
-  `).run(q, q, product_id, warehouse_id);
-  db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-    .run(product_id, req.user.id, -q, `حواله انبار (${warehouse.name})${note ? ' - ' + note : ''}`);
-  const result = db.prepare('INSERT INTO warehouse_moves (type,product_id,from_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?)')
-    .run('issue', product_id, warehouse_id, q, date || todayJalali(), note || '', req.user.id);
-  audit(req.user.id, 'create', 'warehouse_move', result.lastInsertRowid, `حواله انبار: ${q} عدد ${product.name} از ${warehouse.name}`);
-  res.json({ id: result.lastInsertRowid, ok: true });
+  let moveId, led;
+  try {
+    db.transaction(() => {
+      led = postInventoryMovement(db, {
+        eventType: 'issue',
+        productId: +product_id,
+        warehouseId: +warehouse_id,
+        qty: -q,
+        batchId: batch_id ? +batch_id : null,
+        sourceType: 'warehouse_move',
+        date: date || todayJalali(),
+        note: `حواله انبار (${warehouse?.name || warehouse_id})${note ? ' - ' + note : ''}`,
+        createdBy: req.user.id,
+      });
+      const result = db.prepare(`
+        INSERT INTO warehouse_moves
+          (type,product_id,from_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,batch_id,status)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,'posted')
+      `).run('issue', product_id, warehouse_id, q, date || todayJalali(), note || '', req.user.id,
+        led.id, led.unit_cost_rial, led.amount_rial, batch_id || null);
+      moveId = result.lastInsertRowid;
+      db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(moveId, led.id);
+    })();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  audit(req.user.id, 'create', 'warehouse_move', moveId, `حواله انبار: ${q} عدد ${product.name} از ${warehouse?.name}`);
+  res.json({ id: moveId, ledger_id: led.id, ok: true });
 });
-
-function warehouseQty(db, product_id, warehouse_id) {
-  const ws = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(product_id, warehouse_id);
-  if (ws && ws.qty != null) return ws.qty;
-  const p = db.prepare('SELECT warehouse_id, stock FROM products WHERE id=?').get(product_id);
-  if (p && p.warehouse_id === parseInt(warehouse_id)) return p.stock || 0;
-  return 0;
-}
-
-function adjustWarehouseStock(db, product_id, warehouse_id, delta) {
-  const cur = warehouseQty(db, product_id, warehouse_id);
-  const next = Math.max(0, cur + delta);
-  db.prepare(`
-    INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
-    ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=?
-  `).run(product_id, warehouse_id, next, next);
-}
 
 router.post('/moves/transfer', auth, adminOrAccounting, (req, res) => {
   const { product_id, from_warehouse_id, to_warehouse_id, qty, date, note } = req.body;
@@ -205,17 +216,51 @@ router.post('/moves/transfer', auth, adminOrAccounting, (req, res) => {
   const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(to_warehouse_id);
   if (!toWarehouse) return res.status(404).json({ error: 'انبار مقصد یافت نشد' });
   const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(from_warehouse_id);
-  adjustWarehouseStock(db, product_id, from_warehouse_id, -q);
-  adjustWarehouseStock(db, product_id, to_warehouse_id, q);
-  if (product.warehouse_id === parseInt(from_warehouse_id) && q >= available) {
-    db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(to_warehouse_id, product_id);
+  let moveId, ledOut, ledIn;
+  try {
+    db.transaction(() => {
+      const unit = Math.round(Number(product.average_cost_rial) || 0);
+      ledOut = postInventoryMovement(db, {
+        eventType: 'transfer_out',
+        productId: +product_id,
+        warehouseId: +from_warehouse_id,
+        qty: -q,
+        unitCostRial: unit,
+        sourceType: 'warehouse_transfer',
+        date: date || todayJalali(),
+        note: `خروج انتقال به ${toWarehouse.name}${note ? ' - ' + note : ''}`,
+        createdBy: req.user.id,
+        updateAvg: false,
+      });
+      ledIn = postInventoryMovement(db, {
+        eventType: 'transfer_in',
+        productId: +product_id,
+        warehouseId: +to_warehouse_id,
+        qty: q,
+        unitCostRial: unit,
+        amountRial: ledOut.amount_rial,
+        sourceType: 'warehouse_transfer',
+        date: date || todayJalali(),
+        note: `ورود انتقال از ${fromWarehouse?.name || from_warehouse_id}${note ? ' - ' + note : ''}`,
+        createdBy: req.user.id,
+        updateAvg: false,
+      });
+      // Transfer must not double-count products.stock: out then in → net 0 on total
+      // postInventoryMovement adjusts products.stock both times; net zero — OK.
+      const result = db.prepare(`
+        INSERT INTO warehouse_moves
+          (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,'posted')
+      `).run('transfer', product_id, from_warehouse_id, to_warehouse_id, q, date || todayJalali(), note || '',
+        req.user.id, ledOut.id, unit, ledOut.amount_rial);
+      moveId = result.lastInsertRowid;
+      db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id IN (?,?)').run(moveId, ledOut.id, ledIn.id);
+    })();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-    .run(product_id, req.user.id, 0, `انتقال ${q} عدد از ${fromWarehouse?.name || from_warehouse_id} به ${toWarehouse.name}${note ? ' - ' + note : ''}`);
-  const result = db.prepare('INSERT INTO warehouse_moves (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?,?)')
-    .run('transfer', product_id, from_warehouse_id, to_warehouse_id, q, date || todayJalali(), note || '', req.user.id);
-  audit(req.user.id, 'create', 'warehouse_move', result.lastInsertRowid, `انتقال کالا: ${q} عدد ${product.name} به ${toWarehouse.name}`);
-  res.json({ id: result.lastInsertRowid, ok: true });
+  audit(req.user.id, 'create', 'warehouse_move', moveId, `انتقال کالا: ${q} عدد ${product.name} به ${toWarehouse.name}`);
+  res.json({ id: moveId, ledger_out: ledOut.id, ledger_in: ledIn.id, ok: true });
 });
 
 const DEFAULT_WAREHOUSE_ENTITIES = [
@@ -271,21 +316,28 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
       for (const line of lines) {
         const product_id = parseInt(line.product_id, 10);
         const qty = parseInt(line.qty, 10);
-        if (!product_id || !qty || qty <= 0) throw new Error('هر ردیف باید کالا و تعداد معتبر داشته باشد');
+        if (!product_id || !qty || qty <= 0) throw invErr('E_INV_QTY', 400);
         const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
-        if (!product) throw new Error('کالا یافت نشد');
+        if (!product) throw invErr('E_PRODUCT_NOT_FOUND', 404);
+        const d = date || todayJalali();
         if (type === 'receipt') {
           const whId = parseInt(warehouse_id || to_warehouse_id, 10);
           if (!whId) throw new Error('انبار مقصد الزامی است');
           const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(whId);
           if (!warehouse) throw new Error('انبار یافت نشد');
-          db.prepare('UPDATE products SET stock=stock+?, warehouse_id=? WHERE id=?').run(qty, whId, product_id);
-          db.prepare(`INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)
-            ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+?`).run(product_id, whId, qty, qty);
-          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-            .run(product_id, req.user.id, qty, `رسید انبار (${warehouse.name})${note ? ' - ' + note : ''}`);
-          const r = db.prepare('INSERT INTO warehouse_moves (type,product_id,to_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?)')
-            .run('receipt', product_id, whId, qty, date || todayJalali(), note || '', req.user.id);
+          const led = postInventoryMovement(db, {
+            eventType: 'receipt', productId: product_id, warehouseId: whId, qty,
+            unitCostRial: Math.round(Number(product.average_cost_rial) || 0),
+            sourceType: 'warehouse_move', date: d,
+            note: `رسید انبار (${warehouse.name})${note ? ' - ' + note : ''}`,
+            createdBy: req.user.id,
+          });
+          const r = db.prepare(`
+            INSERT INTO warehouse_moves
+              (type,product_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,'posted')
+          `).run('receipt', product_id, whId, qty, d, note || '', req.user.id, led.id, led.unit_cost_rial, led.amount_rial);
+          db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(r.lastInsertRowid, led.id);
           ids.push(r.lastInsertRowid);
         } else if (type === 'issue') {
           const whId = parseInt(warehouse_id || from_warehouse_id, 10);
@@ -293,12 +345,18 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
           const available = warehouseQty(db, product_id, whId);
           if (available < qty) throw new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`);
           const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(whId);
-          db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(qty, product_id);
-          adjustWarehouseStock(db, product_id, whId, -qty);
-          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-            .run(product_id, req.user.id, -qty, `حواله انبار (${warehouse?.name || whId})${note ? ' - ' + note : ''}`);
-          const r = db.prepare('INSERT INTO warehouse_moves (type,product_id,from_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?)')
-            .run('issue', product_id, whId, qty, date || todayJalali(), note || '', req.user.id);
+          const led = postInventoryMovement(db, {
+            eventType: 'issue', productId: product_id, warehouseId: whId, qty: -qty,
+            sourceType: 'warehouse_move', date: d,
+            note: `حواله انبار (${warehouse?.name || whId})${note ? ' - ' + note : ''}`,
+            createdBy: req.user.id,
+          });
+          const r = db.prepare(`
+            INSERT INTO warehouse_moves
+              (type,product_id,from_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,'posted')
+          `).run('issue', product_id, whId, qty, d, note || '', req.user.id, led.id, led.unit_cost_rial, led.amount_rial);
+          db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(r.lastInsertRowid, led.id);
           ids.push(r.lastInsertRowid);
         } else {
           const fromId = parseInt(from_warehouse_id, 10);
@@ -309,21 +367,29 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
           if (available < qty) throw new Error(`موجودی ${product.name} کافی نیست (موجود: ${available})`);
           const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(toId);
           const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromId);
-          adjustWarehouseStock(db, product_id, fromId, -qty);
-          adjustWarehouseStock(db, product_id, toId, qty);
-          if (product.warehouse_id === fromId && qty >= available) {
-            db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(toId, product_id);
-          }
-          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-            .run(product_id, req.user.id, 0, `انتقال ${qty} عدد از ${fromWarehouse?.name} به ${toWarehouse?.name}${note ? ' - ' + note : ''}`);
-          const r = db.prepare('INSERT INTO warehouse_moves (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by) VALUES (?,?,?,?,?,?,?,?)')
-            .run('transfer', product_id, fromId, toId, qty, date || todayJalali(), note || '', req.user.id);
+          const unit = Math.round(Number(product.average_cost_rial) || 0);
+          const ledOut = postInventoryMovement(db, {
+            eventType: 'transfer_out', productId: product_id, warehouseId: fromId, qty: -qty,
+            unitCostRial: unit, sourceType: 'warehouse_transfer', date: d,
+            note: `خروج انتقال به ${toWarehouse?.name}`, createdBy: req.user.id, updateAvg: false,
+          });
+          const ledIn = postInventoryMovement(db, {
+            eventType: 'transfer_in', productId: product_id, warehouseId: toId, qty,
+            unitCostRial: unit, amountRial: ledOut.amount_rial, sourceType: 'warehouse_transfer', date: d,
+            note: `ورود انتقال از ${fromWarehouse?.name}`, createdBy: req.user.id, updateAvg: false,
+          });
+          const r = db.prepare(`
+            INSERT INTO warehouse_moves
+              (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,'posted')
+          `).run('transfer', product_id, fromId, toId, qty, d, note || '', req.user.id, ledOut.id, unit, ledOut.amount_rial);
+          db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id IN (?,?)').run(r.lastInsertRowid, ledOut.id, ledIn.id);
           ids.push(r.lastInsertRowid);
         }
       }
     })();
   } catch (e) {
-    return res.status(400).json({ error: e.message });
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
   audit(req.user.id, 'create', 'warehouse_move_batch', ids[0] || 0, `${type} ${ids.length} ردیف`);
   res.json({ ok: true, ids, count: ids.length });
