@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (پس از commit انبار) |
+| آخرین commit | `a0bc2f8` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v40` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ⏳ commit انبار + deploy bundle در این جلسه |
+| وضعیت سرور | ⏳ deploy bundle پس از push — commit `a0bc2f8` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
@@ -44,7 +44,7 @@
 
 ### ۱۴۰۵/۰۴/۲۷ — [Cursor] ماژول انبار سازمانی (ledger / batch / reservation / landed cost)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین commit)
+- **Commit:** `a0bc2f8`
 - **خلاصه:**
   - لایهٔ `server/lib/inventory/*` + API `/api/inventory` + منوی «عملیات انبار» (بچ/سریال، رزرو، landed cost، کاردکس، رسید/حواله).
   - انبارگردانی و عملیات انبار به ledger جدید وصل شد؛ جداول sync APPEND-ONLY.
