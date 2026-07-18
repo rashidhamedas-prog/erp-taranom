@@ -9967,26 +9967,36 @@ function stlAddCheque(){ stlCheques.push(stlNewCheque()); renderStlCheques(); }
 function stlRemoveCheque(i){ stlCheques.splice(i,1); if(!stlCheques.length) stlCheques=[stlNewCheque()]; renderStlCheques(); }
 function renderStlCheques(){
   const body=el('stlChequeCardsBody'); if(!body) return;
+  // Use oninput (not onchange) so typed values survive re-renders / fast Tab /
+  // click sequences — onchange only fires on blur and was dropping bank names.
   body.innerHTML=stlCheques.map((c,i)=>`
-    <div class="chq-card" style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--well)">
+    <div class="chq-card" data-chq-i="${i}" style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--well)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <b style="color:var(--purple)">چک — ردیف ${toFa(i+1)}</b>
         ${stlCheques.length>1?`<button type="button" class="btn sm red" onclick="stlRemoveCheque(${i})">حذف</button>`:''}
       </div>
       <div class="form-grid">
-        <div class="fg"><label>نام بانک *</label><input value="${esc(c.bank)}" onchange="stlCheques[${i}].bank=this.value" placeholder="مثال: ملی"></div>
-        <div class="fg"><label>شماره حساب</label><input dir="ltr" value="${esc(c.account)}" onchange="stlCheques[${i}].account=this.value"></div>
-        <div class="fg"><label>شعبه</label><input value="${esc(c.branch)}" onchange="stlCheques[${i}].branch=this.value" placeholder="شعبه بانک"></div>
-        <div class="fg"><label>شماره شبا</label><input dir="ltr" value="${esc(c.sheba)}" onchange="stlCheques[${i}].sheba=this.value" placeholder="IR..."></div>
-        <div class="fg"><label>شماره چک</label><input dir="ltr" value="${esc(c.number)}" onchange="stlCheques[${i}].number=this.value"></div>
-        <div class="fg"><label>شناسه صیاد *</label><input dir="ltr" value="${esc(c.sayadi)}" onchange="stlCheques[${i}].sayadi=this.value"></div>
-        <div class="fg"><label>مبلغ چک (تومان) *</label><input type="text" inputmode="numeric" class="money" value="${esc(c.amount)}" onchange="stlCheques[${i}].amount=this.value"></div>
-        <div class="fg"><label>تاریخ سررسید *</label><input data-jdate value="${esc(c.due)}" onchange="stlCheques[${i}].due=this.value"></div>
-        <div class="fg full"><label>نام و مشخصات صادرکننده</label><input value="${esc(c.owner)}" onchange="stlCheques[${i}].owner=this.value"></div>
-        <div class="fg full"><label>توضیحات</label><input value="${esc(c.note)}" onchange="stlCheques[${i}].note=this.value"></div>
+        <div class="fg"><label>نام بانک *</label><input data-k="bank" value="${esc(c.bank)}" oninput="stlCheques[${i}].bank=this.value" placeholder="مثال: ملی"></div>
+        <div class="fg"><label>شماره حساب</label><input data-k="account" dir="ltr" value="${esc(c.account)}" oninput="stlCheques[${i}].account=this.value"></div>
+        <div class="fg"><label>شعبه</label><input data-k="branch" value="${esc(c.branch)}" oninput="stlCheques[${i}].branch=this.value" placeholder="شعبه بانک"></div>
+        <div class="fg"><label>شماره شبا</label><input data-k="sheba" dir="ltr" value="${esc(c.sheba)}" oninput="stlCheques[${i}].sheba=this.value" placeholder="IR..."></div>
+        <div class="fg"><label>شماره چک</label><input data-k="number" dir="ltr" value="${esc(c.number)}" oninput="stlCheques[${i}].number=this.value"></div>
+        <div class="fg"><label>شناسه صیاد *</label><input data-k="sayadi" dir="ltr" value="${esc(c.sayadi)}" oninput="stlCheques[${i}].sayadi=this.value"></div>
+        <div class="fg"><label>مبلغ چک (تومان) *</label><input data-k="amount" type="text" inputmode="numeric" class="money" value="${esc(c.amount)}" oninput="stlCheques[${i}].amount=this.value"></div>
+        <div class="fg"><label>تاریخ سررسید *</label><input data-k="due" data-jdate value="${esc(c.due)}" onchange="stlCheques[${i}].due=this.value" oninput="stlCheques[${i}].due=this.value"></div>
+        <div class="fg full"><label>نام و مشخصات صادرکننده</label><input data-k="owner" value="${esc(c.owner)}" oninput="stlCheques[${i}].owner=this.value"></div>
+        <div class="fg full"><label>توضیحات</label><input data-k="note" value="${esc(c.note)}" oninput="stlCheques[${i}].note=this.value"></div>
       </div>
     </div>`).join('');
   attachDatepickers(body);
+}
+// Safety: pull any in-DOM values into stlCheques right before save.
+function stlSyncChequesFromDom(){
+  const body=el('stlChequeCardsBody'); if(!body) return;
+  body.querySelectorAll('.chq-card').forEach(card=>{
+    const i=+card.dataset.chqI; if(!stlCheques[i]) return;
+    card.querySelectorAll('[data-k]').forEach(inp=>{ stlCheques[i][inp.dataset.k]=inp.value; });
+  });
 }
 async function saveSettlement(){
   const cust_id=+el('st-cust').value;
@@ -9995,11 +10005,12 @@ async function saveSettlement(){
   const pay_type=el('st-paytype')?.value||'cash';
   // Cheque receipt (Add-Next-Check flow): one or more cheques in a single document.
   if(pay_type==='cheque' && !multi){
+    stlSyncChequesFromDom();
     const payments=[];
     for(let i=0;i<stlCheques.length;i++){
       const c=stlCheques[i];
       const amount=parseInt(String(c.amount).replace(/[^\d]/g,''))||0;
-      if(!amount||!c.bank||!c.sayadi||!c.due){ showToast('چک ردیف '+toFa(i+1)+': مبلغ، نام بانک، شناسه صیاد و سررسید الزامی است','error'); return; }
+      if(!amount||!String(c.bank||'').trim()||!String(c.sayadi||'').trim()||!String(c.due||'').trim()){ showToast('چک ردیف '+toFa(i+1)+': مبلغ، نام بانک، شناسه صیاد و سررسید الزامی است','error'); return; }
       payments.push({
         amount, pay_type:'cheque', date:el('st-date')?.value||todayJalali(), invoice_id:+el('st-invoice')?.value||null,
         cheque_bank:c.bank, cheque_sayadi:c.sayadi, cheque_number:c.number||'', cheque_account:c.account||'',
