@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `a0bc2f8` |
+| آخرین commit | `e7c8ede` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v40` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ⏳ deploy bundle پس از push — commit `a0bc2f8` |
+| وضعیت سرور | ✅ ایران `e7c8ede` — ماژول انبار + SW v40 |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
@@ -51,7 +51,7 @@
   - تست دود: `node scripts/test-inventory-smoke.js` → **۲۴/۲۴**.
   - هم‌ترازسازی قبلی لوکال تا `7947c11` + اسکریپت‌های محک نگه داشته شد.
 - **فایل‌های کلیدی:** `server/lib/inventory/*`, `server/routes/inventory.js`, `server/routes/warehouses.js`, `server/public/acc-nav.js`, `server/public/index.html`, `server/sync/tables.js`
-- **Deploy:** ⏳ bundle به ایران پس از push
+- **Deploy:** ✅ ایران `94.249.244.208` — HEAD=`e7c8ede`، pm2 restart، health ۲۰۰، `lib/inventory/schema.js` + SW `v40`
 
 ### ۱۴۰۵/۰۴/۲۶ — [Cursor] pm2 restart production برای اعمال تغییرات UI
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
