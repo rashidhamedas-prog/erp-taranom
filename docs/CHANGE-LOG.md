@@ -32,15 +32,22 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `13dbcaf` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v37` |
+| آخرین commit | `7947c11` |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v38` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ✅ import کامل — **۱۵۳۰/۱۵۳۰** سند متصل + UI محک؛ **ماژول کامل بهای تمام‌شدهٔ تولید (P0–P10)** اضافه شد |
+| وضعیت سرور | ✅ production روی `7947c11` (pm2 restart شده) — بستهٔ اصلاحات UI حسابداری فعال است |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۵/۰۴/۲۶ — [Cursor] pm2 restart production برای اعمال تغییرات UI
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین commit (docs) — کد از قبل روی سرور در `7947c11` بود
+- **خلاصه:** به درخواست مالک، روی سرور ایران `pm2 restart crm-taranom --update-env` اجرا شد. health `/api/system/time` سبز، فرآیند online (restarts=9). مارکرهای کلیدی در فایل مستقر تأیید شد: `seedQty`، `cheque_row`، «ثبت چک بعدی»، `z-index:3000` برای دیت‌پیکر.
+- **فایل‌های کلیدی:** `docs/CHANGE-LOG.md`
+- **Deploy:** ✅ restart انجام شد
 
 ### ۱۴۰۵/۰۴/۲۷ — [Claude Code] 🐞 رفع باگ واقعی ناهماهنگی موجودی انبار (products.stock ⇄ warehouse_stock) + بازبینی کامل پروژه
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -55,7 +62,7 @@
   - نکتهٔ هماهنگی: اصلاح staleٔ تست sync برای VAT را Cursor در `e488a30` با تطبیق روی `subtotal` (مستقل از VAT) انجام داده بود؛ تغییر موازی من revert شد تا پوشش VAT+sync حفظ شود.
   - Help در این تغییر نیاز به به‌روزرسانی ندارد (رفع باگ داخلی، بدون سطح کاربری جدید).
 - **فایل‌های کلیدی:** `server/routes/products.js`
-- **Deploy:** ⏳ نیاز به pull + pm2 restart روی سرور (رفع باگ فروش محصولات تازه‌ساخته‌شده).
+- **Deploy:** ✅ با `pm2 restart` روی `7947c11` (همان session Cursor) اعمال شد.
 
 ### ۱۴۰۵/۰۴/۲۶ — [Cursor] بستهٔ اصلاحات UI حسابداری (instructions_7685): چک، محصول، جستجو، z-index
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -72,7 +79,7 @@
   - راهنمای داخل برنامه (بخش «قابلیت‌های جدید») + SW به `v38`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/acc-nav.js`, `server/public/sw.js`, `server/db.js`, `server/routes/accounting.js`, `server/routes/products.js`
 - **وضعیت تست:** SMS 22/22، Sync 33/33، تست تولید ۴۲۷ سبز، پارس فرانت سالم. GUI: رفع z-index تقویم و بازهٔ ۱۳۰۰ **تأیید بصری شد**؛ backend ثبت چند چک با `cheque_row` و همهٔ فیلدها **با curl تأیید شد** (۲ چک، installment_group مشترک). دموی کامل ذخیرهٔ چک از مسیر GUI به‌خاطر دشواری computerUse در پرکردن فیلد نام بانک ردیف دوم و انتخاب مشتری (کش قدیمی، رفع با reload) به‌طور کامل ضبط نشد — منطق درست است.
-- **Deploy:** ⏳ نیاز به انتقال با git bundle + `pm2 restart` روی سرور ایران (سرور به GitHub دسترسی ندارد).
+- **Deploy:** ✅ روی production ایران (`94.249.244.208`) — HEAD `7947c11`، `pm2 restart crm-taranom --update-env` انجام شد، health ۲۰۰، مارکرهای UI (ثبت چک بعدی، z-index:3000) در فایل مستقر تأیید شد.
 
 ### ۱۴۰۵/۰۴/۲۶ — [Cursor] تأیید سلامت شاخه + رفع باگ divergence موجودی انبار (سبزسازی مجدد test-sync)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
