@@ -241,6 +241,15 @@ router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
         parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null,
         (barcode || '').trim() || null);
+  // Seed the default warehouse's stock with the opening quantity so
+  // warehouse_stock and products.stock start in agreement. Without this the
+  // first official invoice seeds the row at 0 and decrements from 0, leaving
+  // warehouse_stock=0 while products.stock still shows the remainder — which
+  // then wrongly blocks every later sale ("موجودی انبار کافی نیست").
+  if (defaultWarehouse) {
+    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
+      .run(result.lastInsertRowid, defaultWarehouse.id, parseInt(stock) || 0);
+  }
   // حالت کدینگ محک: تفصیلی اختصاصی کالا (برای سند COGS)
   try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
   audit(req.user.id, 'create', 'product', result.lastInsertRowid, `ساخت محصول ${name}`);
@@ -297,6 +306,15 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
   const change = parseInt(stock) - prod.stock;
   db.prepare('UPDATE products SET stock=? WHERE id=?').run(parseInt(stock), req.params.id);
+  // Keep the product's warehouse_stock in step with the manual override so the
+  // per-warehouse figure (used by invoice deduction) never drifts from
+  // products.stock.
+  if (prod.warehouse_id) {
+    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
+      .run(req.params.id, prod.warehouse_id);
+    db.prepare('UPDATE warehouse_stock SET qty=CASE WHEN qty+? < 0 THEN 0 ELSE qty+? END WHERE product_id=? AND warehouse_id=?')
+      .run(change, change, req.params.id, prod.warehouse_id);
+  }
   db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(req.params.id, req.user.id, change, note || '');
   res.json({ ok: true, new_stock: parseInt(stock) });
 });
