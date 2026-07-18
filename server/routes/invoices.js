@@ -168,16 +168,24 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
   }
   for (const r of rows) {
     const whId = resolveRowWarehouseId(db, r, warehouseId);
+    // Read the product BEFORE decrementing products.stock so the warehouse_stock
+    // row can be seeded consistently with the read path's fallback below.
+    const prod = db.prepare('SELECT stock, warehouse_id FROM products WHERE id=?').get(r.product_id);
     db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
     const whName = whId ? (used.get(whId) || '') : '';
     db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
       r.product_id, userId || 0, -r.qty, 'کسر موجودی از فاکتور رسمی' + (whName ? ` (${whName})` : '')
     );
     if (whId) {
+      // A missing warehouse_stock row means the product's home warehouse holds
+      // the full products.stock (same rule the availability check uses above).
+      // Seed the row with that value before deducting, otherwise the first sale
+      // would clamp warehouse stock to 0 while products.stock stays positive.
+      const seedQty = (prod && prod.warehouse_id === whId) ? prod.stock : 0;
       db.prepare(`
-        INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)
+        INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)
         ON CONFLICT(product_id,warehouse_id) DO NOTHING
-      `).run(r.product_id, whId);
+      `).run(r.product_id, whId, seedQty);
       db.prepare('UPDATE warehouse_stock SET qty=CASE WHEN qty-? < 0 THEN 0 ELSE qty-? END WHERE product_id=? AND warehouse_id=?')
         .run(r.qty, r.qty, r.product_id, whId);
     }
