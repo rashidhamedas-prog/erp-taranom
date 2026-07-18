@@ -846,16 +846,18 @@ async function api(method, path, data, isFormData){
 /* ============================================================
    UTILITIES
 ============================================================ */
-function currencyDisplay(){ return (CACHE.settings?.currency_display || CACHE.moduleFlags?.currency_display || 'rial'); }
-function currencyUnit(){ return currencyDisplay()==='toman' ? 'تومان' : 'ریال'; }
-function currencyUnitShort(){ return currencyDisplay()==='toman' ? 'ت' : 'ر'; }
-function toDisplayAmount(stored){ const v=Math.round(parseFloat(stored)||0); return currencyDisplay()==='toman' ? Math.round(v/10) : v; }
-function fromInputAmount(input){ const v=Math.round(parseFloat(input)||0); return currencyDisplay()==='toman' ? v*10 : v; }
+/* واحد پول یکپارچه برنامه: فقط ریال (قانون ثابت) */
+function currencyDisplay(){ return 'rial'; }
+function currencyUnit(){ return 'ریال'; }
+function currencyUnitShort(){ return 'ریال'; }
+function toDisplayAmount(stored){ return Math.round(parseFloat(stored)||0); }
+function fromInputAmount(input){ return Math.round(parseFloat(input)||0); }
 function fmt(n){ return Number(toDisplayAmount(n||0)).toLocaleString('fa-IR'); }
+function fmtMoneyUnit(n){ return fmt(n)+' '+currencyUnit(); }
 const REF_DOC_LABELS={sales_invoice:'فاکتور فروش',sales_return:'برگشت فروش',receipt:'دریافت',purchase:'فاکتور خرید',purchase_return:'برگشت خرید',supplier_payment:'پرداخت تأمین',expense_payment:'پرداخت هزینه',warehouse_issue:'حواله انبار',warehouse_receipt:'رسید انبار',warehouse_transfer:'انتقال انبار',transfer:'انتقال وجه',payroll:'حقوق',cheque_settlement:'عملیات چک',opening:'افتتاحیه',account_transfer:'حواله حساب',stocktaking:'انبارگردانی',production:'تولید'};
 function refDocCell(docNo,docType){ if(!docNo) return '<span class="muted">-</span>'; const lbl=REF_DOC_LABELS[docType]||docType||''; return `<span class="mono" title="${esc(lbl)}">مرجع ${esc(String(docNo))}</span>`; }
 function payTypeLabel(pt){ return {cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'}[pt]||pt||'نقد'; }
-function moneyColLabel(){ return `(${currencyUnitShort()})`; }
+function moneyColLabel(){ return `(${currencyUnit()})`; }
 function fmtCompact(n){
   n=Number(n)||0;
   const neg=n<0; n=Math.abs(n);
@@ -910,6 +912,27 @@ function wantsEnDigits(t){
   if(t.classList.contains('money')||t.classList.contains('en-digits')||t.hasAttribute('data-jdate')) return true;
   return /phone|mobile|qty|price|amount|percent|rate|hour|barcode|sheba|card|balance|stock|-num|-no$|-code|otp/i.test(t.id||t.name||'');
 }
+/** فیلدهای مبلغی — جداکننده سه‌رقمی خودکار (قانون ثابت برنامه) */
+function isMoneyField(t){
+  if(!t || t.tagName!=='INPUT') return false;
+  if(t.classList.contains('money') || t.hasAttribute('data-money')) return true;
+  if(t.classList.contains('price-in')) return true;
+  const id=(t.id||'')+(t.name||'')+(t.getAttribute('data-k')||'');
+  if(/qty|quantity|percent|pct|yield|scrap|horizon|hour|hours|stock|count|seq|version|page|otp|phone|mobile|barcode|code$|row|days|years|life/i.test(id) && !/price|amount|cost|rate|fee|balance|debit|credit|pay|salary|wage|freight|labor|overhead|rial|toman/i.test(id)) return false;
+  return /price|amount|cost|rate|fee|balance|debit|credit|payable|salary|wage|freight|labor|overhead|rial|money|pay|incentive|commission/i.test(id);
+}
+function ensureMoneyField(t){
+  if(!isMoneyField(t)) return;
+  if(t.type==='number'){
+    t.type='text';
+    t.setAttribute('inputmode','numeric');
+  }
+  t.classList.add('money');
+  if(t.value && !/[,\u066C]/.test(t.value) && /^\d+$/.test(String(t.value).replace(/[^\d]/g,''))){
+    formatMoneyInput(t);
+  }
+}
+document.addEventListener('focusin', function(e){ ensureMoneyField(e.target); }, true);
 document.addEventListener('input', function(e){
   const t=e.target;
   if(!t) return;
@@ -918,7 +941,7 @@ document.addEventListener('input', function(e){
     t.value=toEnDigits(t.value);
     try{ t.setSelectionRange(pos,pos); }catch(_){}
   }
-  if(t.classList && t.classList.contains('money')) formatMoneyInput(t);
+  if(isMoneyField(t)){ ensureMoneyField(t); formatMoneyInput(t); }
 }, true);
 /* ---- Theme (زمرد مدرن / شب مخملی) — docs/design/THEME-IMPLEMENTATION.md ----
    data-theme lives on <html>, set pre-paint by the inline head script;
@@ -1462,6 +1485,20 @@ const LU = (()=> {
     coins: '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>',
     back: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
     monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+    lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    calc: '<rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/>',
+    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    radio: '<circle cx="12" cy="12" r="2"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48"/><path d="M16.24 7.76a6 6 0 0 1 0 8.48"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
+    ruler: '<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+    building: '<rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/>',
+    hash: '<line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/>',
+    handshake: '<path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.45.22l3.41-.85a1 1 0 0 1 1.22 1.22l-.85 3.41a2 2 0 0 0 .22 1.45l.28.47a5.79 5.79 0 0 1-.87 7.06l-2.81 2.81a1 1 0 1 1-3-3"/>',
+    layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+    ship: '<path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.7 5.4 1.62 6"/><path d="M12 10V2"/><path d="M12 2 8 6"/><path d="m16 6-4-4"/>',
+    circle: '<circle cx="12" cy="12" r="10"/>',
+    sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
   };
   const byNav = {
     dash:'dashboard', customers:'users', followups:'phone', invoices:'receipt', products:'bag',
@@ -1479,16 +1516,58 @@ const LU = (()=> {
     'acc-suppliers':'truck', 'acc-persons':'person', 'acc-item-kardex':'clipboard',
     'acc-warehouses':'warehouse', 'acc-warehouse-ops':'box', 'acc-consignments':'repeat',
     'acc-vouchers':'pen', 'acc-cost-centers':'tags', 'acc-payroll':'coins',
+    'acc-parties':'users', 'acc-party-groups':'folder', 'acc-products':'box',
+    'acc-product-groups':'tags', 'acc-incomes':'trending', 'acc-expenses':'linechart',
+    'acc-expense-categories':'folder', 'acc-opening-recv-cheques':'download',
+    'acc-opening-pay-cheques':'upload', 'acc-coa-codes':'hash', 'acc-account-groups':'layers',
+    'acc-ledger-accounts':'book', 'acc-subsidiary-accounts':'book', 'acc-detail-accounts':'book',
+    'acc-detail-categories':'tags', 'acc-other-details':'clipboard', 'acc-equity-info':'briefcase',
+    'acc-shareholders':'handshake', 'acc-units':'ruler', 'acc-fiscal-period':'file',
+    'acc-cheques-recv':'download', 'acc-cheques-pay':'upload', 'acc-proforma':'file',
+    'acc-orders-list':'cart', 'acc-stocktaking':'clipboard', 'acc-inv-batches':'tags',
+    'acc-inv-reservations':'lock', 'acc-inv-landed':'ship', 'acc-account-transfer':'repeat',
+    'acc-moadian-hub':'radio', 'acc-petty-cash-ops':'coins', 'acc-cheque-register':'book',
+    'acc-journal-docs':'file', 'acc-journal-entry':'pen', 'acc-opening-voucher':'circle',
+    'acc-close-temp':'circle', 'acc-close-perm':'circle', 'acc-revaluation':'repeat',
+    'acc-financial-statement':'landmark', 'acc-pl-statement':'trending',
+    'acc-invoice-list-tax':'receipt', 'acc-reconciliation':'search',
+    'acc-production-dashboard':'chart', 'acc-production-estimate':'calc',
+    'acc-production-mrp':'box', 'acc-production-orders':'factory', 'acc-production-kanban':'clipboard',
+    'acc-production-boms':'ruler', 'acc-production-rates':'settings', 'acc-production-access':'lock',
+    'acc-production-variance':'search', 'acc-production-close':'lock',
+    'acc-production-monthly-profit':'coins', 'acc-production-cost-sheet':'file',
+    'acc-fixed-assets':'building', 'acc-currencies':'banknote', 'acc-fx-rates':'chart',
+    'acc-pos-devices':'card', 'acc-scale-settings':'scale', 'acc-company-profile':'building',
+    'acc-settings':'settings', 'acc-backup':'archive', 'acc-fiscal-ops':'file',
+    'acc-moadian':'radio', 'acc-incentive-plans':'target',
   };
   const out = {};
-  for (const [nav, key] of Object.entries(byNav)) out[nav] = w(d[key]);
+  for (const [nav, key] of Object.entries(byNav)) out[nav] = w(d[key] || d.file);
   out._w = w; out._d = d;
   return out;
 })();
-function lucide(k){ return LU._w(LU._d[k]||''); }
-function navIcon(it){ return LU[it.id] || it.icon || ''; }
-// Emoji → Lucide key for stat cards (spec 1.0.9 §7)
-const EMO_LU = {'👥':'users','💰':'coins','🧾':'receipt','📋':'file','🛍️':'bag','📞':'phone','📉':'trending','🎯':'target','💵':'wallet','📊':'chart','📦':'box','⚠️':'bell','✅':'bookmark','⏳':'bell','🚚':'truck','🔔':'bell','⚖️':'scale','💴':'banknote','💹':'trending','📈':'linechart','💼':'briefcase','🏆':'target','📅':'file'};
+function lucide(k){ return LU._w(LU._d[k]||LU._d.file||''); }
+function navIcon(it){
+  if(LU[it.id]) return LU[it.id];
+  const mapped=EMO_LU[it.icon];
+  if(mapped) return lucide(mapped);
+  return lucide('file');
+}
+// Emoji → Lucide key for nav/stat cards — همیشه آیکون خطی (قانون برنامه)
+const EMO_LU = {
+  '👥':'users','💰':'coins','🧾':'receipt','📋':'file','🛍️':'bag','📞':'phone','📉':'trending',
+  '🎯':'target','💵':'wallet','📊':'chart','📦':'box','⚠️':'bell','✅':'bookmark','⏳':'bell',
+  '🚚':'truck','🔔':'bell','⚖️':'scale','💴':'banknote','💹':'trending','📈':'linechart',
+  '💼':'briefcase','🏆':'target','📅':'file','🤖':'bot','🏠':'home','👤':'user','🛒':'cart',
+  '💬':'chat','⚙️':'settings','🔌':'plug','📖':'book','🔙':'back','🏦':'landmark','📂':'folder',
+  '🏷️':'tags','📥':'download','📤':'upload','🗂️':'folder','📑':'folder','🔢':'hash','📒':'book',
+  '📗':'book','📘':'book','🤝':'handshake','📏':'ruler','↪️':'undo','↩️':'redo','🏭':'factory',
+  '🗃️':'clipboard','🔒':'lock','🚢':'ship','🔄':'repeat','📡':'radio','👛':'coins','🔖':'bookmark',
+  '📝':'file','✍️':'pen','🟢':'circle','🟡':'circle','🔴':'circle','💱':'repeat','🏛️':'landmark',
+  '🔍':'search','🧮':'calc','📐':'ruler','🔐':'lock','📄':'file','🧑‍🏭':'person','🏢':'building',
+  '💳':'card','💾':'archive','👔':'briefcase','💡':'sparkles','📌':'bookmark','🖨️':'file','📜':'file',
+  '🗺️':'landmark','🎉':'sparkles','✨':'sparkles'
+};
 
 const NAV_ADMIN = [
   {id:'dash', icon:'📊', label:'داشبورد'},
@@ -1499,7 +1578,7 @@ const NAV_ADMIN = [
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'users', icon:'👤', label:'کاربران'},
   {id:'reports', icon:'📈', label:'گزارشات'},
-  {id:'ai', icon:'🤖', label:'مشاور هوشمند'},
+  {id:'ai', icon:'🤖', label:'دستیار AI'},
   {id:'b2bOrders', icon:'🛒', label:'سفارشات B2B'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
@@ -1515,13 +1594,14 @@ const NAV_SALES = [
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'catalog', icon:'🛍️', label:'کاتالوگ'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
+  {id:'ai', icon:'🤖', label:'دستیار AI'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'help', icon:'📖', label:'راهنما'},
 ];
 const NAV_ACCOUNTING = [
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'customers', icon:'👥', label:'مشتریان'},
-  {id:'ai', icon:'🤖', label:'مشاور هوشمند'},
+  {id:'ai', icon:'🤖', label:'دستیار AI'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'help', icon:'📖', label:'راهنما'},
 ];
@@ -1975,7 +2055,7 @@ function renderSyncBadge(){
   if(!s.paired){
     b.textContent='🔗 اتصال به سرور مرکزی'; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else if(s.conflicts>0){
-    b.textContent=`⚠️ ${fmt(s.conflicts)} تعارض`; b.style.background='#fee2e2'; b.style.color='#b91c1c';
+    b.textContent=`⚠️ ${fmt(s.conflicts)} ریالعارض`; b.style.background='#fee2e2'; b.style.color='#b91c1c';
   } else if(s.syncing){
     b.textContent='🔄 در حال همگام‌سازی...'; b.style.background='#dbeafe'; b.style.color='#1d4ed8';
   } else if(!s.online){
@@ -1983,7 +2063,7 @@ function renderSyncBadge(){
   } else if(s.pending>0){
     b.textContent=`🔄 ${fmt(s.pending)} در انتظار ارسال`; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else if(s.files_missing>0){
-    b.textContent=`🖼️ ${fmt(s.files_missing)} تصویر در انتظار`; b.style.background='#fef3c7'; b.style.color='#b45309';
+    b.textContent=`🖼️ ${fmt(s.files_missing)} ریالصویر در انتظار`; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else {
     b.textContent='🟢 همگام با مرکز'; b.style.background='#dcfce7'; b.style.color='#15803d';
   }
@@ -2011,8 +2091,8 @@ async function openSyncPanel(){
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
         <span class="tag ${s.online?'t-done':'t-cancel'}">${s.online?'🟢 متصل به مرکز':'📡 آفلاین'}</span>
         <span class="tag">${fmt(s.pending)} عملیات در صف</span>
-        <span class="tag ${s.conflicts?'t-cancel':'t-done'}">${fmt(s.conflicts)} تعارض</span>
-        ${s.files_missing?`<span class="tag t-pending">🖼️ ${fmt(s.files_missing)} تصویر محلی نیست</span>`:''}
+        <span class="tag ${s.conflicts?'t-cancel':'t-done'}">${fmt(s.conflicts)} ریالعارض</span>
+        ${s.files_missing?`<span class="tag t-pending">🖼️ ${fmt(s.files_missing)} ریالصویر محلی نیست</span>`:''}
         ${s.last_sync_at?`<span class="tag">آخرین همگام‌سازی: ${new Date(s.last_sync_at*1000).toLocaleTimeString('fa-IR')}</span>`:''}
       </div>
       ${s.last_error?`<div style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px">${esc(s.last_error)}</div>`:''}
@@ -2053,7 +2133,7 @@ async function syncNowUI(){
   const r = await fetch('/api/sync/now',{method:'POST',headers:{'Authorization':'Bearer '+token}});
   const j = await r.json().catch(()=>({}));
   if(j.ok){
-    const extra = j.pulled ? ` · ${fmt(j.pulled)} تصویر` : '';
+    const extra = j.pulled ? ` · ${fmt(j.pulled)} ریالصویر` : '';
     showToast(`همگام‌سازی انجام شد (${fmt(j.confirmed||0)} عملیات تأیید شد${extra})`);
   }
   else showToast(j.error||'همگام‌سازی ناموفق بود','error');
@@ -2176,7 +2256,7 @@ ROUTES.dash = async function(){
     <input id="dashTo" data-jdate placeholder="تا تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${dashDateTo}">
     <button class="btn sm" onclick="dashDateFrom=el('dashFrom').value;dashDateTo=el('dashTo').value;renderDashContent()">🔍 اعمال فیلتر</button>
     <button class="btn sm ghost" onclick="dashDateFrom='';dashDateTo='';el('dashFrom').value='';el('dashTo').value='';renderDashContent()">✕ حذف فیلتر</button>`:''}
-    ${(dashDateFrom||dashDateTo)?`<span class="tag" style="background:var(--purple-light);color:var(--purple)">${dashDateFrom||'ابتدا'} تا ${dashDateTo||'انتها'}</span>`:''}
+    ${(dashDateFrom||dashDateTo)?`<span class="tag" style="background:var(--purple-light);color:var(--purple)">${dashDateFrom||'ابتدا'} ریالا ${dashDateTo||'انتها'}</span>`:''}
   </div>
   <div id="dashContent"><div class="muted">در حال بارگذاری...</div></div>`;
   v.innerHTML = dateBar;
@@ -2217,7 +2297,7 @@ async function renderDashContent(){
           <b>${esc(a.title)}</b><div class="muted" style="font-size:12px">${esc(a.body||'')}</div></div>`).join('')}</div></div>`:''}
       <div class="cards">
         ${statCard('p','👥', fmt(ov.totalCustomers),'کل مشتریان')}
-        ${statCard('g','💰', fmt(ov.totalRevenue),'فروش کل (تومان)'+(dq?' در بازه':''))}
+        ${statCard('g','💰', fmt(ov.totalRevenue),'فروش کل (ریال)'+(dq?' در بازه':''))}
         ${statCard('o','🧾', fmt(ov.totalInvoices),'فاکتور رسمی'+(dq?' در بازه':''))}
         ${statCard('b','📋', fmt(ov.totalProforma),'پیش‌فاکتور'+(dq?' در بازه':''))}
         ${statCard('p','🛍️', fmt(ov.totalProducts),'محصولات')}
@@ -2248,14 +2328,14 @@ async function renderDashContent(){
             <thead><tr><th>فروشگاه</th><th>نام کامل</th><th>مانده حساب</th><th>آدرس</th><th>کارشناس</th><th>عملیات</th></tr></thead>
             <tbody id="dashBalTbody">${balRows.map(c=>`<tr>
               <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
-              <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} تومان</td>
+              <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
               <td>${esc(c.address||c.city||'-')}</td>
               <td class="muted">${esc(c.salesperson||'-')}</td>
               <td><button class="btn sm blue" onclick="viewCustStatementFromDash(${c.id})">📄 صورت‌حساب</button></td>
             </tr>`).join('')}</tbody>
             <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light)">
               <td colspan="2" style="font-weight:700">جمع کل مانده حساب مشتریان</td>
-              <td class="mono" id="dashBalTotal" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} تومان</td>
+              <td class="mono" id="dashBalTotal" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} ریال</td>
               <td colspan="3"></td>
             </tr></tfoot>
           </table>
@@ -2289,7 +2369,7 @@ async function renderDashContent(){
     body.innerHTML = `
       <div class="cards">
         ${statCard('p','👥', fmt(CACHE.customers.length),'مشتریان من')}
-        ${statCard('g','💰', fmt(sales),'فروش کل (تومان)'+(dq?' در بازه':''))}
+        ${statCard('g','💰', fmt(sales),'فروش کل (ریال)'+(dq?' در بازه':''))}
         ${statCard('o','🧾', fmt(finalInvs.length),'فاکتور رسمی'+(dq?' در بازه':''))}
         ${statCard('b','📋', fmt(allInvs.filter(i=>i.type==='proforma').length),'پیش‌فاکتور'+(dq?' در بازه':''))}
         ${statCard('b','📞', fmt(openF),'پیگیری باز')}
@@ -2305,12 +2385,12 @@ async function renderDashContent(){
             <thead><tr><th>فروشگاه</th><th>نام کامل</th><th>مانده حساب</th><th>آدرس</th></tr></thead>
             <tbody>${balRows.map(c=>`<tr>
               <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
-              <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} تومان</td>
+              <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
               <td>${esc(c.address||c.city||'-')}</td>
             </tr>`).join('')}</tbody>
             <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light)">
               <td colspan="2" style="font-weight:700">جمع کل مانده حساب</td>
-              <td class="mono" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} تومان</td>
+              <td class="mono" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} ریال</td>
               <td></td>
             </tr></tfoot>
           </table>
@@ -2335,7 +2415,7 @@ function filterDashBalances(name){
   const tb = el('dashBalTbody'); if(!tb) return;
   tb.innerHTML = filtered.map(c=>`<tr>
     <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
-    <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} تومان</td>
+    <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
     <td>${esc(c.address||c.city||'-')}</td>
     <td class="muted">${esc(c.salesperson||'-')}</td>
     <td><button class="btn sm blue" onclick="viewCustStatementFromDash(${c.id})">📄 صورت‌حساب</button></td>
@@ -2344,7 +2424,7 @@ function filterDashBalances(name){
   const totCell = el('dashBalTotal');
   if(totCell){
     const tot = filtered.reduce((a,c)=>a+(c.balance||0),0);
-    totCell.textContent = fmt(tot)+' تومان';
+    totCell.textContent = fmt(tot)+' ریال';
     totCell.style.color = tot>0 ? 'var(--green)' : '#dc2626';
   }
 }
@@ -2441,12 +2521,12 @@ function renderCustTable(){
     <td>${esc(c.city||'-')}</td>
     <td class="muted" style="font-size:12px;max-width:180px">${esc(c.address||'-')}</td>
     <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" style="background:#dbeafe;color:#1d4ed8" title="دسترسی پورتال B2B فعال">B2B</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="ریسک ریزش مشتری (تحلیل AI)">⚠️${c.churn_score}٪</span>`:''}</td>
-    ${isAdmin?`<td class="muted">${esc(c.salesperson||'-')}</td><td class="mono" style="color:${(c.balance||0)>0?'#dc2626':(c.balance||0)<0?'var(--green)':'var(--muted)'}">${(c.balance||0)!==0?fmt(c.balance)+' ت':'-'}</td>`:''}
+    ${isAdmin?`<td class="muted">${esc(c.salesperson||'-')}</td><td class="mono" style="color:${(c.balance||0)>0?'#dc2626':(c.balance||0)<0?'var(--green)':'var(--muted)'}">${(c.balance||0)!==0?fmt(c.balance)+' ریال':'-'}</td>`:''}
   </tr>`).join('')||emptyRow(isAdmin?11:9)}</tbody>
   ${isAdmin?`<tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
     <td colspan="9">جمع (${fmt(rows.length)} مشتری)</td>
     <td></td>
-    <td class="mono" style="font-weight:800;color:${rows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(rows.reduce((a,c)=>a+(c.balance||0),0))} ت</td>
+    <td class="mono" style="font-weight:800;color:${rows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(rows.reduce((a,c)=>a+(c.balance||0),0))} ریال</td>
   </tr></tfoot>`:''}</table>`;
 }
 function toggleCust(id, checked){ if(checked) custSelected.add(id); else custSelected.delete(id); renderCustTable(); }
@@ -2877,7 +2957,7 @@ function renderFupKanban(){
         const interest=INTEREST_LEVELS.find(l=>l.id===(f.interest_level||'mid'))||INTEREST_LEVELS[2];
         return `<div class="f-card" onclick="fupModal(${f.id})">
           <div class="fc-cust">${esc(f.cust_biz||'-')}</div>
-          ${stage.id==='lead' && (f.account_balance||0)>0?`<div style="font-size:11px;color:#dc2626;font-weight:600;margin-top:4px">💰 مانده: ${fmt(f.account_balance)} ت</div>`:''}
+          ${stage.id==='lead' && (f.account_balance||0)>0?`<div style="font-size:11px;color:#dc2626;font-weight:600;margin-top:4px">💰 مانده: ${fmt(f.account_balance)} ریال</div>`:''}
           ${f.subject?`<div class="fc-sub">${esc(f.subject)}</div>`:''}
           <div class="fc-meta">
             ${statusTag(f.priority)}
@@ -3188,7 +3268,7 @@ function renderInvPicker(){
     <div class="pick-card" id="pc-${p.id}" onclick="pickCardTap(event,${p.id})">
       <div class="pimg">${p.image?prodImgTag(p.image):'🧥'}</div>
       <div class="pn">${esc(p.name)}</div>
-      <div class="pp">${fmt(p.price)} ت</div>
+      <div class="pp">${fmt(p.price)} ریال</div>
       <div class="pst" style="font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}">موجودی: ${fmt(avail)}</div>
     </div>`;
   }).join('') + (extra?`<div class="muted" style="padding:10px;text-align:center;font-size:12px">${fmt(extra)} محصول دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" style="padding:16px;text-align:center">محصولی یافت نشد — از بخش محصولات، کالای جدید اضافه کنید</div>`;
@@ -3204,8 +3284,8 @@ async function invProdQuickModal(prefill){
         ${(CACHE.productCategories||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}
       </select></div>
       <div class="fg"><label>کد</label><input id="iq-code"></div>
-      <div class="fg"><label>قیمت فروش (ت)</label><input id="iq-price" type="text" inputmode="numeric" class="money" value="0"></div>
-      <div class="fg"><label>بهای تمام‌شده (ت)</label><input id="iq-cost" type="text" inputmode="numeric" class="money" value="0"></div>
+      <div class="fg"><label>قیمت فروش (ریال)</label><input id="iq-price" type="text" inputmode="numeric" class="money" value="0"></div>
+      <div class="fg"><label>بهای تمام‌شده (ریال)</label><input id="iq-cost" type="text" inputmode="numeric" class="money" value="0"></div>
       <div class="fg"><label>موجودی</label><input id="iq-stock" type="number" value="0"></div>
       <div class="fg"><label>واحد</label><input id="iq-unit" value="عدد"></div>
     </div></div>
@@ -3267,7 +3347,7 @@ function renderCart(){
       ${showLineDisc?`<input type="number" min="0" max="100" title="تخفیف ردیف (٪)" value="${r.disc||0}" style="width:52px" onchange="invCart[${i}].disc=Math.min(100,Math.max(0,+this.value||0));renderCart()">`:''}
       <select title="انبار ردیف" style="max-width:120px;font-size:11px" onchange="invCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>
       <button class="rm" onclick="invCart.splice(${i},1);renderCart();renderInvPicker()">×</button>
-    </div>${showLineDisc&&lineDiscAmt>0?`<div class="muted" style="font-size:11px;margin:-4px 0 6px;padding-right:2px">تخفیف ردیف: ${fmt(lineDiscAmt)} ت</div>`:''}`;
+    </div>${showLineDisc&&lineDiscAmt>0?`<div class="muted" style="font-size:11px;margin:-4px 0 6px;padding-right:2px">تخفیف ردیف: ${fmt(lineDiscAmt)} ریال</div>`:''}`;
   }).join('') || '<div class="muted center" style="padding:14px">سبد خالی است</div>';
   // Mirrors the server's calculation exactly: line discount first, then overall invoice discount on the result
   const subtotal = invCart.reduce((a,r)=>{
@@ -3279,9 +3359,9 @@ function renderCart(){
   const discAmt = Math.round(subtotal*disc/100);
   const final = subtotal-discAmt;
   el('cartTot').innerHTML = `
-    <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ت</span></div>
-    <div class="l"><span>تخفیف کل فاکتور (${fmt(disc)}٪):</span><span class="mono">${fmt(discAmt)} ت</span></div>
-    <div class="l final"><span>نهایی:</span><span class="mono">${fmt(final)} ت</span></div>`;
+    <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
+    <div class="l"><span>تخفیف کل فاکتور (${fmt(disc)}٪):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
+    <div class="l final"><span>نهایی:</span><span class="mono">${fmt(final)} ریال</span></div>`;
 }
 function toggleInvPayFields(){
   const pt = el('inv-pay-type')?.value;
@@ -3458,7 +3538,7 @@ function renderProdGrid(canEdit){
       <div class="body">
         <div class="name">${esc(p.name)}</div>
         <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}${p.warehouse_name?' · 🏭 '+esc(p.warehouse_name):''}</div>
-        <div class="price">${fmt(p.price)} تومان</div>
+        <div class="price">${fmt(p.price)} ریال</div>
         <div class="stock ${low?'low':''}">موجودی: ${fmt(prodFilter.warehouse_id && p.wh_qty!=null ? p.wh_qty : p.stock)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
         ${(p.colors>1||p.pack_size>1)?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.colors>1?`🎨 ${p.colors} رنگ`:''}${p.colors>1&&p.pack_size>1?' · ':''}${p.pack_size>1?`📦 ${p.pack_size} عدد/پک`:''}</div>`:''}
         ${canEdit?`<div class="acts">
@@ -3525,8 +3605,8 @@ async function prodModal(id){
         </select></div>
       <div class="fg"><label>دسته (متن آزاد — اختیاری)</label><input id="p-cat" value="${esc(p.category||'')}" placeholder="اگر از لیست بالا انتخاب نکردید"></div>
       <div class="fg"><label>کد محصول ${hlp('کد یکتای محصول — برای جستجوی سریع در فاکتورساز. اگر خالی بماند به‌صورت خودکار ساخته می‌شود (K-00001).')}</label><input id="p-code" value="${esc(p.code||'')}" placeholder="خودکار"></div>
-      <div class="fg"><label>قیمت فروش (تومان) ${hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.price)}"></div>
-      <div class="fg"><label>بهای تمام‌شده (تومان) ${hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
+      <div class="fg"><label>قیمت فروش (ریال) ${hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.price)}"></div>
+      <div class="fg"><label>بهای تمام‌شده (ریال) ${hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
       <div class="fg"><label>موجودی ${hlp('تعداد موجودی فعلی انبار. با صدور فاکتور رسمی خودکار کم می‌شود.')}</label><input id="p-stock" type="number" value="${p.stock!=null?p.stock:0}"></div>
       <div class="fg"><label>هشدار موجودی ${hlp('وقتی موجودی به این عدد یا کمتر برسد، هشدار قرمز نمایش داده می‌شود.')}</label><input id="p-alert" type="number" value="${p.stock_alert!=null?p.stock_alert:5}"></div>
       <div class="fg"><label>واحد ${hlp('واحد شمارش محصول: عدد، دست، بسته و…')}</label><input id="p-unit" value="${esc(p.unit||'عدد')}"></div>
@@ -4149,10 +4229,10 @@ async function loadReports(){
   ]);
   el('repBody').innerHTML=`
     <div class="cards">
-      ${statCard('g','💰',fmt(summary.revenue),'فروش کل (تومان)')}
+      ${statCard('g','💰',fmt(summary.revenue),'فروش کل (ریال)')}
       ${statCard('b','📦',fmt(summary.orders),'تعداد سفارش')}
       ${statCard('p','👥',fmt(summary.customers),'مشتریان فعال')}
-      ${statCard('r','⚠️',fmt(summary.debt),'بدهی معوق (تومان)')}
+      ${statCard('r','⚠️',fmt(summary.debt),'بدهی معوق (ریال)')}
     </div>
     <div class="panel"><div class="panel-head"><h4>نمودار فروش ماهانه</h4></div>
       <div class="panel-body"><canvas id="repChart" height="90"></canvas></div></div>
@@ -4179,7 +4259,7 @@ function drawChart(monthly){
   const th=chartTheme();
   mChart=new Chart(ctx,{type:'bar',data:{
     labels:monthly.map(m=>m.ym),
-    datasets:[{label:'فروش (تومان)',data:monthly.map(m=>m.revenue),backgroundColor:th.bar,borderRadius:6}]
+    datasets:[{label:'فروش (ریال)',data:monthly.map(m=>m.revenue),backgroundColor:th.bar,borderRadius:6}]
   },options:{responsive:true,plugins:{legend:{labels:{font:{family:'Vazirmatn'},color:th.ticks}}},
     scales:{x:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks}},
             y:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks,callback:v=>fmt(v)}}}}});
@@ -4299,7 +4379,7 @@ function buildAccFilterHtml(tabKey){
     <input id="accTo" data-jdate placeholder="تا تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${accDateTo}" onchange="accDateTo=this.value">
     <button class="btn sm ghost" onclick="loadAccTab(accTab)">🔍 اعمال</button>
     <button class="btn sm ghost" onclick="accDateFrom='';accDateTo='';el('accFrom').value='';el('accTo').value='';loadAccTab(accTab)">✕</button>`:
-    `<span class="tag" style="background:var(--purple-light);color:var(--purple)">${accDateFrom||'ابتدا'} تا ${accDateTo||'انتها'}</span>`}
+    `<span class="tag" style="background:var(--purple-light);color:var(--purple)">${accDateFrom||'ابتدا'} ریالا ${accDateTo||'انتها'}</span>`}
     ${(tabKey==='general'&&isAdmin())?`<button class="btn sm ghost" title="بازسازی اسناد حسابداری برای همه عملیات گذشته" onclick="resyncAccounting()">🔄 همگام‌سازی</button>`:''}
   </div>`;
 }
@@ -4431,7 +4511,7 @@ async function loadAccTab(tab){
               <tbody>${pnl.map(r=>`<tr style="${r.border?'border-top:2px solid var(--border)':''}">
                 <td style="${r.bold?'font-weight:700':''}">${r.label}</td>
                 <td class="mono" style="color:${r.color};font-weight:${r.bold?'800':'400'};text-align:left;direction:ltr">
-                  ${r.val>=0?'':'-'}${fmt(Math.abs(r.val))} ت
+                  ${r.val>=0?'':'-'}${fmt(Math.abs(r.val))} ریال
                 </td>
               </tr>`).join('')}</tbody>
             </table>
@@ -4441,10 +4521,10 @@ async function loadAccTab(tab){
           <div class="panel-head"><h4>💳 جریان وجوه</h4></div>
           <div class="panel-body">
             <table class="tbl" style="font-size:13px"><tbody>
-              <tr><td>وصولی نقدی</td><td class="mono" style="color:var(--green)">${fmt(g.cashSettled||0)} ت</td></tr>
-              <tr><td>وصولی چک</td><td class="mono" style="color:var(--blue)">${fmt(g.cheqSettled||0)} ت</td></tr>
-              <tr style="border-top:2px solid var(--border)"><td style="font-weight:700">مجموع وصولی</td><td class="mono" style="font-weight:800">${fmt(g.settled||0)} ت</td></tr>
-              <tr><td>مطالبات باز</td><td class="mono" style="color:var(--red)">${fmt(outstanding)} ت</td></tr>
+              <tr><td>وصولی نقدی</td><td class="mono" style="color:var(--green)">${fmt(g.cashSettled||0)} ریال</td></tr>
+              <tr><td>وصولی چک</td><td class="mono" style="color:var(--blue)">${fmt(g.cheqSettled||0)} ریال</td></tr>
+              <tr style="border-top:2px solid var(--border)"><td style="font-weight:700">مجموع وصولی</td><td class="mono" style="font-weight:800">${fmt(g.settled||0)} ریال</td></tr>
+              <tr><td>مطالبات باز</td><td class="mono" style="color:var(--red)">${fmt(outstanding)} ریال</td></tr>
             </tbody></table>
           </div>
         </div>
@@ -4819,11 +4899,11 @@ function renderGenCart(){
     const discPct=+el(genCartDiscInputId)?.value||0;
     const discAmt=Math.round(subtotal*discPct/100);
     totEl.innerHTML = `
-      <div class="l"><span>جمع کل:</span><span class="mono">${fmt(subtotal)} ت</span></div>
-      <div class="l"><span>تخفیف (${fmt(discPct)}٪):</span><span class="mono">${fmt(discAmt)} ت</span></div>
-      <div class="l final"><span>نهایی:</span><span class="mono">${fmt(subtotal-discAmt)} ت</span></div>`;
+      <div class="l"><span>جمع کل:</span><span class="mono">${fmt(subtotal)} ریال</span></div>
+      <div class="l"><span>تخفیف (${fmt(discPct)}٪):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
+      <div class="l final"><span>نهایی:</span><span class="mono">${fmt(subtotal-discAmt)} ریال</span></div>`;
   } else {
-    totEl.innerHTML = `<div class="l final"><span>جمع:</span><span class="mono">${fmt(subtotal)} ت</span></div>`;
+    totEl.innerHTML = `<div class="l final"><span>جمع:</span><span class="mono">${fmt(subtotal)} ریال</span></div>`;
   }
 }
 function genProductSearchHtml(){
@@ -4859,8 +4939,8 @@ async function genProdQuickModal(prefill){
         ${(CACHE.productCategories||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}
       </select></div>
       <div class="fg"><label>کد</label><input id="gq-code"></div>
-      <div class="fg"><label>قیمت فروش (ت)</label><input id="gq-price" type="text" inputmode="numeric" class="money" value="0"></div>
-      <div class="fg"><label>بهای تمام‌شده (ت)</label><input id="gq-cost" type="text" inputmode="numeric" class="money" value="0"></div>
+      <div class="fg"><label>قیمت فروش (ریال)</label><input id="gq-price" type="text" inputmode="numeric" class="money" value="0"></div>
+      <div class="fg"><label>بهای تمام‌شده (ریال)</label><input id="gq-cost" type="text" inputmode="numeric" class="money" value="0"></div>
       <div class="fg"><label>واحد</label><input id="gq-unit" value="عدد"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveGenProdQuick()">💾 ساخت و افزودن به سبد</button>
@@ -5197,7 +5277,7 @@ async function showSupplierLedger(id,name){
         </tbody></table>
       </div>
       <div style="padding:12px 16px;border-top:1px solid var(--border);font-weight:700">
-        مانده نهایی: <span style="color:${(d.balance||0)>0?'var(--red)':'var(--green)'}">${fmt(Math.abs(d.balance||0))} تومان ${(d.balance||0)>0?'(بدهکار به تأمین‌کننده)':'(بستانکار)'}</span>
+        مانده نهایی: <span style="color:${(d.balance||0)>0?'var(--red)':'var(--green)'}">${fmt(Math.abs(d.balance||0))} ریال ${(d.balance||0)>0?'(بدهکار به تأمین‌کننده)':'(بستانکار)'}</span>
       </div>
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
@@ -5257,14 +5337,14 @@ function personModal(id){
       <div class="fg"><label>تلفن</label><input id="pr-phone" value="${esc(p?.phone||'')}"></div>
       <div class="fg"><label>شماره پرسنلی (فراننکو)</label><input id="pers-employee-no" value="${esc(p?.employee_no||'')}"></div>
       <div class="fg"><label>شماره کارت (فراننکو)</label><input id="pers-card-no" value="${esc(p?.card_no||'')}"></div>
-      <div class="fg"><label>نرخ ساعتی (ت)</label><input id="pers-hourly-rate" class="money" type="text" inputmode="numeric" value="${moneyInit(p?.hourly_rate)}"></div>
-      <div class="fg"><label>نرخ اضافه‌کاری (ت)</label><input id="pers-ot-rate" class="money" type="text" inputmode="numeric" value="${moneyInit(p?.overtime_rate)}"></div>
+      <div class="fg"><label>نرخ ساعتی (ریال)</label><input id="pers-hourly-rate" class="money" type="text" inputmode="numeric" value="${moneyInit(p?.hourly_rate)}"></div>
+      <div class="fg"><label>نرخ اضافه‌کاری (ریال)</label><input id="pers-ot-rate" class="money" type="text" inputmode="numeric" value="${moneyInit(p?.overtime_rate)}"></div>
       <div class="fg"><label>کسر بیمه (٪)</label><input id="pers-insurance" type="number" min="0" step="0.1" value="${p?.insurance_percent||0}"></div>
       <div class="fg"><label>کسر مالیات (٪)</label><input id="pers-tax" type="number" min="0" step="0.1" value="${p?.tax_percent||0}"></div>
       <div class="fg full"><label>آدرس</label><input id="pr-address" value="${esc(p?.address||'')}"></div>
-      ${!id?`<div class="fg"><label>مانده اولیه (تومان) ${hlp('مثبت = این شخص به ما بدهکار است. منفی = ما به این شخص بدهکاریم.')}</label><input id="pr-opening" type="number" value="0"></div>`:''}
-      <div class="fg"><label>سقف بستانکاری (تومان)</label><input id="pr-credit-limit" type="number" value="${p?.credit_limit||0}"></div>
-      <div class="fg"><label>سقف بدهکاری (تومان)</label><input id="pr-debit-limit" type="number" value="${p?.debit_limit||0}"></div>
+      ${!id?`<div class="fg"><label>مانده اولیه (ریال) ${hlp('مثبت = این شخص به ما بدهکار است. منفی = ما به این شخص بدهکاریم.')}</label><input id="pr-opening" type="number" value="0"></div>`:''}
+      <div class="fg"><label>سقف بستانکاری (ریال)</label><input id="pr-credit-limit" type="number" value="${p?.credit_limit||0}"></div>
+      <div class="fg"><label>سقف بدهکاری (ریال)</label><input id="pr-debit-limit" type="number" value="${p?.debit_limit||0}"></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="pr-active">
         <option value="1" ${p.active?'selected':''}>فعال</option><option value="0" ${!p.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -5321,7 +5401,7 @@ async function showPersonLedger(id,name){
         </tbody></table>
       </div>
       <div style="padding:12px 16px;border-top:1px solid var(--border);font-weight:700">
-        مانده نهایی: <span style="color:${(d.balance||0)>0?'var(--red)':'var(--green)'}">${fmt(Math.abs(d.balance||0))} تومان ${(d.balance||0)>0?'(بدهکار به ما)':'(بستانکار)'}</span>
+        مانده نهایی: <span style="color:${(d.balance||0)>0?'var(--red)':'var(--green)'}">${fmt(Math.abs(d.balance||0))} ریال ${(d.balance||0)>0?'(بدهکار به ما)':'(بستانکار)'}</span>
       </div>
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
@@ -5429,7 +5509,7 @@ async function loadItemKardex(productId){
       <div class="panel-head"><h4>${esc(d.product.name)} <span class="muted" style="font-size:12px">(${esc(d.product.code||'-')})</span></h4>
         <span class="muted" style="font-size:12px">موجودی فعلی: ${fmt(d.product.stock||0)} ${esc(d.product.unit||'')}
           ${d.source==='inventory_ledger'?' · دفتر کل انبار':''}
-          ${d.product.average_cost_rial!=null&&window.__canSeeCost?' · میانگین: '+fmt(Math.round((d.product.average_cost_rial||0)/10))+' ت':''}
+          ${d.product.average_cost_rial!=null&&window.__canSeeCost?' · میانگین: '+fmt(d.product.average_cost_rial||0)+' ریال':''}
         </span>
       </div>
       <div class="panel-body tbl-wrap">
@@ -5449,8 +5529,8 @@ async function loadItemKardex(productId){
           <td class="mono" style="color:var(--green)">${ch>0?fmt(ch):'-'}</td>
           <td class="mono" style="color:var(--red)">${ch<0?fmt(-ch):'-'}</td>
           <td class="mono" style="font-weight:700">${fmt(l.running_balance||0)}</td>
-          ${window.__canSeeCost?`<td class="mono">${l.unit_cost_rial!=null?fmt(Math.round(l.unit_cost_rial/10)):('-')}</td>
-          <td class="mono">${l.amount_rial!=null?fmt(Math.round(l.amount_rial/10)):('-')}</td>`:''}
+          ${window.__canSeeCost?`<td class="mono">${l.unit_cost_rial!=null?fmt(l.unit_cost_rial):('-')}</td>
+          <td class="mono">${l.amount_rial!=null?fmt(l.amount_rial):('-')}</td>`:''}
           <td class="muted">${esc(l.user_name||'-')}</td>
         </tr>`;
         }).join('')||'<tr><td colspan="10" class="empty">تراکنشی ثبت نشده</td></tr>'}
@@ -5910,7 +5990,7 @@ function consignmentModal(){
       <div class="fg"><label>تلفن طرف حساب</label><input id="cs-phone"></div>
       <div class="fg full"><label>کالا *</label><select id="cs-product">${productOptions()}</select></div>
       <div class="fg"><label>تعداد *</label><input id="cs-qty" type="number" min="1"></div>
-      <div class="fg"><label>قیمت واحد مرجع (تومان)</label><input id="cs-price" type="number" min="0"></div>
+      <div class="fg"><label>قیمت واحد مرجع (ریال)</label><input id="cs-price" type="number" min="0"></div>
       <div class="fg"><label>تاریخ</label><input id="cs-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت</label><textarea id="cs-note"></textarea></div>
     </div></div>
@@ -6011,13 +6091,13 @@ async function renderCashFlowReport(box){
   box.innerHTML=advDateFilterBar()+`
     <div class="panel"><div class="panel-body">
       <table class="tbl" style="font-size:13px"><tbody>
-        <tr style="background:var(--purple-light)"><td style="font-weight:700">ورودی نقد (دریافت از مشتریان)</td><td class="mono" style="color:var(--green);font-weight:700;text-align:left;direction:ltr">${fmt(d.cashIn||0)} ت</td></tr>
-        <tr><td>پرداخت به تأمین‌کنندگان</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.supplierOut||0)} ت</td></tr>
-        <tr><td>پرداخت انگیزه فروش</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.incentiveOut||0)} ت</td></tr>
-        <tr><td>پرداخت هزینه‌های عمومی</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.expenseOut||0)} ت</td></tr>
-        <tr><td>خرید نقدی/چکی (غیرنسیه)</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.purchaseCashOut||0)} ت</td></tr>
-        <tr style="border-top:2px solid var(--border)"><td style="font-weight:700">مجموع خروجی نقد</td><td class="mono" style="color:var(--red);font-weight:700;text-align:left;direction:ltr">-${fmt(d.totalOut||0)} ت</td></tr>
-        <tr style="border-top:2px solid var(--border);background:var(--purple-light)"><td style="font-weight:800">جریان نقد خالص</td><td class="mono" style="font-weight:800;color:${(d.net||0)>=0?'var(--green)':'var(--red)'};text-align:left;direction:ltr">${fmt(d.net||0)} ت</td></tr>
+        <tr style="background:var(--purple-light)"><td style="font-weight:700">ورودی نقد (دریافت از مشتریان)</td><td class="mono" style="color:var(--green);font-weight:700;text-align:left;direction:ltr">${fmt(d.cashIn||0)} ریال</td></tr>
+        <tr><td>پرداخت به تأمین‌کنندگان</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.supplierOut||0)} ریال</td></tr>
+        <tr><td>پرداخت انگیزه فروش</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.incentiveOut||0)} ریال</td></tr>
+        <tr><td>پرداخت هزینه‌های عمومی</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.expenseOut||0)} ریال</td></tr>
+        <tr><td>خرید نقدی/چکی (غیرنسیه)</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.purchaseCashOut||0)} ریال</td></tr>
+        <tr style="border-top:2px solid var(--border)"><td style="font-weight:700">مجموع خروجی نقد</td><td class="mono" style="color:var(--red);font-weight:700;text-align:left;direction:ltr">-${fmt(d.totalOut||0)} ریال</td></tr>
+        <tr style="border-top:2px solid var(--border);background:var(--purple-light)"><td style="font-weight:800">جریان نقد خالص</td><td class="mono" style="font-weight:800;color:${(d.net||0)>=0?'var(--green)':'var(--red)'};text-align:left;direction:ltr">${fmt(d.net||0)} ریال</td></tr>
       </tbody></table>
     </div></div>`;
   attachDatepickers(box);
@@ -6073,12 +6153,12 @@ async function renderVatSummaryReport(box){
   box.innerHTML=advDateFilterBar()+`
     <div class="panel"><div class="panel-body">
       <table class="tbl" style="font-size:13px"><tbody>
-        <tr><td>فروش (جمع فاکتور)</td><td class="mono">${fmt(d.sales_total||0)} ت</td></tr>
-        <tr><td>مالیات فروش (خروجی)</td><td class="mono" style="color:var(--green)">${fmt(d.output_vat||0)} ت</td></tr>
-        <tr><td>خرید (جمع فاکتور)</td><td class="mono">${fmt(d.purchase_total||0)} ت</td></tr>
-        <tr><td>مالیات خرید (ورودی)</td><td class="mono" style="color:var(--blue)">${fmt(d.input_vat||0)} ت</td></tr>
+        <tr><td>فروش (جمع فاکتور)</td><td class="mono">${fmt(d.sales_total||0)} ریال</td></tr>
+        <tr><td>مالیات فروش (خروجی)</td><td class="mono" style="color:var(--green)">${fmt(d.output_vat||0)} ریال</td></tr>
+        <tr><td>خرید (جمع فاکتور)</td><td class="mono">${fmt(d.purchase_total||0)} ریال</td></tr>
+        <tr><td>مالیات خرید (ورودی)</td><td class="mono" style="color:var(--blue)">${fmt(d.input_vat||0)} ریال</td></tr>
         <tr style="border-top:2px solid var(--border);font-weight:800"><td>مالیات قابل پرداخت (خالص)</td>
-          <td class="mono" style="color:${(d.net_payable||0)>=0?'var(--red)':'var(--green)'}">${fmt(d.net_payable||0)} ت</td></tr>
+          <td class="mono" style="color:${(d.net_payable||0)>=0?'var(--red)':'var(--green)'}">${fmt(d.net_payable||0)} ریال</td></tr>
       </tbody></table>
     </div></div>`;
   attachDatepickers(box);
@@ -6139,9 +6219,9 @@ async function renderFixedAssetsTab(body){
       <th>کد</th><th>نام</th><th>بهای تمام‌شده (ریال)</th><th>استهلاک انباشته</th><th>ارزش دفتری</th><th>وضعیت</th>
     </tr></thead><tbody>${rows.map(a=>`<tr>
       <td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td>
-      <td class="mono">${fmt(Math.round((a.cost_rial||0)/10))} ت</td>
-      <td class="mono">${fmt(Math.round((a.accumulated_depreciation_rial||0)/10))} ت</td>
-      <td class="mono" style="font-weight:700">${fmt(Math.round((a.book_value_rial||0)/10))} ت</td>
+      <td class="mono">${fmt(Math.round((a.cost_rial||0)/10))} ریال</td>
+      <td class="mono">${fmt(Math.round((a.accumulated_depreciation_rial||0)/10))} ریال</td>
+      <td class="mono" style="font-weight:700">${fmt(Math.round((a.book_value_rial||0)/10))} ریال</td>
       <td>${esc(a.status||'active')}</td>
     </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
 }
@@ -6160,8 +6240,8 @@ async function openFixedAssetModal(id){
         ${['تجهیزات','ماشین‌آلات','وسایل نقلیه','اثاثه','ساختمان','نرم‌افزار','سایر'].map(c=>`<option ${a.category===c?'selected':''}>${c}</option>`).join('')}
       </select></div>
       <div class="fg"><label>تاریخ خرید</label><input id="fa-date" data-jdate value="${esc(a.purchase_date||'')}"></div>
-      <div class="fg"><label>بهای تمام‌شده ${moneyColLabel()} *</label><input id="fa-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(Math.round((a.cost_rial||0)/10))}"></div>
-      <div class="fg"><label>ارزش اسقاط ${moneyColLabel()}</label><input id="fa-salvage" type="text" inputmode="numeric" class="money" value="${moneyInit(Math.round((a.salvage_rial||0)/10))}"></div>
+      <div class="fg"><label>بهای تمام‌شده ${moneyColLabel()} *</label><input id="fa-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(a.cost_rial||0)}"></div>
+      <div class="fg"><label>ارزش اسقاط ${moneyColLabel()}</label><input id="fa-salvage" type="text" inputmode="numeric" class="money" value="${moneyInit(a.salvage_rial||0)}"></div>
       <div class="fg"><label>عمر مفید (ماه)</label><input id="fa-life" type="number" min="1" value="${a.useful_life_months||60}"></div>
       <div class="fg"><label>کد حساب دارایی</label><input id="fa-coa" dir="ltr" class="mono" value="${esc(a.coa_asset_code||'1201')}"></div>
       <div class="fg full"><label>محل استقرار</label><input id="fa-location" value="${esc(a.location||'')}"></div>
@@ -6179,8 +6259,8 @@ async function saveFixedAsset(id){
     code:el('fa-code').value.trim()||undefined,
     name, category:el('fa-category').value,
     purchase_date:el('fa-date').value,
-    cost_rial:Math.round(costToman*10),
-    salvage_rial:Math.round(moneyVal('fa-salvage')*10),
+    cost_rial:Math.round(costToman),
+    salvage_rial:Math.round(moneyVal('fa-salvage')),
     useful_life_months:+el('fa-life').value||60,
     coa_asset_code:el('fa-coa').value||'1201',
     location:el('fa-location').value,
@@ -6194,7 +6274,7 @@ async function saveFixedAsset(id){
 async function runDepreciation(){
   if(!confirm('استهلاک ماه جاری برای همه دارایی‌های فعال ثبت شود؟')) return;
   const r=await api('POST','/fixed-assets/run-depreciation',{});
-  showToast('استهلاک: '+fmt(Math.round((r.data?.total_depreciation_rial||0)/10))+' ت');
+  showToast('استهلاک: '+fmt(r.data?.total_depreciation_rial||0)+' ریال');
   loadAccTab('fixed-assets');
 }
 
@@ -6415,7 +6495,7 @@ async function prodBomVersionUp(id){
 
 function prodFmtToman(rial){
   if(rial==null||rial==='') return '—';
-  return fmt(Math.round(Number(rial)/10));
+  return fmt(Number(rial)||0);
 }
 
 window._prodChartJsPromise=null;
@@ -6633,10 +6713,10 @@ async function renderProductionMonthlyProfitTab(body){
     </div>
     ${r?`<div class="panel"><div class="panel-head"><h4>صورت سود — ${esc(period)} (${esc(d.period_status||'')})</h4></div>
       <div class="panel-body"><table class="tbl" style="font-size:13px"><tbody>
-        <tr><td>فروش خالص</td><td class="mono">${prodFmtToman(d.sales?.net_rial)} ت</td></tr>
-        <tr><td>بهای تمام‌شده (COGS)</td><td class="mono">${prodFmtToman(d.cogs?.total_rial)} ت</td></tr>
-        <tr style="font-weight:700"><td>سود ناخالص</td><td class="mono">${prodFmtToman(r.totals?.gross_profit_rial)} ت (${r.totals?.gross_margin_pct||0}٪)</td></tr>
-        <tr style="font-weight:700"><td>سود عملیاتی</td><td class="mono">${prodFmtToman(r.totals?.operating_profit_rial)} ت</td></tr>
+        <tr><td>فروش خالص</td><td class="mono">${prodFmtToman(d.sales?.net_rial)} ریال</td></tr>
+        <tr><td>بهای تمام‌شده (COGS)</td><td class="mono">${prodFmtToman(d.cogs?.total_rial)} ریال</td></tr>
+        <tr style="font-weight:700"><td>سود ناخالص</td><td class="mono">${prodFmtToman(r.totals?.gross_profit_rial)} ریال (${r.totals?.gross_margin_pct||0}٪)</td></tr>
+        <tr style="font-weight:700"><td>سود عملیاتی</td><td class="mono">${prodFmtToman(r.totals?.operating_profit_rial)} ریال</td></tr>
       </tbody></table>
       <h4 style="margin-top:16px">کنترل‌های صحت</h4>
       <ul style="list-style:none;padding:0;font-size:13px">
@@ -6710,13 +6790,13 @@ async function prodCostSheetLoad(){
         <div><span>تعداد برنامه</span><strong class="mono">${s.qty_planned??'—'}</strong></div>
         <div><span>تعداد تولید</span><strong class="mono">${s.qty_produced??'—'}</strong></div>
         <div><span>بهره‌وری</span><strong class="mono">${s.yield_pct??'—'}٪</strong></div>
-        <div><span>بهای واحد</span><strong class="mono">${prodFmtToman(s.unit_cost_rial)} ت</strong></div>
-        <div><span>مواد</span><strong class="mono">${prodFmtToman(s.material_cost_rial)} ت</strong></div>
-        <div><span>دستمزد</span><strong class="mono">${prodFmtToman(s.labor_cost_rial)} ت</strong></div>
-        <div><span>سربار</span><strong class="mono">${prodFmtToman(s.overhead_cost_rial)} ت</strong></div>
-        <div><span>بسته‌بندی</span><strong class="mono">${prodFmtToman(s.packaging_cost_rial)} ت</strong></div>
-        <div><span>پیمانکاری</span><strong class="mono">${prodFmtToman(s.subcontract_cost_rial)} ت</strong></div>
-        <div><span>جمع کل</span><strong class="mono">${prodFmtToman(s.total_cost_rial)} ت</strong></div>
+        <div><span>بهای واحد</span><strong class="mono">${prodFmtToman(s.unit_cost_rial)} ریال</strong></div>
+        <div><span>مواد</span><strong class="mono">${prodFmtToman(s.material_cost_rial)} ریال</strong></div>
+        <div><span>دستمزد</span><strong class="mono">${prodFmtToman(s.labor_cost_rial)} ریال</strong></div>
+        <div><span>سربار</span><strong class="mono">${prodFmtToman(s.overhead_cost_rial)} ریال</strong></div>
+        <div><span>بسته‌بندی</span><strong class="mono">${prodFmtToman(s.packaging_cost_rial)} ریال</strong></div>
+        <div><span>پیمانکاری</span><strong class="mono">${prodFmtToman(s.subcontract_cost_rial)} ریال</strong></div>
+        <div><span>جمع کل</span><strong class="mono">${prodFmtToman(s.total_cost_rial)} ریال</strong></div>
       </div>
       <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
         <th>مرحله</th><th>مرکز هزینه</th><th>ورودی</th><th>خروجی</th>
@@ -6733,7 +6813,7 @@ async function prodCostSheetLoad(){
           <td class="num">${prodFmtToman(st.cost_out_rial)}</td>
         </tr>`).join('')||emptyRow(8)}
       </tbody></table></div>
-      <p style="font-size:11px;color:var(--muted);margin-top:12px">WIP باقیمانده: ${prodFmtToman(sheet.data?.wip_rial)} ت · ${sheet.data?.balanced?'✅ متوازن':'⚠️ نامتوازن'}</p>
+      <p style="font-size:11px;color:var(--muted);margin-top:12px">WIP باقیمانده: ${prodFmtToman(sheet.data?.wip_rial)} ریال · ${sheet.data?.balanced?'✅ متوازن':'⚠️ نامتوازن'}</p>
     </div>`;
 }
 function prodCostSheetPrint(){ window.print(); }
@@ -6799,7 +6879,7 @@ async function prodEstimateRun(){
   const unitCost=r.cost?.unit_cost_rial;
   const customPrice=unitCost!=null?Math.round(unitCost*(1+markupPct/100)):null;
   const PU=window.ProdUI;
-  const money=v=>PU?PU.moneyCell(v):(window.__canSeeCost?fmt(Math.round((v||0)/10))+' ت':'—');
+  const money=v=>PU?PU.moneyCell(v):(window.__canSeeCost?fmt(v||0)+' ریال':'—');
   area.innerHTML=`
     <div class="prod-kpi-grid">
       ${PU?PU.kpiCard({icon:'📦',label:'بهای واحد',value:money(unitCost)}):''}
@@ -7012,7 +7092,7 @@ async function prodRatesLoad(){
   try{ rows=(await api('GET','/production/cost-centers/rates?period='+encodeURIComponent(period)))?.rows||[]; }
   catch(e){ if(area) area.innerHTML=`<div class="muted">${esc(e.message||'خطا در بارگذاری')}</div>`; return; }
   if(!area) return;
-  const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(Math.round((v||0)/10)):'—');
+  const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
   window._prodRatesRows=rows;
   const driverLabel={output_qty:'تعداد خروجی',direct_labor_rial:'دستمزد (ریال)',direct_labor_hours:'ساعت کارگر',machine_hours:'ساعت ماشین',material_rial:'مواد (ریال)',manual:'دستی'};
   area.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr>
@@ -7049,10 +7129,10 @@ async function prodRateEditModal(ccId){
           <option value="material_rial" ${d==='material_rial'?'selected':''}>مواد (ریال)</option>
           <option value="manual" ${d==='manual'?'selected':''}>دستی</option>
         </select></div>
-      <div class="fg"><label>نرخ کل (تومان)</label><input id="prm-total" type="number" min="0" value="${existing?Math.round((existing.total_rate_rial||0)/10):0}"></div>
-      <div class="fg"><label>نرخ ثابت (تومان)</label><input id="prm-fixed" type="number" min="0" value="${existing?Math.round((existing.fixed_rate_rial||0)/10):0}"></div>
-      <div class="fg"><label>نرخ متغیر (تومان)</label><input id="prm-var" type="number" min="0" value="${existing?Math.round((existing.var_rate_rial||0)/10):0}"></div>
-      <div class="fg"><label>نرخ دستمزد ماهانه (تومان/عدد)</label><input id="prm-labor" type="number" min="0" value="${existing?Math.round((existing.monthly_labor_rate_rial||0)/10):0}"></div>
+      <div class="fg"><label>نرخ کل (ریال)</label><input id="prm-total" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.total_rate_rial||0):''}"></div>
+      <div class="fg"><label>نرخ ثابت (ریال)</label><input id="prm-fixed" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.fixed_rate_rial||0):''}"></div>
+      <div class="fg"><label>نرخ متغیر (ریال)</label><input id="prm-var" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.var_rate_rial||0):''}"></div>
+      <div class="fg"><label>نرخ دستمزد ماهانه (ریال/عدد)</label><input id="prm-labor" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.monthly_labor_rate_rial||0):''}"></div>
       <div class="fg full"><label>یادداشت</label><input id="prm-note" value="${esc(existing?.note||'')}" placeholder="اختیاری"></div>
       <div class="fg"><label><input type="checkbox" id="prm-est" style="width:auto" ${existing?.is_estimated?'checked':''}> نرخ برآوردی است</label></div>
     </div>
@@ -7067,10 +7147,10 @@ async function prodRateSave(){
       cost_center_id:+el('prm-cc').value,
       period_label:el('prm-period').value,
       driver:el('prm-driver').value,
-      total_rate_rial:(+el('prm-total').value||0)*10,
-      fixed_rate_rial:(+el('prm-fixed').value||0)*10,
-      var_rate_rial:(+el('prm-var').value||0)*10,
-      monthly_labor_rate_rial:(+el('prm-labor')?.value||0)*10,
+      total_rate_rial:moneyVal('prm-total'),
+      fixed_rate_rial:moneyVal('prm-fixed'),
+      var_rate_rial:moneyVal('prm-var'),
+      monthly_labor_rate_rial:moneyVal('prm-labor'),
       note:el('prm-note')?.value||'',
       is_estimated:el('prm-est')?.checked?1:0,
       status:'active',
@@ -7177,7 +7257,7 @@ async function renderProductionOrdersTab(body){
   try{ data=await api('GET','/production/orders')||{rows:[]}; }catch(e){ data={rows:[]}; }
   const rows=data.rows||[];
   const PU=window.ProdUI;
-  const money=v=>PU?PU.moneyCell(v):(window.__canSeeCost?fmt(Math.round((v||0)/10))+' ت':'—');
+  const money=v=>PU?PU.moneyCell(v):(window.__canSeeCost?fmt(v||0)+' ریال':'—');
   const badgeHtml=s=>PU?PU.badge(s):esc(s);
   body.innerHTML=`
     <div class="prod-scope">
@@ -7332,7 +7412,7 @@ async function prodOrderReceiptModal(id){
   const remain=Math.max(0, planned-produced);
   const defQty=remain>0?remain:planned||1;
   try{ preview=await api('GET','/production/orders/'+id+'/preview?qty_produced='+encodeURIComponent(defQty)); }catch(e){ preview=null; }
-  const unitHint=preview?.costs?.unit_cost_rial!=null?('برآورد بهای واحد: '+fmt(Math.round(preview.costs.unit_cost_rial/10))+' ت'):'دستمزد از BOM/نرخ مرکز؛ سربار از نرخ مرکز هزینه';
+  const unitHint=preview?.costs?.unit_cost_rial!=null?('برآورد بهای واحد: '+fmt(preview.costs.unit_cost_rial)+' ریال'):'دستمزد از BOM/نرخ مرکز؛ سربار از نرخ مرکز هزینه';
   showModal('رسید تولید — '+esc(order.order_no||''),`
     <p class="muted" style="font-size:12px;margin-bottom:10px">برنامه: ${toFa(planned)} · تولیدشده: ${toFa(produced)} · باقیمانده: ${toFa(remain)}</p>
     <div class="form-grid">
@@ -7355,7 +7435,7 @@ async function prodReceiptPreview(id){
   try{
     const preview=await api('GET','/production/orders/'+id+'/preview?qty_produced='+q);
     const hint=el('pr-hint');
-    if(hint&&preview?.costs?.unit_cost_rial!=null) hint.textContent='برآورد بهای واحد: '+fmt(Math.round(preview.costs.unit_cost_rial/10))+' ت';
+    if(hint&&preview?.costs?.unit_cost_rial!=null) hint.textContent='برآورد بهای واحد: '+fmt(preview.costs.unit_cost_rial)+' ریال';
   }catch(e){}
 }
 async function prodOrderReceiptSave(id, forcePartial){
@@ -7375,7 +7455,7 @@ async function prodOrderReceiptSave(id, forcePartial){
       auto_labor:true
     });
     closeModal();
-    showToast('ثبت شد — بهای واحد '+fmt(Math.round((r.costs?.unit_cost_rial||0)/10))+' ت');
+    showToast('ثبت شد — بهای واحد '+fmt(r.costs?.unit_cost_rial||0)+' ریال');
     loadAccTab('production-orders');
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
@@ -7609,7 +7689,7 @@ async function prodOrderFinalize(orderId){
   try{
     const r=await api('POST','/production/execution/orders/'+orderId+'/finalize',{});
     closeModal();
-    showToast('نهایی شد — بهای واحد '+fmt(Math.round((r.unit_cost_rial||0)/10))+' ت');
+    showToast('نهایی شد — بهای واحد '+fmt(r.unit_cost_rial||0)+' ریال');
     loadAccTab('production-orders');
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
@@ -7646,7 +7726,7 @@ async function prodStageSubReceive(orderId,stageId,operationId){
       // fee may be on stage list; try order stages
       const data=await api('GET','/production/execution/orders/'+orderId+'/stages');
       const st=(data.stages||[]).find(s=>Number(s.id)===Number(stageId));
-      feeToman=Math.round(Number(st?.subcontract_fee_rial||st?.fee_unit_rial||0)/10)||0;
+      feeToman=Math.round(Number(st?.subcontract_fee_rial||st?.fee_unit_rial||0))||0;
     }
   }catch(e){}
   showModal('دریافت از پیمانکار',`
@@ -7654,7 +7734,7 @@ async function prodStageSubReceive(orderId,stageId,operationId){
       <div class="fg"><label>مقدار دریافتی *</label><input id="psr-qty" type="number" min="0" step="0.01" value="0"></div>
       <div class="fg"><label>ضایعات</label><input id="psr-waste" type="number" min="0" step="0.01" value="0"></div>
       <div class="fg"><label>مفقودی</label><input id="psr-lost" type="number" min="0" step="0.01" value="0"></div>
-      <div class="fg"><label>کارمزد واحد (تومان) — خالی = از BOM</label><input id="psr-fee" type="number" min="0" placeholder="${feeToman||'از فرمول'}" value=""></div>
+      <div class="fg"><label>کارمزد واحد (ریال) — خالی = از BOM</label><input id="psr-fee" type="number" min="0" placeholder="${feeToman||'از فرمول'}" value=""></div>
       <div class="fg"><label>تاریخ</label><input id="psr-date" value="${todayJalali()}"></div>
     </div>
     <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
@@ -7672,7 +7752,7 @@ async function prodStageSubReceiveSave(orderId,stageId){
     date:el('psr-date').value,
   };
   const feeRaw=el('psr-fee')?.value;
-  if(feeRaw!==''&&feeRaw!=null) body.fee_unit_rial=(+feeRaw||0)*10;
+  if(feeRaw!==''&&feeRaw!=null) body.fee_unit_rial=(+String(feeRaw).replace(/[^\d]/g,"")||0);
   try{
     await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/subcontract/receive',body);
     closeModal(); showToast('دریافت از پیمانکار ثبت شد'); prodOrderStagesModal(orderId);
@@ -7700,7 +7780,7 @@ async function renderProductionTab(body){
               <option value="fixed" ${c.overhead_method==='fixed'?'selected':''}>نرخ ثابت به ازای هر واحد</option>
               <option value="both" ${c.overhead_method==='both'?'selected':''}>هر دو روش</option>
             </select></div>
-          <div class="fg"><label>نرخ ثابت سربار (ت/واحد)</label><input id="oh-fixed" type="text" inputmode="numeric" class="money" value="${moneyInit(c.overhead_fixed_rate)}"></div>
+          <div class="fg"><label>نرخ ثابت سربار (ریال/واحد)</label><input id="oh-fixed" type="text" inputmode="numeric" class="money" value="${moneyInit(c.overhead_fixed_rate)}"></div>
           <div class="fg"><label>تعداد تولید دوره (اختیاری)</label><input id="oh-period-qty" type="number" min="0" value="${c.overhead_period_production_qty||0}" placeholder="خالی = جمع اجراهای دوره"></div>
         </div>
         <button class="btn sm" onclick="saveOverheadConfig()">💾 ذخیره تنظیمات سربار</button>
@@ -7773,7 +7853,7 @@ async function suggestProductionOverhead(){
     const r=await api('GET','/production/overhead-suggest?'+q);
     if(r?.suggested_for_qty!=null){
       el('pd-overhead').value=r.suggested_for_qty;
-      showToast(`سربار پیشنهادی: ${fmt(r.suggested_for_qty)} ت (استخر از ${fmt(r.overhead_pool||0)} ت)`);
+      showToast(`سربار پیشنهادی: ${fmt(r.suggested_for_qty)} ریال (استخر از ${fmt(r.overhead_pool||0)} ریال)`);
     }
   }catch(e){}
 }
@@ -7845,7 +7925,7 @@ function payrollModal(){
       <div class="fg"><label>ساعت کارکرد عادی</label><input id="pr-reg-hours" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
       <div class="fg"><label>نرخ ساعتی عادی (ت)</label><input id="pr-hourly-rate" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
       <div class="fg"><label>ساعت اضافه‌کاری</label><input id="pr-ot-hours" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
-      <div class="fg"><label>نرخ اضافه‌کاری (ت)</label><input id="pr-ot-rate" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>نرخ اضافه‌کاری (ریال)</label><input id="pr-ot-rate" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
       <div class="fg"><label>پاداش (ت)</label><input id="pr-bonus" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
       <div class="fg"><label>کسورات دیگر (ت) ${hlp('مثال: مرخصی بدون حقوق — از هزینه و بدهی نیز کسر می‌شود.')}</label><input id="pr-deduct" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
       <div class="fg"><label>کسر بیمه (ت)</label><input id="pr-insurance" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
@@ -7866,7 +7946,7 @@ function updatePayrollPreview(){
   const gross=regH*hRate+otH*otRate+bon;
   const net=gross-ded-ins-tax;
   const box=el('prPreview'); if(!box) return;
-  box.innerHTML=`ناخالص: ${fmt(gross)} ت &nbsp;|&nbsp; خالص قابل پرداخت: <span style="color:${net>=0?'var(--green)':'var(--red)'}">${fmt(net)} ت</span>`;
+  box.innerHTML=`ناخالص: ${fmt(gross)} ریال &nbsp;|&nbsp; خالص قابل پرداخت: <span style="color:${net>=0?'var(--green)':'var(--red)'}">${fmt(net)} ریال</span>`;
 }
 async function savePayrollRecord(){
   const person_id=+el('pr-person').value;
@@ -7889,7 +7969,7 @@ async function payrollPayModal(id,personName,netPay){
   openModal(`
     <div class="modal-head"><h3>💵 پرداخت حقوق: ${esc(personName)}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>مبلغ قابل پرداخت</label><input value="${fmt(netPay)} تومان" disabled style="background:#f9fafb;font-weight:700"></div>
+      <div class="fg full"><label>مبلغ قابل پرداخت</label><input value="${fmt(netPay)} ریال" disabled style="background:#f9fafb;font-weight:700"></div>
       <div class="fg"><label>نوع پرداخت</label><select id="pp-paytype" onchange="toggleBankFields('pp')"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
       <div class="fg"><label>پرداخت از بانک</label><select id="pp-bank">
         <option value="">— بدون بانک مشخص —</option>
@@ -8029,7 +8109,7 @@ async function supplierPaymentModal(id,name){
     <div class="modal-head"><h3>💵 پرداخت به تأمین‌کننده</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>تأمین‌کننده</label><input value="${esc(name)}" disabled style="background:#f9fafb"></div>
-      <div class="fg"><label>مبلغ (تومان) *</label><input id="sp-amount" type="text" inputmode="numeric" class="money" min="1"></div>
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="sp-amount" type="text" inputmode="numeric" class="money" min="1"></div>
       <div class="fg"><label>نوع پرداخت</label><select id="sp-paytype" onchange="toggleBankFields('sp')"><option value="cash">نقد</option><option value="cheque">چک</option></select></div>
       <div class="fg"><label>پرداخت از بانک ${hlp('این پرداخت از کدام حساب بانکی شرکت انجام می‌شود.')}</label><select id="sp-bank" onchange="updateCheckCategoryOptions('sp')">
         <option value="">— بدون بانک مشخص —</option>
@@ -8237,7 +8317,7 @@ async function loadPrInvoices(){
     return;
   }
   invSel.disabled=false;
-  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}">${esc(i.num)} — ${escDate(i.date)} — ${fmt(i.final)} ت</option>`).join('');
+  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}">${esc(i.num)} — ${escDate(i.date)} — ${fmt(i.final)} ریال</option>`).join('');
   rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>';
 }
 async function loadPrReturnRows(){
@@ -8323,7 +8403,7 @@ async function loadSrInvoices(){
     return;
   }
   invSel.disabled=false;
-  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}">${esc(i.num)} — ${escDate(i.date)} — ${fmt(i.final)} ت</option>`).join('');
+  invSel.innerHTML='<option value="">-- انتخاب فاکتور --</option>'+invs.map(i=>`<option value="${i.id}">${esc(i.num)} — ${escDate(i.date)} — ${fmt(i.final)} ریال</option>`).join('');
   rowsBox.innerHTML='<div class="muted">یک فاکتور انتخاب کنید تا اقلام قابل برگشت نمایش داده شود.</div>';
 }
 async function loadSrReturnRows(){
@@ -8518,7 +8598,7 @@ function updateVoucherBalance(){
   const totC=voucherLines.reduce((a,l)=>a+(l.credit||0),0);
   const bal=el('vcBalance'); if(!bal) return;
   const balanced=Math.abs(totD-totC)<0.01;
-  bal.innerHTML=`بدهکار: ${fmt(totD)} ت &nbsp;|&nbsp; بستانکار: ${fmt(totC)} ت &nbsp;—&nbsp;
+  bal.innerHTML=`بدهکار: ${fmt(totD)} ریال &nbsp;|&nbsp; بستانکار: ${fmt(totC)} ریال &nbsp;—&nbsp;
     <span style="color:${balanced?'var(--green)':'var(--red)'}">${balanced?'✓ متوازن':'✗ نامتوازن — سند قابل ثبت نیست'}</span>`;
 }
 function buildVoucherLinesPayload(){
@@ -8626,7 +8706,7 @@ async function loadGeneralLedger(code){
       <td class="mono" style="color:var(--green)">${l.credit>0?fmt(l.credit):'-'}</td>
       <td class="mono" style="font-weight:700">${fmt(Math.abs(l.running_balance||0))}</td>
     </tr>`).join('')||'<tr><td colspan="6" class="empty">تراکنشی ثبت نشده</td></tr>'}</tbody></table></div>
-    <div style="padding:12px 0;font-weight:700">مانده نهایی: ${fmt(Math.abs(d.balance||0))} تومان</div>`;
+    <div style="padding:12px 0;font-weight:700">مانده نهایی: ${fmt(Math.abs(d.balance||0))} ریال</div>`;
 }
 
 /* ============================================================
@@ -9171,7 +9251,7 @@ async function renderCurrenciesTab(body){
   body.innerHTML=`
     <div class="muted" style="font-size:12px;margin-bottom:10px">فهرست ارزهای قابل استفاده در سیستم — ارز پایه: ریال (IRR) طبق قوانین مالیاتی ایران</div>
     <div class="panel" style="margin-bottom:12px"><div class="panel-body">
-      <span class="tag">نمایش فعلی: ${display==='toman'?'تومان':'ریال'}</span>
+      <span class="tag">نمایش فعلی: ریال</span>
       ${isAdmin()?`<button class="btn sm ghost" style="margin-right:8px" onclick="go('settings')">تغییر در تنظیمات</button>`:''}
     </div></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد ISO</th><th>نام ارز</th><th>نماد</th><th>ارز پایه</th></tr></thead>
@@ -9419,7 +9499,7 @@ async function renderFiscalPeriodTab(body){
   const d=await api('GET','/fiscal-year')||{};
   body.innerHTML=`
     <div class="panel"><div class="panel-head"><h4>دوره مالی جاری</h4></div><div class="panel-body">
-      ${d.current?`<p><b>${esc(d.current.label||d.current.year_label||'-')}</b> — ${esc(d.current.start_date||'')} تا ${esc(d.current.end_date||'')} — وضعیت: ${d.current.status==='open'?'باز':'بسته'}</p>`:'<p class="muted">دوره مالی تعریف نشده</p>'}
+      ${d.current?`<p><b>${esc(d.current.label||d.current.year_label||'-')}</b> — ${esc(d.current.start_date||'')} ریالا ${esc(d.current.end_date||'')} — وضعیت: ${d.current.status==='open'?'باز':'بسته'}</p>`:'<p class="muted">دوره مالی تعریف نشده</p>'}
       <table class="tbl" style="margin-top:12px"><thead><tr><th>برچسب</th><th>شروع</th><th>پایان</th><th>وضعیت</th></tr></thead>
       <tbody>${(d.years||[]).map(y=>`<tr><td>${esc(y.label||y.year_label||'-')}</td><td class="mono">${esc(y.start_date||'-')}</td><td class="mono">${esc(y.end_date||'-')}</td><td>${esc(y.status||'-')}</td></tr>`).join('')||emptyRow(4)}</tbody></table>
     </div></div>`;
@@ -9817,7 +9897,7 @@ function trustCheckModal(){
       </select></div>
       <div class="fg"><label>طرف حساب * ${hlp('نام مشتری، تأمین‌کننده یا شخصی که این چک را داده/گرفته است.')}</label><input id="tc-party"></div>
       <div class="fg"><label>تلفن طرف حساب</label><input id="tc-phone"></div>
-      <div class="fg"><label>مبلغ (تومان) *</label><input id="tc-amount" type="number" min="1"></div>
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="tc-amount" type="number" min="1"></div>
       <div class="fg"><label>نام بانک</label><input id="tc-bank"></div>
       <div class="fg"><label>شماره صیادی</label><input id="tc-sayadi"></div>
       <div class="fg"><label>شماره چک</label><input id="tc-number"></div>
@@ -9888,7 +9968,7 @@ function transferModal(preferTo){
     <div class="modal-head"><h3>انتقال بین بانک و صندوق</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>تاریخ</label><input id="tr-date" value="${todayJalali()}"></div>
-      <div class="fg"><label>مبلغ (تومان) *</label><input id="tr-amount" type="text" inputmode="numeric" class="money" min="1"></div>
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="tr-amount" type="text" inputmode="numeric" class="money" min="1"></div>
       <div class="fg"><label>از (مبدأ) *</label><select id="tr-from-type" onchange="updateTransferSideOptions('from')"><option value="cash">صندوق نقدی</option><option value="bank">بانک</option></select></div>
       <div class="fg"><label>حساب مبدأ</label><select id="tr-from-id">${transferSideOptions('cash')}</select></div>
       <div class="fg"><label>به (مقصد) *</label><select id="tr-to-type" onchange="updateTransferSideOptions('to')"><option value="cash">صندوق نقدی</option><option value="bank" selected>بانک</option></select></div>
@@ -10115,7 +10195,7 @@ async function personPaymentModal(){
         <option value="party">سایر اشخاص</option>
       </select></div>
       <div class="fg full" id="pp-target-wrap"></div>
-      <div class="fg"><label>مبلغ (تومان) *</label><input id="pp-amount" type="text" inputmode="numeric" class="money"></div>
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="pp-amount" type="text" inputmode="numeric" class="money"></div>
       <div class="fg"><label>نوع پرداخت</label><select id="pp-paytype" onchange="toggleBankFields('pp')"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">بانکی</option></select></div>
       <div class="fg"><label>پرداخت از بانک</label><select id="pp-bank" onchange="updateCheckCategoryOptions('pp')">
         <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
@@ -10202,7 +10282,7 @@ async function expensePaymentModal(){
         <div id="ex-acct-drop" class="cust-si-drop" style="display:none;position:fixed;width:280px;max-height:220px"></div>
       </div>
       <div class="fg full"><label>عنوان/بابت *</label><input id="ex-title" placeholder="مثال: اجاره دفتر، قبض برق، ..."></div>
-      <div class="fg"><label>مبلغ (تومان) *</label><input id="ex-amount" type="text" inputmode="numeric" class="money" min="1"></div>
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="ex-amount" type="text" inputmode="numeric" class="money" min="1"></div>
       <div class="fg"><label>فاکتور خرید مرتبط (اختیاری)</label><select id="ex-purchase"><option value="">— بدون ارتباط —</option></select></div>
       <div class="fg full"><label><input type="checkbox" id="ex-overhead" style="width:auto;margin-left:6px"> این هزینه سربار تولید است</label></div>
       <div class="fg"><label>نوع پرداخت</label><select id="ex-paytype" onchange="toggleBankFields('ex')"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
@@ -10241,7 +10321,7 @@ async function loadExpenseModalData(){
   const purchases=await api('GET','/purchases')||[];
   const sel=el('ex-purchase');
   if(sel) sel.innerHTML='<option value="">— بدون ارتباط —</option>'+
-    purchases.slice(0,100).map(p=>`<option value="${p.id}">${esc(p.num||'#'+p.id)} — ${esc(p.supplier_name||'-')} — ${fmt(p.final||p.total||0)} ت</option>`).join('');
+    purchases.slice(0,100).map(p=>`<option value="${p.id}">${esc(p.num||'#'+p.id)} — ${esc(p.supplier_name||'-')} — ${fmt(p.final||p.total||0)} ریال</option>`).join('');
 }
 function exAcctShow(q){
   const drop=el('ex-acct-drop'), inp=el('ex-account-search'); if(!drop||!inp) return;
@@ -10338,7 +10418,7 @@ async function loadStatement(){
         </table>
       </div>
       <div style="padding:12px 16px;border-top:1px solid var(--border);font-weight:700">
-        مانده نهایی: <span style="color:${(d.closing||0)>0?'var(--red)':'var(--green)'}">${fmt(Math.abs(d.closing||0))} تومان ${(d.closing||0)>0?'(بدهکار)':'(بستانکار)'}</span>
+        مانده نهایی: <span style="color:${(d.closing||0)>0?'var(--red)':'var(--green)'}">${fmt(Math.abs(d.closing||0))} ریال ${(d.closing||0)>0?'(بدهکار)':'(بستانکار)'}</span>
       </div>
     </div>`;
 }
@@ -10438,14 +10518,14 @@ async function settlementModal(custId){
       <div class="fg full"><label>مشتری * ${hlp('مشتری‌ای که این پرداخت را انجام داده است.')}</label>${custSelect('st-cust', custId)}</div>
       <div class="fg full"><label>فاکتور مرتبط (اختیاری) ${hlp('اگر این پرداخت بابت یک فاکتور خاص است، آن را انتخاب کنید — فقط فاکتورهای رسمی با مانده باز نمایش داده می‌شوند.')}</label>
         <select id="st-invoice" onchange="stlApplyInvoiceAmt()"><option value="">— بدون تخصیص به فاکتور —</option>
-        ${stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ت</option>`).join('')}
+        ${stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ریال</option>`).join('')}
         </select></div>
       <div class="fg full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" id="st-multi" onchange="stlToggleMulti()" style="width:auto"> ثبت چند قسط / مرحله‌ای
       </label></div>
       <div id="stlSingleBlock">
         <div class="form-grid">
-          <div class="fg" id="st-amount-fg"><label>مبلغ (تومان) *</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
+          <div class="fg" id="st-amount-fg"><label>مبلغ (ریال) *</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
           <div class="fg"><label>نوع پرداخت</label><select id="st-paytype" onchange="toggleStlCheque()"><option value="cash">نقد</option><option value="cheque">چک</option></select></div>
           <div class="fg"><label>واریز به بانک</label><select id="st-bank"><option value="">— بدون بانک —</option>
             ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
@@ -10485,7 +10565,7 @@ async function stlCustChanged(){
   stlOpenInvoices=custId?await api('GET','/accounting/customers/'+custId+'/open-invoices')||[]:[];
   const sel=el('st-invoice');
   if(sel) sel.innerHTML='<option value="">— بدون تخصیص به فاکتور —</option>'+
-    stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ت</option>`).join('');
+    stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ریال</option>`).join('');
   renderStlRows();
 }
 function stlApplyInvoiceAmt(){
@@ -10504,12 +10584,12 @@ function stlToggleMulti(){
 function stlAddRow(){ stlRows.push({amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:''}); renderStlRows(); }
 function renderStlRows(){
   const body=el('stlRowsBody'); if(!body) return;
-  const invOpts='<option value="">—</option>'+stlOpenInvoices.map(i=>`<option value="${i.id}">${esc(i.num)} (${fmt(i.outstanding)} ت)</option>`).join('');
+  const invOpts='<option value="">—</option>'+stlOpenInvoices.map(i=>`<option value="${i.id}">${esc(i.num)} (${fmt(i.outstanding)} ریال)</option>`).join('');
   body.innerHTML=stlRows.map((r,i)=>`<tr>
     <td><input type="text" inputmode="numeric" class="money" value="${r.amount}" onchange="stlRows[${i}].amount=this.value" style="width:110px"></td>
     <td><select onchange="stlRows[${i}].pay_type=this.value"><option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option><option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option></select></td>
     <td><input data-jdate value="${esc(r.date)}" onchange="stlRows[${i}].date=this.value" style="width:100px"></td>
-    <td><select onchange="stlRows[${i}].invoice_id=this.value">${'<option value="">—</option>'+stlOpenInvoices.map(inv=>`<option value="${inv.id}" ${String(r.invoice_id)===String(inv.id)?'selected':''}>${esc(inv.num)} (${fmt(inv.outstanding)} ت)</option>`).join('')}</select></td>
+    <td><select onchange="stlRows[${i}].invoice_id=this.value">${'<option value="">—</option>'+stlOpenInvoices.map(inv=>`<option value="${inv.id}" ${String(r.invoice_id)===String(inv.id)?'selected':''}>${esc(inv.num)} (${fmt(inv.outstanding)} ریال)</option>`).join('')}</select></td>
     <td>${stlRows.length>1?`<button class="btn sm red" onclick="stlRows.splice(${i},1);renderStlRows()">×</button>`:''}</td>
   </tr>`).join('');
   attachDatepickers(body);
@@ -10545,7 +10625,7 @@ function renderStlCheques(){
         <div class="fg"><label>شماره شبا</label><input data-k="sheba" dir="ltr" value="${esc(c.sheba)}" oninput="stlCheques[${i}].sheba=this.value" placeholder="IR..."></div>
         <div class="fg"><label>شماره چک</label><input data-k="number" dir="ltr" value="${esc(c.number)}" oninput="stlCheques[${i}].number=this.value"></div>
         <div class="fg"><label>شناسه صیاد *</label><input data-k="sayadi" dir="ltr" value="${esc(c.sayadi)}" oninput="stlCheques[${i}].sayadi=this.value"></div>
-        <div class="fg"><label>مبلغ چک (تومان) *</label><input data-k="amount" type="text" inputmode="numeric" class="money" value="${esc(c.amount)}" oninput="stlCheques[${i}].amount=this.value"></div>
+        <div class="fg"><label>مبلغ چک (ریال) *</label><input data-k="amount" type="text" inputmode="numeric" class="money" value="${esc(c.amount)}" oninput="stlCheques[${i}].amount=this.value"></div>
         <div class="fg"><label>تاریخ سررسید *</label><input data-k="due" data-jdate value="${esc(c.due)}" onchange="stlCheques[${i}].due=this.value" oninput="stlCheques[${i}].due=this.value"></div>
         <div class="fg full"><label>نام و مشخصات صادرکننده</label><input data-k="owner" value="${esc(c.owner)}" oninput="stlCheques[${i}].owner=this.value"></div>
         <div class="fg full"><label>توضیحات</label><input data-k="note" value="${esc(c.note)}" oninput="stlCheques[${i}].note=this.value"></div>
@@ -10759,13 +10839,18 @@ function repDateQuery(){
 }
 async function renderRepsTab(body){
   const dq=repDateQuery();
-  const [reps,pending,alerts,ranking]=await Promise.all([
-    api('GET','/reps'+dq)||[],
-    api('GET','/reps/expenses/pending')||[],
-    api('GET','/reps/alerts')||{},
-    api('GET','/reps/ranking'+dq)||[]
+  const settled=await Promise.allSettled([
+    api('GET','/reps'+dq),
+    api('GET','/reps/expenses/pending'),
+    api('GET','/reps/alerts'),
+    api('GET','/reps/ranking'+dq)
   ]);
-  if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
+  const reps=settled[0].status==='fulfilled'?(settled[0].value||[]):[];
+  const pending=settled[1].status==='fulfilled'?(settled[1].value||[]):[];
+  const alerts=settled[2].status==='fulfilled'?(settled[2].value||{}):{};
+  const ranking=settled[3].status==='fulfilled'?(settled[3].value||[]):[];
+  const loadErr=settled.filter(s=>s.status==='rejected').map(s=>s.reason?.message||s.reason?.code||'خطا').join(' · ');
+  if(!CACHE.customers?.length) try{ CACHE.customers=await api('GET','/customers')||[]; }catch(e){ CACHE.customers=[]; }
   const rows=reps.map(r=>`<tr style="cursor:pointer" onclick="selectRepDetail(${r.id})">
     <td>${esc(r.name)}</td>
     <td class="mono muted">${esc(r.rep_code||'-')}</td>
@@ -10816,6 +10901,7 @@ async function renderRepsTab(body){
         <td>${r.targetPct||0}٪</td><td class="mono">${fmt(Math.round(r.payable))}</td>
       </tr>`).join('')}</tbody></table></div></div>`:'';
   body.innerHTML=`
+    ${loadErr?`<div class="muted" style="color:var(--red);margin-bottom:10px">⚠️ بخشی از داده‌ها بارگذاری نشد: ${esc(loadErr)}</div>`:''}
     ${alertBlock}
     ${rankBlock}
     ${pendingBlock}
@@ -10974,7 +11060,7 @@ async function repSettleModal(repId,repName,payable){
   openModal(`
     <div class="modal-head"><h3>⚖️ تسویه — ${esc(repName)}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>مانده قابل پرداخت</label><input disabled value="${fmt(payable)} ت"></div>
+      <div class="fg full"><label>مانده قابل پرداخت</label><input disabled value="${fmt(payable)} ریال"></div>
       <div class="fg"><label>مبلغ (ت) *</label><input id="rs-amount" type="number" value="${payable>0?payable:''}"></div>
       <div class="fg"><label>تاریخ</label><input id="rs-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت</label><input id="rs-note"></div>
@@ -11349,8 +11435,8 @@ async function incentivePayModal(repId, repName, payable){
     <div class="modal-head"><h3>💵 پرداخت انگیزه فروش</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>کارشناس</label><input value="${esc(repName)}" disabled style="background:#f9fafb"></div>
-      <div class="fg full"><label>مانده قابل پرداخت</label><input value="${fmt(payable)} تومان" disabled style="background:#f9fafb;color:var(--red);font-weight:700"></div>
-      <div class="fg"><label>مبلغ پرداخت (تومان) * ${hlp('مبلغی که به کارشناس پرداخت می‌کنید — از مانده انگیزه فروش او کم می‌شود.')}</label><input id="ip-amount" type="number" min="1" value="${payable>0?payable:''}" placeholder="0"></div>
+      <div class="fg full"><label>مانده قابل پرداخت</label><input value="${fmt(payable)} ریال" disabled style="background:#f9fafb;color:var(--red);font-weight:700"></div>
+      <div class="fg"><label>مبلغ پرداخت (ریال) * ${hlp('مبلغی که به کارشناس پرداخت می‌کنید — از مانده انگیزه فروش او کم می‌شود.')}</label><input id="ip-amount" type="number" min="1" value="${payable>0?payable:''}" placeholder="0"></div>
       <div class="fg"><label>نوع پرداخت ${hlp('روش پرداخت انگیزه: نقد، چک یا واریز بانکی — در سند حسابداری خودکار ثبت می‌شود.')}</label><select id="ip-paytype" onchange="toggleBankFields('ip')"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
       <div class="fg"><label>پرداخت از بانک</label><select id="ip-bank" onchange="updateCheckCategoryOptions('ip')">
         <option value="">— بدون بانک مشخص —</option>
@@ -11411,7 +11497,7 @@ async function showIncentiveHistory(repId, repName){
         </tbody></table>
       </div>
       <div style="padding:12px 16px;border-top:1px solid var(--border);font-weight:700">
-        جمع پرداخت‌ها: <span style="color:var(--green)">${fmt(rows.reduce((a,r)=>a+(r.amount||0),0))} تومان</span>
+        جمع پرداخت‌ها: <span style="color:var(--green)">${fmt(rows.reduce((a,r)=>a+(r.amount||0),0))} ریال</span>
       </div>
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
@@ -11742,22 +11828,22 @@ const AI_KIND_META = {
   weekly_summary:{icon:'📊', label:'خلاصه هفتگی', bg:'#faf5ff', color:'#7c3aed'},
 };
 ROUTES.ai = async function(){
-  if(!isManager() && ME.role!=='accounting'){
-    el('view').innerHTML='<div class="empty">مشاور هوشمند فقط برای مدیران در دسترس است.</div>';
-    return;
-  }
+  const isMgr=isManager();
+  const isAcct=ME.role==='accounting';
   el('view').innerHTML='<div class="muted" style="padding:20px">در حال بارگذاری...</div>';
-  let insights=[], summary=null;
+  let insights=[], summary=null, myStats=null;
   try{ insights = await api('GET','/ai/insights')||[]; }catch{}
-  if(isManager()){ try{ summary = await api('GET','/ai/weekly-summary'); }catch{} }
+  if(isMgr){ try{ summary = await api('GET','/ai/weekly-summary'); }catch{} }
+  try{ myStats = await api('GET','/ai/my-summary'); }catch{}
   const isDeviceBuild = APP_INFO && APP_INFO.role==='device';
   const kinds=['churn_risk','opportunity','daily_action'];
   const byKind = k=>insights.filter(i=>i.kind===k);
   const card = i=>{
     const m = AI_KIND_META[i.kind]||{icon:'🤖',label:i.kind,bg:'#f9fafb',color:'#374151'};
+    const ic=EMO_LU[m.icon]?lucide(EMO_LU[m.icon]):m.icon;
     return `<div style="padding:12px 14px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;background:#fff">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
-        <span class="tag" style="background:${m.bg};color:${m.color}">${m.icon} ${m.label}</span>
+        <span class="tag" style="background:${m.bg};color:${m.color};display:inline-flex;align-items:center;gap:4px"><span class="ico" style="width:14px;height:14px;display:inline-flex">${ic}</span> ${m.label}</span>
         ${i.score!=null?`<span class="tag" style="background:#f3f4f6;color:#374151">${i.score}٪</span>`:''}
         <b style="font-size:13px">${esc(i.title||'')}</b>
       </div>
@@ -11765,8 +11851,21 @@ ROUTES.ai = async function(){
       ${i.cust_biz?`<div class="muted" style="font-size:11px;margin-top:4px">مشتری: ${esc(i.cust_biz)}</div>`:''}
     </div>`;
   };
+  const minePanel=`<div class="panel"><div class="panel-head"><h4>${lucide('bot')} دستیار شخصی من</h4></div>
+    <div class="panel-body">
+      <p class="muted" style="font-size:12px;margin-bottom:10px">آمار و تحلیل فقط بر اساس داده‌های خود شماست.</p>
+      ${myStats?`<div class="cards" style="margin-bottom:12px">
+        ${statCard('g','💰',fmt(myStats.week_sales||0),'فروش هفته (ریال)')}
+        ${statCard('b','🧾',fmt(myStats.week_invoices||0),'فاکتور هفته')}
+        ${statCard('o','📅',fmt(myStats.month_sales||0),'فروش ماه (ریال)')}
+        ${statCard('p','📞',fmt(myStats.open_followups||0),'پیگیری باز')}
+      </div>`:'<div class="muted">آمار شخصی در دسترس نیست</div>'}
+      <button class="btn" onclick="runMyAiSummary()">✨ تحلیل هوشمند عملکرد من</button>
+      <div id="myAiBody" style="margin-top:12px"></div>
+    </div></div>`;
   el('view').innerHTML=`
-    ${isManager()?`<div class="panel"><div class="panel-head"><h4>💼 مشاور کسب‌وکار (مدیر)</h4></div>
+    ${minePanel}
+    ${isMgr?`<div class="panel"><div class="panel-head"><h4>${lucide('briefcase')} مشاور کسب‌وکار (مدیر)</h4></div>
       <div class="panel-body">
         <p class="muted" style="font-size:12px;margin-bottom:10px">سؤال خود را درباره فروش، مطالبات، موجودی یا استراتژی بپرسید — پاسخ بر اساس داده‌های تجمیع‌شده سیستم است.</p>
         <textarea id="aiConsultQ" rows="3" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-family:inherit" placeholder="مثال: کدام محصولات این ماه افت فروش داشته‌اند؟"></textarea>
@@ -11777,15 +11876,16 @@ ROUTES.ai = async function(){
       <button class="btn" onclick="runAiRefresh()" ${isDeviceBuild?'disabled title="فقط روی سرور مرکزی"':''}>🔄 تحلیل مجدد</button>
       <span class="muted" style="font-size:12px">تحلیل هر شب ساعت ۲ بامداد خودکار اجرا می‌شود.</span>
     </div>`:''}
-    ${summary?`<div class="panel"><div class="panel-head"><h4>📊 خلاصه هفتگی</h4></div>
+    ${isAcct&&!isMgr?`<p class="muted" style="font-size:12px;margin:8px 0">بینش‌های زیر برای نقش حسابداری (کل شرکت) است.</p>`:''}
+    ${summary?`<div class="panel"><div class="panel-head"><h4>${lucide('chart')} خلاصه هفتگی</h4></div>
       <div class="panel-body" style="font-size:13.5px;line-height:2.1">${esc(summary.body||'')}</div></div>`:''}
     ${kinds.map(k=>{
       const rows=byKind(k); if(!rows.length) return '';
       const m=AI_KIND_META[k];
-      return `<div class="panel"><div class="panel-head"><h4>${m.icon} ${m.label} (${fmt(rows.length)})</h4></div>
+      return `<div class="panel"><div class="panel-head"><h4>${m.label} (${fmt(rows.length)})</h4></div>
         <div class="panel-body">${rows.map(card).join('')}</div></div>`;
     }).join('')||''}
-    ${!insights.length&&!summary?`<div class="empty">هنوز تحلیلی تولید نشده است.${isManager()&&!isDeviceBuild?' روی «تحلیل مجدد» بزنید.':''}</div>`:''}`;
+    ${!insights.length&&!summary&&!myStats?`<div class="empty">هنوز تحلیلی تولید نشده است.${isMgr&&!isDeviceBuild?' روی «تحلیل مجدد» بزنید.':''}</div>`:''}`;
 };
 async function runAiConsult(){
   const q=el('aiConsultQ')?.value?.trim(); if(!q){ showToast('سؤال را بنویسید','error'); return; }
@@ -11836,7 +11936,7 @@ ROUTES.b2bOrders = async function(){
         <td>${o.id}</td><td>${esc(o.cust_biz||'-')}</td>
         <td>${o.invoice_num?`<a href="#" onclick="go('invoices');return false" style="color:var(--purple);font-weight:600">${esc(o.invoice_num)}</a>`:'-'}</td>
         <td>${fmt((o.rows||[]).length)} قلم</td>
-        <td class="mono">${fmt(total)} ت</td>
+        <td class="mono">${fmt(total)} ریال</td>
         <td class="muted" style="font-size:12px;max-width:200px">${esc(o.note||'-')}</td>
         <td>${o.created_at?new Date(o.created_at*1000).toLocaleDateString('fa-IR'):'-'}</td>
         <td>${o.invoice_type==='final'?'<span class="tag t-done">تبدیل به فاکتور رسمی</span>':o.invoice_num?'<span class="tag t-pending">پیش‌فاکتور — در انتظار بررسی</span>':'-'}</td>
@@ -11965,7 +12065,7 @@ async function b2bRenderCatalog(body){
         ${p.image?`<img src="${esc(p.image)}" loading="lazy" alt="">`:''}
         <div style="font-weight:600;margin-bottom:2px">${esc(p.name)}</div>
         <div class="muted">${esc(p.category||'')}</div>
-        <div class="mono" style="margin:6px 0">${fmt(p.price)} ت</div>
+        <div class="mono" style="margin:6px 0">${fmt(p.price)} ریال</div>
         ${p.available?`<button class="btn sm" onclick="b2bAddCart(${p.id})">➕ افزودن</button>`:'<span class="tag t-silent">ناموجود</span>'}
       </div>`).join('')||'<div class="empty">محصولی یافت نشد</div>'}
     </div>
@@ -12001,9 +12101,9 @@ function b2bRenderCart(){
       <button class="btn sm ghost" onclick="b2bSetQty(${i},-1)">−</button>
       <span class="mono">${fmt(c.qty)}</span>
       <button class="btn sm ghost" onclick="b2bSetQty(${i},1)">+</button>
-      <span class="mono" style="min-width:80px;text-align:left">${fmt((p.price||0)*c.qty)} ت</span>
+      <span class="mono" style="min-width:80px;text-align:left">${fmt((p.price||0)*c.qty)} ریال</span>
     </div>`;
-  }).join('')+`<div style="text-align:left;font-weight:700;padding-top:6px">جمع: ${fmt(total)} تومان</div>`
+  }).join('')+`<div style="text-align:left;font-weight:700;padding-top:6px">جمع: ${fmt(total)} ریال</div>`
   :'<span class="muted">سبد خالی است — از کاتالوگ بالا محصول اضافه کنید</span>';
 }
 async function b2bSubmitOrder(){
@@ -12022,7 +12122,7 @@ async function b2bRenderOrders(body){
     ${rows.map(o=>{
       const total=(o.rows||[]).reduce((a,r)=>a+(r.sum||0),0);
       return `<tr><td>${o.id}</td><td class="mono">${esc(o.invoice_num||'-')}</td>
-      <td>${fmt((o.rows||[]).length)}</td><td class="mono">${fmt(total)} ت</td>
+      <td>${fmt((o.rows||[]).length)}</td><td class="mono">${fmt(total)} ریال</td>
       <td>${o.created_at?new Date(o.created_at*1000).toLocaleDateString('fa-IR'):'-'}</td>
       <td>${o.invoice_type==='final'?'<span class="tag t-done">تأیید شده</span>':'<span class="tag t-pending">در انتظار بررسی</span>'}</td></tr>`;
     }).join('')||emptyRow(6)}
@@ -12033,7 +12133,7 @@ async function b2bRenderStatement(body){
   const bal=data.closing??data.customer?.balance??0;
   body.innerHTML=`
     <div style="padding:12px;background:${bal>0?'#fef2f2':'#f0fdf4'};border-radius:10px;margin-bottom:12px">
-      مانده حساب: <strong class="mono">${fmt(Math.abs(bal))} تومان ${bal>0?'(بدهکار)':bal<0?'(بستانکار)':''}</strong>
+      مانده حساب: <strong class="mono">${fmt(Math.abs(bal))} ریال ${bal>0?'(بدهکار)':bal<0?'(بستانکار)':''}</strong>
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th></tr></thead><tbody>
       ${(data.entries||[]).slice(-50).reverse().map(r=>`<tr>
@@ -12248,14 +12348,13 @@ ROUTES.settings = async function(){
     <div class="panel"><div class="panel-head"><h4>💱 تنظیمات واحد پولی</h4></div><div class="panel-body">
       <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
         <b>مبنای ذخیره‌سازی:</b> ریال (طبق استاندارد حسابداری) — همه مبالغ در دیتابیس به ریال ذخیره می‌شوند.<br>
-        <b>نمایش:</b> می‌توانید مبالغ را در رابط کاربری به ریال یا تومان ببینید (تومان = ریال ÷ ۱۰).
+        <b>نمایش:</b> مبالغ در کل برنامه فقط به <b>ریال</b> نمایش داده می‌شوند.
         ${s.coa_mode==='extended'?'<br><b style="color:var(--purple)">حالت فعلی: کدینگ تفصیلی</b> — اسناد مرجع به ریال وارد شده‌اند.':''}
       </div>
       <div class="form-grid">
-        <div class="fg"><label>نمایش مبالغ در برنامه ${hlp('این تنظیم فقط نحوه نمایش را تغییر می‌دهد — مبنای ذخیره‌سازی همیشه ریال است.')}</label>
-          <select id="s-currency_display">
-            <option value="rial" ${(s.currency_display||'rial')==='rial'?'selected':''}>ریال (پیش‌فرض — طبق استاندارد حسابداری)</option>
-            <option value="toman" ${s.currency_display==='toman'?'selected':''}>تومان (ریال ÷ ۱۰)</option>
+        <div class="fg"><label>نمایش مبالغ در برنامه ${hlp('واحد پول برنامه فقط ریال است — مبنای ذخیره‌سازی و نمایش یکسان.')}</label>
+          <select id="s-currency_display" disabled>
+            <option value="rial" selected>ریال (ثابت — کل برنامه)</option>
           </select>
         </div>
         <div class="fg"><label>مبنای ذخیره‌سازی</label>
@@ -12354,7 +12453,7 @@ ROUTES.settings = async function(){
         <button class="btn ghost" onclick="fiscalUnlock(${curFy.id})">🔓 بازگشایی سال</button>`:''}
         <button class="btn ghost" onclick="runIntegrityCheck()">🔍 بررسی یکپارچگی حسابداری</button>
       </div>
-      <div id="fy-status" class="muted" style="font-size:12px;margin-top:10px">${curFy?`سال فعال: <b>${esc(curFy.label)}</b> (${esc(curFy.status||'open')}) — ${esc(curFy.start_date||'')} تا ${esc(curFy.end_date||'—')}`:''}</div>
+      <div id="fy-status" class="muted" style="font-size:12px;margin-top:10px">${curFy?`سال فعال: <b>${esc(curFy.label)}</b> (${esc(curFy.status||'open')}) — ${esc(curFy.start_date||'')} ریالا ${esc(curFy.end_date||'—')}`:''}</div>
       <div id="integrity-result" class="muted" style="font-size:12px;margin-top:8px"></div>
       ${fyRows.length?`<div class="tbl-wrap" style="margin-top:12px"><table class="tbl" style="font-size:12px"><thead><tr><th>سال</th><th>شروع</th><th>پایان</th><th>وضعیت</th><th></th></tr></thead><tbody>
         ${fyRows.map(f=>`<tr><td>${esc(f.label)}</td><td class="mono">${esc(f.start_date||'')}</td><td class="mono">${esc(f.end_date||'')}</td>
@@ -12444,7 +12543,7 @@ async function saveSettings(){
   const coaKeys=['coa_receivable','coa_payable','coa_misc_persons','coa_sales','coa_sales_discount','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_vat_payable','coa_vat_receivable','coa_depreciation_expense'];
   coaKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value.trim(); });
   if(el('s-feature_cogs_voucher')) data.feature_cogs_voucher = el('s-feature_cogs_voucher').checked ? '1' : '0';
-  if(el('s-currency_display')) data.currency_display = el('s-currency_display').value;
+  data.currency_display = 'rial';
   data.currency_base = 'rial';
   CACHE.settings = await api('PUT','/settings',data);
   CACHE.moduleFlags=null; // force re-fetch next time the Accounting shell is entered

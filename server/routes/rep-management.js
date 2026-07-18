@@ -207,19 +207,31 @@ router.post('/payments/:id/reject', auth, adminOrAccounting, (req, res) => {
 
 router.get('/alerts', auth, repModuleAdmin, (req, res) => {
   const db = getDB();
-  const pendingExpenses = db.prepare("SELECT COUNT(*) c FROM rep_expenses WHERE status='pending'").get().c;
-  const reps = db.prepare(`SELECT id,name,monthly_target FROM users WHERE active=1 AND role IN ${REP_ROLES_SQL} AND monthly_target>0`).all();
-  const targetHits = [];
-  for (const r of reps) {
-    const comm = computeRepCommission(db, r.id, {});
-    if (comm.targetPct >= 100) targetHits.push({ id: r.id, name: r.name, pct: comm.targetPct });
+  try {
+    const pendingExpenses = db.prepare("SELECT COUNT(*) c FROM rep_expenses WHERE status='pending'").get().c;
+    const reps = db.prepare(`SELECT id,name,monthly_target FROM users WHERE active=1 AND role IN ${REP_ROLES_SQL} AND monthly_target>0`).all();
+    const targetHits = [];
+    for (const r of reps) {
+      const comm = computeRepCommission(db, r.id, {});
+      if (comm.targetPct >= 100) targetHits.push({ id: r.id, name: r.name, pct: comm.targetPct });
+    }
+    // چک‌های معوق روی settlements است (نه invoices) — ستون cheque_status فقط آنجا وجود دارد
+    let overdueCheques = 0;
+    try {
+      overdueCheques = db.prepare(`
+        SELECT COUNT(*) c FROM settlements s
+        JOIN invoices i ON s.invoice_id=i.id
+        WHERE s.pay_type='cheque' AND COALESCE(s.cheque_status,'pending')='pending'
+          AND i.user_id IN (SELECT id FROM users WHERE role IN ${REP_ROLES_SQL})
+          AND s.cheque_due IS NOT NULL AND s.cheque_due <> '' AND s.cheque_due < ?
+      `).get(todayJalali()).c;
+    } catch {
+      overdueCheques = 0;
+    }
+    res.json({ pendingExpenses, targetHits, overdueCheques });
+  } catch (e) {
+    res.status(500).json({ error: e.message, code: e.code || 'E_REPS_ALERTS' });
   }
-  const overdueCheques = db.prepare(`
-    SELECT COUNT(*) c FROM invoices i
-    WHERE i.type='final' AND i.pay_type='cheque' AND i.cheque_status='pending'
-    AND i.user_id IN (SELECT id FROM users WHERE role IN ${REP_ROLES_SQL})
-  `).get().c;
-  res.json({ pendingExpenses, targetHits, overdueCheques });
 });
 
 router.get('/assignment-history', auth, repModuleAdmin, (req, res) => {
