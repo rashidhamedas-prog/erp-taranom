@@ -192,6 +192,7 @@ app.post('/api/admin/backup-restore', auth, adminOnly, centralOnly, backupUpload
 });
 
 app.use('/api/import', require('./routes/import'));
+app.use('/api/excel', require('./routes/excel'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/reminders', require('./routes/reminders'));
 app.use('/api/reports', require('./routes/reports'));

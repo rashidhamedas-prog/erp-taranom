@@ -3493,9 +3493,9 @@ async function productsPage(canEdit){
         <button class="btn ghost" onclick="productCategoriesModal()">🏷️ دسته‌بندی‌ها</button>
         <button class="btn ghost" onclick="enterAccountingShell().then(()=>go('acc-warehouses'))">🏭 موجودی انبارها</button>
         <button class="btn ghost" onclick="openBarcodeScanner(async c=>{ try{ const p=await api('GET','/products/by-barcode/'+encodeURIComponent(c)); if(p&&p.id){ showToast(p.name+' — موجودی: '+fmt(p.stock)); prodModal(p.id); } }catch(e){} })">📷 اسکن بارکد</button>
-        <button class="btn ghost" onclick="importProducts()">📤 ورود اکسل</button>
-        <button class="btn ghost" onclick="downloadTemplate()">📄 قالب</button>
-        <button class="btn ghost" onclick="exportExcel('products')">📥 خروجی</button>`:''}
+        <button class="btn ghost" onclick="excelImport('products')">${lucide('upload')} ورود از طریق اکسل</button>
+        <button class="btn ghost" onclick="excelDownload('products','template')">${lucide('file')} قالب فایل ورودی</button>
+        <button class="btn ghost" onclick="excelDownload('products','export')">${lucide('download')} خروجی اکسل</button>`:''}
     </div>
     <div id="pBulkBar" style="display:none;background:var(--purple-light);border-radius:8px;padding:10px 14px;margin-bottom:10px;flex-wrap:wrap;gap:8px;align-items:center">
       <span id="pSelCount" style="font-weight:600;color:var(--purple)">۰ محصول انتخاب شده</span>
@@ -3840,6 +3840,88 @@ async function downloadAuth(path,filename){
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
     URL.revokeObjectURL(a.href);
   }catch(e){ showToast('خطا در دانلود','error'); }
+}
+
+const ACC_EXCEL_ENTITIES={
+  parties:['parties'],
+  products:['products'],
+  'opening-recv-cheques':['opening-recv-cheques'],
+  settlements:['settlements'],
+  'expenses-list':['expenses'],
+  'opening-pay-cheques':['opening-pay-cheques'],
+  'coa-codes':['coa-codes'],
+  'ledger-accounts':['ledger-accounts'],
+  'subsidiary-accounts':['subsidiary-accounts'],
+  'detail-accounts':['detail-accounts'],
+  'sales-invoices':['sales-invoices'],
+  purchases:['purchases'],
+  'sales-returns':['sales-returns'],
+  'purchase-returns':['purchase-returns'],
+  'warehouse-ops':['warehouse-receipt','warehouse-issue','warehouse-transfer'],
+  consignments:['consignments-in','consignments-out'],
+  'journal-docs':['journal-docs']
+};
+const EXCEL_ENTITY_LABELS={
+  parties:'اطلاعات اشخاص',products:'کالاها','opening-recv-cheques':'چک دریافتنی اول دوره',
+  settlements:'دریافت و پرداخت',expenses:'هزینه‌ها','opening-pay-cheques':'چک پرداختی اول دوره',
+  'coa-codes':'کدهای حسابداری','ledger-accounts':'حساب‌های کل','subsidiary-accounts':'حساب‌های معین',
+  'detail-accounts':'حساب‌های تفصیلی','sales-invoices':'فاکتور فروش',purchases:'فاکتور خرید',
+  'sales-returns':'برگشت از فروش','purchase-returns':'برگشت از خرید',
+  'warehouse-receipt':'رسید انبار','warehouse-issue':'حواله انبار','warehouse-transfer':'حواله بین انبار',
+  'consignments-in':'امانی گرفته‌شده','consignments-out':'امانی داده‌شده','journal-docs':'فهرست اسناد'
+};
+function excelDownload(entity,kind){
+  const suffix=kind==='template'?'template':'export';
+  const filename=entity+(kind==='template'?'-template':'')+'.xlsx';
+  downloadAuth('/excel/'+encodeURIComponent(entity)+'/'+suffix,filename);
+}
+async function excelImport(entity){
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='.xlsx,.xls';
+  inp.onchange=async()=>{
+    const file=inp.files&&inp.files[0]; if(!file) return;
+    const fd=new FormData(); fd.append('file',file);
+    let prepared;
+    try{ prepared=await api('POST','/excel/'+encodeURIComponent(entity)+'/prepare-import',fd,true); }
+    catch(e){ return; }
+    const count=prepared.actions?.length||0;
+    if(!count){ showToast('عملیاتی برای ثبت یافت نشد','error'); return; }
+    if(!confirm(`${fmt(prepared.row_count)} ردیف بررسی شد و ${fmt(count)} عملیات آماده ثبت است.\nثبت نهایی انجام شود؟`)) return;
+    let ok=0; const failed=[];
+    for(let i=0;i<prepared.actions.length;i++){
+      const a=prepared.actions[i];
+      try{ await api(a.method||'POST',a.path,a.body||{}); ok++; }
+      catch(e){ failed.push({label:a.label||('عملیات '+(i+1)),error:e?.message||'خطای ثبت'}); }
+    }
+    if(failed.length){
+      const report=failed.slice(0,20).map(x=>`${x.label}: ${x.error}`).join('\n');
+      openModal(`<div class="modal-head"><h3>${lucide('alert')} گزارش ورود اکسل</h3><button class="x" onclick="closeModal()">×</button></div>
+        <div class="modal-body"><p>${fmt(ok)} عملیات ثبت و ${fmt(failed.length)} عملیات ناموفق بود.</p>
+        <textarea readonly style="width:100%;min-height:240px;direction:rtl">${esc(report)}</textarea></div>
+        <div class="modal-foot"><button class="btn" onclick="closeModal()">بستن</button></div>`);
+    }else showToast(`${fmt(ok)} عملیات با موفقیت از اکسل ثبت شد`);
+    if(IN_ACC_SHELL&&accTab) await loadAccTab(accTab);
+    else if(CURRENT_PAGE==='products') await refreshProd(true);
+  };
+  inp.click();
+}
+function excelToolsHtml(entity){
+  const label=EXCEL_ENTITY_LABELS[entity]||entity;
+  return `<div class="excel-tool-group" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <span class="tag" style="font-size:11px">${esc(label)}</span>
+    <button class="btn sm" onclick="excelImport('${entity}')">${lucide('upload')} ورود از طریق اکسل</button>
+    <button class="btn sm ghost" onclick="excelDownload('${entity}','template')">${lucide('file')} قالب فایل ورودی</button>
+    <button class="btn sm ghost" onclick="excelDownload('${entity}','export')">${lucide('download')} خروجی اکسل</button>
+  </div>`;
+}
+function attachExcelTools(tab,body){
+  const entities=ACC_EXCEL_ENTITIES[tab];
+  if(!body||!entities?.length||body.querySelector('.excel-actions')) return;
+  const wrap=document.createElement('div');
+  wrap.className='excel-actions';
+  wrap.style.cssText='display:flex;flex-direction:column;gap:8px;padding:10px;margin-bottom:12px;background:var(--card);border:1px solid var(--border);border-radius:10px';
+  wrap.innerHTML=entities.map(excelToolsHtml).join('');
+  body.prepend(wrap);
 }
 
 /* ============================================================
@@ -4867,6 +4949,7 @@ async function loadAccTab(tab){
   } else {
     body.innerHTML=`<div class="panel"><div class="panel-body"><p class="muted">این بخش به ماژول مرتبط متصل است. از منوی کناری گزینه‌های فعال را انتخاب کنید.</p></div></div>`;
   }
+  attachExcelTools(tab,body);
 }
 
 /* ============================================================
@@ -4995,8 +5078,6 @@ async function renderPartiesTab(body){
       <div style="flex:1;min-width:280px">
         <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <button class="btn" onclick="partyModal()" ${!groupFilter?'disabled title="ابتدا یک گروه اشخاص انتخاب یا ایجاد کنید"':''}>➕ شخص جدید <span class="muted">F4</span></button>
-          <button class="btn ghost" onclick="exportPartiesExcel()">⬇️ خروجی اکسل</button>
-          <button class="btn ghost" onclick="importPartiesExcel()">⬆️ ورود از اکسل</button>
           <input id="partySearch" placeholder="جستجو نام/تلفن/کد... F10" value="${esc(search)}" onchange="loadAccTab('parties')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px">
         </div>
         <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>

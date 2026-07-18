@@ -91,7 +91,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       : allocateNumber(db, 'purchase', prefixRow?.value || 'PO');
     const result = db.prepare(
       `INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,pay_type,stock_added,bank_id,check_category_id,cash_box_id,warehouse_id,freight_amount,freight_type,vat_exempt,cost_center_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)`
     ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', vat_exempt ? 1 : 0, ccId);
     const invId = result.lastInsertRowid;
 
