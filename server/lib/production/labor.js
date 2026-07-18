@@ -99,6 +99,36 @@ function autoPostLabor(db, { po, qtyStarted, date, period, userId, laborSpecs = 
     }
   } catch { /* bom_operations may be empty */ }
 
+  // Fallback: monthly_labor_rate_rial from cost_center_rates for the period
+  if (!total && po.cost_center_id) {
+    try {
+      const rate = db.prepare(`
+        SELECT monthly_labor_rate_rial FROM cost_center_rates
+        WHERE cost_center_id=? AND period_label=? AND status IN ('active','approved','draft','estimated')
+        ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END
+        LIMIT 1
+      `).get(po.cost_center_id, period)
+        || db.prepare(`
+          SELECT monthly_labor_rate_rial FROM cost_center_rates
+          WHERE cost_center_id=? AND COALESCE(monthly_labor_rate_rial,0)>0
+          ORDER BY period_label DESC LIMIT 1
+        `).get(po.cost_center_id);
+      const ml = Math.round(Number(rate?.monthly_labor_rate_rial) || 0);
+      if (ml > 0) {
+        const r = postLabor(db, {
+          orderId: po.id,
+          costCenterId: po.cost_center_id,
+          method: 'monthly',
+          qty: qtyStarted,
+          rateRial: ml,
+          date, period, userId,
+          note: 'دستمزد از نرخ مرکز هزینه',
+        });
+        total += r.amount_rial;
+      }
+    } catch { /* ignore */ }
+  }
+
   return total;
 }
 

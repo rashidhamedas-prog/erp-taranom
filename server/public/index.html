@@ -819,6 +819,12 @@ async function api(method, path, data, isFormData){
       const prodFriendly={
         E_NO_ACTIVE_BOM:'برای این کالا فرمول BOM فعال وجود ندارد — ابتدا فرمول بسازید و فعال کنید',
         E_BOM_NOT_ACTIVE:'فرمول انتخاب‌شده فعال نیست',
+        E_BOM_LOCKED:'فرمول فعال قفل است — نسخه جدید بسازید',
+        E_BOM_NOT_DRAFT:'فقط پیش‌نویس قابل ویرایش است',
+        E_BOM_SELF_REF:'کالا نمی‌تواند جزء خودش باشد',
+        E_BOM_SCRAP_RANGE:'درصد ضایعات باید بین ۰ و ۱۰۰ باشد',
+        E_BOM_OVERLAP:'بازه اعتبار با نسخه قبلی تداخل دارد',
+        E_VALIDATION:'اطلاعات ناقص است (مثلاً تاریخ اعتبار برای فعال‌سازی)',
         E_QTY_INVALID:'محصول و تعداد برنامه را درست وارد کنید',
         E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
         E_NOT_FOUND:'مورد درخواستی یافت نشد',
@@ -6196,42 +6202,215 @@ async function runDepreciation(){
    PRODUCTION MODULE (P1/P2) — BOM + Orders
 ============================================================ */
 async function renderProductionBomsTab(body){
-  let data={}, rows=[];
+  let data={}, rows=[], missing=[];
   try{ data=await api('GET','/production/boms')||{}; rows=Array.isArray(data)?data:(data.rows||[]); }catch(e){ rows=[]; }
-  const st={draft:'پیش‌نویس',active:'فعال',archived:'بایگانی'};
+  try{ missing=(await api('GET','/production/boms/missing'))?.rows||[]; }catch(e){ missing=[]; }
+  const st={draft:'پیش‌نویس',active:'فعال',archived:'بایگانی',obsolete:'حذف‌شده'};
   body.innerHTML=`
     <div class="prod-scope">
-    <div class="toolbar" style="margin-bottom:12px">
-      <button class="btn" onclick="loadAccTab('production-boms')">🔄 تازه‌سازی</button>
-      <span style="color:var(--muted);font-size:13px;margin-right:8px">فرمول‌های ساخت (BOM) — بدون ثبت سند حسابداری</span>
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="prodBomCreateModal()">➕ فرمول جدید</button>
+      <button class="btn secondary" onclick="loadAccTab('production-boms')">🔄 تازه‌سازی</button>
+      <span style="color:var(--muted);font-size:13px">فرمول ساخت (BOM) — پیش‌نویس بسازید، اقلام را اضافه کنید، سپس فعال کنید</span>
     </div>
+    ${missing.length?`<div class="muted" style="margin-bottom:10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--well)">
+      ⚠️ ${toFa(missing.length)} کالای تولیدی بدون فرمول فعال:
+      ${missing.slice(0,8).map(p=>`<button class="btn sm ghost" style="margin:2px" onclick="prodBomCreateModal(${p.id})">${esc(p.name)}</button>`).join('')}
+      ${missing.length>8?'…':''}
+    </div>`:''}
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>کد/نام</th><th>محصول</th><th>نسخه</th><th>مسیر عملیات</th><th>بازده٪</th><th>وضعیت</th><th>اعتبار</th><th>عملیات</th>
+      <th>کد</th><th>نام</th><th>محصول</th><th>نسخه</th><th>مسیر</th><th>بازده٪</th><th>وضعیت</th><th>اعتبار</th><th>عملیات</th>
     </tr></thead><tbody>
       ${(rows||[]).map(b=>`<tr>
-        <td data-label="کد/نام">${esc(b.name||b.code||'—')}</td>
-        <td data-label="محصول">#${b.product_id}</td>
+        <td data-label="کد" class="mono">${esc(b.code||'—')}</td>
+        <td data-label="نام">${esc(b.name||'—')}</td>
+        <td data-label="محصول">${esc(b.product_name||('#'+b.product_id))}</td>
         <td data-label="نسخه">v${b.version||1}-${esc(b.revision||'A')}</td>
-        <td data-label="مسیر عملیات">${b.has_routing?'<span class="prod-badge prod-badge-completed">✓ دارد</span>':'<span class="prod-badge prod-badge-draft">— ندارد</span>'}</td>
+        <td data-label="مسیر">${b.has_routing?'✓':'—'}</td>
         <td data-label="بازده٪" class="num">${b.has_routing?100:(b.yield_percent??100)}</td>
         <td data-label="وضعیت">${st[b.status]||b.status}</td>
-        <td data-label="اعتبار" style="font-size:12px">${esc(b.valid_from||'')} → ${esc(b.valid_to||'…')}</td>
+        <td data-label="اعتبار" style="font-size:12px">${esc(b.valid_from||'—')} → ${esc(b.valid_to||'…')}</td>
         <td data-label="عملیات" style="white-space:nowrap">
+          <button class="btn sm ghost" onclick="prodBomEditModal(${b.id})">${b.status==='draft'?'ویرایش':'مشاهده'}</button>
           ${b.status==='draft'?`<button class="btn sm" onclick="prodBomActivate(${b.id})">فعال‌سازی</button>`:''}
-          ${!b.has_routing&&b.status==='draft'?`<button class="btn sm ghost" onclick="prodBomApplyRouting(${b.id})">اعمال مسیر پیش‌فرض</button>`:''}
+          ${b.status==='draft'&&!b.has_routing?`<button class="btn sm ghost" onclick="prodBomApplyRouting(${b.id})">مسیر پیش‌فرض</button>`:''}
+          ${b.status==='draft'?`<button class="btn sm red" onclick="prodBomDelete(${b.id})">حذف</button>`:''}
+          ${b.status==='active'?`<button class="btn sm ghost" onclick="prodBomVersionUp(${b.id})">نسخه جدید</button>`:''}
         </td>
-      </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--muted)">فرمولی ثبت نشده</td></tr>'}
+      </tr>`).join('')||'<tr><td colspan="9" style="text-align:center;color:var(--muted)">فرمولی ثبت نشده — «فرمول جدید» را بزنید</td></tr>'}
     </tbody></table></div>
     </div>`;
 }
-async function prodBomActivate(id){
-  if(!confirm('فعال‌سازی این فرمول؟ پس از فعال شدن قفل می‌شود.')) return;
-  try{ await api('POST','/production/boms/'+id+'/activate',{}); showToast('فرمول فعال شد'); loadAccTab('production-boms'); }
+async function prodBomEnsureProducts(){
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  return CACHE.allProducts||[];
+}
+function prodBomProductOpts(selected, filterFn){
+  const all=CACHE.allProducts||[];
+  const list=filterFn?all.filter(filterFn):all;
+  return (list.length?list:all.slice(0,300)).map(p=>`<option value="${p.id}" ${String(p.id)===String(selected)?'selected':''}>${esc(p.name)} ${p.code?('('+esc(p.code)+')'):''}</option>`).join('');
+}
+async function prodBomCreateModal(preProductId){
+  await prodBomEnsureProducts();
+  const mfg=p=>p.is_manufactured==1||p.item_type==='finished'||p.item_type==='semi';
+  showModal('فرمول تولید جدید',`
+    <div class="form-grid">
+      <div class="fg"><label>محصول ساخته‌شده *</label><select id="pb-product">${prodBomProductOpts(preProductId,mfg)}</select></div>
+      <div class="fg"><label>نام فرمول</label><input id="pb-name" placeholder="مثلاً بلوز زمستانه — استاندارد"></div>
+      <div class="fg"><label>مقدار پایه</label><input id="pb-base" type="number" min="0.001" step="any" value="1"></div>
+      <div class="fg"><label>بازده٪</label><input id="pb-yield" type="number" min="1" max="100" value="100"></div>
+      <div class="fg"><label><input type="checkbox" id="pb-routing" style="width:auto"> مسیر عملیات (چندمرحله‌ای)</label></div>
+      <div class="fg full"><label>یادداشت</label><textarea id="pb-note" rows="2"></textarea></div>
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:8px">پس از ایجاد، اقلام مواد را در ویرایشگر اضافه و در نهایت فعال کنید. اگر مسیر عملیات فعال باشد بازده سرفصل باید ۱۰۰٪ باشد (R6).</p>
+    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn secondary" onclick="closeModal()">انصراف</button>
+      <button class="btn" onclick="prodBomCreateSave()">ایجاد پیش‌نویس</button>
+    </div>`);
+}
+async function prodBomCreateSave(){
+  const product_id=+el('pb-product')?.value;
+  if(!product_id){ showToast('محصول الزامی است','error'); return; }
+  const has_routing=!!el('pb-routing')?.checked;
+  let yield_percent=+el('pb-yield')?.value||100;
+  if(has_routing) yield_percent=100;
+  try{
+    const r=await api('POST','/production/boms',{
+      product_id, name:el('pb-name')?.value||'',
+      base_qty:+el('pb-base')?.value||1,
+      yield_percent, has_routing:has_routing?1:0,
+      note:el('pb-note')?.value||'', is_default:1
+    });
+    showToast('پیش‌نویس '+esc(r.code||'')+' ساخته شد');
+    closeModal();
+    await prodBomEditModal(r.id);
+  }catch(e){ showToast(e.message||e.error||'خطا','error'); }
+}
+async function prodBomEditModal(id){
+  await prodBomEnsureProducts();
+  let bom;
+  try{ bom=await api('GET','/production/boms/'+id); }catch(e){ showToast(e.message||'خطا','error'); return; }
+  const locked=bom.status!=='draft';
+  const comps=p=>Number(p.id)!==Number(bom.product_id);
+  const lines=bom.lines||[];
+  const prodName=bom.product_name||(CACHE.allProducts||[]).find(p=>Number(p.id)===Number(bom.product_id))?.name||('#'+bom.product_id);
+  window._prodBomEditProductId=bom.product_id;
+  showModal((locked?'مشاهده':'ویرایش')+' فرمول '+esc(bom.code||''),`
+    ${locked?`<div style="margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px">🔒 فرمول ${esc(bom.status==='active'?'فعال':'قفل')} است — برای تغییر «نسخه جدید» بسازید.</div>`:''}
+    <div class="form-grid">
+      <div class="fg"><label>محصول</label><input value="${esc(prodName)}" disabled></div>
+      <div class="fg"><label>نام</label><input id="pbe-name" value="${esc(bom.name||'')}" ${locked?'disabled':''}></div>
+      <div class="fg"><label>مقدار پایه</label><input id="pbe-base" type="number" step="any" value="${bom.base_qty||1}" ${locked?'disabled':''}></div>
+      <div class="fg"><label>بازده٪</label><input id="pbe-yield" type="number" value="${bom.has_routing?100:(bom.yield_percent??100)}" ${locked||bom.has_routing?'disabled':''}></div>
+      <div class="fg full"><label>یادداشت</label><textarea id="pbe-note" rows="2" ${locked?'disabled':''}>${esc(bom.note||'')}</textarea></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 8px">
+      <strong>اقلام مواد / بسته‌بندی</strong>
+      ${!locked?`<button class="btn sm" type="button" onclick="prodBomAddLineRow()">➕ ردیف</button>`:''}
+    </div>
+    <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <th>نوع</th><th>جزء</th><th>مقدار/پایه</th><th>ضایعات٪</th><th>${locked?'':'حذف'}</th>
+    </tr></thead><tbody id="pbe-lines">
+      ${lines.map(L=>prodBomLineRowHtml(L, locked, bom.product_id)).join('')||(!locked?'':'<tr><td colspan="5" class="muted" style="text-align:center">بدون قلم</td></tr>')}
+    </tbody></table></div>
+    ${!locked&&!lines.length?``:''}
+    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="btn secondary" onclick="closeModal()">بستن</button>
+      ${!locked?`<button class="btn secondary" onclick="prodBomSaveHeader(${id})">ذخیره سرفصل</button>
+      <button class="btn" onclick="prodBomSaveLines(${id})">ذخیره اقلام</button>
+      <button class="btn green" onclick="prodBomActivate(${id})">فعال‌سازی</button>`:''}
+      ${bom.status==='active'?`<button class="btn" onclick="prodBomVersionUp(${id})">نسخه جدید برای ویرایش</button>`:''}
+    </div>`);
+  if(!locked && !lines.length) prodBomAddLineRow();
+}
+function prodBomLineRowHtml(L, locked, excludeProductId){
+  L=L||{};
+  const type=L.line_type||'material';
+  const exclude=excludeProductId!=null?excludeProductId:(window._prodBomEditProductId||0);
+  if(locked){
+    return `<tr>
+      <td>${type==='packaging'?'بسته‌بندی':'مواد'}</td>
+      <td>${esc(L.product_name||('#'+L.component_product_id))}</td>
+      <td class="num">${L.qty_per_base??0}</td>
+      <td class="num">${L.scrap_percent??0}</td>
+      <td></td>
+    </tr>`;
+  }
+  return `<tr class="pbe-line">
+    <td><select class="pbe-type"><option value="material" ${type==='material'?'selected':''}>مواد</option><option value="packaging" ${type==='packaging'?'selected':''}>بسته‌بندی</option></select></td>
+    <td><select class="pbe-comp" style="min-width:160px">${prodBomProductOpts(L.component_product_id, p=>Number(p.id)!==Number(exclude))}</select></td>
+    <td><input class="pbe-qty" type="number" step="any" min="0" value="${L.qty_per_base??1}" style="width:90px"></td>
+    <td><input class="pbe-scrap" type="number" min="0" max="99.9" step="0.1" value="${L.scrap_percent??0}" style="width:70px"></td>
+    <td>${L.id?`<button class="btn sm red" type="button" onclick="prodBomDeleteLine(${L.bom_id||0},${L.id})">×</button>`:`<button class="btn sm red" type="button" onclick="this.closest('tr').remove()">×</button>`}</td>
+  </tr>`;
+}
+function prodBomAddLineRow(){
+  const body=el('pbe-lines'); if(!body) return;
+  body.insertAdjacentHTML('beforeend', prodBomLineRowHtml(null, false, window._prodBomEditProductId));
+}
+async function prodBomSaveHeader(id){
+  try{
+    await api('PUT','/production/boms/'+id,{
+      name:el('pbe-name')?.value||'',
+      base_qty:+el('pbe-base')?.value||1,
+      yield_percent:+el('pbe-yield')?.value||100,
+      note:el('pbe-note')?.value||''
+    });
+    showToast('سرفصل ذخیره شد');
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function prodBomSaveLines(id){
+  const rows=[...document.querySelectorAll('#pbe-lines tr.pbe-line')];
+  if(!rows.length){ showToast('حداقل یک قلم اضافه کنید','error'); return; }
+  try{
+    // Replace strategy for draft: delete existing then bulk add fresh from form
+    const bom=await api('GET','/production/boms/'+id);
+    for(const L of (bom.lines||[])){
+      await api('DELETE','/production/boms/'+id+'/lines/'+L.id);
+    }
+    const lines=rows.map(tr=>({
+      component_product_id:+tr.querySelector('.pbe-comp')?.value,
+      qty_per_base:+tr.querySelector('.pbe-qty')?.value||0,
+      scrap_percent:+tr.querySelector('.pbe-scrap')?.value||0,
+      line_type:tr.querySelector('.pbe-type')?.value||'material'
+    })).filter(L=>L.component_product_id&&L.qty_per_base>0);
+    if(!lines.length){ showToast('اقلام معتبر نیست','error'); return; }
+    await api('POST','/production/boms/'+id+'/lines/bulk',{lines});
+    showToast(toFa(lines.length)+' قلم ذخیره شد');
+    await prodBomEditModal(id);
+  }catch(e){ showToast(e.message||e.error||'خطا در ذخیره اقلام','error'); }
+}
+async function prodBomDeleteLine(bomId, lineId){
+  if(!bomId||!lineId) return;
+  if(!confirm('این قلم حذف شود؟')) return;
+  try{ await api('DELETE','/production/boms/'+bomId+'/lines/'+lineId); showToast('حذف شد'); await prodBomEditModal(bomId); }
   catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function prodBomActivate(id){
+  const valid_from=prompt('تاریخ شروع اعتبار (جلالی):', todayJalali());
+  if(!valid_from) return;
+  if(!confirm('فعال‌سازی این فرمول؟ پس از فعال شدن قفل می‌شود.')) return;
+  try{
+    await api('POST','/production/boms/'+id+'/activate',{valid_from});
+    showToast('فرمول فعال شد'); closeModal(); loadAccTab('production-boms');
+  }catch(e){ showToast(e.message||e.error||'خطا در فعال‌سازی','error'); }
 }
 async function prodBomApplyRouting(id){
   try{ await api('POST','/production/boms/'+id+'/apply-routing-template',{}); showToast('مسیر عملیات پیش‌فرض اعمال شد'); loadAccTab('production-boms'); }
   catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function prodBomDelete(id){
+  if(!confirm('حذف پیش‌نویس فرمول؟')) return;
+  try{ await api('DELETE','/production/boms/'+id); showToast('حذف شد'); loadAccTab('production-boms'); }
+  catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function prodBomVersionUp(id){
+  if(!confirm('نسخه جدید پیش‌نویس از این فرمول ساخته شود؟')) return;
+  try{
+    const r=await api('POST','/production/boms/'+id+'/version-up',{reason:'ویرایش از UI'});
+    showToast('نسخه جدید ساخته شد'); closeModal();
+    await prodBomEditModal(r.id||r.new_id||r.bom_id);
+  }catch(e){ showToast(e.message||'خطا','error'); }
 }
 
 function prodFmtToman(rial){
@@ -6353,7 +6532,7 @@ async function renderProductionDashboardTab(body){
     </div>
     <div class="panel"><div class="panel-head"><h4>سفارش‌های باز</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>شماره</th><th>محصول</th><th>برنامه</th><th>وضعیت</th></tr></thead><tbody>
-        ${openOrders.map(o=>`<tr><td>${esc(o.order_no)}</td><td>${esc(o.product_name||'')}</td><td class="num">${o.qty_planned||0}</td><td>${esc(o.status)}</td></tr>`).join('')||emptyRow(4)}
+        ${openOrders.map(o=>`<tr style="cursor:pointer" onclick="prodOrderOpenFromKanban(${o.id})"><td>${esc(o.order_no)}</td><td>${esc(o.product_name||'')}</td><td class="num">${o.qty_planned||0}</td><td>${esc(o.status)}</td></tr>`).join('')||emptyRow(4)}
       </tbody></table></div></div>
     <div class="panel" style="margin-top:12px"><div class="panel-head"><h4>فهرست گزارشات تولید</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>کد</th><th>عنوان</th><th>نیاز به هزینه</th></tr></thead><tbody>
@@ -6369,39 +6548,49 @@ function prodDashLoad(){
 async function renderProductionCloseTab(body){
   const period=(window._prodClosePeriod||todayJalali().slice(0,7));
   window._prodClosePeriod=period;
-  let periods=[], pre=null, calc=null, errMsg='';
+  let periods=[], status=null, pre=null, calc=null, errMsg='';
   try{ periods=(await api('GET','/production/close'))?.periods||[]; }catch(e){}
-  try{
-    // open period if missing (idempotent)
-    await api('POST','/production/close/'+encodeURIComponent(period)+'/open',{});
-  }catch(e){ /* already open/closed ok */ }
-  try{ pre=await api('POST','/production/close/'+encodeURIComponent(period)+'/precheck',{}); }
-  catch(e){ errMsg=e.message||e.code||'خطا در پیش‌بررسی'; }
-  try{ calc=await api('POST','/production/close/'+encodeURIComponent(period)+'/calculate',{method:'proration'}); }
-  catch(e){ if(!errMsg) errMsg=e.message||e.code||'خطا در محاسبه'; }
+  try{ status=await api('GET','/production/close/'+encodeURIComponent(period)); }catch(e){ status=null; }
+  const periodStatus=status?.status||status?.period?.status||'';
+  if(window._prodCloseDoPrecheck){
+    try{ pre=await api('POST','/production/close/'+encodeURIComponent(period)+'/precheck',{}); }
+    catch(e){ errMsg=e.message||e.code||'خطا در پیش‌بررسی'; }
+    try{ calc=await api('POST','/production/close/'+encodeURIComponent(period)+'/calculate',{method:'proration'}); }
+    catch(e){ if(!errMsg) errMsg=e.message||e.code||'خطا در محاسبه'; }
+    window._prodCloseDoPrecheck=false;
+  }
   const checks=(pre?.checks||[]).map(c=>`<tr><td>${esc(c.label||c.code)}</td><td>${c.status==='pass'?'✅':'❌'} ${esc(c.message||'')}</td></tr>`).join('');
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
       <label>دوره: <input id="pc-period" value="${esc(period)}" placeholder="1405/04" style="width:90px"></label>
-      <button class="btn secondary" onclick="prodCloseReload()">۱. بارگذاری</button>
+      <button class="btn secondary" onclick="prodCloseReload()">بارگذاری وضعیت</button>
       <button class="btn secondary" onclick="prodCloseOpenPeriod()">باز کردن دوره</button>
-      <button class="btn" onclick="prodCloseExecute()" ${pre&&!pre.can_close?'disabled':''}>۴. اجرای بستن</button>
+      <button class="btn secondary" onclick="prodCloseRunPrecheck()">پیش‌بررسی و محاسبه</button>
+      <button class="btn" onclick="prodCloseExecute()" ${!pre||!pre.can_close?'disabled':''}>اجرای بستن</button>
+      ${periodStatus==='closed'?`<button class="btn ghost" style="color:var(--red)" onclick="prodCloseReopen()">بازگشایی دوره</button>`:''}
     </div>
+    <p class="muted" style="font-size:12px;margin-bottom:8px">وضعیت دوره: <b>${esc(periodStatus||'ثبت‌نشده')}</b> — برای بستن ابتدا «باز کردن دوره» سپس «پیش‌بررسی و محاسبه» را بزنید.</p>
     ${errMsg?`<div class="muted" style="color:var(--state-danger,#C0392B);margin-bottom:8px">${esc(errMsg)}</div>`:''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="panel"><div class="panel-head"><h4>۲. پیش‌بررسی</h4></div>
-        <div class="panel-body tbl-wrap"><table class="tbl"><tbody>${checks||emptyRow(2)}</tbody></table></div></div>
-      <div class="panel"><div class="panel-head"><h4>۳. خلاصه محاسبه</h4></div>
+      <div class="panel"><div class="panel-head"><h4>پیش‌بررسی</h4></div>
+        <div class="panel-body tbl-wrap"><table class="tbl"><tbody>${checks||'<tr><td colspan="2" class="muted">هنوز پیش‌بررسی اجرا نشده</td></tr>'}</tbody></table></div></div>
+      <div class="panel"><div class="panel-head"><h4>خلاصه محاسبه</h4></div>
         <div class="panel-body" style="font-size:13px">
           ${calc?`<p>انحراف دستمزد: <b>${prodFmtToman(calc.labor?.variance_rial)}</b> ت</p>
           <p>انحراف سربار: <b>${prodFmtToman(calc.overhead?.variance_rial)}</b> ت</p>
-          <p>روش: ${esc(calc.materiality?.method_auto||'—')}</p>`:'<span class="muted">محاسبه در دسترس نیست</span>'}
+          <p>روش: ${esc(calc.materiality?.method_auto||'—')}</p>`:'<span class="muted">پس از پیش‌بررسی نمایش داده می‌شود</span>'}
         </div></div>
     </div>
-    ${periods.length?`<div class="muted" style="margin-top:10px;font-size:12px">دوره‌های ثبت‌شده: ${periods.map(p=>esc(p.period_label)+' ('+esc(p.status)+')').join(' · ')}</div>`:''}`;
+    ${periods.length?`<div class="muted" style="margin-top:10px;font-size:12px">دوره‌های ثبت‌شده: ${periods.map(p=>esc(p.period_label||p.period)+' ('+esc(p.status)+')').join(' · ')}</div>`:''}`;
 }
 function prodCloseReload(){
   window._prodClosePeriod=el('pc-period')?.value||todayJalali().slice(0,7);
+  window._prodCloseDoPrecheck=false;
+  loadAccTab('production-close');
+}
+function prodCloseRunPrecheck(){
+  window._prodClosePeriod=el('pc-period')?.value||todayJalali().slice(0,7);
+  window._prodCloseDoPrecheck=true;
   loadAccTab('production-close');
 }
 async function prodCloseOpenPeriod(){
@@ -6417,6 +6606,16 @@ async function prodCloseExecute(){
   try{
     await api('POST','/production/close/'+encodeURIComponent(period)+'/execute',{method:'proration'});
     showToast('دوره بسته شد'); loadAccTab('production-close');
+  }catch(e){ showToast(e.message||e.code||'خطا','error'); }
+}
+async function prodCloseReopen(){
+  const period=el('pc-period')?.value||window._prodClosePeriod;
+  const reason=prompt('دلیل بازگشایی دوره (الزامی):');
+  if(reason==null) return;
+  if(!String(reason).trim()){ showToast('دلیل الزامی است','error'); return; }
+  try{
+    await api('POST','/production/close/'+encodeURIComponent(period)+'/reopen',{reason:String(reason).trim()});
+    showToast('دوره بازگشایی شد'); loadAccTab('production-close');
   }catch(e){ showToast(e.message||e.code||'خطا','error'); }
 }
 
@@ -6454,19 +6653,26 @@ function prodProfitLoad(){
 
 async function renderProductionCostSheetTab(body){
   const presetId=window._prodCostSheetOrderId||'';
+  let orders=[];
+  try{ orders=(await api('GET','/production/orders'))?.rows||[]; }catch(e){ orders=[]; }
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
-      <label>شناسه سفارش: <input id="pcs-order-id" type="number" min="1" value="${esc(String(presetId||''))}" style="width:100px"></label>
+      <label>سفارش:
+        <select id="pcs-order-id" style="min-width:220px">
+          <option value="">— انتخاب سفارش —</option>
+          ${orders.map(o=>`<option value="${o.id}" ${String(o.id)===String(presetId)?'selected':''}>${esc(o.order_no)} — ${esc(o.product_name||('#'+o.product_id))} (${esc(o.status)})</option>`).join('')}
+        </select>
+      </label>
       <button class="btn" onclick="prodCostSheetLoad()">📄 بارگذاری</button>
       <button class="btn secondary" onclick="prodCostSheetPrint()" disabled id="pcs-btn-print">🖨 چاپ</button>
       <button class="btn secondary" onclick="prodCostSheetExcel()" disabled id="pcs-btn-excel">📥 Excel</button>
     </div>
-    <div id="pcs-sheet-area"><div class="muted">شناسه سفارش را وارد کنید.</div></div>`;
+    <div id="pcs-sheet-area"><div class="muted">سفارش را انتخاب کنید.</div></div>`;
   if(presetId) await prodCostSheetLoad();
 }
 async function prodCostSheetLoad(){
   const id=el('pcs-order-id')?.value;
-  if(!id){ showToast('شناسه سفارش را وارد کنید','error'); return; }
+  if(!id){ showToast('سفارش را انتخاب کنید','error'); return; }
   window._prodCostSheetOrderId=id;
   const area=el('pcs-sheet-area');
   if(area) area.innerHTML='<div class="muted">در حال بارگذاری...</div>';
@@ -6565,8 +6771,11 @@ async function renderProductionEstimateTab(body){
         </div>
       </div>
     </div>
-    <div id="pe-result"><div class="muted" style="font-size:13px">محصول و تعداد را انتخاب و «محاسبه» را بزنید.</div></div>
+    <div id="pe-result"><div class="muted" style="font-size:13px">محصول و تعداد را انتخاب کنید — محاسبه خودکار یا دکمه «محاسبه».</div></div>
     </div>`;
+  el('pe-product')?.addEventListener('change', prodEstimateScheduleLive);
+  el('pe-qty')?.addEventListener('input', prodEstimateScheduleLive);
+  el('pe-markup')?.addEventListener('input', prodEstimateScheduleLive);
 }
 let _peTimer=null;
 function prodEstimateScheduleLive(){
@@ -6669,9 +6878,14 @@ async function prodKanbanLoad(){
     </div>
     <div class="muted" style="margin-top:10px;font-size:12px">سفارش‌های باز: ${r.totals?.open_orders??0}</div>`;
 }
-function prodOrderOpenFromKanban(orderId){
+async function prodOrderOpenFromKanban(orderId){
   go('acc-production-orders');
-  setTimeout(()=>prodOrderStagesModal(orderId),300);
+  try{
+    const o=await api('GET','/production/orders/'+orderId);
+    if(['fixed_adv','variable_adv'].includes(o?.analysis_type)){
+      setTimeout(()=>prodOrderStagesModal(orderId),300);
+    }
+  }catch(e){ /* stay on orders list */ }
 }
 let _pkAutoTimer=null;
 function prodKanbanToggleAuto(){
@@ -6799,32 +7013,48 @@ async function prodRatesLoad(){
   catch(e){ if(area) area.innerHTML=`<div class="muted">${esc(e.message||'خطا در بارگذاری')}</div>`; return; }
   if(!area) return;
   const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(Math.round((v||0)/10)):'—');
+  window._prodRatesRows=rows;
+  const driverLabel={output_qty:'تعداد خروجی',direct_labor_rial:'دستمزد (ریال)',direct_labor_hours:'ساعت کارگر',machine_hours:'ساعت ماشین',material_rial:'مواد (ریال)',manual:'دستی'};
   area.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr>
-    <th>مرکز هزینه</th><th>محرک</th><th>نرخ کل (ت)</th><th>نرخ ثابت (ت)</th><th>نرخ متغیر (ت)</th><th>وضعیت</th><th>برآوردی</th>
+    <th>مرکز هزینه</th><th>محرک</th><th>نرخ کل (ت)</th><th>نرخ ثابت (ت)</th><th>نرخ متغیر (ت)</th><th>دستمزد/عدد (ت)</th><th>وضعیت</th><th>برآوردی</th><th></th>
   </tr></thead><tbody>
     ${rows.map(r=>`<tr>
       <td data-label="مرکز هزینه">${esc(r.cc_code||'')} ${esc(r.cc_name||'')}</td>
-      <td data-label="محرک">${esc(r.driver||'')}</td>
+      <td data-label="محرک">${esc(driverLabel[r.driver]||r.driver||'')}</td>
       <td data-label="نرخ کل" class="num">${money(r.total_rate_rial)}</td>
       <td data-label="نرخ ثابت" class="num">${money(r.fixed_rate_rial)}</td>
       <td data-label="نرخ متغیر" class="num">${money(r.var_rate_rial)}</td>
+      <td data-label="دستمزد" class="num">${money(r.monthly_labor_rate_rial)}</td>
       <td data-label="وضعیت">${esc(r.status||'')}</td>
       <td data-label="برآوردی">${r.is_estimated?'⚠️ بله':'—'}</td>
-    </tr>`).join('')||emptyRow(7)}
+      <td><button class="btn sm ghost" onclick="prodRateEditModal(${r.cost_center_id})">ویرایش</button></td>
+    </tr>`).join('')||emptyRow(9)}
   </tbody></table></div>`;
 }
-async function prodRateEditModal(){
+async function prodRateEditModal(ccId){
   const ccRows=window._prodRatesCC||[];
-  showModal('ثبت/ویرایش نرخ سربار',`
+  const period=window._prodRatesPeriod||todayJalali().slice(0,7);
+  const existing=(window._prodRatesRows||[]).find(r=>Number(r.cost_center_id)===Number(ccId))||null;
+  const d=existing?.driver||'output_qty';
+  showModal(existing?'ویرایش نرخ سربار':'ثبت نرخ سربار',`
     <div class="form-grid">
-      <div class="fg"><label>مرکز هزینه</label><select id="prm-cc">${ccRows.map(c=>`<option value="${c.id}">${esc(c.code)} — ${esc(c.name)}</option>`).join('')}</select></div>
-      <div class="fg"><label>دوره</label><input id="prm-period" value="${esc(window._prodRatesPeriod||todayJalali().slice(0,7))}" placeholder="1405/04"></div>
+      <div class="fg"><label>مرکز هزینه</label><select id="prm-cc">${ccRows.map(c=>`<option value="${c.id}" ${Number(c.id)===Number(ccId||existing?.cost_center_id)?'selected':''}>${esc(c.code)} — ${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>دوره</label><input id="prm-period" value="${esc(existing?.period_label||period)}" placeholder="1405/04"></div>
       <div class="fg"><label>محرک</label>
-        <select id="prm-driver"><option value="output_qty">تعداد خروجی</option><option value="labor_rial">دستمزد (ریال)</option><option value="material_rial">مواد (ریال)</option><option value="machine_hours">ساعت ماشین</option></select></div>
-      <div class="fg"><label>نرخ کل (تومان)</label><input id="prm-total" type="number" min="0" value="0"></div>
-      <div class="fg"><label>نرخ ثابت (تومان)</label><input id="prm-fixed" type="number" min="0" value="0"></div>
-      <div class="fg"><label>نرخ متغیر (تومان)</label><input id="prm-var" type="number" min="0" value="0"></div>
-      <div class="fg"><label><input type="checkbox" id="prm-est" style="width:auto"> نرخ برآوردی است</label></div>
+        <select id="prm-driver">
+          <option value="output_qty" ${d==='output_qty'?'selected':''}>تعداد خروجی</option>
+          <option value="direct_labor_rial" ${d==='direct_labor_rial'||d==='labor_rial'?'selected':''}>دستمزد مستقیم (ریال)</option>
+          <option value="direct_labor_hours" ${d==='direct_labor_hours'?'selected':''}>ساعت کارگر مستقیم</option>
+          <option value="machine_hours" ${d==='machine_hours'?'selected':''}>ساعت ماشین</option>
+          <option value="material_rial" ${d==='material_rial'?'selected':''}>مواد (ریال)</option>
+          <option value="manual" ${d==='manual'?'selected':''}>دستی</option>
+        </select></div>
+      <div class="fg"><label>نرخ کل (تومان)</label><input id="prm-total" type="number" min="0" value="${existing?Math.round((existing.total_rate_rial||0)/10):0}"></div>
+      <div class="fg"><label>نرخ ثابت (تومان)</label><input id="prm-fixed" type="number" min="0" value="${existing?Math.round((existing.fixed_rate_rial||0)/10):0}"></div>
+      <div class="fg"><label>نرخ متغیر (تومان)</label><input id="prm-var" type="number" min="0" value="${existing?Math.round((existing.var_rate_rial||0)/10):0}"></div>
+      <div class="fg"><label>نرخ دستمزد ماهانه (تومان/عدد)</label><input id="prm-labor" type="number" min="0" value="${existing?Math.round((existing.monthly_labor_rate_rial||0)/10):0}"></div>
+      <div class="fg full"><label>یادداشت</label><input id="prm-note" value="${esc(existing?.note||'')}" placeholder="اختیاری"></div>
+      <div class="fg"><label><input type="checkbox" id="prm-est" style="width:auto" ${existing?.is_estimated?'checked':''}> نرخ برآوردی است</label></div>
     </div>
     <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
       <button class="btn secondary" onclick="closeModal()">انصراف</button>
@@ -6840,6 +7070,8 @@ async function prodRateSave(){
       total_rate_rial:(+el('prm-total').value||0)*10,
       fixed_rate_rial:(+el('prm-fixed').value||0)*10,
       var_rate_rial:(+el('prm-var').value||0)*10,
+      monthly_labor_rate_rial:(+el('prm-labor')?.value||0)*10,
+      note:el('prm-note')?.value||'',
       is_estimated:el('prm-est')?.checked?1:0,
       status:'active',
     });
@@ -6966,12 +7198,16 @@ async function renderProductionOrdersTab(body){
         <td data-label="وضعیت">${badgeHtml(o.status)}</td>
         <td data-label="عملیات" style="white-space:nowrap">
           <button class="btn sm ghost" onclick="prodOrderCostSheet(${o.id})" title="برگه بها">📄</button>
-          ${o.status==='draft'?`<button class="btn sm" onclick="prodOrderRelease(${o.id})">آزادسازی</button>`:''}
+          ${o.status==='draft'?`<button class="btn sm" onclick="prodOrderRelease(${o.id})">آزادسازی</button>
+          <button class="btn sm red" onclick="prodOrderCancel(${o.id})">لغو</button>`:''}
+          ${o.status==='released'?`<button class="btn sm red" onclick="prodOrderCancel(${o.id})">لغو</button>`:''}
           ${['fixed_adv','variable_adv'].includes(o.analysis_type)&&['released','in_progress'].includes(o.status)?`<button class="btn sm" onclick="prodOrderStagesModal(${o.id})">مراحل</button>`:''}
           ${o.analysis_type==='fixed'&&['released','in_progress'].includes(o.status)?`<button class="btn sm" onclick="prodOrderReceiptModal(${o.id})">رسید</button>`:''}
           ${o.analysis_type==='variable'&&['released','in_progress'].includes(o.status)?`<button class="btn sm" onclick="prodOrderIssueModal(${o.id})">حواله مواد</button>`:''}
           ${o.analysis_type==='variable'&&o.status==='in_progress'?`<button class="btn sm" onclick="prodOrderReceiptModal(${o.id})">رسید</button>`:''}
-          ${o.status==='completed'?`<button class="btn sm" onclick="prodOrderClose(${o.id})">بستن</button>`:''}
+          ${o.status==='completed'?`<button class="btn sm" onclick="prodOrderClose(${o.id})">بستن</button>
+          <button class="btn sm ghost" style="color:var(--red)" onclick="prodOrderReverse(${o.id})">ابطال</button>`:''}
+          ${o.status==='closed'?`<button class="btn sm ghost" onclick="prodOrderReopen(${o.id})">بازگشایی</button>`:''}
         </td>
       </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--muted)">سفارشی نیست</td></tr>'}
     </tbody></table></div>
@@ -6991,18 +7227,25 @@ function prodOrderErrMsg(e){
 async function prodOrderCreateModal(){
   try{
     if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
-    let boms=[];
-    try{ boms=(await api('GET','/production/boms?status=active'))?.rows||(await api('GET','/production/boms'))?.rows||[]; }catch(e){ boms=[]; }
+    if(!CACHE.warehouses?.length){ try{ CACHE.warehouses=await api('GET','/warehouses')||[]; }catch(e){ CACHE.warehouses=[]; } }
+    let boms=[], ccs=[];
+    try{ boms=(await api('GET','/production/boms?status=active'))?.rows||[]; }catch(e){ boms=[]; }
+    try{ ccs=(await api('GET','/production/cost-centers'))?.rows||[]; }catch(e){ ccs=[]; }
     const activeBomProductIds=new Set((boms||[]).filter(b=>b.status==='active'||!b.status).map(b=>Number(b.product_id)));
     const all=CACHE.allProducts||[];
     let mfg=all.filter(p=>p.is_manufactured==1||p.item_type==='finished'||activeBomProductIds.has(Number(p.id)));
     if(!mfg.length) mfg=all.slice(0,200);
-    const warn=!activeBomProductIds.size?'⚠️ هنوز BOM فعال ندارید — اول فرمول بسازید و فعال کنید.':'';
+    const wh=(CACHE.warehouses||[]).filter(w=>w.active!==0);
+    const warn=!activeBomProductIds.size?'⚠️ هنوز BOM فعال ندارید — اول در «فرمول تولید» بسازید و فعال کنید.':'';
+    window._prodCreateBoms=boms||[];
     showModal('سفارش تولید جدید',`
       ${warn?`<div class="muted" style="margin-bottom:10px;color:var(--state-warn,#E67E22)">${warn}</div>`:''}
       <div class="form-grid">
         <div class="fg"><label>محصول</label>
-          <select id="po-product">${mfg.length?mfg.map(p=>`<option value="${p.id}">${esc(p.name)}${activeBomProductIds.has(Number(p.id))?' ✓BOM':''}</option>`).join(''):'<option value="">کالایی یافت نشد</option>'}</select>
+          <select id="po-product" onchange="prodOrderFilterBoms()">${mfg.length?mfg.map(p=>`<option value="${p.id}">${esc(p.name)}${activeBomProductIds.has(Number(p.id))?' ✓BOM':''}</option>`).join(''):'<option value="">کالایی یافت نشد</option>'}</select>
+        </div>
+        <div class="fg"><label>فرمول BOM</label>
+          <select id="po-bom"><option value="">— خودکار (پیش‌فرض فعال) —</option></select>
         </div>
         <div class="fg"><label>تعداد برنامه</label><input id="po-qty" type="number" min="1" value="300"></div>
         <div class="fg"><label>نوع آنالیز</label>
@@ -7012,25 +7255,46 @@ async function prodOrderCreateModal(){
             <option value="fixed_adv">ثابت پیشرفته — مرحله‌ای (Module 7)</option>
             <option value="variable_adv">متغیر پیشرفته — مرحله‌ای (Module 8)</option>
           </select></div>
+        <div class="fg"><label>انبار مواد</label>
+          <select id="po-wh-raw"><option value="">— پیش‌فرض —</option>${wh.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+        <div class="fg"><label>انبار محصول</label>
+          <select id="po-wh-fg"><option value="">— پیش‌فرض —</option>${wh.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+        <div class="fg"><label>مرکز هزینه</label>
+          <select id="po-cc"><option value="">— پیش‌فرض —</option>${ccs.map(c=>`<option value="${c.id}">${esc(c.code||'')} ${esc(c.name||'')}</option>`).join('')}</select></div>
         <div class="fg"><label>تاریخ</label><input id="po-date" value="${todayJalali()}"></div>
+        <div class="fg full"><label>یادداشت</label><input id="po-note" placeholder="اختیاری"></div>
       </div>
       <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
         <button class="btn secondary" onclick="closeModal()">انصراف</button>
         <button class="btn" onclick="prodOrderCreateSave()" ${mfg.length?'':'disabled'}>ثبت پیش‌نویس</button>
       </div>`);
+    prodOrderFilterBoms();
   }catch(e){
     showToast(e?.message||e?.error||'خطا در باز کردن فرم سفارش','error');
   }
+}
+function prodOrderFilterBoms(){
+  const pid=+el('po-product')?.value;
+  const sel=el('po-bom'); if(!sel) return;
+  const boms=(window._prodCreateBoms||[]).filter(b=>!pid||Number(b.product_id)===pid);
+  sel.innerHTML='<option value="">— خودکار (پیش‌فرض فعال) —</option>'+
+    boms.map(b=>`<option value="${b.id}">${esc(b.code||'')} v${b.version||1} ${esc(b.name||'')}</option>`).join('');
 }
 async function prodOrderCreateSave(){
   const pid=+el('po-product')?.value;
   const qty=+el('po-qty')?.value;
   if(!pid||!(qty>0)){ showToast('محصول و تعداد را وارد کنید','error'); return; }
   try{
-    await api('POST','/production/orders',{
+    const body={
       product_id:pid, qty_planned:qty,
-      analysis_type:el('po-analysis').value, date:el('po-date').value
-    });
+      analysis_type:el('po-analysis').value, date:el('po-date').value,
+      note:el('po-note')?.value||''
+    };
+    const bomId=+el('po-bom')?.value; if(bomId) body.bom_id=bomId;
+    const whR=+el('po-wh-raw')?.value; if(whR) body.warehouse_raw_id=whR;
+    const whF=+el('po-wh-fg')?.value; if(whF) body.warehouse_fg_id=whF;
+    const cc=+el('po-cc')?.value; if(cc) body.cost_center_id=cc;
+    await api('POST','/production/orders',body);
     closeModal(); showToast('سفارش ایجاد شد'); loadAccTab('production-orders');
   }catch(e){ /* toast already shown by api() with friendly message */ }
 }
@@ -7038,32 +7302,76 @@ async function prodOrderRelease(id){
   try{ await api('POST','/production/orders/'+id+'/release',{}); showToast('آزاد شد'); loadAccTab('production-orders'); }
   catch(e){ showToast(e.message||'خطا','error'); }
 }
+async function prodOrderCancel(id){
+  const reason=prompt('دلیل لغو پیش‌نویس:');
+  if(reason==null) return;
+  try{ await api('POST','/production/orders/'+id+'/cancel',{reason}); showToast('لغو شد'); loadAccTab('production-orders'); }
+  catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function prodOrderReverse(id){
+  const reason=prompt('دلیل ابطال با سند معکوس:');
+  if(reason==null) return;
+  if(!confirm('ابطال سفارش با سند معکوس؟ (حذف فیزیکی انجام نمی‌شود)')) return;
+  try{ await api('POST','/production/orders/'+id+'/reverse',{reason:reason||''}); showToast('ابطال شد'); loadAccTab('production-orders'); }
+  catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function prodOrderReopen(id){
+  if(!confirm('بازگشایی سفارش بسته‌شده (بازگشت به تکمیل‌شده)؟')) return;
+  try{ await api('POST','/production/orders/'+id+'/reopen',{}); showToast('بازگشایی شد'); loadAccTab('production-orders'); }
+  catch(e){ showToast(e.message||'خطا','error'); }
+}
 async function prodOrderClose(id){
   try{ await api('POST','/production/orders/'+id+'/close',{}); showToast('بسته شد'); loadAccTab('production-orders'); }
   catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function prodOrderReceiptModal(id){
-  showModal('رسید تولید',`
+  let order=null, preview=null;
+  try{ order=await api('GET','/production/orders/'+id); }catch(e){ showToast(e.message||'خطا','error'); return; }
+  const planned=+order.qty_planned||0;
+  const produced=+order.qty_produced||0;
+  const remain=Math.max(0, planned-produced);
+  const defQty=remain>0?remain:planned||1;
+  try{ preview=await api('GET','/production/orders/'+id+'/preview?qty_produced='+encodeURIComponent(defQty)); }catch(e){ preview=null; }
+  const unitHint=preview?.costs?.unit_cost_rial!=null?('برآورد بهای واحد: '+fmt(Math.round(preview.costs.unit_cost_rial/10))+' ت'):'دستمزد از BOM/نرخ مرکز؛ سربار از نرخ مرکز هزینه';
+  showModal('رسید تولید — '+esc(order.order_no||''),`
+    <p class="muted" style="font-size:12px;margin-bottom:10px">برنامه: ${toFa(planned)} · تولیدشده: ${toFa(produced)} · باقیمانده: ${toFa(remain)}</p>
     <div class="form-grid">
-      <div class="fg"><label>سالم پذیرفته‌شده</label><input id="pr-good" type="number" value="294"></div>
-      <div class="fg"><label>ضایعات عادی</label><input id="pr-wn" type="number" value="4"></div>
-      <div class="fg"><label>ضایعات غیرعادی</label><input id="pr-wa" type="number" value="2"></div>
+      <div class="fg"><label>سالم پذیرفته‌شده *</label><input id="pr-good" type="number" value="${defQty}" min="0" oninput="prodReceiptPreview(${id})"></div>
+      <div class="fg"><label>ضایعات عادی</label><input id="pr-wn" type="number" value="0" min="0"></div>
+      <div class="fg"><label>ضایعات غیرعادی</label><input id="pr-wa" type="number" value="0" min="0"></div>
       <div class="fg"><label>تاریخ</label><input id="pr-date" value="${todayJalali()}"></div>
+      <div class="fg full"><label><input type="checkbox" id="pr-partial" style="width:auto" ${remain>0&&defQty<planned?'checked':''}> رسید جزئی (سفارش در جریان می‌ماند)</label></div>
     </div>
-    <p style="font-size:12px;color:var(--muted);margin-top:8px">دستمزد پیش‌فرض: کارمزدی ۲۵۰٬۰۰۰ + ماهانه ۴۰٬۰۰۰ ریال/عدد · سربار از نرخ مرکز هزینه</p>
-    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+    <p id="pr-hint" style="font-size:12px;color:var(--muted);margin-top:8px">${esc(unitHint)}</p>
+    <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
       <button class="btn secondary" onclick="closeModal()">انصراف</button>
-      <button class="btn" onclick="prodOrderReceiptSave(${id})">ثبت نهایی</button>
+      <button class="btn" onclick="prodOrderReceiptSave(${id},true)">ثبت جزئی</button>
+      <button class="btn green" onclick="prodOrderReceiptSave(${id},false)">ثبت نهایی و تکمیل</button>
     </div>`);
 }
-async function prodOrderReceiptSave(id){
+async function prodReceiptPreview(id){
+  const q=+el('pr-good')?.value||0;
+  if(!(q>0)) return;
+  try{
+    const preview=await api('GET','/production/orders/'+id+'/preview?qty_produced='+q);
+    const hint=el('pr-hint');
+    if(hint&&preview?.costs?.unit_cost_rial!=null) hint.textContent='برآورد بهای واحد: '+fmt(Math.round(preview.costs.unit_cost_rial/10))+' ت';
+  }catch(e){}
+}
+async function prodOrderReceiptSave(id, forcePartial){
+  const qty=+el('pr-good')?.value||0;
+  if(!(qty>0) && !(+el('pr-wn')?.value||0) && !(+el('pr-wa')?.value||0)){
+    showToast('مقدار سالم یا ضایعات را وارد کنید','error'); return;
+  }
+  const isPartial=forcePartial===true || !!el('pr-partial')?.checked;
+  if(!isPartial && !confirm('ثبت نهایی — سفارش تکمیل می‌شود. ادامه؟')) return;
   try{
     const r=await api('POST','/production/orders/'+id+'/receipt',{
       date:el('pr-date').value,
-      qty_produced:+el('pr-good').value,
+      qty_produced:qty,
       waste_normal:+el('pr-wn').value||0,
       waste_abnormal:+el('pr-wa').value||0,
-      labor:[{method:'piece',rate_rial:250000},{method:'monthly',rate_rial:40000}],
+      is_partial:isPartial?1:0,
       auto_labor:true
     });
     closeModal();
@@ -7170,9 +7478,10 @@ async function prodOrderStagesModal(orderId){
         <td style="white-space:nowrap">
           ${s.status==='pending'?`<button class="btn sm" onclick="prodStageStart(${orderId},${s.id})">شروع</button>`:''}
           ${s.status==='in_progress'&&order.analysis_type==='variable_adv'?`<button class="btn sm ghost" onclick="prodStageIssueModal(${orderId},${s.id})">حواله مواد</button>`:''}
-          ${s.status==='in_progress'?`<button class="btn sm" onclick="prodStageOutputModal(${orderId},${s.id})">ثبت خروجی</button>`:''}
-          ${s.is_subcontract && s.status==='in_progress'?`<button class="btn sm ghost" onclick="prodStageSubSend(${orderId},${s.id})">📤 ارسال پیمانکار</button>`:''}
-          ${s.is_subcontract && ['in_progress','done'].includes(s.status)?`<button class="btn sm ghost" onclick="prodStageSubReceive(${orderId},${s.id})">📥 دریافت پیمانکار</button>`:''}
+          ${s.status==='in_progress'?`<button class="btn sm" onclick="prodStageOutputModal(${orderId},${s.id},${s.qty_in||0})">ثبت خروجی</button>`:''}
+          ${s.status==='pending'?`<button class="btn sm ghost" onclick="prodStageSkip(${orderId},${s.id})">رد کردن</button>`:''}
+          ${s.is_subcontract && s.status==='in_progress'?`<button class="btn sm ghost" onclick="prodStageSubSend(${orderId},${s.id},${s.supplier_id||0},${s.qty_in||0})">📤 ارسال پیمانکار</button>`:''}
+          ${s.is_subcontract && ['in_progress','done'].includes(s.status)?`<button class="btn sm ghost" onclick="prodStageSubReceive(${orderId},${s.id},${s.operation_id||0})">📥 دریافت پیمانکار</button>`:''}
           ${['pending','in_progress'].includes(s.status)?`<button class="btn sm ghost" onclick="prodStageBlock(${orderId},${s.id})">توقف</button>`:''}
           ${s.status==='blocked'?`<button class="btn sm ghost" onclick="prodStageUnblock(${orderId},${s.id})">رفع توقف</button>`:''}
           ${canRev?`<button class="btn sm ghost" style="color:var(--red)" onclick="prodStageReverse(${orderId},${s.id})">ابطال مرحله</button>`:''}
@@ -7206,60 +7515,88 @@ async function prodStageReverse(orderId,stageId){
     showToast('مرحله ابطال شد'); prodOrderStagesModal(orderId);
   }catch(e){ showToast(e.message||e.code||'خطا','error'); }
 }
-function prodStageOutputModal(orderId,stageId){
+async function prodStageSkip(orderId,stageId){
+  const reason=prompt('دلیل رد کردن مرحله:')||'';
+  if(!confirm('رد کردن این مرحله؟')) return;
+  try{ await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/skip',{reason}); showToast('مرحله رد شد'); prodOrderStagesModal(orderId); }
+  catch(e){ showToast(e.message||'خطا','error'); }
+}
+function prodStageOutputModal(orderId,stageId,qtyIn){
+  const qi=+qtyIn||0;
   showModal('ثبت خروجی مرحله',`
+    <p class="muted" style="font-size:12px;margin-bottom:8px">ورودی مرحله: ${toFa(qi)} — جمع خروجی+ضایعات+دوباره‌کاری باید برابر ورودی باشد.</p>
     <div class="form-grid">
-      <div class="fg"><label>خروجی سالم</label><input id="pso-out" type="number" min="0" value="0"></div>
-      <div class="fg"><label>ضایعات عادی</label><input id="pso-wn" type="number" min="0" value="0"></div>
-      <div class="fg"><label>ضایعات غیرعادی</label><input id="pso-wa" type="number" min="0" value="0"></div>
-      <div class="fg"><label>دوباره‌کاری</label><input id="pso-rw" type="number" min="0" value="0"></div>
+      <div class="fg"><label>خروجی سالم</label><input id="pso-out" type="number" min="0" value="${qi}" oninput="prodStageOutputBalance(${qi})"></div>
+      <div class="fg"><label>ضایعات عادی</label><input id="pso-wn" type="number" min="0" value="0" oninput="prodStageOutputBalance(${qi})"></div>
+      <div class="fg"><label>ضایعات غیرعادی</label><input id="pso-wa" type="number" min="0" value="0" oninput="prodStageOutputBalance(${qi})"></div>
+      <div class="fg"><label>دوباره‌کاری</label><input id="pso-rw" type="number" min="0" value="0" oninput="prodStageOutputBalance(${qi})"></div>
       <div class="fg"><label>تاریخ</label><input id="pso-date" value="${todayJalali()}"></div>
       <div class="fg"><label><input type="checkbox" id="pso-qc" style="width:auto"> تأیید کیفیت (QC) شد</label></div>
+      <div class="fg full"><label>دلیل ضایعات غیرعادی / یادداشت QC</label><input id="pso-note" placeholder="در صورت ضایعات غیرعادی الزامی"></div>
     </div>
+    <p id="pso-bal" class="muted" style="font-size:12px;margin-top:8px"></p>
     <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
       <button class="btn secondary" onclick="closeModal()">انصراف</button>
-      <button class="btn" onclick="prodStageOutputSave(${orderId},${stageId})">ثبت</button>
+      <button class="btn" id="pso-btn" onclick="prodStageOutputSave(${orderId},${stageId},${qi})">ثبت</button>
     </div>`);
+  prodStageOutputBalance(qi);
 }
-async function prodStageOutputSave(orderId,stageId){
+function prodStageOutputBalance(qi){
+  const out=+el('pso-out')?.value||0, wn=+el('pso-wn')?.value||0, wa=+el('pso-wa')?.value||0, rw=+el('pso-rw')?.value||0;
+  const sum=out+wn+wa+rw;
+  const ok=Math.abs(sum-qi)<0.0001;
+  const bal=el('pso-bal');
+  if(bal){ bal.textContent=ok?('✓ تراز صحیح ('+sum+')'):('⚠ جمع='+sum+' ≠ ورودی '+qi); bal.style.color=ok?'inherit':'var(--state-danger,#C0392B)'; }
+  const btn=el('pso-btn'); if(btn) btn.disabled=!ok;
+}
+async function prodStageOutputSave(orderId,stageId,qtyIn){
+  const out=+el('pso-out').value||0, wn=+el('pso-wn').value||0, wa=+el('pso-wa').value||0, rw=+el('pso-rw').value||0;
+  if(Math.abs(out+wn+wa+rw-(+qtyIn||0))>0.0001){ showToast('جمع خروجی با ورودی مرحله برابر نیست','error'); return; }
+  if(wa>0 && !(el('pso-note')?.value||'').trim()){ showToast('دلیل ضایعات غیرعادی الزامی است','error'); return; }
   try{
     await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/output',{
-      qty_out:+el('pso-out').value||0,
-      waste_normal:+el('pso-wn').value||0,
-      waste_abnormal:+el('pso-wa').value||0,
-      rework:+el('pso-rw').value||0,
+      qty_out:out,
+      waste_normal:wn,
+      waste_abnormal:wa,
+      rework:rw,
       date:el('pso-date').value,
       qc_passed:el('pso-qc')?.checked?1:0,
+      note:el('pso-note')?.value||'',
+      waste_reason:el('pso-note')?.value||'',
     });
     showToast('خروجی مرحله ثبت شد'); prodOrderStagesModal(orderId);
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function prodStageIssueModal(orderId,stageId){
+  let tpl=null;
+  try{ tpl=await api('GET','/production/execution/orders/'+orderId+'/stages/'+stageId+'/issue-template'); }
+  catch(e){ showToast(e.message||'خطا در دریافت الگوی حواله','error'); return; }
+  const lines=tpl.lines||[];
   showModal('حواله مواد مرحله',`
-    <div class="form-grid"><div class="fg"><label>تاریخ</label><input id="psi-date" value="${todayJalali()}"></div></div>
-    <div id="psi-rows" style="margin-top:8px"></div>
-    <button class="btn sm ghost" onclick="prodStageIssueAddRow()">➕ افزودن ردیف</button>
+    <div class="form-grid" style="margin-bottom:10px"><div class="fg"><label>تاریخ</label><input id="psi-date" value="${todayJalali()}"></div></div>
+    <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <th>کالا</th><th>استاندارد</th><th>واقعی</th><th>دلیل انحراف</th>
+    </tr></thead><tbody id="psi-rows">
+      ${lines.map((L,i)=>`<tr class="psi-row" data-pid="${L.product_id}" data-sq="${L.qty_standard}">
+        <td>${esc(L.name||('#'+L.product_id))}</td>
+        <td class="num">${L.qty_standard}</td>
+        <td><input class="psi-qty" type="number" step="0.01" value="${L.qty_actual}" style="width:90px"></td>
+        <td><input class="psi-reason" placeholder="در صورت انحراف" style="width:140px"></td>
+      </tr>`).join('')||'<tr><td colspan="4" class="muted" style="text-align:center">مادهٔ مرتبط با این مرحله نیست</td></tr>'}
+    </tbody></table></div>
     <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
       <button class="btn secondary" onclick="closeModal()">انصراف</button>
-      <button class="btn" onclick="prodStageIssueSave(${orderId},${stageId})">ثبت حواله</button>
+      <button class="btn" onclick="prodStageIssueSave(${orderId},${stageId})" ${lines.length?'':'disabled'}>ثبت حواله</button>
     </div>`);
-  prodStageIssueAddRow();
-}
-function prodStageIssueAddRow(){
-  const wrap=el('psi-rows'); if(!wrap) return;
-  const div=document.createElement('div');
-  div.className='form-grid psi-row';
-  div.style.marginBottom='6px';
-  div.innerHTML=`<div class="fg"><label>شناسه کالا</label><input type="number" class="psi-pid" style="width:90px"></div>
-    <div class="fg"><label>مقدار</label><input type="number" step="0.01" class="psi-qty" style="width:90px"></div>`;
-  wrap.appendChild(div);
 }
 async function prodStageIssueSave(orderId,stageId){
   const materials=[];
-  document.querySelectorAll('#psi-rows .psi-row').forEach(row=>{
-    const pid=+row.querySelector('.psi-pid').value||0;
-    const qty=+row.querySelector('.psi-qty').value||0;
-    if(pid&&qty) materials.push({product_id:pid,qty_actual:qty});
+  document.querySelectorAll('#psi-rows tr.psi-row').forEach(row=>{
+    materials.push({
+      product_id:+row.dataset.pid,
+      qty_actual:+row.querySelector('.psi-qty')?.value||0,
+      reason:row.querySelector('.psi-reason')?.value||'',
+    });
   });
   if(!materials.length){ showToast('حداقل یک ردیف معتبر وارد کنید','error'); return; }
   try{
@@ -7277,21 +7614,23 @@ async function prodOrderFinalize(orderId){
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 
-function prodStageSubSend(orderId,stageId){
+async function prodStageSubSend(orderId,stageId,supplierId,qtyIn){
+  if(!CACHE.suppliers) try{ CACHE.suppliers=await api('GET','/suppliers')||[]; }catch(e){ CACHE.suppliers=[]; }
   showModal('ارسال به پیمانکار',`
     <div class="form-grid">
-      <div class="fg"><label>شناسه تأمین‌کننده</label><input id="pss-supplier" type="number" min="1" placeholder="supplier_id"></div>
-      <div class="fg"><label>مقدار (خالی = کل ورودی)</label><input id="pss-qty" type="number" min="0" step="0.01"></div>
+      <div class="fg"><label>تأمین‌کننده</label>${supplierSelect('pss-supplier',supplierId||0)}</div>
+      <div class="fg"><label>مقدار (خالی = کل ورودی ${qtyIn||''})</label><input id="pss-qty" type="number" min="0" step="0.01"></div>
       <div class="fg"><label>تاریخ</label><input id="pss-date" value="${todayJalali()}"></div>
     </div>
     <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
       <button class="btn secondary" onclick="closeModal()">انصراف</button>
       <button class="btn" onclick="prodStageSubSendSave(${orderId},${stageId})">ارسال</button>
     </div>`);
+  setTimeout(()=>initSupplierSearches(document.getElementById('modal')||document),50);
 }
 async function prodStageSubSendSave(orderId,stageId){
   const body={date:el('pss-date').value};
-  const sid=+el('pss-supplier').value||0;
+  const sid=+el('pss-supplier')?.value||0;
   const qty=+el('pss-qty').value;
   if(sid) body.supplier_id=sid;
   if(qty>0) body.qty=qty;
@@ -7300,13 +7639,22 @@ async function prodStageSubSendSave(orderId,stageId){
     closeModal(); showToast('ارسال به پیمانکار ثبت شد'); prodOrderStagesModal(orderId);
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
-function prodStageSubReceive(orderId,stageId){
+async function prodStageSubReceive(orderId,stageId,operationId){
+  let feeToman=0;
+  try{
+    if(operationId){
+      // fee may be on stage list; try order stages
+      const data=await api('GET','/production/execution/orders/'+orderId+'/stages');
+      const st=(data.stages||[]).find(s=>Number(s.id)===Number(stageId));
+      feeToman=Math.round(Number(st?.subcontract_fee_rial||st?.fee_unit_rial||0)/10)||0;
+    }
+  }catch(e){}
   showModal('دریافت از پیمانکار',`
     <div class="form-grid">
       <div class="fg"><label>مقدار دریافتی *</label><input id="psr-qty" type="number" min="0" step="0.01" value="0"></div>
       <div class="fg"><label>ضایعات</label><input id="psr-waste" type="number" min="0" step="0.01" value="0"></div>
       <div class="fg"><label>مفقودی</label><input id="psr-lost" type="number" min="0" step="0.01" value="0"></div>
-      <div class="fg"><label>کارمزد واحد (تومان)</label><input id="psr-fee" type="number" min="0" value="0"></div>
+      <div class="fg"><label>کارمزد واحد (تومان) — خالی = از BOM</label><input id="psr-fee" type="number" min="0" placeholder="${feeToman||'از فرمول'}" value=""></div>
       <div class="fg"><label>تاریخ</label><input id="psr-date" value="${todayJalali()}"></div>
     </div>
     <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
@@ -7317,14 +7665,16 @@ function prodStageSubReceive(orderId,stageId){
 async function prodStageSubReceiveSave(orderId,stageId){
   const qty=+el('psr-qty').value||0;
   if(qty<=0){ showToast('مقدار دریافتی الزامی است','error'); return; }
+  const body={
+    qty_received:qty,
+    qty_waste:+el('psr-waste').value||0,
+    qty_lost:+el('psr-lost').value||0,
+    date:el('psr-date').value,
+  };
+  const feeRaw=el('psr-fee')?.value;
+  if(feeRaw!==''&&feeRaw!=null) body.fee_unit_rial=(+feeRaw||0)*10;
   try{
-    await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/subcontract/receive',{
-      qty_received:qty,
-      qty_waste:+el('psr-waste').value||0,
-      qty_lost:+el('psr-lost').value||0,
-      fee_unit_rial:(+el('psr-fee').value||0)*10,
-      date:el('psr-date').value,
-    });
+    await api('POST','/production/execution/orders/'+orderId+'/stages/'+stageId+'/subcontract/receive',body);
     closeModal(); showToast('دریافت از پیمانکار ثبت شد'); prodOrderStagesModal(orderId);
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
@@ -12508,6 +12858,12 @@ function renderAdminGuide(){
       </ul>`),
     helpSec('🆕','قابلیت‌های جدید (حسابداری، چک، جستجو)',`
       <p>در این نسخه چند بهبود مهم اعمال شده است:</p>
+      <h5>🏭 عملیات تولید — فرمول BOM و سفارش</h5><ul>
+        <li>در <b>حسابداری → عملیات تولید → فرمول تولید (BOM)</b> با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید.</li>
+        <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
+        <li>سفارش تولید: انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
+        <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
+      </ul>
       <h5>🔎 جستجوی سراسری پیشرفته (Ctrl+K)</h5><ul>
         <li>علاوه بر مشتری/محصول/فاکتور، اکنون <b>همهٔ بخش‌ها و زیرمنوهای برنامه</b> (از جمله تمام زیرماژول‌های حسابداری) قابل جستجو و باز شدن مستقیم هستند.</li>
         <li>کافی است بخشی از نام صفحه/بخش را تایپ کنید و با Enter مستقیماً به آن بروید — اگر بخش داخل ماژول حسابداری باشد، خودکار وارد پوستهٔ حسابداری می‌شود.</li>

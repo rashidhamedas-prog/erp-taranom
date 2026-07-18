@@ -138,4 +138,8 @@ router.get('/orders/:id/stages', auth, requirePermission('production', 'view'), 
   }));
 });
 
+router.get('/orders/:id/stages/:stageId/issue-template', auth, requirePermission('production', 'view'), (req, res) => {
+  handle(res, () => adv.getStageIssueTemplate(getDB(), orderId(req), stageId(req)), req);
+});
+
 module.exports = router;

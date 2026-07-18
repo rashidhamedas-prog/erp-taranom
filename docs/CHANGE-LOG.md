@@ -32,15 +32,28 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `e7c8ede` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v40` |
+| آخرین commit | (پس از commit) |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v41` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ✅ ایران `e7c8ede` — ماژول انبار + SW v40 |
+| وضعیت سرور | ⏳ UI تولید (BOM کامل) — نیاز به deploy |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۵/۰۴/۲۷ — [Cursor] تکمیل UI عملیات تولید (BOM + سفارش + رفع نقص‌ها)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین جلسه)
+- **خلاصه:**
+  - **BOM:** ایجاد پیش‌نویس، ویرایش اقلام، فعال‌سازی با `valid_from`، حذف پیش‌نویس، نسخه جدید، هشدار کالاهای بدون BOM.
+  - **سفارش:** انتخاب BOM/انبار/مرکز هزینه؛ لغو draft/released؛ رسید جزئی/نهایی با مقدار باقیمانده؛ حذف دستمزد hard-code؛ ابطال فقط completed + بازگشایی closed.
+  - **نرخ سربار:** محرک‌های صحیح (`direct_labor_rial` و …)؛ ویرایش ردیف؛ نمایش دستمزد ماهانه.
+  - **مرحله‌ای:** الگوی حواله مواد مرحله؛ خروجی با پیش‌فرض qty_in؛ پیمانکار با dropdown؛ کارمزد خالی = از BOM؛ skip مرحله.
+  - **بستن دوره:** بدون open خودکار هنگام باز شدن صفحه؛ دکمه بازگشایی؛ پیش‌بررسی اختیاری.
+  - API: `GET .../stages/:id/issue-template`؛ fallback دستمزد از `monthly_labor_rate_rial`.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `server/lib/production/labor.js`, `server/lib/production/engine-advanced.js`, `server/routes/production-execution.js`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳
 
 ### ۱۴۰۵/۰۴/۲۷ — [Cursor] ماژول انبار سازمانی (ledger / batch / reservation / landed cost)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
