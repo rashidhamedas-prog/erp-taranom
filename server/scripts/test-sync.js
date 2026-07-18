@@ -126,7 +126,9 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
   }
   ok(totalConfirmed === 2 || (syncOK.ok && syncOK.pending === 0), `sync after reconnect confirmed both ops (total ${totalConfirmed})`);
   const cInv = (await req(C, 'GET', '/api/invoices', ct)).body;
-  const applied = cInv.find(i => i.final === 250000);
+  // Match on pre-VAT subtotal (VAT-invariant): since accounting phase 3 the
+  // `final` field includes default VAT, so it is no longer exactly 250000.
+  const applied = cInv.find(i => i.subtotal === 250000);
   ok(applied && /^T-\d{4}$/.test(applied.num), `central assigned real number (${applied && applied.num})`);
   const cCust2 = (await req(C, 'GET', '/api/customers', ct)).body.find(c => c.biz === 'مشتری در قطعی');
   ok(cCust2 && applied.cust_id === cCust2.id, 'chained provisional customer ref translated');
