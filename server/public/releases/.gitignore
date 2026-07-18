@@ -1,0 +1,5 @@
+# Installers are NOT deployed via git/SCP — upload to GitHub Releases (see docs/DESKTOP-UPDATE.md).
+*.exe
+*.apk
+*.blockmap
+*.zip

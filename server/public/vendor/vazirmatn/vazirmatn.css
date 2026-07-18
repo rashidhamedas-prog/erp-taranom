@@ -1,0 +1,10 @@
+/* فونت وزیرمتن — میزبانی محلی (بدون وابستگی به Google Fonts).
+   فونت متغیر: همهٔ وزن‌ها ۱۰۰ تا ۹۰۰ در یک فایل. */
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/vendor/vazirmatn/Vazirmatn-var.woff2') format('woff2-variations'),
+       url('/vendor/vazirmatn/Vazirmatn-var.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}

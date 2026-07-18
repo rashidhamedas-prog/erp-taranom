@@ -2,58 +2,46 @@ name: Deploy CRM ترنم
 
 on:
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Git branch to deploy'
+        required: false
+        default: 'claude/claude-md-docs-2ssrpy'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to server via SSH
+      - name: Deploy to production server via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           password: ${{ secrets.SERVER_PASSWORD }}
-          port: 22
+          port: ${{ secrets.SERVER_PORT || 2299 }}
+          script_stop: true
           script: |
             set -e
-
-            DEPLOY_PATH="/root/crm-taranom"
-            REPO="https://github.com/rashidhamedas-prog/crm-taranom.git"
-
-            # Clone if first time, otherwise pull
-            if [ ! -d "$DEPLOY_PATH/.git" ]; then
-              echo "==> First deploy: cloning repo..."
-              git clone "$REPO" "$DEPLOY_PATH"
+            export DEPLOY_BRANCH="${{ github.event.inputs.branch || 'claude/claude-md-docs-2ssrpy' }}"
+            export APP_ROOT="${{ secrets.APP_ROOT || '/home/taranom-admin/crm-taranom' }}"
+            cd "$APP_ROOT"
+            git fetch origin "$DEPLOY_BRANCH"
+            git checkout "$DEPLOY_BRANCH"
+            git pull origin "$DEPLOY_BRANCH"
+            if [ -f "$APP_ROOT/scripts/deploy-production.sh" ]; then
+              bash "$APP_ROOT/scripts/deploy-production.sh"
             else
-              echo "==> Pulling latest changes..."
-              cd "$DEPLOY_PATH"
-              git fetch origin main
-              git checkout main
-              git reset --hard origin/main
+              echo "==> deploy-production.sh not found — inline deploy"
+              cd "$APP_ROOT/server"
+              JWT_FILE="$APP_ROOT/server/jwt-secret.txt"
+              if [ ! -f "$JWT_FILE" ]; then
+                node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > "$JWT_FILE"
+                chmod 600 "$JWT_FILE"
+              fi
+              npm install --omit=dev
+              pm2 describe crm-taranom >/dev/null 2>&1 && pm2 restart crm-taranom --update-env || pm2 start ecosystem.config.js
+              pm2 save
+              sleep 2
+              curl -sf "http://127.0.0.1:${PORT:-3000}/api/system/time"
             fi
-
-            cd "$DEPLOY_PATH/server"
-
-            # Install dependencies
-            echo "==> Installing dependencies..."
-            npm install --production
-
-            # Create uploads directory
-            mkdir -p public/uploads/products
-
-            # Install PM2 globally if not installed
-            if ! command -v pm2 &> /dev/null; then
-              echo "==> Installing PM2..."
-              npm install -g pm2
-            fi
-
-            # Start or restart the app
-            echo "==> Starting/restarting app..."
-            pm2 describe crm-taranom > /dev/null 2>&1 && \
-              pm2 restart crm-taranom || \
-              pm2 start ecosystem.config.js
-
-            pm2 save
-
-            echo "==> Deploy complete!"
-            pm2 status

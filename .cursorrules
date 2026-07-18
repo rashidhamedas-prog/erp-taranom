@@ -1,0 +1,27 @@
+# CRM ترنم — قوانین پروژه برای Cursor
+
+**قبل از هر کاری `docs/PROJECT-HANDOFF.md` را کامل بخوان** — معماری، تصمیم‌ها و وضعیت فعلی آنجاست.
+همراهش: `CLAUDE.md` (خلاصهٔ معماری v3)، `docs/OFFLINE-SYNC.md` (موتور همگام‌سازی)، و **`docs/CHANGE-LOG.md`** (تاریخچهٔ تغییرات اعمال‌شده).
+
+## قوانین اجباری
+1. بعد از هر تغییر در قابلیت‌ها، بخش راهنمای داخل برنامه را در همان کامیت به‌روز کن:
+   `ROUTES.help` → `renderAdminGuide()` / `renderSalesGuide()` در `server/public/index.html`.
+2. بعد از هر تغییر بک‌اند، هر دو تست را اجرا کن:
+   `node server/scripts/test-sms.js` و `node server/scripts/test-sync.js`.
+3. فرانت‌اند تک‌فایل است (`server/public/index.html`) — بلوک `<script>` را با `new Function()` پارس کن تا خطای نحوی نباشد.
+4. عملیات چندجدولی باید داخل `db.transaction()` باشد (اتمیک).
+5. هیچ رازی (رمز/کلید/توکن) کامیت نشود.
+6. شماره فاکتور/خرید فقط از `allocateNumber()` (جدول `number_sequences`) — هرگز `COUNT(*)+1`.
+7. آرایهٔ جدول‌ها در `server/sync/tables.js` فقط append-only است؛ ترتیب را به‌هم نزن.
+8. توضیحات را به فارسی بده.
+9. بعد از هر تغییر، یک ورودی در `docs/CHANGE-LOG.md` اضافه کن (تاریخ، commit، خلاصه، فایل‌ها، وضعیت deploy).
+
+## ساختار
+- بک‌اند: `server/` (Node/Express + better-sqlite3). ورود: `server/server.js`. اسکیما در `server/db.js`.
+- فرانت‌اند: `server/public/index.html`.
+- سینک: `server/sync/{tables,capture,client}.js` + `server/routes/sync.js`.
+- ویندوز: `desktop/` (Electron). اندروید: `android/` (nodejs-mobile).
+- شاخهٔ کاری: `claude/claude-md-docs-2ssrpy`.
+
+## اولویت کارهای بعدی (در PROJECT-HANDOFF.md بخش ۶)
+داخلی‌کردن CDNهای خارجی (فونت/Chart.js/html2canvas) ← سخت‌سازی امنیتی (HTTPS، JWT_SECRET، رمز اجباری، رمزنگاری بکاپ).

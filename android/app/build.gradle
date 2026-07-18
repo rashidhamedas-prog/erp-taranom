@@ -1,0 +1,125 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'ir.taranom.crm'
+    compileSdk 36
+
+    ndkVersion "25.1.8937393"
+
+    defaultConfig {
+        applicationId "ir.taranom.crm"
+        minSdk 24
+        targetSdk 34
+        versionCode 11
+        versionName "2.0.9"
+
+        ndk {
+            // ABIs shipped by nodejs-mobile
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+        }
+    }
+
+    // اسرار امضا هرگز در گیت نیستند: از android/keystore.properties (در .gitignore)
+    // یا متغیرهای محیطی CRM_KEYSTORE_* خوانده می‌شوند — نمونه در BUILD.md
+    def keystoreProps = new Properties()
+    def keystorePropsFile = rootProject.file('keystore.properties')
+    if (keystorePropsFile.exists()) {
+        keystorePropsFile.withInputStream { keystoreProps.load(it) }
+    }
+    def ksFile   = keystoreProps.getProperty('storeFile')   ?: System.getenv('CRM_KEYSTORE_FILE')
+    def ksPass   = keystoreProps.getProperty('storePassword') ?: System.getenv('CRM_KEYSTORE_PASSWORD')
+    def ksAlias  = keystoreProps.getProperty('keyAlias')    ?: System.getenv('CRM_KEY_ALIAS')
+    def ksKeyPass = keystoreProps.getProperty('keyPassword') ?: System.getenv('CRM_KEY_PASSWORD')
+
+    signingConfigs {
+        if (ksFile && ksPass && ksAlias && ksKeyPass) {
+            release {
+                storeFile rootProject.file(ksFile)
+                storePassword ksPass
+                keyAlias ksAlias
+                keyPassword ksKeyPass
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (ksFile && ksPass && ksAlias && ksKeyPass) {
+                signingConfig signingConfigs.release
+            } else {
+                // No release keystore — debug-sign so APK is installable (sideload).
+                // Users upgrading from an older release-signed build must uninstall first.
+                signingConfig signingConfigs.debug
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    sourceSets {
+        main {
+            // libnode.so per ABI, laid out by the layoutNodeLibs task below
+            jniLibs.srcDirs += ['libnode/bin']
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+}
+
+// ---------------------------------------------------------------------------
+// nodejs-mobile integration.
+// 1) Download the nodejs-mobile-android AAR (see BUILD.md) into app/libs/ as
+//    nodejs-mobile.aar. extractNodeLibs/layoutNodeLibs unpack libnode.so and
+//    the node headers into app/libnode/ for CMake and packaging.
+// 2) copyServerSources refreshes the bundled backend from ../../server into
+//    src/main/assets/nodejs-project/server before every build, so the APK
+//    always ships the current code. node_modules for the nodejs-project is
+//    produced once per nodejs-mobile version (see BUILD.md — better-sqlite3
+//    is cross-compiled with the Android NDK).
+// ---------------------------------------------------------------------------
+tasks.register('extractNodeLibs', Copy) {
+    def aar = file('libs/nodejs-mobile.aar')
+    onlyIf { aar.exists() }
+    from zipTree(aar)
+    into file('libnode-aar')
+}
+
+tasks.register('layoutNodeLibs', Copy) {
+    dependsOn 'extractNodeLibs'
+    onlyIf { file('libnode-aar').exists() }
+    from(file('libnode-aar/jni')) { into 'bin' }
+    from(file('libnode-aar/include')) { into 'include' }
+    into file('libnode')
+}
+
+tasks.register('copyServerSources', Copy) {
+    doFirst { delete file('src/main/assets/nodejs-project/server') }
+    from(file('../../server')) {
+        exclude 'node_modules/**', 'backups/**', '*.db', '*.db-wal', '*.db-shm', '.env',
+                'public/uploads/**',
+                'public/releases/**'
+    }
+    into file('src/main/assets/nodejs-project/server')
+}
+
+preBuild.dependsOn 'layoutNodeLibs'
+preBuild.dependsOn 'copyServerSources'
+
+dependencies {
+    // Plain WebView + embedded Node runtime — no external UI dependencies
+}

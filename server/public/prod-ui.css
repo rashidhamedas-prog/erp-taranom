@@ -1,0 +1,228 @@
+/**
+ * prod-ui.css — سیستم طراحی ماژول عملیات تولید
+ * مرجع: docs/Production/ui.md §1
+ * فقط از این متغیرها استفاده کن — هیچ رنگ hard-code در prod-*.js
+ */
+:root {
+  /* برند */
+  --brand-dark:    #1B5C4A;   /* سبز تیره — هدر، منو */
+  --brand-mid:     #2D7A5F;   /* سبز متوسط — دکمه اصلی، موفقیت */
+  --brand-gold:    #C9A84C;   /* طلایی — برجسته، هشدار مثبت */
+
+  /* وضعیت */
+  --state-success: #2D7A5F;
+  --state-warn:    #E67E22;
+  --state-danger:  #C0392B;
+  --state-info:    #2980B9;
+  --state-neutral: #7F8C8D;
+
+  /* وضعیت سفارش */
+  --st-draft:      #95A5A6;
+  --st-released:   #C9A84C;
+  --st-progress:   #E67E22;
+  --st-completed:  #2980B9;
+  --st-closed:     #2D7A5F;
+  --st-cancelled:  #C0392B;
+
+  /* انحراف */
+  --var-favorable:   #2D7A5F;
+  --var-unfavorable: #C0392B;
+  --var-neutral:     #7F8C8D;
+
+  /* سطوح */
+  --prod-bg:        #FFFFFF;
+  --prod-bg-alt:    #F7F9F8;
+  --prod-bg-locked: #F0F0F0;
+  --prod-border:    #E1E5E4;
+  --prod-text:      #1A1A1A;
+  --prod-text-mute: #6B7574;
+
+  /* فاصله */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-8: 48px;
+
+  --prod-radius: 8px;
+  --prod-shadow: 0 1px 3px rgba(0,0,0,.08);
+  --prod-shadow-lg: 0 4px 16px rgba(0,0,0,.12);
+}
+
+.prod-scope, .prod-scope * { direction: rtl; }
+.prod-scope .num { font-variant-numeric: tabular-nums; }
+.prod-scope .money { font-weight: 600; letter-spacing: -0.2px; }
+.prod-scope .text-mute { color: var(--prod-text-mute); }
+.prod-scope .text-lg { font-size: 20px; }
+
+/* ============ Badge وضعیت ============ */
+.prod-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 10px; border-radius: 12px;
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.prod-badge-draft      { background:#ECEFF1; color:#546E7A; }
+.prod-badge-released   { background:#FFF8E1; color:#8D6E00; }
+.prod-badge-in_progress,
+.prod-badge-progress   { background:#FFF3E0; color:#E65100; }
+.prod-badge-completed  { background:#E3F2FD; color:#1565C0; }
+.prod-badge-closed     { background:#E8F5E9; color:#1B5C4A; }
+.prod-badge-cancelled  { background:#FFEBEE; color:#C0392B; }
+
+/* ============ KPI Card ============ */
+.prod-kpi-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.prod-kpi {
+  background: var(--prod-bg); border: 1px solid var(--prod-border);
+  border-radius: var(--prod-radius); box-shadow: var(--prod-shadow);
+  padding: var(--sp-3) var(--sp-4); position: relative; overflow: hidden;
+}
+.prod-kpi::before {
+  content:''; position:absolute; top:0; right:0; bottom:0; width:4px;
+  background: var(--brand-mid);
+}
+.prod-kpi .prod-kpi-icon { font-size: 20px; margin-bottom: var(--sp-1); }
+.prod-kpi .prod-kpi-label { font-size: 12px; color: var(--prod-text-mute); margin-bottom: var(--sp-1); }
+.prod-kpi .prod-kpi-value { font-size: 22px; font-weight: 700; color: var(--prod-text); }
+.prod-kpi .prod-kpi-delta { font-size: 12px; font-weight: 600; margin-top: 2px; }
+.prod-kpi .prod-kpi-delta.good { color: var(--state-success); }
+.prod-kpi .prod-kpi-delta.bad { color: var(--state-danger); }
+.prod-kpi .prod-kpi-delta.neutral { color: var(--prod-text-mute); }
+.prod-kpi .prod-kpi-sub { font-size: 11px; color: var(--prod-text-mute); margin-top: 2px; }
+
+/* ============ Load Bar (بار مراکز) ============ */
+.prod-load-row {
+  display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0;
+  font-size: 12px;
+}
+.prod-load-label { min-width: 70px; color: var(--prod-text-mute); }
+.prod-load-track {
+  flex: 1; height: 10px; background: var(--prod-bg-alt); border-radius: 6px; overflow: hidden;
+}
+.prod-load-fill { height: 100%; border-radius: 6px; transition: width .3s; }
+.prod-load-fill.ok { background: var(--state-success); }
+.prod-load-fill.warn { background: var(--state-warn); }
+.prod-load-fill.danger { background: var(--state-danger); }
+.prod-load-pct { min-width: 46px; text-align: left; font-weight: 600; }
+.prod-load-flag { color: var(--state-warn); font-weight: 700; font-size: 11px; }
+
+/* ============ Locked banner ============ */
+.prod-locked-banner {
+  background: var(--prod-bg-locked); border-right: 4px solid var(--state-warn);
+  padding: var(--sp-3); border-radius: var(--prod-radius);
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: var(--sp-4); font-size: 13px;
+}
+.prod-locked input, .prod-locked select, .prod-locked textarea {
+  background: var(--prod-bg-locked) !important; cursor: not-allowed !important; pointer-events: none;
+}
+
+/* ============ Stage flow ============ */
+.prod-stage-flow { display:flex; gap:0; align-items:flex-start; overflow-x:auto; padding-bottom: 4px; }
+.prod-stage { flex:1; min-width: 88px; text-align:center; position:relative; padding-top:var(--sp-4); font-size: 12px; }
+.prod-stage:not(:last-child)::after {
+  content:''; position:absolute; top:12px; left:0; right:50%;
+  height:2px; background:var(--prod-border); z-index:0;
+}
+.prod-stage.done::after { background: var(--brand-mid); }
+.prod-stage .prod-stage-dot { position:relative; z-index:1; font-size:18px; display:block; margin-bottom:2px; }
+.prod-stage .prod-stage-label { display:block; }
+.prod-stage.active .prod-stage-label { font-weight:700; color: var(--state-info); }
+.prod-stage.pending { opacity:.55; }
+.prod-stage .prod-stage-qty { display:block; font-size: 11px; color: var(--prod-text-mute); }
+
+/* ============ Variance cells ============ */
+.prod-var-fav    { color: var(--var-favorable); font-weight: 600; }
+.prod-var-unfav  { color: var(--var-unfavorable); font-weight: 600; }
+.prod-var-neutral{ color: var(--var-neutral); font-weight: 600; }
+
+/* ============ Required-error (دلیل انحراف) ============ */
+.prod-required-error {
+  border: 2px solid var(--state-danger) !important;
+  background: #FFEBEE !important;
+  animation: prod-shake .3s;
+}
+@keyframes prod-shake {
+  0%,100%{ transform: translateX(0); } 25%{ transform: translateX(-4px); } 75%{ transform: translateX(4px); }
+}
+
+/* ============ Je preview ============ */
+.prod-je-preview { border: 1px solid var(--prod-border); border-radius: var(--prod-radius); margin-bottom: var(--sp-3); overflow: hidden; }
+.prod-je-preview .prod-je-head {
+  background: var(--prod-bg-alt); padding: var(--sp-2) var(--sp-3); font-weight: 700; font-size: 13px;
+  display:flex; justify-content:space-between; align-items:center; cursor:pointer;
+}
+.prod-je-preview table { width: 100%; font-size: 12px; }
+.prod-je-preview td, .prod-je-preview th { padding: 6px 10px; border-bottom: 1px solid var(--prod-border); }
+.prod-je-balanced { color: var(--state-success); font-weight: 700; }
+.prod-je-unbalanced { color: var(--state-danger); font-weight: 700; }
+
+/* ============ Kanban ============ */
+.prod-kanban-board { display: flex; gap: var(--sp-3); overflow-x: auto; padding-bottom: var(--sp-3); }
+.prod-kanban-col { min-width: 190px; background: var(--prod-bg-alt); border-radius: var(--prod-radius); padding: var(--sp-2); flex-shrink: 0; }
+.prod-kanban-col-head { font-weight: 700; font-size: 13px; margin-bottom: var(--sp-2); display:flex; justify-content:space-between; }
+.prod-kanban-card {
+  background: var(--prod-bg); border: 1px solid var(--prod-border); border-right: 4px solid var(--state-neutral);
+  border-radius: var(--prod-radius); padding: var(--sp-2); margin-bottom: var(--sp-2); font-size: 12px; cursor: pointer;
+  box-shadow: var(--prod-shadow);
+}
+.prod-kanban-card:hover { box-shadow: var(--prod-shadow-lg); }
+.prod-kanban-card.st-draft { border-right-color: var(--st-draft); }
+.prod-kanban-card.st-released { border-right-color: var(--st-released); }
+.prod-kanban-card.st-in_progress { border-right-color: var(--st-progress); }
+.prod-kanban-card.st-completed { border-right-color: var(--st-completed); }
+.prod-kanban-card.st-blocked { border-right-color: var(--state-danger); }
+
+/* ============ Estimate / MRP panels ============ */
+.prod-panel { background: var(--prod-bg); border: 1px solid var(--prod-border); border-radius: var(--prod-radius); box-shadow: var(--prod-shadow); }
+.prod-panel-head { padding: var(--sp-3); border-bottom: 1px solid var(--prod-border); font-weight: 700; color: var(--brand-dark); }
+.prod-panel-body { padding: var(--sp-3); }
+
+/* ============ Buttons (scoped, reuse brand vars) ============ */
+.prod-btn {
+  background: var(--brand-mid); color: #fff; border: none; padding: 8px 14px;
+  border-radius: var(--prod-radius); font-size: 13px; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.prod-btn:hover { background: var(--brand-dark); }
+.prod-btn.secondary { background: var(--prod-bg-alt); color: var(--brand-dark); border: 1px solid var(--prod-border); }
+.prod-btn.danger { background: var(--state-danger); }
+.prod-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ============ Focus / a11y ============ */
+.prod-scope *:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 2px; }
+
+/* ============ Skeleton ============ */
+.prod-skeleton { background: linear-gradient(90deg, var(--prod-bg-alt) 25%, var(--prod-border) 37%, var(--prod-bg-alt) 63%); background-size: 400% 100%; animation: prod-skeleton 1.4s ease infinite; border-radius: 4px; height: 14px; }
+@keyframes prod-skeleton { 0%{ background-position: 100% 50%; } 100%{ background-position: 0 50%; } }
+
+/* ============ Mobile-first (§1.5) ============ */
+@media (max-width: 768px) {
+  .prod-scope table.data-table thead,
+  .prod-scope table.tbl thead { display: none; }
+  .prod-scope table.data-table tr,
+  .prod-scope table.tbl tr {
+    display: block; margin-bottom: var(--sp-3);
+    border: 1px solid var(--prod-border); border-radius: var(--prod-radius);
+    padding: var(--sp-3); box-shadow: var(--prod-shadow);
+  }
+  .prod-scope table.data-table td,
+  .prod-scope table.tbl td {
+    display: flex; justify-content: space-between;
+    padding: var(--sp-2) 0; border: none;
+  }
+  .prod-scope table.data-table td::before,
+  .prod-scope table.tbl td::before {
+    content: attr(data-label);
+    font-weight: 600; color: var(--prod-text-mute);
+  }
+  .prod-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .prod-stage-flow { flex-direction: column; }
+  .prod-kanban-board { flex-direction: column; }
+  .prod-kanban-col { min-width: 100%; }
+}
+
+/* ============ Print (برگه بها A4) ============ */
+@media print {
+  .prod-scope .toolbar, .prod-scope .no-print { display: none !important; }
+  .prod-print-sheet { box-shadow: none !important; border: none !important; }
+}

@@ -1,0 +1,9 @@
+# SSH config — روی ویندوز در: %USERPROFILE%\.ssh\config
+# اتصال: ssh taranom-ir
+
+Host taranom-ir
+  HostName 94.249.244.208
+  User taranom
+  IdentityFile ~/.ssh/id_ed25519_taranom
+  IdentitiesOnly yes
+  ServerAliveInterval 60

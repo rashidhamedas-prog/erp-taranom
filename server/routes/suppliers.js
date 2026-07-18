@@ -1,0 +1,94 @@
+const router = require('express').Router();
+const { allocTafsili } = require('../lib/coa-map');
+const { getDB, audit } = require('../db');
+const { auth, adminOrAccounting } = require('../middleware/auth');
+const { todayJalali } = require('../jalali');
+const { syncSupplierToParty } = require('../lib/parties-sync');
+
+// Suppliers are shared company-wide (not owned by a salesperson) — accounting/admin only
+router.get('/', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare('SELECT * FROM suppliers ORDER BY name').all();
+  res.json(rows);
+});
+
+router.get('/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM suppliers WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'تأمین‌کننده یافت نشد' });
+  res.json(row);
+});
+
+const PARTY_MAHAK_COLS = ['prefix', 'phone2', 'fax', 'mobile', 'email', 'economic_code', 'postal_code', 'national_id', 'referrer', 'company_name', 'account_nature'];
+
+router.post('/', auth, adminOrAccounting, (req, res) => {
+  const { name, phone, address, note, balance, party_group_id, ...mahak } = req.body;
+  if (!name) return res.status(400).json({ error: 'نام تأمین‌کننده الزامی است' });
+  const db = getDB();
+  const bal = parseFloat(balance) || 0;
+  const pgid = party_group_id ? parseInt(party_group_id) : null;
+  const mvals = PARTY_MAHAK_COLS.map(k => mahak[k] || '');
+  const result = db.prepare(
+    `INSERT INTO suppliers (name,phone,address,note,balance,party_group_id,${PARTY_MAHAK_COLS.join(',')}) VALUES (?,?,?,?,?,?,${PARTY_MAHAK_COLS.map(() => '?').join(',')})`
+  ).run(name, phone || '', address || '', note || '', bal, pgid, ...mvals);
+  try {
+    const mode = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get()?.value;
+    if (mode === 'mahak') {
+      const cc = allocTafsili(db, 'supplier', name);
+      if (cc) db.prepare('UPDATE suppliers SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid);
+    }
+  } catch (_) {}
+  const supplierId = result.lastInsertRowid;
+  try { syncSupplierToParty(db, supplierId); } catch (_) {}
+  // Opening balance becomes the first supplier-ledger entry (credit = we owe them)
+  if (bal !== 0) {
+    db.prepare('INSERT INTO supplier_ledger (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(supplierId, todayJalali(), 'opening', 'opening', supplierId, 'مانده اولیه حساب', bal < 0 ? -bal : 0, bal > 0 ? bal : 0, req.user.id);
+  }
+  audit(req.user.id, 'create', 'supplier', supplierId, `ساخت تأمین‌کننده ${name}`);
+  res.json(db.prepare('SELECT * FROM suppliers WHERE id=?').get(supplierId));
+});
+
+router.put('/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM suppliers WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  const { name, phone, address, note, party_group_id, ...mahak } = req.body;
+  const pgid = party_group_id !== undefined ? (party_group_id ? parseInt(party_group_id) : null) : row.party_group_id;
+  const mset = PARTY_MAHAK_COLS.map(k => `${k}=?`).join(',');
+  const mvals = PARTY_MAHAK_COLS.map(k => mahak[k] ?? row[k] ?? '');
+  db.prepare(`UPDATE suppliers SET name=?,phone=?,address=?,note=?,party_group_id=?,${mset} WHERE id=?`)
+    .run(name || row.name, phone || '', address || '', note || '', pgid, ...mvals, req.params.id);
+  try { syncSupplierToParty(db, req.params.id); } catch (_) {}
+  res.json({ ok: true });
+});
+
+router.delete('/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM suppliers WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  const hasInvoices = db.prepare('SELECT COUNT(*) c FROM purchase_invoices WHERE supplier_id=?').get(req.params.id).c;
+  if (hasInvoices) return res.status(400).json({ error: 'این تأمین‌کننده دارای فاکتور خرید است و قابل حذف نیست' });
+  db.prepare('DELETE FROM suppliers WHERE id=?').run(req.params.id);
+  audit(req.user.id, 'delete', 'supplier', req.params.id, `حذف تأمین‌کننده ${row.name}`);
+  res.json({ ok: true });
+});
+
+// Payable balances (mirrors /customers/balances for receivables)
+router.get('/balances/list', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare(`
+    SELECT s.id, s.name, s.phone, s.balance as opening_balance,
+      COALESCE(pi.total_purchased, 0) as total_purchased,
+      COALESCE(sp.total_paid, 0) as total_paid,
+      COALESCE(pr.total_returned, 0) as total_returned
+    FROM suppliers s
+    LEFT JOIN (SELECT supplier_id, SUM(final) total_purchased FROM purchase_invoices WHERE pay_type='credit' GROUP BY supplier_id) pi ON pi.supplier_id=s.id
+    LEFT JOIN (SELECT supplier_id, SUM(amount) total_paid FROM supplier_payments GROUP BY supplier_id) sp ON sp.supplier_id=s.id
+    LEFT JOIN (SELECT supplier_id, SUM(amount) total_returned FROM purchase_returns GROUP BY supplier_id) pr ON pr.supplier_id=s.id
+  `).all();
+  rows.forEach(r => { r.payable = (r.opening_balance || 0) + r.total_purchased - r.total_paid - r.total_returned; });
+  res.json(rows.filter(r => r.payable !== 0));
+});
+
+module.exports = router;

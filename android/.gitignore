@@ -1,0 +1,14 @@
+.gradle/
+build/
+app/build/
+app/libs/*.aar
+app/libnode/
+app/libnode-aar/
+app/src/main/assets/nodejs-project/server/
+app/src/main/assets/nodejs-project/node_modules/
+local.properties
+.idea/
+*.iml
+hs_err_pid*.log
+java_pid*.hprof
+app/.cxx/
