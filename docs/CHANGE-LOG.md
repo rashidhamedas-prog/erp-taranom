@@ -27,19 +27,80 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۴/۰۴/۲۸)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۲۶)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `9e183e0` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v32` |
+| آخرین commit | `13dbcaf` |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v37` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ✅ import کامل — **۱۵۳۰/۱۵۳۰** سند متصل + UI محک (گروه‌ها، فیلدها، دفتر چک) |
+| وضعیت سرور | ✅ import کامل — **۱۵۳۰/۱۵۳۰** سند متصل + UI محک؛ **ماژول کامل بهای تمام‌شدهٔ تولید (P0–P10)** اضافه شد |
+| سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۵/۰۴/۲۶ — [Cursor] همگام‌سازی CHANGE-LOG با کد شاخه (بازسازی ورودی‌های جامانده)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین commit (فقط مستندات)
+- **خلاصه:** لاگ تغییرات با HEAD شاخه (`13dbcaf`) از عقب‌ماندگی درآمد. ۱۳ کامیت ثبت‌نشده (از `9e183e0` تا `13dbcaf` — شامل ماژول کامل بهای تمام‌شدهٔ تولید، UI تولید، راه‌اندازی VPS ایران، جریان‌های فروش/خرید ایرانی، و اصلاحات UI حسابداری crm.docx) شناسایی و ورودی تاریخچه‌شان بازسازی شد. جدول «وضعیت فعلی» هم به‌روز شد (آخرین commit، SW `v37`، سرور تنها ایران).
+- **فایل‌های کلیدی:** `docs/CHANGE-LOG.md`
+- **Deploy:** ❌ لازم نیست (فقط مستندات)
+
+> **یادداشت هماهنگی (ثبت‌شده ۱۴۰۵/۰۴/۲۶):** ورودی‌های زیر برای کامیت‌هایی بازسازی شدند که کد آن‌ها در شاخه بود ولی ورودی تاریخچه نداشتند (از `9e183e0` تا `13dbcaf`). خلاصه‌ها از پیام کامیت و آمار فایل‌ها استخراج شده‌اند. وضعیت deploy از این محیط (Cloud Agent، بدون SSH به سرور) قابل تأیید نبود و با ⏳ (نیاز به تأیید روی سرور) علامت خورده مگر جایی که خلاف آن مستند است.
+
+### ۱۴۰۵/۰۴/۲۶ — [Cursor] اصلاحات UI حسابداری (طبق crm.docx): اشخاص، دریافت‌ها، انبار، اسناد
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `13dbcaf`
+- **خلاصه:**
+  - ساخت خودکار حساب CoA روی اشخاص/محصولات (`parties`/`products`) + همگام‌سازی `parties-sync`.
+  - **۴ نوع دریافت/پرداخت** + رسیدهای چند-چکی (multi-check).
+  - انبار **به‌ازای هر سطر فاکتور** + اسناد انبار چند-سطری؛ دسته‌بندی هزینه‌ها.
+  - پاک‌سازی ناوبری (`acc-nav.js`) + انتخابگر/UX سند (voucher picker).
+  - اسکریپت کمکی یک‌بارمصرف `scripts/_patch_crm_docx_ui.py` برای اعمال تغییرات UI؛ SW bump.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/acc-nav.js`, `server/routes/{accounting,expenses,invoices,parties,products,warehouses}.js`, `server/lib/{coa-map,parties-sync}.js`, `server/db.js`
+- **Deploy:** ⏳ نیاز به تأیید روی سرور
+
+### ۱۴۰۵/۰۴/۲۶ — [Cursor] ماژول کامل بهای تمام‌شدهٔ تولید (P0–P10) + UI + تست‌ها
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `6e2ff80` (پایه) · `0275b8b` · `e2d7c86` · `e49e01b` · `8d41c9d` · `a537a15` · `868a583`
+- **خلاصه:**
+  - **`6e2ff80` — پایهٔ ماژول تولید:** BOM، بهای تمام‌شدهٔ ثابت/متغیر، اجرای چندمرحله‌ای، MRP، بستن دوره با تسهیم ADR-005، گزارش‌ها با داشبورد Chart.js و برگهٔ بهای تمام‌شدهٔ A4، حذف بهای تمام‌شده در RBAC (cost stripping)، workflow CI، و cron سلامت شبانه. مستندات کامل در `docs/Production/*` (۲۰ سند). **`server/sync/tables.js` فقط append شد** (جدول‌های جدید تولید).
+  - **`0275b8b`:** بررسی‌گر آمادگی go-live هفتهٔ اول (مراکز هزینه، انبارها، تنظیمات CoA، شکاف BOM/نرخ‌ها) با `--fix` اختیاری.
+  - **`e2d7c86`:** تکمیل صفحات UI طبق `ui.md` — سیستم طراحی `prod-ui`، تب‌های برآورد/کانبان/انحراف/MRP/نرخ‌ها، جریان‌های مرحله/حواله سفارش، اکشن‌های BOM routing، اتصال `canSeeCost`.
+  - **`e49e01b`:** گسترش پوشش تست — smoke API، ماتریس دسترسی، BOM، تحلیل ثابت/متغیر پیشرفته، برآورد، گزارش‌ها، سلامت، smoke UI.
+  - **`8d41c9d`:** health-check تولید + API/UI `user_cost_centers`، کنترل دستمزد پیمانکاری روی مودال مرحله، و `reverseStage` (PRD-99) برای آخرین مرحلهٔ کامل‌شده.
+  - **`a537a15`:** استفاده از `cost_centers.active` (نه `is_active`)، باز کردن خودکار دوره در precheck بستن، مقاوم‌سازی داشبورد در دادهٔ خالی، بهبود UX/خطای ایجاد سفارش، حذف تب قدیمی تولید.
+  - **`868a583`:** بازنشستگی VPS آلمان از مستندات؛ ایران `94.249.244.208` تنها سرور production.
+- **فایل‌های کلیدی:** `server/lib/production/*` (bom, costing, engine, close, mrp, reports, schema, ...)، `server/routes/production-*.js`، `server/public/{prod-ui.js,prod-ui.css,acc-nav.js,index.html}`، `server/scripts/test-production-*.js`، `docs/Production/*`، `.github/workflows/production-tests.yml`، `server/sync/tables.js`
+- **Deploy:** ⏳ نیاز به تأیید روی سرور — `npm install` لازم (وابستگی‌های جدید در `server/package.json`)
+
+### ۱۴۰۵/۰۴/۲۵ — [Cursor] راه‌اندازی VPS ایران + مسیرهای قابل‌حمل PM2
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `332f84d`
+- **خلاصه:** اسکریپت‌های bootstrap و سخت‌سازی سرور ایران (`bootstrap-iran-vps.sh`, `fresh-harden.py`, `ubuntu-harden.sh`, غیرفعال‌سازی رمز SSH، unban کنسول)، مسیرهای deploy قابل‌حمل PM2، و نمونهٔ `ssh-config-taranom-ir`.
+- **فایل‌های کلیدی:** `scripts/bootstrap-iran-vps.sh`, `scripts/fresh-harden.py`, `scripts/ubuntu-harden.sh`, `scripts/deploy-production.sh`, `server/ecosystem.config.js`, `docs/SECURITY-HARDENING.md`
+- **Deploy:** ⏳ اجرا روی سرور ایران (ops)
+
+### ۱۴۰۵/۰۴/۲۴ — [Cursor] منوی حسابداری + جریان‌های فروش/خرید ایرانی + رفع باگ
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `09d6479` · `3a85bf9` · `373cffc`
+- **خلاصه:**
+  - `09d6479`: بازطراحی منوی حسابداری + جریان‌های فروش/خرید ایرانی + رفع چند باگ.
+  - `3a85bf9`: رفع منوی حسابداری، UX گروه‌های اشخاص (`party_groups`)، و API سفارش‌ها.
+  - `373cffc`: seed کردن `party_groups` در حالت standard + یکپارچه‌سازی UX ماژول اشخاص.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/routes/{parties,orders}.js`, `server/routes/party-groups.js`
+- **Deploy:** ⏳ نیاز به تأیید روی سرور
+
+### ۱۴۰۵/۰۴/۲۴ — [Cursor] اتصال postToLedger به فاکتور/خرید + قفل سال مالی + بازیابی بکاپ + UI یکپارچگی
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `9e183e0`
+- **خلاصه:** سیم‌کشی `postToLedger` برای فاکتورها و خریدها (پست خودکار سند حسابداری)، قفل سال مالی (fiscal lock)، بازیابی بکاپ (backup restore)، و UI بررسی یکپارچگی (integrity UI).
+- **فایل‌های کلیدی:** `server/routes/{invoices,purchases,fiscal-year}.js`, `server/lib/ledger.js`, `server/backup.js`, `server/public/index.html`
+- **Deploy:** ⏳ نیاز به تأیید روی سرور
+- **یادداشت:** این ورودی بعداً بازسازی شد — قبلاً فقط در جدول «وضعیت فعلی» به‌عنوان آخرین commit ذکر شده بود.
 
 ### ۱۴۰۴/۰۴/۲۸ — [Cursor] فاز ۳–۸ ماژول حسابداری (VAT، مودیان، گزارشات، HR، دارایی ثابت، backup)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
