@@ -106,6 +106,7 @@ const ACC_NAV_SECTIONS = [
   ]},
   { title: 'اطلاعات پایه', items: [
     { id: 'acc-parties', icon: '👥', label: 'اطلاعات اشخاص' },
+    { id: 'acc-party-groups', icon: '📂', label: 'گروه‌های اشخاص' },
     { id: 'acc-products', icon: '📦', label: 'کالاها' },
     { id: 'acc-product-groups', icon: '🏷️', label: 'گروه‌های کالا' },
     { id: 'acc-warehouses', icon: '🏭', label: 'انبارها' },

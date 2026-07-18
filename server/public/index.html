@@ -253,9 +253,11 @@ table.tbl tr:hover td{background:var(--row-hover)}
 .fg input[readonly]{background:var(--bg);color:var(--muted)}
 
 /* ===== Jalali datepicker (minimal) ===== */
-.dp-overlay{position:fixed;inset:0;z-index:599;display:none}
+/* z-index must sit ABOVE modal overlay (1100) and custom dropdowns (2000) so the
+   calendar is never trapped behind a popup modal (below omnibox 9000). */
+.dp-overlay{position:fixed;inset:0;z-index:2999;display:none}
 .dp-overlay.open{display:block}
-.dp{position:fixed;background:var(--card);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.16);border:1px solid var(--border);width:224px;z-index:600;display:none;padding:10px}
+.dp{position:fixed;background:var(--card);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.16);border:1px solid var(--border);width:224px;z-index:3000;display:none;padding:10px}
 .dp.open{display:block;animation:dpPop .12s ease}
 @keyframes dpPop{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
 /* Nav row */
@@ -377,7 +379,7 @@ table.tbl tr:hover td{background:var(--row-hover)}
 }
 
 /* ===== Toast ===== */
-#toasts{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:900;display:flex;flex-direction:column;gap:8px;align-items:center}
+#toasts{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:3200;display:flex;flex-direction:column;gap:8px;align-items:center}
 .toast{background:#1f2937;color:#fff;padding:12px 22px;border-radius:10px;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.25);animation:slideup .25s}
 .toast.success{background:var(--green);color:var(--on-accent)}.toast.error{background:var(--red);color:var(--on-accent)}.toast.info{background:var(--blue);color:var(--on-accent)}
 @keyframes slideup{from{opacity:0;transform:translateY(20px)}to{opacity:1}}
@@ -688,8 +690,8 @@ table.tbl tr:hover td{background:var(--row-hover)}
 <!-- ===== Command Palette ===== -->
 <div id="omniboxOverlay" class="omnibox-overlay" onclick="if(event.target===this)closeOmnibox()">
   <div class="omnibox" onclick="event.stopPropagation()">
-    <input id="omniboxInput" placeholder="جستجو: مشتری، محصول، فاکتور، صفحه..." autocomplete="off">
-    <div class="omnibox-hint">Ctrl+K — مشتریان، محصولات، فاکتورها، صفحات</div>
+    <input id="omniboxInput" placeholder="جستجو: مشتری، محصول، فاکتور، بخش‌ها و زیرمنوها..." autocomplete="off">
+    <div class="omnibox-hint">Ctrl+K — مشتریان، محصولات، فاکتورها و همهٔ بخش‌ها/زیرمنوهای برنامه</div>
     <div class="omnibox-results" id="omniboxResults"></div>
   </div>
 </div>
@@ -1754,12 +1756,47 @@ function openOmnibox(){
   _omniboxResults=[]; _omniboxIdx=0;
 }
 function closeOmnibox(){ el('omniboxOverlay').classList.remove('open'); }
+// Normalize Persian text for tolerant matching (Arabic ي/ك, ZWNJ, case).
+function _omniNorm(s){ return String(s||'').toLowerCase().replace(/ي/g,'ی').replace(/ك/g,'ک').replace(/\u200c/g,' ').replace(/\s+/g,' ').trim(); }
+function _omniScore(text,q){
+  const t=_omniNorm(text), n=_omniNorm(q);
+  if(!t||!n) return 0;
+  if(t===n) return 100;
+  if(t.startsWith(n)) return 85;
+  if(t.includes(n)) return 65;
+  const words=n.split(' ').filter(Boolean);
+  if(words.length>1 && words.every(w=>t.includes(w))) return 50;
+  return 0;
+}
+// Build a navigable index of EVERY section/subsection/group the current user can
+// reach: main sidebar pages + all accounting sub-modules (respecting module flags).
+function buildOmniboxPageIndex(){
+  const idx=[];
+  try{
+    (navItems()||[]).forEach(it=>{ if(it&&it.id&&it.id!=='exit-acc-shell') idx.push({type:'page',label:it.label,sub:'صفحه',route:it.id}); });
+  }catch(_){}
+  try{
+    const secs=(typeof ACC_NAV_SECTIONS!=='undefined')?ACC_NAV_SECTIONS:[];
+    secs.forEach(sec=>{(sec.items||[]).forEach(it=>{
+      if(!it||!it.id||it.id==='exit-acc-shell') return;
+      if(typeof filterAccNavItem==='function' && !filterAccNavItem(it)) return;
+      idx.push({type:'page',label:it.label,sub:'حسابداری › '+(sec.title||''),route:it.id});
+    });});
+  }catch(_){}
+  return idx;
+}
 async function runOmniboxSearch(){
   const q=(el('omniboxInput')?.value||'').trim();
   const box=el('omniboxResults');
   if(q.length<2){ box.innerHTML='<div class="muted" style="padding:12px 16px">حداقل ۲ حرف...</div>'; return; }
   box.innerHTML='<div class="muted" style="padding:12px 16px">جستجو...</div>';
-  _omniboxResults = await api('GET','/search?q='+encodeURIComponent(q))||[];
+  let server=[]; try{ server=await api('GET','/search?q='+encodeURIComponent(q))||[]; }catch(_){ server=[]; }
+  // Keep entity hits (customers/products/invoices…) from the server; replace its
+  // limited hard-coded page list with the full client-side navigation index.
+  const entities=(server||[]).filter(r=>r.type!=='page').map(e=>({...e,score:e.score||60}));
+  const pages=buildOmniboxPageIndex().map(p=>({...p,score:_omniScore(p.label,q)})).filter(p=>p.score>0);
+  const merged=[...pages,...entities].sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,40);
+  _omniboxResults=merged;
   _omniboxIdx=0;
   renderOmniboxResults();
 }
@@ -3473,7 +3510,7 @@ async function prodModal(id){
           ${cats.map(c=>`<option value="${c.id}" ${p.category_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
         </select></div>
       <div class="fg"><label>دسته (متن آزاد — اختیاری)</label><input id="p-cat" value="${esc(p.category||'')}" placeholder="اگر از لیست بالا انتخاب نکردید"></div>
-      <div class="fg"><label>کد محصول ${hlp('کد یکتای محصول — برای جستجوی سریع در فاکتورساز.')}</label><input id="p-code" value="${esc(p.code||'')}"></div>
+      <div class="fg"><label>کد محصول ${hlp('کد یکتای محصول — برای جستجوی سریع در فاکتورساز. اگر خالی بماند به‌صورت خودکار ساخته می‌شود (K-00001).')}</label><input id="p-code" value="${esc(p.code||'')}" placeholder="خودکار"></div>
       <div class="fg"><label>قیمت فروش (تومان) ${hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.price)}"></div>
       <div class="fg"><label>بهای تمام‌شده (تومان) ${hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
       <div class="fg"><label>موجودی ${hlp('تعداد موجودی فعلی انبار. با صدور فاکتور رسمی خودکار کم می‌شود.')}</label><input id="p-stock" type="number" value="${p.stock!=null?p.stock:0}"></div>
@@ -3534,6 +3571,7 @@ async function saveProduct(id){
     if(id) await api('PUT','/products/'+id,fd,true); else await api('POST','/products',fd,true);
     closeModal();
     await _refreshProdWithCats(_prodCanEdit);
+    if(window._accProdRefresh){ try{ window._accProdRefresh(); }catch(_){} window._accProdRefresh=null; }
     showToast('ذخیره شد');
   }catch(e){ showToast('خطا در ذخیره محصول','error'); }
 }
@@ -8392,10 +8430,18 @@ async function deletePartyGroup(id){
 }
 
 /* ---- Accounting sub-modules (منوی کامل) ---- */
+// Open the full product create form from inside the accounting shell. Accounting
+// codes (کل/معین/تفصیلی) are generated automatically on the server (allocTafsili).
+async function accNewProduct(){
+  if(!CACHE.products) CACHE.products=CACHE.allProducts||await api('GET','/products')||[];
+  window._accProdRefresh=()=>{ CACHE.allProducts=null; if(typeof accTab!=='undefined'&&accTab==='products') loadAccTab('products'); };
+  await prodModal();
+}
 async function renderAccProductsTab(body){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px;gap:8px">
+      <button class="btn green" onclick="accNewProduct()">➕ محصول جدید</button>
       <button class="btn" onclick="go('products')">📦 مدیریت کامل کالاها</button>
       <button class="btn ghost" onclick="loadAccTab('product-groups')">🏷️ گروه‌های کالا</button>
     </div>
@@ -9582,7 +9628,7 @@ async function expensePaymentModal(){
   openModal(`
     <div class="modal-head"><h3>🧾 ثبت پرداخت هزینه</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>دسته هزینه</label><select id="ex-category">
+      <div class="fg"><label>دسته هزینه <button type="button" class="btn sm ghost" style="padding:1px 8px;font-size:11px" onclick="exAddCategory()">➕ دستهٔ جدید</button></label><select id="ex-category">
         ${cats.map(c=>`<option value="${esc(c.code||c.id)}">${esc(c.name)}</option>`).join('')}
       </select></div>
       <div class="fg full"><label>حساب هزینه (دفتر کل) ${hlp('جستجو و انتخاب حساب از کدینگ — اگر خالی بماند از دسته پیش‌فرض استفاده می‌شود.')}</label>
@@ -9613,6 +9659,19 @@ async function expensePaymentModal(){
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
   loadExpenseModalData();
+}
+async function exAddCategory(){
+  const name=prompt('نام دستهٔ هزینهٔ جدید:'); if(!name||!name.trim()) return;
+  try{
+    const c=await api('POST','/expenses/categories',{name:name.trim()});
+    CACHE.expenseCategories=await api('GET','/expenses/categories').catch(()=>[])||[];
+    const sel=el('ex-category');
+    if(sel){
+      sel.innerHTML=(CACHE.expenseCategories||[]).map(x=>`<option value="${esc(x.code||x.id)}">${esc(x.name)}</option>`).join('');
+      if(c) sel.value=String(c.code||c.id);
+    }
+    showToast('دستهٔ هزینه اضافه شد');
+  }catch(e){}
 }
 async function loadExpenseModalData(){
   if(!CACHE.chartOfAccounts) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
@@ -9807,6 +9866,7 @@ async function settlementModal(custId){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   stlRows=[{amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:''}];
+  stlCheques=[stlNewCheque()];
   stlOpenInvoices=[];
   if(custId) stlOpenInvoices=await api('GET','/accounting/customers/'+custId+'/open-invoices')||[];
   openModal(`
@@ -9822,7 +9882,7 @@ async function settlementModal(custId){
       </label></div>
       <div id="stlSingleBlock">
         <div class="form-grid">
-          <div class="fg"><label>مبلغ (تومان) *</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
+          <div class="fg" id="st-amount-fg"><label>مبلغ (تومان) *</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
           <div class="fg"><label>نوع پرداخت</label><select id="st-paytype" onchange="toggleStlCheque()"><option value="cash">نقد</option><option value="cheque">چک</option></select></div>
           <div class="fg"><label>واریز به بانک</label><select id="st-bank"><option value="">— بدون بانک —</option>
             ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
@@ -9841,27 +9901,10 @@ async function settlementModal(custId){
         <button class="btn sm ghost" onclick="stlAddRow()">➕ قسط دیگر</button>
         <div class="fg" style="margin-top:10px"><label>یادداشت مشترک</label><textarea id="st-note-multi" placeholder="توضیحات..."></textarea></div>
       </div>
-      <div id="chequeFields" class="fg full" style="display:none">
-        <div class="form-grid">
-          <div class="fg"><label>نام بانک *</label><input id="st-cbank" placeholder="مثال: ملی"></div>
-          <div class="fg"><label>شماره صیادی *</label><input id="st-csayadi"></div>
-          <div class="fg"><label>شماره چک</label><input id="st-cnum"></div>
-          <div class="fg"><label>شماره حساب</label><input id="st-caccnum"></div>
-          <div class="fg"><label>مبلغ چک (ت)</label><input id="st-camount" type="text" inputmode="numeric" class="money"></div>
-          <div class="fg"><label>نام صادرکننده</label><input id="st-cowner"></div>
-          <div class="fg"><label>شعبه</label><input id="st-cbranch" placeholder="شعبه بانک"></div>
-          <div class="fg"><label>شماره شبا</label><input id="st-csheba" dir="ltr" placeholder="IR..."></div>
-          <div class="fg full"><label>تاریخ سررسید *</label><input id="st-cdue" data-jdate></div>
-        </div>
-      </div>
-      <div class="fg full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="st-multicheque" onchange="stlToggleMultiCheque()" style="width:auto"> ثبت چند چک در یک سند دریافت
-      </label></div>
-      <div id="stlChequeList" style="display:none" class="fg full">
-        <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
-          <th>مبلغ</th><th>بانک</th><th>صیادی</th><th>شعبه</th><th>شبا</th><th>سررسید</th><th></th>
-        </tr></thead><tbody id="stlChequeBody"></tbody></table></div>
-        <button class="btn sm ghost" onclick="stlAddCheque()">➕ چک دیگر</button>
+      <div id="stlChequeCards" class="fg full" style="display:none">
+        <label style="font-weight:700;color:var(--purple);margin-bottom:6px">اطلاعات چک‌ها ${hlp('برای هر چک همهٔ مشخصات را وارد کنید. با دکمهٔ «ثبت چک بعدی» می‌توانید چک‌های متعدد را در یک سند دریافت ثبت کنید. مبلغ کل دریافت = جمع مبلغ چک‌ها.')}</label>
+        <div id="stlChequeCardsBody"></div>
+        <button class="btn sm ghost" type="button" onclick="stlAddCheque()">➕ ثبت چک بعدی</button>
       </div>
     </div></div>
     <div class="modal-foot">
@@ -9872,6 +9915,7 @@ async function settlementModal(custId){
   initCustSearches(el('modalRoot'));
   const hid=el('st-cust'); if(hid) hid.addEventListener('change', stlCustChanged);
   renderStlRows();
+  toggleStlCheque();
 }
 async function stlCustChanged(){
   const custId=+el('st-cust')?.value;
@@ -9888,11 +9932,11 @@ function stlApplyInvoiceAmt(){
 }
 function stlToggleMulti(){
   const multi=el('st-multi')?.checked;
-  const s=el('stlSingleBlock'), m=el('stlMultiBlock'), cf=el('chequeFields');
+  const s=el('stlSingleBlock'), m=el('stlMultiBlock');
   if(s) s.style.display=multi?'none':'block';
   if(m) m.style.display=multi?'block':'none';
-  if(cf && multi) cf.style.display='none';
-  if(multi) renderStlRows();
+  if(multi){ const cc=el('stlChequeCards'); if(cc) cc.style.display='none'; renderStlRows(); }
+  else toggleStlCheque();
 }
 function stlAddRow(){ stlRows.push({amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:''}); renderStlRows(); }
 function renderStlRows(){
@@ -9907,55 +9951,70 @@ function renderStlRows(){
   </tr>`).join('');
   attachDatepickers(body);
 }
+function stlNewCheque(){ return {bank:'',account:'',branch:'',sheba:'',number:'',sayadi:'',amount:'',due:todayJalali(),owner:'',note:''}; }
+let stlCheques=[stlNewCheque()];
+// Show/hide the cheque cards block. Paying by cheque switches the amount field
+// off (the total is the sum of the individual cheque amounts) and reveals the
+// per-cheque cards, each collecting the full cheque identity + an auto row no.
 function toggleStlCheque(){
   const pt=el('st-paytype'); if(!pt) return;
-  const cf=el('chequeFields'); if(!cf) return;
-  cf.style.display=(pt.value==='cheque' && !el('st-multi')?.checked)?'block':'none';
+  const isCheque = pt.value==='cheque' && !el('st-multi')?.checked;
+  const cc=el('stlChequeCards'); if(cc) cc.style.display=isCheque?'block':'none';
+  const amtFg=el('st-amount-fg'); if(amtFg) amtFg.style.display=isCheque?'none':'flex';
+  if(isCheque){ if(!stlCheques.length) stlCheques=[stlNewCheque()]; renderStlCheques(); }
 }
-
-let stlCheques=[{amount:'',bank:'',sayadi:'',branch:'',sheba:'',due:todayJalali(),owner:'',number:''}];
-function stlToggleMultiCheque(){
-  const on=el('st-multicheque')?.checked;
-  const box=el('stlChequeList'); if(box) box.style.display=on?'block':'none';
-  const cf=el('chequeFields'); if(cf && on) cf.style.display='none';
-  if(on){ el('st-paytype').value='cheque'; renderStlCheques(); }
-}
-function stlAddCheque(){ stlCheques.push({amount:'',bank:'',sayadi:'',branch:'',sheba:'',due:todayJalali(),owner:'',number:''}); renderStlCheques(); }
+function stlAddCheque(){ stlCheques.push(stlNewCheque()); renderStlCheques(); }
+function stlRemoveCheque(i){ stlCheques.splice(i,1); if(!stlCheques.length) stlCheques=[stlNewCheque()]; renderStlCheques(); }
 function renderStlCheques(){
-  const body=el('stlChequeBody'); if(!body) return;
-  body.innerHTML=stlCheques.map((c,i)=>`<tr>
-    <td><input class="money" value="${esc(c.amount)}" onchange="stlCheques[${i}].amount=this.value" style="width:90px"></td>
-    <td><input value="${esc(c.bank)}" onchange="stlCheques[${i}].bank=this.value" style="width:90px"></td>
-    <td><input value="${esc(c.sayadi)}" onchange="stlCheques[${i}].sayadi=this.value" style="width:100px"></td>
-    <td><input value="${esc(c.branch)}" onchange="stlCheques[${i}].branch=this.value" style="width:80px"></td>
-    <td><input dir="ltr" value="${esc(c.sheba)}" onchange="stlCheques[${i}].sheba=this.value" style="width:120px"></td>
-    <td><input data-jdate value="${esc(c.due)}" onchange="stlCheques[${i}].due=this.value" style="width:100px"></td>
-    <td>${stlCheques.length>1?`<button class="btn sm red" onclick="stlCheques.splice(${i},1);renderStlCheques()">×</button>`:''}</td>
-  </tr>`).join('');
+  const body=el('stlChequeCardsBody'); if(!body) return;
+  body.innerHTML=stlCheques.map((c,i)=>`
+    <div class="chq-card" style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--well)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <b style="color:var(--purple)">چک — ردیف ${toFa(i+1)}</b>
+        ${stlCheques.length>1?`<button type="button" class="btn sm red" onclick="stlRemoveCheque(${i})">حذف</button>`:''}
+      </div>
+      <div class="form-grid">
+        <div class="fg"><label>نام بانک *</label><input value="${esc(c.bank)}" onchange="stlCheques[${i}].bank=this.value" placeholder="مثال: ملی"></div>
+        <div class="fg"><label>شماره حساب</label><input dir="ltr" value="${esc(c.account)}" onchange="stlCheques[${i}].account=this.value"></div>
+        <div class="fg"><label>شعبه</label><input value="${esc(c.branch)}" onchange="stlCheques[${i}].branch=this.value" placeholder="شعبه بانک"></div>
+        <div class="fg"><label>شماره شبا</label><input dir="ltr" value="${esc(c.sheba)}" onchange="stlCheques[${i}].sheba=this.value" placeholder="IR..."></div>
+        <div class="fg"><label>شماره چک</label><input dir="ltr" value="${esc(c.number)}" onchange="stlCheques[${i}].number=this.value"></div>
+        <div class="fg"><label>شناسه صیاد *</label><input dir="ltr" value="${esc(c.sayadi)}" onchange="stlCheques[${i}].sayadi=this.value"></div>
+        <div class="fg"><label>مبلغ چک (تومان) *</label><input type="text" inputmode="numeric" class="money" value="${esc(c.amount)}" onchange="stlCheques[${i}].amount=this.value"></div>
+        <div class="fg"><label>تاریخ سررسید *</label><input data-jdate value="${esc(c.due)}" onchange="stlCheques[${i}].due=this.value"></div>
+        <div class="fg full"><label>نام و مشخصات صادرکننده</label><input value="${esc(c.owner)}" onchange="stlCheques[${i}].owner=this.value"></div>
+        <div class="fg full"><label>توضیحات</label><input value="${esc(c.note)}" onchange="stlCheques[${i}].note=this.value"></div>
+      </div>
+    </div>`).join('');
   attachDatepickers(body);
 }
 async function saveSettlement(){
   const cust_id=+el('st-cust').value;
   if(!cust_id){ showToast('مشتری الزامی است','error'); return; }
-  if(el('st-multicheque')?.checked){
+  const multi=el('st-multi')?.checked;
+  const pay_type=el('st-paytype')?.value||'cash';
+  // Cheque receipt (Add-Next-Check flow): one or more cheques in a single document.
+  if(pay_type==='cheque' && !multi){
     const payments=[];
-    for(const c of stlCheques){
+    for(let i=0;i<stlCheques.length;i++){
+      const c=stlCheques[i];
       const amount=parseInt(String(c.amount).replace(/[^\d]/g,''))||0;
-      if(!amount||!c.bank||!c.sayadi||!c.due){ showToast('برای هر چک مبلغ، بانک، صیادی و سررسید الزامی است','error'); return; }
+      if(!amount||!c.bank||!c.sayadi||!c.due){ showToast('چک ردیف '+toFa(i+1)+': مبلغ، نام بانک، شناسه صیاد و سررسید الزامی است','error'); return; }
       payments.push({
         amount, pay_type:'cheque', date:el('st-date')?.value||todayJalali(), invoice_id:+el('st-invoice')?.value||null,
-        cheque_bank:c.bank, cheque_sayadi:c.sayadi, cheque_branch:c.branch||'', cheque_sheba:c.sheba||'',
-        cheque_due:c.due, cheque_owner:c.owner||'', cheque_number:c.number||'', cheque_amount:amount, cheque_status:'pending',
+        cheque_bank:c.bank, cheque_sayadi:c.sayadi, cheque_number:c.number||'', cheque_account:c.account||'',
+        cheque_branch:c.branch||'', cheque_sheba:c.sheba||'', cheque_due:c.due, cheque_owner:c.owner||'',
+        cheque_amount:amount, cheque_status:'pending', cheque_row:i+1, note:c.note||'',
         bank_id:+el('st-bank')?.value||null, cash_box_id:+el('st-cashbox')?.value||null
       });
     }
+    if(!payments.length){ showToast('حداقل یک چک وارد کنید','error'); return; }
     try{
       await api('POST','/accounting/settlements/batch',{cust_id,payments,note:el('st-note')?.value||''});
-      _accRecvCache=null; closeModal(); showToast(payments.length+' چک در یک سند ثبت شد'); loadAccTab(accTab);
+      _accRecvCache=null; closeModal(); showToast(payments.length+' چک در یک سند دریافت ثبت شد'); loadAccTab(accTab);
     }catch(e){}
     return;
   }
-  const multi=el('st-multi')?.checked;
   if(multi){
     const payments=[];
     for(let i=0;i<stlRows.length;i++){
@@ -9971,12 +10030,8 @@ async function saveSettlement(){
     }catch(e){}
     return;
   }
-  const amount=moneyVal('st-amount'), pay_type=el('st-paytype').value;
+  const amount=moneyVal('st-amount');
   if(!amount){ showToast('مبلغ الزامی است','error'); return; }
-  if(pay_type==='cheque'){
-    const bank=el('st-cbank')?.value?.trim(), sayadi=el('st-csayadi')?.value?.trim(), due=el('st-cdue')?.value?.trim();
-    if(!bank||!sayadi||!due){ showToast('برای چک، نام بانک، صیادی و سررسید الزامی است','error'); return; }
-  }
   const invoice_id=+el('st-invoice')?.value||null;
   try{
     await api('POST','/accounting/settlements',{
@@ -9985,15 +10040,6 @@ async function saveSettlement(){
       note:el('st-note').value,
       bank_id:+el('st-bank').value||null,
       cash_box_id:+el('st-cashbox').value||null,
-      cheque_bank:pay_type==='cheque'?(el('st-cbank')?.value||''):'',
-      cheque_sayadi:pay_type==='cheque'?(el('st-csayadi')?.value||''):'',
-      cheque_number:pay_type==='cheque'?(el('st-cnum')?.value||''):'',
-      cheque_account:pay_type==='cheque'?(el('st-caccnum')?.value||''):'',
-      cheque_amount:pay_type==='cheque'?(moneyVal('st-camount')||amount):0,
-      cheque_owner:pay_type==='cheque'?(el('st-cowner')?.value||''):'',
-      cheque_due:pay_type==='cheque'?(el('st-cdue')?.value||''):'',
-      cheque_branch:pay_type==='cheque'?(el('st-cbranch')?.value||''):'',
-      cheque_sheba:pay_type==='cheque'?(el('st-csheba')?.value||''):'',
       cheque_status:'pending'
     });
     _accRecvCache=null; closeModal(); showToast('پرداخت ثبت شد');
@@ -12235,6 +12281,27 @@ function renderAdminGuide(){
         <li>گزینه‌های آماده: <b>هفته جاری</b> (از شنبه)، <b>ماه جاری</b>، <b>ماه قبل</b>، همه، بازه دلخواه</li>
         <li>با انتخاب «بازه دلخواه» تاریخ شروع و پایان را دستی وارد کنید</li>
         <li>همه جمع‌ها و آمارها بلافاصله با تغییر فیلتر به‌روز می‌شوند</li>
+      </ul>`),
+    helpSec('🆕','قابلیت‌های جدید (حسابداری، چک، جستجو)',`
+      <p>در این نسخه چند بهبود مهم اعمال شده است:</p>
+      <h5>🔎 جستجوی سراسری پیشرفته (Ctrl+K)</h5><ul>
+        <li>علاوه بر مشتری/محصول/فاکتور، اکنون <b>همهٔ بخش‌ها و زیرمنوهای برنامه</b> (از جمله تمام زیرماژول‌های حسابداری) قابل جستجو و باز شدن مستقیم هستند.</li>
+        <li>کافی است بخشی از نام صفحه/بخش را تایپ کنید و با Enter مستقیماً به آن بروید — اگر بخش داخل ماژول حسابداری باشد، خودکار وارد پوستهٔ حسابداری می‌شود.</li>
+      </ul>
+      <h5>🧾 ثبت چک در دریافت‌ها — «ثبت چک بعدی»</h5><ul>
+        <li>در «عملیات دریافت و پرداخت» هنگام انتخاب نوع پرداخت <b>چک</b>، برای هر چک یک کارت با همهٔ مشخصات باز می‌شود: نام بانک، شماره حساب، شعبه، شماره شبا، شماره چک، شناسه صیاد، مبلغ، تاریخ سررسید، نام صادرکننده و توضیحات.</li>
+        <li>با دکمهٔ <b>«➕ ثبت چک بعدی»</b> می‌توانید چند چک را در یک سند دریافت ثبت کنید؛ شمارهٔ ردیف هر چک خودکار تولید می‌شود و مبلغ کل دریافت = جمع مبلغ چک‌ها.</li>
+      </ul>
+      <h5>📦 افزودن کالا از ماژول حسابداری</h5><ul>
+        <li>در بخش «کالاها»ی حسابداری دکمهٔ <b>«➕ محصول جدید»</b> اضافه شد. کدهای حسابداری (کل/معین/تفصیلی) و کد کالا (در صورت خالی بودن، به شکل K-00001) به‌صورت خودکار ساخته می‌شوند.</li>
+      </ul>
+      <h5>🗂️ دسته‌های هزینه و گروه‌های اشخاص</h5><ul>
+        <li>در مودال «پرداخت هزینه» با دکمهٔ «➕ دستهٔ جدید» می‌توانید بدون خروج از فرم، دستهٔ هزینهٔ جدید بسازید. فهرست دسته‌های پیش‌فرض هم گسترش یافت.</li>
+        <li>«گروه‌های اشخاص» به منوی «اطلاعات پایه» اضافه شد و امکان ویرایش/حذف گروه‌ها فراهم است (گروهی که برای اشخاص استفاده شده حذف نمی‌شود).</li>
+      </ul>
+      <h5>🎂 تاریخ تولد و رفع تقویم</h5><ul>
+        <li>فیلد «تاریخ تولد» در فرم اشخاص از سال ۱۳۰۰ تا امروز قابل انتخاب است.</li>
+        <li>باگ نمایش تقویم/فهرست‌های بازشو <b>پشت</b> پنجره‌های مودال برطرف شد — اکنون تقویم و فهرست‌ها روی مودال نمایش داده می‌شوند.</li>
       </ul>`),
     helpSec('👥','مدیریت مشتریان',`
       <p>تمام مشتریان کسب‌وکار اینجا مدیریت می‌شوند.</p>
