@@ -722,9 +722,12 @@
 
 ## کارهای انجام‌نشده / در صف
 
-- [ ] **deploy production** برای `d4c4d8d` (امنیت): `bash scripts/deploy-production.sh` روی سرور — Cloud Agent به SSH دسترسی ندارد (publickey)
+- [ ] 🔔 **یادآوری صریح مالک (۱۴۰۵/۰۴/۲۶): «وقتی دامنه را دادم این مورد را یادآوری کن.»** — به‌محض اینکه مالک **دامنه** را ارائه داد، این بستهٔ کار دامنه‌محور روی سرور ایران `94.249.244.208` انجام شود:
+  1. **HTTPS**: Nginx + certbot طبق `docs/SECURITY-HARDENING.md` بخش «د» برای دامنهٔ `.ir`.
+  2. **رفع دسترسی سرور به GitHub**: سرور `github.com` را resolve نمی‌کند (فیلترینگ) → تنظیم DNS تمیز/پروکسی تا `scripts/deploy-production.sh` مستقیم `git pull` کند (فعلاً deploy فقط با git bundle ممکن است).
+  - (دستیار بعدی: این آیتم را در ابتدای پاسخ به مالک، وقتی دامنه را داد، فعالانه یادآوری کن.)
+- [ ] 🔐 **چرخش کلید SSH**: کلید `taranom-crm-admin@Taranom` (ed25519) در چت افشا شد — از `~/.ssh/authorized_keys` سرور حذف و کلید جدید جایگزین شود؛ کلید فقط از طریق Secrets داده شود.
 - [ ] پس از deploy: رمزنگاری بکاپ از پنل «پشتیبان» + چرخش keystore اندروید (`keystore.properties.example`)
-- [ ] HTTPS طبق `docs/SECURITY-HARDENING.md` بخش «د»
 - [ ] pagination برای لیست‌های بزرگ
 - [ ] merge شاخه به `main`
 
