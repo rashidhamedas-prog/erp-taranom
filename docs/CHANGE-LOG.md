@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `e25bfcb` |
+| آخرین commit | `87ea258` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v41` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ⏳ UI تولید (BOM کامل) — در حال deploy |
+| وضعیت سرور | ✅ ایران `87ea258` — UI تولید BOM + SW v41 |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
@@ -44,7 +44,7 @@
 
 ### ۱۴۰۵/۰۴/۲۷ — [Cursor] تکمیل UI عملیات تولید (BOM + سفارش + رفع نقص‌ها)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین جلسه)
+- **Commit:** `e25bfcb` (+ `87ea258` changelog)
 - **خلاصه:**
   - **BOM:** ایجاد پیش‌نویس، ویرایش اقلام، فعال‌سازی با `valid_from`، حذف پیش‌نویس، نسخه جدید، هشدار کالاهای بدون BOM.
   - **سفارش:** انتخاب BOM/انبار/مرکز هزینه؛ لغو draft/released؛ رسید جزئی/نهایی با مقدار باقیمانده؛ حذف دستمزد hard-code؛ ابطال فقط completed + بازگشایی closed.
@@ -53,7 +53,7 @@
   - **بستن دوره:** بدون open خودکار هنگام باز شدن صفحه؛ دکمه بازگشایی؛ پیش‌بررسی اختیاری.
   - API: `GET .../stages/:id/issue-template`؛ fallback دستمزد از `monthly_labor_rate_rial`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `server/lib/production/labor.js`, `server/lib/production/engine-advanced.js`, `server/routes/production-execution.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران `94.249.244.208` — HEAD=`87ea258`، pm2 restart، health ۲۰۰، SW `v41`
 
 ### ۱۴۰۵/۰۴/۲۷ — [Cursor] ماژول انبار سازمانی (ledger / batch / reservation / landed cost)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
