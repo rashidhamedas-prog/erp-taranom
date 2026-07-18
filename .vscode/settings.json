@@ -1,0 +1,12 @@
+{
+  "npm.autoDetect": "off",
+  "typescript.tsc.autoDetect": "off",
+  "files.encoding": "utf8",
+  "files.autoGuessEncoding": true,
+  "[json]": {
+    "files.encoding": "utf8"
+  },
+  "[jsonc]": {
+    "files.encoding": "utf8"
+  }
+}

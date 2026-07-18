@@ -42,6 +42,17 @@
 
 ## تاریخچه
 
+### ۱۴۰۵/۰۴/۲۷ — [Cursor] رفع خطای «Npm task detection: failed to parse package.json» در ادیتور
+- **شاخه:** `cursor/fix-npm-task-parse-error-bf9c`
+- **Commit:** همین commit
+- **خلاصه:** کاربر گزارش داد «با نرم‌افزار نمی‌توانم کار کنم، خطا می‌دهد» و اسکرین‌شات دو خطا نشان می‌داد: (۱) `Npm task detection: failed to parse the file .../server/package.json` و (۲) پاپ‌آپ `Connection Error` در پنجرهٔ Agents.
+  - **بررسی:** هر سه فایل `package.json` مخزن (`server`, `desktop`, `android/.../nodejs-project`) JSON معتبر و **بدون BOM** هستند. سرور CRM سالم است: با `npm install` + اجرای `server.js` بالا آمد (HTTP 200 روی `/`) و تست `test-sms.js` کامل پاس شد (۲۲/۲۲). یعنی خود نرم‌افزار خراب نیست.
+  - **علت خطای اول:** تشخیص خودکار task نامِ npm در Cursor/VS Code روی فایل **محلی** کاربر شکست می‌خورد — احتمالاً چون فایل به‌صورت «UTF-8 with BOM» ذخیره شده بود (نوار وضعیت ادیتور همین را نشان می‌داد). این فقط یک هشدار بی‌ضرر ادیتور است و جلوی اجرای CRM را نمی‌گیرد.
+  - **علت خطای دوم:** `Connection Error` مربوط به اتصال پنجرهٔ Agents به سرورهای Cursor است (شبکه/سرویس)، نه کد پروژه.
+  - **اقدام:** افزودن `.vscode/settings.json` با `npm.autoDetect: off` (خاموش‌کردن تشخیص خودکار task که دقیقاً همان خطا را می‌سازد) و `files.encoding: utf8` تا ذخیره‌های بعدی BOM اضافه نکنند و خطا برنگردد.
+- **فایل‌های کلیدی:** `.vscode/settings.json`
+- **Deploy:** ❌ لازم نیست (فقط تنظیمات ادیتور؛ روی سرور production بی‌اثر است)
+
 ### ۱۴۰۵/۰۴/۲۶ — [Cursor] همگام‌سازی CHANGE-LOG با کد شاخه (بازسازی ورودی‌های جامانده)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین commit (فقط مستندات)
