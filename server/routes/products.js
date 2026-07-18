@@ -18,6 +18,17 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
+// Auto product code (کد کالا) when the user leaves it blank: sequential K-00001.
+function nextProductCode(db) {
+  const row = db.prepare("SELECT code FROM products WHERE code GLOB 'K-[0-9]*' ORDER BY id DESC LIMIT 1").get();
+  let n = 1;
+  if (row && row.code) {
+    const m = row.code.match(/K-(\d+)/);
+    if (m) n = parseInt(m[1], 10) + 1;
+  }
+  return `K-${String(n).padStart(5, '0')}`;
+}
+
 async function saveImage(buffer, originalName) {
   if (sharp) {
     try {
@@ -190,9 +201,10 @@ router.post('/quick', auth, requirePermission('products', 'create'), (req, res) 
     if (c) catName = c.name;
   }
   const defaultWarehouse = warehouse_id || db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get()?.id || null;
+  const prodCode = (code && String(code).trim()) || nextProductCode(db);
   const result = db.prepare(
     'INSERT INTO products (user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,warehouse_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(req.user.id, catName, catId, code || '', name, parseFloat(price) || 0, parseFloat(cost) || 0, 0, 5, unit || 'عدد', defaultWarehouse);
+  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, 0, 5, unit || 'عدد', defaultWarehouse);
   const pid = result.lastInsertRowid;
   if (defaultWarehouse) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
@@ -222,9 +234,10 @@ router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
   // New products default into the first warehouse so warehouse_id is never
   // null — Warehouse Transfer can relocate them afterward.
   const defaultWarehouse = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
+  const prodCode = (code && String(code).trim()) || nextProductCode(db);
   const result = db.prepare(
     'INSERT INTO products (user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,note,image,colors,pack_size,warehouse_id,barcode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(req.user.id, catName, catId, code || '', name, parseFloat(price) || 0, parseFloat(cost) || 0, parseInt(stock) || 0,
+  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, parseInt(stock) || 0,
         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
         parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null,
         (barcode || '').trim() || null);

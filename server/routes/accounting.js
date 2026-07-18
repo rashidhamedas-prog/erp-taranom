@@ -247,13 +247,14 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
         `INSERT INTO settlements
           (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,
            cheque_bank,cheque_sayadi,cheque_number,cheque_account,
-           cheque_amount,cheque_owner,cheque_due,cheque_status,installment_group,cheque_branch,cheque_sheba)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+           cheque_amount,cheque_owner,cheque_due,cheque_status,installment_group,cheque_branch,cheque_sheba,cheque_row)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).run(req.user.id, cust_id, p.invoice_id || null, amount, pay_type,
             p.date || '', note || p.note || '', p.bank_id || null, p.cash_box_id || null,
             p.cheque_bank || '', p.cheque_sayadi || '', p.cheque_number || '', p.cheque_account || '',
             parseFloat(p.cheque_amount || 0), p.cheque_owner || '', p.cheque_due || '',
-            p.cheque_status || 'pending', groupId, p.cheque_branch || '', p.cheque_sheba || '');
+            p.cheque_status || 'pending', groupId, p.cheque_branch || '', p.cheque_sheba || '',
+            parseInt(p.cheque_row) || 0);
       const settlementId = result.lastInsertRowid;
       const payLabel = pay_type === 'cheque' ? 'چک' : 'نقد';
       createLedgerEntry(db, {

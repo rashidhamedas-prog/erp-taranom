@@ -553,6 +553,7 @@ function initDB() {
   ensureColumn(db, 'settlements', 'cheque_status', "TEXT DEFAULT 'pending'");
   ensureColumn(db, 'settlements', 'cheque_branch', "TEXT DEFAULT ''");
   ensureColumn(db, 'settlements', 'cheque_sheba', "TEXT DEFAULT ''");
+  ensureColumn(db, 'settlements', 'cheque_row', 'INTEGER DEFAULT 0');
   db.exec(`
     CREATE TABLE IF NOT EXISTS expense_categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -567,6 +568,19 @@ function initDB() {
   if (!expCatCount) {
     db.prepare('INSERT INTO expense_categories (code,name,account_code) VALUES (?,?,?)').run('admin', 'عمومی و اداری', '6102');
     db.prepare('INSERT INTO expense_categories (code,name,account_code) VALUES (?,?,?)').run('sales', 'توزیع و فروش', '6103');
+  }
+  // Broaden the default expense category list (idempotent: only adds names that
+  // are not already present, so existing databases pick these up on next boot).
+  {
+    const commonExpenseCats = [
+      ['اجاره محل', '6102'], ['حقوق و دستمزد', '6102'], ['آب، برق، گاز و تلفن', '6102'],
+      ['حمل و نقل و باربری', '6103'], ['تبلیغات و بازاریابی', '6103'], ['ملزومات و لوازم اداری', '6102'],
+      ['تعمیر و نگهداری', '6102'], ['پذیرایی و پیک', '6102'], ['بیمه', '6102'],
+      ['مالیات و عوارض', '6102'], ['هزینه‌های بانکی', '6102'], ['ایاب و ذهاب', '6102'],
+    ];
+    const hasCat = db.prepare('SELECT 1 FROM expense_categories WHERE name=?');
+    const addCat = db.prepare('INSERT INTO expense_categories (code,name,account_code) VALUES (NULL,?,?)');
+    for (const [nm, acc] of commonExpenseCats) { if (!hasCat.get(nm)) addCat.run(nm, acc); }
   }
   // Followup CRM pipeline fields
   ensureColumn(db, 'followups', 'interest_level', "TEXT DEFAULT 'mid'");
