@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | *(پس از push این commit)* |
+| آخرین commit | `e393e2d` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v45` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
 | وضعیت سرور | ⏳ نیاز به pull روی ایران `94.249.244.208` |
@@ -44,7 +44,7 @@
 
 ### ۱۴۰۵/۰۴/۲۹ — [Cursor] اکسل مینیمال، دید گروه کالا، کاربر=شخص، یکپارچه‌سازی حسابداری
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** *(همین commit)*
+- **Commit:** `e393e2d`
 - **خلاصه:** دکمه‌های اکسل مینیمال (ورودی/قالب/خروجی)؛ قرارداد کامل ۲۰ entity اکسل؛ کنترل `is_shared` برای گروه کالا؛ اتصال کاربر به `parties`؛ تمام عملیات مالی تجاری از `postToLedger` با ابطال R12؛ اصلاح تبدیل ریال/تومان در UI.
 - **فایل‌های کلیدی:** `server/routes/excel.js`, `server/lib/user-party.js`, `server/routes/accounting.js`, `server/routes/invoices.js`, `server/routes/purchases.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-excel-user-integration.js`
 - **Deploy:** ⏳ نیاز به pull روی ایران
