@@ -80,6 +80,16 @@ function product(db, value) {
 function warehouse(db, value) {
   return findOne(db, 'warehouses', value, ['id', 'code', 'name']);
 }
+function appUser(db, value) {
+  return findOne(db, 'users', value, ['id', 'username', 'name', 'phone']);
+}
+function partyGroup(db, value) {
+  return findOne(db, 'party_groups', value, ['id', 'code', 'name']);
+}
+function optionalRefId(db, table, value, columns, label, rowNo) {
+  if (text(value) === '') return null;
+  return requireRef(rowNo, label, findOne(db, table, value, columns)).id;
+}
 function invoice(db, value, table = 'invoices') {
   return findOne(db, table, value, ['id', 'num']);
 }
@@ -95,8 +105,8 @@ function lineProduct(db, row, rowNo, priceKey = 'قیمت واحد (ریال)') 
   return {
     product_id: p.id,
     name: p.name,
-    qty: Math.max(1, Math.trunc(num(field(row, 'تعداد', 'qty')))),
-    price: fromRial(field(row, priceKey, 'قیمت (ریال)', 'price_rial')),
+    qty: Math.max(1, Math.trunc(num(field(row, 'تعداد*', 'تعداد', 'qty')))),
+    price: fromRial(field(row, priceKey + '*', priceKey, 'قیمت (ریال)*', 'قیمت (ریال)', 'price_rial')),
     disc: num(field(row, 'تخفیف درصد', 'disc')),
   };
 }
@@ -104,93 +114,107 @@ function lineProduct(db, row, rowNo, priceKey = 'قیمت واحد (ریال)') 
 const DEFINITIONS = {
   parties: {
     title: 'اطلاعات اشخاص',
-    sample: { 'نام*': 'فروشگاه نمونه', 'تلفن*': '09120000000', پیشوند: 'شرکت', موبایل: '', شهر: 'تهران', گروه: 'مشتریان', 'سمت‌ها': 'customer|supplier', ایمیل: '', 'کد ملی': '' },
+    sample: {
+      'کد شخص': '', 'نام*': 'فروشگاه نمونه', 'نوع شخصیت': 'real', 'نام شرکت': '', پیشوند: 'شرکت',
+      'تلفن*': '09120000000', 'تلفن دوم': '', موبایل: '', فکس: '', ایمیل: '',
+      'کد ملی': '', 'کد اقتصادی': '', شهر: 'تهران', استان: 'تهران', آدرس: '', 'کد پستی': '',
+      'تاریخ تولد': '', گروه: 'مشتریان', 'سمت‌ها': 'customer|supplier', بخش‌بندی: 'C',
+      'نوع فروشگاه': '', منبع: '', معرف: '', 'ماهیت حساب': '', 'سقف اعتبار (ریال)': 0,
+      'مانده اول دوره (ریال)': 0, 'تاریخ مانده اول دوره': '', کارشناس: '', یادداشت: '',
+    },
     guide: ['نام و تلفن الزامی است.', 'سمت‌ها با | جدا شوند: customer, supplier, employee, partner, marketer, other'],
   },
   products: {
     title: 'کالاها',
-    sample: { 'نام کالا*': 'کالای نمونه', 'کد کالا': 'PR-001', دسته: 'عمومی', واحد: 'عدد', 'قیمت فروش (ریال)': 1000000, 'بهای خرید (ریال)': 700000 },
+    sample: {
+      'نام کالا*': 'کالای نمونه', 'نام کامل کالا': '', 'کد کالا': 'PR-001', بارکد: '',
+      دسته: 'عمومی', واحد: 'عدد', 'انبار اصلی': 'WH-01', موجودی: 0, 'هشدار موجودی': 5,
+      'قیمت فروش (ریال)': 1000000, 'بهای تمام‌شده (ریال)': 700000,
+      'قیمت مصرف‌کننده (ریال)': 0, 'قیمت اول دوره (ریال)': 0, 'تعداد رنگ': 1,
+      'تعداد در پک': 1, 'نوع کالا': '', 'شاخص کالا': '', 'شناسه مالیاتی': '',
+      'محل نگهداری': '', 'کد پیامک': '', یادداشت: '',
+    },
     guide: ['مبالغ فقط ریال هستند.', 'موجودی اولیه را از عملیات رسید انبار وارد کنید.'],
   },
   'opening-recv-cheques': {
     title: 'چک‌های دریافتنی اول دوره',
-    sample: { 'شماره چک*': '10001', 'مبلغ (ریال)*': 50000000, 'تاریخ صدور': '1405/01/01', 'تاریخ سررسید': '1405/03/01', بانک: 'ملت', شعبه: '', 'شماره صیادی': '', 'طرف حساب': 'شخص نمونه', شرح: '' },
+    sample: { 'شماره چک*': '10001', 'مبلغ (ریال)*': 50000000, 'تاریخ صدور': '1405/01/01', 'تاریخ دریافت': '', 'تاریخ سررسید': '1405/03/01', بانک: 'ملت', شعبه: '', 'شماره صیادی': '', شبا: '', 'شماره حساب': '', 'طرف حساب': 'شخص نمونه', وضعیت: 'مانده اول دوره', 'شرح وضعیت': '', شرح: '' },
   },
   'opening-pay-cheques': {
     title: 'چک‌های پرداختی اول دوره',
-    sample: { 'شماره چک*': '20001', 'مبلغ (ریال)*': 50000000, 'تاریخ صدور': '1405/01/01', 'تاریخ سررسید': '1405/03/01', بانک: 'ملت', شعبه: '', 'شماره صیادی': '', 'طرف حساب': 'شخص نمونه', شرح: '' },
+    sample: { 'شماره چک*': '20001', 'مبلغ (ریال)*': 50000000, 'تاریخ صدور': '1405/01/01', 'تاریخ دریافت': '', 'تاریخ سررسید': '1405/03/01', بانک: 'ملت', شعبه: '', 'شماره صیادی': '', شبا: '', 'شماره حساب': '', 'طرف حساب': 'شخص نمونه', وضعیت: 'مانده اول دوره', 'شرح وضعیت': '', شرح: '' },
   },
   settlements: {
     title: 'عملیات دریافت و پرداخت',
     sampleRows: [
-      { 'جهت عملیات*': 'receive', 'طرف حساب*': 'فروشگاه نمونه', 'شماره فاکتور': '', 'مبلغ (ریال)*': 10000000, 'نوع پرداخت': 'cash', تاریخ: '1405/01/01', 'شماره چک': '', 'سررسید چک': '', شرح: 'دریافت از مشتری' },
-      { 'جهت عملیات*': 'pay', 'طرف حساب*': 'تأمین‌کننده نمونه', 'شماره فاکتور': '', 'مبلغ (ریال)*': 5000000, 'نوع پرداخت': 'cash', تاریخ: '1405/01/01', 'شماره چک': '', 'سررسید چک': '', شرح: 'پرداخت به تأمین‌کننده' },
+      { 'جهت عملیات*': 'receive', 'طرف حساب*': 'فروشگاه نمونه', 'شماره فاکتور': '', 'مبلغ (ریال)*': 10000000, 'نوع پرداخت': 'cash', تاریخ: '1405/01/01', 'بانک/شناسه بانک': '', 'صندوق/شناسه صندوق': '', 'دسته چک/شناسه': '', 'بانک چک': '', 'شماره صیادی': '', 'شماره چک': '', 'شماره حساب چک': '', 'مبلغ چک (ریال)': 0, 'صاحب چک': '', 'سررسید چک': '', 'وضعیت چک': 'pending', 'شعبه چک': '', 'شبای چک': '', شرح: 'دریافت از مشتری' },
+      { 'جهت عملیات*': 'pay', 'طرف حساب*': 'تأمین‌کننده نمونه', 'شماره فاکتور': '', 'مبلغ (ریال)*': 5000000, 'نوع پرداخت': 'cash', تاریخ: '1405/01/01', 'بانک/شناسه بانک': '', 'صندوق/شناسه صندوق': '', 'دسته چک/شناسه': '', 'بانک چک': '', 'شماره صیادی': '', 'شماره چک': '', 'شماره حساب چک': '', 'مبلغ چک (ریال)': 0, 'صاحب چک': '', 'سررسید چک': '', 'وضعیت چک': 'pending', 'شعبه چک': '', 'شبای چک': '', شرح: 'پرداخت به تأمین‌کننده' },
     ],
     guide: ['جهت عملیات: receive برای دریافت از مشتری، pay برای پرداخت به تأمین‌کننده', 'نوع پرداخت: cash, bank, bank_transfer, cheque', 'طرف حساب را با نام، کد حساب یا شناسه وارد کنید.'],
   },
   expenses: {
     title: 'هزینه‌ها',
-    sample: { 'عنوان*': 'هزینه حمل', 'مبلغ (ریال)*': 2500000, دسته: 'admin', 'نوع پرداخت': 'cash', تاریخ: '1405/01/01', 'کد حساب هزینه': '', شرح: '' },
+    sample: { 'عنوان*': 'هزینه حمل', 'مبلغ (ریال)*': 2500000, دسته: 'admin', 'نوع پرداخت': 'cash', تاریخ: '1405/01/01', 'کد حساب هزینه': '', 'بانک/شناسه بانک': '', 'صندوق/شناسه صندوق': '', 'دسته چک/شناسه': '', 'مرکز هزینه/شناسه': '', 'شماره فاکتور خرید': '', 'سربار تولید': 'خیر', شرح: '' },
   },
   'coa-codes': {
     title: 'کدهای حسابداری',
-    sample: { 'کد*': '9900', 'نام حساب*': 'گروه حساب نمونه', 'نوع*': 'asset', 'کد والد': '' },
+    sample: { 'کد*': '9900', 'نام حساب*': 'گروه حساب نمونه', 'نوع*': 'asset', 'کد والد': '', سطح: 1, ماهیت: 'debit', 'نوع مانده': 'permanent', 'عنصر بهای تمام‌شده': 'خیر', 'نوع تفصیلی': '', فعال: 'بله' },
     guide: ['نوع حساب: asset, liability, equity, revenue, cogs, expense', 'والد باید قبل از فرزند در فایل یا سیستم موجود باشد.'],
   },
   'ledger-accounts': {
     title: 'حساب‌های کل',
-    sample: { 'کد*': '1999', 'نام حساب*': 'حساب کل نمونه', 'نوع*': 'asset', 'کد والد*': '1000' },
+    sample: { 'کد*': '1999', 'نام حساب*': 'حساب کل نمونه', 'نوع*': 'asset', 'کد والد*': '1000', سطح: 2, ماهیت: 'debit', 'نوع مانده': 'permanent', 'عنصر بهای تمام‌شده': 'خیر', 'نوع تفصیلی': '', فعال: 'بله' },
   },
   'subsidiary-accounts': {
     title: 'حساب‌های معین',
-    sample: { 'کد*': '110199', 'نام حساب*': 'حساب معین نمونه', 'نوع*': 'asset', 'کد والد*': '1101' },
+    sample: { 'کد*': '110199', 'نام حساب*': 'حساب معین نمونه', 'نوع*': 'asset', 'کد والد*': '1101', سطح: 3, ماهیت: 'debit', 'نوع مانده': 'permanent', 'عنصر بهای تمام‌شده': 'خیر', 'نوع تفصیلی': '', فعال: 'بله' },
   },
   'detail-accounts': {
     title: 'حساب‌های تفصیلی',
-    sample: { 'کد تفصیلی*': 'T00001', 'نام*': 'تفصیلی نمونه', 'کد دسته': 'person' },
+    sample: { 'کد تفصیلی*': 'T00001', 'نام*': 'تفصیلی نمونه', 'کد دسته': 'person', 'جدول مرتبط': '', 'شناسه مرتبط': '', فعال: 'بله' },
   },
   'sales-invoices': {
     title: 'فاکتورهای فروش',
-    sample: { 'شماره سند*': 'S-001', 'مشتری*': 'فروشگاه نمونه', تاریخ: '1405/01/01', 'نوع فاکتور': 'final', 'نوع پرداخت': 'credit', 'کد انبار': 'WH-01', 'کد کالا*': 'PR-001', 'تعداد*': 2, 'قیمت واحد (ریال)*': 1000000, 'تخفیف درصد': 0, 'تخفیف کل درصد': 0, شرح: '' },
+    sample: { 'شماره سند*': 'S-001', 'مشتری*': 'فروشگاه نمونه', تاریخ: '1405/01/01', 'نوع فاکتور': 'final', 'نوع پرداخت': 'credit', 'کد انبار': 'WH-01', 'بانک/شناسه بانک': '', 'صندوق/شناسه صندوق': '', 'دسته چک/شناسه': '', 'مرکز هزینه/شناسه': '', 'کرایه حمل (ریال)': 0, 'نوع کرایه': '', 'معاف از مالیات': 'خیر', 'مدت چک': '', 'سررسید چک': '', 'اطلاعات چک': '', 'کانال فروش': '', 'منبع سرنخ': '', کمپین: '', 'کد کالا*': 'PR-001', 'تعداد*': 2, 'قیمت واحد (ریال)*': 1000000, 'تخفیف درصد': 0, 'تخفیف کل درصد': 0, شرح: '' },
     guide: ['برای چند قلم یک فاکتور، شماره سند را در همه ردیف‌ها یکسان وارد کنید.', 'نوع فاکتور: final یا proforma'],
   },
   purchases: {
     title: 'فاکتورهای خرید',
-    sample: { 'شماره سند*': 'P-001', 'تأمین‌کننده*': 'تأمین‌کننده نمونه', تاریخ: '1405/01/01', 'نوع پرداخت': 'credit', 'کد انبار': 'WH-01', 'کد کالا*': 'PR-001', 'تعداد*': 2, 'قیمت واحد (ریال)*': 700000, 'تخفیف کل درصد': 0, شرح: '' },
+    sample: { 'شماره سند*': 'P-001', 'تأمین‌کننده*': 'تأمین‌کننده نمونه', تاریخ: '1405/01/01', 'نوع پرداخت': 'credit', 'کد انبار': 'WH-01', 'بانک/شناسه بانک': '', 'صندوق/شناسه صندوق': '', 'دسته چک/شناسه': '', 'مرکز هزینه/شناسه': '', 'کرایه حمل (ریال)': 0, 'نوع کرایه': '', 'معاف از مالیات': 'خیر', 'کد کالا*': 'PR-001', 'تعداد*': 2, 'قیمت واحد (ریال)*': 700000, 'تخفیف درصد': 0, 'تخفیف کل درصد': 0, شرح: '' },
   },
   'sales-returns': {
     title: 'برگشت از فروش',
-    sample: { 'شماره سند*': 'SR-001', 'مشتری*': 'فروشگاه نمونه', 'شماره فاکتور مبنا': '', تاریخ: '1405/01/01', 'کد کالا*': 'PR-001', 'تعداد*': 1, 'قیمت واحد (ریال)*': 1000000, شرح: '' },
+    sample: { 'شماره سند*': 'SR-001', 'مشتری*': 'فروشگاه نمونه', 'شماره فاکتور مبنا': '', تاریخ: '1405/01/01', 'کد کالا*': 'PR-001', 'تعداد*': 1, 'قیمت واحد (ریال)*': 1000000, 'تخفیف درصد': 0, شرح: '' },
   },
   'purchase-returns': {
     title: 'برگشت از خرید',
-    sample: { 'شماره سند*': 'PR-001', 'تأمین‌کننده*': 'تأمین‌کننده نمونه', 'شماره فاکتور مبنا': '', تاریخ: '1405/01/01', 'کد کالا*': 'PR-001', 'تعداد*': 1, 'قیمت واحد (ریال)*': 700000, شرح: '' },
+    sample: { 'شماره سند*': 'PR-001', 'تأمین‌کننده*': 'تأمین‌کننده نمونه', 'شماره فاکتور مبنا': '', تاریخ: '1405/01/01', 'کد کالا*': 'PR-001', 'تعداد*': 1, 'قیمت واحد (ریال)*': 700000, 'تخفیف درصد': 0, شرح: '' },
   },
   'warehouse-receipt': {
     title: 'رسید انبار',
-    sample: { 'شماره سند*': 'WR-001', 'انبار مقصد*': 'انبار مرکزی', تاریخ: '1405/01/01', 'کد کالا*': 'PR-001', 'تعداد*': 10, شرح: '' },
+    sample: { 'شماره سند*': 'WR-001', 'انبار مقصد*': 'انبار مرکزی', تاریخ: '1405/01/01', 'کد کالا*': 'PR-001', 'تعداد*': 10, 'بهای واحد (ریال)': '', 'مبلغ (ریال)': '', شرح: '' },
   },
   'warehouse-issue': {
     title: 'حواله انبار',
-    sample: { 'شماره سند*': 'WI-001', 'انبار مبدأ*': 'انبار مرکزی', تاریخ: '1405/01/01', 'کد کالا*': 'PR-001', 'تعداد*': 2, شرح: '' },
+    sample: { 'شماره سند*': 'WI-001', 'انبار مبدأ*': 'انبار مرکزی', تاریخ: '1405/01/01', 'کد کالا*': 'PR-001', 'تعداد*': 2, 'بهای واحد (ریال)': '', 'مبلغ (ریال)': '', شرح: '' },
   },
   'warehouse-transfer': {
     title: 'حواله بین انبار',
-    sample: { 'شماره سند*': 'WT-001', 'انبار مبدأ*': 'انبار مرکزی', 'انبار مقصد*': 'انبار فروش', تاریخ: '1405/01/01', 'کد کالا*': 'PR-001', 'تعداد*': 2, شرح: '' },
+    sample: { 'شماره سند*': 'WT-001', 'انبار مبدأ*': 'انبار مرکزی', 'انبار مقصد*': 'انبار فروش', تاریخ: '1405/01/01', 'کد کالا*': 'PR-001', 'تعداد*': 2, 'بهای واحد (ریال)': '', 'مبلغ (ریال)': '', شرح: '' },
   },
   'consignments-in': {
     title: 'کالاهای امانی گرفته‌شده',
-    sample: { 'طرف حساب*': 'شخص نمونه', تلفن: '', 'کد کالا*': 'PR-001', 'تعداد*': 2, 'قیمت واحد (ریال)': 1000000, تاریخ: '1405/01/01', شرح: '' },
+    sample: { 'طرف حساب*': 'شخص نمونه', تلفن: '', 'کد کالا*': 'PR-001', 'تعداد*': 2, 'قیمت واحد (ریال)': 1000000, تاریخ: '1405/01/01', وضعیت: 'open', شرح: '' },
   },
   'consignments-out': {
     title: 'کالاهای امانی داده‌شده',
-    sample: { 'طرف حساب*': 'شخص نمونه', تلفن: '', 'کد کالا*': 'PR-001', 'تعداد*': 2, 'قیمت واحد (ریال)': 1000000, تاریخ: '1405/01/01', شرح: '' },
+    sample: { 'طرف حساب*': 'شخص نمونه', تلفن: '', 'کد کالا*': 'PR-001', 'تعداد*': 2, 'قیمت واحد (ریال)': 1000000, تاریخ: '1405/01/01', وضعیت: 'open', شرح: '' },
   },
   'journal-docs': {
     title: 'فهرست اسناد',
     sampleRows: [
-      { 'شماره سند*': 'J-001', تاریخ: '1405/01/01', 'شرح سند': 'سند نمونه', 'کد حساب*': '1101', 'بدهکار (ریال)': 10000000, 'بستانکار (ریال)': 0, 'شرح ردیف': 'ردیف بدهکار' },
-      { 'شماره سند*': 'J-001', تاریخ: '1405/01/01', 'شرح سند': 'سند نمونه', 'کد حساب*': '1102', 'بدهکار (ریال)': 0, 'بستانکار (ریال)': 10000000, 'شرح ردیف': 'ردیف بستانکار' },
+      { 'شماره سند*': 'J-001', تاریخ: '1405/01/01', 'نوع سند': 'manual', 'شرح سند': 'سند نمونه', 'مرکز هزینه/شناسه': '', 'کد حساب*': '1101', 'شناسه تفصیلی': '', 'شناسه پروژه': '', 'نوع مالیات': '', 'بدهکار (ریال)': 10000000, 'بستانکار (ریال)': 0, 'شرح ردیف': 'ردیف بدهکار' },
+      { 'شماره سند*': 'J-001', تاریخ: '1405/01/01', 'نوع سند': 'manual', 'شرح سند': 'سند نمونه', 'مرکز هزینه/شناسه': '', 'کد حساب*': '1102', 'شناسه تفصیلی': '', 'شناسه پروژه': '', 'نوع مالیات': '', 'بدهکار (ریال)': 0, 'بستانکار (ریال)': 10000000, 'شرح ردیف': 'ردیف بستانکار' },
     ],
     guide: ['هر سند باید حداقل دو ردیف و جمع بدهکار و بستانکار برابر داشته باشد.', 'شماره سند فقط برای گروه‌بندی ردیف‌هاست و شماره نهایی را سیستم تخصیص می‌دهد.'],
   },
@@ -215,40 +239,54 @@ function coaDepth(rows) {
 }
 
 function exportRows(db, entity) {
-  if (entity === 'parties') return db.prepare(`SELECT p.*,pg.name party_group_name FROM parties p LEFT JOIN party_groups pg ON pg.id=p.party_group_id WHERE p.is_active=1 ORDER BY p.id`).all().map((r) => ({
-    کد: r.person_code, نام: r.full_name || r.biz, تلفن: r.phone, موبایل: r.mobile, شهر: r.city, گروه: r.party_group_name, 'سمت‌ها': (() => { try { return JSON.parse(r.party_roles || '[]').join('|'); } catch { return ''; } })(), ایمیل: r.email, 'کد ملی': r.national_id,
+  if (entity === 'parties') return db.prepare(`SELECT p.*,pg.name party_group_name,u.name expert_name FROM parties p LEFT JOIN party_groups pg ON pg.id=p.party_group_id LEFT JOIN users u ON u.id=p.user_id WHERE p.is_active=1 ORDER BY p.id`).all().map((r) => ({
+    'کد شخص': r.person_code, نام: r.full_name || r.biz, 'نوع شخصیت': r.legal_type, 'نام شرکت': r.company_name,
+    پیشوند: r.prefix, تلفن: r.phone, 'تلفن دوم': r.secondary_phone, موبایل: r.mobile, فکس: r.fax,
+    ایمیل: r.email, 'کد ملی': r.national_id, 'کد اقتصادی': r.economic_code, شهر: r.city, استان: r.province,
+    آدرس: r.address, 'کد پستی': r.postal_code, 'تاریخ تولد': r.birth_date, گروه: r.party_group_name,
+    'سمت‌ها': (() => { try { return JSON.parse(r.party_roles || '[]').join('|'); } catch { return ''; } })(),
+    بخش‌بندی: r.segment, 'نوع فروشگاه': r.store_type, منبع: r.source, معرف: r.referrer,
+    'ماهیت حساب': r.account_nature, 'سقف اعتبار (ریال)': r.credit_limit, 'مانده اول دوره (ریال)': r.opening_balance,
+    'تاریخ مانده اول دوره': r.opening_balance_date, کارشناس: r.expert_name, یادداشت: r.notes,
   }));
-  if (entity === 'products') return db.prepare('SELECT * FROM products ORDER BY id').all().map((r) => ({ 'کد کالا': r.code, بارکد: r.barcode, 'نام کالا': r.name, دسته: r.category, واحد: r.unit, 'قیمت فروش (ریال)': toFa(r.price), 'بهای خرید (ریال)': toFa(r.cost), موجودی: r.stock }));
+  if (entity === 'products') return db.prepare('SELECT p.*,w.name warehouse_name,w.code warehouse_code FROM products p LEFT JOIN warehouses w ON w.id=p.warehouse_id ORDER BY p.id').all().map((r) => ({
+    'نام کالا': r.name, 'نام کامل کالا': r.full_name, 'کد کالا': r.code, بارکد: r.barcode,
+    دسته: r.category, واحد: r.unit, 'انبار اصلی': r.warehouse_code || r.warehouse_name, موجودی: r.stock,
+    'هشدار موجودی': r.stock_alert, 'قیمت فروش (ریال)': toFa(r.price), 'بهای تمام‌شده (ریال)': toFa(r.cost),
+    'قیمت مصرف‌کننده (ریال)': toFa(r.consumer_price), 'قیمت اول دوره (ریال)': toFa(r.opening_price),
+    'تعداد رنگ': r.colors, 'تعداد در پک': r.pack_size, 'نوع کالا': r.product_type, 'شاخص کالا': r.product_index,
+    'شناسه مالیاتی': r.tax_id, 'محل نگهداری': r.location, 'کد پیامک': r.sms_code, یادداشت: r.note,
+  }));
   if (entity.startsWith('opening-')) {
     const direction = entity === 'opening-recv-cheques' ? 'in' : 'out';
-    return db.prepare("SELECT * FROM cheque_records WHERE direction=? AND (note LIKE '%مانده اول دوره%' OR status LIKE '%اول دوره%') ORDER BY id").all(direction).map((r) => ({ 'شماره چک': r.cheque_number, 'مبلغ (ریال)': r.amount, 'تاریخ صدور': r.issue_date, 'تاریخ سررسید': r.due_date, بانک: r.bank_name, شعبه: r.branch, 'شماره صیادی': r.sayadi, 'طرف حساب': r.party_name, وضعیت: r.status, شرح: r.note }));
+    return db.prepare("SELECT * FROM cheque_records WHERE direction=? AND COALESCE(record_status,'posted')<>'reversed' AND (note LIKE '%مانده اول دوره%' OR status LIKE '%اول دوره%') ORDER BY id").all(direction).map((r) => ({ 'شماره چک': r.cheque_number, 'مبلغ (ریال)': r.amount, 'تاریخ صدور': r.issue_date, 'تاریخ دریافت': r.receive_date, 'تاریخ سررسید': r.due_date, بانک: r.bank_name, شعبه: r.branch, 'شماره صیادی': r.sayadi, شبا: r.sheba, 'شماره حساب': r.account_number, 'طرف حساب': r.party_name, وضعیت: r.status, 'شرح وضعیت': r.status_note, شرح: r.note }));
   }
   if (entity === 'settlements') {
-    const received = db.prepare('SELECT s.*,c.biz party_name,i.num invoice_num FROM settlements s LEFT JOIN customers c ON c.id=s.cust_id LEFT JOIN invoices i ON i.id=s.invoice_id ORDER BY s.id').all().map((r) => ({ 'جهت عملیات': 'receive', 'طرف حساب': r.party_name, 'شماره فاکتور': r.invoice_num, 'مبلغ (ریال)': toFa(r.amount), 'نوع پرداخت': r.pay_type, تاریخ: r.date, 'شماره چک': r.cheque_number, 'سررسید چک': r.cheque_due, شرح: r.note }));
-    const paid = db.prepare('SELECT p.*,s.name party_name,i.num invoice_num FROM supplier_payments p LEFT JOIN suppliers s ON s.id=p.supplier_id LEFT JOIN purchase_invoices i ON i.id=p.purchase_invoice_id ORDER BY p.id').all().map((r) => ({ 'جهت عملیات': 'pay', 'طرف حساب': r.party_name, 'شماره فاکتور': r.invoice_num, 'مبلغ (ریال)': toFa(r.amount), 'نوع پرداخت': r.pay_type, تاریخ: r.date, 'شماره چک': r.cheque_number, 'سررسید چک': r.cheque_due, شرح: r.note }));
+    const received = db.prepare("SELECT s.*,c.biz party_name,i.num invoice_num,b.name bank_name,cb.name cash_box_name,cc.name check_category_name FROM settlements s LEFT JOIN customers c ON c.id=s.cust_id LEFT JOIN invoices i ON i.id=s.invoice_id LEFT JOIN banks b ON b.id=s.bank_id LEFT JOIN cash_boxes cb ON cb.id=s.cash_box_id LEFT JOIN check_categories cc ON cc.id=s.check_category_id WHERE COALESCE(s.status,'posted')<>'reversed' ORDER BY s.id").all().map((r) => ({ 'جهت عملیات': 'receive', 'طرف حساب': r.party_name, 'شماره فاکتور': r.invoice_num, 'مبلغ (ریال)': toFa(r.amount), 'نوع پرداخت': r.pay_type, تاریخ: r.date, 'بانک/شناسه بانک': r.bank_name, 'صندوق/شناسه صندوق': r.cash_box_name, 'دسته چک/شناسه': r.check_category_name, 'بانک چک': r.cheque_bank, 'شماره صیادی': r.cheque_sayadi, 'شماره چک': r.cheque_number, 'شماره حساب چک': r.cheque_account, 'مبلغ چک (ریال)': toFa(r.cheque_amount), 'صاحب چک': r.cheque_owner, 'سررسید چک': r.cheque_due, 'وضعیت چک': r.cheque_status, 'شعبه چک': r.cheque_branch, 'شبای چک': r.cheque_sheba, شرح: r.note }));
+    const paid = db.prepare("SELECT p.*,s.name party_name,i.num invoice_num,b.name bank_name,cb.name cash_box_name,cc.name check_category_name FROM supplier_payments p LEFT JOIN suppliers s ON s.id=p.supplier_id LEFT JOIN purchase_invoices i ON i.id=p.purchase_invoice_id LEFT JOIN banks b ON b.id=p.bank_id LEFT JOIN cash_boxes cb ON cb.id=p.cash_box_id LEFT JOIN check_categories cc ON cc.id=p.check_category_id WHERE COALESCE(p.status,'posted')<>'reversed' ORDER BY p.id").all().map((r) => ({ 'جهت عملیات': 'pay', 'طرف حساب': r.party_name, 'شماره فاکتور': r.invoice_num, 'مبلغ (ریال)': toFa(r.amount), 'نوع پرداخت': r.pay_type, تاریخ: r.date, 'بانک/شناسه بانک': r.bank_name, 'صندوق/شناسه صندوق': r.cash_box_name, 'دسته چک/شناسه': r.check_category_name, 'بانک چک': '', 'شماره صیادی': '', 'شماره چک': '', 'شماره حساب چک': '', 'مبلغ چک (ریال)': 0, 'صاحب چک': '', 'سررسید چک': '', 'وضعیت چک': '', 'شعبه چک': '', 'شبای چک': '', شرح: r.note }));
     return received.concat(paid);
   }
-  if (entity === 'expenses') return db.prepare('SELECT * FROM expense_payments ORDER BY id').all().map((r) => ({ عنوان: r.title, 'مبلغ (ریال)': toFa(r.amount), دسته: r.category, 'نوع پرداخت': r.pay_type, تاریخ: r.date, 'کد حساب هزینه': r.account_code, شرح: r.note }));
+  if (entity === 'expenses') return db.prepare("SELECT e.*,b.name bank_name,cb.name cash_box_name,cc.name check_category_name,co.name cost_center_name,pi.num purchase_invoice_num FROM expense_payments e LEFT JOIN banks b ON b.id=e.bank_id LEFT JOIN cash_boxes cb ON cb.id=e.cash_box_id LEFT JOIN check_categories cc ON cc.id=e.check_category_id LEFT JOIN cost_centers co ON co.id=e.cost_center_id LEFT JOIN purchase_invoices pi ON pi.id=e.purchase_invoice_id WHERE COALESCE(e.status,'posted')<>'reversed' ORDER BY e.id").all().map((r) => ({ عنوان: r.title, 'مبلغ (ریال)': toFa(r.amount), دسته: r.category, 'نوع پرداخت': r.pay_type, تاریخ: r.date, 'کد حساب هزینه': r.account_code, 'بانک/شناسه بانک': r.bank_name, 'صندوق/شناسه صندوق': r.cash_box_name, 'دسته چک/شناسه': r.check_category_name, 'مرکز هزینه/شناسه': r.cost_center_name, 'شماره فاکتور خرید': r.purchase_invoice_num, 'سربار تولید': r.is_overhead ? 'بله' : 'خیر', شرح: r.note }));
   if (['coa-codes', 'ledger-accounts', 'subsidiary-accounts'].includes(entity)) {
     let rows = coaDepth(db.prepare('SELECT * FROM chart_of_accounts WHERE is_active=1 ORDER BY code').all());
     if (entity === 'ledger-accounts') rows = rows.filter((r) => r._depth === 1);
     if (entity === 'subsidiary-accounts') rows = rows.filter((r) => r._depth >= 2);
-    return rows.map((r) => ({ کد: r.code, 'نام حساب': r.name, نوع: r.type, 'کد والد': r.parent_code || '', سطح: r._depth }));
+    return rows.map((r) => ({ کد: r.code, 'نام حساب': r.name, نوع: r.type, 'کد والد': r.parent_code || '', سطح: r.level ?? r._depth, ماهیت: r.nature, 'نوع مانده': r.balance_type, 'عنصر بهای تمام‌شده': r.is_cost_element ? 'بله' : 'خیر', 'نوع تفصیلی': r.tafsili_type, فعال: r.is_active ? 'بله' : 'خیر' }));
   }
-  if (entity === 'detail-accounts') return db.prepare('SELECT d.*,c.code category_code,c.name category_name FROM detail_accounts d LEFT JOIN detail_categories c ON c.id=d.detail_category_id ORDER BY d.code').all().map((r) => ({ 'کد تفصیلی': r.code, نام: r.name, 'کد دسته': r.category_code, دسته: r.category_name }));
-  if (entity === 'sales-invoices') return explodeDocuments(db.prepare("SELECT i.*,c.biz customer_name,w.name warehouse_name FROM invoices i LEFT JOIN customers c ON c.id=i.cust_id LEFT JOIN warehouses w ON w.id=i.warehouse_id WHERE COALESCE(i.deleted_at,0)=0 ORDER BY i.id").all(), 'customer_name', 'مشتری', 'num', 'قیمت واحد (ریال)');
-  if (entity === 'purchases') return explodeDocuments(db.prepare('SELECT i.*,s.name supplier_name,w.name warehouse_name FROM purchase_invoices i LEFT JOIN suppliers s ON s.id=i.supplier_id LEFT JOIN warehouses w ON w.id=i.warehouse_id ORDER BY i.id').all(), 'supplier_name', 'تأمین‌کننده', 'num', 'قیمت واحد (ریال)');
-  if (entity === 'sales-returns') return explodeDocuments(db.prepare('SELECT r.*,c.biz customer_name,i.num invoice_num FROM sales_returns r LEFT JOIN customers c ON c.id=r.cust_id LEFT JOIN invoices i ON i.id=r.invoice_id ORDER BY r.id').all(), 'customer_name', 'مشتری', 'id', 'قیمت واحد (ریال)', 'invoice_num');
-  if (entity === 'purchase-returns') return explodeDocuments(db.prepare('SELECT r.*,s.name supplier_name,i.num invoice_num FROM purchase_returns r LEFT JOIN suppliers s ON s.id=r.supplier_id LEFT JOIN purchase_invoices i ON i.id=r.purchase_invoice_id ORDER BY r.id').all(), 'supplier_name', 'تأمین‌کننده', 'id', 'قیمت واحد (ریال)', 'invoice_num');
+  if (entity === 'detail-accounts') return db.prepare('SELECT d.*,c.code category_code,c.name category_name FROM detail_accounts d LEFT JOIN detail_categories c ON c.id=d.detail_category_id ORDER BY d.code').all().map((r) => ({ 'کد تفصیلی': r.code, نام: r.name, 'کد دسته': r.category_code, دسته: r.category_name, 'جدول مرتبط': r.linked_table, 'شناسه مرتبط': r.linked_id, فعال: r.is_active ? 'بله' : 'خیر' }));
+  if (entity === 'sales-invoices') return explodeDocuments(db.prepare("SELECT i.*,c.biz customer_name,w.name warehouse_name,w.code warehouse_code,b.name bank_name,cb.name cash_box_name,cc.name check_category_name,co.name cost_center_name FROM invoices i LEFT JOIN customers c ON c.id=i.cust_id LEFT JOIN warehouses w ON w.id=i.warehouse_id LEFT JOIN banks b ON b.id=i.bank_id LEFT JOIN cash_boxes cb ON cb.id=i.cash_box_id LEFT JOIN check_categories cc ON cc.id=i.check_category_id LEFT JOIN cost_centers co ON co.id=i.cost_center_id WHERE COALESCE(i.deleted_at,0)=0 ORDER BY i.id").all(), 'customer_name', 'مشتری', 'num', 'قیمت واحد (ریال)');
+  if (entity === 'purchases') return explodeDocuments(db.prepare("SELECT i.*,s.name supplier_name,w.name warehouse_name,w.code warehouse_code,b.name bank_name,cb.name cash_box_name,cc.name check_category_name,co.name cost_center_name FROM purchase_invoices i LEFT JOIN suppliers s ON s.id=i.supplier_id LEFT JOIN warehouses w ON w.id=i.warehouse_id LEFT JOIN banks b ON b.id=i.bank_id LEFT JOIN cash_boxes cb ON cb.id=i.cash_box_id LEFT JOIN check_categories cc ON cc.id=i.check_category_id LEFT JOIN cost_centers co ON co.id=i.cost_center_id WHERE COALESCE(i.status,'posted')<>'reversed' ORDER BY i.id").all(), 'supplier_name', 'تأمین‌کننده', 'num', 'قیمت واحد (ریال)');
+  if (entity === 'sales-returns') return explodeDocuments(db.prepare("SELECT r.*,c.biz customer_name,i.num invoice_num FROM sales_returns r LEFT JOIN customers c ON c.id=r.cust_id LEFT JOIN invoices i ON i.id=r.invoice_id WHERE COALESCE(r.status,'posted')<>'reversed' ORDER BY r.id").all(), 'customer_name', 'مشتری', 'id', 'قیمت واحد (ریال)', 'invoice_num');
+  if (entity === 'purchase-returns') return explodeDocuments(db.prepare("SELECT r.*,s.name supplier_name,i.num invoice_num FROM purchase_returns r LEFT JOIN suppliers s ON s.id=r.supplier_id LEFT JOIN purchase_invoices i ON i.id=r.purchase_invoice_id WHERE COALESCE(r.status,'posted')<>'reversed' ORDER BY r.id").all(), 'supplier_name', 'تأمین‌کننده', 'id', 'قیمت واحد (ریال)', 'invoice_num');
   if (entity.startsWith('warehouse-')) {
     const type = entity.replace('warehouse-', '');
-    return db.prepare(`SELECT m.*,p.code product_code,p.name product_name,fw.name from_name,tw.name to_name FROM warehouse_moves m LEFT JOIN products p ON p.id=m.product_id LEFT JOIN warehouses fw ON fw.id=m.from_warehouse_id LEFT JOIN warehouses tw ON tw.id=m.to_warehouse_id WHERE m.type=? ORDER BY m.id`).all(type).map((r) => ({ 'شماره سند': r.id, 'انبار مبدأ': r.from_name, 'انبار مقصد': r.to_name, تاریخ: r.date, 'کد کالا': r.product_code, 'نام کالا': r.product_name, تعداد: r.qty, 'مبلغ (ریال)': r.amount_rial, شرح: r.note }));
+    return db.prepare(`SELECT m.*,p.code product_code,p.name product_name,fw.name from_name,tw.name to_name FROM warehouse_moves m LEFT JOIN products p ON p.id=m.product_id LEFT JOIN warehouses fw ON fw.id=m.from_warehouse_id LEFT JOIN warehouses tw ON tw.id=m.to_warehouse_id WHERE m.type=? ORDER BY m.id`).all(type).map((r) => ({ 'شماره سند': r.id, 'انبار مبدأ': r.from_name, 'انبار مقصد': r.to_name, تاریخ: r.date, 'کد کالا': r.product_code, 'نام کالا': r.product_name, تعداد: r.qty, 'بهای واحد (ریال)': r.unit_cost_rial, 'مبلغ (ریال)': r.amount_rial, شرح: r.note }));
   }
   if (entity.startsWith('consignments-')) {
     const direction = entity.endsWith('-in') ? 'in' : 'out';
     return db.prepare('SELECT c.*,p.code product_code,p.name product_name FROM consignments c LEFT JOIN products p ON p.id=c.product_id WHERE c.direction=? ORDER BY c.id').all(direction).map((r) => ({ 'طرف حساب': r.party_name, تلفن: r.party_phone, 'کد کالا': r.product_code, 'نام کالا': r.product_name, تعداد: r.qty, 'قیمت واحد (ریال)': toFa(r.unit_price), تاریخ: r.date, وضعیت: r.status, شرح: r.note }));
   }
-  if (entity === 'journal-docs') return db.prepare(`SELECT je.id,je.entry_date,je.description,jl.account_code,jl.account_name,jl.debit,jl.credit,jl.description line_description FROM journal_entries je JOIN journal_lines jl ON jl.entry_id=je.id WHERE COALESCE(je.deleted_at,0)=0 ORDER BY je.id,jl.id`).all().map((r) => ({ 'شماره سند': r.id, تاریخ: r.entry_date, 'شرح سند': r.description, 'کد حساب': r.account_code, 'نام حساب': r.account_name, 'بدهکار (ریال)': toFa(r.debit), 'بستانکار (ریال)': toFa(r.credit), 'شرح ردیف': r.line_description }));
+  if (entity === 'journal-docs') return db.prepare(`SELECT je.id,je.entry_date,je.doc_type,je.description,je.cost_center_id AS header_cost_center_id,jl.account_code,jl.account_name,jl.debit,jl.credit,jl.debit_rial,jl.credit_rial,jl.detail_account_id,jl.cost_center_id,jl.project_id,jl.tax_type,jl.description line_description FROM journal_entries je JOIN journal_lines jl ON jl.entry_id=je.id WHERE COALESCE(je.deleted_at,0)=0 ORDER BY je.id,jl.id`).all().map((r) => ({ 'شماره سند': r.id, تاریخ: r.entry_date, 'نوع سند': r.doc_type, 'شرح سند': r.description, 'مرکز هزینه/شناسه': r.cost_center_id || r.header_cost_center_id || '', 'کد حساب': r.account_code, 'نام حساب': r.account_name, 'شناسه تفصیلی': r.detail_account_id || '', 'شناسه پروژه': r.project_id || '', 'نوع مالیات': r.tax_type || '', 'بدهکار (ریال)': r.debit_rial != null ? r.debit_rial : toFa(r.debit), 'بستانکار (ریال)': r.credit_rial != null ? r.credit_rial : toFa(r.credit), 'شرح ردیف': r.line_description }));
   return [];
 }
 
@@ -260,9 +298,17 @@ function explodeDocuments(docs, partyKey, partyLabel, numberKey, priceLabel, inv
     for (const line of lines) {
       out.push({
         'شماره سند': doc[numberKey], [partyLabel]: doc[partyKey], 'شماره فاکتور مبنا': invoiceKey ? doc[invoiceKey] : '',
-        تاریخ: doc.date, 'نوع پرداخت': doc.pay_type || '', 'کد انبار': doc.warehouse_name || '',
+        تاریخ: doc.date, 'نوع فاکتور': doc.type || '', 'نوع پرداخت': doc.pay_type || '',
+        'کد انبار': doc.warehouse_code || doc.warehouse_name || '', 'بانک/شناسه بانک': doc.bank_name || '',
+        'صندوق/شناسه صندوق': doc.cash_box_name || '', 'دسته چک/شناسه': doc.check_category_name || '',
+        'مرکز هزینه/شناسه': doc.cost_center_name || '', 'کرایه حمل (ریال)': toFa(doc.freight_amount),
+        'نوع کرایه': doc.freight_type || '', 'معاف از مالیات': doc.vat_exempt ? 'بله' : 'خیر',
+        'مدت چک': doc.cheque_duration || '', 'سررسید چک': doc.cheque_due_date || '',
+        'اطلاعات چک': doc.cheque_info || '', 'کانال فروش': doc.sales_channel || '',
+        'منبع سرنخ': doc.lead_source || '', کمپین: doc.campaign || '',
         'کد کالا': line.code || line.product_code || line.product_id, 'نام کالا': line.name,
-        تعداد: line.qty, [priceLabel]: toFa(line.price), 'تخفیف درصد': line.disc || 0, شرح: doc.note || '',
+        تعداد: line.qty, [priceLabel]: toFa(line.price), 'تخفیف درصد': line.disc || 0,
+        'تخفیف کل درصد': doc.disc || 0, شرح: doc.note || '',
       });
     }
   }
@@ -271,38 +317,75 @@ function explodeDocuments(docs, partyKey, partyLabel, numberKey, priceLabel, inv
 
 function buildActions(db, entity, rows) {
   if (entity === 'parties') {
-    const normalized = rows.map((r) => ({
-      full_name: field(r, 'نام*', 'نام', 'full_name'), phone: field(r, 'تلفن*', 'تلفن', 'phone'),
-      prefix: field(r, 'پیشوند'), mobile: field(r, 'موبایل'), city: field(r, 'شهر'),
-      party_group_name: field(r, 'گروه'), party_roles: text(field(r, 'سمت‌ها')).split('|').filter(Boolean),
-      email: field(r, 'ایمیل'), national_id: field(r, 'کد ملی'),
-    }));
-    return [action('/parties/import', { rows: normalized }, `ورود ${normalized.length} شخص`)];
+    return rows.map((r, i) => {
+      const groupValue = field(r, 'گروه');
+      const expertValue = field(r, 'کارشناس');
+      const group = groupValue ? requireRef(i + 2, 'گروه اشخاص', partyGroup(db, groupValue)) : null;
+      const expert = expertValue ? requireRef(i + 2, 'کارشناس', appUser(db, expertValue)) : null;
+      return action('/parties', {
+        person_code: field(r, 'کد شخص'), full_name: field(r, 'نام*', 'نام', 'full_name'),
+        legal_type: field(r, 'نوع شخصیت') || 'real', company_name: field(r, 'نام شرکت'),
+        prefix: field(r, 'پیشوند'), phone: field(r, 'تلفن*', 'تلفن', 'phone'),
+        secondary_phone: field(r, 'تلفن دوم'), mobile: field(r, 'موبایل'), fax: field(r, 'فکس'),
+        email: field(r, 'ایمیل'), national_id: field(r, 'کد ملی'), economic_code: field(r, 'کد اقتصادی'),
+        city: field(r, 'شهر'), province: field(r, 'استان'), address: field(r, 'آدرس'),
+        postal_code: field(r, 'کد پستی'), birth_date: field(r, 'تاریخ تولد'),
+        party_group_id: group?.id || null,
+        party_roles: text(field(r, 'سمت‌ها')).split(/[|,،]/).map(x => x.trim()).filter(Boolean),
+        segment: field(r, 'بخش‌بندی') || 'C', store_type: field(r, 'نوع فروشگاه'),
+        source: field(r, 'منبع'), referrer: field(r, 'معرف'), account_nature: field(r, 'ماهیت حساب'),
+        credit_limit_rial: Math.round(num(field(r, 'سقف اعتبار (ریال)'))),
+        opening_balance_rial: Math.round(num(field(r, 'مانده اول دوره (ریال)'))),
+        opening_balance_date: field(r, 'تاریخ مانده اول دوره'), user_id: expert?.id || undefined,
+        notes: field(r, 'یادداشت', 'شرح'), biz: field(r, 'نام*', 'نام'),
+      }, `شخص ردیف ${i + 2}`);
+    });
   }
-  if (entity === 'products') return rows.map((r, i) => action('/products/quick', {
-    name: field(r, 'نام کالا*', 'نام کالا'), code: field(r, 'کد کالا'), category: field(r, 'دسته'),
-    unit: field(r, 'واحد') || 'عدد', price: fromRial(field(r, 'قیمت فروش (ریال)')),
-    cost: fromRial(field(r, 'بهای خرید (ریال)')),
-  }, `ردیف ${i + 2}`));
+  if (entity === 'products') return rows.map((r, i) => {
+    const whValue = field(r, 'انبار اصلی');
+    const wh = whValue ? requireRef(i + 2, 'انبار اصلی', warehouse(db, whValue)) : null;
+    return action('/products/quick', {
+      name: field(r, 'نام کالا*', 'نام کالا'), full_name: field(r, 'نام کامل کالا'),
+      code: field(r, 'کد کالا'), barcode: field(r, 'بارکد'), category: field(r, 'دسته'),
+      unit: field(r, 'واحد') || 'عدد', warehouse_id: wh?.id || null,
+      stock: Math.max(0, Math.trunc(num(field(r, 'موجودی')))),
+      stock_alert: Math.max(0, Math.trunc(num(field(r, 'هشدار موجودی')))) || 5,
+      price: fromRial(field(r, 'قیمت فروش (ریال)')),
+      cost: fromRial(field(r, 'بهای تمام‌شده (ریال)', 'بهای خرید (ریال)')),
+      consumer_price: fromRial(field(r, 'قیمت مصرف‌کننده (ریال)')),
+      opening_price: fromRial(field(r, 'قیمت اول دوره (ریال)')),
+      colors: Math.max(1, Math.trunc(num(field(r, 'تعداد رنگ')))) || 1,
+      pack_size: Math.max(1, Math.trunc(num(field(r, 'تعداد در پک')))) || 1,
+      product_type: field(r, 'نوع کالا'), product_index: field(r, 'شاخص کالا'),
+      tax_id: field(r, 'شناسه مالیاتی'), location: field(r, 'محل نگهداری'),
+      sms_code: field(r, 'کد پیامک'), note: field(r, 'یادداشت', 'شرح'),
+    }, `ردیف ${i + 2}`);
+  });
   if (entity.startsWith('opening-')) {
     const direction = entity === 'opening-recv-cheques' ? 'in' : 'out';
     return rows.map((r, i) => action('/cheque-records', {
       direction, opening: true, cheque_number: field(r, 'شماره چک*', 'شماره چک'),
       amount: num(field(r, 'مبلغ (ریال)*', 'مبلغ (ریال)')), issue_date: field(r, 'تاریخ صدور'),
-      due_date: field(r, 'تاریخ سررسید'), bank_name: field(r, 'بانک'), branch: field(r, 'شعبه'),
-      sayadi: field(r, 'شماره صیادی'), party_name: field(r, 'طرف حساب'), note: field(r, 'شرح'),
+      receive_date: field(r, 'تاریخ دریافت'), due_date: field(r, 'تاریخ سررسید'),
+      bank_name: field(r, 'بانک'), branch: field(r, 'شعبه'), sayadi: field(r, 'شماره صیادی'),
+      sheba: field(r, 'شبا'), account_number: field(r, 'شماره حساب'),
+      party_name: field(r, 'طرف حساب'), status: field(r, 'وضعیت') || 'مانده اول دوره',
+      status_note: field(r, 'شرح وضعیت'), note: field(r, 'شرح'),
     }, `چک ردیف ${i + 2}`));
   }
   if (entity === 'settlements') return rows.map((r, i) => {
     const direction = text(field(r, 'جهت عملیات*', 'جهت عملیات')).toLowerCase() || 'receive';
     const amount = fromRial(field(r, 'مبلغ (ریال)*', 'مبلغ (ریال)'));
+    const bankId = optionalRefId(db, 'banks', field(r, 'بانک/شناسه بانک'), ['id', 'name'], 'بانک', i + 2);
+    const cashBoxId = optionalRefId(db, 'cash_boxes', field(r, 'صندوق/شناسه صندوق'), ['id', 'code', 'name'], 'صندوق', i + 2);
+    const checkCategoryId = optionalRefId(db, 'check_categories', field(r, 'دسته چک/شناسه'), ['id', 'code', 'name'], 'دسته چک', i + 2);
     if (['pay', 'payment', 'پرداخت'].includes(direction)) {
       const s = requireRef(i + 2, 'تأمین‌کننده', supplier(db, field(r, 'طرف حساب*', 'طرف حساب')));
       const inv = field(r, 'شماره فاکتور') ? requireRef(i + 2, 'فاکتور خرید', invoice(db, field(r, 'شماره فاکتور'), 'purchase_invoices')) : null;
       return action('/purchases/payments', {
         supplier_id: s.id, purchase_invoice_id: inv?.id || null, amount,
         pay_type: field(r, 'نوع پرداخت') || 'cash', date: field(r, 'تاریخ'), note: field(r, 'شرح'),
-        cheque_number: field(r, 'شماره چک'), cheque_due: field(r, 'سررسید چک'),
+        bank_id: bankId, cash_box_id: cashBoxId, check_category_id: checkCategoryId,
       }, `پرداخت ردیف ${i + 2}`);
     }
     const c = requireRef(i + 2, 'مشتری', customer(db, field(r, 'طرف حساب*', 'طرف حساب', 'مشتری*', 'مشتری')));
@@ -310,17 +393,36 @@ function buildActions(db, entity, rows) {
     return action('/accounting/settlements', {
       cust_id: c.id, invoice_id: inv?.id || null, amount,
       pay_type: field(r, 'نوع پرداخت') || 'cash', date: field(r, 'تاریخ'), note: field(r, 'شرح'),
-      cheque_number: field(r, 'شماره چک'), cheque_due: field(r, 'سررسید چک'), cheque_amount: amount,
+      bank_id: bankId, cash_box_id: cashBoxId, check_category_id: checkCategoryId,
+      cheque_bank: field(r, 'بانک چک'), cheque_sayadi: field(r, 'شماره صیادی'),
+      cheque_number: field(r, 'شماره چک'), cheque_account: field(r, 'شماره حساب چک'),
+      cheque_amount: fromRial(field(r, 'مبلغ چک (ریال)')) || amount,
+      cheque_owner: field(r, 'صاحب چک'), cheque_due: field(r, 'سررسید چک'),
+      cheque_status: field(r, 'وضعیت چک') || 'pending', cheque_branch: field(r, 'شعبه چک'),
+      cheque_sheba: field(r, 'شبای چک'),
     }, `دریافت ردیف ${i + 2}`);
   });
-  if (entity === 'expenses') return rows.map((r, i) => action('/expenses', {
-    title: field(r, 'عنوان*', 'عنوان'), amount: fromRial(field(r, 'مبلغ (ریال)*', 'مبلغ (ریال)')),
-    category: field(r, 'دسته') || 'admin', pay_type: field(r, 'نوع پرداخت') || 'cash',
-    date: field(r, 'تاریخ'), account_code: field(r, 'کد حساب هزینه') || null, note: field(r, 'شرح'),
-  }, `هزینه ردیف ${i + 2}`));
+  if (entity === 'expenses') return rows.map((r, i) => {
+    const purchaseNo = field(r, 'شماره فاکتور خرید');
+    const purchase = purchaseNo ? requireRef(i + 2, 'فاکتور خرید', invoice(db, purchaseNo, 'purchase_invoices')) : null;
+    return action('/expenses', {
+      title: field(r, 'عنوان*', 'عنوان'), amount: fromRial(field(r, 'مبلغ (ریال)*', 'مبلغ (ریال)')),
+      category: field(r, 'دسته') || 'admin', pay_type: field(r, 'نوع پرداخت') || 'cash',
+      date: field(r, 'تاریخ'), account_code: field(r, 'کد حساب هزینه') || null,
+      bank_id: optionalRefId(db, 'banks', field(r, 'بانک/شناسه بانک'), ['id', 'name'], 'بانک', i + 2),
+      cash_box_id: optionalRefId(db, 'cash_boxes', field(r, 'صندوق/شناسه صندوق'), ['id', 'code', 'name'], 'صندوق', i + 2),
+      check_category_id: optionalRefId(db, 'check_categories', field(r, 'دسته چک/شناسه'), ['id', 'code', 'name'], 'دسته چک', i + 2),
+      cost_center_id: optionalRefId(db, 'cost_centers', field(r, 'مرکز هزینه/شناسه'), ['id', 'code', 'name'], 'مرکز هزینه', i + 2),
+      purchase_invoice_id: purchase?.id || null, is_overhead: bool(field(r, 'سربار تولید')),
+      note: field(r, 'شرح'),
+    }, `هزینه ردیف ${i + 2}`);
+  });
   if (['coa-codes', 'ledger-accounts', 'subsidiary-accounts'].includes(entity)) return rows.map((r, i) => action('/accounting/chart-of-accounts', {
     code: field(r, 'کد*', 'کد'), name: field(r, 'نام حساب*', 'نام حساب'),
     type: field(r, 'نوع*', 'نوع'), parent_code: field(r, 'کد والد*', 'کد والد') || null,
+    level: Math.trunc(num(field(r, 'سطح'))) || null, nature: field(r, 'ماهیت') || null,
+    balance_type: field(r, 'نوع مانده') || null, is_cost_element: bool(field(r, 'عنصر بهای تمام‌شده')),
+    tafsili_type: field(r, 'نوع تفصیلی') || null, is_active: field(r, 'فعال') === '' ? true : bool(field(r, 'فعال')),
   }, `حساب ردیف ${i + 2}`));
   if (entity === 'detail-accounts') return rows.map((r, i) => {
     const categoryCode = text(field(r, 'کد دسته'));
@@ -328,7 +430,9 @@ function buildActions(db, entity, rows) {
     if (categoryCode && !category) throw new Error(`ردیف ${i + 2}: دسته تفصیلی ${categoryCode} یافت نشد`);
     return action('/detail-accounts', {
       code: field(r, 'کد تفصیلی*', 'کد تفصیلی'), name: field(r, 'نام*', 'نام'),
-      detail_category_id: category?.id || null,
+      detail_category_id: category?.id || null, linked_table: field(r, 'جدول مرتبط') || null,
+      linked_id: field(r, 'شناسه مرتبط') === '' ? null : Math.trunc(num(field(r, 'شناسه مرتبط'))),
+      is_active: field(r, 'فعال') === '' ? true : bool(field(r, 'فعال')),
     }, `تفصیلی ردیف ${i + 2}`);
   });
   if (entity === 'sales-invoices') return groupBy(rows).map(([number, lines]) => {
@@ -338,7 +442,15 @@ function buildActions(db, entity, rows) {
     return action('/invoices', {
       cust_id: c.id, date: field(first, 'تاریخ'), type: field(first, 'نوع فاکتور') || 'final',
       pay_type: field(first, 'نوع پرداخت') || 'credit', warehouse_id: wh?.id || null,
-      disc: num(field(first, 'تخفیف کل درصد')), note: field(first, 'شرح'),
+      bank_id: optionalRefId(db, 'banks', field(first, 'بانک/شناسه بانک'), ['id', 'name'], 'بانک', number),
+      cash_box_id: optionalRefId(db, 'cash_boxes', field(first, 'صندوق/شناسه صندوق'), ['id', 'code', 'name'], 'صندوق', number),
+      check_category_id: optionalRefId(db, 'check_categories', field(first, 'دسته چک/شناسه'), ['id', 'code', 'name'], 'دسته چک', number),
+      cost_center_id: optionalRefId(db, 'cost_centers', field(first, 'مرکز هزینه/شناسه'), ['id', 'code', 'name'], 'مرکز هزینه', number),
+      freight_amount: fromRial(field(first, 'کرایه حمل (ریال)')), freight_type: field(first, 'نوع کرایه'),
+      vat_exempt: bool(field(first, 'معاف از مالیات')), cheque_duration: field(first, 'مدت چک'),
+      cheque_due_date: field(first, 'سررسید چک'), cheque_info: field(first, 'اطلاعات چک'),
+      sales_channel: field(first, 'کانال فروش'), lead_source: field(first, 'منبع سرنخ'),
+      campaign: field(first, 'کمپین'), disc: num(field(first, 'تخفیف کل درصد')), note: field(first, 'شرح'),
       rows: lines.map((r, i) => lineProduct(db, r, `${number}/${i + 1}`)),
     }, `فاکتور فروش ${number}`);
   });
@@ -348,7 +460,14 @@ function buildActions(db, entity, rows) {
     const wh = field(first, 'کد انبار') ? requireRef(number, 'انبار', warehouse(db, field(first, 'کد انبار'))) : null;
     return action('/purchases', {
       supplier_id: s.id, date: field(first, 'تاریخ'), pay_type: field(first, 'نوع پرداخت') || 'credit',
-      warehouse_id: wh?.id || null, disc: num(field(first, 'تخفیف کل درصد')), note: field(first, 'شرح'),
+      warehouse_id: wh?.id || null,
+      bank_id: optionalRefId(db, 'banks', field(first, 'بانک/شناسه بانک'), ['id', 'name'], 'بانک', number),
+      cash_box_id: optionalRefId(db, 'cash_boxes', field(first, 'صندوق/شناسه صندوق'), ['id', 'code', 'name'], 'صندوق', number),
+      check_category_id: optionalRefId(db, 'check_categories', field(first, 'دسته چک/شناسه'), ['id', 'code', 'name'], 'دسته چک', number),
+      cost_center_id: optionalRefId(db, 'cost_centers', field(first, 'مرکز هزینه/شناسه'), ['id', 'code', 'name'], 'مرکز هزینه', number),
+      freight_amount: fromRial(field(first, 'کرایه حمل (ریال)')), freight_type: field(first, 'نوع کرایه'),
+      vat_exempt: bool(field(first, 'معاف از مالیات')),
+      disc: num(field(first, 'تخفیف کل درصد')), note: field(first, 'شرح'),
       rows: lines.map((r, i) => lineProduct(db, r, `${number}/${i + 1}`)),
     }, `فاکتور خرید ${number}`);
   });
@@ -377,7 +496,12 @@ function buildActions(db, entity, rows) {
     return action('/warehouses/moves/batch', {
       type, warehouse_id: type === 'receipt' ? to?.id : from?.id, from_warehouse_id: from?.id,
       to_warehouse_id: to?.id, date: field(first, 'تاریخ'), note: field(first, 'شرح'),
-      lines: lines.map((r, i) => ({ product_id: requireRef(`${number}/${i + 1}`, 'کالا', product(db, field(r, 'کد کالا*', 'کد کالا'))).id, qty: Math.max(1, Math.trunc(num(field(r, 'تعداد*', 'تعداد')))) })),
+      lines: lines.map((r, i) => ({
+        product_id: requireRef(`${number}/${i + 1}`, 'کالا', product(db, field(r, 'کد کالا*', 'کد کالا'))).id,
+        qty: Math.max(1, Math.trunc(num(field(r, 'تعداد*', 'تعداد')))),
+        unit_cost_rial: Math.max(0, Math.round(num(field(r, 'بهای واحد (ریال)')))),
+        amount_rial: Math.max(0, Math.round(num(field(r, 'مبلغ (ریال)')))),
+      })),
     }, `${DEFINITIONS[entity].title} ${number}`);
   });
   if (entity.startsWith('consignments-')) {
@@ -387,7 +511,8 @@ function buildActions(db, entity, rows) {
       return action('/consignments', {
         direction, party_name: field(r, 'طرف حساب*', 'طرف حساب'), party_phone: field(r, 'تلفن'),
         product_id: p.id, qty: Math.max(1, Math.trunc(num(field(r, 'تعداد*', 'تعداد')))),
-        unit_price: fromRial(field(r, 'قیمت واحد (ریال)')), date: field(r, 'تاریخ'), note: field(r, 'شرح'),
+        unit_price: fromRial(field(r, 'قیمت واحد (ریال)')), date: field(r, 'تاریخ'),
+        status: field(r, 'وضعیت') || 'open', note: field(r, 'شرح'),
       }, `امانی ردیف ${i + 2}`);
     });
   }
@@ -400,6 +525,10 @@ function buildActions(db, entity, rows) {
       return {
         code, debit: fromRial(field(r, 'بدهکار (ریال)')),
         credit: fromRial(field(r, 'بستانکار (ریال)')), description: field(r, 'شرح ردیف'),
+        detail_account_id: field(r, 'شناسه تفصیلی') === '' ? null : Math.trunc(num(field(r, 'شناسه تفصیلی'))),
+        cost_center_id: optionalRefId(db, 'cost_centers', field(r, 'مرکز هزینه/شناسه'), ['id', 'code', 'name'], 'مرکز هزینه', `${number}/${index + 1}`),
+        project_id: optionalRefId(db, 'projects', field(r, 'شناسه پروژه'), ['id', 'code', 'name'], 'پروژه', `${number}/${index + 1}`),
+        tax_type: field(r, 'نوع مالیات') || null,
       };
     });
     const debit = voucherLines.reduce((sum, r) => sum + r.debit, 0);
@@ -409,6 +538,8 @@ function buildActions(db, entity, rows) {
     }
     return action('/accounting/vouchers', {
       date: field(lines[0], 'تاریخ'), description: field(lines[0], 'شرح سند') || `سند وارداتی ${number}`,
+      doc_type: field(lines[0], 'نوع سند') || 'manual',
+      cost_center_id: optionalRefId(db, 'cost_centers', field(lines[0], 'مرکز هزینه/شناسه'), ['id', 'code', 'name'], 'مرکز هزینه', number),
       lines: voucherLines,
     }, `سند حسابداری ${number}`);
   });
@@ -448,4 +579,5 @@ router.post('/:entity/prepare-import', auth, adminOrAccounting, ensureDefinition
   }
 });
 
+router._test = { DEFINITIONS, exportRows, buildActions };
 module.exports = router;

@@ -2,7 +2,9 @@ const router = require('express').Router();
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { getDB, audit, createJournalEntry, resolveCashAccount, createLedgerEntry } = require('../db');
+const { getDB, audit, resolveCashAccount, createLedgerEntry } = require('../db');
+const { postToLedger } = require('../lib/ledger');
+const { acct } = require('../lib/coa-map');
 const { auth, adminOrAccounting, repModuleAdmin } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const {
@@ -114,12 +116,13 @@ function applyRepPaymentAsSettlement(db, sub, userId) {
     debit: 0, credit: amount, user_id: userId
   });
   const cash = resolveCashAccount(db, pay_type, null, null);
-  createJournalEntry(db, {
-    date: sub.date || '', description: `تسویه ${payLabel} مشتری (نماینده میدانی)`,
-    ref_type: 'settlement', ref_id: settlementId, created_by: userId,
+  const receivable = acct(db, 'coa_receivable');
+  postToLedger(db, {
+    sourceType: 'settlement', sourceId: settlementId,
+    date: sub.date || todayJalali(), description: `تسویه ${payLabel} مشتری (نماینده میدانی)`, createdBy: userId,
     lines: [
       { code: cash.code, name: cash.name, debit: amount, credit: 0 },
-      { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: amount }
+      { code: receivable.code, name: receivable.name, debit: 0, credit: amount }
     ]
   });
   return settlementId;
@@ -306,11 +309,12 @@ router.post('/expenses/:expenseId/approve', auth, repModuleAdmin, (req, res) => 
       description: `هزینه: ${EXPENSE_CATEGORIES[row.category] || row.category}`, debit: row.amount, credit: 0, created_by: req.user.id
     });
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    createJournalEntry(db, {
-      date: row.date, description: `بازپرداخت هزینه نماینده ${row.rep_name}`,
-      ref_type: 'rep_expense', ref_id: row.id, created_by: req.user.id,
+    const expense = acct(db, 'coa_sales_expense');
+    postToLedger(db, {
+      sourceType: 'rep_expense', sourceId: row.id,
+      date: row.date || todayJalali(), description: `بازپرداخت هزینه نماینده ${row.rep_name}`, createdBy: req.user.id,
       lines: [
-        { code: '6103', name: 'هزینه‌های توزیع و فروش', debit: row.amount, credit: 0 },
+        { code: expense.code, name: expense.name, debit: row.amount, credit: 0 },
         { code: cash.code, name: cash.name, debit: 0, credit: row.amount }
       ]
     });
@@ -531,11 +535,12 @@ router.post('/:id/advances', auth, adminOrAccounting, (req, res) => {
       description: `مساعده — ${note || ''}`, debit: amt, credit: 0, created_by: req.user.id
     });
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    createJournalEntry(db, {
-      date: date || todayJalali(), description: `مساعده به نماینده ${rep.name}`,
-      ref_type: 'rep_advance', ref_id: r.lastInsertRowid, created_by: req.user.id,
+    const advance = acct(db, 'coa_rep_advance');
+    postToLedger(db, {
+      sourceType: 'rep_advance', sourceId: r.lastInsertRowid,
+      date: date || todayJalali(), description: `مساعده به نماینده ${rep.name}`, createdBy: req.user.id,
       lines: [
-        { code: '1107', name: 'مساعده نمایندگان فروش', debit: amt, credit: 0 },
+        { code: advance.code, name: advance.name, debit: amt, credit: 0 },
         { code: cash.code, name: cash.name, debit: 0, credit: amt }
       ]
     });
@@ -564,11 +569,12 @@ router.post('/:id/settle', auth, adminOrAccounting, (req, res) => {
     let advSettled = 0;
     if (settle_advances !== false) advSettled = settleAdvancesAgainstPayment(db, repId, amt, pay.lastInsertRowid, req.user.id);
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    createJournalEntry(db, {
-      date: date || todayJalali(), description: `تسویه نماینده ${rep.name}`,
-      ref_type: 'rep_settlement', ref_id: pay.lastInsertRowid, created_by: req.user.id,
+    const payable = acct(db, 'coa_rep_commission_payable');
+    postToLedger(db, {
+      sourceType: 'rep_settlement', sourceId: pay.lastInsertRowid,
+      date: date || todayJalali(), description: `تسویه نماینده ${rep.name}`, createdBy: req.user.id,
       lines: [
-        { code: '6101', name: 'هزینه انگیزه فروش', debit: amt, credit: 0 },
+        { code: payable.code, name: payable.name, debit: amt, credit: 0 },
         { code: cash.code, name: cash.name, debit: 0, credit: amt }
       ]
     });

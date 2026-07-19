@@ -1,12 +1,9 @@
 const router = require('express').Router();
-const { getDB, audit, createJournalEntry, resolveCashAccount } = require('../db');
+const { getDB, audit, resolveCashAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
-
-const FALLBACK_ACCOUNTS = {
-  admin: { code: '6102', name: 'هزینه‌های عمومی و اداری' },
-  sales: { code: '6103', name: 'هزینه‌های توزیع و فروش' }
-};
+const { postToLedger } = require('../lib/ledger');
+const { acct } = require('../lib/coa-map');
 
 function resolveExpenseAccount(db, category, account_code) {
   if (account_code) {
@@ -21,7 +18,7 @@ function resolveExpenseAccount(db, category, account_code) {
       return { code: cat.account_code, name: cat.name };
     }
   }
-  return FALLBACK_ACCOUNTS[category] || FALLBACK_ACCOUNTS.admin;
+  return acct(db, category === 'sales' ? 'coa_sales_expense' : 'coa_admin_expense');
 }
 
 router.get('/categories', auth, adminOrAccounting, (req, res) => {
@@ -68,6 +65,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
     LEFT JOIN users u ON e.created_by=u.id
     LEFT JOIN cost_centers cc ON e.cost_center_id=cc.id
     LEFT JOIN purchase_invoices pi ON e.purchase_invoice_id=pi.id
+    WHERE COALESCE(e.status,'posted')<>'reversed'
     ORDER BY e.created_at DESC LIMIT 300
   `).all();
   res.json(rows);
@@ -92,15 +90,16 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     const expId = result.lastInsertRowid;
 
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    const entryId = createJournalEntry(db, {
+    const entryId = postToLedger(db, {
+      sourceType: 'expense_payment', sourceId: expId,
       date: date || todayJalali(), description: `پرداخت هزینه: ${title || acc.name}`,
-      ref_type: 'expense_payment', ref_id: expId, created_by: req.user.id,
+      createdBy: req.user.id, costCenterId: cost_center_id || null,
       lines: [
         { code: acc.code, name: acc.name, debit: amt, credit: 0, description: title || '' },
         { code: cash.code, name: cash.name, debit: 0, credit: amt }
       ]
     });
-    if (cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(cost_center_id, entryId);
+    db.prepare('UPDATE expense_payments SET journal_entry_id=? WHERE id=?').run(entryId, expId);
     return expId;
   })();
 
@@ -141,20 +140,23 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM expense_payments WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status === 'reversed') return res.status(400).json({ error: 'این هزینه قبلاً ابطال شده است' });
   const acc = resolveExpenseAccount(db, row.category, row.account_code);
   db.transaction(() => {
     const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
-    createJournalEntry(db, {
-      date: row.date || '', description: `ابطال پرداخت هزینه #${row.id}`,
-      ref_type: 'expense_payment_reversal', ref_id: row.id, created_by: req.user.id,
+    const reversalId = postToLedger(db, {
+      sourceType: 'expense_payment_reversal', sourceId: row.id,
+      date: todayJalali(), description: `ابطال پرداخت هزینه #${row.id}`, createdBy: req.user.id,
+      costCenterId: row.cost_center_id || null,
       lines: [
         { code: cash.code, name: cash.name, debit: row.amount, credit: 0 },
         { code: acc.code, name: acc.name, debit: 0, credit: row.amount }
       ]
     });
-    db.prepare('DELETE FROM expense_payments WHERE id=?').run(req.params.id);
+    db.prepare("UPDATE expense_payments SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+      .run(reversalId, req.user.id, row.id);
   })();
-  audit(req.user.id, 'delete', 'expense_payment', req.params.id, `حذف پرداخت هزینه #${req.params.id}`);
+  audit(req.user.id, 'reverse', 'expense_payment', req.params.id, `ابطال پرداخت هزینه #${req.params.id}`);
   res.json({ ok: true });
 });
 

@@ -1,13 +1,16 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
+const { postToLedger } = require('../lib/ledger');
+const { acct } = require('../lib/coa-map');
+const { todayJalali } = require('../jalali');
 
 const OPENING_NOTE = 'مانده اول دوره';
 
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { direction, status, opening } = req.query;
-  const where = [], params = [];
+  const where = ["COALESCE(record_status,'posted')<>'reversed'"], params = [];
   if (direction) { where.push('direction=?'); params.push(direction); }
   if (status) { where.push('status LIKE ?'); params.push('%' + status + '%'); }
   if (opening === '1') { where.push("(note LIKE ? OR status LIKE ?)"); params.push('%' + OPENING_NOTE + '%', '%اول دوره%'); }
@@ -26,32 +29,43 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   if (!direction || !amount) return res.status(400).json({ error: 'جهت و مبلغ الزامی است' });
   const db = getDB();
   const finalNote = opening ? (note ? note + ' — ' + OPENING_NOTE : OPENING_NOTE) : (note || '');
-  const result = db.prepare(`
-    INSERT INTO cheque_records (
-      direction, cheque_number, issue_date, receive_date, due_date,
-      bank_name, branch, sayadi, sheba, account_number,
-      party_name, status, status_note, amount, note, created_by_name
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-  `).run(
-    direction,
-    cheque_number || '',
-    issue_date || '',
-    receive_date || '',
-    due_date || '',
-    bank_name || '',
-    branch || '',
-    sayadi || '',
-    sheba || '',
-    account_number || '',
-    party_name || '',
-    status || (opening ? 'مانده اول دوره' : ''),
-    status_note || '',
-    amount,
-    finalNote,
-    req.user.name || ''
-  );
-  audit(req.user.id, 'create', 'cheque_record', result.lastInsertRowid, `ثبت چک ${cheque_number || result.lastInsertRowid}`);
-  res.json(db.prepare('SELECT * FROM cheque_records WHERE id=?').get(result.lastInsertRowid));
+  const recordId = db.transaction(() => {
+    const result = db.prepare(`
+      INSERT INTO cheque_records (
+        direction, cheque_number, issue_date, receive_date, due_date,
+        bank_name, branch, sayadi, sheba, account_number,
+        party_name, status, status_note, amount, note, created_by_name
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      direction, cheque_number || '', issue_date || '', receive_date || '', due_date || '',
+      bank_name || '', branch || '', sayadi || '', sheba || '', account_number || '',
+      party_name || '', status || (opening ? 'مانده اول دوره' : ''), status_note || '',
+      Math.round(Number(amount)), finalNote, req.user.name || ''
+    );
+    if (opening) {
+      const chequeAccount = acct(db, direction === 'in' ? 'coa_cheques_receivable' : 'coa_cheques_payable');
+      const openingAccount = acct(db, 'coa_opening_balance');
+      const valueToman = Math.round(Number(amount)) / 10;
+      const lines = direction === 'in'
+        ? [
+          { code: chequeAccount.code, name: chequeAccount.name, debit: valueToman, credit: 0 },
+          { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
+        ]
+        : [
+          { code: openingAccount.code, name: openingAccount.name, debit: valueToman, credit: 0 },
+          { code: chequeAccount.code, name: chequeAccount.name, debit: 0, credit: valueToman },
+        ];
+      const journalId = postToLedger(db, {
+        sourceType: 'opening_cheque', sourceId: result.lastInsertRowid,
+        date: issue_date || todayJalali(), description: `چک ${direction === 'in' ? 'دریافتنی' : 'پرداختنی'} اول دوره ${cheque_number || ''}`,
+        createdBy: req.user.id, lines,
+      });
+      db.prepare('UPDATE cheque_records SET journal_entry_id=? WHERE id=?').run(journalId, result.lastInsertRowid);
+    }
+    return result.lastInsertRowid;
+  })();
+  audit(req.user.id, 'create', 'cheque_record', recordId, `ثبت چک ${cheque_number || recordId}`);
+  res.json(db.prepare('SELECT * FROM cheque_records WHERE id=?').get(recordId));
 });
 
 router.patch('/:id/status', auth, adminOrAccounting, (req, res) => {
@@ -69,8 +83,31 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM cheque_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  db.prepare('DELETE FROM cheque_records WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'cheque_record', req.params.id, `حذف چک ${row.cheque_number}`);
+  if (row.record_status === 'reversed') return res.status(400).json({ error: 'این چک قبلاً ابطال شده است' });
+  db.transaction(() => {
+    let reversalId = null;
+    if (row.journal_entry_id) {
+      const chequeAccount = acct(db, row.direction === 'in' ? 'coa_cheques_receivable' : 'coa_cheques_payable');
+      const openingAccount = acct(db, 'coa_opening_balance');
+      const valueToman = Math.round(Number(row.amount)) / 10;
+      const lines = row.direction === 'in'
+        ? [
+          { code: openingAccount.code, name: openingAccount.name, debit: valueToman, credit: 0 },
+          { code: chequeAccount.code, name: chequeAccount.name, debit: 0, credit: valueToman },
+        ]
+        : [
+          { code: chequeAccount.code, name: chequeAccount.name, debit: valueToman, credit: 0 },
+          { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
+        ];
+      reversalId = postToLedger(db, {
+        sourceType: 'opening_cheque_reversal', sourceId: row.id, date: todayJalali(),
+        description: `ابطال چک اول دوره ${row.cheque_number || row.id}`, createdBy: req.user.id, lines,
+      });
+    }
+    db.prepare("UPDATE cheque_records SET record_status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+      .run(reversalId, req.user.id, row.id);
+  })();
+  audit(req.user.id, 'reverse', 'cheque_record', req.params.id, `ابطال چک ${row.cheque_number}`);
   res.json({ ok: true });
 });
 

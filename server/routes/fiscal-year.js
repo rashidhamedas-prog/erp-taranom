@@ -1,6 +1,8 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
-const { getDB, audit, createJournalEntry } = require('../db');
+const { getDB, audit } = require('../db');
+const { postToLedger } = require('../lib/ledger');
+const { acct } = require('../lib/coa-map');
 const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 
@@ -21,10 +23,6 @@ router.post('/rollover', auth, adminOnly, centralOnly, (req, res) => {
   if (!new_year_label || !start_date) return res.status(400).json({ error: 'برچسب و تاریخ شروع سال جدید الزامی است' });
   const db = getDB();
   const open = currentFiscalYear(db);
-  if (open && open.status === 'open') {
-    db.prepare("UPDATE fiscal_years SET status='closed', closed_at=strftime('%s','now'), closed_by=? WHERE id=?")
-      .run(req.user.id, open.id);
-  }
 
   const retained = db.prepare(`
     SELECT COALESCE(SUM(jl.credit - jl.debit), 0) as net
@@ -43,19 +41,25 @@ router.post('/rollover', auth, adminOnly, centralOnly, (req, res) => {
   const inventory = db.prepare('SELECT COALESCE(SUM(stock * cost),0) as v FROM products').get().v || 0;
 
   const result = db.transaction(() => {
+    if (open && open.status === 'open') {
+      db.prepare("UPDATE fiscal_years SET status='closed', closed_at=strftime('%s','now'), closed_by=? WHERE id=?")
+        .run(req.user.id, open.id);
+    }
     const fy = db.prepare(`
       INSERT INTO fiscal_years (label, start_date, end_date, status, opening_retained, opening_receivables, opening_inventory, created_by)
       VALUES (?, ?, ?, 'open', ?, ?, ?, ?)
     `).run(new_year_label, start_date, end_date || '', retained, receivables, inventory, req.user.id);
 
     if (Math.abs(retained) > 0.01) {
-      createJournalEntry(db, {
-        date: start_date,
+      const retainedAccount = acct(db, 'coa_retained_earnings');
+      const openingAccount = acct(db, 'coa_fiscal_opening');
+      postToLedger(db, {
+        sourceType: 'fiscal_opening', sourceId: fy.lastInsertRowid, date: start_date,
         description: `افتتاحیه سال مالی ${new_year_label} — سود انباشته`,
-        ref_type: 'fiscal_opening', ref_id: fy.lastInsertRowid, created_by: req.user.id,
+        createdBy: req.user.id, voucherType: 'opening',
         lines: [
-          { code: '3101', name: 'سود (زیان) انباشته', debit: retained < 0 ? Math.abs(retained) : 0, credit: retained > 0 ? retained : 0 },
-          { code: '3201', name: 'افتتاحیه سال مالی', debit: retained > 0 ? retained : 0, credit: retained < 0 ? Math.abs(retained) : 0 },
+          { code: retainedAccount.code, name: retainedAccount.name, debit: retained < 0 ? Math.abs(retained) : 0, credit: retained > 0 ? retained : 0 },
+          { code: openingAccount.code, name: openingAccount.name, debit: retained > 0 ? retained : 0, credit: retained < 0 ? Math.abs(retained) : 0 },
         ],
       });
     }

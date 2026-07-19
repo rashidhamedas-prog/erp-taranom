@@ -264,9 +264,14 @@ router.post('/reset-password', auth, adminOnly, (req, res) => {
 
 router.get('/users', auth, adminOnly, (req, res) => {
   const db = getDB();
-  const users = db.prepare(`SELECT id,name,username,role,phone,active,last_login,commission_cash,commission_cheque,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,incentive_locked,created_at,
-    rep_code,rep_subtype,territory,supervisor_id,employment_status,bank_name,bank_account,bank_iban,rep_opening_balance
-    FROM users ORDER BY created_at DESC`).all();
+  const users = db.prepare(`SELECT u.id,u.name,u.username,u.role,u.phone,u.active,u.last_login,u.commission_cash,u.commission_cheque,u.commission_basis,u.monthly_target,u.quarterly_target,u.annual_target,u.bonus_pct,u.commission_fixed,u.penalty_pct,u.supervisor_commission_pct,u.incentive_locked,u.created_at,
+    u.rep_code,u.rep_subtype,u.territory,u.supervisor_id,u.employment_status,u.bank_name,u.bank_account,u.bank_iban,u.rep_opening_balance,u.party_id,
+    p.person_code,p.legal_type,p.company_name,p.national_id,p.economic_code,
+    p.secondary_phone AS person_secondary_phone,p.mobile AS person_mobile,p.fax AS person_fax,
+    p.email AS person_email,p.city AS person_city,p.province AS person_province,p.address AS person_address,
+    p.postal_code AS person_postal_code,p.birth_date AS person_birth_date,p.notes AS person_notes,
+    p.party_group_id AS person_party_group_id,p.account_nature AS person_account_nature
+    FROM users u LEFT JOIN parties p ON p.id=u.party_id ORDER BY u.created_at DESC`).all();
   res.json(users);
 });
 

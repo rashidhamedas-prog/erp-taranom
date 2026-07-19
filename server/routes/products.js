@@ -50,12 +50,24 @@ async function saveImage(buffer, originalName) {
 }
 const memUpload = multer({ storage: multer.memoryStorage() });
 
+function canSeeAllProductGroups(user) {
+  return user.role === 'admin' || user.role === 'accounting';
+}
+
+function addProductGroupVisibility(user, where, params, alias = 'p', categoryAlias = 'pc') {
+  if (!canSeeAllProductGroups(user)) {
+    where.push(`(${alias}.category_id IS NULL OR ${categoryAlias}.id IS NULL OR ${categoryAlias}.is_shared=1 OR ${categoryAlias}.created_by=?)`);
+    params.push(user.id);
+  }
+}
+
 // GET /  — products are GLOBAL: every authenticated user can read all.
 // Filtering: ?category=&search=&stock_status=low|ok|all  (FIXED)
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const where = [];
   const params = [];
+  addProductGroupVisibility(req.user, where, params);
 
   const category = (req.query.category || '').trim();
   if (category && category !== 'all') { where.push('p.category = ?'); params.push(category); }
@@ -79,7 +91,9 @@ router.get('/', auth, (req, res) => {
     : '';
   const rows = db.prepare(`
     SELECT p.*, w.name as warehouse_name${whSelect}
-    FROM products p LEFT JOIN warehouses w ON p.warehouse_id=w.id
+    FROM products p
+    LEFT JOIN warehouses w ON p.warehouse_id=w.id
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
     ${whereSql} ORDER BY p.created_at DESC
   `).all(...params);
   res.json(rows);
@@ -89,8 +103,16 @@ router.get('/', auth, (req, res) => {
 // routes so GET /categories is never captured as an id (spec 1.0.9 §2 catalog).
 router.get('/categories', auth, (req, res) => {
   const db = getDB();
-  const fromTable = db.prepare('SELECT name FROM product_categories WHERE active=1 ORDER BY sort_order, name').all().map(r => r.name);
-  const fromLegacy = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>'' ORDER BY category").all().map(r => r.category);
+  const visibility = canSeeAllProductGroups(req.user) ? '' : ' AND (is_shared=1 OR created_by=?)';
+  const args = visibility ? [req.user.id] : [];
+  const fromTable = db.prepare(`SELECT name FROM product_categories WHERE active=1${visibility} ORDER BY sort_order, name`).all(...args).map(r => r.name);
+  const fromLegacy = db.prepare(`
+    SELECT DISTINCT p.category FROM products p
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE p.category IS NOT NULL AND p.category<>''
+      ${canSeeAllProductGroups(req.user) ? '' : 'AND (p.category_id IS NULL OR pc.id IS NULL OR pc.is_shared=1 OR pc.created_by=?)'}
+    ORDER BY p.category
+  `).all(...args).map(r => r.category);
   const seen = new Set();
   res.json([...fromTable, ...fromLegacy].filter(c => { if (seen.has(c)) return false; seen.add(c); return true; }));
 });
@@ -100,7 +122,13 @@ router.get('/by-barcode/:code', auth, (req, res) => {
   const db = getDB();
   const code = String(req.params.code || '').trim();
   if (!code) return res.status(400).json({ error: 'کد الزامی است' });
-  const row = db.prepare('SELECT * FROM products WHERE barcode=? OR code=?').get(code, code);
+  const where = ['(p.barcode=? OR p.code=?)'];
+  const params = [code, code];
+  addProductGroupVisibility(req.user, where, params);
+  const row = db.prepare(`
+    SELECT p.* FROM products p LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE ${where.join(' AND ')}
+  `).get(...params);
   if (!row) return res.status(404).json({ error: 'محصولی با این بارکد یافت نشد' });
   res.json(row);
 });
@@ -112,7 +140,13 @@ router.get('/by-barcode/:code', auth, (req, res) => {
 // change) so the final computed balance always reconciles with reality.
 router.get('/:id/kardex', auth, (req, res) => {
   const db = getDB();
-  const product = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  const where = ['p.id=?'];
+  const params = [req.params.id];
+  addProductGroupVisibility(req.user, where, params);
+  const product = db.prepare(`
+    SELECT p.* FROM products p LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE ${where.join(' AND ')}
+  `).get(...params);
   if (!product) return res.status(404).json({ error: 'محصول یافت نشد' });
 
   // Prefer immutable inventory_ledger when present
@@ -189,11 +223,18 @@ router.post('/:id/generate-barcode', auth, adminOnly, (req, res) => {
 // Printable barcode label page. Opened as a plain link in a new tab, so the
 // JWT arrives via ?token= query param instead of the Authorization header.
 router.get('/:id/labels', (req, res) => {
-  try { jwt.verify(String(req.query.token || ''), SECRET); }
+  let tokenUser;
+  try { tokenUser = jwt.verify(String(req.query.token || ''), SECRET); }
   catch { return res.status(401).send('توکن نامعتبر — دوباره وارد شوید'); }
   const db = getDB();
   const count = Math.min(50, Math.max(1, parseInt(req.query.count || '12')));
-  const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  const where = ['p.id=?'];
+  const params = [req.params.id];
+  addProductGroupVisibility(tokenUser, where, params);
+  const prod = db.prepare(`
+    SELECT p.* FROM products p LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE ${where.join(' AND ')}
+  `).get(...params);
   if (!prod) return res.status(404).send('محصول یافت نشد');
   if (!prod.barcode) return res.status(400).send('این محصول بارکد ندارد — ابتدا بارکد تولید کنید');
   const escName = String(prod.name || '').replace(/</g, '&lt;');
@@ -229,34 +270,66 @@ document.querySelectorAll('svg.bc').forEach(function(el){
 
 // Quick create from invoice modals — managers and accountants (v1.0.11)
 router.post('/quick', auth, requirePermission('products', 'create'), (req, res) => {
-  const { name, category_id, category, code, price, cost, warehouse_id, unit } = req.body;
+  const {
+    name, category_id, category, code, price, cost, warehouse_id, unit, stock, stock_alert,
+    note, colors, pack_size, barcode, full_name, product_type, product_index, tax_id,
+    consumer_price, location, opening_price, sms_code
+  } = req.body;
   if (!name) return res.status(400).json({ error: 'نام محصول الزامی است' });
   const db = getDB();
   let catName = category || '';
   let catId = category_id || null;
   if (catId) {
-    const c = db.prepare('SELECT name FROM product_categories WHERE id=?').get(catId);
+    const c = canSeeAllProductGroups(req.user)
+      ? db.prepare('SELECT name FROM product_categories WHERE id=?').get(catId)
+      : db.prepare('SELECT name FROM product_categories WHERE id=? AND (is_shared=1 OR created_by=?)').get(catId, req.user.id);
+    if (!c) return res.status(403).json({ error: 'گروه کالا برای این کاربر قابل استفاده نیست' });
     if (c) catName = c.name;
+  } else if (catName) {
+    const c = canSeeAllProductGroups(req.user)
+      ? db.prepare('SELECT id,name FROM product_categories WHERE name=?').get(catName)
+      : db.prepare('SELECT id,name FROM product_categories WHERE name=? AND (is_shared=1 OR created_by=?)').get(catName, req.user.id);
+    if (c) { catId = c.id; catName = c.name; }
   }
   const defaultWarehouse = warehouse_id || db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get()?.id || null;
   const prodCode = (code && String(code).trim()) || nextProductCode(db);
-  const result = db.prepare(
-    'INSERT INTO products (user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,warehouse_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, 0, 5, unit || 'عدد', defaultWarehouse);
-  const pid = result.lastInsertRowid;
-  if (defaultWarehouse) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
-      .run(pid, defaultWarehouse);
-  }
-  // حالت کدینگ محک: تفصیلی اختصاصی کالا زیر معین موجودی (برای سند COGS)
-  try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, pid); } catch (_) {}
+  const openingStock = Math.max(0, parseInt(stock, 10) || 0);
+  const pid = db.transaction(() => {
+    const result = db.prepare(`
+      INSERT INTO products (
+        user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,warehouse_id,
+        note,colors,pack_size,barcode,full_name,product_type,product_index,tax_id,consumer_price,
+        location,opening_price,sms_code
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0,
+      openingStock, parseInt(stock_alert, 10) || 5, unit || 'عدد', defaultWarehouse,
+      note || '', Math.max(1, parseInt(colors, 10) || 1), Math.max(1, parseInt(pack_size, 10) || 1),
+      String(barcode || '').trim() || null, full_name || '', product_type || '', product_index || '',
+      tax_id || '', parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0,
+      sms_code || ''
+    );
+    if (defaultWarehouse) {
+      db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
+        .run(result.lastInsertRowid, defaultWarehouse, openingStock);
+    }
+    try {
+      const cc = allocTafsili(db, 'product', name);
+      if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid);
+    } catch (_) { /* optional in legacy mode */ }
+    return result.lastInsertRowid;
+  })();
   audit(req.user.id, 'create', 'product', pid, `ساخت سریع محصول ${name}`);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(pid));
 });
 
 // Create product (admin only) — multipart form-data for optional image
 router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
-  const { category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, barcode } = req.body;
+  const {
+    category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors,
+    pack_size, barcode, warehouse_id, full_name, product_type, product_index, tax_id,
+    consumer_price, location, opening_price, sms_code
+  } = req.body;
   if (!name) return res.status(400).json({ error: 'نام محصول الزامی است' });
   const db = getDB();
   let catName = category || '';
@@ -271,14 +344,21 @@ router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
   }
   // New products default into the first warehouse so warehouse_id is never
   // null — Warehouse Transfer can relocate them afterward.
-  const defaultWarehouse = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
+  const defaultWarehouse = warehouse_id
+    ? db.prepare('SELECT id FROM warehouses WHERE id=?').get(parseInt(warehouse_id, 10))
+    : db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
   const prodCode = (code && String(code).trim()) || nextProductCode(db);
   const result = db.prepare(
-    'INSERT INTO products (user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,note,image,colors,pack_size,warehouse_id,barcode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    `INSERT INTO products (
+      user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,note,image,colors,
+      pack_size,warehouse_id,barcode,full_name,product_type,product_index,tax_id,consumer_price,
+      location,opening_price,sms_code
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, parseInt(stock) || 0,
         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
         parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null,
-        (barcode || '').trim() || null);
+        (barcode || '').trim() || null, full_name || '', product_type || '', product_index || '', tax_id || '',
+        parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0, sms_code || '');
   // Seed the default warehouse's stock with the opening quantity so
   // warehouse_stock and products.stock start in agreement. Without this the
   // first official invoice seeds the row at 0 and decrements from 0, leaving

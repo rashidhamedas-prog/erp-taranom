@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { acct: coaAcct } = require('../lib/coa-map');
-const { DELETED_FILTER } = require('../lib/ledger');
+const { DELETED_FILTER, postToLedger } = require('../lib/ledger');
+const { todayJalali } = require('../jalali');
 // دریافتنیِ مشتری: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
 function recvAcct(db, custId) {
   const c = custId ? db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId) : null;
@@ -10,8 +11,8 @@ function recvAcct(db, custId) {
   }
   return coaAcct(db, 'coa_receivable');
 }
-const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting, resolveCashAccount } = require('../db');
-const { recordCommissionAccrual, recordSettlementCommissionAccrual } = require('../lib/rep-ledger');
+const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, backfillAccounting, resolveCashAccount } = require('../db');
+const { recordCommissionAccrual, recordSettlementCommissionAccrual, reverseCommissionAccrual } = require('../lib/rep-ledger');
 const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
@@ -73,7 +74,7 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
 router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const totalInvoiced = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final'").get().s;
-  const totalSettled = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM settlements").get().s;
+  const totalSettled = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE COALESCE(status,'posted')<>'reversed'").get().s;
   const pendingApproval = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=0").get().c;
   const pendingSettlements = db.prepare("SELECT COUNT(*) c FROM rep_payment_submissions WHERE status='pending'").get().c;
   const approvedCount = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=1").get().c;
@@ -123,7 +124,7 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
     FROM customers c
     LEFT JOIN invoices i ON i.cust_id=c.id AND i.type='final'${dateFilter}
     LEFT JOIN (
-      SELECT cust_id, SUM(amount) as total_settled FROM settlements s WHERE 1=1${settDateFilter} GROUP BY cust_id
+      SELECT cust_id, SUM(amount) as total_settled FROM settlements s WHERE COALESCE(status,'posted')<>'reversed'${settDateFilter} GROUP BY cust_id
     ) st ON st.cust_id=c.id
     LEFT JOIN users u ON c.user_id=u.id
     GROUP BY c.id
@@ -143,7 +144,7 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
     FROM invoices i
     JOIN customers c ON i.cust_id=c.id
     LEFT JOIN users u ON c.user_id=u.id
-    LEFT JOIN (SELECT invoice_id, SUM(amount) as paid FROM settlements WHERE invoice_id IS NOT NULL GROUP BY invoice_id) sp ON sp.invoice_id=i.id
+    LEFT JOIN (SELECT invoice_id, SUM(amount) as paid FROM settlements WHERE invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed' GROUP BY invoice_id) sp ON sp.invoice_id=i.id
     WHERE i.type='final'
     ORDER BY i.date DESC, i.id DESC
     LIMIT 500
@@ -156,7 +157,7 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
 router.get('/settlements', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
-  const where = [];
+  const where = ["COALESCE(s.status,'posted')<>'reversed'"];
   const params = [];
   if (from) { where.push("s.date >= ?"); params.push(from); }
   if (to) { where.push("s.date <= ?"); params.push(to); }
@@ -176,7 +177,7 @@ router.get('/settlements', auth, adminOrAccounting, (req, res) => {
 
 // Add settlement
 router.post('/settlements', auth, adminOrAccounting, (req, res) => {
-  const { cust_id, invoice_id, amount, pay_type, date, note, bank_id, cash_box_id,
+  const { cust_id, invoice_id, amount, pay_type, date, note, bank_id, cash_box_id, check_category_id,
           cheque_bank, cheque_sayadi, cheque_number, cheque_account,
           cheque_amount, cheque_owner, cheque_due, cheque_status,
           cheque_branch, cheque_sheba } = req.body;
@@ -185,12 +186,12 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
   const settlementId = db.transaction(() => {
     const result = db.prepare(
       `INSERT INTO settlements
-        (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,
+        (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,check_category_id,
          cheque_bank,cheque_sayadi,cheque_number,cheque_account,
          cheque_amount,cheque_owner,cheque_due,cheque_status,cheque_branch,cheque_sheba)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(req.user.id, cust_id, invoice_id || null, parseFloat(amount), pay_type || 'cash',
-          date || '', note || '', bank_id || null, cash_box_id || null,
+          date || '', note || '', bank_id || null, cash_box_id || null, check_category_id || null,
           cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
           parseFloat(cheque_amount || 0), cheque_owner || '', cheque_due || '',
           cheque_status || 'pending', cheque_branch || '', cheque_sheba || '');
@@ -207,9 +208,9 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
     // Journal entry: Dr Cash/Bank / Cr Receivables — posts to the specific bank's
     // own ledger sub-account when one was selected, else the generic صندوق/بانک
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    createJournalEntry(db, {
-      date: date || '', description: `تسویه ${payLabel} مشتری`,
-      ref_type: 'settlement', ref_id: settlementId, created_by: req.user.id,
+    postToLedger(db, {
+      sourceType: 'settlement', sourceId: settlementId,
+      date: date || todayJalali(), description: `تسویه ${payLabel} مشتری`, createdBy: req.user.id,
       lines: [
         { code: cash.code, name: cash.name, debit: parseFloat(amount), credit: 0 },
         (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: parseFloat(amount) };})()
@@ -218,7 +219,7 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
     if (invoice_id) {
       const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(invoice_id);
       if (inv) {
-        recordSettlementCommissionAccrual(db, { id: settlementId, amount: parseFloat(amount), date: date || '' }, inv, req.user.id, createJournalEntry);
+        recordSettlementCommissionAccrual(db, { id: settlementId, amount: parseFloat(amount), date: date || '' }, inv, req.user.id);
       }
     }
     return settlementId;
@@ -245,12 +246,12 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
       const pay_type = p.pay_type || 'cash';
       const result = db.prepare(
         `INSERT INTO settlements
-          (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,
+          (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,check_category_id,
            cheque_bank,cheque_sayadi,cheque_number,cheque_account,
            cheque_amount,cheque_owner,cheque_due,cheque_status,installment_group,cheque_branch,cheque_sheba,cheque_row)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).run(req.user.id, cust_id, p.invoice_id || null, amount, pay_type,
-            p.date || '', note || p.note || '', p.bank_id || null, p.cash_box_id || null,
+            p.date || '', note || p.note || '', p.bank_id || null, p.cash_box_id || null, p.check_category_id || null,
             p.cheque_bank || '', p.cheque_sayadi || '', p.cheque_number || '', p.cheque_account || '',
             parseFloat(p.cheque_amount || 0), p.cheque_owner || '', p.cheque_due || '',
             p.cheque_status || 'pending', groupId, p.cheque_branch || '', p.cheque_sheba || '',
@@ -264,9 +265,9 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
         debit: 0, credit: amount, user_id: req.user.id
       });
       const cash = resolveCashAccount(db, pay_type, p.bank_id, p.cash_box_id);
-      createJournalEntry(db, {
-        date: p.date || '', description: `تسویه ${payLabel} مشتری (قسط)`,
-        ref_type: 'settlement', ref_id: settlementId, created_by: req.user.id,
+      postToLedger(db, {
+        sourceType: 'settlement', sourceId: settlementId,
+        date: p.date || todayJalali(), description: `تسویه ${payLabel} مشتری (قسط)`, createdBy: req.user.id,
         lines: [
           { code: cash.code, name: cash.name, debit: amount, credit: 0 },
           (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: amount };})()
@@ -275,7 +276,7 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
       if (p.invoice_id) {
         const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(p.invoice_id);
         if (inv) {
-          recordSettlementCommissionAccrual(db, { id: settlementId, amount, date: p.date || '' }, inv, req.user.id, createJournalEntry);
+          recordSettlementCommissionAccrual(db, { id: settlementId, amount, date: p.date || '' }, inv, req.user.id);
         }
       }
       created.push({ id: settlementId, amount });
@@ -291,24 +292,26 @@ router.delete('/settlements/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const settlement = db.prepare('SELECT * FROM settlements WHERE id=?').get(req.params.id);
   if (!settlement) return res.status(404).json({ error: 'تسویه یافت نشد' });
+  if (settlement.status === 'reversed') return res.status(400).json({ error: 'این تسویه قبلاً ابطال شده است' });
 
   db.transaction(() => {
     // Reversal ledger + journal entries — reverse against the same bank/cash-box account originally used
     const cash = resolveCashAccount(db, settlement.pay_type, settlement.bank_id, settlement.cash_box_id);
     createLedgerEntry(db, {
-      customer_id: settlement.cust_id, date: settlement.date || '', entry_type: 'reversal',
+      customer_id: settlement.cust_id, date: todayJalali(), entry_type: 'reversal',
       ref_type: 'settlement', ref_id: settlement.id,
       description: `ابطال تسویه شماره ${settlement.id}`,
       debit: settlement.amount, credit: 0, user_id: req.user.id
     });
-    createJournalEntry(db, {
-      date: settlement.date || '', description: `ابطال تسویه شماره ${settlement.id}`,
-      ref_type: 'settlement_reversal', ref_id: settlement.id, created_by: req.user.id,
+    const reversalId = postToLedger(db, {
+      sourceType: 'settlement_reversal', sourceId: settlement.id, date: todayJalali(),
+      description: `ابطال تسویه شماره ${settlement.id}`, createdBy: req.user.id,
       lines: [
         (()=>{const a=recvAcct(db,settlement.cust_id);return { code: a.code, name: a.name, debit: settlement.amount, credit: 0 };})(),
         { code: cash.code, name: cash.name, debit: 0, credit: settlement.amount }
       ]
     });
+    reverseCommissionAccrual(db, 'settlement', settlement.id, req.user.id, todayJalali());
 
     // Spec 1.0.9 §5: if this settlement came from an approved field-rep
     // payment submission, deleting it flips that submission back to
@@ -325,9 +328,10 @@ router.delete('/settlements/:id', auth, adminOrAccounting, (req, res) => {
       audit(req.user.id, 'reject', 'rep_payment', sub.id, `ابطال تأیید پرداخت میدانی (حذف تسویه #${settlement.id})`);
     }
 
-    db.prepare('DELETE FROM settlements WHERE id=?').run(req.params.id);
+    db.prepare("UPDATE settlements SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+      .run(reversalId, req.user.id, settlement.id);
   })();
-  audit(req.user.id, 'delete', 'settlement', req.params.id, 'حذف تسویه');
+  audit(req.user.id, 'reverse', 'settlement', req.params.id, 'ابطال تسویه');
   res.json({ ok: true });
 });
 
@@ -335,7 +339,7 @@ router.delete('/settlements/:id', auth, adminOrAccounting, (req, res) => {
 router.get('/cheques', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to, status, bank } = req.query;
-  const where = ["s.pay_type='cheque'"];
+  const where = ["s.pay_type='cheque'", "COALESCE(s.status,'posted')<>'reversed'"];
   const params = [];
   if (from) { where.push('s.cheque_due >= ?'); params.push(from); }
   if (to)   { where.push('s.cheque_due <= ?'); params.push(to); }
@@ -399,8 +403,8 @@ router.get('/incentive-payments', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { rep_id } = req.query;
   const rows = rep_id
-    ? db.prepare('SELECT ip.*, u.name as rep_name, r.name as recorder FROM incentive_payments ip LEFT JOIN users u ON ip.rep_id=u.id LEFT JOIN users r ON ip.created_by=r.id WHERE ip.rep_id=? ORDER BY ip.created_at DESC').all(rep_id)
-    : db.prepare('SELECT ip.*, u.name as rep_name, r.name as recorder FROM incentive_payments ip LEFT JOIN users u ON ip.rep_id=u.id LEFT JOIN users r ON ip.created_by=r.id ORDER BY ip.created_at DESC LIMIT 300').all();
+    ? db.prepare("SELECT ip.*, u.name as rep_name, r.name as recorder FROM incentive_payments ip LEFT JOIN users u ON ip.rep_id=u.id LEFT JOIN users r ON ip.created_by=r.id WHERE ip.rep_id=? AND COALESCE(ip.status,'posted')<>'reversed' ORDER BY ip.created_at DESC").all(rep_id)
+    : db.prepare("SELECT ip.*, u.name as rep_name, r.name as recorder FROM incentive_payments ip LEFT JOIN users u ON ip.rep_id=u.id LEFT JOIN users r ON ip.created_by=r.id WHERE COALESCE(ip.status,'posted')<>'reversed' ORDER BY ip.created_at DESC LIMIT 300").all();
   res.json(rows);
 });
 
@@ -412,30 +416,31 @@ router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rep = db.prepare('SELECT id,name FROM users WHERE id=?').get(rep_id);
   if (!rep) return res.status(404).json({ error: 'کارشناس یافت نشد' });
-  const result = db.prepare(
-    'INSERT INTO incentive_payments (rep_id,amount,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id) VALUES (?,?,?,?,?,?,?,?,?)'
-  ).run(rep_id, parseFloat(amount), pay_type || 'cash', date || '', note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null);
-  db.transaction(() => {
+  const paymentId = db.transaction(() => {
+    const result = db.prepare(
+      'INSERT INTO incentive_payments (rep_id,amount,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run(rep_id, parseFloat(amount), pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null);
     recordIncentivePaymentLedger(db, {
-      rep_id, amount: parseFloat(amount), date: date || '', payment_id: result.lastInsertRowid, created_by: req.user.id
+      rep_id, amount: parseFloat(amount), date: date || todayJalali(), payment_id: result.lastInsertRowid, created_by: req.user.id
     });
     if (req.body.settle_advances !== false) {
       settleAdvancesAgainstPayment(db, rep_id, parseFloat(amount), result.lastInsertRowid, req.user.id);
     }
+    const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+    const payable = coaAcct(db, 'coa_rep_commission_payable');
+    postToLedger(db, {
+      sourceType: 'incentive_payment', sourceId: result.lastInsertRowid,
+      date: date || todayJalali(), description: `پرداخت انگیزه فروش به ${rep.name}`, createdBy: req.user.id,
+      lines: [
+        { code: payable.code, name: payable.name, debit: parseFloat(amount), credit: 0 },
+        { code: cash.code, name: cash.name, debit: 0, credit: parseFloat(amount) }
+      ]
+    });
+    return result.lastInsertRowid;
   })();
-  audit(req.user.id, 'create', 'incentive_payment', result.lastInsertRowid, `پرداخت انگیزه ${amount} تومان به ${rep.name}`);
-  // Background journal entry: Dr incentive expense / Cr cash or the specific bank/cash-box chosen
-  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-  createJournalEntry(db, {
-    date: date || '', description: `پرداخت انگیزه فروش به ${rep.name}`,
-    ref_type: 'incentive_payment', ref_id: result.lastInsertRowid, created_by: req.user.id,
-    lines: [
-      { code: '6101', name: 'هزینه انگیزه فروش', debit: parseFloat(amount), credit: 0 },
-      { code: cash.code, name: cash.name, debit: 0, credit: parseFloat(amount) }
-    ]
-  });
+  audit(req.user.id, 'create', 'incentive_payment', paymentId, `پرداخت انگیزه ${amount} تومان به ${rep.name}`);
   notifyRep(db, rep_id, `💵 انگیزه ${amount} تومان به حساب شما پرداخت شد.`, req.user.id);
-  res.json({ id: result.lastInsertRowid, ok: true });
+  res.json({ id: paymentId, ok: true });
 });
 
 // Delete an incentive payment
@@ -443,20 +448,40 @@ router.delete('/incentive-payments/:id', auth, adminOrAccounting, (req, res) => 
   const db = getDB();
   const row = db.prepare('SELECT * FROM incentive_payments WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status === 'reversed') return res.status(400).json({ error: 'این پرداخت قبلاً ابطال شده است' });
   const rep = db.prepare('SELECT name FROM users WHERE id=?').get(row.rep_id);
   // Reversal journal entry — was previously missing, leaving a dangling one-sided
   // entry in the books whenever a payment was deleted
-  const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
-  createJournalEntry(db, {
-    date: row.date || '', description: `ابطال پرداخت انگیزه فروش به ${rep ? rep.name : ''}`,
-    ref_type: 'incentive_payment_reversal', ref_id: row.id, created_by: req.user.id,
-    lines: [
-      { code: cash.code, name: cash.name, debit: row.amount, credit: 0 },
-      { code: '6101', name: 'هزینه انگیزه فروش', debit: 0, credit: row.amount }
-    ]
-  });
-  db.prepare('DELETE FROM incentive_payments WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'incentive_payment', req.params.id, 'حذف پرداخت انگیزه فروش');
+  db.transaction(() => {
+    const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
+    const payable = coaAcct(db, 'coa_rep_commission_payable');
+    const reversalId = postToLedger(db, {
+      sourceType: 'incentive_payment_reversal', sourceId: row.id, date: todayJalali(),
+      description: `ابطال پرداخت انگیزه فروش به ${rep ? rep.name : ''}`, createdBy: req.user.id,
+      lines: [
+        { code: cash.code, name: cash.name, debit: row.amount, credit: 0 },
+        { code: payable.code, name: payable.name, debit: 0, credit: row.amount }
+      ]
+    });
+    const ledgerRows = db.prepare("SELECT * FROM rep_ledger WHERE ref_type='incentive_payment' AND ref_id=?").all(row.id);
+    for (const item of ledgerRows) {
+      if (item.entry_type === 'advance_settle') {
+        const match = String(item.description || '').match(/#(\d+)/);
+        if (match) {
+          db.prepare('UPDATE rep_advances SET settled_amount=MAX(0,COALESCE(settled_amount,0)-?) WHERE id=?')
+            .run(item.credit || 0, Number(match[1]));
+        }
+      }
+      db.prepare(`
+        INSERT INTO rep_ledger (rep_id,date,entry_type,ref_type,ref_id,description,debit,credit,created_by)
+        VALUES (?,?,?,?,?,?,?,?,?)
+      `).run(item.rep_id, todayJalali(), 'reversal', 'incentive_payment_reversal', row.id,
+        `ابطال ${item.description || 'پرداخت انگیزه'}`, item.credit || 0, item.debit || 0, req.user.id);
+    }
+    db.prepare("UPDATE incentive_payments SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+      .run(reversalId, req.user.id, row.id);
+  })();
+  audit(req.user.id, 'reverse', 'incentive_payment', req.params.id, 'ابطال پرداخت انگیزه فروش');
   res.json({ ok: true });
 });
 
@@ -513,7 +538,7 @@ router.post('/invoices/:id/approve', auth, adminOrAccounting, (req, res) => {
   db.transaction(() => {
     db.prepare('UPDATE invoices SET approved=1, approved_at=?, approved_by=? WHERE id=?')
       .run(Math.floor(Date.now() / 1000), req.user.id, inv.id);
-    recordCommissionAccrual(db, inv, req.user.id, createJournalEntry);
+    recordCommissionAccrual(db, inv, req.user.id);
   })();
   audit(req.user.id, 'approve', 'invoice', inv.id, `تأیید فاکتور ${inv.num} برای انگیزه فروش`, req);
   res.json({ ok: true });
@@ -547,9 +572,9 @@ router.get('/general', auth, adminOrAccounting, (req, res) => {
   }
   cogs = Math.round(cogs);
   const grossProfit = revenue - cogs;
-  const settled     = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE 1=1 ${settDateWhere}`).get().s;
-  const cashSettled = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE pay_type='cash' ${settDateWhere}`).get().s;
-  const cheqSettled = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE pay_type='cheque' ${settDateWhere}`).get().s;
+  const settled     = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE COALESCE(status,'posted')<>'reversed' ${settDateWhere}`).get().s;
+  const cashSettled = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE pay_type='cash' AND COALESCE(status,'posted')<>'reversed' ${settDateWhere}`).get().s;
+  const cheqSettled = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE pay_type='cheque' AND COALESCE(status,'posted')<>'reversed' ${settDateWhere}`).get().s;
   const commExpense = (() => {
     const users = db.prepare("SELECT id,commission_cash,commission_cheque FROM users WHERE active=1").all();
     let total = 0;
@@ -563,11 +588,11 @@ router.get('/general', auth, adminOrAccounting, (req, res) => {
 
   // Monthly revenue & collections for chart
   const monthlyInv = db.prepare(`SELECT substr(date,1,7) ym, SUM(final) rev FROM invoices WHERE type='final' AND date<>'' GROUP BY ym ORDER BY ym DESC LIMIT 12`).all();
-  const monthlySett = db.prepare(`SELECT substr(date,1,7) ym, SUM(amount) col FROM settlements WHERE date<>'' GROUP BY ym ORDER BY ym DESC LIMIT 12`).all();
+  const monthlySett = db.prepare(`SELECT substr(date,1,7) ym, SUM(amount) col FROM settlements WHERE date<>'' AND COALESCE(status,'posted')<>'reversed' GROUP BY ym ORDER BY ym DESC LIMIT 12`).all();
 
   // Recent transactions journal
   const invJournal = db.prepare(`SELECT 'invoice' as entry_type, num ref, date, final amount, cust_id, 0 is_credit FROM invoices WHERE type='final' ORDER BY created_at DESC LIMIT 30`).all();
-  const settJournal = db.prepare(`SELECT 'settlement' as entry_type, id||'' ref, date, amount, cust_id, 1 is_credit FROM settlements ORDER BY created_at DESC LIMIT 30`).all();
+  const settJournal = db.prepare(`SELECT 'settlement' as entry_type, id||'' ref, date, amount, cust_id, 1 is_credit FROM settlements WHERE COALESCE(status,'posted')<>'reversed' ORDER BY created_at DESC LIMIT 30`).all();
   const journal = [...invJournal, ...settJournal].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 50);
 
   // Enrich journal with customer name
@@ -601,7 +626,7 @@ router.get('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
-  const { code, name, type, parent_code } = req.body;
+  const { code, name, type, parent_code, level, nature, balance_type, is_cost_element, tafsili_type, is_active } = req.body;
   if (!code || !name || !type) return res.status(400).json({ error: 'کد، نام و نوع حساب الزامی است' });
   const validTypes = ['asset', 'liability', 'equity', 'revenue', 'cogs', 'expense'];
   if (!validTypes.includes(type)) return res.status(400).json({ error: 'نوع حساب نامعتبر است' });
@@ -612,8 +637,15 @@ router.post('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
     const parent = db.prepare('SELECT code FROM chart_of_accounts WHERE code=? AND is_active=1').get(parent_code);
     if (!parent) return res.status(400).json({ error: 'حساب والد یافت نشد' });
   }
-  const result = db.prepare('INSERT INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)')
-    .run(String(code).trim(), String(name).trim(), type, parent_code || null);
+  const result = db.prepare(`
+    INSERT INTO chart_of_accounts
+      (code,name,type,parent_code,level,nature,balance_type,is_cost_element,tafsili_type,is_active)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
+  `).run(
+    String(code).trim(), String(name).trim(), type, parent_code || null,
+    level != null ? parseInt(level, 10) || null : null, nature || null, balance_type || null,
+    is_cost_element ? 1 : 0, tafsili_type || null, is_active === false || is_active === 0 ? 0 : 1
+  );
   audit(req.user.id, 'create', 'chart_of_accounts', result.lastInsertRowid, `ساخت حساب ${code} ${name}`);
   res.json(db.prepare('SELECT * FROM chart_of_accounts WHERE id=?').get(result.lastInsertRowid));
 });
@@ -667,7 +699,7 @@ router.get('/customers/:custId/open-invoices', auth, adminOrAccounting, (req, re
   const db = getDB();
   const rows = db.prepare(`
     SELECT i.id, i.num, i.date, i.final,
-      COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.invoice_id=i.id), 0) as paid
+      COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.invoice_id=i.id AND COALESCE(s.status,'posted')<>'reversed'), 0) as paid
     FROM invoices i
     WHERE i.cust_id=? AND i.type='final'
     ORDER BY i.date DESC, i.id DESC
@@ -821,7 +853,8 @@ router.get('/sales-returns', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
     SELECT sr.*, c.biz as cust_biz FROM sales_returns sr
-    LEFT JOIN customers c ON sr.cust_id=c.id ORDER BY sr.created_at DESC
+    LEFT JOIN customers c ON sr.cust_id=c.id
+    WHERE COALESCE(sr.status,'posted')<>'reversed' ORDER BY sr.created_at DESC
   `).all();
   res.json(rows.map(r => ({ ...r, rows: JSON.parse(r.rows || '[]') })));
 });
@@ -836,7 +869,7 @@ router.get('/sales-returns/available/:invoiceId', auth, adminOrAccounting, (req,
   if (!inv) return res.status(404).json({ error: 'فاکتور یافت نشد' });
   const invRows = JSON.parse(inv.rows || '[]');
   const alreadyReturned = {};
-  db.prepare('SELECT rows FROM sales_returns WHERE invoice_id=?').all(req.params.invoiceId).forEach(pr => {
+  db.prepare("SELECT rows FROM sales_returns WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(req.params.invoiceId).forEach(pr => {
     JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturned[r.product_id] = (alreadyReturned[r.product_id] || 0) + r.qty; });
   });
   const rows = invRows.map(r => ({
@@ -861,13 +894,13 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
     if (!inv) return res.status(400).json({ error: 'فاکتور یافت نشد یا متعلق به این مشتری نیست' });
     invoiceLineMap = {};
     JSON.parse(inv.rows || '[]').forEach(r => { invoiceLineMap[r.product_id] = r; });
-    db.prepare('SELECT rows FROM sales_returns WHERE invoice_id=?').all(invoice_id).forEach(pr => {
+    db.prepare("SELECT rows FROM sales_returns WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(invoice_id).forEach(pr => {
       JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturnedMap[r.product_id] = (alreadyReturnedMap[r.product_id] || 0) + r.qty; });
     });
   }
 
   const built = [];
-  let amount = 0;
+  let amount = 0, costAmount = 0;
   for (const r of (rows || [])) {
     const pid = parseInt(r.product_id);
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
@@ -888,14 +921,15 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
     }
     const sum = qty * price - discAmt;
     amount += sum;
+    costAmount += qty * ((Number(prod.average_cost_rial) > 0 ? Number(prod.average_cost_rial) / 10 : Number(prod.cost)) || 0);
     built.push({ product_id: pid, name: prod.name, qty, price, disc, disc_amt: discAmt, sum });
   }
   if (!built.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
 
   const retId = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO sales_returns (user_id,cust_id,invoice_id,date,note,rows,amount) VALUES (?,?,?,?,?,?,?)'
-    ).run(req.user.id, cust_id, invoice_id || null, date || '', note || '', JSON.stringify(built), amount);
+      'INSERT INTO sales_returns (user_id,cust_id,invoice_id,date,note,rows,amount,cost_amount) VALUES (?,?,?,?,?,?,?,?)'
+    ).run(req.user.id, cust_id, invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built), amount, costAmount);
     const retId = result.lastInsertRowid;
 
     for (const r of built) {
@@ -903,15 +937,26 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
       db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `برگشت از فروش #${retId}`);
     }
     createLedgerEntry(db, {
-      customer_id: cust_id, date: date || '', entry_type: 'reversal', ref_type: 'sales_return', ref_id: retId,
+      customer_id: cust_id, date: date || todayJalali(), entry_type: 'reversal', ref_type: 'sales_return', ref_id: retId,
       description: `برگشت از فروش #${retId}`, debit: 0, credit: amount, user_id: req.user.id
     });
-    createJournalEntry(db, {
-      date: date || '', description: `برگشت از فروش #${retId}`, ref_type: 'sales_return', ref_id: retId, created_by: req.user.id,
-      lines: [
-        { code: '4102', name: 'برگشت از فروش', debit: amount, credit: 0 },
-        (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: amount };})()
-      ]
+    const salesReturn = coaAcct(db, 'coa_sales_return');
+    const inventory = coaAcct(db, 'coa_inventory');
+    const cogs = coaAcct(db, 'coa_cogs');
+    const journalLines = [
+      { code: salesReturn.code, name: salesReturn.name, debit: amount, credit: 0 },
+      (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: amount };})(),
+    ];
+    if (costAmount > 0) {
+      journalLines.push(
+        { code: inventory.code, name: inventory.name, debit: costAmount, credit: 0 },
+        { code: cogs.code, name: cogs.name, debit: 0, credit: costAmount }
+      );
+    }
+    postToLedger(db, {
+      sourceType: 'sales_return', sourceId: retId,
+      date: date || todayJalali(), description: `برگشت از فروش #${retId}`, createdBy: req.user.id,
+      lines: journalLines,
     });
     return retId;
   })();
@@ -923,6 +968,7 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM sales_returns WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status === 'reversed') return res.status(400).json({ error: 'این برگشت فروش قبلاً ابطال شده است' });
   db.transaction(() => {
     const invRows = JSON.parse(row.rows || '[]');
     for (const r of invRows) {
@@ -930,17 +976,28 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
       db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `ابطال برگشت از فروش #${row.id}`);
     }
     createLedgerEntry(db, {
-      customer_id: row.cust_id, date: row.date || '', entry_type: 'reversal', ref_type: 'sales_return_reversal', ref_id: row.id,
+      customer_id: row.cust_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'sales_return_reversal', ref_id: row.id,
       description: `ابطال برگشت از فروش #${row.id}`, debit: row.amount, credit: 0, user_id: req.user.id
     });
-    createJournalEntry(db, {
-      date: row.date || '', description: `ابطال برگشت از فروش #${row.id}`, ref_type: 'sales_return_reversal', ref_id: row.id, created_by: req.user.id,
-      lines: [
-        (()=>{const a=recvAcct(db,row.cust_id);return { code: a.code, name: a.name, debit: row.amount, credit: 0 };})(),
-        { code: '4102', name: 'برگشت از فروش', debit: 0, credit: row.amount }
-      ]
+    const salesReturn = coaAcct(db, 'coa_sales_return');
+    const inventory = coaAcct(db, 'coa_inventory');
+    const cogs = coaAcct(db, 'coa_cogs');
+    const journalLines = [
+      (()=>{const a=recvAcct(db,row.cust_id);return { code: a.code, name: a.name, debit: row.amount, credit: 0 };})(),
+      { code: salesReturn.code, name: salesReturn.name, debit: 0, credit: row.amount },
+    ];
+    if (row.cost_amount > 0) {
+      journalLines.push(
+        { code: cogs.code, name: cogs.name, debit: row.cost_amount, credit: 0 },
+        { code: inventory.code, name: inventory.name, debit: 0, credit: row.cost_amount }
+      );
+    }
+    const reversalId = postToLedger(db, {
+      sourceType: 'sales_return_reversal', sourceId: row.id, date: todayJalali(),
+      description: `ابطال برگشت از فروش #${row.id}`, createdBy: req.user.id, lines: journalLines,
     });
-    db.prepare('DELETE FROM sales_returns WHERE id=?').run(req.params.id);
+    db.prepare("UPDATE sales_returns SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+      .run(reversalId, req.user.id, row.id);
   })();
   res.json({ ok: true });
 });
@@ -964,12 +1021,21 @@ function validateAndBuildVoucherLines(db, lines) {
     if (l.person_id) {
       const person = db.prepare('SELECT * FROM persons WHERE id=?').get(l.person_id);
       if (!person) return { error: `شخص با شناسه ${l.person_id} یافت نشد` };
-      cleanLines.push({ code: '1106', name: 'حساب اشخاص متفرقه', debit, credit, description: l.description || person.name });
+      const personAccount = coaAcct(db, 'coa_misc_persons');
+      cleanLines.push({
+        code: personAccount.code, name: personAccount.name, debit, credit,
+        description: l.description || person.name, detail_account_id: l.detail_account_id || null,
+        cost_center_id: l.cost_center_id || null, project_id: l.project_id || null, tax_type: l.tax_type || null,
+      });
       personPostings.push({ person_id: person.id, debit, credit, description: l.description || '' });
     } else {
       const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(l.code);
       if (!acc) return { error: `کد حساب ${l.code} یافت نشد` };
-      cleanLines.push({ code: acc.code, name: acc.name, debit, credit, description: l.description || '' });
+      cleanLines.push({
+        code: acc.code, name: acc.name, debit, credit, description: l.description || '',
+        detail_account_id: l.detail_account_id || null, cost_center_id: l.cost_center_id || null,
+        project_id: l.project_id || null, tax_type: l.tax_type || null,
+      });
     }
     totalDebit += debit; totalCredit += credit;
   }
@@ -981,7 +1047,7 @@ function validateAndBuildVoucherLines(db, lines) {
 }
 
 router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
-  const { date, description, cost_center_id, lines } = req.body;
+  const { date, description, doc_type, cost_center_id, lines } = req.body;
   if (!Array.isArray(lines) || lines.length < 2) {
     return res.status(400).json({ error: 'سند باید حداقل دو ردیف (بدهکار و بستانکار) داشته باشد' });
   }
@@ -989,11 +1055,12 @@ router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
   const built = validateAndBuildVoucherLines(db, lines);
   if (built.error) return res.status(400).json({ error: built.error });
   const entryId = db.transaction(() => {
-    const entryId = createJournalEntry(db, {
-      date: date || '', description: description || 'سند دستی', ref_type: 'manual_voucher', ref_id: null,
-      created_by: req.user.id, lines: built.cleanLines
+    const entryId = postToLedger(db, {
+      sourceType: 'manual_voucher', sourceId: null, date: date || todayJalali(),
+      description: description || 'سند دستی', createdBy: req.user.id, lines: built.cleanLines,
     });
     if (cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(cost_center_id, entryId);
+    if (doc_type) db.prepare('UPDATE journal_entries SET doc_type=? WHERE id=?').run(String(doc_type), entryId);
     for (const p of built.personPostings) {
       createPersonLedgerEntry(db, {
         person_id: p.person_id, date: date || '', entry_type: 'manual_voucher', ref_type: 'manual_voucher', ref_id: entryId,
@@ -1074,9 +1141,9 @@ router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => 
   const built = validateAndBuildVoucherLines(db, lines);
   if (built.error) return res.status(400).json({ error: built.error });
   const entryId = db.transaction(() => {
-    const entryId = createJournalEntry(db, {
-      date: draft.date || '', description: draft.description || 'سند دستی', ref_type: 'manual_voucher', ref_id: null,
-      created_by: req.user.id, lines: built.cleanLines
+    const entryId = postToLedger(db, {
+      sourceType: 'manual_voucher', sourceId: null, date: draft.date || todayJalali(),
+      description: draft.description || 'سند دستی', createdBy: req.user.id, lines: built.cleanLines,
     });
     if (draft.cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(draft.cost_center_id, entryId);
     for (const p of built.personPostings) {
@@ -1097,10 +1164,29 @@ router.delete('/vouchers/:id', auth, adminOrAccounting, requirePermission('accou
   const entry = db.prepare("SELECT * FROM journal_entries WHERE id=? AND ref_type='manual_voucher' AND COALESCE(deleted_at,0)=0").get(req.params.id);
   if (!entry) return res.status(404).json({ error: 'سند دستی یافت نشد' });
   db.transaction(() => {
-    db.prepare("UPDATE person_ledger SET description=description||' [حذف‌شده]' WHERE ref_type='manual_voucher' AND ref_id=?").run(req.params.id);
-    db.prepare('UPDATE journal_entries SET deleted_at=strftime(\'%s\',\'now\'), deleted_by=? WHERE id=?').run(req.user.id, req.params.id);
+    const lines = db.prepare('SELECT * FROM journal_lines WHERE entry_id=? ORDER BY id').all(req.params.id);
+    if (!lines.length) throw new Error('سند فاقد ردیف حسابداری است');
+    postToLedger(db, {
+      sourceType: 'manual_voucher_reversal', sourceId: Number(req.params.id), date: todayJalali(),
+      description: `ابطال سند دستی #${req.params.id}`, createdBy: req.user.id,
+      lines: lines.map(l => ({
+        code: l.account_code, name: l.account_name, debit: l.credit || 0, credit: l.debit || 0,
+        description: `معکوس: ${l.description || ''}`, detail_account_id: l.detail_account_id || null,
+        cost_center_id: l.cost_center_id || null, project_id: l.project_id || null, tax_type: l.tax_type || null,
+      })),
+    });
+    const personRows = db.prepare("SELECT * FROM person_ledger WHERE ref_type='manual_voucher' AND ref_id=?").all(req.params.id);
+    for (const p of personRows) {
+      createPersonLedgerEntry(db, {
+        person_id: p.person_id, date: todayJalali(), entry_type: 'reversal',
+        ref_type: 'manual_voucher_reversal', ref_id: Number(req.params.id),
+        description: `ابطال ${p.description || 'سند دستی'}`, debit: p.credit, credit: p.debit, user_id: req.user.id,
+      });
+    }
+    db.prepare("UPDATE journal_entries SET status='reversed',deleted_at=strftime('%s','now'),deleted_by=? WHERE id=?")
+      .run(req.user.id, req.params.id);
   })();
-  audit(req.user.id, 'soft_delete', 'journal_voucher', req.params.id, 'حذف نرم سند دستی');
+  audit(req.user.id, 'reverse', 'journal_voucher', req.params.id, 'ابطال سند دستی');
   res.json({ ok: true });
 });
 

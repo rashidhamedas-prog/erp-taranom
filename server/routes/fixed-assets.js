@@ -1,8 +1,9 @@
 const router = require('express').Router();
-const { getDB, audit, createJournalEntry } = require('../db');
+const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting, adminOnly } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { acct } = require('../lib/coa-map');
+const { postToLedger } = require('../lib/ledger');
 
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
@@ -64,11 +65,11 @@ router.post('/run-depreciation', auth, adminOnly, (req, res) => {
     }
     if (totalDep > 0) {
       const exp = acct(db, 'coa_depreciation_expense');
-      const acc = { code: '1202', name: 'استهلاک انباشته دارایی' };
-      createJournalEntry(db, {
-        date: todayJalali(),
+      const acc = acct(db, 'coa_accumulated_depreciation');
+      postToLedger(db, {
+        sourceType: 'depreciation', sourceId: period, date: todayJalali(),
         description: `استهلاک دارایی — ${period}`,
-        ref_type: 'depreciation', ref_id: null, created_by: req.user.id,
+        createdBy: req.user.id,
         lines: [
           { code: exp.code, name: exp.name, debit: totalDep / 10, credit: 0, debit_rial: totalDep },
           { code: acc.code, name: acc.name, debit: 0, credit: totalDep / 10, credit_rial: totalDep },

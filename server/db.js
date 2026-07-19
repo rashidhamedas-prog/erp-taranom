@@ -855,6 +855,7 @@ function initDB() {
   // Unrestricted bank management — every settlement/payment can be tied to a specific
   // bank ledger account, and (for cheques we ourselves issue) a specific checkbook.
   ensureColumn(db, 'settlements', 'bank_id', 'INTEGER');
+  ensureColumn(db, 'settlements', 'check_category_id', 'INTEGER');
   ensureColumn(db, 'purchase_invoices', 'bank_id', 'INTEGER');
   ensureColumn(db, 'purchase_invoices', 'check_category_id', 'INTEGER');
   ensureColumn(db, 'supplier_payments', 'bank_id', 'INTEGER');
@@ -887,6 +888,11 @@ function initDB() {
   ensureColumn(db, 'expense_payments', 'account_code', 'TEXT');
   ensureColumn(db, 'expense_payments', 'purchase_invoice_id', 'INTEGER');
   ensureColumn(db, 'expense_payments', 'is_overhead', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'expense_payments', 'status', "TEXT NOT NULL DEFAULT 'posted'");
+  ensureColumn(db, 'expense_payments', 'journal_entry_id', 'INTEGER');
+  ensureColumn(db, 'expense_payments', 'reversal_journal_id', 'INTEGER');
+  ensureColumn(db, 'expense_payments', 'reversed_at', 'INTEGER');
+  ensureColumn(db, 'expense_payments', 'reversed_by', 'INTEGER');
   ensureColumn(db, 'settlements', 'installment_group', 'TEXT');
   ensureColumn(db, 'production_runs', 'warehouse_id', 'INTEGER');
   ensureColumn(db, 'products', 'category_id', 'INTEGER');
@@ -984,6 +990,9 @@ function initDB() {
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6111','هزینه مزایای پایان خدمت','expense','6000')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1107','مساعده نمایندگان فروش','asset','1100')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2107','بستانکاران انگیزه نمایندگان','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1109','اسناد دریافتنی','asset','1100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2109','اسناد پرداختنی','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('3102','تراز افتتاحیه','equity','3000')").run();
 
   // ---- Marketing representatives module ----
   ensureColumn(db, 'users', 'rep_code', 'TEXT');
@@ -1540,9 +1549,23 @@ function initSyncSchema(db) {
     ensureColumn(db, tbl, 'mahak_doc_no', 'TEXT');
     ensureColumn(db, tbl, 'mahak_doc_type', 'TEXT');
   }
+  for (const tbl of ['invoices', 'purchase_invoices', 'settlements', 'supplier_payments', 'expense_payments', 'account_transfers', 'sales_returns', 'purchase_returns']) {
+    ensureColumn(db, tbl, 'status', "TEXT NOT NULL DEFAULT 'posted'");
+    ensureColumn(db, tbl, 'reversal_journal_id', 'INTEGER');
+    ensureColumn(db, tbl, 'reversed_at', 'INTEGER');
+    ensureColumn(db, tbl, 'reversed_by', 'INTEGER');
+  }
+  ensureColumn(db, 'sales_returns', 'cost_amount', 'REAL NOT NULL DEFAULT 0');
+  ensureColumn(db, 'incentive_payments', 'status', "TEXT NOT NULL DEFAULT 'posted'");
+  ensureColumn(db, 'incentive_payments', 'reversal_journal_id', 'INTEGER');
+  ensureColumn(db, 'incentive_payments', 'reversed_at', 'INTEGER');
+  ensureColumn(db, 'incentive_payments', 'reversed_by', 'INTEGER');
   ensureColumn(db, 'product_categories', 'code', 'INTEGER');
   ensureColumn(db, 'product_categories', 'parent_id', 'INTEGER');
   ensureColumn(db, 'product_categories', 'description', 'TEXT');
+  ensureColumn(db, 'product_categories', 'is_shared', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(db, 'product_categories', 'created_by', 'INTEGER');
+  ensureColumn(db, 'users', 'party_id', 'INTEGER');
   ensureColumn(db, 'customers', 'party_group_id', 'INTEGER');
   ensureColumn(db, 'suppliers', 'party_group_id', 'INTEGER');
   ensureColumn(db, 'persons', 'party_group_id', 'INTEGER');
@@ -1668,6 +1691,11 @@ function initSyncSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_cheque_records_dir ON cheque_records(direction);
     CREATE INDEX IF NOT EXISTS idx_cheque_records_due ON cheque_records(due_date);
   `);
+  ensureColumn(db, 'cheque_records', 'record_status', "TEXT NOT NULL DEFAULT 'posted'");
+  ensureColumn(db, 'cheque_records', 'journal_entry_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'reversal_journal_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'reversed_at', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'reversed_by', 'INTEGER');
 
   // ---- Accounting module foundation (spec phase 1) ----
   db.exec(`
@@ -1991,8 +2019,9 @@ function initSyncSchema(db) {
   try {
     require('./lib/payroll/schema').initPayrollSchema(db);
     require('./lib/accounting/reporting-schema').initReportingSchema(db);
+    require('./lib/user-party').ensureAllUserParties(db);
   } catch (e) {
-    console.error('❌ payroll/reporting schema init failed:', e.message);
+    console.error('❌ payroll/reporting/user-party schema init failed:', e.message);
     throw e;
   }
 
@@ -2094,6 +2123,7 @@ function allocateNumber(db, key, prefix) {
 // duplicates entries the live engine already produced. Runs once, then sets a flag.
 function backfillAccounting(db) {
   try {
+    const { acct } = require('./lib/coa-map');
     const flag = db.prepare("SELECT value FROM settings WHERE key='accounting_backfill_v1'").get();
     if (flag && flag.value === '1') return;
 
@@ -2137,9 +2167,12 @@ function backfillAccounting(db) {
             created++;
           }
           if (!invHasJournal.get(inv.id)) {
-            const lines = [{ code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: inv.final, credit: 0 }];
-            if ((inv.disc_amt || 0) > 0) lines.push({ code: '4103', name: 'تخفیفات فروش', debit: inv.disc_amt, credit: 0, description: 'تخفیف فاکتور' });
-            lines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: inv.subtotal });
+            const receivable = acct(db, 'coa_receivable');
+            const discount = acct(db, 'coa_sales_discount');
+            const sales = acct(db, 'coa_sales');
+            const lines = [{ code: receivable.code, name: receivable.name, debit: inv.final, credit: 0 }];
+            if ((inv.disc_amt || 0) > 0) lines.push({ code: discount.code, name: discount.name, debit: inv.disc_amt, credit: 0, description: 'تخفیف فاکتور' });
+            lines.push({ code: sales.code, name: sales.name, debit: 0, credit: inv.subtotal });
             createJournalEntry(db, { date: inv.date || '', description: `فاکتور رسمی ${inv.num}`, ref_type: 'invoice', ref_id: inv.id, created_by: inv.user_id, lines });
           }
         } else {
@@ -2155,14 +2188,14 @@ function backfillAccounting(db) {
             created++;
           }
           if (!settHasJournal.get(s.id)) {
-            const cashCode = s.pay_type === 'cheque' ? '1102' : '1101';
-            const cashName = s.pay_type === 'cheque' ? 'موجودی بانک' : 'موجودی صندوق';
+            const cash = resolveCashAccount(db, s.pay_type, s.bank_id, s.cash_box_id);
+            const receivable = acct(db, 'coa_receivable');
             createJournalEntry(db, {
               date: s.date || '', description: `تسویه ${payLabel} مشتری`,
               ref_type: 'settlement', ref_id: s.id, created_by: s.user_id,
               lines: [
-                { code: cashCode, name: cashName, debit: s.amount, credit: 0 },
-                { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: s.amount }
+                { code: cash.code, name: cash.name, debit: s.amount, credit: 0 },
+                { code: receivable.code, name: receivable.name, debit: 0, credit: s.amount }
               ]
             });
           }
@@ -2288,6 +2321,7 @@ function createJournalEntry(db, opts) {
 // way; otherwise fall back to the generic صندوق/بانک buckets — fully
 // backward-compatible with records created before banks/cash boxes existed.
 function resolveCashAccount(db, payType, bankId, cashBoxId) {
+  const { acct } = require('./lib/coa-map');
   if (bankId) {
     const bank = db.prepare('SELECT * FROM banks WHERE id=?').get(bankId);
     // بانک مستقیماً به تفصیلی خودش می‌خورد
@@ -2301,8 +2335,8 @@ function resolveCashAccount(db, payType, bankId, cashBoxId) {
   }
   // 'cheque' and 'bank' (e.g. card-to-card / wire transfer) both fall back to the
   // generic bank bucket when no specific bank was chosen; only true cash uses صندوق
-  if (payType === 'cheque' || payType === 'bank') return { code: '1102', name: 'موجودی بانک' };
-  return { code: '1101', name: 'موجودی صندوق' };
+  if (payType === 'cheque' || payType === 'bank' || payType === 'bank_transfer') return acct(db, 'coa_bank_default');
+  return acct(db, 'coa_cash_default');
 }
 
 // Create/update the chart-of-accounts sub-ledger row that represents a bank,

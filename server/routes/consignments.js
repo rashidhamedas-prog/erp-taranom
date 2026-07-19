@@ -30,23 +30,25 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { direction, party_name, party_phone, product_id, qty, unit_price, date, note } = req.body;
+  const { direction, party_name, party_phone, product_id, qty, unit_price, date, note, status } = req.body;
   if (!direction || !['in', 'out'].includes(direction)) return res.status(400).json({ error: 'جهت امانت (نزد ما/نزد دیگری) الزامی است' });
   if (!party_name) return res.status(400).json({ error: 'نام طرف حساب الزامی است' });
   const q = parseInt(qty);
+  const initialStatus = ['open', 'settled', 'returned'].includes(status) ? status : 'open';
   if (!product_id || !q || q <= 0) return res.status(400).json({ error: 'کالا و تعداد معتبر الزامی است' });
   const db = getDB();
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
   if (!product) return res.status(404).json({ error: 'کالا یافت نشد' });
-  if (direction === 'out') {
+  if (direction === 'out' && initialStatus !== 'returned') {
     if (product.stock < q) return res.status(400).json({ error: `موجودی کافی نیست (موجود: ${product.stock})` });
     db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(q, product_id);
     db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
       .run(product_id, req.user.id, -q, `ارسال امانی به ${party_name}`);
   }
   const result = db.prepare(
-    'INSERT INTO consignments (direction,party_name,party_phone,product_id,qty,unit_price,date,note,created_by) VALUES (?,?,?,?,?,?,?,?,?)'
-  ).run(direction, party_name, party_phone || '', product_id, q, parseFloat(unit_price) || 0, date || todayJalali(), note || '', req.user.id);
+    'INSERT INTO consignments (direction,party_name,party_phone,product_id,qty,unit_price,date,note,status,created_by) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ).run(direction, party_name, party_phone || '', product_id, q, parseFloat(unit_price) || 0,
+    date || todayJalali(), note || '', initialStatus, req.user.id);
   audit(req.user.id, 'create', 'consignment', result.lastInsertRowid, `کالای امانی ${direction==='out'?'ارسالی به':'دریافتی از'} ${party_name}: ${q} عدد ${product.name}`);
   res.json(db.prepare('SELECT * FROM consignments WHERE id=?').get(result.lastInsertRowid));
 });

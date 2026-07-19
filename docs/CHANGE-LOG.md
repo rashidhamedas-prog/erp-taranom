@@ -27,20 +27,28 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۲۸)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۲۹)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `14d2d4b` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v44` |
+| آخرین commit | *(پس از push این commit)* |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v45` |
 | اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
-| وضعیت سرور | ✅ ایران `14d2d4b` — حقوق ایران + گزارشات پیشرفته |
+| وضعیت سرور | ⏳ نیاز به pull روی ایران `94.249.244.208` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۵/۰۴/۲۹ — [Cursor] اکسل مینیمال، دید گروه کالا، کاربر=شخص، یکپارچه‌سازی حسابداری
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** *(همین commit)*
+- **خلاصه:** دکمه‌های اکسل مینیمال (ورودی/قالب/خروجی)؛ قرارداد کامل ۲۰ entity اکسل؛ کنترل `is_shared` برای گروه کالا؛ اتصال کاربر به `parties`؛ تمام عملیات مالی تجاری از `postToLedger` با ابطال R12؛ اصلاح تبدیل ریال/تومان در UI.
+- **فایل‌های کلیدی:** `server/routes/excel.js`, `server/lib/user-party.js`, `server/routes/accounting.js`, `server/routes/invoices.js`, `server/routes/purchases.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-excel-user-integration.js`
+- **Deploy:** ⏳ نیاز به pull روی ایران
+- **یادداشت:** `test:excel-user-integration`، `test:payroll-accounting`، `test:inventory` سبز؛ SW به `v45`.
 
 ### ۱۴۰۵/۰۴/۲۸ — [Cursor] یکپارچه‌سازی حقوق و گزارشات مالی ایران
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

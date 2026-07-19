@@ -3,6 +3,8 @@ const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { postInventoryMovement, warehouseQty, invErr } = require('../lib/inventory/ledger');
+const { postToLedger } = require('../lib/ledger');
+const { acct } = require('../lib/coa-map');
 
 
 // Stock overview — all warehouses with product quantities
@@ -313,6 +315,7 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
   const ids = [];
   try {
     db.transaction(() => {
+      let totalAmountRial = 0;
       for (const line of lines) {
         const product_id = parseInt(line.product_id, 10);
         const qty = parseInt(line.qty, 10);
@@ -325,9 +328,12 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
           if (!whId) throw new Error('انبار مقصد الزامی است');
           const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(whId);
           if (!warehouse) throw new Error('انبار یافت نشد');
+          const explicitUnitCost = Math.round(Number(line.unit_cost_rial) || (
+            Number(line.amount_rial) > 0 ? Number(line.amount_rial) / qty : 0
+          ));
           const led = postInventoryMovement(db, {
             eventType: 'receipt', productId: product_id, warehouseId: whId, qty,
-            unitCostRial: Math.round(Number(product.average_cost_rial) || 0),
+            unitCostRial: explicitUnitCost > 0 ? explicitUnitCost : Math.round(Number(product.average_cost_rial) || 0),
             sourceType: 'warehouse_move', date: d,
             note: `رسید انبار (${warehouse.name})${note ? ' - ' + note : ''}`,
             createdBy: req.user.id,
@@ -339,6 +345,7 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
           `).run('receipt', product_id, whId, qty, d, note || '', req.user.id, led.id, led.unit_cost_rial, led.amount_rial);
           db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(r.lastInsertRowid, led.id);
           ids.push(r.lastInsertRowid);
+          totalAmountRial += Math.round(Number(led.amount_rial) || 0);
         } else if (type === 'issue') {
           const whId = parseInt(warehouse_id || from_warehouse_id, 10);
           if (!whId) throw new Error('انبار مبدأ الزامی است');
@@ -358,6 +365,7 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
           `).run('issue', product_id, whId, qty, d, note || '', req.user.id, led.id, led.unit_cost_rial, led.amount_rial);
           db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?').run(r.lastInsertRowid, led.id);
           ids.push(r.lastInsertRowid);
+          totalAmountRial += Math.round(Number(led.amount_rial) || 0);
         } else {
           const fromId = parseInt(from_warehouse_id, 10);
           const toId = parseInt(to_warehouse_id, 10);
@@ -386,6 +394,26 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
           db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id IN (?,?)').run(r.lastInsertRowid, ledOut.id, ledIn.id);
           ids.push(r.lastInsertRowid);
         }
+      }
+      if (type !== 'transfer' && totalAmountRial > 0) {
+        const inventory = acct(db, 'coa_inventory');
+        const counterpart = acct(db, type === 'receipt' ? 'coa_adjustment' : 'coa_inventory_loss');
+        const amountToman = totalAmountRial / 10;
+        postToLedger(db, {
+          sourceType: `warehouse_${type}_batch`, sourceId: ids[0],
+          date: date || todayJalali(),
+          description: `${type === 'receipt' ? 'رسید' : 'حواله'} انبار (${ids.length} ردیف)`,
+          createdBy: req.user.id,
+          lines: type === 'receipt'
+            ? [
+              { code: inventory.code, name: inventory.name, debit: amountToman, credit: 0 },
+              { code: counterpart.code, name: counterpart.name, debit: 0, credit: amountToman },
+            ]
+            : [
+              { code: counterpart.code, name: counterpart.name, debit: amountToman, credit: 0 },
+              { code: inventory.code, name: inventory.name, debit: 0, credit: amountToman },
+            ],
+        });
       }
     })();
   } catch (e) {

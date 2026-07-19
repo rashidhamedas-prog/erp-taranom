@@ -212,6 +212,8 @@ html[data-theme="dark"] .cards .stat:first-child{background:linear-gradient(155d
 .btn.ghost:hover{background:var(--purple-light)}
 .btn.sm{padding:6px 10px;font-size:12px}
 .btn.icon{padding:6px 9px}
+.btn.excel-btn{padding:4px 7px;font-size:10.5px;gap:4px;min-height:27px;border-width:1px}
+.btn.excel-btn svg{width:12px;height:12px;flex:0 0 12px}
 
 /* ===== Table ===== */
 .tbl-wrap{overflow-x:auto}
@@ -3397,7 +3399,7 @@ async function saveInvoice(id){
     check_category_id:+el('inv-checkcat')?.value||null,
     warehouse_id:+el('inv-warehouse')?.value||null,
     cost_center_id:+el('inv-cc')?.value||null,
-    freight_amount:moneyVal('inv-freight'),
+    freight_amount:moneyVal('inv-freight')/10,
     freight_type:el('inv-freight-type')?.value||'',
     vat_exempt:el('inv-vat-exempt')?.checked?1:0,
     lead_source: el('inv-lead')?.value||'',
@@ -3501,9 +3503,7 @@ async function productsPage(canEdit){
         <button class="btn ghost" onclick="productCategoriesModal()">🏷️ دسته‌بندی‌ها</button>
         <button class="btn ghost" onclick="enterAccountingShell().then(()=>go('acc-warehouses'))">🏭 موجودی انبارها</button>
         <button class="btn ghost" onclick="openBarcodeScanner(async c=>{ try{ const p=await api('GET','/products/by-barcode/'+encodeURIComponent(c)); if(p&&p.id){ showToast(p.name+' — موجودی: '+fmt(p.stock)); prodModal(p.id); } }catch(e){} })">📷 اسکن بارکد</button>
-        <button class="btn ghost" onclick="excelImport('products')">${lucide('upload')} ورود از طریق اکسل</button>
-        <button class="btn ghost" onclick="excelDownload('products','template')">${lucide('file')} قالب فایل ورودی</button>
-        <button class="btn ghost" onclick="excelDownload('products','export')">${lucide('download')} خروجی اکسل</button>`:''}
+        ${excelButtonsHtml('products')}`:''}
     </div>
     <div id="pBulkBar" style="display:none;background:var(--purple-light);border-radius:8px;padding:10px 14px;margin-bottom:10px;flex-wrap:wrap;gap:8px;align-items:center">
       <span id="pSelCount" style="font-weight:600;color:var(--purple)">۰ محصول انتخاب شده</span>
@@ -3572,24 +3572,26 @@ async function productCategoriesModal(){
     <div class="modal-body">
       <div class="toolbar" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
         <input id="pc-new-name" placeholder="نام دسته جدید..." style="flex:1;min-width:160px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px">
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px"><input id="pc-new-shared" type="checkbox" style="width:auto" checked> نمایش برای دیگران</label>
         <button class="btn" onclick="addProductCategory()">➕ افزودن</button>
       </div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
-        <th>نام</th><th>تعداد محصول</th><th>ترتیب</th><th>وضعیت</th><th>عملیات</th>
+        <th>نام</th><th>تعداد محصول</th><th>ترتیب</th><th>اشتراک</th><th>وضعیت</th><th>عملیات</th>
       </tr></thead><tbody>${cats.map(c=>`<tr>
         <td><input value="${esc(c.name)}" onchange="updateProductCategory(${c.id},{name:this.value})" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px"></td>
         <td class="mono">${fmt(c.product_count||0)}</td>
         <td><input type="number" value="${c.sort_order||0}" style="width:70px" onchange="updateProductCategory(${c.id},{sort_order:+this.value})"></td>
+        <td><input type="checkbox" style="width:auto" ${c.is_shared?'checked':''} onchange="updateProductCategory(${c.id},{is_shared:this.checked})"></td>
         <td>${c.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
         <td><button class="btn sm red" onclick="deleteProductCategory(${c.id})">🗑️</button></td>
-      </tr>`).join('')||emptyRow(5)}</tbody></table></div>
+      </tr>`).join('')||emptyRow(6)}</tbody></table></div>
     </div>
     <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
 }
 async function addProductCategory(){
   const name=el('pc-new-name')?.value?.trim();
   if(!name){ showToast('نام دسته الزامی است','error'); return; }
-  try{ await api('POST','/product-categories',{name}); showToast('دسته اضافه شد'); productCategoriesModal(); }catch(e){}
+  try{ await api('POST','/product-categories',{name,is_shared:el('pc-new-shared')?.checked!==false}); showToast('دسته اضافه شد'); productCategoriesModal(); }catch(e){}
 }
 async function updateProductCategory(id,data){
   try{ await api('PUT','/product-categories/'+id,data); }catch(e){}
@@ -3913,13 +3915,16 @@ async function excelImport(entity){
   };
   inp.click();
 }
+function excelButtonsHtml(entity){
+  return `<button class="btn sm excel-btn" title="ورودی از اکسل" onclick="excelImport('${entity}')">${lucide('upload')} ورودی</button>
+    <button class="btn sm ghost excel-btn" title="قالب ورودی اکسل" onclick="excelDownload('${entity}','template')">${lucide('file')} قالب</button>
+    <button class="btn sm ghost excel-btn" title="خروجی اکسل" onclick="excelDownload('${entity}','export')">${lucide('download')} خروجی</button>`;
+}
 function excelToolsHtml(entity){
   const label=EXCEL_ENTITY_LABELS[entity]||entity;
   return `<div class="excel-tool-group" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
     <span class="tag" style="font-size:11px">${esc(label)}</span>
-    <button class="btn sm" onclick="excelImport('${entity}')">${lucide('upload')} ورود از طریق اکسل</button>
-    <button class="btn sm ghost" onclick="excelDownload('${entity}','template')">${lucide('file')} قالب فایل ورودی</button>
-    <button class="btn sm ghost" onclick="excelDownload('${entity}','export')">${lucide('download')} خروجی اکسل</button>
+    ${excelButtonsHtml(entity)}
   </div>`;
 }
 function attachExcelTools(tab,body){
@@ -4104,7 +4109,8 @@ ROUTES.users = async function(){
       </tr>`).join('')||emptyRow(7)}</tbody></table>
     </div></div>`;
 };
-function userModal(id){
+async function userModal(id){
+  if(!CACHE.partyGroups) CACHE.partyGroups=await api('GET','/party-groups')||[];
   const u = id ? CACHE.users.find(x=>x.id===id) : {role:'field_sales',active:1};
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش کاربر':'کاربر جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -4123,6 +4129,27 @@ function userModal(id){
       <div class="fg"><label>وضعیت ${hlp('کاربر غیرفعال بلافاصله از سیستم خارج می‌شود و امکان ورود ندارد؛ داده‌هایش حفظ می‌شود.')}</label><select id="u-active">
         <option value="1" ${u.active?'selected':''}>فعال</option>
         <option value="0" ${!u.active?'selected':''}>غیرفعال</option></select></div>
+      <div class="fg full" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px">
+        <b>اطلاعات شخص مرتبط</b>
+        <div class="muted" style="font-size:11px;margin-top:3px">هر کاربر به‌صورت خودکار در «اطلاعات اشخاص» با سمت کارمند ثبت و همگام می‌شود.</div>
+      </div>
+      <div class="fg"><label>کد شخص</label><input value="${esc(u.person_code||'خودکار')}" readonly></div>
+      <div class="fg"><label>نوع شخصیت</label><select id="u-person-legal"><option value="real" ${(u.legal_type||'real')==='real'?'selected':''}>حقیقی</option><option value="legal" ${u.legal_type==='legal'?'selected':''}>حقوقی</option></select></div>
+      <div class="fg"><label>نام شرکت</label><input id="u-person-company" value="${esc(u.company_name||'')}"></div>
+      <div class="fg"><label>کد ملی</label><input id="u-person-national" value="${esc(u.national_id||'')}" dir="ltr"></div>
+      <div class="fg"><label>کد اقتصادی</label><input id="u-person-economic" value="${esc(u.economic_code||'')}" dir="ltr"></div>
+      <div class="fg"><label>تلفن دوم</label><input id="u-person-phone2" value="${esc(u.person_secondary_phone||'')}" dir="ltr"></div>
+      <div class="fg"><label>موبایل</label><input id="u-person-mobile" value="${esc(u.person_mobile||u.phone||'')}" dir="ltr"></div>
+      <div class="fg"><label>فکس</label><input id="u-person-fax" value="${esc(u.person_fax||'')}" dir="ltr"></div>
+      <div class="fg"><label>ایمیل</label><input id="u-person-email" value="${esc(u.person_email||'')}" dir="ltr"></div>
+      <div class="fg"><label>شهر</label><input id="u-person-city" value="${esc(u.person_city||'')}"></div>
+      <div class="fg"><label>استان</label><input id="u-person-province" value="${esc(u.person_province||'')}"></div>
+      <div class="fg"><label>کدپستی</label><input id="u-person-postal" value="${esc(u.person_postal_code||'')}" dir="ltr"></div>
+      <div class="fg"><label>تاریخ تولد</label><input id="u-person-birth" data-jdate value="${esc(u.person_birth_date||'')}"></div>
+      <div class="fg"><label>گروه اشخاص</label><select id="u-person-group"><option value="">— بدون گروه —</option>${(CACHE.partyGroups||[]).filter(g=>g.code!==0).map(g=>`<option value="${g.id}" ${u.person_party_group_id==g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>ماهیت حساب</label><select id="u-person-nature"><option value="">خودکار</option><option value="debit" ${u.person_account_nature==='debit'?'selected':''}>بدهکار</option><option value="credit" ${u.person_account_nature==='credit'?'selected':''}>بستانکار</option></select></div>
+      <div class="fg full"><label>آدرس</label><textarea id="u-person-address">${esc(u.person_address||'')}</textarea></div>
+      <div class="fg full"><label>یادداشت شخص</label><textarea id="u-person-notes">${esc(u.person_notes||'')}</textarea></div>
       <div class="fg"><label>انگیزه فروش نقد (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای نقدی تأییدشده. بعد از اولین ذخیره قفل می‌شود.')} ${u.incentive_locked?'<span style="font-size:11px;color:var(--orange)">🔒 قفل</span>':''}</label><input id="u-comm-cash" type="number" step="0.1" value="${u.commission_cash||0}" data-orig="${u.commission_cash||0}" data-locked="${u.incentive_locked||0}"></div>
       <div class="fg"><label>انگیزه فروش چک (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای چکی تأییدشده.')}</label><input id="u-comm-cheque" type="number" step="0.1" value="${u.commission_cheque||0}" data-orig="${u.commission_cheque||0}"></div>
       <div class="fg"><label>مبنای محاسبه انگیزه ${hlp('فاکتور: بر اساس فاکتورهای تأییدشده. وصول: بر اساس مبالغ دریافت‌شده. سود: بر اساس سود (فروش منهای بهای تمام‌شده).')}</label><select id="u-comm-basis">
@@ -4158,6 +4185,7 @@ function userModal(id){
     <div class="modal-foot"><button class="btn" onclick="saveUser(${id||0})">💾 ذخیره</button>
       ${id?`<button class="btn ghost" onclick="openRbacMatrix(${id})">🔐 دسترسی‌ها</button>`:''}
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
 }
 async function openRbacMatrix(userId){
   const data=await api('GET','/rbac/matrix/'+userId);
@@ -4233,6 +4261,26 @@ function userRepFieldsFromForm(){
     bank_name:el('u-bank-name')?.value||'', bank_account:el('u-bank-account')?.value||'', bank_iban:el('u-bank-iban')?.value||''
   };
 }
+function userPersonFieldsFromForm(){
+  return {
+    legal_type:el('u-person-legal')?.value||'real',
+    company_name:el('u-person-company')?.value||'',
+    national_id:el('u-person-national')?.value||'',
+    economic_code:el('u-person-economic')?.value||'',
+    secondary_phone:el('u-person-phone2')?.value||'',
+    mobile:el('u-person-mobile')?.value||'',
+    fax:el('u-person-fax')?.value||'',
+    email:el('u-person-email')?.value||'',
+    city:el('u-person-city')?.value||'',
+    province:el('u-person-province')?.value||'',
+    postal_code:el('u-person-postal')?.value||'',
+    birth_date:el('u-person-birth')?.value||'',
+    party_group_id:+el('u-person-group')?.value||null,
+    account_nature:el('u-person-nature')?.value||'',
+    address:el('u-person-address')?.value||'',
+    person_notes:el('u-person-notes')?.value||''
+  };
+}
 let _pendingUserSave = null;
 async function saveUser(id){
   const name=el('u-name').value.trim(), username=el('u-username').value.trim(),
@@ -4247,7 +4295,7 @@ async function saveUser(id){
   const origCheque=parseFloat(el('u-comm-cheque')?.dataset.orig||0);
   const rateChanged=id&&(Math.abs(commission_cash-origCash)>0.001||Math.abs(commission_cheque-origCheque)>0.001);
   if(id && isLocked && rateChanged){
-    _pendingUserSave={id,name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm()};
+    _pendingUserSave={id,name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm(),person:userPersonFieldsFromForm()};
     openModal(`
       <div class="modal-head"><h3>🔒 تغییر نرخ انگیزه فروش</h3><button class="x" onclick="closeModal()">×</button></div>
       <div class="modal-body">
@@ -4261,7 +4309,7 @@ async function saveUser(id){
       </div>`);
     return;
   }
-  await _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm()});
+  await _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm(),person:userPersonFieldsFromForm()});
 }
 async function confirmIncentiveChange(yes){
   closeModal();
@@ -4269,14 +4317,14 @@ async function confirmIncentiveChange(yes){
   const {id,...data}=_pendingUserSave; _pendingUserSave=null;
   if(yes) await _doSaveUser(id,{...data,force:true});
 }
-async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban}){
+async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,person}){
   try{
     const repFields={commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban};
     if(id){
-      await api('PUT','/admin/users/'+id,{name,role,phone,active,password:pass||undefined,commission_cash,commission_cheque,force:force||undefined,...repFields});
+      await api('PUT','/admin/users/'+id,{name,role,phone,active,password:pass||undefined,commission_cash,commission_cheque,force:force||undefined,...repFields,person});
     } else {
       if(!username||!pass){ showToast('نام کاربری و رمز الزامی است','error'); return; }
-      await api('POST','/admin/users',{name,username,password:pass,phone,role,commission_cash,commission_cheque,...repFields});
+      await api('POST','/admin/users',{name,username,password:pass,phone,role,commission_cash,commission_cheque,...repFields,person});
     }
     CACHE.users=await api('GET','/auth/users'); closeModal(); ROUTES.users(); showToast('ذخیره شد');
   }catch(e){}
@@ -8466,7 +8514,7 @@ async function saveSupplierPayment(id){
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
     await api('POST','/purchases/payments',{
-      supplier_id:id, amount, pay_type:el('sp-paytype').value,
+      supplier_id:id, amount:amount/10, pay_type:el('sp-paytype').value,
       date:el('sp-date').value, note:el('sp-note').value,
       bank_id:+el('sp-bank').value||null,
       cash_box_id:+el('sp-cashbox')?.value||null,
@@ -8572,7 +8620,7 @@ async function savePurchaseInvoice(){
       check_category_id:+el('po-checkcat')?.value||null,
       warehouse_id:+el('po-warehouse')?.value||null,
       cost_center_id:+el('po-cc')?.value||null,
-      freight_amount:moneyVal('po-freight'),
+      freight_amount:moneyVal('po-freight')/10,
       freight_type:el('po-freight-type')?.value||'',
       vat_exempt:el('po-vat-exempt')?.checked?1:0,
       rows: genCart.map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}))
@@ -9850,14 +9898,15 @@ async function renderProductGroupsTab(body){
       </aside>
       <div style="flex:1;min-width:280px">
         <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="productGroupModal()">➕ گروه جدید</button></div>
-        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام گروه</th><th>گروه والد</th><th>تعداد کالا</th><th>عملیات</th></tr></thead>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام گروه</th><th>گروه والد</th><th>نمایش برای دیگران</th><th>تعداد کالا</th><th>عملیات</th></tr></thead>
         <tbody>${filtered.map(g=>`<tr>
           <td class="mono">${g.code||'-'}</td><td>${esc(g.name)}</td>
           <td class="muted">${g.parent_id?(byId[g.parent_id]?.name||'-'):'-'}</td>
+          <td>${g.is_shared?'<span class="tag t-done">مجاز</span>':'<span class="tag t-cancel">خصوصی</span>'}</td>
           <td class="mono">${g.product_count||0}</td>
           <td><button class="btn sm ghost" onclick="productGroupModal(${g.id})">✏️</button>
               <button class="btn sm red" onclick="deleteProductGroup(${g.id})">🗑️</button></td>
-        </tr>`).join('')||emptyRow(5)}</tbody></table></div>
+        </tr>`).join('')||emptyRow(6)}</tbody></table></div>
       </div>
     </div>`;
 }
@@ -9873,6 +9922,10 @@ async function productGroupModal(id){
       <div class="fg full"><label>گروه والد</label>
         <select id="prg-parent"><option value="">— بدون والد —</option>
         ${list.filter(x=>x.id!==id).map(x=>`<option value="${x.id}" ${g.parent_id==x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="fg full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input id="prg-shared" type="checkbox" style="width:auto" ${g.is_shared!==0?'checked':''}>
+        اجازه نمایش کالاهای این گروه به سایر کاربران
+      </label><small class="muted">در صورت غیرفعال بودن، این گروه و کالاهایش فقط برای ایجادکننده، مدیر و حسابدار نمایش داده می‌شود.</small></div>
       <div class="fg full"><label>توضیحات</label><textarea id="prg-desc">${esc(g.description||'')}</textarea></div>
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveProductGroup(${id||0})">💾 ذخیره</button>
@@ -9881,7 +9934,7 @@ async function productGroupModal(id){
 async function saveProductGroup(id){
   const name=el('prg-name').value.trim();
   if(!name){ showToast('نام گروه الزامی است','error'); return; }
-  const data={name,code:el('prg-code').value,parent_id:el('prg-parent').value||null,description:el('prg-desc').value};
+  const data={name,code:el('prg-code').value,parent_id:el('prg-parent').value||null,description:el('prg-desc').value,is_shared:el('prg-shared').checked};
   try{
     if(id) await api('PUT','/product-categories/'+id,data); else await api('POST','/product-categories',data);
     CACHE.productCategories=null; closeModal(); showToast('ذخیره شد'); loadAccTab('product-groups');
@@ -10567,7 +10620,7 @@ async function savePersonPayment(){
   if(!target){ showToast('طرف حساب را انتخاب کنید','error'); return; }
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   const payload={
-    amount, pay_type:el('pp-paytype').value, date:el('pp-date').value, note:el('pp-note').value,
+    amount:amount/10, pay_type:el('pp-paytype').value, date:el('pp-date').value, note:el('pp-note').value,
     bank_id:+el('pp-bank').value||null, cash_box_id:+el('pp-cashbox')?.value||null,
     check_category_id:+el('pp-checkcat')?.value||null
   };
@@ -10672,7 +10725,7 @@ async function saveExpensePayment(){
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
     await api('POST','/expenses',{
-      category:el('ex-category').value, title, amount,
+      category:el('ex-category').value, title, amount:amount/10,
       pay_type:el('ex-paytype').value, date:el('ex-date').value, note:el('ex-note').value,
       bank_id:+el('ex-bank').value||null, cash_box_id:+el('ex-cashbox')?.value||null,
       check_category_id:+el('ex-checkcat')?.value||null,
@@ -10974,10 +11027,10 @@ async function saveSettlement(){
       const amount=parseInt(String(c.amount).replace(/[^\d]/g,''))||0;
       if(!amount||!String(c.bank||'').trim()||!String(c.sayadi||'').trim()||!String(c.due||'').trim()){ showToast('چک ردیف '+toFa(i+1)+': مبلغ، نام بانک، شناسه صیاد و سررسید الزامی است','error'); return; }
       payments.push({
-        amount, pay_type:'cheque', date:el('st-date')?.value||todayJalali(), invoice_id:+el('st-invoice')?.value||null,
+        amount:amount/10, pay_type:'cheque', date:el('st-date')?.value||todayJalali(), invoice_id:+el('st-invoice')?.value||null,
         cheque_bank:c.bank, cheque_sayadi:c.sayadi, cheque_number:c.number||'', cheque_account:c.account||'',
         cheque_branch:c.branch||'', cheque_sheba:c.sheba||'', cheque_due:c.due, cheque_owner:c.owner||'',
-        cheque_amount:amount, cheque_status:'pending', cheque_row:i+1, note:c.note||'',
+        cheque_amount:amount/10, cheque_status:'pending', cheque_row:i+1, note:c.note||'',
         bank_id:+el('st-bank')?.value||null, cash_box_id:+el('st-cashbox')?.value||null
       });
     }
@@ -10994,7 +11047,7 @@ async function saveSettlement(){
       const r=stlRows[i];
       const amount=parseInt(String(r.amount).replace(/[^\d]/g,''))||0;
       if(!amount||amount<=0){ showToast('مبلغ هر قسط باید معتبر باشد','error'); return; }
-      payments.push({amount,pay_type:r.pay_type||'cash',date:r.date||todayJalali(),invoice_id:+r.invoice_id||null,note:r.note||''});
+      payments.push({amount:amount/10,pay_type:r.pay_type||'cash',date:r.date||todayJalali(),invoice_id:+r.invoice_id||null,note:r.note||''});
     }
     if(!payments.length){ showToast('حداقل یک قسط وارد کنید','error'); return; }
     try{
@@ -11008,7 +11061,7 @@ async function saveSettlement(){
   const invoice_id=+el('st-invoice')?.value||null;
   try{
     await api('POST','/accounting/settlements',{
-      cust_id, amount, pay_type, invoice_id,
+      cust_id, amount:amount/10, pay_type, invoice_id,
       date:el('st-date').value,
       note:el('st-note').value,
       bank_id:+el('st-bank').value||null,

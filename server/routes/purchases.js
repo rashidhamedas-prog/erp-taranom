@@ -9,7 +9,7 @@ function payableAcct(db, supplierId) {
   }
   return coaAcct(db, 'coa_payable');
 }
-const { getDB, audit, createJournalEntry, resolveCashAccount, allocateNumber, isDevice } = require('../db');
+const { getDB, audit, resolveCashAccount, allocateNumber, isDevice } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { calcDocTotals } = require('../lib/vat');
@@ -51,6 +51,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
   const rows = db.prepare(`
     SELECT p.*, s.name as supplier_name, u.name as recorder
     FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id LEFT JOIN users u ON p.user_id=u.id
+    WHERE COALESCE(p.status,'posted')<>'reversed'
     ORDER BY p.created_at DESC
   `).all();
   res.json(rows.map(r => ({ ...r, rows: JSON.parse(r.rows || '[]') })));
@@ -138,6 +139,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM purchase_invoices WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status === 'reversed') return res.status(400).json({ error: 'این فاکتور خرید قبلاً ابطال شده است' });
 
   db.transaction(() => {
     if (row.stock_added) {
@@ -152,7 +154,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     }
     if (row.pay_type === 'credit') {
       createSupplierLedgerEntry(db, {
-        supplier_id: row.supplier_id, date: row.date || '', entry_type: 'reversal', ref_type: 'purchase', ref_id: row.id,
+        supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'purchase', ref_id: row.id,
         description: `ابطال فاکتور خرید ${row.num}`, debit: row.final, credit: 0, user_id: req.user.id
       });
     }
@@ -166,14 +168,16 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
       { code: invAcct.code, name: invAcct.name, debit: 0, credit: netBeforeVat },
     ];
     if (row.vat_amount > 0) revLines.push({ code: vatRec.code, name: vatRec.name, debit: 0, credit: row.vat_amount, description: 'ابطال VAT خرید' });
-    createJournalEntry(db, {
-      date: row.date || '', description: `ابطال فاکتور خرید ${row.num}`, ref_type: 'purchase_reversal', ref_id: row.id, created_by: req.user.id,
+    const reversalId = postToLedger(db, {
+      sourceType: 'purchase_reversal', sourceId: row.id,
+      date: todayJalali(), description: `ابطال فاکتور خرید ${row.num}`, createdBy: req.user.id,
       lines: revLines,
     });
 
-    db.prepare('DELETE FROM purchase_invoices WHERE id=?').run(req.params.id);
+    db.prepare("UPDATE purchase_invoices SET status='reversed',stock_added=0,reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+      .run(reversalId, req.user.id, row.id);
   })();
-  audit(req.user.id, 'delete', 'purchase', req.params.id, `حذف فاکتور خرید ${row.num}`);
+  audit(req.user.id, 'reverse', 'purchase', req.params.id, `ابطال فاکتور خرید ${row.num}`);
   res.json({ ok: true });
 });
 
@@ -183,7 +187,8 @@ router.get('/returns/list', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
     SELECT pr.*, s.name as supplier_name FROM purchase_returns pr
-    LEFT JOIN suppliers s ON pr.supplier_id=s.id ORDER BY pr.created_at DESC
+    LEFT JOIN suppliers s ON pr.supplier_id=s.id
+    WHERE COALESCE(pr.status,'posted')<>'reversed' ORDER BY pr.created_at DESC
   `).all();
   res.json(rows.map(r => ({ ...r, rows: JSON.parse(r.rows || '[]') })));
 });
@@ -219,7 +224,7 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
     if (!inv) return res.status(400).json({ error: 'فاکتور خرید یافت نشد یا متعلق به این تأمین‌کننده نیست' });
     invoiceLineMap = {};
     JSON.parse(inv.rows || '[]').forEach(r => { invoiceLineMap[r.product_id] = r; });
-    db.prepare('SELECT rows FROM purchase_returns WHERE purchase_invoice_id=?').all(purchase_invoice_id).forEach(pr => {
+    db.prepare("SELECT rows FROM purchase_returns WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(purchase_invoice_id).forEach(pr => {
       JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturnedMap[r.product_id] = (alreadyReturnedMap[r.product_id] || 0) + r.qty; });
     });
   }
@@ -266,8 +271,9 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
       supplier_id, date: date || todayJalali(), entry_type: 'purchase_return', ref_type: 'purchase_return', ref_id: retId,
       description: `برگشت از خرید #${retId}`, debit: amount, credit: 0, user_id: req.user.id
     });
-    createJournalEntry(db, {
-      date: date || todayJalali(), description: `برگشت از خرید #${retId}`, ref_type: 'purchase_return', ref_id: retId, created_by: req.user.id,
+    postToLedger(db, {
+      sourceType: 'purchase_return', sourceId: retId,
+      date: date || todayJalali(), description: `برگشت از خرید #${retId}`, createdBy: req.user.id,
       lines: [
         (()=>{const a=payableAcct(db, supplier_id);return { code: a.code, name: a.name, debit: amount, credit: 0 };})(),
         { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: 0, credit: amount }
@@ -284,6 +290,7 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM purchase_returns WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status === 'reversed') return res.status(400).json({ error: 'این برگشت خرید قبلاً ابطال شده است' });
   db.transaction(() => {
     const invRows = JSON.parse(row.rows || '[]');
     for (const r of invRows) {
@@ -291,17 +298,19 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
       db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `ابطال برگشت از خرید #${row.id}`);
     }
     createSupplierLedgerEntry(db, {
-      supplier_id: row.supplier_id, date: row.date || '', entry_type: 'reversal', ref_type: 'purchase_return', ref_id: row.id,
+      supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'purchase_return', ref_id: row.id,
       description: `ابطال برگشت از خرید #${row.id}`, debit: 0, credit: row.amount, user_id: req.user.id
     });
-    createJournalEntry(db, {
-      date: row.date || '', description: `ابطال برگشت از خرید #${row.id}`, ref_type: 'purchase_return_reversal', ref_id: row.id, created_by: req.user.id,
+    const reversalId = postToLedger(db, {
+      sourceType: 'purchase_return_reversal', sourceId: row.id,
+      date: todayJalali(), description: `ابطال برگشت از خرید #${row.id}`, createdBy: req.user.id,
       lines: [
         { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: row.amount, credit: 0 },
         (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: row.amount };})()
       ]
     });
-    db.prepare('DELETE FROM purchase_returns WHERE id=?').run(req.params.id);
+    db.prepare("UPDATE purchase_returns SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+      .run(reversalId, req.user.id, row.id);
   })();
   res.json({ ok: true });
 });
@@ -312,7 +321,8 @@ router.get('/payments/list', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
     SELECT sp.*, s.name as supplier_name FROM supplier_payments sp
-    LEFT JOIN suppliers s ON sp.supplier_id=s.id ORDER BY sp.created_at DESC LIMIT 300
+    LEFT JOIN suppliers s ON sp.supplier_id=s.id
+    WHERE COALESCE(sp.status,'posted')<>'reversed' ORDER BY sp.created_at DESC LIMIT 300
   `).all();
   res.json(rows);
 });
@@ -332,8 +342,9 @@ router.post('/payments', auth, adminOrAccounting, (req, res) => {
       description: `پرداخت به تأمین‌کننده — ${Number(amount).toLocaleString('fa-IR')} تومان`, debit: parseFloat(amount), credit: 0, user_id: req.user.id
     });
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    createJournalEntry(db, {
-      date: date || todayJalali(), description: 'پرداخت به تأمین‌کننده', ref_type: 'supplier_payment', ref_id: payId, created_by: req.user.id,
+    postToLedger(db, {
+      sourceType: 'supplier_payment', sourceId: payId,
+      date: date || todayJalali(), description: 'پرداخت به تأمین‌کننده', createdBy: req.user.id,
       lines: [
         (()=>{const a=payableAcct(db, supplier_id);return { code: a.code, name: a.name, debit: parseFloat(amount), credit: 0 };})(),
         { code: cash.code, name: cash.name, debit: 0, credit: parseFloat(amount) }
@@ -350,20 +361,23 @@ router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM supplier_payments WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status === 'reversed') return res.status(400).json({ error: 'این پرداخت قبلاً ابطال شده است' });
   db.transaction(() => {
     createSupplierLedgerEntry(db, {
-      supplier_id: row.supplier_id, date: row.date || '', entry_type: 'reversal', ref_type: 'supplier_payment', ref_id: row.id,
+      supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'supplier_payment', ref_id: row.id,
       description: `ابطال پرداخت #${row.id}`, debit: 0, credit: row.amount, user_id: req.user.id
     });
     const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
-    createJournalEntry(db, {
-      date: row.date || '', description: `ابطال پرداخت به تأمین‌کننده #${row.id}`, ref_type: 'supplier_payment_reversal', ref_id: row.id, created_by: req.user.id,
+    const reversalId = postToLedger(db, {
+      sourceType: 'supplier_payment_reversal', sourceId: row.id,
+      date: todayJalali(), description: `ابطال پرداخت به تأمین‌کننده #${row.id}`, createdBy: req.user.id,
       lines: [
         { code: cash.code, name: cash.name, debit: row.amount, credit: 0 },
         (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: row.amount };})()
       ]
     });
-    db.prepare('DELETE FROM supplier_payments WHERE id=?').run(req.params.id);
+    db.prepare("UPDATE supplier_payments SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+      .run(reversalId, req.user.id, row.id);
   })();
   res.json({ ok: true });
 });

@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const multer = require('multer');
-const { getDB, audit, createJournalEntry, createPersonLedgerEntry, resolveCashAccount } = require('../db');
+const { getDB, audit, createPersonLedgerEntry, resolveCashAccount } = require('../db');
 const { acct: coaAcct } = require('../lib/coa-map');
 const { postToLedger } = require('../lib/ledger');
 const { calculatePayroll } = require('../lib/payroll/engine');
@@ -60,10 +60,10 @@ function createPayrollRecord(db, userId, data) {
     if (ins + tax > 0) {
       lines.push({ ...coaAcct(db,'coa_payroll_payable'), debit: 0, credit: ins + tax });
     }
-    createJournalEntry(db, {
-      date: date || todayJalali(),
+    postToLedger(db, {
+      sourceType: 'payroll', sourceId: recId, date: date || todayJalali(),
       description: `حقوق ${person.name} (${period_label || ''})`,
-      ref_type: 'payroll', ref_id: recId, created_by: userId, lines
+      createdBy: userId, lines
     });
     createPersonLedgerEntry(db, {
       person_id, date: date || todayJalali(), entry_type: 'payroll', ref_type: 'payroll', ref_id: recId,

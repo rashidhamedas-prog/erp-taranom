@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnly, invalidateUserCache } = require('../middleware/auth');
 const { j2g } = require('../jalali');
+const { ensureUserParty } = require('../lib/user-party');
 
 function jalaliDayBounds(jStr) {
   const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(String(jStr || '').trim());
@@ -15,7 +16,16 @@ function jalaliDayBounds(jStr) {
 // Get all users (include incentive fields)
 router.get('/users', auth, adminOnly, (req, res) => {
   const db = getDB();
-  const users = db.prepare('SELECT id,name,username,role,phone,active,last_login,commission_cash,commission_cheque,commission_basis,monthly_target,incentive_locked,created_at FROM users ORDER BY created_at DESC').all();
+  const users = db.prepare(`
+    SELECT u.id,u.name,u.username,u.role,u.phone,u.active,u.last_login,u.commission_cash,u.commission_cheque,
+      u.commission_basis,u.monthly_target,u.incentive_locked,u.created_at,u.party_id,
+      p.person_code,p.legal_type,p.company_name,p.national_id,p.economic_code,
+      p.secondary_phone AS person_secondary_phone,p.mobile AS person_mobile,p.fax AS person_fax,
+      p.email AS person_email,p.city AS person_city,p.province AS person_province,p.address AS person_address,
+      p.postal_code AS person_postal_code,p.birth_date AS person_birth_date,p.notes AS person_notes,
+      p.party_group_id AS person_party_group_id,p.account_nature AS person_account_nature
+    FROM users u LEFT JOIN parties p ON p.id=u.party_id ORDER BY u.created_at DESC
+  `).all();
   res.json(users);
 });
 
@@ -30,19 +40,23 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
   if (exists) return res.status(400).json({ error: 'این نام کاربری قبلاً ثبت شده' });
   const hash = bcrypt.hashSync(password, 10);
   // must_change_password=1 → رمزی که مدیر تعیین کرده موقتی است و در اولین ورود عوض می‌شود
-  const result = db.prepare(`
-    INSERT INTO users (name,username,password,phone,role,commission_cash,commission_cheque,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,incentive_locked,must_change_password,
-      rep_code,rep_subtype,territory,supervisor_id,employment_status,bank_name,bank_account,bank_iban,rep_opening_balance)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,1,?,?,?,?,?,?,?,?,?)
-  `).run(name, username, hash, phone || '', role, parseFloat(commission_cash) || 0, parseFloat(commission_cheque) || 0,
-    ['collection', 'profit'].includes(commission_basis) ? commission_basis : 'invoice',
-    parseFloat(monthly_target) || 0,
-    parseFloat(quarterly_target) || 0, parseFloat(annual_target) || 0, parseFloat(bonus_pct) || 0, parseFloat(commission_fixed) || 0,
-    parseFloat(penalty_pct) || 0, parseFloat(supervisor_commission_pct) || 0,
-    rep_code || '', rep_subtype || '', territory || '', supervisor_id ? parseInt(supervisor_id) : null,
-    employment_status || 'active', bank_name || '', bank_account || '', bank_iban || '', parseFloat(rep_opening_balance) || 0);
-  audit(req.user.id, 'create', 'user', result.lastInsertRowid, `ساخت کاربر ${name} با انگیزه فروش نقد ${commission_cash}٪ چک ${commission_cheque}٪`);
-  res.json({ id: result.lastInsertRowid, name, username, phone: phone || '', role, commission_cash: parseFloat(commission_cash) || 0, commission_cheque: parseFloat(commission_cheque) || 0, incentive_locked: 1 });
+  const created = db.transaction(() => {
+    const result = db.prepare(`
+      INSERT INTO users (name,username,password,phone,role,commission_cash,commission_cheque,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,incentive_locked,must_change_password,
+        rep_code,rep_subtype,territory,supervisor_id,employment_status,bank_name,bank_account,bank_iban,rep_opening_balance)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,1,?,?,?,?,?,?,?,?,?)
+    `).run(name, username, hash, phone || '', role, parseFloat(commission_cash) || 0, parseFloat(commission_cheque) || 0,
+      ['collection', 'profit'].includes(commission_basis) ? commission_basis : 'invoice',
+      parseFloat(monthly_target) || 0,
+      parseFloat(quarterly_target) || 0, parseFloat(annual_target) || 0, parseFloat(bonus_pct) || 0, parseFloat(commission_fixed) || 0,
+      parseFloat(penalty_pct) || 0, parseFloat(supervisor_commission_pct) || 0,
+      rep_code || '', rep_subtype || '', territory || '', supervisor_id ? parseInt(supervisor_id) : null,
+      employment_status || 'active', bank_name || '', bank_account || '', bank_iban || '', parseFloat(rep_opening_balance) || 0);
+    ensureUserParty(db, result.lastInsertRowid, req.body);
+    return result;
+  })();
+  audit(req.user.id, 'create', 'user', created.lastInsertRowid, `ساخت کاربر ${name} با انگیزه فروش نقد ${commission_cash}٪ چک ${commission_cheque}٪`);
+  res.json({ id: created.lastInsertRowid, name, username, phone: phone || '', role, commission_cash: parseFloat(commission_cash) || 0, commission_cheque: parseFloat(commission_cheque) || 0, incentive_locked: 1 });
 });
 
 // Update user — if incentive rate changed on a locked user, require force:true
@@ -72,27 +86,30 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
     return res.status(409).json({ locked: true, message: 'نرخ انگیزه فروش این کارشناس قفل شده است. لطفاً تأیید کنید.' });
   }
 
-  if (password) {
-    db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,password=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,penalty_pct=?,supervisor_commission_pct=?,incentive_locked=1,must_change_password=1,
-      rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=? WHERE id=?`)
-      .run(name, active, role, phone || '', bcrypt.hashSync(password, 10), newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
-        rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
-        supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
-        employment_status || existing.employment_status || 'active',
-        bank_name || existing.bank_name || '', bank_account || existing.bank_account || '', bank_iban || existing.bank_iban || '',
-        rep_opening_balance != null ? parseFloat(rep_opening_balance) : (existing.rep_opening_balance || 0),
-        req.params.id);
-  } else {
-    db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,penalty_pct=?,supervisor_commission_pct=?,incentive_locked=1,
-      rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=? WHERE id=?`)
-      .run(name, active, role, phone || '', newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
-        rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
-        supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
-        employment_status || existing.employment_status || 'active',
-        bank_name || existing.bank_name || '', bank_account || existing.bank_account || '', bank_iban || existing.bank_iban || '',
-        rep_opening_balance != null ? parseFloat(rep_opening_balance) : (existing.rep_opening_balance || 0),
-        req.params.id);
-  }
+  db.transaction(() => {
+    if (password) {
+      db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,password=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,penalty_pct=?,supervisor_commission_pct=?,incentive_locked=1,must_change_password=1,
+        rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=? WHERE id=?`)
+        .run(name, active, role, phone || '', bcrypt.hashSync(password, 10), newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
+          rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
+          supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
+          employment_status || existing.employment_status || 'active',
+          bank_name || existing.bank_name || '', bank_account || existing.bank_account || '', bank_iban || existing.bank_iban || '',
+          rep_opening_balance != null ? parseFloat(rep_opening_balance) : (existing.rep_opening_balance || 0),
+          req.params.id);
+    } else {
+      db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,penalty_pct=?,supervisor_commission_pct=?,incentive_locked=1,
+        rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=? WHERE id=?`)
+        .run(name, active, role, phone || '', newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
+          rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
+          supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
+          employment_status || existing.employment_status || 'active',
+          bank_name || existing.bank_name || '', bank_account || existing.bank_account || '', bank_iban || existing.bank_iban || '',
+          rep_opening_balance != null ? parseFloat(rep_opening_balance) : (existing.rep_opening_balance || 0),
+          req.params.id);
+    }
+    ensureUserParty(db, Number(req.params.id), req.body);
+  })();
   invalidateUserCache(+req.params.id);
   if (rateChanged) {
     audit(req.user.id, 'update', 'user', req.params.id, `تغییر نرخ انگیزه فروش ${name}: نقد ${existing.commission_cash}%→${newCash}% چک ${existing.commission_cheque}%→${newCheque}%`);
