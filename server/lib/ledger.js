@@ -50,6 +50,9 @@ function postToLedger(db, opts) {
     credit: tomanToRial(l.credit_toman != null ? l.credit_toman : l.credit),
     description: l.description || '',
     detail_account_id: l.detail_account_id || null,
+    cost_center_id: l.cost_center_id || null,
+    project_id: l.project_id || null,
+    tax_type: l.tax_type || null,
   }));
 
   const bal = validateBalancedLines(normalized);
@@ -82,6 +85,9 @@ function postToLedger(db, opts) {
       credit_rial: l.credit,
       description: l.description,
       detail_account_id: l.detail_account_id,
+      cost_center_id: l.cost_center_id,
+      project_id: l.project_id,
+      tax_type: l.tax_type,
     })),
     fiscal_year_id: fiscalYearId,
     voucher_type: voucherType,

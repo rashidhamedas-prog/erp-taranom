@@ -1516,6 +1516,10 @@ const LU = (()=> {
     'acc-suppliers':'truck', 'acc-persons':'person', 'acc-item-kardex':'clipboard',
     'acc-warehouses':'warehouse', 'acc-warehouse-ops':'box', 'acc-consignments':'repeat',
     'acc-vouchers':'pen', 'acc-cost-centers':'tags', 'acc-payroll':'coins',
+    'acc-payroll-employees':'users', 'acc-payroll-structures':'receipt',
+    'acc-payroll-periods':'calendar', 'acc-payroll-tax':'percent',
+    'acc-payroll-processing':'calc', 'acc-payroll-year-end':'gift',
+    'acc-payroll-reports':'clipboard',
     'acc-parties':'users', 'acc-party-groups':'folder', 'acc-products':'box',
     'acc-product-groups':'tags', 'acc-incomes':'trending', 'acc-expenses':'linechart',
     'acc-expense-categories':'folder', 'acc-opening-recv-cheques':'download',
@@ -1633,7 +1637,11 @@ const ACC_MODULE_MAP={
   'acc-production-estimate':'module_production','acc-production-kanban':'module_production',
   'acc-production-variance':'module_production','acc-production-mrp':'module_production',
   'acc-production-rates':'module_production','acc-production-access':'module_production',
-  'acc-payroll':'module_payroll','acc-reps':'module_reps',
+  'acc-payroll':'module_payroll','acc-payroll-employees':'module_payroll',
+  'acc-payroll-structures':'module_payroll','acc-payroll-periods':'module_payroll',
+  'acc-payroll-tax':'module_payroll','acc-payroll-processing':'module_payroll',
+  'acc-payroll-year-end':'module_payroll','acc-payroll-reports':'module_payroll',
+  'acc-reps':'module_reps',
   'acc-moadian':'module_moadian','acc-fixed-assets':'module_fixed_assets'
 };
 function filterAccNavItem(it){
@@ -6116,6 +6124,9 @@ const ADV_REPORT_TABS=[
   {id:'inventory-valuation',label:'ارزش‌گذاری موجودی'},
   {id:'inventory-health',label:'سلامت موجودی'},
   {id:'vat-summary',label:'گزارش VAT'},
+  {id:'vat-ledger',label:'دفتر ارزش افزوده'},
+  {id:'cost-accounting',label:'عناصر بهای صنعتی'},
+  {id:'report-designer',label:'طراح صورت‌های مالی'},
   {id:'party-turnover',label:'گردش اشخاص'}
 ];
 async function renderAdvReportsTab(body){
@@ -6135,6 +6146,9 @@ async function loadAdvReport(){
   if(advReportTab==='inventory-valuation') return renderInventoryValuationReport(box);
   if(advReportTab==='inventory-health') return renderInventoryHealthReport(box);
   if(advReportTab==='vat-summary') return renderVatSummaryReport(box);
+  if(advReportTab==='vat-ledger') return renderVatLedgerReport(box);
+  if(advReportTab==='cost-accounting') return renderCostAccountingReport(box);
+  if(advReportTab==='report-designer') return renderFinancialReportDesigner(box);
   if(advReportTab==='party-turnover') return renderPartyTurnoverReport(box);
 }
 function advDateFilterBar(){
@@ -6149,7 +6163,7 @@ async function renderAgingReport(box){
   const d=await api('GET','/adv-reports/aging')||{rows:[],totals:{}};
   box.innerHTML=`
     <div class="tbl-wrap"><table class="tbl" style="font-size:13px"><thead><tr>
-      <th>مشتری</th><th>کارشناس</th><th>۰ تا ۳۰ روز</th><th>۳۱ تا ۶۰ روز</th><th>۶۱ تا ۹۰ روز</th><th>بیش از ۹۰ روز</th><th>جمع (ت)</th>
+      <th>مشتری</th><th>کارشناس</th><th>۰ تا ۳۰ روز</th><th>۳۱ تا ۶۰ روز</th><th>۶۱ تا ۹۰ روز</th><th>بیش از ۹۰ روز</th><th>جمع (ریال)</th>
     </tr></thead><tbody>${d.rows.map(r=>`<tr>
       <td>${esc(r.cust_biz)}</td><td class="muted">${esc(r.salesperson||'-')}</td>
       <td class="mono">${r.b0_30>0?fmt(r.b0_30):'-'}</td>
@@ -6187,7 +6201,7 @@ async function renderSalesByProductReport(box){
   const qp=[]; if(advReportFrom) qp.push('from='+encodeURIComponent(advReportFrom)); if(advReportTo) qp.push('to='+encodeURIComponent(advReportTo));
   const d=await api('GET','/adv-reports/sales-by-product'+(qp.length?'?'+qp.join('&'):''))||{rows:[],totals:{}};
   box.innerHTML=advDateFilterBar()+`
-    <div class="tbl-wrap"><table class="tbl" style="font-size:13px"><thead><tr><th>کالا</th><th>تعداد فروخته‌شده</th><th>درآمد (ت)</th></tr></thead>
+    <div class="tbl-wrap"><table class="tbl" style="font-size:13px"><thead><tr><th>کالا</th><th>تعداد فروخته‌شده</th><th>درآمد (ریال)</th></tr></thead>
     <tbody>${d.rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmt(r.qty)}</td><td class="mono" style="font-weight:700">${fmt(r.revenue)}</td></tr>`).join('')||emptyRow(3)}</tbody>
     <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
       <td>جمع کل</td><td class="mono">${fmt(d.totals.qty||0)}</td><td class="mono">${fmt(d.totals.revenue||0)}</td>
@@ -6244,17 +6258,51 @@ async function renderVatSummaryReport(box){
     </div></div>`;
   attachDatepickers(box);
 }
+async function renderVatLedgerReport(box){
+  const d=await api('GET','/adv-reports/vat-records')||{rows:[],totals:{}};
+  box.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>دوره</th><th>نوع</th><th>شماره فاکتور</th><th>تاریخ</th><th>مبلغ پایه</th><th>نرخ</th><th>مالیات (ریال)</th></tr></thead>
+  <tbody>${(d.rows||[]).map(r=>`<tr><td>${esc(r.fiscal_period)}</td><td>${r.vat_category==='output'?'فروش':'خرید'}</td><td>${esc(r.invoice_number||'-')}</td><td>${escDate(r.invoice_date)}</td>
+    <td class="mono">${fmt(r.base_amount_rial)}</td><td>${fmt(r.vat_rate_bp/100)}٪</td><td class="mono">${fmt(r.vat_amount_rial)}</td></tr>`).join('')||emptyRow(7)}</tbody>
+  <tfoot><tr><td colspan="6">خالص مالیات پرداختنی</td><td class="mono">${fmt(d.totals?.net_payable_rial||0)}</td></tr></tfoot></table></div>`;
+}
+async function renderCostAccountingReport(box){
+  const period=todayJalali().slice(0,7);
+  const d=await api('GET','/adv-reports/cost-accounting?period='+encodeURIComponent(period))||{rows:[]};
+  box.innerHTML=`<div class="muted" style="margin-bottom:10px">مقایسه سربار واقعی و جذب‌شده دوره ${esc(period)} — مبالغ ریال</div>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>مرکز هزینه</th><th>سربار واقعی</th><th>سربار جذب‌شده</th><th>کسر/اضافه جذب</th></tr></thead>
+  <tbody>${(d.rows||[]).map(r=>`<tr><td>${esc((r.code||'')+' '+r.name)}</td><td class="mono">${fmt(r.total_cost_rial)}</td><td class="mono">${fmt(r.applied_cost_rial)}</td>
+    <td class="mono" style="color:${r.variance_rial>=0?'var(--red)':'var(--green)'}">${fmt(r.variance_rial)}</td></tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
+}
+async function renderFinancialReportDesigner(box){
+  const rows=await api('GET','/adv-reports/report-configurations')||[];
+  box.innerHTML=`<div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="financialReportConfigModal()">${lucide('plus')} تعریف گزارش</button></div>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>گزارش</th><th>ردیف</th><th>عنوان</th><th>عملگر</th><th>پیشوند حساب‌ها</th></tr></thead>
+  <tbody>${rows.map(r=>`<tr><td>${esc(r.report_name)}</td><td>${fmt(r.row_number)}</td><td>${esc(r.row_label)}</td><td>${esc(r.operation)}</td><td class="mono">${esc((r.account_prefixes||[]).join('، '))}</td></tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+}
+function financialReportConfigModal(){
+  openModal(`<div class="modal-head"><h3>${lucide('chart')} تعریف صورت مالی پویا</h3><button class="x" onclick="closeModal()">×</button></div>
+  <div class="modal-body"><div class="fg"><label>نام گزارش *</label><input id="fr-name" placeholder="مثلاً ترازنامه مدیریتی"></div>
+  <div class="fg" style="margin-top:10px"><label>هر ردیف: عنوان | sum/subtract/subtotal | پیشوند حساب‌ها با کاما</label>
+    <textarea id="fr-lines" rows="9" dir="rtl" placeholder="دارایی‌های جاری | sum | 11&#10;بدهی‌های جاری | subtract | 21&#10;خالص | subtotal |"></textarea></div>
+  <div class="muted" style="margin-top:8px">فرمول آزاد اجرا نمی‌شود؛ فقط عملگرهای امن و پیشوندهای معتبر حساب پذیرفته می‌شوند.</div></div>
+  <div class="modal-foot"><button class="btn" onclick="saveFinancialReportConfig()">${lucide('save')} ذخیره</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveFinancialReportConfig(){
+  const name=el('fr-name').value.trim();
+  const rows=el('fr-lines').value.split(/\r?\n/).filter(Boolean).map(line=>{const [row_label,operation,prefixes]=line.split('|').map(x=>(x||'').trim());return {row_label,operation:operation||'sum',account_prefixes:prefixes?prefixes.split(',').map(x=>x.trim()).filter(Boolean):[],show_subtotal:operation==='subtotal'};});
+  try{await api('PUT','/adv-reports/report-configurations/'+encodeURIComponent(name),{rows});closeModal();showToast('پیکربندی گزارش ذخیره شد');loadAdvReport();}catch(e){}
+}
 async function renderPartyTurnoverReport(box){
   const qp=[]; if(advReportFrom) qp.push('from='+encodeURIComponent(advReportFrom)); if(advReportTo) qp.push('to='+encodeURIComponent(advReportTo));
   const d=await api('GET','/adv-reports/party-turnover'+(qp.length?'?'+qp.join('&'):''))||{sales:[],purchases:[]};
   box.innerHTML=advDateFilterBar()+`
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div class="panel"><div class="panel-head"><h4>🛒 گردش مشتریان</h4></div>
-        <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>مشتری</th><th>تعداد</th><th>گردش (ت)</th></tr></thead>
+        <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>مشتری</th><th>تعداد</th><th>گردش (ریال)</th></tr></thead>
         <tbody>${(d.sales||[]).map(r=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmt(r.doc_count)}</td><td class="mono">${fmt(r.turnover)}</td></tr>`).join('')||emptyRow(3)}</tbody></table></div>
       </div>
       <div class="panel"><div class="panel-head"><h4>🚚 گردش تأمین‌کنندگان</h4></div>
-        <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>تأمین‌کننده</th><th>تعداد</th><th>گردش (ت)</th></tr></thead>
+        <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>تأمین‌کننده</th><th>تعداد</th><th>گردش (ریال)</th></tr></thead>
         <tbody>${(d.purchases||[]).map(r=>`<tr><td>${esc(r.name)}</td><td class="mono">${fmt(r.doc_count)}</td><td class="mono">${fmt(r.turnover)}</td></tr>`).join('')||emptyRow(3)}</tbody></table></div>
       </div>
     </div>`;
@@ -7974,28 +8022,225 @@ async function deleteProductionRun(id){
    cash/bank, mirroring a supplier payment.
 ============================================================ */
 async function renderPayrollTab(body){
+  const payrollViewByNav={
+    'acc-payroll-employees':'employees','acc-payroll-structures':'structures',
+    'acc-payroll-periods':'periods','acc-payroll-tax':'tax',
+    'acc-payroll-processing':'processing','acc-payroll-year-end':'year-end',
+    'acc-payroll-reports':'reports'
+  };
+  const view=payrollViewByNav[accNavId]||'records';
+  if(view==='employees') return renderPayrollEmployees(body);
+  if(view==='structures') return renderSalaryStructures(body);
+  if(view==='periods') return renderPayrollPeriods(body);
+  if(view==='tax') return renderPayrollTaxConfig(body);
+  if(view==='processing') return renderPayrollProcessing(body);
+  if(view==='year-end') return renderPayrollYearEnd(body);
+  if(view==='reports') return renderPayrollLegalReports(body);
   if(!CACHE.persons) CACHE.persons=await api('GET','/persons')||[];
   const records=await api('GET','/payroll')||[];
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn" onclick="payrollModal()">➕ ثبت حقوق</button>
-      <button class="btn ghost" onclick="farankenouImportModal()">📥 ورود از فراننکو (.lwte)</button>
+      <button class="btn" onclick="go('acc-payroll-processing')">${lucide('calc')} محاسبه و پردازش حقوق</button>
+      <button class="btn ghost" onclick="go('acc-payroll-employees')">${lucide('users')} پرونده کارکنان</button>
     </div>
     <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
-      <th>دوره</th><th>کارمند</th><th>ساعت عادی</th><th>ساعت اضافه‌کاری</th><th>ناخالص (ت)</th><th>کسورات (ت)</th><th>خالص (ت)</th><th>وضعیت</th><th>عملیات</th>
+      <th>دوره</th><th>کارمند</th><th>ساعت عادی</th><th>ساعت اضافه‌کاری</th><th>ناخالص (ریال)</th><th>کسورات (ریال)</th><th>خالص (ریال)</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${records.map(r=>`<tr>
       <td>${esc(r.period_label||'-')}</td><td>${esc(r.person_name||'-')}</td>
       <td class="mono">${fmt(r.regular_hours)}</td><td class="mono">${fmt(r.overtime_hours)}</td>
-      <td class="mono">${fmt(r.gross_pay)}</td>
-      <td class="mono" style="color:var(--red)">${fmt((r.deductions||0)+(r.insurance_deduction||0)+(r.tax_deduction||0))}</td>
-      <td class="mono" style="font-weight:700">${fmt(r.net_pay)}</td>
-      <td>${r.paid?'<span class="tag t-done">پرداخت شده</span>':'<span class="tag t-pending">پرداخت‌نشده</span>'}</td>
+      <td class="mono">${fmt(r.gross_earnings_rial||Math.round((r.gross_pay||0)*10))}</td>
+      <td class="mono" style="color:var(--red)">${fmt((r.sso_employee_rial||Math.round((r.insurance_deduction||0)*10))+(r.income_tax_rial||Math.round((r.tax_deduction||0)*10))+(r.other_deductions_rial||Math.round((r.deductions||0)*10)))}</td>
+      <td class="mono" style="font-weight:700">${fmt(r.net_pay_rial||Math.round((r.net_pay||0)*10))}</td>
+      <td>${r.status==='reversed'?'<span class="tag t-cancel">ابطال‌شده</span>':r.paid?'<span class="tag t-done">پرداخت شده</span>':'<span class="tag t-pending">پرداخت‌نشده</span>'}</td>
       <td style="white-space:nowrap">
-        ${!r.paid?`<button class="btn sm green" onclick="payrollPayModal(${r.id},'${esc(r.person_name||'')}',${r.net_pay})">💵 پرداخت</button>
-        <button class="btn sm red" onclick="deletePayrollRecord(${r.id})">🗑️</button>`:''}
+        ${!r.paid&&r.status!=='reversed'?`<button class="btn sm green" onclick="payrollPayModal(${r.id},'${esc(r.person_name||'')}',${r.net_pay_rial||Math.round((r.net_pay||0)*10)})">${lucide('wallet')} پرداخت</button>
+        <button class="btn sm red" onclick="deletePayrollRecord(${r.id})">${lucide('repeat')} ابطال</button>`:''}
       </td>
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
+
+async function renderPayrollEmployees(body){
+  const rows=await api('GET','/payroll/employees')||[];
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="payrollEmployeeModal()">${lucide('plus')} کارمند جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد پرسنلی</th><th>نام</th><th>کد ملی</th><th>شماره بیمه</th><th>نوع استخدام</th><th>شروع</th><th>وضعیت</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.personnel_code||r.employee_no||'-')}</td><td>${esc(r.name)}</td>
+      <td class="mono">${esc(r.national_id||'-')}</td><td class="mono">${esc(r.insurance_id||'-')}</td>
+      <td>${({monthly:'ماهانه',daily:'روزانه',hourly:'ساعتی',contractor:'پیمانکاری'})[r.employment_type]||r.employment_type||'-'}</td>
+      <td class="mono">${escDate(r.hire_date||'-')}</td><td>${r.active?'<span class="tag t-done">فعال</span>':'<span class="tag">غیرفعال</span>'}</td></tr>`).join('')||emptyRow(7)}</tbody></table></div>`;
+}
+function payrollEmployeeModal(){
+  openModal(`
+    <div class="modal-head"><h3>${lucide('user')} پرونده کارمند</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>کد پرسنلی *</label><input id="pe-code"></div>
+      <div class="fg"><label>نوع استخدام</label><select id="pe-type"><option value="monthly">ماهانه</option><option value="daily">روزانه</option><option value="hourly">ساعتی</option><option value="contractor">پیمانکاری</option></select></div>
+      <div class="fg"><label>نام *</label><input id="pe-first"></div><div class="fg"><label>نام خانوادگی *</label><input id="pe-last"></div>
+      <div class="fg"><label>کد ملی</label><input id="pe-national" maxlength="10" inputmode="numeric"></div>
+      <div class="fg"><label>شماره بیمه</label><input id="pe-insurance"></div>
+      <div class="fg"><label>شناسه مالیاتی</label><input id="pe-tax"></div>
+      <div class="fg"><label>نوع بیمه</label><select id="pe-ins-type"><option value="sso">تأمین اجتماعی</option><option value="armed_forces">نیروهای مسلح</option><option value="none">بدون بیمه</option></select></div>
+      <div class="fg"><label>تاریخ استخدام</label><input id="pe-hire" data-jdate></div>
+      <div class="fg"><label>نوع معافیت مالیاتی</label><select id="pe-exempt"><option value="none">بدون معافیت</option><option value="veteran">جانباز</option><option value="petroleum_zones">مناطق نفت‌خیز</option></select></div>
+    </div></div><div class="modal-foot"><button class="btn" onclick="savePayrollEmployee()">${lucide('save')} ذخیره</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function savePayrollEmployee(){
+  try{
+    await api('POST','/payroll/employees',{personnel_code:el('pe-code').value,first_name:el('pe-first').value,last_name:el('pe-last').value,
+      national_id:el('pe-national').value,insurance_id:el('pe-insurance').value,tax_id:el('pe-tax').value,
+      employment_type:el('pe-type').value,insurance_type:el('pe-ins-type').value,hire_date:el('pe-hire').value,tax_exemption_type:el('pe-exempt').value});
+    closeModal();showToast('پرونده کارمند ذخیره شد');loadAccTab('payroll');
+  }catch(e){}
+}
+
+async function renderPayrollPeriods(body){
+  const rows=await api('GET','/payroll/periods')||[];
+  body.innerHTML=`<div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="payrollPeriodModal()">${lucide('plus')} دوره جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>دوره</th><th>شروع</th><th>پایان</th><th>روز موظفی</th><th>ساعت موظفی</th><th>بیمه کارگر</th><th>بیمه کارفرما</th><th>وضعیت</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.label)}</td><td>${escDate(r.start_date)}</td><td>${escDate(r.end_date)}</td>
+      <td>${fmt(r.standard_days)}</td><td>${fmt(r.standard_hours_x100/100)}</td><td>${fmt(r.employee_insurance_bp/100)}٪</td>
+      <td>${fmt(r.employer_insurance_bp/100)}٪</td><td>${esc(r.status)}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+}
+function payrollPeriodModal(){
+  const year=+todayJalali().slice(0,4);
+  openModal(`<div class="modal-head"><h3>${lucide('calendar')} دوره حقوق</h3><button class="x" onclick="closeModal()">×</button></div>
+  <div class="modal-body"><div class="form-grid">
+    <div class="fg"><label>سال شمسی</label><input id="pd-year" type="number" value="${year}"></div><div class="fg"><label>ماه</label><input id="pd-month" type="number" min="1" max="12"></div>
+    <div class="fg"><label>روز موظفی</label><input id="pd-days" type="number" value="30"></div><div class="fg"><label>ساعت موظفی</label><input id="pd-hours" type="number" value="220"></div>
+    <div class="fg"><label>سهم بیمه کارگر (٪)</label><input id="pd-emp-ins" type="number" step=".01" value="7"></div>
+    <div class="fg"><label>سهم بیمه کارفرما (٪)</label><input id="pd-er-ins" type="number" step=".01" value="23"></div>
+  </div><div class="muted" style="margin-top:10px">نرخ‌ها در هر دوره ذخیره می‌شوند و در کد ثابت نیستند.</div></div>
+  <div class="modal-foot"><button class="btn" onclick="savePayrollPeriod()">${lucide('save')} ذخیره</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function savePayrollPeriod(){
+  try{await api('POST','/payroll/periods',{fiscal_year:+el('pd-year').value,month_no:+el('pd-month').value,standard_days:+el('pd-days').value,
+    standard_hours:+el('pd-hours').value,employee_insurance_percent:+el('pd-emp-ins').value,employer_insurance_percent:+el('pd-er-ins').value});
+    closeModal();showToast('دوره ایجاد شد');loadAccTab('payroll');}catch(e){}
+}
+
+async function renderSalaryStructures(body){
+  const [rows,employees]=await Promise.all([api('GET','/payroll/salary-structures'),api('GET','/payroll/employees')]);
+  CACHE.payrollEmployees=employees||[];
+  body.innerHTML=`<div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="salaryStructureModal()">${lucide('plus')} ساختار جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>سال</th><th>کارمند</th><th>مبنا</th><th>مزد پایه (ریال)</th><th>مسکن</th><th>بن</th><th>اولاد</th><th>بیمه</th></tr></thead>
+    <tbody>${(rows||[]).map(r=>`<tr><td>${fmt(r.fiscal_year)}</td><td>${esc(r.person_name)}</td><td>${esc(r.wage_basis)}</td>
+      <td class="mono">${fmt(r.base_wage_rial)}</td><td class="mono">${fmt(r.housing_allowance_rial)}</td><td class="mono">${fmt(r.grocery_allowance_rial)}</td>
+      <td class="mono">${fmt(r.child_allowance_rial)} × ${fmt(r.child_count)}</td><td>${esc(r.insurance_type)}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+}
+function salaryStructureModal(){
+  openModal(`<div class="modal-head"><h3>${lucide('receipt')} ساختار حقوق سالانه</h3><button class="x" onclick="closeModal()">×</button></div>
+  <div class="modal-body"><div class="form-grid">
+    <div class="fg full"><label>کارمند *</label><select id="ss-person"><option value="">—</option>${(CACHE.payrollEmployees||[]).map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.personnel_code||'')})</option>`).join('')}</select></div>
+    <div class="fg"><label>سال</label><input id="ss-year" type="number" value="${todayJalali().slice(0,4)}"></div>
+    <div class="fg"><label>مبنای مزد</label><select id="ss-basis"><option value="monthly">ماهانه</option><option value="daily">روزانه</option><option value="hourly">ساعتی</option><option value="contractor">پیمانکاری</option></select></div>
+    ${[['ss-base','مزد پایه'],['ss-house','حق مسکن'],['ss-food','بن کارگری'],['ss-child','حق اولاد هر فرزند'],['ss-spouse','حق تأهل'],['ss-other','سایر مزایای ثابت']].map(x=>`<div class="fg"><label>${x[1]} (ریال)</label><input id="${x[0]}" class="money" inputmode="numeric" value="0"></div>`).join('')}
+    <div class="fg"><label>تعداد فرزند</label><input id="ss-child-count" type="number" min="0" value="0"></div>
+    <div class="fg"><label><input id="ss-married" type="checkbox" style="width:auto"> متأهل</label></div>
+    <div class="fg"><label>نوع بیمه</label><select id="ss-ins"><option value="sso">تأمین اجتماعی</option><option value="armed_forces">نیروهای مسلح</option><option value="none">بدون بیمه</option></select></div>
+    <div class="fg"><label>درصد معافیت مالیات</label><input id="ss-tax-ex" type="number" min="0" max="100" value="0"></div>
+  </div></div><div class="modal-foot"><button class="btn" onclick="saveSalaryStructure()">${lucide('save')} ذخیره</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  el('modalRoot')?.querySelectorAll('input').forEach(ensureMoneyField);
+}
+async function saveSalaryStructure(){
+  try{await api('POST','/payroll/salary-structures',{person_id:+el('ss-person').value,fiscal_year:+el('ss-year').value,wage_basis:el('ss-basis').value,
+    base_wage_rial:moneyVal('ss-base'),housing_allowance_rial:moneyVal('ss-house'),grocery_allowance_rial:moneyVal('ss-food'),
+    child_allowance_rial:moneyVal('ss-child'),spouse_allowance_rial:moneyVal('ss-spouse'),other_fixed_allowance_rial:moneyVal('ss-other'),
+    child_count:+el('ss-child-count').value||0,marital_status:el('ss-married').checked,insurance_type:el('ss-ins').value,
+    tax_exemption_percent:+el('ss-tax-ex').value||0});closeModal();showToast('ساختار حقوق ذخیره شد');loadAccTab('payroll');}catch(e){}
+}
+
+async function renderPayrollTaxConfig(body){
+  const year=+(body.dataset.taxYear||todayJalali().slice(0,4));
+  const rows=await api('GET','/payroll/tax-brackets/'+year)||[];
+  body.dataset.taxYear=year;
+  body.innerHTML=`<div class="toolbar" style="margin-bottom:12px"><label>سال <input id="taxYear" type="number" value="${year}" style="width:100px" onchange="el('accBody').dataset.taxYear=this.value;renderPayrollTaxConfig(el('accBody'))"></label>
+    <button class="btn" onclick="payrollTaxModal(${year})">${lucide('edit')} تعریف پلکان</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>ردیف</th><th>از مبلغ (ریال)</th><th>تا مبلغ (ریال)</th><th>نرخ</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td>${fmt(r.bracket_order)}</td><td class="mono">${fmt(r.bracket_min_rial)}</td><td class="mono">${r.bracket_max_rial==null?'بدون سقف':fmt(r.bracket_max_rial)}</td><td>${fmt(r.tax_rate_bp/100)}٪</td></tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
+}
+function payrollTaxModal(year){
+  openModal(`<div class="modal-head"><h3>${lucide('percent')} پلکان مالیات ${year}</h3><button class="x" onclick="closeModal()">×</button></div>
+  <div class="modal-body"><label>هر پله در یک خط: حداقل | حداکثر | درصد</label><textarea id="tax-lines" rows="8" dir="ltr" placeholder="0 | 120000000 | 0&#10;120000000 | 165000000 | 10&#10;165000000 | | 15"></textarea>
+  <div class="muted" style="margin-top:8px">اعداد نمونه نیستند؛ مبالغ قانونی همان سال را به ریال وارد کنید. سقف خالی یعنی بدون سقف.</div></div>
+  <div class="modal-foot"><button class="btn" onclick="savePayrollTax(${year})">${lucide('save')} ذخیره</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function savePayrollTax(year){
+  const rows=el('tax-lines').value.split(/\r?\n/).filter(Boolean).map(line=>{const [min,max,rate]=line.split('|').map(x=>x.trim().replace(/[,\u066C]/g,''));return {bracket_min_rial:+min||0,bracket_max_rial:max===''?null:+max,tax_rate_percent:+rate||0};});
+  try{await api('PUT','/payroll/tax-brackets/'+year,{rows});closeModal();showToast('پلکان مالیات ذخیره شد');renderPayrollTaxConfig(el('accBody'));}catch(e){}
+}
+
+async function renderPayrollProcessing(body){
+  const [periods,employees]=await Promise.all([api('GET','/payroll/periods'),api('GET','/payroll/employees')]);
+  CACHE.payrollPeriods=periods||[];
+  body.innerHTML=`<div class="toolbar" style="margin-bottom:12px"><button class="btn ghost" onclick="farankenouImportModal()">${lucide('upload')} ورود کارکرد فراننکو</button></div>
+  <div class="panel"><div class="panel-body"><div class="form-grid">
+    <div class="fg"><label>دوره *</label><select id="pc-period"><option value="">—</option>${(periods||[]).filter(p=>p.status!=='closed').map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></div>
+    <div class="fg"><label>کارمند *</label><select id="pc-person"><option value="">—</option>${(employees||[]).filter(p=>p.active).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+    <div class="fg"><label>روز کارکرد</label><input id="pc-days" type="number" step=".01" value="30"></div>
+    <div class="fg"><label>ساعت عادی</label><input id="pc-hours" type="number" step=".01" value="220"></div>
+    <div class="fg"><label>اضافه‌کاری</label><input id="pc-ot" type="number" step=".01" value="0"></div>
+    <div class="fg"><label>شب‌کاری</label><input id="pc-night" type="number" step=".01" value="0"></div>
+    <div class="fg"><label>سختی کار (ریال)</label><input id="pc-hard" class="money" inputmode="numeric" value="0"></div>
+    <div class="fg"><label>سایر مزایا (ریال)</label><input id="pc-other" class="money" inputmode="numeric" value="0"></div>
+    <div class="fg"><label>معافیت مالیاتی ماه (ریال)</label><input id="pc-tax-ex" class="money" inputmode="numeric" value="0"></div>
+    <div class="fg"><label>سایر کسورات (ریال)</label><input id="pc-ded" class="money" inputmode="numeric" value="0"></div>
+  </div><div class="toolbar" style="margin-top:14px"><button class="btn ghost" onclick="previewPayrollCalculation()">${lucide('eye')} پیش‌نمایش</button>
+  <button class="btn" onclick="processPayrollCalculation()">${lucide('check')} پردازش و ثبت سند</button></div><div id="pc-result" style="margin-top:12px"></div></div></div>`;
+  body.querySelectorAll('input').forEach(ensureMoneyField);
+}
+function payrollCalcPayload(){
+  return {period_id:+el('pc-period').value,person_id:+el('pc-person').value,working_days_x100:Math.round((+el('pc-days').value||0)*100),
+    regular_hours_x100:Math.round((+el('pc-hours').value||0)*100),overtime_hours_x100:Math.round((+el('pc-ot').value||0)*100),
+    night_shift_hours_x100:Math.round((+el('pc-night').value||0)*100),hardship_allowance_rial:moneyVal('pc-hard'),
+    other_allowance_rial:moneyVal('pc-other'),tax_exemption_rial:moneyVal('pc-tax-ex'),other_deductions_rial:moneyVal('pc-ded'),insurance_exempt_rial:0};
+}
+async function previewPayrollCalculation(){
+  try{const r=await api('POST','/payroll/calculate',payrollCalcPayload());const c=r.calculation;el('pc-result').innerHTML=`ناخالص: <b>${fmt(c.gross_earnings_rial)} ریال</b> | بیمه کارگر: ${fmt(c.sso_employee_rial)} | مالیات: ${fmt(c.income_tax_rial)} | خالص: <b>${fmt(c.net_pay_rial)} ریال</b>`;}catch(e){}
+}
+async function processPayrollCalculation(){
+  if(!confirm('حقوق پردازش و سند حسابداری قطعی ثبت شود؟')) return;
+  const p=payrollCalcPayload();try{await api('POST','/payroll/process',{period_id:p.period_id,rows:[p]});showToast('حقوق و سند حسابداری ثبت شد');go('acc-payroll');}catch(e){}
+}
+
+async function renderPayrollYearEnd(body){
+  const year=todayJalali().slice(0,4);
+  const [rows,employees]=await Promise.all([api('GET','/payroll/year-end?fiscal_year='+year),api('GET','/payroll/employees')]);
+  CACHE.payrollEmployees=employees||[];
+  body.innerHTML=`<div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="payrollYearEndModal(${year})">${lucide('calc')} محاسبه عیدی و سنوات</button></div>
+  <div class="muted" style="margin-bottom:12px">عیدی و سنوات بر مبنای مزد و روزهای خدمت محاسبه می‌شود؛ سقف مزد قانونی هنگام محاسبه دریافت می‌شود.</div>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کارمند</th><th>سال</th><th>روز خدمت</th><th>عیدی</th><th>سنوات</th><th>مالیات</th><th>خالص (ریال)</th><th>وضعیت</th></tr></thead>
+  <tbody>${(rows||[]).map(r=>`<tr><td>${esc(r.person_name)}</td><td>${fmt(r.fiscal_year)}</td><td>${fmt(r.service_days)}</td><td>${fmt(r.eidi_rial)}</td><td>${fmt(r.severance_rial)}</td><td>${fmt(r.income_tax_rial)}</td><td>${fmt(r.net_pay_rial)}</td>
+    <td>${esc(r.status)} ${r.status==='draft'?`<button class="btn sm" onclick="postPayrollYearEnd(${r.id})">${lucide('check')} ثبت سند</button>`:''}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+}
+function payrollYearEndModal(year){
+  openModal(`<div class="modal-head"><h3>${lucide('gift')} محاسبه عیدی و سنوات ${year}</h3><button class="x" onclick="closeModal()">×</button></div>
+  <div class="modal-body"><div class="form-grid">
+    <div class="fg"><label>حداقل مزد روزانه سال (ریال) *</label><input id="ye-min-wage" class="money" inputmode="numeric"></div>
+    <div class="fg"><label>سقف معافیت مالیاتی عیدی (ریال)</label><input id="ye-tax-exempt" class="money" inputmode="numeric" value="0"></div>
+    <div class="fg full"><label>کارکنان</label><div style="max-height:220px;overflow:auto;border:1px solid var(--border);padding:8px;border-radius:8px">
+      ${(CACHE.payrollEmployees||[]).filter(p=>p.active).map(p=>`<label style="display:flex;gap:8px;align-items:center;margin:5px"><input class="ye-employee" type="checkbox" value="${p.id}" checked style="width:auto"> ${esc(p.name)} <input class="ye-days" data-person="${p.id}" type="number" min="0" max="365" value="365" style="width:90px;margin-right:auto"> روز</label>`).join('')}
+    </div></div>
+  </div></div><div class="modal-foot"><button class="btn" onclick="calculatePayrollYearEnd(${year})">${lucide('calc')} محاسبه</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  el('modalRoot')?.querySelectorAll('input').forEach(ensureMoneyField);
+}
+async function calculatePayrollYearEnd(year){
+  const rows=[...document.querySelectorAll('.ye-employee:checked')].map(ch=>({person_id:+ch.value,service_days:+document.querySelector(`.ye-days[data-person="${ch.value}"]`)?.value||365}));
+  try{await api('POST','/payroll/year-end/calculate',{fiscal_year:year,minimum_daily_wage_rial:moneyVal('ye-min-wage'),tax_exempt_bonus_rial:moneyVal('ye-tax-exempt'),rows});
+    closeModal();showToast('عیدی و سنوات محاسبه شد');loadAccTab('payroll');}catch(e){}
+}
+async function postPayrollYearEnd(id){
+  if(!confirm('سند حسابداری عیدی و سنوات ثبت شود؟')) return;
+  try{await api('POST','/payroll/year-end/'+id+'/post',{date:todayJalali()});showToast('سند عیدی و سنوات ثبت شد');loadAccTab('payroll');}catch(e){}
+}
+async function renderPayrollLegalReports(body){
+  const year=todayJalali().slice(0,4);
+  const d=await api('GET','/payroll/legal-reports?fiscal_year='+year)||{rows:[],totals:{}};
+  body.innerHTML=`<div class="muted" style="margin-bottom:12px">خلاصه لیست بیمه و مالیات حقوق سال ${year} — همه مبالغ ریال</div>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>دوره</th><th>کارمند</th><th>ناخالص</th><th>مشمول بیمه</th><th>سهم کارگر</th><th>سهم کارفرما</th><th>مشمول مالیات</th><th>مالیات</th></tr></thead>
+  <tbody>${(d.rows||[]).map(r=>`<tr><td>${esc(r.period_label)}</td><td>${esc(r.person_name)}</td><td>${fmt(r.gross_earnings_rial)}</td><td>${fmt(r.insurance_base_rial)}</td><td>${fmt(r.sso_employee_rial)}</td><td>${fmt(r.sso_employer_rial)}</td><td>${fmt(r.taxable_income_rial)}</td><td>${fmt(r.income_tax_rial)}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+}
+
 function payrollModal(){
   openModal(`
     <div class="modal-head"><h3>🧑‍🏭 ثبت حقوق ساعتی</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -8004,13 +8249,13 @@ function payrollModal(){
       <div class="fg"><label>دوره (مثال: 1403/04)</label><input id="pr-period" placeholder="1403/04"></div>
       <div class="fg"><label>تاریخ</label><input id="pr-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg"><label>ساعت کارکرد عادی</label><input id="pr-reg-hours" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
-      <div class="fg"><label>نرخ ساعتی عادی (ت)</label><input id="pr-hourly-rate" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>نرخ ساعتی عادی (ریال)</label><input id="pr-hourly-rate" type="text" class="money" inputmode="numeric" value="0" oninput="updatePayrollPreview()"></div>
       <div class="fg"><label>ساعت اضافه‌کاری</label><input id="pr-ot-hours" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
       <div class="fg"><label>نرخ اضافه‌کاری (ریال)</label><input id="pr-ot-rate" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
-      <div class="fg"><label>پاداش (ت)</label><input id="pr-bonus" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
-      <div class="fg"><label>کسورات دیگر (ت) ${hlp('مثال: مرخصی بدون حقوق — از هزینه و بدهی نیز کسر می‌شود.')}</label><input id="pr-deduct" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
-      <div class="fg"><label>کسر بیمه (ت)</label><input id="pr-insurance" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
-      <div class="fg"><label>کسر مالیات (ت)</label><input id="pr-tax" type="number" min="0" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>پاداش (ریال)</label><input id="pr-bonus" type="text" class="money" inputmode="numeric" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>کسورات دیگر (ریال) ${hlp('مثال: مرخصی بدون حقوق — از هزینه و بدهی نیز کسر می‌شود.')}</label><input id="pr-deduct" type="text" class="money" inputmode="numeric" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>کسر بیمه (ریال)</label><input id="pr-insurance" type="text" class="money" inputmode="numeric" value="0" oninput="updatePayrollPreview()"></div>
+      <div class="fg"><label>کسر مالیات (ریال)</label><input id="pr-tax" type="text" class="money" inputmode="numeric" value="0" oninput="updatePayrollPreview()"></div>
       <div class="fg full"><label>یادداشت</label><textarea id="pr-note"></textarea></div>
     </div>
     <div id="prPreview" style="margin-top:10px;font-weight:700;font-size:13px"></div>
@@ -8021,9 +8266,9 @@ function payrollModal(){
   updatePayrollPreview();
 }
 function updatePayrollPreview(){
-  const regH=+el('pr-reg-hours')?.value||0, hRate=+el('pr-hourly-rate')?.value||0;
-  const otH=+el('pr-ot-hours')?.value||0, otRate=+el('pr-ot-rate')?.value||0;
-  const bon=+el('pr-bonus')?.value||0, ded=+el('pr-deduct')?.value||0, ins=+el('pr-insurance')?.value||0, tax=+el('pr-tax')?.value||0;
+  const regH=+el('pr-reg-hours')?.value||0, hRate=moneyVal('pr-hourly-rate');
+  const otH=+el('pr-ot-hours')?.value||0, otRate=moneyVal('pr-ot-rate');
+  const bon=moneyVal('pr-bonus'), ded=moneyVal('pr-deduct'), ins=moneyVal('pr-insurance'), tax=moneyVal('pr-tax');
   const gross=regH*hRate+otH*otRate+bon;
   const net=gross-ded-ins-tax;
   const box=el('prPreview'); if(!box) return;
@@ -8036,9 +8281,9 @@ async function savePayrollRecord(){
     await api('POST','/payroll',{
       person_id, period_label:el('pr-period').value,
       regular_hours:+el('pr-reg-hours').value||0, overtime_hours:+el('pr-ot-hours').value||0,
-      hourly_rate:+el('pr-hourly-rate').value||0, overtime_rate:+el('pr-ot-rate').value||0,
-      bonuses:+el('pr-bonus').value||0, deductions:+el('pr-deduct').value||0,
-      insurance_deduction:+el('pr-insurance').value||0, tax_deduction:+el('pr-tax').value||0,
+      hourly_rate:moneyVal('pr-hourly-rate')/10, overtime_rate:moneyVal('pr-ot-rate')/10,
+      bonuses:moneyVal('pr-bonus')/10, deductions:moneyVal('pr-deduct')/10,
+      insurance_deduction:moneyVal('pr-insurance')/10, tax_deduction:moneyVal('pr-tax')/10,
       date:el('pr-date').value, note:el('pr-note').value
     });
     closeModal(); showToast('حقوق ثبت شد'); loadAccTab('payroll');
@@ -8088,14 +8333,10 @@ function farankenouImportModal(){
   openModal(`
     <div class="modal-head"><h3>📥 ورود کارکرد از فراننکو</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>دوره حقوق *</label><select id="fk-period"><option value="">— انتخاب دوره —</option>
+        ${(CACHE.payrollPeriods||[]).filter(p=>p.status!=='closed').map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></div>
       <div class="fg full"><label>فایل کارکرد (.lwte) * ${hlp('خروجی نرم‌افزار فراننکو — TAB جدا، UTF-8')}</label>
         <input type="file" id="fk-file" accept=".lwte,.txt,.csv" onchange="previewFarankenou()"></div>
-      <div class="fg"><label>نرخ ساعتی پیش‌فرض (ت) ${hlp('برای کارمندانی که نرخ در پروندهٔ شخص ندارند')}</label>
-        <input id="fk-hourly" class="money" type="text" inputmode="numeric" value="0"></div>
-      <div class="fg"><label>نرخ اضافه‌کاری پیش‌فرض (ت)</label>
-        <input id="fk-ot" class="money" type="text" inputmode="numeric" value="0" placeholder="خالی = ۱۴۰٪ نرخ عادی"></div>
-      <div class="fg"><label>کسر بیمه (٪)</label><input id="fk-ins" type="number" min="0" step="0.1" value="0"></div>
-      <div class="fg"><label>کسر مالیات (٪)</label><input id="fk-tax" type="number" min="0" step="0.1" value="0"></div>
       <div class="fg"><label>تاریخ ثبت</label><input id="fk-date" data-jdate value="${todayJalali()}"></div>
     </div>
     <div id="fkPreview" style="margin-top:12px"></div>
@@ -8109,12 +8350,10 @@ function farankenouImportModal(){
 
 async function previewFarankenou(){
   const inp=el('fk-file'); if(!inp?.files?.[0]) return;
+  if(!el('fk-period')?.value){ showToast('دوره حقوق را انتخاب کنید','error'); return; }
   const fd=new FormData();
   fd.append('file', inp.files[0]);
-  fd.append('default_hourly_rate', moneyVal('fk-hourly'));
-  fd.append('default_overtime_rate', moneyVal('fk-ot'));
-  fd.append('insurance_percent', el('fk-ins')?.value||0);
-  fd.append('tax_percent', el('fk-tax')?.value||0);
+  fd.append('period_id', el('fk-period').value);
   const box=el('fkPreview'); if(box) box.innerHTML='<div class="muted">در حال پردازش...</div>';
   try{
     const data=await api('POST','/payroll/farankenou/preview', fd, true);
@@ -8145,8 +8384,8 @@ function renderFarankenouPreview(data){
         <td>${r.matched?`<input type="checkbox" class="fk-row-chk" data-idx="${i}" ${r.selected?'checked':''}>`:'—'}</td>
         <td>${esc(r.full_name)}</td><td class="mono">${esc(r.employee_no||'-')}</td>
         <td class="mono">${fmt(r.regular_hours)}</td><td class="mono">${fmt(r.overtime_hours)}</td>
-        <td class="mono">${fmt(r.gross_pay)}</td><td class="mono" style="font-weight:700">${fmt(r.net_pay)}</td>
-        <td>${r.matched?'<span class="tag t-done">✓ '+esc(r.person_name||'')+'</span>':'<span class="tag t-cancel">بدون تطبیق</span>'}</td>
+        <td class="mono">${fmt(r.gross_earnings_rial||Math.round((r.gross_pay||0)*10))}</td><td class="mono" style="font-weight:700">${fmt(r.net_pay_rial||Math.round((r.net_pay||0)*10))}</td>
+        <td>${r.matched?'<span class="tag t-done">✓ '+esc(r.person_name||'')+'</span>':'<span class="tag t-cancel">'+esc(r.payroll_error||'بدون تطبیق')+'</span>'}</td>
       </tr>`).join('')}
       </tbody></table>
     </div>`;
@@ -8168,15 +8407,14 @@ async function commitFarankenou(){
   if(!selected.length){ showToast('حداقل یک کارمند تطبیق‌شده را انتخاب کنید','error'); return; }
   if(!confirm(`${selected.length} رکورد حقوق با سند حسابداری ثبت شود؟`)) return;
   try{
-    const res=await api('POST','/payroll/farankenou/commit',{
-      period_label: FARANKENOU_PREVIEW.period_label,
-      date: el('fk-date')?.value||todayJalali(),
-      rows: selected
+    const res=await api('POST','/payroll/process',{
+      period_id: FARANKENOU_PREVIEW.period_id,
+      rows: selected.map(r=>({...r,date:el('fk-date')?.value||todayJalali()}))
     });
     closeModal();
     const msg=res.errors?.length
-      ? `${res.created} ثبت شد — ${res.errors.length} خطا`
-      : `${res.created} رکورد حقوق ثبت شد`;
+      ? `${res.count||0} ثبت شد — ${res.errors.length} خطا`
+      : `${res.count||0} رکورد حقوق ثبت شد`;
     showToast(msg, res.errors?.length?'error':'ok');
     loadAccTab('payroll');
   }catch(e){}

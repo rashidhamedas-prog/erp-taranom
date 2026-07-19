@@ -975,7 +975,13 @@ function initDB() {
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1106','حساب اشخاص متفرقه','asset','1100')").run();
   // Added for the Payroll module (Phase 9) — same unconditional-insert pattern.
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6104','هزینه حقوق و دستمزد','expense','6000')").run();
-  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2104','بدهی بیمه و مالیات کارکنان','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2104','حقوق پرداختنی کارکنان','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2105','بیمه پرداختنی','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2106','مالیات حقوق پرداختنی','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2108','سایر کسورات حقوق پرداختنی','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6106','هزینه بیمه سهم کارفرما','expense','6000')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6110','هزینه عیدی کارکنان','expense','6000')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6111','هزینه مزایای پایان خدمت','expense','6000')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1107','مساعده نمایندگان فروش','asset','1100')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2107','بستانکاران انگیزه نمایندگان','liability','2100')").run();
 
@@ -1982,6 +1988,14 @@ function initSyncSchema(db) {
     throw e;
   }
 
+  try {
+    require('./lib/payroll/schema').initPayrollSchema(db);
+    require('./lib/accounting/reporting-schema').initReportingSchema(db);
+  } catch (e) {
+    console.error('❌ payroll/reporting schema init failed:', e.message);
+    throw e;
+  }
+
   // Second pass — tables created above in this function (parties, fiscal_years, production, …).
   ensureSyncColumnsForAllTables(db);
   if (!isDevice()) {
@@ -2242,8 +2256,10 @@ function createJournalEntry(db, opts) {
     );
     const entryId = entry.lastInsertRowid;
     const lineStmt = db.prepare(`
-      INSERT INTO journal_lines (entry_id,account_code,account_name,debit,credit,description,line_no,detail_account_id,debit_rial,credit_rial)
-      VALUES (?,?,?,?,?,?,?,?,?,?)
+      INSERT INTO journal_lines (
+        entry_id,account_code,account_name,debit,credit,description,line_no,detail_account_id,
+        debit_rial,credit_rial,cost_center_id,project_id,tax_type
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     `);
     let lineNo = 0;
     for (const line of (lines || [])) {
@@ -2254,7 +2270,8 @@ function createJournalEntry(db, opts) {
         entryId, line.code, line.name, dr, cr, line.description || '', lineNo,
         line.detail_account_id || null,
         line.debit_rial != null ? line.debit_rial : Math.round(dr * 10),
-        line.credit_rial != null ? line.credit_rial : Math.round(cr * 10)
+        line.credit_rial != null ? line.credit_rial : Math.round(cr * 10),
+        line.cost_center_id || null, line.project_id || null, line.tax_type || null
       );
     }
     return entryId;

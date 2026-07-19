@@ -42,6 +42,14 @@
 
 ## تاریخچه
 
+### ۱۴۰۵/۰۴/۲۸ — [Cursor] یکپارچه‌سازی حقوق و گزارشات مالی ایران
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** بدون commit
+- **خلاصه:** پرونده کارکنان روی جدول اشخاص موجود ادغام شد؛ دوره، ساختار حقوق، پلکان ماده ۸۴، پردازش ماهانه/روزانه/ساعتی، بیمه ۷٪ و ۲۳٪ پیکربندی‌پذیر، عیدی و سنوات، اسناد خودکار و ابطال معکوس اضافه شد. کدینگ و اسناد موجود توسعه یافتند و VAT، گزارش پویا و بهای صنعتی بدون ایجاد مدل موازی به گزارشات پیشرفته متصل شدند.
+- **فایل‌های کلیدی:** `server/lib/payroll/`, `server/routes/payroll.js`, `server/lib/accounting/reporting-schema.js`, `server/routes/adv-reports.js`, `server/public/acc-nav.js`, `server/public/index.html`
+- **Deploy:** ⏳ نیاز به commit و استقرار
+- **یادداشت:** تمام پول‌های جدید `INTEGER` ریال است؛ نرخ‌های قانونی سالانه در داده ذخیره می‌شوند. `test:payroll-accounting`، کل `test:production` و `test:inventory` سبز هستند؛ SW به `v44` افزایش یافت.
+
 ### ۱۴۰۵/۰۴/۲۸ — [Cursor] ورود، خروجی و قالب اکسل یکپارچه
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `8ce2260`

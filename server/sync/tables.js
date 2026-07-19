@@ -103,6 +103,15 @@ const SYNCABLE_TABLES = [
   { name: 'landed_cost_docs',                 upsertKey: 'id' },
   { name: 'landed_cost_lines',                upsertKey: 'id' },
   { name: 'landed_cost_allocations',          upsertKey: 'id' },
+
+  // ===== Payroll and advanced reporting — appended 1405/04 (APPEND-ONLY) =====
+  { name: 'payroll_periods',                   upsertKey: 'id' },
+  { name: 'salary_structures',                 upsertKey: 'id' },
+  { name: 'payroll_tax_brackets',              upsertKey: 'id' },
+  { name: 'payroll_year_end_bonuses',          upsertKey: 'id' },
+  { name: 'projects',                          upsertKey: 'id' },
+  { name: 'report_configurations',             upsertKey: 'id' },
+  { name: 'vat_records',                       upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -182,6 +191,11 @@ const FK_COLUMNS = [
   ['inventory_reservations', 'product_id'], ['inventory_reservations', 'warehouse_id'],
   ['landed_cost_lines', 'doc_id'],
   ['landed_cost_allocations', 'doc_id'], ['landed_cost_allocations', 'product_id'],
+  // Payroll/reporting FKs (append-only)
+  ['salary_structures', 'person_id'],
+  ['payroll_records', 'period_id'],
+  ['payroll_year_end_bonuses', 'person_id'],
+  ['vat_records', 'journal_line_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, tableBase, isProvisionalId };
