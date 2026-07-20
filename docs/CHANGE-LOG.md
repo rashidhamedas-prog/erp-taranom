@@ -32,15 +32,40 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `e393e2d` |
+| آخرین commit | بدون commit (این تسک) |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v45` |
-| اندروید | **`2.0.9`** (versionCode 11) — **توزیع محلی فقط** |
+| اندروید | **`2.0.10`** (versionCode 12) — **توزیع محلی فقط** |
 | وضعیت سرور | ⏳ نیاز به pull روی ایران `94.249.244.208` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۵/۰۴/۲۹ — [Cursor] رفع اکسل ریال، جستجو، حذف کالا، MDI، سورت/فیلتر، ابطال اسناد
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** بدون commit
+- **خلاصه:**
+  - اکسل کالاها دیگر `/10` نمی‌کند؛ اشخاص سقف اعتبار را به‌صورت ریال نمایش/ذخیره می‌کنند؛ ردیف‌های خالی فیلتر و گزارش موفق/ناموفق واضح‌تر شد.
+  - حذف کالا پس از ورود اکسل با پاک‌سازی `warehouse_stock`/`stock_logs` و جلوگیری از حذف در صورت استفاده در فاکتور.
+  - جستجوی اشخاص: `oninput`+debounce، `limit=200`، نرمال‌سازی ی/ک؛ F10 فوکوس جستجو.
+  - برگشت از خرید: موجودی قابل‌برگشت دیگر ابطال‌شده‌ها را نمی‌شمارد؛ لیست سفارشات CRUD؛ فاکتور فروش حسابداری ویرایش/ابطال با دسترسی.
+  - جداول: سورت کلیک روی عنوان، فیلتر راست‌کلیک، انتخاب چندتایی؛ پنجره‌های MDI شبیه ویندوز برای زیرمنوهای حسابداری (`mdi.js`).
+- **فایل‌های کلیدی:** `server/routes/excel.js`, `products.js`, `parties.js`, `purchases.js`, `accounting.js`, `server/public/index.html`, `mdi.js`, `tbl-enhance.js`
+- **Deploy:** ⏳ نیاز به pull
+- **یادداشت:** حالت پنجره با دکمه نوار پایین خاموش می‌شود (`localStorage crm_mdi=0`).
+
+### ۱۴۰۵/۰۴/۲۹ — [Cursor] رفع کرش فوری اندروید 2.0.10 — سازگاری صفحه ۱۶KB (سامسونگ)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** بدون commit
+- **خلاصه:**
+  - **ریشهٔ کرش:** روی دستگاه‌های اندروید ۱۵+ با صفحه حافظه ۱۶KB (مخصوصاً سامسونگ)، `libnode.so` / `libnative-lib.so` / `better_sqlite3` با ELF Align=`0x1000` (۴KB) در `dlopen` می‌ترکند → دیالوگ Device Care «Something went wrong / this app has a bug».
+  - **رفع فوری:** `android:pageSizeCompat="enabled"` در Manifest (حالت سازگاری سیستم).
+  - **سخت‌سازی:** `System.loadLibrary` از static initializer به `onCreate` با catch منتقل شد تا به‌جای دیالوگ سیستم، صفحهٔ خطای داخل اپ نشان داده شود؛ لینکر `native-lib` با `-Wl,-z,max-page-size=16384`؛ نسخه **۲.۰.۱۰** / versionCode **۱۲**.
+  - **یادداشت بلندمدت:** پیش‌ساختهٔ nodejs-mobile هنوز ۴KB است — بازسازی `libnode` با NDK r28+ در آینده لازم است.
+- **فایل‌های کلیدی:** `AndroidManifest.xml`, `MainActivity.java`, `CMakeLists.txt`, `main.js`, `android/app/build.gradle`, `manifest.json`, `scripts/test-android-apk.ps1`
+- **Deploy:** ⏳ APK محلی — sideload؛ سرور APK سرو نمی‌کند
+- **یادداشت نصب:** نسخه قبلی را حذف کنید و `crm-taranom.apk` نسخه ۲.۰.۱۰ را تازه نصب کنید.
 
 ### ۱۴۰۵/۰۴/۲۹ — [Cursor] اکسل مینیمال، دید گروه کالا، کاربر=شخص، یکپارچه‌سازی حسابداری
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

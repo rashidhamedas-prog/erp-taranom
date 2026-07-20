@@ -53,11 +53,12 @@ function mapPartyRow(row) {
   try { party_roles = row.party_roles ? JSON.parse(row.party_roles) : parseRoles(null, row.party_type); } catch (_) {
     party_roles = parseRoles(null, row.party_type);
   }
+  // UI is rial-identity: expose stored INTEGER rial as display amounts (legacy *_toman keys kept for compatibility)
   return {
     ...row,
     party_roles,
-    credit_limit_toman: row.credit_limit ? row.credit_limit / 10 : 0,
-    opening_balance_toman: row.opening_balance ? row.opening_balance / 10 : 0,
+    credit_limit_toman: row.credit_limit ? Number(row.credit_limit) : 0,
+    opening_balance_toman: row.opening_balance ? Number(row.opening_balance) : 0,
   };
 }
 
@@ -152,14 +153,16 @@ router.get('/', auth, (req, res) => {
   if (segment) { sql += ' AND p.segment=?'; params.push(segment); }
   if (city) { sql += ' AND p.city=?'; params.push(city); }
   if (search) {
-    sql += ' AND (p.full_name LIKE ? OR p.company_name LIKE ? OR p.phone LIKE ? OR p.person_code LIKE ? OR p.mobile LIKE ? OR p.coa_code LIKE ?)';
-    const q = '%' + search + '%';
-    params.push(q, q, q, q, q, q);
+    const norm = String(search).replace(/ي/g, 'ی').replace(/ك/g, 'ک').trim();
+    sql += ' AND (REPLACE(REPLACE(IFNULL(p.full_name,\'\'),\'ي\',\'ی\'),\'ك\',\'ک\') LIKE ? OR REPLACE(REPLACE(IFNULL(p.company_name,\'\'),\'ي\',\'ی\'),\'ك\',\'ک\') LIKE ? OR p.phone LIKE ? OR p.person_code LIKE ? OR p.mobile LIKE ? OR p.coa_code LIKE ? OR IFNULL(p.biz,\'\') LIKE ?)';
+    const q = '%' + norm + '%';
+    params.push(q, q, q, q, q, q, q);
   }
   const countSql = sql.replace(/SELECT[\s\S]+?FROM parties p/, 'SELECT COUNT(*) AS c FROM parties p');
   const total = db.prepare(countSql).get(...params)?.c || 0;
+  const lim = Math.min(500, parseInt(limit, 10) || 200);
   sql += ' ORDER BY p.id DESC LIMIT ? OFFSET ?';
-  params.push(Math.min(200, parseInt(limit, 10) || 50), (Math.max(1, parseInt(page, 10)) - 1) * (parseInt(limit, 10) || 50));
+  params.push(lim, (Math.max(1, parseInt(page, 10)) - 1) * lim);
   const rows = db.prepare(sql).all(...params).map(mapPartyRow);
   res.json({ success: true, data: rows, pagination: { page: parseInt(page, 10) || 1, limit: parseInt(limit, 10) || 50, total } });
 });
@@ -186,8 +189,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
 
   const db = getDB();
   const personCode = b.person_code || nextPartyCode(db);
-  const creditRial = b.credit_limit_rial != null ? parseInt(b.credit_limit_rial, 10) : tomanToRial(b.credit_limit || 0);
-  const openRial = b.opening_balance_rial != null ? parseInt(b.opening_balance_rial, 10) : tomanToRial(b.opening_balance || 0);
+  // Rial-identity UI: *_rial preferred; bare credit_limit/opening_balance treated as rial
+  const creditRial = b.credit_limit_rial != null ? parseInt(b.credit_limit_rial, 10) : Math.round(Number(b.credit_limit) || 0);
+  const openRial = b.opening_balance_rial != null ? parseInt(b.opening_balance_rial, 10) : Math.round(Number(b.opening_balance) || 0);
   const pgid = b.party_group_id ? parseInt(b.party_group_id, 10) : null;
   const displayName = b.full_name || b.company_name;
   let coaCode = b.coa_code || null;
@@ -232,8 +236,11 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const b = req.body;
   const roles = b.party_roles ? parseRoles(b.party_roles, row.party_type) : parseRoles(row.party_roles, row.party_type);
   const partyType = b.party_type && PARTY_TYPES.includes(b.party_type) ? b.party_type : derivePartyType(roles);
+  // Prefer *_rial; if only credit_limit is sent from rial UI, store as-is (no ×10)
   const creditRial = b.credit_limit_rial != null ? parseInt(b.credit_limit_rial, 10)
-    : (b.credit_limit != null ? tomanToRial(b.credit_limit) : row.credit_limit);
+    : (b.credit_limit != null ? Math.round(Number(b.credit_limit) || 0) : row.credit_limit);
+  const openRial = b.opening_balance_rial != null ? parseInt(b.opening_balance_rial, 10)
+    : (b.opening_balance != null ? Math.round(Number(b.opening_balance) || 0) : row.opening_balance);
   const pgid = b.party_group_id != null ? (b.party_group_id ? parseInt(b.party_group_id, 10) : null) : row.party_group_id;
   let coaCode = b.coa_code != null ? b.coa_code : row.coa_code;
   if (!coaCode) {
@@ -247,7 +254,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
     UPDATE parties SET
       full_name=?, company_name=?, phone=?, secondary_phone=?, mobile=?, fax=?, email=?,
       city=?, province=?, address=?, postal_code=?, segment=?,
-      national_id=?, economic_code=?, credit_limit=?, notes=?,
+      national_id=?, economic_code=?, credit_limit=?, opening_balance=?, notes=?,
       biz=?, owner=?, insta=?, status=?, type=?, party_type=?, party_roles=?,
       party_group_id=?, prefix=?, birth_date=?, referrer=?, account_nature=?, coa_code=?,
       user_id=?,
@@ -259,7 +266,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
     b.mobile ?? row.mobile, b.fax ?? row.fax, b.email ?? row.email,
     b.city ?? row.city, b.province ?? row.province, b.address ?? row.address, b.postal_code ?? row.postal_code,
     b.segment ?? row.segment, b.national_id ?? row.national_id, b.economic_code ?? row.economic_code,
-    creditRial, b.notes ?? row.notes,
+    creditRial, openRial, b.notes ?? row.notes,
     b.biz ?? row.biz, b.owner ?? row.owner, b.insta ?? row.insta, b.status ?? row.status, b.type ?? row.type,
     partyType, JSON.stringify(roles), pgid,
     b.prefix ?? row.prefix, b.birth_date ?? row.birth_date, b.referrer ?? row.referrer,

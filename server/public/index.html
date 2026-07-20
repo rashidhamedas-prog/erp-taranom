@@ -219,6 +219,26 @@ html[data-theme="dark"] .cards .stat:first-child{background:linear-gradient(155d
 .tbl-wrap{overflow-x:auto}
 table.tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:600px}
 table.tbl th{background:var(--th-bg);color:var(--purple);text-align:right;padding:11px 12px;font-weight:700;border-bottom:2px solid var(--border);white-space:nowrap}
+table.tbl th.tbl-sortable{cursor:pointer;user-select:none}
+table.tbl th.tbl-sortable:hover{background:var(--purple-light)}
+table.tbl th .tbl-sort-ind{font-size:10px;opacity:.7}
+table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{width:36px;text-align:center}
+.mdi-taskbar{position:fixed;bottom:0;left:0;right:0;z-index:9990;display:flex;gap:6px;flex-wrap:wrap;padding:6px 10px;background:rgba(18,39,28,.92);backdrop-filter:blur(8px);border-top:1px solid rgba(255,255,255,.12)}
+.mdi-task{background:rgba(255,255,255,.12);color:#fff;border:0;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mdi-task.active{background:var(--purple2)}
+.mdi-task.min{opacity:.55}
+.mdi-task-tools{max-width:none;padding:6px 10px}
+.mdi-win{position:fixed;width:min(920px,92vw);height:min(620px,78vh);background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 18px 50px -20px rgba(0,0,0,.45);display:flex;flex-direction:column;overflow:hidden;z-index:200}
+.mdi-win.mdi-maximized{left:0!important;top:0!important;right:0!important;width:100vw!important;height:calc(100vh - 40px)!important;border-radius:0}
+.mdi-titlebar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:linear-gradient(90deg,var(--purple),var(--purple2));color:#fff;cursor:move;user-select:none;flex-shrink:0}
+.mdi-title{font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mdi-controls{display:flex;gap:4px}
+.mdi-controls button{width:28px;height:24px;border:0;border-radius:4px;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:14px;line-height:1}
+.mdi-controls button:hover{background:rgba(255,255,255,.28)}
+.mdi-controls .mdi-close:hover{background:var(--red)}
+.mdi-body{flex:1;overflow:auto;padding:12px;background:var(--bg)}
+#mdiLayer{pointer-events:none}
+#mdiLayer .mdi-win,#mdiLayer .mdi-taskbar{pointer-events:auto}
 table.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
 table.tbl tr:hover td{background:var(--row-hover)}
 .empty{text-align:center;color:var(--muted);padding:36px 10px}
@@ -724,6 +744,8 @@ table.tbl tr:hover td{background:var(--row-hover)}
 
 <script src="/barcode-input.js"></script>
 <script src="/acc-nav.js"></script>
+<script src="/mdi.js"></script>
+<script src="/tbl-enhance.js"></script>
 <script src="/prod-ui.js" defer></script>
 <script>
 /* ============================================================
@@ -1758,8 +1780,42 @@ function exitAccountingShell(){
 
 function go(page){
   if(page==='accounting'){ enterAccountingShell(); return; }
-  if(page==='exit-acc-shell'){ exitAccountingShell(); return; }
+  if(page==='exit-acc-shell'){ exitAccountingShell(); if(window.WinMgr) WinMgr.closeAll(); return; }
   if(page!=='messages' && typeof stopMsgPoll==='function') stopMsgPoll();
+  // حالت پنجره چندگانه: هر زیرمنوی حسابداری در پنجره جدا
+  if(IN_ACC_SHELL && page.startsWith('acc-') && page!=='acc-dash' && window.WinMgr && WinMgr.enabled()){
+    const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && ACC_NAV_SECTIONS.flatMap(s=>s.items).find(x=>x.id===page));
+    const title = (it && it.label) || page;
+    const opened = WinMgr.open(page, title, async (body)=>{
+      // موقتاً view را به بدنه پنجره هدایت می‌کنیم
+      const mainView = el('view');
+      const placeholder = document.createElement('div');
+      placeholder.id = 'view';
+      placeholder.style.display = 'none';
+      const realId = mainView.id;
+      mainView.id = 'view-main-backup';
+      body.appendChild(placeholder);
+      try{
+        CURRENT_PAGE = page;
+        if(ROUTES[page]) await ROUTES[page]();
+        // محتوای رندرشده در #view (placeholder) است — به بدنه پنجره منتقل شود
+        while(placeholder.firstChild) body.appendChild(placeholder.firstChild);
+        // اگر shell حسابداری ساخته شد، loadAccTab روی accBody داخل همین پنجره کار می‌کند
+        const shellBody = body.querySelector('#accBody');
+        if(shellBody && typeof enhanceAccTables==='function') enhanceAccTables(body);
+        else if(typeof enhanceAccTables==='function') enhanceAccTables(body);
+      } finally {
+        placeholder.remove();
+        const bak = document.getElementById('view-main-backup');
+        if(bak) bak.id = realId || 'view';
+      }
+    });
+    if(opened){
+      document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
+      if(window.innerWidth<=900) closeSidebar();
+      return;
+    }
+  }
   CURRENT_PAGE = page;
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
   const it = navItems().find(x=>x.id===page);
@@ -1767,7 +1823,7 @@ function go(page){
   if(window.innerWidth<=900) closeSidebar();
   // After every page render, shrink stat-card numbers that overflow their card
   // (large totals like فروش کل on حساب من were spilling out — spec 1.0.9 §4)
-  ROUTES[page] ? Promise.resolve(ROUTES[page]()).finally(()=>setTimeout(fitStatNums,60)) : (el('view').innerHTML='');
+  ROUTES[page] ? Promise.resolve(ROUTES[page]()).finally(()=>{ setTimeout(fitStatNums,60); if(typeof enhanceAccTables==='function') enhanceAccTables(el('view')); }) : (el('view').innerHTML='');
 }
 function toggleSidebar(){
   if(window.innerWidth<=900){
@@ -1782,6 +1838,18 @@ function closeSidebar(){
   el('sidebar').classList.remove('open');
   el('sidebarBackdrop').classList.remove('show');
 }
+
+document.addEventListener('keydown',(e)=>{
+  if(e.key==='F10'){
+    e.preventDefault();
+    const s=el('partySearch')||el('pSearch')||el('cSearch')||el('iSearch')||document.querySelector('.search');
+    if(s){ s.focus(); s.select?.(); }
+  }
+  if(e.key==='F4' && IN_ACC_SHELL && accTab==='parties'){
+    e.preventDefault();
+    if(PARTY_GROUP_FILTER) partyModal();
+  }
+});
 
 /* ============================================================
    BOOT
@@ -3162,7 +3230,7 @@ function renderInvTable(){
       ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" onclick="convertProforma(${i.id})">🔄 تبدیل به فاکتور</button>` : ''}
       <button class="btn sm blue" onclick="printInvoice(${i.id})">🖨️</button>
       <button class="btn sm ghost" onclick="openInvBuilder(${i.id})">✏️</button>
-      <button class="btn sm red" onclick="confirmDelete('invoices',${i.id},'${esc(i.num||'')}')">🗑️</button>
+      ${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" onclick="voidInvoiceDoc(${i.id},'${esc(i.num||'')}')" title="ابطال">⛔</button>`:''}
     </td>
   </tr>`).join('')||emptyRow(7)}</tbody>
   <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
@@ -3895,8 +3963,13 @@ async function excelImport(entity){
     try{ prepared=await api('POST','/excel/'+encodeURIComponent(entity)+'/prepare-import',fd,true); }
     catch(e){ return; }
     const count=prepared.actions?.length||0;
+    const rowCount=prepared.row_count||0;
+    const skipped=prepared.skipped_blank||0;
     if(!count){ showToast('عملیاتی برای ثبت یافت نشد','error'); return; }
-    if(!confirm(`${fmt(prepared.row_count)} ردیف بررسی شد و ${fmt(count)} عملیات آماده ثبت است.\nثبت نهایی انجام شود؟`)) return;
+    const msg = skipped
+      ? `${fmt(rowCount)} ردیف معتبر از اکسل، ${fmt(skipped)} ردیف خالی رد شد، ${fmt(count)} عملیات آماده ثبت است.\nثبت نهایی انجام شود؟`
+      : `${fmt(rowCount)} ردیف اکسل → ${fmt(count)} عملیات آماده ثبت است.\nثبت نهایی انجام شود؟`;
+    if(!confirm(msg)) return;
     let ok=0; const failed=[];
     for(let i=0;i<prepared.actions.length;i++){
       const a=prepared.actions[i];
@@ -3906,10 +3979,10 @@ async function excelImport(entity){
     if(failed.length){
       const report=failed.slice(0,20).map(x=>`${x.label}: ${x.error}`).join('\n');
       openModal(`<div class="modal-head"><h3>${lucide('alert')} گزارش ورود اکسل</h3><button class="x" onclick="closeModal()">×</button></div>
-        <div class="modal-body"><p>${fmt(ok)} عملیات ثبت و ${fmt(failed.length)} عملیات ناموفق بود.</p>
+        <div class="modal-body"><p>${fmt(ok)} از ${fmt(count)} عملیات ثبت شد؛ ${fmt(failed.length)} ناموفق.</p>
         <textarea readonly style="width:100%;min-height:240px;direction:rtl">${esc(report)}</textarea></div>
         <div class="modal-foot"><button class="btn" onclick="closeModal()">بستن</button></div>`);
-    }else showToast(`${fmt(ok)} عملیات با موفقیت از اکسل ثبت شد`);
+    }else showToast(`${fmt(ok)} از ${fmt(count)} عملیات با موفقیت ثبت شد`);
     if(IN_ACC_SHELL&&accTab) await loadAccTab(accTab);
     else if(CURRENT_PAGE==='products') await refreshProd(true);
   };
@@ -4526,10 +4599,13 @@ function renderAccPage(tabKey, icon, title, navId){
   accNavId = navId || '';
   if(accPreset!=='custom'&&accPreset!=='all'&&!accDateFrom) [accDateFrom,accDateTo]=jPresetRange(accPreset);
   const showFilter = !ACC_NOFILTER_TABS.has(tabKey);
-  const shell = el('accShellPanel');
+  const viewRoot = document.getElementById('view');
+  // فقط شل داخل #view فعلی (مثلاً بدنه پنجره MDI) — نه شل داشبورد پشت‌صحنه
+  const shell = viewRoot ? viewRoot.querySelector('#accShellPanel') : null;
   if(shell){
-    el('accShellTitle').textContent = `${icon} ${title}`;
-    const fw = el('accShellFilterWrap');
+    const titleEl = shell.querySelector('#accShellTitle') || el('accShellTitle');
+    if(titleEl) titleEl.textContent = `${icon} ${title}`;
+    const fw = shell.querySelector('#accShellFilterWrap') || el('accShellFilterWrap');
     if(fw){
       fw.style.display = showFilter ? '' : 'none';
       if(showFilter){ fw.innerHTML = buildAccFilterHtml(tabKey); attachDatepickers(fw); }
@@ -4537,7 +4613,8 @@ function renderAccPage(tabKey, icon, title, navId){
     loadAccTab(tabKey);
     return;
   }
-  el('view').innerHTML = `
+  const target = viewRoot || el('view');
+  target.innerHTML = `
     <div class="panel" id="accShellPanel">
       <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
         <h4 id="accShellTitle">${icon} ${title}</h4>
@@ -4545,7 +4622,7 @@ function renderAccPage(tabKey, icon, title, navId){
       </div>
       <div class="panel-body" id="accBody"><div class="muted">در حال بارگذاری...</div></div>
     </div>`;
-  if(showFilter) attachDatepickers(el('accShellFilterWrap'));
+  if(showFilter) attachDatepickers(target.querySelector('#accShellFilterWrap'));
   loadAccTab(tabKey);
 }
 ROUTES['acc-general']=()=>renderAccPage('general','📈','حسابداری کل (سود و زیان)');
@@ -4616,8 +4693,15 @@ async function resyncAccounting(){
 }
 
 async function loadAccTab(tab){
-  const body=el('accBody'); if(!body) return;
+  const focused=window.WinMgr&&WinMgr.focusedBody&&WinMgr.focusedBody();
+  const viewRoot=document.getElementById('view');
+  const body=(focused&&focused.querySelector('#accBody'))
+    ||(viewRoot&&viewRoot.querySelector('#accBody'))
+    ||el('accBody');
+  if(!body) return;
+  accTab=tab;
   body.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  try{
   const dq=(accDateFrom||accDateTo)?'?'+(accDateFrom?'from='+encodeURIComponent(accDateFrom):'')+(accDateFrom&&accDateTo?'&':'')+(accDateTo?'to='+encodeURIComponent(accDateTo):''):'';
   if(tab==='general'){
     const g=await api('GET','/accounting/general'+dq)||{};
@@ -5006,6 +5090,20 @@ async function loadAccTab(tab){
     body.innerHTML=`<div class="panel"><div class="panel-body"><p class="muted">این بخش به ماژول مرتبط متصل است. از منوی کناری گزینه‌های فعال را انتخاب کنید.</p></div></div>`;
   }
   attachExcelTools(tab,body);
+  if(typeof enhanceAccTables==='function') enhanceAccTables(body);
+  }catch(e){
+    body.innerHTML=`<div class="empty">خطا در بارگذاری این بخش: ${esc(e.message||'نامشخص')}</div>`;
+  }
+}
+
+function enhanceAccTables(root){
+  if(!root||typeof enhanceDataTable!=='function') return;
+  root.querySelectorAll('table.tbl').forEach(t=>{
+    if(t.dataset.enhanced==='1') return;
+    // جداول کوچک بدون داده را رد کن
+    if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
+    enhanceDataTable(t,{selectable:true});
+  });
 }
 
 /* ============================================================
@@ -5104,16 +5202,19 @@ document.addEventListener('click',e=>{ if(!e.target.closest('#genProdSearch')&&!
    SUPPLIERS
 ============================================================ */
 let PARTY_GROUP_FILTER='';
+let PARTY_SEARCH='';
+let _partySearchTimer=null;
 async function renderPartiesTab(body){
   const groupFilter=PARTY_GROUP_FILTER;
-  const search=el('partySearch')?.value||'';
+  const search=PARTY_SEARCH;
   if(!CACHE.partyGroups) CACHE.partyGroups=await api('GET','/party-groups')||[];
-  let qp='?'; const qps=[];
+  let qp='?limit=200'; const qps=['limit=200'];
   if(groupFilter) qps.push('party_group_id='+encodeURIComponent(groupFilter));
   if(search) qps.push('search='+encodeURIComponent(search));
-  qp+=qps.join('&');
+  qp='?'+qps.join('&');
   const resp=await api('GET','/parties'+qp)||{};
   const rows=resp.data||resp||[];
+  const total=resp.pagination?.total ?? rows.length;
   CACHE.parties=rows;
   const natureLabel={debit:'بدهکار',credit:'بستانکار','':'بی‌حساب'};
   const roleLabel={customer:'مشتری',supplier:'تأمین‌کننده',employee:'کارمند',partner:'شریک',marketer:'بازاریاب',other:'سایر'};
@@ -5134,11 +5235,12 @@ async function renderPartiesTab(body){
       <div style="flex:1;min-width:280px">
         <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <button class="btn" onclick="partyModal()" ${!groupFilter?'disabled title="ابتدا یک گروه اشخاص انتخاب یا ایجاد کنید"':''}>➕ شخص جدید <span class="muted">F4</span></button>
-          <input id="partySearch" placeholder="جستجو نام/تلفن/کد... F10" value="${esc(search)}" onchange="loadAccTab('parties')" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px">
+          <input id="partySearch" placeholder="جستجو نام/تلفن/کد... F10" value="${esc(search)}" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px">
+          <span class="muted" style="font-size:12px">${fmt(rows.length)}${total>rows.length?' از '+fmt(total):''} نفر</span>
         </div>
-        <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
-          <th>کد</th><th>کد تفصیلی</th><th>نام</th><th>تلفن ۱</th><th>شهر</th><th>گروه</th><th>سمت‌ها</th><th>ماهیت</th><th>مانده ${moneyColLabel()}</th><th>عملیات</th>
-        </tr></thead><tbody>${rows.map(p=>`<tr>
+        <div class="tbl-wrap"><table class="tbl" id="partiesTbl" style="font-size:12px"><thead><tr>
+          <th>کد</th><th>کد تفصیلی</th><th>نام</th><th>تلفن ۱</th><th>شهر</th><th>گروه</th><th>سمت‌ها</th><th>ماهیت</th><th>مانده ${moneyColLabel()}</th><th class="no-sort">عملیات</th>
+        </tr></thead><tbody>${rows.map(p=>`<tr data-id="${p.id}">
           <td class="mono">${esc(p.person_code||'-')}</td>
           <td class="mono muted">${esc(p.coa_code||'-')}</td>
           <td>${esc(p.prefix||'')} ${esc(p.full_name||p.company_name||p.biz||'-')}</td>
@@ -5147,7 +5249,7 @@ async function renderPartiesTab(body){
           <td>${esc(p.party_group_name||'-')}</td>
           <td>${(p.party_roles||[]).map(r=>roleLabel[r]||r).join('، ')||'-'}</td>
           <td>${natureLabel[p.account_nature]||p.account_nature||'-'}</td>
-          <td class="mono">${fmt(p.opening_balance_toman||0)}</td>
+          <td class="mono">${fmt(p.opening_balance_toman||p.opening_balance||0)}</td>
           <td style="white-space:nowrap">
             <button class="btn sm ghost" onclick="partyModal(${p.id})">✏️</button>
             <button class="btn sm blue" onclick="showPartyTurnover(${p.id},'${esc(p.full_name||p.biz||'')}')">📒 گردش</button>
@@ -5156,6 +5258,17 @@ async function renderPartiesTab(body){
         </tr>`).join('')||emptyRow(10)}</tbody></table></div>
       </div>
     </div>`;
+  const ps=el('partySearch');
+  if(ps){
+    ps.focus();
+    const pos=ps.value.length; try{ ps.setSelectionRange(pos,pos); }catch(_){}
+    ps.addEventListener('input',()=>{
+      PARTY_SEARCH=ps.value;
+      clearTimeout(_partySearchTimer);
+      _partySearchTimer=setTimeout(()=>loadAccTab('parties'),280);
+    });
+  }
+  if(typeof enhanceDataTable==='function') enhanceDataTable(el('partiesTbl'),{selectable:true});
 }
 function filterPartyGroup(id){ PARTY_GROUP_FILTER=id; loadAccTab('parties'); }
 async function showPartyTurnover(id,name){
@@ -5321,7 +5434,7 @@ async function saveParty(id){
     address:el('pty-address').value,
     party_group_id,
     party_roles:roles,
-    credit_limit:moneyVal('pty-credit'), opening_balance:moneyVal('pty-opening'),
+    credit_limit_rial:moneyVal('pty-credit'), opening_balance_rial:moneyVal('pty-opening'),
     account_nature:el('pty-nature').value, notes:el('pty-note').value,
     user_id:+el('pty-expert')?.value||undefined,
     assigned_to:+el('pty-expert')?.value||undefined,
@@ -5591,17 +5704,23 @@ async function renderSalesInvoicesTab(body){
   if(!CACHE.allProducts?.length){ CACHE.allProducts=await api('GET','/products')||[]; CACHE.products=CACHE.allProducts; }
   if(!_invoicesFetched){ CACHE.invoices=await api('GET','/invoices')||[]; _invoicesFetched=true; }
   const rows=CACHE.invoices.filter(i=>{
+    if(i.deleted_at) return false;
+    if(String(i.status||'')==='reversed') return false;
     if(accDateFrom && (i.date||'')<accDateFrom) return false;
     if(accDateTo && (i.date||'')>accDateTo) return false;
     return true;
   }).sort((a,b)=>(b.created_at||0)-(a.created_at||0));
   const typeLabel={proforma:'پیش‌فاکتور',final:'فاکتور رسمی'};
   const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'};
+  const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
   body.innerHTML=`
-    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="openInvBuilder()">➕ فاکتور جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>شماره</th><th>سند مرجع</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th>عملیات</th>
-    </tr></thead><tbody>${rows.map(i=>`<tr>
+    <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <button class="btn" onclick="openInvBuilder()">➕ فاکتور جدید</button>
+      <input id="accInvSearch" class="search" placeholder="جستجو شماره/مشتری..." style="min-width:180px" oninput="filterAccInvTable()">
+    </div>
+    <div class="tbl-wrap"><table class="tbl" id="accSalesInvTbl"><thead><tr>
+      <th>شماره</th><th>سند مرجع</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${rows.map(i=>`<tr data-id="${i.id}" data-search="${esc((i.num||'')+' '+(i.cust_biz||''))}">
       <td class="mono" style="font-weight:700">${invNumCell(i.num)}</td>
       <td>${refDocCell(i.ref_doc_no,i.ref_doc_type)}</td>
       <td>${esc(i.cust_biz||'-')}</td>
@@ -5609,13 +5728,38 @@ async function renderSalesInvoicesTab(body){
       <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
       <td>${payLabel[i.pay_type]||i.pay_type||'-'}</td>
       <td class="muted">${esc(i.seller_name||i.salesperson||'-')}</td>
-      <td><button class="btn sm blue" onclick="printInvoice(${i.id})">🖨️</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn sm blue" onclick="printInvoice(${i.id})" title="چاپ">🖨️</button>
+        <button class="btn sm ghost" onclick="openInvBuilder(${i.id})" title="ویرایش">✏️</button>
+        ${canDel?`<button class="btn sm red" onclick="voidInvoiceDoc(${i.id},'${esc(i.num||'')}')" title="ابطال">⛔</button>`:''}
+      </td>
     </tr>`).join('')||emptyRow(9)}</tbody>
     <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
       <td colspan="5">جمع (${fmt(rows.length)} فاکتور)</td>
       <td class="mono" style="font-weight:800">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
       <td colspan="3"></td>
     </tr></tfoot></table></div>`;
+  if(typeof enhanceDataTable==='function') enhanceDataTable(el('accSalesInvTbl'),{selectable:true});
+}
+function filterAccInvTable(){
+  const q=(el('accInvSearch')?.value||'').toLowerCase();
+  document.querySelectorAll('#accSalesInvTbl tbody tr').forEach(tr=>{
+    const hay=(tr.dataset.search||tr.textContent||'').toLowerCase();
+    tr.style.display=!q||hay.includes(q)?'':'none';
+  });
+}
+async function voidInvoiceDoc(id,num){
+  if(!canPerm('invoices','delete')&&ME.role!=='admin'&&ME.role!=='accounting'){ showToast('دسترسی ابطال ندارید','error'); return; }
+  if(!confirm(`فاکتور «${num||id}» ابطال شود؟\nسند معکوس ثبت می‌شود و موجودی برمی‌گردد.`)) return;
+  try{
+    await api('DELETE','/invoices/'+id);
+    showToast('فاکتور ابطال شد');
+    _invoicesFetched=false;
+    CACHE.invoices=await api('GET','/invoices')||[];
+    _invoicesFetched=true;
+    if(IN_ACC_SHELL) loadAccTab('sales-invoices');
+    else if(CURRENT_PAGE==='invoices') renderInvTable();
+  }catch(e){}
 }
 
 /* ============================================================
@@ -8638,18 +8782,22 @@ async function deletePurchaseInvoice(id){
 ============================================================ */
 async function renderPurchaseReturnsTab(body){
   if(!CACHE.suppliers) CACHE.suppliers=await api('GET','/suppliers')||[];
-  const rows=await api('GET','/purchases/returns/list')||[];
+  let rows=[];
+  try{ rows=await api('GET','/purchases/returns/list')||[]; }
+  catch(e){ body.innerHTML=`<div class="empty">خطا در بارگذاری برگشت از خرید: ${esc(e.message||'')}</div>`; return; }
+  if(!Array.isArray(rows)) rows=[];
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="purchaseReturnModal()">➕ برگشت از خرید جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>سند مرجع</th><th>تأمین‌کننده</th><th>مبلغ (ت)</th><th>یادداشت</th><th>عملیات</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr>
+    <div class="tbl-wrap"><table class="tbl" id="purchaseReturnsTbl"><thead><tr><th>تاریخ</th><th>سند مرجع</th><th>تأمین‌کننده</th><th>مبلغ ${moneyColLabel()}</th><th>یادداشت</th><th class="no-sort">عملیات</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr data-id="${r.id}">
       <td class="mono">${escDate(r.date)}</td>
       <td>${refDocCell(r.ref_doc_no,r.ref_doc_type)}</td>
       <td>${esc(r.supplier_name||'-')}</td>
       <td class="mono" style="font-weight:700;color:var(--red)">${fmt(r.amount)}</td>
       <td class="muted">${esc(r.note||'-')}</td>
-      <td><button class="btn sm red" onclick="deletePurchaseReturn(${r.id})">🗑️</button></td>
-    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+      <td>${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" onclick="deletePurchaseReturn(${r.id})" title="ابطال">⛔ ابطال</button>`:''}</td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+  if(typeof enhanceDataTable==='function') enhanceDataTable(el('purchaseReturnsTbl'),{selectable:true});
 }
 function purchaseReturnModal(){
   openModal(`
@@ -8715,8 +8863,8 @@ async function savePurchaseReturn(){
   }catch(e){}
 }
 async function deletePurchaseReturn(id){
-  if(!confirm('این برگشت حذف شود؟')) return;
-  try{ await api('DELETE','/purchases/returns/'+id); showToast('حذف شد'); loadAccTab('purchase-returns'); }catch(e){}
+  if(!confirm('این برگشت ابطال شود؟ (سند معکوس ثبت می‌شود)')) return;
+  try{ await api('DELETE','/purchases/returns/'+id); showToast('ابطال شد'); loadAccTab('purchase-returns'); }catch(e){}
 }
 
 /* ============================================================
@@ -8724,18 +8872,22 @@ async function deletePurchaseReturn(id){
 ============================================================ */
 async function renderSalesReturnsTab(body){
   if(!CACHE.customers||!CACHE.customers.length) CACHE.customers=await api('GET','/customers')||[];
-  const rows=await api('GET','/accounting/sales-returns')||[];
+  let rows=[];
+  try{ rows=await api('GET','/accounting/sales-returns')||[]; }
+  catch(e){ body.innerHTML=`<div class="empty">خطا در بارگذاری برگشت از فروش: ${esc(e.message||'')}</div>`; return; }
+  if(!Array.isArray(rows)) rows=[];
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="salesReturnModal()">➕ برگشت از فروش جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>سند مرجع</th><th>مشتری</th><th>مبلغ (ت)</th><th>یادداشت</th><th>عملیات</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr>
+    <div class="tbl-wrap"><table class="tbl" id="salesReturnsTbl"><thead><tr><th>تاریخ</th><th>سند مرجع</th><th>مشتری</th><th>مبلغ ${moneyColLabel()}</th><th>یادداشت</th><th class="no-sort">عملیات</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr data-id="${r.id}">
       <td class="mono">${escDate(r.date)}</td>
       <td>${refDocCell(r.ref_doc_no,r.ref_doc_type)}</td>
       <td>${esc(r.cust_biz||'-')}</td>
       <td class="mono" style="font-weight:700;color:var(--red)">${fmt(r.amount)}</td>
       <td class="muted">${esc(r.note||'-')}</td>
-      <td><button class="btn sm red" onclick="deleteSalesReturn(${r.id})">🗑️</button></td>
-    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+      <td>${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" onclick="deleteSalesReturn(${r.id})" title="ابطال">⛔ ابطال</button>`:''}</td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+  if(typeof enhanceDataTable==='function') enhanceDataTable(el('salesReturnsTbl'),{selectable:true});
 }
 function salesReturnModal(){
   openModal(`
@@ -8801,8 +8953,8 @@ async function saveSalesReturn(){
   }catch(e){}
 }
 async function deleteSalesReturn(id){
-  if(!confirm('این برگشت حذف شود؟')) return;
-  try{ await api('DELETE','/accounting/sales-returns/'+id); showToast('حذف شد'); loadAccTab('sales-returns'); }catch(e){}
+  if(!confirm('این برگشت ابطال شود؟ (سند معکوس ثبت می‌شود)')) return;
+  try{ await api('DELETE','/accounting/sales-returns/'+id); showToast('ابطال شد'); loadAccTab('sales-returns'); }catch(e){}
 }
 
 /* ============================================================
@@ -9872,10 +10024,75 @@ async function renderFiscalPeriodTab(body){
     </div></div>`;
 }
 async function renderAccOrdersTab(body){
-  const rows=await api('GET','/orders')||[];
+  let rows=[];
+  try{ rows=await api('GET','/orders')||[]; }
+  catch(e){ body.innerHTML=`<div class="empty">خطا در بارگذاری سفارشات: ${esc(e.message||'')}</div>`; return; }
+  if(!Array.isArray(rows)) rows=[];
+  if(!CACHE.customers?.length){ try{ CACHE.customers=await api('GET','/customers')||[]; }catch(_){} }
+  const stLabel={pending:'در انتظار',onway:'در راه',done:'انجام‌شده',cancel:'لغو'};
+  const canMut=ME.role==='admin'||ME.role==='accounting'||ME.role==='sales_manager';
   body.innerHTML=`
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>مشتری</th><th>وضعیت</th><th>تاریخ</th><th>مبلغ</th></tr></thead>
-    <tbody>${rows.map(o=>`<tr><td>${esc(o.cust_biz||'-')}</td><td>${esc(o.status||'-')}</td><td class="mono">${escDate(o.date||o.created_at)}</td><td class="mono">${fmt(o.total||o.amount||0)}</td></tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
+    <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      ${canMut?`<button class="btn" onclick="orderModal()">➕ سفارش جدید</button>`:''}
+      <input id="ordSearch" placeholder="جستجو..." style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px" oninput="filterOrdersTbl()">
+    </div>
+    <div class="tbl-wrap"><table class="tbl" id="accOrdersTbl"><thead><tr>
+      <th>مشتری</th><th>وضعیت</th><th>تاریخ</th><th>مبلغ ${moneyColLabel()}</th><th class="no-sort">عملیات</th>
+    </tr></thead>
+    <tbody>${rows.map(o=>`<tr data-id="${o.id}" data-search="${esc((o.cust_biz||'')+' '+(o.status||''))}">
+      <td>${esc(o.cust_biz||'-')}</td>
+      <td>${esc(stLabel[o.status]||o.status||'-')}</td>
+      <td class="mono">${escDate(o.date||'')}</td>
+      <td class="mono">${fmt(o.total||o.amount||0)}</td>
+      <td style="white-space:nowrap">
+        ${canMut?`<button class="btn sm ghost" onclick="orderModal(${o.id})">✏️</button>`:''}
+        ${(canPerm('invoices','delete')||ME.role==='admin')?`<button class="btn sm red" onclick="deleteOrder(${o.id})">🗑️</button>`:''}
+      </td>
+    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+  if(typeof enhanceDataTable==='function') enhanceDataTable(el('accOrdersTbl'),{selectable:true});
+}
+function filterOrdersTbl(){
+  const q=(el('ordSearch')?.value||'').toLowerCase();
+  document.querySelectorAll('#accOrdersTbl tbody tr').forEach(tr=>{
+    const hay=(tr.dataset.search||tr.textContent||'').toLowerCase();
+    tr.style.display=!q||hay.includes(q)?'':'none';
+  });
+}
+async function orderModal(id){
+  if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
+  let o={};
+  if(id){
+    const all=await api('GET','/orders')||[];
+    o=all.find(x=>x.id===id)||{};
+  }
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش سفارش':'سفارش جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>مشتری *</label>${custSelect('ord-cust',o.cust_id||0)}</div>
+      <div class="fg"><label>تاریخ</label><input id="ord-date" data-jdate value="${esc(o.date||todayJalali())}"></div>
+      <div class="fg"><label>مبلغ ${moneyColLabel()} *</label><input id="ord-total" type="text" inputmode="numeric" class="money" value="${moneyInit(o.total||0)}"></div>
+      <div class="fg"><label>وضعیت</label><select id="ord-status">
+        ${['pending','onway','done','cancel'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${({pending:'در انتظار',onway:'در راه',done:'انجام‌شده',cancel:'لغو'})[s]}</option>`).join('')}
+      </select></div>
+      <div class="fg full"><label>یادداشت</label><input id="ord-note" value="${esc(o.note||'')}"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveOrder(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot')); initCustSearches(el('modalRoot'));
+}
+async function saveOrder(id){
+  const cust_id=+el('ord-cust')?.value||0;
+  const total=moneyVal('ord-total');
+  if(!cust_id||!total){ showToast('مشتری و مبلغ الزامی است','error'); return; }
+  const data={cust_id,date:el('ord-date').value,total,status:el('ord-status').value,note:el('ord-note').value};
+  try{
+    if(id) await api('PUT','/orders/'+id,data); else await api('POST','/orders',data);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('orders');
+  }catch(e){}
+}
+async function deleteOrder(id){
+  if(!confirm('این سفارش حذف شود؟')) return;
+  try{ await api('DELETE','/orders/'+id); showToast('حذف شد'); loadAccTab('orders'); }catch(e){}
 }
 
 /* ============================================================
@@ -13312,6 +13529,19 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🗔','پنجره‌های چندگانه (شبیه ویندوز)',`
+      <p>در ماژول حسابداری، با کلیک روی هر زیرمنو یک <b>پنجره جداگانه</b> باز می‌شود. می‌توانید چند بخش را هم‌زمان باز نگه دارید.</p>
+      <ul>
+        <li>نوار عنوان: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن</li>
+        <li>نوار پایین صفحه: تعویض بین پنجره‌ها، چینش، خاموش/روشن حالت پنجره</li>
+        <li>برای برگشت به حالت تک‌صفحه‌ای، دکمه 📄 را در نوار وظیفه بزنید</li>
+      </ul>`),
+    helpSec('📥','ورودی اکسل و واحد پول',`
+      <p>مبالغ در قالب و ورود اکسل فقط <b>ریال</b> هستند (بدون حذف صفر). پس از ورود، گزارش تعداد عملیات موفق/ناموفق نمایش داده می‌شود.</p>
+      <ul>
+        <li>ردیف‌های خالی و بدون نام/تلفن (اشخاص) یا بدون نام کالا رد می‌شوند</li>
+        <li>حذف کالای واردشده از اکسل پس از پاک‌سازی موجودی انبار ممکن است؛ اگر در فاکتور باشد مسدود می‌شود</li>
+      </ul>`),
     helpSec('📊','داشبورد',`
       <p>داشبورد نمای کلی از وضعیت کسب‌وکار را نشان می‌دهد. پوستهٔ برنامه با هویت رسمی برند ترنم (سبز و طلایی) و لوگوی رسمی در ورود، منو، فاکتور چاپی و صورت‌حساب یکپارچه شده است.</p>
       <div class="tip">دکمه ☰ بالای صفحه، در نسخه دسکتاپ (ویندوز) نیز فعال است و مانند موبایل منوی کناری را جمع/باز می‌کند — تجربه یکسان در همه دستگاه‌ها.</div>
@@ -13563,7 +13793,7 @@ function renderAdminGuide(){
     helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
       <p>نسخه دسکتاپ (ویندوز) و اندرویدِ برنامه به‌صورت <b>کاملاً آفلاین</b> کار می‌کنند: همه اطلاعات روی خود دستگاه ذخیره می‌شود و به محض دسترسی به اینترنت، تغییرات به‌طور خودکار با سرور مرکزی همگام می‌شود.</p>
       <h5>اتصال اولیه دستگاه</h5><ol>
-        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر خطا دیدید، متن خطا را بخوانید؛ معمولاً حذف نسخه قبلی + نصب APK جدید (۲.0.9+) مشکل را حل می‌کند</li>
+        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر دیالوگ «Something went wrong / this app has a bug» دیدید، نسخه قبلی را حذف و APK <b>۲.۰.۱۰+</b> را نصب کنید (رفع سازگاری صفحه ۱۶KB روی سامسونگ/اندروید ۱۵+)</li>
         <li>در اولین اجرا، با کاربر پیش‌فرض وارد شوید — پنجره «اتصال به سرور مرکزی» باز می‌شود</li>
         <li>آدرس سرور مرکزی و نام کاربری/رمز <b>مدیر سیستم</b> را وارد کنید (این مرحله یک‌بار است و اینترنت لازم دارد)</li>
         <li>پس از اتصال، همه اطلاعات (مشتریان، محصولات، فاکتورها، کاربران و...) از مرکز دریافت می‌شود و از آن پس با نام کاربری اصلی خودتان — حتی بدون اینترنت — وارد می‌شوید</li>
@@ -13772,7 +14002,7 @@ function renderSalesGuide(){
     helpSec('📴','کار آفلاین (نسخه ویندوز/اندروید)',`
       <p>در برنامه دسکتاپ و اندروید، همه کارها (ثبت مشتری، فاکتور، پیگیری و...) <b>بدون اینترنت</b> هم انجام می‌شود و به محض اتصال، خودکار با سرور مرکزی همگام می‌شود.</p>
       <ul>
-        <li><b>اندروید — اولین باز کردن:</b> ممکن است ۲–۵ دقیقه «در حال آماده‌سازی…» ببینید — صبر کنید و برنامه را نبندید. اگر خطا دیدید، نسخه قبلی را حذف و APK جدید نصب کنید</li>
+        <li><b>اندروید — اولین باز کردن:</b> ممکن است ۲–۵ دقیقه «در حال آماده‌سازی…» ببینید — صبر کنید و برنامه را نبندید. اگر برنامه فوراً بسته شد، نسخه قبلی را حذف و APK <b>۲.۰.۱۰+</b> نصب کنید</li>
         <li>نشانگر بالای صفحه وضعیت را نشان می‌دهد: 🟢 همگام / 📡 آفلاین / 🔄 در انتظار ارسال / ⚠️ تعارض</li>
         <li>فاکتور آفلاین ابتدا شماره «موقت» می‌گیرد؛ بعد از همگام‌سازی شماره رسمی جایگزین می‌شود</li>
         <li>اگر عملیاتی در مرکز رد شود (⚠️)، روی نشانگر بزنید و طبق دلیل نمایش‌داده‌شده تصمیم بگیرید</li>
@@ -13816,11 +14046,11 @@ function confirmDelete(entity, id, label){
 }
 async function doDelete(entity,id){
   await api('DELETE','/'+entity+'/'+id);
-  closeModal(); showToast('حذف شد');
+  closeModal(); showToast(entity==='invoices'?'ابطال شد':'حذف شد');
   // refresh whatever is open
   if(entity==='customers'){ await reloadCustomers(); if(CURRENT_PAGE==='customers')renderCustTable(); }
   else if(entity==='followups'){ CACHE.followups=await api('GET','/followups'); renderFupView(); }
-  else if(entity==='invoices'){ CACHE.invoices=await api('GET','/invoices'); renderInvTable(); }
+  else if(entity==='invoices'){ CACHE.invoices=await api('GET','/invoices'); _invoicesFetched=true; if(IN_ACC_SHELL&&accTab==='sales-invoices') loadAccTab('sales-invoices'); else renderInvTable(); }
   else if(entity==='products'){ await loadProductsFiltered(); renderProdGrid(true); }
   else if(entity==='admin/users'){ CACHE.users=await api('GET','/auth/users'); ROUTES.users(); }
 }

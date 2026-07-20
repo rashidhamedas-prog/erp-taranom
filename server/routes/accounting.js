@@ -856,7 +856,11 @@ router.get('/sales-returns', auth, adminOrAccounting, (req, res) => {
     LEFT JOIN customers c ON sr.cust_id=c.id
     WHERE COALESCE(sr.status,'posted')<>'reversed' ORDER BY sr.created_at DESC
   `).all();
-  res.json(rows.map(r => ({ ...r, rows: JSON.parse(r.rows || '[]') })));
+  res.json(rows.map(r => {
+    let parsed = [];
+    try { parsed = JSON.parse(r.rows || '[]'); } catch (_) { parsed = []; }
+    return { ...r, rows: parsed };
+  }));
 });
 
 // Invoice-linked return picker: given a final sales invoice, return each line

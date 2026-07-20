@@ -437,14 +437,59 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
   res.json({ ok: true, new_stock: parseInt(stock) });
 });
 
-// Delete (admin only)
+// Delete (admin only) — cascade stock children; block if used in documents
 router.delete('/:id', auth, adminOnly, (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
-  if (prod.image) { try { fs.unlinkSync(path.join(UPLOAD_DIR, prod.image)); } catch (e) {} }
-  db.prepare('DELETE FROM products WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'product', req.params.id, `حذف محصول ${prod.name}`);
+  const pid = parseInt(req.params.id, 10);
+
+  const usedInInvoice = db.prepare(`
+    SELECT id, num FROM invoices WHERE COALESCE(deleted_at,0)=0 AND rows LIKE ?
+    LIMIT 1
+  `).get(`%"product_id":${pid}%`) || db.prepare(`
+    SELECT id, num FROM invoices WHERE COALESCE(deleted_at,0)=0 AND rows LIKE ?
+    LIMIT 1
+  `).get(`%"product_id": ${pid}%`);
+  if (usedInInvoice) {
+    return res.status(409).json({ error: `این کالا در فاکتور ${usedInInvoice.num || usedInInvoice.id} استفاده شده و قابل حذف نیست` });
+  }
+  const usedInPurchase = db.prepare(`
+    SELECT id, num FROM purchase_invoices WHERE COALESCE(status,'posted')<>'reversed' AND rows LIKE ?
+    LIMIT 1
+  `).get(`%"product_id":${pid}%`);
+  if (usedInPurchase) {
+    return res.status(409).json({ error: `این کالا در فاکتور خرید ${usedInPurchase.num || usedInPurchase.id} استفاده شده و قابل حذف نیست` });
+  }
+    try {
+      const bomHit = db.prepare(`
+        SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='bom_lines'
+      `).get();
+      if (bomHit) {
+        const cols = db.prepare('PRAGMA table_info(bom_lines)').all().map((c) => c.name);
+        if (cols.includes('component_product_id') && db.prepare('SELECT id FROM bom_lines WHERE component_product_id=? LIMIT 1').get(pid)) {
+          return res.status(409).json({ error: 'این کالا در فرمول تولید (BOM) استفاده شده و قابل حذف نیست' });
+        }
+        if (cols.includes('product_id') && db.prepare('SELECT id FROM bom_lines WHERE product_id=? LIMIT 1').get(pid)) {
+          return res.status(409).json({ error: 'این کالا در فرمول تولید (BOM) استفاده شده و قابل حذف نیست' });
+        }
+      }
+    } catch (_) { /* optional */ }
+
+  try {
+    db.transaction(() => {
+      db.prepare('DELETE FROM warehouse_stock WHERE product_id=?').run(pid);
+      try { db.prepare('DELETE FROM stock_logs WHERE product_id=?').run(pid); } catch (_) {}
+      try { db.prepare('DELETE FROM stocktaking_items WHERE product_id=?').run(pid); } catch (_) {}
+      if (prod.image) { try { fs.unlinkSync(path.join(UPLOAD_DIR, prod.image)); } catch (e) {} }
+      db.prepare('DELETE FROM products WHERE id=?').run(pid);
+    })();
+  } catch (e) {
+    return res.status(409).json({ error: e.message.includes('FOREIGN KEY')
+      ? 'این کالا به اسناد دیگر وابسته است و قابل حذف نیست'
+      : (e.message || 'حذف ناموفق') });
+  }
+  audit(req.user.id, 'delete', 'product', pid, `حذف محصول ${prod.name}`);
   res.json({ ok: true });
 });
 

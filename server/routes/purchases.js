@@ -190,7 +190,11 @@ router.get('/returns/list', auth, adminOrAccounting, (req, res) => {
     LEFT JOIN suppliers s ON pr.supplier_id=s.id
     WHERE COALESCE(pr.status,'posted')<>'reversed' ORDER BY pr.created_at DESC
   `).all();
-  res.json(rows.map(r => ({ ...r, rows: JSON.parse(r.rows || '[]') })));
+  res.json(rows.map(r => {
+    let parsed = [];
+    try { parsed = JSON.parse(r.rows || '[]'); } catch (_) { parsed = []; }
+    return { ...r, rows: parsed };
+  }));
 });
 
 // Invoice-linked return picker — mirrors /accounting/sales-returns/available/:id
@@ -200,8 +204,10 @@ router.get('/returns/available/:invoiceId', auth, adminOrAccounting, (req, res) 
   if (!inv) return res.status(404).json({ error: 'فاکتور خرید یافت نشد' });
   const invRows = JSON.parse(inv.rows || '[]');
   const alreadyReturned = {};
-  db.prepare('SELECT rows FROM purchase_returns WHERE purchase_invoice_id=?').all(req.params.invoiceId).forEach(pr => {
-    JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturned[r.product_id] = (alreadyReturned[r.product_id] || 0) + r.qty; });
+  db.prepare("SELECT rows FROM purchase_returns WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(req.params.invoiceId).forEach(pr => {
+    try {
+      JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturned[r.product_id] = (alreadyReturned[r.product_id] || 0) + r.qty; });
+    } catch (_) { /* ignore bad JSON */ }
   });
   const rows = invRows.map(r => ({
     ...r, already_returned: alreadyReturned[r.product_id] || 0,

@@ -252,8 +252,8 @@ function exportRows(db, entity) {
   if (entity === 'products') return db.prepare('SELECT p.*,w.name warehouse_name,w.code warehouse_code FROM products p LEFT JOIN warehouses w ON w.id=p.warehouse_id ORDER BY p.id').all().map((r) => ({
     'نام کالا': r.name, 'نام کامل کالا': r.full_name, 'کد کالا': r.code, بارکد: r.barcode,
     دسته: r.category, واحد: r.unit, 'انبار اصلی': r.warehouse_code || r.warehouse_name, موجودی: r.stock,
-    'هشدار موجودی': r.stock_alert, 'قیمت فروش (ریال)': toFa(r.price), 'بهای تمام‌شده (ریال)': toFa(r.cost),
-    'قیمت مصرف‌کننده (ریال)': toFa(r.consumer_price), 'قیمت اول دوره (ریال)': toFa(r.opening_price),
+    'هشدار موجودی': r.stock_alert, 'قیمت فروش (ریال)': Math.round(Number(r.price) || 0), 'بهای تمام‌شده (ریال)': Math.round(Number(r.cost) || 0),
+    'قیمت مصرف‌کننده (ریال)': Math.round(Number(r.consumer_price) || 0), 'قیمت اول دوره (ریال)': Math.round(Number(r.opening_price) || 0),
     'تعداد رنگ': r.colors, 'تعداد در پک': r.pack_size, 'نوع کالا': r.product_type, 'شاخص کالا': r.product_index,
     'شناسه مالیاتی': r.tax_id, 'محل نگهداری': r.location, 'کد پیامک': r.sms_code, یادداشت: r.note,
   }));
@@ -315,17 +315,25 @@ function explodeDocuments(docs, partyKey, partyLabel, numberKey, priceLabel, inv
   return out;
 }
 
+function isBlankExcelRow(row) {
+  return Object.values(row || {}).every((v) => text(v) === '');
+}
+
 function buildActions(db, entity, rows) {
   if (entity === 'parties') {
-    return rows.map((r, i) => {
+    const out = [];
+    rows.forEach((r, i) => {
+      const fullName = field(r, 'نام*', 'نام', 'full_name');
+      const phone = field(r, 'تلفن*', 'تلفن', 'phone');
+      if (!fullName || !phone) return;
       const groupValue = field(r, 'گروه');
       const expertValue = field(r, 'کارشناس');
       const group = groupValue ? requireRef(i + 2, 'گروه اشخاص', partyGroup(db, groupValue)) : null;
       const expert = expertValue ? requireRef(i + 2, 'کارشناس', appUser(db, expertValue)) : null;
-      return action('/parties', {
-        person_code: field(r, 'کد شخص'), full_name: field(r, 'نام*', 'نام', 'full_name'),
+      out.push(action('/parties', {
+        person_code: field(r, 'کد شخص'), full_name: fullName,
         legal_type: field(r, 'نوع شخصیت') || 'real', company_name: field(r, 'نام شرکت'),
-        prefix: field(r, 'پیشوند'), phone: field(r, 'تلفن*', 'تلفن', 'phone'),
+        prefix: field(r, 'پیشوند'), phone,
         secondary_phone: field(r, 'تلفن دوم'), mobile: field(r, 'موبایل'), fax: field(r, 'فکس'),
         email: field(r, 'ایمیل'), national_id: field(r, 'کد ملی'), economic_code: field(r, 'کد اقتصادی'),
         city: field(r, 'شهر'), province: field(r, 'استان'), address: field(r, 'آدرس'),
@@ -337,30 +345,38 @@ function buildActions(db, entity, rows) {
         credit_limit_rial: Math.round(num(field(r, 'سقف اعتبار (ریال)'))),
         opening_balance_rial: Math.round(num(field(r, 'مانده اول دوره (ریال)'))),
         opening_balance_date: field(r, 'تاریخ مانده اول دوره'), user_id: expert?.id || undefined,
-        notes: field(r, 'یادداشت', 'شرح'), biz: field(r, 'نام*', 'نام'),
-      }, `شخص ردیف ${i + 2}`);
+        notes: field(r, 'یادداشت', 'شرح'), biz: fullName,
+      }, `شخص ردیف ${i + 2}`));
     });
+    return out;
   }
-  if (entity === 'products') return rows.map((r, i) => {
-    const whValue = field(r, 'انبار اصلی');
-    const wh = whValue ? requireRef(i + 2, 'انبار اصلی', warehouse(db, whValue)) : null;
-    return action('/products/quick', {
-      name: field(r, 'نام کالا*', 'نام کالا'), full_name: field(r, 'نام کامل کالا'),
-      code: field(r, 'کد کالا'), barcode: field(r, 'بارکد'), category: field(r, 'دسته'),
-      unit: field(r, 'واحد') || 'عدد', warehouse_id: wh?.id || null,
-      stock: Math.max(0, Math.trunc(num(field(r, 'موجودی')))),
-      stock_alert: Math.max(0, Math.trunc(num(field(r, 'هشدار موجودی')))) || 5,
-      price: fromRial(field(r, 'قیمت فروش (ریال)')),
-      cost: fromRial(field(r, 'بهای تمام‌شده (ریال)', 'بهای خرید (ریال)')),
-      consumer_price: fromRial(field(r, 'قیمت مصرف‌کننده (ریال)')),
-      opening_price: fromRial(field(r, 'قیمت اول دوره (ریال)')),
-      colors: Math.max(1, Math.trunc(num(field(r, 'تعداد رنگ')))) || 1,
-      pack_size: Math.max(1, Math.trunc(num(field(r, 'تعداد در پک')))) || 1,
-      product_type: field(r, 'نوع کالا'), product_index: field(r, 'شاخص کالا'),
-      tax_id: field(r, 'شناسه مالیاتی'), location: field(r, 'محل نگهداری'),
-      sms_code: field(r, 'کد پیامک'), note: field(r, 'یادداشت', 'شرح'),
-    }, `ردیف ${i + 2}`);
-  });
+  if (entity === 'products') {
+    const out = [];
+    rows.forEach((r, i) => {
+      const name = field(r, 'نام کالا*', 'نام کالا');
+      if (!name) return;
+      const whValue = field(r, 'انبار اصلی');
+      const wh = whValue ? requireRef(i + 2, 'انبار اصلی', warehouse(db, whValue)) : null;
+      out.push(action('/products/quick', {
+        name, full_name: field(r, 'نام کامل کالا'),
+        code: field(r, 'کد کالا'), barcode: field(r, 'بارکد'), category: field(r, 'دسته'),
+        unit: field(r, 'واحد') || 'عدد', warehouse_id: wh?.id || null,
+        stock: Math.max(0, Math.trunc(num(field(r, 'موجودی')))),
+        stock_alert: Math.max(0, Math.trunc(num(field(r, 'هشدار موجودی')))) || 5,
+        // UI stores product money as rial identity — do not /10
+        price: Math.round(num(field(r, 'قیمت فروش (ریال)'))),
+        cost: Math.round(num(field(r, 'بهای تمام‌شده (ریال)', 'بهای خرید (ریال)'))),
+        consumer_price: Math.round(num(field(r, 'قیمت مصرف‌کننده (ریال)'))),
+        opening_price: Math.round(num(field(r, 'قیمت اول دوره (ریال)'))),
+        colors: Math.max(1, Math.trunc(num(field(r, 'تعداد رنگ')))) || 1,
+        pack_size: Math.max(1, Math.trunc(num(field(r, 'تعداد در پک')))) || 1,
+        product_type: field(r, 'نوع کالا'), product_index: field(r, 'شاخص کالا'),
+        tax_id: field(r, 'شناسه مالیاتی'), location: field(r, 'محل نگهداری'),
+        sms_code: field(r, 'کد پیامک'), note: field(r, 'یادداشت', 'شرح'),
+      }, `ردیف ${i + 2}`));
+    });
+    return out;
+  }
   if (entity.startsWith('opening-')) {
     const direction = entity === 'opening-recv-cheques' ? 'in' : 'out';
     return rows.map((r, i) => action('/cheque-records', {
@@ -567,13 +583,18 @@ router.post('/:entity/prepare-import', auth, adminOrAccounting, ensureDefinition
   try {
     const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: false });
     const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+    const rows = rawRows.filter((r) => !isBlankExcelRow(r));
+    const skipped_blank = rawRows.length - rows.length;
     if (!rows.length) return res.status(400).json({ error: 'فایل اکسل فاقد ردیف داده است' });
     if (rows.length > 5000) return res.status(400).json({ error: 'حداکثر ۵۰۰۰ ردیف در هر فایل مجاز است' });
     const actions = buildActions(getDB(), req.params.entity, rows);
     if (!actions.length) return res.status(400).json({ error: 'هیچ عملیات معتبری از فایل ساخته نشد' });
     audit(req.user.id, 'prepare_excel_import', req.params.entity, null, `آماده‌سازی ${rows.length} ردیف و ${actions.length} عملیات`);
-    res.json({ ok: true, entity: req.params.entity, title: req.excelDef.title, row_count: rows.length, actions });
+    res.json({
+      ok: true, entity: req.params.entity, title: req.excelDef.title,
+      row_count: rows.length, skipped_blank, actions_count: actions.length, actions,
+    });
   } catch (e) {
     res.status(400).json({ error: `خطا در اعتبارسنجی فایل: ${e.message}` });
   }
