@@ -1,5 +1,5 @@
 // CRM ترنم - service worker: network-first for HTML, cache-first for assets
-const CACHE = 'crm-taranom-v45';
+const CACHE = 'crm-taranom-v46';
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
