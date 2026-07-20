@@ -277,6 +277,17 @@ router.post('/quick', auth, requirePermission('products', 'create'), (req, res) 
   } = req.body;
   if (!name) return res.status(400).json({ error: 'نام محصول الزامی است' });
   const db = getDB();
+  const codeTrim = code && String(code).trim();
+  const barcodeTrim = barcode && String(barcode).trim();
+  if (codeTrim && db.prepare('SELECT id FROM products WHERE code=?').get(codeTrim)) {
+    return res.status(409).json({ error: 'کد کالا تکراری است — داده تکراری ذخیره نمی‌شود' });
+  }
+  if (barcodeTrim && db.prepare('SELECT id FROM products WHERE barcode=?').get(barcodeTrim)) {
+    return res.status(409).json({ error: 'بارکد تکراری است — داده تکراری ذخیره نمی‌شود' });
+  }
+  if (db.prepare('SELECT id FROM products WHERE name=?').get(String(name).trim())) {
+    return res.status(409).json({ error: 'نام کالا تکراری است — داده تکراری ذخیره نمی‌شود' });
+  }
   let catName = category || '';
   let catId = category_id || null;
   if (catId) {

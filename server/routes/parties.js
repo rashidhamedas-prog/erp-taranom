@@ -188,6 +188,13 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   if (!b.phone) return res.status(400).json({ error: 'تلفن الزامی است' });
 
   const db = getDB();
+  const phone = String(b.phone).trim();
+  if (db.prepare('SELECT id FROM parties WHERE phone=? AND is_active=1').get(phone)) {
+    return res.status(409).json({ error: 'این تلفن قبلاً ثبت شده — داده تکراری ذخیره نمی‌شود' });
+  }
+  if (b.person_code && db.prepare('SELECT id FROM parties WHERE person_code=?').get(String(b.person_code).trim())) {
+    return res.status(409).json({ error: 'این کد شخص قبلاً ثبت شده — داده تکراری ذخیره نمی‌شود' });
+  }
   const personCode = b.person_code || nextPartyCode(db);
   // Rial-identity UI: *_rial preferred; bare credit_limit/opening_balance treated as rial
   const creditRial = b.credit_limit_rial != null ? parseInt(b.credit_limit_rial, 10) : Math.round(Number(b.credit_limit) || 0);

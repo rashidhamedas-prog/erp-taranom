@@ -319,6 +319,85 @@ function isBlankExcelRow(row) {
   return Object.values(row || {}).every((v) => text(v) === '');
 }
 
+/** Skip duplicates vs DB and within the same Excel file. Returns { actions, duplicates }. */
+function dedupeExcelActions(db, entity, actions) {
+  const duplicates = [];
+  const kept = [];
+  if (entity === 'parties') {
+    const seenPhone = new Set();
+    const seenCode = new Set();
+    for (const a of actions) {
+      const phone = text(a.body?.phone);
+      const code = text(a.body?.person_code);
+      let reason = null;
+      if (phone && seenPhone.has(phone)) reason = 'تلفن تکراری در همین فایل اکسل';
+      else if (code && seenCode.has(code)) reason = 'کد شخص تکراری در همین فایل اکسل';
+      else if (phone && db.prepare('SELECT id FROM parties WHERE phone=? AND is_active=1').get(phone)) {
+        reason = 'تلفن از قبل در سیستم ثبت شده';
+      } else if (code && db.prepare('SELECT id FROM parties WHERE person_code=?').get(code)) {
+        reason = 'کد شخص از قبل در سیستم ثبت شده';
+      }
+      if (reason) {
+        duplicates.push({ label: a.label || 'شخص', reason, key: phone || code || '' });
+        continue;
+      }
+      if (phone) seenPhone.add(phone);
+      if (code) seenCode.add(code);
+      kept.push(a);
+    }
+    return { actions: kept, duplicates };
+  }
+  if (entity === 'products') {
+    const seenCode = new Set();
+    const seenBarcode = new Set();
+    const seenName = new Set();
+    for (const a of actions) {
+      const code = text(a.body?.code);
+      const barcode = text(a.body?.barcode);
+      const name = text(a.body?.name);
+      let reason = null;
+      if (code && seenCode.has(code)) reason = 'کد کالا تکراری در همین فایل اکسل';
+      else if (barcode && seenBarcode.has(barcode)) reason = 'بارکد تکراری در همین فایل اکسل';
+      else if (name && seenName.has(name)) reason = 'نام کالا تکراری در همین فایل اکسل';
+      else if (code && db.prepare('SELECT id FROM products WHERE code=?').get(code)) {
+        reason = 'کد کالا از قبل در سیستم ثبت شده';
+      } else if (barcode && db.prepare('SELECT id FROM products WHERE barcode=?').get(barcode)) {
+        reason = 'بارکد از قبل در سیستم ثبت شده';
+      } else if (name && db.prepare('SELECT id FROM products WHERE name=?').get(name)) {
+        reason = 'نام کالا از قبل در سیستم ثبت شده';
+      }
+      if (reason) {
+        duplicates.push({ label: a.label || name || 'کالا', reason, key: code || barcode || name || '' });
+        continue;
+      }
+      if (code) seenCode.add(code);
+      if (barcode) seenBarcode.add(barcode);
+      if (name) seenName.add(name);
+      kept.push(a);
+    }
+    return { actions: kept, duplicates };
+  }
+  if (['coa-codes', 'ledger-accounts', 'subsidiary-accounts'].includes(entity)) {
+    const seen = new Set();
+    for (const a of actions) {
+      const code = text(a.body?.code);
+      let reason = null;
+      if (code && seen.has(code)) reason = 'کد حساب تکراری در همین فایل اکسل';
+      else if (code && db.prepare('SELECT code FROM chart_of_accounts WHERE code=?').get(code)) {
+        reason = 'کد حساب از قبل در سیستم ثبت شده';
+      }
+      if (reason) {
+        duplicates.push({ label: a.label || code || 'حساب', reason, key: code });
+        continue;
+      }
+      if (code) seen.add(code);
+      kept.push(a);
+    }
+    return { actions: kept, duplicates };
+  }
+  return { actions, duplicates };
+}
+
 function buildActions(db, entity, rows) {
   if (entity === 'parties') {
     const out = [];
@@ -588,17 +667,26 @@ router.post('/:entity/prepare-import', auth, adminOrAccounting, ensureDefinition
     const skipped_blank = rawRows.length - rows.length;
     if (!rows.length) return res.status(400).json({ error: 'فایل اکسل فاقد ردیف داده است' });
     if (rows.length > 5000) return res.status(400).json({ error: 'حداکثر ۵۰۰۰ ردیف در هر فایل مجاز است' });
-    const actions = buildActions(getDB(), req.params.entity, rows);
+    const built = buildActions(getDB(), req.params.entity, rows);
+    const { actions, duplicates } = dedupeExcelActions(getDB(), req.params.entity, built);
+    if (!actions.length && duplicates.length) {
+      return res.status(400).json({
+        error: `همه ردیف‌ها تکراری بودند (${duplicates.length} مورد) — هیچ داده جدیدی برای ورود نیست`,
+        skipped_duplicates: duplicates.length,
+        duplicates: duplicates.slice(0, 50),
+      });
+    }
     if (!actions.length) return res.status(400).json({ error: 'هیچ عملیات معتبری از فایل ساخته نشد' });
-    audit(req.user.id, 'prepare_excel_import', req.params.entity, null, `آماده‌سازی ${rows.length} ردیف و ${actions.length} عملیات`);
+    audit(req.user.id, 'prepare_excel_import', req.params.entity, null, `آماده‌سازی ${rows.length} ردیف، ${actions.length} جدید، ${duplicates.length} تکراری`);
     res.json({
       ok: true, entity: req.params.entity, title: req.excelDef.title,
-      row_count: rows.length, skipped_blank, actions_count: actions.length, actions,
+      row_count: rows.length, skipped_blank, skipped_duplicates: duplicates.length,
+      duplicates: duplicates.slice(0, 50), actions_count: actions.length, actions,
     });
   } catch (e) {
     res.status(400).json({ error: `خطا در اعتبارسنجی فایل: ${e.message}` });
   }
 });
 
-router._test = { DEFINITIONS, exportRows, buildActions };
+router._test = { DEFINITIONS, exportRows, buildActions, dedupeExcelActions };
 module.exports = router;

@@ -3961,14 +3961,28 @@ async function excelImport(entity){
     const fd=new FormData(); fd.append('file',file);
     let prepared;
     try{ prepared=await api('POST','/excel/'+encodeURIComponent(entity)+'/prepare-import',fd,true); }
-    catch(e){ return; }
+    catch(e){
+      const dups=e?.payload?.duplicates||[];
+      const n=e?.payload?.skipped_duplicates||dups.length;
+      if(n){
+        const report=dups.slice(0,30).map(x=>`${x.label}: ${x.reason}`).join('\n');
+        openModal(`<div class="modal-head"><h3>⚠️ داده‌های تکراری</h3><button class="x" onclick="closeModal()">×</button></div>
+          <div class="modal-body"><p><b>${fmt(n)}</b> ردیف تکراری بود و هیچ داده جدیدی وارد نشد.</p>
+          ${report?`<textarea readonly style="width:100%;min-height:200px;direction:rtl">${esc(report)}</textarea>`:''}</div>
+          <div class="modal-foot"><button class="btn" onclick="closeModal()">بستن</button></div>`);
+      }
+      return;
+    }
     const count=prepared.actions?.length||0;
     const rowCount=prepared.row_count||0;
     const skipped=prepared.skipped_blank||0;
+    const dupsCount=prepared.skipped_duplicates||0;
+    const dups=prepared.duplicates||[];
     if(!count){ showToast('عملیاتی برای ثبت یافت نشد','error'); return; }
-    const msg = skipped
-      ? `${fmt(rowCount)} ردیف معتبر از اکسل، ${fmt(skipped)} ردیف خالی رد شد، ${fmt(count)} عملیات آماده ثبت است.\nثبت نهایی انجام شود؟`
-      : `${fmt(rowCount)} ردیف اکسل → ${fmt(count)} عملیات آماده ثبت است.\nثبت نهایی انجام شود؟`;
+    let msg=`${fmt(count)} ردیف جدید آماده ثبت است`;
+    if(dupsCount) msg+=`\n⚠️ ${fmt(dupsCount)} ردیف تکراری رد می‌شود (وارد نمی‌شود)`;
+    if(skipped) msg+=`\n${fmt(skipped)} ردیف خالی رد شد`;
+    msg+=`\n(از ${fmt(rowCount)} ردیف اکسل)\nثبت نهایی انجام شود؟`;
     if(!confirm(msg)) return;
     let ok=0; const failed=[];
     for(let i=0;i<prepared.actions.length;i++){
@@ -3976,13 +3990,17 @@ async function excelImport(entity){
       try{ await api(a.method||'POST',a.path,a.body||{}); ok++; }
       catch(e){ failed.push({label:a.label||('عملیات '+(i+1)),error:e?.message||'خطای ثبت'}); }
     }
-    if(failed.length){
-      const report=failed.slice(0,20).map(x=>`${x.label}: ${x.error}`).join('\n');
+    const dupReport=dups.slice(0,30).map(x=>`${x.label}: ${x.reason}`).join('\n');
+    if(failed.length||dupsCount){
+      const failReport=failed.slice(0,20).map(x=>`${x.label}: ${x.error}`).join('\n');
       openModal(`<div class="modal-head"><h3>${lucide('alert')} گزارش ورود اکسل</h3><button class="x" onclick="closeModal()">×</button></div>
-        <div class="modal-body"><p>${fmt(ok)} از ${fmt(count)} عملیات ثبت شد؛ ${fmt(failed.length)} ناموفق.</p>
-        <textarea readonly style="width:100%;min-height:240px;direction:rtl">${esc(report)}</textarea></div>
+        <div class="modal-body">
+          <p>${fmt(ok)} ردیف جدید ثبت شد${dupsCount?`؛ <b style="color:var(--orange)">${fmt(dupsCount)} تکراری رد شد</b>`:''}${failed.length?`؛ ${fmt(failed.length)} ناموفق`:''}.</p>
+          ${dupReport?`<h4 style="margin:10px 0 6px">تکراری‌ها</h4><textarea readonly style="width:100%;min-height:140px;direction:rtl">${esc(dupReport)}</textarea>`:''}
+          ${failReport?`<h4 style="margin:10px 0 6px">خطاها</h4><textarea readonly style="width:100%;min-height:120px;direction:rtl">${esc(failReport)}</textarea>`:''}
+        </div>
         <div class="modal-foot"><button class="btn" onclick="closeModal()">بستن</button></div>`);
-    }else showToast(`${fmt(ok)} از ${fmt(count)} عملیات با موفقیت ثبت شد`);
+    }else showToast(`${fmt(ok)} ردیف جدید با موفقیت ثبت شد`);
     if(IN_ACC_SHELL&&accTab) await loadAccTab(accTab);
     else if(CURRENT_PAGE==='products') await refreshProd(true);
   };
@@ -12951,6 +12969,15 @@ ROUTES.settings = async function(){
         </div>
       </div>
     </div></div>
+    <div class="panel"><div class="panel-head"><h4>🗔 پنجره‌های چندگانه (شبیه ویندوز)</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:10px;line-height:1.9">
+        با فعال بودن این گزینه، هر زیرمنوی حسابداری در یک پنجره جدا باز می‌شود (جابجایی، کوچک/بزرگ، بستن). در حالت غیرفعال، همه بخش‌ها در همان صفحه اصلی نمایش داده می‌شوند.
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px">
+        <input type="checkbox" id="s-mdi_windows" ${(typeof WinMgr!=='undefined'&&WinMgr.enabled())?'checked':''} style="width:auto">
+        فعال‌سازی حالت پنجره چندگانه
+      </label>
+    </div></div>
     <div class="panel"><div class="panel-head"><h4>اطلاعات شرکت</h4></div><div class="panel-body"><div class="form-grid">
       <div class="fg"><label>نام شرکت</label><input id="s-company_name" value="${esc(s.company_name||'')}"></div>
       <div class="fg"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}"></div>
@@ -13134,6 +13161,12 @@ async function saveSettings(){
   if(el('s-feature_cogs_voucher')) data.feature_cogs_voucher = el('s-feature_cogs_voucher').checked ? '1' : '0';
   data.currency_display = 'rial';
   data.currency_base = 'rial';
+  // پنجره چندگانه — تنظیم محلی مرورگر/دسکتاپ
+  const mdiEl=el('s-mdi_windows');
+  if(mdiEl && window.WinMgr){
+    WinMgr.setEnabled(!!mdiEl.checked);
+    if(!mdiEl.checked) WinMgr.closeAll();
+  }
   CACHE.settings = await api('PUT','/settings',data);
   CACHE.moduleFlags=null; // force re-fetch next time the Accounting shell is entered
   showToast('تنظیمات ذخیره شد');
@@ -13529,18 +13562,18 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
-    helpSec('🗔','پنجره‌های چندگانه (شبیه ویندوز)',`
-      <p>در ماژول حسابداری، با کلیک روی هر زیرمنو یک <b>پنجره جداگانه</b> باز می‌شود. می‌توانید چند بخش را هم‌زمان باز نگه دارید.</p>
-      <ul>
-        <li>نوار عنوان: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن</li>
-        <li>نوار پایین صفحه: تعویض بین پنجره‌ها، چینش، خاموش/روشن حالت پنجره</li>
-        <li>برای برگشت به حالت تک‌صفحه‌ای، دکمه 📄 را در نوار وظیفه بزنید</li>
-      </ul>`),
     helpSec('📥','ورودی اکسل و واحد پول',`
       <p>مبالغ در قالب و ورود اکسل فقط <b>ریال</b> هستند (بدون حذف صفر). پس از ورود، گزارش تعداد عملیات موفق/ناموفق نمایش داده می‌شود.</p>
       <ul>
         <li>ردیف‌های خالی و بدون نام/تلفن (اشخاص) یا بدون نام کالا رد می‌شوند</li>
+        <li><b>داده تکراری هرگز ذخیره نمی‌شود</b> — فقط ردیف‌های جدید وارد می‌شوند و تعداد تکراری‌ها اعلام می‌گردد (اشخاص: تلفن/کد؛ کالا: کد/بارکد/نام)</li>
         <li>حذف کالای واردشده از اکسل پس از پاک‌سازی موجودی انبار ممکن است؛ اگر در فاکتور باشد مسدود می‌شود</li>
+      </ul>`),
+    helpSec('🗔','پنجره‌های چندگانه (شبیه ویندوز)',`
+      <p>فعال/غیرفعال کردن از <b>تنظیمات سیستم → پنجره‌های چندگانه</b>. با فعال بودن، هر زیرمنوی حسابداری در پنجره جدا باز می‌شود.</p>
+      <ul>
+        <li>نوار عنوان: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن</li>
+        <li>نوار پایین صفحه: تعویض بین پنجره‌ها و چینش</li>
       </ul>`),
     helpSec('📊','داشبورد',`
       <p>داشبورد نمای کلی از وضعیت کسب‌وکار را نشان می‌دهد. پوستهٔ برنامه با هویت رسمی برند ترنم (سبز و طلایی) و لوگوی رسمی در ورود، منو، فاکتور چاپی و صورت‌حساب یکپارچه شده است.</p>
