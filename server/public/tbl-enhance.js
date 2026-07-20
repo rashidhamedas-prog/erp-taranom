@@ -1,10 +1,137 @@
 /**
- * جدول‌های حسابداری: سورت ستون، فیلتر سریع، انتخاب چندتایی
- * استفاده: enhanceDataTable(tableEl, { selectable: true, onSelectionChange })
+ * جدول‌ها: سورت، فیلتر، انتخاب چندتایی + نوار حذف گروهی
+ * enhanceDataTable(table, { selectable: true, bulkDelete: { label, path, deleteOne, canDelete, refresh, confirm } })
  */
 (function (global) {
   function cellText(td) {
     return (td?.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function selectedIds(table) {
+    return [...table.querySelectorAll('.tbl-sel-row:checked')]
+      .map((cb) => cb.dataset.id || cb.closest('tr')?.dataset.id)
+      .filter(Boolean);
+  }
+
+  function selectedRows(table) {
+    return [...table.querySelectorAll('.tbl-sel-row:checked')].map((cb) => cb.closest('tr')).filter(Boolean);
+  }
+
+  function findDeleteBtn(root) {
+    const btns = [...(root.querySelectorAll('button.btn.red, button.btn.sm.red') || [])];
+    const byFn = btns.find((b) =>
+      /^(delete|void|confirmDelete|discard|stkDelete|remDelete|prodBom|prodOrderCancel)/i.test(
+        (b.getAttribute('onclick') || '').trim()
+      )
+    );
+    if (byFn) return byFn;
+    return btns.find((b) => /حذف|ابطال/.test(b.textContent || '') || b.getAttribute('title') === 'ابطال') || null;
+  }
+
+  function ensureRowIds(table) {
+    const tbody = table.tBodies[0];
+    if (!tbody) return;
+    [...tbody.rows].forEach((tr) => {
+      if (tr.dataset.id) return;
+      const red = findDeleteBtn(tr);
+      const src = red ? (red.getAttribute('onclick') || '') : tr.innerHTML;
+      const m = src.match(/\((\d+)\b/) || src.match(/,\s*(\d+)\s*[,)]/);
+      if (m) tr.dataset.id = m[1];
+    });
+  }
+
+  /** نقشه توابع حذف ردیف → مسیر API (بدون confirm تکراری) */
+  const DELETE_API = {
+    deleteParty: (id) => ['DELETE', '/parties/' + id],
+    voidInvoiceDoc: (id) => ['DELETE', '/invoices/' + id],
+    deletePurchaseReturn: (id) => ['DELETE', '/purchases/returns/' + id],
+    deleteSalesReturn: (id) => ['DELETE', '/accounting/sales-returns/' + id],
+    deleteOrder: (id) => ['DELETE', '/orders/' + id],
+    deletePurchaseInvoice: (id) => ['DELETE', '/purchases/' + id],
+    deleteBank: (id) => ['DELETE', '/banks/' + id],
+    deleteCashBox: (id) => ['DELETE', '/cash-boxes/' + id],
+    deleteCashbox: (id) => ['DELETE', '/cash-boxes/' + id],
+    deleteCheckCategory: (id) => ['DELETE', '/check-categories/' + id],
+    deletePartyGroup: (id) => ['DELETE', '/party-groups/' + id],
+    deleteProductGroup: (id) => ['DELETE', '/product-categories/' + id],
+    deleteSupplier: (id) => ['DELETE', '/suppliers/' + id],
+    deletePerson: (id) => ['DELETE', '/persons/' + id],
+    deletePersonCategory: (id) => ['DELETE', '/person-categories/' + id],
+    deleteWarehouse: (id) => ['DELETE', '/warehouses/' + id],
+    deleteConsignment: (id) => ['DELETE', '/consignments/' + id],
+    deleteVoucher: (id) => ['DELETE', '/accounting/vouchers/' + id],
+    deleteVoucherDraft: (id) => ['DELETE', '/accounting/voucher-drafts/' + id],
+    deleteVoucherTemplate: (id) => ['DELETE', '/accounting/voucher-templates/' + id],
+    deleteCostCenter: (id) => ['DELETE', '/accounting/cost-centers/' + id],
+    deleteCustomerGroup: (id) => ['DELETE', '/customer-groups/' + id],
+    deleteOpeningCheque: (id) => ['DELETE', '/opening-cheques/' + id],
+    deleteTrustCheck: (id) => ['DELETE', '/trust-checks/' + id],
+    deleteTransfer: (id) => ['DELETE', '/transfers/' + id],
+    deleteExpenseCategory: (id) => ['DELETE', '/expense-categories/' + id],
+    deleteSettlement: (id) => ['DELETE', '/settlements/' + id],
+    deleteProductionRun: (id) => ['DELETE', '/production/runs/' + id],
+    deletePayrollRecord: (id) => ['DELETE', '/payroll/' + id],
+    prodBomDelete: (id) => ['DELETE', '/production/boms/' + id],
+    prodOrderCancel: (id) => ['POST', '/production/orders/' + id + '/cancel'],
+    stkDelete: (id) => ['DELETE', '/stocktaking/' + id],
+    remDelete: (id) => ['DELETE', '/reminders/' + id],
+    discardSyncConflict: (id) => ['DELETE', '/sync/conflicts/' + id],
+  };
+
+  function updateBulkBar(table, opts) {
+    const bar = table._bulkBar;
+    if (!bar) return;
+    const ids = selectedIds(table);
+    const can = !opts.bulkDelete || (typeof opts.bulkDelete.canDelete === 'function'
+      ? opts.bulkDelete.canDelete()
+      : opts.bulkDelete.canDelete !== false);
+    if (!ids.length || !opts.bulkDelete || !can) {
+      bar.style.display = 'none';
+      bar.innerHTML = '';
+      return;
+    }
+    const label = opts.bulkDelete.label || 'حذف';
+    bar.style.display = 'flex';
+    bar.innerHTML = `
+      <span class="tbl-bulk-count">${ids.length.toLocaleString('fa-IR')} مورد انتخاب شده</span>
+      <button type="button" class="btn sm red tbl-bulk-del">${label === 'ابطال' ? '⛔' : '🗑️'} ${label} انتخاب‌شده‌ها</button>
+      <button type="button" class="btn sm ghost tbl-bulk-clear">✕ لغو انتخاب</button>`;
+    bar.querySelector('.tbl-bulk-del').onclick = () => runBulkDelete(table, opts);
+    bar.querySelector('.tbl-bulk-clear').onclick = () => {
+      table.querySelectorAll('.tbl-sel-row:checked').forEach((cb) => { cb.checked = false; });
+      const all = table.querySelector('.tbl-sel-all');
+      if (all) all.checked = false;
+      updateBulkBar(table, opts);
+    };
+  }
+
+  async function runBulkDelete(table, opts) {
+    const ids = selectedIds(table);
+    if (!ids.length || !opts.bulkDelete) return;
+    const bd = opts.bulkDelete;
+    const label = bd.label || 'حذف';
+    const conf = bd.confirm || `${ids.length} مورد ${label} شود؟`;
+    if (!confirm(conf.replace(/\{n\}/g, String(ids.length)))) return;
+    let ok = 0;
+    const failed = [];
+    for (const id of ids) {
+      try {
+        if (typeof bd.deleteOne === 'function') await bd.deleteOne(id);
+        else if (bd.path) {
+          if (typeof global.api === 'function') await global.api('DELETE', bd.path.replace(/\/$/, '') + '/' + id);
+          else throw new Error('api unavailable');
+        } else throw new Error('حذف تعریف نشده');
+        ok++;
+      } catch (e) {
+        failed.push({ id, error: e?.message || 'خطا' });
+      }
+    }
+    if (typeof global.showToast === 'function') {
+      if (failed.length) global.showToast(`${ok} مورد انجام شد؛ ${failed.length} ناموفق`, 'error');
+      else global.showToast(`${ok} مورد با موفقیت ${label === 'ابطال' ? 'باطل' : 'حذف'} شد`);
+    }
+    if (typeof bd.refresh === 'function') await bd.refresh();
+    else if (typeof opts.onSelectionChange === 'function') opts.onSelectionChange([]);
   }
 
   function enhanceDataTable(table, opts) {
@@ -15,6 +142,8 @@
     const tbody = table.tBodies[0];
     if (!thead || !tbody) return;
 
+    ensureRowIds(table);
+
     const headerRow = thead.rows[0];
     if (!headerRow) return;
 
@@ -22,31 +151,49 @@
     let sortDir = 1;
     const filters = {};
 
-    // Multi-select column
     if (opts.selectable) {
+      // نوار عملیات گروهی بالای جدول
+      if (opts.bulkDelete) {
+        const wrap = table.closest('.tbl-wrap') || table.parentElement;
+        let bar = wrap?.previousElementSibling;
+        if (!bar || !bar.classList.contains('tbl-bulk-bar')) {
+          bar = document.createElement('div');
+          bar.className = 'tbl-bulk-bar';
+          bar.style.cssText = 'display:none;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;margin-bottom:8px;background:var(--purple-light);border:1px solid var(--border);border-radius:8px;font-size:13px';
+          if (wrap && wrap.parentNode) wrap.parentNode.insertBefore(bar, wrap);
+          else table.parentNode.insertBefore(bar, table);
+        }
+        table._bulkBar = bar;
+      }
+
       const th = document.createElement('th');
-      th.className = 'tbl-sel-th';
+      th.className = 'tbl-sel-th no-sort';
       th.innerHTML = `<input type="checkbox" title="انتخاب همه" class="tbl-sel-all">`;
       headerRow.insertBefore(th, headerRow.firstChild);
       [...tbody.rows].forEach((tr) => {
+        // ردیف خالی بدون id
+        if (!tr.dataset.id && tr.querySelector('.empty, td[colspan]')) return;
         const td = document.createElement('td');
         td.className = 'tbl-sel-td';
-        const id = tr.dataset.id || tr.getAttribute('data-id') || '';
-        td.innerHTML = `<input type="checkbox" class="tbl-sel-row" data-id="${id}">`;
+        const id = tr.dataset.id || '';
+        td.innerHTML = `<input type="checkbox" class="tbl-sel-row" data-id="${id}" ${id ? '' : 'disabled'}>`;
         tr.insertBefore(td, tr.firstChild);
       });
+      const refreshSel = () => {
+        updateBulkBar(table, opts);
+        if (opts.onSelectionChange) opts.onSelectionChange(selectedIds(table));
+      };
       th.querySelector('.tbl-sel-all').addEventListener('change', (e) => {
-        tbody.querySelectorAll('.tbl-sel-row').forEach((cb) => {
+        tbody.querySelectorAll('.tbl-sel-row:not([disabled])').forEach((cb) => {
           if (cb.closest('tr').style.display === 'none') return;
           cb.checked = e.target.checked;
         });
-        if (opts.onSelectionChange) opts.onSelectionChange(selectedIds(table));
+        refreshSel();
       });
       tbody.addEventListener('change', (e) => {
-        if (e.target.classList.contains('tbl-sel-row') && opts.onSelectionChange) {
-          opts.onSelectionChange(selectedIds(table));
-        }
+        if (e.target.classList.contains('tbl-sel-row')) refreshSel();
       });
+      updateBulkBar(table, opts);
     }
 
     [...headerRow.cells].forEach((th, idx) => {
@@ -102,17 +249,97 @@
     table._tblApplyFilters = applyFilters;
   }
 
-  function selectedIds(table) {
-    return [...table.querySelectorAll('.tbl-sel-row:checked')]
-      .map((cb) => cb.dataset.id || cb.closest('tr')?.dataset.id)
-      .filter(Boolean);
-  }
+  /** Infer bulk-delete from data-* attrs or first red action button */
+  function inferBulkDelete(table) {
+    if (table.dataset.bulkDelete === '0' || table.dataset.bulkDelete === 'false') return null;
+    const path = table.dataset.bulkDelete;
+    if (path && path.startsWith('/')) {
+      return {
+        path,
+        label: table.dataset.bulkLabel || 'حذف',
+        confirm: table.dataset.bulkConfirm || null,
+        canDelete: () => {
+          if (table.dataset.bulkPerm === 'admin') return typeof ME !== 'undefined' && (ME.role === 'admin' || ME.role === 'accounting');
+          if (table.dataset.bulkPerm === 'invoices') {
+            return (typeof canPerm === 'function' && canPerm('invoices', 'delete'))
+              || (typeof ME !== 'undefined' && (ME.role === 'admin' || ME.role === 'accounting'));
+          }
+          return true;
+        },
+        refresh: () => {
+          if (typeof IN_ACC_SHELL !== 'undefined' && IN_ACC_SHELL && typeof accTab !== 'undefined' && accTab && typeof loadAccTab === 'function') {
+            return loadAccTab(accTab);
+          }
+          if (typeof CURRENT_PAGE !== 'undefined' && CURRENT_PAGE === 'invoices' && typeof renderInvTable === 'function') {
+            return (async () => {
+              if (typeof api === 'function') {
+                global.CACHE = global.CACHE || {};
+                CACHE.invoices = await api('GET', '/invoices') || [];
+              }
+              renderInvTable();
+            })();
+          }
+          return null;
+        },
+      };
+    }
+    // از دکمه حذف ردیف استنباط کن
+    const btn = findDeleteBtn(table.tBodies[0] || table);
+    if (!btn) return null;
+    const oc = btn.getAttribute('onclick') || '';
+    const fnMatch = oc.match(/^([a-zA-Z_$][\w$]*)\s*\(/);
+    if (!fnMatch) return null;
+    const fnName = fnMatch[1];
+    const fn = global[fnName];
+    if (typeof fn !== 'function') return null;
+    const isVoid = /void|ابطال|reverse|Cancel/i.test(fnName + (table.dataset.bulkLabel || '') + (btn.textContent || ''));
+    return {
+      label: table.dataset.bulkLabel || (isVoid ? 'ابطال' : 'حذف'),
+      confirm: table.dataset.bulkConfirm || null,
+      canDelete: () => true,
+      deleteOne: async (id) => {
+        const tr = [...(table.tBodies[0]?.rows || [])].find((r) => String(r.dataset.id) === String(id));
+        const rowBtn = tr ? findDeleteBtn(tr) : null;
+        const rowOc = rowBtn ? (rowBtn.getAttribute('onclick') || '') : oc;
+        const rowFn = (rowOc.match(/^([a-zA-Z_$][\w$]*)\s*\(/) || [])[1] || fnName;
 
-  function selectedRows(table) {
-    return [...table.querySelectorAll('.tbl-sel-row:checked')].map((cb) => cb.closest('tr')).filter(Boolean);
+        if (rowFn === 'confirmDelete') {
+          const ent = rowOc.match(/confirmDelete\s*\(\s*['"]([^'"]+)['"]/);
+          if (ent) await global.api('DELETE', '/' + ent[1] + '/' + id);
+          else throw new Error('entity نامشخص');
+          return;
+        }
+        if (rowFn === 'deletePaymentOp') {
+          const kind = rowOc.match(/deletePaymentOp\s*\(\s*['"]([^'"]+)['"]/);
+          if (!kind) throw new Error('نوع پرداخت نامشخص');
+          const endpoint = kind[1] === 'supplier'
+            ? '/purchases/payments/' + id
+            : kind[1] === 'incentive'
+              ? '/accounting/incentive-payments/' + id
+              : '/expenses/' + id;
+          await global.api('DELETE', endpoint);
+          return;
+        }
+        const mapped = DELETE_API[rowFn];
+        if (mapped) {
+          const [method, path] = mapped(id);
+          await global.api(method, path);
+          return;
+        }
+        await fn(id);
+      },
+      refresh: () => {
+        if (typeof IN_ACC_SHELL !== 'undefined' && IN_ACC_SHELL && typeof accTab !== 'undefined' && accTab && typeof loadAccTab === 'function') {
+          return loadAccTab(accTab);
+        }
+        return null;
+      },
+    };
   }
 
   global.enhanceDataTable = enhanceDataTable;
   global.tblSelectedIds = selectedIds;
   global.tblSelectedRows = selectedRows;
+  global.tblInferBulkDelete = inferBulkDelete;
+  global.tblEnsureRowIds = ensureRowIds;
 })(window);

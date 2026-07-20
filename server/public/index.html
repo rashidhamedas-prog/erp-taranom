@@ -3218,9 +3218,10 @@ function renderInvTable(){
   if(q)rows=rows.filter(i=>((i.num||'')+' '+(i.cust_biz||'')+' '+(i.cust_owner||'')).toLowerCase().includes(q));
   if(invFilter.type)rows=rows.filter(i=>i.type===invFilter.type);
   const isAdmin=ME.role==='admin';
-  el('invTable').innerHTML=`<table class="tbl"><thead><tr>
-    <th>شماره</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی</th><th>فروشنده</th><th>عملیات</th>
-  </tr></thead><tbody>${rows.map(i=>`<tr>
+  const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
+  el('invTable').innerHTML=`<table class="tbl" id="crmInvTbl" data-bulk-delete="/invoices" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} فاکتور ابطال شود؟ سند معکوس ثبت می‌شود."><thead><tr>
+    <th>شماره</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی</th><th>فروشنده</th><th class="no-sort">عملیات</th>
+  </tr></thead><tbody>${rows.map(i=>`<tr data-id="${i.id}">
     <td class="mono" style="font-weight:700">${invNumCell(i.num)}</td>
     <td>${esc(i.cust_biz||'-')}${i.cust_owner?`<br><span class="muted" style="font-size:11px">${esc(i.cust_owner)}</span>`:''}</td>
     <td>${statusTag(i.type)}${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" style="font-size:10px">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
@@ -3230,7 +3231,7 @@ function renderInvTable(){
       ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" onclick="convertProforma(${i.id})">🔄 تبدیل به فاکتور</button>` : ''}
       <button class="btn sm blue" onclick="printInvoice(${i.id})">🖨️</button>
       <button class="btn sm ghost" onclick="openInvBuilder(${i.id})">✏️</button>
-      ${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" onclick="voidInvoiceDoc(${i.id},'${esc(i.num||'')}')" title="ابطال">⛔</button>`:''}
+      ${canDel?`<button class="btn sm red" onclick="voidInvoiceDoc(${i.id},'${esc(i.num||'')}')" title="ابطال">⛔</button>`:''}
     </td>
   </tr>`).join('')||emptyRow(7)}</tbody>
   <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
@@ -3238,6 +3239,10 @@ function renderInvTable(){
     <td class="mono" style="font-weight:800">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
     <td colspan="2"></td>
   </tr></tfoot></table>`;
+  if(typeof enhanceDataTable==='function'){
+    const t=el('crmInvTbl');
+    if(t) enhanceDataTable(t,{selectable:true, bulkDelete:canDel&&typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null});
+  }
 }
 function openInvBuilder(id){
   _openInvBuilder(id);
@@ -5118,9 +5123,14 @@ function enhanceAccTables(root){
   if(!root||typeof enhanceDataTable!=='function') return;
   root.querySelectorAll('table.tbl').forEach(t=>{
     if(t.dataset.enhanced==='1') return;
-    // جداول کوچک بدون داده را رد کن
     if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
-    enhanceDataTable(t,{selectable:true});
+    if(typeof tblEnsureRowIds==='function') tblEnsureRowIds(t);
+    const hasId=[...t.tBodies[0].rows].some(r=>r.dataset.id);
+    if(!hasId) return;
+    // فقط اگر حذف گروهی ممکن است (data-bulk یا دکمه حذف) — وگرنه فقط سورت/فیلتر بدون چک‌باکس
+    const bulk=typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null;
+    if(bulk) enhanceDataTable(t,{selectable:true, bulkDelete:bulk});
+    else enhanceDataTable(t,{}); // سورت و فیلتر بدون انتخاب
   });
 }
 
@@ -5256,7 +5266,7 @@ async function renderPartiesTab(body){
           <input id="partySearch" placeholder="جستجو نام/تلفن/کد... F10" value="${esc(search)}" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px">
           <span class="muted" style="font-size:12px">${fmt(rows.length)}${total>rows.length?' از '+fmt(total):''} نفر</span>
         </div>
-        <div class="tbl-wrap"><table class="tbl" id="partiesTbl" style="font-size:12px"><thead><tr>
+        <div class="tbl-wrap"><table class="tbl" id="partiesTbl" data-bulk-delete="/parties" data-bulk-label="حذف" data-bulk-perm="admin" data-bulk-confirm="{n} شخص حذف/غیرفعال شود؟" style="font-size:12px"><thead><tr>
           <th>کد</th><th>کد تفصیلی</th><th>نام</th><th>تلفن ۱</th><th>شهر</th><th>گروه</th><th>سمت‌ها</th><th>ماهیت</th><th>مانده ${moneyColLabel()}</th><th class="no-sort">عملیات</th>
         </tr></thead><tbody>${rows.map(p=>`<tr data-id="${p.id}">
           <td class="mono">${esc(p.person_code||'-')}</td>
@@ -5286,7 +5296,10 @@ async function renderPartiesTab(body){
       _partySearchTimer=setTimeout(()=>loadAccTab('parties'),280);
     });
   }
-  if(typeof enhanceDataTable==='function') enhanceDataTable(el('partiesTbl'),{selectable:true});
+  if(typeof enhanceDataTable==='function') enhanceDataTable(el('partiesTbl'),{
+    selectable:true,
+    bulkDelete:typeof tblInferBulkDelete==='function'?tblInferBulkDelete(el('partiesTbl')):null
+  });
 }
 function filterPartyGroup(id){ PARTY_GROUP_FILTER=id; loadAccTab('parties'); }
 async function showPartyTurnover(id,name){
@@ -5471,9 +5484,9 @@ async function renderSuppliersTab(body){
   const total=Object.values(balMap).reduce((a,v)=>a+v,0);
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="supplierModal()">➕ تأمین‌کننده جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>نام</th><th>تلفن</th><th>آدرس</th><th>مانده پرداختنی (ت)</th><th>عملیات</th>
-    </tr></thead><tbody>${(suppliers||[]).map(s=>`<tr>
+    <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/suppliers" data-bulk-label="حذف" data-bulk-confirm="{n} تأمین‌کننده حذف شود؟"><thead><tr>
+      <th>نام</th><th>تلفن</th><th>آدرس</th><th>مانده پرداختنی (ت)</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${(suppliers||[]).map(s=>`<tr data-id="${s.id}">
       <td>${esc(s.name)}</td><td class="mono">${esc(s.phone||'-')}</td><td>${esc(s.address||'-')}</td>
       <td class="mono" style="font-weight:700;color:${(balMap[s.id]||0)>0?'var(--red)':'var(--green)'}">${fmt(balMap[s.id]||0)}</td>
       <td style="white-space:nowrap">
@@ -5569,9 +5582,9 @@ async function renderPersonsTab(body){
       <button class="btn" onclick="personModal()">➕ شخص جدید</button>
       <button class="btn ghost" onclick="personCategoriesModal()">🏷️ مدیریت دسته‌ها</button>
     </div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>نام</th><th>دسته</th><th>تلفن</th><th>مانده حساب (ت)</th><th>وضعیت</th><th>عملیات</th>
-    </tr></thead><tbody>${persons.map(p=>`<tr>
+    <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/persons" data-bulk-label="حذف" data-bulk-confirm="{n} شخص حذف شود؟"><thead><tr>
+      <th>نام</th><th>دسته</th><th>تلفن</th><th>مانده حساب (ت)</th><th>وضعیت</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${persons.map(p=>`<tr data-id="${p.id}">
       <td>${esc(p.name)}</td><td>${esc(p.category_name||'-')}</td><td class="mono">${esc(p.phone||'-')}</td>
       <td class="mono" style="font-weight:700;color:${(p.balance||0)>0?'var(--red)':(p.balance||0)<0?'var(--green)':'var(--muted)'}">${(p.balance||0)!==0?fmt(p.balance):'-'}</td>
       <td>${p.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
@@ -5736,7 +5749,7 @@ async function renderSalesInvoicesTab(body){
       <button class="btn" onclick="openInvBuilder()">➕ فاکتور جدید</button>
       <input id="accInvSearch" class="search" placeholder="جستجو شماره/مشتری..." style="min-width:180px" oninput="filterAccInvTable()">
     </div>
-    <div class="tbl-wrap"><table class="tbl" id="accSalesInvTbl"><thead><tr>
+    <div class="tbl-wrap"><table class="tbl" id="accSalesInvTbl" data-bulk-delete="/invoices" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} فاکتور ابطال شود؟ سند معکوس ثبت می‌شود."><thead><tr>
       <th>شماره</th><th>سند مرجع</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${rows.map(i=>`<tr data-id="${i.id}" data-search="${esc((i.num||'')+' '+(i.cust_biz||''))}">
       <td class="mono" style="font-weight:700">${invNumCell(i.num)}</td>
@@ -5757,7 +5770,10 @@ async function renderSalesInvoicesTab(body){
       <td class="mono" style="font-weight:800">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
       <td colspan="3"></td>
     </tr></tfoot></table></div>`;
-  if(typeof enhanceDataTable==='function') enhanceDataTable(el('accSalesInvTbl'),{selectable:true});
+  if(typeof enhanceDataTable==='function'){
+    const t=el('accSalesInvTbl');
+    enhanceDataTable(t,{selectable:true, bulkDelete:typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null});
+  }
 }
 function filterAccInvTable(){
   const q=(el('accInvSearch')?.value||'').toLowerCase();
@@ -6035,9 +6051,9 @@ async function renderWarehousesTab(body){
   const typeMap=Object.fromEntries((lookup.types||[]).map(o=>[o.value,o.label]));
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="warehouseModal()">➕ انبار جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>کد</th><th>نام انبار</th><th>واحد</th><th>نوع</th><th>آدرس</th><th>پیش‌فرض</th><th>وضعیت</th><th>عملیات</th>
-    </tr></thead><tbody>${warehouses.map(w=>`<tr>
+    <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/warehouses" data-bulk-label="حذف" data-bulk-confirm="{n} انبار حذف شود؟"><thead><tr>
+      <th>کد</th><th>نام انبار</th><th>واحد</th><th>نوع</th><th>آدرس</th><th>پیش‌فرض</th><th>وضعیت</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${warehouses.map(w=>`<tr data-id="${w.id}">
       <td class="mono">${esc(w.code||'-')}</td>
       <td>${esc(w.name)}</td>
       <td>${entityMap[w.entity]||w.entity||'-'}</td>
@@ -8695,9 +8711,9 @@ async function renderPurchasesTab(body){
   const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه'};
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="purchaseInvoiceModal()">➕ فاکتور خرید جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>شماره</th><th>سند مرجع</th><th>تأمین‌کننده</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>ثبت‌کننده</th><th>عملیات</th>
-    </tr></thead><tbody>${rows.map(r=>`<tr>
+    <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/purchases" data-bulk-label="حذف" data-bulk-confirm="{n} فاکتور خرید حذف شود؟"><thead><tr>
+      <th>شماره</th><th>سند مرجع</th><th>تأمین‌کننده</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>ثبت‌کننده</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${rows.map(r=>`<tr data-id="${r.id}">
       <td class="mono" style="font-weight:700">${esc(r.num)}</td>
       <td>${refDocCell(r.ref_doc_no,r.ref_doc_type)}</td>
       <td>${esc(r.supplier_name||'-')}</td>
@@ -8806,7 +8822,7 @@ async function renderPurchaseReturnsTab(body){
   if(!Array.isArray(rows)) rows=[];
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="purchaseReturnModal()">➕ برگشت از خرید جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl" id="purchaseReturnsTbl"><thead><tr><th>تاریخ</th><th>سند مرجع</th><th>تأمین‌کننده</th><th>مبلغ ${moneyColLabel()}</th><th>یادداشت</th><th class="no-sort">عملیات</th></tr></thead>
+    <div class="tbl-wrap"><table class="tbl" id="purchaseReturnsTbl" data-bulk-delete="/purchases/returns" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} برگشت از خرید ابطال شود؟"><thead><tr><th>تاریخ</th><th>سند مرجع</th><th>تأمین‌کننده</th><th>مبلغ ${moneyColLabel()}</th><th>یادداشت</th><th class="no-sort">عملیات</th></tr></thead>
     <tbody>${rows.map(r=>`<tr data-id="${r.id}">
       <td class="mono">${escDate(r.date)}</td>
       <td>${refDocCell(r.ref_doc_no,r.ref_doc_type)}</td>
@@ -8815,7 +8831,10 @@ async function renderPurchaseReturnsTab(body){
       <td class="muted">${esc(r.note||'-')}</td>
       <td>${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" onclick="deletePurchaseReturn(${r.id})" title="ابطال">⛔ ابطال</button>`:''}</td>
     </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
-  if(typeof enhanceDataTable==='function') enhanceDataTable(el('purchaseReturnsTbl'),{selectable:true});
+  if(typeof enhanceDataTable==='function'){
+    const t=el('purchaseReturnsTbl');
+    enhanceDataTable(t,{selectable:true, bulkDelete:typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null});
+  }
 }
 function purchaseReturnModal(){
   openModal(`
@@ -8896,7 +8915,7 @@ async function renderSalesReturnsTab(body){
   if(!Array.isArray(rows)) rows=[];
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="salesReturnModal()">➕ برگشت از فروش جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl" id="salesReturnsTbl"><thead><tr><th>تاریخ</th><th>سند مرجع</th><th>مشتری</th><th>مبلغ ${moneyColLabel()}</th><th>یادداشت</th><th class="no-sort">عملیات</th></tr></thead>
+    <div class="tbl-wrap"><table class="tbl" id="salesReturnsTbl" data-bulk-delete="/accounting/sales-returns" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} برگشت از فروش ابطال شود؟"><thead><tr><th>تاریخ</th><th>سند مرجع</th><th>مشتری</th><th>مبلغ ${moneyColLabel()}</th><th>یادداشت</th><th class="no-sort">عملیات</th></tr></thead>
     <tbody>${rows.map(r=>`<tr data-id="${r.id}">
       <td class="mono">${escDate(r.date)}</td>
       <td>${refDocCell(r.ref_doc_no,r.ref_doc_type)}</td>
@@ -8905,7 +8924,10 @@ async function renderSalesReturnsTab(body){
       <td class="muted">${esc(r.note||'-')}</td>
       <td>${(canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" onclick="deleteSalesReturn(${r.id})" title="ابطال">⛔ ابطال</button>`:''}</td>
     </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
-  if(typeof enhanceDataTable==='function') enhanceDataTable(el('salesReturnsTbl'),{selectable:true});
+  if(typeof enhanceDataTable==='function'){
+    const t=el('salesReturnsTbl');
+    enhanceDataTable(t,{selectable:true, bulkDelete:typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null});
+  }
 }
 function salesReturnModal(){
   openModal(`
@@ -10054,7 +10076,7 @@ async function renderAccOrdersTab(body){
       ${canMut?`<button class="btn" onclick="orderModal()">➕ سفارش جدید</button>`:''}
       <input id="ordSearch" placeholder="جستجو..." style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px" oninput="filterOrdersTbl()">
     </div>
-    <div class="tbl-wrap"><table class="tbl" id="accOrdersTbl"><thead><tr>
+    <div class="tbl-wrap"><table class="tbl" id="accOrdersTbl" data-bulk-delete="/orders" data-bulk-label="حذف" data-bulk-perm="admin" data-bulk-confirm="{n} سفارش حذف شود؟"><thead><tr>
       <th>مشتری</th><th>وضعیت</th><th>تاریخ</th><th>مبلغ ${moneyColLabel()}</th><th class="no-sort">عملیات</th>
     </tr></thead>
     <tbody>${rows.map(o=>`<tr data-id="${o.id}" data-search="${esc((o.cust_biz||'')+' '+(o.status||''))}">
@@ -10067,7 +10089,10 @@ async function renderAccOrdersTab(body){
         ${(canPerm('invoices','delete')||ME.role==='admin')?`<button class="btn sm red" onclick="deleteOrder(${o.id})">🗑️</button>`:''}
       </td>
     </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
-  if(typeof enhanceDataTable==='function') enhanceDataTable(el('accOrdersTbl'),{selectable:true});
+  if(typeof enhanceDataTable==='function'){
+    const t=el('accOrdersTbl');
+    enhanceDataTable(t,{selectable:true, bulkDelete:typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null});
+  }
 }
 function filterOrdersTbl(){
   const q=(el('ordSearch')?.value||'').toLowerCase();
@@ -10190,9 +10215,9 @@ async function renderBanksTab(body){
   CACHE.banks=banks;
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="bankModal()">➕ بانک جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>نام بانک</th><th>شماره حساب</th><th>شعبه</th><th>کد حساب</th><th>وضعیت</th><th>عملیات</th>
-    </tr></thead><tbody>${banks.map(b=>`<tr>
+    <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/banks" data-bulk-label="حذف" data-bulk-confirm="{n} بانک حذف شود؟"><thead><tr>
+      <th>نام بانک</th><th>شماره حساب</th><th>شعبه</th><th>کد حساب</th><th>وضعیت</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${banks.map(b=>`<tr data-id="${b.id}">
       <td>${esc(b.name)}</td><td class="mono">${esc(b.account_number||'-')}</td><td>${esc(b.branch||'-')}</td>
       <td class="mono muted">${entityCoaDisplay(b,'1102-')}</td>
       <td>${b.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
@@ -10332,9 +10357,9 @@ async function renderCashBoxesTab(body){
   CACHE.cashBoxes=boxes;
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="cashBoxModal()">➕ صندوق جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>نام صندوق</th><th>مسئول صندوق</th><th>کد حساب</th><th>وضعیت</th><th>عملیات</th>
-    </tr></thead><tbody>${boxes.map(b=>`<tr>
+    <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/cash-boxes" data-bulk-label="حذف" data-bulk-confirm="{n} صندوق حذف شود؟"><thead><tr>
+      <th>نام صندوق</th><th>مسئول صندوق</th><th>کد حساب</th><th>وضعیت</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${boxes.map(b=>`<tr data-id="${b.id}">
       <td>${esc(b.name)}</td><td>${esc(b.custodian||'-')}</td>
       <td class="mono muted">${entityCoaDisplay(b,'1101-')}</td>
       <td>${b.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
@@ -13826,7 +13851,7 @@ function renderAdminGuide(){
     helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
       <p>نسخه دسکتاپ (ویندوز) و اندرویدِ برنامه به‌صورت <b>کاملاً آفلاین</b> کار می‌کنند: همه اطلاعات روی خود دستگاه ذخیره می‌شود و به محض دسترسی به اینترنت، تغییرات به‌طور خودکار با سرور مرکزی همگام می‌شود.</p>
       <h5>اتصال اولیه دستگاه</h5><ol>
-        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر دیالوگ «Something went wrong / this app has a bug» دیدید، نسخه قبلی را حذف و APK <b>۲.۰.۱۰+</b> را نصب کنید (رفع سازگاری صفحه ۱۶KB روی سامسونگ/اندروید ۱۵+)</li>
+        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر خطا یا دیالوگ کرش دیدید، نسخه قبلی را حذف و APK <b>۲.۰.۱۱+</b> را نصب کنید (رفع libc++ و صفحه ۱۶KB برای اندروید ۱۵+)</li>
         <li>در اولین اجرا، با کاربر پیش‌فرض وارد شوید — پنجره «اتصال به سرور مرکزی» باز می‌شود</li>
         <li>آدرس سرور مرکزی و نام کاربری/رمز <b>مدیر سیستم</b> را وارد کنید (این مرحله یک‌بار است و اینترنت لازم دارد)</li>
         <li>پس از اتصال، همه اطلاعات (مشتریان، محصولات، فاکتورها، کاربران و...) از مرکز دریافت می‌شود و از آن پس با نام کاربری اصلی خودتان — حتی بدون اینترنت — وارد می‌شوید</li>
