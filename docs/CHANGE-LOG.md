@@ -32,21 +32,32 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `c264da4` |
+| آخرین commit | `be64a0d` (`c264da4` حذف گروهی) |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `v48` |
 | اندروید | **`2.0.10`** (versionCode 12) — **توزیع محلی فقط** |
-| وضعیت سرور | ⏳ نیاز به deploy ایران `94.249.244.208` |
+| وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`be64a0d`، health ۲۰۰، SW `v48` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
 
+### ۱۴۰۵/۰۴/۲۹ — [Cursor] رفع بسته شدن ناگهانی بوت اندروید 2.0.12
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** بدون commit
+- **خلاصه:**
+  - پس از splash «راه‌اندازی سرور داخلی» اپ فوراً بسته می‌شد.
+  - **علت:** `process.exit()` در bootstrap اندروید کل پروسه را می‌کشد؛ SQLite فقط از assets لود می‌شد.
+  - **رفع:** مسدود کردن `process.exit`؛ `server.fail` + نمایش خطا؛ `libbetter_sqlite3.so` در jniLibs؛ preload STL/SQLite؛ نسخه **۲.۰.۱۲**.
+- **فایل‌های کلیدی:** `main.js`, `MainActivity.java`, `android/app/build.gradle`, `scripts/test-android-apk.ps1`
+- **Deploy:** ⏳ APK محلی — حذف نسخه قبلی و نصب ۲.۰.۱۲
+
 ### ۱۴۰۵/۰۴/۲۹ — [Cursor] حذف/ابطال گروهی با انتخاب سطر در لیست‌ها
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** `c264da4` استنباط از `data-bulk-delete` یا دکمه قرمز ردیف؛ پوشش فاکتور CRM، اشخاص، خرید، بانک، صندوق، انبار، برگشت‌ها و جداول حسابداری مشابه.
+- **Commit:** `c264da4` (+ `be64a0d` changelog)
+- **خلاصه:** با انتخاب یک یا چند سطر، نوار «حذف/ابطال انتخاب‌شده‌ها» ظاهر می‌شود؛ استنباط از `data-bulk-delete` یا دکمه قرمز ردیف؛ پوشش فاکتور CRM، اشخاص، خرید، بانک، صندوق، انبار، برگشت‌ها و جداول حسابداری مشابه.
 - **فایل‌های کلیدی:** `server/public/tbl-enhance.js`, `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳ نیاز به pull روی ایران
+- **Deploy:** ✅ ایران `94.249.244.208` — HEAD=`be64a0d`، bundle + pm2، health ۲۰۰، SW `v48`
 
 ### ۱۴۰۵/۰۴/۲۹ — [Cursor] رد تکراری اکسل + تنظیم MDI در تنظیمات
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
