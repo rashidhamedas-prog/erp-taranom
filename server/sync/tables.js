@@ -121,19 +121,31 @@ const SYNCABLE_TABLES = [
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
-// every new local row of table index i with ids starting at:
-//   PROVISIONAL_FLOOR + D*DEVICE_SPAN + i*TABLE_SPAN
+// every new local row of table index i with ids starting at tableBase(D, i).
 // Central autoincrement ids stay tiny (< PROVISIONAL_FLOOR), so a pulled
 // central row can never collide with a device's own not-yet-synced rows, and
-// two devices can never mint the same provisional id. TABLE_SPAN of 1e6 gives
-// each table a million offline-created rows per device; DEVICE_SPAN of 1e8
-// supports the 40 tables with room for future ones (99 slots of 1e6).
+// two devices can never mint the same provisional id.
+//
+// Legacy layout (indices 0–99): FLOOR + D*DEVICE_SPAN + i*TABLE_SPAN
+// (DEVICE_SPAN=1e8 holds 100 table slots of TABLE_SPAN=1e6). Indices ≥100
+// overflow into a separate high band so we never collide with device D+1
+// table 0 — critical after Update 11 appended tables past index 99.
+// DO NOT change FLOOR / DEVICE_SPAN / TABLE_SPAN / LEGACY_TABLE_SLOTS for
+// indices 0–99: existing devices already minted ids in that formula.
 const PROVISIONAL_FLOOR = 1_000_000_000_000;
 const DEVICE_SPAN = 100_000_000;
 const TABLE_SPAN = 1_000_000;
+const LEGACY_TABLE_SLOTS = 100;
+const OVERFLOW_FLOOR = PROVISIONAL_FLOOR + 10_000_000_000; // 1.01e13
 
 function tableBase(deviceId, tableIndex) {
-  return PROVISIONAL_FLOOR + deviceId * DEVICE_SPAN + tableIndex * TABLE_SPAN;
+  const d = Number(deviceId) || 0;
+  const i = Number(tableIndex) || 0;
+  if (i < LEGACY_TABLE_SLOTS) {
+    return PROVISIONAL_FLOOR + d * DEVICE_SPAN + i * TABLE_SPAN;
+  }
+  const overflowIndex = i - LEGACY_TABLE_SLOTS;
+  return OVERFLOW_FLOOR + d * DEVICE_SPAN + overflowIndex * TABLE_SPAN;
 }
 
 function isProvisionalId(v) {
@@ -202,6 +214,9 @@ const FK_COLUMNS = [
   ['payroll_records', 'period_id'],
   ['payroll_year_end_bonuses', 'person_id'],
   ['vat_records', 'journal_line_id'],
+  // Update 11 FKs (append-only)
+  ['persons', 'position_id'],
+  ['pricing_rules', 'scope_id'],
 ];
 
-module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, tableBase, isProvisionalId };
+module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

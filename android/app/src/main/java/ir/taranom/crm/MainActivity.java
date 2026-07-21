@@ -174,7 +174,7 @@ public class MainActivity extends Activity {
             Log.e(TAG, "Native library load failed", e);
             showErrorPage("کتابخانهٔ داخلی بارگذاری نشد",
                     (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())
-                            + "\n\nنسخهٔ ۲.۰.۱۶ به‌بعد را نصب کنید."
+                            + "\n\nنسخهٔ ۲.۰.۱۹ به‌بعد را نصب کنید."
                             + "\nاپ قبلی را حذف و APK جدید را دوباره نصب کنید.");
             return;
         }

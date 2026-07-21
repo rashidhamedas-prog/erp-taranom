@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Cleartext HTTP is required for (a) the embedded local server on
-     127.0.0.1 and (b) the central server, which is currently served over
-     plain HTTP. Everything else stays HTTPS-only. -->
+     127.0.0.1 and (b) the central server when served over plain HTTP.
+     Production Iran: 94.249.244.208 / erp.poshaktaranom.com
+     Legacy IP 45.90.98.99 kept for older pairings. -->
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">94.249.244.208</domain>
+        <domain includeSubdomains="true">erp.poshaktaranom.com</domain>
+        <domain includeSubdomains="true">poshaktaranom.com</domain>
         <domain includeSubdomains="false">45.90.98.99</domain>
     </domain-config>
     <base-config cleartextTrafficPermitted="false" />

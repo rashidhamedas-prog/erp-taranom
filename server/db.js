@@ -2083,6 +2083,21 @@ function initSyncSchema(db) {
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v1','1')").run();
     }
+    // v2: tables created AFTER v1 (e.g. Update 11 seeds) can land with sync_seq NULL
+    // because INSERT before triggers + v1 already done skips them from pull forever.
+    const backfillV2 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v2'").get();
+    if (!backfillV2 || backfillV2.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v2 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v2','1')").run();
+    }
   }
 
   // Currency: مبنای ذخیره‌سازی ریال + مهاجرت یک‌باره از تومان

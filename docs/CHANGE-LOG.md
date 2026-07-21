@@ -32,15 +32,22 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `426733c` اندروید 2.0.18 + لغو محک · `82d6970` Update 11 |
+| آخرین commit | sync-fix 2.0.19 (در حال push) · `426733c` اندروید · `82d6970` Update 11 |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v52` |
-| اندروید | **`2.0.18`** (versionCode 20) — **توزیع محلی فقط** · import محک لغو |
+| اندروید | **`2.0.19`** (versionCode 21) — **توزیع محلی** · رفع همگام‌سازی ایران |
 | وضعیت سرور | ✅ ایران `94.249.244.208` — PM2=`erp-taranom`، دامنه `https://erp.poshaktaranom.com` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۵/۰۴/۳۰ — [Cursor] رفع همگام‌سازی اندروید↔سرور ایران (2.0.19)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:** علت اصلی روی اندروید: `network_security_config` فقط IP قدیمی آلمان (`45.90.98.99`) را برای HTTP مجاز می‌کرد و URL پیش‌فرض pairing همان بود — سرور فعلی ایران (`94.249.244.208` / `erp.poshaktaranom.com`) بلاک یا اشتباه بود. همچنین overflow شناسه موقت برای جداول Update 11 (ایندکس ≥100)، `sync_seq_backfill_v2` برای seedهای بی‌seq، و PATH/FK/id نرخ ارز برای capture.
+- **فایل‌های کلیدی:** `network_security_config.xml`, `sync/tables.js`, `sync/capture.js`, `db.js`, `fx-rate.js`, `index.html`, `build.gradle`
+- **Deploy:** ⏳ APK محلی ۲.۰.۱۹ + pull سرور مرکزی برای backfill v2
 
 ### ۱۴۰۵/۰۴/۳۰ — [Cursor] اندروید 2.0.18 + لغو کامل import محک
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

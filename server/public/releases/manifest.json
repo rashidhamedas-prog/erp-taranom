@@ -10,10 +10,10 @@
     "notes": "نسخه 1.0.11: Command Palette، مرکز اقدامات، RBAC، مشاور AI، سال مالی، کدینگ تفصیلی، هات‌فیکس ورود، بارکد wedge، SW v30"
   },
   "android": {
-    "version": "2.0.18",
-    "versionCode": 20,
+    "version": "2.0.19",
+    "versionCode": 21,
     "url": "",
     "distribution": "local",
-    "notes": "نسخه 2.0.18: رفع dlopen/SQLite + TMPDIR قابل‌نوشتن؛ پچ thirty-two؛ حذف import محک از APK — نصب فقط محلی."
+    "notes": "نسخه 2.0.19: رفع همگام‌سازی اندروید با سرور ایران (cleartext/NSC + URL پیش‌فرض erp.poshaktaranom.com) و overflow شناسه موقت جداول Update 11."
   }
 }

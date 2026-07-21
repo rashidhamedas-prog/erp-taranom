@@ -59,7 +59,12 @@ const PATH_TABLE_MAP = [
   ['/api/production', 'production_runs'],
   ['/api/payroll', 'payroll_records'],
   ['/api/reminders', 'reminders'],
-  ['/api/orders', 'orders']
+  ['/api/orders', 'orders'],
+  // Update 11
+  ['/api/fx/rates', 'exchange_rates'],
+  ['/api/fx/currencies', 'currencies'],
+  ['/api/person-positions', 'person_positions'],
+  ['/api/pricing-rules', 'pricing_rules'],
 ];
 
 function tableForPath(path) {

@@ -68,7 +68,16 @@ function setManualRate(db, currency, date, rateRial, source = 'manual') {
     INSERT INTO exchange_rates (currency,date,rate_rial,source) VALUES (?,?,?,?)
     ON CONFLICT(currency, date, source) DO UPDATE SET rate_rial=excluded.rate_rial
   `).run(code, d, rate, source || 'manual');
-  return { currency: code, date: d, rate_rial: rate, source: source || 'manual' };
+  const row = db.prepare(
+    'SELECT * FROM exchange_rates WHERE currency=? AND date=? AND source=? ORDER BY id DESC LIMIT 1'
+  ).get(code, d, source || 'manual');
+  return {
+    id: row?.id,
+    currency: code,
+    date: d,
+    rate_rial: rate,
+    source: source || 'manual',
+  };
 }
 
 /** foreign_amount × rate → INTEGER rial */
