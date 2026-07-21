@@ -44,7 +44,7 @@
 
 ### 2026-07-21 — تکمیل UIهای جا مانده (پرتال + تطبیق/بودجه + واگذاری)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `600e98c`
 - **خلاصه:** لیست امکانات/وظایف دپارتمان؛ واگذاری موقت مدیر بخش + جدول `op_dept_delegations` (سینک APPEND)؛ اعلان زنگوله برای unit/dept manager؛ SMS اختیاری روی رویداد پرتال؛ ردیف/تطبیق مغایرت بانکی؛ ویرایش ردیف بودجه؛ فیلتر اشخاص/انبار واحد؛ واگذاری چک با select بانک؛ SW v57
 - **فایل‌های کلیدی:** `portal-ui.js`, `routes/portal.js`, `portal-schema.js`, `sync/tables.js`, `index.html`, `sw.js`
 - **Deploy:** ⏳
