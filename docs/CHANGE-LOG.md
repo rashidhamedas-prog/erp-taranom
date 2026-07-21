@@ -47,7 +47,7 @@
 - **Commit:** `147efa2`
 - **خلاصه:** بارگذاری اولیه lazy؛ توضیحات ردیف در چاپ فاکتور؛ تخفیف ٪↔مبلغ دوطرفه (ردیف+کل) و جمع تخفیف ردیف‌ها؛ انبارگردانی ۳ شمارش+تگ؛ دریافت با واریز بانکی؛ دسته هزینه سلسله‌مراتبی؛ سمت/جایگاه؛ پورتال (پرداخت در انتظار حسابداری، هزینه خروجی، امکانات/وظایف) + جداول سینک APPEND؛ نرخ ارز live از tgju
 - **فایل‌های کلیدی:** `server/public/index.html`, `sw.js`, `portal-ui.js`, `acc-nav.js`, `routes/invoices.js`, `purchases.js`, `accounting.js`, `portal.js`, `lib/portal-schema.js`, `lib/fx-rate.js`, `sync/tables.js`
-- **Deploy:** ⏳ نیاز به pull
+- **Deploy:** ✅ ایران `b04a062` / health 200 / SW v54
 - **یادداشت:** `SYNCABLE_TABLES` فقط append — جداول `op_dept_*` / `op_parameter_extra_costs` / `op_field_followups` / `expense_categories`
 
 ---
