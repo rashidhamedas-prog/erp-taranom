@@ -2,7 +2,7 @@ const router = require('express').Router();
 const { allocTafsili } = require('../lib/coa-map');
 const jwt = require('jsonwebtoken');
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, centralOnly, SECRET, requirePermission } = require('../middleware/auth');
+const { auth, adminOnly, adminOrAccounting, centralOnly, SECRET, requirePermission } = require('../middleware/auth');
 const XLSX = require('xlsx');
 const multer = require('multer');
 const path = require('path');
@@ -71,6 +71,11 @@ router.get('/', auth, (req, res) => {
 
   const category = (req.query.category || '').trim();
   if (category && category !== 'all') { where.push('p.category = ?'); params.push(category); }
+  const categoryId = req.query.category_id;
+  if (categoryId && String(categoryId) !== 'all' && String(categoryId) !== '') {
+    where.push('p.category_id = ?');
+    params.push(parseInt(categoryId, 10));
+  }
 
   const search = (req.query.search || '').trim();
   if (search) {
@@ -242,7 +247,7 @@ router.get('/:id/labels', (req, res) => {
     <div class="label">
       <div class="name">${escName}</div>
       <svg class="bc" data-code="${prod.barcode}"></svg>
-      <div class="meta">${String(prod.code || '').replace(/</g, '&lt;')} — ${Number(prod.price || 0).toLocaleString('fa-IR')} تومان</div>
+      <div class="meta">${String(prod.code || '').replace(/</g, '&lt;')} — ${Number(prod.price || 0).toLocaleString('fa-IR')} ریال</div>
     </div>`).join('');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
@@ -268,8 +273,8 @@ document.querySelectorAll('svg.bc').forEach(function(el){
 </script></body></html>`);
 });
 
-// Quick create from invoice modals — managers and accountants (v1.0.11)
-router.post('/quick', auth, requirePermission('products', 'create'), (req, res) => {
+// Quick create from invoice modals — admin/accounting only (product master lives in accounting)
+router.post('/quick', auth, adminOrAccounting, (req, res) => {
   const {
     name, category_id, category, code, price, cost, warehouse_id, unit, stock, stock_alert,
     note, colors, pack_size, barcode, full_name, product_type, product_index, tax_id,
@@ -334,8 +339,8 @@ router.post('/quick', auth, requirePermission('products', 'create'), (req, res) 
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(pid));
 });
 
-// Create product (admin only) — multipart form-data for optional image
-router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
+// Create product — multipart form-data for optional image (admin/accounting)
+router.post('/', auth, adminOrAccounting, upload.single('image'), async (req, res) => {
   const {
     category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors,
     pack_size, barcode, warehouse_id, full_name, product_type, product_index, tax_id,
@@ -386,7 +391,7 @@ router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
 });
 
 // Update product (admin only)
-router.put('/:id', auth, adminOnly, upload.single('image'), async (req, res) => {
+router.put('/:id', auth, adminOrAccounting, upload.single('image'), async (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
@@ -449,7 +454,7 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
 });
 
 // Delete (admin only) — cascade stock children; block if used in documents
-router.delete('/:id', auth, adminOnly, (req, res) => {
+router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });

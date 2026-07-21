@@ -146,6 +146,7 @@ app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/product-categories', require('./routes/product-categories'));
 app.use('/api/party-groups', require('./routes/party-groups'));
+app.use('/api/admin/data-wipe', require('./routes/data-wipe'));
 app.use('/api/admin', require('./routes/admin'));
 
 // Manual backup endpoint — registered before admin router catch-all.

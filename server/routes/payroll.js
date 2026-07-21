@@ -3,6 +3,7 @@ const multer = require('multer');
 const { getDB, audit, createPersonLedgerEntry, resolveCashAccount } = require('../db');
 const { acct: coaAcct } = require('../lib/coa-map');
 const { postToLedger } = require('../lib/ledger');
+const { rialToLedger } = require('../lib/money');
 const { calculatePayroll } = require('../lib/payroll/engine');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
@@ -54,11 +55,11 @@ function createPayrollRecord(db, userId, data) {
     const recId = result.lastInsertRowid;
 
     const lines = [
-      { ...coaAcct(db,'coa_payroll_expense'), debit: grossPay - ded, credit: 0, description: `حقوق ${person.name} - ${period_label || ''}` },
-      { ...coaAcct(db,'coa_misc_persons'), debit: 0, credit: netPay }
+      { ...coaAcct(db,'coa_payroll_expense'), debit: rialToLedger(grossPay - ded), credit: 0, description: `حقوق ${person.name} - ${period_label || ''}` },
+      { ...coaAcct(db,'coa_misc_persons'), debit: 0, credit: rialToLedger(netPay) }
     ];
     if (ins + tax > 0) {
-      lines.push({ ...coaAcct(db,'coa_payroll_payable'), debit: 0, credit: ins + tax });
+      lines.push({ ...coaAcct(db,'coa_payroll_payable'), debit: 0, credit: rialToLedger(ins + tax) });
     }
     postToLedger(db, {
       sourceType: 'payroll', sourceId: recId, date: date || todayJalali(),
@@ -745,13 +746,13 @@ router.post('/monthly-batch', auth, adminOrAccounting, (req, res) => {
   const results = [];
   const errors = [];
   for (const p of employees) {
-    const grossToman = Math.round((p.monthly_salary_rial || 0) / 10);
-    const ins = Math.round(grossToman * (p.insurance_percent || 0) / 100);
-    const tax = Math.round(grossToman * (p.tax_percent || 0) / 100);
+    const grossRial = Math.round(p.monthly_salary_rial || 0);
+    const ins = Math.round(grossRial * (p.insurance_percent || 0) / 100);
+    const tax = Math.round(grossRial * (p.tax_percent || 0) / 100);
     try {
       const { recId, netPay } = createPayrollRecord(db, req.user.id, {
         person_id: p.id, period_label: period, regular_hours: 0, overtime_hours: 0,
-        hourly_rate: 0, overtime_rate: 0, bonuses: grossToman, deductions: 0,
+        hourly_rate: 0, overtime_rate: 0, bonuses: grossRial, deductions: 0,
         insurance_deduction: ins, tax_deduction: tax, date: date || todayJalali(),
         note: `حقوق ماهانه ${period}`
       });

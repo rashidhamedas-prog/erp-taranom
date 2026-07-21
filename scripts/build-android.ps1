@@ -119,14 +119,14 @@ if (-not (Test-Path 'gradlew.bat')) {
   Write-Host '==> Generating Gradle wrapper...'
   $gradle = Get-Command gradle -ErrorAction SilentlyContinue
   if (-not $gradle) {
-    $gw = Join-Path $env:TEMP 'gradle-8.4-bin.zip'
-    if (-not (Test-Path $gw)) { Invoke-WebRequest 'https://services.gradle.org/distributions/gradle-8.4-bin.zip' -OutFile $gw }
-    $gd = Join-Path $env:TEMP 'gradle-8.4'
+    $gw = Join-Path $env:TEMP 'gradle-8.7-bin.zip'
+    if (-not (Test-Path $gw)) { Invoke-WebRequest 'https://services.gradle.org/distributions/gradle-8.7-bin.zip' -OutFile $gw }
+    $gd = Join-Path $env:TEMP 'gradle-8.7'
     if (-not (Test-Path $gd)) { Expand-Archive $gw $gd -Force }
-    $gradleBin = Join-Path $gd 'gradle-8.4\bin\gradle.bat'
-    & $gradleBin wrapper --gradle-version 8.4
+    $gradleBin = Join-Path $gd 'gradle-8.7\bin\gradle.bat'
+    & $gradleBin wrapper --gradle-version 8.7
   } else {
-    & gradle wrapper --gradle-version 8.4
+    & gradle wrapper --gradle-version 8.7
   }
 }
 

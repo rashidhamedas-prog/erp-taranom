@@ -17,7 +17,8 @@
         android:theme="@style/AppTheme"
         android:largeHeap="true"
         android:hardwareAccelerated="true"
-        android:extractNativeLibs="true">
+        android:extractNativeLibs="true"
+        android:pageSizeCompat="enabled">
 
         <!-- Offline-first app: an embedded Node.js runtime serves the full CRM
              backend (SYNC_ROLE=device) on 127.0.0.1 and this activity shows it

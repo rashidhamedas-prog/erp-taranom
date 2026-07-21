@@ -18,7 +18,7 @@ function notifyNewInvoice(db, inv, cust) {
     entity_type: 'invoice',
     entity_id: inv.id,
     title: `فاکتور جدید ${inv.num || '#' + inv.id}`,
-    body: `${inv.type === 'final' ? 'فاکتور رسمی' : 'پیش‌فاکتور'} — ${biz} — ${Number(inv.final || 0).toLocaleString('fa-IR')} تومان`,
+    body: `${inv.type === 'final' ? 'فاکتور رسمی' : 'پیش‌فاکتور'} — ${biz} — ${Number(inv.final || 0).toLocaleString('fa-IR')} ریال`,
   });
 }
 

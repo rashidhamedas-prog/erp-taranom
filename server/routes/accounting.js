@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { acct: coaAcct } = require('../lib/coa-map');
 const { DELETED_FILTER, postToLedger } = require('../lib/ledger');
+const { rialToLedger, jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { todayJalali } = require('../jalali');
 // دریافتنیِ مشتری: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
 function recvAcct(db, custId) {
@@ -79,7 +80,7 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const pendingSettlements = db.prepare("SELECT COUNT(*) c FROM rep_payment_submissions WHERE status='pending'").get().c;
   const approvedCount = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=1").get().c;
   const tb = db.prepare(`
-    SELECT COALESCE(SUM(jl.debit),0) d, COALESCE(SUM(jl.credit),0) c
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) d, COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) c
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
   `).get();
   const trialBalanced = Math.abs((tb.d || 0) - (tb.c || 0)) < 1;
@@ -202,7 +203,7 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
     createLedgerEntry(db, {
       customer_id: cust_id, date: date || '', entry_type: 'settlement',
       ref_type: 'settlement', ref_id: settlementId,
-      description: `تسویه ${payLabel} - ${parseFloat(amount).toLocaleString('fa-IR')} تومان`,
+      description: `تسویه ${payLabel} - ${parseFloat(amount).toLocaleString('fa-IR')} ریال`,
       debit: 0, credit: parseFloat(amount), user_id: req.user.id
     });
     // Journal entry: Dr Cash/Bank / Cr Receivables — posts to the specific bank's
@@ -212,8 +213,8 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
       sourceType: 'settlement', sourceId: settlementId,
       date: date || todayJalali(), description: `تسویه ${payLabel} مشتری`, createdBy: req.user.id,
       lines: [
-        { code: cash.code, name: cash.name, debit: parseFloat(amount), credit: 0 },
-        (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: parseFloat(amount) };})()
+        { code: cash.code, name: cash.name, debit: rialToLedger(amount), credit: 0 },
+        (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(amount) };})()
       ]
     });
     if (invoice_id) {
@@ -224,7 +225,7 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
     }
     return settlementId;
   })();
-  audit(req.user.id, 'create', 'settlement', settlementId, `تسویه ${amount} تومان - مشتری ${cust_id}`);
+  audit(req.user.id, 'create', 'settlement', settlementId, `تسویه ${amount} ریال - مشتری ${cust_id}`);
 
   res.json({ id: settlementId, ok: true });
 });
@@ -261,7 +262,7 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
       createLedgerEntry(db, {
         customer_id: cust_id, date: p.date || '', entry_type: 'settlement',
         ref_type: 'settlement', ref_id: settlementId,
-        description: `تسویه ${payLabel} (قسط) - ${amount.toLocaleString('fa-IR')} تومان`,
+        description: `تسویه ${payLabel} (قسط) - ${amount.toLocaleString('fa-IR')} ریال`,
         debit: 0, credit: amount, user_id: req.user.id
       });
       const cash = resolveCashAccount(db, pay_type, p.bank_id, p.cash_box_id);
@@ -269,8 +270,8 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
         sourceType: 'settlement', sourceId: settlementId,
         date: p.date || todayJalali(), description: `تسویه ${payLabel} مشتری (قسط)`, createdBy: req.user.id,
         lines: [
-          { code: cash.code, name: cash.name, debit: amount, credit: 0 },
-          (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: amount };})()
+          { code: cash.code, name: cash.name, debit: rialToLedger(amount), credit: 0 },
+          (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(amount) };})()
         ]
       });
       if (p.invoice_id) {
@@ -307,8 +308,8 @@ router.delete('/settlements/:id', auth, adminOrAccounting, (req, res) => {
       sourceType: 'settlement_reversal', sourceId: settlement.id, date: todayJalali(),
       description: `ابطال تسویه شماره ${settlement.id}`, createdBy: req.user.id,
       lines: [
-        (()=>{const a=recvAcct(db,settlement.cust_id);return { code: a.code, name: a.name, debit: settlement.amount, credit: 0 };})(),
-        { code: cash.code, name: cash.name, debit: 0, credit: settlement.amount }
+        (()=>{const a=recvAcct(db,settlement.cust_id);return { code: a.code, name: a.name, debit: rialToLedger(settlement.amount), credit: 0 };})(),
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(settlement.amount) }
       ]
     });
     reverseCommissionAccrual(db, 'settlement', settlement.id, req.user.id, todayJalali());
@@ -323,7 +324,7 @@ router.delete('/settlements/:id', auth, adminOrAccounting, (req, res) => {
         .run('تأیید اشتباه بود — تسویه توسط حسابدار ابطال شد', req.user.id, sub.id);
       const { notifyRep } = require('../lib/rep-ledger');
       notifyRep(db, sub.rep_id,
-        `❌ پرداختی که قبلاً تأیید شده بود ابطال شد\nمبلغ: ${Number(sub.amount || 0).toLocaleString('fa-IR')} تومان\nوضعیت جدید: رد شده`,
+        `❌ پرداختی که قبلاً تأیید شده بود ابطال شد\nمبلغ: ${Number(sub.amount || 0).toLocaleString('fa-IR')} ریال\nوضعیت جدید: رد شده`,
         req.user.id);
       audit(req.user.id, 'reject', 'rep_payment', sub.id, `ابطال تأیید پرداخت میدانی (حذف تسویه #${settlement.id})`);
     }
@@ -432,14 +433,14 @@ router.post('/incentive-payments', auth, adminOrAccounting, (req, res) => {
       sourceType: 'incentive_payment', sourceId: result.lastInsertRowid,
       date: date || todayJalali(), description: `پرداخت انگیزه فروش به ${rep.name}`, createdBy: req.user.id,
       lines: [
-        { code: payable.code, name: payable.name, debit: parseFloat(amount), credit: 0 },
-        { code: cash.code, name: cash.name, debit: 0, credit: parseFloat(amount) }
+        { code: payable.code, name: payable.name, debit: rialToLedger(amount), credit: 0 },
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amount) }
       ]
     });
     return result.lastInsertRowid;
   })();
-  audit(req.user.id, 'create', 'incentive_payment', paymentId, `پرداخت انگیزه ${amount} تومان به ${rep.name}`);
-  notifyRep(db, rep_id, `💵 انگیزه ${amount} تومان به حساب شما پرداخت شد.`, req.user.id);
+  audit(req.user.id, 'create', 'incentive_payment', paymentId, `پرداخت انگیزه ${amount} ریال به ${rep.name}`);
+  notifyRep(db, rep_id, `💵 انگیزه ${amount} ریال به حساب شما پرداخت شد.`, req.user.id);
   res.json({ id: paymentId, ok: true });
 });
 
@@ -459,8 +460,8 @@ router.delete('/incentive-payments/:id', auth, adminOrAccounting, (req, res) => 
       sourceType: 'incentive_payment_reversal', sourceId: row.id, date: todayJalali(),
       description: `ابطال پرداخت انگیزه فروش به ${rep ? rep.name : ''}`, createdBy: req.user.id,
       lines: [
-        { code: cash.code, name: cash.name, debit: row.amount, credit: 0 },
-        { code: payable.code, name: payable.name, debit: 0, credit: row.amount }
+        { code: cash.code, name: cash.name, debit: rialToLedger(row.amount), credit: 0 },
+        { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(row.amount) }
       ]
     });
     const ledgerRows = db.prepare("SELECT * FROM rep_ledger WHERE ref_type='incentive_payment' AND ref_id=?").all(row.id);
@@ -754,12 +755,12 @@ router.get('/statement/:customerId/export', auth, adminOrAccounting, (req, res) 
   const faNum = n => Number(n || 0).toLocaleString('fa-IR');
   const rows = data.entries.map(e => ({
     'تاریخ': e.date || '', 'نوع تراکنش': e.type_label, 'شرح': e.description || '',
-    'بدهکار (ت)': e.debit || 0, 'بستانکار (ت)': e.credit || 0,
-    'مانده (ت)': e.running_balance || 0, 'مرجع': e.reference || '', 'ثبت‌کننده': e.user_name || ''
+    'بدهکار (ریال)': e.debit || 0, 'بستانکار (ریال)': e.credit || 0,
+    'مانده (ریال)': e.running_balance || 0, 'مرجع': e.reference || '', 'ثبت‌کننده': e.user_name || ''
   }));
 
   if (format === 'csv') {
-    const headers = Object.keys(rows[0] || { 'تاریخ': '', 'نوع تراکنش': '', 'شرح': '', 'بدهکار (ت)': '', 'بستانکار (ت)': '', 'مانده (ت)': '', 'مرجع': '', 'ثبت‌کننده': '' });
+    const headers = Object.keys(rows[0] || { 'تاریخ': '', 'نوع تراکنش': '', 'شرح': '', 'بدهکار (ریال)': '', 'بستانکار (ریال)': '', 'مانده (ریال)': '', 'مرجع': '', 'ثبت‌کننده': '' });
     const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
     const lines = [headers.join(',')];
     for (const r of rows) lines.push(headers.map(h => esc(r[h])).join(','));
@@ -823,8 +824,8 @@ thead th{background:#1A5C38;color:#fff}tbody tr:nth-child(even){background:#f4f7
   const wb = XLSX.utils.book_new();
   const sheetData = [...rows,
     {},
-    { 'تاریخ': 'مانده اول دوره', 'مانده (ت)': data.opening },
-    { 'تاریخ': 'جمع دوره', 'بدهکار (ت)': data.totalDebit, 'بستانکار (ت)': data.totalCredit, 'مانده (ت)': data.closing }
+    { 'تاریخ': 'مانده اول دوره', 'مانده (ریال)': data.opening },
+    { 'تاریخ': 'جمع دوره', 'بدهکار (ریال)': data.totalDebit, 'بستانکار (ریال)': data.totalCredit, 'مانده (ریال)': data.closing }
   ];
   const ws = XLSX.utils.json_to_sheet(sheetData);
   ws['!cols'] = [14, 14, 30, 16, 16, 16, 14, 16].map(w => ({ wch: w }));
@@ -925,7 +926,7 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
     }
     const sum = qty * price - discAmt;
     amount += sum;
-    costAmount += qty * ((Number(prod.average_cost_rial) > 0 ? Number(prod.average_cost_rial) / 10 : Number(prod.cost)) || 0);
+    costAmount += qty * ((Number(prod.average_cost_rial) > 0 ? Number(prod.average_cost_rial) : Number(prod.cost)) || 0);
     built.push({ product_id: pid, name: prod.name, qty, price, disc, disc_amt: discAmt, sum });
   }
   if (!built.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
@@ -948,13 +949,13 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
     const inventory = coaAcct(db, 'coa_inventory');
     const cogs = coaAcct(db, 'coa_cogs');
     const journalLines = [
-      { code: salesReturn.code, name: salesReturn.name, debit: amount, credit: 0 },
-      (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: amount };})(),
+      { code: salesReturn.code, name: salesReturn.name, debit: rialToLedger(amount), credit: 0 },
+      (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(amount) };})(),
     ];
     if (costAmount > 0) {
       journalLines.push(
-        { code: inventory.code, name: inventory.name, debit: costAmount, credit: 0 },
-        { code: cogs.code, name: cogs.name, debit: 0, credit: costAmount }
+        { code: inventory.code, name: inventory.name, debit: rialToLedger(costAmount), credit: 0 },
+        { code: cogs.code, name: cogs.name, debit: 0, credit: rialToLedger(costAmount) }
       );
     }
     postToLedger(db, {
@@ -987,13 +988,13 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
     const inventory = coaAcct(db, 'coa_inventory');
     const cogs = coaAcct(db, 'coa_cogs');
     const journalLines = [
-      (()=>{const a=recvAcct(db,row.cust_id);return { code: a.code, name: a.name, debit: row.amount, credit: 0 };})(),
-      { code: salesReturn.code, name: salesReturn.name, debit: 0, credit: row.amount },
+      (()=>{const a=recvAcct(db,row.cust_id);return { code: a.code, name: a.name, debit: rialToLedger(row.amount), credit: 0 };})(),
+      { code: salesReturn.code, name: salesReturn.name, debit: 0, credit: rialToLedger(row.amount) },
     ];
     if (row.cost_amount > 0) {
       journalLines.push(
-        { code: cogs.code, name: cogs.name, debit: row.cost_amount, credit: 0 },
-        { code: inventory.code, name: inventory.name, debit: 0, credit: row.cost_amount }
+        { code: cogs.code, name: cogs.name, debit: rialToLedger(row.cost_amount), credit: 0 },
+        { code: inventory.code, name: inventory.name, debit: 0, credit: rialToLedger(row.cost_amount) }
       );
     }
     const reversalId = postToLedger(db, {
@@ -1061,7 +1062,10 @@ router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
   const entryId = db.transaction(() => {
     const entryId = postToLedger(db, {
       sourceType: 'manual_voucher', sourceId: null, date: date || todayJalali(),
-      description: description || 'سند دستی', createdBy: req.user.id, lines: built.cleanLines,
+      description: description || 'سند دستی', createdBy: req.user.id,
+      lines: built.cleanLines.map(l => ({
+        ...l, debit: rialToLedger(l.debit), credit: rialToLedger(l.credit),
+      })),
     });
     if (cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(cost_center_id, entryId);
     if (doc_type) db.prepare('UPDATE journal_entries SET doc_type=? WHERE id=?').run(String(doc_type), entryId);
@@ -1147,7 +1151,10 @@ router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => 
   const entryId = db.transaction(() => {
     const entryId = postToLedger(db, {
       sourceType: 'manual_voucher', sourceId: null, date: draft.date || todayJalali(),
-      description: draft.description || 'سند دستی', createdBy: req.user.id, lines: built.cleanLines,
+      description: draft.description || 'سند دستی', createdBy: req.user.id,
+      lines: built.cleanLines.map(l => ({
+        ...l, debit: rialToLedger(l.debit), credit: rialToLedger(l.credit),
+      })),
     });
     if (draft.cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(draft.cost_center_id, entryId);
     for (const p of built.personPostings) {
@@ -1174,7 +1181,8 @@ router.delete('/vouchers/:id', auth, adminOrAccounting, requirePermission('accou
       sourceType: 'manual_voucher_reversal', sourceId: Number(req.params.id), date: todayJalali(),
       description: `ابطال سند دستی #${req.params.id}`, createdBy: req.user.id,
       lines: lines.map(l => ({
-        code: l.account_code, name: l.account_name, debit: l.credit || 0, credit: l.debit || 0,
+        code: l.account_code, name: l.account_name,
+        debit: rialToLedger(jlCreditRial(l)), credit: rialToLedger(jlDebitRial(l)),
         description: `معکوس: ${l.description || ''}`, detail_account_id: l.detail_account_id || null,
         cost_center_id: l.cost_center_id || null, project_id: l.project_id || null, tax_type: l.tax_type || null,
       })),
@@ -1211,7 +1219,11 @@ router.get('/general-ledger/:code', auth, adminOrAccounting, (req, res) => {
   const debitNormal = ['asset', 'expense', 'cogs'].includes(account.type);
   let balance = 0;
   lines.forEach(l => {
-    balance += debitNormal ? (l.debit - l.credit) : (l.credit - l.debit);
+    const dr = jlDebitRial(l);
+    const cr = jlCreditRial(l);
+    l.debit_rial = dr;
+    l.credit_rial = cr;
+    balance += debitNormal ? (dr - cr) : (cr - dr);
     l.running_balance = balance;
   });
   res.json({ account, lines, balance });
@@ -1228,7 +1240,7 @@ router.get('/trial-balance', auth, adminOrAccounting, (req, res) => {
   const dateWhere = (sf || st) ? `WHERE je.entry_date >= '${sf || ''}' AND je.entry_date <= '${st || '9999'}' AND ${DELETED_FILTER}` : `WHERE ${DELETED_FILTER}`;
   const rows = db.prepare(`
     SELECT jl.account_code, jl.account_name,
-      COALESCE(SUM(jl.debit),0) as total_debit, COALESCE(SUM(jl.credit),0) as total_credit
+      COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) as total_debit, COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) as total_credit
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
     ${dateWhere}
     GROUP BY jl.account_code, jl.account_name
@@ -1268,7 +1280,7 @@ router.get('/balance-sheet', auth, adminOrAccounting, (req, res) => {
   const s = safeDate(asOf);
   const dateWhere = s ? `WHERE je.entry_date <= '${s}' AND ${DELETED_FILTER}` : `WHERE ${DELETED_FILTER}`;
   const rows = db.prepare(`
-    SELECT jl.account_code, COALESCE(SUM(jl.debit),0) d, COALESCE(SUM(jl.credit),0) c
+    SELECT jl.account_code, COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) d, COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) c
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
     ${dateWhere}
     GROUP BY jl.account_code

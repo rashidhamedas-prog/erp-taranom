@@ -1,4 +1,4 @@
-# ساخت اپلیکیشن اندروید (CRM ترنم — نسخه آفلاین)
+# ساخت اپلیکیشن اندروید (ERP ترنم — نسخه آفلاین)
 
 **نسخه ۲ (این نسخه):** اپلیکیشن دیگر پوستهٔ آنلاین TWA نیست. یک **Node.js داخلی** (nodejs-mobile) همان بک‌اند سرور مرکزی را با `SYNC_ROLE=device` روی خود گوشی اجرا می‌کند: همه داده‌ها روی دستگاه ذخیره می‌شود، همه عملیات **بدون اینترنت** انجام می‌شود و به‌محض اتصال، تغییرات خودکار با سرور مرکزی همگام می‌شود — دقیقاً مثل نسخه دسکتاپ ویندوز.
 
@@ -50,9 +50,9 @@ npm rebuild better-sqlite3 --build-from-source \
 4. Keystore و رمزهایش **در گیت نیستند** (و نباید باشند). فایل `android/keystore.properties` را محلی بسازید (این فایل در `.gitignore` است):
 
 ```properties
-storeFile=crm-taranom.jks
+storeFile=erp-taranom.jks
 storePassword=<رمز keystore>
-keyAlias=crm-taranom
+keyAlias=erp-taranom
 keyPassword=<رمز کلید>
 ```
 
@@ -61,7 +61,7 @@ keyPassword=<رمز کلید>
 > ⚠️ **چرخش keystore الزامی است**: keystore قبلی و رمز آن در تاریخچه گیت این مخزن افشا شده‌اند. یک keystore جدید بسازید و نسخه‌های بعدی را با آن امضا کنید (کاربران باید نسخه قدیمی را یک‌بار حذف و نسخه جدید را نصب کنند، چون امضا عوض می‌شود):
 >
 > ```bash
-> keytool -genkeypair -v -keystore crm-taranom.jks -alias crm-taranom \
+> keytool -genkeypair -v -keystore erp-taranom.jks -alias erp-taranom \
 >   -keyalg RSA -keysize 2048 -validity 10000
 > ```
 
@@ -78,7 +78,7 @@ cd android
 **APK هرگز روی سرور production آپلود نمی‌شود.** دلایل: فایل ~۶۰MB، آپلود ناپایدار (قطع scp)، و APK خراب روی سرور باعث بنر آپدیت شکسته می‌شد.
 
 1. `scripts/build-android.ps1` را روی ویندوز اجرا کنید
-2. خروجی: `server/public/releases/crm-taranom.apk` (فقط محلی)
+2. خروجی: `server/public/releases/erp-taranom.apk` (فقط محلی)
 3. نصب روی گوشی: USB / sideload / ارسال مستقیم — **نه** از `http://45.90.98.99/releases/`
 4. `manifest.json` اندروید `url` خالی دارد (`distribution: local`) تا بنر آپدیت لینک شکسته نشان ندهد
 

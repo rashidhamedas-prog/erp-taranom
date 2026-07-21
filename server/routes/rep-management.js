@@ -4,6 +4,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { getDB, audit, resolveCashAccount, createLedgerEntry } = require('../db');
 const { postToLedger } = require('../lib/ledger');
+const { rialToLedger } = require('../lib/money');
 const { acct } = require('../lib/coa-map');
 const { auth, adminOrAccounting, repModuleAdmin } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
@@ -112,7 +113,7 @@ function applyRepPaymentAsSettlement(db, sub, userId) {
   createLedgerEntry(db, {
     customer_id: sub.cust_id, date: sub.date || '', entry_type: 'settlement',
     ref_type: 'settlement', ref_id: settlementId,
-    description: `تسویه ${payLabel} (تأیید پرداخت میدانی) - ${amount.toLocaleString('fa-IR')} تومان`,
+    description: `تسویه ${payLabel} (تأیید پرداخت میدانی) - ${amount.toLocaleString('fa-IR')} ریال`,
     debit: 0, credit: amount, user_id: userId
   });
   const cash = resolveCashAccount(db, pay_type, null, null);
@@ -121,8 +122,8 @@ function applyRepPaymentAsSettlement(db, sub, userId) {
     sourceType: 'settlement', sourceId: settlementId,
     date: sub.date || todayJalali(), description: `تسویه ${payLabel} مشتری (نماینده میدانی)`, createdBy: userId,
     lines: [
-      { code: cash.code, name: cash.name, debit: amount, credit: 0 },
-      { code: receivable.code, name: receivable.name, debit: 0, credit: amount }
+      { code: cash.code, name: cash.name, debit: rialToLedger(amount), credit: 0 },
+      { code: receivable.code, name: receivable.name, debit: 0, credit: rialToLedger(amount) }
     ]
   });
   return settlementId;
@@ -314,12 +315,12 @@ router.post('/expenses/:expenseId/approve', auth, repModuleAdmin, (req, res) => 
       sourceType: 'rep_expense', sourceId: row.id,
       date: row.date || todayJalali(), description: `بازپرداخت هزینه نماینده ${row.rep_name}`, createdBy: req.user.id,
       lines: [
-        { code: expense.code, name: expense.name, debit: row.amount, credit: 0 },
-        { code: cash.code, name: cash.name, debit: 0, credit: row.amount }
+        { code: expense.code, name: expense.name, debit: rialToLedger(row.amount), credit: 0 },
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(row.amount) }
       ]
     });
   })();
-  notifyRep(db, row.rep_id, `✅ هزینه ${row.amount} تومان تأیید شد.`, req.user.id, { sms: true });
+  notifyRep(db, row.rep_id, `✅ هزینه ${row.amount} ریال تأیید شد.`, req.user.id, { sms: true });
   res.json({ ok: true });
 });
 
@@ -329,7 +330,7 @@ router.post('/expenses/:expenseId/reject', auth, repModuleAdmin, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.status !== 'pending') return res.status(400).json({ error: 'فقط pending' });
   db.prepare("UPDATE rep_expenses SET status='rejected',approved_by=?,approved_at=strftime('%s','now') WHERE id=?").run(req.user.id, row.id);
-  notifyRep(db, row.rep_id, `❌ هزینه ${row.amount} تومان رد شد.${req.body.note ? ' — ' + req.body.note : ''}`, req.user.id);
+  notifyRep(db, row.rep_id, `❌ هزینه ${row.amount} ریال رد شد.${req.body.note ? ' — ' + req.body.note : ''}`, req.user.id);
   res.json({ ok: true });
 });
 
@@ -540,13 +541,13 @@ router.post('/:id/advances', auth, adminOrAccounting, (req, res) => {
       sourceType: 'rep_advance', sourceId: r.lastInsertRowid,
       date: date || todayJalali(), description: `مساعده به نماینده ${rep.name}`, createdBy: req.user.id,
       lines: [
-        { code: advance.code, name: advance.name, debit: amt, credit: 0 },
-        { code: cash.code, name: cash.name, debit: 0, credit: amt }
+        { code: advance.code, name: advance.name, debit: rialToLedger(amt), credit: 0 },
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) }
       ]
     });
     return r;
   })();
-  notifyRep(db, repId, `💰 مساعده ${amt} تومان به حساب شما ثبت شد.`, req.user.id);
+  notifyRep(db, repId, `💰 مساعده ${amt} ریال به حساب شما ثبت شد.`, req.user.id);
   audit(req.user.id, 'create', 'rep_advance', result.lastInsertRowid, `مساعده ${amt}`);
   res.json({ id: result.lastInsertRowid, ok: true });
 });
@@ -574,8 +575,8 @@ router.post('/:id/settle', auth, adminOrAccounting, (req, res) => {
       sourceType: 'rep_settlement', sourceId: pay.lastInsertRowid,
       date: date || todayJalali(), description: `تسویه نماینده ${rep.name}`, createdBy: req.user.id,
       lines: [
-        { code: payable.code, name: payable.name, debit: amt, credit: 0 },
-        { code: cash.code, name: cash.name, debit: 0, credit: amt }
+        { code: payable.code, name: payable.name, debit: rialToLedger(amt), credit: 0 },
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) }
       ]
     });
     db.prepare(`
@@ -584,7 +585,7 @@ router.post('/:id/settle', auth, adminOrAccounting, (req, res) => {
     `).run(repId, date || todayJalali(), 'combined', amt, advSettled, amt, balanceBefore, balanceBefore - amt, note || '', pay.lastInsertRowid, req.user.id);
     return { paymentId: pay.lastInsertRowid, advSettled };
   })();
-  notifyRep(db, repId, `💵 تسویه ${amt} تومان انجام شد.${result.advSettled ? ` (مساعده: ${result.advSettled})` : ''}`, req.user.id, { sms: true });
+  notifyRep(db, repId, `💵 تسویه ${amt} ریال انجام شد.${result.advSettled ? ` (مساعده: ${result.advSettled})` : ''}`, req.user.id, { sms: true });
   res.json({ ok: true, ...result });
 });
 

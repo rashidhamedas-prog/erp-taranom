@@ -13,17 +13,19 @@
     }[c]));
   }
 
-  /** ریال → تومان با جداکننده فارسی */
+  /** نمایش مبلغ — واحد برنامه فقط ریال */
   function toman(rial) {
-    if (rial == null || rial === '') return '—';
-    return (Number(rial) / 10).toLocaleString('fa-IR', { maximumFractionDigits: 0 }) + ' ت';
+    return rialFmt(rial);
   }
 
   /** ریال کامل */
-  function rial(v) {
+  function rialFmt(v) {
     if (v == null || v === '') return '—';
     return Number(v).toLocaleString('fa-IR') + ' ریال';
   }
+
+  /** alias */
+  function rial(v) { return rialFmt(v); }
 
   /** مقدار با ۲ رقم اعشار */
   function qty(v, unit) {

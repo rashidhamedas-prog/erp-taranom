@@ -14,7 +14,7 @@ const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
-const { tomanToRial } = require('../lib/money');
+const { rialToLedger } = require('../lib/money');
 
 // Create a supplier ledger entry (debit = we owe less / paid, credit = we owe more / purchased)
 function createSupplierLedgerEntry(db, { supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
@@ -75,11 +75,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
 
   const discPct = parseFloat(disc) || 0;
   const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vat_exempt });
-  const freightRial = tomanToRial(parseFloat(freight_amount) || 0);
-  const freightToman = Math.round(freightRial / 10);
+  const freightRial = Math.round(parseFloat(freight_amount) || 0);
   let { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
-  final += freightToman;
-  netBeforeVat += freightToman;
+  final += freightRial;
+  netBeforeVat += freightRial;
   const entryDate = date || todayJalali();
   const whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='purchase_num_prefix'").get();
@@ -117,12 +116,12 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     // Journal: Dr Inventory + Dr VAT receivable / Cr Payable or Cash
     const invAcct = coaAcct(db, 'coa_inventory');
     const vatRec = coaAcct(db, 'coa_vat_receivable');
-    const inventoryDebit = netBeforeVat;
+    const inventoryDebit = rialToLedger(netBeforeVat);
     const jLines = [{ code: invAcct.code, name: invAcct.name, debit: inventoryDebit, credit: 0 }];
-    if (vatAmount > 0) jLines.push({ code: vatRec.code, name: vatRec.name, debit: vatAmount, credit: 0, description: 'مالیات خرید' });
+    if (vatAmount > 0) jLines.push({ code: vatRec.code, name: vatRec.name, debit: rialToLedger(vatAmount), credit: 0, description: 'مالیات خرید' });
     const payTypeResolved = pType === 'bank_transfer' ? 'bank' : pType;
     const cr = pType === 'credit' ? payableAcct(db, supplier_id) : resolveCashAccount(db, payTypeResolved, bank_id, cash_box_id);
-    jLines.push({ code: cr.code, name: cr.name, debit: 0, credit: final });
+    jLines.push({ code: cr.code, name: cr.name, debit: 0, credit: rialToLedger(final) });
     postToLedger(db, {
       sourceType: 'purchase', sourceId: invId, date: entryDate,
       description: `فاکتور خرید ${num}${freightRial ? ' (با کرایه حمل)' : ''}`, createdBy: req.user.id, lines: jLines,
@@ -162,12 +161,12 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     const cr = row.pay_type === 'credit' ? payableAcct(db, row.supplier_id) : resolveCashAccount(db, payTypeResolved, row.bank_id, row.cash_box_id);
     const invAcct = coaAcct(db, 'coa_inventory');
     const vatRec = coaAcct(db, 'coa_vat_receivable');
-    const netBeforeVat = (row.subtotal || 0) - (row.disc_amt || 0) + Math.round((row.freight_amount || 0) / 10);
+    const netBeforeVat = (row.subtotal || 0) - (row.disc_amt || 0) + Math.round(row.freight_amount || 0);
     const revLines = [
-      { code: cr.code, name: cr.name, debit: row.final, credit: 0 },
-      { code: invAcct.code, name: invAcct.name, debit: 0, credit: netBeforeVat },
+      { code: cr.code, name: cr.name, debit: rialToLedger(row.final), credit: 0 },
+      { code: invAcct.code, name: invAcct.name, debit: 0, credit: rialToLedger(netBeforeVat) },
     ];
-    if (row.vat_amount > 0) revLines.push({ code: vatRec.code, name: vatRec.name, debit: 0, credit: row.vat_amount, description: 'ابطال VAT خرید' });
+    if (row.vat_amount > 0) revLines.push({ code: vatRec.code, name: vatRec.name, debit: 0, credit: rialToLedger(row.vat_amount), description: 'ابطال VAT خرید' });
     const reversalId = postToLedger(db, {
       sourceType: 'purchase_reversal', sourceId: row.id,
       date: todayJalali(), description: `ابطال فاکتور خرید ${row.num}`, createdBy: req.user.id,
@@ -281,8 +280,8 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
       sourceType: 'purchase_return', sourceId: retId,
       date: date || todayJalali(), description: `برگشت از خرید #${retId}`, createdBy: req.user.id,
       lines: [
-        (()=>{const a=payableAcct(db, supplier_id);return { code: a.code, name: a.name, debit: amount, credit: 0 };})(),
-        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: 0, credit: amount }
+        (()=>{const a=payableAcct(db, supplier_id);return { code: a.code, name: a.name, debit: rialToLedger(amount), credit: 0 };})(),
+        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: 0, credit: rialToLedger(amount) }
       ]
     });
     return retId;
@@ -311,8 +310,8 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
       sourceType: 'purchase_return_reversal', sourceId: row.id,
       date: todayJalali(), description: `ابطال برگشت از خرید #${row.id}`, createdBy: req.user.id,
       lines: [
-        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: row.amount, credit: 0 },
-        (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: row.amount };})()
+        { code: coaAcct(db,'coa_inventory').code, name: coaAcct(db,'coa_inventory').name, debit: rialToLedger(row.amount), credit: 0 },
+        (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(row.amount) };})()
       ]
     });
     db.prepare("UPDATE purchase_returns SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
@@ -345,21 +344,21 @@ router.post('/payments', auth, adminOrAccounting, (req, res) => {
 
     createSupplierLedgerEntry(db, {
       supplier_id, date: date || todayJalali(), entry_type: 'payment', ref_type: 'supplier_payment', ref_id: payId,
-      description: `پرداخت به تأمین‌کننده — ${Number(amount).toLocaleString('fa-IR')} تومان`, debit: parseFloat(amount), credit: 0, user_id: req.user.id
+      description: `پرداخت به تأمین‌کننده — ${Number(amount).toLocaleString('fa-IR')} ریال`, debit: parseFloat(amount), credit: 0, user_id: req.user.id
     });
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
     postToLedger(db, {
       sourceType: 'supplier_payment', sourceId: payId,
       date: date || todayJalali(), description: 'پرداخت به تأمین‌کننده', createdBy: req.user.id,
       lines: [
-        (()=>{const a=payableAcct(db, supplier_id);return { code: a.code, name: a.name, debit: parseFloat(amount), credit: 0 };})(),
-        { code: cash.code, name: cash.name, debit: 0, credit: parseFloat(amount) }
+        (()=>{const a=payableAcct(db, supplier_id);return { code: a.code, name: a.name, debit: rialToLedger(amount), credit: 0 };})(),
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amount) }
       ]
     });
     return payId;
   })();
 
-  audit(req.user.id, 'create', 'supplier_payment', payId, `پرداخت ${amount} تومان به تأمین‌کننده`);
+  audit(req.user.id, 'create', 'supplier_payment', payId, `پرداخت ${amount} ریال به تأمین‌کننده`);
   res.json({ id: payId, ok: true });
 });
 
@@ -378,8 +377,8 @@ router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
       sourceType: 'supplier_payment_reversal', sourceId: row.id,
       date: todayJalali(), description: `ابطال پرداخت به تأمین‌کننده #${row.id}`, createdBy: req.user.id,
       lines: [
-        { code: cash.code, name: cash.name, debit: row.amount, credit: 0 },
-        (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: row.amount };})()
+        { code: cash.code, name: cash.name, debit: rialToLedger(row.amount), credit: 0 },
+        (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(row.amount) };})()
       ]
     });
     db.prepare("UPDATE supplier_payments SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")

@@ -4,13 +4,44 @@
 // (background) thread.
 #include <jni.h>
 #include <string>
+#include <cstring>
 #include <cstdlib>
+#include <dlfcn.h>
+#include <android/log.h>
 
 #include "node.h"
+
+#define LOG_TAG "CRMTaranom"
+#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+
+// Android loads JNI deps with RTLD_LOCAL, so V8/Node symbols inside libnode.so
+// are invisible to later process.dlopen("better_sqlite3.node"). Promote libnode
+// to RTLD_GLOBAL before any native addon load (JaneaSystems/nodejs-mobile#70).
+static void promoteLibnodeGlobal() {
+    dlerror();
+    void *h = dlopen("libnode.so", RTLD_NOLOAD | RTLD_GLOBAL);
+    if (!h) {
+        h = dlopen("libnode.so", RTLD_NOW | RTLD_GLOBAL);
+    }
+    if (!h) {
+        ALOGE("promoteLibnodeGlobal failed: %s", dlerror());
+    } else {
+        ALOGI("promoteLibnodeGlobal ok handle=%p", h);
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_ir_taranom_crm_MainActivity_promoteNodeSymbols(
+        JNIEnv * /* env */, jobject /* this */) {
+    promoteLibnodeGlobal();
+}
 
 extern "C" JNIEXPORT jobject JNICALL
 Java_ir_taranom_crm_MainActivity_startNodeWithArguments(
         JNIEnv *env, jobject /* this */, jobjectArray arguments) {
+
+    promoteLibnodeGlobal();
 
     jsize argc = env->GetArrayLength(arguments);
 

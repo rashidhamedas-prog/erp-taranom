@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const { getDB, audit } = require('../db');
 const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
+const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 
@@ -24,8 +25,9 @@ router.post('/rollover', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const open = currentFiscalYear(db);
 
+  // درآمد/هزینه روی حساب‌های 3xxx — مبالغ از debit_rial/credit_rial (ریال)
   const retained = db.prepare(`
-    SELECT COALESCE(SUM(jl.credit - jl.debit), 0) as net
+    SELECT COALESCE(SUM((${SQL_JL_CREDIT_RIAL}) - (${SQL_JL_DEBIT_RIAL})), 0) as net
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
     WHERE jl.account_code LIKE '3%' AND COALESCE(je.deleted_at,0)=0
   `).get().net || 0;
@@ -53,13 +55,15 @@ router.post('/rollover', auth, adminOnly, centralOnly, (req, res) => {
     if (Math.abs(retained) > 0.01) {
       const retainedAccount = acct(db, 'coa_retained_earnings');
       const openingAccount = acct(db, 'coa_fiscal_opening');
+      const absRial = Math.abs(retained);
+      const amt = rialToLedger(absRial);
       postToLedger(db, {
         sourceType: 'fiscal_opening', sourceId: fy.lastInsertRowid, date: start_date,
         description: `افتتاحیه سال مالی ${new_year_label} — سود انباشته`,
         createdBy: req.user.id, voucherType: 'opening',
         lines: [
-          { code: retainedAccount.code, name: retainedAccount.name, debit: retained < 0 ? Math.abs(retained) : 0, credit: retained > 0 ? retained : 0 },
-          { code: openingAccount.code, name: openingAccount.name, debit: retained > 0 ? retained : 0, credit: retained < 0 ? Math.abs(retained) : 0 },
+          { code: retainedAccount.code, name: retainedAccount.name, debit: retained < 0 ? amt : 0, credit: retained > 0 ? amt : 0 },
+          { code: openingAccount.code, name: openingAccount.name, debit: retained > 0 ? amt : 0, credit: retained < 0 ? amt : 0 },
         ],
       });
     }

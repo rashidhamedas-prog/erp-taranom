@@ -1,7 +1,5 @@
 // Dual-write shim: keep customers/suppliers tables in sync with unified parties table.
 
-const { tomanToRial } = require('./money');
-
 function syncCustomerToParty(db, customerId) {
   const c = db.prepare('SELECT * FROM customers WHERE id=?').get(customerId);
   if (!c) return null;
@@ -25,7 +23,7 @@ function syncCustomerToParty(db, customerId) {
       postal_code, birth_date, referrer, company_name, account_nature, coa_code)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(code, 'customer', '["customer"]', c.owner || c.biz, c.phone || '-', c.city, c.note, c.user_id, c.biz, c.owner, c.insta,
-    c.status, c.type, c.national_id, c.economic_code, tomanToRial(c.credit_limit || 0), 'customers', c.id,
+    c.status, c.type, c.national_id, c.economic_code, Math.round(Number(c.credit_limit) || 0), 'customers', c.id,
     c.party_group_id || null, c.prefix || null, c.phone2 || null, c.fax || null, c.mobile || null, c.email || null,
     c.postal_code || null, c.birth_date || null, c.referrer || null, c.company_name || null, c.account_nature || null, c.coa_code || null);
   db.prepare('UPDATE customers SET party_id=? WHERE id=?').run(r.lastInsertRowid, customerId);
@@ -75,13 +73,13 @@ function syncPartyToLegacy(db, partyId) {
     if (!cust) {
       const r = db.prepare(`
         INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,party_id,party_group_id,
-          prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature,coa_code)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature,coa_code,created_by,balance)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `).run(p.user_id || 1, p.biz || p.full_name, p.owner || '', p.city || '', p.province || '', p.address || '',
         p.phone, p.insta || '', p.type || 'بوتیک', p.status || 'new', p.notes || '', partyId, p.party_group_id || null,
         p.prefix || '', p.secondary_phone || '', p.fax || '', p.mobile || '', p.email || '', p.economic_code || '',
         p.postal_code || '', p.national_id || '', p.referrer || '', p.birth_date || '', p.company_name || '',
-        p.account_nature || '', p.coa_code || '');
+        p.account_nature || '', p.coa_code || '', p.user_id || 1, p.opening_balance != null ? Number(p.opening_balance) : 0);
       db.prepare('UPDATE parties SET legacy_table=?, legacy_id=? WHERE id=?').run('customers', r.lastInsertRowid, partyId);
     } else {
       db.prepare(`

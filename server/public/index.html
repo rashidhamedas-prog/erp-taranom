@@ -5,7 +5,7 @@
 <!-- Set the theme before first paint (anti-FOUC) — must stay the first script in <head> -->
 <script>(function(){var t=localStorage.getItem('crm_theme')||'light';document.documentElement.setAttribute('data-theme',t);})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>CRM ترنم</title>
+<title>ERP ترنم</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1A5C38">
 <link rel="apple-touch-icon" href="/logo.png">
@@ -634,8 +634,8 @@ table.tbl tr:hover td{background:var(--row-hover)}
   <button class="theme-toggle-btn" onclick="toggleTheme()" style="position:fixed;top:14px;left:14px;background:rgba(255,255,255,.15);color:#fff;border:none;padding:8px 14px;border-radius:20px;font-size:12px;font-weight:700;backdrop-filter:blur(4px)">🌙 حالت تاریک</button>
   <div class="login-card">
     <div class="logo"><img src="/logo-sm.png" alt="ترنم" style="height:110px;margin-bottom:6px" onerror="this.src='/logo.png';this.onerror=()=>{this.style.display='none';this.nextElementSibling.style.display='block'}"><span style="display:none;font-size:54px">🌿</span></div>
-    <h1>CRM ترنم</h1>
-    <p>سامانه مدیریت مشتریان پوشاک ترنم</p>
+    <h1>ERP ترنم</h1>
+    <p>سامانه یکپارچه ERP پوشاک ترنم</p>
     <form id="loginForm">
       <div class="field">
         <label>نام کاربری</label>
@@ -672,7 +672,7 @@ table.tbl tr:hover td{background:var(--row-hover)}
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <img src="/logo-sm.png" alt="ترنم" style="height:44px;background:#fff;border-radius:12px;padding:3px" onerror="this.src='/logo.png';this.onerror=()=>{this.style.display='none';this.nextElementSibling.style.display='inline'}"><span class="emoji" style="display:none">🌿</span>
-        <div><h2>CRM ترنم</h2><small id="brandRole">پنل مدیریت</small></div>
+        <div><h2>ERP ترنم</h2><small id="brandRole">پنل مدیریت</small></div>
       </div>
       <nav class="nav" id="nav"></nav>
       <div class="foot">
@@ -727,7 +727,7 @@ table.tbl tr:hover td{background:var(--row-hover)}
 
 <!-- ===== PWA Install Banner ===== -->
 <div id="installBanner">
-  <span style="flex:1">📲 CRM ترنم را نصب کنید</span>
+  <span style="flex:1">📲 ERP ترنم را نصب کنید</span>
   <button onclick="doPWAInstall()">نصب</button>
   <button class="x-btn" onclick="dismissInstall()">×</button>
 </div>
@@ -1867,6 +1867,13 @@ function roleLabel(r){
 function hlp(tip){ return `<span class="hlp" data-tip="${tip.replace(/"/g,'&quot;')}">?</span>`; }
 function isAdmin(){ return ME && ME.role==='admin'; }
 function isManager(){ return ME && (ME.role==='admin' || ME.role==='sales_manager'); }
+/** Customer edit/delete: admin or original creator (created_by). Assigned-only = view. */
+function canEditCustomer(c){
+  if(!c || !ME) return false;
+  if(ME.role==='admin') return true;
+  const creator = c.created_by != null ? c.created_by : c.user_id;
+  return creator === ME.id;
+}
 let USER_PERMS = null;
 function canPerm(resource, action){
   if(!ME) return false;
@@ -2577,46 +2584,59 @@ function renderCustTable(){
   if(custFilter.q){ const q=custFilter.q.toLowerCase(); rows=rows.filter(c=>(c.biz+' '+(c.owner||'')+' '+(c.city||'')+' '+(c.phone||'')).toLowerCase().includes(q)); }
   if(custFilter.status) rows=rows.filter(c=>c.status===custFilter.status);
   if(custFilter.user_id) rows=rows.filter(c=>String(c.user_id)===String(custFilter.user_id)||String(c.assigned_to)===String(custFilter.user_id));
-  const isAdmin = ME.role==='admin';
+  const isAdm = ME.role==='admin';
+  const natureLabel={debit:'بدهکار',credit:'بستانکار','':'—'};
   const bar = el('cBulkBar');
   const cnt = el('cSelCount');
   if(bar) bar.style.display = custSelected.size>0 ? 'flex' : 'none';
   if(cnt) cnt.textContent = `${custSelected.size} مورد انتخاب شده`;
   const allIds = rows.map(r=>r.id);
   const allChecked = allIds.length>0 && allIds.every(id=>custSelected.has(id));
+  const colCount = isAdm ? 13 : 12;
+  const balSum = rows.reduce((a,c)=>a+(c.balance||0),0);
   el('custTable').innerHTML = `<table class="tbl"><thead><tr>
     <th style="width:36px"><input type="checkbox" ${allChecked?'checked':''} onchange="toggleAllCust(this,${JSON.stringify(allIds)})"></th>
-    <th>نام کامل</th><th>نام فروشگاه</th><th>موبایل</th><th>عملیات</th><th>شهر</th><th>آدرس</th><th>نوع</th><th>وضعیت</th>${isAdmin?'<th>کارشناس</th><th>موجودی</th>':''}
-  </tr></thead><tbody>${rows.map(c=>`<tr ${custSelected.has(c.id)?'style="background:var(--purple-light)"':''}>
+    <th>نام کامل</th><th>نام فروشگاه</th><th>موبایل</th><th>عملیات</th><th>شهر</th><th>آدرس</th><th>نوع</th><th>وضعیت</th><th>ماهیت</th><th>مانده</th>${isAdm?'<th>کارشناس</th>':''}
+  </tr></thead><tbody>${rows.map(c=>{
+    const editable = canEditCustomer(c);
+    const nature = c.account_nature || c.group_nature || '';
+    const bal = c.balance||0;
+    return `<tr ${custSelected.has(c.id)?'style="background:var(--purple-light)"':''}>
     <td><input type="checkbox" ${custSelected.has(c.id)?'checked':''} onchange="toggleCust(${c.id},this.checked)"></td>
     <td>${esc(c.owner||'-')}</td><td>${esc(c.biz)}</td>
     <td>${phoneCell(c.phone)}</td>
     <td style="white-space:nowrap">
-      <button class="btn sm ghost" onclick="custModal(${c.id})">✏️</button>
+      ${editable?`<button class="btn sm ghost" onclick="custModal(${c.id})">✏️</button>`:`<button class="btn sm ghost" onclick="custModal(${c.id})" title="فقط مشاهده">👁️</button>`}
       <button class="btn sm blue icon" onclick="custActivityModal(${c.id})" title="تاریخچه پیگیری">📋</button>
       ${c.phone?`<button class="btn sm ghost" onclick="sendWelcomeSMS(${c.id})" title="ارسال پیامک خوش‌آمدگویی">📤</button>`:''}
-      <button class="btn sm red" onclick="confirmDelete('customers',${c.id},'${esc(c.biz)}')">🗑️</button></td>
+      ${editable?`<button class="btn sm red" onclick="confirmDelete('customers',${c.id},'${esc(c.biz)}')">🗑️</button>`:''}</td>
     <td>${esc(c.city||'-')}</td>
     <td class="muted" style="font-size:12px;max-width:180px">${esc(c.address||'-')}</td>
     <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" style="background:#dbeafe;color:#1d4ed8" title="دسترسی پورتال B2B فعال">B2B</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="ریسک ریزش مشتری (تحلیل AI)">⚠️${c.churn_score}٪</span>`:''}</td>
-    ${isAdmin?`<td class="muted">${esc(c.salesperson||'-')}</td><td class="mono" style="color:${(c.balance||0)>0?'#dc2626':(c.balance||0)<0?'var(--green)':'var(--muted)'}">${(c.balance||0)!==0?fmt(c.balance)+' ریال':'-'}</td>`:''}
-  </tr>`).join('')||emptyRow(isAdmin?11:9)}</tbody>
-  ${isAdmin?`<tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
-    <td colspan="9">جمع (${fmt(rows.length)} مشتری)</td>
-    <td></td>
-    <td class="mono" style="font-weight:800;color:${rows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(rows.reduce((a,c)=>a+(c.balance||0),0))} ریال</td>
-  </tr></tfoot>`:''}</table>`;
+    <td>${natureLabel[nature]||nature||'—'}${c.party_group_name?`<div class="muted" style="font-size:11px">${esc(c.party_group_name)}</div>`:''}${c.group_name?`<div class="muted" style="font-size:11px">${esc(c.group_name)}</div>`:''}</td>
+    <td class="mono" style="color:${bal>0?'#dc2626':bal<0?'var(--green)':'var(--muted)'}">${bal!==0?fmt(bal)+' ریال':'-'}</td>
+    ${isAdm?`<td class="muted">${esc(c.salesperson||'-')}</td>`:''}
+  </tr>`;
+  }).join('')||emptyRow(colCount)}</tbody>
+  <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+    <td colspan="10">جمع (${fmt(rows.length)} مشتری)</td>
+    <td class="mono" style="font-weight:800;color:${balSum>0?'#dc2626':'var(--green)'}">${fmt(balSum)} ریال</td>
+    ${isAdm?'<td></td>':''}
+  </tr></tfoot></table>`;
 }
 function toggleCust(id, checked){ if(checked) custSelected.add(id); else custSelected.delete(id); renderCustTable(); }
 function toggleAllCust(cb, ids){ ids.forEach(id=>cb.checked?custSelected.add(id):custSelected.delete(id)); renderCustTable(); }
 async function bulkCustStatus(status){
   if(!custSelected.size) return;
   if(!confirm(`وضعیت ${custSelected.size} مشتری به "${STATUS_LABEL[status]||status}" تغییر کند؟`)) return;
+  let skipped=0;
   for(const id of custSelected){
     const c = CACHE.customers.find(x=>x.id===id); if(!c) continue;
+    if(!canEditCustomer(c)){ skipped++; continue; }
     await api('PUT','/customers/'+id,{...c, status});
   }
-  custSelected.clear(); await reloadCustomers(); renderCustTable(); showToast('وضعیت‌ها به‌روز شد');
+  custSelected.clear(); await reloadCustomers(); renderCustTable();
+  showToast(skipped?`وضعیت‌ها به‌روز شد (${skipped} مورد رد شد — بدون دسترسی ویرایش)`:'وضعیت‌ها به‌روز شد');
 }
 async function bulkCustDelete(){
   if(!custSelected.size) return;
@@ -2646,68 +2666,80 @@ async function bulkWelcomeSMS(){
 }
 async function custModal(id){
   const c = id ? CACHE.customers.find(x=>x.id===id) : {};
-  if(canAccounting() && !CACHE.customerGroups) CACHE.customerGroups = await api('GET','/accounting/customer-groups')||[];
-  if(canAccounting() && !CACHE.partyGroups) CACHE.partyGroups = await api('GET','/party-groups')||[];
+  const editable = !id || canEditCustomer(c);
+  if((canAccounting() || id) && !CACHE.customerGroups) {
+    try { CACHE.customerGroups = await api('GET','/accounting/customer-groups')||[]; } catch(_){ CACHE.customerGroups=[]; }
+  }
+  if((canAccounting() || id) && !CACHE.partyGroups) {
+    try { CACHE.partyGroups = await api('GET','/party-groups')||[]; } catch(_){ CACHE.partyGroups=[]; }
+  }
   const custPartyGroups = (CACHE.partyGroups||[]).filter(g=>g.entity_type==='customer'||g.entity_type==='all');
   const curProv = c.province||'';
   const provOptions = Object.keys(IRAN_PROVINCES).map(p=>`<option value="${esc(p)}" ${curProv===p?'selected':''}>${p}</option>`).join('');
   const cityOptions = curProv && IRAN_PROVINCES[curProv] ? IRAN_PROVINCES[curProv].map(ci=>`<option value="${esc(ci)}" ${(c.city||'')===ci?'selected':''}>${ci}</option>`).join('') : '';
+  const natureVal = c.account_nature || c.group_nature || '';
+  const natureLabel = natureVal==='credit'?'بستانکار':natureVal==='debit'?'بدهکار':'—';
+  const ro = editable ? '' : 'readonly disabled';
   openModal(`
-    <div class="modal-head"><h3>${id?'ویرایش مشتری':'مشتری جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>${id?(editable?'ویرایش مشتری':'مشاهده مشتری'):'مشتری جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>نام فروشگاه * ${hlp('نام تجاری فروشگاه یا برند مشتری.')}</label><input id="c-biz" value="${esc(c.biz||'')}"></div>
+      ${!editable?`<div class="fg full muted" style="background:var(--purple-light);padding:8px 12px;border-radius:8px;font-size:13px">این مشتری توسط کاربر دیگری ثبت شده — فقط مشاهده مجاز است (تخصیص به شما برای پیگیری/فاکتور است).</div>`:''}
+      <div class="fg full"><label>نام فروشگاه * ${hlp('نام تجاری فروشگاه یا برند مشتری.')}</label><input id="c-biz" value="${esc(c.biz||'')}" ${ro}></div>
       <div class="fg full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500">
-        <input type="checkbox" id="c-autofollow" ${(id ? (c.auto_followup==null||c.auto_followup) : true) ? 'checked' : ''} style="width:auto">
+        <input type="checkbox" id="c-autofollow" ${(id ? (c.auto_followup==null||c.auto_followup) : true) ? 'checked' : ''} style="width:auto" ${editable?'':'disabled'}>
         ایجاد خودکار پیگیری هنگام صدور فاکتور فروش ${hlp('اگر فعال باشد، با صدور هر فاکتور برای این مشتری، یک پیگیری کیفیت ۷ روزه به‌صورت خودکار ساخته می‌شود.')}
       </label></div>
-      <div class="fg"><label>نام کامل ${hlp('نام و نام خانوادگی صاحب فروشگاه یا رابط اصلی.')}</label><input id="c-owner" value="${esc(c.owner||'')}"></div>
-      <div class="fg"><label>موبایل ${hlp('شماره موبایل مشتری. با ثبت مشتری جدید، پیامک خوش‌آمدگویی به این شماره ارسال می‌شود.')}</label><input id="c-phone" value="${esc(c.phone||'')}"></div>
-      <div class="fg"><label>استان ${hlp('استان محل فعالیت مشتری. با انتخاب استان، لیست شهرها به‌روز می‌شود.')}</label><select id="c-province" onchange="updateCityDropdown(this.value)">
+      <div class="fg"><label>نام کامل ${hlp('نام و نام خانوادگی صاحب فروشگاه یا رابط اصلی.')}</label><input id="c-owner" value="${esc(c.owner||'')}" ${ro}></div>
+      <div class="fg"><label>موبایل ${hlp('شماره موبایل مشتری. با ثبت مشتری جدید، پیامک خوش‌آمدگویی به این شماره ارسال می‌شود.')}</label><input id="c-phone" value="${esc(c.phone||'')}" ${ro}></div>
+      <div class="fg"><label>استان ${hlp('استان محل فعالیت مشتری. با انتخاب استان، لیست شهرها به‌روز می‌شود.')}</label><select id="c-province" onchange="updateCityDropdown(this.value)" ${editable?'':'disabled'}>
         <option value="">-- انتخاب استان --</option>${provOptions}
       </select></div>
-      <div class="fg"><label>شهر ${hlp('شهر محل فروشگاه مشتری.')}</label><select id="c-city">
+      <div class="fg"><label>شهر ${hlp('شهر محل فروشگاه مشتری.')}</label><select id="c-city" ${editable?'':'disabled'}>
         <option value="${esc(c.city||'')}">${esc(c.city||'-- ابتدا استان انتخاب کنید --')}</option>${cityOptions}
       </select></div>
-      <div class="fg full"><label>آدرس کامل ${hlp('آدرس دقیق فروشگاه — در جدول مانده حساب داشبورد و ارسال مرسولات استفاده می‌شود.')}</label><textarea id="c-address" rows="2">${esc(c.address||'')}</textarea></div>
-      <div class="fg"><label>اینستاگرام ${hlp('نام کاربری صفحه اینستاگرام مشتری بدون @.')}</label><input id="c-insta" value="${esc(c.insta||'')}"></div>
-      <div class="fg"><label>نوع ${hlp('دسته کسب‌وکار مشتری: بوتیک، عمده‌فروش، تولیدی، فروشگاه یا آنلاین.')}</label><select id="c-type">
+      <div class="fg full"><label>آدرس کامل ${hlp('آدرس دقیق فروشگاه — در جدول مانده حساب داشبورد و ارسال مرسولات استفاده می‌شود.')}</label><textarea id="c-address" rows="2" ${ro}>${esc(c.address||'')}</textarea></div>
+      <div class="fg"><label>اینستاگرام ${hlp('نام کاربری صفحه اینستاگرام مشتری بدون @.')}</label><input id="c-insta" value="${esc(c.insta||'')}" ${ro}></div>
+      <div class="fg"><label>نوع ${hlp('دسته کسب‌وکار مشتری: بوتیک، عمده‌فروش، تولیدی، فروشگاه یا آنلاین.')}</label><select id="c-type" ${editable?'':'disabled'}>
         ${['بوتیک','عمده‌فروش','تولیدی','فروشگاه','آنلاین'].map(t=>`<option ${c.type===t?'selected':''}>${t}</option>`).join('')}
       </select></div>
-      <div class="fg"><label>وضعیت ${hlp('وضعیت رابطه با مشتری: جدید، فعال، VIP، نیازمند پیگیری یا خاموش. با صدور فاکتور رسمی خودکار «فعال» می‌شود.')}</label><select id="c-status">
+      <div class="fg"><label>وضعیت ${hlp('وضعیت رابطه با مشتری: جدید، فعال، VIP، نیازمند پیگیری یا خاموش. با صدور فاکتور رسمی خودکار «فعال» می‌شود.')}</label><select id="c-status" ${editable?'':'disabled'}>
         ${['new','active','vip','followup','silent'].map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${STATUS_LABEL[s]}</option>`).join('')}
       </select></div>
-      <div class="fg"><label>منبع آشنایی ${hlp('مشتری از چه راهی با شما آشنا شده — برای تحلیل اثربخشی کانال‌های بازاریابی.')}</label><select id="c-source">
+      <div class="fg"><label>منبع آشنایی ${hlp('مشتری از چه راهی با شما آشنا شده — برای تحلیل اثربخشی کانال‌های بازاریابی.')}</label><select id="c-source" ${editable?'':'disabled'}>
         <option value="">-- انتخاب --</option>
         ${[['instagram','اینستاگرام'],['referral','معرفی آشنا'],['exhibition','نمایشگاه'],['store_front','مراجعه حضوری'],['online','آنلاین'],['other','سایر']].map(([v,l])=>`<option value="${v}" ${c.source===v?'selected':''}>${l}</option>`).join('')}
       </select></div>
-      <div class="fg full"><label>یادداشت ${hlp('هر توضیح آزاد درباره مشتری: سلیقه، شرایط پرداخت، نکات مهم مذاکره.')}</label><textarea id="c-note">${esc(c.note||'')}</textarea></div>
-      ${canAccounting()?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
+      <div class="fg full"><label>یادداشت ${hlp('هر توضیح آزاد درباره مشتری: سلیقه، شرایط پرداخت، نکات مهم مذاکره.')}</label><textarea id="c-note" ${ro}>${esc(c.note||'')}</textarea></div>
+      <div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
         <div class="form-grid">
-          <div class="fg"><label style="color:var(--purple);font-weight:600">👤 گروه اشخاص ${hlp('گروه‌بندی استاندارد: مشتریان، فروشگاه‌های ترنم، ...')}</label>
-            <select id="c-party_group_id">
+          <div class="fg"><label style="color:var(--purple);font-weight:600">👤 گروه اشخاص ${hlp('گروه‌بندی استاندارد از اطلاعات اشخاص حسابداری')}</label>
+            ${canAccounting() && editable?`<select id="c-party_group_id">
               <option value="">-- بدون گروه --</option>
               ${custPartyGroups.map(g=>`<option value="${g.id}" ${c.party_group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}
-            </select>
+            </select>`:`<input readonly value="${esc(c.party_group_name||'—')}" style="background:#f9fafb">`}
           </div>
-          <div class="fg"><label style="color:var(--purple);font-weight:600">💰 موجودی حساب ${moneyColLabel()} ${hlp('مانده اولیه حساب مشتری. مثبت = مشتری بدهکار است. منفی = مشتری بستانکار است.')}
-            <input id="c-balance" type="text" inputmode="numeric" class="money" value="${moneyInit(c.balance)}" style="font-family:monospace;direction:ltr">
+          <div class="fg"><label style="color:var(--purple);font-weight:600">💰 موجودی / مانده ${moneyColLabel()} ${hlp('مانده زنده حساب مشتری از دفتر. فقط مدیر می‌تواند مانده افتتاحیه را تغییر دهد.')}
+            ${isAdmin() && editable
+              ? `<input id="c-balance" type="text" inputmode="numeric" class="money" value="${moneyInit(c.balance)}" style="font-family:monospace;direction:ltr">`
+              : `<input readonly class="mono" value="${fmt(c.balance||0)} ریال" style="background:#f9fafb;direction:ltr">`}
           </div>
-          <div class="fg"><label style="color:var(--purple);font-weight:600">📊 گروه مشتری (ماهیت حساب) ${hlp('ماهیت حساب این مشتری را تعیین می‌کند — پیش‌فرض «بدهکار» است. فقط مدیر/حسابدار می‌توانند تغییر دهند.')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— فقط مدیر/حسابدار</span></label>
-            <select id="c-group_id">
+          <div class="fg"><label style="color:var(--purple);font-weight:600">📊 ماهیت حساب ${hlp('ماهیت حساب مشتری (بدهکار/بستانکار) از گروه مشتری یا اطلاعات اشخاص.')}</label>
+            ${canAccounting() && editable?`<select id="c-group_id">
               <option value="">-- بدون گروه (بدهکار پیش‌فرض) --</option>
               ${(CACHE.customerGroups||[]).map(g=>`<option value="${g.id}" ${c.group_id===g.id?'selected':''}>${esc(g.name)} (${g.nature==='credit'?'بستانکار':'بدهکار'})</option>`).join('')}
-            </select>
+            </select>`:`<input readonly value="${esc(natureLabel)}${c.group_name?' · '+esc(c.group_name):''}" style="background:#f9fafb">
+            <input type="hidden" id="c-account_nature_ro" value="${esc(natureVal)}">`}
           </div>
-          ${isAdmin()?`<div class="fg"><label style="color:var(--purple);font-weight:600">👤 کارشناس ${hlp('کارشناس فروش مسئول این مشتری. فروش و انگیزه فروش این مشتری به نام او ثبت می‌شود.')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— فقط مدیر</span></label>
+          ${isAdmin() && editable?`<div class="fg"><label style="color:var(--purple);font-weight:600">👤 کارشناس ${hlp('کارشناس فروش مسئول این مشتری. فروش و انگیزه فروش این مشتری به نام او ثبت می‌شود.')} <span style="font-size:11px;font-weight:400;color:var(--muted)">— فقط مدیر</span></label>
             <select id="c-assigned_to">
               ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}" ${(c.assigned_to||c.user_id)===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}
             </select>
-          </div>`:''}
+          </div>`:!isAdmin() && c.salesperson?`<div class="fg"><label>کارشناس</label><input readonly value="${esc(c.salesperson)}" style="background:#f9fafb"></div>`:''}
           ${coaCodeFieldHtml('customer', id, c.coa_code)}
         </div>
-      </div>`:coaCodeFieldHtml('customer', id, c.coa_code)}
+      </div>
       ${custExtraFieldsHtml(c)}
-      ${id&&isAdmin()&&!(APP_INFO&&APP_INFO.role==='device')?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
+      ${id&&isAdmin()&&editable&&!(APP_INFO&&APP_INFO.role==='device')?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
         <p style="font-weight:600;margin-bottom:8px">🛒 پورتال B2B ${hlp('با فعال‌سازی، مشتری می‌تواند با شماره موبایل خود وارد پورتال شود، کاتالوگ را ببیند، سفارش ثبت کند و صورتحسابش را مشاهده کند. سفارش‌ها به‌صورت پیش‌فاکتور به نام کارشناس مشتری ثبت می‌شوند.')}</p>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500;margin-bottom:8px">
           <input type="checkbox" id="c-b2b-enabled" ${c.b2b_enabled?'checked':''} style="width:auto">
@@ -2719,9 +2751,9 @@ async function custModal(id){
       </div>`:''}
     </div></div>
     <div class="modal-foot">
-      <button class="btn" onclick="saveCust(${id||0})">💾 ذخیره</button>
+      ${editable?`<button class="btn" onclick="saveCust(${id||0})">💾 ذخیره</button>`:''}
       ${id?`<button class="btn blue" onclick="closeModal();custActivityModal(${id})">📋 تاریخچه</button>`:''}
-      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <button class="btn ghost" onclick="closeModal()">${editable?'انصراف':'بستن'}</button></div>`);
 }
 async function saveB2BAccess(id){
   const c = CACHE.customers.find(x=>x.id===id);
@@ -2794,7 +2826,7 @@ function importCustomers(){
 function downloadCustTemplate(){ downloadAuth('/customers/template','customers-template.xlsx'); }
 
 /* ============================================================
-   FOLLOWUPS — CRM Pipeline (redesigned)
+   FOLLOWUPS — ERP Pipeline (redesigned)
 ============================================================ */
 const PIPELINE_STAGES = [
   {id:'lead',      label:'سرنخ',        icon:'🌱', color:'t-lead'},
@@ -2844,8 +2876,8 @@ function renderAccReceivablesBody(body){
       </div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
         ${viewMode==='invoice'
-          ? '<th>شماره فاکتور</th><th>تاریخ</th><th>مشتری</th><th>کارشناس</th><th>مبلغ فاکتور (ت)</th><th>پرداخت شده (ت)</th><th>مانده (ت)</th><th>عملیات</th>'
-          : '<th>نام فروشگاه</th><th>نام کامل</th><th>کارشناس</th><th>کل فاکتور (ت)</th><th>پرداخت شده (ت)</th><th>مانده (ت)</th><th>عملیات</th>'}
+          ? '<th>شماره فاکتور</th><th>تاریخ</th><th>مشتری</th><th>کارشناس</th><th>مبلغ فاکتور (ریال)</th><th>پرداخت شده (ریال)</th><th>مانده (ریال)</th><th>عملیات</th>'
+          : '<th>نام فروشگاه</th><th>نام کامل</th><th>کارشناس</th><th>کل فاکتور (ریال)</th><th>پرداخت شده (ریال)</th><th>مانده (ریال)</th><th>عملیات</th>'}
       </tr></thead><tbody>${rows.map(r=>{
         const oc=r.outstanding>0?'var(--red)':'var(--green)';
         if(viewMode==='invoice') return `<tr>
@@ -3313,7 +3345,7 @@ async function _openInvBuilder(id){
       <div class="inv-layout">
         <div>
           <input class="search" id="invProdSearch" placeholder="جستجوی محصول..." style="margin-bottom:6px;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" oninput="renderInvPicker()">
-          ${canPerm('products','create')?`<button type="button" class="btn sm" style="width:100%;margin-bottom:6px" onclick="invProdQuickModal(el('invProdSearch')?.value)">➕ ساخت محصول جدید</button>`:''}
+          ${canAccounting()?`<button type="button" class="btn sm" style="width:100%;margin-bottom:6px" onclick="invProdQuickModal(el('invProdSearch')?.value)">➕ ساخت محصول جدید</button>`:''}
           <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:8px" onclick="openBarcodeScanner(scanBarcodeToCart)">📷 اسکن بارکد</button>
           <div id="mobPickHint" style="display:none;font-size:11px;color:var(--muted);margin-bottom:8px;text-align:center">👆 برای افزودن، دو بار روی محصول بزنید</div>
           <div class="inv-products"><div class="inv-pick" id="invPicker"></div></div>
@@ -3472,7 +3504,7 @@ async function saveInvoice(id){
     check_category_id:+el('inv-checkcat')?.value||null,
     warehouse_id:+el('inv-warehouse')?.value||null,
     cost_center_id:+el('inv-cc')?.value||null,
-    freight_amount:moneyVal('inv-freight')/10,
+    freight_amount:moneyVal('inv-freight'),
     freight_type:el('inv-freight-type')?.value||'',
     vat_exempt:el('inv-vat-exempt')?.checked?1:0,
     lead_source: el('inv-lead')?.value||'',
@@ -3538,7 +3570,7 @@ async function loadProductsFiltered(){
   CACHE.products = await api('GET','/products?'+qs.toString())||[];
   if(noFilters) CACHE.allProducts = CACHE.products;
 }
-ROUTES.products = function(){ productsPage(true); };
+ROUTES.products = function(){ productsPage(false); }; // ERP: view-only — CRUD in accounting
 ROUTES.catalog = function(){ productsPage(false); };
 
 async function productsPage(canEdit){
@@ -3560,6 +3592,9 @@ async function productsPage(canEdit){
     CACHE._prodMetaLoaded = true;
   }
   await loadProductsFiltered();
+  const manageBtn = canAccounting()
+    ? `<button class="btn" onclick="enterAccountingShell().then(()=>go('acc-products'))">📦 مدیریت کالاها در حسابداری</button>`
+    : `<span class="muted" style="font-size:13px">مدیریت محصولات فقط از ماژول حسابداری انجام می‌شود</span>`;
   el('view').innerHTML=`
     <div class="toolbar">
       <input class="search" id="pSearch" placeholder="جستجو نام یا کد..." value="${esc(prodFilter.search)}">
@@ -3572,6 +3607,7 @@ async function productsPage(canEdit){
         <option value="ok" ${prodFilter.stock_status==='ok'?'selected':''}>موجود</option>
         <option value="low" ${prodFilter.stock_status==='low'?'selected':''}>موجودی کم</option>
       </select>
+      ${manageBtn}
       ${canEdit?`<button class="btn" onclick="prodModal()">➕ محصول</button>
         <button class="btn ghost" onclick="productCategoriesModal()">🏷️ دسته‌بندی‌ها</button>
         <button class="btn ghost" onclick="enterAccountingShell().then(()=>go('acc-warehouses'))">🏭 موجودی انبارها</button>
@@ -4322,6 +4358,39 @@ async function fiscalFactoryReset(){
   const r=await api('POST','/fiscal-year/factory-reset',{confirm_text:text,confirm_password:pass});
   if(r?.ok){ showToast('بازنشانی انجام شد — صفحه را رفرش کنید'); location.reload(); }
 }
+async function loadDataWipeSections(){
+  const box=el('dataWipeSections'); if(!box) return;
+  try{
+    const sections=await api('GET','/admin/data-wipe/sections')||[];
+    if(!sections.length){ box.innerHTML='<div class="muted">بخشی یافت نشد</div>'; return; }
+    box.innerHTML=`<div style="display:grid;gap:10px">${sections.map(s=>`
+      <div style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--card)">
+        <div style="font-weight:700;margin-bottom:6px">${esc(s.label)} <span class="muted" style="font-weight:400;font-size:12px">(${esc(s.key)})</span></div>
+        <div class="muted" style="font-size:12px;margin-bottom:8px">تراکنش≈${fmt(s.tx_rows)} ردیف · کامل≈${fmt(s.full_rows)} ردیف · تأیید: <code>${esc(s.confirm_prefix)}</code></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn sm orange" onclick="runDataWipe('${esc(s.key)}','transactions','${esc(s.confirm_prefix)}')">حذف تراکنش‌ها</button>
+          <button class="btn sm red" onclick="runDataWipe('${esc(s.key)}','full','${esc(s.confirm_prefix)}')">حذف کامل</button>
+        </div>
+      </div>`).join('')}</div>`;
+  }catch(e){
+    box.innerHTML='<div class="muted" style="color:#dc2626">بارگذاری بخش‌ها ناموفق بود</div>';
+  }
+}
+async function runDataWipe(section, mode, confirmPrefix){
+  const modeLabel=mode==='full'?'حذف کامل (پایه+تراکنش)':'حذف تراکنش‌ها';
+  const text=prompt(`برای تأیید «${modeLabel}» بخش ${section}، عبارت ${confirmPrefix} را تایپ کنید:`);
+  if(text!==confirmPrefix){ if(text!=null) showToast('متن تأیید نادرست است','error'); return; }
+  const pass=prompt('رمز عبور مدیر را وارد کنید:');
+  if(!pass) return;
+  if(!confirm(`هشدار نهایی: ${modeLabel} برای بخش «${section}» انجام شود؟ این عمل برگشت‌پذیر نیست.`)) return;
+  try{
+    const r=await api('POST','/admin/data-wipe/wipe',{section, mode, confirm_text:text, confirm_password:pass});
+    if(r?.ok){
+      showToast(`پاک‌سازی انجام شد — ${fmt((r.wiped||[]).length)} جدول`);
+      loadDataWipeSections();
+    }
+  }catch(e){}
+}
 async function fiscalLock(id){
   if(!confirm('سال مالی قفل شود؟ ثبت سند جدید در این سال مسدود می‌شود.')) return;
   await api('POST','/fiscal-year/'+id+'/lock',{});
@@ -4778,7 +4847,7 @@ async function loadAccTab(tab){
         <div class="panel-head"><h4>📒 دفتر کل (آخرین تراکنش‌ها)</h4></div>
         <div class="panel-body tbl-wrap">
           <table class="tbl" style="font-size:12px"><thead><tr>
-            <th>نوع</th><th>مرجع</th><th>تاریخ</th><th>مشتری</th><th>مبلغ (ت)</th><th>بدهکار/بستانکار</th>
+            <th>نوع</th><th>مرجع</th><th>تاریخ</th><th>مشتری</th><th>مبلغ (ریال)</th><th>بدهکار/بستانکار</th>
           </tr></thead><tbody>
           ${(g.journal||[]).map(j=>`<tr>
             <td>${j.entry_type==='invoice'?'🧾 فاکتور':'💵 تسویه'}</td>
@@ -4986,7 +5055,7 @@ async function loadAccTab(tab){
       <div class="panel" style="margin:0 0 16px">
         <div class="panel-head"><h4>🔔 فاکتورهای رسمی منتظر تأیید (${pending.length})</h4></div>
         <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
-          <th>شماره</th><th>مشتری</th><th>کارشناس</th><th>تاریخ</th><th>مبلغ (ت)</th><th>نوع پرداخت</th><th>عملیات</th>
+          <th>شماره</th><th>مشتری</th><th>کارشناس</th><th>تاریخ</th><th>مبلغ (ریال)</th><th>نوع پرداخت</th><th>عملیات</th>
         </tr></thead><tbody>${pendingRows}</tbody></table></div>
       </div>` : `<div class="muted" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;margin-bottom:16px">✅ همه فاکتورهای رسمی تأیید شده‌اند</div>`}
       <div class="panel">
@@ -5383,7 +5452,8 @@ async function partyModal(id){
           ${roleChk('partner','شریک/سهامدار')} ${roleChk('marketer','بازاریاب')} ${roleChk('other','سایر')}
         </div></div>
       <div class="fg"><label>سقف اعتبار ${moneyColLabel()}</label><input id="pty-credit" type="text" inputmode="numeric" class="money" value="${moneyInit(p.credit_limit_toman||0)}"></div>
-      <div class="fg"><label>مانده اول دوره ${moneyColLabel()}</label><input id="pty-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(p.opening_balance_toman||0)}"></div>
+      <div class="fg"><label>مانده اول دوره ${moneyColLabel()} ${isAdmin()?'':'<span class="muted" style="font-size:11px">— فقط مدیر</span>'}</label>
+        <input id="pty-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(p.opening_balance_toman||0)}" ${isAdmin()?'':'readonly disabled style="background:#f9fafb"'}></div>
       <div class="fg"><label>ماهیت حساب</label><select id="pty-nature">
         <option value="" ${!p.account_nature?'selected':''}>—</option>
         <option value="debit" ${p.account_nature==='debit'?'selected':''}>بدهکار</option>
@@ -5547,7 +5617,7 @@ async function showSupplierLedger(id,name){
     <div class="modal-body" style="padding:0">
       <div class="tbl-wrap" style="max-height:70vh">
         <table class="tbl" style="font-size:12px"><thead><tr>
-          <th>تاریخ</th><th>شرح</th><th>بدهکار (ت)</th><th>بستانکار (ت)</th><th>مانده (ت)</th>
+          <th>تاریخ</th><th>شرح</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th><th>مانده (ریال)</th>
         </tr></thead><tbody>
         ${entries.map(e=>`<tr>
           <td class="mono">${esc(e.date||'-')}</td><td>${esc(e.description||'-')}</td>
@@ -5671,7 +5741,7 @@ async function showPersonLedger(id,name){
     <div class="modal-body" style="padding:0">
       <div class="tbl-wrap" style="max-height:70vh">
         <table class="tbl" style="font-size:12px"><thead><tr>
-          <th>تاریخ</th><th>شرح</th><th>بدهکار (ت)</th><th>بستانکار (ت)</th><th>مانده (ت)</th>
+          <th>تاریخ</th><th>شرح</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th><th>مانده (ریال)</th>
         </tr></thead><tbody>
         ${entries.map(e=>`<tr>
           <td class="mono">${esc(e.date||'-')}</td><td>${esc(e.description||'-')}</td>
@@ -6574,9 +6644,9 @@ async function renderFixedAssetsTab(body){
       <th>کد</th><th>نام</th><th>بهای تمام‌شده (ریال)</th><th>استهلاک انباشته</th><th>ارزش دفتری</th><th>وضعیت</th>
     </tr></thead><tbody>${rows.map(a=>`<tr>
       <td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td>
-      <td class="mono">${fmt(Math.round((a.cost_rial||0)/10))} ریال</td>
-      <td class="mono">${fmt(Math.round((a.accumulated_depreciation_rial||0)/10))} ریال</td>
-      <td class="mono" style="font-weight:700">${fmt(Math.round((a.book_value_rial||0)/10))} ریال</td>
+      <td class="mono">${fmt(a.cost_rial||0)} ریال</td>
+      <td class="mono">${fmt(a.accumulated_depreciation_rial||0)} ریال</td>
+      <td class="mono" style="font-weight:700">${fmt(a.book_value_rial||0)} ریال</td>
       <td>${esc(a.status||'active')}</td>
     </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
 }
@@ -6608,13 +6678,13 @@ async function openFixedAssetModal(id){
 }
 async function saveFixedAsset(id){
   const name=el('fa-name').value.trim();
-  const costToman=moneyVal('fa-cost');
-  if(!name||!costToman){ showToast('نام و بهای دارایی الزامی است','error'); return; }
+  const costRial=moneyVal('fa-cost');
+  if(!name||!costRial){ showToast('نام و بهای دارایی الزامی است','error'); return; }
   const data={
     code:el('fa-code').value.trim()||undefined,
     name, category:el('fa-category').value,
     purchase_date:el('fa-date').value,
-    cost_rial:Math.round(costToman),
+    cost_rial:Math.round(costRial),
     salvage_rial:Math.round(moneyVal('fa-salvage')),
     useful_life_months:+el('fa-life').value||60,
     coa_asset_code:el('fa-coa').value||'1201',
@@ -8274,12 +8344,12 @@ async function renderPayrollTab(body){
     </tr></thead><tbody>${records.map(r=>`<tr>
       <td>${esc(r.period_label||'-')}</td><td>${esc(r.person_name||'-')}</td>
       <td class="mono">${fmt(r.regular_hours)}</td><td class="mono">${fmt(r.overtime_hours)}</td>
-      <td class="mono">${fmt(r.gross_earnings_rial||Math.round((r.gross_pay||0)*10))}</td>
-      <td class="mono" style="color:var(--red)">${fmt((r.sso_employee_rial||Math.round((r.insurance_deduction||0)*10))+(r.income_tax_rial||Math.round((r.tax_deduction||0)*10))+(r.other_deductions_rial||Math.round((r.deductions||0)*10)))}</td>
-      <td class="mono" style="font-weight:700">${fmt(r.net_pay_rial||Math.round((r.net_pay||0)*10))}</td>
+      <td class="mono">${fmt(r.gross_earnings_rial||r.gross_pay||0)}</td>
+      <td class="mono" style="color:var(--red)">${fmt((r.sso_employee_rial||r.insurance_deduction||0)+(r.income_tax_rial||r.tax_deduction||0)+(r.other_deductions_rial||r.deductions||0))}</td>
+      <td class="mono" style="font-weight:700">${fmt(r.net_pay_rial||r.net_pay||0)}</td>
       <td>${r.status==='reversed'?'<span class="tag t-cancel">ابطال‌شده</span>':r.paid?'<span class="tag t-done">پرداخت شده</span>':'<span class="tag t-pending">پرداخت‌نشده</span>'}</td>
       <td style="white-space:nowrap">
-        ${!r.paid&&r.status!=='reversed'?`<button class="btn sm green" onclick="payrollPayModal(${r.id},'${esc(r.person_name||'')}',${r.net_pay_rial||Math.round((r.net_pay||0)*10)})">${lucide('wallet')} پرداخت</button>
+        ${!r.paid&&r.status!=='reversed'?`<button class="btn sm green" onclick="payrollPayModal(${r.id},'${esc(r.person_name||'')}',${r.net_pay_rial||r.net_pay||0})">${lucide('wallet')} پرداخت</button>
         <button class="btn sm red" onclick="deletePayrollRecord(${r.id})">${lucide('repeat')} ابطال</button>`:''}
       </td>
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
@@ -8507,9 +8577,9 @@ async function savePayrollRecord(){
     await api('POST','/payroll',{
       person_id, period_label:el('pr-period').value,
       regular_hours:+el('pr-reg-hours').value||0, overtime_hours:+el('pr-ot-hours').value||0,
-      hourly_rate:moneyVal('pr-hourly-rate')/10, overtime_rate:moneyVal('pr-ot-rate')/10,
-      bonuses:moneyVal('pr-bonus')/10, deductions:moneyVal('pr-deduct')/10,
-      insurance_deduction:moneyVal('pr-insurance')/10, tax_deduction:moneyVal('pr-tax')/10,
+      hourly_rate:moneyVal('pr-hourly-rate'), overtime_rate:moneyVal('pr-ot-rate'),
+      bonuses:moneyVal('pr-bonus'), deductions:moneyVal('pr-deduct'),
+      insurance_deduction:moneyVal('pr-insurance'), tax_deduction:moneyVal('pr-tax'),
       date:el('pr-date').value, note:el('pr-note').value
     });
     closeModal(); showToast('حقوق ثبت شد'); loadAccTab('payroll');
@@ -8610,7 +8680,7 @@ function renderFarankenouPreview(data){
         <td>${r.matched?`<input type="checkbox" class="fk-row-chk" data-idx="${i}" ${r.selected?'checked':''}>`:'—'}</td>
         <td>${esc(r.full_name)}</td><td class="mono">${esc(r.employee_no||'-')}</td>
         <td class="mono">${fmt(r.regular_hours)}</td><td class="mono">${fmt(r.overtime_hours)}</td>
-        <td class="mono">${fmt(r.gross_earnings_rial||Math.round((r.gross_pay||0)*10))}</td><td class="mono" style="font-weight:700">${fmt(r.net_pay_rial||Math.round((r.net_pay||0)*10))}</td>
+        <td class="mono">${fmt(r.gross_earnings_rial||r.gross_pay||0)}</td><td class="mono" style="font-weight:700">${fmt(r.net_pay_rial||r.net_pay||0)}</td>
         <td>${r.matched?'<span class="tag t-done">✓ '+esc(r.person_name||'')+'</span>':'<span class="tag t-cancel">'+esc(r.payroll_error||'بدون تطبیق')+'</span>'}</td>
       </tr>`).join('')}
       </tbody></table>
@@ -8692,7 +8762,7 @@ async function saveSupplierPayment(id){
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
     await api('POST','/purchases/payments',{
-      supplier_id:id, amount:amount/10, pay_type:el('sp-paytype').value,
+      supplier_id:id, amount:amount, pay_type:el('sp-paytype').value,
       date:el('sp-date').value, note:el('sp-note').value,
       bank_id:+el('sp-bank').value||null,
       cash_box_id:+el('sp-cashbox')?.value||null,
@@ -8798,7 +8868,7 @@ async function savePurchaseInvoice(){
       check_category_id:+el('po-checkcat')?.value||null,
       warehouse_id:+el('po-warehouse')?.value||null,
       cost_center_id:+el('po-cc')?.value||null,
-      freight_amount:moneyVal('po-freight')/10,
+      freight_amount:moneyVal('po-freight'),
       freight_type:el('po-freight-type')?.value||'',
       vat_exempt:el('po-vat-exempt')?.checked?1:0,
       rows: genCart.map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}))
@@ -9034,11 +9104,11 @@ async function renderVouchersTab(body){
             <button class="btn sm red icon" onclick="deleteVoucher(${e.id})">🗑️</button>
           </span>
         </div>
-        <table class="tbl" style="font-size:12px;margin:0"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار (ت)</th><th>بستانکار (ت)</th></tr></thead>
+        <table class="tbl" style="font-size:12px;margin:0"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th></tr></thead>
         <tbody>${(e.lines||[]).map(l=>`<tr>
           <td class="mono">${esc(l.account_code)}</td><td>${esc(l.account_name)}</td>
-          <td class="mono" style="color:var(--orange)">${l.debit>0?fmt(l.debit):'-'}</td>
-          <td class="mono" style="color:var(--green)">${l.credit>0?fmt(l.credit):'-'}</td>
+          <td class="mono" style="color:var(--orange)">${(l.debit_rial||l.debit)>0?fmt(l.debit_rial||l.debit):'-'}</td>
+          <td class="mono" style="color:var(--green)">${(l.credit_rial||l.credit)>0?fmt(l.credit_rial||l.credit):'-'}</td>
         </tr>`).join('')}</tbody></table>
       </div>`).join('')||'<div class="empty">سند دستی ثبت نشده</div>'}`;
 }
@@ -9256,15 +9326,17 @@ async function loadGeneralLedger(code){
   if(!d){ box.innerHTML='<div class="empty">خطا</div>'; return; }
   box.innerHTML=`
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>تاریخ</th><th>شرح</th><th>مرجع</th><th>بدهکار (ت)</th><th>بستانکار (ت)</th><th>مانده (ت)</th>
-    </tr></thead><tbody>${(d.lines||[]).map(l=>`<tr>
+      <th>تاریخ</th><th>شرح</th><th>مرجع</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th><th>مانده (ریال)</th>
+    </tr></thead><tbody>${(d.lines||[]).map(l=>{
+      const dr=l.debit_rial||l.debit||0, cr=l.credit_rial||l.credit||0;
+      return `<tr>
       <td class="mono">${esc(l.entry_date||'-')}</td>
       <td>${esc(l.description||l.entry_description||'-')}</td>
       <td class="mono muted">${esc(l.ref_type||'-')}${l.ref_id?'#'+l.ref_id:''}</td>
-      <td class="mono" style="color:var(--orange)">${l.debit>0?fmt(l.debit):'-'}</td>
-      <td class="mono" style="color:var(--green)">${l.credit>0?fmt(l.credit):'-'}</td>
+      <td class="mono" style="color:var(--orange)">${dr>0?fmt(dr):'-'}</td>
+      <td class="mono" style="color:var(--green)">${cr>0?fmt(cr):'-'}</td>
       <td class="mono" style="font-weight:700">${fmt(Math.abs(l.running_balance||0))}</td>
-    </tr>`).join('')||'<tr><td colspan="6" class="empty">تراکنشی ثبت نشده</td></tr>'}</tbody></table></div>
+    </tr>`;}).join('')||'<tr><td colspan="6" class="empty">تراکنشی ثبت نشده</td></tr>'}</tbody></table></div>
     <div style="padding:12px 0;font-weight:700">مانده نهایی: ${fmt(Math.abs(d.balance||0))} ریال</div>`;
 }
 
@@ -9277,7 +9349,7 @@ async function renderTrialBalanceTab(body){
   const typeLabel={asset:'دارایی',liability:'بدهی',equity:'سرمایه',revenue:'درآمد',cogs:'بهای تمام‌شده',expense:'هزینه'};
   body.innerHTML=`
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>کد حساب</th><th>نام حساب</th><th>نوع</th><th>بدهکار (ت)</th><th>بستانکار (ت)</th>
+      <th>کد حساب</th><th>نام حساب</th><th>نوع</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th>
     </tr></thead><tbody>${(d.rows||[]).filter(r=>r.debit_balance||r.credit_balance).map(r=>`<tr>
       <td class="mono">${esc(r.account_code)}</td><td>${esc(r.account_name)}</td><td class="muted">${typeLabel[r.type]||r.type||'-'}</td>
       <td class="mono" style="color:var(--orange)">${r.debit_balance>0?fmt(r.debit_balance):'-'}</td>
@@ -9639,20 +9711,84 @@ async function accNewProduct(){
   window._accProdRefresh=()=>{ CACHE.allProducts=null; if(typeof accTab!=='undefined'&&accTab==='products') loadAccTab('products'); };
   await prodModal();
 }
+async function accEditProduct(id){
+  window._accProdRefresh=()=>{ CACHE.allProducts=null; if(typeof accTab!=='undefined'&&accTab==='products') loadAccTab('products'); };
+  await prodModal(id);
+}
+let PRODUCT_CAT_FILTER='';
+let PRODUCT_ACC_SEARCH='';
+let _accProdSearchTimer=null;
+function filterAccProductCat(id){ PRODUCT_CAT_FILTER=id; loadAccTab('products'); }
+async function deleteAccProduct(id){
+  if(!confirm('این محصول حذف شود؟ این عمل برگشت‌پذیر نیست.')) return;
+  try{
+    await api('DELETE','/products/'+id);
+    CACHE.allProducts=null; CACHE.products=null; CACHE._prodMetaLoaded=false;
+    showToast('حذف شد'); loadAccTab('products');
+  }catch(e){}
+}
 async function renderAccProductsTab(body){
-  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  const catFilter=PRODUCT_CAT_FILTER;
+  const search=PRODUCT_ACC_SEARCH;
+  if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories').catch(()=>[])||[];
+  let qp=['limit=500'];
+  if(catFilter) qp.push('category_id='+encodeURIComponent(catFilter));
+  if(search) qp.push('search='+encodeURIComponent(search));
+  const rows=await api('GET','/products?'+qp.join('&'))||[];
+  CACHE.allProducts=rows;
+  const cats=(CACHE.productCategories||[]).filter(g=>g.code!==0);
+  const canMut=isAdmin()||ME.role==='accounting';
   body.innerHTML=`
-    <div class="toolbar" style="margin-bottom:12px;gap:8px">
-      <button class="btn green" onclick="accNewProduct()">➕ محصول جدید</button>
-      <button class="btn" onclick="go('products')">📦 مدیریت کامل کالاها</button>
-      <button class="btn ghost" onclick="loadAccTab('product-groups')">🏷️ گروه‌های کالا</button>
-    </div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>کد</th><th>نام</th><th>گروه</th><th>موجودی</th><th>قیمت ${moneyColLabel()}</th><th>بهای تمام‌شده</th>
-    </tr></thead><tbody>${(CACHE.allProducts||[]).slice(0,200).map(p=>`<tr>
-      <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td><td class="muted">${esc(p.category_name||p.category||'-')}</td>
-      <td class="mono">${fmt(p.stock||0)}</td><td class="mono">${fmt(p.price||0)}</td><td class="mono">${fmt(p.cost||0)}</td>
-    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+    <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <aside style="min-width:180px;max-width:220px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--purple);display:flex;justify-content:space-between;align-items:center">
+          <span>گروه کالا</span>
+          <button type="button" class="btn sm icon" title="گروه‌های کالا" onclick="loadAccTab('product-groups')">🏷️</button>
+        </div>
+        <div id="accProdCatFilter" style="display:flex;flex-direction:column;gap:4px;font-size:13px">
+          <button type="button" class="btn sm ${!catFilter?'':'ghost'}" style="justify-content:flex-start;text-align:right" onclick="filterAccProductCat('')">کلیه کالاها</button>
+          ${cats.map(g=>`
+            <button type="button" class="btn sm ${catFilter==String(g.id)?'':'ghost'}" style="justify-content:flex-start;text-align:right" onclick="filterAccProductCat('${g.id}')">${esc(g.name)}</button>
+          `).join('')}
+        </div>
+      </aside>
+      <div style="flex:1;min-width:280px">
+        <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          ${canMut?`<button class="btn green" onclick="accNewProduct()">➕ محصول جدید</button>`:''}
+          <input id="accProdSearch" placeholder="جستجو نام/کد/بارکد..." value="${esc(search)}" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px">
+          <span class="muted" style="font-size:12px">${fmt(rows.length)} کالا</span>
+        </div>
+        <div class="tbl-wrap"><table class="tbl" id="accProductsTbl" data-bulk-delete="/products" data-bulk-label="حذف" data-bulk-perm="admin" data-bulk-confirm="{n} محصول حذف شود؟ این عمل برگشت‌پذیر نیست!" style="font-size:12px"><thead><tr>
+          <th>کد</th><th>نام</th><th>گروه</th><th>موجودی</th><th>قیمت ${moneyColLabel()}</th><th>بهای تمام‌شده</th><th class="no-sort">عملیات</th>
+        </tr></thead><tbody>${rows.map(p=>`<tr data-id="${p.id}">
+          <td class="mono">${esc(p.code||'-')}</td>
+          <td>${esc(p.name)}</td>
+          <td class="muted">${esc(p.category_name||p.category||'-')}</td>
+          <td class="mono">${fmt(p.stock||0)}</td>
+          <td class="mono">${fmt(p.price||0)}</td>
+          <td class="mono">${fmt(p.cost||0)}</td>
+          <td style="white-space:nowrap">
+            ${canMut?`<button class="btn sm ghost" onclick="accEditProduct(${p.id})">✏️</button>
+            <button class="btn sm red" onclick="deleteAccProduct(${p.id})">🗑️</button>`:'—'}
+          </td>
+        </tr>`).join('')||emptyRow(7)}</tbody></table></div>
+      </div>
+    </div>`;
+  const ps=el('accProdSearch');
+  if(ps){
+    ps.focus();
+    ps.addEventListener('input',()=>{
+      PRODUCT_ACC_SEARCH=ps.value;
+      clearTimeout(_accProdSearchTimer);
+      _accProdSearchTimer=setTimeout(()=>loadAccTab('products'),280);
+    });
+  }
+  if(typeof enhanceDataTable==='function' && canMut){
+    enhanceDataTable(el('accProductsTbl'),{
+      selectable:true,
+      bulkDelete:typeof tblInferBulkDelete==='function'?tblInferBulkDelete(el('accProductsTbl')):null
+    });
+  }
 }
 async function renderAccExpensesTab(body){
   const rows=await api('GET','/expenses')||[];
@@ -9990,11 +10126,11 @@ async function renderJournalDocsTab(body){
             <span class="muted">${esc(e.created_by_name||'-')}</span>
           </span>
         </div>
-        <table class="tbl" style="font-size:12px;margin:0"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار</th><th>بستانکار</th></tr></thead>
+        <table class="tbl" style="font-size:12px;margin:0"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th></tr></thead>
         <tbody>${(e.lines||[]).map(l=>`<tr>
           <td class="mono">${esc(l.account_code)}</td><td>${esc(l.account_name)}</td>
-          <td class="mono" style="color:var(--orange)">${l.debit>0?fmt(l.debit):'-'}</td>
-          <td class="mono" style="color:var(--green)">${l.credit>0?fmt(l.credit):'-'}</td>
+          <td class="mono" style="color:var(--orange)">${(l.debit_rial||l.debit)>0?fmt(l.debit_rial||l.debit):'-'}</td>
+          <td class="mono" style="color:var(--green)">${(l.credit_rial||l.credit)>0?fmt(l.credit_rial||l.credit):'-'}</td>
         </tr>`).join('')}</tbody></table>
       </div>`).join('')||'<div class="empty">سندی ثبت نشده</div>'}`;
 }
@@ -10503,7 +10639,7 @@ async function renderTrustChecksTab(body){
       </select>
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>جهت</th><th>طرف حساب</th><th>بانک</th><th>شماره صیادی</th><th>مبلغ (ت)</th><th>سررسید</th><th>وضعیت</th><th>عملیات</th>
+      <th>جهت</th><th>طرف حساب</th><th>بانک</th><th>شماره صیادی</th><th>مبلغ (ریال)</th><th>سررسید</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr>
       <td>${r.direction==='in'?'⬇️ دریافتی':'⬆️ پرداختی'}</td>
       <td>${esc(r.party_name)}</td><td>${esc(r.bank_name||'-')}</td><td class="mono">${esc(r.sayadi||'-')}</td>
@@ -10579,7 +10715,7 @@ async function renderTransfersTab(body,dq){
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="transferModal()">➕ انتقال جدید</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>تاریخ</th><th>از</th><th>به</th><th>مبلغ (ت)</th><th>شرح</th><th>ثبت‌کننده</th><th>عملیات</th>
+      <th>تاریخ</th><th>از</th><th>به</th><th>مبلغ (ریال)</th><th>شرح</th><th>ثبت‌کننده</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(t=>`<tr>
       <td class="mono">${escDate(t.date)}</td>
       <td>${esc(t.from_name)}</td>
@@ -10780,7 +10916,7 @@ async function renderPaymentOpsTab(body){
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="paymentOpChooser()">➕ پرداخت جدید</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>تاریخ</th><th>نوع</th><th>به/بابت</th><th>مبلغ (ت)</th><th>نوع پرداخت</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
+      <th>تاریخ</th><th>نوع</th><th>به/بابت</th><th>مبلغ (ریال)</th><th>نوع پرداخت</th><th>یادداشت</th><th>ثبت‌کننده</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr>
       <td class="mono">${escDate(r.date)}</td>
       <td>${kindLabel[r.kind]}</td>
@@ -10880,7 +11016,7 @@ async function savePersonPayment(){
   if(!target){ showToast('طرف حساب را انتخاب کنید','error'); return; }
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   const payload={
-    amount:amount/10, pay_type:el('pp-paytype').value, date:el('pp-date').value, note:el('pp-note').value,
+    amount:amount, pay_type:el('pp-paytype').value, date:el('pp-date').value, note:el('pp-note').value,
     bank_id:+el('pp-bank').value||null, cash_box_id:+el('pp-cashbox')?.value||null,
     check_category_id:+el('pp-checkcat')?.value||null
   };
@@ -10985,7 +11121,7 @@ async function saveExpensePayment(){
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
     await api('POST','/expenses',{
-      category:el('ex-category').value, title, amount:amount/10,
+      category:el('ex-category').value, title, amount:amount,
       pay_type:el('ex-paytype').value, date:el('ex-date').value, note:el('ex-note').value,
       bank_id:+el('ex-bank').value||null, cash_box_id:+el('ex-cashbox')?.value||null,
       check_category_id:+el('ex-checkcat')?.value||null,
@@ -11024,7 +11160,7 @@ async function loadStatement(){
       </div>
       <div class="panel-body tbl-wrap">
         <table class="tbl" style="font-size:12px"><thead><tr>
-          <th>تاریخ</th><th>نوع تراکنش</th><th>شرح</th><th>بدهکار (ت)</th><th>بستانکار (ت)</th><th>مانده (ت)</th><th>مرجع</th>
+          <th>تاریخ</th><th>نوع تراکنش</th><th>شرح</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th><th>مانده (ریال)</th><th>مرجع</th>
         </tr></thead><tbody>
         <tr style="background:var(--purple-light);font-weight:600">
           <td>-</td><td>مانده اول دوره</td><td>-</td><td>-</td><td>-</td>
@@ -11171,7 +11307,7 @@ async function settlementModal(custId){
       </div>
       <div id="stlMultiBlock" style="display:none">
         <div class="tbl-wrap" style="margin-bottom:8px"><table class="tbl" style="font-size:12px"><thead><tr>
-          <th>مبلغ (ت)</th><th>نوع</th><th>تاریخ</th><th>فاکتور</th><th></th>
+          <th>مبلغ (ریال)</th><th>نوع</th><th>تاریخ</th><th>فاکتور</th><th></th>
         </tr></thead><tbody id="stlRowsBody"></tbody></table></div>
         <button class="btn sm ghost" onclick="stlAddRow()">➕ قسط دیگر</button>
         <div class="fg" style="margin-top:10px"><label>یادداشت مشترک</label><textarea id="st-note-multi" placeholder="توضیحات..."></textarea></div>
@@ -11287,10 +11423,10 @@ async function saveSettlement(){
       const amount=parseInt(String(c.amount).replace(/[^\d]/g,''))||0;
       if(!amount||!String(c.bank||'').trim()||!String(c.sayadi||'').trim()||!String(c.due||'').trim()){ showToast('چک ردیف '+toFa(i+1)+': مبلغ، نام بانک، شناسه صیاد و سررسید الزامی است','error'); return; }
       payments.push({
-        amount:amount/10, pay_type:'cheque', date:el('st-date')?.value||todayJalali(), invoice_id:+el('st-invoice')?.value||null,
+        amount:amount, pay_type:'cheque', date:el('st-date')?.value||todayJalali(), invoice_id:+el('st-invoice')?.value||null,
         cheque_bank:c.bank, cheque_sayadi:c.sayadi, cheque_number:c.number||'', cheque_account:c.account||'',
         cheque_branch:c.branch||'', cheque_sheba:c.sheba||'', cheque_due:c.due, cheque_owner:c.owner||'',
-        cheque_amount:amount/10, cheque_status:'pending', cheque_row:i+1, note:c.note||'',
+        cheque_amount:amount, cheque_status:'pending', cheque_row:i+1, note:c.note||'',
         bank_id:+el('st-bank')?.value||null, cash_box_id:+el('st-cashbox')?.value||null
       });
     }
@@ -11307,7 +11443,7 @@ async function saveSettlement(){
       const r=stlRows[i];
       const amount=parseInt(String(r.amount).replace(/[^\d]/g,''))||0;
       if(!amount||amount<=0){ showToast('مبلغ هر قسط باید معتبر باشد','error'); return; }
-      payments.push({amount:amount/10,pay_type:r.pay_type||'cash',date:r.date||todayJalali(),invoice_id:+r.invoice_id||null,note:r.note||''});
+      payments.push({amount:amount,pay_type:r.pay_type||'cash',date:r.date||todayJalali(),invoice_id:+r.invoice_id||null,note:r.note||''});
     }
     if(!payments.length){ showToast('حداقل یک قسط وارد کنید','error'); return; }
     try{
@@ -11321,7 +11457,7 @@ async function saveSettlement(){
   const invoice_id=+el('st-invoice')?.value||null;
   try{
     await api('POST','/accounting/settlements',{
-      cust_id, amount:amount/10, pay_type, invoice_id,
+      cust_id, amount:amount, pay_type, invoice_id,
       date:el('st-date').value,
       note:el('st-note').value,
       bank_id:+el('st-bank').value||null,
@@ -11387,7 +11523,7 @@ async function repPaymentModal(){
     <div class="modal-head"><h3>💵 ثبت دریافت از مشتری</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>مشتری *</label>${custSelect('rp-cust',0)}</div>
-      <div class="fg"><label>مبلغ (ت) *</label><input id="rp-amount" type="text" inputmode="numeric" class="money"></div>
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="rp-amount" type="text" inputmode="numeric" class="money"></div>
       <div class="fg"><label>نوع</label><select id="rp-paytype" onchange="toggleRepPayFields()">
         <option value="cash">💵 نقد</option>
         <option value="bank_transfer">🏦 واریز بانکی</option>
@@ -11693,7 +11829,7 @@ async function repSettleModal(repId,repName,payable){
     <div class="modal-head"><h3>⚖️ تسویه — ${esc(repName)}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>مانده قابل پرداخت</label><input disabled value="${fmt(payable)} ریال"></div>
-      <div class="fg"><label>مبلغ (ت) *</label><input id="rs-amount" type="number" value="${payable>0?payable:''}"></div>
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="rs-amount" type="number" value="${payable>0?payable:''}"></div>
       <div class="fg"><label>تاریخ</label><input id="rs-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت</label><input id="rs-note"></div>
       <div class="fg full"><label><input type="checkbox" id="rs-adv" checked style="width:auto;margin-left:6px"> کسر خودکار از مساعده</label></div>
@@ -11714,8 +11850,8 @@ async function repCommissionTiersModal(repId,repName){
     <div class="modal-head"><h3>📊 کمیسیون پلکانی — ${esc(repName)}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <div class="form-grid" style="margin-bottom:12px">
-        <div class="fg"><label>از مبلغ (ت)</label><input id="rt-from" type="number"></div>
-        <div class="fg"><label>تا مبلغ (ت)</label><input id="rt-to" type="number" placeholder="خالی=بی‌نهایت"></div>
+        <div class="fg"><label>از مبلغ (ریال)</label><input id="rt-from" type="number"></div>
+        <div class="fg"><label>تا مبلغ (ریال)</label><input id="rt-to" type="number" placeholder="خالی=بی‌نهایت"></div>
         <div class="fg"><label>نقد (٪)</label><input id="rt-cash" type="number" step="0.1"></div>
         <div class="fg"><label>چک (٪)</label><input id="rt-cheque" type="number" step="0.1"></div>
         <div class="fg"><button class="btn sm" onclick="saveRepTier(${repId},${JSON.stringify(repName)})">➕</button></div>
@@ -12009,7 +12145,7 @@ async function repExpenseModal(repId,repName){
     <div class="modal-head"><h3>🧾 ثبت هزینه — ${esc(repName)}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>دسته</label><select id="re-cat">${Object.entries(cats).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
-      <div class="fg"><label>مبلغ (ت) *</label><input id="re-amount" type="number" min="1"></div>
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="re-amount" type="number" min="1"></div>
       <div class="fg"><label>تاریخ</label><input id="re-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>رسید / فاکتور (اختیاری)</label><input id="re-receipt" type="file" accept="image/*,.pdf"></div>
       <div class="fg full"><label>شرح</label><input id="re-desc"></div>
@@ -12035,7 +12171,7 @@ async function repAdvanceModal(repId,repName){
   openModal(`
     <div class="modal-head"><h3>💰 ثبت مساعده — ${esc(repName)}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>مبلغ (ت) *</label><input id="ra-amount" type="number" min="1"></div>
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="ra-amount" type="number" min="1"></div>
       <div class="fg"><label>تاریخ</label><input id="ra-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg full"><label>یادداشت</label><input id="ra-note"></div>
     </div></div>
@@ -12116,7 +12252,7 @@ async function showIncentiveHistory(repId, repName){
     <div class="modal-body" style="padding:0">
       <div class="tbl-wrap" style="max-height:65vh">
         <table class="tbl" style="font-size:12px"><thead><tr>
-          <th>تاریخ</th><th>مبلغ (ت)</th><th>نوع</th><th>یادداشت</th><th>ثبت‌کننده</th><th></th>
+          <th>تاریخ</th><th>مبلغ (ریال)</th><th>نوع</th><th>یادداشت</th><th>ثبت‌کننده</th><th></th>
         </tr></thead><tbody>
         ${rows.map(r=>`<tr>
           <td class="mono">${esc(r.date||'-')}</td>
@@ -13103,6 +13239,15 @@ ROUTES.settings = async function(){
           ${f.status==='locked'?`<button class="btn sm ghost" onclick="fiscalUnlock(${f.id})">🔓</button>`:''}
         </td></tr>`).join('')}</tbody></table></div>`:''}
     </div></div>
+    <div class="panel" style="border:2px solid #fecaca"><div class="panel-head"><h4 style="color:#dc2626">🧪 حذف دیتای تست (به تفکیک بخش)</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9;color:#991b1b">
+        فقط برای مرحله تست/بررسی. برای هر بخش دو حالت وجود دارد:<br>
+        <b>حذف تراکنش‌ها</b> — اسناد و گردش‌ها پاک می‌شوند؛ دادهٔ پایه نگه داشته می‌شود.<br>
+        <b>حذف کامل</b> — تراکنش + دادهٔ پایه آن بخش. کاربران، تنظیمات و کدینگ حساب‌ها هرگز پاک نمی‌شوند.<br>
+        تأیید: تایپ <code>WIPE-SECTION</code> (مثلاً WIPE-ERP) + رمز مدیر.
+      </div>
+      <div id="dataWipeSections"><div class="muted">در حال بارگذاری بخش‌ها...</div></div>
+    </div></div>
     <div class="panel"><div class="panel-head"><h4>🛠️ پنل مدیریت جامع ماژول‌های حسابداری</h4></div><div class="panel-body">
       <div class="form-grid" style="margin-bottom:14px">
         <div class="fg"><label>پیشوند شماره فاکتور فروش ${hlp('پیش‌فرض: T — مثال: فاکتور شماره T-0001')}</label><input id="s-invoice_num_prefix" value="${esc(s.invoice_num_prefix||'T')}"></div>
@@ -13167,6 +13312,7 @@ ROUTES.settings = async function(){
   toggleSmsProviderHint(s.sms_provider||'kavenegar');
   attachDatepickers(el('view'));
   loadAuditLog();
+  loadDataWipeSections();
   if(isDesktopApp()) renderDesktopUpdateUI();
 };
 ROUTES['desktop-settings'] = async function(){
@@ -13588,8 +13734,10 @@ function helpSec(icon,title,body){
 function renderAdminGuide(){
   return [
     helpSec('📥','ورودی اکسل و واحد پول',`
-      <p>مبالغ در قالب و ورود اکسل فقط <b>ریال</b> هستند (بدون حذف صفر). پس از ورود، گزارش تعداد عملیات موفق/ناموفق نمایش داده می‌شود.</p>
+      <p>مبالغ در کل برنامه فقط <b>ریال</b> هستند — ذخیره، نمایش، اکسل و سند حسابداری (با تبدیل داخلی به تومان فقط برای ورودی <code>postToLedger</code>).</p>
       <ul>
+        <li>در فرم‌ها مبلغ را به‌صورت ریال وارد کنید؛ دیگر نیازی به تقسیم بر ۱۰ نیست</li>
+        <li>قالب و ورود اکسل بدون حذف صفر؛ گزارش موفق/ناموفق پس از ورود</li>
         <li>ردیف‌های خالی و بدون نام/تلفن (اشخاص) یا بدون نام کالا رد می‌شوند</li>
         <li><b>داده تکراری هرگز ذخیره نمی‌شود</b> — فقط ردیف‌های جدید وارد می‌شوند و تعداد تکراری‌ها اعلام می‌گردد (اشخاص: تلفن/کد؛ کالا: کد/بارکد/نام)</li>
         <li>حذف کالای واردشده از اکسل پس از پاک‌سازی موجودی انبار ممکن است؛ اگر در فاکتور باشد مسدود می‌شود</li>
@@ -13631,8 +13779,11 @@ function renderAdminGuide(){
         <li>در «عملیات دریافت و پرداخت» هنگام انتخاب نوع پرداخت <b>چک</b>، برای هر چک یک کارت با همهٔ مشخصات باز می‌شود: نام بانک، شماره حساب، شعبه، شماره شبا، شماره چک، شناسه صیاد، مبلغ، تاریخ سررسید، نام صادرکننده و توضیحات.</li>
         <li>با دکمهٔ <b>«➕ ثبت چک بعدی»</b> می‌توانید چند چک را در یک سند دریافت ثبت کنید؛ شمارهٔ ردیف هر چک خودکار تولید می‌شود و مبلغ کل دریافت = جمع مبلغ چک‌ها.</li>
       </ul>
-      <h5>📦 افزودن کالا از ماژول حسابداری</h5><ul>
-        <li>در بخش «کالاها»ی حسابداری دکمهٔ <b>«➕ محصول جدید»</b> اضافه شد. کدهای حسابداری (کل/معین/تفصیلی) و کد کالا (در صورت خالی بودن، به شکل K-00001) به‌صورت خودکار ساخته می‌شوند.</li>
+      <h5>📦 کالاها در حسابداری</h5><ul>
+        <li>مدیریت کامل محصولات (افزودن/ویرایش/حذف) فقط از <b>حسابداری → کالاها</b> انجام می‌شود. صفحه ERP محصولات فقط مشاهده است.</li>
+        <li>در «کالاها»ی حسابداری، گروه‌های کالا سمت راست و ردیف‌های هر گروه سمت چپ نمایش داده می‌شوند (مشابه اطلاعات اشخاص).</li>
+        <li>امکان انتخاب تکی/همه و حذف گروهی ردیف‌های انتخابی وجود دارد.</li>
+        <li>دکمهٔ <b>«➕ محصول جدید»</b> کدهای حسابداری و کد کالا (در صورت خالی بودن، K-00001) را خودکار می‌سازد.</li>
       </ul>
       <h5>🗂️ دسته‌های هزینه و گروه‌های اشخاص</h5><ul>
         <li>در مودال «پرداخت هزینه» با دکمهٔ «➕ دستهٔ جدید» می‌توانید بدون خروج از فرم، دستهٔ هزینهٔ جدید بسازید. فهرست دسته‌های پیش‌فرض هم گسترش یافت.</li>
@@ -13644,6 +13795,15 @@ function renderAdminGuide(){
       </ul>`),
     helpSec('👥','مدیریت مشتریان',`
       <p>تمام مشتریان کسب‌وکار اینجا مدیریت می‌شوند.</p>
+      <h5>مالکیت و دسترسی ویرایش</h5><ul>
+        <li>هر مشتری یک <b>ایجادکننده</b> دارد. فقط همان کاربر یا <b>مدیر</b> می‌تواند اطلاعات را ویرایش/حذف کند.</li>
+        <li>اگر مدیر مشتری را به کارشناس <b>تخصیص</b> دهد، کارشناس مشتری را می‌بیند و می‌تواند پیگیری/فاکتور ثبت کند، ولی ویرایش یا حذف مشخصات مشتری برایش مجاز نیست.</li>
+        <li><b>مانده / موجودی حساب</b> را فقط مدیر می‌تواند تغییر دهد — حتی حسابدار از مسیر ERP نمی‌تواند مانده افتتاحیه را عوض کند.</li>
+      </ul>
+      <h5>ماهیت حساب و مانده</h5><ul>
+        <li>در لیست مشتریان ستون‌های <b>ماهیت</b> (بدهکار/بستانکار) و <b>مانده زنده</b> از دفتر معین نمایش داده می‌شود.</li>
+        <li>گروه اشخاص و گروه مشتری (ماهیت) با اطلاعات اشخاص حسابداری همگام است.</li>
+      </ul>
       <h5>افزودن مشتری جدید</h5><ul>
         <li>روی «+ مشتری جدید» کلیک کنید</li>
         <li>نام فروشگاه (کسب‌وکار) را وارد کنید — این فیلد اجباری است</li>
@@ -13659,9 +13819,9 @@ function renderAdminGuide(){
       </ul>
       <h5>پیگیری خودکار فاکتور</h5><p>چک‌باکس «ایجاد خودکار پیگیری هنگام صدور فاکتور» بالای فرم مشتری: اگر فعال باشد، با هر فاکتور، پیگیری کیفیت ۷ روزه خودکار ساخته می‌شود. برای مشتریانی که نمی‌خواهید، آن را خاموش کنید.</p>
       <h5>پیامک خوش‌آمدگویی</h5><p>با ثبت مشتری جدید دارای موبایل، پیامک خوش‌آمد خودکار ارسال می‌شود. ارسال دستی: دکمه 📤 در ردیف مشتری.</p>
-      <h5>ورود از اکسل</h5><p>از دکمه «ورود اکسل» می‌توانید لیست مشتریان را از فایل اکسل وارد کنید. ستون‌های اجباری: نام فروشگاه.</p>
-      <h5>موجودی حساب (مانده)</h5><p>مقدار «موجودی حساب» در فرم مشتری، <b>مانده اولیه</b> است و همیشه با دفتر معین مشتری همگام می‌ماند: با ثبت یا ویرایش آن، یک ردیف «مانده اول دوره» در دفتر معین ساخته/به‌روزرسانی می‌شود. تمام نمایش‌های موجودی حساب در برنامه (داشبورد، لیست مشتریان، صورت‌حساب) از همین دفتر معین به‌صورت زنده محاسبه می‌شوند — با ثبت هر فاکتور یا تسویه، همه‌جا هم‌زمان به‌روز می‌شود. رنگ‌بندی در همه‌جا یکسان است: <span style="color:#dc2626">قرمز = بدهکار</span> (مشتری به شما بدهکار است)، <span style="color:var(--green)">سبز = بستانکار</span> (شما به مشتری بدهکارید یا پیش‌پرداخت دارد).</p>
-      <div class="warn">حذف مشتری قابل بازگشت نیست. قبل از حذف، از نداشتن فاکتور و پیگیری مطمئن شوید.</div>`),
+      <h5>ورود از اکسل</h5><p>از دکمه «ورود اکسل» می‌توانید لیست مشتریان را از فایل اکسل وارد کنید. ستون‌های اجباری: نام فروشگاه. ایجادکننده همیشه همان مدیر واردکننده است.</p>
+      <h5>موجودی حساب (مانده)</h5><p>مقدار «موجودی حساب» در فرم مشتری (فقط مدیر)، <b>مانده اولیه</b> است و با دفتر معین همگام می‌ماند. تمام نمایش‌های مانده در برنامه از دفتر معین به‌صورت زنده محاسبه می‌شوند. رنگ‌بندی: <span style="color:#dc2626">قرمز = بدهکار</span>، <span style="color:var(--green)">سبز = بستانکار</span>.</p>
+      <div class="warn">حذف مشتری فقط برای ایجادکننده یا مدیر است و قابل بازگشت نیست.</div>`),
     helpSec('📞','پیگیری‌ها',`
       <p>پیگیری یعنی ثبت هر تماس یا فعالیتی که با مشتری انجام می‌دهید.</p>
       <h5>نمای پوشه‌ای (مدیر و حسابدار)</h5><p>وقتی مدیر یا حسابدار وارد صفحه پیگیری‌ها می‌شود، پیش‌فرض نمایش <b>«📁 پوشه کارشناسان»</b> است: پیگیری‌ها ابتدا بر اساس کارشناس مربوطه گروه‌بندی می‌شوند و هر کارشناس یک پوشه جداگانه دارد. با کلیک روی هر پوشه، پیگیری‌های همان کارشناس باز می‌شود. این نما حتی با حجم بالای داده سریع می‌ماند چون محتوای هر پوشه فقط هنگام باز شدن بارگذاری می‌شود. نمای «لیست» و «پایپ‌لاین» هم همیشه در دسترس‌اند.</p>
@@ -13690,27 +13850,27 @@ function renderAdminGuide(){
       </ul>
       <div class="tip">احتمال خرید (۰-۱۰۰٪) و سطح علاقه‌مندی را دقیق وارد کنید تا گزارش‌های پیش‌بینی دقیق‌تر باشد.</div>`),
     helpSec('🛍️','محصولات و موجودی',`
-      <p>کاتالوگ محصولات و مدیریت انبار.</p>
-      <h5>دسته‌بندی محصولات</h5><ul>
-        <li>از دکمه «🏷️ دسته‌بندی‌ها» در بالای صفحه، دسته‌های محصول را بسازید، ویرایش یا حذف کنید</li>
-        <li>هنگام افزودن/ویرایش محصول، دسته را از لیست انتخاب کنید — یا متن آزاد وارد کنید</li>
-        <li>در صفحه محصولات می‌توانید بر اساس انبار فیلتر کنید</li>
+      <p>صفحه <b>محصولات در ERP فقط برای مشاهده و فیلتر</b> است. افزودن، ویرایش، حذف و دسته‌بندی فقط از <b>ماژول حسابداری → کالاها</b> انجام می‌شود.</p>
+      <h5>مشاهده در ERP</h5><ul>
+        <li>جستجو بر اساس نام/کد، فیلتر دسته، انبار و وضعیت موجودی</li>
+        <li>با دکمه «مدیریت کالاها در حسابداری» مستقیم به بخش کالاها بروید (برای مدیر/حسابدار)</li>
       </ul>
-      <h5>افزودن محصول</h5><ul>
-        <li>کد، نام، دسته‌بندی، قیمت فروش و موجودی را وارد کنید</li>
-        <li><b>انبار اصلی</b>: انباری که این محصول در آن نگهداری می‌شود (در کارت محصول و فیلتر انبار نمایش داده می‌شود)</li>
-        <li><b>بهای تمام‌شده</b> (قیمت تولید/خرید هر واحد) را وارد کنید — مبنای محاسبه سود ناخالص در گزارش سود و زیان است</li>
-        <li>حد هشدار موجودی را تنظیم کنید — وقتی کمتر شد، هشدار قرمز نشان می‌دهد</li>
-        <li>عکس محصول را آپلود کنید (نمایش در فاکتور)</li>
+      <h5>مدیریت در حسابداری</h5><ul>
+        <li>گروه کالا در نوار سمت راست؛ جدول کالاها سمت چپ</li>
+        <li>انتخاب و حذف گروهی؛ ویرایش با ✏️</li>
+        <li>دسته‌بندی‌ها از زیرمنوی گروه‌های کالا</li>
+      </ul>
+      <h5>موجودی و انبار</h5><ul>
+        <li>موجودی کم با هشدار قرمز نمایش داده می‌شود</li>
+        <li>انتقال و موجودی انبارها از منوی انبار حسابداری</li>
       </ul>
       <div class="tip">کد محصول باید منحصربه‌فرد باشد — از آن برای جستجوی سریع در فاکتورساز استفاده کنید.</div>
-      <div class="tip">در موبایل، برای افزودن محصول به فاکتور <b>دو بار</b> روی کارت محصول بزنید (لمس اول انتخاب، لمس دوم افزودن).</div>
-      <div class="tip">صفحه «کاتالوگ» برای همه کارشناسان فعال است — دیگر خطای دسترسی نمی‌گیرید.</div>`),
+      <div class="tip">صفحه ERP محصولات فقط مشاهده است؛ مدیریت کامل در حسابداری → کالاها.</div>`),
     helpSec('🧾','فاکتور',`
       <p>صدور پیش‌فاکتور و فاکتور رسمی.</p>
       <h5>صدور فاکتور</h5><ul>
         <li>مشتری را انتخاب کنید</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — اگر محصولی در سیستم نیست، ابتدا از بخش «محصولات» آن را ثبت کنید (در فاکتورساز امکان ساخت سریع محصول وجود ندارد)</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — ثبت/ویرایش کالا فقط از حسابداری → کالاها (مدیر/حسابدار می‌توانند در فاکتور «ساخت محصول جدید» بزنند)</li>
         <li><b>کانال فروش</b> به‌صورت خودکار از نقش کاربر ثبت‌کننده تعیین می‌شود (میدانی/تلفنی) — فیلد دستی در فرم فاکتور نیست</li>
         <li>کنار هر محصول <b>موجودی لحظه‌ای انبار</b> نمایش داده می‌شود (با کم‌شدن تعداد رزروشده در سبد فاکتور، عدد بلافاصله به‌روز می‌شود؛ قرمز = ناموجود، نارنجی = رو به اتمام)</li>
         <li>تعداد و قیمت هر ردیف را تنظیم کنید</li>
@@ -13738,7 +13898,7 @@ function renderAdminGuide(){
         <li><b>کارشناس:</b> آمار شخصی (فروش هفته/ماه، فاکتور، پیگیری باز) + دکمه «تحلیل هوشمند» — فقط بر اساس داده‌های خود شما، بدون دسترسی به اطلاعات دیگران</li>
       </ul>`),
     helpSec('💰','حسابداری — ماژول مستقل',`
-      <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی CRM. برای بازگشت، از دکمه «🔙 بازگشت به CRM» بالای منوی کناری آن استفاده کنید.</p>
+      <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی ERP. برای بازگشت، از دکمه «🔙 بازگشت به ERP» بالای منوی کناری آن استفاده کنید.</p>
       <p>منوی کناری این ماژول <b>آکاردئونی</b> است: سرفصل‌های عملیات (مثل «گزارش‌های مالی»، «فروش و مطالبات») به‌صورت کارت‌های برجسته با فلش بازشو نمایش داده می‌شوند — کلیک روی هر سرفصل زیرمنوهای آن را باز/بسته می‌کند و سرفصل باز با رنگ طلایی مشخص می‌شود. به‌صورت پیش‌فرض همه بسته‌اند تا منو خلوت بماند.</p>
       <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا و پرداخت انگیزه، سند حسابداری دوطرفه خودکار ثبت می‌شود — نیازی به ثبت دستی نیست (مگر برای مواردی که با سند دستی مشخص می‌شوند).</p>
       <h5>منوی ماژول حسابداری</h5><ul>
@@ -13756,7 +13916,7 @@ function renderAdminGuide(){
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
-        <li><b>فاکتورهای فروش</b>: لیست همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ، به‌همراه دکمهٔ «فاکتور جدید» — تیم حسابداری می‌تواند بدون نیاز به رفتن به بخش CRM، فاکتور جدید صادر کند (همان فرم انتخاب مشتری/کالا و سبد فاکتور صفحهٔ اصلی فاکتورها)</li>
+        <li><b>فاکتورهای فروش</b>: لیست همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ، به‌همراه دکمهٔ «فاکتور جدید» — تیم حسابداری می‌تواند بدون نیاز به رفتن به بخش ERP، فاکتور جدید صادر کند (همان فرم انتخاب مشتری/کالا و سبد فاکتور صفحهٔ اصلی فاکتورها)</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. در سبد خرید می‌توانید محصول را جستجو کنید یا با «➕ ساخت محصول جدید» همان‌جا بسازید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی</li>
@@ -13839,6 +13999,12 @@ function renderAdminGuide(){
         <li><b>شروع سال مالی</b>: تعیین ماه شمسی شروع سال مالی (برای گزارش‌های آینده)</li>
         <li><b>فعال/غیرفعال کردن ماژول‌ها</b>: تنخواه‌گردان، چک‌های امانی، انبارها، کالای امانی، تحلیل هزینه تولید و حقوق و دستمزد را می‌توانید بر اساس نیاز کسب‌وکار از منوی حسابداری پنهان کنید — داده‌های موجود حذف نمی‌شود، فقط از منو مخفی می‌شود</li>
       </ul>
+      <h5>حذف دیتای تست (به تفکیک بخش)</h5><ul>
+        <li>در تنظیمات، بلوک قرمز «حذف دیتای تست» برای مرحله تست/بررسی است — فقط مدیر روی سرور مرکزی.</li>
+        <li>هر بخش دو دکمه دارد: <b>حذف تراکنش‌ها</b> و <b>حذف کامل</b> (پایه+تراکنش).</li>
+        <li>تأیید با تایپ <code>WIPE-SECTION</code> (مثلاً WIPE-ERP) + رمز مدیر.</li>
+        <li>کاربران، تنظیمات و کدینگ حساب‌ها هرگز پاک نمی‌شوند.</li>
+      </ul>
       <h5>بازیابی رمز عبور</h5><p>در صفحه ورود، لینک «رمز عبور را فراموش کرده‌اید؟» کد یک‌بارمصرف (OTP) را به موبایل ثبت‌شده کاربر پیامک می‌کند. پس از وارد کردن کد، رمز جدید باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد. اگر پیامک ارسال نشد، تنظیمات سرویس پیامک را بررسی کنید.</p>
       <h5>تغییر اجباری رمز در اولین ورود</h5><p>در اولین ورود با رمز پیش‌فرض (<code>admin123</code>) یا هر رمزی که مدیر برای کاربر تعیین کرده، پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود و تا رمز شخصی جدید انتخاب نشود، هیچ عملیات دیگری در برنامه ممکن نیست. این الزام روی سرور مرکزی اعمال می‌شود؛ در دستگاه‌های آفلاین رمز جدید با اولین همگام‌سازی از مرکز می‌رسد.</p>
       <h5>پشتیبان‌گیری پیشرفته (فقط سرور مرکزی)</h5><ul>
@@ -13876,7 +14042,7 @@ function renderAdminGuide(){
       <div class="warn">تنظیمات سیستم، مدیریت کاربران و اصلاح مستقیم موجودی فقط روی سرور مرکزی امکان‌پذیر است. تغییر رمز روی دسکتاپ/اندروید به سرور مرکزی ارسال می‌شود (نیاز به اتصال آنلاین) و با همگام‌سازی به سایر دستگاه‌ها می‌رسد.</div>
       <div class="tip">همگام‌سازی خودکار هر یک دقیقه انجام می‌شود؛ با دکمه «همگام‌سازی اکنون» در پنل وضعیت می‌توانید فوراً اجرا کنید.</div>`),
     helpSec('🔌','API و یکپارچه‌سازی',`
-      <p>اتصال نرم‌افزارهای خارجی به CRM ترنم از طریق API.</p>
+      <p>اتصال نرم‌افزارهای خارجی به ERP ترنم از طریق API.</p>
       <h5>ساخت کلید API</h5><ol>
         <li>به بخش API بروید</li>
         <li>«کلید جدید» را انتخاب کنید</li>
@@ -13942,12 +14108,12 @@ function renderAdminGuide(){
       <h5>حذف نرم فاکتور و سند</h5><p>حذف فاکتور و اسناد دستی «نرم» است (در audit_log ثبت می‌شود) — فقط نقش‌های دارای دسترسی Delete.</p>
       <h5>گردش حساب مشتریان</h5><p>صفحه «دفتر معین» (گردش حساب) حذف شد — از <b>صورت‌حساب مشتری</b> در حسابداری استفاده کنید.</p>
       <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. اعمال اصلاحات، سند حسابداری تولید می‌کند.</p>
-      <h5>سال مالی</h5><p>تنظیمات → مدیریت سال مالی: انتقال (Rollover) یا بازنشانی کامل (Factory Reset با تأیید RESET-FISCAL).</p>
-      <h5>ساخت سریع محصول در فاکتور</h5><p>مدیر و حسابدار در فاکتورساز دکمه «➕ ساخت محصول جدید» دارند.</p>
+      <h5>سال مالی</h5><p>تنظیمات → مدیریت سال مالی: انتقال (Rollover) یا بازنشانی کامل (Factory Reset با تأیید RESET-FISCAL). همچنین حذف بخش‌به‌بخش دیتای تست با WIPE-SECTION.</p>
+      <h5>ساخت سریع محصول در فاکتور</h5><p>فقط مدیر و حسابدار در فاکتورساز دکمه «➕ ساخت محصول جدید» دارند — مدیریت کامل کالاها در حسابداری → کالاها است.</p>
       <h5>مشاور هوشمند (مدیر)</h5><p>منوی «مشاور هوشمند» فقط برای مدیر سیستم و مدیر فروش — پرسش آزاد با داده‌های تجمیع‌شده.</p>
       <h5>دسترسی‌های granular</h5><p>کاربران → ویرایش → «🔐 دسترسی‌ها» — ماتریس View/Create/Edit/Delete/Approve/Export.</p>
       <h5>پشتیبان</h5><p>فقط سرور مرکزی (وب) — دسکتاپ/اندروید Access Denied.</p>
-      <h5>به‌روزرسانی دسکتاپ 1.0.11</h5><p>تنظیمات → «🔄 بررسی به‌روزرسانی» — نصب‌گر از <code>/releases/CRM-Taranom-Setup-1.0.11.exe</code> دانلود می‌شود. پس از نصب، برنامه خودکار ری‌استارت می‌شود.</p>`),
+      <h5>به‌روزرسانی دسکتاپ 1.0.11</h5><p>تنظیمات → «🔄 بررسی به‌روزرسانی» — نصب‌گر از <code>/releases/ERP-Taranom-Setup-1.0.11.exe</code> دانلود می‌شود. پس از نصب، برنامه خودکار ری‌استارت می‌شود.</p>`),
     helpSec('🏦','حالت کدینگ تفصیلی (پس از مهاجرت)',`
       <p>وقتی دیتابیس با اسناد مرجع راه‌اندازی شده باشد، برنامه در «حالت کدینگ تفصیلی» است: همهٔ اسناد خودکار (فاکتور، دریافت/پرداخت، خرید، حقوق) روی همان کدهای کل/معین/تفصیلی ثبت می‌شوند.</p>
       <ul>
@@ -13980,7 +14146,7 @@ function renderAdminGuide(){
 function renderSalesGuide(){
   return [
     helpSec('🚀','شروع کار',`
-      <p>خوش آمدید! این راهنما به شما کمک می‌کند از سیستم CRM ترنم استفاده کنید.</p>
+      <p>خوش آمدید! این راهنما به شما کمک می‌کند از سیستم ERP ترنم استفاده کنید.</p>
       <h5>اولین ورود</h5><p>اگر رمز شما را مدیر تعیین کرده باشد، در اولین ورود پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود: باید رمز شخصی جدیدی (حداقل ۸ کاراکتر، شامل حرف و عدد) انتخاب کنید تا بتوانید کار کنید. این رمز را فقط خودتان می‌دانید.</p>
       <h5>اولین قدم‌ها</h5><ol>
         <li>از منو سمت چپ بخش مشتریان را باز کنید</li>
@@ -13997,6 +14163,11 @@ function renderSalesGuide(){
         <li>نام فروشگاه اجباری است</li>
         <li>شهر، تلفن و نوع مشتری را وارد کنید</li>
         <li>در یادداشت، اطلاعات مهم مثل روز بازید یا ترجیحات را بنویسید</li>
+      </ul>
+      <h5>ویرایش و حذف</h5><ul>
+        <li>فقط مشتریانی را که <b>خودتان ثبت کرده‌اید</b> می‌توانید ویرایش یا حذف کنید.</li>
+        <li>مشتریانی که مدیر ساخته و به شما تخصیص داده فقط برای مشاهده و پیگیری/فاکتور هستند.</li>
+        <li>مانده حساب را نمی‌توانید تغییر دهید.</li>
       </ul>
       <h5>تاریخچه مشتری</h5><p>روی دکمه «تاریخچه» کنار هر مشتری کلیک کنید تا همه پیگیری‌ها، فاکتورها و تسویه‌های آن مشتری را ببینید.</p>
       <div class="tip">وضعیت مشتری را به‌روز نگه دارید: VIP، فعال، پیگیری، خاموش.</div>`),

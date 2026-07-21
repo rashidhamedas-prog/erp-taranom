@@ -206,7 +206,7 @@ router.post('/me/orders', (req, res) => {
       // internal message to the salesperson (admins see all messages)
       db.prepare('INSERT INTO messages (from_id,to_id,body) VALUES (?,?,?)')
         .run(cust.user_id, cust.user_id,
-             `🛒 سفارش جدید پورتال B2B\nمشتری: ${cust.biz}\nپیش‌فاکتور: ${num}\nمبلغ: ${subtotal.toLocaleString('fa-IR')} تومان`);
+             `🛒 سفارش جدید پورتال B2B\nمشتری: ${cust.biz}\nپیش‌فاکتور: ${num}\nمبلغ: ${subtotal.toLocaleString('fa-IR')} ریال`);
       return { orderId: order.lastInsertRowid, invoiceNum: num };
     })();
   } catch (e) {

@@ -1,5 +1,6 @@
 // Representative sub-ledger + commission engine — loosely coupled to core accounting.
 const { postToLedger } = require('./ledger');
+const { rialToLedger } = require('./money');
 const { acct } = require('./coa-map');
 const EXPENSE_CATEGORIES = {
   transport: 'حمل‌ونقل', fuel: 'سوخت', hotel: 'هتل', meals: 'پذیرایی',
@@ -449,15 +450,15 @@ function recordCommissionAccrual(db, inv, userId) {
     date: inv.date || require('../jalali').todayJalali(),
     description: `تعهد انگیزه فروش — فاکتور ${inv.num} — ${rep?.name || ''}`, createdBy: userId,
     lines: [
-      { code: expense.code, name: expense.name, debit: amount, credit: 0 },
-      { code: payable.code, name: payable.name, debit: 0, credit: amount }
+      { code: expense.code, name: expense.name, debit: rialToLedger(amount), credit: 0 },
+      { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(amount) }
     ]
   });
   addRepLedger(db, {
     rep_id: inv.user_id, date: inv.date || '', entry_type: 'commission_accrual', ref_type: 'invoice', ref_id: inv.id,
     description: `تعهد انگیزه فاکتور ${inv.num}`, debit: 0, credit: amount, created_by: userId
   });
-  notifyRep(db, inv.user_id, `🎯 انگیزه فاکتور ${inv.num} تأیید شد: ${amount.toLocaleString('fa-IR')} تومان`, userId, { sms: true });
+  notifyRep(db, inv.user_id, `🎯 انگیزه فاکتور ${inv.num} تأیید شد: ${amount.toLocaleString('fa-IR')} ریال`, userId, { sms: true });
   return amount;
 }
 
@@ -502,15 +503,15 @@ function recordSettlementCommissionAccrual(db, settlement, inv, userId) {
     date: settlement.date || require('../jalali').todayJalali(),
     description: `تعهد انگیزه وصول — فاکتور ${inv.num} — ${rep?.name || ''}`, createdBy: userId,
     lines: [
-      { code: expense.code, name: expense.name, debit: amount, credit: 0 },
-      { code: payable.code, name: payable.name, debit: 0, credit: amount }
+      { code: expense.code, name: expense.name, debit: rialToLedger(amount), credit: 0 },
+      { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(amount) }
     ]
   });
   addRepLedger(db, {
     rep_id: repId, date: settlement.date || '', entry_type: 'commission_accrual', ref_type: 'settlement', ref_id: settlement.id,
     description: `تعهد انگیزه وصول فاکتور ${inv.num}`, debit: 0, credit: amount, created_by: userId
   });
-  notifyRep(db, repId, `💰 انگیزه وصول ${amount.toLocaleString('fa-IR')} تومان ثبت شد (فاکتور ${inv.num})`, userId, { sms: true });
+  notifyRep(db, repId, `💰 انگیزه وصول ${amount.toLocaleString('fa-IR')} ریال ثبت شد (فاکتور ${inv.num})`, userId, { sms: true });
   return amount;
 }
 
@@ -533,8 +534,8 @@ function reverseCommissionAccrual(db, refType, refId, userId, date) {
     sourceType: `commission_accrual_${refType}_reversal`, sourceId: refId, date: postingDate,
     description: `ابطال ${row.description || 'تعهد انگیزه فروش'}`, createdBy: userId,
     lines: [
-      { code: payable.code, name: payable.name, debit: row.credit, credit: 0 },
-      { code: expense.code, name: expense.name, debit: 0, credit: row.credit },
+      { code: payable.code, name: payable.name, debit: rialToLedger(row.credit), credit: 0 },
+      { code: expense.code, name: expense.name, debit: 0, credit: rialToLedger(row.credit) },
     ],
   });
   addRepLedger(db, {
@@ -585,7 +586,7 @@ function runRepDailyAlerts(db) {
       const key = `rep_alert_receivable_${r.id}_${today.slice(0, 7)}`;
       const sent = db.prepare("SELECT value FROM settings WHERE key=?").get(key);
       if (!sent) {
-        notifyRep(db, r.id, `⚠️ مطالبات مشتریان شما: ${Math.round(aging.total).toLocaleString('fa-IR')} تومان`, 1, { sms: true });
+        notifyRep(db, r.id, `⚠️ مطالبات مشتریان شما: ${Math.round(aging.total).toLocaleString('fa-IR')} ریال`, 1, { sms: true });
         db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)").run(key, '1');
         n++;
       }

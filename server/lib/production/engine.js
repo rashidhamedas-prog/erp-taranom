@@ -268,8 +268,8 @@ function linkJeIssues(db, orderId, jeId) {
 function ledgerBalance(db, accountCode) {
   const r = db.prepare(`
     SELECT
-      COALESCE(SUM(COALESCE(jl.debit_rial, ROUND(jl.debit*10))),0) -
-      COALESCE(SUM(COALESCE(jl.credit_rial, ROUND(jl.credit*10))),0) bal
+      COALESCE(SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)),0) -
+      COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)),0) bal
     FROM journal_lines jl
     JOIN journal_entries je ON je.id = jl.entry_id
     WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0

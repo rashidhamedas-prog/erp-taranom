@@ -97,7 +97,7 @@ function recalculateMovingAverageFromLayers(db, productId) {
     val += Math.round(q * (Number(r.unit_cost_rial) || 0));
   }
   const avg = qty > 0 ? Math.round(val / qty) : 0;
-  db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?').run(avg, avg / 10, productId);
+  db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?').run(avg, avg, productId);
   return { qty, avg_cost_rial: avg };
 }
 

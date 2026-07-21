@@ -38,7 +38,7 @@ function bootstrapRate(db, ccId, period) {
       SELECT COALESCE(SUM(amount),0) s FROM expense_payments
       WHERE COALESCE(is_overhead,0)=1
     `).get();
-    pool = Math.round((Number(exp?.s) || 0) * 10); // toman → rial
+    pool = Math.round(Number(exp?.s) || 0); // expense_payments.amount is rial
   } catch { /* column may not exist */ }
   try {
     const q = db.prepare(`

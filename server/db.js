@@ -1769,6 +1769,10 @@ function initSyncSchema(db) {
   ensureColumn(db, 'invoices', 'party_id', 'INTEGER');
   ensureColumn(db, 'settlements', 'party_id', 'INTEGER');
   ensureColumn(db, 'customers', 'party_id', 'INTEGER');
+  ensureColumn(db, 'customers', 'created_by', 'INTEGER');
+  try {
+    db.prepare('UPDATE customers SET created_by = user_id WHERE created_by IS NULL AND user_id IS NOT NULL').run();
+  } catch (_) { /* ignore */ }
   ensureColumn(db, 'suppliers', 'party_id', 'INTEGER');
   ensureColumn(db, 'warehouses', 'entity', "TEXT DEFAULT 'distribution_office'");
   ensureColumn(db, 'warehouses', 'cost_center_id', 'INTEGER');
@@ -2076,6 +2080,37 @@ function initSyncSchema(db) {
   // Currency: مبنای ذخیره‌سازی ریال + مهاجرت یک‌باره از تومان
   const { migrateTomanToRial, seedStandardSubgroups } = require('./lib/currency');
   migrateTomanToRial(db);
+
+  // Backfill debit_rial/credit_rial for old journal lines where only debit/credit were ×10'd to rial
+  try {
+    const mig = db.prepare("SELECT value FROM settings WHERE key='currency_rial_migration_v1'").get();
+    const done = db.prepare("SELECT value FROM settings WHERE key='journal_rial_backfill_v1'").get();
+    if (mig?.value === '1' && done?.value !== '1') {
+      try {
+        db.exec(`
+          UPDATE journal_lines SET
+            debit_rial = CASE WHEN COALESCE(debit_rial,0)=0 AND COALESCE(debit,0)!=0 THEN ROUND(debit) ELSE debit_rial END,
+            credit_rial = CASE WHEN COALESCE(credit_rial,0)=0 AND COALESCE(credit,0)!=0 THEN ROUND(credit) ELSE credit_rial END
+          WHERE (COALESCE(debit_rial,0)=0 AND COALESCE(debit,0)!=0)
+             OR (COALESCE(credit_rial,0)=0 AND COALESCE(credit,0)!=0)
+        `);
+      } catch (e) { console.warn('journal_lines rial backfill:', e.message); }
+      try {
+        db.exec(`
+          UPDATE journal_entries SET
+            total_debit_rial = (SELECT COALESCE(SUM(debit_rial),0) FROM journal_lines WHERE entry_id=journal_entries.id),
+            total_credit_rial = (SELECT COALESCE(SUM(credit_rial),0) FROM journal_lines WHERE entry_id=journal_entries.id)
+          WHERE COALESCE(total_debit_rial,0)=0 AND COALESCE(total_credit_rial,0)=0
+            AND EXISTS (SELECT 1 FROM journal_lines WHERE entry_id=journal_entries.id AND (debit_rial!=0 OR credit_rial!=0))
+        `);
+      } catch (e) { console.warn('journal_entries rial backfill:', e.message); }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('journal_rial_backfill_v1','1')").run();
+      console.log('✅ journal_rial_backfill_v1: debit_rial/credit_rial filled from migrated debit/credit');
+    }
+  } catch (e) {
+    console.warn('journal rial backfill:', e.message);
+  }
+
   // party_groups + product_categories seeds are required in standard mode too (CRM customers API joins party_groups).
   seedStandardSubgroups(db);
   const cmLegacy = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get();
@@ -2170,9 +2205,16 @@ function backfillAccounting(db) {
             const receivable = acct(db, 'coa_receivable');
             const discount = acct(db, 'coa_sales_discount');
             const sales = acct(db, 'coa_sales');
-            const lines = [{ code: receivable.code, name: receivable.name, debit: inv.final, credit: 0 }];
-            if ((inv.disc_amt || 0) > 0) lines.push({ code: discount.code, name: discount.name, debit: inv.disc_amt, credit: 0, description: 'تخفیف فاکتور' });
-            lines.push({ code: sales.code, name: sales.name, debit: 0, credit: inv.subtotal });
+            const toLine = (debitRial, creditRial, extra = {}) => ({
+              ...extra,
+              debit: (Number(debitRial) || 0) / 10,
+              credit: (Number(creditRial) || 0) / 10,
+              debit_rial: Math.round(Number(debitRial) || 0),
+              credit_rial: Math.round(Number(creditRial) || 0),
+            });
+            const lines = [{ code: receivable.code, name: receivable.name, ...toLine(inv.final, 0) }];
+            if ((inv.disc_amt || 0) > 0) lines.push({ code: discount.code, name: discount.name, ...toLine(inv.disc_amt, 0), description: 'تخفیف فاکتور' });
+            lines.push({ code: sales.code, name: sales.name, ...toLine(0, inv.subtotal) });
             createJournalEntry(db, { date: inv.date || '', description: `فاکتور رسمی ${inv.num}`, ref_type: 'invoice', ref_id: inv.id, created_by: inv.user_id, lines });
           }
         } else {
@@ -2182,7 +2224,7 @@ function backfillAccounting(db) {
             createLedgerEntry(db, {
               customer_id: s.cust_id, date: s.date || '', entry_type: 'settlement',
               ref_type: 'settlement', ref_id: s.id,
-              description: `تسویه ${payLabel} - ${Number(s.amount || 0).toLocaleString('fa-IR')} تومان`,
+              description: `تسویه ${payLabel} - ${Number(s.amount || 0).toLocaleString('fa-IR')} ریال`,
               debit: 0, credit: s.amount, user_id: s.user_id
             });
             created++;
@@ -2190,12 +2232,14 @@ function backfillAccounting(db) {
           if (!settHasJournal.get(s.id)) {
             const cash = resolveCashAccount(db, s.pay_type, s.bank_id, s.cash_box_id);
             const receivable = acct(db, 'coa_receivable');
+            const amtRial = Math.round(Number(s.amount) || 0);
+            const amtToman = amtRial / 10;
             createJournalEntry(db, {
               date: s.date || '', description: `تسویه ${payLabel} مشتری`,
               ref_type: 'settlement', ref_id: s.id, created_by: s.user_id,
               lines: [
-                { code: cash.code, name: cash.name, debit: s.amount, credit: 0 },
-                { code: receivable.code, name: receivable.name, debit: 0, credit: s.amount }
+                { code: cash.code, name: cash.name, debit: amtToman, credit: 0, debit_rial: amtRial, credit_rial: 0 },
+                { code: receivable.code, name: receivable.name, debit: 0, credit: amtToman, debit_rial: 0, credit_rial: amtRial }
               ]
             });
           }

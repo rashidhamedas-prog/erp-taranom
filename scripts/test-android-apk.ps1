@@ -34,6 +34,20 @@ foreach ($abi in 'arm64-v8a', 'armeabi-v7a', 'x86_64') {
   if ($e) { Assert (Test-Elf $e) "lib/$abi/libnode.so is ELF" }
 }
 
+# 2b) libc++_shared required by libnode on Android 15+ (namespace isolation)
+foreach ($abi in 'arm64-v8a', 'armeabi-v7a', 'x86_64') {
+  $e = $zip.Entries | Where-Object { $_.FullName -eq "lib/$abi/libc++_shared.so" }
+  Assert ($e) "lib/$abi/libc++_shared.so present"
+  if ($e) { Assert (Test-Elf $e) "lib/$abi/libc++_shared.so is ELF" }
+}
+
+# 2c) better-sqlite3 shipped as JNI lib (pageSizeCompat / extractNativeLibs)
+foreach ($abi in 'arm64-v8a', 'armeabi-v7a', 'x86_64') {
+  $e = $zip.Entries | Where-Object { $_.FullName -eq "lib/$abi/libbetter_sqlite3.so" }
+  Assert ($e) "lib/$abi/libbetter_sqlite3.so present"
+  if ($e) { Assert (Test-Elf $e) "lib/$abi/libbetter_sqlite3.so is ELF" }
+}
+
 # 3) better_sqlite3 prebuilt per ABI
 foreach ($abi in 'arm64-v8a', 'armeabi-v7a', 'x86_64') {
   $p = "assets/nodejs-project/node_modules/better-sqlite3/prebuilt/android/$abi/better_sqlite3.node"
@@ -49,7 +63,8 @@ if ($main) {
   $sr = New-Object IO.StreamReader($main.Open())
   $txt = $sr.ReadToEnd(); $sr.Close()
   Assert ($txt -match 'ensureBetterSqlite3Native') 'main.js has sqlite path fix'
-  Assert ($txt -match "APP_VERSION = '2.0.9'") 'main.js version 2.0.9'
+  Assert ($txt -match "APP_VERSION = '2.0.12'") 'main.js version 2.0.12'
+  Assert ($txt -match 'blocked process\.exit|never call process\.exit|Do NOT process\.exit') 'main.js blocks process.exit on Android'
   Assert ($txt -match 'LISTEN_HOST') 'main.js binds localhost'
 }
 

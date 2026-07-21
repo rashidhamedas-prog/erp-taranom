@@ -3,6 +3,7 @@ const { getDB, audit, resolveCashAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { postToLedger } = require('../lib/ledger');
+const { rialToLedger } = require('../lib/money');
 const { acct } = require('../lib/coa-map');
 
 function resolveExpenseAccount(db, category, account_code) {
@@ -95,15 +96,15 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       date: date || todayJalali(), description: `پرداخت هزینه: ${title || acc.name}`,
       createdBy: req.user.id, costCenterId: cost_center_id || null,
       lines: [
-        { code: acc.code, name: acc.name, debit: amt, credit: 0, description: title || '' },
-        { code: cash.code, name: cash.name, debit: 0, credit: amt }
+        { code: acc.code, name: acc.name, debit: rialToLedger(amt), credit: 0, description: title || '' },
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) }
       ]
     });
     db.prepare('UPDATE expense_payments SET journal_entry_id=? WHERE id=?').run(entryId, expId);
     return expId;
   })();
 
-  audit(req.user.id, 'create', 'expense_payment', expId, `پرداخت هزینه ${amt} تومان (${title || acc.name})`);
+  audit(req.user.id, 'create', 'expense_payment', expId, `پرداخت هزینه ${amt} ریال (${title || acc.name})`);
   res.json({ id: expId, ok: true });
 });
 
@@ -149,8 +150,8 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
       date: todayJalali(), description: `ابطال پرداخت هزینه #${row.id}`, createdBy: req.user.id,
       costCenterId: row.cost_center_id || null,
       lines: [
-        { code: cash.code, name: cash.name, debit: row.amount, credit: 0 },
-        { code: acc.code, name: acc.name, debit: 0, credit: row.amount }
+        { code: cash.code, name: cash.name, debit: rialToLedger(row.amount), credit: 0 },
+        { code: acc.code, name: acc.name, debit: 0, credit: rialToLedger(row.amount) }
       ]
     });
     db.prepare("UPDATE expense_payments SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")

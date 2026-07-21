@@ -15,4 +15,8 @@ add_library(node SHARED IMPORTED)
 set_target_properties(node PROPERTIES IMPORTED_LOCATION
         ${LIBNODE_DIR}/bin/${ANDROID_ABI}/libnode.so)
 
-target_link_libraries(native-lib node android log)
+target_link_options(native-lib PRIVATE "-Wl,-z,max-page-size=16384")
+
+# Prefer shared STL so the packaged libc++_shared.so (copied by Gradle
+# copyLibcxxShared) satisfies both native-lib and libnode on Android 15+.
+target_link_libraries(native-lib node android log c++_shared)

@@ -4,7 +4,7 @@ const { acct, coaMode } = require('../lib/coa-map');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
 const { enqueueMoadian } = require('./moadian');
-const { tomanToRial } = require('../lib/money');
+const { rialToLedger } = require('../lib/money');
 const { reverseCommissionAccrual } = require('../lib/rep-ledger');
 
 // دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
@@ -29,10 +29,12 @@ function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
   const lines = [];
   let total = 0;
   for (const r of rows || []) {
-    const p = db.prepare('SELECT cost,coa_code,name FROM products WHERE id=?').get(r.product_id);
-    if (!p || !p.cost || !p.coa_code) continue;
-    const amt = Math.round(p.cost * (parseInt(r.qty) || 0));
-    if (amt <= 0) continue;
+    const p = db.prepare('SELECT cost,average_cost_rial,coa_code,name FROM products WHERE id=?').get(r.product_id);
+    if (!p || !p.coa_code) continue;
+    const unitRial = Number(p.average_cost_rial) > 0 ? Number(p.average_cost_rial) : (Number(p.cost) || 0);
+    const amtRial = Math.round(unitRial * (parseInt(r.qty) || 0));
+    if (amtRial <= 0) continue;
+    const amt = rialToLedger(amtRial);
     total += amt;
     lines.push({ code: p.coa_code, name: p.name, debit: reverse ? amt : 0, credit: reverse ? 0 : amt });
   }
@@ -60,17 +62,19 @@ function salesJournalLines(db, custId, totals, reverse, opts = {}) {
   const salesDisc = acct(db, 'coa_sales_discount');
   const vatPay = acct(db, 'coa_vat_payable');
   const { discAmt, final, vatAmount, netBeforeVat } = totals;
+  // postToLedger expects toman → convert rial document amounts
+  const L = rialToLedger;
   if (!reverse) {
-    const jLines = [{ code: recv.code, name: recv.name, debit: final, credit: 0 }];
-    if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: discAmt, credit: 0, description: 'تخفیف فاکتور' });
-    jLines.push({ code: sales.code, name: sales.name, debit: 0, credit: netBeforeVat });
-    if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: 0, credit: vatAmount, description: 'مالیات بر ارزش افزوده' });
+    const jLines = [{ code: recv.code, name: recv.name, debit: L(final), credit: 0 }];
+    if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: L(discAmt), credit: 0, description: 'تخفیف فاکتور' });
+    jLines.push({ code: sales.code, name: sales.name, debit: 0, credit: L(netBeforeVat) });
+    if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: 0, credit: L(vatAmount), description: 'مالیات بر ارزش افزوده' });
     return jLines;
   }
-  const jLines = [{ code: sales.code, name: sales.name, debit: netBeforeVat, credit: 0, description: 'ابطال' }];
-  if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: vatAmount, credit: 0, description: 'ابطال VAT' });
-  if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: 0, credit: discAmt, description: 'ابطال تخفیف' });
-  jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: final });
+  const jLines = [{ code: sales.code, name: sales.name, debit: L(netBeforeVat), credit: 0, description: 'ابطال' }];
+  if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: L(vatAmount), credit: 0, description: 'ابطال VAT' });
+  if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: 0, credit: L(discAmt), description: 'ابطال تخفیف' });
+  jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: L(final) });
   return jLines;
 }
 
@@ -267,11 +271,10 @@ router.post('/', auth, (req, res) => {
 
   const discPct = parseFloat(disc) || 0;
   const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vat_exempt });
-  const freightRial = tomanToRial(parseFloat(freight_amount) || 0);
-  const freightToman = Math.round(freightRial / 10);
+  const freightRial = Math.round(parseFloat(freight_amount) || 0);
   let { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
-  final += freightToman;
-  netBeforeVat += freightToman;
+  final += freightRial;
+  netBeforeVat += freightRial;
   const entryDate = date || todayJalali();
   const pType = pay_type || 'cash';
   const whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
@@ -304,7 +307,7 @@ router.post('/', auth, (req, res) => {
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).run(req.user.id, cust_id, num, invType, entryDate, note || '',
             JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate,
-            Math.round(subtotal * 10), Math.round(final * 10), Math.round(vatAmount * 10),
+            Math.round(subtotal), Math.round(final), Math.round(vatAmount),
             seller ? seller.name : '', seller ? (seller.phone || '') : '',
             pType, cheque_duration || '', cheque_due_date || '', cheque_info || '',
             stockDeducted, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '',
@@ -390,10 +393,9 @@ router.put('/:id', auth, (req, res) => {
   catch (e) { return res.status(400).json({ error: e.message }); }
   const discPct = parseFloat(disc) || 0;
   const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vat_exempt });
-  const freightRial = tomanToRial(parseFloat(freight_amount) || 0);
-  const freightToman = Math.round(freightRial / 10);
+  const freightRial = Math.round(parseFloat(freight_amount) || 0);
   let { subtotal, discAmt, final, vatAmount, vatRate } = totals;
-  final += freightToman;
+  final += freightRial;
 
   const newType = type || 'proforma';
   const whId = warehouse_id != null && warehouse_id !== '' ? parseInt(warehouse_id, 10) : (row.warehouse_id || null);
@@ -412,7 +414,7 @@ router.put('/:id', auth, (req, res) => {
         sales_channel=?,lead_source=?,campaign=?,bank_id=?,cash_box_id=?,check_category_id=?,warehouse_id=?,freight_amount=?,freight_type=?,vat_exempt=?,cost_center_id=?
         WHERE id=?`)
         .run(cust_id, newType, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
-             vatAmount, vatRate, Math.round(subtotal * 10), Math.round(final * 10), Math.round(vatAmount * 10),
+             vatAmount, vatRate, Math.round(subtotal), Math.round(final), Math.round(vatAmount),
              pay_type || row.pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
              stockDeducted, resolveSalesChannel(req), lead_source || '', campaign || '',
              bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
@@ -459,7 +461,8 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
       }
       const invTotals = {
         subtotal: row.subtotal, discAmt: row.disc_amt || 0, final: row.final,
-        vatAmount: row.vat_amount || 0, netBeforeVat: (row.subtotal || 0) - (row.disc_amt || 0)
+        vatAmount: row.vat_amount || 0,
+        netBeforeVat: (row.subtotal || 0) - (row.disc_amt || 0) + Math.round(row.freight_amount || 0)
       };
       postToLedger(db, {
         sourceType: 'invoice_reversal', sourceId: row.id, date: todayJalali(),
@@ -504,7 +507,7 @@ router.post('/:id/convert', auth, (req, res) => {
 
       db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=?,final=?,vat_amount=?,vat_rate=?,final_rial=?,vat_amount_rial=? WHERE id=?')
         .run('final', stockDeducted, totals.final, totals.vatAmount, totals.vatRate,
-          Math.round(totals.final * 10), Math.round(totals.vatAmount * 10), inv.id);
+          Math.round(totals.final), Math.round(totals.vatAmount), inv.id);
       // Auto-update customer status to 'active' when proforma is converted to final
       db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
 
@@ -647,15 +650,15 @@ router.get('/:id/print', auth, (req, res) => {
 
     <table>
       <thead>
-        <tr><th>ردیف</th><th>شرح کالا</th><th>تعداد</th><th>قیمت واحد (تومان)</th><th>جمع (تومان)</th></tr>
+        <tr><th>ردیف</th><th>شرح کالا</th><th>تعداد</th><th>قیمت واحد (ریال)</th><th>جمع (ریال)</th></tr>
       </thead>
       <tbody>${rowsHtml || '<tr><td colspan="5">بدون ردیف</td></tr>'}</tbody>
     </table>
 
     <div class="totals">
-      <div class="line"><span>جمع کل:</span><span>${faNum(inv.subtotal)} تومان</span></div>
-      <div class="line"><span>تخفیف (${faNum(inv.disc)}٪):</span><span>${faNum(inv.disc_amt)} تومان</span></div>
-      <div class="line final"><span>مبلغ نهایی:</span><span>${faNum(inv.final)} تومان</span></div>
+      <div class="line"><span>جمع کل:</span><span>${faNum(inv.subtotal)} ریال</span></div>
+      <div class="line"><span>تخفیف (${faNum(inv.disc)}٪):</span><span>${faNum(inv.disc_amt)} ریال</span></div>
+      <div class="line final"><span>مبلغ نهایی:</span><span>${faNum(inv.final)} ریال</span></div>
     </div>
 
     ${inv.note ? `<div class="note"><b>توضیحات:</b> ${inv.note}</div>` : ''}

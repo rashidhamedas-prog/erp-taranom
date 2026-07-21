@@ -3,6 +3,7 @@ const { getDB } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { j2g, todayJalali } = require('../jalali');
 const { acct } = require('../lib/coa-map');
+const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 
 function daysSinceJalali(dateStr) {
   try {
@@ -24,9 +25,9 @@ router.get('/aging', auth, adminOrAccounting, (req, res) => {
   const rows = [];
   const totals = { b0_30: 0, b31_60: 0, b61_90: 0, b90plus: 0, total: 0 };
   for (const c of customers) {
-    const invoices = db.prepare("SELECT id,date,COALESCE(NULLIF(final_rial,0),ROUND(final*10),0) final_rial FROM invoices WHERE cust_id=? AND type='final' ORDER BY date ASC, id ASC").all(c.id);
+    const invoices = db.prepare("SELECT id,date,COALESCE(NULLIF(final_rial,0),ROUND(final),0) final_rial FROM invoices WHERE cust_id=? AND type='final' ORDER BY date ASC, id ASC").all(c.id);
     if (!invoices.length) continue;
-    let settledPool = db.prepare('SELECT COALESCE(SUM(COALESCE(NULLIF(amount_rial,0),ROUND(amount*10),0)),0) s FROM settlements WHERE cust_id=?').get(c.id).s;
+    let settledPool = db.prepare('SELECT COALESCE(SUM(COALESCE(NULLIF(amount_rial,0),ROUND(amount),0)),0) s FROM settlements WHERE cust_id=?').get(c.id).s;
     const bucket = { b0_30: 0, b31_60: 0, b61_90: 0, b90plus: 0 };
     for (const inv of invoices) {
       let remaining = inv.final_rial;
@@ -61,15 +62,15 @@ router.get('/cash-flow', auth, adminOrAccounting, (req, res) => {
     return { sql: where.length ? 'WHERE ' + where.join(' AND ') : '', params };
   };
   const settl = dateFilter('date');
-  const cashIn = db.prepare(`SELECT COALESCE(SUM(COALESCE(NULLIF(amount_rial,0),ROUND(amount*10),0)),0) s FROM settlements ${settl.sql}`).get(...settl.params).s;
+  const cashIn = db.prepare(`SELECT COALESCE(SUM(COALESCE(NULLIF(amount_rial,0),ROUND(amount),0)),0) s FROM settlements ${settl.sql}`).get(...settl.params).s;
   const supPay = dateFilter('date');
-  const supplierOut = db.prepare(`SELECT COALESCE(SUM(ROUND(amount*10)),0) s FROM supplier_payments ${supPay.sql}`).get(...supPay.params).s;
+  const supplierOut = db.prepare(`SELECT COALESCE(SUM(ROUND(amount)),0) s FROM supplier_payments ${supPay.sql}`).get(...supPay.params).s;
   const incPay = dateFilter('date');
-  const incentiveOut = db.prepare(`SELECT COALESCE(SUM(ROUND(amount*10)),0) s FROM incentive_payments ${incPay.sql}`).get(...incPay.params).s;
+  const incentiveOut = db.prepare(`SELECT COALESCE(SUM(ROUND(amount)),0) s FROM incentive_payments ${incPay.sql}`).get(...incPay.params).s;
   const expPay = dateFilter('date');
-  const expenseOut = db.prepare(`SELECT COALESCE(SUM(ROUND(amount*10)),0) s FROM expense_payments ${expPay.sql}`).get(...expPay.params).s;
+  const expenseOut = db.prepare(`SELECT COALESCE(SUM(ROUND(amount)),0) s FROM expense_payments ${expPay.sql}`).get(...expPay.params).s;
   const poWhere = dateFilter('date');
-  const purchaseCashOut = db.prepare(`SELECT COALESCE(SUM(ROUND(final*10)),0) s FROM purchase_invoices ${poWhere.sql}${poWhere.sql ? ' AND ' : ' WHERE '}pay_type<>'credit'`).get(...poWhere.params).s;
+  const purchaseCashOut = db.prepare(`SELECT COALESCE(SUM(ROUND(final)),0) s FROM purchase_invoices ${poWhere.sql}${poWhere.sql ? ' AND ' : ' WHERE '}pay_type<>'credit'`).get(...poWhere.params).s;
   const totalOut = supplierOut + incentiveOut + expenseOut + purchaseCashOut;
   res.json({
     from: from || '', to: to || '',
@@ -91,7 +92,7 @@ function aggregateSalesByProduct(db, from, to) {
     for (const l of lines) {
       if (!byProduct[l.product_id]) byProduct[l.product_id] = { product_id: l.product_id, name: l.name, qty: 0, revenue: 0 };
       byProduct[l.product_id].qty += l.qty || 0;
-      byProduct[l.product_id].revenue += Math.round((l.sum || 0) * 10);
+      byProduct[l.product_id].revenue += Math.round(l.sum || 0);
     }
   }
   return byProduct;
@@ -107,7 +108,7 @@ router.get('/sales-by-product', auth, adminOrAccounting, (req, res) => {
 
 router.get('/inventory-valuation', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const rows = db.prepare('SELECT id,code,name,stock,COALESCE(NULLIF(average_cost_rial,0),ROUND(cost*10),0) cost,COALESCE(NULLIF(price_rial,0),ROUND(price*10),0) price FROM products ORDER BY name').all();
+  const rows = db.prepare('SELECT id,code,name,stock,COALESCE(NULLIF(average_cost_rial,0),ROUND(cost),0) cost,COALESCE(NULLIF(price_rial,0),ROUND(price),0) price FROM products ORDER BY name').all();
   rows.forEach(p => { p.cost_value = Math.round((p.stock || 0) * (p.cost || 0)); p.retail_value = Math.round((p.stock || 0) * (p.price || 0)); });
   const totals = rows.reduce((a, r) => ({ stock: a.stock + (r.stock || 0), cost_value: a.cost_value + r.cost_value, retail_value: a.retail_value + r.retail_value }), { stock: 0, cost_value: 0, retail_value: 0 });
   res.json({ rows, totals });
@@ -131,11 +132,11 @@ router.get('/vat-summary', auth, adminOrAccounting, (req, res) => {
   const where = ["type='final'"], params = [];
   if (from) { where.push('date>=?'); params.push(from); }
   if (to) { where.push('date<=?'); params.push(to); }
-  const salesVat = db.prepare(`SELECT COALESCE(SUM(COALESCE(NULLIF(vat_amount_rial,0),ROUND(vat_amount*10),0)),0) s, COALESCE(SUM(COALESCE(NULLIF(final_rial,0),ROUND(final*10),0)),0) f FROM invoices WHERE ${where.join(' AND ')}`).get(...params);
+  const salesVat = db.prepare(`SELECT COALESCE(SUM(COALESCE(NULLIF(vat_amount_rial,0),ROUND(vat_amount),0)),0) s, COALESCE(SUM(COALESCE(NULLIF(final_rial,0),ROUND(final),0)),0) f FROM invoices WHERE ${where.join(' AND ')}`).get(...params);
   const pWhere = ['1=1'], pParams = [];
   if (from) { pWhere.push('date>=?'); pParams.push(from); }
   if (to) { pWhere.push('date<=?'); pParams.push(to); }
-  const purchaseVat = db.prepare(`SELECT COALESCE(SUM(ROUND(vat_amount*10)),0) s, COALESCE(SUM(ROUND(final*10)),0) f FROM purchase_invoices WHERE ${pWhere.join(' AND ')}`).get(...pParams);
+  const purchaseVat = db.prepare(`SELECT COALESCE(SUM(ROUND(vat_amount)),0) s, COALESCE(SUM(ROUND(final)),0) f FROM purchase_invoices WHERE ${pWhere.join(' AND ')}`).get(...pParams);
   const outputVat = salesVat?.s || 0;
   const inputVat = purchaseVat?.s || 0;
   res.json({
@@ -153,7 +154,7 @@ router.get('/party-turnover', auth, adminOrAccounting, (req, res) => {
   if (from) { invWhere.push('i.date>=?'); invParams.push(from); }
   if (to) { invWhere.push('i.date<=?'); invParams.push(to); }
   const sales = db.prepare(`
-    SELECT c.id, c.biz as name, 'customer' as party_type, COUNT(i.id) doc_count, COALESCE(SUM(COALESCE(NULLIF(i.final_rial,0),ROUND(i.final*10),0)),0) turnover
+    SELECT c.id, c.biz as name, 'customer' as party_type, COUNT(i.id) doc_count, COALESCE(SUM(COALESCE(NULLIF(i.final_rial,0),ROUND(i.final),0)),0) turnover
     FROM invoices i JOIN customers c ON i.cust_id=c.id
     WHERE ${invWhere.join(' AND ')}
     GROUP BY c.id ORDER BY turnover DESC LIMIT ?
@@ -162,7 +163,7 @@ router.get('/party-turnover', auth, adminOrAccounting, (req, res) => {
   if (from) { purWhere.push('p.date>=?'); purParams.push(from); }
   if (to) { purWhere.push('p.date<=?'); purParams.push(to); }
   const purchases = db.prepare(`
-    SELECT s.id, s.name, 'supplier' as party_type, COUNT(p.id) doc_count, COALESCE(SUM(ROUND(p.final*10)),0) turnover
+    SELECT s.id, s.name, 'supplier' as party_type, COUNT(p.id) doc_count, COALESCE(SUM(ROUND(p.final)),0) turnover
     FROM purchase_invoices p JOIN suppliers s ON p.supplier_id=s.id
     WHERE ${purWhere.join(' AND ')}
     GROUP BY s.id ORDER BY turnover DESC LIMIT ?
@@ -188,7 +189,7 @@ function syncVatRecords(db) {
   const sources = [
     {
       table: 'invoices', sourceType: 'invoice', category: 'output', account: vatOutput,
-      rows: db.prepare("SELECT id,num,date,subtotal,subtotal_rial,vat_rate,vat_amount,vat_amount_rial FROM invoices WHERE type='final' AND COALESCE(vat_amount_rial,ROUND(vat_amount*10),0)>0").all(),
+      rows: db.prepare("SELECT id,num,date,subtotal,subtotal_rial,vat_rate,vat_amount,vat_amount_rial FROM invoices WHERE type='final' AND COALESCE(vat_amount_rial,ROUND(vat_amount),0)>0").all(),
     },
     {
       table: 'purchase_invoices', sourceType: 'purchase', category: 'input', account: vatInput,
@@ -203,8 +204,8 @@ function syncVatRecords(db) {
           WHERE je.ref_type=? AND je.ref_id=? AND jl.account_code=?
           ORDER BY je.id DESC,jl.id LIMIT 1
         `).get(source.sourceType, row.id, source.account);
-        const baseRial = Math.round(row.subtotal_rial || (row.subtotal || 0) * 10);
-        const vatRial = Math.round(row.vat_amount_rial || (row.vat_amount || 0) * 10);
+        const baseRial = Math.round(row.subtotal_rial || row.subtotal || 0);
+        const vatRial = Math.round(row.vat_amount_rial || row.vat_amount || 0);
         const period = String(row.date || '').slice(0, 7).replace('/', '-');
         upsert.run(line?.id || null, source.sourceType, row.id, row.num || String(row.id), row.date || '',
           baseRial, Math.round((Number(row.vat_rate) || 0) * 100), vatRial, source.category, period);
@@ -281,7 +282,7 @@ router.get('/dynamic-statement/:reportName', auth, adminOrAccounting, (req, res)
   if (req.query.to) { dateWhere.push('je.entry_date<=?'); dateParams.push(req.query.to); }
   const balances = db.prepare(`
     SELECT jl.account_code,
-           SUM(COALESCE(jl.debit_rial,ROUND(jl.debit*10),0)-COALESCE(jl.credit_rial,ROUND(jl.credit*10),0)) balance_rial
+           SUM(${SQL_JL_DEBIT_RIAL}-${SQL_JL_CREDIT_RIAL}) balance_rial
     FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
     WHERE COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'approved')<>'reversed'
       ${dateWhere.length ? 'AND ' + dateWhere.join(' AND ') : ''}
@@ -304,7 +305,7 @@ router.get('/cost-accounting', auth, adminOrAccounting, (req, res) => {
   const period = req.query.period || '';
   const rows = db.prepare(`
     SELECT cc.id,cc.code,cc.name,
-      COALESCE((SELECT SUM(ROUND(ep.amount*10)) FROM expense_payments ep
+      COALESCE((SELECT SUM(ROUND(ep.amount)) FROM expense_payments ep
         WHERE ep.cost_center_id=cc.id AND COALESCE(ep.is_overhead,0)=1
           AND (?='' OR substr(ep.date,1,7)=?)),0) total_cost_rial,
       COALESCE((SELECT SUM(poa.amount_rial) FROM production_overhead_applications poa

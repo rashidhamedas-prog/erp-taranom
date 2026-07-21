@@ -44,7 +44,12 @@ function Build-Abi($Abi, $NpmArch, $Target) {
   $env:LINK = $env:CXX
   $env:CFLAGS = '-fPIC -O2'
   $env:CXXFLAGS = '-fPIC -O2'
-  $env:LDFLAGS = '-shared'
+  # Android 15+ 16KB page devices need ELF LOAD align >= 0x4000.
+  # Must DT_NEEDED libnode.so — Android does not export libnode symbols to
+  # dlopen()'d addons (nodejs-mobile#70 / NDK#201).
+  $libnodeSo = Join-Path $Nodedir "bin\$Abi\libnode.so"
+  if (-not (Test-Path $libnodeSo)) { throw "libnode.so missing for $Abi: $libnodeSo" }
+  $env:LDFLAGS = "-shared -Wl,-z,max-page-size=16384 `"$libnodeSo`""
   $env:MAKE = $Make
   $env:Path = "$Toolchain;$env:Path"
 

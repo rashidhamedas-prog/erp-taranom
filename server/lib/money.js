@@ -1,4 +1,5 @@
-// Monetary helpers — DB stores INTEGER Rials; UI shows Toman (/10).
+// Monetary helpers — DB+UI store INTEGER Rials (currency_base=rial).
+// Only postToLedger still expects Toman input (internally ×10 → debit_rial).
 
 const RIAL_PER_TOMAN = 10;
 
@@ -15,6 +16,28 @@ function rialToToman(v) {
   if (!Number.isFinite(n)) return 0;
   return n / RIAL_PER_TOMAN;
 }
+
+/** Convert rial amount to postToLedger toman input. */
+function rialToLedger(v) {
+  return (Number(v) || 0) / RIAL_PER_TOMAN;
+}
+
+/** Read journal line amount in rial (prefer debit_rial; fallback debit after migration). */
+function jlDebitRial(l) {
+  const r = Number(l?.debit_rial);
+  if (r) return Math.round(r);
+  return Math.round(Number(l?.debit) || 0);
+}
+
+function jlCreditRial(l) {
+  const r = Number(l?.credit_rial);
+  if (r) return Math.round(r);
+  return Math.round(Number(l?.credit) || 0);
+}
+
+/** SQL expr: journal line debit/credit in rial */
+const SQL_JL_DEBIT_RIAL = 'COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)';
+const SQL_JL_CREDIT_RIAL = 'COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)';
 
 /** Attach display_toman alongside rial integer fields on a row object. */
 function withTomanDisplay(row, fields) {
@@ -41,4 +64,8 @@ function migrateRealToRial(db, table, realCol, rialCol) {
   return true;
 }
 
-module.exports = { RIAL_PER_TOMAN, tomanToRial, rialToToman, withTomanDisplay, migrateRealToRial };
+module.exports = {
+  RIAL_PER_TOMAN, tomanToRial, rialToToman, rialToLedger,
+  jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL,
+  withTomanDisplay, migrateRealToRial,
+};

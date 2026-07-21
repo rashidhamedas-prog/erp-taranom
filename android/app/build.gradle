@@ -12,8 +12,8 @@ android {
         applicationId "ir.taranom.crm"
         minSdk 24
         targetSdk 34
-        versionCode 11
-        versionName "2.0.9"
+        versionCode 15
+        versionName "2.0.13"
 
         ndk {
             // ABIs shipped by nodejs-mobile
@@ -79,6 +79,13 @@ android {
     buildFeatures {
         buildConfig true
     }
+
+    // nodejs-mobile: native libs must extract at install time (libnode.so + better_sqlite3)
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +114,75 @@ tasks.register('layoutNodeLibs', Copy) {
     into file('libnode')
 }
 
+// libnode.so (nodejs-mobile) is linked against the NDK C++ shared STL.
+// Without packaging libc++_shared.so, dlopen fails on modern Android:
+//   "library \"libc++_shared.so\" not found: needed by .../libnode.so"
+tasks.register('copyLibcxxShared') {
+    def ndkDir = android.ndkDirectory
+    def abiToTriple = [
+            'arm64-v8a'  : 'aarch64-linux-android',
+            'armeabi-v7a': 'arm-linux-androideabi',
+            'x86_64'     : 'x86_64-linux-android',
+    ]
+    def hostTag = 'windows-x86_64'
+    inputs.property('ndkPath', ndkDir.absolutePath)
+    outputs.files(abiToTriple.keySet().collect { abi ->
+        file("libnode/bin/${abi}/libc++_shared.so")
+    })
+    doLast {
+        def prebuilt = file("${ndkDir}/toolchains/llvm/prebuilt/${hostTag}/sysroot/usr/lib")
+        if (!prebuilt.exists()) {
+            // Linux/mac CI hosts
+            ['linux-x86_64', 'darwin-x86_64', 'darwin-arm64'].each { tag ->
+                def cand = file("${ndkDir}/toolchains/llvm/prebuilt/${tag}/sysroot/usr/lib")
+                if (cand.exists()) prebuilt = cand
+            }
+        }
+        if (!prebuilt.exists()) {
+            throw new GradleException("NDK libc++ sysroot not found under ${ndkDir}")
+        }
+        abiToTriple.each { abi, triple ->
+            def src = file("${prebuilt}/${triple}/libc++_shared.so")
+            if (!src.exists()) {
+                throw new GradleException("Missing ${src} — install NDK ${android.ndkVersion}")
+            }
+            def destDir = file("libnode/bin/${abi}")
+            destDir.mkdirs()
+            copy {
+                from src
+                into destDir
+            }
+            logger.lifecycle("copyLibcxxShared: ${abi} <- ${src.name} (${src.length()} bytes)")
+        }
+    }
+}
+
+// Ship better-sqlite3 as a normal JNI .so so Android 15+ pageSizeCompat /
+// extractNativeLibs applies. main.js copies it into build/Release/.
+tasks.register('copyBetterSqlite3Jni') {
+    def abis = ['arm64-v8a', 'armeabi-v7a', 'x86_64']
+    def prebuiltRoot = file('src/main/assets/nodejs-project/node_modules/better-sqlite3/prebuilt/android')
+    inputs.files(abis.collect { abi -> file("${prebuiltRoot}/${abi}/better_sqlite3.node") })
+    outputs.files(abis.collect { abi -> file("libnode/bin/${abi}/libbetter_sqlite3.so") })
+    doLast {
+        abis.each { abi ->
+            def src = file("${prebuiltRoot}/${abi}/better_sqlite3.node")
+            if (!src.exists()) {
+                throw new GradleException("Missing ${src} — run scripts/build-better-sqlite3-android.ps1")
+            }
+            def destDir = file("libnode/bin/${abi}")
+            destDir.mkdirs()
+            def dest = file("${destDir}/libbetter_sqlite3.so")
+            java.nio.file.Files.copy(
+                    src.toPath(),
+                    dest.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+            )
+            logger.lifecycle("copyBetterSqlite3Jni: ${abi} (${dest.length()} bytes)")
+        }
+    }
+}
+
 tasks.register('copyServerSources', Copy) {
     doFirst { delete file('src/main/assets/nodejs-project/server') }
     from(file('../../server')) {
@@ -118,6 +194,8 @@ tasks.register('copyServerSources', Copy) {
 }
 
 preBuild.dependsOn 'layoutNodeLibs'
+preBuild.dependsOn 'copyLibcxxShared'
+preBuild.dependsOn 'copyBetterSqlite3Jni'
 preBuild.dependsOn 'copyServerSources'
 
 dependencies {

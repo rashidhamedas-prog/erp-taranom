@@ -77,6 +77,14 @@ function getScope(req) {
   return req.user.id;
 }
 
+/** Edit/delete: admin OR original creator (created_by). Assigned expert alone cannot mutate. */
+function canMutateCustomer(user, row) {
+  if (!row) return false;
+  if (user.role === 'admin') return true;
+  const creator = row.created_by != null ? row.created_by : row.user_id;
+  return creator === user.id;
+}
+
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
@@ -103,15 +111,16 @@ router.post('/', auth, (req, res) => {
   const canSetGroup = req.user.role === 'admin' || req.user.role === 'accounting';
   const gid = (canSetGroup && group_id) ? parseInt(group_id) : null;
   const pgid = (canSetGroup && party_group_id) ? parseInt(party_group_id) : null;
-  // admin can assign customer to a specific salesperson
+  // admin can assign customer to a specific salesperson; creator remains the admin
   const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : req.user.id;
+  const createdBy = req.user.id;
   const newId = db.transaction(() => {
     const result = db.prepare(
       `INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup,group_id,party_group_id,
-        prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature,created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF, gid, pgid,
-      prefix || '', phone2 || '', fax || '', mobile || '', email || '', economic_code || '', postal_code || '', national_id || '', referrer || '', birth_date || '', company_name || '', account_nature || '');
+      prefix || '', phone2 || '', fax || '', mobile || '', email || '', economic_code || '', postal_code || '', national_id || '', referrer || '', birth_date || '', company_name || '', account_nature || '', createdBy);
     const created = db.prepare('SELECT id,created_at FROM customers WHERE id=?').get(result.lastInsertRowid);
     if (bal) syncOpeningLedger(db, created.id, bal, created.created_at, req.user.id);
     return created.id;
@@ -139,7 +148,7 @@ router.put('/:id', auth, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
+  if (!canMutateCustomer(req.user, row)) return res.status(403).json({ error: 'فقط ایجادکننده یا مدیر می‌تواند این مشتری را ویرایش کند' });
   const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id, party_group_id,
     prefix, phone2, fax, mobile, email, economic_code, postal_code, national_id, referrer, birth_date, company_name, account_nature } = req.body;
   const bal = (req.user.role === 'admin' && balance !== undefined) ? (parseFloat(balance) || 0) : row.balance || 0;
@@ -171,7 +180,7 @@ router.delete('/:id', auth, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
+  if (!canMutateCustomer(req.user, row)) return res.status(403).json({ error: 'فقط ایجادکننده یا مدیر می‌تواند این مشتری را حذف کند' });
   db.prepare('DELETE FROM customers WHERE id=?').run(req.params.id);
   audit(req.user.id, 'delete', 'customer', req.params.id, `حذف مشتری ${row.biz}`);
   res.json({ ok: true });
@@ -227,13 +236,13 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
     let inserted = 0;
     const allUsers = db.prepare('SELECT id,name FROM users').all();
     const stmt = db.prepare(
-      'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,source,balance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,source,balance,created_by,assigned_to) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
     );
     const insertMany = db.transaction((rows) => {
       for (const row of rows) {
         const biz = normalizeStr(row['نام فروشگاه'] || row['biz'] || row['نام کسب‌وکار'] || '');
         if (!biz) continue;
-        // Resolve salesperson by name or id
+        // Resolve salesperson by name or id — importer remains created_by
         let targetUserId = req.user.id;
         const salesRep = normalizeStr(row['کارشناس'] || row['نام کارشناس'] || row['salesperson'] || '');
         if (salesRep) {
@@ -243,6 +252,7 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
           targetUserId = parseInt(row['user_id']);
         }
         const balance = parseFloat(row['موجودی حساب'] || row['balance'] || 0) || 0;
+        const assigned = targetUserId !== req.user.id ? targetUserId : null;
         stmt.run(
           targetUserId, biz,
           normalizeStr(row['نام کامل'] || row['owner'] || row['نام مالک'] || ''),
@@ -254,7 +264,9 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
           row['نوع'] || row['type'] || 'بوتیک',
           row['وضعیت'] || row['status'] || 'new',
           row['منبع آشنایی'] || row['source'] || '',
-          balance
+          balance,
+          req.user.id,
+          assigned
         );
         inserted++;
       }
@@ -295,7 +307,7 @@ router.get('/template', auth, adminOnly, (req, res) => {
     { 'راهنما': 'مقادیر مجاز برای منبع آشنایی: instagram, referral, exhibition, store_front, online, other' },
     { 'راهنما': 'مقادیر مجاز برای نوع: بوتیک، عمده‌فروش، تولیدی، فروشگاه، آنلاین' },
     { 'راهنما': 'ستون کارشناس: نام کارشناس دقیقاً همانطور که در سیستم ثبت شده (اختیاری)' },
-    { 'راهنما': 'ستون موجودی حساب: موجودی اولیه مشتری به تومان (فقط مدیر می‌تواند تنظیم کند)' },
+    { 'راهنما': 'ستون موجودی حساب: موجودی اولیه مشتری به ریال (فقط مدیر می‌تواند تنظیم کند)' },
   ];
   const ws2 = XLSX.utils.json_to_sheet(info);
   ws2['!cols'] = [{wch:80}];

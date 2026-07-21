@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { getDB, audit, resolveCashAccount } = require('../db');
 const { postToLedger } = require('../lib/ledger');
+const { rialToLedger } = require('../lib/money');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 
@@ -56,14 +57,14 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       date: date || todayJalali(), description: `انتقال وجه: ${sideName(db, from_type, from_id)} ← ${sideName(db, to_type, to_id)}`,
       createdBy: req.user.id,
       lines: [
-        { code: dst.code, name: dst.name, debit: amt, credit: 0 },
-        { code: src.code, name: src.name, debit: 0, credit: amt }
+        { code: dst.code, name: dst.name, debit: rialToLedger(amt), credit: 0 },
+        { code: src.code, name: src.name, debit: 0, credit: rialToLedger(amt) }
       ]
     });
     return transferId;
   })();
 
-  audit(req.user.id, 'create', 'transfer', transferId, `انتقال ${amt} تومان بین حساب‌های داخلی`);
+  audit(req.user.id, 'create', 'transfer', transferId, `انتقال ${amt} ریال بین حساب‌های داخلی`);
   res.json({ id: transferId, ok: true });
 });
 
@@ -80,8 +81,8 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
       sourceType: 'transfer_reversal', sourceId: row.id,
       date: todayJalali(), description: `ابطال انتقال وجه #${row.id}`, createdBy: req.user.id,
       lines: [
-        { code: src.code, name: src.name, debit: row.amount, credit: 0 },
-        { code: dst.code, name: dst.name, debit: 0, credit: row.amount }
+        { code: src.code, name: src.name, debit: rialToLedger(row.amount), credit: 0 },
+        { code: dst.code, name: dst.name, debit: 0, credit: rialToLedger(row.amount) }
       ]
     });
 

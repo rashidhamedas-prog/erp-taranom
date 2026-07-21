@@ -198,7 +198,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const personCode = b.person_code || nextPartyCode(db);
   // Rial-identity UI: *_rial preferred; bare credit_limit/opening_balance treated as rial
   const creditRial = b.credit_limit_rial != null ? parseInt(b.credit_limit_rial, 10) : Math.round(Number(b.credit_limit) || 0);
-  const openRial = b.opening_balance_rial != null ? parseInt(b.opening_balance_rial, 10) : Math.round(Number(b.opening_balance) || 0);
+  // Opening balance / مانده: admin only
+  const openRial = req.user.role === 'admin'
+    ? (b.opening_balance_rial != null ? parseInt(b.opening_balance_rial, 10) : Math.round(Number(b.opening_balance) || 0))
+    : 0;
   const pgid = b.party_group_id ? parseInt(b.party_group_id, 10) : null;
   const displayName = b.full_name || b.company_name;
   let coaCode = b.coa_code || null;
@@ -246,8 +249,11 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   // Prefer *_rial; if only credit_limit is sent from rial UI, store as-is (no ×10)
   const creditRial = b.credit_limit_rial != null ? parseInt(b.credit_limit_rial, 10)
     : (b.credit_limit != null ? Math.round(Number(b.credit_limit) || 0) : row.credit_limit);
-  const openRial = b.opening_balance_rial != null ? parseInt(b.opening_balance_rial, 10)
-    : (b.opening_balance != null ? Math.round(Number(b.opening_balance) || 0) : row.opening_balance);
+  // Opening balance / مانده: admin only — non-admin keep existing value
+  const openRial = req.user.role === 'admin'
+    ? (b.opening_balance_rial != null ? parseInt(b.opening_balance_rial, 10)
+      : (b.opening_balance != null ? Math.round(Number(b.opening_balance) || 0) : row.opening_balance))
+    : row.opening_balance;
   const pgid = b.party_group_id != null ? (b.party_group_id ? parseInt(b.party_group_id, 10) : null) : row.party_group_id;
   let coaCode = b.coa_code != null ? b.coa_code : row.coa_code;
   if (!coaCode) {
