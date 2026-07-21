@@ -42,6 +42,16 @@
 
 ## تاریخچه
 
+### ۱۴۰۵/۰۴/۳۰ — [Claude Code] 📋 اسپکِ منطبق‌شدهٔ «پرتال کارمندان و خط تولید» برای اجرا توسط Cursor
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت
+- **خلاصه:** مالک یک اسپک ژنریک ERP (پرتال واحد عملیاتی/خط تولید با گردش‌کار ترتیبی پارامتر بین بخش‌ها، ساخت خودکار کاربر، سند تولید/حسابداری خودکار) داد که فرض‌های ناسازگار با پروژه داشت (UUID، PostgreSQL، Prisma، NestJS/React، WebSocket، جدول کاربر جدا، timestamp ISO). آن را **بازنویسی و منطبق بر معماری واقعی** کردم و در `docs/PORTAL-KARMANDAN-SPEC.md` گذاشتم تا Cursor اجرا کند. **این سند صرفاً طرح اجرا است؛ هیچ کدی از این ماژول هنوز پیاده نشده.**
+  - اصلاحیه‌های کلیدی: better-sqlite3 به‌جای PostgreSQL/Prisma؛ INTEGER PK + بازهٔ id دستگاه به‌جای UUID؛ استفادهٔ مجدد از `users`+`must_change_password` به‌جای جدول کاربر جدید؛ ریال صحیح؛ epoch؛ اعلان/SMS به‌جای WebSocket؛ استفادهٔ مجدد از ماژول‌های موجود تولید/انبار(`warehouse_stock`)/حسابداری(`createJournalEntry`+`coa-map`)/followups؛ **افزودن جدول‌های جدید به انتهای `sync/tables.js` (APPEND-ONLY) برای سازگاری آفلاین**؛ resource جدید `'portal'` در RBAC؛ قفل ترتیبی بخش‌ها.
+  - مدل داده پیشنهادی: `op_units`, `op_unit_warehouses`, `op_unit_persons`, `op_departments`, `op_parameters`, `op_parameter_items`, `op_parameter_dept_log` (SQL کامل در سند).
+  - ترتیب اجرای ۱۱ مرحله‌ای + Edge Caseها + بخش امنیت + الزام تست/Help/CHANGE-LOG برای Cursor در سند آمده.
+- **فایل‌های کلیدی:** `docs/PORTAL-KARMANDAN-SPEC.md`
+- **Deploy:** — (فقط سند؛ بدون تغییر کد/رفتار).
+
 ### ۱۴۰۵/۰۴/۳۰ — [Cursor] ریبرند محصول به ERP ترنم (erp-taranom)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `8563ec8`
