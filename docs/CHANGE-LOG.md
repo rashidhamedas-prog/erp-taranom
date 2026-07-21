@@ -44,7 +44,7 @@
 
 ### ۱۴۰۵/۰۴/۳۰ — [Cursor] Update 11 — حسابداری/تولید/انبار + سینک جداول جدید
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (در حال push)
+- **Commit:** `69d2171`
 - **خلاصه:** اعمال اسپک Update 11: رفع ناپدید شدن گروه‌های کالا (B1)، جداسازی تب پیش‌فاکتور/فاکتور رسمی (B2)، round3 اعشار، ارز/نرخ (`/api/fx`)، تفصیلی۲ (از UI تا `postToLedger`/`createJournalEntry`)، سمت اشخاص، pricing_rules، فاکتور (توضیحات/تخفیف مبلغی/سرشکن/درآمد)، انبار منفی و costing، انبارگردانی سه‌شمارشی، داشبورد حساب، suggest-child COA، جستجوی omnibox با باز کردن گروه کالا (P5)، سورت/فیلتر عمومی جداول (P4). جداول جدید در انتهای `sync/tables.js`.
 - **فایل‌های کلیدی:** `server/lib/update11-schema.js`, `server/lib/round3.js`, `server/lib/fx-rate.js`, `server/lib/ledger.js`, `server/routes/fx.js`, `server/routes/pricing-rules.js`, `server/routes/invoices.js`, `server/routes/product-categories.js`, `server/routes/search.js`, `server/sync/tables.js`, `server/public/index.html`, `server/public/acc-nav.js`, `server/public/tbl-enhance.js`
 - **Deploy:** ⏳ نیاز به pull
