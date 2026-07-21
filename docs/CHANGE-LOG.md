@@ -44,10 +44,10 @@
 
 ### 2026-07-21 — پورتال مودال‌ها + FX دریافت + روش ریالی کالا + برچسب کالا
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `37cfaf0`
 - **خلاصه:** جایگزینی prompt پورتال با مودال؛ دریافت ارزی با نرخ خودکار و ثبت fx_rate_rial؛ فیلد costing_method روی کالا؛ یکنواخت‌سازی برچسب «کالا»؛ SW v55
 - **فایل‌های کلیدی:** `portal-ui.js`, `accounting.js`, `products.js`, `index.html`, `sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران health 200 / SW v55
 
 ---
 
