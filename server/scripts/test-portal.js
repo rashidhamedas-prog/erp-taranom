@@ -36,6 +36,9 @@ const SYNC_TAIL = [
   'bank_reconciliations', 'bank_reconciliation_items', 'doubtful_debt_provisions',
   'inventory_nrv_provisions', 'inventory_nrv_lines', 'legal_reserve_entries',
   'payroll_labor_settings', 'payroll_monthly_accruals', 'budgets', 'budget_lines',
+  'op_dept_capabilities', 'op_dept_tasks', 'op_unit_module_links',
+  'op_parameter_extra_costs', 'op_field_followups', 'expense_categories',
+  'op_dept_delegations',
 ];
 
 const COA_GAP_KEYS = [
@@ -57,7 +60,7 @@ ok(u11.every((n, i) => names[prIdx - 3 + i] === n), 'update11 block before porta
 const ouIdx = names.indexOf('op_units');
 ok(ouIdx === prIdx + 1, 'op_units immediately after pricing_rules');
 ok(names.slice(ouIdx).join(',') === SYNC_TAIL.join(','), 'sync tail portal+gap');
-ok(names[names.length - 1] === 'budget_lines', 'sync ends with budget_lines');
+ok(names[names.length - 1] === 'op_dept_delegations', 'sync ends with op_dept_delegations');
 
 console.log('\n— rbac + coa —');
 const { RESOURCES } = require('../lib/rbac');

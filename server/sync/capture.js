@@ -75,6 +75,9 @@ const PATH_TABLE_MAP = [
   ['/api/cheque-records', 'cheque_records'],
 ];
 
+// Note: /api/portal/departments/:id/delegate maps to op_departments prefix above;
+// actual rows live in op_dept_delegations and sync via full-table pull.
+
 function tableForPath(path) {
   if (path.startsWith('/api/reps/') && path.includes('/expenses')) return 'rep_expenses';
   if (path.startsWith('/api/reps/') && path.includes('/advances')) return 'rep_advances';

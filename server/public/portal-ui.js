@@ -95,8 +95,8 @@
                 <button class="btn sm ghost" ${i === 0 ? 'disabled' : ''} onclick="PortalUI.moveDept(${d.id},${d.sequence_order - 1},${u.id})" title="بالا">↑</button>
                 <button class="btn sm ghost" ${i === arr.length - 1 ? 'disabled' : ''} onclick="PortalUI.moveDept(${d.id},${d.sequence_order + 1},${u.id})" title="پایین">↓</button>
                 <button class="btn sm ghost" onclick="PortalUI.openEditDeptModal(${d.id},${u.id})">✏️</button>
-                <button class="btn sm ghost" onclick="PortalUI.addDeptCapability(${d.id})" title="امکان/خدمت">➕ امکان</button>
-                <button class="btn sm ghost" onclick="PortalUI.addDeptTask(${d.id})" title="شرح وظیفه">➕ وظیفه</button>
+                <button class="btn sm ghost" onclick="PortalUI.openDeptExtrasModal(${d.id})" title="امکان و وظیفه">📋 امکانات</button>
+                <button class="btn sm ghost" onclick="PortalUI.openDelegateModal(${d.id})" title="واگذاری موقت">🔀 واگذاری</button>
               </td>
             </tr>`).join('') || emptyRow(5)}</tbody></table></div>
             <h5 style="margin:0 0 8px;font-size:13px">پارامترها</h5>
@@ -434,6 +434,8 @@
 
   async function renderPortalMyDeptTab(body) {
     const rows = await api('GET', '/portal/parameters') || [];
+    const canApprovePay = (typeof canPerm === 'function' && canPerm('portal', 'approve'))
+      || ['admin', 'accounting', 'unit_manager'].includes(ME?.role);
     body.innerHTML = `
       <div class="muted" style="font-size:12px;margin-bottom:12px">پارامترهای در صف بخش شما — دکمه‌های عملیات روی بخش فعلی اعمال می‌شوند.</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
@@ -446,7 +448,7 @@
               <button class="btn sm" onclick="PortalUI.deptConfirm(${p.id},${p.current_department_id || 0})">✅ تأیید مقدار</button>
               <button class="btn sm ghost" onclick="PortalUI.deptReview(${p.id},${p.current_department_id || 0})">🔍 بازبینی</button>
               <button class="btn sm" onclick="PortalUI.deptPayment(${p.id},${p.current_department_id || 0})">💳 درخواست پرداخت</button>
-              <button class="btn sm orange" onclick="PortalUI.deptApprovePayment(${p.id},${p.current_department_id || 0})">✔ تأیید پرداخت</button>
+              ${canApprovePay ? `<button class="btn sm orange" onclick="PortalUI.deptApprovePayment(${p.id},${p.current_department_id || 0})">✔ تأیید پرداخت</button>` : ''}
               <button class="btn sm ghost" onclick="PortalUI.deptConvert(${p.id},${p.current_department_id || 0})">🔄 تبدیل</button>
               <button class="btn sm green" style="grid-column:1/-1" onclick="PortalUI.deptComplete(${p.id},${p.current_department_id || 0})">🏁 اتمام بخش</button>
             </div>
@@ -485,14 +487,26 @@
 
   async function deptPayment(paramId, deptId) {
     if (!deptId) return;
-    if (!CACHE.persons?.length) {
-      try { CACHE.persons = await api('GET', '/persons') || []; } catch (_) { CACHE.persons = []; }
+    let persons = CACHE.persons || [];
+    if (!persons.length) {
+      try { persons = CACHE.persons = await api('GET', '/persons') || []; } catch (_) { persons = []; }
     }
+    // Prefer unit persons-in-flow when known
+    let unitPersons = persons;
+    try {
+      const param = await api('GET', '/portal/parameters/' + paramId);
+      if (param?.unit_id) {
+        const unit = await api('GET', '/portal/units/' + param.unit_id);
+        if (unit?.persons?.length) unitPersons = unit.persons;
+        window._portalPayUnitWh = (unit?.warehouses || []).map(w => w.id);
+      }
+    } catch (_) {}
     openModal(`
       <div class="modal-head"><h3>💳 درخواست پرداخت</h3><button class="x" onclick="closeModal()">×</button></div>
       <div class="modal-body"><div class="form-grid">
-        <div class="fg full"><label>شخص *</label><select id="pd-person"><option value="">— انتخاب —</option>
-          ${(CACHE.persons || []).map(p => `<option value="${p.id}">${esc(p.name || '')}${p.phone ? ' — ' + esc(p.phone) : ''}</option>`).join('')}
+        <div class="fg full"><label>شخص * ${unitPersons !== persons ? '(اشخاص در جریان واحد)' : ''}</label>
+          <select id="pd-person"><option value="">— انتخاب —</option>
+          ${unitPersons.map(p => `<option value="${p.id}">${esc(p.name || '')}${p.phone ? ' — ' + esc(p.phone) : ''}</option>`).join('')}
         </select></div>
         <div class="fg"><label>مبلغ (ریال) *</label><input id="pd-amt" type="text" inputmode="numeric" class="money" value="0"></div>
         <div class="fg"><label>وضعیت</label><select id="pd-status">
@@ -530,12 +544,20 @@
     if (!CACHE.warehouses) {
       try { CACHE.warehouses = await api('GET', '/warehouses') || []; } catch (_) { CACHE.warehouses = []; }
     }
+    let whs = (CACHE.warehouses || []).filter(w => w.active !== 0);
+    try {
+      const param = await api('GET', '/portal/parameters/' + paramId);
+      if (param?.unit_id) {
+        const unit = await api('GET', '/portal/units/' + param.unit_id);
+        if (unit?.warehouses?.length) whs = unit.warehouses;
+      }
+    } catch (_) {}
     openModal(`
       <div class="modal-head"><h3>🏁 ثبت خروجی نهایی</h3><button class="x" onclick="closeModal()">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg"><label>تعداد نهایی *</label><input id="fo-qty" type="number" step="0.001" min="0.001" value="1"></div>
         <div class="fg"><label>انبار مقصد *</label><select id="fo-wh"><option value="">— انتخاب —</option>
-          ${(CACHE.warehouses || []).filter(w => w.active !== 0).map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}
+          ${whs.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}
         </select></div>
         <div class="fg full"><label>هزینه‌های اضافه</label>
           <div id="fo-costs"></div>
@@ -592,6 +614,7 @@
     try {
       await api('POST', `/portal/departments/${deptId}/capabilities`, { name, description: el('cap-desc')?.value || '' });
       closeModal(); showToast('امکان ثبت شد');
+      openDeptExtrasModal(deptId);
     } catch (e) {}
   }
   async function addDeptTask(deptId) {
@@ -610,6 +633,83 @@
     try {
       await api('POST', `/portal/departments/${deptId}/tasks`, { name, description: el('task-desc')?.value || '' });
       closeModal(); showToast('وظیفه ثبت شد');
+      openDeptExtrasModal(deptId);
+    } catch (e) {}
+  }
+
+  async function openDeptExtrasModal(deptId) {
+    const [caps, tasks] = await Promise.all([
+      api('GET', `/portal/departments/${deptId}/capabilities`).catch(() => []),
+      api('GET', `/portal/departments/${deptId}/tasks`).catch(() => []),
+    ]);
+    openModal(`
+      <div class="modal-head"><h3>📋 امکانات و وظایف دپارتمان</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h5 style="margin:0;font-size:13px">امکانات / خدمات</h5>
+          <button class="btn sm" onclick="PortalUI.addDeptCapability(${deptId})">➕ امکان</button>
+        </div>
+        <div class="tbl-wrap" style="margin-bottom:16px"><table class="tbl" style="font-size:12px"><thead><tr>
+          <th>نام</th><th>توضیح</th>
+        </tr></thead><tbody>${(caps || []).map(c => `<tr>
+          <td>${esc(c.name)}</td><td class="muted">${esc(c.description || '-')}</td>
+        </tr>`).join('') || emptyRow(2)}</tbody></table></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h5 style="margin:0;font-size:13px">شرح وظایف</h5>
+          <button class="btn sm" onclick="PortalUI.addDeptTask(${deptId})">➕ وظیفه</button>
+        </div>
+        <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+          <th>نام</th><th>توضیح</th>
+        </tr></thead><tbody>${(tasks || []).map(t => `<tr>
+          <td>${esc(t.name)}</td><td class="muted">${esc(t.description || '-')}</td>
+        </tr>`).join('') || emptyRow(2)}</tbody></table></div>
+      </div>
+      <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+  }
+
+  async function openDelegateModal(deptId) {
+    await ensurePortalCaches();
+    const list = await api('GET', `/portal/departments/${deptId}/delegations`).catch(() => []) || [];
+    openModal(`
+      <div class="modal-head"><h3>🔀 واگذاری موقت مدیریت بخش</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body"><div class="form-grid">
+        <div class="fg full"><label>شخص جایگزین *</label>
+          <select id="dlg-person"><option value="">— انتخاب —</option>${personOptionsHtml()}</select></div>
+        <div class="fg"><label>مدت (ساعت)</label><input id="dlg-hours" type="number" min="1" max="720" value="72"></div>
+        <div class="fg full"><label>یادداشت</label><input id="dlg-note" placeholder="دلیل واگذاری"></div>
+      </div>
+      <h5 style="margin:14px 0 8px;font-size:13px">واگذاری‌های اخیر</h5>
+      <div class="tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr>
+        <th>شخص</th><th>از</th><th>تا</th><th>فعال</th><th></th>
+      </tr></thead><tbody>${list.map(d => `<tr>
+        <td>${esc(d.delegate_name || '#' + d.delegate_person_id)}</td>
+        <td class="mono">${fmt(d.starts_at)}</td>
+        <td class="mono">${fmt(d.ends_at)}</td>
+        <td>${d.active ? '✅' : '—'}</td>
+        <td>${d.active ? `<button class="btn sm red" onclick="PortalUI.revokeDelegation(${deptId},${d.id})">ابطال</button>` : ''}</td>
+      </tr>`).join('') || emptyRow(5)}</tbody></table></div>
+      </div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDelegation(${deptId})">💾 ثبت واگذاری</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  }
+  async function saveDelegation(deptId) {
+    const delegate_person_id = +el('dlg-person')?.value;
+    const hours = +el('dlg-hours')?.value || 72;
+    if (!delegate_person_id) { showToast('شخص جایگزین الزامی است', 'error'); return; }
+    try {
+      await api('POST', `/portal/departments/${deptId}/delegate`, {
+        delegate_person_id, hours, note: el('dlg-note')?.value || '',
+      });
+      showToast('واگذاری ثبت شد — کاربر با رمز ۱۲۳۴۵ در صورت نیاز ساخته شد');
+      openDelegateModal(deptId);
+    } catch (e) {}
+  }
+  async function revokeDelegation(deptId, delId) {
+    if (!confirm('واگذاری ابطال شود؟')) return;
+    try {
+      await api('POST', `/portal/departments/${deptId}/delegations/${delId}/revoke`, {});
+      showToast('واگذاری ابطال شد');
+      openDelegateModal(deptId);
     } catch (e) {}
   }
 
@@ -659,10 +759,15 @@
     if (_bankReconId) {
       const r = await api('GET', '/bank-reconciliation/' + _bankReconId) || {};
       const diff = (r.statement_balance_rial || 0) - (r.book_balance_rial || 0);
+      const open = r.status !== 'closed';
       detail = `
         <div class="panel" style="margin-top:12px">
           <div class="panel-head"><h4>تطبیق #${fmt(r.id)} — ${esc(r.bank_name)}</h4>
-            ${r.status !== 'closed' ? `<button class="btn sm green" onclick="PortalUI.closeBankRecon(${r.id})">🔒 بستن تطبیق</button>` : ''}
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${open ? `<button class="btn sm" onclick="PortalUI.openBankReconItemModal(${r.id})">➕ ردیف</button>` : ''}
+              ${open ? `<button class="btn sm ghost" onclick="PortalUI.matchBankReconItems(${r.id})">🔗 تطبیق انتخاب‌شده</button>` : ''}
+              ${open ? `<button class="btn sm green" onclick="PortalUI.closeBankRecon(${r.id})">🔒 بستن تطبیق</button>` : ''}
+            </div>
           </div>
           <div class="panel-body">
             <div class="cards" style="margin-bottom:12px">
@@ -671,13 +776,14 @@
               ${statCard('r', 'Δ', fmt(diff), 'اختلاف (ریال)')}
             </div>
             <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
-              <th>طرف</th><th>شرح</th><th>مبلغ (ریال)</th><th>تطبیق</th>
+              ${open ? '<th></th>' : ''}<th>طرف</th><th>شرح</th><th>مبلغ (ریال)</th><th>تطبیق</th>
             </tr></thead><tbody>${(r.items || []).map(it => `<tr>
+              ${open ? `<td><input type="checkbox" class="br-match" value="${it.id}" ${it.matched ? 'disabled' : ''}></td>` : ''}
               <td>${it.side === 'bank' ? 'بانک' : 'دفتر'}</td>
               <td>${esc(it.description || '-')}</td>
               <td class="mono">${fmt(it.amount_rial || 0)}</td>
               <td>${it.matched ? '✅' : '—'}</td>
-            </tr>`).join('') || emptyRow(4)}</tbody></table></div>
+            </tr>`).join('') || emptyRow(open ? 5 : 4)}</tbody></table></div>
           </div>
         </div>`;
     }
@@ -732,6 +838,43 @@
     } catch (e) {}
   }
 
+  async function openBankReconItemModal(reconId) {
+    openModal(`
+      <div class="modal-head"><h3>➕ ردیف تطبیق</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body"><div class="form-grid">
+        <div class="fg"><label>طرف *</label><select id="bri-side">
+          <option value="bank">بانک (صورت‌حساب)</option>
+          <option value="book">دفتر</option>
+        </select></div>
+        <div class="fg"><label>مبلغ (ریال) *</label><input id="bri-amt" class="money" inputmode="numeric"></div>
+        <div class="fg full"><label>شرح</label><input id="bri-desc"></div>
+        <div class="fg"><label><input type="checkbox" id="bri-stmt" style="width:auto;margin-left:6px"> خط صورت‌حساب</label></div>
+      </div></div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveBankReconItem(${reconId})">💾 افزودن</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  }
+  async function saveBankReconItem(reconId) {
+    const amount_rial = Math.round(typeof moneyVal === 'function' ? moneyVal('bri-amt') : +el('bri-amt')?.value || 0);
+    if (!amount_rial) { showToast('مبلغ الزامی است', 'error'); return; }
+    try {
+      await api('POST', `/bank-reconciliation/${reconId}/items`, {
+        side: el('bri-side')?.value || 'bank',
+        description: el('bri-desc')?.value || '',
+        amount_rial,
+        statement_line: el('bri-stmt')?.checked ? 1 : 0,
+      });
+      closeModal(); showToast('ردیف افزوده شد'); loadAccTab('bank-recon');
+    } catch (e) {}
+  }
+  async function matchBankReconItems(reconId) {
+    const ids = [...document.querySelectorAll('.br-match:checked')].map(c => +c.value).filter(Boolean);
+    if (ids.length < 2) { showToast('حداقل دو ردیف انتخاب کنید', 'error'); return; }
+    try {
+      await api('POST', `/bank-reconciliation/${reconId}/match`, { item_ids: ids });
+      showToast('تطبیق شد'); loadAccTab('bank-recon');
+    } catch (e) {}
+  }
+
   async function closeBankRecon(id) {
     if (!confirm('تطبیق بسته شود؟ در صورت اختلاف، سند تعدیل خودکار ثبت می‌شود.')) return;
     try {
@@ -747,7 +890,9 @@
       const v = await api('GET', '/budgeting/' + _budgetId + '/variance') || {};
       varHtml = `
         <div class="panel" style="margin-top:12px">
-          <div class="panel-head"><h4>📊 انحراف بودجه #${fmt(_budgetId)} (${esc(v.year_label || '')})</h4></div>
+          <div class="panel-head"><h4>📊 انحراف بودجه #${fmt(_budgetId)} (${esc(v.year_label || '')})</h4>
+            <button class="btn sm ghost" onclick="PortalUI.openBudgetLinesModal(${_budgetId})">✏️ ردیف‌های بودجه</button>
+          </div>
           <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
             <th>حساب</th><th>ماه</th><th>بودجه</th><th>واقعی</th><th>انحراف</th>
           </tr></thead><tbody>${(v.rows || []).slice(0, 100).map(r => `<tr>
@@ -774,7 +919,10 @@
         <td>${esc(b.year_label || '-')}</td>
         <td>${esc(b.status)}</td>
         <td class="mono">${fmt(b.line_count || 0)}</td>
-        <td><button class="btn sm ghost" onclick="PortalUI.showBudgetVariance(${b.id})">انحراف</button></td>
+        <td>
+          <button class="btn sm ghost" onclick="PortalUI.showBudgetVariance(${b.id})">انحراف</button>
+          <button class="btn sm ghost" onclick="PortalUI.openBudgetLinesModal(${b.id})">ردیف‌ها</button>
+        </td>
       </tr>`).join('') || emptyRow(5)}</tbody></table></div>${varHtml}`;
   }
 
@@ -796,10 +944,68 @@
     const name = el('bg-name').value.trim();
     if (!name) { showToast('نام بودجه الزامی است', 'error'); return; }
     try {
-      await api('POST', '/budgeting', {
+      const r = await api('POST', '/budgeting', {
         name, year_label: el('bg-year').value || '', notes: el('bg-note').value || '', status: 'draft',
       });
-      closeModal(); showToast('بودجه ایجاد شد'); loadAccTab('budgeting');
+      closeModal(); showToast('بودجه ایجاد شد');
+      if (r?.id) { _budgetId = r.id; openBudgetLinesModal(r.id); }
+      else loadAccTab('budgeting');
+    } catch (e) {}
+  }
+
+  async function openBudgetLinesModal(budgetId) {
+    const b = await api('GET', '/budgeting/' + budgetId) || { lines: [] };
+    window._budgetLines = (b.lines || []).map(l => ({
+      account_code: l.account_code || '',
+      month: l.month || 1,
+      amount_rial: l.amount_rial || 0,
+      category: l.category || '',
+      notes: l.notes || '',
+    }));
+    if (!window._budgetLines.length) {
+      window._budgetLines.push({ account_code: '', month: 1, amount_rial: 0, category: '', notes: '' });
+    }
+    openModal(`
+      <div class="modal-head"><h3>✏️ ردیف‌های بودجه — ${esc(b.name || '#' + budgetId)}</h3>
+        <button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body">
+        <div id="bg-lines"></div>
+        <button type="button" class="btn sm ghost" style="margin-top:8px" onclick="PortalUI.addBudgetLineRow()">➕ ردیف</button>
+      </div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveBudgetLines(${budgetId})">💾 ذخیره ردیف‌ها</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+    renderBudgetLineRows();
+  }
+  function addBudgetLineRow() {
+    window._budgetLines = window._budgetLines || [];
+    window._budgetLines.push({ account_code: '', month: 1, amount_rial: 0, category: '', notes: '' });
+    renderBudgetLineRows();
+  }
+  function renderBudgetLineRows() {
+    const box = el('bg-lines'); if (!box) return;
+    const lines = window._budgetLines || [];
+    box.innerHTML = lines.map((l, i) => `
+      <div style="display:grid;grid-template-columns:1.2fr 70px 1fr 1fr 28px;gap:6px;margin-bottom:6px;align-items:center">
+        <input placeholder="کد حساب" value="${esc(l.account_code || '')}" oninput="window._budgetLines[${i}].account_code=this.value" dir="ltr">
+        <input type="number" min="1" max="12" title="ماه" value="${l.month || 1}" oninput="window._budgetLines[${i}].month=+this.value||1">
+        <input placeholder="مبلغ ریال" class="money" inputmode="numeric" value="${esc(String(l.amount_rial || ''))}" oninput="window._budgetLines[${i}].amount_rial=this.value">
+        <input placeholder="دسته / یادداشت" value="${esc(l.category || l.notes || '')}" oninput="window._budgetLines[${i}].category=this.value;window._budgetLines[${i}].notes=this.value">
+        ${lines.length > 1 ? `<button type="button" class="btn sm red" onclick="window._budgetLines.splice(${i},1);PortalUI.renderBudgetLineRows()">×</button>` : '<span></span>'}
+      </div>`).join('');
+  }
+  async function saveBudgetLines(budgetId) {
+    const lines = (window._budgetLines || []).map(l => ({
+      account_code: String(l.account_code || '').trim(),
+      month: Math.min(12, Math.max(1, parseInt(l.month, 10) || 1)),
+      amount_rial: Math.round(parseInt(String(l.amount_rial || '').replace(/[^\d-]/g, ''), 10) || 0),
+      category: String(l.category || '').trim(),
+      notes: String(l.notes || '').trim(),
+    })).filter(l => l.account_code && l.amount_rial);
+    if (!lines.length) { showToast('حداقل یک ردیف با کد حساب و مبلغ لازم است', 'error'); return; }
+    try {
+      await api('PUT', '/budgeting/' + budgetId, { lines });
+      closeModal(); showToast('ردیف‌های بودجه ذخیره شد');
+      _budgetId = budgetId; loadAccTab('budgeting');
     } catch (e) {}
   }
 
@@ -1022,13 +1228,24 @@
     saveDeptCapability,
     addDeptTask,
     saveDeptTask,
+    openDeptExtrasModal,
+    openDelegateModal,
+    saveDelegation,
+    revokeDelegation,
     showBankRecon,
     openBankReconModal,
     saveBankRecon,
+    openBankReconItemModal,
+    saveBankReconItem,
+    matchBankReconItems,
     closeBankRecon,
     showBudgetVariance,
     openBudgetModal,
     saveBudget,
+    openBudgetLinesModal,
+    addBudgetLineRow,
+    renderBudgetLineRows,
+    saveBudgetLines,
     postLegalReserve,
     postDoubtful,
     postInventoryNrv,

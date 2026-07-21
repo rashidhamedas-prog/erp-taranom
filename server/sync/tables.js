@@ -147,6 +147,9 @@ const SYNCABLE_TABLES = [
   { name: 'op_parameter_extra_costs',          upsertKey: 'id' },
   { name: 'op_field_followups',                upsertKey: 'id' },
   { name: 'expense_categories',                upsertKey: 'id' },
+
+  // ===== Portal v3 — temporary dept delegation (APPEND-ONLY) =====
+  { name: 'op_dept_delegations',               upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -261,6 +264,9 @@ const FK_COLUMNS = [
   ['inventory_nrv_lines', 'provision_id'], ['inventory_nrv_lines', 'product_id'],
   ['budget_lines', 'budget_id'],
   ['payroll_monthly_accruals', 'person_id'],
+  // Portal v3 FKs (append-only)
+  ['op_dept_delegations', 'department_id'],
+  ['op_dept_delegations', 'delegate_person_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

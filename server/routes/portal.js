@@ -43,12 +43,27 @@ function scopeUnitIds(db, user) {
     `).all(pid, pid, pid).map(r => r.id);
   }
   if (user.role === 'department_manager') {
-    return db.prepare(`
+    const own = db.prepare(`
       SELECT DISTINCT unit_id AS id FROM op_departments
       WHERE manager_person_id=? AND status='active'
     `).all(pid).map(r => r.id);
+    const delegated = activeDelegatedDeptIds(db, pid).map(deptId => {
+      const d = db.prepare('SELECT unit_id FROM op_departments WHERE id=?').get(deptId);
+      return d?.unit_id;
+    }).filter(Boolean);
+    return [...new Set([...own, ...delegated])];
   }
   return [];
+}
+
+function activeDelegatedDeptIds(db, personId) {
+  if (!hasTable(db, 'op_dept_delegations')) return [];
+  return db.prepare(`
+    SELECT department_id AS id FROM op_dept_delegations
+    WHERE delegate_person_id=? AND active=1
+      AND starts_at <= CAST(strftime('%s','now') AS INTEGER)
+      AND ends_at >= CAST(strftime('%s','now') AS INTEGER)
+  `).all(personId).map(r => r.id);
 }
 
 function scopeDeptIds(db, user) {
@@ -56,9 +71,10 @@ function scopeDeptIds(db, user) {
   const pid = personIdForUser(db, user);
   if (!pid) return [];
   if (user.role === 'department_manager') {
-    return db.prepare(`
+    const own = db.prepare(`
       SELECT id FROM op_departments WHERE manager_person_id=? AND status='active'
     `).all(pid).map(r => r.id);
+    return [...new Set([...own, ...activeDelegatedDeptIds(db, pid)])];
   }
   if (user.role === 'unit_manager') {
     const uids = scopeUnitIds(db, user);
@@ -239,6 +255,26 @@ function portalNotify(db, opts) {
   try {
     notifyRoles(db, opts);
   } catch (_) { /* non-fatal */ }
+  // Best-effort SMS to phones of users in target roles (non-blocking)
+  try {
+    const { sendSMS } = require('../sms');
+    const roles = opts.target_roles || [];
+    if (!roles.length) return;
+    const ph = roles.map(() => '?').join(',');
+    const users = db.prepare(
+      `SELECT username FROM users WHERE active=1 AND role IN (${ph}) AND username IS NOT NULL AND username!=''`
+    ).all(...roles);
+    const settingsRows = db.prepare(
+      "SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from')"
+    ).all();
+    const settings = {};
+    settingsRows.forEach(r => { settings[r.key] = r.value; });
+    if (!settings.sms_api_key) return;
+    const text = `${opts.title || ''}${opts.body ? ' — ' + opts.body : ''}`.slice(0, 200);
+    users.forEach(u => {
+      sendSMS(settings, u.username, text).catch(() => {});
+    });
+  } catch (_) { /* SMS optional */ }
 }
 
 // ─── units (config — centralOnly) ──────────────────────────────────────────
@@ -1020,6 +1056,79 @@ router.post('/parameters/:id/final-output', auth, requirePermission('portal', 'a
     ok: true, status: 'completed', final_quantity: qty,
     destination_warehouse_id: destWh, extra_costs: postedCosts,
   });
+});
+
+// ─── temporary department delegation ───────────────────────────────────────
+router.get('/departments/:id/delegations', auth, requirePermission('portal', 'view'), (req, res) => {
+  const db = getDB();
+  if (!hasTable(db, 'op_dept_delegations')) return res.json([]);
+  const rows = db.prepare(`
+    SELECT d.*, p.name AS delegate_name, p.phone AS delegate_phone
+    FROM op_dept_delegations d
+    LEFT JOIN persons p ON p.id=d.delegate_person_id
+    WHERE d.department_id=?
+    ORDER BY d.id DESC LIMIT 20
+  `).all(req.params.id);
+  res.json(rows);
+});
+
+router.post('/departments/:id/delegate', auth, requirePermission('portal', 'approve'), (req, res) => {
+  const db = getDB();
+  if (!hasTable(db, 'op_dept_delegations')) {
+    return res.status(400).json({ error: 'جدول واگذاری موجود نیست' });
+  }
+  const dept = db.prepare('SELECT * FROM op_departments WHERE id=?').get(req.params.id);
+  if (!dept) return res.status(404).json({ error: 'دپارتمان یافت نشد' });
+  if (!canAccessUnit(db, req.user, dept.unit_id) && !['admin', 'accounting'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'دسترسی ندارید' });
+  }
+  const delegate_person_id = parseInt(req.body.delegate_person_id, 10);
+  if (!delegate_person_id) return res.status(400).json({ error: 'شخص جایگزین الزامی است' });
+  const hours = Math.max(1, Math.min(720, parseInt(req.body.hours, 10) || 72));
+  const note = String(req.body.note || '').trim();
+  try {
+    ensurePersonUser(db, delegate_person_id, 'department_manager');
+    const now = parseInt(nowEpoch(db), 10);
+    const ends = now + hours * 3600;
+    // deactivate overlapping active delegations for same dept
+    db.prepare(`
+      UPDATE op_dept_delegations SET active=0
+      WHERE department_id=? AND active=1 AND ends_at>=?
+    `).run(dept.id, now);
+    const r = db.prepare(`
+      INSERT INTO op_dept_delegations
+        (department_id, delegate_person_id, starts_at, ends_at, note, created_by, active)
+      VALUES (?,?,?,?,?,?,1)
+    `).run(dept.id, delegate_person_id, now, ends, note, req.user.id);
+    audit(req.user.id, 'delegate', 'op_department', dept.id,
+      `واگذاری موقت به شخص #${delegate_person_id} برای ${hours} ساعت`);
+    portalNotify(db, {
+      kind: 'portal_delegate',
+      entity_type: 'op_department',
+      entity_id: dept.id,
+      title: 'واگذاری موقت دپارتمان',
+      body: `${dept.name} — ${hours} ساعت`,
+      target_roles: ['department_manager', 'unit_manager', 'admin'],
+    });
+    res.json({ id: r.lastInsertRowid, ok: true, starts_at: now, ends_at: ends, hours });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message || 'خطا در واگذاری' });
+  }
+});
+
+router.post('/departments/:id/delegations/:delId/revoke', auth, requirePermission('portal', 'approve'), (req, res) => {
+  const db = getDB();
+  if (!hasTable(db, 'op_dept_delegations')) return res.status(400).json({ error: 'جدول واگذاری موجود نیست' });
+  const row = db.prepare('SELECT * FROM op_dept_delegations WHERE id=? AND department_id=?')
+    .get(req.params.delId, req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  const dept = db.prepare('SELECT * FROM op_departments WHERE id=?').get(req.params.id);
+  if (dept && !canAccessUnit(db, req.user, dept.unit_id) && !['admin', 'accounting'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'دسترسی ندارید' });
+  }
+  db.prepare('UPDATE op_dept_delegations SET active=0 WHERE id=?').run(row.id);
+  audit(req.user.id, 'revoke_delegate', 'op_department', req.params.id, `ابطال واگذاری #${row.id}`);
+  res.json({ ok: true });
 });
 
 // ─── department capabilities / tasks ───────────────────────────────────────

@@ -2095,14 +2095,14 @@ function pickOmnibox(i){
 function initNotifications(){
   const bell=el('notifBell');
   if(!bell) return;
-  if(!['admin','accounting','sales_manager'].includes(ME?.role)){ bell.style.display='none'; return; }
+  if(!['admin','accounting','sales_manager','unit_manager','department_manager'].includes(ME?.role)){ bell.style.display='none'; return; }
   bell.style.display='block';
   refreshPendingBadge();
   pollNotifications();
   setInterval(pollNotifications, 45000);
 }
 async function pollNotifications(){
-  if(!['admin','accounting','sales_manager'].includes(ME?.role)) return;
+  if(!['admin','accounting','sales_manager','unit_manager','department_manager'].includes(ME?.role)) return;
   try{
     const d=await api('GET','/notifications/pending-actions')||{};
     const n=(d.notifications||[]).length;
@@ -2126,6 +2126,12 @@ async function notifClick(id, entityType, entityId, kind){
   if(entityType==='invoice'&&entityId){ enterAccountingShell().then(()=>go('acc-sales-invoices')); }
   else if(entityType==='followup'&&entityId) go('followups');
   else if(kind==='invoice_approval') enterAccountingShell().then(()=>go('acc-commissions'));
+  else if(entityType==='op_parameter'||entityType==='op_department'||String(kind||'').startsWith('portal_')){
+    enterAccountingShell().then(()=>{
+      if(ME?.role==='department_manager') go('acc-portal-my-dept');
+      else go('acc-portal-units');
+    });
+  }
 }
 
 async function loadInitial(){
@@ -13624,10 +13630,25 @@ async function editChequeRegisterStatus(id,current){
   }catch(e){}
 }
 async function chequeSendToBank(id){
-  const bank_id=prompt('شناسه بانک واگذاری (collection_bank_id — اختیاری):','')||null;
+  if(!CACHE.banks){ try{ CACHE.banks=await api('GET','/banks')||[]; }catch(_){ CACHE.banks=[]; } }
+  openModal(`
+    <div class="modal-head"><h3>🏦 واگذاری چک به بانک</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>بانک وصول (اختیاری)</label>
+        <select id="csb-bank"><option value="">— بدون انتخاب —</option>
+          ${(CACHE.banks||[]).filter(b=>b.active!==0).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+        </select></div>
+      <div class="fg"><label>تاریخ</label><input id="csb-date" data-jdate value="${todayJalali()}"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="chequeSendToBankSave(${id})">💾 واگذاری</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  if(typeof initJalaliPickers==='function') initJalaliPickers();
+}
+async function chequeSendToBankSave(id){
+  const bank_id=+el('csb-bank')?.value||null;
   try{
-    await api('POST','/cheque-records/'+id+'/send-to-bank',{collection_bank_id:bank_id?+bank_id:null,date:todayJalali()});
-    showToast('چک به بانک واگذار شد'); loadAccTab('cheque-register');
+    await api('POST','/cheque-records/'+id+'/send-to-bank',{collection_bank_id:bank_id||null,date:el('csb-date')?.value||todayJalali()});
+    closeModal(); showToast('چک به بانک واگذار شد'); loadAccTab('cheque-register');
   }catch(e){}
 }
 async function chequeClear(id){

@@ -163,6 +163,26 @@ function initPortalSchema(db) {
   `);
   try { db.exec("ALTER TABLE op_parameter_dept_log ADD COLUMN payment_note TEXT DEFAULT ''"); } catch (_) {}
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('portal_schema_v2','1')").run();
+
+  // v3 — temporary department manager delegation (APPEND)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS op_dept_delegations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      department_id INTEGER NOT NULL,
+      delegate_person_id INTEGER NOT NULL,
+      starts_at INTEGER NOT NULL,
+      ends_at INTEGER NOT NULL,
+      note TEXT DEFAULT '',
+      created_by INTEGER,
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(department_id) REFERENCES op_departments(id),
+      FOREIGN KEY(delegate_person_id) REFERENCES persons(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_op_dept_delegations_active
+      ON op_dept_delegations(delegate_person_id, active, starts_at, ends_at);
+  `);
+  db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('portal_schema_v3','1')").run();
 }
 
 module.exports = { initPortalSchema };

@@ -1,5 +1,5 @@
 // ERP ترنم - service worker: network-first for HTML, cache-first for assets
-const CACHE = 'erp-taranom-v56';
+const CACHE = 'erp-taranom-v57';
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
