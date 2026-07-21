@@ -119,6 +119,19 @@ function syncUnitPersons(db, unitId, personIds) {
   }
 }
 
+function syncUnitModuleLinks(db, unitId, moduleKeys) {
+  if (!hasTable(db, 'op_unit_module_links')) return;
+  db.prepare('DELETE FROM op_unit_module_links WHERE unit_id=?').run(unitId);
+  const ins = db.prepare('INSERT INTO op_unit_module_links (unit_id, module_key) VALUES (?,?)');
+  const seen = new Set();
+  for (const key of moduleKeys || []) {
+    const k = String(key || '').trim();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    ins.run(unitId, k);
+  }
+}
+
 function assertDeptUnlocked(db, param, deptId) {
   const dept = db.prepare('SELECT * FROM op_departments WHERE id=?').get(deptId);
   if (!dept) {
@@ -233,7 +246,7 @@ function portalNotify(db, opts) {
 router.post('/units', auth, centralOnly, requirePermission('portal', 'create'), (req, res) => {
   const {
     name, manager_person_id, manager2_person_id, manager3_person_id,
-    output_type, warehouse_ids, person_ids,
+    output_type, warehouse_ids, person_ids, module_keys,
   } = req.body;
   if (!name || !manager_person_id) {
     return res.status(400).json({ error: 'نام واحد و مدیر اصلی الزامی است' });
@@ -259,6 +272,7 @@ router.post('/units', auth, centralOnly, requirePermission('portal', 'create'), 
       unitId = r.lastInsertRowid;
       syncUnitWarehouses(db, unitId, warehouse_ids);
       syncUnitPersons(db, unitId, person_ids);
+      syncUnitModuleLinks(db, unitId, module_keys);
     })();
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
@@ -305,7 +319,13 @@ router.get('/units/:id', auth, requirePermission('portal', 'view'), (req, res) =
     JOIN persons p ON up.person_id=p.id
     WHERE up.unit_id=?
   `).all(unit.id);
-  res.json({ ...unit, departments, warehouses, persons });
+  let module_links = [];
+  if (hasTable(db, 'op_unit_module_links')) {
+    module_links = db.prepare(
+      'SELECT id, module_key FROM op_unit_module_links WHERE unit_id=? ORDER BY id'
+    ).all(unit.id);
+  }
+  res.json({ ...unit, departments, warehouses, persons, module_links });
 });
 
 router.put('/units/:id', auth, centralOnly, requirePermission('portal', 'edit'), (req, res) => {
@@ -314,7 +334,7 @@ router.put('/units/:id', auth, centralOnly, requirePermission('portal', 'edit'),
   if (!unit || unit.status === 'archived') return res.status(404).json({ error: 'یافت نشد' });
   const {
     name, manager_person_id, manager2_person_id, manager3_person_id,
-    output_type, status, warehouse_ids, person_ids,
+    output_type, status, warehouse_ids, person_ids, module_keys,
   } = req.body;
   try {
     db.transaction(() => {
@@ -337,6 +357,7 @@ router.put('/units/:id', auth, centralOnly, requirePermission('portal', 'edit'),
       );
       if (warehouse_ids) syncUnitWarehouses(db, unit.id, warehouse_ids);
       if (person_ids) syncUnitPersons(db, unit.id, person_ids);
+      if (module_keys) syncUnitModuleLinks(db, unit.id, module_keys);
     })();
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });

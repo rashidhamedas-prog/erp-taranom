@@ -34,6 +34,25 @@
     }
   }
 
+  function personOptionsHtml(selectedId) {
+    return (CACHE.persons || []).map(p =>
+      `<option value="${p.id}" ${String(selectedId) === String(p.id) ? 'selected' : ''}>${esc(p.name || '')}${p.phone ? ' — ' + esc(p.phone) : ''}</option>`
+    ).join('');
+  }
+
+  function portalModuleOptions() {
+    const secs = (typeof ACC_NAV_SECTIONS !== 'undefined' && ACC_NAV_SECTIONS) ? ACC_NAV_SECTIONS : [];
+    const out = [];
+    secs.forEach(s => (s.items || []).forEach(it => {
+      if (it.id === 'exit-acc-shell') return;
+      out.push({ key: it.id, label: (s.title ? s.title + ' / ' : '') + (it.label || it.id) });
+    }));
+    [['customers', 'CRM / مشتریان'], ['followups', 'CRM / پیگیری‌ها'], ['products', 'کالاها'], ['invoices', 'فاکتورها']].forEach(([key, label]) => {
+      if (!out.find(o => o.key === key)) out.push({ key, label });
+    });
+    return out;
+  }
+
   async function renderPortalUnitsTab(body) {
     await ensurePortalCaches();
     const units = await api('GET', '/portal/units') || [];
@@ -43,21 +62,39 @@
     if (selUnit) {
       const u = await api('GET', '/portal/units/' + selUnit.id) || selUnit;
       const unitParams = params.filter(p => p.unit_id === u.id);
+      const mgrNames = [u.manager_person_id, u.manager2_person_id, u.manager3_person_id]
+        .filter(Boolean)
+        .map(id => (CACHE.persons || []).find(p => p.id === id)?.name || ('#' + id))
+        .join('، ');
       detailHtml = `
         <div class="panel" style="margin-top:12px">
           <div class="panel-head"><h4>🏢 ${esc(u.name)} — بخش‌ها و پارامترها</h4>
-            <button class="btn sm ghost" onclick="PortalUI.openCreateParamModal(${u.id})">➕ پارامتر جدید</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn sm ghost" onclick="PortalUI.openEditUnitModal(${u.id})">✏️ ویرایش واحد</button>
+              <button class="btn sm" onclick="PortalUI.openCreateDeptModal(${u.id})">➕ دپارتمان</button>
+              <button class="btn sm ghost" onclick="PortalUI.openCreateParamModal(${u.id})">➕ پارامتر جدید</button>
+            </div>
           </div>
           <div class="panel-body">
-            <h5 style="margin:0 0 8px;font-size:13px">بخش‌های عملیاتی</h5>
+            <div class="muted" style="font-size:12px;margin-bottom:10px;line-height:1.7">
+              <b>مدیران:</b> ${esc(mgrNames || '—')}
+              &nbsp;|&nbsp; <b>نوع خروجی:</b> ${esc(u.output_type || '—')}
+              &nbsp;|&nbsp; <b>انبارها:</b> ${(u.warehouses || []).map(w => esc(w.name)).join('، ') || '—'}
+              &nbsp;|&nbsp; <b>اشخاص در جریان:</b> ${(u.persons || []).map(p => esc(p.name)).join('، ') || '—'}
+              &nbsp;|&nbsp; <b>اتصالات:</b> ${(u.module_links || []).map(m => esc(m.module_key)).join('، ') || '—'}
+            </div>
+            <h5 style="margin:0 0 8px;font-size:13px">بخش‌های عملیاتی (مرحله‌بندی مسیر)</h5>
             <div class="tbl-wrap" style="margin-bottom:14px"><table class="tbl" style="font-size:12px"><thead><tr>
-              <th>ترتیب</th><th>نام</th><th>مدیر</th><th>انبار</th><th>امکانات/وظایف</th>
-            </tr></thead><tbody>${(u.departments || []).map(d => `<tr>
+              <th>ترتیب</th><th>نام</th><th>مدیر</th><th>انبار</th><th>عملیات</th>
+            </tr></thead><tbody>${(u.departments || []).map((d, i, arr) => `<tr>
               <td class="mono">${fmt(d.sequence_order)}</td>
               <td>${esc(d.name)}</td>
               <td>${esc(d.manager_name || '-')}</td>
               <td>${esc(d.warehouse_name || '-')}</td>
               <td style="white-space:nowrap">
+                <button class="btn sm ghost" ${i === 0 ? 'disabled' : ''} onclick="PortalUI.moveDept(${d.id},${d.sequence_order - 1},${u.id})" title="بالا">↑</button>
+                <button class="btn sm ghost" ${i === arr.length - 1 ? 'disabled' : ''} onclick="PortalUI.moveDept(${d.id},${d.sequence_order + 1},${u.id})" title="پایین">↓</button>
+                <button class="btn sm ghost" onclick="PortalUI.openEditDeptModal(${d.id},${u.id})">✏️</button>
                 <button class="btn sm ghost" onclick="PortalUI.addDeptCapability(${d.id})" title="امکان/خدمت">➕ امکان</button>
                 <button class="btn sm ghost" onclick="PortalUI.addDeptTask(${d.id})" title="شرح وظیفه">➕ وظیفه</button>
               </td>
@@ -90,13 +127,17 @@
         <button class="btn sm" onclick="PortalUI.openCreateUnitModal()">➕ واحد عملیاتی</button>
         <button class="btn sm ghost" onclick="loadAccTab('portal-units')">🔄</button>
       </div>
+      <p class="muted" style="font-size:12px;margin-bottom:10px">مسئول واحد از <b>اطلاعات اشخاص</b> انتخاب می‌شود؛ با ذخیره، حساب کاربری با نام کاربری=تلفن و رمز پیش‌فرض ۱۲۳۴۵ ساخته می‌شود.</p>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
         <th>نام واحد</th><th>نوع خروجی</th><th>وضعیت</th><th>عملیات</th>
       </tr></thead><tbody>${units.map(u => `<tr style="${_portalUnitId === u.id ? 'background:var(--purple-light)' : ''}">
         <td>${esc(u.name)}</td>
         <td class="muted">${esc(u.output_type || '-')}</td>
         <td>${esc(u.status || 'active')}</td>
-        <td><button class="btn sm ${ _portalUnitId === u.id ? '' : 'ghost'}" onclick="PortalUI.selectUnit(${u.id})">مدیریت</button></td>
+        <td>
+          <button class="btn sm ${ _portalUnitId === u.id ? '' : 'ghost'}" onclick="PortalUI.selectUnit(${u.id})">مدیریت</button>
+          <button class="btn sm ghost" onclick="PortalUI.openEditUnitModal(${u.id})">✏️</button>
+        </td>
       </tr>`).join('') || emptyRow(4)}</tbody></table></div>
       ${detailHtml}`;
   }
@@ -107,75 +148,255 @@
     loadAccTab('portal-units');
   }
 
+  function multiSelectHtml(id, options, selectedIds, size) {
+    const sel = new Set((selectedIds || []).map(String));
+    return `<select id="${id}" multiple size="${size || 5}" style="min-height:${(size || 5) * 22}px;width:100%">
+      ${options.map(o => `<option value="${o.id}" ${sel.has(String(o.id)) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}
+    </select>`;
+  }
+
+  function unitFormFieldsHtml(u) {
+    u = u || {};
+    const persons = CACHE.persons || [];
+    const whs = (CACHE.warehouses || []).filter(w => w.active !== 0);
+    const mods = portalModuleOptions();
+    const selectedWh = (u.warehouses || []).map(w => w.id);
+    const selectedPersons = (u.persons || []).map(p => p.id);
+    const selectedMods = (u.module_links || []).map(m => m.module_key);
+    return `
+      <div class="fg full"><label>نام واحد اجرایی *</label><input id="pu-name" value="${esc(u.name || '')}" placeholder="مثال: واحد خط تولید"></div>
+      <div class="fg"><label>مسئول واحد * ${typeof hlp === 'function' ? hlp('از اشخاص — کاربر خودکار با تلفن شخص ساخته می‌شود') : ''}</label>
+        <select id="pu-mgr"><option value="">— انتخاب شخص —</option>${personOptionsHtml(u.manager_person_id)}</select></div>
+      <div class="fg"><label>مسئول دوم (اختیاری)</label>
+        <select id="pu-mgr2"><option value="">—</option>${personOptionsHtml(u.manager2_person_id)}</select></div>
+      <div class="fg"><label>مسئول سوم (اختیاری)</label>
+        <select id="pu-mgr3"><option value="">—</option>${personOptionsHtml(u.manager3_person_id)}</select></div>
+      <div class="fg full"><label>نوع خروجی واحد</label>
+        <input id="pu-output" value="${esc(u.output_type || '')}" placeholder="مثال: کالای دوخته‌شده / محصول نهایی"></div>
+      <div class="fg full"><label>انبارهای واحد اجرایی *</label>
+        ${multiSelectHtml('pu-whs', whs.map(w => ({ id: w.id, label: w.name })), selectedWh, 6)}</div>
+      <div class="fg full"><label>اشخاص در جریان</label>
+        ${multiSelectHtml('pu-persons', persons.map(p => ({ id: p.id, label: (p.name || '') + (p.phone ? ' — ' + p.phone : '') })), selectedPersons, 5)}</div>
+      <div class="fg full"><label>اتصالات اضافه (بخش‌های نرم‌افزار)</label>
+        ${multiSelectHtml('pu-modules', mods.map(m => ({ id: m.key, label: m.label })), selectedMods, 8)}</div>
+      ${u.id ? `<div class="fg"><label>وضعیت</label><select id="pu-status">
+        <option value="active" ${u.status !== 'inactive' ? 'selected' : ''}>فعال</option>
+        <option value="inactive" ${u.status === 'inactive' ? 'selected' : ''}>غیرفعال</option>
+      </select></div>` : ''}
+      <p class="muted" style="font-size:11px;grid-column:1/-1">چندانتخابی: Ctrl+کلیک (ویندوز) یا Cmd+کلیک (مک).</p>`;
+  }
+
+  function collectUnitPayload() {
+    const name = el('pu-name')?.value?.trim();
+    const manager_person_id = +el('pu-mgr')?.value;
+    const manager2_person_id = +el('pu-mgr2')?.value || null;
+    const manager3_person_id = +el('pu-mgr3')?.value || null;
+    const output_type = el('pu-output')?.value?.trim() || '';
+    const whSel = el('pu-whs');
+    const warehouse_ids = whSel ? [...whSel.selectedOptions].map(o => +o.value).filter(Boolean) : [];
+    const pSel = el('pu-persons');
+    const person_ids = pSel ? [...pSel.selectedOptions].map(o => +o.value).filter(Boolean) : [];
+    const mSel = el('pu-modules');
+    const module_keys = mSel ? [...mSel.selectedOptions].map(o => o.value).filter(Boolean) : [];
+    const status = el('pu-status')?.value || 'active';
+    return {
+      name, manager_person_id, manager2_person_id, manager3_person_id,
+      output_type, warehouse_ids, person_ids, module_keys, status,
+    };
+  }
+
   async function openCreateUnitModal() {
     await ensurePortalCaches();
-    const persons = CACHE.persons || [];
-    const whs = CACHE.warehouses || [];
     openModal(`
       <div class="modal-head"><h3>➕ واحد عملیاتی جدید</h3><button class="x" onclick="closeModal()">×</button></div>
-      <div class="modal-body"><div class="form-grid">
-        <div class="fg full"><label>نام واحد *</label><input id="pu-name"></div>
-        <div class="fg full"><label>مدیر واحد *</label>
-          <select id="pu-mgr"><option value="">—</option>
-            ${persons.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}
-          </select></div>
-        <div class="fg full"><label>انبارهای متصل (چند انتخاب — Ctrl+Click)</label>
-          <select id="pu-whs" multiple size="5" style="min-height:100px">
-            ${whs.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}
-          </select></div>
-      </div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveUnit()">💾 ذخیره</button>
+      <div class="modal-body"><div class="form-grid">${unitFormFieldsHtml({})}</div></div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveUnit(0)">💾 ذخیره</button>
         <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
   }
 
-  async function saveUnit() {
-    const name = el('pu-name').value.trim();
-    const manager_person_id = +el('pu-mgr').value;
-    const whSel = el('pu-whs');
-    const warehouse_ids = whSel ? [...whSel.selectedOptions].map(o => +o.value).filter(Boolean) : [];
-    if (!name || !manager_person_id) { showToast('نام و مدیر الزامی است', 'error'); return; }
+  async function openEditUnitModal(id) {
+    await ensurePortalCaches();
+    const u = await api('GET', '/portal/units/' + id);
+    openModal(`
+      <div class="modal-head"><h3>✏️ ویرایش واحد عملیاتی</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body"><div class="form-grid">${unitFormFieldsHtml(u)}</div></div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveUnit(${id})">💾 ذخیره</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  }
+
+  async function saveUnit(id) {
+    const data = collectUnitPayload();
+    if (!data.name || !data.manager_person_id) {
+      showToast('نام و مسئول واحد الزامی است', 'error'); return;
+    }
+    if (!data.warehouse_ids.length) {
+      showToast('حداقل یک انبار انتخاب کنید', 'error'); return;
+    }
     try {
-      await api('POST', '/portal/units', { name, manager_person_id, warehouse_ids });
-      closeModal(); showToast('واحد ایجاد شد'); loadAccTab('portal-units');
+      if (id) await api('PUT', '/portal/units/' + id, data);
+      else await api('POST', '/portal/units', data);
+      closeModal();
+      showToast(id ? 'واحد به‌روز شد' : 'واحد ایجاد شد — حساب مدیر با رمز ۱۲۳۴۵ ساخته شد');
+      if (!id) {
+        const list = await api('GET', '/portal/units') || [];
+        const created = list.find(x => x.name === data.name);
+        if (created) _portalUnitId = created.id;
+      } else _portalUnitId = id;
+      loadAccTab('portal-units');
     } catch (e) {}
   }
 
+  async function openCreateDeptModal(unitId) {
+    await ensurePortalCaches();
+    const u = await api('GET', '/portal/units/' + unitId);
+    const whs = u.warehouses || [];
+    if (!whs.length) {
+      showToast('اول انبارهای واحد را در ویرایش واحد تعریف کنید', 'error'); return;
+    }
+    openModal(`
+      <div class="modal-head"><h3>➕ دپارتمان جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body"><div class="form-grid">
+        <div class="fg full"><label>نام دپارتمان *</label><input id="pd-name" placeholder="مثال: دپارتمان برش"></div>
+        <div class="fg full"><label>مسئول دپارتمان *</label>
+          <select id="pd-mgr"><option value="">—</option>${personOptionsHtml()}</select></div>
+        <div class="fg full"><label>انبار دپارتمان * (فقط انبارهای همین واحد)</label>
+          <select id="pd-wh"><option value="">—</option>
+            ${whs.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}
+          </select></div>
+        <div class="fg"><label>ترتیب مرحله (خالی=آخر)</label><input id="pd-seq" type="number" min="1" placeholder="خودکار"></div>
+      </div></div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDept(0,${unitId})">💾 ذخیره</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  }
+
+  async function openEditDeptModal(deptId, unitId) {
+    await ensurePortalCaches();
+    const u = await api('GET', '/portal/units/' + unitId);
+    const d = (u.departments || []).find(x => x.id === deptId);
+    if (!d) { showToast('دپارتمان یافت نشد', 'error'); return; }
+    const whs = u.warehouses || [];
+    openModal(`
+      <div class="modal-head"><h3>✏️ ویرایش دپارتمان</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body"><div class="form-grid">
+        <div class="fg full"><label>نام دپارتمان *</label><input id="pd-name" value="${esc(d.name || '')}"></div>
+        <div class="fg full"><label>مسئول دپارتمان *</label>
+          <select id="pd-mgr"><option value="">—</option>${personOptionsHtml(d.manager_person_id)}</select></div>
+        <div class="fg full"><label>انبار دپارتمان *</label>
+          <select id="pd-wh"><option value="">—</option>
+            ${whs.map(w => `<option value="${w.id}" ${String(d.warehouse_id) === String(w.id) ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}
+          </select></div>
+      </div></div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDept(${deptId},${unitId})">💾 ذخیره</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  }
+
+  async function saveDept(deptId, unitId) {
+    const name = el('pd-name')?.value?.trim();
+    const manager_person_id = +el('pd-mgr')?.value;
+    const warehouse_id = +el('pd-wh')?.value;
+    if (!name || !manager_person_id || !warehouse_id) {
+      showToast('نام، مسئول و انبار الزامی است', 'error'); return;
+    }
+    try {
+      if (deptId) {
+        await api('PUT', '/portal/departments/' + deptId, { name, manager_person_id, warehouse_id });
+      } else {
+        const sequence_order = +el('pd-seq')?.value || undefined;
+        await api('POST', `/portal/units/${unitId}/departments`, {
+          name, manager_person_id, warehouse_id, sequence_order,
+        });
+      }
+      closeModal(); showToast('دپارتمان ذخیره شد');
+      _portalUnitId = unitId; loadAccTab('portal-units');
+    } catch (e) {}
+  }
+
+  async function moveDept(deptId, newSeq, unitId) {
+    if (!newSeq || newSeq < 1) return;
+    try {
+      await api('PUT', `/portal/departments/${deptId}/sequence`, { sequence_order: newSeq });
+      showToast('ترتیب به‌روز شد');
+      _portalUnitId = unitId; loadAccTab('portal-units');
+    } catch (e) {}
+  }
+
+  let _paramItems = [];
   async function openCreateParamModal(unitId) {
     await ensurePortalCaches();
     const prods = CACHE.allProducts || CACHE.products || [];
-    const whs = CACHE.warehouses || [];
+    const u = await api('GET', '/portal/units/' + unitId);
+    const whs = u.warehouses || CACHE.warehouses || [];
+    _paramItems = [{ product_id: '', quantity: '1' }];
     openModal(`
       <div class="modal-head"><h3>➕ پارامتر جدید</h3><button class="x" onclick="closeModal()">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>نام پارامتر *</label><input id="pp-name"></div>
-        <div class="fg full"><label>انبار مبدأ</label>
+        <div class="fg full"><label>انبار مبدأ (مواد)</label>
           <select id="pp-src-wh"><option value="">— پیش‌فرض واحد —</option>
             ${whs.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}
           </select></div>
-        <div class="fg full"><label>اقلام (کالا | مقدار — هر خط)</label>
-          <textarea id="pp-items" rows="5" dir="ltr" placeholder="product_id | qty&#10;12 | 100"></textarea></div>
+        <div class="fg full"><label>اقلام پارامتر *</label>
+          <div id="pp-items-box"></div>
+          <button type="button" class="btn sm ghost" onclick="PortalUI.addParamItemRow()">➕ مقدار / کالای بعدی</button>
+        </div>
         <div class="fg full"><label>توضیحات</label><textarea id="pp-desc"></textarea></div>
-      </div>
-      <p class="muted" style="font-size:11px;margin-top:8px">شناسه کالا از ${prods.length} محصول — یا از لیست کالاها ببینید.</p></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveParameter(${unitId})">💾 ایجاد</button>
+      </div></div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveParameter(${unitId})">💾 ایجاد و تحویل به اولین دپارتمان</button>
         <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+    window._paramItems = _paramItems;
+    window._paramProds = prods;
+    renderParamItemRows();
+  }
+
+  function addParamItemRow() {
+    _paramItems = window._paramItems || _paramItems;
+    _paramItems.push({ product_id: '', quantity: '1' });
+    window._paramItems = _paramItems;
+    renderParamItemRows();
+  }
+
+  function renderParamItemRows() {
+    _paramItems = window._paramItems || _paramItems;
+    const prods = window._paramProds || CACHE.allProducts || CACHE.products || [];
+    const box = el('pp-items-box'); if (!box) return;
+    box.innerHTML = _paramItems.map((it, i) => `
+      <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
+        <select style="flex:1;min-width:180px" onchange="window._paramItems[${i}].product_id=this.value">
+          <option value="">— انتخاب کالا —</option>
+          ${prods.slice(0, 800).map(p => `<option value="${p.id}" ${String(it.product_id) === String(p.id) ? 'selected' : ''}>${esc(p.name)}${p.code ? ' (' + esc(p.code) + ')' : ''}</option>`).join('')}
+        </select>
+        <input type="number" step="0.001" min="0.001" placeholder="مقدار" value="${esc(String(it.quantity || '1'))}"
+          oninput="window._paramItems[${i}].quantity=this.value" style="width:110px">
+        ${_paramItems.length > 1 ? `<button type="button" class="btn sm red" onclick="window._paramItems.splice(${i},1);PortalUI.renderParamItemRows()">×</button>` : ''}
+      </div>`).join('');
   }
 
   async function saveParameter(unitId) {
-    const name = el('pp-name').value.trim();
-    const items = (el('pp-items').value || '').split(/\r?\n/).filter(Boolean).map(line => {
-      const [pid, qty] = line.split('|').map(x => x.trim());
-      return { product_id: +pid, quantity: +qty };
-    }).filter(it => it.product_id && it.quantity > 0);
-    if (!name || !items.length) { showToast('نام و حداقل یک قلم الزامی است', 'error'); return; }
-    const data = {
-      name, unit_id: unitId, items,
-      description: el('pp-desc').value || '',
-      source_warehouse_id: +el('pp-src-wh').value || undefined,
-    };
+    _paramItems = window._paramItems || _paramItems;
+    const name = el('pp-name')?.value?.trim();
+    const items = (_paramItems || []).map(it => ({
+      product_id: +it.product_id,
+      quantity: parseFloat(it.quantity) || 0,
+    })).filter(it => it.product_id && it.quantity > 0);
+    if (!name || !items.length) { showToast('نام و حداقل یک قلم کالا الزامی است', 'error'); return; }
+    const description = el('pp-desc')?.value || '';
     try {
-      await api('POST', '/portal/parameters', data);
-      closeModal(); showToast('پارامتر ایجاد شد'); loadAccTab('portal-units');
+      const r = await api('POST', '/portal/parameters', {
+        name, unit_id: unitId, items, description,
+        source_warehouse_id: +el('pp-src-wh')?.value || undefined,
+      });
+      if (description && (r.id || r.parameter_id)) {
+        try {
+          await api('POST', '/portal/field-followups', {
+            entity_type: 'op_parameter',
+            entity_id: r.id || r.parameter_id,
+            field_key: 'description',
+            note: description,
+          });
+        } catch (_) {}
+      }
+      closeModal(); showToast('پارامتر ایجاد و به اولین دپارتمان تحویل شد');
+      _portalUnitId = unitId; loadAccTab('portal-units');
     } catch (e) {}
   }
 
@@ -773,8 +994,15 @@
     renderKpiDashboardTab,
     selectUnit,
     openCreateUnitModal,
+    openEditUnitModal,
     saveUnit,
+    openCreateDeptModal,
+    openEditDeptModal,
+    saveDept,
+    moveDept,
     openCreateParamModal,
+    addParamItemRow,
+    renderParamItemRows,
     saveParameter,
     showParamDetail,
     deptConfirm,
