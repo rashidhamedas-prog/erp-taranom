@@ -13,6 +13,57 @@ function recvAcct(db, custId) {
   }
   return coaAcct(db, 'coa_receivable');
 }
+const { getCachedRate, toRial } = require('../lib/fx-rate');
+
+/** Resolve rial amount when bank/cash is foreign — amount stays INTEGER rial for ledger. */
+function resolveSettlementFx(db, opts) {
+  const bankId = opts.bank_id ? parseInt(opts.bank_id, 10) : null;
+  const boxId = opts.cash_box_id ? parseInt(opts.cash_box_id, 10) : null;
+  const bank = bankId ? db.prepare('SELECT * FROM banks WHERE id=?').get(bankId) : null;
+  const box = boxId ? db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(boxId) : null;
+  const cur = String(opts.currency || bank?.currency || box?.currency || 'IRR').toUpperCase();
+  const isForeign = !!(
+    (bank && (bank.is_foreign || (bank.currency && bank.currency !== 'IRR')))
+    || (box && (box.is_foreign || (box.currency && box.currency !== 'IRR')))
+    || (cur && cur !== 'IRR' && cur !== 'TMN' && cur !== 'IRT')
+  );
+  const date = opts.date || '';
+  if (!isForeign) {
+    return {
+      amountRial: Math.round(Number(opts.amount) || 0),
+      foreign_amount: null,
+      fx_rate_rial: null,
+      currency: 'IRR',
+    };
+  }
+  let rate = Math.round(Number(opts.fx_rate_rial) || 0);
+  if (!rate) rate = getCachedRate(db, cur, date);
+  const foreign = Number(opts.foreign_amount);
+  if (foreign > 0 && rate > 0) {
+    return {
+      amountRial: toRial(foreign, rate),
+      foreign_amount: foreign,
+      fx_rate_rial: rate,
+      currency: cur,
+    };
+  }
+  // Fallback: amount already entered as rial (manual conversion)
+  const amt = Math.round(Number(opts.amount) || 0);
+  if (!amt) {
+    const err = new Error(rate > 0
+      ? 'مبلغ ارزی یا مبلغ ریالی الزامی است'
+      : `نرخ ارز ${cur} یافت نشد — از «نرخ ارز» ثبت یا دریافت کنید`);
+    err.status = 400;
+    throw err;
+  }
+  return {
+    amountRial: amt,
+    foreign_amount: foreign > 0 ? foreign : null,
+    fx_rate_rial: rate || null,
+    currency: cur,
+  };
+}
+
 const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, backfillAccounting, resolveCashAccount } = require('../db');
 const { recordCommissionAccrual, recordSettlementCommissionAccrual, reverseCommissionAccrual } = require('../lib/rep-ledger');
 const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
@@ -182,53 +233,65 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
   const { cust_id, invoice_id, amount, pay_type, date, note, bank_id, cash_box_id, check_category_id,
           cheque_bank, cheque_sayadi, cheque_number, cheque_account,
           cheque_amount, cheque_owner, cheque_due, cheque_status,
-          cheque_branch, cheque_sheba } = req.body;
-  if (!cust_id || !amount) return res.status(400).json({ error: 'مشتری و مبلغ الزامی است' });
+          cheque_branch, cheque_sheba, foreign_amount, fx_rate_rial, currency } = req.body;
+  if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
+  let fx;
+  try {
+    fx = resolveSettlementFx(db, {
+      amount, bank_id, cash_box_id, foreign_amount, fx_rate_rial, currency, date,
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message });
+  }
+  if (!fx.amountRial) return res.status(400).json({ error: 'مشتری و مبلغ الزامی است' });
+  const amountRial = fx.amountRial;
   const settlementId = db.transaction(() => {
     const result = db.prepare(
       `INSERT INTO settlements
         (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,check_category_id,
          cheque_bank,cheque_sayadi,cheque_number,cheque_account,
-         cheque_amount,cheque_owner,cheque_due,cheque_status,cheque_branch,cheque_sheba)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(req.user.id, cust_id, invoice_id || null, parseFloat(amount), pay_type || 'cash',
+         cheque_amount,cheque_owner,cheque_due,cheque_status,cheque_branch,cheque_sheba,
+         foreign_amount,fx_rate_rial,currency)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(req.user.id, cust_id, invoice_id || null, amountRial, pay_type || 'cash',
           date || '', note || '', bank_id || null, cash_box_id || null, check_category_id || null,
           cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
           parseFloat(cheque_amount || 0), cheque_owner || '', cheque_due || '',
-          cheque_status || 'pending', cheque_branch || '', cheque_sheba || '');
+          cheque_status || 'pending', cheque_branch || '', cheque_sheba || '',
+          fx.foreign_amount, fx.fx_rate_rial, fx.currency);
     const settlementId = result.lastInsertRowid;
 
-    // Customer ledger entry
     const payLabel = (pay_type || 'cash') === 'cheque' ? 'چک' : (pay_type === 'bank_transfer' ? 'واریز بانکی' : 'نقد');
+    const fxNote = fx.foreign_amount && fx.fx_rate_rial
+      ? ` (${fx.foreign_amount} ${fx.currency} × ${fx.fx_rate_rial})`
+      : '';
     createLedgerEntry(db, {
       customer_id: cust_id, date: date || '', entry_type: 'settlement',
       ref_type: 'settlement', ref_id: settlementId,
-      description: `تسویه ${payLabel} - ${parseFloat(amount).toLocaleString('fa-IR')} ریال`,
-      debit: 0, credit: parseFloat(amount), user_id: req.user.id
+      description: `تسویه ${payLabel} - ${amountRial.toLocaleString('fa-IR')} ریال${fxNote}`,
+      debit: 0, credit: amountRial, user_id: req.user.id
     });
-    // Journal entry: Dr Cash/Bank / Cr Receivables — posts to the specific bank's
-    // own ledger sub-account when one was selected, else the generic صندوق/بانک
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
     postToLedger(db, {
       sourceType: 'settlement', sourceId: settlementId,
-      date: date || todayJalali(), description: `تسویه ${payLabel} مشتری`, createdBy: req.user.id,
+      date: date || todayJalali(), description: `تسویه ${payLabel} مشتری${fxNote}`, createdBy: req.user.id,
       lines: [
-        { code: cash.code, name: cash.name, debit: rialToLedger(amount), credit: 0 },
-        (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(amount) };})()
+        { code: cash.code, name: cash.name, debit: rialToLedger(amountRial), credit: 0 },
+        (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(amountRial) };})()
       ]
     });
     if (invoice_id) {
       const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(invoice_id);
       if (inv) {
-        recordSettlementCommissionAccrual(db, { id: settlementId, amount: parseFloat(amount), date: date || '' }, inv, req.user.id);
+        recordSettlementCommissionAccrual(db, { id: settlementId, amount: amountRial, date: date || '' }, inv, req.user.id);
       }
     }
     return settlementId;
   })();
-  audit(req.user.id, 'create', 'settlement', settlementId, `تسویه ${amount} ریال - مشتری ${cust_id}`);
+  audit(req.user.id, 'create', 'settlement', settlementId, `تسویه ${amountRial} ریال - مشتری ${cust_id}`);
 
-  res.json({ id: settlementId, ok: true });
+  res.json({ id: settlementId, ok: true, amount: amountRial, currency: fx.currency, fx_rate_rial: fx.fx_rate_rial });
 });
 
 // Batch settlements (installments) — all share installment_group

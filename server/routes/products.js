@@ -356,6 +356,10 @@ router.post('/', auth, adminOrAccounting, upload.single('image'), async (req, re
     const rp = Math.round(parseFloat(req.body.retail_price) || 0);
     db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, result.lastInsertRowid);
   }
+  if (req.body.costing_method !== undefined) {
+    const cm = String(req.body.costing_method || '').trim() || null;
+    db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, result.lastInsertRowid);
+  }
   // حالت کدینگ محک: تفصیلی اختصاصی کالا (برای سند COGS)
   try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
   audit(req.user.id, 'create', 'product', result.lastInsertRowid, `ساخت محصول ${name}`);
@@ -400,6 +404,10 @@ router.put('/:id', auth, adminOrAccounting, upload.single('image'), async (req, 
   if (req.body.retail_price !== undefined) {
     const rp = Math.round(parseFloat(req.body.retail_price) || 0);
     db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, req.params.id);
+  }
+  if (req.body.costing_method !== undefined) {
+    const cm = String(req.body.costing_method || '').trim() || null;
+    db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, req.params.id);
   }
   if (whId) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')

@@ -749,8 +749,8 @@ table.tbl tr:hover td{background:var(--row-hover)}
 <!-- ===== Command Palette ===== -->
 <div id="omniboxOverlay" class="omnibox-overlay" onclick="if(event.target===this)closeOmnibox()">
   <div class="omnibox" onclick="event.stopPropagation()">
-    <input id="omniboxInput" placeholder="جستجو: مشتری، محصول، فاکتور، بخش‌ها و زیرمنوها..." autocomplete="off">
-    <div class="omnibox-hint">Ctrl+K — مشتریان، محصولات، فاکتورها و همهٔ بخش‌ها/زیرمنوهای برنامه</div>
+    <input id="omniboxInput" placeholder="جستجو: مشتری، کالا، فاکتور، بخش‌ها و زیرمنوها..." autocomplete="off">
+    <div class="omnibox-hint">Ctrl+K — مشتریان، کالاها، فاکتورها و همهٔ بخش‌ها/زیرمنوهای برنامه</div>
     <div class="omnibox-results" id="omniboxResults"></div>
   </div>
 </div>
@@ -1644,7 +1644,7 @@ const NAV_ADMIN = [
   {id:'customers', icon:'👥', label:'مشتریان'},
   {id:'followups', icon:'📞', label:'پیگیری‌ها'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
-  {id:'products', icon:'🛍️', label:'محصولات'},
+  {id:'products', icon:'🛍️', label:'کالاها'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'users', icon:'👤', label:'کاربران'},
   {id:'reports', icon:'📈', label:'گزارشات'},
@@ -2262,7 +2262,7 @@ async function openSyncPanel(){
   ]);
   const opLabel = o=>{
     const act = o.method==='POST'?'ثبت':o.method==='DELETE'?'حذف':'ویرایش';
-    const ent = {invoices:'فاکتور',customers:'مشتری',settlements:'تسویه',sales_returns:'برگشت از فروش',purchase_invoices:'فاکتور خرید',purchase_returns:'برگشت از خرید',supplier_payments:'پرداخت تأمین‌کننده',expense_payments:'هزینه',account_transfers:'انتقال وجه',followups:'پیگیری',products:'محصول',suppliers:'تأمین‌کننده',persons:'شخص',journal_entries:'سند دستی',payroll_records:'حقوق'}[o.entity_table]||o.entity_table||o.path;
+    const ent = {invoices:'فاکتور',customers:'مشتری',settlements:'تسویه',sales_returns:'برگشت از فروش',purchase_invoices:'فاکتور خرید',purchase_returns:'برگشت از خرید',supplier_payments:'پرداخت تأمین‌کننده',expense_payments:'هزینه',account_transfers:'انتقال وجه',followups:'پیگیری',products:'کالا',suppliers:'تأمین‌کننده',persons:'شخص',journal_entries:'سند دستی',payroll_records:'حقوق'}[o.entity_table]||o.entity_table||o.path;
     return `${act} ${ent}`;
   };
   openModal(`
@@ -2532,7 +2532,7 @@ async function renderDashContent(){
         ${statCard('g','💰', fmt(ov.totalRevenue),'فروش کل (ریال)'+(dq?' در بازه':''))}
         ${statCard('o','🧾', fmt(ov.totalInvoices),'فاکتور رسمی'+(dq?' در بازه':''))}
         ${statCard('b','📋', fmt(ov.totalProforma),'پیش‌فاکتور'+(dq?' در بازه':''))}
-        ${statCard('p','🛍️', fmt(ov.totalProducts),'محصولات')}
+        ${statCard('p','🛍️', fmt(ov.totalProducts),'کالاها')}
         ${statCard('b','📞', fmt(ov.openFollowups),'پیگیری باز')}
         ${statCard('r','📉', fmt(ov.lowStock),'موجودی کم')}
       </div>
@@ -3505,10 +3505,10 @@ async function _openInvBuilder(id){
       </div>
       <div class="inv-layout">
         <div>
-          <input class="search" id="invProdSearch" placeholder="جستجوی محصول..." style="margin-bottom:6px;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" oninput="renderInvPicker()">
+          <input class="search" id="invProdSearch" placeholder="جستجوی کالا..." style="margin-bottom:6px;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" oninput="renderInvPicker()">
           ${canAccounting()?`<button type="button" class="btn sm" style="width:100%;margin-bottom:6px" onclick="invProdQuickModal(el('invProdSearch')?.value)">➕ ساخت کالای جدید</button>`:''}
           <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:8px" onclick="openBarcodeScanner(scanBarcodeToCart)">📷 اسکن بارکد</button>
-          <div id="mobPickHint" style="display:none;font-size:11px;color:var(--muted);margin-bottom:8px;text-align:center">👆 برای افزودن، دو بار روی محصول بزنید</div>
+          <div id="mobPickHint" style="display:none;font-size:11px;color:var(--muted);margin-bottom:8px;text-align:center">👆 برای افزودن، دو بار روی کالا بزنید</div>
           <div class="inv-products"><div class="inv-pick" id="invPicker"></div></div>
         </div>
         <div class="inv-cart">
@@ -3553,15 +3553,15 @@ function renderInvPicker(){
       <div class="pp">${fmt(p.price)} ریال</div>
       <div class="pst" style="font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}">موجودی: ${fmt(avail)}</div>
     </div>`;
-  }).join('') + (extra?`<div class="muted" style="padding:10px;text-align:center;font-size:12px">${fmt(extra)} محصول دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" style="padding:16px;text-align:center">محصولی یافت نشد — از بخش محصولات، کالای جدید اضافه کنید</div>`;
+  }).join('') + (extra?`<div class="muted" style="padding:10px;text-align:center;font-size:12px">${fmt(extra)} کالای دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" style="padding:16px;text-align:center">کالایی یافت نشد — از بخش کالاها، کالای جدید اضافه کنید</div>`;
 }
 async function invProdQuickModal(prefill){
   if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
   const name=(prefill||'').trim();
   openModal(`
-    <div class="modal-head"><h3>➕ ساخت سریع محصول</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>➕ ساخت سریع کالا</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>نام محصول *</label><input id="iq-name" value="${esc(name)}"></div>
+      <div class="fg full"><label>نام کالا *</label><input id="iq-name" value="${esc(name)}"></div>
       <div class="fg"><label>دسته‌بندی</label><select id="iq-cat"><option value="">— بدون دسته —</option>
         ${(CACHE.productCategories||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}
       </select></div>
@@ -3576,7 +3576,7 @@ async function invProdQuickModal(prefill){
 }
 async function saveInvProdQuick(){
   const name=el('iq-name').value.trim();
-  if(!name){ showToast('نام محصول الزامی است','error'); return; }
+  if(!name){ showToast('نام کالا الزامی است','error'); return; }
   try{
     const p=await api('POST','/products/quick',{
       name, category_id:+el('iq-cat').value||null, code:el('iq-code').value,
@@ -3586,7 +3586,7 @@ async function saveInvProdQuick(){
     if(!CACHE.allProducts) CACHE.allProducts=[];
     if(!CACHE.products) CACHE.products=[];
     CACHE.allProducts.unshift(p); CACHE.products.unshift(p);
-    addToCart(p.id); closeModal(); showToast('محصول ساخته و به سبد اضافه شد');
+    addToCart(p.id); closeModal(); showToast('کالا ساخته و به سبد اضافه شد');
   }catch(e){}
 }
 function addToCart(pid){
@@ -3717,7 +3717,7 @@ function toggleChequeFields(){ toggleInvPayFields(); }
 async function saveInvoice(id){
   const cust_id = +el('inv-cust').value;
   if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
-  if(invCart.length===0){ showToast('حداقل یک محصول اضافه کنید','error'); return; }
+  if(invCart.length===0){ showToast('حداقل یک کالا اضافه کنید','error'); return; }
   const pay_type = el('inv-pay-type')?.value || 'cash';
   const data = {
     cust_id, type:el('inv-type').value, date:el('inv-date').value, note:el('inv-note').value,
@@ -3828,7 +3828,7 @@ async function productsPage(canEdit){
   await loadProductsFiltered();
   const manageBtn = canAccounting()
     ? `<button class="btn" onclick="enterAccountingShell().then(()=>go('acc-products'))">📦 مدیریت کالاها در حسابداری</button>`
-    : `<span class="muted" style="font-size:13px">مدیریت محصولات فقط از ماژول حسابداری انجام می‌شود</span>`;
+    : `<span class="muted" style="font-size:13px">مدیریت کالاها فقط از ماژول حسابداری انجام می‌شود</span>`;
   el('view').innerHTML=`
     <div class="toolbar">
       <input class="search" id="pSearch" placeholder="جستجو نام یا کد..." value="${esc(prodFilter.search)}">
@@ -3842,14 +3842,14 @@ async function productsPage(canEdit){
         <option value="low" ${prodFilter.stock_status==='low'?'selected':''}>موجودی کم</option>
       </select>
       ${manageBtn}
-      ${canEdit?`<button class="btn" onclick="prodModal()">➕ محصول</button>
+      ${canEdit?`<button class="btn" onclick="prodModal()">➕ کالا</button>
         <button class="btn ghost" onclick="productCategoriesModal()">🏷️ دسته‌بندی‌ها</button>
         <button class="btn ghost" onclick="enterAccountingShell().then(()=>go('acc-warehouses'))">🏭 موجودی انبارها</button>
         <button class="btn ghost" onclick="openBarcodeScanner(async c=>{ try{ const p=await api('GET','/products/by-barcode/'+encodeURIComponent(c)); if(p&&p.id){ showToast(p.name+' — موجودی: '+fmt(p.stock)); prodModal(p.id); } }catch(e){} })">📷 اسکن بارکد</button>
         ${excelButtonsHtml('products')}`:''}
     </div>
     <div id="pBulkBar" style="display:none;background:var(--purple-light);border-radius:8px;padding:10px 14px;margin-bottom:10px;flex-wrap:wrap;gap:8px;align-items:center">
-      <span id="pSelCount" style="font-weight:600;color:var(--purple)">۰ محصول انتخاب شده</span>
+      <span id="pSelCount" style="font-weight:600;color:var(--purple)">۰ کالا انتخاب شده</span>
       ${canEdit?`<button class="btn sm red" onclick="bulkProdDelete()">🗑️ حذف انتخاب‌شده‌ها</button>`:''}
       <button class="btn sm ghost" onclick="prodSelected.clear();renderProdGrid(${canEdit})">✕ لغو</button>
     </div>
@@ -3877,7 +3877,7 @@ function renderProdGrid(canEdit){
   const grid=el('prodGrid'); if(!grid) return;
   const bar=el('pBulkBar'); const cnt=el('pSelCount');
   if(bar) bar.style.display = prodSelected.size>0 ? 'flex' : 'none';
-  if(cnt) cnt.textContent = `${prodSelected.size} محصول انتخاب شده`;
+  if(cnt) cnt.textContent = `${prodSelected.size} کالا انتخاب شده`;
   grid.innerHTML = CACHE.products.map(p=>{
     const low = p.stock<=p.stock_alert;
     const sel = prodSelected.has(p.id);
@@ -3898,12 +3898,12 @@ function renderProdGrid(canEdit){
           <button class="btn sm red" onclick="confirmDelete('products',${p.id},'${esc(p.name)}')">🗑️</button>
         </div>`:''}
       </div></div>`;
-  }).join('') || '<div class="empty">محصولی یافت نشد</div>';
+  }).join('') || '<div class="empty">کالایی یافت نشد</div>';
 }
 function toggleProd(id, checked){ if(checked) prodSelected.add(id); else prodSelected.delete(id); renderProdGrid(_prodCanEdit); }
 async function bulkProdDelete(){
   if(!prodSelected.size) return;
-  if(!confirm(`${prodSelected.size} محصول حذف شود؟ این عمل برگشت‌پذیر نیست!`)) return;
+  if(!confirm(`${prodSelected.size} کالا حذف شود؟ این عمل برگشت‌پذیر نیست!`)) return;
   for(const id of prodSelected) await api('DELETE','/products/'+id);
   prodSelected.clear(); await _refreshProdWithCats(_prodCanEdit); showToast('حذف شد');
 }
@@ -3911,7 +3911,7 @@ async function productCategoriesModal(){
   const cats=await api('GET','/product-categories')||[];
   CACHE.productCategories=cats;
   openModal(`
-    <div class="modal-head"><h3>🏷️ مدیریت دسته‌بندی محصولات</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>🏷️ مدیریت دسته‌بندی کالاها</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <div class="toolbar" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
         <input id="pc-new-name" placeholder="نام دسته جدید..." style="flex:1;min-width:160px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px">
@@ -3919,7 +3919,7 @@ async function productCategoriesModal(){
         <button class="btn" onclick="addProductCategory()">➕ افزودن</button>
       </div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
-        <th>نام</th><th>تعداد محصول</th><th>ترتیب</th><th>اشتراک</th><th>وضعیت</th><th>عملیات</th>
+        <th>نام</th><th>تعداد کالا</th><th>ترتیب</th><th>اشتراک</th><th>وضعیت</th><th>عملیات</th>
       </tr></thead><tbody>${cats.map(c=>`<tr>
         <td><input value="${esc(c.name)}" onchange="updateProductCategory(${c.id},{name:this.value})" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px"></td>
         <td class="mono">${fmt(c.product_count||0)}</td>
@@ -3949,15 +3949,15 @@ async function prodModal(id){
   const p = id ? CACHE.products.find(x=>x.id===id) : {};
   const cats=CACHE.productCategories||[];
   openModal(`
-    <div class="modal-head"><h3>${id?'ویرایش محصول':'کالای جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>${id?'ویرایش کالا':'کالای جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>نام محصول * ${hlp('نام کامل محصول همان‌طور که روی فاکتور چاپ می‌شود.')}</label><input id="p-name" value="${esc(p.name||'')}"></div>
+      <div class="fg full"><label>نام کالا * ${hlp('نام کامل کالا همان‌طور که روی فاکتور چاپ می‌شود.')}</label><input id="p-name" value="${esc(p.name||'')}"></div>
       <div class="fg"><label>دسته‌بندی ${hlp('از لیست دسته‌های تعریف‌شده انتخاب کنید — یا از دکمه «دسته‌بندی‌ها» دسته جدید بسازید.')}</label>
         <select id="p-cat-id"><option value="">— بدون دسته / متن آزاد —</option>
           ${cats.map(c=>`<option value="${c.id}" ${p.category_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
         </select></div>
       <div class="fg"><label>دسته (متن آزاد — اختیاری)</label><input id="p-cat" value="${esc(p.category||'')}" placeholder="اگر از لیست بالا انتخاب نکردید"></div>
-      <div class="fg"><label>کد محصول ${hlp('کد یکتای محصول — برای جستجوی سریع در فاکتورساز. اگر خالی بماند به‌صورت خودکار ساخته می‌شود (K-00001).')}</label><input id="p-code" value="${esc(p.code||'')}" placeholder="خودکار"></div>
+      <div class="fg"><label>کد کالا ${hlp('کد یکتای محصول — برای جستجوی سریع در فاکتورساز. اگر خالی بماند به‌صورت خودکار ساخته می‌شود (K-00001).')}</label><input id="p-code" value="${esc(p.code||'')}" placeholder="خودکار"></div>
       <div class="fg"><label>قیمت فروش عمده (ریال) ${hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.price)}"></div>
       <div class="fg"><label>قیمت فروش تک (ریال) ${hlp('قیمت خرده‌فروشی — از فرمول قیمت‌گذاری تولید هم قابل پر شدن خودکار است.')}</label><input id="p-retail" type="text" inputmode="numeric" class="money" value="${moneyInit(p.retail_price||p.retail_price_rial||0)}"></div>
       <div class="fg"><label>بهای تمام‌شده (ریال) ${hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
@@ -3972,11 +3972,18 @@ async function prodModal(id){
           ${id&&!p.barcode?`<button type="button" class="btn sm ghost" onclick="genBarcode(${id})" title="تولید خودکار بارکد">⚡ تولید</button>`:''}
           ${id&&p.barcode?`<button type="button" class="btn sm ghost" onclick="openBarcodeLabels(${id})" title="چاپ برچسب بارکد">🏷️ برچسب</button>`:''}
         </div></div>
-      <div class="fg"><label>انبار اصلی ${hlp('انباری که این محصول در آن نگهداری می‌شود.')}</label>
+      <div class="fg"><label>انبار اصلی ${hlp('انباری که این کالا در آن نگهداری می‌شود.')}</label>
         <select id="p-warehouse"><option value="">— پیش‌فرض —</option>
           ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}" ${p.warehouse_id===w.id?'selected':''}>${esc(w.name)}</option>`).join('')}
         </select></div>
-      <div class="fg full"><label>تصویر محصول ${hlp('عکس محصول — در کاتالوگ و کارت انتخاب محصولِ فاکتورساز نمایش داده می‌شود.')}</label><input id="p-image" type="file" accept="image/*"></div>
+      <div class="fg"><label>روش ریالی‌کردن کالا ${hlp('اگر خالی باشد از روش انبار یا تنظیمات سراسری پیروی می‌کند.')}</label>
+        <select id="p-costing">
+          <option value="" ${!p.costing_method?'selected':''}>پیروی از انبار / سراسری</option>
+          <option value="moving_average" ${p.costing_method==='moving_average'?'selected':''}>میانگین موزون</option>
+          <option value="fifo" ${p.costing_method==='fifo'?'selected':''}>FIFO</option>
+          <option value="specific" ${p.costing_method==='specific'?'selected':''}>شناسایی ویژه</option>
+        </select></div>
+      <div class="fg full"><label>تصویر کالا ${hlp('عکس کالا — در کاتالوگ و کارت انتخاب کالا در فاکتورساز نمایش داده می‌شود.')}</label><input id="p-image" type="file" accept="image/*"></div>
       <div class="fg full"><label>یادداشت ${hlp('توضیح آزاد درباره محصول: جنس پارچه، سایزبندی، رنگ‌بندی و…')}</label><textarea id="p-note">${esc(p.note||'')}</textarea></div>
       ${p.image?`<div class="fg full">${prodImgTag(p.image,'style="height:90px;border-radius:8px"')}</div>`:''}
       ${coaCodeFieldHtml('product', id, p.coa_code)}
@@ -3987,7 +3994,7 @@ async function prodModal(id){
 }
 async function saveProduct(id){
   const name = el('p-name').value.trim();
-  if(!name){ showToast('نام محصول الزامی است','error'); return; }
+  if(!name){ showToast('نام کالا الزامی است','error'); return; }
   const fd = new FormData();
   fd.append('name',name);
   fd.append('category',el('p-cat').value.trim());
@@ -4003,6 +4010,7 @@ async function saveProduct(id){
   fd.append('pack_size',el('p-pack_size')?.value||1);
   fd.append('barcode',el('p-barcode')?.value||'');
   fd.append('warehouse_id',el('p-warehouse')?.value||'');
+  fd.append('costing_method',el('p-costing')?.value||'');
   fd.append('note',el('p-note').value);
   if(usesExtendedCoa()){
     fd.append('full_name',el('p-full_name')?.value||'');
@@ -4023,7 +4031,7 @@ async function saveProduct(id){
     await _refreshProdWithCats(_prodCanEdit);
     if(window._accProdRefresh){ try{ window._accProdRefresh(); }catch(_){} window._accProdRefresh=null; }
     showToast('ذخیره شد');
-  }catch(e){ showToast('خطا در ذخیره محصول','error'); }
+  }catch(e){ showToast('خطا در ذخیره کالا','error'); }
 }
 /* ============================================================
    BARCODE — generate, print labels, camera scan  [ported from v4]
@@ -4171,14 +4179,14 @@ async function scanBarcodeToCart(code){
       if(!(CACHE.products||[]).find(x=>x.id===p.id)) (CACHE.products=CACHE.products||[]).push(p);
       addToCart(p.id); showToast('افزوده شد: '+p.name);
     }
-  }catch(e){ showToast('محصولی با این بارکد یافت نشد','error'); }
+  }catch(e){ showToast('کالایی با این بارکد یافت نشد','error'); }
 }
 
 function importProducts(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
   inp.onchange=async()=>{
     const fd=new FormData(); fd.append('file',inp.files[0]);
-    try{ const r=await api('POST','/products/import',fd,true); showToast(`${fmt(r.inserted)} محصول اضافه شد`); await refreshProd(true); }catch(e){}
+    try{ const r=await api('POST','/products/import',fd,true); showToast(`${fmt(r.inserted)} کالا اضافه شد`); await refreshProd(true); }catch(e){}
   };
   inp.click();
 }
@@ -4330,7 +4338,7 @@ ROUTES.stocktaking = async function(){
     </select>
     <button class="btn sm" onclick="loadStocktakingList()">🔍 اعمال</button>
     <button class="btn green" onclick="stkNewModal()">➕ شروع انبارگردانی</button>
-    <button class="btn ghost" onclick="go('products')">← بازگشت به محصولات</button>
+    <button class="btn ghost" onclick="go('products')">← بازگشت به کالاها</button>
   </div>
   <div id="stkBody"><div class="muted">در حال بارگذاری...</div></div>`;
   attachDatepickers(el('view'));
@@ -5570,7 +5578,7 @@ function renderGenCart(){
 }
 function genProductSearchHtml(){
   return `<div style="position:relative">
-    <input type="text" id="genProdSearch" class="search" style="width:100%;margin-bottom:10px" placeholder="جستجوی محصول برای افزودن..." oninput="genProdShowDrop(this.value)" onfocus="genProdShowDrop(this.value)">
+    <input type="text" id="genProdSearch" class="search" style="width:100%;margin-bottom:10px" placeholder="جستجوی کالا برای افزودن..." oninput="genProdShowDrop(this.value)" onfocus="genProdShowDrop(this.value)">
     <div id="genProdDrop" class="cust-si-drop" style="display:none;position:fixed;width:280px;max-height:220px"></div>
     <button type="button" class="btn sm ghost" style="width:100%" onclick="genProdQuickModal(el('genProdSearch')?.value||'')">➕ ساخت کالای جدید</button>
   </div>`;
@@ -5586,17 +5594,17 @@ function genProdShowDrop(q){
     <div class="cust-si-item" onclick="genCartAdd(${p.id});el('genProdSearch').value='';el('genProdDrop').style.display='none'">
       <span>${esc(p.name)}</span><span class="cust-si-meta">موجودی: ${fmt(p.stock||0)}</span>
     </div>`).join('');
-  const quickBtn=term?`<div class="cust-si-item" style="color:var(--purple);font-weight:600" onclick="genProdQuickModal('${esc(term)}')">➕ ساخت محصول «${esc(term)}»</div>`:'';
-  drop.innerHTML = items || quickBtn || '<div class="cust-si-empty">محصولی یافت نشد — دکمه ساخت کالای جدید را بزنید</div>';
+  const quickBtn=term?`<div class="cust-si-item" style="color:var(--purple);font-weight:600" onclick="genProdQuickModal('${esc(term)}')">➕ ساخت کالا «${esc(term)}»</div>`:'';
+  drop.innerHTML = items || quickBtn || '<div class="cust-si-empty">کالایی یافت نشد — دکمه ساخت کالای جدید را بزنید</div>';
   if(items && quickBtn) drop.innerHTML += quickBtn;
 }
 async function genProdQuickModal(prefill){
   if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
   const name=(prefill||'').trim();
   openModal(`
-    <div class="modal-head"><h3>➕ ساخت سریع محصول</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>➕ ساخت سریع کالا</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>نام محصول *</label><input id="gq-name" value="${esc(name)}"></div>
+      <div class="fg full"><label>نام کالا *</label><input id="gq-name" value="${esc(name)}"></div>
       <div class="fg"><label>دسته‌بندی</label><select id="gq-cat"><option value="">— بدون دسته —</option>
         ${(CACHE.productCategories||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}
       </select></div>
@@ -5610,7 +5618,7 @@ async function genProdQuickModal(prefill){
 }
 async function saveGenProdQuick(){
   const name=el('gq-name').value.trim();
-  if(!name){ showToast('نام محصول الزامی است','error'); return; }
+  if(!name){ showToast('نام کالا الزامی است','error'); return; }
   try{
     const p=await api('POST','/products/quick',{
       name, category_id:+el('gq-cat').value||null, code:el('gq-code').value,
@@ -5618,7 +5626,7 @@ async function saveGenProdQuick(){
     });
     if(!CACHE.allProducts) CACHE.allProducts=[];
     CACHE.allProducts.unshift(p); CACHE.products.unshift(p);
-    genCartAdd(p.id); closeModal(); showToast('محصول ساخته و به سبد اضافه شد');
+    genCartAdd(p.id); closeModal(); showToast('کالا ساخته و به سبد اضافه شد');
   }catch(e){}
 }
 document.addEventListener('click',e=>{ if(!e.target.closest('#genProdSearch')&&!e.target.closest('#genProdDrop')){ const d=el('genProdDrop'); if(d) d.style.display='none'; } });
@@ -10137,7 +10145,7 @@ let PRODUCT_ACC_SEARCH='';
 let _accProdSearchTimer=null;
 function filterAccProductCat(id){ PRODUCT_CAT_FILTER=id; loadAccTab('products'); }
 async function deleteAccProduct(id){
-  if(!confirm('این محصول حذف شود؟ این عمل برگشت‌پذیر نیست.')) return;
+  if(!confirm('این کالا حذف شود؟ این عمل برگشت‌پذیر نیست.')) return;
   try{
     await api('DELETE','/products/'+id);
     CACHE.allProducts=null; CACHE.products=null; CACHE._prodMetaLoaded=false;
@@ -10175,7 +10183,7 @@ async function renderAccProductsTab(body){
           <input id="accProdSearch" placeholder="جستجو نام/کد/بارکد..." value="${esc(search)}" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px">
           <span class="muted" style="font-size:12px">${fmt(rows.length)} کالا</span>
         </div>
-        <div class="tbl-wrap"><table class="tbl" id="accProductsTbl" data-bulk-delete="/products" data-bulk-label="حذف" data-bulk-perm="admin" data-bulk-confirm="{n} محصول حذف شود؟ این عمل برگشت‌پذیر نیست!" style="font-size:12px"><thead><tr>
+        <div class="tbl-wrap"><table class="tbl" id="accProductsTbl" data-bulk-delete="/products" data-bulk-label="حذف" data-bulk-perm="admin" data-bulk-confirm="{n} کالا حذف شود؟ این عمل برگشت‌پذیر نیست!" style="font-size:12px"><thead><tr>
           <th>کد</th><th>نام</th><th>گروه</th><th>موجودی</th><th>قیمت ${moneyColLabel()}</th><th>بهای تمام‌شده</th><th class="no-sort">عملیات</th>
         </tr></thead><tbody>${rows.map(p=>`<tr data-id="${p.id}">
           <td class="mono">${esc(p.code||'-')}</td>
@@ -11781,12 +11789,19 @@ async function settlementModal(custId){
         <div class="form-grid">
           <div class="fg" id="st-amount-fg"><label>مبلغ (ریال) *</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
           <div class="fg"><label>نوع پرداخت</label><select id="st-paytype" onchange="toggleStlCheque()"><option value="cash">نقد</option><option value="bank_transfer">واریز بانکی</option><option value="cheque">چک</option></select></div>
-          <div class="fg" id="st-bank-fg"><label>واریز به بانک</label><select id="st-bank"><option value="">— بدون بانک —</option>
-            ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+          <div class="fg" id="st-bank-fg"><label>واریز به بانک</label><select id="st-bank" onchange="stlFxRefresh()"><option value="">— بدون بانک —</option>
+            ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" data-cur="${esc(b.currency||'IRR')}" data-fx="${b.is_foreign||(b.currency&&b.currency!=='IRR')?1:0}">${esc(b.name)}${(b.is_foreign||(b.currency&&b.currency!=='IRR'))?' ('+esc(b.currency||'')+')':''}</option>`).join('')}
           </select></div>
-          <div class="fg" id="st-cashbox-fg"><label>واریز به صندوق</label><select id="st-cashbox"><option value="">— بدون صندوق —</option>
-            ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
+          <div class="fg" id="st-cashbox-fg"><label>واریز به صندوق</label><select id="st-cashbox" onchange="stlFxRefresh()"><option value="">— بدون صندوق —</option>
+            ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" data-cur="${esc(b.currency||'IRR')}" data-fx="${b.is_foreign||(b.currency&&b.currency!=='IRR')?1:0}">${esc(b.name)}${(b.is_foreign||(b.currency&&b.currency!=='IRR'))?' ('+esc(b.currency||'')+')':''}</option>`).join('')}
           </select></div>
+          <div class="fg full" id="st-fx-wrap" style="display:none">
+            <div class="form-grid">
+              <div class="fg"><label>مبلغ ارزی</label><input id="st-foreign" type="number" step="0.01" min="0" oninput="stlFxCalc()"></div>
+              <div class="fg"><label>نرخ (ریال) <span class="muted" id="st-fx-cur"></span></label><input id="st-fx-rate" type="number" min="0" oninput="stlFxCalc()"></div>
+              <div class="fg full muted" style="font-size:12px">با انتخاب بانک/صندوق ارزی، مبلغ ریالی از مبلغ ارزی × نرخ محاسبه و در سند ثبت می‌شود (نرخ از کش/مرجع).</div>
+            </div>
+          </div>
           <div class="fg full" id="st-bankref-fg" style="display:none"><label>شماره پیگیری / مرجع واریز</label><input id="st-bankref" placeholder="کد رهگیری بانکی"></div>
           <div class="fg"><label>تاریخ</label><input id="st-date" data-jdate value="${todayJalali()}"></div>
           <div class="fg full"><label>یادداشت</label><textarea id="st-note" placeholder="توضیحات..."></textarea></div>
@@ -11814,6 +11829,31 @@ async function settlementModal(custId){
   const hid=el('st-cust'); if(hid) hid.addEventListener('change', stlCustChanged);
   renderStlRows();
   toggleStlCheque();
+  stlFxRefresh();
+}
+async function stlFxRefresh(){
+  const bankOpt=el('st-bank')?.selectedOptions?.[0];
+  const boxOpt=el('st-cashbox')?.selectedOptions?.[0];
+  const isFx=!!(+(bankOpt?.dataset?.fx||0) || +(boxOpt?.dataset?.fx||0));
+  const wrap=el('st-fx-wrap'); if(wrap) wrap.style.display=isFx?'block':'none';
+  if(!isFx) return;
+  const cur=(bankOpt?.dataset?.cur && bankOpt.dataset.cur!=='IRR'?bankOpt.dataset.cur:null)
+    || (boxOpt?.dataset?.cur && boxOpt.dataset.cur!=='IRR'?boxOpt.dataset.cur:null) || 'USD';
+  const curEl=el('st-fx-cur'); if(curEl) curEl.textContent='('+cur+')';
+  try{
+    const r=await api('GET','/fx/rates/latest?currency='+encodeURIComponent(cur));
+    const rate=r?.rate_rial||r?.rate||0;
+    const rateEl=el('st-fx-rate'); if(rateEl && rate) rateEl.value=rate;
+  }catch(_){}
+  stlFxCalc();
+}
+function stlFxCalc(){
+  const foreign=+el('st-foreign')?.value||0;
+  const rate=+el('st-fx-rate')?.value||0;
+  if(foreign>0 && rate>0){
+    const amt=Math.round(foreign*rate);
+    const a=el('st-amount'); if(a) a.value=typeof moneyInit==='function'?moneyInit(amt):String(amt);
+  }
 }
 async function stlCustChanged(){
   const custId=+el('st-cust')?.value;
@@ -11954,7 +11994,11 @@ async function saveSettlement(){
       note:(el('st-note').value||'')+(pay_type==='bank_transfer'&&el('st-bankref')?.value?(' | پیگیری: '+el('st-bankref').value):''),
       bank_id:+el('st-bank').value||null,
       cash_box_id:+el('st-cashbox').value||null,
-      cheque_status:'pending'
+      cheque_status:'pending',
+      foreign_amount:+el('st-foreign')?.value||null,
+      fx_rate_rial:+el('st-fx-rate')?.value||null,
+      currency:(el('st-bank')?.selectedOptions?.[0]?.dataset?.cur
+        || el('st-cashbox')?.selectedOptions?.[0]?.dataset?.cur || 'IRR')
     });
     _accRecvCache=null; closeModal(); showToast('پرداخت ثبت شد');
     loadAccTab(accTab);
@@ -13327,7 +13371,7 @@ async function b2bRenderCatalog(body){
         <div class="muted">${esc(p.category||'')}</div>
         <div class="mono" style="margin:6px 0">${fmt(p.price)} ریال</div>
         ${p.available?`<button class="btn sm" onclick="b2bAddCart(${p.id})">➕ افزودن</button>`:'<span class="tag t-silent">ناموجود</span>'}
-      </div>`).join('')||'<div class="empty">محصولی یافت نشد</div>'}
+      </div>`).join('')||'<div class="empty">کالایی یافت نشد</div>'}
     </div>
     <div class="b2b-cart">
       <strong>🧺 سبد سفارش (<span id="b2bCartCount">${B2B.cart.length}</span>)</strong>
@@ -14546,7 +14590,7 @@ function renderAdminGuide(){
         <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر خطا یا دیالوگ کرش دیدید، نسخه قبلی را حذف و APK <b>۲.۰.۱۸+</b> را نصب کنید (مسیر موقت قابل‌نوشتن + SQLite + thirty-two)</li>
         <li>در اولین اجرا، با کاربر پیش‌فرض وارد شوید — پنجره «اتصال به سرور مرکزی» باز می‌شود</li>
         <li>آدرس سرور مرکزی و نام کاربری/رمز <b>مدیر سیستم</b> را وارد کنید (این مرحله یک‌بار است و اینترنت لازم دارد)</li>
-        <li>پس از اتصال، همه اطلاعات (مشتریان، محصولات، فاکتورها، کاربران و...) از مرکز دریافت می‌شود و از آن پس با نام کاربری اصلی خودتان — حتی بدون اینترنت — وارد می‌شوید</li>
+        <li>پس از اتصال، همه اطلاعات (مشتریان، کالاها، فاکتورها، کاربران و...) از مرکز دریافت می‌شود و از آن پس با نام کاربری اصلی خودتان — حتی بدون اینترنت — وارد می‌شوید</li>
       </ol>
       <h5>نشانگر وضعیت (بالای صفحه)</h5><ul>
         <li><b>🟢 همگام با مرکز</b>: همه‌چیز ارسال و دریافت شده</li>
@@ -14635,7 +14679,7 @@ function renderAdminGuide(){
       <h5>گردش حساب مشتریان</h5><p>صفحه «دفتر معین» (گردش حساب) حذف شد — از <b>صورت‌حساب مشتری</b> در حسابداری استفاده کنید.</p>
       <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. اعمال اصلاحات، سند حسابداری تولید می‌کند.</p>
       <h5>سال مالی</h5><p>تنظیمات → مدیریت سال مالی: انتقال (Rollover) یا بازنشانی کامل (Factory Reset با تأیید RESET-FISCAL). همچنین حذف بخش‌به‌بخش دیتای تست با WIPE-SECTION.</p>
-      <h5>ساخت سریع محصول در فاکتور</h5><p>فقط مدیر و حسابدار در فاکتورساز دکمه «➕ ساخت کالای جدید» دارند — مدیریت کامل کالاها در حسابداری → کالاها است.</p>
+      <h5>ساخت سریع کالا در فاکتور</h5><p>فقط مدیر و حسابدار در فاکتورساز دکمه «➕ ساخت کالای جدید» دارند — مدیریت کامل کالاها در حسابداری → کالاها است.</p>
       <h5>مشاور هوشمند (مدیر)</h5><p>منوی «مشاور هوشمند» فقط برای مدیر سیستم و مدیر فروش — پرسش آزاد با داده‌های تجمیع‌شده.</p>
       <h5>دسترسی‌های granular</h5><p>کاربران → ویرایش → «🔐 دسترسی‌ها» — ماتریس View/Create/Edit/Delete/Approve/Export.</p>
       <h5>پشتیبان</h5><p>فقط سرور مرکزی (وب) — دسکتاپ/اندروید Access Denied.</p>
@@ -14656,7 +14700,7 @@ function renderAdminGuide(){
     helpSec('📷','بارکد محصولات',`
       <p>هر محصول می‌تواند بارکد EAN-13 داشته باشد — برای اسکن سریع با دوربین موبایل/وبکم و چاپ برچسب.</p>
       <h5>تولید و چاپ</h5><ul>
-        <li>ویرایش محصول → فیلد «بارکد» → دکمه «⚡ تولید» بارکد استاندارد می‌سازد (یا بارکد موجود کالا را دستی وارد کنید)</li>
+        <li>ویرایش کالا → فیلد «بارکد» → دکمه «⚡ تولید» بارکد استاندارد می‌سازد (یا بارکد موجود کالا را دستی وارد کنید)</li>
         <li>دکمه 🏷️ (در کارت محصول یا فرم ویرایش) صفحه چاپ برچسب ۵۸×۴۰ میلی‌متری را باز می‌کند (۱۲ برچسب در هر صفحه)</li>
       </ul>
       <h5>اسکن</h5><ul>

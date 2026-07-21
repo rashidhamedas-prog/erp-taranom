@@ -51,13 +51,17 @@
           <div class="panel-body">
             <h5 style="margin:0 0 8px;font-size:13px">بخش‌های عملیاتی</h5>
             <div class="tbl-wrap" style="margin-bottom:14px"><table class="tbl" style="font-size:12px"><thead><tr>
-              <th>ترتیب</th><th>نام</th><th>مدیر</th><th>انبار</th>
+              <th>ترتیب</th><th>نام</th><th>مدیر</th><th>انبار</th><th>امکانات/وظایف</th>
             </tr></thead><tbody>${(u.departments || []).map(d => `<tr>
               <td class="mono">${fmt(d.sequence_order)}</td>
               <td>${esc(d.name)}</td>
               <td>${esc(d.manager_name || '-')}</td>
               <td>${esc(d.warehouse_name || '-')}</td>
-            </tr>`).join('') || emptyRow(4)}</tbody></table></div>
+              <td style="white-space:nowrap">
+                <button class="btn sm ghost" onclick="PortalUI.addDeptCapability(${d.id})" title="امکان/خدمت">➕ امکان</button>
+                <button class="btn sm ghost" onclick="PortalUI.addDeptTask(${d.id})" title="شرح وظیفه">➕ وظیفه</button>
+              </td>
+            </tr>`).join('') || emptyRow(5)}</tbody></table></div>
             <h5 style="margin:0 0 8px;font-size:13px">پارامترها</h5>
             <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
               <th>شماره</th><th>نام</th><th>وضعیت</th><th>خط زمانی بخش‌ها</th><th></th>
@@ -232,11 +236,20 @@
 
   async function deptConfirm(paramId, deptId) {
     if (!deptId) { showToast('بخش فعال مشخص نیست', 'error'); return; }
-    const q = prompt('مقدار دریافتی:', '0');
-    if (q === null) return;
+    openModal(`
+      <div class="modal-head"><h3>✅ تأیید مقدار دریافتی</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body"><div class="form-grid">
+        <div class="fg full"><label>مقدار دریافتی *</label><input id="pd-qty" type="number" step="0.001" min="0" value="0"></div>
+      </div></div>
+      <div class="modal-foot"><button class="btn green" onclick="PortalUI.saveDeptConfirm(${paramId},${deptId})">💾 تأیید</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  }
+  async function saveDeptConfirm(paramId, deptId) {
+    const q = +el('pd-qty')?.value;
+    if (q == null || isNaN(q)) { showToast('مقدار نامعتبر', 'error'); return; }
     try {
-      await api('POST', `/portal/parameters/${paramId}/dept/${deptId}/confirm`, { received_quantity: +q });
-      showToast('تأیید شد'); loadAccTab('portal-my-dept');
+      await api('POST', `/portal/parameters/${paramId}/dept/${deptId}/confirm`, { received_quantity: q });
+      closeModal(); showToast('تأیید شد'); loadAccTab('portal-my-dept');
     } catch (e) {}
   }
 
@@ -251,16 +264,35 @@
 
   async function deptPayment(paramId, deptId) {
     if (!deptId) return;
-    const person_id = prompt('شناسه شخص (person_id):', '');
-    const amount_rial = prompt('مبلغ (ریال):', '0');
-    if (!person_id || amount_rial === null) return;
-    const st = prompt('وضعیت: awaiting_accounting (تأیید حسابداری) یا awaiting_payment (در انتظار پرداخت)', 'awaiting_accounting');
+    if (!CACHE.persons?.length) {
+      try { CACHE.persons = await api('GET', '/persons') || []; } catch (_) { CACHE.persons = []; }
+    }
+    openModal(`
+      <div class="modal-head"><h3>💳 درخواست پرداخت</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body"><div class="form-grid">
+        <div class="fg full"><label>شخص *</label><select id="pd-person"><option value="">— انتخاب —</option>
+          ${(CACHE.persons || []).map(p => `<option value="${p.id}">${esc(p.name || '')}${p.phone ? ' — ' + esc(p.phone) : ''}</option>`).join('')}
+        </select></div>
+        <div class="fg"><label>مبلغ (ریال) *</label><input id="pd-amt" type="text" inputmode="numeric" class="money" value="0"></div>
+        <div class="fg"><label>وضعیت</label><select id="pd-status">
+          <option value="awaiting_accounting">در انتظار تأیید حسابداری</option>
+          <option value="awaiting_payment">در انتظار پرداخت</option>
+        </select></div>
+        <div class="fg full"><label>یادداشت</label><input id="pd-note"></div>
+      </div></div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDeptPayment(${paramId},${deptId})">📤 ارسال</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  }
+  async function saveDeptPayment(paramId, deptId) {
+    const person_id = +el('pd-person')?.value;
+    const amount_rial = typeof moneyVal === 'function' ? moneyVal('pd-amt') : Math.round(+el('pd-amt')?.value || 0);
+    if (!person_id || !amount_rial) { showToast('شخص و مبلغ الزامی است', 'error'); return; }
     try {
       await api('POST', `/portal/parameters/${paramId}/dept/${deptId}/payment`, {
-        person_id: +person_id, amount_rial: Math.round(+amount_rial || 0),
-        payment_status: st || 'awaiting_accounting',
+        person_id, amount_rial, payment_status: el('pd-status')?.value || 'awaiting_accounting',
+        note: el('pd-note')?.value || '',
       });
-      showToast('درخواست پرداخت برای حسابداری ارسال شد'); loadAccTab('portal-my-dept');
+      closeModal(); showToast('درخواست پرداخت برای حسابداری ارسال شد'); loadAccTab('portal-my-dept');
     } catch (e) {}
   }
 
@@ -274,55 +306,119 @@
   }
 
   async function finalOutput(paramId) {
-    const quantity = prompt('تعداد نهایی:', '1');
-    const destination_warehouse_id = prompt('شناسه انبار مقصد:', '');
-    if (!quantity || !destination_warehouse_id) return;
-    const extra = [];
-    if (confirm('هزینه اضافه ثبت شود؟')) {
-      while (true) {
-        const description = prompt('شرح هزینه (خالی = پایان):', '');
-        if (!description) break;
-        const amount_rial = prompt('مبلغ هزینه (ریال):', '0');
-        extra.push({ description, amount_rial: Math.round(+amount_rial || 0) });
-      }
+    if (!CACHE.warehouses) {
+      try { CACHE.warehouses = await api('GET', '/warehouses') || []; } catch (_) { CACHE.warehouses = []; }
     }
+    openModal(`
+      <div class="modal-head"><h3>🏁 ثبت خروجی نهایی</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body"><div class="form-grid">
+        <div class="fg"><label>تعداد نهایی *</label><input id="fo-qty" type="number" step="0.001" min="0.001" value="1"></div>
+        <div class="fg"><label>انبار مقصد *</label><select id="fo-wh"><option value="">— انتخاب —</option>
+          ${(CACHE.warehouses || []).filter(w => w.active !== 0).map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}
+        </select></div>
+        <div class="fg full"><label>هزینه‌های اضافه</label>
+          <div id="fo-costs"></div>
+          <button type="button" class="btn sm ghost" onclick="PortalUI.addFinalCostRow()">➕ هزینه بعدی</button>
+        </div>
+      </div></div>
+      <div class="modal-foot"><button class="btn green" onclick="PortalUI.saveFinalOutput(${paramId})">💾 ثبت نهایی</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+    _foCosts = [{ description: '', amount_rial: '' }];
+    renderFinalCostRows();
+  }
+  let _foCosts = [];
+  function addFinalCostRow() { _foCosts.push({ description: '', amount_rial: '' }); renderFinalCostRows(); }
+  function renderFinalCostRows() {
+    const box = el('fo-costs'); if (!box) return;
+    window._foCosts = _foCosts;
+    box.innerHTML = _foCosts.map((c, i) => `
+      <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
+        <input placeholder="شرح" value="${esc(c.description || '')}" oninput="window._foCosts[${i}].description=this.value" style="flex:1">
+        <input placeholder="مبلغ ریال" type="text" inputmode="numeric" class="money" value="${esc(String(c.amount_rial || ''))}" oninput="window._foCosts[${i}].amount_rial=this.value" style="width:140px">
+        ${_foCosts.length > 1 ? `<button type="button" class="btn sm red" onclick="window._foCosts.splice(${i},1);PortalUI.renderFinalCostRows()">×</button>` : ''}
+      </div>`).join('');
+  }
+  async function saveFinalOutput(paramId) {
+    _foCosts = window._foCosts || _foCosts;
+    const quantity = +el('fo-qty')?.value;
+    const destination_warehouse_id = +el('fo-wh')?.value;
+    if (!quantity || !destination_warehouse_id) { showToast('تعداد و انبار مقصد الزامی است', 'error'); return; }
+    const extra = (_foCosts || []).map(c => ({
+      description: String(c.description || '').trim(),
+      amount_rial: Math.round(parseInt(String(c.amount_rial || '').replace(/[^\d]/g, ''), 10) || 0),
+    })).filter(c => c.description && c.amount_rial > 0);
     try {
       await api('POST', `/portal/parameters/${paramId}/final-output`, {
-        quantity: +quantity, destination_warehouse_id: +destination_warehouse_id, extra_costs: extra,
+        quantity, destination_warehouse_id, extra_costs: extra,
       });
-      showToast('خروجی نهایی ثبت شد'); loadAccTab('portal-units');
+      closeModal(); showToast('خروجی نهایی ثبت شد'); loadAccTab('portal-units');
     } catch (e) {}
   }
 
   async function addDeptCapability(deptId) {
-    const name = prompt('نام امکان/خدمت:', '');
-    if (!name) return;
-    const description = prompt('توضیحات:', '') || '';
+    openModal(`
+      <div class="modal-head"><h3>➕ امکان / خدمت دپارتمان</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body"><div class="form-grid">
+        <div class="fg full"><label>نام *</label><input id="cap-name"></div>
+        <div class="fg full"><label>توضیحات</label><textarea id="cap-desc"></textarea></div>
+      </div></div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDeptCapability(${deptId})">💾 ذخیره</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  }
+  async function saveDeptCapability(deptId) {
+    const name = el('cap-name')?.value?.trim();
+    if (!name) { showToast('نام الزامی است', 'error'); return; }
     try {
-      await api('POST', `/portal/departments/${deptId}/capabilities`, { name, description });
-      showToast('امکان ثبت شد');
+      await api('POST', `/portal/departments/${deptId}/capabilities`, { name, description: el('cap-desc')?.value || '' });
+      closeModal(); showToast('امکان ثبت شد');
     } catch (e) {}
   }
   async function addDeptTask(deptId) {
-    const name = prompt('نام شرح وظیفه:', '');
-    if (!name) return;
-    const description = prompt('توضیحات:', '') || '';
+    openModal(`
+      <div class="modal-head"><h3>➕ شرح وظیفه دپارتمان</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body"><div class="form-grid">
+        <div class="fg full"><label>نام *</label><input id="task-name"></div>
+        <div class="fg full"><label>توضیحات</label><textarea id="task-desc"></textarea></div>
+      </div></div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDeptTask(${deptId})">💾 ذخیره</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  }
+  async function saveDeptTask(deptId) {
+    const name = el('task-name')?.value?.trim();
+    if (!name) { showToast('نام الزامی است', 'error'); return; }
     try {
-      await api('POST', `/portal/departments/${deptId}/tasks`, { name, description });
-      showToast('وظیفه ثبت شد');
+      await api('POST', `/portal/departments/${deptId}/tasks`, { name, description: el('task-desc')?.value || '' });
+      closeModal(); showToast('وظیفه ثبت شد');
     } catch (e) {}
   }
 
   async function deptConvert(paramId, deptId) {
     if (!deptId) return;
-    const product_id = prompt('شناسه کالای خروجی (product_id):', '');
-    const quantity = prompt('مقدار:', '1');
-    if (!product_id || quantity === null) return;
+    if (!CACHE.products?.length && typeof ensureProductsCache === 'function') {
+      try { await ensureProductsCache(); } catch (_) {}
+    }
+    if (!CACHE.products?.length) {
+      try { CACHE.products = await api('GET', '/products') || []; } catch (_) { CACHE.products = []; }
+    }
+    const list = (CACHE.products || CACHE.allProducts || []).slice(0, 500);
+    openModal(`
+      <div class="modal-head"><h3>🔄 تبدیل کالا</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-body"><div class="form-grid">
+        <div class="fg full"><label>کالای خروجی *</label><select id="cv-prod"><option value="">— انتخاب —</option>
+          ${list.map(p => `<option value="${p.id}">${esc(p.name)}${p.code ? ' (' + esc(p.code) + ')' : ''}</option>`).join('')}
+        </select></div>
+        <div class="fg"><label>مقدار *</label><input id="cv-qty" type="number" step="0.001" min="0.001" value="1"></div>
+      </div></div>
+      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDeptConvert(${paramId},${deptId})">💾 ثبت تبدیل</button>
+        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  }
+  async function saveDeptConvert(paramId, deptId) {
+    const product_id = +el('cv-prod')?.value;
+    const quantity = +el('cv-qty')?.value;
+    if (!product_id || !quantity) { showToast('کالا و مقدار الزامی است', 'error'); return; }
     try {
-      await api('POST', `/portal/parameters/${paramId}/dept/${deptId}/convert`, {
-        product_id: +product_id, quantity: +quantity,
-      });
-      showToast('تبدیل انجام شد'); loadAccTab('portal-my-dept');
+      await api('POST', `/portal/parameters/${paramId}/dept/${deptId}/convert`, { product_id, quantity });
+      closeModal(); showToast('تبدیل انجام شد'); loadAccTab('portal-my-dept');
     } catch (e) {}
   }
 
@@ -682,14 +778,22 @@
     saveParameter,
     showParamDetail,
     deptConfirm,
+    saveDeptConfirm,
     deptReview,
     deptPayment,
+    saveDeptPayment,
     deptApprovePayment,
     deptConvert,
+    saveDeptConvert,
     deptComplete,
     finalOutput,
+    addFinalCostRow,
+    renderFinalCostRows,
+    saveFinalOutput,
     addDeptCapability,
+    saveDeptCapability,
     addDeptTask,
+    saveDeptTask,
     showBankRecon,
     openBankReconModal,
     saveBankRecon,
