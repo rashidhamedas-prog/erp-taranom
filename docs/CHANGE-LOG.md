@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (در حال آماده‌سازی — پچ سرعت/فاکتور/پورتال/انبارگردانی) |
+| آخرین commit | `147efa2` — boot/invoice/stocktaking/portal v2 |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v54` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ نیاز به pull روی ایران پس از commit |
+| وضعیت سرور | ⏳ نیاز به pull روی ایران |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
@@ -44,7 +44,7 @@
 
 ### 2026-07-21 — سرعت بارگذاری + فاکتور/تخفیف + انبارگردانی سه‌شمارش + پورتال v2 + دریافت بانکی
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit پر می‌شود)
+- **Commit:** `147efa2`
 - **خلاصه:** بارگذاری اولیه lazy؛ توضیحات ردیف در چاپ فاکتور؛ تخفیف ٪↔مبلغ دوطرفه (ردیف+کل) و جمع تخفیف ردیف‌ها؛ انبارگردانی ۳ شمارش+تگ؛ دریافت با واریز بانکی؛ دسته هزینه سلسله‌مراتبی؛ سمت/جایگاه؛ پورتال (پرداخت در انتظار حسابداری، هزینه خروجی، امکانات/وظایف) + جداول سینک APPEND؛ نرخ ارز live از tgju
 - **فایل‌های کلیدی:** `server/public/index.html`, `sw.js`, `portal-ui.js`, `acc-nav.js`, `routes/invoices.js`, `purchases.js`, `accounting.js`, `portal.js`, `lib/portal-schema.js`, `lib/fx-rate.js`, `sync/tables.js`
 - **Deploy:** ⏳ نیاز به pull
