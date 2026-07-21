@@ -5,6 +5,264 @@ const { j2g, todayJalali } = require('../jalali');
 const { acct } = require('../lib/coa-map');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 
+function parseQuarter(query) {
+  if (query.quarter) {
+    const m = String(query.quarter).match(/^(\d{4})-Q([1-4])$/i);
+    if (m) return { year: m[1], quarter: parseInt(m[2], 10) };
+  }
+  const year = query.year || query.fiscal_year;
+  const q = parseInt(query.q || query.quarter_num, 10);
+  if (year && q >= 1 && q <= 4) return { year: String(year), quarter: q };
+  return null;
+}
+
+function quarterDateRange(year, quarter) {
+  const startMonth = (quarter - 1) * 3 + 1;
+  const endMonth = startMonth + 2;
+  const pad = n => String(n).padStart(2, '0');
+  const endDay = endMonth <= 6 ? '31' : (endMonth === 12 ? '29' : '30');
+  return {
+    from: `${year}/${pad(startMonth)}/01`,
+    to: `${year}/${pad(endMonth)}/${endDay}`,
+    label: `${year}-Q${quarter}`,
+  };
+}
+
+function accountTypeMap(db) {
+  const rows = db.prepare('SELECT code, type FROM chart_of_accounts').all();
+  const map = {};
+  for (const r of rows) map[r.code] = r.type || '';
+  return map;
+}
+
+function classifyCashFlowCounterpart(code, typeMap) {
+  const type = typeMap[code] || '';
+  if (String(code).startsWith('12')) return 'investing';
+  if (type === 'liability' || type === 'equity') return 'financing';
+  return 'operating';
+}
+
+function buildCashFlowReport(db, from, to) {
+  const cashCode = acct(db, 'coa_cash_default').code;
+  const bankCode = acct(db, 'coa_bank_default').code;
+  const typeMap = accountTypeMap(db);
+  const dateWhere = [], dateParams = [];
+  if (from) { dateWhere.push('je.entry_date>=?'); dateParams.push(from); }
+  if (to) { dateWhere.push('je.entry_date<=?'); dateParams.push(to); }
+
+  const entries = db.prepare(`
+    SELECT je.id, je.entry_date, je.description
+    FROM journal_entries je
+    WHERE COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'approved')<>'reversed'
+      ${dateWhere.length ? 'AND ' + dateWhere.join(' AND ') : ''}
+      AND EXISTS (
+        SELECT 1 FROM journal_lines jl
+        WHERE jl.entry_id=je.id
+          AND (jl.account_code=? OR jl.account_code LIKE ? OR jl.account_code=? OR jl.account_code LIKE ?)
+      )
+  `).all(...dateParams, cashCode, cashCode + '-%', bankCode, bankCode + '-%');
+
+  const sections = {
+    operating: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
+    investing: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
+    financing: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
+  };
+
+  for (const entry of entries) {
+    const lines = db.prepare(`
+      SELECT account_code, account_name,
+        (${SQL_JL_DEBIT_RIAL}) debit_rial, (${SQL_JL_CREDIT_RIAL}) credit_rial
+      FROM journal_lines WHERE entry_id=?
+    `).all(entry.id);
+    const cashLines = lines.filter(l =>
+      l.account_code === cashCode || l.account_code === bankCode ||
+      l.account_code.startsWith(cashCode + '-') || l.account_code.startsWith(bankCode + '-')
+    );
+    const otherLines = lines.filter(l => !cashLines.includes(l));
+    const cashNet = cashLines.reduce((s, l) => s + (l.debit_rial || 0) - (l.credit_rial || 0), 0);
+    if (!cashNet) continue;
+
+    let section = 'operating';
+    if (otherLines.length) {
+      const counts = { operating: 0, investing: 0, financing: 0 };
+      for (const ol of otherLines) counts[classifyCashFlowCounterpart(ol.account_code, typeMap)]++;
+      section = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    }
+
+    const item = {
+      entry_id: entry.id, date: entry.entry_date, description: entry.description,
+      amount_rial: cashNet,
+    };
+    sections[section].lines.push(item);
+    if (cashNet > 0) sections[section].inflow_rial += cashNet;
+    else sections[section].outflow_rial += Math.abs(cashNet);
+    sections[section].net_rial += cashNet;
+  }
+
+  const totalNet = sections.operating.net_rial + sections.investing.net_rial + sections.financing.net_rial;
+  return { from: from || '', to: to || '', sections, total_net_rial: totalNet };
+}
+
+function buildVatReturnReport(db, query) {
+  const q = parseQuarter(query);
+  let from = query.from || '';
+  let to = query.to || '';
+  let label = '';
+  if (q) {
+    const range = quarterDateRange(q.year, q.quarter);
+    from = range.from;
+    to = range.to;
+    label = range.label;
+  }
+
+  const vatOutput = acct(db, 'coa_vat_payable').code;
+  const vatInput = acct(db, 'coa_vat_receivable').code;
+  const dateWhere = [], dateParams = [];
+  if (from) { dateWhere.push('je.entry_date>=?'); dateParams.push(from); }
+  if (to) { dateWhere.push('je.entry_date<=?'); dateParams.push(to); }
+
+  const outputLedger = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_CREDIT_RIAL} - ${SQL_JL_DEBIT_RIAL}), 0) v
+    FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
+    WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0
+      AND COALESCE(je.status,'approved')<>'reversed'
+      ${dateWhere.length ? 'AND ' + dateWhere.join(' AND ') : ''}
+  `).get(vatOutput, ...dateParams)?.v || 0;
+
+  const inputLedger = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) v
+    FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
+    WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0
+      AND COALESCE(je.status,'approved')<>'reversed'
+      ${dateWhere.length ? 'AND ' + dateWhere.join(' AND ') : ''}
+  `).get(vatInput, ...dateParams)?.v || 0;
+
+  const invWhere = ["type='final'"], invParams = [];
+  if (from) { invWhere.push('date>=?'); invParams.push(from); }
+  if (to) { invWhere.push('date<=?'); invParams.push(to); }
+  const salesVat = db.prepare(`
+    SELECT COALESCE(SUM(COALESCE(NULLIF(vat_amount_rial,0),ROUND(vat_amount),0)),0) v
+    FROM invoices WHERE ${invWhere.join(' AND ')}
+  `).get(...invParams)?.v || 0;
+
+  const purWhere = ['1=1'], purParams = [];
+  if (from) { purWhere.push('date>=?'); purParams.push(from); }
+  if (to) { purWhere.push('date<=?'); purParams.push(to); }
+  const purchaseVat = db.prepare(`
+    SELECT COALESCE(SUM(ROUND(vat_amount)),0) v FROM purchase_invoices WHERE ${purWhere.join(' AND ')}
+  `).get(...purParams)?.v || 0;
+
+  const outputVat = Math.max(outputLedger, salesVat);
+  const inputVat = Math.max(inputLedger, purchaseVat);
+  return {
+    quarter: label, from, to,
+    output_vat_rial: outputVat, input_vat_rial: inputVat,
+    net_payable_rial: outputVat - inputVat,
+    ledger_output_rial: outputLedger, ledger_input_rial: inputLedger,
+    invoice_output_rial: salesVat, invoice_input_rial: purchaseVat,
+  };
+}
+
+function buildSeasonal169Report(db, query) {
+  const q = parseQuarter(query);
+  if (!q) throw new Error('فصل نامعتبر — از quarter=1405-Q1 استفاده کنید');
+  const range = quarterDateRange(q.year, q.quarter);
+
+  const sales = db.prepare(`
+    SELECT i.num, i.date, COALESCE(NULLIF(i.final_rial,0),ROUND(i.final),0) amount_rial,
+           COALESCE(i.buyer_economic_code, c.economic_code, '') economic_code, c.biz party_name
+    FROM invoices i JOIN customers c ON c.id=i.cust_id
+    WHERE i.type='final' AND i.date>=? AND i.date<=?
+    ORDER BY i.date, i.id
+  `).all(range.from, range.to);
+
+  const purchases = db.prepare(`
+    SELECT p.num, p.date, ROUND(p.final) amount_rial,
+           COALESCE(s.economic_code, '') economic_code, s.name party_name
+    FROM purchase_invoices p JOIN suppliers s ON s.id=p.supplier_id
+    WHERE p.date>=? AND p.date<=?
+    ORDER BY p.date, p.id
+  `).all(range.from, range.to);
+
+  return {
+    quarter: range.label, from: range.from, to: range.to,
+    sales, purchases,
+    totals: {
+      sales_count: sales.length,
+      sales_rial: sales.reduce((s, r) => s + (r.amount_rial || 0), 0),
+      purchase_count: purchases.length,
+      purchase_rial: purchases.reduce((s, r) => s + (r.amount_rial || 0), 0),
+    },
+  };
+}
+
+function sumBalanceByPrefix(db, prefix) {
+  return db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) v
+    FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
+    WHERE jl.account_code LIKE ? AND COALESCE(je.deleted_at,0)=0
+      AND COALESCE(je.status,'approved')<>'reversed'
+  `).get(prefix + '%')?.v || 0;
+}
+
+function buildFinancialRatios(db) {
+  const currentAssets = sumBalanceByPrefix(db, '11');
+  const inventory = Math.max(0, sumBalanceByPrefix(db, acct(db, 'coa_inventory').code));
+  const currentLiabilities = Math.max(0, -sumBalanceByPrefix(db, '21'));
+  const totalAssets = Math.max(1, sumBalanceByPrefix(db, '1'));
+  const equity = Math.max(1, -sumBalanceByPrefix(db, '3'));
+  const netIncome = -sumBalanceByPrefix(db, '3');
+  const ar = Math.max(0, sumBalanceByPrefix(db, acct(db, 'coa_receivable').code));
+  const ap = Math.max(0, -sumBalanceByPrefix(db, acct(db, 'coa_payable').code));
+
+  const sales365 = db.prepare(`
+    SELECT COALESCE(SUM(COALESCE(NULLIF(final_rial,0),ROUND(final),0)),0) v
+    FROM invoices WHERE type='final' AND date>=?
+  `).get(todayJalali().slice(0, 4) + '/01/01')?.v || 0;
+  const cogs365 = Math.abs(sumBalanceByPrefix(db, acct(db, 'coa_cogs').code));
+  const purchases365 = db.prepare(`
+    SELECT COALESCE(SUM(ROUND(final)),0) v FROM purchase_invoices WHERE date>=?
+  `).get(todayJalali().slice(0, 4) + '/01/01')?.v || 0;
+
+  const dailySales = sales365 / 365;
+  const dailyCogs = cogs365 / 365;
+  const dailyPurchases = purchases365 / 365;
+
+  return {
+    current_ratio: currentLiabilities ? currentAssets / currentLiabilities : null,
+    quick_ratio: currentLiabilities ? (currentAssets - inventory) / currentLiabilities : null,
+    roa: netIncome / totalAssets,
+    roe: netIncome / equity,
+    dso_days: dailySales ? ar / dailySales : null,
+    dio_days: dailyCogs ? inventory / dailyCogs : null,
+    dpo_days: dailyPurchases ? ap / dailyPurchases : null,
+    components: { current_assets_rial: currentAssets, current_liabilities_rial: currentLiabilities, inventory_rial: inventory, ar_rial: ar, ap_rial: ap },
+  };
+}
+
+function buildKpiDashboard(db) {
+  const ratios = buildFinancialRatios(db);
+  const cashCycle = (ratios.dso_days || 0) + (ratios.dio_days || 0) - (ratios.dpo_days || 0);
+  const topCustomers = db.prepare(`
+    SELECT c.id, c.biz, COALESCE(SUM(COALESCE(NULLIF(i.final_rial,0),ROUND(i.final),0)),0) revenue_rial
+    FROM customers c JOIN invoices i ON i.cust_id=c.id AND i.type='final'
+    GROUP BY c.id ORDER BY revenue_rial DESC LIMIT 10
+  `).all();
+  const totalRevenue = topCustomers.reduce((s, r) => s + (r.revenue_rial || 0), 0) || 1;
+  return {
+    dso_days: ratios.dso_days,
+    dio_days: ratios.dio_days,
+    dpo_days: ratios.dpo_days,
+    cash_cycle_days: cashCycle,
+    top_customers: topCustomers.map(r => ({
+      ...r, concentration_pct: Math.round((r.revenue_rial / totalRevenue) * 10000) / 100,
+    })),
+    top3_concentration_pct: Math.round(
+      topCustomers.slice(0, 3).reduce((s, r) => s + r.revenue_rial, 0) / totalRevenue * 10000
+    ) / 100,
+  };
+}
+
 function daysSinceJalali(dateStr) {
   try {
     const [jy, jm, jd] = (dateStr || '').split('/').map(Number);
@@ -54,29 +312,7 @@ router.get('/aging', auth, adminOrAccounting, (req, res) => {
 
 router.get('/cash-flow', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const { from, to } = req.query;
-  const dateFilter = (col) => {
-    const where = [], params = [];
-    if (from) { where.push(`${col}>=?`); params.push(from); }
-    if (to) { where.push(`${col}<=?`); params.push(to); }
-    return { sql: where.length ? 'WHERE ' + where.join(' AND ') : '', params };
-  };
-  const settl = dateFilter('date');
-  const cashIn = db.prepare(`SELECT COALESCE(SUM(COALESCE(NULLIF(amount_rial,0),ROUND(amount),0)),0) s FROM settlements ${settl.sql}`).get(...settl.params).s;
-  const supPay = dateFilter('date');
-  const supplierOut = db.prepare(`SELECT COALESCE(SUM(ROUND(amount)),0) s FROM supplier_payments ${supPay.sql}`).get(...supPay.params).s;
-  const incPay = dateFilter('date');
-  const incentiveOut = db.prepare(`SELECT COALESCE(SUM(ROUND(amount)),0) s FROM incentive_payments ${incPay.sql}`).get(...incPay.params).s;
-  const expPay = dateFilter('date');
-  const expenseOut = db.prepare(`SELECT COALESCE(SUM(ROUND(amount)),0) s FROM expense_payments ${expPay.sql}`).get(...expPay.params).s;
-  const poWhere = dateFilter('date');
-  const purchaseCashOut = db.prepare(`SELECT COALESCE(SUM(ROUND(final)),0) s FROM purchase_invoices ${poWhere.sql}${poWhere.sql ? ' AND ' : ' WHERE '}pay_type<>'credit'`).get(...poWhere.params).s;
-  const totalOut = supplierOut + incentiveOut + expenseOut + purchaseCashOut;
-  res.json({
-    from: from || '', to: to || '',
-    cashIn, supplierOut, incentiveOut, expenseOut, purchaseCashOut,
-    totalOut, net: cashIn - totalOut
-  });
+  res.json(buildCashFlowReport(db, req.query.from, req.query.to));
 });
 
 function aggregateSalesByProduct(db, from, to) {
@@ -318,4 +554,30 @@ router.get('/cost-accounting', auth, adminOrAccounting, (req, res) => {
   res.json({ period, rows });
 });
 
+router.get('/vat-return', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildVatReturnReport(getDB(), req.query));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/seasonal-169', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildSeasonal169Report(getDB(), req.query));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/financial-ratios', auth, adminOrAccounting, (req, res) => {
+  res.json(buildFinancialRatios(getDB()));
+});
+
+router.get('/kpi-dashboard', auth, adminOrAccounting, (req, res) => {
+  res.json(buildKpiDashboard(getDB()));
+});
+
 module.exports = router;
+module.exports.buildVatReturnReport = buildVatReturnReport;
+module.exports.buildSeasonal169Report = buildSeasonal169Report;

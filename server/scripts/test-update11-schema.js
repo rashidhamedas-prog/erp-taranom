@@ -7,7 +7,11 @@ let f=0;const c=(ok,l)=>{if(ok)console.log('  OK',l);else{console.log(' FAIL',l)
 c(db.prepare('PRAGMA table_info(journal_lines)').all().some(x=>x.name==='tafsili2_code'),'tafsili2');
 c(db.prepare('PRAGMA table_info(warehouses)').all().some(x=>x.name==='allow_negative'),'allow_neg');
 const names=require('../sync/tables').SYNCABLE_TABLES.map(t=>t.name);
-c(names.slice(-4).join(',')==='currencies,exchange_rates,person_positions,pricing_rules','sync last4');
+const prIdx=names.indexOf('pricing_rules');
+c(prIdx>=0,'pricing_rules in sync');
+c(['currencies','exchange_rates','person_positions','pricing_rules'].every((n,i)=>names[prIdx-3+i]===n),'update11 block order');
+c(names[prIdx+1]==='op_units','portal follows pricing_rules');
+c(names.slice(-1)[0]==='budget_lines','sync ends budget_lines');
 const {acct}=require('../lib/coa-map');c(acct(db,'coa_fx_gain').code==='4206','fx');
 const {round3}=require('../lib/round3');c(round3(1.23456)===1.235,'round3');
 c(db.prepare('SELECT COUNT(*) c FROM product_categories WHERE is_shared=0').get().c===0,'shared');

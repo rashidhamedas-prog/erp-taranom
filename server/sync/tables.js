@@ -118,6 +118,27 @@ const SYNCABLE_TABLES = [
   { name: 'exchange_rates',                    upsertKey: 'id' },
   { name: 'person_positions',                  upsertKey: 'id' },
   { name: 'pricing_rules',                     upsertKey: 'id' },
+
+  // ===== Portal karmandan (APPEND-ONLY) =====
+  { name: 'op_units',                          upsertKey: 'id' },
+  { name: 'op_unit_warehouses',                upsertKey: 'id' },
+  { name: 'op_unit_persons',                   upsertKey: 'id' },
+  { name: 'op_departments',                    upsertKey: 'id' },
+  { name: 'op_parameters',                     upsertKey: 'id' },
+  { name: 'op_parameter_items',                upsertKey: 'id' },
+  { name: 'op_parameter_dept_log',             upsertKey: 'id' },
+
+  // ===== Accounting gap — reserves / recon / budget (APPEND-ONLY) =====
+  { name: 'bank_reconciliations',              upsertKey: 'id' },
+  { name: 'bank_reconciliation_items',         upsertKey: 'id' },
+  { name: 'doubtful_debt_provisions',          upsertKey: 'id' },
+  { name: 'inventory_nrv_provisions',          upsertKey: 'id' },
+  { name: 'inventory_nrv_lines',               upsertKey: 'id' },
+  { name: 'legal_reserve_entries',             upsertKey: 'id' },
+  { name: 'payroll_labor_settings',            upsertKey: 'id' },
+  { name: 'payroll_monthly_accruals',          upsertKey: 'id' },
+  { name: 'budgets',                           upsertKey: 'id' },
+  { name: 'budget_lines',                      upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -217,6 +238,21 @@ const FK_COLUMNS = [
   // Update 11 FKs (append-only)
   ['persons', 'position_id'],
   ['pricing_rules', 'scope_id'],
+  // Portal FKs (append-only)
+  ['op_units', 'manager_person_id'], ['op_units', 'manager2_person_id'], ['op_units', 'manager3_person_id'],
+  ['op_unit_warehouses', 'unit_id'], ['op_unit_warehouses', 'warehouse_id'],
+  ['op_unit_persons', 'unit_id'], ['op_unit_persons', 'person_id'],
+  ['op_departments', 'unit_id'], ['op_departments', 'manager_person_id'], ['op_departments', 'warehouse_id'],
+  ['op_parameters', 'unit_id'], ['op_parameters', 'current_department_id'], ['op_parameters', 'destination_warehouse_id'],
+  ['op_parameter_items', 'parameter_id'], ['op_parameter_items', 'product_id'],
+  ['op_parameter_dept_log', 'parameter_id'], ['op_parameter_dept_log', 'department_id'],
+  ['op_parameter_dept_log', 'payment_person_id'], ['op_parameter_dept_log', 'converted_product_id'],
+  // Gap accounting FKs (append-only)
+  ['bank_reconciliations', 'bank_id'],
+  ['bank_reconciliation_items', 'reconciliation_id'],
+  ['inventory_nrv_lines', 'provision_id'], ['inventory_nrv_lines', 'product_id'],
+  ['budget_lines', 'budget_id'],
+  ['payroll_monthly_accruals', 'person_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

@@ -141,4 +141,20 @@ router.post('/:id/unlock', auth, adminOnly, centralOnly, (req, res) => {
   res.json({ success: true, data: { id: fy.id, status: 'open' } });
 });
 
+router.post('/legal-reserve', auth, adminOnly, centralOnly, (req, res) => {
+  try {
+    const { postLegalReserve } = require('./reserves');
+    const db = getDB();
+    const open = currentFiscalYear(db);
+    const result = postLegalReserve(db, req.user.id, {
+      ...req.body,
+      fiscal_year_id: req.body.fiscal_year_id || open?.id || null,
+    });
+    audit(req.user.id, 'legal_reserve', 'fiscal_year', result.id, `${result.reserve_rial} ریال`);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 module.exports = router;

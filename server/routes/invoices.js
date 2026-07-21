@@ -359,7 +359,8 @@ router.get('/:id', auth, (req, res) => {
 
 router.post('/', auth, (req, res) => {
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info,
-    bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id } = req.body;
+    bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
+    moadian_invoice_type } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
   let built;
@@ -403,8 +404,8 @@ router.post('/', auth, (req, res) => {
       const result = db.prepare(
         `INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,subtotal_rial,final_rial,vat_amount_rial,
           seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted,sales_channel,lead_source,campaign,
-          bank_id,cash_box_id,check_category_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          bank_id,cash_box_id,check_category_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id,moadian_invoice_type)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).run(req.user.id, cust_id, num, invType, entryDate, note || '',
             JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate,
             Math.round(subtotal), Math.round(final), Math.round(vatAmount),
@@ -412,7 +413,8 @@ router.post('/', auth, (req, res) => {
             pType, cheque_duration || '', cheque_due_date || '', cheque_info || '',
             stockDeducted, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '',
             bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
-            allocMethod, vat_exempt ? 1 : 0, ccId);
+            allocMethod, vat_exempt ? 1 : 0, ccId,
+            parseInt(moadian_invoice_type, 10) || 1);
       const invId = result.lastInsertRowid;
 
       if (invType === 'final') {
@@ -480,7 +482,8 @@ router.put('/:id', auth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info, sales_channel, lead_source, campaign,
-    bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id } = req.body;
+    bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
+    moadian_invoice_type } = req.body;
   if (row.type === 'final') {
     return res.status(409).json({ error: 'فاکتور رسمی ثبت حسابداری شده است؛ برای اصلاح، آن را ابطال و فاکتور جدید ثبت کنید' });
   }
@@ -513,16 +516,19 @@ router.put('/:id', auth, (req, res) => {
         if (stockErr) throw new Error(stockErr);
         stockDeducted = 1;
       }
+      const moadianType = moadian_invoice_type != null && moadian_invoice_type !== ''
+        ? (parseInt(moadian_invoice_type, 10) || 1)
+        : (row.moadian_invoice_type != null ? row.moadian_invoice_type : 1);
       db.prepare(`UPDATE invoices SET cust_id=?,type=?,date=?,note=?,rows=?,subtotal=?,disc=?,disc_amt=?,final=?,vat_amount=?,vat_rate=?,
         subtotal_rial=?,final_rial=?,vat_amount_rial=?,pay_type=?,cheque_duration=?,cheque_due_date=?,cheque_info=?,stock_deducted=?,
-        sales_channel=?,lead_source=?,campaign=?,bank_id=?,cash_box_id=?,check_category_id=?,warehouse_id=?,freight_amount=?,freight_type=?,freight_alloc_method=?,vat_exempt=?,cost_center_id=?
+        sales_channel=?,lead_source=?,campaign=?,bank_id=?,cash_box_id=?,check_category_id=?,warehouse_id=?,freight_amount=?,freight_type=?,freight_alloc_method=?,vat_exempt=?,cost_center_id=?,moadian_invoice_type=?
         WHERE id=?`)
         .run(cust_id, newType, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
              vatAmount, vatRate, Math.round(subtotal), Math.round(final), Math.round(vatAmount),
              pay_type || row.pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
              stockDeducted, resolveSalesChannel(req), lead_source || '', campaign || '',
              bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
-             allocMethod, vat_exempt ? 1 : 0, ccId, req.params.id);
+             allocMethod, vat_exempt ? 1 : 0, ccId, moadianType, req.params.id);
     })();
   } catch (e) {
     return res.status(400).json({ error: e.message });

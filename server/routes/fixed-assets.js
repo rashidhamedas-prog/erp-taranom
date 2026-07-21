@@ -4,6 +4,8 @@ const { auth, adminOrAccounting, adminOnly } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { acct } = require('../lib/coa-map');
 const { postToLedger } = require('../lib/ledger');
+const { rialToLedger } = require('../lib/money');
+const { resolveCashAccount } = require('../db');
 
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
@@ -54,7 +56,14 @@ router.post('/run-depreciation', auth, adminOnly, (req, res) => {
     for (const a of assets) {
       const months = a.useful_life_months || 60;
       const depreciable = Math.max(0, a.cost_rial - (a.salvage_rial || 0));
-      const monthly = Math.round(depreciable / months);
+      let monthly;
+      if (a.depreciation_method === 'declining') {
+        const bookVal = Math.max(0, a.cost_rial - (a.accumulated_depreciation_rial || 0));
+        const rate = (Number(a.declining_rate_pct) || 25) / 100;
+        monthly = Math.round(bookVal * rate / 12);
+      } else {
+        monthly = Math.round(depreciable / months);
+      }
       if (monthly <= 0) continue;
       const remaining = depreciable - (a.accumulated_depreciation_rial || 0);
       const amt = Math.min(monthly, remaining);
@@ -80,6 +89,112 @@ router.post('/run-depreciation', auth, adminOnly, (req, res) => {
 
   audit(req.user.id, 'depreciation_run', 'fixed_assets', null, `${period}: ${totalDep} ریال`);
   res.json({ success: true, data: { period, total_depreciation_rial: totalDep, asset_count: assets.length } });
+});
+
+router.post('/:id/dispose', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const asset = db.prepare("SELECT * FROM fixed_assets WHERE id=? AND status='active'").get(req.params.id);
+    if (!asset) return res.status(404).json({ error: 'دارایی فعال یافت نشد' });
+
+    const proceedsRial = Math.round(Number(req.body.proceeds_rial) || 0);
+    const disposeDate = req.body.date || todayJalali();
+    const bookValue = Math.max(0, asset.cost_rial - (asset.accumulated_depreciation_rial || 0));
+    const gainLoss = proceedsRial - bookValue;
+
+    const assetAcct = acct(db, 'coa_fixed_assets');
+    const accumAcct = acct(db, 'coa_accumulated_depreciation');
+    const cashAcct = resolveCashAccount(db, req.body.pay_type || 'cash', req.body.bank_id, req.body.cash_box_id);
+    const gainAcct = acct(db, 'coa_asset_disposal_gain');
+    const lossAcct = acct(db, 'coa_asset_disposal_loss');
+
+    const jeId = db.transaction(() => {
+      const lines = [];
+      if (asset.accumulated_depreciation_rial > 0) {
+        lines.push({
+          code: accumAcct.code, name: accumAcct.name,
+          debit: rialToLedger(asset.accumulated_depreciation_rial), credit: 0,
+          debit_rial: asset.accumulated_depreciation_rial,
+        });
+      }
+      if (proceedsRial > 0) {
+        lines.push({
+          code: cashAcct.code, name: cashAcct.name,
+          debit: rialToLedger(proceedsRial), credit: 0, debit_rial: proceedsRial,
+        });
+      }
+      if (gainLoss > 0) {
+        lines.push({
+          code: gainAcct.code, name: gainAcct.name,
+          debit: 0, credit: rialToLedger(gainLoss), credit_rial: gainLoss,
+        });
+      } else if (gainLoss < 0) {
+        lines.push({
+          code: lossAcct.code, name: lossAcct.name,
+          debit: rialToLedger(Math.abs(gainLoss)), credit: 0, debit_rial: Math.abs(gainLoss),
+        });
+      }
+      lines.push({
+        code: asset.coa_asset_code || assetAcct.code, name: assetAcct.name,
+        debit: 0, credit: rialToLedger(asset.cost_rial), credit_rial: asset.cost_rial,
+      });
+
+      const id = postToLedger(db, {
+        sourceType: 'fixed_asset_dispose', sourceId: asset.id, date: disposeDate,
+        description: `واگذاری دارایی ${asset.code} — ${asset.name}`,
+        createdBy: req.user.id, lines,
+      });
+      db.prepare(`
+        UPDATE fixed_assets SET status='disposed', disposed_at=strftime('%s','now'),
+          dispose_je_id=?, dispose_proceeds_rial=? WHERE id=?
+      `).run(id, proceedsRial, asset.id);
+      return id;
+    })();
+
+    audit(req.user.id, 'dispose', 'fixed_asset', asset.id, `واگذاری ${asset.code}`);
+    res.json({ ok: true, journal_entry_id: jeId, gain_loss_rial: gainLoss, book_value_rial: bookValue });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post('/:id/revalue', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const asset = db.prepare("SELECT * FROM fixed_assets WHERE id=? AND status='active'").get(req.params.id);
+    if (!asset) return res.status(404).json({ error: 'دارایی فعال یافت نشد' });
+
+    const newCost = Math.round(Number(req.body.new_cost_rial) || 0);
+    if (newCost <= 0) throw new Error('بهای جدید نامعتبر است');
+
+    const bookValue = Math.max(0, asset.cost_rial - (asset.accumulated_depreciation_rial || 0));
+    const surplus = Math.max(0, newCost - bookValue);
+    const revalueDate = req.body.date || todayJalali();
+
+    db.transaction(() => {
+      if (surplus > 0) {
+        const assetAcct = acct(db, 'coa_fixed_assets');
+        const surplusAcct = acct(db, 'coa_revaluation_surplus');
+        postToLedger(db, {
+          sourceType: 'fixed_asset_revalue', sourceId: asset.id, date: revalueDate,
+          description: `تجدید ارزیابی ${asset.code}`,
+          createdBy: req.user.id,
+          lines: [
+            { code: assetAcct.code, name: assetAcct.name, debit: rialToLedger(surplus), credit: 0, debit_rial: surplus },
+            { code: surplusAcct.code, name: surplusAcct.name, debit: 0, credit: rialToLedger(surplus), credit_rial: surplus },
+          ],
+        });
+      }
+      db.prepare(`
+        UPDATE fixed_assets SET cost_rial=?, revaluation_surplus_rial=revaluation_surplus_rial+? WHERE id=?
+      `).run(newCost, surplus, asset.id);
+    })();
+
+    audit(req.user.id, 'revalue', 'fixed_asset', asset.id, `تجدید ارزیابی ${asset.code}`);
+    res.json({ ok: true, new_cost_rial: newCost, surplus_rial: surplus });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 module.exports = router;

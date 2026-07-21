@@ -759,6 +759,7 @@ table.tbl tr:hover td{background:var(--row-hover)}
 
 <script src="/barcode-input.js"></script>
 <script src="/acc-nav.js"></script>
+<script src="/portal-ui.js"></script>
 <script src="/mdi.js"></script>
 <script src="/tbl-enhance.js"></script>
 <script src="/prod-ui.js" defer></script>
@@ -1583,6 +1584,10 @@ const LU = (()=> {
     'acc-pos-devices':'card', 'acc-scale-settings':'scale', 'acc-company-profile':'building',
     'acc-settings':'settings', 'acc-backup':'archive', 'acc-fiscal-ops':'file',
     'acc-moadian':'radio', 'acc-incentive-plans':'target',
+    'acc-portal-units':'building', 'acc-portal-my-dept':'factory',
+    'acc-bank-recon':'landmark', 'acc-budgeting':'chart', 'acc-reserves':'landmark',
+    'acc-vat-return':'receipt', 'acc-seasonal-169':'clipboard', 'acc-cash-flow-std':'banknote',
+    'acc-kpi-dashboard':'trending',
   };
   const out = {};
   for (const [nav, key] of Object.entries(byNav)) out[nav] = w(d[key] || d.file);
@@ -1683,7 +1688,8 @@ const ACC_MODULE_MAP={
   'acc-payroll-tax':'module_payroll','acc-payroll-processing':'module_payroll',
   'acc-payroll-year-end':'module_payroll','acc-payroll-reports':'module_payroll',
   'acc-reps':'module_reps',
-  'acc-moadian':'module_moadian','acc-fixed-assets':'module_fixed_assets'
+  'acc-moadian':'module_moadian','acc-fixed-assets':'module_fixed_assets',
+  'acc-portal-units':'module_portal','acc-portal-my-dept':'module_portal'
 };
 function filterAccNavItem(it){
   if(it.id==='acc-production-access' && ME?.role!=='admin' && ME?.role!=='accounting') return false;
@@ -3445,6 +3451,13 @@ async function _openInvBuilder(id){
           <option value="">—</option><option value="buyer" ${inv&&inv.freight_type==='buyer'?'selected':''}>بر عهده خریدار</option>
           <option value="seller" ${inv&&inv.freight_type==='seller'?'selected':''}>بر عهده فروشنده</option></select></div>
         <div class="fg"><label><input type="checkbox" id="inv-vat-exempt" ${inv&&inv.vat_exempt?'checked':''} style="width:auto;margin-left:6px"> معاف از مالیات</label></div>
+        <div class="fg"><label>نوع صورتحساب مودیان</label>
+          <select id="inv-moadian-type">
+            <option value="1" ${!inv||Number(inv.moadian_invoice_type||1)===1?'selected':''}>نوع ۱ — B2B</option>
+            <option value="2" ${inv&&Number(inv.moadian_invoice_type)===2?'selected':''}>نوع ۲ — B2C</option>
+            <option value="3" ${inv&&Number(inv.moadian_invoice_type)===3?'selected':''}>نوع ۳ — پایانه</option>
+          </select>
+        </div>
         <div class="fg full"><label>توضیحات ${hlp('یادداشتی که روی فاکتور چاپ می‌شود. مثال: شرایط تحویل، زمان پرداخت، نکات خاص.')}</label><input id="inv-note" value="${esc(inv?inv.note:'')}"></div>
         <div class="fg"><label>نوع پرداخت ${hlp('نسیه: حساب باز مشتری — نقد/چک/واریز: ثبت در صندوق یا بانک')}</label><select id="inv-pay-type" onchange="toggleInvPayFields()">
           <option value="credit" ${inv&&inv.pay_type==='credit'?'selected':''}>نسیه (حساب باز)</option>
@@ -3642,6 +3655,7 @@ async function saveInvoice(id){
     freight_type:el('inv-freight-type')?.value||'',
     freight_alloc_method:el('inv-freight-alloc')?.value||'amount',
     vat_exempt:el('inv-vat-exempt')?.checked?1:0,
+    moadian_invoice_type:parseInt(el('inv-moadian-type')?.value||'1',10)||1,
     lead_source: el('inv-lead')?.value||'',
     campaign: el('inv-campaign')?.value||'',
     rows: invCart.map(r=>({
@@ -3915,6 +3929,7 @@ async function saveProduct(id){
     fd.append('product_type',el('p-product_type')?.value||'');
     fd.append('product_index',el('p-product_index')?.value||'');
     fd.append('tax_id',el('p-tax_id')?.value||'');
+    fd.append('tax_stuff_id',el('p-tax_stuff_id')?.value||'');
     fd.append('consumer_price',moneyVal('p-consumer_price'));
     fd.append('opening_price',moneyVal('p-opening_price'));
     fd.append('location',el('p-location')?.value||'');
@@ -5074,6 +5089,24 @@ async function loadAccTab(tab){
     await renderMoadianTab(body);
   } else if(tab==='fixed-assets'){
     await renderFixedAssetsTab(body);
+  } else if(tab==='portal-units'){
+    await renderPortalUnitsTab(body);
+  } else if(tab==='portal-my-dept'){
+    await renderPortalMyDeptTab(body);
+  } else if(tab==='bank-recon'){
+    await renderBankReconTab(body);
+  } else if(tab==='budgeting'){
+    await renderBudgetingTab(body);
+  } else if(tab==='reserves'){
+    await renderReservesTab(body);
+  } else if(tab==='vat-return'){
+    await renderVatReturnTab(body);
+  } else if(tab==='seasonal-169'){
+    await renderSeasonal169Tab(body);
+  } else if(tab==='cash-flow-std'){
+    await renderCashFlowStdTab(body);
+  } else if(tab==='kpi-dashboard'){
+    await renderKpiDashboardTab(body);
   } else if(tab==='cheques'){
     const statusFilter=el('chqStatus')?.value||'';
     const bankFilter=el('chqBank')?.value||'';
@@ -5160,7 +5193,11 @@ async function loadAccTab(tab){
         <td class="mono">${esc(r.sayadi||'-')}</td>
         <td>${esc(r.status||'-')}${r.status_note?`<br><span class="muted">${esc(r.status_note)}</span>`:''}</td>
         <td class="muted">${esc(r.note||'-')}</td>
-        <td><button class="btn sm ghost" onclick="editChequeRegisterStatus(${r.id},'${esc(r.status||'')}')">✏️ وضعیت</button></td>
+        <td style="white-space:nowrap">
+          <button class="btn sm ghost" onclick="editChequeRegisterStatus(${r.id},'${esc(r.status||'')}')">✏️ وضعیت</button>
+          ${r.direction==='in'&&(!r.lifecycle_status||r.lifecycle_status==='registered')?`<button class="btn sm" onclick="chequeSendToBank(${r.id})">🏦 واگذاری</button>`:''}
+          ${r.direction==='in'&&r.lifecycle_status==='in_collection'?`<button class="btn sm green" onclick="chequeClear(${r.id})">✅ وصول</button><button class="btn sm red" onclick="chequeBounce(${r.id})">↩️ برگشت</button>`:''}
+        </td>
       </tr>`).join('')||emptyRow(11)}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
         <td colspan="2">جمع (${fmt(rows.length)} چک)</td>
@@ -13201,6 +13238,7 @@ function productExtraFieldsHtml(p){
       <div class="fg"><label>نوع کالا</label><input id="p-product_type" value="${esc(p.product_type||'')}"></div>
       <div class="fg"><label>شاخص کالا</label><input id="p-product_index" value="${esc(p.product_index||'')}"></div>
       <div class="fg"><label>شناسه مالیاتی</label><input id="p-tax_id" value="${esc(p.tax_id||'')}"></div>
+      <div class="fg"><label>شناسه کالا/خدمت مودیان (tax_stuff_id)</label><input id="p-tax_stuff_id" dir="ltr" class="mono" value="${esc(p.tax_stuff_id||'')}"></div>
       <div class="fg"><label>فی مصرف‌کننده ${moneyColLabel()}</label><input id="p-consumer_price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.consumer_price)}"></div>
       <div class="fg"><label>فی اول دوره ${moneyColLabel()}</label><input id="p-opening_price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.opening_price)}"></div>
       <div class="fg"><label>مکان کالا</label><input id="p-location" value="${esc(p.location||'')}"></div>
@@ -13308,6 +13346,27 @@ async function editChequeRegisterStatus(id,current){
   try{
     await api('PATCH','/cheque-records/'+id+'/status',{status,status_note:note});
     showToast('وضعیت چک به‌روز شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
+async function chequeSendToBank(id){
+  const bank_id=prompt('شناسه بانک واگذاری (collection_bank_id — اختیاری):','')||null;
+  try{
+    await api('POST','/cheque-records/'+id+'/send-to-bank',{collection_bank_id:bank_id?+bank_id:null,date:todayJalali()});
+    showToast('چک به بانک واگذار شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
+async function chequeClear(id){
+  if(!confirm('وصول چک ثبت شود؟')) return;
+  try{
+    await api('POST','/cheque-records/'+id+'/clear',{date:todayJalali()});
+    showToast('وصول ثبت شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
+async function chequeBounce(id){
+  if(!confirm('برگشت چک ثبت شود؟')) return;
+  try{
+    await api('POST','/cheque-records/'+id+'/bounce',{date:todayJalali()});
+    showToast('برگشت ثبت شد'); loadAccTab('cheque-register');
   }catch(e){}
 }
 function entityCoaDisplay(row, legacyPrefix){
@@ -14372,7 +14431,31 @@ function renderAdminGuide(){
         <li>اگر دوربین در دسترس نباشد، کد را دستی وارد کنید</li>
         <li>جستجوی محصولات، بارکد را هم پوشش می‌دهد</li>
       </ul>
-      <div class="tip">ستون «بارکد» در ورود/خروج اکسل محصولات نیز پشتیبانی می‌شود.</div>`)
+      <div class="tip">ستون «بارکد» در ورود/خروج اکسل محصولات نیز پشتیبانی می‌شود.</div>`),
+    helpSec('🏭','پرتال عملیاتی (واحد / بخش)',`
+      <p>از <b>حسابداری → پرتال عملیاتی</b> واحدهای تولیدی و گردش «پارامتر» بین بخش‌ها مدیریت می‌شود.</p>
+      <ul>
+        <li><b>واحدهای عملیاتی</b>: تعریف واحد، مدیر، انبارهای متصل؛ ساخت پارامتر با اقلام کالا و خط زمانی رنگی وضعیت بخش‌ها (سبز=تکمیل، زرد=در جریان، خاکستری=در انتظار)</li>
+        <li><b>بخش من</b>: مدیر بخش پارامترهای در صف را می‌بیند — تأیید مقدار، بازبینی، پرداخت پرسنل، تبدیل کالا، اتمام بخش</li>
+        <li>هر انتقال بین بخش‌ها با حواله انبار و (در صورت نیاز) سند حسابداری ثبت می‌شود</li>
+      </ul>`),
+    helpSec('📊','گزارشات و تطبیق حسابداری (Gap)',`
+      <ul>
+        <li><b>اظهارنامه ارزش افزوده</b>: گزارش فصلی مالیات فروش/خرید و خالص قابل پرداخت</li>
+        <li><b>فصلی ماده ۱۶۹</b>: لیست فاکتورهای فروش و خرید فصل برای ارسال</li>
+        <li><b>صورت جریان وجوه نقد</b>: تفکیک عملیاتی / سرمایه‌گذاری / تأمین مالی از گردش صندوق و بانک</li>
+        <li><b>داشبورد KPI</b>: DSO، DIO، DPO، چرخه نقد و تمرکز فروش مشتریان</li>
+        <li><b>تطبیق بانک</b>: ثبت مانده صورت‌حساب، مقایسه با دفتر، بستن با سند تعدیل خودکار</li>
+        <li><b>بودجه‌بندی</b>: تعریف بودجه سالانه و گزارش انحراف بودجه/واقعی</li>
+        <li><b>اندوخته و ذخایر</b>: اندوخته قانونی، ذخیره مطالبات مشکوک‌الوصول، NRV موجودی، فهرست کالاهای راکد</li>
+      </ul>`),
+    helpSec('📒','چرخه عمر چک (دفتر چک)',`
+      <p>در <b>عملیات خاص → دفتر چک</b> برای چک‌های دریافتی:</p>
+      <ul>
+        <li><b>واگذاری به بانک</b>: از وضعیت ثبت‌شده — سند انتقال به «در جریان وصول»</li>
+        <li><b>وصول</b>: وقتی چک در «جریان وصول» است — بستانکار بانک</li>
+        <li><b>برگشت</b>: ثبت برگشت از بانک</li>
+      </ul>`)
   ].join('');
 }
 function renderSalesGuide(){

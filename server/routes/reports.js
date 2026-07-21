@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { getDB } = require('../db');
-const { auth, adminOnly } = require('../middleware/auth');
+const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
+const { buildVatReturnReport, buildSeasonal169Report } = require('./adv-reports');
 
 // Summary for a Jalali date range using final invoices as the revenue source.
 // from/to are optional Jalali date strings (e.g. 1403/04/01).
@@ -121,6 +122,22 @@ router.get('/debt', auth, adminOnly, (req, res) => {
   rows.forEach(r => { r.debt = r.total_invoiced - r.total_settled; });
   const totalDebt = rows.reduce((a, r) => a + r.debt, 0);
   res.json({ rows, totalDebt });
+});
+
+router.get('/vat-return', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildVatReturnReport(getDB(), req.query));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/seasonal-169', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildSeasonal169Report(getDB(), req.query));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 module.exports = router;

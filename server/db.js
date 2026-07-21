@@ -2032,6 +2032,8 @@ function initSyncSchema(db) {
   // Update 11 — decimals, FX, tafsili2, positions, pricing, warehouse flags, stocktake counts
   try {
     require('./lib/update11-schema').initUpdate11Schema(db);
+    require('./lib/gap-accounting-schema').initGapAccountingSchema(db);
+    require('./lib/portal-schema').initPortalSchema(db);
   } catch (e) {
     console.error('❌ update11 schema init failed:', e.message);
     throw e;

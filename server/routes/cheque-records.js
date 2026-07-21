@@ -111,4 +111,134 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 
+router.post('/:id/send-to-bank', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
+    if (row.lifecycle_status && row.lifecycle_status !== 'registered') {
+      throw new Error('وضعیت چرخه این چک اجازه ارسال به بانک را نمی‌دهد');
+    }
+    const amountRial = Math.round(Number(row.amount) || 0);
+    if (amountRial <= 0) throw new Error('مبلغ چک نامعتبر است');
+
+    const collection = acct(db, 'coa_cheques_in_collection');
+    const receivable = acct(db, 'coa_cheques_receivable');
+    const amt = amountRial / 10;
+    const bankId = req.body.collection_bank_id || null;
+
+    const jeId = db.transaction(() => {
+      const id = postToLedger(db, {
+        sourceType: 'cheque_send_to_bank', sourceId: row.id,
+        date: req.body.date || todayJalali(),
+        description: `واگذاری چک ${row.cheque_number || row.id} به بانک`,
+        createdBy: req.user.id,
+        lines: [
+          { code: collection.code, name: collection.name, debit: amt, credit: 0, debit_rial: amountRial },
+          { code: receivable.code, name: receivable.name, debit: 0, credit: amt, credit_rial: amountRial },
+        ],
+      });
+      db.prepare(`
+        UPDATE cheque_records SET lifecycle_status='in_collection', collection_bank_id=?, collection_je_id=?
+        WHERE id=?
+      `).run(bankId, id, row.id);
+      return id;
+    })();
+
+    audit(req.user.id, 'cheque_send_bank', 'cheque_record', row.id, row.cheque_number);
+    res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'in_collection' });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
+    if (row.lifecycle_status !== 'in_collection') throw new Error('چک باید در وضعیت «در جریان وصول» باشد');
+
+    const amountRial = Math.round(Number(row.amount) || 0);
+    const bank = acct(db, 'coa_bank_default');
+    const collection = acct(db, 'coa_cheques_in_collection');
+    const amt = amountRial / 10;
+    const bankId = req.body.bank_id || row.collection_bank_id;
+
+    const jeId = db.transaction(() => {
+      const cashLine = bankId
+        ? (() => {
+          const b = db.prepare('SELECT coa_code, name FROM banks WHERE id=?').get(bankId);
+          return { code: b?.coa_code || ('1102-' + bankId), name: b?.name || bank.name };
+        })()
+        : bank;
+
+      const id = postToLedger(db, {
+        sourceType: 'cheque_clear', sourceId: row.id,
+        date: req.body.date || todayJalali(),
+        description: `وصول چک ${row.cheque_number || row.id}`,
+        createdBy: req.user.id,
+        lines: [
+          { code: cashLine.code, name: cashLine.name, debit: amt, credit: 0, debit_rial: amountRial },
+          { code: collection.code, name: collection.name, debit: 0, credit: amt, credit_rial: amountRial },
+        ],
+      });
+      db.prepare(`
+        UPDATE cheque_records SET lifecycle_status='cleared', cleared_je_id=?, status='وصول‌شده'
+        WHERE id=?
+      `).run(id, row.id);
+      return id;
+    })();
+
+    audit(req.user.id, 'cheque_clear', 'cheque_record', row.id, row.cheque_number);
+    res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'cleared' });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
+    if (!['in_collection', 'cleared'].includes(row.lifecycle_status)) {
+      throw new Error('فقط چک‌های واگذارشده یا وصول‌شده قابل برگشت هستند');
+    }
+
+    const amountRial = Math.round(Number(row.amount) || 0);
+    const collection = acct(db, 'coa_cheques_in_collection');
+    const receivable = acct(db, 'coa_cheques_receivable');
+    const amt = amountRial / 10;
+
+    const jeId = db.transaction(() => {
+      const lines = row.lifecycle_status === 'in_collection'
+        ? [
+          { code: receivable.code, name: receivable.name, debit: amt, credit: 0, debit_rial: amountRial },
+          { code: collection.code, name: collection.name, debit: 0, credit: amt, credit_rial: amountRial },
+        ]
+        : [
+          { code: receivable.code, name: receivable.name, debit: amt, credit: 0, debit_rial: amountRial },
+          { code: acct(db, 'coa_bank_default').code, name: acct(db, 'coa_bank_default').name, debit: 0, credit: amt, credit_rial: amountRial },
+        ];
+      const id = postToLedger(db, {
+        sourceType: 'cheque_bounce', sourceId: row.id,
+        date: req.body.date || todayJalali(),
+        description: `برگشت چک ${row.cheque_number || row.id}`,
+        createdBy: req.user.id, lines,
+      });
+      db.prepare(`
+        UPDATE cheque_records SET lifecycle_status='bounced', bounced_je_id=?, status='برگشتی'
+        WHERE id=?
+      `).run(id, row.id);
+      return id;
+    })();
+
+    audit(req.user.id, 'cheque_bounce', 'cheque_record', row.id, row.cheque_number);
+    res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'bounced' });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 module.exports = router;

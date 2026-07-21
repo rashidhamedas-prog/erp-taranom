@@ -282,15 +282,15 @@ router.post('/quick', auth, adminOrAccounting, (req, res) => {
       INSERT INTO products (
         user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,warehouse_id,
         note,colors,pack_size,barcode,full_name,product_type,product_index,tax_id,consumer_price,
-        location,opening_price,sms_code
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        location,opening_price,sms_code,tax_stuff_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0,
       openingStock, parseInt(stock_alert, 10) || 5, unit || 'عدد', defaultWarehouse,
       note || '', Math.max(1, parseInt(colors, 10) || 1), Math.max(1, parseInt(pack_size, 10) || 1),
       String(barcode || '').trim() || null, full_name || '', product_type || '', product_index || '',
       tax_id || '', parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0,
-      sms_code || ''
+      sms_code || '', String(req.body.tax_stuff_id || '').trim() || null
     );
     if (defaultWarehouse) {
       db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
@@ -311,7 +311,7 @@ router.post('/', auth, adminOrAccounting, upload.single('image'), async (req, re
   const {
     category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors,
     pack_size, barcode, warehouse_id, full_name, product_type, product_index, tax_id,
-    consumer_price, location, opening_price, sms_code
+    consumer_price, location, opening_price, sms_code, tax_stuff_id
   } = req.body;
   if (!name) return res.status(400).json({ error: 'نام محصول الزامی است' });
   const db = getDB();
@@ -335,13 +335,14 @@ router.post('/', auth, adminOrAccounting, upload.single('image'), async (req, re
     `INSERT INTO products (
       user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,note,image,colors,
       pack_size,warehouse_id,barcode,full_name,product_type,product_index,tax_id,consumer_price,
-      location,opening_price,sms_code
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      location,opening_price,sms_code,tax_stuff_id
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, parseQty(stock),
         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
         parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null,
         (barcode || '').trim() || null, full_name || '', product_type || '', product_index || '', tax_id || '',
-        parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0, sms_code || '');
+        parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0, sms_code || '',
+        String(tax_stuff_id || '').trim() || null);
   // Seed the default warehouse's stock with the opening quantity so
   // warehouse_stock and products.stock start in agreement. Without this the
   // first official invoice seeds the row at 0 and decrements from 0, leaving
@@ -367,7 +368,7 @@ router.put('/:id', auth, adminOrAccounting, upload.single('image'), async (req, 
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
   const { category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, warehouse_id, barcode,
-    full_name, product_type, product_index, tax_id, consumer_price, location, opening_price, sms_code } = req.body;
+    full_name, product_type, product_index, tax_id, consumer_price, location, opening_price, sms_code, tax_stuff_id } = req.body;
   let catName = category || prod.category || '';
   let catId = category_id != null && category_id !== '' ? (parseInt(category_id) || null) : prod.category_id;
   if (catId) {
@@ -383,7 +384,7 @@ router.put('/:id', auth, adminOrAccounting, upload.single('image'), async (req, 
   }
   const whId = warehouse_id != null && warehouse_id !== '' ? (parseInt(warehouse_id) || null) : prod.warehouse_id;
   db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=?,
-    full_name=?,product_type=?,product_index=?,tax_id=?,consumer_price=?,location=?,opening_price=?,sms_code=? WHERE id=?`)
+    full_name=?,product_type=?,product_index=?,tax_id=?,consumer_price=?,location=?,opening_price=?,sms_code=?,tax_stuff_id=? WHERE id=?`)
     .run(catName, catId, code || '', name || prod.name, parseFloat(price) || 0,
          cost !== undefined ? (parseFloat(cost) || 0) : (prod.cost || 0), parseQty(stock),
          parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
@@ -393,7 +394,9 @@ router.put('/:id', auth, adminOrAccounting, upload.single('image'), async (req, 
          product_index ?? prod.product_index ?? '', tax_id ?? prod.tax_id ?? '',
          consumer_price !== undefined ? (parseFloat(consumer_price) || 0) : (prod.consumer_price || 0),
          location ?? prod.location ?? '', opening_price !== undefined ? (parseFloat(opening_price) || 0) : (prod.opening_price || 0),
-         sms_code ?? prod.sms_code ?? '', req.params.id);
+         sms_code ?? prod.sms_code ?? '',
+         tax_stuff_id !== undefined ? (String(tax_stuff_id || '').trim() || null) : (prod.tax_stuff_id || null),
+         req.params.id);
   if (req.body.retail_price !== undefined) {
     const rp = Math.round(parseFloat(req.body.retail_price) || 0);
     db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, req.params.id);

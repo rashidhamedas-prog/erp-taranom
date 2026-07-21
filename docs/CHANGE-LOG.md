@@ -32,9 +32,9 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `246e8a3` sync 2.0.19 · `426733c` اندروید · `82d6970` Update 11 |
+| آخرین commit | `43019e4` روی ایران + APK 2.0.19 محلی |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v52` |
-| اندروید | **`2.0.19`** (versionCode 21) — **توزیع محلی** · رفع همگام‌سازی ایران |
+| اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
 | وضعیت سرور | ✅ ایران `94.249.244.208` — PM2=`erp-taranom`، دامنه `https://erp.poshaktaranom.com` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
@@ -42,12 +42,24 @@
 
 ## تاریخچه
 
+### ۱۴۰۵/۰۴/۳۰ — [Cursor] اجرای کامل شکاف حسابداری + پرتال کارمندان (با سینک)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین کامیت)
+- **خلاصه:** اعمال دو دستور Desktop (`updte hesabdari.md` / `PORTALKARMANDANSPEC.md`) روی کد واقعی با الزام offline-sync:
+  - **پرتال:** جداول `op_*` + RBAC نقش‌های `unit_manager`/`department_manager` + `routes/portal.js` (واحد/بخش/پارامتر، قفل ترتیبی، انتقال انبار، پرداخت→سند، تبدیل→production_run) + UI `portal-ui.js` + ساخت خودکار کاربر (`ensurePersonUser` + `must_change_password`).
+  - **شکاف حسابداری فاز۱–۴:** فیلدهای مودیان (`moadian_invoice_type`, `tax_stuff_id`)، گزارش VAT فصلی و ماده ۱۶۹، جریان نقد سه‌بخشی، اندوخته قانونی / ذخیره م.م / NRV، مغایرت بانکی، چرخه چک (واگذاری/وصول/برگشت)، استهلاک نزولی + واگذاری دارایی، ذخیره ماهانه سنوات/عیدی، بودجه‌بندی + نسبت‌ها/KPI.
+  - **سینک:** جداول جدید فقط به **انتهای** `SYNCABLE_TABLES` + FK_COLUMNS + `capture.js` path map؛ پیکربندی واحد/بخش `centralOnly`.
+- **فایل‌های کلیدی:** `lib/portal-schema.js`, `lib/gap-accounting-schema.js`, `routes/portal.js`, `routes/bank-reconciliation.js`, `routes/budgeting.js`, `routes/reserves.js`, `sync/tables.js`, `sync/capture.js`, `coa-map.js`, `rbac.js`, `portal-ui.js`, `acc-nav.js`, `index.html`, `scripts/test-portal.js`, `scripts/test-accounting-gap.js`
+- **Deploy:** ❌ هنوز deploy نشده — نیاز به commit/push و pull سرور
+- **تست:** `test-portal` 22 · `test-accounting-gap` 18 · `test-update11-schema` · `test-sms` 22 · `test-sync` 33 — همه سبز
+- **یادداشت:** ارسال واقعی SDK مودیان هنوز آداپتر stub/قابل‌تعویض است (صف + انواع صورتحساب + فیلدها آماده). برای production قبل از pull از DB بکاپ بگیرید.
+
 ### ۱۴۰۵/۰۴/۳۰ — [Cursor] رفع همگام‌سازی اندروید↔سرور ایران (2.0.19)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `246e8a3`
 - **خلاصه:** علت اصلی روی اندروید: `network_security_config` فقط IP قدیمی آلمان (`45.90.98.99`) را برای HTTP مجاز می‌کرد و URL پیش‌فرض pairing همان بود — سرور فعلی ایران (`94.249.244.208` / `erp.poshaktaranom.com`) بلاک یا اشتباه بود. همچنین overflow شناسه موقت برای جداول Update 11 (ایندکس ≥100)، `sync_seq_backfill_v2` برای seedهای بی‌seq، و PATH/FK/id نرخ ارز برای capture.
 - **فایل‌های کلیدی:** `network_security_config.xml`, `sync/tables.js`, `sync/capture.js`, `db.js`, `fx-rate.js`, `index.html`, `build.gradle`
-- **Deploy:** ⏳ APK محلی ۲.۰.۱۹ + pull سرور مرکزی برای backfill v2
+- **Deploy:** ✅ سرور ایران `43019e4` (PM2 online، health 200) · ⏳ نصب APK محلی ۲.۰.۱۹ روی گوشی
 
 ### ۱۴۰۵/۰۴/۳۰ — [Cursor] اندروید 2.0.18 + لغو کامل import محک
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

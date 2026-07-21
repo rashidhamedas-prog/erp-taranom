@@ -59,6 +59,18 @@ const LEGACY = {
   coa_fx_gain:                { code: '4206', name: 'سود تسعیر ارز' },
   coa_fx_loss:                { code: '6109', name: 'زیان تسعیر ارز' },
   coa_other_income:           { code: '4201', name: 'سایر درآمدها' },
+  // Accounting gap (docs/ACCOUNTING-GAP-ANALYSIS.md) — APPEND keys only
+  coa_cheques_in_collection:  { code: '1116', name: 'اسناد در جریان وصول' },
+  coa_legal_reserve:          { code: '3103', name: 'اندوخته قانونی' },
+  coa_doubtful_debts:         { code: '2102', name: 'ذخیره مطالبات مشکوک‌الوصول' },
+  coa_doubtful_expense:       { code: '6112', name: 'هزینه مطالبات مشکوک‌الوصول' },
+  coa_inventory_writedown:    { code: '1117', name: 'ذخیره کاهش ارزش موجودی' },
+  coa_inventory_writedown_exp:{ code: '6113', name: 'هزینه کاهش ارزش موجودی' },
+  coa_revaluation_surplus:    { code: '3104', name: 'مازاد تجدید ارزیابی' },
+  coa_severance_payable:      { code: '2110', name: 'ذخیره مزایای پایان خدمت' },
+  coa_eidi_payable:           { code: '2111', name: 'ذخیره عیدی کارکنان' },
+  coa_asset_disposal_gain:    { code: '4201', name: 'سود واگذاری دارایی' },
+  coa_asset_disposal_loss:    { code: '6105', name: 'زیان واگذاری دارایی' },
 };
 
 let _cache = null, _cacheAt = 0;

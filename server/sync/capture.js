@@ -65,6 +65,14 @@ const PATH_TABLE_MAP = [
   ['/api/fx/currencies', 'currencies'],
   ['/api/person-positions', 'person_positions'],
   ['/api/pricing-rules', 'pricing_rules'],
+  // Portal karmandan + gap accounting (device ops)
+  ['/api/portal/parameters', 'op_parameters'],
+  ['/api/portal/units', 'op_units'],
+  ['/api/portal/departments', 'op_departments'],
+  ['/api/bank-reconciliation', 'bank_reconciliations'],
+  ['/api/budgeting', 'budgets'],
+  ['/api/reserves', 'legal_reserve_entries'],
+  ['/api/cheque-records', 'cheque_records'],
 ];
 
 function tableForPath(path) {

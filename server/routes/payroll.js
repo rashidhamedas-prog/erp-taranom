@@ -764,4 +764,141 @@ router.post('/monthly-batch', auth, adminOrAccounting, (req, res) => {
   res.json({ success: true, data: { period, created: results.length, results, errors } });
 });
 
+router.get('/labor-settings/:year', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const year = parseInt(req.params.year, 10);
+  const row = db.prepare('SELECT * FROM payroll_labor_settings WHERE year=?').get(year);
+  res.json(row || { year, min_wage_daily_rial: 0, housing_allowance_rial: 0, food_allowance_rial: 0 });
+});
+
+router.put('/labor-settings/:year', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const year = parseInt(req.params.year, 10);
+    if (!Number.isInteger(year)) throw new Error('سال نامعتبر است');
+    const b = req.body || {};
+    const money = k => Math.max(0, Math.round(Number(b[k]) || 0));
+    db.prepare(`
+      INSERT INTO payroll_labor_settings
+        (year, min_wage_daily_rial, housing_allowance_rial, food_allowance_rial, child_allowance_rial,
+         seniority_base_rial, insurance_cap_monthly_rial, overtime_factor, night_factor, friday_factor,
+         shift_factor, tax_exemption_rial)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(year) DO UPDATE SET
+        min_wage_daily_rial=excluded.min_wage_daily_rial,
+        housing_allowance_rial=excluded.housing_allowance_rial,
+        food_allowance_rial=excluded.food_allowance_rial,
+        child_allowance_rial=excluded.child_allowance_rial,
+        seniority_base_rial=excluded.seniority_base_rial,
+        insurance_cap_monthly_rial=excluded.insurance_cap_monthly_rial,
+        overtime_factor=excluded.overtime_factor, night_factor=excluded.night_factor,
+        friday_factor=excluded.friday_factor, shift_factor=excluded.shift_factor,
+        tax_exemption_rial=excluded.tax_exemption_rial
+    `).run(
+      year, money('min_wage_daily_rial'), money('housing_allowance_rial'), money('food_allowance_rial'),
+      money('child_allowance_rial'), money('seniority_base_rial'), money('insurance_cap_monthly_rial'),
+      Number(b.overtime_factor) || 1.4, Number(b.night_factor) || 1.35,
+      Number(b.friday_factor) || 1.4, Number(b.shift_factor) || 1.225, money('tax_exemption_rial')
+    );
+    audit(req.user.id, 'update', 'payroll_labor_settings', year, `تنظیمات کار ${year}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+function monthlyAccrualAmounts(db, personId, year, laborSettings) {
+  const structure = db.prepare(`
+    SELECT * FROM salary_structures WHERE person_id=? AND fiscal_year=? AND active=1
+  `).get(personId, year);
+  const person = db.prepare('SELECT * FROM persons WHERE id=?').get(personId);
+  let dailyWage = 0;
+  if (structure) {
+    if (structure.wage_basis === 'daily') dailyWage = structure.base_wage_rial;
+    else if (structure.wage_basis === 'hourly') dailyWage = Math.round(structure.base_wage_rial * 733 / 100);
+    else dailyWage = Math.round(structure.base_wage_rial / 30);
+  } else if (person?.monthly_salary_rial) {
+    dailyWage = Math.round(person.monthly_salary_rial / 30);
+  }
+  if (dailyWage <= 0) return null;
+
+  const minDaily = laborSettings?.min_wage_daily_rial || dailyWage;
+  const annualSeverance = Math.round(dailyWage * 30);
+  const annualEidi = Math.round(Math.min(dailyWage * 60, minDaily * 90));
+  return {
+    severance_rial: Math.round(annualSeverance / 12),
+    eidi_rial: Math.round(annualEidi / 12),
+  };
+}
+
+router.post('/accruals/monthly', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const periodLabel = req.body.period_label || todayJalali().slice(0, 7);
+    const year = parseInt(req.body.year, 10) || parseInt(String(periodLabel).slice(0, 4), 10);
+    const laborSettings = db.prepare('SELECT * FROM payroll_labor_settings WHERE year=?').get(year);
+
+    const employees = db.prepare(`
+      SELECT id, name FROM persons WHERE active=1
+        AND (monthly_salary_rial > 0 OR id IN (SELECT person_id FROM salary_structures WHERE fiscal_year=? AND active=1))
+    `).all(year);
+
+    const severanceExp = coaAcct(db, 'coa_severance_expense');
+    const eidiExp = coaAcct(db, 'coa_eidi_expense');
+    const severancePay = coaAcct(db, 'coa_severance_payable');
+    const eidiPay = coaAcct(db, 'coa_eidi_payable');
+
+    const records = db.transaction(() => {
+      const out = [];
+      let totalSeverance = 0;
+      let totalEidi = 0;
+      for (const emp of employees) {
+        const dup = db.prepare(`
+          SELECT id FROM payroll_monthly_accruals WHERE person_id=? AND period_label=?
+        `).get(emp.id, periodLabel);
+        if (dup) continue;
+
+        const amounts = monthlyAccrualAmounts(db, emp.id, year, laborSettings);
+        if (!amounts || (amounts.severance_rial <= 0 && amounts.eidi_rial <= 0)) continue;
+
+        totalSeverance += amounts.severance_rial;
+        totalEidi += amounts.eidi_rial;
+        out.push({ person_id: emp.id, person_name: emp.name, ...amounts });
+      }
+      if (!out.length) throw new Error('ردیفی برای ثبت تعهد ماهانه یافت نشد');
+
+      const lines = [];
+      if (totalSeverance > 0) {
+        lines.push({ ...severanceExp, debit: totalSeverance / 10, credit: 0, debit_rial: totalSeverance });
+        lines.push({ ...severancePay, debit: 0, credit: totalSeverance / 10, credit_rial: totalSeverance });
+      }
+      if (totalEidi > 0) {
+        lines.push({ ...eidiExp, debit: totalEidi / 10, credit: 0, debit_rial: totalEidi });
+        lines.push({ ...eidiPay, debit: 0, credit: totalEidi / 10, credit_rial: totalEidi });
+      }
+
+      const jeId = postToLedger(db, {
+        sourceType: 'payroll_monthly_accrual', sourceId: 0,
+        date: req.body.date || todayJalali(),
+        description: `تعهد ماهانه عیدی و سنوات — ${periodLabel}`,
+        createdBy: req.user.id, lines,
+      });
+
+      const ins = db.prepare(`
+        INSERT INTO payroll_monthly_accruals (period_label, person_id, severance_rial, eidi_rial, je_id, created_by)
+        VALUES (?,?,?,?,?,?)
+      `);
+      for (const row of out) {
+        ins.run(periodLabel, row.person_id, row.severance_rial, row.eidi_rial, jeId, req.user.id);
+      }
+      return { je_id: jeId, rows: out, total_severance_rial: totalSeverance, total_eidi_rial: totalEidi };
+    })();
+
+    audit(req.user.id, 'create', 'payroll_monthly_accrual', records.je_id, periodLabel);
+    res.json({ ok: true, period_label: periodLabel, ...records });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 module.exports = router;
