@@ -1,8 +1,8 @@
 {
-  "name": "crm-taranom-desktop",
-  "productName": "CRM Taranom",
-  "version": "1.0.11",
-  "description": "CRM Taranom - Offline Desktop (Windows) with central-server sync",
+  "name": "erp-taranom-desktop",
+  "productName": "ERP Taranom",
+  "version": "2.0.0",
+  "description": "ERP Taranom - Offline Desktop (Windows) with central-server sync",
   "main": "main.js",
   "author": "Taranom",
   "license": "UNLICENSED",
@@ -38,7 +38,7 @@
   },
   "build": {
     "appId": "ir.taranom.crm.desktop",
-    "productName": "CRM Taranom",
+    "productName": "ERP Taranom",
     "asar": false,
     "npmRebuild": true,
     "buildDependenciesFromSource": false,
@@ -61,7 +61,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "CRM Taranom",
+      "shortcutName": "ERP Taranom",
       "installerLanguages": ["en_US"],
       "unicode": true
     },

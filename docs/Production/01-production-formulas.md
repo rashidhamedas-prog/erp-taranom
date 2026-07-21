@@ -841,7 +841,7 @@ function versionUpBom(db, bomId, reason, userId) {
 # TASK: پیاده‌سازی ماژول ۱ — فرمول‌های تولید (BOM)
 
 ## زمینه
-مخزن: crm-taranom (Node.js + Express + better-sqlite3)
+مخزن: erp-taranom / crm-taranom (Node.js + Express + better-sqlite3)
 اسناد مرجع (بخوان قبل از شروع):
   - docs/Production/Production-Master-Architecture.md
   - docs/Production/database-schema.md

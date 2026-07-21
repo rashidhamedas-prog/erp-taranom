@@ -1,4 +1,4 @@
-# CRM ترنم — Demo, Security & Market Plan
+# ERP ترنم — Demo, Security & Market Plan
 
 ## Decision Log
 - Demo is standalone HTML (no server required), committed to repo root

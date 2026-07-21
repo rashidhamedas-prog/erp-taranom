@@ -149,7 +149,7 @@ router.post('/forgot', async (req, res) => {
     .run(user.id, codeHash, expires);
 
   const settings = getSMSSettings(db);
-  const text = `کد بازیابی رمز CRM ترنم: ${code}\nاعتبار: ۱۰ دقیقه`;
+  const text = `کد بازیابی رمز ERP ترنم: ${code}\nاعتبار: ۱۰ دقیقه`;
   const sms = await sendSMS(settings, phone, text);
   if (!sms.ok) {
     return res.status(503).json({ error: 'ارسال پیامک ممکن نشد. با مدیر سیستم تماس بگیرید یا رمز را از مدیر بخواهید.' });

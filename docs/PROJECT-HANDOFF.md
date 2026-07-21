@@ -1,4 +1,4 @@
-# CRM ترنم — سند تحویل کامل پروژه (Handoff)
+# ERP ترنم — سند تحویل کامل پروژه (Handoff)
 
 > این فایل تمام تصمیم‌ها، معماری و وضعیت فعلی پروژه را تا این لحظه ثبت می‌کند تا هر ابزار یا توسعه‌دهندهٔ بعدی (از جمله Cursor) بدون نیاز به بازخوانی کل تاریخچه، کامل در جریان باشد.
 > **این سند را قبل از هر تغییری بخوانید.**
@@ -17,7 +17,7 @@
 
 ## ۱) معرفی پروژه
 
-CRM ترنم یک سیستم **مدیریت مشتریان عمده + حسابداری کامل دوطرفه** برای یک تولیدی پوشاک زنانه («پوشاک ترنم»، مشهد) است. سه نسخه دارد که همه یک کد و یک رابط کاربری مشترک دارند:
+ERP ترنم یک سیستم **مدیریت مشتریان عمده + حسابداری کامل دوطرفه** برای یک تولیدی پوشاک زنانه («پوشاک ترنم»، مشهد) است. سه نسخه دارد که همه یک کد و یک رابط کاربری مشترک دارند:
 
 | نسخه | فناوری | حالت |
 |---|---|---|
@@ -90,7 +90,7 @@ cd server && npm install && JWT_SECRET=<secret> PORT=3000 node server.js
 
 # استقرار روی سرور تولید (PM2)
 cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssrpy \
-  && cd server && npm install && pm2 restart crm-taranom
+  && cd server && npm install && pm2 restart erp-taranom
 ```
 - ساخت ویندوز: `cd desktop && npm install && npm run dist:win` (جزئیات: `desktop/BUILD-WINDOWS.md`)
 - ساخت اندروید: `android/BUILD.md` (نیازمند Android Studio + NDK + AAR مربوط به nodejs-mobile)
@@ -125,7 +125,7 @@ cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssr
 
 - **تنها سرور production:** ایران `94.249.244.208`
 - SSH: کاربر `taranom`، کلید محلی (مثلاً `~/.ssh/id_ed25519_taranom`)، پورت پیش‌فرض `22`
-- مسیر برنامه: `/home/taranom/crm-taranom` · PM2: `crm-taranom`
+- مسیر برنامه: `/home/taranom/crm-taranom` · PM2: `erp-taranom`
 - **Deploy:** روی سرور `bash scripts/deploy-production.sh` (یا `git pull` + `pm2 restart`)
 - سرور آلمان (`45.90.98.99`) **از رده خارج و پاک‌سازی شد** — دیگر استفاده نشود.
 - رمزها و کلید SSH **هرگز در مخزن نباشند** — جداگانه نگه‌داری شوند.

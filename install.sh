@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 echo "========================================="
-echo "   CRM ترنم - نصب خودکار نسخه ۳"
+echo "   ERP ترنم - نصب خودکار نسخه ۳"
 echo "========================================="
 
 REPO="https://github.com/rashidhamedas-prog/crm-taranom.git"
@@ -9,6 +9,7 @@ APP_DIR="/root/crm-taranom"
 
 # 1. Stop old app if running
 echo "[1/6] متوقف کردن نسخه قدیمی..."
+pm2 delete erp-taranom 2>/dev/null || true
 pm2 delete crm-taranom 2>/dev/null || true
 
 # 2. Clone / update repo

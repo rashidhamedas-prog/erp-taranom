@@ -1,7 +1,7 @@
 {
-  "name": "CRM ترنم - سامانه مدیریت مشتریان",
-  "short_name": "ترنم",
-  "description": "سامانه مدیریت ارتباط با مشتریان پوشاک ترنم",
+  "name": "ERP ترنم - سامانه یکپارچه ERP",
+  "short_name": "ERP ترنم",
+  "description": "سامانه یکپارچه ERP پوشاک ترنم",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",

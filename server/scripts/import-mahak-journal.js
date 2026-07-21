@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Import the full Mahak accounting books into a fresh CRM Taranom database.
+// Import the full Mahak accounting books into a fresh ERP Taranom database.
 // docs/MAHAK-MIGRATION.md is the authoritative spec (owner-approved decisions).
 //
 //   node server/scripts/import-mahak-journal.js <coding.xlsx> <roznameh.xlsx> <target.db> [--force]
@@ -301,7 +301,7 @@ const failures = [];
 
 // ---------- report ----------
 const rep = [];
-rep.push('# گزارش ورود اسناد محک به CRM ترنم');
+rep.push('# گزارش ورود اسناد محک به ERP ترنم');
 rep.push(`- تاریخ اجرا: ${new Date().toISOString()}`);
 rep.push(`- سند: **${stats.entries}** | آرتیکل: **${stats.lines}** (شامل ${report.adjustments.length} خط تعدیل)`);
 rep.push(`- حساب تفصیلی: ${stats.tafCount} | محصول: ${stats.products} | مشتری: ${stats.customers} | تأمین‌کننده: ${stats.suppliers} | شخص: ${stats.persons}`);

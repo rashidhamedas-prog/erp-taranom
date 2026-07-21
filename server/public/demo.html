@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>CRM ترنم — دمو تعاملی</title>
+<title>ERP ترنم — دمو تعاملی</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -241,7 +241,7 @@ table.data-tbl tr:last-child td{border-bottom:none}
 <!-- ═══ SPLASH ══════════════════════════════════════════════ -->
 <div id="splash">
   <div class="splash-logo">👗</div>
-  <div class="splash-title">CRM ترنم</div>
+  <div class="splash-title">ERP ترنم</div>
   <div class="splash-sub">سیستم جامع مدیریت مشتریان و فروش عمده پوشاک<br>اختصاصی برای تولیدکنندگان و عمده‌فروشان پوشاک بانوان</div>
   <button class="splash-btn" onclick="startDemo()">▶ مشاهده دمو تعاملی</button>
   <div class="splash-features">
@@ -259,7 +259,7 @@ table.data-tbl tr:last-child td{border-bottom:none}
   <div class="demo-banner">🎯 حالت دمو — داده‌های نمونه<span>نسخه ۳.۰</span> پوشاک ترنم — مشهد</div>
   <div class="app-header">
     <div class="app-logo">👗</div>
-    <div class="app-name">CRM ترنم</div>
+    <div class="app-name">ERP ترنم</div>
     <div class="app-badge">دمو</div>
     <div class="header-spacer"></div>
     <div class="header-user">
@@ -323,7 +323,7 @@ const D = {
     {id:1,custId:1,cust:'بوتیک بهار',city:'مشهد',date:'1403/05/15',type:'تماس تلفنی',subject:'پیگیری سفارش مانتو لینن',priority:'high',status:'open',note:'درخواست ۲۰ عدد مانتو لینن بهاره'},
     {id:2,custId:2,cust:'فروشگاه نسیم',city:'تهران',date:'1403/05/18',type:'بازدید حضوری',subject:'معرفی محصولات پاییزه',priority:'mid',status:'open',note:'نمونه کاپشن ارسال شود'},
     {id:3,custId:3,cust:'عمده‌فروشی گلستان',city:'اصفهان',date:'1403/05/12',type:'پیام واتساپ',subject:'ارسال کاتالوگ جدید',priority:'low',status:'done',note:'کاتالوگ ارسال شد'},
-    {id:4,custId:4,cust:'بوتیک مروارید',city:'مشهد',date:'1403/05/20',type:'تماس تلفنی',subject:'وصول مطالبات',priority:'high',status:'open',note:'۵ میلیون تومان بدهکاری'},
+    {id:4,custId:4,cust:'بوتیک مروارید',city:'مشهد',date:'1403/05/20',type:'تماس تلفنی',subject:'وصول مطالبات',priority:'high',status:'open',note:'۵ میلیون ریال بدهکاری'},
     {id:5,custId:5,cust:'فروشگاه آفتاب',city:'تبریز',date:'1403/05/22',type:'ارسال ایمیل',subject:'پیشنهاد ویژه عمده',priority:'mid',status:'open',note:'تخفیف ۱۰٪ برای سفارش بالای ۵۰ عدد'},
     {id:6,custId:6,cust:'بوتیک سبز',city:'مشهد',date:'1403/05/10',type:'بازدید حضوری',subject:'بررسی نیاز فصل پاییز',priority:'mid',status:'open',note:''},
     {id:7,custId:7,cust:'عمده‌فروشی ستاره',city:'شیراز',date:'1403/05/25',type:'تماس تلفنی',subject:'تایید سفارش پالتو',priority:'high',status:'open',note:'۴۰ عدد پالتو زمستانی'},
@@ -331,7 +331,7 @@ const D = {
     {id:9,custId:9,cust:'فروشگاه سپید',city:'کرج',date:'1403/04/15',type:'تماس تلفنی',subject:'احیای ارتباط',priority:'low',status:'done',note:'پاسخ نداد'},
     {id:10,custId:10,cust:'بوتیک طلایی',city:'مشهد',date:'1403/05/30',type:'بازدید حضوری',subject:'نمایش کلکسیون جدید',priority:'mid',status:'open',note:''},
     {id:11,custId:11,cust:'پوشاک کاوه',city:'تهران',date:'1403/05/16',type:'پیام واتساپ',subject:'قیمت‌گذاری عمده شومیز',priority:'low',status:'open',note:''},
-    {id:12,custId:12,cust:'بوتیک الماس',city:'مشهد',date:'1403/05/19',type:'تماس تلفنی',subject:'وصول مطالبات — فوری',priority:'high',status:'open',note:'۱۲ میلیون تومان بدهکاری — پیگیری فوری'},
+    {id:12,custId:12,cust:'بوتیک الماس',city:'مشهد',date:'1403/05/19',type:'تماس تلفنی',subject:'وصول مطالبات — فوری',priority:'high',status:'open',note:'۱۲ میلیون ریال بدهکاری — پیگیری فوری'},
   ]
 };
 
@@ -451,7 +451,7 @@ function renderDash(){
     </div>
     <div class="charts-row">
       <div class="chart-card">
-        <div class="chart-title"><span class="dot" style="background:#7c3aed"></span>درآمد ماهانه (تومان)</div>
+        <div class="chart-title"><span class="dot" style="background:#7c3aed"></span>درآمد ماهانه (ریال)</div>
         <canvas id="cRevenue" height="200"></canvas>
       </div>
       <div class="chart-card">
@@ -495,7 +495,7 @@ function renderDash(){
     chartInstances.rev=new Chart(document.getElementById('cRevenue'),{
       type:'bar',
       data:{labels:monthNames,datasets:[{
-        label:'درآمد (تومان)',data:revValues,
+        label:'درآمد (ریال)',data:revValues,
         backgroundColor:'rgba(124,58,237,.75)',borderRadius:8,
         borderSkipped:false
       },{

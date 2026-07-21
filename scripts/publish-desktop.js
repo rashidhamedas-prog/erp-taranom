@@ -20,14 +20,17 @@ const githubRepo = githubArg
   ? githubArg.split('=')[1]
   : (process.env.GITHUB_REPO || 'rashidhamedas-prog/crm-taranom');
 const tag = `v${version}`;
-const exeName = `CRM-Taranom-Setup-${version}.exe`;
+const exeName = `ERP-Taranom-Setup-${version}.exe`;
 
 const distDir = path.join(ROOT, 'desktop', 'dist');
 const releasesDir = path.join(ROOT, 'server', 'public', 'releases');
 
 const candidates = [
+  `ERP Taranom Setup ${version}.exe`,
+  exeName,
+  // Legacy artifact names (pre-rebrand builds)
   `CRM Taranom Setup ${version}.exe`,
-  exeName
+  `CRM-Taranom-Setup-${version}.exe`
 ];
 
 let src = null;
@@ -78,12 +81,12 @@ console.log(`
      gh release create ${tag} \\
        "${src.replace(/\\/g, '/')}" \\
        "${path.join(releasesDir, 'latest.yml').replace(/\\/g, '/')}" \\
-       --repo ${githubRepo} --title "CRM Taranom Desktop ${version}"
+       --repo ${githubRepo} --title "ERP Taranom Desktop ${version}"
 
   2) فقط manifest + latest.yml را deploy کنید:
      git add server/public/releases/manifest.json server/public/releases/latest.yml
      git commit -m "chore: desktop ${version} metadata"
-     git push && ssh ... "git pull && pm2 restart crm-taranom"
+     git push && ssh ... "git pull && pm2 restart erp-taranom"
 
   جزئیات: docs/DESKTOP-UPDATE.md
 `);

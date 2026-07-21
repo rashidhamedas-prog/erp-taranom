@@ -1,8 +1,8 @@
 {
-  "name": "crm-taranom-android",
+  "name": "erp-taranom-android",
   "version": "2.0.0",
   "private": true,
-  "description": "CRM ترنم — بک‌اند داخلی اندروید (آفلاین + همگام‌سازی). وابستگی‌ها باید یک‌بار با NDK اندروید نصب/کراس‌کامپایل شوند — BUILD.md را ببینید.",
+  "description": "ERP ترنم — بک‌اند داخلی اندروید (آفلاین + همگام‌سازی). وابستگی‌ها باید یک‌بار با NDK اندروید نصب/کراس‌کامپایل شوند — BUILD.md را ببینید.",
   "main": "main.js",
   "dependencies": {
     "express": "^4.18.2",

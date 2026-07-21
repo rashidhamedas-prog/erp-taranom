@@ -1,4 +1,4 @@
-// CRM Taranom — Windows/desktop offline app.
+// ERP Taranom — Windows/desktop offline app.
 // Runs the SAME Express/SQLite backend as the central server, embedded in
 // Electron's main process with SYNC_ROLE=device: every operation works fully
 // offline against a local database in the user's profile directory, and the
@@ -174,7 +174,7 @@ async function createWindow() {
   try {
     port = await startEmbeddedServer();
   } catch (e) {
-    dialog.showErrorBox('CRM ترنم', 'خطا در راه‌اندازی سرور داخلی:\n' + e.message);
+    dialog.showErrorBox('ERP ترنم', 'خطا در راه‌اندازی سرور داخلی:\n' + e.message);
     app.quit();
     return;
   }
@@ -184,7 +184,7 @@ async function createWindow() {
     height: 860,
     minWidth: 900,
     minHeight: 600,
-    title: 'CRM Taranom',
+    title: 'ERP Taranom',
     icon: path.join(__dirname, 'build', 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
@@ -218,7 +218,7 @@ async function createWindow() {
       buttons: ['خیر', 'بله'],
       defaultId: 0,
       cancelId: 0,
-      title: 'CRM ترنم',
+      title: 'ERP ترنم',
       message: 'آیا مطمئن هستید که می‌خواهید از برنامه خارج شوید؟'
     }).then(({ response }) => {
       if (response === 1) {

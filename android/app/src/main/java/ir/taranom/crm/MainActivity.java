@@ -34,28 +34,27 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 
 /**
- * CRM Taranom — offline Android app.
+ * ERP Taranom — offline Android app.
  *
  * Boots an embedded Node.js runtime (nodejs-mobile) running the exact same
  * Express/SQLite backend as the central server, with SYNC_ROLE=device.
  */
 public class MainActivity extends Activity {
 
-    private static final String TAG = "CRMTaranom";
+    private static final String TAG = "ERPTaranom";
     private static final int LOCAL_PORT = 3210;
     private static final String LOCAL_URL = "http://127.0.0.1:" + LOCAL_PORT + "/";
-
-    static {
-        System.loadLibrary("native-lib");
-        System.loadLibrary("node");
-    }
 
     /** JNI bridge implemented in cpp/native-lib.cpp */
     public native Integer startNodeWithArguments(String[] arguments);
 
+    /** Re-dlopen libnode with RTLD_GLOBAL so better-sqlite3 can resolve V8 symbols. */
+    public native void promoteNodeSymbols();
+
     private WebView webView;
     private volatile boolean nodeLaunchRequested = false;
     private File dataDir;
+    private boolean nativeReady = false;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -88,7 +87,7 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 ws.setSafeBrowsingEnabled(false);
             }
-            ws.setUserAgentString(ws.getUserAgentString() + " CRMTaranomAndroid/" + BuildConfig.VERSION_NAME);
+            ws.setUserAgentString(ws.getUserAgentString() + " ERPTaranomAndroid/" + BuildConfig.VERSION_NAME);
 
             webView.setWebChromeClient(new WebChromeClient() {
                 @Override
@@ -130,6 +129,36 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             Log.e(TAG, "WebView init failed", e);
             showErrorPage("خطا در بارگذاری رابط برنامه", e.getMessage());
+            return;
+        }
+
+        // Load natives after WebView exists so UnsatisfiedLinkError shows our page
+        // instead of the system "Something went wrong" dialog (common on Android 15+
+        // 16KB-page devices when libnode is still 4KB-aligned).
+        try {
+            System.loadLibrary("c++_shared");
+            System.loadLibrary("node");
+            System.loadLibrary("native-lib");
+            // Must run after native-lib is mapped so JNI promoteNodeSymbols exists.
+            try {
+                promoteNodeSymbols();
+            } catch (UnsatisfiedLinkError e) {
+                Log.w(TAG, "promoteNodeSymbols unavailable", e);
+            }
+            try {
+                // Pre-map SQLite native module via APK jniLibs (pageSizeCompat applies).
+                // Requires libnode RTLD_GLOBAL or DT_NEEDED=libnode (see native-lib.cpp).
+                System.loadLibrary("better_sqlite3");
+            } catch (UnsatisfiedLinkError ignored) {
+                Log.w(TAG, "libbetter_sqlite3 not preloaded — Node will load from assets copy");
+            }
+            nativeReady = true;
+        } catch (UnsatisfiedLinkError e) {
+            Log.e(TAG, "Native library load failed", e);
+            showErrorPage("کتابخانهٔ داخلی بارگذاری نشد",
+                    (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())
+                            + "\n\nنسخهٔ ۲.۰.۱۳ به‌بعد را نصب کنید."
+                            + "\nاپ قبلی را حذف و APK جدید را دوباره نصب کنید.");
             return;
         }
 
@@ -175,6 +204,9 @@ public class MainActivity extends Activity {
     }
 
     private void launchNodeServer(File projectDir) {
+        if (!nativeReady) {
+            throw new IllegalStateException("native libraries not loaded");
+        }
         File mainJs = new File(projectDir, "main.js");
         if (!mainJs.isFile()) {
             throw new IllegalStateException("main.js missing");
@@ -189,14 +221,20 @@ public class MainActivity extends Activity {
         }
 
         Log.i(TAG, "Starting embedded Node server...");
+        final String nativeLibDir = getApplicationInfo().nativeLibraryDir;
         new Thread(() -> {
             try {
-                startNodeWithArguments(new String[]{
+                Integer code = startNodeWithArguments(new String[]{
                         "node",
                         mainJs.getAbsolutePath(),
                         dataDir.getAbsolutePath(),
-                        String.valueOf(LOCAL_PORT)
+                        String.valueOf(LOCAL_PORT),
+                        nativeLibDir != null ? nativeLibDir : ""
                 });
+                Log.w(TAG, "Node runtime returned code=" + code);
+                nodeLaunchRequested = false;
+                showErrorPage("سرور داخلی متوقف شد",
+                        "کد خروج: " + code + "\n\n" + readBootLogTail());
             } catch (Throwable t) {
                 Log.e(TAG, "Node runtime exited", t);
                 nodeLaunchRequested = false;
@@ -208,12 +246,12 @@ public class MainActivity extends Activity {
     }
 
     private void showSplash(String title, String detail) {
-        String safeTitle = htmlEscape(title != null ? title : "CRM ترنم");
+        String safeTitle = htmlEscape(title != null ? title : "ERP ترنم");
         String safeDetail = htmlEscape(detail != null ? detail : "");
         String html = "<html dir='rtl'><body style='display:flex;align-items:center;justify-content:center;height:96vh;margin:0;font-family:sans-serif;background:#0D1512;color:#E8F1EB'>"
                 + "<div style='text-align:center;max-width:90%;padding:16px'>"
                 + "<div style='font-size:52px'>🌿</div>"
-                + "<h2 style='margin:8px 0'>CRM ترنم</h2>"
+                + "<h2 style='margin:8px 0'>ERP ترنم</h2>"
                 + "<p style='color:#7F978A;line-height:1.9;font-size:15px'>" + safeTitle + "<br>" + safeDetail + "</p>"
                 + "</div></body></html>";
         runOnUiThread(() -> {
@@ -282,6 +320,25 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean serverFailed() {
+        File fail = new File(dataDir, "server.fail");
+        return fail.isFile() && fail.length() > 0;
+    }
+
+    private String readFailMessage() {
+        try {
+            File fail = new File(dataDir, "server.fail");
+            if (!fail.isFile()) return "";
+            byte[] buf = new byte[(int) Math.min(fail.length(), 4000)];
+            try (FileInputStream in = new FileInputStream(fail)) {
+                int n = in.read(buf);
+                return n > 0 ? new String(buf, 0, n, StandardCharsets.UTF_8) : "";
+            }
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     private void loadWhenReady() {
         new Thread(() -> {
             for (int i = 0; i < 600; i++) {
@@ -289,6 +346,11 @@ public class MainActivity extends Activity {
                     runOnUiThread(() -> {
                         if (webView != null) webView.loadUrl(LOCAL_URL);
                     });
+                    return;
+                }
+                if (serverFailed()) {
+                    showErrorPage("خطا در راه‌اندازی سرور داخلی",
+                            readFailMessage() + "\n\n" + readBootLogTail());
                     return;
                 }
                 if (i > 0 && i % 15 == 0) {

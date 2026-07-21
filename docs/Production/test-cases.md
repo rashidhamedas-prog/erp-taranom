@@ -670,7 +670,7 @@ git pull
 npm ci
 npm run test:production          # همه سبز؟
 node scripts/test-production-health.js   # روی DB واقعی
-pm2 restart crm-taranom
+pm2 restart erp-taranom
 ```
 
 ---

@@ -10,7 +10,7 @@ try {
 
 module.exports = {
   apps: [{
-    name: 'crm-taranom',
+    name: 'erp-taranom',
     script: 'server.js',
     cwd: __dirname,
     exec_mode: 'fork', // cluster + Express listen() → EADDRINUSE on port 3000
@@ -21,6 +21,7 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: 3000,
+      PUBLIC_URL: process.env.PUBLIC_URL || 'https://erp.poshaktaranom.com',
       JWT_SECRET
     }
   }]

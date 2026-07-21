@@ -1,4 +1,4 @@
-# لاگ تغییرات اعمال‌شده — CRM ترنم
+# لاگ تغییرات اعمال‌شده — ERP ترنم
 
 این فایل تاریخچهٔ تغییراتی را که در Cursor / Claude Code اعمال شده نگه می‌دارد.
 **قبل از شروع کار جدید، این فایل را بخوانید** تا بدانید چه چیزهایی قبلاً انجام شده است.
@@ -27,20 +27,59 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۲۹)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۳۰)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `be64a0d` (`c264da4` حذف گروهی) |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `v48` |
-| اندروید | **`2.0.10`** (versionCode 12) — **توزیع محلی فقط** |
-| وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`be64a0d`، health ۲۰۰، SW `v48` |
+| آخرین commit | (در حال ثبت — ریبرند + ویژگی‌های ادمین) |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v50` |
+| اندروید | **`2.0.13`** (versionCode 15) — **توزیع محلی فقط** |
+| وضعیت سرور | ✅ ایران `94.249.244.208` — PM2=`erp-taranom`، دامنه `https://erp.poshaktaranom.com` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۵/۰۴/۳۰ — [Cursor] ریبرند محصول به ERP ترنم (erp-taranom)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از این commit)
+- **خلاصه:** نام نمایشی/پکیج/PM2 از CRM ترنم به **ERP ترنم / erp-taranom**؛ دامنه `erp.poshaktaranom.com`؛ مسیر دیسک و keystore عمداً `crm-taranom` ماند.
+- **فایل‌های کلیدی:** `server/public/{index.html,manifest.json,sw.js}`, `server/ecosystem.config.js`, `server/package.json`, `desktop/*`, `android/*/strings.xml`, `docs/*`, `scripts/release.ps1`
+- **Deploy:** ✅ ایران — PM2 `erp-taranom`، عنوان و PWA تأیید شد
+- **یادداشت:** پوشه `/home/taranom/crm-taranom` و `crm-taranom.jks` عمداً تغییر نکرد.
+
+### ۱۴۰۵/۰۴/۳۰ — [Cursor] رفع dlopen better-sqlite3 — اندروید 2.0.13
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** بدون commit
+- **خلاصه:**
+  - **باگ 2.0.12:** `dlopen failed: cannot locate symbol "_ZN2v811HandleScopeC1EPNS_7IsolateE"` هنگام لود `better-sqlite3`.
+  - **ریشه:** اندروید `libnode` را `RTLD_LOCAL` بار می‌کند؛ بدون `DT_NEEDED=libnode` نماد V8 دیده نمی‌شود. JNI داخل APK هم قدیمی‌تر از prebuilt بود.
+  - **رفع:** `promoteNodeSymbols()` / `dlopen(libnode, RTLD_GLOBAL)`؛ همگام‌سازی jni؛ لینک صریح در اسکریپت بیلد؛ نسخه **۲.۰.۱۳**.
+- **فایل‌های کلیدی:** `native-lib.cpp`, `MainActivity.java`, `main.js`, `build.gradle`, `scripts/build-better-sqlite3-android.ps1`
+- **Deploy:** ⏳ APK محلی
+
+### ۱۴۰۵/۰۴/۳۰ — [Cursor] ابزار تست ادمین + کالاها + مالکیت مشتری
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از این commit)
+- **خلاصه:**
+  - پاک‌سازی دیتای تست به تفکیک بخش (تراکنش / کامل) با تأیید WIPE-* + رمز — فقط admin مرکزی
+  - کالاها در حسابداری: layout شبیه اشخاص (گروه راست، جدول چپ) + انتخاب/حذف گروهی
+  - ERP محصولات فقط مشاهده؛ CRUD فقط از حسابداری (`adminOrAccounting`)
+  - مالکیت مشتری با `created_by`؛ کارشناس تخصیص‌یافته فقط مشاهده (+ پیگیری/فاکتور)؛ مانده فقط admin
+  - نمایش ماهیت و مانده زنده در لیست/مودال CRM مشتریان؛ sync `account_nature` از parties
+- **فایل‌های کلیدی:** `server/routes/data-wipe.js`, `server/server.js`, `server/db.js`, `server/routes/customers.js`, `server/routes/parties.js`, `server/routes/products.js`, `server/lib/parties-sync.js`, `server/public/index.html`, `docs/CHANGE-LOG.md`
+- **Deploy:** ✅ SCP روی ایران + Cloudflare برای `erp.poshaktaranom.com`
+- **یادداشت:** پس از بوت، `created_by` برای رکوردهای قدیمی از `user_id` پر می‌شود.
+
+### ۱۴۰۵/۰۴/۲۹ — [Cursor] یکپارچه‌سازی مویرگی واحد پول ریال
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** بدون commit
+- **خلاصه:** حذف ناسازگاری تومان/ریال در کل CRM — UI و ذخیره همیشه ریال؛ `postToLedger` همچنان تومان می‌گیرد (`rial/10` / `rialToLedger`). رفع `/10`های فرانت (وصول، هزینه، حقوق، کرایه، پرداخت تأمین‌کننده)، اصلاح `*_rial` فاکتور/خرید، JE انتقال/مشوق/سند دستی/نماینده، گزارش‌های دفترکل/تراز/تولید روی `debit_rial` (بدون `debit*10`)، بک‌فیل `journal_rial_backfill_v1`، برچسب‌ها و اعلان‌ها ریال، SW `v49`.
+- **فایل‌های کلیدی:** `lib/money.js`, `db.js`, `routes/invoices.js`, `purchases.js`, `accounting.js`, `expenses.js`, `transfers.js`, `payroll.js`, `rep-management.js`, `lib/production/{close,engine,reports,health-check}.js`, `public/index.html`, `prod-ui.js`, `sw.js`
+- **Deploy:** ⏳ نیاز به pull روی ایران
+- **یادداشت:** اسناد قدیمی که با FE `/10` بعد از migration ثبت شده‌اند ممکن است مقیاس نادرست داشته باشند — در صورت نیاز اسکریپت تطبیق جداگانه.
 
 ### ۱۴۰۵/۰۴/۲۹ — [Cursor] رفع بسته شدن ناگهانی بوت اندروید 2.0.12
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -89,7 +128,7 @@
   - **یادداشت بلندمدت:** پیش‌ساختهٔ nodejs-mobile هنوز ۴KB است — بازسازی `libnode` با NDK r28+ در آینده لازم است.
 - **فایل‌های کلیدی:** `AndroidManifest.xml`, `MainActivity.java`, `CMakeLists.txt`, `main.js`, `android/app/build.gradle`, `manifest.json`, `scripts/test-android-apk.ps1`
 - **Deploy:** ⏳ APK محلی — sideload؛ سرور APK سرو نمی‌کند
-- **یادداشت نصب:** نسخه قبلی را حذف کنید و `crm-taranom.apk` نسخه ۲.۰.۱۰ را تازه نصب کنید.
+- **یادداشت نصب:** نسخه قبلی را حذف کنید و `erp-taranom.apk` نسخه ۲.۰.۱۰ را تازه نصب کنید.
 
 ### ۱۴۰۵/۰۴/۲۹ — [Cursor] اکسل مینیمال، دید گروه کالا، کاربر=شخص، یکپارچه‌سازی حسابداری
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -147,7 +186,7 @@
 ### ۱۴۰۵/۰۴/۲۶ — [Cursor] pm2 restart production برای اعمال تغییرات UI
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `d7bee5e` (docs) — کد از قبل روی سرور در `7947c11` بود
-- **خلاصه:** به درخواست مالک، روی سرور ایران `pm2 restart crm-taranom --update-env` اجرا شد. health `/api/system/time` سبز، فرآیند online. مارکرهای کلیدی در فایل مستقر تأیید شد: `seedQty`، `cheque_row`، «ثبت چک بعدی»، `z-index:3000` برای دیت‌پیکر.
+- **خلاصه:** به درخواست مالک، روی سرور ایران `pm2 restart erp-taranom --update-env` اجرا شد. health `/api/system/time` سبز، فرآیند online. مارکرهای کلیدی در فایل مستقر تأیید شد: `seedQty`، `cheque_row`، «ثبت چک بعدی»، `z-index:3000` برای دیت‌پیکر.
 - **فایل‌های کلیدی:** `docs/CHANGE-LOG.md`
 - **Deploy:** ✅ restart انجام شد
 
@@ -201,7 +240,7 @@
   - **رفع تست کهنه (`scripts/test-sync.js`):** از فاز ۳ حسابداری، فیلد `final` فاکتور شامل VAT پیش‌فرض است؛ سناریو ۳ به‌جای `final === 250000` حالا بر اساس `subtotal === 250000` (مستقل از VAT) فاکتور را می‌یابد. این تنها یک اصلاح انتظار تست است، نه تغییر رفتار.
 - **فایل‌های کلیدی:** `server/routes/invoices.js`, `server/scripts/test-sync.js`, `docs/CHANGE-LOG.md`
 - **Deploy:** ✅ روی production ایران (`94.249.244.208`) — HEAD الان `ae016a3`، `pm2 restart` انجام شد، health ۲۰۰، رفع `seedQty` در فایل مستقر تأیید شد.
-- **⚠️ یادداشت مهم ops (سرور به GitHub دسترسی ندارد):** روی سرور ایران، DNS نام `github.com` را resolve نمی‌کند (فیلترینگ)، پس `scripts/deploy-production.sh` روی مرحلهٔ `git pull` شکست می‌خورد. راه‌حل استفاده‌شده: انتقال کامیت‌ها با **git bundle** از محیطی که به GitHub دسترسی دارد → `git bundle create up.bundle <base>..HEAD` سپس `scp` به سرور و `git pull /tmp/up.bundle <branch>` (fast-forward)، بعد `pm2 restart crm-taranom --update-env`. چون این تغییرات وابستگی جدید نداشتند، `npm install` لازم نبود. برای رفع ریشه‌ای: DNS/پروکسی سرور برای github تنظیم شود.
+- **⚠️ یادداشت مهم ops (سرور به GitHub دسترسی ندارد):** روی سرور ایران، DNS نام `github.com` را resolve نمی‌کند (فیلترینگ)، پس `scripts/deploy-production.sh` روی مرحلهٔ `git pull` شکست می‌خورد. راه‌حل استفاده‌شده: انتقال کامیت‌ها با **git bundle** از محیطی که به GitHub دسترسی دارد → `git bundle create up.bundle <base>..HEAD` سپس `scp` به سرور و `git pull /tmp/up.bundle <branch>` (fast-forward)، بعد `pm2 restart erp-taranom --update-env`. چون این تغییرات وابستگی جدید نداشتند، `npm install` لازم نبود. برای رفع ریشه‌ای: DNS/پروکسی سرور برای github تنظیم شود.
 - **یادداشت:** تغییر یک رفع صحت است نه قابلیت جدید، پس بخش راهنمای داخل برنامه نیاز به افزودن ندارد.
 
 ### ۱۴۰۵/۰۴/۲۶ — [Cursor] همگام‌سازی CHANGE-LOG با کد شاخه (بازسازی ورودی‌های جامانده)
@@ -357,7 +396,7 @@
 - **خلاصه:**
   - **ریشه 502:** `crm.db` خراب (`SQLITE_CORRUPT: database disk image is malformed`) — PM2 بیش از ۵۱٬۰۰۰ بار restart → پورت 3000 بالا نمی‌آمد → nginx/Chrome 502.
   - **رفع production:** بازیابی DB از `crm-pre-mahak.db` (integrity ok) + `pm2 restart` → `http://45.90.98.99:3000` و `/api/system/health` هر دو **200**.
-  - **APK:** فایل خراب/partial (`apk.part0`/`apk.part1` ~۶MB) و `crm-taranom.apk` از `/releases/` سرور حذف شد.
+  - **APK:** فایل خراب/partial (`apk.part0`/`apk.part1` ~۶MB) و `erp-taranom.apk` از `/releases/` سرور حذف شد.
   - **سیاست جدید:** APK فقط build محلی — `release.ps1`، `finalize-android-release.ps1`، `deploy-production.sh`، `android/BUILD.md`، `CLAUDE.md` به‌روز شد؛ `manifest.json` اندروید `url: ""` + `distribution: local`؛ `app-update.js` بدون URL آپدیت اعلام نمی‌کند.
 - **فایل‌های کلیدی:** `scripts/release.ps1`, `scripts/finalize-android-release.ps1`, `scripts/deploy-production.sh`, `scripts/generate-release.js`, `scripts/check-db-integrity.js`, `server/lib/app-update.js`, `server/public/releases/manifest.json`, `android/BUILD.md`, `CLAUDE.md`
 - **Deploy:** ✅ DB بازیابی + سرور آنلاین — ⏳ `git pull` برای manifest/اسکریپت‌های جدید
@@ -382,7 +421,7 @@
 - **Commit:** `79a44f7` (+ debug-sign fallback در `android/app/build.gradle`)
 - **خلاصه:**
   - APK **2.0.8** (کد 1.0.11) امضا و اعتبارسنجی شد — **۱۷/۱۷ assertion سبز** (`test-android-apk.ps1`).
-  - manifest اندروید → `2.0.8` / versionCode `10`؛ APK روی `/releases/crm-taranom.apk` (~62MB).
+  - manifest اندروید → `2.0.8` / versionCode `10`؛ APK روی `/releases/erp-taranom.apk` (~62MB).
   - API آپدیت: `2.0.7 → 2.0.8` فعال.
   - رگرسیون: SMS 22/22، barcode 12/12، fiscal-year 4/4.
   - `android/build.gradle`: `maven.google.com` برای AGP؛ `android/app/build.gradle`: fallback امضای debug اگر keystore نباشد.
@@ -394,14 +433,14 @@
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `dc97a18`
 - **خلاصه:**
-  - **دسکتاپ:** `CRM-Taranom-Setup-1.0.11.exe` (~93MB) با electron-builder ساخته شد — شامل همه تغییرات 1.0.11 + Mahak phase 2 UI.
+  - **دسکتاپ:** `ERP-Taranom-Setup-1.0.11.exe` (~93MB) با electron-builder ساخته شد — شامل همه تغییرات 1.0.11 + Mahak phase 2 UI.
   - **manifest.json + latest.yml** به 1.0.11 به‌روز شد؛ installer روی `/releases/` آپلود شد.
   - **اندروید:** APK release با کد جدید ساخته شد (`app-release-unsigned.apk` ~62MB) — بدون `android/keystore.properties` امضا نشد؛ manifest اندروید فعلاً 2.0.7 ماند تا امضا شود.
   - **build-android.ps1:** پشتیبانی از `app-release-unsigned.apk` + امضای خودکار اگر keystore موجود باشد.
   - راهنما: بخش «به‌روزرسانی دسکتاپ 1.0.11» اضافه شد.
 - **فایل‌های کلیدی:** `desktop/package.json`, `desktop/dist/`, `server/public/releases/{manifest.json,latest.yml}`, `scripts/build-android.ps1`, `server/public/index.html`
 - **Deploy:** ✅ installer آپلود + git pull + pm2 restart — API آپدیت: 1.0.10→1.0.11
-- **یادداشت اندروید:** `android/keystore.properties` بسازید → `scripts/build-android.ps1` → scp `crm-taranom.apk` → manifest android را 2.0.8/10 کنید.
+- **یادداشت اندروید:** `android/keystore.properties` بسازید → `scripts/build-android.ps1` → scp `erp-taranom.apk` → manifest android را 2.0.8/10 کنید.
 
 ### ۱۴۰۴/۰۴/۲۶ — [Cursor] تکمیل UI فاز ۲ محک + deploy production
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -502,7 +541,7 @@
 - **خلاصه:** `scripts/deploy-production.sh` (git pull + jwt-secret + npm + pm2 + health check)، به‌روزرسانی `.github/workflows/deploy.yml` با bootstrap inline، `android/keystore.properties.example`
 - **فایل‌های کلیدی:** `scripts/deploy-production.sh`, `.github/workflows/deploy.yml`, `android/keystore.properties.example`, `docs/PROJECT-HANDOFF.md`
 - **Deploy:** ⏳ نیاز به merge + اجرای workflow یا SSH
-- **یادداشت:** `bash scripts/deploy-production.sh` روی سرور یا GitHub Actions «Deploy CRM ترنم»
+- **یادداشت:** `bash scripts/deploy-production.sh` روی سرور یا GitHub Actions «Deploy ERP ترنم»
 
 ### ۱۴۰۵/۰۴/۲۲ — سخت‌سازی امنیتی (بند «ب» handoff) + merge با v4
 - **شاخه:** `cursor/security-hardening-605f` → `claude/claude-md-docs-2ssrpy`
@@ -522,7 +561,7 @@
 - **Commit:** همین کامیت
 - **خلاصه:** به درخواست کاربر، نسخه دمو «دقیقاً همان برنامه» — همان کد، دیتابیس جدا با داده نمایشی غنی:
   - **`server/scripts/seed-demo.js`:** سرور واقعی را روی DB خالی بوت می‌کند و از **APIهای واقعی** داده می‌سازد (دفاتر تراز می‌ماند — تست شد: بدهکار=بستانکار=۱۹٫۸ میلیارد ✅): ۴ کاربر (demo/sara/reza/maryam — رمز همه `demo1234`)، ۲ بانک + ۲ صندوق (تنخواه)، ۲ انبار، ۵ تأمین‌کننده، ۶ دسته محصول + ۶۰ محصول، ۱۵ فاکتور خرید (شارژ موجودی)، ۴۰ مشتری، ۶۰ پیگیری/پایپ‌لاین، **۱۲۵ فاکتور رسمی + ۲۵ پیش‌فاکتور** در بازه ۳ ماه، ۹۲ دریافت (نقد/بانک/چک با سررسید)، ۸ هزینه، ۶ سری تولید، ۵ کارمند + حقوق (بعضی پرداخت‌شده)، یادآورها. تصادفی‌سازی deterministic (seed ثابت) — هر بار همان دمو.
-  - **`scripts/demo-online.sh`:** روی سرور production یک instance دوم PM2 با نام `crm-taranom-demo` روی پورت **3001** بالا می‌آورد (DB/uploads جدا — برنامه اصلی دست‌نخورده). اجرای مجدد = ریست دمو؛ مناسب cron شبانه.
+  - **`scripts/demo-online.sh`:** روی سرور production یک instance دوم PM2 با نام `erp-taranom-demo` روی پورت **3001** بالا می‌آورد (DB/uploads جدا — برنامه اصلی دست‌نخورده). اجرای مجدد = ریست دمو؛ مناسب cron شبانه.
   - **`scripts/demo-laptop.ps1`:** دموی آفلاین روی لپ‌تاپ ویندوزی — حالت central (همه ماژول‌ها از جمله تنظیمات/کاربران دیده می‌شود، برخلاف build دسکتاپ که device است) روی `http://127.0.0.1:3002`.
 - **فایل‌های کلیدی:** `server/scripts/seed-demo.js`, `scripts/demo-online.sh`, `scripts/demo-laptop.ps1`
 - **Deploy:** ⏳ برای دموی آنلاین: `bash scripts/demo-online.sh` روی سرور (+ باز بودن پورت 3001)
@@ -532,7 +571,7 @@
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** (همین session)
 - **خلاصه:**
-  - **ریشهٔ کرش فوری:** `copyServerSources` فایل `crm-taranom.apk` (۲۹۴MB) را داخل assets بسته‌بندی می‌کرد → اولین استخراج OOM/کرش → برنامه فوراً بسته می‌شد.
+  - **ریشهٔ کرش فوری:** `copyServerSources` فایل `erp-taranom.apk` (۲۹۴MB) را داخل assets بسته‌بندی می‌کرد → اولین استخراج OOM/کرش → برنامه فوراً بسته می‌شد.
   - **رفع:** exclude کل `public/releases/**`؛ قبل از build جابجایی APK از پوشه server؛ `MainActivity` با کپی iterative + catch خطا (بدون RuntimeException روی thread)؛ `largeHeap` + `extractNativeLibs`؛ `main.js` با boot.log و throw اگر sqlite نباشد.
   - **تست:** `scripts/test-android-apk.ps1` (۱۴ assertion: بدون nested apk، ELF libnode+sqlite، نسخه 2.0.7، حجم <250MB) — همه سبز. SMS 22/22 سبز. APK جدید **۶۲MB** SHA256 `265EDC4B…`.
 - **فایل‌های کلیدی:** `android/app/build.gradle`, `MainActivity.java`, `main.js`, `AndroidManifest.xml`, `scripts/test-android-apk.ps1`, `scripts/build-android.ps1`
@@ -553,7 +592,7 @@
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `57f25f9` (متادیتا — توسط release.ps1 روی سیستم کاربر) + همین کامیت (fix)
 - **خلاصه:**
-  - کاربر `release.ps1` را اجرا کرد: **دسکتاپ `CRM-Taranom-Setup-1.0.10.exe` (۹۳MB) ساخته شد** ✅ و **APK اندروید 2.0.5 (۲۲۰MB) ساخته شد** ✅ — بازرسی ELF سبز (۳ ماژول better_sqlite3 + libnode هر ۳ ABI؛ SHA256 `61856EB8...`). هر دو با scp روی `/releases/` سرور آپلود شدند.
+  - کاربر `release.ps1` را اجرا کرد: **دسکتاپ `ERP-Taranom-Setup-1.0.10.exe` (۹۳MB) ساخته شد** ✅ و **APK اندروید 2.0.5 (۲۲۰MB) ساخته شد** ✅ — بازرسی ELF سبز (۳ ماژول better_sqlite3 + libnode هر ۳ ABI؛ SHA256 `61856EB8...`). هر دو با scp روی `/releases/` سرور آپلود شدند.
   - دو باگ build حین راه رفع شد: (۱) اسکریپت‌های ps1 باید ASCII خالص باشند (PS 5.1 + بدون BOM → em-dash بایت نقل‌قول هوشمند دارد و parser می‌شکند)؛ (۲) فایل‌های `.gz` داخل node_modules (bcryptjs) با AAPT تداخل «Duplicate resources» می‌دهند → قبل از build حذف می‌شوند.
   - **قدم آخر (deploy وب) خطا داد:** روی production فایل `manifest.json` تغییر محلی دستی داشت و pull را بلاک کرد. `release.ps1` اصلاح شد: قبل از pull، فقط دو فایل متادیتای releases را `git checkout --` می‌کند (git منبع حقیقت آن‌هاست). دستور یک‌خطی رفع به کاربر داده شد.
 - **فایل‌های کلیدی:** `scripts/release.ps1`, `scripts/build-android.ps1`, `server/public/releases/{manifest.json,latest.yml}`
@@ -643,7 +682,7 @@
 - **Commit:** `d5e079b`
 - **خلاصه:**
   - **پیام‌ها:** اسکرول عمودی در پنجره مکالمه (`min-height:0` + `overflow-y:auto`)؛ حباب پیام `fit-content`؛ حفظ موقعیت اسکرول هنگام polling؛ SW → `v24`.
-  - **اندروید 2.0.4:** Gradle wrapper + JDK 17 + libnode از zip رسمی nodejs-mobile؛ `buildConfig` فعال؛ exclude فایل‌های `.exe` دسکتاپ از assets (رفع OOM ۲GB)؛ APK release ساخته و آپلود به `/releases/crm-taranom.apk` (~148MB).
+  - **اندروید 2.0.4:** Gradle wrapper + JDK 17 + libnode از zip رسمی nodejs-mobile؛ `buildConfig` فعال؛ exclude فایل‌های `.exe` دسکتاپ از assets (رفع OOM ۲GB)؛ APK release ساخته و آپلود به `/releases/erp-taranom.apk` (~148MB).
   - **اسکریپت:** `scripts/build-android.ps1` برای buildهای بعدی.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `android/app/build.gradle`, `android/gradle.properties`, `android/gradlew*`, `scripts/build-android.ps1`, `server/public/releases/manifest.json`
 - **Deploy:** ✅ وب (pull+pm2) + APK روی سرور
@@ -674,7 +713,7 @@
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/routes/invoices.js`, `server/routes/products.js`, `server/routes/warehouses.js`, `server/routes/messages.js`, `server/routes/accounting.js`, `server/routes/ai.js`, `server/services/ai.js`, `server/scripts/test-1.0.9.js`, `server/scripts/cleanup-aref-pending.js`, `server/public/sw.js`
 - **Deploy:** ✅ deploy شده (pull + pm2 restart — aref: کاربر #3 یافت شد، رکورد pending نداشت)
 
-### ۱۴۰۴/۰۴/۲۴ — پورتال مشتریان B2B (انتقال از CRM v4 — فقط مرکزی)
+### ۱۴۰۴/۰۴/۲۴ — پورتال مشتریان B2B (انتقال از ERP v4 — فقط مرکزی)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `3acd305`
 - **خلاصه:** پورتال سفارش آنلاین مشتریان عمده — کاملاً افزودنی، بدون دست زدن به جریان‌های موجود:
@@ -738,7 +777,7 @@
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `eb50d4b`
 - **خلاصه:**
-  - build: `CRM Taranom Setup 1.0.7.exe` (~93MB)
+  - build: `ERP Taranom Setup 1.0.7.exe` (~93MB)
   - manifest + latest.yml به‌روز — دانلود از `/releases/` سرور production
   - رفع crash `rep_territories` در initDB
 - **فایل‌های کلیدی:** `desktop/dist/`, `server/public/releases/manifest.json`, `server/public/releases/latest.yml`
@@ -766,7 +805,7 @@
   - SW bump به `v18`
 - **فایل‌های کلیدی:** `server/routes/invoices.js`, `server/routes/accounting.js`, `server/routes/suppliers.js`, `server/public/index.html`, `server/public/sw.js`
 - **Deploy:** ✅ production (`6350292` — PM2 stable, HTTP 200)
-- **یادداشت:** `git pull origin claude/claude-md-docs-2ssrpy && cd server && pm2 restart crm-taranom`
+- **یادداشت:** `git pull origin claude/claude-md-docs-2ssrpy && cd server && pm2 restart erp-taranom`
 
 ### ۱۴۰۴/۰۴/۲۰ — زیرساخت به‌روزرسانی دسکتاپ (GitHub Releases، بدون SCP)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -792,7 +831,7 @@
   - پرداخت میدانی: rep_payment_submissions + تأیید حسابدار
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/db.js`, `server/routes/rep-management.js`, `desktop/main.js`
 - **Deploy:** ✅ production (`41be9d1`)
-- **یادداشت:** `git pull && cd server && pm2 restart crm-taranom`
+- **یادداشت:** `git pull && cd server && pm2 restart erp-taranom`
 
 ### ۱۴۰۴/۰۴/۱۹ — بهینه‌سازی سرعت ناوبری و بارگذاری صفحات
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -800,7 +839,7 @@
 - **خلاصه:**
   - فرانت: لایه cache برای API و HTML داشبورد/گزارشات؛ reuse پنل حسابداری بین تب‌ها؛ debounce جستجو؛ fetch یک‌باره پیام‌ها/یادآورها
   - بک‌اند: indexهای جدید SQLite؛ cache وضعیت کاربر فعال در auth (۳۰ثانیه)؛ رفع N+1 در `/reports/salesperson`؛ `seedWarehouseStock` فقط یک‌بار
-  - Service Worker: bump به `crm-taranom-v8`
+  - Service Worker: bump به `erp-taranom-v8`
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/db.js`, `server/middleware/auth.js`, `server/routes/reports.js`, `server/public/sw.js`
 - **Deploy:** ✅ production (`dc95426` — HTTP 200)
 - **یادداشت:** سرور API از قبل سریع بود (~۵ms)؛ گلوگاه اصلی فرانت و queryهای تکراری بود
@@ -898,7 +937,7 @@ cd server
 # فقط اگر jwt-secret.txt ندارید:
 # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > jwt-secret.txt && chmod 600 jwt-secret.txt
 npm install --omit=dev
-pm2 restart crm-taranom --update-env
+pm2 restart erp-taranom --update-env
 curl -s http://127.0.0.1:3000/api/system/time
 ```
 

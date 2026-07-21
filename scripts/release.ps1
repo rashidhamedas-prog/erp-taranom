@@ -1,4 +1,4 @@
-# One-command full release for CRM Taranom (run on the Windows dev machine).
+# One-command full release for ERP Taranom (run on the Windows dev machine).
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\release.ps1
 #
@@ -30,21 +30,28 @@ $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
 $Branch = 'claude/claude-md-docs-2ssrpy'
 
-Write-Host "==> CRM Taranom release $Version (android $AndroidVersion/$AndroidCode)"
+Write-Host "==> ERP Taranom release $Version (android $AndroidVersion/$AndroidCode)"
 
 # --- 0) fresh code ---
 git pull origin $Branch
 if ($LASTEXITCODE -ne 0) { throw 'git pull failed - resolve conflicts first' }
 
 # --- 1) Desktop installer ---
-$exeDash = Join-Path $Root "desktop\dist\CRM-Taranom-Setup-$Version.exe"
+# Prefer ERP artifact names; keep CRM names as fallback for older electron-builder output.
+$exeDash = Join-Path $Root "desktop\dist\ERP-Taranom-Setup-$Version.exe"
 if (-not $SkipDesktop) {
   Push-Location (Join-Path $Root 'desktop')
   npm install;      if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'desktop npm install failed' }
   npm run dist:win; if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'desktop build failed' }
   Pop-Location
-  $exeSpace = Join-Path $Root "desktop\dist\CRM Taranom Setup $Version.exe"
-  if (Test-Path $exeSpace) { Move-Item $exeSpace $exeDash -Force }
+  $exeSpaceCandidates = @(
+    (Join-Path $Root "desktop\dist\ERP Taranom Setup $Version.exe"),
+    (Join-Path $Root "desktop\dist\CRM Taranom Setup $Version.exe"),
+    (Join-Path $Root "desktop\dist\CRM-Taranom-Setup-$Version.exe")
+  )
+  foreach ($exeSpace in $exeSpaceCandidates) {
+    if (Test-Path $exeSpace) { Move-Item $exeSpace $exeDash -Force; break }
+  }
   if (-not (Test-Path $exeDash)) { throw "installer for $Version not found in desktop\dist" }
   Write-Host "==> installer OK: $exeDash ($([math]::Round((Get-Item $exeDash).Length/1MB)) MB)"
 }
@@ -109,7 +116,7 @@ if (-not $SkipAndroid) {
 # Release metadata on the server may have been hand-edited in the past and
 # would block the pull; git is the source of truth for those two files, so
 # drop the local copies first (never touches code or data).
-ssh -p $SshPort -i $SshKey $Server "cd /home/taranom-admin/crm-taranom && git checkout -- server/public/releases/manifest.json server/public/releases/latest.yml 2>/dev/null; git pull origin $Branch && cd server && npm install --omit=dev && pm2 restart crm-taranom && sleep 3 && curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:3000/"
+ssh -p $SshPort -i $SshKey $Server "cd /home/taranom-admin/crm-taranom && git checkout -- server/public/releases/manifest.json server/public/releases/latest.yml 2>/dev/null; git pull origin $Branch && cd server && npm install --omit=dev && pm2 restart erp-taranom && sleep 3 && curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:3000/"
 if ($LASTEXITCODE -ne 0) { throw 'remote deploy failed - check server manually' }
 
 Write-Host ''

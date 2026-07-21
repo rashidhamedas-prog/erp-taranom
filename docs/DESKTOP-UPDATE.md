@@ -21,10 +21,10 @@ npm run publish:win
 ```powershell
 # یک‌بار: gh auth login
 gh release create v1.0.6 `
-  "desktop/dist/CRM Taranom Setup 1.0.6.exe" `
+  "desktop/dist/ERP Taranom Setup 1.0.6.exe" `
   "server/public/releases/latest.yml" `
-  --repo rashidhamedas-prog/crm-taranom `
-  --title "CRM Taranom Desktop 1.0.6"
+  --repo rashidhamedas-prog/erp-taranom `
+  --title "ERP Taranom Desktop 1.0.6"
 ```
 
 ### ۳. به‌روزرسانی manifest (در صورت نیاز)
@@ -32,8 +32,8 @@ gh release create v1.0.6 `
 ```json
 "desktop": {
   "version": "1.0.6",
-  "url": "https://github.com/rashidhamedas-prog/crm-taranom/releases/download/v1.0.6/CRM-Taranom-Setup-1.0.6.exe",
-  "feed_url": "https://github.com/rashidhamedas-prog/crm-taranom/releases/download/v1.0.6/",
+  "url": "https://github.com/rashidhamedas-prog/erp-taranom/releases/download/v1.0.6/ERP-Taranom-Setup-1.0.6.exe",
+  "feed_url": "https://github.com/rashidhamedas-prog/erp-taranom/releases/download/v1.0.6/",
   "notes": "..."
 }
 ```
@@ -44,7 +44,7 @@ git add server/public/releases/manifest.json server/public/releases/latest.yml
 git commit -m "chore: desktop 1.0.6 metadata"
 git push
 # روی سرور:
-git pull && cd server && pm2 restart crm-taranom
+git pull && cd server && pm2 restart erp-taranom
 ```
 
 ## جایگزین‌ها

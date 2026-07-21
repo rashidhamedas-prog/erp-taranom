@@ -1,7 +1,7 @@
 {
-  "name": "crm-taranom",
+  "name": "erp-taranom",
   "version": "3.0.0",
-  "description": "CRM پوشاک ترنم - نسخه ۳",
+  "description": "ERP پوشاک ترنم - نسخه ۳",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

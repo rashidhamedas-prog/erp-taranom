@@ -1,4 +1,4 @@
-# مهاجرت کامل حسابداری از محک به CRM ترنم — سند اجرایی
+# مهاجرت کامل حسابداری از محک به ERP ترنم — سند اجرایی
 
 > نگارش: Claude Code — پس از تحلیل کامل دو فایل «coding_hesbha.xlsx» و «daftar_roznameh.xlsx»
 > وضعیت: **تأییدشده توسط مالک** (۸ تصمیم — بخش ۲). این سند مرجع اجراست؛ گام‌به‌گام و بدون حذف اجرا شود.
@@ -183,11 +183,11 @@ node server/scripts/import-mahak-journal.js \
 # ۲) پس از تأیید مالک/حسابدار — روی سرور:
 ssh -p 2299 -i <KEY> taranom-admin@45.90.98.99
 cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssrpy
-pm2 stop crm-taranom
+pm2 stop erp-taranom
 cp server/crm.db  backups/pre-mahak-$(date +%F).db          # بک‌آپ دیتای فعلی — حیاتی
 node server/scripts/import-mahak-journal.js <coding> <roznameh> server/crm-mahak.db
 # سوییچ: DB_PATH را در ecosystem/pm2 به crm-mahak.db بدهید یا فایل را جایگزین کنید
-pm2 restart crm-taranom --update-env
+pm2 restart erp-taranom --update-env
 ```
 
 ## ۶) چک‌لیست پذیرش نهایی (حسابدار امضا کند)

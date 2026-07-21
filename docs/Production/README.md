@@ -1,5 +1,5 @@
 # README.md
-## 📁 مستندات ماژول «عملیات تولید» — CRM Taranom
+## 📁 مستندات ماژول «عملیات تولید» — ERP Taranom
 
 > **مالک:** حامد رشید — تولیدی ترنم (پوشاک ترنم، مشهد)
 > **مخزن:** `rashidhamedas-prog/crm-taranom`
@@ -122,7 +122,7 @@
 |------|-------|
 | استک | Node.js + Express + better-sqlite3 (بدون ORM/TS/فریم‌ورک) |
 | VPS | `45.90.98.99` · SSH `2299` · کاربر `taranom-admin` |
-| مسیر | `/var/www/crm-taranom/` · PM2: `crm-taranom` |
+| مسیر | `/var/www/crm-taranom/` · PM2: `erp-taranom` |
 | DB | `server/data/crm.db` |
 | رنگ برند | `#1B5C4A` · `#2D7A5F` · `#C9A84C` |
 | فونت | Vazirmatn · RTL · اعداد فارسی |

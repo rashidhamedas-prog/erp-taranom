@@ -543,7 +543,7 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 });
 
 app.listen(PORT, process.env.LISTEN_HOST || '0.0.0.0', () => {
-  console.log(`CRM ترنم نسخه ۳ روی پورت ${PORT} اجرا شد`);
+  console.log(`ERP ترنم نسخه ۳ روی پورت ${PORT} اجرا شد`);
   if (process.env.APP_PLATFORM === 'android' && process.env.DB_PATH) {
     try {
       const ready = path.join(path.dirname(process.env.DB_PATH), 'server.ready');

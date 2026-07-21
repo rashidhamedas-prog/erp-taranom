@@ -116,4 +116,4 @@ db.close();
 console.log('\n==> GO-LIVE SUMMARY');
 console.log(JSON.stringify(summary, null, 2));
 console.log(`\n✅ Mahak import complete → ${dbPath}`);
-console.log('   Restart server: pm2 restart crm-taranom');
+console.log('   Restart server: pm2 restart erp-taranom');
