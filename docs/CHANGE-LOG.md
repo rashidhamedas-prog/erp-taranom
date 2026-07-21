@@ -44,7 +44,7 @@
 
 ### ۱۴۰۵/۰۴/۳۰ — [Cursor] اندروید 2.0.18 + لغو کامل import محک
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `426733c`
 - **خلاصه:**
   - **لغو import محک:** `server/lib/mahak-import.js` فقط stub لغو؛ اسکریپت‌ها/xlsx محک از APK حذف؛ بدون `MAHAK_IMPORT_DIR` روی اندروید.
   - **اندروید ۲.۰.۱۸:** dlopen SQLite از `nativeLibraryDir`، `preloadSqliteNative`، TMPDIR قابل‌نوشتن در dataDir، پچ thirty-two، exclude تست/xlsx، adm-zip برای backup، MDI taskbar spacing، SW v52.
