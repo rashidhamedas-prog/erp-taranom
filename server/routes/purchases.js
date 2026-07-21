@@ -49,6 +49,7 @@ function buildRows(db, inputRows) {
     out.push({
       product_id: pid, name: prod.name, qty, price, disc, disc_amount: discAmount,
       disc_amt: discPctAmt + discAmount, sum, description, allocated_freight: 0,
+      warehouse_id: r.warehouse_id ? parseInt(r.warehouse_id, 10) : null,
     });
   }
   return { rows: out, subtotal };
@@ -97,7 +98,8 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const { supplier_id, date, note, rows, disc, pay_type, bank_id, check_category_id, cash_box_id, warehouse_id,
-    freight_amount, freight_type, vat_exempt, cost_center_id } = req.body;
+    freight_amount, freight_type, vat_exempt, cost_center_id,
+    cheque_duration, cheque_due_date, cheque_info } = req.body;
   if (!supplier_id) return res.status(400).json({ error: 'تأمین‌کننده الزامی است' });
   const db = getDB();
   let built;
@@ -118,24 +120,28 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='purchase_num_prefix'").get();
   const pType = pay_type || 'credit';
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
+  const chqDur = pType === 'cheque' ? String(cheque_duration || '') : '';
+  const chqDue = pType === 'cheque' ? String(cheque_due_date || '') : '';
+  const chqInfo = pType === 'cheque' ? String(cheque_info || '') : '';
 
   const { invId, num } = db.transaction(() => {
     const num = isDevice()
       ? ('موقت-' + Date.now().toString(36).toUpperCase())
       : allocateNumber(db, 'purchase', prefixRow?.value || 'PO');
     const result = db.prepare(
-      `INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,pay_type,stock_added,bank_id,check_category_id,cash_box_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)`
-    ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', allocMethod, vat_exempt ? 1 : 0, ccId);
+      `INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_added,bank_id,check_category_id,cash_box_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)`
+    ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, chqDur, chqDue, chqInfo, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', allocMethod, vat_exempt ? 1 : 0, ccId);
     const invId = result.lastInsertRowid;
 
-    // Stock increases immediately on purchase
+    // Stock increases immediately on purchase (per-row warehouse or header default)
     for (const r of built.rows) {
+      const rowWh = r.warehouse_id || whId;
       db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
       db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `افزودن موجودی از فاکتور خرید ${num}`);
-      if (whId) {
+      if (rowWh) {
         db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
-          .run(r.product_id, whId, r.qty);
+          .run(r.product_id, rowWh, r.qty);
       }
     }
 
@@ -178,10 +184,11 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     if (row.stock_added) {
       const invRows = JSON.parse(row.rows || '[]');
       for (const r of invRows) {
+        const rowWh = r.warehouse_id || row.warehouse_id;
         db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
         db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `بازگشت موجودی از حذف فاکتور خرید ${row.num}`);
-        if (row.warehouse_id) {
-          db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, row.warehouse_id);
+        if (rowWh) {
+          db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, rowWh);
         }
       }
     }

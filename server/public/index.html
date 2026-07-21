@@ -336,25 +336,46 @@ table.tbl tr:hover td{background:var(--row-hover)}
 .pcard .acts{display:flex;gap:6px;margin-top:10px}
 .pcard .acts button{flex:1;font-size:12px;padding:6px;border:none;border-radius:7px}
 
-/* ===== Invoice builder ===== */
-.inv-layout{display:grid;grid-template-columns:1fr 380px;gap:18px}
-.inv-products{max-height:560px;overflow-y:auto}
-.inv-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
-.pick-card{border:1px solid var(--border);border-radius:10px;padding:8px;cursor:pointer;text-align:center;background:var(--card)}
-.pick-card:hover{border-color:var(--purple2);background:var(--purple-light)}
-.pick-card .pimg{aspect-ratio:1;background:var(--purple-light);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:30px;overflow:hidden;margin-bottom:6px}
+/* ===== Invoice builder — اقلام فاکتور (جدول حرفه‌ای، عرض غالب) ===== */
+.inv-layout{display:grid;grid-template-columns:minmax(200px,.55fr) minmax(640px,1.85fr);gap:16px;align-items:stretch;min-height:min(72vh,720px)}
+.inv-products{max-height:min(72vh,720px);overflow-y:auto;border:1px solid var(--border);border-radius:14px;padding:10px;background:var(--bg)}
+.inv-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px}
+.pick-card{border:1px solid var(--border);border-radius:10px;padding:8px;cursor:pointer;text-align:center;background:var(--card);transition:border-color .12s,box-shadow .12s}
+.pick-card:hover{border-color:var(--purple2);background:var(--purple-light);box-shadow:0 2px 10px rgba(26,92,56,.08)}
+.pick-card .pimg{aspect-ratio:1;background:var(--purple-light);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:28px;overflow:hidden;margin-bottom:6px}
 .pick-card .pimg img{width:100%;height:100%;object-fit:cover;object-position:center}
 .pick-card .pn{font-size:12px;font-weight:600;min-height:32px}
 .pick-card .pp{font-size:12px;color:var(--green);font-weight:700}
-.inv-cart{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;position:sticky;top:80px;align-self:start}
+.inv-cart{background:linear-gradient(180deg,var(--card) 0%,var(--bg) 140%);border:1.5px solid var(--border);border-radius:14px;padding:14px 16px 16px;display:flex;flex-direction:column;min-height:min(72vh,720px);box-shadow:0 4px 18px rgba(26,92,56,.06)}
+.inv-cart-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.inv-cart-head h4{margin:0;font-size:16px;font-weight:800;color:var(--purple);letter-spacing:-.02em}
+.inv-cart-head .inv-cart-meta{font-size:12px;color:var(--muted)}
+.inv-lines-wrap{flex:1;min-height:420px;max-height:min(58vh,560px);overflow:auto;border:1px solid var(--border);border-radius:12px;background:var(--card)}
+.inv-lines-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+.inv-lines-tbl thead th{position:sticky;top:0;z-index:1;background:var(--th-bg,var(--purple-light));color:var(--purple);font-size:11.5px;font-weight:700;padding:11px 8px;text-align:right;border-bottom:1.5px solid var(--border);white-space:nowrap}
+.inv-lines-tbl tbody td{padding:10px 8px;border-bottom:1px solid var(--border);vertical-align:middle;background:var(--card)}
+.inv-lines-tbl tbody tr:nth-child(even) td{background:rgba(26,92,56,.03)}
+.inv-lines-tbl tbody tr:hover td{background:var(--row-hover)}
+.inv-lines-tbl .cn{font-weight:650;min-width:140px;max-width:220px}
+.inv-lines-tbl input,.inv-lines-tbl select{width:100%;min-width:0;padding:7px 8px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--input-bg,var(--card))}
+.inv-lines-tbl input:focus,.inv-lines-tbl select:focus{outline:none;border-color:var(--purple2);box-shadow:0 0 0 3px rgba(26,92,56,.12)}
+.inv-lines-tbl .col-qty{width:88px}.inv-lines-tbl .col-price{width:118px}
+.inv-lines-tbl .col-disc{width:72px}.inv-lines-tbl .col-disc-amt{width:100px}
+.inv-lines-tbl .col-wh{width:130px}.inv-lines-tbl .col-sum{width:110px;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.inv-lines-tbl .col-rm{width:44px;text-align:center}
+.inv-lines-tbl .rm{background:var(--bad-bg);color:var(--red);border:none;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:15px;line-height:1}
+.inv-lines-tbl .rm:hover{filter:brightness(.95)}
+.inv-lines-tbl .desc-row td{padding-top:0;border-bottom:1px dashed var(--border);background:transparent!important}
+.inv-lines-tbl .desc-row input{font-size:12px;color:var(--muted)}
+.inv-lines-empty{padding:48px 20px;text-align:center;color:var(--muted);font-size:14px}
 .cart-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:13px}
 .cart-row .cn{flex:1}
 .cart-row input{width:54px;padding:5px;text-align:center;border:1px solid var(--border);border-radius:6px}
 .cart-row .price-in{width:84px}
 .cart-row .rm{background:var(--bad-bg);color:var(--red);border:none;width:26px;height:26px;border-radius:6px}
-.cart-tot{margin-top:12px;font-size:13px}
-.cart-tot .l{display:flex;justify-content:space-between;padding:5px 0}
-.cart-tot .final{font-weight:800;font-size:16px;color:var(--green);border-top:1px solid var(--border);padding-top:8px;margin-top:4px}
+.cart-tot{margin-top:14px;font-size:13.5px;padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--border)}
+.cart-tot .l{display:flex;justify-content:space-between;padding:6px 0;gap:12px}
+.cart-tot .final{font-weight:800;font-size:17px;color:var(--green);border-top:1.5px solid var(--border);padding-top:10px;margin-top:6px}
 
 /* ===== Messages — Telegram-style chat ===== */
 .tg{display:grid;grid-template-columns:330px 1fr;height:calc(100dvh - 150px);min-height:430px;
@@ -530,7 +551,8 @@ table.tbl tr:hover td{background:var(--row-hover)}
   .main{margin-right:0!important;width:100%}
   .topbar .menu-btn{display:flex;align-items:center;justify-content:center}
   .inv-layout{grid-template-columns:1fr}
-  .inv-cart{position:static}
+  .inv-cart{position:static;min-height:auto}
+  .inv-lines-wrap{min-height:280px;max-height:50vh}
   .form-grid{grid-template-columns:1fr 1fr}
   .topbar .clock{display:none}
   .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%}
@@ -3491,16 +3513,19 @@ async function _openInvBuilder(id){
           <div class="inv-products"><div class="inv-pick" id="invPicker"></div></div>
         </div>
         <div class="inv-cart">
-          <h4 style="color:var(--purple);margin-bottom:10px">اقلام فاکتور</h4>
-          <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+          <div class="inv-cart-head">
+            <h4>📋 اقلام فاکتور فروش</h4>
+            <span class="inv-cart-meta" id="invCartCount">${fmt(invCart.length)} ردیف</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
             <button type="button" class="btn sm ghost" onclick="invCart.push({row_type:'income',product_id:null,name:'درآمد/خدمات',qty:1,price:0,disc:0,disc_amount:0,description:'',income_coa:''});renderCart()">➕ ردیف درآمد</button>
           </div>
-          <div id="cartRows"></div>
+          <div class="inv-lines-wrap" id="cartRows"></div>
           <div class="cart-tot" id="cartTot"></div>
-          <button class="btn green" style="width:100%;margin-top:12px" onclick="saveInvoice(${id||0})">💾 ذخیره فاکتور</button>
+          <button class="btn green" style="width:100%;margin-top:12px;padding:12px;font-size:15px" onclick="saveInvoice(${id||0})">💾 ذخیره فاکتور</button>
         </div>
       </div>
-      <p class="muted" style="font-size:12px;margin-top:10px">قیمت‌ها قابل ویرایش هستند.</p>
+      <p class="muted" style="font-size:12px;margin-top:10px">قیمت‌ها و تخفیف ردیف‌ها قابل ویرایش هستند. سرستون‌ها راهنمای هر ستون‌اند.</p>
     </div>`, true);
   renderInvPicker();
   renderCart();
@@ -3592,24 +3617,40 @@ function pickCardTap(e,pid){
 }
 function renderCart(){
   const showLineDisc=canAccounting();
-  el('cartRows').innerHTML = invCart.map((r,i)=>{
-    const isIncome = r.row_type==='income';
-    const gross=r.qty*r.price;
-    const lineDisc=showLineDisc?(r.disc||0):0;
-    const discAmtFixed=showLineDisc?(r.disc_amount||0):0;
-    const lineDiscAmt=Math.round(gross*lineDisc/100)+discAmtFixed;
-    return `
-    <div class="cart-row" style="flex-wrap:wrap;align-items:flex-start">
-      <span class="cn">${isIncome?'💰 ':''}${esc(r.name)}</span>
-      <input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" style="width:64px" onchange="invCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);renderCart();renderInvPicker()">
-      <input class="price-in" type="number" value="${r.price}" onchange="invCart[${i}].price=+this.value||0;renderCart()">
-      ${showLineDisc?`<input type="number" min="0" max="100" title="تخفیف ٪" value="${r.disc||0}" style="width:48px" onchange="invCart[${i}].disc=Math.min(100,Math.max(0,+this.value||0));renderCart()">`:''}
-      ${showLineDisc?`<input type="number" min="0" title="تخفیف مبلغی (ریال)" value="${r.disc_amount||0}" style="width:72px" onchange="invCart[${i}].disc_amount=Math.max(0,Math.round(+this.value||0));renderCart()">`:''}
-      ${!isIncome?`<select title="انبار ردیف" style="max-width:110px;font-size:11px" onchange="invCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>`:''}
-      <button class="rm" onclick="invCart.splice(${i},1);renderCart();renderInvPicker()">×</button>
-      <input type="text" placeholder="توضیحات ردیف" value="${esc(r.description||'')}" style="flex:1;min-width:120px;margin-top:4px;width:100%" onchange="invCart[${i}].description=this.value">
-    </div>${showLineDisc&&lineDiscAmt>0?`<div class="muted" style="font-size:11px;margin:-4px 0 6px;padding-right:2px">تخفیف ردیف: ${fmt(lineDiscAmt)} ریال</div>`:''}`;
-  }).join('') || '<div class="muted center" style="padding:14px">سبد خالی است</div>';
+  const countEl=el('invCartCount'); if(countEl) countEl.textContent=fmt(invCart.length)+' ردیف';
+  const colSpan=showLineDisc?8:6;
+  if(!invCart.length){
+    el('cartRows').innerHTML=`<div class="inv-lines-empty">سبد خالی است — از فهرست کالا یک قلم اضافه کنید</div>`;
+  } else {
+    el('cartRows').innerHTML = `<table class="inv-lines-tbl"><thead><tr>
+      <th>کالا / خدمت</th>
+      <th class="col-qty">تعداد</th>
+      <th class="col-price">فی (ریال)</th>
+      ${showLineDisc?`<th class="col-disc">تخفیف ٪</th><th class="col-disc-amt">تخفیف مبلغ</th>`:''}
+      <th class="col-wh">انبار</th>
+      <th class="col-sum">جمع ردیف</th>
+      <th class="col-rm"></th>
+    </tr></thead><tbody>${invCart.map((r,i)=>{
+      const isIncome = r.row_type==='income';
+      const gross=r.qty*r.price;
+      const lineDisc=showLineDisc?(r.disc||0):0;
+      const discAmtFixed=showLineDisc?(r.disc_amount||0):0;
+      const lineDiscAmt=Math.round(gross*lineDisc/100)+discAmtFixed;
+      const lineSum=Math.max(0,gross-lineDiscAmt);
+      return `
+      <tr>
+        <td class="cn">${isIncome?'💰 ':''}${esc(r.name)}</td>
+        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" onchange="invCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);renderCart();renderInvPicker()"></td>
+        <td class="col-price"><input type="number" value="${r.price}" onchange="invCart[${i}].price=+this.value||0;renderCart()"></td>
+        ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" value="${r.disc||0}" onchange="invCart[${i}].disc=Math.min(100,Math.max(0,+this.value||0));renderCart()"></td>
+        <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" onchange="invCart[${i}].disc_amount=Math.max(0,Math.round(+this.value||0));renderCart()"></td>`:''}
+        <td class="col-wh">${!isIncome?`<select onchange="invCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>`:'—'}</td>
+        <td class="col-sum mono">${fmt(lineSum)}</td>
+        <td class="col-rm"><button type="button" class="rm" title="حذف" onclick="invCart.splice(${i},1);renderCart();renderInvPicker()">×</button></td>
+      </tr>
+      <tr class="desc-row"><td colspan="${colSpan}"><input type="text" placeholder="توضیحات ردیف (اختیاری)" value="${esc(r.description||'')}" onchange="invCart[${i}].description=this.value"></td></tr>`;
+    }).join('')}</tbody></table>`;
+  }
   const subtotal = invCart.reduce((a,r)=>{
     const gross=r.qty*r.price;
     const lineDiscAmt=showLineDisc?Math.round(gross*(r.disc||0)/100)+(r.disc_amount||0):0;
@@ -3623,7 +3664,7 @@ function renderCart(){
     <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
     <div class="l"><span>تخفیف کل فاکتور (${fmt(disc)}٪):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
     ${freight?`<div class="l"><span>کرایه حمل:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
-    <div class="l final"><span>نهایی:</span><span class="mono">${fmt(final)} ریال</span></div>`;
+    <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(final)} ریال</span></div>`;
 }
 function toggleInvPayFields(){
   const pt = el('inv-pay-type')?.value;
@@ -5393,30 +5434,66 @@ let genCart = [];
 let genCartDiscInputId = null; // set per-modal; null = no overall discount
 let GEN_CART_PRICE_FIELD = 'price'; // 'price' for sales-return, 'cost' for purchases
 function genCartAdd(pid){
-  const p = CACHE.products.find(x=>x.id===pid); if(!p) return;
+  const p = (CACHE.allProducts||CACHE.products||[]).find(x=>x.id===pid) || CACHE.products.find(x=>x.id===pid); if(!p) return;
   const ex = genCart.find(r=>r.product_id===pid);
   const defPrice = GEN_CART_PRICE_FIELD==='cost' ? (p.cost||0) : (p.price||0);
-  if(ex) ex.qty++; else genCart.push({product_id:pid,name:p.name,qty:1,price:defPrice});
+  const defaultQty = p.pack_size > 1 ? p.pack_size : 1;
+  if(ex) ex.qty += defaultQty;
+  else genCart.push({product_id:pid,name:p.name,qty:defaultQty,price:defPrice,disc:0,disc_amount:0,description:'',warehouse_id:null});
   renderGenCart();
 }
 function renderGenCart(){
   const rowsEl=el('genCartRows'); if(!rowsEl) return;
-  rowsEl.innerHTML = genCart.map((r,i)=>`
-    <div class="cart-row">
-      <span class="cn">${esc(r.name)}</span>
-      <input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" onchange="genCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);renderGenCart()">
-      <input class="price-in" type="number" value="${r.price}" onchange="genCart[${i}].price=+this.value||0;renderGenCart()">
-      <button class="rm" onclick="genCart.splice(${i},1);renderGenCart()">×</button>
-    </div>`).join('') || '<div class="muted" style="padding:14px;text-align:center">ردیفی اضافه نشده</div>';
+  const showLineDisc=canAccounting();
+  const countEl=el('poCartCount'); if(countEl) countEl.textContent=fmt(genCart.length)+' ردیف';
+  const colSpan=showLineDisc?8:6;
+  const priceLabel = GEN_CART_PRICE_FIELD==='cost' ? 'بهای خرید (ریال)' : 'فی (ریال)';
+  if(!genCart.length){
+    rowsEl.innerHTML=`<div class="inv-lines-empty">ردیفی اضافه نشده — کالا را از جستجو انتخاب کنید</div>`;
+  } else {
+    rowsEl.innerHTML = `<table class="inv-lines-tbl"><thead><tr>
+      <th>کالا</th>
+      <th class="col-qty">تعداد</th>
+      <th class="col-price">${priceLabel}</th>
+      ${showLineDisc?`<th class="col-disc">تخفیف ٪</th><th class="col-disc-amt">تخفیف مبلغ</th>`:''}
+      <th class="col-wh">انبار مقصد</th>
+      <th class="col-sum">جمع ردیف</th>
+      <th class="col-rm"></th>
+    </tr></thead><tbody>${genCart.map((r,i)=>{
+      const gross=r.qty*r.price;
+      const lineDisc=showLineDisc?(r.disc||0):0;
+      const discAmtFixed=showLineDisc?(r.disc_amount||0):0;
+      const lineDiscAmt=Math.round(gross*lineDisc/100)+discAmtFixed;
+      const lineSum=Math.max(0,gross-lineDiscAmt);
+      return `
+      <tr>
+        <td class="cn">${esc(r.name)}</td>
+        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" onchange="genCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);renderGenCart()"></td>
+        <td class="col-price"><input type="number" value="${r.price}" onchange="genCart[${i}].price=+this.value||0;renderGenCart()"></td>
+        ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" value="${r.disc||0}" onchange="genCart[${i}].disc=Math.min(100,Math.max(0,+this.value||0));renderGenCart()"></td>
+        <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" onchange="genCart[${i}].disc_amount=Math.max(0,Math.round(+this.value||0));renderGenCart()"></td>`:''}
+        <td class="col-wh"><select onchange="genCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض فاکتور</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select></td>
+        <td class="col-sum mono">${fmt(lineSum)}</td>
+        <td class="col-rm"><button type="button" class="rm" title="حذف" onclick="genCart.splice(${i},1);renderGenCart()">×</button></td>
+      </tr>
+      <tr class="desc-row"><td colspan="${colSpan}"><input type="text" placeholder="توضیحات ردیف (اختیاری)" value="${esc(r.description||'')}" onchange="genCart[${i}].description=this.value"></td></tr>`;
+    }).join('')}</tbody></table>`;
+  }
   const totEl=el('genCartTot'); if(!totEl) return;
-  const subtotal=genCart.reduce((a,r)=>a+r.qty*r.price,0);
+  const subtotal=genCart.reduce((a,r)=>{
+    const gross=r.qty*r.price;
+    const lineDiscAmt=showLineDisc?Math.round(gross*(r.disc||0)/100)+(r.disc_amount||0):0;
+    return a+Math.max(0,gross-lineDiscAmt);
+  },0);
+  const freight = (typeof moneyVal==='function' && el('po-freight')) ? moneyVal('po-freight') : 0;
   if(genCartDiscInputId){
     const discPct=+el(genCartDiscInputId)?.value||0;
     const discAmt=Math.round(subtotal*discPct/100);
     totEl.innerHTML = `
-      <div class="l"><span>جمع کل:</span><span class="mono">${fmt(subtotal)} ریال</span></div>
-      <div class="l"><span>تخفیف (${fmt(discPct)}٪):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
-      <div class="l final"><span>نهایی:</span><span class="mono">${fmt(subtotal-discAmt)} ریال</span></div>`;
+      <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
+      <div class="l"><span>تخفیف کل فاکتور (${fmt(discPct)}٪):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
+      ${freight?`<div class="l"><span>کرایه حمل:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
+      <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(subtotal-discAmt+freight)} ریال</span></div>`;
   } else {
     totEl.innerHTML = `<div class="l final"><span>جمع:</span><span class="mono">${fmt(subtotal)} ریال</span></div>`;
   }
@@ -9043,7 +9120,7 @@ async function purchaseInvoiceModal(){
           <option value="credit">نسیه (حساب باز)</option><option value="cash">نقد</option>
           <option value="cheque">چک</option><option value="bank_transfer">واریز بانکی</option></select></div>
         <div class="fg"><label>تخفیف (٪)</label><input id="po-disc" type="number" value="0" oninput="renderGenCart()"></div>
-        <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="po-freight" type="text" inputmode="numeric" class="money" value="0"></div>
+        <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="po-freight" type="text" inputmode="numeric" class="money" value="0" oninput="renderGenCart()"></div>
         <div class="fg"><label>نوع کرایه</label><select id="po-freight-type"><option value="">—</option><option value="buyer">بر عهده خریدار</option><option value="seller">بر عهده فروشنده</option></select></div>
         <div class="fg"><label>سرشکن کرایه</label><select id="po-freight-alloc">
           <option value="amount">به نسبت مبلغ</option>
@@ -9060,11 +9137,23 @@ async function purchaseInvoiceModal(){
         <div class="fg" id="po-cc-wrap" style="display:none"><label>دسته چک</label><select id="po-checkcat"><option value="">—</option></select></div>
         <div class="fg full"><label>یادداشت</label><input id="po-note"></div>
       </div>
+      <div id="poChequeFields" style="display:none">
+        <div class="form-grid" style="margin-bottom:14px">
+          <div class="fg"><label>مدت چک (روز)</label><input id="po-cheque-dur" type="number" value=""></div>
+          <div class="fg"><label>تاریخ سررسید</label><input id="po-cheque-due" data-jdate value=""></div>
+          <div class="fg full"><label>اطلاعات چک</label><input id="po-cheque-info" placeholder="بانک، شماره صیادی، …"></div>
+        </div>
+      </div>
       <div class="inv-layout">
-        <div>${genProductSearchHtml()}</div>
+        <div>${genProductSearchHtml()}
+          <button type="button" class="btn sm ghost" style="width:100%;margin-top:8px" onclick="openBarcodeScanner(function(code){ const p=(CACHE.allProducts||CACHE.products||[]).find(x=>(x.barcode&&String(x.barcode)===String(code))||(x.code&&String(x.code)===String(code))); if(p) genCartAdd(p.id); else showToast('کالا با این بارکد یافت نشد','error'); })">📷 اسکن بارکد</button>
+        </div>
         <div class="inv-cart">
-          <h4 style="color:var(--purple);margin-bottom:10px">اقلام خرید</h4>
-          <div id="genCartRows"></div>
+          <div class="inv-cart-head">
+            <h4>📦 اقلام فاکتور خرید</h4>
+            <span class="inv-cart-meta" id="poCartCount">0 ردیف</span>
+          </div>
+          <div class="inv-lines-wrap" id="genCartRows"></div>
           <div class="cart-tot" id="genCartTot"></div>
         </div>
       </div>
@@ -9083,16 +9172,18 @@ function togglePoBankFields(){
   const bankWrap=el('po-bank-wrap'); if(bankWrap) bankWrap.style.display=(pt==='credit'||pt==='cash')?'none':'flex';
   const cashboxWrap=el('po-cashbox-wrap'); if(cashboxWrap) cashboxWrap.style.display=pt==='cash'?'flex':'none';
   const ccWrap=el('po-cc-wrap'); if(ccWrap) ccWrap.style.display=pt==='cheque'?'flex':'none';
+  const chq=el('poChequeFields'); if(chq) chq.style.display=pt==='cheque'?'':'none';
   if(pt==='cheque') updateCheckCategoryOptions('po');
 }
 async function savePurchaseInvoice(){
   const supplier_id=+el('po-supplier').value;
   if(!supplier_id){ showToast('تأمین‌کننده را انتخاب کنید','error'); return; }
   if(!genCart.length){ showToast('حداقل یک ردیف اضافه کنید','error'); return; }
+  const pay_type=el('po-paytype').value;
   try{
     await api('POST','/purchases',{
       supplier_id, date:el('po-date').value, note:el('po-note').value,
-      disc:+el('po-disc').value||0, pay_type:el('po-paytype').value,
+      disc:+el('po-disc').value||0, pay_type,
       bank_id:+el('po-bank')?.value||null,
       cash_box_id:+el('po-cashbox')?.value||null,
       check_category_id:+el('po-checkcat')?.value||null,
@@ -9102,7 +9193,14 @@ async function savePurchaseInvoice(){
       freight_type:el('po-freight-type')?.value||'',
       freight_alloc_method:el('po-freight-alloc')?.value||'amount',
       vat_exempt:el('po-vat-exempt')?.checked?1:0,
-      rows: genCart.map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}))
+      cheque_duration: pay_type==='cheque' ? (el('po-cheque-dur')?.value||'') : '',
+      cheque_due_date: pay_type==='cheque' ? (el('po-cheque-due')?.value||'') : '',
+      cheque_info: pay_type==='cheque' ? (el('po-cheque-info')?.value||'') : '',
+      rows: genCart.map(r=>({
+        product_id:r.product_id, qty:r.qty, price:r.price,
+        disc:r.disc||0, disc_amount:r.disc_amount||0,
+        description:r.description||'', warehouse_id:r.warehouse_id||null
+      }))
     });
     closeModal(); showToast('فاکتور خرید ثبت شد'); loadAccTab('purchases');
   }catch(e){}
@@ -14158,17 +14256,18 @@ function renderAdminGuide(){
       <div class="tip">کد محصول باید منحصربه‌فرد باشد — از آن برای جستجوی سریع در فاکتورساز استفاده کنید.</div>
       <div class="tip">صفحه ERP محصولات فقط مشاهده است؛ مدیریت کامل در حسابداری → کالاها.</div>`),
     helpSec('🧾','فاکتور',`
-      <p>صدور پیش‌فاکتور و فاکتور رسمی.</p>
+      <p>صدور پیش‌فاکتور و فاکتور رسمی. بخش <b>اقلام</b> جدول حرفه‌ای با سرستون است و حدود ۳ برابر بزرگ‌تر نمایش داده می‌شود.</p>
       <h5>صدور فاکتور</h5><ul>
         <li>مشتری را انتخاب کنید</li>
         <li>محصولات را از کاتالوگ جستجو و اضافه کنید — ثبت/ویرایش کالا فقط از حسابداری → کالاها (مدیر/حسابدار می‌توانند در فاکتور «ساخت کالای جدید» بزنند)</li>
         <li><b>کانال فروش</b> به‌صورت خودکار از نقش کاربر ثبت‌کننده تعیین می‌شود (میدانی/تلفنی) — فیلد دستی در فرم فاکتور نیست</li>
         <li>کنار هر محصول <b>موجودی لحظه‌ای انبار</b> نمایش داده می‌شود (با کم‌شدن تعداد رزروشده در سبد فاکتور، عدد بلافاصله به‌روز می‌شود؛ قرمز = ناموجود، نارنجی = رو به اتمام)</li>
-        <li>تعداد و قیمت هر ردیف را تنظیم کنید</li>
+        <li>در جدول اقلام: تعداد، فی، تخفیف٪/مبلغی، انبار ردیف، جمع ردیف و توضیحات</li>
         <li>درصد تخفیف کل فاکتور را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور رسمی</li>
+        <li><b>فاکتور خرید</b> همان الگوی جدول اقلام را دارد (بهای خرید، تخفیف ردیف، انبار مقصد، چک، کرایه، بارکد)</li>
       </ul>
-      <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، یک فیلد تخفیف درصدی جداگانه فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلد را اصلاً نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
+      <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، فیلدهای تخفیف درصدی و مبلغی فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلدها را نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
       <h5>چاپ</h5><p>از دکمه «چاپ» روی صفحه نمایش فاکتور استفاده کنید. تنها فاکتور چاپ می‌شود، بقیه رابط کاربری پنهان می‌شود.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
     helpSec('💬','پیام‌ها (رابط شبیه تلگرام)',`
