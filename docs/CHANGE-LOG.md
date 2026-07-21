@@ -42,6 +42,17 @@
 
 ## تاریخچه
 
+### ۱۴۰۵/۰۴/۳۰ — [Claude Code] 🤖 اسکیل ساخت/عیب‌یابی APK اندروید برای Cursor (منطبق بر nodejs-mobile واقعی)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت
+- **خلاصه:** مالک یک راهنمای ژنریک «ساخت APK با Cursor» (فرض Kotlin/Jetpack Compose/Hilt/Room/Retrofit/Gradle-KTS/multi-module) داد که کاملاً با اندروید این پروژه ناسازگار است. آن را به `docs/skills/android-apk-taranom.md` تبدیل کردم — منطبق بر معماری واقعی. **فقط اسکیل/سند؛ هیچ کدی تغییر نکرد.**
+  - توصیه‌های نیتیو خنثی شد: اندروید ترنم **WebView + nodejs-mobile** است (سرور `server/` روی گوشی با `SYNC_ROLE=device`)، `MainActivity.java` + WebView، دیتابیس **better-sqlite3 (NDK)**، **Groovy** Gradle — نه Compose/Kotlin/Room/Hilt.
+  - واقعیت‌ها مستند شد: `ir.taranom.crm`، versionCode 15/2.0.13، compileSdk 36/target 34/min 24، ndk 25.1، ABIs arm64/armv7/x86_64، امضا از `keystore.properties` (خارج git).
+  - **باگ‌های واقعیِ ثبت‌شده و رفعشان**: BOM در local.properties (WriteAllText بدون BOM)، Duplicate resources از `.gz/.br` (حذف قبل بیلد)، nested 300MB APK (خارج‌کردن APK قبلی)، صفحهٔ سفید بوت (poll ۱۰ دقیقه‌ای)، کرش `process.exit` (2.0.12)، `dlopen` V8/RTLD_GLOBAL better-sqlite3 (2.0.13)، ps1 فقط ASCII، تأیید ELF.
+  - سیاست ساخت/توزیع: فقط `scripts/build-android.ps1`؛ APK به `releases/` محلی، **هرگز scp به production**؛ APK در git نه.
+- **فایل‌های کلیدی:** `docs/skills/android-apk-taranom.md`
+- **Deploy:** — (فقط اسکیل/سند).
+
 ### ۱۴۰۵/۰۴/۳۰ — [Claude Code] 🎨 اسکیل طراحی UI برای Cursor (منطبق بر تک‌فایل/RTL/تم پروژه)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت
