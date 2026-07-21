@@ -12,8 +12,8 @@ android {
         applicationId "ir.taranom.crm"
         minSdk 24
         targetSdk 34
-        versionCode 15
-        versionName "2.0.13"
+        versionCode 20
+        versionName "2.0.18"
 
         ndk {
             // ABIs shipped by nodejs-mobile
@@ -186,9 +186,23 @@ tasks.register('copyBetterSqlite3Jni') {
 tasks.register('copyServerSources', Copy) {
     doFirst { delete file('src/main/assets/nodejs-project/server') }
     from(file('../../server')) {
+        // Keep APK lean and avoid CompressAssets failures (spaces in paths,
+        // huge mahak xlsx, test scripts). Runtime never needs these on-device.
         exclude 'node_modules/**', 'backups/**', '*.db', '*.db-wal', '*.db-shm', '.env',
                 'public/uploads/**',
-                'public/releases/**'
+                'public/releases/**',
+                'uploads/**',
+                'scripts/test-*.js',
+                'scripts/test-*.mjs',
+                'scripts/*mahak*',
+                'scripts/import-mahak*',
+                'scripts/verify-mahak*',
+                'scripts/seed-*.js',
+                'lib/mahak-import.js',
+                'lib/mahak-import-helpers.js',
+                'mahak-*.md',
+                '**/*.xlsx',
+                '**/*.xls'
     }
     into file('src/main/assets/nodejs-project/server')
 }

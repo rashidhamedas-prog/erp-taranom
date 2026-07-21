@@ -15,8 +15,14 @@ add_library(node SHARED IMPORTED)
 set_target_properties(node PROPERTIES IMPORTED_LOCATION
         ${LIBNODE_DIR}/bin/${ANDROID_ABI}/libnode.so)
 
+# Pull better-sqlite3 into the same linker namespace as native-lib/libnode.
+# File must have SONAME=libbetter_sqlite3.so and DT_NEEDED=libnode.so.
+add_library(better_sqlite3 SHARED IMPORTED)
+set_target_properties(better_sqlite3 PROPERTIES IMPORTED_LOCATION
+        ${LIBNODE_DIR}/bin/${ANDROID_ABI}/libbetter_sqlite3.so)
+
 target_link_options(native-lib PRIVATE "-Wl,-z,max-page-size=16384")
 
 # Prefer shared STL so the packaged libc++_shared.so (copied by Gradle
 # copyLibcxxShared) satisfies both native-lib and libnode on Android 15+.
-target_link_libraries(native-lib node android log c++_shared)
+target_link_libraries(native-lib node better_sqlite3 android log c++_shared)

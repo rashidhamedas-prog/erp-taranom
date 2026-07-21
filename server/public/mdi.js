@@ -29,13 +29,30 @@
     const bar = document.getElementById('mdiTaskbar');
     if (!bar) return;
     const list = [...wins.values()];
-    if (!list.length) { bar.hidden = true; bar.innerHTML = ''; return; }
+    if (!list.length) { bar.hidden = true; bar.innerHTML = ''; syncTaskbarSpace(); return; }
     bar.hidden = false;
     bar.innerHTML = list.map((w) =>
       `<button type="button" class="mdi-task ${w.minimized ? 'min' : ''} ${w.id === WinMgr.focusedId ? 'active' : ''}" onclick="WinMgr.focus(${w.id})" title="${escAttr(w.title)}">${escHtml(w.title)}</button>`
     ).join('') +
       `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.cascade()" title="چینش پنجره‌ها">⧉</button>` +
       `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.toggleMode()" title="خاموش/روشن حالت پنجره">${enabled() ? '🗔' : '📄'}</button>`;
+    syncTaskbarSpace();
+    requestAnimationFrame(syncTaskbarSpace);
+  }
+
+  /** ارتفاع واقعی نوار پایین را به CSS می‌دهد تا پنجره‌ها/مودال‌ها زیر آن نروند */
+  function syncTaskbarSpace() {
+    const bar = document.getElementById('mdiTaskbar');
+    const h = (bar && !bar.hidden) ? Math.ceil(bar.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--mdi-taskbar-h', h + 'px');
+    document.body.classList.toggle('has-mdi-taskbar', h > 0);
+  }
+
+  if (!global.__mdiTaskbarResizeBound) {
+    global.__mdiTaskbarResizeBound = true;
+    window.addEventListener('resize', () => {
+      try { syncTaskbarSpace(); } catch (_) {}
+    });
   }
 
   function escHtml(s) {
@@ -92,7 +109,7 @@
       const id = ++seq;
       const offset = (wins.size % 8) * 28;
       const el = document.createElement('div');
-      el.className = 'mdi-win';
+      el.className = 'mdi-win mdi-maximized';
       el.dataset.winId = String(id);
       el.style.zIndex = String(++zTop);
       el.style.left = (40 + offset) + 'px';
@@ -102,7 +119,7 @@
           <span class="mdi-title">${escHtml(title)}</span>
           <div class="mdi-controls">
             <button type="button" title="کوچک کردن" onclick="WinMgr.minimize(${id})">─</button>
-            <button type="button" title="بزرگ/عادی" onclick="WinMgr.toggleMax(${id})">☐</button>
+            <button type="button" class="mdi-max-btn" title="بازگرداندن از تمام‌صفحه" onclick="WinMgr.toggleMax(${id})">❐</button>
             <button type="button" class="mdi-close" title="بستن" onclick="WinMgr.close(${id})">×</button>
           </div>
         </div>
@@ -111,7 +128,7 @@
       makeDraggable(el, el.querySelector('.mdi-titlebar'));
       el.addEventListener('mousedown', () => this.focus(id));
       const body = el.querySelector('.mdi-body');
-      const rec = { id, key, title, el, body, minimized: false, maximized: false, page: key };
+      const rec = { id, key, title, el, body, minimized: false, maximized: true, page: key };
       wins.set(id, rec);
       this.focus(id);
       updateTaskbar();
@@ -146,6 +163,11 @@
       if (!w) return;
       w.maximized = !w.maximized;
       w.el.classList.toggle('mdi-maximized', w.maximized);
+      const maxBtn = w.el.querySelector('.mdi-max-btn');
+      if (maxBtn) {
+        maxBtn.title = w.maximized ? 'بازگرداندن از تمام‌صفحه' : 'تمام‌صفحه';
+        maxBtn.textContent = w.maximized ? '❐' : '☐';
+      }
       this.focus(id);
     },
     close(id) {

@@ -32,15 +32,24 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `8563ec8` + `3821d1b` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v50` |
-| اندروید | **`2.0.18`** (versionCode 20) — **توزیع محلی فقط** |
+| آخرین commit | `82d6970` Update 11 + اندروید 2.0.18 (در حال push) |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v52` |
+| اندروید | **`2.0.18`** (versionCode 20) — **توزیع محلی فقط** · import محک لغو |
 | وضعیت سرور | ✅ ایران `94.249.244.208` — PM2=`erp-taranom`، دامنه `https://erp.poshaktaranom.com` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۵/۰۴/۳۰ — [Cursor] اندروید 2.0.18 + لغو کامل import محک
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:**
+  - **لغو import محک:** `server/lib/mahak-import.js` فقط stub لغو؛ اسکریپت‌ها/xlsx محک از APK حذف؛ بدون `MAHAK_IMPORT_DIR` روی اندروید.
+  - **اندروید ۲.۰.۱۸:** dlopen SQLite از `nativeLibraryDir`، `preloadSqliteNative`، TMPDIR قابل‌نوشتن در dataDir، پچ thirty-two، exclude تست/xlsx، adm-zip برای backup، MDI taskbar spacing، SW v52.
+- **فایل‌های کلیدی:** `android/**`, `scripts/build-android.ps1`, `scripts/test-android-apk.ps1`, `server/lib/mahak-import.js`, `manifest.json`, `mdi.js`, `sw.js`
+- **Deploy:** ⏳ APK محلی ۲.۰.۱۸ — نصب فقط از فایل محلی
 
 ### ۱۴۰۵/۰۴/۳۰ — [Cursor] Update 11 — حسابداری/تولید/انبار + سینک جداول جدید
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

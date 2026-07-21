@@ -31,8 +31,10 @@ process.exit = (code) => {
   writeFail(msg);
 };
 
-// Prefer the JNI-packaged lib (pageSizeCompat / extracted under nativeLibraryDir),
-// then fall back to assets prebuilt copies.
+// Install better-sqlite3 native binding.
+// CRITICAL on Android: process.dlopen MUST use the file under nativeLibraryDir
+// (same folder as libnode.so) so DT_NEEDED=libnode.so resolves. A copy under
+// files/nodejs-project/... fails with missing V8 HandleScope symbols.
 function ensureBetterSqlite3Native() {
   const destDir = path.join(__dirname, 'node_modules', 'better-sqlite3', 'build', 'Release');
   const dest = path.join(destDir, 'better_sqlite3.node');
@@ -68,7 +70,6 @@ function ensureBetterSqlite3Native() {
       fs.closeSync(fd);
       const sha = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
       const magic = buf.slice(0, 4).toString('hex');
-      // ELF DT_NEEDED scan (best-effort): look for ASCII "libnode.so"
       const asStr = buf.toString('binary');
       return {
         path: p,
@@ -84,70 +85,71 @@ function ensureBetterSqlite3Native() {
   }
   // #endregion
 
-  const jniCandidates = [];
-  if (nativeLibDir) {
-    jniCandidates.push(path.join(nativeLibDir, 'libbetter_sqlite3.so'));
-    jniCandidates.push(path.join(nativeLibDir, 'better_sqlite3.node'));
+  const jniSo = nativeLibDir ? path.join(nativeLibDir, 'libbetter_sqlite3.so') : '';
+  const jniNode = nativeLibDir ? path.join(nativeLibDir, 'better_sqlite3.node') : '';
+  let loadPath = null;
+  let sourceLabel = null;
+
+  if (jniSo && fs.existsSync(jniSo)) {
+    loadPath = jniSo;
+    sourceLabel = 'JNI';
+  } else if (jniNode && fs.existsSync(jniNode)) {
+    loadPath = jniNode;
+    sourceLabel = 'JNI-node';
   }
 
-  // #region agent log
-  let nativeLibListing = [];
-  try {
-    if (nativeLibDir && fs.existsSync(nativeLibDir)) {
-      nativeLibListing = fs.readdirSync(nativeLibDir).filter((n) => /node|sqlite|c\+\+/i.test(n));
+  if (!loadPath) {
+    const archToAbi = {
+      arm64: 'arm64-v8a',
+      arm: 'armeabi-v7a',
+      ia32: 'armeabi-v7a',
+      x64: 'x86_64',
+    };
+    const abi = archToAbi[process.arch];
+    const prebuiltRoot = path.join(__dirname, 'node_modules', 'better-sqlite3', 'prebuilt', 'android');
+    const candidates = abi ? [abi] : [];
+    for (const name of ['arm64-v8a', 'armeabi-v7a', 'x86_64']) {
+      if (!candidates.includes(name)) candidates.push(name);
     }
-  } catch { /* ignore */ }
-  agentLog('B', 'boot native inventory', {
-    arch: process.arch,
-    node: process.version,
-    modules: process.versions && process.versions.modules,
-    nativeLibDir: nativeLibDir || null,
-    nativeLibListing,
-    jniMetas: jniCandidates.map(fileMeta),
-  });
-  // #endregion
+    for (const name of candidates) {
+      const p = path.join(prebuiltRoot, name, 'better_sqlite3.node');
+      if (fs.existsSync(p)) { loadPath = p; sourceLabel = 'assets:' + name; break; }
+    }
+  }
+  if (!loadPath) {
+    throw new Error(`better_sqlite3 native module missing (arch=${process.arch}, nativeLibDir=${nativeLibDir || 'none'})`);
+  }
 
-  for (const p of jniCandidates) {
-    if (p && fs.existsSync(p)) {
-      fs.copyFileSync(p, dest);
+  // Keep a copy where bindings() looks, but ALWAYS dlopen loadPath (JNI dir).
+  fs.copyFileSync(loadPath, dest);
+
+  const Module = require('module');
+  const origNodeLoader = Module._extensions['.node'];
+  Module._extensions['.node'] = function patchedNodeLoader(module, filename) {
+    const norm = String(filename || '').replace(/\\/g, '/');
+    if (norm.endsWith('/better_sqlite3.node') || norm.endsWith('/libbetter_sqlite3.so')) {
+      logBoot(`dlopen better_sqlite3 via ${sourceLabel}: ${loadPath}`);
       // #region agent log
-      agentLog('B', 'picked JNI better_sqlite3', { source: fileMeta(p), dest: fileMeta(dest) });
+      agentLog('F', 'dlopen redirect to nativeLibraryDir', {
+        requested: filename,
+        loadPath,
+        meta: fileMeta(loadPath),
+      });
       // #endregion
-      logBoot(`better-sqlite3 ready: JNI ${p} (${fs.statSync(dest).size} bytes)`);
-      return;
+      return process.dlopen(module, loadPath);
     }
-  }
-
-  const archToAbi = {
-    arm64: 'arm64-v8a',
-    arm: 'armeabi-v7a',
-    ia32: 'armeabi-v7a',
-    x64: 'x86_64',
+    return origNodeLoader(module, filename);
   };
-  const abi = archToAbi[process.arch];
-  const prebuiltRoot = path.join(__dirname, 'node_modules', 'better-sqlite3', 'prebuilt', 'android');
-  const candidates = abi ? [abi] : [];
-  for (const name of ['arm64-v8a', 'armeabi-v7a', 'x86_64']) {
-    if (!candidates.includes(name)) candidates.push(name);
-  }
-  let src = null;
-  let pickedAbi = null;
-  for (const name of candidates) {
-    const p = path.join(prebuiltRoot, name, 'better_sqlite3.node');
-    if (fs.existsSync(p)) { src = p; pickedAbi = name; break; }
-  }
-  if (!src) {
-    throw new Error(`better_sqlite3 native module missing (arch=${process.arch}, tried ${candidates.join(', ')})`);
-  }
-  fs.copyFileSync(src, dest);
+
   // #region agent log
-  agentLog('B', 'picked assets better_sqlite3', {
-    pickedAbi,
-    source: fileMeta(src),
+  agentLog('F', 'better_sqlite3 load path ready', {
+    sourceLabel,
+    loadPath: fileMeta(loadPath),
     dest: fileMeta(dest),
+    mentions_libnode: fileMeta(loadPath).mentions_libnode,
   });
   // #endregion
-  logBoot(`better-sqlite3 ready: assets ${pickedAbi} via arch=${process.arch} (${fs.statSync(dest).size} bytes)`);
+  logBoot(`better-sqlite3 ready: ${sourceLabel} load=${loadPath} (${fs.statSync(loadPath).size} bytes, libnode=${fileMeta(loadPath).mentions_libnode})`);
 }
 
 process.on('uncaughtException', (err) => {
@@ -179,11 +181,18 @@ try {
 
   process.env.SYNC_ROLE = 'device';
   process.env.APP_PLATFORM = 'android';
-  process.env.APP_VERSION = '2.0.13';
+  process.env.APP_VERSION = '2.0.18';
   process.env.PORT = port;
   process.env.LISTEN_HOST = '127.0.0.1';
   process.env.DB_PATH = path.join(dataDir, 'crm.db');
   process.env.UPLOADS_DIR = path.join(dataDir, 'uploads');
+  // Android sandbox: /tmp from os.tmpdir() is not writable (EACCES).
+  const tmpDir = path.join(dataDir, 'tmp');
+  fs.mkdirSync(tmpDir, { recursive: true });
+  fs.mkdirSync(process.env.UPLOADS_DIR, { recursive: true });
+  process.env.TMPDIR = tmpDir;
+  process.env.TMP = tmpDir;
+  process.env.TEMP = tmpDir;
   process.env.JWT_SECRET = getOrCreateSecret(dataDir);
 
   // #region agent log

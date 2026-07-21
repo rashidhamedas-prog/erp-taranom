@@ -16,32 +16,58 @@
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 // Android loads JNI deps with RTLD_LOCAL, so V8/Node symbols inside libnode.so
-// are invisible to later process.dlopen("better_sqlite3.node"). Promote libnode
-// to RTLD_GLOBAL before any native addon load (JaneaSystems/nodejs-mobile#70).
-static void promoteLibnodeGlobal() {
+// are invisible to later process.dlopen("better_sqlite3.node") unless the
+// addon has DT_NEEDED=libnode.so AND is opened from the app nativeLibraryDir.
+static void promoteLibnodeGlobal(const char *nativeLibDir) {
     dlerror();
-    void *h = dlopen("libnode.so", RTLD_NOLOAD | RTLD_GLOBAL);
-    if (!h) {
-        h = dlopen("libnode.so", RTLD_NOW | RTLD_GLOBAL);
+    void *h = nullptr;
+    if (nativeLibDir && nativeLibDir[0]) {
+        std::string full = std::string(nativeLibDir) + "/libnode.so";
+        h = dlopen(full.c_str(), RTLD_NOW | RTLD_GLOBAL);
+        if (!h) {
+            ALOGE("dlopen(%s) failed: %s", full.c_str(), dlerror());
+        } else {
+            ALOGI("dlopen full libnode ok handle=%p", h);
+        }
     }
     if (!h) {
-        ALOGE("promoteLibnodeGlobal failed: %s", dlerror());
+        h = dlopen("libnode.so", RTLD_NOLOAD | RTLD_GLOBAL);
+        if (!h) h = dlopen("libnode.so", RTLD_NOW | RTLD_GLOBAL);
+        if (!h) ALOGE("promoteLibnodeGlobal failed: %s", dlerror());
+        else ALOGI("promoteLibnodeGlobal ok handle=%p", h);
+    }
+}
+
+static void preloadBetterSqlite3(const char *nativeLibDir) {
+    if (!nativeLibDir || !nativeLibDir[0]) return;
+    dlerror();
+    std::string full = std::string(nativeLibDir) + "/libbetter_sqlite3.so";
+    void *h = dlopen(full.c_str(), RTLD_NOW | RTLD_GLOBAL);
+    if (!h) {
+        ALOGE("preload better_sqlite3 failed: %s", dlerror());
     } else {
-        ALOGI("promoteLibnodeGlobal ok handle=%p", h);
+        ALOGI("preload better_sqlite3 ok handle=%p path=%s", h, full.c_str());
     }
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_ir_taranom_crm_MainActivity_promoteNodeSymbols(
         JNIEnv * /* env */, jobject /* this */) {
-    promoteLibnodeGlobal();
+    promoteLibnodeGlobal(nullptr);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_ir_taranom_crm_MainActivity_preloadSqliteNative(
+        JNIEnv *env, jobject /* this */, jstring nativeLibDirJs) {
+    const char *dir = env->GetStringUTFChars(nativeLibDirJs, nullptr);
+    promoteLibnodeGlobal(dir);
+    preloadBetterSqlite3(dir);
+    env->ReleaseStringUTFChars(nativeLibDirJs, dir);
 }
 
 extern "C" JNIEXPORT jobject JNICALL
 Java_ir_taranom_crm_MainActivity_startNodeWithArguments(
         JNIEnv *env, jobject /* this */, jobjectArray arguments) {
-
-    promoteLibnodeGlobal();
 
     jsize argc = env->GetArrayLength(arguments);
 
@@ -67,6 +93,11 @@ Java_ir_taranom_crm_MainActivity_startNodeWithArguments(
         env->ReleaseStringUTFChars(js, cs);
         env->DeleteLocalRef(js);
     }
+
+    // argv: [0]=node [1]=main.js [2]=dataDir [3]=port [4]=nativeLibDir
+    const char *nativeLibDir = (argc >= 5) ? argv[4] : nullptr;
+    promoteLibnodeGlobal(nativeLibDir);
+    preloadBetterSqlite3(nativeLibDir);
 
     int result = node::Start(argc, argv);
 

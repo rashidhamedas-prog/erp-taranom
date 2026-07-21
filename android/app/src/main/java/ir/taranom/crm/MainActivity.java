@@ -51,6 +51,9 @@ public class MainActivity extends Activity {
     /** Re-dlopen libnode with RTLD_GLOBAL so better-sqlite3 can resolve V8 symbols. */
     public native void promoteNodeSymbols();
 
+    /** Absolute-path dlopen of libnode + libbetter_sqlite3 in the app linker namespace. */
+    public native void preloadSqliteNative(String nativeLibDir);
+
     private WebView webView;
     private volatile boolean nodeLaunchRequested = false;
     private File dataDir;
@@ -139,25 +142,39 @@ public class MainActivity extends Activity {
             System.loadLibrary("c++_shared");
             System.loadLibrary("node");
             System.loadLibrary("native-lib");
-            // Must run after native-lib is mapped so JNI promoteNodeSymbols exists.
+            String nativeLibDir = getApplicationInfo().nativeLibraryDir;
             try {
                 promoteNodeSymbols();
             } catch (UnsatisfiedLinkError e) {
                 Log.w(TAG, "promoteNodeSymbols unavailable", e);
             }
             try {
-                // Pre-map SQLite native module via APK jniLibs (pageSizeCompat applies).
-                // Requires libnode RTLD_GLOBAL or DT_NEEDED=libnode (see native-lib.cpp).
-                System.loadLibrary("better_sqlite3");
-            } catch (UnsatisfiedLinkError ignored) {
-                Log.w(TAG, "libbetter_sqlite3 not preloaded — Node will load from assets copy");
+                preloadSqliteNative(nativeLibDir != null ? nativeLibDir : "");
+            } catch (UnsatisfiedLinkError e) {
+                Log.w(TAG, "preloadSqliteNative unavailable", e);
+            }
+            try {
+                // Absolute path: resolves DT_NEEDED=libnode.so against sibling jniLibs.
+                if (nativeLibDir != null) {
+                    File sqliteSo = new File(nativeLibDir, "libbetter_sqlite3.so");
+                    if (sqliteSo.isFile()) {
+                        System.load(sqliteSo.getAbsolutePath());
+                        Log.i(TAG, "System.load better_sqlite3 ok: " + sqliteSo.getAbsolutePath());
+                    } else {
+                        System.loadLibrary("better_sqlite3");
+                    }
+                } else {
+                    System.loadLibrary("better_sqlite3");
+                }
+            } catch (UnsatisfiedLinkError e) {
+                Log.e(TAG, "libbetter_sqlite3 preload failed", e);
             }
             nativeReady = true;
         } catch (UnsatisfiedLinkError e) {
             Log.e(TAG, "Native library load failed", e);
             showErrorPage("کتابخانهٔ داخلی بارگذاری نشد",
                     (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())
-                            + "\n\nنسخهٔ ۲.۰.۱۳ به‌بعد را نصب کنید."
+                            + "\n\nنسخهٔ ۲.۰.۱۶ به‌بعد را نصب کنید."
                             + "\nاپ قبلی را حذف و APK جدید را دوباره نصب کنید.");
             return;
         }
@@ -289,7 +306,7 @@ public class MainActivity extends Activity {
                 String line;
                 while ((line = br.readLine()) != null) {
                     lines.addLast(line);
-                    while (lines.size() > 12) lines.removeFirst();
+                    while (lines.size() > 40) lines.removeFirst();
                 }
                 for (String l : lines) sb.append(l).append('\n');
             }

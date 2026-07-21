@@ -72,7 +72,9 @@ if (-not (Test-Path $bsPrebuilt)) {
   & (Join-Path $Root 'scripts\build-better-sqlite3-android.ps1')
   if ($LASTEXITCODE -ne 0) { throw 'build-better-sqlite3-android.ps1 failed' }
 }
-if (-not (Test-Path (Join-Path $npDir 'node_modules\express'))) {
+if (-not (Test-Path (Join-Path $npDir 'node_modules\express')) -or
+    -not (Test-Path (Join-Path $npDir 'node_modules\adm-zip\package.json')) -or
+    -not (Test-Path (Join-Path $npDir 'node_modules\thirty-two\lib\thirty-two\index.js'))) {
   Write-Host '==> npm install (nodejs-project assets)...'
   Push-Location $npDir
   npm install --omit=dev
@@ -87,11 +89,17 @@ Get-ChildItem -Path $npDir -Recurse -Filter '*.gz' -File -ErrorAction SilentlyCo
 Get-ChildItem -Path $npDir -Recurse -Filter '*.br' -File -ErrorAction SilentlyContinue | Remove-Item -Force
 
 # --- prune node_modules bloat (speeds first-launch extraction on low-RAM phones) ---
+# IMPORTANT: never delete package runtime .js under lib/ — thirty-two ships code in
+# lib/thirty-two/*.js and a broken root index.js that used to hide missing files.
 Write-Host '==> Pruning node_modules for Android assets...'
-$prunePatterns = @('*.md', '*.markdown', '*.map', '*.ts', '*.flow', 'CHANGELOG*', 'README*', 'LICENSE*', 'test', 'tests', '__tests__', 'docs', 'example', 'examples')
+$prunePatterns = @('*.md', '*.markdown', '*.map', '*.ts', '*.flow', 'CHANGELOG*', 'README*', 'LICENSE*', 'LICENSE.txt', 'test', 'tests', '__tests__', 'docs', 'example', 'examples', 'spec')
 foreach ($pat in $prunePatterns) {
   Get-ChildItem -Path (Join-Path $npDir 'node_modules') -Recurse -Include $pat -Force -ErrorAction SilentlyContinue |
-    Where-Object { $_.PSIsContainer -or $true } |
+    Where-Object {
+      # Keep runtime JS; only prune docs/tests metadata
+      if (-not $_.PSIsContainer -and $_.Extension -in @('.js', '.cjs', '.mjs', '.node')) { return $false }
+      return $true
+    } |
     ForEach-Object {
       try {
         if ($_.PSIsContainer) { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
@@ -99,6 +107,33 @@ foreach ($pat in $prunePatterns) {
       } catch { }
     }
 }
+
+# Guard critical packages after prune
+$mustExist = @(
+  'node_modules\thirty-two\lib\thirty-two\index.js',
+  'node_modules\thirty-two\lib\thirty-two\thirty-two.js',
+  'node_modules\express\package.json',
+  'node_modules\otplib\package.json',
+  'node_modules\adm-zip\package.json'
+)
+foreach ($rel in $mustExist) {
+  $p = Join-Path $npDir $rel
+  if (-not (Test-Path $p)) { throw "Android assets missing after prune: $rel" }
+}
+
+# Upstream thirty-two@1.0.2 root index.js requires missing ./lib/base32 — patch every build
+$thirtyIdx = Join-Path $npDir 'node_modules\thirty-two\index.js'
+$thirtyPatch = @'
+/* thirty-two root shim for Android embed — see scripts/build-android.ps1 */
+module.exports = require('./lib/thirty-two/');
+'@
+[IO.File]::WriteAllText($thirtyIdx, $thirtyPatch)
+
+Write-Host '==> Smoke-require otplib + thirty-two + adm-zip...'
+Push-Location $npDir
+node -e "require('thirty-two'); require('otplib'); require('adm-zip'); console.log('deps-ok')"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Android asset dependency smoke test failed' }
+Pop-Location
 
 # --- local.properties (UTF8 *without* BOM - java.util.Properties cannot read a BOM'd key) ---
 $localProps = Join-Path $Android 'local.properties'
@@ -135,6 +170,13 @@ $apkRelease = Join-Path $Android 'app\build\outputs\apk\release\app-release.apk'
 $apkUnsigned = Join-Path $Android 'app\build\outputs\apk\release\app-release-unsigned.apk'
 if (Test-Path $apkRelease) { Remove-Item $apkRelease -Force }
 if (Test-Path $apkUnsigned) { Remove-Item $apkUnsigned -Force }
+
+# Stale mergeReleaseAssets can leave deleted files referenced -> CompressAssets fails
+$assetsMerge = Join-Path $Android 'app\build\intermediates\assets'
+if (Test-Path $assetsMerge) {
+  Write-Host '==> Cleaning stale mergeReleaseAssets...'
+  Remove-Item $assetsMerge -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host '==> assembleRelease (this may take several minutes)...'
 & .\gradlew.bat assembleRelease --no-daemon --rerun-tasks

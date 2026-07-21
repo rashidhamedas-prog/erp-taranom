@@ -63,9 +63,20 @@ if ($main) {
   $sr = New-Object IO.StreamReader($main.Open())
   $txt = $sr.ReadToEnd(); $sr.Close()
   Assert ($txt -match 'ensureBetterSqlite3Native') 'main.js has sqlite path fix'
-  Assert ($txt -match "APP_VERSION = '2.0.12'") 'main.js version 2.0.12'
+  Assert ($txt -match "APP_VERSION = '2.0.18'") 'main.js version 2.0.18'
+  Assert ($txt -match 'TMPDIR') 'main.js sets writable TMPDIR on Android'
+  Assert ($txt -notmatch 'MAHAK_IMPORT_DIR') 'main.js has no Mahak import (cancelled)'
   Assert ($txt -match 'blocked process\.exit|never call process\.exit|Do NOT process\.exit') 'main.js blocks process.exit on Android'
   Assert ($txt -match 'LISTEN_HOST') 'main.js binds localhost'
+}
+
+# 4b) otplib / thirty-two must ship runtime lib (prune once wiped these)
+foreach ($p in @(
+  'assets/nodejs-project/node_modules/thirty-two/lib/thirty-two/index.js',
+  'assets/nodejs-project/node_modules/thirty-two/lib/thirty-two/thirty-two.js',
+  'assets/nodejs-project/node_modules/otplib/package.json'
+)) {
+  Assert ($zip.Entries | Where-Object { $_.FullName -eq $p }) $p
 }
 
 # 6) native-lib JNI bridge per ABI
@@ -77,6 +88,15 @@ foreach ($abi in 'arm64-v8a', 'armeabi-v7a', 'x86_64') {
 
 # 5) Size sanity (nested APK builds were ~340MB; healthy ~120-200MB)
 Assert ($size -lt 250MB) "APK size under 250MB (got $([math]::Round($size/1MB))MB)"
+
+# 7) No mahak / xlsx / test scripts (import cancelled; spaces broke CompressAssets)
+$bad = @($zip.Entries | Where-Object {
+  $_.FullName -match 'uploads/mahak|mahak-import|scripts/test-|import-mahak|full data\.xlsx|\.xlsx$'
+})
+Assert ($bad.Count -eq 0) "no mahak/test/xlsx junk in assets ($($bad.Count) found)"
+
+# 8) adm-zip present (backup.js lazy-requires it)
+Assert ($zip.Entries | Where-Object { $_.FullName -eq 'assets/nodejs-project/node_modules/adm-zip/package.json' }) 'adm-zip package present'
 
 $zip.Dispose()
 if ($fail -gt 0) { throw "$fail assertion(s) failed" }
