@@ -35,7 +35,7 @@
 | آخرین commit | `147efa2` — boot/invoice/stocktaking/portal v2 |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v54` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ نیاز به pull روی ایران |
+| وضعیت سرور | ✅ ایران `94.249.244.208` — PM2=`erp-taranom`، SW `v54`، commit `b04a062` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
