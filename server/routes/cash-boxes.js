@@ -28,12 +28,14 @@ router.get('/balances', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { name, custodian, is_petty_cash } = req.body;
+  const { name, custodian, is_petty_cash, currency, is_foreign } = req.body;
   if (!name) return res.status(400).json({ error: 'نام صندوق الزامی است' });
   const db = getDB();
+  const cur = String(currency || 'IRR').toUpperCase();
+  const foreign = is_foreign ? 1 : (cur !== 'IRR' ? 1 : 0);
   const result = db.prepare(
-    'INSERT INTO cash_boxes (name,custodian,is_petty_cash) VALUES (?,?,?)'
-  ).run(name, custodian || '', is_petty_cash ? 1 : 0);
+    'INSERT INTO cash_boxes (name,custodian,is_petty_cash,currency,is_foreign) VALUES (?,?,?,?,?)'
+  ).run(name, custodian || '', is_petty_cash ? 1 : 0, cur, foreign);
   try { const cc = allocTafsili(db, 'cashbox', name); if (cc) db.prepare('UPDATE cash_boxes SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
   const box = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(result.lastInsertRowid);
   syncCashBoxAccount(db, box);
@@ -45,10 +47,12 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { name, custodian, active, is_petty_cash } = req.body;
-  db.prepare('UPDATE cash_boxes SET name=?,custodian=?,active=?,is_petty_cash=? WHERE id=?')
+  const { name, custodian, active, is_petty_cash, currency, is_foreign } = req.body;
+  const cur = currency != null ? String(currency).toUpperCase() : (row.currency || 'IRR');
+  const foreign = is_foreign != null ? (is_foreign ? 1 : 0) : (row.is_foreign || (cur !== 'IRR' ? 1 : 0));
+  db.prepare('UPDATE cash_boxes SET name=?,custodian=?,active=?,is_petty_cash=?,currency=?,is_foreign=? WHERE id=?')
     .run(name || row.name, custodian ?? row.custodian, active != null ? (active ? 1 : 0) : row.active,
-         is_petty_cash != null ? (is_petty_cash ? 1 : 0) : row.is_petty_cash, req.params.id);
+         is_petty_cash != null ? (is_petty_cash ? 1 : 0) : row.is_petty_cash, cur, foreign, req.params.id);
   const updated = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
   syncCashBoxAccount(db, updated); // keep the linked ledger account's name in sync on rename
   audit(req.user.id, 'update', 'cash_box', req.params.id, `ویرایش صندوق ${updated.name}`);

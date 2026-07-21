@@ -2029,6 +2029,14 @@ function initSyncSchema(db) {
     throw e;
   }
 
+  // Update 11 — decimals, FX, tafsili2, positions, pricing, warehouse flags, stocktake counts
+  try {
+    require('./lib/update11-schema').initUpdate11Schema(db);
+  } catch (e) {
+    console.error('❌ update11 schema init failed:', e.message);
+    throw e;
+  }
+
   // Second pass — tables created above in this function (parties, fiscal_years, production, …).
   ensureSyncColumnsForAllTables(db);
   if (!isDevice()) {
@@ -2335,8 +2343,8 @@ function createJournalEntry(db, opts) {
     const lineStmt = db.prepare(`
       INSERT INTO journal_lines (
         entry_id,account_code,account_name,debit,credit,description,line_no,detail_account_id,
-        debit_rial,credit_rial,cost_center_id,project_id,tax_type
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        debit_rial,credit_rial,cost_center_id,project_id,tax_type,tafsili2_code
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `);
     let lineNo = 0;
     for (const line of (lines || [])) {
@@ -2348,7 +2356,8 @@ function createJournalEntry(db, opts) {
         line.detail_account_id || null,
         line.debit_rial != null ? line.debit_rial : Math.round(dr * 10),
         line.credit_rial != null ? line.credit_rial : Math.round(cr * 10),
-        line.cost_center_id || null, line.project_id || null, line.tax_type || null
+        line.cost_center_id || null, line.project_id || null, line.tax_type || null,
+        line.tafsili2_code || null
       );
     }
     return entryId;

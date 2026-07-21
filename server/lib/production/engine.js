@@ -678,6 +678,13 @@ function postReceiptFixed(db, { orderId, body, userId }) {
       orderId, qty: qtyGood, unitCostRial: unitCost, netRial: wipNet,
     });
 
+    if (qtyGood > 0 && unitCost > 0) {
+      try {
+        const { applyPricingFromCost } = require('../../routes/pricing-rules');
+        applyPricingFromCost(db, po.product_id, unitCost);
+      } catch (e) { console.warn('pricing_rules:', e.message); }
+    }
+
     return {
       ok: true,
       receipt_id: receiptId,
@@ -1363,6 +1370,13 @@ function postReceiptVariable(db, { orderId, body, userId }) {
       abnormalRial, scrapCredit, wipNet, unitCost,
       body.is_partial ? 'in_progress' : 'completed', date, period, orderId
     );
+
+    if (qtyGood > 0 && unitCost > 0) {
+      try {
+        const { applyPricingFromCost } = require('../../routes/pricing-rules');
+        applyPricingFromCost(db, po.product_id, unitCost);
+      } catch (e) { console.warn('pricing_rules:', e.message); }
+    }
 
     return {
       ok: true,

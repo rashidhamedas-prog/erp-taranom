@@ -5,6 +5,7 @@ const { todayJalali } = require('../jalali');
 const { postInventoryMovement, warehouseQty, invErr } = require('../lib/inventory/ledger');
 const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
+const { parseQty } = require('../lib/round3');
 
 
 // Stock overview — all warehouses with product quantities
@@ -49,19 +50,21 @@ router.get('/', auth, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { name, address, code, entity, warehouse_type, cost_center_id, is_default } = req.body;
+  const { name, address, code, entity, warehouse_type, cost_center_id, is_default, allow_negative, costing_method } = req.body;
   if (!name) return res.status(400).json({ error: 'نام انبار الزامی است' });
   const db = getDB();
   const whCode = code || ('WH-' + Date.now().toString(36).toUpperCase());
   const result = db.prepare(`
-    INSERT INTO warehouses (name,address,code,entity,warehouse_type,cost_center_id,is_default)
-    VALUES (?,?,?,?,?,?,?)
+    INSERT INTO warehouses (name,address,code,entity,warehouse_type,cost_center_id,is_default,allow_negative,costing_method)
+    VALUES (?,?,?,?,?,?,?,?,?)
   `).run(
     name, address || '', whCode,
     entity || 'distribution_office',
     warehouse_type || 'finished_goods',
     cost_center_id ? parseInt(cost_center_id, 10) : null,
-    is_default ? 1 : 0
+    is_default ? 1 : 0,
+    allow_negative ? 1 : 0,
+    costing_method || null
   );
   audit(req.user.id, 'create', 'warehouse', result.lastInsertRowid, `ساخت انبار ${name}`);
   res.json(db.prepare('SELECT * FROM warehouses WHERE id=?').get(result.lastInsertRowid));
@@ -71,9 +74,9 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM warehouses WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { name, address, active, entity, warehouse_type, cost_center_id, is_default, code } = req.body;
+  const { name, address, active, entity, warehouse_type, cost_center_id, is_default, code, allow_negative, costing_method } = req.body;
   db.prepare(`
-    UPDATE warehouses SET name=?,address=?,active=?,entity=?,warehouse_type=?,cost_center_id=?,is_default=?,code=?
+    UPDATE warehouses SET name=?,address=?,active=?,entity=?,warehouse_type=?,cost_center_id=?,is_default=?,code=?,allow_negative=?,costing_method=?
     WHERE id=?
   `).run(
     name || row.name, address ?? row.address,
@@ -83,6 +86,8 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
     cost_center_id != null ? (cost_center_id ? parseInt(cost_center_id, 10) : null) : row.cost_center_id,
     is_default != null ? (is_default ? 1 : 0) : (row.is_default || 0),
     code || row.code || null,
+    allow_negative != null ? (allow_negative ? 1 : 0) : (row.allow_negative || 0),
+    costing_method !== undefined ? (costing_method || null) : (row.costing_method || null),
     req.params.id
   );
   audit(req.user.id, 'update', 'warehouse', req.params.id, `ویرایش انبار ${name || row.name}`);
@@ -125,7 +130,7 @@ router.get('/moves/list', auth, adminOrAccounting, (req, res) => {
 
 router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
   const { product_id, warehouse_id, qty, date, note, unit_cost_rial, batch_id } = req.body;
-  const q = parseInt(qty);
+  const q = parseQty(qty);
   if (!product_id || !warehouse_id || !q || q <= 0) return res.status(400).json({ error: 'کالا، انبار و تعداد معتبر الزامی است' });
   const db = getDB();
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
@@ -165,7 +170,7 @@ router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
 
 router.post('/moves/issue', auth, adminOrAccounting, (req, res) => {
   const { product_id, warehouse_id, qty, date, note, batch_id } = req.body;
-  const q = parseInt(qty);
+  const q = parseQty(qty);
   if (!product_id || !warehouse_id || !q || q <= 0) return res.status(400).json({ error: 'کالا، انبار و تعداد معتبر الزامی است' });
   const db = getDB();
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
@@ -205,7 +210,7 @@ router.post('/moves/issue', auth, adminOrAccounting, (req, res) => {
 
 router.post('/moves/transfer', auth, adminOrAccounting, (req, res) => {
   const { product_id, from_warehouse_id, to_warehouse_id, qty, date, note } = req.body;
-  const q = parseInt(qty);
+  const q = parseQty(qty);
   if (!product_id || !from_warehouse_id || !to_warehouse_id) return res.status(400).json({ error: 'کالا، انبار مبدأ و مقصد الزامی است' });
   if (!q || q <= 0) return res.status(400).json({ error: 'تعداد انتقال معتبر الزامی است' });
   if (String(from_warehouse_id) === String(to_warehouse_id)) return res.status(400).json({ error: 'انبار مبدأ و مقصد نمی‌تواند یکسان باشد' });
@@ -318,7 +323,7 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
       let totalAmountRial = 0;
       for (const line of lines) {
         const product_id = parseInt(line.product_id, 10);
-        const qty = parseInt(line.qty, 10);
+        const qty = parseQty(line.qty);
         if (!product_id || !qty || qty <= 0) throw invErr('E_INV_QTY', 400);
         const product = db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
         if (!product) throw invErr('E_PRODUCT_NOT_FOUND', 404);

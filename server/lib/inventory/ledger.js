@@ -11,12 +11,29 @@ function setting(db, key, fallback = '') {
   return r?.value != null ? r.value : fallback;
 }
 
-function allowNegative(db) {
+function allowNegative(db, warehouseId) {
+  if (warehouseId) {
+    const wh = db.prepare('SELECT allow_negative FROM warehouses WHERE id=?').get(warehouseId);
+    if (wh && wh.allow_negative) return true;
+  }
   return setting(db, 'inventory_allow_negative', '0') === '1'
     || setting(db, 'production_allow_negative_stock', '0') === '1';
 }
 
-function costingMethod(db) {
+function costingMethod(db, opts = {}) {
+  const scope = setting(db, 'costing_scope', 'global');
+  if (scope === 'per-product' && opts.productId) {
+    const p = db.prepare('SELECT costing_method FROM products WHERE id=?').get(opts.productId);
+    if (p?.costing_method) return p.costing_method;
+  }
+  if ((scope === 'per-warehouse' || scope === 'per-product') && opts.warehouseId) {
+    const w = db.prepare('SELECT costing_method FROM warehouses WHERE id=?').get(opts.warehouseId);
+    if (w?.costing_method) return w.costing_method;
+  }
+  if (opts.productId) {
+    const p = db.prepare('SELECT costing_method FROM products WHERE id=?').get(opts.productId);
+    if (p?.costing_method && p.costing_method !== 'moving_average') return p.costing_method;
+  }
   return setting(db, 'inventory_costing_method', 'moving_average');
 }
 
@@ -83,8 +100,9 @@ function applyStockDelta(db, { productId, warehouseId, qtyDelta }) {
   const qtyBefore = Number(prod.stock) || 0;
   const avgBefore = Math.round(Number(prod.average_cost_rial) || 0);
   const qtyAfter = qtyBefore + qtyDelta;
+  const allowNeg = allowNegative(db, warehouseId);
 
-  if (qtyAfter < -1e-9 && !allowNegative(db)) {
+  if (qtyAfter < -1e-9 && !allowNeg) {
     throw invErr('E_NEGATIVE_STOCK', 409, {
       product_id: productId,
       name: prod.name,
@@ -93,13 +111,14 @@ function applyStockDelta(db, { productId, warehouseId, qtyDelta }) {
     });
   }
 
-  db.prepare('UPDATE products SET stock=? WHERE id=?').run(Math.max(0, qtyAfter), productId);
+  const stockStored = allowNeg ? qtyAfter : Math.max(0, qtyAfter);
+  db.prepare('UPDATE products SET stock=? WHERE id=?').run(stockStored, productId);
 
   if (warehouseId) {
     ensureWhRow(db, productId, warehouseId);
     const whBefore = warehouseQty(db, productId, warehouseId);
-    const whAfter = Math.max(0, whBefore + qtyDelta);
-    if (whAfter < -1e-9 && !allowNegative(db)) {
+    const whAfter = whBefore + qtyDelta;
+    if (whAfter < -1e-9 && !allowNeg) {
       throw invErr('E_NEGATIVE_STOCK', 409, {
         product_id: productId,
         warehouse_id: warehouseId,
@@ -107,15 +126,16 @@ function applyStockDelta(db, { productId, warehouseId, qtyDelta }) {
         needed: Math.abs(qtyDelta),
       });
     }
+    const whStored = allowNeg ? whAfter : Math.max(0, whAfter);
     db.prepare(
       'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'
-    ).run(whAfter, productId, warehouseId);
+    ).run(whStored, productId, warehouseId);
     if (qtyDelta > 0 && (!prod.warehouse_id || prod.warehouse_id === warehouseId)) {
       db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(warehouseId, productId);
     }
   }
 
-  return { qtyBefore, qtyAfter: Math.max(0, qtyAfter), avgBefore, product: prod };
+  return { qtyBefore, qtyAfter: stockStored, avgBefore, product: prod };
 }
 
 /**
@@ -200,7 +220,8 @@ function postInventoryMovement(db, opts) {
   }
 
   // FIFO / specific cost layers (optional path)
-  if (costingMethod(db) !== 'moving_average' && !skipStock) {
+  const method = costingMethod(db, { productId, warehouseId });
+  if (method !== 'moving_average' && !skipStock) {
     const { applyCostLayerIn, applyCostLayerOut } = require('./costing');
     if (qtyIn > 0) {
       applyCostLayerIn(db, {
@@ -210,12 +231,12 @@ function postInventoryMovement(db, opts) {
     }
     if (qtyOut > 0) {
       const layered = applyCostLayerOut(db, {
-        productId, warehouseId, qty: qtyOut, method: costingMethod(db),
+        productId, warehouseId, qty: qtyOut, method,
       });
       amount = layered.amountRial;
       unit = qtyOut > 0 ? Math.round(amount / qtyOut) : unit;
     }
-  } else if (costingMethod(db) === 'moving_average' && qtyIn > 0 && !skipStock) {
+  } else if (method === 'moving_average' && qtyIn > 0 && !skipStock) {
     // Still record a layer for audit / future FIFO switch
     try {
       const { applyCostLayerIn } = require('./costing');

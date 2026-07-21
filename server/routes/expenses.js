@@ -28,11 +28,20 @@ router.get('/categories', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/categories', auth, adminOrAccounting, (req, res) => {
-  const { name, code, account_code } = req.body;
+  const { name, code, account_code, coa_code, parent_id } = req.body;
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'نام دسته‌بندی الزامی است' });
   const db = getDB();
-  const r = db.prepare('INSERT INTO expense_categories (code,name,account_code) VALUES (?,?,?)')
-    .run(code || null, String(name).trim(), account_code || null);
+  const parentId = parent_id ? parseInt(parent_id, 10) : null;
+  let level = 1;
+  if (parentId) {
+    const parent = db.prepare('SELECT id, level FROM expense_categories WHERE id=?').get(parentId);
+    if (!parent) return res.status(400).json({ error: 'دسته والد یافت نشد' });
+    level = (parent.level || 1) + 1;
+  }
+  const coa = coa_code || account_code || null;
+  const r = db.prepare(
+    'INSERT INTO expense_categories (code,name,account_code,coa_code,parent_id,level) VALUES (?,?,?,?,?,?)'
+  ).run(code || null, String(name).trim(), account_code || coa, coa, parentId, level);
   audit(req.user.id, 'create', 'expense_category', r.lastInsertRowid, name);
   res.json(db.prepare('SELECT * FROM expense_categories WHERE id=?').get(r.lastInsertRowid));
 });
@@ -41,9 +50,26 @@ router.put('/categories/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM expense_categories WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { name, code, account_code, active } = req.body;
-  db.prepare('UPDATE expense_categories SET name=?, code=?, account_code=?, active=? WHERE id=?').run(
-    name || row.name, code ?? row.code, account_code ?? row.account_code,
+  const { name, code, account_code, active, coa_code, parent_id } = req.body;
+  let parentId = row.parent_id;
+  let level = row.level || 1;
+  if (parent_id !== undefined) {
+    parentId = parent_id ? parseInt(parent_id, 10) : null;
+    if (parentId) {
+      if (parentId === parseInt(req.params.id, 10)) return res.status(400).json({ error: 'دسته نمی‌تواند والد خودش باشد' });
+      const parent = db.prepare('SELECT id, level FROM expense_categories WHERE id=?').get(parentId);
+      if (!parent) return res.status(400).json({ error: 'دسته والد یافت نشد' });
+      level = (parent.level || 1) + 1;
+    } else {
+      level = 1;
+    }
+  }
+  const coa = coa_code !== undefined ? (coa_code || null) : (row.coa_code || null);
+  const acc = account_code !== undefined ? (account_code || null) : (row.account_code || coa);
+  db.prepare(
+    'UPDATE expense_categories SET name=?, code=?, account_code=?, coa_code=?, parent_id=?, level=?, active=? WHERE id=?'
+  ).run(
+    name || row.name, code ?? row.code, acc, coa, parentId, level,
     active != null ? (active ? 1 : 0) : row.active, req.params.id
   );
   res.json({ ok: true });

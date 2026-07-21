@@ -112,6 +112,12 @@ const SYNCABLE_TABLES = [
   { name: 'projects',                          upsertKey: 'id' },
   { name: 'report_configurations',             upsertKey: 'id' },
   { name: 'vat_records',                       upsertKey: 'id' },
+
+  // ===== Update 11 — FX / positions / pricing (APPEND-ONLY) =====
+  { name: 'currencies',                        upsertKey: 'code' },
+  { name: 'exchange_rates',                    upsertKey: 'id' },
+  { name: 'person_positions',                  upsertKey: 'id' },
+  { name: 'pricing_rules',                     upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes

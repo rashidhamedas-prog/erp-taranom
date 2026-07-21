@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
+const { parseQty } = require('../lib/round3');
 
 // Consignment goods — ownership stays with the original owner until settled.
 // "out" = we gave our own goods to someone else to sell on our behalf (they
@@ -33,7 +34,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const { direction, party_name, party_phone, product_id, qty, unit_price, date, note, status } = req.body;
   if (!direction || !['in', 'out'].includes(direction)) return res.status(400).json({ error: 'جهت امانت (نزد ما/نزد دیگری) الزامی است' });
   if (!party_name) return res.status(400).json({ error: 'نام طرف حساب الزامی است' });
-  const q = parseInt(qty);
+  const q = parseQty(qty);
   const initialStatus = ['open', 'settled', 'returned'].includes(status) ? status : 'open';
   if (!product_id || !q || q <= 0) return res.status(400).json({ error: 'کالا و تعداد معتبر الزامی است' });
   const db = getDB();

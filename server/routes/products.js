@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { allocTafsili } = require('../lib/coa-map');
+const { parseQty } = require('../lib/round3');
 const jwt = require('jsonwebtoken');
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, adminOrAccounting, centralOnly, SECRET, requirePermission } = require('../middleware/auth');
@@ -50,16 +51,7 @@ async function saveImage(buffer, originalName) {
 }
 const memUpload = multer({ storage: multer.memoryStorage() });
 
-function canSeeAllProductGroups(user) {
-  return user.role === 'admin' || user.role === 'accounting';
-}
-
-function addProductGroupVisibility(user, where, params, alias = 'p', categoryAlias = 'pc') {
-  if (!canSeeAllProductGroups(user)) {
-    where.push(`(${alias}.category_id IS NULL OR ${categoryAlias}.id IS NULL OR ${categoryAlias}.is_shared=1 OR ${categoryAlias}.created_by=?)`);
-    params.push(user.id);
-  }
-}
+// Update 11 / B1: گروه‌های کالا سراسری‌اند — فیلتر دیده‌شدن گروه حذف شد.
 
 // GET /  — products are GLOBAL: every authenticated user can read all.
 // Filtering: ?category=&search=&stock_status=low|ok|all  (FIXED)
@@ -67,7 +59,6 @@ router.get('/', auth, (req, res) => {
   const db = getDB();
   const where = [];
   const params = [];
-  addProductGroupVisibility(req.user, where, params);
 
   const category = (req.query.category || '').trim();
   if (category && category !== 'all') { where.push('p.category = ?'); params.push(category); }
@@ -108,16 +99,12 @@ router.get('/', auth, (req, res) => {
 // routes so GET /categories is never captured as an id (spec 1.0.9 §2 catalog).
 router.get('/categories', auth, (req, res) => {
   const db = getDB();
-  const visibility = canSeeAllProductGroups(req.user) ? '' : ' AND (is_shared=1 OR created_by=?)';
-  const args = visibility ? [req.user.id] : [];
-  const fromTable = db.prepare(`SELECT name FROM product_categories WHERE active=1${visibility} ORDER BY sort_order, name`).all(...args).map(r => r.name);
+  const fromTable = db.prepare(`SELECT name FROM product_categories WHERE active=1 ORDER BY sort_order, name`).all().map(r => r.name);
   const fromLegacy = db.prepare(`
     SELECT DISTINCT p.category FROM products p
-    LEFT JOIN product_categories pc ON pc.id=p.category_id
     WHERE p.category IS NOT NULL AND p.category<>''
-      ${canSeeAllProductGroups(req.user) ? '' : 'AND (p.category_id IS NULL OR pc.id IS NULL OR pc.is_shared=1 OR pc.created_by=?)'}
     ORDER BY p.category
-  `).all(...args).map(r => r.category);
+  `).all().map(r => r.category);
   const seen = new Set();
   res.json([...fromTable, ...fromLegacy].filter(c => { if (seen.has(c)) return false; seen.add(c); return true; }));
 });
@@ -127,13 +114,9 @@ router.get('/by-barcode/:code', auth, (req, res) => {
   const db = getDB();
   const code = String(req.params.code || '').trim();
   if (!code) return res.status(400).json({ error: 'کد الزامی است' });
-  const where = ['(p.barcode=? OR p.code=?)'];
-  const params = [code, code];
-  addProductGroupVisibility(req.user, where, params);
   const row = db.prepare(`
-    SELECT p.* FROM products p LEFT JOIN product_categories pc ON pc.id=p.category_id
-    WHERE ${where.join(' AND ')}
-  `).get(...params);
+    SELECT p.* FROM products p WHERE p.barcode=? OR p.code=?
+  `).get(code, code);
   if (!row) return res.status(404).json({ error: 'محصولی با این بارکد یافت نشد' });
   res.json(row);
 });
@@ -145,13 +128,7 @@ router.get('/by-barcode/:code', auth, (req, res) => {
 // change) so the final computed balance always reconciles with reality.
 router.get('/:id/kardex', auth, (req, res) => {
   const db = getDB();
-  const where = ['p.id=?'];
-  const params = [req.params.id];
-  addProductGroupVisibility(req.user, where, params);
-  const product = db.prepare(`
-    SELECT p.* FROM products p LEFT JOIN product_categories pc ON pc.id=p.category_id
-    WHERE ${where.join(' AND ')}
-  `).get(...params);
+  const product = db.prepare(`SELECT p.* FROM products p WHERE p.id=?`).get(req.params.id);
   if (!product) return res.status(404).json({ error: 'محصول یافت نشد' });
 
   // Prefer immutable inventory_ledger when present
@@ -233,13 +210,7 @@ router.get('/:id/labels', (req, res) => {
   catch { return res.status(401).send('توکن نامعتبر — دوباره وارد شوید'); }
   const db = getDB();
   const count = Math.min(50, Math.max(1, parseInt(req.query.count || '12')));
-  const where = ['p.id=?'];
-  const params = [req.params.id];
-  addProductGroupVisibility(tokenUser, where, params);
-  const prod = db.prepare(`
-    SELECT p.* FROM products p LEFT JOIN product_categories pc ON pc.id=p.category_id
-    WHERE ${where.join(' AND ')}
-  `).get(...params);
+  const prod = db.prepare(`SELECT p.* FROM products p WHERE p.id=?`).get(req.params.id);
   if (!prod) return res.status(404).send('محصول یافت نشد');
   if (!prod.barcode) return res.status(400).send('این محصول بارکد ندارد — ابتدا بارکد تولید کنید');
   const escName = String(prod.name || '').replace(/</g, '&lt;');
@@ -296,20 +267,16 @@ router.post('/quick', auth, adminOrAccounting, (req, res) => {
   let catName = category || '';
   let catId = category_id || null;
   if (catId) {
-    const c = canSeeAllProductGroups(req.user)
-      ? db.prepare('SELECT name FROM product_categories WHERE id=?').get(catId)
-      : db.prepare('SELECT name FROM product_categories WHERE id=? AND (is_shared=1 OR created_by=?)').get(catId, req.user.id);
-    if (!c) return res.status(403).json({ error: 'گروه کالا برای این کاربر قابل استفاده نیست' });
+    const c = db.prepare('SELECT name FROM product_categories WHERE id=?').get(catId);
+    if (!c) return res.status(400).json({ error: 'گروه کالا یافت نشد' });
     if (c) catName = c.name;
   } else if (catName) {
-    const c = canSeeAllProductGroups(req.user)
-      ? db.prepare('SELECT id,name FROM product_categories WHERE name=?').get(catName)
-      : db.prepare('SELECT id,name FROM product_categories WHERE name=? AND (is_shared=1 OR created_by=?)').get(catName, req.user.id);
+    const c = db.prepare('SELECT id,name FROM product_categories WHERE name=?').get(catName);
     if (c) { catId = c.id; catName = c.name; }
   }
   const defaultWarehouse = warehouse_id || db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get()?.id || null;
   const prodCode = (code && String(code).trim()) || nextProductCode(db);
-  const openingStock = Math.max(0, parseInt(stock, 10) || 0);
+  const openingStock = Math.max(0, parseQty(stock, 0));
   const pid = db.transaction(() => {
     const result = db.prepare(`
       INSERT INTO products (
@@ -370,7 +337,7 @@ router.post('/', auth, adminOrAccounting, upload.single('image'), async (req, re
       pack_size,warehouse_id,barcode,full_name,product_type,product_index,tax_id,consumer_price,
       location,opening_price,sms_code
     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, parseInt(stock) || 0,
+  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, parseQty(stock),
         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
         parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null,
         (barcode || '').trim() || null, full_name || '', product_type || '', product_index || '', tax_id || '',
@@ -382,7 +349,11 @@ router.post('/', auth, adminOrAccounting, upload.single('image'), async (req, re
   // then wrongly blocks every later sale ("موجودی انبار کافی نیست").
   if (defaultWarehouse) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(result.lastInsertRowid, defaultWarehouse.id, parseInt(stock) || 0);
+      .run(result.lastInsertRowid, defaultWarehouse.id, parseQty(stock));
+  }
+  if (req.body.retail_price != null && req.body.retail_price !== '') {
+    const rp = Math.round(parseFloat(req.body.retail_price) || 0);
+    db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, result.lastInsertRowid);
   }
   // حالت کدینگ محک: تفصیلی اختصاصی کالا (برای سند COGS)
   try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
@@ -414,7 +385,7 @@ router.put('/:id', auth, adminOrAccounting, upload.single('image'), async (req, 
   db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=?,
     full_name=?,product_type=?,product_index=?,tax_id=?,consumer_price=?,location=?,opening_price=?,sms_code=? WHERE id=?`)
     .run(catName, catId, code || '', name || prod.name, parseFloat(price) || 0,
-         cost !== undefined ? (parseFloat(cost) || 0) : (prod.cost || 0), parseInt(stock) || 0,
+         cost !== undefined ? (parseFloat(cost) || 0) : (prod.cost || 0), parseQty(stock),
          parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
          parseInt(colors) || prod.colors || 1, parseInt(pack_size) || prod.pack_size || 1,
          whId, barcode !== undefined ? ((barcode || '').trim() || null) : prod.barcode,
@@ -423,9 +394,13 @@ router.put('/:id', auth, adminOrAccounting, upload.single('image'), async (req, 
          consumer_price !== undefined ? (parseFloat(consumer_price) || 0) : (prod.consumer_price || 0),
          location ?? prod.location ?? '', opening_price !== undefined ? (parseFloat(opening_price) || 0) : (prod.opening_price || 0),
          sms_code ?? prod.sms_code ?? '', req.params.id);
+  if (req.body.retail_price !== undefined) {
+    const rp = Math.round(parseFloat(req.body.retail_price) || 0);
+    db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, req.params.id);
+  }
   if (whId) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(req.params.id, whId, parseInt(stock) || prod.stock || 0);
+      .run(req.params.id, whId, parseQty(stock) || prod.stock || 0);
   }
   audit(req.user.id, 'update', 'product', req.params.id, `ویرایش محصول ${name || prod.name}`);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id));
@@ -438,8 +413,9 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
-  const change = parseInt(stock) - prod.stock;
-  db.prepare('UPDATE products SET stock=? WHERE id=?').run(parseInt(stock), req.params.id);
+  const newStock = parseQty(stock);
+  const change = newStock - (Number(prod.stock) || 0);
+  db.prepare('UPDATE products SET stock=? WHERE id=?').run(newStock, req.params.id);
   // Keep the product's warehouse_stock in step with the manual override so the
   // per-warehouse figure (used by invoice deduction) never drifts from
   // products.stock.
@@ -450,7 +426,7 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
       .run(change, change, req.params.id, prod.warehouse_id);
   }
   db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(req.params.id, req.user.id, change, note || '');
-  res.json({ ok: true, new_stock: parseInt(stock) });
+  res.json({ ok: true, new_stock: newStock });
 });
 
 // Delete (admin only) — cascade stock children; block if used in documents
@@ -538,8 +514,8 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
           normalizeStr(row['کد محصول'] || row['code'] || ''),
           name,
           parseFloat(row['قیمت'] || row['price'] || 0),
-          parseInt(row['موجودی'] || row['stock'] || 0),
-          parseInt(row['هشدار موجودی'] || row['stock_alert'] || 5),
+          parseQty(row['موجودی'] || row['stock'] || 0),
+          parseInt(row['هشدار موجودی'] || row['stock_alert'] || 5) || 5,
           row['واحد'] || row['unit'] || 'عدد',
           parseInt(row['تعداد رنگ'] || row['colors'] || 1),
           parseInt(row['تعداد در پک'] || row['pack_size'] || 1),

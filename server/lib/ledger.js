@@ -53,6 +53,7 @@ function postToLedger(db, opts) {
     cost_center_id: l.cost_center_id || null,
     project_id: l.project_id || null,
     tax_type: l.tax_type || null,
+    tafsili2_code: l.tafsili2_code || null,
   }));
 
   const bal = validateBalancedLines(normalized);
@@ -88,6 +89,7 @@ function postToLedger(db, opts) {
       cost_center_id: l.cost_center_id,
       project_id: l.project_id,
       tax_type: l.tax_type,
+      tafsili2_code: l.tafsili2_code || null,
     })),
     fiscal_year_id: fiscalYearId,
     voucher_type: voucherType,

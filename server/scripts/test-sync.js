@@ -52,7 +52,7 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
   start('central', centralEnv);
   start('devA', { JWT_SECRET: 'a', PORT: '4101', DB_PATH: `${S}/e2e-devA.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
   start('devB', { JWT_SECRET: 'b', PORT: '4102', DB_PATH: `${S}/e2e-devB.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
-  await sleep(3000);
+  await sleep(8000);
 
   let CENTRAL_PASS = 'sync-test-1234';
   let loginC = (await req(C, 'POST', '/api/auth/login', null, { username: 'admin', password: 'admin123' })).body;

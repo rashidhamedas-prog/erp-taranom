@@ -31,7 +31,7 @@ const ACC_TAB_RESOLVE = {
   'acc-payments': 'settlements',
   'acc-cheques-recv': 'cheques',
   'acc-cheques-pay': 'cheque-register',
-  'acc-proforma': 'sales-invoices',
+  'acc-proforma': 'proforma-invoices',
   'acc-sales-invoices': 'sales-invoices',
   'acc-purchases': 'purchases',
   'acc-sales-returns': 'sales-returns',

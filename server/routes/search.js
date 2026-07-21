@@ -29,10 +29,23 @@ router.get('/', auth, (req, res) => {
     if (score > 0) results.push({ type: 'customer', id: c.id, label: c.biz, sub: c.owner || c.phone || '', score, route: 'customers' });
   }
 
-  const products = db.prepare('SELECT id, name, code, barcode FROM products ORDER BY id DESC LIMIT 200').all();
+  const products = db.prepare(`
+    SELECT p.id, p.name, p.code, p.barcode, p.category_id, pc.name as category_name, pc.parent_id,
+      (SELECT name FROM product_categories WHERE id=pc.parent_id) as parent_category_name
+    FROM products p
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    ORDER BY p.id DESC LIMIT 200
+  `).all();
   for (const p of products) {
     const score = Math.max(fuzzyScore(p.name, q), fuzzyScore(p.code, q), fuzzyScore(p.barcode, q));
-    if (score > 0) results.push({ type: 'product', id: p.id, label: p.name, sub: p.code || '', score, route: 'products' });
+    if (score > 0) {
+      const groupLabel = [p.parent_category_name, p.category_name].filter(Boolean).join(' › ');
+      results.push({
+        type: 'product', id: p.id, label: p.name, sub: (p.code || '') + (groupLabel ? ' — ' + groupLabel : ''),
+        score, route: 'acc-products', category_id: p.category_id || null,
+        category_name: p.category_name || null, parent_category_name: p.parent_category_name || null,
+      });
+    }
   }
 
   const invoices = db.prepare(`
@@ -48,6 +61,28 @@ router.get('/', auth, (req, res) => {
       score, route: 'invoices',
     });
   }
+
+  try {
+    const persons = db.prepare(`
+      SELECT p.id, p.name, p.phone, p.category_id, pc.name as category_name,
+        (SELECT name FROM person_categories WHERE id=pc.parent_id) as parent_category_name
+      FROM persons p
+      LEFT JOIN person_categories pc ON pc.id=p.category_id
+      ORDER BY p.id DESC LIMIT 200
+    `).all();
+    for (const p of persons) {
+      const score = Math.max(fuzzyScore(p.name, q), fuzzyScore(p.phone, q));
+      if (score > 0) {
+        const groupLabel = [p.parent_category_name, p.category_name].filter(Boolean).join(' › ');
+        results.push({
+          type: 'person', id: p.id, label: p.name,
+          sub: (p.phone || '') + (groupLabel ? ' — ' + groupLabel : ''),
+          score, route: 'acc-persons', category_id: p.category_id || null,
+          category_name: p.category_name || null, parent_category_name: p.parent_category_name || null,
+        });
+      }
+    }
+  } catch (_) { /* persons table/columns may be missing on old DBs */ }
 
   const navItems = [
     { type: 'page', id: 'dash', label: 'داشبورد', route: 'dash' },

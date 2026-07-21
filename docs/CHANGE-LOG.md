@@ -34,13 +34,21 @@
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
 | آخرین commit | `8563ec8` + `3821d1b` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v50` |
-| اندروید | **`2.0.13`** (versionCode 15) — **توزیع محلی فقط** |
+| اندروید | **`2.0.18`** (versionCode 20) — **توزیع محلی فقط** |
 | وضعیت سرور | ✅ ایران `94.249.244.208` — PM2=`erp-taranom`، دامنه `https://erp.poshaktaranom.com` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### ۱۴۰۵/۰۴/۳۰ — [Cursor] Update 11 — حسابداری/تولید/انبار + سینک جداول جدید
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (در حال push)
+- **خلاصه:** اعمال اسپک Update 11: رفع ناپدید شدن گروه‌های کالا (B1)، جداسازی تب پیش‌فاکتور/فاکتور رسمی (B2)، round3 اعشار، ارز/نرخ (`/api/fx`)، تفصیلی۲ (از UI تا `postToLedger`/`createJournalEntry`)، سمت اشخاص، pricing_rules، فاکتور (توضیحات/تخفیف مبلغی/سرشکن/درآمد)، انبار منفی و costing، انبارگردانی سه‌شمارشی، داشبورد حساب، suggest-child COA، جستجوی omnibox با باز کردن گروه کالا (P5)، سورت/فیلتر عمومی جداول (P4). جداول جدید در انتهای `sync/tables.js`.
+- **فایل‌های کلیدی:** `server/lib/update11-schema.js`, `server/lib/round3.js`, `server/lib/fx-rate.js`, `server/lib/ledger.js`, `server/routes/fx.js`, `server/routes/pricing-rules.js`, `server/routes/invoices.js`, `server/routes/product-categories.js`, `server/routes/search.js`, `server/sync/tables.js`, `server/public/index.html`, `server/public/acc-nav.js`, `server/public/tbl-enhance.js`
+- **Deploy:** ⏳ نیاز به pull
+- **یادداشت:** تسعیر پایان‌دوره (coa_fx_gain/loss) کلید COA آماده است؛ UI تسعیر کامل فاز بعد. قبل از production روی DB زنده بکاپ بگیرید (D1). تست‌ها: `test-update11-schema` + `test-sync` (33) + `test-sms` (22) سبز.
 
 ### ۱۴۰۵/۰۴/۳۰ — [Claude Code] 📝 اسپک جامع بهبود حسابداری/تولید/انبار (۲۳ مورد مالک) برای Cursor
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

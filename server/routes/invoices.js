@@ -32,7 +32,7 @@ function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
     const p = db.prepare('SELECT cost,average_cost_rial,coa_code,name FROM products WHERE id=?').get(r.product_id);
     if (!p || !p.coa_code) continue;
     const unitRial = Number(p.average_cost_rial) > 0 ? Number(p.average_cost_rial) : (Number(p.cost) || 0);
-    const amtRial = Math.round(unitRial * (parseInt(r.qty) || 0));
+    const amtRial = Math.round(unitRial * (parseQty(r.qty) || 0));
     if (amtRial <= 0) continue;
     const amt = rialToLedger(amtRial);
     total += amt;
@@ -61,17 +61,41 @@ function salesJournalLines(db, custId, totals, reverse, opts = {}) {
   const sales = acct(db, 'coa_sales');
   const salesDisc = acct(db, 'coa_sales_discount');
   const vatPay = acct(db, 'coa_vat_payable');
+  const otherIncome = (() => { try { return acct(db, 'coa_other_income'); } catch { return sales; } })();
   const { discAmt, final, vatAmount, netBeforeVat } = totals;
-  // postToLedger expects toman → convert rial document amounts
   const L = rialToLedger;
+
+  // Split product vs income row credits (Update 11 / I4)
+  let incomeCredit = 0;
+  const incomeBuckets = new Map();
+  for (const r of opts.rows || []) {
+    if (r.row_type === 'income') {
+      const code = r.income_coa || otherIncome.code;
+      const name = r.name || otherIncome.name;
+      const amt = Math.round(Number(r.sum) || 0);
+      incomeCredit += amt;
+      const prev = incomeBuckets.get(code) || { code, name, amt: 0 };
+      prev.amt += amt;
+      incomeBuckets.set(code, prev);
+    }
+  }
+  const productCredit = Math.max(0, Math.round(Number(netBeforeVat) || 0) - incomeCredit);
+
   if (!reverse) {
     const jLines = [{ code: recv.code, name: recv.name, debit: L(final), credit: 0 }];
     if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: L(discAmt), credit: 0, description: 'تخفیف فاکتور' });
-    jLines.push({ code: sales.code, name: sales.name, debit: 0, credit: L(netBeforeVat) });
+    if (productCredit > 0) jLines.push({ code: sales.code, name: sales.name, debit: 0, credit: L(productCredit) });
+    for (const b of incomeBuckets.values()) {
+      if (b.amt > 0) jLines.push({ code: b.code, name: b.name, debit: 0, credit: L(b.amt), description: 'درآمد/خدمات' });
+    }
     if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: 0, credit: L(vatAmount), description: 'مالیات بر ارزش افزوده' });
     return jLines;
   }
-  const jLines = [{ code: sales.code, name: sales.name, debit: L(netBeforeVat), credit: 0, description: 'ابطال' }];
+  const jLines = [];
+  if (productCredit > 0) jLines.push({ code: sales.code, name: sales.name, debit: L(productCredit), credit: 0, description: 'ابطال' });
+  for (const b of incomeBuckets.values()) {
+    if (b.amt > 0) jLines.push({ code: b.code, name: b.name, debit: L(b.amt), credit: 0, description: 'ابطال درآمد' });
+  }
   if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: L(vatAmount), credit: 0, description: 'ابطال VAT' });
   if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: 0, credit: L(discAmt), description: 'ابطال تخفیف' });
   jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: L(final) });
@@ -114,30 +138,86 @@ function resolveSalesChannel(req) {
 // Line-item discount is only honored when canDiscount is true — enforced
 // server-side so a non-privileged client can never smuggle a row discount
 // through by editing the request body directly.
-// product_id must be valid.
+// product_id must be valid OR row_type='income' (Update 11 / I4).
+const { parseQty, round3 } = require('../lib/round3');
+
 function buildRows(db, inputRows, canDiscount) {
   const out = [];
   let subtotal = 0;
   for (const r of (inputRows || [])) {
-    const pid = parseInt(r.product_id);
-    if (!pid) throw new Error('هر ردیف باید یک محصول معتبر داشته باشد');
-    const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
-    if (!prod) throw new Error('محصول یافت نشد (شناسه ' + pid + ')');
-    const qty = Math.max(1, parseInt(r.qty) || 1);
-    // Allow price override by anyone (Phase 2: price always editable)
-    let price = prod.price;
-    if (r.price !== undefined && r.price !== null && r.price !== '') {
+    const rowType = r.row_type === 'income' ? 'income' : 'product';
+    const description = String(r.description || '').trim();
+    const qty = Math.max(0.001, parseQty(r.qty, 1));
+    let price = 0;
+    let name = '';
+    let pid = null;
+    let incomeCoa = null;
+
+    if (rowType === 'income') {
+      name = String(r.name || r.description || 'درآمد/خدمات').trim() || 'درآمد/خدمات';
       price = parseFloat(r.price) || 0;
+      incomeCoa = String(r.income_coa || r.coa_code || '').trim() || null;
+    } else {
+      pid = parseInt(r.product_id);
+      if (!pid) throw new Error('هر ردیف باید یک محصول معتبر داشته باشد');
+      const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
+      if (!prod) throw new Error('محصول یافت نشد (شناسه ' + pid + ')');
+      name = prod.name;
+      price = prod.price;
+      if (r.price !== undefined && r.price !== null && r.price !== '') {
+        price = parseFloat(r.price) || 0;
+      }
     }
+
     const disc = canDiscount ? Math.min(100, Math.max(0, parseFloat(r.disc) || 0)) : 0;
+    const discAmount = canDiscount ? Math.max(0, Math.round(parseFloat(r.disc_amount) || 0)) : 0;
     const gross = qty * price;
-    const discAmt = Math.round(gross * disc / 100);
-    const sum = gross - discAmt;
+    const discPctAmt = Math.round(gross * disc / 100);
+    const discAmt = discPctAmt + discAmount;
+    const sum = Math.max(0, Math.round(gross - discAmt));
     subtotal += sum;
     const wh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : null;
-    out.push({ product_id: pid, name: prod.name, qty, price, disc, disc_amt: discAmt, sum, warehouse_id: wh || null });
+    out.push({
+      product_id: pid,
+      row_type: rowType,
+      name,
+      description,
+      qty,
+      price,
+      disc,
+      disc_amount: discAmount,
+      disc_amt: discAmt,
+      sum,
+      warehouse_id: wh || null,
+      income_coa: incomeCoa,
+      allocated_freight: 0,
+    });
   }
   return { rows: out, subtotal };
+}
+
+/** Allocate freight onto product rows (Update 11 / I3). method: amount|qty|equal */
+function allocateFreight(rows, freightAmount, method) {
+  const freight = Math.round(Number(freightAmount) || 0);
+  if (freight <= 0) return rows;
+  const targets = rows.filter(r => r.row_type !== 'income' && r.product_id);
+  if (!targets.length) return rows;
+  const m = method === 'qty' || method === 'equal' ? method : 'amount';
+  let weights;
+  if (m === 'equal') weights = targets.map(() => 1);
+  else if (m === 'qty') weights = targets.map(r => Number(r.qty) || 0);
+  else weights = targets.map(r => Number(r.sum) || 0);
+  const totalW = weights.reduce((a, b) => a + b, 0);
+  if (totalW <= 0) return rows;
+  let allocated = 0;
+  targets.forEach((r, i) => {
+    const share = i === targets.length - 1
+      ? freight - allocated
+      : Math.round(freight * weights[i] / totalW);
+    allocated += share;
+    r.allocated_freight = share;
+  });
+  return rows;
 }
 
 function resolveRowWarehouseId(db, row, headerWarehouseId) {
@@ -151,29 +231,43 @@ function resolveRowWarehouseId(db, row, headerWarehouseId) {
   return any ? any.id : null;
 }
 
+function warehouseAllowsNegative(db, whId) {
+  if (!whId) {
+    const g = db.prepare("SELECT value FROM settings WHERE key='inventory_allow_negative'").get();
+    return g && g.value === '1';
+  }
+  const wh = db.prepare('SELECT allow_negative FROM warehouses WHERE id=?').get(whId);
+  if (wh && wh.allow_negative) return true;
+  const g = db.prepare("SELECT value FROM settings WHERE key='inventory_allow_negative'").get();
+  return g && g.value === '1';
+}
+
 // Deduct stock for each row; returns error message if stock insufficient.
 // Also returns { usedWarehouses: [{id,name}] } via out param on success when 3rd-party wants toast info.
 function deductStock(db, rows, warehouseId, userId, metaOut) {
   const used = new Map();
-  for (const r of rows) {
+  const productRows = (rows || []).filter(r => r.row_type !== 'income' && r.product_id);
+  for (const r of productRows) {
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(r.product_id);
     if (!prod) return `محصول شناسه ${r.product_id} یافت نشد`;
-    if (prod.stock < r.qty) {
+    const whId = resolveRowWarehouseId(db, r, warehouseId);
+    const allowNeg = warehouseAllowsNegative(db, whId);
+    if (!allowNeg && prod.stock < r.qty) {
       return `موجودی ${prod.name} کافی نیست (موجود: ${prod.stock})`;
     }
-    const whId = resolveRowWarehouseId(db, r, warehouseId);
     if (whId) {
       const ws = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(r.product_id, whId);
       const avail = ws ? ws.qty : (prod.warehouse_id === whId ? prod.stock : 0);
-      if (avail < r.qty) {
+      if (!allowNeg && avail < r.qty) {
         const wh = db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId);
         return `موجودی انبار «${wh?.name || whId}» برای ${prod.name} کافی نیست (موجود: ${avail})`;
       }
       used.set(whId, (db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId)?.name) || String(whId));
     }
   }
-  for (const r of rows) {
+  for (const r of productRows) {
     const whId = resolveRowWarehouseId(db, r, warehouseId);
+    const allowNeg = warehouseAllowsNegative(db, whId);
     // Read the product BEFORE decrementing products.stock so the warehouse_stock
     // row can be seeded consistently with the read path's fallback below.
     const prod = db.prepare('SELECT stock, warehouse_id FROM products WHERE id=?').get(r.product_id);
@@ -183,17 +277,18 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
       r.product_id, userId || 0, -r.qty, 'کسر موجودی از فاکتور رسمی' + (whName ? ` (${whName})` : '')
     );
     if (whId) {
-      // A missing warehouse_stock row means the product's home warehouse holds
-      // the full products.stock (same rule the availability check uses above).
-      // Seed the row with that value before deducting, otherwise the first sale
-      // would clamp warehouse stock to 0 while products.stock stays positive.
       const seedQty = (prod && prod.warehouse_id === whId) ? prod.stock : 0;
       db.prepare(`
         INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)
         ON CONFLICT(product_id,warehouse_id) DO NOTHING
       `).run(r.product_id, whId, seedQty);
-      db.prepare('UPDATE warehouse_stock SET qty=CASE WHEN qty-? < 0 THEN 0 ELSE qty-? END WHERE product_id=? AND warehouse_id=?')
-        .run(r.qty, r.qty, r.product_id, whId);
+      if (allowNeg) {
+        db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?')
+          .run(r.qty, r.product_id, whId);
+      } else {
+        db.prepare('UPDATE warehouse_stock SET qty=CASE WHEN qty-? < 0 THEN 0 ELSE qty-? END WHERE product_id=? AND warehouse_id=?')
+          .run(r.qty, r.qty, r.product_id, whId);
+      }
     }
   }
   if (metaOut) metaOut.usedWarehouses = [...used.entries()].map(([id, name]) => ({ id, name }));
@@ -207,12 +302,15 @@ router.get('/', auth, (req, res) => {
   const cols = `i.id,i.num,i.cust_id,i.user_id,i.type,i.date,i.subtotal,i.disc,i.disc_amt,i.final,i.pay_type,
     i.cheque_duration,i.cheque_due_date,i.cheque_info,i.approved,i.converted,i.note,i.created_at,
     i.seller_name,i.mahak_doc_no,i.mahak_doc_type,i.mahak_invoice_code,i.atf_no,i.visitor,i.freight_amount,
-    i.settled_amount,i.balance_due,i.settlement_status,i.delivered`;
+    i.settled_amount,i.balance_due,i.settlement_status,i.delivered,i.freight_alloc_method`;
+  const typeFilter = String(req.query.type || '').trim();
+  const typeSql = (typeFilter === 'proforma' || typeFilter === 'final') ? ' AND i.type=?' : '';
+  const typeArgs = typeSql ? [typeFilter] : [];
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id WHERE COALESCE(i.deleted_at,0)=0 ORDER BY i.created_at DESC`).all();
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id WHERE COALESCE(i.deleted_at,0)=0${typeSql} ORDER BY i.created_at DESC`).all(...typeArgs);
   } else {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? AND COALESCE(i.deleted_at,0)=0 ORDER BY i.created_at DESC`).all(scope);
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? AND COALESCE(i.deleted_at,0)=0${typeSql} ORDER BY i.created_at DESC`).all(scope, ...typeArgs);
   }
   res.json(rows);
 });
@@ -261,7 +359,7 @@ router.get('/:id', auth, (req, res) => {
 
 router.post('/', auth, (req, res) => {
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info,
-    bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, vat_exempt, cost_center_id } = req.body;
+    bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
   let built;
@@ -272,6 +370,8 @@ router.post('/', auth, (req, res) => {
   const discPct = parseFloat(disc) || 0;
   const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vat_exempt });
   const freightRial = Math.round(parseFloat(freight_amount) || 0);
+  const allocMethod = ['amount', 'qty', 'equal'].includes(freight_alloc_method) ? freight_alloc_method : 'amount';
+  allocateFreight(built.rows, freightRial, allocMethod);
   let { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
   final += freightRial;
   netBeforeVat += freightRial;
@@ -279,7 +379,7 @@ router.post('/', auth, (req, res) => {
   const pType = pay_type || 'cash';
   const whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
-  const journalOpts = { payType: pType, bankId: bank_id || null, cashBoxId: cash_box_id || null };
+  const journalOpts = { payType: pType, bankId: bank_id || null, cashBoxId: cash_box_id || null, rows: built.rows };
 
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
   const seller = db.prepare('SELECT name,phone FROM users WHERE id=?').get(req.user.id);
@@ -303,8 +403,8 @@ router.post('/', auth, (req, res) => {
       const result = db.prepare(
         `INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,subtotal_rial,final_rial,vat_amount_rial,
           seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted,sales_channel,lead_source,campaign,
-          bank_id,cash_box_id,check_category_id,warehouse_id,freight_amount,freight_type,vat_exempt,cost_center_id)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          bank_id,cash_box_id,check_category_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).run(req.user.id, cust_id, num, invType, entryDate, note || '',
             JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate,
             Math.round(subtotal), Math.round(final), Math.round(vatAmount),
@@ -312,7 +412,7 @@ router.post('/', auth, (req, res) => {
             pType, cheque_duration || '', cheque_due_date || '', cheque_info || '',
             stockDeducted, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '',
             bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
-            vat_exempt ? 1 : 0, ccId);
+            allocMethod, vat_exempt ? 1 : 0, ccId);
       const invId = result.lastInsertRowid;
 
       if (invType === 'final') {
@@ -380,7 +480,7 @@ router.put('/:id', auth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info, sales_channel, lead_source, campaign,
-    bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, vat_exempt, cost_center_id } = req.body;
+    bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id } = req.body;
   if (row.type === 'final') {
     return res.status(409).json({ error: 'فاکتور رسمی ثبت حسابداری شده است؛ برای اصلاح، آن را ابطال و فاکتور جدید ثبت کنید' });
   }
@@ -394,6 +494,10 @@ router.put('/:id', auth, (req, res) => {
   const discPct = parseFloat(disc) || 0;
   const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vat_exempt });
   const freightRial = Math.round(parseFloat(freight_amount) || 0);
+  const allocMethod = ['amount', 'qty', 'equal'].includes(freight_alloc_method)
+    ? freight_alloc_method
+    : (row.freight_alloc_method || 'amount');
+  allocateFreight(built.rows, freightRial, allocMethod);
   let { subtotal, discAmt, final, vatAmount, vatRate } = totals;
   final += freightRial;
 
@@ -411,14 +515,14 @@ router.put('/:id', auth, (req, res) => {
       }
       db.prepare(`UPDATE invoices SET cust_id=?,type=?,date=?,note=?,rows=?,subtotal=?,disc=?,disc_amt=?,final=?,vat_amount=?,vat_rate=?,
         subtotal_rial=?,final_rial=?,vat_amount_rial=?,pay_type=?,cheque_duration=?,cheque_due_date=?,cheque_info=?,stock_deducted=?,
-        sales_channel=?,lead_source=?,campaign=?,bank_id=?,cash_box_id=?,check_category_id=?,warehouse_id=?,freight_amount=?,freight_type=?,vat_exempt=?,cost_center_id=?
+        sales_channel=?,lead_source=?,campaign=?,bank_id=?,cash_box_id=?,check_category_id=?,warehouse_id=?,freight_amount=?,freight_type=?,freight_alloc_method=?,vat_exempt=?,cost_center_id=?
         WHERE id=?`)
         .run(cust_id, newType, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
              vatAmount, vatRate, Math.round(subtotal), Math.round(final), Math.round(vatAmount),
              pay_type || row.pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
              stockDeducted, resolveSalesChannel(req), lead_source || '', campaign || '',
              bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
-             vat_exempt ? 1 : 0, ccId, req.params.id);
+             allocMethod, vat_exempt ? 1 : 0, ccId, req.params.id);
     })();
   } catch (e) {
     return res.status(400).json({ error: e.message });
@@ -439,6 +543,7 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
     if (row.stock_deducted) {
       const invRows = JSON.parse(row.rows || '[]');
       for (const r of invRows) {
+        if (r.row_type === 'income' || !r.product_id) continue;
         db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
         db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
           r.product_id, req.user.id, r.qty, `بازگشت موجودی از حذف فاکتور ${row.num}`
@@ -469,6 +574,7 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
         description: `ابطال فاکتور ${row.num}`, createdBy: req.user.id,
         lines: salesJournalLines(db, row.cust_id, invTotals, true, {
           payType: row.pay_type || 'credit', bankId: row.bank_id, cashBoxId: row.cash_box_id,
+          rows: JSON.parse(row.rows || '[]'),
         }),
       });
       postCogsVoucher(db, row.id, row.num, todayJalali(), JSON.parse(row.rows || '[]'), req.user.id, true);

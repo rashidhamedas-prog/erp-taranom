@@ -1,8 +1,9 @@
 const router = require('express').Router();
-const { acct: coaAcct } = require('../lib/coa-map');
+const { acct: coaAcct, suggestChildCode, validateChildCode } = require('../lib/coa-map');
 const { DELETED_FILTER, postToLedger } = require('../lib/ledger');
 const { rialToLedger, jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { todayJalali } = require('../jalali');
+const { parseQty } = require('../lib/round3');
 // دریافتنیِ مشتری: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
 function recvAcct(db, custId) {
   const c = custId ? db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId) : null;
@@ -626,24 +627,38 @@ router.get('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
   res.json(accounts);
 });
 
+// D4 — suggest next child COA code under parent
+router.get('/coa/suggest-child', auth, adminOrAccounting, (req, res) => {
+  const parent_code = String(req.query.parent_code || '').trim();
+  if (!parent_code) return res.status(400).json({ error: 'parent_code الزامی است' });
+  const db = getDB();
+  const suggested = suggestChildCode(db, parent_code);
+  if (!suggested) return res.status(404).json({ error: 'حساب والد یافت نشد' });
+  res.json(suggested);
+});
+
 router.post('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
   const { code, name, type, parent_code, level, nature, balance_type, is_cost_element, tafsili_type, is_active } = req.body;
   if (!code || !name || !type) return res.status(400).json({ error: 'کد، نام و نوع حساب الزامی است' });
   const validTypes = ['asset', 'liability', 'equity', 'revenue', 'cogs', 'expense'];
   if (!validTypes.includes(type)) return res.status(400).json({ error: 'نوع حساب نامعتبر است' });
   const db = getDB();
-  const exists = db.prepare('SELECT id FROM chart_of_accounts WHERE code=?').get(String(code).trim());
+  const codeStr = String(code).trim();
+  const exists = db.prepare('SELECT id FROM chart_of_accounts WHERE code=?').get(codeStr);
   if (exists) return res.status(400).json({ error: 'این کد حساب قبلاً ثبت شده' });
   if (parent_code) {
     const parent = db.prepare('SELECT code FROM chart_of_accounts WHERE code=? AND is_active=1').get(parent_code);
     if (!parent) return res.status(400).json({ error: 'حساب والد یافت نشد' });
+    if (!validateChildCode(parent_code, codeStr)) {
+      return res.status(400).json({ error: 'کد فرزند باید با پیشوند کد والد شروع شود' });
+    }
   }
   const result = db.prepare(`
     INSERT INTO chart_of_accounts
       (code,name,type,parent_code,level,nature,balance_type,is_cost_element,tafsili_type,is_active)
     VALUES (?,?,?,?,?,?,?,?,?,?)
   `).run(
-    String(code).trim(), String(name).trim(), type, parent_code || null,
+    codeStr, String(name).trim(), type, parent_code || null,
     level != null ? parseInt(level, 10) || null : null, nature || null, balance_type || null,
     is_cost_element ? 1 : 0, tafsili_type || null, is_active === false || is_active === 0 ? 0 : 1
   );
@@ -910,7 +925,7 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
     const pid = parseInt(r.product_id);
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
     if (!prod) continue;
-    let qty = Math.max(1, parseInt(r.qty) || 1);
+    let qty = Math.max(0.001, parseQty(r.qty, 1));
     let price, disc = 0, discAmt = 0;
     if (invoiceLineMap) {
       const origLine = invoiceLineMap[pid];
@@ -1031,6 +1046,7 @@ function validateAndBuildVoucherLines(db, lines) {
         code: personAccount.code, name: personAccount.name, debit, credit,
         description: l.description || person.name, detail_account_id: l.detail_account_id || null,
         cost_center_id: l.cost_center_id || null, project_id: l.project_id || null, tax_type: l.tax_type || null,
+        tafsili2_code: l.tafsili2_code || null,
       });
       personPostings.push({ person_id: person.id, debit, credit, description: l.description || '' });
     } else {
@@ -1040,6 +1056,7 @@ function validateAndBuildVoucherLines(db, lines) {
         code: acc.code, name: acc.name, debit, credit, description: l.description || '',
         detail_account_id: l.detail_account_id || null, cost_center_id: l.cost_center_id || null,
         project_id: l.project_id || null, tax_type: l.tax_type || null,
+        tafsili2_code: l.tafsili2_code || null,
       });
     }
     totalDebit += debit; totalCredit += credit;
@@ -1200,6 +1217,52 @@ router.delete('/vouchers/:id', auth, adminOrAccounting, requirePermission('accou
   })();
   audit(req.user.id, 'reverse', 'journal_voucher', req.params.id, 'ابطال سند دستی');
   res.json({ ok: true });
+});
+
+// T5 — minimal GL account dashboard (period totals + last 10 entries)
+router.get('/account-dashboard/:code', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const code = String(req.params.code || '').trim();
+  const account = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(code);
+  if (!account) return res.status(404).json({ error: 'حساب یافت نشد' });
+  const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
+  const from = safeDate(req.query.from);
+  const to = safeDate(req.query.to);
+  const dateParts = [];
+  const dateParams = [];
+  if (from) { dateParts.push('je.entry_date >= ?'); dateParams.push(from); }
+  if (to) { dateParts.push('je.entry_date <= ?'); dateParams.push(to); }
+  const dateSql = dateParts.length ? ' AND ' + dateParts.join(' AND ') : '';
+  const totals = db.prepare(`
+    SELECT
+      COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) AS debit_rial,
+      COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS credit_rial
+    FROM journal_lines jl
+    JOIN journal_entries je ON jl.entry_id=je.id
+    WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0${dateSql}
+  `).get(code, ...dateParams);
+  const debitNormal = ['asset', 'expense', 'cogs'].includes(account.type);
+  const debit_rial = Math.round(Number(totals.debit_rial) || 0);
+  const credit_rial = Math.round(Number(totals.credit_rial) || 0);
+  const balance = debitNormal ? (debit_rial - credit_rial) : (credit_rial - debit_rial);
+  const recent = db.prepare(`
+    SELECT je.id, je.entry_date, je.description, je.ref_type, je.ref_id,
+      jl.debit_rial, jl.credit_rial, jl.debit, jl.credit, jl.description AS line_description
+    FROM journal_lines jl
+    JOIN journal_entries je ON jl.entry_id=je.id
+    WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0${dateSql}
+    ORDER BY je.entry_date DESC, je.id DESC
+    LIMIT 10
+  `).all(code, ...dateParams).map(l => ({
+    ...l,
+    debit_rial: jlDebitRial(l),
+    credit_rial: jlCreditRial(l),
+  }));
+  res.json({
+    account,
+    period: { from: from || null, to: to || null, debit_rial, credit_rial, balance },
+    recent_entries: recent,
+  });
 });
 
 // ============================================================

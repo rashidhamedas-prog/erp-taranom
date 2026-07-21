@@ -27,6 +27,8 @@ function createSupplierLedgerEntry(db, { supplier_id, date, entry_type, ref_type
   }
 }
 
+const { parseQty } = require('../lib/round3');
+
 function buildRows(db, inputRows) {
   const out = [];
   let subtotal = 0;
@@ -35,13 +37,42 @@ function buildRows(db, inputRows) {
     if (!pid) throw new Error('هر ردیف باید یک محصول معتبر داشته باشد');
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
     if (!prod) throw new Error('محصول یافت نشد (شناسه ' + pid + ')');
-    const qty = Math.max(1, parseInt(r.qty) || 1);
+    const qty = Math.max(0.001, parseQty(r.qty, 1));
     const price = (r.price !== undefined && r.price !== null && r.price !== '') ? (parseFloat(r.price) || 0) : (prod.cost || 0);
-    const sum = qty * price;
+    const disc = Math.min(100, Math.max(0, parseFloat(r.disc) || 0));
+    const discAmount = Math.max(0, Math.round(parseFloat(r.disc_amount) || 0));
+    const description = String(r.description || '').trim();
+    const gross = qty * price;
+    const discPctAmt = Math.round(gross * disc / 100);
+    const sum = Math.max(0, Math.round(gross - discPctAmt - discAmount));
     subtotal += sum;
-    out.push({ product_id: pid, name: prod.name, qty, price, sum });
+    out.push({
+      product_id: pid, name: prod.name, qty, price, disc, disc_amount: discAmount,
+      disc_amt: discPctAmt + discAmount, sum, description, allocated_freight: 0,
+    });
   }
   return { rows: out, subtotal };
+}
+
+function allocateFreight(rows, freightAmount, method) {
+  const freight = Math.round(Number(freightAmount) || 0);
+  if (freight <= 0) return rows;
+  const targets = rows.filter(r => r.product_id);
+  if (!targets.length) return rows;
+  const m = method === 'qty' || method === 'equal' ? method : 'amount';
+  let weights;
+  if (m === 'equal') weights = targets.map(() => 1);
+  else if (m === 'qty') weights = targets.map(r => Number(r.qty) || 0);
+  else weights = targets.map(r => Number(r.sum) || 0);
+  const totalW = weights.reduce((a, b) => a + b, 0);
+  if (totalW <= 0) return rows;
+  let allocated = 0;
+  targets.forEach((r, i) => {
+    const share = i === targets.length - 1 ? freight - allocated : Math.round(freight * weights[i] / totalW);
+    allocated += share;
+    r.allocated_freight = share;
+  });
+  return rows;
 }
 
 // ---------------- Purchase invoices ----------------
@@ -76,6 +107,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const discPct = parseFloat(disc) || 0;
   const totals = calcDocTotals(db, built, discPct, { vatExempt: !!vat_exempt });
   const freightRial = Math.round(parseFloat(freight_amount) || 0);
+  const allocMethod = ['amount', 'qty', 'equal'].includes(req.body.freight_alloc_method)
+    ? req.body.freight_alloc_method : 'amount';
+  allocateFreight(built.rows, freightRial, allocMethod);
   let { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
   final += freightRial;
   netBeforeVat += freightRial;
@@ -90,9 +124,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       ? ('موقت-' + Date.now().toString(36).toUpperCase())
       : allocateNumber(db, 'purchase', prefixRow?.value || 'PO');
     const result = db.prepare(
-      `INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,pay_type,stock_added,bank_id,check_category_id,cash_box_id,warehouse_id,freight_amount,freight_type,vat_exempt,cost_center_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)`
-    ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', vat_exempt ? 1 : 0, ccId);
+      `INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,pay_type,stock_added,bank_id,check_category_id,cash_box_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)`
+    ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', allocMethod, vat_exempt ? 1 : 0, ccId);
     const invId = result.lastInsertRowid;
 
     // Stock increases immediately on purchase
@@ -245,7 +279,7 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
       if (!origLine) return res.status(400).json({ error: `کالای ${prod.name} در این فاکتور خرید وجود ندارد` });
       const already = alreadyReturnedMap[pid] || 0;
       const maxReturnable = origLine.qty - already;
-      const qty = Math.max(1, parseInt(r.qty) || 1);
+      const qty = Math.max(0.001, parseQty(r.qty, 1));
       if (qty > maxReturnable) return res.status(400).json({ error: `حداکثر مقدار قابل برگشت برای ${prod.name}: ${maxReturnable}` });
       const price = origLine.price;
       const sum = qty * price;

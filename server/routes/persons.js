@@ -48,9 +48,11 @@ router.delete('/categories/:id', auth, adminOrAccounting, (req, res) => {
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
-    SELECT p.*, ${LIVE_BAL} AS balance, c.name as category_name, c.nature as category_nature, pg.name as party_group_name
+    SELECT p.*, ${LIVE_BAL} AS balance, c.name as category_name, c.nature as category_nature,
+      pg.name as party_group_name, pp.name as position_name
     FROM persons p LEFT JOIN person_categories c ON p.category_id=c.id
     LEFT JOIN party_groups pg ON p.party_group_id=pg.id
+    LEFT JOIN person_positions pp ON p.position_id=pp.id
     ORDER BY p.name
   `).all();
   res.json(rows);
@@ -62,7 +64,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const {
     category_id, name, phone, address, note, credit_limit, debit_limit, opening_balance,
     employee_no, card_no, hourly_rate, overtime_rate, insurance_percent, tax_percent, party_group_id,
-    hire_date, salary_type, monthly_salary_rial, department, bank_iban,
+    hire_date, salary_type, monthly_salary_rial, department, bank_iban, position_id,
     ...mahak
   } = req.body;
   if (!name) return res.status(400).json({ error: 'نام شخص الزامی است' });
@@ -70,8 +72,8 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const mvals = PARTY_MAHAK_COLS.map(k => mahak[k] || '');
   const personId = db.transaction(() => {
     const result = db.prepare(
-      `INSERT INTO persons (category_id,name,phone,address,note,credit_limit,debit_limit,employee_no,card_no,hourly_rate,overtime_rate,insurance_percent,tax_percent,party_group_id,hire_date,salary_type,monthly_salary_rial,department,bank_iban,${PARTY_MAHAK_COLS.join(',')})
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,${PARTY_MAHAK_COLS.map(() => '?').join(',')})`
+      `INSERT INTO persons (category_id,name,phone,address,note,credit_limit,debit_limit,employee_no,card_no,hourly_rate,overtime_rate,insurance_percent,tax_percent,party_group_id,hire_date,salary_type,monthly_salary_rial,department,bank_iban,position_id,${PARTY_MAHAK_COLS.join(',')})
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,${PARTY_MAHAK_COLS.map(() => '?').join(',')})`
     ).run(
       category_id || null, name, phone || '', address || '', note || '',
       parseFloat(credit_limit) || 0, parseFloat(debit_limit) || 0,
@@ -81,6 +83,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       party_group_id ? parseInt(party_group_id) : null,
       hire_date || '', salary_type || 'hourly', parseInt(monthly_salary_rial || 0, 10) || 0,
       department || '', bank_iban || '',
+      position_id ? parseInt(position_id, 10) : null,
       ...mvals
     );
     const personId = result.lastInsertRowid;
@@ -104,15 +107,16 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   const {
     category_id, name, phone, address, note, credit_limit, debit_limit, active,
     employee_no, card_no, hourly_rate, overtime_rate, insurance_percent, tax_percent, party_group_id,
-    hire_date, salary_type, monthly_salary_rial, department, bank_iban,
+    hire_date, salary_type, monthly_salary_rial, department, bank_iban, position_id,
     ...mahak
   } = req.body;
   const pgid = party_group_id !== undefined ? (party_group_id ? parseInt(party_group_id) : null) : row.party_group_id;
+  const posId = position_id !== undefined ? (position_id ? parseInt(position_id, 10) : null) : row.position_id;
   const mset = PARTY_MAHAK_COLS.map(k => `${k}=?`).join(',');
   const mvals = PARTY_MAHAK_COLS.map(k => mahak[k] ?? row[k] ?? '');
   db.prepare(`UPDATE persons SET category_id=?,name=?,phone=?,address=?,note=?,credit_limit=?,debit_limit=?,active=?,
     employee_no=?,card_no=?,hourly_rate=?,overtime_rate=?,insurance_percent=?,tax_percent=?,party_group_id=?,
-    hire_date=?,salary_type=?,monthly_salary_rial=?,department=?,bank_iban=?,${mset} WHERE id=?`)
+    hire_date=?,salary_type=?,monthly_salary_rial=?,department=?,bank_iban=?,position_id=?,${mset} WHERE id=?`)
     .run(
       category_id || row.category_id, name || row.name, phone ?? row.phone, address ?? row.address, note ?? row.note,
       credit_limit !== undefined ? (parseFloat(credit_limit) || 0) : row.credit_limit,
@@ -128,6 +132,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       hire_date ?? row.hire_date ?? '', salary_type ?? row.salary_type ?? 'hourly',
       monthly_salary_rial != null ? (parseInt(monthly_salary_rial, 10) || 0) : (row.monthly_salary_rial || 0),
       department ?? row.department ?? '', bank_iban ?? row.bank_iban ?? '',
+      posId,
       ...mvals, req.params.id
     );
   audit(req.user.id, 'update', 'person', req.params.id, `ویرایش شخص ${name || row.name}`);

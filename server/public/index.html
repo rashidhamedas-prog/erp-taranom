@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -28,6 +28,7 @@
   --hero:linear-gradient(120deg,#1A5C38 0%,#2E7D4F 55%,#C9A843 135%);
   --on-accent:#FFFFFF;
   --side-bg:linear-gradient(180deg,var(--purple),var(--purple2));
+  --mdi-taskbar-h:0px;
   --shadow-card:0 1px 0 var(--border),0 18px 30px -28px rgba(18,39,28,.45);
   --input-bg:#FFFFFF; --scroll-thumb:#A8C8B4;
   --th-bg:#F2F7F3; --row-hover:#F7FAF7; --well:#EDF3EE;
@@ -223,13 +224,14 @@ table.tbl th.tbl-sortable{cursor:pointer;user-select:none}
 table.tbl th.tbl-sortable:hover{background:var(--purple-light)}
 table.tbl th .tbl-sort-ind{font-size:10px;opacity:.7}
 table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{width:36px;text-align:center}
-.mdi-taskbar{position:fixed;bottom:0;left:0;right:0;z-index:9990;display:flex;gap:6px;flex-wrap:wrap;padding:6px 10px;background:rgba(18,39,28,.92);backdrop-filter:blur(8px);border-top:1px solid rgba(255,255,255,.12)}
+.mdi-taskbar{position:fixed;bottom:0;left:0;right:0;z-index:9990;display:flex;gap:6px;flex-wrap:wrap;padding:6px 10px;background:rgba(18,39,28,.92);backdrop-filter:blur(8px);border-top:1px solid rgba(255,255,255,.12);box-sizing:border-box;min-height:40px}
 .mdi-task{background:rgba(255,255,255,.12);color:#fff;border:0;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mdi-task.active{background:var(--purple2)}
 .mdi-task.min{opacity:.55}
 .mdi-task-tools{max-width:none;padding:6px 10px}
 .mdi-win{position:fixed;width:min(920px,92vw);height:min(620px,78vh);background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 18px 50px -20px rgba(0,0,0,.45);display:flex;flex-direction:column;overflow:hidden;z-index:200}
-.mdi-win.mdi-maximized{left:0!important;top:0!important;right:0!important;width:100vw!important;height:calc(100vh - 40px)!important;border-radius:0}
+/* تمام‌صفحه فقط تا بالای نوار مشکی پایین — نه زیر آن */
+.mdi-win.mdi-maximized{left:0!important;top:0!important;right:0!important;bottom:var(--mdi-taskbar-h,0px)!important;width:100vw!important;height:auto!important;max-height:calc(100vh - var(--mdi-taskbar-h,0px))!important;border-radius:0}
 .mdi-titlebar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:linear-gradient(90deg,var(--purple),var(--purple2));color:#fff;cursor:move;user-select:none;flex-shrink:0}
 .mdi-title{font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mdi-controls{display:flex;gap:4px}
@@ -257,14 +259,24 @@ table.tbl tr:hover td{background:var(--row-hover)}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;
   justify-content:center;z-index:1100;padding:16px}
 .overlay.open{display:flex}
+/* تمام‌صفحه مودال تا بالای نوار وظیفه — دکمه‌های پایین زیر نوار نروند */
+.overlay.open.modal-fs{padding:0;align-items:stretch;justify-content:stretch;bottom:var(--mdi-taskbar-h,0px);inset:auto;top:0;left:0;right:0}
 .modal{background:var(--card);border-radius:16px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;
-  box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative}
 .modal.lg{max-width:820px}
-.modal-head{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--card);z-index:2}
-.modal-head h3{font-size:17px;color:var(--purple)}
-.modal-head .x{background:var(--bg);border:none;width:32px;height:32px;border-radius:8px;font-size:18px;color:var(--muted)}
+.modal.full{max-width:none;width:100%;height:100%;max-height:calc(100vh - var(--mdi-taskbar-h,0px));border-radius:0;display:flex;flex-direction:column}
+.modal.full .modal-body{flex:1;overflow-y:auto;min-height:0}
+.modal.full .modal-foot{position:relative;z-index:3}
+.modal-head{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--card);z-index:2;gap:8px;flex-shrink:0}
+.modal-head h3{font-size:17px;color:var(--purple);flex:1;min-width:0}
+.modal-head .modal-head-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.modal-head .x,.modal-head .modal-size-btn{background:var(--bg);border:none;width:32px;height:32px;border-radius:8px;font-size:16px;color:var(--muted);cursor:pointer;line-height:1}
+.modal-head .modal-size-btn:hover,.modal-head .x:hover{background:var(--purple-light);color:var(--purple)}
 .modal-body{padding:20px}
-.modal-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-start;position:sticky;bottom:0;background:var(--card)}
+.modal-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-start;position:sticky;bottom:0;background:var(--card);flex-shrink:0}
+.topbar .back-btn{display:none;align-items:center;justify-content:center;background:rgba(255,255,255,.16);color:#fff;border:none;width:36px;height:36px;border-radius:10px;font-size:18px;cursor:pointer;line-height:1}
+.topbar .back-btn.show{display:inline-flex}
+.topbar .back-btn:hover{background:rgba(255,255,255,.28)}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .fg{display:flex;flex-direction:column;gap:6px}
 .fg.full{grid-column:1/-1}
@@ -539,8 +551,10 @@ table.tbl tr:hover td{background:var(--row-hover)}
   .stat .l{font-size:10px}
   .pgrid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
   .overlay{align-items:flex-end;padding:0}
+  .overlay.open.modal-fs{align-items:stretch;padding:0;bottom:var(--mdi-taskbar-h,0px);top:0;left:0;right:0}
   .modal{max-height:96vh;border-radius:16px 16px 0 0;width:100%}
   .modal.lg{max-width:100%;border-radius:16px 16px 0 0}
+  .modal.full{max-height:calc(100vh - var(--mdi-taskbar-h,0px));height:100%;border-radius:0}
   .inv-layout{grid-template-columns:1fr}
   table.tbl{font-size:12px}
   table.tbl th,table.tbl td{padding:8px 6px}
@@ -688,6 +702,7 @@ table.tbl tr:hover td{background:var(--row-hover)}
       <header class="topbar">
         <div class="left">
           <button class="menu-btn" onclick="toggleSidebar()">☰</button>
+          <button type="button" class="back-btn" id="navBackBtn" onclick="goBack()" title="بازگشت به صفحه قبل" aria-label="بازگشت">←</button>
           <h3 id="pageTitle">داشبورد</h3>
         </div>
         <div class="right">
@@ -1645,6 +1660,8 @@ function toggleAccNavSection(si){
 }
 let IN_ACC_SHELL = false;
 let CURRENT_PAGE = 'dash';
+const PAGE_HISTORY = [];
+let _navGoingBack = false;
 
 // Maps nav-item id -> the module flag that gates it (Phase 10 admin panel).
 // Absent from this map = always shown (core features aren't toggleable).
@@ -1782,6 +1799,11 @@ function go(page){
   if(page==='accounting'){ enterAccountingShell(); return; }
   if(page==='exit-acc-shell'){ exitAccountingShell(); if(window.WinMgr) WinMgr.closeAll(); return; }
   if(page!=='messages' && typeof stopMsgPoll==='function') stopMsgPoll();
+  // تاریخچهٔ ناوبری برای دکمه بازگشت (به‌جز حرکت برگشتی)
+  if(!_navGoingBack && CURRENT_PAGE && CURRENT_PAGE!==page){
+    PAGE_HISTORY.push(CURRENT_PAGE);
+    if(PAGE_HISTORY.length>60) PAGE_HISTORY.shift();
+  }
   // حالت پنجره چندگانه: هر زیرمنوی حسابداری در پنجره جدا
   if(IN_ACC_SHELL && page.startsWith('acc-') && page!=='acc-dash' && window.WinMgr && WinMgr.enabled()){
     const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && ACC_NAV_SECTIONS.flatMap(s=>s.items).find(x=>x.id===page));
@@ -1811,8 +1833,10 @@ function go(page){
       }
     });
     if(opened){
+      CURRENT_PAGE = page;
       document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
       if(window.innerWidth<=900) closeSidebar();
+      updateBackBtn();
       return;
     }
   }
@@ -1821,9 +1845,22 @@ function go(page){
   const it = navItems().find(x=>x.id===page);
   el('pageTitle').textContent = it?it.label:'';
   if(window.innerWidth<=900) closeSidebar();
+  updateBackBtn();
   // After every page render, shrink stat-card numbers that overflow their card
   // (large totals like فروش کل on حساب من were spilling out — spec 1.0.9 §4)
   ROUTES[page] ? Promise.resolve(ROUTES[page]()).finally(()=>{ setTimeout(fitStatNums,60); if(typeof enhanceAccTables==='function') enhanceAccTables(el('view')); }) : (el('view').innerHTML='');
+}
+function updateBackBtn(){
+  const btn=el('navBackBtn');
+  if(!btn) return;
+  btn.classList.toggle('show', PAGE_HISTORY.length>0);
+  btn.disabled = PAGE_HISTORY.length===0;
+}
+function goBack(){
+  if(!PAGE_HISTORY.length) return;
+  const prev=PAGE_HISTORY.pop();
+  _navGoingBack=true;
+  try{ go(prev); } finally { _navGoingBack=false; updateBackBtn(); }
 }
 function toggleSidebar(){
   if(window.innerWidth<=900){
@@ -1844,6 +1881,12 @@ document.addEventListener('keydown',(e)=>{
     e.preventDefault();
     const s=el('partySearch')||el('pSearch')||el('cSearch')||el('iSearch')||document.querySelector('.search');
     if(s){ s.focus(); s.select?.(); }
+  }
+  if((e.altKey && e.key==='ArrowLeft') || (e.altKey && (e.key==='Backspace' || e.code==='Backspace'))){
+    if(!document.querySelector('.overlay.open') && PAGE_HISTORY.length){
+      e.preventDefault();
+      goBack();
+    }
   }
   if(e.key==='F4' && IN_ACC_SHELL && accTab==='parties'){
     e.preventDefault();
@@ -1990,7 +2033,30 @@ function pickOmnibox(i){
   const r=_omniboxResults[i]; if(!r) return;
   closeOmnibox();
   if(r.type==='customer'){ go('customers'); setTimeout(()=>{ const s=el('cSearch'); if(s){ s.value=r.label; s.dispatchEvent(new Event('input')); }},300); }
-  else if(r.type==='product'){ go('products'); }
+  else if(r.type==='product'){
+    // P5: open accounting products with group filter + highlight search
+    PRODUCT_CAT_FILTER=r.category_id?String(r.category_id):'';
+    PRODUCT_ACC_SEARCH=r.label||'';
+    enterAccountingShell().then(()=>{
+      go('acc-products');
+      setTimeout(()=>{
+        const btn=document.querySelector(`#accProdCatFilter button[onclick*="filterAccProductCat('${PRODUCT_CAT_FILTER}')"]`);
+        if(btn) btn.scrollIntoView({block:'nearest',behavior:'smooth'});
+        const row=document.querySelector(`#accProductsTbl tr[data-id="${r.id}"]`);
+        if(row){ row.style.outline='2px solid var(--purple)'; row.scrollIntoView({block:'center',behavior:'smooth'}); }
+      },400);
+    });
+  }
+  else if(r.type==='person'){
+    enterAccountingShell().then(()=>{
+      go('acc-parties');
+      setTimeout(()=>{
+        const rows=[...document.querySelectorAll('table.tbl tbody tr')];
+        const hit=rows.find(tr=>tr.textContent&&tr.textContent.includes(r.label));
+        if(hit){ hit.style.outline='2px solid var(--purple)'; hit.scrollIntoView({block:'center',behavior:'smooth'}); }
+      },400);
+    });
+  }
   else if(r.type==='invoice'){ go('invoices'); setTimeout(()=>openInvBuilder(r.id),300); }
   else if(r.route==='accounting'||String(r.route||'').startsWith('acc-')){ enterAccountingShell().then(()=>go(r.route)); }
   else if(r.route){ go(r.route); }
@@ -2305,10 +2371,62 @@ function invNumCell(num){
    MODAL HELPERS
 ============================================================ */
 function openModal(html, lg){
-  el('modalRoot').innerHTML = `<div class="overlay open" onclick="if(event.target===this)closeModal()">
-    <div class="modal ${lg?'lg':''}">${html}</div></div>`;
+  // پیش‌فرض تمام‌صفحه؛ با دکمه ❐ می‌توان کوچک کرد. lg همچنان عرض بزرگ‌تر در حالت عادی می‌دهد.
+  el('modalRoot').innerHTML = `<div class="overlay open modal-fs" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal full ${lg?'lg':''}" id="activeModal">${html}</div></div>`;
+  wireModalChrome();
   attachDatepickers(el('modalRoot'));
   initCustSearches(el('modalRoot'));
+}
+function wireModalChrome(){
+  const modal=el('activeModal');
+  if(!modal) return;
+  // هم‌تراز با نوار وظیفه (اگر باز باشد)
+  try{
+    const bar=document.getElementById('mdiTaskbar');
+    const h=(bar && !bar.hidden)?Math.ceil(bar.getBoundingClientRect().height):0;
+    document.documentElement.style.setProperty('--mdi-taskbar-h', h+'px');
+  }catch(_){}
+  let head=modal.querySelector('.modal-head');
+  if(!head){
+    head=document.createElement('div');
+    head.className='modal-head';
+    head.innerHTML='<h3></h3>';
+    modal.insertBefore(head, modal.firstChild);
+  }
+  let actions=head.querySelector('.modal-head-actions');
+  if(!actions){
+    actions=document.createElement('div');
+    actions.className='modal-head-actions';
+    const x=head.querySelector('button.x');
+    if(x){ actions.appendChild(x); head.appendChild(actions); }
+    else {
+      actions.innerHTML='<button type="button" class="x" onclick="closeModal()" title="بستن">×</button>';
+      head.appendChild(actions);
+    }
+  }
+  if(!actions.querySelector('.modal-size-btn')){
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='modal-size-btn';
+    btn.title='بازگرداندن از تمام‌صفحه';
+    btn.textContent='❐';
+    btn.onclick=toggleModalSize;
+    const x=actions.querySelector('button.x');
+    if(x) actions.insertBefore(btn, x); else actions.appendChild(btn);
+  }
+}
+function toggleModalSize(){
+  const modal=el('activeModal');
+  const overlay=el('modalOverlay');
+  if(!modal||!overlay) return;
+  const full=modal.classList.toggle('full');
+  overlay.classList.toggle('modal-fs', full);
+  const btn=modal.querySelector('.modal-size-btn');
+  if(btn){
+    btn.title=full?'بازگرداندن از تمام‌صفحه':'تمام‌صفحه';
+    btn.textContent=full?'❐':'☐';
+  }
 }
 /** Title + body helper used by production modals (was missing → silent click no-op). */
 function showModal(title, bodyHtml, lg){
@@ -2341,7 +2459,7 @@ ROUTES.dash = async function(){
     <input id="dashTo" data-jdate placeholder="تا تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${dashDateTo}">
     <button class="btn sm" onclick="dashDateFrom=el('dashFrom').value;dashDateTo=el('dashTo').value;renderDashContent()">🔍 اعمال فیلتر</button>
     <button class="btn sm ghost" onclick="dashDateFrom='';dashDateTo='';el('dashFrom').value='';el('dashTo').value='';renderDashContent()">✕ حذف فیلتر</button>`:''}
-    ${(dashDateFrom||dashDateTo)?`<span class="tag" style="background:var(--purple-light);color:var(--purple)">${dashDateFrom||'ابتدا'} ریالا ${dashDateTo||'انتها'}</span>`:''}
+    ${(dashDateFrom||dashDateTo)?`<span class="tag" style="background:var(--purple-light);color:var(--purple)">${dashDateFrom||'ابتدا'} الی ${dashDateTo||'انتها'}</span>`:''}
   </div>
   <div id="dashContent"><div class="muted">در حال بارگذاری...</div></div>`;
   v.innerHTML = dateBar;
@@ -3296,7 +3414,11 @@ async function _openInvBuilder(id){
       try{ inv = await api('GET','/invoices/'+id); }catch(e){ inv=null; }
     }
   }
-  invCart = inv ? (inv.rows||[]).map(r=>({product_id:r.product_id,name:r.name,qty:r.qty,price:r.price,disc:r.disc||0,warehouse_id:r.warehouse_id||null})) : [];
+  invCart = inv ? (inv.rows||[]).map(r=>({
+    product_id:r.product_id, name:r.name, qty:r.qty, price:r.price,
+    disc:r.disc||0, disc_amount:r.disc_amount||0, description:r.description||'',
+    warehouse_id:r.warehouse_id||null, row_type:r.row_type||'product', income_coa:r.income_coa||''
+  })) : [];
   if(!CACHE.warehouses) CACHE.warehouses=await api('GET','/warehouses')||[];
   const isAdmin = ME.role==='admin';
   openModal(`
@@ -3313,7 +3435,12 @@ async function _openInvBuilder(id){
           ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}" ${inv&&inv.warehouse_id==w.id?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
         <div class="fg"><label>مرکز هزینه</label><select id="inv-cc"><option value="">—</option>
           ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}" ${inv&&inv.cost_center_id==c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
-        <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}"></div>
+        <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}" oninput="renderCart()"></div>
+        <div class="fg"><label>سرشکن کرایه</label><select id="inv-freight-alloc">
+          <option value="amount" ${!inv||inv.freight_alloc_method==='amount'||!inv.freight_alloc_method?'selected':''}>به نسبت مبلغ</option>
+          <option value="qty" ${inv&&inv.freight_alloc_method==='qty'?'selected':''}>به نسبت مقدار</option>
+          <option value="equal" ${inv&&inv.freight_alloc_method==='equal'?'selected':''}>مساوی</option>
+        </select></div>
         <div class="fg"><label>نوع کرایه</label><select id="inv-freight-type">
           <option value="">—</option><option value="buyer" ${inv&&inv.freight_type==='buyer'?'selected':''}>بر عهده خریدار</option>
           <option value="seller" ${inv&&inv.freight_type==='seller'?'selected':''}>بر عهده فروشنده</option></select></div>
@@ -3345,13 +3472,16 @@ async function _openInvBuilder(id){
       <div class="inv-layout">
         <div>
           <input class="search" id="invProdSearch" placeholder="جستجوی محصول..." style="margin-bottom:6px;width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px" oninput="renderInvPicker()">
-          ${canAccounting()?`<button type="button" class="btn sm" style="width:100%;margin-bottom:6px" onclick="invProdQuickModal(el('invProdSearch')?.value)">➕ ساخت محصول جدید</button>`:''}
+          ${canAccounting()?`<button type="button" class="btn sm" style="width:100%;margin-bottom:6px" onclick="invProdQuickModal(el('invProdSearch')?.value)">➕ ساخت کالای جدید</button>`:''}
           <button type="button" class="btn sm ghost" style="width:100%;margin-bottom:8px" onclick="openBarcodeScanner(scanBarcodeToCart)">📷 اسکن بارکد</button>
           <div id="mobPickHint" style="display:none;font-size:11px;color:var(--muted);margin-bottom:8px;text-align:center">👆 برای افزودن، دو بار روی محصول بزنید</div>
           <div class="inv-products"><div class="inv-pick" id="invPicker"></div></div>
         </div>
         <div class="inv-cart">
           <h4 style="color:var(--purple);margin-bottom:10px">اقلام فاکتور</h4>
+          <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+            <button type="button" class="btn sm ghost" onclick="invCart.push({row_type:'income',product_id:null,name:'درآمد/خدمات',qty:1,price:0,disc:0,disc_amount:0,description:'',income_coa:''});renderCart()">➕ ردیف درآمد</button>
+          </div>
           <div id="cartRows"></div>
           <div class="cart-tot" id="cartTot"></div>
           <button class="btn green" style="width:100%;margin-top:12px" onclick="saveInvoice(${id||0})">💾 ذخیره فاکتور</button>
@@ -3449,33 +3579,37 @@ function pickCardTap(e,pid){
 }
 function renderCart(){
   const showLineDisc=canAccounting();
-  const whOpts='<option value="">پیش‌فرض</option>'+(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('');
   el('cartRows').innerHTML = invCart.map((r,i)=>{
+    const isIncome = r.row_type==='income';
     const gross=r.qty*r.price;
     const lineDisc=showLineDisc?(r.disc||0):0;
-    const lineDiscAmt=Math.round(gross*lineDisc/100);
+    const discAmtFixed=showLineDisc?(r.disc_amount||0):0;
+    const lineDiscAmt=Math.round(gross*lineDisc/100)+discAmtFixed;
     return `
-    <div class="cart-row" style="flex-wrap:wrap">
-      <span class="cn">${esc(r.name)}</span>
-      <input type="number" min="1" value="${r.qty}" onchange="invCart[${i}].qty=Math.max(1,+this.value||1);renderCart();renderInvPicker()">
+    <div class="cart-row" style="flex-wrap:wrap;align-items:flex-start">
+      <span class="cn">${isIncome?'💰 ':''}${esc(r.name)}</span>
+      <input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" style="width:64px" onchange="invCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);renderCart();renderInvPicker()">
       <input class="price-in" type="number" value="${r.price}" onchange="invCart[${i}].price=+this.value||0;renderCart()">
-      ${showLineDisc?`<input type="number" min="0" max="100" title="تخفیف ردیف (٪)" value="${r.disc||0}" style="width:52px" onchange="invCart[${i}].disc=Math.min(100,Math.max(0,+this.value||0));renderCart()">`:''}
-      <select title="انبار ردیف" style="max-width:120px;font-size:11px" onchange="invCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>
+      ${showLineDisc?`<input type="number" min="0" max="100" title="تخفیف ٪" value="${r.disc||0}" style="width:48px" onchange="invCart[${i}].disc=Math.min(100,Math.max(0,+this.value||0));renderCart()">`:''}
+      ${showLineDisc?`<input type="number" min="0" title="تخفیف مبلغی (ریال)" value="${r.disc_amount||0}" style="width:72px" onchange="invCart[${i}].disc_amount=Math.max(0,Math.round(+this.value||0));renderCart()">`:''}
+      ${!isIncome?`<select title="انبار ردیف" style="max-width:110px;font-size:11px" onchange="invCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>`:''}
       <button class="rm" onclick="invCart.splice(${i},1);renderCart();renderInvPicker()">×</button>
+      <input type="text" placeholder="توضیحات ردیف" value="${esc(r.description||'')}" style="flex:1;min-width:120px;margin-top:4px;width:100%" onchange="invCart[${i}].description=this.value">
     </div>${showLineDisc&&lineDiscAmt>0?`<div class="muted" style="font-size:11px;margin:-4px 0 6px;padding-right:2px">تخفیف ردیف: ${fmt(lineDiscAmt)} ریال</div>`:''}`;
   }).join('') || '<div class="muted center" style="padding:14px">سبد خالی است</div>';
-  // Mirrors the server's calculation exactly: line discount first, then overall invoice discount on the result
   const subtotal = invCart.reduce((a,r)=>{
     const gross=r.qty*r.price;
-    const lineDiscAmt=showLineDisc?Math.round(gross*(r.disc||0)/100):0;
-    return a+(gross-lineDiscAmt);
+    const lineDiscAmt=showLineDisc?Math.round(gross*(r.disc||0)/100)+(r.disc_amount||0):0;
+    return a+Math.max(0,gross-lineDiscAmt);
   },0);
   const disc = +(el('inv-disc')?.value||0);
   const discAmt = Math.round(subtotal*disc/100);
-  const final = subtotal-discAmt;
+  const freight = typeof moneyVal==='function' ? moneyVal('inv-freight') : 0;
+  const final = subtotal-discAmt+freight;
   el('cartTot').innerHTML = `
     <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
     <div class="l"><span>تخفیف کل فاکتور (${fmt(disc)}٪):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
+    ${freight?`<div class="l"><span>کرایه حمل:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
     <div class="l final"><span>نهایی:</span><span class="mono">${fmt(final)} ریال</span></div>`;
 }
 function toggleInvPayFields(){
@@ -3506,16 +3640,22 @@ async function saveInvoice(id){
     cost_center_id:+el('inv-cc')?.value||null,
     freight_amount:moneyVal('inv-freight'),
     freight_type:el('inv-freight-type')?.value||'',
+    freight_alloc_method:el('inv-freight-alloc')?.value||'amount',
     vat_exempt:el('inv-vat-exempt')?.checked?1:0,
     lead_source: el('inv-lead')?.value||'',
     campaign: el('inv-campaign')?.value||'',
-    rows: invCart.map(r=>({product_id:r.product_id, qty:r.qty, price:r.price, disc:r.disc||0, warehouse_id:r.warehouse_id||null}))
+    rows: invCart.map(r=>({
+      product_id:r.product_id, qty:r.qty, price:r.price, disc:r.disc||0,
+      disc_amount:r.disc_amount||0, description:r.description||'',
+      warehouse_id:r.warehouse_id||null, row_type:r.row_type||'product',
+      income_coa:r.income_coa||'', name:r.name||''
+    }))
   };
   try{
     const saved=id?await api('PUT','/invoices/'+id,data):await api('POST','/invoices',data);
     CACHE.invoices=await api('GET','/invoices'); _invoicesFetched=true; closeModal();
     if(el('invTable')) renderInvTable();
-    else if(IN_ACC_SHELL && accTab==='sales-invoices') loadAccTab('sales-invoices');
+    else if(IN_ACC_SHELL && (accTab==='sales-invoices'||accTab==='proforma-invoices')) loadAccTab(accTab);
     const whNames=(saved?.used_warehouses||[]).map(w=>w.name).filter(Boolean);
     showToast(whNames.length?('فاکتور ذخیره شد — کسر از انبار: '+whNames.join('، ')):'فاکتور ذخیره شد');
   }catch(e){}
@@ -3715,7 +3855,7 @@ async function prodModal(id){
   const p = id ? CACHE.products.find(x=>x.id===id) : {};
   const cats=CACHE.productCategories||[];
   openModal(`
-    <div class="modal-head"><h3>${id?'ویرایش محصول':'محصول جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>${id?'ویرایش محصول':'کالای جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>نام محصول * ${hlp('نام کامل محصول همان‌طور که روی فاکتور چاپ می‌شود.')}</label><input id="p-name" value="${esc(p.name||'')}"></div>
       <div class="fg"><label>دسته‌بندی ${hlp('از لیست دسته‌های تعریف‌شده انتخاب کنید — یا از دکمه «دسته‌بندی‌ها» دسته جدید بسازید.')}</label>
@@ -3724,9 +3864,10 @@ async function prodModal(id){
         </select></div>
       <div class="fg"><label>دسته (متن آزاد — اختیاری)</label><input id="p-cat" value="${esc(p.category||'')}" placeholder="اگر از لیست بالا انتخاب نکردید"></div>
       <div class="fg"><label>کد محصول ${hlp('کد یکتای محصول — برای جستجوی سریع در فاکتورساز. اگر خالی بماند به‌صورت خودکار ساخته می‌شود (K-00001).')}</label><input id="p-code" value="${esc(p.code||'')}" placeholder="خودکار"></div>
-      <div class="fg"><label>قیمت فروش (ریال) ${hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.price)}"></div>
+      <div class="fg"><label>قیمت فروش عمده (ریال) ${hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.price)}"></div>
+      <div class="fg"><label>قیمت فروش تک (ریال) ${hlp('قیمت خرده‌فروشی — از فرمول قیمت‌گذاری تولید هم قابل پر شدن خودکار است.')}</label><input id="p-retail" type="text" inputmode="numeric" class="money" value="${moneyInit(p.retail_price||p.retail_price_rial||0)}"></div>
       <div class="fg"><label>بهای تمام‌شده (ریال) ${hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
-      <div class="fg"><label>موجودی ${hlp('تعداد موجودی فعلی انبار. با صدور فاکتور رسمی خودکار کم می‌شود.')}</label><input id="p-stock" type="number" value="${p.stock!=null?p.stock:0}"></div>
+      <div class="fg"><label>موجودی ${hlp('تعداد موجودی فعلی انبار. با صدور فاکتور رسمی خودکار کم می‌شود. تا ۳ رقم اعشار.')}</label><input id="p-stock" type="number" step="0.001" inputmode="decimal" value="${p.stock!=null?p.stock:0}"></div>
       <div class="fg"><label>هشدار موجودی ${hlp('وقتی موجودی به این عدد یا کمتر برسد، هشدار قرمز نمایش داده می‌شود.')}</label><input id="p-alert" type="number" value="${p.stock_alert!=null?p.stock_alert:5}"></div>
       <div class="fg"><label>واحد ${hlp('واحد شمارش محصول: عدد، دست، بسته و…')}</label><input id="p-unit" value="${esc(p.unit||'عدد')}"></div>
       <div class="fg"><label>تعداد رنگ ${hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" value="${p.colors!=null?p.colors:1}"></div>
@@ -3759,6 +3900,7 @@ async function saveProduct(id){
   fd.append('category_id',el('p-cat-id')?.value||'');
   fd.append('code',el('p-code').value);
   fd.append('price',moneyVal('p-price'));
+  fd.append('retail_price',moneyVal('p-retail'));
   fd.append('cost',moneyVal('p-cost'));
   fd.append('stock',el('p-stock').value);
   fd.append('stock_alert',el('p-alert').value||5);
@@ -3984,7 +4126,7 @@ const EXCEL_ENTITY_LABELS={
   parties:'اطلاعات اشخاص',products:'کالاها','opening-recv-cheques':'چک دریافتنی اول دوره',
   settlements:'دریافت و پرداخت',expenses:'هزینه‌ها','opening-pay-cheques':'چک پرداختی اول دوره',
   'coa-codes':'کدهای حسابداری','ledger-accounts':'حساب‌های کل','subsidiary-accounts':'حساب‌های معین',
-  'detail-accounts':'حساب‌های تفصیلی','sales-invoices':'فاکتور فروش',purchases:'فاکتور خرید',
+  'detail-accounts':'حساب‌های تفصیلی','sales-invoices':'فاکتور فروش','proforma-invoices':'پیش‌فاکتور',purchases:'فاکتور خرید',
   'sales-returns':'برگشت از فروش','purchase-returns':'برگشت از خرید',
   'warehouse-receipt':'رسید انبار','warehouse-issue':'حواله انبار','warehouse-transfer':'حواله بین انبار',
   'consignments-in':'امانی گرفته‌شده','consignments-out':'امانی داده‌شده','journal-docs':'فهرست اسناد'
@@ -4682,7 +4824,7 @@ function buildAccFilterHtml(tabKey){
     <input id="accTo" data-jdate placeholder="تا تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${accDateTo}" onchange="accDateTo=this.value">
     <button class="btn sm ghost" onclick="loadAccTab(accTab)">🔍 اعمال</button>
     <button class="btn sm ghost" onclick="accDateFrom='';accDateTo='';el('accFrom').value='';el('accTo').value='';loadAccTab(accTab)">✕</button>`:
-    `<span class="tag" style="background:var(--purple-light);color:var(--purple)">${accDateFrom||'ابتدا'} ریالا ${accDateTo||'انتها'}</span>`}
+    `<span class="tag" style="background:var(--purple-light);color:var(--purple)">${accDateFrom||'ابتدا'} الی ${accDateTo||'انتها'}</span>`}
     ${(tabKey==='general'&&isAdmin())?`<button class="btn sm ghost" title="بازسازی اسناد حسابداری برای همه عملیات گذشته" onclick="resyncAccounting()">🔄 همگام‌سازی</button>`:''}
   </div>`;
 }
@@ -4737,6 +4879,7 @@ ROUTES['acc-parties']=()=>renderAccPage('parties','👥','اشخاص');
 ROUTES['acc-suppliers']=()=>go('acc-parties');
 ROUTES['acc-persons']=()=>go('acc-parties');
 ROUTES['acc-sales-invoices']=()=>renderAccPage('sales-invoices','🧾','فاکتورهای فروش');
+ROUTES['acc-proforma']=()=>renderAccPage('proforma-invoices','📄','پیش‌فاکتورها');
 ROUTES['acc-purchases']=()=>renderAccPage('purchases','📦','فاکتور خرید');
 ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','برگشت از خرید');
 ROUTES['acc-sales-returns']=()=>renderAccPage('sales-returns','↪️','برگشت از فروش');
@@ -4880,7 +5023,9 @@ async function loadAccTab(tab){
   } else if(tab==='persons'){
     await renderPersonsTab(body);
   } else if(tab==='sales-invoices'){
-    await renderSalesInvoicesTab(body);
+    await renderSalesInvoicesTab(body, 'final');
+  } else if(tab==='proforma-invoices'){
+    await renderSalesInvoicesTab(body, 'proforma');
   } else if(tab==='item-kardex'){
     await renderItemKardexTab(body);
   } else if(tab==='inv-batches'){
@@ -5195,11 +5340,10 @@ function enhanceAccTables(root){
     if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
     if(typeof tblEnsureRowIds==='function') tblEnsureRowIds(t);
     const hasId=[...t.tBodies[0].rows].some(r=>r.dataset.id);
-    if(!hasId) return;
-    // فقط اگر حذف گروهی ممکن است (data-bulk یا دکمه حذف) — وگرنه فقط سورت/فیلتر بدون چک‌باکس
-    const bulk=typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null;
+    const bulk=hasId && typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null;
+    // P4: always enable client sort/filter; selectable only when bulk delete is available
     if(bulk) enhanceDataTable(t,{selectable:true, bulkDelete:bulk});
-    else enhanceDataTable(t,{}); // سورت و فیلتر بدون انتخاب
+    else enhanceDataTable(t,{});
   });
 }
 
@@ -5223,7 +5367,7 @@ function renderGenCart(){
   rowsEl.innerHTML = genCart.map((r,i)=>`
     <div class="cart-row">
       <span class="cn">${esc(r.name)}</span>
-      <input type="number" min="1" value="${r.qty}" onchange="genCart[${i}].qty=Math.max(1,+this.value||1);renderGenCart()">
+      <input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" onchange="genCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);renderGenCart()">
       <input class="price-in" type="number" value="${r.price}" onchange="genCart[${i}].price=+this.value||0;renderGenCart()">
       <button class="rm" onclick="genCart.splice(${i},1);renderGenCart()">×</button>
     </div>`).join('') || '<div class="muted" style="padding:14px;text-align:center">ردیفی اضافه نشده</div>';
@@ -5244,7 +5388,7 @@ function genProductSearchHtml(){
   return `<div style="position:relative">
     <input type="text" id="genProdSearch" class="search" style="width:100%;margin-bottom:10px" placeholder="جستجوی محصول برای افزودن..." oninput="genProdShowDrop(this.value)" onfocus="genProdShowDrop(this.value)">
     <div id="genProdDrop" class="cust-si-drop" style="display:none;position:fixed;width:280px;max-height:220px"></div>
-    <button type="button" class="btn sm ghost" style="width:100%" onclick="genProdQuickModal(el('genProdSearch')?.value||'')">➕ ساخت محصول جدید</button>
+    <button type="button" class="btn sm ghost" style="width:100%" onclick="genProdQuickModal(el('genProdSearch')?.value||'')">➕ ساخت کالای جدید</button>
   </div>`;
 }
 function genProdShowDrop(q){
@@ -5259,7 +5403,7 @@ function genProdShowDrop(q){
       <span>${esc(p.name)}</span><span class="cust-si-meta">موجودی: ${fmt(p.stock||0)}</span>
     </div>`).join('');
   const quickBtn=term?`<div class="cust-si-item" style="color:var(--purple);font-weight:600" onclick="genProdQuickModal('${esc(term)}')">➕ ساخت محصول «${esc(term)}»</div>`:'';
-  drop.innerHTML = items || quickBtn || '<div class="cust-si-empty">محصولی یافت نشد — دکمه ساخت محصول جدید را بزنید</div>';
+  drop.innerHTML = items || quickBtn || '<div class="cust-si-empty">محصولی یافت نشد — دکمه ساخت کالای جدید را بزنید</div>';
   if(items && quickBtn) drop.innerHTML += quickBtn;
 }
 async function genProdQuickModal(prefill){
@@ -5669,10 +5813,12 @@ async function renderPersonsTab(body){
       <td class="mono" style="font-weight:800;color:${total>0?'var(--red)':'var(--green)'}">${fmt(total)}</td><td colspan="2"></td>
     </tr></tfoot></table></div>`;
 }
-function personModal(id){
+async function personModal(id){
   const p=id?(CACHE.persons||[]).find(x=>x.id===id):{active:1};
   const cats=CACHE.personCategories||[];
   const personPartyGroups=(CACHE.partyGroups||[]).filter(g=>g.entity_type==='person'||g.entity_type==='all');
+  let positions=[];
+  try{ positions=await api('GET','/person-positions')||[]; }catch(e){ positions=[]; }
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -5680,6 +5826,10 @@ function personModal(id){
       <div class="fg"><label>دسته ${hlp('دسته‌بندی این شخص — از «مدیریت دسته‌ها» قابل تعریف است.')}</label><select id="pr-category">
         <option value="">-- بدون دسته --</option>
         ${cats.map(c=>`<option value="${c.id}" ${p?.category_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>سمت/جایگاه</label><select id="pr-position">
+        <option value="">-- بدون سمت --</option>
+        ${positions.map(pos=>`<option value="${pos.id}" ${p?.position_id===pos.id?'selected':''}>${esc(pos.name)}</option>`).join('')}
       </select></div>
       <div class="fg"><label>گروه اشخاص</label><select id="pr-party_group_id">
         <option value="">-- بدون گروه --</option>
@@ -5718,7 +5868,9 @@ async function savePerson(id){
     hourly_rate:moneyVal('pers-hourly-rate'),
     overtime_rate:moneyVal('pers-ot-rate'),
     insurance_percent:+el('pers-insurance')?.value||0,
-    tax_percent:+el('pers-tax')?.value||0
+    tax_percent:+el('pers-tax')?.value||0,
+    position_id:+el('pr-position')?.value||null,
+    party_group_id:+el('pr-party_group_id')?.value||null
   };
   if(el('pr-party_group_id')) data.party_group_id=+el('pr-party_group_id').value||null;
   if(usesExtendedCoa()) Object.assign(data,collectPartyExtraData('pm'));
@@ -5800,13 +5952,17 @@ async function deletePersonCategory(id){
    sales invoice; supports issuing new invoices via the same builder/modal
    used on the main Invoices page (openInvBuilder/saveInvoice).
 ============================================================ */
-async function renderSalesInvoicesTab(body){
+async function renderSalesInvoicesTab(body, typeLock){
   if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
   if(!CACHE.allProducts?.length){ CACHE.allProducts=await api('GET','/products')||[]; CACHE.products=CACHE.allProducts; }
-  if(!_invoicesFetched){ CACHE.invoices=await api('GET','/invoices')||[]; _invoicesFetched=true; }
+  const lock = typeLock==='proforma' || typeLock==='final' ? typeLock : '';
+  const qType = lock ? ('?type='+lock) : '';
+  CACHE.invoices=await api('GET','/invoices'+qType)||[];
+  _invoicesFetched=true;
   const rows=CACHE.invoices.filter(i=>{
     if(i.deleted_at) return false;
     if(String(i.status||'')==='reversed') return false;
+    if(lock && i.type!==lock) return false;
     if(accDateFrom && (i.date||'')<accDateFrom) return false;
     if(accDateTo && (i.date||'')>accDateTo) return false;
     return true;
@@ -5814,9 +5970,10 @@ async function renderSalesInvoicesTab(body){
   const typeLabel={proforma:'پیش‌فاکتور',final:'فاکتور رسمی'};
   const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'};
   const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
+  const titleBtn = lock==='proforma' ? '➕ پیش‌فاکتور جدید' : '➕ فاکتور جدید';
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <button class="btn" onclick="openInvBuilder()">➕ فاکتور جدید</button>
+      <button class="btn" onclick="openInvBuilder()">${titleBtn}</button>
       <input id="accInvSearch" class="search" placeholder="جستجو شماره/مشتری..." style="min-width:180px" oninput="filterAccInvTable()">
     </div>
     <div class="tbl-wrap"><table class="tbl" id="accSalesInvTbl" data-bulk-delete="/invoices" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} فاکتور ابطال شود؟ سند معکوس ثبت می‌شود."><thead><tr>
@@ -6158,6 +6315,13 @@ function warehouseModal(id){
       <div class="fg" id="wh-type-new-wrap" style="display:none"><label>نام نوع جدید</label><input id="wh-type-new" placeholder="مثال: انبار ضایعات"></div>
       <div class="fg full"><label>آدرس</label><input id="wh-address" value="${esc(w?.address||'')}"></div>
       <div class="fg"><label><input type="checkbox" id="wh-default" ${w.is_default?'checked':''}> انبار پیش‌فرض</label></div>
+      <div class="fg"><label><input type="checkbox" id="wh-neg" ${w.allow_negative?'checked':''}> اجازه موجودی منفی</label></div>
+      <div class="fg"><label>روش ریالی‌کردن</label><select id="wh-costing">
+        <option value="" ${!w.costing_method?'selected':''}>پیروی از تنظیمات سراسری</option>
+        <option value="moving_average" ${w.costing_method==='moving_average'?'selected':''}>میانگین موزون</option>
+        <option value="fifo" ${w.costing_method==='fifo'?'selected':''}>FIFO</option>
+        <option value="specific" ${w.costing_method==='specific'?'selected':''}>شناسایی ویژه</option>
+      </select></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="wh-active">
         <option value="1" ${w.active?'selected':''}>فعال</option><option value="0" ${!w.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -6186,7 +6350,9 @@ async function saveWarehouse(id){
   const data={
     name, address:el('wh-address').value, code:el('wh-code').value.trim(),
     entity, warehouse_type,
-    is_default:el('wh-default')?.checked?1:0
+    is_default:el('wh-default')?.checked?1:0,
+    allow_negative:el('wh-neg')?.checked?1:0,
+    costing_method:el('wh-costing')?.value||null
   };
   if(id) data.active=+el('wh-active').value;
   try{
@@ -7498,7 +7664,19 @@ async function renderProductionRatesTab(body){
   window._prodRatesPeriod=period;
   let ccRows=[];
   try{ ccRows=(await api('GET','/production/cost-centers'))?.rows||[]; }catch(e){ ccRows=[]; }
+  let pricing=[];
+  try{ pricing=await api('GET','/pricing-rules')||[]; }catch(e){ pricing=[]; }
+  const globalRule=pricing.find(r=>r.scope==='global')||pricing[0]||{wholesale_markup_pct:20,retail_markup_pct:35,id:null};
   body.innerHTML=`<div class="prod-scope">
+    <div class="panel" style="margin-bottom:14px">
+      <div class="panel-head"><h4>فرمول قیمت‌گذاری (عمده / تک)</h4></div>
+      <div class="panel-body form-grid">
+        <div class="fg"><label>سود عمده ٪</label><input id="prule-w" type="number" step="0.1" value="${globalRule.wholesale_markup_pct??20}"></div>
+        <div class="fg"><label>سود تک ٪</label><input id="prule-r" type="number" step="0.1" value="${globalRule.retail_markup_pct??35}"></div>
+        <div class="fg" style="align-self:end"><button class="btn" onclick="savePricingRule(${globalRule.id||0})">💾 ذخیره فرمول</button></div>
+        <div class="fg full muted" style="font-size:12px">پس از finalize تولید: قیمت عمده = بهای تمام‌شده × (۱+٪عمده) و قیمت تک = بهای تمام‌شده × (۱+٪تک)</div>
+      </div>
+    </div>
     <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
       <label>دوره: <input id="pra-period" value="${esc(period)}" placeholder="1405/04" style="width:90px"></label>
       <button class="btn secondary" onclick="prodRatesLoad()">🔄 بارگذاری</button>
@@ -7508,6 +7686,16 @@ async function renderProductionRatesTab(body){
   </div>`;
   window._prodRatesCC=ccRows;
   await prodRatesLoad();
+}
+async function savePricingRule(id){
+  const wholesale_markup_pct=parseFloat(el('prule-w')?.value);
+  const retail_markup_pct=parseFloat(el('prule-r')?.value);
+  if(!Number.isFinite(wholesale_markup_pct)||!Number.isFinite(retail_markup_pct)){ showToast('درصدها نامعتبر است','error'); return; }
+  try{
+    if(id) await api('PUT','/pricing-rules/'+id,{wholesale_markup_pct,retail_markup_pct,active:1});
+    else await api('POST','/pricing-rules',{scope:'global',wholesale_markup_pct,retail_markup_pct});
+    showToast('فرمول قیمت‌گذاری ذخیره شد');
+  }catch(e){}
 }
 async function prodRatesLoad(){
   const period=el('pra-period')?.value||window._prodRatesPeriod;
@@ -8820,6 +9008,11 @@ async function purchaseInvoiceModal(){
         <div class="fg"><label>تخفیف (٪)</label><input id="po-disc" type="number" value="0" oninput="renderGenCart()"></div>
         <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="po-freight" type="text" inputmode="numeric" class="money" value="0"></div>
         <div class="fg"><label>نوع کرایه</label><select id="po-freight-type"><option value="">—</option><option value="buyer">بر عهده خریدار</option><option value="seller">بر عهده فروشنده</option></select></div>
+        <div class="fg"><label>سرشکن کرایه</label><select id="po-freight-alloc">
+          <option value="amount">به نسبت مبلغ</option>
+          <option value="qty">به نسبت مقدار</option>
+          <option value="equal">مساوی</option>
+        </select></div>
         <div class="fg"><label><input type="checkbox" id="po-vat-exempt" style="width:auto;margin-left:6px"> معاف از مالیات</label></div>
         <div class="fg" id="po-bank-wrap" style="display:none"><label>پرداخت از بانک</label><select id="po-bank" onchange="updateCheckCategoryOptions('po')">
           <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
@@ -8870,6 +9063,7 @@ async function savePurchaseInvoice(){
       cost_center_id:+el('po-cc')?.value||null,
       freight_amount:moneyVal('po-freight'),
       freight_type:el('po-freight-type')?.value||'',
+      freight_alloc_method:el('po-freight-alloc')?.value||'amount',
       vat_exempt:el('po-vat-exempt')?.checked?1:0,
       rows: genCart.map(r=>({product_id:r.product_id,qty:r.qty,price:r.price}))
     });
@@ -9157,7 +9351,7 @@ async function voucherModal(){
   if(!CACHE.persons) CACHE.persons=await api('GET','/persons')||[];
   if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers')||[];
   if(!CACHE.voucherTemplates) CACHE.voucherTemplates=await api('GET','/accounting/vouchers/templates')||[];
-  voucherLines=[{target_type:'account',code:'',person_id:'',debit:0,credit:0,description:''},{target_type:'account',code:'',person_id:'',debit:0,credit:0,description:''}];
+  voucherLines=[{target_type:'account',code:'',person_id:'',debit:0,credit:0,description:'',tafsili2_code:''},{target_type:'account',code:'',person_id:'',debit:0,credit:0,description:'',tafsili2_code:''}];
   openModal(`
     <div class="modal-head"><h3>📝 سند حسابداری دستی</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body">
@@ -9211,6 +9405,7 @@ function renderVoucherLines(){
         :`<label>حساب</label>${acctSearchHtml(i,l.code)}`}</div>
       <div class="fg"><label>بدهکار</label><input type="text" inputmode="numeric" class="money" value="${moneyInit(l.debit)}" oninput="voucherLines[${i}].debit=(+this.value.replace(/[^\d]/g,''))||0;voucherLines[${i}].credit=0;updateVoucherBalance()"></div>
       <div class="fg"><label>بستانکار</label><input type="text" inputmode="numeric" class="money" value="${moneyInit(l.credit)}" oninput="voucherLines[${i}].credit=(+this.value.replace(/[^\d]/g,''))||0;voucherLines[${i}].debit=0;updateVoucherBalance()"></div>
+      <div class="fg"><label>تفصیلی سطح ۲</label><input value="${esc(l.tafsili2_code||'')}" placeholder="اختیاری — پروژه/مرکز" oninput="voucherLines[${i}].tafsili2_code=this.value"></div>
       <div class="fg full"><label>شرح ردیف</label><div style="display:flex;gap:6px">
         <input value="${esc(l.description||'')}" oninput="voucherLines[${i}].description=this.value" style="flex:1">
         ${voucherLines.length>2?`<button class="btn sm red icon" onclick="removeVoucherLine(${i})">🗑️</button>`:''}
@@ -9220,7 +9415,7 @@ function renderVoucherLines(){
   }).join('');
   updateVoucherBalance();
 }
-function addVoucherLine(){ voucherLines.push({target_type:'account',code:'',person_id:'',debit:0,credit:0,description:''}); renderVoucherLines(); }
+function addVoucherLine(){ voucherLines.push({target_type:'account',code:'',person_id:'',debit:0,credit:0,description:'',tafsili2_code:''}); renderVoucherLines(); }
 function removeVoucherLine(i){ voucherLines.splice(i,1); renderVoucherLines(); }
 function updateVoucherBalance(){
   const totD=voucherLines.reduce((a,l)=>a+(l.debit||0),0);
@@ -9234,8 +9429,8 @@ function buildVoucherLinesPayload(){
   return voucherLines
     .filter(l=>(l.target_type==='person'?l.person_id:l.code)&&(l.debit||l.credit))
     .map(l=>l.target_type==='person'
-      ?{person_id:l.person_id,debit:l.debit,credit:l.credit,description:l.description}
-      :{code:l.code,debit:l.debit,credit:l.credit,description:l.description});
+      ?{person_id:l.person_id,debit:l.debit,credit:l.credit,description:l.description,tafsili2_code:l.tafsili2_code||null}
+      :{code:l.code,debit:l.debit,credit:l.credit,description:l.description,tafsili2_code:l.tafsili2_code||null});
 }
 async function saveVoucher(){
   const desc=el('vc-desc').value.trim();
@@ -9322,16 +9517,32 @@ async function deleteVoucher(id){
 async function loadGeneralLedger(code){
   const box=el('glBody'); if(!box||!code) return;
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const d=await api('GET','/accounting/general-ledger/'+code);
+  const dq=(accDateFrom||accDateTo)?'?'+(accDateFrom?'from='+encodeURIComponent(accDateFrom):'')+(accDateFrom&&accDateTo?'&':'')+(accDateTo?'to='+encodeURIComponent(accDateTo):''):'';
+  const [d, dash]=await Promise.all([
+    api('GET','/accounting/general-ledger/'+encodeURIComponent(code)),
+    api('GET','/accounting/account-dashboard/'+encodeURIComponent(code)+dq).catch(()=>null)
+  ]);
   if(!d){ box.innerHTML='<div class="empty">خطا</div>'; return; }
+  const period=dash?.period||{};
+  const last=(dash?.recent||dash?.last_entries||[]).slice(0,10);
   box.innerHTML=`
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div class="panel" style="margin:0;padding:10px 14px;min-width:140px"><div class="muted" style="font-size:11px">مانده</div><div class="mono" style="font-weight:800">${fmt(Math.abs(dash?.balance??d.balance??0))} ریال</div></div>
+      <div class="panel" style="margin:0;padding:10px 14px;min-width:140px"><div class="muted" style="font-size:11px">گردش بدهکار دوره</div><div class="mono" style="color:var(--orange);font-weight:700">${fmt(period.debit_rial||period.total_debit||0)}</div></div>
+      <div class="panel" style="margin:0;padding:10px 14px;min-width:140px"><div class="muted" style="font-size:11px">گردش بستانکار دوره</div><div class="mono" style="color:var(--green);font-weight:700">${fmt(period.credit_rial||period.total_credit||0)}</div></div>
+      <div class="panel" style="margin:0;padding:10px 14px;flex:1"><div class="muted" style="font-size:11px">حساب</div><div style="font-weight:700">${esc((dash?.account||d.account||{}).name||code)} <span class="mono muted">${esc(code)}</span></div></div>
+    </div>
+    ${last.length?`<div class="muted" style="font-size:12px;margin-bottom:6px">آخرین اسناد</div>
+    <div class="tbl-wrap" style="margin-bottom:12px;max-height:180px;overflow:auto"><table class="tbl"><thead><tr><th>تاریخ</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th></tr></thead>
+    <tbody>${last.map(x=>`<tr><td class="mono">${esc(x.entry_date||x.date||'-')}</td><td>${esc(x.description||'-')}</td>
+      <td class="mono">${fmt(x.debit_rial||x.debit||0)}</td><td class="mono">${fmt(x.credit_rial||x.credit||0)}</td></tr>`).join('')}</tbody></table></div>`:''}
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
       <th>تاریخ</th><th>شرح</th><th>مرجع</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th><th>مانده (ریال)</th>
     </tr></thead><tbody>${(d.lines||[]).map(l=>{
       const dr=l.debit_rial||l.debit||0, cr=l.credit_rial||l.credit||0;
       return `<tr>
       <td class="mono">${esc(l.entry_date||'-')}</td>
-      <td>${esc(l.description||l.entry_description||'-')}</td>
+      <td>${esc(l.description||l.entry_description||'-')}${l.tafsili2_code?` <span class="tag" style="font-size:10px">تف۲:${esc(l.tafsili2_code)}</span>`:''}</td>
       <td class="mono muted">${esc(l.ref_type||'-')}${l.ref_id?'#'+l.ref_id:''}</td>
       <td class="mono" style="color:var(--orange)">${dr>0?fmt(dr):'-'}</td>
       <td class="mono" style="color:var(--green)">${cr>0?fmt(cr):'-'}</td>
@@ -9754,7 +9965,7 @@ async function renderAccProductsTab(body){
       </aside>
       <div style="flex:1;min-width:280px">
         <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
-          ${canMut?`<button class="btn green" onclick="accNewProduct()">➕ محصول جدید</button>`:''}
+          ${canMut?`<button class="btn green" onclick="accNewProduct()">➕ کالای جدید</button>`:''}
           <input id="accProdSearch" placeholder="جستجو نام/کد/بارکد..." value="${esc(search)}" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px">
           <span class="muted" style="font-size:12px">${fmt(rows.length)} کالا</span>
         </div>
@@ -9783,10 +9994,10 @@ async function renderAccProductsTab(body){
       _accProdSearchTimer=setTimeout(()=>loadAccTab('products'),280);
     });
   }
-  if(typeof enhanceDataTable==='function' && canMut){
+  if(typeof enhanceDataTable==='function'){
     enhanceDataTable(el('accProductsTbl'),{
-      selectable:true,
-      bulkDelete:typeof tblInferBulkDelete==='function'?tblInferBulkDelete(el('accProductsTbl')):null
+      selectable:canMut,
+      bulkDelete:canMut && typeof tblInferBulkDelete==='function'?tblInferBulkDelete(el('accProductsTbl')):null
     });
   }
 }
@@ -9942,53 +10153,55 @@ const IR_CURRENCIES=[
 ];
 let FX_RATES_STORE=JSON.parse(localStorage.getItem('crm_fx_rates')||'null')||{};
 async function renderCurrenciesTab(body){
-  const display=(await api('GET','/settings/modules')||{}).currency_display||'rial';
+  let rows=[];
+  try{ rows=await api('GET','/fx/currencies?active=0')||[]; }catch(e){ rows=[]; }
+  if(!rows.length){
+    rows=IR_CURRENCIES.map(c=>({code:c.code,name:c.name,symbol:c.symbol,is_base:c.code==='IRR'?1:0,active:1}));
+  }
   body.innerHTML=`
-    <div class="muted" style="font-size:12px;margin-bottom:10px">فهرست ارزهای قابل استفاده در سیستم — ارز پایه: ریال (IRR) طبق قوانین مالیاتی ایران</div>
-    <div class="panel" style="margin-bottom:12px"><div class="panel-body">
-      <span class="tag">نمایش فعلی: ریال</span>
-      ${isAdmin()?`<button class="btn sm ghost" style="margin-right:8px" onclick="go('settings')">تغییر در تنظیمات</button>`:''}
-    </div></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد ISO</th><th>نام ارز</th><th>نماد</th><th>ارز پایه</th></tr></thead>
-    <tbody>${IR_CURRENCIES.map(c=>`<tr>
-      <td class="mono">${esc(c.code)}</td><td>${esc(c.name)}</td><td>${esc(c.symbol)}</td>
-      <td>${c.code==='IRR'?'<span class="tag t-new">بله</span>':'-'}</td>
-    </tr>`).join('')}</tbody></table></div>`;
+    <div class="muted" style="font-size:12px;margin-bottom:10px">فهرست ارزها (Update 11) — ارز پایه: ریال. صندوق/بانک ارزی از این لیست انتخاب می‌کنند.</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد ISO</th><th>نام ارز</th><th>نماد</th><th>ارز پایه</th><th>وضعیت</th></tr></thead>
+    <tbody>${rows.map(c=>`<tr>
+      <td class="mono">${esc(c.code)}</td><td>${esc(c.name)}</td><td>${esc(c.symbol||'')}</td>
+      <td>${c.is_base?'<span class="tag t-new">بله</span>':'-'}</td>
+      <td>${c.active!==0?'فعال':'غیرفعال'}</td>
+    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
 }
 async function renderFxRatesTab(body){
   body.innerHTML=`
-    <div class="muted" style="font-size:12px;margin-bottom:10px">تغییرات نرخ ارز — نرخ هر واحد ارز به ریال (برای تسعیر و گزارشات ارزی)</div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">نرخ ارز (ریال به ازای هر واحد) — cache آفلاین + ورود دستی</div>
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="fxRateModal()">➕ ثبت نرخ جدید</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>ارز</th><th>نرخ (ریال)</th><th>منبع</th></tr></thead>
     <tbody id="fxRatesBody"></tbody></table></div>`;
-  renderFxRatesTable();
+  await renderFxRatesTable();
 }
-function renderFxRatesTable(){
+async function renderFxRatesTable(){
   const tbody=el('fxRatesBody'); if(!tbody) return;
-  const rows=Object.entries(FX_RATES_STORE).flatMap(([cur,list])=>(list||[]).map(r=>({...r,currency:cur}))).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  let rows=[];
+  try{ rows=await api('GET','/fx/rates?limit=200')||[]; }catch(e){ rows=[]; }
   tbody.innerHTML=rows.map(r=>`<tr>
     <td class="mono">${escDate(r.date)}</td><td class="mono">${esc(r.currency)}</td>
-    <td class="mono">${fmt(r.rate)}</td><td class="muted">${esc(r.source||'دستی')}</td>
+    <td class="mono">${fmt(r.rate_rial)}</td><td class="muted">${esc(r.source||'دستی')}</td>
   </tr>`).join('')||emptyRow(4);
 }
 function fxRateModal(){
   openModal(`<div class="modal-head"><h3>ثبت نرخ ارز</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>تاریخ *</label><input id="fx-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>ارز *</label><select id="fx-cur">${IR_CURRENCIES.filter(c=>c.code!=='IRR').map(c=>`<option value="${c.code}">${c.code} — ${c.name}</option>`).join('')}</select></div>
+      <div class="fg"><label>ارز *</label><select id="fx-cur">${IR_CURRENCIES.filter(c=>c.code!=='IRR'&&c.code!=='IRT').map(c=>`<option value="${c.code}">${c.code} — ${c.name}</option>`).join('')}</select></div>
       <div class="fg"><label>نرخ به ریال *</label><input id="fx-rate" type="text" inputmode="numeric" class="money"></div>
-      <div class="fg"><label>منبع</label><input id="fx-src" placeholder="بانک مرکزی / بازار آزاد"></div>
+      <div class="fg"><label>منبع</label><input id="fx-src" placeholder="بانک مرکزی / دستی"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveFxRate()">💾 ذخیره</button><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
 }
-function saveFxRate(){
-  const date=el('fx-date').value, currency=el('fx-cur').value, rate=+(el('fx-rate').value.replace(/[^\d.]/g,''))||0;
+async function saveFxRate(){
+  const date=el('fx-date').value, currency=el('fx-cur').value, rate=+(String(el('fx-rate').value).replace(/[^\d.]/g,''))||0;
   if(!date||!rate){ showToast('تاریخ و نرخ الزامی است','error'); return; }
-  if(!FX_RATES_STORE[currency]) FX_RATES_STORE[currency]=[];
-  FX_RATES_STORE[currency].unshift({date,rate,source:el('fx-src').value||'دستی'});
-  localStorage.setItem('crm_fx_rates',JSON.stringify(FX_RATES_STORE));
-  closeModal(); showToast('نرخ ثبت شد'); renderFxRatesTable();
+  try{
+    await api('POST','/fx/rates',{currency,date,rate_rial:Math.round(rate),source:el('fx-src').value||'manual'});
+    closeModal(); showToast('نرخ ثبت شد'); await renderFxRatesTable();
+  }catch(e){}
 }
 let POS_DEVICES=JSON.parse(localStorage.getItem('crm_pos_devices')||'[]');
 async function renderPosDevicesTab(body){
@@ -10194,7 +10407,7 @@ async function renderFiscalPeriodTab(body){
   const d=await api('GET','/fiscal-year')||{};
   body.innerHTML=`
     <div class="panel"><div class="panel-head"><h4>دوره مالی جاری</h4></div><div class="panel-body">
-      ${d.current?`<p><b>${esc(d.current.label||d.current.year_label||'-')}</b> — ${esc(d.current.start_date||'')} ریالا ${esc(d.current.end_date||'')} — وضعیت: ${d.current.status==='open'?'باز':'بسته'}</p>`:'<p class="muted">دوره مالی تعریف نشده</p>'}
+      ${d.current?`<p><b>${esc(d.current.label||d.current.year_label||'-')}</b> — ${esc(d.current.start_date||'')} الی ${esc(d.current.end_date||'')} — وضعیت: ${d.current.status==='open'?'باز':'بسته'}</p>`:'<p class="muted">دوره مالی تعریف نشده</p>'}
       <table class="tbl" style="margin-top:12px"><thead><tr><th>برچسب</th><th>شروع</th><th>پایان</th><th>وضعیت</th></tr></thead>
       <tbody>${(d.years||[]).map(y=>`<tr><td>${esc(y.label||y.year_label||'-')}</td><td class="mono">${esc(y.start_date||'-')}</td><td class="mono">${esc(y.end_date||'-')}</td><td>${esc(y.status||'-')}</td></tr>`).join('')||emptyRow(4)}</tbody></table>
     </div></div>`;
@@ -10373,6 +10586,10 @@ function bankModal(id){
       <div class="fg full"><label>نام بانک * ${hlp('نام بانک یا حساب بانکی شرکت، مثال: بانک ملی — حساب جاری.')}</label><input id="bk-name" value="${esc(b?.name||'')}"></div>
       <div class="fg"><label>شماره حساب</label><input id="bk-account" value="${esc(b?.account_number||'')}"></div>
       <div class="fg"><label>شعبه</label><input id="bk-branch" value="${esc(b?.branch||'')}"></div>
+      <div class="fg"><label>ارز</label><select id="bk-currency">
+        ${IR_CURRENCIES.filter(c=>c.code!=='IRT').map(c=>`<option value="${c.code}" ${(b?.currency||'IRR')===c.code?'selected':''}>${c.code} — ${c.name}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label><input type="checkbox" id="bk-foreign" ${(b?.is_foreign||(b?.currency&&b.currency!=='IRR'))?'checked':''} style="width:auto;margin-left:6px"> بانک ارزی</label></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="bk-active">
         <option value="1" ${b.active?'selected':''}>فعال</option><option value="0" ${!b.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -10392,6 +10609,8 @@ async function saveBank(id){
     card_expiry:el('bk-card_exp')?.value||'',
     sheba:el('bk-sheba')?.value||'',
     note:el('bk-note')?.value||'',
+    currency:el('bk-currency')?.value||'IRR',
+    is_foreign:el('bk-foreign')?.checked?1:0,
     extra_accounts:collectBankExtraAccounts()
   };
   if(id) data.active=+el('bk-active').value;
@@ -10514,6 +10733,10 @@ function cashBoxModal(id){
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>نام صندوق * ${hlp('نام صندوق نقدی، مثال: صندوق فروشگاه یا صندوق دفتر مرکزی.')}</label><input id="cb-name" value="${esc(b?.name||'')}"></div>
       <div class="fg full"><label>مسئول صندوق</label><input id="cb-custodian" value="${esc(b?.custodian||'')}"></div>
+      <div class="fg"><label>ارز</label><select id="cb-currency">
+        ${IR_CURRENCIES.filter(c=>c.code!=='IRT').map(c=>`<option value="${c.code}" ${(b?.currency||'IRR')===c.code?'selected':''}>${c.code} — ${c.name}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label><input type="checkbox" id="cb-foreign" ${(b?.is_foreign||(b?.currency&&b.currency!=='IRR'))?'checked':''} style="width:auto;margin-left:6px"> صندوق ارزی</label></div>
       <div class="fg full"><label><input type="checkbox" id="cb-petty" ${b?.is_petty_cash?'checked':''} style="width:auto;margin-left:6px"> این صندوق تنخواه‌گردان است ${hlp('صندوق‌های تنخواه‌گردان جداگانه در صفحه «تنخواه گردان» نمایش داده می‌شوند.')}</label></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="cb-active">
         <option value="1" ${b.active?'selected':''}>فعال</option><option value="0" ${!b.active?'selected':''}>غیرفعال</option>
@@ -10526,7 +10749,8 @@ function cashBoxModal(id){
 async function saveCashBox(id){
   const name=el('cb-name').value.trim();
   if(!name){ showToast('نام صندوق الزامی است','error'); return; }
-  const data={name,custodian:el('cb-custodian').value,is_petty_cash:el('cb-petty').checked};
+  const data={name,custodian:el('cb-custodian').value,is_petty_cash:el('cb-petty').checked,
+    currency:el('cb-currency')?.value||'IRR', is_foreign:el('cb-foreign')?.checked?1:0};
   if(id) data.active=+el('cb-active').value;
   try{
     if(id) await api('PUT','/cash-boxes/'+id,data); else await api('POST','/cash-boxes',data);
@@ -13230,7 +13454,7 @@ ROUTES.settings = async function(){
         <button class="btn ghost" onclick="fiscalUnlock(${curFy.id})">🔓 بازگشایی سال</button>`:''}
         <button class="btn ghost" onclick="runIntegrityCheck()">🔍 بررسی یکپارچگی حسابداری</button>
       </div>
-      <div id="fy-status" class="muted" style="font-size:12px;margin-top:10px">${curFy?`سال فعال: <b>${esc(curFy.label)}</b> (${esc(curFy.status||'open')}) — ${esc(curFy.start_date||'')} ریالا ${esc(curFy.end_date||'—')}`:''}</div>
+      <div id="fy-status" class="muted" style="font-size:12px;margin-top:10px">${curFy?`سال فعال: <b>${esc(curFy.label)}</b> (${esc(curFy.status||'open')}) — ${esc(curFy.start_date||'')} الی ${esc(curFy.end_date||'—')}`:''}</div>
       <div id="integrity-result" class="muted" style="font-size:12px;margin-top:8px"></div>
       ${fyRows.length?`<div class="tbl-wrap" style="margin-top:12px"><table class="tbl" style="font-size:12px"><thead><tr><th>سال</th><th>شروع</th><th>پایان</th><th>وضعیت</th><th></th></tr></thead><tbody>
         ${fyRows.map(f=>`<tr><td>${esc(f.label)}</td><td class="mono">${esc(f.start_date||'')}</td><td class="mono">${esc(f.end_date||'')}</td>
@@ -13765,6 +13989,14 @@ function renderAdminGuide(){
       </ul>`),
     helpSec('🆕','قابلیت‌های جدید (حسابداری، چک، جستجو)',`
       <p>در این نسخه چند بهبود مهم اعمال شده است:</p>
+      <h5>📦 Update 11 — حسابداری / تولید / انبار</h5><ul>
+        <li>گروه‌های کالا و اشخاص <b>سراسری</b> هستند (برچسب گزارشی، نه کنترل دسترسی)</li>
+        <li>تب پیش‌فاکتور فقط <code>proforma</code> و تب فاکتور رسمی فقط <code>final</code> را نشان می‌دهد</li>
+        <li>مقدار کالا تا <b>۳ رقم اعشار</b>؛ ارز و نرخ مرجع (صندوق/بانک ارزی)؛ تفصیلی سطح دو روی اسناد</li>
+        <li>فاکتور: توضیحات ردیف، تخفیف مبلغی، سرشکن کرایه، ردیف درآمد/خدمات</li>
+        <li>انبار: اجازه موجودی منفی per-انبار؛ روش ریالی‌کردن در سطح انبار؛ انبارگردانی سه‌شمارشی</li>
+        <li>تولید: فرمول قیمت‌گذاری عمده/تک از بهای تمام‌شده؛ سمت/جایگاه اشخاص</li>
+      </ul>
       <h5>🏭 عملیات تولید — فرمول BOM و سفارش</h5><ul>
         <li>در <b>حسابداری → عملیات تولید → فرمول تولید (BOM)</b> با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
@@ -13783,7 +14015,7 @@ function renderAdminGuide(){
         <li>مدیریت کامل محصولات (افزودن/ویرایش/حذف) فقط از <b>حسابداری → کالاها</b> انجام می‌شود. صفحه ERP محصولات فقط مشاهده است.</li>
         <li>در «کالاها»ی حسابداری، گروه‌های کالا سمت راست و ردیف‌های هر گروه سمت چپ نمایش داده می‌شوند (مشابه اطلاعات اشخاص).</li>
         <li>امکان انتخاب تکی/همه و حذف گروهی ردیف‌های انتخابی وجود دارد.</li>
-        <li>دکمهٔ <b>«➕ محصول جدید»</b> کدهای حسابداری و کد کالا (در صورت خالی بودن، K-00001) را خودکار می‌سازد.</li>
+        <li>دکمهٔ <b>«➕ کالای جدید»</b> کدهای حسابداری و کد کالا (در صورت خالی بودن، K-00001) را خودکار می‌سازد.</li>
       </ul>
       <h5>🗂️ دسته‌های هزینه و گروه‌های اشخاص</h5><ul>
         <li>در مودال «پرداخت هزینه» با دکمهٔ «➕ دستهٔ جدید» می‌توانید بدون خروج از فرم، دستهٔ هزینهٔ جدید بسازید. فهرست دسته‌های پیش‌فرض هم گسترش یافت.</li>
@@ -13870,7 +14102,7 @@ function renderAdminGuide(){
       <p>صدور پیش‌فاکتور و فاکتور رسمی.</p>
       <h5>صدور فاکتور</h5><ul>
         <li>مشتری را انتخاب کنید</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — ثبت/ویرایش کالا فقط از حسابداری → کالاها (مدیر/حسابدار می‌توانند در فاکتور «ساخت محصول جدید» بزنند)</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — ثبت/ویرایش کالا فقط از حسابداری → کالاها (مدیر/حسابدار می‌توانند در فاکتور «ساخت کالای جدید» بزنند)</li>
         <li><b>کانال فروش</b> به‌صورت خودکار از نقش کاربر ثبت‌کننده تعیین می‌شود (میدانی/تلفنی) — فیلد دستی در فرم فاکتور نیست</li>
         <li>کنار هر محصول <b>موجودی لحظه‌ای انبار</b> نمایش داده می‌شود (با کم‌شدن تعداد رزروشده در سبد فاکتور، عدد بلافاصله به‌روز می‌شود؛ قرمز = ناموجود، نارنجی = رو به اتمام)</li>
         <li>تعداد و قیمت هر ردیف را تنظیم کنید</li>
@@ -13917,7 +14149,7 @@ function renderAdminGuide(){
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>فاکتورهای فروش</b>: لیست همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ، به‌همراه دکمهٔ «فاکتور جدید» — تیم حسابداری می‌تواند بدون نیاز به رفتن به بخش ERP، فاکتور جدید صادر کند (همان فرم انتخاب مشتری/کالا و سبد فاکتور صفحهٔ اصلی فاکتورها)</li>
-        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. در سبد خرید می‌توانید محصول را جستجو کنید یا با «➕ ساخت محصول جدید» همان‌جا بسازید</li>
+        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. در سبد خرید می‌توانید محصول را جستجو کنید یا با «➕ ساخت کالای جدید» همان‌جا بسازید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی</li>
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
@@ -14017,7 +14249,7 @@ function renderAdminGuide(){
     helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
       <p>نسخه دسکتاپ (ویندوز) و اندرویدِ برنامه به‌صورت <b>کاملاً آفلاین</b> کار می‌کنند: همه اطلاعات روی خود دستگاه ذخیره می‌شود و به محض دسترسی به اینترنت، تغییرات به‌طور خودکار با سرور مرکزی همگام می‌شود.</p>
       <h5>اتصال اولیه دستگاه</h5><ol>
-        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر خطا یا دیالوگ کرش دیدید، نسخه قبلی را حذف و APK <b>۲.۰.۱۱+</b> را نصب کنید (رفع libc++ و صفحه ۱۶KB برای اندروید ۱۵+)</li>
+        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر خطا یا دیالوگ کرش دیدید، نسخه قبلی را حذف و APK <b>۲.۰.۱۸+</b> را نصب کنید (مسیر موقت قابل‌نوشتن + SQLite + thirty-two)</li>
         <li>در اولین اجرا، با کاربر پیش‌فرض وارد شوید — پنجره «اتصال به سرور مرکزی» باز می‌شود</li>
         <li>آدرس سرور مرکزی و نام کاربری/رمز <b>مدیر سیستم</b> را وارد کنید (این مرحله یک‌بار است و اینترنت لازم دارد)</li>
         <li>پس از اتصال، همه اطلاعات (مشتریان، محصولات، فاکتورها، کاربران و...) از مرکز دریافت می‌شود و از آن پس با نام کاربری اصلی خودتان — حتی بدون اینترنت — وارد می‌شوید</li>
@@ -14109,7 +14341,7 @@ function renderAdminGuide(){
       <h5>گردش حساب مشتریان</h5><p>صفحه «دفتر معین» (گردش حساب) حذف شد — از <b>صورت‌حساب مشتری</b> در حسابداری استفاده کنید.</p>
       <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. اعمال اصلاحات، سند حسابداری تولید می‌کند.</p>
       <h5>سال مالی</h5><p>تنظیمات → مدیریت سال مالی: انتقال (Rollover) یا بازنشانی کامل (Factory Reset با تأیید RESET-FISCAL). همچنین حذف بخش‌به‌بخش دیتای تست با WIPE-SECTION.</p>
-      <h5>ساخت سریع محصول در فاکتور</h5><p>فقط مدیر و حسابدار در فاکتورساز دکمه «➕ ساخت محصول جدید» دارند — مدیریت کامل کالاها در حسابداری → کالاها است.</p>
+      <h5>ساخت سریع محصول در فاکتور</h5><p>فقط مدیر و حسابدار در فاکتورساز دکمه «➕ ساخت کالای جدید» دارند — مدیریت کامل کالاها در حسابداری → کالاها است.</p>
       <h5>مشاور هوشمند (مدیر)</h5><p>منوی «مشاور هوشمند» فقط برای مدیر سیستم و مدیر فروش — پرسش آزاد با داده‌های تجمیع‌شده.</p>
       <h5>دسترسی‌های granular</h5><p>کاربران → ویرایش → «🔐 دسترسی‌ها» — ماتریس View/Create/Edit/Delete/Approve/Export.</p>
       <h5>پشتیبان</h5><p>فقط سرور مرکزی (وب) — دسکتاپ/اندروید Access Denied.</p>
@@ -14198,7 +14430,7 @@ function renderSalesGuide(){
         <li>از منو «فاکتور» را باز کنید</li>
         <li>«فاکتور جدید» را بزنید</li>
         <li>مشتری را انتخاب کنید</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — مدیر/حسابدار می‌توانند با «➕ ساخت محصول جدید» در همان صفحه کالا بسازند</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — مدیر/حسابدار می‌توانند با «➕ ساخت کالای جدید» در همان صفحه کالا بسازند</li>
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور</li>

@@ -56,6 +56,9 @@ const LEGACY = {
   coa_inventory_gain:         { code: '4205', name: 'اضافی انبارگردانی' },
   coa_inventory_loss:         { code: '6108', name: 'کسری و ضایعات انبار' },
   coa_inventory_in_transit:   { code: '1115', name: 'موجودی در راه (حمل)' },
+  coa_fx_gain:                { code: '4206', name: 'سود تسعیر ارز' },
+  coa_fx_loss:                { code: '6109', name: 'زیان تسعیر ارز' },
+  coa_other_income:           { code: '4201', name: 'سایر درآمدها' },
 };
 
 let _cache = null, _cacheAt = 0;
@@ -150,4 +153,37 @@ function allocTafsili(db, kind, name) {
   } catch { return null; }
 }
 
-module.exports = { acct, coaMode, usesExtendedCoa, clearCoaCache, allocTafsili, ensureControlParents, LEGACY };
+/**
+ * Suggest next child code under parent (Update 11 / D4).
+ * Validates child must start with parent prefix.
+ */
+function suggestChildCode(db, parentCode) {
+  const parent = String(parentCode || '').trim();
+  if (!parent) return null;
+  const prow = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(parent);
+  if (!prow) return null;
+  const level = Number(prow.level) || (parent.length <= 2 ? 1 : parent.length <= 4 ? 2 : parent.length <= 6 ? 3 : 4);
+  const childLevel = level + 1;
+  let pad = 2;
+  if (childLevel === 2) pad = 2;
+  else if (childLevel === 3) pad = 2;
+  else if (childLevel === 4) pad = 6;
+  const like = parent + '%';
+  const row = db.prepare(`
+    SELECT MAX(CAST(substr(code, ?) AS INTEGER)) m
+    FROM chart_of_accounts
+    WHERE parent_code=? OR (code LIKE ? AND length(code)=?)
+  `).get(parent.length + 1, parent, like, parent.length + pad);
+  const nextNum = (row && row.m ? row.m : 0) + 1;
+  const child = parent + String(nextNum).padStart(pad, '0');
+  return { parent_code: parent, code: child, level: childLevel };
+}
+
+function validateChildCode(parentCode, childCode) {
+  const p = String(parentCode || '');
+  const c = String(childCode || '');
+  if (!p || !c) return false;
+  return c.startsWith(p) && c.length > p.length;
+}
+
+module.exports = { acct, coaMode, usesExtendedCoa, clearCoaCache, allocTafsili, ensureControlParents, suggestChildCode, validateChildCode, LEGACY };

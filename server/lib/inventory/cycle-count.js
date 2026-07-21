@@ -6,6 +6,7 @@
 const { acct } = require('../coa-map');
 const { postToLedger } = require('../ledger');
 const { postInventoryMovement, inventoryAccountForWarehouse, invErr } = require('./ledger');
+const { parseQty } = require('../round3');
 
 function applyCycleCount(db, sessionId, { createdBy } = {}) {
   const session = db.prepare('SELECT * FROM stocktaking_sessions WHERE id=?').get(sessionId);
@@ -26,7 +27,7 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
 
   db.transaction(() => {
     for (const it of items) {
-      const counted = Math.max(0, parseInt(it.counted_qty, 10) || 0);
+      const counted = Math.max(0, parseQty(it.counted_qty));
       const system = Number(it.system_qty) || 0;
       const diff = counted - system;
       if (diff === 0) continue;

@@ -815,6 +815,11 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     const residual = wipResidual(db, orderId);
     emit(db, 'production.order.finalized', { orderId, unitCostRial: unitCost, wipNet });
 
+    try {
+      const { applyPricingFromCost } = require('../../routes/pricing-rules');
+      applyPricingFromCost(db, po.product_id, unitCost);
+    } catch (e) { console.warn('pricing_rules:', e.message); }
+
     return {
       ok: true,
       receipt_id: receiptId,
