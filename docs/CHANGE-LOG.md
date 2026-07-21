@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | 8563ec8 (rebrand) + ویژگی‌های ادمین (pending) |
+| آخرین commit | `8563ec8` + `3821d1b` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v50` |
 | اندروید | **`2.0.13`** (versionCode 15) — **توزیع محلی فقط** |
 | وضعیت سرور | ✅ ایران `94.249.244.208` — PM2=`erp-taranom`، دامنه `https://erp.poshaktaranom.com` |
@@ -44,7 +44,7 @@
 
 ### ۱۴۰۵/۰۴/۳۰ — [Cursor] ریبرند محصول به ERP ترنم (erp-taranom)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از این commit)
+- **Commit:** `8563ec8`
 - **خلاصه:** نام نمایشی/پکیج/PM2 از CRM ترنم به **ERP ترنم / erp-taranom**؛ دامنه `erp.poshaktaranom.com`؛ مسیر دیسک و keystore عمداً `crm-taranom` ماند.
 - **فایل‌های کلیدی:** `server/public/{index.html,manifest.json,sw.js}`, `server/ecosystem.config.js`, `server/package.json`, `desktop/*`, `android/*/strings.xml`, `docs/*`, `scripts/release.ps1`
 - **Deploy:** ✅ ایران — PM2 `erp-taranom`، عنوان و PWA تأیید شد
@@ -62,13 +62,13 @@
 
 ### ۱۴۰۵/۰۴/۳۰ — [Cursor] ابزار تست ادمین + کالاها + مالکیت مشتری
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از این commit)
+- **Commit:** `3821d1b`
 - **خلاصه:**
   - پاک‌سازی دیتای تست به تفکیک بخش (تراکنش / کامل) با تأیید WIPE-* + رمز — فقط admin مرکزی
   - کالاها در حسابداری: layout شبیه اشخاص (گروه راست، جدول چپ) + انتخاب/حذف گروهی
   - ERP محصولات فقط مشاهده؛ CRUD فقط از حسابداری (`adminOrAccounting`)
   - مالکیت مشتری با `created_by`؛ کارشناس تخصیص‌یافته فقط مشاهده (+ پیگیری/فاکتور)؛ مانده فقط admin
-  - نمایش ماهیت و مانده زنده در لیست/مودال CRM مشتریان؛ sync `account_nature` از parties
+  - نمایش ماهیت و مانده زنده در لیست/مودال ERP مشتریان؛ sync `account_nature` از parties
 - **فایل‌های کلیدی:** `server/routes/data-wipe.js`, `server/server.js`, `server/db.js`, `server/routes/customers.js`, `server/routes/parties.js`, `server/routes/products.js`, `server/lib/parties-sync.js`, `server/public/index.html`, `docs/CHANGE-LOG.md`
 - **Deploy:** ✅ SCP روی ایران + Cloudflare برای `erp.poshaktaranom.com`
 - **یادداشت:** پس از بوت، `created_by` برای رکوردهای قدیمی از `user_id` پر می‌شود.
