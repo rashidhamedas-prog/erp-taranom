@@ -779,11 +779,11 @@ table.tbl tr:hover td{background:var(--row-hover)}
 <!-- ===== Toasts ===== -->
 <div id="toasts"></div>
 
-<script src="/barcode-input.js"></script>
+<script src="/barcode-input.js" defer></script>
 <script src="/acc-nav.js"></script>
 <script src="/portal-ui.js"></script>
-<script src="/mdi.js"></script>
-<script src="/tbl-enhance.js"></script>
+<script src="/mdi.js" defer></script>
+<script src="/tbl-enhance.js" defer></script>
 <script src="/prod-ui.js" defer></script>
 <script>
 /* ============================================================
@@ -1584,7 +1584,7 @@ const LU = (()=> {
     'acc-payroll-reports':'clipboard',
     'acc-parties':'users', 'acc-party-groups':'folder', 'acc-products':'box',
     'acc-product-groups':'tags', 'acc-incomes':'trending', 'acc-expenses':'linechart',
-    'acc-expense-categories':'folder', 'acc-opening-recv-cheques':'download',
+    'acc-expense-categories':'folder', 'acc-person-positions':'tags', 'acc-opening-recv-cheques':'download',
     'acc-opening-pay-cheques':'upload', 'acc-coa-codes':'hash', 'acc-account-groups':'layers',
     'acc-ledger-accounts':'book', 'acc-subsidiary-accounts':'book', 'acc-detail-accounts':'book',
     'acc-detail-categories':'tags', 'acc-other-details':'clipboard', 'acc-equity-info':'briefcase',
@@ -2131,25 +2131,26 @@ async function notifClick(id, entityType, entityId, kind){
 async function loadInitial(){
   try{
     CACHE.reminders = [];
-    if(ME.role==='accounting'){
-      // Accounting users land in acc-dash — defer heavy sales lists until needed.
-      CACHE.customers=[]; CACHE.products=[]; CACHE.allProducts=[]; CACHE.users=[];
-      return;
-    }
-    const fetches = [api('GET','/customers'), api('GET','/products')];
-    if(ME.role==='admin') fetches.push(api('GET','/auth/users'));
-    const results = await Promise.all(fetches);
-    CACHE.customers = results[0]||[];
-    CACHE.products = results[1]||[];
-    CACHE.allProducts = results[1]||[];
+    // Defer heavy lists: customers/products load on first page that needs them (invoice, CRM, …).
+    // Previously admin/sales blocked boot on full /products + /customers payloads.
+    CACHE.customers=[]; CACHE.products=[]; CACHE.allProducts=[]; CACHE.users=[];
     if(ME.role==='admin'){
-      CACHE.users = results[2]||[];
       CACHE.settings = {};
       api('GET','/settings').then(s=>{ CACHE.settings=s||{}; }).catch(()=>{});
-    } else {
-      CACHE.users = [];
+      api('GET','/auth/users').then(u=>{ CACHE.users=u||[]; }).catch(()=>{});
     }
   }catch(e){ console.error(e); }
+}
+async function ensureCustomersCache(){
+  if(CACHE.customers?.length) return CACHE.customers;
+  CACHE.customers = await api('GET','/customers')||[];
+  return CACHE.customers;
+}
+async function ensureProductsCache(){
+  if(CACHE.allProducts?.length) return CACHE.allProducts;
+  const list = await api('GET','/products')||[];
+  CACHE.products = list; CACHE.allProducts = list;
+  return list;
 }
 
 async function reloadCustomers(){ CACHE.customers = await api('GET','/customers')||[]; }
@@ -3426,10 +3427,7 @@ function openInvBuilder(id){
   _openInvBuilder(id);
 }
 async function _openInvBuilder(id){
-  if(!CACHE.allProducts?.length){
-    CACHE.allProducts=await api('GET','/products')||[];
-    if(!CACHE.products?.length) CACHE.products=CACHE.allProducts;
-  }
+  await ensureProductsCache();
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
@@ -3458,7 +3456,8 @@ async function _openInvBuilder(id){
           <option value="proforma" ${inv&&inv.type==='proforma'?'selected':''}>پیش‌فاکتور</option>
           <option value="final" ${inv&&inv.type==='final'?'selected':''}>فاکتور رسمی</option></select></div>
         <div class="fg"><label>تاریخ ${hlp('تاریخ صدور فاکتور. در گزارش‌های دوره‌ای بر اساس این تاریخ فیلتر می‌شود.')}</label><input id="inv-date" data-jdate value="${esc(inv?inv.date:todayJalali())}"></div>
-        <div class="fg"><label>تخفیف (٪) ${hlp('درصد تخفیف از مجموع کل فاکتور. علاوه بر تخفیف‌های احتمالی هر ردیف محاسبه می‌شود.')}</label><input id="inv-disc" type="number" value="${inv?inv.disc:0}" oninput="renderCart()"></div>
+        <div class="fg"><label>تخفیف کل (٪) ${hlp('درصد تخفیف از مجموع کل فاکتور (پس از تخفیف ردیف‌ها). با تغییر درصد، مبلغ تخفیف به‌روز می‌شود و برعکس.')}</label><input id="inv-disc" type="number" min="0" max="100" step="0.01" value="${inv?inv.disc:0}" oninput="invSyncHeaderDisc('pct');renderCart()"></div>
+        <div class="fg"><label>تخفیف کل (مبلغ) ${hlp('مبلغ تخفیف کل فاکتور به ریال. با تغییر مبلغ، درصد معادل محاسبه می‌شود.')}</label><input id="inv-disc-amt" type="number" min="0" value="${inv?inv.disc_amt:0}" oninput="invSyncHeaderDisc('amt');renderCart()"></div>
         <div class="fg"><label>انبار مبدأ</label><select id="inv-warehouse"><option value="">— پیش‌فرض —</option>
           ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}" ${inv&&inv.warehouse_id==w.id?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
         <div class="fg"><label>مرکز هزینه</label><select id="inv-cc"><option value="">—</option>
@@ -3615,6 +3614,47 @@ function pickCardTap(e,pid){
     _pickTap={id:pid,t:now};
   }
 }
+function invSyncLineDisc(cart, i, src){
+  const r = cart[i]; if(!r) return;
+  const gross = Math.max(0, (Number(r.qty)||0) * (Number(r.price)||0));
+  if(src==='pct'){
+    const pct = Math.min(100, Math.max(0, Number(r.disc)||0));
+    r.disc = pct;
+    r.disc_amount = Math.round(gross * pct / 100);
+  } else {
+    const amt = Math.max(0, Math.round(Number(r.disc_amount)||0));
+    r.disc_amount = amt;
+    r.disc = gross > 0 ? Math.min(100, Math.round(amt * 10000 / gross) / 100) : 0;
+  }
+}
+function lineDiscApplied(r){
+  const gross = Math.max(0, (Number(r.qty)||0) * (Number(r.price)||0));
+  const amt = Math.max(0, Math.round(Number(r.disc_amount)||0));
+  if(amt > 0) return amt;
+  return Math.round(gross * (Number(r.disc)||0) / 100);
+}
+function invCartSubtotalAfterLineDisc(cart){
+  const showLineDisc=canAccounting();
+  return (cart||[]).reduce((a,r)=>{
+    const gross=(Number(r.qty)||0)*(Number(r.price)||0);
+    return a+Math.max(0,gross-(showLineDisc?lineDiscApplied(r):0));
+  },0);
+}
+function invSyncHeaderDisc(src, discPctId, discAmtId){
+  const pctEl=el(discPctId||'inv-disc'), amtEl=el(discAmtId||'inv-disc-amt');
+  if(!pctEl||!amtEl) return;
+  const cart = (discPctId==='po-disc') ? genCart : invCart;
+  const subtotal = invCartSubtotalAfterLineDisc(cart);
+  if(src==='pct'){
+    const pct=Math.min(100,Math.max(0,Number(pctEl.value)||0));
+    pctEl.value=pct;
+    amtEl.value=Math.round(subtotal*pct/100);
+  } else {
+    const amt=Math.max(0,Math.round(Number(amtEl.value)||0));
+    amtEl.value=amt;
+    pctEl.value=subtotal>0?Math.min(100,Math.round(amt*10000/subtotal)/100):0;
+  }
+}
 function renderCart(){
   const showLineDisc=canAccounting();
   const countEl=el('invCartCount'); if(countEl) countEl.textContent=fmt(invCart.length)+' ردیف';
@@ -3633,17 +3673,15 @@ function renderCart(){
     </tr></thead><tbody>${invCart.map((r,i)=>{
       const isIncome = r.row_type==='income';
       const gross=r.qty*r.price;
-      const lineDisc=showLineDisc?(r.disc||0):0;
-      const discAmtFixed=showLineDisc?(r.disc_amount||0):0;
-      const lineDiscAmt=Math.round(gross*lineDisc/100)+discAmtFixed;
+      const lineDiscAmt=showLineDisc?lineDiscApplied(r):0;
       const lineSum=Math.max(0,gross-lineDiscAmt);
       return `
       <tr>
         <td class="cn">${isIncome?'💰 ':''}${esc(r.name)}</td>
-        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" onchange="invCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);renderCart();renderInvPicker()"></td>
-        <td class="col-price"><input type="number" value="${r.price}" onchange="invCart[${i}].price=+this.value||0;renderCart()"></td>
-        ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" value="${r.disc||0}" onchange="invCart[${i}].disc=Math.min(100,Math.max(0,+this.value||0));renderCart()"></td>
-        <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" onchange="invCart[${i}].disc_amount=Math.max(0,Math.round(+this.value||0));renderCart()"></td>`:''}
+        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" onchange="invCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);if(canAccounting())invSyncLineDisc(invCart,${i},'pct');renderCart();renderInvPicker()"></td>
+        <td class="col-price"><input type="number" value="${r.price}" onchange="invCart[${i}].price=+this.value||0;if(canAccounting())invSyncLineDisc(invCart,${i},'pct');renderCart()"></td>
+        ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" onchange="invCart[${i}].disc=+this.value||0;invSyncLineDisc(invCart,${i},'pct');renderCart()"></td>
+        <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" onchange="invCart[${i}].disc_amount=+this.value||0;invSyncLineDisc(invCart,${i},'amt');renderCart()"></td>`:''}
         <td class="col-wh">${!isIncome?`<select onchange="invCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>`:'—'}</td>
         <td class="col-sum mono">${fmt(lineSum)}</td>
         <td class="col-rm"><button type="button" class="rm" title="حذف" onclick="invCart.splice(${i},1);renderCart();renderInvPicker()">×</button></td>
@@ -3651,18 +3689,19 @@ function renderCart(){
       <tr class="desc-row"><td colspan="${colSpan}"><input type="text" placeholder="توضیحات ردیف (اختیاری)" value="${esc(r.description||'')}" onchange="invCart[${i}].description=this.value"></td></tr>`;
     }).join('')}</tbody></table>`;
   }
-  const subtotal = invCart.reduce((a,r)=>{
-    const gross=r.qty*r.price;
-    const lineDiscAmt=showLineDisc?Math.round(gross*(r.disc||0)/100)+(r.disc_amount||0):0;
-    return a+Math.max(0,gross-lineDiscAmt);
-  },0);
-  const disc = +(el('inv-disc')?.value||0);
-  const discAmt = Math.round(subtotal*disc/100);
+  const linesDiscTotal = showLineDisc ? invCart.reduce((a,r)=>a+lineDiscApplied(r),0) : 0;
+  const subtotal = invCartSubtotalAfterLineDisc(invCart);
+  const discAmtEl=el('inv-disc-amt');
+  let discAmt = discAmtEl ? Math.max(0,Math.round(Number(discAmtEl.value)||0)) : 0;
+  let disc = +(el('inv-disc')?.value||0);
+  if(discAmtEl && !discAmt && disc){ discAmt=Math.round(subtotal*disc/100); discAmtEl.value=discAmt; }
+  else if(discAmtEl && discAmt && subtotal>0){ disc=Math.min(100,Math.round(discAmt*10000/subtotal)/100); const pe=el('inv-disc'); if(pe && document.activeElement!==pe) pe.value=disc; }
   const freight = typeof moneyVal==='function' ? moneyVal('inv-freight') : 0;
   const final = subtotal-discAmt+freight;
   el('cartTot').innerHTML = `
+    ${linesDiscTotal?`<div class="l"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" style="color:var(--orange)">${fmt(linesDiscTotal)} ریال</span></div>`:''}
     <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
-    <div class="l"><span>تخفیف کل فاکتور (${fmt(disc)}٪):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
+    <div class="l"><span>تخفیف کل فاکتور (${fmt(disc)}٪ / مبلغ):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
     ${freight?`<div class="l"><span>کرایه حمل:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
     <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(final)} ریال</span></div>`;
 }
@@ -4343,7 +4382,10 @@ async function stkOpenDetail(id){
   if(!d?.session){ box.innerHTML='<div class="empty">یافت نشد</div>'; return; }
   const s=d.session, items=d.items||[];
   const editable=s.status!=='adjusted';
-  const varianceTotal=items.reduce((a,it)=>a+((it.counted_qty||0)-(it.system_qty||0)),0);
+  const varianceTotal=items.reduce((a,it)=>{
+    const counted=it.counted_qty!=null?it.counted_qty:(it.count1_qty||0);
+    return a+(counted-(it.system_qty||0));
+  },0);
   box.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
       <button class="btn ghost sm" onclick="_stkDetailId=null;loadStocktakingList()">← لیست</button>
@@ -4354,22 +4396,37 @@ async function stkOpenDetail(id){
         <button class="btn sm blue" onclick="stkComplete(${s.id})">✅ تکمیل</button>
         <button class="btn sm green" onclick="stkApply(${s.id})">📦 تأیید و اعمال اصلاحات</button>`:''}
     </div>
-    <div class="panel"><div class="panel-head"><h4>اقلام انبارگردانی #${s.id} (${items.length} قلم)</h4>
-      <span class="muted">جمع اختلاف: <b style="color:${varianceTotal>0?'var(--green)':varianceTotal<0?'var(--red)':'inherit'}">${varianceTotal>0?'+':''}${fmt(varianceTotal)}</b></span>
+    <div class="panel"><div class="panel-head"><h4>اقلام انبارگردانی #${s.id} (${items.length} قلم) — سه شمارش + تگ</h4>
+      <span class="muted">جمع اختلاف (بر اساس شمارش تأییدشده): <b style="color:${varianceTotal>0?'var(--green)':varianceTotal<0?'var(--red)':'inherit'}">${varianceTotal>0?'+':''}${fmt(varianceTotal)}</b></span>
     </div>
     <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
-      <th>کد</th><th>محصول</th><th>واحد</th><th>موجودی سیستم</th><th>موجودی شمارش‌شده</th><th>اختلاف</th>
+      <th>کد</th><th>کالا</th><th>واحد</th><th>سیستم</th>
+      <th>شمارش ۱</th><th>شمارش ۲</th><th>شمارش ۳</th>
+      <th>تگ</th><th>تأیید</th><th>اختلاف</th>
     </tr></thead><tbody>${items.map(it=>{
-      const v=(it.counted_qty||0)-(it.system_qty||0);
-      return `<tr>
+      const conf=parseInt(it.confirmed_count,10)||1;
+      const c1=it.count1_qty!=null?it.count1_qty:(it.counted_qty||0);
+      const c2=it.count2_qty!=null?it.count2_qty:'';
+      const c3=it.count3_qty!=null?it.count3_qty:'';
+      const counted=conf===3&&c3!==''?+c3:conf===2&&c2!==''?+c2:+c1;
+      const v=counted-(it.system_qty||0);
+      return `<tr data-stk-id="${it.id}">
         <td class="mono">${esc(it.code||'-')}</td>
         <td>${esc(it.name||'-')}</td>
         <td>${esc(it.unit||'-')}</td>
         <td class="mono">${fmt(it.system_qty||0)}</td>
-        <td>${editable?`<input type="number" min="0" class="stk-count" data-id="${it.id}" value="${it.counted_qty||0}" style="width:90px;padding:4px 8px;border:1.5px solid var(--border);border-radius:6px">`:`<span class="mono">${fmt(it.counted_qty||0)}</span>`}</td>
+        <td>${editable?`<input type="number" min="0" class="stk-c1" value="${c1}" style="width:72px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px">`:`<span class="mono">${fmt(c1)}</span>`}</td>
+        <td>${editable?`<input type="number" min="0" class="stk-c2" value="${c2}" style="width:72px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px">`:`<span class="mono">${c2===''?'—':fmt(c2)}</span>`}</td>
+        <td>${editable?`<input type="number" min="0" class="stk-c3" value="${c3}" style="width:72px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px">`:`<span class="mono">${c3===''?'—':fmt(c3)}</span>`}</td>
+        <td>${editable?`<input type="text" class="stk-tag" value="${esc(it.count_tag||'')}" placeholder="تگ" style="width:80px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px">`:`<span>${esc(it.count_tag||'-')}</span>`}</td>
+        <td>${editable?`<select class="stk-conf" style="padding:4px 6px;border:1.5px solid var(--border);border-radius:6px">
+          <option value="1" ${conf===1?'selected':''}>۱</option>
+          <option value="2" ${conf===2?'selected':''}>۲</option>
+          <option value="3" ${conf===3?'selected':''}>۳</option>
+        </select>`:`<span class="mono">${conf}</span>`}</td>
         <td class="mono" style="font-weight:600;color:${v>0?'var(--green)':v<0?'var(--red)':'var(--muted)'}">${v>0?'+':''}${fmt(v)}</td>
       </tr>`;
-    }).join('')||emptyRow(6)}</tbody></table></div></div>
+    }).join('')||emptyRow(10)}</tbody></table></div></div>
     ${s.note?`<div class="muted" style="margin-top:8px">یادداشت: ${esc(s.note)}</div>`:''}`;
 }
 function stkNewModal(){
@@ -4399,7 +4456,19 @@ async function stkCreate(){
   }catch(e){}
 }
 async function stkSaveItems(id){
-  const items=[...document.querySelectorAll('.stk-count')].map(inp=>({ id:+inp.dataset.id, counted_qty:+inp.value||0 }));
+  const items=[...document.querySelectorAll('tr[data-stk-id]')].map(tr=>{
+    const c1=tr.querySelector('.stk-c1')?.value;
+    const c2=tr.querySelector('.stk-c2')?.value;
+    const c3=tr.querySelector('.stk-c3')?.value;
+    return {
+      id:+tr.dataset.stkId,
+      count1_qty:c1===''||c1==null?null:+c1,
+      count2_qty:c2===''||c2==null?null:+c2,
+      count3_qty:c3===''||c3==null?null:+c3,
+      count_tag:tr.querySelector('.stk-tag')?.value||'',
+      confirmed_count:+(tr.querySelector('.stk-conf')?.value||1)
+    };
+  });
   try{ await api('PUT','/stocktaking/'+id+'/items',{items}); showToast('شمارش ذخیره شد'); stkOpenDetail(id); }catch(e){}
 }
 async function stkComplete(id){
@@ -5072,6 +5141,8 @@ async function loadAccTab(tab){
     renderAccReceivablesBody(body);
   } else if(tab==='expense-categories'){
     await renderExpenseCategoriesTab(body);
+  } else if(tab==='person-positions'){
+    await renderPersonPositionsTab(body);
   } else if(tab==='settlements'){
     await renderCashOpsTab(body, dq);
   } else if(tab==='payments'){
@@ -5461,17 +5532,15 @@ function renderGenCart(){
       <th class="col-rm"></th>
     </tr></thead><tbody>${genCart.map((r,i)=>{
       const gross=r.qty*r.price;
-      const lineDisc=showLineDisc?(r.disc||0):0;
-      const discAmtFixed=showLineDisc?(r.disc_amount||0):0;
-      const lineDiscAmt=Math.round(gross*lineDisc/100)+discAmtFixed;
+      const lineDiscAmt=showLineDisc?lineDiscApplied(r):0;
       const lineSum=Math.max(0,gross-lineDiscAmt);
       return `
       <tr>
         <td class="cn">${esc(r.name)}</td>
-        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" onchange="genCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);renderGenCart()"></td>
-        <td class="col-price"><input type="number" value="${r.price}" onchange="genCart[${i}].price=+this.value||0;renderGenCart()"></td>
-        ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" value="${r.disc||0}" onchange="genCart[${i}].disc=Math.min(100,Math.max(0,+this.value||0));renderGenCart()"></td>
-        <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" onchange="genCart[${i}].disc_amount=Math.max(0,Math.round(+this.value||0));renderGenCart()"></td>`:''}
+        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" onchange="genCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);if(canAccounting())invSyncLineDisc(genCart,${i},'pct');renderGenCart()"></td>
+        <td class="col-price"><input type="number" value="${r.price}" onchange="genCart[${i}].price=+this.value||0;if(canAccounting())invSyncLineDisc(genCart,${i},'pct');renderGenCart()"></td>
+        ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" onchange="genCart[${i}].disc=+this.value||0;invSyncLineDisc(genCart,${i},'pct');renderGenCart()"></td>
+        <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" onchange="genCart[${i}].disc_amount=+this.value||0;invSyncLineDisc(genCart,${i},'amt');renderGenCart()"></td>`:''}
         <td class="col-wh"><select onchange="genCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض فاکتور</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select></td>
         <td class="col-sum mono">${fmt(lineSum)}</td>
         <td class="col-rm"><button type="button" class="rm" title="حذف" onclick="genCart.splice(${i},1);renderGenCart()">×</button></td>
@@ -5480,18 +5549,19 @@ function renderGenCart(){
     }).join('')}</tbody></table>`;
   }
   const totEl=el('genCartTot'); if(!totEl) return;
-  const subtotal=genCart.reduce((a,r)=>{
-    const gross=r.qty*r.price;
-    const lineDiscAmt=showLineDisc?Math.round(gross*(r.disc||0)/100)+(r.disc_amount||0):0;
-    return a+Math.max(0,gross-lineDiscAmt);
-  },0);
+  const linesDiscTotal = showLineDisc ? genCart.reduce((a,r)=>a+lineDiscApplied(r),0) : 0;
+  const subtotal=invCartSubtotalAfterLineDisc(genCart);
   const freight = (typeof moneyVal==='function' && el('po-freight')) ? moneyVal('po-freight') : 0;
   if(genCartDiscInputId){
-    const discPct=+el(genCartDiscInputId)?.value||0;
-    const discAmt=Math.round(subtotal*discPct/100);
+    const discAmtEl=el('po-disc-amt');
+    let discPct=+el(genCartDiscInputId)?.value||0;
+    let discAmt=discAmtEl?Math.max(0,Math.round(Number(discAmtEl.value)||0)):Math.round(subtotal*discPct/100);
+    if(discAmtEl && !discAmt && discPct){ discAmt=Math.round(subtotal*discPct/100); discAmtEl.value=discAmt; }
+    else if(discAmtEl && discAmt && subtotal>0){ discPct=Math.min(100,Math.round(discAmt*10000/subtotal)/100); const pe=el(genCartDiscInputId); if(pe && document.activeElement!==pe) pe.value=discPct; }
     totEl.innerHTML = `
+      ${linesDiscTotal?`<div class="l"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" style="color:var(--orange)">${fmt(linesDiscTotal)} ریال</span></div>`:''}
       <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
-      <div class="l"><span>تخفیف کل فاکتور (${fmt(discPct)}٪):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
+      <div class="l"><span>تخفیف کل فاکتور (${fmt(discPct)}٪ / مبلغ):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
       ${freight?`<div class="l"><span>کرایه حمل:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
       <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(subtotal-discAmt+freight)} ریال</span></div>`;
   } else {
@@ -9119,7 +9189,8 @@ async function purchaseInvoiceModal(){
         <div class="fg"><label>نوع پرداخت</label><select id="po-paytype" onchange="togglePoBankFields()">
           <option value="credit">نسیه (حساب باز)</option><option value="cash">نقد</option>
           <option value="cheque">چک</option><option value="bank_transfer">واریز بانکی</option></select></div>
-        <div class="fg"><label>تخفیف (٪)</label><input id="po-disc" type="number" value="0" oninput="renderGenCart()"></div>
+        <div class="fg"><label>تخفیف کل (٪)</label><input id="po-disc" type="number" min="0" max="100" step="0.01" value="0" oninput="invSyncHeaderDisc('pct','po-disc','po-disc-amt');renderGenCart()"></div>
+        <div class="fg"><label>تخفیف کل (مبلغ)</label><input id="po-disc-amt" type="number" min="0" value="0" oninput="invSyncHeaderDisc('amt','po-disc','po-disc-amt');renderGenCart()"></div>
         <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="po-freight" type="text" inputmode="numeric" class="money" value="0" oninput="renderGenCart()"></div>
         <div class="fg"><label>نوع کرایه</label><select id="po-freight-type"><option value="">—</option><option value="buyer">بر عهده خریدار</option><option value="seller">بر عهده فروشنده</option></select></div>
         <div class="fg"><label>سرشکن کرایه</label><select id="po-freight-alloc">
@@ -11133,30 +11204,51 @@ async function deleteTransfer(id){
 async function renderExpenseCategoriesTab(body){
   const rows=await api('GET','/expenses/categories')||[];
   CACHE.expenseCategories=rows;
+  const byParent={};
+  rows.forEach(r=>{ const k=r.parent_id||0; if(!byParent[k]) byParent[k]=[]; byParent[k].push(r); });
+  function renderTree(parentId, depth){
+    return (byParent[parentId]||[]).map(r=>{
+      const pad='— '.repeat(depth);
+      const coa=r.coa_code||r.account_code||'-';
+      return `<tr>
+        <td class="mono">${esc(r.code||'-')}</td>
+        <td>${pad}${esc(r.name)} <span class="muted" style="font-size:11px">L${r.level||1}</span></td>
+        <td class="mono">${esc(coa)}</td>
+        <td>${r.parent_id?(CACHE.expenseCategories||[]).find(x=>x.id===r.parent_id)?.name||'-': '—'}</td>
+        <td><button class="btn sm ghost" onclick="expenseCategoryModal(${r.id})">✏️</button>
+            <button class="btn sm red" onclick="deleteExpenseCategory(${r.id})">🗑️</button></td>
+      </tr>`+renderTree(r.id, depth+1);
+    }).join('');
+  }
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="expenseCategoryModal()">➕ دسته جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>حساب دفتر کل</th><th>عملیات</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr>
-      <td class="mono">${esc(r.code||'-')}</td><td>${esc(r.name)}</td><td class="mono">${esc(r.account_code||'-')}</td>
-      <td><button class="btn sm ghost" onclick="expenseCategoryModal(${r.id})">✏️</button>
-          <button class="btn sm red" onclick="deleteExpenseCategory(${r.id})">🗑️</button></td>
-    </tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>حساب (کل/معین)</th><th>والد</th><th>عملیات</th></tr></thead>
+    <tbody>${renderTree(0,0)||emptyRow(5)}</tbody></table></div>`;
 }
 async function expenseCategoryModal(id){
-  const row=id?(CACHE.expenseCategories||[]).find(x=>x.id===id)||{}:{};
+  const rows=CACHE.expenseCategories||[];
+  const row=id?rows.find(x=>x.id===id)||{}:{};
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش دسته هزینه':'دسته هزینه جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>کد</label><input id="ec-code" value="${esc(row.code||'')}"></div>
       <div class="fg"><label>نام *</label><input id="ec-name" value="${esc(row.name||'')}"></div>
-      <div class="fg full"><label>کد حساب دفتر کل</label><input id="ec-account" dir="ltr" class="mono" value="${esc(row.account_code||'')}" placeholder="مثال: 6102"></div>
+      <div class="fg full"><label>دسته والد ${hlp('برای سلسله‌مراتب: زیرمجموعه سطح قبلی. بدون والد = سطح ۱ (کل)')}</label>
+        <select id="ec-parent"><option value="">— بدون والد (سطح کل) —</option>
+          ${rows.filter(r=>r.id!==id).map(r=>`<option value="${r.id}" ${row.parent_id==r.id?'selected':''}>${'— '.repeat((r.level||1)-1)}${esc(r.name)}</option>`).join('')}
+        </select></div>
+      <div class="fg full"><label>کد حساب دفتر کل / معین ${hlp('باید زیرمجموعه سطح قبلی باشد و قابل رهگیری در دفتر کل')}</label>
+        <input id="ec-account" dir="ltr" class="mono" value="${esc(row.coa_code||row.account_code||'')}" placeholder="مثال: 6102" list="ec-coa-list">
+        <datalist id="ec-coa-list">${(CACHE.coa||[]).map(c=>`<option value="${esc(c.code)}">${esc(c.code)} — ${esc(c.name)}</option>`).join('')}</datalist>
+      </div>
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveExpenseCategory(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
 }
 async function saveExpenseCategory(id){
   const name=el('ec-name').value.trim(); if(!name){ showToast('نام الزامی است','error'); return; }
-  const data={name, code:el('ec-code').value.trim(), account_code:el('ec-account').value.trim()};
+  const coa=el('ec-account').value.trim();
+  const data={name, code:el('ec-code').value.trim(), account_code:coa, coa_code:coa, parent_id:+el('ec-parent').value||null};
   try{
     if(id) await api('PUT','/expenses/categories/'+id,data); else await api('POST','/expenses/categories',data);
     closeModal(); showToast('ذخیره شد'); CACHE.expenseCategories=null; loadAccTab('expense-categories');
@@ -11165,6 +11257,41 @@ async function saveExpenseCategory(id){
 async function deleteExpenseCategory(id){
   if(!confirm('این دسته حذف شود؟')) return;
   try{ await api('DELETE','/expenses/categories/'+id); showToast('حذف شد'); CACHE.expenseCategories=null; loadAccTab('expense-categories'); }catch(e){}
+}
+
+async function renderPersonPositionsTab(body){
+  const rows=await api('GET','/person-positions')||[];
+  CACHE.personPositions=rows;
+  body.innerHTML=`
+    <div class="muted" style="font-size:12px;margin-bottom:10px">سمت و جایگاه — برچسب موجودیت برای اشخاص (تأثیر اصلی در گزارش‌گیری و فیلتر)</div>
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="personPositionModal()">➕ سمت جدید</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>عملیات</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td>${esc(r.name)}</td>
+      <td><button class="btn sm ghost" onclick="personPositionModal(${r.id})">✏️</button>
+          <button class="btn sm red" onclick="deletePersonPosition(${r.id})">🗑️</button></td>
+    </tr>`).join('')||emptyRow(2)}</tbody></table></div>`;
+}
+async function personPositionModal(id){
+  const row=id?(CACHE.personPositions||[]).find(x=>x.id===id)||{}:{};
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش سمت':'سمت / جایگاه جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>نام *</label><input id="pp-name" value="${esc(row.name||'')}" placeholder="مثال: مدیر فروش"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="savePersonPosition(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function savePersonPosition(id){
+  const name=el('pp-name').value.trim(); if(!name){ showToast('نام الزامی است','error'); return; }
+  try{
+    if(id) await api('PUT','/person-positions/'+id,{name}); else await api('POST','/person-positions',{name});
+    closeModal(); showToast('ذخیره شد'); loadAccTab('person-positions');
+  }catch(e){}
+}
+async function deletePersonPosition(id){
+  if(!confirm('این سمت حذف شود؟')) return;
+  try{ await api('DELETE','/person-positions/'+id); showToast('حذف شد'); loadAccTab('person-positions'); }catch(e){}
 }
 
 /* ============================================================
@@ -11653,13 +11780,14 @@ async function settlementModal(custId){
       <div id="stlSingleBlock">
         <div class="form-grid">
           <div class="fg" id="st-amount-fg"><label>مبلغ (ریال) *</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
-          <div class="fg"><label>نوع پرداخت</label><select id="st-paytype" onchange="toggleStlCheque()"><option value="cash">نقد</option><option value="cheque">چک</option></select></div>
-          <div class="fg"><label>واریز به بانک</label><select id="st-bank"><option value="">— بدون بانک —</option>
+          <div class="fg"><label>نوع پرداخت</label><select id="st-paytype" onchange="toggleStlCheque()"><option value="cash">نقد</option><option value="bank_transfer">واریز بانکی</option><option value="cheque">چک</option></select></div>
+          <div class="fg" id="st-bank-fg"><label>واریز به بانک</label><select id="st-bank"><option value="">— بدون بانک —</option>
             ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
           </select></div>
-          <div class="fg"><label>واریز به صندوق</label><select id="st-cashbox"><option value="">— بدون صندوق —</option>
+          <div class="fg" id="st-cashbox-fg"><label>واریز به صندوق</label><select id="st-cashbox"><option value="">— بدون صندوق —</option>
             ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
           </select></div>
+          <div class="fg full" id="st-bankref-fg" style="display:none"><label>شماره پیگیری / مرجع واریز</label><input id="st-bankref" placeholder="کد رهگیری بانکی"></div>
           <div class="fg"><label>تاریخ</label><input id="st-date" data-jdate value="${todayJalali()}"></div>
           <div class="fg full"><label>یادداشت</label><textarea id="st-note" placeholder="توضیحات..."></textarea></div>
         </div>
@@ -11714,7 +11842,7 @@ function renderStlRows(){
   const invOpts='<option value="">—</option>'+stlOpenInvoices.map(i=>`<option value="${i.id}">${esc(i.num)} (${fmt(i.outstanding)} ریال)</option>`).join('');
   body.innerHTML=stlRows.map((r,i)=>`<tr>
     <td><input type="text" inputmode="numeric" class="money" value="${r.amount}" onchange="stlRows[${i}].amount=this.value" style="width:110px"></td>
-    <td><select onchange="stlRows[${i}].pay_type=this.value"><option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option><option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option></select></td>
+    <td><select onchange="stlRows[${i}].pay_type=this.value"><option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option><option value="bank_transfer" ${r.pay_type==='bank_transfer'?'selected':''}>واریز بانکی</option><option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option></select></td>
     <td><input data-jdate value="${esc(r.date)}" onchange="stlRows[${i}].date=this.value" style="width:100px"></td>
     <td><select onchange="stlRows[${i}].invoice_id=this.value">${'<option value="">—</option>'+stlOpenInvoices.map(inv=>`<option value="${inv.id}" ${String(r.invoice_id)===String(inv.id)?'selected':''}>${esc(inv.num)} (${fmt(inv.outstanding)} ریال)</option>`).join('')}</select></td>
     <td>${stlRows.length>1?`<button class="btn sm red" onclick="stlRows.splice(${i},1);renderStlRows()">×</button>`:''}</td>
@@ -11729,8 +11857,13 @@ let stlCheques=[stlNewCheque()];
 function toggleStlCheque(){
   const pt=el('st-paytype'); if(!pt) return;
   const isCheque = pt.value==='cheque' && !el('st-multi')?.checked;
+  const isBank = pt.value==='bank_transfer' && !el('st-multi')?.checked;
+  const isCash = pt.value==='cash' && !el('st-multi')?.checked;
   const cc=el('stlChequeCards'); if(cc) cc.style.display=isCheque?'block':'none';
   const amtFg=el('st-amount-fg'); if(amtFg) amtFg.style.display=isCheque?'none':'flex';
+  const bankRef=el('st-bankref-fg'); if(bankRef) bankRef.style.display=isBank?'block':'none';
+  const bankFg=el('st-bank-fg'); if(bankFg) bankFg.style.display=(isBank||isCheque)?'flex':'flex';
+  const cashFg=el('st-cashbox-fg'); if(cashFg) cashFg.style.display=isCash?'flex':'flex';
   if(isCheque){ if(!stlCheques.length) stlCheques=[stlNewCheque()]; renderStlCheques(); }
 }
 function stlAddCheque(){ stlCheques.push(stlNewCheque()); renderStlCheques(); }
@@ -11818,7 +11951,7 @@ async function saveSettlement(){
     await api('POST','/accounting/settlements',{
       cust_id, amount:amount, pay_type, invoice_id,
       date:el('st-date').value,
-      note:el('st-note').value,
+      note:(el('st-note').value||'')+(pay_type==='bank_transfer'&&el('st-bankref')?.value?(' | پیگیری: '+el('st-bankref').value):''),
       bank_id:+el('st-bank').value||null,
       cash_box_id:+el('st-cashbox').value||null,
       cheque_status:'pending'
@@ -14150,9 +14283,12 @@ function renderAdminGuide(){
         <li>گروه‌های کالا و اشخاص <b>سراسری</b> هستند (برچسب گزارشی، نه کنترل دسترسی)</li>
         <li>تب پیش‌فاکتور فقط <code>proforma</code> و تب فاکتور رسمی فقط <code>final</code> را نشان می‌دهد</li>
         <li>مقدار کالا تا <b>۳ رقم اعشار</b>؛ ارز و نرخ مرجع (صندوق/بانک ارزی)؛ تفصیلی سطح دو روی اسناد</li>
-        <li>فاکتور: توضیحات ردیف، تخفیف مبلغی، سرشکن کرایه، ردیف درآمد/خدمات</li>
-        <li>انبار: اجازه موجودی منفی per-انبار؛ روش ریالی‌کردن در سطح انبار؛ انبارگردانی سه‌شمارشی</li>
-        <li>تولید: فرمول قیمت‌گذاری عمده/تک از بهای تمام‌شده؛ سمت/جایگاه اشخاص</li>
+        <li>فاکتور: توضیحات ردیف در چاپ، تخفیف ٪↔مبلغ دوطرفه (ردیف و کل)، جمع تخفیف ردیف‌ها در جمع فاکتور</li>
+        <li>انبار: اجازه موجودی منفی per-انبار؛ روش ریالی‌کردن در سطح انبار؛ انبارگردانی با <b>سه شمارش + تگ</b></li>
+        <li>دریافت: نقد / واریز بانکی / چک (هم‌تراز پرداخت)</li>
+        <li>دسته‌بندی هزینه سلسله‌مراتبی (والد + کد معین/کل)؛ سمت و جایگاه اشخاص</li>
+        <li>پورتال اتوماسیون: پرداخت در انتظار تأیید حسابداری، هزینه اضافه روی خروجی نهایی، امکانات/وظایف دپارتمان</li>
+        <li>بارگذاری اولیه سریع‌تر (لیست‌های سنگین به‌صورت lazy)</li>
       </ul>
       <h5>🏭 عملیات تولید — فرمول BOM و سفارش</h5><ul>
         <li>در <b>حسابداری → عملیات تولید → فرمول تولید (BOM)</b> با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید.</li>

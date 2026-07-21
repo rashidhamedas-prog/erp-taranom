@@ -88,18 +88,50 @@ function toRial(foreignAmount, rateRial) {
 }
 
 /**
- * Try live fetch (best-effort). Falls back to cache.
- * Source placeholder: central-bank style endpoint may be blocked offline.
+ * Try live fetch from public FX mirrors (best-effort). Falls back to cache.
+ * Sources: tgju.org (unofficial mirror of market/CBI-linked rates). Offline-first.
  */
 async function fetchAndCacheRate(db, currency, date) {
   const code = String(currency || '').toUpperCase();
   if (code === 'IRR') return { rate_rial: 1, source: 'base' };
   const cached = getCachedRate(db, code, date);
-  // Live fetch is optional — network may be unavailable (offline-first).
+  const d = date || require('../jalali').todayJalali();
   try {
-    // No hard dependency on external API; keep last cache.
-    if (cached > 0) return { rate_rial: cached, source: 'cache' };
-  } catch (_) { /* ignore */ }
+    const https = require('https');
+    // Map currency → tgju slug (best-effort public API; mirrors CBI/market rates)
+    const slugMap = {
+      USD: 'price_dollar_rl',
+      EUR: 'price_eur',
+      AED: 'price_aed',
+      TRY: 'price_try',
+      GBP: 'price_gbp',
+    };
+    const slug = slugMap[code];
+    if (slug) {
+      const rate = await new Promise((resolve) => {
+        const req = https.get(`https://api.tgju.org/v1/market/indicator/summary-table-data/${slug}`, { timeout: 4000 }, (res) => {
+          let body = '';
+          res.on('data', (c) => { body += c; });
+          res.on('end', () => {
+            try {
+              const j = JSON.parse(body);
+              // tgju returns nested; try common shapes
+              const p = j?.data?.[0]?.p || j?.p || j?.price || j?.data?.price;
+              const n = parseInt(String(p).replace(/[^\d]/g, ''), 10);
+              resolve(n > 0 ? n : 0);
+            } catch (_) { resolve(0); }
+          });
+        });
+        req.on('error', () => resolve(0));
+        req.on('timeout', () => { req.destroy(); resolve(0); });
+      });
+      if (rate > 0) {
+        setManualRate(db, code, d, rate, 'cbi_tgju');
+        return { rate_rial: rate, source: 'cbi_tgju' };
+      }
+    }
+  } catch (_) { /* network unavailable */ }
+  if (cached > 0) return { rate_rial: cached, source: 'cache' };
   return { rate_rial: cached, source: cached > 0 ? 'cache' : 'none' };
 }
 

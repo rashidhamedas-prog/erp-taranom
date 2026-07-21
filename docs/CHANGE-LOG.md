@@ -32,11 +32,23 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `43019e4` روی ایران + APK 2.0.19 محلی |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v52` |
+| آخرین commit | (در حال آماده‌سازی — پچ سرعت/فاکتور/پورتال/انبارگردانی) |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v54` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ✅ ایران `94.249.244.208` — PM2=`erp-taranom`، دامنه `https://erp.poshaktaranom.com` |
+| وضعیت سرور | ⏳ نیاز به pull روی ایران پس از commit |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
+
+---
+
+## تاریخچه
+
+### 2026-07-21 — سرعت بارگذاری + فاکتور/تخفیف + انبارگردانی سه‌شمارش + پورتال v2 + دریافت بانکی
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit پر می‌شود)
+- **خلاصه:** بارگذاری اولیه lazy؛ توضیحات ردیف در چاپ فاکتور؛ تخفیف ٪↔مبلغ دوطرفه (ردیف+کل) و جمع تخفیف ردیف‌ها؛ انبارگردانی ۳ شمارش+تگ؛ دریافت با واریز بانکی؛ دسته هزینه سلسله‌مراتبی؛ سمت/جایگاه؛ پورتال (پرداخت در انتظار حسابداری، هزینه خروجی، امکانات/وظایف) + جداول سینک APPEND؛ نرخ ارز live از tgju
+- **فایل‌های کلیدی:** `server/public/index.html`, `sw.js`, `portal-ui.js`, `acc-nav.js`, `routes/invoices.js`, `purchases.js`, `accounting.js`, `portal.js`, `lib/portal-schema.js`, `lib/fx-rate.js`, `sync/tables.js`
+- **Deploy:** ⏳ نیاز به pull
+- **یادداشت:** `SYNCABLE_TABLES` فقط append — جداول `op_dept_*` / `op_parameter_extra_costs` / `op_field_followups` / `expense_categories`
 
 ---
 

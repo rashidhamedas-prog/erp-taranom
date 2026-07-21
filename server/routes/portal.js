@@ -674,11 +674,43 @@ router.post('/parameters/:id/dept/:deptId/request-review', auth, requirePermissi
 });
 
 router.post('/parameters/:id/dept/:deptId/payment', auth, requirePermission('portal', 'edit'), (req, res) => {
-  const { person_id, amount_rial } = req.body;
+  const { person_id, amount_rial, payment_status, note } = req.body;
   const personId = parseInt(person_id, 10);
   const amt = Math.round(Number(amount_rial) || 0);
   if (!personId || !amt) return res.status(400).json({ error: 'شخص و مبلغ (ریال) الزامی است' });
-  deptAction(req.params.id, req.params.deptId, req, res, (db, param, { log, dept }) => {
+  // Default: awaiting accounting approval (spec rule  — auto JE after confirm/pay)
+  const wantStatus = payment_status === 'completed' || payment_status === 'paid'
+    ? 'awaiting_accounting'
+    : (payment_status === 'awaiting_payment' ? 'awaiting_payment' : 'awaiting_accounting');
+  deptAction(req.params.id, req.params.deptId, req, res, (db, param, { log }) => {
+    const person = db.prepare('SELECT * FROM persons WHERE id=?').get(personId);
+    if (!person) throw Object.assign(new Error('شخص یافت نشد'), { status: 404 });
+    db.prepare(`
+      UPDATE op_parameter_dept_log SET
+        payment_person_id=?, payment_amount=?, payment_status=?, payment_note=?, payment_journal_id=NULL
+      WHERE id=?
+    `).run(personId, amt, wantStatus, String(note || ''), log.id);
+    portalNotify(db, {
+      kind: 'portal_payment_pending',
+      entity_type: 'op_parameter',
+      entity_id: param.id,
+      title: wantStatus === 'awaiting_payment' ? 'در انتظار پرداخت پرتال' : 'پرداخت پرتال در انتظار تأیید حسابداری',
+      body: `${param.name} — ${person.name} — ${amt} ریال`,
+      target_roles: ['accounting', 'admin'],
+    });
+    audit(req.user.id, 'payment_request', 'op_parameter_dept', log.id, `درخواست پرداخت ${amt} ریال به ${person.name}`);
+    return { ok: true, payment_status: wantStatus, amount_rial: amt };
+  });
+});
+
+router.post('/parameters/:id/dept/:deptId/approve-payment', auth, requirePermission('portal', 'approve'), (req, res) => {
+  deptAction(req.params.id, req.params.deptId, req, res, (db, param, { log }) => {
+    if (!['awaiting_accounting', 'awaiting_payment'].includes(log.payment_status)) {
+      throw Object.assign(new Error('پرداختی در انتظار تأیید نیست'), { status: 409 });
+    }
+    const personId = log.payment_person_id;
+    const amt = Math.round(Number(log.payment_amount) || 0);
+    if (!personId || !amt) throw Object.assign(new Error('اطلاعات پرداخت ناقص است'), { status: 400 });
     const person = db.prepare('SELECT * FROM persons WHERE id=?').get(personId);
     if (!person) throw Object.assign(new Error('شخص یافت نشد'), { status: 404 });
     const expense = acct(db, 'coa_admin_expense');
@@ -704,11 +736,9 @@ router.post('/parameters/:id/dept/:deptId/payment', auth, requirePermission('por
       ],
     });
     db.prepare(`
-      UPDATE op_parameter_dept_log SET
-        payment_person_id=?, payment_amount=?, payment_status='completed', payment_journal_id=?
-      WHERE id=?
-    `).run(personId, amt, jeId, log.id);
-    audit(req.user.id, 'payment', 'op_parameter_dept', log.id, `پرداخت ${amt} ریال به ${person.name}`);
+      UPDATE op_parameter_dept_log SET payment_status='completed', payment_journal_id=? WHERE id=?
+    `).run(jeId, log.id);
+    audit(req.user.id, 'payment_approve', 'op_parameter_dept', log.id, `تأیید پرداخت ${amt} ریال`);
     return { ok: true, payment_journal_id: jeId, amount_rial: amt };
   });
 });
@@ -867,7 +897,7 @@ router.post('/parameters/:id/dept/:deptId/complete', auth, requirePermission('po
 });
 
 router.post('/parameters/:id/final-output', auth, requirePermission('portal', 'approve'), (req, res) => {
-  const { quantity, destination_warehouse_id } = req.body;
+  const { quantity, destination_warehouse_id, extra_costs } = req.body;
   const qty = parseQty(quantity);
   const destWh = parseInt(destination_warehouse_id, 10);
   if (!qty || qty <= 0 || !destWh) {
@@ -904,8 +934,10 @@ router.post('/parameters/:id/final-output', auth, requirePermission('portal', 'a
       error: `موجودی انبار ${lastDept.name} کافی نیست (موجود: ${avail}، نیاز: ${qty})`,
     });
   }
+  const costs = Array.isArray(extra_costs) ? extra_costs : [];
   const d = todayJalali();
   const ts = nowEpoch(db);
+  let postedCosts = [];
   try {
     db.transaction(() => {
       transferBetweenWarehouses(db, {
@@ -917,6 +949,33 @@ router.post('/parameters/:id/final-output', auth, requirePermission('portal', 'a
         note: `خروجی نهایی پارامتر ${param.num || param.id}`,
         date: d,
       });
+      if (hasTable(db, 'op_parameter_extra_costs')) {
+        const insCost = db.prepare(`
+          INSERT INTO op_parameter_extra_costs (parameter_id,description,amount_rial,expense_category_id,journal_id)
+          VALUES (?,?,?,?,?)
+        `);
+        const expense = acct(db, 'coa_admin_expense');
+        const cash = acct(db, 'coa_cash_default');
+        for (const c of costs) {
+          const amt = Math.round(Number(c.amount_rial) || 0);
+          const desc = String(c.description || '').trim() || 'هزینه اضافی پرتال';
+          if (amt <= 0) continue;
+          const toman = rialToLedger(amt);
+          const jeId = postToLedger(db, {
+            sourceType: 'portal_extra_cost',
+            sourceId: param.id,
+            date: d,
+            description: `هزینه خروجی نهایی — ${param.name} — ${desc}`,
+            createdBy: req.user.id,
+            lines: [
+              { code: expense.code, name: expense.name, debit: toman, credit: 0 },
+              { code: cash.code, name: cash.name, debit: 0, credit: toman },
+            ],
+          });
+          const r = insCost.run(param.id, desc, amt, c.expense_category_id || null, jeId);
+          postedCosts.push({ id: r.lastInsertRowid, description: desc, amount_rial: amt, journal_id: jeId });
+        }
+      }
       db.prepare(`
         UPDATE op_parameters SET
           final_quantity=?, destination_warehouse_id=?, status='completed',
@@ -936,7 +995,69 @@ router.post('/parameters/:id/final-output', auth, requirePermission('portal', 'a
     body: `${param.name} — ${qty} عدد`,
     target_roles: ['unit_manager', 'admin', 'accounting'],
   });
-  res.json({ ok: true, status: 'completed', final_quantity: qty, destination_warehouse_id: destWh });
+  res.json({
+    ok: true, status: 'completed', final_quantity: qty,
+    destination_warehouse_id: destWh, extra_costs: postedCosts,
+  });
+});
+
+// ─── department capabilities / tasks ───────────────────────────────────────
+router.get('/departments/:id/capabilities', auth, requirePermission('portal', 'view'), (req, res) => {
+  const db = getDB();
+  if (!hasTable(db, 'op_dept_capabilities')) return res.json([]);
+  res.json(db.prepare(
+    'SELECT * FROM op_dept_capabilities WHERE department_id=? AND active=1 ORDER BY sort_order,id'
+  ).all(req.params.id));
+});
+router.post('/departments/:id/capabilities', auth, requirePermission('portal', 'edit'), (req, res) => {
+  const db = getDB();
+  if (!hasTable(db, 'op_dept_capabilities')) return res.status(400).json({ error: 'جدول امکانات موجود نیست' });
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'نام امکان الزامی است' });
+  const r = db.prepare(
+    'INSERT INTO op_dept_capabilities (department_id,name,description,sort_order) VALUES (?,?,?,?)'
+  ).run(req.params.id, name, String(req.body.description || ''), parseInt(req.body.sort_order, 10) || 0);
+  res.json({ id: r.lastInsertRowid, ok: true });
+});
+router.get('/departments/:id/tasks', auth, requirePermission('portal', 'view'), (req, res) => {
+  const db = getDB();
+  if (!hasTable(db, 'op_dept_tasks')) return res.json([]);
+  res.json(db.prepare(
+    'SELECT * FROM op_dept_tasks WHERE department_id=? AND active=1 ORDER BY sort_order,id'
+  ).all(req.params.id));
+});
+router.post('/departments/:id/tasks', auth, requirePermission('portal', 'edit'), (req, res) => {
+  const db = getDB();
+  if (!hasTable(db, 'op_dept_tasks')) return res.status(400).json({ error: 'جدول وظایف موجود نیست' });
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'نام وظیفه الزامی است' });
+  const r = db.prepare(
+    'INSERT INTO op_dept_tasks (department_id,name,description,sort_order) VALUES (?,?,?,?)'
+  ).run(req.params.id, name, String(req.body.description || ''), parseInt(req.body.sort_order, 10) || 0);
+  res.json({ id: r.lastInsertRowid, ok: true });
+});
+router.post('/field-followups', auth, requirePermission('portal', 'edit'), (req, res) => {
+  const db = getDB();
+  if (!hasTable(db, 'op_field_followups')) return res.status(400).json({ error: 'جدول پیگیری موجود نیست' });
+  const { entity_type, entity_id, field_key, note, person_id } = req.body;
+  if (!entity_type || !entity_id || !field_key || !note) {
+    return res.status(400).json({ error: 'entity_type, entity_id, field_key و note الزامی است' });
+  }
+  const r = db.prepare(`
+    INSERT INTO op_field_followups (entity_type,entity_id,field_key,note,person_id,created_by)
+    VALUES (?,?,?,?,?,?)
+  `).run(String(entity_type), parseInt(entity_id, 10), String(field_key), String(note),
+    person_id ? parseInt(person_id, 10) : null, req.user.id);
+  // CRM hook: create followup if table exists
+  if (hasTable(db, 'followups')) {
+    try {
+      db.prepare(`
+        INSERT INTO followups (customer_id,user_id,note,type,due_date)
+        VALUES (NULL,?,?,?,?)
+      `).run(req.user.id, `[پرتال/${entity_type}#${entity_id}/${field_key}] ${note}`, 'portal', todayJalali());
+    } catch (_) { /* followups schema may differ */ }
+  }
+  res.json({ id: r.lastInsertRowid, ok: true });
 });
 
 module.exports = router;

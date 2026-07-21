@@ -139,6 +139,14 @@ const SYNCABLE_TABLES = [
   { name: 'payroll_monthly_accruals',          upsertKey: 'id' },
   { name: 'budgets',                           upsertKey: 'id' },
   { name: 'budget_lines',                      upsertKey: 'id' },
+
+  // ===== Portal v2 — capabilities / tasks / costs (APPEND-ONLY) =====
+  { name: 'op_dept_capabilities',              upsertKey: 'id' },
+  { name: 'op_dept_tasks',                     upsertKey: 'id' },
+  { name: 'op_unit_module_links',              upsertKey: 'id' },
+  { name: 'op_parameter_extra_costs',          upsertKey: 'id' },
+  { name: 'op_field_followups',                upsertKey: 'id' },
+  { name: 'expense_categories',                upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes

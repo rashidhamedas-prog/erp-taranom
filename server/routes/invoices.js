@@ -170,10 +170,12 @@ function buildRows(db, inputRows, canDiscount) {
     }
 
     const disc = canDiscount ? Math.min(100, Math.max(0, parseFloat(r.disc) || 0)) : 0;
-    const discAmount = canDiscount ? Math.max(0, Math.round(parseFloat(r.disc_amount) || 0)) : 0;
+    const discAmountIn = canDiscount ? Math.max(0, Math.round(parseFloat(r.disc_amount) || 0)) : 0;
     const gross = qty * price;
     const discPctAmt = Math.round(gross * disc / 100);
-    const discAmt = discPctAmt + discAmount;
+    // تخفیف ردیف یک‌بار: مبلغ و درصد هم‌ترازند — مبلغ اولویت دارد، وگرنه از درصد
+    const discAmt = discAmountIn > 0 ? discAmountIn : discPctAmt;
+    const discAmount = discAmt;
     const sum = Math.max(0, Math.round(gross - discAmt));
     subtotal += sum;
     const wh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : null;
@@ -676,14 +678,30 @@ router.get('/:id/print', auth, (req, res) => {
     if (inv.cheque_info) payInfo += `<div><b>اطلاعات چک:</b> ${inv.cheque_info}</div>`;
   }
 
-  const rowsHtml = rows.map((r, i) => `
+  const rowsHtml = rows.map((r, i) => {
+    const desc = String(r.description || '').trim();
+    const nameCell = desc
+      ? `${r.name || ''}<div style="font-size:11px;color:#6b7280;margin-top:4px;font-weight:400">${desc}</div>`
+      : (r.name || '');
+    const lineDisc = Math.max(0, Math.round(Number(r.disc_amount) || 0))
+      || Math.round((Number(r.qty) || 0) * (Number(r.price) || 0) * (Number(r.disc) || 0) / 100);
+    const discNote = lineDisc
+      ? `<div style="font-size:10px;color:#9ca3af">تخفیف ردیف: ${r.disc ? faNum(r.disc)+'٪ ≈ ' : ''}${faNum(lineDisc)} ریال</div>`
+      : '';
+    return `
     <tr>
       <td>${faNum(i + 1)}</td>
-      <td style="text-align:right">${r.name || ''}</td>
+      <td style="text-align:right">${nameCell}${discNote}</td>
       <td>${faNum(r.qty)}</td>
       <td>${faNum(r.price)}</td>
       <td>${faNum(r.sum)}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
+  const linesDiscTotal = rows.reduce((a, r) => {
+    const amt = Math.max(0, Math.round(Number(r.disc_amount) || 0));
+    if (amt > 0) return a + amt;
+    return a + Math.round((Number(r.qty) || 0) * (Number(r.price) || 0) * (Number(r.disc) || 0) / 100);
+  }, 0);
 
   const sheetMaxWidth = paperSize === 'A5' ? '560px' : '800px';
   const baseFontSize = paperSize === 'A5' ? '11px' : '13px';
@@ -769,7 +787,8 @@ router.get('/:id/print', auth, (req, res) => {
 
     <div class="totals">
       <div class="line"><span>جمع کل:</span><span>${faNum(inv.subtotal)} ریال</span></div>
-      <div class="line"><span>تخفیف (${faNum(inv.disc)}٪):</span><span>${faNum(inv.disc_amt)} ریال</span></div>
+      ${linesDiscTotal ? `<div class="line"><span>جمع تخفیف ردیف‌ها:</span><span>${faNum(linesDiscTotal)} ریال</span></div>` : ''}
+      <div class="line"><span>تخفیف کل (${faNum(inv.disc)}٪):</span><span>${faNum(inv.disc_amt)} ریال</span></div>
       <div class="line final"><span>مبلغ نهایی:</span><span>${faNum(inv.final)} ریال</span></div>
     </div>
 

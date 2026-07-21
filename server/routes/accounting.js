@@ -200,7 +200,7 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
     const settlementId = result.lastInsertRowid;
 
     // Customer ledger entry
-    const payLabel = (pay_type || 'cash') === 'cheque' ? 'چک' : 'نقد';
+    const payLabel = (pay_type || 'cash') === 'cheque' ? 'چک' : (pay_type === 'bank_transfer' ? 'واریز بانکی' : 'نقد');
     createLedgerEntry(db, {
       customer_id: cust_id, date: date || '', entry_type: 'settlement',
       ref_type: 'settlement', ref_id: settlementId,
@@ -259,7 +259,7 @@ router.post('/settlements/batch', auth, adminOrAccounting, (req, res) => {
             p.cheque_status || 'pending', groupId, p.cheque_branch || '', p.cheque_sheba || '',
             parseInt(p.cheque_row) || 0);
       const settlementId = result.lastInsertRowid;
-      const payLabel = pay_type === 'cheque' ? 'چک' : 'نقد';
+      const payLabel = pay_type === 'cheque' ? 'چک' : (pay_type === 'bank_transfer' ? 'واریز بانکی' : 'نقد');
       createLedgerEntry(db, {
         customer_id: cust_id, date: p.date || '', entry_type: 'settlement',
         ref_type: 'settlement', ref_id: settlementId,

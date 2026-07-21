@@ -180,18 +180,22 @@
     const p = await api('GET', '/portal/parameters/' + id);
     const box = document.getElementById('portalParamDetail');
     if (!box) return;
+    const canFinal = p.status === 'dept_completed' || p.status === 'in_progress';
     box.innerHTML = `
       <div class="panel" style="margin-top:12px;border:1px solid var(--purple)">
-        <div class="panel-head"><h4>📋 ${esc(p.num || p.id)} — ${esc(p.name)}</h4></div>
+        <div class="panel-head"><h4>📋 ${esc(p.num || p.id)} — ${esc(p.name)}</h4>
+          ${canFinal ? `<button class="btn sm green" onclick="PortalUI.finalOutput(${p.id})">🏁 ثبت خروجی نهایی</button>` : ''}
+        </div>
         <div class="panel-body">
           ${timelineHtml(p.dept_logs)}
           <div class="tbl-wrap" style="margin-top:10px"><table class="tbl" style="font-size:12px"><thead><tr>
-            <th>بخش</th><th>وضعیت</th><th>تأیید</th><th>مقدار</th>
+            <th>بخش</th><th>وضعیت</th><th>تأیید</th><th>مقدار</th><th>پرداخت</th>
           </tr></thead><tbody>${(p.dept_logs || []).map(l => `<tr>
             <td>${esc(l.department_name)}</td>
             <td>${esc(l.status)}</td>
             <td>${l.confirmed ? '✅' : '—'}</td>
             <td class="mono">${l.received_quantity != null ? fmt(l.received_quantity) : '—'}</td>
+            <td class="muted" style="font-size:11px">${esc(l.payment_status || '—')}${l.payment_amount ? ' · '+fmt(l.payment_amount)+' ریال' : ''}</td>
           </tr>`).join('')}</tbody></table></div>
           <div class="tbl-wrap" style="margin-top:8px"><table class="tbl" style="font-size:12px"><thead><tr>
             <th>کالا</th><th>مقدار</th>
@@ -216,7 +220,8 @@
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
               <button class="btn sm" onclick="PortalUI.deptConfirm(${p.id},${p.current_department_id || 0})">✅ تأیید مقدار</button>
               <button class="btn sm ghost" onclick="PortalUI.deptReview(${p.id},${p.current_department_id || 0})">🔍 بازبینی</button>
-              <button class="btn sm" onclick="PortalUI.deptPayment(${p.id},${p.current_department_id || 0})">💳 پرداخت</button>
+              <button class="btn sm" onclick="PortalUI.deptPayment(${p.id},${p.current_department_id || 0})">💳 درخواست پرداخت</button>
+              <button class="btn sm orange" onclick="PortalUI.deptApprovePayment(${p.id},${p.current_department_id || 0})">✔ تأیید پرداخت</button>
               <button class="btn sm ghost" onclick="PortalUI.deptConvert(${p.id},${p.current_department_id || 0})">🔄 تبدیل</button>
               <button class="btn sm green" style="grid-column:1/-1" onclick="PortalUI.deptComplete(${p.id},${p.current_department_id || 0})">🏁 اتمام بخش</button>
             </div>
@@ -249,11 +254,62 @@
     const person_id = prompt('شناسه شخص (person_id):', '');
     const amount_rial = prompt('مبلغ (ریال):', '0');
     if (!person_id || amount_rial === null) return;
+    const st = prompt('وضعیت: awaiting_accounting (تأیید حسابداری) یا awaiting_payment (در انتظار پرداخت)', 'awaiting_accounting');
     try {
       await api('POST', `/portal/parameters/${paramId}/dept/${deptId}/payment`, {
         person_id: +person_id, amount_rial: Math.round(+amount_rial || 0),
+        payment_status: st || 'awaiting_accounting',
       });
-      showToast('پرداخت ثبت شد'); loadAccTab('portal-my-dept');
+      showToast('درخواست پرداخت برای حسابداری ارسال شد'); loadAccTab('portal-my-dept');
+    } catch (e) {}
+  }
+
+  async function deptApprovePayment(paramId, deptId) {
+    if (!deptId) return;
+    if (!confirm('تأیید پرداخت و ثبت سند حسابداری؟')) return;
+    try {
+      await api('POST', `/portal/parameters/${paramId}/dept/${deptId}/approve-payment`, {});
+      showToast('پرداخت تأیید و سند ثبت شد'); loadAccTab('portal-my-dept');
+    } catch (e) {}
+  }
+
+  async function finalOutput(paramId) {
+    const quantity = prompt('تعداد نهایی:', '1');
+    const destination_warehouse_id = prompt('شناسه انبار مقصد:', '');
+    if (!quantity || !destination_warehouse_id) return;
+    const extra = [];
+    if (confirm('هزینه اضافه ثبت شود؟')) {
+      while (true) {
+        const description = prompt('شرح هزینه (خالی = پایان):', '');
+        if (!description) break;
+        const amount_rial = prompt('مبلغ هزینه (ریال):', '0');
+        extra.push({ description, amount_rial: Math.round(+amount_rial || 0) });
+      }
+    }
+    try {
+      await api('POST', `/portal/parameters/${paramId}/final-output`, {
+        quantity: +quantity, destination_warehouse_id: +destination_warehouse_id, extra_costs: extra,
+      });
+      showToast('خروجی نهایی ثبت شد'); loadAccTab('portal-units');
+    } catch (e) {}
+  }
+
+  async function addDeptCapability(deptId) {
+    const name = prompt('نام امکان/خدمت:', '');
+    if (!name) return;
+    const description = prompt('توضیحات:', '') || '';
+    try {
+      await api('POST', `/portal/departments/${deptId}/capabilities`, { name, description });
+      showToast('امکان ثبت شد');
+    } catch (e) {}
+  }
+  async function addDeptTask(deptId) {
+    const name = prompt('نام شرح وظیفه:', '');
+    if (!name) return;
+    const description = prompt('توضیحات:', '') || '';
+    try {
+      await api('POST', `/portal/departments/${deptId}/tasks`, { name, description });
+      showToast('وظیفه ثبت شد');
     } catch (e) {}
   }
 
@@ -628,8 +684,12 @@
     deptConfirm,
     deptReview,
     deptPayment,
+    deptApprovePayment,
     deptConvert,
     deptComplete,
+    finalOutput,
+    addDeptCapability,
+    addDeptTask,
     showBankRecon,
     openBankReconModal,
     saveBankRecon,

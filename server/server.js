@@ -76,6 +76,10 @@ app.use(express.static(path.join(__dirname, 'public'), {
     if (filePath.endsWith('assetlinks.json')) {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-cache');
+    } else if (/\.(js|css|woff2?|png|svg|ico)$/i.test(filePath) && !filePath.endsWith('sw.js')) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    } else if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
+      res.setHeader('Cache-Control', 'no-cache');
     }
   }
 }));

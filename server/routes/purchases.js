@@ -40,15 +40,17 @@ function buildRows(db, inputRows) {
     const qty = Math.max(0.001, parseQty(r.qty, 1));
     const price = (r.price !== undefined && r.price !== null && r.price !== '') ? (parseFloat(r.price) || 0) : (prod.cost || 0);
     const disc = Math.min(100, Math.max(0, parseFloat(r.disc) || 0));
-    const discAmount = Math.max(0, Math.round(parseFloat(r.disc_amount) || 0));
+    const discAmountIn = Math.max(0, Math.round(parseFloat(r.disc_amount) || 0));
     const description = String(r.description || '').trim();
     const gross = qty * price;
     const discPctAmt = Math.round(gross * disc / 100);
-    const sum = Math.max(0, Math.round(gross - discPctAmt - discAmount));
+    const discAmt = discAmountIn > 0 ? discAmountIn : discPctAmt;
+    const discAmount = discAmt;
+    const sum = Math.max(0, Math.round(gross - discAmt));
     subtotal += sum;
     out.push({
       product_id: pid, name: prod.name, qty, price, disc, disc_amount: discAmount,
-      disc_amt: discPctAmt + discAmount, sum, description, allocated_freight: 0,
+      disc_amt: discAmt, sum, description, allocated_freight: 0,
       warehouse_id: r.warehouse_id ? parseInt(r.warehouse_id, 10) : null,
     });
   }

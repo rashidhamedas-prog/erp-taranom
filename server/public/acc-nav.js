@@ -111,6 +111,7 @@ const ACC_TAB_RESOLVE = {
   'acc-backup': 'company-settings',
   'acc-fiscal-ops': 'fiscal-period',
   'acc-expense-categories': 'expense-categories',
+  'acc-person-positions': 'person-positions',
 };
 
 const ACC_NAV_SECTIONS = [
@@ -121,6 +122,7 @@ const ACC_NAV_SECTIONS = [
   { title: 'اطلاعات پایه', items: [
     { id: 'acc-parties', icon: '👥', label: 'اطلاعات اشخاص' },
     { id: 'acc-party-groups', icon: '📂', label: 'گروه‌های اشخاص' },
+    { id: 'acc-person-positions', icon: '🏷️', label: 'سمت و جایگاه' },
     { id: 'acc-products', icon: '📦', label: 'کالاها' },
     { id: 'acc-product-groups', icon: '🏷️', label: 'گروه‌های کالا' },
     { id: 'acc-cash-boxes', icon: '💰', label: 'صندوق' },

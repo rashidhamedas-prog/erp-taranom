@@ -24,7 +24,7 @@ function ensurePersonUser(db, personId, role) {
     }
     return { userId: existing.id, created: false, username: existing.username };
   }
-  const tempPass = String(Math.floor(10000 + Math.random() * 90000));
+  const tempPass = '12345';
   const hash = bcrypt.hashSync(tempPass, 10);
   const r = db.prepare(`
     INSERT INTO users (name, username, password, role, active, must_change_password)

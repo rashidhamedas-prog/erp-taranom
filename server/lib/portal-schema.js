@@ -113,6 +113,56 @@ function initPortalSchema(db) {
   db.prepare("INSERT OR IGNORE INTO number_sequences (key,current_value) VALUES ('op_parameter',0)").run();
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('module_portal','1')").run();
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('portal_schema_v1','1')").run();
+
+  // v2 — capabilities / tasks / extra costs / module links / CRM followups (APPEND)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS op_dept_capabilities (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      department_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      sort_order INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      FOREIGN KEY(department_id) REFERENCES op_departments(id)
+    );
+    CREATE TABLE IF NOT EXISTS op_dept_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      department_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      sort_order INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      FOREIGN KEY(department_id) REFERENCES op_departments(id)
+    );
+    CREATE TABLE IF NOT EXISTS op_unit_module_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_id INTEGER NOT NULL,
+      module_key TEXT NOT NULL,
+      FOREIGN KEY(unit_id) REFERENCES op_units(id)
+    );
+    CREATE TABLE IF NOT EXISTS op_parameter_extra_costs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      parameter_id INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      amount_rial INTEGER NOT NULL,
+      expense_category_id INTEGER,
+      journal_id INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(parameter_id) REFERENCES op_parameters(id)
+    );
+    CREATE TABLE IF NOT EXISTS op_field_followups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_type TEXT NOT NULL,
+      entity_id INTEGER NOT NULL,
+      field_key TEXT NOT NULL,
+      note TEXT NOT NULL,
+      person_id INTEGER,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+  `);
+  try { db.exec("ALTER TABLE op_parameter_dept_log ADD COLUMN payment_note TEXT DEFAULT ''"); } catch (_) {}
+  db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('portal_schema_v2','1')").run();
 }
 
 module.exports = { initPortalSchema };
