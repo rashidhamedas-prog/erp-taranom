@@ -42,6 +42,17 @@
 
 ## تاریخچه
 
+### ۱۴۰۵/۰۴/۳۰ — [Claude Code] 🎨 اسکیل طراحی UI برای Cursor (منطبق بر تک‌فایل/RTL/تم پروژه)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین کامیت
+- **خلاصه:** مالک یک راهنمای ژنریک «prompt طراحی با Cursor» (فرض React/Tailwind/Storybook/Material You) داد. آن را تحلیل و **به یک اسکیل طراحی منطبق بر معماری واقعی پروژه** تبدیل کردم: `docs/skills/ui-design-taranom.md`. **فقط سند/اسکیل است؛ هیچ کدی تغییر نکرد.**
+  - توصیه‌های ناسازگار خنثی شد (بدون React/Tailwind/Storybook/CDN فونت — چون اپ **تک‌فایل vanilla، RTL، آفلاین‌فرست** است).
+  - **توکن‌های واقعی تم** (زمرد مدرن روشن + شب مخملی تاریک) از `index.html` استخراج و مستند شد تا Cursor رنگ hardcode نکند و از `:root` استفاده کند.
+  - الگوهای موجود مستند شد (`.btn`, `.overlay`+`openModal`, جدول `--th-bg/--row-hover`, `.badge` با جفت‌توکن وضعیت, `toast`, `fmt`, `toEnDigits`, `ROUTES`/`acc-nav`/`loadAccTab`) + قواعد RTL/چاپ/دسترس‌پذیری/ریسپانسیو + IIFE-wrap + الزام Help/CHANGE-LOG/تست.
+  - قالب بریف ساختاریافته + Chain-of-Thought + حلقهٔ بهبود + نمونهٔ پرامپت آماده (تب مغایرت بانکی) برای Cursor.
+- **فایل‌های کلیدی:** `docs/skills/ui-design-taranom.md`
+- **Deploy:** — (فقط اسکیل/سند).
+
 ### ۱۴۰۵/۰۴/۳۰ — [Claude Code] 📊 تحلیل شکاف حسابداری در برابر ۹ استاندارد حسابداری ایران (سند برای Cursor)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** همین کامیت
