@@ -44,15 +44,15 @@
 
 ### ۱۴۰۵/۰۴/۳۰ — [Cursor] اجرای کامل شکاف حسابداری + پرتال کارمندان (با سینک)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین کامیت)
+- **Commit:** `e5713fa`
 - **خلاصه:** اعمال دو دستور Desktop (`updte hesabdari.md` / `PORTALKARMANDANSPEC.md`) روی کد واقعی با الزام offline-sync:
   - **پرتال:** جداول `op_*` + RBAC نقش‌های `unit_manager`/`department_manager` + `routes/portal.js` (واحد/بخش/پارامتر، قفل ترتیبی، انتقال انبار، پرداخت→سند، تبدیل→production_run) + UI `portal-ui.js` + ساخت خودکار کاربر (`ensurePersonUser` + `must_change_password`).
   - **شکاف حسابداری فاز۱–۴:** فیلدهای مودیان (`moadian_invoice_type`, `tax_stuff_id`)، گزارش VAT فصلی و ماده ۱۶۹، جریان نقد سه‌بخشی، اندوخته قانونی / ذخیره م.م / NRV، مغایرت بانکی، چرخه چک (واگذاری/وصول/برگشت)، استهلاک نزولی + واگذاری دارایی، ذخیره ماهانه سنوات/عیدی، بودجه‌بندی + نسبت‌ها/KPI.
   - **سینک:** جداول جدید فقط به **انتهای** `SYNCABLE_TABLES` + FK_COLUMNS + `capture.js` path map؛ پیکربندی واحد/بخش `centralOnly`.
 - **فایل‌های کلیدی:** `lib/portal-schema.js`, `lib/gap-accounting-schema.js`, `routes/portal.js`, `routes/bank-reconciliation.js`, `routes/budgeting.js`, `routes/reserves.js`, `sync/tables.js`, `sync/capture.js`, `coa-map.js`, `rbac.js`, `portal-ui.js`, `acc-nav.js`, `index.html`, `scripts/test-portal.js`, `scripts/test-accounting-gap.js`
-- **Deploy:** ❌ هنوز deploy نشده — نیاز به commit/push و pull سرور
+- **Deploy:** ✅ ایران `e5713fa` — `git pull` + `pm2 restart erp-taranom` (online) · root HTTP 200 · mount `/api/portal`
 - **تست:** `test-portal` 22 · `test-accounting-gap` 18 · `test-update11-schema` · `test-sms` 22 · `test-sync` 33 — همه سبز
-- **یادداشت:** ارسال واقعی SDK مودیان هنوز آداپتر stub/قابل‌تعویض است (صف + انواع صورتحساب + فیلدها آماده). برای production قبل از pull از DB بکاپ بگیرید.
+- **یادداشت:** ارسال واقعی SDK مودیان هنوز آداپتر stub/قابل‌تعویض است (صف + انواع صورتحساب + فیلدها آماده). بکاپ DB قبل از restart: `server/backups/crm-pre-portal-gap-root.bin`.
 
 ### ۱۴۰۵/۰۴/۳۰ — [Cursor] رفع همگام‌سازی اندروید↔سرور ایران (2.0.19)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
