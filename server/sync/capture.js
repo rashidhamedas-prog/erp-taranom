@@ -104,20 +104,14 @@ const PATH_TABLE_MAP = [
 // actual rows live in op_dept_delegations and sync via full-table pull.
 
 function tableForPath(path) {
-  let result = null;
-  if (path.startsWith('/api/reps/payments')) result = 'rep_payment_submissions';
-  else if (path.startsWith('/api/reps/') && path.includes('/expenses')) result = 'rep_expenses';
-  else if (path.startsWith('/api/reps/') && path.includes('/advances')) result = 'rep_advances';
-  else if (path === '/api/reps/transfer-customer') result = 'customers';
-  else {
-    for (const [prefix, tbl] of PATH_TABLE_MAP) {
-      if (path === prefix || path.startsWith(prefix + '/')) { result = tbl; break; }
-    }
+  if (path.startsWith('/api/reps/payments')) return 'rep_payment_submissions';
+  if (path.startsWith('/api/reps/') && path.includes('/expenses')) return 'rep_expenses';
+  if (path.startsWith('/api/reps/') && path.includes('/advances')) return 'rep_advances';
+  if (path === '/api/reps/transfer-customer') return 'customers';
+  for (const [prefix, tbl] of PATH_TABLE_MAP) {
+    if (path === prefix || path.startsWith(prefix + '/')) return tbl;
   }
-  // #region agent log
-  fetch('http://127.0.0.1:7289/ingest/f0bd7efb-e01b-4c84-91db-1073bbd1ced1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b16e78'},body:JSON.stringify({sessionId:'b16e78',runId:process.env.DIAG_RUN_ID||'live',hypothesisId:'A-C',location:'capture.js:tableForPath',message:'path map result',data:{path,result},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-  return result;
+  return null;
 }
 
 function isBlocked(path) {
@@ -151,8 +145,7 @@ function resolveUploadedFilePath(db, reqPath, entityTable, entityLocalId, respon
       return path.join(UPLOADS_ROOT, 'messages', responseBody.image);
     }
     if (entityTable === 'rep_payment_submissions' || entityTable === 'rep_expenses') {
-      const col = entityTable === 'rep_expenses' ? 'receipt_file' : 'receipt_file';
-      const row = db.prepare(`SELECT ${col} AS f FROM ${entityTable} WHERE id=?`).get(id);
+      const row = db.prepare(`SELECT receipt_file AS f FROM ${entityTable} WHERE id=?`).get(id);
       if (row && row.f) return path.join(UPLOADS_ROOT, 'reps', row.f);
     }
   } catch { /* schema drift */ }

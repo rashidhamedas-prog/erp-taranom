@@ -246,7 +246,6 @@ function applyChanges(db, changes, pulledUserIds) {
         const spec = SYNCABLE_TABLES.find(t => t.name === ch.tbl);
         if (!spec) continue;
         if (ch.del !== undefined) {
-          let delInfo;
           if (spec.compositeKeys && spec.compositeKeys.length) {
             const parts = String(ch.del).split(':');
             if (parts.length !== spec.compositeKeys.length) {
@@ -258,13 +257,10 @@ function applyChanges(db, changes, pulledUserIds) {
               const n = Number(p);
               return Number.isFinite(n) && String(n) === String(p).trim() ? n : p;
             });
-            delInfo = db.prepare(`DELETE FROM ${spec.name} WHERE ${wh}`).run(...vals);
+            db.prepare(`DELETE FROM ${spec.name} WHERE ${wh}`).run(...vals);
           } else {
-            delInfo = db.prepare(`DELETE FROM ${spec.name} WHERE ${spec.upsertKey}=?`).run(ch.del);
+            db.prepare(`DELETE FROM ${spec.name} WHERE ${spec.upsertKey}=?`).run(ch.del);
           }
-          // #region agent log
-          fetch('http://127.0.0.1:7289/ingest/f0bd7efb-e01b-4c84-91db-1073bbd1ced1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b16e78'},body:JSON.stringify({sessionId:'b16e78',runId:'live',hypothesisId:'E',location:'client.js:applyChanges:del',message:'tombstone apply',data:{tbl:spec.name,del:ch.del,changes:delInfo&&delInfo.changes},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
           continue;
         }
         const row = ch.row;
