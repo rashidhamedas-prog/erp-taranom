@@ -2,7 +2,7 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
 const { tomanToRial } = require('../lib/money');
-const { syncPartyToLegacy } = require('../lib/parties-sync');
+const { syncPartyToLegacy, deactivatePartyCascade } = require('../lib/parties-sync');
 const { allocTafsili } = require('../lib/coa-map');
 
 const PARTY_TYPES = ['customer', 'supplier', 'both', 'other'];
@@ -322,9 +322,10 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM parties WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  db.prepare('UPDATE parties SET is_active=0 WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'party', req.params.id, 'soft');
-  res.json({ success: true, message: 'غیرفعال شد' });
+  // Soft-delete party + cascade remove linked CRM customer/supplier + followups (R8)
+  const result = db.transaction(() => deactivatePartyCascade(db, req.params.id))();
+  audit(req.user.id, 'delete', 'party', req.params.id, `soft+cascade cust=${(result.customers||[]).join(',')}`);
+  res.json({ success: true, message: 'غیرفعال شد', cascaded: result });
 });
 
 module.exports = router;

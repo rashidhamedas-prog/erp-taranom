@@ -246,14 +246,35 @@ function applyChanges(db, changes, pulledUserIds) {
         const spec = SYNCABLE_TABLES.find(t => t.name === ch.tbl);
         if (!spec) continue;
         if (ch.del !== undefined) {
-          db.prepare(`DELETE FROM ${spec.name} WHERE ${spec.upsertKey}=?`).run(ch.del);
+          // #region agent log
+          fetch('http://127.0.0.1:7550/ingest/7c3b024e-51f2-48e0-b234-568dde667709',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2fcabd'},body:JSON.stringify({sessionId:'2fcabd',runId:'post-fix',hypothesisId:'A',location:'client.js:applyChanges:del',message:'tombstone apply',data:{tbl:spec.name,del:ch.del,upsertKey:spec.upsertKey,compositeKeys:spec.compositeKeys||null},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
+          let delInfo;
+          if (spec.compositeKeys && spec.compositeKeys.length) {
+            const parts = String(ch.del).split(':');
+            if (parts.length !== spec.compositeKeys.length) {
+              console.warn(`sync tombstone key mismatch for ${spec.name}:`, ch.del);
+              continue;
+            }
+            const wh = spec.compositeKeys.map(c => `${c}=?`).join(' AND ');
+            const vals = parts.map(p => {
+              const n = Number(p);
+              return Number.isFinite(n) && String(n) === String(p).trim() ? n : p;
+            });
+            delInfo = db.prepare(`DELETE FROM ${spec.name} WHERE ${wh}`).run(...vals);
+          } else {
+            delInfo = db.prepare(`DELETE FROM ${spec.name} WHERE ${spec.upsertKey}=?`).run(ch.del);
+          }
+          // #region agent log
+          fetch('http://127.0.0.1:7550/ingest/7c3b024e-51f2-48e0-b234-568dde667709',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2fcabd'},body:JSON.stringify({sessionId:'2fcabd',runId:'post-fix',hypothesisId:'A',location:'client.js:applyChanges:delResult',message:'tombstone result',data:{tbl:spec.name,del:ch.del,changes:delInfo.changes},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           continue;
         }
         const row = ch.row;
         if (!row) continue;
         if (spec.name === 'users' && pulledUserIds) pulledUserIds.add(row.id);
         const cols = tableColumns(db, spec.name).filter(c => c in row);
-        if (spec.upsertKey === 'id') {
+        if (spec.upsertKey === 'id' || (spec.compositeKeys && spec.compositeKeys.length)) {
           db.prepare(`INSERT OR REPLACE INTO ${spec.name} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`)
             .run(...cols.map(c => row[c]));
         } else {

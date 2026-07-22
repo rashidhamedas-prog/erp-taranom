@@ -14,11 +14,17 @@ function getScope(req) {
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
+  // Skip followups whose customer was removed or whose accounting party is inactive
+  const activeCust = `EXISTS (
+    SELECT 1 FROM customers c
+    WHERE c.id=f.cust_id
+      AND (c.party_id IS NULL OR EXISTS (SELECT 1 FROM parties p WHERE p.id=c.party_id AND p.is_active=1))
+  )`;
   let rows;
   if (scope === null) {
-    rows = db.prepare('SELECT f.*,c.biz as cust_biz,u.name as salesperson FROM followups f LEFT JOIN customers c ON f.cust_id=c.id LEFT JOIN users u ON f.user_id=u.id ORDER BY f.created_at DESC').all();
+    rows = db.prepare(`SELECT f.*,c.biz as cust_biz,u.name as salesperson FROM followups f LEFT JOIN customers c ON f.cust_id=c.id LEFT JOIN users u ON f.user_id=u.id WHERE ${activeCust} ORDER BY f.created_at DESC`).all();
   } else {
-    rows = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.user_id=? ORDER BY f.created_at DESC').all(scope);
+    rows = db.prepare(`SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.user_id=? AND ${activeCust} ORDER BY f.created_at DESC`).all(scope);
   }
   res.json(rows);
 });

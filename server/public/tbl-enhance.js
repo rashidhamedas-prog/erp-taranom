@@ -7,6 +7,19 @@
     return (td?.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
+  function toAsciiDigits(s) {
+    return String(s == null ? '' : s)
+      .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+      .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+  }
+
+  /** Sort key: prefer data-sort, else visible text */
+  function cellSortValue(td) {
+    if (!td) return '';
+    if (td.dataset && td.dataset.sort != null && td.dataset.sort !== '') return String(td.dataset.sort);
+    return cellText(td);
+  }
+
   /** Normalize fa/ar digits + strip thousand separators so numeric sort works with fmt()/fa-IR cells */
   function parseCellNumber(text) {
     const raw = String(text || '').trim();
@@ -234,21 +247,25 @@
         const _dbgLabel = (th.querySelector('.tbl-th-label') || th).textContent.trim();
         // #endregion
         rows.sort((a, b) => {
-          const av = cellText(a.cells[idx]);
-          const bv = cellText(b.cells[idx]);
+          const av = cellSortValue(a.cells[idx]);
+          const bv = cellSortValue(b.cells[idx]);
+          const aAscii = toAsciiDigits(av).trim();
+          const bAscii = toAsciiDigits(bv).trim();
+          const dateRe = /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/;
+          const aDate = aAscii.match(dateRe);
+          const bDate = bAscii.match(dateRe);
+          if (aDate && bDate) {
+            const an = (+aDate[1]) * 10000 + (+aDate[2]) * 100 + (+aDate[3]);
+            const bn = (+bDate[1]) * 10000 + (+bDate[2]) * 100 + (+bDate[3]);
+            return (an - bn) * sortDir;
+          }
           const an = parseCellNumber(av);
           const bn = parseCellNumber(bv);
-          const aHasAscii = !!String(av).match(/\d/);
-          const bHasAscii = !!String(bv).match(/\d/);
-          const aHasFaDigit = /[۰-۹٠-٩]/.test(String(av));
-          const bHasFaDigit = /[۰-۹٠-٩]/.test(String(bv));
           const useNum = Number.isFinite(an) && Number.isFinite(bn);
           // #region agent log
           if (_dbgSamples.length < 8) {
             _dbgSamples.push({
-              av, bv, an, bn, aHasAscii, bHasAscii, aHasFaDigit, bHasFaDigit, useNum,
-              strippedA: String(av).replace(/[^\d.-]/g, ''),
-              strippedB: String(bv).replace(/[^\d.-]/g, ''),
+              av, bv, an, bn, useNum,
             });
           }
           if (useNum) _dbgNumPath++; else _dbgStrPath++;
@@ -256,7 +273,7 @@
           if (useNum) {
             return (an - bn) * sortDir;
           }
-          return av.localeCompare(bv, 'fa', { numeric: true, sensitivity: 'base' }) * sortDir;
+          return aAscii.localeCompare(bAscii, 'fa', { numeric: true, sensitivity: 'base' }) * sortDir;
         });
         // #region agent log
         const _dbgOrder = rows.slice(0, 12).map((r) => cellText(r.cells[idx]));
@@ -275,7 +292,7 @@
         const q = prompt('فیلتر ستون «' + label + '» (خالی = حذف فیلتر):', filters[idx] || '');
         if (q === null) return;
         if (!q.trim()) delete filters[idx];
-        else filters[idx] = q.trim().toLowerCase();
+        else filters[idx] = toAsciiDigits(q.trim()).toLowerCase();
         applyFilters();
       });
     });
@@ -284,7 +301,7 @@
       [...tbody.rows].forEach((tr) => {
         let ok = true;
         for (const [ci, q] of Object.entries(filters)) {
-          const t = cellText(tr.cells[+ci]).toLowerCase();
+          const t = toAsciiDigits(cellText(tr.cells[+ci])).toLowerCase();
           if (!t.includes(q)) { ok = false; break; }
         }
         tr.style.display = ok ? '' : 'none';

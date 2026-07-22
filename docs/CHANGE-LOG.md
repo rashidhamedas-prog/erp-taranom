@@ -32,13 +32,27 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `f9e9282` حذف کامل واحد عملیاتی — SW erp-taranom-v74 |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v74` |
+| آخرین commit | (pending) همگام‌سازی سینک + حذف party↔CRM + SW v75 |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v75` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ✅ deploy حذف واحد v74 (SFTP — github از سرور resolve نشد) |
+| وضعیت سرور | ⏳ در حال deploy |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
+
+### 2026-07-22 — [Cursor] رفع سینک انبار/جداول غایب + cascade حذف party↔CRM + SW v75
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (در حال push)
+- **خلاصه:**
+  1. باگ tombstone برای `warehouse_stock` (کلید مرکب بدون `id`) — `compositeKeys` + apply درست در `client.js`
+  2. append فقط: `party_groups` + `cheque_records` به `SYNCABLE_TABLES` (+ backfill sync_seq v3)
+  3. `PATH_TABLE_MAP`: مسیرهای production/inventory/party-groups قبل از prefix عمومی
+  4. حذف حسابداری party → cascade CRM؛ حذف CRM → soft-delete party؛ فیلتر لیست‌ها؛ سورت ستون با `data-sort`
+  5. یکدست‌سازی `?v=75` با SW `erp-taranom-v75`
+- **فایل‌های کلیدی:** `server/sync/{tables,client,capture}.js`, `server/db.js`, `server/lib/parties-sync.js`, `server/routes/{parties,customers,followups,suppliers}.js`, `server/public/{index.html,tbl-enhance.js,sw.js}`
+- **Deploy:** ⏳
+- **تست:** `node scripts/debug-warehouse-stock-sync.js` (post-fix fixWorks), `node scripts/test-party-crm-delete-sync.js`
+- **SW:** `erp-taranom-v75`
 
 ### 2026-07-22 — حذف کامل واحد عملیاتی در پورتال
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

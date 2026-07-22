@@ -49,7 +49,8 @@ const SYNCABLE_TABLES = [
   { name: 'messages', upsertKey: 'id' },
   { name: 'reminders', upsertKey: 'id' },
   { name: 'product_categories', upsertKey: 'id' },
-  { name: 'warehouse_stock', upsertKey: 'id' },
+  // Composite PK (no id column) — tombstone format product_id:warehouse_id
+  { name: 'warehouse_stock', upsertKey: 'product_id:warehouse_id', compositeKeys: ['product_id', 'warehouse_id'] },
   { name: 'rep_assignment_history', upsertKey: 'id' },
   { name: 'rep_ledger', upsertKey: 'id' },
   { name: 'rep_expenses', upsertKey: 'id' },
@@ -158,6 +159,10 @@ const SYNCABLE_TABLES = [
   { name: 'sms_options',                       upsertKey: 'id' },
   { name: 'sms_scheduled',                     upsertKey: 'id' },
   { name: 'marketer_carts',                    upsertKey: 'id' },
+
+  // ===== Sync gaps fix 1405/04/31 — APPEND-ONLY =====
+  { name: 'party_groups',                      upsertKey: 'id' },
+  { name: 'cheque_records',                    upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -199,6 +204,7 @@ function isProvisionalId(v) {
 // a blind column-wide UPDATE is safe.
 const FK_COLUMNS = [
   ['customers', 'group_id'], ['customers', 'user_id'], ['customers', 'assigned_to'],
+  ['customers', 'party_id'], ['customers', 'party_group_id'],
   ['orders', 'cust_id'],
   ['followups', 'cust_id'],
   ['invoices', 'cust_id'],
@@ -282,6 +288,12 @@ const FK_COLUMNS = [
   ['sms_options', 'template_id'],
   ['sms_scheduled', 'template_id'],
   ['marketer_carts', 'user_id'],
+  // Sync gaps FKs (append-only)
+  ['suppliers', 'party_id'], ['suppliers', 'party_group_id'],
+  ['parties', 'party_group_id'],
+  ['persons', 'party_group_id'],
+  ['cheque_records', 'collection_bank_id'],
+  ['cheque_records', 'journal_entry_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

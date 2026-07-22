@@ -114,4 +114,120 @@ function syncPartyToLegacy(db, partyId) {
   }
 }
 
-module.exports = { syncCustomerToParty, syncSupplierToParty, syncPartyToLegacy };
+/** Resolve CRM customer ids linked to a party (party_id and/or legacy pointer). */
+function linkedCustomerIds(db, partyId) {
+  const ids = new Set();
+  db.prepare('SELECT id FROM customers WHERE party_id=?').all(partyId).forEach((r) => ids.add(r.id));
+  const p = db.prepare('SELECT legacy_table, legacy_id FROM parties WHERE id=?').get(partyId);
+  if (p && p.legacy_table === 'customers' && p.legacy_id) ids.add(p.legacy_id);
+  return [...ids];
+}
+
+function linkedSupplierIds(db, partyId) {
+  const ids = new Set();
+  db.prepare('SELECT id FROM suppliers WHERE party_id=?').all(partyId).forEach((r) => ids.add(r.id));
+  const p = db.prepare('SELECT legacy_table, legacy_id FROM parties WHERE id=?').get(partyId);
+  if (p && p.legacy_table === 'suppliers' && p.legacy_id) ids.add(p.legacy_id);
+  return [...ids];
+}
+
+/**
+ * Remove CRM-side customer + followups. Financial docs (invoices/ledger/orders)
+ * may keep the customers row if FK blocks — list APIs still hide inactive-party links.
+ */
+function removeCrmCustomerSide(db, customerId) {
+  if (!customerId) return;
+  try { db.prepare('DELETE FROM followups WHERE cust_id=?').run(customerId); } catch (_) {}
+  try { db.prepare('DELETE FROM customers WHERE id=?').run(customerId); } catch (_) {}
+}
+
+function removeSupplierSide(db, supplierId) {
+  if (!supplierId) return;
+  try { db.prepare('DELETE FROM suppliers WHERE id=?').run(supplierId); } catch (_) {}
+}
+
+/**
+ * Accounting soft-delete → cascade to CRM customers/suppliers + followups.
+ * Must run inside (or as) a transaction.
+ */
+function deactivatePartyCascade(db, partyId) {
+  const row = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
+  if (!row) return { ok: false, reason: 'not_found' };
+  db.prepare("UPDATE parties SET is_active=0, updated_at=strftime('%s','now') WHERE id=?").run(partyId);
+  const custIds = linkedCustomerIds(db, partyId);
+  const suppIds = linkedSupplierIds(db, partyId);
+  for (const id of custIds) removeCrmCustomerSide(db, id);
+  for (const id of suppIds) removeSupplierSide(db, id);
+  return { ok: true, customers: custIds, suppliers: suppIds };
+}
+
+/**
+ * CRM customer hard-delete → soft-delete linked accounting party.
+ * If party is also a supplier, keep party active but drop customer role / legacy customer pointer.
+ */
+function deactivatePartyFromCustomer(db, customerId) {
+  const c = db.prepare('SELECT id, party_id FROM customers WHERE id=?').get(customerId);
+  if (!c) return { ok: false, reason: 'not_found' };
+  try { db.prepare('DELETE FROM followups WHERE cust_id=?').run(customerId); } catch (_) {}
+  try { db.prepare('DELETE FROM customers WHERE id=?').run(customerId); } catch (e) {
+    return { ok: false, reason: e.message || 'fk' };
+  }
+  let partyId = c.party_id;
+  if (!partyId) {
+    const p = db.prepare("SELECT id FROM parties WHERE legacy_table='customers' AND legacy_id=?").get(customerId);
+    partyId = p?.id || null;
+  }
+  if (partyId) {
+    const p = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
+    const roles = (() => {
+      try { return p.party_roles ? JSON.parse(p.party_roles) : []; } catch (_) { return []; }
+    })();
+    const stillSupplier = roles.includes('supplier') || p.party_type === 'supplier' || p.party_type === 'both'
+      || !!db.prepare('SELECT id FROM suppliers WHERE party_id=?').get(partyId);
+    if (stillSupplier) {
+      const nextRoles = roles.filter((r) => r !== 'customer');
+      if (!nextRoles.includes('supplier')) nextRoles.push('supplier');
+      db.prepare(`UPDATE parties SET party_type='supplier', party_roles=?,
+        legacy_table=CASE WHEN legacy_table='customers' THEN 'suppliers' ELSE legacy_table END,
+        updated_at=strftime('%s','now') WHERE id=?`
+      ).run(JSON.stringify(nextRoles), partyId);
+    } else {
+      db.prepare("UPDATE parties SET is_active=0, updated_at=strftime('%s','now') WHERE id=?").run(partyId);
+    }
+  }
+  return { ok: true, partyId };
+}
+
+/**
+ * CRM/purchasing supplier hard-delete → soft-delete linked party.
+ */
+function deactivatePartyFromSupplier(db, supplierId) {
+  const s = db.prepare('SELECT id, party_id FROM suppliers WHERE id=?').get(supplierId);
+  if (!s) return { ok: false, reason: 'not_found' };
+  try { db.prepare('DELETE FROM suppliers WHERE id=?').run(supplierId); } catch (e) {
+    return { ok: false, reason: e.message || 'fk' };
+  }
+  let partyId = s.party_id;
+  if (!partyId) {
+    const p = db.prepare("SELECT id FROM parties WHERE legacy_table='suppliers' AND legacy_id=?").get(supplierId);
+    partyId = p?.id || null;
+  }
+  if (partyId) {
+    db.prepare("UPDATE parties SET is_active=0, updated_at=strftime('%s','now') WHERE id=?").run(partyId);
+  }
+  return { ok: true, partyId };
+}
+
+/** SQL fragment: customer is visible in CRM (no party, or active party). */
+const CRM_CUSTOMER_ACTIVE_SQL = `(c.party_id IS NULL OR EXISTS (SELECT 1 FROM parties p WHERE p.id=c.party_id AND p.is_active=1))`;
+
+module.exports = {
+  syncCustomerToParty,
+  syncSupplierToParty,
+  syncPartyToLegacy,
+  deactivatePartyCascade,
+  deactivatePartyFromCustomer,
+  deactivatePartyFromSupplier,
+  linkedCustomerIds,
+  CRM_CUSTOMER_ACTIVE_SQL,
+};

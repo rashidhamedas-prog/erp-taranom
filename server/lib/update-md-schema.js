@@ -69,6 +69,19 @@ function ensureUpdateMdSchema(db, ensureColumn) {
     );
   `);
 
+  // party_groups is normally seeded in currency.seedStandardSubgroups (later);
+  // create shell here so is_marketer / sync columns can attach on fresh DBs.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS party_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code INTEGER NOT NULL UNIQUE,
+      name TEXT NOT NULL UNIQUE,
+      entity_type TEXT NOT NULL DEFAULT 'all',
+      description TEXT DEFAULT '',
+      active INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+  `);
   ensureColumn(db, 'party_groups', 'is_marketer', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'products', 'images_json', "TEXT DEFAULT '[]'");
 

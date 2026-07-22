@@ -2,7 +2,7 @@ const router = require('express').Router();
 const { allocTafsili } = require('../lib/coa-map');
 const { getDB, audit, createLedgerEntry, isDevice } = require('../db');
 const { assignCustomerByTerritory } = require('../lib/rep-ledger');
-const { syncCustomerToParty } = require('../lib/parties-sync');
+const { syncCustomerToParty, deactivatePartyFromCustomer, CRM_CUSTOMER_ACTIVE_SQL } = require('../lib/parties-sync');
 const { auth, adminOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 const XLSX = require('xlsx');
@@ -91,11 +91,13 @@ router.get('/', auth, (req, res) => {
   const hasPartyGroups = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='party_groups'").get();
   const pgJoin = hasPartyGroups ? 'LEFT JOIN party_groups pg ON c.party_group_id=pg.id' : '';
   const pgCol = hasPartyGroups ? ',pg.name as party_group_name' : ",'' as party_group_name";
+  // Hide CRM customers whose linked accounting party was soft-deleted
+  const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} ORDER BY c.created_at DESC`).all();
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} WHERE 1=1${activeClause} ORDER BY c.created_at DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} WHERE c.user_id=?${activeClause} ORDER BY c.created_at DESC`).all(scope);
   }
   res.json(rows);
 });
@@ -181,20 +183,24 @@ router.delete('/:id', auth, (req, res) => {
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (!canMutateCustomer(req.user, row)) return res.status(403).json({ error: 'فقط ایجادکننده یا مدیر می‌تواند این مشتری را حذف کند' });
-  db.prepare('DELETE FROM customers WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'customer', req.params.id, `حذف مشتری ${row.biz}`);
-  res.json({ ok: true });
+  // Cascade: remove followups + soft-delete linked accounting party
+  const result = db.transaction(() => deactivatePartyFromCustomer(db, req.params.id))();
+  if (!result.ok) return res.status(400).json({ error: 'امکان حذف مشتری نیست (سوابق مالی مرتبط)' });
+  audit(req.user.id, 'delete', 'customer', req.params.id, `حذف مشتری ${row.biz}; party=${result.partyId||'-'}`);
+  res.json({ ok: true, partyId: result.partyId || null });
 });
 
 // Customer balances for current user's customers (non-zero only)
 router.get('/balances', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
+  // Hide CRM customers whose linked accounting party was soft-deleted
+  const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id WHERE ${BAL_COL}<>0 ORDER BY ABS(${BAL_COL}) DESC`).all();
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id WHERE ${BAL_COL}<>0${activeClause} ORDER BY ABS(${BAL_COL}) DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=? AND ${BAL_COL}<>0 ORDER BY ABS(${BAL_COL}) DESC`).all(scope);
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=? AND ${BAL_COL}<>0${activeClause} ORDER BY ABS(${BAL_COL}) DESC`).all(scope);
   }
   res.json(rows);
 });
@@ -202,11 +208,12 @@ router.get('/balances', auth, (req, res) => {
 router.get('/export/excel', auth, adminOnly, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
+  const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id ORDER BY c.created_at DESC`).all();
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id WHERE 1=1${activeClause} ORDER BY c.created_at DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=?${activeClause} ORDER BY c.created_at DESC`).all(scope);
   }
   const isAdmin = req.user.role === 'admin';
   const data = rows.map(r => ({

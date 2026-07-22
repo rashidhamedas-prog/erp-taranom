@@ -93,6 +93,14 @@ function repairProductCategoriesSchema(db) {
 // Sync triggers must match each table's real primary/business key — not every
 // syncable table has an `id` column (e.g. warehouse_stock, legacy settings).
 function syncTriggerMatch(t, db) {
+  if (t.compositeKeys && t.compositeKeys.length) {
+    const keys = t.compositeKeys;
+    return {
+      updateWhere: keys.map(k => `${k} = NEW.${k}`).join(' AND '),
+      tombstone: keys.map(k => `CAST(OLD.${k} AS TEXT)`).join(" || ':' || ")
+    };
+  }
+  // Legacy special-case kept for older registries without compositeKeys
   if (t.name === 'warehouse_stock') {
     return {
       updateWhere: 'product_id = NEW.product_id AND warehouse_id = NEW.warehouse_id',
@@ -1977,6 +1985,26 @@ function initSyncSchema(db) {
     }
   } catch (e) { console.warn('parties migration:', e.message); }
 
+  // One-time: cascade-clean CRM customers left behind after accounting soft-deletes
+  try {
+    const orphaned = db.prepare(`
+      SELECT c.id FROM customers c
+      JOIN parties p ON p.id=c.party_id
+      WHERE p.is_active=0
+    `).all();
+    if (orphaned.length) {
+      const delFup = db.prepare('DELETE FROM followups WHERE cust_id=?');
+      const delCust = db.prepare('DELETE FROM customers WHERE id=?');
+      db.transaction(() => {
+        for (const o of orphaned) {
+          try { delFup.run(o.id); } catch (_) {}
+          try { delCust.run(o.id); } catch (_) {}
+        }
+      })();
+      console.log(`🧹 cleaned ${orphaned.length} CRM customers linked to inactive parties`);
+    }
+  } catch (e) { console.warn('orphan customer cleanup:', e.message); }
+
   // Rial INTEGER migration for key monetary columns (×10 from toman REAL)
   try {
     const { migrateRealToRial } = require('./lib/money');
@@ -2101,6 +2129,20 @@ function initSyncSchema(db) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v2','1')").run();
+    }
+    // v3: newly appended SYNCABLE_TABLES (party_groups, cheque_records, …) after v2 flag
+    const backfillV3 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v3'").get();
+    if (!backfillV3 || backfillV3.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v3 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v3','1')").run();
     }
   }
 

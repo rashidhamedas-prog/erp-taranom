@@ -13,9 +13,9 @@
      تا زیر فیلترینگ/اینترنت داخلی هم برنامه فوری و کامل بارگذاری شود.
      اسکریپت‌ها defer دارند تا رندر صفحه را بلوکه نکنند. -->
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<link rel="stylesheet" href="/prod-ui.css?v=70">
+<link rel="stylesheet" href="/prod-ui.css?v=75">
 <script src="/vendor/html2canvas.min.js" defer></script>
-<script src="/marketer-ui.js?v=71" defer></script>
+<script src="/marketer-ui.js?v=75" defer></script>
 <style>
 /* ===== Theme tokens — «زمرد مدرن» (light, default) =====
    Components must read colors only through these tokens; the dark block
@@ -830,11 +830,11 @@ table.tbl tr:hover td{background:var(--row-hover)}
 <div id="toasts"></div>
 
 <script src="/barcode-input.js" defer></script>
-<script src="/acc-nav.js?v=70"></script>
-<script src="/portal-ui.js?v=74"></script>
-<script src="/mdi.js?v=70" defer></script>
-<script src="/tbl-enhance.js?v=74" defer></script>
-<script src="/prod-ui.js?v=70" defer></script>
+<script src="/acc-nav.js?v=75"></script>
+<script src="/portal-ui.js?v=75"></script>
+<script src="/mdi.js?v=75" defer></script>
+<script src="/tbl-enhance.js?v=75" defer></script>
+<script src="/prod-ui.js?v=75" defer></script>
 <script>
 /* ============================================================
    STATE & API
@@ -2848,18 +2848,18 @@ function renderCustTable(){
   const allChecked = allIds.length>0 && allIds.every(id=>custSelected.has(id));
   const colCount = isAdm ? 13 : 12;
   const balSum = rows.reduce((a,c)=>a+(c.balance||0),0);
-  el('custTable').innerHTML = `<table class="tbl"><thead><tr>
-    <th style="width:36px"><input type="checkbox" ${allChecked?'checked':''} onchange="toggleAllCust(this,${JSON.stringify(allIds)})"></th>
-    <th>نام کامل</th><th>نام فروشگاه</th><th>موبایل</th><th>عملیات</th><th>شهر</th><th>آدرس</th><th>نوع</th><th>وضعیت</th><th>ماهیت</th><th>مانده</th>${isAdm?'<th>کارشناس</th>':''}
+  el('custTable').innerHTML = `<table class="tbl" data-bulk-delete="0"><thead><tr>
+    <th class="no-sort" style="width:36px"><input type="checkbox" ${allChecked?'checked':''} onchange="toggleAllCust(this,${JSON.stringify(allIds)})"></th>
+    <th>نام کامل</th><th>نام فروشگاه</th><th>موبایل</th><th class="no-sort">عملیات</th><th>شهر</th><th>آدرس</th><th>نوع</th><th>وضعیت</th><th>ماهیت</th><th>مانده</th>${isAdm?'<th>کارشناس</th>':''}
   </tr></thead><tbody>${rows.map(c=>{
     const editable = canEditCustomer(c);
     const nature = c.account_nature || c.group_nature || '';
     const bal = c.balance||0;
-    return `<tr ${custSelected.has(c.id)?'style="background:var(--purple-light)"':''}>
-    <td><input type="checkbox" ${custSelected.has(c.id)?'checked':''} onchange="toggleCust(${c.id},this.checked)"></td>
+    return `<tr data-id="${c.id}" ${custSelected.has(c.id)?'style="background:var(--purple-light)"':''}>
+    <td class="no-sort"><input type="checkbox" ${custSelected.has(c.id)?'checked':''} onchange="toggleCust(${c.id},this.checked)"></td>
     <td>${esc(c.owner||'-')}</td><td>${esc(c.biz)}</td>
-    <td>${phoneCell(c.phone)}</td>
-    <td style="white-space:nowrap">
+    <td data-sort="${esc(c.phone||'')}">${phoneCell(c.phone)}</td>
+    <td class="no-sort" style="white-space:nowrap">
       ${editable?`<button class="btn sm ghost" onclick="custModal(${c.id})">✏️</button>`:`<button class="btn sm ghost" onclick="custModal(${c.id})" title="فقط مشاهده">👁️</button>`}
       <button class="btn sm blue icon" onclick="custActivityModal(${c.id})" title="تاریخچه پیگیری">📋</button>
       ${c.phone?`<button class="btn sm ghost" onclick="sendWelcomeSMS(${c.id})" title="ارسال پیامک خوش‌آمدگویی">📤</button>`:''}
@@ -2868,7 +2868,7 @@ function renderCustTable(){
     <td class="muted" style="font-size:12px;max-width:180px">${esc(c.address||'-')}</td>
     <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" style="background:#dbeafe;color:#1d4ed8" title="دسترسی پورتال B2B فعال">B2B</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="ریسک ریزش مشتری (تحلیل AI)">⚠️${c.churn_score}٪</span>`:''}</td>
     <td>${natureLabel[nature]||nature||'—'}${c.party_group_name?`<div class="muted" style="font-size:11px">${esc(c.party_group_name)}</div>`:''}${c.group_name?`<div class="muted" style="font-size:11px">${esc(c.group_name)}</div>`:''}</td>
-    <td class="mono" style="color:${bal>0?'#dc2626':bal<0?'var(--green)':'var(--muted)'}">${bal!==0?fmt(bal)+' ریال':'-'}</td>
+    <td class="mono" data-sort="${bal}" style="color:${bal>0?'#dc2626':bal<0?'var(--green)':'var(--muted)'}">${bal!==0?fmt(bal)+' ریال':'-'}</td>
     ${isAdm?`<td class="muted">${esc(c.salesperson||'-')}</td>`:''}
   </tr>`;
   }).join('')||emptyRow(colCount)}</tbody>
@@ -2877,6 +2877,7 @@ function renderCustTable(){
     <td class="mono" style="font-weight:800;color:${balSum>0?'#dc2626':'var(--green)'}">${fmt(balSum)} ریال</td>
     ${isAdm?'<td></td>':''}
   </tr></tfoot></table>`;
+  if(typeof enhanceAccTables==='function') enhanceAccTables(el('custTable'));
 }
 function toggleCust(id, checked){ if(checked) custSelected.add(id); else custSelected.delete(id); renderCustTable(); }
 function toggleAllCust(cb, ids){ ids.forEach(id=>cb.checked?custSelected.add(id):custSelected.delete(id)); renderCustTable(); }
@@ -3210,23 +3211,23 @@ function renderFupView(){
 
 // Shared row-table renderer — used by both the flat list and each folder's lazy-rendered body
 function fupRowsHtml(rows, showSalesperson){
-  return `<table class="tbl"><thead><tr>
-    <th>مشتری</th><th>مرحله</th><th>تاریخ</th><th>نوع</th><th>موضوع</th><th>احتمال</th><th>اولویت</th><th>بعدی</th><th>وضعیت</th>${showSalesperson?'<th>کارشناس</th>':''}<th>عملیات</th>
+  return `<table class="tbl" data-bulk-delete="0"><thead><tr>
+    <th>مشتری</th><th>مرحله</th><th>تاریخ</th><th>نوع</th><th>موضوع</th><th>احتمال</th><th>اولویت</th><th>بعدی</th><th>وضعیت</th>${showSalesperson?'<th>کارشناس</th>':''}<th class="no-sort">عملیات</th>
   </tr></thead><tbody>${rows.map(f=>{
     const stage=PIPELINE_STAGES.find(s=>s.id===(f.pipeline_stage||'lead'))||PIPELINE_STAGES[0];
     const prob=parseInt(f.purchase_prob)||0;
-    return `<tr>
+    return `<tr data-id="${f.id}">
       <td><b>${esc(f.cust_biz||'-')}</b></td>
-      <td><span class="tag ${stage.color}">${stage.icon} ${stage.label}</span></td>
-      <td class="mono">${escDate(f.date)}</td>
+      <td data-sort="${esc(stage.id)}"><span class="tag ${stage.color}">${stage.icon} ${stage.label}</span></td>
+      <td class="mono" data-sort="${esc(f.date||'')}">${escDate(f.date)}</td>
       <td>${esc(f.type||'-')}</td>
       <td>${esc(f.subject||'-')}${f.tags?`<br><span style="font-size:10px;color:var(--muted)">#${esc(f.tags)}</span>`:''}</td>
-      <td><div style="display:flex;align-items:center;gap:5px"><div class="prob-bar"><div class="fill" style="width:${prob}%"></div></div><span style="font-size:11px;white-space:nowrap">${prob}٪</span></div></td>
+      <td data-sort="${prob}"><div style="display:flex;align-items:center;gap:5px"><div class="prob-bar"><div class="fill" style="width:${prob}%"></div></div><span style="font-size:11px;white-space:nowrap">${prob}٪</span></div></td>
       <td>${statusTag(f.priority)}</td>
-      <td class="mono">${escDate(f.next_date)}${f.next_time?`<br><span style="font-size:11px;color:var(--purple)">⏰ ${esc(f.next_time)}</span>`:''}</td>
+      <td class="mono" data-sort="${esc(f.next_date||'')}">${escDate(f.next_date)}${f.next_time?`<br><span style="font-size:11px;color:var(--purple)">⏰ ${esc(f.next_time)}</span>`:''}</td>
       <td>${statusTag(f.status)}</td>
       ${showSalesperson?`<td class="muted">${esc(f.salesperson||'-')}</td>`:''}
-      <td style="white-space:nowrap">
+      <td class="no-sort" style="white-space:nowrap">
         <button class="btn sm ghost" onclick="fupModal(${f.id})" title="ویرایش">✏️</button>
         <button class="btn sm blue icon" onclick="custActivityModal(${f.cust_id})" title="تاریخچه">📋</button>
         <button class="btn sm red icon" onclick="confirmDelete('followups',${f.id},'پیگیری')">🗑️</button>
@@ -3270,6 +3271,7 @@ function toggleFupCustFolder(gi){
   if(opening && !body.dataset.rendered){
     body.innerHTML=fupRowsHtml(_fupCustGroups[gi]||[], ME.role==='admin'||ME.role==='accounting');
     body.dataset.rendered='1';
+    if(typeof enhanceAccTables==='function') enhanceAccTables(body);
   }
 }
 
@@ -3305,6 +3307,7 @@ function toggleFupFolder(gi){
   if(opening && !body.dataset.rendered){
     body.innerHTML = fupRowsHtml(_fupFolderGroups[gi]||[], false);
     body.dataset.rendered='1';
+    if(typeof enhanceAccTables==='function') enhanceAccTables(body);
   }
 }
 
