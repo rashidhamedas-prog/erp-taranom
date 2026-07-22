@@ -325,6 +325,14 @@ db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('portal_review_t
     ok(false, 'second param for sequence lock', r.data?.error || r.status);
   }
 
+  // Hard-delete unit cascades portal rows (journals/stock moves left untouched)
+  r = await api('DELETE', `/api/portal/units/${unitId}`);
+  ok(r.status === 200 && r.data?.ok, 'hard-delete unit', r.data?.error || r.status);
+  ok(!db.prepare('SELECT id FROM op_units WHERE id=?').get(unitId), 'unit row gone');
+  ok(!db.prepare('SELECT id FROM op_departments WHERE unit_id=?').get(unitId), 'departments cascaded');
+  ok(!db.prepare('SELECT id FROM op_parameters WHERE unit_id=?').get(unitId), 'parameters cascaded');
+  ok(!db.prepare('SELECT id FROM op_unit_warehouses WHERE unit_id=?').get(unitId), 'unit warehouses cascaded');
+
   await new Promise(resolve => server.close(resolve));
   try { db.close(); } catch (_) {}
   try { fs.unlinkSync(dbFile); } catch (_) {}

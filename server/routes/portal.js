@@ -418,8 +418,57 @@ router.delete('/units/:id', auth, centralOnly, requirePermission('portal', 'edit
   const db = getDB();
   const unit = db.prepare('SELECT * FROM op_units WHERE id=?').get(req.params.id);
   if (!unit) return res.status(404).json({ error: 'یافت نشد' });
-  db.prepare("UPDATE op_units SET status='archived', updated_at=strftime('%s','now') WHERE id=?").run(unit.id);
-  audit(req.user.id, 'archive', 'op_unit', unit.id, `بایگانی واحد ${unit.name}`);
+  try {
+    db.transaction(() => {
+      const paramIds = db.prepare('SELECT id FROM op_parameters WHERE unit_id=?').all(unit.id).map(r => r.id);
+      const deptIds = db.prepare('SELECT id FROM op_departments WHERE unit_id=?').all(unit.id).map(r => r.id);
+
+      if (paramIds.length) {
+        const ph = paramIds.map(() => '?').join(',');
+        if (hasTable(db, 'op_parameter_extra_costs')) {
+          db.prepare(`DELETE FROM op_parameter_extra_costs WHERE parameter_id IN (${ph})`).run(...paramIds);
+        }
+        db.prepare(`DELETE FROM op_parameter_items WHERE parameter_id IN (${ph})`).run(...paramIds);
+        db.prepare(`DELETE FROM op_parameter_dept_log WHERE parameter_id IN (${ph})`).run(...paramIds);
+        if (hasTable(db, 'op_field_followups')) {
+          db.prepare(`DELETE FROM op_field_followups WHERE entity_type='op_parameter' AND entity_id IN (${ph})`).run(...paramIds);
+        }
+        db.prepare(`DELETE FROM op_parameters WHERE id IN (${ph})`).run(...paramIds);
+      }
+
+      if (deptIds.length) {
+        const ph = deptIds.map(() => '?').join(',');
+        // leftover logs (safety) before departments go away
+        db.prepare(`DELETE FROM op_parameter_dept_log WHERE department_id IN (${ph})`).run(...deptIds);
+        if (hasTable(db, 'op_dept_capabilities')) {
+          db.prepare(`DELETE FROM op_dept_capabilities WHERE department_id IN (${ph})`).run(...deptIds);
+        }
+        if (hasTable(db, 'op_dept_tasks')) {
+          db.prepare(`DELETE FROM op_dept_tasks WHERE department_id IN (${ph})`).run(...deptIds);
+        }
+        if (hasTable(db, 'op_dept_delegations')) {
+          db.prepare(`DELETE FROM op_dept_delegations WHERE department_id IN (${ph})`).run(...deptIds);
+        }
+        if (hasTable(db, 'op_field_followups')) {
+          db.prepare(`DELETE FROM op_field_followups WHERE entity_type='op_department' AND entity_id IN (${ph})`).run(...deptIds);
+        }
+        db.prepare(`DELETE FROM op_departments WHERE id IN (${ph})`).run(...deptIds);
+      }
+
+      db.prepare('DELETE FROM op_unit_warehouses WHERE unit_id=?').run(unit.id);
+      db.prepare('DELETE FROM op_unit_persons WHERE unit_id=?').run(unit.id);
+      if (hasTable(db, 'op_unit_module_links')) {
+        db.prepare('DELETE FROM op_unit_module_links WHERE unit_id=?').run(unit.id);
+      }
+      if (hasTable(db, 'op_field_followups')) {
+        db.prepare("DELETE FROM op_field_followups WHERE entity_type='op_unit' AND entity_id=?").run(unit.id);
+      }
+      db.prepare('DELETE FROM op_units WHERE id=?').run(unit.id);
+    })();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || 'حذف واحد ناموفق بود' });
+  }
+  audit(req.user.id, 'delete', 'op_unit', unit.id, `حذف کامل واحد ${unit.name}`);
   res.json({ ok: true });
 });
 

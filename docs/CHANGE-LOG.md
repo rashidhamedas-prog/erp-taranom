@@ -32,13 +32,21 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending) fix table numeric sort fa-IR — SW erp-taranom-v73 |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v73` |
+| آخرین commit | (pending) حذف کامل واحد عملیاتی — SW erp-taranom-v74 |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v74` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ deploy sort fix v73 |
+| وضعیت سرور | ⏳ deploy حذف واحد v74 |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
+
+### 2026-07-22 — حذف کامل واحد عملیاتی در پورتال
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (pending)
+- **خلاصه:** کنار ویرایش واحد، دکمهٔ حذف اضافه شد. `DELETE /api/portal/units/:id` به‌جای بایگانی، واحد را با cascade کامل (بخش‌ها، پارامترها، اتصالات، امکانات/وظایف/واگذاری) از DB پاک می‌کند. اسناد حسابداری/انبار قبلی دست‌نخورده می‌مانند. SW `v74`.
+- **فایل‌های کلیدی:** `server/routes/portal.js`, `server/public/portal-ui.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-portal.js`
+- **Deploy:** ⏳
+- **SW:** `erp-taranom-v74`
 
 ### 2026-07-22 — رفع سورت عددی جداول (موجودی/قیمت با رقم فارسی)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

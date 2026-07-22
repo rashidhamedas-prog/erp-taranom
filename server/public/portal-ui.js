@@ -84,6 +84,7 @@
           <div class="panel-head"><h4>🏢 ${esc(u.name)} — بخش‌ها و پارامترها</h4>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               <button class="btn sm ghost" onclick="PortalUI.openEditUnitModal(${u.id})">✏️ ویرایش واحد</button>
+              <button class="btn sm red" onclick='PortalUI.deleteUnit(${u.id},${JSON.stringify(u.name || "")})'>🗑️ حذف واحد</button>
               <button class="btn sm" onclick="PortalUI.openCreateDeptModal(${u.id})">➕ دپارتمان</button>
               <button class="btn sm ghost" onclick="PortalUI.openCreateParamModal(${u.id})">➕ پارامتر جدید</button>
             </div>
@@ -165,9 +166,10 @@
         <td>${esc(u.name)}</td>
         <td class="muted">${esc(u.output_type || '-')}</td>
         <td>${u.status === 'inactive' ? '<span class="tag t-cancel">غیرفعال</span>' : '<span class="tag t-done">فعال</span>'}</td>
-        <td>
+        <td style="white-space:nowrap">
           <button class="btn sm ${ _portalUnitId === u.id ? '' : 'ghost'}" onclick="PortalUI.selectUnit(${u.id})">مدیریت</button>
-          <button class="btn sm ghost" onclick="PortalUI.openEditUnitModal(${u.id})">✏️</button>
+          <button class="btn sm ghost" onclick="PortalUI.openEditUnitModal(${u.id})" title="ویرایش">✏️</button>
+          <button class="btn sm red" onclick='PortalUI.deleteUnit(${u.id},${JSON.stringify(u.name || "")})' title="حذف کامل">🗑️</button>
         </td>
       </tr>`).join('') || emptyRow(4)}</tbody></table></div>
       ${pendingHtml}
@@ -282,6 +284,17 @@
         const created = list.find(x => x.name === data.name);
         if (created) _portalUnitId = created.id;
       } else _portalUnitId = id;
+      loadAccTab('portal-units');
+    } catch (e) {}
+  }
+
+  async function deleteUnit(id, name) {
+    const label = name || ('#' + id);
+    if (!confirm(`واحد «${label}» به‌طور کامل حذف شود؟\nهمه بخش‌ها، پارامترها و تنظیمات مرتبط پاک می‌شوند.\nاسناد حسابداری/انبار ثبت‌شده قبلی دست نخورده می‌مانند.\nاین عمل برگشت‌پذیر نیست.`)) return;
+    try {
+      await api('DELETE', '/portal/units/' + id);
+      if (_portalUnitId === id) _portalUnitId = null;
+      showToast('واحد به‌طور کامل حذف شد');
       loadAccTab('portal-units');
     } catch (e) {}
   }
@@ -1263,6 +1276,7 @@
     openCreateUnitModal,
     openEditUnitModal,
     saveUnit,
+    deleteUnit,
     openCreateDeptModal,
     openEditDeptModal,
     saveDept,
