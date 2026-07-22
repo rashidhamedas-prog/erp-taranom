@@ -6,6 +6,7 @@ const { postToLedger } = require('../lib/ledger');
 const { enqueueMoadian } = require('./moadian');
 const { rialToLedger } = require('../lib/money');
 const { reverseCommissionAccrual } = require('../lib/rep-ledger');
+const { voidInvoiceFully } = require('../lib/void-invoice');
 
 // دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
 function receivableAcct(db, custId) {
@@ -568,58 +569,20 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
   const db = getDB();
   const row = db.prepare('SELECT * FROM invoices WHERE id=? AND COALESCE(deleted_at,0)=0').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (row.status === 'reversed') return res.status(400).json({ error: 'این فاکتور قبلاً ابطال شده است' });
   if (req.user.role !== 'admin' && req.user.role !== 'accounting' && row.user_id !== req.user.id) {
     return res.status(403).json({ error: 'دسترسی ندارید' });
   }
-
-  db.transaction(() => {
-    if (row.stock_deducted) {
-      const invRows = JSON.parse(row.rows || '[]');
-      for (const r of invRows) {
-        if (r.row_type === 'income' || !r.product_id) continue;
-        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
-          r.product_id, req.user.id, r.qty, `بازگشت موجودی از حذف فاکتور ${row.num}`
-        );
-        if (row.warehouse_id) {
-          db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
-            .run(r.product_id, row.warehouse_id, r.qty);
-        }
-      }
-    }
-
-    if (row.type === 'final') {
-      if ((row.pay_type || 'cash') === 'credit') {
-        createLedgerEntry(db, {
-          customer_id: row.cust_id, date: todayJalali(), entry_type: 'reversal',
-          ref_type: 'invoice', ref_id: row.id,
-          description: `ابطال فاکتور ${row.num}`,
-          debit: 0, credit: row.final, user_id: req.user.id
-        });
-      }
-      const invTotals = {
-        subtotal: row.subtotal, discAmt: row.disc_amt || 0, final: row.final,
-        vatAmount: row.vat_amount || 0,
-        netBeforeVat: (row.subtotal || 0) - (row.disc_amt || 0) + Math.round(row.freight_amount || 0)
-      };
-      postToLedger(db, {
-        sourceType: 'invoice_reversal', sourceId: row.id, date: todayJalali(),
-        description: `ابطال فاکتور ${row.num}`, createdBy: req.user.id,
-        lines: salesJournalLines(db, row.cust_id, invTotals, true, {
-          payType: row.pay_type || 'credit', bankId: row.bank_id, cashBoxId: row.cash_box_id,
-          rows: JSON.parse(row.rows || '[]'),
-        }),
-      });
-      postCogsVoucher(db, row.id, row.num, todayJalali(), JSON.parse(row.rows || '[]'), req.user.id, true);
-      reverseCommissionAccrual(db, 'invoice', row.id, req.user.id, todayJalali());
-    }
-
-    db.prepare("UPDATE invoices SET status='reversed',deleted_at=strftime('%s','now'),deleted_by=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
-      .run(req.user.id, req.user.id, req.params.id);
-  })();
-  audit(req.user.id, 'soft_delete', 'invoice', req.params.id, `حذف نرم فاکتور ${row.num}`);
-  res.json({ ok: true });
+  try {
+    const result = voidInvoiceFully(db, row.id, req.user, { reason: 'void' });
+    res.json({
+      ok: true,
+      restoredToProforma: result.restoredToProforma,
+      settlementsReversed: result.settlementsReversed,
+      title: result.title,
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || 'خطا در ابطال' });
+  }
 });
 
 // Convert proforma to official invoice (type='final')

@@ -66,10 +66,13 @@ function resolveSettlementFx(db, opts) {
 
 const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, backfillAccounting, resolveCashAccount } = require('../db');
 const { recordCommissionAccrual, recordSettlementCommissionAccrual, reverseCommissionAccrual } = require('../lib/rep-ledger');
+const { reverseSettlementInTx } = require('../lib/void-settlement');
+const { voidInvoiceFully, notifyInvoiceCancelled, saveCancelImage } = require('../lib/void-invoice');
 const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
 const { UPLOADS_ROOT } = require('../paths');
 const VOUCHER_UPLOAD_DIR = path.join(UPLOADS_ROOT, 'vouchers');
@@ -360,41 +363,7 @@ router.delete('/settlements/:id', auth, adminOrAccounting, (req, res) => {
   if (settlement.status === 'reversed') return res.status(400).json({ error: 'این تسویه قبلاً ابطال شده است' });
 
   db.transaction(() => {
-    // Reversal ledger + journal entries — reverse against the same bank/cash-box account originally used
-    const cash = resolveCashAccount(db, settlement.pay_type, settlement.bank_id, settlement.cash_box_id);
-    createLedgerEntry(db, {
-      customer_id: settlement.cust_id, date: todayJalali(), entry_type: 'reversal',
-      ref_type: 'settlement', ref_id: settlement.id,
-      description: `ابطال تسویه شماره ${settlement.id}`,
-      debit: settlement.amount, credit: 0, user_id: req.user.id
-    });
-    const reversalId = postToLedger(db, {
-      sourceType: 'settlement_reversal', sourceId: settlement.id, date: todayJalali(),
-      description: `ابطال تسویه شماره ${settlement.id}`, createdBy: req.user.id,
-      lines: [
-        (()=>{const a=recvAcct(db,settlement.cust_id);return { code: a.code, name: a.name, debit: rialToLedger(settlement.amount), credit: 0 };})(),
-        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(settlement.amount) }
-      ]
-    });
-    reverseCommissionAccrual(db, 'settlement', settlement.id, req.user.id, todayJalali());
-
-    // Spec 1.0.9 §5: if this settlement came from an approved field-rep
-    // payment submission, deleting it flips that submission back to
-    // "rejected" (soft status update — the submission row + receipt photo
-    // stay for the audit trail) so the rep's «حساب من» reflects reality.
-    const sub = db.prepare("SELECT * FROM rep_payment_submissions WHERE settlement_id=? AND status='approved'").get(settlement.id);
-    if (sub) {
-      db.prepare("UPDATE rep_payment_submissions SET status='rejected', rejection_note=?, approved_by=?, approved_at=strftime('%s','now') WHERE id=?")
-        .run('تأیید اشتباه بود — تسویه توسط حسابدار ابطال شد', req.user.id, sub.id);
-      const { notifyRep } = require('../lib/rep-ledger');
-      notifyRep(db, sub.rep_id,
-        `❌ پرداختی که قبلاً تأیید شده بود ابطال شد\nمبلغ: ${Number(sub.amount || 0).toLocaleString('fa-IR')} ریال\nوضعیت جدید: رد شده`,
-        req.user.id);
-      audit(req.user.id, 'reject', 'rep_payment', sub.id, `ابطال تأیید پرداخت میدانی (حذف تسویه #${settlement.id})`);
-    }
-
-    db.prepare("UPDATE settlements SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
-      .run(reversalId, req.user.id, settlement.id);
+    reverseSettlementInTx(db, settlement, req.user.id);
   })();
   audit(req.user.id, 'reverse', 'settlement', req.params.id, 'ابطال تسویه');
   res.json({ ok: true });
@@ -589,9 +558,38 @@ router.get('/pending-approvals', auth, adminOrAccounting, (req, res) => {
     LEFT JOIN customers c ON i.cust_id=c.id
     LEFT JOIN users u ON i.user_id=u.id
     WHERE i.type='final' AND i.approved=0
+      AND COALESCE(i.deleted_at,0)=0 AND COALESCE(i.status,'posted')<>'reversed'
     ORDER BY i.created_at DESC
   `).all();
   res.json(rows);
+});
+
+// Cancel / void formal invoice (full reverse — R13). Optional snapshot image for in-app message.
+router.post('/invoices/:id/cancel', auth, adminOrAccounting, memUpload.single('image'), async (req, res) => {
+  const db = getDB();
+  try {
+    const result = voidInvoiceFully(db, req.params.id, req.user, { reason: 'cancel' });
+    let imageFileName = null;
+    if (req.file && req.file.buffer) {
+      imageFileName = await saveCancelImage(req.file.buffer);
+    }
+    notifyInvoiceCancelled(db, {
+      inv: result.invoice,
+      user: req.user,
+      title: result.title,
+      imageFileName,
+    });
+    audit(req.user.id, 'cancel', 'invoice', result.invoice.id, result.title, req);
+    res.json({
+      ok: true,
+      restoredToProforma: result.restoredToProforma,
+      settlementsReversed: result.settlementsReversed,
+      title: result.title,
+      image: imageFileName,
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || 'خطا در لغو فاکتور' });
+  }
 });
 
 // Approve invoice for commission

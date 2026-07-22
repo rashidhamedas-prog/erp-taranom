@@ -5630,7 +5630,10 @@ async function loadAccTab(tab){
       <td class="mono">${escDate(i.date)}</td>
       <td class="mono">${fmt(i.final)}</td>
       <td>${payTypeLabel(i.pay_type)}</td>
-      <td><button class="btn sm green" onclick="approveInvoice(${i.id})">✅ تأیید</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn sm green" onclick="approveInvoice(${i.id})">✅ تأیید</button>
+        <button class="btn sm red" onclick="cancelFormalInvoice(${i.id},'${esc(i.num||'')}')">🚫 لغو فاکتور</button>
+      </td>
     </tr>`).join('');
     const commRows=(comms||[]).map(c=>`<tr>
       <td>${esc(c.name)} <span class="tag" style="font-size:10px">${esc(c.roleLabel||'')}</span></td>
@@ -6558,16 +6561,64 @@ function filterAccInvTable(){
     tr.style.display=!q||hay.includes(q)?'':'none';
   });
 }
-async function voidInvoiceDoc(id,num){
-  if(!canPerm('invoices','delete')&&ME.role!=='admin'&&ME.role!=='accounting'){ showToast('دسترسی ابطال ندارید','error'); return; }
-  if(!confirm(`فاکتور «${num||id}» ابطال شود؟\nسند معکوس ثبت می‌شود و موجودی برمی‌گردد.`)) return;
+async function captureInvoicePrintImage(id){
+  if(typeof html2canvas==='undefined') return null;
   try{
-    await api('DELETE','/invoices/'+id);
-    showToast('فاکتور ابطال شد');
+    const printUrl='/api/invoices/'+id+'/print';
+    const resp=await fetch(printUrl,{headers:{Authorization:'Bearer '+localStorage.getItem('crm_token')}});
+    if(!resp.ok) return null;
+    const html=await resp.text();
+    const iframe=document.createElement('iframe');
+    iframe.style.cssText='position:fixed;left:-9999px;top:0;width:800px;height:1100px;opacity:0';
+    document.body.appendChild(iframe);
+    iframe.contentDocument.open();
+    iframe.contentDocument.write(html.replace(/<head>/i,'<head><base href="'+location.origin+'/">'));
+    iframe.contentDocument.close();
+    await new Promise(r=>setTimeout(r,800));
+    const canvas=await html2canvas(iframe.contentDocument.body,{backgroundColor:'#fff',scale:1.5,useCORS:true});
+    document.body.removeChild(iframe);
+    return await new Promise(res=>canvas.toBlob(res,'image/png'));
+  }catch(_){ return null; }
+}
+
+async function cancelFormalInvoice(id,num){
+  if(ME.role!=='admin'&&ME.role!=='accounting'){ showToast('فقط مدیر یا حسابداری می‌توانند لغو کنند','error'); return; }
+  if(!confirm(`فاکتور رسمی «${num||id}» لغو شود؟\n\nهمهٔ اسناد حسابداری، موجودی، انگیزه فروش و تسویه‌های وابسته برمی‌گردند.\nاگر از پیش‌فاکتور تبدیل شده باشد، دوباره به پیش‌فاکتور فعال برمی‌گردد.`)) return;
+  showToast('در حال لغو فاکتور...');
+  try{
+    const blob=await captureInvoicePrintImage(id);
+    const fd=new FormData();
+    if(blob) fd.append('image',blob,'invoice-cancel.png');
+    const r=await api('POST','/accounting/invoices/'+id+'/cancel',fd,true);
+    showToast(r?.title||(r?.restoredToProforma?'لغو شد — برگشت به پیش‌فاکتور':'فاکتور لغو شد'));
     _invoicesFetched=false;
     CACHE.invoices=await api('GET','/invoices')||[];
     _invoicesFetched=true;
-    if(IN_ACC_SHELL) loadAccTab('sales-invoices');
+    if(typeof refreshMsgBadge==='function') refreshMsgBadge();
+    if(IN_ACC_SHELL) loadAccTab('commissions');
+    else if(CURRENT_PAGE==='invoices') renderInvTable();
+  }catch(e){}
+}
+
+async function voidInvoiceDoc(id,num){
+  if(!canPerm('invoices','delete')&&ME.role!=='admin'&&ME.role!=='accounting'){ showToast('دسترسی ابطال ندارید','error'); return; }
+  if(!confirm(`فاکتور «${num||id}» ابطال/لغو شود؟\nسند معکوس ثبت می‌شود، موجودی برمی‌گردد و تسویه‌های وابسته هم ابطال می‌شوند.\nاگر از پیش‌فاکتور تبدیل شده باشد به پیش‌فاکتور برمی‌گردد.`)) return;
+  try{
+    if(ME.role==='admin'||ME.role==='accounting'){
+      const blob=await captureInvoicePrintImage(id);
+      const fd=new FormData();
+      if(blob) fd.append('image',blob,'invoice-cancel.png');
+      const r=await api('POST','/accounting/invoices/'+id+'/cancel',fd,true);
+      showToast(r?.title||(r?.restoredToProforma?'لغو شد — برگشت به پیش‌فاکتور':'فاکتور ابطال شد'));
+      if(typeof refreshMsgBadge==='function') refreshMsgBadge();
+    }else{
+      const r=await api('DELETE','/invoices/'+id);
+      showToast(r?.restoredToProforma?'ابطال شد — برگشت به پیش‌فاکتور':'فاکتور ابطال شد');
+    }
+    _invoicesFetched=false;
+    CACHE.invoices=await api('GET','/invoices')||[];
+    _invoicesFetched=true;
+    if(IN_ACC_SHELL) loadAccTab(CURRENT_PAGE==='acc-commissions'?'commissions':'sales-invoices');
     else if(CURRENT_PAGE==='invoices') renderInvTable();
   }catch(e){}
 }
@@ -12132,28 +12183,11 @@ async function approveInvoice(id){
   try{
     const r = await api('POST','/accounting/invoices/'+id+'/approve',{});
     showToast('فاکتور با موفقیت تأیید شد');
-    // Try send invoice image to Rubika (settings-controlled)
     try{
-      if(typeof html2canvas!=='undefined'){
-        const printUrl='/api/invoices/'+id+'/print';
-        const resp=await fetch(printUrl,{headers:{Authorization:'Bearer '+localStorage.getItem('crm_token')}});
-        if(resp.ok){
-          const html=await resp.text();
-          const iframe=document.createElement('iframe');
-          iframe.style.cssText='position:fixed;left:-9999px;top:0;width:800px;height:1100px;opacity:0';
-          document.body.appendChild(iframe);
-          iframe.contentDocument.open();
-          iframe.contentDocument.write(html.replace(/<head>/i,'<head><base href="'+location.origin+'/">'));
-          iframe.contentDocument.close();
-          await new Promise(r=>setTimeout(r,800));
-          const canvas=await html2canvas(iframe.contentDocument.body,{backgroundColor:'#fff',scale:1.5,useCORS:true});
-          document.body.removeChild(iframe);
-          const blob=await new Promise(res=>canvas.toBlob(res,'image/png'));
-          if(blob){
-            const fd=new FormData(); fd.append('image',blob,'invoice.png');
-            await api('POST','/accounting/invoices/'+id+'/rubika',fd,true);
-          }
-        }
+      const blob=await captureInvoicePrintImage(id);
+      if(blob){
+        const fd=new FormData(); fd.append('image',blob,'invoice.png');
+        await api('POST','/accounting/invoices/'+id+'/rubika',fd,true);
       }
     }catch(_){}
     if(r?.rubika?.ok) showToast('ارسال به روبیکا انجام شد');
@@ -15146,7 +15180,7 @@ function renderAdminGuide(){
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص</li>
         <li><b>کدینگ حساب‌ها</b>: در همان داشبورد یکپارچه — ساخت و ویرایش حساب با سلسله‌مراتب والد/فرزند</li>
-        <li><b>تأیید و انگیزه فروش</b>: تأیید فاکتورها، محاسبه انگیزه هر کارشناس، ثبت پرداخت انگیزه (💵) و تاریخچه (📜)</li>
+        <li><b>تأیید و انگیزه فروش</b>: تأیید فاکتورهای رسمی برای محاسبه انگیزه، و دکمهٔ <b>لغو فاکتور</b> توسط مدیر/حسابداری. لغو همهٔ اثرات را برمی‌گرداند (سند حسابداری، موجودی، انگیزه، تسویه‌های وابسته). اگر فاکتور از پیش‌فاکتور تبدیل شده باشد دوباره به پیش‌فاکتور فعال برمی‌گردد. پس از لغو، پیام داخل‌برنامه با تیتر «فاکتور لغو شده توسط مدیر/حسابداری» و عکس فاکتور ثبت می‌شود. پرداخت انگیزه (💵) و تاریخچه (📜) هم اینجاست.</li>
         <li><b>مراکز هزینه</b>: تعریف واحد/شعبه/خط تولید برای تفکیک هزینه‌ها در گزارش‌های آینده</li>
         <li><b>گروه‌های مشتری (ماهیت حساب)</b>: تعیین اینکه هر گروه از مشتریان «بدهکار» (پیش‌فرض) یا «بستانکار» باشند — فقط مدیر و حسابدار</li>
         <li><b>صورت‌حساب مشتری</b>: گردش کامل حساب هر مشتری با مانده اول دوره و مانده لحظه‌ای، خروجی اکسل/CSV/PDF و ارسال تصویری به پیام‌رسان</li>

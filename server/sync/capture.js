@@ -36,6 +36,7 @@ const BLOCK_PATTERNS = [/\/import/, /\/export/, /\/backup/, /\/backfill/, /\/sto
 const PATH_TABLE_MAP = [
   ['/api/accounting/settlements', 'settlements'],
   ['/api/accounting/sales-returns', 'sales_returns'],
+  ['/api/accounting/invoices', 'invoices'],
   ['/api/accounting/vouchers/drafts', 'voucher_drafts'],
   ['/api/accounting/vouchers/templates', 'journal_templates'],
   ['/api/accounting/vouchers', 'journal_entries'],

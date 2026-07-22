@@ -76,6 +76,12 @@ Apply these rules on every production/accounting change in `crm-taranom`.
 ### R12 — Reverse, don't delete
 - No physical deletes of posted docs. Reverse JE + `status='reversed'`.
 
+### R13 — Full reverse on cancel (Edit ⇒ Cancel)
+- Admin/accounting: every creatable operation that has **Edit** must also have **Delete/Void/Cancel** (except inactive-only master data).
+- Cancel must reverse **all** create side-effects in one `db.transaction` (JE, stock, sub-ledgers, commission, cascaded settlements, etc.).
+- Converted proforma→final cancel **un-converts** back to active proforma (do not soft-delete the proforma row).
+- See `.cursor/rules/full-reverse-on-cancel.mdc`.
+
 ## Module posting policy
 
 | Module | Posts ledger? |

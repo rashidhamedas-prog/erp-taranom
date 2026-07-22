@@ -32,13 +32,22 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `d46fe60` قالب فاکتور v2 |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v77` |
+| آخرین commit | *(pending)* R13 + لغو کامل فاکتور رسمی |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v78` |
 | اندروید | **`2.0.19`** |
-| وضعیت سرور | ✅ deploy قالب فاکتور `d46fe60` |
+| وضعیت سرور | ⏳ نیاز به deploy |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
+
+### 2026-07-23 — [Cursor] R13 ابطال کامل + لغو فاکتور رسمی از تأیید — SW v78
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** *(پس از commit پر می‌شود)*
+- **خلاصه:** قانون دائمی R13 (Edit⇒Cancel با reverse همهٔ اثرات). لغو فاکتور رسمی توسط مدیر/حسابداری از صفحهٔ تأیید: cascade ابطال تسویه، برگشت به پیش‌فاکتور در صورت تبدیل، پیام داخل‌برنامه با عکس فاکتور. بدون حذف فیزیکی (R12).
+- **فایل‌های کلیدی:** `server/lib/void-invoice.js`, `server/lib/void-settlement.js`, `server/routes/invoices.js`, `server/routes/accounting.js`, `server/public/index.html`, `server/sync/capture.js`, `.cursor/rules/full-reverse-on-cancel.mdc`
+- **Deploy:** ⏳
+- **SW:** `erp-taranom-v78`
+- **یادداشت:** فاز ۲ backlog: انبار moves، چک، دارایی ثابت، نرخ سربار.
 
 ### 2026-07-23 — [Cursor] قالب فاکتور v2: ۳ رسمی + عادی ساده + حرارتی — SW v77
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

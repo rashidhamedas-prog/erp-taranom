@@ -18,6 +18,10 @@
 10. **Commit + Deploy خودکار (بدون پرسیدن):** بعد از هر تسک، commit و push به شاخهٔ کاری، سپس deploy روی سرور ایران
     (`94.249.244.208` / `taranom` / `/home/taranom/crm-taranom` → `git pull` + `pm2 restart erp-taranom`) و CHANGE-LOG را `✅` کن.
     جزئیات: `.cursor/rules/auto-commit-deploy.mdc`. فقط اگر کاربر صریحاً بگوید بدون commit/deploy، همان نوبت را رد کن.
+11. **R13 ابطال کامل (Edit ⇒ Cancel):** هر عملیات با ویرایش برای admin/accounting باید حذف/ابطال هم داشته باشد؛
+    ابطال = reverse همهٔ اثرات create در یک تراکنش (JE، موجودی، تفصیلی، انگیزه، cascade تسویه).
+    حذف فیزیکی ممنوع. تبدیل پیش‌فاکتور→رسمی با لغو → برگشت به پیش‌فاکتور فعال.
+    جزئیات: `.cursor/rules/full-reverse-on-cancel.mdc`.
 
 ## ساختار
 - بک‌اند: `server/` (Node/Express + better-sqlite3). ورود: `server/server.js`. اسکیما در `server/db.js`.
