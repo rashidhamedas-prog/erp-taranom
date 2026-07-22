@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | *(invoice builder sales meta — پس از commit)* |
+| آخرین commit | `c087fe6` invoice builder sales meta — SW `erp-taranom-v67` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v67` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
 | وضعیت سرور | ⏳ |
@@ -44,7 +44,7 @@
 
 ### 2026-07-22 — رفع «دسترسی ندارید» فاکتورساز برای کارشناس فروش
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** *(پس از commit)*
+- **Commit:** `c087fe6`
 - **خلاصه:** GET بانک/صندوق/دسته چک/مرکز هزینه برای همهٔ کاربران لاگین‌شده باز شد؛ لود متای فاکتورساز soft-fail + silent. کارشناس میدانی می‌تواند از فروش بازاریاب فاکتورساز را باز کند. SW `v67`.
 - **فایل‌های کلیدی:** `routes/{banks,cash-boxes,check-categories,accounting}.js`, `public/index.html`, `public/sw.js`
 - **Deploy:** ⏳
