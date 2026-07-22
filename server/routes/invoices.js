@@ -696,7 +696,14 @@ router.post('/:id/convert', auth, (req, res) => {
 // Standalone printable HTML page — templates from server/lib/invoice-print.js
 router.get('/:id/print', auth, (req, res) => {
   const db = getDB();
-  const inv = db.prepare('SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(req.params.id);
+  const inv = db.prepare(
+    `SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone,
+            u.name as salesperson
+     FROM invoices i
+     LEFT JOIN customers c ON i.cust_id=c.id
+     LEFT JOIN users u ON i.user_id=u.id
+     WHERE i.id=?`
+  ).get(req.params.id);
   if (!inv) return res.status(404).send('فاکتور یافت نشد');
   if (req.user.role !== 'admin' && inv.user_id !== req.user.id) return res.status(403).send('دسترسی ندارید');
   let rows = [];
@@ -707,16 +714,20 @@ router.get('/:id/print', auth, (req, res) => {
     company_address: getSetting(db, 'company_address'),
     company_phone: getSetting(db, 'company_phone'),
     invoice_template_formal: getSetting(db, 'invoice_template_formal') || 'formal-official',
-    invoice_template_casual: getSetting(db, 'invoice_template_casual') || 'casual-simple',
+    invoice_template_casual: 'casual-simple',
     invoice_paper_size: getSetting(db, 'invoice_paper_size') || 'A4',
+    invoice_thermal_width: getSetting(db, 'invoice_thermal_width') || '80',
     invoice_customize: getSetting(db, 'invoice_customize') || '',
   };
-  const paperQ = (req.query.paper || settings.invoice_paper_size || 'A4').toUpperCase();
-  const paper = paperQ === 'A5' ? 'A5' : 'A4';
+  const paperQ = String(req.query.paper || settings.invoice_paper_size || 'A4').toUpperCase();
+  let paper = 'A4';
+  if (paperQ === 'A5') paper = 'A5';
+  else if (paperQ === 'THERMAL' || paperQ === '80MM' || paperQ === '58MM') paper = paperQ === '58MM' ? '58MM' : (paperQ === '80MM' ? '80MM' : 'THERMAL');
+  const tmpl = String(req.query.template || '');
   const { renderInvoicePrintHtml } = require('../lib/invoice-print');
   const html = renderInvoicePrintHtml({
     inv, rows, settings, paper,
-    templateOverride: req.query.template || undefined,
+    templateOverride: tmpl === 'thermal' ? 'thermal' : (tmpl || undefined),
   });
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);

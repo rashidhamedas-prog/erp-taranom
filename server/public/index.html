@@ -3922,22 +3922,25 @@ async function convertProforma(id){
 }
 async function printInvoice(id, paper){
   const defPaper = ((CACHE.settings||{}).invoice_paper_size||'A4').toUpperCase()==='A5'?'A5':'A4';
+  const thermalW = String((CACHE.settings||{}).invoice_thermal_width||'80').replace(/\D/g,'')==='58'?'58':'80';
   if(!paper){
     openModal(`
-      <div class="modal-head"><h3>🖨️ انتخاب کاغذ</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>🖨️ انتخاب چاپ</h3><button class="x" onclick="closeModal()">×</button></div>
       <div class="modal-body" style="padding:24px">
-        <p style="margin-bottom:12px;color:var(--muted)">سایز کاغذ چاپ را انتخاب کنید: <span style="color:var(--purple);font-weight:700">(پیش‌فرض: ${defPaper})</span></p>
-        <p style="margin-bottom:16px;font-size:12px;color:var(--muted);line-height:1.8">فاکتور رسمی ← قالب رسمی تنظیمات · پیش‌فاکتور ← قالب معمولی</p>
-        <div style="display:flex;gap:12px;justify-content:center">
-          <button class="btn${defPaper==='A4'?'':' ghost'}" style="flex:1;padding:16px;font-size:15px" onclick="closeModal();printInvoice(${id},'A4')">📄 A4<br><small>۲۱ × ۲۹.۷ سانتی‌متر</small></button>
-          <button class="btn${defPaper==='A5'?'':' ghost'}" style="flex:1;padding:16px;font-size:15px" onclick="closeModal();printInvoice(${id},'A5')">📄 A5<br><small>۱۴.۸ × ۲۱ سانتی‌متر</small></button>
+        <p style="margin-bottom:12px;color:var(--muted)">نوع چاپ را انتخاب کنید. پیش‌فرض کاغذ: <span style="color:var(--purple);font-weight:700">${defPaper}</span> · حرارتی: <b>${thermalW}mm</b></p>
+        <p style="margin-bottom:16px;font-size:12px;color:var(--muted);line-height:1.8">فاکتور رسمی ← قالب رسمی تنظیمات · پیش‌فاکتور ← عادی ساده · حرارتی ← عرض چاپگر در تنظیمات</p>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button class="btn${defPaper==='A4'?'':' ghost'}" style="flex:1;min-width:120px;padding:14px;font-size:14px" onclick="closeModal();printInvoice(${id},'A4')">📄 A4<br><small>۲۱ × ۲۹.۷</small></button>
+          <button class="btn${defPaper==='A5'?'':' ghost'}" style="flex:1;min-width:120px;padding:14px;font-size:14px" onclick="closeModal();printInvoice(${id},'A5')">📄 A5<br><small>۱۴.۸ × ۲۱</small></button>
+          <button class="btn ghost" style="flex:1;min-width:120px;padding:14px;font-size:14px;border-color:var(--gold)" onclick="closeModal();printInvoice(${id},'THERMAL')">🧾 حرارتی<br><small>${thermalW}mm</small></button>
         </div>
       </div>`);
     return;
   }
   const token = localStorage.getItem('crm_token');
   try{
-    const r = await fetch('/api/invoices/'+id+'/print?paper='+paper,{headers:{'Authorization':'Bearer '+token}});
+    const q = paper==='THERMAL' ? 'paper=THERMAL&template=thermal' : ('paper='+encodeURIComponent(paper));
+    const r = await fetch('/api/invoices/'+id+'/print?'+q,{headers:{'Authorization':'Bearer '+token}});
     if(!r.ok){ showToast('خطا در دریافت فاکتور','error'); return; }
     let html = await r.text();
     // about:blank has no base URL — anchor relative paths (logo) to the app origin
@@ -14208,17 +14211,12 @@ function invoiceTemplateSettingsHtml(s){
   let cust={};
   try{ cust=JSON.parse(s.invoice_customize||'{}')||{}; }catch(e){ cust={}; }
   const formal=s.invoice_template_formal||'formal-official';
-  const casual=s.invoice_template_casual||'casual-simple';
   const paper=(s.invoice_paper_size||'A4').toUpperCase()==='A5'?'A5':'A4';
+  const thermalW=String(s.invoice_thermal_width||'80').replace(/\D/g,'')==='58'?'58':'80';
   const formalOpts=[
-    ['formal-official','رسمی اداری','هدر سبز برند + خط طلایی · چاپ‌محور'],
-    ['formal-modern','مدرن ERP','کارت Soft Bento · مناسب صفحه نرم‌افزار'],
-    ['formal-premium','پریمیوم','گرادیان hero برند · حس لاگین']
-  ];
-  const casualOpts=[
-    ['casual-simple','ساده مینیمال','خط طلایی ملایم · پیش‌فاکتور روزمره'],
-    ['casual-compact','فشرده فروشگاهی','جدول فشرده · مناسب A5'],
-    ['casual-receipt','رسید/فیش','عرض باریک · حس رسید فروشگاهی']
+    ['formal-official','رسمی کامل / اداری','صورتحساب کامل · فروشنده/خریدار · تخفیف ردیفی · مهر'],
+    ['formal-modern','رسمی مدرن ERP','همان اسکلت رسمی با کارت نرم و هدر گرادیان'],
+    ['formal-premium','رسمی پریمیوم','قاب سبز/طلایی · هدر برند · مناسب فاکتور لوکس']
   ];
   const card=(name,val,cur,title,desc)=>`<label style="display:block;cursor:pointer;border:1.5px solid ${cur===val?'var(--purple)':'var(--border)'};background:${cur===val?'var(--purple-light)':'var(--card)'};border-radius:12px;padding:12px;box-shadow:var(--shadow-card)">
     <div style="display:flex;gap:8px;align-items:flex-start">
@@ -14226,22 +14224,34 @@ function invoiceTemplateSettingsHtml(s){
       <div><b style="color:var(--purple)">${title}</b><div class="muted" style="font-size:12px;margin-top:4px;line-height:1.7">${desc}</div></div>
     </div></label>`;
   const chk=(id,label,on)=>`<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px"><input type="checkbox" id="${id}" ${on?'checked':''} style="width:auto"> ${label}</label>`;
-  return `<div class="panel"><div class="panel-head"><h4>🧾 قالب فاکتور (رسمی / معمولی) + A4/A5</h4></div><div class="panel-body">
+  return `<div class="panel"><div class="panel-head"><h4>🧾 قالب فاکتور (رسمی / عادی / حرارتی)</h4></div><div class="panel-body">
     <div class="muted" style="font-size:12px;margin-bottom:14px;line-height:1.9">
-      در کل برنامه دو قالب فعال است:<br>
-      <b>فاکتور رسمی</b> (type=final) ← یکی از ۳ قالب رسمی ·
-      <b>پیش‌فاکتور / معمولی</b> (type=proforma) ← یکی از ۳ قالب معمولی.<br>
-      لوگو و رنگ‌ها از برند ترنم (#1A5C38 / #C9A843) است. کاغذ پیش‌فرض را هم انتخاب کنید؛ موقع چاپ همچنان می‌توانید عوض کنید.
+      <b>فاکتور رسمی</b> (نهایی) ← یکی از ۳ مدل زیر را انتخاب کنید.<br>
+      <b>فاکتور عادی / پیش‌فاکتور</b> ← فقط مدل «عادی ساده» (ثابت در کل برنامه).<br>
+      <b>فاکتور حرارتی</b> ← از دیالوگ چاپ یا عرض چاپگر زیر؛ مناسب رول ۵۸/۸۰ میلی‌متر.<br>
+      لوگو بدون بک‌گراند مشکی · ستون تخفیف ردیفی · کارشناس فروش + موبایل.
     </div>
     <h5 style="margin:0 0 8px;color:var(--purple)">۱) قالب فاکتور رسمی</h5>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:18px">
       ${formalOpts.map(([v,t,d])=>card('s-invoice_template_formal',v,formal,t,d)).join('')}
     </div>
-    <h5 style="margin:0 0 8px;color:var(--purple)">۲) قالب فاکتور معمولی (پیش‌فاکتور)</h5>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:18px">
-      ${casualOpts.map(([v,t,d])=>card('s-invoice_template_casual',v,casual,t,d)).join('')}
+    <h5 style="margin:0 0 8px;color:var(--purple)">۲) فاکتور عادی (پیش‌فاکتور)</h5>
+    <div style="border:1.5px solid var(--purple);background:var(--purple-light);border-radius:12px;padding:12px 14px;margin-bottom:18px">
+      <b style="color:var(--purple)">عادی ساده</b>
+      <div class="muted" style="font-size:12px;margin-top:4px;line-height:1.7">تنها گزینه عادی برنامه — خط طلایی، جدول با تخفیف ردیفی، کارشناس فروش. برای همه پیش‌فاکتورها استفاده می‌شود.</div>
+      <input type="hidden" name="s-invoice_template_casual" id="s-invoice_template_casual" value="casual-simple">
     </div>
-    <h5 style="margin:0 0 8px;color:var(--purple)">۳) سایز کاغذ پیش‌فرض</h5>
+    <h5 style="margin:0 0 8px;color:var(--purple)">۳) فاکتور حرارتی (چاپگر رولی)</h5>
+    <div class="muted" style="font-size:12px;margin-bottom:8px;line-height:1.7">عرض رول چاپگر حرارتی را انتخاب کنید. موقع چاپ دکمه «حرارتی» از همین عرض استفاده می‌کند.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px">
+      <label style="cursor:pointer;border:1.5px solid ${thermalW==='80'?'var(--purple)':'var(--border)'};background:${thermalW==='80'?'var(--purple-light)':'var(--card)'};border-radius:10px;padding:10px 16px">
+        <input type="radio" name="s-invoice_thermal_width" value="80" ${thermalW==='80'?'checked':''} style="width:auto;margin-left:6px"> ۸۰ میلی‌متر (رایج)
+      </label>
+      <label style="cursor:pointer;border:1.5px solid ${thermalW==='58'?'var(--purple)':'var(--border)'};background:${thermalW==='58'?'var(--purple-light)':'var(--card)'};border-radius:10px;padding:10px 16px">
+        <input type="radio" name="s-invoice_thermal_width" value="58" ${thermalW==='58'?'checked':''} style="width:auto;margin-left:6px"> ۵۸ میلی‌متر
+      </label>
+    </div>
+    <h5 style="margin:0 0 8px;color:var(--purple)">۴) سایز کاغذ پیش‌فرض (A4 / A5)</h5>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px">
       <label style="cursor:pointer;border:1.5px solid ${paper==='A4'?'var(--purple)':'var(--border)'};background:${paper==='A4'?'var(--purple-light)':'var(--card)'};border-radius:10px;padding:10px 16px">
         <input type="radio" name="s-invoice_paper_size" value="A4" ${paper==='A4'?'checked':''} style="width:auto;margin-left:6px"> A4 (۲۱×۲۹.۷)
@@ -14250,7 +14260,7 @@ function invoiceTemplateSettingsHtml(s){
         <input type="radio" name="s-invoice_paper_size" value="A5" ${paper==='A5'?'checked':''} style="width:auto;margin-left:6px"> A5 (۱۴.۸×۲۱)
       </label>
     </div>
-    <h5 style="margin:0 0 8px;color:var(--purple)">۴) شخصی‌سازی چاپ</h5>
+    <h5 style="margin:0 0 8px;color:var(--purple)">۵) شخصی‌سازی چاپ</h5>
     <div class="form-grid" style="margin-bottom:10px">
       <div class="fg"><label>زیرعنوان شرکت</label><input id="s-inv-subtitle" value="${esc(cust.subtitle!=null?cust.subtitle:'تولیدی پوشاک زنانه')}"></div>
       <div class="fg full"><label>متن پاورقی سفارشی ${hlp('اگر خالی باشد متن پیش‌فرض تاریخ صدور چاپ می‌شود.')}</label><input id="s-inv-footer_text" value="${esc(cust.footer_text||'')}" placeholder="مثلاً: با تشکر از حسن انتخاب شما"></div>
@@ -14259,9 +14269,9 @@ function invoiceTemplateSettingsHtml(s){
       ${chk('s-inv-show_logo','نمایش لوگو',cust.show_logo!==false)}
       ${chk('s-inv-show_company_phone','تلفن شرکت',cust.show_company_phone!==false)}
       ${chk('s-inv-show_company_address','آدرس شرکت',cust.show_company_address!==false)}
-      ${chk('s-inv-show_seller','فروشنده',cust.show_seller!==false)}
+      ${chk('s-inv-show_seller','کارشناس فروش + موبایل',cust.show_seller!==false)}
       ${chk('s-inv-show_payment','نوع پرداخت',cust.show_payment!==false)}
-      ${chk('s-inv-show_discount','تخفیف‌ها',cust.show_discount!==false)}
+      ${chk('s-inv-show_discount','تخفیف‌ها (ردیف و کل)',cust.show_discount!==false)}
       ${chk('s-inv-show_note','توضیحات فاکتور',cust.show_note!==false)}
       ${chk('s-inv-show_footer','پاورقی',cust.show_footer!==false)}
     </div>
@@ -14507,11 +14517,12 @@ async function saveSettings(){
   }
   // قالب فاکتور + شخصی‌سازی
   const formalEl=document.querySelector('input[name="s-invoice_template_formal"]:checked');
-  const casualEl=document.querySelector('input[name="s-invoice_template_casual"]:checked');
   const paperEl=document.querySelector('input[name="s-invoice_paper_size"]:checked');
+  const thermalEl=document.querySelector('input[name="s-invoice_thermal_width"]:checked');
   if(formalEl) data.invoice_template_formal=formalEl.value;
-  if(casualEl) data.invoice_template_casual=casualEl.value;
+  data.invoice_template_casual='casual-simple';
   if(paperEl) data.invoice_paper_size=paperEl.value;
+  if(thermalEl) data.invoice_thermal_width=thermalEl.value;
   data.invoice_customize=JSON.stringify({
     show_logo: !!el('s-inv-show_logo')?.checked,
     show_company_phone: !!el('s-inv-show_company_phone')?.checked,
@@ -15188,7 +15199,7 @@ function renderAdminGuide(){
       <div class="warn">شماره موبایل کارشناس را حتماً وارد کنید تا یادآور پیامکی دریافت کند.</div>`),
     helpSec('⚙️','تنظیمات',`
       <h5>اطلاعات شرکت</h5><p>نام، تلفن و آدرس شرکت که روی فاکتورها چاپ می‌شود.</p>
-      <h5>قالب فاکتور</h5><p>در تنظیمات دو قالب انتخاب می‌شود: <b>رسمی</b> (۳ مدل) برای فاکتور نهایی و <b>معمولی</b> (۳ مدل) برای پیش‌فاکتور. کاغذ پیش‌فرض A4 یا A5 و گزینه‌های شخصی‌سازی (لوگو، تخفیف، پاورقی و …) هم قابل تنظیم است.</p>
+      <h5>قالب فاکتور</h5><p>در تنظیمات: <b>رسمی</b> (۳ مدل — کامل/مدرن/پریمیوم) برای فاکتور نهایی؛ <b>عادی ساده</b> به‌صورت ثابت برای پیش‌فاکتور؛ <b>فاکتور حرارتی</b> با عرض چاپگر ۵۸ یا ۸۰ میلی‌متر. موقع چاپ می‌توانید A4، A5 یا حرارتی را انتخاب کنید. شخصی‌سازی: لوگو (بدون بک مشکی)، تخفیف ردیفی، کارشناس فروش + موبایل، پاورقی و …</p>
       <h5>تلگرام</h5><p>Bot Token و Chat ID برای ارسال اعلان‌های سیستمی.</p>
       <h5>پیامک</h5><ul>
         <li><b>کاوه‌نگار</b>: API Key از پنل کاوه‌نگار</li>

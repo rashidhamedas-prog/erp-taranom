@@ -26,9 +26,9 @@ const ALLOWED_KEYS = [
   'website_stock_sync_enabled', 'website_stock_sync_mode', 'website_stock_webhook_url',
   'website_wc_url', 'website_wc_key', 'website_wc_secret',
   'rubika_bot_token', 'rubika_chat_id', 'rubika_invoice_enabled',
-  // Invoice print templates (formal ×3 + casual ×3) + paper + customize JSON
+  // Invoice print: formal ×3, casual-simple (fixed), thermal width 58/80 + customize JSON
   'invoice_template_formal', 'invoice_template_casual',
-  'invoice_paper_size', 'invoice_customize'
+  'invoice_paper_size', 'invoice_thermal_width', 'invoice_customize'
 ];
 
 // Module flags a non-admin (e.g. accounting role) also needs, to know which
