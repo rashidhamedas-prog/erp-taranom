@@ -14,6 +14,7 @@
     const normalized = raw
       .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
       .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+      .replace(/٫/g, '.') // Arabic decimal separator (fa-IR floats)
       .replace(/[٬،,\s]/g, '')
       .replace(/[^\d.eE+-]/g, '');
     if (!normalized || normalized === '-' || normalized === '+' || normalized === '.') return NaN;
@@ -259,9 +260,13 @@
         });
         // #region agent log
         const _dbgOrder = rows.slice(0, 12).map((r) => cellText(r.cells[idx]));
-        const _dbgPayload = {sessionId:'a1f008',runId:'post-fix',hypothesisId:'A',location:'tbl-enhance.js:sort',message:'table column sort',data:{label:_dbgLabel,idx,sortDir,numPath:_dbgNumPath,strPath:_dbgStrPath,samples:_dbgSamples,orderTop:_dbgOrder,tableId:table.id||'',hasSelectable:!!opts.selectable},timestamp:Date.now()};
+        const _dbgPayload = {sessionId:'a1f008',runId:'post-fix',hypothesisId:'A',location:'tbl-enhance.js:sort',message:'table column sort',data:{label:_dbgLabel,idx,sortDir,numPath:_dbgNumPath,strPath:_dbgStrPath,samples:_dbgSamples,orderTop:_dbgOrder,tableId:table.id||'',hasSelectable:!!opts.selectable,hasParseCellNumber:typeof parseCellNumber==='function'},timestamp:Date.now()};
+        try { global.__SORT_DEBUG_LAST__ = _dbgPayload; } catch(_){}
         fetch('http://127.0.0.1:7550/ingest/7c3b024e-51f2-48e0-b234-568dde667709',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a1f008'},body:JSON.stringify(_dbgPayload)}).catch(()=>{});
-        try { fetch('/api/system/debug-ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_dbgPayload),credentials:'same-origin'}).catch(()=>{}); } catch(_){}
+        try {
+          const _tok = (typeof localStorage!=='undefined' && localStorage.getItem('crm_token')) || '';
+          fetch('/api/system/debug-ingest',{method:'POST',headers:{'Content-Type':'application/json',...(_tok?{'Authorization':'Bearer '+_tok}:{})},body:JSON.stringify(_dbgPayload),credentials:'same-origin'}).catch(()=>{});
+        } catch(_){}
         // #endregion
         rows.forEach((r) => tbody.appendChild(r));
       });
