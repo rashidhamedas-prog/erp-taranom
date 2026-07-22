@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | *(در حال deploy — دسترسی پورتال از فرم اشخاص)* — SW `erp-taranom-v61` |
+| آخرین commit | `9df765d` دسترسی پورتال از فرم اشخاص — SW `erp-taranom-v61` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v61` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ در حال deploy ایران |
+| وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`9df765d`، health ۲۰۰، SW `v61` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
@@ -44,10 +44,10 @@
 
 ### 2026-07-22 — دسترسی پورتال از تنظیمات اشخاص
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** *(پس از commit پر می‌شود)*
+- **Commit:** `9df765d`
 - **خلاصه:** در فرم اطلاعات اشخاص (`partyModal`) و اشخاص (`personModal`) فیلد «دسترسی پورتال عملیاتی» اضافه شد تا نقش مدیر واحد/بخش (یا بدون دسترسی) از همانجا تنظیم شود. API `GET/PUT /api/portal/access` + helper `setPortalAccess`؛ در صورت نیاز ردیف `persons` از روی تلفن ساخته می‌شود؛ رمز موقت فقط با SMS. SW `v61`.
 - **فایل‌های کلیدی:** `lib/portal-users.js`, `routes/portal.js`, `public/index.html`, `public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران `94.249.244.208` — HEAD=`9df765d`، `pm2 restart`، health ۲۰۰، SW `v61`
 - **یادداشت:** نام کاربری ورود = تلفن؛ پس از اعطا، شخص در لیست مسئول واحد/بخش پورتال قابل انتخاب است.
 
 ### 2026-07-22 — اجرای کامل update.md (وظایف ۱–۹)
