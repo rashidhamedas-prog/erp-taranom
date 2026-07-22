@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (محلی) warehouse/group cache fix — SW `erp-taranom-v59` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v59` |
+| آخرین commit | `b77549d` — portal gap v2 (SMS/review/pending) |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v58` (روی سرور) |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ ایران — نیاز به pull برای portal gap |
+| وضعیت سرور | ✅ ایران `94.249.244.208` — PM2=`erp-taranom`، SW `v58`، commit `b77549d` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
@@ -52,11 +52,11 @@
 
 ### 2026-07-22 — تکمیل شکاف‌های اسپک پورتال کارمندان v2.0
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** بدون commit
-- **خلاصه:** رمز موقت تصادفی + SMS هنگام ساخت کاربر مدیر؛ ستون `review_requested_at` و cron ساعتی auto-approve بازبینی (پیش‌فرض ۷۲h)؛ تبدیل با `product_name` → کالای `approval_status=pending` + تأیید ادمین؛ فیلتر کالاهای pending از کاتالوگ فروش؛ رفع انتقال کالا بین بخش‌ها پس از تبدیل؛ تست E2E کامل در `test-portal.js` (۵۵ assertion)؛ Help + SPEC status؛ SW v58
-- **فایل‌های کلیدی:** `lib/portal-schema.js`, `lib/portal-users.js`, `lib/portal-jobs.js`, `routes/portal.js`, `routes/products.js`, `server.js`, `public/portal-ui.js`, `public/index.html`, `public/sw.js`, `scripts/test-portal.js`, `docs/PORTAL-KARMANDAN-SPEC.md`
-- **Deploy:** ⏳ نیاز به pull
-- **یادداشت:** `node server/scripts/test-portal.js` سبز
+- **Commit:** `b77549d`
+- **خلاصه:** رمز موقت تصادفی + SMS هنگام ساخت کاربر مدیر؛ ستون `review_requested_at` و cron ساعتی auto-approve بازبینی (پیش‌فرض ۷۲h)؛ تبدیل با `product_name` → کالای `approval_status=pending` + تأیید ادمین؛ فیلتر کالاهای pending از کاتالوگ فروش؛ رفع انتقال کالا بین بخش‌ها پس از تبدیل؛ تست E2E کامل در `test-portal.js` (۵۵ assertion)؛ Help + SPEC status؛ قانون auto commit/deploy؛ SW v58
+- **فایل‌های کلیدی:** `lib/portal-schema.js`, `lib/portal-users.js`, `lib/portal-jobs.js`, `routes/portal.js`, `routes/products.js`, `server.js`, `public/portal-ui.js`, `public/index.html`, `public/sw.js`, `scripts/test-portal.js`, `docs/PORTAL-KARMANDAN-SPEC.md`, `.cursor/rules/auto-commit-deploy.mdc`
+- **Deploy:** ✅ ایران `b77549d` — `git pull` + `pm2 restart erp-taranom` (online) · health/root 200 · SW `v58`
+- **یادداشت:** `node server/scripts/test-portal.js` سبز (۵۵/۵۵)
 
 ### 2026-07-21 — تکمیل UIهای جا مانده (پرتال + تطبیق/بودجه + واگذاری)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
