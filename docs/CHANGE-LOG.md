@@ -40,6 +40,14 @@
 
 ---
 
+### 2026-07-22 — تصاویر کالا (بهینه/آلبوم)، موجودی بازاریاب، انبار فروشنده
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** آپلود تصویر کالا با sharp به WebP بهینه (حداکثر ۱۲۸۰px)؛ پیش‌نمایش و آلبوم چندعکسی برای همه کاربران؛ در فروش بازاریاب کالای بدون موجودی به سبد اضافه نمی‌شود (خطای کسر موجودی)؛ ستون انتخاب انبار در اقلام فاکتور فروشنده‌ها مخفی و کسر فقط از `sales_warehouse_id` کاربر. SW `v71`.
+- **فایل‌های کلیدی:** `server/routes/products.js`, `server/routes/invoices.js`, `server/public/index.html`, `server/public/marketer-ui.js`, `server/public/sw.js`
+- **Deploy:** ⏳
+- **SW:** `erp-taranom-v71`
+
 ### 2026-07-22 - فروش بازاریاب، حریم کاربران، انبار مبدأ کارشناس
 - **شاخه:** claude/claude-md-docs-2ssrpy
 - **Commit:** c43f066

@@ -17,7 +17,7 @@ const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'products');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const storage = multer.memoryStorage();
-const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+const upload = multer({ storage, limits: { fileSize: 12 * 1024 * 1024 } });
 const uploadProductMedia = upload.fields([
   { name: 'image', maxCount: 1 },
   { name: 'images', maxCount: 12 },
@@ -72,13 +72,15 @@ function nextProductCode(db) {
 }
 
 async function saveImage(buffer, originalName) {
+  // Auto-optimize for app: max edge 1280, WebP ~75, strip metadata (keeps aspect ratio).
   if (sharp) {
     try {
       const filename = 'p_' + Date.now() + '_' + Math.round(Math.random() * 1e6) + '.webp';
       const dest = path.join(UPLOAD_DIR, filename);
       await sharp(buffer)
-        .resize(600, 600, { fit: 'cover', position: 'centre' })
-        .webp({ quality: 82 })
+        .rotate() // honor EXIF orientation from phone cameras
+        .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 75, effort: 4 })
         .toFile(dest);
       return filename;
     } catch (e) {
@@ -140,6 +142,18 @@ router.get('/', auth, (req, res) => {
     LEFT JOIN product_categories pc ON pc.id=p.category_id
     ${whereSql} ORDER BY p.created_at DESC
   `).all(...params);
+  // Attach gallery filenames for album UI (catalog / marketer / cards)
+  for (const row of rows) {
+    let imgs = listProductImages(db, row.id);
+    if (!imgs.length && row.images_json) {
+      try {
+        imgs = JSON.parse(row.images_json).map((filename, i) => ({ id: 0, filename, sort_order: i }));
+      } catch (_) { imgs = []; }
+    }
+    if (!imgs.length && row.image) imgs = [{ id: 0, filename: row.image, sort_order: 0 }];
+    row.images = imgs;
+    if (!row.image && imgs[0]) row.image = imgs[0].filename;
+  }
   res.json(rows);
 });
 
@@ -218,6 +232,7 @@ router.get('/:id', auth, (req, res) => {
   if (!row.images.length && row.images_json) {
     try { row.images = JSON.parse(row.images_json).map((filename, i) => ({ id: 0, filename, sort_order: i })); } catch (_) {}
   }
+  if (!row.image && row.images && row.images[0]) row.image = row.images[0].filename;
   res.json(row);
 });
 

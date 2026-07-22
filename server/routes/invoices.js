@@ -381,8 +381,20 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   const entryDate = date || todayJalali();
   const pType = pay_type || 'cash';
   const seller = db.prepare('SELECT name,phone,sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
+  const isSalesRep = req.user.role === 'field_sales' || req.user.role === 'inside_sales';
   let whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
-  if (!whId && seller?.sales_warehouse_id) whId = seller.sales_warehouse_id;
+  // فروشنده: فقط انبار تعریف‌شده در کاربر — انتخاب انبار در اقلام مجاز نیست
+  if (isSalesRep) {
+    if (!seller?.sales_warehouse_id) {
+      return res.status(400).json({ error: 'انبار فروش برای این کاربر تعریف نشده — از مدیر بخواهید در تعریف کاربر انبار فروش را تنظیم کند' });
+    }
+    whId = seller.sales_warehouse_id;
+    for (const r of built.rows) {
+      if (r.row_type !== 'income') r.warehouse_id = whId;
+    }
+  } else if (!whId && seller?.sales_warehouse_id) {
+    whId = seller.sales_warehouse_id;
+  }
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
   const journalOpts = { payType: pType, bankId: bank_id || null, cashBoxId: cash_box_id || null, rows: built.rows };
 
@@ -508,10 +520,19 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   final += freightRial;
 
   const newType = type || 'proforma';
+  const isSalesRep = req.user.role === 'field_sales' || req.user.role === 'inside_sales';
   let whId = warehouse_id != null && warehouse_id !== '' ? parseInt(warehouse_id, 10) : (row.warehouse_id || null);
-  if (!whId) {
-    const uWh = db.prepare('SELECT sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
-    if (uWh?.sales_warehouse_id) whId = uWh.sales_warehouse_id;
+  const uWh = db.prepare('SELECT sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
+  if (isSalesRep) {
+    if (!uWh?.sales_warehouse_id) {
+      return res.status(400).json({ error: 'انبار فروش برای این کاربر تعریف نشده — از مدیر بخواهید در تعریف کاربر انبار فروش را تنظیم کند' });
+    }
+    whId = uWh.sales_warehouse_id;
+    for (const r of built.rows) {
+      if (r.row_type !== 'income') r.warehouse_id = whId;
+    }
+  } else if (!whId && uWh?.sales_warehouse_id) {
+    whId = uWh.sales_warehouse_id;
   }
   const ccId = cost_center_id != null && cost_center_id !== '' ? parseInt(cost_center_id, 10) : (row.cost_center_id || null);
 
@@ -613,20 +634,33 @@ router.post('/:id/convert', auth, (req, res) => {
   const rows = JSON.parse(inv.rows || '[]');
   const built = { rows, subtotal: inv.subtotal };
   const totals = calcDocTotals(db, built, inv.disc || 0);
+  const owner = db.prepare('SELECT role, sales_warehouse_id FROM users WHERE id=?').get(inv.user_id);
+  let convertWhId = inv.warehouse_id || null;
+  if (owner && (owner.role === 'field_sales' || owner.role === 'inside_sales')) {
+    if (!owner.sales_warehouse_id) {
+      return res.status(400).json({ error: 'انبار فروش برای کاربر صادرکننده تعریف نشده' });
+    }
+    convertWhId = owner.sales_warehouse_id;
+    for (const r of rows) {
+      if (r.row_type !== 'income') r.warehouse_id = convertWhId;
+    }
+  } else if (!convertWhId && owner?.sales_warehouse_id) {
+    convertWhId = owner.sales_warehouse_id;
+  }
 
   try {
     db.transaction(() => {
       // Stock deduction if not already done
       let stockDeducted = inv.stock_deducted || 0;
       if (!stockDeducted) {
-        const stockErr = deductStock(db, rows, inv.warehouse_id || null, req.user.id);
+        const stockErr = deductStock(db, rows, convertWhId, req.user.id);
         if (stockErr) throw new Error(stockErr);
         stockDeducted = 1;
       }
 
-      db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=?,final=?,vat_amount=?,vat_rate=?,final_rial=?,vat_amount_rial=? WHERE id=?')
+      db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=?,final=?,vat_amount=?,vat_rate=?,final_rial=?,vat_amount_rial=?,warehouse_id=COALESCE(?,warehouse_id),rows=? WHERE id=?')
         .run('final', stockDeducted, totals.final, totals.vatAmount, totals.vatRate,
-          Math.round(totals.final), Math.round(totals.vatAmount), inv.id);
+          Math.round(totals.final), Math.round(totals.vatAmount), convertWhId, JSON.stringify(rows), inv.id);
       // Auto-update customer status to 'active' when proforma is converted to final
       db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
 

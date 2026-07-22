@@ -184,9 +184,23 @@
     loadCart();
     const p = (window._mkProds || []).find(x => Number(x.id) === Number(productId));
     if (!p) return;
+    const stock = Number(p.stock) || 0;
     const qty = packQty(p);
     const row = cart.find(c => Number(c.product_id) === Number(productId));
-    if (row) row.qty = (Number(row.qty) || 0) + qty;
+    const already = row ? (Number(row.qty) || 0) : 0;
+    if (stock <= 0) {
+      showToast('کسر موجودی: «' + (p.name || '') + '» موجودی ندارد و به سبد اضافه نمی‌شود', 'error');
+      return;
+    }
+    if (already + qty > stock) {
+      showToast(
+        'کسر موجودی: برای «' + (p.name || '') + '» فقط ' + fmt(stock) + ' عدد موجود است'
+          + (already ? ' (در سبد: ' + fmt(already) + ')' : ''),
+        'error'
+      );
+      return;
+    }
+    if (row) row.qty = already + qty;
     else cart.push({
       product_id: p.id,
       name: p.name,
@@ -229,7 +243,24 @@
   function setQty(i, q) {
     loadCart();
     if (!cart[i]) return;
-    cart[i].qty = Math.max(1, q || 1);
+    const want = Math.max(1, q || 1);
+    const p = (window._mkProds || []).find(x => Number(x.id) === Number(cart[i].product_id));
+    const stock = p != null ? (Number(p.stock) || 0) : null;
+    if (stock != null && want > stock) {
+      showToast(
+        'کسر موجودی: برای «' + (cart[i].name || '') + '» فقط ' + fmt(stock) + ' عدد موجود است',
+        'error'
+      );
+      cart[i].qty = Math.max(1, Math.min(want, Math.max(1, stock)));
+      if (stock <= 0) {
+        cart.splice(i, 1);
+        saveCart();
+        renderCart();
+        return;
+      }
+    } else {
+      cart[i].qty = want;
+    }
     saveCart();
     renderCart();
   }

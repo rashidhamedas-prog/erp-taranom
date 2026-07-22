@@ -13,9 +13,9 @@
      تا زیر فیلترینگ/اینترنت داخلی هم برنامه فوری و کامل بارگذاری شود.
      اسکریپت‌ها defer دارند تا رندر صفحه را بلوکه نکنند. -->
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<link rel="stylesheet" href="/prod-ui.css?v=69">
+<link rel="stylesheet" href="/prod-ui.css?v=70">
 <script src="/vendor/html2canvas.min.js" defer></script>
-<script src="/marketer-ui.js?v=69" defer></script>
+<script src="/marketer-ui.js?v=71" defer></script>
 <style>
 /* ===== Theme tokens — «زمرد مدرن» (light, default) =====
    Components must read colors only through these tokens; the dark block
@@ -668,8 +668,20 @@ table.tbl tr:hover td{background:var(--row-hover)}
 
 /* ===== Image lightbox preview ===== */
 .img-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;
-  justify-content:center;z-index:1000;cursor:zoom-out}
-.img-overlay img{max-width:90vw;max-height:90vh;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+  justify-content:center;z-index:1000;cursor:zoom-out;flex-direction:column;gap:12px}
+.img-overlay img{max-width:90vw;max-height:80vh;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5);object-fit:contain}
+.img-album{flex-direction:row;gap:8px;padding:16px}
+.img-album-stage{display:flex;align-items:center;justify-content:center;max-width:min(92vw,960px)}
+.img-album-nav{background:rgba(255,255,255,.16);color:#fff;border:none;width:44px;height:44px;border-radius:50%;
+  font-size:28px;cursor:pointer;line-height:1;flex-shrink:0}
+.img-album-nav:hover{background:rgba(255,255,255,.28)}
+.img-album-meta{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:12px;align-items:center;
+  background:rgba(0,0,0,.45);color:#fff;padding:8px 14px;border-radius:999px;font-size:13px}
+.img-album-close{background:transparent;border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:8px;padding:4px 10px;cursor:pointer}
+.prod-thumb{width:90px;height:90px;object-fit:cover;border-radius:8px;display:block;background:#eee}
+.pcard .img{position:relative}
+.pcard .img-badge{position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;
+  padding:2px 7px;border-radius:999px;z-index:2}
 
 /* ===== PWA install banner ===== */
 #installBanner{display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
@@ -818,11 +830,11 @@ table.tbl tr:hover td{background:var(--row-hover)}
 <div id="toasts"></div>
 
 <script src="/barcode-input.js" defer></script>
-<script src="/acc-nav.js?v=69"></script>
-<script src="/portal-ui.js?v=69"></script>
-<script src="/mdi.js?v=69" defer></script>
-<script src="/tbl-enhance.js?v=69" defer></script>
-<script src="/prod-ui.js?v=69" defer></script>
+<script src="/acc-nav.js?v=70"></script>
+<script src="/portal-ui.js?v=70"></script>
+<script src="/mdi.js?v=70" defer></script>
+<script src="/tbl-enhance.js?v=70" defer></script>
+<script src="/prod-ui.js?v=70" defer></script>
 <script>
 /* ============================================================
    STATE & API
@@ -3793,8 +3805,13 @@ function invSyncHeaderDisc(src, discPctId, discAmtId){
 }
 function renderCart(){
   const showLineDisc=canAccounting();
+  const hideWhCol=typeof isRepRole==='function' && isRepRole(ME?.role);
+  const defWh=ME?.sales_warehouse_id||null;
+  if(hideWhCol && defWh){
+    invCart.forEach(r=>{ if(r.row_type!=='income') r.warehouse_id=defWh; });
+  }
   const countEl=el('invCartCount'); if(countEl) countEl.textContent=fmt(invCart.length)+' ردیف';
-  const colSpan=showLineDisc?8:6;
+  const colSpan=showLineDisc?(hideWhCol?7:8):(hideWhCol?5:6);
   if(!invCart.length){
     el('cartRows').innerHTML=`<div class="inv-lines-empty">سبد خالی است — از فهرست کالا یک قلم اضافه کنید</div>`;
   } else {
@@ -3803,7 +3820,7 @@ function renderCart(){
       <th class="col-qty">تعداد</th>
       <th class="col-price">فی (ریال)</th>
       ${showLineDisc?`<th class="col-disc">تخفیف ٪</th><th class="col-disc-amt">تخفیف مبلغ</th>`:''}
-      <th class="col-wh">انبار</th>
+      ${hideWhCol?'':`<th class="col-wh">انبار</th>`}
       <th class="col-sum">جمع ردیف</th>
       <th class="col-rm"></th>
     </tr></thead><tbody>${invCart.map((r,i)=>{
@@ -3818,7 +3835,7 @@ function renderCart(){
         <td class="col-price"><input type="number" value="${r.price}" onchange="invCart[${i}].price=+this.value||0;if(canAccounting())invSyncLineDisc(invCart,${i},'pct');renderCart()"></td>
         ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" onchange="invCart[${i}].disc=+this.value||0;invSyncLineDisc(invCart,${i},'pct');renderCart()"></td>
         <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" onchange="invCart[${i}].disc_amount=+this.value||0;invSyncLineDisc(invCart,${i},'amt');renderCart()"></td>`:''}
-        <td class="col-wh">${!isIncome?`<select onchange="invCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>`:'—'}</td>
+        ${hideWhCol?'':`<td class="col-wh">${!isIncome?`<select onchange="invCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>`:'—'}</td>`}
         <td class="col-sum mono">${fmt(lineSum)}</td>
         <td class="col-rm"><button type="button" class="rm" title="حذف" onclick="invCart.splice(${i},1);renderCart();renderInvPicker()">×</button></td>
       </tr>
@@ -3877,7 +3894,8 @@ async function saveInvoice(id){
     rows: invCart.map(r=>({
       product_id:r.product_id, qty:r.qty, price:r.price, disc:r.disc||0,
       disc_amount:r.disc_amount||0, description:r.description||'',
-      warehouse_id:r.warehouse_id||null, row_type:r.row_type||'product',
+      warehouse_id:(typeof isRepRole==='function'&&isRepRole(ME?.role))?(ME?.sales_warehouse_id||null):(r.warehouse_id||null),
+      row_type:r.row_type||'product',
       income_coa:r.income_coa||'', name:r.name||''
     }))
   };
@@ -4034,21 +4052,30 @@ function productCardHtml(p, opts){
   const stockQty = opts.warehouseFilter && p.wh_qty!=null ? p.wh_qty : p.stock;
   const pack = Math.max(1, parseInt(p.pack_size,10)||1);
   const sel = !!opts.selected;
-  const imgClick = p.image
-    ? `onclick="showImgPreview(prodImgUrl('${String(p.image).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}'))" style="cursor:zoom-in"`
+  const gallery = Array.isArray(p.images) && p.images.length
+    ? p.images.map(im => (typeof im==='string'?im:(im.filename||im.path||''))).filter(Boolean)
+    : (p.image ? [p.image] : []);
+  const cover = gallery[0] || p.image || '';
+  const albumFromCard = gallery.length
+    ? `onclick="event.stopPropagation();openProductAlbumFromCard(${p.id})" style="cursor:zoom-in"`
+    : '';
+  const imgBadge = gallery.length > 1
+    ? `<span class="img-badge">${gallery.length} عکس</span>`
     : '';
   return `<div class="pcard" style="${sel?'outline:2px solid var(--purple);background:var(--purple-light)':''}">
       ${opts.selectable?`<div style="position:absolute;top:8px;right:8px;z-index:2">
         <input type="checkbox" ${sel?'checked':''} onchange="toggleProd(${p.id},this.checked)" style="width:16px;height:16px;cursor:pointer">
       </div>`:''}
-      <div class="img" ${imgClick}>${p.image?prodImgTag(p.image):'🧥'}</div>
+      <div class="img" ${albumFromCard}>${imgBadge}${cover?prodImgTag(cover):'🧥'}</div>
       <div class="body">
         <div class="name">${esc(p.name)}</div>
         <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}${opts.showWarehouse&&p.warehouse_name?' · 🏭 '+esc(p.warehouse_name):''}</div>
         <div class="price">${fmt(p.price)} ریال</div>
         <div class="stock ${low?'low':''}">موجودی: ${fmt(stockQty)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
         ${(p.colors>1||pack>1||opts.addToCartFn)?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.colors>1?`🎨 ${p.colors} رنگ`:''}${p.colors>1&&pack>1?' · ':''}${pack>1?`📦 ${pack} عدد/پک`:''}</div>`:''}
-        ${opts.addToCartFn?`<button class="btn sm" style="width:100%;margin-top:8px" onclick="${opts.addToCartFn}(${p.id})">➕ افزودن به سبد${pack>1?` (${pack} عدد)`:''}</button>`:''}
+        ${opts.addToCartFn?((Number(stockQty)||0)<=0
+          ?`<button class="btn sm" style="width:100%;margin-top:8px;opacity:.55" disabled title="موجودی صفر">⛔ بدون موجودی</button>`
+          :`<button class="btn sm" style="width:100%;margin-top:8px" onclick="${opts.addToCartFn}(${p.id})">➕ افزودن به سبد${pack>1?` (${pack} عدد)`:''}</button>`):''}
         ${opts.canEdit?`<div class="acts">
           <button class="btn sm ghost" onclick="prodModal(${p.id})">✏️</button>
           ${p.barcode?`<button class="btn sm ghost" onclick="openBarcodeLabels(${p.id})" title="چاپ برچسب بارکد">🏷️</button>`:''}
@@ -4114,6 +4141,7 @@ async function prodModal(id){
     }catch(_){}
   }
   if(!p) p={};
+  window._prodModalProduct = p;
   const cats=CACHE.productCategories||[];
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش کالا':'کالای جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -4153,12 +4181,24 @@ async function prodModal(id){
       <div class="fg full"><label>تصاویر کالا ${hlp('چند تصویر — تصویر اول به‌عنوان اصلی استفاده می‌شود.')}</label>
         <input id="p-image" type="file" accept="image/*" multiple></div>
       <div class="fg full"><label>یادداشت ${hlp('توضیح آزاد درباره محصول: جنس پارچه، سایزبندی، رنگ‌بندی و…')}</label><textarea id="p-note">${esc(p.note||'')}</textarea></div>
-      <div class="fg full" style="display:flex;flex-wrap:wrap;gap:8px">
-        ${p.image?prodImgTag(p.image,'style="height:90px;border-radius:8px"'):''}
-        ${(p.images||[]).filter(im=>(im.filename||im)!==p.image).map(im=>{
-          const fn=im.filename||im; const iid=im.id||0;
-          return `<div style="position:relative">${prodImgTag(fn,'style="height:90px;border-radius:8px"')}${iid&&id?`<button type="button" class="btn sm red" style="position:absolute;top:2px;left:2px" onclick="deleteProductImage(${iid},${id})">×</button>`:''}</div>`;
-        }).join('')}
+      <div class="fg full">
+        <div class="muted" style="font-size:12px;margin-bottom:6px">پیش‌نمایش تصاویر — کلیک برای آلبوم کامل</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px" id="p-img-preview">
+        ${(()=>{
+          const gallery=productImageList(p);
+          if(!gallery.length) return '<span class="muted">تصویری ثبت نشده</span>';
+          return gallery.map((fn,i)=>{
+            const row=(p.images||[]).find(im=>(im.filename||im)===fn);
+            const iid=row&&row.id?row.id:0;
+            const safe=String(fn).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+            return `<div style="position:relative;cursor:zoom-in" onclick="openProductAlbumFromCard(${id||0})">
+              ${prodImgTag(fn,'class=\"prod-thumb\"')}
+              ${iid&&id?`<button type="button" class="btn sm red" style="position:absolute;top:2px;left:2px;z-index:2" onclick="event.stopPropagation();deleteProductImage(${iid},${id})">×</button>`:''}
+              ${i===0?'<span class="img-badge" style="bottom:4px;left:4px">اصلی</span>':''}
+            </div>`;
+          }).join('');
+        })()}
+        </div>
       </div>
       ${coaCodeFieldHtml('product', id, p.coa_code)}
       ${productExtraFieldsHtml(p)}
@@ -15488,12 +15528,87 @@ function repReceiptBtn(file){
   const src='/uploads/reps/'+encodeURIComponent(file);
   return `<button type="button" class="btn sm ghost" onclick="showImgPreview('${src.replace(/'/g,"\\'")}')">🖼️ مشاهده</button>`;
 }
-function showImgPreview(src){
+function productImageList(p){
+  if(!p) return [];
+  const out=[];
+  const seen=new Set();
+  const push=(fn)=>{
+    const name=typeof fn==='string'?fn:(fn&&fn.filename)||'';
+    if(!name||seen.has(name)) return;
+    seen.add(name); out.push(name);
+  };
+  if(Array.isArray(p.images)) p.images.forEach(push);
+  else if(p.images_json){
+    try{ JSON.parse(p.images_json).forEach(push); }catch(_){}
+  }
+  if(p.image) push(p.image);
+  return out;
+}
+function showImgPreview(src, album){
+  const urls = Array.isArray(album) && album.length
+    ? album.map(u => u.startsWith('/') || u.startsWith('http') ? u : prodImgUrl(u)).filter(Boolean)
+    : [src].filter(Boolean);
+  if(!urls.length) return;
+  let idx = Math.max(0, urls.findIndex(u => u === src));
+  if(idx < 0) idx = 0;
   const ov = document.createElement('div');
-  ov.className = 'img-overlay';
-  ov.innerHTML = `<img src="${src}">`;
-  ov.onclick = ()=>ov.remove();
+  ov.className = 'img-overlay img-album';
+  ov.innerHTML = `
+    <button type="button" class="img-album-nav img-album-prev" aria-label="قبلی">‹</button>
+    <div class="img-album-stage"><img src="${urls[idx]}" alt=""></div>
+    <button type="button" class="img-album-nav img-album-next" aria-label="بعدی">›</button>
+    <div class="img-album-meta"><span class="img-album-count">${idx+1} / ${urls.length}</span>
+      <button type="button" class="img-album-close">بستن</button></div>`;
+  const img = ov.querySelector('img');
+  const count = ov.querySelector('.img-album-count');
+  const paint = ()=>{ img.src = urls[idx]; count.textContent = `${idx+1} / ${urls.length}`; };
+  const prev = ()=>{ idx = (idx - 1 + urls.length) % urls.length; paint(); };
+  const next = ()=>{ idx = (idx + 1) % urls.length; paint(); };
+  ov.querySelector('.img-album-prev').onclick = (e)=>{ e.stopPropagation(); prev(); };
+  ov.querySelector('.img-album-next').onclick = (e)=>{ e.stopPropagation(); next(); };
+  ov.querySelector('.img-album-close').onclick = (e)=>{ e.stopPropagation(); ov.remove(); };
+  ov.querySelector('.img-album-stage').onclick = (e)=> e.stopPropagation();
+  ov.onclick = ()=> ov.remove();
+  document.addEventListener('keydown', function onKey(e){
+    if(!document.body.contains(ov)){ document.removeEventListener('keydown', onKey); return; }
+    if(e.key==='Escape') ov.remove();
+    if(e.key==='ArrowRight') prev();
+    if(e.key==='ArrowLeft') next();
+  });
+  if(urls.length < 2){
+    ov.querySelector('.img-album-prev').style.display='none';
+    ov.querySelector('.img-album-next').style.display='none';
+  }
   document.body.appendChild(ov);
+}
+function openProductAlbumFromCard(arg){
+  // DOM card with data-album JSON, or product id number/string
+  if(arg && arg.nodeType===1){
+    const raw=arg.getAttribute('data-album')||'';
+    try{
+      const list=JSON.parse(raw);
+      if(Array.isArray(list)&&list.length){
+        showImgPreview(prodImgUrl(list[0]), list);
+        return;
+      }
+    }catch(_){}
+    return;
+  }
+  const productId=arg;
+  let p = (CACHE.products||[]).find(x=>Number(x.id)===Number(productId))
+    || (CACHE.allProducts||[]).find(x=>Number(x.id)===Number(productId))
+    || (window._mkProds||[]).find(x=>Number(x.id)===Number(productId));
+  if(!p && window._prodModalProduct && Number(window._prodModalProduct.id)===Number(productId))
+    p = window._prodModalProduct;
+  if(!p && window._prodModalProduct && !productId) p = window._prodModalProduct;
+  if(!p){ showToast('کالا یافت نشد','error'); return; }
+  openProductAlbum(p);
+}
+function openProductAlbum(p, startName){
+  const list = productImageList(p);
+  if(!list.length){ showToast('تصویری برای این کالا نیست','error'); return; }
+  const startUrl = prodImgUrl(startName || list[0]);
+  showImgPreview(startUrl, list);
 }
 
 /* ============================================================
