@@ -47,8 +47,8 @@
 - **Commit:** `48e0661`
 - **خلاصه:** سه نمونه HTML بازطراحی مدرن/مینیمال با پالت «زمرد مدرن» برای تأیید کاربر: A Soft Shell، B Ultra Minimal، C Soft Bento. هنوز روی `index.html` اعمال نشده.
 - **فایل‌های کلیدی:** `docs/design/redesign-previews/{index,A-soft-shell,B-ultra-minimal,C-soft-bento}.html`
-- **Deploy:** ⏳ docs-only — منتظر انتخاب کاربر قبل از پیاده‌سازی UI
-- **یادداشت:** سهمیه رایگان 21st AI تمام بود؛ نمونه‌ها محلی ساخته شد.
+- **Deploy:** ✅ ایران `94.249.244.208` — HEAD=`e38befc`، health ۲۰۰ (docs-only؛ SW بدون تغییر `v64`)
+- **یادداشت:** سهمیه رایگان 21st AI تمام بود؛ نمونه‌ها محلی ساخته شد. منتظر انتخاب A/B/C قبل از پیاده‌سازی UI.
 
 ### 2026-07-22 — فارسی‌سازی کامل ماتریس دسترسی کاربران
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
