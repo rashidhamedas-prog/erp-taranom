@@ -32,20 +32,20 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending) حذف کامل واحد عملیاتی — SW erp-taranom-v74 |
+| آخرین commit | `f9e9282` حذف کامل واحد عملیاتی — SW erp-taranom-v74 |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v74` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ deploy حذف واحد v74 |
+| وضعیت سرور | ✅ deploy حذف واحد v74 (SFTP — github از سرور resolve نشد) |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ### 2026-07-22 — حذف کامل واحد عملیاتی در پورتال
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (pending)
+- **Commit:** `f9e9282`
 - **خلاصه:** کنار ویرایش واحد، دکمهٔ حذف اضافه شد. `DELETE /api/portal/units/:id` به‌جای بایگانی، واحد را با cascade کامل (بخش‌ها، پارامترها، اتصالات، امکانات/وظایف/واگذاری) از DB پاک می‌کند. اسناد حسابداری/انبار قبلی دست‌نخورده می‌مانند. SW `v74`.
 - **فایل‌های کلیدی:** `server/routes/portal.js`, `server/public/portal-ui.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-portal.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ Iran health/root 200 — SW `erp-taranom-v74` (git pull روی سرور به‌خاطر DNS github شکست؛ فایل‌ها با SFTP اعمال شد)
 - **SW:** `erp-taranom-v74`
 
 ### 2026-07-22 — رفع سورت عددی جداول (موجودی/قیمت با رقم فارسی)
