@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (محلی) marketer filters + is_shared — SW `erp-taranom-v62` |
+| آخرین commit | `4aaefd1` marketer filters + is_shared — SW `erp-taranom-v62` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v62` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ ایران — نیاز به pull برای marketer/visibility |
+| وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`4aaefd1`، health ۲۰۰، SW `v62` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
@@ -44,10 +44,10 @@
 
 ### 2026-07-22 — فیلتر فروش بازاریاب + محدودیت گروه کالا (is_shared)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** بدون commit
+- **Commit:** `4aaefd1`
 - **خلاصه:** فروش بازاریاب همان فیلترهای کاتالوگ (جستجو/گروه/موجودی، بدون انبار). بازگردانی فیلتر `is_shared` برای کاربران عادی در لیست کالا/گروه/بارکد + ACL اختیاری `user_catalog_categories`. ذخیرهٔ واقعی `is_shared` در POST/PUT. SW `v62`.
 - **فایل‌های کلیدی:** `lib/product-visibility.js`, `routes/{products,product-categories}.js`, `public/marketer-ui.js`, `public/{index.html,sw.js}`
-- **Deploy:** ⏳ نیاز به pull
+- **Deploy:** ✅ ایران `94.249.244.208` — HEAD=`4aaefd1`، `pm2 restart`، health ۲۰۰، SW `v62`
 
 ### 2026-07-22 — دسترسی پورتال از تنظیمات اشخاص
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
