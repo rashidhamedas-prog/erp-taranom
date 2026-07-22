@@ -1479,7 +1479,7 @@ router.get('/balance-sheet', auth, adminOrAccounting, (req, res) => {
 // ============================================================
 // Cost centers
 // ============================================================
-router.get('/cost-centers', auth, adminOrAccounting, (req, res) => {
+router.get('/cost-centers', auth, (req, res) => {
   const db = getDB();
   res.json(db.prepare('SELECT * FROM cost_centers ORDER BY name').all());
 });

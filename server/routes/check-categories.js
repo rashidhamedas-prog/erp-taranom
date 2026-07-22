@@ -7,7 +7,7 @@ const { auth, adminOrAccounting } = require('../middleware/auth');
 // cash-basis purchase invoices) so each cheque leaf can be traced back to
 // its bank and serial range.
 
-router.get('/', auth, adminOrAccounting, (req, res) => {
+router.get('/', auth, (req, res) => {
   const db = getDB();
   const { bank_id } = req.query;
   const rows = bank_id

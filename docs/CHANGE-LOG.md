@@ -32,15 +32,22 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `04d5d0d` marketer catalog+pack — SW `erp-taranom-v66` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v66` |
+| آخرین commit | *(invoice builder sales meta — پس از commit)* |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v67` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`b2f55ca`، health ۲۰۰، SW `v66` |
+| وضعیت سرور | ⏳ |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### 2026-07-22 — رفع «دسترسی ندارید» فاکتورساز برای کارشناس فروش
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** *(پس از commit)*
+- **خلاصه:** GET بانک/صندوق/دسته چک/مرکز هزینه برای همهٔ کاربران لاگین‌شده باز شد؛ لود متای فاکتورساز soft-fail + silent. کارشناس میدانی می‌تواند از فروش بازاریاب فاکتورساز را باز کند. SW `v67`.
+- **فایل‌های کلیدی:** `routes/{banks,cash-boxes,check-categories,accounting}.js`, `public/index.html`, `public/sw.js`
+- **Deploy:** ⏳
 
 ### 2026-07-22 — فروش بازاریاب = قالب کاتالوگ + تعداد پک + دسترسی فاکتور
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

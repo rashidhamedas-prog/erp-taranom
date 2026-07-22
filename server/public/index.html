@@ -938,7 +938,7 @@ const IRAN_PROVINCES = {
   'یزد':['یزد','میبد','اردکان','ابرکوه','تفت','بافق','مهریز','خاتم']
 };
 
-async function api(method, path, data, isFormData){
+async function api(method, path, data, isFormData, silent){
   const opts = { method, headers:{} };
   const token = localStorage.getItem('crm_token');
   if(token) opts.headers['Authorization'] = 'Bearer ' + token;
@@ -946,7 +946,7 @@ async function api(method, path, data, isFormData){
   else if(isFormData) opts.body = data;
   let r;
   try { r = await fetch('/api'+path, opts); }
-  catch(e){ showToast('خطای ارتباط با سرور','error'); throw e; }
+  catch(e){ if(!silent) showToast('خطای ارتباط با سرور','error'); throw e; }
   if(r.status === 401){ logout(); return null; }
   const ct = r.headers.get('content-type')||'';
   if(ct.includes('application/json')){
@@ -971,13 +971,13 @@ async function api(method, path, data, isFormData){
         E_FORBIDDEN:'دسترسی کافی ندارید',
         'no such column: is_active':'خطای ستون پایگاه‌داده — سرور را به‌روز کنید',
       };
-      showToast(prodFriendly[code] || j.error || 'خطا رخ داد','error');
+      if(!silent) showToast(prodFriendly[code] || j.error || 'خطا رخ داد','error');
       const err=new Error(j.error||'error'); err.code=code; err.status=r.status; err.payload=j; throw err;
     }
     if(SYNC_MODE && ['POST','PUT','PATCH','DELETE'].includes(method)) scheduleBgSync();
     return j;
   }
-  if(!r.ok){ showToast('خطا رخ داد','error'); throw new Error('error'); }
+  if(!r.ok){ if(!silent) showToast('خطا رخ داد','error'); throw new Error('error'); }
   if(SYNC_MODE && ['POST','PUT','PATCH','DELETE'].includes(method)) scheduleBgSync();
   return r;
 }
@@ -3527,11 +3527,17 @@ function openInvBuilder(id){
 }
 async function _openInvBuilder(id){
   await ensureProductsCache();
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
-  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
+  // Lookup lists for invoice pay fields — soft-fail so sales roles are not blocked
+  // if a meta endpoint is temporarily unavailable (banks/cash/checks/cost-centers).
+  async function loadMeta(path, fallback){
+    try{ return await api('GET', path, null, false, true) || fallback; }
+    catch{ return fallback; }
+  }
+  if(!CACHE.banks) CACHE.banks = await loadMeta('/banks', []);
+  if(!CACHE.cashBoxes) CACHE.cashBoxes = await loadMeta('/cash-boxes', []);
+  if(!CACHE.checkCategories) CACHE.checkCategories = await loadMeta('/check-categories', []);
   await ensureWarehouses();
-  if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers')||[];
+  if(!CACHE.costCenters) CACHE.costCenters = await loadMeta('/accounting/cost-centers', []);
   let inv = null;
   if(id){
     inv = CACHE.invoices.find(x=>x.id===id) || null;
@@ -14908,6 +14914,7 @@ function renderAdminGuide(){
       <ul>
         <li>با «افزودن به سبد»، به‌اندازه <b>تعداد در پک</b> کالا به سبد/فاکتور اضافه می‌شود (مثل فاکتورساز)</li>
         <li>ثبت فاکتور فقط برای کاربرانی که دسترسی <b>فاکتورها → ایجاد</b> دارند (مدیر/حسابدار و کارشناس فروش به‌صورت پیش‌فرض)</li>
+        <li>لیست بانک/صندوق/مرکز هزینه برای کارشناس فروش قابل خواندن است تا فاکتورساز باز شود (ویرایش آن‌ها فقط مدیر/حسابدار)</li>
         <li>در «کاربران → دسترسی‌ها» دکمه «دسترسی کامل فاکتور» همین تیک‌ها را یک‌جا می‌زند</li>
       </ul>`),
     helpSec('💬','پیام‌ها (رابط شبیه تلگرام)',`

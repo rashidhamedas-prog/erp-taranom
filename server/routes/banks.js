@@ -8,7 +8,7 @@ const { auth, adminOrAccounting } = require('../middleware/auth');
 // syncBankAccount in db.js), so it's reportable in General Ledger / Trial
 // Balance / Balance Sheet exactly like any other account.
 
-router.get('/', auth, adminOrAccounting, (req, res) => {
+router.get('/', auth, (req, res) => {
   const db = getDB();
   res.json(db.prepare('SELECT * FROM banks ORDER BY name').all());
 });
