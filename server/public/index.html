@@ -4710,12 +4710,30 @@ async function openRbacMatrix(userId){
   const data=await api('GET','/rbac/matrix/'+userId);
   if(!data) return;
   const { resources, actions, permissions } = data;
-  const rows=resources.map(r=>`<tr><td>${esc(r)}</td>${actions.map(a=>{
+  const RBAC_RES_FA={
+    customers:'مشتریان', parties:'اشخاص', products:'کالاها', invoices:'فاکتورها',
+    followups:'پیگیری‌ها', accounting:'حسابداری', reports:'گزارش‌ها', ai:'دستیار AI',
+    settings:'تنظیمات', backup:'پشتیبان‌گیری', users:'کاربران', stocktaking:'انبارگردانی',
+    messages:'پیام‌ها', reps:'نمایندگان فروش', dashboard:'داشبورد',
+    journal_vouchers:'اسناد حسابداری', payroll:'حقوق و دستمزد', fixed_assets:'دارایی ثابت',
+    moadian:'سامانه مودیان', production:'تولید', production_bom:'فرمول ساخت (BOM)',
+    production_cost:'بهای تمام‌شده تولید', production_close:'بستن دوره تولید',
+    production_reports:'گزارش‌های تولید', portal:'پورتال عملیاتی', budgeting:'بودجه‌بندی',
+    bank_reconciliation:'مغایرت‌گیری بانکی'
+  };
+  const RBAC_ACT_FA={
+    view:'مشاهده', create:'ایجاد', edit:'ویرایش', delete:'حذف', approve:'تأیید', export:'خروجی'
+  };
+  const uName=(CACHE.users||[]).find(x=>x.id===userId)?.name||('#'+userId);
+  const rows=resources.map(r=>`<tr><td style="white-space:nowrap;font-weight:600">${esc(RBAC_RES_FA[r]||r)}</td>${actions.map(a=>{
     const on=permissions[r]&&permissions[r][a];
-    return `<td style="text-align:center"><input type="checkbox" data-r="${r}" data-a="${a}" ${on?'checked':''}></td>`;
+    return `<td style="text-align:center" title="${esc(RBAC_ACT_FA[a]||a)}"><input type="checkbox" data-r="${r}" data-a="${a}" ${on?'checked':''} aria-label="${esc((RBAC_RES_FA[r]||r)+' — '+(RBAC_ACT_FA[a]||a))}"></td>`;
   }).join('')}</tr>`).join('');
-  openModal(`<div class="modal-head"><h3>🔐 ماتریس دسترسی کاربر #${userId}</h3><button class="x" onclick="closeModal()">×</button></div>
-    <div class="modal-body tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr><th>بخش</th>${actions.map(a=>`<th>${a}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+  openModal(`<div class="modal-head"><h3>🔐 دسترسی‌های کاربر — ${esc(uName)}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <p class="muted" style="font-size:12px;margin:0 0 10px;line-height:1.7">تیک هر خانه یعنی آن عملیات برای این بخش مجاز است. مقادیر پیش‌فرض از نقش کاربر می‌آید؛ تغییرات اینجا فقط برای همین کاربر ذخیره می‌شود.</p>
+      <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>بخش</th>${actions.map(a=>`<th>${esc(RBAC_ACT_FA[a]||a)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+    </div>
     <div class="modal-foot"><button class="btn" onclick="saveRbacMatrix(${userId})">💾 ذخیره دسترسی‌ها</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
 }
