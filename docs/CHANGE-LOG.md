@@ -42,7 +42,7 @@
 
 ### 2026-07-22 - فروش بازاریاب، حریم کاربران، انبار مبدأ کارشناس
 - **شاخه:** claude/claude-md-docs-2ssrpy
-- **Commit:** (pending)
+- **Commit:** c43f066
 - **خلاصه:** حریم اطلاعات شخص کاربر؛ فیلتر گروه/موجودی و پک در فروش بازاریاب؛ انتقال سبد به اقلام فاکتور؛ مخفی‌سازی فیلدهای پیشرفته فاکتور برای کارشناس میدانی/داخلی؛ انبار مبدأ پیش‌فرض در تعریف کاربر؛ حذف کاتالوگ/فروش بازاریاب از منوی مدیر سیستم و حسابداری
 - **فایل‌های کلیدی:** server/public/index.html, server/public/marketer-ui.js, server/routes/parties.js, server/routes/admin.js, server/routes/invoices.js, server/routes/auth.js, server/db.js, server/public/sw.js
 - **Deploy:** ⏳
