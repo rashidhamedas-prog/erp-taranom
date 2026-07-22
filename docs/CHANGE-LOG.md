@@ -32,13 +32,21 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `820287a` حذف instrumentation سینک |
+| آخرین commit | (در حال commit) قانون sync-hygiene |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v76` |
-| اندروید | **`2.0.19`** — برای capture جدید روی دستگاه نیاز به rebuild |
-| وضعیت سرور | ✅ deploy پاکسازی دیباگ |
+| اندروید | **`2.0.19`** |
+| وضعیت سرور | ⏳ deploy قانون ضدتکرار سینک |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
+
+### 2026-07-23 — [Cursor] ثبت قانون sync-hygiene برای جلوگیری از تکرار باگ‌های سینک
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** درس‌های audit ۱۴۰۵/۰۵ (PATH_TABLE_MAP، SYNCABLE append، compositeKeys، backfill_vN، files.js، ممنوعیت ingest دیباگ) در `.cursor/rules/sync-hygiene.mdc` + گسترش R10 در `.cursorrules` / project-conventions + چک‌لیست در `docs/OFFLINE-SYNC.md`.
+- **فایل‌های کلیدی:** `.cursor/rules/sync-hygiene.mdc`, `docs/OFFLINE-SYNC.md`, `.cursorrules`, `.cursor/skills/project-conventions/SKILL.md`
+- **Deploy:** ⏳
+- **SW:** `erp-taranom-v76`
 
 ### 2026-07-23 — [Cursor] حذف instrumentation دیباگ سینک پس از تأیید
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

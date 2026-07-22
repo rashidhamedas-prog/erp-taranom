@@ -29,6 +29,10 @@ const BLOCK_PATTERNS = [/\/import/, /\/export/, /\/backup/, /\/backfill/, /\/sto
 
 // Path prefix → entity table, used to tag create ops so central can record
 // the provisional→central id mapping. Longest prefix wins.
+// Maps request path → primary entity table for outbox tagging / id remap.
+// Longer/more-specific prefixes MUST appear before shorter ones
+// (e.g. /api/warehouses/moves before /api/warehouses).
+// When adding a mutating /api route: update this list — see sync-hygiene.mdc.
 const PATH_TABLE_MAP = [
   ['/api/accounting/settlements', 'settlements'],
   ['/api/accounting/sales-returns', 'sales_returns'],

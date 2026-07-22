@@ -65,6 +65,22 @@
 
 رجیستری `SYNCABLE_TABLES` ≈ ۱۳۸ جدول (APPEND-ONLY). Capture مسیرها شامل `/api/parties`, `/api/warehouses/moves`, `/api/detail-accounts`, `/api/units`, `/api/product-categories`, `/api/fixed-assets`, `/api/production/user-cost-centers`, `/api/reps/payments`. فایل: `products` + `product_images` + `reps` receipts.
 
+## چک‌لیست افزودن قابلیت (اجباری — تکرار باگ ممنوع)
+
+قبل از merge/commit هر قابلیت که جدول، API mutating، یا آپلود می‌سازد:
+
+1. **رجیستری:** جدول باید روی دستگاه باشد؟ → فقط **append** به `server/sync/tables.js` (هرگز reorder/حذف ورودی‌های قبلی).
+2. **Capture:** برای هر `POST/PUT/PATCH/DELETE` دستگاه → ردیف در `PATH_TABLE_MAP` یا شاخه در `tableForPath`؛ پیشوند **خاص‌تر قبل از عام** (مثلاً `/api/warehouses/moves` قبل از `/api/warehouses`).
+3. **کلید مرکب:** اگر PK بدون `id` است → `compositeKeys` (الگوی `warehouse_stock` / `user_cost_centers`).
+4. **FK:** ستون‌هایی که ممکن است id موقت دستگاه بگیرند → append به `FK_COLUMNS`.
+5. **Backfill:** بعد از append جدول → `sync_seq_backfill_vN` جدید در `db.js` تا ردیف‌های قدیمی با `sync_seq NULL` برای همیشه از pull جا نمانند.
+6. **فایل:** نام فایل در DB کافی نیست → `FILE_QUERIES` + `ALLOWED_SUBDIRS` در `server/sync/files.js`.
+7. **دیباگ:** هیچ `fetch(…/ingest…)` یا `#region agent log` در کد سینک نماند.
+8. **تأیید:** `node server/scripts/_diag-sync-gaps-b16e78.js` باید `mismatches: []` بدهد؛ برای تغییر موتور: `node server/scripts/test-sync.js`.
+
+قانون Cursor: `.cursor/rules/sync-hygiene.mdc` (همیشه اعمال). درس‌های عینی باگ‌های ۱۴۰۵/۰۵ همان‌جا جدول شده‌اند.
+
 ## تست خودکار
 
-`node server/scripts/test-sync.js` — یک مرکز + دو دستگاه واقعی را بالا می‌آورد و ۲۵ سناریو را می‌سنجد (قطعی کامل مرکز، شماره‌گذاری هم‌زمان دو دستگاه، ترجمه ارجاع‌های زنجیره‌ای، انتشار حذف/ویرایش، تعارض ویرایش هم‌زمان، تعارض موجودی با retry ایدمپوتنت، و توازن تراز آزمایشی/ترازنامه در پایان).
+`node server/scripts/test-sync.js` — یک مرکز + دو دستگاه واقعی را بالا می‌آورد و سناریوهای pairing/offline/conflict/oversell را می‌سنجد.
+`node server/scripts/_diag-sync-gaps-b16e78.js` — نقشهٔ مسیرها و حضور جداول حساس در رجیستری را چک می‌کند.

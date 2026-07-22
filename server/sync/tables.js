@@ -4,6 +4,10 @@
 // each table's index feeds into the provisional id formula, so reordering or
 // removing entries would corrupt existing devices' id ranges.
 //
+// Checklist when appending (do not skip): PATH_TABLE_MAP, FK_COLUMNS,
+// compositeKeys if needed, sync_seq_backfill_vN, files.js for uploads —
+// see .cursor/rules/sync-hygiene.mdc and docs/OFFLINE-SYNC.md.
+//
 // upsertKey: column used to apply pulled rows. 'id' for normal tables;
 // business keys for tables the device also seeds locally at initDB (settings,
 // chart_of_accounts) where local autoincrement ids differ from central's.
