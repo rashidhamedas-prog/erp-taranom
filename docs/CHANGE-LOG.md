@@ -35,7 +35,7 @@
 | آخرین commit | c24b9a6 تصاویر/آلبوم کالا + موجودی بازاریاب + انبار فروشنده — SW erp-taranom-v71 |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v71` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ در حال deploy — هدف SW v71 / c24b9a6 |
+| وضعیت سرور | ✅ سرور 94.249.244.208 — HEAD=78a7be5، health 200، SW v71 |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
@@ -45,7 +45,7 @@
 - **Commit:** `c24b9a6`
 - **خلاصه:** آپلود تصویر کالا با sharp به WebP بهینه (حداکثر ۱۲۸۰px)؛ پیش‌نمایش و آلبوم چندعکسی برای همه کاربران؛ در فروش بازاریاب کالای بدون موجودی به سبد اضافه نمی‌شود (خطای کسر موجودی)؛ ستون انتخاب انبار در اقلام فاکتور فروشنده‌ها مخفی و کسر فقط از `sales_warehouse_id` کاربر. SW `v71`.
 - **فایل‌های کلیدی:** `server/routes/products.js`, `server/routes/invoices.js`, `server/public/index.html`, `server/public/marketer-ui.js`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `78a7be5` Iran health 200 — SW `erp-taranom-v71` (sharp:ok)
 - **SW:** `erp-taranom-v71`
 
 ### 2026-07-22 - فروش بازاریاب، حریم کاربران، انبار مبدأ کارشناس
