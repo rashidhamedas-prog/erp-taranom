@@ -7,6 +7,20 @@
     return (td?.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
+  /** Normalize fa/ar digits + strip thousand separators so numeric sort works with fmt()/fa-IR cells */
+  function parseCellNumber(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return NaN;
+    const normalized = raw
+      .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+      .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+      .replace(/[٬،,\s]/g, '')
+      .replace(/[^\d.eE+-]/g, '');
+    if (!normalized || normalized === '-' || normalized === '+' || normalized === '.') return NaN;
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
   function selectedIds(table) {
     return [...table.querySelectorAll('.tbl-sel-row:checked')]
       .map((cb) => cb.dataset.id || cb.closest('tr')?.dataset.id)
@@ -221,13 +235,13 @@
         rows.sort((a, b) => {
           const av = cellText(a.cells[idx]);
           const bv = cellText(b.cells[idx]);
-          const an = Number(String(av).replace(/[^\d.-]/g, ''));
-          const bn = Number(String(bv).replace(/[^\d.-]/g, ''));
+          const an = parseCellNumber(av);
+          const bn = parseCellNumber(bv);
           const aHasAscii = !!String(av).match(/\d/);
           const bHasAscii = !!String(bv).match(/\d/);
           const aHasFaDigit = /[۰-۹٠-٩]/.test(String(av));
           const bHasFaDigit = /[۰-۹٠-٩]/.test(String(bv));
-          const useNum = Number.isFinite(an) && Number.isFinite(bn) && aHasAscii && bHasAscii;
+          const useNum = Number.isFinite(an) && Number.isFinite(bn);
           // #region agent log
           if (_dbgSamples.length < 8) {
             _dbgSamples.push({
@@ -241,11 +255,13 @@
           if (useNum) {
             return (an - bn) * sortDir;
           }
-          return av.localeCompare(bv, 'fa') * sortDir;
+          return av.localeCompare(bv, 'fa', { numeric: true, sensitivity: 'base' }) * sortDir;
         });
         // #region agent log
         const _dbgOrder = rows.slice(0, 12).map((r) => cellText(r.cells[idx]));
-        fetch('http://127.0.0.1:7550/ingest/7c3b024e-51f2-48e0-b234-568dde667709',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a1f008'},body:JSON.stringify({sessionId:'a1f008',runId:'pre-fix',hypothesisId:'A',location:'tbl-enhance.js:sort',message:'table column sort',data:{label:_dbgLabel,idx,sortDir,numPath:_dbgNumPath,strPath:_dbgStrPath,samples:_dbgSamples,orderTop:_dbgOrder,tableId:table.id||'',hasSelectable:!!opts.selectable},timestamp:Date.now()})}).catch(()=>{});
+        const _dbgPayload = {sessionId:'a1f008',runId:'post-fix',hypothesisId:'A',location:'tbl-enhance.js:sort',message:'table column sort',data:{label:_dbgLabel,idx,sortDir,numPath:_dbgNumPath,strPath:_dbgStrPath,samples:_dbgSamples,orderTop:_dbgOrder,tableId:table.id||'',hasSelectable:!!opts.selectable},timestamp:Date.now()};
+        fetch('http://127.0.0.1:7550/ingest/7c3b024e-51f2-48e0-b234-568dde667709',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a1f008'},body:JSON.stringify(_dbgPayload)}).catch(()=>{});
+        try { fetch('/api/system/debug-ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_dbgPayload),credentials:'same-origin'}).catch(()=>{}); } catch(_){}
         // #endregion
         rows.forEach((r) => tbody.appendChild(r));
       });

@@ -276,6 +276,18 @@ app.get('/api/system/health', (req, res) => {
   });
 });
 
+// Temporary debug ingest (session a1f008) — remove after sort fix verified
+app.post('/api/system/debug-ingest', express.json({ limit: '200kb' }), (req, res) => {
+  try {
+    const line = JSON.stringify({ ...(req.body || {}), receivedAt: Date.now() }) + '\n';
+    const p = path.join(__dirname, '..', 'debug-a1f008.log');
+    fs.appendFileSync(p, line);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 const { readManifest, buildUpdateResponse } = require('./lib/app-update');
 
 // App version info (bundled manifest — used by offline builds to know their own version)

@@ -32,13 +32,21 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | c24b9a6 تصاویر/آلبوم کالا + موجودی بازاریاب + انبار فروشنده — SW erp-taranom-v71 |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v71` |
+| آخرین commit | (pending) fix table numeric sort fa-IR — SW erp-taranom-v73 |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v73` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ✅ سرور 94.249.244.208 — HEAD=78a7be5، health 200، SW v71 |
+| وضعیت سرور | ⏳ deploy sort fix v73 |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
+
+### 2026-07-22 — رفع سورت عددی جداول (موجودی/قیمت با رقم فارسی)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (pending)
+- **خلاصه:** سورت ستون‌های عددی در `tbl-enhance.js` به‌خاطر `fmt()`/`fa-IR` (رقم فارسی) به‌صورت رشته‌ای بود؛ با نرمال‌سازی رقم فارسی/عربی و جداکننده هزارگان، سورت عددی در همه جداول اصلاح شد. SW `v73`.
+- **فایل‌های کلیدی:** `server/public/tbl-enhance.js`, `server/public/sw.js`, `server/public/index.html`
+- **Deploy:** ⏳
+- **SW:** `erp-taranom-v73`
 
 ### 2026-07-22 — تصاویر کالا (بهینه/آلبوم)، موجودی بازاریاب، انبار فروشنده
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
