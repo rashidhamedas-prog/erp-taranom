@@ -32,17 +32,17 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `9167b3d` سینک gaps PATH+جداول |
+| آخرین commit | `9167b3d` / docs `224bfea` سینک gaps |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v76` |
 | اندروید | **`2.0.19`** (versionCode 21) — نیاز به rebuild برای capture جدید روی دستگاه |
-| وضعیت سرور | ⏳ deploy سینک gaps |
+| وضعیت سرور | ✅ deploy سینک gaps `224bfea` |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
 
 ### 2026-07-23 — [Cursor] تکمیل شکاف‌های سینک (PATH_TABLE_MAP + جداول غایب + فایل‌ها)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `9167b3d`
 - **خلاصه:**
   1. `PATH_TABLE_MAP`: parties، detail-accounts/categories، units، product-categories، warehouses/moves، fixed-assets، production/user-cost-centers، reps/payments
   2. APPEND به `SYNCABLE_TABLES`: `fixed_assets`, `fixed_asset_depreciation`, `user_cost_centers` (composite), `rep_payment_submissions` + FK + `sync_seq_backfill_v4`
