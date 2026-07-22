@@ -1,18 +1,21 @@
 /**
  * Ensure a login user exists for a person (username = phone).
  * Spec: must_change_password=1; never return the password in API responses.
+ * SMS of temp password is optional (opts.sendSms) — without SMS, default temp is 12345.
  */
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 
 const PORTAL_ROLES = ['unit_manager', 'department_manager'];
+const DEFAULT_TEMP_PASSWORD = '12345';
 
 function randomTempPassword() {
   // 10 chars, alphanumeric — readable in SMS, not a dictionary word
   return crypto.randomBytes(8).toString('base64url').replace(/[^a-zA-Z0-9]/g, 'x').slice(0, 10);
 }
 
-function ensurePersonUser(db, personId, role) {
+function ensurePersonUser(db, personId, role, opts) {
+  const sendSms = !!(opts && opts.sendSms);
   const person = db.prepare('SELECT id, name, phone FROM persons WHERE id=?').get(personId);
   if (!person) {
     const err = new Error('ابتدا شخص را بسازید');
@@ -34,18 +37,26 @@ function ensurePersonUser(db, personId, role) {
     }
     return { userId: existing.id, created: false, username: existing.username };
   }
-  const tempPass = randomTempPassword();
+  // SMS on → random (sent by SMS). SMS off → fixed default; first login forces change.
+  const tempPass = sendSms ? randomTempPassword() : DEFAULT_TEMP_PASSWORD;
   const hash = bcrypt.hashSync(tempPass, 10);
   const r = db.prepare(`
     INSERT INTO users (name, username, password, role, active, must_change_password)
     VALUES (?,?,?,?,1,1)
   `).run(person.name || phone, phone, hash, role || 'department_manager');
-  return { userId: r.lastInsertRowid, created: true, username: phone, tempPassword: tempPass };
+  return {
+    userId: r.lastInsertRowid,
+    created: true,
+    username: phone,
+    tempPassword: tempPass,
+    sendSms,
+  };
 }
 
-/** Best-effort SMS of temp password — never throws; never log the password. */
+/** Best-effort SMS of temp password — never throws; never log the password. Only when sendSms was requested. */
 function sendTempPasswordSms(db, createdUser) {
   if (!createdUser?.created || !createdUser.tempPassword || !createdUser.username) return;
+  if (createdUser.sendSms === false) return;
   try {
     const { sendSMS } = require('../sms');
     const settingsRows = db.prepare(
@@ -100,11 +111,13 @@ function ensurePersonRowByPhone(db, { phone, name }) {
 /**
  * Grant or revoke portal login for a person (by persons.id or phone+name).
  * portalRole: 'unit_manager' | 'department_manager' | '' | 'none'
+ * sendSms: if true and user is newly created, SMS random temp password; else default 12345.
  * Never expose password in API JSON — use _temp only for SMS then drop.
  */
-function setPortalAccess(db, { personId, phone, name, portalRole }) {
+function setPortalAccess(db, { personId, phone, name, portalRole, sendSms }) {
   const role = String(portalRole || '').trim();
   const wantNone = !role || role === 'none' || role === 'off' || role === '0';
+  const wantSms = !!sendSms;
 
   let person = null;
   if (personId) {
@@ -137,6 +150,7 @@ function setPortalAccess(db, { personId, phone, name, portalRole }) {
       has_access: false,
       created: false,
       revoked: !!(existing && PORTAL_ROLES.includes(existing.role)),
+      sms_sent: false,
     };
   }
 
@@ -146,7 +160,7 @@ function setPortalAccess(db, { personId, phone, name, portalRole }) {
     throw err;
   }
 
-  const createdUser = ensurePersonUser(db, person.id, role);
+  const createdUser = ensurePersonUser(db, person.id, role, { sendSms: wantSms });
   return {
     person_id: person.id,
     username: createdUser.username,
@@ -154,6 +168,7 @@ function setPortalAccess(db, { personId, phone, name, portalRole }) {
     has_access: true,
     created: !!createdUser.created,
     userId: createdUser.userId,
+    sms_sent: !!(wantSms && createdUser.created),
     _temp: createdUser,
   };
 }
@@ -166,4 +181,5 @@ module.exports = {
   ensurePersonRowByPhone,
   setPortalAccess,
   PORTAL_ROLES,
+  DEFAULT_TEMP_PASSWORD,
 };

@@ -158,7 +158,7 @@
         <button class="btn sm" onclick="PortalUI.openCreateUnitModal()">➕ واحد عملیاتی</button>
         <button class="btn sm ghost" onclick="loadAccTab('portal-units')">🔄</button>
       </div>
-      <p class="muted" style="font-size:12px;margin-bottom:10px">مسئول واحد از <b>اطلاعات اشخاص</b> انتخاب می‌شود؛ با ذخیره، حساب کاربری با نام کاربری=تلفن ساخته و رمز موقت با پیامک ارسال می‌شود (اولین ورود: تغییر رمز اجباری).</p>
+      <p class="muted" style="font-size:12px;margin-bottom:10px">مسئول واحد از <b>اطلاعات اشخاص</b> انتخاب می‌شود؛ با ذخیره، حساب کاربری با نام کاربری=تلفن ساخته می‌شود. رمز اولیه بدون پیامک <b>12345</b> است و در اولین ورود باید عوض شود. ارسال پیامک رمز موقت اختیاری است (از تنظیمات شخص).</p>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
         <th>نام واحد</th><th>نوع خروجی</th><th>وضعیت</th><th>عملیات</th>
       </tr></thead><tbody>${units.map(u => `<tr style="${_portalUnitId === u.id ? 'background:var(--purple-light)' : ''}">
@@ -748,7 +748,7 @@
       await api('POST', `/portal/departments/${deptId}/delegate`, {
         delegate_person_id, hours, note: el('dlg-note')?.value || '',
       });
-      showToast('واگذاری ثبت شد — در صورت ساخت کاربر جدید، رمز موقت با پیامک ارسال می‌شود');
+      showToast('واگذاری ثبت شد — کاربر در صورت نیاز ساخته می‌شود (تغییر رمز در اولین ورود)');
       openDelegateModal(deptId);
     } catch (e) {}
   }

@@ -85,15 +85,22 @@ COA_GAP_KEYS.forEach(k => {
   }
 });
 
-console.log('\n— ensurePersonUser random temp —');
-const { ensurePersonUser } = require('../lib/portal-users');
+console.log('\n— ensurePersonUser temp password modes —');
+const { ensurePersonUser, DEFAULT_TEMP_PASSWORD } = require('../lib/portal-users');
 const pPhone = db.prepare("INSERT INTO persons (name,phone) VALUES ('تست رمز','09121110000')").run().lastInsertRowid;
-const uNew = ensurePersonUser(db, pPhone, 'department_manager');
-ok(uNew.created === true, 'ensurePersonUser created');
-ok(uNew.tempPassword && uNew.tempPassword.length >= 8 && uNew.tempPassword !== '12345',
-  'temp password random (not 12345)');
-ok(db.prepare('SELECT must_change_password FROM users WHERE id=?').get(uNew.userId)?.must_change_password === 1,
+const uDef = ensurePersonUser(db, pPhone, 'department_manager');
+ok(uDef.created === true, 'ensurePersonUser created (default no SMS)');
+ok(uDef.tempPassword === DEFAULT_TEMP_PASSWORD || uDef.tempPassword === '12345',
+  'temp password default 12345 without SMS');
+ok(db.prepare('SELECT must_change_password FROM users WHERE id=?').get(uDef.userId)?.must_change_password === 1,
   'must_change_password=1');
+const pPhone2 = db.prepare("INSERT INTO persons (name,phone) VALUES ('تست رمز SMS','09121110009')").run().lastInsertRowid;
+const uSms = ensurePersonUser(db, pPhone2, 'department_manager', { sendSms: true });
+ok(uSms.created === true, 'ensurePersonUser created with sendSms');
+ok(uSms.tempPassword && uSms.tempPassword.length >= 8 && uSms.tempPassword !== '12345',
+  'temp password random when sendSms');
+ok(db.prepare('SELECT must_change_password FROM users WHERE id=?').get(uSms.userId)?.must_change_password === 1,
+  'must_change_password=1 (SMS path)');
 
 console.log('\n— auto-approve job —');
 const { autoApproveStalePortalReviews } = require('../lib/portal-jobs');

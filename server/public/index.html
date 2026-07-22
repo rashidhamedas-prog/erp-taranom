@@ -5912,13 +5912,16 @@ async function partyModal(id){
           ${roleChk('partner','شریک/سهامدار')} ${roleChk('marketer','بازاریاب')} ${roleChk('other','سایر')}
         </div></div>
       <div class="fg full" style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--purple-light,#f5f3ff)">
-        <label style="font-weight:700;margin-bottom:8px;display:block">🏭 دسترسی پورتال عملیاتی ${hlp('با انتخاب نقش، کاربر ورود با تلفن ساخته می‌شود و می‌تواند وارد پورتال واحد/بخش شود. رمز موقت با پیامک ارسال می‌شود.')}</label>
+        <label style="font-weight:700;margin-bottom:8px;display:block">🏭 دسترسی پورتال عملیاتی ${hlp('با انتخاب نقش، کاربر ورود با تلفن ساخته می‌شود. در اولین ورود تغییر رمز اجباری است. ارسال پیامک رمز موقت اختیاری است.')}</label>
         <select id="pty-portal-role">
           <option value="none" ${!prPortal?'selected':''}>بدون دسترسی پورتال</option>
           <option value="unit_manager" ${prPortal==='unit_manager'?'selected':''}>مدیر واحد عملیاتی</option>
           <option value="department_manager" ${prPortal==='department_manager'?'selected':''}>مدیر بخش (کف کارگاه)</option>
         </select>
-        <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.6">نام کاربری ورود = تلفن ۱ · پس از ذخیره در لیست مسئول واحد/بخش پورتال قابل انتخاب است.</div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px">
+          <input type="checkbox" id="pty-portal-sms" style="width:auto"> ارسال رمز موقت با پیامک
+        </label>
+        <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.6">نام کاربری = تلفن ۱ · بدون پیامک رمز اولیه <b>12345</b> است و در اولین ورود باید عوض شود.</div>
       </div>
       <div class="fg"><label>سقف اعتبار ${moneyColLabel()}</label><input id="pty-credit" type="text" inputmode="numeric" class="money" value="${moneyInit(p.credit_limit_toman||0)}"></div>
       <div class="fg"><label>مانده اول دوره ${moneyColLabel()} ${isAdmin()?'':'<span class="muted" style="font-size:11px">— فقط مدیر</span>'}</label>
@@ -6019,7 +6022,8 @@ async function saveParty(id){
         party_id:partyId||undefined,
         phone,
         name:full_name,
-        portal_role:portalRole
+        portal_role:portalRole,
+        send_sms:!!el('pty-portal-sms')?.checked
       });
     }catch(pe){
       showToast('شخص ذخیره شد ولی دسترسی پورتال: '+(pe.message||'خطا'),'error');
@@ -6181,13 +6185,16 @@ async function personModal(id){
       </select></div>
       <div class="fg"><label>تلفن</label><input id="pr-phone" value="${esc(p?.phone||'')}"></div>
       <div class="fg full" style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--purple-light,#f5f3ff)">
-        <label style="font-weight:700;margin-bottom:8px;display:block">🏭 دسترسی پورتال عملیاتی ${hlp('با انتخاب نقش، کاربر ورود با تلفن ساخته می‌شود. رمز موقت با پیامک ارسال می‌شود.')}</label>
+        <label style="font-weight:700;margin-bottom:8px;display:block">🏭 دسترسی پورتال عملیاتی ${hlp('با انتخاب نقش، کاربر ورود با تلفن ساخته می‌شود. در اولین ورود تغییر رمز اجباری است. ارسال پیامک رمز موقت اختیاری است.')}</label>
         <select id="pr-portal-role">
           <option value="none" ${!prPortal?'selected':''}>بدون دسترسی پورتال</option>
           <option value="unit_manager" ${prPortal==='unit_manager'?'selected':''}>مدیر واحد عملیاتی</option>
           <option value="department_manager" ${prPortal==='department_manager'?'selected':''}>مدیر بخش (کف کارگاه)</option>
         </select>
-        <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.6">نام کاربری ورود = تلفن · پس از ذخیره در لیست مسئول واحد/بخش پورتال قابل انتخاب است.</div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px">
+          <input type="checkbox" id="pr-portal-sms" style="width:auto"> ارسال رمز موقت با پیامک
+        </label>
+        <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.6">نام کاربری = تلفن · بدون پیامک رمز اولیه <b>12345</b> است و در اولین ورود باید عوض شود.</div>
       </div>
       <div class="fg"><label>شماره پرسنلی (فراننکو)</label><input id="pers-employee-no" value="${esc(p?.employee_no||'')}"></div>
       <div class="fg"><label>شماره کارت (فراننکو)</label><input id="pers-card-no" value="${esc(p?.card_no||'')}"></div>
@@ -6238,7 +6245,8 @@ async function savePerson(id){
         person_id:personId||undefined,
         phone:data.phone,
         name,
-        portal_role:portalRole
+        portal_role:portalRole,
+        send_sms:!!el('pr-portal-sms')?.checked
       });
     }catch(pe){
       showToast('شخص ذخیره شد ولی دسترسی پورتال: '+(pe.message||'خطا'),'error');
@@ -15077,11 +15085,11 @@ function renderAdminGuide(){
     helpSec('🏭','پورتال عملیاتی (واحد / بخش)',`
       <p>از <b>حسابداری → پورتال عملیاتی</b> واحدهای تولیدی و گردش «پارامتر» بین بخش‌ها مدیریت می‌شود.</p>
       <ul>
-        <li><b>اعطای دسترسی از اشخاص</b>: در <b>اطلاعات اشخاص</b> (یا اشخاص) هنگام ویرایش هر شخص، بخش «دسترسی پورتال عملیاتی» را ببینید — نقش <b>مدیر واحد</b> یا <b>مدیر بخش</b> را انتخاب کنید. با ذخیره، کاربر ورود با تلفن ساخته می‌شود و رمز موقت پیامک می‌شود. سپس همان شخص در لیست مسئول واحد/بخش پورتال قابل انتخاب است.</li>
+        <li><b>اعطای دسترسی از اشخاص</b>: در <b>اطلاعات اشخاص</b> نقش مدیر واحد/بخش را انتخاب کنید. ارسال رمز موقت با پیامک <b>اختیاری</b> است؛ بدون پیامک رمز اولیه <b>12345</b> و در اولین ورود تغییر رمز اجباری است.</li>
         <li><b>واحدهای عملیاتی</b>: تعریف واحد، مدیر، انبارهای متصل؛ ساخت پارامتر با اقلام کالا و خط زمانی رنگی وضعیت بخش‌ها (سبز=تکمیل، زرد=در جریان، خاکستری=در انتظار)</li>
         <li><b>بخش من</b>: مدیر بخش پارامترهای در صف را می‌بیند — تأیید مقدار، بازبینی، پرداخت پرسنل، تبدیل کالا، اتمام بخش</li>
         <li>هر انتقال بین بخش‌ها با حواله انبار و (در صورت نیاز) سند حسابداری ثبت می‌شود</li>
-        <li><b>کاربر مدیر</b>: هنگام تعریف مدیر واحد/بخش اگر حساب کاربری نباشد، با شماره تلفن ساخته می‌شود و رمز موقت با پیامک ارسال می‌گردد (در اولین ورود باید عوض شود)</li>
+        <li><b>کاربر مدیر</b>: اگر حساب نباشد با تلفن ساخته می‌شود؛ تغییر رمز در اولین ورود اجباری است. پیامک رمز فقط با تیک مربوطه</li>
         <li><b>بازبینی گیرکرده</b>: اگر بخش بیش از مدت تنظیم‌شده (پیش‌فرض ۷۲ ساعت) در وضعیت بازبینی بماند، سیستم به‌صورت خودکار بازبینی را آزاد می‌کند و به ادمین اطلاع می‌دهد</li>
         <li><b>تبدیل به کالای جدید</b>: اگر کالای خروجی در لیست نباشد، با نام جدید ساخته می‌شود (وضعیت «در انتظار تأیید») تا ادمین تأیید کند — در فروش دیده نمی‌شود</li>
       </ul>`),

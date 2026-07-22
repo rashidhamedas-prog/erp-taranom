@@ -24,6 +24,12 @@ function hasTable(db, name) {
   return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
 }
 
+/** Body flag: only send temp-password SMS when explicitly enabled. */
+function wantPortalSms(body) {
+  const v = body && body.send_sms;
+  return v === true || v === 1 || v === '1' || v === 'true';
+}
+
 function personIdForUser(db, user) {
   if (!user?.username) return null;
   const p = db.prepare('SELECT id FROM persons WHERE phone=?').get(String(user.username).trim());
@@ -288,13 +294,14 @@ router.post('/units', auth, centralOnly, requirePermission('portal', 'create'), 
     return res.status(400).json({ error: 'نام واحد و مدیر اصلی الزامی است' });
   }
   const db = getDB();
+  const sendSms = wantPortalSms(req.body);
   let unitId;
   const newUsers = [];
   try {
     db.transaction(() => {
-      newUsers.push(ensurePersonUser(db, parseInt(manager_person_id, 10), 'unit_manager'));
-      if (manager2_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager2_person_id, 10), 'unit_manager'));
-      if (manager3_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager3_person_id, 10), 'unit_manager'));
+      newUsers.push(ensurePersonUser(db, parseInt(manager_person_id, 10), 'unit_manager', { sendSms }));
+      if (manager2_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager2_person_id, 10), 'unit_manager', { sendSms }));
+      if (manager3_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager3_person_id, 10), 'unit_manager', { sendSms }));
       const r = db.prepare(`
         INSERT INTO op_units (name, manager_person_id, manager2_person_id, manager3_person_id, output_type, created_by)
         VALUES (?,?,?,?,?,?)
@@ -314,7 +321,7 @@ router.post('/units', auth, centralOnly, requirePermission('portal', 'create'), 
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
-  newUsers.forEach(u => sendTempPasswordSms(db, u));
+  if (sendSms) newUsers.forEach(u => sendTempPasswordSms(db, u));
   audit(req.user.id, 'create', 'op_unit', unitId, `ساخت واحد عملیاتی ${name}`);
   res.json(db.prepare('SELECT * FROM op_units WHERE id=?').get(unitId));
 });
@@ -374,12 +381,13 @@ router.put('/units/:id', auth, centralOnly, requirePermission('portal', 'edit'),
     name, manager_person_id, manager2_person_id, manager3_person_id,
     output_type, status, warehouse_ids, person_ids, module_keys,
   } = req.body;
+  const sendSms = wantPortalSms(req.body);
   try {
     const newUsers = [];
     db.transaction(() => {
-      if (manager_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager_person_id, 10), 'unit_manager'));
-      if (manager2_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager2_person_id, 10), 'unit_manager'));
-      if (manager3_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager3_person_id, 10), 'unit_manager'));
+      if (manager_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager_person_id, 10), 'unit_manager', { sendSms }));
+      if (manager2_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager2_person_id, 10), 'unit_manager', { sendSms }));
+      if (manager3_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager3_person_id, 10), 'unit_manager', { sendSms }));
       db.prepare(`
         UPDATE op_units SET
           name=?, manager_person_id=?, manager2_person_id=?, manager3_person_id=?,
@@ -398,7 +406,7 @@ router.put('/units/:id', auth, centralOnly, requirePermission('portal', 'edit'),
       if (person_ids) syncUnitPersons(db, unit.id, person_ids);
       if (module_keys) syncUnitModuleLinks(db, unit.id, module_keys);
     })();
-    newUsers.forEach(u => sendTempPasswordSms(db, u));
+    if (sendSms) newUsers.forEach(u => sendTempPasswordSms(db, u));
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
@@ -431,9 +439,10 @@ router.post('/units/:id/departments', auth, centralOnly, requirePermission('port
   if (!whLink) return res.status(400).json({ error: 'انبار باید به همین واحد متصل باشد' });
   let deptId;
   let newUser;
+  const sendSms = wantPortalSms(req.body);
   try {
     db.transaction(() => {
-      newUser = ensurePersonUser(db, parseInt(manager_person_id, 10), 'department_manager');
+      newUser = ensurePersonUser(db, parseInt(manager_person_id, 10), 'department_manager', { sendSms });
       let seq = parseInt(sequence_order, 10);
       if (!seq) {
         seq = (db.prepare('SELECT COALESCE(MAX(sequence_order),0)+1 s FROM op_departments WHERE unit_id=?').get(unitId).s);
@@ -447,7 +456,7 @@ router.post('/units/:id/departments', auth, centralOnly, requirePermission('port
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
-  sendTempPasswordSms(db, newUser);
+  if (sendSms) sendTempPasswordSms(db, newUser);
   audit(req.user.id, 'create', 'op_department', deptId, `افزودن بخش ${name} به واحد ${unit.name}`);
   res.json(db.prepare('SELECT * FROM op_departments WHERE id=?').get(deptId));
 });
@@ -477,10 +486,11 @@ router.put('/departments/:id', auth, centralOnly, requirePermission('portal', 'e
       .get(dept.unit_id, parseInt(warehouse_id, 10));
     if (!whLink) return res.status(400).json({ error: 'انبار باید به واحد متصل باشد' });
   }
+  const sendSms = wantPortalSms(req.body);
   try {
     let newUser;
     db.transaction(() => {
-      if (manager_person_id) newUser = ensurePersonUser(db, parseInt(manager_person_id, 10), 'department_manager');
+      if (manager_person_id) newUser = ensurePersonUser(db, parseInt(manager_person_id, 10), 'department_manager', { sendSms });
       db.prepare(`
         UPDATE op_departments SET name=?, manager_person_id=?, warehouse_id=?, status=?
         WHERE id=?
@@ -492,7 +502,7 @@ router.put('/departments/:id', auth, centralOnly, requirePermission('portal', 'e
         dept.id
       );
     })();
-    sendTempPasswordSms(db, newUser);
+    if (sendSms) sendTempPasswordSms(db, newUser);
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
@@ -1197,8 +1207,9 @@ router.post('/departments/:id/delegate', auth, requirePermission('portal', 'appr
   if (!delegate_person_id) return res.status(400).json({ error: 'شخص جایگزین الزامی است' });
   const hours = Math.max(1, Math.min(720, parseInt(req.body.hours, 10) || 72));
   const note = String(req.body.note || '').trim();
+  const sendSms = wantPortalSms(req.body);
   try {
-    const newUser = ensurePersonUser(db, delegate_person_id, 'department_manager');
+    const newUser = ensurePersonUser(db, delegate_person_id, 'department_manager', { sendSms });
     const now = parseInt(nowEpoch(db), 10);
     const ends = now + hours * 3600;
     // deactivate overlapping active delegations for same dept
@@ -1211,7 +1222,7 @@ router.post('/departments/:id/delegate', auth, requirePermission('portal', 'appr
         (department_id, delegate_person_id, starts_at, ends_at, note, created_by, active)
       VALUES (?,?,?,?,?,?,1)
     `).run(dept.id, delegate_person_id, now, ends, note, req.user.id);
-    sendTempPasswordSms(db, newUser);
+    if (sendSms) sendTempPasswordSms(db, newUser);
     audit(req.user.id, 'delegate', 'op_department', dept.id,
       `واگذاری موقت به شخص #${delegate_person_id} برای ${hours} ساعت`);
     portalNotify(db, {
@@ -1322,6 +1333,7 @@ router.get('/access', auth, adminOrAccounting, (req, res) => {
 router.put('/access', auth, centralOnly, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { person_id, party_id, phone, name, portal_role } = req.body || {};
+  const sendSms = wantPortalSms(req.body);
   let resolvedPhone = phone ? String(phone).trim() : '';
   let resolvedName = name ? String(name).trim() : '';
   let personId = person_id ? parseInt(person_id, 10) : null;
@@ -1339,15 +1351,16 @@ router.put('/access', auth, centralOnly, adminOrAccounting, (req, res) => {
       phone: resolvedPhone,
       name: resolvedName,
       portalRole: portal_role,
+      sendSms,
     });
-    if (result._temp) {
+    if (sendSms && result._temp) {
       sendTempPasswordSms(db, result._temp);
-      delete result._temp;
     }
+    delete result._temp;
     audit(req.user.id, result.has_access ? 'portal_access_grant' : 'portal_access_revoke',
       'person', result.person_id,
       result.has_access
-        ? `اعطای دسترسی پورتال (${result.portal_role}) به ${result.username}`
+        ? `اعطای دسترسی پورتال (${result.portal_role}) به ${result.username}${sendSms ? ' +SMS' : ''}`
         : `لغو دسترسی پورتال ${result.username}`);
     res.json({ ok: true, ...result });
   } catch (e) {
