@@ -28,9 +28,10 @@
   --bg:#F5F8F4; --card:#FFFFFF; --text:#12271C; --muted:#5F7268; --border:rgba(18,39,28,.11);
   --hero:linear-gradient(120deg,#1A5C38 0%,#2E7D4F 55%,#C9A843 135%);
   --on-accent:#FFFFFF;
-  --side-bg:linear-gradient(180deg,var(--purple),var(--purple2));
+  /* Soft Bento shell: deeper brand sidebar + soft card elevation */
+  --side-bg:linear-gradient(180deg,#163F2A 0%,var(--purple) 45%,var(--purple2) 100%);
   --mdi-taskbar-h:0px;
-  --shadow-card:0 1px 0 var(--border),0 18px 30px -28px rgba(18,39,28,.45);
+  --shadow-card:0 1px 0 var(--border),0 20px 36px -28px rgba(18,39,28,.42);
   --input-bg:#FFFFFF; --scroll-thumb:#A8C8B4;
   --th-bg:#F2F7F3; --row-hover:#F7FAF7; --well:#EDF3EE;
   --tip-bg:#f0fdf4; --warnbox-bg:#fffbeb;
@@ -108,74 +109,92 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .login-err{color:var(--red);font-size:13px;margin-top:10px;min-height:18px}
 .login-hint{margin-top:18px;font-size:11px;color:#9ca3af}
 
-/* ===== Layout ===== */
+/* ===== Layout — Soft Bento ===== */
 #app{display:none}
 .layout{display:flex;min-height:100vh}
-.sidebar{width:240px;background:var(--side-bg);color:#fff;
+.sidebar{width:260px;background:var(--side-bg);color:#fff;
   position:fixed;top:0;right:0;bottom:0;display:flex;flex-direction:column;z-index:50;
   transition:transform .25s cubic-bezier(.4,0,.2,1)}
 .sidebar.collapsed{transform:translateX(110%)}
 .main.expanded{margin-right:0!important}
-.sidebar .brand{padding:22px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.15)}
+.sidebar .brand{padding:22px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.12)}
 .sidebar .brand .emoji{font-size:30px}
 .sidebar .brand h2{font-size:18px}
-.sidebar .brand small{font-size:11px;opacity:.8;display:block}
-.nav{flex:1;overflow-y:auto;padding:12px 0}
-.nav a{display:flex;align-items:center;gap:12px;padding:12px 22px;color:rgba(255,255,255,.85);font-size:14px;position:relative}
+.sidebar .brand small{font-size:11px;opacity:.75;display:block}
+.nav{flex:1;overflow-y:auto;padding:14px 12px}
+.nav a{display:flex;align-items:center;gap:10px;padding:11px 14px;margin-bottom:3px;border-radius:12px;
+  color:rgba(255,255,255,.82);font-size:14px;position:relative;transition:background .18s,color .18s}
 .nav a .ico{font-size:18px;width:24px;text-align:center;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.nav a .ico svg{width:19px;height:19px;display:block;opacity:.95}
+.nav a .ico svg{width:18px;height:18px;display:block;opacity:.95}
 .nav a:hover{background:rgba(255,255,255,.1);color:#fff}
-.nav a.active{background:rgba(255,255,255,.18);color:#fff;font-weight:600}
-.nav a.active::before{content:'';position:absolute;right:0;top:0;bottom:0;width:4px;background:var(--gold)}
-.nav .badge{position:absolute;left:18px;background:var(--red);color:var(--on-accent);font-size:10px;
+.nav a.active{background:rgba(255,255,255,.16);color:#fff;font-weight:700;box-shadow:inset -3px 0 0 var(--gold)}
+.nav a.active::before{display:none}
+.nav .badge{position:absolute;left:12px;background:var(--red);color:var(--on-accent);font-size:10px;
   min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px}
-.sidebar .foot{padding:14px 20px;border-top:1px solid rgba(255,255,255,.15);font-size:12px}
-.sidebar .foot button{width:100%;background:rgba(255,255,255,.15);color:#fff;border:none;padding:9px;border-radius:8px;margin-top:8px}
-.sidebar .foot button:hover{background:rgba(255,255,255,.28)}
+.sidebar .foot{padding:14px 16px;border-top:1px solid rgba(255,255,255,.12);font-size:12px}
+.sidebar .foot button{width:100%;background:rgba(255,255,255,.14);color:#fff;border:none;padding:9px;border-radius:12px;margin-top:8px}
+.sidebar .foot button:hover{background:rgba(255,255,255,.26)}
 
-.main{flex:1;margin-right:240px;display:flex;flex-direction:column;min-height:100vh;min-width:0}
-.topbar{background:var(--hero);border-bottom:none;padding:14px 24px;display:flex;color:#fff;
-  align-items:center;justify-content:space-between;position:sticky;top:0;z-index:40;
-  box-shadow:0 4px 18px rgba(26,92,56,.22)}
-.topbar .left{display:flex;align-items:center;gap:14px}
-.topbar .menu-btn{display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.16);color:#fff;border:none;
-  width:38px;height:38px;border-radius:10px;font-size:20px}
-.topbar h3{font-size:17px;color:#fff;font-weight:800}
-.topbar .right{display:flex;align-items:center;gap:16px}
-.topbar .clock{font-size:13px;color:#fff;background:rgba(255,255,255,.16);padding:6px 12px;border-radius:99px;font-weight:600}
+.main{flex:1;margin-right:260px;display:flex;flex-direction:column;min-height:100vh;min-width:0;background:var(--bg)}
+/* Floating soft topbar (Soft Bento) — light card over sage canvas */
+.topbar{margin:16px 18px 0;background:var(--card);border:1px solid var(--border);border-radius:18px;
+  padding:12px 16px;display:flex;color:var(--text);
+  align-items:center;justify-content:space-between;position:sticky;top:12px;z-index:40;
+  box-shadow:var(--shadow-card)}
+.topbar .left{display:flex;align-items:center;gap:12px}
+.topbar .menu-btn{display:flex;align-items:center;justify-content:center;background:var(--purple-light);color:var(--purple);border:none;
+  width:38px;height:38px;border-radius:12px;font-size:20px}
+.topbar .menu-btn:hover{background:var(--purple);color:var(--on-accent)}
+.topbar h3{font-size:16px;color:var(--text);font-weight:800}
+.topbar .right{display:flex;align-items:center;gap:12px}
+.topbar .clock{font-size:13px;color:var(--muted);background:var(--bg);border:1px solid var(--border);padding:6px 12px;border-radius:12px;font-weight:600}
 .topbar .user{display:flex;align-items:center;gap:8px;font-size:13px}
-.topbar .user .muted{color:rgba(255,255,255,.75)!important}
+.topbar .user .muted{color:var(--muted)!important}
 .topbar .avatar{width:36px;height:36px;border-radius:12px;background:var(--gold);color:#1A3A26;
   display:flex;align-items:center;justify-content:center;font-weight:800}
-.content{padding:22px;flex:1}
+.topbar .omnibox-btn{color:var(--purple)!important;background:var(--purple-light)!important;border:none!important;
+  padding:6px 12px;border-radius:10px;font-size:12px;font-weight:700}
+.topbar .omnibox-btn:hover{background:var(--purple)!important;color:var(--on-accent)!important}
+.content{padding:18px;flex:1}
 
-/* ===== Cards / Generic ===== */
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:22px;width:100%}
+/* ===== Cards / Generic — Soft Bento ===== */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:18px;width:100%}
 .nav-section{margin-bottom:3px}
 .nav-section-title{font-size:10px;font-weight:700;color:var(--muted);padding:8px 14px 4px;text-transform:uppercase;letter-spacing:.04em}
-.stat{background:var(--card);border-radius:18px;padding:18px;box-shadow:var(--shadow-card);
-  border:none;border-bottom:4px solid var(--purple);display:flex;align-items:center;gap:14px;min-width:0;overflow:hidden}
-.stat:has(.ic.g){border-bottom-color:var(--green)}
-.stat:has(.ic.o){border-bottom-color:var(--gold)}
-.stat:has(.ic.r){border-bottom-color:var(--red)}
-.stat:has(.ic.b){border-bottom-color:var(--blue)}
-.stat .ic{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
-.stat .ic svg{width:22px;height:22px;display:block;opacity:.92}
-/* Signature hero stat (بورد زمرد مدرن): the first KPI card carries the brand gradient */
-.cards .stat:first-child{background:linear-gradient(155deg,var(--purple),var(--purple2));border-bottom-color:var(--gold)}
-.cards .stat:first-child .v{color:var(--on-accent)}
-.cards .stat:first-child .l{color:var(--on-accent);opacity:.82}
-.cards .stat:first-child .ic{background:rgba(255,255,255,.18);color:var(--on-accent)}
-html[data-theme="dark"] .cards .stat:first-child{background:linear-gradient(155deg,#3DDC8C,#1A9E63)}
+.stat{background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--shadow-card);
+  border:1px solid var(--border);display:flex;align-items:center;gap:14px;min-width:0;overflow:hidden}
+.stat .ic{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.stat .ic svg{width:20px;height:20px;display:block;opacity:.92}
+/* Non-hero pages: first KPI still carries brand accent */
+.cards:not(.bento-hero) .stat:first-child{background:linear-gradient(155deg,var(--purple),var(--purple2));border-color:transparent}
+.cards:not(.bento-hero) .stat:first-child .v{color:var(--on-accent)}
+.cards:not(.bento-hero) .stat:first-child .l{color:var(--on-accent);opacity:.82}
+.cards:not(.bento-hero) .stat:first-child .ic{background:rgba(255,255,255,.18);color:var(--on-accent)}
+html[data-theme="dark"] .cards:not(.bento-hero) .stat:first-child{background:linear-gradient(155deg,#3DDC8C,#1A9E63)}
+/* Dashboard Soft Bento hero KPI strip */
+.cards.bento-hero{
+  grid-template-columns:1.35fr repeat(auto-fit,minmax(118px,1fr));
+  gap:12px;padding:18px 18px;margin-bottom:16px;border-radius:20px;
+  background:linear-gradient(120deg,var(--purple) 0%,var(--purple2) 55%,#3A8F5C 100%);
+  box-shadow:var(--shadow-card);border:none}
+.cards.bento-hero .stat{
+  background:rgba(255,255,255,.12);border:none;box-shadow:none;border-radius:14px;padding:14px;color:#fff}
+.cards.bento-hero .stat:first-child{background:transparent;padding:8px 6px}
+.cards.bento-hero .stat .v,.cards.bento-hero .stat .l{color:#fff}
+.cards.bento-hero .stat .l{opacity:.82}
+.cards.bento-hero .stat .ic{background:rgba(255,255,255,.18);color:#fff}
+.cards.bento-hero .stat:first-child .v{font-size:clamp(18px,2.8vw,28px)}
+html[data-theme="dark"] .cards.bento-hero{
+  background:linear-gradient(135deg,#101A15 0%,#1A2E14 40%,#1A9E63 100%)}
 .nav-section-title.nav-acc-head{
   cursor:pointer;user-select:none;
   display:flex;align-items:center;justify-content:space-between;gap:8px;
-  margin:3px 10px;padding:10px 13px;
+  margin:3px 4px;padding:10px 13px;
   font-size:13.5px;font-weight:800;letter-spacing:0;text-transform:none;line-height:1.4;
   color:rgba(255,255,255,.95);
   background:rgba(255,255,255,.07);
   border:1px solid rgba(255,255,255,.09);
-  border-radius:11px;
+  border-radius:12px;
   transition:background .18s ease,border-color .18s ease,color .18s ease}
 .nav-section-title.nav-acc-head:hover{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.22);color:#fff}
 .nav-section-title.nav-acc-head.open{
@@ -196,18 +215,18 @@ html[data-theme="dark"] .cards .stat:first-child{background:linear-gradient(155d
 .ic.b{background:var(--info-bg);color:var(--blue)}
 
 .panel{background:var(--card);border-radius:18px;border:1px solid var(--border);
-  box-shadow:var(--shadow-card);margin-bottom:20px;overflow:hidden}
-.panel-head{padding:16px 18px;border-bottom:1px solid var(--border);display:flex;
+  box-shadow:var(--shadow-card);margin-bottom:16px;overflow:hidden}
+.panel-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;
   align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 .panel-head h4{font-size:15px;color:var(--purple)}
-.panel-body{padding:18px}
+.panel-body{padding:16px}
 
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
-.toolbar input,.toolbar select{padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;outline:none;background:var(--input-bg);color:var(--text)}
+.toolbar input,.toolbar select{padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;outline:none;background:var(--input-bg);color:var(--text)}
 .toolbar input:focus,.toolbar select:focus{border-color:var(--purple2)}
 .search{flex:1;min-width:180px}
 
-.btn{background:var(--purple);color:var(--on-accent);border:none;padding:9px 16px;border-radius:9px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.btn{background:var(--purple);color:var(--on-accent);border:none;padding:9px 16px;border-radius:10px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
 .btn:hover{background:var(--purple2)}
 .btn.green{background:var(--green)}.btn.red{background:var(--red)}.btn.blue{background:var(--blue)}.btn.orange{background:var(--orange)}
 .btn.ghost{background:var(--card);color:var(--purple);border:1.5px solid var(--purple)}
@@ -275,9 +294,9 @@ table.tbl tr:hover td{background:var(--row-hover)}
 .modal-head .modal-size-btn:hover,.modal-head .x:hover{background:var(--purple-light);color:var(--purple)}
 .modal-body{padding:20px}
 .modal-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-start;position:sticky;bottom:0;background:var(--card);flex-shrink:0}
-.topbar .back-btn{display:none;align-items:center;justify-content:center;background:rgba(255,255,255,.16);color:#fff;border:none;width:36px;height:36px;border-radius:10px;font-size:18px;cursor:pointer;line-height:1}
+.topbar .back-btn{display:none;align-items:center;justify-content:center;background:var(--purple-light);color:var(--purple);border:none;width:36px;height:36px;border-radius:12px;font-size:18px;cursor:pointer;line-height:1}
 .topbar .back-btn.show{display:inline-flex}
-.topbar .back-btn:hover{background:rgba(255,255,255,.28)}
+.topbar .back-btn:hover{background:var(--purple);color:var(--on-accent)}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .fg{display:flex;flex-direction:column;gap:6px}
 .fg.full{grid-column:1/-1}
@@ -563,6 +582,7 @@ table.tbl tr:hover td{background:var(--row-hover)}
   .sidebar{transform:translateX(110%);transition:transform .28s cubic-bezier(.4,0,.2,1);will-change:transform}
   .sidebar.open{transform:translateX(0)}
   .main{margin-right:0!important;width:100%}
+  .topbar{margin:10px 10px 0;top:8px}
   .topbar .menu-btn{display:flex;align-items:center;justify-content:center}
   .inv-layout{grid-template-columns:1fr}
   .inv-cart{position:static;min-height:auto}
@@ -571,11 +591,12 @@ table.tbl tr:hover td{background:var(--row-hover)}
   .topbar .clock{display:none}
   .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%}
   .cards{grid-template-columns:repeat(2,1fr);gap:12px}
+  .cards.bento-hero{grid-template-columns:1fr 1fr;padding:14px}
   .stat{padding:14px 10px;gap:10px}
   .stat .ic{width:40px;height:40px;font-size:20px}
   .stat .v{font-size:16px}
   .stat .l{font-size:11px}
-  .content{padding:16px}
+  .content{padding:14px}
   .view{width:100%}
   .pipeline-col{flex:0 0 190px}
 }
@@ -599,8 +620,10 @@ table.tbl tr:hover td{background:var(--row-hover)}
   .pipeline-board{gap:8px}
   .content{padding:10px;width:100%}
   .dp{max-width:calc(100vw - 24px)}
-  .topbar{padding:8px 12px}
+  .topbar{padding:8px 12px;margin:8px 8px 0;border-radius:14px}
   .topbar h3{font-size:14px}
+  .cards.bento-hero{grid-template-columns:1fr 1fr;border-radius:16px;padding:12px;gap:8px}
+  .cards.bento-hero .stat:first-child{grid-column:1 / -1}
   .toolbar{gap:6px;flex-wrap:wrap;width:100%}
   .toolbar input,.toolbar select{font-size:13px;padding:8px 10px;min-width:0;flex:1}
   .btn{padding:8px 12px;font-size:12px}
@@ -636,7 +659,8 @@ table.tbl tr:hover td{background:var(--row-hover)}
 .omnibox-item:hover,.omnibox-item.active{background:var(--purple-light)}
 .omnibox-item .sub{font-size:11px;color:var(--muted)}
 .omnibox-hint{padding:8px 16px;font-size:11px;color:var(--muted);background:var(--bg)}
-.notif-bell{position:relative;cursor:pointer;font-size:18px;padding:6px 10px;border-radius:10px;background:rgba(255,255,255,.16)}
+.notif-bell{position:relative;cursor:pointer;font-size:18px;padding:6px 10px;border-radius:12px;background:var(--purple-light);border:none;color:var(--text)}
+.notif-bell:hover{background:var(--purple);color:var(--on-accent)}
 .notif-bell .nbadge{position:absolute;top:2px;right:4px;background:#ef4444;color:#fff;font-size:10px;min-width:16px;height:16px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-weight:700}
 .notif-bell .nbadge.hide{display:none}
 .pending-action-item{padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;cursor:pointer;background:#fff}
@@ -743,7 +767,7 @@ table.tbl tr:hover td{background:var(--row-hover)}
         </div>
         <div class="right">
           <button class="notif-bell" id="notifBell" onclick="toggleNotifPanel()" title="اعلان‌ها" style="display:none">🔔<span class="nbadge hide" id="notifBadge">0</span></button>
-          <button class="btn sm ghost" onclick="openOmnibox()" title="جستجوی سریع (Ctrl+K)" style="color:#fff;background:rgba(255,255,255,.12);border:none;padding:6px 12px;border-radius:10px;font-size:12px">⌘K</button>
+          <button class="btn sm ghost omnibox-btn" onclick="openOmnibox()" title="جستجوی سریع (Ctrl+K)">⌘K</button>
           <span id="syncBadge" style="display:none;cursor:pointer;font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px;background:#f3f4f6;color:#6b7280;white-space:nowrap" onclick="openSyncPanel()" title="وضعیت همگام‌سازی با سرور مرکزی"></span>
           <span class="clock" id="clock"></span>
           <div class="user">
@@ -2598,7 +2622,7 @@ async function renderDashContent(){
         <button class="btn sm ghost" onclick="pollNotifications().then(()=>renderDashContent())">🔄</button></div>
         <div class="panel-body">${pending.slice(0,8).map(a=>`<div class="pending-action-item" onclick="pendingActionClick('${a.route||''}','${a.entity_type||''}',${a.entity_id||0})">
           <b>${esc(a.title)}</b><div class="muted" style="font-size:12px">${esc(a.body||'')}</div></div>`).join('')}</div></div>`:''}
-      <div class="cards">
+      <div class="cards bento-hero">
         ${statCard('p','👥', fmt(ov.totalCustomers),'کل مشتریان')}
         ${statCard('g','💰', fmt(ov.totalRevenue),'فروش کل (ریال)'+(dq?' در بازه':''))}
         ${statCard('o','🧾', fmt(ov.totalInvoices),'فاکتور رسمی'+(dq?' در بازه':''))}
@@ -2670,7 +2694,7 @@ async function renderDashContent(){
     const openF = (followups||[]).filter(f=>f.status==='open').length;
     const balRows = (balances||[]);
     body.innerHTML = `
-      <div class="cards">
+      <div class="cards bento-hero">
         ${statCard('p','👥', fmt(CACHE.customers.length),'مشتریان من')}
         ${statCard('g','💰', fmt(sales),'فروش کل (ریال)'+(dq?' در بازه':''))}
         ${statCard('o','🧾', fmt(finalInvs.length),'فاکتور رسمی'+(dq?' در بازه':''))}
@@ -14695,7 +14719,7 @@ function renderAdminGuide(){
         <li>نوار پایین صفحه: تعویض بین پنجره‌ها و چینش</li>
       </ul>`),
     helpSec('📊','داشبورد',`
-      <p>داشبورد نمای کلی از وضعیت کسب‌وکار را نشان می‌دهد. پوستهٔ برنامه با هویت رسمی برند ترنم (سبز و طلایی) و لوگوی رسمی در ورود، منو، فاکتور چاپی و صورت‌حساب یکپارچه شده است.</p>
+      <p>داشبورد نمای کلی از وضعیت کسب‌وکار را نشان می‌دهد. پوستهٔ برنامه با سبک <b>Soft Bento</b> (سایدبار برنددار، تاپ‌بار شناور سفید، نوار KPI قهرمان و پنل‌های گرد) و همان پالت زمرد مدرن (سبز و طلایی) یکپارچه شده است.</p>
       <div class="tip">دکمه ☰ بالای صفحه، در نسخه دسکتاپ (ویندوز) نیز فعال است و مانند موبایل منوی کناری را جمع/باز می‌کند — تجربه یکسان در همه دستگاه‌ها.</div>
       <h5>امکانات</h5><ul>
         <li>آمار تعداد مشتریان، فاکتورها و پیگیری‌های باز</li>

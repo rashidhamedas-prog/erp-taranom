@@ -32,15 +32,23 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `5fdebe0` فارسی‌سازی ماتریس دسترسی — SW `erp-taranom-v64` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v64` |
+| آخرین commit | *(Soft Bento UI — پس از commit)* |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v65` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`5fdebe0`، health ۲۰۰، SW `v64` |
+| وضعیت سرور | ⏳ Soft Bento در حال deploy |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### 2026-07-22 — بازطراحی UI: Soft Bento (نمونه C)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** *(پس از commit)*
+- **خلاصه:** اعمال پوسته Soft Bento با همان پالت زمرد مدرن: سایدبار عمیق‌تر، تاپ‌بار شناور سفید، نوار KPI قهرمان در داشبورد، پنل/دکمه گردتر. SW `v65`.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ⏳
+- **یادداشت:** انتخاب کاربر = نمونه C از `docs/design/redesign-previews`
 
 ### 2026-07-22 — پیش‌نمایش ۳ گزینه بازطراحی UI (بدون اعمال)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
