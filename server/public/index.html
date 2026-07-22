@@ -5871,8 +5871,13 @@ async function partyModal(id){
   } else if(PARTY_GROUP_FILTER){
     p.party_group_id=+PARTY_GROUP_FILTER;
   }
+  let portalAccess={ portal_role:null, has_access:false };
+  if(p.phone){
+    try{ portalAccess=await api('GET','/portal/access?phone='+encodeURIComponent(p.phone))||portalAccess; }catch(_){}
+  }
   const roles=p.party_roles||[];
   const roleChk=(k,l)=>`<label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="checkbox" class="pty-role" value="${k}" ${roles.includes(k)?'checked':''} style="width:auto"> ${l}</label>`;
+  const prPortal=portalAccess.portal_role||'';
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body" style="max-height:75vh;overflow:auto"><div class="form-grid">
@@ -5906,6 +5911,15 @@ async function partyModal(id){
           ${roleChk('customer','مشتری')} ${roleChk('supplier','تأمین‌کننده')} ${roleChk('employee','کارمند')}
           ${roleChk('partner','شریک/سهامدار')} ${roleChk('marketer','بازاریاب')} ${roleChk('other','سایر')}
         </div></div>
+      <div class="fg full" style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--purple-light,#f5f3ff)">
+        <label style="font-weight:700;margin-bottom:8px;display:block">🏭 دسترسی پورتال عملیاتی ${hlp('با انتخاب نقش، کاربر ورود با تلفن ساخته می‌شود و می‌تواند وارد پورتال واحد/بخش شود. رمز موقت با پیامک ارسال می‌شود.')}</label>
+        <select id="pty-portal-role">
+          <option value="none" ${!prPortal?'selected':''}>بدون دسترسی پورتال</option>
+          <option value="unit_manager" ${prPortal==='unit_manager'?'selected':''}>مدیر واحد عملیاتی</option>
+          <option value="department_manager" ${prPortal==='department_manager'?'selected':''}>مدیر بخش (کف کارگاه)</option>
+        </select>
+        <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.6">نام کاربری ورود = تلفن ۱ · پس از ذخیره در لیست مسئول واحد/بخش پورتال قابل انتخاب است.</div>
+      </div>
       <div class="fg"><label>سقف اعتبار ${moneyColLabel()}</label><input id="pty-credit" type="text" inputmode="numeric" class="money" value="${moneyInit(p.credit_limit_toman||0)}"></div>
       <div class="fg"><label>مانده اول دوره ${moneyColLabel()} ${isAdmin()?'':'<span class="muted" style="font-size:11px">— فقط مدیر</span>'}</label>
         <input id="pty-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(p.opening_balance_toman||0)}" ${isAdmin()?'':'readonly disabled style="background:#f9fafb"'}></div>
@@ -5997,7 +6011,20 @@ async function saveParty(id){
     biz:full_name
   };
   try{
-    if(id) await api('PUT','/parties/'+id,data); else await api('POST','/parties',data);
+    const saved=id?await api('PUT','/parties/'+id,data):await api('POST','/parties',data);
+    const partyId=id||saved?.data?.id||saved?.id;
+    const portalRole=el('pty-portal-role')?.value||'none';
+    try{
+      await api('PUT','/portal/access',{
+        party_id:partyId||undefined,
+        phone,
+        name:full_name,
+        portal_role:portalRole
+      });
+    }catch(pe){
+      showToast('شخص ذخیره شد ولی دسترسی پورتال: '+(pe.message||'خطا'),'error');
+      closeModal(); loadAccTab('parties'); return;
+    }
     closeModal(); showToast('ذخیره شد'); loadAccTab('parties');
   }catch(e){}
 }
@@ -6130,6 +6157,12 @@ async function personModal(id){
   const personPartyGroups=(CACHE.partyGroups||[]).filter(g=>g.entity_type==='person'||g.entity_type==='all');
   let positions=[];
   try{ positions=await api('GET','/person-positions')||[]; }catch(e){ positions=[]; }
+  let portalAccess={ portal_role:null, has_access:false };
+  try{
+    if(id) portalAccess=await api('GET','/portal/access?person_id='+id)||portalAccess;
+    else if(p?.phone) portalAccess=await api('GET','/portal/access?phone='+encodeURIComponent(p.phone))||portalAccess;
+  }catch(_){}
+  const prPortal=portalAccess.portal_role||'';
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -6147,6 +6180,15 @@ async function personModal(id){
         ${personPartyGroups.map(g=>`<option value="${g.id}" ${p?.party_group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}
       </select></div>
       <div class="fg"><label>تلفن</label><input id="pr-phone" value="${esc(p?.phone||'')}"></div>
+      <div class="fg full" style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--purple-light,#f5f3ff)">
+        <label style="font-weight:700;margin-bottom:8px;display:block">🏭 دسترسی پورتال عملیاتی ${hlp('با انتخاب نقش، کاربر ورود با تلفن ساخته می‌شود. رمز موقت با پیامک ارسال می‌شود.')}</label>
+        <select id="pr-portal-role">
+          <option value="none" ${!prPortal?'selected':''}>بدون دسترسی پورتال</option>
+          <option value="unit_manager" ${prPortal==='unit_manager'?'selected':''}>مدیر واحد عملیاتی</option>
+          <option value="department_manager" ${prPortal==='department_manager'?'selected':''}>مدیر بخش (کف کارگاه)</option>
+        </select>
+        <div class="muted" style="font-size:11px;margin-top:6px;line-height:1.6">نام کاربری ورود = تلفن · پس از ذخیره در لیست مسئول واحد/بخش پورتال قابل انتخاب است.</div>
+      </div>
       <div class="fg"><label>شماره پرسنلی (فراننکو)</label><input id="pers-employee-no" value="${esc(p?.employee_no||'')}"></div>
       <div class="fg"><label>شماره کارت (فراننکو)</label><input id="pers-card-no" value="${esc(p?.card_no||'')}"></div>
       <div class="fg"><label>نرخ ساعتی (ریال)</label><input id="pers-hourly-rate" class="money" type="text" inputmode="numeric" value="${moneyInit(p?.hourly_rate)}"></div>
@@ -6188,7 +6230,20 @@ async function savePerson(id){
   if(!id) data.opening_balance=+el('pr-opening')?.value||0;
   else data.active=+el('pr-active').value;
   try{
-    if(id) await api('PUT','/persons/'+id,data); else await api('POST','/persons',data);
+    const saved=id?await api('PUT','/persons/'+id,data):await api('POST','/persons',data);
+    const personId=id||saved?.id||saved?.data?.id;
+    const portalRole=el('pr-portal-role')?.value||'none';
+    try{
+      await api('PUT','/portal/access',{
+        person_id:personId||undefined,
+        phone:data.phone,
+        name,
+        portal_role:portalRole
+      });
+    }catch(pe){
+      showToast('شخص ذخیره شد ولی دسترسی پورتال: '+(pe.message||'خطا'),'error');
+      closeModal(); loadAccTab('persons'); return;
+    }
     closeModal(); showToast('ذخیره شد'); loadAccTab('persons');
   }catch(e){}
 }
@@ -15022,6 +15077,7 @@ function renderAdminGuide(){
     helpSec('🏭','پورتال عملیاتی (واحد / بخش)',`
       <p>از <b>حسابداری → پورتال عملیاتی</b> واحدهای تولیدی و گردش «پارامتر» بین بخش‌ها مدیریت می‌شود.</p>
       <ul>
+        <li><b>اعطای دسترسی از اشخاص</b>: در <b>اطلاعات اشخاص</b> (یا اشخاص) هنگام ویرایش هر شخص، بخش «دسترسی پورتال عملیاتی» را ببینید — نقش <b>مدیر واحد</b> یا <b>مدیر بخش</b> را انتخاب کنید. با ذخیره، کاربر ورود با تلفن ساخته می‌شود و رمز موقت پیامک می‌شود. سپس همان شخص در لیست مسئول واحد/بخش پورتال قابل انتخاب است.</li>
         <li><b>واحدهای عملیاتی</b>: تعریف واحد، مدیر، انبارهای متصل؛ ساخت پارامتر با اقلام کالا و خط زمانی رنگی وضعیت بخش‌ها (سبز=تکمیل، زرد=در جریان، خاکستری=در انتظار)</li>
         <li><b>بخش من</b>: مدیر بخش پارامترهای در صف را می‌بیند — تأیید مقدار، بازبینی، پرداخت پرسنل، تبدیل کالا، اتمام بخش</li>
         <li>هر انتقال بین بخش‌ها با حواله انبار و (در صورت نیاز) سند حسابداری ثبت می‌شود</li>

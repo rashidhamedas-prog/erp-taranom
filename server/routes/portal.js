@@ -4,8 +4,8 @@
  */
 const router = require('express').Router();
 const { getDB, audit, allocateNumber, createJournalEntry } = require('../db');
-const { auth, requirePermission, centralOnly } = require('../middleware/auth');
-const { ensurePersonUser, sendTempPasswordSms } = require('../lib/portal-users');
+const { auth, requirePermission, centralOnly, adminOrAccounting } = require('../middleware/auth');
+const { ensurePersonUser, sendTempPasswordSms, getPortalAccessByPhone, setPortalAccess } = require('../lib/portal-users');
 const { postInventoryMovement, warehouseQty, invErr } = require('../lib/inventory/ledger');
 const { acct } = require('../lib/coa-map');
 const { postToLedger } = require('../lib/ledger');
@@ -1300,6 +1300,59 @@ router.post('/field-followups', auth, requirePermission('portal', 'edit'), (req,
     } catch (_) { /* followups schema may differ */ }
   }
   res.json({ id: r.lastInsertRowid, ok: true });
+});
+
+// ─── portal access from persons / parties settings ─────────────────────────
+router.get('/access', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const phone = String(req.query.phone || '').trim();
+  const personId = parseInt(req.query.person_id, 10);
+  if (personId) {
+    const person = db.prepare('SELECT id, name, phone FROM persons WHERE id=?').get(personId);
+    if (!person) return res.status(404).json({ error: 'شخص یافت نشد' });
+    const access = getPortalAccessByPhone(db, person.phone);
+    return res.json({ ...access, person_id: person.id, phone: person.phone, name: person.name });
+  }
+  if (!phone) return res.status(400).json({ error: 'phone یا person_id الزامی است' });
+  const access = getPortalAccessByPhone(db, phone);
+  const person = db.prepare('SELECT id, name, phone FROM persons WHERE phone=?').get(phone);
+  res.json({ ...access, person_id: person?.id || null, phone, name: person?.name || null });
+});
+
+router.put('/access', auth, centralOnly, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const { person_id, party_id, phone, name, portal_role } = req.body || {};
+  let resolvedPhone = phone ? String(phone).trim() : '';
+  let resolvedName = name ? String(name).trim() : '';
+  let personId = person_id ? parseInt(person_id, 10) : null;
+
+  if (party_id && !resolvedPhone) {
+    const party = db.prepare('SELECT id, full_name, biz, phone FROM parties WHERE id=?').get(parseInt(party_id, 10));
+    if (!party) return res.status(404).json({ error: 'شخص (parties) یافت نشد' });
+    resolvedPhone = String(party.phone || '').trim();
+    resolvedName = resolvedName || party.full_name || party.biz || '';
+  }
+
+  try {
+    const result = setPortalAccess(db, {
+      personId: personId || null,
+      phone: resolvedPhone,
+      name: resolvedName,
+      portalRole: portal_role,
+    });
+    if (result._temp) {
+      sendTempPasswordSms(db, result._temp);
+      delete result._temp;
+    }
+    audit(req.user.id, result.has_access ? 'portal_access_grant' : 'portal_access_revoke',
+      'person', result.person_id,
+      result.has_access
+        ? `اعطای دسترسی پورتال (${result.portal_role}) به ${result.username}`
+        : `لغو دسترسی پورتال ${result.username}`);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message || 'خطا در تنظیم دسترسی پورتال' });
+  }
 });
 
 module.exports = router;

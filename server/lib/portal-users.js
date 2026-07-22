@@ -5,6 +5,8 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 
+const PORTAL_ROLES = ['unit_manager', 'department_manager'];
+
 function randomTempPassword() {
   // 10 chars, alphanumeric — readable in SMS, not a dictionary word
   return crypto.randomBytes(8).toString('base64url').replace(/[^a-zA-Z0-9]/g, 'x').slice(0, 10);
@@ -26,7 +28,9 @@ function ensurePersonUser(db, personId, role) {
   const existing = db.prepare('SELECT id, username, role, active FROM users WHERE username=?').get(phone);
   if (existing) {
     if (role && existing.role !== role && existing.role !== 'admin') {
-      db.prepare('UPDATE users SET role=? WHERE id=?').run(role, existing.id);
+      db.prepare('UPDATE users SET role=?, active=1 WHERE id=?').run(role, existing.id);
+    } else if (existing.active !== 1) {
+      db.prepare('UPDATE users SET active=1 WHERE id=?').run(existing.id);
     }
     return { userId: existing.id, created: false, username: existing.username };
   }
@@ -55,4 +59,111 @@ function sendTempPasswordSms(db, createdUser) {
   } catch (_) { /* SMS optional */ }
 }
 
-module.exports = { ensurePersonUser, sendTempPasswordSms, randomTempPassword };
+function getPortalAccessByPhone(db, phone) {
+  const p = String(phone || '').trim();
+  if (!p) return { has_access: false, portal_role: null, user_id: null };
+  const u = db.prepare('SELECT id, username, role, active FROM users WHERE username=?').get(p);
+  if (!u) return { has_access: false, portal_role: null, user_id: null };
+  const isPortal = PORTAL_ROLES.includes(u.role);
+  return {
+    has_access: !!(u.active && isPortal),
+    portal_role: isPortal ? u.role : null,
+    user_id: u.id,
+    active: !!u.active,
+    role: u.role,
+  };
+}
+
+/**
+ * Ensure a persons row exists for portal (by phone). Used when granting access from parties UI.
+ */
+function ensurePersonRowByPhone(db, { phone, name }) {
+  const p = String(phone || '').trim();
+  if (!p) {
+    const err = new Error('شماره تلفن برای دسترسی پورتال الزامی است');
+    err.status = 400;
+    throw err;
+  }
+  let row = db.prepare('SELECT id, name, phone FROM persons WHERE phone=?').get(p);
+  if (row) {
+    if (name && name !== row.name) {
+      db.prepare('UPDATE persons SET name=? WHERE id=?').run(String(name).trim(), row.id);
+      row = db.prepare('SELECT id, name, phone FROM persons WHERE id=?').get(row.id);
+    }
+    return row;
+  }
+  const r = db.prepare('INSERT INTO persons (name, phone, active) VALUES (?,?,1)')
+    .run(String(name || p).trim(), p);
+  return db.prepare('SELECT id, name, phone FROM persons WHERE id=?').get(r.lastInsertRowid);
+}
+
+/**
+ * Grant or revoke portal login for a person (by persons.id or phone+name).
+ * portalRole: 'unit_manager' | 'department_manager' | '' | 'none'
+ * Never expose password in API JSON — use _temp only for SMS then drop.
+ */
+function setPortalAccess(db, { personId, phone, name, portalRole }) {
+  const role = String(portalRole || '').trim();
+  const wantNone = !role || role === 'none' || role === 'off' || role === '0';
+
+  let person = null;
+  if (personId) {
+    person = db.prepare('SELECT id, name, phone FROM persons WHERE id=?').get(personId);
+    if (!person) {
+      const err = new Error('شخص یافت نشد');
+      err.status = 404;
+      throw err;
+    }
+  } else {
+    person = ensurePersonRowByPhone(db, { phone, name });
+  }
+
+  const phoneStr = String(person.phone || '').trim();
+  if (!phoneStr) {
+    const err = new Error('شماره تلفن شخص برای دسترسی پورتال الزامی است');
+    err.status = 400;
+    throw err;
+  }
+
+  if (wantNone) {
+    const existing = db.prepare('SELECT id, role, active FROM users WHERE username=?').get(phoneStr);
+    if (existing && PORTAL_ROLES.includes(existing.role)) {
+      db.prepare('UPDATE users SET active=0 WHERE id=?').run(existing.id);
+    }
+    return {
+      person_id: person.id,
+      username: phoneStr,
+      portal_role: null,
+      has_access: false,
+      created: false,
+      revoked: !!(existing && PORTAL_ROLES.includes(existing.role)),
+    };
+  }
+
+  if (!PORTAL_ROLES.includes(role)) {
+    const err = new Error('نقش پورتال نامعتبر است (unit_manager یا department_manager)');
+    err.status = 400;
+    throw err;
+  }
+
+  const createdUser = ensurePersonUser(db, person.id, role);
+  return {
+    person_id: person.id,
+    username: createdUser.username,
+    portal_role: role,
+    has_access: true,
+    created: !!createdUser.created,
+    userId: createdUser.userId,
+    _temp: createdUser,
+  };
+}
+
+module.exports = {
+  ensurePersonUser,
+  sendTempPasswordSms,
+  randomTempPassword,
+  getPortalAccessByPhone,
+  ensurePersonRowByPhone,
+  setPortalAccess,
+  PORTAL_ROLES,
+};
