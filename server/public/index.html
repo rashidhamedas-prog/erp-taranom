@@ -13,9 +13,9 @@
      تا زیر فیلترینگ/اینترنت داخلی هم برنامه فوری و کامل بارگذاری شود.
      اسکریپت‌ها defer دارند تا رندر صفحه را بلوکه نکنند. -->
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<link rel="stylesheet" href="/prod-ui.css">
+<link rel="stylesheet" href="/prod-ui.css?v=69">
 <script src="/vendor/html2canvas.min.js" defer></script>
-<script src="/marketer-ui.js" defer></script>
+<script src="/marketer-ui.js?v=69" defer></script>
 <style>
 /* ===== Theme tokens — «زمرد مدرن» (light, default) =====
    Components must read colors only through these tokens; the dark block
@@ -818,11 +818,11 @@ table.tbl tr:hover td{background:var(--row-hover)}
 <div id="toasts"></div>
 
 <script src="/barcode-input.js" defer></script>
-<script src="/acc-nav.js"></script>
-<script src="/portal-ui.js"></script>
-<script src="/mdi.js" defer></script>
-<script src="/tbl-enhance.js" defer></script>
-<script src="/prod-ui.js" defer></script>
+<script src="/acc-nav.js?v=69"></script>
+<script src="/portal-ui.js?v=69"></script>
+<script src="/mdi.js?v=69" defer></script>
+<script src="/tbl-enhance.js?v=69" defer></script>
+<script src="/prod-ui.js?v=69" defer></script>
 <script>
 /* ============================================================
    STATE & API
@@ -3543,13 +3543,20 @@ async function _openInvBuilder(id){
       try{ inv = await api('GET','/invoices/'+id); }catch(e){ inv=null; }
     }
   }
-  const keepMarketerCart = !id && window.__invCartFromMarketer && Array.isArray(invCart) && invCart.length;
+  const pendingMk = (!id && Array.isArray(window.__pendingMarketerInvRows) && window.__pendingMarketerInvRows.length)
+    ? window.__pendingMarketerInvRows.slice()
+    : null;
+  window.__pendingMarketerInvRows = null;
+  const keepMarketerCart = !id && !pendingMk && window.__invCartFromMarketer && Array.isArray(invCart) && invCart.length;
   if(inv){
     invCart = (inv.rows||[]).map(r=>({
       product_id:r.product_id, name:r.name, qty:r.qty, price:r.price,
       disc:r.disc||0, disc_amount:r.disc_amount||0, description:r.description||'',
       warehouse_id:r.warehouse_id||null, row_type:r.row_type||'product', income_coa:r.income_coa||''
     }));
+    window.__invCartFromMarketer = false;
+  } else if(pendingMk){
+    invCart = pendingMk;
     window.__invCartFromMarketer = false;
   } else if(!keepMarketerCart){
     invCart = [];
@@ -4040,7 +4047,7 @@ function productCardHtml(p, opts){
         <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}${opts.showWarehouse&&p.warehouse_name?' · 🏭 '+esc(p.warehouse_name):''}</div>
         <div class="price">${fmt(p.price)} ریال</div>
         <div class="stock ${low?'low':''}">موجودی: ${fmt(stockQty)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
-        ${(p.colors>1||pack>1)?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.colors>1?`🎨 ${p.colors} رنگ`:''}${p.colors>1&&pack>1?' · ':''}${pack>1?`📦 ${pack} عدد/پک`:''}</div>`:''}
+        ${(p.colors>1||pack>1||opts.addToCartFn)?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.colors>1?`🎨 ${p.colors} رنگ`:''}${p.colors>1&&pack>1?' · ':''}${pack>1?`📦 ${pack} عدد/پک`:''}</div>`:''}
         ${opts.addToCartFn?`<button class="btn sm" style="width:100%;margin-top:8px" onclick="${opts.addToCartFn}(${p.id})">➕ افزودن به سبد${pack>1?` (${pack} عدد)`:''}</button>`:''}
         ${opts.canEdit?`<div class="acts">
           <button class="btn sm ghost" onclick="prodModal(${p.id})">✏️</button>

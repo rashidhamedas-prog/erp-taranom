@@ -1,6 +1,6 @@
 /**
- * Marketer sales flow: Catalog (same card template as کاتالوگ) → Cart → Invoice
- * Add-to-cart qty = products.pack_size (تعداد در پک), same as invoice picker.
+ * Marketer sales: Catalog (filters like کاتالوگ) → Cart (pack_size qty) → Invoice items
+ * Version marker: marketer-ui-v69 — keep in sync with SW / script ?v=
  */
 (function (global) {
   'use strict';
@@ -12,11 +12,12 @@
   function loadCart() {
     try { cart = JSON.parse(localStorage.getItem('marketer_cart') || '[]') || []; }
     catch { cart = []; }
+    if (!Array.isArray(cart)) cart = [];
   }
   function saveCart() {
     localStorage.setItem('marketer_cart', JSON.stringify(cart));
     const badge = document.getElementById('mkCartBadge');
-    if (badge) badge.textContent = String(cart.reduce((a, c) => a + (c.qty || 0), 0));
+    if (badge) badge.textContent = String(cart.reduce((a, c) => a + (Number(c.qty) || 0), 0));
   }
 
   function packQty(p) {
@@ -28,6 +29,41 @@
     return !!(global.ME && (ME.role === 'admin' || ME.role === 'accounting'));
   }
 
+  function cartToInvoiceRows() {
+    const defWh = (typeof ME !== 'undefined' && ME && ME.sales_warehouse_id) ? ME.sales_warehouse_id : null;
+    return cart.map(c => ({
+      product_id: c.product_id,
+      name: c.name,
+      qty: Number(c.qty) || 1,
+      price: c.price,
+      disc: 0,
+      disc_amount: 0,
+      description: '',
+      warehouse_id: defWh,
+      row_type: 'product',
+      income_coa: ''
+    }));
+  }
+
+  /** Seed invoice builder then open — survives async wipe in _openInvBuilder. */
+  function openInvoiceWithCart() {
+    loadCart();
+    if (!cart.length) {
+      showToast('سبد خالی است', 'error');
+      return;
+    }
+    if (!canInvoice()) {
+      showToast('دسترسی ایجاد فاکتور ندارید', 'error');
+      return;
+    }
+    const rows = cartToInvoiceRows();
+    window.__pendingMarketerInvRows = rows;
+    window.__invCartFromMarketer = true;
+    if (typeof invCart !== 'undefined') invCart = rows.slice();
+    if (typeof openInvBuilder === 'function') openInvBuilder();
+    else showToast('فاکتورساز در دسترس نیست', 'error');
+  }
+
   async function renderMarketerPage() {
     loadCart();
     const view = el('view');
@@ -35,7 +71,7 @@
     view.innerHTML = `
       <div class="toolbar" style="gap:8px;flex-wrap:wrap">
         <button class="btn" id="mkTabCat">🛍️ کاتالوگ</button>
-        <button class="btn ghost" id="mkTabCart">🛒 سبد <span id="mkCartBadge" class="tag t-new">${cart.reduce((a,c)=>a+(c.qty||0),0)}</span></button>
+        <button class="btn ghost" id="mkTabCart">🛒 سبد <span id="mkCartBadge" class="tag t-new">${cart.reduce((a,c)=>a+(Number(c.qty)||0),0)}</span></button>
         <button class="btn ghost" id="mkTabInv" ${invOk ? '' : 'disabled title="دسترسی ایجاد فاکتور ندارید"'}>🧾 ثبت فاکتور</button>
       </div>
       <div id="mkBody"></div>`;
@@ -66,14 +102,15 @@
   function paintMkGrid(list) {
     const grid = el('mkGrid');
     if (!grid) return;
-    const cardFn = typeof productCardHtml === 'function'
-      ? (p) => productCardHtml(p, { addToCartFn: 'MarketerUI.addToCart', showWarehouse: false })
-      : null;
-    if (cardFn) {
-      grid.innerHTML = list.map(cardFn).join('') || '<div class="empty">کالایی یافت نشد</div>';
+    // Always show pack on button; prefer shared catalog card when available
+    if (typeof productCardHtml === 'function') {
+      grid.innerHTML = list.map(p => productCardHtml(p, {
+        addToCartFn: 'MarketerUI.addToCart',
+        showWarehouse: false,
+        selectable: false
+      })).join('') || '<div class="empty">کالایی یافت نشد</div>';
       return;
     }
-    // Fallback if helper not loaded yet
     grid.innerHTML = list.map(p => {
       const low = p.stock <= p.stock_alert;
       const pack = packQty(p);
@@ -85,8 +122,8 @@
             <div class="code">${esc(p.code || '')} ${p.category ? '· ' + esc(p.category) : ''}</div>
             <div class="price">${fmt(p.price)} ریال</div>
             <div class="stock ${low ? 'low' : ''}">موجودی: ${fmt(p.stock)} ${esc(p.unit || '')}</div>
-            ${pack > 1 ? `<div style="font-size:11px;color:var(--muted)">📦 ${pack} عدد/پک</div>` : ''}
-            <button class="btn sm" style="width:100%;margin-top:8px" onclick="MarketerUI.addToCart(${p.id})">➕ افزودن به سبد${pack > 1 ? ` (${pack} عدد)` : ''}</button>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">📦 ${pack} عدد/پک</div>
+            <button class="btn sm" style="width:100%;margin-top:8px" onclick="MarketerUI.addToCart(${p.id})">➕ افزودن به سبد (${pack} عدد)</button>
           </div>
         </div>`;
     }).join('') || '<div class="empty">کالایی یافت نشد</div>';
@@ -95,15 +132,21 @@
   async function renderCatalog() {
     const body = el('mkBody');
     body.innerHTML = '<div class="muted">در حال بارگذاری...</div>';
-    const cats = await api('GET', '/products/categories').catch(() => []) || [];
+    let cats = [];
+    try {
+      cats = await api('GET', '/products/categories') || [];
+    } catch (_) { cats = []; }
+    if (!Array.isArray(cats)) cats = [];
+    // Normalize: API may return strings or {name} objects
+    cats = cats.map(c => (typeof c === 'string' ? c : (c && (c.name || c.category || ''))).trim()).filter(Boolean);
     const prods = await loadMkProducts();
     body.innerHTML = `
-      <div class="toolbar">
-        <input class="search" id="mkSearch" placeholder="جستجو نام یا کد..." value="${esc(mkFilter.search)}">
-        <select id="mkCat"><option value="">همه گروه‌ها</option>
+      <div class="toolbar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+        <input class="search" id="mkSearch" placeholder="جستجو نام یا کد..." value="${esc(mkFilter.search)}" style="flex:1;min-width:160px">
+        <select id="mkCat" style="min-width:140px"><option value="">همه گروه‌ها</option>
           ${cats.map(c => `<option value="${esc(c)}" ${mkFilter.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
         </select>
-        <select id="mkStock">
+        <select id="mkStock" style="min-width:120px">
           <option value="all" ${mkFilter.stock_status === 'all' ? 'selected' : ''}>همه موجودی</option>
           <option value="ok" ${mkFilter.stock_status === 'ok' ? 'selected' : ''}>موجود</option>
           <option value="low" ${mkFilter.stock_status === 'low' ? 'selected' : ''}>موجودی کم</option>
@@ -139,11 +182,11 @@
 
   function addToCart(productId) {
     loadCart();
-    const p = (window._mkProds || []).find(x => x.id === productId);
+    const p = (window._mkProds || []).find(x => Number(x.id) === Number(productId));
     if (!p) return;
     const qty = packQty(p);
-    const row = cart.find(c => c.product_id === productId);
-    if (row) row.qty += qty;
+    const row = cart.find(c => Number(c.product_id) === Number(productId));
+    if (row) row.qty = (Number(row.qty) || 0) + qty;
     else cart.push({
       product_id: p.id,
       name: p.name,
@@ -177,7 +220,10 @@
         </tr>`).join('')}</tbody>
       <tfoot><tr><td colspan="3">جمع</td><td class="mono" style="font-weight:800">${fmt(cart.reduce((a,c)=>a+c.price*c.qty,0))}</td><td></td></tr></tfoot>
       </table></div>
-      <div style="margin-top:12px"><button class="btn" onclick="document.getElementById('mkTabInv').click()">ادامه → ثبت فاکتور</button></div>`;
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="document.getElementById('mkTabInv').click()">ادامه → ثبت فاکتور</button>
+        <button class="btn green" onclick="MarketerUI.openInvoiceWithCart()">🧾 باز کردن فاکتورساز با اقلام سبد</button>
+      </div>`;
   }
 
   function setQty(i, q) {
@@ -204,17 +250,18 @@
       el('mkBody').innerHTML = '<div class="empty">دسترسی ایجاد فاکتور ندارید. از مدیر بخواهید در «کاربران → دسترسی‌ها» برای فاکتورها تیک <b>ایجاد</b> را بزند.</div>';
       return;
     }
-    if (typeof invCart !== 'undefined') {
-      invCart = cart.map(c => ({
-        product_id: c.product_id, name: c.name, qty: c.qty, price: c.price,
-        disc: 0, disc_amount: 0, description: '', warehouse_id: ((typeof ME !== 'undefined' && ME && ME.sales_warehouse_id) ? ME.sales_warehouse_id : null), row_type: 'product', income_coa: ''
-      }));
-      window.__invCartFromMarketer = true;
-    }
+    const rows = cartToInvoiceRows();
+    window.__pendingMarketerInvRows = rows;
+    window.__invCartFromMarketer = true;
+    if (typeof invCart !== 'undefined') invCart = rows.slice();
     el('mkBody').innerHTML = `
       <div class="panel"><div class="panel-body">
-        <p class="muted">اقلام سبد (با تعداد پک) به فاکتورساز منتقل شد. مشتری و جزئیات را تکمیل کنید.</p>
-        <button class="btn" onclick="openInvBuilder()">🧾 باز کردن فاکتورساز با اقلام سبد</button>
+        <p class="muted">اقلام سبد (${cart.length} ردیف، با تعداد پک) آماده انتقال به فاکتورساز هستند.</p>
+        <ul class="muted" style="font-size:13px;margin:8px 0 14px;padding-right:18px;line-height:1.8">
+          ${cart.slice(0, 8).map(c => `<li>${esc(c.name)} × ${fmt(c.qty)}</li>`).join('')}
+          ${cart.length > 8 ? `<li>… و ${cart.length - 8} مورد دیگر</li>` : ''}
+        </ul>
+        <button class="btn" onclick="MarketerUI.openInvoiceWithCart()">🧾 باز کردن فاکتورساز با اقلام سبد</button>
         <button class="btn ghost" style="margin-right:8px" onclick="MarketerUI.clearAfterInvoice()">پاک کردن سبد پس از ثبت</button>
       </div></div>`;
   }
@@ -222,8 +269,18 @@
   function clearAfterInvoice() {
     cart = [];
     saveCart();
+    window.__pendingMarketerInvRows = null;
+    window.__invCartFromMarketer = false;
     showToast('سبد پاک شد');
   }
 
-  global.MarketerUI = { renderMarketerPage, addToCart, setQty, remove, clearAfterInvoice };
+  global.MarketerUI = {
+    renderMarketerPage,
+    addToCart,
+    setQty,
+    remove,
+    clearAfterInvoice,
+    openInvoiceWithCart,
+    _ver: 'marketer-ui-v69'
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

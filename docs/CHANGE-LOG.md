@@ -32,8 +32,8 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | 7e6585 sales UX privacy — SW erp-taranom-v68 |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v68` |
+| آخرین commit | 7e6585 sales UX privacy — SW erp-taranom-v69 |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v69` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
 | وضعیت سرور | ✅ سرور 94.249.244.208 — HEAD=7e6585، health 200، SW 68 |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
@@ -45,8 +45,16 @@
 - **Commit:** c43f066
 - **خلاصه:** حریم اطلاعات شخص کاربر؛ فیلتر گروه/موجودی و پک در فروش بازاریاب؛ انتقال سبد به اقلام فاکتور؛ مخفی‌سازی فیلدهای پیشرفته فاکتور برای کارشناس میدانی/داخلی؛ انبار مبدأ پیش‌فرض در تعریف کاربر؛ حذف کاتالوگ/فروش بازاریاب از منوی مدیر سیستم و حسابداری
 - **فایل‌های کلیدی:** server/public/index.html, server/public/marketer-ui.js, server/routes/parties.js, server/routes/admin.js, server/routes/invoices.js, server/routes/auth.js, server/db.js, server/public/sw.js
-- **Deploy:** ✅ 7e6585 Iran health 200 — SW erp-taranom-v68
-- **SW:** erp-taranom-v68
+- **Deploy:** ✅ 7e6585 Iran health 200 — SW erp-taranom-v69
+- **SW:** erp-taranom-v69
+
+### 2026-07-22 - رفع کش فروش بازاریاب (فیلتر/پک/سبد→فاکتور)
+- **شاخه:** claude/claude-md-docs-2ssrpy
+- **Commit:** (pending)
+- **خلاصه:** علت: SW قدیمی marketer-ui.js را cache-first نگه می‌داشت. network-first برای JS/CSS + ?v=69؛ فیلتر گروه/موجودی و pack_size؛ انتقال قطعی سبد به اقلام فاکتور با __pendingMarketerInvRows
+- **فایل‌های کلیدی:** server/public/marketer-ui.js, server/public/sw.js, server/public/index.html
+- **Deploy:** ⏳
+- **SW:** erp-taranom-v69
 
 ## تاریخچه
 
