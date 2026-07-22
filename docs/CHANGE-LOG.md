@@ -49,7 +49,7 @@
   3. file sync: `product_images` + رسیدهای `reps/`؛ حذف ingest دیباگ قدیمی از `client.js`
   4. تشخیص: `scripts/_diag-sync-gaps-b16e78.js` — post-fix صفر mismatch؛ `test-sync.js` ۳۳/۳۳
 - **فایل‌های کلیدی:** `server/sync/capture.js`, `server/sync/tables.js`, `server/sync/client.js`, `server/sync/files.js`, `server/db.js`, `docs/CHANGE-LOG.md`, `server/public/index.html`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `99e1015` ایران — health 200؛ diag صفر mismatch؛ SW `erp-taranom-v76`
 - **SW:** `erp-taranom-v76` (بدون bump — تغییر عمدتاً سرور/سینک)
 
 ### 2026-07-22 — [Cursor] ۶ قالب فاکتور رسمی/معمولی + تنظیمات A4/A5 — SW v76
