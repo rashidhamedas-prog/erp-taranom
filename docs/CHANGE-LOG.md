@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (در حال commit) سینک gaps PATH+جداول |
+| آخرین commit | `9167b3d` سینک gaps PATH+جداول |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v76` |
 | اندروید | **`2.0.19`** (versionCode 21) — نیاز به rebuild برای capture جدید روی دستگاه |
 | وضعیت سرور | ⏳ deploy سینک gaps |
