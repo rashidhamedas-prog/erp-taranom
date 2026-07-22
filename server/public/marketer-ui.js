@@ -1,5 +1,6 @@
 /**
- * Marketer sales flow: Catalog (filters like catalog + zoom + cart) → Cart → Invoice
+ * Marketer sales flow: Catalog (same card template as کاتالوگ) → Cart → Invoice
+ * Add-to-cart qty = products.pack_size (تعداد در پک), same as invoice picker.
  */
 (function (global) {
   'use strict';
@@ -18,21 +19,35 @@
     if (badge) badge.textContent = String(cart.reduce((a, c) => a + (c.qty || 0), 0));
   }
 
+  function packQty(p) {
+    return Math.max(1, parseInt(p && p.pack_size, 10) || 1);
+  }
+
+  function canInvoice() {
+    if (typeof canCreateInvoice === 'function') return canCreateInvoice();
+    return !!(global.ME && (ME.role === 'admin' || ME.role === 'accounting'));
+  }
+
   async function renderMarketerPage() {
     loadCart();
     const view = el('view');
+    const invOk = canInvoice();
     view.innerHTML = `
       <div class="toolbar" style="gap:8px;flex-wrap:wrap">
         <button class="btn" id="mkTabCat">🛍️ کاتالوگ</button>
         <button class="btn ghost" id="mkTabCart">🛒 سبد <span id="mkCartBadge" class="tag t-new">${cart.reduce((a,c)=>a+(c.qty||0),0)}</span></button>
-        <button class="btn ghost" id="mkTabInv">🧾 ثبت فاکتور</button>
+        <button class="btn ghost" id="mkTabInv" ${invOk ? '' : 'disabled title="دسترسی ایجاد فاکتور ندارید"'}>🧾 ثبت فاکتور</button>
       </div>
       <div id="mkBody"></div>`;
     el('mkTabCat').onclick = () => { setActive(0); renderCatalog(); };
     el('mkTabCart').onclick = () => { setActive(1); renderCart(); };
-    el('mkTabInv').onclick = () => { setActive(2); renderCheckout(); };
+    el('mkTabInv').onclick = () => {
+      if (!canInvoice()) { showToast('دسترسی ایجاد فاکتور ندارید — از مدیر بخواهید دسترسی «فاکتورها → ایجاد» را فعال کند', 'error'); return; }
+      setActive(2); renderCheckout();
+    };
     function setActive(i) {
       [el('mkTabCat'), el('mkTabCart'), el('mkTabInv')].forEach((b, idx) => {
+        if (!b) return;
         b.classList.toggle('ghost', idx !== i);
       });
     }
@@ -48,10 +63,38 @@
     return await api('GET', '/products?' + qs.toString()) || [];
   }
 
+  function paintMkGrid(list) {
+    const grid = el('mkGrid');
+    if (!grid) return;
+    const cardFn = typeof productCardHtml === 'function'
+      ? (p) => productCardHtml(p, { addToCartFn: 'MarketerUI.addToCart', showWarehouse: false })
+      : null;
+    if (cardFn) {
+      grid.innerHTML = list.map(cardFn).join('') || '<div class="empty">کالایی یافت نشد</div>';
+      return;
+    }
+    // Fallback if helper not loaded yet
+    grid.innerHTML = list.map(p => {
+      const low = p.stock <= p.stock_alert;
+      const pack = packQty(p);
+      return `
+        <div class="pcard">
+          <div class="img">${p.image ? prodImgTag(p.image) : '🧥'}</div>
+          <div class="body">
+            <div class="name">${esc(p.name)}</div>
+            <div class="code">${esc(p.code || '')} ${p.category ? '· ' + esc(p.category) : ''}</div>
+            <div class="price">${fmt(p.price)} ریال</div>
+            <div class="stock ${low ? 'low' : ''}">موجودی: ${fmt(p.stock)} ${esc(p.unit || '')}</div>
+            ${pack > 1 ? `<div style="font-size:11px;color:var(--muted)">📦 ${pack} عدد/پک</div>` : ''}
+            <button class="btn sm" style="width:100%;margin-top:8px" onclick="MarketerUI.addToCart(${p.id})">➕ افزودن به سبد${pack > 1 ? ` (${pack} عدد)` : ''}</button>
+          </div>
+        </div>`;
+    }).join('') || '<div class="empty">کالایی یافت نشد</div>';
+  }
+
   async function renderCatalog() {
     const body = el('mkBody');
     body.innerHTML = '<div class="muted">در حال بارگذاری...</div>';
-    // Same category source as catalog page (already visibility + ACL filtered on server)
     const cats = await api('GET', '/products/categories').catch(() => []) || [];
     const prods = await loadMkProducts();
     body.innerHTML = `
@@ -67,27 +110,8 @@
         </select>
       </div>
       <div class="pgrid" id="mkGrid"></div>`;
-    const grid = el('mkGrid');
-    function paint(list) {
-      grid.innerHTML = list.map(p => {
-        const low = p.stock <= p.stock_alert;
-        return `
-        <div class="pcard">
-          <div class="img" ${p.image ? `onclick="showImgPreview(prodImgUrl('${String(p.image).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'))" style="cursor:zoom-in"` : ''}>
-            ${p.image ? prodImgTag(p.image) : '🧥'}
-          </div>
-          <div class="body">
-            <div class="name">${esc(p.name)}</div>
-            <div class="code">${esc(p.code || '')} ${p.category ? '· ' + esc(p.category) : ''}</div>
-            <div class="price">${fmt(p.price)} ریال</div>
-            <div class="stock ${low ? 'low' : ''}">موجودی: ${fmt(p.stock)} ${esc(p.unit || '')} ${low ? '⚠️' : ''}</div>
-            <button class="btn sm" style="width:100%;margin-top:8px" onclick="MarketerUI.addToCart(${p.id})">➕ افزودن به سبد</button>
-          </div>
-        </div>`;
-      }).join('') || '<div class="empty">کالایی یافت نشد</div>';
-    }
-    paint(prods);
     window._mkProds = prods;
+    paintMkGrid(prods);
 
     el('mkSearch').addEventListener('input', () => {
       mkFilter.search = el('mkSearch').value;
@@ -110,33 +134,28 @@
     grid.innerHTML = '<div class="muted" style="padding:12px">در حال بارگذاری...</div>';
     const prods = await loadMkProducts();
     window._mkProds = prods;
-    grid.innerHTML = prods.map(p => {
-      const low = p.stock <= p.stock_alert;
-      return `
-        <div class="pcard">
-          <div class="img" ${p.image ? `onclick="showImgPreview(prodImgUrl('${String(p.image).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'))" style="cursor:zoom-in"` : ''}>
-            ${p.image ? prodImgTag(p.image) : '🧥'}
-          </div>
-          <div class="body">
-            <div class="name">${esc(p.name)}</div>
-            <div class="code">${esc(p.code || '')} ${p.category ? '· ' + esc(p.category) : ''}</div>
-            <div class="price">${fmt(p.price)} ریال</div>
-            <div class="stock ${low ? 'low' : ''}">موجودی: ${fmt(p.stock)} ${esc(p.unit || '')} ${low ? '⚠️' : ''}</div>
-            <button class="btn sm" style="width:100%;margin-top:8px" onclick="MarketerUI.addToCart(${p.id})">➕ افزودن به سبد</button>
-          </div>
-        </div>`;
-    }).join('') || '<div class="empty">کالایی یافت نشد</div>';
+    paintMkGrid(prods);
   }
 
   function addToCart(productId) {
     loadCart();
     const p = (window._mkProds || []).find(x => x.id === productId);
     if (!p) return;
+    const qty = packQty(p);
     const row = cart.find(c => c.product_id === productId);
-    if (row) row.qty += 1;
-    else cart.push({ product_id: p.id, name: p.name, price: p.price, qty: 1, image: p.image || '' });
+    if (row) row.qty += qty;
+    else cart.push({
+      product_id: p.id,
+      name: p.name,
+      price: p.price,
+      qty,
+      pack_size: qty,
+      image: p.image || ''
+    });
     saveCart();
-    showToast(p.name + ' به سبد اضافه شد');
+    showToast(qty > 1
+      ? `${p.name} — ${fmt(qty)} عدد (یک پک) به سبد اضافه شد`
+      : (p.name + ' به سبد اضافه شد'));
   }
 
   function renderCart() {
@@ -150,7 +169,7 @@
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کالا</th><th>فی</th><th>تعداد</th><th>جمع</th><th></th></tr></thead>
       <tbody>${cart.map((c, i) => `
         <tr>
-          <td>${c.image ? prodImgTag(c.image, 'style="height:40px;border-radius:6px;margin-left:8px;vertical-align:middle"') : ''} ${esc(c.name)}</td>
+          <td>${c.image ? prodImgTag(c.image, 'style="height:40px;border-radius:6px;margin-left:8px;vertical-align:middle"') : ''} ${esc(c.name)}${c.pack_size > 1 ? `<div class="muted" style="font-size:11px">📦 پک ${fmt(c.pack_size)}</div>` : ''}</td>
           <td class="mono">${fmt(c.price)}</td>
           <td><input type="number" min="1" value="${c.qty}" style="width:70px" onchange="MarketerUI.setQty(${i},+this.value)"></td>
           <td class="mono">${fmt(c.price * c.qty)}</td>
@@ -181,6 +200,10 @@
       el('mkBody').innerHTML = '<div class="empty">ابتدا کالا به سبد اضافه کنید</div>';
       return;
     }
+    if (!canInvoice()) {
+      el('mkBody').innerHTML = '<div class="empty">دسترسی ایجاد فاکتور ندارید. از مدیر بخواهید در «کاربران → دسترسی‌ها» برای فاکتورها تیک <b>ایجاد</b> را بزند.</div>';
+      return;
+    }
     if (typeof invCart !== 'undefined') {
       invCart = cart.map(c => ({
         product_id: c.product_id, name: c.name, qty: c.qty, price: c.price,
@@ -189,7 +212,7 @@
     }
     el('mkBody').innerHTML = `
       <div class="panel"><div class="panel-body">
-        <p class="muted">اقلام سبد به فاکتورساز منتقل شد. مشتری و جزئیات را تکمیل کنید.</p>
+        <p class="muted">اقلام سبد (با تعداد پک) به فاکتورساز منتقل شد. مشتری و جزئیات را تکمیل کنید.</p>
         <button class="btn" onclick="openInvBuilder()">🧾 باز کردن فاکتورساز با اقلام سبد</button>
         <button class="btn ghost" style="margin-right:8px" onclick="MarketerUI.clearAfterInvoice()">پاک کردن سبد پس از ثبت</button>
       </div></div>`;

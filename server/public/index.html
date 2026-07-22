@@ -1722,6 +1722,8 @@ const NAV_ADMIN = [
   {id:'followups', icon:'📞', label:'پیگیری‌ها'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'products', icon:'🛍️', label:'کالاها'},
+  {id:'catalog', icon:'🛍️', label:'کاتالوگ'},
+  {id:'marketer', icon:'🛒', label:'فروش بازاریاب'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'users', icon:'👤', label:'کاربران'},
   {id:'reports', icon:'📈', label:'گزارشات'},
@@ -3476,7 +3478,7 @@ ROUTES.invoices = async function(){
         <option value="proforma" ${invFilter.type==='proforma'?'selected':''}>پیش‌فاکتور</option>
         <option value="final" ${invFilter.type==='final'?'selected':''}>فاکتور رسمی</option>
       </select>
-      <button class="btn" onclick="openInvBuilder()">➕ فاکتور جدید</button>
+      ${canCreateInvoice()?`<button class="btn" onclick="openInvBuilder()">➕ فاکتور جدید</button>`:''}
       ${isAdmin()?`<button class="btn ghost" onclick="exportExcel('invoices')">📥 اکسل</button>`:''}
     </div>
     <div class="panel"><div class="panel-body tbl-wrap"><div id="invTable"></div></div></div>`;
@@ -3517,6 +3519,10 @@ function renderInvTable(){
   }
 }
 function openInvBuilder(id){
+  if(!id && typeof canCreateInvoice==='function' && !canCreateInvoice()){
+    showToast('دسترسی ایجاد فاکتور ندارید','error');
+    return;
+  }
   _openInvBuilder(id);
 }
 async function _openInvBuilder(id){
@@ -3975,27 +3981,47 @@ function renderProdGrid(canEdit){
   const bar=el('pBulkBar'); const cnt=el('pSelCount');
   if(bar) bar.style.display = prodSelected.size>0 ? 'flex' : 'none';
   if(cnt) cnt.textContent = `${prodSelected.size} کالا انتخاب شده`;
-  grid.innerHTML = CACHE.products.map(p=>{
-    const low = p.stock<=p.stock_alert;
-    const sel = prodSelected.has(p.id);
-    return `<div class="pcard" style="${sel?'outline:2px solid var(--purple);background:var(--purple-light)':''}">
-      <div style="position:absolute;top:8px;right:8px;z-index:2">
+  const isCatalog = CURRENT_PAGE === 'catalog';
+  grid.innerHTML = CACHE.products.map(p=>productCardHtml(p,{
+    canEdit,
+    selectable:true,
+    selected:prodSelected.has(p.id),
+    showWarehouse:!isCatalog,
+    warehouseFilter:prodFilter.warehouse_id
+  })).join('') || '<div class="empty">کالایی یافت نشد</div>';
+}
+/** Shared catalog-style product card (کاتالوگ / فروش بازاریاب). */
+function productCardHtml(p, opts){
+  opts = opts || {};
+  const low = p.stock<=p.stock_alert;
+  const stockQty = opts.warehouseFilter && p.wh_qty!=null ? p.wh_qty : p.stock;
+  const pack = Math.max(1, parseInt(p.pack_size,10)||1);
+  const sel = !!opts.selected;
+  const imgClick = p.image
+    ? `onclick="showImgPreview(prodImgUrl('${String(p.image).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}'))" style="cursor:zoom-in"`
+    : '';
+  return `<div class="pcard" style="${sel?'outline:2px solid var(--purple);background:var(--purple-light)':''}">
+      ${opts.selectable?`<div style="position:absolute;top:8px;right:8px;z-index:2">
         <input type="checkbox" ${sel?'checked':''} onchange="toggleProd(${p.id},this.checked)" style="width:16px;height:16px;cursor:pointer">
-      </div>
-      <div class="img" ${p.image?`onclick="showImgPreview(prodImgUrl('${String(p.image).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}'))" style="cursor:zoom-in"`:''}>${p.image?prodImgTag(p.image):'🧥'}</div>
+      </div>`:''}
+      <div class="img" ${imgClick}>${p.image?prodImgTag(p.image):'🧥'}</div>
       <div class="body">
         <div class="name">${esc(p.name)}</div>
-        <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}${p.warehouse_name?' · 🏭 '+esc(p.warehouse_name):''}</div>
+        <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}${opts.showWarehouse&&p.warehouse_name?' · 🏭 '+esc(p.warehouse_name):''}</div>
         <div class="price">${fmt(p.price)} ریال</div>
-        <div class="stock ${low?'low':''}">موجودی: ${fmt(prodFilter.warehouse_id && p.wh_qty!=null ? p.wh_qty : p.stock)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
-        ${(p.colors>1||p.pack_size>1)?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.colors>1?`🎨 ${p.colors} رنگ`:''}${p.colors>1&&p.pack_size>1?' · ':''}${p.pack_size>1?`📦 ${p.pack_size} عدد/پک`:''}</div>`:''}
-        ${canEdit?`<div class="acts">
+        <div class="stock ${low?'low':''}">موجودی: ${fmt(stockQty)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
+        ${(p.colors>1||pack>1)?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.colors>1?`🎨 ${p.colors} رنگ`:''}${p.colors>1&&pack>1?' · ':''}${pack>1?`📦 ${pack} عدد/پک`:''}</div>`:''}
+        ${opts.addToCartFn?`<button class="btn sm" style="width:100%;margin-top:8px" onclick="${opts.addToCartFn}(${p.id})">➕ افزودن به سبد${pack>1?` (${pack} عدد)`:''}</button>`:''}
+        ${opts.canEdit?`<div class="acts">
           <button class="btn sm ghost" onclick="prodModal(${p.id})">✏️</button>
           ${p.barcode?`<button class="btn sm ghost" onclick="openBarcodeLabels(${p.id})" title="چاپ برچسب بارکد">🏷️</button>`:''}
           <button class="btn sm red" onclick="confirmDelete('products',${p.id},'${esc(p.name)}')">🗑️</button>
         </div>`:''}
       </div></div>`;
-  }).join('') || '<div class="empty">کالایی یافت نشد</div>';
+}
+function canCreateInvoice(){
+  if(ME?.role==='admin'||ME?.role==='accounting') return true;
+  return typeof canPerm==='function' && canPerm('invoices','create');
 }
 function toggleProd(id, checked){ if(checked) prodSelected.add(id); else prodSelected.delete(id); renderProdGrid(_prodCanEdit); }
 async function bulkProdDelete(){
@@ -4756,10 +4782,24 @@ async function openRbacMatrix(userId){
   openModal(`<div class="modal-head"><h3>🔐 دسترسی‌های کاربر — ${esc(uName)}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <p class="muted" style="font-size:12px;margin:0 0 10px;line-height:1.7">تیک هر خانه یعنی آن عملیات برای این بخش مجاز است. مقادیر پیش‌فرض از نقش کاربر می‌آید؛ تغییرات اینجا فقط برای همین کاربر ذخیره می‌شود.</p>
+      <div style="margin:0 0 12px;display:flex;flex-wrap:wrap;gap:8px">
+        <button type="button" class="btn sm" onclick="rbacGrantInvoiceFull()">✅ دسترسی کامل فاکتور (مشاهده/ایجاد/ویرایش/خروجی)</button>
+        <button type="button" class="btn sm ghost" onclick="rbacGrantAll()">دسترسی کامل همه بخش‌ها</button>
+      </div>
       <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>بخش</th>${actions.map(a=>`<th>${esc(RBAC_ACT_FA[a]||a)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
     </div>
     <div class="modal-foot"><button class="btn" onclick="saveRbacMatrix(${userId})">💾 ذخیره دسترسی‌ها</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+function rbacGrantInvoiceFull(){
+  document.querySelectorAll('#modalRoot input[data-r="invoices"]').forEach(cb=>{
+    cb.checked = ['view','create','edit','export'].includes(cb.dataset.a);
+  });
+  showToast('تیک‌های فاکتور برای صدور فاکتور فعال شد — ذخیره را بزنید');
+}
+function rbacGrantAll(){
+  document.querySelectorAll('#modalRoot input[data-r]').forEach(cb=>{ cb.checked = true; });
+  showToast('همه دسترسی‌ها تیک خورد — ذخیره را بزنید');
 }
 async function saveRbacMatrix(userId){
   const perms={};
@@ -6389,7 +6429,7 @@ async function renderSalesInvoicesTab(body, typeLock){
   const titleBtn = lock==='proforma' ? '➕ پیش‌فاکتور جدید' : '➕ فاکتور جدید';
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <button class="btn" onclick="openInvBuilder()">${titleBtn}</button>
+      ${canCreateInvoice()?`<button class="btn" onclick="openInvBuilder()">${titleBtn}</button>`:''}
       <input id="accInvSearch" class="search" placeholder="جستجو شماره/مشتری..." style="min-width:180px" oninput="filterAccInvTable()">
     </div>
     <div class="tbl-wrap"><table class="tbl" id="accSalesInvTbl" data-bulk-delete="/invoices" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} فاکتور ابطال شود؟ سند معکوس ثبت می‌شود."><thead><tr>
@@ -14863,6 +14903,13 @@ function renderAdminGuide(){
       <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، فیلدهای تخفیف درصدی و مبلغی فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلدها را نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
       <h5>چاپ</h5><p>از دکمه «چاپ» روی صفحه نمایش فاکتور استفاده کنید. تنها فاکتور چاپ می‌شود، بقیه رابط کاربری پنهان می‌شود.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
+    helpSec('🛒','فروش بازاریاب',`
+      <p>منوی <b>فروش بازاریاب</b> گردش کاتالوگ → سبد → فاکتور است. نمایش کارت کالا دقیقاً مثل قالب <b>کاتالوگ</b> است (نام، کد، گروه، قیمت، موجودی، رنگ، تعداد در پک).</p>
+      <ul>
+        <li>با «افزودن به سبد»، به‌اندازه <b>تعداد در پک</b> کالا به سبد/فاکتور اضافه می‌شود (مثل فاکتورساز)</li>
+        <li>ثبت فاکتور فقط برای کاربرانی که دسترسی <b>فاکتورها → ایجاد</b> دارند (مدیر/حسابدار و کارشناس فروش به‌صورت پیش‌فرض)</li>
+        <li>در «کاربران → دسترسی‌ها» دکمه «دسترسی کامل فاکتور» همین تیک‌ها را یک‌جا می‌زند</li>
+      </ul>`),
     helpSec('💬','پیام‌ها (رابط شبیه تلگرام)',`
       <p>بخش پیام‌ها با ظاهر و تجربهٔ شبیه تلگرام بازطراحی شده است.</p>
       <h5>امکانات</h5><ul>
@@ -15216,6 +15263,12 @@ function renderSalesGuide(){
         <li>ذخیره کنید و در صورت نیاز چاپ بگیرید</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور رسمی برای ثبت فروش قطعی.</div>`),
+    helpSec('🛒','فروش بازاریاب',`
+      <p>از منو «فروش بازاریاب»: کاتالوگ با همان قالب صفحه کاتالوگ، افزودن به سبد، سپس ثبت فاکتور.</p>
+      <ul>
+        <li>هر بار «افزودن به سبد» = <b>تعداد در پک</b> آن کالا (مثلاً اگر پک ۶ باشد، ۶ عدد به فاکتور می‌رود)</li>
+        <li>اگر دکمه ثبت فاکتور غیرفعال بود، از مدیر بخواهید دسترسی «فاکتورها → ایجاد» را باز کند</li>
+      </ul>`),
     helpSec('💬','پیام‌ها',`
       <p>پیام‌ها با ظاهر شبیه تلگرام کار می‌کند: لیست گفتگو، حباب پیام، تیک خوانده‌شدن.</p>
       <ul>

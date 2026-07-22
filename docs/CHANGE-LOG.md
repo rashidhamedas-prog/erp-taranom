@@ -32,15 +32,22 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `b7f4b29` Soft Bento UI — SW `erp-taranom-v65` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v65` |
+| آخرین commit | *(marketer catalog+pack — پس از commit)* |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v66` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`b830ae6`، health ۲۰۰، SW `v65` |
+| وضعیت سرور | ⏳ marketer pack/catalog در حال deploy |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### 2026-07-22 — فروش بازاریاب = قالب کاتالوگ + تعداد پک + دسترسی فاکتور
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** *(پس از commit)*
+- **خلاصه:** کارت کالا در فروش بازاریاب همان قالب کاتالوگ؛ افزودن به سبد با `pack_size`؛ منوی کاتالوگ/بازاریاب برای ادمین؛ دکمه سریع «دسترسی کامل فاکتور» در RBAC؛ گیت `invoices.create` روی UI و API. SW `v66`.
+- **فایل‌های کلیدی:** `public/marketer-ui.js`, `public/index.html`, `routes/invoices.js`, `public/sw.js`
+- **Deploy:** ⏳
 
 ### 2026-07-22 — بازطراحی UI: Soft Bento (نمونه C)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

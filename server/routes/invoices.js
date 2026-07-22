@@ -359,7 +359,7 @@ router.get('/:id', auth, (req, res) => {
   res.json({ ...row, rows: JSON.parse(row.rows || '[]') });
 });
 
-router.post('/', auth, (req, res) => {
+router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info,
     bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
     moadian_invoice_type } = req.body;
@@ -478,7 +478,7 @@ router.post('/', auth, (req, res) => {
   res.json({ ...row, rows: JSON.parse(row.rows || '[]'), used_warehouses: created.usedWarehouses || [] });
 });
 
-router.put('/:id', auth, (req, res) => {
+router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
