@@ -45,7 +45,7 @@
 - **Commit:** `c7280db`
 - **خلاصه:** قانون دائمی R13 (Edit⇒Cancel با reverse همهٔ اثرات). لغو فاکتور رسمی توسط مدیر/حسابداری از صفحهٔ تأیید: cascade ابطال تسویه، برگشت به پیش‌فاکتور در صورت تبدیل، پیام داخل‌برنامه با عکس فاکتور. بدون حذف فیزیکی (R12).
 - **فایل‌های کلیدی:** `server/lib/void-invoice.js`, `server/lib/void-settlement.js`, `server/routes/invoices.js`, `server/routes/accounting.js`, `server/public/index.html`, `server/sync/capture.js`, `.cursor/rules/full-reverse-on-cancel.mdc`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `c7280db` ایران — health 200
 - **SW:** `erp-taranom-v78`
 - **یادداشت:** فاز ۲ backlog: انبار moves، چک، دارایی ثابت، نرخ سربار.
 
