@@ -62,6 +62,29 @@ function mapPartyRow(row) {
   };
 }
 
+/** Parties linked via users.party_id are private user profiles. */
+function canSeeAllUserParties(role) {
+  return role === 'admin' || role === 'accounting';
+}
+
+function appendUserPartyPrivacyFilter(sql, params, req) {
+  if (canSeeAllUserParties(req.user?.role)) return sql;
+  // Non-privileged: hide other users' linked person records; own profile OK.
+  sql += ` AND (
+    NOT EXISTS (SELECT 1 FROM users uu WHERE uu.party_id = p.id)
+    OR EXISTS (SELECT 1 FROM users uu WHERE uu.party_id = p.id AND uu.id = ?)
+  )`;
+  params.push(req.user.id);
+  return sql;
+}
+
+function assertCanViewUserLinkedParty(db, req, partyId) {
+  if (canSeeAllUserParties(req.user?.role)) return true;
+  const owner = db.prepare('SELECT id FROM users WHERE party_id=?').get(partyId);
+  if (!owner) return true;
+  return owner.id === req.user.id;
+}
+
 router.get('/export/excel', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
@@ -158,6 +181,7 @@ router.get('/', auth, (req, res) => {
     const q = '%' + norm + '%';
     params.push(q, q, q, q, q, q, q);
   }
+  sql = appendUserPartyPrivacyFilter(sql, params, req);
   const countSql = sql.replace(/SELECT[\s\S]+?FROM parties p/, 'SELECT COUNT(*) AS c FROM parties p');
   const total = db.prepare(countSql).get(...params)?.c || 0;
   const lim = Math.min(500, parseInt(limit, 10) || 200);
@@ -177,6 +201,9 @@ router.get('/:id', auth, (req, res) => {
     WHERE p.id=?
   `).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (!assertCanViewUserLinkedParty(db, req, row.id)) {
+    return res.status(403).json({ error: 'دسترسی به اطلاعات این کاربر مجاز نیست' });
+  }
   res.json({ success: true, data: mapPartyRow(row) });
 });
 

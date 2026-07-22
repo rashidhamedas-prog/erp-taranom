@@ -18,7 +18,7 @@ router.get('/users', auth, adminOnly, (req, res) => {
   const db = getDB();
   const users = db.prepare(`
     SELECT u.id,u.name,u.username,u.role,u.phone,u.active,u.last_login,u.commission_cash,u.commission_cheque,
-      u.commission_basis,u.monthly_target,u.incentive_locked,u.created_at,u.party_id,
+      u.commission_basis,u.monthly_target,u.incentive_locked,u.created_at,u.party_id,u.sales_warehouse_id,
       p.person_code,p.legal_type,p.company_name,p.national_id,p.economic_code,
       p.secondary_phone AS person_secondary_phone,p.mobile AS person_mobile,p.fax AS person_fax,
       p.email AS person_email,p.city AS person_city,p.province AS person_province,p.address AS person_address,
@@ -33,7 +33,7 @@ router.get('/users', auth, adminOnly, (req, res) => {
 router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
   const { name, username, password, phone, role = 'salesperson', commission_cash = 0, commission_cheque = 0,
     commission_basis = 'invoice', monthly_target = 0, quarterly_target = 0, annual_target = 0, bonus_pct = 0, commission_fixed = 0, penalty_pct = 0, supervisor_commission_pct = 0,
-    rep_code, rep_subtype, territory, supervisor_id, employment_status, bank_name, bank_account, bank_iban, rep_opening_balance } = req.body;
+    rep_code, rep_subtype, territory, supervisor_id, employment_status, bank_name, bank_account, bank_iban, rep_opening_balance, sales_warehouse_id } = req.body;
   if (!name || !username || !password) return res.status(400).json({ error: 'اطلاعات ناقص' });
   const db = getDB();
   const exists = db.prepare('SELECT id FROM users WHERE username=?').get(username);
@@ -43,15 +43,16 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
   const created = db.transaction(() => {
     const result = db.prepare(`
       INSERT INTO users (name,username,password,phone,role,commission_cash,commission_cheque,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,incentive_locked,must_change_password,
-        rep_code,rep_subtype,territory,supervisor_id,employment_status,bank_name,bank_account,bank_iban,rep_opening_balance)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,1,?,?,?,?,?,?,?,?,?)
+        rep_code,rep_subtype,territory,supervisor_id,employment_status,bank_name,bank_account,bank_iban,rep_opening_balance,sales_warehouse_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,1,?,?,?,?,?,?,?,?,?,?)
     `).run(name, username, hash, phone || '', role, parseFloat(commission_cash) || 0, parseFloat(commission_cheque) || 0,
       ['collection', 'profit'].includes(commission_basis) ? commission_basis : 'invoice',
       parseFloat(monthly_target) || 0,
       parseFloat(quarterly_target) || 0, parseFloat(annual_target) || 0, parseFloat(bonus_pct) || 0, parseFloat(commission_fixed) || 0,
       parseFloat(penalty_pct) || 0, parseFloat(supervisor_commission_pct) || 0,
       rep_code || '', rep_subtype || '', territory || '', supervisor_id ? parseInt(supervisor_id) : null,
-      employment_status || 'active', bank_name || '', bank_account || '', bank_iban || '', parseFloat(rep_opening_balance) || 0);
+      employment_status || 'active', bank_name || '', bank_account || '', bank_iban || '', parseFloat(rep_opening_balance) || 0,
+      sales_warehouse_id ? parseInt(sales_warehouse_id, 10) : null);
     ensureUserParty(db, result.lastInsertRowid, req.body);
     return result;
   })();
@@ -64,7 +65,7 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   const { name, password, active, role, phone, commission_cash = 0, commission_cheque = 0, force,
     commission_basis, monthly_target, quarterly_target, annual_target, bonus_pct, commission_fixed, penalty_pct, supervisor_commission_pct,
     rep_code, rep_subtype, territory, supervisor_id, employment_status,
-    bank_name, bank_account, bank_iban, rep_opening_balance } = req.body;
+    bank_name, bank_account, bank_iban, rep_opening_balance, sales_warehouse_id } = req.body;
   const db = getDB();
   const existing = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'کاربر یافت نشد' });
@@ -87,25 +88,30 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   }
 
   db.transaction(() => {
+    const salesWhId = sales_warehouse_id === '' || sales_warehouse_id == null
+      ? (existing.sales_warehouse_id || null)
+      : (parseInt(sales_warehouse_id, 10) || null);
     if (password) {
       db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,password=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,penalty_pct=?,supervisor_commission_pct=?,incentive_locked=1,must_change_password=1,
-        rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=? WHERE id=?`)
+        rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=?,sales_warehouse_id=? WHERE id=?`)
         .run(name, active, role, phone || '', bcrypt.hashSync(password, 10), newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
           rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
           supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
           employment_status || existing.employment_status || 'active',
           bank_name || existing.bank_name || '', bank_account || existing.bank_account || '', bank_iban || existing.bank_iban || '',
           rep_opening_balance != null ? parseFloat(rep_opening_balance) : (existing.rep_opening_balance || 0),
+          salesWhId,
           req.params.id);
     } else {
       db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,penalty_pct=?,supervisor_commission_pct=?,incentive_locked=1,
-        rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=? WHERE id=?`)
+        rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=?,sales_warehouse_id=? WHERE id=?`)
         .run(name, active, role, phone || '', newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
           rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
           supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
           employment_status || existing.employment_status || 'active',
           bank_name || existing.bank_name || '', bank_account || existing.bank_account || '', bank_iban || existing.bank_iban || '',
           rep_opening_balance != null ? parseFloat(rep_opening_balance) : (existing.rep_opening_balance || 0),
+          salesWhId,
           req.params.id);
     }
     ensureUserParty(db, Number(req.params.id), req.body);

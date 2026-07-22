@@ -380,12 +380,13 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   netBeforeVat += freightRial;
   const entryDate = date || todayJalali();
   const pType = pay_type || 'cash';
-  const whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
+  const seller = db.prepare('SELECT name,phone,sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
+  let whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
+  if (!whId && seller?.sales_warehouse_id) whId = seller.sales_warehouse_id;
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
   const journalOpts = { payType: pType, bankId: bank_id || null, cashBoxId: cash_box_id || null, rows: built.rows };
 
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
-  const seller = db.prepare('SELECT name,phone FROM users WHERE id=?').get(req.user.id);
   const invType = type || 'proforma';
 
   let created;
@@ -507,7 +508,11 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   final += freightRial;
 
   const newType = type || 'proforma';
-  const whId = warehouse_id != null && warehouse_id !== '' ? parseInt(warehouse_id, 10) : (row.warehouse_id || null);
+  let whId = warehouse_id != null && warehouse_id !== '' ? parseInt(warehouse_id, 10) : (row.warehouse_id || null);
+  if (!whId) {
+    const uWh = db.prepare('SELECT sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
+    if (uWh?.sales_warehouse_id) whId = uWh.sales_warehouse_id;
+  }
   const ccId = cost_center_id != null && cost_center_id !== '' ? parseInt(cost_center_id, 10) : (row.cost_center_id || null);
 
   try {

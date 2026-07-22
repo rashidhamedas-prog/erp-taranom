@@ -202,7 +202,7 @@ router.post('/forgot-reset', (req, res) => {
 
 router.get('/me', auth, (req, res) => {
   const db = getDB();
-  const user = db.prepare('SELECT id,name,username,role,phone,last_login,must_change_password,party_id FROM users WHERE id=?').get(req.user.id);
+  const user = db.prepare('SELECT id,name,username,role,phone,last_login,must_change_password,party_id,sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
   let is_marketer = false;
   let catalog_category_ids = [];
   try {
@@ -298,7 +298,7 @@ router.post('/reset-password', auth, adminOnly, (req, res) => {
 router.get('/users', auth, adminOnly, (req, res) => {
   const db = getDB();
   const users = db.prepare(`SELECT u.id,u.name,u.username,u.role,u.phone,u.active,u.last_login,u.commission_cash,u.commission_cheque,u.commission_basis,u.monthly_target,u.quarterly_target,u.annual_target,u.bonus_pct,u.commission_fixed,u.penalty_pct,u.supervisor_commission_pct,u.incentive_locked,u.created_at,
-    u.rep_code,u.rep_subtype,u.territory,u.supervisor_id,u.employment_status,u.bank_name,u.bank_account,u.bank_iban,u.rep_opening_balance,u.party_id,
+    u.rep_code,u.rep_subtype,u.territory,u.supervisor_id,u.employment_status,u.bank_name,u.bank_account,u.bank_iban,u.rep_opening_balance,u.party_id,u.sales_warehouse_id,
     p.person_code,p.legal_type,p.company_name,p.national_id,p.economic_code,
     p.secondary_phone AS person_secondary_phone,p.mobile AS person_mobile,p.fax AS person_fax,
     p.email AS person_email,p.city AS person_city,p.province AS person_province,p.address AS person_address,

@@ -1722,8 +1722,6 @@ const NAV_ADMIN = [
   {id:'followups', icon:'📞', label:'پیگیری‌ها'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'products', icon:'🛍️', label:'کالاها'},
-  {id:'catalog', icon:'🛍️', label:'کاتالوگ'},
-  {id:'marketer', icon:'🛒', label:'فروش بازاریاب'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'users', icon:'👤', label:'کاربران'},
   {id:'reports', icon:'📈', label:'گزارشات'},
@@ -3545,13 +3543,25 @@ async function _openInvBuilder(id){
       try{ inv = await api('GET','/invoices/'+id); }catch(e){ inv=null; }
     }
   }
-  invCart = inv ? (inv.rows||[]).map(r=>({
-    product_id:r.product_id, name:r.name, qty:r.qty, price:r.price,
-    disc:r.disc||0, disc_amount:r.disc_amount||0, description:r.description||'',
-    warehouse_id:r.warehouse_id||null, row_type:r.row_type||'product', income_coa:r.income_coa||''
-  })) : [];
+  const keepMarketerCart = !id && window.__invCartFromMarketer && Array.isArray(invCart) && invCart.length;
+  if(inv){
+    invCart = (inv.rows||[]).map(r=>({
+      product_id:r.product_id, name:r.name, qty:r.qty, price:r.price,
+      disc:r.disc||0, disc_amount:r.disc_amount||0, description:r.description||'',
+      warehouse_id:r.warehouse_id||null, row_type:r.row_type||'product', income_coa:r.income_coa||''
+    }));
+    window.__invCartFromMarketer = false;
+  } else if(!keepMarketerCart){
+    invCart = [];
+    window.__invCartFromMarketer = false;
+  } else {
+    window.__invCartFromMarketer = false;
+  }
   await ensureWarehouses();
   const isAdmin = ME.role==='admin';
+
+  const hideRepAdv = typeof isRepRole==='function' && isRepRole(ME?.role);
+  const defSalesWh = inv?.warehouse_id || ME?.sales_warehouse_id || '';
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش فاکتور':'فاکتور جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body">
@@ -3563,8 +3573,21 @@ async function _openInvBuilder(id){
         <div class="fg"><label>تاریخ ${hlp('تاریخ صدور فاکتور. در گزارش‌های دوره‌ای بر اساس این تاریخ فیلتر می‌شود.')}</label><input id="inv-date" data-jdate value="${esc(inv?inv.date:todayJalali())}"></div>
         <div class="fg"><label>تخفیف کل (٪) ${hlp('درصد تخفیف از مجموع کل فاکتور (پس از تخفیف ردیف‌ها). با تغییر درصد، مبلغ تخفیف به‌روز می‌شود و برعکس.')}</label><input id="inv-disc" type="number" min="0" max="100" step="0.01" value="${inv?inv.disc:0}" oninput="invSyncHeaderDisc('pct');renderCart()"></div>
         <div class="fg"><label>تخفیف کل (مبلغ) ${hlp('مبلغ تخفیف کل فاکتور به ریال. با تغییر مبلغ، درصد معادل محاسبه می‌شود.')}</label><input id="inv-disc-amt" type="number" min="0" value="${inv?inv.disc_amt:0}" oninput="invSyncHeaderDisc('amt');renderCart()"></div>
+        ${hideRepAdv?`
+        <input type="hidden" id="inv-warehouse" value="${esc(String(defSalesWh||''))}">
+        <input type="hidden" id="inv-cc" value="${inv&&inv.cost_center_id?inv.cost_center_id:''}">
+        <input type="hidden" id="inv-freight" value="${moneyInit(inv?inv.freight_amount:0)}">
+        <input type="hidden" id="inv-freight-alloc" value="${inv&&inv.freight_alloc_method?inv.freight_alloc_method:'amount'}">
+        <input type="hidden" id="inv-freight-type" value="${inv&&inv.freight_type?inv.freight_type:''}">
+        <input type="hidden" id="inv-vat-exempt" value="">
+        <input type="hidden" id="inv-moadian-type" value="${inv&&inv.moadian_invoice_type?inv.moadian_invoice_type:1}">
+        <input type="hidden" id="inv-pay-type" value="${inv&&inv.pay_type?inv.pay_type:'credit'}">
+        <input type="hidden" id="inv-bank" value="">
+        <input type="hidden" id="inv-cashbox" value="">
+        <input type="hidden" id="inv-checkcat" value="">
+        `:`
         <div class="fg"><label>انبار مبدأ</label><select id="inv-warehouse"><option value="">— پیش‌فرض —</option>
-          ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}" ${inv&&inv.warehouse_id==w.id?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+          ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}" ${(inv?inv.warehouse_id:defSalesWh)==w.id?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
         <div class="fg"><label>مرکز هزینه</label><select id="inv-cc"><option value="">—</option>
           ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}" ${inv&&inv.cost_center_id==c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
         <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}" oninput="renderCart()"></div>
@@ -3584,7 +3607,6 @@ async function _openInvBuilder(id){
             <option value="3" ${inv&&Number(inv.moadian_invoice_type)===3?'selected':''}>نوع ۳ — پایانه</option>
           </select>
         </div>
-        <div class="fg full"><label>توضیحات ${hlp('یادداشتی که روی فاکتور چاپ می‌شود. مثال: شرایط تحویل، زمان پرداخت، نکات خاص.')}</label><input id="inv-note" value="${esc(inv?inv.note:'')}"></div>
         <div class="fg"><label>نوع پرداخت ${hlp('نسیه: حساب باز مشتری — نقد/چک/واریز: ثبت در صندوق یا بانک')}</label><select id="inv-pay-type" onchange="toggleInvPayFields()">
           <option value="credit" ${inv&&inv.pay_type==='credit'?'selected':''}>نسیه (حساب باز)</option>
           <option value="cash" ${!inv||inv.pay_type==='cash'||!inv.pay_type?'selected':''}>نقد</option>
@@ -3598,10 +3620,12 @@ async function _openInvBuilder(id){
           <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${inv&&inv.cash_box_id==b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
         </select></div>
         <div class="fg" id="inv-checkcat-wrap" style="display:none"><label>دسته چک</label><select id="inv-checkcat"><option value="">—</option></select></div>
+        `}
+        <div class="fg full"><label>توضیحات ${hlp('یادداشتی که روی فاکتور چاپ می‌شود. مثال: شرایط تحویل، زمان پرداخت، نکات خاص.')}</label><input id="inv-note" value="${esc(inv?inv.note:'')}"></div>
         <div class="fg"><label>منبع سرنخ</label><input id="inv-lead" value="${esc(inv?inv.lead_source:'')}" placeholder="مثال: اینستاگرام، نمایشگاه"></div>
         <div class="fg"><label>کمپین</label><input id="inv-campaign" value="${esc(inv?inv.campaign:'')}" placeholder="اختیاری"></div>
       </div>
-      <div id="chequeFields" style="${inv&&inv.pay_type==='cheque'?'':'display:none'}">
+      <div id="chequeFields" style="${hideRepAdv||!(inv&&inv.pay_type==='cheque')?'display:none':''}">
         <div class="form-grid" style="margin-bottom:14px">
           <div class="fg"><label>مدت چک (روز) ${hlp('فاصله روزهای سررسید چک از تاریخ فاکتور.')}</label><input id="inv-cheque-dur" type="number" value="${esc(inv&&inv.cheque_duration?inv.cheque_duration:'')}"></div>
           <div class="fg"><label>تاریخ سررسید ${hlp('تاریخ وصول چک — در بخش مدیریت چک‌های حسابداری پیگیری می‌شود.')}</label><input id="inv-cheque-due" data-jdate value="${esc(inv&&inv.cheque_due_date?inv.cheque_due_date:'')}"></div>
@@ -3834,12 +3858,12 @@ async function saveInvoice(id){
     bank_id:+el('inv-bank')?.value||null,
     cash_box_id:+el('inv-cashbox')?.value||null,
     check_category_id:+el('inv-checkcat')?.value||null,
-    warehouse_id:+el('inv-warehouse')?.value||null,
+    warehouse_id:+el('inv-warehouse')?.value||ME?.sales_warehouse_id||null,
     cost_center_id:+el('inv-cc')?.value||null,
     freight_amount:moneyVal('inv-freight'),
     freight_type:el('inv-freight-type')?.value||'',
     freight_alloc_method:el('inv-freight-alloc')?.value||'amount',
-    vat_exempt:el('inv-vat-exempt')?.checked?1:0,
+    vat_exempt:(el('inv-vat-exempt')?.type==='checkbox'?(el('inv-vat-exempt').checked?1:0):0),
     moadian_invoice_type:parseInt(el('inv-moadian-type')?.value||'1',10)||1,
     lead_source: el('inv-lead')?.value||'',
     campaign: el('inv-campaign')?.value||'',
@@ -3910,8 +3934,8 @@ async function loadProductsFiltered(){
   if(noFilters) CACHE.allProducts = CACHE.products;
 }
 ROUTES.products = function(){ productsPage(false); }; // ERP: view-only — CRUD in accounting
-ROUTES.catalog = function(){ productsPage(false, {isCatalog:true}); };
-ROUTES.marketer = function(){ if (window.MarketerUI) MarketerUI.renderMarketerPage(); else showToast('ماژول بازاریاب بارگذاری نشد','error'); };
+ROUTES.catalog = function(){ if(ME?.role==='admin'||ME?.role==='accounting'){ showToast('کاتالوگ در این نقش در دسترس نیست','error'); return; } productsPage(false, {isCatalog:true}); };
+ROUTES.marketer = function(){ if(ME?.role==='admin'||ME?.role==='accounting'){ showToast('فروش بازاریاب در این نقش در دسترس نیست','error'); return; } if (window.MarketerUI) MarketerUI.renderMarketerPage(); else showToast('ماژول بازاریاب بارگذاری نشد','error'); };
 
 async function productsPage(canEdit, opts){
   opts = opts || {};
@@ -4668,6 +4692,7 @@ ROUTES.users = async function(){
 };
 async function userModal(id){
   await ensurePartyGroups();
+  await ensureWarehouses();
   const u = id ? CACHE.users.find(x=>x.id===id) : {role:'field_sales',active:1};
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش کاربر':'کاربر جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -4707,6 +4732,13 @@ async function userModal(id){
       <div class="fg"><label>ماهیت حساب</label><select id="u-person-nature"><option value="">خودکار</option><option value="debit" ${u.person_account_nature==='debit'?'selected':''}>بدهکار</option><option value="credit" ${u.person_account_nature==='credit'?'selected':''}>بستانکار</option></select></div>
       <div class="fg full"><label>آدرس</label><textarea id="u-person-address">${esc(u.person_address||'')}</textarea></div>
       <div class="fg full"><label>یادداشت شخص</label><textarea id="u-person-notes">${esc(u.person_notes||'')}</textarea></div>
+      <div class="fg full" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px">
+        <b>انبار مبدأ فاکتور فروش</b>
+        <div class="muted" style="font-size:11px;margin:4px 0 8px">فاکتورهای این کاربر از این انبار کسر می‌شود.</div>
+        <select id="u-sales-warehouse"><option value="">— پیش‌فرض سیستم —</option>
+          ${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(u.sales_warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}
+        </select>
+      </div>
       <div class="fg full" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px">
         <b>دسترسی گروه کالا در کاتالوگ</b>
         <div class="muted" style="font-size:11px;margin:4px 0 8px">اگر خالی باشد، همهٔ گروه‌های «مجاز برای نمایش» دیده می‌شوند. فقط گروه‌های تیک‌خورده در کاتالوگ/فروش بازاریاب/انتخاب کالا محدود می‌شود. گروه‌های خصوصی هرگز به کاربران عادی نشان داده نمی‌شوند.</div>
@@ -4935,7 +4967,7 @@ async function saveUser(id){
   const origCheque=parseFloat(el('u-comm-cheque')?.dataset.orig||0);
   const rateChanged=id&&(Math.abs(commission_cash-origCash)>0.001||Math.abs(commission_cheque-origCheque)>0.001);
   if(id && isLocked && rateChanged){
-    _pendingUserSave={id,name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm(),person:userPersonFieldsFromForm()};
+    _pendingUserSave={id,name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm(),sales_warehouse_id:+el('u-sales-warehouse')?.value||null,person:userPersonFieldsFromForm()};
     openModal(`
       <div class="modal-head"><h3>🔒 تغییر نرخ انگیزه فروش</h3><button class="x" onclick="closeModal()">×</button></div>
       <div class="modal-body">
@@ -4949,7 +4981,7 @@ async function saveUser(id){
       </div>`);
     return;
   }
-  await _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm(),person:userPersonFieldsFromForm()});
+  await _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,...userRepFieldsFromForm(),sales_warehouse_id:+el('u-sales-warehouse')?.value||null,person:userPersonFieldsFromForm()});
 }
 async function confirmIncentiveChange(yes){
   closeModal();
@@ -4957,9 +4989,9 @@ async function confirmIncentiveChange(yes){
   const {id,...data}=_pendingUserSave; _pendingUserSave=null;
   if(yes) await _doSaveUser(id,{...data,force:true});
 }
-async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,person}){
+async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_cash,commission_cheque,force,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,sales_warehouse_id,person}){
   try{
-    const repFields={commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban};
+    const repFields={commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban,sales_warehouse_id};
     if(id){
       await api('PUT','/admin/users/'+id,{name,role,phone,active,password:pass||undefined,commission_cash,commission_cheque,force:force||undefined,...repFields,person});
       const catIds=[...document.querySelectorAll('.u-cat-cb:checked')].map(cb=>+cb.value).filter(Boolean);

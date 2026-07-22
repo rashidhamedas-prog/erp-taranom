@@ -32,13 +32,21 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `c087fe6` invoice builder sales meta — SW `erp-taranom-v67` |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v67` |
+| آخرین commit | `c087fe6` invoice builder sales meta — SW `erp-taranom-v68` |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v68` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
 | وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`86dfdfb`، health ۲۰۰، SW `v67` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
+
+### 2026-07-22 - فروش بازاریاب، حریم کاربران، انبار مبدأ کارشناس
+- **شاخه:** claude/claude-md-docs-2ssrpy
+- **Commit:** (pending)
+- **خلاصه:** حریم اطلاعات شخص کاربر؛ فیلتر گروه/موجودی و پک در فروش بازاریاب؛ انتقال سبد به اقلام فاکتور؛ مخفی‌سازی فیلدهای پیشرفته فاکتور برای کارشناس میدانی/داخلی؛ انبار مبدأ پیش‌فرض در تعریف کاربر؛ حذف کاتالوگ/فروش بازاریاب از منوی مدیر سیستم و حسابداری
+- **فایل‌های کلیدی:** server/public/index.html, server/public/marketer-ui.js, server/routes/parties.js, server/routes/admin.js, server/routes/invoices.js, server/routes/auth.js, server/db.js, server/public/sw.js
+- **Deploy:** ⏳
+- **SW:** erp-taranom-v68
 
 ## تاریخچه
 
@@ -47,9 +55,7 @@
 - **Commit:** `c087fe6`
 - **خلاصه:** GET بانک/صندوق/دسته چک/مرکز هزینه برای همهٔ کاربران لاگین‌شده باز شد؛ لود متای فاکتورساز soft-fail + silent. کارشناس میدانی می‌تواند از فروش بازاریاب فاکتورساز را باز کند. SW `v67`.
 - **فایل‌های کلیدی:** `routes/{banks,cash-boxes,check-categories,accounting}.js`, `public/index.html`, `public/sw.js`
-- **Deploy:** ⏳
-
-### 2026-07-22 — فروش بازاریاب = قالب کاتالوگ + تعداد پک + دسترسی فاکتور
+- **Deploy:** ✅ ایران `94.249.244.208` — HEAD=`86dfdfb` (شامل `c087fe6`)، `pm2 restart`، health ۲۰۰، SW `v67`
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `04d5d0d`
 - **خلاصه:** کارت کالا در فروش بازاریاب همان قالب کاتالوگ؛ افزودن به سبد با `pack_size`؛ منوی کاتالوگ/بازاریاب برای ادمین؛ دکمه سریع «دسترسی کامل فاکتور» در RBAC؛ گیت `invoices.create` روی UI و API. SW `v66`.

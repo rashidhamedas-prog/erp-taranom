@@ -207,8 +207,9 @@
     if (typeof invCart !== 'undefined') {
       invCart = cart.map(c => ({
         product_id: c.product_id, name: c.name, qty: c.qty, price: c.price,
-        disc: 0, disc_amount: 0, description: '', warehouse_id: null, row_type: 'product', income_coa: ''
+        disc: 0, disc_amount: 0, description: '', warehouse_id: ((typeof ME !== 'undefined' && ME && ME.sales_warehouse_id) ? ME.sales_warehouse_id : null), row_type: 'product', income_coa: ''
       }));
+      window.__invCartFromMarketer = true;
     }
     el('mkBody').innerHTML = `
       <div class="panel"><div class="panel-body">
