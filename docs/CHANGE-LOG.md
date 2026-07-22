@@ -32,17 +32,17 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | *(pending)* R13 + لغو کامل فاکتور رسمی |
+| آخرین commit | `c7280db` R13 + لغو کامل فاکتور رسمی |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v78` |
 | اندروید | **`2.0.19`** |
-| وضعیت سرور | ⏳ نیاز به deploy |
+| وضعیت سرور | ✅ deploy R13 لغو فاکتور `c7280db` |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
 
 ### 2026-07-23 — [Cursor] R13 ابطال کامل + لغو فاکتور رسمی از تأیید — SW v78
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** *(پس از commit پر می‌شود)*
+- **Commit:** `c7280db`
 - **خلاصه:** قانون دائمی R13 (Edit⇒Cancel با reverse همهٔ اثرات). لغو فاکتور رسمی توسط مدیر/حسابداری از صفحهٔ تأیید: cascade ابطال تسویه، برگشت به پیش‌فاکتور در صورت تبدیل، پیام داخل‌برنامه با عکس فاکتور. بدون حذف فیزیکی (R12).
 - **فایل‌های کلیدی:** `server/lib/void-invoice.js`, `server/lib/void-settlement.js`, `server/routes/invoices.js`, `server/routes/accounting.js`, `server/public/index.html`, `server/sync/capture.js`, `.cursor/rules/full-reverse-on-cancel.mdc`
 - **Deploy:** ⏳
