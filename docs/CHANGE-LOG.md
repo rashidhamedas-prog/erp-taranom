@@ -44,7 +44,7 @@
 
 ### 2026-07-22 — پیش‌نمایش ۳ گزینه بازطراحی UI (بدون اعمال)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** *(پس از commit)*
+- **Commit:** `48e0661`
 - **خلاصه:** سه نمونه HTML بازطراحی مدرن/مینیمال با پالت «زمرد مدرن» برای تأیید کاربر: A Soft Shell، B Ultra Minimal، C Soft Bento. هنوز روی `index.html` اعمال نشده.
 - **فایل‌های کلیدی:** `docs/design/redesign-previews/{index,A-soft-shell,B-ultra-minimal,C-soft-bento}.html`
 - **Deploy:** ⏳ docs-only — منتظر انتخاب کاربر قبل از پیاده‌سازی UI
