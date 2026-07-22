@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (محلی) فارسی‌سازی ماتریس دسترسی کاربران — SW `erp-taranom-v64` |
+| آخرین commit | `5fdebe0` فارسی‌سازی ماتریس دسترسی — SW `erp-taranom-v64` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v64` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ ایران — نیاز به pull |
+| وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`5fdebe0`، health ۲۰۰، SW `v64` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
@@ -44,10 +44,10 @@
 
 ### 2026-07-22 — فارسی‌سازی کامل ماتریس دسترسی کاربران
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** بدون commit
+- **Commit:** `5fdebe0`
 - **خلاصه:** در تعریف کاربران → «دسترسی‌ها»، نام بخش‌ها (customers/…) و عملیات (view/create/…) به فارسی نمایش داده می‌شود. SW `v64`.
 - **فایل‌های کلیدی:** `public/index.html`, `public/sw.js`
-- **Deploy:** ⏳ نیاز به pull
+- **Deploy:** ✅ ایران `94.249.244.208` — HEAD=`5fdebe0`، `pm2 restart`، health ۲۰۰، SW `v64`
 
 ### 2026-07-22 — پیامک رمز موقت پورتال اختیاری
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
