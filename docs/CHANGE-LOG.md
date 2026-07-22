@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | *(Soft Bento UI — پس از commit)* |
+| آخرین commit | `b7f4b29` Soft Bento UI — SW `erp-taranom-v65` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v65` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
 | وضعیت سرور | ⏳ Soft Bento در حال deploy |
@@ -44,7 +44,7 @@
 
 ### 2026-07-22 — بازطراحی UI: Soft Bento (نمونه C)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** *(پس از commit)*
+- **Commit:** `b7f4b29`
 - **خلاصه:** اعمال پوسته Soft Bento با همان پالت زمرد مدرن: سایدبار عمیق‌تر، تاپ‌بار شناور سفید، نوار KPI قهرمان در داشبورد، پنل/دکمه گردتر. SW `v65`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`
 - **Deploy:** ⏳
