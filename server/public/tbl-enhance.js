@@ -213,16 +213,40 @@
         const ind = th.querySelector('.tbl-sort-ind');
         if (ind) ind.textContent = sortDir > 0 ? ' ▲' : ' ▼';
         const rows = [...tbody.rows];
+        // #region agent log
+        let _dbgNumPath = 0, _dbgStrPath = 0;
+        const _dbgSamples = [];
+        const _dbgLabel = (th.querySelector('.tbl-th-label') || th).textContent.trim();
+        // #endregion
         rows.sort((a, b) => {
           const av = cellText(a.cells[idx]);
           const bv = cellText(b.cells[idx]);
           const an = Number(String(av).replace(/[^\d.-]/g, ''));
           const bn = Number(String(bv).replace(/[^\d.-]/g, ''));
-          if (Number.isFinite(an) && Number.isFinite(bn) && String(av).match(/\d/) && String(bv).match(/\d/)) {
+          const aHasAscii = !!String(av).match(/\d/);
+          const bHasAscii = !!String(bv).match(/\d/);
+          const aHasFaDigit = /[۰-۹٠-٩]/.test(String(av));
+          const bHasFaDigit = /[۰-۹٠-٩]/.test(String(bv));
+          const useNum = Number.isFinite(an) && Number.isFinite(bn) && aHasAscii && bHasAscii;
+          // #region agent log
+          if (_dbgSamples.length < 8) {
+            _dbgSamples.push({
+              av, bv, an, bn, aHasAscii, bHasAscii, aHasFaDigit, bHasFaDigit, useNum,
+              strippedA: String(av).replace(/[^\d.-]/g, ''),
+              strippedB: String(bv).replace(/[^\d.-]/g, ''),
+            });
+          }
+          if (useNum) _dbgNumPath++; else _dbgStrPath++;
+          // #endregion
+          if (useNum) {
             return (an - bn) * sortDir;
           }
           return av.localeCompare(bv, 'fa') * sortDir;
         });
+        // #region agent log
+        const _dbgOrder = rows.slice(0, 12).map((r) => cellText(r.cells[idx]));
+        fetch('http://127.0.0.1:7550/ingest/7c3b024e-51f2-48e0-b234-568dde667709',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a1f008'},body:JSON.stringify({sessionId:'a1f008',runId:'pre-fix',hypothesisId:'A',location:'tbl-enhance.js:sort',message:'table column sort',data:{label:_dbgLabel,idx,sortDir,numPath:_dbgNumPath,strPath:_dbgStrPath,samples:_dbgSamples,orderTop:_dbgOrder,tableId:table.id||'',hasSelectable:!!opts.selectable},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         rows.forEach((r) => tbody.appendChild(r));
       });
       th.addEventListener('contextmenu', (e) => {
