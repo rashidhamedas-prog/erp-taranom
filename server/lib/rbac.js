@@ -49,7 +49,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     stocktaking: ACC_FULL,
     messages: SALES_CRUD,
     reps: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
-    production: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
+    production: { view: true, create: true, edit: true, delete: true, approve: true, export: true },
     production_bom: { view: true, create: true, edit: true, delete: false, approve: false, export: true },
     production_cost: ALL,
     production_close: { view: true, create: true, edit: true, delete: false, approve: true, export: true },

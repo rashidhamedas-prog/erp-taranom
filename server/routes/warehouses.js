@@ -6,6 +6,7 @@ const { postInventoryMovement, warehouseQty, invErr } = require('../lib/inventor
 const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
 const { parseQty } = require('../lib/round3');
+const { voidWarehouseMove } = require('../lib/void-warehouse-move');
 
 
 // Stock overview — all warehouses with product quantities
@@ -123,9 +124,21 @@ router.get('/moves/list', auth, adminOrAccounting, (req, res) => {
     LEFT JOIN warehouses fw ON m.from_warehouse_id=fw.id
     LEFT JOIN warehouses tw ON m.to_warehouse_id=tw.id
     LEFT JOIN users u ON m.created_by=u.id
+    WHERE COALESCE(m.status,'posted')<>'reversed'
     ORDER BY m.created_at DESC LIMIT 300
   `).all();
   res.json(rows);
+});
+
+// Void warehouse move (R13 full reverse of stock + related batch JE)
+router.post('/moves/:id/void', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const result = voidWarehouseMove(db, req.params.id, req.user);
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
 });
 
 router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
@@ -404,7 +417,7 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
         const inventory = acct(db, 'coa_inventory');
         const counterpart = acct(db, type === 'receipt' ? 'coa_adjustment' : 'coa_inventory_loss');
         const amountToman = totalAmountRial / 10;
-        postToLedger(db, {
+        const jeId = postToLedger(db, {
           sourceType: `warehouse_${type}_batch`, sourceId: ids[0],
           date: date || todayJalali(),
           description: `${type === 'receipt' ? 'رسید' : 'حواله'} انبار (${ids.length} ردیف)`,
@@ -419,6 +432,10 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
               { code: inventory.code, name: inventory.name, debit: 0, credit: amountToman },
             ],
         });
+        if (jeId && ids.length) {
+          const placeholders = ids.map(() => '?').join(',');
+          db.prepare(`UPDATE warehouse_moves SET je_id=? WHERE id IN (${placeholders})`).run(jeId, ...ids);
+        }
       }
     })();
   } catch (e) {

@@ -133,6 +133,10 @@ function initGapAccountingSchema(db) {
   ensureColumn(db, 'fixed_assets', 'dispose_je_id', 'INTEGER');
   ensureColumn(db, 'fixed_assets', 'dispose_proceeds_rial', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'fixed_assets', 'revaluation_surplus_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'fixed_asset_depreciation', 'status', "TEXT DEFAULT 'posted'");
+  ensureColumn(db, 'fixed_asset_depreciation', 'je_id', 'INTEGER');
+  ensureColumn(db, 'fixed_asset_depreciation', 'reversed_at', 'INTEGER');
+  ensureColumn(db, 'fixed_asset_depreciation', 'reversed_by', 'INTEGER');
 
   // ---- Payroll monthly accruals + labor settings ----
   db.exec(`

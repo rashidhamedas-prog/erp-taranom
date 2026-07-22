@@ -5611,6 +5611,7 @@ async function loadAccTab(tab){
           <button class="btn sm ghost" onclick="editChequeRegisterStatus(${r.id},'${esc(r.status||'')}')">✏️ وضعیت</button>
           ${r.direction==='in'&&(!r.lifecycle_status||r.lifecycle_status==='registered')?`<button class="btn sm" onclick="chequeSendToBank(${r.id})">🏦 واگذاری</button>`:''}
           ${r.direction==='in'&&r.lifecycle_status==='in_collection'?`<button class="btn sm green" onclick="chequeClear(${r.id})">✅ وصول</button><button class="btn sm red" onclick="chequeBounce(${r.id})">↩️ برگشت</button>`:''}
+          ${(ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" onclick="voidChequeRegister(${r.id},'${esc(r.cheque_number||'')}')" title="ابطال کامل">⛔</button>`:''}
         </td>
       </tr>`).join('')||emptyRow(11)}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
@@ -7000,14 +7001,24 @@ async function renderWarehouseOpsTab(body){
       <button class="btn" onclick="warehouseTransferModal()">🔄 انتقال بین انبارها</button>
     </div>
     <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
-      <th>تاریخ</th><th>سند مرجع</th><th>نوع</th><th>کالا</th><th>از انبار</th><th>به انبار</th><th>تعداد</th><th>یادداشت</th><th>ثبت‌کننده</th>
+      <th>تاریخ</th><th>سند مرجع</th><th>نوع</th><th>کالا</th><th>از انبار</th><th>به انبار</th><th>تعداد</th><th>یادداشت</th><th>ثبت‌کننده</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${moves.map(m=>`<tr>
       <td class="mono">${escDate(m.date)}</td>
       <td>${refDocCell(m.ref_doc_no,m.ref_doc_type)}</td>
       <td>${typeLabel[m.type]||m.type}</td>
       <td>${esc(m.product_name||'-')}</td><td class="muted">${esc(m.from_warehouse_name||'-')}</td><td class="muted">${esc(m.to_warehouse_name||'-')}</td>
       <td class="mono">${fmt(m.qty)}</td><td class="muted">${esc(m.note||'-')}</td><td class="muted">${esc(m.recorder||'-')}</td>
-    </tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+      <td>${(ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" onclick="voidWarehouseMove(${m.id})" title="ابطال">⛔</button>`:''}</td>
+    </tr>`).join('')||emptyRow(10)}</tbody></table></div>`;
+}
+async function voidWarehouseMove(id){
+  if(!confirm('این عملیات انبار ابطال شود؟\nموجودی برمی‌گردد و اگر سند دسته‌ای باشد همهٔ ردیف‌های مرتبط ابطال می‌شوند.')) return;
+  try{
+    const r=await api('POST','/warehouses/moves/'+id+'/void',{});
+    showToast((r.count&&r.count>1)?(r.count+' ردیف ابطال شد'):'عملیات انبار ابطال شد');
+    CACHE.allProducts=await api('GET','/products')||[];
+    loadAccTab('warehouse-ops');
+  }catch(e){}
 }
 let whDocLines=[{product_id:'',qty:1}];
 function whDocLinesHtml(){
@@ -7406,20 +7417,37 @@ async function submitMoadian(id){
 }
 async function renderFixedAssetsTab(body){
   const rows=await api('GET','/fixed-assets')||[];
+  const period=todayJalali().slice(0,7);
   body.innerHTML=`
-    <div class="toolbar" style="margin-bottom:12px;gap:8px">
+    <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
       <button class="btn sm" onclick="openFixedAssetModal()">➕ دارایی جدید</button>
       <button class="btn sm ghost" onclick="runDepreciation()">📉 اجرای استهلاک ماهانه</button>
+      <button class="btn sm red" onclick="voidDepreciationPeriod('${esc(period)}')">⛔ ابطال استهلاک ${esc(period)}</button>
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>کد</th><th>نام</th><th>بهای تمام‌شده (ریال)</th><th>استهلاک انباشته</th><th>ارزش دفتری</th><th>وضعیت</th>
+      <th>کد</th><th>نام</th><th>بهای تمام‌شده (ریال)</th><th>استهلاک انباشته</th><th>ارزش دفتری</th><th>وضعیت</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${rows.map(a=>`<tr>
       <td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td>
       <td class="mono">${fmt(a.cost_rial||0)} ریال</td>
       <td class="mono">${fmt(a.accumulated_depreciation_rial||0)} ریال</td>
       <td class="mono" style="font-weight:700">${fmt(a.book_value_rial||0)} ریال</td>
       <td>${esc(a.status||'active')}</td>
-    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+      <td style="white-space:nowrap">
+        <button class="btn sm ghost" onclick="openFixedAssetModal(${a.id})">✏️</button>
+        ${(ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" onclick="deactivateFixedAsset(${a.id},'${esc(a.code||'')}')" title="غیرفعال">⛔</button>`:''}
+      </td>
+    </tr>`).join('')||emptyRow(7)}</tbody></table></div>`;
+}
+async function deactivateFixedAsset(id,code){
+  if(!confirm(`دارایی «${code||id}» غیرفعال شود؟\n(اگر استهلاک فعال داشته باشد باید اول ابطال شود)`)) return;
+  try{ await api('DELETE','/fixed-assets/'+id); showToast('دارایی غیرفعال شد'); loadAccTab('fixed-assets'); }catch(e){}
+}
+async function voidDepreciationPeriod(period){
+  if(!confirm(`استهلاک دوره «${period}» ابطال شود؟\nسند حسابداری معکوس و استهلاک انباشته برمی‌گردد.`)) return;
+  try{
+    await api('POST','/fixed-assets/depreciation/void',{period_label:period});
+    showToast('استهلاک ابطال شد'); loadAccTab('fixed-assets');
+  }catch(e){}
 }
 async function openFixedAssetModal(id){
   let a={status:'active',useful_life_months:60,category:'تجهیزات',coa_asset_code:'1201'};
@@ -8325,9 +8353,19 @@ async function prodRatesLoad(){
       <td data-label="دستمزد" class="num">${money(r.monthly_labor_rate_rial)}</td>
       <td data-label="وضعیت">${esc(r.status||'')}</td>
       <td data-label="برآوردی">${r.is_estimated?'⚠️ بله':'—'}</td>
-      <td><button class="btn sm ghost" onclick="prodRateEditModal(${r.cost_center_id})">ویرایش</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn sm ghost" onclick="prodRateEditModal(${r.cost_center_id})">ویرایش</button>
+        ${canPerm('production_cost','edit')||isAdmin()?`<button class="btn sm red" onclick="prodRateVoid(${r.id})" title="لغو نرخ">⛔</button>`:''}
+      </td>
     </tr>`).join('')||emptyRow(9)}
   </tbody></table></div>`;
+}
+async function prodRateVoid(id){
+  if(!confirm('این نرخ سربار غیرفعال/لغو شود؟')) return;
+  try{
+    await api('DELETE','/production/cost-centers/rates/'+id);
+    showToast('نرخ لغو شد'); prodRatesLoad();
+  }catch(e){}
 }
 async function prodRateEditModal(ccId){
   const ccRows=window._prodRatesCC||[];
@@ -8504,7 +8542,7 @@ async function renderProductionOrdersTab(body){
           ${o.analysis_type==='variable'&&['released','in_progress'].includes(o.status)?`<button class="btn sm" onclick="prodOrderIssueModal(${o.id})">حواله مواد</button>`:''}
           ${o.analysis_type==='variable'&&o.status==='in_progress'?`<button class="btn sm" onclick="prodOrderReceiptModal(${o.id})">رسید</button>`:''}
           ${o.status==='completed'?`<button class="btn sm" onclick="prodOrderClose(${o.id})">بستن</button>
-          <button class="btn sm ghost" style="color:var(--red)" onclick="prodOrderReverse(${o.id})">ابطال</button>`:''}
+          ${(canPerm('production','delete')||isAdmin())?`<button class="btn sm ghost" style="color:var(--red)" onclick="prodOrderReverse(${o.id})">ابطال</button>`:''}`:''}
           ${o.status==='closed'?`<button class="btn sm ghost" onclick="prodOrderReopen(${o.id})">بازگشایی</button>`:''}
         </td>
       </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--muted)">سفارشی نیست</td></tr>'}
@@ -9573,8 +9611,9 @@ async function renderPurchasesTab(body){
   const rows=await api('GET','/purchases')||[];
   const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه'};
   body.innerHTML=`
-    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="purchaseInvoiceModal()">➕ فاکتور خرید جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/purchases" data-bulk-label="حذف" data-bulk-confirm="{n} فاکتور خرید حذف شود؟"><thead><tr>
+    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="purchaseInvoiceModal()">➕ فاکتور خرید جدید</button>
+      <span class="muted" style="font-size:12px;margin-right:8px">ویرایش پس از ثبت نیست — برای اصلاح، ابطال کنید و فاکتور جدید بزنید</span></div>
+    <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/purchases" data-bulk-label="ابطال" data-bulk-confirm="{n} فاکتور خرید ابطال شود؟"><thead><tr>
       <th>شماره</th><th>سند مرجع</th><th>تأمین‌کننده</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>ثبت‌کننده</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr data-id="${r.id}">
       <td class="mono" style="font-weight:700">${esc(r.num)}</td>
@@ -9582,7 +9621,7 @@ async function renderPurchasesTab(body){
       <td>${esc(r.supplier_name||'-')}</td>
       <td class="mono">${escDate(r.date)}</td><td class="mono">${fmt(r.final)}</td>
       <td>${payLabel[r.pay_type]||r.pay_type}</td><td class="muted">${esc(r.recorder||'-')}</td>
-      <td><button class="btn sm red" onclick="deletePurchaseInvoice(${r.id})">🗑️</button></td>
+      <td><button class="btn sm red" onclick="deletePurchaseInvoice(${r.id})" title="ابطال">⛔ ابطال</button></td>
     </tr>`).join('')||emptyRow(8)}</tbody>
     <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
       <td colspan="4">جمع (${fmt(rows.length)} فاکتور)</td>
@@ -9698,8 +9737,8 @@ async function savePurchaseInvoice(){
   }catch(e){}
 }
 async function deletePurchaseInvoice(id){
-  if(!confirm('این فاکتور خرید حذف شود؟ موجودی انبار متناسب کم می‌شود.')) return;
-  try{ await api('DELETE','/purchases/'+id); showToast('حذف شد'); loadAccTab('purchases'); }catch(e){}
+  if(!confirm('این فاکتور خرید ابطال شود؟\nموجودی و سند حسابداری برمی‌گردند.\nاگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن را ابطال کنید.')) return;
+  try{ await api('DELETE','/purchases/'+id); showToast('فاکتور خرید ابطال شد'); loadAccTab('purchases'); }catch(e){}
 }
 
 /* ============================================================
@@ -14098,6 +14137,13 @@ async function chequeBounce(id){
     showToast('برگشت ثبت شد'); loadAccTab('cheque-register');
   }catch(e){}
 }
+async function voidChequeRegister(id,num){
+  if(!confirm(`چک «${num||id}» کاملاً ابطال شود؟\nهمهٔ اسناد واگذاری/وصول/برگشت/افتتاحیه معکوس می‌شوند.`)) return;
+  try{
+    await api('DELETE','/cheque-records/'+id);
+    showToast('چک ابطال شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
 function entityCoaDisplay(row, legacyPrefix){
   return (usesExtendedCoa() && row.coa_code) ? row.coa_code : (legacyPrefix + row.id);
 }
@@ -15169,11 +15215,13 @@ function renderAdminGuide(){
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
         <li><b>فاکتورهای فروش</b>: لیست همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ، به‌همراه دکمهٔ «فاکتور جدید» — تیم حسابداری می‌تواند بدون نیاز به رفتن به بخش ERP، فاکتور جدید صادر کند (همان فرم انتخاب مشتری/کالا و سبد فاکتور صفحهٔ اصلی فاکتورها)</li>
-        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. در سبد خرید می‌توانید محصول را جستجو کنید یا با «➕ ساخت کالای جدید» همان‌جا بسازید</li>
+        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید (موجودی و سند برمی‌گردند). اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی</li>
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
-        <li><b>عملیات انبار</b>: <b>رسید انبار</b> (افزودن موجودی به یک انبار مشخص)، <b>حواله انبار</b> (کسر موجودی از یک انبار، مثلاً ضایعات یا مصرف داخلی)، و <b>انتقال بین انبارها</b> (جابه‌جایی کامل موجودی یک کالا به انبار دیگر) — همراه با تاریخچه کامل عملیات</li>
+        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
+        <li><b>دفتر چک</b>: واگذاری/وصول/برگشت + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
+        <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، و غیرفعال‌سازی دارایی (اگر استهلاک فعال نداشته باشد)</li>
         <li><b>کالای امانی</b>: پیگیری کالاهایی که مالکیتشان هنوز نهایی نشده — <b>ارسالی</b> (کالای ما نزد دیگران، بلافاصله از موجودی کسر می‌شود) و <b>دریافتی</b> (کالای دیگران نزد ما، به موجودی خودمان اضافه نمی‌شود). با «تسویه» فروش قطعی می‌شود (فاکتور/پرداخت واقعی را جداگانه ثبت کنید) و با «استرداد» کالای ارسالی به موجودی برمی‌گردد</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب و مشاهده گردش با مانده لحظه‌ای</li>

@@ -29,6 +29,11 @@
 3. آیا برای admin و accounting در UI دکمهٔ لغو کنار ویرایش/تأیید هست؟
 4. آیا پیام/اعلان ردپا (بدون نمایش سند در لیست فروش) لازم است؟
 
-## backlog فاز ۲ (هنوز کامل نیست)
+## فاز ۲ (پیاده‌سازی‌شده)
 
-انبار moves، asymmetries خرید/سفارش، دفتر چک، دارایی ثابت، نرخ سربار — تحت همین قانون تکمیل شوند.
+- انبار moves: `POST /warehouses/moves/:id/void` + UI ابطال
+- دفتر چک: void کامل lifecycle JEها + UI ابطال
+- دارایی ثابت: غیرفعال‌سازی + ابطال استهلاک دوره + void dispose
+- نرخ سربار: `DELETE /production/cost-centers/rates/:id` → `status=inactive`
+- خرید: ابطال با مسدودسازی روی برگشت/پرداخت فعال؛ UI «ابطال» (نه ویرایش in-place)
+- accounting: `production.delete=true` برای ابطال سفارش تولید

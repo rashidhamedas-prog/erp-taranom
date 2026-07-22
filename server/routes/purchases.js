@@ -181,6 +181,18 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const row = db.prepare('SELECT * FROM purchase_invoices WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.status === 'reversed') return res.status(400).json({ error: 'این فاکتور خرید قبلاً ابطال شده است' });
+  const activeReturns = db.prepare(
+    "SELECT COUNT(*) AS c FROM purchase_returns WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'"
+  ).get(row.id).c;
+  if (activeReturns > 0) {
+    return res.status(400).json({ error: `این فاکتور ${activeReturns} برگشت از خرید فعال دارد — ابتدا برگشت را ابطال کنید` });
+  }
+  const activePays = db.prepare(
+    "SELECT COUNT(*) AS c FROM supplier_payments WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'"
+  ).get(row.id).c;
+  if (activePays > 0) {
+    return res.status(400).json({ error: `این فاکتور ${activePays} پرداخت تأمین‌کننده فعال دارد — ابتدا پرداخت را ابطال کنید` });
+  }
 
   db.transaction(() => {
     if (row.stock_added) {

@@ -32,13 +32,21 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `c7280db` R13 + لغو کامل فاکتور رسمی |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v78` |
+| آخرین commit | *(pending)* R13 فاز ۲ ابطال انبار/چک/دارایی/نرخ/خرید |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v79` |
 | اندروید | **`2.0.19`** |
-| وضعیت سرور | ✅ deploy R13 لغو فاکتور `c7280db` |
+| وضعیت سرور | ⏳ نیاز به deploy |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
+
+### 2026-07-23 — [Cursor] R13 فاز ۲: ابطال انبار، چک، دارایی، نرخ سربار، خرید — SW v79
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** *(پس از commit)*
+- **خلاصه:** تکمیل فاز ۲ قانون ابطال کامل: void عملیات انبار (موجودی+JE دسته‌ای)، ابطال کامل چرخه دفتر چک، غیرفعال‌سازی/ابطال استهلاک دارایی ثابت، لغو نرخ سربار، مسدودسازی ابطال خرید روی برگشت/پرداخت فعال، `production.delete` برای حسابداری.
+- **فایل‌های کلیدی:** `server/lib/void-warehouse-move.js`, `void-cheque.js`, `void-journal.js`, `routes/warehouses.js`, `cheque-records.js`, `fixed-assets.js`, `purchases.js`, `production-cost-centers.js`, `lib/rbac.js`, `public/index.html`
+- **Deploy:** ⏳
+- **SW:** `erp-taranom-v79`
 
 ### 2026-07-23 — [Cursor] R13 ابطال کامل + لغو فاکتور رسمی از تأیید — SW v78
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

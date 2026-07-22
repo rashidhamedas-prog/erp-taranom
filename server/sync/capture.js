@@ -71,6 +71,7 @@ const PATH_TABLE_MAP = [
   ['/api/units', 'units_of_measure'],
   ['/api/fixed-assets', 'fixed_assets'],
   // Production — longer prefixes BEFORE /api/production (legacy production_runs)
+  ['/api/production/cost-centers/rates', 'cost_center_rates'],
   ['/api/production/boms', 'bom_headers'],
   ['/api/production/orders', 'production_orders'],
   ['/api/production/execution', 'production_orders'],

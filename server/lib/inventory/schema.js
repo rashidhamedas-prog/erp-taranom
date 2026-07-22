@@ -223,6 +223,8 @@ function ensureExistingColumns(db) {
     ensureColumn(db, 'warehouse_moves', 'je_id', 'INTEGER');
     ensureColumn(db, 'warehouse_moves', 'batch_id', 'INTEGER');
     ensureColumn(db, 'warehouse_moves', 'status', "TEXT DEFAULT 'posted'");
+    ensureColumn(db, 'warehouse_moves', 'reversed_at', 'INTEGER');
+    ensureColumn(db, 'warehouse_moves', 'reversed_by', 'INTEGER');
   }
   if (tableExists(db, 'stocktaking_sessions')) {
     ensureColumn(db, 'stocktaking_sessions', 'je_id', 'INTEGER');

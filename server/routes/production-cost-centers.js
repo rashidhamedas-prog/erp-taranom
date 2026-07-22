@@ -25,18 +25,21 @@ router.get('/', auth, requirePermission('production', 'view'), (req, res) => {
 router.get('/rates', auth, requirePermission('production_cost', 'view'), (req, res) => {
   handle(res, () => {
     const period = req.query.period;
+    const includeInactive = req.query.all === '1';
+    const statusFilter = includeInactive ? '1=1' : "COALESCE(r.status,'active')='active'";
     const rows = period
       ? getDB().prepare(`
           SELECT r.*, c.code AS cc_code, c.name AS cc_name
           FROM cost_center_rates r
           JOIN cost_centers c ON c.id = r.cost_center_id
-          WHERE r.period_label=?
+          WHERE r.period_label=? AND ${statusFilter}
           ORDER BY c.seq
         `).all(period)
       : getDB().prepare(`
           SELECT r.*, c.code AS cc_code, c.name AS cc_name
           FROM cost_center_rates r
           JOIN cost_centers c ON c.id = r.cost_center_id
+          WHERE ${statusFilter}
           ORDER BY r.period_label DESC, c.seq
         `).all();
     return { rows };
@@ -88,6 +91,41 @@ router.post('/rates', auth, requirePermission('production_cost', 'edit'), (req, 
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
   }
+});
+
+// Soft-cancel overhead rate for a period/CC (R13 — no physical delete)
+router.delete('/rates/:id', auth, requirePermission('production_cost', 'edit'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const row = db.prepare('SELECT * FROM cost_center_rates WHERE id=?').get(req.params.id);
+    if (!row) {
+      const e = new Error('نرخ یافت نشد');
+      e.status = 404;
+      throw e;
+    }
+    if (row.status === 'inactive' || row.status === 'reversed') {
+      const e = new Error('این نرخ قبلاً غیرفعال شده');
+      e.status = 400;
+      throw e;
+    }
+    // Block if production overhead already applied for this CC+period
+    try {
+      const used = db.prepare(`
+        SELECT COUNT(*) c FROM production_overhead_applications
+        WHERE cost_center_id=? AND period_label=? AND COALESCE(status,'posted')='posted'
+      `).get(row.cost_center_id, row.period_label).c;
+      if (used > 0) {
+        const e = new Error('این نرخ در تولید اعمال شده — ابتدا اسناد تولید مرتبط را ابطال کنید');
+        e.status = 400;
+        throw e;
+      }
+    } catch (e) {
+      if (e.status) throw e;
+      // table may not exist on older DBs — allow soft cancel
+    }
+    db.prepare("UPDATE cost_center_rates SET status='inactive' WHERE id=?").run(row.id);
+    return { ok: true };
+  });
 });
 
 module.exports = router;
