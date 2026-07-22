@@ -35,7 +35,7 @@
 | آخرین commit | `b7f4b29` Soft Bento UI — SW `erp-taranom-v65` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v65` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ Soft Bento در حال deploy |
+| وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`73a4fb1`، health ۲۰۰، SW `v65` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
