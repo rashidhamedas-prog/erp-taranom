@@ -790,7 +790,9 @@ table.tbl tr:hover td{background:var(--row-hover)}
    STATE & API
 ============================================================ */
 let ME = null;
-let CACHE = { customers:[], products:[], allProducts:[], users:[], orders:[], followups:[], invoices:[], settings:{}, productCategories:[], warehouses:[], productCats:[] };
+// Master lists (warehouses, groups, …) must be null — NOT [] — so `if(!CACHE.warehouses)`
+// actually fetches. Empty array is truthy and used to block reload until you open that section.
+let CACHE = { customers:[], products:[], allProducts:[], users:[], orders:[], followups:[], invoices:[], settings:{}, productCategories:null, warehouses:null, productCats:null, partyGroups:null, _prodWarehouses:null, _prodCats:null, _prodMetaLoaded:false };
 let mChart = null;
 let APP_INFO = null, PENDING_UPDATE = null;
 const _apiCache = {};
@@ -798,6 +800,43 @@ let _dashHtmlCache = { key:'', html:'', t:0 };
 function cacheGet(key, ttlMs=45000){ const h=_apiCache[key]; return h && Date.now()-h.t<ttlMs ? h.v : null; }
 function cacheSet(key,v){ _apiCache[key]= { t:Date.now(), v }; }
 function clearPageCache(){ Object.keys(_apiCache).forEach(k=>delete _apiCache[k]); _dashHtmlCache={key:'',html:'',t:0}; }
+/** Drop stale master-data caches after sync / mutations so all screens see fresh lists. */
+function invalidateMasterCaches(){
+  CACHE.warehouses=null; CACHE._prodWarehouses=null; CACHE._prodCats=null; CACHE._prodMetaLoaded=false;
+  CACHE.productCategories=null; CACHE.productCats=null; CACHE.partyGroups=null;
+  CACHE.customerGroups=null; CACHE.banks=null; CACHE.cashBoxes=null; CACHE.checkCategories=null;
+  CACHE.persons=null; CACHE.personCategories=null; CACHE.costCenters=null;
+  CACHE.suppliers=null; CACHE.parties=null; CACHE.chartOfAccounts=null;
+  clearPageCache();
+}
+async function ensureWarehouses(force){
+  // null = not loaded; [] is truthy and used to poison dropdowns — always refetch empty
+  if(force || !CACHE.warehouses?.length){
+    try{
+      CACHE.warehouses = await api('GET','/warehouses')||[];
+      CACHE._prodWarehouses = CACHE.warehouses;
+    }catch(_){
+      CACHE.warehouses = null;
+      CACHE._prodWarehouses = null;
+      return [];
+    }
+  }
+  return CACHE.warehouses||[];
+}
+async function ensurePartyGroups(force){
+  if(force || !CACHE.partyGroups?.length){
+    try{ CACHE.partyGroups = await api('GET','/party-groups')||[]; }
+    catch(_){ CACHE.partyGroups=null; return []; }
+  }
+  return CACHE.partyGroups||[];
+}
+async function ensureProductCategories(force){
+  if(force || !CACHE.productCategories?.length){
+    try{ CACHE.productCategories = await api('GET','/product-categories')||[]; }
+    catch(_){ CACHE.productCategories=null; return []; }
+  }
+  return CACHE.productCategories||[];
+}
 async function apiCached(method,path,ttlMs=45000){
   const k=method+':'+path;
   const hit=cacheGet(k,ttlMs);
@@ -2140,6 +2179,7 @@ async function loadInitial(){
     // Defer heavy lists: customers/products load on first page that needs them (invoice, CRM, …).
     // Previously admin/sales blocked boot on full /products + /customers payloads.
     CACHE.customers=[]; CACHE.products=[]; CACHE.allProducts=[]; CACHE.users=[];
+    invalidateMasterCaches();
     if(ME.role==='admin'){
       CACHE.settings = {};
       api('GET','/settings').then(s=>{ CACHE.settings=s||{}; }).catch(()=>{});
@@ -2228,7 +2268,7 @@ function maybeRefreshAfterSync(){
   // invalidate cached lists so the next render re-fetches from the local DB
   CACHE.customers=[]; CACHE.products=[]; CACHE.allProducts=[]; CACHE.invoices=[];
   CACHE.followups=[]; _followupsFetched=false; _invoicesFetched=false; _accRecvCache=null;
-  clearPageCache();
+  invalidateMasterCaches();
   if(document.querySelector('.overlay.open')) return; // don't yank a modal the user is filling
   if(IN_ACC_SHELL){ if(typeof accTab!=='undefined' && accTab) loadAccTab(accTab); }
   else { reloadCustomers().then(()=>{ if(CURRENT_PAGE) go(CURRENT_PAGE); }).catch(()=>{ if(CURRENT_PAGE) go(CURRENT_PAGE); }); }
@@ -2241,7 +2281,7 @@ function renderSyncBadge(){
   if(!s.paired){
     b.textContent='🔗 اتصال به سرور مرکزی'; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else if(s.conflicts>0){
-    b.textContent=`⚠️ ${fmt(s.conflicts)} ریالعارض`; b.style.background='#fee2e2'; b.style.color='#b91c1c';
+    b.textContent=`⚠️ ${fmt(s.conflicts)} تعارض`; b.style.background='#fee2e2'; b.style.color='#b91c1c';
   } else if(s.syncing){
     b.textContent='🔄 در حال همگام‌سازی...'; b.style.background='#dbeafe'; b.style.color='#1d4ed8';
   } else if(!s.online){
@@ -2249,7 +2289,7 @@ function renderSyncBadge(){
   } else if(s.pending>0){
     b.textContent=`🔄 ${fmt(s.pending)} در انتظار ارسال`; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else if(s.files_missing>0){
-    b.textContent=`🖼️ ${fmt(s.files_missing)} ریالصویر در انتظار`; b.style.background='#fef3c7'; b.style.color='#b45309';
+    b.textContent=`🖼️ ${fmt(s.files_missing)} تصویر در انتظار`; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else {
     b.textContent='🟢 همگام با مرکز'; b.style.background='#dcfce7'; b.style.color='#15803d';
   }
@@ -2277,8 +2317,8 @@ async function openSyncPanel(){
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
         <span class="tag ${s.online?'t-done':'t-cancel'}">${s.online?'🟢 متصل به مرکز':'📡 آفلاین'}</span>
         <span class="tag">${fmt(s.pending)} عملیات در صف</span>
-        <span class="tag ${s.conflicts?'t-cancel':'t-done'}">${fmt(s.conflicts)} ریالعارض</span>
-        ${s.files_missing?`<span class="tag t-pending">🖼️ ${fmt(s.files_missing)} ریالصویر محلی نیست</span>`:''}
+        <span class="tag ${s.conflicts?'t-cancel':'t-done'}">${fmt(s.conflicts)} تعارض</span>
+        ${s.files_missing?`<span class="tag t-pending">🖼️ ${fmt(s.files_missing)} تصویر محلی نیست</span>`:''}
         ${s.last_sync_at?`<span class="tag">آخرین همگام‌سازی: ${new Date(s.last_sync_at*1000).toLocaleTimeString('fa-IR')}</span>`:''}
       </div>
       ${s.last_error?`<div style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px">${esc(s.last_error)}</div>`:''}
@@ -2319,13 +2359,22 @@ async function syncNowUI(){
   const r = await fetch('/api/sync/now',{method:'POST',headers:{'Authorization':'Bearer '+token}});
   const j = await r.json().catch(()=>({}));
   if(j.ok){
-    const extra = j.pulled ? ` · ${fmt(j.pulled)} ریالصویر` : '';
+    const extra = j.pulled ? ` · ${fmt(j.pulled)} فایل` : '';
     showToast(`همگام‌سازی انجام شد (${fmt(j.confirmed||0)} عملیات تأیید شد${extra})`);
   }
   else showToast(j.error||'همگام‌سازی ناموفق بود','error');
   SYNC_STATUS = await fetchSyncStatus(); renderSyncBadge();
   closeModal();
-  maybeRefreshAfterSync(); // refresh lists/ids if sync changed local data
+  // Always drop master caches after explicit sync — version may be unchanged on no-op pulls
+  // but warehouses/groups might still have been updated locally from another path.
+  invalidateMasterCaches();
+  CACHE.customers=[]; CACHE.products=[]; CACHE.allProducts=[]; CACHE.invoices=[];
+  CACHE.followups=[]; _followupsFetched=false; _invoicesFetched=false; _accRecvCache=null;
+  if(SYNC_STATUS?.data_version!=null) _lastDataVersion=SYNC_STATUS.data_version;
+  if(!document.querySelector('.overlay.open')){
+    if(IN_ACC_SHELL && typeof accTab!=='undefined' && accTab) loadAccTab(accTab);
+    else if(CURRENT_PAGE) go(CURRENT_PAGE);
+  }
 }
 
 let _bgSyncTimer=null;
@@ -2823,9 +2872,7 @@ async function custModal(id){
   if((canAccounting() || id) && !CACHE.customerGroups) {
     try { CACHE.customerGroups = await api('GET','/accounting/customer-groups')||[]; } catch(_){ CACHE.customerGroups=[]; }
   }
-  if((canAccounting() || id) && !CACHE.partyGroups) {
-    try { CACHE.partyGroups = await api('GET','/party-groups')||[]; } catch(_){ CACHE.partyGroups=[]; }
-  }
+  await ensurePartyGroups();
   const custPartyGroups = (CACHE.partyGroups||[]).filter(g=>g.entity_type==='customer'||g.entity_type==='all');
   const curProv = c.province||'';
   const provOptions = Object.keys(IRAN_PROVINCES).map(p=>`<option value="${esc(p)}" ${curProv===p?'selected':''}>${p}</option>`).join('');
@@ -3437,7 +3484,7 @@ async function _openInvBuilder(id){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
-  if(!CACHE.warehouses) CACHE.warehouses=await api('GET','/warehouses')||[];
+  await ensureWarehouses();
   if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers')||[];
   let inv = null;
   if(id){
@@ -3451,7 +3498,7 @@ async function _openInvBuilder(id){
     disc:r.disc||0, disc_amount:r.disc_amount||0, description:r.description||'',
     warehouse_id:r.warehouse_id||null, row_type:r.row_type||'product', income_coa:r.income_coa||''
   })) : [];
-  if(!CACHE.warehouses) CACHE.warehouses=await api('GET','/warehouses')||[];
+  await ensureWarehouses();
   const isAdmin = ME.role==='admin';
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش فاکتور':'فاکتور جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -3562,7 +3609,7 @@ function renderInvPicker(){
   }).join('') + (extra?`<div class="muted" style="padding:10px;text-align:center;font-size:12px">${fmt(extra)} کالای دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" style="padding:16px;text-align:center">کالایی یافت نشد — از بخش کالاها، کالای جدید اضافه کنید</div>`;
 }
 async function invProdQuickModal(prefill){
-  if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
+  await ensureProductCategories();
   const name=(prefill||'').trim();
   openModal(`
     <div class="modal-head"><h3>➕ ساخت سریع کالا</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -3819,16 +3866,16 @@ async function productsPage(canEdit){
   const needMeta = !CACHE._prodMetaLoaded;
   if(needMeta){
     el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-    // Each meta call is independent — one failure (e.g. a permission gap)
-    // must not blank the whole catalog page for sales users
-    const [cats, warehouses, pCats] = await Promise.all([
-      apiCached('GET','/products/categories', 300000).catch(()=>[]),
-      apiCached('GET','/warehouses', 300000).catch(()=>[]),
-      canEdit ? apiCached('GET','/product-categories', 300000).catch(()=>[]) : Promise.resolve([])
+    // Each meta call is independent — one failure must not blank the page.
+    // Never assign [] into master caches on failure (truthy empty blocks later fetches).
+    // Always load product-categories (groups are global labels — B1); do not skip when !canEdit.
+    const [cats] = await Promise.all([
+      api('GET','/products/categories').catch(()=>[]),
+      ensureWarehouses(),
+      ensureProductCategories()
     ]);
     CACHE._prodCats = cats||[];
-    CACHE._prodWarehouses = warehouses||[];
-    CACHE.productCategories = pCats||[];
+    CACHE._prodWarehouses = CACHE.warehouses||[];
     CACHE._prodMetaLoaded = true;
   }
   await loadProductsFiltered();
@@ -3950,8 +3997,8 @@ async function deleteProductCategory(id){
   try{ await api('DELETE','/product-categories/'+id); showToast('حذف شد'); productCategoriesModal(); }catch(e){}
 }
 async function prodModal(id){
-  if(!CACHE.warehouses) CACHE.warehouses=await api('GET','/warehouses')||[];
-  if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
+  await ensureWarehouses();
+  await ensureProductCategories();
   const p = id ? CACHE.products.find(x=>x.id===id) : {};
   const cats=CACHE.productCategories||[];
   openModal(`
@@ -4326,13 +4373,15 @@ function attachExcelTools(tab,body){
 const STK_STATUS = { draft:'پیش‌نویس', completed:'تکمیل‌شده', adjusted:'اعمال‌شده' };
 let stkFilter = { warehouse_id:'', user_id:'', date_from:'', date_to:'', status:'' };
 let _stkDetailId = null;
-ROUTES.stocktaking = async function(){
-  if(ME.role!=='admin' && ME.role!=='accounting'){ el('view').innerHTML='<div class="empty">دسترسی محدود</div>'; return; }
-  if(!CACHE._prodWarehouses?.length) CACHE._prodWarehouses=await apiCached('GET','/warehouses',300000)||[];
+/** Render stocktaking into a container (accBody or #view). Never call go('stocktaking') from loadAccTab — that breaks MDI windows. */
+async function renderStocktakingTab(body){
+  if(!body) return;
+  if(ME.role!=='admin' && ME.role!=='accounting'){ body.innerHTML='<div class="empty">دسترسی محدود</div>'; return; }
+  await ensureWarehouses();
   if(!CACHE.users?.length) CACHE.users=await apiCached('GET','/auth/users',60000)||[];
-  el('view').innerHTML=`<div class="toolbar" style="flex-wrap:wrap;gap:8px">
+  body.innerHTML=`<div class="toolbar" style="flex-wrap:wrap;gap:8px">
     <select id="stkWh"><option value="">همه انبارها</option>
-      ${(CACHE._prodWarehouses||[]).map(w=>`<option value="${w.id}" ${String(stkFilter.warehouse_id)===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}
+      ${(CACHE.warehouses||CACHE._prodWarehouses||[]).map(w=>`<option value="${w.id}" ${String(stkFilter.warehouse_id)===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}
     </select>
     <select id="stkUser"><option value="">همه مسئولین</option>
       ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}" ${String(stkFilter.user_id)===String(u.id)?'selected':''}>${esc(u.name)}</option>`).join('')}
@@ -4344,11 +4393,13 @@ ROUTES.stocktaking = async function(){
     </select>
     <button class="btn sm" onclick="loadStocktakingList()">🔍 اعمال</button>
     <button class="btn green" onclick="stkNewModal()">➕ شروع انبارگردانی</button>
-    <button class="btn ghost" onclick="go('products')">← بازگشت به کالاها</button>
   </div>
   <div id="stkBody"><div class="muted">در حال بارگذاری...</div></div>`;
-  attachDatepickers(el('view'));
+  attachDatepickers(body);
   await loadStocktakingList();
+}
+ROUTES.stocktaking = async function(){
+  await renderStocktakingTab(el('view'));
 };
 function stkQuery(){
   const p=[];
@@ -4444,11 +4495,12 @@ async function stkOpenDetail(id){
     ${s.note?`<div class="muted" style="margin-top:8px">یادداشت: ${esc(s.note)}</div>`:''}`;
 }
 function stkNewModal(){
+  const whs=CACHE.warehouses||CACHE._prodWarehouses||[];
   openModal(`
     <div class="modal-head"><h3>📋 شروع انبارگردانی جدید</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>انبار *</label><select id="stk-new-wh"><option value="">— انتخاب —</option>
-        ${(CACHE._prodWarehouses||[]).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
+        ${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
       </select></div>
       <div class="fg"><label>تاریخ</label><input id="stk-new-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg"><label>مسئول</label><select id="stk-new-user"><option value="">— خودم —</option>
@@ -4523,7 +4575,7 @@ ROUTES.users = async function(){
     </div></div>`;
 };
 async function userModal(id){
-  if(!CACHE.partyGroups) CACHE.partyGroups=await api('GET','/party-groups')||[];
+  await ensurePartyGroups();
   const u = id ? CACHE.users.find(x=>x.id===id) : {role:'field_sales',active:1};
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش کاربر':'کاربر جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -4952,7 +5004,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -5485,7 +5537,7 @@ async function loadAccTab(tab){
   } else if(tab==='orders'){
     await renderAccOrdersTab(body);
   } else if(tab==='stocktaking'){
-    go('stocktaking');
+    await renderStocktakingTab(body);
   } else {
     body.innerHTML=`<div class="panel"><div class="panel-body"><p class="muted">این بخش به ماژول مرتبط متصل است. از منوی کناری گزینه‌های فعال را انتخاب کنید.</p></div></div>`;
   }
@@ -5605,7 +5657,7 @@ function genProdShowDrop(q){
   if(items && quickBtn) drop.innerHTML += quickBtn;
 }
 async function genProdQuickModal(prefill){
-  if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
+  await ensureProductCategories();
   const name=(prefill||'').trim();
   openModal(`
     <div class="modal-head"><h3>➕ ساخت سریع کالا</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -5646,7 +5698,7 @@ let _partySearchTimer=null;
 async function renderPartiesTab(body){
   const groupFilter=PARTY_GROUP_FILTER;
   const search=PARTY_SEARCH;
-  if(!CACHE.partyGroups) CACHE.partyGroups=await api('GET','/party-groups')||[];
+  await ensurePartyGroups();
   let qp='?limit=200'; const qps=['limit=200'];
   if(groupFilter) qps.push('party_group_id='+encodeURIComponent(groupFilter));
   if(search) qps.push('search='+encodeURIComponent(search));
@@ -5744,7 +5796,7 @@ async function showPartyTurnover(id,name){
   }catch(e){ showToast('خطا در بارگذاری گردش','error'); }
 }
 async function partyModal(id){
-  if(!CACHE.partyGroups) CACHE.partyGroups=await api('GET','/party-groups')||[];
+  await ensurePartyGroups();
   const userGroups=(CACHE.partyGroups||[]).filter(g=>g.code!==0);
   if(!id && !PARTY_GROUP_FILTER && !userGroups.length){
     showToast('ابتدا با دکمه ➕ یک گروه اشخاص تعریف کنید','error');
@@ -6555,12 +6607,17 @@ async function saveWarehouse(id){
   if(id) data.active=+el('wh-active').value;
   try{
     if(id) await api('PUT','/warehouses/'+id,data); else await api('POST','/warehouses',data);
+    CACHE.warehouses=null; CACHE._prodWarehouses=null; CACHE._prodMetaLoaded=false; clearPageCache();
     closeModal(); showToast('ذخیره شد'); loadAccTab('warehouses');
   }catch(e){}
 }
 async function deleteWarehouse(id){
   if(!confirm('این انبار حذف شود؟')) return;
-  try{ await api('DELETE','/warehouses/'+id); showToast('حذف شد'); loadAccTab('warehouses'); }catch(e){}
+  try{
+    await api('DELETE','/warehouses/'+id);
+    CACHE.warehouses=null; CACHE._prodWarehouses=null; CACHE._prodMetaLoaded=false; clearPageCache();
+    showToast('حذف شد'); loadAccTab('warehouses');
+  }catch(e){}
 }
 async function viewWarehouseStock(id,name){
   const rows=await api('GET','/warehouses/'+id+'/stock')||[];
@@ -6582,7 +6639,7 @@ async function viewWarehouseStock(id,name){
    WAREHOUSE OPERATIONS (رسید / حواله / انتقال انبار)
 ============================================================ */
 async function renderWarehouseOpsTab(body){
-  if(!CACHE.warehouses) CACHE.warehouses=await api('GET','/warehouses')||[];
+  await ensureWarehouses();
   if(!CACHE.allProducts||!CACHE.allProducts.length) CACHE.allProducts=await api('GET','/products')||[];
   const moves=await api('GET','/warehouses/moves/list')||[];
   const typeLabel={receipt:'⬇️ رسید',issue:'⬆️ حواله',transfer:'🔄 انتقال'};
@@ -8118,7 +8175,7 @@ function prodOrderErrMsg(e){
 async function prodOrderCreateModal(){
   try{
     if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
-    if(!CACHE.warehouses?.length){ try{ CACHE.warehouses=await api('GET','/warehouses')||[]; }catch(e){ CACHE.warehouses=[]; } }
+    await ensureWarehouses();
     let boms=[], ccs=[];
     try{ boms=(await api('GET','/production/boms?status=active'))?.rows||[]; }catch(e){ boms=[]; }
     try{ ccs=(await api('GET','/production/cost-centers'))?.rows||[]; }catch(e){ ccs=[]; }
@@ -8626,7 +8683,7 @@ async function saveOverheadConfig(){
   }catch(e){}
 }
 async function productionModal(){
-  if(!CACHE.warehouses) CACHE.warehouses=await api('GET','/warehouses')||[];
+  await ensureWarehouses();
   openModal(`
     <div class="modal-head"><h3>🏗️ ثبت اجرای تولید</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -9188,7 +9245,7 @@ async function purchaseInvoiceModal(){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
-  if(!CACHE.warehouses) CACHE.warehouses=await api('GET','/warehouses')||[];
+  await ensureWarehouses();
   if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers')||[];
   openModal(`
     <div class="modal-head"><h3>📦 فاکتور خرید جدید</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -10161,7 +10218,7 @@ async function deleteAccProduct(id){
 async function renderAccProductsTab(body){
   const catFilter=PRODUCT_CAT_FILTER;
   const search=PRODUCT_ACC_SEARCH;
-  if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories').catch(()=>[])||[];
+  await ensureProductCategories();
   let qp=['limit=500'];
   if(catFilter) qp.push('category_id='+encodeURIComponent(catFilter));
   if(search) qp.push('search='+encodeURIComponent(search));
@@ -10766,12 +10823,17 @@ async function saveProductGroup(id){
   const data={name,code:el('prg-code').value,parent_id:el('prg-parent').value||null,description:el('prg-desc').value,is_shared:el('prg-shared').checked};
   try{
     if(id) await api('PUT','/product-categories/'+id,data); else await api('POST','/product-categories',data);
-    CACHE.productCategories=null; closeModal(); showToast('ذخیره شد'); loadAccTab('product-groups');
+    CACHE.productCategories=null; CACHE.productCats=null; CACHE._prodCats=null; CACHE._prodMetaLoaded=false; clearPageCache();
+    closeModal(); showToast('ذخیره شد'); loadAccTab('product-groups');
   }catch(e){}
 }
 async function deleteProductGroup(id){
   if(!confirm('این گروه حذف شود؟')) return;
-  try{ await api('DELETE','/product-categories/'+id); CACHE.productCategories=null; showToast('حذف شد'); loadAccTab('product-groups'); }catch(e){}
+  try{
+    await api('DELETE','/product-categories/'+id);
+    CACHE.productCategories=null; CACHE.productCats=null; CACHE._prodCats=null; CACHE._prodMetaLoaded=false; clearPageCache();
+    showToast('حذف شد'); loadAccTab('product-groups');
+  }catch(e){}
 }
 
 /* ============================================================
@@ -12307,7 +12369,7 @@ async function rejectRepExpense(id){
 }
 async function repCommissionRulesModal(repId,repName){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
-  if(!CACHE.productCategories) CACHE.productCategories=await api('GET','/product-categories')||[];
+  await ensureProductCategories();
   const rules=await api('GET','/reps/'+repId+'/commission-rules')||[];
   openModal(`
     <div class="modal-head"><h3>📐 قوانین کمیسیون — ${esc(repName)}</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -13849,6 +13911,7 @@ ROUTES.settings = async function(){
         <div class="fg"><label><input type="checkbox" id="s-module_reps" ${s.module_reps!=='0'?'checked':''} style="width:auto;margin-left:6px"> نمایندگان فروش</label></div>
         <div class="fg"><label><input type="checkbox" id="s-module_moadian" ${s.module_moadian!=='0'?'checked':''} style="width:auto;margin-left:6px"> سامانه مودیان</label></div>
         <div class="fg"><label><input type="checkbox" id="s-module_fixed_assets" ${s.module_fixed_assets!=='0'?'checked':''} style="width:auto;margin-left:6px"> دارایی ثابت</label></div>
+        <div class="fg"><label><input type="checkbox" id="s-module_portal" ${s.module_portal!=='0'?'checked':''} style="width:auto;margin-left:6px"> پورتال عملیاتی (واحد / بخش)</label></div>
       </div>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>🤖 دستیار فروش AI</h4></div><div class="panel-body">
@@ -13901,7 +13964,7 @@ ROUTES['desktop-settings'] = async function(){
 async function saveSettings(){
   const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model'];
   const data={}; keys.forEach(k=>{ const e=el('s-'+k); if(e)data[k]=e.value; });
-  const moduleKeys=['module_petty_cash','module_trust_checks','module_warehouses','module_consignments','module_production','module_payroll','module_reps','module_moadian','module_fixed_assets'];
+  const moduleKeys=['module_petty_cash','module_trust_checks','module_warehouses','module_consignments','module_production','module_payroll','module_reps','module_moadian','module_fixed_assets','module_portal'];
   moduleKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.checked?'1':'0'; });
   data.rep_sms_notify = el('s-rep_sms_notify')?.checked ? '1' : '0';
   if(el('s-feature_ai_assistant')) data.feature_ai_assistant = el('s-feature_ai_assistant').checked ? '1' : '0';
@@ -14346,6 +14409,7 @@ function renderAdminGuide(){
       <p>در این نسخه چند بهبود مهم اعمال شده است:</p>
       <h5>📦 Update 11 — حسابداری / تولید / انبار</h5><ul>
         <li>گروه‌های کالا و اشخاص <b>سراسری</b> هستند (برچسب گزارشی، نه کنترل دسترسی)</li>
+        <li>لیست انبارها و گروه‌های کالا در همهٔ بخش‌های متصل (فاکتور، کاتالوگ، پرتال، خرید) بدون نیاز به ویرایش دستی یک رکورد بارگذاری می‌شود</li>
         <li>تب پیش‌فاکتور فقط <code>proforma</code> و تب فاکتور رسمی فقط <code>final</code> را نشان می‌دهد</li>
         <li>مقدار کالا تا <b>۳ رقم اعشار</b>؛ ارز و نرخ مرجع (صندوق/بانک ارزی)؛ تفصیلی سطح دو روی اسناد</li>
         <li>فاکتور: توضیحات ردیف در چاپ، تخفیف ٪↔مبلغ دوطرفه (ردیف و کل)، جمع تخفیف ردیف‌ها در جمع فاکتور</li>
@@ -14732,12 +14796,15 @@ function renderAdminGuide(){
         <li>جستجوی محصولات، بارکد را هم پوشش می‌دهد</li>
       </ul>
       <div class="tip">ستون «بارکد» در ورود/خروج اکسل محصولات نیز پشتیبانی می‌شود.</div>`),
-    helpSec('🏭','پرتال عملیاتی (واحد / بخش)',`
-      <p>از <b>حسابداری → پرتال عملیاتی</b> واحدهای تولیدی و گردش «پارامتر» بین بخش‌ها مدیریت می‌شود.</p>
+    helpSec('🏭','پورتال عملیاتی (واحد / بخش)',`
+      <p>از <b>حسابداری → پورتال عملیاتی</b> واحدهای تولیدی و گردش «پارامتر» بین بخش‌ها مدیریت می‌شود.</p>
       <ul>
         <li><b>واحدهای عملیاتی</b>: تعریف واحد، مدیر، انبارهای متصل؛ ساخت پارامتر با اقلام کالا و خط زمانی رنگی وضعیت بخش‌ها (سبز=تکمیل، زرد=در جریان، خاکستری=در انتظار)</li>
         <li><b>بخش من</b>: مدیر بخش پارامترهای در صف را می‌بیند — تأیید مقدار، بازبینی، پرداخت پرسنل، تبدیل کالا، اتمام بخش</li>
         <li>هر انتقال بین بخش‌ها با حواله انبار و (در صورت نیاز) سند حسابداری ثبت می‌شود</li>
+        <li><b>کاربر مدیر</b>: هنگام تعریف مدیر واحد/بخش اگر حساب کاربری نباشد، با شماره تلفن ساخته می‌شود و رمز موقت با پیامک ارسال می‌گردد (در اولین ورود باید عوض شود)</li>
+        <li><b>بازبینی گیرکرده</b>: اگر بخش بیش از مدت تنظیم‌شده (پیش‌فرض ۷۲ ساعت) در وضعیت بازبینی بماند، سیستم به‌صورت خودکار بازبینی را آزاد می‌کند و به ادمین اطلاع می‌دهد</li>
+        <li><b>تبدیل به کالای جدید</b>: اگر کالای خروجی در لیست نباشد، با نام جدید ساخته می‌شود (وضعیت «در انتظار تأیید») تا ادمین تأیید کند — در فروش دیده نمی‌شود</li>
       </ul>`),
     helpSec('📊','گزارشات و تطبیق حسابداری (Gap)',`
       <ul>

@@ -183,6 +183,13 @@ function initPortalSchema(db) {
       ON op_dept_delegations(delegate_person_id, active, starts_at, ends_at);
   `);
   db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('portal_schema_v3','1')").run();
+
+  // v4 — review timeout + product pending approval (spec §6 edges 3–4)
+  try { db.exec('ALTER TABLE op_parameter_dept_log ADD COLUMN review_requested_at INTEGER'); } catch (_) {}
+  try { db.exec("ALTER TABLE products ADD COLUMN approval_status TEXT DEFAULT 'approved'"); } catch (_) {}
+  db.prepare("UPDATE products SET approval_status='approved' WHERE approval_status IS NULL OR approval_status=''").run();
+  db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('portal_review_timeout_hours','72')").run();
+  db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('portal_schema_v4','1')").run();
 }
 
 module.exports = { initPortalSchema };

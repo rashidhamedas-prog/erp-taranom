@@ -27,20 +27,36 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۳۰)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۳۱)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `147efa2` — boot/invoice/stocktaking/portal v2 |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v54` |
+| آخرین commit | (محلی) warehouse/group cache fix — SW `erp-taranom-v59` |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v59` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ✅ ایران `94.249.244.208` — PM2=`erp-taranom`، SW `v54`، commit `b04a062` |
+| وضعیت سرور | ⏳ ایران — نیاز به pull برای portal gap |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### 2026-07-22 — رفع باگ نمایش انبارها و گروه‌های کالا در بخش‌های متصل
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** بدون commit
+- **خلاصه:** کش master-data با آرایهٔ خالی (`[]`) به‌اشتباه «بارگذاری‌شده» تلقی می‌شد و تا ویرایش دستی دوباره fetch نمی‌شد. علت اصلی گروه‌ها: صفحه کالا/کاتالوگ با `canEdit=false` مقدار `CACHE.productCategories=[]` می‌گذاشت. اصلاح: `ensureWarehouses` / `ensureProductCategories` در همهٔ مسیرهای dropdown، عدم poison با `[]` روی خطا، همیشه بارگذاری گروه‌ها در `productsPage`، invalidate کامل پس از CRUD گروه کالا. SW `v59`.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/portal-ui.js`, `server/public/sw.js`
+- **Deploy:** ⏳ نیاز به pull
+- **یادداشت:** بدون ویرایش دستی انبار/گروه، dropdownها در فاکتور، خرید، پرتال، ساخت سریع کالا و … باید پر شوند.
+
+### 2026-07-22 — تکمیل شکاف‌های اسپک پورتال کارمندان v2.0
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** بدون commit
+- **خلاصه:** رمز موقت تصادفی + SMS هنگام ساخت کاربر مدیر؛ ستون `review_requested_at` و cron ساعتی auto-approve بازبینی (پیش‌فرض ۷۲h)؛ تبدیل با `product_name` → کالای `approval_status=pending` + تأیید ادمین؛ فیلتر کالاهای pending از کاتالوگ فروش؛ رفع انتقال کالا بین بخش‌ها پس از تبدیل؛ تست E2E کامل در `test-portal.js` (۵۵ assertion)؛ Help + SPEC status؛ SW v58
+- **فایل‌های کلیدی:** `lib/portal-schema.js`, `lib/portal-users.js`, `lib/portal-jobs.js`, `routes/portal.js`, `routes/products.js`, `server.js`, `public/portal-ui.js`, `public/index.html`, `public/sw.js`, `scripts/test-portal.js`, `docs/PORTAL-KARMANDAN-SPEC.md`
+- **Deploy:** ⏳ نیاز به pull
+- **یادداشت:** `node server/scripts/test-portal.js` سبز
 
 ### 2026-07-21 — تکمیل UIهای جا مانده (پرتال + تطبیق/بودجه + واگذاری)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

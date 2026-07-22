@@ -183,7 +183,7 @@ const ACC_NAV_SECTIONS = [
     { id: 'acc-close-perm', icon: '🔴', label: 'اختتامیه حساب‌های دائم' },
     { id: 'acc-revaluation', icon: '💱', label: 'سند تسعیر' },
   ]},
-  { title: 'پرتال عملیاتی', items: [
+  { title: 'پورتال عملیاتی', items: [
     { id: 'acc-portal-units', icon: '🏢', label: 'واحدهای عملیاتی' },
     { id: 'acc-portal-my-dept', icon: '🏭', label: 'بخش من (کف کارگاه)' },
   ]},

@@ -1,5 +1,5 @@
 /**
- * portal-ui.js — پرتال عملیاتی + گزارشات/تطبیق/بودجه/ذخایر (Accounting Gap UI)
+ * portal-ui.js — پورتال عملیاتی + گزارشات/تطبیق/بودجه/ذخایر (Accounting Gap UI)
  * IIFE — توابع render روی globalThis برای loadAccTab و onclick
  */
 (function (global) {
@@ -27,12 +27,25 @@
   }
 
   async function ensurePortalCaches() {
-    if (!CACHE.persons) CACHE.persons = await api('GET', '/persons') || [];
-    if (!CACHE.warehouses) CACHE.warehouses = await api('GET', '/warehouses') || [];
-    if (!CACHE.allProducts && !CACHE.products) {
+    if (typeof ensureWarehouses === 'function') await ensureWarehouses();
+    else if (!CACHE.warehouses?.length) CACHE.warehouses = await api('GET', '/warehouses') || [];
+    if (!CACHE.persons?.length) CACHE.persons = await api('GET', '/persons') || [];
+    if (!CACHE.allProducts?.length && !CACHE.products?.length) {
       CACHE.allProducts = await api('GET', '/products') || [];
     }
   }
+
+  const PARAM_STATUS_FA = {
+    pending: 'در انتظار',
+    in_progress: 'در جریان',
+    under_review: 'بازبینی',
+    awaiting_payment: 'در انتظار پرداخت',
+    payment_pending_approval: 'پرداخت در انتظار تأیید',
+    dept_completed: 'بخش تکمیل',
+    completed: 'تکمیل‌شده',
+    cancelled: 'لغو',
+  };
+  function paramStatusLabel(st) { return PARAM_STATUS_FA[st] || st || '—'; }
 
   function personOptionsHtml(selectedId) {
     return (CACHE.persons || []).map(p =>
@@ -105,7 +118,7 @@
             </tr></thead><tbody>${unitParams.map(p => `<tr>
               <td class="mono">${esc(p.num || p.id)}</td>
               <td>${esc(p.name)}</td>
-              <td><span class="tag">${esc(p.status || '-')}</span></td>
+              <td><span class="tag">${esc(paramStatusLabel(p.status))}</span></td>
               <td id="ptl-${p.id}"><span class="muted">…</span></td>
               <td><button class="btn sm" onclick="PortalUI.showParamDetail(${p.id})">جزئیات</button></td>
             </tr>`).join('') || emptyRow(5)}</tbody></table></div>
@@ -122,24 +135,51 @@
         });
       }, 0);
     }
+    let pendingHtml = '';
+    try {
+      const pending = await api('GET', '/portal/products/pending') || [];
+      if (pending.length) {
+        pendingHtml = `
+          <div class="panel" style="margin-top:12px">
+            <div class="panel-head"><h4>⏳ کالاهای در انتظار تأیید</h4></div>
+            <div class="panel-body"><div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+              <th>کد</th><th>نام</th><th></th>
+            </tr></thead><tbody>${pending.map(p => `<tr>
+              <td class="mono">${esc(p.code || p.id)}</td>
+              <td>${esc(p.name)}</td>
+              <td><button class="btn sm green" onclick="PortalUI.approvePortalProduct(${p.id})">✅ تأیید</button></td>
+            </tr>`).join('')}</tbody></table></div></div>
+          </div>`;
+      }
+    } catch (_) { /* optional */ }
+
     body.innerHTML = `
       <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
         <button class="btn sm" onclick="PortalUI.openCreateUnitModal()">➕ واحد عملیاتی</button>
         <button class="btn sm ghost" onclick="loadAccTab('portal-units')">🔄</button>
       </div>
-      <p class="muted" style="font-size:12px;margin-bottom:10px">مسئول واحد از <b>اطلاعات اشخاص</b> انتخاب می‌شود؛ با ذخیره، حساب کاربری با نام کاربری=تلفن و رمز پیش‌فرض ۱۲۳۴۵ ساخته می‌شود.</p>
+      <p class="muted" style="font-size:12px;margin-bottom:10px">مسئول واحد از <b>اطلاعات اشخاص</b> انتخاب می‌شود؛ با ذخیره، حساب کاربری با نام کاربری=تلفن ساخته و رمز موقت با پیامک ارسال می‌شود (اولین ورود: تغییر رمز اجباری).</p>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
         <th>نام واحد</th><th>نوع خروجی</th><th>وضعیت</th><th>عملیات</th>
       </tr></thead><tbody>${units.map(u => `<tr style="${_portalUnitId === u.id ? 'background:var(--purple-light)' : ''}">
         <td>${esc(u.name)}</td>
         <td class="muted">${esc(u.output_type || '-')}</td>
-        <td>${esc(u.status || 'active')}</td>
+        <td>${u.status === 'inactive' ? '<span class="tag t-cancel">غیرفعال</span>' : '<span class="tag t-done">فعال</span>'}</td>
         <td>
           <button class="btn sm ${ _portalUnitId === u.id ? '' : 'ghost'}" onclick="PortalUI.selectUnit(${u.id})">مدیریت</button>
           <button class="btn sm ghost" onclick="PortalUI.openEditUnitModal(${u.id})">✏️</button>
         </td>
       </tr>`).join('') || emptyRow(4)}</tbody></table></div>
+      ${pendingHtml}
       ${detailHtml}`;
+  }
+
+  async function approvePortalProduct(id) {
+    try {
+      await api('POST', `/portal/products/${id}/approve`, {});
+      showToast('کالا تأیید شد');
+      loadAccTab('portal-units');
+    } catch (e) {}
   }
 
   function selectUnit(id) {
@@ -436,14 +476,21 @@
     const rows = await api('GET', '/portal/parameters') || [];
     const canApprovePay = (typeof canPerm === 'function' && canPerm('portal', 'approve'))
       || ['admin', 'accounting', 'unit_manager'].includes(ME?.role);
+    const active = rows.filter(p => p.status !== 'completed' && p.status !== 'cancelled');
     body.innerHTML = `
+      <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+        <button class="btn sm ghost" onclick="loadAccTab('portal-my-dept')">🔄 بروزرسانی</button>
+        <span class="muted" style="font-size:12px">${fmt(active.length)} پارامتر فعال در صف</span>
+      </div>
       <div class="muted" style="font-size:12px;margin-bottom:12px">پارامترهای در صف بخش شما — دکمه‌های عملیات روی بخش فعلی اعمال می‌شوند.</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
-        ${rows.length ? rows.map(p => `<div class="panel" style="margin:0">
-          <div class="panel-head"><h4>${esc(p.num || p.id)}</h4><span class="tag">${esc(p.status)}</span></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">
+        ${active.length ? active.map(p => `<div class="panel" style="margin:0">
+          <div class="panel-head"><h4>${esc(p.num || ('#'+p.id))}</h4>
+            <span class="tag">${esc(paramStatusLabel(p.status))}</span></div>
           <div class="panel-body">
             <div style="font-weight:600;margin-bottom:6px">${esc(p.name)}</div>
-            <div class="muted" style="font-size:11px;margin-bottom:10px">بخش جاری: #${fmt(p.current_department_id || '-')}</div>
+            <div class="muted" style="font-size:11px;margin-bottom:4px">واحد: ${esc(p.unit_name || '—')}</div>
+            <div class="muted" style="font-size:11px;margin-bottom:10px">بخش جاری: <b>${esc(p.current_department_name || (p.current_department_id ? ('#'+p.current_department_id) : '—'))}</b>${p.current_department_seq != null ? ` <span class="tag" style="font-size:10px">مرحله ${fmt(p.current_department_seq)}</span>` : ''}</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
               <button class="btn sm" onclick="PortalUI.deptConfirm(${p.id},${p.current_department_id || 0})">✅ تأیید مقدار</button>
               <button class="btn sm ghost" onclick="PortalUI.deptReview(${p.id},${p.current_department_id || 0})">🔍 بازبینی</button>
@@ -541,8 +588,9 @@
   }
 
   async function finalOutput(paramId) {
-    if (!CACHE.warehouses) {
-      try { CACHE.warehouses = await api('GET', '/warehouses') || []; } catch (_) { CACHE.warehouses = []; }
+    if (typeof ensureWarehouses === 'function') await ensureWarehouses();
+    else if (!CACHE.warehouses?.length) {
+      try { CACHE.warehouses = await api('GET', '/warehouses') || []; } catch (_) { CACHE.warehouses = null; }
     }
     let whs = (CACHE.warehouses || []).filter(w => w.active !== 0);
     try {
@@ -700,7 +748,7 @@
       await api('POST', `/portal/departments/${deptId}/delegate`, {
         delegate_person_id, hours, note: el('dlg-note')?.value || '',
       });
-      showToast('واگذاری ثبت شد — کاربر با رمز ۱۲۳۴۵ در صورت نیاز ساخته شد');
+      showToast('واگذاری ثبت شد — در صورت ساخت کاربر جدید، رمز موقت با پیامک ارسال می‌شود');
       openDelegateModal(deptId);
     } catch (e) {}
   }
@@ -721,25 +769,38 @@
     if (!CACHE.products?.length) {
       try { CACHE.products = await api('GET', '/products') || []; } catch (_) { CACHE.products = []; }
     }
-    const list = (CACHE.products || CACHE.allProducts || []).slice(0, 500);
+    const list = (CACHE.products || CACHE.allProducts || [])
+      .filter(p => !p.approval_status || p.approval_status === 'approved')
+      .slice(0, 500);
     openModal(`
       <div class="modal-head"><h3>🔄 تبدیل کالا</h3><button class="x" onclick="closeModal()">×</button></div>
       <div class="modal-body"><div class="form-grid">
-        <div class="fg full"><label>کالای خروجی *</label><select id="cv-prod"><option value="">— انتخاب —</option>
+        <div class="fg full"><label>کالای خروجی موجود</label><select id="cv-prod"><option value="">— انتخاب یا نام جدید زیر —</option>
           ${list.map(p => `<option value="${p.id}">${esc(p.name)}${p.code ? ' (' + esc(p.code) + ')' : ''}</option>`).join('')}
         </select></div>
+        <div class="fg full"><label>یا نام کالای جدید (در انتظار تأیید ادمین)</label>
+          <input id="cv-new-name" type="text" placeholder="نام کالا اگر در لیست نیست"></div>
         <div class="fg"><label>مقدار *</label><input id="cv-qty" type="number" step="0.001" min="0.001" value="1"></div>
       </div></div>
       <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDeptConvert(${paramId},${deptId})">💾 ثبت تبدیل</button>
         <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
   }
   async function saveDeptConvert(paramId, deptId) {
-    const product_id = +el('cv-prod')?.value;
+    const product_id = +el('cv-prod')?.value || null;
+    const product_name = (el('cv-new-name')?.value || '').trim();
     const quantity = +el('cv-qty')?.value;
-    if (!product_id || !quantity) { showToast('کالا و مقدار الزامی است', 'error'); return; }
+    if ((!product_id && !product_name) || !quantity) {
+      showToast('کالا (انتخاب یا نام جدید) و مقدار الزامی است', 'error');
+      return;
+    }
     try {
-      await api('POST', `/portal/parameters/${paramId}/dept/${deptId}/convert`, { product_id, quantity });
-      closeModal(); showToast('تبدیل انجام شد'); loadAccTab('portal-my-dept');
+      const body = { quantity };
+      if (product_id) body.product_id = product_id;
+      if (product_name) body.product_name = product_name;
+      const r = await api('POST', `/portal/parameters/${paramId}/dept/${deptId}/convert`, body);
+      closeModal();
+      showToast(r?.created_pending ? 'تبدیل انجام شد — کالا در انتظار تأیید ادمین' : 'تبدیل انجام شد');
+      loadAccTab('portal-my-dept');
     } catch (e) {}
   }
 
@@ -1232,6 +1293,7 @@
     openDelegateModal,
     saveDelegation,
     revokeDelegation,
+    approvePortalProduct,
     showBankRecon,
     openBankReconModal,
     saveBankRecon,

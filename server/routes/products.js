@@ -78,6 +78,13 @@ router.get('/', auth, (req, res) => {
   if (stockStatus === 'low') where.push('p.stock <= p.stock_alert');
   else if (stockStatus === 'ok') where.push('p.stock > p.stock_alert');
 
+  // Hide portal-created pending products from sales catalogs unless explicitly requested
+  const hasApproval = db.prepare("PRAGMA table_info(products)").all()
+    .some(c => c.name === 'approval_status');
+  if (hasApproval && String(req.query.include_pending || '') !== '1') {
+    where.push("(p.approval_status IS NULL OR p.approval_status='' OR p.approval_status='approved')");
+  }
+
   const warehouseId = parseInt(req.query.warehouse_id);
   if (warehouseId) { where.push('(p.warehouse_id=? OR EXISTS (SELECT 1 FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=? AND ws.qty>0))'); params.push(warehouseId, warehouseId); }
 

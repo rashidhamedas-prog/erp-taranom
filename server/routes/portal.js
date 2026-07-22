@@ -5,7 +5,7 @@
 const router = require('express').Router();
 const { getDB, audit, allocateNumber, createJournalEntry } = require('../db');
 const { auth, requirePermission, centralOnly } = require('../middleware/auth');
-const { ensurePersonUser } = require('../lib/portal-users');
+const { ensurePersonUser, sendTempPasswordSms } = require('../lib/portal-users');
 const { postInventoryMovement, warehouseQty, invErr } = require('../lib/inventory/ledger');
 const { acct } = require('../lib/coa-map');
 const { postToLedger } = require('../lib/ledger');
@@ -289,11 +289,12 @@ router.post('/units', auth, centralOnly, requirePermission('portal', 'create'), 
   }
   const db = getDB();
   let unitId;
+  const newUsers = [];
   try {
     db.transaction(() => {
-      ensurePersonUser(db, parseInt(manager_person_id, 10), 'unit_manager');
-      if (manager2_person_id) ensurePersonUser(db, parseInt(manager2_person_id, 10), 'unit_manager');
-      if (manager3_person_id) ensurePersonUser(db, parseInt(manager3_person_id, 10), 'unit_manager');
+      newUsers.push(ensurePersonUser(db, parseInt(manager_person_id, 10), 'unit_manager'));
+      if (manager2_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager2_person_id, 10), 'unit_manager'));
+      if (manager3_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager3_person_id, 10), 'unit_manager'));
       const r = db.prepare(`
         INSERT INTO op_units (name, manager_person_id, manager2_person_id, manager3_person_id, output_type, created_by)
         VALUES (?,?,?,?,?,?)
@@ -313,6 +314,7 @@ router.post('/units', auth, centralOnly, requirePermission('portal', 'create'), 
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
+  newUsers.forEach(u => sendTempPasswordSms(db, u));
   audit(req.user.id, 'create', 'op_unit', unitId, `ساخت واحد عملیاتی ${name}`);
   res.json(db.prepare('SELECT * FROM op_units WHERE id=?').get(unitId));
 });
@@ -373,10 +375,11 @@ router.put('/units/:id', auth, centralOnly, requirePermission('portal', 'edit'),
     output_type, status, warehouse_ids, person_ids, module_keys,
   } = req.body;
   try {
+    const newUsers = [];
     db.transaction(() => {
-      if (manager_person_id) ensurePersonUser(db, parseInt(manager_person_id, 10), 'unit_manager');
-      if (manager2_person_id) ensurePersonUser(db, parseInt(manager2_person_id, 10), 'unit_manager');
-      if (manager3_person_id) ensurePersonUser(db, parseInt(manager3_person_id, 10), 'unit_manager');
+      if (manager_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager_person_id, 10), 'unit_manager'));
+      if (manager2_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager2_person_id, 10), 'unit_manager'));
+      if (manager3_person_id) newUsers.push(ensurePersonUser(db, parseInt(manager3_person_id, 10), 'unit_manager'));
       db.prepare(`
         UPDATE op_units SET
           name=?, manager_person_id=?, manager2_person_id=?, manager3_person_id=?,
@@ -395,6 +398,7 @@ router.put('/units/:id', auth, centralOnly, requirePermission('portal', 'edit'),
       if (person_ids) syncUnitPersons(db, unit.id, person_ids);
       if (module_keys) syncUnitModuleLinks(db, unit.id, module_keys);
     })();
+    newUsers.forEach(u => sendTempPasswordSms(db, u));
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
@@ -426,9 +430,10 @@ router.post('/units/:id/departments', auth, centralOnly, requirePermission('port
     .get(unitId, parseInt(warehouse_id, 10));
   if (!whLink) return res.status(400).json({ error: 'انبار باید به همین واحد متصل باشد' });
   let deptId;
+  let newUser;
   try {
     db.transaction(() => {
-      ensurePersonUser(db, parseInt(manager_person_id, 10), 'department_manager');
+      newUser = ensurePersonUser(db, parseInt(manager_person_id, 10), 'department_manager');
       let seq = parseInt(sequence_order, 10);
       if (!seq) {
         seq = (db.prepare('SELECT COALESCE(MAX(sequence_order),0)+1 s FROM op_departments WHERE unit_id=?').get(unitId).s);
@@ -442,6 +447,7 @@ router.post('/units/:id/departments', auth, centralOnly, requirePermission('port
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
+  sendTempPasswordSms(db, newUser);
   audit(req.user.id, 'create', 'op_department', deptId, `افزودن بخش ${name} به واحد ${unit.name}`);
   res.json(db.prepare('SELECT * FROM op_departments WHERE id=?').get(deptId));
 });
@@ -472,8 +478,9 @@ router.put('/departments/:id', auth, centralOnly, requirePermission('portal', 'e
     if (!whLink) return res.status(400).json({ error: 'انبار باید به واحد متصل باشد' });
   }
   try {
+    let newUser;
     db.transaction(() => {
-      if (manager_person_id) ensurePersonUser(db, parseInt(manager_person_id, 10), 'department_manager');
+      if (manager_person_id) newUser = ensurePersonUser(db, parseInt(manager_person_id, 10), 'department_manager');
       db.prepare(`
         UPDATE op_departments SET name=?, manager_person_id=?, warehouse_id=?, status=?
         WHERE id=?
@@ -485,6 +492,7 @@ router.put('/departments/:id', auth, centralOnly, requirePermission('portal', 'e
         dept.id
       );
     })();
+    sendTempPasswordSms(db, newUser);
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message });
   }
@@ -619,24 +627,33 @@ router.get('/parameters', auth, requirePermission('portal', 'view'), (req, res) 
   const db = getDB();
   const uids = scopeUnitIds(db, req.user);
   const dids = scopeDeptIds(db, req.user);
+  const selectSql = `
+    SELECT p.*,
+      u.name AS unit_name,
+      d.name AS current_department_name,
+      d.sequence_order AS current_department_seq
+    FROM op_parameters p
+    LEFT JOIN op_units u ON u.id=p.unit_id
+    LEFT JOIN op_departments d ON d.id=p.current_department_id
+  `;
   let rows;
   if (uids === null) {
-    rows = db.prepare('SELECT * FROM op_parameters ORDER BY created_at DESC LIMIT 500').all();
+    rows = db.prepare(`${selectSql} ORDER BY p.created_at DESC LIMIT 500`).all();
   } else {
     const parts = [];
     const params = [];
     if (uids.length) {
-      parts.push(`unit_id IN (${uids.map(() => '?').join(',')})`);
+      parts.push(`p.unit_id IN (${uids.map(() => '?').join(',')})`);
       params.push(...uids);
     }
     if (dids.length) {
-      parts.push(`current_department_id IN (${dids.map(() => '?').join(',')})`);
+      parts.push(`p.current_department_id IN (${dids.map(() => '?').join(',')})`);
       params.push(...dids);
     }
     if (!parts.length) return res.json([]);
     rows = db.prepare(`
-      SELECT * FROM op_parameters WHERE (${parts.join(' OR ')})
-      ORDER BY created_at DESC LIMIT 500
+      ${selectSql} WHERE (${parts.join(' OR ')})
+      ORDER BY p.created_at DESC LIMIT 500
     `).all(...params);
   }
   res.json(rows);
@@ -712,7 +729,10 @@ router.post('/parameters/:id/dept/:deptId/confirm', auth, requirePermission('por
 router.post('/parameters/:id/dept/:deptId/request-review', auth, requirePermission('portal', 'create'), (req, res) => {
   deptAction(req.params.id, req.params.deptId, req, res, (db, param, { log }) => {
     db.prepare(`
-      UPDATE op_parameter_dept_log SET status='under_review' WHERE id=?
+      UPDATE op_parameter_dept_log SET
+        status='under_review',
+        review_requested_at=CAST(strftime('%s','now') AS INTEGER)
+      WHERE id=?
     `).run(log.id);
     db.prepare(`
       UPDATE op_parameters SET status='under_review', updated_at=strftime('%s','now') WHERE id=?
@@ -751,7 +771,7 @@ router.post('/parameters/:id/dept/:deptId/payment', auth, requirePermission('por
       kind: 'portal_payment_pending',
       entity_type: 'op_parameter',
       entity_id: param.id,
-      title: wantStatus === 'awaiting_payment' ? 'در انتظار پرداخت پرتال' : 'پرداخت پرتال در انتظار تأیید حسابداری',
+      title: wantStatus === 'awaiting_payment' ? 'در انتظار پرداخت پورتال' : 'پرداخت پورتال در انتظار تأیید حسابداری',
       body: `${param.name} — ${person.name} — ${amt} ریال`,
       target_roles: ['accounting', 'admin'],
     });
@@ -779,7 +799,7 @@ router.post('/parameters/:id/dept/:deptId/approve-payment', auth, requirePermiss
       sourceType: 'portal_payment',
       sourceId: log.id,
       date: d,
-      description: `پرداخت پرتال — ${param.name} — ${person.name}`,
+      description: `پرداخت پورتال — ${param.name} — ${person.name}`,
       createdBy: req.user.id,
       lines: [
         { code: expense.code, name: expense.name, debit: toman, credit: 0 },
@@ -801,12 +821,53 @@ router.post('/parameters/:id/dept/:deptId/approve-payment', auth, requirePermiss
 });
 
 router.post('/parameters/:id/dept/:deptId/convert', auth, requirePermission('portal', 'edit'), (req, res) => {
-  const { product_id, quantity, from_product_id } = req.body;
-  const outPid = parseInt(product_id, 10);
+  const { product_id, product_name, quantity, from_product_id } = req.body;
   const qty = parseQty(quantity);
-  if (!outPid || !qty || qty <= 0) return res.status(400).json({ error: 'کالای خروجی و تعداد معتبر الزامی است' });
+  if (!qty || qty <= 0) return res.status(400).json({ error: 'تعداد معتبر الزامی است' });
+  let outPid = product_id ? parseInt(product_id, 10) : null;
+  const newName = String(product_name || '').trim();
+  if (!outPid && !newName) {
+    return res.status(400).json({ error: 'کالای خروجی (شناسه یا نام جدید) الزامی است' });
+  }
   deptAction(req.params.id, req.params.deptId, req, res, (db, param, { log, dept }) => {
-    const outProd = db.prepare('SELECT * FROM products WHERE id=?').get(outPid);
+    let outProd = outPid ? db.prepare('SELECT * FROM products WHERE id=?').get(outPid) : null;
+    let createdPending = false;
+    if (!outProd && newName) {
+      const existingByName = db.prepare('SELECT * FROM products WHERE name=?').get(newName);
+      if (existingByName) {
+        outProd = existingByName;
+        outPid = existingByName.id;
+      } else {
+        const codeRow = db.prepare("SELECT code FROM products WHERE code GLOB 'K-[0-9]*' ORDER BY id DESC LIMIT 1").get();
+        let n = 1;
+        if (codeRow?.code) {
+          const m = codeRow.code.match(/K-(\d+)/);
+          if (m) n = parseInt(m[1], 10) + 1;
+        }
+        const code = `K-${String(n).padStart(5, '0')}`;
+        const hasApproval = db.prepare("PRAGMA table_info(products)").all()
+          .some(c => c.name === 'approval_status');
+        const cols = hasApproval
+          ? '(user_id,code,name,price,cost,stock,warehouse_id,approval_status)'
+          : '(user_id,code,name,price,cost,stock,warehouse_id)';
+        const vals = hasApproval ? '(?,?,?,?,0,0,?,?)' : '(?,?,?,?,0,0,?)';
+        const args = hasApproval
+          ? [req.user.id, code, newName, 0, dept.warehouse_id, 'pending']
+          : [req.user.id, code, newName, 0, dept.warehouse_id];
+        const ir = db.prepare(`INSERT INTO products ${cols} VALUES ${vals}`).run(...args);
+        outPid = ir.lastInsertRowid;
+        outProd = db.prepare('SELECT * FROM products WHERE id=?').get(outPid);
+        createdPending = true;
+        portalNotify(db, {
+          kind: 'portal_product_pending',
+          entity_type: 'product',
+          entity_id: outPid,
+          title: 'کالای جدید پورتال در انتظار تأیید',
+          body: newName,
+          target_roles: ['admin', 'accounting'],
+        });
+      }
+    }
     if (!outProd) throw Object.assign(new Error('کالای خروجی یافت نشد'), { status: 404 });
     let inPid = from_product_id ? parseInt(from_product_id, 10) : null;
     if (!inPid) {
@@ -836,7 +897,7 @@ router.post('/parameters/:id/dept/:deptId/convert', auth, requirePermission('por
       sourceType: 'portal_convert',
       sourceId: log.id,
       date: d,
-      note: `تبدیل پرتال — خروج ${inProd.name}`,
+      note: `تبدیل پورتال — خروج ${inProd.name}`,
       createdBy: req.user.id,
     });
     const ledReceipt = postInventoryMovement(db, {
@@ -849,7 +910,7 @@ router.post('/parameters/:id/dept/:deptId/convert', auth, requirePermission('por
       sourceType: 'portal_convert',
       sourceId: log.id,
       date: d,
-      note: `تبدیل پرتال — ورود ${outProd.name}`,
+      note: `تبدیل پورتال — ورود ${outProd.name}`,
       createdBy: req.user.id,
     });
     let runId = null;
@@ -858,7 +919,7 @@ router.post('/parameters/:id/dept/:deptId/convert', auth, requirePermission('por
         INSERT INTO production_runs (product_id, qty_produced, material_cost, date, note, stock_added, warehouse_id, created_by)
         VALUES (?,?,?,?,?,1,?,?)
       `).run(outPid, Math.round(qty), ledIssue.amount_rial / 10, d,
-        `تبدیل پرتال ${param.num || param.id}`, whId, req.user.id);
+        `تبدیل پورتال ${param.num || param.id}`, whId, req.user.id);
       runId = rr.lastInsertRowid;
     }
     db.prepare(`
@@ -866,9 +927,49 @@ router.post('/parameters/:id/dept/:deptId/convert', auth, requirePermission('por
         converted_product_id=?, conversion_quantity=?, output_quantity=?, production_run_id=?
       WHERE id=?
     `).run(outPid, qty, qty, runId, log.id);
-    audit(req.user.id, 'convert', 'op_parameter_dept', log.id, `تبدیل ${qty} ${inProd.name} → ${outProd.name}`);
-    return { ok: true, production_run_id: runId, issue_ledger_id: ledIssue.id, receipt_ledger_id: ledReceipt.id };
+    audit(req.user.id, 'convert', 'op_parameter_dept', log.id,
+      `تبدیل ${qty} ${inProd.name} → ${outProd.name}${createdPending ? ' (در انتظار تأیید)' : ''}`);
+    return {
+      ok: true,
+      production_run_id: runId,
+      issue_ledger_id: ledIssue.id,
+      receipt_ledger_id: ledReceipt.id,
+      product_id: outPid,
+      approval_status: outProd.approval_status || (createdPending ? 'pending' : 'approved'),
+      created_pending: createdPending,
+    };
   });
+});
+
+router.post('/products/:id/approve', auth, requirePermission('portal', 'approve'), (req, res) => {
+  const db = getDB();
+  const hasApproval = db.prepare("PRAGMA table_info(products)").all()
+    .some(c => c.name === 'approval_status');
+  if (!hasApproval) return res.status(400).json({ error: 'ستون تأیید کالا موجود نیست' });
+  const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  if (!prod) return res.status(404).json({ error: 'کالا یافت نشد' });
+  if (prod.approval_status === 'approved') return res.json({ ok: true, already: true });
+  db.prepare("UPDATE products SET approval_status='approved' WHERE id=?").run(prod.id);
+  audit(req.user.id, 'approve', 'product', prod.id, `تأیید کالای پورتال ${prod.name}`);
+  portalNotify(db, {
+    kind: 'portal_product_approved',
+    entity_type: 'product',
+    entity_id: prod.id,
+    title: 'تأیید کالای پورتال',
+    body: prod.name,
+    target_roles: ['unit_manager', 'department_manager', 'admin'],
+  });
+  res.json({ ok: true, id: prod.id, approval_status: 'approved' });
+});
+
+router.get('/products/pending', auth, requirePermission('portal', 'view'), (req, res) => {
+  const db = getDB();
+  const hasApproval = db.prepare("PRAGMA table_info(products)").all()
+    .some(c => c.name === 'approval_status');
+  if (!hasApproval) return res.json([]);
+  res.json(db.prepare(
+    "SELECT id, code, name, approval_status, warehouse_id, created_at FROM products WHERE approval_status='pending' ORDER BY id DESC LIMIT 100"
+  ).all());
 });
 
 router.post('/parameters/:id/dept/:deptId/complete', auth, requirePermission('portal', 'edit'), (req, res) => {
@@ -876,42 +977,46 @@ router.post('/parameters/:id/dept/:deptId/complete', auth, requirePermission('po
     const ts = nowEpoch(db);
     const d = todayJalali();
     const items = db.prepare('SELECT * FROM op_parameter_items WHERE parameter_id=?').all(param.id);
-    const transferQty = (it) => {
-      if (log.output_quantity > 0 && log.converted_product_id) {
-        return log.converted_product_id === it.product_id ? parseQty(log.output_quantity) : 0;
+    // Goods to move: this dept's conversion output, else prior conversion in the chain, else original items
+    const priorConv = db.prepare(`
+      SELECT converted_product_id, COALESCE(output_quantity, conversion_quantity) AS qty
+      FROM op_parameter_dept_log
+      WHERE parameter_id=? AND converted_product_id IS NOT NULL
+        AND sequence_order <= ?
+      ORDER BY sequence_order DESC LIMIT 1
+    `).get(param.id, log.sequence_order);
+    const moveLines = [];
+    if (log.converted_product_id && log.output_quantity > 0) {
+      moveLines.push({ product_id: log.converted_product_id, quantity: parseQty(log.output_quantity) });
+    } else if (priorConv?.converted_product_id) {
+      moveLines.push({
+        product_id: priorConv.converted_product_id,
+        quantity: parseQty(priorConv.qty) || parseQty(items[0]?.quantity) || 0,
+      });
+    } else {
+      for (const it of items) {
+        const q = parseQty(it.quantity);
+        if (q > 0) moveLines.push({ product_id: it.product_id, quantity: q });
       }
-      return parseQty(it.quantity);
-    };
+    }
     const next = nextDept(db, param.unit_id, dept.sequence_order);
     if (next) {
-      for (const it of items) {
-        const q = transferQty(it);
-        if (q > 0) {
-          transferBetweenWarehouses(db, {
-            productId: it.product_id,
+      let moveId = null;
+      for (const line of moveLines) {
+        if (line.quantity > 0) {
+          moveId = transferBetweenWarehouses(db, {
+            productId: line.product_id,
             fromWh: dept.warehouse_id,
             toWh: next.warehouse_id,
-            qty: q,
+            qty: line.quantity,
             userId: req.user.id,
             note: `پارامتر ${param.num || param.id} — انتقال به ${next.name}`,
             date: d,
           });
         }
       }
-      if (log.converted_product_id && log.output_quantity > 0) {
-        const convPid = log.converted_product_id;
-        const alreadyItem = items.some(i => i.product_id === convPid);
-        if (!alreadyItem) {
-          transferBetweenWarehouses(db, {
-            productId: convPid,
-            fromWh: dept.warehouse_id,
-            toWh: next.warehouse_id,
-            qty: parseQty(log.output_quantity),
-            userId: req.user.id,
-            note: `پارامتر ${param.num || param.id} — انتقال محصول تبدیل‌شده`,
-            date: d,
-          });
-        }
+      if (moveId) {
+        db.prepare('UPDATE op_parameter_dept_log SET transfer_move_id=? WHERE id=?').run(moveId, log.id);
       }
       db.prepare(`
         UPDATE op_parameter_dept_log SET status='completed', completed_at=?, completed_by=? WHERE id=?
@@ -980,7 +1085,13 @@ router.post('/parameters/:id/final-output', auth, requirePermission('portal', 'a
   const lastLog = db.prepare(`
     SELECT * FROM op_parameter_dept_log WHERE parameter_id=? AND department_id=?
   `).get(param.id, lastDept.id);
+  const chainConv = db.prepare(`
+    SELECT converted_product_id FROM op_parameter_dept_log
+    WHERE parameter_id=? AND converted_product_id IS NOT NULL
+    ORDER BY sequence_order DESC LIMIT 1
+  `).get(param.id);
   const srcPid = lastLog?.converted_product_id
+    || chainConv?.converted_product_id
     || db.prepare('SELECT product_id FROM op_parameter_items WHERE parameter_id=? LIMIT 1').get(param.id)?.product_id;
   if (!srcPid) return res.status(400).json({ error: 'کالای خروجی مشخص نیست' });
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(srcPid);
@@ -1015,7 +1126,7 @@ router.post('/parameters/:id/final-output', auth, requirePermission('portal', 'a
         const cash = acct(db, 'coa_cash_default');
         for (const c of costs) {
           const amt = Math.round(Number(c.amount_rial) || 0);
-          const desc = String(c.description || '').trim() || 'هزینه اضافی پرتال';
+          const desc = String(c.description || '').trim() || 'هزینه اضافی پورتال';
           if (amt <= 0) continue;
           const toman = rialToLedger(amt);
           const jeId = postToLedger(db, {
@@ -1087,7 +1198,7 @@ router.post('/departments/:id/delegate', auth, requirePermission('portal', 'appr
   const hours = Math.max(1, Math.min(720, parseInt(req.body.hours, 10) || 72));
   const note = String(req.body.note || '').trim();
   try {
-    ensurePersonUser(db, delegate_person_id, 'department_manager');
+    const newUser = ensurePersonUser(db, delegate_person_id, 'department_manager');
     const now = parseInt(nowEpoch(db), 10);
     const ends = now + hours * 3600;
     // deactivate overlapping active delegations for same dept
@@ -1100,6 +1211,7 @@ router.post('/departments/:id/delegate', auth, requirePermission('portal', 'appr
         (department_id, delegate_person_id, starts_at, ends_at, note, created_by, active)
       VALUES (?,?,?,?,?,?,1)
     `).run(dept.id, delegate_person_id, now, ends, note, req.user.id);
+    sendTempPasswordSms(db, newUser);
     audit(req.user.id, 'delegate', 'op_department', dept.id,
       `واگذاری موقت به شخص #${delegate_person_id} برای ${hours} ساعت`);
     portalNotify(db, {
@@ -1184,7 +1296,7 @@ router.post('/field-followups', auth, requirePermission('portal', 'edit'), (req,
       db.prepare(`
         INSERT INTO followups (customer_id,user_id,note,type,due_date)
         VALUES (NULL,?,?,?,?)
-      `).run(req.user.id, `[پرتال/${entity_type}#${entity_id}/${field_key}] ${note}`, 'portal', todayJalali());
+      `).run(req.user.id, `[پورتال/${entity_type}#${entity_id}/${field_key}] ${note}`, 'portal', todayJalali());
     } catch (_) { /* followups schema may differ */ }
   }
   res.json({ id: r.lastInsertRowid, ok: true });

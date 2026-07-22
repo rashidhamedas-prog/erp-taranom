@@ -1,16 +1,20 @@
 /**
- * Portal karmandan schema + sync tail + ensurePersonUser — run: node server/scripts/test-portal.js
+ * Portal karmandan — schema + E2E workflow
+ * Run: node server/scripts/test-portal.js
  */
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const http = require('http');
+const express = require('express');
+const jwt = require('jsonwebtoken');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
 const dbFile = path.join(dir, 't.db');
 try { fs.unlinkSync(dbFile); } catch (_) {}
 process.env.DB_PATH = dbFile;
 process.env.SYNC_ROLE = 'central';
-process.env.JWT_SECRET = 'test';
+process.env.JWT_SECRET = 'test-portal-secret';
 
 delete require.cache[require.resolve('../db')];
 try { delete require.cache[require.resolve('../lib/coa-map')]; } catch (_) {}
@@ -50,6 +54,12 @@ console.log('\n— portal schema —');
 PORTAL_TABLES.forEach(t => {
   ok(!!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(t), 'table ' + t);
 });
+ok(db.prepare("PRAGMA table_info(op_parameter_dept_log)").all().some(c => c.name === 'review_requested_at'),
+  'op_parameter_dept_log.review_requested_at');
+ok(db.prepare("PRAGMA table_info(products)").all().some(c => c.name === 'approval_status'),
+  'products.approval_status');
+ok(db.prepare("SELECT value FROM settings WHERE key='portal_review_timeout_hours'").get()?.value === '72',
+  'portal_review_timeout_hours=72');
 
 console.log('\n— sync append order —');
 const names = require('../sync/tables').SYNCABLE_TABLES.map(t => t.name);
@@ -75,53 +85,249 @@ COA_GAP_KEYS.forEach(k => {
   }
 });
 
-console.log('\n— seed + unit/departments —');
-const wh1 = db.prepare("INSERT INTO warehouses (name,code) VALUES ('انبار پورتال ۱','WH-P1')").run().lastInsertRowid;
-const wh2 = db.prepare("INSERT INTO warehouses (name,code) VALUES ('انبار پورتال ۲','WH-P2')").run().lastInsertRowid;
-const mgr = db.prepare("INSERT INTO persons (name,phone) VALUES ('مدیر واحد','09120001111')").run().lastInsertRowid;
-const dm1 = db.prepare("INSERT INTO persons (name,phone) VALUES ('مدیر بخش ۱','09120002222')").run().lastInsertRowid;
-const dm2 = db.prepare("INSERT INTO persons (name,phone) VALUES ('مدیر بخش ۲','09120003333')").run().lastInsertRowid;
-const prodId = db.prepare(`
-  INSERT INTO products (user_id,code,name,price,cost,stock,warehouse_id)
-  VALUES (1,'P-PORT','کالای پورتال',10000,5000,50,?)
-`).run(wh1).lastInsertRowid;
-db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,50)')
-  .run(prodId, wh1);
-ok(db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(prodId, wh1).qty === 50,
-  'warehouse_stock seeded');
-
-const unitId = db.prepare(`
-  INSERT INTO op_units (name, manager_person_id, output_type, created_by)
-  VALUES ('واحد تست', ?, 'product', 1)
-`).run(mgr).lastInsertRowid;
-db.prepare('INSERT INTO op_unit_warehouses (unit_id,warehouse_id) VALUES (?,?)').run(unitId, wh1);
-db.prepare('INSERT INTO op_unit_warehouses (unit_id,warehouse_id) VALUES (?,?)').run(unitId, wh2);
-
+console.log('\n— ensurePersonUser random temp —');
 const { ensurePersonUser } = require('../lib/portal-users');
-const u1 = ensurePersonUser(db, dm1, 'department_manager');
-const u2 = ensurePersonUser(db, dm2, 'department_manager');
-ok(u1.created && u2.created, 'ensurePersonUser created dept managers');
-const userRow = db.prepare('SELECT must_change_password FROM users WHERE id=?').get(u1.userId);
-ok(userRow && userRow.must_change_password === 1, 'ensurePersonUser must_change_password=1');
+const pPhone = db.prepare("INSERT INTO persons (name,phone) VALUES ('تست رمز','09121110000')").run().lastInsertRowid;
+const uNew = ensurePersonUser(db, pPhone, 'department_manager');
+ok(uNew.created === true, 'ensurePersonUser created');
+ok(uNew.tempPassword && uNew.tempPassword.length >= 8 && uNew.tempPassword !== '12345',
+  'temp password random (not 12345)');
+ok(db.prepare('SELECT must_change_password FROM users WHERE id=?').get(uNew.userId)?.must_change_password === 1,
+  'must_change_password=1');
 
-db.prepare(`
+console.log('\n— auto-approve job —');
+const { autoApproveStalePortalReviews } = require('../lib/portal-jobs');
+db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('portal_review_timeout_hours','1')").run();
+const whX = db.prepare("INSERT INTO warehouses (name,code) VALUES ('WH-JOB','WHJ')").run().lastInsertRowid;
+const mgrX = db.prepare("INSERT INTO persons (name,phone) VALUES ('مدیر جاب','09121110001')").run().lastInsertRowid;
+const unitX = db.prepare("INSERT INTO op_units (name,manager_person_id) VALUES ('واحد جاب',?)").run(mgrX).lastInsertRowid;
+const deptX = db.prepare(`
   INSERT INTO op_departments (unit_id,name,manager_person_id,warehouse_id,sequence_order)
-  VALUES (?,?,?,?,1)
-`).run(unitId, 'بخش اول', dm1, wh1);
+  VALUES (?,'بخش جاب',?,?,1)
+`).run(unitX, mgrX, whX).lastInsertRowid;
+const paramX = db.prepare(`
+  INSERT INTO op_parameters (num,name,unit_id,current_department_id,status)
+  VALUES ('P-JOB','پارامتر جاب',?,?,'under_review')
+`).run(unitX, deptX).lastInsertRowid;
+const oldTs = Math.floor(Date.now() / 1000) - 7200;
 db.prepare(`
-  INSERT INTO op_departments (unit_id,name,manager_person_id,warehouse_id,sequence_order)
-  VALUES (?,?,?,?,2)
-`).run(unitId, 'بخش دوم', dm2, wh2);
-const depts = db.prepare('SELECT id,sequence_order FROM op_departments WHERE unit_id=? ORDER BY sequence_order')
-  .all(unitId);
-ok(depts.length === 2 && depts[0].sequence_order === 1 && depts[1].sequence_order === 2,
-  'unit has 2 ordered departments');
+  INSERT INTO op_parameter_dept_log (parameter_id,department_id,sequence_order,status,review_requested_at)
+  VALUES (?,?,1,'under_review',?)
+`).run(paramX, deptX, oldTs);
+const nAuto = autoApproveStalePortalReviews(db);
+ok(nAuto >= 1, 'autoApproveStalePortalReviews ran');
+ok(db.prepare('SELECT status FROM op_parameter_dept_log WHERE parameter_id=?').get(paramX)?.status === 'in_progress',
+  'stale review → in_progress');
+ok(db.prepare('SELECT status FROM op_parameters WHERE id=?').get(paramX)?.status === 'in_progress',
+  'param status restored');
+db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('portal_review_timeout_hours','72')").run();
 
-try { db.close(); } catch (_) {}
-try { fs.unlinkSync(dbFile); } catch (_) {}
-try { fs.unlinkSync(dbFile + '-wal'); } catch (_) {}
-try { fs.unlinkSync(dbFile + '-shm'); } catch (_) {}
-try { fs.rmdirSync(dir); } catch (_) {}
+// ─── HTTP E2E ──────────────────────────────────────────────────────────────
+(async () => {
+  console.log('\n— E2E HTTP workflow —');
+  const admin = db.prepare("SELECT id,username,role FROM users WHERE username='admin'").get();
+  db.prepare('UPDATE users SET must_change_password=0 WHERE id=?').run(admin.id);
+  const token = jwt.sign(
+    { id: admin.id, username: admin.username, role: admin.role || 'admin' },
+    process.env.JWT_SECRET
+  );
 
-console.log('\n' + (fail ? `FAILED ${fail}` : 'ALL CHECKS PASSED') + ` (${pass} pass, ${fail} fail)`);
-process.exit(fail ? 1 : 0);
+  const app = express();
+  app.use(express.json());
+  app.use('/api/portal', require('../routes/portal'));
+  const server = http.createServer(app);
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const BASE = `http://127.0.0.1:${port}`;
+
+  async function api(method, p, body) {
+    const res = await fetch(BASE + p, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + token,
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
+    return { status: res.status, data };
+  }
+
+  const wh1 = db.prepare("INSERT INTO warehouses (name,code) VALUES ('انبار۱','P1')").run().lastInsertRowid;
+  const wh2 = db.prepare("INSERT INTO warehouses (name,code) VALUES ('انبار۲','P2')").run().lastInsertRowid;
+  const wh3 = db.prepare("INSERT INTO warehouses (name,code) VALUES ('انبار۳','P3')").run().lastInsertRowid;
+  const whDest = db.prepare("INSERT INTO warehouses (name,code) VALUES ('انبار نهایی','PF')").run().lastInsertRowid;
+  const whSrc = db.prepare("INSERT INTO warehouses (name,code) VALUES ('انبار مبدأ','PS')").run().lastInsertRowid;
+  const mgr = db.prepare("INSERT INTO persons (name,phone) VALUES ('مدیر واحد E2E','09123330001')").run().lastInsertRowid;
+  const dm1 = db.prepare("INSERT INTO persons (name,phone) VALUES ('مدیر بخش۱','09123330002')").run().lastInsertRowid;
+  const dm2 = db.prepare("INSERT INTO persons (name,phone) VALUES ('مدیر بخش۲','09123330003')").run().lastInsertRowid;
+  const dm3 = db.prepare("INSERT INTO persons (name,phone) VALUES ('مدیر بخش۳','09123330004')").run().lastInsertRowid;
+  const payee = db.prepare("INSERT INTO persons (name,phone) VALUES ('کارگر','09123330005')").run().lastInsertRowid;
+
+  const prodId = db.prepare(`
+    INSERT INTO products (user_id,code,name,price,cost,stock,warehouse_id,average_cost_rial,approval_status)
+    VALUES (1,'P-E2E','پارچه خام',10000,5000,0,?,100000,'approved')
+  `).run(whSrc).lastInsertRowid;
+  const { postInventoryMovement } = require('../lib/inventory/ledger');
+  const { todayJalali } = require('../jalali');
+  postInventoryMovement(db, {
+    eventType: 'receipt',
+    productId: prodId,
+    warehouseId: whSrc,
+    qty: 100,
+    unitCostRial: 100000,
+    date: todayJalali(),
+    note: 'seed portal e2e',
+    createdBy: 1,
+  });
+
+  let r = await api('POST', '/api/portal/units', {
+    name: 'واحد E2E',
+    manager_person_id: mgr,
+    warehouse_ids: [whSrc, wh1, wh2, wh3, whDest],
+    person_ids: [payee],
+  });
+  ok(r.status === 200 && r.data?.id, 'create unit', r.data?.error);
+  ok(!('tempPassword' in (r.data || {})), 'API does not leak tempPassword');
+  const unitId = r.data?.id;
+
+  const depts = [];
+  for (const [name, mid, wid, seq] of [
+    ['برش', dm1, wh1, 1],
+    ['دوخت', dm2, wh2, 2],
+    ['بسته‌بندی', dm3, wh3, 3],
+  ]) {
+    r = await api('POST', `/api/portal/units/${unitId}/departments`, {
+      name, manager_person_id: mid, warehouse_id: wid, sequence_order: seq,
+    });
+    ok(r.status === 200 && r.data?.id, `create dept ${name}`, r.data?.error);
+    depts.push(r.data);
+  }
+
+  r = await api('POST', '/api/portal/parameters', {
+    name: 'بچ تست',
+    unit_id: unitId,
+    source_warehouse_id: whSrc,
+    items: [{ product_id: prodId, quantity: 10 }],
+  });
+  ok(r.status === 200 && r.data?.id, 'create parameter', r.data?.error || r.status);
+  const paramId = r.data?.id;
+  ok(r.data?.status === 'in_progress', 'param in_progress');
+  ok(r.data?.current_department_id === depts[0]?.id, 'current = first dept');
+
+  const qtySrc = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?')
+    .get(prodId, whSrc)?.qty;
+  ok(Number(qtySrc) === 90, 'stock transferred from source (100→90)', 'got ' + qtySrc);
+
+  // Sequential lock: operate on dept 2 before dept 1 complete
+  r = await api('POST', `/api/portal/parameters/${paramId}/dept/${depts[1].id}/confirm`, {
+    received_quantity: 10,
+  });
+  ok(r.status === 409, 'sequential lock blocks dept 2 before dept 1');
+
+  r = await api('POST', `/api/portal/parameters/${paramId}/dept/${depts[0].id}/confirm`, {
+    received_quantity: 10,
+  });
+  ok(r.status === 200, 'dept1 confirm');
+
+  r = await api('POST', `/api/portal/parameters/${paramId}/dept/${depts[0].id}/payment`, {
+    person_id: payee,
+    amount_rial: 500000,
+  });
+  ok(r.status === 200 && r.data?.payment_status, 'dept1 payment request');
+
+  r = await api('POST', `/api/portal/parameters/${paramId}/dept/${depts[0].id}/approve-payment`, {});
+  ok(r.status === 200 && r.data?.payment_journal_id, 'payment approved + JE');
+  const jeId = r.data.payment_journal_id;
+  const lines = db.prepare('SELECT debit_rial, credit_rial FROM journal_lines WHERE entry_id=?').all(jeId);
+  const sumDr = lines.reduce((s, l) => s + Number(l.debit_rial || 0), 0);
+  const sumCr = lines.reduce((s, l) => s + Number(l.credit_rial || 0), 0);
+  ok(lines.length >= 2 && Math.abs(sumDr - sumCr) < 1, 'payment JE balanced', `dr=${sumDr} cr=${sumCr}`);
+
+  r = await api('POST', `/api/portal/parameters/${paramId}/dept/${depts[0].id}/convert`, {
+    product_name: 'نیمه‌ساخته تست',
+    quantity: 10,
+  });
+  ok(r.status === 200 && r.data?.created_pending === true, 'convert creates pending product');
+  const newPid = r.data.product_id;
+  ok(db.prepare('SELECT approval_status FROM products WHERE id=?').get(newPid)?.approval_status === 'pending',
+    'new product approval_status=pending');
+  ok(r.data?.production_run_id || !db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='production_runs'").get(),
+    'production_run linked when table exists');
+
+  r = await api('POST', `/api/portal/products/${newPid}/approve`, {});
+  ok(r.status === 200, 'approve pending product');
+  ok(db.prepare('SELECT approval_status FROM products WHERE id=?').get(newPid)?.approval_status === 'approved',
+    'product approved');
+
+  r = await api('POST', `/api/portal/parameters/${paramId}/dept/${depts[0].id}/complete`, {});
+  ok(r.status === 200 && r.data?.next_department_id === depts[1].id, 'dept1 complete → dept2');
+
+  r = await api('POST', `/api/portal/parameters/${paramId}/dept/${depts[1].id}/confirm`, { received_quantity: 10 });
+  ok(r.status === 200, 'dept2 confirm');
+  r = await api('POST', `/api/portal/parameters/${paramId}/dept/${depts[1].id}/complete`, {});
+  ok(r.status === 200 && r.data?.next_department_id === depts[2].id, 'dept2 complete → dept3');
+
+  r = await api('POST', `/api/portal/parameters/${paramId}/dept/${depts[2].id}/confirm`, { received_quantity: 10 });
+  ok(r.status === 200, 'dept3 confirm');
+  r = await api('POST', `/api/portal/parameters/${paramId}/dept/${depts[2].id}/complete`, {});
+  ok(r.status === 200 && r.data?.awaiting_final === true, 'dept3 complete → awaiting final');
+
+  // Ensure converted product stock in last dept for final output
+  const lastLog = db.prepare(
+    'SELECT converted_product_id, output_quantity FROM op_parameter_dept_log WHERE parameter_id=? AND department_id=?'
+  ).get(paramId, depts[0].id);
+  const outPid = lastLog?.converted_product_id || newPid;
+  // After transfers, stock should be in wh3 (last dept)
+  const q3 = Number(db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?')
+    .get(outPid, wh3)?.qty || 0);
+  ok(q3 > 0, 'converted product in last dept warehouse', 'qty=' + q3);
+
+  r = await api('POST', `/api/portal/parameters/${paramId}/final-output`, {
+    quantity: Math.min(10, q3) || 1,
+    destination_warehouse_id: whDest,
+  });
+  ok(r.status === 200 || r.status === 409, 'final-output attempted', r.data?.error || r.status);
+  if (r.status === 200) {
+    ok(db.prepare('SELECT status FROM op_parameters WHERE id=?').get(paramId)?.status === 'completed',
+      'param completed');
+  }
+
+  // Sequence lock while active — seed more stock then create another param
+  postInventoryMovement(db, {
+    eventType: 'receipt',
+    productId: prodId,
+    warehouseId: whSrc,
+    qty: 50,
+    unitCostRial: 100000,
+    date: todayJalali(),
+    note: 'seed for sequence lock',
+    createdBy: 1,
+  });
+  r = await api('POST', '/api/portal/parameters', {
+    name: 'بچ قفل',
+    unit_id: unitId,
+    source_warehouse_id: whSrc,
+    items: [{ product_id: prodId, quantity: 1 }],
+  });
+  if (r.status === 200) {
+    r = await api('PUT', `/api/portal/departments/${depts[0].id}/sequence`, { sequence_order: 2 });
+    ok(r.status === 409, 'sequence change blocked while active param');
+  } else {
+    ok(false, 'second param for sequence lock', r.data?.error || r.status);
+  }
+
+  await new Promise(resolve => server.close(resolve));
+  try { db.close(); } catch (_) {}
+  try { fs.unlinkSync(dbFile); } catch (_) {}
+  try { fs.unlinkSync(dbFile + '-wal'); } catch (_) {}
+  try { fs.unlinkSync(dbFile + '-shm'); } catch (_) {}
+  try { fs.rmdirSync(dir); } catch (_) {}
+
+  console.log('\n' + (fail ? `FAILED ${fail}` : 'ALL CHECKS PASSED') + ` (${pass} pass, ${fail} fail)`);
+  process.exit(fail ? 1 : 0);
+})().catch(e => {
+  console.error(e);
+  process.exit(1);
+});

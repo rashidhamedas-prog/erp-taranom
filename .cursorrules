@@ -15,6 +15,9 @@
 7. آرایهٔ جدول‌ها در `server/sync/tables.js` فقط append-only است؛ ترتیب را به‌هم نزن.
 8. توضیحات را به فارسی بده.
 9. بعد از هر تغییر، یک ورودی در `docs/CHANGE-LOG.md` اضافه کن (تاریخ، commit، خلاصه، فایل‌ها، وضعیت deploy).
+10. **Commit + Deploy خودکار (بدون پرسیدن):** بعد از هر تسک، commit و push به شاخهٔ کاری، سپس deploy روی سرور ایران
+    (`94.249.244.208` / `taranom` / `/home/taranom/crm-taranom` → `git pull` + `pm2 restart erp-taranom`) و CHANGE-LOG را `✅` کن.
+    جزئیات: `.cursor/rules/auto-commit-deploy.mdc`. فقط اگر کاربر صریحاً بگوید بدون commit/deploy، همان نوبت را رد کن.
 
 ## ساختار
 - بک‌اند: `server/` (Node/Express + better-sqlite3). ورود: `server/server.js`. اسکیما در `server/db.js`.

@@ -546,6 +546,15 @@ if (!isDevice()) {
       }
     } catch (e) { console.error('cron production-health error:', e.message); }
   });
+
+  // Hourly: portal under_review auto-approve after timeout (default 72h)
+  cron.schedule('20 * * * *', () => {
+    try {
+      const { autoApproveStalePortalReviews } = require('./lib/portal-jobs');
+      const n = autoApproveStalePortalReviews(getDB());
+      if (n) console.log(`🏭 portal auto-approve reviews: ${n}`);
+    } catch (e) { console.error('cron portal-review error:', e.message); }
+  });
 }
 
 // Global error handler — never leak stack traces to clients
