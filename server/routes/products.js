@@ -53,12 +53,12 @@ async function attachUploadedImages(db, productId, files, setPrimary) {
   } catch (_) {}
 }
 
-function userAllowedCategoryIds(db, user) {
-  if (!user || user.role === 'admin' || user.role === 'accounting') return null; // all
-  const rows = db.prepare('SELECT category_id FROM user_catalog_categories WHERE user_id=?').all(user.id);
-  if (!rows.length) return null; // no restriction configured → show all
-  return rows.map(r => r.category_id);
-}
+const {
+  canSeeAllProductGroups,
+  userCatalogAclIds,
+  addProductGroupVisibility,
+  addCatalogAclFilter,
+} = require('../lib/product-visibility');
 
 // Auto product code (کد کالا) when the user leaves it blank: sequential K-00001.
 function nextProductCode(db) {
@@ -92,14 +92,14 @@ async function saveImage(buffer, originalName) {
 }
 const memUpload = multer({ storage: multer.memoryStorage() });
 
-// Update 11 / B1: گروه‌های کالا سراسری‌اند — فیلتر دیده‌شدن گروه حذف شد.
-
-// GET /  — products are GLOBAL: every authenticated user can read all.
-// Filtering: ?category=&search=&stock_status=low|ok|all  (FIXED)
+// GET / — visibility: shared groups (+ creator) for users; optional per-user catalog ACL.
+// Filtering: ?category=&search=&stock_status=low|ok|all
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const where = [];
   const params = [];
+  addProductGroupVisibility(req.user, where, params);
+  addCatalogAclFilter(db, req.user, where, params);
 
   const category = (req.query.category || '').trim();
   if (category && category !== 'all') { where.push('p.category = ?'); params.push(category); }
@@ -129,12 +129,6 @@ router.get('/', auth, (req, res) => {
   const warehouseId = parseInt(req.query.warehouse_id);
   if (warehouseId) { where.push('(p.warehouse_id=? OR EXISTS (SELECT 1 FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=? AND ws.qty>0))'); params.push(warehouseId, warehouseId); }
 
-  const allowedCats = userAllowedCategoryIds(db, req.user);
-  if (allowedCats && allowedCats.length) {
-    where.push(`p.category_id IN (${allowedCats.map(() => '?').join(',')})`);
-    params.push(...allowedCats);
-  }
-
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const whSelect = warehouseId
     ? `, (SELECT COALESCE(ws.qty, p.stock) FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=${warehouseId} LIMIT 1) as wh_qty`
@@ -153,17 +147,24 @@ router.get('/', auth, (req, res) => {
 // routes so GET /categories is never captured as an id (spec 1.0.9 §2 catalog).
 router.get('/categories', auth, (req, res) => {
   const db = getDB();
-  const allowed = userAllowedCategoryIds(db, req.user);
-  let fromTable = db.prepare(`SELECT id,name FROM product_categories WHERE active=1 ORDER BY sort_order, name`).all();
-  if (allowed) fromTable = fromTable.filter(c => allowed.includes(c.id));
+  const visibility = canSeeAllProductGroups(req.user) ? '' : ' AND (is_shared=1 OR created_by=?)';
+  const args = visibility ? [req.user.id] : [];
+  let fromTable = db.prepare(`SELECT id,name FROM product_categories WHERE active=1${visibility} ORDER BY sort_order, name`).all(...args);
+  const acl = userCatalogAclIds(db, req.user);
+  if (acl && acl.length) {
+    const set = new Set(acl);
+    fromTable = fromTable.filter(c => set.has(c.id));
+  }
   const names = fromTable.map(r => r.name);
   const fromLegacy = db.prepare(`
     SELECT DISTINCT p.category FROM products p
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
     WHERE p.category IS NOT NULL AND p.category<>''
+      ${canSeeAllProductGroups(req.user) ? '' : 'AND (p.category_id IS NULL OR pc.id IS NULL OR pc.is_shared=1 OR pc.created_by=?)'}
     ORDER BY p.category
-  `).all().map(r => r.category);
+  `).all(...args).map(r => r.category);
   const seen = new Set();
-  const filteredLegacy = allowed
+  const filteredLegacy = acl
     ? fromLegacy.filter(n => names.includes(n))
     : fromLegacy;
   res.json([...names, ...filteredLegacy].filter(c => { if (seen.has(c)) return false; seen.add(c); return true; }));
@@ -174,9 +175,15 @@ router.get('/by-barcode/:code', auth, (req, res) => {
   const db = getDB();
   const code = String(req.params.code || '').trim();
   if (!code) return res.status(400).json({ error: 'کد الزامی است' });
+  const where = ['(p.barcode=? OR p.code=?)'];
+  const params = [code, code];
+  addProductGroupVisibility(req.user, where, params);
+  addCatalogAclFilter(db, req.user, where, params);
   const row = db.prepare(`
-    SELECT p.* FROM products p WHERE p.barcode=? OR p.code=?
-  `).get(code, code);
+    SELECT p.* FROM products p
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE ${where.join(' AND ')}
+  `).get(...params);
   if (!row) return res.status(404).json({ error: 'محصولی با این بارکد یافت نشد' });
   row.images = listProductImages(db, row.id);
   res.json(row);
@@ -195,8 +202,17 @@ router.delete('/images/:imageId', auth, adminOrAccounting, (req, res) => {
 
 router.get('/:id', auth, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT p.*, w.name as warehouse_name FROM products p LEFT JOIN warehouses w ON w.id=p.warehouse_id WHERE p.id=?')
-    .get(req.params.id);
+  const where = ['p.id=?'];
+  const params = [req.params.id];
+  addProductGroupVisibility(req.user, where, params);
+  addCatalogAclFilter(db, req.user, where, params);
+  const row = db.prepare(`
+    SELECT p.*, w.name as warehouse_name
+    FROM products p
+    LEFT JOIN warehouses w ON w.id=p.warehouse_id
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE ${where.join(' AND ')}
+  `).get(...params);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   row.images = listProductImages(db, row.id);
   if (!row.images.length && row.images_json) {
@@ -212,7 +228,15 @@ router.get('/:id', auth, (req, res) => {
 // change) so the final computed balance always reconciles with reality.
 router.get('/:id/kardex', auth, (req, res) => {
   const db = getDB();
-  const product = db.prepare(`SELECT p.* FROM products p WHERE p.id=?`).get(req.params.id);
+  const where = ['p.id=?'];
+  const params = [req.params.id];
+  addProductGroupVisibility(req.user, where, params);
+  addCatalogAclFilter(db, req.user, where, params);
+  const product = db.prepare(`
+    SELECT p.* FROM products p
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE ${where.join(' AND ')}
+  `).get(...params);
   if (!product) return res.status(404).json({ error: 'محصول یافت نشد' });
 
   // Prefer immutable inventory_ledger when present

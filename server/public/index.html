@@ -4653,7 +4653,7 @@ async function userModal(id){
       <div class="fg full"><label>یادداشت شخص</label><textarea id="u-person-notes">${esc(u.person_notes||'')}</textarea></div>
       <div class="fg full" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px">
         <b>دسترسی گروه کالا در کاتالوگ</b>
-        <div class="muted" style="font-size:11px;margin:4px 0 8px">اگر خالی باشد همه گروه‌ها نمایش داده می‌شوند. فقط گروه‌های تیک‌خورده در کاتالوگ کاربر دیده می‌شود.</div>
+        <div class="muted" style="font-size:11px;margin:4px 0 8px">اگر خالی باشد، همهٔ گروه‌های «مجاز برای نمایش» دیده می‌شوند. فقط گروه‌های تیک‌خورده در کاتالوگ/فروش بازاریاب/انتخاب کالا محدود می‌شود. گروه‌های خصوصی هرگز به کاربران عادی نشان داده نمی‌شوند.</div>
         <div id="u-cat-access" style="display:flex;flex-wrap:wrap;gap:8px;max-height:140px;overflow:auto"></div>
       </div>
       <div class="fg"><label>انگیزه فروش نقد (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای نقدی تأییدشده. بعد از اولین ذخیره قفل می‌شود.')} ${u.incentive_locked?'<span style="font-size:11px;color:var(--orange)">🔒 قفل</span>':''}</label><input id="u-comm-cash" type="number" step="0.1" value="${u.commission_cash||0}" data-orig="${u.commission_cash||0}" data-locked="${u.incentive_locked||0}"></div>

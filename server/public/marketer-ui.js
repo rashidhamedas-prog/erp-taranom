@@ -1,10 +1,12 @@
 /**
- * Marketer sales flow: Catalog (zoom + add to cart) → Cart → Invoice registration
+ * Marketer sales flow: Catalog (filters like catalog + zoom + cart) → Cart → Invoice
  */
 (function (global) {
   'use strict';
 
   let cart = [];
+  let mkFilter = { search: '', category: '', stock_status: 'all' };
+  let mkTimer = null;
 
   function loadCart() {
     try { cart = JSON.parse(localStorage.getItem('marketer_cart') || '[]') || []; }
@@ -38,32 +40,92 @@
     await renderCatalog();
   }
 
+  async function loadMkProducts() {
+    const qs = new URLSearchParams();
+    if (mkFilter.category) qs.set('category', mkFilter.category);
+    if (mkFilter.search) qs.set('search', mkFilter.search);
+    if (mkFilter.stock_status && mkFilter.stock_status !== 'all') qs.set('stock_status', mkFilter.stock_status);
+    return await api('GET', '/products?' + qs.toString()) || [];
+  }
+
   async function renderCatalog() {
     const body = el('mkBody');
     body.innerHTML = '<div class="muted">در حال بارگذاری...</div>';
-    const prods = await api('GET', '/products?limit=500') || [];
+    // Same category source as catalog page (already visibility + ACL filtered on server)
+    const cats = await api('GET', '/products/categories').catch(() => []) || [];
+    const prods = await loadMkProducts();
     body.innerHTML = `
-      <input class="search" id="mkSearch" placeholder="جستجوی کالا..." style="margin-bottom:12px;max-width:320px">
+      <div class="toolbar">
+        <input class="search" id="mkSearch" placeholder="جستجو نام یا کد..." value="${esc(mkFilter.search)}">
+        <select id="mkCat"><option value="">همه گروه‌ها</option>
+          ${cats.map(c => `<option value="${esc(c)}" ${mkFilter.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        </select>
+        <select id="mkStock">
+          <option value="all" ${mkFilter.stock_status === 'all' ? 'selected' : ''}>همه موجودی</option>
+          <option value="ok" ${mkFilter.stock_status === 'ok' ? 'selected' : ''}>موجود</option>
+          <option value="low" ${mkFilter.stock_status === 'low' ? 'selected' : ''}>موجودی کم</option>
+        </select>
+      </div>
       <div class="pgrid" id="mkGrid"></div>`;
     const grid = el('mkGrid');
     function paint(list) {
-      grid.innerHTML = list.map(p => `
+      grid.innerHTML = list.map(p => {
+        const low = p.stock <= p.stock_alert;
+        return `
         <div class="pcard">
-          <div class="img" ${p.image ? `onclick="showImgPreview(prodImgUrl('${String(p.image).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}'))" style="cursor:zoom-in"` : ''}>
+          <div class="img" ${p.image ? `onclick="showImgPreview(prodImgUrl('${String(p.image).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'))" style="cursor:zoom-in"` : ''}>
             ${p.image ? prodImgTag(p.image) : '🧥'}
           </div>
-          <div class="pn">${esc(p.name)}</div>
-          <div class="pp">${fmt(p.price)} ریال</div>
-          <div class="pst muted">موجودی: ${fmt(p.stock)}</div>
-          <button class="btn sm" style="width:100%;margin-top:8px" onclick="MarketerUI.addToCart(${p.id})">➕ افزودن به سبد</button>
-        </div>`).join('') || '<div class="empty">کالایی نیست</div>';
+          <div class="body">
+            <div class="name">${esc(p.name)}</div>
+            <div class="code">${esc(p.code || '')} ${p.category ? '· ' + esc(p.category) : ''}</div>
+            <div class="price">${fmt(p.price)} ریال</div>
+            <div class="stock ${low ? 'low' : ''}">موجودی: ${fmt(p.stock)} ${esc(p.unit || '')} ${low ? '⚠️' : ''}</div>
+            <button class="btn sm" style="width:100%;margin-top:8px" onclick="MarketerUI.addToCart(${p.id})">➕ افزودن به سبد</button>
+          </div>
+        </div>`;
+      }).join('') || '<div class="empty">کالایی یافت نشد</div>';
     }
     paint(prods);
     window._mkProds = prods;
-    el('mkSearch').oninput = (e) => {
-      const q = e.target.value.trim();
-      paint(!q ? prods : prods.filter(p => (p.name || '').includes(q) || (p.code || '').includes(q)));
-    };
+
+    el('mkSearch').addEventListener('input', () => {
+      mkFilter.search = el('mkSearch').value;
+      clearTimeout(mkTimer);
+      mkTimer = setTimeout(refreshMkGrid, 300);
+    });
+    el('mkCat').addEventListener('change', () => {
+      mkFilter.category = el('mkCat').value;
+      refreshMkGrid();
+    });
+    el('mkStock').addEventListener('change', () => {
+      mkFilter.stock_status = el('mkStock').value;
+      refreshMkGrid();
+    });
+  }
+
+  async function refreshMkGrid() {
+    const grid = el('mkGrid');
+    if (!grid) return;
+    grid.innerHTML = '<div class="muted" style="padding:12px">در حال بارگذاری...</div>';
+    const prods = await loadMkProducts();
+    window._mkProds = prods;
+    grid.innerHTML = prods.map(p => {
+      const low = p.stock <= p.stock_alert;
+      return `
+        <div class="pcard">
+          <div class="img" ${p.image ? `onclick="showImgPreview(prodImgUrl('${String(p.image).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'))" style="cursor:zoom-in"` : ''}>
+            ${p.image ? prodImgTag(p.image) : '🧥'}
+          </div>
+          <div class="body">
+            <div class="name">${esc(p.name)}</div>
+            <div class="code">${esc(p.code || '')} ${p.category ? '· ' + esc(p.category) : ''}</div>
+            <div class="price">${fmt(p.price)} ریال</div>
+            <div class="stock ${low ? 'low' : ''}">موجودی: ${fmt(p.stock)} ${esc(p.unit || '')} ${low ? '⚠️' : ''}</div>
+            <button class="btn sm" style="width:100%;margin-top:8px" onclick="MarketerUI.addToCart(${p.id})">➕ افزودن به سبد</button>
+          </div>
+        </div>`;
+    }).join('') || '<div class="empty">کالایی یافت نشد</div>';
   }
 
   function addToCart(productId) {
@@ -119,7 +181,6 @@
       el('mkBody').innerHTML = '<div class="empty">ابتدا کالا به سبد اضافه کنید</div>';
       return;
     }
-    // Reuse sales invoice builder cart
     if (typeof invCart !== 'undefined') {
       invCart = cart.map(c => ({
         product_id: c.product_id, name: c.name, qty: c.qty, price: c.price,
