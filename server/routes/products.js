@@ -18,6 +18,47 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+const uploadProductMedia = upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'images', maxCount: 12 },
+]);
+
+function listProductImages(db, productId) {
+  try {
+    return db.prepare('SELECT id,filename,sort_order FROM product_images WHERE product_id=? ORDER BY sort_order,id').all(productId);
+  } catch (_) { return []; }
+}
+
+async function attachUploadedImages(db, productId, files, setPrimary) {
+  const imgs = [];
+  if (files?.image?.[0]) imgs.push(files.image[0]);
+  if (files?.images?.length) imgs.push(...files.images);
+  if (!imgs.length) return;
+  let sort = db.prepare('SELECT COALESCE(MAX(sort_order),-1)+1 s FROM product_images WHERE product_id=?').get(productId).s;
+  const ins = db.prepare('INSERT INTO product_images (product_id,filename,sort_order) VALUES (?,?,?)');
+  const names = [];
+  for (const f of imgs) {
+    try {
+      const fn = await saveImage(f.buffer, f.originalname);
+      ins.run(productId, fn, sort++);
+      names.push(fn);
+    } catch (_) {}
+  }
+  if (setPrimary && names[0]) {
+    db.prepare('UPDATE products SET image=? WHERE id=? AND (image IS NULL OR image="")').run(names[0], productId);
+  }
+  try {
+    const all = listProductImages(db, productId).map(r => r.filename);
+    db.prepare('UPDATE products SET images_json=? WHERE id=?').run(JSON.stringify(all), productId);
+  } catch (_) {}
+}
+
+function userAllowedCategoryIds(db, user) {
+  if (!user || user.role === 'admin' || user.role === 'accounting') return null; // all
+  const rows = db.prepare('SELECT category_id FROM user_catalog_categories WHERE user_id=?').all(user.id);
+  if (!rows.length) return null; // no restriction configured → show all
+  return rows.map(r => r.category_id);
+}
 
 // Auto product code (کد کالا) when the user leaves it blank: sequential K-00001.
 function nextProductCode(db) {
@@ -88,6 +129,12 @@ router.get('/', auth, (req, res) => {
   const warehouseId = parseInt(req.query.warehouse_id);
   if (warehouseId) { where.push('(p.warehouse_id=? OR EXISTS (SELECT 1 FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=? AND ws.qty>0))'); params.push(warehouseId, warehouseId); }
 
+  const allowedCats = userAllowedCategoryIds(db, req.user);
+  if (allowedCats && allowedCats.length) {
+    where.push(`p.category_id IN (${allowedCats.map(() => '?').join(',')})`);
+    params.push(...allowedCats);
+  }
+
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const whSelect = warehouseId
     ? `, (SELECT COALESCE(ws.qty, p.stock) FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=${warehouseId} LIMIT 1) as wh_qty`
@@ -106,14 +153,20 @@ router.get('/', auth, (req, res) => {
 // routes so GET /categories is never captured as an id (spec 1.0.9 §2 catalog).
 router.get('/categories', auth, (req, res) => {
   const db = getDB();
-  const fromTable = db.prepare(`SELECT name FROM product_categories WHERE active=1 ORDER BY sort_order, name`).all().map(r => r.name);
+  const allowed = userAllowedCategoryIds(db, req.user);
+  let fromTable = db.prepare(`SELECT id,name FROM product_categories WHERE active=1 ORDER BY sort_order, name`).all();
+  if (allowed) fromTable = fromTable.filter(c => allowed.includes(c.id));
+  const names = fromTable.map(r => r.name);
   const fromLegacy = db.prepare(`
     SELECT DISTINCT p.category FROM products p
     WHERE p.category IS NOT NULL AND p.category<>''
     ORDER BY p.category
   `).all().map(r => r.category);
   const seen = new Set();
-  res.json([...fromTable, ...fromLegacy].filter(c => { if (seen.has(c)) return false; seen.add(c); return true; }));
+  const filteredLegacy = allowed
+    ? fromLegacy.filter(n => names.includes(n))
+    : fromLegacy;
+  res.json([...names, ...filteredLegacy].filter(c => { if (seen.has(c)) return false; seen.add(c); return true; }));
 });
 
 // Lookup by barcode or product code — used by the invoice builder camera scanner
@@ -125,6 +178,30 @@ router.get('/by-barcode/:code', auth, (req, res) => {
     SELECT p.* FROM products p WHERE p.barcode=? OR p.code=?
   `).get(code, code);
   if (!row) return res.status(404).json({ error: 'محصولی با این بارکد یافت نشد' });
+  row.images = listProductImages(db, row.id);
+  res.json(row);
+});
+
+router.delete('/images/:imageId', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const img = db.prepare('SELECT * FROM product_images WHERE id=?').get(req.params.imageId);
+  if (!img) return res.status(404).json({ error: 'یافت نشد' });
+  db.prepare('DELETE FROM product_images WHERE id=?').run(img.id);
+  try { fs.unlinkSync(path.join(UPLOAD_DIR, img.filename)); } catch (_) {}
+  const all = listProductImages(db, img.product_id).map(r => r.filename);
+  try { db.prepare('UPDATE products SET images_json=? WHERE id=?').run(JSON.stringify(all), img.product_id); } catch (_) {}
+  res.json({ ok: true, images: all });
+});
+
+router.get('/:id', auth, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT p.*, w.name as warehouse_name FROM products p LEFT JOIN warehouses w ON w.id=p.warehouse_id WHERE p.id=?')
+    .get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  row.images = listProductImages(db, row.id);
+  if (!row.images.length && row.images_json) {
+    try { row.images = JSON.parse(row.images_json).map((filename, i) => ({ id: 0, filename, sort_order: i })); } catch (_) {}
+  }
   res.json(row);
 });
 
@@ -313,8 +390,8 @@ router.post('/quick', auth, adminOrAccounting, (req, res) => {
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(pid));
 });
 
-// Create product — multipart form-data for optional image (admin/accounting)
-router.post('/', auth, adminOrAccounting, upload.single('image'), async (req, res) => {
+// Create product — multipart form-data for optional image(s) (admin/accounting)
+router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) => {
   const {
     category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors,
     pack_size, barcode, warehouse_id, full_name, product_type, product_index, tax_id,
@@ -329,8 +406,9 @@ router.post('/', auth, adminOrAccounting, upload.single('image'), async (req, re
     if (c) catName = c.name;
   }
   let image = null;
-  if (req.file) {
-    try { image = await saveImage(req.file.buffer, req.file.originalname); } catch (e) { image = null; }
+  const primaryFile = req.files?.image?.[0] || req.files?.images?.[0];
+  if (primaryFile) {
+    try { image = await saveImage(primaryFile.buffer, primaryFile.originalname); } catch (e) { image = null; }
   }
   // New products default into the first warehouse so warehouse_id is never
   // null — Warehouse Transfer can relocate them afterward.
@@ -350,11 +428,6 @@ router.post('/', auth, adminOrAccounting, upload.single('image'), async (req, re
         (barcode || '').trim() || null, full_name || '', product_type || '', product_index || '', tax_id || '',
         parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0, sms_code || '',
         String(tax_stuff_id || '').trim() || null);
-  // Seed the default warehouse's stock with the opening quantity so
-  // warehouse_stock and products.stock start in agreement. Without this the
-  // first official invoice seeds the row at 0 and decrements from 0, leaving
-  // warehouse_stock=0 while products.stock still shows the remainder — which
-  // then wrongly blocks every later sale ("موجودی انبار کافی نیست").
   if (defaultWarehouse) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
       .run(result.lastInsertRowid, defaultWarehouse.id, parseQty(stock));
@@ -367,14 +440,22 @@ router.post('/', auth, adminOrAccounting, upload.single('image'), async (req, re
     const cm = String(req.body.costing_method || '').trim() || null;
     db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, result.lastInsertRowid);
   }
-  // حالت کدینگ محک: تفصیلی اختصاصی کالا (برای سند COGS)
   try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
+  // Extra gallery images (skip first if already used as primary)
+  const extraFiles = { images: (req.files?.images || []).slice(image ? 1 : 0) };
+  if (req.files?.image?.[0] && image) {
+    try { db.prepare('INSERT INTO product_images (product_id,filename,sort_order) VALUES (?,?,0)').run(result.lastInsertRowid, image); } catch (_) {}
+  }
+  await attachUploadedImages(db, result.lastInsertRowid, extraFiles, !image);
   audit(req.user.id, 'create', 'product', result.lastInsertRowid, `ساخت محصول ${name}`);
-  res.json(db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid));
+  try { require('../lib/website-stock-sync').notifyStockChanged(db, result.lastInsertRowid); } catch (_) {}
+  const row = db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid);
+  row.images = listProductImages(db, row.id);
+  res.json(row);
 });
 
 // Update product (admin only)
-router.put('/:id', auth, adminOrAccounting, upload.single('image'), async (req, res) => {
+router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
@@ -387,13 +468,16 @@ router.put('/:id', auth, adminOrAccounting, upload.single('image'), async (req, 
     if (c) catName = c.name;
   }
   let image = prod.image;
-  if (req.file) {
+  const primaryFile = req.files?.image?.[0];
+  if (primaryFile) {
     try {
-      image = await saveImage(req.file.buffer, req.file.originalname);
+      image = await saveImage(primaryFile.buffer, primaryFile.originalname);
       if (prod.image) { try { fs.unlinkSync(path.join(UPLOAD_DIR, prod.image)); } catch (e) {} }
+      try { db.prepare('INSERT INTO product_images (product_id,filename,sort_order) VALUES (?,?,0)').run(req.params.id, image); } catch (_) {}
     } catch (e) { image = prod.image; }
   }
   const whId = warehouse_id != null && warehouse_id !== '' ? (parseInt(warehouse_id) || null) : prod.warehouse_id;
+  const oldStock = prod.stock;
   db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=?,
     full_name=?,product_type=?,product_index=?,tax_id=?,consumer_price=?,location=?,opening_price=?,sms_code=?,tax_stuff_id=? WHERE id=?`)
     .run(catName, catId, code || '', name || prod.name, parseFloat(price) || 0,
@@ -420,8 +504,14 @@ router.put('/:id', auth, adminOrAccounting, upload.single('image'), async (req, 
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
       .run(req.params.id, whId, parseQty(stock) || prod.stock || 0);
   }
+  await attachUploadedImages(db, req.params.id, { images: req.files?.images || [] }, false);
   audit(req.user.id, 'update', 'product', req.params.id, `ویرایش محصول ${name || prod.name}`);
-  res.json(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id));
+  if (parseQty(stock) !== parseQty(oldStock)) {
+    try { require('../lib/website-stock-sync').notifyStockChanged(db, req.params.id); } catch (_) {}
+  }
+  const row = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  row.images = listProductImages(db, row.id);
+  res.json(row);
 });
 
 // Update stock (admin only)
@@ -443,8 +533,10 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
     db.prepare('UPDATE warehouse_stock SET qty=CASE WHEN qty+? < 0 THEN 0 ELSE qty+? END WHERE product_id=? AND warehouse_id=?')
       .run(change, change, req.params.id, prod.warehouse_id);
   }
-  db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(req.params.id, req.user.id, change, note || '');
-  res.json({ ok: true, new_stock: newStock });
+  audit(req.user.id, 'update_stock', 'product', req.params.id, note || `موجودی → ${newStock}`);
+  try { db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(req.params.id, req.user.id, change, note || ''); } catch (_) {}
+  try { require('../lib/website-stock-sync').notifyStockChanged(db, req.params.id); } catch (_) {}
+  res.json({ ok: true, stock: newStock, new_stock: newStock });
 });
 
 // Delete (admin only) — cascade stock children; block if used in documents

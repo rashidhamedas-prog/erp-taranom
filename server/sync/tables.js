@@ -150,6 +150,14 @@ const SYNCABLE_TABLES = [
 
   // ===== Portal v3 — temporary dept delegation (APPEND-ONLY) =====
   { name: 'op_dept_delegations',               upsertKey: 'id' },
+
+  // ===== update.md tasks — product images / catalog ACL / SMS / marketer (APPEND-ONLY) =====
+  { name: 'product_images',                    upsertKey: 'id' },
+  { name: 'user_catalog_categories',           upsertKey: 'id' },
+  { name: 'sms_templates',                     upsertKey: 'id' },
+  { name: 'sms_options',                       upsertKey: 'id' },
+  { name: 'sms_scheduled',                     upsertKey: 'id' },
+  { name: 'marketer_carts',                    upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -267,6 +275,13 @@ const FK_COLUMNS = [
   // Portal v3 FKs (append-only)
   ['op_dept_delegations', 'department_id'],
   ['op_dept_delegations', 'delegate_person_id'],
+  // update.md FKs (append-only)
+  ['product_images', 'product_id'],
+  ['user_catalog_categories', 'user_id'],
+  ['user_catalog_categories', 'category_id'],
+  ['sms_options', 'template_id'],
+  ['sms_scheduled', 'template_id'],
+  ['marketer_carts', 'user_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

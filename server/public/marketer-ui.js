@@ -1,0 +1,144 @@
+/**
+ * Marketer sales flow: Catalog (zoom + add to cart) → Cart → Invoice registration
+ */
+(function (global) {
+  'use strict';
+
+  let cart = [];
+
+  function loadCart() {
+    try { cart = JSON.parse(localStorage.getItem('marketer_cart') || '[]') || []; }
+    catch { cart = []; }
+  }
+  function saveCart() {
+    localStorage.setItem('marketer_cart', JSON.stringify(cart));
+    const badge = document.getElementById('mkCartBadge');
+    if (badge) badge.textContent = String(cart.reduce((a, c) => a + (c.qty || 0), 0));
+  }
+
+  async function renderMarketerPage() {
+    loadCart();
+    const view = el('view');
+    view.innerHTML = `
+      <div class="toolbar" style="gap:8px;flex-wrap:wrap">
+        <button class="btn" id="mkTabCat">🛍️ کاتالوگ</button>
+        <button class="btn ghost" id="mkTabCart">🛒 سبد <span id="mkCartBadge" class="tag t-new">${cart.reduce((a,c)=>a+(c.qty||0),0)}</span></button>
+        <button class="btn ghost" id="mkTabInv">🧾 ثبت فاکتور</button>
+      </div>
+      <div id="mkBody"></div>`;
+    el('mkTabCat').onclick = () => { setActive(0); renderCatalog(); };
+    el('mkTabCart').onclick = () => { setActive(1); renderCart(); };
+    el('mkTabInv').onclick = () => { setActive(2); renderCheckout(); };
+    function setActive(i) {
+      [el('mkTabCat'), el('mkTabCart'), el('mkTabInv')].forEach((b, idx) => {
+        b.classList.toggle('ghost', idx !== i);
+      });
+    }
+    setActive(0);
+    await renderCatalog();
+  }
+
+  async function renderCatalog() {
+    const body = el('mkBody');
+    body.innerHTML = '<div class="muted">در حال بارگذاری...</div>';
+    const prods = await api('GET', '/products?limit=500') || [];
+    body.innerHTML = `
+      <input class="search" id="mkSearch" placeholder="جستجوی کالا..." style="margin-bottom:12px;max-width:320px">
+      <div class="pgrid" id="mkGrid"></div>`;
+    const grid = el('mkGrid');
+    function paint(list) {
+      grid.innerHTML = list.map(p => `
+        <div class="pcard">
+          <div class="img" ${p.image ? `onclick="showImgPreview(prodImgUrl('${String(p.image).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}'))" style="cursor:zoom-in"` : ''}>
+            ${p.image ? prodImgTag(p.image) : '🧥'}
+          </div>
+          <div class="pn">${esc(p.name)}</div>
+          <div class="pp">${fmt(p.price)} ریال</div>
+          <div class="pst muted">موجودی: ${fmt(p.stock)}</div>
+          <button class="btn sm" style="width:100%;margin-top:8px" onclick="MarketerUI.addToCart(${p.id})">➕ افزودن به سبد</button>
+        </div>`).join('') || '<div class="empty">کالایی نیست</div>';
+    }
+    paint(prods);
+    window._mkProds = prods;
+    el('mkSearch').oninput = (e) => {
+      const q = e.target.value.trim();
+      paint(!q ? prods : prods.filter(p => (p.name || '').includes(q) || (p.code || '').includes(q)));
+    };
+  }
+
+  function addToCart(productId) {
+    loadCart();
+    const p = (window._mkProds || []).find(x => x.id === productId);
+    if (!p) return;
+    const row = cart.find(c => c.product_id === productId);
+    if (row) row.qty += 1;
+    else cart.push({ product_id: p.id, name: p.name, price: p.price, qty: 1, image: p.image || '' });
+    saveCart();
+    showToast(p.name + ' به سبد اضافه شد');
+  }
+
+  function renderCart() {
+    loadCart();
+    const body = el('mkBody');
+    if (!cart.length) {
+      body.innerHTML = '<div class="empty">سبد خالی است — از کاتالوگ کالا اضافه کنید</div>';
+      return;
+    }
+    body.innerHTML = `
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کالا</th><th>فی</th><th>تعداد</th><th>جمع</th><th></th></tr></thead>
+      <tbody>${cart.map((c, i) => `
+        <tr>
+          <td>${c.image ? prodImgTag(c.image, 'style="height:40px;border-radius:6px;margin-left:8px;vertical-align:middle"') : ''} ${esc(c.name)}</td>
+          <td class="mono">${fmt(c.price)}</td>
+          <td><input type="number" min="1" value="${c.qty}" style="width:70px" onchange="MarketerUI.setQty(${i},+this.value)"></td>
+          <td class="mono">${fmt(c.price * c.qty)}</td>
+          <td><button class="btn sm red" onclick="MarketerUI.remove(${i})">🗑️</button></td>
+        </tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="3">جمع</td><td class="mono" style="font-weight:800">${fmt(cart.reduce((a,c)=>a+c.price*c.qty,0))}</td><td></td></tr></tfoot>
+      </table></div>
+      <div style="margin-top:12px"><button class="btn" onclick="document.getElementById('mkTabInv').click()">ادامه → ثبت فاکتور</button></div>`;
+  }
+
+  function setQty(i, q) {
+    loadCart();
+    if (!cart[i]) return;
+    cart[i].qty = Math.max(1, q || 1);
+    saveCart();
+    renderCart();
+  }
+  function remove(i) {
+    loadCart();
+    cart.splice(i, 1);
+    saveCart();
+    renderCart();
+  }
+
+  async function renderCheckout() {
+    loadCart();
+    if (!cart.length) {
+      el('mkBody').innerHTML = '<div class="empty">ابتدا کالا به سبد اضافه کنید</div>';
+      return;
+    }
+    // Reuse sales invoice builder cart
+    if (typeof invCart !== 'undefined') {
+      invCart = cart.map(c => ({
+        product_id: c.product_id, name: c.name, qty: c.qty, price: c.price,
+        disc: 0, disc_amount: 0, description: '', warehouse_id: null, row_type: 'product', income_coa: ''
+      }));
+    }
+    el('mkBody').innerHTML = `
+      <div class="panel"><div class="panel-body">
+        <p class="muted">اقلام سبد به فاکتورساز منتقل شد. مشتری و جزئیات را تکمیل کنید.</p>
+        <button class="btn" onclick="openInvBuilder()">🧾 باز کردن فاکتورساز با اقلام سبد</button>
+        <button class="btn ghost" style="margin-right:8px" onclick="MarketerUI.clearAfterInvoice()">پاک کردن سبد پس از ثبت</button>
+      </div></div>`;
+  }
+
+  function clearAfterInvoice() {
+    cart = [];
+    saveCart();
+    showToast('سبد پاک شد');
+  }
+
+  global.MarketerUI = { renderMarketerPage, addToCart, setQty, remove, clearAfterInvoice };
+})(typeof window !== 'undefined' ? window : globalThis);

@@ -21,7 +21,11 @@ const ALLOWED_KEYS = [
   'module_moadian', 'module_fixed_assets',
   'vat_rate', 'moadian_enabled', 'moadian_fiscal_id', 'moadian_private_key_path',
   // AI assistant (v4 port) + B2B customer portal feature flags
-  'feature_ai_assistant', 'ai_api_key', 'ai_model', 'feature_b2b_portal'
+  'feature_ai_assistant', 'ai_api_key', 'ai_model', 'feature_b2b_portal',
+  // Website stock sync + Rubika invoice
+  'website_stock_sync_enabled', 'website_stock_sync_mode', 'website_stock_webhook_url',
+  'website_wc_url', 'website_wc_key', 'website_wc_secret',
+  'rubika_bot_token', 'rubika_chat_id', 'rubika_invoice_enabled'
 ];
 
 // Module flags a non-admin (e.g. accounting role) also needs, to know which

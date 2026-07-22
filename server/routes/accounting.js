@@ -595,7 +595,7 @@ router.get('/pending-approvals', auth, adminOrAccounting, (req, res) => {
 });
 
 // Approve invoice for commission
-router.post('/invoices/:id/approve', auth, adminOrAccounting, (req, res) => {
+router.post('/invoices/:id/approve', auth, adminOrAccounting, async (req, res) => {
   const db = getDB();
   const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'یافت نشد' });
@@ -606,7 +606,47 @@ router.post('/invoices/:id/approve', auth, adminOrAccounting, (req, res) => {
     recordCommissionAccrual(db, inv, req.user.id);
   })();
   audit(req.user.id, 'approve', 'invoice', inv.id, `تأیید فاکتور ${inv.num} برای انگیزه فروش`, req);
-  res.json({ ok: true });
+
+  // Rubika: send invoice summary (image can follow via /rubika endpoint)
+  let rubika = { skipped: true };
+  try {
+    const { sendRubikaText, invoiceSummaryText } = require('../lib/rubika');
+    const cust = inv.cust_id ? db.prepare('SELECT biz,owner FROM customers WHERE id=?').get(inv.cust_id) : null;
+    rubika = await sendRubikaText(db, invoiceSummaryText(inv, cust?.biz || cust?.owner || ''));
+  } catch (e) {
+    rubika = { ok: false, reason: e.message };
+  }
+  res.json({ ok: true, rubika });
+});
+
+// Upload invoice image to Rubika after approval (client html2canvas)
+router.post('/invoices/:id/rubika', auth, adminOrAccounting, (req, res, next) => {
+  const multer = require('multer');
+  const path = require('path');
+  const fs = require('fs');
+  const uploadDir = path.join(__dirname, '..', 'uploads', 'rubika');
+  fs.mkdirSync(uploadDir, { recursive: true });
+  const up = multer({ dest: uploadDir, limits: { fileSize: 8 * 1024 * 1024 } }).single('image');
+  up(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    try {
+      const db = getDB();
+      const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
+      if (!inv) return res.status(404).json({ error: 'یافت نشد' });
+      const { sendRubikaImage, invoiceSummaryText } = require('../lib/rubika');
+      const cust = inv.cust_id ? db.prepare('SELECT biz FROM customers WHERE id=?').get(inv.cust_id) : null;
+      const caption = invoiceSummaryText(inv, cust?.biz || '');
+      if (!req.file) {
+        const { sendRubikaText } = require('../lib/rubika');
+        return res.json(await sendRubikaText(db, caption));
+      }
+      const result = await sendRubikaImage(db, req.file.path, caption);
+      try { fs.unlinkSync(req.file.path); } catch (_) {}
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 });
 
 // General Accounting — P&L, cash flow, ledger summary

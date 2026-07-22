@@ -202,8 +202,41 @@ router.post('/forgot-reset', (req, res) => {
 
 router.get('/me', auth, (req, res) => {
   const db = getDB();
-  const user = db.prepare('SELECT id,name,username,role,phone,last_login,must_change_password FROM users WHERE id=?').get(req.user.id);
-  res.json(user);
+  const user = db.prepare('SELECT id,name,username,role,phone,last_login,must_change_password,party_id FROM users WHERE id=?').get(req.user.id);
+  let is_marketer = false;
+  let catalog_category_ids = [];
+  try {
+    catalog_category_ids = db.prepare('SELECT category_id FROM user_catalog_categories WHERE user_id=?').all(user.id).map(r => r.category_id);
+    if (user.party_id) {
+      const p = db.prepare('SELECT party_group_id, party_roles FROM parties WHERE id=?').get(user.party_id);
+      if (p?.party_group_id) {
+        const g = db.prepare('SELECT is_marketer FROM party_groups WHERE id=?').get(p.party_group_id);
+        if (g?.is_marketer) is_marketer = true;
+      }
+      try {
+        const roles = p?.party_roles ? JSON.parse(p.party_roles) : [];
+        if (roles.includes('marketer')) is_marketer = true;
+      } catch (_) {}
+    }
+  } catch (_) {}
+  res.json({ ...user, is_marketer, catalog_category_ids });
+});
+
+router.get('/users/:id/catalog-categories', auth, adminOnly, (req, res) => {
+  const db = getDB();
+  const ids = db.prepare('SELECT category_id FROM user_catalog_categories WHERE user_id=?').all(req.params.id).map(r => r.category_id);
+  res.json(ids);
+});
+
+router.put('/users/:id/catalog-categories', auth, adminOnly, (req, res) => {
+  const db = getDB();
+  const ids = Array.isArray(req.body.category_ids) ? req.body.category_ids.map(Number).filter(Boolean) : [];
+  db.transaction(() => {
+    db.prepare('DELETE FROM user_catalog_categories WHERE user_id=?').run(req.params.id);
+    const ins = db.prepare('INSERT OR IGNORE INTO user_catalog_categories (user_id,category_id) VALUES (?,?)');
+    for (const cid of ids) ins.run(req.params.id, cid);
+  })();
+  res.json({ ok: true, category_ids: ids });
 });
 
 router.post('/change-password', auth, async (req, res) => {

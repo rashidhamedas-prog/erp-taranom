@@ -32,15 +32,22 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `b77549d` — portal gap v2 (SMS/review/pending) |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v58` (روی سرور) |
+| آخرین commit | (محلی) update.md 1–9 — SW `erp-taranom-v60` |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v60` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ✅ ایران `94.249.244.208` — PM2=`erp-taranom`، SW `v58`، commit `b77549d` |
+| وضعیت سرور | ⏳ ایران — نیاز به pull برای update.md |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
 
 ## تاریخچه
+
+### 2026-07-22 — اجرای کامل update.md (وظایف ۱–۹)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** بدون commit
+- **خلاصه:** ۱) رفع کش خالی انبار/گروه کالا. ۲) API موجودی وب‌سایت `/api/v1/stock` + webhook/push ووکامرس. ۳) شمارش دقیق گروه اشخاص بدون دوباره‌شماری. ۴) حذف فیلتر انبار از کاتالوگ + ACL گروه کالا per-user. ۵) چندتصویری کالا. ۶) z-index ریسپانسیو (toast/اعلان بالای taskbar). ۷) روبیکا هنگام تأیید فاکتور. ۸) ماژول مستقل پیامک (قالب/گزینه/زمان‌بندی). ۹) گروه بازاریاب + گردش کاتالوگ→سبد→فاکتور. SW `v60`.
+- **فایل‌های کلیدی:** `lib/update-md-schema.js`, `lib/website-stock-sync.js`, `lib/rubika.js`, `routes/{api_v1,party-groups,products,accounting,auth,sms-module,settings}.js`, `public/{index.html,marketer-ui.js,sw.js}`, `sync/tables.js`, `server.js`
+- **Deploy:** ⏳ نیاز به pull
 
 ### 2026-07-22 — رفع باگ نمایش انبارها و گروه‌های کالا در بخش‌های متصل
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

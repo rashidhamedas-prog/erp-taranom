@@ -202,6 +202,7 @@ app.use('/api/messages', require('./routes/messages'));
 app.use('/api/reminders', require('./routes/reminders'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
+app.use('/api/sms-module', require('./routes/sms-module'));
 app.use('/api/reps', require('./routes/rep-management'));
 app.use('/api/accounting', require('./routes/accounting'));
 app.use('/api/suppliers', require('./routes/suppliers'));
@@ -554,6 +555,13 @@ if (!isDevice()) {
       const n = autoApproveStalePortalReviews(getDB());
       if (n) console.log(`🏭 portal auto-approve reviews: ${n}`);
     } catch (e) { console.error('cron portal-review error:', e.message); }
+  });
+
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const { processScheduledSms } = require('./routes/sms-module');
+      await processScheduledSms(getDB());
+    } catch (e) { console.error('cron sms-scheduled error:', e.message); }
   });
 }
 

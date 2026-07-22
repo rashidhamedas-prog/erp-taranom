@@ -15,6 +15,7 @@
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
 <link rel="stylesheet" href="/prod-ui.css">
 <script src="/vendor/html2canvas.min.js" defer></script>
+<script src="/marketer-ui.js" defer></script>
 <style>
 /* ===== Theme tokens — «زمرد مدرن» (light, default) =====
    Components must read colors only through these tokens; the dark block
@@ -433,11 +434,24 @@ table.tbl tr:hover td{background:var(--row-hover)}
   .tg-bub{max-width:min(86%,360px)}
 }
 
-/* ===== Toast ===== */
-#toasts{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:3200;display:flex;flex-direction:column;gap:8px;align-items:center}
+/* ===== Toast — above MDI taskbar / shortcuts (z-index hierarchy) ===== */
+#toasts{position:fixed;bottom:calc(20px + var(--mdi-taskbar-h,0px));left:50%;transform:translateX(-50%);z-index:10050;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+#toasts .toast{pointer-events:auto}
 .toast{background:#1f2937;color:#fff;padding:12px 22px;border-radius:10px;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.25);animation:slideup .25s}
 .toast.success{background:var(--green);color:var(--on-accent)}.toast.error{background:var(--red);color:var(--on-accent)}.toast.info{background:var(--blue);color:var(--on-accent)}
 @keyframes slideup{from{opacity:0;transform:translateY(20px)}to{opacity:1}}
+
+/* Notifications panel must sit above taskbar / floating shortcuts */
+#notifPanel{z-index:10040!important}
+.img-lightbox,.img-preview-overlay{z-index:10060!important}
+.mdi-taskbar{z-index:9990}
+.omnibox-overlay{z-index:10020}
+@media(max-width:900px){
+  #toasts{bottom:calc(72px + var(--mdi-taskbar-h,0px));max-width:calc(100vw - 24px)}
+  .notif-bell{position:relative;z-index:60}
+  .overlay.open{z-index:1100}
+  .btn.fab,.fab-btn,[data-fab]{z-index:40}
+}
 
 .muted{color:var(--muted)}
 .right{text-align:right}.center{text-align:center}.left{text-align:left}
@@ -1692,6 +1706,7 @@ const NAV_ADMIN = [
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'settings', icon:'⚙️', label:'تنظیمات'},
+  {id:'sms-module', icon:'📱', label:'پیامک'},
   {id:'backup', icon:'📦', label:'پشتیبان'},
   {id:'api', icon:'🔌', label:'API'},
   {id:'help', icon:'📖', label:'راهنما'},
@@ -1702,6 +1717,7 @@ const NAV_SALES = [
   {id:'followups', icon:'📞', label:'پیگیری‌ها'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'catalog', icon:'🛍️', label:'کاتالوگ'},
+  {id:'marketer', icon:'🛒', label:'فروش بازاریاب'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'ai', icon:'🤖', label:'دستیار AI'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
@@ -3858,9 +3874,12 @@ async function loadProductsFiltered(){
   if(noFilters) CACHE.allProducts = CACHE.products;
 }
 ROUTES.products = function(){ productsPage(false); }; // ERP: view-only — CRUD in accounting
-ROUTES.catalog = function(){ productsPage(false); };
+ROUTES.catalog = function(){ productsPage(false, {isCatalog:true}); };
+ROUTES.marketer = function(){ if (window.MarketerUI) MarketerUI.renderMarketerPage(); else showToast('ماژول بازاریاب بارگذاری نشد','error'); };
 
-async function productsPage(canEdit){
+async function productsPage(canEdit, opts){
+  opts = opts || {};
+  const isCatalog = !!opts.isCatalog || CURRENT_PAGE === 'catalog';
   _prodCanEdit = canEdit;
   prodSelected.clear();
   const needMeta = !CACHE._prodMetaLoaded;
@@ -3885,10 +3904,10 @@ async function productsPage(canEdit){
   el('view').innerHTML=`
     <div class="toolbar">
       <input class="search" id="pSearch" placeholder="جستجو نام یا کد..." value="${esc(prodFilter.search)}">
-      <select id="pCat"><option value="">همه دسته‌ها</option>
+      <select id="pCat"><option value="">همه گروه‌ها</option>
         ${(CACHE._prodCats||[]).map(c=>`<option value="${esc(c)}" ${prodFilter.category===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
-      <select id="pWarehouse"><option value="">همه انبارها</option>
-        ${(CACHE._prodWarehouses||[]).map(w=>`<option value="${w.id}" ${String(prodFilter.warehouse_id)===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>
+      ${isCatalog?'':`<select id="pWarehouse"><option value="">همه انبارها</option>
+        ${(CACHE._prodWarehouses||[]).map(w=>`<option value="${w.id}" ${String(prodFilter.warehouse_id)===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>`}
       <select id="pStock">
         <option value="all" ${prodFilter.stock_status==='all'?'selected':''}>همه موجودی</option>
         <option value="ok" ${prodFilter.stock_status==='ok'?'selected':''}>موجود</option>
@@ -3909,7 +3928,8 @@ async function productsPage(canEdit){
     <div id="prodGrid" class="pgrid"></div>`;
   el('pSearch').addEventListener('input',()=>{prodFilter.search=el('pSearch').value;debounceProd(canEdit);});
   el('pCat').addEventListener('change',()=>{prodFilter.category=el('pCat').value;refreshProd(canEdit);});
-  el('pWarehouse').addEventListener('change',()=>{prodFilter.warehouse_id=el('pWarehouse').value;refreshProd(canEdit);});
+  if(!isCatalog) el('pWarehouse')?.addEventListener('change',()=>{prodFilter.warehouse_id=el('pWarehouse').value;refreshProd(canEdit);});
+  else prodFilter.warehouse_id='';
   el('pStock').addEventListener('change',()=>{prodFilter.stock_status=el('pStock').value;refreshProd(canEdit);});
   renderProdGrid(canEdit);
 }
@@ -3999,7 +4019,14 @@ async function deleteProductCategory(id){
 async function prodModal(id){
   await ensureWarehouses();
   await ensureProductCategories();
-  const p = id ? CACHE.products.find(x=>x.id===id) : {};
+  let p = id ? (CACHE.products||[]).find(x=>x.id===id) || (CACHE.allProducts||[]).find(x=>x.id===id) : {};
+  if(id){
+    try{
+      const full=await api('GET','/products/'+id);
+      if(full) p=full;
+    }catch(_){}
+  }
+  if(!p) p={};
   const cats=CACHE.productCategories||[];
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش کالا':'کالای جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -4036,9 +4063,16 @@ async function prodModal(id){
           <option value="fifo" ${p.costing_method==='fifo'?'selected':''}>FIFO</option>
           <option value="specific" ${p.costing_method==='specific'?'selected':''}>شناسایی ویژه</option>
         </select></div>
-      <div class="fg full"><label>تصویر کالا ${hlp('عکس کالا — در کاتالوگ و کارت انتخاب کالا در فاکتورساز نمایش داده می‌شود.')}</label><input id="p-image" type="file" accept="image/*"></div>
+      <div class="fg full"><label>تصاویر کالا ${hlp('چند تصویر — تصویر اول به‌عنوان اصلی استفاده می‌شود.')}</label>
+        <input id="p-image" type="file" accept="image/*" multiple></div>
       <div class="fg full"><label>یادداشت ${hlp('توضیح آزاد درباره محصول: جنس پارچه، سایزبندی، رنگ‌بندی و…')}</label><textarea id="p-note">${esc(p.note||'')}</textarea></div>
-      ${p.image?`<div class="fg full">${prodImgTag(p.image,'style="height:90px;border-radius:8px"')}</div>`:''}
+      <div class="fg full" style="display:flex;flex-wrap:wrap;gap:8px">
+        ${p.image?prodImgTag(p.image,'style="height:90px;border-radius:8px"'):''}
+        ${(p.images||[]).filter(im=>(im.filename||im)!==p.image).map(im=>{
+          const fn=im.filename||im; const iid=im.id||0;
+          return `<div style="position:relative">${prodImgTag(fn,'style="height:90px;border-radius:8px"')}${iid&&id?`<button type="button" class="btn sm red" style="position:absolute;top:2px;left:2px" onclick="deleteProductImage(${iid},${id})">×</button>`:''}</div>`;
+        }).join('')}
+      </div>
       ${coaCodeFieldHtml('product', id, p.coa_code)}
       ${productExtraFieldsHtml(p)}
     </div></div>
@@ -4078,6 +4112,8 @@ async function saveProduct(id){
   }
   const f = el('p-image').files[0];
   if(f) fd.append('image',f);
+  const files = el('p-image').files || [];
+  for(let i=0;i<files.length;i++) fd.append('images', files[i]);
   try{
     if(id) await api('PUT','/products/'+id,fd,true); else await api('POST','/products',fd,true);
     closeModal();
@@ -4611,10 +4647,15 @@ async function userModal(id){
       <div class="fg"><label>استان</label><input id="u-person-province" value="${esc(u.person_province||'')}"></div>
       <div class="fg"><label>کدپستی</label><input id="u-person-postal" value="${esc(u.person_postal_code||'')}" dir="ltr"></div>
       <div class="fg"><label>تاریخ تولد</label><input id="u-person-birth" data-jdate value="${esc(u.person_birth_date||'')}"></div>
-      <div class="fg"><label>گروه اشخاص</label><select id="u-person-group"><option value="">— بدون گروه —</option>${(CACHE.partyGroups||[]).filter(g=>g.code!==0).map(g=>`<option value="${g.id}" ${u.person_party_group_id==g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>گروه اشخاص</label><select id="u-person-group"><option value="">— بدون گروه —</option>${(CACHE.partyGroups||[]).filter(g=>g.code!==0).map(g=>`<option value="${g.id}" ${u.person_party_group_id==g.id?'selected':''}>${esc(g.name)}${g.is_marketer?' ★':''}</option>`).join('')}</select></div>
       <div class="fg"><label>ماهیت حساب</label><select id="u-person-nature"><option value="">خودکار</option><option value="debit" ${u.person_account_nature==='debit'?'selected':''}>بدهکار</option><option value="credit" ${u.person_account_nature==='credit'?'selected':''}>بستانکار</option></select></div>
       <div class="fg full"><label>آدرس</label><textarea id="u-person-address">${esc(u.person_address||'')}</textarea></div>
       <div class="fg full"><label>یادداشت شخص</label><textarea id="u-person-notes">${esc(u.person_notes||'')}</textarea></div>
+      <div class="fg full" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px">
+        <b>دسترسی گروه کالا در کاتالوگ</b>
+        <div class="muted" style="font-size:11px;margin:4px 0 8px">اگر خالی باشد همه گروه‌ها نمایش داده می‌شوند. فقط گروه‌های تیک‌خورده در کاتالوگ کاربر دیده می‌شود.</div>
+        <div id="u-cat-access" style="display:flex;flex-wrap:wrap;gap:8px;max-height:140px;overflow:auto"></div>
+      </div>
       <div class="fg"><label>انگیزه فروش نقد (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای نقدی تأییدشده. بعد از اولین ذخیره قفل می‌شود.')} ${u.incentive_locked?'<span style="font-size:11px;color:var(--orange)">🔒 قفل</span>':''}</label><input id="u-comm-cash" type="number" step="0.1" value="${u.commission_cash||0}" data-orig="${u.commission_cash||0}" data-locked="${u.incentive_locked||0}"></div>
       <div class="fg"><label>انگیزه فروش چک (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای چکی تأییدشده.')}</label><input id="u-comm-cheque" type="number" step="0.1" value="${u.commission_cheque||0}" data-orig="${u.commission_cheque||0}"></div>
       <div class="fg"><label>مبنای محاسبه انگیزه ${hlp('فاکتور: بر اساس فاکتورهای تأییدشده. وصول: بر اساس مبالغ دریافت‌شده. سود: بر اساس سود (فروش منهای بهای تمام‌شده).')}</label><select id="u-comm-basis">
@@ -4651,6 +4692,19 @@ async function userModal(id){
       ${id?`<button class="btn ghost" onclick="openRbacMatrix(${id})">🔐 دسترسی‌ها</button>`:''}
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  // Load catalog category ACL checkboxes
+  try{
+    await ensureProductCategories();
+    let selected=[];
+    if(id) selected = await api('GET','/auth/users/'+id+'/catalog-categories').catch(()=>[])||[];
+    const box=el('u-cat-access');
+    if(box){
+      box.innerHTML=(CACHE.productCategories||[]).filter(c=>c.code!==0).map(c=>`
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;background:var(--purple-light);padding:4px 8px;border-radius:8px;cursor:pointer">
+          <input type="checkbox" class="u-cat-cb" value="${c.id}" style="width:auto" ${selected.includes(c.id)?'checked':''}> ${esc(c.name)}
+        </label>`).join('')||'<span class="muted">گروه کالایی تعریف نشده</span>';
+    }
+  }catch(_){}
 }
 async function openRbacMatrix(userId){
   const data=await api('GET','/rbac/matrix/'+userId);
@@ -4820,9 +4874,16 @@ async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_c
     const repFields={commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,supervisor_id,employment_status,rep_code,rep_subtype,territory,rep_opening_balance,bank_name,bank_account,bank_iban};
     if(id){
       await api('PUT','/admin/users/'+id,{name,role,phone,active,password:pass||undefined,commission_cash,commission_cheque,force:force||undefined,...repFields,person});
+      const catIds=[...document.querySelectorAll('.u-cat-cb:checked')].map(cb=>+cb.value).filter(Boolean);
+      await api('PUT','/auth/users/'+id+'/catalog-categories',{category_ids:catIds}).catch(()=>{});
     } else {
       if(!username||!pass){ showToast('نام کاربری و رمز الزامی است','error'); return; }
-      await api('POST','/admin/users',{name,username,password:pass,phone,role,commission_cash,commission_cheque,...repFields,person});
+      const created=await api('POST','/admin/users',{name,username,password:pass,phone,role,commission_cash,commission_cheque,...repFields,person});
+      const newId=created?.id||created?.user?.id;
+      if(newId){
+        const catIds=[...document.querySelectorAll('.u-cat-cb:checked')].map(cb=>+cb.value).filter(Boolean);
+        if(catIds.length) await api('PUT','/auth/users/'+newId+'/catalog-categories',{category_ids:catIds}).catch(()=>{});
+      }
     }
     CACHE.users=await api('GET','/auth/users'); closeModal(); ROUTES.users(); showToast('ذخیره شد');
   }catch(e){}
@@ -10151,15 +10212,16 @@ async function renderPartyGroupsTab(body){
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="partyGroupModal()">➕ گروه جدید</button></div>
     <div class="muted" style="font-size:12px;margin-bottom:10px">گروه‌های اشخاص را خودتان تعریف کنید؛ سپس هنگام ثبت شخص جدید، گروه را انتخاب کنید.</div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام گروه</th><th>نوع موجودیت</th><th>تعداد</th><th>عملیات</th></tr></thead>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام گروه</th><th>نوع موجودیت</th><th>بازاریاب</th><th>تعداد</th><th>عملیات</th></tr></thead>
     <tbody>${rows.map(g=>`<tr>
       <td class="mono">${g.code||'-'}</td>
       <td>${esc(g.name)}</td>
       <td><span class="tag t-new">${PARTY_ENTITY_LABELS[g.entity_type]||g.entity_type}</span></td>
+      <td>${g.is_marketer?'<span class="tag t-vip">بازاریاب</span>':'—'}</td>
       <td class="mono">${g.entity_count||0}</td>
       <td><button class="btn sm ghost" onclick="partyGroupModal(${g.id})">✏️</button>
           <button class="btn sm red" onclick="deletePartyGroup(${g.id})">🗑️</button></td>
-    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
 }
 async function partyGroupModal(id){
   const list=await api('GET','/party-groups')||[];
@@ -10171,6 +10233,10 @@ async function partyGroupModal(id){
       <div class="fg full"><label>نام گروه *</label><input id="pg-name" value="${esc(g.name||'')}"></div>
       <div class="fg full"><label>نوع موجودیت ${hlp('مشتریان→customers، فروشندگان→suppliers، پرسنل→persons')}</label>
         <select id="pg-entity">${Object.entries(PARTY_ENTITY_LABELS).map(([k,v])=>`<option value="${k}" ${g.entity_type===k?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="fg full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input id="pg-marketer" type="checkbox" style="width:auto" ${g.is_marketer?'checked':''}>
+        گروه بازاریاب (گردش کار کاتالوگ → سبد → فاکتور)
+      </label></div>
       <div class="fg full"><label>توضیحات</label><textarea id="pg-desc">${esc(g.description||'')}</textarea></div>
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="savePartyGroup(${id||0})">💾 ذخیره</button>
@@ -10179,7 +10245,7 @@ async function partyGroupModal(id){
 async function savePartyGroup(id){
   const name=el('pg-name').value.trim();
   if(!name){ showToast('نام گروه الزامی است','error'); return; }
-  const data={name,code:el('pg-code').value,entity_type:el('pg-entity').value,description:el('pg-desc').value};
+  const data={name,code:el('pg-code').value,entity_type:el('pg-entity').value,description:el('pg-desc').value,is_marketer:!!el('pg-marketer')?.checked};
   try{
     if(id) await api('PUT','/party-groups/'+id,data); else await api('POST','/party-groups',data);
     CACHE.partyGroups=null;
@@ -11815,11 +11881,44 @@ async function openHtmlAuth(url){
   }catch(e){ showToast('خطا','error'); }
 }
 
+async function deleteProductImage(imageId, productId){
+  if(!confirm('این تصویر حذف شود؟')) return;
+  try{
+    await api('DELETE','/products/images/'+imageId);
+    showToast('حذف شد');
+    if(productId) prodModal(productId);
+  }catch(e){}
+}
 async function approveInvoice(id){
   if(!confirm('این فاکتور تأیید و در محاسبه انگیزه فروش لحاظ شود؟')) return;
   try{
-    await api('POST','/accounting/invoices/'+id+'/approve',{});
+    const r = await api('POST','/accounting/invoices/'+id+'/approve',{});
     showToast('فاکتور با موفقیت تأیید شد');
+    // Try send invoice image to Rubika (settings-controlled)
+    try{
+      if(typeof html2canvas!=='undefined'){
+        const printUrl='/api/invoices/'+id+'/print';
+        const resp=await fetch(printUrl,{headers:{Authorization:'Bearer '+localStorage.getItem('crm_token')}});
+        if(resp.ok){
+          const html=await resp.text();
+          const iframe=document.createElement('iframe');
+          iframe.style.cssText='position:fixed;left:-9999px;top:0;width:800px;height:1100px;opacity:0';
+          document.body.appendChild(iframe);
+          iframe.contentDocument.open();
+          iframe.contentDocument.write(html.replace(/<head>/i,'<head><base href="'+location.origin+'/">'));
+          iframe.contentDocument.close();
+          await new Promise(r=>setTimeout(r,800));
+          const canvas=await html2canvas(iframe.contentDocument.body,{backgroundColor:'#fff',scale:1.5,useCORS:true});
+          document.body.removeChild(iframe);
+          const blob=await new Promise(res=>canvas.toBlob(res,'image/png'));
+          if(blob){
+            const fd=new FormData(); fd.append('image',blob,'invoice.png');
+            await api('POST','/accounting/invoices/'+id+'/rubika',fd,true);
+          }
+        }
+      }
+    }catch(_){}
+    if(r?.rubika?.ok) showToast('ارسال به روبیکا انجام شد');
     if(ROUTES[CURRENT_PAGE]) ROUTES[CURRENT_PAGE]();
   }catch(e){}
 }
@@ -13746,6 +13845,129 @@ async function linkCoaCode(type, id){
   }catch(e){ showToast('خطا در اتصال حساب','error'); }
 }
 
+ROUTES['sms-module'] = async function(){
+  if(!isAdmin() && ME.role!=='accounting'){ el('view').innerHTML='<div class="empty">دسترسی ندارید</div>'; return; }
+  const [provider, templates, options, scheduled] = await Promise.all([
+    api('GET','/sms-module/provider').catch(()=>({})),
+    api('GET','/sms-module/templates').catch(()=>[]),
+    api('GET','/sms-module/options').catch(()=>[]),
+    api('GET','/sms-module/scheduled').catch(()=>[])
+  ]);
+  el('view').innerHTML=`
+    <h3 style="margin:0 0 14px">📱 ماژول پیامک</h3>
+    <div class="panel"><div class="panel-head"><h4>سرویس‌دهنده</h4></div><div class="panel-body"><div class="form-grid">
+      <div class="fg"><label>سرویس</label><select id="sms-prov">
+        <option value="kavenegar" ${(provider.sms_provider||'kavenegar')==='kavenegar'?'selected':''}>کاوه‌نگار</option>
+        <option value="melipayamak" ${provider.sms_provider==='melipayamak'?'selected':''}>ملی‌پیامک</option>
+        <option value="niksms" ${provider.sms_provider==='niksms'?'selected':''}>نیک‌اس‌ام‌اس</option>
+        <option value="smsir" ${provider.sms_provider==='smsir'?'selected':''}>SMS.ir</option>
+      </select></div>
+      <div class="fg"><label>API Key</label><input id="sms-key" value="${esc(provider.sms_api_key||'')}" dir="ltr"></div>
+      <div class="fg"><label>فرستنده</label><input id="sms-from" value="${esc(provider.sms_from||'')}" dir="ltr"></div>
+      <div class="fg full"><button class="btn" onclick="saveSmsProvider()">💾 ذخیره سرویس</button>
+        <input id="sms-test-phone" placeholder="09…" style="margin:0 8px;padding:8px;border:1px solid var(--border);border-radius:8px;direction:ltr">
+        <button class="btn orange" onclick="testSmsModule()">🧪 تست</button></div>
+    </div></div></div>
+    <div class="panel"><div class="panel-head"><h4>قالب‌های عملیاتی</h4>
+      <button class="btn sm" onclick="smsTemplateModal()">➕ قالب</button></div>
+      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>رویداد</th><th>فعال</th><th></th></tr></thead>
+      <tbody>${(templates||[]).map(t=>`<tr>
+        <td class="mono">${esc(t.code)}</td><td>${esc(t.name)}</td><td>${esc(t.event_key||'-')}</td>
+        <td>${t.active?'✓':'—'}</td>
+        <td><button class="btn sm ghost" onclick="smsTemplateModal(${t.id})">✏️</button>
+            <button class="btn sm red" onclick="deleteSmsTemplate(${t.id})">🗑️</button></td>
+      </tr>`).join('')||emptyRow(5)}</tbody></table></div></div>
+    <div class="panel"><div class="panel-head"><h4>گزینه‌های ارسال هر بخش</h4>
+      <button class="btn sm" onclick="smsOptionModal()">➕ گزینه</button></div>
+      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>بخش</th><th>برچسب</th><th>قالب</th><th>فعال</th><th></th></tr></thead>
+      <tbody>${(options||[]).map(o=>`<tr>
+        <td>${esc(o.section_key)}</td><td>${esc(o.label)}</td><td>${esc(o.template_name||'-')}</td>
+        <td>${o.active?'✓':'—'}</td>
+        <td><button class="btn sm ghost" onclick="smsOptionModal(${o.id})">✏️</button>
+            <button class="btn sm red" onclick="deleteSmsOption(${o.id})">🗑️</button></td>
+      </tr>`).join('')||emptyRow(5)}</tbody></table></div></div>
+    <div class="panel"><div class="panel-head"><h4>پیامک زمان‌بندی‌شده</h4>
+      <button class="btn sm" onclick="smsSchedModal()">➕ زمان‌بندی</button></div>
+      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>شماره</th><th>متن</th><th>زمان</th><th>وضعیت</th><th></th></tr></thead>
+      <tbody>${(scheduled||[]).map(s=>`<tr>
+        <td class="mono" dir="ltr">${esc(s.phone)}</td><td>${esc((s.body||'').slice(0,60))}</td>
+        <td class="mono">${esc(s.send_at)}</td><td>${esc(s.status)}</td>
+        <td>${s.status==='pending'?`<button class="btn sm red" onclick="deleteSmsSched(${s.id})">🗑️</button>`:''}</td>
+      </tr>`).join('')||emptyRow(5)}</tbody></table></div></div>`;
+  window._smsTemplates = templates||[];
+};
+async function saveSmsProvider(){
+  await api('PUT','/sms-module/provider',{sms_provider:el('sms-prov').value,sms_api_key:el('sms-key').value,sms_from:el('sms-from').value});
+  showToast('ذخیره شد');
+}
+async function testSmsModule(){
+  const to=el('sms-test-phone')?.value?.trim();
+  if(!to){ showToast('شماره را وارد کنید','error'); return; }
+  const r=await api('POST','/sms-module/test',{to});
+  showToast(r?.ok?'ارسال موفق':'ناموفق: '+(r?.reason||''), r?.ok?'success':'error');
+}
+async function smsTemplateModal(id){
+  const list=window._smsTemplates||[];
+  const t=id?list.find(x=>x.id===id)||{}:{};
+  openModal(`<div class="modal-head"><h3>${id?'ویرایش قالب':'قالب جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>کد *</label><input id="st-code" value="${esc(t.code||'')}" ${id?'readonly':''}></div>
+      <div class="fg"><label>نام *</label><input id="st-name" value="${esc(t.name||'')}"></div>
+      <div class="fg full"><label>رویداد (اختیاری)</label><input id="st-event" value="${esc(t.event_key||'')}" placeholder="invoice.approved"></div>
+      <div class="fg full"><label>متن</label><textarea id="st-body" rows="5">${esc(t.body||'')}</textarea></div>
+      <div class="fg"><label><input type="checkbox" id="st-active" style="width:auto" ${t.active!==0?'checked':''}> فعال</label></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveSmsTemplate(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveSmsTemplate(id){
+  const data={code:el('st-code').value.trim(),name:el('st-name').value.trim(),event_key:el('st-event').value,body:el('st-body').value,active:el('st-active').checked};
+  if(!data.code||!data.name){ showToast('کد و نام الزامی است','error'); return; }
+  if(id) await api('PUT','/sms-module/templates/'+id,data); else await api('POST','/sms-module/templates',data);
+  closeModal(); showToast('ذخیره شد'); ROUTES['sms-module']();
+}
+async function deleteSmsTemplate(id){ if(!confirm('حذف شود؟')) return; await api('DELETE','/sms-module/templates/'+id); ROUTES['sms-module'](); }
+async function smsOptionModal(id){
+  const opts=await api('GET','/sms-module/options')||[];
+  const tpls=await api('GET','/sms-module/templates')||[];
+  const o=id?opts.find(x=>x.id===id)||{}:{};
+  openModal(`<div class="modal-head"><h3>${id?'ویرایش گزینه':'گزینه جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>کلید بخش *</label><input id="so-section" value="${esc(o.section_key||'')}" placeholder="invoices"></div>
+      <div class="fg"><label>برچسب *</label><input id="so-label" value="${esc(o.label||'')}"></div>
+      <div class="fg full"><label>قالب</label><select id="so-tpl"><option value="">—</option>
+        ${tpls.map(t=>`<option value="${t.id}" ${o.template_id==t.id?'selected':''}>${esc(t.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label><input type="checkbox" id="so-active" style="width:auto" ${o.active!==0?'checked':''}> فعال</label></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveSmsOption(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveSmsOption(id){
+  const data={section_key:el('so-section').value.trim(),label:el('so-label').value.trim(),template_id:+el('so-tpl').value||null,active:el('so-active').checked};
+  if(!data.section_key||!data.label){ showToast('بخش و برچسب الزامی است','error'); return; }
+  if(id) await api('PUT','/sms-module/options/'+id,data); else await api('POST','/sms-module/options',data);
+  closeModal(); ROUTES['sms-module']();
+}
+async function deleteSmsOption(id){ if(!confirm('حذف؟')) return; await api('DELETE','/sms-module/options/'+id); ROUTES['sms-module'](); }
+async function smsSchedModal(){
+  openModal(`<div class="modal-head"><h3>پیامک زمان‌بندی‌شده</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>شماره *</label><input id="ss-phone" dir="ltr" placeholder="09…"></div>
+      <div class="fg"><label>تاریخ ارسال *</label><input id="ss-at" data-jdate value="${todayJalali()}"></div>
+      <div class="fg full"><label>متن *</label><textarea id="ss-body" rows="4"></textarea></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveSmsSched()">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+}
+async function saveSmsSched(){
+  const phone=el('ss-phone').value.trim(), body=el('ss-body').value.trim(), send_at=el('ss-at').value.trim();
+  if(!phone||!body||!send_at){ showToast('همه فیلدها الزامی است','error'); return; }
+  await api('POST','/sms-module/scheduled',{phone,body,send_at});
+  closeModal(); showToast('زمان‌بندی شد'); ROUTES['sms-module']();
+}
+async function deleteSmsSched(id){ if(!confirm('حذف؟')) return; await api('DELETE','/sms-module/scheduled/'+id); ROUTES['sms-module'](); }
+
 ROUTES.settings = async function(){
   if(!CACHE.settings || !Object.keys(CACHE.settings).length) CACHE.settings=await api('GET','/settings')||{};
   const s = CACHE.settings;
@@ -13789,36 +14011,34 @@ ROUTES.settings = async function(){
       <div class="fg"><label>Bot Token</label><input id="s-telegram_bot_token" value="${esc(s.telegram_bot_token||'')}"></div>
       <div class="fg"><label>Chat ID</label><input id="s-telegram_chat_id" value="${esc(s.telegram_chat_id||'')}"></div>
     </div></div></div>
-    <div class="panel"><div class="panel-head"><h4>پیامک (SMS)</h4></div><div class="panel-body"><div class="form-grid">
-      <div class="fg"><label>سرویس‌دهنده</label><select id="s-sms_provider" onchange="toggleSmsProviderHint(this.value)">
-        <option value="kavenegar" ${(s.sms_provider==='kavenegar'||!s.sms_provider)?'selected':''}>کاوه‌نگار (Kavenegar)</option>
-        <option value="melipayamak" ${s.sms_provider==='melipayamak'?'selected':''}>ملی‌پیامک (user:pass)</option>
-        <option value="niksms" ${s.sms_provider==='niksms'?'selected':''}>نیک‌اس‌ام‌اس (NikSMS)</option>
-        <option value="smsir" ${s.sms_provider==='smsir'?'selected':''}>اس‌ام‌اس‌آی‌آر (SMS.ir)</option>
+    <div class="panel"><div class="panel-head"><h4>روبیکا — ارسال تصویر فاکتور تأییدشده</h4></div><div class="panel-body"><div class="form-grid">
+      <div class="fg"><label><input type="checkbox" id="s-rubika_invoice_enabled" ${s.rubika_invoice_enabled==='1'?'checked':''} style="width:auto;margin-left:6px"> فعال‌سازی ارسال به روبیکا هنگام تأیید فاکتور</label></div>
+      <div class="fg"><label>Bot Token روبیکا</label><input id="s-rubika_bot_token" value="${esc(s.rubika_bot_token||'')}" dir="ltr"></div>
+      <div class="fg"><label>شناسه چت / GUID مقصد</label><input id="s-rubika_chat_id" value="${esc(s.rubika_chat_id||'')}" dir="ltr" placeholder="مثلاً b0… یا chat_id"></div>
+      <div class="fg full muted" style="font-size:12px">پس از تأیید فاکتور در حسابداری، خلاصه متنی و تصویر فاکتور به این شناسه ارسال می‌شود.</div>
+    </div></div></div>
+    <div class="panel"><div class="panel-head"><h4>سینک موجودی وب‌سایت (poshaktaranom.com)</h4></div><div class="panel-body"><div class="form-grid">
+      <div class="fg"><label><input type="checkbox" id="s-website_stock_sync_enabled" ${s.website_stock_sync_enabled==='1'?'checked':''} style="width:auto;margin-left:6px"> فعال</label></div>
+      <div class="fg"><label>حالت</label><select id="s-website_stock_sync_mode">
+        <option value="pull" ${(s.website_stock_sync_mode||'pull')==='pull'?'selected':''}>فقط Pull (وب‌سایت از ERP می‌خواند)</option>
+        <option value="push" ${s.website_stock_sync_mode==='push'?'selected':''}>Push به ووکامرس</option>
+        <option value="both" ${s.website_stock_sync_mode==='both'?'selected':''}>هر دو</option>
       </select></div>
-      <div class="fg"><label>کلید API</label><input id="s-sms_api_key" value="${esc(s.sms_api_key||'')}"></div>
-      <div class="fg"><label>شماره فرستنده (خط اختصاصی)</label><input id="s-sms_from" value="${esc(s.sms_from||'')}"></div>
-    </div>
-    <div id="sms-hint" style="margin-top:10px;padding:10px;background:#f5f5f5;border-radius:8px;font-size:12px;color:var(--muted);line-height:1.8"></div>
-    <p style="font-size:12px;color:var(--muted);margin-top:8px">برای ارسال پیامک، شماره موبایل هر کارشناس باید در اطلاعات کاربر ثبت شده باشد.</p>
-    <div style="margin-top:8px;padding:10px;background:#f0fdf4;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.9">
-      <strong style="color:var(--text)">📱 پیامک در این موارد ارسال می‌شود:</strong><br>
-      ۱. <b>هر روز ساعت ۸ صبح:</b> لیست پیگیری‌های آن روز به شماره هر کارشناس<br>
-      ۲. <b>۱ ساعت قبل:</b> اگر پیگیری ساعت مشخصی داشته باشد، یادآور ۶۰ دقیقه قبل ارسال می‌شود<br>
-      ۳. <b>ثبت مشتری جدید:</b> پیامک خوش‌آمدگویی با معرفی کانال‌های ارتباطی به مشتری ارسال می‌شود<br>
-      ۴. <b>ارسال دستی:</b> از طریق دکمه 📤 در لیست مشتریان می‌توانید برای هر مشتری پیامک ارسال کنید<br>
-      ۵. <b>نمایندگان فروش:</b> اعلان‌های انگیزه، تسویه، هدف و مطالبات (در صورت فعال بودن گزینه زیر)
-    </div>
-    <div class="fg" style="margin-top:10px"><label><input type="checkbox" id="s-rep_sms_notify" ${s.rep_sms_notify!=='0'?'checked':''} style="width:auto;margin-left:6px"> SMS اعلان‌های نمایندگان فروش</label></div>
-    <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)">
-      <p style="font-size:12px;font-weight:600;margin-bottom:6px">🧪 تست ارسال پیامک</p>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <input id="sms-test-phone" placeholder="شماره آزمایشی مثلاً 09151234567" style="flex:1;min-width:200px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;direction:ltr">
-        <button class="btn orange" onclick="testSMS()">📤 ارسال پیامک آزمایشی</button>
+      <div class="fg full"><label>Webhook URL موجودی (رویداد product.stock)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com/wp-json/…/stock"></div>
+      <div class="fg"><label>آدرس ووکامرس</label><input id="s-website_wc_url" value="${esc(s.website_wc_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
+      <div class="fg"><label>Consumer Key</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
+      <div class="fg"><label>Consumer Secret</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
+      <div class="fg full muted" style="font-size:12px;line-height:1.7">
+        <b>روش پیشنهادی (Pull):</b> در وب‌سایت با API Key از
+        <code dir="ltr">GET /api/v1/stock</code> و
+        <code dir="ltr">GET /api/v1/stock/by-sku/:sku</code>
+        موجودی را بگیرید (کد کالا = SKU). رویداد webhook
+        <code>product.stock</code> هم پس از هر تغییر موجودی شلیک می‌شود.
       </div>
-      <div id="sms-test-result" style="margin-top:8px;font-size:12px"></div>
-      <p style="font-size:11px;color:var(--muted);margin-top:6px">متن ارسالی: متن پیامک خوش‌آمدگویی (تنظیم‌شده در بخش زیر)</p>
-    </div>
+    </div></div></div>
+    <div class="panel"><div class="panel-head"><h4>پیامک</h4></div><div class="panel-body">
+      <p class="muted" style="margin-bottom:10px">تنظیمات و قالب‌های پیامک به ماژول مستقل «پیامک» منتقل شده است.</p>
+      <button class="btn" onclick="go('sms-module')">📱 باز کردن ماژول پیامک</button>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>پیامک خوش‌آمدگویی مشتریان</h4></div><div class="panel-body">
       <div class="form-grid">
@@ -13962,8 +14182,11 @@ ROUTES['desktop-settings'] = async function(){
   renderDesktopUpdateUI();
 };
 async function saveSettings(){
-  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model'];
-  const data={}; keys.forEach(k=>{ const e=el('s-'+k); if(e)data[k]=e.value; });
+  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode'];
+  const data={};
+  keys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value; });
+  data.rubika_invoice_enabled = el('s-rubika_invoice_enabled')?.checked ? '1' : '0';
+  data.website_stock_sync_enabled = el('s-website_stock_sync_enabled')?.checked ? '1' : '0';
   const moduleKeys=['module_petty_cash','module_trust_checks','module_warehouses','module_consignments','module_production','module_payroll','module_reps','module_moadian','module_fixed_assets','module_portal'];
   moduleKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.checked?'1':'0'; });
   data.rep_sms_notify = el('s-rep_sms_notify')?.checked ? '1' : '0';

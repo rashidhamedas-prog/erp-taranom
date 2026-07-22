@@ -2034,6 +2034,7 @@ function initSyncSchema(db) {
     require('./lib/update11-schema').initUpdate11Schema(db);
     require('./lib/gap-accounting-schema').initGapAccountingSchema(db);
     require('./lib/portal-schema').initPortalSchema(db);
+    require('./lib/update-md-schema').ensureUpdateMdSchema(db, ensureColumn);
   } catch (e) {
     console.error('❌ update11 schema init failed:', e.message);
     throw e;

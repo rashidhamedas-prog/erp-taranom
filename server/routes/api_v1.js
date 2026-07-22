@@ -149,6 +149,38 @@ router.get('/products', (req, res) => {
   res.json(db.prepare(sql).all(...params));
 });
 
+// Stock-only feed for website (poshaktaranom.com) — poll this for real-time qty
+router.get('/stock', (req, res) => {
+  const db = getDB();
+  const { since, limit = 500, offset = 0 } = req.query;
+  let sql = 'SELECT id, code, barcode, name, stock, unit, updated_at FROM products WHERE 1=1';
+  const params = [];
+  // updated_at may not exist on all DBs — fall back to id order
+  const hasUpdated = db.prepare("PRAGMA table_info(products)").all().some(c => c.name === 'updated_at');
+  if (since && hasUpdated) { sql += ' AND updated_at >= ?'; params.push(parseInt(since, 10) || 0); }
+  sql += hasUpdated ? ' ORDER BY updated_at DESC, id DESC' : ' ORDER BY id DESC';
+  sql += ' LIMIT ? OFFSET ?';
+  params.push(Math.min(2000, parseInt(limit) || 500), parseInt(offset) || 0);
+  try {
+    res.json({ ok: true, items: db.prepare(sql).all(...params), ts: Math.floor(Date.now() / 1000) });
+  } catch (e) {
+    // products without updated_at
+    const rows = db.prepare('SELECT id, code, barcode, name, stock, unit FROM products ORDER BY name LIMIT ? OFFSET ?')
+      .all(Math.min(2000, parseInt(limit) || 500), parseInt(offset) || 0);
+    res.json({ ok: true, items: rows, ts: Math.floor(Date.now() / 1000) });
+  }
+});
+
+router.get('/stock/by-sku/:sku', (req, res) => {
+  const db = getDB();
+  const sku = String(req.params.sku || '').trim();
+  if (!sku) return res.status(400).json({ error: 'sku الزامی است' });
+  const row = db.prepare('SELECT id, code, barcode, name, stock, unit FROM products WHERE code=? OR barcode=? LIMIT 1')
+    .get(sku, sku);
+  if (!row) return res.status(404).json({ error: 'کالا یافت نشد' });
+  res.json({ ok: true, ...row });
+});
+
 // ── System ─────────────────────────────────────────────────
 router.get('/ping', (req, res) => {
   res.json({ ok: true, ts: Date.now(), version: 'v1' });
