@@ -32,13 +32,21 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending) همگام‌سازی سینک + حذف party↔CRM + SW v75 |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v75` |
+| آخرین commit | *(قالب فاکتور v76)* |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v76` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ در حال deploy |
+| وضعیت سرور | ⏳ deploy قالب فاکتور |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
+
+### 2026-07-22 — [Cursor] ۶ قالب فاکتور رسمی/معمولی + تنظیمات A4/A5 — SW v76
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** *(پس از push)*
+- **خلاصه:** موتور چاپ `invoice-print.js` با ۳ قالب رسمی + ۳ معمولی (برند ترنم)، انتخاب در تنظیمات، شخصی‌سازی فیلدها، A4/A5. فاکتور نهایی→رسمی، پیش‌فاکتور→معمولی.
+- **فایل‌های کلیدی:** `server/lib/invoice-print.js`, `server/routes/invoices.js`, `server/routes/settings.js`, `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ⏳
+- **SW:** `erp-taranom-v76`
 
 ### 2026-07-22 — [Cursor] رفع سینک انبار/جداول غایب + cascade حذف party↔CRM + SW v75
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

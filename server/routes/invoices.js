@@ -693,155 +693,31 @@ router.post('/:id/convert', auth, (req, res) => {
   res.json({ ok: true });
 });
 
-// Standalone printable HTML page
+// Standalone printable HTML page — templates from server/lib/invoice-print.js
 router.get('/:id/print', auth, (req, res) => {
   const db = getDB();
   const inv = db.prepare('SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(req.params.id);
   if (!inv) return res.status(404).send('فاکتور یافت نشد');
   if (req.user.role !== 'admin' && inv.user_id !== req.user.id) return res.status(403).send('دسترسی ندارید');
-  const rows = JSON.parse(inv.rows || '[]');
-  const companyName = getSetting(db, 'company_name') || 'پوشاک ترنم';
-  const companyAddr = getSetting(db, 'company_address') || '';
-  const companyPhone = getSetting(db, 'company_phone') || '';
-  const typeLabel = inv.type === 'final' ? 'فاکتور رسمی' : 'پیش‌فاکتور';
-  const paperSize = (req.query.paper || 'A4').toUpperCase() === 'A5' ? 'A5' : 'A4';
-  // Invoices created offline carry a provisional number until they sync with
-  // central — the printout must be visibly non-official.
-  const isProvisional = String(inv.num || '').startsWith('موقت');
+  let rows = [];
+  try { rows = JSON.parse(inv.rows || '[]'); } catch (_) { rows = []; }
 
-  const payTypeLabel = { cash: 'نقد', cheque: 'چک', credit: 'نسیه', bank_transfer: 'واریز بانکی' }[inv.pay_type] || inv.pay_type || 'نقد';
-  let payInfo = `<div><b>نوع پرداخت:</b> ${payTypeLabel}</div>`;
-  if (inv.pay_type === 'cheque') {
-    if (inv.cheque_duration) payInfo += `<div><b>مدت چک:</b> ${inv.cheque_duration} روز</div>`;
-    if (inv.cheque_due_date) payInfo += `<div><b>سررسید:</b> ${inv.cheque_due_date}</div>`;
-    if (inv.cheque_info) payInfo += `<div><b>اطلاعات چک:</b> ${inv.cheque_info}</div>`;
-  }
-
-  const rowsHtml = rows.map((r, i) => {
-    const desc = String(r.description || '').trim();
-    const nameCell = desc
-      ? `${r.name || ''}<div style="font-size:11px;color:#6b7280;margin-top:4px;font-weight:400">${desc}</div>`
-      : (r.name || '');
-    const lineDisc = Math.max(0, Math.round(Number(r.disc_amount) || 0))
-      || Math.round((Number(r.qty) || 0) * (Number(r.price) || 0) * (Number(r.disc) || 0) / 100);
-    const discNote = lineDisc
-      ? `<div style="font-size:10px;color:#9ca3af">تخفیف ردیف: ${r.disc ? faNum(r.disc)+'٪ ≈ ' : ''}${faNum(lineDisc)} ریال</div>`
-      : '';
-    return `
-    <tr>
-      <td>${faNum(i + 1)}</td>
-      <td style="text-align:right">${nameCell}${discNote}</td>
-      <td>${faNum(r.qty)}</td>
-      <td>${faNum(r.price)}</td>
-      <td>${faNum(r.sum)}</td>
-    </tr>`;
-  }).join('');
-  const linesDiscTotal = rows.reduce((a, r) => {
-    const amt = Math.max(0, Math.round(Number(r.disc_amount) || 0));
-    if (amt > 0) return a + amt;
-    return a + Math.round((Number(r.qty) || 0) * (Number(r.price) || 0) * (Number(r.disc) || 0) / 100);
-  }, 0);
-
-  const sheetMaxWidth = paperSize === 'A5' ? '560px' : '800px';
-  const baseFontSize = paperSize === 'A5' ? '11px' : '13px';
-  const html = `<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${typeLabel} ${inv.num}</title>
-<link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Vazirmatn',sans-serif;background:#f3f4f6;color:#1f2937;padding:20px;font-size:${baseFontSize}}
-  .sheet{max-width:${sheetMaxWidth};margin:0 auto;background:#fff;padding:${paperSize==='A5'?'20px':'34px'};border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
-  .head{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #1A5C38;padding-bottom:16px;margin-bottom:18px}
-  .logo{display:flex;align-items:center;gap:12px}
-  .logo img{height:64px}
-  .logo .emoji{font-size:46px}
-  .logo h1{font-size:22px;color:#1A5C38}
-  .logo p{font-size:12px;color:#6b7280;margin-top:4px}
-  .meta{text-align:left;font-size:13px;line-height:1.9}
-  .meta .num{font-size:18px;font-weight:800;color:#1A5C38}
-  .tag{display:inline-block;background:#E8F5EE;color:#1A5C38;padding:4px 12px;border-radius:20px;font-weight:700;font-size:13px}
-  .info{display:flex;justify-content:space-between;gap:16px;margin:18px 0;font-size:13px}
-  .info .box{flex:1;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;line-height:2}
-  .info .box b{color:#1A5C38}
-  table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
-  th,td{border:1px solid #e5e7eb;padding:9px 8px;text-align:center}
-  thead th{background:#1A5C38;color:#fff;font-weight:700}
-  tbody tr:nth-child(even){background:#f4f7f5}
-  .totals{margin-top:16px;margin-right:auto;width:300px;font-size:14px}
-  .totals .line{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed #e5e7eb}
-  .totals .final{font-size:18px;font-weight:800;color:#059669;border:none;padding-top:10px}
-  .note{margin-top:18px;font-size:12px;color:#6b7280;background:#f9fafb;border-radius:8px;padding:10px 14px}
-  .footer{margin-top:26px;text-align:center;font-size:12px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:14px;line-height:2}
-  .pbtn{display:block;margin:20px auto 0;background:#1A5C38;color:#fff;border:none;padding:11px 30px;border-radius:8px;font-family:inherit;font-size:14px;cursor:pointer}
-  @media print{body{background:#fff;padding:0}.sheet{box-shadow:none;border-radius:0;max-width:100%}.pbtn{display:none}@page{size:${paperSize};margin:10mm}}
-</style>
-</head>
-<body>
-  <div class="sheet" style="position:relative">
-    ${isProvisional ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:5">
-      <div style="transform:rotate(-25deg);font-size:44px;font-weight:800;color:rgba(220,38,38,.16);border:4px solid rgba(220,38,38,.16);border-radius:14px;padding:10px 30px;white-space:nowrap">پیش‌نویس — در انتظار شماره رسمی</div>
-    </div>` : ''}
-    <div class="head">
-      <div class="logo">
-        <img src="/logo-sm.png" onerror="this.src='/logo.png';this.onerror=()=>{this.style.display='none';this.nextElementSibling.style.display='inline'}">
-        <span class="emoji" style="display:none">🌸</span>
-        <div>
-          <h1>${companyName}</h1>
-          <p>تولیدی پوشاک زنانه</p>
-        </div>
-      </div>
-      <div class="meta">
-        <div class="num">${inv.num || ''}</div>
-        <div class="tag">${typeLabel}</div>
-        <div>تاریخ: ${inv.date || '-'}</div>
-        ${companyPhone ? `<div>تلفن شرکت: ${companyPhone}</div>` : ''}
-      </div>
-    </div>
-
-    <div class="info">
-      <div class="box">
-        <div><b>نام فروشگاه:</b> ${inv.cust_biz || '-'}</div>
-        <div><b>نام کامل:</b> ${inv.cust_owner || '-'}</div>
-        <div><b>شهر:</b> ${inv.cust_city || '-'}</div>
-        <div><b>تلفن:</b> ${inv.cust_phone || '-'}</div>
-      </div>
-      <div class="box">
-        <div><b>فروشنده:</b> ${inv.seller_name || '-'}</div>
-        <div><b>تلفن فروشنده:</b> ${inv.seller_phone || '-'}</div>
-        <div><b>آدرس شرکت:</b> ${companyAddr || '-'}</div>
-        ${payInfo}
-      </div>
-    </div>
-
-    <table>
-      <thead>
-        <tr><th>ردیف</th><th>شرح کالا</th><th>تعداد</th><th>قیمت واحد (ریال)</th><th>جمع (ریال)</th></tr>
-      </thead>
-      <tbody>${rowsHtml || '<tr><td colspan="5">بدون ردیف</td></tr>'}</tbody>
-    </table>
-
-    <div class="totals">
-      <div class="line"><span>جمع کل:</span><span>${faNum(inv.subtotal)} ریال</span></div>
-      ${linesDiscTotal ? `<div class="line"><span>جمع تخفیف ردیف‌ها:</span><span>${faNum(linesDiscTotal)} ریال</span></div>` : ''}
-      <div class="line"><span>تخفیف کل (${faNum(inv.disc)}٪):</span><span>${faNum(inv.disc_amt)} ریال</span></div>
-      <div class="line final"><span>مبلغ نهایی:</span><span>${faNum(inv.final)} ریال</span></div>
-    </div>
-
-    ${inv.note ? `<div class="note"><b>توضیحات:</b> ${inv.note}</div>` : ''}
-
-    <div class="footer">
-      <div>این ${typeLabel} در تاریخ ${inv.date || ''} صادر شده است.</div>
-      <div>${companyName} ${companyAddr ? '- ' + companyAddr : ''} ${companyPhone ? '- ' + companyPhone : ''}</div>
-    </div>
-
-    <button class="pbtn" onclick="window.print()">چاپ فاکتور 🖨️</button>
-  </div>
-</body>
-</html>`;
+  const settings = {
+    company_name: getSetting(db, 'company_name'),
+    company_address: getSetting(db, 'company_address'),
+    company_phone: getSetting(db, 'company_phone'),
+    invoice_template_formal: getSetting(db, 'invoice_template_formal') || 'formal-official',
+    invoice_template_casual: getSetting(db, 'invoice_template_casual') || 'casual-simple',
+    invoice_paper_size: getSetting(db, 'invoice_paper_size') || 'A4',
+    invoice_customize: getSetting(db, 'invoice_customize') || '',
+  };
+  const paperQ = (req.query.paper || settings.invoice_paper_size || 'A4').toUpperCase();
+  const paper = paperQ === 'A5' ? 'A5' : 'A4';
+  const { renderInvoicePrintHtml } = require('../lib/invoice-print');
+  const html = renderInvoicePrintHtml({
+    inv, rows, settings, paper,
+    templateOverride: req.query.template || undefined,
+  });
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
 });
