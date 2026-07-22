@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نمونه C — Soft Bento | ERP ترنم</title>
+<link href="../../../server/public/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
+<style>
+:root{
+  --purple:#1A5C38; --purple2:#2E7D4F; --purple-light:#EAF4EE;
+  --gold:#C9A843; --gold-light:#FDF3D9; --bg:#F5F8F4; --card:#FFFFFF;
+  --text:#12271C; --muted:#5F7268; --border:rgba(18,39,28,.11); --on-accent:#fff;
+  --shadow:0 1px 0 var(--border),0 20px 36px -28px rgba(18,39,28,.42);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Vazirmatn',Tahoma,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.7;min-height:100vh}
+.badge{position:fixed;top:12px;left:12px;z-index:99;background:linear-gradient(120deg,var(--purple),var(--purple2));color:#fff;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:700}
+.layout{display:flex;min-height:100vh}
+.sidebar{width:260px;background:linear-gradient(180deg,#163F2A 0%,var(--purple) 45%,var(--purple2) 100%);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:22px 20px;display:flex;gap:12px;align-items:center;border-bottom:1px solid rgba(255,255,255,.12)}
+.brand-mark{width:42px;height:42px;border-radius:14px;background:rgba(255,255,255,.14);display:grid;place-items:center;font-weight:800}
+.brand small{opacity:.75;font-size:11px;display:block}
+.nav{padding:14px 12px;flex:1}
+.nav a{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:12px;color:rgba(255,255,255,.82);text-decoration:none;margin-bottom:3px}
+.nav a svg{width:18px;height:18px}
+.nav a:hover{background:rgba(255,255,255,.1);color:#fff}
+.nav a.active{background:rgba(255,255,255,.16);color:#fff;font-weight:700;box-shadow:inset -3px 0 0 var(--gold)}
+.main{flex:1;min-width:0}
+.topbar{margin:16px 18px 0;background:var(--card);border-radius:18px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:var(--shadow)}
+.topbar h3{font-size:16px;font-weight:800}
+.search{flex:1;max-width:360px;margin:0 16px;background:var(--bg);border-radius:12px;padding:9px 12px;color:var(--muted);border:1px solid var(--border)}
+.avatar{width:36px;height:36px;border-radius:12px;background:var(--gold);color:#1A3A26;display:grid;place-items:center;font-weight:800}
+.content{padding:18px}
+.hero{background:linear-gradient(120deg,var(--purple) 0%,var(--purple2) 55%,#3A8F5C 100%);color:#fff;border-radius:20px;padding:22px 24px;display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:16px;margin-bottom:16px;box-shadow:var(--shadow)}
+.hero .big .l{opacity:.8;font-size:13px;margin-bottom:4px}
+.hero .big .v{font-size:32px;font-weight:800;line-height:1.15}
+.hero .mini{background:rgba(255,255,255,.12);border-radius:14px;padding:14px}
+.hero .mini .l{font-size:12px;opacity:.8}.hero .mini .v{font-size:20px;font-weight:800;margin-top:4px}
+.bento{display:grid;grid-template-columns:1.6fr 1fr;gap:14px}
+@media(max-width:1100px){.hero{grid-template-columns:1fr 1fr}.bento{grid-template-columns:1fr}}
+.panel{background:var(--card);border-radius:18px;box-shadow:var(--shadow);overflow:hidden}
+.panel-head{padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}
+.panel-head h4{color:var(--purple);font-size:15px}
+.btn{background:var(--purple);color:#fff;border:none;padding:8px 14px;border-radius:10px;font:inherit;font-weight:600}
+table{width:100%;border-collapse:collapse}
+th,td{padding:12px 14px;text-align:right;border-bottom:1px solid var(--border);font-size:13px}
+th{background:#F2F7F3;color:var(--muted);font-weight:600}
+.side-card{padding:16px}
+.side-card .item{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)}
+.side-card .item:last-child{border-bottom:none}
+.pill{background:var(--gold-light);color:#7A6420;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700}
+.tag{background:var(--purple-light);color:var(--purple);padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700}
+.note{margin-top:14px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="badge">نمونه C — Soft Bento</div>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">ت</div>
+      <div><strong>ERP ترنم</strong><small>نسخه پیشنهادی C</small></div>
+    </div>
+    <nav class="nav">
+      <a class="active" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5z"/></svg>داشبورد</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3 2.8-4.5 5.5-4.5s4.7 1.5 5.5 4.5"/></svg>مشتریان</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16v12H4z"/><path d="M8 7V5h8v2"/></svg>فروش</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h18v4H3z"/><path d="M5 11v8h14v-8"/></svg>انبار</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>تولید</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h8M8 13h5"/></svg>حسابداری</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <h3>داشبورد عملیات</h3>
+      <div class="search">جستجو در مشتریان، فاکتور، کالا…</div>
+      <div class="avatar">م</div>
+    </header>
+    <main class="content">
+      <section class="hero">
+        <div class="big"><div class="l">فروش امروز</div><div class="v">۱۲۸٫۴ میلیون</div></div>
+        <div class="mini"><div class="l">سفارش باز</div><div class="v">۴۲</div></div>
+        <div class="mini"><div class="l">موجودی بحرانی</div><div class="v">۷</div></div>
+        <div class="mini"><div class="l">وصول مطالبات</div><div class="v">۳۱٫۲ م</div></div>
+      </section>
+      <div class="bento">
+        <section class="panel">
+          <div class="panel-head"><h4>آخرین مشتریان</h4><button class="btn">افزودن مشتری</button></div>
+          <table>
+            <thead><tr><th>نام فروشگاه</th><th>شهر</th><th>وضعیت</th><th>مانده</th></tr></thead>
+            <tbody>
+              <tr><td>پوشاک آوا</td><td>مشهد</td><td><span class="tag">فعال</span></td><td>۴٬۲۰۰٬۰۰۰</td></tr>
+              <tr><td>گالری نسیم</td><td>تهران</td><td><span class="pill">VIP</span></td><td>۰</td></tr>
+              <tr><td>مزون ساحل</td><td>اصفهان</td><td><span class="tag">پیگیری</span></td><td>۱٬۱۵۰٬۰۰۰</td></tr>
+            </tbody>
+          </table>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><h4>اقدام‌های امروز</h4></div>
+          <div class="side-card">
+            <div class="item"><span>پیگیری فاکتور سررسید</span><span class="pill">۵ مورد</span></div>
+            <div class="item"><span>تأیید رسید تولید</span><span class="tag">۲ مورد</span></div>
+            <div class="item"><span>هشدار موجودی</span><span class="pill">۷ کالا</span></div>
+          </div>
+        </section>
+      </div>
+      <p class="note">C: سایدبار برنددار + نوار KPI قهرمان + چیدمان بنتو — سلسله‌مراتب بصری واضح‌تر با همان رنگ‌ها.</p>
+    </main>
+  </div>
+</div>
+</body>
+</html>

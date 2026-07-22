@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نمونه A — Soft Shell | ERP ترنم</title>
+<link href="../../../server/public/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
+<style>
+:root{
+  --purple:#1A5C38; --purple2:#2E7D4F; --purple-light:#EAF4EE;
+  --gold:#C9A843; --gold-light:#FDF3D9;
+  --bg:#F5F8F4; --card:#FFFFFF; --text:#12271C; --muted:#5F7268;
+  --border:rgba(18,39,28,.11); --on-accent:#fff;
+  --green:#059669; --red:#DC2626; --blue:#2563EB; --orange:#D97706;
+  --shadow:0 1px 0 var(--border),0 14px 28px -24px rgba(18,39,28,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Vazirmatn',Tahoma,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.7;min-height:100vh}
+.badge{position:fixed;top:12px;left:12px;z-index:99;background:var(--purple);color:#fff;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:700;box-shadow:var(--shadow)}
+.layout{display:flex;min-height:100vh}
+.sidebar{width:248px;background:var(--card);border-left:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:20px 18px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border)}
+.brand-mark{width:40px;height:40px;border-radius:12px;background:linear-gradient(145deg,var(--purple),var(--purple2));display:grid;place-items:center;color:#fff;font-weight:800}
+.brand h2{font-size:16px;line-height:1.2}.brand small{color:var(--muted);font-size:11px}
+.nav{padding:14px 10px;flex:1;overflow:auto}
+.nav-label{font-size:11px;color:var(--muted);padding:10px 12px 6px;font-weight:600}
+.nav a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:11px;color:var(--muted);text-decoration:none;margin-bottom:2px;transition:background .18s,color .18s}
+.nav a svg{width:18px;height:18px;opacity:.85;flex-shrink:0}
+.nav a:hover{background:var(--purple-light);color:var(--purple)}
+.nav a.active{background:var(--purple-light);color:var(--purple);font-weight:700;box-shadow:inset -3px 0 0 var(--gold)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{background:var(--card);border-bottom:1px solid var(--border);padding:12px 22px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20}
+.topbar h3{font-size:17px;font-weight:800}
+.search{background:var(--bg);border:1px solid var(--border);border-radius:11px;padding:8px 12px;width:min(320px,40vw);color:var(--muted);display:flex;gap:8px;align-items:center}
+.actions{display:flex;align-items:center;gap:10px}
+.icon-btn{width:36px;height:36px;border-radius:10px;border:1px solid var(--border);background:var(--card);display:grid;place-items:center;color:var(--muted)}
+.avatar{width:36px;height:36px;border-radius:11px;background:var(--gold);color:#1A3A26;display:grid;place-items:center;font-weight:800}
+.content{padding:22px}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+@media(max-width:1100px){.cards{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--shadow);display:flex;gap:12px;align-items:center}
+.stat.hero{background:linear-gradient(155deg,var(--purple),var(--purple2));color:#fff}
+.stat.hero .l{color:rgba(255,255,255,.82)}
+.stat .ic{width:44px;height:44px;border-radius:12px;background:var(--purple-light);color:var(--purple);display:grid;place-items:center}
+.stat.hero .ic{background:rgba(255,255,255,.18);color:#fff}
+.stat .v{font-size:18px;font-weight:800}.stat .l{font-size:12px;color:var(--muted)}
+.panel{background:var(--card);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+.panel-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.panel-head h4{color:var(--purple);font-size:15px}
+.btn{background:var(--purple);color:#fff;border:none;padding:8px 14px;border-radius:9px;font:inherit;font-weight:600}
+table{width:100%;border-collapse:collapse}
+th,td{padding:12px 14px;text-align:right;border-bottom:1px solid var(--border);font-size:13px}
+th{background:#F2F7F3;color:var(--muted);font-weight:600}
+tr:hover td{background:#F7FAF7}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:var(--purple-light);color:var(--purple)}
+.note{margin-top:14px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="badge">نمونه A — Soft Shell</div>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">ت</div>
+      <div><h2>ERP ترنم</h2><small>نسخه پیشنهادی A</small></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-label">اصلی</div>
+      <a class="active" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5z"/></svg>داشبورد</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><circle cx="16.5" cy="9.5" r="2.5"/><path d="M3.5 19c.8-3 2.8-4.5 5.5-4.5s4.7 1.5 5.5 4.5"/><path d="M14 19c.4-1.8 1.6-2.8 3.3-2.8 1.2 0 2.2.5 2.7 1.5"/></svg>مشتریان</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16v12H4z"/><path d="M8 7V5h8v2"/><path d="M8 12h8"/></svg>فروش</a>
+      <div class="nav-label">عملیات</div>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h18v4H3z"/><path d="M5 11v8h14v-8"/><path d="M9 15h6"/></svg>انبار</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>تولید</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h8M8 13h5"/></svg>حسابداری</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <h3>داشبورد</h3>
+      <div class="search"><span>⌕</span><span>جستجو در سیستم…</span></div>
+      <div class="actions">
+        <div class="icon-btn">🔔</div>
+        <div class="avatar">م</div>
+      </div>
+    </header>
+    <main class="content">
+      <div class="cards">
+        <div class="stat hero"><div class="ic">﷼</div><div><div class="v">۱۲۸٫۴ م</div><div class="l">فروش امروز</div></div></div>
+        <div class="stat"><div class="ic">📦</div><div><div class="v">۴۲</div><div class="l">سفارش‌های باز</div></div></div>
+        <div class="stat"><div class="ic">⚠</div><div><div class="v">۷</div><div class="l">موجودی بحرانی</div></div></div>
+        <div class="stat"><div class="ic">↓</div><div><div class="v">۳۱٫۲ م</div><div class="l">وصول مطالبات</div></div></div>
+      </div>
+      <section class="panel">
+        <div class="panel-head"><h4>آخرین مشتریان</h4><button class="btn">افزودن مشتری</button></div>
+        <table>
+          <thead><tr><th>نام فروشگاه</th><th>شهر</th><th>وضعیت</th><th>مانده</th></tr></thead>
+          <tbody>
+            <tr><td>پوشاک آوا</td><td>مشهد</td><td><span class="tag">فعال</span></td><td>۴٬۲۰۰٬۰۰۰</td></tr>
+            <tr><td>گالری نسیم</td><td>تهران</td><td><span class="tag">VIP</span></td><td>۰</td></tr>
+            <tr><td>مزون ساحل</td><td>اصفهان</td><td><span class="tag">پیگیری</span></td><td>۱٬۱۵۰٬۰۰۰</td></tr>
+          </tbody>
+        </table>
+      </section>
+      <p class="note">A: سایدبار روشن + تاپ‌بار سفید + کارت‌های نرم با سایه ملایم — کنتراست رنگ فعلی حفظ شده.</p>
+    </main>
+  </div>
+</div>
+</body>
+</html>
