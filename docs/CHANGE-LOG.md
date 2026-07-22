@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | *(portal SMS optional)* — SW `erp-taranom-v63` |
+| آخرین commit | `a27172b` پیامک رمز پورتال اختیاری — SW `erp-taranom-v63` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v63` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`a27172b`، health ۲۰۰، SW `v63` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
@@ -44,10 +44,10 @@
 
 ### 2026-07-22 — پیامک رمز موقت پورتال اختیاری
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** *(پس از commit)*
+- **Commit:** `a27172b`
 - **خلاصه:** چک‌باکس «ارسال رمز موقت با پیامک» در فرم اشخاص (پیش‌فرض خاموش). بدون پیامک رمز اولیه `12345` + تغییر اجباری در اولین ورود. API `send_sms` روی `/portal/access` و ساخت واحد/بخش. SW `v63`.
 - **فایل‌های کلیدی:** `lib/portal-users.js`, `routes/portal.js`, `public/index.html`, `public/portal-ui.js`, `public/sw.js`, `scripts/test-portal.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران `94.249.244.208` — HEAD=`a27172b`، `pm2 restart`، health ۲۰۰، SW `v63`
 
 ### 2026-07-22 — فیلتر فروش بازاریاب + محدودیت گروه کالا (is_shared)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
