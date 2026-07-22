@@ -50,10 +50,10 @@
 
 ### 2026-07-22 - رفع کش فروش بازاریاب (فیلتر/پک/سبد→فاکتور)
 - **شاخه:** claude/claude-md-docs-2ssrpy
-- **Commit:** (pending)
+- **Commit:** 46a3239
 - **خلاصه:** علت: SW قدیمی marketer-ui.js را cache-first نگه می‌داشت. network-first برای JS/CSS + ?v=69؛ فیلتر گروه/موجودی و pack_size؛ انتقال قطعی سبد به اقلام فاکتور با __pendingMarketerInvRows
 - **فایل‌های کلیدی:** server/public/marketer-ui.js, server/public/sw.js, server/public/index.html
-- **Deploy:** ⏳
+- **Deploy:** ✅ 46a3239 Iran health 200 — SW erp-taranom-v69
 - **SW:** erp-taranom-v69
 
 ## تاریخچه
