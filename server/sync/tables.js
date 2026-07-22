@@ -163,6 +163,12 @@ const SYNCABLE_TABLES = [
   // ===== Sync gaps fix 1405/04/31 — APPEND-ONLY =====
   { name: 'party_groups',                      upsertKey: 'id' },
   { name: 'cheque_records',                    upsertKey: 'id' },
+
+  // ===== Sync gaps fix 1405/05/01 — assets / ACL / field payments (APPEND-ONLY) =====
+  { name: 'fixed_assets',                      upsertKey: 'id' },
+  { name: 'fixed_asset_depreciation',          upsertKey: 'id' },
+  { name: 'user_cost_centers',                 upsertKey: 'user_id:cost_center_id', compositeKeys: ['user_id', 'cost_center_id'] },
+  { name: 'rep_payment_submissions',           upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -294,6 +300,13 @@ const FK_COLUMNS = [
   ['persons', 'party_group_id'],
   ['cheque_records', 'collection_bank_id'],
   ['cheque_records', 'journal_entry_id'],
+  // Sync gaps 1405/05/01 FKs (append-only)
+  ['fixed_asset_depreciation', 'asset_id'],
+  ['user_cost_centers', 'user_id'],
+  ['user_cost_centers', 'cost_center_id'],
+  ['rep_payment_submissions', 'rep_id'],
+  ['rep_payment_submissions', 'cust_id'],
+  ['rep_payment_submissions', 'settlement_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

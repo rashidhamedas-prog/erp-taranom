@@ -246,9 +246,6 @@ function applyChanges(db, changes, pulledUserIds) {
         const spec = SYNCABLE_TABLES.find(t => t.name === ch.tbl);
         if (!spec) continue;
         if (ch.del !== undefined) {
-          // #region agent log
-          fetch('http://127.0.0.1:7550/ingest/7c3b024e-51f2-48e0-b234-568dde667709',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2fcabd'},body:JSON.stringify({sessionId:'2fcabd',runId:'post-fix',hypothesisId:'A',location:'client.js:applyChanges:del',message:'tombstone apply',data:{tbl:spec.name,del:ch.del,upsertKey:spec.upsertKey,compositeKeys:spec.compositeKeys||null},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
           let delInfo;
           if (spec.compositeKeys && spec.compositeKeys.length) {
             const parts = String(ch.del).split(':');
@@ -266,7 +263,7 @@ function applyChanges(db, changes, pulledUserIds) {
             delInfo = db.prepare(`DELETE FROM ${spec.name} WHERE ${spec.upsertKey}=?`).run(ch.del);
           }
           // #region agent log
-          fetch('http://127.0.0.1:7550/ingest/7c3b024e-51f2-48e0-b234-568dde667709',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2fcabd'},body:JSON.stringify({sessionId:'2fcabd',runId:'post-fix',hypothesisId:'A',location:'client.js:applyChanges:delResult',message:'tombstone result',data:{tbl:spec.name,del:ch.del,changes:delInfo.changes},timestamp:Date.now()})}).catch(()=>{});
+          fetch('http://127.0.0.1:7289/ingest/f0bd7efb-e01b-4c84-91db-1073bbd1ced1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b16e78'},body:JSON.stringify({sessionId:'b16e78',runId:'live',hypothesisId:'E',location:'client.js:applyChanges:del',message:'tombstone apply',data:{tbl:spec.name,del:ch.del,changes:delInfo&&delInfo.changes},timestamp:Date.now()})}).catch(()=>{});
           // #endregion
           continue;
         }

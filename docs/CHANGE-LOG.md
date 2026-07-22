@@ -27,18 +27,30 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۴/۳۱)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۵/۰۱)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | c7c7b5e قالب فاکتور — SW v76 |
+| آخرین commit | (در حال commit) سینک gaps PATH+جداول |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v76` |
-| اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ✅ deploy قالب فاکتور c7c7b5e |
-| سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
+| اندروید | **`2.0.19`** (versionCode 21) — نیاز به rebuild برای capture جدید روی دستگاه |
+| وضعیت سرور | ⏳ deploy سینک gaps |
+| سرور production | تنها ایران `94.249.244.208` |
 
 ---
+
+### 2026-07-23 — [Cursor] تکمیل شکاف‌های سینک (PATH_TABLE_MAP + جداول غایب + فایل‌ها)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:**
+  1. `PATH_TABLE_MAP`: parties، detail-accounts/categories، units، product-categories، warehouses/moves، fixed-assets، production/user-cost-centers، reps/payments
+  2. APPEND به `SYNCABLE_TABLES`: `fixed_assets`, `fixed_asset_depreciation`, `user_cost_centers` (composite), `rep_payment_submissions` + FK + `sync_seq_backfill_v4`
+  3. file sync: `product_images` + رسیدهای `reps/`؛ حذف ingest دیباگ قدیمی از `client.js`
+  4. تشخیص: `scripts/_diag-sync-gaps-b16e78.js` — post-fix صفر mismatch؛ `test-sync.js` ۳۳/۳۳
+- **فایل‌های کلیدی:** `server/sync/capture.js`, `server/sync/tables.js`, `server/sync/client.js`, `server/sync/files.js`, `server/db.js`, `docs/CHANGE-LOG.md`, `server/public/index.html`
+- **Deploy:** ⏳
+- **SW:** `erp-taranom-v76` (بدون bump — تغییر عمدتاً سرور/سینک)
 
 ### 2026-07-22 — [Cursor] ۶ قالب فاکتور رسمی/معمولی + تنظیمات A4/A5 — SW v76
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

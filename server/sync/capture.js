@@ -43,9 +43,11 @@ const PATH_TABLE_MAP = [
   ['/api/persons/categories', 'person_categories'],
   ['/api/persons', 'persons'],
   ['/api/customers', 'customers'],
+  ['/api/parties', 'parties'],
   ['/api/invoices', 'invoices'],
   ['/api/followups', 'followups'],
   ['/api/products', 'products'],
+  ['/api/product-categories', 'product_categories'],
   ['/api/suppliers', 'suppliers'],
   ['/api/banks', 'banks'],
   ['/api/cash-boxes', 'cash_boxes'],
@@ -53,15 +55,23 @@ const PATH_TABLE_MAP = [
   ['/api/expenses', 'expense_payments'],
   ['/api/transfers', 'account_transfers'],
   ['/api/trust-checks', 'trust_checks'],
+  // Warehouse moves BEFORE generic /api/warehouses
+  ['/api/warehouses/moves', 'warehouse_moves'],
   ['/api/warehouses', 'warehouses'],
   ['/api/stocktaking', 'stocktaking_sessions'],
   ['/api/consignments', 'consignments'],
+  // Detail accounts — categories before generic
+  ['/api/detail-accounts/categories', 'detail_categories'],
+  ['/api/detail-accounts', 'detail_accounts'],
+  ['/api/units', 'units_of_measure'],
+  ['/api/fixed-assets', 'fixed_assets'],
   // Production — longer prefixes BEFORE /api/production (legacy production_runs)
   ['/api/production/boms', 'bom_headers'],
   ['/api/production/orders', 'production_orders'],
   ['/api/production/execution', 'production_orders'],
   ['/api/production/mrp', 'mrp_runs'],
   ['/api/production/cost-centers', 'cost_centers'],
+  ['/api/production/user-cost-centers', 'user_cost_centers'],
   ['/api/production/close', 'production_period_close'],
   ['/api/production', 'production_runs'],
   // Inventory — specific before generic
@@ -94,13 +104,20 @@ const PATH_TABLE_MAP = [
 // actual rows live in op_dept_delegations and sync via full-table pull.
 
 function tableForPath(path) {
-  if (path.startsWith('/api/reps/') && path.includes('/expenses')) return 'rep_expenses';
-  if (path.startsWith('/api/reps/') && path.includes('/advances')) return 'rep_advances';
-  if (path === '/api/reps/transfer-customer') return 'customers';
-  for (const [prefix, tbl] of PATH_TABLE_MAP) {
-    if (path === prefix || path.startsWith(prefix + '/')) return tbl;
+  let result = null;
+  if (path.startsWith('/api/reps/payments')) result = 'rep_payment_submissions';
+  else if (path.startsWith('/api/reps/') && path.includes('/expenses')) result = 'rep_expenses';
+  else if (path.startsWith('/api/reps/') && path.includes('/advances')) result = 'rep_advances';
+  else if (path === '/api/reps/transfer-customer') result = 'customers';
+  else {
+    for (const [prefix, tbl] of PATH_TABLE_MAP) {
+      if (path === prefix || path.startsWith(prefix + '/')) { result = tbl; break; }
+    }
   }
-  return null;
+  // #region agent log
+  fetch('http://127.0.0.1:7289/ingest/f0bd7efb-e01b-4c84-91db-1073bbd1ced1',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b16e78'},body:JSON.stringify({sessionId:'b16e78',runId:process.env.DIAG_RUN_ID||'live',hypothesisId:'A-C',location:'capture.js:tableForPath',message:'path map result',data:{path,result},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  return result;
 }
 
 function isBlocked(path) {
@@ -132,6 +149,11 @@ function resolveUploadedFilePath(db, reqPath, entityTable, entityLocalId, respon
     }
     if (reqPath.includes('/with-image') && responseBody && responseBody.image) {
       return path.join(UPLOADS_ROOT, 'messages', responseBody.image);
+    }
+    if (entityTable === 'rep_payment_submissions' || entityTable === 'rep_expenses') {
+      const col = entityTable === 'rep_expenses' ? 'receipt_file' : 'receipt_file';
+      const row = db.prepare(`SELECT ${col} AS f FROM ${entityTable} WHERE id=?`).get(id);
+      if (row && row.f) return path.join(UPLOADS_ROOT, 'reps', row.f);
     }
   } catch { /* schema drift */ }
   return null;

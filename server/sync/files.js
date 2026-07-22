@@ -7,11 +7,14 @@ const { UPLOADS_ROOT } = require('../paths');
 
 const FILE_QUERIES = [
   { subdir: 'products', sql: "SELECT DISTINCT image AS name FROM products WHERE image IS NOT NULL AND image != ''" },
+  { subdir: 'products', sql: "SELECT DISTINCT filename AS name FROM product_images WHERE filename IS NOT NULL AND filename != ''" },
   { subdir: 'messages', sql: "SELECT DISTINCT image AS name FROM messages WHERE image IS NOT NULL AND image != ''" },
   { subdir: 'vouchers', sql: "SELECT DISTINCT attachment AS name FROM journal_entries WHERE attachment IS NOT NULL AND attachment != ''" },
+  { subdir: 'reps', sql: "SELECT DISTINCT receipt_file AS name FROM rep_payment_submissions WHERE receipt_file IS NOT NULL AND receipt_file != ''" },
+  { subdir: 'reps', sql: "SELECT DISTINCT receipt_file AS name FROM rep_expenses WHERE receipt_file IS NOT NULL AND receipt_file != ''" },
 ];
 
-const ALLOWED_SUBDIRS = new Set(['products', 'messages', 'vouchers']);
+const ALLOWED_SUBDIRS = new Set(['products', 'messages', 'vouchers', 'reps']);
 const SKIP_KEY = 'sync_skipped_files';
 
 function isValidFileName(name) {
