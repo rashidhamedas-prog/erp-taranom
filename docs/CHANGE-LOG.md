@@ -32,20 +32,20 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (پس از commit) قالب فاکتور v2 |
+| آخرین commit | `d46fe60` قالب فاکتور v2 |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v77` |
 | اندروید | **`2.0.19`** |
-| وضعیت سرور | ⏳ deploy قالب فاکتور v2 |
+| وضعیت سرور | ✅ deploy قالب فاکتور `d46fe60` |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
 
 ### 2026-07-23 — [Cursor] قالب فاکتور v2: ۳ رسمی + عادی ساده + حرارتی — SW v77
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `d46fe60`
 - **خلاصه:** طراحی جدید چاپ فاکتور: لوگو بدون بک مشکی، ستون تخفیف ردیفی، کارشناس فروش+موبایل. حذف عادی فشرده؛ پیش‌فاکتور فقط `casual-simple`؛ رسید → `thermal` با عرض ۵۸/۸۰mm در تنظیمات و دیالوگ چاپ.
 - **فایل‌های کلیدی:** `server/lib/invoice-print.js`, `server/routes/invoices.js`, `server/routes/settings.js`, `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `d46fe60` ایران — health 200
 - **SW:** `erp-taranom-v77`
 
 ### 2026-07-23 — [Cursor] ثبت قانون sync-hygiene برای جلوگیری از تکرار باگ‌های سینک
