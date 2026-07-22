@@ -35,7 +35,7 @@
 | آخرین commit | `04d5d0d` marketer catalog+pack — SW `erp-taranom-v66` |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v66` |
 | اندروید | **`2.0.19`** (versionCode 21) — APK محلی `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ marketer pack/catalog در حال deploy |
+| وضعیت سرور | ✅ ایران `94.249.244.208` — HEAD=`b2f55ca`، health ۲۰۰، SW `v66` |
 | سرور production | تنها ایران `94.249.244.208` (سرور آلمان از رده خارج شد) |
 
 ---
@@ -45,6 +45,9 @@
 ### 2026-07-22 — فروش بازاریاب = قالب کاتالوگ + تعداد پک + دسترسی فاکتور
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `04d5d0d`
+- **خلاصه:** کارت کالا در فروش بازاریاب همان قالب کاتالوگ؛ افزودن به سبد با `pack_size`؛ منوی کاتالوگ/بازاریاب برای ادمین؛ دکمه سریع «دسترسی کامل فاکتور» در RBAC؛ گیت `invoices.create` روی UI و API. SW `v66`.
+- **فایل‌های کلیدی:** `public/marketer-ui.js`, `public/index.html`, `routes/invoices.js`, `public/sw.js`
+- **Deploy:** ✅ ایران `94.249.244.208` — HEAD=`b2f55ca` (شامل `04d5d0d`)، `pm2 restart`، health ۲۰۰، SW `v66`
 
 ### 2026-07-22 — بازطراحی UI: Soft Bento (نمونه C)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
