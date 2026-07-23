@@ -805,71 +805,151 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 #sidebarBackdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:49}
 #sidebarBackdrop.show{display:block}
 
-/* ===== Responsive ===== */
+/* ===== Responsive — Mobile Minimal (Swiss / single-column) ===== */
 @media(max-width:900px){
   .sidebar{transform:translateX(110%);transition:transform .28s cubic-bezier(.4,0,.2,1);will-change:transform}
   .sidebar.open{transform:translateX(0)}
   .main{margin-right:0!important;width:100%}
-  .topbar{margin:10px 10px 0;top:8px}
+  .topbar{margin:8px 10px 0;top:4px;padding:8px 10px;border-radius:14px;box-shadow:none}
   .topbar .menu-btn{display:flex;align-items:center;justify-content:center}
+  .topbar .clock,.topbar .omnibox-btn{display:none}
+  .topbar .user > div:last-child{display:none}
+  .topbar .avatar{width:32px;height:32px;border-radius:10px;font-size:13px}
+  .topbar h3{font-size:15px;font-weight:700;letter-spacing:-.01em}
+  .topbar .notif-bell{background:transparent;padding:8px;border-radius:10px;min-width:40px;min-height:40px}
+  #syncBadge.sync-badge{
+    font-size:11px!important;padding:6px 10px!important;border-radius:999px!important;
+    max-width:42vw;overflow:hidden;text-overflow:ellipsis;border:1px solid var(--border)
+  }
   .inv-layout{grid-template-columns:1fr}
   .inv-cart{position:static;min-height:auto}
   .inv-lines-wrap{min-height:280px;max-height:50vh}
-  .form-grid{grid-template-columns:1fr 1fr}
-  .topbar .clock{display:none}
+  .form-grid{grid-template-columns:1fr}
   .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%}
-  .cards{grid-template-columns:repeat(2,1fr);gap:12px}
-  .cards.bento-hero{grid-template-columns:1fr 1fr;padding:14px}
-  .stat{padding:14px 10px;gap:10px}
-  .stat .ic{width:30px;height:30px;font-size:14px}
-  .stat .v{font-size:16px}
-  .stat .l{font-size:11px}
-  .content{padding:14px}
+  .content{padding:12px;width:100%}
   .view{width:100%}
   .pipeline-col{flex:0 0 190px}
+  .panel{box-shadow:none;border-radius:14px}
+  .panel-head{padding:12px 14px}
+  .panel-head h4{font-size:13.5px;font-weight:700}
+  .panel-body{padding:12px}
+  /* KPI: single-column list — no truncated 2-col grid */
+  .cards,.cards.bento-hero{
+    display:flex;flex-direction:column;gap:0;padding:0;margin-bottom:14px;
+    border-radius:14px;border:1px solid var(--border);background:var(--card);box-shadow:none
+  }
+  .cards.bento-hero{
+    background:var(--card);
+  }
+  .cards .stat,.cards.bento-hero .stat{
+    background:transparent;border:none;border-radius:0;box-shadow:none;
+    padding:14px 16px;gap:12px;border-bottom:1px solid var(--border);color:var(--text)
+  }
+  .cards .stat:last-child,.cards.bento-hero .stat:last-child{border-bottom:none}
+  .cards.bento-hero .stat .v,.cards.bento-hero .stat .l,
+  .cards .stat .v,.cards .stat .l{color:var(--text);opacity:1}
+  .cards.bento-hero .stat .l,.cards .stat .l{
+    font-size:12px;color:var(--muted);white-space:normal;overflow:visible;text-overflow:unset;line-height:1.45
+  }
+  .cards.bento-hero .stat .v,.cards .stat .v{
+    font-size:18px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)
+  }
+  .cards.bento-hero .stat .ic,.cards .stat .ic{
+    width:36px;height:36px;border-radius:10px;font-size:14px;background:var(--purple-light);color:var(--purple)
+  }
+  .cards.bento-hero .stat .ic.g,.cards .stat .ic.g{background:var(--ok-bg);color:var(--green)}
+  .cards.bento-hero .stat .ic.r,.cards .stat .ic.r{background:var(--bad-bg);color:var(--red)}
+  .cards.bento-hero .stat .ic.o,.cards .stat .ic.o{background:var(--amber-bg);color:var(--orange)}
+  .cards.bento-hero .stat .ic.b,.cards .stat .ic.b{background:var(--info-bg);color:var(--blue)}
+  .cards.bento-hero .stat:first-child,.cards:not(.bento-hero) .stat:first-child{
+    background:var(--purple);border-radius:13px 13px 0 0;padding:16px
+  }
+  .cards.bento-hero .stat:first-child .v,.cards.bento-hero .stat:first-child .l,
+  .cards:not(.bento-hero) .stat:first-child .v,.cards:not(.bento-hero) .stat:first-child .l{color:#fff}
+  .cards.bento-hero .stat:first-child .l,.cards:not(.bento-hero) .stat:first-child .l{opacity:.85}
+  .cards.bento-hero .stat:first-child .ic,.cards:not(.bento-hero) .stat:first-child .ic{
+    background:rgba(255,255,255,.2);color:#fff
+  }
+  html[data-theme="dark"] .cards.bento-hero .stat:first-child,
+  html[data-theme="dark"] .cards:not(.bento-hero) .stat:first-child{background:#1A9E63}
+  /* Stack tables → card rows */
+  table.m-stack{min-width:0!important}
+  table.m-stack thead{display:none}
+  table.m-stack,table.m-stack tbody,table.m-stack tr,table.m-stack td,table.m-stack th{display:block;width:100%}
+  table.m-stack tr{
+    border:1px solid var(--border);border-radius:12px;margin-bottom:8px;padding:10px 12px;background:var(--card)
+  }
+  table.m-stack tfoot tr{background:var(--purple-light);border-color:transparent}
+  table.m-stack td{
+    border:none;padding:5px 0;white-space:normal;display:flex;justify-content:space-between;align-items:flex-start;gap:10px
+  }
+  table.m-stack td::before{
+    content:attr(data-label);flex:0 0 38%;max-width:42%;font-size:11px;font-weight:700;color:var(--muted);line-height:1.4
+  }
+  table.m-stack td:empty{display:none}
+  .toolbar{flex-direction:column;align-items:stretch;gap:8px;width:100%}
+  .toolbar > *{width:100%;min-width:0;box-sizing:border-box}
+  .toolbar input,.toolbar select,.toolbar .btn{min-height:44px;font-size:14px;border-radius:10px}
+  .toolbar .btn{justify-content:center}
+  .toolbar .tag{text-align:center;justify-content:center}
+  #acctFab{left:12px;bottom:calc(12px + var(--mdi-taskbar-h,0px));width:44px;height:44px;border-radius:14px;box-shadow:none}
+  #acctDrawer{left:12px;bottom:calc(64px + var(--mdi-taskbar-h,0px));border-radius:14px;box-shadow:0 12px 32px -16px rgba(18,39,28,.4)}
+  .grp-hero,.sett-hero{border-radius:14px;padding:12px 14px;box-shadow:none}
+  .grp-stats{grid-template-columns:1fr 1fr}
+  .prod-kpi-grid{grid-template-columns:1fr!important;gap:0!important}
 }
 @media(max-width:600px){
-  .cards{grid-template-columns:1fr 1fr;gap:8px;width:100%}
-  .stat{padding:12px 8px;gap:8px}
-  .stat .ic{width:28px;height:28px;font-size:13px}
-  .stat .v{font-size:13px}
-  .stat .l{font-size:10px}
   .pgrid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
   .overlay{align-items:flex-end;padding:0}
   .overlay.open.modal-fs{align-items:stretch;padding:0;bottom:var(--mdi-taskbar-h,0px);top:0;left:0;right:0}
-  .modal{max-height:96vh;border-radius:16px 16px 0 0;width:100%}
+  .modal{max-height:96vh;border-radius:16px 16px 0 0;width:100%;box-shadow:none}
   .modal.lg{max-width:100%;border-radius:16px 16px 0 0}
   .modal.full{max-height:calc(100vh - var(--mdi-taskbar-h,0px));height:100%;border-radius:0}
   .inv-layout{grid-template-columns:1fr}
-  table.tbl{font-size:12px}
-  table.tbl th,table.tbl td{padding:8px 6px}
-  .sidebar{width:280px;transform:translateX(110%)}
+  table.tbl:not(.m-stack){font-size:12px}
+  table.tbl:not(.m-stack) th,table.tbl:not(.m-stack) td{padding:8px 6px}
+  .sidebar{width:min(280px,88vw);transform:translateX(110%)}
   .pipeline-col{flex:0 0 168px}
   .pipeline-board{gap:8px}
-  .content{padding:10px;width:100%}
+  .content{padding:10px 12px 88px;width:100%}
   .dp{max-width:calc(100vw - 24px)}
-  .topbar{padding:8px 12px;margin:8px 8px 0;border-radius:14px}
+  .topbar{padding:6px 8px;margin:4px 8px 0;border-radius:12px;background:transparent;border:none}
   .topbar h3{font-size:14px}
-  .cards.bento-hero{grid-template-columns:1fr 1fr;border-radius:16px;padding:12px;gap:8px}
-  .cards.bento-hero .stat:first-child{grid-column:1 / -1}
-  .toolbar{gap:6px;flex-wrap:wrap;width:100%}
-  .toolbar input,.toolbar select{font-size:13px;padding:8px 10px;min-width:0;flex:1}
-  .btn{padding:8px 12px;font-size:12px}
-  .btn.sm{padding:6px 8px;font-size:11px}
-  .panel-head{padding:12px 14px;flex-direction:column;align-items:flex-start;gap:8px}
-  .panel-body{padding:10px}
-  .modal-body{padding:12px}
-  .form-grid{grid-template-columns:1fr}
+  .topbar .menu-btn,.topbar .back-btn{background:transparent;width:40px;height:40px;min-width:40px;min-height:40px}
+  .btn{padding:10px 14px;font-size:13px;min-height:44px;border-radius:10px;justify-content:center}
+  .btn.sm{padding:8px 12px;font-size:12px;min-height:40px}
+  .panel-head{padding:10px 12px;flex-direction:column;align-items:stretch;gap:8px}
+  .panel-head .btn,.panel-head select{width:100%}
+  .panel-body{padding:10px 12px}
+  .modal-head{padding:12px 14px}
+  .modal-body{padding:12px 14px}
+  .modal-foot{padding:10px 14px;flex-wrap:wrap}
+  .modal-foot .btn{flex:1;min-width:120px}
+  .form-grid{grid-template-columns:1fr;gap:10px}
+  .fg{gap:5px}
+  .fg label{font-size:11.5px;font-weight:600;color:var(--muted)}
+  .fg input,.fg select,.fg textarea,.cust-si{
+    min-height:44px;padding:11px 12px;font-size:16px;border-width:1px;border-radius:10px
+  }
+  .fg textarea{min-height:88px}
   .inv-pick{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
-  .topbar .user span:last-child{display:none}
-  .tbl-wrap table{min-width:500px}
+  .tbl-wrap table:not(.m-stack){min-width:480px}
+  .fup-section{margin-bottom:12px;padding-bottom:12px}
+  .fup-section-title{font-size:10.5px;padding:3px 8px;margin-bottom:8px}
+  .help-tabs button{padding:8px 12px;font-size:12px;min-height:40px}
+  .sett-savebar{bottom:8px;border-radius:12px;box-shadow:none;padding:8px 12px}
+  .sett-toggle{padding:12px;border-radius:10px;min-height:48px}
+  .sett-nav-btn{min-height:40px}
+  .pcard{border-radius:12px;box-shadow:none}
+  .pcard .body{padding:10px}
+  .tag{padding:3px 8px;font-size:10.5px}
+  #syncBadge.sync-badge{max-width:36vw;padding:5px 8px!important;font-size:10.5px!important}
+  .dash-range-tag{display:block;width:100%;text-align:center;font-size:11px;padding:8px;border-radius:10px}
 }
 @media(max-width:400px){
-  .cards{grid-template-columns:1fr}
-  .stat{padding:14px 12px;gap:12px}
-  .stat .ic{width:30px;height:30px;font-size:14px}
-  .stat .v{font-size:16px}
-  .stat .l{font-size:11px}
+  .cards .stat,.cards.bento-hero .stat{padding:12px 14px}
+  .cards.bento-hero .stat .v,.cards .stat .v{font-size:17px}
+  .grp-stats{grid-template-columns:1fr}
 }
 @media print{
   .sidebar,.topbar,.btn,.toolbar,.panel-head{display:none!important}
@@ -1004,7 +1084,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
         <div class="right">
           <button class="notif-bell" id="notifBell" onclick="toggleNotifPanel()" title="اعلان‌ها" style="display:none">🔔<span class="nbadge hide" id="notifBadge">0</span></button>
           <button class="btn sm ghost omnibox-btn" onclick="openOmnibox()" title="جستجوی سریع" data-i18n-title="جستجوی سریع">⌕</button>
-          <span id="syncBadge" style="display:none;cursor:pointer;font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px;background:#f3f4f6;color:#6b7280;white-space:nowrap" onclick="openSyncPanel()" title="وضعیت همگام‌سازی با سرور مرکزی"></span>
+          <span id="syncBadge" class="sync-badge" style="display:none;cursor:pointer;font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px;background:#f3f4f6;color:#6b7280;white-space:nowrap" onclick="openSyncPanel()" title="وضعیت همگام‌سازی با سرور مرکزی"></span>
           <span class="clock" id="clock"></span>
           <div class="user">
             <div class="avatar" id="avatar">؟</div>
@@ -2743,28 +2823,30 @@ function maybeRefreshAfterSync(){
   else { reloadCustomers().then(()=>{ if(CURRENT_PAGE) go(CURRENT_PAGE); }).catch(()=>{ if(CURRENT_PAGE) go(CURRENT_PAGE); }); }
 }
 
+function isNarrowUI(){ return window.matchMedia('(max-width:900px)').matches; }
 function renderSyncBadge(){
   const b = el('syncBadge'); if(!b || !SYNC_STATUS) return;
   b.style.display='inline-block';
   const s = SYNC_STATUS;
+  const m = isNarrowUI();
   if(s.pairing_broken){
-    b.textContent='⚠️ اتصال خراب — لمس کنید'; b.style.background='#fee2e2'; b.style.color='#b91c1c';
+    b.textContent=m?'⚠️ خراب':'⚠️ اتصال خراب — لمس کنید'; b.style.background='#fee2e2'; b.style.color='#b91c1c';
   } else if(!s.paired){
-    b.textContent='🔗 اتصال به سرور مرکزی'; b.style.background='#fef3c7'; b.style.color='#b45309';
+    b.textContent=m?'🔗 اتصال':'🔗 اتصال به سرور مرکزی'; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else if(s.initial_sync_running || (s.syncing && !s.initial_sync_done)){
-    b.textContent='⬇️ دریافت اولیه از مرکز...'; b.style.background='#dbeafe'; b.style.color='#1d4ed8';
+    b.textContent=m?'⬇️ دریافت...':'⬇️ دریافت اولیه از مرکز...'; b.style.background='#dbeafe'; b.style.color='#1d4ed8';
   } else if(s.conflicts>0){
-    b.textContent=`⚠️ ${fmt(s.conflicts)} تعارض`; b.style.background='#fee2e2'; b.style.color='#b91c1c';
+    b.textContent=`⚠️ ${fmt(s.conflicts)}`; b.style.background='#fee2e2'; b.style.color='#b91c1c';
   } else if(s.syncing){
-    b.textContent='🔄 در حال همگام‌سازی...'; b.style.background='#dbeafe'; b.style.color='#1d4ed8';
+    b.textContent=m?'🔄…':'🔄 در حال همگام‌سازی...'; b.style.background='#dbeafe'; b.style.color='#1d4ed8';
   } else if(!s.online){
-    b.textContent=`📡 آفلاین${s.pending?` · ${fmt(s.pending)} در صف`:''}`; b.style.background='#f3f4f6'; b.style.color='#6b7280';
+    b.textContent=m?`📡${s.pending?` ${fmt(s.pending)}`:''}`:`📡 آفلاین${s.pending?` · ${fmt(s.pending)} در صف`:''}`; b.style.background='#f3f4f6'; b.style.color='#6b7280';
   } else if(s.pending>0){
-    b.textContent=`🔄 ${fmt(s.pending)} در انتظار ارسال`; b.style.background='#fef3c7'; b.style.color='#b45309';
+    b.textContent=m?`🔄 ${fmt(s.pending)}`:`🔄 ${fmt(s.pending)} در انتظار ارسال`; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else if(s.files_missing>0){
-    b.textContent=`🖼️ ${fmt(s.files_missing)} تصویر در انتظار`; b.style.background='#fef3c7'; b.style.color='#b45309';
+    b.textContent=m?`🖼️ ${fmt(s.files_missing)}`:`🖼️ ${fmt(s.files_missing)} تصویر در انتظار`; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else {
-    b.textContent='🟢 همگام با مرکز'; b.style.background='#dcfce7'; b.style.color='#15803d';
+    b.textContent=m?'● همگام':'🟢 همگام با مرکز'; b.style.background='#dcfce7'; b.style.color='#15803d';
   }
 }
 
@@ -3152,14 +3234,14 @@ ROUTES.dash = async function(){
   if(dashPreset!=='custom'&&dashPreset!=='all'&&!dashDateFrom) [dashDateFrom,dashDateTo]=jPresetRange(dashPreset);
   const v = el('view');
   const custom = dashPreset==='custom';
-  const dateBar = `<div class="toolbar" style="margin-bottom:12px">
+  const dateBar = `<div class="toolbar dash-toolbar" style="margin-bottom:12px">
     ${presetSelect('dashPreset',dashPreset,'applyDashPreset')}
     ${custom?`
-    <input id="dashFrom" data-jdate placeholder="از تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${dashDateFrom}">
-    <input id="dashTo" data-jdate placeholder="تا تاریخ" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${dashDateTo}">
-    <button class="btn sm" onclick="dashDateFrom=el('dashFrom').value;dashDateTo=el('dashTo').value;renderDashContent()">🔍 اعمال فیلتر</button>
-    <button class="btn sm ghost" onclick="dashDateFrom='';dashDateTo='';el('dashFrom').value='';el('dashTo').value='';renderDashContent()">✕ حذف فیلتر</button>`:''}
-    ${(dashDateFrom||dashDateTo)?`<span class="tag" style="background:var(--purple-light);color:var(--purple)">${dashDateFrom||'ابتدا'} الی ${dashDateTo||'انتها'}</span>`:''}
+    <input id="dashFrom" data-jdate placeholder="از تاریخ" value="${dashDateFrom}">
+    <input id="dashTo" data-jdate placeholder="تا تاریخ" value="${dashDateTo}">
+    <button class="btn sm" onclick="dashDateFrom=el('dashFrom').value;dashDateTo=el('dashTo').value;renderDashContent()">اعمال</button>
+    <button class="btn sm ghost" onclick="dashDateFrom='';dashDateTo='';el('dashFrom').value='';el('dashTo').value='';renderDashContent()">حذف فیلتر</button>`:''}
+    ${(dashDateFrom||dashDateTo)?`<span class="tag dash-range-tag" style="background:var(--purple-light);color:var(--purple)">${dashDateFrom||'ابتدا'} — ${dashDateTo||'انتها'}</span>`:''}
   </div>
   <div id="dashContent"><div class="muted">در حال بارگذاری...</div></div>`;
   v.innerHTML = dateBar;
@@ -3194,52 +3276,47 @@ async function renderDashContent(){
     const balRows = window._adminBalRows;
     const pending = window._pendingActions || [];
     body.innerHTML = `
-      ${pending.length?`<div class="panel"><div class="panel-head"><h4>⚡ اقدامات در انتظار (${fmt(pending.length)})</h4>
-        <button class="btn sm ghost" onclick="pollNotifications().then(()=>renderDashContent())">🔄</button></div>
+      ${pending.length?`<div class="panel"><div class="panel-head"><h4>اقدامات در انتظار (${fmt(pending.length)})</h4>
+        <button class="btn sm ghost" onclick="pollNotifications().then(()=>renderDashContent())">بروز</button></div>
         <div class="panel-body">${pending.slice(0,8).map(a=>`<div class="pending-action-item" onclick="pendingActionClick('${a.route||''}','${a.entity_type||''}',${a.entity_id||0})">
           <b>${esc(a.title)}</b><div class="muted" style="font-size:12px">${esc(a.body||'')}</div></div>`).join('')}</div></div>`:''}
       <div class="cards bento-hero">
         ${statCard('p','👥', fmt(ov.totalCustomers),'کل مشتریان')}
-        ${statCard('g','💰', fmt(ov.totalRevenue),'فروش کل (ریال)'+(dq?' در بازه':''))}
-        ${statCard('o','🧾', fmt(ov.totalInvoices),'فاکتور رسمی'+(dq?' در بازه':''))}
-        ${statCard('b','📋', fmt(ov.totalProforma),'پیش‌فاکتور'+(dq?' در بازه':''))}
+        ${statCard('g','💰', fmt(ov.totalRevenue),'فروش کل'+(dq?' · بازه':''))}
+        ${statCard('o','🧾', fmt(ov.totalInvoices),'فاکتور رسمی'+(dq?' · بازه':''))}
+        ${statCard('b','📋', fmt(ov.totalProforma),'پیش‌فاکتور'+(dq?' · بازه':''))}
         ${statCard('p','🛍️', fmt(ov.totalProducts),'کالاها')}
         ${statCard('b','📞', fmt(ov.openFollowups),'پیگیری باز')}
         ${statCard('r','📉', fmt(ov.lowStock),'موجودی کم')}
       </div>
       <div class="panel">
-        <div class="panel-head"><h4>عملکرد کارشناسان فروش${dq?' (بازه انتخابی)':''}</h4></div>
+        <div class="panel-head"><h4>عملکرد کارشناسان${dq?' · بازه':''}</h4></div>
         <div class="panel-body tbl-wrap">
-          <table class="tbl">
-            <thead><tr><th>کارشناس</th><th>مشتریان</th><th>فروش (فاکتور رسمی)</th><th>پیگیری باز</th></tr></thead>
+          <table class="tbl m-stack">
+            <thead><tr><th>کارشناس</th><th>مشتریان</th><th>فروش</th><th>پیگیری</th></tr></thead>
             <tbody>${(board||[]).map(u=>`<tr>
-              <td>${esc(u.name)}</td><td>${fmt(u.custCount)}</td>
-              <td class="mono">${fmt(u.totalSales)}</td>
-              <td>${fmt(u.openFup)}</td></tr>`).join('')||emptyRow(4)}</tbody>
+              <td data-label="کارشناس">${esc(u.name)}</td>
+              <td data-label="مشتریان">${fmt(u.custCount)}</td>
+              <td data-label="فروش" class="mono">${fmt(u.totalSales)}</td>
+              <td data-label="پیگیری">${fmt(u.openFup)}</td></tr>`).join('')||emptyRow(4)}</tbody>
           </table>
         </div>
       </div>
       ${balRows.length?`<div class="panel">
-        <div class="panel-head"><h4>💰 موجودی حساب مشتریان</h4>
-          <select onchange="filterDashBalances(this.value)" style="padding:5px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px">
+        <div class="panel-head"><h4>مانده مشتریان</h4>
+          <select onchange="filterDashBalances(this.value)">
             <option value="">همه کارشناسان</option>
             ${[...new Set(balRows.map(c=>c.salesperson||'').filter(Boolean))].map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
           </select>
         </div>
         <div class="panel-body tbl-wrap">
-          <table class="tbl">
-            <thead><tr><th>فروشگاه</th><th>نام کامل</th><th>مانده حساب</th><th>آدرس</th><th>کارشناس</th><th>عملیات</th></tr></thead>
-            <tbody id="dashBalTbody">${balRows.map(c=>`<tr>
-              <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
-              <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
-              ${tdClip(c.address||c.city||'-', 200, true)}
-              <td class="muted">${esc(c.salesperson||'-')}</td>
-              <td><button class="btn sm blue" onclick="viewCustStatementFromDash(${c.id})">📄 صورت‌حساب</button></td>
-            </tr>`).join('')}</tbody>
+          <table class="tbl m-stack">
+            <thead><tr><th>فروشگاه</th><th>نام</th><th>مانده</th><th>آدرس</th><th>کارشناس</th><th></th></tr></thead>
+            <tbody id="dashBalTbody">${balRows.map(c=>dashBalRowHtml(c)).join('')}</tbody>
             <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light)">
-              <td colspan="2" style="font-weight:700">جمع کل مانده حساب مشتریان</td>
-              <td class="mono" id="dashBalTotal" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} ریال</td>
-              <td colspan="3"></td>
+              <td data-label="جمع" colspan="2" style="font-weight:700">جمع مانده</td>
+              <td data-label="مبلغ" class="mono" id="dashBalTotal" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} ریال</td>
+              <td colspan="3" data-label=""></td>
             </tr></tfoot>
           </table>
         </div>
@@ -3272,39 +3349,43 @@ async function renderDashContent(){
     body.innerHTML = `
       <div class="cards bento-hero">
         ${statCard('p','👥', fmt(CACHE.customers.length),'مشتریان من')}
-        ${statCard('g','💰', fmt(sales),'فروش کل (ریال)'+(dq?' در بازه':''))}
-        ${statCard('o','🧾', fmt(finalInvs.length),'فاکتور رسمی'+(dq?' در بازه':''))}
-        ${statCard('b','📋', fmt(allInvs.filter(i=>i.type==='proforma').length),'پیش‌فاکتور'+(dq?' در بازه':''))}
+        ${statCard('g','💰', fmt(sales),'فروش کل'+(dq?' · بازه':''))}
+        ${statCard('o','🧾', fmt(finalInvs.length),'فاکتور رسمی'+(dq?' · بازه':''))}
+        ${statCard('b','📋', fmt(allInvs.filter(i=>i.type==='proforma').length),'پیش‌فاکتور'+(dq?' · بازه':''))}
         ${statCard('b','📞', fmt(openF),'پیگیری باز')}
-        ${statCard('g','🎯', fmt(Math.round(myComm.totalComm||0)),'انگیزه فروش (ت)')}
-        ${statCard('r','💵', fmt(Math.round(myComm.payable||0)),'مانده انگیزه (ت)')}
-        ${myComm.monthlyTarget?statCard('b','📊', (myComm.targetPct||0)+'٪','تحقق هدف ماهانه'):''}
+        ${statCard('g','🎯', fmt(Math.round(myComm.totalComm||0)),'انگیزه فروش')}
+        ${statCard('r','💵', fmt(Math.round(myComm.payable||0)),'مانده انگیزه')}
+        ${myComm.monthlyTarget?statCard('b','📊', (myComm.targetPct||0)+'٪','تحقق هدف'):''}
       </div>
-      ${myComm.basisLabel?`<div class="muted" style="margin:-8px 0 12px;font-size:12px">مبنای محاسبه: ${esc(myComm.basisLabel)}${myComm.pendingExpenses?` — ${myComm.pendingExpenses} هزینه در انتظار تأیید`:''}</div>`:''}
+      ${myComm.basisLabel?`<div class="muted" style="margin:-4px 0 12px;font-size:11px">مبنا: ${esc(myComm.basisLabel)}${myComm.pendingExpenses?` — ${myComm.pendingExpenses} هزینه در انتظار`:''}</div>`:''}
       ${balRows.length?`<div class="panel">
-        <div class="panel-head"><h4>💰 موجودی حساب مشتریان من</h4></div>
+        <div class="panel-head"><h4>مانده مشتریان من</h4></div>
         <div class="panel-body tbl-wrap">
-          <table class="tbl">
-            <thead><tr><th>فروشگاه</th><th>نام کامل</th><th>مانده حساب</th><th>آدرس</th></tr></thead>
+          <table class="tbl m-stack">
+            <thead><tr><th>فروشگاه</th><th>نام</th><th>مانده</th><th>آدرس</th></tr></thead>
             <tbody>${balRows.map(c=>`<tr>
-              <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
-              <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
-              ${tdClip(c.address||c.city||'-', 200, true)}
+              <td data-label="فروشگاه">${esc(c.biz)}</td>
+              <td data-label="نام">${esc(c.owner||'-')}</td>
+              <td data-label="مانده" class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
+              <td data-label="آدرس">${esc(c.address||c.city||'-')}</td>
             </tr>`).join('')}</tbody>
             <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light)">
-              <td colspan="2" style="font-weight:700">جمع کل مانده حساب</td>
-              <td class="mono" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} ریال</td>
-              <td></td>
+              <td data-label="جمع" colspan="2" style="font-weight:700">جمع مانده</td>
+              <td data-label="مبلغ" class="mono" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} ریال</td>
+              <td data-label=""></td>
             </tr></tfoot>
           </table>
         </div>
       </div>`:''}
       <div class="panel">
-        <div class="panel-head"><h4>پیگیری‌های باز</h4><button class="btn sm" onclick="go('followups')">مشاهده همه</button></div>
+        <div class="panel-head"><h4>پیگیری‌های باز</h4><button class="btn sm" onclick="go('followups')">همه</button></div>
         <div class="panel-body tbl-wrap">
-          <table class="tbl"><thead><tr><th>مشتری</th><th>موضوع</th><th>تاریخ</th><th>اولویت</th></tr></thead>
+          <table class="tbl m-stack"><thead><tr><th>مشتری</th><th>موضوع</th><th>تاریخ</th><th>اولویت</th></tr></thead>
           <tbody>${(followups||[]).filter(f=>f.status==='open').slice(0,8).map(f=>`<tr>
-            <td>${esc(f.cust_biz||'-')}</td><td>${esc(f.subject||'-')}</td><td class="mono">${escDate(f.next_date||f.date)}</td><td>${statusTag(f.priority)}</td>
+            <td data-label="مشتری">${esc(f.cust_biz||'-')}</td>
+            <td data-label="موضوع">${esc(f.subject||'-')}</td>
+            <td data-label="تاریخ" class="mono">${escDate(f.next_date||f.date)}</td>
+            <td data-label="اولویت">${statusTag(f.priority)}</td>
           </tr>`).join('')||emptyRow(4)}</tbody></table>
         </div>
       </div>`;
@@ -3312,23 +3393,26 @@ async function renderDashContent(){
     requestAnimationFrame(fitStatNums);
   }
 };
+function dashBalRowHtml(c){
+  return `<tr>
+    <td data-label="فروشگاه">${esc(c.biz)}</td>
+    <td data-label="نام">${esc(c.owner||'-')}</td>
+    <td data-label="مانده" class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
+    <td data-label="آدرس">${esc(c.address||c.city||'-')}</td>
+    <td data-label="کارشناس" class="muted">${esc(c.salesperson||'-')}</td>
+    <td data-label=""><button class="btn sm blue" onclick="viewCustStatementFromDash(${c.id})">صورت‌حساب</button></td>
+  </tr>`;
+}
 function filterDashBalances(name){
   const rows = window._adminBalRows||[];
-  const filtered = name ? rows.filter(c=>(c.salesperson||'')=== name) : rows;
+  const filtered = name ? rows.filter(c=>(c.salesperson||'')===name) : rows;
   const tb = el('dashBalTbody'); if(!tb) return;
-  tb.innerHTML = filtered.map(c=>`<tr>
-    <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
-    <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
-    ${tdClip(c.address||c.city||'-', 200, true)}
-    <td class="muted">${esc(c.salesperson||'-')}</td>
-    <td><button class="btn sm blue" onclick="viewCustStatementFromDash(${c.id})">📄 صورت‌حساب</button></td>
-  </tr>`).join('') || '<tr><td colspan="6" class="empty">موردی یافت نشد</td></tr>';
-  // Live total — recalculates from the filtered rows
+  tb.innerHTML = filtered.map(dashBalRowHtml).join('') || '<tr><td colspan="6" class="empty">موردی یافت نشد</td></tr>';
   const totCell = el('dashBalTotal');
   if(totCell){
     const tot = filtered.reduce((a,c)=>a+(c.balance||0),0);
     totCell.textContent = fmt(tot)+' ریال';
-    totCell.style.color = tot>0 ? 'var(--green)' : '#dc2626';
+    totCell.style.color = tot>0 ? '#dc2626' : 'var(--green)';
   }
 }
 function parseStatNum(val){
@@ -15944,13 +16028,12 @@ function renderAdminGuide(){
         <li>در صفحات اصلی (غیر از داشبورد) → برگشت به <b>داشبورد</b></li>
       </ul>`),
     helpSec('📊','داشبورد',`
-      <p>داشبورد نمای کلی از وضعیت کسب‌وکار را نشان می‌دهد. پوستهٔ برنامه با سبک <b>Soft Bento</b> (سایدبار برنددار، تاپ‌بار شناور سفید، نوار KPI قهرمان و پنل‌های گرد) و همان پالت زمرد مدرن (سبز و طلایی) یکپارچه شده است.</p>
+      <p>داشبورد نمای کلی از وضعیت کسب‌وکار را نشان می‌دهد. روی <b>موبایل</b> رابط به‌صورت <b>مینیمال تک‌ستونه</b> است: KPIها به‌صورت لیست عمودی (بدون برش متن)، جداول به‌صورت کارت، فیلتر بازه تمام‌عرض، تاپ‌بار خلوت (منو + عنوان + اعلان + وضعیت همگام کوتاه)، و فیلدهای فرم با ارتفاع لمسی و فونت ۱۶px.</p>
       <div class="tip">دکمه ☰ بالای صفحه، در نسخه دسکتاپ (ویندوز) نیز فعال است و مانند موبایل منوی کناری را جمع/باز می‌کند — تجربه یکسان در همه دستگاه‌ها.</div>
       <h5>امکانات</h5><ul>
         <li>آمار تعداد مشتریان، فاکتورها و پیگیری‌های باز</li>
-        <li>نمودار فروش ماهانه (بر اساس فاکتورهای رسمی)</li>
         <li>جدول عملکرد هر کارشناس: تعداد مشتری، فروش کل، پیگیری‌های باز</li>
-        <li>جدول مانده حساب مشتریان با فیلتر کارشناس و <b>جمع کل زنده</b> در پایین جدول — دکمه «📄 صورت‌حساب» کنار هر مشتری مستقیماً صورت‌حساب کامل او را در ماژول حسابداری باز می‌کند</li>
+        <li>جدول مانده حساب مشتریان با فیلتر کارشناس و <b>جمع کل زنده</b> — دکمه «صورت‌حساب» کنار هر مشتری</li>
       </ul>
       <h5>فیلتر زمانی</h5><ul>
         <li>پیش‌فرض داشبورد <b>ماه جاری</b> است</li>
@@ -16436,7 +16519,7 @@ function renderSalesGuide(){
         <li>بعد از هر تماس، پیگیری ثبت کنید</li>
         <li>تاریخ پیگیری بعدی را فراموش نکنید — سیستم به شما پیامک می‌فرستد</li>
       </ol>
-      <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز.</div>
+      <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
