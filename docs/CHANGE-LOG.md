@@ -32,19 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (در حال ثبت) wipe+کدینگ پایه |
+| آخرین commit | `8bb774a` wipe+کدینگ پایه |
 | نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v99` |
 | اندروید | **`2.0.29`** (vc31) — دانلود از `/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ### 2026-07-23 — پاک‌سازی go-live + بازچینی کدینگ پایه + cascade تفصیلی
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `8bb774a`
 - **خلاصه:** wipe کامل دادهٔ کسب‌وکار + `chart_of_accounts`؛ `rebuildBaseCoa` (~۷۶ حساب کنترل)؛ `releaseTafsili` هنگام حذف شخص/کالا/بانک/صندوق/طرف‌حساب؛ فلگ جلوگیری از seed انبار/گروه کالا؛ بیلد دسکتاپ 2.0.7 و اندروید 2.0.29 برای دانلود.
 - **فایل‌های کلیدی:** `server/lib/coa-map.js`, `server/scripts/go-live-clean.js`, `server/routes/products|persons|banks|cash-boxes.js`, `server/lib/parties-sync.js`, `scripts/_wipe-iran-golive.py`, `desktop/package.json`, `android/app/build.gradle`
-- **Deploy:** ⏳
-- **یادداشت:** کاربران نگه داشته می‌شوند؛ دستگاه‌های آفلاین پس از wipe نیاز به pair/sync مجدد دارند.
+- **Deploy:** ✅ `8bb774a` / SW `v99` · wipe ایران `crm.db.pre-golive-2026-07-23T15-56-12…bak` · COA=82 · customers/products/invoices=0 · users=5 · exe SHA256 `206B419F…` · APK SHA256 `91C0403E…`
+- **یادداشت:** کاربران نگه داشته می‌شوند؛ دستگاه‌های آفلاین پس از wipe نیاز به pair/sync مجدد دارند. دانلود: `/releases/ERP-Taranom-Setup-2.0.7.exe` و `/releases/crm-taranom.apk`.
 
 ### 2026-07-23 — حذف گروه‌های کالای پیش‌فرض (دیگر باز نمی‌گردند)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
