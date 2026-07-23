@@ -32,20 +32,28 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (در حال ثبت) MDI left hover taskbar |
-| نسخه وب/دسکتاپ | وب **`2.1.0`** / دسکتاپ **`2.0.1`** / SW `erp-taranom-v89` |
-| اندروید | **`2.0.21`** (بیلد محلی) |
-| وضعیت سرور | ✅ deploy + go-live wipe روی `crm.db` |
+| آخرین commit | (در حال ثبت) desktop 2.0.2 + android 2.0.22 |
+| نسخه وب/دسکتاپ | وب **`2.1.0`** / دسکتاپ **`2.0.2`** / SW `erp-taranom-v89` |
+| اندروید | **`2.0.22`** (بیلد محلی) |
+| وضعیت سرور | ⏳ آپلود exe توسط کاربر (+ pull متادیتا) |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
 
-### 2026-07-23 — [Cursor] نوار MDI به لبه چپ + هاور — SW v89
+### 2026-07-23 — [Cursor] بیلد دسکتاپ 2.0.2 + اندروید 2.0.22
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** (پس از commit)
+- **خلاصه:** بیلد نصب‌کننده Windows 2.0.2 و APK 2.0.22 با آخرین بک‌اند (MDI لبه چپ/هاور، اسناد اتومات اکسل/افتتاحیه، حذف منطقه خطر، SW v89). متادیتا `manifest.json` + `latest.yml` به‌روز شد.
+- **فایل‌های کلیدی:** `desktop/package.json`, `android/app/build.gradle`, `android/.../main.js`, `server/public/releases/{manifest.json,latest.yml}`, `scripts/test-android-apk.ps1`
+- **Deploy:** ⏳ — کاربر exe را با SCP آپلود می‌کند؛ APK فقط sideload محلی (هرگز روی `/releases/` سرور نرود)
+- **یادداشت:** مسیر دسکتاپ: `desktop/dist/ERP-Taranom-Setup-2.0.2.exe` — SHA256 `B974DEF2620076CD12A8324D6CD4D24E6ACCEE7BD6EB4E9099E710BD096C0378` · APK: `server/public/releases/crm-taranom.apk` (~۶۶.۵MB)
+
+### 2026-07-23 — [Cursor] نوار MDI به لبه چپ + هاور — SW v89
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `d4bde7d`
 - **خلاصه:** نوار وظیفهٔ پنجره‌های چندگانه از پایین صفحه به لبه چپ منتقل شد؛ پیش‌فرض فقط یک نوار باریک سبز دیده می‌شود و با هاور موس فهرست پنجره‌ها باز می‌شود. فضای رزرو پایین حذف شد.
 - **فایل‌های کلیدی:** `server/public/mdi.js`, `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران `d4bde7d` — SW `erp-taranom-v89`
 
 ### 2026-07-23 — [Cursor] حذف منطقه خطر + اسناد اتومات اکسل/افتتاحیه — SW v88
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

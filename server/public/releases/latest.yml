@@ -1,8 +1,8 @@
-version: 2.0.1
+﻿version: 2.0.2
 files:
-  - url: ERP-Taranom-Setup-2.0.1.exe
-    sha512: zImOhs7NwFNwyBXVgztTxl/cj+N+tfMoSlGeTOHh7/Ht8PonYNKaYoX9BMdkC6yuuBDr2DmIjnsVu77k7nlfmA==
-    size: 98427415
-path: ERP-Taranom-Setup-2.0.1.exe
-sha512: zImOhs7NwFNwyBXVgztTxl/cj+N+tfMoSlGeTOHh7/Ht8PonYNKaYoX9BMdkC6yuuBDr2DmIjnsVu77k7nlfmA==
-releaseDate: '2026-07-23T02:19:38.098Z'
+  - url: ERP-Taranom-Setup-2.0.2.exe
+    sha512: tSTNu71ieTQ4i3Pw8cGN5cWXtl0HfwEznJ/p0BEdbK1zt9F58aW+uNEcQfbUdXUYxCSrUhdcUfCXQIVjnF+jMw==
+    size: 98434503
+path: ERP-Taranom-Setup-2.0.2.exe
+sha512: tSTNu71ieTQ4i3Pw8cGN5cWXtl0HfwEznJ/p0BEdbK1zt9F58aW+uNEcQfbUdXUYxCSrUhdcUfCXQIVjnF+jMw==
+releaseDate: '2026-07-23T10:09:48.0303786Z'
