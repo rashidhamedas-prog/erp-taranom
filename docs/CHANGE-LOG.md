@@ -32,19 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (آپدیت دسکتاپ 2.0.4) |
+| آخرین commit | `8674502` دسکتاپ 2.0.4 |
 | نسخه وب/دسکتاپ | وب **`2.1.3`** / دسکتاپ **`2.0.4`** / SW `erp-taranom-v94` |
 | اندروید | **`2.0.25`** آپدیت — `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` |
 | سیاست بیلد | تا دستور صریح: **بدون بیلد کامل** دسکتاپ؛ اندروید فقط آپدیت |
 
 ### 2026-07-23 — آپدیت دسکتاپ ویندوز 2.0.4
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `8674502`
 - **خلاصه:** بیلد نصب‌کننده Windows 2.0.4 با fallback آپدیت بدون feed الکترون + آخرین بک‌اند؛ `manifest.json` / `latest.yml`؛ exe روی سرور ایران در `/releases/`.
 - **فایل‌های کلیدی:** `desktop/package.json`, `desktop/main.js`, `server/public/releases/manifest.json`, `latest.yml`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `8674502` — exe روی ایران آپلود شد
 - **یادداشت:** مسیر محلی `desktop/dist/ERP-Taranom-Setup-2.0.4.exe` · SHA256 `13A33F42FE229E797521AD255DA5E46D5E8B1299139F754109DE2BCB348000FE`
 
 ### 2026-07-23 — تکمیل: تشخیص آپدیت بدون URL + purge پویا + APK 2.0.25
