@@ -32,20 +32,20 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending) i18n فارسی/انگلیسی |
+| آخرین commit | `ddf1a57` زبان فا/ان + فارسی‌سازی UI |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v85` |
 | اندروید | **`2.0.19`** |
-| وضعیت سرور | ⏳ در حال deploy |
+| وضعیت سرور | ✅ deploy `ddf1a57` / SW v85 |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
 
 ### 2026-07-23 — [Cursor] زبان برنامه (فا/ان) + فارسی‌سازی برچسب‌های انگلیسی — SW v85
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** _(پس از commit)_
+- **Commit:** `ddf1a57`
 - **خلاصه:** برچسب‌های انگلیسی UI (به‌جز تب API تنظیمات) فارسی شد؛ سیستم `i18n.js` با سوئیچ «زبان برنامه» در تنظیمات → عمومی اضافه شد تا کل پوسته به انگلیسی برود.
 - **فایل‌های کلیدی:** `server/public/i18n.js`, `server/public/index.html`, `server/public/acc-nav.js`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ Iran HTTP `/` 200, SW `erp-taranom-v85`
 
 ### 2026-07-23 — [Cursor] منوی حساب (آیکون power) + اصلاح سرریز آدرس جدول — SW v84
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
