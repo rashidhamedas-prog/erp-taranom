@@ -221,6 +221,71 @@ html[data-theme="dark"] .cards.bento-hero{
 .panel-head h4{font-size:15px;color:var(--purple)}
 .panel-body{padding:16px}
 
+/* ===== Settings shell — categorized UX ===== */
+.sett-shell{display:flex;flex-direction:column;gap:14px;padding-bottom:72px}
+.sett-hero{position:relative;overflow:hidden;border-radius:20px;padding:20px 22px 18px;
+  background:var(--hero);color:#fff;box-shadow:var(--shadow-card)}
+.sett-hero::after{content:'';position:absolute;inset:auto -20% -60% auto;width:220px;height:220px;
+  border-radius:50%;background:radial-gradient(circle,rgba(201,168,67,.35),transparent 70%);pointer-events:none}
+.sett-hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;position:relative;z-index:1}
+.sett-hero h2{font-size:clamp(18px,2.4vw,24px);font-weight:800;margin:0 0 4px;letter-spacing:-.02em}
+.sett-hero p{margin:0;font-size:13px;opacity:.88;line-height:1.7;max-width:42rem}
+.sett-search{margin-top:14px;position:relative;z-index:1;max-width:420px}
+.sett-search input{width:100%;padding:11px 14px 11px 40px;border:0;border-radius:12px;
+  background:rgba(255,255,255,.16);color:#fff;outline:none;backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.22);transition:background .2s,border-color .2s}
+.sett-search input::placeholder{color:rgba(255,255,255,.7)}
+.sett-search input:focus{background:rgba(255,255,255,.24);border-color:rgba(255,255,255,.45)}
+.sett-search .sett-search-ico{position:absolute;left:12px;top:50%;transform:translateY(-50%);
+  width:18px;height:18px;opacity:.85;pointer-events:none;color:#fff}
+.sett-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:14px;align-items:start}
+.sett-nav{position:sticky;top:86px;display:flex;flex-direction:column;gap:4px;padding:8px;
+  background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-card);max-height:calc(100vh - 120px);overflow:auto}
+.sett-nav-btn{display:flex;align-items:center;gap:10px;width:100%;text-align:right;padding:10px 12px;
+  border:0;border-radius:12px;background:transparent;color:var(--text);font:inherit;font-size:13px;font-weight:600;
+  cursor:pointer;transition:background .18s,color .18s,transform .15s}
+.sett-nav-btn .ico{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  background:var(--well);color:var(--purple);flex-shrink:0}
+.sett-nav-btn .ico svg{width:16px;height:16px}
+.sett-nav-btn:hover{background:var(--purple-light);color:var(--purple)}
+.sett-nav-btn.active{background:linear-gradient(120deg,var(--purple),var(--purple2));color:#fff;box-shadow:0 10px 24px -16px rgba(26,92,56,.8)}
+.sett-nav-btn.active .ico{background:rgba(255,255,255,.2);color:#fff}
+.sett-nav-btn[hidden]{display:none!important}
+.sett-nav-btn .sett-nav-meta{display:block;font-size:10.5px;font-weight:500;opacity:.7;margin-top:1px;line-height:1.4}
+.sett-nav-btn.active .sett-nav-meta{opacity:.85}
+.sett-main{min-width:0}
+.sett-panel{display:none;animation:settIn .28s ease}
+.sett-panel.active{display:block}
+@keyframes settIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.sett-panel{animation:none}}
+.sett-panel .panel:last-child{margin-bottom:0}
+.sett-savebar{position:sticky;bottom:10px;z-index:35;display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap;padding:12px 16px;border-radius:16px;background:rgba(255,255,255,.86);
+  border:1px solid var(--border);box-shadow:0 12px 40px -18px rgba(18,39,28,.45);backdrop-filter:blur(12px)}
+html[data-theme="dark"] .sett-savebar{background:rgba(19,31,26,.9)}
+.sett-savebar .muted{font-size:12px}
+.sett-toggle{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid var(--border);
+  border-radius:14px;background:var(--card);cursor:pointer;transition:border-color .18s,background .18s}
+.sett-toggle:hover{border-color:var(--purple2);background:var(--purple-light)}
+.sett-toggle input{position:absolute;opacity:0;pointer-events:none}
+.sett-toggle .sw{width:42px;height:24px;border-radius:999px;background:#c5d4cb;position:relative;flex-shrink:0;
+  transition:background .2s}
+.sett-toggle .sw::after{content:'';position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .2s}
+.sett-toggle input:checked + .sw{background:var(--purple)}
+.sett-toggle input:checked + .sw::after{transform:translateX(-18px)}
+.sett-toggle .sett-toggle-txt{flex:1;min-width:0}
+.sett-toggle .sett-toggle-txt b{display:block;font-size:13.5px;color:var(--text)}
+.sett-toggle .sett-toggle-txt span{display:block;font-size:11.5px;color:var(--muted);line-height:1.6;margin-top:2px}
+.sett-empty{padding:36px 16px;text-align:center;color:var(--muted);border:1.5px dashed var(--border);border-radius:16px;background:var(--card)}
+@media(max-width:900px){
+  .sett-layout{grid-template-columns:1fr}
+  .sett-nav{position:static;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;
+    max-height:none;padding:8px;gap:6px;scrollbar-width:thin}
+  .sett-nav-btn{flex:0 0 auto;width:auto;min-width:148px;flex-direction:column;align-items:flex-start;gap:8px;padding:10px 12px}
+  .sett-nav-btn .sett-nav-meta{display:none}
+}
+
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
 .toolbar input,.toolbar select{padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;outline:none;background:var(--input-bg);color:var(--text)}
 .toolbar input:focus,.toolbar select:focus{border-color:var(--purple2)}
@@ -14359,17 +14424,81 @@ function invoiceTemplateSettingsHtml(s){
 }
 
 
+
+const SETT_TABS = [
+  {id:'general', icon:'building', label:'عمومی', meta:'شرکت، پول، پنجره', keys:'شرکت نام تلفن آدرس ریال واحد پولی پنجره چندگانه به‌روزرسانی دسکتاپ'},
+  {id:'invoice', icon:'receipt', label:'قالب فاکتور', meta:'رسمی، عادی، حرارتی', keys:'فاکتور قالب رسمی عادی حرارتی کاغذ لوگو پاورقی چاپ A4 A5'},
+  {id:'messaging', icon:'chat', label:'پیام‌رسان', meta:'تلگرام، روبیکا، پیامک', keys:'تلگرام روبیکا پیامک خوش‌آمد کیمیا bot token'},
+  {id:'web', icon:'plug', label:'وب‌سایت', meta:'سینک موجودی ووکامرس', keys:'وب‌سایت موجودی ووکامرس webhook stock poshaktaranom'},
+  {id:'accounting', icon:'wallet', label:'حسابداری', meta:'کدینگ، سال مالی، ماژول', keys:'کدینگ حساب نگاشت سال مالی ماژول تنخواه انبار تولید حقوق VAT فاکتور پیشوند'},
+  {id:'features', icon:'sparkles', label:'قابلیت‌ها', meta:'AI و پورتال B2B', keys:'هوش مصنوعی AI کلود B2B پورتال مشتری'},
+  {id:'audit', icon:'clipboard', label:'ممیزی', meta:'گزارش فعالیت کاربران', keys:'ممیزی audit لاگ گزارش کاربر'},
+  {id:'danger', icon:'lock', label:'منطقه خطر', meta:'حذف دیتای تست', keys:'حذف wipe تست دیتا بازنشانی خطرناک'}
+];
+let SETT_ACTIVE_TAB = 'general';
+function settNavHtml(){
+  return SETT_TABS.map(t=>`<button type="button" class="sett-nav-btn${t.id===SETT_ACTIVE_TAB?' active':''}" data-sett-tab="${t.id}" data-sett-keys="${t.keys}" onclick="settShowTab('${t.id}')">
+    <span class="ico">${lucide(t.icon)}</span>
+    <span><b style="font-weight:700">${t.label}</b><span class="sett-nav-meta">${t.meta}</span></span>
+  </button>`).join('');
+}
+function settShowTab(id){
+  SETT_ACTIVE_TAB = id || 'general';
+  try{ sessionStorage.setItem('crm_settings_tab', SETT_ACTIVE_TAB); }catch(e){}
+  document.querySelectorAll('.sett-nav-btn').forEach(b=>{
+    b.classList.toggle('active', b.getAttribute('data-sett-tab')===SETT_ACTIVE_TAB);
+  });
+  document.querySelectorAll('.sett-panel').forEach(p=>{
+    p.classList.toggle('active', p.getAttribute('data-sett')===SETT_ACTIVE_TAB);
+  });
+  const main=document.querySelector('.sett-main');
+  if(main) main.scrollTop=0;
+}
+function settFilterSearch(q){
+  q=(q||'').trim().toLowerCase();
+  const btns=[...document.querySelectorAll('.sett-nav-btn')];
+  let first=null;
+  btns.forEach(b=>{
+    const hay=((b.getAttribute('data-sett-keys')||'')+' '+(b.textContent||'')).toLowerCase();
+    const ok=!q || hay.includes(q);
+    b.hidden=!ok;
+    if(ok && !first) first=b.getAttribute('data-sett-tab');
+  });
+  const empty=el('sett-empty');
+  if(empty) empty.style.display=first? 'none':'block';
+  if(first && q) settShowTab(first);
+  else if(!q){
+    btns.forEach(b=>{ b.hidden=false; });
+    if(empty) empty.style.display='none';
+  }
+}
+function settToggle(id, checked, title, desc){
+  return `<label class="sett-toggle">
+    <input type="checkbox" id="${id}" ${checked?'checked':''}>
+    <span class="sw" aria-hidden="true"></span>
+    <span class="sett-toggle-txt"><b>${title}</b>${desc?`<span>${desc}</span>`:''}</span>
+  </label>`;
+}
+
 ROUTES.settings = async function(){
   if(!CACHE.settings || !Object.keys(CACHE.settings).length) CACHE.settings=await api('GET','/settings')||{};
   const s = CACHE.settings;
   const fyData = await api('GET','/fiscal-year').catch(()=>({current:null,years:[]}));
   const curFy = fyData.current;
   const fyRows = (fyData.years||[]).slice(0,8);
-  el('view').innerHTML=`
+  try{ SETT_ACTIVE_TAB = sessionStorage.getItem('crm_settings_tab') || 'general'; }catch(e){ SETT_ACTIVE_TAB='general'; }
+  if(!SETT_TABS.some(t=>t.id===SETT_ACTIVE_TAB)) SETT_ACTIVE_TAB='general';
+
+  const generalPanel = `
     ${isDesktopApp()?desktopUpdatePanelHtml():''}
-    <div class="panel"><div class="panel-head"><h4>💱 تنظیمات واحد پولی</h4></div><div class="panel-body">
+    <div class="panel"><div class="panel-head"><h4>${lucide('building')} اطلاعات شرکت</h4></div><div class="panel-body"><div class="form-grid">
+      <div class="fg"><label>نام شرکت</label><input id="s-company_name" value="${esc(s.company_name||'')}"></div>
+      <div class="fg"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}"></div>
+      <div class="fg full"><label>آدرس شرکت</label><input id="s-company_address" value="${esc(s.company_address||'')}"></div>
+    </div></div></div>
+    <div class="panel"><div class="panel-head"><h4>${lucide('coins')} واحد پولی</h4></div><div class="panel-body">
       <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
-        <b>مبنای ذخیره‌سازی:</b> ریال (طبق استاندارد حسابداری) — همه مبالغ در دیتابیس به ریال ذخیره می‌شوند.<br>
+        <b>مبنای ذخیره‌سازی:</b> ریال — همه مبالغ در دیتابیس به ریال ذخیره می‌شوند.<br>
         <b>نمایش:</b> مبالغ در کل برنامه فقط به <b>ریال</b> نمایش داده می‌شوند.
         ${s.coa_mode==='extended'?'<br><b style="color:var(--purple)">حالت فعلی: کدینگ تفصیلی</b> — اسناد مرجع به ریال وارد شده‌اند.':''}
       </div>
@@ -14380,69 +14509,44 @@ ROUTES.settings = async function(){
           </select>
         </div>
         <div class="fg"><label>مبنای ذخیره‌سازی</label>
-          <input value="ریال (ثابت)" disabled style="background:#f5f5f5">
+          <input value="ریال (ثابت)" disabled style="background:var(--well)">
         </div>
       </div>
     </div></div>
-    <div class="panel"><div class="panel-head"><h4>🗔 پنجره‌های چندگانه (شبیه ویندوز)</h4></div><div class="panel-body">
-      <div class="muted" style="font-size:12px;margin-bottom:10px;line-height:1.9">
-        با فعال بودن این گزینه، هر زیرمنوی حسابداری در یک پنجره جدا باز می‌شود (جابجایی، کوچک/بزرگ، بستن). در حالت غیرفعال، همه بخش‌ها در همان صفحه اصلی نمایش داده می‌شوند.
+    <div class="panel"><div class="panel-head"><h4>${lucide('layers')} پنجره‌های چندگانه</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
+        با فعال بودن این گزینه، هر زیرمنوی حسابداری در یک پنجره جدا باز می‌شود (جابجایی، کوچک/بزرگ، بستن).
       </div>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px">
-        <input type="checkbox" id="s-mdi_windows" ${(typeof WinMgr!=='undefined'&&WinMgr.enabled())?'checked':''} style="width:auto">
-        فعال‌سازی حالت پنجره چندگانه
-      </label>
+      ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'شبیه ویندوز — هر زیرمنو در پنجره مستقل')}
+    </div></div>`;
+
+  const messagingPanel = `
+    <div class="panel"><div class="panel-head"><h4>${lucide('radio')} تلگرام</h4></div><div class="panel-body"><div class="form-grid">
+      <div class="fg"><label>Bot Token</label><input id="s-telegram_bot_token" value="${esc(s.telegram_bot_token||'')}" dir="ltr"></div>
+      <div class="fg"><label>Chat ID</label><input id="s-telegram_chat_id" value="${esc(s.telegram_chat_id||'')}" dir="ltr"></div>
+    </div></div></div>
+    <div class="panel"><div class="panel-head"><h4>${lucide('chat')} روبیکا — ارسال تصویر فاکتور تأییدشده</h4></div><div class="panel-body">
+      <div style="margin-bottom:12px">${settToggle('s-rubika_invoice_enabled', s.rubika_invoice_enabled==='1', 'ارسال به روبیکا هنگام تأیید فاکتور', 'خلاصه متنی و تصویر فاکتور پس از تأیید حسابداری')}</div>
+      <div class="form-grid">
+        <div class="fg"><label>Bot Token روبیکا</label><input id="s-rubika_bot_token" value="${esc(s.rubika_bot_token||'')}" dir="ltr"></div>
+        <div class="fg"><label>شناسه چت / GUID مقصد</label><input id="s-rubika_chat_id" value="${esc(s.rubika_chat_id||'')}" dir="ltr" placeholder="مثلاً b0… یا chat_id"></div>
+      </div>
     </div></div>
-    <div class="panel"><div class="panel-head"><h4>اطلاعات شرکت</h4></div><div class="panel-body"><div class="form-grid">
-      <div class="fg"><label>نام شرکت</label><input id="s-company_name" value="${esc(s.company_name||'')}"></div>
-      <div class="fg"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}"></div>
-      <div class="fg full"><label>آدرس شرکت</label><input id="s-company_address" value="${esc(s.company_address||'')}"></div>
-    </div></div></div>
-    ${invoiceTemplateSettingsHtml(s)}
-    <div class="panel"><div class="panel-head"><h4>تلگرام</h4></div><div class="panel-body"><div class="form-grid">
-      <div class="fg"><label>Bot Token</label><input id="s-telegram_bot_token" value="${esc(s.telegram_bot_token||'')}"></div>
-      <div class="fg"><label>Chat ID</label><input id="s-telegram_chat_id" value="${esc(s.telegram_chat_id||'')}"></div>
-    </div></div></div>
-    <div class="panel"><div class="panel-head"><h4>روبیکا — ارسال تصویر فاکتور تأییدشده</h4></div><div class="panel-body"><div class="form-grid">
-      <div class="fg"><label><input type="checkbox" id="s-rubika_invoice_enabled" ${s.rubika_invoice_enabled==='1'?'checked':''} style="width:auto;margin-left:6px"> فعال‌سازی ارسال به روبیکا هنگام تأیید فاکتور</label></div>
-      <div class="fg"><label>Bot Token روبیکا</label><input id="s-rubika_bot_token" value="${esc(s.rubika_bot_token||'')}" dir="ltr"></div>
-      <div class="fg"><label>شناسه چت / GUID مقصد</label><input id="s-rubika_chat_id" value="${esc(s.rubika_chat_id||'')}" dir="ltr" placeholder="مثلاً b0… یا chat_id"></div>
-      <div class="fg full muted" style="font-size:12px">پس از تأیید فاکتور در حسابداری، خلاصه متنی و تصویر فاکتور به این شناسه ارسال می‌شود.</div>
-    </div></div></div>
-    <div class="panel"><div class="panel-head"><h4>سینک موجودی وب‌سایت (poshaktaranom.com)</h4></div><div class="panel-body"><div class="form-grid">
-      <div class="fg"><label><input type="checkbox" id="s-website_stock_sync_enabled" ${s.website_stock_sync_enabled==='1'?'checked':''} style="width:auto;margin-left:6px"> فعال</label></div>
-      <div class="fg"><label>حالت</label><select id="s-website_stock_sync_mode">
-        <option value="pull" ${(s.website_stock_sync_mode||'pull')==='pull'?'selected':''}>فقط Pull (وب‌سایت از ERP می‌خواند)</option>
-        <option value="push" ${s.website_stock_sync_mode==='push'?'selected':''}>Push به ووکامرس</option>
-        <option value="both" ${s.website_stock_sync_mode==='both'?'selected':''}>هر دو</option>
-      </select></div>
-      <div class="fg full"><label>Webhook URL موجودی (رویداد product.stock)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com/wp-json/…/stock"></div>
-      <div class="fg"><label>آدرس ووکامرس</label><input id="s-website_wc_url" value="${esc(s.website_wc_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
-      <div class="fg"><label>Consumer Key</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
-      <div class="fg"><label>Consumer Secret</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
-      <div class="fg full muted" style="font-size:12px;line-height:1.7">
-        <b>روش پیشنهادی (Pull):</b> در وب‌سایت با API Key از
-        <code dir="ltr">GET /api/v1/stock</code> و
-        <code dir="ltr">GET /api/v1/stock/by-sku/:sku</code>
-        موجودی را بگیرید (کد کالا = SKU). رویداد webhook
-        <code>product.stock</code> هم پس از هر تغییر موجودی شلیک می‌شود.
-      </div>
-    </div></div></div>
-    <div class="panel"><div class="panel-head"><h4>پیامک</h4></div><div class="panel-body">
+    <div class="panel"><div class="panel-head"><h4>${lucide('phone')} پیامک</h4></div><div class="panel-body">
       <p class="muted" style="margin-bottom:10px">تنظیمات و قالب‌های پیامک به ماژول مستقل «پیامک» منتقل شده است.</p>
-      <button class="btn" onclick="go('sms-module')">📱 باز کردن ماژول پیامک</button>
+      <button class="btn" onclick="go('sms-module')">${lucide('chat')} باز کردن ماژول پیامک</button>
     </div></div>
-    <div class="panel"><div class="panel-head"><h4>پیامک خوش‌آمدگویی مشتریان</h4></div><div class="panel-body">
+    <div class="panel"><div class="panel-head"><h4>${lucide('sparkles')} پیامک خوش‌آمدگویی مشتریان</h4></div><div class="panel-body">
       <div class="form-grid">
         <div class="fg full"><label>آدرس دفتر کیمیا <span style="color:var(--muted);font-size:11px">(در پیامک نمایش داده می‌شود)</span></label>
           <input id="s-kimia_address" value="${esc(s.kimia_address||'')}" placeholder="مثلاً: مشهد، بلوار فردوسی، ...">
         </div>
         <div class="fg full"><label>متن پیامک خوش‌آمدگویی <span style="color:var(--muted);font-size:11px">(از {address} برای درج آدرس استفاده کنید)</span></label>
-          <textarea id="s-welcome_sms_text" rows="8" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;resize:vertical"
+          <textarea id="s-welcome_sms_text" rows="8" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;background:var(--input-bg);color:var(--text)"
             placeholder="پیش‌فرض سیستم استفاده می‌شود اگر خالی بماند">${esc(s.welcome_sms_text||'')}</textarea>
         </div>
       </div>
-      <div style="padding:10px;background:#f0fdf4;border-radius:8px;font-size:11px;color:var(--muted);line-height:2">
+      <div style="padding:10px;background:var(--tip-bg);border-radius:8px;font-size:11px;color:var(--muted);line-height:2;margin-top:10px">
         <strong style="color:var(--text)">متن پیش‌فرض (اگر فیلد بالا خالی باشد):</strong><br>
         <span dir="rtl" style="white-space:pre-line">سلام 🌸 به خانواده پوشاک ترنم خوش‌آمدید!
 
@@ -14454,22 +14558,47 @@ ROUTES.settings = async function(){
 
 پوشاک ترنم 🌿</span>
       </div>
-    </div></div>
-    <div class="panel"><div class="panel-head"><h4>⚙️ نگاشت کدینگ (حسابداری)</h4></div><div class="panel-body">
+    </div></div>`;
+
+  const webPanel = `
+    <div class="panel"><div class="panel-head"><h4>${lucide('plug')} سینک موجودی وب‌سایت (poshaktaranom.com)</h4></div><div class="panel-body">
+      <div style="margin-bottom:12px">${settToggle('s-website_stock_sync_enabled', s.website_stock_sync_enabled==='1', 'فعال‌سازی سینک موجودی', 'ارتباط ERP با فروشگاه آنلاین')}</div>
+      <div class="form-grid">
+        <div class="fg"><label>حالت</label><select id="s-website_stock_sync_mode">
+          <option value="pull" ${(s.website_stock_sync_mode||'pull')==='pull'?'selected':''}>فقط Pull (وب‌سایت از ERP می‌خواند)</option>
+          <option value="push" ${s.website_stock_sync_mode==='push'?'selected':''}>Push به ووکامرس</option>
+          <option value="both" ${s.website_stock_sync_mode==='both'?'selected':''}>هر دو</option>
+        </select></div>
+        <div class="fg full"><label>Webhook URL موجودی (رویداد product.stock)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com/wp-json/…/stock"></div>
+        <div class="fg"><label>آدرس ووکامرس</label><input id="s-website_wc_url" value="${esc(s.website_wc_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
+        <div class="fg"><label>Consumer Key</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
+        <div class="fg"><label>Consumer Secret</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
+        <div class="fg full muted" style="font-size:12px;line-height:1.7">
+          <b>روش پیشنهادی (Pull):</b> در وب‌سایت با API Key از
+          <code dir="ltr">GET /api/v1/stock</code> و
+          <code dir="ltr">GET /api/v1/stock/by-sku/:sku</code>
+          موجودی را بگیرید (کد کالا = SKU). رویداد webhook
+          <code>product.stock</code> هم پس از هر تغییر موجودی شلیک می‌شود.
+        </div>
+      </div>
+    </div></div>`;
+
+  const accountingPanel = `
+    <div class="panel"><div class="panel-head"><h4>${lucide('hash')} نگاشت کدینگ</h4></div><div class="panel-body">
       <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
-        نگاشت حساب‌های کنترلی برای اسناد خودکار (فاکتور، دریافت، خرید، حقوق). در نصب عادی (بدون مهاجرت داده) نیازی به تغییر نیست — مقادیر پیش‌فرض ترنم استفاده می‌شود.
-        ${s.coa_mode==='extended'?'<br><b style="color:var(--purple)">حالت فعلی: کدینگ تفصیلی</b> — نگاشت حساب‌ها از واردات داده تنظیم شده است.':''}
+        نگاشت حساب‌های کنترلی برای اسناد خودکار. در نصب عادی نیازی به تغییر نیست.
+        ${s.coa_mode==='extended'?'<br><b style="color:var(--purple)">حالت فعلی: کدینگ تفصیلی</b> — نگاشت از واردات داده تنظیم شده است.':''}
       </div>
       <div class="form-grid">
         ${Object.keys(COA_MAP_LABELS).map(k=>`<div class="fg"><label>${COA_MAP_LABELS[k]} ${hlp('کد معین یا تفصیلی در دفتر کل')}</label>
           <input id="s-${k}" dir="ltr" class="mono" value="${esc(s[k]||'')}" placeholder="پیش‌فرض سیستم"></div>`).join('')}
-        <div class="fg full"><label><input type="checkbox" id="s-feature_cogs_voucher" ${s.feature_cogs_voucher==='1'?'checked':''} style="width:auto;margin-left:6px"> سند بهای تمام‌شده خودکار در فاکتور رسمی</label></div>
       </div>
+      <div style="margin-top:12px">${settToggle('s-feature_cogs_voucher', s.feature_cogs_voucher==='1', 'سند بهای تمام‌شده خودکار در فاکتور رسمی', 'پس از صدور فاکتور نهایی، سند COGS ثبت شود')}</div>
     </div></div>
-    <div class="panel"><div class="panel-head"><h4>📅 مدیریت سال مالی</h4></div><div class="panel-body">
+    <div class="panel"><div class="panel-head"><h4>${lucide('repeat')} مدیریت سال مالی</h4></div><div class="panel-body">
       <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
         <b>مسیر ۱ — انتقال (Rollover):</b> بستن سال جاری و افتتاح سال جدید با انتقال سود انباشته.<br>
-        <b>مسیر ۲ — بازنشانی (Factory Reset):</b> حذف همه تراکنش‌ها؛ فقط اطلاعات پایه (مشتری، محصول، تنظیمات) باقی می‌ماند — نیاز به تأیید رمز و تایپ RESET-FISCAL. <b>در حالت کدینگ تفصیلی غیرفعال است.</b>
+        <b>مسیر ۲ — بازنشانی (Factory Reset):</b> حذف همه تراکنش‌ها؛ فقط اطلاعات پایه باقی می‌ماند — نیاز به تأیید رمز و تایپ RESET-FISCAL. <b>در حالت کدینگ تفصیلی غیرفعال است.</b>
       </div>
       <div class="form-grid">
         <div class="fg"><label>برچسب سال جدید</label><input id="fy-label" placeholder="سال مالی 1405"></div>
@@ -14477,31 +14606,22 @@ ROUTES.settings = async function(){
         <div class="fg"><label>تاریخ پایان (اختیاری)</label><input id="fy-end" data-jdate placeholder="1405/12/29"></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-        <button class="btn" onclick="fiscalRollover()">📆 انتقال به سال جدید</button>
-        <button class="btn red" onclick="fiscalFactoryReset()">⚠️ بازنشانی کامل مالی</button>
-        ${curFy?`<button class="btn ghost" onclick="fiscalLock(${curFy.id})">🔒 قفل سال جاری</button>
-        <button class="btn ghost" onclick="fiscalUnlock(${curFy.id})">🔓 بازگشایی سال</button>`:''}
-        <button class="btn ghost" onclick="runIntegrityCheck()">🔍 بررسی یکپارچگی حسابداری</button>
+        <button class="btn" onclick="fiscalRollover()">${lucide('repeat')} انتقال به سال جدید</button>
+        <button class="btn red" onclick="fiscalFactoryReset()">بازنشانی کامل مالی</button>
+        ${curFy?`<button class="btn ghost" onclick="fiscalLock(${curFy.id})">${lucide('lock')} قفل سال جاری</button>
+        <button class="btn ghost" onclick="fiscalUnlock(${curFy.id})">بازگشایی سال</button>`:''}
+        <button class="btn ghost" onclick="runIntegrityCheck()">${lucide('search')} بررسی یکپارچگی حسابداری</button>
       </div>
       <div id="fy-status" class="muted" style="font-size:12px;margin-top:10px">${curFy?`سال فعال: <b>${esc(curFy.label)}</b> (${esc(curFy.status||'open')}) — ${esc(curFy.start_date||'')} الی ${esc(curFy.end_date||'—')}`:''}</div>
       <div id="integrity-result" class="muted" style="font-size:12px;margin-top:8px"></div>
       ${fyRows.length?`<div class="tbl-wrap" style="margin-top:12px"><table class="tbl" style="font-size:12px"><thead><tr><th>سال</th><th>شروع</th><th>پایان</th><th>وضعیت</th><th></th></tr></thead><tbody>
         ${fyRows.map(f=>`<tr><td>${esc(f.label)}</td><td class="mono">${esc(f.start_date||'')}</td><td class="mono">${esc(f.end_date||'')}</td>
         <td>${esc(f.status||'open')}</td><td style="white-space:nowrap">
-          ${f.status==='open'?`<button class="btn sm ghost" onclick="fiscalLock(${f.id})">🔒</button>`:''}
-          ${f.status==='locked'?`<button class="btn sm ghost" onclick="fiscalUnlock(${f.id})">🔓</button>`:''}
+          ${f.status==='open'?`<button class="btn sm ghost" onclick="fiscalLock(${f.id})">${lucide('lock')}</button>`:''}
+          ${f.status==='locked'?`<button class="btn sm ghost" onclick="fiscalUnlock(${f.id})">باز</button>`:''}
         </td></tr>`).join('')}</tbody></table></div>`:''}
     </div></div>
-    <div class="panel" style="border:2px solid #fecaca"><div class="panel-head"><h4 style="color:#dc2626">🧪 حذف دیتای تست (به تفکیک بخش)</h4></div><div class="panel-body">
-      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9;color:#991b1b">
-        فقط برای مرحله تست/بررسی. برای هر بخش دو حالت وجود دارد:<br>
-        <b>حذف تراکنش‌ها</b> — اسناد و گردش‌ها پاک می‌شوند؛ دادهٔ پایه نگه داشته می‌شود.<br>
-        <b>حذف کامل</b> — تراکنش + دادهٔ پایه آن بخش. کاربران، تنظیمات و کدینگ حساب‌ها هرگز پاک نمی‌شوند.<br>
-        تأیید: تایپ <code>WIPE-SECTION</code> (مثلاً WIPE-ERP) + رمز مدیر.
-      </div>
-      <div id="dataWipeSections"><div class="muted">در حال بارگذاری بخش‌ها...</div></div>
-    </div></div>
-    <div class="panel"><div class="panel-head"><h4>🛠️ پنل مدیریت جامع ماژول‌های حسابداری</h4></div><div class="panel-body">
+    <div class="panel"><div class="panel-head"><h4>${lucide('layers')} ماژول‌ها و شماره‌گذاری</h4></div><div class="panel-body">
       <div class="form-grid" style="margin-bottom:14px">
         <div class="fg"><label>پیشوند شماره فاکتور فروش ${hlp('پیش‌فرض: T — مثال: فاکتور شماره T-0001')}</label><input id="s-invoice_num_prefix" value="${esc(s.invoice_num_prefix||'T')}"></div>
         <div class="fg"><label>پیشوند شماره فاکتور خرید ${hlp('پیش‌فرض: PO')}</label><input id="s-purchase_num_prefix" value="${esc(s.purchase_num_prefix||'PO')}"></div>
@@ -14512,65 +14632,128 @@ ROUTES.settings = async function(){
         </div>
         <div class="fg"><label>نرخ VAT پیش‌فرض (٪) ${hlp('مالیات بر ارزش افزوده — پیش‌فرض ۱۰٪')}</label><input id="s-vat_rate" type="number" min="0" max="100" step="0.1" value="${esc(s.vat_rate||'10')}"></div>
       </div>
-      <div class="muted" style="font-size:12px;margin-bottom:8px">ماژول‌های زیر را می‌توانید بر اساس نیاز کسب‌وکار خود از منوی حسابداری پنهان کنید (بدون حذف داده‌های موجود):</div>
-      <div class="form-grid">
-        <div class="fg"><label><input type="checkbox" id="s-module_petty_cash" ${s.module_petty_cash!=='0'?'checked':''} style="width:auto;margin-left:6px"> تنخواه گردان</label></div>
-        <div class="fg"><label><input type="checkbox" id="s-module_trust_checks" ${s.module_trust_checks!=='0'?'checked':''} style="width:auto;margin-left:6px"> چک‌های امانی</label></div>
-        <div class="fg"><label><input type="checkbox" id="s-module_warehouses" ${s.module_warehouses!=='0'?'checked':''} style="width:auto;margin-left:6px"> انبارها و عملیات انبار</label></div>
-        <div class="fg"><label><input type="checkbox" id="s-module_consignments" ${s.module_consignments!=='0'?'checked':''} style="width:auto;margin-left:6px"> کالای امانی</label></div>
-        <div class="fg"><label><input type="checkbox" id="s-module_production" ${s.module_production!=='0'?'checked':''} style="width:auto;margin-left:6px"> تحلیل هزینه تولید</label></div>
-        <div class="fg"><label><input type="checkbox" id="s-module_payroll" ${s.module_payroll!=='0'?'checked':''} style="width:auto;margin-left:6px"> حقوق و دستمزد</label></div>
-        <div class="fg"><label><input type="checkbox" id="s-module_reps" ${s.module_reps!=='0'?'checked':''} style="width:auto;margin-left:6px"> نمایندگان فروش</label></div>
-        <div class="fg"><label><input type="checkbox" id="s-module_moadian" ${s.module_moadian!=='0'?'checked':''} style="width:auto;margin-left:6px"> سامانه مودیان</label></div>
-        <div class="fg"><label><input type="checkbox" id="s-module_fixed_assets" ${s.module_fixed_assets!=='0'?'checked':''} style="width:auto;margin-left:6px"> دارایی ثابت</label></div>
-        <div class="fg"><label><input type="checkbox" id="s-module_portal" ${s.module_portal!=='0'?'checked':''} style="width:auto;margin-left:6px"> پورتال عملیاتی (واحد / بخش)</label></div>
+      <div class="muted" style="font-size:12px;margin-bottom:10px">ماژول‌های زیر را می‌توانید از منوی حسابداری پنهان کنید (بدون حذف داده):</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">
+        ${[
+          ['s-module_petty_cash', s.module_petty_cash!=='0', 'تنخواه گردان'],
+          ['s-module_trust_checks', s.module_trust_checks!=='0', 'چک‌های امانی'],
+          ['s-module_warehouses', s.module_warehouses!=='0', 'انبارها و عملیات انبار'],
+          ['s-module_consignments', s.module_consignments!=='0', 'کالای امانی'],
+          ['s-module_production', s.module_production!=='0', 'تحلیل هزینه تولید'],
+          ['s-module_payroll', s.module_payroll!=='0', 'حقوق و دستمزد'],
+          ['s-module_reps', s.module_reps!=='0', 'نمایندگان فروش'],
+          ['s-module_moadian', s.module_moadian!=='0', 'سامانه مودیان'],
+          ['s-module_fixed_assets', s.module_fixed_assets!=='0', 'دارایی ثابت'],
+          ['s-module_portal', s.module_portal!=='0', 'پورتال عملیاتی']
+        ].map(([id,on,lab])=>settToggle(id,on,lab,'')).join('')}
       </div>
-    </div></div>
-    <div class="panel"><div class="panel-head"><h4>🤖 دستیار فروش AI</h4></div><div class="panel-body">
-      <div class="muted" style="font-size:12px;margin-bottom:10px;line-height:1.9">
-        امتیاز ریسک ریزش مشتری، فرصت‌های فروش مجدد و پیشنهاد اقدام روزانه به‌صورت خودکار (بدون نیاز به کلید API) هر شب محاسبه می‌شود.
-        در صورت وارد کردن کلید Claude API، متن پیشنهادها و خلاصه هفتگی با هوش مصنوعی تولید می‌شود.
+    </div></div>`;
+
+  const featuresPanel = `
+    <div class="panel"><div class="panel-head"><h4>${lucide('bot')} دستیار فروش AI</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
+        امتیاز ریسک ریزش، فرصت فروش و اقدام روزانه هر شب محاسبه می‌شود. با کلید Claude، متن پیشنهادها هوشمندتر می‌شود.
       </div>
+      <div style="margin-bottom:12px">${settToggle('s-feature_ai_assistant', s.feature_ai_assistant==='1', 'استفاده از Claude API (اختیاری)', 'بدون کلید هم تحلیل‌های heuristic کار می‌کنند')}</div>
       <div class="form-grid">
-        <div class="fg"><label><input type="checkbox" id="s-feature_ai_assistant" ${s.feature_ai_assistant==='1'?'checked':''} style="width:auto;margin-left:6px"> استفاده از Claude API (اختیاری)</label></div>
-        <div class="fg"><label>کلید Claude API ${hlp('اختیاری — از console.anthropic.com. بدون کلید هم تحلیل‌های heuristic کار می‌کنند.')}</label>
+        <div class="fg"><label>کلید Claude API ${hlp('اختیاری — از console.anthropic.com')}</label>
           <input id="s-ai_api_key" dir="ltr" value="${esc(s.ai_api_key||'')}" placeholder="sk-ant-..."></div>
-        <div class="fg"><label>مدل ${hlp('پیش‌فرض: claude-haiku-4-5 — سریع و ارزان')}</label>
+        <div class="fg"><label>مدل ${hlp('پیش‌فرض: claude-haiku-4-5')}</label>
           <input id="s-ai_model" dir="ltr" value="${esc(s.ai_model||'')}" placeholder="claude-haiku-4-5-20251001"></div>
       </div>
     </div></div>
-    <div class="panel"><div class="panel-head"><h4>🛒 پورتال مشتریان B2B</h4></div><div class="panel-body">
-      <div class="muted" style="font-size:12px;margin-bottom:10px;line-height:1.9">
-        مشتریان عمده می‌توانند با شماره موبایل خود وارد پورتال شوند، کاتالوگ محصولات را ببینند، سفارش ثبت کنند و صورتحساب خود را مشاهده کنند.
-        سفارش هر مشتری به‌صورت پیش‌فاکتور به نام کارشناس فروش او ثبت و در منوی «سفارشات B2B» دیده می‌شود.
-        دسترسی هر مشتری از فرم ویرایش همان مشتری فعال می‌شود.
+    <div class="panel"><div class="panel-head"><h4>${lucide('cart')} پورتال مشتریان B2B</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
+        مشتریان عمده با موبایل وارد می‌شوند، کاتالوگ می‌بینند و سفارش ثبت می‌کنند. دسترسی از فرم ویرایش همان مشتری فعال می‌شود.
       </div>
+      <div style="margin-bottom:12px">${settToggle('s-feature_b2b_portal', s.feature_b2b_portal==='1', 'فعال‌سازی پورتال B2B', 'سفارش‌ها به‌صورت پیش‌فاکتور در «سفارشات B2B» دیده می‌شوند')}</div>
       <div class="form-grid">
-        <div class="fg"><label><input type="checkbox" id="s-feature_b2b_portal" ${s.feature_b2b_portal==='1'?'checked':''} style="width:auto;margin-left:6px"> فعال‌سازی پورتال B2B</label></div>
         <div class="fg"><label>آدرس پورتال</label><input dir="ltr" readonly value="${location.origin}/#portal" onclick="this.select()"></div>
       </div>
-    </div></div>
-    <div class="panel"><div class="panel-head" style="flex-wrap:wrap;gap:8px"><h4>📜 گزارش ممیزی (Audit)</h4>
+    </div></div>`;
+
+  const auditPanel = `
+    <div class="panel"><div class="panel-head" style="flex-wrap:wrap;gap:8px"><h4>${lucide('clipboard')} گزارش ممیزی (Audit)</h4>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input id="auditFrom" data-jdate placeholder="از تاریخ" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${todayJalali()}">
-        <input id="auditTo" data-jdate placeholder="تا تاریخ" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px" value="${todayJalali()}">
-        <select id="auditUser" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px">
+        <input id="auditFrom" data-jdate placeholder="از تاریخ" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px;background:var(--input-bg);color:var(--text)" value="${todayJalali()}">
+        <input id="auditTo" data-jdate placeholder="تا تاریخ" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px;background:var(--input-bg);color:var(--text)" value="${todayJalali()}">
+        <select id="auditUser" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:var(--input-bg);color:var(--text)">
           <option value="">همه کاربران</option>
           ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('')}
         </select>
-        <button class="btn sm ghost" onclick="loadAuditLog()">🔄 بارگذاری</button>
+        <button class="btn sm ghost" onclick="loadAuditLog()">${lucide('search')} بارگذاری</button>
       </div></div>
-      <div class="panel-body" id="audit-log-body"><p class="muted">در حال بارگذاری...</p></div></div>
-    <button class="btn green" onclick="saveSettings()">💾 ذخیره تنظیمات</button>`;
-  // Show hint for current provider on page load
+      <div class="panel-body" id="audit-log-body"><p class="muted">در حال بارگذاری...</p></div></div>`;
+
+  const dangerPanel = `
+    <div class="panel" style="border:2px solid #fecaca"><div class="panel-head"><h4 style="color:#dc2626">${lucide('lock')} حذف دیتای تست (به تفکیک بخش)</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9;color:#991b1b">
+        فقط برای مرحله تست/بررسی. برای هر بخش دو حالت وجود دارد:<br>
+        <b>حذف تراکنش‌ها</b> — اسناد و گردش‌ها پاک می‌شوند؛ دادهٔ پایه نگه داشته می‌شود.<br>
+        <b>حذف کامل</b> — تراکنش + دادهٔ پایه آن بخش. کاربران، تنظیمات و کدینگ حساب‌ها هرگز پاک نمی‌شوند.<br>
+        تأیید: تایپ <code>WIPE-SECTION</code> (مثلاً WIPE-ERP) + رمز مدیر.
+      </div>
+      <div id="dataWipeSections"><div class="muted">در حال بارگذاری بخش‌ها...</div></div>
+    </div></div>`;
+
+  el('view').innerHTML=`
+    <div class="sett-shell">
+      <div class="sett-hero">
+        <div class="sett-hero-top">
+          <div>
+            <h2>${lucide('settings')} تنظیمات برنامه</h2>
+            <p>همه‌چیز دسته‌بندی شده — جستجو کنید یا از منوی کناری بخش مورد نظر را باز کنید.</p>
+          </div>
+        </div>
+        <div class="sett-search">
+          <span class="sett-search-ico">${lucide('search')}</span>
+          <input id="sett-q" type="search" placeholder="جستجو در تنظیمات… مثلاً فاکتور، تلگرام، سال مالی" oninput="settFilterSearch(this.value)" autocomplete="off">
+        </div>
+      </div>
+      <div class="sett-layout">
+        <nav class="sett-nav" aria-label="دسته‌های تنظیمات">${settNavHtml()}</nav>
+        <div class="sett-main">
+          <div id="sett-empty" class="sett-empty" style="display:none">نتیجه‌ای پیدا نشد — عبارت دیگری امتحان کنید.</div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='general'?' active':''}" data-sett="general">${generalPanel}</div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='invoice'?' active':''}" data-sett="invoice">${invoiceTemplateSettingsHtml(s)}</div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='messaging'?' active':''}" data-sett="messaging">${messagingPanel}</div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='web'?' active':''}" data-sett="web">${webPanel}</div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='accounting'?' active':''}" data-sett="accounting">${accountingPanel}</div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='features'?' active':''}" data-sett="features">${featuresPanel}</div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='audit'?' active':''}" data-sett="audit">${auditPanel}</div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='danger'?' active':''}" data-sett="danger">${dangerPanel}</div>
+        </div>
+      </div>
+      <div class="sett-savebar">
+        <span class="muted">تغییرات فقط پس از ذخیره اعمال می‌شوند</span>
+        <button class="btn green" onclick="saveSettings()">ذخیره تنظیمات</button>
+      </div>
+    </div>`;
   toggleSmsProviderHint(s.sms_provider||'kavenegar');
   attachDatepickers(el('view'));
   loadAuditLog();
   loadDataWipeSections();
   if(isDesktopApp()) renderDesktopUpdateUI();
+  settShowTab(SETT_ACTIVE_TAB);
 };
+
 ROUTES['desktop-settings'] = async function(){
-  el('view').innerHTML = desktopUpdatePanelHtml() + `<div class="muted" style="font-size:12px;margin-top:12px">پس از نصب به‌روزرسانی، برنامه خودکار مجدداً راه‌اندازی می‌شود.</div>`;
+  el('view').innerHTML = `
+    <div class="sett-shell" style="padding-bottom:8px">
+      <div class="sett-hero">
+        <div class="sett-hero-top">
+          <div>
+            <h2>${lucide('monitor')} تنظیمات برنامه دسکتاپ</h2>
+            <p>به‌روزرسانی نرم‌افزار ویندوز — پس از نصب، برنامه خودکار راه‌اندازی مجدد می‌شود.</p>
+          </div>
+        </div>
+      </div>
+      ${desktopUpdatePanelHtml()}
+      <div class="panel"><div class="panel-body">
+        <div class="muted" style="font-size:12px;line-height:1.9">برای تنظیمات کامل سیستم (شرکت، فاکتور، ماژول‌ها و …) از منوی <b>تنظیمات</b> در نسخه وب سرور مرکزی استفاده کنید.</div>
+        ${isAdmin()?`<button class="btn ghost" style="margin-top:10px" onclick="go('settings')">${lucide('settings')} رفتن به تنظیمات سیستم</button>`:''}
+      </div></div>
+    </div>`;
   renderDesktopUpdateUI();
 };
 async function saveSettings(){
@@ -15280,6 +15463,17 @@ function renderAdminGuide(){
       <h5>گروه مشتری و ماهیت حساب</h5><p>در فرم ویرایش هر مشتری (فقط برای مدیر/حسابدار)، می‌توانید مشتری را به یک «گروه مشتری» نسبت دهید. هر گروه یک ماهیت حساب دارد: <b>بدهکار</b> (پیش‌فرض همه مشتریان) یا <b>بستانکار</b> (برای موارد خاص مثل مشتریانی که پیش‌پرداخت کرده‌اند). مدیریت گروه‌ها از داخل ماژول حسابداری → «گروه‌های مشتری» انجام می‌شود.</p>
       <div class="warn">شماره موبایل کارشناس را حتماً وارد کنید تا یادآور پیامکی دریافت کند.</div>`),
     helpSec('⚙️','تنظیمات',`
+      <h5>ناوبری جدید (دسته‌بندی‌شده)</h5>
+      <p>صفحه تنظیمات دیگر یک فهرست بلند نیست: از منوی کناری بین بخش‌ها جابه‌جا شوید یا در کادر جستجوی بالای صفحه عبارت بزنید (مثلاً «فاکتور»، «تلگرام»، «سال مالی»). نوار «ذخیره تنظیمات» پایین صفحه همیشه در دسترس است.</p>
+      <ul>
+        <li><b>عمومی</b>: اطلاعات شرکت، واحد پولی، پنجره‌های چندگانه، به‌روزرسانی دسکتاپ</li>
+        <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی و شخصی‌سازی چاپ</li>
+        <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
+        <li><b>وب‌سایت</b>: سینک موجودی ووکامرس</li>
+        <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی، ماژول‌ها</li>
+        <li><b>قابلیت‌ها</b>: دستیار AI و پورتال B2B</li>
+        <li><b>ممیزی</b> و <b>منطقه خطر</b>: گزارش فعالیت و حذف دیتای تست</li>
+      </ul>
       <h5>اطلاعات شرکت</h5><p>نام، تلفن و آدرس شرکت که روی فاکتورها چاپ می‌شود.</p>
       <h5>قالب فاکتور</h5><p>در تنظیمات: <b>رسمی</b> (۳ مدل — کامل/مدرن/پریمیوم) برای فاکتور نهایی؛ <b>عادی ساده</b> به‌صورت ثابت برای پیش‌فاکتور؛ <b>فاکتور حرارتی</b> با عرض چاپگر ۵۸ یا ۸۰ میلی‌متر. موقع چاپ می‌توانید A4، A5 یا حرارتی را انتخاب کنید. شخصی‌سازی: لوگو (بدون بک مشکی)، تخفیف ردیفی، کارشناس فروش + موبایل، پاورقی و …</p>
       <h5>تلگرام</h5><p>Bot Token و Chat ID برای ارسال اعلان‌های سیستمی.</p>
