@@ -32,20 +32,27 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `0fea8f1` منوی حساب + اصلاح سرریز آدرس |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v84` |
+| آخرین commit | (pending) i18n فارسی/انگلیسی |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v85` |
 | اندروید | **`2.0.19`** |
-| وضعیت سرور | ✅ deploy `0fea8f1` / SW v84 |
+| وضعیت سرور | ⏳ در حال deploy |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
 
-### 2026-07-23 — [Cursor] منوی حساب (آیکون power) + اصلاح سرریز آدرس جدول — SW v84
+### 2026-07-23 — [Cursor] زبان برنامه (فا/ان) + فارسی‌سازی برچسب‌های انگلیسی — SW v85
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** _(پس از commit)_
+- **خلاصه:** برچسب‌های انگلیسی UI (به‌جز تب API تنظیمات) فارسی شد؛ سیستم `i18n.js` با سوئیچ «زبان برنامه» در تنظیمات → عمومی اضافه شد تا کل پوسته به انگلیسی برود.
+- **فایل‌های کلیدی:** `server/public/i18n.js`, `server/public/index.html`, `server/public/acc-nav.js`, `server/public/sw.js`
+- **Deploy:** ⏳
+
+### 2026-07-23 — [Cursor] منوی حساب (آیکون power) + اصلاح سرریز آدرس جدول — SW v84
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `0fea8f1`
 - **خلاصه:** بلوک پایین سایدبار (تم/رمز/امنیت/خروج) حذف و به منوی کشویی گوشه با آیکون خاموش منتقل شد؛ ستون آدرس در جداول با clamp دوخطی و tooltip جلوی سرریز به ستون بعدی گرفته شد.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ Iran HTTP `/` 200, SW `erp-taranom-v84`
 
 ### 2026-07-23 — [Cursor] انتقال کاربران و API به تنظیمات — SW v83
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

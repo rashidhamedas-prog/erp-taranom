@@ -924,7 +924,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
         <a href="#" onclick="openForgotPass();return false" style="font-size:13px;color:var(--purple)">رمز عبور را فراموش کرده‌اید؟</a>
       </div>
       <div id="b2bEntryLink" style="text-align:center;margin-top:10px;display:none">
-        <a href="#portal" onclick="openB2BPortal();return false" style="font-size:13px;color:var(--purple);font-weight:600">🛒 ورود پورتال مشتریان (B2B)</a>
+        <a href="#portal" onclick="openB2BPortal();return false" style="font-size:13px;color:var(--purple);font-weight:600" data-i18n="portal-entry">🛒 ورود پورتال مشتریان</a>
       </div>
       <div class="login-err" id="loginErr"></div>
     </form>
@@ -960,7 +960,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
         </div>
         <div class="right">
           <button class="notif-bell" id="notifBell" onclick="toggleNotifPanel()" title="اعلان‌ها" style="display:none">🔔<span class="nbadge hide" id="notifBadge">0</span></button>
-          <button class="btn sm ghost omnibox-btn" onclick="openOmnibox()" title="جستجوی سریع (Ctrl+K)">⌘K</button>
+          <button class="btn sm ghost omnibox-btn" onclick="openOmnibox()" title="جستجوی سریع" data-i18n-title="جستجوی سریع">⌕</button>
           <span id="syncBadge" style="display:none;cursor:pointer;font-size:12px;font-weight:700;padding:5px 12px;border-radius:20px;background:#f3f4f6;color:#6b7280;white-space:nowrap" onclick="openSyncPanel()" title="وضعیت همگام‌سازی با سرور مرکزی"></span>
           <span class="clock" id="clock"></span>
           <div class="user">
@@ -984,9 +984,9 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
       <span id="acctDrawerUser">—</span>
     </div>
     <button type="button" class="acct-drawer-btn theme-toggle-btn" onclick="toggleTheme()">🌙 حالت تاریک</button>
-    <button type="button" class="acct-drawer-btn" onclick="closeAcctDrawer();openChangePass()">🔑 تغییر رمز</button>
-    <button type="button" class="acct-drawer-btn" onclick="closeAcctDrawer();openSecurityModal()">🔐 امنیت</button>
-    <button type="button" class="acct-drawer-btn danger" onclick="closeAcctDrawer();logout()">🚪 خروج</button>
+    <button type="button" class="acct-drawer-btn" id="acctBtnPass" onclick="closeAcctDrawer();openChangePass()">🔑 تغییر رمز</button>
+    <button type="button" class="acct-drawer-btn" id="acctBtnSec" onclick="closeAcctDrawer();openSecurityModal()">🔐 امنیت</button>
+    <button type="button" class="acct-drawer-btn danger" id="acctBtnOut" onclick="closeAcctDrawer();logout()">🚪 خروج</button>
   </div>
 </div>
 
@@ -997,7 +997,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 <div id="omniboxOverlay" class="omnibox-overlay" onclick="if(event.target===this)closeOmnibox()">
   <div class="omnibox" onclick="event.stopPropagation()">
     <input id="omniboxInput" placeholder="جستجو: مشتری، کالا، فاکتور، بخش‌ها و زیرمنوها..." autocomplete="off">
-    <div class="omnibox-hint">Ctrl+K — مشتریان، کالاها، فاکتورها و همهٔ بخش‌ها/زیرمنوهای برنامه</div>
+    <div class="omnibox-hint" id="omniboxHint">جستجو — مشتریان، کالاها، فاکتورها و همهٔ بخش‌ها</div>
     <div class="omnibox-results" id="omniboxResults"></div>
   </div>
 </div>
@@ -1027,12 +1027,14 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 <div id="toasts"></div>
 
 <script src="/barcode-input.js" defer></script>
+<script src="/i18n.js?v=85"></script>
 <script src="/acc-nav.js?v=75"></script>
 <script src="/portal-ui.js?v=75"></script>
 <script src="/mdi.js?v=75" defer></script>
 <script src="/tbl-enhance.js?v=75" defer></script>
 <script src="/prod-ui.js?v=75" defer></script>
 <script>
+if(typeof T!=='function'){ window.T=function(s){return s;}; window.tt=function(a){return a;}; window.getAppLang=function(){return 'fa';}; window.setAppLang=function(){}; }
 /* ============================================================
    STATE & API
 ============================================================ */
@@ -1165,7 +1167,7 @@ async function api(method, path, data, isFormData, silent){
       if(r.status===403 && j.code==='must_change_password' && !el('fc-old')) openForcePassChange();
       const code=j.code||j.error||'error';
       const prodFriendly={
-        E_NO_ACTIVE_BOM:'برای این کالا فرمول BOM فعال وجود ندارد — ابتدا فرمول بسازید و فعال کنید',
+        E_NO_ACTIVE_BOM:'برای این کالا فرمول ساخت فعال وجود ندارد — ابتدا فرمول بسازید و فعال کنید',
         E_BOM_NOT_ACTIVE:'فرمول انتخاب‌شده فعال نیست',
         E_BOM_LOCKED:'فرمول فعال قفل است — نسخه جدید بسازید',
         E_BOM_NOT_DRAFT:'فقط پیش‌نویس قابل ویرایش است',
@@ -1301,7 +1303,7 @@ function applyTheme(t){
   const meta=document.querySelector('meta[name="theme-color"]');
   if(meta) meta.content = t==='dark' ? '#0D1512' : '#1A5C38';
   document.querySelectorAll('.theme-toggle-btn').forEach(b=>{
-    b.textContent = t==='dark' ? '☀️ حالت روشن' : '🌙 حالت تاریک';
+    b.textContent = t==='dark' ? ('☀️ '+T('حالت روشن')) : ('🌙 '+T('حالت تاریک'));
   });
   rebuildChartsForTheme();
 }
@@ -1326,7 +1328,42 @@ function syncAcctDrawerUser(){
   if(!ME) return;
   const n=el('acctDrawerName'); if(n) n.textContent=ME.name||'—';
   const u=el('acctDrawerUser'); if(u) u.textContent='@'+(ME.username||'');
+  const bp=el('acctBtnPass'); if(bp) bp.textContent='🔑 '+T('تغییر رمز');
+  const bs=el('acctBtnSec'); if(bs) bs.textContent='🔐 '+T('امنیت');
+  const bo=el('acctBtnOut'); if(bo) bo.textContent='🚪 '+T('خروج');
+  const fab=el('acctFab'); if(fab){ fab.title=T('حساب کاربری'); fab.setAttribute('aria-label',T('منوی حساب کاربری')); }
 }
+function onSettingsLangChange(lang){
+  setAppLang(lang);
+}
+function applyAppLanguage(){
+  try{
+    const loginH=document.querySelector('#login h1');
+    if(loginH) loginH.textContent=T('ERP ترنم');
+    const loginP=document.querySelector('#login .login-card > p');
+    if(loginP) loginP.textContent=T('سامانه یکپارچه ERP پوشاک ترنم');
+    const loginBtn=document.querySelector('#loginForm button[type="submit"]');
+    if(loginBtn) loginBtn.textContent=T('ورود به سامانه');
+    const forgot=document.querySelector('#loginForm a');
+    if(forgot && forgot.getAttribute('onclick')?.includes('Forgot')) forgot.textContent=T('رمز عبور را فراموش کرده‌اید؟');
+    const pe=document.querySelector('[data-i18n="portal-entry"]');
+    if(pe) pe.innerHTML='🛒 '+T('ورود پورتال مشتریان');
+    const hint=el('omniboxHint');
+    if(hint) hint.textContent=T('جستجو — مشتریان، کالاها، فاکتورها و همهٔ بخش‌ها');
+    const brandH=document.querySelector('.sidebar .brand h2');
+    if(brandH) brandH.textContent=T('ERP ترنم');
+    syncAcctDrawerUser();
+    if(typeof applyTheme==='function') applyTheme(currentTheme());
+    if(ME && typeof buildNav==='function'){
+      if(IN_ACC_SHELL) el('brandRole').textContent='🧮 '+T('ماژول حسابداری');
+      else el('brandRole').textContent=isAdmin()?T('پنل مدیریت'):(ME.role==='accounting'||ME.role==='sales_manager')?T('پنل حسابداری'):T('پنل فروش');
+      if(el('userRole')) el('userRole').textContent=roleLabel(ME.role);
+      buildNav();
+      if(CURRENT_PAGE && typeof go==='function') go(CURRENT_PAGE);
+    }
+  }catch(e){ console.warn('applyAppLanguage', e); }
+}
+window.applyAppLanguage = applyAppLanguage;
 document.addEventListener('keydown',(e)=>{
   if(e.key==='Escape') closeAcctDrawer();
 });
@@ -1361,7 +1398,7 @@ function el(id){ return document.getElementById(id); }
 function showToast(msg, type='success'){
   const t = document.createElement('div');
   t.className = 'toast '+type;
-  t.textContent = msg;
+  t.textContent = typeof T==='function' ? T(msg) : msg;
   el('toasts').appendChild(t);
   setTimeout(()=>{ t.style.opacity='0'; t.style.transition='.3s'; setTimeout(()=>t.remove(),300); }, 2800);
 }
@@ -1375,7 +1412,7 @@ const STATUS_LABEL = {
   very_low:'خیلی کم', very_high:'خیلی زیاد',
   received:'وصول شد', bounced:'برگشت خورد', cancelled:'لغو شد'
 };
-function statusTag(s){ return `<span class="tag t-${esc(s)}">${esc(STATUS_LABEL[s]||s)}</span>`; }
+function statusTag(s){ return `<span class="tag t-${esc(s)}">${esc(T(STATUS_LABEL[s]||s))}</span>`; }
 
 /* ============================================================
    JALALI DATE CONVERSION
@@ -1877,6 +1914,7 @@ const LU = (()=> {
     ship: '<path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.7 5.4 1.62 6"/><path d="M12 10V2"/><path d="M12 2 8 6"/><path d="m16 6-4-4"/>',
     circle: '<circle cx="12" cy="12" r="10"/>',
     sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+    globe: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
   };
   const byNav = {
     dash:'dashboard', customers:'users', followups:'phone', invoices:'receipt', products:'bag',
@@ -1963,8 +2001,8 @@ const NAV_ADMIN = [
   {id:'products', icon:'🛍️', label:'کالاها'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'reports', icon:'📈', label:'گزارشات'},
-  {id:'ai', icon:'🤖', label:'دستیار AI'},
-  {id:'b2bOrders', icon:'🛒', label:'سفارشات B2B'},
+  {id:'ai', icon:'🤖', label:'دستیار هوشمند'},
+  {id:'b2bOrders', icon:'🛒', label:'سفارشات پورتال'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'settings', icon:'⚙️', label:'تنظیمات'},
@@ -1978,14 +2016,14 @@ const NAV_SALES = [
   {id:'catalog', icon:'🛍️', label:'کاتالوگ'},
   {id:'marketer', icon:'🛒', label:'فروش بازاریاب'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
-  {id:'ai', icon:'🤖', label:'دستیار AI'},
+  {id:'ai', icon:'🤖', label:'دستیار هوشمند'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'help', icon:'📖', label:'راهنما'},
 ];
 const NAV_ACCOUNTING = [
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'customers', icon:'👥', label:'مشتریان'},
-  {id:'ai', icon:'🤖', label:'دستیار AI'},
+  {id:'ai', icon:'🤖', label:'دستیار هوشمند'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'help', icon:'📖', label:'راهنما'},
 ];
@@ -2083,7 +2121,7 @@ function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
 function buildNav(){
   const linkHtml = it=>`
     <a href="#" data-page="${it.id}" onclick="go('${it.id}');return false;">
-      <span class="ico">${navIcon(it)}</span><span>${it.label}</span>
+      <span class="ico">${navIcon(it)}</span><span>${T(it.label)}</span>
       ${it.id==='messages'?'<span class="badge hide" id="msgBadge">0</span>':''}
       ${it.id==='reminders'?'<span class="badge hide" id="remBadge">0</span>':''}
     </a>`;
@@ -2094,12 +2132,12 @@ function buildNav(){
         const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements']);
         const filtered=items.filter(it=>allowed.has(it.id));
         if(!filtered.length) return '';
-        return `<div class="nav-section"><div class="nav-section-title nav-acc-head ${ACC_NAV_COLLAPSED.has(secIdx)?'':'open'}" onclick="toggleAccNavSection(${secIdx})">${sec.title}<span class="chev">▾</span></div><div class="nav-acc-items" style="display:${ACC_NAV_COLLAPSED.has(secIdx)?'none':'block'}">${filtered.map(linkHtml).join('')}</div></div>`;
+        return `<div class="nav-section"><div class="nav-section-title nav-acc-head ${ACC_NAV_COLLAPSED.has(secIdx)?'':'open'}" onclick="toggleAccNavSection(${secIdx})">${T(sec.title)}<span class="chev">▾</span></div><div class="nav-acc-items" style="display:${ACC_NAV_COLLAPSED.has(secIdx)?'none':'block'}">${filtered.map(linkHtml).join('')}</div></div>`;
       }
       if(!items.length) return '';
       const collapsed = ACC_NAV_COLLAPSED.has(secIdx);
       return `<div class="nav-section">
-        <div class="nav-section-title nav-acc-head ${collapsed?'':'open'}" onclick="toggleAccNavSection(${secIdx})">${sec.title}<span class="chev">▾</span></div>
+        <div class="nav-section-title nav-acc-head ${collapsed?'':'open'}" onclick="toggleAccNavSection(${secIdx})">${T(sec.title)}<span class="chev">▾</span></div>
         <div class="nav-acc-items" style="display:${collapsed?'none':'block'}">${items.map(linkHtml).join('')}</div>
       </div>`;
     }).join('');
@@ -2114,7 +2152,7 @@ function buildNav(){
 async function viewCustStatementFromDash(custId){
   stmtCustId = String(custId);
   IN_ACC_SHELL = true;
-  el('brandRole').textContent = '🧮 ماژول حسابداری';
+  el('brandRole').textContent = '🧮 '+T('ماژول حسابداری');
   buildNav();
   if(!CACHE.moduleFlags){
     api('GET','/settings/modules').then(f=>{ CACHE.moduleFlags=f||{}; buildNav(); }).catch(()=>{});
@@ -2123,7 +2161,7 @@ async function viewCustStatementFromDash(custId){
 }
 async function enterAccountingShell(){
   IN_ACC_SHELL = true;
-  el('brandRole').textContent = '🧮 ماژول حسابداری';
+  el('brandRole').textContent = '🧮 '+T('ماژول حسابداری');
   buildNav();
   go('acc-dash');
   if(!CACHE.moduleFlags){
@@ -2132,7 +2170,7 @@ async function enterAccountingShell(){
 }
 function exitAccountingShell(){
   IN_ACC_SHELL = false;
-  el('brandRole').textContent = isAdmin()?'پنل مدیریت':(ME.role==='accounting'||ME.role==='sales_manager')?'پنل حسابداری':'پنل فروش';
+  el('brandRole').textContent = isAdmin()?T('پنل مدیریت'):(ME.role==='accounting'||ME.role==='sales_manager')?T('پنل حسابداری'):T('پنل فروش');
   buildNav();
   go(ME.role==='accounting'||ME.role==='sales_manager'?'customers':'dash');
 }
@@ -2149,7 +2187,7 @@ function go(page){
   // حالت پنجره چندگانه: هر زیرمنوی حسابداری در پنجره جدا
   if(IN_ACC_SHELL && page.startsWith('acc-') && page!=='acc-dash' && window.WinMgr && WinMgr.enabled()){
     const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && ACC_NAV_SECTIONS.flatMap(s=>s.items).find(x=>x.id===page));
-    const title = (it && it.label) || page;
+    const title = (it && T(it.label)) || page;
     const opened = WinMgr.open(page, title, async (body)=>{
       // موقتاً view را به بدنه پنجره هدایت می‌کنیم
       const mainView = el('view');
@@ -2184,8 +2222,8 @@ function go(page){
   }
   CURRENT_PAGE = page;
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
-  const it = navItems().find(x=>x.id===page);
-  el('pageTitle').textContent = it?it.label:'';
+  const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && ACC_NAV_SECTIONS.flatMap(s=>s.items).find(x=>x.id===page));
+  el('pageTitle').textContent = it?T(it.label):'';
   if(window.innerWidth<=900) closeSidebar();
   updateBackBtn();
   // After every page render, shrink stat-card numbers that overflow their card
@@ -2240,13 +2278,13 @@ document.addEventListener('keydown',(e)=>{
    BOOT
 ============================================================ */
 function roleLabel(r){
-  if(r==='admin') return 'مدیر سیستم';
-  if(r==='accounting') return 'حسابدار';
-  if(r==='sales_manager') return 'مدیر فروش';
-  if(r==='inside_sales') return 'کارشناس داخلی';
-  if(r==='field_sales') return 'کارشناس میدانی';
-  if(r==='distribution_office') return 'دفتر پخش';
-  return 'کارشناس فروش';
+  if(r==='admin') return T('مدیر سیستم');
+  if(r==='accounting') return T('حسابدار');
+  if(r==='sales_manager') return T('مدیر فروش');
+  if(r==='inside_sales') return T('کارشناس داخلی');
+  if(r==='field_sales') return T('کارشناس میدانی');
+  if(r==='distribution_office') return T('دفتر پخش');
+  return T('کارشناس فروش');
 }
 /* Render a contextual help tooltip icon */
 function hlp(tip){ return `<span class="hlp" data-tip="${tip.replace(/"/g,'&quot;')}">?</span>`; }
@@ -2276,7 +2314,7 @@ async function boot(){
   syncServerTime(); // refresh offset after login (non-blocking)
   el('userName').textContent = ME.name;
   el('userRole').textContent = roleLabel(ME.role);
-  el('brandRole').textContent = isAdmin()?'پنل مدیریت':(ME.role==='accounting'||ME.role==='sales_manager')?'پنل حسابداری':'پنل فروش';
+  el('brandRole').textContent = isAdmin()?T('پنل مدیریت'):(ME.role==='accounting'||ME.role==='sales_manager')?T('پنل حسابداری'):T('پنل فروش');
   el('avatar').textContent = (ME.name||'؟').trim().charAt(0);
   syncAcctDrawerUser();
   buildNav();
@@ -2293,6 +2331,7 @@ async function boot(){
   window.__canSeeCost = !!(ME.role==='admin' || ME.role==='accounting' || canPerm('production_cost','view'));
   initOmnibox();
   initNotifications();
+  if(typeof applyAppLanguage==='function') applyAppLanguage();
 }
 
 /* ===== Command Palette (Ctrl+K) ===== */
@@ -3089,7 +3128,7 @@ function renderCustTable(){
       ${editable?`<button class="btn sm red" onclick="confirmDelete('customers',${c.id},'${esc(c.biz)}')">🗑️</button>`:''}</td>
     <td>${esc(c.city||'-')}</td>
     ${tdClip(c.address||'-', 200, true)}
-    <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" style="background:#dbeafe;color:#1d4ed8" title="دسترسی پورتال B2B فعال">B2B</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="ریسک ریزش مشتری (تحلیل AI)">⚠️${c.churn_score}٪</span>`:''}</td>
+    <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" style="background:#dbeafe;color:#1d4ed8" title="${esc(T('دسترسی پورتال مشتریان فعال'))}">${T('پورتال')}</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="${esc(T('ریسک ریزش مشتری'))}">⚠️${c.churn_score}٪</span>`:''}</td>
     <td>${natureLabel[nature]||nature||'—'}${c.party_group_name?`<div class="muted" style="font-size:11px">${esc(c.party_group_name)}</div>`:''}${c.group_name?`<div class="muted" style="font-size:11px">${esc(c.group_name)}</div>`:''}</td>
     <td class="mono" data-sort="${bal}" style="color:${bal>0?'#dc2626':bal<0?'var(--green)':'var(--muted)'}">${bal!==0?fmt(bal)+' ریال':'-'}</td>
     ${isAdm?`<td class="muted">${esc(c.salesperson||'-')}</td>`:''}
@@ -3216,14 +3255,14 @@ async function custModal(id){
       </div>
       ${custExtraFieldsHtml(c)}
       ${id&&isAdmin()&&editable&&!(APP_INFO&&APP_INFO.role==='device')?`<div class="fg full" style="border-top:1px dashed var(--border);margin-top:8px;padding-top:12px">
-        <p style="font-weight:600;margin-bottom:8px">🛒 پورتال B2B ${hlp('با فعال‌سازی، مشتری می‌تواند با شماره موبایل خود وارد پورتال شود، کاتالوگ را ببیند، سفارش ثبت کند و صورتحسابش را مشاهده کند. سفارش‌ها به‌صورت پیش‌فاکتور به نام کارشناس مشتری ثبت می‌شوند.')}</p>
+        <p style="font-weight:600;margin-bottom:8px">🛒 ${T('پورتال مشتریان')} ${hlp('با فعال‌سازی، مشتری می‌تواند با شماره موبایل خود وارد پورتال شود، کاتالوگ را ببیند، سفارش ثبت کند و صورتحسابش را مشاهده کند. سفارش‌ها به‌صورت پیش‌فاکتور به نام کارشناس مشتری ثبت می‌شوند.')}</p>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500;margin-bottom:8px">
           <input type="checkbox" id="c-b2b-enabled" ${c.b2b_enabled?'checked':''} style="width:auto">
           دسترسی مشتری به پورتال فعال باشد
         </label>
         <div class="fg" style="margin-bottom:8px"><label>رمز عبور پورتال ${hlp('حداقل ۶ کاراکتر. اگر خالی بگذارید رمز قبلی حفظ می‌شود (یا مشتری با کد پیامکی وارد می‌شود).')}</label>
           <input id="c-b2b-pass" type="password" placeholder="رمز جدید (اختیاری)" autocomplete="new-password"></div>
-        <button class="btn sm blue" type="button" onclick="saveB2BAccess(${id})">💾 ذخیره دسترسی B2B</button>
+        <button class="btn sm blue" type="button" onclick="saveB2BAccess(${id})">💾 ${T('ذخیره دسترسی پورتال')}</button>
       </div>`:''}
     </div></div>
     <div class="modal-foot">
@@ -3240,7 +3279,7 @@ async function saveB2BAccess(id){
   await api('POST','/b2b/admin/customers/'+id+'/access',{enabled:!!enabled, phone:c.phone, password});
   await reloadCustomers();
   if(CURRENT_PAGE==='customers') renderCustTable();
-  showToast(enabled?'دسترسی پورتال B2B فعال شد':'دسترسی پورتال B2B غیرفعال شد');
+  showToast(enabled?'دسترسی پورتال مشتریان فعال شد':'دسترسی پورتال مشتریان غیرفعال شد');
 }
 function updateCityDropdown(prov){
   const sel = el('c-city'); if(!sel) return;
@@ -3847,7 +3886,7 @@ async function _openInvBuilder(id){
         <div class="fg"><label><input type="checkbox" id="inv-vat-exempt" ${inv&&inv.vat_exempt?'checked':''} style="width:auto;margin-left:6px"> معاف از مالیات</label></div>
         <div class="fg"><label>نوع صورتحساب مودیان</label>
           <select id="inv-moadian-type">
-            <option value="1" ${!inv||Number(inv.moadian_invoice_type||1)===1?'selected':''}>نوع ۱ — B2B</option>
+            <option value="1" ${!inv||Number(inv.moadian_invoice_type||1)===1?'selected':''}>${T('نوع ۱ — کسب‌وکار به کسب‌وکار')}</option>
             <option value="2" ${inv&&Number(inv.moadian_invoice_type)===2?'selected':''}>نوع ۲ — B2C</option>
             <option value="3" ${inv&&Number(inv.moadian_invoice_type)===3?'selected':''}>نوع ۳ — پایانه</option>
           </select>
@@ -5082,11 +5121,11 @@ async function openRbacMatrix(userId){
   const { resources, actions, permissions } = data;
   const RBAC_RES_FA={
     customers:'مشتریان', parties:'اشخاص', products:'کالاها', invoices:'فاکتورها',
-    followups:'پیگیری‌ها', accounting:'حسابداری', reports:'گزارش‌ها', ai:'دستیار AI',
+    followups:'پیگیری‌ها', accounting:'حسابداری', reports:'گزارش‌ها', ai:'دستیار هوشمند',
     settings:'تنظیمات', backup:'پشتیبان‌گیری', users:'کاربران', stocktaking:'انبارگردانی',
     messages:'پیام‌ها', reps:'نمایندگان فروش', dashboard:'داشبورد',
     journal_vouchers:'اسناد حسابداری', payroll:'حقوق و دستمزد', fixed_assets:'دارایی ثابت',
-    moadian:'سامانه مودیان', production:'تولید', production_bom:'فرمول ساخت (BOM)',
+    moadian:'سامانه مودیان', production:'تولید', production_bom:'فرمول ساخت',
     production_cost:'بهای تمام‌شده تولید', production_close:'بستن دوره تولید',
     production_reports:'گزارش‌های تولید', portal:'پورتال عملیاتی', budgeting:'بودجه‌بندی',
     bank_reconciliation:'مغایرت‌گیری بانکی'
@@ -5547,7 +5586,7 @@ ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای �
 ROUTES['acc-adv-reports']=()=>renderAccPage('adv-reports','📊','گزارشات پیشرفته');
 ROUTES['acc-production']=()=>{ location.hash='acc-production-dashboard'; };
 ROUTES['acc-production-orders']=()=>renderAccPage('production-orders','🏭','سفارش‌های تولید');
-ROUTES['acc-production-boms']=()=>renderAccPage('production-boms','📋','فرمول تولید (BOM)');
+ROUTES['acc-production-boms']=()=>renderAccPage('production-boms','📋',T('فرمول تولید'));
 ROUTES['acc-production-dashboard']=()=>renderAccPage('production-dashboard','📊','داشبورد تولید');
 ROUTES['acc-production-close']=()=>renderAccPage('production-close','🔒','بستن دوره تولید');
 ROUTES['acc-production-monthly-profit']=()=>renderAccPage('production-monthly-profit','💰','سود دقیق ماهانه');
@@ -5599,8 +5638,8 @@ async function loadAccTab(tab){
       {label:'فروش ناخالص (مجموع فاکتورهای رسمی)',val:g.subtotal||0,color:'var(--green)'},
       {label:'تخفیفات اعمال شده',val:-(g.discAmt||0),color:'var(--red)'},
       {label:'درآمد خالص فروش',val:g.revenue||0,color:'var(--purple)',bold:true},
-      {label:'مالیات فروش (خروجی VAT)',val:g.vatOutput||0,color:'var(--orange)'},
-      {label:'مالیات خرید (ورودی VAT)',val:-(g.vatInput||0),color:'var(--blue)'},
+      {label:T('مالیات بر ارزش افزوده فروش'),val:g.vatOutput||0,color:'var(--orange)'},
+      {label:T('مالیات بر ارزش افزوده خرید'),val:-(g.vatInput||0),color:'var(--blue)'},
       {label:'مالیات خالص قابل پرداخت',val:g.netVatPayable||0,color:(g.netVatPayable||0)>=0?'var(--red)':'var(--green)',bold:true},
       {label:'بهای تمام‌شده کالای فروش‌رفته',val:-(g.cogs||0),color:'var(--red)'},
       {label:'سود ناخالص',val:g.grossProfit||0,color:(g.grossProfit||0)>=0?'var(--green)':'var(--red)',bold:true},
@@ -5916,8 +5955,8 @@ async function loadAccTab(tab){
         <span class="muted" style="font-size:12px">فیلتر تاریخ از نوار بالا اعمال می‌شود</span>
         <div style="flex:1"></div>
         <button class="btn sm ghost" onclick="exportStatement('excel')" ${stmtCustId?'':'disabled'}>📥 اکسل</button>
-        <button class="btn sm ghost" onclick="exportStatement('csv')" ${stmtCustId?'':'disabled'}>📄 CSV</button>
-        <button class="btn sm ghost" onclick="exportStatement('pdf')" ${stmtCustId?'':'disabled'}>🖨️ PDF</button>
+        <button class="btn sm ghost" onclick="exportStatement('csv')" ${stmtCustId?'':'disabled'}>📄 ${T('سی‌اس‌وی')}</button>
+        <button class="btn sm ghost" onclick="exportStatement('pdf')" ${stmtCustId?'':'disabled'}>🖨️ ${T('پی‌دی‌اف')}</button>
         <button class="btn sm ghost" onclick="sendStatementImage()" ${stmtCustId?'':'disabled'}>📤 ارسال تصویری به پیام‌رسان</button>
       </div>
       <div id="stmtBody">${stmtCustId?'<div class="muted">در حال بارگذاری...</div>':'<div class="empty" style="padding:30px">یک مشتری را برای مشاهده صورت‌حساب انتخاب کنید</div>'}</div>`;
@@ -7742,7 +7781,7 @@ async function renderProductionBomsTab(body){
     <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
       <button class="btn" onclick="prodBomCreateModal()">➕ فرمول جدید</button>
       <button class="btn secondary" onclick="loadAccTab('production-boms')">🔄 تازه‌سازی</button>
-      <span style="color:var(--muted);font-size:13px">فرمول ساخت (BOM) — پیش‌نویس بسازید، اقلام را اضافه کنید، سپس فعال کنید</span>
+      <span style="color:var(--muted);font-size:13px">فرمول ساخت — پیش‌نویس بسازید، اقلام را اضافه کنید، سپس فعال کنید</span>
     </div>
     ${missing.length?`<div class="muted" style="margin-bottom:10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--well)">
       ⚠️ ${toFa(missing.length)} کالای تولیدی بدون فرمول فعال:
@@ -8049,7 +8088,7 @@ async function renderProductionDashboardTab(body){
       ${statCard('g','📦',fmt(k.produced?.value||0),'تولید (عدد)')}
       ${statCard('b','💰',prodFmtToman(k.unit_cost?.value_rial),'بهای واحد (ت)')}
       ${statCard('o','⚙️',(k.yield?.value_pct??0)+'٪','بهره‌وری')}
-      ${statCard('r','🏗',prodFmtToman(k.wip?.value_rial),'WIP (ت)')}
+      ${statCard('r','🏗',prodFmtToman(k.wip?.value_rial),'کار در جریان ساخت (ت)')}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
       <div class="panel"><div class="panel-head"><h4>روند بهای واحد</h4></div>
@@ -8165,7 +8204,7 @@ async function renderProductionMonthlyProfitTab(body){
     ${r?`<div class="panel"><div class="panel-head"><h4>صورت سود — ${esc(period)} (${esc(d.period_status||'')})</h4></div>
       <div class="panel-body"><table class="tbl" style="font-size:13px"><tbody>
         <tr><td>فروش خالص</td><td class="mono">${prodFmtToman(d.sales?.net_rial)} ریال</td></tr>
-        <tr><td>بهای تمام‌شده (COGS)</td><td class="mono">${prodFmtToman(d.cogs?.total_rial)} ریال</td></tr>
+        <tr><td>بهای تمام‌شده کالای فروش‌رفته</td><td class="mono">${prodFmtToman(d.cogs?.total_rial)} ریال</td></tr>
         <tr style="font-weight:700"><td>سود ناخالص</td><td class="mono">${prodFmtToman(r.totals?.gross_profit_rial)} ریال (${r.totals?.gross_margin_pct||0}٪)</td></tr>
         <tr style="font-weight:700"><td>سود عملیاتی</td><td class="mono">${prodFmtToman(r.totals?.operating_profit_rial)} ریال</td></tr>
       </tbody></table>
@@ -8174,7 +8213,7 @@ async function renderProductionMonthlyProfitTab(body){
         <li>${chk.labor_control_zero?'✅':'🔴'} کنترل دستمزد ۵۲۰۱</li>
         <li>${chk.overhead_control_zero?'✅':'🔴'} کنترل سربار ۵۲۰۲</li>
         <li>${chk.overhead_applied_zero?'✅':'🔴'} سربار جذب‌شده ۵۲۰۳</li>
-        <li>${chk.wip_matches_ledger?'✅':'🔴'} WIP = دفتر کل</li>
+        <li>${chk.wip_matches_ledger?'✅':'🔴'} کار در جریان = دفتر کل</li>
       </ul></div></div>`:'<div class="muted">گزارش در دسترس نیست (نیاز به نقش admin/accounting)</div>'}`;
 }
 function prodProfitLoad(){
@@ -8196,7 +8235,7 @@ async function renderProductionCostSheetTab(body){
       </label>
       <button class="btn" onclick="prodCostSheetLoad()">📄 بارگذاری</button>
       <button class="btn secondary" onclick="prodCostSheetPrint()" disabled id="pcs-btn-print">🖨 چاپ</button>
-      <button class="btn secondary" onclick="prodCostSheetExcel()" disabled id="pcs-btn-excel">📥 Excel</button>
+      <button class="btn secondary" onclick="prodCostSheetExcel()" disabled id="pcs-btn-excel">📥 اکسل</button>
     </div>
     <div id="pcs-sheet-area"><div class="muted">سفارش را انتخاب کنید.</div></div>`;
   if(presetId) await prodCostSheetLoad();
@@ -8264,7 +8303,7 @@ async function prodCostSheetLoad(){
           <td class="num">${prodFmtToman(st.cost_out_rial)}</td>
         </tr>`).join('')||emptyRow(8)}
       </tbody></table></div>
-      <p style="font-size:11px;color:var(--muted);margin-top:12px">WIP باقیمانده: ${prodFmtToman(sheet.data?.wip_rial)} ریال · ${sheet.data?.balanced?'✅ متوازن':'⚠️ نامتوازن'}</p>
+      <p style="font-size:11px;color:var(--muted);margin-top:12px">کار در جریان باقیمانده: ${prodFmtToman(sheet.data?.wip_rial)} ریال · ${sheet.data?.balanced?'✅ متوازن':'⚠️ نامتوازن'}</p>
     </div>`;
 }
 function prodCostSheetPrint(){ window.print(); }
@@ -8779,7 +8818,7 @@ async function renderProductionOrdersTab(body){
 function prodOrderErrMsg(e){
   const code=e?.code||e?.message||'';
   const map={
-    E_NO_ACTIVE_BOM:'برای این کالا فرمول BOM فعال وجود ندارد — ابتدا در «فرمول تولید» بسازید و فعال کنید',
+    E_NO_ACTIVE_BOM:'برای این کالا فرمول ساخت فعال وجود ندارد — ابتدا در «فرمول تولید» بسازید و فعال کنید',
     E_BOM_NOT_ACTIVE:'فرمول انتخاب‌شده فعال نیست',
     E_QTY_INVALID:'محصول و تعداد برنامه را درست وارد کنید',
     E_PERIOD_CLOSED:'دوره مالی/تولید بسته است',
@@ -8799,24 +8838,24 @@ async function prodOrderCreateModal(){
     let mfg=all.filter(p=>p.is_manufactured==1||p.item_type==='finished'||activeBomProductIds.has(Number(p.id)));
     if(!mfg.length) mfg=all.slice(0,200);
     const wh=(CACHE.warehouses||[]).filter(w=>w.active!==0);
-    const warn=!activeBomProductIds.size?'⚠️ هنوز BOM فعال ندارید — اول در «فرمول تولید» بسازید و فعال کنید.':'';
+    const warn=!activeBomProductIds.size?'⚠️ هنوز فرمول ساخت فعال ندارید — اول در «فرمول تولید» بسازید و فعال کنید.':'';
     window._prodCreateBoms=boms||[];
     showModal('سفارش تولید جدید',`
       ${warn?`<div class="muted" style="margin-bottom:10px;color:var(--state-warn,#E67E22)">${warn}</div>`:''}
       <div class="form-grid">
         <div class="fg"><label>محصول</label>
-          <select id="po-product" onchange="prodOrderFilterBoms()">${mfg.length?mfg.map(p=>`<option value="${p.id}">${esc(p.name)}${activeBomProductIds.has(Number(p.id))?' ✓BOM':''}</option>`).join(''):'<option value="">کالایی یافت نشد</option>'}</select>
+          <select id="po-product" onchange="prodOrderFilterBoms()">${mfg.length?mfg.map(p=>`<option value="${p.id}">${esc(p.name)}${activeBomProductIds.has(Number(p.id))?' ✓فرمول':''}</option>`).join(''):'<option value="">کالایی یافت نشد</option>'}</select>
         </div>
-        <div class="fg"><label>فرمول BOM</label>
+        <div class="fg"><label>فرمول ساخت</label>
           <select id="po-bom"><option value="">— خودکار (پیش‌فرض فعال) —</option></select>
         </div>
         <div class="fg"><label>تعداد برنامه</label><input id="po-qty" type="number" min="1" value="300"></div>
         <div class="fg"><label>نوع آنالیز</label>
           <select id="po-analysis">
-            <option value="fixed">ثابت (Module 2)</option>
-            <option value="variable">متغیر (Module 3)</option>
-            <option value="fixed_adv">ثابت پیشرفته — مرحله‌ای (Module 7)</option>
-            <option value="variable_adv">متغیر پیشرفته — مرحله‌ای (Module 8)</option>
+            <option value="fixed">ثابت (ماژول ۲)</option>
+            <option value="variable">متغیر (ماژول ۳)</option>
+            <option value="fixed_adv">ثابت پیشرفته — مرحله‌ای (ماژول ۷)</option>
+            <option value="variable_adv">متغیر پیشرفته — مرحله‌ای (ماژول ۸)</option>
           </select></div>
         <div class="fg"><label>انبار مواد</label>
           <select id="po-wh-raw"><option value="">— پیش‌فرض —</option>${wh.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
@@ -8895,7 +8934,7 @@ async function prodOrderReceiptModal(id){
   const remain=Math.max(0, planned-produced);
   const defQty=remain>0?remain:planned||1;
   try{ preview=await api('GET','/production/orders/'+id+'/preview?qty_produced='+encodeURIComponent(defQty)); }catch(e){ preview=null; }
-  const unitHint=preview?.costs?.unit_cost_rial!=null?('برآورد بهای واحد: '+fmt(preview.costs.unit_cost_rial)+' ریال'):'دستمزد از BOM/نرخ مرکز؛ سربار از نرخ مرکز هزینه';
+  const unitHint=preview?.costs?.unit_cost_rial!=null?('برآورد بهای واحد: '+fmt(preview.costs.unit_cost_rial)+' ریال'):'دستمزد از فرمول ساخت/نرخ مرکز؛ سربار از نرخ مرکز هزینه';
   showModal('رسید تولید — '+esc(order.order_no||''),`
     <p class="muted" style="font-size:12px;margin-bottom:10px">برنامه: ${toFa(planned)} · تولیدشده: ${toFa(produced)} · باقیمانده: ${toFa(remain)}</p>
     <div class="form-grid">
@@ -9217,7 +9256,7 @@ async function prodStageSubReceive(orderId,stageId,operationId){
       <div class="fg"><label>مقدار دریافتی *</label><input id="psr-qty" type="number" min="0" step="0.01" value="0"></div>
       <div class="fg"><label>ضایعات</label><input id="psr-waste" type="number" min="0" step="0.01" value="0"></div>
       <div class="fg"><label>مفقودی</label><input id="psr-lost" type="number" min="0" step="0.01" value="0"></div>
-      <div class="fg"><label>کارمزد واحد (ریال) — خالی = از BOM</label><input id="psr-fee" type="number" min="0" placeholder="${feeToman||'از فرمول'}" value=""></div>
+      <div class="fg"><label>کارمزد واحد (ریال) — خالی = از فرمول ساخت</label><input id="psr-fee" type="number" min="0" placeholder="${feeToman||'از فرمول'}" value=""></div>
       <div class="fg"><label>تاریخ</label><input id="psr-date" value="${todayJalali()}"></div>
     </div>
     <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
@@ -13156,8 +13195,8 @@ async function loadRepDetail(id){
           <button class="btn sm ghost" onclick="repCommissionTiersModal(${id},${JSON.stringify(ledger.rep.name)})">📊 پله‌ای</button>
           <button class="btn sm ghost" onclick="repReportsModal(${id},${JSON.stringify(ledger.rep.name)})">📋 گزارشات</button>
           <button class="btn sm ghost" onclick="repAdjustModal(${id})">✏️ تعدیل</button>
-          <button class="btn sm ghost" onclick="repExportExcel(${id})">📥 اکسل</button>
-          <button class="btn sm ghost" onclick="repExportPdf(${id})">🖨️ PDF</button>
+          <button class="btn sm ghost" onclick="repExportExcel(${id})">📥 ${T('اکسل')}</button>
+          <button class="btn sm ghost" onclick="repExportPdf(${id})">🖨️ ${T('پی‌دی‌اف')}</button>
           <button class="btn sm ghost" onclick="repTeamModal(${id},${JSON.stringify(ledger.rep.name)})">👥 تیم</button>
           <button class="btn sm ghost" onclick="repContractModal(${id},${JSON.stringify(ledger.rep.name)},${JSON.stringify(contract?.url||'')})">📄 قرارداد</button>
         </div>
@@ -13272,7 +13311,7 @@ async function repExportPdf(repId){
     const r=await fetch('/api/reps/'+repId+'/export/pdf'+repDateQuery(),{headers:{'Authorization':'Bearer '+token}});
     const html=await r.text();
     const w=window.open('','_blank'); w.document.write(html); w.document.close();
-  }catch(e){ showToast('خطا در PDF','error'); }
+  }catch(e){ showToast('خطا در پی‌دی‌اف','error'); }
 }
 async function repSettleModal(repId,repName,payable){
   openModal(`
@@ -14114,9 +14153,9 @@ async function runAiConsult(){
   }catch(e){ if(box) box.innerHTML='<div class="muted">خطا در دریافت پاسخ</div>'; }
 }
 async function runAiRefresh(){
-  showToast('در حال اجرای تحلیل AI...');
+  showToast('در حال اجرای تحلیل هوشمند...');
   const r = await api('POST','/ai/insights/refresh',{weekly:true});
-  if(r && r.ok){ showToast('تحلیل AI انجام شد'); CACHE.customers=[]; ROUTES.ai(); }
+  if(r && r.ok){ showToast('تحلیل هوشمند انجام شد'); CACHE.customers=[]; ROUTES.ai(); }
 }
 async function runMyAiSummary(){
   const box=el('myAiBody'); if(!box) return;
@@ -14133,7 +14172,7 @@ async function runMyAiSummary(){
 ROUTES.b2bOrders = async function(){
   if(!isAdmin()){ el('view').innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
   if(APP_INFO && APP_INFO.role==='device'){
-    el('view').innerHTML='<div class="empty">پورتال B2B فقط روی سرور مرکزی (نسخه وب) فعال است.</div>'; return;
+    el('view').innerHTML='<div class="empty">پورتال مشتریان فقط روی سرور مرکزی (نسخه وب) فعال است.</div>'; return;
   }
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
   let rows=[];
@@ -14141,10 +14180,10 @@ ROUTES.b2bOrders = async function(){
   const featureOff = !(CACHE.settings&&CACHE.settings.feature_b2b_portal==='1');
   el('view').innerHTML=`
     ${featureOff?`<div class="panel"><div class="panel-body" style="background:#fffbeb;border-radius:12px">
-      ⚠️ پورتال B2B غیرفعال است — از <a href="#" onclick="go('settings');return false" style="color:var(--purple);font-weight:600">تنظیمات</a> بخش «پورتال مشتریان B2B» آن را فعال کنید.
+      ⚠️ پورتال مشتریان غیرفعال است — از <a href="#" onclick="go('settings');return false" style="color:var(--purple);font-weight:600">تنظیمات</a> بخش «پورتال مشتریان» آن را فعال کنید.
     </div></div>`:''}
-    <div class="panel"><div class="panel-head"><h4>🛒 سفارشات پورتال B2B</h4>
-      <button class="btn sm ghost" onclick="ROUTES.b2bOrders()">🔄 بروزرسانی</button></div>
+    <div class="panel"><div class="panel-head"><h4>🛒 ${T('سفارشات پورتال')}</h4>
+      <button class="btn sm ghost" onclick="ROUTES.b2bOrders()">🔄 ${T('بروزرسانی')}</button></div>
     <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
       <th>#</th><th>مشتری</th><th>پیش‌فاکتور</th><th>اقلام</th><th>مبلغ</th><th>یادداشت</th><th>تاریخ ثبت</th><th>وضعیت فاکتور</th>
     </tr></thead><tbody>
@@ -14249,7 +14288,7 @@ async function b2bBoot(){
   B2B.cart=[];
   el('b2bContent').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <div><strong>${esc(B2B.customer?.biz||'پورتال B2B')}</strong></div>
+      <div><strong>${esc(B2B.customer?.biz||'پورتال مشتریان')}</strong></div>
       <button class="btn sm ghost" onclick="b2bLogout()">خروج</button>
     </div>
     <div class="b2b-tabs">
@@ -14800,26 +14839,30 @@ function invoiceTemplateSettingsHtml(s){
 
 
 const SETT_TABS = [
-  {id:'general', icon:'building', label:'عمومی', meta:'شرکت، پول، پنجره', keys:'شرکت نام تلفن آدرس ریال واحد پولی پنجره چندگانه به‌روزرسانی دسکتاپ'},
+  {id:'general', icon:'building', label:'عمومی', meta:'شرکت، پول، پنجره، زبان', keys:'شرکت نام تلفن آدرس ریال واحد پولی پنجره چندگانه به‌روزرسانی دسکتاپ زبان فارسی انگلیسی language'},
   {id:'users', icon:'users', label:'کاربران', meta:'نقش و دسترسی', keys:'کاربران user نقش دسترسی رمز مدیر حسابدار کارشناس'},
   {id:'invoice', icon:'receipt', label:'قالب فاکتور', meta:'رسمی، عادی، حرارتی', keys:'فاکتور قالب رسمی عادی حرارتی کاغذ لوگو پاورقی چاپ A4 A5'},
-  {id:'messaging', icon:'chat', label:'پیام‌رسان', meta:'تلگرام، روبیکا، خوش‌آمد', keys:'تلگرام روبیکا خوش‌آمد کیمیا bot token'},
-  {id:'sms', icon:'phone', label:'پیامک', meta:'سرویس و قالب‌ها', keys:'پیامک sms کاوه‌نگار قالب زمان‌بندی سرویس‌دهنده'},
-  {id:'backup', icon:'archive', label:'پشتیبان', meta:'بکاپ و بازیابی', keys:'پشتیبان backup بکاپ رمزنگاری بازیابی dump'},
+  {id:'messaging', icon:'chat', label:'پیام‌رسان', meta:'تلگرام، روبیکا، خوش‌آمد', keys:'تلگرام روبیکا خوش‌آمد کیمیا'},
+  {id:'sms', icon:'phone', label:'پیامک', meta:'سرویس و قالب‌ها', keys:'پیامک کاوه‌نگار قالب زمان‌بندی سرویس‌دهنده'},
+  {id:'backup', icon:'archive', label:'پشتیبان', meta:'پشتیبان و بازیابی', keys:'پشتیبان بکاپ رمزنگاری بازیابی'},
   {id:'api', icon:'plug', label:'API', meta:'کلید و وب‌هوک', keys:'api کلید webhook n8n scope rate limit'},
-  {id:'web', icon:'plug', label:'وب‌سایت', meta:'سینک موجودی ووکامرس', keys:'وب‌سایت موجودی ووکامرس webhook stock poshaktaranom'},
-  {id:'accounting', icon:'wallet', label:'حسابداری', meta:'کدینگ، سال مالی، ماژول', keys:'کدینگ حساب نگاشت سال مالی ماژول تنخواه انبار تولید حقوق VAT فاکتور پیشوند'},
-  {id:'features', icon:'sparkles', label:'قابلیت‌ها', meta:'AI و پورتال B2B', keys:'هوش مصنوعی AI کلود B2B پورتال مشتری'},
-  {id:'audit', icon:'clipboard', label:'ممیزی', meta:'گزارش فعالیت کاربران', keys:'ممیزی audit لاگ گزارش کاربر'},
-  {id:'danger', icon:'lock', label:'منطقه خطر', meta:'حذف دیتای تست', keys:'حذف wipe تست دیتا بازنشانی خطرناک'}
+  {id:'web', icon:'plug', label:'وب‌سایت', meta:'همگام‌سازی موجودی فروشگاه', keys:'وب‌سایت موجودی ووکامرس همگام'},
+  {id:'accounting', icon:'wallet', label:'حسابداری', meta:'کدینگ، سال مالی، ماژول', keys:'کدینگ حساب نگاشت سال مالی ماژول تنخواه انبار تولید حقوق مالیات فاکتور پیشوند'},
+  {id:'features', icon:'sparkles', label:'قابلیت‌ها', meta:'هوش مصنوعی و پورتال مشتریان', keys:'هوش مصنوعی پورتال مشتری'},
+  {id:'audit', icon:'clipboard', label:'ممیزی', meta:'گزارش فعالیت کاربران', keys:'ممیزی لاگ گزارش کاربر'},
+  {id:'danger', icon:'lock', label:'منطقه خطر', meta:'حذف دیتای تست', keys:'حذف تست دیتا بازنشانی خطرناک'}
 ];
 let SETT_ACTIVE_TAB = 'general';
 const SETT_NO_SAVE = new Set(['sms','backup','audit','danger','users','api']);
 function settNavHtml(){
-  return SETT_TABS.map(t=>`<button type="button" class="sett-nav-btn${t.id===SETT_ACTIVE_TAB?' active':''}" data-sett-tab="${t.id}" data-sett-keys="${t.keys}" onclick="settShowTab('${t.id}')">
+  return SETT_TABS.map(t=>{
+    const label = t.id==='api' ? t.label : T(t.label);
+    const meta = t.id==='api' ? t.meta : T(t.meta);
+    return `<button type="button" class="sett-nav-btn${t.id===SETT_ACTIVE_TAB?' active':''}" data-sett-tab="${t.id}" data-sett-keys="${t.keys}" onclick="settShowTab('${t.id}')">
     <span class="ico">${lucide(t.icon)}</span>
-    <span><b style="font-weight:700">${t.label}</b><span class="sett-nav-meta">${t.meta}</span></span>
-  </button>`).join('');
+    <span><b style="font-weight:700">${label}</b><span class="sett-nav-meta">${meta}</span></span>
+  </button>`;
+  }).join('');
 }
 function settShowTab(id){
   SETT_ACTIVE_TAB = id || 'general';
@@ -14885,7 +14928,18 @@ ROUTES.settings = async function(){
       <div class="fg"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}"></div>
       <div class="fg full"><label>آدرس شرکت</label><input id="s-company_address" value="${esc(s.company_address||'')}"></div>
     </div></div></div>
-    <div class="panel"><div class="panel-head"><h4>${lucide('coins')} واحد پولی</h4></div><div class="panel-body">
+    <div class="panel"><div class="panel-head"><h4>${lucide('globe')} ${T('زبان برنامه')}</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">${T('زبان نمایش برنامه را انتخاب کنید. بخش API در هر دو زبان اصطلاحات فنی انگلیسی را نگه می‌دارد.')}</div>
+      <div class="form-grid">
+        <div class="fg"><label>${T('زبان برنامه')}</label>
+          <select id="s-app_lang" onchange="onSettingsLangChange(this.value)">
+            <option value="fa" ${getAppLang()==='fa'?'selected':''}>${T('فارسی')}</option>
+            <option value="en" ${getAppLang()==='en'?'selected':''}>${T('انگلیسی')}</option>
+          </select>
+        </div>
+      </div>
+    </div></div>
+    <div class="panel"><div class="panel-head"><h4>${lucide('coins')} ${T('واحد پولی')}</h4></div><div class="panel-body">
       <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
         <b>مبنای ذخیره‌سازی:</b> ریال — همه مبالغ در دیتابیس به ریال ذخیره می‌شوند.<br>
         <b>نمایش:</b> مبالغ در کل برنامه فقط به <b>ریال</b> نمایش داده می‌شوند.
@@ -14911,13 +14965,13 @@ ROUTES.settings = async function(){
 
   const messagingPanel = `
     <div class="panel"><div class="panel-head"><h4>${lucide('radio')} تلگرام</h4></div><div class="panel-body"><div class="form-grid">
-      <div class="fg"><label>Bot Token</label><input id="s-telegram_bot_token" value="${esc(s.telegram_bot_token||'')}" dir="ltr"></div>
-      <div class="fg"><label>Chat ID</label><input id="s-telegram_chat_id" value="${esc(s.telegram_chat_id||'')}" dir="ltr"></div>
+      <div class="fg"><label>رمز ربات تلگرام</label><input id="s-telegram_bot_token" value="${esc(s.telegram_bot_token||'')}" dir="ltr"></div>
+      <div class="fg"><label>شناسه گفتگو</label><input id="s-telegram_chat_id" value="${esc(s.telegram_chat_id||'')}" dir="ltr"></div>
     </div></div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('chat')} روبیکا — ارسال تصویر فاکتور تأییدشده</h4></div><div class="panel-body">
       <div style="margin-bottom:12px">${settToggle('s-rubika_invoice_enabled', s.rubika_invoice_enabled==='1', 'ارسال به روبیکا هنگام تأیید فاکتور', 'خلاصه متنی و تصویر فاکتور پس از تأیید حسابداری')}</div>
       <div class="form-grid">
-        <div class="fg"><label>Bot Token روبیکا</label><input id="s-rubika_bot_token" value="${esc(s.rubika_bot_token||'')}" dir="ltr"></div>
+        <div class="fg"><label>رمز ربات روبیکا</label><input id="s-rubika_bot_token" value="${esc(s.rubika_bot_token||'')}" dir="ltr"></div>
         <div class="fg"><label>شناسه چت / GUID مقصد</label><input id="s-rubika_chat_id" value="${esc(s.rubika_chat_id||'')}" dir="ltr" placeholder="مثلاً b0… یا chat_id"></div>
       </div>
     </div></div>
@@ -14958,10 +15012,10 @@ ROUTES.settings = async function(){
           <option value="push" ${s.website_stock_sync_mode==='push'?'selected':''}>Push به ووکامرس</option>
           <option value="both" ${s.website_stock_sync_mode==='both'?'selected':''}>هر دو</option>
         </select></div>
-        <div class="fg full"><label>Webhook URL موجودی (رویداد product.stock)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com/wp-json/…/stock"></div>
+        <div class="fg full"><label>آدرس وب‌هوک موجودی (رویداد موجودی کالا)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com/wp-json/…/stock"></div>
         <div class="fg"><label>آدرس ووکامرس</label><input id="s-website_wc_url" value="${esc(s.website_wc_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
-        <div class="fg"><label>Consumer Key</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
-        <div class="fg"><label>Consumer Secret</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
+        <div class="fg"><label>کلید مصرف‌کننده</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
+        <div class="fg"><label>رمز مصرف‌کننده</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
         <div class="fg full muted" style="font-size:12px;line-height:1.7">
           <b>روش پیشنهادی (Pull):</b> در وب‌سایت با API Key از
           <code dir="ltr">GET /api/v1/stock</code> و
@@ -14982,7 +15036,7 @@ ROUTES.settings = async function(){
         ${Object.keys(COA_MAP_LABELS).map(k=>`<div class="fg"><label>${COA_MAP_LABELS[k]} ${hlp('کد معین یا تفصیلی در دفتر کل')}</label>
           <input id="s-${k}" dir="ltr" class="mono" value="${esc(s[k]||'')}" placeholder="پیش‌فرض سیستم"></div>`).join('')}
       </div>
-      <div style="margin-top:12px">${settToggle('s-feature_cogs_voucher', s.feature_cogs_voucher==='1', 'سند بهای تمام‌شده خودکار در فاکتور رسمی', 'پس از صدور فاکتور نهایی، سند COGS ثبت شود')}</div>
+      <div style="margin-top:12px">${settToggle('s-feature_cogs_voucher', s.feature_cogs_voucher==='1', 'سند بهای تمام‌شده خودکار در فاکتور رسمی', 'پس از صدور فاکتور نهایی، سند بهای تمام‌شده ثبت شود')}</div>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('repeat')} مدیریت سال مالی</h4></div><div class="panel-body">
       <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
@@ -15019,7 +15073,7 @@ ROUTES.settings = async function(){
             ${['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'].map((m,i)=>`<option value="${i+1}" ${(+s.fiscal_year_start_month||1)===i+1?'selected':''}>${m}</option>`).join('')}
           </select>
         </div>
-        <div class="fg"><label>نرخ VAT پیش‌فرض (٪) ${hlp('مالیات بر ارزش افزوده — پیش‌فرض ۱۰٪')}</label><input id="s-vat_rate" type="number" min="0" max="100" step="0.1" value="${esc(s.vat_rate||'10')}"></div>
+        <div class="fg"><label>${T('نرخ مالیات ارزش افزوده پیش‌فرض')} (٪) ${hlp('مالیات بر ارزش افزوده — پیش‌فرض ۱۰٪')}</label><input id="s-vat_rate" type="number" min="0" max="100" step="0.1" value="${esc(s.vat_rate||'10')}"></div>
       </div>
       <div class="muted" style="font-size:12px;margin-bottom:10px">ماژول‌های زیر را می‌توانید از منوی حسابداری پنهان کنید (بدون حذف داده):</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">
@@ -15039,23 +15093,23 @@ ROUTES.settings = async function(){
     </div></div>`;
 
   const featuresPanel = `
-    <div class="panel"><div class="panel-head"><h4>${lucide('bot')} دستیار فروش AI</h4></div><div class="panel-body">
+    <div class="panel"><div class="panel-head"><h4>${lucide('bot')} ${T('دستیار فروش هوشمند')}</h4></div><div class="panel-body">
       <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
         امتیاز ریسک ریزش، فرصت فروش و اقدام روزانه هر شب محاسبه می‌شود. با کلید Claude، متن پیشنهادها هوشمندتر می‌شود.
       </div>
-      <div style="margin-bottom:12px">${settToggle('s-feature_ai_assistant', s.feature_ai_assistant==='1', 'استفاده از Claude API (اختیاری)', 'بدون کلید هم تحلیل‌های heuristic کار می‌کنند')}</div>
+      <div style="margin-bottom:12px">${settToggle('s-feature_ai_assistant', s.feature_ai_assistant==='1', 'استفاده از سرویس هوش مصنوعی (اختیاری)', 'بدون کلید هم تحلیل‌های داخلی کار می‌کنند')}</div>
       <div class="form-grid">
-        <div class="fg"><label>کلید Claude API ${hlp('اختیاری — از console.anthropic.com')}</label>
+        <div class="fg"><label>کلید سرویس هوش مصنوعی ${hlp('اختیاری')}</label>
           <input id="s-ai_api_key" dir="ltr" value="${esc(s.ai_api_key||'')}" placeholder="sk-ant-..."></div>
-        <div class="fg"><label>مدل ${hlp('پیش‌فرض: claude-haiku-4-5')}</label>
+        <div class="fg"><label>نام مدل ${hlp('پیش‌فرض داخلی')}</label>
           <input id="s-ai_model" dir="ltr" value="${esc(s.ai_model||'')}" placeholder="claude-haiku-4-5-20251001"></div>
       </div>
     </div></div>
-    <div class="panel"><div class="panel-head"><h4>${lucide('cart')} پورتال مشتریان B2B</h4></div><div class="panel-body">
+    <div class="panel"><div class="panel-head"><h4>${lucide('cart')} ${T('پورتال مشتریان')}</h4></div><div class="panel-body">
       <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
         مشتریان عمده با موبایل وارد می‌شوند، کاتالوگ می‌بینند و سفارش ثبت می‌کنند. دسترسی از فرم ویرایش همان مشتری فعال می‌شود.
       </div>
-      <div style="margin-bottom:12px">${settToggle('s-feature_b2b_portal', s.feature_b2b_portal==='1', 'فعال‌سازی پورتال B2B', 'سفارش‌ها به‌صورت پیش‌فاکتور در «سفارشات B2B» دیده می‌شوند')}</div>
+      <div style="margin-bottom:12px">${settToggle('s-feature_b2b_portal', s.feature_b2b_portal==='1', 'فعال‌سازی پورتال مشتریان', 'سفارش‌ها به‌صورت پیش‌فاکتور در «سفارشات پورتال» دیده می‌شوند')}</div>
       <div class="form-grid">
         <div class="fg"><label>آدرس پورتال</label><input dir="ltr" readonly value="${location.origin}/#portal" onclick="this.select()"></div>
       </div>
@@ -15872,12 +15926,12 @@ function renderAdminGuide(){
         <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
         <li><b>وب‌سایت</b>: سینک موجودی ووکامرس</li>
         <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی، ماژول‌ها</li>
-        <li><b>قابلیت‌ها</b>: دستیار AI و پورتال B2B</li>
+        <li><b>قابلیت‌ها</b>: دستیار هوشمند و پورتال مشتریان</li>
         <li><b>ممیزی</b> و <b>منطقه خطر</b>: گزارش فعالیت و حذف دیتای تست</li>
       </ul>
       <h5>اطلاعات شرکت</h5><p>نام، تلفن و آدرس شرکت که روی فاکتورها چاپ می‌شود.</p>
       <h5>قالب فاکتور</h5><p>در تنظیمات: <b>رسمی</b> (۳ مدل — کامل/مدرن/پریمیوم) برای فاکتور نهایی؛ <b>عادی ساده</b> به‌صورت ثابت برای پیش‌فاکتور؛ <b>فاکتور حرارتی</b> با عرض چاپگر ۵۸ یا ۸۰ میلی‌متر. موقع چاپ می‌توانید A4، A5 یا حرارتی را انتخاب کنید. شخصی‌سازی: لوگو (بدون بک مشکی)، تخفیف ردیفی، کارشناس فروش + موبایل، پاورقی و …</p>
-      <h5>تلگرام</h5><p>Bot Token و Chat ID برای ارسال اعلان‌های سیستمی.</p>
+      <h5>تلگرام</h5><p>رمز ربات و شناسه گفتگو برای ارسال اعلان‌های سیستمی.</p>
       <h5>پیامک</h5><ul>
         <li><b>کاوه‌نگار</b>: API Key از پنل کاوه‌نگار</li>
         <li><b>ملی‌پیامک / نیک‌اس‌ام‌اس</b>: username:password در فیلد API Key</li>

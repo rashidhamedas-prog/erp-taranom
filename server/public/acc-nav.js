@@ -116,7 +116,7 @@ const ACC_TAB_RESOLVE = {
 
 const ACC_NAV_SECTIONS = [
   { title: 'صفحه اصلی', items: [
-    { id: 'exit-acc-shell', icon: '🔙', label: 'بازگشت به CRM' },
+    { id: 'exit-acc-shell', icon: '🔙', label: 'بازگشت به برنامه اصلی' },
     { id: 'acc-dash', icon: '📊', label: 'داشبورد' },
   ]},
   { title: 'اطلاعات پایه', items: [
