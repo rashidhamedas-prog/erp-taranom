@@ -32,13 +32,20 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `e5d945b` excel opening + remove wipe UI |
-| نسخه وب/دسکتاپ | وب **`2.1.0`** / دسکتاپ **`2.0.1`** / SW `erp-taranom-v88` |
+| آخرین commit | (در حال ثبت) MDI left hover taskbar |
+| نسخه وب/دسکتاپ | وب **`2.1.0`** / دسکتاپ **`2.0.1`** / SW `erp-taranom-v89` |
 | اندروید | **`2.0.21`** (بیلد محلی) |
 | وضعیت سرور | ✅ deploy + go-live wipe روی `crm.db` |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
+
+### 2026-07-23 — [Cursor] نوار MDI به لبه چپ + هاور — SW v89
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** نوار وظیفهٔ پنجره‌های چندگانه از پایین صفحه به لبه چپ منتقل شد؛ پیش‌فرض فقط یک نوار باریک سبز دیده می‌شود و با هاور موس فهرست پنجره‌ها باز می‌شود. فضای رزرو پایین حذف شد.
+- **فایل‌های کلیدی:** `server/public/mdi.js`, `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ⏳
 
 ### 2026-07-23 — [Cursor] حذف منطقه خطر + اسناد اتومات اکسل/افتتاحیه — SW v88
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

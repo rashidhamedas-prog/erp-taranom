@@ -420,14 +420,47 @@ table.tbl th.tbl-sortable{cursor:pointer;user-select:none}
 table.tbl th.tbl-sortable:hover{background:var(--purple-light)}
 table.tbl th .tbl-sort-ind{font-size:10px;opacity:.7}
 table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{width:36px;text-align:center}
-.mdi-taskbar{position:fixed;bottom:0;left:0;right:0;z-index:9990;display:flex;gap:6px;flex-wrap:wrap;padding:6px 10px;background:rgba(18,39,28,.92);backdrop-filter:blur(8px);border-top:1px solid rgba(255,255,255,.12);box-sizing:border-box;min-height:40px}
-.mdi-task{background:rgba(255,255,255,.12);color:#fff;border:0;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* نوار پنجره چندگانه — لبه چپ، مخفی؛ با هاور باز می‌شود */
+.mdi-taskbar{
+  position:fixed;top:0;bottom:0;left:0;right:auto;z-index:9990;
+  width:10px;padding:0;margin:0;box-sizing:border-box;
+  display:flex;flex-direction:column;justify-content:center;
+  background:transparent;border:0;overflow:hidden;
+  transition:width .18s ease, background .18s ease, padding .18s ease, box-shadow .18s ease;
+}
+.mdi-taskbar::before{
+  content:'';position:absolute;left:0;top:22%;bottom:22%;width:4px;
+  border-radius:0 7px 7px 0;background:rgba(26,92,56,.55);
+  box-shadow:0 0 0 1px rgba(255,255,255,.08);pointer-events:none;
+  transition:opacity .15s ease, width .15s ease;
+}
+.mdi-taskbar-inner{
+  display:none;flex-direction:column;gap:6px;width:100%;
+  max-height:100%;overflow:auto;padding:10px 8px;box-sizing:border-box;
+}
+.mdi-taskbar:hover,
+.mdi-taskbar:focus-within{
+  width:196px;padding:0;
+  background:rgba(18,39,28,.96);backdrop-filter:blur(10px);
+  border-right:1px solid rgba(255,255,255,.12);
+  box-shadow:8px 0 28px -12px rgba(0,0,0,.45);
+}
+.mdi-taskbar:hover::before,
+.mdi-taskbar:focus-within::before{opacity:0}
+.mdi-taskbar:hover .mdi-taskbar-inner,
+.mdi-taskbar:focus-within .mdi-taskbar-inner{display:flex}
+.mdi-task{
+  background:rgba(255,255,255,.12);color:#fff;border:0;border-radius:6px;
+  padding:8px 10px;font-size:12px;cursor:pointer;font-family:inherit;
+  width:100%;max-width:none;text-align:right;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;
+}
 .mdi-task.active{background:var(--purple2)}
 .mdi-task.min{opacity:.55}
-.mdi-task-tools{max-width:none;padding:6px 10px}
+.mdi-task-tools{max-width:none;padding:8px 10px;text-align:center}
 .mdi-win{position:fixed;width:min(920px,92vw);height:min(620px,78vh);background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 18px 50px -20px rgba(0,0,0,.45);display:flex;flex-direction:column;overflow:hidden;z-index:200}
-/* تمام‌صفحه فقط تا بالای نوار مشکی پایین — نه زیر آن */
-.mdi-win.mdi-maximized{left:0!important;top:0!important;right:0!important;bottom:var(--mdi-taskbar-h,0px)!important;width:100vw!important;height:auto!important;max-height:calc(100vh - var(--mdi-taskbar-h,0px))!important;border-radius:0}
+/* نوار چپ مخفی است — تمام‌صفحه کل viewport را می‌گیرد */
+.mdi-win.mdi-maximized{left:0!important;top:0!important;right:0!important;bottom:0!important;width:100vw!important;height:auto!important;max-height:100vh!important;border-radius:0}
 .mdi-titlebar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:linear-gradient(90deg,var(--purple),var(--purple2));color:#fff;cursor:move;user-select:none;flex-shrink:0}
 .mdi-title{font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mdi-controls{display:flex;gap:4px}
@@ -1033,7 +1066,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 <script src="/i18n.js?v=85"></script>
 <script src="/acc-nav.js?v=75"></script>
 <script src="/portal-ui.js?v=75"></script>
-<script src="/mdi.js?v=75" defer></script>
+<script src="/mdi.js?v=76" defer></script>
 <script src="/tbl-enhance.js?v=75" defer></script>
 <script src="/prod-ui.js?v=75" defer></script>
 <script>
@@ -2942,12 +2975,8 @@ function openModal(html, lg){
 function wireModalChrome(){
   const modal=el('activeModal');
   if(!modal) return;
-  // هم‌تراز با نوار وظیفه (اگر باز باشد)
-  try{
-    const bar=document.getElementById('mdiTaskbar');
-    const h=(bar && !bar.hidden)?Math.ceil(bar.getBoundingClientRect().height):0;
-    document.documentElement.style.setProperty('--mdi-taskbar-h', h+'px');
-  }catch(_){}
+  // نوار چپ مخفی است — فضای پایین رزرو نمی‌شود
+  try{ document.documentElement.style.setProperty('--mdi-taskbar-h','0px'); }catch(_){}
   let head=modal.querySelector('.modal-head');
   if(!head){
     head=document.createElement('div');
@@ -15109,8 +15138,9 @@ ROUTES.settings = async function(){
     <div class="panel"><div class="panel-head"><h4>${lucide('layers')} پنجره‌های چندگانه</h4></div><div class="panel-body">
       <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
         با فعال بودن این گزینه، هر زیرمنوی حسابداری در یک پنجره جدا باز می‌شود (جابجایی، کوچک/بزرگ، بستن).
+        نوار وظایف در لبه چپ است و فقط وقتی موس روی آن می‌رود ظاهر می‌شود.
       </div>
-      ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'شبیه ویندوز — هر زیرمنو در پنجره مستقل')}
+      ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'شبیه ویندوز — هر زیرمنو در پنجره مستقل؛ نوار وظایف در لبه چپ و با هاور موس ظاهر می‌شود')}
     </div></div>`;
 
   const messagingPanel = `
@@ -15791,7 +15821,11 @@ function renderAdminGuide(){
         <li>حذف کالای واردشده از اکسل پس از پاک‌سازی موجودی انبار ممکن است؛ اگر در فاکتور باشد مسدود می‌شود</li>
       </ul>`),
     helpSec('🗔','پنجره‌های چندگانه (شبیه ویندوز)',`
-      <p>فعال/غیرفعال کردن از <b>تنظیمات سیستم → پنجره‌های چندگانه</b>. با فعال بودن، هر زیرمنوی حسابداری در پنجره جدا باز می‌شود.</p>
+      <p>فعال/غیرفعال کردن از <b>تنظیمات → عمومی → پنجره‌های چندگانه</b>. با فعال بودن، هر زیرمنوی حسابداری در پنجره جدا باز می‌شود.</p>
+      <ul>
+        <li>نوار وظایف پنجره‌ها در <b>لبه چپ</b> برنامه است و به‌صورت پیش‌فرض مخفی می‌ماند.</li>
+        <li>با بردن موس روی نوار باریک سبز سمت چپ، فهرست پنجره‌ها ظاهر می‌شود (فعال‌سازی، کوچک‌کردن، چینش، بستن).</li>
+      </ul>`),
       <ul>
         <li>نوار عنوان: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن</li>
         <li>نوار پایین صفحه: تعویض بین پنجره‌ها و چینش</li>

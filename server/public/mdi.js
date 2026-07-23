@@ -1,6 +1,7 @@
 /**
  * MDI — پنجره‌های شناور شبیه ویندوز برای زیرمنوهای حسابداری / CRM
- * هر زیرگروه می‌تواند در پنجره جدا باز شود؛ کنترل: جابجایی، کوچک/بزرگ، بستن، نوار وظیفه
+ * هر زیرگروه می‌تواند در پنجره جدا باز شود؛ کنترل: جابجایی، کوچک/بزرگ، بستن،
+ * نوار وظیفهٔ چپ (مخفی؛ با هاور موس ظاهر می‌شود)
  */
 (function (global) {
   const STORAGE_KEY = 'crm_mdi';
@@ -20,32 +21,37 @@
     if (layer) return layer;
     layer = document.createElement('div');
     layer.id = 'mdiLayer';
-    layer.innerHTML = '<div id="mdiTaskbar" class="mdi-taskbar" hidden></div>';
+    layer.innerHTML = '<div id="mdiTaskbar" class="mdi-taskbar" hidden><div class="mdi-taskbar-inner"></div></div>';
     document.body.appendChild(layer);
     return layer;
   }
 
   function updateTaskbar() {
+    ensureLayer();
     const bar = document.getElementById('mdiTaskbar');
     if (!bar) return;
+    let inner = bar.querySelector('.mdi-taskbar-inner');
+    if (!inner) {
+      inner = document.createElement('div');
+      inner.className = 'mdi-taskbar-inner';
+      bar.appendChild(inner);
+    }
     const list = [...wins.values()];
-    if (!list.length) { bar.hidden = true; bar.innerHTML = ''; syncTaskbarSpace(); return; }
+    if (!list.length) { bar.hidden = true; inner.innerHTML = ''; syncTaskbarSpace(); return; }
     bar.hidden = false;
-    bar.innerHTML = list.map((w) =>
+    inner.innerHTML = list.map((w) =>
       `<button type="button" class="mdi-task ${w.minimized ? 'min' : ''} ${w.id === WinMgr.focusedId ? 'active' : ''}" onclick="WinMgr.focus(${w.id})" title="${escAttr(w.title)}">${escHtml(w.title)}</button>`
     ).join('') +
-      `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.cascade()" title="چینش پنجره‌ها">⧉</button>` +
-      `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.toggleMode()" title="خاموش/روشن حالت پنجره">${enabled() ? '🗔' : '📄'}</button>`;
+      `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.cascade()" title="چینش پنجره‌ها">⧉ چینش</button>` +
+      `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.toggleMode()" title="خاموش/روشن حالت پنجره">${enabled() ? '🗔 تک‌صفحه' : '📄 چندپنجره'}</button>`;
     syncTaskbarSpace();
-    requestAnimationFrame(syncTaskbarSpace);
   }
 
-  /** ارتفاع واقعی نوار پایین را به CSS می‌دهد تا پنجره‌ها/مودال‌ها زیر آن نروند */
+  /** نوار چپ مخفی است — فضای رزرو پایین لازم نیست */
   function syncTaskbarSpace() {
+    document.documentElement.style.setProperty('--mdi-taskbar-h', '0px');
     const bar = document.getElementById('mdiTaskbar');
-    const h = (bar && !bar.hidden) ? Math.ceil(bar.getBoundingClientRect().height) : 0;
-    document.documentElement.style.setProperty('--mdi-taskbar-h', h + 'px');
-    document.body.classList.toggle('has-mdi-taskbar', h > 0);
+    document.body.classList.toggle('has-mdi-taskbar', !!(bar && !bar.hidden));
   }
 
   if (!global.__mdiTaskbarResizeBound) {
