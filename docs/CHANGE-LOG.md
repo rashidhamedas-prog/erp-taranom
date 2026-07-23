@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (پس از commit بیلد دسکتاپ 2.0.1) |
+| آخرین commit | `bea650a` بیلد دسکتاپ 2.0.1 |
 | نسخه وب/دسکتاپ | وب **`2.1.0`** / دسکتاپ **`2.0.1`** / SW `erp-taranom-v87` |
 | اندروید | **`2.0.21`** (بیلد محلی) |
 | وضعیت سرور | ⏳ آپلود exe توسط کاربر (+ pull متادیتا) |
@@ -42,7 +42,7 @@
 
 ### 2026-07-23 — [Cursor] بیلد دسکتاپ Windows 2.0.1
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین کامیت)
+- **Commit:** `bea650a`
 - **خلاصه:** بررسی کامل پوستهٔ Electron (`main.js`/`preload.js`/`prepare-server`)؛ bump نسخه به `2.0.1`؛ ساخت نصب‌کننده NSIS (~۹۴MB) با آخرین بک‌اند (pairing غیرمسدود، rollback، i18n، …). متادیتا `manifest.json` + `latest.yml` به‌روز شد. `generate-release.js` نام ERP و حفظ فیلد android را پشتیبانی می‌کند.
 - **فایل‌های کلیدی:** `desktop/package.json`, `desktop/dist/ERP-Taranom-Setup-2.0.1.exe` (محلی، gitignore), `server/public/releases/{manifest.json,latest.yml}`, `scripts/generate-release.js`, `desktop/BUILD-WINDOWS.md`
 - **Deploy:** ⏳ — کاربر exe را با SCP روی سرور ایران آپلود می‌کند؛ سپس `git pull` + `pm2 restart`
