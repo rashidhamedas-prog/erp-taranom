@@ -32,11 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `c01c80a` اندروید 2.0.28 |
-| نسخه وب/دسکتاپ | وب **`2.1.6`** / دسکتاپ **`2.0.6`** / SW `erp-taranom-v97` |
+| آخرین commit | (در حال ثبت) حذف seed گروه کالا |
+| نسخه وب/دسکتاپ | وب **`2.1.7`** / دسکتاپ **`2.0.6`** / SW `erp-taranom-v98` |
 | اندروید | **`2.0.28`** (vc30) — دانلود از `/releases/crm-taranom.apk` |
-| وضعیت سرور | ✅ |
+| وضعیت سرور | ⏳ |
 | سرور production | تنها ایران `94.249.244.208` |
+
+### 2026-07-23 — حذف گروه‌های کالای پیش‌فرض (دیگر باز نمی‌گردند)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** علت بازگشت گروه‌ها پس از حذف: `seedStandardSubgroups` در هر boot با `INSERT OR IGNORE` لیست محک (پارچه، خرج کار، …) را دوباره می‌کاشت. seed گروه‌کالا حذف شد؛ پاک‌سازی یک‌بارهٔ ردیف‌های `گروه استاندارد` بدون کالا؛ روی DELETE وابستگی `user_catalog_categories` و فلگ `product_categories_user_cleared`؛ لیست ACL/فرم همچنان زنده از API.
+- **فایل‌های کلیدی:** `server/lib/currency.js`, `server/routes/product-categories.js`, `server/db.js`, `server/public/index.html`, `sw.js`, `manifest.json`
+- **Deploy:** ⏳
+- **یادداشت:** گروه‌هایی که به کالا وصل‌اند عمداً نگه داشته می‌شوند؛ پس از deploy یک‌بار hard refresh.
 
 ### 2026-07-23 — اندروید 2.0.28 برای دانلود روی سرور
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

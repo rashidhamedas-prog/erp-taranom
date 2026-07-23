@@ -41,6 +41,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const result = db.prepare('INSERT INTO product_categories (name,sort_order,code,parent_id,description,is_shared,created_by) VALUES (?,?,?,?,?,?,?)')
     .run(String(name).trim(), parseInt(sort_order) || c, c, parent_id ? parseInt(parent_id) : null,
       description || '', shared, req.user.id);
+  // کاربر دوباره تعریف می‌کند — فلگ cleared را بردار تا با خالی بودن اشتباه نشود
+  try {
+    db.prepare("DELETE FROM settings WHERE key='product_categories_user_cleared'").run();
+  } catch (_) { /* ignore */ }
   audit(req.user.id, 'create', 'product_category', result.lastInsertRowid, `ساخت دسته ${name}`);
   res.json(db.prepare('SELECT * FROM product_categories WHERE id=?').get(result.lastInsertRowid));
 });
@@ -68,7 +72,21 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   const inUse = db.prepare('SELECT COUNT(*) c FROM products WHERE category_id=?').get(req.params.id).c;
   if (inUse > 0) return res.status(400).json({ error: 'این دسته برای محصولاتی استفاده شده و قابل حذف نیست' });
-  db.prepare('DELETE FROM product_categories WHERE id=?').run(req.params.id);
+  const kids = db.prepare('SELECT COUNT(*) c FROM product_categories WHERE parent_id=?').get(req.params.id).c;
+  if (kids > 0) return res.status(400).json({ error: 'ابتدا زیرگروه‌های این گروه را حذف کنید' });
+
+  db.transaction(() => {
+    // وابستگی زنده ACL کاتالوگ کاربر — با حذف گروه پاک می‌شود
+    try {
+      db.prepare('DELETE FROM user_catalog_categories WHERE category_id=?').run(req.params.id);
+    } catch (_) { /* table may not exist on very old DBs */ }
+    db.prepare('DELETE FROM product_categories WHERE id=?').run(req.params.id);
+    const left = db.prepare('SELECT COUNT(*) c FROM product_categories').get().c;
+    if (left === 0) {
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('product_categories_user_cleared','1')").run();
+    }
+  })();
+
   audit(req.user.id, 'delete', 'product_category', req.params.id, `حذف دسته ${row.name}`);
   res.json({ ok: true });
 });

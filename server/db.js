@@ -2197,7 +2197,7 @@ function initSyncSchema(db) {
     console.warn('journal rial backfill:', e.message);
   }
 
-  // party_groups + product_categories seeds are required in standard mode too (CRM customers API joins party_groups).
+  // party_groups: فقط «کلیه اشخاص». گروه‌های کالا seed نمی‌شوند (تعریف دستی + purge یک‌بارهٔ seed قدیمی).
   seedStandardSubgroups(db);
   const cmLegacy = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get();
   if (cmLegacy?.value === 'mahak') {
