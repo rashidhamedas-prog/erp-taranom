@@ -19,7 +19,7 @@ if (confirm !== CONFIRM) {
   process.exit(1);
 }
 
-const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'erp.db');
+const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'crm.db');
 if (!fs.existsSync(dbPath)) {
   console.error('DB not found:', dbPath);
   process.exit(1);

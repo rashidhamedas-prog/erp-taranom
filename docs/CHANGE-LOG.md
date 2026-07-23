@@ -32,26 +32,25 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (در حال ثبت) go-live clean + excel opening JE |
+| آخرین commit | `e5d945b` excel opening + remove wipe UI |
 | نسخه وب/دسکتاپ | وب **`2.1.0`** / دسکتاپ **`2.0.1`** / SW `erp-taranom-v88` |
 | اندروید | **`2.0.21`** (بیلد محلی) |
-| وضعیت سرور | ⏳ deploy + wipe go-live |
+| وضعیت سرور | ✅ deploy + go-live wipe روی `crm.db` |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
 
 ### 2026-07-23 — [Cursor] حذف منطقه خطر + اسناد اتومات اکسل/افتتاحیه — SW v88
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `e5d945b`
 - **خلاصه:**
   1. تب «منطقه خطر / حذف دیتای تست» از تنظیمات و API `/admin/data-wipe` حذف شد.
   2. اسکریپت `go-live-clean.js` برای پاک‌سازی کامل دیتای کسب‌وکار (نگه داشتن کاربران/کدینگ) قبل از ورود داده واقعی.
   3. ورود اکسل و مانده/موجودی اول دوره: سند حسابداری اتومات با `voucher_type=opening|auto|manual`؛ مبدأ اکسل در `src_system=excel`؛ برچسب‌های **اتومات / دستی / افتتاحیه** (+ «اکسل») در فهرست اسناد.
   4. اشخاص با مانده اول دوره، کالا با موجودی+بهای تمام‌شده، چک اول دوره، رسید انبار با شرح اول دوره، و اسناد اکسل با نوع opening همگی سند افتتاحیه می‌سازند.
 - **فایل‌های کلیدی:** `server/lib/opening-post.js`, `server/lib/excel-origin.js`, `server/lib/ledger.js`, `server/routes/{parties,products,excel,accounting,warehouses,cheque-records}.js`, `server/public/{index.html,sw.js,i18n.js}`, `server/scripts/go-live-clean.js`, `server/scripts/test-opening-excel.js`
-- **Deploy:** ⏳
-- **یادداشت:** پس از deploy روی ایران: `DB_PATH=… node server/scripts/go-live-clean.js --confirm=WIPE-ALL-FOR-GOLIVE` سپس `pm2 restart`.
-
+- **Deploy:** ✅ ایران `e5d945b` — `git pull` + `pm2 restart` + health 200 + SW `erp-taranom-v88` + wipe `crm.db` (بکاپ `crm.db.pre-golive-*.bak`)
+- **یادداشت:** پس از wipe: customers/products/invoices/journal=0؛ users/COA/warehouses حفظ شد. آمادهٔ ورود اکسل واقعی.
 ### 2026-07-23 — [Cursor] بیلد دسکتاپ Windows 2.0.1
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `bea650a`
