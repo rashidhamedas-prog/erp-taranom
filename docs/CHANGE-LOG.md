@@ -32,18 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (در حال ثبت) اعشار ۳رقم + دسکتاپ کامل + دسترسی زنده |
+| آخرین commit | `68c870e` اعشار ۳رقم + دسکتاپ کامل + دسترسی زنده |
 | نسخه وب/دسکتاپ | وب **`2.1.5`** / دسکتاپ **`2.0.6`** / SW `erp-taranom-v96` |
 | اندروید | **`2.0.27`** آپدیت — sideload محلی |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ### 2026-07-23 — اعشار ۳ رقم، دسکتاپ مرجع کامل، دسترسی زنده گروه/انبار
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (pending)
+- **Commit:** `68c870e`
 - **خلاصه:** `round3`/`fmtQty` در UI؛ `centralOnly` برای دسکتاپ باز شد (+ `centralOnlyStrict` برای بکاپ/API/B2B/2FA)؛ گروه کالا و انبار در فرم کاربر/فاکتور از API زنده؛ capture کاربران/تنظیمات برای سینک دسکتاپ.
 - **فایل‌های کلیدی:** `server/middleware/auth.js`, `server/sync/capture.js`, `server/public/index.html`, `prod-ui.js`, `product-categories.js`, `admin.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `68c870e` / SW `erp-taranom-v96` — exe 2.0.6 روی ایران
+- **یادداشت:** SHA256 exe `32305EC1…` · APK محلی 2.0.27
 
 ### 2026-07-23 — پاک‌سازی همهٔ انبارها + آپدیت دسکتاپ 2.0.5 / اندروید 2.0.26
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
