@@ -125,15 +125,20 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   res.json({ ok: true });
 });
 
-// Delete (deactivate) user
+// حذف کامل کاربر — ردیف users پاک می‌شود؛ مالکیت اسناد به admin منتقل می‌گردد
 router.delete('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   if (req.params.id == req.user.id) return res.status(400).json({ error: 'نمی‌توانید خودتان را حذف کنید' });
   const db = getDB();
-  const u = db.prepare('SELECT name FROM users WHERE id=?').get(req.params.id);
-  db.prepare('UPDATE users SET active=0 WHERE id=?').run(req.params.id);
-  invalidateUserCache(+req.params.id);
-  audit(req.user.id, 'delete', 'user', req.params.id, `غیرفعال‌سازی کاربر ${u ? u.name : ''}`);
-  res.json({ ok: true });
+  try {
+    const { purgeUser } = require('../lib/purge-user');
+    const result = purgeUser(db, +req.params.id, req.user.id);
+    invalidateUserCache(+req.params.id);
+    audit(req.user.id, 'purge', 'user', req.params.id, `حذف کامل کاربر ${result.name || ''} (${result.username || ''})`);
+    res.json({ ok: true, purged: true, ...result });
+  } catch (e) {
+    const code = e.status || 400;
+    res.status(code).json({ error: e.message || 'خطا در حذف کاربر' });
+  }
 });
 
 // Admin dashboard - per-salesperson stats (using final invoices for revenue)

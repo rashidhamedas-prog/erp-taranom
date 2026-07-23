@@ -2146,10 +2146,18 @@ function navItems(){
     return accNavForRole();
   }
   // B2B portal is central-only — hide its admin menu on offline device builds
-  if(ME.role==='admin') return (APP_INFO&&APP_INFO.role==='device') ? NAV_ADMIN.filter(it=>it.id!=='b2bOrders') : NAV_ADMIN;
+  if(ME.role==='admin'){
+    let items = (APP_INFO&&APP_INFO.role==='device') ? NAV_ADMIN.filter(it=>it.id!=='b2bOrders') : NAV_ADMIN;
+    if(isDeviceClient() && !items.some(it=>it.id==='desktop-settings')){
+      const hi=items.findIndex(it=>it.id==='help');
+      const entry={ id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' };
+      items = hi>=0 ? [...items.slice(0,hi), entry, ...items.slice(hi)] : [...items, entry];
+    }
+    return items;
+  }
   if(ME.role==='accounting' || ME.role==='sales_manager'){
     let items = NAV_ACCOUNTING;
-    if(isDesktopApp()){
+    if(isDeviceClient()){
       items = [...items.slice(0, -1), { id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' }, items[items.length - 1]];
     }
     return items;
@@ -2158,10 +2166,14 @@ function navItems(){
   if(isRepRole(ME?.role)){
     items = [{id:'my-rep', icon:'💼', label:'حساب من'}, ...items.slice(0, -1), items[items.length - 1]];
   }
-  if(isDesktopApp()){
+  if(isDeviceClient()){
     items = [...items.slice(0, -1), { id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' }, items[items.length - 1]];
   }
   return items;
+}
+function isDeviceClient(){
+  const p = detectClientPlatform();
+  return p==='desktop' || p==='android';
 }
 function isDesktopApp(){ return detectClientPlatform()==='desktop'; }
 function isOfflineDevice(){ return !!(APP_INFO && APP_INFO.role==='device'); }
@@ -2533,14 +2545,13 @@ function pickOmnibox(i){
 function initNotifications(){
   const bell=el('notifBell');
   if(!bell) return;
-  if(!['admin','accounting','sales_manager','unit_manager','department_manager'].includes(ME?.role)){ bell.style.display='none'; return; }
+  // همه کاربران اعلان می‌بینند (حداقل برای آپدیت نرم‌افزار)
   bell.style.display='block';
   refreshPendingBadge();
   pollNotifications();
   setInterval(pollNotifications, 45000);
 }
 async function pollNotifications(){
-  if(!['admin','accounting','sales_manager','unit_manager','department_manager'].includes(ME?.role)) return;
   try{
     const d=await api('GET','/notifications/pending-actions')||{};
     const n=(d.notifications||[]).length;
@@ -2554,13 +2565,18 @@ function refreshPendingBadge(){ pollNotifications(); }
 function toggleNotifPanel(){
   const items=(window._notifications||[]);
   openModal(`<div class="modal-head"><h3>🔔 اعلان‌ها</h3><button class="x" onclick="closeModal()">×</button></div>
-    <div class="modal-body">${items.length?items.map(n=>`<div class="pending-action-item" onclick="notifClick(${n.id},'${n.entity_type}',${n.entity_id||0},'${n.kind}')">
+    <div class="modal-body">${items.length?items.map(n=>`<div class="pending-action-item" onclick="notifClick(${n.id},'${esc(n.entity_type||'')}','${n.entity_id||0}','${esc(n.kind||'')}')">
       <b>${esc(n.title)}</b><div class="muted" style="font-size:12px">${esc(n.body||'')}</div></div>`).join(''):'<div class="empty">اعلان جدیدی نیست</div>'}
     </div><div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
 }
 async function notifClick(id, entityType, entityId, kind){
   await api('POST','/notifications/'+id+'/resolve').catch(()=>{});
   closeModal(); refreshPendingBadge();
+  if(kind==='app_update' || entityType==='app_update'){
+    if(isDesktopApp()||detectClientPlatform()==='android') go(isAdmin()?'settings':'desktop-settings');
+    else if(typeof go==='function') go(isAdmin()?'settings':'dash');
+    return;
+  }
   if(entityType==='invoice'&&entityId){ enterAccountingShell().then(()=>go('acc-sales-invoices')); }
   else if(entityType==='followup'&&entityId) go('followups');
   else if(kind==='invoice_approval') enterAccountingShell().then(()=>go('acc-commissions'));
@@ -5240,7 +5256,7 @@ async function loadSettUsersPanel(){
         <td>${u.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
         <td><button class="btn sm ghost" onclick="userModal(${u.id})">ویرایش</button>
             <button class="btn sm orange" onclick="resetPass(${u.id},'${esc(u.name)}')">رمز</button>
-            ${u.id!==ME.id?`<button class="btn sm red" onclick="confirmDelete('admin/users',${u.id},'${esc(u.name)}')">حذف</button>`:''}</td>
+            ${u.id!==ME.id?`<button class="btn sm red" onclick="confirmPurgeUser(${u.id},'${esc(u.name)}')">حذف کامل</button>`:''}</td>
       </tr>`).join('')||emptyRow(7)}</tbody></table>
     </div></div>`;
 }
@@ -15143,7 +15159,7 @@ ROUTES.settings = async function(){
   if(!SETT_TABS.some(t=>t.id===SETT_ACTIVE_TAB)) SETT_ACTIVE_TAB='general';
 
   const generalPanel = `
-    ${isDesktopApp()?desktopUpdatePanelHtml():''}
+    ${appUpdatePanelHtml()}
     <div class="panel"><div class="panel-head"><h4>${lucide('building')} اطلاعات شرکت</h4></div><div class="panel-body"><div class="form-grid">
       <div class="fg"><label>نام شرکت</label><input id="s-company_name" value="${esc(s.company_name||'')}"></div>
       <div class="fg"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}"></div>
@@ -15389,28 +15405,30 @@ ROUTES.settings = async function(){
   toggleSmsProviderHint(s.sms_provider||'kavenegar');
   attachDatepickers(el('view'));
   loadAuditLog();
-  if(isDesktopApp()) renderDesktopUpdateUI();
+  renderAppUpdateUI();
   settShowTab(SETT_ACTIVE_TAB);
 };
 
 ROUTES['desktop-settings'] = async function(){
+  const plat = detectClientPlatform();
+  const title = plat==='android' ? 'تنظیمات برنامه اندروید' : 'تنظیمات برنامه دسکتاپ';
   el('view').innerHTML = `
     <div class="sett-shell" style="padding-bottom:8px">
       <div class="sett-hero">
         <div class="sett-hero-top">
           <div>
-            <h2>${lucide('monitor')} تنظیمات برنامه دسکتاپ</h2>
-            <p>به‌روزرسانی نرم‌افزار ویندوز — پس از نصب، برنامه خودکار راه‌اندازی مجدد می‌شود.</p>
+            <h2>${lucide(plat==='android'?'phone':'monitor')} ${title}</h2>
+            <p>به‌روزرسانی نرم‌افزار روی این دستگاه — وقتی نسخه جدید باشد در اعلان‌ها هم خبر داده می‌شود.</p>
           </div>
         </div>
       </div>
-      ${desktopUpdatePanelHtml()}
+      ${appUpdatePanelHtml()}
       <div class="panel"><div class="panel-body">
         <div class="muted" style="font-size:12px;line-height:1.9">برای تنظیمات کامل سیستم (شرکت، فاکتور، ماژول‌ها و …) از منوی <b>تنظیمات</b> در نسخه وب سرور مرکزی استفاده کنید.</div>
         ${isAdmin()?`<button class="btn ghost" style="margin-top:10px" onclick="go('settings')">${lucide('settings')} رفتن به تنظیمات سیستم</button>`:''}
       </div></div>
     </div>`;
-  renderDesktopUpdateUI();
+  renderAppUpdateUI();
 };
 async function saveSettings(){
   const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode'];
@@ -16132,6 +16150,14 @@ function renderAdminGuide(){
       <h5>رمز موقت و تغییر اجباری</h5><p>رمزی که هنگام ساخت کاربر یا بازنشانی رمز تعیین می‌کنید <b>موقتی</b> است: کاربر در اولین ورود به سرور مرکزی مجبور می‌شود رمز شخصی خودش را انتخاب کند (حداقل ۸ کاراکتر، شامل حرف و عدد). کاربر پیش‌فرض <code>admin</code> هم تا وقتی رمز کارخانه‌ای دارد، اجازهٔ هیچ کاری جز تغییر رمز ندارد.</p>
       <h5>گروه مشتری و ماهیت حساب</h5><p>در فرم ویرایش هر مشتری (فقط برای مدیر/حسابدار)، می‌توانید مشتری را به یک «گروه مشتری» نسبت دهید. هر گروه یک ماهیت حساب دارد: <b>بدهکار</b> (پیش‌فرض همه مشتریان) یا <b>بستانکار</b> (برای موارد خاص مثل مشتریانی که پیش‌پرداخت کرده‌اند). مدیریت گروه‌ها از داخل ماژول حسابداری → «گروه‌های مشتری» انجام می‌شود.</p>
       <div class="warn">شماره موبایل کارشناس را حتماً وارد کنید تا یادآور پیامکی دریافت کند.</div>`),
+    helpSec('👤','حذف کامل کاربر',`
+      <p>در تنظیمات → کاربران، دکمه <b>حذف کامل</b> کاربر را از سیستم پاک می‌کند (نه فقط غیرفعال):</p>
+      <ul>
+        <li>ورود و دسترسی قطع می‌شود و روی دستگاه‌های همگام هم حذف می‌گردد</li>
+        <li>فاکتورها/اسناد حفظ و مالکیت به مدیر حذف‌کننده منتقل می‌شود</li>
+        <li>شخص حسابداری لینک‌شده غیرفعال می‌شود</li>
+        <li>آخرین مدیر فعال و خودِ شما قابل حذف نیست</li>
+      </ul>`),
     helpSec('⚙️','تنظیمات',`
       <h5>ناوبری جدید (دسته‌بندی‌شده)</h5>
       <p>صفحه تنظیمات دیگر یک فهرست بلند نیست: از منوی کناری بین بخش‌ها جابه‌جا شوید یا در کادر جستجوی بالای صفحه عبارت بزنید (مثلاً «فاکتور»، «تلگرام»، «سال مالی»). نوار «ذخیره تنظیمات» پایین صفحه همیشه در دسترس است.</p>
@@ -16204,10 +16230,12 @@ function renderAdminGuide(){
       </ul>
       <h5>تصاویر محصولات آفلاین</h5><p>همگام‌سازی داده فقط نام فایل عکس را منتقل می‌کند؛ خود فایل تصویر هنگام همگام‌سازی یا اولین بار نمایش از سرور مرکزی دریافت و محلی ذخیره می‌شود. آلبوم چندتصویری کالا (<code>product_images</code>) و رسید پرداخت/هزینه میدانی (پوشه <code>reps/</code>) نیز در همگام‌سازی فایل پوشش داده می‌شوند. اگر عکسی نمایش داده نشد، «دریافت تصاویر» را بزنید یا همگام‌سازی اکنون را اجرا کنید.</p>
       <h5>پوشش داده (به‌روز ۱۴۰۵/۰۵)</h5><p>علاوه بر CRM/فروش/انبار/تولید/حسابداری، طرف‌حساب حسابداری، انتقال بین انبارها، واحدها، گروه‌کالا، دارایی ثابت، ACL مراکز هزینه تولید، و پرداخت‌های میدانی نماینده نیز در رجیستری سینک هستند و از دستگاه push می‌شوند.</p>
-      <h5>به‌روزرسانی خودکار برنامه</h5><ul>
-        <li><b>ویندوز</b>: در تنظیمات، دکمه «🔄 بررسی به‌روزرسانی» را بزنید — اگر نسخه جدیدی باشد، دانلود شروع می‌شود و <b>همان دکمه به «🚀 نصب» تبدیل می‌شود</b>. حین دانلود، درصد، حجم باقی‌مانده و زمان تقریبی نمایش داده می‌شود</li>
-        <li><b>اندروید</b>: بنر «نسخه جدید» → دکمه دانلود؛ اگر نصب قبلی دارید و خطای امضا گرفتید، یک‌بار اپ قدیمی را حذف و APK جدید را نصب کنید</li>
-        <li>نسخه دسکتاپ از <strong>GitHub Releases</strong> دانلود می‌شود — فقط <code>manifest.json</code> و <code>latest.yml</code> روی سرور مرکزی deploy می‌شوند (بدون آپلود exe)</li>
+      <h5>به‌روزرسانی نرم‌افزار (تنظیمات + اعلان)</h5><ul>
+        <li>در <b>تنظیمات</b> (و روی دستگاه: «تنظیمات برنامه») پنل <b>⬆️ به‌روزرسانی نرم‌افزار</b> هست — دکمه «بررسی به‌روزرسانی»</li>
+        <li>اگر نسخه جدید باشد، علاوه بر بنر، در <b>زنگوله اعلان‌ها</b> هم ثبت می‌شود؛ با زدن اعلان به همان پنل می‌روید</li>
+        <li><b>ویندوز</b>: دانلود و نصب از همان دکمه؛ حین دانلود درصد پیشرفت نمایش داده می‌شود</li>
+        <li><b>اندروید</b>: دانلود APK + اعلان سیستمی گوشی (نیاز به اجازه اعلان در اندروید ۱۳+)</li>
+        <li>وب: با Hard Refresh (Ctrl+Shift+R) به‌روز می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
       <h5>حالت تاریک (شب مخملی)</h5><p>با دکمهٔ <b>خاموش/روشن (آیکون power)</b> در گوشهٔ پایین چپ صفحه، منوی حساب باز می‌شود؛ از آنجا «حالت تاریک» را بزنید. ظاهر برنامه بین تم روشن «زمرد مدرن» و تم تاریک «شب مخملی» جابه‌جا می‌شود. انتخاب شما روی همین دستگاه ذخیره می‌ماند. چاپ فاکتور و گزارش‌ها همیشه با پس‌زمینه روشن انجام می‌شود، حتی در حالت تاریک.</p>
@@ -16481,6 +16509,29 @@ function confirmDelete(entity, id, label){
     <div class="modal-foot"><button class="btn red" onclick="doDelete('${entity}',${id})">🗑️ حذف</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
 }
+function confirmPurgeUser(id, label){
+  openModal(`
+    <div class="modal-head"><h3>حذف کامل کاربر</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="line-height:1.9">
+      <p>کاربر <b>${esc(label)}</b> به‌طور <b>کامل</b> از سیستم حذف می‌شود (نه فقط غیرفعال).</p>
+      <ul style="margin:10px 0 0 18px;font-size:13px;color:var(--muted)">
+        <li>ورود و دسترسی این کاربر قطع می‌شود</li>
+        <li>فاکتورها و اسناد او حفظ و به شما منتقل می‌شود</li>
+        <li>شخص حسابداری لینک‌شده غیرفعال می‌گردد</li>
+        <li>این عمل روی دستگاه‌های همگام‌سازی‌شده هم اعمال می‌شود</li>
+      </ul>
+    </div>
+    <div class="modal-foot"><button class="btn red" onclick="doPurgeUser(${id})">🗑️ حذف کامل</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function doPurgeUser(id){
+  try{
+    await api('DELETE','/admin/users/'+id);
+    closeModal(); showToast('کاربر کاملاً حذف شد');
+    CACHE.users=await api('GET','/auth/users');
+    if(typeof refreshSettUsers==='function') refreshSettUsers();
+  }catch(e){ showToast(e.message||'خطا در حذف','error'); }
+}
 async function doDelete(entity,id){
   await api('DELETE','/'+entity+'/'+id);
   closeModal(); showToast(entity==='invoices'?'ابطال شد':'حذف شد');
@@ -16698,33 +16749,32 @@ function detectClientPlatform(){
 async function initAppUpdate(){
   try{
     APP_INFO = await fetch('/api/system/app-info').then(r=>r.json());
-    if(!APP_INFO || APP_INFO.role!=='device') return;
-    const platform = APP_INFO.platform==='device' ? detectClientPlatform() : APP_INFO.platform;
-    if(platform==='web') return;
-    if(platform==='desktop'){
+    const platform = (APP_INFO && APP_INFO.platform==='device') ? detectClientPlatform() : detectClientPlatform();
+    if(platform==='desktop' && APP_INFO?.role==='device'){
       await initDesktopUpdate();
+      setInterval(checkAppUpdate, 6*60*60*1000);
       return;
     }
-    const r = await fetch(`/api/system/app-update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(APP_INFO.version||'0')}`);
-    if(!r.ok) return;
-    PENDING_UPDATE = await r.json();
-    PENDING_UPDATE.platform = platform;
-    if(PENDING_UPDATE.update_available && !localStorage.getItem('upd_dismiss_'+PENDING_UPDATE.latest_version)){
-      showUpdateBanner();
+    if(platform==='android' && APP_INFO?.role==='device'){
+      await checkAppUpdate();
+      setInterval(checkAppUpdate, 6*60*60*1000);
+      return;
     }
-    setInterval(checkAppUpdate, 6*60*60*1000);
+    // وب مرکزی: فقط نمایش نسخه در پنل تنظیمات
   }catch(e){}
 }
 
 let DESKTOP_UPDATE = { status:'idle', currentVersion:'', latestVersion:null, percent:0, error:null, fallbackUrl:null };
+let APP_UPDATE_UI = { status:'idle', currentVersion:'', latestVersion:null, notes:'', url:null, platform:'web' };
 
-function desktopUpdatePanelHtml(){
+function appUpdatePanelHtml(){
   return `
     <div class="panel" id="desktopUpdatePanel" style="margin-bottom:16px">
       <div class="panel-head"><h4>⬆️ به‌روزرسانی نرم‌افزار</h4></div>
       <div class="panel-body">
-        <p style="margin-bottom:8px">نسخه فعلی: <strong class="mono" id="du-current">—</strong></p>
-        <p id="du-status-msg" class="muted" style="font-size:13px;margin-bottom:12px">در حال بررسی...</p>
+        <p style="margin-bottom:8px">نسخه فعلی: <strong class="mono" id="du-current">—</strong>
+          <span class="muted" style="font-size:12px;margin-right:8px" id="du-platform-label"></span></p>
+        <p id="du-status-msg" class="muted" style="font-size:13px;margin-bottom:12px">برای بررسی نسخه جدید دکمه را بزنید.</p>
         <div id="du-progress-wrap" style="display:none;margin-bottom:12px">
           <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
             <div id="du-progress-bar" style="height:100%;width:0;background:var(--purple);transition:width .3s"></div>
@@ -16732,10 +16782,32 @@ function desktopUpdatePanelHtml(){
           <div class="muted" style="font-size:11px;margin-top:4px" id="du-progress-label"></div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn" id="du-main-btn" onclick="desktopUpdateMainAction()">🔄 بررسی به‌روزرسانی</button>
+          <button class="btn" id="du-main-btn" onclick="appUpdateMainAction()">🔄 بررسی به‌روزرسانی</button>
         </div>
       </div>
     </div>`;
+}
+function desktopUpdatePanelHtml(){ return appUpdatePanelHtml(); }
+
+async function registerUpdateNotification(u){
+  if(!u || !u.update_available || !u.latest_version) return;
+  try{
+    await api('POST','/notifications/register-update',{
+      platform: u.platform || detectClientPlatform(),
+      version: u.latest_version,
+      notes: u.notes || ''
+    }, false, true);
+    refreshPendingBadge();
+  }catch{}
+  // نوتیفیکیشن سیستمی اندروید
+  try{
+    if(window.AndroidBridge && typeof AndroidBridge.notifyUpdate==='function'){
+      AndroidBridge.notifyUpdate(
+        'به‌روزرسانی ERP ترنم '+(u.latest_version||''),
+        u.notes || 'نسخه جدید آماده نصب است'
+      );
+    }
+  }catch{}
 }
 
 // Human-readable download progress: "۴۵٫۲ از ۹۷٫۰ مگابایت — حدود ۲۵ ثانیه مانده"
@@ -16751,54 +16823,81 @@ function fmtDlProgress(transferred, total, bps){
   return out;
 }
 
-/* Single transforming button: بررسی → نصب (per user request). One primary
-   button whose label/action follows the state machine; check-again is only
-   offered when there is nothing to install. */
-function renderDesktopUpdateUI(){
+function renderAppUpdateUI(){
   const cur=el('du-current'), msg=el('du-status-msg'), btn=el('du-main-btn');
   const progWrap=el('du-progress-wrap'), progBar=el('du-progress-bar'), progLabel=el('du-progress-label');
+  const platLabel=el('du-platform-label');
   if(!cur) return;
-  const s=DESKTOP_UPDATE;
-  cur.textContent = s.currentVersion || APP_INFO?.version || '—';
-  if(progWrap) progWrap.style.display = s.status==='downloading'?'block':'none';
-  if(progBar) progBar.style.width = (s.percent||0)+'%';
-  if(progLabel) progLabel.textContent = fmtDlProgress(s.transferred||0, s.total||0, s.bps||0) || (s.percent?`دانلود: ${s.percent}٪`:'');
-  let msgText='', btnLabel='🔄 بررسی به‌روزرسانی', btnDisabled=false, btnGreen=false;
-  switch(s.status){
-    case 'checking':
-      msgText='در حال بررسی به‌روزرسانی...'; btnLabel='در حال بررسی...'; btnDisabled=true; break;
-    case 'downloading':
-      msgText=`نسخه ${s.latestVersion||''} در حال دانلود است — پس از پایان دانلود، دکمه به «نصب» تبدیل می‌شود.`;
-      btnLabel='⬇️ در حال دانلود...'; btnDisabled=true; break;
-    case 'ready':
-      msgText=`نسخه ${s.latestVersion} دانلود شد و آماده نصب است.`;
-      btnLabel=`🚀 نصب نسخه ${s.latestVersion} و راه‌اندازی مجدد`; btnGreen=true; break;
-    case 'available-fallback':
-      msgText=`نسخه ${s.latestVersion} موجود است.`;
-      btnLabel=`⬇️ دانلود و نصب نسخه ${s.latestVersion}`; btnGreen=true; break;
-    case 'uptodate':
-      msgText='✅ شما از آخرین نسخه استفاده می‌کنید.'; break;
-    case 'error':
-      msgText='❌ '+(s.error||'خطا در به‌روزرسانی'); break;
-    default:
-      msgText='برای بررسی نسخه جدید، دکمه را بزنید.';
+  const plat = detectClientPlatform();
+  if(platLabel) platLabel.textContent = plat==='android'?'(اندروید)':plat==='desktop'?'(ویندوز)':'(وب)';
+
+  // دسکتاپ با Electron API
+  if(plat==='desktop' && (window.desktopAPI || DESKTOP_UPDATE.status!=='idle' || APP_INFO?.role==='device')){
+    const s=DESKTOP_UPDATE;
+    cur.textContent = s.currentVersion || APP_INFO?.version || '—';
+    if(progWrap) progWrap.style.display = s.status==='downloading'?'block':'none';
+    if(progBar) progBar.style.width = (s.percent||0)+'%';
+    if(progLabel) progLabel.textContent = fmtDlProgress(s.transferred||0, s.total||0, s.bps||0) || (s.percent?`دانلود: ${s.percent}٪`:'');
+    let msgText='', btnLabel='🔄 بررسی به‌روزرسانی', btnDisabled=false, btnGreen=false;
+    switch(s.status){
+      case 'checking':
+        msgText='در حال بررسی به‌روزرسانی...'; btnLabel='در حال بررسی...'; btnDisabled=true; break;
+      case 'downloading':
+        msgText=`نسخه ${s.latestVersion||''} در حال دانلود است — پس از پایان دانلود، دکمه به «نصب» تبدیل می‌شود.`;
+        btnLabel='⬇️ در حال دانلود...'; btnDisabled=true; break;
+      case 'ready':
+        msgText=`نسخه ${s.latestVersion} دانلود شد و آماده نصب است.`;
+        btnLabel=`🚀 نصب نسخه ${s.latestVersion} و راه‌اندازی مجدد`; btnGreen=true; break;
+      case 'available-fallback':
+        msgText=`نسخه ${s.latestVersion} موجود است.`;
+        btnLabel=`⬇️ دانلود و نصب نسخه ${s.latestVersion}`; btnGreen=true; break;
+      case 'uptodate':
+        msgText='✅ شما از آخرین نسخه استفاده می‌کنید.'; break;
+      case 'error':
+        msgText='❌ '+(s.error||'خطا در به‌روزرسانی'); break;
+      default:
+        msgText='برای بررسی نسخه جدید، دکمه را بزنید.';
+    }
+    if(msg) msg.textContent=msgText;
+    if(btn){ btn.disabled=btnDisabled; btn.textContent=btnLabel; btn.classList.toggle('green',btnGreen); btn.classList.toggle('ghost',!btnGreen&&!btnDisabled); }
+    updateDesktopNavBadge();
+    return;
   }
+
+  // اندروید / وب
+  const u=APP_UPDATE_UI;
+  cur.textContent = u.currentVersion || APP_INFO?.version || (plat==='web'?(readManifestWebVersion?.()||'—'):'—');
+  if(progWrap) progWrap.style.display='none';
+  let msgText='برای بررسی نسخه جدید، دکمه را بزنید.', btnLabel='🔄 بررسی به‌روزرسانی', btnDisabled=false, btnGreen=false;
+  if(u.status==='checking'){ msgText='در حال بررسی...'; btnLabel='در حال بررسی...'; btnDisabled=true; }
+  else if(u.status==='available'){ msgText=`نسخه ${u.latestVersion} موجود است.`+(u.notes?' — '+u.notes:''); btnLabel=`⬇️ دانلود / نصب ${u.latestVersion}`; btnGreen=true; }
+  else if(u.status==='uptodate'){ msgText='✅ شما از آخرین نسخه استفاده می‌کنید.'; }
+  else if(u.status==='error'){ msgText='❌ '+(u.error||'خطا'); }
+  else if(plat==='web'){ msgText='نسخه وب با بازخوانی صفحه (Ctrl+Shift+R) به‌روز می‌شود. برای اپ ویندوز/اندروید از همان دکمه روی دستگاه استفاده کنید.'; btnLabel='🔄 بازخوانی صفحه'; }
   if(msg) msg.textContent=msgText;
-  if(btn){
-    btn.disabled=btnDisabled;
-    btn.textContent=btnLabel;
-    btn.classList.toggle('green',btnGreen);
-    btn.classList.toggle('ghost',!btnGreen&&!btnDisabled);
-  }
+  if(btn){ btn.disabled=btnDisabled; btn.textContent=btnLabel; btn.classList.toggle('green',btnGreen); btn.classList.toggle('ghost',!btnGreen&&!btnDisabled); }
   updateDesktopNavBadge();
 }
-
-// The one button: install when an update is staged, otherwise (re)check.
-function desktopUpdateMainAction(){
-  const s=DESKTOP_UPDATE.status;
-  if(s==='ready'||s==='available-fallback') return desktopInstallUpdate();
-  return desktopCheckUpdate();
+function renderDesktopUpdateUI(){ renderAppUpdateUI(); }
+function readManifestWebVersion(){
+  try{ return APP_INFO?.manifest?.web?.version || APP_INFO?.version; }catch{ return null; }
 }
+
+function appUpdateMainAction(){
+  const plat=detectClientPlatform();
+  if(plat==='desktop'){
+    const s=DESKTOP_UPDATE.status;
+    if(s==='ready'||s==='available-fallback') return desktopInstallUpdate();
+    return desktopCheckUpdate();
+  }
+  if(plat==='android'){
+    if(APP_UPDATE_UI.status==='available' && APP_UPDATE_UI.url){ doAppUpdate(); return; }
+    return checkAppUpdate(true);
+  }
+  // وب
+  location.reload();
+}
+function desktopUpdateMainAction(){ return appUpdateMainAction(); }
 
 function updateDesktopNavBadge(){
   const ready=DESKTOP_UPDATE.status==='ready'||DESKTOP_UPDATE.status==='available-fallback';
@@ -16833,11 +16932,12 @@ async function desktopCheckUpdateFallback(){
     const u=await r.json();
     if(u.update_available){
       DESKTOP_UPDATE={...DESKTOP_UPDATE, status:'available-fallback', latestVersion:u.latest_version, fallbackUrl:u.url};
+      await registerUpdateNotification({ update_available:true, latest_version:u.latest_version, notes:u.notes, platform:'desktop', url:u.url });
     }else{
       DESKTOP_UPDATE={...DESKTOP_UPDATE, status:'uptodate', latestVersion:null, fallbackUrl:null};
     }
-    renderDesktopUpdateUI();
-  }catch(e){ DESKTOP_UPDATE.status='error'; DESKTOP_UPDATE.error='خطا در بررسی'; renderDesktopUpdateUI(); }
+    renderAppUpdateUI();
+  }catch(e){ DESKTOP_UPDATE.status='error'; DESKTOP_UPDATE.error='خطا در بررسی'; renderAppUpdateUI(); }
 }
 
 async function desktopCheckUpdate(){
@@ -16863,17 +16963,36 @@ async function desktopInstallUpdate(){
   if(r&&!r.ok) showToast(r.error||'خطا در نصب','error');
 }
 
-async function checkAppUpdate(){
-  if(!APP_INFO || APP_INFO.role!=='device') return;
-  const platform = APP_INFO.platform==='device' ? detectClientPlatform() : APP_INFO.platform;
-  if(platform==='web') return;
+async function checkAppUpdate(fromUi){
+  const platform = detectClientPlatform();
+  if(platform==='web'){ renderAppUpdateUI(); return; }
+  if(!APP_INFO){
+    try{ APP_INFO = await fetch('/api/system/app-info').then(r=>r.json()); }catch{ return; }
+  }
+  APP_UPDATE_UI = { ...APP_UPDATE_UI, status:'checking', platform, currentVersion: APP_INFO.version||'—' };
+  if(fromUi) renderAppUpdateUI();
   try{
     const r = await fetch(`/api/system/app-update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(APP_INFO.version||'0')}`);
-    if(!r.ok) return;
+    if(!r.ok){ APP_UPDATE_UI.status='error'; APP_UPDATE_UI.error='خطا در ارتباط'; if(fromUi) renderAppUpdateUI(); return; }
     PENDING_UPDATE = await r.json();
     PENDING_UPDATE.platform = platform;
-    if(PENDING_UPDATE.update_available && !localStorage.getItem('upd_dismiss_'+PENDING_UPDATE.latest_version)) showUpdateBanner();
-  }catch(e){}
+    APP_UPDATE_UI.currentVersion = PENDING_UPDATE.current || APP_INFO.version || '—';
+    if(PENDING_UPDATE.update_available){
+      APP_UPDATE_UI.status='available';
+      APP_UPDATE_UI.latestVersion = PENDING_UPDATE.latest_version;
+      APP_UPDATE_UI.notes = PENDING_UPDATE.notes || '';
+      APP_UPDATE_UI.url = PENDING_UPDATE.url || null;
+      await registerUpdateNotification(PENDING_UPDATE);
+      if(!localStorage.getItem('upd_dismiss_'+PENDING_UPDATE.latest_version)) showUpdateBanner();
+    }else{
+      APP_UPDATE_UI.status='uptodate';
+      APP_UPDATE_UI.latestVersion = PENDING_UPDATE.latest_version || null;
+    }
+    if(fromUi || el('du-current')) renderAppUpdateUI();
+  }catch(e){
+    APP_UPDATE_UI.status='error'; APP_UPDATE_UI.error='خطا در بررسی';
+    if(fromUi) renderAppUpdateUI();
+  }
 }
 
 function showUpdateBanner(){

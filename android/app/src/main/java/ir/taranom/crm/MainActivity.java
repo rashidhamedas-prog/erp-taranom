@@ -3,9 +3,14 @@ package ir.taranom.crm;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.DownloadManager;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.net.Uri;
 import android.os.Build;
@@ -15,6 +20,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.webkit.ConsoleMessage;
+import android.webkit.JavascriptInterface;
 import android.webkit.URLUtil;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -44,6 +50,9 @@ public class MainActivity extends Activity {
     private static final String TAG = "ERPTaranom";
     private static final int LOCAL_PORT = 3210;
     private static final String LOCAL_URL = "http://127.0.0.1:" + LOCAL_PORT + "/";
+    private static final String UPDATE_CHANNEL_ID = "erp_updates";
+    private static final int REQ_POST_NOTIFICATIONS = 4401;
+    private static int updateNotifId = 7100;
 
     /** JNI bridge implemented in cpp/native-lib.cpp */
     public native Integer startNodeWithArguments(String[] arguments);
@@ -128,6 +137,9 @@ public class MainActivity extends Activity {
                     startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
                 }
             });
+            ensureUpdateNotificationChannel();
+            requestNotificationPermissionIfNeeded();
+            webView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
             setContentView(webView);
         } catch (Exception e) {
             Log.e(TAG, "WebView init failed", e);
@@ -496,6 +508,68 @@ public class MainActivity extends Activity {
             byte[] buf = new byte[8192];
             int n;
             while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        }
+    }
+
+    private void ensureUpdateNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        NotificationChannel ch = new NotificationChannel(
+                UPDATE_CHANNEL_ID,
+                "به‌روزرسانی ERP ترنم",
+                NotificationManager.IMPORTANCE_DEFAULT
+        );
+        ch.setDescription("اعلان نسخه جدید برنامه");
+        nm.createNotificationChannel(ch);
+    }
+
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < 33) return;
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) return;
+        requestPermissions(
+                new String[]{android.Manifest.permission.POST_NOTIFICATIONS},
+                REQ_POST_NOTIFICATIONS
+        );
+    }
+
+    private void showUpdateNotification(String title, String body) {
+        try {
+            Intent open = new Intent(this, MainActivity.class);
+            open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                flags |= PendingIntent.FLAG_IMMUTABLE;
+            }
+            PendingIntent pi = PendingIntent.getActivity(this, 0, open, flags);
+            Notification.Builder b;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                b = new Notification.Builder(this, UPDATE_CHANNEL_ID);
+            } else {
+                b = new Notification.Builder(this);
+            }
+            b.setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setContentTitle(title != null && !title.isEmpty() ? title : "به‌روزرسانی ERP ترنم")
+                    .setContentText(body != null ? body : "نسخه جدید آماده است")
+                    .setStyle(new Notification.BigTextStyle().bigText(body != null ? body : ""))
+                    .setAutoCancel(true)
+                    .setContentIntent(pi);
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                b.setPriority(Notification.PRIORITY_DEFAULT);
+            }
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(updateNotifId++, b.build());
+        } catch (Exception e) {
+            Log.w(TAG, "showUpdateNotification failed", e);
+        }
+    }
+
+    /** Bridge called from WebView JS: AndroidBridge.notifyUpdate(title, body) */
+    private class AndroidBridge {
+        @JavascriptInterface
+        public void notifyUpdate(String title, String body) {
+            runOnUiThread(() -> showUpdateNotification(title, body));
         }
     }
 }

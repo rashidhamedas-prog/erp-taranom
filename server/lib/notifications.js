@@ -41,11 +41,32 @@ function listForUser(db, user) {
     WHERE resolved_at IS NULL
     ORDER BY created_at DESC LIMIT 100
   `).all().filter(n => {
+    if (n.kind === 'app_update') return true; // همه نقش‌ها اعلان آپدیت را می‌بینند
     try {
       const roles = JSON.parse(n.target_roles || '[]');
-      return roles.includes(role);
+      return roles.includes(role) || roles.includes('*');
     } catch { return false; }
   });
+}
+
+/** اعلان نسخه جدید — بدون تکرار برای همان platform+version تا وقتی resolve نشود */
+function notifyAppUpdate(db, { platform, version, notes }) {
+  const plat = String(platform || 'app');
+  const ver = String(version || '');
+  if (!ver) return null;
+  const title = `به‌روزرسانی ${plat === 'android' ? 'اندروید' : plat === 'desktop' ? 'ویندوز' : 'برنامه'} ${ver}`;
+  const body = notes || 'نسخه جدید آماده است — از تنظیمات → به‌روزرسانی نرم‌افزار اقدام کنید.';
+  const existing = db.prepare(`
+    SELECT id FROM app_notifications
+    WHERE kind='app_update' AND resolved_at IS NULL AND title=?
+    LIMIT 1
+  `).get(title);
+  if (existing) return existing.id;
+  const info = db.prepare(`
+    INSERT INTO app_notifications (kind, entity_type, entity_id, title, body, target_roles, created_at)
+    VALUES ('app_update','app_update',NULL,?,?,?,strftime('%s','now'))
+  `).run(title, body, JSON.stringify(['*']));
+  return info.lastInsertRowid;
 }
 
 function markResolved(db, id, userId) {
@@ -63,6 +84,6 @@ function markEntityViewed(db, entityType, entityId, userId) {
 }
 
 module.exports = {
-  notifyRoles, notifyNewInvoice, notifyNewFollowup,
+  notifyRoles, notifyNewInvoice, notifyNewFollowup, notifyAppUpdate,
   listForUser, markResolved, markEntityViewed, MANAGER_ROLES,
 };
