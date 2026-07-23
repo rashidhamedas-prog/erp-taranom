@@ -181,7 +181,7 @@ try {
 
   process.env.SYNC_ROLE = 'device';
   process.env.APP_PLATFORM = 'android';
-  process.env.APP_VERSION = '2.0.25';
+  process.env.APP_VERSION = '2.0.26';
   process.env.PORT = port;
   process.env.LISTEN_HOST = '127.0.0.1';
   process.env.DB_PATH = path.join(dataDir, 'crm.db');

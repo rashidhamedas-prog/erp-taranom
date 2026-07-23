@@ -906,8 +906,9 @@ function initDB() {
   ensureColumn(db, 'products', 'category_id', 'INTEGER');
   repairWarehousesSchema(db);
   repairProductCategoriesSchema(db);
+  const whCleared = db.prepare("SELECT value FROM settings WHERE key='warehouses_user_cleared'").get()?.value;
   const whCount = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
-  if (whCount === 0) {
+  if (whCount === 0 && whCleared !== '1') {
     const mainWhId = db.prepare("INSERT INTO warehouses (name,address) VALUES ('انبار مرکزی','')").run().lastInsertRowid;
     db.prepare('UPDATE products SET warehouse_id=? WHERE warehouse_id IS NULL').run(mainWhId);
   }
@@ -1850,9 +1851,10 @@ function initSyncSchema(db) {
   ensureColumn(db, 'products', 'costing_method', "TEXT DEFAULT 'moving_average'");
   ensureColumn(db, 'products', 'average_cost_rial', 'INTEGER DEFAULT 0');
 
-  // Default warehouses for workshop + distribution office
-  const whCount = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
-  if (!whCount) {
+  // Default warehouses for workshop + distribution office (skip after user wipe)
+  const whCleared2 = db.prepare("SELECT value FROM settings WHERE key='warehouses_user_cleared'").get()?.value;
+  const whCount2 = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
+  if (!whCount2 && whCleared2 !== '1') {
     const ccW = db.prepare("SELECT id FROM cost_centers WHERE code='CC-WORKSHOP'").get()?.id;
     const ccD = db.prepare("SELECT id FROM cost_centers WHERE code='CC-DISTRIBUTION'").get()?.id;
     db.prepare(`INSERT INTO warehouses (code,name,address,entity,warehouse_type,cost_center_id,is_default,active) VALUES (?,?,?,?,?,?,?,1)`)

@@ -1096,27 +1096,32 @@ function seedCostCenters(db) {
 }
 
 function seedWarehouses(db) {
+  // After an intentional wipe (settings.warehouses_user_cleared=1), never
+  // re-insert the Taranom default warehouse catalog — operators redefine them.
+  const cleared = db.prepare("SELECT value FROM settings WHERE key='warehouses_user_cleared'").get()?.value;
   const find = db.prepare('SELECT id FROM warehouses WHERE code=?');
   const byName = db.prepare('SELECT id FROM warehouses WHERE name=?');
-  for (const wh of TARANOM_WAREHOUSES) {
-    let row = find.get(wh.code);
-    if (!row) row = byName.get(wh.name);
-    if (row) {
-      ensureColumn(db, 'warehouses', 'code', 'TEXT');
-      ensureColumn(db, 'warehouses', 'kind', "TEXT DEFAULT 'general'");
-      db.prepare('UPDATE warehouses SET code=COALESCE(code,?), kind=?, name=? WHERE id=?')
-        .run(wh.code, wh.kind, wh.name, row.id);
-    } else {
-      db.prepare(`
-        INSERT INTO warehouses (code,name,address,kind,warehouse_type,active)
-        VALUES (?,?,?,?,?,1)
-      `).run(
-        wh.code,
-        wh.name,
-        '',
-        wh.kind,
-        wh.kind === 'raw' ? 'raw_material' : (wh.kind === 'finished' ? 'finished_goods' : wh.kind)
-      );
+  if (cleared !== '1') {
+    for (const wh of TARANOM_WAREHOUSES) {
+      let row = find.get(wh.code);
+      if (!row) row = byName.get(wh.name);
+      if (row) {
+        ensureColumn(db, 'warehouses', 'code', 'TEXT');
+        ensureColumn(db, 'warehouses', 'kind', "TEXT DEFAULT 'general'");
+        db.prepare('UPDATE warehouses SET code=COALESCE(code,?), kind=?, name=? WHERE id=?')
+          .run(wh.code, wh.kind, wh.name, row.id);
+      } else {
+        db.prepare(`
+          INSERT INTO warehouses (code,name,address,kind,warehouse_type,active)
+          VALUES (?,?,?,?,?,1)
+        `).run(
+          wh.code,
+          wh.name,
+          '',
+          wh.kind,
+          wh.kind === 'raw' ? 'raw_material' : (wh.kind === 'finished' ? 'finished_goods' : wh.kind)
+        );
+      }
     }
   }
 
@@ -1128,6 +1133,7 @@ function seedWarehouses(db) {
       db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(key, String(id));
     }
   };
+  // Only wire production defaults when those warehouses actually exist
   setIfEmpty('production_wh_raw_id', idOf('WH-RAW'));
   setIfEmpty('production_wh_fg_id', idOf('WH-FG'));
   setIfEmpty('production_wh_sub_id', idOf('WH-SUB'));

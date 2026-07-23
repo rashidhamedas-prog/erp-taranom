@@ -32,12 +32,20 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `8674502` دسکتاپ 2.0.4 |
-| نسخه وب/دسکتاپ | وب **`2.1.3`** / دسکتاپ **`2.0.4`** / SW `erp-taranom-v94` |
-| اندروید | **`2.0.25`** آپدیت — `server/public/releases/crm-taranom.apk` |
-| وضعیت سرور | ✅ |
+| آخرین commit | (در حال ثبت) پاک‌سازی انبارها + دسکتاپ 2.0.5 / اندروید 2.0.26 |
+| نسخه وب/دسکتاپ | وب **`2.1.4`** / دسکتاپ **`2.0.5`** / SW `erp-taranom-v95` |
+| اندروید | **`2.0.26`** آپدیت — `server/public/releases/crm-taranom.apk` (sideload محلی) |
+| وضعیت سرور | ⏳ |
 | سرور production | تنها ایران `94.249.244.208` |
-| سیاست بیلد | تا دستور صریح: **بدون بیلد کامل** دسکتاپ؛ اندروید فقط آپدیت |
+| سیاست بیلد | این نوبت: بیلد صریح دسکتاپ + اندروید به درخواست کاربر |
+
+### 2026-07-23 — پاک‌سازی همهٔ انبارها + آپدیت دسکتاپ 2.0.5 / اندروید 2.0.26
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (pending)
+- **خلاصه:** ۱۸ انبار تعریف‌شده روی ایران حذف شد؛ فلگ `warehouses_user_cleared` مانع seed مجدد پیش‌فرض (db + production schema) می‌شود؛ حذف آخرین انبار از UI هم همان فلگ را می‌زند. بیلد دسکتاپ 2.0.5 و APK 2.0.26.
+- **فایل‌های کلیدی:** `server/db.js`, `server/lib/production/schema.js`, `server/routes/warehouses.js`, `server/public/index.html`, `sw.js`, `manifest.json`, `desktop/package.json`, `android/app/build.gradle`
+- **Deploy:** ⏳
+- **یادداشت:** بکاپ DB: `crm.db.pre-wh-purge-*.bak` · exe SHA256 `213F1D84E27B07BF5142DCB23DF8BF341CDCA41AD9D7151C27780A0B1CC6226C` · APK SHA256 `CF79B1F737BEAE419FC41C7D63D676EEEDF4872123BBD4E9E7067071E3BB22D5`
 
 ### 2026-07-23 — آپدیت دسکتاپ ویندوز 2.0.4
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

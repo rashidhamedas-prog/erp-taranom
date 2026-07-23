@@ -102,6 +102,28 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const inUse = db.prepare('SELECT COUNT(*) c FROM products WHERE warehouse_id=?').get(req.params.id).c;
   if (inUse > 0) return res.status(400).json({ error: 'این انبار دارای کالا است و قابل حذف نیست — می‌توانید آن را غیرفعال کنید' });
   db.prepare('DELETE FROM warehouses WHERE id=?').run(req.params.id);
+  // Prevent boot-time seed from recreating default warehouses after intentional deletes
+  const left = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
+  if (left === 0) {
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('warehouses_user_cleared','1')").run();
+    for (const k of [
+      'production_wh_raw_id', 'production_wh_fg_id', 'production_wh_sub_id',
+      'production_wh_scrap_id', 'production_wh_dist_id',
+    ]) {
+      try { db.prepare('DELETE FROM settings WHERE key=?').run(k); } catch (_) {}
+    }
+  } else {
+    // Drop production_* links that pointed at this warehouse
+    for (const k of [
+      'production_wh_raw_id', 'production_wh_fg_id', 'production_wh_sub_id',
+      'production_wh_scrap_id', 'production_wh_dist_id',
+    ]) {
+      const cur = db.prepare('SELECT value FROM settings WHERE key=?').get(k);
+      if (cur && String(cur.value) === String(req.params.id)) {
+        db.prepare('DELETE FROM settings WHERE key=?').run(k);
+      }
+    }
+  }
   audit(req.user.id, 'delete', 'warehouse', req.params.id, `حذف انبار ${row.name}`);
   res.json({ ok: true });
 });
