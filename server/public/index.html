@@ -1876,14 +1876,12 @@ const NAV_ADMIN = [
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'products', icon:'🛍️', label:'کالاها'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
-  {id:'users', icon:'👤', label:'کاربران'},
   {id:'reports', icon:'📈', label:'گزارشات'},
   {id:'ai', icon:'🤖', label:'دستیار AI'},
   {id:'b2bOrders', icon:'🛒', label:'سفارشات B2B'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'settings', icon:'⚙️', label:'تنظیمات'},
-  {id:'api', icon:'🔌', label:'API'},
   {id:'help', icon:'📖', label:'راهنما'},
 ];
 const NAV_SALES = [
@@ -4866,10 +4864,13 @@ async function stkDelete(id){
 /* ============================================================
    USERS (admin)
 ============================================================ */
-ROUTES.users = async function(){
+ROUTES.users = async function(){ settOpenTab('users'); };
+async function loadSettUsersPanel(){
+  const box=el('sett-mount-users'); if(!box) return;
+  if(!isAdmin()){ box.innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
   if(!CACHE.users?.length) CACHE.users=await apiCached('GET','/auth/users', 60000)||[];
-  el('view').innerHTML=`
-    <div class="toolbar"><button class="btn" onclick="userModal()">➕ کاربر جدید</button></div>
+  box.innerHTML=`
+    <div class="toolbar"><button class="btn" onclick="userModal()">کاربر جدید</button></div>
     <div class="panel"><div class="panel-body tbl-wrap">
       <table class="tbl"><thead><tr><th>نام</th><th>نام کاربری</th><th>نقش</th><th>تلفن</th><th>آخرین ورود</th><th>وضعیت</th><th>عملیات</th></tr></thead>
       <tbody>${CACHE.users.map(u=>`<tr>
@@ -4878,12 +4879,13 @@ ROUTES.users = async function(){
         <td class="mono">${esc(u.phone||'-')}</td>
         <td class="muted">${u.last_login?new Date(u.last_login*1000).toLocaleDateString('fa-IR'):'هرگز'}</td>
         <td>${u.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
-        <td><button class="btn sm ghost" onclick="userModal(${u.id})">✏️</button>
-            <button class="btn sm orange" onclick="resetPass(${u.id},'${esc(u.name)}')">🔑</button>
-            ${u.id!==ME.id?`<button class="btn sm red" onclick="confirmDelete('admin/users',${u.id},'${esc(u.name)}')">🗑️</button>`:''}</td>
+        <td><button class="btn sm ghost" onclick="userModal(${u.id})">ویرایش</button>
+            <button class="btn sm orange" onclick="resetPass(${u.id},'${esc(u.name)}')">رمز</button>
+            ${u.id!==ME.id?`<button class="btn sm red" onclick="confirmDelete('admin/users',${u.id},'${esc(u.name)}')">حذف</button>`:''}</td>
       </tr>`).join('')||emptyRow(7)}</tbody></table>
     </div></div>`;
-};
+}
+function refreshSettUsers(){ if(el('sett-mount-users')) loadSettUsersPanel(); else settOpenTab('users'); }
 async function userModal(id){
   await ensurePartyGroups();
   await ensureWarehouses();
@@ -5199,7 +5201,7 @@ async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_c
         if(catIds.length) await api('PUT','/auth/users/'+newId+'/catalog-categories',{category_ids:catIds}).catch(()=>{});
       }
     }
-    CACHE.users=await api('GET','/auth/users'); closeModal(); ROUTES.users(); showToast('ذخیره شد');
+    CACHE.users=await api('GET','/auth/users'); closeModal(); refreshSettUsers(); showToast('ذخیره شد');
   }catch(e){}
 }
 async function resetPass(id,name){
@@ -11299,7 +11301,8 @@ async function renderAccCompanySettingsTab(body){
     <div style="display:flex;flex-wrap:wrap;gap:8px">
       ${isAdmin()?`<button class="btn sm" onclick="go('settings')">⚙️ تنظیمات سیستم</button>
       <button class="btn sm" onclick="settOpenTab('backup')">پشتیبان‌گیری</button>
-      <button class="btn sm" onclick="go('users')">👤 کاربران</button>`:''}
+      <button class="btn sm" onclick="settOpenTab('users')">کاربران</button>
+      <button class="btn sm" onclick="settOpenTab('api')">API</button>`:''}
       <button class="btn sm ghost" onclick="loadAccTab('fiscal-period')">📅 دوره مالی</button>
     </div></div></div>`;
 }
@@ -14712,10 +14715,12 @@ function invoiceTemplateSettingsHtml(s){
 
 const SETT_TABS = [
   {id:'general', icon:'building', label:'عمومی', meta:'شرکت، پول، پنجره', keys:'شرکت نام تلفن آدرس ریال واحد پولی پنجره چندگانه به‌روزرسانی دسکتاپ'},
+  {id:'users', icon:'users', label:'کاربران', meta:'نقش و دسترسی', keys:'کاربران user نقش دسترسی رمز مدیر حسابدار کارشناس'},
   {id:'invoice', icon:'receipt', label:'قالب فاکتور', meta:'رسمی، عادی، حرارتی', keys:'فاکتور قالب رسمی عادی حرارتی کاغذ لوگو پاورقی چاپ A4 A5'},
   {id:'messaging', icon:'chat', label:'پیام‌رسان', meta:'تلگرام، روبیکا، خوش‌آمد', keys:'تلگرام روبیکا خوش‌آمد کیمیا bot token'},
   {id:'sms', icon:'phone', label:'پیامک', meta:'سرویس و قالب‌ها', keys:'پیامک sms کاوه‌نگار قالب زمان‌بندی سرویس‌دهنده'},
   {id:'backup', icon:'archive', label:'پشتیبان', meta:'بکاپ و بازیابی', keys:'پشتیبان backup بکاپ رمزنگاری بازیابی dump'},
+  {id:'api', icon:'plug', label:'API', meta:'کلید و وب‌هوک', keys:'api کلید webhook n8n scope rate limit'},
   {id:'web', icon:'plug', label:'وب‌سایت', meta:'سینک موجودی ووکامرس', keys:'وب‌سایت موجودی ووکامرس webhook stock poshaktaranom'},
   {id:'accounting', icon:'wallet', label:'حسابداری', meta:'کدینگ، سال مالی، ماژول', keys:'کدینگ حساب نگاشت سال مالی ماژول تنخواه انبار تولید حقوق VAT فاکتور پیشوند'},
   {id:'features', icon:'sparkles', label:'قابلیت‌ها', meta:'AI و پورتال B2B', keys:'هوش مصنوعی AI کلود B2B پورتال مشتری'},
@@ -14723,7 +14728,7 @@ const SETT_TABS = [
   {id:'danger', icon:'lock', label:'منطقه خطر', meta:'حذف دیتای تست', keys:'حذف wipe تست دیتا بازنشانی خطرناک'}
 ];
 let SETT_ACTIVE_TAB = 'general';
-const SETT_NO_SAVE = new Set(['sms','backup','audit','danger']);
+const SETT_NO_SAVE = new Set(['sms','backup','audit','danger','users','api']);
 function settNavHtml(){
   return SETT_TABS.map(t=>`<button type="button" class="sett-nav-btn${t.id===SETT_ACTIVE_TAB?' active':''}" data-sett-tab="${t.id}" data-sett-keys="${t.keys}" onclick="settShowTab('${t.id}')">
     <span class="ico">${lucide(t.icon)}</span>
@@ -14745,6 +14750,8 @@ function settShowTab(id){
   if(main) main.scrollTop=0;
   if(SETT_ACTIVE_TAB==='sms') loadSettSmsPanel();
   if(SETT_ACTIVE_TAB==='backup') loadSettBackupPanel();
+  if(SETT_ACTIVE_TAB==='users') loadSettUsersPanel();
+  if(SETT_ACTIVE_TAB==='api') loadSettApiPanel();
 }
 function settOpenTab(id){
   try{ sessionStorage.setItem('crm_settings_tab', id); }catch(e){}
@@ -15011,10 +15018,12 @@ ROUTES.settings = async function(){
         <div class="sett-main">
           <div id="sett-empty" class="sett-empty" style="display:none">نتیجه‌ای پیدا نشد — عبارت دیگری امتحان کنید.</div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='general'?' active':''}" data-sett="general">${generalPanel}</div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='users'?' active':''}" data-sett="users"><div id="sett-mount-users"><div class="muted" style="padding:16px">در حال بارگذاری کاربران...</div></div></div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='invoice'?' active':''}" data-sett="invoice">${invoiceTemplateSettingsHtml(s)}</div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='messaging'?' active':''}" data-sett="messaging">${messagingPanel}</div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='sms'?' active':''}" data-sett="sms"><div id="sett-mount-sms"><div class="muted" style="padding:16px">در حال بارگذاری ماژول پیامک...</div></div></div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='backup'?' active':''}" data-sett="backup"><div id="sett-mount-backup"><div class="muted" style="padding:16px">در حال بارگذاری پشتیبان‌گیری...</div></div></div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='api'?' active':''}" data-sett="api"><div id="sett-mount-api"><div class="muted" style="padding:16px">در حال بارگذاری API...</div></div></div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='web'?' active':''}" data-sett="web">${webPanel}</div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='accounting'?' active':''}" data-sett="accounting">${accountingPanel}</div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='features'?' active':''}" data-sett="features">${featuresPanel}</div>
@@ -15304,16 +15313,18 @@ async function downloadBackup(){
 function triggerBackup(){} // kept for compatibility
 
 /* ============================================================
-   API & INTEGRATIONS (admin)
+   API & INTEGRATIONS (admin) — فقط داخل تنظیمات
 ============================================================ */
-ROUTES.api = async function(){
-  if(!isAdmin()){ el('view').innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
+ROUTES.api = async function(){ settOpenTab('api'); };
+async function loadSettApiPanel(){
+  const box=el('sett-mount-api'); if(!box) return;
+  if(!isAdmin()){ box.innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
   const [keys, webhooks] = await Promise.all([
     api('GET','/api-keys').catch(()=>[]),
     api('GET','/api-keys/webhooks').catch(()=>[])
   ]);
   const s = CACHE.settings||{};
-  el('view').innerHTML=`
+  box.innerHTML=`
     <div class="panel"><div class="panel-head"><h4>وضعیت API</h4></div><div class="panel-body">
       <div class="form-grid">
         <div class="fg"><label>API v1</label><select id="api-enabled">
@@ -15367,7 +15378,8 @@ GET /api/v1/products?q=نام&category=بلوز
 GET /api/v1/ping</div>
       <p style="color:var(--muted)">برای دسترسی نوشتن، هنگام ساخت کلید، scope را روی <b>read,write</b> تنظیم کنید.</p>
     </div></div>`;
-};
+}
+function refreshSettApi(){ if(el('sett-mount-api')) loadSettApiPanel(); else settOpenTab('api'); }
 async function saveAPISettings(){
   const data={api_v1_enabled:el('api-enabled').value, api_rate_limit:el('api-rate').value, webhook_secret:el('api-wh-secret').value};
   CACHE.settings = await api('PUT','/settings',data);
@@ -15397,7 +15409,7 @@ async function createAPIKey(){
       <div class="api-reveal">${esc(r.key)}</div>
     </div>
     <div class="modal-foot"><button class="btn" onclick="navigator.clipboard.writeText('${esc(r.key)}');showToast('کپی شد')">📋 کپی</button>
-      <button class="btn ghost" onclick="closeModal();ROUTES.api()">بستن</button></div>`);
+      <button class="btn ghost" onclick="closeModal();refreshSettApi()">بستن</button></div>`);
 }
 async function editAPIKey(id,name,scopes,active){
   openModal(`
@@ -15416,11 +15428,11 @@ async function editAPIKey(id,name,scopes,active){
 }
 async function updateAPIKey(id){
   await api('PUT','/api-keys/'+id,{name:el('ak-name').value,scopes:el('ak-scope').value,active:+el('ak-active').value});
-  closeModal(); ROUTES.api(); showToast('ذخیره شد');
+  closeModal(); refreshSettApi(); showToast('ذخیره شد');
 }
 async function deleteAPIKey(id){
   if(!confirm('این کلید حذف شود؟')) return;
-  await api('DELETE','/api-keys/'+id); ROUTES.api(); showToast('حذف شد');
+  await api('DELETE','/api-keys/'+id); refreshSettApi(); showToast('حذف شد');
 }
 function newWebhook(){
   openModal(`
@@ -15441,7 +15453,7 @@ async function createWebhook(){
   const name=el('wh-name').value.trim(), url=el('wh-url').value.trim();
   if(!name||!url){showToast('نام و آدرس الزامی است','error');return;}
   await api('POST','/api-keys/webhooks',{name,url,events:el('wh-events').value,secret:el('wh-secret').value});
-  closeModal(); ROUTES.api(); showToast('ذخیره شد');
+  closeModal(); refreshSettApi(); showToast('ذخیره شد');
 }
 async function editWebhook(id,name,url,events,active){
   openModal(`
@@ -15459,11 +15471,11 @@ async function editWebhook(id,name,url,events,active){
 }
 async function updateWebhook(id){
   await api('PUT','/api-keys/webhooks/'+id,{name:el('wh-name').value,url:el('wh-url').value,events:el('wh-events').value,active:+el('wh-active').value,secret:''});
-  closeModal(); ROUTES.api(); showToast('ذخیره شد');
+  closeModal(); refreshSettApi(); showToast('ذخیره شد');
 }
 async function deleteWebhook(id){
   if(!confirm('این Webhook حذف شود؟')) return;
-  await api('DELETE','/api-keys/webhooks/'+id); ROUTES.api(); showToast('حذف شد');
+  await api('DELETE','/api-keys/webhooks/'+id); refreshSettApi(); showToast('حذف شد');
 }
 
 /* ============================================================
@@ -15752,7 +15764,7 @@ function renderAdminGuide(){
       </ul>
       <div class="tip">با فیلتر تاریخ، گزارش هر ماه یا فصل را جداگانه ببینید.</div>`),
     helpSec('👤','مدیریت کاربران',`
-      <p>ساخت و مدیریت حساب‌های کارشناسان.</p>
+      <p>ساخت و مدیریت حساب‌های کارشناسان از مسیر <b>تنظیمات → کاربران</b> (دیگر در منوی کناری اصلی نیست).</p>
       <h5>نقش‌های کاربری</h5><ul>
         <li><b>مدیر سیستم</b>: دسترسی کامل به همه بخش‌ها</li>
         <li><b>حسابدار</b>: دسترسی کامل به بخش حسابداری (تسویه، چک، تأیید فاکتور، انگیزه فروش، صورت‌حساب) و مشاهده همه مشتریان — بدون دسترسی به تنظیمات و کاربران</li>
@@ -15768,6 +15780,7 @@ function renderAdminGuide(){
       <p>صفحه تنظیمات دیگر یک فهرست بلند نیست: از منوی کناری بین بخش‌ها جابه‌جا شوید یا در کادر جستجوی بالای صفحه عبارت بزنید (مثلاً «فاکتور»، «تلگرام»، «سال مالی»). نوار «ذخیره تنظیمات» پایین صفحه همیشه در دسترس است.</p>
       <ul>
         <li><b>عمومی</b>: اطلاعات شرکت، واحد پولی، پنجره‌های چندگانه، به‌روزرسانی دسکتاپ</li>
+        <li><b>کاربران</b> و <b>API</b>: مدیریت نقش‌ها/کلیدها — فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
         <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی و شخصی‌سازی چاپ</li>
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
         <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
@@ -15805,11 +15818,11 @@ function renderAdminGuide(){
       <h5>بازیابی رمز عبور</h5><p>در صفحه ورود، لینک «رمز عبور را فراموش کرده‌اید؟» کد یک‌بارمصرف (OTP) را به موبایل ثبت‌شده کاربر پیامک می‌کند. پس از وارد کردن کد، رمز جدید باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد. اگر پیامک ارسال نشد، تنظیمات سرویس پیامک را بررسی کنید.</p>
       <h5>تغییر اجباری رمز در اولین ورود</h5><p>در اولین ورود با رمز پیش‌فرض (<code>admin123</code>) یا هر رمزی که مدیر برای کاربر تعیین کرده، پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود و تا رمز شخصی جدید انتخاب نشود، هیچ عملیات دیگری در برنامه ممکن نیست. این الزام روی سرور مرکزی اعمال می‌شود؛ در دستگاه‌های آفلاین رمز جدید با اولین همگام‌سازی از مرکز می‌رسد.</p>
       <h5>پشتیبان‌گیری پیشرفته (فقط سرور مرکزی)</h5><ul>
-        <li>منوی «پشتیبان» و ساخت/دانلود dump فقط روی <strong>نسخه وب سرور مرکزی</strong> — در دسکتاپ و اندروید غیرفعال است</li>
+        <li>تب «پشتیبان» در تنظیمات و ساخت/دانلود dump فقط روی <strong>نسخه وب سرور مرکزی</strong> — در دسکتاپ و اندروید غیرفعال است</li>
         <li>هر شب ساعت ۰۰:۰۰ پشتیبان خودکار ساخته می‌شود — شامل دیتابیس و تصاویر آپلودشده</li>
         <li>تا ۱۴ نسخهٔ قبلی نگه داشته می‌شود؛ نسخه‌های قدیمی‌تر خودکار حذف می‌شوند</li>
-        <li>لیست پشتیبان‌ها و دانلود هر نسخه از منوی «پشتیبان»</li>
-        <li><b>رمزنگاری پشتیبان</b>: در منوی «پشتیبان» می‌توانید رمز پشتیبان تعیین کنید؛ از آن پس همه پشتیبان‌ها با AES-256 رمزنگاری می‌شوند (پسوند <code>.enc</code>). بازگشایی با <code dir="ltr">node server/scripts/decrypt-backup.js</code> انجام می‌شود. <b>رمز را گم نکنید — بدون آن پشتیبان قابل بازیابی نیست.</b></li>
+        <li>لیست پشتیبان‌ها و دانلود هر نسخه از تنظیمات → «پشتیبان»</li>
+        <li><b>رمزنگاری پشتیبان</b>: در تنظیمات → «پشتیبان» می‌توانید رمز پشتیبان تعیین کنید؛ از آن پس همه پشتیبان‌ها با AES-256 رمزنگاری می‌شوند (پسوند <code>.enc</code>). بازگشایی با <code dir="ltr">node server/scripts/decrypt-backup.js</code> انجام می‌شود. <b>رمز را گم نکنید — بدون آن پشتیبان قابل بازیابی نیست.</b></li>
       </ul>`),
     helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
       <p>نسخه دسکتاپ (ویندوز) و اندرویدِ برنامه به‌صورت <b>کاملاً آفلاین</b> کار می‌کنند: همه اطلاعات روی خود دستگاه ذخیره می‌شود و به محض دسترسی به اینترنت، تغییرات به‌طور خودکار با سرور مرکزی همگام می‌شود.</p>
@@ -15840,9 +15853,9 @@ function renderAdminGuide(){
       <div class="warn">تنظیمات سیستم، مدیریت کاربران و اصلاح مستقیم موجودی فقط روی سرور مرکزی امکان‌پذیر است. تغییر رمز روی دسکتاپ/اندروید به سرور مرکزی ارسال می‌شود (نیاز به اتصال آنلاین) و با همگام‌سازی به سایر دستگاه‌ها می‌رسد.</div>
       <div class="tip">همگام‌سازی خودکار هر یک دقیقه انجام می‌شود؛ با دکمه «همگام‌سازی اکنون» در پنل وضعیت می‌توانید فوراً اجرا کنید.</div>`),
     helpSec('🔌','API و یکپارچه‌سازی',`
-      <p>اتصال نرم‌افزارهای خارجی به ERP ترنم از طریق API.</p>
+      <p>اتصال نرم‌افزارهای خارجی به ERP ترنم از طریق API — از مسیر <b>تنظیمات → API</b>.</p>
       <h5>ساخت کلید API</h5><ol>
-        <li>به بخش API بروید</li>
+        <li>به تنظیمات → API بروید</li>
         <li>«کلید جدید» را انتخاب کنید</li>
         <li>نام و سطح دسترسی را تنظیم کنید</li>
         <li>کلید را کپی و در جای امنی ذخیره کنید — دوباره نشان داده نمی‌شود</li>
@@ -16113,7 +16126,7 @@ async function doDelete(entity,id){
   else if(entity==='followups'){ CACHE.followups=await api('GET','/followups'); renderFupView(); }
   else if(entity==='invoices'){ CACHE.invoices=await api('GET','/invoices'); _invoicesFetched=true; if(IN_ACC_SHELL&&accTab==='sales-invoices') loadAccTab('sales-invoices'); else renderInvTable(); }
   else if(entity==='products'){ await loadProductsFiltered(); renderProdGrid(true); }
-  else if(entity==='admin/users'){ CACHE.users=await api('GET','/auth/users'); ROUTES.users(); }
+  else if(entity==='admin/users'){ CACHE.users=await api('GET','/auth/users'); refreshSettUsers(); }
 }
 function openChangePass(){
   const isDeviceBuild = APP_INFO && APP_INFO.role==='device';
