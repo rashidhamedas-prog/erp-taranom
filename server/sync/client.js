@@ -26,6 +26,10 @@ const state = {
 
 /** Canonical production central (Iran). Legacy German IP must never be used. */
 const CANONICAL_CENTRAL_URL = 'https://erp.poshaktaranom.com';
+const FALLBACK_CENTRAL_URLS = [
+  'https://erp.poshaktaranom.com',
+  'http://erp.poshaktaranom.com'
+];
 const LEGACY_CENTRAL_HOSTS = [
   '45.90.98.99',
   'http://45.90.98.99',
@@ -33,6 +37,8 @@ const LEGACY_CENTRAL_HOSTS = [
   'https://45.90.98.99',
   'https://45.90.98.99:3000'
 ];
+
+let initialSyncPromise = null;
 
 function kvGet(db, key) {
   const r = db.prepare('SELECT value FROM sync_local_kv WHERE key=?').get(key);
@@ -89,27 +95,165 @@ function deviceHeaders(cfg) {
   return { 'Authorization': `Device ${cfg.deviceId}:${cfg.deviceToken}`, 'Content-Type': 'application/json' };
 }
 
+function networkErrorMessage(err, context) {
+  const msg = String(err && err.message || err || '');
+  const name = err && err.name;
+  if (name === 'AbortError' || /aborted|timeout/i.test(msg)) {
+    return `${context}: زمان انتظار تمام شد — اینترنت را بررسی کنید و دوباره تلاش کنید`;
+  }
+  if (/ENOTFOUND|getaddrinfo|DNS/i.test(msg)) {
+    return `${context}: دامنه سرور پیدا نشد — DNS/اینترنت را بررسی کنید`;
+  }
+  if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|network/i.test(msg)) {
+    return `${context}: ارتباط با سرور برقرار نشد`;
+  }
+  if (/certificate|SSL|TLS|UNABLE_TO_VERIFY/i.test(msg)) {
+    return `${context}: خطای گواهی SSL — آدرس http://erp.poshaktaranom.com را امتحان کنید`;
+  }
+  return msg ? `${context}: ${msg}` : context;
+}
+
+async function fetchWithTimeout(url, options, ms) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: ctl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function probe(centralUrl) {
   try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 5000);
-    const r = await fetch(centralUrl.replace(/\/$/, '') + '/api/system/time', { signal: ctl.signal });
-    clearTimeout(t);
+    const r = await fetchWithTimeout(
+      centralUrl.replace(/\/$/, '') + '/api/system/time',
+      {},
+      8000
+    );
     return r.ok;
   } catch { return false; }
+}
+
+/** Try preferred URL then https/http canonical fallbacks; return first reachable base. */
+async function resolveReachableCentralUrl(preferred) {
+  let base = normalizeCentralUrl(preferred) || CANONICAL_CENTRAL_URL;
+  if (isLegacyCentralUrl(base)) base = CANONICAL_CENTRAL_URL;
+  const candidates = [base];
+  for (const u of FALLBACK_CENTRAL_URLS) {
+    if (!candidates.includes(u)) candidates.push(u);
+  }
+  for (const u of candidates) {
+    if (await probe(u)) return u;
+  }
+  return null;
+}
+
+function countLocalUsers(db) {
+  try { return db.prepare('SELECT COUNT(*) c FROM users WHERE active=1').get().c; }
+  catch { return 0; }
+}
+
+/** Paired but unusable: no users, or credentials without a successful first pull. */
+function pairingHealth(db) {
+  if (!isPaired(db)) {
+    return { broken: false, reason: null, users: countLocalUsers(db), initial_sync_done: false };
+  }
+  const users = countLocalUsers(db);
+  let initialDone = kvGet(db, 'initial_sync_done') === '1';
+  // Legacy pairings (before this flag): a non-negative pull cursor means first sync finished.
+  // Skip while a pull is in flight — last_pull_seq advances page-by-page.
+  if (!initialDone && !state.syncing && !initialSyncPromise) {
+    const lastPull = parseInt(kvGet(db, 'last_pull_seq'));
+    if (Number.isInteger(lastPull) && lastPull >= 0 && users > 0) {
+      kvSet(db, 'initial_sync_done', '1');
+      initialDone = true;
+    }
+  }
+  if (users === 0) {
+    return { broken: true, reason: 'no_users', users: 0, initial_sync_done: initialDone };
+  }
+  if (!initialDone && !state.syncing && !initialSyncPromise) {
+    return { broken: true, reason: 'initial_sync_incomplete', users, initial_sync_done: false };
+  }
+  return { broken: false, reason: null, users, initial_sync_done: initialDone };
+}
+
+function clearPairingKeys(db) {
+  for (const k of ['central_url', 'device_id', 'device_token', 'last_pull_seq', 'initial_sync_done']) kvDel(db, k);
+}
+
+/**
+ * After device credentials are saved: pull all rows, drop placeholder admin,
+ * pull files. On hard failure wipe local pairing so the user can retry cleanly.
+ */
+async function runInitialSyncAfterPair() {
+  const db = getDB();
+  if (!isPaired(db)) return { ok: false, error: 'دستگاه متصل نیست' };
+  if (state.syncing) return { ok: false, error: 'همگام‌سازی در حال اجراست' };
+  const cfg = getConfig(db);
+  state.syncing = true;
+  state.lastError = null;
+  try {
+    state.online = await probe(cfg.centralUrl);
+    if (!state.online) {
+      const reached = await resolveReachableCentralUrl(cfg.centralUrl);
+      if (reached) {
+        kvSet(db, 'central_url', reached);
+        cfg.centralUrl = reached;
+        state.online = true;
+      } else {
+        throw new Error('سرور مرکزی در دسترس نیست — اینترنت را بررسی کنید');
+      }
+    }
+    const pulledUserIds = await pullAll(db, cfg);
+    await pullMissingFiles(db, cfg).catch(e => console.error('initial file sync:', e.message));
+    if (!pulledUserIds.size) {
+      throw new Error('هیچ کاربری از سرور مرکزی دریافت نشد — نام کاربری/رمز مدیر را بررسی کنید یا دوباره وصل شوید');
+    }
+    const ids = [...pulledUserIds];
+    db.prepare(`DELETE FROM users WHERE id NOT IN (${ids.map(() => '?').join(',')})`).run(...ids);
+    kvSet(db, 'initial_sync_done', '1');
+    state.lastSyncAt = Math.floor(Date.now() / 1000);
+    state.lastError = null;
+    state.dataVersion++;
+    return { ok: true, users: pulledUserIds.size };
+  } catch (e) {
+    const msg = networkErrorMessage(e, 'همگام‌سازی اولیه ناموفق');
+    state.lastError = msg;
+    console.error('[sync] initial pull after pair failed:', msg);
+    try { resetPairing(); } catch (re) {
+      console.error('[sync] rollback after failed initial pull:', re.message);
+      clearPairingKeys(db);
+    }
+    return { ok: false, error: msg, rolled_back: true };
+  } finally {
+    state.syncing = false;
+  }
+}
+
+function startInitialSyncAfterPair() {
+  if (initialSyncPromise) return initialSyncPromise;
+  initialSyncPromise = runInitialSyncAfterPair().finally(() => {
+    initialSyncPromise = null;
+  });
+  return initialSyncPromise;
 }
 
 // ---- Pairing ----
 async function pair(centralUrl, username, password, deviceName) {
   const db = getDB();
   if (isPaired(db)) {
+    const health = pairingHealth(db);
+    if (health.broken) {
+      throw new Error('اتصال قبلی خراب است — از صفحه ورود «قطع اتصال و اتصال مجدد» را بزنید، سپس دوباره وصل کنید');
+    }
     throw new Error('این دستگاه قبلاً متصل شده است — از پنل همگام‌سازی «قطع اتصال و اتصال مجدد» را بزنید');
   }
-  let base = normalizeCentralUrl(centralUrl);
-  if (!base) throw new Error('آدرس سرور مرکزی نامعتبر است');
-  if (isLegacyCentralUrl(base)) {
-    console.warn(`[sync] rejecting legacy central URL ${base}, using canonical`);
-    base = CANONICAL_CENTRAL_URL;
+  let preferred = normalizeCentralUrl(centralUrl);
+  if (!preferred) throw new Error('آدرس سرور مرکزی نامعتبر است');
+  if (isLegacyCentralUrl(preferred)) {
+    console.warn(`[sync] rejecting legacy central URL ${preferred}, using canonical`);
+    preferred = CANONICAL_CENTRAL_URL;
   }
 
   // Pairing requires a fresh (empty) local database — pre-pairing business
@@ -120,31 +264,46 @@ async function pair(centralUrl, username, password, deviceName) {
     throw new Error('اتصال فقط روی پایگاه‌داده خالی امکان‌پذیر است — ابتدا «قطع اتصال و اتصال مجدد» را بزنید');
   }
 
-  const r = await fetch(base + '/api/sync/pair', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, device_name: deviceName })
-  });
+  const base = await resolveReachableCentralUrl(preferred);
+  if (!base) {
+    throw new Error('سرور مرکزی در دسترس نیست — اینترنت موبایل/وای‌فای را روشن کنید و آدرس https://erp.poshaktaranom.com را بررسی کنید');
+  }
+
+  let r;
+  try {
+    r = await fetchWithTimeout(base + '/api/sync/pair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, device_name: deviceName })
+    }, 30000);
+  } catch (e) {
+    throw new Error(networkErrorMessage(e, 'اتصال به سرور مرکزی ناموفق بود'));
+  }
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.error || 'اتصال به سرور مرکزی ناموفق بود');
+  if (!body.device_id || !body.device_token) {
+    throw new Error('پاسخ نامعتبر از سرور مرکزی — دوباره تلاش کنید');
+  }
 
   kvSet(db, 'central_url', base);
   kvSet(db, 'device_id', body.device_id);
   kvSet(db, 'device_token', body.device_token);
   kvSet(db, 'last_pull_seq', -1);
   seedProvisionalSequences(db, body.device_id);
-
-  // Initial full pull. Then remove the pre-pairing placeholder admin: any
-  // local user row whose id wasn't in the pulled user set is a seed artifact.
-  const cfg = getConfig(db);
-  const pulledUserIds = await pullAll(db, cfg);
-  await pullMissingFiles(db, cfg).catch(e => console.error('initial file sync:', e.message));
-  if (pulledUserIds.size) {
-    const ids = [...pulledUserIds];
-    db.prepare(`DELETE FROM users WHERE id NOT IN (${ids.map(() => '?').join(',')})`).run(...ids);
-  }
   state.online = true;
   state.lastError = null;
-  return { ok: true, device_id: body.device_id, central_url: base };
+
+  // Register quickly, then pull in the background so the WebView request
+  // does not hang for minutes on a large central database.
+  startInitialSyncAfterPair();
+
+  return {
+    ok: true,
+    device_id: body.device_id,
+    central_url: base,
+    initial_sync: 'started',
+    message: 'دستگاه ثبت شد — در حال دریافت اطلاعات از سرور مرکزی'
+  };
 }
 
 /** Update central URL on an already-paired device (e.g. migrate host). */
@@ -180,7 +339,7 @@ function resetPairing() {
         console.warn(`[sync] resetPairing skip ${name}:`, e.message);
       }
     }
-    for (const k of ['central_url', 'device_id', 'device_token', 'last_pull_seq']) kvDel(db, k);
+    for (const k of ['central_url', 'device_id', 'device_token', 'last_pull_seq', 'initial_sync_done']) kvDel(db, k);
     const hash = bcrypt.hashSync('admin123', 10);
     db.prepare('INSERT INTO users (name,username,password,role,must_change_password) VALUES (?,?,?,?,0)')
       .run('مدیر موقت', 'admin', hash, 'admin');
@@ -200,6 +359,11 @@ async function syncNow() {
   const db = getDB();
   if (!isPaired(db)) return { ok: false, error: 'دستگاه هنوز به سرور مرکزی متصل نشده است' };
   if (state.syncing) return { ok: false, error: 'همگام‌سازی در حال اجراست' };
+  const health = pairingHealth(db);
+  if (!health.initial_sync_done) {
+    if (!initialSyncPromise) startInitialSyncAfterPair();
+    return { ok: false, error: 'همگام‌سازی اولیه هنوز تمام نشده است — لطفاً صبر کنید' };
+  }
   const cfg = getConfig(db);
 
   state.syncing = true;
@@ -312,8 +476,20 @@ async function pullAll(db, cfg) {
   let since = parseInt(kvGet(db, 'last_pull_seq'));
   if (!Number.isInteger(since)) since = -1;
   let more = true;
+  let pages = 0;
   while (more) {
-    const r = await fetch(`${cfg.centralUrl}/api/sync/pull?since=${since}&limit=2000`, { headers: deviceHeaders(cfg) });
+    pages += 1;
+    if (pages > 5000) throw new Error('دریافت تغییرات از سرور بیش از حد طول کشید');
+    let r;
+    try {
+      r = await fetchWithTimeout(
+        `${cfg.centralUrl}/api/sync/pull?since=${since}&limit=2000`,
+        { headers: deviceHeaders(cfg) },
+        60000
+      );
+    } catch (e) {
+      throw new Error(networkErrorMessage(e, 'خطا در دریافت تغییرات از سرور مرکزی'));
+    }
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.error || 'خطا در دریافت تغییرات از سرور مرکزی');
     applyChanges(db, body.changes || [], pulledUserIds);
@@ -454,6 +630,7 @@ function conflictCount(db) {
 function getStatus() {
   const db = getDB();
   const cfg = getConfig(db);
+  const health = pairingHealth(db);
   let filesMissing = 0;
   try { filesMissing = isPaired(db) ? countMissingFiles(db) : 0; } catch { /* */ }
   return {
@@ -469,7 +646,12 @@ function getStatus() {
     last_sync_at: state.lastSyncAt,
     last_pull_seq: cfg.lastPullSeq,
     last_error: state.lastError,
-    data_version: state.dataVersion
+    data_version: state.dataVersion,
+    users_count: health.users,
+    initial_sync_done: health.initial_sync_done,
+    pairing_broken: health.broken,
+    pairing_broken_reason: health.reason,
+    initial_sync_running: !!initialSyncPromise || (state.syncing && !health.initial_sync_done)
   };
 }
 
@@ -507,6 +689,13 @@ function startClientLoop(intervalMs) {
   if (isPaired(db)) {
     const cfg = getConfig(db);
     seedProvisionalSequences(db, cfg.deviceId);
+    const health = pairingHealth(db);
+    // Resume interrupted first pull (app killed mid-pair) instead of leaving a dead pairing.
+    if (!health.initial_sync_done || health.broken) {
+      setTimeout(() => {
+        startInitialSyncAfterPair().catch(e => console.error('resume initial sync:', e.message));
+      }, 1500);
+    }
   }
   const tick = () => { syncNow().catch(e => console.error('sync loop:', e.message)); };
   setTimeout(tick, 5000);
@@ -593,5 +782,5 @@ module.exports = {
   pair, syncNow, pullFilesNow, skipSyncFile, discardConflict, getStatus, getConfig, startClientLoop, isPaired,
   setCentralUrl, resetPairing, migrateLegacyCentralUrl, normalizeCentralUrl, CANONICAL_CENTRAL_URL,
   fetchCentralAppUpdate, getUpdateFeedUrl, fetchCentralUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles,
-  changePasswordOnCentral
+  changePasswordOnCentral, pairingHealth, resolveReachableCentralUrl, startInitialSyncAfterPair
 };

@@ -1696,7 +1696,14 @@ el('loginForm').addEventListener('submit', async (e)=>{
   try{
     const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
     const j = await r.json();
-    if(!r.ok){ el('loginErr').textContent = j.error || 'خطا در ورود'; return; }
+    if(!r.ok){
+      let msg = j.error || 'خطا در ورود';
+      if(APP_INFO && APP_INFO.role==='device'){
+        msg += ' — اگر اتصال خراب است، لینک «قطع اتصال و اتصال مجدد» پایین همین صفحه را بزنید';
+      }
+      el('loginErr').textContent = msg;
+      return;
+    }
     if(j.twofa_required){ show2FALogin(j.pre_token); return; }
     localStorage.setItem('crm_token', j.token);
     localStorage.setItem('crm_user', JSON.stringify(j.user));
@@ -2546,7 +2553,9 @@ async function initSyncUI(){
       SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge();
       maybeRefreshAfterSync();
     }catch(e){} }, 20000);
-    if(!SYNC_STATUS.paired && isAdmin()) openSyncPairModal();
+    if(SYNC_STATUS.pairing_broken && isAdmin()) openSyncPairModal({repair:true});
+    else if(!SYNC_STATUS.paired && isAdmin()) openSyncPairModal();
+    else if(SYNC_STATUS.paired && SYNC_STATUS.initial_sync_running) openSyncPairProgressModal();
     else if(SYNC_STATUS.paired && SYNC_STATUS.files_missing>0) pullProductImages(true);
   }catch(e){ /* central server — no sync UI */ }
 }
@@ -2595,8 +2604,12 @@ function renderSyncBadge(){
   const b = el('syncBadge'); if(!b || !SYNC_STATUS) return;
   b.style.display='inline-block';
   const s = SYNC_STATUS;
-  if(!s.paired){
+  if(s.pairing_broken){
+    b.textContent='⚠️ اتصال خراب — لمس کنید'; b.style.background='#fee2e2'; b.style.color='#b91c1c';
+  } else if(!s.paired){
     b.textContent='🔗 اتصال به سرور مرکزی'; b.style.background='#fef3c7'; b.style.color='#b45309';
+  } else if(s.initial_sync_running || (s.syncing && !s.initial_sync_done)){
+    b.textContent='⬇️ دریافت اولیه از مرکز...'; b.style.background='#dbeafe'; b.style.color='#1d4ed8';
   } else if(s.conflicts>0){
     b.textContent=`⚠️ ${fmt(s.conflicts)} تعارض`; b.style.background='#fee2e2'; b.style.color='#b91c1c';
   } else if(s.syncing){
@@ -2616,7 +2629,9 @@ async function openSyncPanel(){
   SYNC_STATUS = await fetchSyncStatus() || SYNC_STATUS;
   renderSyncBadge();
   const s = SYNC_STATUS || {};
+  if(s.pairing_broken){ if(isAdmin()) openSyncPairModal({repair:true}); else showToast('اتصال دستگاه خراب است — از مدیر بخواهید قطع و اتصال مجدد کند','error'); return; }
   if(!s.paired){ if(isAdmin()) openSyncPairModal(); else showToast('دستگاه هنوز متصل نشده — از مدیر سیستم بخواهید اتصال را انجام دهد','error'); return; }
+  if(s.initial_sync_running || (s.syncing && !s.initial_sync_done)){ openSyncPairProgressModal(); return; }
   const token = localStorage.getItem('crm_token');
   const [pending, conflicts, missingFiles] = await Promise.all([
     fetch('/api/sync/pending',{headers:{'Authorization':'Bearer '+token}}).then(r=>r.ok?r.json():[]),
@@ -2725,43 +2740,122 @@ async function discardSyncConflict(outboxId){
   else showToast(j.error||'لغو ناموفق بود','error');
 }
 
-function openSyncPairModal(){
+function openSyncPairModal(opts){
+  const repair = !!(opts && opts.repair);
+  const err = (SYNC_STATUS && SYNC_STATUS.last_error) ? SYNC_STATUS.last_error : '';
   openModal(`
     <div class="modal-head"><h3>🔗 اتصال به سرور مرکزی</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body">
-      <p class="muted" style="font-size:13px;margin-bottom:14px">این برنامه به‌صورت آفلاین کار می‌کند و تغییرات را با سرور مرکزی همگام می‌سازد. برای شروع، یک‌بار اتصال را با اطلاعات مدیر سیستم انجام دهید (نیاز به اینترنت دارد).</p>
-      <div class="form-grid">
-        <div class="fg full"><label>آدرس سرور مرکزی *</label><input id="pair-url" dir="ltr" placeholder="https://erp.poshaktaranom.com" value="https://erp.poshaktaranom.com"></div>
-        <div class="fg"><label>نام کاربری مدیر *</label><input id="pair-user" dir="ltr"></div>
-        <div class="fg"><label>رمز عبور *</label><input id="pair-pass" type="password" dir="ltr"></div>
-        <div class="fg full"><label>نام این دستگاه</label><input id="pair-name" placeholder="مثلاً: لپ‌تاپ فروش ۱"></div>
+      ${repair?`
+        <div style="background:#fee2e2;color:#991b1b;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.9;margin-bottom:14px">
+          <b>اتصال قبلی خراب است.</b><br>
+          ${err?esc(err)+'<br>':''}
+          ابتدا «قطع اتصال و اتصال مجدد» را بزنید، بعد با اینترنت دوباره وصل شوید.
+          <div style="margin-top:10px"><button class="btn red" type="button" onclick="resetPairingUI()">🔌 قطع اتصال و اتصال مجدد</button></div>
+        </div>`:`
+        <p class="muted" style="font-size:13px;margin-bottom:12px;line-height:1.9">این برنامه آفلاین است. فقط <b>یک‌بار</b> با اینترنت به سرور مرکزی وصل شوید تا اطلاعات دریافت شود.</p>`}
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.85;margin-bottom:14px;color:#1e3a8a">
+        <b>مهم:</b> نام کاربری و رمز اینجا باید همان <b>مدیر سیستم نسخه وب</b> باشد — نه <code dir="ltr">admin / admin123</code> محلی گوشی.
+        ورود محلی فقط برای باز کردن همین پنجره است.
       </div>
+      <div class="form-grid">
+        <div class="fg full"><label>آدرس سرور مرکزی *</label>
+          <input id="pair-url" dir="ltr" placeholder="https://erp.poshaktaranom.com" value="https://erp.poshaktaranom.com" ${repair?'disabled':''}>
+          <div class="muted" style="font-size:11px;margin-top:4px">پیش‌فرض درست است — معمولاً عوض نکنید. اگر HTTPS مشکل داشت: <code dir="ltr">http://erp.poshaktaranom.com</code></div>
+        </div>
+        <div class="fg"><label>نام کاربری مدیر سیستم *</label><input id="pair-user" dir="ltr" autocomplete="username" ${repair?'disabled':''}></div>
+        <div class="fg"><label>رمز عبور مدیر سیستم *</label><input id="pair-pass" type="password" dir="ltr" autocomplete="current-password" ${repair?'disabled':''}></div>
+        <div class="fg full"><label>نام این دستگاه</label><input id="pair-name" placeholder="مثلاً: موبایل فروش ۱" ${repair?'disabled':''}></div>
+      </div>
+      <div id="pair-err" class="login-err" style="margin-top:10px"></div>
     </div>
     <div class="modal-foot">
-      <button class="btn" onclick="doSyncPair()">🔗 اتصال</button>
-      <button class="btn ghost" onclick="closeModal()">بعداً</button>
+      ${repair?'':`<button class="btn" id="pair-submit-btn" onclick="doSyncPair()">🔗 اتصال و دریافت اطلاعات</button>`}
+      <button class="btn ghost" onclick="closeModal()">${repair?'بستن':'بعداً'}</button>
     </div>`);
 }
 
-async function doSyncPair(){
-  const central_url = el('pair-url').value.trim();
-  const username = el('pair-user').value.trim();
-  const password = el('pair-pass').value;
-  const device_name = el('pair-name').value.trim() || 'دستگاه آفلاین';
-  if(!central_url||!username||!password){ showToast('همه فیلدهای ستاره‌دار الزامی است','error'); return; }
-  showToast('در حال اتصال و دریافت اطلاعات از سرور مرکزی...');
+function openSyncPairProgressModal(){
+  openModal(`
+    <div class="modal-head"><h3>⬇️ دریافت اطلاعات از سرور مرکزی</h3></div>
+    <div class="modal-body">
+      <p style="font-size:14px;line-height:1.9;margin-bottom:12px">دستگاه ثبت شد. در حال دریافت کاربران، کالاها و سایر اطلاعات هستید — برنامه را نبندید.</p>
+      <div id="pair-progress-status" style="background:#eff6ff;border-radius:10px;padding:12px;font-size:13px;line-height:1.8;color:#1e3a8a">در حال همگام‌سازی اولیه...</div>
+      <div id="pair-progress-err" class="login-err" style="margin-top:10px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" type="button" onclick="closeModal()">پس‌زمینه ادامه دهد</button>
+    </div>`);
+  pollPairInitialSync();
+}
+
+let _pairPollTimer = null;
+async function pollPairInitialSync(){
+  clearTimeout(_pairPollTimer);
   const token = localStorage.getItem('crm_token');
-  const r = await fetch('/api/sync/pair-device',{method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-    body: JSON.stringify({central_url,username,password,device_name})});
-  const j = await r.json().catch(()=>({}));
-  if(j.ok){
-    showToast('دستگاه با موفقیت متصل شد — اطلاعات دریافت شد');
-    closeModal();
-    // The placeholder admin was replaced by central's real users — re-login required
-    setTimeout(()=>{ alert('اتصال انجام شد. لطفاً با نام کاربری و رمز عبور اصلی خود (همان سرور مرکزی) دوباره وارد شوید.'); logout(); }, 800);
-  } else {
+  try{
+    SYNC_STATUS = await fetchSyncStatus();
+    renderSyncBadge();
+    const s = SYNC_STATUS || {};
+    const box = el('pair-progress-status');
+    const errBox = el('pair-progress-err');
+    if(box){
+      if(s.initial_sync_done && s.paired && !s.pairing_broken){
+        box.style.background='#dcfce7'; box.style.color='#166534';
+        box.textContent='دریافت کامل شد. اکنون با نام کاربری و رمز اصلی خود (همان سرور مرکزی) وارد شوید.';
+        showToast('اتصال و دریافت اطلاعات انجام شد');
+        setTimeout(()=>{ closeModal(); alert('اتصال انجام شد.\n\nبا نام کاربری و رمز عبور اصلی خودتان (همان نسخه وب سرور مرکزی) دوباره وارد شوید — دیگر از admin/admin123 استفاده نکنید.'); logout(); }, 600);
+        return;
+      }
+      if(!s.paired || s.pairing_broken){
+        if(box){ box.style.background='#fee2e2'; box.style.color='#991b1b'; box.textContent='اتصال اولیه ناموفق بود.'; }
+        if(errBox) errBox.textContent = s.last_error || 'قطع اتصال و اتصال مجدد را از صفحه ورود بزنید و دوباره تلاش کنید';
+        return;
+      }
+      box.textContent = s.syncing || s.initial_sync_running
+        ? `در حال دریافت...${s.last_pull_seq!=null && s.last_pull_seq>=0?` (تا ردیف ${fmt(s.last_pull_seq)})`:''}`
+        : 'در صف دریافت اولیه...';
+    }
+  }catch(e){}
+  _pairPollTimer = setTimeout(pollPairInitialSync, 1500);
+}
+
+async function doSyncPair(){
+  const errBox = el('pair-err');
+  if(errBox) errBox.textContent='';
+  const central_url = el('pair-url')?.value.trim();
+  const username = el('pair-user')?.value.trim();
+  const password = el('pair-pass')?.value;
+  const device_name = el('pair-name')?.value.trim() || 'دستگاه آفلاین';
+  if(!central_url||!username||!password){ if(errBox) errBox.textContent='همه فیلدهای ستاره‌دار الزامی است'; showToast('همه فیلدهای ستاره‌دار الزامی است','error'); return; }
+  if(username==='admin' && password==='admin123'){
+    if(!confirm('آیا مطمئنید رمز مدیر سیستم روی نسخه وب هنوز admin123 است؟\n\nاگر رمز وب را عوض کرده‌اید، Cancel بزنید و رمز واقعی مدیر وب را وارد کنید.')){
+      if(errBox) errBox.textContent='رمز مدیر سیستم نسخه وب را وارد کنید (معمولاً با admin123 محلی فرق دارد).';
+      return;
+    }
+  }
+  const btn = el('pair-submit-btn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ در حال اتصال...'; }
+  showToast('در حال ثبت دستگاه روی سرور مرکزی...');
+  const token = localStorage.getItem('crm_token');
+  try{
+    const r = await fetch('/api/sync/pair-device',{method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+      body: JSON.stringify({central_url,username,password,device_name})});
+    const j = await r.json().catch(()=>({}));
+    if(j.ok){
+      showToast(j.message||'دستگاه ثبت شد — دریافت اطلاعات شروع شد');
+      openSyncPairProgressModal();
+      return;
+    }
+    if(errBox) errBox.textContent = j.error||'اتصال ناموفق بود';
     showToast(j.error||'اتصال ناموفق بود','error');
+  }catch(e){
+    const msg = 'خطای شبکه — اینترنت را بررسی کنید';
+    if(errBox) errBox.textContent = msg;
+    showToast(msg,'error');
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='🔗 اتصال و دریافت اطلاعات'; }
   }
 }
 
@@ -16036,12 +16130,12 @@ function renderAdminGuide(){
     helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
       <p>نسخه دسکتاپ (ویندوز) و اندرویدِ برنامه به‌صورت <b>کاملاً آفلاین</b> کار می‌کنند: همه اطلاعات روی خود دستگاه ذخیره می‌شود و به محض دسترسی به اینترنت، تغییرات به‌طور خودکار با سرور مرکزی همگام می‌شود.</p>
       <h5>اتصال اولیه دستگاه</h5><ol>
-        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر خطا یا دیالوگ کرش دیدید، نسخه قبلی را حذف و APK <b>۲.۰.۲۰+</b> را نصب کنید</li>
-        <li>در اولین اجرا، با کاربر پیش‌فرض وارد شوید — پنجره «اتصال به سرور مرکزی» باز می‌شود</li>
-        <li>آدرس سرور: <code dir="ltr">https://erp.poshaktaranom.com</code> + نام کاربری/رمز <b>مدیر سیستم</b> (یک‌بار، با اینترنت). آدرس قدیمی آلمان (<code dir="ltr">45.90.98.99</code>) دیگر معتبر نیست</li>
-        <li>پس از اتصال، همه اطلاعات از مرکز دریافت می‌شود و از آن پس با نام کاربری اصلی خودتان — حتی بدون اینترنت — وارد می‌شوید</li>
+        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر خطا یا دیالوگ کرش دیدید، نسخه قبلی را حذف و APK <b>۲.۰.۲۱+</b> را نصب کنید</li>
+        <li>ورود موقت محلی: <code>admin / admin123</code> — فقط برای باز شدن پنجره اتصال</li>
+        <li>در پنجره «اتصال به سرور مرکزی»: آدرس <code dir="ltr">https://erp.poshaktaranom.com</code> + نام کاربری/رمز <b>مدیر سیستم نسخه وب</b> (نه لزوماً admin123 محلی). اینترنت لازم است</li>
+        <li>بعد از ثبت دستگاه، صفحه پیشرفت دریافت اطلاعات می‌آید — برنامه را نبندید. سپس با کاربر/رمز اصلی خودتان وارد شوید</li>
       </ol>
-      <h5>اگر ورود/سینک خراب شد («قبلاً متصل شده»)</h5><ul>
+      <h5>اگر ورود/سینک خراب شد («قبلاً متصل شده» / رمز خودتان کار نمی‌کند)</h5><ul>
         <li>روی صفحه ورود لینک <b>«اتصال خراب است؟ قطع اتصال و اتصال مجدد»</b> را بزنید (فقط نسخه گوشی/دسکتاپ)</li>
         <li>یا پس از ورود، نشانگر همگام‌سازی بالا → <b>قطع اتصال و اتصال مجدد</b></li>
         <li>سپس دوباره با <code>admin / admin123</code> وارد شوید و به آدرس ایران وصل کنید</li>

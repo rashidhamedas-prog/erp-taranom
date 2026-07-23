@@ -32,13 +32,21 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `6a7fed6` بازیابی pairing/سینک دستگاه |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v86` |
-| اندروید | **`2.0.20`** (بیلد محلی) |
-| وضعیت سرور | ✅ deploy `6a7fed6` / SW v86 |
+| آخرین commit | (pending) رفع کامل pairing موبایل |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v87` |
+| اندروید | **`2.0.21`** (بیلد محلی) |
+| وضعیت سرور | ⏳ deploy |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
+
+### 2026-07-23 — [Cursor] رفع کامل صفحه اتصال به سرور مرکزی (موبایل) — SW v87 / Android 2.0.21
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** pairing دیگر تا پایان pull کل دیتابیس بلوکه نمی‌شود (ثبت سریع + دریافت پس‌زمینه با صفحه پیشرفت). اگر دریافت اولیه شکست بخورد اتصال ناقص rollback می‌شود تا بن‌بست «قبلاً متصل» نماند. probe با fallback `http://erp.poshaktaranom.com`، تشخیص `pairing_broken`، راهنمای واضح فیلدها (مدیر وب ≠ admin123 محلی)، و پیام خطای ورود بهتر روی دستگاه.
+- **فایل‌های کلیدی:** `server/sync/client.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-sync-repair.js`, `android/app/build.gradle`, `android/.../main.js`, `server/public/releases/manifest.json`
+- **Deploy:** ⏳
+- **یادداشت:** برای گوشی باید APK **۲.۰.۲۱** نصب شود. اگر اتصال قبلی خراب است: لینک «قطع اتصال و اتصال مجدد» روی صفحه ورود → `admin/admin123` → اتصال تازه با مدیر وب.
 
 ### 2026-07-23 — [Cursor] بازیابی اتصال دستگاه آفلاین (pairing خراب) — SW v86 / Android 2.0.20
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
