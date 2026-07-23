@@ -10,10 +10,10 @@
     "notes": "آپدیت 2.0.6: دسکتاپ مرجع کامل؛ لیست زنده گروه کالا و انبار؛ اعشار ۳ رقم."
   },
   "android": {
-    "version": "2.0.27",
-    "versionCode": 29,
-    "url": "",
-    "distribution": "local",
-    "notes": "آپدیت 2.0.27: اعشار ۳ رقم + دسترسی‌های زنده گروه کالا/انبار."
+    "version": "2.0.28",
+    "versionCode": 30,
+    "url": "/releases/crm-taranom.apk",
+    "distribution": "server",
+    "notes": "آپدیت 2.0.28: UI موبایل مینیمال (KPI لیستی، جداول کارت، فرم لمسی) + وب 2.1.6 / SW v97."
   }
 }
