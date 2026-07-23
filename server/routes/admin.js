@@ -141,6 +141,23 @@ router.delete('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   }
 });
 
+router.get('/users/:id/catalog-categories', auth, adminOnly, centralOnly, (req, res) => {
+  const db = getDB();
+  const ids = db.prepare('SELECT category_id FROM user_catalog_categories WHERE user_id=?').all(req.params.id).map(r => r.category_id);
+  res.json(ids);
+});
+
+router.put('/users/:id/catalog-categories', auth, adminOnly, centralOnly, (req, res) => {
+  const db = getDB();
+  const ids = Array.isArray(req.body.category_ids) ? req.body.category_ids.map(Number).filter(Boolean) : [];
+  db.transaction(() => {
+    db.prepare('DELETE FROM user_catalog_categories WHERE user_id=?').run(req.params.id);
+    const ins = db.prepare('INSERT OR IGNORE INTO user_catalog_categories (user_id,category_id) VALUES (?,?)');
+    for (const cid of ids) ins.run(req.params.id, cid);
+  })();
+  res.json({ ok: true, category_ids: ids });
+});
+
 // Admin dashboard - per-salesperson stats (using final invoices for revenue)
 router.get('/dashboard', auth, adminOnly, (req, res) => {
   const db = getDB();

@@ -1102,7 +1102,7 @@ function invalidateMasterCaches(){
   clearPageCache();
 }
 async function ensureWarehouses(force){
-  // null = not loaded; [] is truthy and used to poison dropdowns — always refetch empty
+  // Access/ACL UIs pass force=true for live master data (no stale CACHE).
   if(force || !CACHE.warehouses?.length){
     try{
       CACHE.warehouses = await api('GET','/warehouses')||[];
@@ -1128,6 +1128,25 @@ async function ensureProductCategories(force){
     catch(_){ CACHE.productCategories=null; return []; }
   }
   return CACHE.productCategories||[];
+}
+/** Live master lists for access dropdowns / ACL (always refetch). */
+async function loadLiveProductGroupsForAccess(){
+  try{
+    const rows = await api('GET','/product-categories?for=access')||[];
+    CACHE.productCategories = rows;
+    return rows;
+  }catch(_){
+    return await ensureProductCategories(true);
+  }
+}
+async function loadLiveWarehousesForAccess(){
+  return ensureWarehouses(true);
+}
+function warehouseOptionsHtml(selectedId, emptyLabel){
+  const sel = selectedId==null||selectedId==='' ? '' : String(selectedId);
+  const rows = (CACHE.warehouses||[]).filter(w=>w.active!==0);
+  return `<option value="">${esc(emptyLabel||'— انتخاب انبار —')}</option>` +
+    rows.map(w=>`<option value="${w.id}" ${sel===String(w.id)?'selected':''}>${esc(w.name)}${w.code?' ('+esc(w.code)+')':''}</option>`).join('');
 }
 async function apiCached(method,path,ttlMs=45000){
   const k=method+':'+path;
@@ -1246,6 +1265,23 @@ function currencyUnitShort(){ return 'ریال'; }
 function toDisplayAmount(stored){ return Math.round(parseFloat(stored)||0); }
 function fromInputAmount(input){ return Math.round(parseFloat(input)||0); }
 function fmt(n){ return Number(toDisplayAmount(n||0)).toLocaleString('fa-IR'); }
+/** مقدار کالا — تا ۳ رقم اعشار، رقم سوم رند می‌شود */
+function round3(n){
+  const x=Number(n);
+  if(!Number.isFinite(x)) return 0;
+  return Math.round(x*1000)/1000;
+}
+function parseQty(v, fallback=0){
+  if(v==null||v==='') return round3(fallback);
+  const x=parseFloat(String(v).replace(/,/g,'').replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+  if(!Number.isFinite(x)) return round3(fallback);
+  return round3(x);
+}
+function fmtQty(n){
+  const x=round3(n);
+  if(Object.is(x,-0)||x===0) return '0';
+  return String(parseFloat(x.toFixed(3)));
+}
 function fmtMoneyUnit(n){ return fmt(n)+' '+currencyUnit(); }
 const REF_DOC_LABELS={sales_invoice:'فاکتور فروش',sales_return:'برگشت فروش',receipt:'دریافت',purchase:'فاکتور خرید',purchase_return:'برگشت خرید',supplier_payment:'پرداخت تأمین',expense_payment:'پرداخت هزینه',warehouse_issue:'حواله انبار',warehouse_receipt:'رسید انبار',warehouse_transfer:'انتقال انبار',transfer:'انتقال وجه',payroll:'حقوق',cheque_settlement:'عملیات چک',opening:'افتتاحیه',account_transfer:'حواله حساب',stocktaking:'انبارگردانی',production:'تولید'};
 function refDocCell(docNo,docType){ if(!docNo) return '<span class="muted">-</span>'; const lbl=REF_DOC_LABELS[docType]||docType||''; return `<span class="mono" title="${esc(lbl)}">مرجع ${esc(String(docNo))}</span>`; }
@@ -1326,6 +1362,16 @@ function ensureMoneyField(t){
   }
 }
 document.addEventListener('focusin', function(e){ ensureMoneyField(e.target); }, true);
+document.addEventListener('change', function(e){
+  const t=e.target;
+  if(!t || t.tagName!=='INPUT') return;
+  const id=(t.id||'')+(t.name||'');
+  const isQty = t.type==='number' && (t.step==='0.001' || /qty|stock|quantity|waste|lost/i.test(id));
+  if(isQty){
+    const q=parseQty(t.value, t.min!=null && t.min!=='' ? Number(t.min) : 0);
+    t.value=fmtQty(q);
+  }
+}, true);
 document.addEventListener('input', function(e){
   const t=e.target;
   if(!t) return;
@@ -2186,7 +2232,13 @@ function showBackupAccessDenied(){
     </div>`);
 }
 function guardBackupAccess(){
+  // Server dump فقط روی وب مرکزی؛ دسکتاپ/اندروید از همگام‌سازی استفاده می‌کنند
   if(!isOfflineDevice()) return true;
+  if(isDesktopApp()){
+    // دسکتاپ: بقیه تنظیمات آزاد است؛ فقط dump سرور محدود می‌ماند
+    showBackupAccessDenied();
+    return false;
+  }
   showBackupAccessDenied();
   return false;
 }
@@ -4061,7 +4113,6 @@ async function _openInvBuilder(id){
   if(!CACHE.banks) CACHE.banks = await loadMeta('/banks', []);
   if(!CACHE.cashBoxes) CACHE.cashBoxes = await loadMeta('/cash-boxes', []);
   if(!CACHE.checkCategories) CACHE.checkCategories = await loadMeta('/check-categories', []);
-  await ensureWarehouses();
   if(!CACHE.costCenters) CACHE.costCenters = await loadMeta('/accounting/cost-centers', []);
   let inv = null;
   if(id){
@@ -4091,7 +4142,7 @@ async function _openInvBuilder(id){
   } else {
     window.__invCartFromMarketer = false;
   }
-  await ensureWarehouses();
+  await loadLiveWarehousesForAccess();
   const isAdmin = ME.role==='admin';
 
   const hideRepAdv = typeof isRepRole==='function' && isRepRole(ME?.role);
@@ -4120,8 +4171,7 @@ async function _openInvBuilder(id){
         <input type="hidden" id="inv-cashbox" value="">
         <input type="hidden" id="inv-checkcat" value="">
         `:`
-        <div class="fg"><label>انبار مبدأ</label><select id="inv-warehouse"><option value="">— پیش‌فرض —</option>
-          ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}" ${(inv?inv.warehouse_id:defSalesWh)==w.id?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+        <div class="fg"><label>انبار مبدأ</label><select id="inv-warehouse">${warehouseOptionsHtml(inv?inv.warehouse_id:defSalesWh,'— انتخاب انبار —')}</select></div>
         <div class="fg"><label>مرکز هزینه</label><select id="inv-cc"><option value="">—</option>
           ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}" ${inv&&inv.cost_center_id==c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
         <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}" oninput="renderCart()"></div>
@@ -4346,11 +4396,11 @@ function renderCart(){
       return `
       <tr>
         <td class="cn">${isIncome?'💰 ':''}${esc(r.name)}</td>
-        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" onchange="invCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);if(canAccounting())invSyncLineDisc(invCart,${i},'pct');renderCart();renderInvPicker()"></td>
+        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" onchange="invCart[${i}].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[${i}].qty);if(canAccounting())invSyncLineDisc(invCart,${i},'pct');renderCart();renderInvPicker()"></td>
         <td class="col-price"><input type="number" value="${r.price}" onchange="invCart[${i}].price=+this.value||0;if(canAccounting())invSyncLineDisc(invCart,${i},'pct');renderCart()"></td>
         ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" onchange="invCart[${i}].disc=+this.value||0;invSyncLineDisc(invCart,${i},'pct');renderCart()"></td>
         <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" onchange="invCart[${i}].disc_amount=+this.value||0;invSyncLineDisc(invCart,${i},'amt');renderCart()"></td>`:''}
-        ${hideWhCol?'':`<td class="col-wh">${!isIncome?`<select onchange="invCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select>`:'—'}</td>`}
+        ${hideWhCol?'':`<td class="col-wh">${!isIncome?`<select onchange="invCart[${i}].warehouse_id=+this.value||null">${warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')}</select>`:'—'}</td>`}
         <td class="col-sum mono">${fmt(lineSum)}</td>
         <td class="col-rm"><button type="button" class="rm" title="حذف" onclick="invCart.splice(${i},1);renderCart();renderInvPicker()">×</button></td>
       </tr>
@@ -4651,8 +4701,8 @@ async function deleteProductCategory(id){
   try{ await api('DELETE','/product-categories/'+id); showToast('حذف شد'); productCategoriesModal(); }catch(e){}
 }
 async function prodModal(id){
-  await ensureWarehouses();
-  await ensureProductCategories();
+  await loadLiveWarehousesForAccess();
+  await ensureProductCategories(true);
   let p = id ? (CACHE.products||[]).find(x=>x.id===id) || (CACHE.allProducts||[]).find(x=>x.id===id) : {};
   if(id){
     try{
@@ -4688,9 +4738,7 @@ async function prodModal(id){
           ${id&&p.barcode?`<button type="button" class="btn sm ghost" onclick="openBarcodeLabels(${id})" title="چاپ برچسب بارکد">🏷️ برچسب</button>`:''}
         </div></div>
       <div class="fg"><label>انبار اصلی ${hlp('انباری که این کالا در آن نگهداری می‌شود.')}</label>
-        <select id="p-warehouse"><option value="">— پیش‌فرض —</option>
-          ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}" ${p.warehouse_id===w.id?'selected':''}>${esc(w.name)}</option>`).join('')}
-        </select></div>
+        <select id="p-warehouse">${warehouseOptionsHtml(p.warehouse_id,'— انتخاب انبار —')}</select></div>
       <div class="fg"><label>روش ریالی‌کردن کالا ${hlp('اگر خالی باشد از روش انبار یا تنظیمات سراسری پیروی می‌کند.')}</label>
         <select id="p-costing">
           <option value="" ${!p.costing_method?'selected':''}>پیروی از انبار / سراسری</option>
@@ -5262,8 +5310,8 @@ async function loadSettUsersPanel(){
 }
 function refreshSettUsers(){ if(el('sett-mount-users')) loadSettUsersPanel(); else settOpenTab('users'); }
 async function userModal(id){
-  await ensurePartyGroups();
-  await ensureWarehouses();
+  await ensurePartyGroups(true);
+  await loadLiveWarehousesForAccess();
   const u = id ? CACHE.users.find(x=>x.id===id) : {role:'field_sales',active:1};
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش کاربر':'کاربر جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -5305,15 +5353,13 @@ async function userModal(id){
       <div class="fg full"><label>یادداشت شخص</label><textarea id="u-person-notes">${esc(u.person_notes||'')}</textarea></div>
       <div class="fg full" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px">
         <b>انبار مبدأ فاکتور فروش</b>
-        <div class="muted" style="font-size:11px;margin:4px 0 8px">فاکتورهای این کاربر از این انبار کسر می‌شود.</div>
-        <select id="u-sales-warehouse"><option value="">— پیش‌فرض سیستم —</option>
-          ${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(u.sales_warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}
-        </select>
+        <div class="muted" style="font-size:11px;margin:4px 0 8px">لیست زنده از «انبارها» — فاکتورهای این کاربر از انبار انتخاب‌شده کسر می‌شود.</div>
+        <select id="u-sales-warehouse">${warehouseOptionsHtml(u.sales_warehouse_id,'— بدون انبار —')}</select>
       </div>
       <div class="fg full" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px">
         <b>دسترسی گروه کالا در کاتالوگ</b>
-        <div class="muted" style="font-size:11px;margin:4px 0 8px">اگر خالی باشد، همهٔ گروه‌های «مجاز برای نمایش» دیده می‌شوند. فقط گروه‌های تیک‌خورده در کاتالوگ/فروش بازاریاب/انتخاب کالا محدود می‌شود. گروه‌های خصوصی هرگز به کاربران عادی نشان داده نمی‌شوند.</div>
-        <div id="u-cat-access" style="display:flex;flex-wrap:wrap;gap:8px;max-height:140px;overflow:auto"></div>
+        <div class="muted" style="font-size:11px;margin:4px 0 8px">لیست زنده از «گروه‌های کالا». اگر هیچ‌کدام تیک نخورد، همهٔ گروه‌های مجاز دیده می‌شوند.</div>
+        <div id="u-cat-access" style="display:flex;flex-wrap:wrap;gap:8px;max-height:160px;overflow:auto"><span class="muted">در حال بارگذاری…</span></div>
       </div>
       <div class="fg"><label>انگیزه فروش نقد (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای نقدی تأییدشده. بعد از اولین ذخیره قفل می‌شود.')} ${u.incentive_locked?'<span style="font-size:11px;color:var(--orange)">🔒 قفل</span>':''}</label><input id="u-comm-cash" type="number" step="0.1" value="${u.commission_cash||0}" data-orig="${u.commission_cash||0}" data-locked="${u.incentive_locked||0}"></div>
       <div class="fg"><label>انگیزه فروش چک (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای چکی تأییدشده.')}</label><input id="u-comm-cheque" type="number" step="0.1" value="${u.commission_cheque||0}" data-orig="${u.commission_cheque||0}"></div>
@@ -5351,19 +5397,23 @@ async function userModal(id){
       ${id?`<button class="btn ghost" onclick="openRbacMatrix(${id})">🔐 دسترسی‌ها</button>`:''}
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
-  // Load catalog category ACL checkboxes
+  // Live catalog groups from product_categories (same source as «گروه‌های کالا»)
   try{
-    await ensureProductCategories();
+    const cats = await loadLiveProductGroupsForAccess();
     let selected=[];
-    if(id) selected = await api('GET','/auth/users/'+id+'/catalog-categories').catch(()=>[])||[];
+    if(id) selected = await api('GET','/admin/users/'+id+'/catalog-categories').catch(()=>api('GET','/auth/users/'+id+'/catalog-categories').catch(()=>[]))||[];
     const box=el('u-cat-access');
     if(box){
-      box.innerHTML=(CACHE.productCategories||[]).filter(c=>c.code!==0).map(c=>`
-        <label style="display:flex;align-items:center;gap:4px;font-size:12px;background:var(--purple-light);padding:4px 8px;border-radius:8px;cursor:pointer">
-          <input type="checkbox" class="u-cat-cb" value="${c.id}" style="width:auto" ${selected.includes(c.id)?'checked':''}> ${esc(c.name)}
-        </label>`).join('')||'<span class="muted">گروه کالایی تعریف نشده</span>';
+      const byId=Object.fromEntries((cats||[]).map(c=>[c.id,c]));
+      box.innerHTML=(cats||[]).map(c=>{
+        const parentName=c.parent_id?(byId[c.parent_id]?.name||''):'';
+        const label=parentName?`${parentName} › ${c.name}`:c.name;
+        return `<label style="display:flex;align-items:center;gap:4px;font-size:12px;background:var(--purple-light);padding:4px 8px;border-radius:8px;cursor:pointer">
+          <input type="checkbox" class="u-cat-cb" value="${c.id}" style="width:auto" ${selected.includes(c.id)?'checked':''}> ${esc(label)}
+        </label>`;
+      }).join('')||'<span class="muted">گروهی در «گروه‌های کالا» تعریف نشده — ابتدا گروه بسازید</span>';
     }
-  }catch(_){}
+  }catch(_){ const box=el('u-cat-access'); if(box) box.innerHTML='<span class="muted">خطا در بارگذاری گروه‌ها</span>'; }
 }
 async function openRbacMatrix(userId){
   const data=await api('GET','/rbac/matrix/'+userId);
@@ -5533,14 +5583,14 @@ async function _doSaveUser(id,{name,username,pass,role,phone,active,commission_c
     if(id){
       await api('PUT','/admin/users/'+id,{name,role,phone,active,password:pass||undefined,commission_cash,commission_cheque,force:force||undefined,...repFields,person});
       const catIds=[...document.querySelectorAll('.u-cat-cb:checked')].map(cb=>+cb.value).filter(Boolean);
-      await api('PUT','/auth/users/'+id+'/catalog-categories',{category_ids:catIds}).catch(()=>{});
+      await api('PUT','/admin/users/'+id+'/catalog-categories',{category_ids:catIds}).catch(()=>api('PUT','/auth/users/'+id+'/catalog-categories',{category_ids:catIds}).catch(()=>{}));
     } else {
       if(!username||!pass){ showToast('نام کاربری و رمز الزامی است','error'); return; }
       const created=await api('POST','/admin/users',{name,username,password:pass,phone,role,commission_cash,commission_cheque,...repFields,person});
       const newId=created?.id||created?.user?.id;
       if(newId){
         const catIds=[...document.querySelectorAll('.u-cat-cb:checked')].map(cb=>+cb.value).filter(Boolean);
-        if(catIds.length) await api('PUT','/auth/users/'+newId+'/catalog-categories',{category_ids:catIds}).catch(()=>{});
+        if(catIds.length) await api('PUT','/admin/users/'+newId+'/catalog-categories',{category_ids:catIds}).catch(()=>api('PUT','/auth/users/'+newId+'/catalog-categories',{category_ids:catIds}).catch(()=>{}));
       }
     }
     CACHE.users=await api('GET','/auth/users'); closeModal(); refreshSettUsers(); showToast('ذخیره شد');
@@ -6326,11 +6376,11 @@ function renderGenCart(){
       return `
       <tr>
         <td class="cn">${esc(r.name)}</td>
-        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${r.qty}" onchange="genCart[${i}].qty=Math.max(0.001,parseFloat(this.value)||1);if(canAccounting())invSyncLineDisc(genCart,${i},'pct');renderGenCart()"></td>
+        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" onchange="genCart[${i}].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(genCart[${i}].qty);if(canAccounting())invSyncLineDisc(genCart,${i},'pct');renderGenCart()"></td>
         <td class="col-price"><input type="number" value="${r.price}" onchange="genCart[${i}].price=+this.value||0;if(canAccounting())invSyncLineDisc(genCart,${i},'pct');renderGenCart()"></td>
         ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" onchange="genCart[${i}].disc=+this.value||0;invSyncLineDisc(genCart,${i},'pct');renderGenCart()"></td>
         <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" onchange="genCart[${i}].disc_amount=+this.value||0;invSyncLineDisc(genCart,${i},'amt');renderGenCart()"></td>`:''}
-        <td class="col-wh"><select onchange="genCart[${i}].warehouse_id=+this.value||null"><option value="">پیش‌فرض فاکتور</option>${(CACHE.warehouses||[]).filter(w=>w.active!==0).map(w=>`<option value="${w.id}" ${String(r.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select></td>
+        <td class="col-wh"><select onchange="genCart[${i}].warehouse_id=+this.value||null">${warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')}</select></td>
         <td class="col-sum mono">${fmt(lineSum)}</td>
         <td class="col-rm"><button type="button" class="rm" title="حذف" onclick="genCart.splice(${i},1);renderGenCart()">×</button></td>
       </tr>
@@ -9215,7 +9265,7 @@ async function prodOrderIssueModal(id){
       ${lines.map((L,i)=>`<tr data-idx="${i}" data-pid="${L.product_id}" data-sq="${L.qty_standard}" data-sp="${L.std_cost_rial}" data-ap="${L.average_cost_rial}">
         <td>${esc(L.name||('#'+L.product_id))}</td>
         <td class="num">${L.qty_standard}</td>
-        <td><input class="pim-qty-actual" type="number" step="0.01" value="${L.qty_actual}" style="width:90px" oninput="prodIssueRecalc(${i})"></td>
+        <td><input class="pim-qty-actual" type="number" step="0.001" value="${L.qty_actual}" style="width:90px" oninput="prodIssueRecalc(${i})"></td>
         <td class="num pim-pct" id="pim-pct-${i}">۰٪</td>
         <td><input class="pim-reason" id="pim-reason-${i}" placeholder="دلیل انحراف" style="width:140px"></td>
       </tr>`).join('')||'<tr><td colspan="5" style="text-align:center">فرمولی برای این سفارش نیست</td></tr>'}
@@ -9399,7 +9449,7 @@ async function prodStageIssueModal(orderId,stageId){
       ${lines.map((L,i)=>`<tr class="psi-row" data-pid="${L.product_id}" data-sq="${L.qty_standard}">
         <td>${esc(L.name||('#'+L.product_id))}</td>
         <td class="num">${L.qty_standard}</td>
-        <td><input class="psi-qty" type="number" step="0.01" value="${L.qty_actual}" style="width:90px"></td>
+        <td><input class="psi-qty" type="number" step="0.001" value="${L.qty_actual}" style="width:90px"></td>
         <td><input class="psi-reason" placeholder="در صورت انحراف" style="width:140px"></td>
       </tr>`).join('')||'<tr><td colspan="4" class="muted" style="text-align:center">مادهٔ مرتبط با این مرحله نیست</td></tr>'}
     </tbody></table></div>
@@ -9438,7 +9488,7 @@ async function prodStageSubSend(orderId,stageId,supplierId,qtyIn){
   showModal('ارسال به پیمانکار',`
     <div class="form-grid">
       <div class="fg"><label>تأمین‌کننده</label>${supplierSelect('pss-supplier',supplierId||0)}</div>
-      <div class="fg"><label>مقدار (خالی = کل ورودی ${qtyIn||''})</label><input id="pss-qty" type="number" min="0" step="0.01"></div>
+      <div class="fg"><label>مقدار (خالی = کل ورودی ${qtyIn||''})</label><input id="pss-qty" type="number" min="0" step="0.001"></div>
       <div class="fg"><label>تاریخ</label><input id="pss-date" value="${todayJalali()}"></div>
     </div>
     <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
@@ -9470,9 +9520,9 @@ async function prodStageSubReceive(orderId,stageId,operationId){
   }catch(e){}
   showModal('دریافت از پیمانکار',`
     <div class="form-grid">
-      <div class="fg"><label>مقدار دریافتی *</label><input id="psr-qty" type="number" min="0" step="0.01" value="0"></div>
-      <div class="fg"><label>ضایعات</label><input id="psr-waste" type="number" min="0" step="0.01" value="0"></div>
-      <div class="fg"><label>مفقودی</label><input id="psr-lost" type="number" min="0" step="0.01" value="0"></div>
+      <div class="fg"><label>مقدار دریافتی *</label><input id="psr-qty" type="number" min="0" step="0.001" value="0"></div>
+      <div class="fg"><label>ضایعات</label><input id="psr-waste" type="number" min="0" step="0.001" value="0"></div>
+      <div class="fg"><label>مفقودی</label><input id="psr-lost" type="number" min="0" step="0.001" value="0"></div>
       <div class="fg"><label>کارمزد واحد (ریال) — خالی = از فرمول ساخت</label><input id="psr-fee" type="number" min="0" placeholder="${feeToman||'از فرمول'}" value=""></div>
       <div class="fg"><label>تاریخ</label><input id="psr-date" value="${todayJalali()}"></div>
     </div>
@@ -10117,7 +10167,7 @@ async function purchaseInvoiceModal(){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
-  await ensureWarehouses();
+  await loadLiveWarehousesForAccess();
   if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers')||[];
   openModal(`
     <div class="modal-head"><h3>📦 فاکتور خرید جدید</h3><button class="x" onclick="closeModal()">×</button></div>
@@ -10125,8 +10175,7 @@ async function purchaseInvoiceModal(){
       <div class="form-grid" style="margin-bottom:14px">
         <div class="fg"><label>تأمین‌کننده *</label>${supplierSelect('po-supplier',0)}</div>
         <div class="fg"><label>تاریخ</label><input id="po-date" data-jdate value="${todayJalali()}"></div>
-        <div class="fg"><label>انبار مقصد</label><select id="po-warehouse"><option value="">— پیش‌فرض —</option>
-          ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+        <div class="fg"><label>انبار مقصد</label><select id="po-warehouse">${warehouseOptionsHtml('','— انتخاب انبار —')}</select></div>
         <div class="fg"><label>مرکز هزینه</label><select id="po-cc"><option value="">—</option>
           ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
         <div class="fg"><label>نوع پرداخت</label><select id="po-paytype" onchange="togglePoBankFields()">
@@ -15915,7 +15964,9 @@ function renderAdminGuide(){
         <li>گروه‌های کالا و اشخاص <b>سراسری</b> هستند (برچسب گزارشی، نه کنترل دسترسی)</li>
         <li>لیست انبارها و گروه‌های کالا در همهٔ بخش‌های متصل (فاکتور، کاتالوگ، پرتال، خرید) بدون نیاز به ویرایش دستی یک رکورد بارگذاری می‌شود</li>
         <li>تب پیش‌فاکتور فقط <code>proforma</code> و تب فاکتور رسمی فقط <code>final</code> را نشان می‌دهد</li>
-        <li>مقدار کالا تا <b>۳ رقم اعشار</b>؛ ارز و نرخ مرجع (صندوق/بانک ارزی)؛ تفصیلی سطح دو روی اسناد</li>
+        <li>مقدار کالا تا <b>۳ رقم اعشار</b> (رقم سوم رند می‌شود)؛ ارز و نرخ مرجع (صندوق/بانک ارزی)؛ تفصیلی سطح دو روی اسناد</li>
+        <li>در فرم کاربر و فاکتور، <b>گروه کالا</b> و <b>انبار</b> همیشه از دادهٔ زندهٔ همان بخش‌ها بارگذاری می‌شوند (نه لیست ثابت قدیمی)</li>
+        <li>نسخه <b>دسکتاپ</b> دسترسی کامل برای کاربران/تنظیمات/عملیات دارد و می‌تواند مرجع باشد</li>
         <li>فاکتور: توضیحات ردیف در چاپ، تخفیف ٪↔مبلغ دوطرفه (ردیف و کل)، جمع تخفیف ردیف‌ها در جمع فاکتور</li>
         <li>انبار: اجازه موجودی منفی per-انبار؛ روش ریالی‌کردن در سطح انبار؛ انبارگردانی با <b>سه شمارش + تگ</b></li>
         <li>دریافت: نقد / واریز بانکی / چک (هم‌تراز پرداخت)</li>
@@ -16242,7 +16293,7 @@ function renderAdminGuide(){
       <h5>حالت تاریک (شب مخملی)</h5><p>با دکمهٔ <b>خاموش/روشن (آیکون power)</b> در گوشهٔ پایین چپ صفحه، منوی حساب باز می‌شود؛ از آنجا «حالت تاریک» را بزنید. ظاهر برنامه بین تم روشن «زمرد مدرن» و تم تاریک «شب مخملی» جابه‌جا می‌شود. انتخاب شما روی همین دستگاه ذخیره می‌ماند. چاپ فاکتور و گزارش‌ها همیشه با پس‌زمینه روشن انجام می‌شود، حتی در حالت تاریک.</p>
       <h5>شماره فاکتور موقت</h5><p>فاکتوری که آفلاین صادر شود ابتدا شماره <b>«موقت-...»</b> می‌گیرد و چاپ آن واترمارک «پیش‌نویس» دارد. بعد از همگام‌سازی، شماره رسمی سراسری (T-xxxx) از مرکز دریافت و به‌طور خودکار جایگزین می‌شود — بنابراین شماره فاکتور دو دستگاه هرگز تداخل پیدا نمی‌کند.</p>
       <h5>تعارض‌ها</h5><p>اگر عملیات آفلاین شما با واقعیت مرکز ناسازگار باشد (مثلاً کالایی فروخته‌اید که هم‌زمان در مرکز تمام شده)، آن عملیات <b>هرگز بی‌صدا اعمال نمی‌شود</b> — در پنل همگام‌سازی با ذکر دلیل نمایش داده می‌شود و می‌توانید آن را «لغو» کنید (اثر محلی برمی‌گردد) و در صورت نیاز با شرایط جدید دوباره ثبت کنید.</p>
-      <div class="warn">تنظیمات سیستم، مدیریت کاربران و اصلاح مستقیم موجودی فقط روی سرور مرکزی امکان‌پذیر است. تغییر رمز روی دسکتاپ/اندروید به سرور مرکزی ارسال می‌شود (نیاز به اتصال آنلاین) و با همگام‌سازی به سایر دستگاه‌ها می‌رسد.</div>
+      <div class="warn">نسخه <b>دسکتاپ</b> دسترسی کامل برای مدیریت کاربران، تنظیمات و عملیات کسب‌وکار دارد و می‌تواند مرجع باشد (سپس با همگام‌سازی به مرکز می‌رسد). پشتیبان dump سرور، کلید API، 2FA و پورتال B2B همچنان فقط روی وب مرکزی‌اند. روی اندروید، تنظیمات مرکزی محدود می‌ماند.</div>
       <div class="tip">همگام‌سازی خودکار هر یک دقیقه انجام می‌شود؛ با دکمه «همگام‌سازی اکنون» در پنل وضعیت می‌توانید فوراً اجرا کنید.</div>`),
     helpSec('🔌','API و یکپارچه‌سازی',`
       <p>اتصال نرم‌افزارهای خارجی به ERP ترنم از طریق API — از مسیر <b>تنظیمات → API</b>.</p>

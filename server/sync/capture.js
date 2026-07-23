@@ -22,8 +22,10 @@ const { SYNCABLE_TABLES } = require('./tables');
 //  - bulk Excel imports (multipart bodies that can't replay as JSON)
 //  - direct message/SMS sends (replaying would double-send)
 const BLOCKLIST = [
-  '/api/auth', '/api/sync', '/api/admin', '/api/api-keys', '/api/settings',
-  '/api/messages', '/api/v1', '/api/ai', '/api/b2b'
+  '/api/auth', '/api/sync', '/api/api-keys',
+  '/api/messages', '/api/v1', '/api/ai', '/api/b2b',
+  '/api/admin/backup', '/api/admin/backups', '/api/admin/backup-now',
+  '/api/admin/backup-download', '/api/admin/backup-restore',
 ];
 const BLOCK_PATTERNS = [/\/import/, /\/export/, /\/backup/, /\/backfill/, /\/stock$/];
 
@@ -34,6 +36,9 @@ const BLOCK_PATTERNS = [/\/import/, /\/export/, /\/backup/, /\/backfill/, /\/sto
 // (e.g. /api/warehouses/moves before /api/warehouses).
 // When adding a mutating /api route: update this list — see sync-hygiene.mdc.
 const PATH_TABLE_MAP = [
+  ['/api/admin/users', 'users'],
+  ['/api/settings', 'settings'],
+  ['/api/rbac/matrix', 'user_permissions'],
   ['/api/accounting/settlements', 'settlements'],
   ['/api/accounting/sales-returns', 'sales_returns'],
   ['/api/accounting/invoices', 'invoices'],

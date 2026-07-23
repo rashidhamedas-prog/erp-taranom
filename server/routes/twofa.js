@@ -8,7 +8,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { authenticator } = require('otplib');
 const { getDB, audit, isDevice } = require('../db');
-const { auth, adminOnly, centralOnly, invalidateUserCache, SECRET } = require('../middleware/auth');
+const { auth, adminOnly, centralOnlyStrict, invalidateUserCache, SECRET } = require('../middleware/auth');
 const { encrypt, decrypt, sha256 } = require('../services/crypto');
 
 authenticator.options = { window: 1 }; // accept one 30s step of clock drift
@@ -42,7 +42,7 @@ function generateRecoveryCodes(n = 8) {
 }
 
 // Step 1 of enabling: generate a secret, store disabled, return otpauth URI for the QR
-router.post('/setup', auth, centralOnly, (req, res) => {
+router.post('/setup', auth, centralOnlyStrict, (req, res) => {
   const db = getDB();
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
   const existing = db.prepare('SELECT * FROM two_factor_auth WHERE user_id=?').get(user.id);
@@ -126,7 +126,7 @@ router.post('/recovery-code', (req, res) => {
 });
 
 // Disable own 2FA (requires a valid current code)
-router.post('/disable', auth, centralOnly, (req, res) => {
+router.post('/disable', auth, centralOnlyStrict, (req, res) => {
   const db = getDB();
   const code = String(req.body.code || '').replace(/\s/g, '');
   const tfa = db.prepare('SELECT * FROM two_factor_auth WHERE user_id=? AND enabled=1').get(req.user.id);
@@ -152,7 +152,7 @@ router.get('/status', auth, (req, res) => {
 });
 
 // Admin: reset (remove) a user's 2FA — for lost devices when recovery codes are gone
-router.post('/admin-reset/:userId', auth, adminOnly, centralOnly, (req, res) => {
+router.post('/admin-reset/:userId', auth, adminOnly, centralOnlyStrict, (req, res) => {
   const db = getDB();
   const target = db.prepare('SELECT id,name FROM users WHERE id=?').get(req.params.userId);
   if (!target) return res.status(404).json({ error: 'کاربر یافت نشد' });

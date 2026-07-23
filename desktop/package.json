@@ -1,7 +1,7 @@
 {
   "name": "erp-taranom-desktop",
   "productName": "ERP Taranom",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "ERP Taranom - Offline Desktop (Windows) with central-server sync",
   "main": "main.js",
   "author": "Taranom",

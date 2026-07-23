@@ -6,7 +6,7 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, centralOnly } = require('../middleware/auth');
+const { auth, adminOnly, centralOnlyStrict } = require('../middleware/auth');
 
 const PROTECTED = new Set([
   'users', 'settings', 'chart_of_accounts', 'api_keys', 'fiscal_years',
@@ -167,7 +167,7 @@ function wipeTables(db, tables) {
   return { wiped, skipped };
 }
 
-router.get('/sections', auth, adminOnly, centralOnly, (req, res) => {
+router.get('/sections', auth, adminOnly, centralOnlyStrict, (req, res) => {
   const db = getDB();
   const list = Object.entries(SECTIONS).map(([key, sec]) => {
     const txTables = sec.transactions || [];
@@ -187,7 +187,7 @@ router.get('/sections', auth, adminOnly, centralOnly, (req, res) => {
   res.json(list);
 });
 
-router.post('/wipe', auth, adminOnly, centralOnly, (req, res) => {
+router.post('/wipe', auth, adminOnly, centralOnlyStrict, (req, res) => {
   const { section, mode, confirm_text, confirm_password } = req.body || {};
   const sec = SECTIONS[section];
   if (!sec) return res.status(400).json({ error: 'بخش نامعتبر است' });

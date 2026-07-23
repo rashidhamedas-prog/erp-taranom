@@ -16,11 +16,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { getDB, audit, allocateNumber } = require('../db');
-const { auth: internalAuth, adminOnly, centralOnly, SECRET } = require('../middleware/auth');
+const { auth: internalAuth, adminOnly, centralOnlyStrict, SECRET } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 const { todayJalali } = require('../jalali');
 
-router.use(centralOnly);
+router.use(centralOnlyStrict);
 
 function getSettingValue(db, key) {
   const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);

@@ -27,12 +27,14 @@
   /** alias */
   function rial(v) { return rialFmt(v); }
 
-  /** مقدار با ۲ رقم اعشار */
+  /** مقدار با ۳ رقم اعشار (رقم سوم رند) */
   function qty(v, unit) {
     if (v == null || v === '') return '—';
     const n = Number(v);
-    const s = Number.isInteger(n) ? n : n.toFixed(2);
-    return Number(s).toLocaleString('fa-IR') + (unit ? ' ' + unit : '');
+    if (!Number.isFinite(n)) return '—';
+    const rounded = Math.round(n * 1000) / 1000;
+    const s = parseFloat(rounded.toFixed(3));
+    return Number(s).toLocaleString('fa-IR', { maximumFractionDigits: 3 }) + (unit ? ' ' + unit : '');
   }
 
   /** درصد با علامت */

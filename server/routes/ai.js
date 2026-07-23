@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, centralOnly, managerOnly } = require('../middleware/auth');
+const { auth, adminOnly, centralOnlyStrict, managerOnly } = require('../middleware/auth');
 const ai = require('../services/ai');
 
 // Insights feed — managers see everything; salespeople see their own
@@ -65,7 +65,7 @@ router.get('/weekly-summary', auth, managerOnly, (req, res) => {
 
 // Manual refresh — recompute scores + insights now (admin, central only:
 // insights must have one source of truth; devices pull churn_score via customer sync)
-router.post('/insights/refresh', auth, adminOnly, centralOnly, async (req, res) => {
+router.post('/insights/refresh', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   const db = getDB();
   try {
     await ai.runNightlyAnalysis(db, { weekly: !!req.body?.weekly });
@@ -78,7 +78,7 @@ router.post('/insights/refresh', auth, adminOnly, centralOnly, async (req, res) 
 });
 
 // AI Business Consultant — manager only (v1.0.11 §4.2)
-router.post('/consult', auth, managerOnly, centralOnly, async (req, res) => {
+router.post('/consult', auth, managerOnly, centralOnlyStrict, async (req, res) => {
   const db = getDB();
   const { question } = req.body;
   if (!question || !String(question).trim()) return res.status(400).json({ error: 'سؤال الزامی است' });

@@ -6,16 +6,26 @@ const { canSeeAllProductGroups, userCatalogAclIds } = require('../lib/product-vi
 // گروه‌های خصوصی (is_shared=0) فقط برای ایجادکننده / مدیر / حسابدار.
 router.get('/', auth, (req, res) => {
   const db = getDB();
-  const visibility = canSeeAllProductGroups(req.user) ? '' : 'WHERE (c.is_shared=1 OR c.created_by=?)';
+  const forAccess = req.query.for === 'access' || req.query.for === 'acl';
+  // for=access: master list for ACL / dropdowns — no per-user catalog filter
+  const visibility = (forAccess || canSeeAllProductGroups(req.user))
+    ? ''
+    : 'WHERE (c.is_shared=1 OR c.created_by=?)';
   const args = visibility ? [req.user.id] : [];
   let rows = db.prepare(`
     SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category_id=c.id) as product_count
     FROM product_categories c ${visibility} ORDER BY c.sort_order, c.name
   `).all(...args);
-  const acl = userCatalogAclIds(db, req.user);
-  if (acl && acl.length) {
-    const set = new Set(acl);
-    rows = rows.filter(c => set.has(c.id));
+  if (!forAccess) {
+    const acl = userCatalogAclIds(db, req.user);
+    if (acl && acl.length) {
+      const set = new Set(acl);
+      rows = rows.filter(c => set.has(c.id));
+    }
+  }
+  // فقط فعال‌ها برای لیست دسترسی/انتخاب (مگر admin با all=1)
+  if (req.query.all !== '1') {
+    rows = rows.filter(c => c.active !== 0);
   }
   res.json(rows);
 });

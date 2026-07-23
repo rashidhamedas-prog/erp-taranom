@@ -164,17 +164,17 @@ app.use('/api/admin', require('./routes/admin'));
 
 // Manual backup endpoint — registered before admin router catch-all.
 // Central-only: device/desktop builds sync data but cannot dump the DB here.
-const { auth, adminOnly, centralOnly } = require('./middleware/auth');
-app.post('/api/admin/backup-now', auth, adminOnly, centralOnly, async (req, res) => {
+const { auth, adminOnly, centralOnlyStrict } = require('./middleware/auth');
+app.post('/api/admin/backup-now', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   const result = await runBackup();
   res.json({ ...result, role: 'central' });
 });
 
-app.get('/api/admin/backups', auth, adminOnly, centralOnly, (req, res) => {
+app.get('/api/admin/backups', auth, adminOnly, centralOnlyStrict, (req, res) => {
   res.json(listBackups());
 });
 
-app.get('/api/admin/backup-download', auth, adminOnly, centralOnly, async (req, res) => {
+app.get('/api/admin/backup-download', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   let filePath = getLatestBackupFile();
   if (!fs.existsSync(filePath)) {
     const result = await runBackup();
@@ -185,7 +185,7 @@ app.get('/api/admin/backup-download', auth, adminOnly, centralOnly, async (req, 
   res.download(filePath, base);
 });
 
-app.get('/api/admin/backup-download/:name', auth, adminOnly, centralOnly, (req, res) => {
+app.get('/api/admin/backup-download/:name', auth, adminOnly, centralOnlyStrict, (req, res) => {
   const filePath = resolveBackupFile(req.params.name);
   if (!filePath) return res.status(404).json({ error: 'فایل پشتیبان یافت نشد' });
   res.download(filePath, req.params.name);
@@ -193,7 +193,7 @@ app.get('/api/admin/backup-download/:name', auth, adminOnly, centralOnly, (req, 
 
 const multer = require('multer');
 const backupUpload = multer({ dest: path.join(__dirname, 'backups'), limits: { fileSize: 512 * 1024 * 1024 } });
-app.post('/api/admin/backup-restore', auth, adminOnly, centralOnly, backupUpload.single('backup'), (req, res) => {
+app.post('/api/admin/backup-restore', auth, adminOnly, centralOnlyStrict, backupUpload.single('backup'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل پشتیبان الزامی است' });
   try {
     const result = restoreBackup(req.file.path);

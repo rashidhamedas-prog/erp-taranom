@@ -74,11 +74,21 @@ function repModuleAdmin(req, res, next) {
   next();
 }
 
-// Central-server-only operations: settings, user management, backfill,
-// API keys, absolute stock overwrite. Rejected on offline-first device
-// builds (SYNC_ROLE=device) regardless of connectivity — these must have
-// exactly one source of truth and are excluded from the sync engine.
+function isDesktopPlatform() {
+  return process.env.APP_PLATFORM === 'desktop';
+}
+
+// Business config that used to be central-only: desktop is a full peer;
+// Android/other device builds stay blocked.
 function centralOnly(req, res, next) {
+  if (isDevice() && !isDesktopPlatform()) {
+    return res.status(403).json({ error: 'این عملیات فقط روی سرور مرکزی یا نسخه دسکتاپ امکان‌پذیر است' });
+  }
+  next();
+}
+
+/** Infra/security surfaces that must never run on any device build. */
+function centralOnlyStrict(req, res, next) {
   if (isDevice()) {
     return res.status(403).json({ error: 'این عملیات فقط روی سرور مرکزی امکان‌پذیر است' });
   }
@@ -103,4 +113,8 @@ function managerOnly(req, res, next) {
   next();
 }
 
-module.exports = { auth, adminOnly, adminOrAccounting, repModuleAdmin, centralOnly, requirePermission, managerOnly, invalidateUserCache, SECRET };
+module.exports = {
+  auth, adminOnly, adminOrAccounting, repModuleAdmin,
+  centralOnly, centralOnlyStrict, isDesktopPlatform,
+  requirePermission, managerOnly, invalidateUserCache, SECRET
+};
