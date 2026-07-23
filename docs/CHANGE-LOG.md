@@ -32,20 +32,20 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending) کاربران و API فقط در تنظیمات |
+| آخرین commit | `858eeda` کاربران و API فقط در تنظیمات |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v83` |
 | اندروید | **`2.0.19`** |
-| وضعیت سرور | ⏳ در حال deploy |
+| وضعیت سرور | ✅ deploy `858eeda` / SW v83 |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
 
 ### 2026-07-23 — [Cursor] انتقال کاربران و API به تنظیمات — SW v83
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** _(پس از commit)_
+- **Commit:** `858eeda`
 - **خلاصه:** «کاربران» و «API» از منوی کناری اصلی حذف و فقط به‌صورت تب داخل تنظیمات در دسترس‌اند (هم‌سبک پیامک/پشتیبان). راهنما به‌روز شد.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳
+- **Deploy:** ✅ Iran HTTP `/` 200, SW `erp-taranom-v83`
 
 ### 2026-07-23 — [Cursor] آیکون مینیمال تنظیمات/گروه‌ها + انتقال پیامک و پشتیبان به تنظیمات — SW v82
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
