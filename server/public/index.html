@@ -926,6 +926,9 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
       <div id="b2bEntryLink" style="text-align:center;margin-top:10px;display:none">
         <a href="#portal" onclick="openB2BPortal();return false" style="font-size:13px;color:var(--purple);font-weight:600" data-i18n="portal-entry">🛒 ورود پورتال مشتریان</a>
       </div>
+      <div id="deviceResetLink" style="text-align:center;margin-top:12px;display:none">
+        <a href="#" onclick="factoryResetDeviceFromLogin();return false" style="font-size:12px;color:#b45309;font-weight:600">اتصال خراب است؟ قطع اتصال و اتصال مجدد</a>
+      </div>
       <div class="login-err" id="loginErr"></div>
     </form>
     <div class="login-hint">نسخه ۳ · پوشاک ترنم مشهد<br><span style="opacity:.85">اولین ورود: admin / admin123</span></div>
@@ -2635,10 +2638,16 @@ async function openSyncPanel(){
         ${s.files_missing?`<span class="tag t-pending">🖼️ ${fmt(s.files_missing)} تصویر محلی نیست</span>`:''}
         ${s.last_sync_at?`<span class="tag">آخرین همگام‌سازی: ${new Date(s.last_sync_at*1000).toLocaleTimeString('fa-IR')}</span>`:''}
       </div>
+      <div style="background:var(--bg2,#f9fafb);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12px;margin-bottom:12px;line-height:1.8">
+        <div><b>آدرس سرور:</b> <span class="mono" dir="ltr">${esc(s.central_url||'—')}</span></div>
+        <div><b>شناسه دستگاه:</b> <span class="mono" dir="ltr">${esc(String(s.device_id||'—'))}</span></div>
+      </div>
       ${s.last_error?`<div style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px">${esc(s.last_error)}</div>`:''}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
         <button class="btn" onclick="syncNowUI()">🔄 همگام‌سازی اکنون</button>
         ${s.files_missing?`<button class="btn ghost" onclick="pullProductImages()">🖼️ دریافت فایل‌ها</button>`:''}
+        ${isAdmin()?`<button class="btn ghost" onclick="editCentralUrlUI()">✏️ تغییر آدرس سرور</button>`:''}
+        ${isAdmin()?`<button class="btn red" onclick="resetPairingUI()">🔌 قطع اتصال و اتصال مجدد</button>`:''}
       </div>
       ${(missingFiles||[]).length?`
         <h4 style="margin:10px 0 6px">🖼️ فایل‌های محلی نیست (${fmt(missingFiles.length)})</h4>
@@ -2753,6 +2762,66 @@ async function doSyncPair(){
     setTimeout(()=>{ alert('اتصال انجام شد. لطفاً با نام کاربری و رمز عبور اصلی خود (همان سرور مرکزی) دوباره وارد شوید.'); logout(); }, 800);
   } else {
     showToast(j.error||'اتصال ناموفق بود','error');
+  }
+}
+
+async function editCentralUrlUI(){
+  const cur = (SYNC_STATUS && SYNC_STATUS.central_url) || 'https://erp.poshaktaranom.com';
+  const next = prompt('آدرس جدید سرور مرکزی:', cur);
+  if(next==null) return;
+  const url = String(next).trim();
+  if(!url){ showToast('آدرس خالی است','error'); return; }
+  const token = localStorage.getItem('crm_token');
+  showToast('در حال بررسی آدرس سرور...');
+  const r = await fetch('/api/sync/update-central-url',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+    body: JSON.stringify({central_url:url})
+  });
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok || !j.ok){ showToast(j.error||'تغییر آدرس ناموفق بود','error'); return; }
+  showToast('آدرس سرور به‌روز شد');
+  await syncNowUI();
+  openSyncPanel();
+}
+
+async function resetPairingUI(){
+  if(!confirm('اتصال این دستگاه به سرور مرکزی قطع می‌شود و داده‌های محلی همگام‌نشده پاک می‌گردد.\nبعداً باید دوباره با admin / admin123 وارد شوید و اتصال را از نو انجام دهید.\nادامه می‌دهید؟')) return;
+  if(!confirm('تأیید نهایی: همه داده‌های محلی این دستگاه پاک شود؟')) return;
+  const token = localStorage.getItem('crm_token');
+  const r = await fetch('/api/sync/reset-pairing',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+    body: JSON.stringify({confirm:'RESET'})
+  });
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok || !j.ok){ showToast(j.error||'بازنشانی ناموفق بود','error'); return; }
+  alert(j.message || 'اتصال قطع شد. با admin / admin123 وارد شوید.');
+  localStorage.removeItem('crm_token');
+  localStorage.removeItem('crm_user');
+  location.reload();
+}
+
+async function factoryResetDeviceFromLogin(){
+  if(!confirm('اتصال خراب دستگاه قطع و داده‌های محلی پاک می‌شود.\nسپس با admin / admin123 وارد شوید و دوباره به https://erp.poshaktaranom.com وصل کنید.\nادامه؟')) return;
+  try{
+    const r = await fetch('/api/sync/factory-reset-device',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({confirm:'RESET-DEVICE'})
+    });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok || !j.ok){
+      el('loginErr').textContent = j.error || 'بازنشانی ناموفق بود — اپ را پاک کنید و دوباره نصب کنید';
+      return;
+    }
+    localStorage.removeItem('crm_token');
+    localStorage.removeItem('crm_user');
+    el('loginUser').value = 'admin';
+    el('loginPass').value = '';
+    el('loginErr').textContent = 'بازنشانی شد — با admin / admin123 وارد شوید، بعد اتصال به سرور مرکزی را انجام دهید';
+  }catch(e){
+    el('loginErr').textContent = 'خطا در بازنشانی — دادهٔ برنامه را از تنظیمات گوشی پاک کنید';
   }
 }
 
@@ -15967,11 +16036,17 @@ function renderAdminGuide(){
     helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
       <p>نسخه دسکتاپ (ویندوز) و اندرویدِ برنامه به‌صورت <b>کاملاً آفلاین</b> کار می‌کنند: همه اطلاعات روی خود دستگاه ذخیره می‌شود و به محض دسترسی به اینترنت، تغییرات به‌طور خودکار با سرور مرکزی همگام می‌شود.</p>
       <h5>اتصال اولیه دستگاه</h5><ol>
-        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر خطا یا دیالوگ کرش دیدید، نسخه قبلی را حذف و APK <b>۲.۰.۱۸+</b> را نصب کنید (مسیر موقت قابل‌نوشتن + SQLite + thirty-two)</li>
+        <li><b>اندروید — اولین باز کردن:</b> پس از نصب، ممکن است ۲–۵ دقیقه صفحه «در حال آماده‌سازی…» بماند — برنامه را نبندید. اگر خطا یا دیالوگ کرش دیدید، نسخه قبلی را حذف و APK <b>۲.۰.۲۰+</b> را نصب کنید</li>
         <li>در اولین اجرا، با کاربر پیش‌فرض وارد شوید — پنجره «اتصال به سرور مرکزی» باز می‌شود</li>
-        <li>آدرس سرور مرکزی و نام کاربری/رمز <b>مدیر سیستم</b> را وارد کنید (این مرحله یک‌بار است و اینترنت لازم دارد)</li>
-        <li>پس از اتصال، همه اطلاعات (مشتریان، کالاها، فاکتورها، کاربران و...) از مرکز دریافت می‌شود و از آن پس با نام کاربری اصلی خودتان — حتی بدون اینترنت — وارد می‌شوید</li>
+        <li>آدرس سرور: <code dir="ltr">https://erp.poshaktaranom.com</code> + نام کاربری/رمز <b>مدیر سیستم</b> (یک‌بار، با اینترنت). آدرس قدیمی آلمان (<code dir="ltr">45.90.98.99</code>) دیگر معتبر نیست</li>
+        <li>پس از اتصال، همه اطلاعات از مرکز دریافت می‌شود و از آن پس با نام کاربری اصلی خودتان — حتی بدون اینترنت — وارد می‌شوید</li>
       </ol>
+      <h5>اگر ورود/سینک خراب شد («قبلاً متصل شده»)</h5><ul>
+        <li>روی صفحه ورود لینک <b>«اتصال خراب است؟ قطع اتصال و اتصال مجدد»</b> را بزنید (فقط نسخه گوشی/دسکتاپ)</li>
+        <li>یا پس از ورود، نشانگر همگام‌سازی بالا → <b>قطع اتصال و اتصال مجدد</b></li>
+        <li>سپس دوباره با <code>admin / admin123</code> وارد شوید و به آدرس ایران وصل کنید</li>
+        <li>از پنل همگام‌سازی می‌توانید آدرس سرور ذخیره‌شده را هم ببینید/عوض کنید</li>
+      </ul>
       <h5>نشانگر وضعیت (بالای صفحه)</h5><ul>
         <li><b>🟢 همگام با مرکز</b>: همه‌چیز ارسال و دریافت شده</li>
         <li><b>📡 آفلاین</b>: اینترنت/سرور در دسترس نیست — کار عادی ادامه دارد و عملیات در صف می‌ماند</li>
@@ -16739,6 +16814,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   fetch('/api/system/app-info').then(r=>r.json()).then(info=>{
     APP_INFO = APP_INFO || info;
     if(info && info.role==='central' && info.b2b_portal){ const l=el('b2bEntryLink'); if(l) l.style.display='block'; }
+    if(info && info.role==='device'){ const d=el('deviceResetLink'); if(d) d.style.display='block'; }
   }).catch(()=>{});
   const token = localStorage.getItem('crm_token');
   if(token){

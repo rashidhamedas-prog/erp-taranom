@@ -351,6 +351,43 @@ if (isDevice()) {
     }
   });
 
+  router.post('/update-central-url', auth, adminOnly, async (req, res) => {
+    const central_url = (req.body && req.body.central_url) || '';
+    try {
+      const result = await client.setCentralUrl(central_url);
+      res.json(result);
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // Authenticated wipe + unpair (admin). Clears local syncable data.
+  router.post('/reset-pairing', auth, adminOnly, (req, res) => {
+    const confirm = (req.body && req.body.confirm) || '';
+    if (confirm !== 'RESET') {
+      return res.status(400).json({ error: 'برای تأیید، confirm را برابر RESET بفرستید' });
+    }
+    try {
+      res.json(client.resetPairing());
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Recovery when login itself is broken (paired to dead host / empty users).
+  // Device builds bind localhost only — not exposed on the public internet.
+  router.post('/factory-reset-device', (req, res) => {
+    const confirm = (req.body && req.body.confirm) || '';
+    if (confirm !== 'RESET-DEVICE') {
+      return res.status(400).json({ error: 'برای تأیید، confirm را برابر RESET-DEVICE بفرستید' });
+    }
+    try {
+      res.json(client.resetPairing());
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   router.post('/now', auth, async (req, res) => {
     try {
       const result = await client.syncNow();

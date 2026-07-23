@@ -32,13 +32,21 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `ddf1a57` زبان فا/ان + فارسی‌سازی UI |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v85` |
-| اندروید | **`2.0.19`** |
-| وضعیت سرور | ✅ deploy `ddf1a57` / SW v85 |
+| آخرین commit | (این تسک) بازیابی pairing/سینک دستگاه |
+| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v86` |
+| اندروید | **`2.0.20`** |
+| وضعیت سرور | ⏳ deploy |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
+
+### 2026-07-23 — [Cursor] بازیابی اتصال دستگاه آفلاین (pairing خراب) — SW v86 / Android 2.0.20
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** دستگاه‌هایی که قبلاً paired شده‌اند ولی سینک/ورود خراب است دیگر بن‌بست نیستند: مهاجرت خودکار URL آلمان (`45.90.98.99`) → `https://erp.poshaktaranom.com`؛ پنل همگام‌سازی آدرس/شناسه دستگاه + «تغییر آدرس» + «قطع اتصال و اتصال مجدد»؛ لینک بازیابی روی صفحه ورود (بدون لاگین)؛ پس از reset دوباره `admin/admin123` و pairing تازه.
+- **فایل‌های کلیدی:** `server/sync/client.js`, `server/routes/sync.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-sync-repair.js`, `android/app/build.gradle`, `android/.../main.js`, `server/public/releases/manifest.json`
+- **Deploy:** ⏳
+- **یادداشت:** برای گوشی، APK **۲.۰.۲۰** لازم است (کد داخل assets اپ است). تا نصب APK جدید: پاک کردن دادهٔ اپ + اتصال مجدد به `https://erp.poshaktaranom.com` هم کار می‌کند.
 
 ### 2026-07-23 — [Cursor] زبان برنامه (فا/ان) + فارسی‌سازی برچسب‌های انگلیسی — SW v85
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

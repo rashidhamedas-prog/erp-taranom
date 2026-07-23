@@ -24,6 +24,16 @@ const state = {
   dataVersion: 0
 };
 
+/** Canonical production central (Iran). Legacy German IP must never be used. */
+const CANONICAL_CENTRAL_URL = 'https://erp.poshaktaranom.com';
+const LEGACY_CENTRAL_HOSTS = [
+  '45.90.98.99',
+  'http://45.90.98.99',
+  'http://45.90.98.99:3000',
+  'https://45.90.98.99',
+  'https://45.90.98.99:3000'
+];
+
 function kvGet(db, key) {
   const r = db.prepare('SELECT value FROM sync_local_kv WHERE key=?').get(key);
   return r ? r.value : null;
@@ -32,8 +42,36 @@ function kvSet(db, key, value) {
   db.prepare('INSERT INTO sync_local_kv (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
     .run(key, String(value));
 }
+function kvDel(db, key) {
+  db.prepare('DELETE FROM sync_local_kv WHERE key=?').run(key);
+}
+
+function normalizeCentralUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  let u = url.trim().replace(/\/$/, '');
+  if (!u) return '';
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  return u.replace(/\/$/, '');
+}
+
+function isLegacyCentralUrl(url) {
+  if (!url) return false;
+  const u = normalizeCentralUrl(url).toLowerCase();
+  return LEGACY_CENTRAL_HOSTS.some(h => u === h || u.startsWith(h + '/') || u.includes('://45.90.98.99'));
+}
+
+/** Rewrite stored German/legacy central URL → Iran canonical. Idempotent. */
+function migrateLegacyCentralUrl(db) {
+  const cur = kvGet(db, 'central_url');
+  if (!cur || !isLegacyCentralUrl(cur)) return false;
+  kvSet(db, 'central_url', CANONICAL_CENTRAL_URL);
+  state.lastError = null;
+  console.warn(`[sync] migrated legacy central_url ${cur} → ${CANONICAL_CENTRAL_URL}`);
+  return true;
+}
 
 function getConfig(db) {
+  migrateLegacyCentralUrl(db);
   return {
     centralUrl: kvGet(db, 'central_url'),
     deviceId: parseInt(kvGet(db, 'device_id')) || null,
@@ -64,15 +102,22 @@ async function probe(centralUrl) {
 // ---- Pairing ----
 async function pair(centralUrl, username, password, deviceName) {
   const db = getDB();
-  if (isPaired(db)) throw new Error('این دستگاه قبلاً متصل شده است');
-  const base = centralUrl.replace(/\/$/, '');
+  if (isPaired(db)) {
+    throw new Error('این دستگاه قبلاً متصل شده است — از پنل همگام‌سازی «قطع اتصال و اتصال مجدد» را بزنید');
+  }
+  let base = normalizeCentralUrl(centralUrl);
+  if (!base) throw new Error('آدرس سرور مرکزی نامعتبر است');
+  if (isLegacyCentralUrl(base)) {
+    console.warn(`[sync] rejecting legacy central URL ${base}, using canonical`);
+    base = CANONICAL_CENTRAL_URL;
+  }
 
   // Pairing requires a fresh (empty) local database — pre-pairing business
   // rows would occupy the low id range and collide with pulled central rows.
   const custCount = db.prepare('SELECT COUNT(*) c FROM customers').get().c;
   const invCount = db.prepare('SELECT COUNT(*) c FROM invoices').get().c;
   if (custCount || invCount) {
-    throw new Error('اتصال فقط روی پایگاه‌داده خالی امکان‌پذیر است — داده‌های محلی موجود ابتدا باید حذف شوند');
+    throw new Error('اتصال فقط روی پایگاه‌داده خالی امکان‌پذیر است — ابتدا «قطع اتصال و اتصال مجدد» را بزنید');
   }
 
   const r = await fetch(base + '/api/sync/pair', {
@@ -98,7 +143,56 @@ async function pair(centralUrl, username, password, deviceName) {
     db.prepare(`DELETE FROM users WHERE id NOT IN (${ids.map(() => '?').join(',')})`).run(...ids);
   }
   state.online = true;
-  return { ok: true, device_id: body.device_id };
+  state.lastError = null;
+  return { ok: true, device_id: body.device_id, central_url: base };
+}
+
+/** Update central URL on an already-paired device (e.g. migrate host). */
+async function setCentralUrl(centralUrl) {
+  const db = getDB();
+  if (!isPaired(db)) throw new Error('دستگاه هنوز متصل نشده است');
+  let base = normalizeCentralUrl(centralUrl);
+  if (!base) throw new Error('آدرس سرور مرکزی نامعتبر است');
+  if (isLegacyCentralUrl(base)) base = CANONICAL_CENTRAL_URL;
+  const online = await probe(base);
+  if (!online) throw new Error('سرور مرکزی در این آدرس در دسترس نیست');
+  kvSet(db, 'central_url', base);
+  state.online = true;
+  state.lastError = null;
+  return { ok: true, central_url: base };
+}
+
+/**
+ * Wipe local sync state + syncable business rows so the device can pair again.
+ * Restores placeholder admin / admin123. Local-only ops that were never pushed
+ * are lost — intended recovery for broken/wrong pairing.
+ */
+function resetPairing() {
+  const db = getDB();
+  const bcrypt = require('bcryptjs');
+  db.pragma('foreign_keys = OFF');
+  const wipe = db.transaction(() => {
+    try { db.exec('DELETE FROM sync_outbox'); } catch { /* */ }
+    // Children-first: reverse registry order reduces FK surprises when FK is later re-enabled.
+    for (let i = SYNCABLE_TABLES.length - 1; i >= 0; i--) {
+      const { name } = SYNCABLE_TABLES[i];
+      try { db.exec(`DELETE FROM ${name}`); } catch (e) {
+        console.warn(`[sync] resetPairing skip ${name}:`, e.message);
+      }
+    }
+    for (const k of ['central_url', 'device_id', 'device_token', 'last_pull_seq']) kvDel(db, k);
+    const hash = bcrypt.hashSync('admin123', 10);
+    db.prepare('INSERT INTO users (name,username,password,role,must_change_password) VALUES (?,?,?,?,0)')
+      .run('مدیر موقت', 'admin', hash, 'admin');
+  });
+  wipe();
+  db.pragma('foreign_keys = ON');
+  state.online = false;
+  state.syncing = false;
+  state.lastSyncAt = null;
+  state.lastError = null;
+  state.dataVersion++;
+  return { ok: true, message: 'اتصال قطع شد — با admin / admin123 وارد شوید و دوباره به سرور مرکزی وصل کنید' };
 }
 
 // ---- Sync cycle ----
@@ -409,6 +503,7 @@ function skipSyncFile(subdir, name) {
 let loopTimer = null;
 function startClientLoop(intervalMs) {
   const db = getDB();
+  migrateLegacyCentralUrl(db);
   if (isPaired(db)) {
     const cfg = getConfig(db);
     seedProvisionalSequences(db, cfg.deviceId);
@@ -496,6 +591,7 @@ async function changePasswordOnCentral(username, oldPass, newPass) {
 
 module.exports = {
   pair, syncNow, pullFilesNow, skipSyncFile, discardConflict, getStatus, getConfig, startClientLoop, isPaired,
+  setCentralUrl, resetPairing, migrateLegacyCentralUrl, normalizeCentralUrl, CANONICAL_CENTRAL_URL,
   fetchCentralAppUpdate, getUpdateFeedUrl, fetchCentralUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles,
   changePasswordOnCentral
 };
