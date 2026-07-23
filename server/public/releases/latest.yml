@@ -1,8 +1,8 @@
-version: 1.0.11
+version: 2.0.1
 files:
-  - url: CRM Taranom Setup 1.0.11.exe
-    sha512: uwpoXQfnUS5arvKHyMj4e6/ATX7XGZFI8AQpF1Rriyjy+RapASLQBk6IMPJbjGkbEdFQCaYv/wV4X7eWn3Bijw==
-    size: 97195507
-path: CRM Taranom Setup 1.0.11.exe
-sha512: uwpoXQfnUS5arvKHyMj4e6/ATX7XGZFI8AQpF1Rriyjy+RapASLQBk6IMPJbjGkbEdFQCaYv/wV4X7eWn3Bijw==
-releaseDate: '2026-07-13T11:40:15.005Z'
+  - url: ERP-Taranom-Setup-2.0.1.exe
+    sha512: zImOhs7NwFNwyBXVgztTxl/cj+N+tfMoSlGeTOHh7/Ht8PonYNKaYoX9BMdkC6yuuBDr2DmIjnsVu77k7nlfmA==
+    size: 98427415
+path: ERP-Taranom-Setup-2.0.1.exe
+sha512: zImOhs7NwFNwyBXVgztTxl/cj+N+tfMoSlGeTOHh7/Ht8PonYNKaYoX9BMdkC6yuuBDr2DmIjnsVu77k7nlfmA==
+releaseDate: '2026-07-23T02:19:38.098Z'

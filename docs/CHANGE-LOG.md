@@ -32,20 +32,28 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `668397d` رفع کامل pairing موبایل |
-| نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v87` |
+| آخرین commit | (پس از commit بیلد دسکتاپ 2.0.1) |
+| نسخه وب/دسکتاپ | وب **`2.1.0`** / دسکتاپ **`2.0.1`** / SW `erp-taranom-v87` |
 | اندروید | **`2.0.21`** (بیلد محلی) |
-| وضعیت سرور | ⏳ deploy |
+| وضعیت سرور | ⏳ آپلود exe توسط کاربر (+ pull متادیتا) |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
+
+### 2026-07-23 — [Cursor] بیلد دسکتاپ Windows 2.0.1
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین کامیت)
+- **خلاصه:** بررسی کامل پوستهٔ Electron (`main.js`/`preload.js`/`prepare-server`)؛ bump نسخه به `2.0.1`؛ ساخت نصب‌کننده NSIS (~۹۴MB) با آخرین بک‌اند (pairing غیرمسدود، rollback، i18n، …). متادیتا `manifest.json` + `latest.yml` به‌روز شد. `generate-release.js` نام ERP و حفظ فیلد android را پشتیبانی می‌کند.
+- **فایل‌های کلیدی:** `desktop/package.json`, `desktop/dist/ERP-Taranom-Setup-2.0.1.exe` (محلی، gitignore), `server/public/releases/{manifest.json,latest.yml}`, `scripts/generate-release.js`, `desktop/BUILD-WINDOWS.md`
+- **Deploy:** ⏳ — کاربر exe را با SCP روی سرور ایران آپلود می‌کند؛ سپس `git pull` + `pm2 restart`
+- **یادداشت:** مسیر محلی: `desktop/dist/ERP-Taranom-Setup-2.0.1.exe` — SHA256 `9C29A827FC6DDC132CAD3930B29155F8964414F3091C78EC357AF555DE34F6F7`
 
 ### 2026-07-23 — [Cursor] رفع کامل صفحه اتصال به سرور مرکزی (موبایل) — SW v87 / Android 2.0.21
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `668397d`
 - **خلاصه:** pairing دیگر تا پایان pull کل دیتابیس بلوکه نمی‌شود (ثبت سریع + دریافت پس‌زمینه با صفحه پیشرفت). اگر دریافت اولیه شکست بخورد اتصال ناقص rollback می‌شود تا بن‌بست «قبلاً متصل» نماند. probe با fallback `http://erp.poshaktaranom.com`، تشخیص `pairing_broken`، راهنمای واضح فیلدها (مدیر وب ≠ admin123 محلی)، و پیام خطای ورود بهتر روی دستگاه.
 - **فایل‌های کلیدی:** `server/sync/client.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-sync-repair.js`, `android/app/build.gradle`, `android/.../main.js`, `server/public/releases/manifest.json`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران `ffd50b4` — `git pull` + `pm2 restart` + health 200 + SW `erp-taranom-v87`
 - **یادداشت:** برای گوشی باید APK **۲.۰.۲۱** نصب شود. اگر اتصال قبلی خراب است: لینک «قطع اتصال و اتصال مجدد» روی صفحه ورود → `admin/admin123` → اتصال تازه با مدیر وب.
 
 ### 2026-07-23 — [Cursor] بازیابی اتصال دستگاه آفلاین (pairing خراب) — SW v86 / Android 2.0.20

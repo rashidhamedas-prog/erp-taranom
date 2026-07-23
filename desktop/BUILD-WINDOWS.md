@@ -20,7 +20,8 @@ npm install          # نصب وابستگی‌ها (الکترون + همان �
 npm run dist:win     # کپی سورس سرور + ری‌بیلد ماژول‌های Native برای الکترون + ساخت نصب‌کننده NSIS
 ```
 
-خروجی: `desktop/dist/ERP Taranom Setup 1.0.0.exe`
+خروجی: `desktop/dist/ERP Taranom Setup <version>.exe`  
+برای آپلود روی سرور، همان فایل را به نام `ERP-Taranom-Setup-<version>.exe` کپی کنید.
 
 ### اجرای آزمایشی بدون ساخت نصب‌کننده
 

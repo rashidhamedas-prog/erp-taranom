@@ -38,34 +38,49 @@ function writeLatestYml(exePath) {
 }
 
 const NOTES = process.argv[6] ||
-  'نسخه 1.0.11: Command Palette، مرکز اقدامات، RBAC، مشاور AI، سال مالی، مهاجرت محک، هات‌فیکس ورود، بارکد wedge، SW v30';
+  `نسخه ${version}: بیلد دسکتاپ با آخرین بک‌اند (pairing/sync، SW فعلی).`;
+
+// Preserve existing web/android fields when only refreshing desktop metadata.
+let prev = {};
+try {
+  prev = JSON.parse(fs.readFileSync(path.join(releasesDir, 'manifest.json'), 'utf8'));
+} catch { /* */ }
+
 const manifest = {
-  web: { version: '2.1.0', notes: 'به‌روزرسانی رابط وب — با باز کردن سایت در مرورگر خودکار اعمال می‌شود.' },
+  web: prev.web || { version: '2.1.0', notes: 'به‌روزرسانی رابط وب — با باز کردن سایت در مرورگر خودکار اعمال می‌شود.' },
   desktop: {
     version,
-    url: `/releases/CRM-Taranom-Setup-${version}.exe`,
+    url: `/releases/ERP-Taranom-Setup-${version}.exe`,
     feed_url: '',
     notes: NOTES
   },
-  android: {
-    version: process.argv[4] || '2.0.1',
-    versionCode: parseInt(process.argv[5] || '3', 10),
+  android: prev.android || {
+    version: process.argv[4] || '2.0.21',
+    versionCode: parseInt(process.argv[5] || '23', 10),
     url: '',
     distribution: 'local',
-    notes: NOTES + ' — نصب اندروید فقط از APK محلی (sideload/USB). سرور APK ارائه نمی‌دهد.'
+    notes: 'نصب اندروید فقط از APK محلی (sideload/USB).'
   }
 };
+if (process.argv[4]) {
+  manifest.android.version = process.argv[4];
+  manifest.android.versionCode = parseInt(process.argv[5] || String(manifest.android.versionCode || 23), 10);
+}
 
 fs.mkdirSync(releasesDir, { recursive: true });
-const distExe = path.join(ROOT, 'desktop', 'dist', `CRM Taranom Setup ${version}.exe`);
-const distExeAlt = path.join(ROOT, 'desktop', 'dist', `CRM-Taranom-Setup-${version}.exe`);
-const builtExe = fs.existsSync(distExe) ? distExe : (fs.existsSync(distExeAlt) ? distExeAlt : null);
-if (!builtExe) {
-  writeLatestYml(path.join(releasesDir, `CRM-Taranom-Setup-${version}.exe`));
-} else {
-  writeLatestYml(builtExe);
-}
+const candidates = [
+  path.join(ROOT, 'desktop', 'dist', `ERP Taranom Setup ${version}.exe`),
+  path.join(ROOT, 'desktop', 'dist', `ERP-Taranom-Setup-${version}.exe`),
+  path.join(ROOT, 'desktop', 'dist', `CRM Taranom Setup ${version}.exe`),
+  path.join(ROOT, 'desktop', 'dist', `CRM-Taranom-Setup-${version}.exe`),
+  path.join(releasesDir, `ERP-Taranom-Setup-${version}.exe`),
+  path.join(releasesDir, `CRM-Taranom-Setup-${version}.exe`)
+];
+const builtExe = candidates.find((p) => fs.existsSync(p)) || null;
+if (builtExe) writeLatestYml(builtExe);
+else console.warn('⚠️  skip latest.yml — installer not found for', version);
+
 fs.writeFileSync(path.join(releasesDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 console.log('✅ manifest.json');
 console.log('\nMetadata written to server/public/releases/');
-console.log('Upload the .exe to GitHub Releases — see docs/DESKTOP-UPDATE.md');
+console.log('Upload the .exe to the server /releases/ folder (or GitHub — see docs/DESKTOP-UPDATE.md)');
