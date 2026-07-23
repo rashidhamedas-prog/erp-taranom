@@ -42,7 +42,7 @@
 
 ### 2026-07-23 — [Cursor] رفع کامل صفحه اتصال به سرور مرکزی (موبایل) — SW v87 / Android 2.0.21
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `668397d`
 - **خلاصه:** pairing دیگر تا پایان pull کل دیتابیس بلوکه نمی‌شود (ثبت سریع + دریافت پس‌زمینه با صفحه پیشرفت). اگر دریافت اولیه شکست بخورد اتصال ناقص rollback می‌شود تا بن‌بست «قبلاً متصل» نماند. probe با fallback `http://erp.poshaktaranom.com`، تشخیص `pairing_broken`، راهنمای واضح فیلدها (مدیر وب ≠ admin123 محلی)، و پیام خطای ورود بهتر روی دستگاه.
 - **فایل‌های کلیدی:** `server/sync/client.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-sync-repair.js`, `android/app/build.gradle`, `android/.../main.js`, `server/public/releases/manifest.json`
 - **Deploy:** ⏳
@@ -54,7 +54,7 @@
 - **خلاصه:** دستگاه‌هایی که قبلاً paired شده‌اند ولی سینک/ورود خراب است دیگر بن‌بست نیستند: مهاجرت خودکار URL آلمان (`45.90.98.99`) → `https://erp.poshaktaranom.com`؛ پنل همگام‌سازی آدرس/شناسه دستگاه + «تغییر آدرس» + «قطع اتصال و اتصال مجدد»؛ لینک بازیابی روی صفحه ورود (بدون لاگین)؛ پس از reset دوباره `admin/admin123` و pairing تازه.
 - **فایل‌های کلیدی:** `server/sync/client.js`, `server/routes/sync.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-sync-repair.js`, `android/app/build.gradle`, `android/.../main.js`, `server/public/releases/manifest.json`
 - **Deploy:** ✅ ایران `6a7fed6` — `git pull` + `pm2 restart` + health 200 + SW `erp-taranom-v86`
-- **یادداشت:** برای گوشی، APK **۲.۰.۲۰** لازم است (کد داخل assets اپ است). تا نصب APK جدید: پاک کردن دادهٔ اپ + اتصال مجدد به `https://erp.poshaktaranom.com` هم کار می‌کند.
+- **یادداشت:** برای گوشی، APK **۲.۰.۲۰** دکمهٔ بازیابی داخل اپ را می‌آورد (بیلد محلی به‌خاطر timeout آینهٔ Maven فعلاً کامل نشد). **الان بدون APK جدید:** تنظیمات گوشی → ERP ترنم → پاک کردن داده → ورود `admin/admin123` → اتصال به `https://erp.poshaktaranom.com` با رمز مدیر مرکزی → ورود با کاربر اصلی.
 
 ### 2026-07-23 — [Cursor] زبان برنامه (فا/ان) + فارسی‌سازی برچسب‌های انگلیسی — SW v85
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
