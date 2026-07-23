@@ -286,6 +286,71 @@ html[data-theme="dark"] .sett-savebar{background:rgba(19,31,26,.9)}
   .sett-nav-btn .sett-nav-meta{display:none}
 }
 
+/* ===== Groups / subgroups shell ===== */
+.grp-shell{display:flex;flex-direction:column;gap:14px}
+.grp-hero{position:relative;overflow:hidden;border-radius:20px;padding:18px 20px;background:var(--hero);color:#fff;box-shadow:var(--shadow-card)}
+.grp-hero::after{content:'';position:absolute;inset:auto -18% -55% auto;width:180px;height:180px;border-radius:50%;
+  background:radial-gradient(circle,rgba(201,168,67,.32),transparent 70%);pointer-events:none}
+.grp-hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;position:relative;z-index:1}
+.grp-hero h2{margin:0 0 4px;font-size:clamp(16px,2.2vw,22px);font-weight:800}
+.grp-hero p{margin:0;font-size:12.5px;opacity:.88;line-height:1.7;max-width:40rem}
+.grp-hero-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.grp-hero-actions .btn{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.28)}
+.grp-hero-actions .btn:hover{background:rgba(255,255,255,.3)}
+.grp-hero-actions .btn.green{background:var(--green);border-color:transparent}
+.grp-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:14px;position:relative;z-index:1}
+.grp-stat{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:10px 12px}
+.grp-stat .v{font-size:18px;font-weight:800;line-height:1.2}
+.grp-stat .l{font-size:11px;opacity:.85;margin-top:2px}
+.grp-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.grp-toolbar input[type="search"]{flex:1;min-width:180px;padding:10px 12px;border:1.5px solid var(--border);border-radius:12px;
+  background:var(--input-bg);color:var(--text);outline:none}
+.grp-toolbar input[type="search"]:focus{border-color:var(--purple2)}
+.grp-chips{display:flex;gap:6px;flex-wrap:wrap}
+.grp-chip{border:1.5px solid var(--border);background:var(--card);color:var(--muted);border-radius:999px;padding:6px 12px;
+  font-size:12px;font-weight:700;cursor:pointer;transition:background .18s,color .18s,border-color .18s}
+.grp-chip:hover{border-color:var(--purple2);color:var(--purple)}
+.grp-chip.active{background:var(--purple);border-color:var(--purple);color:#fff}
+.grp-tree{display:flex;flex-direction:column;gap:10px}
+.grp-node{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-card);overflow:hidden;
+  transition:border-color .18s,transform .15s}
+.grp-node:hover{border-color:rgba(26,92,56,.28)}
+.grp-node-head{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;user-select:none}
+.grp-node-ico{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+  background:var(--purple-light);color:var(--purple);flex-shrink:0}
+.grp-node-ico svg{width:18px;height:18px}
+.grp-node-ico.sub{background:var(--gold-light);color:var(--gold)}
+.grp-node-main{flex:1;min-width:0}
+.grp-node-main b{display:block;font-size:14px;color:var(--text)}
+.grp-node-main .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:3px;font-size:11.5px;color:var(--muted)}
+.grp-node-ops{display:flex;gap:4px;flex-shrink:0}
+.grp-node-ops .btn{opacity:.85}
+.grp-node-body{padding:0 14px 12px 66px;display:none}
+.grp-node.open > .grp-node-body{display:block}
+.grp-node .grp-chev{width:22px;height:22px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);transition:transform .2s;flex-shrink:0}
+.grp-node.open > .grp-node-head .grp-chev{transform:rotate(-90deg);color:var(--purple)}
+.grp-child{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px dashed var(--border);border-radius:12px;
+  background:var(--well);margin-top:8px}
+.grp-child .grp-node-ico{width:32px;height:32px;border-radius:10px}
+.grp-child .grp-node-ico svg{width:15px;height:15px}
+.grp-empty{padding:40px 16px;text-align:center;color:var(--muted);border:1.5px dashed var(--border);border-radius:16px;background:var(--card)}
+.grp-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.grp-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px;box-shadow:var(--shadow-card);
+  display:flex;flex-direction:column;gap:10px;transition:border-color .18s,transform .15s}
+.grp-card:hover{border-color:rgba(26,92,56,.3);transform:translateY(-1px)}
+.grp-card-top{display:flex;align-items:flex-start;gap:10px}
+.grp-card-top .grp-node-ico{width:42px;height:42px}
+.grp-card h4{margin:0;font-size:14px;color:var(--text)}
+.grp-card .muted{font-size:11.5px;line-height:1.6}
+.grp-card-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
+.grp-switch{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:2px}
+.grp-switch .btn{font-size:12px}
+@media(max-width:600px){
+  .grp-node-body{padding-right:14px;padding-left:14px}
+  .grp-node-ops{flex-wrap:wrap}
+}
+
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
 .toolbar input,.toolbar select{padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;outline:none;background:var(--input-bg);color:var(--text)}
 .toolbar input:focus,.toolbar select:focus{border-color:var(--purple2)}
@@ -10557,16 +10622,49 @@ async function deleteCostCenter(id){
 ============================================================ */
 async function renderCustomerGroupsTab(body){
   const rows=await api('GET','/accounting/customer-groups')||[];
+  const debit=rows.filter(g=>g.nature!=='credit').length;
+  const credit=rows.filter(g=>g.nature==='credit').length;
   body.innerHTML=`
-    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="customerGroupModal()">➕ گروه جدید</button></div>
-    <div class="muted" style="font-size:12px;margin-bottom:10px">ماهیت پیش‌فرض حساب مشتریان «بدهکار» است. فقط مدیر و حسابدار می‌توانند ماهیت را تغییر دهند.</div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام گروه</th><th>ماهیت حساب</th><th>عملیات</th></tr></thead>
-    <tbody>${rows.map(g=>`<tr>
-      <td>${esc(g.name)}</td>
-      <td><span class="tag ${g.nature==='credit'?'t-active':'t-new'}">${g.nature==='credit'?'بستانکار':'بدهکار'}</span></td>
-      <td><button class="btn sm ghost" onclick="customerGroupModal(${g.id})">✏️</button>
-          <button class="btn sm red" onclick="deleteCustomerGroup(${g.id})">🗑️</button></td>
-    </tr>`).join('')||emptyRow(3)}</tbody></table></div>`;
+    <div class="grp-shell">
+      ${grpHubSwitch('customer-groups')}
+      <div class="grp-hero">
+        <div class="grp-hero-top">
+          <div>
+            <h2>${lucide('users')} گروه‌های مشتری</h2>
+            <p>ماهیت حساب هر گروه (بدهکار/بستانکار). پیش‌فرض همه مشتریان بدهکار است.</p>
+          </div>
+          <div class="grp-hero-actions">
+            <button class="btn green" onclick="customerGroupModal()">${lucide('sparkles')} گروه جدید</button>
+          </div>
+        </div>
+        <div class="grp-stats">
+          <div class="grp-stat"><div class="v">${fmt(rows.length)}</div><div class="l">کل گروه‌ها</div></div>
+          <div class="grp-stat"><div class="v">${fmt(debit)}</div><div class="l">بدهکار</div></div>
+          <div class="grp-stat"><div class="v">${fmt(credit)}</div><div class="l">بستانکار</div></div>
+        </div>
+      </div>
+      <div class="grp-toolbar">
+        <input type="search" placeholder="جستجوی نام گروه…" oninput="grpFilterCards('cg',this.value)">
+      </div>
+      ${rows.length?`<div class="grp-card-grid" id="grp-grid-cg">${rows.map(g=>`
+        <div class="grp-card" data-grp-q="${esc((g.name||'').toLowerCase())}">
+          <div class="grp-card-top">
+            <div class="grp-node-ico">${lucide(g.nature==='credit'?'banknote':'wallet')}</div>
+            <div style="flex:1;min-width:0">
+              <h4>${esc(g.name)}</h4>
+              <div class="muted">ماهیت حساب مشتریان این گروه</div>
+            </div>
+          </div>
+          <div class="grp-card-foot">
+            <span class="tag ${g.nature==='credit'?'t-active':'t-new'}">${g.nature==='credit'?'بستانکار':'بدهکار'}</span>
+            <div class="grp-node-ops">
+              <button class="btn sm ghost" onclick="customerGroupModal(${g.id})" title="ویرایش">${lucide('pen')}</button>
+              <button class="btn sm red" onclick="deleteCustomerGroup(${g.id})" title="حذف">حذف</button>
+            </div>
+          </div>
+        </div>`).join('')}</div>`:`<div class="grp-empty">هنوز گروهی تعریف نشده — «گروه جدید» را بزنید.</div>`}
+      <div id="grp-empty-cg" class="grp-empty" style="display:none">نتیجه‌ای پیدا نشد.</div>
+    </div>`;
 }
 async function customerGroupModal(id){
   const list=await api('GET','/accounting/customer-groups')||[];
@@ -10579,7 +10677,7 @@ async function customerGroupModal(id){
         <select id="cg-nature"><option value="debit" ${g.nature!=='credit'?'selected':''}>بدهکار (پیش‌فرض)</option>
         <option value="credit" ${g.nature==='credit'?'selected':''}>بستانکار</option></select></div>
     </div></div>
-    <div class="modal-foot"><button class="btn" onclick="saveCustomerGroup(${id||0})">💾 ذخیره</button>
+    <div class="modal-foot"><button class="btn" onclick="saveCustomerGroup(${id||0})">ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
 }
 async function saveCustomerGroup(id){
@@ -10597,24 +10695,84 @@ async function deleteCustomerGroup(id){
 }
 
 /* ============================================================
-   PARTY GROUPS — -style person groups (گروه اشخاص)
+   PARTY GROUPS — person groups (گروه اشخاص)
 ============================================================ */
 const PARTY_ENTITY_LABELS = {all:'همه',customer:'مشتری',supplier:'تأمین‌کننده',person:'شخص'};
+function grpHubSwitch(active){
+  const tabs=[
+    ['product-groups','tags','گروه/زیرگروه کالا'],
+    ['party-groups','folder','گروه اشخاص'],
+    ['customer-groups','users','گروه مشتری']
+  ];
+  return `<div class="grp-switch">${tabs.map(([id,ico,lab])=>`
+    <button type="button" class="btn sm ${active===id?'':'ghost'}" onclick="loadAccTab('${id}')">${lucide(ico)} ${lab}</button>`).join('')}</div>`;
+}
+function grpFilterCards(key,q){
+  q=(q||'').trim().toLowerCase();
+  const grid=el('grp-grid-'+key); if(!grid) return;
+  let n=0;
+  grid.querySelectorAll('[data-grp-q]').forEach(c=>{
+    const hay=c.getAttribute('data-grp-q')||'';
+    const ok=!q||hay.includes(q);
+    c.style.display=ok?'':'none';
+    if(ok) n++;
+  });
+  const empty=el('grp-empty-'+key);
+  if(empty) empty.style.display=n?'none':'block';
+}
+function grpToggleNode(btn){
+  const node=btn.closest('.grp-node');
+  if(node) node.classList.toggle('open');
+}
 async function renderPartyGroupsTab(body){
   const rows=await api('GET','/party-groups')||[];
+  const marketers=rows.filter(g=>g.is_marketer).length;
+  const totalEnt=rows.reduce((s,g)=>s+(g.entity_count||0),0);
   body.innerHTML=`
-    <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="partyGroupModal()">➕ گروه جدید</button></div>
-    <div class="muted" style="font-size:12px;margin-bottom:10px">گروه‌های اشخاص را خودتان تعریف کنید؛ سپس هنگام ثبت شخص جدید، گروه را انتخاب کنید.</div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام گروه</th><th>نوع موجودیت</th><th>بازاریاب</th><th>تعداد</th><th>عملیات</th></tr></thead>
-    <tbody>${rows.map(g=>`<tr>
-      <td class="mono">${g.code||'-'}</td>
-      <td>${esc(g.name)}</td>
-      <td><span class="tag t-new">${PARTY_ENTITY_LABELS[g.entity_type]||g.entity_type}</span></td>
-      <td>${g.is_marketer?'<span class="tag t-vip">بازاریاب</span>':'—'}</td>
-      <td class="mono">${g.entity_count||0}</td>
-      <td><button class="btn sm ghost" onclick="partyGroupModal(${g.id})">✏️</button>
-          <button class="btn sm red" onclick="deletePartyGroup(${g.id})">🗑️</button></td>
-    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+    <div class="grp-shell">
+      ${grpHubSwitch('party-groups')}
+      <div class="grp-hero">
+        <div class="grp-hero-top">
+          <div>
+            <h2>${lucide('folder')} گروه‌های اشخاص</h2>
+            <p>گروه‌بندی مشتریان، تأمین‌کنندگان و پرسنل — هنگام ثبت شخص، گروه را انتخاب کنید.</p>
+          </div>
+          <div class="grp-hero-actions">
+            <button class="btn green" onclick="partyGroupModal()">${lucide('sparkles')} گروه جدید</button>
+          </div>
+        </div>
+        <div class="grp-stats">
+          <div class="grp-stat"><div class="v">${fmt(rows.length)}</div><div class="l">گروه</div></div>
+          <div class="grp-stat"><div class="v">${fmt(totalEnt)}</div><div class="l">اعضا</div></div>
+          <div class="grp-stat"><div class="v">${fmt(marketers)}</div><div class="l">بازاریاب</div></div>
+        </div>
+      </div>
+      <div class="grp-toolbar">
+        <input type="search" placeholder="جستجو نام / کد / نوع…" oninput="grpFilterCards('pg',this.value)">
+      </div>
+      ${rows.length?`<div class="grp-card-grid" id="grp-grid-pg">${rows.map(g=>`
+        <div class="grp-card" data-grp-q="${esc(((g.name||'')+' '+(g.code||'')+' '+(PARTY_ENTITY_LABELS[g.entity_type]||'')+(g.is_marketer?' بازاریاب':'')).toLowerCase())}">
+          <div class="grp-card-top">
+            <div class="grp-node-ico ${g.is_marketer?'sub':''}">${lucide(g.is_marketer?'briefcase':'person')}</div>
+            <div style="flex:1;min-width:0">
+              <h4>${esc(g.name)}</h4>
+              <div class="muted mono">کد ${g.code!=null?g.code:'—'} · ${PARTY_ENTITY_LABELS[g.entity_type]||g.entity_type}</div>
+            </div>
+          </div>
+          ${g.description?`<div class="muted">${esc(g.description)}</div>`:''}
+          <div class="grp-card-foot">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+              <span class="tag t-new">${fmt(g.entity_count||0)} عضو</span>
+              ${g.is_marketer?'<span class="tag t-vip">بازاریاب</span>':''}
+            </div>
+            <div class="grp-node-ops">
+              <button class="btn sm ghost" onclick="partyGroupModal(${g.id})" title="ویرایش">${lucide('pen')}</button>
+              <button class="btn sm red" onclick="deletePartyGroup(${g.id})" title="حذف">حذف</button>
+            </div>
+          </div>
+        </div>`).join('')}</div>`:`<div class="grp-empty">گروهی نیست — اولین گروه را بسازید.</div>`}
+      <div id="grp-empty-pg" class="grp-empty" style="display:none">نتیجه‌ای پیدا نشد.</div>
+    </div>`;
 }
 async function partyGroupModal(id){
   const list=await api('GET','/party-groups')||[];
@@ -10626,13 +10784,10 @@ async function partyGroupModal(id){
       <div class="fg full"><label>نام گروه *</label><input id="pg-name" value="${esc(g.name||'')}"></div>
       <div class="fg full"><label>نوع موجودیت ${hlp('مشتریان→customers، فروشندگان→suppliers، پرسنل→persons')}</label>
         <select id="pg-entity">${Object.entries(PARTY_ENTITY_LABELS).map(([k,v])=>`<option value="${k}" ${g.entity_type===k?'selected':''}>${v}</option>`).join('')}</select></div>
-      <div class="fg full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input id="pg-marketer" type="checkbox" style="width:auto" ${g.is_marketer?'checked':''}>
-        گروه بازاریاب (گردش کار کاتالوگ → سبد → فاکتور)
-      </label></div>
+      <div class="fg full">${typeof settToggle==='function'?settToggle('pg-marketer',!!g.is_marketer,'گروه بازاریاب','گردش کار کاتالوگ → سبد → فاکتور'):`<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input id="pg-marketer" type="checkbox" style="width:auto" ${g.is_marketer?'checked':''}> گروه بازاریاب</label>`}</div>
       <div class="fg full"><label>توضیحات</label><textarea id="pg-desc">${esc(g.description||'')}</textarea></div>
     </div></div>
-    <div class="modal-foot"><button class="btn" onclick="savePartyGroup(${id||0})">💾 ذخیره</button>
+    <div class="modal-foot"><button class="btn" onclick="savePartyGroup(${id||0})">ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
 }
 async function savePartyGroup(id){
@@ -11227,54 +11382,172 @@ async function deleteOrder(id){
    PRODUCT GROUPS — product categories (گروه کالا)
 ============================================================ */
 let PRODUCT_GROUP_FILTER='';
+let PRODUCT_GROUP_VIEW='tree'; // tree | flat | shared | private
 async function renderProductGroupsTab(body){
   const groupFilter=PRODUCT_GROUP_FILTER;
+  const view=PRODUCT_GROUP_VIEW||'tree';
   const rows=await api('GET','/product-categories')||[];
   const byId=Object.fromEntries(rows.map(r=>[r.id,r]));
-  const filtered=groupFilter?rows.filter(g=>g.id===+groupFilter||g.parent_id===+groupFilter):rows.filter(g=>g.code!==0);
-  body.innerHTML=`
-    <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
-      <aside style="min-width:180px;max-width:220px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px">
-        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--purple)">گروه کالا</div>
-        <div style="display:flex;flex-direction:column;gap:4px">
-          <button type="button" class="btn sm ${!groupFilter?'':'ghost'}" style="justify-content:flex-start" onclick="filterProductGroup('')">کلیه کالاها</button>
-          ${rows.filter(g=>g.code!==0).map(g=>`<button type="button" class="btn sm ${groupFilter==String(g.id)?'':'ghost'}" style="justify-content:flex-start" onclick="filterProductGroup('${g.id}')">${esc(g.name)}</button>`).join('')}
+  const usable=rows.filter(g=>g.code!==0);
+  const roots=usable.filter(g=>!g.parent_id);
+  const subs=usable.filter(g=>!!g.parent_id);
+  const sharedN=usable.filter(g=>g.is_shared).length;
+  const privateN=usable.length-sharedN;
+  const prodTotal=usable.reduce((s,g)=>s+(g.product_count||0),0);
+  const childrenOf=pid=>usable.filter(g=>g.parent_id==pid);
+  const orphanSubs=subs.filter(g=>!byId[g.parent_id]||byId[g.parent_id]?.code===0);
+
+  let list=usable;
+  if(view==='shared') list=usable.filter(g=>g.is_shared);
+  else if(view==='private') list=usable.filter(g=>!g.is_shared);
+  else if(groupFilter) list=usable.filter(g=>g.id===+groupFilter||g.parent_id===+groupFilter);
+
+  const childHtml=g=>`
+    <div class="grp-child" data-grp-q="${esc(((g.name||'')+' '+(g.code||'')+' '+(byId[g.parent_id]?.name||'')).toLowerCase())}">
+      <div class="grp-node-ico sub">${lucide('tags')}</div>
+      <div class="grp-node-main">
+        <b>${esc(g.name)}</b>
+        <div class="meta">
+          <span class="mono">کد ${g.code||'—'}</span>
+          <span>${fmt(g.product_count||0)} کالا</span>
+          ${g.is_shared?'<span class="tag t-done">مجاز</span>':'<span class="tag t-cancel">خصوصی</span>'}
         </div>
-      </aside>
-      <div style="flex:1;min-width:280px">
-        <div class="toolbar" style="margin-bottom:12px"><button class="btn" onclick="productGroupModal()">➕ گروه جدید</button></div>
-        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام گروه</th><th>گروه والد</th><th>نمایش برای دیگران</th><th>تعداد کالا</th><th>عملیات</th></tr></thead>
-        <tbody>${filtered.map(g=>`<tr>
-          <td class="mono">${g.code||'-'}</td><td>${esc(g.name)}</td>
-          <td class="muted">${g.parent_id?(byId[g.parent_id]?.name||'-'):'-'}</td>
-          <td>${g.is_shared?'<span class="tag t-done">مجاز</span>':'<span class="tag t-cancel">خصوصی</span>'}</td>
-          <td class="mono">${g.product_count||0}</td>
-          <td><button class="btn sm ghost" onclick="productGroupModal(${g.id})">✏️</button>
-              <button class="btn sm red" onclick="deleteProductGroup(${g.id})">🗑️</button></td>
-        </tr>`).join('')||emptyRow(6)}</tbody></table></div>
+      </div>
+      <div class="grp-node-ops">
+        <button class="btn sm ghost" onclick="event.stopPropagation();productGroupModal(${g.id})" title="ویرایش">${lucide('pen')}</button>
+        <button class="btn sm red" onclick="event.stopPropagation();deleteProductGroup(${g.id})" title="حذف">حذف</button>
       </div>
     </div>`;
+
+  const treeHtml=roots.map(r=>{
+    const kids=childrenOf(r.id);
+    const open=groupFilter && (String(r.id)===String(groupFilter) || kids.some(k=>String(k.id)===String(groupFilter)));
+    return `<div class="grp-node ${open||!groupFilter?'open':''}" data-grp-q="${esc(((r.name||'')+' '+(r.code||'')+' '+kids.map(k=>k.name).join(' ')).toLowerCase())}" data-grp-node>
+      <div class="grp-node-head" onclick="grpToggleNode(this)">
+        <span class="grp-chev">${lucide('back')}</span>
+        <div class="grp-node-ico">${lucide('folder')}</div>
+        <div class="grp-node-main">
+          <b>${esc(r.name)}</b>
+          <div class="meta">
+            <span class="mono">کد ${r.code||'—'}</span>
+            <span>${fmt(kids.length)} زیرگروه</span>
+            <span>${fmt(r.product_count||0)} کالا</span>
+            ${r.is_shared?'<span class="tag t-done">مجاز</span>':'<span class="tag t-cancel">خصوصی</span>'}
+          </div>
+        </div>
+        <div class="grp-node-ops" onclick="event.stopPropagation()">
+          <button class="btn sm ghost" title="زیرگروه جدید" onclick="productGroupModal(0,${r.id})">${lucide('sparkles')}</button>
+          <button class="btn sm ghost" onclick="productGroupModal(${r.id})" title="ویرایش">${lucide('pen')}</button>
+          <button class="btn sm red" onclick="deleteProductGroup(${r.id})" title="حذف">حذف</button>
+        </div>
+      </div>
+      <div class="grp-node-body">
+        ${kids.length?kids.map(childHtml).join(''):`<div class="muted" style="font-size:12px;padding:6px 0">زیرگروهی ندارد — با دکمه ستاره زیرگروه بسازید.</div>`}
+      </div>
+    </div>`;
+  }).join('');
+
+  const flatHtml=`<div class="grp-card-grid" id="grp-grid-prg">${list.map(g=>`
+    <div class="grp-card" data-grp-q="${esc(((g.name||'')+' '+(g.code||'')+' '+(byId[g.parent_id]?.name||'')).toLowerCase())}">
+      <div class="grp-card-top">
+        <div class="grp-node-ico ${g.parent_id?'sub':''}">${lucide(g.parent_id?'tags':'folder')}</div>
+        <div style="flex:1;min-width:0">
+          <h4>${esc(g.name)}</h4>
+          <div class="muted">${g.parent_id?('زیرگروهِ '+esc(byId[g.parent_id]?.name||'—')):'گروه اصلی'} · کد ${g.code||'—'}</div>
+        </div>
+      </div>
+      <div class="grp-card-foot">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <span class="tag t-new">${fmt(g.product_count||0)} کالا</span>
+          ${g.is_shared?'<span class="tag t-done">مجاز</span>':'<span class="tag t-cancel">خصوصی</span>'}
+        </div>
+        <div class="grp-node-ops">
+          ${!g.parent_id?`<button class="btn sm ghost" onclick="productGroupModal(0,${g.id})" title="زیرگروه">${lucide('sparkles')}</button>`:''}
+          <button class="btn sm ghost" onclick="productGroupModal(${g.id})">${lucide('pen')}</button>
+          <button class="btn sm red" onclick="deleteProductGroup(${g.id})">حذف</button>
+        </div>
+      </div>
+    </div>`).join('')}</div>`;
+
+  body.innerHTML=`
+    <div class="grp-shell">
+      ${grpHubSwitch('product-groups')}
+      <div class="grp-hero">
+        <div class="grp-hero-top">
+          <div>
+            <h2>${lucide('tags')} گروه‌ها و زیرگروه‌های کالا</h2>
+            <p>گروه اصلی و زیرگروه‌ها را درختی ببینید، جستجو کنید، و دسترسی نمایش (مجاز/خصوصی) را مدیریت کنید.</p>
+          </div>
+          <div class="grp-hero-actions">
+            <button class="btn" onclick="productGroupModal()">${lucide('folder')} گروه اصلی</button>
+            <button class="btn green" onclick="productGroupModal(0,'pick')">${lucide('sparkles')} زیرگروه جدید</button>
+          </div>
+        </div>
+        <div class="grp-stats">
+          <div class="grp-stat"><div class="v">${fmt(roots.length)}</div><div class="l">گروه اصلی</div></div>
+          <div class="grp-stat"><div class="v">${fmt(subs.length)}</div><div class="l">زیرگروه</div></div>
+          <div class="grp-stat"><div class="v">${fmt(prodTotal)}</div><div class="l">کالا</div></div>
+          <div class="grp-stat"><div class="v">${fmt(privateN)}</div><div class="l">خصوصی</div></div>
+        </div>
+      </div>
+      <div class="grp-toolbar">
+        <input type="search" id="grp-q-prg" placeholder="جستجو در گروه‌ها و زیرگروه‌ها…" oninput="grpFilterProductGroups(this.value)">
+        <div class="grp-chips">
+          <button type="button" class="grp-chip ${view==='tree'?'active':''}" onclick="setProductGroupView('tree')">درختی</button>
+          <button type="button" class="grp-chip ${view==='flat'?'active':''}" onclick="setProductGroupView('flat')">کارتی</button>
+          <button type="button" class="grp-chip ${view==='shared'?'active':''}" onclick="setProductGroupView('shared')">فقط مجاز (${fmt(sharedN)})</button>
+          <button type="button" class="grp-chip ${view==='private'?'active':''}" onclick="setProductGroupView('private')">فقط خصوصی (${fmt(privateN)})</button>
+        </div>
+      </div>
+      ${usable.length
+        ? (view==='tree'
+            ? `<div class="grp-tree" id="grp-grid-prg">${treeHtml}${orphanSubs.length?`<div class="muted" style="font-size:12px;margin-top:8px">زیرگروه‌های بدون والد معتبر:</div>${orphanSubs.map(childHtml).join('')}`:''}</div>`
+            : flatHtml)
+        : `<div class="grp-empty">هنوز گروه کالایی نیست — «گروه اصلی» را بزنید.</div>`}
+      <div id="grp-empty-prg" class="grp-empty" style="display:none">نتیجه‌ای پیدا نشد.</div>
+    </div>`;
 }
-function filterProductGroup(id){ PRODUCT_GROUP_FILTER=id; loadAccTab('product-groups'); }
-async function productGroupModal(id){
+function setProductGroupView(v){ PRODUCT_GROUP_VIEW=v; PRODUCT_GROUP_FILTER=''; loadAccTab('product-groups'); }
+function filterProductGroup(id){ PRODUCT_GROUP_FILTER=id; PRODUCT_GROUP_VIEW='tree'; loadAccTab('product-groups'); }
+function grpFilterProductGroups(q){
+  q=(q||'').trim().toLowerCase();
+  const grid=el('grp-grid-prg'); if(!grid) return;
+  let n=0;
+  grid.querySelectorAll('[data-grp-q]').forEach(c=>{
+    const hay=c.getAttribute('data-grp-q')||'';
+    const ok=!q||hay.includes(q);
+    if(c.classList.contains('grp-node')){
+      c.style.display=ok?'':'none';
+      if(ok && q) c.classList.add('open');
+    } else {
+      c.style.display=ok?'':'none';
+    }
+    if(ok) n++;
+  });
+  const empty=el('grp-empty-prg');
+  if(empty) empty.style.display=n?'none':'block';
+}
+async function productGroupModal(id, parentHint){
   const list=await api('GET','/product-categories')||[];
   const g=id?(list.find(x=>x.id===id)||{}):{};
+  let parentVal=g.parent_id||'';
+  if(!id && parentHint && parentHint!=='pick') parentVal=parentHint;
+  const roots=list.filter(x=>x.id!==id && !x.parent_id && x.code!==0);
+  const needPick=!id && parentHint==='pick';
   openModal(`
-    <div class="modal-head"><h3>${id?'ویرایش گروه کالا':'گروه کالا جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-head"><h3>${id?'ویرایش گروه کالا':(parentVal||needPick?'زیرگروه جدید':'گروه اصلی جدید')}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>کد</label><input id="prg-code" type="number" value="${g.code||''}"></div>
-      <div class="fg full"><label>نام گروه *</label><input id="prg-name" value="${esc(g.name||'')}"></div>
-      <div class="fg full"><label>گروه والد</label>
-        <select id="prg-parent"><option value="">— بدون والد —</option>
-        ${list.filter(x=>x.id!==id).map(x=>`<option value="${x.id}" ${g.parent_id==x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
-      <div class="fg full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input id="prg-shared" type="checkbox" style="width:auto" ${g.is_shared!==0?'checked':''}>
-        اجازه نمایش کالاهای این گروه به سایر کاربران
-      </label><small class="muted">در صورت غیرفعال بودن، این گروه و کالاهایش فقط برای ایجادکننده، مدیر و حسابدار نمایش داده می‌شود.</small></div>
+      <div class="fg full"><label>نام گروه *</label><input id="prg-name" value="${esc(g.name||'')}" autofocus></div>
+      <div class="fg full"><label>گروه والد ${hlp('اگر والد انتخاب شود، این مورد به‌عنوان زیرگروه ثبت می‌شود.')}</label>
+        <select id="prg-parent"><option value="">— بدون والد (گروه اصلی) —</option>
+        ${list.filter(x=>x.id!==id && x.code!==0).map(x=>`<option value="${x.id}" ${String(parentVal)==String(x.id)?'selected':''}>${esc(x.name)}${x.parent_id?' (زیرگروه)':''}</option>`).join('')}</select></div>
+      <div class="fg full">${typeof settToggle==='function'?settToggle('prg-shared', g.is_shared!==0,'اجازه نمایش به سایر کاربران','اگر خاموش باشد فقط ایجادکننده، مدیر و حسابدار می‌بینند'):`<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input id="prg-shared" type="checkbox" style="width:auto" ${g.is_shared!==0?'checked':''}> اجازه نمایش به سایر کاربران</label>`}</div>
       <div class="fg full"><label>توضیحات</label><textarea id="prg-desc">${esc(g.description||'')}</textarea></div>
     </div></div>
-    <div class="modal-foot"><button class="btn" onclick="saveProductGroup(${id||0})">💾 ذخیره</button>
+    <div class="modal-foot"><button class="btn" onclick="saveProductGroup(${id||0})">ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  if(needPick && roots.length===1){ const sel=el('prg-parent'); if(sel) sel.value=String(roots[0].id); }
 }
 async function saveProductGroup(id){
   const name=el('prg-name').value.trim();
@@ -15257,9 +15530,11 @@ function renderAdminGuide(){
         <li>امکان انتخاب تکی/همه و حذف گروهی ردیف‌های انتخابی وجود دارد.</li>
         <li>دکمهٔ <b>«➕ کالای جدید»</b> کدهای حسابداری و کد کالا (در صورت خالی بودن، K-00001) را خودکار می‌سازد.</li>
       </ul>
-      <h5>🗂️ دسته‌های هزینه و گروه‌های اشخاص</h5><ul>
+      <h5>🗂️ دسته‌های هزینه و گروه‌ها / زیرگروه‌ها</h5><ul>
         <li>در مودال «پرداخت هزینه» با دکمهٔ «➕ دستهٔ جدید» می‌توانید بدون خروج از فرم، دستهٔ هزینهٔ جدید بسازید. فهرست دسته‌های پیش‌فرض هم گسترش یافت.</li>
         <li>«گروه‌های اشخاص» به منوی «اطلاعات پایه» اضافه شد و امکان ویرایش/حذف گروه‌ها فراهم است (گروهی که برای اشخاص استفاده شده حذف نمی‌شود).</li>
+        <li><b>گروه/زیرگروه کالا</b>، <b>گروه اشخاص</b> و <b>گروه مشتری</b> با رابط جدید: هدر آماری، جستجو، کارت/درخت، و سوئیچ سریع بین سه بخش.</li>
+        <li>در «گروه‌های کالا» نمای <b>درختی</b> گروه اصلی و زیرگروه‌ها را نشان می‌دهد؛ دکمه ستاره برای ساخت زیرگروه؛ فیلتر مجاز/خصوصی و نمای کارتی هم هست.</li>
       </ul>
       <h5>🎂 تاریخ تولد و رفع تقویم</h5><ul>
         <li>فیلد «تاریخ تولد» در فرم اشخاص از سال ۱۳۰۰ تا امروز قابل انتخاب است.</li>
@@ -15618,7 +15893,7 @@ function renderAdminGuide(){
         <li>اسناد واردشده از سیستم قبلی با شماره سند اصلی قابل ردیابی‌اند</li>
         <li>تنظیمات → «⚙️ نگاشت کدینگ»: ویرایش حساب‌های کنترلی و فعال/غیرفعال کردن سند COGS خودکار</li>
         <li>در فرم مشتری/محصول/بانک/صندوق/تأمین‌کننده/شخص، کد تفصیلی و فیلدهای تکمیلی نمایش داده می‌شود — برای رکوردهای قدیمی «🔗 اتصال به حساب موجود»</li>
-        <li>حسابداری → «گروه‌های اشخاص» و «گروه‌های کالا»: زیرگروه‌های استاندارد</li>
+        <li>حسابداری → «گروه‌های اشخاص» و «گروه‌ها و زیرگروه‌های کالا»: رابط درختی/کارتی با جستجو و سوئیچ بین انواع گروه</li>
         <li>حسابداری → «دفتر چک»: چک‌های دریافتی/پرداختی از فایل <code>فایل داده</code></li>
         <li>در لیست فاکتورها، دریافت‌ها و حواله‌های انبار ستون «سند مرجع» شماره سند اصلی را نشان می‌دهد</li>
       </ul>
