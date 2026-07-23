@@ -131,9 +131,44 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .nav a.active::before{display:none}
 .nav .badge{position:absolute;left:12px;background:var(--red);color:var(--on-accent);font-size:10px;
   min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px}
-.sidebar .foot{padding:14px 16px;border-top:1px solid rgba(255,255,255,.12);font-size:12px}
-.sidebar .foot button{width:100%;background:rgba(255,255,255,.14);color:#fff;border:none;padding:9px;border-radius:12px;margin-top:8px}
-.sidebar .foot button:hover{background:rgba(255,255,255,.26)}
+.sidebar .foot{display:none}
+
+/* ===== Account power menu (FAB + slide sheet) ===== */
+#acctFab{
+  position:fixed; left:18px; bottom:calc(18px + var(--mdi-taskbar-h,0px)); z-index:90;
+  width:48px; height:48px; border-radius:16px; border:1px solid var(--border);
+  background:var(--card); color:var(--purple); box-shadow:var(--shadow-card);
+  display:none; align-items:center; justify-content:center; cursor:pointer;
+  transition:transform .18s ease, background .18s, color .18s, box-shadow .18s;
+}
+#app[style*="block"] #acctFab{display:flex}
+#acctFab svg{width:22px;height:22px;display:block}
+#acctFab:hover{background:var(--purple);color:var(--on-accent);transform:translateY(-1px)}
+#acctFab.open{background:var(--purple);color:var(--on-accent);box-shadow:0 10px 28px -12px rgba(26,92,56,.55)}
+#acctDrawerBackdrop{display:none;position:fixed;inset:0;z-index:89;background:rgba(18,39,28,.28);backdrop-filter:blur(2px)}
+#acctDrawerBackdrop.open{display:block}
+#acctDrawer{
+  position:fixed; left:18px; bottom:calc(74px + var(--mdi-taskbar-h,0px)); z-index:91;
+  width:min(280px, calc(100vw - 36px));
+  background:var(--card); border:1px solid var(--border); border-radius:18px;
+  box-shadow:0 24px 48px -24px rgba(18,39,28,.45);
+  padding:12px; transform:translateY(12px) scale(.96); opacity:0;
+  pointer-events:none; transition:transform .2s ease, opacity .2s ease;
+}
+#acctDrawer.open{transform:none;opacity:1;pointer-events:auto}
+.acct-drawer-user{padding:10px 12px 12px;border-bottom:1px solid var(--border);margin-bottom:8px}
+.acct-drawer-user b{display:block;font-size:14px;color:var(--text);font-weight:800}
+.acct-drawer-user span{display:block;font-size:12px;color:var(--muted);margin-top:2px;direction:ltr;text-align:right}
+.acct-drawer-btn{
+  width:100%; display:flex; align-items:center; gap:10px; text-align:right;
+  background:transparent; border:none; color:var(--text); padding:11px 12px;
+  border-radius:12px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit;
+}
+.acct-drawer-btn:hover{background:var(--purple-light);color:var(--purple)}
+.acct-drawer-btn.danger{color:var(--red)}
+.acct-drawer-btn.danger:hover{background:var(--bad-bg)}
+.acct-drawer-btn .ico{width:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0;opacity:.9}
+.acct-drawer-btn .ico svg{width:16px;height:16px;display:block}
 
 .main{flex:1;margin-right:260px;display:flex;flex-direction:column;min-height:100vh;min-width:0;background:var(--bg)}
 /* Floating soft topbar (Soft Bento) — light card over sage canvas */
@@ -404,6 +439,18 @@ table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{width:36px;text-align:center}
 #mdiLayer .mdi-win,#mdiLayer .mdi-taskbar{pointer-events:auto}
 table.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
 table.tbl tr:hover td{background:var(--row-hover)}
+/* Long text (آدرس و …) — جلوگیری از سرریز به ستون بعدی */
+table.tbl td.td-clip{
+  max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  vertical-align:middle;
+}
+table.tbl td.td-clip-wrap{
+  max-width:200px; white-space:normal; vertical-align:middle; word-break:break-word;
+}
+table.tbl td.td-clip-wrap > .td-clip-inner{
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden; line-height:1.4; font-size:12px; color:var(--muted);
+}
 .empty{text-align:center;color:var(--muted);padding:36px 10px}
 
 .tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
@@ -902,13 +949,6 @@ table.tbl tr:hover td{background:var(--row-hover)}
         <div><h2>ERP ترنم</h2><small id="brandRole">پنل مدیریت</small></div>
       </div>
       <nav class="nav" id="nav"></nav>
-      <div class="foot">
-        <div id="footUser" class="muted" style="color:rgba(255,255,255,.85)"></div>
-        <button class="theme-toggle-btn" onclick="toggleTheme()">🌙 حالت تاریک</button>
-        <button onclick="openChangePass()">🔑 تغییر رمز</button>
-        <button onclick="openSecurityModal()">🔐 امنیت</button>
-        <button onclick="logout()">🚪 خروج</button>
-      </div>
     </aside>
 
     <div class="main">
@@ -931,6 +971,22 @@ table.tbl tr:hover td{background:var(--row-hover)}
       </header>
       <main class="content" id="view"></main>
     </div>
+  </div>
+
+  <!-- Account menu: power FAB + slide sheet (گوشه صفحه) -->
+  <button type="button" id="acctFab" class="acct-fab" onclick="toggleAcctDrawer()" title="حساب کاربری" aria-label="منوی حساب کاربری" aria-expanded="false" aria-controls="acctDrawer">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
+  </button>
+  <div id="acctDrawerBackdrop" onclick="closeAcctDrawer()" aria-hidden="true"></div>
+  <div id="acctDrawer" role="dialog" aria-label="منوی حساب کاربری">
+    <div class="acct-drawer-user">
+      <b id="acctDrawerName">—</b>
+      <span id="acctDrawerUser">—</span>
+    </div>
+    <button type="button" class="acct-drawer-btn theme-toggle-btn" onclick="toggleTheme()">🌙 حالت تاریک</button>
+    <button type="button" class="acct-drawer-btn" onclick="closeAcctDrawer();openChangePass()">🔑 تغییر رمز</button>
+    <button type="button" class="acct-drawer-btn" onclick="closeAcctDrawer();openSecurityModal()">🔐 امنیت</button>
+    <button type="button" class="acct-drawer-btn danger" onclick="closeAcctDrawer();logout()">🚪 خروج</button>
   </div>
 </div>
 
@@ -1250,6 +1306,35 @@ function applyTheme(t){
   rebuildChartsForTheme();
 }
 function toggleTheme(){ applyTheme(currentTheme()==='dark'?'light':'dark'); }
+function openAcctDrawer(){
+  el('acctDrawer')?.classList.add('open');
+  el('acctDrawerBackdrop')?.classList.add('open');
+  el('acctFab')?.classList.add('open');
+  const fab=el('acctFab'); if(fab) fab.setAttribute('aria-expanded','true');
+}
+function closeAcctDrawer(){
+  el('acctDrawer')?.classList.remove('open');
+  el('acctDrawerBackdrop')?.classList.remove('open');
+  el('acctFab')?.classList.remove('open');
+  const fab=el('acctFab'); if(fab) fab.setAttribute('aria-expanded','false');
+}
+function toggleAcctDrawer(){
+  if(el('acctDrawer')?.classList.contains('open')) closeAcctDrawer();
+  else openAcctDrawer();
+}
+function syncAcctDrawerUser(){
+  if(!ME) return;
+  const n=el('acctDrawerName'); if(n) n.textContent=ME.name||'—';
+  const u=el('acctDrawerUser'); if(u) u.textContent='@'+(ME.username||'');
+}
+document.addEventListener('keydown',(e)=>{
+  if(e.key==='Escape') closeAcctDrawer();
+});
+function tdClip(val, w=180, wrap){
+  const s=(val==null||val==='')?'-':String(val);
+  if(wrap) return `<td class="td-clip-wrap" style="max-width:${w}px" title="${esc(s)}"><span class="td-clip-inner">${esc(s)}</span></td>`;
+  return `<td class="td-clip" style="max-width:${w}px" title="${esc(s)}">${esc(s)}</td>`;
+}
 function chartTheme(){
   const dark=currentTheme()==='dark';
   return {
@@ -1720,6 +1805,7 @@ async function doForgotStep(){
 }
 
 function logout(){
+  closeAcctDrawer();
   localStorage.removeItem('crm_token');
   localStorage.removeItem('crm_user');
   ME=null;
@@ -2192,7 +2278,7 @@ async function boot(){
   el('userRole').textContent = roleLabel(ME.role);
   el('brandRole').textContent = isAdmin()?'پنل مدیریت':(ME.role==='accounting'||ME.role==='sales_manager')?'پنل حسابداری':'پنل فروش';
   el('avatar').textContent = (ME.name||'؟').trim().charAt(0);
-  el('footUser').textContent = ME.name + ' · @' + ME.username;
+  syncAcctDrawerUser();
   buildNav();
   await loadInitial();
   go(ME.role==='accounting'||ME.role==='sales_manager'?'accounting':'dash');
@@ -2805,7 +2891,7 @@ async function renderDashContent(){
             <tbody id="dashBalTbody">${balRows.map(c=>`<tr>
               <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
               <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
-              <td>${esc(c.address||c.city||'-')}</td>
+              ${tdClip(c.address||c.city||'-', 200, true)}
               <td class="muted">${esc(c.salesperson||'-')}</td>
               <td><button class="btn sm blue" onclick="viewCustStatementFromDash(${c.id})">📄 صورت‌حساب</button></td>
             </tr>`).join('')}</tbody>
@@ -2862,7 +2948,7 @@ async function renderDashContent(){
             <tbody>${balRows.map(c=>`<tr>
               <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
               <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
-              <td>${esc(c.address||c.city||'-')}</td>
+              ${tdClip(c.address||c.city||'-', 200, true)}
             </tr>`).join('')}</tbody>
             <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light)">
               <td colspan="2" style="font-weight:700">جمع کل مانده حساب</td>
@@ -2892,7 +2978,7 @@ function filterDashBalances(name){
   tb.innerHTML = filtered.map(c=>`<tr>
     <td>${esc(c.biz)}</td><td>${esc(c.owner||'-')}</td>
     <td class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
-    <td>${esc(c.address||c.city||'-')}</td>
+    ${tdClip(c.address||c.city||'-', 200, true)}
     <td class="muted">${esc(c.salesperson||'-')}</td>
     <td><button class="btn sm blue" onclick="viewCustStatementFromDash(${c.id})">📄 صورت‌حساب</button></td>
   </tr>`).join('') || '<tr><td colspan="6" class="empty">موردی یافت نشد</td></tr>';
@@ -3002,7 +3088,7 @@ function renderCustTable(){
       ${c.phone?`<button class="btn sm ghost" onclick="sendWelcomeSMS(${c.id})" title="ارسال پیامک خوش‌آمدگویی">📤</button>`:''}
       ${editable?`<button class="btn sm red" onclick="confirmDelete('customers',${c.id},'${esc(c.biz)}')">🗑️</button>`:''}</td>
     <td>${esc(c.city||'-')}</td>
-    <td class="muted" style="font-size:12px;max-width:180px">${esc(c.address||'-')}</td>
+    ${tdClip(c.address||'-', 200, true)}
     <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" style="background:#dbeafe;color:#1d4ed8" title="دسترسی پورتال B2B فعال">B2B</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="ریسک ریزش مشتری (تحلیل AI)">⚠️${c.churn_score}٪</span>`:''}</td>
     <td>${natureLabel[nature]||nature||'—'}${c.party_group_name?`<div class="muted" style="font-size:11px">${esc(c.party_group_name)}</div>`:''}${c.group_name?`<div class="muted" style="font-size:11px">${esc(c.group_name)}</div>`:''}</td>
     <td class="mono" data-sort="${bal}" style="color:${bal>0?'#dc2626':bal<0?'var(--green)':'var(--muted)'}">${bal!==0?fmt(bal)+' ریال':'-'}</td>
@@ -5260,7 +5346,7 @@ async function loadReports(){
         <th>مشتری</th><th>نام کامل</th><th>تعداد سفارش</th><th>مجموع خرید</th><th>بدهی</th><th>شهر</th><th>آدرس</th></tr></thead>
         <tbody>${top.map(t=>`<tr><td>${esc(t.biz)}</td><td>${esc(t.owner||'-')}</td><td>${fmt(t.orders)}</td>
           <td class="mono">${fmt(t.total)}</td><td class="mono" style="color:var(--red)">${fmt(t.debt)}</td>
-          <td>${esc(t.city||'-')}</td><td class="muted" style="font-size:12px">${esc(t.address||'-')}</td></tr>`).join('')||emptyRow(7)}</tbody></table></div></div>`;
+          <td>${esc(t.city||'-')}</td>${tdClip(t.address||'-', 200, true)}</tr>`).join('')||emptyRow(7)}</tbody></table></div></div>`;
   cacheSet('reports:'+qk, el('repBody').innerHTML);
   _lastMonthly = monthly;
   drawChart(monthly);
@@ -6363,7 +6449,7 @@ async function renderSuppliersTab(body){
     <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/suppliers" data-bulk-label="حذف" data-bulk-confirm="{n} تأمین‌کننده حذف شود؟"><thead><tr>
       <th>نام</th><th>تلفن</th><th>آدرس</th><th>مانده پرداختنی (ت)</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${(suppliers||[]).map(s=>`<tr data-id="${s.id}">
-      <td>${esc(s.name)}</td><td class="mono">${esc(s.phone||'-')}</td><td>${esc(s.address||'-')}</td>
+      <td>${esc(s.name)}</td><td class="mono">${esc(s.phone||'-')}</td>${tdClip(s.address||'-', 200, true)}
       <td class="mono" style="font-weight:700;color:${(balMap[s.id]||0)>0?'var(--red)':'var(--green)'}">${fmt(balMap[s.id]||0)}</td>
       <td style="white-space:nowrap">
         <button class="btn sm ghost" onclick="supplierModal(${s.id})">✏️</button>
@@ -7027,7 +7113,7 @@ async function renderWarehousesTab(body){
       <td>${esc(w.name)}</td>
       <td>${entityMap[w.entity]||w.entity||'-'}</td>
       <td>${typeMap[w.warehouse_type]||w.warehouse_type||'-'}</td>
-      <td class="muted">${esc(w.address||'-')}</td>
+      ${tdClip(w.address||'-', 180, true)}
       <td>${w.is_default?'<span class="tag t-done">✓</span>':'-'}</td>
       <td>${w.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td style="white-space:nowrap">
@@ -15847,7 +15933,7 @@ function renderAdminGuide(){
         <li>نسخه دسکتاپ از <strong>GitHub Releases</strong> دانلود می‌شود — فقط <code>manifest.json</code> و <code>latest.yml</code> روی سرور مرکزی deploy می‌شوند (بدون آپلود exe)</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
-      <h5>حالت تاریک (شب مخملی)</h5><p>با دکمه <b>🌙 حالت تاریک</b> در پایین منوی کناری (یا گوشه صفحه ورود) ظاهر برنامه بین تم روشن «زمرد مدرن» و تم تاریک «شب مخملی» جابه‌جا می‌شود. انتخاب شما روی همین دستگاه ذخیره می‌ماند. چاپ فاکتور و گزارش‌ها همیشه با پس‌زمینه روشن انجام می‌شود، حتی در حالت تاریک.</p>
+      <h5>حالت تاریک (شب مخملی)</h5><p>با دکمهٔ <b>خاموش/روشن (آیکون power)</b> در گوشهٔ پایین چپ صفحه، منوی حساب باز می‌شود؛ از آنجا «حالت تاریک» را بزنید. ظاهر برنامه بین تم روشن «زمرد مدرن» و تم تاریک «شب مخملی» جابه‌جا می‌شود. انتخاب شما روی همین دستگاه ذخیره می‌ماند. چاپ فاکتور و گزارش‌ها همیشه با پس‌زمینه روشن انجام می‌شود، حتی در حالت تاریک.</p>
       <h5>شماره فاکتور موقت</h5><p>فاکتوری که آفلاین صادر شود ابتدا شماره <b>«موقت-...»</b> می‌گیرد و چاپ آن واترمارک «پیش‌نویس» دارد. بعد از همگام‌سازی، شماره رسمی سراسری (T-xxxx) از مرکز دریافت و به‌طور خودکار جایگزین می‌شود — بنابراین شماره فاکتور دو دستگاه هرگز تداخل پیدا نمی‌کند.</p>
       <h5>تعارض‌ها</h5><p>اگر عملیات آفلاین شما با واقعیت مرکز ناسازگار باشد (مثلاً کالایی فروخته‌اید که هم‌زمان در مرکز تمام شده)، آن عملیات <b>هرگز بی‌صدا اعمال نمی‌شود</b> — در پنل همگام‌سازی با ذکر دلیل نمایش داده می‌شود و می‌توانید آن را «لغو» کنید (اثر محلی برمی‌گردد) و در صورت نیاز با شرایط جدید دوباره ثبت کنید.</p>
       <div class="warn">تنظیمات سیستم، مدیریت کاربران و اصلاح مستقیم موجودی فقط روی سرور مرکزی امکان‌پذیر است. تغییر رمز روی دسکتاپ/اندروید به سرور مرکزی ارسال می‌شود (نیاز به اتصال آنلاین) و با همگام‌سازی به سایر دستگاه‌ها می‌رسد.</div>
@@ -15866,7 +15952,7 @@ function renderAdminGuide(){
     helpSec('🔐','امنیت — احراز هویت دو مرحله‌ای (2FA)',`
       <p>هر کاربر می‌تواند برای ورود خود «کد دوم» (TOTP) فعال کند — حتی اگر رمز عبور لو برود، بدون کد ۶ رقمی برنامه Authenticator ورود ممکن نیست.</p>
       <h5>فعال‌سازی</h5><ol>
-        <li>در منوی کناری، دکمه «🔐 امنیت» را بزنید</li>
+        <li>آیکون خاموش گوشهٔ صفحه → «امنیت»</li>
         <li>«فعال‌سازی 2FA» → کلید نمایش‌داده‌شده را در برنامه Google Authenticator (یا Aegis، Authy و مشابه) ثبت کنید</li>
         <li>کد ۶ رقمی ساخته‌شده را وارد کنید تا فعال شود</li>
         <li><b>کدهای بازیابی</b> فقط یک‌بار نمایش داده می‌شوند — آن‌ها را در جای امن ذخیره کنید</li>
@@ -16084,7 +16170,7 @@ function renderSalesGuide(){
     helpSec('🔐','امنیت ورود (2FA)',`
       <p>می‌توانید برای حساب خود «کد دوم» فعال کنید تا ورود امن‌تر شود.</p>
       <ul>
-        <li>از منوی کناری «🔐 امنیت» → «فعال‌سازی 2FA» → کلید را در برنامه Google Authenticator ثبت و کد ۶ رقمی را وارد کنید</li>
+        <li>آیکون خاموش گوشهٔ صفحه → «امنیت» → «فعال‌سازی 2FA» → کلید را در برنامه Google Authenticator ثبت و کد ۶ رقمی را وارد کنید</li>
         <li>کدهای بازیابی را در جای امن نگه دارید — اگر موبایل در دسترس نبود با آن‌ها وارد می‌شوید</li>
         <li>از این پس هنگام ورود، بعد از رمز، کد ۶ رقمی خواسته می‌شود</li>
       </ul>`),
