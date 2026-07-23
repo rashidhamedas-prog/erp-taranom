@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending) اندروید 2.0.28 |
+| آخرین commit | `c01c80a` اندروید 2.0.28 |
 | نسخه وب/دسکتاپ | وب **`2.1.6`** / دسکتاپ **`2.0.6`** / SW `erp-taranom-v97` |
 | اندروید | **`2.0.28`** (vc30) — دانلود از `/releases/crm-taranom.apk` |
 | وضعیت سرور | ✅ |
@@ -40,7 +40,7 @@
 
 ### 2026-07-23 — اندروید 2.0.28 برای دانلود روی سرور
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `c01c80a`
 - **خلاصه:** بیلد APK `2.0.28` / versionCode `30` با UI موبایل مینیمال؛ `manifest.json` لینک دانلود `server`؛ آپلود روی ایران `/releases/crm-taranom.apk` (~۶۶.۵MB). API app-update برای `2.0.27` → `downloadable:true`.
 - **فایل‌های کلیدی:** `android/app/build.gradle`, `android/.../main.js`, `server/public/releases/manifest.json`, `server/public/index.html`, `scripts/test-android-apk.ps1`
 - **Deploy:** ✅ APK روی ایران · SHA256 `0900FDD5…` · health 200
