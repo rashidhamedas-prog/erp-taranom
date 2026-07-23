@@ -32,20 +32,20 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `22f55d0` بازیابی pairing/سینک دستگاه |
+| آخرین commit | `6a7fed6` بازیابی pairing/سینک دستگاه |
 | نسخه وب/دسکتاپ | **`1.0.11`** / SW `erp-taranom-v86` |
-| اندروید | **`2.0.20`** |
-| وضعیت سرور | ⏳ deploy |
+| اندروید | **`2.0.20`** (بیلد محلی) |
+| وضعیت سرور | ✅ deploy `6a7fed6` / SW v86 |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ---
 
 ### 2026-07-23 — [Cursor] بازیابی اتصال دستگاه آفلاین (pairing خراب) — SW v86 / Android 2.0.20
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** `22f55d0`
+- **Commit:** `22f55d0` (+ `6a7fed6` changelog)
 - **خلاصه:** دستگاه‌هایی که قبلاً paired شده‌اند ولی سینک/ورود خراب است دیگر بن‌بست نیستند: مهاجرت خودکار URL آلمان (`45.90.98.99`) → `https://erp.poshaktaranom.com`؛ پنل همگام‌سازی آدرس/شناسه دستگاه + «تغییر آدرس» + «قطع اتصال و اتصال مجدد»؛ لینک بازیابی روی صفحه ورود (بدون لاگین)؛ پس از reset دوباره `admin/admin123` و pairing تازه.
 - **فایل‌های کلیدی:** `server/sync/client.js`, `server/routes/sync.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-sync-repair.js`, `android/app/build.gradle`, `android/.../main.js`, `server/public/releases/manifest.json`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران `6a7fed6` — `git pull` + `pm2 restart` + health 200 + SW `erp-taranom-v86`
 - **یادداشت:** برای گوشی، APK **۲.۰.۲۰** لازم است (کد داخل assets اپ است). تا نصب APK جدید: پاک کردن دادهٔ اپ + اتصال مجدد به `https://erp.poshaktaranom.com` هم کار می‌کند.
 
 ### 2026-07-23 — [Cursor] زبان برنامه (فا/ان) + فارسی‌سازی برچسب‌های انگلیسی — SW v85
