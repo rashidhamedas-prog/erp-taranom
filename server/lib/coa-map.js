@@ -198,4 +198,172 @@ function validateChildCode(parentCode, childCode) {
   return c.startsWith(p) && c.length > p.length;
 }
 
-module.exports = { acct, coaMode, usesExtendedCoa, clearCoaCache, allocTafsili, ensureControlParents, suggestChildCode, validateChildCode, LEGACY };
+/** Base control tree for a clean go-live (group → subgroup → account). */
+function baseCoaTree() {
+  return [
+    ['1000', 'دارایی‌ها', 'asset', null, 1],
+    ['1100', 'دارایی‌های جاری', 'asset', '1000', 2],
+    ['1101', 'موجودی صندوق', 'asset', '1100', 2],
+    ['1102', 'موجودی بانک', 'asset', '1100', 2],
+    ['1103', 'حساب‌های دریافتنی از مشتریان', 'asset', '1100', 2],
+    ['1104', 'موجودی کالا', 'asset', '1100', 2],
+    ['1105', 'پیش‌پرداخت‌ها', 'asset', '1100', 2],
+    ['1106', 'حساب اشخاص متفرقه', 'asset', '1100', 2],
+    ['1107', 'مساعده نمایندگان فروش', 'asset', '1100', 2],
+    ['1108', 'مالیات بر ارزش افزوده دریافتنی', 'asset', '1100', 2],
+    ['1109', 'اسناد دریافتنی', 'asset', '1100', 2],
+    ['1110', 'موجودی مواد اولیه', 'asset', '1100', 2],
+    ['1111', 'کالای در جریان ساخت', 'asset', '1100', 2],
+    ['1112', 'موجودی مواد بسته‌بندی', 'asset', '1100', 2],
+    ['1113', 'موجودی ضایعات قابل فروش', 'asset', '1100', 2],
+    ['1114', 'موجودی نزد پیمانکار', 'asset', '1100', 2],
+    ['1115', 'موجودی در راه (حمل)', 'asset', '1100', 2],
+    ['1116', 'اسناد در جریان وصول', 'asset', '1100', 2],
+    ['1117', 'ذخیره کاهش ارزش موجودی', 'asset', '1100', 2],
+    ['1201', 'دارایی‌های ثابت', 'asset', '1000', 2],
+    ['1202', 'استهلاک انباشته دارایی', 'asset', '1000', 2],
+    ['2000', 'بدهی‌ها', 'liability', null, 1],
+    ['2100', 'بدهی‌های جاری', 'liability', '2000', 2],
+    ['2101', 'حساب‌های پرداختنی', 'liability', '2100', 2],
+    ['2102', 'ذخیره مطالبات مشکوک‌الوصول', 'liability', '2100', 2],
+    ['2103', 'مالیات بر ارزش افزوده پرداختنی', 'liability', '2100', 2],
+    ['2104', 'حقوق پرداختنی کارکنان', 'liability', '2100', 2],
+    ['2105', 'بیمه پرداختنی', 'liability', '2100', 2],
+    ['2106', 'مالیات حقوق پرداختنی', 'liability', '2100', 2],
+    ['2107', 'بستانکاران انگیزه نمایندگان', 'liability', '2100', 2],
+    ['2108', 'سایر کسورات حقوق پرداختنی', 'liability', '2100', 2],
+    ['2109', 'اسناد پرداختنی', 'liability', '2100', 2],
+    ['2110', 'ذخیره مزایای پایان خدمت', 'liability', '2100', 2],
+    ['2111', 'ذخیره عیدی کارکنان', 'liability', '2100', 2],
+    ['3000', 'حقوق صاحبان سرمایه', 'equity', null, 1],
+    ['3101', 'سود (زیان) انباشته', 'equity', '3000', 2],
+    ['3102', 'تراز افتتاحیه', 'equity', '3000', 2],
+    ['3103', 'اندوخته قانونی', 'equity', '3000', 2],
+    ['3104', 'مازاد تجدید ارزیابی', 'equity', '3000', 2],
+    ['3201', 'افتتاحیه سال مالی', 'equity', '3000', 2],
+    ['4000', 'درآمدها', 'revenue', null, 1],
+    ['4101', 'درآمد فروش کالا', 'revenue', '4000', 2],
+    ['4102', 'برگشت از فروش', 'revenue', '4000', 2],
+    ['4103', 'تخفیفات فروش', 'revenue', '4000', 2],
+    ['4201', 'سایر درآمدها', 'revenue', '4000', 2],
+    ['4205', 'اضافی انبارگردانی', 'revenue', '4000', 2],
+    ['4206', 'سود تسعیر ارز', 'revenue', '4000', 2],
+    ['5000', 'بهای تمام‌شده کالای فروش رفته', 'cogs', null, 1],
+    ['5101', 'بهای تمام‌شده کالای فروش رفته', 'cogs', '5000', 2],
+    ['6000', 'هزینه‌ها', 'expense', null, 1],
+    ['5200', 'حساب‌های کنترل تولید', 'expense', '6000', 2],
+    ['5201', 'کنترل دستمزد مستقیم', 'expense', '5200', 2],
+    ['5202', 'کنترل سربار ساخت', 'expense', '5200', 2],
+    ['5203', 'سربار جذب‌شده', 'expense', '5200', 2],
+    ['5210', 'انحراف نرخ مواد', 'expense', '5200', 2],
+    ['5211', 'انحراف مقدار مواد', 'expense', '5200', 2],
+    ['5212', 'انحراف نرخ دستمزد', 'expense', '5200', 2],
+    ['5213', 'انحراف کارایی دستمزد', 'expense', '5200', 2],
+    ['5214', 'انحراف بودجه سربار', 'expense', '5200', 2],
+    ['5215', 'انحراف حجم سربار', 'expense', '5200', 2],
+    ['5221', 'هزینه ضایعات غیرعادی', 'expense', '5200', 2],
+    ['5222', 'هزینه دوباره‌کاری', 'expense', '5200', 2],
+    ['5230', 'کارمزد ساخت پیمانکاری', 'expense', '5200', 2],
+    ['6101', 'هزینه انگیزه فروش', 'expense', '6000', 2],
+    ['6102', 'هزینه‌های عمومی و اداری', 'expense', '6000', 2],
+    ['6103', 'هزینه‌های توزیع و فروش', 'expense', '6000', 2],
+    ['6104', 'هزینه حقوق و دستمزد', 'expense', '6000', 2],
+    ['6105', 'هزینه استهلاک دارایی', 'expense', '6000', 2],
+    ['6106', 'هزینه بیمه سهم کارفرما', 'expense', '6000', 2],
+    ['6108', 'کسری و ضایعات انبار', 'expense', '6000', 2],
+    ['6109', 'زیان تسعیر ارز', 'expense', '6000', 2],
+    ['6110', 'هزینه عیدی کارکنان', 'expense', '6000', 2],
+    ['6111', 'هزینه مزایای پایان خدمت', 'expense', '6000', 2],
+    ['6112', 'هزینه مطالبات مشکوک‌الوصول', 'expense', '6000', 2],
+    ['6113', 'هزینه کاهش ارزش موجودی', 'expense', '6000', 2],
+    ['9999', 'اصلاحات و تعدیلات', 'equity', null, 1],
+  ];
+}
+
+/**
+ * Wipe and rebuild control COA from LEGACY + production/payroll/VAT needs.
+ * Idempotent when called after DELETE FROM chart_of_accounts.
+ */
+function rebuildBaseCoa(db) {
+  const cols = db.prepare('PRAGMA table_info(chart_of_accounts)').all().map((c) => c.name);
+  const hasLevel = cols.includes('level');
+  const ins = hasLevel
+    ? db.prepare('INSERT OR REPLACE INTO chart_of_accounts (code,name,type,parent_code,level) VALUES (?,?,?,?,?)')
+    : db.prepare('INSERT OR REPLACE INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)');
+  for (const [code, name, type, parent, level] of baseCoaTree()) {
+    if (hasLevel) ins.run(code, name, type, parent, level);
+    else ins.run(code, name, type, parent);
+  }
+  const set = db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)');
+  for (const [key, { code }] of Object.entries(LEGACY)) {
+    set.run(key, code);
+  }
+  set.run('coa_mode', 'standard');
+  clearCoaCache();
+  return db.prepare('SELECT COUNT(*) c FROM chart_of_accounts').get().c;
+}
+
+/**
+ * Delete a detail/tafsili COA row when its owning entity is gone and it has no journal usage.
+ * Safe for sync: DELETE fires sync_tombstones triggers.
+ * @returns {{ ok:boolean, reason?:string, error?:string }}
+ */
+function releaseTafsili(db, code) {
+  const c = String(code || '').trim();
+  if (!c) return { ok: true, reason: 'empty' };
+  let acc;
+  try {
+    acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(c);
+  } catch (_) {
+    return { ok: false, reason: 'no_table' };
+  }
+  if (!acc) return { ok: true, reason: 'missing' };
+
+  const isDetail = Number(acc.level) === 4
+    || c.length >= 12
+    || c.includes('-')
+    || !!(acc.tafsili_type);
+  if (!isDetail) return { ok: false, reason: 'not_detail' };
+
+  try {
+    const jl = db.prepare('SELECT COUNT(*) c FROM journal_lines WHERE account_code=?').get(c)?.c || 0;
+    if (jl > 0) {
+      return { ok: false, reason: 'in_use', error: 'این کدینگ در اسناد حسابداری گردش دارد و قابل حذف نیست' };
+    }
+  } catch (_) { /* journal_lines may lack account_code on ancient DBs */ }
+
+  const refTables = [
+    ['products', 'coa_code'],
+    ['persons', 'coa_code'],
+    ['parties', 'coa_code'],
+    ['customers', 'coa_code'],
+    ['suppliers', 'coa_code'],
+    ['banks', 'coa_code'],
+    ['cash_boxes', 'coa_code'],
+  ];
+  for (const [tbl, col] of refTables) {
+    try {
+      const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(tbl);
+      if (!exists) continue;
+      const n = db.prepare(`SELECT COUNT(*) c FROM ${tbl} WHERE ${col}=?`).get(c)?.c || 0;
+      if (n > 0) return { ok: false, reason: 'linked' };
+    } catch (_) { /* ignore */ }
+  }
+
+  try {
+    db.prepare('DELETE FROM chart_of_accounts WHERE code=?').run(c);
+  } catch (e) {
+    return { ok: false, reason: 'fk', error: e.message };
+  }
+  return { ok: true };
+}
+
+/** Clear entity coa_code then release the detail account (call after entity delete or inside tx). */
+function releaseEntityCoa(db, coaCode) {
+  return releaseTafsili(db, coaCode);
+}
+
+module.exports = {
+  acct, coaMode, usesExtendedCoa, clearCoaCache, allocTafsili, ensureControlParents,
+  suggestChildCode, validateChildCode, LEGACY, rebuildBaseCoa, releaseTafsili, releaseEntityCoa, baseCoaTree,
+};

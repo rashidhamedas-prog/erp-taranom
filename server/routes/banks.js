@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { allocTafsili } = require('../lib/coa-map');
+const { allocTafsili, releaseTafsili } = require('../lib/coa-map');
 const { getDB, audit, syncBankAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 
@@ -63,8 +63,12 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     db.prepare('SELECT COUNT(*) c FROM incentive_payments WHERE bank_id=?').get(req.params.id).c +
     db.prepare('SELECT COUNT(*) c FROM check_categories WHERE bank_id=?').get(req.params.id).c;
   if (refs > 0) return res.status(400).json({ error: 'این بانک در تراکنش‌ها یا دسته‌چک‌ها استفاده شده و قابل حذف نیست — می‌توانید آن را غیرفعال کنید' });
-  db.prepare('DELETE FROM banks WHERE id=?').run(req.params.id);
-  db.prepare('DELETE FROM chart_of_accounts WHERE code=?').run('1102-' + row.id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM banks WHERE id=?').run(req.params.id);
+    if (row.coa_code) releaseTafsili(db, row.coa_code);
+    // legacy pattern (pre-tafsili)
+    try { db.prepare('DELETE FROM chart_of_accounts WHERE code=?').run('1102-' + row.id); } catch (_) {}
+  })();
   audit(req.user.id, 'delete', 'bank', req.params.id, `حذف بانک ${row.name}`);
   res.json({ ok: true });
 });

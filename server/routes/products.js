@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { allocTafsili } = require('../lib/coa-map');
+const { allocTafsili, releaseTafsili } = require('../lib/coa-map');
 const { parseQty } = require('../lib/round3');
 const jwt = require('jsonwebtoken');
 const { getDB, audit } = require('../db');
@@ -664,10 +664,21 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
       db.prepare('DELETE FROM warehouse_stock WHERE product_id=?').run(pid);
       try { db.prepare('DELETE FROM stock_logs WHERE product_id=?').run(pid); } catch (_) {}
       try { db.prepare('DELETE FROM stocktaking_items WHERE product_id=?').run(pid); } catch (_) {}
+      try { db.prepare('DELETE FROM product_images WHERE product_id=?').run(pid); } catch (_) {}
       if (prod.image) { try { fs.unlinkSync(path.join(UPLOAD_DIR, prod.image)); } catch (e) {} }
       db.prepare('DELETE FROM products WHERE id=?').run(pid);
+      // پس از حذف کالا، تفصیلی بدون گردش هم حذف می‌شود (سینک tombstone)
+      if (prod.coa_code) {
+        const rel = releaseTafsili(db, prod.coa_code);
+        if (!rel.ok && rel.reason === 'in_use') {
+          const err = new Error(rel.error || 'کدینگ در گردش است');
+          err.status = 409;
+          throw err;
+        }
+      }
     })();
   } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
     return res.status(409).json({ error: e.message.includes('FOREIGN KEY')
       ? 'این کالا به اسناد دیگر وابسته است و قابل حذف نیست'
       : (e.message || 'حذف ناموفق') });

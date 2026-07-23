@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { allocTafsili } = require('../lib/coa-map');
+const { allocTafsili, releaseTafsili } = require('../lib/coa-map');
 const { getDB, audit, syncCashBoxAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 
@@ -83,8 +83,11 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     db.prepare('SELECT COUNT(*) c FROM expense_payments WHERE cash_box_id=?').get(req.params.id).c +
     db.prepare("SELECT COUNT(*) c FROM account_transfers WHERE (from_type='cash' AND from_id=?) OR (to_type='cash' AND to_id=?)").get(req.params.id, req.params.id).c;
   if (refs > 0) return res.status(400).json({ error: 'این صندوق در تراکنش‌ها استفاده شده و قابل حذف نیست — می‌توانید آن را غیرفعال کنید' });
-  db.prepare('DELETE FROM cash_boxes WHERE id=?').run(req.params.id);
-  db.prepare('DELETE FROM chart_of_accounts WHERE code=?').run('1101-' + row.id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM cash_boxes WHERE id=?').run(req.params.id);
+    if (row.coa_code) releaseTafsili(db, row.coa_code);
+    try { db.prepare('DELETE FROM chart_of_accounts WHERE code=?').run('1101-' + row.id); } catch (_) {}
+  })();
   audit(req.user.id, 'delete', 'cash_box', req.params.id, `حذف صندوق ${row.name}`);
   res.json({ ok: true });
 });

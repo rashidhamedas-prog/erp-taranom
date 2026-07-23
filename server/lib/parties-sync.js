@@ -150,6 +150,16 @@ function removeSupplierSide(db, supplierId) {
  * Accounting soft-delete → cascade to CRM customers/suppliers + followups.
  * Must run inside (or as) a transaction.
  */
+function releasePartyCoaIfIdle(db, partyRow) {
+  if (!partyRow?.coa_code) return;
+  try {
+    const { releaseTafsili } = require('./coa-map');
+    // detach code from soft-deleted party so releaseTafsili sees no live link
+    db.prepare('UPDATE parties SET coa_code=NULL WHERE id=?').run(partyRow.id);
+    releaseTafsili(db, partyRow.coa_code);
+  } catch (_) { /* ignore */ }
+}
+
 function deactivatePartyCascade(db, partyId) {
   const row = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
   if (!row) return { ok: false, reason: 'not_found' };
@@ -158,6 +168,7 @@ function deactivatePartyCascade(db, partyId) {
   const suppIds = linkedSupplierIds(db, partyId);
   for (const id of custIds) removeCrmCustomerSide(db, id);
   for (const id of suppIds) removeSupplierSide(db, id);
+  releasePartyCoaIfIdle(db, row);
   return { ok: true, customers: custIds, suppliers: suppIds };
 }
 
@@ -166,11 +177,15 @@ function deactivatePartyCascade(db, partyId) {
  * If party is also a supplier, keep party active but drop customer role / legacy customer pointer.
  */
 function deactivatePartyFromCustomer(db, customerId) {
-  const c = db.prepare('SELECT id, party_id FROM customers WHERE id=?').get(customerId);
+  const c = db.prepare('SELECT id, party_id, coa_code FROM customers WHERE id=?').get(customerId);
   if (!c) return { ok: false, reason: 'not_found' };
+  const customerCoa = c.coa_code;
   try { db.prepare('DELETE FROM followups WHERE cust_id=?').run(customerId); } catch (_) {}
   try { db.prepare('DELETE FROM customers WHERE id=?').run(customerId); } catch (e) {
     return { ok: false, reason: e.message || 'fk' };
+  }
+  if (customerCoa) {
+    try { require('./coa-map').releaseTafsili(db, customerCoa); } catch (_) {}
   }
   let partyId = c.party_id;
   if (!partyId) {
@@ -193,6 +208,7 @@ function deactivatePartyFromCustomer(db, customerId) {
       ).run(JSON.stringify(nextRoles), partyId);
     } else {
       db.prepare("UPDATE parties SET is_active=0, updated_at=strftime('%s','now') WHERE id=?").run(partyId);
+      releasePartyCoaIfIdle(db, p);
     }
   }
   return { ok: true, partyId };
@@ -202,10 +218,14 @@ function deactivatePartyFromCustomer(db, customerId) {
  * CRM/purchasing supplier hard-delete → soft-delete linked party.
  */
 function deactivatePartyFromSupplier(db, supplierId) {
-  const s = db.prepare('SELECT id, party_id FROM suppliers WHERE id=?').get(supplierId);
+  const s = db.prepare('SELECT id, party_id, coa_code FROM suppliers WHERE id=?').get(supplierId);
   if (!s) return { ok: false, reason: 'not_found' };
+  const supplierCoa = s.coa_code;
   try { db.prepare('DELETE FROM suppliers WHERE id=?').run(supplierId); } catch (e) {
     return { ok: false, reason: e.message || 'fk' };
+  }
+  if (supplierCoa) {
+    try { require('./coa-map').releaseTafsili(db, supplierCoa); } catch (_) {}
   }
   let partyId = s.party_id;
   if (!partyId) {
@@ -213,7 +233,9 @@ function deactivatePartyFromSupplier(db, supplierId) {
     partyId = p?.id || null;
   }
   if (partyId) {
+    const p = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
     db.prepare("UPDATE parties SET is_active=0, updated_at=strftime('%s','now') WHERE id=?").run(partyId);
+    releasePartyCoaIfIdle(db, p);
   }
   return { ok: true, partyId };
 }

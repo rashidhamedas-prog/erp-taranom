@@ -141,11 +141,27 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
 
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  const { releaseTafsili } = require('../lib/coa-map');
   const row = db.prepare('SELECT * FROM persons WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   const hasLedger = db.prepare('SELECT COUNT(*) c FROM person_ledger WHERE person_id=?').get(req.params.id).c;
   if (hasLedger > 0) return res.status(400).json({ error: 'این شخص دارای تراکنش در دفتر معین است و قابل حذف نیست — می‌توانید آن را غیرفعال کنید' });
-  db.prepare('DELETE FROM persons WHERE id=?').run(req.params.id);
+  try {
+    db.transaction(() => {
+      db.prepare('DELETE FROM persons WHERE id=?').run(req.params.id);
+      if (row.coa_code) {
+        const rel = releaseTafsili(db, row.coa_code);
+        if (!rel.ok && rel.reason === 'in_use') {
+          const err = new Error(rel.error || 'کدینگ در گردش است');
+          err.status = 400;
+          throw err;
+        }
+      }
+    })();
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
   audit(req.user.id, 'delete', 'person', req.params.id, `حذف شخص ${row.name}`);
   res.json({ ok: true });
 });
