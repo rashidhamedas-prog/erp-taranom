@@ -32,11 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `540d2ab` desktop 2.0.2 + android 2.0.22 |
-| نسخه وب/دسکتاپ | وب **`2.1.0`** / دسکتاپ **`2.0.2`** / SW `erp-taranom-v89` |
-| اندروید | **`2.0.22`** (بیلد محلی) |
-| وضعیت سرور | ⏳ آپلود exe توسط کاربر (متادیتا pull شده) |
+| آخرین commit | UI Up/MDI/icons + desktop 2.0.3 + android 2.0.23 |
+| نسخه وب/دسکتاپ | وب **`2.1.1`** / دسکتاپ **`2.0.3`** / SW `erp-taranom-v92` |
+| اندروید | **`2.0.23`** (بیلد محلی — sideload) |
+| وضعیت سرور | ⏳ deploy |
 | سرور production | تنها ایران `94.249.244.208` |
+
+### 2026-07-23 — UI: دکمه ↑ والد، ریل MDI باریک، حذف بارگذاری کاذب، آیکون مینیمال
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:** دکمه ناوبری مثل Up ویندوز (سطح والد، نه تاریخچه)؛ نوار MDI هنگام باز شدن ~۴۰px؛ حذف «در حال بارگذاری» گیرکرده در پنجره‌های MDI؛ کوچک‌کردن آیکون‌های درشت؛ فیکس پارس راهنمای MDI (ورود خراب)؛ desktop **2.0.3** / android **2.0.23** / SW **v92**.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/mdi.js`, `server/public/sw.js`, `desktop/package.json`, `android/app/build.gradle`, `server/public/releases/manifest.json`
+- **Deploy:** ⏳
+- **یادداشت:** exe: `desktop/dist/ERP-Taranom-Setup-2.0.3.exe` · APK: `server/public/releases/crm-taranom.apk` (sideload؛ روی سرور آپلود نمی‌شود).
 
 ---
 

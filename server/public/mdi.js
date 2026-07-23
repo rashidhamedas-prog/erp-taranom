@@ -1,7 +1,7 @@
 /**
  * MDI — پنجره‌های شناور شبیه ویندوز برای زیرمنوهای حسابداری / CRM
  * هر زیرگروه می‌تواند در پنجره جدا باز شود؛ کنترل: جابجایی، کوچک/بزرگ، بستن،
- * نوار وظیفهٔ چپ (مخفی؛ با هاور موس ظاهر می‌شود)
+ * نوار وظیفهٔ چپ (مخفی؛ با هاور ریل باریک ۴۰px)
  */
 (function (global) {
   const STORAGE_KEY = 'crm_mdi';
@@ -26,6 +26,14 @@
     return layer;
   }
 
+  /** برچسب کوتاه برای ریل باریک — عنوان کامل در title */
+  function taskChip(title) {
+    const t = String(title || '').trim();
+    if (!t) return '•';
+    const chars = [...t];
+    return chars[0];
+  }
+
   function updateTaskbar() {
     ensureLayer();
     const bar = document.getElementById('mdiTaskbar');
@@ -40,10 +48,10 @@
     if (!list.length) { bar.hidden = true; inner.innerHTML = ''; syncTaskbarSpace(); return; }
     bar.hidden = false;
     inner.innerHTML = list.map((w) =>
-      `<button type="button" class="mdi-task ${w.minimized ? 'min' : ''} ${w.id === WinMgr.focusedId ? 'active' : ''}" onclick="WinMgr.focus(${w.id})" title="${escAttr(w.title)}">${escHtml(w.title)}</button>`
+      `<button type="button" class="mdi-task ${w.minimized ? 'min' : ''} ${w.id === WinMgr.focusedId ? 'active' : ''}" onclick="WinMgr.focus(${w.id})" title="${escAttr(w.title)}">${escHtml(taskChip(w.title))}</button>`
     ).join('') +
-      `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.cascade()" title="چینش پنجره‌ها">⧉ چینش</button>` +
-      `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.toggleMode()" title="خاموش/روشن حالت پنجره">${enabled() ? '🗔 تک‌صفحه' : '📄 چندپنجره'}</button>`;
+      `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.cascade()" title="چینش پنجره‌ها">⧉</button>` +
+      `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.toggleMode()" title="خاموش/روشن حالت پنجره">${enabled() ? '🗔' : '📄'}</button>`;
     syncTaskbarSpace();
   }
 
@@ -129,7 +137,7 @@
             <button type="button" class="mdi-close" title="بستن" onclick="WinMgr.close(${id})">×</button>
           </div>
         </div>
-        <div class="mdi-body" id="mdiBody-${id}"><div class="muted" style="padding:16px">در حال بارگذاری...</div></div>`;
+        <div class="mdi-body" id="mdiBody-${id}"></div>`;
       document.getElementById('mdiLayer').appendChild(el);
       makeDraggable(el, el.querySelector('.mdi-titlebar'));
       el.addEventListener('mousedown', () => this.focus(id));

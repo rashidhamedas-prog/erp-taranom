@@ -118,14 +118,14 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .sidebar.collapsed{transform:translateX(110%)}
 .main.expanded{margin-right:0!important}
 .sidebar .brand{padding:22px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.12)}
-.sidebar .brand .emoji{font-size:30px}
-.sidebar .brand h2{font-size:18px}
+.sidebar .brand .emoji{font-size:22px}
+.sidebar .brand h2{font-size:17px}
 .sidebar .brand small{font-size:11px;opacity:.75;display:block}
 .nav{flex:1;overflow-y:auto;padding:14px 12px}
 .nav a{display:flex;align-items:center;gap:10px;padding:11px 14px;margin-bottom:3px;border-radius:12px;
   color:rgba(255,255,255,.82);font-size:14px;position:relative;transition:background .18s,color .18s}
-.nav a .ico{font-size:18px;width:24px;text-align:center;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.nav a .ico svg{width:18px;height:18px;display:block;opacity:.95}
+.nav a .ico{font-size:15px;width:20px;text-align:center;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.nav a .ico svg{width:15px;height:15px;display:block;opacity:.95}
 .nav a:hover{background:rgba(255,255,255,.1);color:#fff}
 .nav a.active{background:rgba(255,255,255,.16);color:#fff;font-weight:700;box-shadow:inset -3px 0 0 var(--gold)}
 .nav a.active::before{display:none}
@@ -198,8 +198,14 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .nav-section-title{font-size:10px;font-weight:700;color:var(--muted);padding:8px 14px 4px;text-transform:uppercase;letter-spacing:.04em}
 .stat{background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--shadow-card);
   border:1px solid var(--border);display:flex;align-items:center;gap:14px;min-width:0;overflow:hidden}
-.stat .ic{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
-.stat .ic svg{width:20px;height:20px;display:block;opacity:.92}
+.stat .ic{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.stat .ic svg{width:15px;height:15px;display:block;opacity:.92}
+/* آیکون‌های مینیمال سراسری — جلوگیری از SVG/ایموجی درشت در هدینگ و دکمه */
+.panel-head h4{display:flex;align-items:center;gap:6px}
+.panel-head h4 svg,.modal-head h3 svg,h4 svg,h3 svg{width:14px;height:14px;flex-shrink:0;vertical-align:middle}
+.btn svg,.btn .ico svg,.toolbar .btn svg{width:13px;height:13px;flex-shrink:0}
+.btn.sm svg,.btn.icon svg{width:12px;height:12px}
+.help-section .hs-head .hs-icon{font-size:15px}
 /* Non-hero pages: first KPI still carries brand accent */
 .cards:not(.bento-hero) .stat:first-child{background:linear-gradient(155deg,var(--purple),var(--purple2));border-color:transparent}
 .cards:not(.bento-hero) .stat:first-child .v{color:var(--on-accent)}
@@ -420,30 +426,30 @@ table.tbl th.tbl-sortable{cursor:pointer;user-select:none}
 table.tbl th.tbl-sortable:hover{background:var(--purple-light)}
 table.tbl th .tbl-sort-ind{font-size:10px;opacity:.7}
 table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{width:36px;text-align:center}
-/* نوار پنجره چندگانه — لبه چپ، مخفی؛ با هاور باز می‌شود */
+/* نوار پنجره چندگانه — لبه چپ، مخفی؛ با هاور ریل باریک (~۱/۵ عرض قبلی) */
 .mdi-taskbar{
   position:fixed;top:0;bottom:0;left:0;right:auto;z-index:9990;
-  width:10px;padding:0;margin:0;box-sizing:border-box;
+  width:8px;padding:0;margin:0;box-sizing:border-box;
   display:flex;flex-direction:column;justify-content:center;
   background:transparent;border:0;overflow:hidden;
-  transition:width .18s ease, background .18s ease, padding .18s ease, box-shadow .18s ease;
+  transition:width .16s ease, background .16s ease, box-shadow .16s ease;
 }
 .mdi-taskbar::before{
-  content:'';position:absolute;left:0;top:22%;bottom:22%;width:4px;
-  border-radius:0 7px 7px 0;background:rgba(26,92,56,.55);
+  content:'';position:absolute;left:0;top:22%;bottom:22%;width:3px;
+  border-radius:0 6px 6px 0;background:rgba(26,92,56,.55);
   box-shadow:0 0 0 1px rgba(255,255,255,.08);pointer-events:none;
-  transition:opacity .15s ease, width .15s ease;
+  transition:opacity .12s ease;
 }
 .mdi-taskbar-inner{
-  display:none;flex-direction:column;gap:6px;width:100%;
-  max-height:100%;overflow:auto;padding:10px 8px;box-sizing:border-box;
+  display:none;flex-direction:column;gap:4px;width:100%;align-items:stretch;
+  max-height:100%;overflow:auto;padding:8px 4px;box-sizing:border-box;
 }
 .mdi-taskbar:hover,
 .mdi-taskbar:focus-within{
-  width:196px;padding:0;
+  width:40px;padding:0;
   background:rgba(18,39,28,.96);backdrop-filter:blur(10px);
   border-right:1px solid rgba(255,255,255,.12);
-  box-shadow:8px 0 28px -12px rgba(0,0,0,.45);
+  box-shadow:6px 0 20px -10px rgba(0,0,0,.45);
 }
 .mdi-taskbar:hover::before,
 .mdi-taskbar:focus-within::before{opacity:0}
@@ -451,13 +457,13 @@ table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{width:36px;text-align:center}
 .mdi-taskbar:focus-within .mdi-taskbar-inner{display:flex}
 .mdi-task{
   background:rgba(255,255,255,.12);color:#fff;border:0;border-radius:6px;
-  padding:8px 10px;font-size:12px;cursor:pointer;font-family:inherit;
-  width:100%;max-width:none;text-align:right;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;
+  padding:7px 2px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;
+  width:100%;max-width:none;text-align:center;line-height:1.1;
+  overflow:hidden;white-space:nowrap;flex-shrink:0;
 }
 .mdi-task.active{background:var(--purple2)}
 .mdi-task.min{opacity:.55}
-.mdi-task-tools{max-width:none;padding:8px 10px;text-align:center}
+.mdi-task-tools{max-width:none;padding:7px 2px;font-size:13px;font-weight:600}
 .mdi-win{position:fixed;width:min(920px,92vw);height:min(620px,78vh);background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 18px 50px -20px rgba(0,0,0,.45);display:flex;flex-direction:column;overflow:hidden;z-index:200}
 /* نوار چپ مخفی است — تمام‌صفحه کل viewport را می‌گیرد */
 .mdi-win.mdi-maximized{left:0!important;top:0!important;right:0!important;bottom:0!important;width:100vw!important;height:auto!important;max-height:100vh!important;border-radius:0}
@@ -515,9 +521,10 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 .modal-head .modal-size-btn:hover,.modal-head .x:hover{background:var(--purple-light);color:var(--purple)}
 .modal-body{padding:20px}
 .modal-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-start;position:sticky;bottom:0;background:var(--card);flex-shrink:0}
-.topbar .back-btn{display:none;align-items:center;justify-content:center;background:var(--purple-light);color:var(--purple);border:none;width:36px;height:36px;border-radius:12px;font-size:18px;cursor:pointer;line-height:1}
+.topbar .back-btn{display:none;align-items:center;justify-content:center;background:var(--purple-light);color:var(--purple);border:none;width:34px;height:34px;border-radius:11px;font-size:16px;cursor:pointer;line-height:1;font-weight:700}
 .topbar .back-btn.show{display:inline-flex}
 .topbar .back-btn:hover{background:var(--purple);color:var(--on-accent)}
+.topbar .back-btn:disabled{opacity:.4;cursor:default}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .fg{display:flex;flex-direction:column;gap:6px}
 .fg.full{grid-column:1/-1}
@@ -814,7 +821,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
   .cards{grid-template-columns:repeat(2,1fr);gap:12px}
   .cards.bento-hero{grid-template-columns:1fr 1fr;padding:14px}
   .stat{padding:14px 10px;gap:10px}
-  .stat .ic{width:40px;height:40px;font-size:20px}
+  .stat .ic{width:30px;height:30px;font-size:14px}
   .stat .v{font-size:16px}
   .stat .l{font-size:11px}
   .content{padding:14px}
@@ -824,7 +831,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 @media(max-width:600px){
   .cards{grid-template-columns:1fr 1fr;gap:8px;width:100%}
   .stat{padding:12px 8px;gap:8px}
-  .stat .ic{width:34px;height:34px;font-size:17px}
+  .stat .ic{width:28px;height:28px;font-size:13px}
   .stat .v{font-size:13px}
   .stat .l{font-size:10px}
   .pgrid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
@@ -860,7 +867,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 @media(max-width:400px){
   .cards{grid-template-columns:1fr}
   .stat{padding:14px 12px;gap:12px}
-  .stat .ic{width:40px;height:40px;font-size:20px}
+  .stat .ic{width:30px;height:30px;font-size:14px}
   .stat .v{font-size:16px}
   .stat .l{font-size:11px}
 }
@@ -991,7 +998,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
       <header class="topbar">
         <div class="left">
           <button class="menu-btn" onclick="toggleSidebar()">☰</button>
-          <button type="button" class="back-btn" id="navBackBtn" onclick="goBack()" title="بازگشت به صفحه قبل" aria-label="بازگشت">←</button>
+          <button type="button" class="back-btn" id="navBackBtn" onclick="goUp()" title="بالا — سطح والد (مثل Up ویندوز)" aria-label="بالا">↑</button>
           <h3 id="pageTitle">داشبورد</h3>
         </div>
         <div class="right">
@@ -1066,7 +1073,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 <script src="/i18n.js?v=85"></script>
 <script src="/acc-nav.js?v=75"></script>
 <script src="/portal-ui.js?v=75"></script>
-<script src="/mdi.js?v=76" defer></script>
+<script src="/mdi.js?v=77" defer></script>
 <script src="/tbl-enhance.js?v=75" defer></script>
 <script src="/prod-ui.js?v=75" defer></script>
 <script>
@@ -1728,7 +1735,13 @@ el('loginForm').addEventListener('submit', async (e)=>{
   if(!username || !password){ el('loginErr').textContent='نام کاربری و رمز را وارد کنید'; return; }
   try{
     const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
-    const j = await r.json();
+    const ct = r.headers.get('content-type')||'';
+    let j = null, raw = '';
+    try { raw = await r.text(); j = raw ? JSON.parse(raw) : null; } catch(parseErr){ j = null; }
+    if(!j){
+      el('loginErr').textContent = 'پاسخ نامعتبر از سرور ('+r.status+')';
+      return;
+    }
     if(!r.ok){
       let msg = j.error || 'خطا در ورود';
       if(APP_INFO && APP_INFO.role==='device'){
@@ -1741,9 +1754,13 @@ el('loginForm').addEventListener('submit', async (e)=>{
     localStorage.setItem('crm_token', j.token);
     localStorage.setItem('crm_user', JSON.stringify(j.user));
     ME = j.user;
-    if(j.must_change_password){ el('login').style.display='none'; openForcePassChange(); return; }
+    if(j.must_change_password){
+      el('login').style.display='none'; openForcePassChange(); return;
+    }
     await boot();
-  }catch(err){ el('loginErr').textContent='خطای ارتباط با سرور'; }
+  }catch(err){
+    el('loginErr').textContent='خطای ارتباط با سرور';
+  }
 });
 
 /* تغییر اجباری رمز عبور (رمز پیش‌فرض/موقت) — مودال بدون راه فرار به‌جز خروج */
@@ -1776,7 +1793,9 @@ async function doForcePassChange(){
   if(!newPass){ if(err) err.textContent='رمز جدید را وارد کنید'; return; }
   if(newPass!==el('fc-new2').value){ if(err) err.textContent='تکرار رمز جدید یکسان نیست'; return; }
   try{ await api('POST','/auth/change-password',{oldPass,newPass}); }
-  catch(e){ if(err) err.textContent=e.message||'خطا'; return; }
+  catch(e){
+    if(err) err.textContent=e.message||'خطا'; return;
+  }
   closeModal();
   showToast('رمز عبور با موفقیت تغییر کرد');
   if(el('app').style.display!=='block') await boot();
@@ -2232,7 +2251,8 @@ function go(page){
     const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && ACC_NAV_SECTIONS.flatMap(s=>s.items).find(x=>x.id===page));
     const title = (it && T(it.label)) || page;
     const opened = WinMgr.open(page, title, async (body)=>{
-      // موقتاً view را به بدنه پنجره هدایت می‌کنیم
+      // پاک‌کردن placeholder بارگذاری تا متن «در حال بارگذاری» روی محتوا نماند
+      body.innerHTML = '';
       const mainView = el('view');
       const placeholder = document.createElement('div');
       placeholder.id = 'view';
@@ -2243,12 +2263,8 @@ function go(page){
       try{
         CURRENT_PAGE = page;
         if(ROUTES[page]) await ROUTES[page]();
-        // محتوای رندرشده در #view (placeholder) است — به بدنه پنجره منتقل شود
         while(placeholder.firstChild) body.appendChild(placeholder.firstChild);
-        // اگر shell حسابداری ساخته شد، loadAccTab روی accBody داخل همین پنجره کار می‌کند
-        const shellBody = body.querySelector('#accBody');
-        if(shellBody && typeof enhanceAccTables==='function') enhanceAccTables(body);
-        else if(typeof enhanceAccTables==='function') enhanceAccTables(body);
+        if(typeof enhanceAccTables==='function') enhanceAccTables(body);
       } finally {
         placeholder.remove();
         const bak = document.getElementById('view-main-backup');
@@ -2273,14 +2289,40 @@ function go(page){
   // (large totals like فروش کل on حساب من were spilling out — spec 1.0.9 §4)
   ROUTES[page] ? Promise.resolve(ROUTES[page]()).finally(()=>{ setTimeout(fitStatNums,60); if(typeof enhanceAccTables==='function') enhanceAccTables(el('view')); }) : (el('view').innerHTML='');
 }
+/** والد صفحه — رفتار شبیه دکمه Up اکسپلورر ویندوز (نه Back تاریخچه) */
+function pageParent(page){
+  if(!page) return null;
+  if(IN_ACC_SHELL){
+    if(page==='acc-dash' || page==='exit-acc-shell') return 'exit-acc-shell';
+    if(String(page).startsWith('acc-')) return 'acc-dash';
+  }
+  if(page==='dash') return null;
+  return 'dash';
+}
 function updateBackBtn(){
   const btn=el('navBackBtn');
   if(!btn) return;
-  btn.classList.toggle('show', PAGE_HISTORY.length>0);
-  btn.disabled = PAGE_HISTORY.length===0;
+  const parent=pageParent(CURRENT_PAGE);
+  const show=!!parent;
+  btn.classList.toggle('show', show);
+  btn.disabled=!show;
+  btn.title = show ? 'بالا — سطح والد (مثل Up ویندوز)' : '';
+}
+function goUp(){
+  const parent=pageParent(CURRENT_PAGE);
+  if(!parent) return;
+  // بستن پنجره MDI فعلی قبل از رفتن به والد
+  if(window.WinMgr && IN_ACC_SHELL && CURRENT_PAGE && CURRENT_PAGE!=='acc-dash'){
+    const w=typeof WinMgr.findByKey==='function' ? WinMgr.findByKey(CURRENT_PAGE) : null;
+    if(w) WinMgr.close(w.id);
+  }
+  if(parent==='exit-acc-shell'){ exitAccountingShell(); updateBackBtn(); return; }
+  _navGoingBack=true;
+  try{ go(parent); } finally { _navGoingBack=false; updateBackBtn(); }
 }
 function goBack(){
-  if(!PAGE_HISTORY.length) return;
+  // سازگاری: تاریخچهٔ اختیاری (Alt+←) — دکمهٔ UI از goUp استفاده می‌کند
+  if(!PAGE_HISTORY.length){ goUp(); return; }
   const prev=PAGE_HISTORY.pop();
   _navGoingBack=true;
   try{ go(prev); } finally { _navGoingBack=false; updateBackBtn(); }
@@ -15823,12 +15865,16 @@ function renderAdminGuide(){
     helpSec('🗔','پنجره‌های چندگانه (شبیه ویندوز)',`
       <p>فعال/غیرفعال کردن از <b>تنظیمات → عمومی → پنجره‌های چندگانه</b>. با فعال بودن، هر زیرمنوی حسابداری در پنجره جدا باز می‌شود.</p>
       <ul>
-        <li>نوار وظایف پنجره‌ها در <b>لبه چپ</b> برنامه است و به‌صورت پیش‌فرض مخفی می‌ماند.</li>
-        <li>با بردن موس روی نوار باریک سبز سمت چپ، فهرست پنجره‌ها ظاهر می‌شود (فعال‌سازی، کوچک‌کردن، چینش، بستن).</li>
+        <li>نوار وظایف در <b>لبه چپ</b> مخفی است؛ با هاور یک <b>ریل باریک (~۴۰px)</b> باز می‌شود (حرف اول عنوان + tooltip نام کامل).</li>
+        <li>چینش و تک‌صفحه/چندپنجره با آیکون‌های کوچک همان ریل در دسترس است.</li>
+        <li>نوار عنوان هر پنجره: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن</li>
       </ul>`),
+    helpSec('↑','دکمه بالا (سطح والد)',`
+      <p>دکمه <b>↑</b> کنار عنوان صفحه مثل دکمه <b>Up</b> اکسپلورر ویندوز عمل می‌کند — نه Back تاریخچه:</p>
       <ul>
-        <li>نوار عنوان: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن</li>
-        <li>نوار پایین صفحه: تعویض بین پنجره‌ها و چینش</li>
+        <li>در زیرمنوی حسابداری → برگشت به <b>داشبورد حسابداری</b></li>
+        <li>روی داشبورد حسابداری → خروج از ماژول حسابداری به برنامه اصلی</li>
+        <li>در صفحات اصلی (غیر از داشبورد) → برگشت به <b>داشبورد</b></li>
       </ul>`),
     helpSec('📊','داشبورد',`
       <p>داشبورد نمای کلی از وضعیت کسب‌وکار را نشان می‌دهد. پوستهٔ برنامه با سبک <b>Soft Bento</b> (سایدبار برنددار، تاپ‌بار شناور سفید، نوار KPI قهرمان و پنل‌های گرد) و همان پالت زمرد مدرن (سبز و طلایی) یکپارچه شده است.</p>
