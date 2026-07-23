@@ -223,131 +223,142 @@ html[data-theme="dark"] .cards.bento-hero{
 
 /* ===== Settings shell — categorized UX ===== */
 .sett-shell{display:flex;flex-direction:column;gap:14px;padding-bottom:72px}
-.sett-hero{position:relative;overflow:hidden;border-radius:20px;padding:20px 22px 18px;
+.sett-hero{position:relative;overflow:hidden;border-radius:16px;padding:16px 18px;
   background:var(--hero);color:#fff;box-shadow:var(--shadow-card)}
-.sett-hero::after{content:'';position:absolute;inset:auto -20% -60% auto;width:220px;height:220px;
-  border-radius:50%;background:radial-gradient(circle,rgba(201,168,67,.35),transparent 70%);pointer-events:none}
+.sett-hero::after{content:'';position:absolute;inset:auto -10% -70% auto;width:120px;height:120px;
+  border-radius:50%;background:radial-gradient(circle,rgba(201,168,67,.22),transparent 70%);pointer-events:none}
 .sett-hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;position:relative;z-index:1}
-.sett-hero h2{font-size:clamp(18px,2.4vw,24px);font-weight:800;margin:0 0 4px;letter-spacing:-.02em}
-.sett-hero p{margin:0;font-size:13px;opacity:.88;line-height:1.7;max-width:42rem}
-.sett-search{margin-top:14px;position:relative;z-index:1;max-width:420px}
-.sett-search input{width:100%;padding:11px 14px 11px 40px;border:0;border-radius:12px;
+.sett-hero h2{font-size:clamp(15px,2vw,18px);font-weight:800;margin:0 0 4px;letter-spacing:-.02em;
+  display:flex;align-items:center;gap:8px}
+.sett-hero h2 svg{width:16px;height:16px;flex-shrink:0;opacity:.9}
+.sett-hero p{margin:0;font-size:12.5px;opacity:.88;line-height:1.7;max-width:42rem}
+.sett-search{margin-top:12px;position:relative;z-index:1;max-width:420px}
+.sett-search input{width:100%;padding:9px 12px 9px 36px;border:0;border-radius:10px;
   background:rgba(255,255,255,.16);color:#fff;outline:none;backdrop-filter:blur(8px);
-  border:1px solid rgba(255,255,255,.22);transition:background .2s,border-color .2s}
+  border:1px solid rgba(255,255,255,.22);transition:background .2s,border-color .2s;font-size:13px}
 .sett-search input::placeholder{color:rgba(255,255,255,.7)}
 .sett-search input:focus{background:rgba(255,255,255,.24);border-color:rgba(255,255,255,.45)}
-.sett-search .sett-search-ico{position:absolute;left:12px;top:50%;transform:translateY(-50%);
-  width:18px;height:18px;opacity:.85;pointer-events:none;color:#fff}
-.sett-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:14px;align-items:start}
-.sett-nav{position:sticky;top:86px;display:flex;flex-direction:column;gap:4px;padding:8px;
-  background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-card);max-height:calc(100vh - 120px);overflow:auto}
-.sett-nav-btn{display:flex;align-items:center;gap:10px;width:100%;text-align:right;padding:10px 12px;
-  border:0;border-radius:12px;background:transparent;color:var(--text);font:inherit;font-size:13px;font-weight:600;
-  cursor:pointer;transition:background .18s,color .18s,transform .15s}
-.sett-nav-btn .ico{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+.sett-search .sett-search-ico{position:absolute;left:11px;top:50%;transform:translateY(-50%);
+  width:14px;height:14px;opacity:.85;pointer-events:none;color:#fff}
+.sett-search .sett-search-ico svg{width:14px;height:14px}
+.sett-layout{display:grid;grid-template-columns:200px minmax(0,1fr);gap:12px;align-items:start}
+.sett-nav{position:sticky;top:86px;display:flex;flex-direction:column;gap:2px;padding:6px;
+  background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-card);max-height:calc(100vh - 120px);overflow:auto}
+.sett-nav-btn{display:flex;align-items:center;gap:8px;width:100%;text-align:right;padding:8px 10px;
+  border:0;border-radius:10px;background:transparent;color:var(--text);font:inherit;font-size:12.5px;font-weight:600;
+  cursor:pointer;transition:background .18s,color .18s}
+.sett-nav-btn .ico{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;
   background:var(--well);color:var(--purple);flex-shrink:0}
-.sett-nav-btn .ico svg{width:16px;height:16px}
+.sett-nav-btn .ico svg{width:13px;height:13px}
 .sett-nav-btn:hover{background:var(--purple-light);color:var(--purple)}
-.sett-nav-btn.active{background:linear-gradient(120deg,var(--purple),var(--purple2));color:#fff;box-shadow:0 10px 24px -16px rgba(26,92,56,.8)}
-.sett-nav-btn.active .ico{background:rgba(255,255,255,.2);color:#fff}
+.sett-nav-btn.active{background:linear-gradient(120deg,var(--purple),var(--purple2));color:#fff;box-shadow:0 8px 18px -14px rgba(26,92,56,.75)}
+.sett-nav-btn.active .ico{background:rgba(255,255,255,.18);color:#fff}
 .sett-nav-btn[hidden]{display:none!important}
-.sett-nav-btn .sett-nav-meta{display:block;font-size:10.5px;font-weight:500;opacity:.7;margin-top:1px;line-height:1.4}
+.sett-nav-btn .sett-nav-meta{display:block;font-size:10px;font-weight:500;opacity:.65;margin-top:1px;line-height:1.35}
 .sett-nav-btn.active .sett-nav-meta{opacity:.85}
 .sett-main{min-width:0}
 .sett-panel{display:none;animation:settIn .28s ease}
 .sett-panel.active{display:block}
+.sett-panel .panel-head h4{display:flex;align-items:center;gap:6px;font-size:14px}
+.sett-panel .panel-head h4 svg{width:14px;height:14px;flex-shrink:0;opacity:.85}
 @keyframes settIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.sett-panel{animation:none}}
 .sett-panel .panel:last-child{margin-bottom:0}
 .sett-savebar{position:sticky;bottom:10px;z-index:35;display:flex;align-items:center;justify-content:space-between;
-  gap:12px;flex-wrap:wrap;padding:12px 16px;border-radius:16px;background:rgba(255,255,255,.86);
+  gap:12px;flex-wrap:wrap;padding:10px 14px;border-radius:14px;background:rgba(255,255,255,.86);
   border:1px solid var(--border);box-shadow:0 12px 40px -18px rgba(18,39,28,.45);backdrop-filter:blur(12px)}
+.sett-savebar.sett-savebar-hide{display:none}
 html[data-theme="dark"] .sett-savebar{background:rgba(19,31,26,.9)}
 .sett-savebar .muted{font-size:12px}
-.sett-toggle{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid var(--border);
-  border-radius:14px;background:var(--card);cursor:pointer;transition:border-color .18s,background .18s}
+.sett-toggle{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--border);
+  border-radius:12px;background:var(--card);cursor:pointer;transition:border-color .18s,background .18s}
 .sett-toggle:hover{border-color:var(--purple2);background:var(--purple-light)}
 .sett-toggle input{position:absolute;opacity:0;pointer-events:none}
-.sett-toggle .sw{width:42px;height:24px;border-radius:999px;background:#c5d4cb;position:relative;flex-shrink:0;
+.sett-toggle .sw{width:36px;height:20px;border-radius:999px;background:#c5d4cb;position:relative;flex-shrink:0;
   transition:background .2s}
-.sett-toggle .sw::after{content:'';position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;
+.sett-toggle .sw::after{content:'';position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;
   background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .2s}
 .sett-toggle input:checked + .sw{background:var(--purple)}
-.sett-toggle input:checked + .sw::after{transform:translateX(-18px)}
+.sett-toggle input:checked + .sw::after{transform:translateX(-16px)}
 .sett-toggle .sett-toggle-txt{flex:1;min-width:0}
-.sett-toggle .sett-toggle-txt b{display:block;font-size:13.5px;color:var(--text)}
-.sett-toggle .sett-toggle-txt span{display:block;font-size:11.5px;color:var(--muted);line-height:1.6;margin-top:2px}
-.sett-empty{padding:36px 16px;text-align:center;color:var(--muted);border:1.5px dashed var(--border);border-radius:16px;background:var(--card)}
+.sett-toggle .sett-toggle-txt b{display:block;font-size:13px;color:var(--text)}
+.sett-toggle .sett-toggle-txt span{display:block;font-size:11px;color:var(--muted);line-height:1.55;margin-top:2px}
+.sett-empty{padding:28px 16px;text-align:center;color:var(--muted);border:1.5px dashed var(--border);border-radius:14px;background:var(--card)}
 @media(max-width:900px){
   .sett-layout{grid-template-columns:1fr}
   .sett-nav{position:static;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;
-    max-height:none;padding:8px;gap:6px;scrollbar-width:thin}
-  .sett-nav-btn{flex:0 0 auto;width:auto;min-width:148px;flex-direction:column;align-items:flex-start;gap:8px;padding:10px 12px}
+    max-height:none;padding:6px;gap:4px;scrollbar-width:thin}
+  .sett-nav-btn{flex:0 0 auto;width:auto;min-width:120px;flex-direction:row;align-items:center;gap:6px;padding:8px 10px}
   .sett-nav-btn .sett-nav-meta{display:none}
 }
 
 /* ===== Groups / subgroups shell ===== */
-.grp-shell{display:flex;flex-direction:column;gap:14px}
-.grp-hero{position:relative;overflow:hidden;border-radius:20px;padding:18px 20px;background:var(--hero);color:#fff;box-shadow:var(--shadow-card)}
-.grp-hero::after{content:'';position:absolute;inset:auto -18% -55% auto;width:180px;height:180px;border-radius:50%;
-  background:radial-gradient(circle,rgba(201,168,67,.32),transparent 70%);pointer-events:none}
+.grp-shell{display:flex;flex-direction:column;gap:12px}
+.grp-hero{position:relative;overflow:hidden;border-radius:16px;padding:14px 16px;background:var(--hero);color:#fff;box-shadow:var(--shadow-card)}
+.grp-hero::after{content:'';position:absolute;inset:auto -12% -65% auto;width:100px;height:100px;border-radius:50%;
+  background:radial-gradient(circle,rgba(201,168,67,.22),transparent 70%);pointer-events:none}
 .grp-hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;position:relative;z-index:1}
-.grp-hero h2{margin:0 0 4px;font-size:clamp(16px,2.2vw,22px);font-weight:800}
-.grp-hero p{margin:0;font-size:12.5px;opacity:.88;line-height:1.7;max-width:40rem}
+.grp-hero h2{margin:0 0 4px;font-size:clamp(14px,2vw,17px);font-weight:800;display:flex;align-items:center;gap:7px}
+.grp-hero h2 svg{width:15px;height:15px;flex-shrink:0;opacity:.9}
+.grp-hero p{margin:0;font-size:12px;opacity:.88;line-height:1.7;max-width:40rem}
 .grp-hero-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.grp-hero-actions .btn{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.28)}
+.grp-hero-actions .btn{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.28);padding:7px 12px;font-size:12px}
 .grp-hero-actions .btn:hover{background:rgba(255,255,255,.3)}
 .grp-hero-actions .btn.green{background:var(--green);border-color:transparent}
-.grp-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:14px;position:relative;z-index:1}
-.grp-stat{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:10px 12px}
-.grp-stat .v{font-size:18px;font-weight:800;line-height:1.2}
-.grp-stat .l{font-size:11px;opacity:.85;margin-top:2px}
+.grp-hero-actions .btn svg{width:13px;height:13px}
+.grp-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:12px;position:relative;z-index:1}
+.grp-stat{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:8px 10px}
+.grp-stat .v{font-size:15px;font-weight:800;line-height:1.2}
+.grp-stat .l{font-size:10.5px;opacity:.85;margin-top:2px}
 .grp-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.grp-toolbar input[type="search"]{flex:1;min-width:180px;padding:10px 12px;border:1.5px solid var(--border);border-radius:12px;
-  background:var(--input-bg);color:var(--text);outline:none}
+.grp-toolbar input[type="search"]{flex:1;min-width:180px;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;
+  background:var(--input-bg);color:var(--text);outline:none;font-size:13px}
 .grp-toolbar input[type="search"]:focus{border-color:var(--purple2)}
 .grp-chips{display:flex;gap:6px;flex-wrap:wrap}
-.grp-chip{border:1.5px solid var(--border);background:var(--card);color:var(--muted);border-radius:999px;padding:6px 12px;
-  font-size:12px;font-weight:700;cursor:pointer;transition:background .18s,color .18s,border-color .18s}
+.grp-chip{border:1.5px solid var(--border);background:var(--card);color:var(--muted);border-radius:999px;padding:5px 10px;
+  font-size:11.5px;font-weight:700;cursor:pointer;transition:background .18s,color .18s,border-color .18s}
 .grp-chip:hover{border-color:var(--purple2);color:var(--purple)}
 .grp-chip.active{background:var(--purple);border-color:var(--purple);color:#fff}
-.grp-tree{display:flex;flex-direction:column;gap:10px}
-.grp-node{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-card);overflow:hidden;
-  transition:border-color .18s,transform .15s}
+.grp-tree{display:flex;flex-direction:column;gap:8px}
+.grp-node{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-card);overflow:hidden;
+  transition:border-color .18s}
 .grp-node:hover{border-color:rgba(26,92,56,.28)}
-.grp-node-head{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;user-select:none}
-.grp-node-ico{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+.grp-node-head{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;user-select:none}
+.grp-node-ico{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;
   background:var(--purple-light);color:var(--purple);flex-shrink:0}
-.grp-node-ico svg{width:18px;height:18px}
+.grp-node-ico svg{width:13px;height:13px}
 .grp-node-ico.sub{background:var(--gold-light);color:var(--gold)}
 .grp-node-main{flex:1;min-width:0}
-.grp-node-main b{display:block;font-size:14px;color:var(--text)}
-.grp-node-main .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:3px;font-size:11.5px;color:var(--muted)}
+.grp-node-main b{display:block;font-size:13px;color:var(--text)}
+.grp-node-main .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:2px;font-size:11px;color:var(--muted)}
 .grp-node-ops{display:flex;gap:4px;flex-shrink:0}
 .grp-node-ops .btn{opacity:.85}
-.grp-node-body{padding:0 14px 12px 66px;display:none}
+.grp-node-ops .btn svg{width:12px;height:12px}
+.grp-node-body{padding:0 12px 10px 48px;display:none}
 .grp-node.open > .grp-node-body{display:block}
-.grp-node .grp-chev{width:22px;height:22px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+.grp-node .grp-chev{width:18px;height:18px;border-radius:6px;display:flex;align-items:center;justify-content:center;
   color:var(--muted);transition:transform .2s;flex-shrink:0}
+.grp-node .grp-chev svg{width:12px;height:12px}
 .grp-node.open > .grp-node-head .grp-chev{transform:rotate(-90deg);color:var(--purple)}
-.grp-child{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px dashed var(--border);border-radius:12px;
-  background:var(--well);margin-top:8px}
-.grp-child .grp-node-ico{width:32px;height:32px;border-radius:10px}
-.grp-child .grp-node-ico svg{width:15px;height:15px}
-.grp-empty{padding:40px 16px;text-align:center;color:var(--muted);border:1.5px dashed var(--border);border-radius:16px;background:var(--card)}
-.grp-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
-.grp-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px;box-shadow:var(--shadow-card);
-  display:flex;flex-direction:column;gap:10px;transition:border-color .18s,transform .15s}
-.grp-card:hover{border-color:rgba(26,92,56,.3);transform:translateY(-1px)}
-.grp-card-top{display:flex;align-items:flex-start;gap:10px}
-.grp-card-top .grp-node-ico{width:42px;height:42px}
-.grp-card h4{margin:0;font-size:14px;color:var(--text)}
-.grp-card .muted{font-size:11.5px;line-height:1.6}
+.grp-child{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px dashed var(--border);border-radius:10px;
+  background:var(--well);margin-top:6px}
+.grp-child .grp-node-ico{width:22px;height:22px;border-radius:6px}
+.grp-child .grp-node-ico svg{width:12px;height:12px}
+.grp-empty{padding:28px 16px;text-align:center;color:var(--muted);border:1.5px dashed var(--border);border-radius:14px;background:var(--card)}
+.grp-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.grp-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;box-shadow:var(--shadow-card);
+  display:flex;flex-direction:column;gap:8px;transition:border-color .18s}
+.grp-card:hover{border-color:rgba(26,92,56,.3)}
+.grp-card-top{display:flex;align-items:flex-start;gap:8px}
+.grp-card-top .grp-node-ico{width:26px;height:26px}
+.grp-card h4{margin:0;font-size:13px;color:var(--text)}
+.grp-card .muted{font-size:11px;line-height:1.55}
 .grp-card-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
 .grp-switch{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:2px}
 .grp-switch .btn{font-size:12px}
+.grp-switch .btn svg{width:12px;height:12px}
 @media(max-width:600px){
-  .grp-node-body{padding-right:14px;padding-left:14px}
+  .grp-node-body{padding-right:12px;padding-left:12px}
   .grp-node-ops{flex-wrap:wrap}
 }
 
@@ -1872,8 +1883,6 @@ const NAV_ADMIN = [
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'settings', icon:'⚙️', label:'تنظیمات'},
-  {id:'sms-module', icon:'📱', label:'پیامک'},
-  {id:'backup', icon:'📦', label:'پشتیبان'},
   {id:'api', icon:'🔌', label:'API'},
   {id:'help', icon:'📖', label:'راهنما'},
 ];
@@ -1953,7 +1962,7 @@ function navItems(){
     return accNavForRole();
   }
   // B2B portal is central-only — hide its admin menu on offline device builds
-  if(ME.role==='admin') return (APP_INFO&&APP_INFO.role==='device') ? NAV_ADMIN.filter(it=>it.id!=='b2bOrders'&&it.id!=='backup') : NAV_ADMIN;
+  if(ME.role==='admin') return (APP_INFO&&APP_INFO.role==='device') ? NAV_ADMIN.filter(it=>it.id!=='b2bOrders') : NAV_ADMIN;
   if(ME.role==='accounting' || ME.role==='sales_manager'){
     let items = NAV_ACCOUNTING;
     if(isDesktopApp()){
@@ -11289,7 +11298,7 @@ async function renderAccCompanySettingsTab(body){
     <p class="muted" style="margin-bottom:12px">تنظیمات شرکت، کاربران، پشتیبان‌گیری و ماژول‌ها</p>
     <div style="display:flex;flex-wrap:wrap;gap:8px">
       ${isAdmin()?`<button class="btn sm" onclick="go('settings')">⚙️ تنظیمات سیستم</button>
-      <button class="btn sm" onclick="go('backup')">💾 پشتیبان‌گیری</button>
+      <button class="btn sm" onclick="settOpenTab('backup')">پشتیبان‌گیری</button>
       <button class="btn sm" onclick="go('users')">👤 کاربران</button>`:''}
       <button class="btn sm ghost" onclick="loadAccTab('fiscal-period')">📅 دوره مالی</button>
     </div></div></div>`;
@@ -14501,17 +14510,19 @@ async function linkCoaCode(type, id){
   }catch(e){ showToast('خطا در اتصال حساب','error'); }
 }
 
-ROUTES['sms-module'] = async function(){
-  if(!isAdmin() && ME.role!=='accounting'){ el('view').innerHTML='<div class="empty">دسترسی ندارید</div>'; return; }
+ROUTES['sms-module'] = async function(){ settOpenTab('sms'); };
+async function loadSettSmsPanel(){
+  const box=el('sett-mount-sms'); if(!box) return;
+  if(!isAdmin() && ME.role!=='accounting'){ box.innerHTML='<div class="empty">دسترسی ندارید</div>'; return; }
+  box.innerHTML='<div class="muted" style="padding:12px">در حال بارگذاری...</div>';
   const [provider, templates, options, scheduled] = await Promise.all([
     api('GET','/sms-module/provider').catch(()=>({})),
     api('GET','/sms-module/templates').catch(()=>[]),
     api('GET','/sms-module/options').catch(()=>[]),
     api('GET','/sms-module/scheduled').catch(()=>[])
   ]);
-  el('view').innerHTML=`
-    <h3 style="margin:0 0 14px">📱 ماژول پیامک</h3>
-    <div class="panel"><div class="panel-head"><h4>سرویس‌دهنده</h4></div><div class="panel-body"><div class="form-grid">
+  box.innerHTML=`
+    <div class="panel"><div class="panel-head"><h4>سرویس‌دهنده پیامک</h4></div><div class="panel-body"><div class="form-grid">
       <div class="fg"><label>سرویس</label><select id="sms-prov">
         <option value="kavenegar" ${(provider.sms_provider||'kavenegar')==='kavenegar'?'selected':''}>کاوه‌نگار</option>
         <option value="melipayamak" ${provider.sms_provider==='melipayamak'?'selected':''}>ملی‌پیامک</option>
@@ -14520,38 +14531,39 @@ ROUTES['sms-module'] = async function(){
       </select></div>
       <div class="fg"><label>API Key</label><input id="sms-key" value="${esc(provider.sms_api_key||'')}" dir="ltr"></div>
       <div class="fg"><label>فرستنده</label><input id="sms-from" value="${esc(provider.sms_from||'')}" dir="ltr"></div>
-      <div class="fg full"><button class="btn" onclick="saveSmsProvider()">💾 ذخیره سرویس</button>
+      <div class="fg full"><button class="btn" onclick="saveSmsProvider()">ذخیره سرویس</button>
         <input id="sms-test-phone" placeholder="09…" style="margin:0 8px;padding:8px;border:1px solid var(--border);border-radius:8px;direction:ltr">
-        <button class="btn orange" onclick="testSmsModule()">🧪 تست</button></div>
+        <button class="btn orange" onclick="testSmsModule()">تست</button></div>
     </div></div></div>
     <div class="panel"><div class="panel-head"><h4>قالب‌های عملیاتی</h4>
-      <button class="btn sm" onclick="smsTemplateModal()">➕ قالب</button></div>
+      <button class="btn sm" onclick="smsTemplateModal()">قالب جدید</button></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>رویداد</th><th>فعال</th><th></th></tr></thead>
       <tbody>${(templates||[]).map(t=>`<tr>
         <td class="mono">${esc(t.code)}</td><td>${esc(t.name)}</td><td>${esc(t.event_key||'-')}</td>
         <td>${t.active?'✓':'—'}</td>
-        <td><button class="btn sm ghost" onclick="smsTemplateModal(${t.id})">✏️</button>
-            <button class="btn sm red" onclick="deleteSmsTemplate(${t.id})">🗑️</button></td>
+        <td><button class="btn sm ghost" onclick="smsTemplateModal(${t.id})">ویرایش</button>
+            <button class="btn sm red" onclick="deleteSmsTemplate(${t.id})">حذف</button></td>
       </tr>`).join('')||emptyRow(5)}</tbody></table></div></div>
     <div class="panel"><div class="panel-head"><h4>گزینه‌های ارسال هر بخش</h4>
-      <button class="btn sm" onclick="smsOptionModal()">➕ گزینه</button></div>
+      <button class="btn sm" onclick="smsOptionModal()">گزینه جدید</button></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>بخش</th><th>برچسب</th><th>قالب</th><th>فعال</th><th></th></tr></thead>
       <tbody>${(options||[]).map(o=>`<tr>
         <td>${esc(o.section_key)}</td><td>${esc(o.label)}</td><td>${esc(o.template_name||'-')}</td>
         <td>${o.active?'✓':'—'}</td>
-        <td><button class="btn sm ghost" onclick="smsOptionModal(${o.id})">✏️</button>
-            <button class="btn sm red" onclick="deleteSmsOption(${o.id})">🗑️</button></td>
+        <td><button class="btn sm ghost" onclick="smsOptionModal(${o.id})">ویرایش</button>
+            <button class="btn sm red" onclick="deleteSmsOption(${o.id})">حذف</button></td>
       </tr>`).join('')||emptyRow(5)}</tbody></table></div></div>
     <div class="panel"><div class="panel-head"><h4>پیامک زمان‌بندی‌شده</h4>
-      <button class="btn sm" onclick="smsSchedModal()">➕ زمان‌بندی</button></div>
+      <button class="btn sm" onclick="smsSchedModal()">زمان‌بندی</button></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>شماره</th><th>متن</th><th>زمان</th><th>وضعیت</th><th></th></tr></thead>
       <tbody>${(scheduled||[]).map(s=>`<tr>
         <td class="mono" dir="ltr">${esc(s.phone)}</td><td>${esc((s.body||'').slice(0,60))}</td>
         <td class="mono">${esc(s.send_at)}</td><td>${esc(s.status)}</td>
-        <td>${s.status==='pending'?`<button class="btn sm red" onclick="deleteSmsSched(${s.id})">🗑️</button>`:''}</td>
+        <td>${s.status==='pending'?`<button class="btn sm red" onclick="deleteSmsSched(${s.id})">حذف</button>`:''}</td>
       </tr>`).join('')||emptyRow(5)}</tbody></table></div></div>`;
   window._smsTemplates = templates||[];
-};
+}
+function refreshSettSms(){ if(el('sett-mount-sms')) loadSettSmsPanel(); else settOpenTab('sms'); }
 async function saveSmsProvider(){
   await api('PUT','/sms-module/provider',{sms_provider:el('sms-prov').value,sms_api_key:el('sms-key').value,sms_from:el('sms-from').value});
   showToast('ذخیره شد');
@@ -14580,9 +14592,9 @@ async function saveSmsTemplate(id){
   const data={code:el('st-code').value.trim(),name:el('st-name').value.trim(),event_key:el('st-event').value,body:el('st-body').value,active:el('st-active').checked};
   if(!data.code||!data.name){ showToast('کد و نام الزامی است','error'); return; }
   if(id) await api('PUT','/sms-module/templates/'+id,data); else await api('POST','/sms-module/templates',data);
-  closeModal(); showToast('ذخیره شد'); ROUTES['sms-module']();
+  closeModal(); showToast('ذخیره شد'); refreshSettSms();
 }
-async function deleteSmsTemplate(id){ if(!confirm('حذف شود؟')) return; await api('DELETE','/sms-module/templates/'+id); ROUTES['sms-module'](); }
+async function deleteSmsTemplate(id){ if(!confirm('حذف شود؟')) return; await api('DELETE','/sms-module/templates/'+id); refreshSettSms(); }
 async function smsOptionModal(id){
   const opts=await api('GET','/sms-module/options')||[];
   const tpls=await api('GET','/sms-module/templates')||[];
@@ -14602,9 +14614,9 @@ async function saveSmsOption(id){
   const data={section_key:el('so-section').value.trim(),label:el('so-label').value.trim(),template_id:+el('so-tpl').value||null,active:el('so-active').checked};
   if(!data.section_key||!data.label){ showToast('بخش و برچسب الزامی است','error'); return; }
   if(id) await api('PUT','/sms-module/options/'+id,data); else await api('POST','/sms-module/options',data);
-  closeModal(); ROUTES['sms-module']();
+  closeModal(); refreshSettSms();
 }
-async function deleteSmsOption(id){ if(!confirm('حذف؟')) return; await api('DELETE','/sms-module/options/'+id); ROUTES['sms-module'](); }
+async function deleteSmsOption(id){ if(!confirm('حذف؟')) return; await api('DELETE','/sms-module/options/'+id); refreshSettSms(); }
 async function smsSchedModal(){
   openModal(`<div class="modal-head"><h3>پیامک زمان‌بندی‌شده</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -14620,9 +14632,9 @@ async function saveSmsSched(){
   const phone=el('ss-phone').value.trim(), body=el('ss-body').value.trim(), send_at=el('ss-at').value.trim();
   if(!phone||!body||!send_at){ showToast('همه فیلدها الزامی است','error'); return; }
   await api('POST','/sms-module/scheduled',{phone,body,send_at});
-  closeModal(); showToast('زمان‌بندی شد'); ROUTES['sms-module']();
+  closeModal(); showToast('زمان‌بندی شد'); refreshSettSms();
 }
-async function deleteSmsSched(id){ if(!confirm('حذف؟')) return; await api('DELETE','/sms-module/scheduled/'+id); ROUTES['sms-module'](); }
+async function deleteSmsSched(id){ if(!confirm('حذف؟')) return; await api('DELETE','/sms-module/scheduled/'+id); refreshSettSms(); }
 
 
 function invoiceTemplateSettingsHtml(s){
@@ -14701,7 +14713,9 @@ function invoiceTemplateSettingsHtml(s){
 const SETT_TABS = [
   {id:'general', icon:'building', label:'عمومی', meta:'شرکت، پول، پنجره', keys:'شرکت نام تلفن آدرس ریال واحد پولی پنجره چندگانه به‌روزرسانی دسکتاپ'},
   {id:'invoice', icon:'receipt', label:'قالب فاکتور', meta:'رسمی، عادی، حرارتی', keys:'فاکتور قالب رسمی عادی حرارتی کاغذ لوگو پاورقی چاپ A4 A5'},
-  {id:'messaging', icon:'chat', label:'پیام‌رسان', meta:'تلگرام، روبیکا، پیامک', keys:'تلگرام روبیکا پیامک خوش‌آمد کیمیا bot token'},
+  {id:'messaging', icon:'chat', label:'پیام‌رسان', meta:'تلگرام، روبیکا، خوش‌آمد', keys:'تلگرام روبیکا خوش‌آمد کیمیا bot token'},
+  {id:'sms', icon:'phone', label:'پیامک', meta:'سرویس و قالب‌ها', keys:'پیامک sms کاوه‌نگار قالب زمان‌بندی سرویس‌دهنده'},
+  {id:'backup', icon:'archive', label:'پشتیبان', meta:'بکاپ و بازیابی', keys:'پشتیبان backup بکاپ رمزنگاری بازیابی dump'},
   {id:'web', icon:'plug', label:'وب‌سایت', meta:'سینک موجودی ووکامرس', keys:'وب‌سایت موجودی ووکامرس webhook stock poshaktaranom'},
   {id:'accounting', icon:'wallet', label:'حسابداری', meta:'کدینگ، سال مالی، ماژول', keys:'کدینگ حساب نگاشت سال مالی ماژول تنخواه انبار تولید حقوق VAT فاکتور پیشوند'},
   {id:'features', icon:'sparkles', label:'قابلیت‌ها', meta:'AI و پورتال B2B', keys:'هوش مصنوعی AI کلود B2B پورتال مشتری'},
@@ -14709,6 +14723,7 @@ const SETT_TABS = [
   {id:'danger', icon:'lock', label:'منطقه خطر', meta:'حذف دیتای تست', keys:'حذف wipe تست دیتا بازنشانی خطرناک'}
 ];
 let SETT_ACTIVE_TAB = 'general';
+const SETT_NO_SAVE = new Set(['sms','backup','audit','danger']);
 function settNavHtml(){
   return SETT_TABS.map(t=>`<button type="button" class="sett-nav-btn${t.id===SETT_ACTIVE_TAB?' active':''}" data-sett-tab="${t.id}" data-sett-keys="${t.keys}" onclick="settShowTab('${t.id}')">
     <span class="ico">${lucide(t.icon)}</span>
@@ -14724,8 +14739,16 @@ function settShowTab(id){
   document.querySelectorAll('.sett-panel').forEach(p=>{
     p.classList.toggle('active', p.getAttribute('data-sett')===SETT_ACTIVE_TAB);
   });
+  const bar=document.querySelector('.sett-savebar');
+  if(bar) bar.classList.toggle('sett-savebar-hide', SETT_NO_SAVE.has(SETT_ACTIVE_TAB));
   const main=document.querySelector('.sett-main');
   if(main) main.scrollTop=0;
+  if(SETT_ACTIVE_TAB==='sms') loadSettSmsPanel();
+  if(SETT_ACTIVE_TAB==='backup') loadSettBackupPanel();
+}
+function settOpenTab(id){
+  try{ sessionStorage.setItem('crm_settings_tab', id); }catch(e){}
+  go('settings');
 }
 function settFilterSearch(q){
   q=(q||'').trim().toLowerCase();
@@ -14806,8 +14829,8 @@ ROUTES.settings = async function(){
       </div>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('phone')} پیامک</h4></div><div class="panel-body">
-      <p class="muted" style="margin-bottom:10px">تنظیمات و قالب‌های پیامک به ماژول مستقل «پیامک» منتقل شده است.</p>
-      <button class="btn" onclick="go('sms-module')">${lucide('chat')} باز کردن ماژول پیامک</button>
+      <p class="muted" style="margin-bottom:10px">سرویس‌دهنده، قالب‌ها و زمان‌بندی پیامک در بخش جداگانهٔ تنظیمات است.</p>
+      <button class="btn" onclick="settShowTab('sms')">${lucide('phone')} رفتن به تنظیمات پیامک</button>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('sparkles')} پیامک خوش‌آمدگویی مشتریان</h4></div><div class="panel-body">
       <div class="form-grid">
@@ -14990,6 +15013,8 @@ ROUTES.settings = async function(){
           <div class="sett-panel${SETT_ACTIVE_TAB==='general'?' active':''}" data-sett="general">${generalPanel}</div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='invoice'?' active':''}" data-sett="invoice">${invoiceTemplateSettingsHtml(s)}</div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='messaging'?' active':''}" data-sett="messaging">${messagingPanel}</div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='sms'?' active':''}" data-sett="sms"><div id="sett-mount-sms"><div class="muted" style="padding:16px">در حال بارگذاری ماژول پیامک...</div></div></div>
+          <div class="sett-panel${SETT_ACTIVE_TAB==='backup'?' active':''}" data-sett="backup"><div id="sett-mount-backup"><div class="muted" style="padding:16px">در حال بارگذاری پشتیبان‌گیری...</div></div></div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='web'?' active':''}" data-sett="web">${webPanel}</div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='accounting'?' active':''}" data-sett="accounting">${accountingPanel}</div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='features'?' active':''}" data-sett="features">${featuresPanel}</div>
@@ -15129,32 +15154,34 @@ async function triggerBackupNow(){
 }
 
 /* ============================================================
-   BACKUP PAGE
+   BACKUP PAGE — فقط داخل تنظیمات
 ============================================================ */
-ROUTES.backup = async function(){
-  if(!isAdmin()){ el('view').innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
+ROUTES.backup = async function(){ settOpenTab('backup'); };
+async function loadSettBackupPanel(){
+  const box=el('sett-mount-backup'); if(!box) return;
+  if(!isAdmin()){ box.innerHTML='<div class="empty">فقط مدیران دسترسی دارند</div>'; return; }
   if(isOfflineDevice()){
-    el('view').innerHTML=`<div class="panel"><div class="panel-body" style="line-height:1.9">
-      <h4 style="margin-bottom:10px">⛔ پشتیبان‌گیری فقط روی سرور مرکزی</h4>
-      <p class="muted">Access Denied: Backup operations are strictly restricted to the Central Server environment.</p>
-      <p style="margin-top:12px;font-size:13px">نسخه دسکتاپ و اندروید فقط داده را همگام‌سازی می‌کنند. برای ساخت یا دانلود پشتیبان از <strong>نسخه وب</strong> روی سرور مرکزی استفاده کنید.</p>
+    box.innerHTML=`<div class="panel"><div class="panel-body" style="line-height:1.9">
+      <h4 style="margin-bottom:10px">پشتیبان‌گیری فقط روی سرور مرکزی</h4>
+      <p class="muted">نسخه دسکتاپ و اندروید فقط داده را همگام‌سازی می‌کنند. برای ساخت یا دانلود پشتیبان از نسخه وب روی سرور مرکزی استفاده کنید.</p>
     </div></div>`;
     return;
   }
+  box.innerHTML='<div class="muted" style="padding:12px">در حال بارگذاری...</div>';
   const backups = await api('GET','/admin/backups').catch(()=>[]);
   const settings = await api('GET','/settings').catch(()=>({}));
   const encOn = !!(settings && settings.backup_password);
-  el('view').innerHTML=`
+  box.innerHTML=`
     <div class="panel">
-      <div class="panel-head"><h4>📦 پشتیبان‌گیری پیشرفته</h4></div>
+      <div class="panel-head"><h4>پشتیبان‌گیری پیشرفته</h4></div>
       <div class="panel-body">
         <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
           هر شب ساعت ۰۰:۰۰ پشتیبان خودکار ساخته می‌شود. تا ${fmt(14)} نسخهٔ قبلی نگه داشته می‌شود.
           هر پشتیبان شامل <strong>دیتابیس</strong> و <strong>تصاویر آپلودشده</strong> است.
         </p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
-          <button class="btn green" onclick="downloadBackup()">⬇️ ساخت و دانلود آخرین پشتیبان</button>
-          <button class="btn" onclick="refreshBackupList()">🔄 بروزرسانی لیست</button>
+          <button class="btn green" onclick="downloadBackup()">ساخت و دانلود آخرین پشتیبان</button>
+          <button class="btn" onclick="refreshBackupList()">بروزرسانی لیست</button>
           <span id="bk-status" style="font-size:13px;color:var(--muted);align-self:center"></span>
         </div>
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>فایل</th><th>حجم</th><th>رمزنگاری</th><th>تاریخ</th><th></th></tr></thead><tbody id="bk-tbody">
@@ -15163,47 +15190,46 @@ ROUTES.backup = async function(){
             <td>${esc(b.sizeMB)} MB</td>
             <td>${b.encrypted?'🔒':'—'}</td>
             <td>${new Date(b.created_at*1000).toLocaleString('fa-IR')}</td>
-            <td><button class="btn sm" onclick="downloadNamedBackup('${esc(b.name)}')">⬇️</button></td>
+            <td><button class="btn sm" onclick="downloadNamedBackup('${esc(b.name)}')">دانلود</button></td>
           </tr>`).join('') || '<tr><td colspan="5" class="muted">هنوز پشتیبانی ثبت نشده</td></tr>'}
         </tbody></table></div>
       </div>
     </div>
 
     <div class="panel" style="margin-top:16px">
-      <div class="panel-head"><h4>🔐 رمزنگاری پشتیبان</h4></div>
+      <div class="panel-head"><h4>رمزنگاری پشتیبان</h4></div>
       <div class="panel-body">
         <p style="font-size:13px;margin-bottom:12px;color:${encOn?'var(--green)':'var(--orange)'}">
-          ${encOn?'✅ رمزنگاری فعال است — پشتیبان‌های جدید به‌صورت AES-256 رمزنگاری می‌شوند (پسوند .enc)':'⚠️ رمزنگاری غیرفعال است — فایل پشتیبان شامل کل دیتابیس (مشتریان، حساب‌ها، کاربران) به‌صورت خام است. تعیین رمز به‌شدت توصیه می‌شود.'}
+          ${encOn?'رمزنگاری فعال است — پشتیبان‌های جدید به‌صورت AES-256 رمزنگاری می‌شوند (پسوند .enc)':'رمزنگاری غیرفعال است — تعیین رمز به‌شدت توصیه می‌شود.'}
         </p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
           <input id="bk-enc-pass" type="password" dir="ltr" placeholder="رمز پشتیبان (حداقل ۸ کاراکتر)" style="max-width:280px">
-          <button class="btn" onclick="saveBackupPassword()">💾 ذخیره رمز</button>
-          ${encOn?'<button class="btn ghost" onclick="clearBackupPassword()">حذف رمز (غیرفعال‌سازی)</button>':''}
+          <button class="btn" onclick="saveBackupPassword()">ذخیره رمز</button>
+          ${encOn?'<button class="btn ghost" onclick="clearBackupPassword()">حذف رمز</button>':''}
         </div>
         <p style="font-size:12px;color:var(--muted);margin-top:12px;line-height:1.9">
           این رمز را جای امن نگه دارید — <b>بدون آن هیچ پشتیبان رمزنگاری‌شده‌ای قابل بازیابی نیست</b>.
-          بازگشایی فایل: <code dir="ltr">node server/scripts/decrypt-backup.js فایل.tar.gz.enc</code>
-          ${isDesktopApp()?'<br>ℹ️ تعیین/تغییر رمز فقط روی سرور مرکزی انجام می‌شود و با همگام‌سازی به این دستگاه می‌رسد.':''}
+          بازگشایی: <code dir="ltr">node server/scripts/decrypt-backup.js فایل.tar.gz.enc</code>
         </p>
       </div>
     </div>
 
     <div class="panel" style="margin-top:16px">
-      <div class="panel-head"><h4>♻️ بازیابی از پشتیبان</h4></div>
+      <div class="panel-head"><h4>بازیابی از پشتیبان</h4></div>
       <div class="panel-body">
         <p style="font-size:13px;color:var(--red);margin-bottom:12px;line-height:1.9">
           <b>هشدار:</b> بازیابی دیتابیس فعلی را جایگزین می‌کند. قبل از بازیابی حتماً یک پشتیبان تازه بگیرید.
-          پس از بازیابی PM2/سرور را مجدداً راه‌اندازی کنید.
         </p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
           <input type="file" id="bk-restore-file" accept=".zip,.tar.gz,.enc" style="max-width:320px">
-          <button class="btn red" onclick="restoreBackupUpload()">♻️ بازیابی</button>
+          <button class="btn red" onclick="restoreBackupUpload()">بازیابی</button>
           <span id="bk-restore-status" class="muted" style="font-size:12px"></span>
         </div>
       </div>
     </div>`;
-};
-async function refreshBackupList(){ ROUTES.backup(); }
+}
+function refreshSettBackup(){ if(el('sett-mount-backup')) loadSettBackupPanel(); else settOpenTab('backup'); }
+async function refreshBackupList(){ refreshSettBackup(); }
 async function restoreBackupUpload(){
   if(!guardBackupAccess()) return;
   const f=el('bk-restore-file')?.files?.[0];
@@ -15225,13 +15251,13 @@ async function saveBackupPassword(){
   if(!p || p.length<8){ showToast('رمز پشتیبان باید حداقل ۸ کاراکتر باشد','error'); return; }
   await api('PUT','/settings',{backup_password:p});
   showToast('رمز پشتیبان ذخیره شد — پشتیبان‌های بعدی رمزنگاری می‌شوند');
-  ROUTES.backup();
+  refreshSettBackup();
 }
 async function clearBackupPassword(){
   if(!confirm('رمزنگاری پشتیبان غیرفعال شود؟ پشتیبان‌های بعدی بدون رمز ساخته می‌شوند.')) return;
   await api('PUT','/settings',{backup_password:''});
   showToast('رمزنگاری پشتیبان غیرفعال شد');
-  ROUTES.backup();
+  refreshSettBackup();
 }
 async function downloadNamedBackup(name){
   if(!guardBackupAccess()) return;
@@ -15744,6 +15770,7 @@ function renderAdminGuide(){
         <li><b>عمومی</b>: اطلاعات شرکت، واحد پولی، پنجره‌های چندگانه، به‌روزرسانی دسکتاپ</li>
         <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی و شخصی‌سازی چاپ</li>
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
+        <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
         <li><b>وب‌سایت</b>: سینک موجودی ووکامرس</li>
         <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی، ماژول‌ها</li>
         <li><b>قابلیت‌ها</b>: دستیار AI و پورتال B2B</li>
