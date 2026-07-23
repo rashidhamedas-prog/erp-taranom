@@ -16234,8 +16234,9 @@ function renderAdminGuide(){
         <li>در <b>تنظیمات</b> (و روی دستگاه: «تنظیمات برنامه») پنل <b>⬆️ به‌روزرسانی نرم‌افزار</b> هست — دکمه «بررسی به‌روزرسانی»</li>
         <li>اگر نسخه جدید باشد، علاوه بر بنر، در <b>زنگوله اعلان‌ها</b> هم ثبت می‌شود؛ با زدن اعلان به همان پنل می‌روید</li>
         <li><b>ویندوز</b>: دانلود و نصب از همان دکمه؛ حین دانلود درصد پیشرفت نمایش داده می‌شود</li>
-        <li><b>اندروید</b>: دانلود APK + اعلان سیستمی گوشی (نیاز به اجازه اعلان در اندروید ۱۳+)</li>
+        <li><b>اندروید</b>: اگر لینک دانلود باشد از همان دکمه؛ وگرنه APK را از مدیر بگیرید (sideload). اعلان سیستمی گوشی برای نسخه جدید (اجازه اعلان در اندروید ۱۳+)</li>
         <li>وب: با Hard Refresh (Ctrl+Shift+R) به‌روز می‌شود</li>
+        <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
       <h5>حالت تاریک (شب مخملی)</h5><p>با دکمهٔ <b>خاموش/روشن (آیکون power)</b> در گوشهٔ پایین چپ صفحه، منوی حساب باز می‌شود؛ از آنجا «حالت تاریک» را بزنید. ظاهر برنامه بین تم روشن «زمرد مدرن» و تم تاریک «شب مخملی» جابه‌جا می‌شود. انتخاب شما روی همین دستگاه ذخیره می‌ماند. چاپ فاکتور و گزارش‌ها همیشه با پس‌زمینه روشن انجام می‌شود، حتی در حالت تاریک.</p>
@@ -16749,18 +16750,19 @@ function detectClientPlatform(){
 async function initAppUpdate(){
   try{
     APP_INFO = await fetch('/api/system/app-info').then(r=>r.json());
-    const platform = (APP_INFO && APP_INFO.platform==='device') ? detectClientPlatform() : detectClientPlatform();
-    if(platform==='desktop' && APP_INFO?.role==='device'){
+    const platform = detectClientPlatform();
+    if(platform==='desktop' && (APP_INFO?.role==='device' || isDesktopApp())){
       await initDesktopUpdate();
-      setInterval(checkAppUpdate, 6*60*60*1000);
+      setInterval(()=>checkAppUpdate(false), 6*60*60*1000);
       return;
     }
-    if(platform==='android' && APP_INFO?.role==='device'){
-      await checkAppUpdate();
-      setInterval(checkAppUpdate, 6*60*60*1000);
+    if(platform==='android'){
+      await checkAppUpdate(false);
+      setInterval(()=>checkAppUpdate(false), 6*60*60*1000);
       return;
     }
-    // وب مرکزی: فقط نمایش نسخه در پنل تنظیمات
+    // وب مرکزی: پنل نسخه در تنظیمات؛ اعلان آپدیت برای اپ‌هاست
+    renderAppUpdateUI();
   }catch(e){}
 }
 
@@ -16789,6 +16791,7 @@ function appUpdatePanelHtml(){
 }
 function desktopUpdatePanelHtml(){ return appUpdatePanelHtml(); }
 
+let _lastNativeUpdateNotifVer = '';
 async function registerUpdateNotification(u){
   if(!u || !u.update_available || !u.latest_version) return;
   try{
@@ -16799,12 +16802,14 @@ async function registerUpdateNotification(u){
     }, false, true);
     refreshPendingBadge();
   }catch{}
-  // نوتیفیکیشن سیستمی اندروید
+  // نوتیفیکیشن سیستمی اندروید (یک‌بار برای هر نسخه در همین نشست)
   try{
-    if(window.AndroidBridge && typeof AndroidBridge.notifyUpdate==='function'){
+    const ver = String(u.latest_version);
+    if(window.AndroidBridge && typeof AndroidBridge.notifyUpdate==='function' && _lastNativeUpdateNotifVer!==ver){
+      _lastNativeUpdateNotifVer = ver;
       AndroidBridge.notifyUpdate(
-        'به‌روزرسانی ERP ترنم '+(u.latest_version||''),
-        u.notes || 'نسخه جدید آماده نصب است'
+        'به‌روزرسانی ERP ترنم '+ver,
+        u.notes || 'نسخه جدید آماده است — از تنظیمات برنامه نصب کنید'
       );
     }
   }catch{}
@@ -16870,7 +16875,12 @@ function renderAppUpdateUI(){
   if(progWrap) progWrap.style.display='none';
   let msgText='برای بررسی نسخه جدید، دکمه را بزنید.', btnLabel='🔄 بررسی به‌روزرسانی', btnDisabled=false, btnGreen=false;
   if(u.status==='checking'){ msgText='در حال بررسی...'; btnLabel='در حال بررسی...'; btnDisabled=true; }
-  else if(u.status==='available'){ msgText=`نسخه ${u.latestVersion} موجود است.`+(u.notes?' — '+u.notes:''); btnLabel=`⬇️ دانلود / نصب ${u.latestVersion}`; btnGreen=true; }
+  else if(u.status==='available'){
+    msgText=`نسخه ${u.latestVersion} موجود است.`+(u.notes?' — '+u.notes:'');
+    if(u.url){ btnLabel=`⬇️ دانلود / نصب ${u.latestVersion}`; btnGreen=true; }
+    else if(plat==='android'){ msgText+=' فایل APK را از مدیر سیستم دریافت و نصب کنید (نصب محلی).'; btnLabel='✅ متوجه شدم'; btnGreen=true; }
+    else { btnLabel='🔄 بررسی مجدد'; }
+  }
   else if(u.status==='uptodate'){ msgText='✅ شما از آخرین نسخه استفاده می‌کنید.'; }
   else if(u.status==='error'){ msgText='❌ '+(u.error||'خطا'); }
   else if(plat==='web'){ msgText='نسخه وب با بازخوانی صفحه (Ctrl+Shift+R) به‌روز می‌شود. برای اپ ویندوز/اندروید از همان دکمه روی دستگاه استفاده کنید.'; btnLabel='🔄 بازخوانی صفحه'; }
@@ -16892,6 +16902,10 @@ function appUpdateMainAction(){
   }
   if(plat==='android'){
     if(APP_UPDATE_UI.status==='available' && APP_UPDATE_UI.url){ doAppUpdate(); return; }
+    if(APP_UPDATE_UI.status==='available' && !APP_UPDATE_UI.url){
+      showToast('نسخه جدید آماده است — APK را از مدیر دریافت و نصب کنید');
+      return;
+    }
     return checkAppUpdate(true);
   }
   // وب
@@ -16913,10 +16927,27 @@ async function initDesktopUpdate(){
     try{
       DESKTOP_UPDATE = await window.desktopAPI.getUpdateStatus();
       if(!DESKTOP_UPDATE.currentVersion) DESKTOP_UPDATE.currentVersion=APP_INFO?.version;
-      window.desktopAPI.onUpdateStatus(st=>{ DESKTOP_UPDATE=st; renderDesktopUpdateUI(); });
+      window.desktopAPI.onUpdateStatus(st=>{
+        DESKTOP_UPDATE=st;
+        if(st && (st.status==='ready'||st.status==='available-fallback'||st.status==='downloading') && st.latestVersion){
+          registerUpdateNotification({
+            update_available:true,
+            latest_version:st.latestVersion,
+            notes:'نسخه جدید دسکتاپ آماده است',
+            platform:'desktop',
+            url:st.fallbackUrl||null
+          });
+        }
+        if(st && st.status==='error'){
+          // feed الکترون نبود — مسیر manifest
+          desktopCheckUpdateFallback();
+          return;
+        }
+        renderDesktopUpdateUI();
+      });
       renderDesktopUpdateUI();
       await window.desktopAPI.checkForUpdates();
-    }catch(e){}
+    }catch(e){ await desktopCheckUpdateFallback(); }
     return;
   }
   await desktopCheckUpdateFallback();
@@ -16965,18 +16996,31 @@ async function desktopInstallUpdate(){
 
 async function checkAppUpdate(fromUi){
   const platform = detectClientPlatform();
-  if(platform==='web'){ renderAppUpdateUI(); return; }
+  if(platform==='desktop' && window.desktopAPI && !fromUi){
+    renderAppUpdateUI();
+    return;
+  }
   if(!APP_INFO){
     try{ APP_INFO = await fetch('/api/system/app-info').then(r=>r.json()); }catch{ return; }
   }
-  APP_UPDATE_UI = { ...APP_UPDATE_UI, status:'checking', platform, currentVersion: APP_INFO.version||'—' };
+  if(platform==='web'){
+    APP_UPDATE_UI = {
+      status:'idle', platform:'web',
+      currentVersion: APP_INFO.manifest?.web?.version || APP_INFO.version || '—',
+      latestVersion:null, notes:'', url:null
+    };
+    if(fromUi || el('du-current')) renderAppUpdateUI();
+    return;
+  }
+  const clientVer = APP_INFO.version || '0';
+  APP_UPDATE_UI = { ...APP_UPDATE_UI, status:'checking', platform, currentVersion: clientVer||'—' };
   if(fromUi) renderAppUpdateUI();
   try{
-    const r = await fetch(`/api/system/app-update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(APP_INFO.version||'0')}`);
+    const r = await fetch(`/api/system/app-update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(clientVer||'0')}`);
     if(!r.ok){ APP_UPDATE_UI.status='error'; APP_UPDATE_UI.error='خطا در ارتباط'; if(fromUi) renderAppUpdateUI(); return; }
     PENDING_UPDATE = await r.json();
     PENDING_UPDATE.platform = platform;
-    APP_UPDATE_UI.currentVersion = PENDING_UPDATE.current || APP_INFO.version || '—';
+    APP_UPDATE_UI.currentVersion = PENDING_UPDATE.current || clientVer || '—';
     if(PENDING_UPDATE.update_available){
       APP_UPDATE_UI.status='available';
       APP_UPDATE_UI.latestVersion = PENDING_UPDATE.latest_version;

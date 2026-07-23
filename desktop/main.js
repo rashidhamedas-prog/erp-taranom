@@ -19,7 +19,8 @@ let updateState = {
   currentVersion: pkg.version || '1.0.4',
   latestVersion: null,
   percent: 0,
-  error: null
+  error: null,
+  fallbackUrl: null
 };
 
 function broadcastUpdateState() {
@@ -77,23 +78,48 @@ async function applyUpdateFeed(port) {
   }
 }
 
+/** وقتی feed الکترون خالی است، از API داخلی/مرکز نسخه را چک کن */
+async function checkUpdateViaManifest(port) {
+  try {
+    const current = updateState.currentVersion || pkg.version || '0';
+    const r = await fetch(
+      `http://127.0.0.1:${port}/api/system/app-update?platform=desktop&version=${encodeURIComponent(current)}`
+    );
+    if (!r.ok) throw new Error('خطا در ارتباط با سرور');
+    const u = await r.json();
+    if (u.update_available) {
+      updateState.status = 'available-fallback';
+      updateState.latestVersion = u.latest_version;
+      updateState.fallbackUrl = u.url || null;
+      updateState.error = null;
+    } else {
+      updateState.status = 'uptodate';
+      updateState.latestVersion = null;
+      updateState.fallbackUrl = null;
+      updateState.error = null;
+    }
+  } catch (e) {
+    updateState.status = 'error';
+    updateState.error = e.message || 'خطا در بررسی به‌روزرسانی';
+  }
+  broadcastUpdateState();
+  return updateState;
+}
+
 async function checkForUpdates(port) {
-  if (!autoUpdater) return updateState;
+  if (!autoUpdater) return checkUpdateViaManifest(port);
   updateState.error = null;
   updateState.status = 'checking';
   broadcastUpdateState();
   if (!(await applyUpdateFeed(port))) {
-    updateState.status = 'error';
-    updateState.error = 'اتصال به سرور مرکزی برای بررسی به‌روزرسانی برقرار نیست';
-    broadcastUpdateState();
-    return updateState;
+    // بدون feed الکترون — مسیر manifest/فایل نصب
+    return checkUpdateViaManifest(port);
   }
   try {
     await autoUpdater.checkForUpdates();
   } catch (e) {
-    updateState.status = 'error';
-    updateState.error = e.message;
-    broadcastUpdateState();
+    // اگر autoUpdater شکست خورد، باز هم manifest را امتحان کن
+    return checkUpdateViaManifest(port);
   }
   return updateState;
 }

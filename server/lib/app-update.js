@@ -31,22 +31,31 @@ function compareVersion(a, b) {
   return 0;
 }
 
+/**
+ * پاسخ بررسی آپدیت.
+ * update_available فقط بر اساس نسخه است (حتی اگر لینک دانلود نباشد — مثل اندروید sideload).
+ * downloadable وقتی true است که url قابل استفاده وجود داشته باشد.
+ */
 function buildUpdateResponse(platform, current, manifest, baseUrl) {
   const latest = manifest[platform] || {};
   const latestVersion = latest.version || '0';
   const hasUrl = !!(latest.url && String(latest.url).trim());
-  const updateAvailable = hasUrl && compareVersion(current, latestVersion) < 0;
+  const newer = compareVersion(current, latestVersion) < 0;
+  const updateAvailable = newer;
   let url = hasUrl ? latest.url : null;
   if (url && !url.startsWith('http') && baseUrl) {
     url = baseUrl.replace(/\/$/, '') + url;
   }
+  const distribution = latest.distribution
+    || (platform === 'android' && !hasUrl ? 'local' : 'server');
   return {
     platform,
     current,
     latest_version: latestVersion,
     version_code: latest.versionCode || null,
     update_available: updateAvailable,
-    distribution: latest.distribution || (platform === 'android' && !hasUrl ? 'local' : 'server'),
+    downloadable: hasUrl && newer,
+    distribution,
     url,
     notes: latest.notes || ''
   };
