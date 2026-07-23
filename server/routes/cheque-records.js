@@ -59,7 +59,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       const journalId = postToLedger(db, {
         sourceType: 'opening_cheque', sourceId: result.lastInsertRowid,
         date: issue_date || todayJalali(), description: `چک ${direction === 'in' ? 'دریافتنی' : 'پرداختنی'} اول دوره ${cheque_number || ''}`,
-        createdBy: req.user.id, lines,
+        createdBy: req.user.id, voucherType: 'opening',
+        srcSystem: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
+        lines,
       });
       db.prepare('UPDATE cheque_records SET journal_entry_id=? WHERE id=?').run(journalId, result.lastInsertRowid);
     }

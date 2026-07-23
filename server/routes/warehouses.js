@@ -415,13 +415,21 @@ router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
       }
       if (type !== 'transfer' && totalAmountRial > 0) {
         const inventory = acct(db, 'coa_inventory');
-        const counterpart = acct(db, type === 'receipt' ? 'coa_adjustment' : 'coa_inventory_loss');
+        const isOpening = !!(req.body.opening || /اول\s*دوره|افتتاحیه|موجودی\s*اول/i.test(String(note || '')));
+        const counterpart = acct(db, type === 'receipt'
+          ? (isOpening ? 'coa_opening_balance' : 'coa_adjustment')
+          : 'coa_inventory_loss');
         const amountToman = totalAmountRial / 10;
         const jeId = postToLedger(db, {
-          sourceType: `warehouse_${type}_batch`, sourceId: ids[0],
+          sourceType: isOpening && type === 'receipt' ? 'opening_inventory' : `warehouse_${type}_batch`,
+          sourceId: ids[0],
           date: date || todayJalali(),
-          description: `${type === 'receipt' ? 'رسید' : 'حواله'} انبار (${ids.length} ردیف)`,
+          description: isOpening && type === 'receipt'
+            ? `موجودی اول دوره — رسید انبار (${ids.length} ردیف)`
+            : `${type === 'receipt' ? 'رسید' : 'حواله'} انبار (${ids.length} ردیف)`,
           createdBy: req.user.id,
+          voucherType: isOpening && type === 'receipt' ? 'opening' : 'auto',
+          srcSystem: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
           lines: type === 'receipt'
             ? [
               { code: inventory.code, name: inventory.name, debit: amountToman, credit: 0 },

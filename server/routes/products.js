@@ -400,31 +400,57 @@ router.post('/quick', auth, adminOrAccounting, (req, res) => {
   const defaultWarehouse = warehouse_id || db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get()?.id || null;
   const prodCode = (code && String(code).trim()) || nextProductCode(db);
   const openingStock = Math.max(0, parseQty(stock, 0));
-  const pid = db.transaction(() => {
-    const result = db.prepare(`
-      INSERT INTO products (
-        user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,warehouse_id,
-        note,colors,pack_size,barcode,full_name,product_type,product_index,tax_id,consumer_price,
-        location,opening_price,sms_code,tax_stuff_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(
-      req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0,
-      openingStock, parseInt(stock_alert, 10) || 5, unit || 'عدد', defaultWarehouse,
-      note || '', Math.max(1, parseInt(colors, 10) || 1), Math.max(1, parseInt(pack_size, 10) || 1),
-      String(barcode || '').trim() || null, full_name || '', product_type || '', product_index || '',
-      tax_id || '', parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0,
-      sms_code || '', String(req.body.tax_stuff_id || '').trim() || null
-    );
-    if (defaultWarehouse) {
-      db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-        .run(result.lastInsertRowid, defaultWarehouse, openingStock);
-    }
-    try {
-      const cc = allocTafsili(db, 'product', name);
-      if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid);
-    } catch (_) { /* optional in legacy mode */ }
-    return result.lastInsertRowid;
-  })();
+  const costRial = Math.round(parseFloat(cost) || 0);
+  const openingPriceRial = Math.round(parseFloat(opening_price) || 0);
+  const unitCostForOpening = costRial || openingPriceRial;
+  let pid;
+  try {
+    pid = db.transaction(() => {
+      const result = db.prepare(`
+        INSERT INTO products (
+          user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,warehouse_id,
+          note,colors,pack_size,barcode,full_name,product_type,product_index,tax_id,consumer_price,
+          location,opening_price,sms_code,tax_stuff_id
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, costRial,
+        openingStock, parseInt(stock_alert, 10) || 5, unit || 'عدد', defaultWarehouse,
+        note || '', Math.max(1, parseInt(colors, 10) || 1), Math.max(1, parseInt(pack_size, 10) || 1),
+        String(barcode || '').trim() || null, full_name || '', product_type || '', product_index || '',
+        tax_id || '', parseFloat(consumer_price) || 0, location || '', openingPriceRial,
+        sms_code || '', String(req.body.tax_stuff_id || '').trim() || null
+      );
+      const productId = result.lastInsertRowid;
+      if (defaultWarehouse) {
+        db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
+          .run(productId, defaultWarehouse, openingStock);
+      }
+      try {
+        const cc = allocTafsili(db, 'product', name);
+        if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, productId);
+      } catch (_) { /* optional in legacy mode */ }
+      if (openingStock > 0 && unitCostForOpening > 0) {
+        const { postProductOpeningInventory } = require('../lib/opening-post');
+        postProductOpeningInventory(db, {
+          productId,
+          qty: openingStock,
+          unitCostRial: unitCostForOpening,
+          userId: req.user.id,
+          srcSystem: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
+        });
+      }
+      if (openingStock > 0) {
+        try {
+          db.prepare('INSERT INTO stock_logs (product_id,change,reason,user_id) VALUES (?,?,?,?)')
+            .run(productId, openingStock, 'موجودی اول دوره', req.user.id);
+        } catch (_) {}
+      }
+      return productId;
+    })();
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
   audit(req.user.id, 'create', 'product', pid, `ساخت سریع محصول ${name}`);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(pid));
 });
@@ -470,6 +496,22 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
   if (defaultWarehouse) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
       .run(result.lastInsertRowid, defaultWarehouse.id, parseQty(stock));
+  }
+  try {
+    const openQty = parseQty(stock);
+    const unitCost = Math.round(parseFloat(cost) || parseFloat(opening_price) || 0);
+    if (openQty > 0 && unitCost > 0) {
+      const { postProductOpeningInventory } = require('../lib/opening-post');
+      postProductOpeningInventory(db, {
+        productId: result.lastInsertRowid,
+        qty: openQty,
+        unitCostRial: unitCost,
+        userId: req.user.id,
+        srcSystem: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
+      });
+    }
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
   }
   if (req.body.retail_price != null && req.body.retail_price !== '') {
     const rp = Math.round(parseFloat(req.body.retail_price) || 0);

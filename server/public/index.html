@@ -5349,39 +5349,6 @@ async function fiscalFactoryReset(){
   const r=await api('POST','/fiscal-year/factory-reset',{confirm_text:text,confirm_password:pass});
   if(r?.ok){ showToast('بازنشانی انجام شد — صفحه را رفرش کنید'); location.reload(); }
 }
-async function loadDataWipeSections(){
-  const box=el('dataWipeSections'); if(!box) return;
-  try{
-    const sections=await api('GET','/admin/data-wipe/sections')||[];
-    if(!sections.length){ box.innerHTML='<div class="muted">بخشی یافت نشد</div>'; return; }
-    box.innerHTML=`<div style="display:grid;gap:10px">${sections.map(s=>`
-      <div style="border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--card)">
-        <div style="font-weight:700;margin-bottom:6px">${esc(s.label)} <span class="muted" style="font-weight:400;font-size:12px">(${esc(s.key)})</span></div>
-        <div class="muted" style="font-size:12px;margin-bottom:8px">تراکنش≈${fmt(s.tx_rows)} ردیف · کامل≈${fmt(s.full_rows)} ردیف · تأیید: <code>${esc(s.confirm_prefix)}</code></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn sm orange" onclick="runDataWipe('${esc(s.key)}','transactions','${esc(s.confirm_prefix)}')">حذف تراکنش‌ها</button>
-          <button class="btn sm red" onclick="runDataWipe('${esc(s.key)}','full','${esc(s.confirm_prefix)}')">حذف کامل</button>
-        </div>
-      </div>`).join('')}</div>`;
-  }catch(e){
-    box.innerHTML='<div class="muted" style="color:#dc2626">بارگذاری بخش‌ها ناموفق بود</div>';
-  }
-}
-async function runDataWipe(section, mode, confirmPrefix){
-  const modeLabel=mode==='full'?'حذف کامل (پایه+تراکنش)':'حذف تراکنش‌ها';
-  const text=prompt(`برای تأیید «${modeLabel}» بخش ${section}، عبارت ${confirmPrefix} را تایپ کنید:`);
-  if(text!==confirmPrefix){ if(text!=null) showToast('متن تأیید نادرست است','error'); return; }
-  const pass=prompt('رمز عبور مدیر را وارد کنید:');
-  if(!pass) return;
-  if(!confirm(`هشدار نهایی: ${modeLabel} برای بخش «${section}» انجام شود؟ این عمل برگشت‌پذیر نیست.`)) return;
-  try{
-    const r=await api('POST','/admin/data-wipe/wipe',{section, mode, confirm_text:text, confirm_password:pass});
-    if(r?.ok){
-      showToast(`پاک‌سازی انجام شد — ${fmt((r.wiped||[]).length)} جدول`);
-      loadDataWipeSections();
-    }
-  }catch(e){}
-}
 async function fiscalLock(id){
   if(!confirm('سال مالی قفل شود؟ ثبت سند جدید در این سال مسدود می‌شود.')) return;
   await api('POST','/fiscal-year/'+id+'/lock',{});
@@ -10387,6 +10354,7 @@ async function renderVouchersTab(body){
         <div style="background:var(--purple-light);padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:12px">
           <span style="font-weight:700">📝 <span class="mono">${esc(e.entry_date||'-')}</span> — ${esc(e.description||'-')}</span>
           <span style="display:flex;align-items:center;gap:8px">
+            ${journalOriginBadgeHtml(e)}
             <span class="muted">${esc(e.created_by_name||'-')}</span>
             ${e.attachment?`<a href="/uploads/vouchers/${esc(e.attachment)}" target="_blank" class="btn sm blue icon" title="مشاهده پیوست">📎</a>`:''}
             <button class="btn sm ghost icon" title="افزودن/تعویض پیوست" onclick="uploadVoucherAttachment(${e.id})">📎</button>
@@ -11218,9 +11186,28 @@ async function renderAccIncomesTab(body){
 const REF_TYPE_FA={
   manual_voucher:'سند دستی',invoice:'فاکتور فروش',settlement:'تسویه',settlement_reversal:'ابطال تسویه',
   purchase:'فاکتور خرید',purchase_return:'برگشت خرید',sales_return:'برگشت فروش',sales_return_reversal:'ابطال برگشت فروش',
-  opening:'مانده اول دوره',incentive_payment:'پرداخت انگیزه',incentive_payment_reversal:'ابطال انگیزه',
-  bank_transfer:'انتقال بانکی',expense:'هزینه',vat:'مالیات',depreciation:'استهلاک',revaluation:'تسعیر'
+  opening:'مانده اول دوره',opening_balance:'مانده اول دوره',opening_cheque:'چک اول دوره',
+  opening_inventory:'موجودی اول دوره',fiscal_opening:'افتتاحیه سال مالی',excel_import:'ورود اکسل',
+  warehouse_receipt_batch:'رسید انبار',warehouse_issue_batch:'حواله انبار',
+  expense_payment:'پرداخت هزینه',expense:'هزینه',incentive_payment:'پرداخت انگیزه',incentive_payment_reversal:'ابطال انگیزه',
+  bank_transfer:'انتقال بانکی',vat:'مالیات',depreciation:'استهلاک',revaluation:'تسعیر',
+  supplier_payment:'پرداخت تأمین',payroll:'حقوق',cheque_settlement:'عملیات چک'
 };
+const OPENING_REF_TYPES=new Set(['opening','opening_balance','opening_cheque','opening_inventory','fiscal_opening']);
+function journalOriginBadge(e){
+  const vt=String(e.voucher_type||'').toLowerCase();
+  const rt=String(e.ref_type||'').toLowerCase();
+  const isOpening=vt==='opening'||OPENING_REF_TYPES.has(rt)||rt.includes('opening');
+  const isManual=vt==='manual'||rt==='manual_voucher';
+  if(isOpening) return {label:'افتتاحیه',style:'background:#fef3c7;color:#92400e;border:1px solid #fcd34d'};
+  if(isManual) return {label:'دستی',style:'background:#f3f4f6;color:#374151;border:1px solid #d1d5db'};
+  return {label:'اتومات',style:'background:#dbeafe;color:#1e40af;border:1px solid #93c5fd'};
+}
+function journalOriginBadgeHtml(e){
+  const b=journalOriginBadge(e);
+  const excel=e.src_system==='excel'?`<span class="tag" style="background:#ecfdf5;color:#065f46;border:1px solid #6ee7b7;font-size:10px">اکسل</span>`:'';
+  return `<span class="tag" style="${b.style};font-size:10px;font-weight:700">${b.label}</span>${excel}`;
+}
 function coaDepthOf(accounts){
   const byCode={}; (accounts||[]).forEach(a=>{ byCode[a.code]=a; });
   function depth(code,seen=new Set()){
@@ -11515,7 +11502,7 @@ async function renderJournalDocsTab(body){
   const d=await api('GET','/accounting/journal'+dq)||{entries:[]};
   const entries=d.entries||[];
   body.innerHTML=`
-    <div class="muted" style="font-size:12px;margin-bottom:10px">لیست تمامی اسناد حسابداری ثبت‌شده — فاکتور، تسویه، سند دستی و سایر عملیات</div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">لیست تمامی اسناد حسابداری — برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b>؛ ورود اکسل با برچسب سبز «اکسل»</div>
     <div class="toolbar" style="margin-bottom:12px">
       <button class="btn" onclick="voucherModal()">➕ سند دستی</button>
       <span class="tag">${fmt(entries.length)} سند</span>
@@ -11523,8 +11510,9 @@ async function renderJournalDocsTab(body){
     ${entries.map(e=>`
       <div style="border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden">
         <div style="background:var(--purple-light);padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:12px;flex-wrap:wrap;gap:6px">
-          <span style="font-weight:700">#${e.id} <span class="mono">${escDate(e.entry_date||'-')}</span> — ${esc(e.description||'-')}</span>
-          <span style="display:flex;align-items:center;gap:8px">
+          <span style="font-weight:700">#${e.id}${e.voucher_number?' <span class="mono">'+esc(e.voucher_number)+'</span>':''} <span class="mono">${escDate(e.entry_date||'-')}</span> — ${esc(e.description||'-')}</span>
+          <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            ${journalOriginBadgeHtml(e)}
             <span class="tag">${REF_TYPE_FA[e.ref_type]||e.ref_type||'سند'}</span>
             <span class="muted">${esc(e.created_by_name||'-')}</span>
           </span>
@@ -15012,11 +15000,10 @@ const SETT_TABS = [
   {id:'web', icon:'plug', label:'وب‌سایت', meta:'همگام‌سازی موجودی فروشگاه', keys:'وب‌سایت موجودی ووکامرس همگام'},
   {id:'accounting', icon:'wallet', label:'حسابداری', meta:'کدینگ، سال مالی، ماژول', keys:'کدینگ حساب نگاشت سال مالی ماژول تنخواه انبار تولید حقوق مالیات فاکتور پیشوند'},
   {id:'features', icon:'sparkles', label:'قابلیت‌ها', meta:'هوش مصنوعی و پورتال مشتریان', keys:'هوش مصنوعی پورتال مشتری'},
-  {id:'audit', icon:'clipboard', label:'ممیزی', meta:'گزارش فعالیت کاربران', keys:'ممیزی لاگ گزارش کاربر'},
-  {id:'danger', icon:'lock', label:'منطقه خطر', meta:'حذف دیتای تست', keys:'حذف تست دیتا بازنشانی خطرناک'}
+  {id:'audit', icon:'clipboard', label:'ممیزی', meta:'گزارش فعالیت کاربران', keys:'ممیزی لاگ گزارش کاربر'}
 ];
 let SETT_ACTIVE_TAB = 'general';
-const SETT_NO_SAVE = new Set(['sms','backup','audit','danger','users','api']);
+const SETT_NO_SAVE = new Set(['sms','backup','audit','users','api']);
 function settNavHtml(){
   return SETT_TABS.map(t=>{
     const label = t.id==='api' ? t.label : T(t.label);
@@ -15291,17 +15278,6 @@ ROUTES.settings = async function(){
       </div></div>
       <div class="panel-body" id="audit-log-body"><p class="muted">در حال بارگذاری...</p></div></div>`;
 
-  const dangerPanel = `
-    <div class="panel" style="border:2px solid #fecaca"><div class="panel-head"><h4 style="color:#dc2626">${lucide('lock')} حذف دیتای تست (به تفکیک بخش)</h4></div><div class="panel-body">
-      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9;color:#991b1b">
-        فقط برای مرحله تست/بررسی. برای هر بخش دو حالت وجود دارد:<br>
-        <b>حذف تراکنش‌ها</b> — اسناد و گردش‌ها پاک می‌شوند؛ دادهٔ پایه نگه داشته می‌شود.<br>
-        <b>حذف کامل</b> — تراکنش + دادهٔ پایه آن بخش. کاربران، تنظیمات و کدینگ حساب‌ها هرگز پاک نمی‌شوند.<br>
-        تأیید: تایپ <code>WIPE-SECTION</code> (مثلاً WIPE-ERP) + رمز مدیر.
-      </div>
-      <div id="dataWipeSections"><div class="muted">در حال بارگذاری بخش‌ها...</div></div>
-    </div></div>`;
-
   el('view').innerHTML=`
     <div class="sett-shell">
       <div class="sett-hero">
@@ -15331,7 +15307,6 @@ ROUTES.settings = async function(){
           <div class="sett-panel${SETT_ACTIVE_TAB==='accounting'?' active':''}" data-sett="accounting">${accountingPanel}</div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='features'?' active':''}" data-sett="features">${featuresPanel}</div>
           <div class="sett-panel${SETT_ACTIVE_TAB==='audit'?' active':''}" data-sett="audit">${auditPanel}</div>
-          <div class="sett-panel${SETT_ACTIVE_TAB==='danger'?' active':''}" data-sett="danger">${dangerPanel}</div>
         </div>
       </div>
       <div class="sett-savebar">
@@ -15342,7 +15317,6 @@ ROUTES.settings = async function(){
   toggleSmsProviderHint(s.sms_provider||'kavenegar');
   attachDatepickers(el('view'));
   loadAuditLog();
-  loadDataWipeSections();
   if(isDesktopApp()) renderDesktopUpdateUI();
   settShowTab(SETT_ACTIVE_TAB);
 };
@@ -15997,7 +15971,7 @@ function renderAdminGuide(){
     helpSec('💰','حسابداری — ماژول مستقل',`
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی ERP. برای بازگشت، از دکمه «🔙 بازگشت به ERP» بالای منوی کناری آن استفاده کنید.</p>
       <p>منوی کناری این ماژول <b>آکاردئونی</b> است: سرفصل‌های عملیات (مثل «گزارش‌های مالی»، «فروش و مطالبات») به‌صورت کارت‌های برجسته با فلش بازشو نمایش داده می‌شوند — کلیک روی هر سرفصل زیرمنوهای آن را باز/بسته می‌کند و سرفصل باز با رنگ طلایی مشخص می‌شود. به‌صورت پیش‌فرض همه بسته‌اند تا منو خلوت بماند.</p>
-      <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا و پرداخت انگیزه، سند حسابداری دوطرفه خودکار ثبت می‌شود — نیازی به ثبت دستی نیست (مگر برای مواردی که با سند دستی مشخص می‌شوند).</p>
+      <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا، پرداخت انگیزه، <b>مانده/موجودی اول دوره</b> و ورود اکسل، سند حسابداری دوطرفه خودکار ثبت می‌شود. در فهرست اسناد برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> نمایش داده می‌شود.</p>
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
@@ -16090,7 +16064,7 @@ function renderAdminGuide(){
         <li><b>وب‌سایت</b>: سینک موجودی ووکامرس</li>
         <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی، ماژول‌ها</li>
         <li><b>قابلیت‌ها</b>: دستیار هوشمند و پورتال مشتریان</li>
-        <li><b>ممیزی</b> و <b>منطقه خطر</b>: گزارش فعالیت و حذف دیتای تست</li>
+        <li><b>ممیزی</b>: گزارش فعالیت کاربران</li>
       </ul>
       <h5>اطلاعات شرکت</h5><p>نام، تلفن و آدرس شرکت که روی فاکتورها چاپ می‌شود.</p>
       <h5>قالب فاکتور</h5><p>در تنظیمات: <b>رسمی</b> (۳ مدل — کامل/مدرن/پریمیوم) برای فاکتور نهایی؛ <b>عادی ساده</b> به‌صورت ثابت برای پیش‌فاکتور؛ <b>فاکتور حرارتی</b> با عرض چاپگر ۵۸ یا ۸۰ میلی‌متر. موقع چاپ می‌توانید A4، A5 یا حرارتی را انتخاب کنید. شخصی‌سازی: لوگو (بدون بک مشکی)، تخفیف ردیفی، کارشناس فروش + موبایل، پاورقی و …</p>
@@ -16112,11 +16086,11 @@ function renderAdminGuide(){
         <li><b>شروع سال مالی</b>: تعیین ماه شمسی شروع سال مالی (برای گزارش‌های آینده)</li>
         <li><b>فعال/غیرفعال کردن ماژول‌ها</b>: تنخواه‌گردان، چک‌های امانی، انبارها، کالای امانی، تحلیل هزینه تولید و حقوق و دستمزد را می‌توانید بر اساس نیاز کسب‌وکار از منوی حسابداری پنهان کنید — داده‌های موجود حذف نمی‌شود، فقط از منو مخفی می‌شود</li>
       </ul>
-      <h5>حذف دیتای تست (به تفکیک بخش)</h5><ul>
-        <li>در تنظیمات، بلوک قرمز «حذف دیتای تست» برای مرحله تست/بررسی است — فقط مدیر روی سرور مرکزی.</li>
-        <li>هر بخش دو دکمه دارد: <b>حذف تراکنش‌ها</b> و <b>حذف کامل</b> (پایه+تراکنش).</li>
-        <li>تأیید با تایپ <code>WIPE-SECTION</code> (مثلاً WIPE-ERP) + رمز مدیر.</li>
-        <li>کاربران، تنظیمات و کدینگ حساب‌ها هرگز پاک نمی‌شوند.</li>
+      <h5>ورود اکسل و اسناد اتومات</h5><ul>
+        <li>ورود از اکسل از مسیرهای رسمی هر ماژول انجام می‌شود؛ برای عملیات مالی (فاکتور، خرید، تسویه، هزینه، چک اول دوره، رسید انبار، …) <b>سند حسابداری اتومات</b> ثبت می‌شود.</li>
+        <li><b>مانده اول دوره اشخاص</b> و <b>موجودی اول دوره کالا</b> (با بهای تمام‌شده/قیمت اول دوره) سند افتتاحیه می‌سازند.</li>
+        <li>در «فهرست اسناد» هر سند برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> دارد؛ ورودی اکسل برچسب سبز «اکسل» هم می‌گیرد.</li>
+        <li>نوع سند در قالب اکسل فهرست اسناد: <code>opening</code> / افتتاحیه / موجودی اول دوره → افتتاحیه.</li>
       </ul>
       <h5>بازیابی رمز عبور</h5><p>در صفحه ورود، لینک «رمز عبور را فراموش کرده‌اید؟» کد یک‌بارمصرف (OTP) را به موبایل ثبت‌شده کاربر پیامک می‌کند. پس از وارد کردن کد، رمز جدید باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد. اگر پیامک ارسال نشد، تنظیمات سرویس پیامک را بررسی کنید.</p>
       <h5>تغییر اجباری رمز در اولین ورود</h5><p>در اولین ورود با رمز پیش‌فرض (<code>admin123</code>) یا هر رمزی که مدیر برای کاربر تعیین کرده، پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود و تا رمز شخصی جدید انتخاب نشود، هیچ عملیات دیگری در برنامه ممکن نیست. این الزام روی سرور مرکزی اعمال می‌شود؛ در دستگاه‌های آفلاین رمز جدید با اولین همگام‌سازی از مرکز می‌رسد.</p>
@@ -16228,7 +16202,7 @@ function renderAdminGuide(){
       <h5>حذف نرم فاکتور و سند</h5><p>حذف فاکتور و اسناد دستی «نرم» است (در audit_log ثبت می‌شود) — فقط نقش‌های دارای دسترسی Delete.</p>
       <h5>گردش حساب مشتریان</h5><p>صفحه «دفتر معین» (گردش حساب) حذف شد — از <b>صورت‌حساب مشتری</b> در حسابداری استفاده کنید.</p>
       <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. اعمال اصلاحات، سند حسابداری تولید می‌کند.</p>
-      <h5>سال مالی</h5><p>تنظیمات → مدیریت سال مالی: انتقال (Rollover) یا بازنشانی کامل (Factory Reset با تأیید RESET-FISCAL). همچنین حذف بخش‌به‌بخش دیتای تست با WIPE-SECTION.</p>
+      <h5>سال مالی</h5><p>تنظیمات → مدیریت سال مالی: انتقال (Rollover) یا بازنشانی کامل تراکنش‌ها (Factory Reset با تأیید RESET-FISCAL).</p>
       <h5>ساخت سریع کالا در فاکتور</h5><p>فقط مدیر و حسابدار در فاکتورساز دکمه «➕ ساخت کالای جدید» دارند — مدیریت کامل کالاها در حسابداری → کالاها است.</p>
       <h5>مشاور هوشمند (مدیر)</h5><p>منوی «مشاور هوشمند» فقط برای مدیر سیستم و مدیر فروش — پرسش آزاد با داده‌های تجمیع‌شده.</p>
       <h5>دسترسی‌های granular</h5><p>کاربران → ویرایش → «🔐 دسترسی‌ها» — ماتریس View/Create/Edit/Delete/Approve/Export.</p>

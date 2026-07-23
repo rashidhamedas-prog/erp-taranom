@@ -64,6 +64,15 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 const { refDocResponseMiddleware } = require('./lib/ref-doc-sanitize');
 app.use('/api', refDocResponseMiddleware);
+app.use((req, res, next) => {
+  try {
+    const xo = require('./lib/excel-origin');
+    xo.clear();
+    xo.markFromRequest(req);
+    res.on('finish', () => { try { xo.clear(); } catch (_) {} });
+  } catch (_) {}
+  next();
+});
 
 // Barcode wedge/debounce helpers (browser + unit tests share this file)
 app.get('/barcode-input.js', (req, res) => {
@@ -150,7 +159,7 @@ app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/product-categories', require('./routes/product-categories'));
 app.use('/api/party-groups', require('./routes/party-groups'));
-app.use('/api/admin/data-wipe', require('./routes/data-wipe'));
+// data-wipe UI/API removed (go-live) — use server/scripts/go-live-clean.js on central if needed
 app.use('/api/admin', require('./routes/admin'));
 
 // Manual backup endpoint — registered before admin router catch-all.

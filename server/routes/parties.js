@@ -237,31 +237,46 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   }
 
   try {
-    const r = db.prepare(`
-      INSERT INTO parties (
-        person_code, party_type, party_roles, legal_type, full_name, company_name,
-        national_id, economic_code, phone, secondary_phone, mobile, fax, email,
-        city, province, address, postal_code, segment, store_type, source,
-        credit_limit, opening_balance, opening_balance_date, notes,
-        user_id, biz, owner, insta, status, type,
-        party_group_id, prefix, birth_date, referrer, account_nature, coa_code
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(
-      personCode, partyType, JSON.stringify(roles), b.legal_type || 'real', b.full_name || b.company_name, b.company_name || null,
-      b.national_id || null, b.economic_code || null, b.phone, b.secondary_phone || b.phone2 || null, b.mobile || null, b.fax || null, b.email || null,
-      b.city || null, b.province || null, b.address || null, b.postal_code || null,
-      b.segment || 'C', b.store_type || null, b.source || null,
-      creditRial, openRial, b.opening_balance_date || null, b.notes || null,
-      b.user_id || b.assigned_to || req.user.id, b.biz || b.company_name || b.full_name, b.owner || null,
-      b.insta || null, b.status || 'new', b.type || 'بوتیک',
-      pgid, b.prefix || null, b.birth_date || null, b.referrer || null, b.account_nature || null, coaCode
-    );
-    audit(req.user.id, 'create', 'party', r.lastInsertRowid, personCode);
-    try { syncPartyToLegacy(db, r.lastInsertRowid); } catch (_) {}
-    const row = db.prepare('SELECT * FROM parties WHERE id=?').get(r.lastInsertRowid);
+    const result = db.transaction(() => {
+      const r = db.prepare(`
+        INSERT INTO parties (
+          person_code, party_type, party_roles, legal_type, full_name, company_name,
+          national_id, economic_code, phone, secondary_phone, mobile, fax, email,
+          city, province, address, postal_code, segment, store_type, source,
+          credit_limit, opening_balance, opening_balance_date, notes,
+          user_id, biz, owner, insta, status, type,
+          party_group_id, prefix, birth_date, referrer, account_nature, coa_code
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        personCode, partyType, JSON.stringify(roles), b.legal_type || 'real', b.full_name || b.company_name, b.company_name || null,
+        b.national_id || null, b.economic_code || null, b.phone, b.secondary_phone || b.phone2 || null, b.mobile || null, b.fax || null, b.email || null,
+        b.city || null, b.province || null, b.address || null, b.postal_code || null,
+        b.segment || 'C', b.store_type || null, b.source || null,
+        creditRial, openRial, b.opening_balance_date || null, b.notes || null,
+        b.user_id || b.assigned_to || req.user.id, b.biz || b.company_name || b.full_name, b.owner || null,
+        b.insta || null, b.status || 'new', b.type || 'بوتیک',
+        pgid, b.prefix || null, b.birth_date || null, b.referrer || null, b.account_nature || null, coaCode
+      );
+      const partyId = r.lastInsertRowid;
+      try { syncPartyToLegacy(db, partyId); } catch (_) {}
+      if (openRial) {
+        const { postPartyOpeningBalance } = require('../lib/opening-post');
+        postPartyOpeningBalance(db, {
+          partyId,
+          amountRial: openRial,
+          date: b.opening_balance_date || null,
+          userId: req.user.id,
+          srcSystem: b.from_excel || b.src_system === 'excel' ? 'excel' : null,
+        });
+      }
+      return partyId;
+    })();
+    audit(req.user.id, 'create', 'party', result, personCode);
+    const row = db.prepare('SELECT * FROM parties WHERE id=?').get(result);
     res.status(201).json({ success: true, data: mapPartyRow(row) });
   } catch (e) {
     if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'کد یا تلفن تکراری است' });
+    if (e.status) return res.status(e.status).json({ error: e.message });
     throw e;
   }
 });
@@ -290,31 +305,64 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
     ? parseInt(b.user_id || b.assigned_to, 10) || row.user_id
     : row.user_id;
 
-  db.prepare(`
-    UPDATE parties SET
-      full_name=?, company_name=?, phone=?, secondary_phone=?, mobile=?, fax=?, email=?,
-      city=?, province=?, address=?, postal_code=?, segment=?,
-      national_id=?, economic_code=?, credit_limit=?, opening_balance=?, notes=?,
-      biz=?, owner=?, insta=?, status=?, type=?, party_type=?, party_roles=?,
-      party_group_id=?, prefix=?, birth_date=?, referrer=?, account_nature=?, coa_code=?,
-      user_id=?,
-      updated_at=strftime('%s','now')
-    WHERE id=?
-  `).run(
-    b.full_name || row.full_name, b.company_name ?? row.company_name,
-    b.phone || row.phone, b.secondary_phone ?? b.phone2 ?? row.secondary_phone,
-    b.mobile ?? row.mobile, b.fax ?? row.fax, b.email ?? row.email,
-    b.city ?? row.city, b.province ?? row.province, b.address ?? row.address, b.postal_code ?? row.postal_code,
-    b.segment ?? row.segment, b.national_id ?? row.national_id, b.economic_code ?? row.economic_code,
-    creditRial, openRial, b.notes ?? row.notes,
-    b.biz ?? row.biz, b.owner ?? row.owner, b.insta ?? row.insta, b.status ?? row.status, b.type ?? row.type,
-    partyType, JSON.stringify(roles), pgid,
-    b.prefix ?? row.prefix, b.birth_date ?? row.birth_date, b.referrer ?? row.referrer,
-    b.account_nature ?? row.account_nature, coaCode, userId,
-    req.params.id
-  );
+  try {
+    db.transaction(() => {
+      db.prepare(`
+        UPDATE parties SET
+          full_name=?, company_name=?, phone=?, secondary_phone=?, mobile=?, fax=?, email=?,
+          city=?, province=?, address=?, postal_code=?, segment=?,
+          national_id=?, economic_code=?, credit_limit=?, opening_balance=?, notes=?,
+          biz=?, owner=?, insta=?, status=?, type=?, party_type=?, party_roles=?,
+          party_group_id=?, prefix=?, birth_date=?, referrer=?, account_nature=?, coa_code=?,
+          user_id=?,
+          updated_at=strftime('%s','now')
+        WHERE id=?
+      `).run(
+        b.full_name || row.full_name, b.company_name ?? row.company_name,
+        b.phone || row.phone, b.secondary_phone ?? b.phone2 ?? row.secondary_phone,
+        b.mobile ?? row.mobile, b.fax ?? row.fax, b.email ?? row.email,
+        b.city ?? row.city, b.province ?? row.province, b.address ?? row.address, b.postal_code ?? row.postal_code,
+        b.segment ?? row.segment, b.national_id ?? row.national_id, b.economic_code ?? row.economic_code,
+        creditRial, openRial, b.notes ?? row.notes,
+        b.biz ?? row.biz, b.owner ?? row.owner, b.insta ?? row.insta, b.status ?? row.status, b.type ?? row.type,
+        partyType, JSON.stringify(roles), pgid,
+        b.prefix ?? row.prefix, b.birth_date ?? row.birth_date, b.referrer ?? row.referrer,
+        b.account_nature ?? row.account_nature, coaCode, userId,
+        req.params.id
+      );
+      try { syncPartyToLegacy(db, req.params.id); } catch (_) {}
+      if (req.user.role === 'admin' && openRial !== (row.opening_balance || 0)) {
+        const oldJe = db.prepare("SELECT id FROM journal_entries WHERE ref_type='opening_balance' AND ref_id=? AND COALESCE(deleted_at,0)=0 ORDER BY id DESC LIMIT 1").get(req.params.id);
+        if (oldJe) {
+          try {
+            const { reverseJournalEntry } = require('../lib/void-journal');
+            reverseJournalEntry(db, oldJe.id, {
+              userId: req.user.id,
+              reason: 'تغییر مانده اول دوره',
+              sourceType: 'opening_balance_reversal',
+            });
+            db.prepare("UPDATE journal_entries SET deleted_at=strftime('%s','now'), deleted_by=? WHERE id=?").run(req.user.id, oldJe.id);
+          } catch (_) {
+            db.prepare("UPDATE journal_entries SET deleted_at=strftime('%s','now'), deleted_by=? WHERE id=?").run(req.user.id, oldJe.id);
+          }
+        }
+        if (openRial) {
+          const { postPartyOpeningBalance } = require('../lib/opening-post');
+          postPartyOpeningBalance(db, {
+            partyId: Number(req.params.id),
+            amountRial: openRial,
+            date: b.opening_balance_date || row.opening_balance_date || null,
+            userId: req.user.id,
+            srcSystem: b.from_excel || b.src_system === 'excel' ? 'excel' : null,
+          });
+        }
+      }
+    })();
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
   audit(req.user.id, 'update', 'party', req.params.id, '');
-  try { syncPartyToLegacy(db, req.params.id); } catch (_) {}
   res.json({ success: true, data: mapPartyRow(db.prepare('SELECT * FROM parties WHERE id=?').get(req.params.id)) });
 });
 

@@ -119,6 +119,9 @@
     'گزارش فعالیت کاربران': 'User activity log',
     'منطقه خطر': 'Danger zone',
     'حذف دیتای تست': 'Wipe test data',
+    'اتومات': 'Auto',
+    'افتتاحیه': 'Opening',
+    'دستی': 'Manual',
     'زبان برنامه': 'App language',
     'زبان نمایش برنامه را انتخاب کنید. بخش API در هر دو زبان اصطلاحات فنی انگلیسی را نگه می‌دارد.':
       'Choose the display language. The API settings tab keeps technical English terms in both languages.',

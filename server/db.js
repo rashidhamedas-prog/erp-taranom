@@ -1771,6 +1771,7 @@ function initSyncSchema(db) {
   ensureColumn(db, 'journal_entries', 'status', "TEXT DEFAULT 'approved'");
   ensureColumn(db, 'journal_entries', 'total_debit_rial', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'journal_entries', 'total_credit_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'journal_entries', 'doc_type', 'TEXT');
   ensureColumn(db, 'journal_lines', 'line_no', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'journal_lines', 'detail_account_id', 'INTEGER');
   ensureColumn(db, 'journal_lines', 'debit_rial', 'INTEGER DEFAULT 0');
@@ -2401,18 +2402,20 @@ function createJournalEntry(db, opts) {
     date, description, ref_type, ref_id, created_by, lines,
     fiscal_year_id, voucher_number, voucher_type, status,
     total_debit_rial, total_credit_rial,
+    src_system, src_doc_no, doc_type,
   } = opts;
   try {
     const entry = db.prepare(`
       INSERT INTO journal_entries (
         entry_date, description, ref_type, ref_id, created_by,
         fiscal_year_id, voucher_number, voucher_type, status,
-        total_debit_rial, total_credit_rial
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        total_debit_rial, total_credit_rial, src_system, src_doc_no, doc_type
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       date || '', description || '', ref_type || '', ref_id || null, created_by || null,
       fiscal_year_id || null, voucher_number || null, voucher_type || 'auto', status || 'approved',
-      total_debit_rial || 0, total_credit_rial || 0
+      total_debit_rial || 0, total_credit_rial || 0,
+      src_system || null, src_doc_no || null, doc_type || null
     );
     const entryId = entry.lastInsertRowid;
     const lineStmt = db.prepare(`

@@ -1170,17 +1170,37 @@ function validateAndBuildVoucherLines(db, lines) {
 }
 
 router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
-  const { date, description, doc_type, cost_center_id, lines } = req.body;
+  const { date, description, doc_type, cost_center_id, lines, from_excel, src_system, voucher_type } = req.body;
   if (!Array.isArray(lines) || lines.length < 2) {
     return res.status(400).json({ error: 'سند باید حداقل دو ردیف (بدهکار و بستانکار) داشته باشد' });
   }
   const db = getDB();
   const built = validateAndBuildVoucherLines(db, lines);
   if (built.error) return res.status(400).json({ error: built.error });
+
+  const rawType = String(doc_type || voucher_type || 'manual').toLowerCase().trim();
+  const OPENING_TYPES = new Set(['opening', 'افتتاحیه', 'opening_balance', 'مانده اول دوره', 'beginning_inventory', 'موجودی اول دوره', 'fiscal_opening']);
+  const isOpening = OPENING_TYPES.has(rawType);
+  const fromExcel = !!(from_excel || src_system === 'excel');
+  // Excel-imported opening docs → opening+auto; pure manual form → manual; excel non-opening → auto
+  let voucherType = 'manual';
+  let sourceType = 'manual_voucher';
+  if (isOpening) {
+    voucherType = 'opening';
+    sourceType = rawType.includes('inventory') || rawType.includes('موجودی') ? 'opening_inventory' : 'opening_balance';
+  } else if (fromExcel) {
+    voucherType = 'auto';
+    sourceType = 'excel_import';
+  }
+
   const entryId = db.transaction(() => {
     const entryId = postToLedger(db, {
-      sourceType: 'manual_voucher', sourceId: null, date: date || todayJalali(),
-      description: description || 'سند دستی', createdBy: req.user.id,
+      sourceType, sourceId: null, date: date || todayJalali(),
+      description: description || (isOpening ? 'سند افتتاحیه' : (fromExcel ? 'سند وارداتی اکسل' : 'سند دستی')),
+      createdBy: req.user.id,
+      voucherType,
+      srcSystem: fromExcel ? 'excel' : null,
+      docType: rawType || null,
       lines: built.cleanLines.map(l => ({
         ...l, debit: rialToLedger(l.debit), credit: rialToLedger(l.credit),
       })),
@@ -1189,13 +1209,13 @@ router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
     if (doc_type) db.prepare('UPDATE journal_entries SET doc_type=? WHERE id=?').run(String(doc_type), entryId);
     for (const p of built.personPostings) {
       createPersonLedgerEntry(db, {
-        person_id: p.person_id, date: date || '', entry_type: 'manual_voucher', ref_type: 'manual_voucher', ref_id: entryId,
-        description: p.description || description || 'سند دستی', debit: p.debit, credit: p.credit, user_id: req.user.id
+        person_id: p.person_id, date: date || '', entry_type: sourceType, ref_type: sourceType, ref_id: entryId,
+        description: p.description || description || 'سند', debit: p.debit, credit: p.credit, user_id: req.user.id
       });
     }
     return entryId;
   })();
-  audit(req.user.id, 'create', 'journal_voucher', entryId, `ثبت سند دستی: ${description || ''}`);
+  audit(req.user.id, 'create', 'journal_voucher', entryId, `ثبت سند: ${description || ''}`);
   res.json({ id: entryId, ok: true });
 });
 
@@ -1270,6 +1290,7 @@ router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => 
     const entryId = postToLedger(db, {
       sourceType: 'manual_voucher', sourceId: null, date: draft.date || todayJalali(),
       description: draft.description || 'سند دستی', createdBy: req.user.id,
+      voucherType: 'manual',
       lines: built.cleanLines.map(l => ({
         ...l, debit: rialToLedger(l.debit), credit: rialToLedger(l.credit),
       })),
