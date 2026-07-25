@@ -241,11 +241,6 @@
         const ind = th.querySelector('.tbl-sort-ind');
         if (ind) ind.textContent = sortDir > 0 ? ' ▲' : ' ▼';
         const rows = [...tbody.rows];
-        // #region agent log
-        let _dbgNumPath = 0, _dbgStrPath = 0;
-        const _dbgSamples = [];
-        const _dbgLabel = (th.querySelector('.tbl-th-label') || th).textContent.trim();
-        // #endregion
         rows.sort((a, b) => {
           const av = cellSortValue(a.cells[idx]);
           const bv = cellSortValue(b.cells[idx]);
@@ -262,30 +257,13 @@
           const an = parseCellNumber(av);
           const bn = parseCellNumber(bv);
           const useNum = Number.isFinite(an) && Number.isFinite(bn);
-          // #region agent log
-          if (_dbgSamples.length < 8) {
-            _dbgSamples.push({
-              av, bv, an, bn, useNum,
-            });
-          }
-          if (useNum) _dbgNumPath++; else _dbgStrPath++;
-          // #endregion
           if (useNum) {
             return (an - bn) * sortDir;
           }
           return aAscii.localeCompare(bAscii, 'fa', { numeric: true, sensitivity: 'base' }) * sortDir;
         });
-        // #region agent log
-        const _dbgOrder = rows.slice(0, 12).map((r) => cellText(r.cells[idx]));
-        const _dbgPayload = {sessionId:'a1f008',runId:'post-fix',hypothesisId:'A',location:'tbl-enhance.js:sort',message:'table column sort',data:{label:_dbgLabel,idx,sortDir,numPath:_dbgNumPath,strPath:_dbgStrPath,samples:_dbgSamples,orderTop:_dbgOrder,tableId:table.id||'',hasSelectable:!!opts.selectable,hasParseCellNumber:typeof parseCellNumber==='function'},timestamp:Date.now()};
-        try { global.__SORT_DEBUG_LAST__ = _dbgPayload; } catch(_){}
-        fetch('http://127.0.0.1:7550/ingest/7c3b024e-51f2-48e0-b234-568dde667709',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a1f008'},body:JSON.stringify(_dbgPayload)}).catch(()=>{});
-        try {
-          const _tok = (typeof localStorage!=='undefined' && localStorage.getItem('crm_token')) || '';
-          fetch('/api/system/debug-ingest',{method:'POST',headers:{'Content-Type':'application/json',...(_tok?{'Authorization':'Bearer '+_tok}:{})},body:JSON.stringify(_dbgPayload),credentials:'same-origin'}).catch(()=>{});
-        } catch(_){}
-        // #endregion
         rows.forEach((r) => tbody.appendChild(r));
+        if (opts.footer !== false) rebuildFooter(table);
       });
       th.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -306,9 +284,114 @@
         }
         tr.style.display = ok ? '' : 'none';
       });
+      if (opts.footer !== false) rebuildFooter(table);
     }
 
     table._tblApplyFilters = applyFilters;
+    if (opts.footer !== false) rebuildFooter(table);
+  }
+
+  /**
+   * Footer: sum money/qty/debit/credit columns; avg for data-col-kind=avg;
+   * debit/credit net diff colored by dominant side.
+   * Column kind from th[data-col-kind] or td[data-col-kind]: debit|credit|qty|money|avg|skip
+   */
+  function colKindFor(table, colIdx) {
+    const th = table.tHead?.rows?.[0]?.cells?.[colIdx];
+    if (th?.dataset?.colKind) return th.dataset.colKind;
+    const td = table.tBodies[0]?.rows?.[0]?.cells?.[colIdx];
+    if (td?.dataset?.colKind) return td.dataset.colKind;
+    const label = toAsciiDigits((th?.querySelector?.('.tbl-th-label') || th)?.textContent || '').toLowerCase();
+    if (/بدهکار|بدهكار|debit/.test(label)) return 'debit';
+    if (/بستانکار|بستانكار|credit/.test(label)) return 'credit';
+    if (/مانده\s*بدهکار|مانده بدهكار/.test(label)) return 'debit';
+    if (/مانده\s*بستانکار|مانده بستانكار/.test(label)) return 'credit';
+    if (/میانگین|قیمت|بها|مبلغ|ریال|تومان|موجودی|تعداد|qty|stock|price|cost|amount/.test(label)) {
+      if (/قیمت|بها|میانگین|price|cost/.test(label)) return 'avg';
+      return 'money';
+    }
+    return 'skip';
+  }
+
+  function rebuildFooter(table) {
+    if (!table || !table.tHead || !table.tBodies[0]) return;
+    const thead = table.tHead;
+    const tbody = table.tBodies[0];
+    const headerRow = thead.rows[0];
+    if (!headerRow) return;
+    const colCount = headerRow.cells.length;
+    let tfoot = table.tFoot;
+    if (!tfoot) {
+      tfoot = document.createElement('tfoot');
+      table.appendChild(tfoot);
+    }
+    tfoot.innerHTML = '';
+    const sumRow = document.createElement('tr');
+    sumRow.className = 'tbl-footer-sum';
+    const netRow = { debit: 0, credit: 0, debitCol: -1, creditCol: -1 };
+    const fmtN = (n) => {
+      if (typeof global.fmt === 'function') return global.fmt(n);
+      return Number(n || 0).toLocaleString('fa-IR');
+    };
+    for (let ci = 0; ci < colCount; ci++) {
+      const td = document.createElement('td');
+      const kind = colKindFor(table, ci);
+      if (kind === 'skip' || headerRow.cells[ci]?.classList.contains('tbl-sel-th') || headerRow.cells[ci]?.classList.contains('no-sort')) {
+        if (ci === 0 || (ci === 1 && headerRow.cells[0]?.classList.contains('tbl-sel-th'))) {
+          td.innerHTML = '<strong>جمع</strong>';
+          td.style.fontWeight = '700';
+        } else {
+          td.textContent = '';
+        }
+        sumRow.appendChild(td);
+        continue;
+      }
+      let sum = 0;
+      let count = 0;
+      [...tbody.rows].forEach((tr) => {
+        if (tr.style.display === 'none') return;
+        if (tr.querySelector('td[colspan], .empty')) return;
+        const cell = tr.cells[ci];
+        if (!cell) return;
+        const n = parseCellNumber(cellSortValue(cell));
+        if (!Number.isFinite(n)) return;
+        sum += n;
+        count++;
+      });
+      if (kind === 'avg') {
+        const avg = count ? sum / count : 0;
+        td.innerHTML = `<span class="muted" style="font-size:11px">میانگین</span><br><strong class="mono">${fmtN(Math.round(avg))}</strong>`;
+        td.dataset.colKind = 'avg';
+      } else {
+        td.innerHTML = `<strong class="mono">${fmtN(sum)}</strong>`;
+        td.dataset.colKind = kind;
+        if (kind === 'debit') { netProps.debit = sum; netProps.debitCol = ci; td.style.color = 'var(--red, #c0392b)'; }
+        if (kind === 'credit') { netProps.credit = sum; netProps.creditCol = ci; td.style.color = 'var(--green, #1A5C38)'; }
+      }
+      sumRow.appendChild(td);
+    }
+    tfoot.appendChild(sumRow);
+    if (netProps.debitCol >= 0 && netProps.creditCol >= 0) {
+      const diff = Math.abs(netProps.debit - netProps.credit);
+      const debitWins = netProps.debit >= netProps.credit;
+      const netRow = document.createElement('tr');
+      netRow.className = 'tbl-footer-net';
+      for (let ci = 0; ci < colCount; ci++) {
+        const td = document.createElement('td');
+        if (ci === netProps.debitCol || ci === netProps.creditCol) {
+          const show = (ci === netProps.debitCol && debitWins) || (ci === netProps.creditCol && !debitWins);
+          if (show) {
+            td.innerHTML = `<span style="font-size:11px">تفاضل</span><br><strong class="mono">${fmtN(diff)}</strong>`;
+            td.style.color = debitWins ? 'var(--red, #c0392b)' : 'var(--green, #1A5C38)';
+            td.style.fontWeight = '700';
+          }
+        } else if (ci === 0 || (ci === 1 && headerRow.cells[0]?.classList.contains('tbl-sel-th'))) {
+          td.innerHTML = '<span class="muted">تفاضل مانده</span>';
+        }
+        netRow.appendChild(td);
+      }
+      tfoot.appendChild(netRow);
+    }
   }
 
   /** Infer bulk-delete from data-* attrs or first red action button */
@@ -404,4 +487,5 @@
   global.tblSelectedRows = selectedRows;
   global.tblInferBulkDelete = inferBulkDelete;
   global.tblEnsureRowIds = ensureRowIds;
+  global.tblRebuildFooter = rebuildFooter;
 })(window);

@@ -24,6 +24,26 @@ function num(value) {
   const parsed = Number(clean);
   return Number.isFinite(parsed) ? parsed : 0;
 }
+/** Normalize Excel cell dates (serial / Date / Jalali / Gregorian string) → display string */
+function excelDateCell(value) {
+  if (value == null || value === '') return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}/${m}/${d}`;
+  }
+  if (typeof value === 'number' && value > 20000 && value < 80000) {
+    // Excel serial date (days since 1899-12-30)
+    const epoch = Date.UTC(1899, 11, 30) + Math.round(value) * 86400000;
+    const dt = new Date(epoch);
+    const y = dt.getUTCFullYear();
+    const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(dt.getUTCDate()).padStart(2, '0');
+    return `${y}/${m}/${d}`;
+  }
+  return text(value);
+}
 function bool(value) {
   return ['1', 'true', 'yes', 'بله', 'بلی'].includes(text(value).toLowerCase());
 }
@@ -152,6 +172,19 @@ const DEFINITIONS = {
     title: 'چک‌های پرداختی اول دوره',
     sample: { 'شماره چک*': '20001', 'مبلغ (ریال)*': 50000000, 'تاریخ صدور': '1405/01/01', 'تاریخ دریافت': '', 'تاریخ سررسید': '1405/03/01', بانک: 'ملت', شعبه: '', 'شماره صیادی': '', شبا: '', 'شماره حساب': '', 'طرف حساب': 'شخص نمونه', وضعیت: 'مانده اول دوره', 'شرح وضعیت': '', شرح: '' },
   },
+  'fixed-assets': {
+    title: 'دارایی ثابت',
+    sample: {
+      'کد': 'FA-001', 'نام دارایی*': 'دستگاه برش', دسته: 'ماشین‌آلات', 'تاریخ خرید': '1405/01/01',
+      'بهای تمام‌شده (ریال)*': 150000000, 'ارزش اسقاط (ریال)': 10000000, 'عمر مفید (ماه)': 60,
+      'کد حساب دارایی': '1201', 'محل استقرار': 'سالن تولید', توضیحات: '',
+    },
+    guide: [
+      'مبالغ فقط ریال هستند.',
+      'ستون‌های دارای * الزامی‌اند.',
+      'اگر کد خالی باشد به‌صورت خودکار ساخته می‌شود.',
+    ],
+  },
   settlements: {
     title: 'عملیات دریافت و پرداخت',
     sampleRows: [
@@ -273,6 +306,14 @@ function exportRows(db, entity) {
   if (entity.startsWith('opening-')) {
     const direction = entity === 'opening-recv-cheques' ? 'in' : 'out';
     return db.prepare("SELECT * FROM cheque_records WHERE direction=? AND COALESCE(record_status,'posted')<>'reversed' AND (note LIKE '%مانده اول دوره%' OR status LIKE '%اول دوره%') ORDER BY id").all(direction).map((r) => ({ 'شماره چک': r.cheque_number, 'مبلغ (ریال)': r.amount, 'تاریخ صدور': r.issue_date, 'تاریخ دریافت': r.receive_date, 'تاریخ سررسید': r.due_date, بانک: r.bank_name, شعبه: r.branch, 'شماره صیادی': r.sayadi, شبا: r.sheba, 'شماره حساب': r.account_number, 'طرف حساب': r.party_name, وضعیت: r.status, 'شرح وضعیت': r.status_note, شرح: r.note }));
+  }
+  if (entity === 'fixed-assets') {
+    return db.prepare("SELECT * FROM fixed_assets WHERE status='active' ORDER BY code").all().map((r) => ({
+      کد: r.code, نام: r.name, دسته: r.category, 'تاریخ خرید': r.purchase_date,
+      'بهای تمام‌شده (ریال)': r.cost_rial, 'ارزش اسقاط (ریال)': r.salvage_rial,
+      'عمر مفید (ماه)': r.useful_life_months, 'کد حساب دارایی': r.coa_asset_code,
+      'محل استقرار': r.location, توضیحات: r.notes,
+    }));
   }
   if (entity === 'settlements') {
     const received = db.prepare("SELECT s.*,c.biz party_name,i.num invoice_num,b.name bank_name,cb.name cash_box_name,cc.name check_category_name FROM settlements s LEFT JOIN customers c ON c.id=s.cust_id LEFT JOIN invoices i ON i.id=s.invoice_id LEFT JOIN banks b ON b.id=s.bank_id LEFT JOIN cash_boxes cb ON cb.id=s.cash_box_id LEFT JOIN check_categories cc ON cc.id=s.check_category_id WHERE COALESCE(s.status,'posted')<>'reversed' ORDER BY s.id").all().map((r) => ({ 'جهت عملیات': 'receive', 'طرف حساب': r.party_name, 'شماره فاکتور': r.invoice_num, 'مبلغ (ریال)': toFa(r.amount), 'نوع پرداخت': r.pay_type, تاریخ: r.date, 'بانک/شناسه بانک': r.bank_name, 'صندوق/شناسه صندوق': r.cash_box_name, 'دسته چک/شناسه': r.check_category_name, 'بانک چک': r.cheque_bank, 'شماره صیادی': r.cheque_sayadi, 'شماره چک': r.cheque_number, 'شماره حساب چک': r.cheque_account, 'مبلغ چک (ریال)': toFa(r.cheque_amount), 'صاحب چک': r.cheque_owner, 'سررسید چک': r.cheque_due, 'وضعیت چک': r.cheque_status, 'شعبه چک': r.cheque_branch, 'شبای چک': r.cheque_sheba, شرح: r.note }));
@@ -471,15 +512,65 @@ function buildActions(db, entity, rows) {
   }
   if (entity.startsWith('opening-')) {
     const direction = entity === 'opening-recv-cheques' ? 'in' : 'out';
-    return rows.map((r, i) => action('/cheque-records', {
-      direction, opening: true, cheque_number: field(r, 'شماره چک*', 'شماره چک'),
-      amount: num(field(r, 'مبلغ (ریال)*', 'مبلغ (ریال)')), issue_date: field(r, 'تاریخ صدور'),
-      receive_date: field(r, 'تاریخ دریافت'), due_date: field(r, 'تاریخ سررسید'),
-      bank_name: field(r, 'بانک'), branch: field(r, 'شعبه'), sayadi: field(r, 'شماره صیادی'),
-      sheba: field(r, 'شبا'), account_number: field(r, 'شماره حساب'),
-      party_name: field(r, 'طرف حساب'), status: field(r, 'وضعیت') || 'مانده اول دوره',
-      status_note: field(r, 'شرح وضعیت'), note: field(r, 'شرح'),
-    }, `چک ردیف ${i + 2}`));
+    if (entity !== 'opening-recv-cheques' && entity !== 'opening-pay-cheques') {
+      throw new Error(`نوع فایل چک اول دوره نامعتبر است: ${entity}`);
+    }
+    const out = [];
+    rows.forEach((r, i) => {
+      const rowNo = i + 2;
+      const chequeNumber = text(field(r, 'شماره چک*', 'شماره چک', 'cheque_number'));
+      const amountRial = Math.round(num(field(r, 'مبلغ (ریال)*', 'مبلغ (ریال)', 'amount', 'مبلغ')));
+      if (!chequeNumber && !amountRial) return; // skip blank-ish rows
+      if (!chequeNumber) throw new Error(`ردیف ${rowNo}: شماره چک الزامی است`);
+      if (!amountRial || amountRial <= 0) {
+        throw new Error(`ردیف ${rowNo}: مبلغ (ریال) باید عدد مثبت باشد — مقدار نامعتبر یا خالی`);
+      }
+      if (amountRial > 1e15) throw new Error(`ردیف ${rowNo}: مبلغ خارج از محدوده مجاز است`);
+      out.push(action('/cheque-records', {
+        direction, opening: true, from_excel: true,
+        cheque_number: chequeNumber,
+        amount: amountRial,
+        issue_date: excelDateCell(field(r, 'تاریخ صدور', 'issue_date')),
+        receive_date: excelDateCell(field(r, 'تاریخ دریافت', 'receive_date')),
+        due_date: excelDateCell(field(r, 'تاریخ سررسید', 'due_date')),
+        bank_name: text(field(r, 'بانک', 'bank_name')),
+        branch: text(field(r, 'شعبه', 'branch')),
+        sayadi: text(field(r, 'شماره صیادی', 'sayadi')),
+        sheba: text(field(r, 'شبا', 'sheba')),
+        account_number: text(field(r, 'شماره حساب', 'account_number')),
+        party_name: text(field(r, 'طرف حساب', 'party_name')),
+        status: text(field(r, 'وضعیت')) || 'مانده اول دوره',
+        status_note: text(field(r, 'شرح وضعیت')),
+        note: text(field(r, 'شرح', 'note')),
+      }, `چک ردیف ${rowNo}`));
+    });
+    if (!out.length) throw new Error('هیچ ردیف معتبری برای چک‌های اول دوره یافت نشد — شماره چک و مبلغ (ریال) را بررسی کنید');
+    return out;
+  }
+  if (entity === 'fixed-assets') {
+    const out = [];
+    rows.forEach((r, i) => {
+      const rowNo = i + 2;
+      const name = text(field(r, 'نام دارایی*', 'نام*', 'نام', 'name'));
+      const costRial = Math.round(num(field(r, 'بهای تمام‌شده (ریال)*', 'بهای تمام‌شده (ریال)', 'cost_rial')));
+      if (!name && !costRial) return;
+      if (!name) throw new Error(`ردیف ${rowNo}: نام دارایی الزامی است`);
+      if (!costRial || costRial <= 0) throw new Error(`ردیف ${rowNo}: بهای تمام‌شده (ریال) باید عدد مثبت باشد`);
+      out.push(action('/fixed-assets', {
+        code: text(field(r, 'کد', 'code')) || undefined,
+        name,
+        category: text(field(r, 'دسته', 'category')) || 'تجهیزات',
+        purchase_date: excelDateCell(field(r, 'تاریخ خرید', 'purchase_date')),
+        cost_rial: costRial,
+        salvage_rial: Math.round(num(field(r, 'ارزش اسقاط (ریال)', 'salvage_rial'))),
+        useful_life_months: Math.max(1, Math.trunc(num(field(r, 'عمر مفید (ماه)', 'useful_life_months')))) || 60,
+        coa_asset_code: text(field(r, 'کد حساب دارایی', 'coa_asset_code')) || '1201',
+        location: text(field(r, 'محل استقرار', 'location')),
+        notes: text(field(r, 'توضیحات', 'notes', 'شرح')),
+      }, `دارایی ردیف ${rowNo}`));
+    });
+    if (!out.length) throw new Error('هیچ ردیف معتبری برای دارایی ثابت یافت نشد');
+    return out;
   }
   if (entity === 'settlements') return rows.map((r, i) => {
     const direction = text(field(r, 'جهت عملیات*', 'جهت عملیات')).toLowerCase() || 'receive';
@@ -676,9 +767,10 @@ router.get('/:entity/export', auth, adminOrAccounting, ensureDefinition, (req, r
 router.post('/:entity/prepare-import', auth, adminOrAccounting, ensureDefinition, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل اکسل انتخاب نشده است' });
   try {
-    const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: false });
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
     const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+    // raw:true keeps Excel serial dates/numbers; excelDateCell/num coerce them
+    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
     const rows = rawRows.filter((r) => !isBlankExcelRow(r));
     const skipped_blank = rawRows.length - rows.length;
     if (!rows.length) return res.status(400).json({ error: 'فایل اکسل فاقد ردیف داده است' });

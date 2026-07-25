@@ -101,6 +101,39 @@ router.post('/login', (req, res) => {
 
   db.prepare("UPDATE users SET last_login=strftime('%s','now') WHERE id=?").run(user.id);
 
+  // Single-device enforcement (central + device apps)
+  const fingerprint = String(req.body.device_fingerprint || '').slice(0, 200);
+  const deviceName = String(req.body.device_name || '').slice(0, 120);
+  const deviceKind = String(req.body.device_kind || 'web').slice(0, 32);
+  const forceKick = !!req.body.force_logout_other;
+  if (fingerprint) {
+    try {
+      const existing = db.prepare('SELECT * FROM user_device_sessions WHERE user_id=?').get(user.id);
+      if (existing && existing.device_fingerprint !== fingerprint && !forceKick) {
+        return res.status(409).json({
+          error: 'این حساب روی دستگاه دیگری فعال است. برای ورود، نشست قبلی باید قطع شود.',
+          code: 'DEVICE_SESSION_ACTIVE',
+          other_device: {
+            device_name: existing.device_name,
+            device_kind: existing.device_kind,
+            last_seen: existing.last_seen,
+          },
+        });
+      }
+      db.prepare(`
+        INSERT INTO user_device_sessions (user_id, device_fingerprint, device_name, device_kind, last_seen)
+        VALUES (?,?,?,?,strftime('%s','now'))
+        ON CONFLICT(user_id) DO UPDATE SET
+          device_fingerprint=excluded.device_fingerprint,
+          device_name=excluded.device_name,
+          device_kind=excluded.device_kind,
+          last_seen=excluded.last_seen
+      `).run(user.id, fingerprint, deviceName || deviceKind, deviceKind);
+    } catch (e) {
+      console.warn('user_device_sessions:', e.message);
+    }
+  }
+
   // Central only: default/assigned passwords must be changed on first login.
   let mustChange = false;
   if (!isDevice()) {
@@ -110,7 +143,7 @@ router.post('/login', (req, res) => {
 
   audit(user.id, 'login', 'user', user.id, 'ورود موفق', req);
   const token = jwt.sign(
-    { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '' },
+    { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '', dfp: fingerprint || undefined },
     SECRET, { expiresIn: '30d' }
   );
   res.json({
@@ -118,6 +151,25 @@ router.post('/login', (req, res) => {
     must_change_password: mustChange,
     user: { id: user.id, name: user.name, username: user.username, role: user.role, phone: user.phone || '' }
   });
+});
+
+// Admin: list / revoke single-device sessions
+router.get('/device-sessions', auth, adminOnly, (req, res) => {
+  const db = getDB();
+  const rows = db.prepare(`
+    SELECT s.*, u.name as user_name, u.username
+    FROM user_device_sessions s
+    LEFT JOIN users u ON u.id=s.user_id
+    ORDER BY s.last_seen DESC
+  `).all();
+  res.json(rows);
+});
+
+router.delete('/device-sessions/:userId', auth, adminOnly, (req, res) => {
+  const db = getDB();
+  db.prepare('DELETE FROM user_device_sessions WHERE user_id=?').run(req.params.userId);
+  audit(req.user.id, 'revoke', 'user_device_session', req.params.userId, 'قطع نشست دستگاه کاربر');
+  res.json({ ok: true });
 });
 
 // Forgot password — step 1: send OTP via SMS

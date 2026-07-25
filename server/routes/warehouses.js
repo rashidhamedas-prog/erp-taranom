@@ -14,7 +14,7 @@ router.get('/stock/overview', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const warehouses = db.prepare('SELECT * FROM warehouses WHERE active=1 ORDER BY name').all();
   const stockRows = db.prepare(`
-    SELECT p.id, p.code, p.name, p.unit, p.warehouse_id, p.stock,
+    SELECT p.id, p.code, p.name, p.unit, p.warehouse_id, p.stock, p.cost, p.price, p.category,
       ws.warehouse_id as ws_wh, ws.qty as ws_qty
     FROM products p
     LEFT JOIN warehouse_stock ws ON ws.product_id=p.id
@@ -24,22 +24,89 @@ router.get('/stock/overview', auth, adminOrAccounting, (req, res) => {
     const products = [];
     const seen = new Set();
     for (const p of stockRows) {
-      if (p.warehouse_id === w.id && !seen.has(p.id)) {
-        products.push({ id: p.id, code: p.code, name: p.name, unit: p.unit, qty: p.stock || 0 });
-        seen.add(p.id);
-      }
-      if (p.ws_wh === w.id) {
-        const qty = p.ws_qty != null ? p.ws_qty : (p.warehouse_id === w.id ? p.stock : 0);
-        if (!seen.has(p.id)) {
-          products.push({ id: p.id, code: p.code, name: p.name, unit: p.unit, qty: qty || 0 });
-          seen.add(p.id);
-        }
-      }
+      let qty = null;
+      if (p.ws_wh === w.id) qty = p.ws_qty != null ? p.ws_qty : 0;
+      else if (p.warehouse_id === w.id && !seen.has(p.id)) qty = p.stock || 0;
+      if (qty == null || seen.has(p.id)) continue;
+      const unitCost = Math.round(Number(p.cost) || 0);
+      const unitPrice = Math.round(Number(p.price) || 0);
+      const q = Number(qty) || 0;
+      products.push({
+        id: p.id, code: p.code, name: p.name, unit: p.unit, category: p.category || '',
+        qty: q, unit_cost_rial: unitCost, unit_price_rial: unitPrice,
+        amount_rial: Math.round(q * unitCost), sales_value_rial: Math.round(q * unitPrice),
+      });
+      seen.add(p.id);
     }
     const totalQty = products.reduce((a, p) => a + (p.qty || 0), 0);
-    return { ...w, product_count: products.length, total_qty: totalQty, products };
+    const totalAmount = products.reduce((a, p) => a + (p.amount_rial || 0), 0);
+    const avgCost = products.length ? Math.round(products.reduce((a, p) => a + p.unit_cost_rial, 0) / products.length) : 0;
+    return {
+      ...w, product_count: products.length, total_qty: totalQty,
+      total_amount_rial: totalAmount, avg_unit_cost_rial: avgCost, products,
+    };
   });
   res.json(result);
+});
+
+/** Comprehensive per-warehouse stock report with filters */
+router.get('/stock/report', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const warehouseId = req.query.warehouse_id ? parseInt(req.query.warehouse_id, 10) : null;
+  const q = String(req.query.q || '').trim();
+  const category = String(req.query.category || '').trim();
+  const includeZero = req.query.include_zero === '1';
+  const overview = (() => {
+    // reuse overview builder via internal call pattern
+    const warehouses = db.prepare('SELECT * FROM warehouses WHERE active=1 ORDER BY name').all()
+      .filter((w) => !warehouseId || w.id === warehouseId);
+    const stockRows = db.prepare(`
+      SELECT p.id, p.code, p.name, p.unit, p.warehouse_id, p.stock, p.cost, p.price, p.category,
+        pc.name as category_name, ws.warehouse_id as ws_wh, ws.qty as ws_qty
+      FROM products p
+      LEFT JOIN product_categories pc ON pc.id=p.category_id
+      LEFT JOIN warehouse_stock ws ON ws.product_id=p.id
+      ORDER BY p.name
+    `).all();
+    return warehouses.map((w) => {
+      const products = [];
+      const seen = new Set();
+      for (const p of stockRows) {
+        let qty = null;
+        if (p.ws_wh === w.id) qty = p.ws_qty != null ? Number(p.ws_qty) : 0;
+        else if (p.warehouse_id === w.id && !seen.has(p.id)) qty = Number(p.stock) || 0;
+        if (qty == null || seen.has(p.id)) continue;
+        if (!includeZero && !(qty > 0)) { seen.add(p.id); continue; }
+        const cat = p.category_name || p.category || '';
+        if (category && cat !== category) { seen.add(p.id); continue; }
+        if (q) {
+          const hay = `${p.code || ''} ${p.name || ''} ${p.unit || ''}`.toLowerCase();
+          if (!hay.includes(q.toLowerCase())) { seen.add(p.id); continue; }
+        }
+        const unitCost = Math.round(Number(p.cost) || 0);
+        const unitPrice = Math.round(Number(p.price) || 0);
+        products.push({
+          id: p.id, code: p.code, name: p.name, unit: p.unit, category: cat,
+          qty, unit_cost_rial: unitCost, unit_price_rial: unitPrice,
+          avg_cost_rial: unitCost,
+          amount_rial: Math.round(qty * unitCost),
+          sales_value_rial: Math.round(qty * unitPrice),
+        });
+        seen.add(p.id);
+      }
+      return {
+        warehouse_id: w.id, warehouse_name: w.name, warehouse_code: w.code,
+        product_count: products.length,
+        total_qty: products.reduce((a, p) => a + p.qty, 0),
+        total_amount_rial: products.reduce((a, p) => a + p.amount_rial, 0),
+        total_sales_value_rial: products.reduce((a, p) => a + p.sales_value_rial, 0),
+        avg_unit_cost_rial: products.length
+          ? Math.round(products.reduce((a, p) => a + p.unit_cost_rial, 0) / products.length) : 0,
+        products,
+      };
+    });
+  })();
+  res.json({ filters: { warehouse_id: warehouseId, q, category, include_zero: includeZero }, rows: overview });
 });
 
 // Read-only list is open to all authenticated users — the products/catalog

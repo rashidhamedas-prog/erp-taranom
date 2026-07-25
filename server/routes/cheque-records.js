@@ -28,6 +28,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     party_name, status, status_note, amount, note, opening
   } = req.body;
   if (!direction || !amount) return res.status(400).json({ error: 'جهت و مبلغ الزامی است' });
+  const amountNum = Math.round(Number(String(amount).replace(/[,\s]/g, '')));
+  if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    return res.status(400).json({ error: 'مبلغ چک باید عدد مثبت معتبر باشد (ریال)' });
+  }
   const db = getDB();
   const finalNote = opening ? (note ? note + ' — ' + OPENING_NOTE : OPENING_NOTE) : (note || '');
   const recordId = db.transaction(() => {
@@ -38,15 +42,15 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
         party_name, status, status_note, amount, note, created_by_name
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
-      direction, cheque_number || '', issue_date || '', receive_date || '', due_date || '',
+      direction, String(cheque_number || ''), issue_date || '', receive_date || '', due_date || '',
       bank_name || '', branch || '', sayadi || '', sheba || '', account_number || '',
       party_name || '', status || (opening ? 'مانده اول دوره' : ''), status_note || '',
-      Math.round(Number(amount)), finalNote, req.user.name || ''
+      amountNum, finalNote, req.user.name || ''
     );
     if (opening) {
       const chequeAccount = acct(db, direction === 'in' ? 'coa_cheques_receivable' : 'coa_cheques_payable');
       const openingAccount = acct(db, 'coa_opening_balance');
-      const valueToman = Math.round(Number(amount)) / 10;
+      const valueToman = amountNum / 10;
       const lines = direction === 'in'
         ? [
           { code: chequeAccount.code, name: chequeAccount.name, debit: valueToman, credit: 0 },

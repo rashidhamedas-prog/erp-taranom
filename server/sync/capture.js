@@ -67,6 +67,7 @@ const PATH_TABLE_MAP = [
   ['/api/trust-checks', 'trust_checks'],
   // Warehouse moves BEFORE generic /api/warehouses
   ['/api/warehouses/moves', 'warehouse_moves'],
+  ['/api/warehouses/stock', 'warehouse_stock'],
   ['/api/warehouses', 'warehouses'],
   ['/api/stocktaking', 'stocktaking_sessions'],
   ['/api/consignments', 'consignments'],

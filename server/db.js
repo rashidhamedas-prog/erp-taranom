@@ -1548,7 +1548,23 @@ function initSyncSchema(db) {
   ensureColumn(db, 'suppliers',  'coa_code', 'TEXT');
   ensureColumn(db, 'products',   'coa_code', 'TEXT');
   ensureColumn(db, 'banks',      'coa_code', 'TEXT');
+  ensureColumn(db, 'banks',      'opening_balance_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'banks',      'opening_balance_je_id', 'INTEGER');
+  ensureColumn(db, 'banks',      'opening_balance_date', 'TEXT');
   ensureColumn(db, 'cash_boxes', 'coa_code', 'TEXT');
+
+  // Single-device login sessions (central-only; not in SYNCABLE_TABLES)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_device_sessions (
+      user_id INTEGER PRIMARY KEY,
+      device_fingerprint TEXT NOT NULL,
+      device_name TEXT,
+      device_kind TEXT,
+      last_seen INTEGER DEFAULT (strftime('%s','now')),
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+  `);
   ensureColumn(db, 'persons',    'coa_code', 'TEXT');
   ensureColumn(db, 'products',   'needs_qty', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'journal_entries', 'src_system', 'TEXT');

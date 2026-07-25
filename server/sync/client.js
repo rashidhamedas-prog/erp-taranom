@@ -639,6 +639,8 @@ function getStatus() {
     central_url: cfg.centralUrl,
     device_id: cfg.deviceId,
     online: state.online,
+    // Online-First: when online, UI shows live/online; offline falls back to local DB + outbox
+    connection_mode: state.syncing ? 'syncing' : (state.online ? 'online' : 'offline'),
     syncing: state.syncing,
     pending: pendingCount(db),
     conflicts: conflictCount(db),
@@ -698,8 +700,9 @@ function startClientLoop(intervalMs) {
     }
   }
   const tick = () => { syncNow().catch(e => console.error('sync loop:', e.message)); };
-  setTimeout(tick, 5000);
-  loopTimer = setInterval(tick, intervalMs || 60000);
+  setTimeout(tick, 2000);
+  // Online-First: tighter loop (15s) so reconnect + pending outbox flush quickly
+  loopTimer = setInterval(tick, Math.min(intervalMs || 15000, 15000));
   return loopTimer;
 }
 

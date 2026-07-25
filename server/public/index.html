@@ -1860,13 +1860,27 @@ el('loginForm').addEventListener('submit', async (e)=>{
   const password = el('loginPass').value;
   if(!username || !password){ el('loginErr').textContent='نام کاربری و رمز را وارد کنید'; return; }
   try{
-    const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
-    const ct = r.headers.get('content-type')||'';
-    let j = null, raw = '';
-    try { raw = await r.text(); j = raw ? JSON.parse(raw) : null; } catch(parseErr){ j = null; }
+    const devicePayload = getLoginDevicePayload();
+    const attemptLogin = async (force)=>{
+      const body={username,password,...devicePayload};
+      if(force) body.force_logout_other=true;
+      const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const ct = r.headers.get('content-type')||'';
+      let j = null, raw = '';
+      try { raw = await r.text(); j = raw ? JSON.parse(raw) : null; } catch(parseErr){ j = null; }
+      return {r,j};
+    };
+    let {r,j} = await attemptLogin(false);
     if(!j){
       el('loginErr').textContent = 'پاسخ نامعتبر از سرور ('+r.status+')';
       return;
+    }
+    if(r.status===409 && j.code==='DEVICE_SESSION_ACTIVE'){
+      const other=j.other_device||{};
+      const ok=confirm((j.error||'نشست دیگری فعال است')+'\n\nدستگاه قبلی: '+(other.device_name||other.device_kind||'نامشخص')+'\n\nقطع نشست قبلی و ورود در این دستگاه؟');
+      if(!ok){ el('loginErr').textContent=j.error||'ورود لغو شد'; return; }
+      ({r,j} = await attemptLogin(true));
+      if(!j){ el('loginErr').textContent='پاسخ نامعتبر از سرور'; return; }
     }
     if(!r.ok){
       let msg = j.error || 'خطا در ورود';
@@ -1888,6 +1902,19 @@ el('loginForm').addEventListener('submit', async (e)=>{
     el('loginErr').textContent='خطای ارتباط با سرور';
   }
 });
+function getLoginDevicePayload(){
+  let fp=localStorage.getItem('crm_device_fp');
+  if(!fp){
+    fp='web-'+Math.random().toString(36).slice(2)+'-'+Date.now().toString(36);
+    localStorage.setItem('crm_device_fp', fp);
+  }
+  let kind='web', name='مرورگر وب';
+  if(APP_INFO && APP_INFO.role==='device'){
+    if(APP_INFO.platform==='android' || /Android/i.test(navigator.userAgent||'')){ kind='android'; name=APP_INFO.device_name||'اپ اندروید'; }
+    else { kind='desktop'; name=APP_INFO.device_name||'نسخه ویندوز'; }
+  }
+  return { device_fingerprint: fp, device_name: name, device_kind: kind };
+}
 
 /* تغییر اجباری رمز عبور (رمز پیش‌فرض/موقت) — مودال بدون راه فرار به‌جز خروج */
 function openForcePassChange(){
@@ -2235,6 +2262,7 @@ let _navGoingBack = false;
 const ACC_MODULE_MAP={
   'acc-petty-cash':'module_petty_cash','acc-trust-checks':'module_trust_checks',
   'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
+  'acc-warehouse-report':'module_warehouses',
   'acc-stocktaking':'module_warehouses','acc-item-kardex':'module_warehouses',
   'acc-inv-batches':'module_warehouses','acc-inv-reservations':'module_warehouses',
   'acc-inv-landed':'module_warehouses',
@@ -2333,18 +2361,30 @@ function buildNav(){
     </a>`;
   if(IN_ACC_SHELL){
     el('nav').innerHTML = ACC_NAV_SECTIONS.map((sec, secIdx)=>{
-      const items = sec.items.filter(filterAccNavItem);
+      const secItems = sec.items || (sec.subgroups||[]).flatMap(sg=>sg.items||[]);
+      let items = secItems.filter(filterAccNavItem);
       if(ME?.role==='sales_manager'){
         const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements']);
-        const filtered=items.filter(it=>allowed.has(it.id));
-        if(!filtered.length) return '';
-        return `<div class="nav-section"><div class="nav-section-title nav-acc-head ${ACC_NAV_COLLAPSED.has(secIdx)?'':'open'}" onclick="toggleAccNavSection(${secIdx})">${T(sec.title)}<span class="chev">▾</span></div><div class="nav-acc-items" style="display:${ACC_NAV_COLLAPSED.has(secIdx)?'none':'block'}">${filtered.map(linkHtml).join('')}</div></div>`;
+        items=items.filter(it=>allowed.has(it.id));
       }
       if(!items.length) return '';
       const collapsed = ACC_NAV_COLLAPSED.has(secIdx);
+      let bodyHtml='';
+      if(sec.subgroups && sec.subgroups.length){
+        bodyHtml = sec.subgroups.map((sg)=>{
+          const sgItems=(sg.items||[]).filter(filterAccNavItem).filter(it=>!ME||ME.role!=='sales_manager'||['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements'].includes(it.id));
+          if(!sgItems.length) return '';
+          return `<div class="nav-acc-sub" style="margin:4px 0 8px;padding-right:4px">
+            <div class="muted" style="font-size:11px;font-weight:700;color:var(--purple);padding:4px 8px">${T(sg.title)}</div>
+            ${sgItems.map(linkHtml).join('')}
+          </div>`;
+        }).join('');
+      } else {
+        bodyHtml = items.map(linkHtml).join('');
+      }
       return `<div class="nav-section">
         <div class="nav-section-title nav-acc-head ${collapsed?'':'open'}" onclick="toggleAccNavSection(${secIdx})">${T(sec.title)}<span class="chev">▾</span></div>
-        <div class="nav-acc-items" style="display:${collapsed?'none':'block'}">${items.map(linkHtml).join('')}</div>
+        <div class="nav-acc-items" style="display:${collapsed?'none':'block'}">${bodyHtml}</div>
       </div>`;
     }).join('');
     return;
@@ -2392,7 +2432,7 @@ function go(page){
   }
   // حالت پنجره چندگانه: هر زیرمنوی حسابداری در پنجره جدا
   if(IN_ACC_SHELL && page.startsWith('acc-') && page!=='acc-dash' && window.WinMgr && WinMgr.enabled()){
-    const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && ACC_NAV_SECTIONS.flatMap(s=>s.items).find(x=>x.id===page));
+    const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && accNavFlat().find(x=>x.id===page));
     const title = (it && T(it.label)) || page;
     const opened = WinMgr.open(page, title, async (body)=>{
       // پاک‌کردن placeholder بارگذاری تا متن «در حال بارگذاری» روی محتوا نماند
@@ -2425,7 +2465,7 @@ function go(page){
   }
   CURRENT_PAGE = page;
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
-  const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && ACC_NAV_SECTIONS.flatMap(s=>s.items).find(x=>x.id===page));
+  const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && accNavFlat().find(x=>x.id===page));
   el('pageTitle').textContent = it?T(it.label):'';
   if(window.innerWidth<=900) closeSidebar();
   updateBackBtn();
@@ -2604,7 +2644,9 @@ function buildOmniboxPageIndex(){
   }catch(_){}
   try{
     const secs=(typeof ACC_NAV_SECTIONS!=='undefined')?ACC_NAV_SECTIONS:[];
-    secs.forEach(sec=>{(sec.items||[]).forEach(it=>{
+    secs.forEach(sec=>{
+      const items=sec.items||(sec.subgroups||[]).flatMap(sg=>sg.items||[]);
+      items.forEach(it=>{
       if(!it||!it.id||it.id==='exit-acc-shell') return;
       if(typeof filterAccNavItem==='function' && !filterAccNavItem(it)) return;
       idx.push({type:'page',label:it.label,sub:'حسابداری › '+(sec.title||''),route:it.id});
@@ -2840,13 +2882,13 @@ function renderSyncBadge(){
   } else if(s.syncing){
     b.textContent=m?'🔄…':'🔄 در حال همگام‌سازی...'; b.style.background='#dbeafe'; b.style.color='#1d4ed8';
   } else if(!s.online){
-    b.textContent=m?`📡${s.pending?` ${fmt(s.pending)}`:''}`:`📡 آفلاین${s.pending?` · ${fmt(s.pending)} در صف`:''}`; b.style.background='#f3f4f6'; b.style.color='#6b7280';
+    b.textContent=m?`📡 آفلاین`:`📡 حالت آفلاین${s.pending?` · ${fmt(s.pending)} در صف`:''}`; b.style.background='#f3f4f6'; b.style.color='#6b7280';
   } else if(s.pending>0){
     b.textContent=m?`🔄 ${fmt(s.pending)}`:`🔄 ${fmt(s.pending)} در انتظار ارسال`; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else if(s.files_missing>0){
     b.textContent=m?`🖼️ ${fmt(s.files_missing)}`:`🖼️ ${fmt(s.files_missing)} تصویر در انتظار`; b.style.background='#fef3c7'; b.style.color='#b45309';
   } else {
-    b.textContent=m?'● همگام':'🟢 همگام با مرکز'; b.style.background='#dcfce7'; b.style.color='#15803d';
+    b.textContent=m?'● آنلاین':'🟢 آنلاین — همگام با مرکز'; b.style.background='#dcfce7'; b.style.color='#15803d';
   }
 }
 
@@ -2953,7 +2995,8 @@ async function bgSyncSilent(){
 function scheduleBgSync(){
   if(!SYNC_MODE) return;
   clearTimeout(_bgSyncTimer);
-  _bgSyncTimer=setTimeout(bgSyncSilent, 2000);
+  // Online-First: flush outbox quickly after local mutations
+  _bgSyncTimer=setTimeout(bgSyncSilent, 800);
 }
 
 async function discardSyncConflict(outboxId){
@@ -4787,7 +4830,7 @@ async function deleteProductCategory(id){
 async function prodModal(id){
   await loadLiveWarehousesForAccess();
   await ensureProductCategories(true);
-  let p = id ? (CACHE.products||[]).find(x=>x.id===id) || (CACHE.allProducts||[]).find(x=>x.id===id) : {};
+  let p = id ? (CACHE.products||[]).find(x=>Number(x.id)===Number(id)) || (CACHE.allProducts||[]).find(x=>Number(x.id)===Number(id)) : {};
   if(id){
     try{
       const full=await api('GET','/products/'+id);
@@ -4795,6 +4838,13 @@ async function prodModal(id){
     }catch(_){}
   }
   if(!p) p={};
+  // Ensure gallery arrays exist for edit preview (product_images + legacy image/images_json)
+  if(id && (!Array.isArray(p.images) || !p.images.length)){
+    if(p.images_json){
+      try{ p.images=JSON.parse(p.images_json).map((filename,i)=>({id:0,filename,sort_order:i})); }catch(_){ p.images=[]; }
+    }
+    if((!p.images||!p.images.length) && p.image) p.images=[{id:0,filename:p.image,sort_order:0}];
+  }
   window._prodModalProduct = p;
   const cats=CACHE.productCategories||[];
   openModal(`
@@ -4857,6 +4907,57 @@ async function prodModal(id){
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveProduct(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  bindProductImageInstantUpload(${id||0});
+}
+function bindProductImageInstantUpload(productId){
+  const inp=el('p-image');
+  const box=el('p-img-preview');
+  if(!inp||!box) return;
+  inp.addEventListener('change', async ()=>{
+    const files=[...inp.files||[]];
+    if(!files.length) return;
+    // Instant local previews
+    const frag=document.createDocumentFragment();
+    for(const f of files){
+      const url=URL.createObjectURL(f);
+      const wrap=document.createElement('div');
+      wrap.style.cssText='position:relative;width:72px;height:72px;border:1px dashed var(--purple);border-radius:8px;overflow:hidden';
+      wrap.innerHTML=`<img src="${url}" class="prod-thumb" style="width:100%;height:100%;object-fit:cover"><div class="img-upload-prog" style="position:absolute;bottom:0;left:0;right:0;height:4px;background:#ddd"><div style="height:100%;width:30%;background:var(--purple);animation:pulse 1s infinite"></div></div>`;
+      frag.appendChild(wrap);
+    }
+    const muted=box.querySelector('.muted');
+    if(muted) muted.remove();
+    box.appendChild(frag);
+    // If editing existing product, upload immediately via PUT with only images
+    if(productId){
+      try{
+        const fd=new FormData();
+        for(const f of files){ fd.append('images', await compressProductImageFile(f)); }
+        // keep required fields minimal — server merge on PUT
+        const name=el('p-name')?.value?.trim();
+        if(name) fd.append('name', name);
+        const saved=await api('PUT','/products/'+productId,fd,true,true);
+        if(saved){
+          window._prodModalProduct=saved;
+          showToast('تصاویر آپلود شد');
+          // refresh preview from server
+          const gallery=productImageList(saved);
+          box.innerHTML=gallery.length?gallery.map((fn,i)=>{
+            const row=(saved.images||[]).find(im=>(im.filename||im)===fn);
+            const iid=row&&row.id?row.id:0;
+            return `<div style="position:relative;cursor:zoom-in" onclick="openProductAlbumFromCard(${productId})">
+              ${prodImgTag(fn,'class=\"prod-thumb\"')}
+              ${iid?`<button type="button" class="btn sm red" style="position:absolute;top:2px;left:2px;z-index:2" onclick="event.stopPropagation();deleteProductImage(${iid},${productId})">×</button>`:''}
+              ${i===0?'<span class="img-badge" style="bottom:4px;left:4px">اصلی</span>':''}
+            </div>`;
+          }).join(''):'<span class="muted">تصویری ثبت نشده</span>';
+          inp.value='';
+        }
+      }catch(e){
+        showToast((e&&e.message)||'خطا در آپلود تصویر','error');
+      }
+    }
+  });
 }
 async function compressProductImageFile(file){
   if(!file || !String(file.type||'').startsWith('image/')) return file;
@@ -5131,7 +5232,8 @@ const ACC_EXCEL_ENTITIES={
   'purchase-returns':['purchase-returns'],
   'warehouse-ops':['warehouse-receipt','warehouse-issue','warehouse-transfer'],
   consignments:['consignments-in','consignments-out'],
-  'journal-docs':['journal-docs']
+  'journal-docs':['journal-docs'],
+  'fixed-assets':['fixed-assets']
 };
 const EXCEL_ENTITY_LABELS={
   parties:'اطلاعات اشخاص',products:'کالاها','opening-recv-cheques':'چک دریافتنی اول دوره',
@@ -5140,7 +5242,7 @@ const EXCEL_ENTITY_LABELS={
   'detail-accounts':'حساب‌های تفصیلی','sales-invoices':'فاکتور فروش','proforma-invoices':'پیش‌فاکتور',purchases:'فاکتور خرید',
   'sales-returns':'برگشت از فروش','purchase-returns':'برگشت از خرید',
   'warehouse-receipt':'رسید انبار','warehouse-issue':'حواله انبار','warehouse-transfer':'حواله بین انبار',
-  'consignments-in':'امانی گرفته‌شده','consignments-out':'امانی داده‌شده','journal-docs':'فهرست اسناد'
+  'consignments-in':'امانی گرفته‌شده','consignments-out':'امانی داده‌شده','journal-docs':'فهرست اسناد','fixed-assets':'دارایی ثابت'
 };
 function excelDownload(entity,kind){
   const suffix=kind==='template'?'template':'export';
@@ -6431,6 +6533,10 @@ async function loadAccTab(tab){
     await renderDetailAccountsTab(body);
   } else if(tab==='units'){
     await renderUnitsTab(body);
+  } else if(tab==='warehouse-report'){
+    await renderWarehouseReportTab(body);
+  } else if(tab==='sync-devices'){
+    await renderSyncDevicesTab(body);
   } else if(tab==='company-settings'){
     await renderAccCompanySettingsTab(body);
   } else if(tab==='fiscal-period'){
@@ -6457,9 +6563,9 @@ function enhanceAccTables(root){
     if(typeof tblEnsureRowIds==='function') tblEnsureRowIds(t);
     const hasId=[...t.tBodies[0].rows].some(r=>r.dataset.id);
     const bulk=hasId && typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null;
-    // P4: always enable client sort/filter; selectable only when bulk delete is available
-    if(bulk) enhanceDataTable(t,{selectable:true, bulkDelete:bulk});
-    else enhanceDataTable(t,{});
+    // P4: sort/filter + footer totals; selectable when bulk delete available
+    if(bulk) enhanceDataTable(t,{selectable:true, bulkDelete:bulk, footer:true});
+    else enhanceDataTable(t,{footer:true});
   });
 }
 
@@ -8084,6 +8190,7 @@ async function renderFixedAssetsTab(body){
       <button class="btn sm" onclick="openFixedAssetModal()">➕ دارایی جدید</button>
       <button class="btn sm ghost" onclick="runDepreciation()">📉 اجرای استهلاک ماهانه</button>
       <button class="btn sm red" onclick="voidDepreciationPeriod('${esc(period)}')">⛔ ابطال استهلاک ${esc(period)}</button>
+      ${excelButtonsHtml('fixed-assets')}
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
       <th>کد</th><th>نام</th><th>بهای تمام‌شده (ریال)</th><th>استهلاک انباشته</th><th>ارزش دفتری</th><th>وضعیت</th><th class="no-sort">عملیات</th>
@@ -11360,6 +11467,51 @@ async function deleteAccProduct(id){
     showToast('حذف شد'); loadAccTab('products');
   }catch(e){}
 }
+function _accProductsRowsHtml(rows, canMut){
+  return rows.map(p=>`<tr data-id="${p.id}">
+    <td class="mono" data-sort="${esc(p.code||'')}">${esc(p.code||'-')}</td>
+    <td>${esc(p.name)}</td>
+    <td class="muted">${esc(p.category_name||p.category||'-')}</td>
+    <td class="mono" data-col-kind="qty" data-sort="${Number(p.stock)||0}">${fmt(p.stock||0)}</td>
+    <td class="mono" data-col-kind="avg" data-sort="${Number(p.price)||0}">${fmt(p.price||0)}</td>
+    <td class="mono" data-col-kind="avg" data-sort="${Number(p.cost)||0}">${fmt(p.cost||0)}</td>
+    <td style="white-space:nowrap">
+      ${canMut?`<button class="btn sm ghost" onclick="accEditProduct(${p.id})">✏️</button>
+      <button class="btn sm red" onclick="deleteAccProduct(${p.id})">🗑️</button>`:'—'}
+    </td>
+  </tr>`).join('')||emptyRow(7);
+}
+async function refreshAccProductsTableOnly(){
+  const catFilter=PRODUCT_CAT_FILTER;
+  const search=PRODUCT_ACC_SEARCH;
+  let qp=['limit=500'];
+  if(catFilter) qp.push('category_id='+encodeURIComponent(catFilter));
+  if(search) qp.push('search='+encodeURIComponent(search));
+  const rows=await api('GET','/products?'+qp.join('&'))||[];
+  CACHE.allProducts=rows;
+  const canMut=isAdmin()||ME.role==='accounting';
+  const tbl=el('accProductsTbl');
+  const countEl=el('accProdCount');
+  if(!tbl || !tbl.tBodies[0]){ return loadAccTab('products'); }
+  // Reset enhance so footer/sort rebind after tbody swap
+  delete tbl.dataset.enhanced;
+  const oldBar=tbl._bulkBar; if(oldBar) oldBar.remove();
+  tbl.tBodies[0].innerHTML=_accProductsRowsHtml(rows, canMut);
+  if(countEl) countEl.textContent=fmt(rows.length)+' کالا';
+  if(typeof enhanceDataTable==='function'){
+    enhanceDataTable(tbl,{
+      selectable:canMut,
+      footer:true,
+      bulkDelete:canMut && typeof tblInferBulkDelete==='function'?tblInferBulkDelete(tbl):null
+    });
+  }
+  const ps=el('accProdSearch');
+  if(ps && document.activeElement!==ps){
+    const pos=ps.value.length;
+    ps.focus();
+    try{ ps.setSelectionRange(pos,pos); }catch(_){}
+  }
+}
 async function renderAccProductsTab(body){
   const catFilter=PRODUCT_CAT_FILTER;
   const search=PRODUCT_ACC_SEARCH;
@@ -11388,37 +11540,30 @@ async function renderAccProductsTab(body){
       <div style="flex:1;min-width:280px">
         <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
           ${canMut?`<button class="btn green" onclick="accNewProduct()">➕ کالای جدید</button>`:''}
-          <input id="accProdSearch" placeholder="جستجو نام/کد/بارکد..." value="${esc(search)}" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px">
-          <span class="muted" style="font-size:12px">${fmt(rows.length)} کالا</span>
+          <input id="accProdSearch" placeholder="جستجو نام/کد/بارکد..." value="${esc(search)}" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px" autocomplete="off">
+          <span class="muted" style="font-size:12px" id="accProdCount">${fmt(rows.length)} کالا</span>
         </div>
         <div class="tbl-wrap"><table class="tbl" id="accProductsTbl" data-bulk-delete="/products" data-bulk-label="حذف" data-bulk-perm="admin" data-bulk-confirm="{n} کالا حذف شود؟ این عمل برگشت‌پذیر نیست!" style="font-size:12px"><thead><tr>
-          <th>کد</th><th>نام</th><th>گروه</th><th>موجودی</th><th>قیمت ${moneyColLabel()}</th><th>بهای تمام‌شده</th><th class="no-sort">عملیات</th>
-        </tr></thead><tbody>${rows.map(p=>`<tr data-id="${p.id}">
-          <td class="mono">${esc(p.code||'-')}</td>
-          <td>${esc(p.name)}</td>
-          <td class="muted">${esc(p.category_name||p.category||'-')}</td>
-          <td class="mono">${fmt(p.stock||0)}</td>
-          <td class="mono">${fmt(p.price||0)}</td>
-          <td class="mono">${fmt(p.cost||0)}</td>
-          <td style="white-space:nowrap">
-            ${canMut?`<button class="btn sm ghost" onclick="accEditProduct(${p.id})">✏️</button>
-            <button class="btn sm red" onclick="deleteAccProduct(${p.id})">🗑️</button>`:'—'}
-          </td>
-        </tr>`).join('')||emptyRow(7)}</tbody></table></div>
+          <th>کد</th><th>نام</th><th>گروه</th><th data-col-kind="qty">موجودی</th><th data-col-kind="avg">قیمت ${moneyColLabel()}</th><th data-col-kind="avg">بهای تمام‌شده</th><th class="no-sort">عملیات</th>
+        </tr></thead><tbody>${_accProductsRowsHtml(rows, canMut)}</tbody></table></div>
       </div>
     </div>`;
   const ps=el('accProdSearch');
   if(ps){
+    const pos=ps.value.length;
     ps.focus();
+    try{ ps.setSelectionRange(pos,pos); }catch(_){}
     ps.addEventListener('input',()=>{
       PRODUCT_ACC_SEARCH=ps.value;
       clearTimeout(_accProdSearchTimer);
-      _accProdSearchTimer=setTimeout(()=>loadAccTab('products'),280);
+      // Only refresh tbody — keep input mounted so focus/caret/scroll stay put
+      _accProdSearchTimer=setTimeout(()=>refreshAccProductsTableOnly(),280);
     });
   }
   if(typeof enhanceDataTable==='function'){
     enhanceDataTable(el('accProductsTbl'),{
       selectable:canMut,
+      footer:true,
       bulkDelete:canMut && typeof tblInferBulkDelete==='function'?tblInferBulkDelete(el('accProductsTbl')):null
     });
   }
@@ -11842,7 +11987,8 @@ async function renderAccCompanySettingsTab(body){
       ${isAdmin()?`<button class="btn sm" onclick="go('settings')">⚙️ تنظیمات سیستم</button>
       <button class="btn sm" onclick="settOpenTab('backup')">پشتیبان‌گیری</button>
       <button class="btn sm" onclick="settOpenTab('users')">کاربران</button>
-      <button class="btn sm" onclick="settOpenTab('api')">API</button>`:''}
+      <button class="btn sm" onclick="settOpenTab('api')">API</button>
+      <button class="btn sm" onclick="loadAccTab('sync-devices')">📱 مدیریت دستگاه‌ها</button>`:''}
       <button class="btn sm ghost" onclick="loadAccTab('fiscal-period')">📅 دوره مالی</button>
     </div></div></div>`;
 }
@@ -12120,6 +12266,118 @@ async function deleteProductGroup(id){
   }catch(e){}
 }
 
+
+/* ============================================================
+   WAREHOUSE COMPREHENSIVE REPORT + SYNC DEVICES ADMIN
+============================================================ */
+async function renderWarehouseReportTab(body){
+  const whs=await api('GET','/warehouses')||[];
+  body.innerHTML=`
+    <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px;align-items:center">
+      <select id="whRepWh" style="padding:7px 10px;border-radius:8px;border:1.5px solid var(--border)">
+        <option value="">همه انبارها</option>
+        ${whs.filter(w=>w.active!==0).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
+      </select>
+      <input id="whRepQ" placeholder="جستجو کالا..." style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;min-width:180px">
+      <label style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="whRepZero"> شامل موجودی صفر</label>
+      <button class="btn sm" onclick="loadWarehouseReport()">اعمال فیلتر</button>
+      <button class="btn sm ghost" onclick="exportWarehouseReportExcel()">خروجی اکسل</button>
+    </div>
+    <div id="whRepBody"><div class="muted">انبار را انتخاب یا فیلتر را اعمال کنید…</div></div>`;
+  loadWarehouseReport();
+}
+async function loadWarehouseReport(){
+  const box=el('whRepBody'); if(!box) return;
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const wh=el('whRepWh')?.value||'';
+  const q=el('whRepQ')?.value||'';
+  const zero=el('whRepZero')?.checked?'1':'0';
+  const qs=['include_zero='+zero];
+  if(wh) qs.push('warehouse_id='+encodeURIComponent(wh));
+  if(q) qs.push('q='+encodeURIComponent(q));
+  const data=await api('GET','/warehouses/stock/report?'+qs.join('&'))||{rows:[]};
+  window._whRepLast=data;
+  const blocks=(data.rows||[]).map(r=>{
+    const rows=r.products||[];
+    return `<div class="panel" style="margin-bottom:14px"><div class="panel-head"><h4>${esc(r.warehouse_name)} <span class="muted mono">${esc(r.warehouse_code||'')}</span></h4>
+      <span class="muted" style="font-size:12px">${fmt(r.product_count)} کالا · موجودی ${fmt(r.total_qty)} · ارزش ریالی ${fmt(r.total_amount_rial)} · میانگین بها ${fmt(r.avg_unit_cost_rial)}</span></div>
+      <div class="panel-body"><div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <th>کد</th><th>نام</th><th>گروه</th><th data-col-kind="qty">موجودی</th><th data-col-kind="avg">میانگین بها</th><th data-col-kind="money">ارزش ریالی</th><th data-col-kind="avg">قیمت فروش</th><th data-col-kind="money">ارزش فروش</th>
+      </tr></thead><tbody>${rows.map(p=>`<tr>
+        <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td><td class="muted">${esc(p.category||'-')}</td>
+        <td class="mono" data-col-kind="qty">${fmt(p.qty)}</td>
+        <td class="mono" data-col-kind="avg">${fmt(p.avg_cost_rial||p.unit_cost_rial||0)}</td>
+        <td class="mono" data-col-kind="money">${fmt(p.amount_rial||0)}</td>
+        <td class="mono" data-col-kind="avg">${fmt(p.unit_price_rial||0)}</td>
+        <td class="mono" data-col-kind="money">${fmt(p.sales_value_rial||0)}</td>
+      </tr>`).join('')||emptyRow(8)}</tbody></table></div></div></div>`;
+  }).join('')||'<div class="empty">داده‌ای نیست</div>';
+  box.innerHTML=blocks;
+  if(typeof enhanceAccTables==='function') enhanceAccTables(box);
+}
+function exportWarehouseReportExcel(){
+  const data=window._whRepLast; if(!data||!data.rows){ showToast('ابتدا گزارش را بارگذاری کنید','error'); return; }
+  const flat=[];
+  (data.rows||[]).forEach(r=>{(r.products||[]).forEach(p=>{
+    flat.push({
+      'انبار': r.warehouse_name, 'کد انبار': r.warehouse_code||'',
+      'کد کالا': p.code||'', 'نام کالا': p.name||'', 'گروه': p.category||'',
+      'موجودی': p.qty||0, 'میانگین بها (ریال)': p.avg_cost_rial||p.unit_cost_rial||0,
+      'ارزش ریالی': p.amount_rial||0, 'قیمت فروش (ریال)': p.unit_price_rial||0,
+      'ارزش فروش': p.sales_value_rial||0,
+    });
+  });});
+  if(!flat.length){ showToast('ردیفی برای خروجی نیست','error'); return; }
+  // Client-side CSV (Excel-compatible) without new deps
+  const keys=Object.keys(flat[0]);
+  const lines=[keys.join(',')].concat(flat.map(row=>keys.map(k=>{
+    const v=row[k]==null?'':String(row[k]);
+    return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
+  }).join(',')));
+  const blob=new Blob(['\ufeff'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='warehouse-report.csv'; a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('خروجی اکسل/CSV آماده شد');
+}
+async function renderSyncDevicesTab(body){
+  if(!isAdmin()){ body.innerHTML='<div class="empty">فقط مدیر</div>'; return; }
+  let devices=[], sessions=[];
+  try{ devices=await api('GET','/sync/devices')||[]; }catch(e){ devices=[]; }
+  try{ sessions=await api('GET','/auth/device-sessions')||[]; }catch(e){ sessions=[]; }
+  body.innerHTML=`
+    <div class="panel" style="margin-bottom:16px"><div class="panel-head"><h4>دستگاه‌های همگام‌سازی (موبایل/ویندوز)</h4></div>
+    <div class="panel-body"><div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>شناسه</th><th>نام</th><th>وضعیت</th><th>آخرین Push</th><th>آخرین Pull</th><th>ثبت</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${(devices||[]).map(d=>`<tr>
+      <td class="mono">${d.id}</td><td>${esc(d.name||'-')}</td>
+      <td>${d.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">قطع</span>'}</td>
+      <td class="mono muted">${d.last_push_at?new Date(d.last_push_at*1000).toLocaleString('fa-IR'):'-'}</td>
+      <td class="mono muted">${d.last_pull_at?new Date(d.last_pull_at*1000).toLocaleString('fa-IR'):'-'}</td>
+      <td class="mono muted">${d.created_at?new Date(d.created_at*1000).toLocaleString('fa-IR'):'-'}</td>
+      <td>${d.active?`<button class="btn sm red" onclick="revokeSyncDevice(${d.id})">قطع دسترسی</button>`:'—'}</td>
+    </tr>`).join('')||emptyRow(7)}</tbody></table></div></div></div>
+    <div class="panel"><div class="panel-head"><h4>نشست‌های ورود کاربر (Single-Device)</h4></div>
+    <div class="panel-body"><div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>کاربر</th><th>دستگاه</th><th>نوع</th><th>آخرین فعالیت</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${(sessions||[]).map(s=>`<tr>
+      <td>${esc(s.user_name||s.username||s.user_id)}</td>
+      <td>${esc(s.device_name||s.device_fingerprint||'-')}</td>
+      <td>${esc(s.device_kind||'-')}</td>
+      <td class="mono muted">${s.last_seen?new Date(s.last_seen*1000).toLocaleString('fa-IR'):'-'}</td>
+      <td><button class="btn sm red" onclick="revokeUserSession(${s.user_id})">قطع نشست</button></td>
+    </tr>`).join('')||emptyRow(5)}</tbody></table></div>
+    <p class="muted" style="font-size:12px;margin-top:8px">هر کاربر فقط روی یک دستگاه می‌تواند همزمان وارد باشد. ورود روی دستگاه جدید، دستگاه قبلی را قطع می‌کند (یا مدیر از اینجا قطع می‌کند).</p>
+    </div></div>`;
+}
+async function revokeSyncDevice(id){
+  if(!confirm('دسترسی این دستگاه همگام‌سازی قطع شود؟')) return;
+  try{ await api('POST','/sync/devices/'+id+'/deactivate'); showToast('قطع شد'); loadAccTab('sync-devices'); }catch(e){}
+}
+async function revokeUserSession(userId){
+  if(!confirm('نشست ورود این کاربر قطع شود؟')) return;
+  try{ await api('DELETE','/auth/device-sessions/'+userId); showToast('نشست قطع شد'); loadAccTab('sync-devices'); }catch(e){}
+}
+
 /* ============================================================
    BANKS — unrestricted bank management. Each bank is simultaneously a real
    chart-of-accounts ledger row (1102-<id>), reportable in General Ledger /
@@ -12156,6 +12414,10 @@ function bankModal(id){
         ${IR_CURRENCIES.filter(c=>c.code!=='IRT').map(c=>`<option value="${c.code}" ${(b?.currency||'IRR')===c.code?'selected':''}>${c.code} — ${c.name}</option>`).join('')}
       </select></div>
       <div class="fg"><label><input type="checkbox" id="bk-foreign" ${(b?.is_foreign||(b?.currency&&b.currency!=='IRR'))?'checked':''} style="width:auto;margin-left:6px"> بانک ارزی</label></div>
+      <div class="fg"><label>موجودی اول دوره (ریال) ${hlp('در ایجاد/اولین ثبت، سند افتتاحیه خودکار صادر می‌شود.')}</label>
+        <input id="bk-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(b?.opening_balance_rial||0)}" ${b?.opening_balance_je_id?'disabled title="سند افتتاحیه قبلاً ثبت شده"':''}>
+        ${b?.opening_balance_je_id?`<span class="muted" style="font-size:11px">سند JE #${b.opening_balance_je_id}</span>`:''}
+      </div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="bk-active">
         <option value="1" ${b.active?'selected':''}>فعال</option><option value="0" ${!b.active?'selected':''}>غیرفعال</option>
       </select></div>`:''}
@@ -12177,6 +12439,8 @@ async function saveBank(id){
     note:el('bk-note')?.value||'',
     currency:el('bk-currency')?.value||'IRR',
     is_foreign:el('bk-foreign')?.checked?1:0,
+    opening_balance_rial:Math.round(moneyVal('bk-opening')||0),
+    opening_balance_date:todayJalali(),
     extra_accounts:collectBankExtraAccounts()
   };
   if(id) data.active=+el('bk-active').value;
@@ -16253,16 +16517,18 @@ function renderAdminGuide(){
       </ul>`),
     helpSec('💰','حسابداری — ماژول مستقل',`
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی ERP. برای بازگشت، از دکمه «🔙 بازگشت به ERP» بالای منوی کناری آن استفاده کنید.</p>
-      <p>منوی کناری این ماژول <b>آکاردئونی</b> است: سرفصل‌های عملیات (مثل «گزارش‌های مالی»، «فروش و مطالبات») به‌صورت کارت‌های برجسته با فلش بازشو نمایش داده می‌شوند — کلیک روی هر سرفصل زیرمنوهای آن را باز/بسته می‌کند و سرفصل باز با رنگ طلایی مشخص می‌شود. به‌صورت پیش‌فرض همه بسته‌اند تا منو خلوت بماند.</p>
-      <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا، پرداخت انگیزه، <b>مانده/موجودی اول دوره</b> و ورود اکسل، سند حسابداری دوطرفه خودکار ثبت می‌شود. در فهرست اسناد برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> نمایش داده می‌شود.</p>
+      <p>منوی کناری این ماژول <b>آکاردئونی و ماژول‌محور (مدل A)</b> است: هر ماژول (انبار، بانک، کالا، حسابداری، …) سرگروه است و زیر آن سه بخش <b>اطلاعات پایه / عملیات / گزارشات</b> قرار دارد. سرفصل‌ها با کلیک باز/بسته می‌شوند.</p>
+      <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا، پرداخت انگیزه، <b>مانده/موجودی اول دوره</b> (اشخاص، چک، بانک) و ورود اکسل، سند حسابداری دوطرفه خودکار ثبت می‌شود. در فهرست اسناد برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> نمایش داده می‌شود.</p>
+      <p><b>جداول:</b> در انتهای اکثر لیست‌ها جمع ستون‌های عددی، میانگین قیمت‌ها، و برای بدهکار/بستانکار تفاضل رنگی نمایش داده می‌شود. انتخاب چندتایی + عملیات گروهی (حذف/ابطال) در جداول دارای چک‌باکس فعال است.</p>
+      <p><b>دستگاه‌ها و ورود:</b> از امکانات → مدیریت دستگاه‌ها، دستگاه‌های موبایل/ویندوز همگام‌سازی و نشست‌های ورود (Single-Device) را ببینید و قطع کنید. هر کاربر فقط روی یک دستگاه همزمان وارد می‌شود. اپ‌ها Online-First هستند؛ قطع اینترنت → آفلاین محلی + همگام خودکار هنگام وصل.</p>
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
         <li><b>مطالبات مشتریان</b>: نمایش به تفکیک مشتری یا فاکتور، با دکمه ثبت پرداخت</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی)</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند</li>
-        <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول</li>
-        <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد (قابل مشاهده در «دفتر کل حساب‌ها»)</li>
+        <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده</li>
+        <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>
         <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>
         <li><b>صندوق‌های نقدی</b>: ساخت و مدیریت صندوق‌های نقدی شرکت بدون محدودیت در تعداد (مثلاً صندوق فروشگاه، صندوق دفتر مرکزی) — درست مثل بانک‌ها، هر صندوق یک حساب دفتر کل مستقل دارد. در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب صندوق (مثل بانک) اختیاری است</li>
         <li><b>تنخواه گردان</b>: هر صندوق نقدی را می‌توان با گزینه «این صندوق تنخواه‌گردان است» به‌عنوان صندوق تنخواه مشخص کرد تا در این صفحهٔ جداگانه با موجودی زنده نمایش داده شود — دکمهٔ «ثبت هزینه» یک هزینهٔ نقدی از همان صندوق ثبت می‌کند و دکمهٔ «افزایش تنخواه» یک انتقال وجه به آن صندوق انجام می‌دهد</li>
@@ -16275,9 +16541,10 @@ function renderAdminGuide(){
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی</li>
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
+        <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دفتر چک</b>: واگذاری/وصول/برگشت + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
-        <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، و غیرفعال‌سازی دارایی (اگر استهلاک فعال نداشته باشد)</li>
+        <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: پیگیری کالاهایی که مالکیتشان هنوز نهایی نشده — <b>ارسالی</b> (کالای ما نزد دیگران، بلافاصله از موجودی کسر می‌شود) و <b>دریافتی</b> (کالای دیگران نزد ما، به موجودی خودمان اضافه نمی‌شود). با «تسویه» فروش قطعی می‌شود (فاکتور/پرداخت واقعی را جداگانه ثبت کنید) و با «استرداد» کالای ارسالی به موجودی برمی‌گردد</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب و مشاهده گردش با مانده لحظه‌ای</li>
@@ -16839,29 +17106,50 @@ function productImageList(p){
   if(p.image) push(p.image);
   return out;
 }
-function showImgPreview(src, album){
+function _normImgUrl(u){
+  return String(u||'').split('?')[0].replace(/\/+$/,'');
+}
+function showImgPreview(src, album, startIdx){
   const urls = Array.isArray(album) && album.length
-    ? album.map(u => u.startsWith('/') || u.startsWith('http') ? u : prodImgUrl(u)).filter(Boolean)
+    ? album.map(u => {
+        if(!u) return '';
+        if(typeof u==='string' && (u.startsWith('/') || u.startsWith('http'))) return u;
+        return prodImgUrl(typeof u==='string'?u:(u.filename||''));
+      }).filter(Boolean)
     : [src].filter(Boolean);
-  if(!urls.length) return;
-  let idx = Math.max(0, urls.findIndex(u => u === src));
-  if(idx < 0) idx = 0;
+  // Deduplicate while preserving order (fixes next always looking like first)
+  const seen=new Set();
+  const uniq=[];
+  urls.forEach(u=>{ const k=_normImgUrl(u); if(k&&!seen.has(k)){ seen.add(k); uniq.push(u.split('?')[0]); } });
+  if(!uniq.length) return;
+  let idx = 0;
+  if(Number.isFinite(startIdx) && startIdx>=0) idx = startIdx % uniq.length;
+  else {
+    const target=_normImgUrl(src);
+    const found=uniq.findIndex(u=>_normImgUrl(u)===target || _normImgUrl(u).endsWith('/'+target.split('/').pop()));
+    idx = found>=0 ? found : 0;
+  }
+  document.querySelectorAll('.img-overlay.img-album').forEach(n=>n.remove());
   const ov = document.createElement('div');
   ov.className = 'img-overlay img-album';
   ov.innerHTML = `
     <button type="button" class="img-album-nav img-album-prev" aria-label="قبلی">‹</button>
-    <div class="img-album-stage"><img src="${urls[idx]}" alt=""></div>
+    <div class="img-album-stage"><img src="${uniq[idx]}" alt="" data-album-idx="${idx}"></div>
     <button type="button" class="img-album-nav img-album-next" aria-label="بعدی">›</button>
-    <div class="img-album-meta"><span class="img-album-count">${idx+1} / ${urls.length}</span>
+    <div class="img-album-meta"><span class="img-album-count">${idx+1} / ${uniq.length}</span>
       <button type="button" class="img-album-close">بستن</button></div>`;
   const img = ov.querySelector('img');
   const count = ov.querySelector('.img-album-count');
-  const paint = ()=>{ img.src = urls[idx]; count.textContent = `${idx+1} / ${urls.length}`; };
-  const prev = ()=>{ idx = (idx - 1 + urls.length) % urls.length; paint(); };
-  const next = ()=>{ idx = (idx + 1) % urls.length; paint(); };
-  ov.querySelector('.img-album-prev').onclick = (e)=>{ e.stopPropagation(); prev(); };
-  ov.querySelector('.img-album-next').onclick = (e)=>{ e.stopPropagation(); next(); };
-  ov.querySelector('.img-album-close').onclick = (e)=>{ e.stopPropagation(); ov.remove(); };
+  const paint = ()=>{
+    img.setAttribute('data-album-idx', String(idx));
+    img.src = uniq[idx] + (uniq[idx].includes('?')?'&':'?') + 'v=' + idx;
+    count.textContent = `${idx+1} / ${uniq.length}`;
+  };
+  const prev = ()=>{ idx = (idx - 1 + uniq.length) % uniq.length; paint(); };
+  const next = ()=>{ idx = (idx + 1) % uniq.length; paint(); };
+  ov.querySelector('.img-album-prev').onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); prev(); };
+  ov.querySelector('.img-album-next').onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); next(); };
+  ov.querySelector('.img-album-close').onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); ov.remove(); };
   ov.querySelector('.img-album-stage').onclick = (e)=> e.stopPropagation();
   ov.onclick = ()=> ov.remove();
   document.addEventListener('keydown', function onKey(e){
@@ -16870,7 +17158,7 @@ function showImgPreview(src, album){
     if(e.key==='ArrowRight') prev();
     if(e.key==='ArrowLeft') next();
   });
-  if(urls.length < 2){
+  if(uniq.length < 2){
     ov.querySelector('.img-album-prev').style.display='none';
     ov.querySelector('.img-album-next').style.display='none';
   }
@@ -16883,27 +17171,34 @@ function openProductAlbumFromCard(arg){
     try{
       const list=JSON.parse(raw);
       if(Array.isArray(list)&&list.length){
-        showImgPreview(prodImgUrl(list[0]), list);
+        showImgPreview(prodImgUrl(list[0]), list, 0);
         return;
       }
     }catch(_){}
     return;
   }
   const productId=arg;
+  const modal = window._prodModalProduct;
   let p = (CACHE.products||[]).find(x=>Number(x.id)===Number(productId))
     || (CACHE.allProducts||[]).find(x=>Number(x.id)===Number(productId))
     || (window._mkProds||[]).find(x=>Number(x.id)===Number(productId));
-  if(!p && window._prodModalProduct && Number(window._prodModalProduct.id)===Number(productId))
-    p = window._prodModalProduct;
-  if(!p && window._prodModalProduct && !productId) p = window._prodModalProduct;
+  // Prefer modal product (full gallery from GET /:id) over list cache (often primary-only)
+  if(modal && (!productId || Number(modal.id)===Number(productId))){
+    if(!p || productImageList(modal).length >= productImageList(p).length) p = modal;
+  }
   if(!p){ showToast('کالا یافت نشد','error'); return; }
   openProductAlbum(p);
 }
 function openProductAlbum(p, startName){
   const list = productImageList(p);
   if(!list.length){ showToast('تصویری برای این کالا نیست','error'); return; }
-  const startUrl = prodImgUrl(startName || list[0]);
-  showImgPreview(startUrl, list);
+  let startIdx = 0;
+  if(startName){
+    const name=typeof startName==='string'?startName:(startName.filename||'');
+    const found=list.findIndex(fn=>fn===name || prodImgUrl(fn)===name || _normImgUrl(prodImgUrl(fn))===_normImgUrl(name));
+    if(found>=0) startIdx=found;
+  }
+  showImgPreview(prodImgUrl(list[startIdx]), list, startIdx);
 }
 
 /* ============================================================
