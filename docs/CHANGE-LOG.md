@@ -32,18 +32,18 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending — stock sort) |
+| آخرین commit | `99dcb5d` stock sort |
 | نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v102` |
 | اندروید | **`2.0.29`** (vc31) — دانلود از `/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ### 2026-07-25 — سورت کاتالوگ بر اساس موجودی (نه قیمت)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** `PENDING`
+- **Commit:** `99dcb5d` (feature `2ffd5df`)
 - **خلاصه:** ترتیب نمایش کالا در کاتالوگ/مدیر/بازاریاب/B2B از بیشترین **موجودی** به کمترین اصلاح شد (قبلاً اشتباه روی قیمت بود). SW `v102`.
 - **فایل‌های کلیدی:** `server/routes/products.js`, `server/routes/b2b.js`, `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `99dcb5d` / SW `erp-taranom-v102` — reset + SFTP + pm2 · health 200
 - **یادداشت:** یک‌بار hard refresh.
 
 ### 2026-07-25 — آپلود عکس کالا + سورت قیمت کاتالوگ
