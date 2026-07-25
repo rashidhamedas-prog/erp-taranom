@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | login password reset (pending hash) |
+| آخرین commit | `545156e` login password fix |
 | نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v100` |
 | اندروید | **`2.0.29`** (vc31) — دانلود از `/releases/crm-taranom.apk` |
 | وضعیت سرور | ✅ |
@@ -40,10 +40,10 @@
 
 ### 2026-07-25 — رفع ورود کاربران (ریست رمز مرکزی + سخت‌گیری سیاست رمز)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** `PENDING`
+- **Commit:** `545156e`
 - **خلاصه:** بعد از go-live رمزهای ذخیره‌شده با آنچه کاربران امتحان می‌کردند جور نبود (admin≠admin123؛ aref/sharafi بعد از wipe عوض شده بودند). رمز موقت همهٔ کاربران فعال روی ایران ریست و لاگین HTTP 200 تأیید شد. کد: نرمال‌سازی ارقام فارسی در username، validatePassword هنگام ساخت/ویرایش کاربر، خطای واضح‌تر در بازنشانی رمز UI، SW `v100`.
 - **فایل‌های کلیدی:** `server/routes/auth.js`, `server/routes/admin.js`, `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `545156e` / SW `erp-taranom-v100` — SFTP + pm2 restart + login HTTP 200
 - **یادداشت:** ورود موقت: همه کاربران فعال با رمز موقت؛ در اولین ورود وب باید عوض شود. موبایل تا sync/pair هش جدید را ندارد. دو کاربر portal با username موبایل از بکاپ در DB فعلی نیستند.
 
 ### 2026-07-23 — پاک‌سازی go-live + بازچینی کدینگ پایه + cascade تفصیلی
