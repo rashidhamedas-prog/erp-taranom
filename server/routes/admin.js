@@ -2,6 +2,7 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnly, invalidateUserCache } = require('../middleware/auth');
+const { validatePassword } = require('../lib/security');
 const { j2g } = require('../jalali');
 const { ensureUserParty } = require('../lib/user-party');
 
@@ -35,6 +36,8 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
     commission_basis = 'invoice', monthly_target = 0, quarterly_target = 0, annual_target = 0, bonus_pct = 0, commission_fixed = 0, penalty_pct = 0, supervisor_commission_pct = 0,
     rep_code, rep_subtype, territory, supervisor_id, employment_status, bank_name, bank_account, bank_iban, rep_opening_balance, sales_warehouse_id } = req.body;
   if (!name || !username || !password) return res.status(400).json({ error: 'اطلاعات ناقص' });
+  const passErr = validatePassword(password);
+  if (passErr) return res.status(400).json({ error: passErr });
   const db = getDB();
   const exists = db.prepare('SELECT id FROM users WHERE username=?').get(username);
   if (exists) return res.status(400).json({ error: 'این نام کاربری قبلاً ثبت شده' });
@@ -85,6 +88,11 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
 
   if (existing.incentive_locked && rateChanged && !force) {
     return res.status(409).json({ locked: true, message: 'نرخ انگیزه فروش این کارشناس قفل شده است. لطفاً تأیید کنید.' });
+  }
+
+  if (password) {
+    const passErr = validatePassword(password);
+    if (passErr) return res.status(400).json({ error: passErr });
   }
 
   db.transaction(() => {

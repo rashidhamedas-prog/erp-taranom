@@ -58,9 +58,17 @@ function forgotRateLimit(key) {
   return true;
 }
 
+function normalizeUsername(u) {
+  return String(u || '')
+    .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660))
+    .trim()
+    .slice(0, 64);
+}
+
 // Login
 router.post('/login', (req, res) => {
-  const username = (req.body.username || '').trim().slice(0, 64);
+  const username = normalizeUsername(req.body.username);
   const password = (req.body.password || '').slice(0, 128);
   if (!username || !password) return res.status(400).json({ error: 'اطلاعات ناقص' });
 
@@ -69,7 +77,7 @@ router.post('/login', (req, res) => {
 
   const db = getDB();
   const user = db.prepare('SELECT * FROM users WHERE username=? AND active=1').get(username);
-  if (!user || !bcrypt.compareSync(password, user.password)) {
+  if (!user || !user.password || !bcrypt.compareSync(password, user.password)) {
     recordFailure(username);
     if (user) audit(user.id, 'login_failed', 'user', user.id, 'رمز اشتباه', req);
     return res.status(401).json({ error: 'نام کاربری یا رمز عبور اشتباه است' });
