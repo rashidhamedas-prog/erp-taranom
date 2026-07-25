@@ -4858,6 +4858,24 @@ async function prodModal(id){
     <div class="modal-foot"><button class="btn" onclick="saveProduct(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
 }
+async function compressProductImageFile(file){
+  if(!file || !String(file.type||'').startsWith('image/')) return file;
+  if((file.size||0) < 350*1024) return file;
+  try{
+    const bmp = await createImageBitmap(file);
+    const max=1200;
+    let w=bmp.width, h=bmp.height;
+    if(w>max||h>max){ const sc=Math.min(max/w, max/h); w=Math.round(w*sc); h=Math.round(h*sc); }
+    const canvas=document.createElement('canvas');
+    canvas.width=w; canvas.height=h;
+    canvas.getContext('2d').drawImage(bmp,0,0,w,h);
+    try{ bmp.close(); }catch(_){}
+    const blob=await new Promise(res=>canvas.toBlob(res,'image/webp',0.72));
+    if(!blob || blob.size >= file.size) return file;
+    const base=String(file.name||'photo').replace(/\.[^.]+$/,'');
+    return new File([blob], base+'.webp', { type:'image/webp', lastModified:Date.now() });
+  }catch(_){ return file; }
+}
 async function saveProduct(id){
   const name = el('p-name').value.trim();
   if(!name){ showToast('نام کالا الزامی است','error'); return; }
@@ -4891,15 +4909,38 @@ async function saveProduct(id){
   }
   // فقط فیلد images — ارسال همزمان image+images باعث دوباره‌سازی و حذف عکس قبلی می‌شد
   const files = el('p-image').files || [];
-  for(let i=0;i<files.length;i++) fd.append('images', files[i]);
+  const hadNewImages = files.length > 0;
+  const beforeImgCount = id ? productImageList(window._prodModalProduct||{}).length : 0;
+  for(let i=0;i<files.length;i++){
+    fd.append('images', await compressProductImageFile(files[i]));
+  }
+  let saved = null;
   try{
-    if(id) await api('PUT','/products/'+id,fd,true); else await api('POST','/products',fd,true);
-    closeModal();
+    // silent=true تا toast خطا را خودمان کنترل کنیم (گاهی پاسخ قطع می‌شود ولی ذخیره موفق است)
+    saved = id ? await api('PUT','/products/'+id,fd,true,true) : await api('POST','/products',fd,true,true);
+  }catch(e){
+    // آپلود گاهی روی سرور تمام می‌شود ولی پاسخ قطع می‌شود (timeout/پروکسی) —
+    // اگر عکس جدید ثبت شده باشد، ذخیره را موفق حساب کن.
+    if(id && hadNewImages){
+      try{
+        const check = await api('GET','/products/'+id, null, false, true);
+        const imgs = (check && (check.images||[])) || [];
+        if(imgs.length > beforeImgCount){ saved = check; }
+      }catch(_){}
+    }
+    if(!saved){
+      showToast((e && ((e.payload&&e.payload.error)||e.message)) || 'خطا در ذخیره کالا','error');
+      return;
+    }
+  }
+  closeModal();
+  showToast('ذخیره شد');
+  try{
     await _refreshProdWithCats(_prodCanEdit);
     if(window._accProdRefresh){ try{ window._accProdRefresh(); }catch(_){} window._accProdRefresh=null; }
-    showToast('ذخیره شد');
-  }catch(e){ showToast('خطا در ذخیره کالا','error'); }
+  }catch(_){ /* ذخیره موفق بود؛ تازه‌سازی لیست جداست */ }
 }
+
 /* ============================================================
    BARCODE — generate, print labels, camera scan  [ported from v4]
 ============================================================ */
