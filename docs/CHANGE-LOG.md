@@ -32,18 +32,18 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending — product images + price sort) |
+| آخرین commit | `85dad85` product images + price sort |
 | نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v101` |
 | اندروید | **`2.0.29`** (vc31) — دانلود از `/releases/crm-taranom.apk` |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ### 2026-07-25 — آپلود عکس کالا + سورت قیمت کاتالوگ
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** `PENDING`
+- **Commit:** `85dad85`
 - **خلاصه:** رفع دوباره‌سازی آپلود و حذف عکس قبلی هنگام ویرایش کالا (ویرایش دیگر عکس اصلی را جایگزین/حذف نمی‌کند؛ dedupe در `attachUploadedImages`؛ WebP سریع‌تر ۱۰۲۴px/effort2). لیست کالا/کاتالوگ/بازاریاب/B2B از بیشترین قیمت به کمترین. SW `v101`.
 - **فایل‌های کلیدی:** `server/routes/products.js`, `server/routes/b2b.js`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `85dad85` / SW `erp-taranom-v101` — git reset + SFTP + pm2 · health 200
 - **یادداشت:** پس از deploy یک‌بار hard refresh.
 
 ### 2026-07-25 — رفع ورود کاربران (ریست رمز مرکزی + سخت‌گیری سیاست رمز)
