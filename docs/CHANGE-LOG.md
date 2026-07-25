@@ -32,18 +32,18 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending — upload false-error) |
+| آخرین commit | `3592351` upload false-error fix |
 | نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v103` |
 | اندروید | **`2.0.29`** (vc31) |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ### 2026-07-25 — رفع خطای کاذب آپلود عکس کالا
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** `PENDING`
+- **Commit:** `3592351`
 - **خلاصه:** آپلود عکس گاهی روی سرور موفق بود ولی UI خطا می‌داد (timeout/پروکسی یا خطای تازه‌سازی لیست). فشرده‌سازی تصویر قبل از ارسال، پاسخ امن JSON، و اگر عکس واقعاً ذخیره شده باشد ذخیره موفق نمایش داده می‌شود. SW `v103`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/routes/products.js`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `3592351` / SW `erp-taranom-v103` — reset + SFTP + pm2 · health 200
 
 ### 2026-07-25 — سورت کاتالوگ بر اساس موجودی (نه قیمت)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
