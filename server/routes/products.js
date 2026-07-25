@@ -150,7 +150,7 @@ router.get('/', auth, (req, res) => {
     FROM products p
     LEFT JOIN warehouses w ON p.warehouse_id=w.id
     LEFT JOIN product_categories pc ON pc.id=p.category_id
-    ${whereSql} ORDER BY CAST(p.price AS REAL) DESC, p.id DESC
+    ${whereSql} ORDER BY CAST(p.stock AS REAL) DESC, p.id DESC
   `).all(...params);
   // Attach gallery filenames for album UI (catalog / marketer / cards)
   for (const row of rows) {

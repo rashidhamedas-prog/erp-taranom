@@ -160,7 +160,7 @@ router.get('/me/catalog', (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
     SELECT id, name, code, category, price, unit, image, stock > 0 as available
-    FROM products ORDER BY CAST(price AS REAL) DESC, id DESC
+    FROM products ORDER BY CAST(stock AS REAL) DESC, id DESC
   `).all();
   res.json(rows);
 });
