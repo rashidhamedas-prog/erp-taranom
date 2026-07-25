@@ -246,6 +246,12 @@ html[data-theme="dark"] .cards.bento-hero{
 .nav-acc-head.open .chev{transform:rotate(0deg)}
 .nav-acc-items{padding:3px 0 7px}
 .nav-acc-items a{font-size:13px;padding:10px 28px 10px 22px}
+.nav-acc-sub{margin:4px 0 8px;padding-right:4px}
+.nav-acc-sub-title{
+  font-size:11px;font-weight:700;letter-spacing:.02em;
+  color:rgba(251,245,225,.92); /* light on green sidebar — was var(--purple)=#1A5C38 (invisible) */
+  padding:6px 10px 2px;opacity:.95}
+
 .stat .v{font-size:clamp(11px,2.2vw,20px);font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;line-height:1.25}
 .stat .l{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stat > div:last-child{min-width:0;overflow:hidden}
@@ -1154,7 +1160,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 <script src="/acc-nav.js?v=75"></script>
 <script src="/portal-ui.js?v=75"></script>
 <script src="/mdi.js?v=77" defer></script>
-<script src="/tbl-enhance.js?v=75" defer></script>
+<script src="/tbl-enhance.js?v=76" defer></script>
 <script src="/prod-ui.js?v=75" defer></script>
 <script>
 if(typeof T!=='function'){ window.T=function(s){return s;}; window.tt=function(a){return a;}; window.getAppLang=function(){return 'fa';}; window.setAppLang=function(){}; }
@@ -2374,8 +2380,8 @@ function buildNav(){
         bodyHtml = sec.subgroups.map((sg)=>{
           const sgItems=(sg.items||[]).filter(filterAccNavItem).filter(it=>!ME||ME.role!=='sales_manager'||['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements'].includes(it.id));
           if(!sgItems.length) return '';
-          return `<div class="nav-acc-sub" style="margin:4px 0 8px;padding-right:4px">
-            <div class="muted" style="font-size:11px;font-weight:700;color:var(--purple);padding:4px 8px">${T(sg.title)}</div>
+          return `<div class="nav-acc-sub">
+            <div class="nav-acc-sub-title">${T(sg.title)}</div>
             ${sgItems.map(linkHtml).join('')}
           </div>`;
         }).join('');
@@ -6551,6 +6557,9 @@ async function loadAccTab(tab){
   attachExcelTools(tab,body);
   if(typeof enhanceAccTables==='function') enhanceAccTables(body);
   }catch(e){
+    // #region agent log
+    fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'A',location:'index.html:loadAccTab:catch',message:'acc tab load error',data:{tab:String(tab||''),err:String(e&&e.message||e)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     body.innerHTML=`<div class="empty">خطا در بارگذاری این بخش: ${esc(e.message||'نامشخص')}</div>`;
   }
 }

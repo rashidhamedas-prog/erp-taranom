@@ -32,11 +32,18 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `148e2e8` remove login debug logs |
-| نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v106` |
+| آخرین commit | (netProps + nav contrast — pending) |
+| نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v107` |
 | اندروید | **`2.0.29`** (vc31) |
-| وضعیت سرور | ✅ |
+| وضعیت سرور | ⏳ |
 | سرور production | تنها ایران `94.249.244.208` |
+
+### 2026-07-26 — رفع netProps + رنگ عناوین سایدبار
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** `rebuildFooter` متغیر را `netRow` ساخته بود ولی `netProps` می‌خواند → خطای «netProps is not defined» در اکثر تب‌های حسابداری پس از enhance جدول. عناوین زیرگروه سایدبار (اطلاعات پایه/عملیات/گزارشات) با `color:var(--purple)` روی سبز سایدبار نامرئی بودند → کلاس `.nav-acc-sub-title` روشن. SW `v107` / tbl-enhance `?v=76`.
+- **فایل‌های کلیدی:** `server/public/tbl-enhance.js`, `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ⏳
 
 ### 2026-07-26 — پاک‌سازی instrumentation لاگین
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

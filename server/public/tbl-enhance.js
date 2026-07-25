@@ -328,7 +328,10 @@
     tfoot.innerHTML = '';
     const sumRow = document.createElement('tr');
     sumRow.className = 'tbl-footer-sum';
-    const netRow = { debit: 0, credit: 0, debitCol: -1, creditCol: -1 };
+    const netProps = { debit: 0, credit: 0, debitCol: -1, creditCol: -1 };
+    // #region agent log
+    fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'A',location:'tbl-enhance.js:rebuildFooter',message:'rebuildFooter enter',data:{cols:colCount,hasNetProps:typeof netProps==='object'},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     const fmtN = (n) => {
       if (typeof global.fmt === 'function') return global.fmt(n);
       return Number(n || 0).toLocaleString('fa-IR');
@@ -392,6 +395,9 @@
       }
       tfoot.appendChild(netRow);
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'A',location:'tbl-enhance.js:rebuildFooter:ok',message:'rebuildFooter ok',data:{debitCol:netProps.debitCol,creditCol:netProps.creditCol},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
   }
 
   /** Infer bulk-delete from data-* attrs or first red action button */
