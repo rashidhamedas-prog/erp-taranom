@@ -32,18 +32,18 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (login syntax fix — pending) |
+| آخرین commit | `c87901f` fix login syntax |
 | نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v105` |
 | اندروید | **`2.0.29`** (vc31) |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ### 2026-07-26 — رفع لاگین بی‌پاسخ (syntax در آپلود عکس)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `c87901f`
 - **خلاصه:** خطای `bindProductImageInstantUpload(${id||0})` بیرون از template باعث SyntaxError کل `index.html` می‌شد؛ listener لاگین هرگز وصل نمی‌شد و با زدن ورود هیچ اتفاقی نمی‌افتاد. اصلاح به `id||0` + SW `v105`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `c87901f` / SW `erp-taranom-v105` — git pull + pm2 · health 200
 - **یادداشت:** یک‌بار hard refresh / Ctrl+F5 بعد از deploy
 
 ### 2026-07-26 — آپدیت UX / Offline-First / جداول / ناوبری مدل A
