@@ -32,18 +32,18 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending) UX/Offline/جداول |
+| آخرین commit | `e30b92b` UX/Offline/جداول |
 | نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v104` |
 | اندروید | **`2.0.29`** (vc31) |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ### 2026-07-26 — آپدیت UX / Offline-First / جداول / ناوبری مدل A
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `e30b92b`
 - **خلاصه:** رفع باگ سرچ/گالری/Preview کالا و اکسل چک؛ footer جداول با جمع/میانگین/تفاضل بدهکار-بستانکار؛ اکسل دارایی ثابت؛ گزارش جامع انبار؛ آپلود فوری عکس؛ موجودی اول دوره بانک+JE؛ پنل revoke دستگاه‌ها؛ ناوبری ماژول‌محور مدل A؛ Online-First روی سینک موجود؛ Single-Device login. بدون React/RxDB/exceljs.
 - **فایل‌های کلیدی:** `server/public/index.html`, `acc-nav.js`, `tbl-enhance.js`, `sw.js`, `server/routes/{excel,banks,warehouses,auth,cheque-records}.js`, `server/sync/{client,capture}.js`, `server/db.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `e30b92b` / SW `erp-taranom-v104` — git pull + pm2 · health 200
 - **یادداشت:** SW `erp-taranom-v104`
 
 ### 2026-07-25 — رفع خطای کاذب آپلود عکس کالا
