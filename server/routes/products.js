@@ -30,9 +30,19 @@ function listProductImages(db, productId) {
 }
 
 async function attachUploadedImages(db, productId, files, setPrimary) {
+  const raw = [];
+  if (files?.image?.[0]) raw.push(files.image[0]);
+  if (files?.images?.length) raw.push(...files.images);
+  // Deduplicate when client accidentally sends the same file as both image and images
+  const seen = new Set();
   const imgs = [];
-  if (files?.image?.[0]) imgs.push(files.image[0]);
-  if (files?.images?.length) imgs.push(...files.images);
+  for (const f of raw) {
+    if (!f || !f.buffer) continue;
+    const key = (f.originalname || '') + '|' + (f.size || f.buffer.length) + '|' + f.buffer.length;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    imgs.push(f);
+  }
   if (!imgs.length) return;
   let sort = db.prepare('SELECT COALESCE(MAX(sort_order),-1)+1 s FROM product_images WHERE product_id=?').get(productId).s;
   const ins = db.prepare('INSERT INTO product_images (product_id,filename,sort_order) VALUES (?,?,?)');
@@ -72,15 +82,15 @@ function nextProductCode(db) {
 }
 
 async function saveImage(buffer, originalName) {
-  // Auto-optimize for app: max edge 1280, WebP ~75, strip metadata (keeps aspect ratio).
+  // Auto-optimize for app: max edge 1024, WebP ~72, low effort (faster upload).
   if (sharp) {
     try {
       const filename = 'p_' + Date.now() + '_' + Math.round(Math.random() * 1e6) + '.webp';
       const dest = path.join(UPLOAD_DIR, filename);
       await sharp(buffer)
         .rotate() // honor EXIF orientation from phone cameras
-        .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: 75, effort: 4 })
+        .resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 72, effort: 2 })
         .toFile(dest);
       return filename;
     } catch (e) {
@@ -140,7 +150,7 @@ router.get('/', auth, (req, res) => {
     FROM products p
     LEFT JOIN warehouses w ON p.warehouse_id=w.id
     LEFT JOIN product_categories pc ON pc.id=p.category_id
-    ${whereSql} ORDER BY p.created_at DESC
+    ${whereSql} ORDER BY CAST(p.price AS REAL) DESC, p.id DESC
   `).all(...params);
   // Attach gallery filenames for album UI (catalog / marketer / cards)
   for (const row of rows) {
@@ -471,10 +481,7 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     if (c) catName = c.name;
   }
   let image = null;
-  const primaryFile = req.files?.image?.[0] || req.files?.images?.[0];
-  if (primaryFile) {
-    try { image = await saveImage(primaryFile.buffer, primaryFile.originalname); } catch (e) { image = null; }
-  }
+  // Create: defer image save to attachUploadedImages (single pass, no duplicate)
   // New products default into the first warehouse so warehouse_id is never
   // null — Warehouse Transfer can relocate them afterward.
   const defaultWarehouse = warehouse_id
@@ -522,12 +529,7 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, result.lastInsertRowid);
   }
   try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
-  // Extra gallery images (skip first if already used as primary)
-  const extraFiles = { images: (req.files?.images || []).slice(image ? 1 : 0) };
-  if (req.files?.image?.[0] && image) {
-    try { db.prepare('INSERT INTO product_images (product_id,filename,sort_order) VALUES (?,?,0)').run(result.lastInsertRowid, image); } catch (_) {}
-  }
-  await attachUploadedImages(db, result.lastInsertRowid, extraFiles, !image);
+  await attachUploadedImages(db, result.lastInsertRowid, req.files, true);
   audit(req.user.id, 'create', 'product', result.lastInsertRowid, `ساخت محصول ${name}`);
   try { require('../lib/website-stock-sync').notifyStockChanged(db, result.lastInsertRowid); } catch (_) {}
   const row = db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid);
@@ -549,14 +551,7 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     if (c) catName = c.name;
   }
   let image = prod.image;
-  const primaryFile = req.files?.image?.[0];
-  if (primaryFile) {
-    try {
-      image = await saveImage(primaryFile.buffer, primaryFile.originalname);
-      if (prod.image) { try { fs.unlinkSync(path.join(UPLOAD_DIR, prod.image)); } catch (e) {} }
-      try { db.prepare('INSERT INTO product_images (product_id,filename,sort_order) VALUES (?,?,0)').run(req.params.id, image); } catch (_) {}
-    } catch (e) { image = prod.image; }
-  }
+  // Gallery add only — never replace/delete existing primary on edit.
   const whId = warehouse_id != null && warehouse_id !== '' ? (parseInt(warehouse_id) || null) : prod.warehouse_id;
   const oldStock = prod.stock;
   db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=?,
@@ -585,7 +580,7 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
       .run(req.params.id, whId, parseQty(stock) || prod.stock || 0);
   }
-  await attachUploadedImages(db, req.params.id, { images: req.files?.images || [] }, false);
+  await attachUploadedImages(db, req.params.id, req.files, !prod.image);
   audit(req.user.id, 'update', 'product', req.params.id, `ویرایش محصول ${name || prod.name}`);
   if (parseQty(stock) !== parseQty(oldStock)) {
     try { require('../lib/website-stock-sync').notifyStockChanged(db, req.params.id); } catch (_) {}
