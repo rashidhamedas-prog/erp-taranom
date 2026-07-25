@@ -32,18 +32,18 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (cleanup debug — pending) |
+| آخرین commit | `148e2e8` remove login debug logs |
 | نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v106` |
 | اندروید | **`2.0.29`** (vc31) |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` |
 
 ### 2026-07-26 — پاک‌سازی instrumentation لاگین
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `148e2e8`
 - **خلاصه:** حذف لاگ‌های دیباگ موقت از handler ورود پس از تأیید رفع باگ. SW `v106`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `148e2e8` / SW `erp-taranom-v106` — git pull + pm2 · health 200
 
 ### 2026-07-26 — رفع لاگین بی‌پاسخ (syntax در آپلود عکس)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
