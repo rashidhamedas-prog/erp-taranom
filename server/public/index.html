@@ -1855,18 +1855,12 @@ document.addEventListener('click',e=>{ if(!e.target.closest('.cust-sw')) documen
 ============================================================ */
 el('loginForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
-  // #region agent log
-  fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'A',location:'index.html:loginSubmit',message:'login submit fired',data:{hasUser:!!el('loginUser')?.value?.trim(),scriptOk:true},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   el('loginErr').textContent='';
   const username = el('loginUser').value.trim();
   const password = el('loginPass').value;
   if(!username || !password){ el('loginErr').textContent='نام کاربری و رمز را وارد کنید'; return; }
   try{
     const devicePayload = getLoginDevicePayload();
-    // #region agent log
-    fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'B',location:'index.html:loginPayload',message:'device payload ready',data:{kind:devicePayload.device_kind,hasFp:!!devicePayload.device_fingerprint},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     const attemptLogin = async (force)=>{
       const body={username,password,...devicePayload};
       if(force) body.force_logout_other=true;
@@ -1874,9 +1868,6 @@ el('loginForm').addEventListener('submit', async (e)=>{
       const ct = r.headers.get('content-type')||'';
       let j = null, raw = '';
       try { raw = await r.text(); j = raw ? JSON.parse(raw) : null; } catch(parseErr){ j = null; }
-      // #region agent log
-      fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'C',location:'index.html:attemptLogin',message:'login response',data:{status:r.status,ok:r.ok,force:!!force,hasJson:!!j,code:j&&j.code||null,ct:ct.slice(0,40),rawLen:(raw||'').length},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       return {r,j};
     };
     let {r,j} = await attemptLogin(false);
@@ -1885,9 +1876,6 @@ el('loginForm').addEventListener('submit', async (e)=>{
       return;
     }
     if(r.status===409 && j.code==='DEVICE_SESSION_ACTIVE'){
-      // #region agent log
-      fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'D',location:'index.html:device409',message:'409 device session active — showing confirm',data:{otherKind:(j.other_device||{}).device_kind||null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       const other=j.other_device||{};
       const ok=confirm((j.error||'نشست دیگری فعال است')+'\n\nدستگاه قبلی: '+(other.device_name||other.device_kind||'نامشخص')+'\n\nقطع نشست قبلی و ورود در این دستگاه؟');
       if(!ok){ el('loginErr').textContent=j.error||'ورود لغو شد'; return; }
@@ -1909,14 +1897,8 @@ el('loginForm').addEventListener('submit', async (e)=>{
     if(j.must_change_password){
       el('login').style.display='none'; openForcePassChange(); return;
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'E',location:'index.html:beforeBoot',message:'login ok — calling boot',data:{userId:j.user&&j.user.id},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     await boot();
   }catch(err){
-    // #region agent log
-    fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'E',location:'index.html:loginCatch',message:'login catch',data:{err:String(err&&err.message||err)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     el('loginErr').textContent='خطای ارتباط با سرور';
   }
 });
