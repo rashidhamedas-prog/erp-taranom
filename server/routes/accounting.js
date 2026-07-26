@@ -159,15 +159,13 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   });
 });
 
-// Receivables per customer — as-of date (invoices/settlements up to `to`).
-// Filtering by `from` alone must NOT hide older unpaid invoices (that emptied the month view).
+// Receivables per customer — ledger outstanding is source of truth (opening + invoices − settlements).
+// Invoice/settlement sums are informational; go-live DBs may have openings with zero invoices.
 router.get('/receivables', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
   const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
   const sf = safeDate(from), st = safeDate(to);
-  // Outstanding = all final invoices issued on/before `to`, minus settlements on/before `to`.
-  // If only `from` is set (unusual), still require invoice date >= from.
   const invTo = st ? ` AND i.date <= '${st}'` : '';
   const invFrom = (!st && sf) ? ` AND i.date >= '${sf}'` : '';
   const settTo = st ? ` AND s.date <= '${st}'` : '';
@@ -175,19 +173,34 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
   const rows = db.prepare(`
     SELECT c.id, c.biz, c.owner, c.city, c.phone,
       u.name as salesperson,
-      COALESCE(SUM(i.final),0) as total_invoiced,
-      COALESCE(st.total_settled, 0) as total_settled
+      COALESCE(inv.total_invoiced, 0) as total_invoiced,
+      COALESCE(st.total_settled, 0) as total_settled,
+      COALESCE(lb.balance, 0) as ledger_balance
     FROM customers c
-    LEFT JOIN invoices i ON i.cust_id=c.id AND i.type='final'${invTo}${invFrom}
     LEFT JOIN (
-      SELECT cust_id, SUM(amount) as total_settled FROM settlements s WHERE COALESCE(status,'posted')<>'reversed'${settTo}${settFrom} GROUP BY cust_id
+      SELECT i.cust_id, SUM(i.final) as total_invoiced
+      FROM invoices i WHERE i.type='final'${invTo}${invFrom}
+      GROUP BY i.cust_id
+    ) inv ON inv.cust_id=c.id
+    LEFT JOIN (
+      SELECT cust_id, SUM(amount) as total_settled FROM settlements s
+      WHERE COALESCE(status,'posted')<>'reversed'${settTo}${settFrom}
+      GROUP BY cust_id
     ) st ON st.cust_id=c.id
+    LEFT JOIN (
+      SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS balance
+      FROM customer_ledger GROUP BY customer_id
+    ) lb ON lb.customer_id=c.id
     LEFT JOIN users u ON c.user_id=u.id
-    GROUP BY c.id
-    HAVING total_invoiced > 0
-    ORDER BY (total_invoiced - total_settled) DESC
+    WHERE COALESCE(inv.total_invoiced,0) > 0 OR COALESCE(lb.balance,0) <> 0
+    ORDER BY ABS(COALESCE(lb.balance,0)) DESC
   `).all();
-  rows.forEach(r => { r.outstanding = r.total_invoiced - r.total_settled; });
+  rows.forEach(r => {
+    // Prefer live ledger (includes opening). Fall back to invoice−settlement if ledger empty.
+    const led = Number(r.ledger_balance) || 0;
+    const invOut = (Number(r.total_invoiced) || 0) - (Number(r.total_settled) || 0);
+    r.outstanding = led !== 0 ? led : invOut;
+  });
   // #region agent log
   try {
     const fs = require('fs');
@@ -198,8 +211,8 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
     const payload = {
       sessionId: 'dd3668', hypothesisId: 'B', location: 'accounting.js:receivables',
       message: 'receivables query result',
-      data: { from: sf, to: st, total: rows.length, pos, neg, zero, sample: rows.slice(0, 3).map(r => ({ id: r.id, inv: r.total_invoiced, set: r.total_settled, out: r.outstanding })) },
-      timestamp: Date.now()
+      data: { from: sf, to: st, total: rows.length, pos, neg, zero, sample: rows.slice(0, 3).map(r => ({ id: r.id, inv: r.total_invoiced, set: r.total_settled, led: r.ledger_balance, out: r.outstanding })) },
+      timestamp: Date.now(), runId: 'post-fix'
     };
     fs.appendFileSync(path.join(__dirname, '..', 'debug-dd3668.log'), JSON.stringify(payload) + '\n');
   } catch (_) {}

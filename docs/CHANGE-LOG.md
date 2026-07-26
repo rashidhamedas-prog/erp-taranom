@@ -32,12 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `80e7fd1` UI balances/sticky/receivables/parties/dash/kardex |
-| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.8`** / SW `erp-taranom-v111` |
-| اندروید | **`2.0.30`** — فایل انتشار `erp-taranom.apk` (+ سازگاری `crm-taranom.apk`) |
-| وضعیت سرور | ✅ |
+| آخرین commit | (pending) مطالبات از ledger + sync نسخه‌های اندروید/دسکتاپ |
+| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v112` |
+| اندروید | **`2.0.31`** (versionCode 33) — بدون ساخت APK این نوبت؛ سورس embed همگام با `server/` |
+| وضعیت سرور | ⏳ |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
+
+### 2026-07-26 — مطالبات از ماندهٔ دفتر + همگام‌سازی سورس اندروید/دسکتاپ
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:** `/receivables` دیگر فقط به فاکتور متکی نیست — `customer_ledger` منبع مانده است (مناسب go-live با افتتاحیه و `invoices=0`). نسخه‌ها: دسکتاپ `2.0.9`، اندروید `2.0.31`. سورس embed با `prepare-server` + کپی assets همگام شد (بدون ساخت exe/apk؛ پوشه‌های `desktop/server` و `android/.../server` در gitignore هستند و هنگام build دوباره کپی می‌شوند).
+- **فایل‌های کلیدی:** `server/routes/accounting.js`, `desktop/package.json`, `android/app/build.gradle`, `android/.../main.js`
+- **Deploy:** ⏳
 
 ### 2026-07-26 — رفع UI: مانده بستانکار، فریز جدول، مطالبات، اشخاص، داشبورد، کاردکس
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

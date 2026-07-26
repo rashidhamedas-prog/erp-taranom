@@ -12,8 +12,8 @@ android {
         applicationId "ir.taranom.crm"
         minSdk 24
         targetSdk 34
-        versionCode 32
-        versionName "2.0.30"
+        versionCode 33
+        versionName "2.0.31"
 
         ndk {
             // ABIs shipped by nodejs-mobile
