@@ -10,10 +10,10 @@
     "notes": "آپدیت 2.0.8: درصد پورسانت ۳ رقم اعشار، حساب معین در دریافت/پرداخت، netProps/nav، SW v108."
   },
   "android": {
-    "version": "2.0.29",
-    "versionCode": 31,
+    "version": "2.0.30",
+    "versionCode": 32,
     "url": "/releases/crm-taranom.apk",
     "distribution": "server",
-    "notes": "آپدیت 2.0.29: کدینگ پایه + cascade تفصیلی + وب 2.1.8 / SW v99."
+    "notes": "آپدیت 2.0.30: درصد پورسانت ۳ رقم اعشار، حساب معین، netProps/nav، SW v108."
   }
 }
