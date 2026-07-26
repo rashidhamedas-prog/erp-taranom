@@ -6052,19 +6052,25 @@ function applyAccPreset(p){
 
 // ---- Accounting Shell dashboard (merged with General Ledger + Chart of Accounts) ----
 ROUTES['acc-dash'] = async function(){
-  const cached = cacheGet('page:acc-dash', 45000);
-  if(cached){ el('view').innerHTML=cached; return; }
+  // Always refetch KPIs (do not serve stale zero-stats page cache)
+  try { delete _apiCache['page:acc-dash']; delete _apiCache['GET:/accounting/overview']; } catch (_) {}
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const ov = await apiCached('GET','/accounting/overview', 45000);
+  const ov = await api('GET','/accounting/overview');
   if(!ov) return;
-  const pendingRep = await apiCached('GET','/reps/payments/pending', 30000).catch(()=>[]);
+  // #region agent log
+  fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'B',location:'index.html:acc-dash',message:'overview response',data:{totalInvoiced:ov.totalInvoiced,totalSettled:ov.totalSettled,outstanding:ov.outstanding,creditorBalance:ov.creditorBalance,totalPayable:ov.totalPayable,pendingApproval:ov.pendingApproval,trialBalanced:ov.trialBalanced},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  const pendingRep = await api('GET','/reps/payments/pending').catch(()=>[]);
   const totalPayable = ov.totalPayable || 0;
   const tbBalanced = ov.trialBalanced;
+  const recv = Number(ov.outstanding)||0;
+  const cred = Number(ov.creditorBalance)||0;
   el('view').innerHTML=`
     <div class="cards">
       ${statCard('g','🧾',fmt(ov.totalInvoiced),'کل فاکتور رسمی (ت)')}
       ${statCard('b','✅',fmt(ov.totalSettled),'تسویه شده (ت)')}
-      ${statCard('r','⏳',fmt(Math.max(0,ov.outstanding)),'مانده مطالبات مشتریان (ت)')}
+      ${statCard('r','⏳',fmt(recv),'مانده مطالبات مشتریان (ت)')}
+      ${cred?statCard('g','📥',fmt(cred),'مانده بستانکار مشتریان (ت)'):''}
       ${statCard('o','🚚',fmt(totalPayable),'مانده پرداختنی تأمین‌کنندگان (ت)')}
       ${statCard('p','🔔',fmt(ov.pendingApproval),'فاکتور منتظر تأیید')}
       ${statCard('o','⏳',fmt(ov.pendingSettlements||0),'تسویه منتظر تأیید')}

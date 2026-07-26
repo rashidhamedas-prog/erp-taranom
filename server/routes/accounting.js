@@ -139,24 +139,70 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
   `).get();
   const trialBalanced = Math.abs((tb.d || 0) - (tb.c || 0)) < 1;
-  const payRow = db.prepare(`
-    SELECT COALESCE(SUM(
-      COALESCE(s.balance,0)
-      + COALESCE(pi.total_purchased,0)
-      - COALESCE(sp.total_paid,0)
-      - COALESCE(pr.total_returned,0)
-    ),0) total
-    FROM suppliers s
-    LEFT JOIN (SELECT supplier_id, SUM(final) total_purchased FROM purchase_invoices WHERE pay_type='credit' GROUP BY supplier_id) pi ON pi.supplier_id=s.id
-    LEFT JOIN (SELECT supplier_id, SUM(amount) total_paid FROM supplier_payments GROUP BY supplier_id) sp ON sp.supplier_id=s.id
-    LEFT JOIN (SELECT supplier_id, SUM(amount) total_returned FROM purchase_returns GROUP BY supplier_id) pr ON pr.supplier_id=s.id
+
+  // Receivables: prefer customer_ledger (includes opening). Fall back to invoice−settlement.
+  const ledRecv = db.prepare(`
+    SELECT
+      COALESCE(SUM(CASE WHEN bal > 0 THEN bal ELSE 0 END), 0) AS recv,
+      COALESCE(SUM(CASE WHEN bal < 0 THEN -bal ELSE 0 END), 0) AS cred,
+      COALESCE(SUM(bal), 0) AS net
+    FROM (
+      SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS bal
+      FROM customer_ledger GROUP BY customer_id
+    )
   `).get();
+  const invOutstanding = Number(totalInvoiced) - Number(totalSettled);
+  const hasLedger = (Number(ledRecv.recv) || 0) !== 0 || (Number(ledRecv.cred) || 0) !== 0;
+  const outstanding = hasLedger ? Number(ledRecv.recv) || 0 : Math.max(0, invOutstanding);
+
+  // Payables: supplier_ledger when present; else purchase/payment formula on suppliers.
+  let totalPayable = 0;
+  try {
+    const sl = db.prepare(`
+      SELECT COALESCE(SUM(CASE WHEN bal > 0 THEN bal ELSE 0 END), 0) AS payable
+      FROM (
+        SELECT supplier_id, COALESCE(SUM(debit)-SUM(credit),0) AS bal
+        FROM supplier_ledger GROUP BY supplier_id
+      )
+    `).get();
+    totalPayable = Number(sl.payable) || 0;
+  } catch (_) { /* table may be empty/absent on older DBs */ }
+  if (!totalPayable) {
+    const payRow = db.prepare(`
+      SELECT COALESCE(SUM(
+        COALESCE(s.balance,0)
+        + COALESCE(pi.total_purchased,0)
+        - COALESCE(sp.total_paid,0)
+        - COALESCE(pr.total_returned,0)
+      ),0) total
+      FROM suppliers s
+      LEFT JOIN (SELECT supplier_id, SUM(final) total_purchased FROM purchase_invoices WHERE pay_type='credit' GROUP BY supplier_id) pi ON pi.supplier_id=s.id
+      LEFT JOIN (SELECT supplier_id, SUM(amount) total_paid FROM supplier_payments GROUP BY supplier_id) sp ON sp.supplier_id=s.id
+      LEFT JOIN (SELECT supplier_id, SUM(amount) total_returned FROM purchase_returns GROUP BY supplier_id) pr ON pr.supplier_id=s.id
+    `).get();
+    totalPayable = payRow.total || 0;
+  }
+
   res.json({
-    totalInvoiced, totalSettled, outstanding: totalInvoiced - totalSettled,
+    totalInvoiced, totalSettled,
+    outstanding,
+    creditorBalance: hasLedger ? (Number(ledRecv.cred) || 0) : Math.max(0, -invOutstanding),
     pendingApproval, approvedCount, trialBalanced,
-    totalPayable: payRow.total || 0,
+    totalPayable,
     pendingSettlements
   });
+  // #region agent log
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    fs.appendFileSync(path.join(__dirname, '..', 'debug-dd3668.log'), JSON.stringify({
+      sessionId: 'dd3668', runId: 'post-fix', hypothesisId: 'B',
+      location: 'accounting.js:overview', message: 'overview stats',
+      data: { totalInvoiced, totalSettled, outstanding, creditorBalance: hasLedger ? (Number(ledRecv.cred) || 0) : 0, totalPayable, hasLedger, ledRecv },
+      timestamp: Date.now()
+    }) + '\n');
+  } catch (_) {}
+  // #endregion
 });
 
 // Receivables per customer — ledger outstanding is source of truth (opening + invoices − settlements).
