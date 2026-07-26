@@ -37,7 +37,7 @@
 | اندروید | **`2.0.30`** — فایل انتشار `erp-taranom.apk` (+ سازگاری `crm-taranom.apk`) |
 | وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
-| مخزن GitHub | فعلاً `crm-taranom` (rename به `erp-taranom` نیازمند `gh auth login`) |
+| مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
 
 ### 2026-07-26 — پاک‌سازی + بازبرند CRM→ERP + مرتب‌سازی مخزن
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
