@@ -7,3 +7,8 @@ android/keystore.properties
 *.jks
 *.keystore
 .env
+
+# AI source dumps (local-only, too large for git)
+_full-code-for-ai.txt
+_core-code-for-ai.txt
+_code-overview-for-ai.md
