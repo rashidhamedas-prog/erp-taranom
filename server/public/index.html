@@ -1368,6 +1368,13 @@ function fmtQty(n){
   if(Object.is(x,-0)||x===0) return '0';
   return String(parseFloat(x.toFixed(3)));
 }
+/** درصد — تا ۳ رقم اعشار با رند رقم سوم (هرگز Math.round روی درصد نزن) */
+function fmtPct(n){
+  const x=round3(n);
+  if(Object.is(x,-0)||x===0) return '0';
+  return String(parseFloat(x.toFixed(3)));
+}
+function parsePct(v, fallback=0){ return parseQty(v, fallback); }
 function fmtMoneyUnit(n){ return fmt(n)+' '+currencyUnit(); }
 const REF_DOC_LABELS={sales_invoice:'فاکتور فروش',sales_return:'برگشت فروش',receipt:'دریافت',purchase:'فاکتور خرید',purchase_return:'برگشت خرید',supplier_payment:'پرداخت تأمین',expense_payment:'پرداخت هزینه',warehouse_issue:'حواله انبار',warehouse_receipt:'رسید انبار',warehouse_transfer:'انتقال انبار',transfer:'انتقال وجه',payroll:'حقوق',cheque_settlement:'عملیات چک',opening:'افتتاحیه',account_transfer:'حواله حساب',stocktaking:'انبارگردانی',production:'تولید'};
 function refDocCell(docNo,docType){ if(!docNo) return '<span class="muted">-</span>'; const lbl=REF_DOC_LABELS[docType]||docType||''; return `<span class="mono" title="${esc(lbl)}">مرجع ${esc(String(docNo))}</span>`; }
@@ -5593,8 +5600,8 @@ async function userModal(id){
         <div class="muted" style="font-size:11px;margin:4px 0 8px">لیست زنده از «گروه‌های کالا». اگر هیچ‌کدام تیک نخورد، همهٔ گروه‌های مجاز دیده می‌شوند.</div>
         <div id="u-cat-access" style="display:flex;flex-wrap:wrap;gap:8px;max-height:160px;overflow:auto"><span class="muted">در حال بارگذاری…</span></div>
       </div>
-      <div class="fg"><label>انگیزه فروش نقد (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای نقدی تأییدشده. بعد از اولین ذخیره قفل می‌شود.')} ${u.incentive_locked?'<span style="font-size:11px;color:var(--orange)">🔒 قفل</span>':''}</label><input id="u-comm-cash" type="number" step="0.1" value="${u.commission_cash||0}" data-orig="${u.commission_cash||0}" data-locked="${u.incentive_locked||0}"></div>
-      <div class="fg"><label>انگیزه فروش چک (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای چکی تأییدشده.')}</label><input id="u-comm-cheque" type="number" step="0.1" value="${u.commission_cheque||0}" data-orig="${u.commission_cheque||0}"></div>
+      <div class="fg"><label>انگیزه فروش نقد (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای نقدی تأییدشده. تا ۳ رقم اعشار؛ رقم سوم رند می‌شود. بعد از اولین ذخیره قفل می‌شود.')} ${u.incentive_locked?'<span style="font-size:11px;color:var(--orange)">🔒 قفل</span>':''}</label><input id="u-comm-cash" type="number" step="0.001" min="0" value="${fmtPct(u.commission_cash||0)}" data-orig="${u.commission_cash||0}" data-locked="${u.incentive_locked||0}"></div>
+      <div class="fg"><label>انگیزه فروش چک (٪) ${hlp('درصد انگیزه فروش برای فاکتورهای چکی تأییدشده. تا ۳ رقم اعشار.')}</label><input id="u-comm-cheque" type="number" step="0.001" min="0" value="${fmtPct(u.commission_cheque||0)}" data-orig="${u.commission_cheque||0}"></div>
       <div class="fg"><label>مبنای محاسبه انگیزه ${hlp('فاکتور: بر اساس فاکتورهای تأییدشده. وصول: بر اساس مبالغ دریافت‌شده. سود: بر اساس سود (فروش منهای بهای تمام‌شده).')}</label><select id="u-comm-basis">
         <option value="invoice" ${(u.commission_basis||'invoice')==='invoice'?'selected':''}>بر اساس فاکتور</option>
         <option value="collection" ${u.commission_basis==='collection'?'selected':''}>بر اساس وصول</option>
@@ -5603,8 +5610,8 @@ async function userModal(id){
       <div class="fg"><label>هدف فروش ماهانه (ت) ${hlp('برای نمایش درصد تحقق هدف در داشبورد و گزارش‌ها.')}</label><input id="u-monthly-target" type="number" min="0" value="${u.monthly_target||0}"></div>
       <div class="fg"><label>هدف فصلی (ت)</label><input id="u-quarterly-target" type="number" min="0" value="${u.quarterly_target||0}"></div>
       <div class="fg"><label>هدف سالانه (ت)</label><input id="u-annual-target" type="number" min="0" value="${u.annual_target||0}"></div>
-      <div class="fg"><label>پاداش اضافه هدف (٪)</label><input id="u-bonus-pct" type="number" step="0.1" value="${u.bonus_pct||0}"></div>
-      <div class="fg"><label>جریمه عدم تحقق هدف (٪)</label><input id="u-penalty-pct" type="number" step="0.1" min="0" value="${u.penalty_pct||0}"></div>
+      <div class="fg"><label>پاداش اضافه هدف (٪)</label><input id="u-bonus-pct" type="number" step="0.001" min="0" value="${fmtPct(u.bonus_pct||0)}"></div>
+      <div class="fg"><label>جریمه عدم تحقق هدف (٪)</label><input id="u-penalty-pct" type="number" step="0.001" min="0" value="${fmtPct(u.penalty_pct||0)}"></div>
       <div class="fg"><label>انگیزه ثابت هر فاکتور (ت)</label><input id="u-comm-fixed" type="number" min="0" value="${u.commission_fixed||0}"></div>
       ${(u.role==='field_sales'||u.role==='inside_sales'||!id)?`
       <div class="fg full" style="grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px"><b>اطلاعات نماینده فروش</b></div>
@@ -5618,7 +5625,7 @@ async function userModal(id){
       </select></div>
       <div class="fg"><label>منطقه/قلمرو</label><input id="u-territory" value="${esc(u.territory||'')}"></div>
       <div class="fg"><label>سرپرست</label><select id="u-supervisor"><option value="">—</option>${(CACHE.users||[]).filter(x=>x.id!==u.id&&(x.role==='field_sales'||x.role==='inside_sales'||x.role==='sales_manager'||x.role==='admin')).map(x=>`<option value="${x.id}" ${u.supervisor_id==x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
-      <div class="fg"><label>کمیسیون سرپرست از تیم (٪)</label><input id="u-supervisor-comm" type="number" step="0.1" min="0" value="${u.supervisor_commission_pct||0}" title="برای سرپرست/مدیر فروش — درصد override از انگیزه زیرمجموعه"></div>
+      <div class="fg"><label>کمیسیون سرپرست از تیم (٪)</label><input id="u-supervisor-comm" type="number" step="0.001" min="0" value="${fmtPct(u.supervisor_commission_pct||0)}" title="برای سرپرست/مدیر فروش — درصد override از انگیزه زیرمجموعه"></div>
       <div class="fg"><label>وضعیت اشتغال</label><select id="u-employment"><option value="active" ${(u.employment_status||'active')==='active'?'selected':''}>فعال</option><option value="leave" ${u.employment_status==='leave'?'selected':''}>مرخصی</option><option value="terminated" ${u.employment_status==='terminated'?'selected':''}>قطع همکاری</option></select></div>
       <div class="fg"><label>مانده افتتاحیه (ت)</label><input id="u-rep-opening" type="number" value="${u.rep_opening_balance||0}"></div>
       <div class="fg"><label>بانک</label><input id="u-bank-name" value="${esc(u.bank_name||'')}"></div>
@@ -5743,10 +5750,10 @@ function userRepFieldsFromForm(){
     monthly_target:+(el('u-monthly-target')?.value||0),
     quarterly_target:+(el('u-quarterly-target')?.value||0),
     annual_target:+(el('u-annual-target')?.value||0),
-    bonus_pct:+(el('u-bonus-pct')?.value||0),
+    bonus_pct:parsePct(el('u-bonus-pct')?.value||0),
     commission_fixed:+(el('u-comm-fixed')?.value||0),
-    penalty_pct:+(el('u-penalty-pct')?.value||0),
-    supervisor_commission_pct:+(el('u-supervisor-comm')?.value||0),
+    penalty_pct:parsePct(el('u-penalty-pct')?.value||0),
+    supervisor_commission_pct:parsePct(el('u-supervisor-comm')?.value||0),
     rep_code:el('u-rep-code')?.value||'', rep_subtype:el('u-rep-subtype')?.value||'',
     territory:el('u-territory')?.value||'', rep_opening_balance:+(el('u-rep-opening')?.value||0),
     supervisor_id:+el('u-supervisor')?.value||null, employment_status:el('u-employment')?.value||'active',
@@ -5778,8 +5785,8 @@ async function saveUser(id){
   const name=el('u-name').value.trim(), username=el('u-username').value.trim(),
         pass=el('u-pass').value, role=el('u-role').value,
         phone=el('u-phone').value, active=+el('u-active').value,
-        commission_cash=parseFloat(el('u-comm-cash')?.value||0)||0,
-        commission_cheque=parseFloat(el('u-comm-cheque')?.value||0)||0;
+        commission_cash=parsePct(el('u-comm-cash')?.value||0),
+        commission_cheque=parsePct(el('u-comm-cheque')?.value||0);
   if(!name){ showToast('نام الزامی است','error'); return; }
   const commInput=el('u-comm-cash');
   const isLocked=commInput?.dataset.locked==='1';
@@ -5792,7 +5799,7 @@ async function saveUser(id){
       <div class="modal-head"><h3>🔒 تغییر نرخ انگیزه فروش</h3><button class="x" onclick="closeModal()">×</button></div>
       <div class="modal-body">
         <p style="margin-bottom:12px">نرخ انگیزه فروش <b>${esc(name)}</b> قفل است.</p>
-        <p style="margin-bottom:16px;color:var(--muted);font-size:13px">نقد: ${origCash}٪ ← ${commission_cash}٪ &nbsp;|&nbsp; چک: ${origCheque}٪ ← ${commission_cheque}٪</p>
+        <p style="margin-bottom:16px;color:var(--muted);font-size:13px">نقد: ${fmtPct(origCash)}٪ ← ${fmtPct(commission_cash)}٪ &nbsp;|&nbsp; چک: ${fmtPct(origCheque)}٪ ← ${fmtPct(commission_cheque)}٪</p>
         <p>آیا می‌خواهید محاسبه انگیزه فروش همه فاکتورهای قبلی این کارشناس با نرخ جدید مجدداً انجام شود؟</p>
       </div>
       <div class="modal-foot">
@@ -6408,7 +6415,7 @@ async function loadAccTab(tab){
     const commRows=(comms||[]).map(c=>`<tr>
       <td>${esc(c.name)} <span class="tag" style="font-size:10px">${esc(c.roleLabel||'')}</span></td>
       <td class="muted" style="font-size:11px">${esc(c.basisLabel||'فاکتور')}${c.monthlyTarget?`<br>هدف: ${fmt(c.monthlyTarget)} (${c.targetPct||0}٪)`:''}</td>
-      <td class="mono">${fmt(c.commission_cash)}٪ / ${fmt(c.commission_cheque)}٪</td>
+      <td class="mono">${fmtPct(c.commission_cash)}٪ / ${fmtPct(c.commission_cheque)}٪</td>
       <td class="mono">${fmt(c.cashSales)}</td>
       <td class="mono">${fmt(c.chequeSales)}</td>
       <td class="mono" style="font-weight:800;color:var(--purple)">${fmt(Math.round(c.totalComm))}</td>
@@ -6557,9 +6564,6 @@ async function loadAccTab(tab){
   attachExcelTools(tab,body);
   if(typeof enhanceAccTables==='function') enhanceAccTables(body);
   }catch(e){
-    // #region agent log
-    fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'A',location:'index.html:loadAccTab:catch',message:'acc tab load error',data:{tab:String(tab||''),err:String(e&&e.message||e)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     body.innerHTML=`<div class="empty">خطا در بارگذاری این بخش: ${esc(e.message||'نامشخص')}</div>`;
   }
 }
@@ -13067,6 +13071,7 @@ async function personPaymentModal(){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
   if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
+  if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   const [partiesResp, reps]=await Promise.all([
     api('GET','/parties?limit=200')||{},
     api('GET','/accounting/commissions').catch(()=>[])||[]
@@ -13082,6 +13087,7 @@ async function personPaymentModal(){
         <option value="party">سایر اشخاص</option>
       </select></div>
       <div class="fg full" id="pp-target-wrap"></div>
+      ${moayanAcctHtml('pp','حساب معین طرف نقد/بانک در سند پرداخت — سطح معین کدینگ')}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="pp-amount" type="text" inputmode="numeric" class="money"></div>
       <div class="fg"><label>نوع پرداخت</label><select id="pp-paytype" onchange="toggleBankFields('pp')"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">بانکی</option></select></div>
       <div class="fg"><label>پرداخت از بانک</label><select id="pp-bank" onchange="updateCheckCategoryOptions('pp')">
@@ -13137,7 +13143,8 @@ async function savePersonPayment(){
   const payload={
     amount:amount, pay_type:el('pp-paytype').value, date:el('pp-date').value, note:el('pp-note').value,
     bank_id:+el('pp-bank').value||null, cash_box_id:+el('pp-cashbox')?.value||null,
-    check_category_id:+el('pp-checkcat')?.value||null
+    check_category_id:+el('pp-checkcat')?.value||null,
+    account_code:el('pp-account-code')?.value||''
   };
   try{
     if(kind==='supplier'){
@@ -13146,7 +13153,7 @@ async function savePersonPayment(){
       await api('POST','/accounting/incentive-payments',{...payload, rep_id:target});
     } else {
       const name=(el('pp-target').selectedOptions[0]?.textContent||'شخص').trim();
-      await api('POST','/expenses',{...payload, category:'admin', title:'پرداخت به شخص: '+name, account_code:null});
+      await api('POST','/expenses',{...payload, category:'admin', title:'پرداخت به شخص: '+name, account_code:payload.account_code||null});
     }
     closeModal(); showToast('پرداخت ثبت شد'); loadAccTab('settlements');
   }catch(e){}
@@ -13161,7 +13168,7 @@ async function expensePaymentModal(){
       <div class="fg"><label>دسته هزینه <button type="button" class="btn sm ghost" style="padding:1px 8px;font-size:11px" onclick="exAddCategory()">➕ دستهٔ جدید</button></label><select id="ex-category">
         ${cats.map(c=>`<option value="${esc(c.code||c.id)}">${esc(c.name)}</option>`).join('')}
       </select></div>
-      <div class="fg full"><label>حساب هزینه (دفتر کل) ${hlp('جستجو و انتخاب حساب از کدینگ — اگر خالی بماند از دسته پیش‌فرض استفاده می‌شود.')}</label>
+      <div class="fg full"><label>حساب هزینه (معین) ${hlp('جستجو و انتخاب حساب معین از کدینگ — اگر خالی بماند از دسته پیش‌فرض استفاده می‌شود.')}</label>
         <input type="hidden" id="ex-account-code" value="">
         <input type="text" id="ex-account-search" class="search" placeholder="جستجوی حساب: کد یا نام..." autocomplete="off"
           oninput="exAcctShow(this.value)" onfocus="exAcctShow(this.value)"
@@ -13213,7 +13220,7 @@ async function loadExpenseModalData(){
 function exAcctShow(q){
   const drop=el('ex-acct-drop'), inp=el('ex-account-search'); if(!drop||!inp) return;
   const term=(q||'').trim().toLowerCase();
-  let list=(CACHE.chartOfAccounts||[]).filter(a=>{
+  let list=moayanAccounts().filter(a=>{
     const t=(a.type||'').toLowerCase();
     const code=String(a.code||'');
     return t==='expense'||t==='cogs'||code.startsWith('6')||code.startsWith('5')||!t;
@@ -13224,7 +13231,7 @@ function exAcctShow(q){
   drop.innerHTML=list.slice(0,120).map(a=>`
     <div class="cust-si-item" onmousedown='exAcctPick(${JSON.stringify(a.code)})'>
       <span>${esc(a.name)}</span><span class="cust-si-meta">${esc(a.code)}</span>
-    </div>`).join('')||'<div class="cust-si-empty">حسابی یافت نشد — کدینگ را در اطلاعات پایه بررسی کنید</div>';
+    </div>`).join('')||'<div class="cust-si-empty">حساب معین یافت نشد — کدینگ را در اطلاعات پایه بررسی کنید</div>';
 }
 function exAcctPick(code){
   const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
@@ -13232,6 +13239,38 @@ function exAcctPick(code){
   if(hid) hid.value=code;
   if(inp&&a) inp.value=a.code+' — '+a.name;
   const drop=el('ex-acct-drop'); if(drop) drop.style.display='none';
+}
+/** فهرست حساب‌های معین (سطح ۳ کدینگ) برای عملیات دریافت/پرداخت */
+function moayanAccounts(){
+  return filterCoaByMode(CACHE.chartOfAccounts||[], 'subsidiary-accounts').filter(a=>a._depth===2);
+}
+function moayanAcctHtml(prefix, help){
+  return `<div class="fg full"><label>حساب معین (طرح حساب) ${hlp(help||'انتخاب حساب معین از کدینگ — اختیاری؛ در صورت خالی بودن از بانک/صندوق انتخاب‌شده استفاده می‌شود.')}</label>
+    <input type="hidden" id="${prefix}-account-code" value="">
+    <input type="text" id="${prefix}-account-search" class="search" placeholder="جستجوی حساب معین: کد یا نام..." autocomplete="off"
+      oninput="moayanAcctShow('${prefix}',this.value)" onfocus="moayanAcctShow('${prefix}',this.value)"
+      onblur="setTimeout(()=>{const d=el('${prefix}-acct-drop');if(d)d.style.display='none'},200)">
+    <div id="${prefix}-acct-drop" class="cust-si-drop" style="display:none;position:fixed;width:280px;max-height:220px"></div>
+  </div>`;
+}
+function moayanAcctShow(prefix, q){
+  const drop=el(prefix+'-acct-drop'), inp=el(prefix+'-account-search'); if(!drop||!inp) return;
+  const term=(q||'').trim().toLowerCase();
+  let list=moayanAccounts();
+  if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
+  const rect=inp.getBoundingClientRect();
+  drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=Math.max(rect.width,280)+'px'; drop.style.display='block'; drop.style.zIndex='9999';
+  drop.innerHTML=list.slice(0,120).map(a=>`
+    <div class="cust-si-item" onmousedown='moayanAcctPick(${JSON.stringify(prefix)},${JSON.stringify(a.code)})'>
+      <span>${esc(a.name)}</span><span class="cust-si-meta">${esc(a.code)}</span>
+    </div>`).join('')||'<div class="cust-si-empty">حساب معین یافت نشد — کدینگ را در اطلاعات پایه بررسی کنید</div>';
+}
+function moayanAcctPick(prefix, code){
+  const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
+  const hid=el(prefix+'-account-code'), inp=el(prefix+'-account-search');
+  if(hid) hid.value=code;
+  if(inp&&a) inp.value=a.code+' — '+a.name;
+  const drop=el(prefix+'-acct-drop'); if(drop) drop.style.display='none';
 }
 async function saveExpensePayment(){
   const title=el('ex-title').value.trim();
@@ -13411,6 +13450,7 @@ let stlOpenInvoices = [];
 async function settlementModal(custId){
   if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
   if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   stlRows=[{amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:''}];
   stlCheques=[stlNewCheque()];
   stlOpenInvoices=[];
@@ -13423,6 +13463,7 @@ async function settlementModal(custId){
         <select id="st-invoice" onchange="stlApplyInvoiceAmt()"><option value="">— بدون تخصیص به فاکتور —</option>
         ${stlOpenInvoices.map(i=>`<option value="${i.id}" data-out="${i.outstanding}">${esc(i.num)} — ${escDate(i.date)} — مانده: ${fmt(i.outstanding)} ریال</option>`).join('')}
         </select></div>
+      ${moayanAcctHtml('st','حساب معین طرف نقد/بانک در سند دریافت — سطح معین کدینگ')}
       <div class="fg full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" id="st-multi" onchange="stlToggleMulti()" style="width:auto"> ثبت چند قسط / مرحله‌ای
       </label></div>
@@ -13635,6 +13676,7 @@ async function saveSettlement(){
       note:(el('st-note').value||'')+(pay_type==='bank_transfer'&&el('st-bankref')?.value?(' | پیگیری: '+el('st-bankref').value):''),
       bank_id:+el('st-bank').value||null,
       cash_box_id:+el('st-cashbox').value||null,
+      account_code:el('st-account-code')?.value||'',
       cheque_status:'pending',
       foreign_amount:+el('st-foreign')?.value||null,
       fx_rate_rial:+el('st-fx-rate')?.value||null,

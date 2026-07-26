@@ -32,11 +32,18 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `4ea1870` netProps + nav contrast |
-| نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v107` |
+| آخرین commit | (comm pct + moayan — pending) |
+| نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.7`** / SW `erp-taranom-v108` |
 | اندروید | **`2.0.29`** (vc31) |
-| وضعیت سرور | ✅ |
+| وضعیت سرور | ⏳ |
 | سرور production | تنها ایران `94.249.244.208` |
+
+### 2026-07-26 — درصد پورسانت اعشار + انتخاب حساب معین در دریافت/پرداخت
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** `fmtPct`/`parsePct` با رند ۳ رقم اعشار؛ نمایش نرخ انگیزه دیگر با `fmt` (Math.round) به ۵ تبدیل نمی‌شود. انتخاب حساب معین در دریافت مشتری، پرداخت به شخص و فیلتر معین در پرداخت هزینه؛ `account_code` روی settlements/supplier_payments. پاک‌سازی لاگ دیباگ. SW `v108`.
+- **فایل‌های کلیدی:** `server/public/index.html`, `tbl-enhance.js`, `sw.js`, `routes/{accounting,purchases,admin}.js`, `db.js`
+- **Deploy:** ⏳
 
 ### 2026-07-26 — رفع netProps + رنگ عناوین سایدبار
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

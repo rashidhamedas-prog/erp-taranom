@@ -873,6 +873,8 @@ function initDB() {
   // Unrestricted cash-box management — mirrors banks: every payment/receipt can
   // optionally be tied to a specific cash box's own ledger sub-account.
   ensureColumn(db, 'settlements', 'cash_box_id', 'INTEGER');
+  ensureColumn(db, 'settlements', 'account_code', "TEXT DEFAULT ''");
+  ensureColumn(db, 'supplier_payments', 'account_code', "TEXT DEFAULT ''");
   ensureColumn(db, 'purchase_invoices', 'cash_box_id', 'INTEGER');
   ensureColumn(db, 'supplier_payments', 'cash_box_id', 'INTEGER');
   ensureColumn(db, 'incentive_payments', 'cash_box_id', 'INTEGER');

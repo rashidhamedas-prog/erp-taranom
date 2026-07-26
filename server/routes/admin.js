@@ -48,7 +48,9 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
       INSERT INTO users (name,username,password,phone,role,commission_cash,commission_cheque,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,incentive_locked,must_change_password,
         rep_code,rep_subtype,territory,supervisor_id,employment_status,bank_name,bank_account,bank_iban,rep_opening_balance,sales_warehouse_id)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,1,?,?,?,?,?,?,?,?,?,?)
-    `).run(name, username, hash, phone || '', role, parseFloat(commission_cash) || 0, parseFloat(commission_cheque) || 0,
+    `).run(name, username, hash, phone || '', role,
+      Math.round((parseFloat(commission_cash) || 0) * 1000) / 1000,
+      Math.round((parseFloat(commission_cheque) || 0) * 1000) / 1000,
       ['collection', 'profit'].includes(commission_basis) ? commission_basis : 'invoice',
       parseFloat(monthly_target) || 0,
       parseFloat(quarterly_target) || 0, parseFloat(annual_target) || 0, parseFloat(bonus_pct) || 0, parseFloat(commission_fixed) || 0,
@@ -81,8 +83,8 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   const penalty = penalty_pct != null ? parseFloat(penalty_pct) || 0 : (existing.penalty_pct || 0);
   const supComm = supervisor_commission_pct != null ? parseFloat(supervisor_commission_pct) || 0 : (existing.supervisor_commission_pct || 0);
 
-  const newCash = parseFloat(commission_cash) || 0;
-  const newCheque = parseFloat(commission_cheque) || 0;
+  const newCash = Math.round((parseFloat(commission_cash) || 0) * 1000) / 1000;
+  const newCheque = Math.round((parseFloat(commission_cheque) || 0) * 1000) / 1000;
   const rateChanged = Math.abs(newCash - (existing.commission_cash || 0)) > 0.001 ||
                       Math.abs(newCheque - (existing.commission_cheque || 0)) > 0.001;
 

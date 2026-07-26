@@ -236,7 +236,7 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
   const { cust_id, invoice_id, amount, pay_type, date, note, bank_id, cash_box_id, check_category_id,
           cheque_bank, cheque_sayadi, cheque_number, cheque_account,
           cheque_amount, cheque_owner, cheque_due, cheque_status,
-          cheque_branch, cheque_sheba, foreign_amount, fx_rate_rial, currency } = req.body;
+          cheque_branch, cheque_sheba, foreign_amount, fx_rate_rial, currency, account_code } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
   let fx;
@@ -255,14 +255,14 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
         (user_id,cust_id,invoice_id,amount,pay_type,date,note,bank_id,cash_box_id,check_category_id,
          cheque_bank,cheque_sayadi,cheque_number,cheque_account,
          cheque_amount,cheque_owner,cheque_due,cheque_status,cheque_branch,cheque_sheba,
-         foreign_amount,fx_rate_rial,currency)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         foreign_amount,fx_rate_rial,currency,account_code)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(req.user.id, cust_id, invoice_id || null, amountRial, pay_type || 'cash',
           date || '', note || '', bank_id || null, cash_box_id || null, check_category_id || null,
           cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
           parseFloat(cheque_amount || 0), cheque_owner || '', cheque_due || '',
           cheque_status || 'pending', cheque_branch || '', cheque_sheba || '',
-          fx.foreign_amount, fx.fx_rate_rial, fx.currency);
+          fx.foreign_amount, fx.fx_rate_rial, fx.currency, String(account_code || '').slice(0, 32));
     const settlementId = result.lastInsertRowid;
 
     const payLabel = (pay_type || 'cash') === 'cheque' ? 'چک' : (pay_type === 'bank_transfer' ? 'واریز بانکی' : 'نقد');
@@ -275,7 +275,12 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
       description: `تسویه ${payLabel} - ${amountRial.toLocaleString('fa-IR')} ریال${fxNote}`,
       debit: 0, credit: amountRial, user_id: req.user.id
     });
-    const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+    let cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+    const overrideCode = String(account_code || '').trim();
+    if (overrideCode) {
+      const acctRow = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(overrideCode);
+      if (acctRow) cash = { code: acctRow.code, name: acctRow.name };
+    }
     postToLedger(db, {
       sourceType: 'settlement', sourceId: settlementId,
       date: date || todayJalali(), description: `تسویه ${payLabel} مشتری${fxNote}`, createdBy: req.user.id,

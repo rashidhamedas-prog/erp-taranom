@@ -388,20 +388,25 @@ router.get('/payments/list', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/payments', auth, adminOrAccounting, (req, res) => {
-  const { supplier_id, purchase_invoice_id, amount, pay_type, date, note, bank_id, check_category_id, cash_box_id } = req.body;
+  const { supplier_id, purchase_invoice_id, amount, pay_type, date, note, bank_id, check_category_id, cash_box_id, account_code } = req.body;
   if (!supplier_id || !amount) return res.status(400).json({ error: 'تأمین‌کننده و مبلغ الزامی است' });
   const db = getDB();
   const payId = db.transaction(() => {
     const result = db.prepare(
-      'INSERT INTO supplier_payments (supplier_id,purchase_invoice_id,amount,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
-    ).run(supplier_id, purchase_invoice_id || null, parseFloat(amount), pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null);
+      'INSERT INTO supplier_payments (supplier_id,purchase_invoice_id,amount,pay_type,date,note,created_by,bank_id,check_category_id,cash_box_id,account_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(supplier_id, purchase_invoice_id || null, parseFloat(amount), pay_type || 'cash', date || todayJalali(), note || '', req.user.id, bank_id || null, check_category_id || null, cash_box_id || null, String(account_code || '').slice(0, 32));
     const payId = result.lastInsertRowid;
 
     createSupplierLedgerEntry(db, {
       supplier_id, date: date || todayJalali(), entry_type: 'payment', ref_type: 'supplier_payment', ref_id: payId,
       description: `پرداخت به تأمین‌کننده — ${Number(amount).toLocaleString('fa-IR')} ریال`, debit: parseFloat(amount), credit: 0, user_id: req.user.id
     });
-    const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+    let cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+    const overrideCode = String(account_code || '').trim();
+    if (overrideCode) {
+      const acctRow = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(overrideCode);
+      if (acctRow) cash = { code: acctRow.code, name: acctRow.name };
+    }
     postToLedger(db, {
       sourceType: 'supplier_payment', sourceId: payId,
       date: date || todayJalali(), description: 'پرداخت به تأمین‌کننده', createdBy: req.user.id,
