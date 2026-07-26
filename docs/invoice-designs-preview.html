@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>پیش‌نمایش فاکتور v2 — ERP ترنم (الهام از اکسل + نمونه رسمی)</title>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --g:#1A5C38; --g2:#2E7D4F; --gd:#163F2A;
+  --gold:#C9A843; --gold-l:#FDF3D9; --gold-d:#8A7020;
+  --ink:#1a2e24; --muted:#5a6f64; --line:#c5d6cc; --soft:#eef5f0;
+  --th:#1A5C38; --row:#f3f8f5; --pay:#163F2A;
+  --bg:#e7efe9; --paper:#fff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Vazirmatn',Tahoma,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
+.studio{max-width:1220px;margin:0 auto;padding:18px 14px 56px}
+.head{
+  background:linear-gradient(115deg,var(--gd),var(--g) 55%,var(--g2));
+  color:#fff;border-radius:18px;padding:20px 22px;margin-bottom:14px;
+  box-shadow:0 16px 36px rgba(18,39,28,.18);
+}
+.head h1{font-size:1.35rem;font-weight:800}
+.head p{opacity:.9;font-size:.9rem;margin-top:6px;line-height:1.75;max-width:70ch}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.chip{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:4px 11px;font-size:.75rem}
+.chip strong{color:var(--gold-l)}
+.controls{
+  display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;
+  background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:12px;
+}
+.tabs{display:flex;flex-wrap:wrap;gap:6px}
+.tab{
+  border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 12px;
+  font:inherit;font-size:.8rem;font-weight:700;cursor:pointer;color:var(--ink);
+}
+.tab:hover{border-color:var(--g2);color:var(--g)}
+.tab.active{background:var(--g);border-color:var(--g);color:#fff}
+.seg{display:inline-flex;background:var(--soft);border-radius:999px;padding:3px}
+.seg button{border:0;background:transparent;padding:7px 14px;border-radius:999px;font:inherit;font-size:.8rem;font-weight:800;cursor:pointer;color:var(--muted)}
+.seg button.active{background:var(--g);color:#fff}
+.hint{font-size:.82rem;color:var(--muted);line-height:1.75;margin-bottom:12px}
+.wrap{display:none}.wrap.show{display:block}
+.meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:flex-start;margin-bottom:8px}
+.meta h2{font-size:1.02rem;color:var(--g);font-weight:800}
+.meta .d{font-size:.8rem;color:var(--muted);max-width:62ch;line-height:1.65}
+.badge{background:var(--gold-l);color:var(--gold-d);border:1px solid rgba(201,168,67,.4);border-radius:999px;padding:3px 10px;font-size:.7rem;font-weight:800}
+.stage{background:#d7e3db;border:1px dashed rgba(26,92,56,.28);border-radius:16px;padding:16px;overflow:auto}
+.sheet{background:var(--paper);margin:0 auto;color:var(--ink);box-shadow:0 14px 36px rgba(18,39,28,.12);position:relative}
+.sheet.a4{width:min(100%,820px);padding:0;font-size:11.5px}
+.sheet.a5{width:min(100%,520px);padding:0;font-size:9.5px}
+.num{font-variant-numeric:tabular-nums}
+.rtl{text-align:right}
+
+/* لوگو — بدون بک‌گراند مشکی */
+.logo{
+  display:inline-flex;align-items:center;justify-content:center;
+  background:#fff;border:1px solid var(--line);border-radius:10px;padding:3px 8px;
+}
+.logo img{
+  display:block;background:transparent;
+  mix-blend-mode:multiply; /* سیاهِ داخل PNG روی سفید محو می‌شود */
+}
+.sheet.a4 .logo img{height:52px}
+.sheet.a5 .logo img{height:40px}
+
+table.items{width:100%;border-collapse:collapse}
+table.items th,table.items td{border:1px solid var(--line);padding:6px 4px;text-align:center;vertical-align:middle}
+table.items th{background:var(--th);color:#fff;font-weight:700;font-size:.92em;line-height:1.35}
+table.items tbody tr:nth-child(even){background:var(--row)}
+table.items .rtl{text-align:right;padding-right:6px}
+.disc{color:#b45309;font-weight:700}
+.expert{
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;
+  background:linear-gradient(90deg,var(--gold-l),#fff 55%);
+  border:1px solid rgba(201,168,67,.55);border-radius:10px;padding:8px 12px;margin:8px 0;
+}
+.expert .l{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center}
+.expert .t{font-size:.72rem;font-weight:800;color:var(--gold-d);background:#fff;border:1px solid rgba(201,168,67,.45);border-radius:999px;padding:2px 8px}
+.expert .n{font-weight:800;color:var(--g)}
+.expert .m{font-weight:700;color:var(--ink);direction:ltr}
+.expert .hint-e{font-size:.72rem;color:var(--muted)}
+
+.footer-bar{
+  background:var(--gd);color:#e8f2ec;text-align:center;padding:8px 10px;font-size:.78em;line-height:1.7;
+}
+.footer-bar.light{background:#dce9e1;color:var(--ink)}
+
+.approve{
+  margin-top:18px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;
+}
+.approve h3{color:var(--g);margin-bottom:6px;font-size:1rem}
+.approve ol{padding-right:18px;color:var(--muted);font-size:.86rem;line-height:1.9}
+
+/* ═══════════ مشترک بلوک‌ها ═══════════ */
+.pad{padding:14px 16px}
+.sheet.a5 .pad{padding:10px 11px}
+.top3{
+  display:grid;grid-template-columns:1.1fr .9fr 1fr;gap:10px;align-items:center;
+  border-bottom:2px solid var(--g);padding-bottom:10px;margin-bottom:10px;
+}
+.sheet.a5 .top3{grid-template-columns:1fr;gap:8px}
+.company-meta{font-size:.78em;line-height:1.85;color:var(--muted)}
+.company-meta b{color:var(--ink);font-weight:700}
+.brand-center{text-align:center}
+.brand-center .name{font-size:1.15em;font-weight:800;color:var(--g);margin-top:6px}
+.brand-center .sub{font-size:.78em;color:var(--muted);margin-top:2px}
+.inv-meta{text-align:left}
+.inv-meta .title{font-size:1.25em;font-weight:800;color:var(--g);margin-bottom:6px}
+.inv-meta .box{border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:.9em}
+.inv-meta .row{display:flex;justify-content:space-between;gap:8px;padding:5px 8px;border-bottom:1px solid var(--line)}
+.inv-meta .row:last-child{border-bottom:0}
+.inv-meta .row span:last-child{font-weight:800;color:#b91c1c}
+.parties{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.sheet.a5 .parties{grid-template-columns:1fr}
+.party{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.party h4{background:var(--soft);color:var(--g);padding:5px 8px;font-size:.85em;font-weight:800;border-bottom:1px solid var(--line)}
+.party .b{padding:7px 8px;line-height:1.8;font-size:.88em}
+.party .b b{color:var(--muted);font-weight:600}
+.meta-strip{
+  display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid var(--line);
+  border-radius:8px;overflow:hidden;margin-bottom:8px;font-size:.78em;
+}
+.sheet.a5 .meta-strip{grid-template-columns:1fr 1fr}
+.meta-strip .c{padding:6px 7px;border-left:1px solid var(--line);background:#fbfdfb}
+.meta-strip .c:last-child{border-left:0}
+.meta-strip b{display:block;color:var(--muted);font-weight:600;font-size:.9em}
+.meta-strip span{font-weight:700;color:var(--ink)}
+.sum-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:10px;margin-top:10px}
+.sheet.a5 .sum-grid{grid-template-columns:1fr}
+.sum-box{border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:.9em}
+.sum-box .line{display:flex;justify-content:space-between;padding:6px 9px;border-bottom:1px solid var(--line)}
+.sum-box .line.pay{background:var(--pay);color:#fff;font-weight:800;border:0}
+.sum-box .line.pay .gold{color:var(--gold)}
+.words{border:1px solid var(--line);border-radius:8px;padding:8px 10px;line-height:1.85;font-size:.88em;background:#fbfdfb}
+.words .lbl{color:var(--muted);font-size:.85em}
+.notes{margin-top:8px;border:1px dashed var(--line);border-radius:8px;padding:8px 10px;font-size:.82em;color:var(--muted);line-height:1.8}
+.stamps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
+.sheet.a5 .stamps{grid-template-columns:1fr 1fr}
+.stamp{border:1px solid var(--line);border-radius:8px;min-height:78px;text-align:center;padding:8px;font-size:.8em;color:var(--muted)}
+.stamp.dash{border-style:dashed;border-color:var(--g2)}
+.stamp .t{font-weight:800;color:var(--g);margin-bottom:6px}
+
+/* variant accents */
+.v-official .top3{border-bottom-color:var(--g)}
+.v-official .party h4{background:#e5f0ea}
+.v-modern{border-radius:16px;overflow:hidden;border:1px solid var(--line)}
+.v-modern .party{border-radius:12px}
+.v-modern table.items th{background:linear-gradient(90deg,var(--g),var(--g2))}
+.v-modern .sum-box .line.pay{background:linear-gradient(90deg,var(--g),var(--g2))}
+.v-premium{border-radius:16px;overflow:hidden;border:2px solid transparent;background:
+  linear-gradient(#fff,#fff) padding-box,
+  linear-gradient(120deg,var(--g),var(--gold),var(--g2)) border-box}
+.v-premium .hero-bar{
+  background:linear-gradient(115deg,var(--g),var(--g2) 60%,var(--gold));
+  color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;
+}
+.v-premium .hero-bar .name{font-weight:800;font-size:1.1em}
+.v-premium table.items th{background:var(--gd)}
+.v-premium .sum-box .line.pay{background:var(--gd)}
+.v-casual .top-simple{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;border-bottom:2px solid var(--gold);padding-bottom:10px;margin-bottom:10px}
+.v-casual .title{font-size:1.2em;font-weight:800;color:var(--g)}
+.v-compact .pad{padding:10px}
+.v-compact table.items th, .v-compact table.items td{padding:4px 3px;font-size:.9em}
+.v-receipt{max-width:420px!important}
+.sheet.a5.v-receipt{max-width:340px!important}
+.v-receipt .center{text-align:center}
+.v-receipt .dash{border:0;border-top:1px dashed #a8c8b4;margin:8px 0}
+.v-receipt table.items th{background:transparent;color:var(--g);border:0;border-bottom:1px dashed #a8c8b4}
+.v-receipt table.items td{border:0;border-bottom:1px dotted #d5e3da}
+.v-receipt .footer-bar{background:transparent;color:var(--muted);border-top:1px dashed #a8c8b4}
+
+@media (max-width:720px){
+  .top3,.parties,.sum-grid,.stamps,.meta-strip{grid-template-columns:1fr!important}
+}
+@media print{
+  .head,.controls,.hint,.meta,.approve{display:none!important}
+  .stage{border:0;background:transparent;padding:0}
+  .wrap{display:none!important}.wrap.show{display:block!important}
+  .sheet{box-shadow:none!important;width:100%!important}
+}
+</style>
+</head>
+<body>
+<div class="studio">
+  <header class="head">
+    <h1>پیش‌نمایش فاکتور v2 — الهام از اکسل sefid + نمونه رسمی/عادی</h1>
+    <p>
+      بک‌گراند لوگو سفید/شفاف (بدون مشکی) · ستون <strong>تخفیف ردیفی</strong> برای هر کالا ·
+      بلوک اختصاصی <strong>کارشناس فروش + موبایل</strong> · ساختار صورتحساب فروش کالا و خدمات (اکسل) + چیدمان نمونه تصویری.
+      رنگ‌ها: برند ترنم (سبز/طلایی) به‌جای آبی نمونه.
+    </p>
+    <div class="chips">
+      <span class="chip">Primary <strong>#1A5C38</strong></span>
+      <span class="chip">Gold <strong>#C9A843</strong></span>
+      <span class="chip">لوگو بدون بک مشکی</span>
+      <span class="chip">تخفیف ردیفی در جدول</span>
+      <span class="chip">کارشناس فروش</span>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-id="formal-official">۱. رسمی کامل</button>
+      <button class="tab" data-id="formal-modern">۲. رسمی مدرن</button>
+      <button class="tab" data-id="formal-premium">۳. رسمی پریمیوم</button>
+      <button class="tab" data-id="casual-simple">۴. عادی ساده</button>
+      <button class="tab" data-id="casual-compact">۵. عادی فشرده</button>
+      <button class="tab" data-id="casual-receipt">۶. عادی رسید</button>
+    </div>
+    <div class="seg" id="paperSeg">
+      <button class="active" data-paper="a4">A4</button>
+      <button data-paper="a5">A5</button>
+    </div>
+  </div>
+  <p class="hint">در A5 ستون‌های فرعی (کد/واحد/مالیات) فشرده یا مخفی می‌شوند تا خوانا بماند؛ تخفیف ردیفی و کارشناس فروش در همه مدل‌ها هست.</p>
+
+  <div id="gallery">
+
+  <!-- ═══════════ 1 formal-official ═══════════ -->
+  <section class="wrap show" data-id="formal-official">
+    <div class="meta">
+      <div>
+        <h2>formal-official — رسمی کامل (نزدیک اکسل + نمونه چپ)</h2>
+        <p class="d">هدر سه‌ستونه (شناسه شرکت / لوگو / شماره)، فروشنده-خریدار، نوار متا، کارشناس فروش، جدول با تخفیف ردیفی، جمع قابل پرداخت، مهر و نوار تماس.</p>
+      </div>
+      <span class="badge">رسمی · کامل</span>
+    </div>
+    <div class="stage">
+      <article class="sheet a4 v-official" data-sheet>
+        <div class="pad">
+          <div class="top3">
+            <div class="company-meta">
+              <div><b>شناسه ملی:</b> ۱۴۰۰۴۵۶۷۸۹۰</div>
+              <div><b>کد اقتصادی:</b> ۴۱۱۲۳۴۵۶۷۸۹</div>
+              <div><b>شماره ثبت:</b> ۱۲۳۴۵</div>
+              <div><b>شبا:</b> IR۱۲-۱۲۳۴-۰۰۰۰-۰۰۰۰-۰۰۰۰-۰۰۰۰</div>
+            </div>
+            <div class="brand-center">
+              <div class="logo"><img src="logo-sm.png" alt="ترنم"></div>
+              <div class="name">پوشاک ترنم</div>
+              <div class="sub">صورتحساب فروش کالا و خدمات</div>
+            </div>
+            <div class="inv-meta">
+              <div class="title">فاکتور رسمی</div>
+              <div class="box">
+                <div class="row"><span>شماره فاکتور</span><span class="num">T-1042</span></div>
+                <div class="row"><span>تاریخ</span><span>۱۴۰۵/۰۴/۲۱</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="parties">
+            <div class="party">
+              <h4>مشخصات فروشنده</h4>
+              <div class="b">
+                <div><b>نام:</b> پوشاک ترنم (تولیدی)</div>
+                <div><b>شناسه/اقتصادی:</b> ۱۴۰۰۴۵۶۷۸۹۰</div>
+                <div><b>نشانی:</b> مشهد، خیابان امام رضا، پلاک ۲۱۸</div>
+                <div><b>تلفن:</b> ۰۵۱-۳۱۲۳۴۵۶۷ · <b>استان:</b> خراسان رضوی</div>
+              </div>
+            </div>
+            <div class="party">
+              <h4>مشخصات خریدار</h4>
+              <div class="b">
+                <div><b>نام:</b> بوتیک زمرد — سارا احمدی</div>
+                <div><b>شناسه ملی:</b> ۰۰۱۲۳۴۵۶۷۸</div>
+                <div><b>نشانی:</b> تهران، خیابان ولیعصر، پلاک ۵۰</div>
+                <div><b>تلفن:</b> ۰۹۱۲۱۲۳۴۵۶۷ · <b>شهرستان:</b> تهران</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="meta-strip">
+            <div class="c"><b>شماره پیش‌فاکتور</b><span>P-0288</span></div>
+            <div class="c"><b>شماره سفارش</b><span>SO-771</span></div>
+            <div class="c"><b>تاریخ تحویل</b><span>۱۴۰۵/۰۴/۲۵</span></div>
+            <div class="c"><b>نحوه پرداخت</b><span>چک</span></div>
+            <div class="c"><b>نوع فاکتور</b><span>فروش</span></div>
+          </div>
+
+          <div class="expert">
+            <div class="l">
+              <span class="t">کارشناس فروش</span>
+              <span class="n">مریم رضایی</span>
+              <span class="m">۰۹۱۲ ۳۴۵ ۶۷۸۹</span>
+            </div>
+            <span class="hint-e">پاسخگو تا ساعت ۱۸</span>
+          </div>
+
+          <table class="items">
+            <thead>
+              <tr>
+                <th>ردیف</th>
+                <th class="hide-a5">کد کالا</th>
+                <th>شرح کالا / خدمات</th>
+                <th class="hide-a5">واحد</th>
+                <th>تعداد</th>
+                <th>فی (ریال)</th>
+                <th class="hide-a5">مبلغ</th>
+                <th>تخفیف ردیف</th>
+                <th>پس از تخفیف</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>۱</td><td class="hide-a5">6086</td>
+                <td class="rtl">مانتو مدل زمرد ۶۰۸۶</td>
+                <td class="hide-a5">عدد</td><td>۱۲</td><td>۲٬۵۰۰٬۰۰۰</td><td class="hide-a5">۳۰٬۰۰۰٬۰۰۰</td>
+                <td class="disc">۱٬۵۰۰٬۰۰۰</td><td>۲۸٬۵۰۰٬۰۰۰</td>
+              </tr>
+              <tr>
+                <td>۲</td><td class="hide-a5">4412</td>
+                <td class="rtl">شومیز لینن نقره‌ای</td>
+                <td class="hide-a5">عدد</td><td>۸</td><td>۱٬۸۰۰٬۰۰۰</td><td class="hide-a5">۱۴٬۴۰۰٬۰۰۰</td>
+                <td class="disc">۷۲۰٬۰۰۰</td><td>۱۳٬۶۸۰٬۰۰۰</td>
+              </tr>
+              <tr>
+                <td>۳</td><td class="hide-a5">2201</td>
+                <td class="rtl">شلوار پارچه‌ای کلاسیک</td>
+                <td class="hide-a5">عدد</td><td>۱۰</td><td>۱٬۲۰۰٬۰۰۰</td><td class="hide-a5">۱۲٬۰۰۰٬۰۰۰</td>
+                <td class="disc">۶۰۰٬۰۰۰</td><td>۱۱٬۴۰۰٬۰۰۰</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="sum-grid">
+            <div class="sum-box">
+              <div class="line"><span>جمع پس از تخفیف ردیفی</span><span class="num">۵۳٬۵۸۰٬۰۰۰</span></div>
+              <div class="line"><span>تخفیف کل فاکتور</span><span class="num">۰</span></div>
+              <div class="line"><span>هزینه ارسال</span><span class="num">۰</span></div>
+              <div class="line pay"><span>مبلغ قابل پرداخت</span><span class="num gold">۵۳٬۵۸۰٬۰۰۰ ریال</span></div>
+            </div>
+            <div>
+              <div class="words">
+                <div class="lbl">مبلغ به حروف</div>
+                <div><b>پنجاه و سه میلیون و پانصد و هشتاد هزار ریال</b></div>
+              </div>
+              <div class="notes">
+                <b>شرایط و توضیحات:</b><br>
+                ۱) شرایط فروش: غیرنقدی (چک) — سررسید ۱۴۰۵/۰۵/۱۵<br>
+                ۲) کالا تا ۷ روز در صورت سلامت قابل مرجوعی است.
+              </div>
+            </div>
+          </div>
+
+          <div class="stamps">
+            <div class="stamp"><div class="t">مهر و امضای خریدار</div></div>
+            <div class="stamp dash"><div class="t">مهر شرکت</div></div>
+            <div class="stamp"><div class="t">مهر و امضای فروشنده</div></div>
+          </div>
+        </div>
+        <div class="footer-bar">مشهد، خیابان امام رضا · تلفن ۰۵۱-۳۱۲۳۴۵۶۷ · www.taranom.example</div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ═══════════ 2 formal-modern ═══════════ -->
+  <section class="wrap" data-id="formal-modern">
+    <div class="meta">
+      <div>
+        <h2>formal-modern — رسمی مدرن</h2>
+        <p class="d">همان اسکلت رسمی کامل با گوشه‌های نرم، هدر جدول گرادیان، و کارت‌های ملایم‌تر — مناسب UI و چاپ.</p>
+      </div>
+      <span class="badge">رسمی · مدرن</span>
+    </div>
+    <div class="stage">
+      <article class="sheet a4 v-modern" data-sheet>
+        <div class="pad">
+          <div class="top3">
+            <div class="company-meta">
+              <div><b>شناسه ملی:</b> ۱۴۰۰۴۵۶۷۸۹۰</div>
+              <div><b>کد اقتصادی:</b> ۴۱۱۲۳۴۵۶۷۸۹</div>
+              <div><b>تلفن:</b> ۰۵۱-۳۱۲۳۴۵۶۷</div>
+            </div>
+            <div class="brand-center">
+              <div class="logo"><img src="logo-sm.png" alt="ترنم"></div>
+              <div class="name">پوشاک ترنم</div>
+              <div class="sub">فاکتور فروش · نسخه مدرن</div>
+            </div>
+            <div class="inv-meta">
+              <div class="title">فاکتور رسمی</div>
+              <div class="box">
+                <div class="row"><span>شماره</span><span class="num">T-1042</span></div>
+                <div class="row"><span>تاریخ</span><span>۱۴۰۵/۰۴/۲۱</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="parties">
+            <div class="party"><h4>فروشنده</h4><div class="b">
+              <div><b>نام:</b> پوشاک ترنم</div>
+              <div><b>نشانی:</b> مشهد، امام رضا ۲۱۸</div>
+              <div><b>تلفن:</b> ۰۵۱-۳۱۲۳۴۵۶۷</div>
+            </div></div>
+            <div class="party"><h4>خریدار</h4><div class="b">
+              <div><b>نام:</b> بوتیک زمرد — سارا احمدی</div>
+              <div><b>نشانی:</b> تهران، ولیعصر ۵۰</div>
+              <div><b>تلفن:</b> ۰۹۱۲۱۲۳۴۵۶۷</div>
+            </div></div>
+          </div>
+          <div class="expert">
+            <div class="l">
+              <span class="t">کارشناس فروش</span>
+              <span class="n">مریم رضایی</span>
+              <span class="m">۰۹۱۲ ۳۴۵ ۶۷۸۹</span>
+            </div>
+            <span class="hint-e">پیگیری سفارش و تسویه</span>
+          </div>
+          <table class="items">
+            <thead>
+              <tr>
+                <th>ردیف</th><th class="hide-a5">کد</th><th>شرح</th><th>تعداد</th><th>فی</th><th>تخفیف ردیف</th><th>جمع</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>۱</td><td class="hide-a5">6086</td><td class="rtl">مانتو مدل زمرد ۶۰۸۶</td><td>۱۲</td><td>۲٬۵۰۰٬۰۰۰</td><td class="disc">۱٬۵۰۰٬۰۰۰</td><td>۲۸٬۵۰۰٬۰۰۰</td></tr>
+              <tr><td>۲</td><td class="hide-a5">4412</td><td class="rtl">شومیز لینن نقره‌ای</td><td>۸</td><td>۱٬۸۰۰٬۰۰۰</td><td class="disc">۷۲۰٬۰۰۰</td><td>۱۳٬۶۸۰٬۰۰۰</td></tr>
+              <tr><td>۳</td><td class="hide-a5">2201</td><td class="rtl">شلوار پارچه‌ای کلاسیک</td><td>۱۰</td><td>۱٬۲۰۰٬۰۰۰</td><td class="disc">۶۰۰٬۰۰۰</td><td>۱۱٬۴۰۰٬۰۰۰</td></tr>
+            </tbody>
+          </table>
+          <div class="sum-grid">
+            <div class="sum-box">
+              <div class="line"><span>جمع ناخالص</span><span>۵۶٬۴۰۰٬۰۰۰</span></div>
+              <div class="line"><span>جمع تخفیف ردیفی</span><span class="disc">۲٬۸۲۰٬۰۰۰</span></div>
+              <div class="line pay"><span>قابل پرداخت</span><span class="num gold">۵۳٬۵۸۰٬۰۰۰ ریال</span></div>
+            </div>
+            <div class="words"><div class="lbl">به حروف</div><div><b>پنجاه و سه میلیون و پانصد و هشتاد هزار ریال</b></div></div>
+          </div>
+          <div class="stamps">
+            <div class="stamp"><div class="t">امضای خریدار</div></div>
+            <div class="stamp dash"><div class="t">مهر شرکت</div></div>
+            <div class="stamp"><div class="t">امضای فروشنده</div></div>
+          </div>
+        </div>
+        <div class="footer-bar">پوشاک ترنم · مشهد · ۰۵۱-۳۱۲۳۴۵۶۷</div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ═══════════ 3 formal-premium ═══════════ -->
+  <section class="wrap" data-id="formal-premium">
+    <div class="meta">
+      <div>
+        <h2>formal-premium — رسمی پریمیوم</h2>
+        <p class="d">قاب سبز/طلایی، نوار برند بالا، همان فیلدهای رسمی کامل با حس لوکس پوشاک.</p>
+      </div>
+      <span class="badge">رسمی · پریمیوم</span>
+    </div>
+    <div class="stage">
+      <article class="sheet a4 v-premium" data-sheet>
+        <div class="hero-bar">
+          <div style="display:flex;gap:10px;align-items:center">
+            <div class="logo"><img src="logo-sm.png" alt="ترنم"></div>
+            <div>
+              <div class="name">پوشاک ترنم</div>
+              <div style="opacity:.85;font-size:.8em">صورتحساب فروش کالا و خدمات</div>
+            </div>
+          </div>
+          <div style="text-align:left;font-size:.9em;line-height:1.7">
+            <div><b>T-1042</b></div>
+            <div>۱۴۰۵/۰۴/۲۱</div>
+          </div>
+        </div>
+        <div class="pad">
+          <div class="parties">
+            <div class="party"><h4>مشخصات فروشنده</h4><div class="b">
+              <div><b>نام:</b> پوشاک ترنم</div>
+              <div><b>شناسه:</b> ۱۴۰۰۴۵۶۷۸۹۰</div>
+              <div><b>نشانی:</b> مشهد، امام رضا ۲۱۸</div>
+              <div><b>تلفن:</b> ۰۵۱-۳۱۲۳۴۵۶۷</div>
+            </div></div>
+            <div class="party"><h4>مشخصات خریدار</h4><div class="b">
+              <div><b>نام:</b> بوتیک زمرد — سارا احمدی</div>
+              <div><b>شناسه:</b> ۰۰۱۲۳۴۵۶۷۸</div>
+              <div><b>نشانی:</b> تهران، ولیعصر ۵۰</div>
+              <div><b>تلفن:</b> ۰۹۱۲۱۲۳۴۵۶۷</div>
+            </div></div>
+          </div>
+          <div class="meta-strip">
+            <div class="c"><b>سفارش</b><span>SO-771</span></div>
+            <div class="c"><b>پرداخت</b><span>چک</span></div>
+            <div class="c"><b>سررسید</b><span>۱۴۰۵/۰۵/۱۵</span></div>
+            <div class="c"><b>تحویل</b><span>۱۴۰۵/۰۴/۲۵</span></div>
+            <div class="c"><b>نوع</b><span>فروش رسمی</span></div>
+          </div>
+          <div class="expert">
+            <div class="l">
+              <span class="t">کارشناس فروش</span>
+              <span class="n">مریم رضایی</span>
+              <span class="m">۰۹۱۲ ۳۴۵ ۶۷۸۹</span>
+            </div>
+            <span class="hint-e">پشتیبانی VIP</span>
+          </div>
+          <table class="items">
+            <thead>
+              <tr>
+                <th>ردیف</th><th>شرح کالا</th><th>تعداد</th><th>فی (ریال)</th><th>تخفیف ردیف</th><th>مبلغ نهایی</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>۱</td><td class="rtl">مانتو مدل زمرد ۶۰۸۶</td><td>۱۲</td><td>۲٬۵۰۰٬۰۰۰</td><td class="disc">۱٬۵۰۰٬۰۰۰</td><td>۲۸٬۵۰۰٬۰۰۰</td></tr>
+              <tr><td>۲</td><td class="rtl">شومیز لینن نقره‌ای</td><td>۸</td><td>۱٬۸۰۰٬۰۰۰</td><td class="disc">۷۲۰٬۰۰۰</td><td>۱۳٬۶۸۰٬۰۰۰</td></tr>
+              <tr><td>۳</td><td class="rtl">شلوار پارچه‌ای کلاسیک</td><td>۱۰</td><td>۱٬۲۰۰٬۰۰۰</td><td class="disc">۶۰۰٬۰۰۰</td><td>۱۱٬۴۰۰٬۰۰۰</td></tr>
+            </tbody>
+          </table>
+          <div class="sum-grid">
+            <div class="sum-box">
+              <div class="line"><span>جمع تخفیف ردیفی</span><span class="disc">۲٬۸۲۰٬۰۰۰</span></div>
+              <div class="line pay"><span>مبلغ قابل پرداخت</span><span class="num gold">۵۳٬۵۸۰٬۰۰۰ ریال</span></div>
+            </div>
+            <div class="words"><div class="lbl">مبلغ به حروف</div><div><b>پنجاه و سه میلیون و پانصد و هشتاد هزار ریال</b></div></div>
+          </div>
+          <div class="stamps">
+            <div class="stamp"><div class="t">مهر خریدار</div></div>
+            <div class="stamp dash"><div class="t">مهر ترنم</div></div>
+            <div class="stamp"><div class="t">مهر فروشنده</div></div>
+          </div>
+        </div>
+        <div class="footer-bar">با برند زمرد · پوشاک ترنم · مشهد</div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ═══════════ 4 casual-simple ═══════════ -->
+  <section class="wrap" data-id="casual-simple">
+    <div class="meta">
+      <div>
+        <h2>casual-simple — عادی ساده (نزدیک نمونه راست)</h2>
+        <p class="d">هدر ساده‌تر، باکس‌های جمع‌وجور خریدار/فروشنده، جدول با تخفیف ردیفی، کارشناس فروش، مهر فروشگاه.</p>
+      </div>
+      <span class="badge">عادی · ساده</span>
+    </div>
+    <div class="stage">
+      <article class="sheet a4 v-casual" data-sheet>
+        <div class="pad">
+          <div class="top-simple">
+            <div style="display:flex;gap:10px;align-items:center">
+              <div class="logo"><img src="logo-sm.png" alt="ترنم"></div>
+              <div>
+                <div class="title">پوشاک ترنم</div>
+                <div style="font-size:.85em;color:var(--muted)">فاکتور فروش عادی</div>
+              </div>
+            </div>
+            <div class="inv-meta">
+              <div class="box">
+                <div class="row"><span>شماره</span><span class="num">P-0288</span></div>
+                <div class="row"><span>تاریخ</span><span>۱۴۰۵/۰۴/۲۱</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="parties">
+            <div class="party"><h4>خریدار</h4><div class="b">
+              <div><b>نام:</b> بوتیک زمرد — سارا احمدی</div>
+              <div><b>نشانی:</b> تهران، ولیعصر ۵۰</div>
+              <div><b>تلفن:</b> ۰۹۱۲۱۲۳۴۵۶۷</div>
+            </div></div>
+            <div class="party"><h4>فروشنده</h4><div class="b">
+              <div><b>نام:</b> پوشاک ترنم</div>
+              <div><b>نشانی:</b> مشهد، امام رضا ۲۱۸</div>
+              <div><b>تلفن:</b> ۰۵۱-۳۱۲۳۴۵۶۷</div>
+            </div></div>
+          </div>
+          <div class="meta-strip" style="grid-template-columns:repeat(4,1fr)">
+            <div class="c"><b>نوع فروش</b><span>نقدی</span></div>
+            <div class="c"><b>پرداخت</b><span>کارت به کارت</span></div>
+            <div class="c"><b>سفارش</b><span>SO-771</span></div>
+            <div class="c"><b>سررسید</b><span>—</span></div>
+          </div>
+          <div class="expert">
+            <div class="l">
+              <span class="t">کارشناس فروش</span>
+              <span class="n">مریم رضایی</span>
+              <span class="m">۰۹۱۲ ۳۴۵ ۶۷۸۹</span>
+            </div>
+          </div>
+          <table class="items">
+            <thead>
+              <tr>
+                <th>ردیف</th><th class="hide-a5">کد</th><th>شرح کالا</th><th>واحد</th><th>تعداد</th><th>فی</th><th>تخفیف ردیف</th><th>جمع</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>۱</td><td class="hide-a5">6086</td><td class="rtl">مانتو مدل زمرد ۶۰۸۶</td><td>عدد</td><td>۱۲</td><td>۲٬۵۰۰٬۰۰۰</td><td class="disc">۱٬۵۰۰٬۰۰۰</td><td>۲۸٬۵۰۰٬۰۰۰</td></tr>
+              <tr><td>۲</td><td class="hide-a5">4412</td><td class="rtl">شومیز لینن نقره‌ای</td><td>عدد</td><td>۸</td><td>۱٬۸۰۰٬۰۰۰</td><td class="disc">۷۲۰٬۰۰۰</td><td>۱۳٬۶۸۰٬۰۰۰</td></tr>
+              <tr><td>۳</td><td class="hide-a5">2201</td><td class="rtl">شلوار پارچه‌ای کلاسیک</td><td>عدد</td><td>۱۰</td><td>۱٬۲۰۰٬۰۰۰</td><td class="disc">۶۰۰٬۰۰۰</td><td>۱۱٬۴۰۰٬۰۰۰</td></tr>
+            </tbody>
+          </table>
+          <div class="sum-grid">
+            <div class="sum-box">
+              <div class="line"><span>جمع کل</span><span>۵۶٬۴۰۰٬۰۰۰</span></div>
+              <div class="line"><span>تخفیف ردیفی</span><span class="disc">۲٬۸۲۰٬۰۰۰</span></div>
+              <div class="line"><span>ارسال</span><span>۰</span></div>
+              <div class="line pay"><span>قابل پرداخت</span><span class="num gold">۵۳٬۵۸۰٬۰۰۰ ریال</span></div>
+            </div>
+            <div>
+              <div class="words"><div class="lbl">به حروف</div><div><b>پنجاه و سه میلیون و پانصد و هشتاد هزار ریال</b></div></div>
+              <div class="notes"><b>توضیحات:</b> تحویل تا پایان هفته.</div>
+            </div>
+          </div>
+          <div class="stamps" style="grid-template-columns:1fr 1fr 1fr">
+            <div class="stamp"><div class="t">امضای خریدار</div></div>
+            <div class="stamp dash"><div class="t">مهر فروشگاه</div></div>
+            <div class="stamp"><div class="t">امضای فروشنده</div></div>
+          </div>
+        </div>
+        <div class="footer-bar light">تلفن ۰۵۱-۳۱۲۳۴۵۶۷ · اینستاگرام @taranom · مشهد</div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ═══════════ 5 casual-compact ═══════════ -->
+  <section class="wrap" data-id="casual-compact">
+    <div class="meta">
+      <div>
+        <h2>casual-compact — عادی فشرده</h2>
+        <p class="d">همان منطق عادی با تراکم بیشتر برای ویزیتور؛ تخفیف ردیفی و کارشناس فروش حفظ شده.</p>
+      </div>
+      <span class="badge">عادی · فشرده</span>
+    </div>
+    <div class="stage">
+      <article class="sheet a4 v-casual v-compact" data-sheet>
+        <div class="pad">
+          <div class="top-simple" style="margin-bottom:6px;padding-bottom:6px">
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="logo"><img src="logo-sm.png" alt="ترنم"></div>
+              <div>
+                <div class="title" style="font-size:1.05em">پوشاک ترنم</div>
+                <div style="font-size:.75em;color:var(--muted)">فاکتور فشرده · P-0288 · ۱۴۰۵/۰۴/۲۱</div>
+              </div>
+            </div>
+            <div style="text-align:left;font-size:.85em;line-height:1.6">
+              <div><b>خریدار:</b> بوتیک زمرد</div>
+              <div><b>تلفن:</b> ۰۹۱۲۱۲۳۴۵۶۷</div>
+            </div>
+          </div>
+          <div class="expert" style="padding:6px 10px;margin:6px 0">
+            <div class="l">
+              <span class="t">کارشناس</span>
+              <span class="n">مریم رضایی</span>
+              <span class="m">۰۹۱۲ ۳۴۵ ۶۷۸۹</span>
+            </div>
+            <span class="hint-e">نقدی</span>
+          </div>
+          <table class="items">
+            <thead>
+              <tr>
+                <th>ردیف</th><th>شرح</th><th>تعداد×فی</th><th>تخفیف</th><th>جمع</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>۱</td><td class="rtl">مانتو زمرد ۶۰۸۶</td><td>۱۲×۲٬۵۰۰٬۰۰۰</td><td class="disc">۱٬۵۰۰٬۰۰۰</td><td>۲۸٬۵۰۰٬۰۰۰</td></tr>
+              <tr><td>۲</td><td class="rtl">شومیز لینن</td><td>۸×۱٬۸۰۰٬۰۰۰</td><td class="disc">۷۲۰٬۰۰۰</td><td>۱۳٬۶۸۰٬۰۰۰</td></tr>
+              <tr><td>۳</td><td class="rtl">شلوار کلاسیک</td><td>۱۰×۱٬۲۰۰٬۰۰۰</td><td class="disc">۶۰۰٬۰۰۰</td><td>۱۱٬۴۰۰٬۰۰۰</td></tr>
+            </tbody>
+          </table>
+          <div class="sum-box" style="margin-top:8px;max-width:280px;margin-right:auto">
+            <div class="line"><span>تخفیف ردیفی</span><span class="disc">۲٬۸۲۰٬۰۰۰</span></div>
+            <div class="line pay"><span>قابل پرداخت</span><span class="num gold">۵۳٬۵۸۰٬۰۰۰</span></div>
+          </div>
+          <div class="stamps" style="grid-template-columns:1fr 1fr;margin-top:8px">
+            <div class="stamp" style="min-height:56px"><div class="t">خریدار</div></div>
+            <div class="stamp" style="min-height:56px"><div class="t">فروشنده</div></div>
+          </div>
+        </div>
+        <div class="footer-bar light">پوشاک ترنم · ۰۵۱-۳۱۲۳۴۵۶۷</div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ═══════════ 6 casual-receipt ═══════════ -->
+  <section class="wrap" data-id="casual-receipt">
+    <div class="meta">
+      <div>
+        <h2>casual-receipt — عادی رسید/فیش</h2>
+        <p class="d">فرم باریک فیش‌مانند با تخفیف هر ردیف و کارشناس فروش در هدر.</p>
+      </div>
+      <span class="badge">عادی · رسید</span>
+    </div>
+    <div class="stage">
+      <article class="sheet a4 v-receipt" data-sheet>
+        <div class="pad">
+          <div class="center">
+            <div class="logo" style="margin:0 auto"><img src="logo-sm.png" alt="ترنم"></div>
+            <div style="font-weight:800;color:var(--g);font-size:1.15em;margin-top:6px">پوشاک ترنم</div>
+            <div style="color:var(--muted);font-size:.85em">رسید فروش · P-0288 · ۱۴۰۵/۰۴/۲۱</div>
+          </div>
+          <hr class="dash">
+          <div class="center" style="line-height:1.8;font-size:.9em">
+            بوتیک زمرد — سارا احمدی<br>۰۹۱۲۱۲۳۴۵۶۷
+          </div>
+          <div class="expert" style="margin:8px 0">
+            <div class="l" style="justify-content:center;width:100%">
+              <span class="t">کارشناس</span>
+              <span class="n">مریم رضایی</span>
+              <span class="m">۰۹۱۲ ۳۴۵ ۶۷۸۹</span>
+            </div>
+          </div>
+          <hr class="dash">
+          <table class="items">
+            <thead>
+              <tr><th>شرح</th><th>تعداد</th><th>تخفیف</th><th>جمع</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="rtl">مانتو زمرد ۶۰۸۶</td><td>۱۲</td><td class="disc">۱٫۵م</td><td>۲۸٫۵م</td></tr>
+              <tr><td class="rtl">شومیز لینن</td><td>۸</td><td class="disc">۰٫۷۲م</td><td>۱۳٫۶۸م</td></tr>
+              <tr><td class="rtl">شلوار کلاسیک</td><td>۱۰</td><td class="disc">۰٫۶م</td><td>۱۱٫۴م</td></tr>
+            </tbody>
+          </table>
+          <hr class="dash">
+          <div class="sum-box">
+            <div class="line"><span>تخفیف ردیفی</span><span class="disc">۲٬۸۲۰٬۰۰۰</span></div>
+            <div class="line pay"><span>قابل پرداخت</span><span class="num gold">۵۳٬۵۸۰٬۰۰۰</span></div>
+          </div>
+          <div class="center" style="margin-top:10px;font-size:.8em;color:var(--muted);line-height:1.8">
+            از خرید شما سپاسگزاریم<br>پوشاک ترنم
+          </div>
+        </div>
+        <div class="footer-bar">۰۵۱-۳۱۲۳۴۵۶۷</div>
+      </article>
+    </div>
+  </section>
+
+  </div>
+
+  <section class="approve">
+    <h3>تغییرات این نسخه نسبت به قبل</h3>
+    <ol>
+      <li>چیدمان نزدیک به <b>عکس نمونه</b> (رسمی کامل / عادی ساده) و اسکلت <b>sefid.xlsx</b> (صورتحساب فروش کالا و خدمات).</li>
+      <li>بک‌گراند لوگو <b>سفید/شفاف</b> — باکس مشکی حذف شد؛ برای PNG مشکی از <code>mix-blend-mode: multiply</code> استفاده شده.</li>
+      <li>ستون <b>تخفیف ردیف</b> در همه مدل‌ها.</li>
+      <li>بلوک طلایی <b>کارشناس فروش + موبایل</b> بین مشخصات طرفین و جدول اقلام.</li>
+      <li>هنوز فقط پیش‌نمایش است — بعد از تأیید شما در برنامه پیاده می‌شود.</li>
+    </ol>
+  </section>
+</div>
+
+<script>
+(function(){
+  const tabs=[...document.querySelectorAll('.tab')];
+  const wraps=[...document.querySelectorAll('.wrap')];
+  const paperBtns=[...document.querySelectorAll('#paperSeg button')];
+  let paper='a4';
+
+  function applyPaper(){
+    document.querySelectorAll('[data-sheet]').forEach(el=>{
+      el.classList.remove('a4','a5');
+      el.classList.add(paper);
+      // hide secondary cols on A5
+      el.querySelectorAll('.hide-a5').forEach(cell=>{
+        cell.style.display = paper==='a5' ? 'none' : '';
+      });
+    });
+  }
+  tabs.forEach(btn=>btn.addEventListener('click',()=>{
+    tabs.forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    wraps.forEach(w=>w.classList.toggle('show', w.dataset.id===btn.dataset.id));
+  }));
+  paperBtns.forEach(btn=>btn.addEventListener('click',()=>{
+    paperBtns.forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    paper=btn.dataset.paper;
+    applyPaper();
+  }));
+  applyPaper();
+})();
+</script>
+</body>
+</html>
