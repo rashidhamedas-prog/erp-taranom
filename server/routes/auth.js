@@ -101,34 +101,45 @@ router.post('/login', (req, res) => {
 
   db.prepare("UPDATE users SET last_login=strftime('%s','now') WHERE id=?").run(user.id);
 
-  // Single-device enforcement (central + device apps)
+  // Slot-based device sessions: 1 mobile + 1 desktop + 1 web per user
   const fingerprint = String(req.body.device_fingerprint || '').slice(0, 200);
   const deviceName = String(req.body.device_name || '').slice(0, 120);
   const deviceKind = String(req.body.device_kind || 'web').slice(0, 32);
   const forceKick = !!req.body.force_logout_other;
+  function deviceSlotOf(kind) {
+    const k = String(kind || 'web').toLowerCase();
+    if (/android|ios|mobile/.test(k)) return 'mobile';
+    if (/desktop|windows|electron|win/.test(k)) return 'desktop';
+    return 'web';
+  }
+  const deviceSlot = deviceSlotOf(deviceKind);
   if (fingerprint) {
     try {
-      const existing = db.prepare('SELECT * FROM user_device_sessions WHERE user_id=?').get(user.id);
+      const existing = db.prepare(
+        'SELECT * FROM user_device_sessions WHERE user_id=? AND device_slot=?'
+      ).get(user.id, deviceSlot);
       if (existing && existing.device_fingerprint !== fingerprint && !forceKick) {
+        const slotFa = { mobile: 'موبایل', desktop: 'دسکتاپ/ویندوز', web: 'وب' }[deviceSlot] || deviceSlot;
         return res.status(409).json({
-          error: 'این حساب روی دستگاه دیگری فعال است. برای ورود، نشست قبلی باید قطع شود.',
+          error: `این حساب روی یک دستگاه ${slotFa} دیگر فعال است. برای ورود، نشست قبلی همان نوع باید قطع شود.`,
           code: 'DEVICE_SESSION_ACTIVE',
           other_device: {
             device_name: existing.device_name,
             device_kind: existing.device_kind,
+            device_slot: existing.device_slot || deviceSlot,
             last_seen: existing.last_seen,
           },
         });
       }
       db.prepare(`
-        INSERT INTO user_device_sessions (user_id, device_fingerprint, device_name, device_kind, last_seen)
-        VALUES (?,?,?,?,strftime('%s','now'))
-        ON CONFLICT(user_id) DO UPDATE SET
+        INSERT INTO user_device_sessions (user_id, device_slot, device_fingerprint, device_name, device_kind, last_seen)
+        VALUES (?,?,?,?,?,strftime('%s','now'))
+        ON CONFLICT(user_id, device_slot) DO UPDATE SET
           device_fingerprint=excluded.device_fingerprint,
           device_name=excluded.device_name,
           device_kind=excluded.device_kind,
           last_seen=excluded.last_seen
-      `).run(user.id, fingerprint, deviceName || deviceKind, deviceKind);
+      `).run(user.id, deviceSlot, fingerprint, deviceName || deviceKind, deviceKind);
     } catch (e) {
       console.warn('user_device_sessions:', e.message);
     }
@@ -143,7 +154,7 @@ router.post('/login', (req, res) => {
 
   audit(user.id, 'login', 'user', user.id, 'ورود موفق', req);
   const token = jwt.sign(
-    { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '', dfp: fingerprint || undefined },
+    { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '', dfp: fingerprint || undefined, dslot: fingerprint ? deviceSlot : undefined },
     SECRET, { expiresIn: '30d' }
   );
   res.json({
@@ -153,7 +164,7 @@ router.post('/login', (req, res) => {
   });
 });
 
-// Admin: list / revoke single-device sessions
+// Admin: list / revoke device sessions (slot-aware)
 router.get('/device-sessions', auth, adminOnly, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
@@ -165,10 +176,19 @@ router.get('/device-sessions', auth, adminOnly, (req, res) => {
   res.json(rows);
 });
 
-router.delete('/device-sessions/:userId', auth, adminOnly, (req, res) => {
+router.delete('/device-sessions/:id', auth, adminOnly, (req, res) => {
   const db = getDB();
-  db.prepare('DELETE FROM user_device_sessions WHERE user_id=?').run(req.params.userId);
-  audit(req.user.id, 'revoke', 'user_device_session', req.params.userId, 'قطع نشست دستگاه کاربر');
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'شناسه نامعتبر' });
+  // Prefer delete by session id; fallback: treat param as user_id (legacy) → wipe all slots
+  const byId = db.prepare('SELECT id, user_id FROM user_device_sessions WHERE id=?').get(id);
+  if (byId) {
+    db.prepare('DELETE FROM user_device_sessions WHERE id=?').run(id);
+    audit(req.user.id, 'revoke', 'user_device_session', byId.user_id, 'قطع نشست دستگاه #' + id);
+  } else {
+    db.prepare('DELETE FROM user_device_sessions WHERE user_id=?').run(id);
+    audit(req.user.id, 'revoke', 'user_device_session', id, 'قطع همه نشست‌های کاربر');
+  }
   res.json({ ok: true });
 });
 

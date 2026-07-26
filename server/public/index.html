@@ -1948,7 +1948,8 @@ el('loginForm').addEventListener('submit', async (e)=>{
     }
     if(r.status===409 && j.code==='DEVICE_SESSION_ACTIVE'){
       const other=j.other_device||{};
-      const ok=confirm((j.error||'نشست دیگری فعال است')+'\n\nدستگاه قبلی: '+(other.device_name||other.device_kind||'نامشخص')+'\n\nقطع نشست قبلی و ورود در این دستگاه؟');
+      const slotFa={mobile:'موبایل',desktop:'دسکتاپ/ویندوز',web:'وب'}[other.device_slot]||'';
+      const ok=confirm((j.error||'نشست دیگری فعال است')+'\n\nدستگاه قبلی'+(slotFa?' ('+slotFa+')':'')+': '+(other.device_name||other.device_kind||'نامشخص')+'\n\nقطع نشست قبلی همین نوع دستگاه و ورود در این دستگاه؟');
       if(!ok){ el('loginErr').textContent=j.error||'ورود لغو شد'; return; }
       ({r,j} = await attemptLogin(true));
       if(!j){ el('loginErr').textContent='پاسخ نامعتبر از سرور'; return; }
@@ -2885,15 +2886,42 @@ async function initSyncUI(){
     SYNC_MODE = true;
     _lastDataVersion = SYNC_STATUS.data_version;
     renderSyncBadge();
+    bindOnlineFirstSync();
     setInterval(async ()=>{ try{
       SYNC_STATUS=await fetchSyncStatus(); renderSyncBadge();
       maybeRefreshAfterSync();
-    }catch(e){} }, 20000);
+      // Online-First: اگر قبلاً آفلاین بودیم و الان آنلاین شدیم، فوری همگام کن
+      if(SYNC_STATUS && SYNC_STATUS.online && window._syncWasOffline){
+        window._syncWasOffline=false;
+        bgSyncSilent();
+      }
+      if(SYNC_STATUS && !SYNC_STATUS.online) window._syncWasOffline=true;
+    }catch(e){} }, 10000);
     if(SYNC_STATUS.pairing_broken && isAdmin()) openSyncPairModal({repair:true});
     else if(!SYNC_STATUS.paired && isAdmin()) openSyncPairModal();
     else if(SYNC_STATUS.paired && SYNC_STATUS.initial_sync_running) openSyncPairProgressModal();
     else if(SYNC_STATUS.paired && SYNC_STATUS.files_missing>0) pullProductImages(true);
   }catch(e){ /* central server — no sync UI */ }
+}
+
+/** Online-First: بمحض وصل اینترنت / برگشت به تب، همگام خودکار */
+function bindOnlineFirstSync(){
+  if(window._onlineFirstBound) return;
+  window._onlineFirstBound = true;
+  window.addEventListener('online', ()=>{
+    window._syncWasOffline = false;
+    try{ showToast('اینترنت وصل شد — همگام‌سازی خودکار…'); }catch(_){}
+    bgSyncSilent();
+    setTimeout(bgSyncSilent, 2500);
+  });
+  window.addEventListener('offline', ()=>{
+    window._syncWasOffline = true;
+    if(SYNC_STATUS){ SYNC_STATUS.online=false; SYNC_STATUS.connection_mode='offline'; }
+    try{ renderSyncBadge(); }catch(_){}
+  });
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='visible' && SYNC_MODE) bgSyncSilent();
+  });
 }
 
 async function pullProductImages(silent){
@@ -12434,9 +12462,13 @@ async function renderSyncDevicesTab(body){
   let devices=[], sessions=[];
   try{ devices=await api('GET','/sync/devices')||[]; }catch(e){ devices=[]; }
   try{ sessions=await api('GET','/auth/device-sessions')||[]; }catch(e){ sessions=[]; }
+  const slotFa={mobile:'موبایل',desktop:'دسکتاپ',web:'وب'};
+  const kindFa={android:'اندروید',desktop:'ویندوز',web:'مرورگر',ios:'iOS'};
   body.innerHTML=`
     <div class="panel" style="margin-bottom:16px"><div class="panel-head"><h4>دستگاه‌های همگام‌سازی (موبایل/ویندوز)</h4></div>
-    <div class="panel-body"><div class="tbl-wrap"><table class="tbl"><thead><tr>
+    <div class="panel-body">
+    <p class="muted" style="font-size:12px;margin-bottom:10px;line-height:1.8">هر اپ که با pairing به سرور وصل شده اینجا دیده می‌شود. «قطع دسترسی» همگام‌سازی آن دستگاه را متوقف می‌کند.</p>
+    <div class="tbl-wrap tbl-scroll"><table class="tbl"><thead><tr>
       <th>شناسه</th><th>نام</th><th>وضعیت</th><th>آخرین Push</th><th>آخرین Pull</th><th>ثبت</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${(devices||[]).map(d=>`<tr>
       <td class="mono">${d.id}</td><td>${esc(d.name||'-')}</td>
@@ -12446,26 +12478,28 @@ async function renderSyncDevicesTab(body){
       <td class="mono muted">${d.created_at?new Date(d.created_at*1000).toLocaleString('fa-IR'):'-'}</td>
       <td>${d.active?`<button class="btn sm red" onclick="revokeSyncDevice(${d.id})">قطع دسترسی</button>`:'—'}</td>
     </tr>`).join('')||emptyRow(7)}</tbody></table></div></div></div>
-    <div class="panel"><div class="panel-head"><h4>نشست‌های ورود کاربر (Single-Device)</h4></div>
-    <div class="panel-body"><div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>کاربر</th><th>دستگاه</th><th>نوع</th><th>آخرین فعالیت</th><th class="no-sort">عملیات</th>
+    <div class="panel"><div class="panel-head"><h4>نشست‌های ورود کاربر (۱ موبایل + ۱ دسکتاپ + ۱ وب)</h4></div>
+    <div class="panel-body">
+    <div class="tbl-wrap tbl-scroll"><table class="tbl"><thead><tr>
+      <th>کاربر</th><th>اسلات</th><th>دستگاه</th><th>نوع</th><th>آخرین فعالیت</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${(sessions||[]).map(s=>`<tr>
       <td>${esc(s.user_name||s.username||s.user_id)}</td>
+      <td><span class="tag">${esc(slotFa[s.device_slot]||s.device_slot||'-')}</span></td>
       <td>${esc(s.device_name||s.device_fingerprint||'-')}</td>
-      <td>${esc(s.device_kind||'-')}</td>
+      <td>${esc(kindFa[s.device_kind]||s.device_kind||'-')}</td>
       <td class="mono muted">${s.last_seen?new Date(s.last_seen*1000).toLocaleString('fa-IR'):'-'}</td>
-      <td><button class="btn sm red" onclick="revokeUserSession(${s.user_id})">قطع نشست</button></td>
-    </tr>`).join('')||emptyRow(5)}</tbody></table></div>
-    <p class="muted" style="font-size:12px;margin-top:8px">هر کاربر فقط روی یک دستگاه می‌تواند همزمان وارد باشد. ورود روی دستگاه جدید، دستگاه قبلی را قطع می‌کند (یا مدیر از اینجا قطع می‌کند).</p>
+      <td><button class="btn sm red" onclick="revokeUserSession(${s.id||s.user_id})">قطع نشست</button></td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>
+    <p class="muted" style="font-size:12px;margin-top:8px;line-height:1.85">هر کاربر می‌تواند همزمان روی <b>یک موبایل</b> و <b>یک دسکتاپ</b> (و وب) وارد باشد. ورود دوم روی همان نوع دستگاه، نشست قبلی را قطع می‌کند یا مدیر از اینجا قطع می‌کند. اپ‌ها Online-First هستند.</p>
     </div></div>`;
 }
 async function revokeSyncDevice(id){
   if(!confirm('دسترسی این دستگاه همگام‌سازی قطع شود؟')) return;
   try{ await api('POST','/sync/devices/'+id+'/deactivate'); showToast('قطع شد'); loadAccTab('sync-devices'); }catch(e){}
 }
-async function revokeUserSession(userId){
-  if(!confirm('نشست ورود این کاربر قطع شود؟')) return;
-  try{ await api('DELETE','/auth/device-sessions/'+userId); showToast('نشست قطع شد'); loadAccTab('sync-devices'); }catch(e){}
+async function revokeUserSession(sessionId){
+  if(!confirm('این نشست ورود قطع شود؟')) return;
+  try{ await api('DELETE','/auth/device-sessions/'+sessionId); showToast('نشست قطع شد'); loadAccTab('sync-devices'); }catch(e){}
 }
 
 /* ============================================================
@@ -15768,7 +15802,14 @@ ROUTES.settings = async function(){
         نوار وظایف در لبه چپ است و فقط وقتی موس روی آن می‌رود ظاهر می‌شود.
       </div>
       ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'شبیه ویندوز — هر زیرمنو در پنجره مستقل؛ نوار وظایف در لبه چپ و با هاور موس ظاهر می‌شود')}
-    </div></div>`;
+    </div></div>
+    ${isAdmin()?`<div class="panel"><div class="panel-head"><h4>📱 دستگاه‌های متصل و ورود</h4></div><div class="panel-body">
+      <p class="muted" style="font-size:12px;line-height:1.85;margin-bottom:12px">
+        اپ موبایل و ویندوز Online-First هستند: با اینترنت مستقیم همگام می‌شوند و فقط هنگام قطعی آفلاین کار می‌کنند.
+        هر کاربر حداکثر <b>یک موبایل + یک دسکتاپ</b> همزمان. از اینجا دستگاه‌های همگام و نشست‌های ورود را ببینید و قطع کنید.
+      </p>
+      <button class="btn" onclick="enterAccountingShell().then(()=>go('acc-devices'))">📱 مدیریت دستگاه‌ها</button>
+    </div></div>`:''}`;
 
   const messagingPanel = `
     <div class="panel"><div class="panel-head"><h4>${lucide('radio')} تلگرام</h4></div><div class="panel-body"><div class="form-grid">
@@ -16648,7 +16689,7 @@ function renderAdminGuide(){
       <p>منوی کناری این ماژول <b>آکاردئونی و ماژول‌محور (مدل A)</b> است: هر ماژول (انبار، بانک، کالا، حسابداری، …) سرگروه است و زیر آن سه بخش <b>اطلاعات پایه / عملیات / گزارشات</b> قرار دارد. سرفصل‌ها با کلیک باز/بسته می‌شوند.</p>
       <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا، پرداخت انگیزه، <b>مانده/موجودی اول دوره</b> (اشخاص، چک، بانک) و ورود اکسل، سند حسابداری دوطرفه خودکار ثبت می‌شود. در فهرست اسناد برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> نمایش داده می‌شود.</p>
       <p><b>جداول:</b> در انتهای اکثر لیست‌ها جمع ستون‌های عددی، میانگین قیمت‌ها، و برای بدهکار/بستانکار تفاضل رنگی نمایش داده می‌شود. انتخاب چندتایی + عملیات گروهی (حذف/ابطال) در جداول دارای چک‌باکس فعال است.</p>
-      <p><b>دستگاه‌ها و ورود:</b> از امکانات → مدیریت دستگاه‌ها، دستگاه‌های موبایل/ویندوز همگام‌سازی و نشست‌های ورود (Single-Device) را ببینید و قطع کنید. هر کاربر فقط روی یک دستگاه همزمان وارد می‌شود. اپ‌ها Online-First هستند؛ قطع اینترنت → آفلاین محلی + همگام خودکار هنگام وصل.</p>
+      <p><b>دستگاه‌ها و ورود:</b> از تنظیمات سیستم یا امکانات → مدیریت دستگاه‌ها، دستگاه‌های موبایل/ویندوز همگام‌سازی و نشست‌های ورود را ببینید و قطع کنید. هر کاربر همزمان حداکثر <b>یک موبایل + یک دسکتاپ (+ وب)</b>. اپ‌ها Online-First هستند؛ قطع اینترنت → آفلاین محلی + همگام خودکار هنگام وصل.</p>
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>

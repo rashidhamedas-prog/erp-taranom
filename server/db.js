@@ -1556,17 +1556,64 @@ function initSyncSchema(db) {
   ensureColumn(db, 'cash_boxes', 'coa_code', 'TEXT');
 
   // Single-device login sessions (central-only; not in SYNCABLE_TABLES)
+  // Slots: mobile | desktop | web — یک نشست فعال به ازای هر اسلات (۱ موبایل + ۱ دسکتاپ + ۱ وب)
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_device_sessions (
-      user_id INTEGER PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      device_slot TEXT NOT NULL,
       device_fingerprint TEXT NOT NULL,
       device_name TEXT,
       device_kind TEXT,
       last_seen INTEGER DEFAULT (strftime('%s','now')),
       created_at INTEGER DEFAULT (strftime('%s','now')),
+      UNIQUE(user_id, device_slot),
       FOREIGN KEY(user_id) REFERENCES users(id)
     );
   `);
+  // Migrate legacy PK(user_id)-only table → slotted model
+  try {
+    const udsCols = db.prepare('PRAGMA table_info(user_device_sessions)').all();
+    const hasSlot = udsCols.some(c => c.name === 'device_slot');
+    const pkIsUserId = udsCols.some(c => c.name === 'user_id' && c.pk === 1);
+    if (udsCols.length && (!hasSlot || pkIsUserId)) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS user_device_sessions_v2 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          device_slot TEXT NOT NULL,
+          device_fingerprint TEXT NOT NULL,
+          device_name TEXT,
+          device_kind TEXT,
+          last_seen INTEGER DEFAULT (strftime('%s','now')),
+          created_at INTEGER DEFAULT (strftime('%s','now')),
+          UNIQUE(user_id, device_slot),
+          FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+      `);
+      const oldRows = db.prepare('SELECT * FROM user_device_sessions').all();
+      const ins = db.prepare(`INSERT OR REPLACE INTO user_device_sessions_v2
+        (user_id, device_slot, device_fingerprint, device_name, device_kind, last_seen, created_at)
+        VALUES (?,?,?,?,?,?,?)`);
+      for (const r of oldRows) {
+        const kind = String(r.device_kind || r.device_slot || 'web');
+        let slot = 'web';
+        if (/android|ios|mobile/i.test(kind)) slot = 'mobile';
+        else if (/desktop|windows|electron|win/i.test(kind)) slot = 'desktop';
+        else if (r.device_slot === 'mobile' || r.device_slot === 'desktop' || r.device_slot === 'web') slot = r.device_slot;
+        ins.run(r.user_id, slot, r.device_fingerprint, r.device_name || kind, r.device_kind || kind, r.last_seen || null, r.created_at || null);
+      }
+      db.exec('DROP TABLE user_device_sessions');
+      db.exec('ALTER TABLE user_device_sessions_v2 RENAME TO user_device_sessions');
+    }
+  } catch (e) {
+    console.warn('user_device_sessions migrate:', e.message);
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_user_device_sessions_user ON user_device_sessions(user_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_outbox_pending ON sync_outbox(status, id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sync_devices_active ON sync_devices(active)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_customers_biz ON customers(biz)');
   ensureColumn(db, 'persons',    'coa_code', 'TEXT');
   ensureColumn(db, 'products',   'needs_qty', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'journal_entries', 'src_system', 'TEXT');

@@ -388,7 +388,7 @@ async function syncNow() {
 }
 
 async function pushPending(db, cfg) {
-  const ops = db.prepare("SELECT * FROM sync_outbox WHERE status='pending' ORDER BY id LIMIT 200").all();
+  const ops = db.prepare("SELECT * FROM sync_outbox WHERE status='pending' ORDER BY id LIMIT 400").all();
   if (!ops.length) return { pushed: 0, confirmed: 0 };
 
   const payload = ops.map(o => ({
@@ -701,8 +701,8 @@ function startClientLoop(intervalMs) {
   }
   const tick = () => { syncNow().catch(e => console.error('sync loop:', e.message)); };
   setTimeout(tick, 2000);
-  // Online-First: tighter loop (15s) so reconnect + pending outbox flush quickly
-  loopTimer = setInterval(tick, Math.min(intervalMs || 15000, 15000));
+  // Online-First: tighter loop (10s) so reconnect + pending outbox flush quickly
+  loopTimer = setInterval(tick, Math.min(intervalMs || 10000, 10000));
   return loopTimer;
 }
 

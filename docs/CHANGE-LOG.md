@@ -32,11 +32,18 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `cf79a43` dash bal debit/credit + sticky thead |
-| نسخه وب/دسکتاپ | وب **`2.1.9`** / دسکتاپ **`2.0.8`** / SW `erp-taranom-v109` |
+| آخرین commit | (pending) online-first + device slots + sync perf |
+| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.8`** / SW `erp-taranom-v110` |
 | اندروید | **`2.0.30`** (vc32) |
-| وضعیت سرور | ✅ |
+| وضعیت سرور | ⏳ |
 | سرور production | تنها ایران `94.249.244.208` |
+
+### 2026-07-26 — Online-First + اسلات ۱ موبایل/۱ دسکتاپ + بهینه‌سازی سینک
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** نشست ورود per-slot (`mobile`/`desktop`/`web`)؛ همزمان ۱ موبایل + ۱ دسکتاپ مجاز. Online-First: رویداد online/offline/visibility + poll 10s + flush outbox 400. پنل مدیریت دستگاه‌ها + لینک در تنظیمات سیستم. ایندکس‌های outbox/products/customers/sync_devices. SW `v110`.
+- **فایل‌های کلیدی:** `server/routes/auth.js`, `server/db.js`, `server/sync/client.js`, `server/public/index.html`, `sw.js`
+- **Deploy:** ⏳
 
 ### 2026-07-26 — داشبورد مدیریت: جمع بدهکار/بستانکار جدا + فریز سرتیتر
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
