@@ -95,6 +95,8 @@ const PATH_TABLE_MAP = [
   ['/api/inventory/landed-cost', 'landed_cost_docs'],
   ['/api/inventory/ledger', 'inventory_ledger'],
   ['/api/inventory/adjust', 'inventory_ledger'],
+  ['/api/payroll/employee-groups', 'employee_groups'],
+  ['/api/payroll/group-salary-structures', 'group_salary_structures'],
   ['/api/payroll', 'payroll_records'],
   ['/api/reminders', 'reminders'],
   ['/api/orders', 'orders'],

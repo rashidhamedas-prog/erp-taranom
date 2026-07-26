@@ -129,11 +129,11 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
 // Overview stats for accounting dashboard
 router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const totalInvoiced = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final'").get().s;
+  const totalInvoiced = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND COALESCE(deleted_at,0)=0").get().s;
   const totalSettled = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE COALESCE(status,'posted')<>'reversed'").get().s;
-  const pendingApproval = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=0").get().c;
+  const pendingApproval = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=0 AND COALESCE(deleted_at,0)=0").get().c;
   const pendingSettlements = db.prepare("SELECT COUNT(*) c FROM rep_payment_submissions WHERE status='pending'").get().c;
-  const approvedCount = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=1").get().c;
+  const approvedCount = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=1 AND COALESCE(deleted_at,0)=0").get().c;
   const tb = db.prepare(`
     SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) d, COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) c
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
@@ -216,7 +216,7 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
     FROM customers c
     LEFT JOIN (
       SELECT i.cust_id, SUM(i.final) as total_invoiced
-      FROM invoices i WHERE i.type='final'${invTo}${invFrom}
+      FROM invoices i WHERE i.type='final' AND COALESCE(i.deleted_at,0)=0${invTo}${invFrom}
       GROUP BY i.cust_id
     ) inv ON inv.cust_id=c.id
     LEFT JOIN (
@@ -265,7 +265,7 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
       WHERE invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed'${settDate}
       GROUP BY invoice_id
     ) sp ON sp.invoice_id=i.id
-    WHERE i.type='final'${invTo}${invFrom}
+    WHERE i.type='final' AND COALESCE(i.deleted_at,0)=0${invTo}${invFrom}
     ORDER BY i.date DESC, i.id DESC
     LIMIT 500
   `).all(...settParams, ...params);

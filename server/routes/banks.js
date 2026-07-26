@@ -43,6 +43,26 @@ router.get('/', auth, (req, res) => {
   res.json(db.prepare('SELECT * FROM banks ORDER BY name').all());
 });
 
+// Live ledger balances for all banks (opening JE + subsequent movements).
+router.get('/balances', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
+  const rows = db.prepare(`
+    SELECT b.*,
+      COALESCE((
+        SELECT SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL})
+        FROM journal_lines jl
+        JOIN journal_entries je ON je.id = jl.entry_id
+        WHERE jl.account_code = COALESCE(NULLIF(b.coa_code,''), '1102-' || b.id)
+          AND COALESCE(je.deleted_at,0)=0
+          AND COALESCE(je.status,'posted') NOT IN ('reversed','void','cancelled')
+      ), 0) as balance
+    FROM banks b
+    ORDER BY b.name
+  `).all();
+  res.json(rows);
+});
+
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const {
     name, account_number, branch, account_type, phone, card_number, card_expiry, sheba, note,

@@ -176,6 +176,10 @@ const SYNCABLE_TABLES = [
 
   // ===== SMS auto rules 1405/05/04 — APPEND-ONLY =====
   { name: 'sms_rules',                         upsertKey: 'id' },
+
+  // ===== Employee groups / payroll 1405/05/04 — APPEND-ONLY =====
+  { name: 'employee_groups',                   upsertKey: 'id' },
+  { name: 'group_salary_structures',           upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -318,6 +322,9 @@ const FK_COLUMNS = [
   ['sms_rules', 'template_id'],
   ['sms_rules', 'party_group_id'],
   ['sms_rules', 'user_id'],
+  // Employee groups / payroll 1405/05/04 (append-only)
+  ['persons', 'employee_group_id'],
+  ['group_salary_structures', 'employee_group_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

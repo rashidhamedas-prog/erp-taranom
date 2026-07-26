@@ -222,6 +222,15 @@ function seedStandardSubgroups(db) {
     insPg.run(g.code, g.name, g.entity_type, '');
     updPg.run(g.entity_type, '', g.name);
   }
+  // گروه پرسنل: برای اتصال پرونده کارکنان به اشخاص
+  const staffGroup = db.prepare("SELECT id FROM party_groups WHERE name='پرسنل'").get();
+  if (!staffGroup) {
+    const nextCode = db.prepare('SELECT COALESCE(MAX(code),0)+1 AS c FROM party_groups').get().c;
+    try {
+      db.prepare('INSERT INTO party_groups (code,name,entity_type,description) VALUES (?,?,?,?)')
+        .run(nextCode, 'پرسنل', 'person', 'اشخاص این گروه در پرونده کارکنان حقوق ظاهر می‌شوند');
+    } catch (_) { /* name unique race */ }
+  }
 
   // گروه‌های کالا دیگر seed نمی‌شوند — فقط تعریف دستی کاربر.
   // (قبلاً MAHAK_PRODUCT_GROUPS هر boot دوباره INSERT می‌شد و حذف کاربر را خنثی می‌کرد.)

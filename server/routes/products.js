@@ -142,8 +142,12 @@ router.get('/', auth, (req, res) => {
 
   const search = (req.query.search || '').trim();
   if (search) {
-    where.push('(p.name LIKE ? OR p.code LIKE ? OR p.barcode LIKE ?)');
-    params.push('%' + search + '%', '%' + search + '%', '%' + search + '%');
+    const { sqlTokenSearch } = require('../lib/search-normalize');
+    const tok = sqlTokenSearch(['p.name', 'p.code', 'p.barcode'], search);
+    if (tok) {
+      where.push(tok.clause);
+      params.push(...tok.params);
+    }
   }
 
   const stockStatus = (req.query.stock_status || 'all').trim();

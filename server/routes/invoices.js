@@ -363,7 +363,7 @@ router.get('/:id', auth, (req, res) => {
 router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info,
     bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
-    moadian_invoice_type } = req.body;
+    moadian_invoice_type, expert_user_id } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
   let built;
@@ -381,15 +381,29 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   netBeforeVat += freightRial;
   const entryDate = date || todayJalali();
   const pType = pay_type || 'cash';
-  const seller = db.prepare('SELECT name,phone,sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
+
+  // کارشناس فاکتور: مدیر/حسابدار می‌تواند تعیین کند؛ در غیر این صورت مشتری→کاربر جاری
+  let ownerUserId = req.user.id;
+  const canAssignExpert = req.user.role === 'admin' || req.user.role === 'accounting';
+  if (canAssignExpert && expert_user_id) {
+    const eu = db.prepare('SELECT id FROM users WHERE id=? AND active=1').get(parseInt(expert_user_id, 10));
+    if (!eu) return res.status(400).json({ error: 'کارشناس انتخاب‌شده معتبر نیست' });
+    ownerUserId = eu.id;
+  } else if (canAssignExpert && !expert_user_id) {
+    const custOwner = db.prepare('SELECT user_id FROM customers WHERE id=?').get(cust_id);
+    if (custOwner?.user_id) ownerUserId = custOwner.user_id;
+  }
+
+  const seller = db.prepare('SELECT name,phone,sales_warehouse_id FROM users WHERE id=?').get(ownerUserId);
   const isSalesRep = req.user.role === 'field_sales' || req.user.role === 'inside_sales';
   let whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
   // فروشنده: فقط انبار تعریف‌شده در کاربر — انتخاب انبار در اقلام مجاز نیست
   if (isSalesRep) {
-    if (!seller?.sales_warehouse_id) {
+    const selfSeller = db.prepare('SELECT sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
+    if (!selfSeller?.sales_warehouse_id) {
       return res.status(400).json({ error: 'انبار فروش برای این کاربر تعریف نشده — از مدیر بخواهید در تعریف کاربر انبار فروش را تنظیم کند' });
     }
-    whId = seller.sales_warehouse_id;
+    whId = selfSeller.sales_warehouse_id;
     for (const r of built.rows) {
       if (r.row_type !== 'income') r.warehouse_id = whId;
     }
@@ -422,7 +436,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
           seller_name,seller_phone,pay_type,cheque_duration,cheque_due_date,cheque_info,stock_deducted,sales_channel,lead_source,campaign,
           bank_id,cash_box_id,check_category_id,warehouse_id,freight_amount,freight_type,freight_alloc_method,vat_exempt,cost_center_id,moadian_invoice_type)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-      ).run(req.user.id, cust_id, num, invType, entryDate, note || '',
+      ).run(ownerUserId, cust_id, num, invType, entryDate, note || '',
             JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate,
             Math.round(subtotal), Math.round(final), Math.round(vatAmount),
             seller ? seller.name : '', seller ? (seller.phone || '') : '',
@@ -465,7 +479,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
           db.prepare(
             'INSERT INTO followups (user_id,cust_id,date,type,subject,note,next_date,status,priority) VALUES (?,?,?,?,?,?,?,?,?)'
           ).run(
-            req.user.id, cust_id, invoiceDate,
+            ownerUserId, cust_id, invoiceDate,
             '🧾 پیگیری فاکتور',
             'بررسی رضایت از کیفیت کالا',
             `پیگیری پس از فاکتور ${num}\nمحصولات: ${productList}`,
@@ -499,7 +513,7 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info, sales_channel, lead_source, campaign,
     bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
-    moadian_invoice_type } = req.body;
+    moadian_invoice_type, expert_user_id } = req.body;
   if (row.type === 'final') {
     return res.status(409).json({ error: 'فاکتور رسمی ثبت حسابداری شده است؛ برای اصلاح، آن را ابطال و فاکتور جدید ثبت کنید' });
   }
@@ -558,6 +572,13 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
              stockDeducted, resolveSalesChannel(req), lead_source || '', campaign || '',
              bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
              allocMethod, vat_exempt ? 1 : 0, ccId, moadianType, req.params.id);
+      if ((req.user.role === 'admin' || req.user.role === 'accounting') && expert_user_id) {
+        const eu = db.prepare('SELECT id,name,phone FROM users WHERE id=? AND active=1').get(parseInt(expert_user_id, 10));
+        if (eu) {
+          db.prepare('UPDATE invoices SET user_id=?, seller_name=?, seller_phone=? WHERE id=?')
+            .run(eu.id, eu.name || '', eu.phone || '', req.params.id);
+        }
+      }
     })();
   } catch (e) {
     return res.status(400).json({ error: e.message });

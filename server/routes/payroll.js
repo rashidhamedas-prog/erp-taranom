@@ -223,16 +223,34 @@ router.post('/farankenou/commit', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true, created: created.length, records: created, errors });
 });
 
+function ensurePersonnelPartyGroup(db) {
+  let g = db.prepare("SELECT id FROM party_groups WHERE name='پرسنل'").get();
+  if (!g) {
+    const nextCode = db.prepare('SELECT COALESCE(MAX(code),0)+1 AS c FROM party_groups').get().c;
+    g = { id: db.prepare('INSERT INTO party_groups (code,name,entity_type,description) VALUES (?,?,?,?)')
+      .run(nextCode, 'پرسنل', 'person', 'اشخاص این گروه در پرونده کارکنان ظاهر می‌شوند').lastInsertRowid };
+  }
+  return g.id;
+}
+
 router.get('/employees', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  ensurePersonnelPartyGroup(db);
   res.json(db.prepare(`
-    SELECT id, name, personnel_code, employee_no, first_name, last_name, national_id,
-           insurance_id, tax_id, employment_type, hire_date, termination_date,
-           tax_exemption_type, insurance_type, department, bank_iban, active
-    FROM persons
-    WHERE NULLIF(TRIM(personnel_code),'') IS NOT NULL
-       OR NULLIF(TRIM(employee_no),'') IS NOT NULL
-    ORDER BY active DESC, name
+    SELECT p.id, p.name, p.personnel_code, p.employee_no, p.first_name, p.last_name, p.national_id,
+           p.insurance_id, p.tax_id, p.employment_type, p.hire_date, p.termination_date,
+           p.tax_exemption_type, p.insurance_type, p.department, p.bank_iban, p.active,
+           p.party_group_id, p.employee_group_id, p.monthly_salary_rial,
+           pg.name AS party_group_name, eg.name AS employee_group_name,
+           CASE WHEN NULLIF(TRIM(p.personnel_code),'') IS NULL THEN 1 ELSE 0 END AS needs_profile
+    FROM persons p
+    LEFT JOIN party_groups pg ON pg.id=p.party_group_id
+    LEFT JOIN employee_groups eg ON eg.id=p.employee_group_id
+    WHERE NULLIF(TRIM(p.personnel_code),'') IS NOT NULL
+       OR NULLIF(TRIM(p.employee_no),'') IS NOT NULL
+       OR p.employee_group_id IS NOT NULL
+       OR (pg.name IS NOT NULL AND pg.name LIKE '%پرسنل%')
+    ORDER BY p.active DESC, p.name
   `).all());
 });
 
@@ -243,23 +261,28 @@ router.post('/employees', auth, adminOrAccounting, (req, res) => {
     const personnelCode = String(b.personnel_code || '').trim();
     const firstName = String(b.first_name || '').trim();
     const lastName = String(b.last_name || '').trim();
-    const name = `${firstName} ${lastName}`.trim();
-    if (!personnelCode || !name) throw new Error('کد پرسنلی، نام و نام خانوادگی الزامی است');
+    const name = `${firstName} ${lastName}`.trim() || String(b.name || '').trim();
+    if (!name) throw new Error('نام کارمند الزامی است');
     if (b.national_id && !/^\d{10}$/.test(String(b.national_id))) throw new Error('کد ملی باید ۱۰ رقم باشد');
-    const exists = db.prepare('SELECT id FROM persons WHERE personnel_code=? OR employee_no=?').get(personnelCode, personnelCode);
-    if (exists) throw new Error('کد پرسنلی تکراری است');
+    if (personnelCode) {
+      const exists = db.prepare('SELECT id FROM persons WHERE personnel_code=? OR employee_no=?').get(personnelCode, personnelCode);
+      if (exists) throw new Error('کد پرسنلی تکراری است');
+    }
+    const staffGid = ensurePersonnelPartyGroup(db);
     const id = db.prepare(`
       INSERT INTO persons
         (name,personnel_code,employee_no,first_name,last_name,national_id,insurance_id,tax_id,
          employment_type,salary_type,hire_date,termination_date,tax_exemption_type,insurance_type,
-         department,bank_iban,active)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+         department,bank_iban,party_group_id,employee_group_id,monthly_salary_rial,active)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
     `).run(
-      name, personnelCode, personnelCode, firstName, lastName, b.national_id || '',
+      name, personnelCode || null, personnelCode || null, firstName, lastName, b.national_id || '',
       b.insurance_id || '', b.tax_id || '', b.employment_type || 'monthly',
       b.employment_type || 'monthly', b.hire_date || '', b.termination_date || null,
       b.tax_exemption_type || 'none', b.insurance_type || 'sso',
-      b.department || '', b.bank_iban || ''
+      b.department || '', b.bank_iban || '', staffGid,
+      b.employee_group_id ? Number(b.employee_group_id) : null,
+      Math.max(0, Math.round(Number(b.monthly_salary_rial) || 0))
     ).lastInsertRowid;
     audit(req.user.id, 'create', 'employee', id, `ایجاد کارمند ${name}`);
     res.json({ ok: true, id });
@@ -277,24 +300,224 @@ router.put('/employees/:id', auth, adminOrAccounting, (req, res) => {
     const firstName = String(b.first_name ?? current.first_name ?? '').trim();
     const lastName = String(b.last_name ?? current.last_name ?? '').trim();
     const personnelCode = String(b.personnel_code ?? current.personnel_code ?? '').trim();
-    if (!personnelCode || !`${firstName} ${lastName}`.trim()) throw new Error('اطلاعات هویتی ناقص است');
+    const name = `${firstName} ${lastName}`.trim() || current.name;
     if (b.national_id && !/^\d{10}$/.test(String(b.national_id))) throw new Error('کد ملی باید ۱۰ رقم باشد');
+    if (personnelCode) {
+      const dup = db.prepare('SELECT id FROM persons WHERE (personnel_code=? OR employee_no=?) AND id<>?')
+        .get(personnelCode, personnelCode, req.params.id);
+      if (dup) throw new Error('کد پرسنلی تکراری است');
+    }
+    const staffGid = current.party_group_id || ensurePersonnelPartyGroup(db);
     db.prepare(`
       UPDATE persons SET name=?,personnel_code=?,employee_no=?,first_name=?,last_name=?,
         national_id=?,insurance_id=?,tax_id=?,employment_type=?,salary_type=?,hire_date=?,
-        termination_date=?,tax_exemption_type=?,insurance_type=?,department=?,bank_iban=?,active=?
+        termination_date=?,tax_exemption_type=?,insurance_type=?,department=?,bank_iban=?,
+        party_group_id=?,employee_group_id=?,monthly_salary_rial=?,active=?
       WHERE id=?
     `).run(
-      `${firstName} ${lastName}`.trim(), personnelCode, personnelCode, firstName, lastName,
+      name, personnelCode || null, personnelCode || null, firstName, lastName,
       b.national_id ?? current.national_id ?? '', b.insurance_id ?? current.insurance_id ?? '',
       b.tax_id ?? current.tax_id ?? '', b.employment_type ?? current.employment_type ?? 'monthly',
       b.employment_type ?? current.employment_type ?? 'monthly', b.hire_date ?? current.hire_date ?? '',
       b.termination_date ?? current.termination_date, b.tax_exemption_type ?? current.tax_exemption_type ?? 'none',
       b.insurance_type ?? current.insurance_type ?? 'sso', b.department ?? current.department ?? '',
-      b.bank_iban ?? current.bank_iban ?? '', b.active == null ? current.active : (b.active ? 1 : 0),
+      b.bank_iban ?? current.bank_iban ?? '', staffGid,
+      b.employee_group_id != null ? (b.employee_group_id ? Number(b.employee_group_id) : null) : current.employee_group_id,
+      b.monthly_salary_rial != null ? Math.max(0, Math.round(Number(b.monthly_salary_rial) || 0)) : (current.monthly_salary_rial || 0),
+      b.active == null ? current.active : (b.active ? 1 : 0),
       req.params.id
     );
-    audit(req.user.id, 'update', 'employee', req.params.id, `ویرایش کارمند ${personnelCode}`);
+    audit(req.user.id, 'update', 'employee', req.params.id, `ویرایش کارمند ${personnelCode || name}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete('/employees/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const row = db.prepare('SELECT * FROM persons WHERE id=?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'کارمند یافت نشد' });
+    const used = db.prepare("SELECT COUNT(*) c FROM payroll_records WHERE person_id=? AND status<>'reversed'").get(req.params.id).c;
+    if (used > 0) {
+      db.prepare('UPDATE persons SET active=0 WHERE id=?').run(req.params.id);
+      audit(req.user.id, 'deactivate', 'employee', req.params.id, `غیرفعال‌سازی کارمند ${row.name}`);
+      return res.json({ ok: true, deactivated: true });
+    }
+    db.prepare('UPDATE persons SET personnel_code=NULL, employee_no=NULL, employee_group_id=NULL, active=0 WHERE id=?').run(req.params.id);
+    audit(req.user.id, 'delete', 'employee', req.params.id, `حذف از لیست کارکنان ${row.name}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/employee-groups', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  res.json(db.prepare(`
+    SELECT g.*, (SELECT COUNT(*) FROM persons p WHERE p.employee_group_id=g.id AND p.active=1) AS member_count
+    FROM employee_groups g ORDER BY g.active DESC, g.name
+  `).all());
+});
+
+router.post('/employee-groups', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const name = String(req.body?.name || '').trim();
+    if (!name) throw new Error('نام گروه الزامی است');
+    const id = db.prepare('INSERT INTO employee_groups (name,description,active) VALUES (?,?,1)')
+      .run(name, req.body?.description || '').lastInsertRowid;
+    audit(req.user.id, 'create', 'employee_group', id, `گروه کارکنان ${name}`);
+    res.json({ ok: true, id });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.put('/employee-groups/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const row = db.prepare('SELECT * FROM employee_groups WHERE id=?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'گروه یافت نشد' });
+    const name = String(req.body?.name ?? row.name).trim();
+    if (!name) throw new Error('نام گروه الزامی است');
+    db.prepare('UPDATE employee_groups SET name=?,description=?,active=? WHERE id=?').run(
+      name, req.body?.description ?? row.description ?? '',
+      req.body?.active == null ? row.active : (req.body.active ? 1 : 0), req.params.id
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete('/employee-groups/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const members = db.prepare('SELECT COUNT(*) c FROM persons WHERE employee_group_id=?').get(req.params.id).c;
+    if (members) throw new Error('گروه عضو دارد — ابتدا اعضا را جابه‌جا کنید');
+    db.prepare('DELETE FROM group_salary_structures WHERE employee_group_id=?').run(req.params.id);
+    db.prepare('DELETE FROM employee_groups WHERE id=?').run(req.params.id);
+    audit(req.user.id, 'delete', 'employee_group', req.params.id, 'حذف گروه کارکنان');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/group-salary-structures', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const where = [], params = [];
+  if (req.query.fiscal_year) { where.push('s.fiscal_year=?'); params.push(Number(req.query.fiscal_year)); }
+  if (req.query.employee_group_id) { where.push('s.employee_group_id=?'); params.push(Number(req.query.employee_group_id)); }
+  res.json(db.prepare(`
+    SELECT s.*, g.name AS group_name
+    FROM group_salary_structures s JOIN employee_groups g ON g.id=s.employee_group_id
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY s.fiscal_year DESC, g.name
+  `).all(...params));
+});
+
+router.post('/group-salary-structures', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const b = req.body || {};
+    const gid = Number(b.employee_group_id);
+    if (!db.prepare('SELECT id FROM employee_groups WHERE id=?').get(gid)) throw new Error('گروه کارکنان یافت نشد');
+    const year = Number(b.fiscal_year);
+    if (!Number.isInteger(year)) throw new Error('سال مالی نامعتبر است');
+    const money = key => Math.max(0, Math.round(Number(b[key]) || 0));
+    db.prepare(`
+      INSERT INTO group_salary_structures
+        (employee_group_id,fiscal_year,wage_basis,base_wage_rial,housing_allowance_rial,grocery_allowance_rial,
+         child_allowance_rial,spouse_allowance_rial,other_fixed_allowance_rial,child_count,marital_status,
+         insurance_type,tax_exemption_type,tax_exemption_percent_bp,overtime_factor_bp,
+         night_shift_factor_bp,active,effective_from,effective_to,created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)
+      ON CONFLICT(employee_group_id,fiscal_year) DO UPDATE SET
+        wage_basis=excluded.wage_basis,base_wage_rial=excluded.base_wage_rial,
+        housing_allowance_rial=excluded.housing_allowance_rial,grocery_allowance_rial=excluded.grocery_allowance_rial,
+        child_allowance_rial=excluded.child_allowance_rial,spouse_allowance_rial=excluded.spouse_allowance_rial,
+        other_fixed_allowance_rial=excluded.other_fixed_allowance_rial,child_count=excluded.child_count,
+        marital_status=excluded.marital_status,insurance_type=excluded.insurance_type,
+        tax_exemption_type=excluded.tax_exemption_type,tax_exemption_percent_bp=excluded.tax_exemption_percent_bp,
+        overtime_factor_bp=excluded.overtime_factor_bp,night_shift_factor_bp=excluded.night_shift_factor_bp,
+        active=1,effective_from=excluded.effective_from,effective_to=excluded.effective_to
+    `).run(
+      gid, year, b.wage_basis || 'monthly', money('base_wage_rial'), money('housing_allowance_rial'),
+      money('grocery_allowance_rial'), money('child_allowance_rial'), money('spouse_allowance_rial'),
+      money('other_fixed_allowance_rial'), Math.max(0, Math.round(Number(b.child_count) || 0)),
+      b.marital_status ? 1 : 0, b.insurance_type || 'sso', b.tax_exemption_type || 'none',
+      Math.round((Number(b.tax_exemption_percent) || 0) * 100),
+      Math.round((Number(b.overtime_factor_percent) || 140) * 100),
+      Math.round((Number(b.night_shift_factor_percent) || 115) * 100),
+      b.effective_from || null, b.effective_to || null, req.user.id
+    );
+    audit(req.user.id, 'upsert', 'group_salary_structure', gid, `ساختار حقوق گروه ${year}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete('/group-salary-structures/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    db.prepare('DELETE FROM group_salary_structures WHERE id=?').run(req.params.id);
+    audit(req.user.id, 'delete', 'group_salary_structure', req.params.id, 'حذف ساختار حقوق گروه');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete('/salary-structures/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    db.prepare('UPDATE salary_structures SET active=0 WHERE id=?').run(req.params.id);
+    audit(req.user.id, 'delete', 'salary_structure', req.params.id, 'حذف/غیرفعال ساختار حقوق');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete('/periods/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const period = db.prepare('SELECT * FROM payroll_periods WHERE id=?').get(req.params.id);
+    if (!period) return res.status(404).json({ error: 'دوره یافت نشد' });
+    const used = db.prepare("SELECT COUNT(*) c FROM payroll_records WHERE period_id=? AND status<>'reversed'").get(req.params.id).c;
+    if (used) throw new Error('این دوره دارای رکورد حقوق است و قابل حذف نیست');
+    if (period.status === 'closed') throw new Error('دوره بسته‌شده قابل حذف نیست');
+    db.prepare('DELETE FROM payroll_periods WHERE id=?').run(req.params.id);
+    audit(req.user.id, 'delete', 'payroll_period', req.params.id, `حذف دوره ${period.label}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete('/tax-brackets/:year', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const year = Number(req.params.year);
+    db.prepare('UPDATE payroll_tax_brackets SET active=0 WHERE fiscal_year=?').run(year);
+    audit(req.user.id, 'delete', 'payroll_tax_brackets', year, `حذف پلکان مالیات ${year}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete('/year-end/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const row = db.prepare('SELECT * FROM payroll_year_end_bonuses WHERE id=?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'رکورد یافت نشد' });
+    if (row.status !== 'draft') throw new Error('فقط پیش‌نویس قابل حذف است');
+    db.prepare('DELETE FROM payroll_year_end_bonuses WHERE id=?').run(req.params.id);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -431,25 +654,59 @@ router.put('/tax-brackets/:year', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-function payrollContext(db, periodId, personId) {
+function payrollContext(db, periodId, personId, opts = {}) {
   const period = db.prepare('SELECT * FROM payroll_periods WHERE id=?').get(periodId);
   if (!period) throw new Error('دوره حقوق یافت نشد');
   if (period.status === 'closed') throw new Error('دوره حقوق بسته است');
-  const structure = db.prepare(`
+  const person = db.prepare('SELECT * FROM persons WHERE id=?').get(personId);
+  let structure = db.prepare(`
     SELECT * FROM salary_structures WHERE person_id=? AND fiscal_year=? AND active=1
   `).get(personId, period.fiscal_year);
-  if (!structure) throw new Error('ساختار حقوق کارمند برای این سال ثبت نشده است');
+  if (!structure && person?.employee_group_id) {
+    structure = db.prepare(`
+      SELECT * FROM group_salary_structures WHERE employee_group_id=? AND fiscal_year=? AND active=1
+    `).get(person.employee_group_id, period.fiscal_year);
+  }
+  if (!structure && person?.monthly_salary_rial > 0) {
+    structure = {
+      person_id: personId,
+      fiscal_year: period.fiscal_year,
+      wage_basis: 'monthly',
+      base_wage_rial: person.monthly_salary_rial,
+      housing_allowance_rial: 0, grocery_allowance_rial: 0, child_allowance_rial: 0,
+      spouse_allowance_rial: 0, other_fixed_allowance_rial: 0, child_count: 0, marital_status: 0,
+      insurance_type: person.insurance_type || 'sso',
+      tax_exemption_type: person.tax_exemption_type || 'none',
+      tax_exemption_percent_bp: 0, overtime_factor_bp: 14000, night_shift_factor_bp: 11500, active: 1,
+      _synthetic: true,
+    };
+  }
+  if (opts.manual_base_wage_rial > 0) {
+    structure = {
+      ...(structure || {
+        wage_basis: 'monthly', housing_allowance_rial: 0, grocery_allowance_rial: 0,
+        child_allowance_rial: 0, spouse_allowance_rial: 0, other_fixed_allowance_rial: 0,
+        child_count: 0, marital_status: 0, insurance_type: 'sso', tax_exemption_type: 'none',
+        tax_exemption_percent_bp: 0, overtime_factor_bp: 14000, night_shift_factor_bp: 11500, active: 1,
+      }),
+      base_wage_rial: Math.round(Number(opts.manual_base_wage_rial) || 0),
+      wage_basis: 'monthly',
+    };
+  }
+  if (!structure && !opts.manual_mode) throw new Error('ساختار حقوق کارمند برای این سال ثبت نشده است');
   const brackets = db.prepare(`
     SELECT * FROM payroll_tax_brackets WHERE fiscal_year=? AND active=1 ORDER BY bracket_order
   `).all(period.fiscal_year);
-  if (!brackets.length) throw new Error('پله‌های مالیات حقوق این سال ثبت نشده است');
-  return { period, structure, brackets };
+  if (!brackets.length && !opts.manual_mode) throw new Error('پله‌های مالیات حقوق این سال ثبت نشده است');
+  return { period, structure, brackets, person };
 }
 
 router.post('/calculate', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
-    const context = payrollContext(db, Number(req.body.period_id), Number(req.body.person_id));
+    const context = payrollContext(db, Number(req.body.period_id), Number(req.body.person_id), {
+      manual_base_wage_rial: req.body.manual_base_wage_rial,
+    });
     res.json({ ok: true, calculation: calculatePayroll({ ...context, input: req.body }) });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -467,12 +724,40 @@ router.post('/process', auth, adminOrAccounting, (req, res) => {
       const personId = Number(input.person_id);
       const person = db.prepare('SELECT * FROM persons WHERE id=? AND active=1').get(personId);
       if (!person) throw new Error('کارمند فعال یافت نشد');
-      const context = payrollContext(db, periodId, personId);
+      const context = payrollContext(db, periodId, personId, {
+        manual_mode: !!input.manual_mode,
+        manual_base_wage_rial: input.manual_base_wage_rial,
+      });
       const duplicate = db.prepare(`
         SELECT id FROM payroll_records WHERE person_id=? AND period_id=? AND status<>'reversed'
       `).get(personId, periodId);
       if (duplicate) throw new Error(`حقوق ${person.name} در این دوره قبلاً پردازش شده است`);
-      const calc = calculatePayroll({ ...context, input });
+      let calc;
+      if (input.manual_mode) {
+        const gross = Math.max(0, Math.round(Number(input.gross_earnings_rial) || 0));
+        const ssoEmp = Math.max(0, Math.round(Number(input.sso_employee_rial) || 0));
+        const ssoEr = Math.max(0, Math.round(Number(input.sso_employer_rial) || 0));
+        const tax = Math.max(0, Math.round(Number(input.income_tax_rial) || 0));
+        const otherDed = Math.max(0, Math.round(Number(input.other_deductions_rial) || 0));
+        const net = input.net_pay_rial != null
+          ? Math.max(0, Math.round(Number(input.net_pay_rial) || 0))
+          : Math.max(0, gross - ssoEmp - tax - otherDed);
+        calc = {
+          regular_hours_x100: Math.round((Number(input.regular_hours) || 0) * 100),
+          overtime_hours_x100: Math.round((Number(input.overtime_hours) || 0) * 100),
+          night_shift_hours_x100: 0,
+          working_days_x100: Math.round((Number(input.working_days) || 30) * 100),
+          base_pay_rial: gross, housing_allowance_rial: 0, grocery_allowance_rial: 0,
+          child_allowance_rial: 0, spouse_allowance_rial: 0, hardship_allowance_rial: 0,
+          other_allowance_rial: 0, overtime_pay_rial: 0, night_shift_pay_rial: 0,
+          gross_earnings_rial: gross, insurance_base_rial: gross, taxable_income_rial: Math.max(0, gross - ssoEmp),
+          income_tax_rial: tax, sso_employee_rial: ssoEmp, sso_employer_rial: ssoEr,
+          other_deductions_rial: otherDed, net_pay_rial: net,
+          employer_cost_rial: gross + ssoEr,
+        };
+      } else {
+        calc = calculatePayroll({ ...context, input });
+      }
       const result = db.prepare(`
         INSERT INTO payroll_records
           (person_id,period_id,period_label,regular_hours,overtime_hours,gross_pay,net_pay,
@@ -488,7 +773,7 @@ router.post('/process', auth, adminOrAccounting, (req, res) => {
         personId, periodId, context.period.label, calc.regular_hours_x100 / 100,
         calc.overtime_hours_x100 / 100, calc.gross_earnings_rial / 10, calc.net_pay_rial / 10,
         calc.sso_employee_rial / 10, calc.income_tax_rial / 10,
-        input.date || context.period.end_date, input.note || '', 0, req.user.id,
+        input.date || context.period.end_date, input.note || (input.manual_mode ? 'ثبت دستی' : ''), 0, req.user.id,
         calc.working_days_x100, calc.regular_hours_x100, calc.overtime_hours_x100,
         calc.night_shift_hours_x100, calc.base_pay_rial, calc.housing_allowance_rial,
         calc.grocery_allowance_rial, calc.child_allowance_rial, calc.spouse_allowance_rial,
@@ -511,7 +796,7 @@ router.post('/process', auth, adminOrAccounting, (req, res) => {
       }
       const journalId = postToLedger(db, {
         sourceType: 'payroll', sourceId: recordId, date: input.date || context.period.end_date,
-        description: `حقوق ${person.name} (${context.period.label})`, createdBy: req.user.id,
+        description: `حقوق ${person.name} (${context.period.label})${input.manual_mode ? ' — دستی' : ''}`, createdBy: req.user.id,
         lines, status: 'approved',
       });
       db.prepare('UPDATE payroll_records SET journal_entry_id=? WHERE id=?').run(journalId, recordId);

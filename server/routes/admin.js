@@ -205,9 +205,10 @@ router.get('/stats/overview', auth, adminOnly, (req, res) => {
     ? ` AND date >= '${sf || ''}' AND date <= '${st || '9999'}'`
     : '';
   const totalCustomers = db.prepare('SELECT COUNT(*) c FROM customers').get().c;
-  const totalRevenue = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final'${dateClause}`).get().s;
-  const totalInvoices = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE type='final'${dateClause}`).get().c;
-  const totalProforma = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE type='proforma'${dateClause}`).get().c;
+  const notDeleted = ` AND COALESCE(deleted_at,0)=0`;
+  const totalRevenue = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final'${notDeleted}${dateClause}`).get().s;
+  const totalInvoices = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE type='final'${notDeleted}${dateClause}`).get().c;
+  const totalProforma = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE type='proforma'${notDeleted}${dateClause}`).get().c
   const totalProducts = db.prepare('SELECT COUNT(*) c FROM products').get().c;
   const openFollowups = db.prepare("SELECT COUNT(*) c FROM followups WHERE status='open'").get().c;
   const lowStock = db.prepare('SELECT COUNT(*) c FROM products WHERE stock<=stock_alert').get().c;

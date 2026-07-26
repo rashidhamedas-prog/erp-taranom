@@ -1563,6 +1563,11 @@ function initSyncSchema(db) {
   ensureColumn(db, 'banks',      'opening_balance_je_id', 'INTEGER');
   ensureColumn(db, 'banks',      'opening_balance_date', 'TEXT');
   ensureColumn(db, 'cash_boxes', 'coa_code', 'TEXT');
+  ensureColumn(db, 'cash_boxes', 'currency', "TEXT DEFAULT 'IRR'");
+  ensureColumn(db, 'cash_boxes', 'is_foreign', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'cash_boxes', 'opening_balance_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'cash_boxes', 'opening_balance_je_id', 'INTEGER');
+  ensureColumn(db, 'cash_boxes', 'opening_balance_date', 'TEXT');
 
   // Single-device login sessions (central-only; not in SYNCABLE_TABLES)
   // Slots: mobile | desktop | web — یک نشست فعال به ازای هر اسلات (۱ موبایل + ۱ دسکتاپ + ۱ وب)
@@ -2247,6 +2252,19 @@ function initSyncSchema(db) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v5','1')").run();
+    }
+    const backfillV6 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v6'").get();
+    if (!backfillV6 || backfillV6.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v6 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v6','1')").run();
     }
   }
 

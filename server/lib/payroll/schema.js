@@ -168,6 +168,48 @@ function initPayrollSchema(db) {
     ['tax_type', 'TEXT'],
   ];
   for (const [name, definition] of lineColumns) ensureColumn(db, 'journal_lines', name, definition);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS employee_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE TABLE IF NOT EXISTS group_salary_structures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_group_id INTEGER NOT NULL,
+      fiscal_year INTEGER NOT NULL,
+      wage_basis TEXT NOT NULL DEFAULT 'monthly'
+        CHECK(wage_basis IN ('monthly','daily','hourly','contractor')),
+      base_wage_rial INTEGER NOT NULL DEFAULT 0,
+      housing_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      grocery_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      child_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      spouse_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      other_fixed_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      child_count INTEGER NOT NULL DEFAULT 0,
+      marital_status INTEGER NOT NULL DEFAULT 0,
+      insurance_type TEXT NOT NULL DEFAULT 'sso'
+        CHECK(insurance_type IN ('sso','armed_forces','none')),
+      tax_exemption_type TEXT NOT NULL DEFAULT 'none'
+        CHECK(tax_exemption_type IN ('none','veteran','petroleum_zones')),
+      tax_exemption_percent_bp INTEGER NOT NULL DEFAULT 0,
+      overtime_factor_bp INTEGER NOT NULL DEFAULT 14000,
+      night_shift_factor_bp INTEGER NOT NULL DEFAULT 11500,
+      active INTEGER NOT NULL DEFAULT 1,
+      effective_from TEXT,
+      effective_to TEXT,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      UNIQUE(employee_group_id, fiscal_year),
+      FOREIGN KEY(employee_group_id) REFERENCES employee_groups(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_group_salary_structures_group_year
+      ON group_salary_structures(employee_group_id, fiscal_year);
+  `);
+  ensureColumn(db, 'persons', 'employee_group_id', 'INTEGER');
 }
 
 module.exports = { initPayrollSchema };
