@@ -32,19 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending) restore accounting sidebar pre-Model-A groups |
+| آخرین commit | `246a44c` restore accounting sidebar pre-Model-A groups |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v113` |
 | اندروید | **`2.0.31`** (versionCode 33) |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
 
 ### 2026-07-26 — بازگردانی سرگروه‌های منوی حسابداری (قبل از Model A)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `246a44c`
 - **خلاصه:** به‌درخواست کاربر، سایدبار حسابداری از گروه‌بندی ماژولی (اشخاص/کالا/انبار/…) به سرگروه‌های قبلی برگردانده شد: اطلاعات پایه، عملیات، عملیات انبار، عملیات خاص، عملیات حسابداری، … آیتم‌های جدید (`گزارش جامع انبار`، `مدیریت دستگاه‌ها`) حفظ شدند. SW `v113` / `acc-nav.js?v=76`.
 - **فایل‌های کلیدی:** `server/public/acc-nav.js`, `index.html`, `sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `246a44c` — git pull + pm2 · health 200 · SW `erp-taranom-v113`
 
 ### 2026-07-26 — مطالبات از ماندهٔ دفتر + همگام‌سازی سورس اندروید/دسکتاپ
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
