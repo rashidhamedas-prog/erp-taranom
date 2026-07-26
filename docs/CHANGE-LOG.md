@@ -35,16 +35,16 @@
 | آخرین commit | `20fe971` کارشناس فاکتور / حقوق / بانک‌صندوق / جستجو / داشبورد |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v120` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
 
 ### 2026-07-26 — کارشناس فاکتور، حقوق/پرسنل، بانک‌صندوق، جستجو، داشبورد حذف
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** `20fe971`
+- **Commit:** `20fe971` (+ `e406853` changelog)
 - **خلاصه:** انتخاب کارشناس روی فاکتور فروش؛ پیوند کارکنان به گروه اشخاص «پرسنل» + گروه کارکنان و ساختار حقوق گروهی؛ حذف ردیف‌های حقوق + ثبت دستی حقوق ماه؛ داشبورد/آمار با فیلتر `deleted_at`؛ موجودی زنده بانک؛ موجودی اول دوره صندوق؛ جستجوی مقاوم به پرانتز/ی/ک عربی. SW `v120`.
 - **فایل‌های کلیدی:** `index.html`, `sw.js`, `invoices.js`, `payroll.js`, `schema.js`, `banks.js`, `cash-boxes.js`, `products.js`, `accounting.js`, `admin.js`, `search-normalize.js`, `tables.js`, `capture.js`, `db.js`, `currency.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `e406853` — git pull + pm2 · health 200 · SW `erp-taranom-v120`
 
 ### 2026-07-26 — باگ‌های UI/داشبورد/گزارش/آلبوم + فیچر پیامک/دریافت/پرداخت/مانده
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
