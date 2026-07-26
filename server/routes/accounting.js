@@ -191,18 +191,6 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     totalPayable,
     pendingSettlements
   });
-  // #region agent log
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    fs.appendFileSync(path.join(__dirname, '..', 'debug-dd3668.log'), JSON.stringify({
-      sessionId: 'dd3668', runId: 'post-fix', hypothesisId: 'B',
-      location: 'accounting.js:overview', message: 'overview stats',
-      data: { totalInvoiced, totalSettled, outstanding, creditorBalance: hasLedger ? (Number(ledRecv.cred) || 0) : 0, totalPayable, hasLedger, ledRecv },
-      timestamp: Date.now()
-    }) + '\n');
-  } catch (_) {}
-  // #endregion
 });
 
 // Receivables per customer — ledger outstanding is source of truth (opening + invoices − settlements).

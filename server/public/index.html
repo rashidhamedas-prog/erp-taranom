@@ -6057,9 +6057,6 @@ ROUTES['acc-dash'] = async function(){
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
   const ov = await api('GET','/accounting/overview');
   if(!ov) return;
-  // #region agent log
-  fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify({sessionId:'dd3668',runId:'post-fix',hypothesisId:'B',location:'index.html:acc-dash',message:'overview response',data:{totalInvoiced:ov.totalInvoiced,totalSettled:ov.totalSettled,outstanding:ov.outstanding,creditorBalance:ov.creditorBalance,totalPayable:ov.totalPayable,pendingApproval:ov.pendingApproval,trialBalanced:ov.trialBalanced},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   const pendingRep = await api('GET','/reps/payments/pending').catch(()=>[]);
   const totalPayable = ov.totalPayable || 0;
   const tbBalanced = ov.trialBalanced;
