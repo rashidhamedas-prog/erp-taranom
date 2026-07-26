@@ -265,9 +265,11 @@ router.get('/customer-balances', auth, adminOnly, (req, res) => {
   ) lb ON lb.customer_id=c.id`;
   const BAL = 'COALESCE(lb.balance,0)';
   const rows = db.prepare(`
-    SELECT c.id, c.biz, c.owner, c.city, ${BAL} AS balance, u.name as salesperson
+    SELECT c.id, c.biz, c.owner, c.city, c.address, ${BAL} AS balance,
+           COALESCE(cg.nature,'debit') AS nature, u.name as salesperson
     FROM customers c ${LEDGER_BAL_JOIN}
     LEFT JOIN users u ON c.user_id=u.id
+    LEFT JOIN customer_groups cg ON cg.id=c.group_id
     WHERE ${BAL} <> 0
     ORDER BY ABS(${BAL}) DESC
   `).all();

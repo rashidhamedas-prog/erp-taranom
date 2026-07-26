@@ -302,11 +302,13 @@
     const td = table.tBodies[0]?.rows?.[0]?.cells?.[colIdx];
     if (td?.dataset?.colKind) return td.dataset.colKind;
     const label = toAsciiDigits((th?.querySelector?.('.tbl-th-label') || th)?.textContent || '').toLowerCase();
-    if (/بدهکار|بدهكار|debit/.test(label)) return 'debit';
-    if (/بستانکار|بستانكار|credit/.test(label)) return 'credit';
     if (/مانده\s*بدهکار|مانده بدهكار/.test(label)) return 'debit';
     if (/مانده\s*بستانکار|مانده بستانكار/.test(label)) return 'credit';
-    if (/میانگین|قیمت|بها|مبلغ|ریال|تومان|موجودی|تعداد|qty|stock|price|cost|amount/.test(label)) {
+    if (/^بدهکار|^بدهكار|debit/.test(label)) return 'debit';
+    if (/^بستانکار|^بستانكار|credit/.test(label)) return 'credit';
+    // ستون تکی «مانده» با علامت مخلوط نباید جمع جبری شود
+    if (/^مانده\b/.test(label) && !/پرداختنی|مطالبات|انگیزه/.test(label)) return 'skip';
+    if (/میانگین|قیمت|بها|مبلغ|ریال|تومان|موجودی|تعداد|فروش|qty|stock|price|cost|amount/.test(label)) {
       if (/قیمت|بها|میانگین|price|cost/.test(label)) return 'avg';
       return 'money';
     }

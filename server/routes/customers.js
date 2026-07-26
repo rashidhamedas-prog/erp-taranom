@@ -198,9 +198,9 @@ router.get('/balances', auth, (req, res) => {
   const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id WHERE ${BAL_COL}<>0${activeClause} ORDER BY ABS(${BAL_COL}) DESC`).all();
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE ${BAL_COL}<>0${activeClause} ORDER BY ABS(${BAL_COL}) DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=? AND ${BAL_COL}<>0${activeClause} ORDER BY ABS(${BAL_COL}) DESC`).all(scope);
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE c.user_id=? AND ${BAL_COL}<>0${activeClause} ORDER BY ABS(${BAL_COL}) DESC`).all(scope);
   }
   res.json(rows);
 });

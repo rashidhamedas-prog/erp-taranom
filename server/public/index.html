@@ -261,8 +261,9 @@ html[data-theme="dark"] .cards.bento-hero{
 .ic.o{background:var(--amber-bg);color:var(--orange)}
 .ic.b{background:var(--info-bg);color:var(--blue)}
 
+/* overflow:visible تا position:sticky سرتیتر جداول داخل پنل با اسکرول صفحه کار کند */
 .panel{background:var(--card);border-radius:18px;border:1px solid var(--border);
-  box-shadow:var(--shadow-card);margin-bottom:16px;overflow:hidden}
+  box-shadow:var(--shadow-card);margin-bottom:16px;overflow:visible}
 .panel-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;
   align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 .panel-head h4{font-size:15px;color:var(--purple)}
@@ -425,9 +426,27 @@ html[data-theme="dark"] .sett-savebar{background:rgba(19,31,26,.9)}
 .btn.excel-btn svg{width:12px;height:12px;flex:0 0 12px}
 
 /* ===== Table ===== */
-.tbl-wrap{overflow-x:auto}
+/* فقط اسکرول افقی روی wrap — اسکرول عمودی صفحه تا sticky سرتیتر کار کند */
+.tbl-wrap{overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch}
 table.tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:600px}
 table.tbl th{background:var(--th-bg);color:var(--purple);text-align:right;padding:11px 12px;font-weight:700;border-bottom:2px solid var(--border);white-space:nowrap}
+/* فریز سرتیتر زیر topbar هنگام اسکرول صفحه / داخل جعبهٔ اسکرول گزارش */
+:root{--tbl-sticky-top:72px}
+.tbl-wrap > table.tbl > thead > tr > th,
+.panel-body > table.tbl > thead > tr > th,
+#view > table.tbl > thead > tr > th{
+  position:sticky;top:var(--tbl-sticky-top);z-index:5;
+  background:var(--th-bg,#EAF4EE);
+  box-shadow:inset 0 -1px 0 var(--border), 0 1px 0 rgba(0,0,0,.04);
+}
+.tbl-wrap.tbl-scroll{
+  max-height:min(62vh,560px);overflow:auto;-webkit-overflow-scrolling:touch;
+  --tbl-sticky-top:0px;
+}
+.modal-body .tbl-wrap > table.tbl > thead > tr > th,
+.mdi-body .tbl-wrap > table.tbl > thead > tr > th{
+  top:0;
+}
 table.tbl th.tbl-sortable{cursor:pointer;user-select:none}
 table.tbl th.tbl-sortable:hover{background:var(--purple-light)}
 table.tbl th .tbl-sort-ind{font-size:10px;opacity:.7}
@@ -1160,7 +1179,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 <script src="/acc-nav.js?v=75"></script>
 <script src="/portal-ui.js?v=75"></script>
 <script src="/mdi.js?v=77" defer></script>
-<script src="/tbl-enhance.js?v=76" defer></script>
+<script src="/tbl-enhance.js?v=77" defer></script>
 <script src="/prod-ui.js?v=75" defer></script>
 <script>
 if(typeof T!=='function'){ window.T=function(s){return s;}; window.tt=function(a){return a;}; window.getAppLang=function(){return 'fa';}; window.setAppLang=function(){}; }
@@ -1376,6 +1395,45 @@ function fmtPct(n){
 }
 function parsePct(v, fallback=0){ return parseQty(v, fallback); }
 function fmtMoneyUnit(n){ return fmt(n)+' '+currencyUnit(); }
+/** جداسازی مانده بدهکار / بستانکار از موجودی دفتر (مثبت=بدهکار، منفی=بستانکار) — هرگز در جمع با هم مخلوط نشوند */
+function balSides(balance){
+  const b=Number(balance)||0;
+  return { debit: b>0?b:0, credit: b<0?-b:0, net:b };
+}
+function balTotals(rows){
+  return (rows||[]).reduce((a,c)=>{ const s=balSides(c&&c.balance); a.debit+=s.debit; a.credit+=s.credit; return a; },{debit:0,credit:0});
+}
+function natureLabelOf(c){
+  const n=(c&&(c.nature||c.account_nature||c.group_nature))||'';
+  if(n==='credit') return 'بستانکار';
+  if(n==='debit') return 'بدهکار';
+  const s=balSides(c&&c.balance);
+  if(s.credit>0) return 'بستانکار';
+  if(s.debit>0) return 'بدهکار';
+  return '—';
+}
+function balDebitTd(balance){
+  const s=balSides(balance);
+  return s.debit
+    ? `<td data-label="بدهکار" class="mono" data-col-kind="debit" data-sort="${s.debit}" style="font-weight:600;color:#dc2626">${fmt(s.debit)}</td>`
+    : `<td data-label="بدهکار" class="mono muted" data-col-kind="debit" data-sort="0">-</td>`;
+}
+function balCreditTd(balance){
+  const s=balSides(balance);
+  return s.credit
+    ? `<td data-label="بستانکار" class="mono" data-col-kind="credit" data-sort="${s.credit}" style="font-weight:600;color:var(--green)">${fmt(s.credit)}</td>`
+    : `<td data-label="بستانکار" class="mono muted" data-col-kind="credit" data-sort="0">-</td>`;
+}
+function balFooterPairHtml(rows, colsBefore, colsAfter){
+  const t=balTotals(rows);
+  const after=colsAfter>0?`<td colspan="${colsAfter}"></td>`:'';
+  return `<tr class="tbl-footer-sum" style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+    <td data-label="جمع" colspan="${colsBefore}">جمع (${fmt((rows||[]).length)} مورد)</td>
+    <td data-label="جمع بدهکار" class="mono" id="dashBalDebitTotal" style="font-weight:800;color:#dc2626">${t.debit?fmt(t.debit):'-'}</td>
+    <td data-label="جمع بستانکار" class="mono" id="dashBalCreditTotal" style="font-weight:800;color:var(--green)">${t.credit?fmt(t.credit):'-'}</td>
+    ${after}
+  </tr>`;
+}
 const REF_DOC_LABELS={sales_invoice:'فاکتور فروش',sales_return:'برگشت فروش',receipt:'دریافت',purchase:'فاکتور خرید',purchase_return:'برگشت خرید',supplier_payment:'پرداخت تأمین',expense_payment:'پرداخت هزینه',warehouse_issue:'حواله انبار',warehouse_receipt:'رسید انبار',warehouse_transfer:'انتقال انبار',transfer:'انتقال وجه',payroll:'حقوق',cheque_settlement:'عملیات چک',opening:'افتتاحیه',account_transfer:'حواله حساب',stocktaking:'انبارگردانی',production:'تولید'};
 function refDocCell(docNo,docType){ if(!docNo) return '<span class="muted">-</span>'; const lbl=REF_DOC_LABELS[docType]||docType||''; return `<span class="mono" title="${esc(lbl)}">مرجع ${esc(String(docNo))}</span>`; }
 function payTypeLabel(pt){ return {cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'}[pt]||pt||'نقد'; }
@@ -3330,6 +3388,7 @@ async function renderDashContent(){
     if(!ov) return;
     window._adminBalRows = (balances||[]);
     const balRows = window._adminBalRows;
+    const balT = balTotals(balRows);
     const pending = window._pendingActions || [];
     body.innerHTML = `
       ${pending.length?`<div class="panel"><div class="panel-head"><h4>اقدامات در انتظار (${fmt(pending.length)})</h4>
@@ -3344,12 +3403,14 @@ async function renderDashContent(){
         ${statCard('p','🛍️', fmt(ov.totalProducts),'کالاها')}
         ${statCard('b','📞', fmt(ov.openFollowups),'پیگیری باز')}
         ${statCard('r','📉', fmt(ov.lowStock),'موجودی کم')}
+        ${statCard('r','📤', fmt(balT.debit),'جمع بدهکاران')}
+        ${statCard('g','📥', fmt(balT.credit),'جمع بستانکاران')}
       </div>
       <div class="panel">
         <div class="panel-head"><h4>عملکرد کارشناسان${dq?' · بازه':''}</h4></div>
-        <div class="panel-body tbl-wrap">
+        <div class="panel-body tbl-wrap tbl-scroll">
           <table class="tbl m-stack">
-            <thead><tr><th>کارشناس</th><th>مشتریان</th><th>فروش</th><th>پیگیری</th></tr></thead>
+            <thead><tr><th>کارشناس</th><th data-col-kind="qty">مشتریان</th><th data-col-kind="money">فروش</th><th data-col-kind="qty">پیگیری</th></tr></thead>
             <tbody>${(board||[]).map(u=>`<tr>
               <td data-label="کارشناس">${esc(u.name)}</td>
               <td data-label="مشتریان">${fmt(u.custCount)}</td>
@@ -3365,20 +3426,21 @@ async function renderDashContent(){
             ${[...new Set(balRows.map(c=>c.salesperson||'').filter(Boolean))].map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
           </select>
         </div>
-        <div class="panel-body tbl-wrap">
-          <table class="tbl m-stack">
-            <thead><tr><th>فروشگاه</th><th>نام</th><th>مانده</th><th>آدرس</th><th>کارشناس</th><th></th></tr></thead>
+        <div class="panel-body tbl-wrap tbl-scroll">
+          <table class="tbl m-stack" id="dashBalTbl">
+            <thead><tr>
+              <th>فروشگاه</th><th>نام</th><th>ماهیت</th>
+              <th data-col-kind="debit">بدهکار</th><th data-col-kind="credit">بستانکار</th>
+              <th>آدرس</th><th>کارشناس</th><th class="no-sort"></th>
+            </tr></thead>
             <tbody id="dashBalTbody">${balRows.map(c=>dashBalRowHtml(c)).join('')}</tbody>
-            <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light)">
-              <td data-label="جمع" colspan="2" style="font-weight:700">جمع مانده</td>
-              <td data-label="مبلغ" class="mono" id="dashBalTotal" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} ریال</td>
-              <td colspan="3" data-label=""></td>
-            </tr></tfoot>
+            <tfoot>${balFooterPairHtml(balRows,3,3)}</tfoot>
           </table>
         </div>
       </div>`:''}`;
     _dashHtmlCache = { key:dk, html:body.innerHTML, t:Date.now() };
     requestAnimationFrame(fitStatNums);
+    if(typeof enhanceAccTables==='function') enhanceAccTables(body);
   } else {
     const balances = await apiCached('GET','/customers/balances',30000);
     let followups, invoices;
@@ -3402,6 +3464,7 @@ async function renderDashContent(){
     const sales = finalInvs.reduce((a,i)=>a+(i.final||0),0);
     const openF = (followups||[]).filter(f=>f.status==='open').length;
     const balRows = (balances||[]);
+    const balT = balTotals(balRows);
     body.innerHTML = `
       <div class="cards bento-hero">
         ${statCard('p','👥', fmt(CACHE.customers.length),'مشتریان من')}
@@ -3412,24 +3475,26 @@ async function renderDashContent(){
         ${statCard('g','🎯', fmt(Math.round(myComm.totalComm||0)),'انگیزه فروش')}
         ${statCard('r','💵', fmt(Math.round(myComm.payable||0)),'مانده انگیزه')}
         ${myComm.monthlyTarget?statCard('b','📊', (myComm.targetPct||0)+'٪','تحقق هدف'):''}
+        ${statCard('r','📤', fmt(balT.debit),'جمع بدهکاران')}
+        ${statCard('g','📥', fmt(balT.credit),'جمع بستانکاران')}
       </div>
       ${myComm.basisLabel?`<div class="muted" style="margin:-4px 0 12px;font-size:11px">مبنا: ${esc(myComm.basisLabel)}${myComm.pendingExpenses?` — ${myComm.pendingExpenses} هزینه در انتظار`:''}</div>`:''}
       ${balRows.length?`<div class="panel">
         <div class="panel-head"><h4>مانده مشتریان من</h4></div>
-        <div class="panel-body tbl-wrap">
+        <div class="panel-body tbl-wrap tbl-scroll">
           <table class="tbl m-stack">
-            <thead><tr><th>فروشگاه</th><th>نام</th><th>مانده</th><th>آدرس</th></tr></thead>
+            <thead><tr>
+              <th>فروشگاه</th><th>نام</th><th>ماهیت</th>
+              <th data-col-kind="debit">بدهکار</th><th data-col-kind="credit">بستانکار</th><th>آدرس</th>
+            </tr></thead>
             <tbody>${balRows.map(c=>`<tr>
               <td data-label="فروشگاه">${esc(c.biz)}</td>
               <td data-label="نام">${esc(c.owner||'-')}</td>
-              <td data-label="مانده" class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
+              <td data-label="ماهیت">${esc(natureLabelOf(c))}</td>
+              ${balDebitTd(c.balance)}${balCreditTd(c.balance)}
               <td data-label="آدرس">${esc(c.address||c.city||'-')}</td>
             </tr>`).join('')}</tbody>
-            <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light)">
-              <td data-label="جمع" colspan="2" style="font-weight:700">جمع مانده</td>
-              <td data-label="مبلغ" class="mono" style="font-weight:800;color:${balRows.reduce((a,c)=>a+(c.balance||0),0)>0?'#dc2626':'var(--green)'}">${fmt(balRows.reduce((a,c)=>a+(c.balance||0),0))} ریال</td>
-              <td data-label=""></td>
-            </tr></tfoot>
+            <tfoot>${balFooterPairHtml(balRows,3,1)}</tfoot>
           </table>
         </div>
       </div>`:''}
@@ -3447,13 +3512,15 @@ async function renderDashContent(){
       </div>`;
     _dashHtmlCache = { key:dk, html:body.innerHTML, t:Date.now() };
     requestAnimationFrame(fitStatNums);
+    if(typeof enhanceAccTables==='function') enhanceAccTables(body);
   }
 };
 function dashBalRowHtml(c){
   return `<tr>
     <td data-label="فروشگاه">${esc(c.biz)}</td>
     <td data-label="نام">${esc(c.owner||'-')}</td>
-    <td data-label="مانده" class="mono" style="font-weight:600;color:${c.balance>0?'#dc2626':'var(--green)'}">${fmt(c.balance)} ریال</td>
+    <td data-label="ماهیت">${esc(natureLabelOf(c))}</td>
+    ${balDebitTd(c.balance)}${balCreditTd(c.balance)}
     <td data-label="آدرس">${esc(c.address||c.city||'-')}</td>
     <td data-label="کارشناس" class="muted">${esc(c.salesperson||'-')}</td>
     <td data-label=""><button class="btn sm blue" onclick="viewCustStatementFromDash(${c.id})">صورت‌حساب</button></td>
@@ -3463,13 +3530,14 @@ function filterDashBalances(name){
   const rows = window._adminBalRows||[];
   const filtered = name ? rows.filter(c=>(c.salesperson||'')===name) : rows;
   const tb = el('dashBalTbody'); if(!tb) return;
-  tb.innerHTML = filtered.map(dashBalRowHtml).join('') || '<tr><td colspan="6" class="empty">موردی یافت نشد</td></tr>';
-  const totCell = el('dashBalTotal');
-  if(totCell){
-    const tot = filtered.reduce((a,c)=>a+(c.balance||0),0);
-    totCell.textContent = fmt(tot)+' ریال';
-    totCell.style.color = tot>0 ? '#dc2626' : 'var(--green)';
-  }
+  tb.innerHTML = filtered.map(dashBalRowHtml).join('') || '<tr><td colspan="8" class="empty">موردی یافت نشد</td></tr>';
+  const t = balTotals(filtered);
+  const dCell = el('dashBalDebitTotal');
+  const cCell = el('dashBalCreditTotal');
+  if(dCell){ dCell.textContent = t.debit ? fmt(t.debit) : '-'; dCell.style.color = '#dc2626'; }
+  if(cCell){ cCell.textContent = t.credit ? fmt(t.credit) : '-'; cCell.style.color = 'var(--green)'; }
+  const tbl = el('dashBalTbl');
+  if(tbl && typeof tblRebuildFooter==='function') tblRebuildFooter(tbl);
 }
 function parseStatNum(val){
   if(typeof val==='number' && isFinite(val)) return val;
@@ -3531,7 +3599,7 @@ ROUTES.customers = async function(){
       ${ME.role==='admin'?`<button class="btn sm red" onclick="bulkCustDelete()">🗑️ حذف</button>`:''}
       <button class="btn sm ghost" onclick="custSelected.clear();renderCustTable()">✕ لغو</button>
     </div>
-    <div class="panel"><div class="panel-body tbl-wrap"><div id="custTable"></div></div></div>`;
+    <div class="panel"><div class="panel-body tbl-wrap tbl-scroll"><div id="custTable"></div></div></div>`;
   el('cSearch').addEventListener('input', e=>{ custFilter.q=e.target.value; debounceCust(); });
   el('cStatus').addEventListener('change', e=>{ custFilter.status=e.target.value; renderCustTable(); });
   const cUser=el('cUser'); if(cUser) cUser.addEventListener('change',e=>{ custFilter.user_id=e.target.value; renderCustTable(); });
@@ -3550,15 +3618,15 @@ function renderCustTable(){
   if(cnt) cnt.textContent = `${custSelected.size} مورد انتخاب شده`;
   const allIds = rows.map(r=>r.id);
   const allChecked = allIds.length>0 && allIds.every(id=>custSelected.has(id));
-  const colCount = isAdm ? 13 : 12;
-  const balSum = rows.reduce((a,c)=>a+(c.balance||0),0);
+  const colCount = isAdm ? 14 : 13;
+  const balT = balTotals(rows);
   el('custTable').innerHTML = `<table class="tbl" data-bulk-delete="0"><thead><tr>
     <th class="no-sort" style="width:36px"><input type="checkbox" ${allChecked?'checked':''} onchange="toggleAllCust(this,${JSON.stringify(allIds)})"></th>
-    <th>نام کامل</th><th>نام فروشگاه</th><th>موبایل</th><th class="no-sort">عملیات</th><th>شهر</th><th>آدرس</th><th>نوع</th><th>وضعیت</th><th>ماهیت</th><th>مانده</th>${isAdm?'<th>کارشناس</th>':''}
+    <th>نام کامل</th><th>نام فروشگاه</th><th>موبایل</th><th class="no-sort">عملیات</th><th>شهر</th><th>آدرس</th><th>نوع</th><th>وضعیت</th><th>ماهیت</th>
+    <th data-col-kind="debit">بدهکار</th><th data-col-kind="credit">بستانکار</th>${isAdm?'<th>کارشناس</th>':''}
   </tr></thead><tbody>${rows.map(c=>{
     const editable = canEditCustomer(c);
     const nature = c.account_nature || c.group_nature || '';
-    const bal = c.balance||0;
     return `<tr data-id="${c.id}" ${custSelected.has(c.id)?'style="background:var(--purple-light)"':''}>
     <td class="no-sort"><input type="checkbox" ${custSelected.has(c.id)?'checked':''} onchange="toggleCust(${c.id},this.checked)"></td>
     <td>${esc(c.owner||'-')}</td><td>${esc(c.biz)}</td>
@@ -3572,13 +3640,14 @@ function renderCustTable(){
     ${tdClip(c.address||'-', 200, true)}
     <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" style="background:#dbeafe;color:#1d4ed8" title="${esc(T('دسترسی پورتال مشتریان فعال'))}">${T('پورتال')}</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="${esc(T('ریسک ریزش مشتری'))}">⚠️${c.churn_score}٪</span>`:''}</td>
     <td>${natureLabel[nature]||nature||'—'}${c.party_group_name?`<div class="muted" style="font-size:11px">${esc(c.party_group_name)}</div>`:''}${c.group_name?`<div class="muted" style="font-size:11px">${esc(c.group_name)}</div>`:''}</td>
-    <td class="mono" data-sort="${bal}" style="color:${bal>0?'#dc2626':bal<0?'var(--green)':'var(--muted)'}">${bal!==0?fmt(bal)+' ریال':'-'}</td>
+    ${balDebitTd(c.balance)}${balCreditTd(c.balance)}
     ${isAdm?`<td class="muted">${esc(c.salesperson||'-')}</td>`:''}
   </tr>`;
   }).join('')||emptyRow(colCount)}</tbody>
   <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
     <td colspan="10">جمع (${fmt(rows.length)} مشتری)</td>
-    <td class="mono" style="font-weight:800;color:${balSum>0?'#dc2626':'var(--green)'}">${fmt(balSum)} ریال</td>
+    <td class="mono" style="font-weight:800;color:#dc2626">${balT.debit?fmt(balT.debit):'-'}</td>
+    <td class="mono" style="font-weight:800;color:var(--green)">${balT.credit?fmt(balT.credit):'-'}</td>
     ${isAdm?'<td></td>':''}
   </tr></tfoot></table>`;
   if(typeof enhanceAccTables==='function') enhanceAccTables(el('custTable'));
@@ -3831,33 +3900,37 @@ function renderAccReceivablesBody(body){
         </select>
         ${hiddenCount>0?`<span class="muted" style="font-size:12px">${hiddenCount} مورد تسویه‌شده پنهان شده</span>`:''}
       </div>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <div class="tbl-wrap tbl-scroll"><table class="tbl"><thead><tr>
         ${viewMode==='invoice'
-          ? '<th>شماره فاکتور</th><th>تاریخ</th><th>مشتری</th><th>کارشناس</th><th>مبلغ فاکتور (ریال)</th><th>پرداخت شده (ریال)</th><th>مانده (ریال)</th><th>عملیات</th>'
-          : '<th>نام فروشگاه</th><th>نام کامل</th><th>کارشناس</th><th>کل فاکتور (ریال)</th><th>پرداخت شده (ریال)</th><th>مانده (ریال)</th><th>عملیات</th>'}
+          ? '<th>شماره فاکتور</th><th>تاریخ</th><th>مشتری</th><th>کارشناس</th><th data-col-kind="money">مبلغ فاکتور</th><th data-col-kind="money">پرداخت شده</th><th data-col-kind="debit">مانده بدهکار</th><th data-col-kind="credit">مانده بستانکار</th><th class="no-sort">عملیات</th>'
+          : '<th>نام فروشگاه</th><th>نام کامل</th><th>کارشناس</th><th data-col-kind="money">کل فاکتور</th><th data-col-kind="money">پرداخت شده</th><th data-col-kind="debit">مانده بدهکار</th><th data-col-kind="credit">مانده بستانکار</th><th class="no-sort">عملیات</th>'}
       </tr></thead><tbody>${rows.map(r=>{
-        const oc=r.outstanding>0?'var(--red)':'var(--green)';
+        const out=Number(r.outstanding)||0;
+        const deb=out>0?out:0, cred=out<0?-out:0;
         if(viewMode==='invoice') return `<tr>
           <td class="mono">${esc(r.num||'-')}</td><td class="mono">${escDate(r.date)}</td>
           <td>${esc(r.biz||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
           <td class="mono">${fmt(r.final)}</td>
           <td class="mono" style="color:var(--green)">${fmt(r.paid)}</td>
-          <td class="mono" style="color:${oc};font-weight:700">${fmt(r.outstanding)}</td>
+          <td class="mono" data-col-kind="debit" style="color:var(--red);font-weight:700">${deb?fmt(deb):'-'}</td>
+          <td class="mono" data-col-kind="credit" style="color:var(--green);font-weight:700">${cred?fmt(cred):'-'}</td>
           <td><button class="btn sm green" onclick="settlementModal(${r.cust_id})">💵 ثبت پرداخت</button></td>
         </tr>`;
         return `<tr>
           <td>${esc(r.biz)}</td><td>${esc(r.owner||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
           <td class="mono">${fmt(r.total_invoiced)}</td>
           <td class="mono" style="color:var(--green)">${fmt(r.total_settled)}</td>
-          <td class="mono" style="color:${oc};font-weight:700">${fmt(r.outstanding)}</td>
+          <td class="mono" data-col-kind="debit" style="color:var(--red);font-weight:700">${deb?fmt(deb):'-'}</td>
+          <td class="mono" data-col-kind="credit" style="color:var(--green);font-weight:700">${cred?fmt(cred):'-'}</td>
           <td style="white-space:nowrap"><button class="btn sm green" onclick="settlementModal(${r.id})">💵 ثبت پرداخت</button></td>
         </tr>`;
-      }).join('')||emptyRow(8)}</tbody>
+      }).join('')||emptyRow(9)}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
         <td colspan="${viewMode==='invoice'?4:3}">جمع (${fmt(rows.length)} ${viewMode==='invoice'?'فاکتور':'مشتری'})</td>
         <td class="mono">${fmt(rows.reduce((a,r)=>a+(viewMode==='invoice'?(r.final||0):(r.total_invoiced||0)),0))}</td>
         <td class="mono" style="color:var(--green)">${fmt(rows.reduce((a,r)=>a+(viewMode==='invoice'?(r.paid||0):(r.total_settled||0)),0))}</td>
-        <td class="mono" style="color:var(--red);font-weight:800">${fmt(rows.reduce((a,r)=>a+(r.outstanding||0),0))}</td>
+        <td class="mono" style="color:var(--red);font-weight:800">${fmt(rows.reduce((a,r)=>{const o=Number(r.outstanding)||0;return a+(o>0?o:0);},0))}</td>
+        <td class="mono" style="color:var(--green);font-weight:800">${fmt(rows.reduce((a,r)=>{const o=Number(r.outstanding)||0;return a+(o<0?-o:0);},0))}</td>
         <td></td>
       </tr></tfoot></table></div>`;
 }
@@ -7091,27 +7164,31 @@ async function renderPersonsTab(body){
   const [persons,cats,partyGroups]=await Promise.all(reqs);
   if(partyGroups) CACHE.partyGroups=partyGroups;
   CACHE.persons=persons; CACHE.personCategories=cats;
-  const total=persons.reduce((a,p)=>a+(p.balance||0),0);
+  const balT=balTotals(persons);
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn" onclick="personModal()">➕ شخص جدید</button>
       <button class="btn ghost" onclick="personCategoriesModal()">🏷️ مدیریت دسته‌ها</button>
     </div>
-    <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/persons" data-bulk-label="حذف" data-bulk-confirm="{n} شخص حذف شود؟"><thead><tr>
-      <th>نام</th><th>دسته</th><th>تلفن</th><th>مانده حساب (ت)</th><th>وضعیت</th><th class="no-sort">عملیات</th>
+    <div class="tbl-wrap tbl-scroll"><table class="tbl" data-bulk-delete="/persons" data-bulk-label="حذف" data-bulk-confirm="{n} شخص حذف شود؟"><thead><tr>
+      <th>نام</th><th>دسته</th><th>تلفن</th>
+      <th data-col-kind="debit">بدهکار</th><th data-col-kind="credit">بستانکار</th>
+      <th>وضعیت</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${persons.map(p=>`<tr data-id="${p.id}">
       <td>${esc(p.name)}</td><td>${esc(p.category_name||'-')}</td><td class="mono">${esc(p.phone||'-')}</td>
-      <td class="mono" style="font-weight:700;color:${(p.balance||0)>0?'var(--red)':(p.balance||0)<0?'var(--green)':'var(--muted)'}">${(p.balance||0)!==0?fmt(p.balance):'-'}</td>
+      ${balDebitTd(p.balance)}${balCreditTd(p.balance)}
       <td>${p.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td style="white-space:nowrap">
         <button class="btn sm ghost" onclick="personModal(${p.id})">✏️</button>
         <button class="btn sm blue" onclick="showPersonLedger(${p.id},'${esc(p.name)}')">📋 دفتر معین</button>
         <button class="btn sm red" onclick="deletePerson(${p.id})">🗑️</button>
       </td>
-    </tr>`).join('')||emptyRow(6)}</tbody>
+    </tr>`).join('')||emptyRow(7)}</tbody>
     <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
-      <td colspan="3">جمع کل مانده حساب</td>
-      <td class="mono" style="font-weight:800;color:${total>0?'var(--red)':'var(--green)'}">${fmt(total)}</td><td colspan="2"></td>
+      <td colspan="3">جمع (${fmt(persons.length)} نفر)</td>
+      <td class="mono" style="font-weight:800;color:#dc2626">${balT.debit?fmt(balT.debit):'-'}</td>
+      <td class="mono" style="font-weight:800;color:var(--green)">${balT.credit?fmt(balT.credit):'-'}</td>
+      <td colspan="2"></td>
     </tr></tfoot></table></div>`;
 }
 async function personModal(id){

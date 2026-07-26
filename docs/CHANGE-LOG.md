@@ -32,11 +32,18 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `0928a3f` commission pct + moayan COA |
-| نسخه وب/دسکتاپ | وب **`2.1.8`** / دسکتاپ **`2.0.8`** (در حال بیلد) / SW `erp-taranom-v108` |
-| اندروید | **`2.0.30`** (vc32، در حال بیلد) |
-| وضعیت سرور | ✅ |
+| آخرین commit | (pending) dash bal debit/credit + sticky thead |
+| نسخه وب/دسکتاپ | وب **`2.1.9`** / دسکتاپ **`2.0.8`** / SW `erp-taranom-v109` |
+| اندروید | **`2.0.30`** (vc32) |
+| وضعیت سرور | ⏳ |
 | سرور production | تنها ایران `94.249.244.208` |
+
+### 2026-07-26 — داشبورد مدیریت: جمع بدهکار/بستانکار جدا + فریز سرتیتر
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** پنل مدیریت (داشبورد ادمین/کارشناس) و لیست مشتریان/اشخاص: ستون‌های جدا بدهکار و بستانکار + جمع گزارش جداگانه (دیگر بستانکار به بدهکاران اضافه نمی‌شود). KPI جمع بدهکاران/بستانکاران. سرتیتر جداول در کل برنامه sticky (زیر topbar؛ داخل `.tbl-scroll` با top:0). API `/admin/customer-balances` و `/customers/balances` فیلد `nature`. SW `v109` / tbl-enhance `?v=77`.
+- **فایل‌های کلیدی:** `server/public/index.html`, `tbl-enhance.js`, `sw.js`, `routes/admin.js`, `routes/customers.js`
+- **Deploy:** ⏳
 
 ### 2026-07-26 — درصد پورسانت اعشار + انتخاب حساب معین در دریافت/پرداخت
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
