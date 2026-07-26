@@ -32,12 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `fe38338` restore Model A + clean debug after botched follow-up |
-| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v115` |
+| آخرین commit | `34b0aa4` dashboard KPIs from ledger |
+| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v117` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ✅ |
+| وضعیت سرور | ⏳ deploy در حال انجام |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
+
+### 2026-07-26 — آمار داشبورد حسابداری از دفتر مشتریان (نه فقط فاکتور)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `34b0aa4`
+- **خلاصه:** کارت‌های داشبورد حسابداری همه صفر بودند چون `/accounting/overview` فقط از `invoices−settlements` محاسبه می‌کرد و در go-live فاکتور رسمی صفر است. الان مطالبات/بستانکار از `customer_ledger` و پرداختنی از `supplier_ledger` (با fallback قبلی) می‌آید؛ کش صفحهٔ dash هم برای KPI دور زده شد؛ SW `v117`.
+- **فایل‌های کلیدی:** `server/routes/accounting.js`, `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ⏳
 
 ### 2026-07-26 — اصلاح آسیب پس از sync اندروید/دسکتاپ: بازگردانی Model A + پاک‌سازی دیباگ
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
