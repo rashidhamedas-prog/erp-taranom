@@ -285,23 +285,23 @@ app.get('/api/system/health', (req, res) => {
   });
 });
 
-// Temporary debug ingest (session a1f008) — remove after sort fix verified
+// Debug ingest (session dd3668) — UI audit
 const _debugIngestBuf = [];
 app.post('/api/system/debug-ingest', (req, res) => {
   try {
     const payload = { ...(req.body || {}), receivedAt: Date.now() };
     _debugIngestBuf.push(payload);
-    if (_debugIngestBuf.length > 50) _debugIngestBuf.shift();
+    if (_debugIngestBuf.length > 80) _debugIngestBuf.shift();
     const line = JSON.stringify(payload) + '\n';
-    const p = path.join(__dirname, '..', 'debug-a1f008.log');
-    fs.appendFileSync(p, line);
+    try { fs.appendFileSync(path.join(__dirname, '..', 'debug-dd3668.log'), line); } catch (_) {}
+    try { fs.appendFileSync(path.join(__dirname, '..', 'debug-a1f008.log'), line); } catch (_) {}
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 app.get('/api/system/debug-ingest', (req, res) => {
-  res.json({ ok: true, count: _debugIngestBuf.length, items: _debugIngestBuf.slice(-20) });
+  res.json({ ok: true, count: _debugIngestBuf.length, items: _debugIngestBuf.slice(-40) });
 });
 
 const { readManifest, buildUpdateResponse } = require('./lib/app-update');

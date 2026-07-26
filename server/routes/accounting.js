@@ -188,6 +188,22 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
     ORDER BY (total_invoiced - total_settled) DESC
   `).all();
   rows.forEach(r => { r.outstanding = r.total_invoiced - r.total_settled; });
+  // #region agent log
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const pos = rows.filter(r => r.outstanding > 0).length;
+    const neg = rows.filter(r => r.outstanding < 0).length;
+    const zero = rows.filter(r => !r.outstanding).length;
+    const payload = {
+      sessionId: 'dd3668', hypothesisId: 'B', location: 'accounting.js:receivables',
+      message: 'receivables query result',
+      data: { from: sf, to: st, total: rows.length, pos, neg, zero, sample: rows.slice(0, 3).map(r => ({ id: r.id, inv: r.total_invoiced, set: r.total_settled, out: r.outstanding })) },
+      timestamp: Date.now()
+    };
+    fs.appendFileSync(path.join(__dirname, '..', 'debug-dd3668.log'), JSON.stringify(payload) + '\n');
+  } catch (_) {}
+  // #endregion
   res.json(rows);
 });
 
