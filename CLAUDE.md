@@ -10,7 +10,7 @@ Also append an entry to **`docs/CHANGE-LOG.md`** (date, commit hash, summary, ke
 
 ## ⚠️ MANDATORY RULE: Coordination with Cursor (dual-assistant workflow)
 
-This project is developed by **two assistants in parallel**: Cursor (on the user's Windows machine, working folder `D:\soft\claud\porje\CursorCrm`) and Claude Code (remote, git-only). Git on branch `claude/claude-md-docs-2ssrpy` is the ONLY shared channel — neither assistant can see the other's uncommitted work.
+This project is developed by **two assistants in parallel**: Cursor (on the user's Windows machine, working folder `D:\soft\claud\porje\CursorCrm\erp-taranom`) and Claude Code (remote, git-only). Git on branch `claude/claude-md-docs-2ssrpy` is the ONLY shared channel — neither assistant can see the other's uncommitted work.
 
 Therefore, after **every** task (even docs-only or no-op sessions worth recording):
 

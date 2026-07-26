@@ -1,8 +1,8 @@
-# Validate CRM Taranom Android APK before upload (prevents dead/crash builds).
+# Validate ERP Taranom Android APK before upload (prevents dead/crash builds).
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/test-android-apk.ps1 [path-to-apk]
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$apk = if ($args[0]) { $args[0] } else { Join-Path $Root 'server\public\releases\crm-taranom.apk' }
+$apk = if ($args[0]) { $args[0] } else { Join-Path $Root 'server\public\releases\erp-taranom.apk' }
 
 if (-not (Test-Path $apk)) { throw "APK not found: $apk" }
 

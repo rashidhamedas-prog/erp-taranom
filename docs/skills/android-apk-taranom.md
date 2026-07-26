@@ -40,7 +40,7 @@ description: اسکیل ساخت/عیب‌یابی/سرعت/سازگاری و س
 ```
 powershell -ExecutionPolicy Bypass -File scripts/build-android.ps1
 ```
-خروجی: `server/public/releases/crm-taranom.apk` — **فقط محلی**. انتشار کامل (دسکتاپ+اندروید+آپلود) با `scripts/release.ps1`.
+خروجی: `server/public/releases/erp-taranom.apk` — **فقط محلی**. انتشار کامل (دسکتاپ+اندروید+آپلود) با `scripts/release.ps1`.
 
 مراحل داخل اسکریپت (که Cursor باید حفظ کند، نه بازنویسی):
 1. `ANDROID_HOME` + JDK 17 + sdkmanager.
@@ -76,7 +76,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build-android.ps1
 
 - **بررسی ELF داخل APK:** وجود `lib/<abi>/libnode.so` برای هر سه ABI + فایل `better_sqlite3.node` با magic ELF `7F 45 4C 46`.
 - اسکریپت تست: `scripts/test-android-apk.ps1` (بررسی nested-apk، prebuilt، اندازه، ELF).
-- نصب و اجرای واقعی: `adb install -r server/public/releases/crm-taranom.apk` → اپ باید باز شود، سرور داخلی بوت شود، login کار کند.
+- نصب و اجرای واقعی: `adb install -r server/public/releases/erp-taranom.apk` → اپ باید باز شود، سرور داخلی بوت شود، login کار کند.
 - چون این محیط (Claude Code ریموت) به گوشی/سرور دسترسی ندارد و بیلد اندروید فقط روی ویندوزِ مالک ممکن است، **بیلد و تست نهایی سمت مالک انجام می‌شود**؛ Cursor باید اسکریپت‌ها و کد را درست نگه دارد و لاگ بیلد را تحلیل کند.
 
 ---

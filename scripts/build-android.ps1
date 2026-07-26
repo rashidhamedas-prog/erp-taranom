@@ -1,5 +1,5 @@
-# Build CRM Taranom Android release APK (Windows).
-# Output: server/public/releases/crm-taranom.apk (LOCAL ONLY — never scp to production server)
+# Build ERP Taranom Android release APK (Windows).
+# Output: server/public/releases/erp-taranom.apk (LOCAL ONLY — never scp to production server)
 # Prerequisites: Android SDK (sdkmanager), JDK 17, nodejs-mobile.aar in app/libs/
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/build-android.ps1
 $ErrorActionPreference = 'Stop'
@@ -8,7 +8,7 @@ $Android = Join-Path $Root 'android'
 $Sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
 $env:ANDROID_HOME = $Sdk
 
-Write-Host "==> CRM Taranom Android build"
+Write-Host "==> ERP Taranom Android build"
 Write-Host "    Root: $Root"
 Write-Host "    SDK:  $Sdk"
 
@@ -140,10 +140,10 @@ $localProps = Join-Path $Android 'local.properties'
 [IO.File]::WriteAllText($localProps, "sdk.dir=$($Sdk -replace '\\','/')`n")
 
 # Remove nested APK from server tree before copyServerSources (prevents 300MB+ recursive packaging)
-$releasesApk = Join-Path $Root 'server\public\releases\crm-taranom.apk'
+$releasesApk = Join-Path $Root 'server\public\releases\erp-taranom.apk'
 if (Test-Path $releasesApk) {
   Write-Host '==> Moving previous release APK out of server tree (avoid nested packaging)...'
-  $hold = Join-Path $Root '.tmp-build\last-crm-taranom.apk'
+  $hold = Join-Path $Root '.tmp-build\last-erp-taranom.apk'
   New-Item -ItemType Directory -Force -Path (Split-Path $hold) | Out-Null
   Move-Item $releasesApk $hold -Force
 }
@@ -207,7 +207,7 @@ if ($apk -like '*-unsigned.apk') {
   Write-Warning 'APK is UNSIGNED — create android/keystore.properties to sign for device install'
 }
 
-$dest = Join-Path $Root 'server\public\releases\crm-taranom.apk'
+$dest = Join-Path $Root 'server\public\releases\erp-taranom.apk'
 Copy-Item $apk $dest -Force
 Write-Host "==> APK ready: $dest"
 Write-Host "    Size: $([math]::Round((Get-Item $dest).Length/1MB, 1)) MB"
@@ -215,3 +215,8 @@ Write-Host "    Size: $([math]::Round((Get-Item $dest).Length/1MB, 1)) MB"
 Write-Host '==> Running APK validation tests...'
 & (Join-Path $Root 'scripts\test-android-apk.ps1') $dest
 if ($LASTEXITCODE -ne 0) { throw 'test-android-apk.ps1 failed' }
+
+# Legacy filename for old download links
+$legacy = Join-Path $Root 'server\public\releases\crm-taranom.apk'
+Copy-Item (Join-Path $Root 'server\public\releases\erp-taranom.apk') $legacy -Force
+Write-Host 'Also wrote legacy crm-taranom.apk for compatibility'

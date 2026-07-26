@@ -1,14 +1,52 @@
 .claude/
 .server
 
-# اسرار — هرگز کامیت نشوند
+# Secrets — never commit
 server/jwt-secret.txt
 android/keystore.properties
 *.jks
 *.keystore
 .env
 
-# AI source dumps (local-only, too large for git)
+# Local AI dumps
 _full-code-for-ai.txt
 _core-code-for-ai.txt
 _code-overview-for-ai.md
+
+# Build / IDE / caches
+.tmp-build/
+.gradle-home/
+.gradle/
+**/build/
+**/node_modules/
+desktop/dist/
+android/app/build/
+android/.cxx/
+*.log
+android-build-*.log
+android-build-*.txt
+desktop-build*.log
+sqlite-build*.log
+_build_report.txt
+git-diff-stat.txt
+git-log.txt
+git-status.txt
+ndk-check.txt
+apk-verify-final.txt
+debug-*.log
+
+# Quarantine / local-only archives (parent or nested)
+/D/
+../D/
+
+# SQLite local DBs and WAL (dev machines)
+server/*.db
+server/*.db-shm
+server/*.db-wal
+server/backups/
+server/uploads/
+
+# OS junk
+Thumbs.db
+Desktop.ini
+.DS_Store

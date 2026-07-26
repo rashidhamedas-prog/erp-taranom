@@ -57,11 +57,11 @@ if (-not $SkipDesktop) {
 }
 
 # --- 2) Android APK ---
-$apk = Join-Path $Root 'server\public\releases\crm-taranom.apk'
+$apk = Join-Path $Root 'server\public\releases\erp-taranom.apk'
 if (-not $SkipAndroid) {
   powershell -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\build-android.ps1')
   if ($LASTEXITCODE -ne 0) { throw 'android build failed' }
-  if (-not (Test-Path $apk)) { throw 'crm-taranom.apk not produced' }
+  if (-not (Test-Path $apk)) { throw 'erp-taranom.apk not produced' }
 
   # --- 3) APK bootability check (a dead APK was shipped once - never again) ---
   Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -122,4 +122,4 @@ if ($LASTEXITCODE -ne 0) { throw 'remote deploy failed - check server manually' 
 Write-Host ''
 Write-Host "[OK] release $Version complete: web deployed, desktop installer on /releases/"
 Write-Host "   desktop: http://45.90.98.99:3000/releases/CRM-Taranom-Setup-$Version.exe"
-Write-Host "   android: local sideload only -> server\public\releases\crm-taranom.apk (do NOT upload)"
+Write-Host "   android: local sideload only -> server\public\releases\erp-taranom.apk (do NOT upload)"

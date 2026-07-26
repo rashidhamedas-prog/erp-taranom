@@ -32,11 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `6eb8462` online-first + device slots + sync perf |
+| آخرین commit | (pending) rebrand CRM→ERP + quarantine junk |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.8`** / SW `erp-taranom-v110` |
-| اندروید | **`2.0.30`** (vc32) |
-| وضعیت سرور | ✅ |
-| سرور production | تنها ایران `94.249.244.208` |
+| اندروید | **`2.0.30`** — فایل انتشار `erp-taranom.apk` (+ سازگاری `crm-taranom.apk`) |
+| وضعیت سرور | ⏳ |
+| سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
+| مخزن GitHub | `rashidhamedas-prog/erp-taranom` |
+
+### 2026-07-26 — پاک‌سازی + بازبرند CRM→ERP + مرتب‌سازی مخزن
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** زبالهٔ بیلد/لاگ/dump حذف یا به `D/` منتقل شد؛ README اصولی ERP؛ نام APK `erp-taranom.apk`؛ gitignore سخت‌تر؛ `scripts/DEPLOY-IRAN.md` برای مسیر VPS ثابت. `applicationId` و `crm.db` و مسیر دیسک ایران عمداً بدون تغییر. rename گیت‌هاب به `erp-taranom`.
+- **فایل‌های کلیدی:** `README.md`, `.gitignore`, `server/public/releases/manifest.json`, `scripts/build-android.ps1`, `scripts/DEPLOY-IRAN.md`
+- **Deploy:** ⏳
 
 ### 2026-07-26 — Online-First + اسلات ۱ موبایل/۱ دسکتاپ + بهینه‌سازی سینک
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

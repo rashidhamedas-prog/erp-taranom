@@ -7,7 +7,7 @@ $Report = Join-Path $Root 'android-build-report.txt'
 Write-Host '==> Building APK (local only — no server upload)...'
 & (Join-Path $Root 'scripts\build-android.ps1')
 
-$apk = Join-Path $Root 'server\public\releases\crm-taranom.apk'
+$apk = Join-Path $Root 'server\public\releases\erp-taranom.apk'
 if (-not (Test-Path $apk)) { throw "APK missing: $apk" }
 
 $hash = (Get-FileHash $apk -Algorithm SHA256).Hash

@@ -12,7 +12,7 @@
   "android": {
     "version": "2.0.30",
     "versionCode": 32,
-    "url": "/releases/crm-taranom.apk",
+    "url": "/releases/erp-taranom.apk",
     "distribution": "server",
     "notes": "آپدیت 2.0.30: درصد پورسانت ۳ رقم اعشار، حساب معین، netProps/nav، SW v108."
   }
