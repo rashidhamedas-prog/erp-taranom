@@ -4,10 +4,10 @@
     "notes": "پاک‌سازی go-live + کدینگ پایه + cascade حذف تفصیلی — SW v99."
   },
   "desktop": {
-    "version": "2.0.7",
-    "url": "/releases/ERP-Taranom-Setup-2.0.7.exe",
+    "version": "2.0.8",
+    "url": "/releases/ERP-Taranom-Setup-2.0.8.exe",
     "feed_url": "",
-    "notes": "آپدیت 2.0.7: کدینگ پایه تازه؛ حذف شخص/کالا ⇒ حذف تفصیلی سینک‌شونده."
+    "notes": "آپدیت 2.0.8: درصد پورسانت ۳ رقم اعشار، حساب معین در دریافت/پرداخت، netProps/nav، SW v108."
   },
   "android": {
     "version": "2.0.29",
