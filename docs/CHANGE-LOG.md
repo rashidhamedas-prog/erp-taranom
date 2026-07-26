@@ -32,19 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending) undo bad nav revert; restore Model A + clean debug |
+| آخرین commit | `fe38338` restore Model A + clean debug after botched follow-up |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v115` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
 
 ### 2026-07-26 — اصلاح آسیب پس از sync اندروید/دسکتاپ: بازگردانی Model A + پاک‌سازی دیباگ
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `fe38338`
 - **خلاصه:** بعد از دستور «رفع‌باگ‌ها را روی اندروید/دسکتاپ هم اعمال کن»، به‌اشتباه منوی Model A به ساختار قدیمی برگردانده شد و instrumentation دیباگ در production ماند. الان: منوی مدل A (اشخاص/کالا/انبار/…) دوباره فعال، `_dbgUi` و `/api/system/debug-ingest` حذف، SW عادی `v115`، مطالبات ledger حفظ، سورس `desktop/server` و `android/.../server` دوباره از `server/` همگام (بدون ساخت apk/exe).
 - **فایل‌های کلیدی:** `acc-nav.js`, `index.html`, `sw.js`, `server.js`, `accounting.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `fe38338` — git pull + pm2 · health 200 · SW `erp-taranom-v115` · `_dbgUi=0` / `debug-ingest=0`
 
 ### 2026-07-26 — شکستن کش منوی حسابداری (acc-nav هنوز vModelA را نشان می‌داد)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
