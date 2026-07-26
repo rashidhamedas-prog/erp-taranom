@@ -41,10 +41,10 @@
 
 ### 2026-07-26 — باگ‌های UI/داشبورد/گزارش/آلبوم + فیچر پیامک/دریافت/پرداخت/مانده
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** _(پس از push)_
+- **Commit:** `175b8d6`
 - **خلاصه:** فاز۱: sticky بدون auto-`tbl-scroll` همه‌جا؛ پرداختنی تأمین‌کننده با علامت صحیح `credit−debit`؛ آلبوم کالا با fetch کامل + شمارنده LTR؛ جریان نقد مطابق `sections`؛ مطالبات با preset پیش‌فرض «همه». فاز۲: متغیرها/قوانین SMS با تأخیر و hook اتومات؛ مانده اول دوره بدهکار/بستانکار؛ دریافت سه‌حالته؛ پرداخت به حساب (کل→تفصیلی). SW `v119`.
 - **فایل‌های کلیدی:** `index.html`, `sw.js`, `accounting.js`, `products.js`, `sms-module.js`, `sms-dispatch.js`, `tables.js`, `capture.js`, `db.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `feef58d` — git stash drift + pull + pm2 · health 200 · SW `erp-taranom-v119`
 
 ### 2026-07-26 — کارت «جمع بدهکاران» مانده کامل (نه ۱۶ از 15.6B)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
