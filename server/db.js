@@ -15,8 +15,22 @@ let db;
 const SYNC_ROLE = process.env.SYNC_ROLE === 'device' ? 'device' : 'central';
 function isDevice() { return SYNC_ROLE === 'device'; }
 
+function applyConnectionPragmas(database) {
+  // Per-connection: must run on every new SQLite handle (WAL/FK are not sticky across opens).
+  database.pragma('journal_mode = WAL');
+  database.pragma('synchronous = NORMAL');
+  database.pragma('cache_size = -64000');
+  database.pragma('temp_store = MEMORY');
+  database.pragma('foreign_keys = ON');
+  try { database.pragma('mmap_size = 268435456'); } catch { /* optional on some builds */ }
+}
+
 function getDB() {
-  if (!db) db = new Database(DB_PATH);
+  if (!db) {
+    // timeout: wait on SQLITE_BUSY instead of failing instantly (device sync + UI reads).
+    db = new Database(DB_PATH, { timeout: 5000 });
+    applyConnectionPragmas(db);
+  }
   return db;
 }
 
@@ -140,14 +154,9 @@ function seedWarehouseStock(db) {
 
 function initDB() {
   const db = getDB();
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('cache_size = -64000');
-  db.pragma('temp_store = MEMORY');
-  try { db.pragma('mmap_size = 268435456'); } catch { /* optional */ }
+  // Pragmas already applied in getDB(); keep FK ON explicit before schema DDL.
+  db.pragma('foreign_keys = ON');
   db.exec(`
-    PRAGMA foreign_keys=ON;
-
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,

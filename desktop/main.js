@@ -57,6 +57,8 @@ async function startEmbeddedServer() {
   process.env.APP_PLATFORM = 'desktop';
   process.env.APP_VERSION = pkg.version || '1.0.8';
   process.env.PORT = String(port);
+  // Bind embedded Express only on loopback (port probe already uses 127.0.0.1).
+  process.env.LISTEN_HOST = '127.0.0.1';
   process.env.DB_PATH = path.join(dataDir, 'crm.db');
   process.env.UPLOADS_DIR = path.join(dataDir, 'uploads');
   process.env.JWT_SECRET = getOrCreateSecret(dataDir);
@@ -259,3 +261,19 @@ app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => app.quit());
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+
+// Keep Electron shell alive on unexpected Node errors (same posture as Android nodejs-mobile).
+process.on('uncaughtException', (err) => {
+  const msg = err && err.stack ? err.stack : String(err);
+  console.error('FATAL uncaughtException:', msg);
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showErrorBox('ERP ترنم', 'خطای داخلی غیرمنتظره:\n' + (err && err.message ? err.message : String(err)));
+    }
+  } catch { /* ignore UI failures during fatal path */ }
+});
+
+process.on('unhandledRejection', (reason) => {
+  const msg = reason && reason.stack ? reason.stack : String(reason);
+  console.error('FATAL unhandledRejection:', msg);
+});

@@ -3,36 +3,53 @@
 
 const RIAL_PER_TOMAN = 10;
 
+/** Reject values that cannot be represented exactly as a JS integer (avoids silent money corruption). */
+function assertSafeRial(n, label) {
+  if (!Number.isFinite(n)) {
+    throw new Error(`مقدار پولی نامعتبر${label ? ` (${label})` : ''}`);
+  }
+  const rounded = Math.round(n);
+  if (!Number.isSafeInteger(rounded)) {
+    throw new Error(
+      `مقدار پولی خارج از محدوده امن JavaScript است${label ? ` (${label})` : ''}: ${rounded}`
+    );
+  }
+  return rounded;
+}
+
 function tomanToRial(v) {
   if (v == null || v === '') return 0;
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
-  return Math.round(n * RIAL_PER_TOMAN);
+  return assertSafeRial(n * RIAL_PER_TOMAN, 'tomanToRial');
 }
 
 function rialToToman(v) {
   if (v == null || v === '') return 0;
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
+  assertSafeRial(n, 'rialToToman');
   return n / RIAL_PER_TOMAN;
 }
 
 /** Convert rial amount to postToLedger toman input. */
 function rialToLedger(v) {
-  return (Number(v) || 0) / RIAL_PER_TOMAN;
+  const n = Number(v) || 0;
+  if (n) assertSafeRial(n, 'rialToLedger');
+  return n / RIAL_PER_TOMAN;
 }
 
 /** Read journal line amount in rial (prefer debit_rial; fallback debit after migration). */
 function jlDebitRial(l) {
   const r = Number(l?.debit_rial);
-  if (r) return Math.round(r);
-  return Math.round(Number(l?.debit) || 0);
+  if (r) return assertSafeRial(r, 'jlDebitRial');
+  return assertSafeRial(Number(l?.debit) || 0, 'jlDebitRial');
 }
 
 function jlCreditRial(l) {
   const r = Number(l?.credit_rial);
-  if (r) return Math.round(r);
-  return Math.round(Number(l?.credit) || 0);
+  if (r) return assertSafeRial(r, 'jlCreditRial');
+  return assertSafeRial(Number(l?.credit) || 0, 'jlCreditRial');
 }
 
 /** SQL expr: journal line debit/credit in rial */
@@ -65,7 +82,7 @@ function migrateRealToRial(db, table, realCol, rialCol) {
 }
 
 module.exports = {
-  RIAL_PER_TOMAN, tomanToRial, rialToToman, rialToLedger,
+  RIAL_PER_TOMAN, assertSafeRial, tomanToRial, rialToToman, rialToLedger,
   jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL,
   withTomanDisplay, migrateRealToRial,
 };

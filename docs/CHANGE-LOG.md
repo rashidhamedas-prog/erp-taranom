@@ -32,12 +32,20 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `429ecdb` + hotfix APK روی VPS |
+| آخرین commit | hardening SQLite/desktop/money (پس از این ورودی) |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.8`** / SW `erp-taranom-v110` |
 | اندروید | **`2.0.30`** — فایل انتشار `erp-taranom.apk` (+ سازگاری `crm-taranom.apk`) |
-| وضعیت سرور | ✅ verified |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
+
+### 2026-07-26 — Hardening امن: SQLite timeout/PRAGMA + دسکتاپ loopback + گارد پول
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:** بدون بازنویسی موتور سینک/UUID/rename DB. `getDB()` با `timeout:5000` و PRAGMAهای WAL/FK روی هر open؛ دسکتاپ `LISTEN_HOST=127.0.0.1` + handlers خطای Node؛ `assertSafeRial` در `money.js` برای جلوگیری از فساد خاموش اعداد بزرگ. SW/compression/سینک/tbl-enhance عمداً بدون تغییر (از قبل درست بودند).
+- **فایل‌های کلیدی:** `server/db.js`, `server/lib/money.js`, `desktop/main.js`
+- **Deploy:** ⏳
+- **یادداشت:** پیشنهادهای مخرب پلن audit (sync_log، UUID PK، `safeIntegers` سراسری، `global.gc`) اجرا نشدند.
 
 ### 2026-07-26 — تأیید سرور + رفع APK گم‌شده پس از rename
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
