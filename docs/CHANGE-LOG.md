@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | UI fixes balances/sticky/receivables/parties/dash/kardex |
+| آخرین commit | `80e7fd1` UI balances/sticky/receivables/parties/dash/kardex |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.8`** / SW `erp-taranom-v111` |
 | اندروید | **`2.0.30`** — فایل انتشار `erp-taranom.apk` (+ سازگاری `crm-taranom.apk`) |
 | وضعیت سرور | ✅ |
@@ -41,10 +41,10 @@
 
 ### 2026-07-26 — رفع UI: مانده بستانکار، فریز جدول، مطالبات، اشخاص، داشبورد، کاردکس
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `80e7fd1`
 - **خلاصه:** ماهیت مانده از علامت ledger (سبز/قرمز)؛ sticky با `border-separate` + `tbl-scroll` برای کدینگ؛ مطالبات as-of تا تاریخ پایان (نه فقط فاکتور داخل ماه)؛ اشخاص بدهکار/بستانکار + جمع درست؛ اعداد کارت داشبورد بدون ellipsis؛ کاردکس با `CACHE.products=[]` خالی دیگر گیر نمی‌کند. SW `v111`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `sw.js`, `server/routes/accounting.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `80e7fd1` — git pull + pm2 · health 200 · SW `erp-taranom-v111`
 
 ### 2026-07-26 — Hardening امن: SQLite timeout/PRAGMA + دسکتاپ loopback + گارد پول
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
