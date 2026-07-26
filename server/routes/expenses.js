@@ -150,7 +150,7 @@ router.get('/overhead-pool', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const from = req.query.from || '';
   const to = req.query.to || '';
-  const where = ["is_overhead=1"], params = [];
+  const where = ["is_overhead=1", "COALESCE(status,'posted')<>'reversed'"], params = [];
   if (from) { where.push('date>=?'); params.push(from); }
   if (to) { where.push('date<=?'); params.push(to); }
   const tagged = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM expense_payments WHERE ${where.join(' AND ')}`).get(...params).s;
@@ -192,6 +192,12 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
         { code: acc.code, name: acc.name, debit: 0, credit: rialToLedger(row.amount) }
       ]
     });
+    try {
+      db.prepare(`
+        UPDATE journal_entries SET status='reversed'
+        WHERE ref_type='expense_payment' AND ref_id=? AND COALESCE(deleted_at,0)=0 AND id<>?
+      `).run(row.id, reversalId);
+    } catch (_) {}
     db.prepare("UPDATE expense_payments SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(reversalId, req.user.id, row.id);
   })();

@@ -67,6 +67,7 @@ function resolveSettlementFx(db, opts) {
 const { getDB, audit, createLedgerEntry, createPersonLedgerEntry, backfillAccounting, resolveCashAccount } = require('../db');
 const { recordCommissionAccrual, recordSettlementCommissionAccrual, reverseCommissionAccrual } = require('../lib/rep-ledger');
 const { reverseSettlementInTx } = require('../lib/void-settlement');
+const { reverseJournalEntry } = require('../lib/void-journal');
 const { voidInvoiceFully, notifyInvoiceCancelled, saveCancelImage } = require('../lib/void-invoice');
 const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
 const multer = require('multer');
@@ -936,8 +937,16 @@ router.get('/journal', auth, adminOrAccounting, (req, res) => {
   const where = [], params = [];
   if (from) { where.push('je.entry_date >= ?'); params.push(from); }
   if (to)   { where.push('je.entry_date <= ?'); params.push(to); }
-  if (ref_type) { where.push('je.ref_type = ?'); params.push(ref_type); }
+  if (ref_type) {
+    const types = String(ref_type).split(',').map(s => s.trim()).filter(Boolean);
+    if (types.length === 1) { where.push('je.ref_type = ?'); params.push(types[0]); }
+    else if (types.length > 1) {
+      where.push(`je.ref_type IN (${types.map(() => '?').join(',')})`);
+      params.push(...types);
+    }
+  }
   where.push('COALESCE(je.deleted_at,0)=0');
+  where.push("COALESCE(je.status,'posted')<>'reversed'");
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const total = db.prepare(`SELECT COUNT(*) c FROM journal_entries je ${whereSql}`).get(...params).c;
   const entries = db.prepare(`
@@ -1472,35 +1481,37 @@ router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => 
   res.json({ id: entryId, ok: true });
 });
 
+const VOIDABLE_VOUCHER_TYPES = new Set(['manual_voucher', 'account_payment', 'account_receipt']);
+
 router.delete('/vouchers/:id', auth, adminOrAccounting, requirePermission('accounting', 'delete'), (req, res) => {
   const db = getDB();
-  const entry = db.prepare("SELECT * FROM journal_entries WHERE id=? AND ref_type='manual_voucher' AND COALESCE(deleted_at,0)=0").get(req.params.id);
-  if (!entry) return res.status(404).json({ error: 'سند دستی یافت نشد' });
+  const entry = db.prepare(`
+    SELECT * FROM journal_entries
+    WHERE id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted')<>'reversed'
+  `).get(req.params.id);
+  if (!entry || !VOIDABLE_VOUCHER_TYPES.has(entry.ref_type)) {
+    return res.status(404).json({ error: 'سند قابل ابطال یافت نشد' });
+  }
   db.transaction(() => {
-    const lines = db.prepare('SELECT * FROM journal_lines WHERE entry_id=? ORDER BY id').all(req.params.id);
-    if (!lines.length) throw new Error('سند فاقد ردیف حسابداری است');
-    postToLedger(db, {
-      sourceType: 'manual_voucher_reversal', sourceId: Number(req.params.id), date: todayJalali(),
-      description: `ابطال سند دستی #${req.params.id}`, createdBy: req.user.id,
-      lines: lines.map(l => ({
-        code: l.account_code, name: l.account_name,
-        debit: rialToLedger(jlCreditRial(l)), credit: rialToLedger(jlDebitRial(l)),
-        description: `معکوس: ${l.description || ''}`, detail_account_id: l.detail_account_id || null,
-        cost_center_id: l.cost_center_id || null, project_id: l.project_id || null, tax_type: l.tax_type || null,
-      })),
+    reverseJournalEntry(db, entry.id, {
+      userId: req.user.id,
+      reason: entry.ref_type === 'manual_voucher' ? 'ابطال سند دستی'
+        : entry.ref_type === 'account_payment' ? 'ابطال پرداخت به حساب'
+        : 'ابطال دریافت از حساب',
+      sourceType: entry.ref_type + '_reversal',
     });
-    const personRows = db.prepare("SELECT * FROM person_ledger WHERE ref_type='manual_voucher' AND ref_id=?").all(req.params.id);
-    for (const p of personRows) {
-      createPersonLedgerEntry(db, {
-        person_id: p.person_id, date: todayJalali(), entry_type: 'reversal',
-        ref_type: 'manual_voucher_reversal', ref_id: Number(req.params.id),
-        description: `ابطال ${p.description || 'سند دستی'}`, debit: p.credit, credit: p.debit, user_id: req.user.id,
-      });
+    if (entry.ref_type === 'manual_voucher') {
+      const personRows = db.prepare("SELECT * FROM person_ledger WHERE ref_type='manual_voucher' AND ref_id=?").all(req.params.id);
+      for (const p of personRows) {
+        createPersonLedgerEntry(db, {
+          person_id: p.person_id, date: todayJalali(), entry_type: 'reversal',
+          ref_type: 'manual_voucher_reversal', ref_id: Number(req.params.id),
+          description: `ابطال ${p.description || 'سند دستی'}`, debit: p.credit, credit: p.debit, user_id: req.user.id,
+        });
+      }
     }
-    db.prepare("UPDATE journal_entries SET status='reversed',deleted_at=strftime('%s','now'),deleted_by=? WHERE id=?")
-      .run(req.user.id, req.params.id);
   })();
-  audit(req.user.id, 'reverse', 'journal_voucher', req.params.id, 'ابطال سند دستی');
+  audit(req.user.id, 'reverse', entry.ref_type, req.params.id, `ابطال ${entry.ref_type} #${req.params.id}`);
   res.json({ ok: true });
 });
 

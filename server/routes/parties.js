@@ -356,10 +356,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
               reason: 'تغییر مانده اول دوره',
               sourceType: 'opening_balance_reversal',
             });
-            db.prepare("UPDATE journal_entries SET deleted_at=strftime('%s','now'), deleted_by=? WHERE id=?").run(req.user.id, oldJe.id);
-          } catch (_) {
-            db.prepare("UPDATE journal_entries SET deleted_at=strftime('%s','now'), deleted_by=? WHERE id=?").run(req.user.id, oldJe.id);
-          }
+          } catch (_) {}
         }
         if (openRial) {
           const { postPartyOpeningBalance } = require('../lib/opening-post');
@@ -386,7 +383,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const row = db.prepare('SELECT * FROM parties WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   // Soft-delete party + cascade remove linked CRM customer/supplier + followups (R8)
-  const result = db.transaction(() => deactivatePartyCascade(db, req.params.id))();
+  const result = db.transaction(() => deactivatePartyCascade(db, req.params.id, { userId: req.user.id }))();
   audit(req.user.id, 'delete', 'party', req.params.id, `soft+cascade cust=${(result.customers||[]).join(',')}`);
   res.json({ success: true, message: 'غیرفعال شد', cascaded: result });
 });

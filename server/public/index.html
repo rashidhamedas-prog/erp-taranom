@@ -5585,7 +5585,8 @@ async function stkOpenDetail(id){
       <span class="muted">تاریخ: ${escDate(s.date)} — مسئول: ${esc(s.responsible_name||'-')}</span>
       ${editable?`<button class="btn sm" onclick="stkSaveItems(${s.id})">💾 ذخیره شمارش</button>
         <button class="btn sm blue" onclick="stkComplete(${s.id})">✅ تکمیل</button>
-        <button class="btn sm green" onclick="stkApply(${s.id})">📦 تأیید و اعمال اصلاحات</button>`:''}
+        <button class="btn sm green" onclick="stkApply(${s.id})">📦 تأیید و اعمال اصلاحات</button>`:
+        `<button class="btn sm orange" onclick="stkVoidApply(${s.id})">⛔ ابطال اعمال</button>`}
     </div>
     <div class="panel"><div class="panel-head"><h4>اقلام انبارگردانی #${s.id} (${items.length} قلم) — سه شمارش + تگ</h4>
       <span class="muted">جمع اختلاف (بر اساس شمارش تأییدشده): <b style="color:${varianceTotal>0?'var(--green)':varianceTotal<0?'var(--red)':'inherit'}">${varianceTotal>0?'+':''}${fmt(varianceTotal)}</b></span>
@@ -5668,10 +5669,17 @@ async function stkComplete(id){
   try{ await api('POST','/stocktaking/'+id+'/complete'); showToast('تکمیل شد'); stkOpenDetail(id); }catch(e){}
 }
 async function stkApply(id){
-  if(!confirm('اصلاحات موجودی اعمال شود؟ این عمل برگشت‌پذیر نیست.')) return;
+  if(!confirm('اصلاحات موجودی اعمال شود؟ در صورت نیاز بعداً می‌توانید ابطال کنید.')) return;
   try{
     await api('POST','/stocktaking/'+id+'/apply');
     showToast('اصلاحات اعمال شد'); CACHE.allProducts=[]; CACHE.products=[]; _stkDetailId=id; stkOpenDetail(id);
+  }catch(e){}
+}
+async function stkVoidApply(id){
+  if(!confirm('اعمال انبارگردانی ابطال شود؟ موجودی و سند حسابداری معکوس می‌شوند.')) return;
+  try{
+    await api('POST','/stocktaking/'+id+'/void');
+    showToast('اعمال ابطال شد'); CACHE.allProducts=[]; CACHE.products=[]; _stkDetailId=id; stkOpenDetail(id);
   }catch(e){}
 }
 async function stkDelete(id){
@@ -10179,6 +10187,7 @@ async function renderPayrollTab(body){
       <td style="white-space:nowrap">
         ${!r.paid&&r.status!=='reversed'?`<button class="btn sm green" onclick="payrollPayModal(${r.id},'${esc(r.person_name||'')}',${r.net_pay_rial||r.net_pay||0})">${lucide('wallet')} پرداخت</button>
         <button class="btn sm red" onclick="deletePayrollRecord(${r.id})">${lucide('repeat')} ابطال</button>`:''}
+        ${r.paid&&r.status!=='reversed'?`<button class="btn sm orange" onclick="voidPayrollPayment(${r.id})">⛔ ابطال پرداخت</button>`:''}
       </td>
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
@@ -10580,8 +10589,12 @@ async function savePayrollPayment(id){
   }catch(e){}
 }
 async function deletePayrollRecord(id){
-  if(!confirm('این رکورد حقوق حذف شود؟')) return;
-  try{ await api('DELETE','/payroll/'+id); showToast('حذف شد'); loadAccTab('payroll'); }catch(e){}
+  if(!confirm('این رکورد حقوق ابطال شود؟ سند معکوس ثبت می‌شود.')) return;
+  try{ await api('DELETE','/payroll/'+id); showToast('ابطال شد'); loadAccTab('payroll'); }catch(e){}
+}
+async function voidPayrollPayment(id){
+  if(!confirm('پرداخت این حقوق ابطال شود؟ سند پرداخت معکوس می‌شود و رکورد دوباره قابل پرداخت/ابطال می‌شود.')) return;
+  try{ await api('POST','/payroll/'+id+'/void-payment'); showToast('پرداخت ابطال شد'); loadAccTab('payroll'); }catch(e){}
 }
 
 let FARANKENOU_PREVIEW = null;
@@ -11062,9 +11075,10 @@ async function deleteSalesReturn(id){
 ============================================================ */
 async function renderVouchersTab(body){
   const [d,drafts]=await Promise.all([
-    api('GET','/accounting/journal?ref_type=manual_voucher')||{entries:[]},
+    api('GET','/accounting/journal?ref_type=manual_voucher,account_payment,account_receipt')||{entries:[]},
     api('GET','/accounting/vouchers/drafts')||[]
   ]);
+  const typeLabel={manual_voucher:'سند دستی',account_payment:'پرداخت به حساب',account_receipt:'دریافت از حساب'};
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px">
       <button class="btn" onclick="voucherModal()">➕ سند دستی جدید</button>
@@ -11082,17 +11096,17 @@ async function renderVouchersTab(body){
         </td>
       </tr>`).join('')}</tbody></table></div>
     </div>`:''}
-    <div class="muted" style="margin-bottom:10px;font-size:12px">${d.total||0} سند دستی ثبت شده</div>
+    <div class="muted" style="margin-bottom:10px;font-size:12px">${d.total||0} سند (دستی / پرداخت به حساب / دریافت از حساب)</div>
     ${(d.entries||[]).map(e=>`
       <div style="border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden">
         <div style="background:var(--purple-light);padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-size:12px">
-          <span style="font-weight:700">📝 <span class="mono">${esc(e.entry_date||'-')}</span> — ${esc(e.description||'-')}</span>
+          <span style="font-weight:700">📝 <span class="tag" style="margin-left:6px">${esc(typeLabel[e.ref_type]||e.ref_type||'سند')}</span> <span class="mono">${esc(e.entry_date||'-')}</span> — ${esc(e.description||'-')}</span>
           <span style="display:flex;align-items:center;gap:8px">
             ${journalOriginBadgeHtml(e)}
             <span class="muted">${esc(e.created_by_name||'-')}</span>
             ${e.attachment?`<a href="/uploads/vouchers/${esc(e.attachment)}" target="_blank" class="btn sm blue icon" title="مشاهده پیوست">📎</a>`:''}
-            <button class="btn sm ghost icon" title="افزودن/تعویض پیوست" onclick="uploadVoucherAttachment(${e.id})">📎</button>
-            <button class="btn sm red icon" onclick="deleteVoucher(${e.id})">🗑️</button>
+            ${e.ref_type==='manual_voucher'?`<button class="btn sm ghost icon" title="افزودن/تعویض پیوست" onclick="uploadVoucherAttachment(${e.id})">📎</button>`:''}
+            <button class="btn sm red icon" onclick="deleteVoucher(${e.id})" title="ابطال کامل">⛔ ابطال</button>
           </span>
         </div>
         <table class="tbl" style="font-size:12px;margin:0"><thead><tr><th>کد حساب</th><th>نام حساب</th><th>بدهکار (ریال)</th><th>بستانکار (ریال)</th></tr></thead>
@@ -11101,7 +11115,7 @@ async function renderVouchersTab(body){
           <td class="mono" style="color:var(--orange)">${(l.debit_rial||l.debit)>0?fmt(l.debit_rial||l.debit):'-'}</td>
           <td class="mono" style="color:var(--green)">${(l.credit_rial||l.credit)>0?fmt(l.credit_rial||l.credit):'-'}</td>
         </tr>`).join('')}</tbody></table>
-      </div>`).join('')||'<div class="empty">سند دستی ثبت نشده</div>'}`;
+      </div>`).join('')||'<div class="empty">سندی ثبت نشده</div>'}`;
 }
 let voucherLines=[];
 function accountOptions(selectedCode){
@@ -11304,8 +11318,8 @@ async function uploadVoucherAttachment(id){
   inp.click();
 }
 async function deleteVoucher(id){
-  if(!confirm('این سند حذف شود؟')) return;
-  try{ await api('DELETE','/accounting/vouchers/'+id); showToast('حذف شد'); loadAccTab('vouchers'); }catch(e){}
+  if(!confirm('این سند ابطال شود؟ سند معکوس ثبت می‌شود و همه اثرهای حسابداری برمی‌گردد.')) return;
+  try{ await api('DELETE','/accounting/vouchers/'+id); showToast('ابطال شد'); loadAccTab('vouchers'); }catch(e){}
 }
 
 /* ============================================================
@@ -12767,6 +12781,7 @@ async function renderBanksTab(body){
       <td style="white-space:nowrap">
         <button class="btn sm ghost" onclick="bankModal(${b.id})">✏️</button>
         <button class="btn sm blue" onclick="viewBankLedger(${b.id})">📒 دفتر کل</button>
+        ${b.opening_balance_je_id?`<button class="btn sm orange" onclick="voidBankOpening(${b.id})" title="ابطال موجودی اول دوره">⛔ افتتاحیه</button>`:''}
         <button class="btn sm red" onclick="deleteBank(${b.id})">🗑️</button>
       </td>
     </tr>`).join('')||emptyRow(7)}</tbody></table></div>
@@ -12820,8 +12835,12 @@ async function saveBank(id){
   }catch(e){}
 }
 async function deleteBank(id){
-  if(!confirm('این بانک حذف شود؟')) return;
+  if(!confirm('این بانک حذف شود؟ در صورت وجود سند افتتاحیه، ابتدا معکوس می‌شود.')) return;
   try{ await api('DELETE','/banks/'+id); showToast('حذف شد'); loadAccTab('banks'); }catch(e){}
+}
+async function voidBankOpening(id){
+  if(!confirm('سند موجودی اول دوره این بانک ابطال شود؟')) return;
+  try{ await api('POST','/banks/'+id+'/void-opening'); showToast('افتتاحیه ابطال شد'); loadAccTab('banks'); }catch(e){}
 }
 function viewBankLedger(id){
   const b=(CACHE.banks||[]).find(x=>x.id===id);
@@ -12922,6 +12941,7 @@ async function renderCashBoxesTab(body){
       <td style="white-space:nowrap">
         <button class="btn sm ghost" onclick="cashBoxModal(${b.id})">✏️</button>
         <button class="btn sm blue" onclick="viewCashBoxLedger(${b.id})">📒 دفتر کل</button>
+        ${b.opening_balance_je_id?`<button class="btn sm orange" onclick="voidCashOpening(${b.id})" title="ابطال موجودی اول دوره">⛔ افتتاحیه</button>`:''}
         <button class="btn sm red" onclick="deleteCashBox(${b.id})">🗑️</button>
       </td>
     </tr>`).join('')||emptyRow(6)}</tbody></table></div>
@@ -12965,8 +12985,12 @@ async function saveCashBox(id){
   }catch(e){}
 }
 async function deleteCashBox(id){
-  if(!confirm('این صندوق حذف شود؟')) return;
+  if(!confirm('این صندوق حذف شود؟ در صورت وجود سند افتتاحیه، ابتدا معکوس می‌شود.')) return;
   try{ await api('DELETE','/cash-boxes/'+id); showToast('حذف شد'); loadAccTab('cash-boxes'); }catch(e){}
+}
+async function voidCashOpening(id){
+  if(!confirm('سند موجودی اول دوره این صندوق ابطال شود؟')) return;
+  try{ await api('POST','/cash-boxes/'+id+'/void-opening'); showToast('افتتاحیه ابطال شد'); loadAccTab('cash-boxes'); }catch(e){}
 }
 function viewCashBoxLedger(id){
   const b=(CACHE.cashBoxes||[]).find(x=>x.id===id);
@@ -17225,7 +17249,8 @@ function renderAdminGuide(){
         <li><b>دفتر چک</b>: واگذاری/وصول/برگشت + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: پیگیری کالاهایی که مالکیتشان هنوز نهایی نشده — <b>ارسالی</b> (کالای ما نزد دیگران، بلافاصله از موجودی کسر می‌شود) و <b>دریافتی</b> (کالای دیگران نزد ما، به موجودی خودمان اضافه نمی‌شود). با «تسویه» فروش قطعی می‌شود (فاکتور/پرداخت واقعی را جداگانه ثبت کنید) و با «استرداد» کالای ارسالی به موجودی برمی‌گردد</li>
-        <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده</li>
+        <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
+        <li><b>ابطال کامل (R13)</b>: برای فاکتور فروش/خرید، تسویه، هزینه، انتقال وجه، چک، عملیات انبار، انبارگردانی اعمال‌شده، پرداخت حقوق، افتتاحیه بانک/صندوق و اسناد دستی — ابطال = سند معکوس + برگرداندن موجودی/مانده/وابستگی‌ها (حذف فیزیکی سند ثبت‌شده نیست)</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب و مشاهده گردش با مانده لحظه‌ای</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص</li>

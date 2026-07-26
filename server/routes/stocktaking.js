@@ -2,7 +2,7 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
-const { applyCycleCount } = require('../lib/inventory/cycle-count');
+const { applyCycleCount, voidCycleCount } = require('../lib/inventory/cycle-count');
 const { round3, parseQty } = require('../lib/round3');
 
 function productsForWarehouse(db, warehouseId) {
@@ -176,11 +176,24 @@ router.post('/:id/apply', auth, adminOrAccounting, (req, res) => {
   }
 });
 
+router.post('/:id/void', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const result = voidCycleCount(db, +req.params.id, { createdBy: req.user.id });
+    audit(req.user.id, 'reverse', 'stocktaking', req.params.id, 'ابطال اعمال انبارگردانی');
+    res.json(result);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const session = db.prepare('SELECT * FROM stocktaking_sessions WHERE id=?').get(req.params.id);
   if (!session) return res.status(404).json({ error: 'یافت نشد' });
-  if (session.status === 'adjusted') return res.status(400).json({ error: 'انبارگردانی اعمال‌شده قابل حذف نیست' });
+  if (session.status === 'adjusted') {
+    return res.status(400).json({ error: 'انبارگردانی اعمال‌شده را ابتدا ابطال کنید، سپس حذف کنید' });
+  }
   db.prepare('DELETE FROM stocktaking_items WHERE session_id=?').run(session.id);
   db.prepare('DELETE FROM stocktaking_sessions WHERE id=?').run(session.id);
   audit(req.user.id, 'delete', 'stocktaking', session.id, 'حذف انبارگردانی');

@@ -5,6 +5,7 @@ const { auth, adminOrAccounting } = require('../middleware/auth');
 const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
 const { todayJalali } = require('../jalali');
+const { reverseJournalEntry } = require('../lib/void-journal');
 
 // Unrestricted bank management — no limit on how many banks can be created.
 // Every bank is simultaneously a real chart-of-accounts ledger row (see
@@ -55,7 +56,6 @@ router.get('/balances', auth, adminOrAccounting, (req, res) => {
         JOIN journal_entries je ON je.id = jl.entry_id
         WHERE jl.account_code = COALESCE(NULLIF(b.coa_code,''), '1102-' || b.id)
           AND COALESCE(je.deleted_at,0)=0
-          AND COALESCE(je.status,'posted') NOT IN ('reversed','void','cancelled')
       ), 0) as balance
     FROM banks b
     ORDER BY b.name
@@ -134,6 +134,23 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 
+router.post('/:id/void-opening', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM banks WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (!row.opening_balance_je_id) return res.status(400).json({ error: 'سند موجودی اول دوره برای این بانک وجود ندارد' });
+  db.transaction(() => {
+    reverseJournalEntry(db, row.opening_balance_je_id, {
+      userId: req.user.id,
+      reason: `ابطال موجودی اول دوره بانک ${row.name}`,
+      sourceType: 'bank_opening_reversal',
+    });
+    db.prepare('UPDATE banks SET opening_balance_rial=0, opening_balance_je_id=NULL WHERE id=?').run(row.id);
+  })();
+  audit(req.user.id, 'reverse', 'bank_opening', row.id, `ابطال موجودی اول دوره بانک ${row.name}`);
+  res.json({ ok: true });
+});
+
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM banks WHERE id=?').get(req.params.id);
@@ -145,10 +162,14 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     db.prepare('SELECT COUNT(*) c FROM incentive_payments WHERE bank_id=?').get(req.params.id).c +
     db.prepare('SELECT COUNT(*) c FROM check_categories WHERE bank_id=?').get(req.params.id).c;
   if (refs > 0) return res.status(400).json({ error: 'این بانک در تراکنش‌ها یا دسته‌چک‌ها استفاده شده و قابل حذف نیست — می‌توانید آن را غیرفعال کنید' });
-  if (row.opening_balance_je_id) {
-    return res.status(400).json({ error: 'این بانک سند موجودی اول دوره دارد — ابتدا سند را ابطال کنید یا بانک را غیرفعال کنید' });
-  }
   db.transaction(() => {
+    if (row.opening_balance_je_id) {
+      reverseJournalEntry(db, row.opening_balance_je_id, {
+        userId: req.user.id,
+        reason: `ابطال موجودی اول دوره بانک ${row.name} (حذف بانک)`,
+        sourceType: 'bank_opening_reversal',
+      });
+    }
     db.prepare('DELETE FROM banks WHERE id=?').run(req.params.id);
     if (row.coa_code) releaseTafsili(db, row.coa_code);
     try { db.prepare('DELETE FROM chart_of_accounts WHERE code=?').run('1102-' + row.id); } catch (_) { /* legacy */ }

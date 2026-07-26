@@ -447,7 +447,12 @@ router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
       supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'supplier_payment', ref_id: row.id,
       description: `ابطال پرداخت #${row.id}`, debit: 0, credit: row.amount, user_id: req.user.id
     });
-    const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
+    let cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
+    const overrideCode = String(row.account_code || '').trim();
+    if (overrideCode) {
+      const acctRow = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(overrideCode);
+      if (acctRow) cash = { code: acctRow.code, name: acctRow.name };
+    }
     const reversalId = postToLedger(db, {
       sourceType: 'supplier_payment_reversal', sourceId: row.id,
       date: todayJalali(), description: `ابطال پرداخت به تأمین‌کننده #${row.id}`, createdBy: req.user.id,
@@ -456,6 +461,12 @@ router.delete('/payments/:id', auth, adminOrAccounting, (req, res) => {
         (()=>{const a=payableAcct(db, row.supplier_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(row.amount) };})()
       ]
     });
+    try {
+      db.prepare(`
+        UPDATE journal_entries SET status='reversed'
+        WHERE ref_type='supplier_payment' AND ref_id=? AND COALESCE(deleted_at,0)=0 AND id<>?
+      `).run(row.id, reversalId);
+    } catch (_) {}
     db.prepare("UPDATE supplier_payments SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(reversalId, req.user.id, row.id);
   })();

@@ -5,6 +5,7 @@ const { auth, adminOrAccounting } = require('../middleware/auth');
 const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
 const { todayJalali } = require('../jalali');
+const { reverseJournalEntry } = require('../lib/void-journal');
 
 // Unrestricted cash box management — mirrors banks.js (opening balance + live ledger).
 
@@ -51,7 +52,6 @@ router.get('/balances', auth, adminOrAccounting, (req, res) => {
         JOIN journal_entries je ON je.id = jl.entry_id
         WHERE jl.account_code = COALESCE(NULLIF(cb.coa_code,''), '1101-' || cb.id)
           AND COALESCE(je.deleted_at,0)=0
-          AND COALESCE(je.status,'posted') NOT IN ('reversed','void','cancelled')
       ), 0) as balance
     FROM cash_boxes cb
     ORDER BY cb.name
@@ -126,6 +126,23 @@ router.get('/petty-cash/summary', auth, adminOrAccounting, (req, res) => {
   res.json({ success: true, data: rows });
 });
 
+router.post('/:id/void-opening', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (!row.opening_balance_je_id) return res.status(400).json({ error: 'سند موجودی اول دوره برای این صندوق وجود ندارد' });
+  db.transaction(() => {
+    reverseJournalEntry(db, row.opening_balance_je_id, {
+      userId: req.user.id,
+      reason: `ابطال موجودی اول دوره صندوق ${row.name}`,
+      sourceType: 'cash_opening_reversal',
+    });
+    db.prepare('UPDATE cash_boxes SET opening_balance_rial=0, opening_balance_je_id=NULL WHERE id=?').run(row.id);
+  })();
+  audit(req.user.id, 'reverse', 'cash_opening', row.id, `ابطال موجودی اول دوره صندوق ${row.name}`);
+  res.json({ ok: true });
+});
+
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM cash_boxes WHERE id=?').get(req.params.id);
@@ -138,10 +155,14 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     db.prepare('SELECT COUNT(*) c FROM expense_payments WHERE cash_box_id=?').get(req.params.id).c +
     db.prepare("SELECT COUNT(*) c FROM account_transfers WHERE (from_type='cash' AND from_id=?) OR (to_type='cash' AND to_id=?)").get(req.params.id, req.params.id).c;
   if (refs > 0) return res.status(400).json({ error: 'این صندوق در تراکنش‌ها استفاده شده و قابل حذف نیست — می‌توانید آن را غیرفعال کنید' });
-  if (row.opening_balance_je_id) {
-    return res.status(400).json({ error: 'این صندوق سند موجودی اول دوره دارد — ابتدا سند را ابطال کنید یا صندوق را غیرفعال کنید' });
-  }
   db.transaction(() => {
+    if (row.opening_balance_je_id) {
+      reverseJournalEntry(db, row.opening_balance_je_id, {
+        userId: req.user.id,
+        reason: `ابطال موجودی اول دوره صندوق ${row.name} (حذف صندوق)`,
+        sourceType: 'cash_opening_reversal',
+      });
+    }
     db.prepare('DELETE FROM cash_boxes WHERE id=?').run(req.params.id);
     if (row.coa_code) releaseTafsili(db, row.coa_code);
     try { db.prepare('DELETE FROM chart_of_accounts WHERE code=?').run('1101-' + row.id); } catch (_) {}

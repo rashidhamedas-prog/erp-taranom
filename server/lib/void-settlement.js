@@ -20,7 +20,12 @@ function recvAcct(db, custId) {
 
 function reverseSettlementInTx(db, settlement, userId) {
   if (!settlement || settlement.status === 'reversed') return null;
-  const cash = resolveCashAccount(db, settlement.pay_type, settlement.bank_id, settlement.cash_box_id);
+  let cash = resolveCashAccount(db, settlement.pay_type, settlement.bank_id, settlement.cash_box_id);
+  const overrideCode = String(settlement.account_code || '').trim();
+  if (overrideCode) {
+    const acctRow = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(overrideCode);
+    if (acctRow) cash = { code: acctRow.code, name: acctRow.name };
+  }
   createLedgerEntry(db, {
     customer_id: settlement.cust_id, date: todayJalali(), entry_type: 'reversal',
     ref_type: 'settlement', ref_id: settlement.id,
@@ -35,6 +40,14 @@ function reverseSettlementInTx(db, settlement, userId) {
       { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(settlement.amount) },
     ],
   });
+  // Mark original settlement JE(s) as reversed for document lists (both stay in TB → net zero)
+  try {
+    db.prepare(`
+      UPDATE journal_entries SET status='reversed'
+      WHERE ref_type='settlement' AND ref_id=? AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted')<>'reversed'
+        AND id<>?
+    `).run(settlement.id, reversalId);
+  } catch (_) {}
   reverseCommissionAccrual(db, 'settlement', settlement.id, userId, todayJalali());
 
   const sub = db.prepare("SELECT * FROM rep_payment_submissions WHERE settlement_id=? AND status='approved'").get(settlement.id);

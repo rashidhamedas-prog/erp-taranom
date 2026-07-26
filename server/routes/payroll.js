@@ -971,11 +971,46 @@ router.post('/:id/pay', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 
+/** Reverse payroll payment JE (R13) — restores unpaid so accrual can then be voided. */
+router.post('/:id/void-payment', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (!row.paid) return res.status(400).json({ error: 'این حقوق هنوز پرداخت نشده است' });
+  if (row.status === 'reversed') return res.status(400).json({ error: 'این رکورد قبلاً ابطال شده است' });
+  const person = db.prepare('SELECT * FROM persons WHERE id=?').get(row.person_id);
+  try {
+    db.transaction(() => {
+      const { reverseJournalEntry } = require('../lib/void-journal');
+      if (row.payment_journal_id) {
+        reverseJournalEntry(db, row.payment_journal_id, {
+          userId: req.user.id,
+          reason: `ابطال پرداخت حقوق #${row.id}`,
+          sourceType: 'payroll_payment_reversal',
+        });
+      }
+      createPersonLedgerEntry(db, {
+        person_id: row.person_id, date: todayJalali(), entry_type: 'payroll_payment_reversal',
+        ref_type: 'payroll_payment_reversal', ref_id: row.id,
+        description: `ابطال پرداخت حقوق ${row.period_label || ''}`,
+        debit: 0, credit: row.net_pay, user_id: req.user.id,
+      });
+      db.prepare(`
+        UPDATE payroll_records SET paid=0, status='posted', payment_journal_id=NULL, paid_at=NULL WHERE id=?
+      `).run(row.id);
+    })();
+    audit(req.user.id, 'reverse', 'payroll_payment', row.id, `ابطال پرداخت حقوق ${person ? person.name : ''}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (row.paid) return res.status(400).json({ error: 'حقوق پرداخت‌شده ابتدا باید با سند پرداخت معکوس اصلاح شود' });
+  if (row.paid) return res.status(400).json({ error: 'حقوق پرداخت‌شده ابتدا باید ابطال پرداخت شود' });
   if (row.status === 'reversed') return res.status(400).json({ error: 'این رکورد قبلاً ابطال شده است' });
   try {
     const reversalId = db.transaction(() => {

@@ -160,10 +160,26 @@ function releasePartyCoaIfIdle(db, partyRow) {
   } catch (_) { /* ignore */ }
 }
 
-function deactivatePartyCascade(db, partyId) {
+function deactivatePartyCascade(db, partyId, opts = {}) {
   const row = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
   if (!row) return { ok: false, reason: 'not_found' };
-  db.prepare("UPDATE parties SET is_active=0, updated_at=strftime('%s','now') WHERE id=?").run(partyId);
+  // Reverse opening-balance JE(s) so deactivate fully undoes create effects (R13)
+  try {
+    const { reverseJournalEntry } = require('./void-journal');
+    const jes = db.prepare(`
+      SELECT id FROM journal_entries
+      WHERE ref_type IN ('opening_balance','party_opening') AND ref_id=?
+        AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted')<>'reversed'
+    `).all(partyId);
+    for (const je of jes) {
+      reverseJournalEntry(db, je.id, {
+        userId: opts.userId || null,
+        reason: `غیرفعال‌سازی شخص #${partyId}`,
+        sourceType: 'opening_balance_reversal',
+      });
+    }
+  } catch (_) {}
+  db.prepare("UPDATE parties SET is_active=0, opening_balance=0, updated_at=strftime('%s','now') WHERE id=?").run(partyId);
   const custIds = linkedCustomerIds(db, partyId);
   const suppIds = linkedSupplierIds(db, partyId);
   for (const id of custIds) removeCrmCustomerSide(db, id);

@@ -5,8 +5,10 @@
  */
 const { acct } = require('../coa-map');
 const { postToLedger } = require('../ledger');
-const { postInventoryMovement, inventoryAccountForWarehouse, invErr } = require('./ledger');
+const { postInventoryMovement, reverseInventoryMovement, inventoryAccountForWarehouse, invErr } = require('./ledger');
 const { parseQty } = require('../round3');
+const { reverseJournalEntry } = require('../void-journal');
+const { todayJalali } = require('../../jalali');
 
 function applyCycleCount(db, sessionId, { createdBy } = {}) {
   const session = db.prepare('SELECT * FROM stocktaking_sessions WHERE id=?').get(sessionId);
@@ -78,7 +80,6 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
         catch { return { code: '6108', name: 'کسری و ضایعات انبار' }; }
       })();
 
-      // Ensure keys exist in coa-map via LEGACY fallback — add if missing in caller
       const lines = [];
       for (const b of lineBuckets.values()) {
         if (b.gain > 0) {
@@ -120,4 +121,48 @@ function applyCycleCount(db, sessionId, { createdBy } = {}) {
   };
 }
 
-module.exports = { applyCycleCount };
+/** Full reverse of an applied stocktaking (R13): inventory ledgers + JE + session → completed. */
+function voidCycleCount(db, sessionId, { createdBy } = {}) {
+  const session = db.prepare('SELECT * FROM stocktaking_sessions WHERE id=?').get(sessionId);
+  if (!session) throw invErr('E_STK_NOT_FOUND', 404);
+  if (session.status !== 'adjusted') {
+    const err = new Error('فقط انبارگردانی اعمال‌شده قابل ابطال است');
+    err.status = 400;
+    throw err;
+  }
+
+  db.transaction(() => {
+    const leds = db.prepare(`
+      SELECT id FROM inventory_ledger
+      WHERE source_type='stocktaking' AND source_id=? AND COALESCE(status,'posted')='posted'
+      ORDER BY id DESC
+    `).all(session.id);
+    for (const l of leds) {
+      reverseInventoryMovement(db, l.id, {
+        createdBy,
+        date: todayJalali(),
+        note: `ابطال انبارگردانی #${session.id}`,
+      });
+    }
+    if (session.je_id) {
+      reverseJournalEntry(db, session.je_id, {
+        userId: createdBy,
+        reason: `ابطال انبارگردانی #${session.id}`,
+        sourceType: 'stocktaking_reversal',
+      });
+    }
+    db.prepare(`
+      UPDATE stocktaking_items SET ledger_id=NULL, unit_cost_rial=NULL, amount_rial=NULL WHERE session_id=?
+    `).run(session.id);
+    db.prepare(`
+      UPDATE stocktaking_sessions
+      SET status='completed', je_id=NULL, total_gain_rial=0, total_loss_rial=0,
+          approved_by=NULL, approved_at=NULL
+      WHERE id=?
+    `).run(session.id);
+  })();
+
+  return { ok: true };
+}
+
+module.exports = { applyCycleCount, voidCycleCount };
