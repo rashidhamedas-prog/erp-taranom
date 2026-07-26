@@ -201,22 +201,6 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
     const invOut = (Number(r.total_invoiced) || 0) - (Number(r.total_settled) || 0);
     r.outstanding = led !== 0 ? led : invOut;
   });
-  // #region agent log
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    const pos = rows.filter(r => r.outstanding > 0).length;
-    const neg = rows.filter(r => r.outstanding < 0).length;
-    const zero = rows.filter(r => !r.outstanding).length;
-    const payload = {
-      sessionId: 'dd3668', hypothesisId: 'B', location: 'accounting.js:receivables',
-      message: 'receivables query result',
-      data: { from: sf, to: st, total: rows.length, pos, neg, zero, sample: rows.slice(0, 3).map(r => ({ id: r.id, inv: r.total_invoiced, set: r.total_settled, led: r.ledger_balance, out: r.outstanding })) },
-      timestamp: Date.now(), runId: 'post-fix'
-    };
-    fs.appendFileSync(path.join(__dirname, '..', 'debug-dd3668.log'), JSON.stringify(payload) + '\n');
-  } catch (_) {}
-  // #endregion
   res.json(rows);
 });
 

@@ -32,19 +32,26 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (pending) hard cache-bust for restored sidebar |
-| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v114` |
-| اندروید | **`2.0.31`** (versionCode 33) |
+| آخرین commit | (pending) undo bad nav revert; restore Model A + clean debug |
+| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v115` |
+| اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
 | وضعیت سرور | ⏳ |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
 
-### 2026-07-26 — شکستن کش منوی حسابداری (acc-nav هنوز vModelA را نشان می‌داد)
+### 2026-07-26 — اصلاح آسیب پس از sync اندروید/دسکتاپ: بازگردانی Model A + پاک‌سازی دیباگ
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** (پس از push)
+- **خلاصه:** بعد از دستور «رفع‌باگ‌ها را روی اندروید/دسکتاپ هم اعمال کن»، به‌اشتباه منوی Model A به ساختار قدیمی برگردانده شد و instrumentation دیباگ در production ماند. الان: منوی مدل A (اشخاص/کالا/انبار/…) دوباره فعال، `_dbgUi` و `/api/system/debug-ingest` حذف، SW عادی `v115`، مطالبات ledger حفظ، سورس `desktop/server` و `android/.../server` دوباره از `server/` همگام (بدون ساخت apk/exe).
+- **فایل‌های کلیدی:** `acc-nav.js`, `index.html`, `sw.js`, `server.js`, `accounting.js`
+- **Deploy:** ⏳
+
+### 2026-07-26 — شکستن کش منوی حسابداری (acc-nav هنوز vModelA را نشان می‌داد)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `f9e1a5f`
 - **خلاصه:** سرور منوی درست را سرو می‌کرد ولی `Cache-Control: max-age=86400` روی JS باعث ماندن نسخهٔ Model A در مرورگر می‌شد. `acc-nav`/`tbl-enhance`/… → `no-store`؛ SW `v114` همهٔ cacheها را پاک می‌کند؛ `acc-nav.js?v=77`؛ سرگروه «اطلاعات پایه» پیش‌فرض باز.
 - **فایل‌های کلیدی:** `server/server.js`, `sw.js`, `index.html`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `f9e1a5f`
 
 ### 2026-07-26 — بازگردانی سرگروه‌های منوی حسابداری (قبل از Model A)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

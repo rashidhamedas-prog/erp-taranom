@@ -1183,7 +1183,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 
 <script src="/barcode-input.js" defer></script>
 <script src="/i18n.js?v=85"></script>
-<script src="/acc-nav.js?v=77"></script>
+<script src="/acc-nav.js?v=78"></script>
 <script src="/portal-ui.js?v=75"></script>
 <script src="/mdi.js?v=77" defer></script>
 <script src="/tbl-enhance.js?v=78" defer></script>
@@ -1370,13 +1370,6 @@ async function api(method, path, data, isFormData, silent){
 /* ============================================================
    UTILITIES
 ============================================================ */
-// #region agent log
-function _dbgUi(hypothesisId, location, message, data){
-  const payload={sessionId:'dd3668',hypothesisId,location,message,data:data||{},timestamp:Date.now(),runId:'ui-audit'};
-  try{ fetch('/api/system/debug-ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{}); }catch(_){}
-  try{ fetch('http://127.0.0.1:7742/ingest/7e4f49c9-cb71-40c0-9bdb-4017dae2855d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dd3668'},body:JSON.stringify(payload)}).catch(()=>{}); }catch(_){}
-}
-// #endregion
 /* واحد پول یکپارچه برنامه: فقط ریال (قانون ثابت) */
 function currencyDisplay(){ return 'rial'; }
 function currencyUnit(){ return 'ریال'; }
@@ -2346,13 +2339,7 @@ const NAV_ACCOUNTING = [
 // as a real, working nav entry (not nested tabs). ----
 // ---- Accounting module nav: see /acc-nav.js (ACC_NAV_SECTIONS) ----
 const ACC_NAV = accNavFlat();
-// Keep همه سرگروه‌ها بسته به‌جز «اطلاعات پایه» تا تفاوت ساختار بلافاصله دیده شود
-const ACC_NAV_COLLAPSED = new Set(
-  ACC_NAV_SECTIONS.map((_, i) => i).filter((i) => {
-    const t = ACC_NAV_SECTIONS[i] && ACC_NAV_SECTIONS[i].title;
-    return t !== 'اطلاعات پایه' && t !== 'صفحه اصلی';
-  })
-);
+const ACC_NAV_COLLAPSED = new Set(ACC_NAV_SECTIONS.map((_, i) => i));
 function toggleAccNavSection(si){
   if(ACC_NAV_COLLAPSED.has(si)) ACC_NAV_COLLAPSED.delete(si); else ACC_NAV_COLLAPSED.add(si);
   buildNav();
@@ -3450,9 +3437,6 @@ async function renderDashContent(){
     window._adminBalRows = (balances||[]);
     const balRows = window._adminBalRows;
     const balT = balTotals(balRows);
-    // #region agent log
-    _dbgUi('A','dash:admin','dashboard balances',{debit:balT.debit,credit:balT.credit,rows:balRows.length,negSample:balRows.filter(c=>(Number(c.balance)||0)<0).slice(0,5).map(c=>({id:c.id,bal:c.balance,nat:natureLabelOf(c),grp:c.nature||c.group_nature||null})),posSample:balRows.filter(c=>(Number(c.balance)||0)>0).slice(0,3).map(c=>({id:c.id,bal:c.balance,nat:natureLabelOf(c)})),statDebit:fmtStatMoney(balT.debit),statCredit:fmtStatMoney(balT.credit),sw:navigator.serviceWorker&&navigator.serviceWorker.controller?true:false});
-    // #endregion
     const pending = window._pendingActions || [];
     body.innerHTML = `
       ${pending.length?`<div class="panel"><div class="panel-head"><h4>اقدامات در انتظار (${fmt(pending.length)})</h4>
@@ -3683,14 +3667,6 @@ function renderCustTable(){
   const allChecked = allIds.length>0 && allIds.every(id=>custSelected.has(id));
   const colCount = isAdm ? 14 : 13;
   const balT = balTotals(rows);
-  // #region agent log
-  const mismatch=rows.filter(c=>{
-    const s=balSides(c.balance); const n=natureLabelOf(c);
-    const grp=c.account_nature||c.group_nature||'';
-    return (s.credit>0 && n!=='بستانکار')||(s.debit>0 && n!=='بدهکار')||(grp==='credit' && s.debit>0)||(grp==='debit' && s.credit>0);
-  }).slice(0,8).map(c=>({id:c.id,bal:c.balance,label:natureLabelOf(c),grp:c.account_nature||c.group_nature||'',sides:balSides(c.balance)}));
-  _dbgUi('A','customers:renderCustTable','customer balance sides',{count:rows.length,debit:balT.debit,credit:balT.credit,negCount:rows.filter(c=>(Number(c.balance)||0)<0).length,posCount:rows.filter(c=>(Number(c.balance)||0)>0).length,mismatch});
-  // #endregion
   el('custTable').innerHTML = `<table class="tbl" data-bulk-delete="0"><thead><tr>
     <th class="no-sort" style="width:36px"><input type="checkbox" ${allChecked?'checked':''} onchange="toggleAllCust(this,${JSON.stringify(allIds)})"></th>
     <th>نام کامل</th><th>نام فروشگاه</th><th>موبایل</th><th class="no-sort">عملیات</th><th>شهر</th><th>آدرس</th><th>نوع</th><th>وضعیت</th><th>ماهیت مانده</th>
@@ -3958,9 +3934,6 @@ function renderAccReceivablesBody(body){
   const allRows=_accRecvCache[viewMode]||[];
   const rows=accHideZero ? allRows.filter(r=>(Number(r.outstanding)||0)!==0) : allRows;
   const hiddenCount=allRows.length-rows.length;
-  // #region agent log
-  _dbgUi('B','receivables:render','receivables body',{key:_accRecvCache.key,viewMode,all:allRows.length,shown:rows.length,hidden:hiddenCount,hideZero:!!accHideZero,from:accDateFrom,to:accDateTo,preset:accPreset,pos:allRows.filter(r=>(Number(r.outstanding)||0)>0).length,neg:allRows.filter(r=>(Number(r.outstanding)||0)<0).length,sample:allRows.slice(0,5).map(r=>({biz:r.biz,out:r.outstanding,inv:r.total_invoiced,set:r.total_settled}))});
-  // #endregion
   body.innerHTML=`
       <div class="toolbar" style="margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
@@ -6727,18 +6700,12 @@ function enhanceAccTables(root){
       if(siblingTables.length>1) wrap.classList.add('tbl-scroll');
       else if(!wrap.closest('.modal-body,.mdi-body')) wrap.classList.add('tbl-scroll');
     }
-    // #region agent log
-    stickyNotes.push({hasWrap:!!wrap,scroll:!!(wrap&&wrap.classList.contains('tbl-scroll')),collapse:getComputedStyle(t).borderCollapse,rows:t.tBodies[0].rows.length});
-    // #endregion
     if(typeof tblEnsureRowIds==='function') tblEnsureRowIds(t);
     const hasId=[...t.tBodies[0].rows].some(r=>r.dataset.id);
     const bulk=hasId && typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null;
     if(bulk) enhanceDataTable(t,{selectable:true, bulkDelete:bulk, footer:true});
     else enhanceDataTable(t,{footer:true});
   });
-  // #region agent log
-  if(stickyNotes.length) _dbgUi('D','enhanceAccTables','sticky wrap state',{n:stickyNotes.length,sample:stickyNotes.slice(0,6)});
-  // #endregion
 }
 
 /* ============================================================
@@ -6890,9 +6857,6 @@ async function renderPartiesTab(body){
   const roleLabel={customer:'مشتری',supplier:'تأمین‌کننده',employee:'کارمند',partner:'شریک',marketer:'بازاریاب',other:'سایر'};
   const balRows=rows.map(p=>({...p, balance:Number(p.opening_balance_toman||p.opening_balance||0)}));
   const balT=balTotals(balRows);
-  // #region agent log
-  _dbgUi('C','parties:render','parties balances footer',{count:balRows.length,debit:balT.debit,credit:balT.credit,nonzero:balRows.filter(p=>p.balance).length,sample:balRows.slice(0,5).map(p=>({id:p.id,bal:p.balance,open:p.opening_balance,toman:p.opening_balance_toman,coa:p.coa_code,label:natureLabelOf(p)}))});
-  // #endregion
   body.innerHTML=`
     <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
       <aside style="min-width:180px;max-width:220px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px">
@@ -7588,9 +7552,6 @@ async function renderItemKardexTab(body){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
   if(!CACHE.products?.length) CACHE.products=CACHE.allProducts;
   const products=CACHE.products||CACHE.allProducts||[];
-  // #region agent log
-  _dbgUi('E','kardex:render','kardex product list',{products:products.length,cacheProducts:CACHE.products?.length||0,cacheAll:CACHE.allProducts?.length||0,sample:(products||[]).slice(0,3).map(p=>({id:p.id,name:p.name}))});
-  // #endregion
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px">
       <select id="kardexProduct" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px" onchange="loadItemKardex(this.value)">
@@ -16761,7 +16722,7 @@ function renderAdminGuide(){
       </ul>`),
     helpSec('💰','حسابداری — ماژول مستقل',`
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی ERP. برای بازگشت، از دکمه «🔙 بازگشت به ERP» بالای منوی کناری آن استفاده کنید.</p>
-      <p>منوی کناری این ماژول <b>آکاردئونی با سرگروه‌های عملیاتی</b> است: <b>اطلاعات پایه / عملیات / عملیات انبار / عملیات خاص / عملیات حسابداری / …</b>. هر سرگروه با کلیک باز/بسته می‌شود.</p>
+      <p>منوی کناری این ماژول <b>آکاردئونی و ماژول‌محور (مدل A)</b> است: هر ماژول (انبار، بانک، کالا، حسابداری، …) سرگروه است و زیر آن سه بخش <b>اطلاعات پایه / عملیات / گزارشات</b> قرار دارد. سرفصل‌ها با کلیک باز/بسته می‌شوند.</p>
       <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا، پرداخت انگیزه، <b>مانده/موجودی اول دوره</b> (اشخاص، چک، بانک) و ورود اکسل، سند حسابداری دوطرفه خودکار ثبت می‌شود. در فهرست اسناد برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> نمایش داده می‌شود.</p>
       <p><b>جداول:</b> در انتهای اکثر لیست‌ها جمع ستون‌های عددی، میانگین قیمت‌ها، و برای بدهکار/بستانکار تفاضل رنگی نمایش داده می‌شود. انتخاب چندتایی + عملیات گروهی (حذف/ابطال) در جداول دارای چک‌باکس فعال است.</p>
       <p><b>دستگاه‌ها و ورود:</b> از تنظیمات سیستم یا امکانات → مدیریت دستگاه‌ها، دستگاه‌های موبایل/ویندوز همگام‌سازی و نشست‌های ورود را ببینید و قطع کنید. هر کاربر همزمان حداکثر <b>یک موبایل + یک دسکتاپ (+ وب)</b>. اپ‌ها Online-First هستند؛ قطع اینترنت → آفلاین محلی + همگام خودکار هنگام وصل.</p>
