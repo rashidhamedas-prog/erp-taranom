@@ -432,7 +432,7 @@ html[data-theme="dark"] .sett-savebar{background:rgba(19,31,26,.9)}
 table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;min-width:600px}
 table.tbl th{background:var(--th-bg);color:var(--purple);text-align:right;padding:11px 12px;font-weight:700;border-bottom:2px solid var(--border);white-space:nowrap}
 /* فریز سرتیتر زیر topbar هنگام اسکرول صفحه / داخل جعبهٔ اسکرول گزارش */
-:root{--tbl-sticky-top:72px}
+:root{--tbl-sticky-top:88px}
 .tbl-wrap > table.tbl > thead > tr > th,
 .panel-body > table.tbl > thead > tr > th,
 #view > table.tbl > thead > tr > th{
@@ -857,7 +857,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
   .inv-cart{position:static;min-height:auto}
   .inv-lines-wrap{min-height:280px;max-height:50vh}
   .form-grid{grid-template-columns:1fr}
-  .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%}
+  .tbl-wrap{overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch;width:100%}
   .content{padding:12px;width:100%}
   .view{width:100%}
   .pipeline-col{flex:0 0 190px}
@@ -1017,6 +1017,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 .img-album-nav:hover{background:rgba(255,255,255,.28)}
 .img-album-meta{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:12px;align-items:center;
   background:rgba(0,0,0,.45);color:#fff;padding:8px 14px;border-radius:999px;font-size:13px}
+.img-album-count{direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums}
 .img-album-close{background:transparent;border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:8px;padding:4px 10px;cursor:pointer}
 .prod-thumb{width:90px;height:90px;object-fit:cover;border-radius:8px;display:block;background:#eee}
 .pcard .img{position:relative}
@@ -3987,7 +3988,7 @@ function renderAccReceivablesBody(body){
         <td class="mono" style="color:var(--green);font-weight:800">${fmt(rows.reduce((a,r)=>{const o=Number(r.outstanding)||0;return a+(o<0?-o:0);},0))}</td>
         <td></td>
       </tr></tfoot></table></div>
-      ${!rows.length?`<div class="muted" style="margin-top:10px;font-size:12px">اگر انتظار دارید داده ببینید، فیلتر تاریخ را روی «همه» بگذارید — مطالبات به‌صورت مانده تا تاریخ پایان بازه محاسبه می‌شود.</div>`:''}`;
+      ${!rows.length?`<div class="muted" style="margin-top:10px;font-size:12px">مانده از دفتر مشتری (شامل مانده اول دوره) خوانده می‌شود. فیلتر تاریخ فقط ستون‌های «کل فاکتور» و «پرداخت‌شده» را محدود می‌کند — برای دیدن همه مانده‌ها preset را روی «همه» بگذارید.</div>`:''}`;
 }
 
 ROUTES.followups = async function(){
@@ -4890,9 +4891,7 @@ function productCardHtml(p, opts){
   const stockQty = opts.warehouseFilter && p.wh_qty!=null ? p.wh_qty : p.stock;
   const pack = Math.max(1, parseInt(p.pack_size,10)||1);
   const sel = !!opts.selected;
-  const gallery = Array.isArray(p.images) && p.images.length
-    ? p.images.map(im => (typeof im==='string'?im:(im.filename||im.path||''))).filter(Boolean)
-    : (p.image ? [p.image] : []);
+  const gallery = productImageList(p);
   const cover = gallery[0] || p.image || '';
   const albumFromCard = gallery.length
     ? `onclick="event.stopPropagation();openProductAlbumFromCard(${p.id})" style="cursor:zoom-in"`
@@ -5674,6 +5673,8 @@ async function loadSettUsersPanel(){
             ${u.id!==ME.id?`<button class="btn sm red" onclick="confirmPurgeUser(${u.id},'${esc(u.name)}')">حذف کامل</button>`:''}</td>
       </tr>`).join('')||emptyRow(7)}</tbody></table>
     </div></div>`;
+  if(typeof enhanceAccTables==='function') enhanceAccTables(box);
+  if(typeof syncTblStickyTop==='function') syncTblStickyTop();
 }
 function refreshSettUsers(){ if(el('sett-mount-users')) loadSettUsersPanel(); else settOpenTab('users'); }
 async function userModal(id){
@@ -6046,7 +6047,7 @@ function drawChart(monthly){
 ============================================================ */
 let accTab = 'general';
 let accNavId = '';
-let accDateFrom = '', accDateTo = '', accPreset = 'month';
+let accDateFrom = '', accDateTo = '', accPreset = 'all';
 let accHideZero = true;
 let accRecvViewMode = 'customer';
 let stmtCustId = '', stmtType = '';
@@ -6699,17 +6700,29 @@ async function loadAccTab(tab){
   }
 }
 
+function syncTblStickyTop(){
+  try{
+    const tb=document.querySelector('.topbar');
+    if(!tb) return;
+    const h=Math.ceil(tb.getBoundingClientRect().bottom+8);
+    if(h>40 && h<200) document.documentElement.style.setProperty('--tbl-sticky-top', h+'px');
+  }catch(_){}
+}
 function enhanceAccTables(root){
   if(!root||typeof enhanceDataTable!=='function') return;
-  let stickyNotes=[];
+  syncTblStickyTop();
   root.querySelectorAll('table.tbl').forEach(t=>{
     if(t.dataset.enhanced==='1') return;
     if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
     const wrap=t.closest('.tbl-wrap');
     if(wrap && !wrap.classList.contains('tbl-scroll') && !wrap.classList.contains('tbl-no-sticky')){
-      const siblingTables=(wrap.parentElement||document).querySelectorAll(':scope > .tbl-wrap table.tbl, :scope > div > .tbl-wrap table.tbl');
-      if(siblingTables.length>1) wrap.classList.add('tbl-scroll');
-      else if(!wrap.closest('.modal-body,.mdi-body')) wrap.classList.add('tbl-scroll');
+      if(wrap.getAttribute('data-scroll')==='1') wrap.classList.add('tbl-scroll');
+      else {
+        const siblingTables=(wrap.parentElement||document).querySelectorAll(':scope > .tbl-wrap table.tbl, :scope > div > .tbl-wrap table.tbl');
+        if(siblingTables.length>1) wrap.classList.add('tbl-scroll');
+        else if(!wrap.closest('.modal-body,.mdi-body') && t.getBoundingClientRect().height > Math.max(320, window.innerHeight * 0.62))
+          wrap.classList.add('tbl-scroll');
+      }
     }
     if(typeof tblEnsureRowIds==='function') tblEnsureRowIds(t);
     const hasId=[...t.tBodies[0].rows].some(r=>r.dataset.id);
@@ -7031,8 +7044,15 @@ async function partyModal(id){
       </div>
       <div class="fg"><label>سقف اعتبار ${moneyColLabel()}</label><input id="pty-credit" type="text" inputmode="numeric" class="money" value="${moneyInit(p.credit_limit_toman||0)}"></div>
       <div class="fg"><label>مانده اول دوره ${moneyColLabel()} ${isAdmin()?'':'<span class="muted" style="font-size:11px">— فقط مدیر</span>'}</label>
-        <input id="pty-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(p.opening_balance_toman||0)}" ${isAdmin()?'':'readonly disabled style="background:#f9fafb"'}></div>
-      <div class="fg"><label>ماهیت حساب</label><select id="pty-nature">
+        <input id="pty-opening" type="text" inputmode="numeric" class="money" value="${moneyInit(Math.abs(Number(p.opening_balance_toman||0)))}" ${isAdmin()?'':'readonly disabled style="background:#f9fafb"'}></div>
+      <div class="fg"><label>نوع مانده اول دوره</label>
+        <div style="display:flex;gap:14px;align-items:center;padding-top:8px;font-size:13px">
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="radio" name="pty-open-side" id="pty-open-debit" value="debit" style="width:auto" ${(Number(p.opening_balance_toman||0)>=0)?'checked':''} ${isAdmin()?'':'disabled'}> بدهکار</label>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="radio" name="pty-open-side" id="pty-open-credit" value="credit" style="width:auto" ${(Number(p.opening_balance_toman||0)<0)?'checked':''} ${isAdmin()?'':'disabled'}> بستانکار</label>
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:4px">بدهکار = طرف به ما بدهکار است · بستانکار = ما به طرف بدهکاریم</div>
+      </div>
+      <div class="fg"><label>ماهیت حساب (گروه)</label><select id="pty-nature">
         <option value="" ${!p.account_nature?'selected':''}>—</option>
         <option value="debit" ${p.account_nature==='debit'?'selected':''}>بدهکار</option>
         <option value="credit" ${p.account_nature==='credit'?'selected':''}>بستانکار</option>
@@ -7113,7 +7133,7 @@ async function saveParty(id){
     address:el('pty-address').value,
     party_group_id,
     party_roles:roles,
-    credit_limit_rial:moneyVal('pty-credit'), opening_balance_rial:moneyVal('pty-opening'),
+    credit_limit_rial:moneyVal('pty-credit'), opening_balance_rial:(()=>{const a=Math.abs(moneyVal('pty-opening')||0); const side=el('pty-open-credit')?.checked?'credit':'debit'; return side==='credit'?-a:a;})(),
     account_nature:el('pty-nature').value, notes:el('pty-note').value,
     user_id:+el('pty-expert')?.value||undefined,
     assigned_to:+el('pty-expert')?.value||undefined,
@@ -7313,7 +7333,11 @@ async function personModal(id){
       <div class="fg"><label>کسر بیمه (٪)</label><input id="pers-insurance" type="number" min="0" step="0.1" value="${p?.insurance_percent||0}"></div>
       <div class="fg"><label>کسر مالیات (٪)</label><input id="pers-tax" type="number" min="0" step="0.1" value="${p?.tax_percent||0}"></div>
       <div class="fg full"><label>آدرس</label><input id="pr-address" value="${esc(p?.address||'')}"></div>
-      ${!id?`<div class="fg"><label>مانده اولیه (ریال) ${hlp('مثبت = این شخص به ما بدهکار است. منفی = ما به این شخص بدهکاریم.')}</label><input id="pr-opening" type="number" value="0"></div>`:''}
+      ${!id?`<div class="fg"><label>مانده اولیه (ریال)</label><input id="pr-opening" type="number" min="0" value="0"></div>
+      <div class="fg"><label>نوع مانده</label><div style="display:flex;gap:12px;padding-top:8px;font-size:13px">
+        <label><input type="radio" name="pr-open-side" id="pr-open-debit" value="debit" style="width:auto" checked> بدهکار</label>
+        <label><input type="radio" name="pr-open-side" id="pr-open-credit" value="credit" style="width:auto"> بستانکار</label>
+      </div></div>`:''}
       <div class="fg"><label>سقف بستانکاری (ریال)</label><input id="pr-credit-limit" type="number" value="${p?.credit_limit||0}"></div>
       <div class="fg"><label>سقف بدهکاری (ریال)</label><input id="pr-debit-limit" type="number" value="${p?.debit_limit||0}"></div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="pr-active">
@@ -7344,7 +7368,7 @@ async function savePerson(id){
   };
   if(el('pr-party_group_id')) data.party_group_id=+el('pr-party_group_id').value||null;
   if(usesExtendedCoa()) Object.assign(data,collectPartyExtraData('pm'));
-  if(!id) data.opening_balance=+el('pr-opening')?.value||0;
+  if(!id){ const a=Math.abs(+el('pr-opening')?.value||0); data.opening_balance=el('pr-open-credit')?.checked?-a:a; }
   else data.active=+el('pr-active').value;
   try{
     const saved=id?await api('PUT','/persons/'+id,data):await api('POST','/persons',data);
@@ -8150,16 +8174,21 @@ async function renderAdvReportsTab(body){
 async function loadAdvReport(){
   const box=el('advReportBody'); if(!box) return;
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  if(advReportTab==='aging') return renderAgingReport(box);
-  if(advReportTab==='cash-flow') return renderCashFlowReport(box);
-  if(advReportTab==='sales-by-product') return renderSalesByProductReport(box);
-  if(advReportTab==='inventory-valuation') return renderInventoryValuationReport(box);
-  if(advReportTab==='inventory-health') return renderInventoryHealthReport(box);
-  if(advReportTab==='vat-summary') return renderVatSummaryReport(box);
-  if(advReportTab==='vat-ledger') return renderVatLedgerReport(box);
-  if(advReportTab==='cost-accounting') return renderCostAccountingReport(box);
-  if(advReportTab==='report-designer') return renderFinancialReportDesigner(box);
-  if(advReportTab==='party-turnover') return renderPartyTurnoverReport(box);
+  try{
+    if(advReportTab==='aging') return await renderAgingReport(box);
+    if(advReportTab==='cash-flow') return await renderCashFlowReport(box);
+    if(advReportTab==='sales-by-product') return await renderSalesByProductReport(box);
+    if(advReportTab==='inventory-valuation') return await renderInventoryValuationReport(box);
+    if(advReportTab==='inventory-health') return await renderInventoryHealthReport(box);
+    if(advReportTab==='vat-summary') return await renderVatSummaryReport(box);
+    if(advReportTab==='vat-ledger') return await renderVatLedgerReport(box);
+    if(advReportTab==='cost-accounting') return await renderCostAccountingReport(box);
+    if(advReportTab==='report-designer') return await renderFinancialReportDesigner(box);
+    if(advReportTab==='party-turnover') return await renderPartyTurnoverReport(box);
+    box.innerHTML='<div class="empty">گزارش انتخاب‌شده یافت نشد</div>';
+  }catch(e){
+    box.innerHTML=`<div class="empty">خطا در بارگذاری گزارش: ${esc(e.message||'نامشخص')}</div>`;
+  }
 }
 function advDateFilterBar(){
   return `<div class="toolbar" style="margin-bottom:10px;gap:8px">
@@ -8193,17 +8222,23 @@ async function renderAgingReport(box){
 async function renderCashFlowReport(box){
   const qp=[]; if(advReportFrom) qp.push('from='+encodeURIComponent(advReportFrom)); if(advReportTo) qp.push('to='+encodeURIComponent(advReportTo));
   const d=await api('GET','/adv-reports/cash-flow'+(qp.length?'?'+qp.join('&'):''))||{};
+  const sec=(name,s)=>`
+      <div class="panel"><div class="panel-head"><h4>${name}</h4></div><div class="panel-body">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:4px;font-size:13px">
+          <span>ورودی: <b class="mono" style="color:var(--green)">${fmt(s.inflow_rial||0)}</b></span>
+          <span>خروجی: <b class="mono" style="color:var(--red)">${fmt(s.outflow_rial||0)}</b></span>
+          <span>خالص: <b class="mono" style="color:${(s.net_rial||0)>=0?'var(--green)':'var(--red)'}">${fmt(s.net_rial||0)}</b></span>
+        </div>
+      </div></div>`;
   box.innerHTML=advDateFilterBar()+`
-    <div class="panel"><div class="panel-body">
-      <table class="tbl" style="font-size:13px"><tbody>
-        <tr style="background:var(--purple-light)"><td style="font-weight:700">ورودی نقد (دریافت از مشتریان)</td><td class="mono" style="color:var(--green);font-weight:700;text-align:left;direction:ltr">${fmt(d.cashIn||0)} ریال</td></tr>
-        <tr><td>پرداخت به تأمین‌کنندگان</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.supplierOut||0)} ریال</td></tr>
-        <tr><td>پرداخت انگیزه فروش</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.incentiveOut||0)} ریال</td></tr>
-        <tr><td>پرداخت هزینه‌های عمومی</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.expenseOut||0)} ریال</td></tr>
-        <tr><td>خرید نقدی/چکی (غیرنسیه)</td><td class="mono" style="color:var(--red);text-align:left;direction:ltr">-${fmt(d.purchaseCashOut||0)} ریال</td></tr>
-        <tr style="border-top:2px solid var(--border)"><td style="font-weight:700">مجموع خروجی نقد</td><td class="mono" style="color:var(--red);font-weight:700;text-align:left;direction:ltr">-${fmt(d.totalOut||0)} ریال</td></tr>
-        <tr style="border-top:2px solid var(--border);background:var(--purple-light)"><td style="font-weight:800">جریان نقد خالص</td><td class="mono" style="font-weight:800;color:${(d.net||0)>=0?'var(--green)':'var(--red)'};text-align:left;direction:ltr">${fmt(d.net||0)} ریال</td></tr>
-      </tbody></table>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">بازه: ${esc(d.from||'—')} تا ${esc(d.to||'—')} — طبقه‌بندی عملیاتی / سرمایه‌گذاری / تأمین مالی</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+      ${sec('عملیاتی', d.sections?.operating||{})}
+      ${sec('سرمایه‌گذاری', d.sections?.investing||{})}
+      ${sec('تأمین مالی', d.sections?.financing||{})}
+    </div>
+    <div class="panel"><div class="panel-body" style="font-weight:700;text-align:center">
+      خالص جریان وجوه نقد: <span class="mono" style="color:${(d.total_net_rial||0)>=0?'var(--green)':'var(--red)'}">${fmt(d.total_net_rial||0)}</span> ریال
     </div></div>`;
   attachDatepickers(box);
 }
@@ -13128,7 +13163,7 @@ async function renderCashOpsTab(body, dq){
       </tr>`).join('')}</tbody></table></div>
     </div>`:''}
     <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <button class="btn green" onclick="settlementModal()">➕ ثبت دریافت (از مشتری)</button>
+      <button class="btn green" onclick="receiptOpChooser()">➕ ثبت دریافت</button>
       <button class="btn" onclick="paymentOpChooser()">➕ ثبت پرداخت (خروجی)</button>
     </div>
     <h4 style="margin:0 0 8px">💵 دریافت‌ها (از مشتریان)</h4>
@@ -13214,11 +13249,185 @@ async function renderPaymentOpsTab(body){
       <td colspan="4"></td>
     </tr></tfoot></table></div>`;
 }
+function coaAllAccounts(){
+  return coaDepthOf(CACHE.chartOfAccounts||[]);
+}
+function coaAcctHtml(prefix, help){
+  return `<div class="fg full"><label>حساب (کل تا تفصیلی) ${hlp(help||'انتخاب از تمام سطوح کدینگ')}</label>
+    <input type="hidden" id="${prefix}-account-code" value="">
+    <input type="text" id="${prefix}-account-search" class="search" placeholder="جستجوی حساب: کد یا نام..." autocomplete="off"
+      oninput="coaAcctShow('${prefix}',this.value)" onfocus="coaAcctShow('${prefix}',this.value)"
+      onblur="setTimeout(()=>{const d=el('${prefix}-acct-drop');if(d)d.style.display='none'},200)">
+    <div id="${prefix}-acct-drop" class="cust-si-drop" style="display:none;position:fixed;width:320px;max-height:260px"></div>
+  </div>`;
+}
+function coaAcctShow(prefix, q){
+  const drop=el(prefix+'-acct-drop'), inp=el(prefix+'-account-search'); if(!drop||!inp) return;
+  const term=(q||'').trim().toLowerCase();
+  const depthLabel={0:'گروه',1:'کل',2:'معین',3:'تفصیلی'};
+  let list=coaAllAccounts();
+  if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
+  const rect=inp.getBoundingClientRect();
+  drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=Math.max(rect.width,320)+'px'; drop.style.display='block'; drop.style.zIndex='9999';
+  drop.innerHTML=list.slice(0,150).map(a=>`
+    <div class="cust-si-item" onmousedown='coaAcctPick(${JSON.stringify(prefix)},${JSON.stringify(a.code)})'>
+      <span>${'↳ '.repeat(Math.min(a._depth||0,3))}${esc(a.name)}</span>
+      <span class="cust-si-meta">${esc(a.code)} · ${depthLabel[a._depth]||''}</span>
+    </div>`).join('')||'<div class="cust-si-empty">حسابی یافت نشد</div>';
+}
+function coaAcctPick(prefix, code){
+  const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
+  const hid=el(prefix+'-account-code'), inp=el(prefix+'-account-search');
+  if(hid) hid.value=code;
+  if(inp&&a) inp.value=a.code+' — '+a.name;
+  const drop=el(prefix+'-acct-drop'); if(drop) drop.style.display='none';
+}
+function receiptOpChooser(){
+  openModal(`
+    <div class="modal-head"><h3>نوع دریافت را انتخاب کنید</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:10px">
+      <button class="btn green" onclick="closeModal();setTimeout(()=>settlementModal(),50)">👤 دریافت از مشتری</button>
+      <button class="btn" onclick="closeModal();setTimeout(personReceiptModal,50)">🧑 دریافت از شخص</button>
+      <button class="btn" onclick="closeModal();setTimeout(accountReceiptModal,50)">📒 دریافت از حساب</button>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function personReceiptModal(){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
+  const partiesResp=await api('GET','/parties?limit=300')||{};
+  const parties=(partiesResp.data||partiesResp||[]);
+  openModal(`
+    <div class="modal-head"><h3>🧑 دریافت از شخص</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>شخص *</label><select id="prr-person"><option value="">—</option>
+        ${parties.map(p=>`<option value="${p.id}">${esc(p.full_name||p.company_name||p.biz||('#'+p.id))}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="prr-amount" type="text" inputmode="numeric" class="money"></div>
+      <div class="fg"><label>تاریخ</label><input id="prr-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>واریز به</label><select id="prr-paytype" onchange="toggleBankFields('prr')"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
+      <div class="fg"><label>بانک</label><select id="prr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>صندوق</label><select id="prr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg full"><label>یادداشت</label><input id="prr-note"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn green" onclick="savePersonReceipt()">💾 ثبت دریافت</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+  if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+}
+async function savePersonReceipt(){
+  const person_id=+el('prr-person')?.value||0;
+  const amount=moneyVal('prr-amount');
+  if(!person_id){ showToast('شخص را انتخاب کنید','error'); return; }
+  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const pay_type=el('prr-paytype').value;
+  const bank_id=+el('prr-bank')?.value||null;
+  const cash_box_id=+el('prr-cashbox')?.value||null;
+  // Resolve cash account via a temporary voucher: Dr cash / Cr person
+  try{
+    if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
+    // Use account-receipts is for COA; for person use vouchers with person line
+    await api('POST','/accounting/vouchers',{
+      date:el('prr-date').value||todayJalali(),
+      description:el('prr-note').value||'دریافت از شخص',
+      lines:[
+        { target_type:'account', code: await resolveCashCodeForUi(pay_type, bank_id, cash_box_id), debit:amount, credit:0, description:'دریافت' },
+        { target_type:'person', person_id, debit:0, credit:amount, description:'بستانکار شخص' }
+      ]
+    });
+    closeModal(); showToast('دریافت ثبت شد');
+    if(typeof loadAccTab==='function') loadAccTab(accTab||'settlements');
+  }catch(e){}
+}
+async function resolveCashCodeForUi(pay_type, bank_id, cash_box_id){
+  // Prefer bank/cash box coa if present in cache; fallback to first cash-like code
+  try{
+    if(pay_type==='bank' && bank_id){
+      const b=(CACHE.banks||[]).find(x=>Number(x.id)===Number(bank_id));
+      if(b?.coa_code) return b.coa_code;
+    }
+    if(cash_box_id){
+      const c=(CACHE.cashBoxes||[]).find(x=>Number(x.id)===Number(cash_box_id));
+      if(c?.coa_code) return c.coa_code;
+    }
+  }catch(_){}
+  const cashLike=(CACHE.chartOfAccounts||[]).find(a=>/صندوق|نقد|بانک/.test(a.name||''));
+  if(cashLike) return cashLike.code;
+  throw new Error('حساب صندوق/بانک یافت نشد — در اطلاعات پایه کدینگ را بررسی کنید');
+}
+async function accountReceiptModal(){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
+  openModal(`
+    <div class="modal-head"><h3>📒 دریافت از حساب</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      ${coaAcctHtml('arr','حساب مبدأ دریافت — تمام سطوح')}
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="arr-amount" type="text" inputmode="numeric" class="money"></div>
+      <div class="fg"><label>تاریخ</label><input id="arr-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>واریز به</label><select id="arr-paytype"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
+      <div class="fg"><label>بانک</label><select id="arr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>صندوق</label><select id="arr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg full"><label>یادداشت</label><input id="arr-note"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn green" onclick="saveAccountReceipt()">💾 ثبت</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot')); if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+}
+async function saveAccountReceipt(){
+  const account_code=el('arr-account-code')?.value;
+  const amount=moneyVal('arr-amount');
+  if(!account_code){ showToast('حساب را انتخاب کنید','error'); return; }
+  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  try{
+    await api('POST','/accounting/account-receipts',{
+      account_code, amount, date:el('arr-date').value, note:el('arr-note').value,
+      pay_type:el('arr-paytype').value, bank_id:+el('arr-bank').value||null, cash_box_id:+el('arr-cashbox').value||null
+    });
+    closeModal(); showToast('دریافت ثبت شد');
+    if(typeof loadAccTab==='function') loadAccTab(accTab||'settlements');
+  }catch(e){}
+}
+async function accountPaymentModal(){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
+  openModal(`
+    <div class="modal-head"><h3>📒 پرداخت به حساب</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      ${coaAcctHtml('apay','حساب مقصد پرداخت — تمام سطوح')}
+      <div class="fg"><label>مبلغ (ریال) *</label><input id="apay-amount" type="text" inputmode="numeric" class="money"></div>
+      <div class="fg"><label>تاریخ</label><input id="apay-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>پرداخت از</label><select id="apay-paytype"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
+      <div class="fg"><label>بانک</label><select id="apay-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>صندوق</label><select id="apay-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg full"><label>یادداشت</label><input id="apay-note"></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveAccountPayment()">💾 ثبت پرداخت</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot')); if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+}
+async function saveAccountPayment(){
+  const account_code=el('apay-account-code')?.value;
+  const amount=moneyVal('apay-amount');
+  if(!account_code){ showToast('حساب را انتخاب کنید','error'); return; }
+  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  try{
+    await api('POST','/accounting/account-payments',{
+      account_code, amount, date:el('apay-date').value, note:el('apay-note').value,
+      pay_type:el('apay-paytype').value, bank_id:+el('apay-bank').value||null, cash_box_id:+el('apay-cashbox').value||null
+    });
+    closeModal(); showToast('پرداخت ثبت شد');
+    if(typeof loadAccTab==='function') loadAccTab(accTab||'payments');
+  }catch(e){}
+}
 function paymentOpChooser(){
   openModal(`
     <div class="modal-head"><h3>نوع پرداخت را انتخاب کنید</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body" style="display:flex;flex-direction:column;gap:10px">
       <button class="btn" onclick="closeModal();setTimeout(personPaymentModal,50)">👤 پرداخت به شخص</button>
+      <button class="btn" onclick="closeModal();setTimeout(accountPaymentModal,50)">📒 پرداخت به حساب</button>
       <button class="btn" onclick="closeModal();setTimeout(()=>transferModal('bank'),50)">🏦 پرداخت به بانک</button>
       <button class="btn green" onclick="closeModal();setTimeout(expensePaymentModal,50)">🧾 پرداخت هزینه</button>
       <button class="btn" onclick="closeModal();setTimeout(()=>transferModal('cash'),50)">💰 پرداخت به صندوق</button>
@@ -15531,12 +15740,22 @@ async function loadSettSmsPanel(){
   const box=el('sett-mount-sms'); if(!box) return;
   if(!isAdmin() && ME.role!=='accounting'){ box.innerHTML='<div class="empty">دسترسی ندارید</div>'; return; }
   box.innerHTML='<div class="muted" style="padding:12px">در حال بارگذاری...</div>';
-  const [provider, templates, options, scheduled] = await Promise.all([
+  const [provider, templates, options, scheduled, rules, meta, groups, users] = await Promise.all([
     api('GET','/sms-module/provider').catch(()=>({})),
     api('GET','/sms-module/templates').catch(()=>[]),
     api('GET','/sms-module/options').catch(()=>[]),
-    api('GET','/sms-module/scheduled').catch(()=>[])
+    api('GET','/sms-module/scheduled').catch(()=>[]),
+    api('GET','/sms-module/rules').catch(()=>[]),
+    api('GET','/sms-module/vars').catch(()=>({vars:[],events:[]})),
+    api('GET','/party-groups').catch(()=>[]),
+    api('GET','/auth/users').catch(()=>[])
   ]);
+  window._smsTemplates = templates||[];
+  window._smsVars = meta?.vars||[];
+  window._smsEvents = meta?.events||[];
+  window._smsGroups = Array.isArray(groups)?groups:(groups?.data||[]);
+  window._smsUsers = users||[];
+  const eventLabel = k => (window._smsEvents.find(e=>e.key===k)?.label)||k||'-';
   box.innerHTML=`
     <div class="panel"><div class="panel-head"><h4>سرویس‌دهنده پیامک</h4></div><div class="panel-body"><div class="form-grid">
       <div class="fg"><label>سرویس</label><select id="sms-prov">
@@ -15551,16 +15770,38 @@ async function loadSettSmsPanel(){
         <input id="sms-test-phone" placeholder="09…" style="margin:0 8px;padding:8px;border:1px solid var(--border);border-radius:8px;direction:ltr">
         <button class="btn orange" onclick="testSmsModule()">تست</button></div>
     </div></div></div>
-    <div class="panel"><div class="panel-head"><h4>قالب‌های عملیاتی</h4>
+    <div class="panel"><div class="panel-head"><h4>متغیرهای قابل استفاده در قالب</h4></div>
+      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>کلید</th><th>معنی فارسی</th></tr></thead>
+      <tbody>${(window._smsVars||[]).map(v=>`<tr><td class="mono" dir="ltr">${esc(v.key)}</td><td>${esc(v.label)}</td></tr>`).join('')||emptyRow(2)}</tbody></table>
+      <div class="muted" style="font-size:12px;margin-top:8px">این کلیدها را داخل متن قالب بنویسید؛ هنگام ارسال با مقدار واقعی جایگزین می‌شوند.</div>
+    </div></div>
+    <div class="panel"><div class="panel-head"><h4>قالب‌های پیامک</h4>
       <button class="btn sm" onclick="smsTemplateModal()">قالب جدید</button></div>
-      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>رویداد</th><th>فعال</th><th></th></tr></thead>
+      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>نام</th><th>رویداد پیشنهادی</th><th>فعال</th><th></th></tr></thead>
       <tbody>${(templates||[]).map(t=>`<tr>
-        <td class="mono">${esc(t.code)}</td><td>${esc(t.name)}</td><td>${esc(t.event_key||'-')}</td>
+        <td class="mono">${esc(t.code)}</td><td>${esc(t.name)}</td><td>${esc(eventLabel(t.event_key))}</td>
         <td>${t.active?'✓':'—'}</td>
         <td><button class="btn sm ghost" onclick="smsTemplateModal(${t.id})">ویرایش</button>
             <button class="btn sm red" onclick="deleteSmsTemplate(${t.id})">حذف</button></td>
       </tr>`).join('')||emptyRow(5)}</tbody></table></div></div>
-    <div class="panel"><div class="panel-head"><h4>گزینه‌های ارسال هر بخش</h4>
+    <div class="panel"><div class="panel-head"><h4>قوانین ارسال خودکار</h4>
+      <button class="btn sm" onclick="smsRuleModal()">قانون جدید</button></div>
+      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
+        <th>رویداد / عملیات</th><th>گروه اشخاص</th><th>کاربر</th><th>قالب</th><th>تأخیر (دقیقه)</th><th>فعال</th><th></th>
+      </tr></thead>
+      <tbody>${(rules||[]).map(r=>`<tr>
+        <td>${esc(eventLabel(r.event_key))}</td>
+        <td>${esc(r.party_group_name||'همه')}</td>
+        <td>${esc(r.user_name||'همه')}</td>
+        <td>${esc(r.template_name||'-')}</td>
+        <td class="mono">${r.delay_minutes||0}</td>
+        <td>${r.active?'✓':'—'}</td>
+        <td><button class="btn sm ghost" onclick="smsRuleModal(${r.id})">ویرایش</button>
+            <button class="btn sm red" onclick="deleteSmsRule(${r.id})">حذف</button></td>
+      </tr>`).join('')||emptyRow(7)}</tbody></table>
+      <div class="muted" style="font-size:12px;margin-top:8px">تأخیر ۰ = ارسال فوری بعد از عملیات. تأخیر بیشتر = پیامک زمان‌بندی‌شده.</div>
+    </div></div>
+    <div class="panel"><div class="panel-head"><h4>گزینه‌های دستی هر بخش</h4>
       <button class="btn sm" onclick="smsOptionModal()">گزینه جدید</button></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>بخش</th><th>برچسب</th><th>قالب</th><th>فعال</th><th></th></tr></thead>
       <tbody>${(options||[]).map(o=>`<tr>
@@ -15577,7 +15818,6 @@ async function loadSettSmsPanel(){
         <td class="mono">${esc(s.send_at)}</td><td>${esc(s.status)}</td>
         <td>${s.status==='pending'?`<button class="btn sm red" onclick="deleteSmsSched(${s.id})">حذف</button>`:''}</td>
       </tr>`).join('')||emptyRow(5)}</tbody></table></div></div>`;
-  window._smsTemplates = templates||[];
 }
 function refreshSettSms(){ if(el('sett-mount-sms')) loadSettSmsPanel(); else settOpenTab('sms'); }
 async function saveSmsProvider(){
@@ -15593,16 +15833,27 @@ async function testSmsModule(){
 async function smsTemplateModal(id){
   const list=window._smsTemplates||[];
   const t=id?list.find(x=>x.id===id)||{}:{};
+  const events=window._smsEvents||[];
+  const vars=window._smsVars||[];
   openModal(`<div class="modal-head"><h3>${id?'ویرایش قالب':'قالب جدید'}</h3><button class="x" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>کد *</label><input id="st-code" value="${esc(t.code||'')}" ${id?'readonly':''}></div>
       <div class="fg"><label>نام *</label><input id="st-name" value="${esc(t.name||'')}"></div>
-      <div class="fg full"><label>رویداد (اختیاری)</label><input id="st-event" value="${esc(t.event_key||'')}" placeholder="invoice.approved"></div>
-      <div class="fg full"><label>متن</label><textarea id="st-body" rows="5">${esc(t.body||'')}</textarea></div>
+      <div class="fg full"><label>رویداد پیشنهادی</label><select id="st-event"><option value="">—</option>
+        ${events.map(e=>`<option value="${esc(e.key)}" ${t.event_key===e.key?'selected':''}>${esc(e.label)}</option>`).join('')}</select></div>
+      <div class="fg full"><label>متن</label><textarea id="st-body" rows="5">${esc(t.body||'')}</textarea>
+        <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">${vars.map(v=>`<button type="button" class="btn sm ghost" onclick="insertSmsVar('st-body',${JSON.stringify(v.key)})">${esc(v.key)} ${esc(v.label)}</button>`).join('')}</div>
+      </div>
       <div class="fg"><label><input type="checkbox" id="st-active" style="width:auto" ${t.active!==0?'checked':''}> فعال</label></div>
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveSmsTemplate(${id||0})">💾 ذخیره</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+function insertSmsVar(textareaId, key){
+  const ta=el(textareaId); if(!ta) return;
+  const start=ta.selectionStart||ta.value.length, end=ta.selectionEnd||start;
+  ta.value=ta.value.slice(0,start)+key+ta.value.slice(end);
+  ta.focus(); ta.selectionStart=ta.selectionEnd=start+key.length;
 }
 async function saveSmsTemplate(id){
   const data={code:el('st-code').value.trim(),name:el('st-name').value.trim(),event_key:el('st-event').value,body:el('st-body').value,active:el('st-active').checked};
@@ -15611,6 +15862,45 @@ async function saveSmsTemplate(id){
   closeModal(); showToast('ذخیره شد'); refreshSettSms();
 }
 async function deleteSmsTemplate(id){ if(!confirm('حذف شود؟')) return; await api('DELETE','/sms-module/templates/'+id); refreshSettSms(); }
+async function smsRuleModal(id){
+  const rules=await api('GET','/sms-module/rules').catch(()=>[])||[];
+  const tpls=window._smsTemplates||await api('GET','/sms-module/templates')||[];
+  const r=id?rules.find(x=>x.id===id)||{}:{};
+  const events=window._smsEvents||[];
+  const groups=window._smsGroups||[];
+  const users=window._smsUsers||[];
+  openModal(`<div class="modal-head"><h3>${id?'ویرایش قانون':'قانون ارسال خودکار'}</h3><button class="x" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>رویداد / عملیات *</label><select id="sr-event">
+        ${events.map(e=>`<option value="${esc(e.key)}" ${r.event_key===e.key?'selected':''}>${esc(e.label)}</option>`).join('')}
+      </select></div>
+      <div class="fg"><label>گروه اشخاص</label><select id="sr-group"><option value="">همه گروه‌ها</option>
+        ${groups.map(g=>`<option value="${g.id}" ${r.party_group_id==g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>کاربر مرتبط</label><select id="sr-user"><option value="">همه کاربران</option>
+        ${users.filter(u=>u.active!==0).map(u=>`<option value="${u.id}" ${r.user_id==u.id?'selected':''}>${esc(u.name)}</option>`).join('')}</select></div>
+      <div class="fg full"><label>قالب *</label><select id="sr-tpl"><option value="">—</option>
+        ${tpls.map(t=>`<option value="${t.id}" ${r.template_id==t.id?'selected':''}>${esc(t.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>تأخیر پس از عملیات (دقیقه)</label><input id="sr-delay" type="number" min="0" value="${r.delay_minutes||0}">
+        <div class="muted" style="font-size:11px">۰ = فوری · مثلاً ۳۰ = نیم‌ساعت بعد</div></div>
+      <div class="fg"><label><input type="checkbox" id="sr-active" style="width:auto" ${r.active!==0?'checked':''}> فعال</label></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn" onclick="saveSmsRule(${id||0})">💾 ذخیره</button>
+      <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function saveSmsRule(id){
+  const data={
+    event_key:el('sr-event').value,
+    party_group_id:+el('sr-group').value||null,
+    user_id:+el('sr-user').value||null,
+    template_id:+el('sr-tpl').value||null,
+    delay_minutes:+el('sr-delay').value||0,
+    active:el('sr-active').checked
+  };
+  if(!data.event_key||!data.template_id){ showToast('رویداد و قالب الزامی است','error'); return; }
+  if(id) await api('PUT','/sms-module/rules/'+id,data); else await api('POST','/sms-module/rules',data);
+  closeModal(); showToast('ذخیره شد'); refreshSettSms();
+}
+async function deleteSmsRule(id){ if(!confirm('حذف قانون؟')) return; await api('DELETE','/sms-module/rules/'+id); refreshSettSms(); }
 async function smsOptionModal(id){
   const opts=await api('GET','/sms-module/options')||[];
   const tpls=await api('GET','/sms-module/templates')||[];
@@ -15638,6 +15928,7 @@ async function smsSchedModal(){
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>شماره *</label><input id="ss-phone" dir="ltr" placeholder="09…"></div>
       <div class="fg"><label>تاریخ ارسال *</label><input id="ss-at" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>ساعت (اختیاری)</label><input id="ss-time" type="time" value="09:00" dir="ltr"></div>
       <div class="fg full"><label>متن *</label><textarea id="ss-body" rows="4"></textarea></div>
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveSmsSched()">💾 ذخیره</button>
@@ -15645,10 +15936,11 @@ async function smsSchedModal(){
   attachDatepickers(el('modalRoot'));
 }
 async function saveSmsSched(){
-  const phone=el('ss-phone').value.trim(), body=el('ss-body').value.trim(), send_at=el('ss-at').value.trim();
-  if(!phone||!body||!send_at){ showToast('همه فیلدها الزامی است','error'); return; }
+  const phone=el('ss-phone').value.trim(), body=el('ss-body').value.trim();
+  const send_at=(el('ss-at').value||'')+(el('ss-time')?.value?(' '+el('ss-time').value):'');
+  if(!phone||!body||!el('ss-at').value){ showToast('شماره، متن و تاریخ الزامی است','error'); return; }
   await api('POST','/sms-module/scheduled',{phone,body,send_at});
-  closeModal(); showToast('زمان‌بندی شد'); refreshSettSms();
+  closeModal(); refreshSettSms();
 }
 async function deleteSmsSched(id){ if(!confirm('حذف؟')) return; await api('DELETE','/sms-module/scheduled/'+id); refreshSettSms(); }
 
@@ -15731,7 +16023,7 @@ const SETT_TABS = [
   {id:'users', icon:'users', label:'کاربران', meta:'نقش و دسترسی', keys:'کاربران user نقش دسترسی رمز مدیر حسابدار کارشناس'},
   {id:'invoice', icon:'receipt', label:'قالب فاکتور', meta:'رسمی، عادی، حرارتی', keys:'فاکتور قالب رسمی عادی حرارتی کاغذ لوگو پاورقی چاپ A4 A5'},
   {id:'messaging', icon:'chat', label:'پیام‌رسان', meta:'تلگرام، روبیکا، خوش‌آمد', keys:'تلگرام روبیکا خوش‌آمد کیمیا'},
-  {id:'sms', icon:'phone', label:'پیامک', meta:'سرویس و قالب‌ها', keys:'پیامک کاوه‌نگار قالب زمان‌بندی سرویس‌دهنده'},
+  {id:'sms', icon:'phone', label:'پیامک', meta:'سرویس، متغیرها، قالب، قوانین خودکار، زمان‌بندی', keys:'پیامک کاوه‌نگار قالب زمان‌بندی سرویس‌دهنده متغیر قانون گروه'},
   {id:'backup', icon:'archive', label:'پشتیبان', meta:'پشتیبان و بازیابی', keys:'پشتیبان بکاپ رمزنگاری بازیابی'},
   {id:'api', icon:'plug', label:'API', meta:'کلید و وب‌هوک', keys:'api کلید webhook n8n scope rate limit'},
   {id:'web', icon:'plug', label:'وب‌سایت', meta:'همگام‌سازی موجودی فروشگاه', keys:'وب‌سایت موجودی ووکامرس همگام'},
@@ -16773,7 +17065,7 @@ function renderAdminGuide(){
         <li><b>صورت‌حساب مشتری</b>: گردش کامل حساب هر مشتری با مانده اول دوره و مانده لحظه‌ای، خروجی اکسل/CSV/PDF و ارسال تصویری به پیام‌رسان</li>
         <li><b>گزارشات پیشرفته</b>: پنج گزارش تخصصی در یک صفحه —
           <b>سنی مطالبات</b> (تفکیک مطالبات معوق هر مشتری در بازه‌های ۰-۳۰، ۳۱-۶۰، ۶۱-۹۰ و بیش از ۹۰ روز، با تخصیص FIFO دریافتی‌ها به فاکتورها)،
-          <b>جریان وجه نقد</b> (ورودی از مشتریان در برابر خروجی به تأمین‌کنندگان/انگیزه فروش/هزینه‌ها/خرید نقدی در یک بازه)،
+          <b>جریان وجه نقد</b> (طبقه‌بندی عملیاتی / سرمایه‌گذاری / تأمین مالی با ورودی، خروجی و خالص هر بخش)،
           <b>فروش به تفکیک کالا</b> (تعداد و درآمد هر کالا در یک بازه)،
           <b>ارزش‌گذاری موجودی</b> (ارزش کل انبار به بهای تمام‌شده و به قیمت فروش)،
           و <b>سلامت موجودی</b> (کالاهای با موجودی منفی/صفر، پرفروش‌ترین‌ها و کم‌فروش‌ترین‌های دارای موجودی بالا در یک بازه).
@@ -16849,6 +17141,14 @@ function renderAdminGuide(){
         <li><b>SMS.ir</b>: کلید API از بخش برنامه‌نویسان پنل sms.ir</li>
         <li>شماره فرستنده را از پنل سرویس‌دهنده دریافت کنید (برای SMS.ir اختیاری است)</li>
         <li>با دکمه «ارسال پیامک تست»، پیامک خوش‌آمدگویی به شماره دلخواه ارسال و تنظیمات آزمایش می‌شود</li>
+        <li><b>متغیرها</b>: جدول کلیدهای فارسی مثل <code>{name}</code>、<code>{amount}</code>、<code>{num}</code> در تنظیمات/پیامک</li>
+        <li><b>قوانین خودکار</b>: برای هر عملیات (تأیید فاکتور، دریافت، پرداخت، ثبت شخص/مشتری) قالب + گروه اشخاص + کاربر + تأخیر دقیقه‌ای</li>
+        <li>تأخیر ۰ = فوری؛ بیشتر = پیامک زمان‌بندی‌شده بعد از عملیات</li>
+      </ul>
+      <h5>دریافت و پرداخت</h5><ul>
+        <li>دریافت: ابتدا انتخاب مشتری / شخص / حساب (کل تا تفصیلی)</li>
+        <li>پرداخت: علاوه بر شخص/بانک/صندوق/هزینه، <b>پرداخت به حساب</b> کدینگ هم هست</li>
+        <li>مانده اول دوره اشخاص: مبلغ + بدهکار/بستانکار (علاوه بر ماهیت گروه)</li>
       </ul>
       <h5>پیامک خوش‌آمدگویی</h5><ul>
         <li>هنگام ثبت مشتری جدیدِ دارای موبایل، پیامک خوش‌آمد با لینک کانال‌ها (روبیکا، تلگرام، بله) خودکار ارسال می‌شود</li>
@@ -17380,7 +17680,7 @@ function showImgPreview(src, album, startIdx){
   }
   document.body.appendChild(ov);
 }
-function openProductAlbumFromCard(arg){
+async function openProductAlbumFromCard(arg){
   // DOM card with data-album JSON, or product id number/string
   if(arg && arg.nodeType===1){
     const raw=arg.getAttribute('data-album')||'';
@@ -17394,13 +17694,24 @@ function openProductAlbumFromCard(arg){
     return;
   }
   const productId=arg;
-  const modal = window._prodModalProduct;
-  let p = (CACHE.products||[]).find(x=>Number(x.id)===Number(productId))
-    || (CACHE.allProducts||[]).find(x=>Number(x.id)===Number(productId))
-    || (window._mkProds||[]).find(x=>Number(x.id)===Number(productId));
-  // Prefer modal product (full gallery from GET /:id) over list cache (often primary-only)
-  if(modal && (!productId || Number(modal.id)===Number(productId))){
-    if(!p || productImageList(modal).length >= productImageList(p).length) p = modal;
+  let p = null;
+  try{
+    if(productId) p = await api('GET','/products/'+productId);
+  }catch(_){}
+  if(!p){
+    const modal = window._prodModalProduct;
+    p = (CACHE.products||[]).find(x=>Number(x.id)===Number(productId))
+      || (CACHE.allProducts||[]).find(x=>Number(x.id)===Number(productId))
+      || (window._mkProds||[]).find(x=>Number(x.id)===Number(productId));
+    if(modal && (!productId || Number(modal.id)===Number(productId))){
+      if(!p || productImageList(modal).length >= productImageList(p).length) p = modal;
+    }
+  } else {
+    window._prodModalProduct = p;
+    try{
+      const idx=(CACHE.products||[]).findIndex(x=>Number(x.id)===Number(productId));
+      if(idx>=0) CACHE.products[idx]=Object.assign({}, CACHE.products[idx], p);
+    }catch(_){}
   }
   if(!p){ showToast('کالا یافت نشد','error'); return; }
   openProductAlbum(p);

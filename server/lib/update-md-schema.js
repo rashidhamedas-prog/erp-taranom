@@ -60,6 +60,21 @@ function ensureUpdateMdSchema(db, ensureColumn) {
     );
     CREATE INDEX IF NOT EXISTS idx_sms_sched_status ON sms_scheduled(status, send_at);
 
+    CREATE TABLE IF NOT EXISTS sms_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_key TEXT NOT NULL,
+      party_group_id INTEGER,
+      user_id INTEGER,
+      template_id INTEGER NOT NULL,
+      delay_minutes INTEGER NOT NULL DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      updated_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(template_id) REFERENCES sms_templates(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sms_rules_event ON sms_rules(event_key, active);
+
     CREATE TABLE IF NOT EXISTS marketer_carts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,

@@ -58,12 +58,20 @@ async function attachUploadedImages(db, productId, files, setPrimary) {
   let sort = db.prepare('SELECT COALESCE(MAX(sort_order),-1)+1 s FROM product_images WHERE product_id=?').get(productId).s;
   const ins = db.prepare('INSERT INTO product_images (product_id,filename,sort_order) VALUES (?,?,?)');
   const names = [];
+  const errors = [];
   for (const f of imgs) {
     try {
       const fn = await saveImage(f.buffer, f.originalname);
       ins.run(productId, fn, sort++);
       names.push(fn);
-    } catch (_) {}
+    } catch (e) {
+      errors.push((f.originalname || 'file') + ': ' + (e && e.message ? e.message : String(e)));
+    }
+  }
+  if (!names.length && errors.length) {
+    const err = new Error('آپلود تصویر ناموفق: ' + errors.slice(0, 3).join('؛ '));
+    err.status = 400;
+    throw err;
   }
   if (setPrimary && names[0]) {
     db.prepare('UPDATE products SET image=? WHERE id=? AND (image IS NULL OR image="")').run(names[0], productId);
@@ -540,7 +548,11 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, result.lastInsertRowid);
   }
   try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
-  await attachUploadedImages(db, result.lastInsertRowid, req.files, true);
+  try {
+    await attachUploadedImages(db, result.lastInsertRowid, req.files, true);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || 'آپلود تصویر ناموفق' });
+  }
   audit(req.user.id, 'create', 'product', result.lastInsertRowid, `ساخت محصول ${name}`);
   try { require('../lib/website-stock-sync').notifyStockChanged(db, result.lastInsertRowid); } catch (_) {}
   const row = db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid);
@@ -594,7 +606,7 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   try {
     await attachUploadedImages(db, req.params.id, req.files, !prod.image);
   } catch (e) {
-    console.error('product image attach failed:', e && e.message);
+    return res.status(e.status || 400).json({ error: e.message || 'آپلود تصویر ناموفق' });
   }
   try {
     audit(req.user.id, 'update', 'product', req.params.id, `ویرایش محصول ${name || prod.name}`);

@@ -1,24 +1,24 @@
 /**
- * SMS Module — standalone templates / options / scheduled messages.
+ * SMS Module — templates / options / scheduled / auto-rules.
  */
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 const { todayJalali } = require('../jalali');
-
-function settingsMap(db) {
-  const rows = db.prepare("SELECT key,value FROM settings WHERE key LIKE 'sms_%' OR key IN ('niksms_api_key','smsir_api_key','smsir_line')").all();
-  const m = {};
-  for (const r of rows) m[r.key] = r.value;
-  return m;
-}
+const {
+  SMS_VARS, SMS_EVENTS, dispatchSmsEvent, ensureSmsRulesTable, settingsMap,
+} = require('../lib/sms-dispatch');
 
 function canManageSms(req) {
   return req.user && (req.user.role === 'admin' || req.user.role === 'accounting');
 }
 
-// ── Provider settings (moved from general Settings UI, still stored in settings table)
+router.get('/vars', auth, adminOrAccounting, (req, res) => {
+  res.json({ vars: SMS_VARS, events: SMS_EVENTS });
+});
+
+// ── Provider settings
 router.get('/provider', auth, adminOrAccounting, (req, res) => {
   res.json(settingsMap(getDB()));
 });
@@ -112,6 +112,68 @@ router.delete('/options/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Auto rules (event + group/user + delay)
+router.get('/rules', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  ensureSmsRulesTable(db);
+  res.json(db.prepare(`
+    SELECT r.*, t.name as template_name, t.code as template_code,
+      pg.name as party_group_name, u.name as user_name
+    FROM sms_rules r
+    LEFT JOIN sms_templates t ON t.id=r.template_id
+    LEFT JOIN party_groups pg ON pg.id=r.party_group_id
+    LEFT JOIN users u ON u.id=r.user_id
+    ORDER BY r.event_key, r.id DESC
+  `).all());
+});
+
+router.post('/rules', auth, adminOrAccounting, (req, res) => {
+  if (!canManageSms(req)) return res.status(403).json({ error: 'دسترسی ندارید' });
+  const { event_key, party_group_id, user_id, template_id, delay_minutes, active } = req.body;
+  if (!event_key || !template_id) return res.status(400).json({ error: 'رویداد و قالب الزامی است' });
+  const db = getDB();
+  ensureSmsRulesTable(db);
+  const r = db.prepare(`
+    INSERT INTO sms_rules (event_key,party_group_id,user_id,template_id,delay_minutes,active,created_by)
+    VALUES (?,?,?,?,?,?,?)
+  `).run(
+    String(event_key).trim(),
+    party_group_id ? +party_group_id : null,
+    user_id ? +user_id : null,
+    +template_id,
+    Math.max(0, parseInt(delay_minutes, 10) || 0),
+    active != null ? (active ? 1 : 0) : 1,
+    req.user.id
+  );
+  res.json(db.prepare('SELECT * FROM sms_rules WHERE id=?').get(r.lastInsertRowid));
+});
+
+router.put('/rules/:id', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  ensureSmsRulesTable(db);
+  const row = db.prepare('SELECT * FROM sms_rules WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  const { event_key, party_group_id, user_id, template_id, delay_minutes, active } = req.body;
+  db.prepare(`
+    UPDATE sms_rules SET event_key=?, party_group_id=?, user_id=?, template_id=?, delay_minutes=?, active=?,
+      updated_at=strftime('%s','now') WHERE id=?
+  `).run(
+    event_key || row.event_key,
+    party_group_id !== undefined ? (party_group_id ? +party_group_id : null) : row.party_group_id,
+    user_id !== undefined ? (user_id ? +user_id : null) : row.user_id,
+    template_id != null ? +template_id : row.template_id,
+    delay_minutes != null ? Math.max(0, parseInt(delay_minutes, 10) || 0) : row.delay_minutes,
+    active != null ? (active ? 1 : 0) : row.active,
+    row.id
+  );
+  res.json({ ok: true });
+});
+
+router.delete('/rules/:id', auth, adminOrAccounting, (req, res) => {
+  getDB().prepare('DELETE FROM sms_rules WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
 // ── Scheduled
 router.get('/scheduled', auth, adminOrAccounting, (req, res) => {
   res.json(getDB().prepare('SELECT * FROM sms_scheduled ORDER BY send_at DESC, id DESC LIMIT 200').all());
@@ -137,15 +199,17 @@ router.delete('/scheduled/:id', auth, adminOrAccounting, (req, res) => {
 
 /** Process due scheduled SMS — call from cron / boot interval */
 async function processScheduledSms(db) {
-  const now = todayJalali(); // date-only; also compare with HH if stored as "1404/01/01 14:30"
+  const now = todayJalali();
   const due = db.prepare(`
-    SELECT * FROM sms_scheduled WHERE status='pending' AND send_at<=? ORDER BY send_at LIMIT 50
+    SELECT * FROM sms_scheduled WHERE status='pending' AND send_at<=? ORDER BY send_at LIMIT 80
   `).all(now + ' 23:59');
-  // Also pick exact datetime strings <= now ISO-ish: use JS filter for safety
   const s = settingsMap(db);
   const nowMs = Date.now();
+  const isoNow = new Date().toISOString();
   for (const row of due) {
-    // If send_at is pure Jalali date, send on/after that day
+    const at = String(row.send_at || '');
+    // ISO timestamps: only send when due
+    if (/^\d{4}-\d{2}-\d{2}T/.test(at) && at > isoNow) continue;
     try {
       const result = await sendSMS(s, row.phone, row.body);
       db.prepare('UPDATE sms_scheduled SET status=?, sent_at=?, error=? WHERE id=?')
@@ -158,3 +222,4 @@ async function processScheduledSms(db) {
 
 module.exports = router;
 module.exports.processScheduledSms = processScheduledSms;
+module.exports.dispatchSmsEvent = dispatchSmsEvent;

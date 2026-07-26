@@ -419,6 +419,21 @@ router.post('/payments', auth, adminOrAccounting, (req, res) => {
   })();
 
   audit(req.user.id, 'create', 'supplier_payment', payId, `پرداخت ${amount} ریال به تأمین‌کننده`);
+  try {
+    const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+    const sup = db.prepare('SELECT name,phone,party_group_id FROM suppliers WHERE id=?').get(supplier_id)
+      || db.prepare('SELECT full_name as name, phone, party_group_id FROM parties WHERE id=?').get(supplier_id);
+    setImmediate(() => dispatchSmsEvent(db, 'payment.created', {
+      phone: sup?.phone,
+      name: sup?.name,
+      amount,
+      date: date || '',
+      note: note || '',
+      party_group_id: sup?.party_group_id,
+      created_by: req.user.id,
+      user: req.user.name,
+    }));
+  } catch (_) {}
   res.json({ id: payId, ok: true });
 });
 

@@ -155,19 +155,22 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const hasLedger = (Number(ledRecv.recv) || 0) !== 0 || (Number(ledRecv.cred) || 0) !== 0;
   const outstanding = hasLedger ? Number(ledRecv.recv) || 0 : Math.max(0, invOutstanding);
 
-  // Payables: supplier_ledger when present; else purchase/payment formula on suppliers.
+  // Payables: supplier_ledger (credit−debit = we owe). Else purchase/payment formula.
   let totalPayable = 0;
+  let hasSupplierLedger = false;
   try {
     const sl = db.prepare(`
-      SELECT COALESCE(SUM(CASE WHEN bal > 0 THEN bal ELSE 0 END), 0) AS payable
+      SELECT COALESCE(SUM(CASE WHEN bal > 0 THEN bal ELSE 0 END), 0) AS payable,
+             COUNT(*) AS n
       FROM (
-        SELECT supplier_id, COALESCE(SUM(debit)-SUM(credit),0) AS bal
+        SELECT supplier_id, COALESCE(SUM(credit)-SUM(debit),0) AS bal
         FROM supplier_ledger GROUP BY supplier_id
       )
     `).get();
     totalPayable = Number(sl.payable) || 0;
+    hasSupplierLedger = Number(sl.n) > 0;
   } catch (_) { /* table may be empty/absent on older DBs */ }
-  if (!totalPayable) {
+  if (!hasSupplierLedger) {
     const payRow = db.prepare(`
       SELECT COALESCE(SUM(
         COALESCE(s.balance,0)
@@ -359,6 +362,23 @@ router.post('/settlements', auth, adminOrAccounting, (req, res) => {
     return settlementId;
   })();
   audit(req.user.id, 'create', 'settlement', settlementId, `تسویه ${amountRial} ریال - مشتری ${cust_id}`);
+
+  try {
+    const cust = db.prepare('SELECT biz,owner,phone,mobile,party_group_id,user_id FROM customers WHERE id=?').get(cust_id);
+    const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+    setImmediate(() => dispatchSmsEvent(db, 'settlement.created', {
+      phone: cust?.mobile || cust?.phone,
+      name: cust?.owner || cust?.biz,
+      biz: cust?.biz,
+      amount: amountRial,
+      date: date || '',
+      note: note || '',
+      party_group_id: cust?.party_group_id,
+      user_id: cust?.user_id,
+      created_by: req.user.id,
+      user: req.user.name,
+    }));
+  } catch (_) {}
 
   res.json({ id: settlementId, ok: true, amount: amountRial, currency: fx.currency, fx_rate_rial: fx.fx_rate_rial });
 });
@@ -680,6 +700,22 @@ router.post('/invoices/:id/approve', auth, adminOrAccounting, async (req, res) =
   } catch (e) {
     rubika = { ok: false, reason: e.message };
   }
+  try {
+    const cust = inv.cust_id ? db.prepare('SELECT biz,owner,phone,mobile,party_group_id,user_id FROM customers WHERE id=?').get(inv.cust_id) : null;
+    const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+    setImmediate(() => dispatchSmsEvent(db, 'invoice.approved', {
+      phone: cust?.mobile || cust?.phone,
+      name: cust?.owner || cust?.biz,
+      biz: cust?.biz,
+      amount: inv.final,
+      num: inv.num,
+      date: inv.date,
+      party_group_id: cust?.party_group_id,
+      user_id: cust?.user_id,
+      created_by: req.user.id,
+      user: req.user.name,
+    }));
+  } catch (_) {}
   res.json({ ok: true, rubika });
 });
 
@@ -1282,6 +1318,67 @@ router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
     return entryId;
   })();
   audit(req.user.id, 'create', 'journal_voucher', entryId, `ثبت سند: ${description || ''}`);
+  res.json({ id: entryId, ok: true });
+});
+
+/** پرداخت به حساب کدینگ (همه سطوح) — Dr حساب مقصد / Cr صندوق یا بانک */
+router.post('/account-payments', auth, adminOrAccounting, (req, res) => {
+  const { date, amount, account_code, pay_type, bank_id, cash_box_id, note } = req.body;
+  const amt = Math.round(Number(amount) || 0);
+  const code = String(account_code || '').trim();
+  if (!amt || amt <= 0) return res.status(400).json({ error: 'مبلغ معتبر الزامی است' });
+  if (!code) return res.status(400).json({ error: 'حساب مقصد الزامی است' });
+  const db = getDB();
+  const dest = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(code);
+  if (!dest) return res.status(400).json({ error: 'حساب مقصد در کدینگ یافت نشد' });
+  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+  const entryId = db.transaction(() => {
+    return postToLedger(db, {
+      sourceType: 'account_payment', sourceId: null,
+      date: date || todayJalali(),
+      description: note || `پرداخت به حساب ${dest.code} — ${dest.name}`,
+      createdBy: req.user.id,
+      lines: [
+        { code: dest.code, name: dest.name, debit: rialToLedger(amt), credit: 0 },
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) }
+      ]
+    });
+  })();
+  audit(req.user.id, 'create', 'account_payment', entryId, `پرداخت ${amt} به حساب ${code}`);
+  try {
+    const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+    setImmediate(() => dispatchSmsEvent(db, 'payment.created', {
+      name: dest.name, amount: amt, date: date || '', note: note || '', num: dest.code,
+      created_by: req.user.id, user: req.user.name,
+    }));
+  } catch (_) {}
+  res.json({ id: entryId, ok: true });
+});
+
+/** دریافت به حساب کدینگ — Dr صندوق/بانک / Cr حساب مبدأ */
+router.post('/account-receipts', auth, adminOrAccounting, (req, res) => {
+  const { date, amount, account_code, pay_type, bank_id, cash_box_id, note } = req.body;
+  const amt = Math.round(Number(amount) || 0);
+  const code = String(account_code || '').trim();
+  if (!amt || amt <= 0) return res.status(400).json({ error: 'مبلغ معتبر الزامی است' });
+  if (!code) return res.status(400).json({ error: 'حساب مبدأ الزامی است' });
+  const db = getDB();
+  const src = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(code);
+  if (!src) return res.status(400).json({ error: 'حساب مبدأ در کدینگ یافت نشد' });
+  const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
+  const entryId = db.transaction(() => {
+    return postToLedger(db, {
+      sourceType: 'account_receipt', sourceId: null,
+      date: date || todayJalali(),
+      description: note || `دریافت از حساب ${src.code} — ${src.name}`,
+      createdBy: req.user.id,
+      lines: [
+        { code: cash.code, name: cash.name, debit: rialToLedger(amt), credit: 0 },
+        { code: src.code, name: src.name, debit: 0, credit: rialToLedger(amt) }
+      ]
+    });
+  })();
+  audit(req.user.id, 'create', 'account_receipt', entryId, `دریافت ${amt} از حساب ${code}`);
   res.json({ id: entryId, ok: true });
 });
 

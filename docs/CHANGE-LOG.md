@@ -32,12 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `ae46880` full debtor balance on dash cards |
-| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v118` |
+| آخرین commit | _(در حال ثبت)_ bugs+features batch |
+| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v119` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
 | وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
+
+### 2026-07-26 — باگ‌های UI/داشبورد/گزارش/آلبوم + فیچر پیامک/دریافت/پرداخت/مانده
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** _(پس از push)_
+- **خلاصه:** فاز۱: sticky بدون auto-`tbl-scroll` همه‌جا؛ پرداختنی تأمین‌کننده با علامت صحیح `credit−debit`؛ آلبوم کالا با fetch کامل + شمارنده LTR؛ جریان نقد مطابق `sections`؛ مطالبات با preset پیش‌فرض «همه». فاز۲: متغیرها/قوانین SMS با تأخیر و hook اتومات؛ مانده اول دوره بدهکار/بستانکار؛ دریافت سه‌حالته؛ پرداخت به حساب (کل→تفصیلی). SW `v119`.
+- **فایل‌های کلیدی:** `index.html`, `sw.js`, `accounting.js`, `products.js`, `sms-module.js`, `sms-dispatch.js`, `tables.js`, `capture.js`, `db.js`
+- **Deploy:** ⏳
 
 ### 2026-07-26 — کارت «جمع بدهکاران» مانده کامل (نه ۱۶ از 15.6B)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

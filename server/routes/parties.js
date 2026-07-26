@@ -273,6 +273,21 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     })();
     audit(req.user.id, 'create', 'party', result, personCode);
     const row = db.prepare('SELECT * FROM parties WHERE id=?').get(result);
+    try {
+      const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+      const { isDevice } = require('../db');
+      if (!isDevice()) {
+        setImmediate(() => dispatchSmsEvent(db, 'party.created', {
+          phone: row.mobile || row.phone,
+          name: row.full_name || row.company_name,
+          biz: row.biz || row.company_name,
+          party_group_id: row.party_group_id,
+          user_id: row.user_id,
+          created_by: req.user.id,
+          user: req.user.name,
+        }));
+      }
+    } catch (_) {}
     res.status(201).json({ success: true, data: mapPartyRow(row) });
   } catch (e) {
     if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'کد یا تلفن تکراری است' });

@@ -173,6 +173,9 @@ const SYNCABLE_TABLES = [
   { name: 'fixed_asset_depreciation',          upsertKey: 'id' },
   { name: 'user_cost_centers',                 upsertKey: 'user_id:cost_center_id', compositeKeys: ['user_id', 'cost_center_id'] },
   { name: 'rep_payment_submissions',           upsertKey: 'id' },
+
+  // ===== SMS auto rules 1405/05/04 — APPEND-ONLY =====
+  { name: 'sms_rules',                         upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -311,6 +314,10 @@ const FK_COLUMNS = [
   ['rep_payment_submissions', 'rep_id'],
   ['rep_payment_submissions', 'cust_id'],
   ['rep_payment_submissions', 'settlement_id'],
+  // SMS rules 1405/05/04 (append-only)
+  ['sms_rules', 'template_id'],
+  ['sms_rules', 'party_group_id'],
+  ['sms_rules', 'user_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

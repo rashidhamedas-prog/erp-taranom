@@ -40,6 +40,8 @@ const PATH_TABLE_MAP = [
   ['/api/settings', 'settings'],
   ['/api/rbac/matrix', 'user_permissions'],
   ['/api/accounting/settlements', 'settlements'],
+  ['/api/accounting/account-payments', 'journal_entries'],
+  ['/api/accounting/account-receipts', 'journal_entries'],
   ['/api/accounting/sales-returns', 'sales_returns'],
   ['/api/accounting/invoices', 'invoices'],
   ['/api/accounting/vouchers/drafts', 'voucher_drafts'],
@@ -110,6 +112,10 @@ const PATH_TABLE_MAP = [
   ['/api/budgeting', 'budgets'],
   ['/api/reserves', 'legal_reserve_entries'],
   ['/api/cheque-records', 'cheque_records'],
+  ['/api/sms-module/rules', 'sms_rules'],
+  ['/api/sms-module/templates', 'sms_templates'],
+  ['/api/sms-module/options', 'sms_options'],
+  ['/api/sms-module/scheduled', 'sms_scheduled'],
 ];
 
 // Note: /api/portal/departments/:id/delegate maps to op_departments prefix above;

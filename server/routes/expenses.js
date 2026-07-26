@@ -131,6 +131,18 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   })();
 
   audit(req.user.id, 'create', 'expense_payment', expId, `پرداخت هزینه ${amt} ریال (${title || acc.name})`);
+  try {
+    const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+    setImmediate(() => dispatchSmsEvent(db, 'payment.created', {
+      phone: '',
+      name: title || acc.name,
+      amount: amt,
+      date: date || '',
+      note: note || '',
+      created_by: req.user.id,
+      user: req.user.name,
+    }));
+  } catch (_) {}
   res.json({ id: expId, ok: true });
 });
 

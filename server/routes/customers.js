@@ -144,6 +144,20 @@ router.post('/', auth, (req, res) => {
   // Fire welcome SMS after response — non-blocking. Central-only: device
   // builds never send SMS (the central replay of this op sends it once).
   if (phone && !isDevice()) sendWelcomeSMSToCust(db, phone);
+  try {
+    if (!isDevice()) {
+      const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+      setImmediate(() => dispatchSmsEvent(db, 'customer.created', {
+        phone: mobile || phone,
+        name: owner || biz,
+        biz,
+        party_group_id: pgid,
+        user_id: uid,
+        created_by: req.user.id,
+        user: req.user.name,
+      }));
+    }
+  } catch (_) {}
 });
 
 router.put('/:id', auth, (req, res) => {
