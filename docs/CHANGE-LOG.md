@@ -32,20 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | (R13 full reverse) |
+| آخرین commit | `e0f76a0` R13 full reverse |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v121` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ✅ |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
 
 ### 2026-07-26 — R13 ابطال کامل اسناد/فاکتور/عملیات
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (pending)
+- **Commit:** `e0f76a0`
 - **خلاصه:** سخت‌گیری ابطال کامل (سند معکوس + برگرداندن اثرها): `reverseJournalEntry` بدون `deleted_at` (اصل+معکوس در TB خنثی می‌شوند)؛ ابطال پرداخت/دریافت به حساب در لیست اسناد؛ ابطال افتتاحیه بانک/صندوق؛ ابطال اعمال انبارگردانی؛ ابطال پرداخت حقوق؛ ابطال پرداخت تأمین با `account_code`؛ reverse موجودی اول دوره هنگام غیرفعال شخص؛ فیلتر سربار بدون reversed. SW `v121`.
 - **فایل‌های کلیدی:** `void-journal.js`, `void-settlement.js`, `accounting.js`, `banks.js`, `cash-boxes.js`, `purchases.js`, `payroll.js`, `stocktaking.js`, `cycle-count.js`, `parties-sync.js`, `expenses.js`, `index.html`, `sw.js`
-- **Deploy:** ⏳
-- **یادداشت:** الگوی ابطال = ثبت سند معکوس + `status=reversed` روی اصل (بدون حذف از TB)
+- **Deploy:** ✅ `e0f76a0` — git pull + pm2 · health 200 · SW `erp-taranom-v121`
 
 ### 2026-07-26 — کارشناس فاکتور، حقوق/پرسنل، بانک‌صندوق، جستجو، داشبورد حذف
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
