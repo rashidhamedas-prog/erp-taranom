@@ -252,9 +252,9 @@ html[data-theme="dark"] .cards.bento-hero{
   color:rgba(251,245,225,.92); /* light on green sidebar — was var(--purple)=#1A5C38 (invisible) */
   padding:6px 10px 2px;opacity:.95}
 
-.stat .v{font-size:clamp(11px,2.2vw,20px);font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;line-height:1.25}
+.stat .v{font-size:clamp(10px,1.9vw,18px);font-weight:800;white-space:nowrap;overflow:visible;text-overflow:clip;max-width:100%;line-height:1.25;letter-spacing:-.02em}
 .stat .l{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stat > div:last-child{min-width:0;overflow:hidden}
+.stat > div:last-child{min-width:0;overflow:visible;flex:1}
 .ic.p{background:var(--purple-light);color:var(--purple)}
 .ic.g{background:var(--ok-bg);color:var(--green)}
 .ic.r{background:var(--bad-bg);color:var(--red)}
@@ -428,20 +428,27 @@ html[data-theme="dark"] .sett-savebar{background:rgba(19,31,26,.9)}
 /* ===== Table ===== */
 /* فقط اسکرول افقی روی wrap — اسکرول عمودی صفحه تا sticky سرتیتر کار کند */
 .tbl-wrap{overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch}
-table.tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:600px}
+/* separate+spacing0: sticky thead با collapse دفرمه/همپوشان می‌شود */
+table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;min-width:600px}
 table.tbl th{background:var(--th-bg);color:var(--purple);text-align:right;padding:11px 12px;font-weight:700;border-bottom:2px solid var(--border);white-space:nowrap}
 /* فریز سرتیتر زیر topbar هنگام اسکرول صفحه / داخل جعبهٔ اسکرول گزارش */
 :root{--tbl-sticky-top:72px}
 .tbl-wrap > table.tbl > thead > tr > th,
 .panel-body > table.tbl > thead > tr > th,
 #view > table.tbl > thead > tr > th{
-  position:sticky;top:var(--tbl-sticky-top);z-index:5;
+  position:sticky;top:var(--tbl-sticky-top);z-index:6;
   background:var(--th-bg,#EAF4EE);
   box-shadow:inset 0 -1px 0 var(--border), 0 1px 0 rgba(0,0,0,.04);
 }
 .tbl-wrap.tbl-scroll{
   max-height:min(62vh,560px);overflow:auto;-webkit-overflow-scrolling:touch;
   --tbl-sticky-top:0px;
+}
+/* چند جدول پشت‌سرهم (مثل کدینگ): فریز صفحه‌ای همه را روی هم می‌چسباند → داخل جعبه اسکرول یا خاموش */
+.tbl-wrap.tbl-no-sticky > table.tbl > thead > tr > th,
+.tbl-no-sticky > table.tbl > thead > tr > th,
+table.tbl.tbl-no-sticky > thead > tr > th{
+  position:static;top:auto;box-shadow:none;z-index:auto;
 }
 .modal-body .tbl-wrap > table.tbl > thead > tr > th,
 .mdi-body .tbl-wrap > table.tbl > thead > tr > th{
@@ -1179,7 +1186,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 <script src="/acc-nav.js?v=75"></script>
 <script src="/portal-ui.js?v=75"></script>
 <script src="/mdi.js?v=77" defer></script>
-<script src="/tbl-enhance.js?v=77" defer></script>
+<script src="/tbl-enhance.js?v=78" defer></script>
 <script src="/prod-ui.js?v=75" defer></script>
 <script>
 if(typeof T!=='function'){ window.T=function(s){return s;}; window.tt=function(a){return a;}; window.getAppLang=function(){return 'fa';}; window.setAppLang=function(){}; }
@@ -1403,14 +1410,27 @@ function balSides(balance){
 function balTotals(rows){
   return (rows||[]).reduce((a,c)=>{ const s=balSides(c&&c.balance); a.debit+=s.debit; a.credit+=s.credit; return a; },{debit:0,credit:0});
 }
+/** ماهیت نمایشی مانده زنده (اولویت با علامت مانده؛ گروه فقط راهنماست) */
 function natureLabelOf(c){
+  const s=balSides(c&&(c.balance!=null?c.balance:c.opening_balance));
+  if(s.credit>0) return 'بستانکار';
+  if(s.debit>0) return 'بدهکار';
   const n=(c&&(c.nature||c.account_nature||c.group_nature))||'';
   if(n==='credit') return 'بستانکار';
   if(n==='debit') return 'بدهکار';
-  const s=balSides(c&&c.balance);
-  if(s.credit>0) return 'بستانکار';
-  if(s.debit>0) return 'بدهکار';
   return '—';
+}
+function balNatureBadgeHtml(c){
+  const label=natureLabelOf(c);
+  if(label==='بستانکار') return `<span style="color:var(--green);font-weight:700">${label}</span>`;
+  if(label==='بدهکار') return `<span style="color:#dc2626;font-weight:700">${label}</span>`;
+  return `<span class="muted">${label}</span>`;
+}
+/** کارت داشبورد: اعداد خیلی بزرگ بدون بریدن با … */
+function fmtStatMoney(n){
+  const x=Number(n)||0;
+  if(Math.abs(x)>=1e10 && typeof fmtCompact==='function') return fmtCompact(x);
+  return fmt(x);
 }
 function balDebitTd(balance){
   const s=balSides(balance);
@@ -3431,8 +3451,8 @@ async function renderDashContent(){
         ${statCard('p','🛍️', fmt(ov.totalProducts),'کالاها')}
         ${statCard('b','📞', fmt(ov.openFollowups),'پیگیری باز')}
         ${statCard('r','📉', fmt(ov.lowStock),'موجودی کم')}
-        ${statCard('r','📤', fmt(balT.debit),'جمع بدهکاران')}
-        ${statCard('g','📥', fmt(balT.credit),'جمع بستانکاران')}
+        ${statCard('r','📤', fmtStatMoney(balT.debit),'جمع بدهکاران')}
+        ${statCard('g','📥', fmtStatMoney(balT.credit),'جمع بستانکاران')}
       </div>
       <div class="panel">
         <div class="panel-head"><h4>عملکرد کارشناسان${dq?' · بازه':''}</h4></div>
@@ -3503,8 +3523,8 @@ async function renderDashContent(){
         ${statCard('g','🎯', fmt(Math.round(myComm.totalComm||0)),'انگیزه فروش')}
         ${statCard('r','💵', fmt(Math.round(myComm.payable||0)),'مانده انگیزه')}
         ${myComm.monthlyTarget?statCard('b','📊', (myComm.targetPct||0)+'٪','تحقق هدف'):''}
-        ${statCard('r','📤', fmt(balT.debit),'جمع بدهکاران')}
-        ${statCard('g','📥', fmt(balT.credit),'جمع بستانکاران')}
+        ${statCard('r','📤', fmtStatMoney(balT.debit),'جمع بدهکاران')}
+        ${statCard('g','📥', fmtStatMoney(balT.credit),'جمع بستانکاران')}
       </div>
       ${myComm.basisLabel?`<div class="muted" style="margin:-4px 0 12px;font-size:11px">مبنا: ${esc(myComm.basisLabel)}${myComm.pendingExpenses?` — ${myComm.pendingExpenses} هزینه در انتظار`:''}</div>`:''}
       ${balRows.length?`<div class="panel">
@@ -3518,7 +3538,7 @@ async function renderDashContent(){
             <tbody>${balRows.map(c=>`<tr>
               <td data-label="فروشگاه">${esc(c.biz)}</td>
               <td data-label="نام">${esc(c.owner||'-')}</td>
-              <td data-label="ماهیت">${esc(natureLabelOf(c))}</td>
+              <td data-label="ماهیت">${balNatureBadgeHtml(c)}</td>
               ${balDebitTd(c.balance)}${balCreditTd(c.balance)}
               <td data-label="آدرس">${esc(c.address||c.city||'-')}</td>
             </tr>`).join('')}</tbody>
@@ -3547,7 +3567,7 @@ function dashBalRowHtml(c){
   return `<tr>
     <td data-label="فروشگاه">${esc(c.biz)}</td>
     <td data-label="نام">${esc(c.owner||'-')}</td>
-    <td data-label="ماهیت">${esc(natureLabelOf(c))}</td>
+    <td data-label="ماهیت">${balNatureBadgeHtml(c)}</td>
     ${balDebitTd(c.balance)}${balCreditTd(c.balance)}
     <td data-label="آدرس">${esc(c.address||c.city||'-')}</td>
     <td data-label="کارشناس" class="muted">${esc(c.salesperson||'-')}</td>
@@ -3639,7 +3659,6 @@ function renderCustTable(){
   if(custFilter.status) rows=rows.filter(c=>c.status===custFilter.status);
   if(custFilter.user_id) rows=rows.filter(c=>String(c.user_id)===String(custFilter.user_id)||String(c.assigned_to)===String(custFilter.user_id));
   const isAdm = ME.role==='admin';
-  const natureLabel={debit:'بدهکار',credit:'بستانکار','':'—'};
   const bar = el('cBulkBar');
   const cnt = el('cSelCount');
   if(bar) bar.style.display = custSelected.size>0 ? 'flex' : 'none';
@@ -3650,11 +3669,10 @@ function renderCustTable(){
   const balT = balTotals(rows);
   el('custTable').innerHTML = `<table class="tbl" data-bulk-delete="0"><thead><tr>
     <th class="no-sort" style="width:36px"><input type="checkbox" ${allChecked?'checked':''} onchange="toggleAllCust(this,${JSON.stringify(allIds)})"></th>
-    <th>نام کامل</th><th>نام فروشگاه</th><th>موبایل</th><th class="no-sort">عملیات</th><th>شهر</th><th>آدرس</th><th>نوع</th><th>وضعیت</th><th>ماهیت</th>
+    <th>نام کامل</th><th>نام فروشگاه</th><th>موبایل</th><th class="no-sort">عملیات</th><th>شهر</th><th>آدرس</th><th>نوع</th><th>وضعیت</th><th>ماهیت مانده</th>
     <th data-col-kind="debit">بدهکار</th><th data-col-kind="credit">بستانکار</th>${isAdm?'<th>کارشناس</th>':''}
   </tr></thead><tbody>${rows.map(c=>{
     const editable = canEditCustomer(c);
-    const nature = c.account_nature || c.group_nature || '';
     return `<tr data-id="${c.id}" ${custSelected.has(c.id)?'style="background:var(--purple-light)"':''}>
     <td class="no-sort"><input type="checkbox" ${custSelected.has(c.id)?'checked':''} onchange="toggleCust(${c.id},this.checked)"></td>
     <td>${esc(c.owner||'-')}</td><td>${esc(c.biz)}</td>
@@ -3667,7 +3685,7 @@ function renderCustTable(){
     <td>${esc(c.city||'-')}</td>
     ${tdClip(c.address||'-', 200, true)}
     <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" style="background:#dbeafe;color:#1d4ed8" title="${esc(T('دسترسی پورتال مشتریان فعال'))}">${T('پورتال')}</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" style="background:#fef2f2;color:#dc2626" title="${esc(T('ریسک ریزش مشتری'))}">⚠️${c.churn_score}٪</span>`:''}</td>
-    <td>${natureLabel[nature]||nature||'—'}${c.party_group_name?`<div class="muted" style="font-size:11px">${esc(c.party_group_name)}</div>`:''}${c.group_name?`<div class="muted" style="font-size:11px">${esc(c.group_name)}</div>`:''}</td>
+    <td>${balNatureBadgeHtml(c)}${c.party_group_name?`<div class="muted" style="font-size:11px">${esc(c.party_group_name)}</div>`:''}${c.group_name?`<div class="muted" style="font-size:11px">${esc(c.group_name)}</div>`:''}</td>
     ${balDebitTd(c.balance)}${balCreditTd(c.balance)}
     ${isAdm?`<td class="muted">${esc(c.salesperson||'-')}</td>`:''}
   </tr>`;
@@ -3914,13 +3932,13 @@ function renderAccReceivablesBody(body){
   if(!body||!_accRecvCache) return;
   const viewMode=accRecvViewMode||'customer';
   const allRows=_accRecvCache[viewMode]||[];
-  const rows=accHideZero ? allRows.filter(r=>r.outstanding>0) : allRows;
+  const rows=accHideZero ? allRows.filter(r=>(Number(r.outstanding)||0)!==0) : allRows;
   const hiddenCount=allRows.length-rows.length;
   body.innerHTML=`
       <div class="toolbar" style="margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
           <input type="checkbox" id="chkHideZero" ${accHideZero?'checked':''} onchange="accHideZero=this.checked;renderAccReceivablesBody()">
-          فقط با مانده بدهی
+          فقط با مانده (بدهکار یا بستانکار)
         </label>
         <select id="recvViewMode" onchange="accRecvViewMode=this.value;renderAccReceivablesBody()" style="padding:6px 10px;border-radius:8px">
           <option value="customer" ${viewMode==='customer'?'selected':''}>نمایش به تفکیک مشتری</option>
@@ -3960,7 +3978,8 @@ function renderAccReceivablesBody(body){
         <td class="mono" style="color:var(--red);font-weight:800">${fmt(rows.reduce((a,r)=>{const o=Number(r.outstanding)||0;return a+(o>0?o:0);},0))}</td>
         <td class="mono" style="color:var(--green);font-weight:800">${fmt(rows.reduce((a,r)=>{const o=Number(r.outstanding)||0;return a+(o<0?-o:0);},0))}</td>
         <td></td>
-      </tr></tfoot></table></div>`;
+      </tr></tfoot></table></div>
+      ${!rows.length?`<div class="muted" style="margin-top:10px;font-size:12px">اگر انتظار دارید داده ببینید، فیلتر تاریخ را روی «همه» بگذارید — مطالبات به‌صورت مانده تا تاریخ پایان بازه محاسبه می‌شود.</div>`:''}`;
 }
 
 ROUTES.followups = async function(){
@@ -6674,10 +6693,17 @@ function enhanceAccTables(root){
   root.querySelectorAll('table.tbl').forEach(t=>{
     if(t.dataset.enhanced==='1') return;
     if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
+    // فریز: اگر جدول داخل جعبه اسکرول نیست و والد چندجدوله‌ای نیست، tbl-scroll اضافه کن
+    const wrap=t.closest('.tbl-wrap');
+    if(wrap && !wrap.classList.contains('tbl-scroll') && !wrap.classList.contains('tbl-no-sticky')){
+      const siblingTables=(wrap.parentElement||document).querySelectorAll(':scope > .tbl-wrap table.tbl, :scope > div > .tbl-wrap table.tbl');
+      // چند جدول پشت‌سرهم (کدینگ): اسکرول جداگانه بهتر از sticky سراسری است
+      if(siblingTables.length>1) wrap.classList.add('tbl-scroll');
+      else if(!wrap.closest('.modal-body,.mdi-body')) wrap.classList.add('tbl-scroll');
+    }
     if(typeof tblEnsureRowIds==='function') tblEnsureRowIds(t);
     const hasId=[...t.tBodies[0].rows].some(r=>r.dataset.id);
     const bulk=hasId && typeof tblInferBulkDelete==='function'?tblInferBulkDelete(t):null;
-    // P4: sort/filter + footer totals; selectable when bulk delete available
     if(bulk) enhanceDataTable(t,{selectable:true, bulkDelete:bulk, footer:true});
     else enhanceDataTable(t,{footer:true});
   });
@@ -6830,6 +6856,8 @@ async function renderPartiesTab(body){
   CACHE.parties=rows;
   const natureLabel={debit:'بدهکار',credit:'بستانکار','':'بی‌حساب'};
   const roleLabel={customer:'مشتری',supplier:'تأمین‌کننده',employee:'کارمند',partner:'شریک',marketer:'بازاریاب',other:'سایر'};
+  const balRows=rows.map(p=>({...p, balance:Number(p.opening_balance_toman||p.opening_balance||0)}));
+  const balT=balTotals(balRows);
   body.innerHTML=`
     <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
       <aside style="min-width:180px;max-width:220px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px">
@@ -6850,24 +6878,31 @@ async function renderPartiesTab(body){
           <input id="partySearch" placeholder="جستجو نام/تلفن/کد... F10" value="${esc(search)}" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px">
           <span class="muted" style="font-size:12px">${fmt(rows.length)}${total>rows.length?' از '+fmt(total):''} نفر</span>
         </div>
-        <div class="tbl-wrap"><table class="tbl" id="partiesTbl" data-bulk-delete="/parties" data-bulk-label="حذف" data-bulk-perm="admin" data-bulk-confirm="{n} شخص حذف/غیرفعال شود؟" style="font-size:12px"><thead><tr>
-          <th>کد</th><th>کد تفصیلی</th><th>نام</th><th>تلفن ۱</th><th>شهر</th><th>گروه</th><th>سمت‌ها</th><th>ماهیت</th><th>مانده ${moneyColLabel()}</th><th class="no-sort">عملیات</th>
-        </tr></thead><tbody>${rows.map(p=>`<tr data-id="${p.id}">
-          <td class="mono">${esc(p.person_code||'-')}</td>
-          <td class="mono muted">${esc(p.coa_code||'-')}</td>
-          <td>${esc(p.prefix||'')} ${esc(p.full_name||p.company_name||p.biz||'-')}</td>
-          <td class="mono">${esc(p.phone||'-')}</td>
-          <td>${esc(p.city||'-')}</td>
-          <td>${esc(p.party_group_name||'-')}</td>
-          <td>${(p.party_roles||[]).map(r=>roleLabel[r]||r).join('، ')||'-'}</td>
-          <td>${natureLabel[p.account_nature]||p.account_nature||'-'}</td>
-          <td class="mono">${fmt(p.opening_balance_toman||p.opening_balance||0)}</td>
-          <td style="white-space:nowrap">
+        <div class="tbl-wrap tbl-scroll"><table class="tbl" id="partiesTbl" data-bulk-delete="/parties" data-bulk-label="حذف" data-bulk-perm="admin" data-bulk-confirm="{n} شخص حذف/غیرفعال شود؟" style="font-size:12px"><thead><tr>
+          <th data-col-kind="skip">کد</th><th data-col-kind="skip">کد تفصیلی</th><th data-col-kind="skip">نام</th><th data-col-kind="skip">تلفن ۱</th><th data-col-kind="skip">شهر</th><th data-col-kind="skip">گروه</th><th data-col-kind="skip">سمت‌ها</th><th data-col-kind="skip">ماهیت مانده</th>
+          <th data-col-kind="debit">بدهکار</th><th data-col-kind="credit">بستانکار</th><th class="no-sort">عملیات</th>
+        </tr></thead><tbody>${balRows.map(p=>`<tr data-id="${p.id}">
+          <td class="mono" data-col-kind="skip">${esc(p.person_code||'-')}</td>
+          <td class="mono muted" data-col-kind="skip">${esc(p.coa_code||'-')}</td>
+          <td data-col-kind="skip">${esc(p.prefix||'')} ${esc(p.full_name||p.company_name||p.biz||'-')}</td>
+          <td class="mono" data-col-kind="skip">${esc(p.phone||'-')}</td>
+          <td data-col-kind="skip">${esc(p.city||'-')}</td>
+          <td data-col-kind="skip">${esc(p.party_group_name||'-')}</td>
+          <td data-col-kind="skip">${(p.party_roles||[]).map(r=>roleLabel[r]||r).join('، ')||'-'}</td>
+          <td data-col-kind="skip">${balNatureBadgeHtml(p)}${(p.account_nature&&natureLabel[p.account_nature])?`<div class="muted" style="font-size:11px">گروه: ${natureLabel[p.account_nature]}</div>`:''}</td>
+          ${balDebitTd(p.balance)}${balCreditTd(p.balance)}
+          <td class="no-sort" style="white-space:nowrap">
             <button class="btn sm ghost" onclick="partyModal(${p.id})">✏️</button>
             <button class="btn sm blue" onclick="showPartyTurnover(${p.id},'${esc(p.full_name||p.biz||'')}')">📒 گردش</button>
             <button class="btn sm red" onclick="deleteParty(${p.id})">🗑️</button>
           </td>
-        </tr>`).join('')||emptyRow(10)}</tbody></table></div>
+        </tr>`).join('')||emptyRow(11)}</tbody>
+        <tfoot><tr style="border-top:2px solid var(--border);background:var(--purple-light);font-weight:700">
+          <td colspan="8">جمع (${fmt(balRows.length)} نفر)</td>
+          <td class="mono" style="font-weight:800;color:#dc2626">${balT.debit?fmt(balT.debit):'-'}</td>
+          <td class="mono" style="font-weight:800;color:var(--green)">${balT.credit?fmt(balT.credit):'-'}</td>
+          <td></td>
+        </tr></tfoot></table></div>
       </div>
     </div>`;
   const ps=el('partySearch');
@@ -6882,6 +6917,7 @@ async function renderPartiesTab(body){
   }
   if(typeof enhanceDataTable==='function') enhanceDataTable(el('partiesTbl'),{
     selectable:true,
+    footer:false,
     bulkDelete:typeof tblInferBulkDelete==='function'?tblInferBulkDelete(el('partiesTbl')):null
   });
 }
@@ -7514,16 +7550,17 @@ async function voidInvoiceDoc(id,num){
    running balance, reconstructed from stock_logs.
 ============================================================ */
 async function renderItemKardexTab(body){
-  if(!CACHE.products) CACHE.products=await api('GET','/products')||[];
-  const products=CACHE.products;
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  if(!CACHE.products?.length) CACHE.products=CACHE.allProducts;
+  const products=CACHE.products||CACHE.allProducts||[];
   body.innerHTML=`
     <div class="toolbar" style="margin-bottom:12px">
       <select id="kardexProduct" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px" onchange="loadItemKardex(this.value)">
-        <option value="">-- انتخاب کالا --</option>
+        <option value="">-- انتخاب کالا (${fmt(products.length)}) --</option>
         ${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.code||'-')})</option>`).join('')}
       </select>
     </div>
-    <div id="kardexBody"></div>`;
+    <div id="kardexBody">${products.length?'':'<div class="empty">کالایی یافت نشد — دسترسی گروه کالا یا کاتالوگ را بررسی کنید</div>'}</div>`;
 }
 async function loadItemKardex(productId){
   const box=el('kardexBody'); if(!box) return;
@@ -11212,7 +11249,7 @@ function chartOfAccountsGroupedHtml(accounts){
   return order.filter(t=>byType[t]?.length).map(t=>`
     <div style="margin-bottom:16px">
       <h5 style="margin:0 0 8px;color:${typeColor[t]||'var(--text)'}">${typeLabel[t]||t} (${fmt(byType[t].length)})</h5>
-      <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+      <div class="tbl-wrap tbl-scroll"><table class="tbl" style="font-size:12px"><thead><tr>
         <th>کد</th><th>نام حساب</th><th>سطح</th><th>ماهیت</th><th>نوع تفصیلی</th><th>حساب والد</th><th>عملیات</th>
       </tr></thead><tbody>
       ${byType[t].map(a=>`<tr style="${!a.parent_code?'font-weight:700;background:var(--purple-light)':''}">

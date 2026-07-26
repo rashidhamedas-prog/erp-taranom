@@ -159,28 +159,28 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   });
 });
 
-// Receivables per customer (only customers with at least one final invoice)
+// Receivables per customer — as-of date (invoices/settlements up to `to`).
+// Filtering by `from` alone must NOT hide older unpaid invoices (that emptied the month view).
 router.get('/receivables', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
-  // Validate date strings to only allow digits and slashes (Jalali dates like 1403/04/01)
   const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
   const sf = safeDate(from), st = safeDate(to);
-  const dateFilter = (sf || st)
-    ? ` AND i.date >= '${sf || ''}' AND i.date <= '${st || '9999'}'`
-    : '';
-  const settDateFilter = (sf || st)
-    ? ` AND s.date >= '${sf || ''}' AND s.date <= '${st || '9999'}'`
-    : '';
+  // Outstanding = all final invoices issued on/before `to`, minus settlements on/before `to`.
+  // If only `from` is set (unusual), still require invoice date >= from.
+  const invTo = st ? ` AND i.date <= '${st}'` : '';
+  const invFrom = (!st && sf) ? ` AND i.date >= '${sf}'` : '';
+  const settTo = st ? ` AND s.date <= '${st}'` : '';
+  const settFrom = (!st && sf) ? ` AND s.date >= '${sf}'` : '';
   const rows = db.prepare(`
     SELECT c.id, c.biz, c.owner, c.city, c.phone,
       u.name as salesperson,
       COALESCE(SUM(i.final),0) as total_invoiced,
       COALESCE(st.total_settled, 0) as total_settled
     FROM customers c
-    LEFT JOIN invoices i ON i.cust_id=c.id AND i.type='final'${dateFilter}
+    LEFT JOIN invoices i ON i.cust_id=c.id AND i.type='final'${invTo}${invFrom}
     LEFT JOIN (
-      SELECT cust_id, SUM(amount) as total_settled FROM settlements s WHERE COALESCE(status,'posted')<>'reversed'${settDateFilter} GROUP BY cust_id
+      SELECT cust_id, SUM(amount) as total_settled FROM settlements s WHERE COALESCE(status,'posted')<>'reversed'${settTo}${settFrom} GROUP BY cust_id
     ) st ON st.cust_id=c.id
     LEFT JOIN users u ON c.user_id=u.id
     GROUP BY c.id
@@ -191,22 +191,36 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
   res.json(rows);
 });
 
-// Receivables per final invoice (for invoice-level tracking)
+// Receivables per final invoice (for invoice-level tracking) — as-of `to` when provided
 router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  const { from, to } = req.query;
+  const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
+  const sf = safeDate(from), st = safeDate(to);
+  const invTo = st ? ' AND i.date <= ?' : '';
+  const invFrom = (!st && sf) ? ' AND i.date >= ?' : '';
+  const params = [];
+  if (st) params.push(st);
+  else if (sf) params.push(sf);
+  const settDate = st ? ' AND date <= ?' : ((!st && sf) ? ' AND date >= ?' : '');
+  const settParams = st ? [st] : ((!st && sf) ? [sf] : []);
   const rows = db.prepare(`
     SELECT i.id, i.num, i.date, i.final, c.id as cust_id, c.biz, c.owner, u.name as salesperson,
       COALESCE(sp.paid, 0) as paid
     FROM invoices i
     JOIN customers c ON i.cust_id=c.id
     LEFT JOIN users u ON c.user_id=u.id
-    LEFT JOIN (SELECT invoice_id, SUM(amount) as paid FROM settlements WHERE invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed' GROUP BY invoice_id) sp ON sp.invoice_id=i.id
-    WHERE i.type='final'
+    LEFT JOIN (
+      SELECT invoice_id, SUM(amount) as paid FROM settlements
+      WHERE invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed'${settDate}
+      GROUP BY invoice_id
+    ) sp ON sp.invoice_id=i.id
+    WHERE i.type='final'${invTo}${invFrom}
     ORDER BY i.date DESC, i.id DESC
     LIMIT 500
-  `).all();
-  rows.forEach(r => { r.outstanding = Math.max(0, (r.final || 0) - (r.paid || 0)); });
-  res.json(rows.filter(r => r.outstanding > 0));
+  `).all(...settParams, ...params);
+  rows.forEach(r => { r.outstanding = (r.final || 0) - (r.paid || 0); });
+  res.json(rows.filter(r => Math.abs(r.outstanding) > 0.0001));
 });
 
 // Settlements list
