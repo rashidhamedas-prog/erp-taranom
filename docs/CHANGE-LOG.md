@@ -32,12 +32,20 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `aa13dd8` / `c294063` rebrand CRM→ERP + quarantine |
+| آخرین commit | `429ecdb` + hotfix APK روی VPS |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.8`** / SW `erp-taranom-v110` |
 | اندروید | **`2.0.30`** — فایل انتشار `erp-taranom.apk` (+ سازگاری `crm-taranom.apk`) |
-| وضعیت سرور | ✅ |
+| وضعیت سرور | ✅ verified |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
+
+### 2026-07-26 — تأیید سرور + رفع APK گم‌شده پس از rename
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (docs) پس از این ورودی
+- **خلاصه:** بررسی کامل ایران: remote=`erp-taranom`، HEAD تا `429ecdb`، PM2 online، health/UI/SW/app-info/app-update و sync/auth سالم. باگ: `manifest` به `/releases/erp-taranom.apk` اشاره می‌کرد ولی فقط `crm-taranom.apk` روی دیسک بود → SPA به‌اشتباه `index.html` (~1.2MB) با HTTP 200 می‌داد. روی VPS `cp crm-taranom.apk erp-taranom.apk` (هر دو 67MB، md5 یکسان). چک‌لیست به `DEPLOY-IRAN.md` اضافه شد.
+- **فایل‌های کلیدی:** `scripts/DEPLOY-IRAN.md`, `docs/CHANGE-LOG.md`, VPS `server/public/releases/erp-taranom.apk`
+- **Deploy:** ✅ hotfix فایل APK روی دیسک + pull docs تا `429ecdb` · health 200 · SW `erp-taranom-v110`
+- **یادداشت:** منطق اپلیکیشن (DB path، applicationId، PM2 cwd، `server/public/index.html`) از rebrand آسیب ندیده؛ تغییر نام GitHub/ریلیز فقط روی دانلود اندروید اثر داشت و رفع شد.
 
 ### 2026-07-26 — پاک‌سازی + بازبرند CRM→ERP + مرتب‌سازی مخزن
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -45,6 +53,7 @@
 - **خلاصه:** زبالهٔ بیلد/لاگ/dump حذف یا به `D/` منتقل شد؛ README اصولی ERP؛ نام APK `erp-taranom.apk`؛ gitignore سخت‌تر؛ `scripts/DEPLOY-IRAN.md` برای مسیر VPS ثابت. `applicationId` و `crm.db` و مسیر دیسک ایران عمداً بدون تغییر. junction لوکال `erp-taranom` → `crm-taranom`.
 - **فایل‌های کلیدی:** `README.md`, `.gitignore`, `server/public/releases/manifest.json`, `scripts/build-android.ps1`, `scripts/DEPLOY-IRAN.md`
 - **Deploy:** ✅ `aa13dd8` — git pull + pm2 · health 200 · مسیر VPS همچنان `crm-taranom`
+- **یادداشت:** گیت‌هاب به `https://github.com/rashidhamedas-prog/erp-taranom` rename شد؛ remote لوکال و ایران به‌روز شد. پوشهٔ دیسک لوکال به‌خاطر قفل Cursor هنوز `crm-taranom` + junction `erp-taranom` است.
 
 ### 2026-07-26 — Online-First + اسلات ۱ موبایل/۱ دسکتاپ + بهینه‌سازی سینک
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
