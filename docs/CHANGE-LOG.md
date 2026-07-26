@@ -44,7 +44,7 @@
 - **Commit:** `34b0aa4` (+ `61ca507` changelog)
 - **خلاصه:** کارت‌های داشبورد حسابداری همه صفر بودند چون `/accounting/overview` فقط از `invoices−settlements` محاسبه می‌کرد و در go-live فاکتور رسمی صفر است. الان مطالبات/بستانکار از `customer_ledger` و پرداختنی از `supplier_ledger` (با fallback قبلی) می‌آید؛ کش صفحهٔ dash هم برای KPI دور زده شد؛ SW `v117`.
 - **فایل‌های کلیدی:** `server/routes/accounting.js`, `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ✅ `61ca507` — git pull + pm2 · health 200 · SW `erp-taranom-v117` · outstanding≈15,556,288,620
+- **Deploy:** ✅ `5b09ce2` — git pull + pm2 · health 200 · SW `erp-taranom-v117` · outstanding≈15,556,288,620
 
 ### 2026-07-26 — اصلاح آسیب پس از sync اندروید/دسکتاپ: بازگردانی Model A + پاک‌سازی دیباگ
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
