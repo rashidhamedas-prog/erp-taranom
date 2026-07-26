@@ -32,12 +32,19 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `61ca507` dashboard KPIs from ledger |
-| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v117` |
+| آخرین commit | (pending) fix dashboard debtor total display |
+| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v118` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ✅ |
+| وضعیت سرور | ⏳ |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
+
+### 2026-07-26 — کارت «جمع بدهکاران» مانده کامل (نه ۱۶ از 15.6B)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** عدد ۱۶ در داشبورد باگ نمایش بود: مانده ~۱۵٫۵ میلیارد با `fmtCompact` به `15.6B` تبدیل و در `statCard` دوباره parse/round می‌شد → ۱۶. الان ماندهٔ جمع بدهکار/بستانکار کامل نشان داده می‌شود و فونت با `fitStatNums` داخل کادر جا می‌شود؛ SW `v118`.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ⏳
 
 ### 2026-07-26 — آمار داشبورد حسابداری از دفتر مشتریان (نه فقط فاکتور)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

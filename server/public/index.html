@@ -252,9 +252,9 @@ html[data-theme="dark"] .cards.bento-hero{
   color:rgba(251,245,225,.92); /* light on green sidebar — was var(--purple)=#1A5C38 (invisible) */
   padding:6px 10px 2px;opacity:.95}
 
-.stat .v{font-size:clamp(10px,1.9vw,18px);font-weight:800;white-space:nowrap;overflow:visible;text-overflow:clip;max-width:100%;line-height:1.25;letter-spacing:-.02em}
+.stat .v{font-size:clamp(9px,1.9vw,18px);font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:clip;max-width:100%;width:100%;line-height:1.25;letter-spacing:-.03em}
 .stat .l{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stat > div:last-child{min-width:0;overflow:visible;flex:1}
+.stat .stat-body,.stat > div:last-child{min-width:0;overflow:hidden;flex:1;max-width:100%}
 .ic.p{background:var(--purple-light);color:var(--purple)}
 .ic.g{background:var(--ok-bg);color:var(--green)}
 .ic.r{background:var(--bad-bg);color:var(--red)}
@@ -1426,11 +1426,9 @@ function balNatureBadgeHtml(c){
   if(label==='بدهکار') return `<span style="color:#dc2626;font-weight:700">${label}</span>`;
   return `<span class="muted">${label}</span>`;
 }
-/** کارت داشبورد: اعداد خیلی بزرگ بدون بریدن با … */
+/** کارت داشبورد: مانده کامل (نه compact مثل 15.6B که با parse دوباره به ۱۶ تبدیل می‌شد) */
 function fmtStatMoney(n){
-  const x=Number(n)||0;
-  if(Math.abs(x)>=1e10 && typeof fmtCompact==='function') return fmtCompact(x);
-  return fmt(x);
+  return Number(n)||0;
 }
 function balDebitTd(balance){
   const s=balSides(balance);
@@ -3451,8 +3449,8 @@ async function renderDashContent(){
         ${statCard('p','🛍️', fmt(ov.totalProducts),'کالاها')}
         ${statCard('b','📞', fmt(ov.openFollowups),'پیگیری باز')}
         ${statCard('r','📉', fmt(ov.lowStock),'موجودی کم')}
-        ${statCard('r','📤', fmtStatMoney(balT.debit),'جمع بدهکاران')}
-        ${statCard('g','📥', fmtStatMoney(balT.credit),'جمع بستانکاران')}
+        ${statCard('r','📤', balT.debit,'مانده جمع بدهکاران')}
+        ${statCard('g','📥', balT.credit,'مانده جمع بستانکاران')}
       </div>
       <div class="panel">
         <div class="panel-head"><h4>عملکرد کارشناسان${dq?' · بازه':''}</h4></div>
@@ -3523,8 +3521,8 @@ async function renderDashContent(){
         ${statCard('g','🎯', fmt(Math.round(myComm.totalComm||0)),'انگیزه فروش')}
         ${statCard('r','💵', fmt(Math.round(myComm.payable||0)),'مانده انگیزه')}
         ${myComm.monthlyTarget?statCard('b','📊', (myComm.targetPct||0)+'٪','تحقق هدف'):''}
-        ${statCard('r','📤', fmtStatMoney(balT.debit),'جمع بدهکاران')}
-        ${statCard('g','📥', fmtStatMoney(balT.credit),'جمع بستانکاران')}
+        ${statCard('r','📤', balT.debit,'مانده جمع بدهکاران')}
+        ${statCard('g','📥', balT.credit,'مانده جمع بستانکاران')}
       </div>
       ${myComm.basisLabel?`<div class="muted" style="margin:-4px 0 12px;font-size:11px">مبنا: ${esc(myComm.basisLabel)}${myComm.pendingExpenses?` — ${myComm.pendingExpenses} هزینه در انتظار`:''}</div>`:''}
       ${balRows.length?`<div class="panel">
@@ -3595,19 +3593,29 @@ function parseStatNum(val){
   return isNaN(n)?NaN:n;
 }
 function statCard(c,ic,val,l){
-  const n=parseStatNum(val);
-  const isNum=!isNaN(n) && String(val).match(/[\d۰-۹]/) && !String(val).match(/[#✓]/);
-  const display=isNum?fmt(n):String(val);
+  // Prefer raw numbers so we never re-parse compact strings like "15.6B" → 16
+  let display, title='';
+  if(typeof val==='number' && isFinite(val)){
+    display=fmt(val);
+    title=` title="${esc(display)}"`;
+  } else {
+    const n=parseStatNum(val);
+    const isNum=!isNaN(n) && String(val).match(/[\d۰-۹]/) && !String(val).match(/[#✓BMkmی]/);
+    display=isNum?fmt(n):String(val);
+    if(isNum) title=` title="${esc(display)}"`;
+  }
   const iconHtml = ic.startsWith('<') ? ic : (EMO_LU[ic] ? lucide(EMO_LU[ic]) : ic);
-  return `<div class="stat"><div class="ic ${c}">${iconHtml}</div><div><div class="v mono">${display}</div><div class="l">${l}</div></div></div>`;
+  return `<div class="stat"><div class="ic ${c}">${iconHtml}</div><div class="stat-body"><div class="v mono"${title}>${display}</div><div class="l">${l}</div></div></div>`;
 }
 function fitStatNums(){
   document.querySelectorAll('.stat .v').forEach(v=>{
     v.style.fontSize='';
     // Start from the actual computed size (respects mobile media queries),
-    // then step down until the number fits — never clip with ellipsis.
+    // then step down until the full amount fits inside the card — never ellipsis.
     let fs=Math.min(20, Math.round(parseFloat(getComputedStyle(v).fontSize)||20));
-    while(fs>9 && v.scrollWidth>v.clientWidth){ fs-=1; v.style.fontSize=fs+'px'; }
+    while(fs>8 && (v.scrollWidth>v.clientWidth+1 || v.scrollWidth> (v.parentElement?.clientWidth||v.clientWidth)+1)){
+      fs-=1; v.style.fontSize=fs+'px';
+    }
   });
 }
 function emptyRow(cols){ return `<tr><td colspan="${cols}" class="empty">موردی یافت نشد</td></tr>`; }
