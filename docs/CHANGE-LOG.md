@@ -32,12 +32,26 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `442212f` fix product image stock wipe |
-| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v122` |
+| آخرین commit | *(در حال push)* بازرسی کامل + رفع گزارش‌های ابطالی |
+| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v123` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
 | وضعیت سرور | ❌ SSH blocked — کد روی origin آماده |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
+
+### 2026-07-27 — بازرسی کامل پروژه: ۴۳/۴۳ تست سبز + رفع شمارش فاکتور ابطالی در گزارش‌ها
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** *(این کامیت)*
+- **خلاصه:** بازرسی ماژول‌به‌ماژول با اجرای همهٔ تست‌ها (۹ خرابی → صفر) و رفع باگ‌های واقعی:
+  - **گزارش‌ها (باگ R13):** فاکتور/خرید ابطالی در `reports.js` (خلاصه/ماهانه/کارشناس/برترین/بدهی)، `accounting/general` (سود و زیان)، `admin/dashboard`، `adv-reports` (aging، فروش‌به‌کالا، VAT، فصلی ۱۶۹، نسبت‌های مالی، KPI، گردش طرف‌حساب، `syncVatRecords`) و `rep-ledger` (انگیزه/سود فروشنده) شمرده می‌شد — همه با `deleted_at`/`status<>'reversed'` فیلتر شدند.
+  - **هستهٔ خطا:** خطاهای 4xx (مثل «تاریخ سند قبل از سال مالی») دیگر «خطای داخلی سرور» نمی‌شوند — پیام واقعی به کاربر می‌رسد (`ledger.js` status=422 + هندلر سراسری).
+  - **test-sync:** علت شکست «B pulled central product» = پروسه‌های یتیم روی پورت‌های تست؛ چک پورت + kill مطمئن + polling بعد از pair. ۳۳/۳۳ سبز.
+  - **تست‌های قدیمی:** همگام‌سازی با گیت «تغییر رمز اجباری» (b2b، 1.0.9)، رجیستری append-only (portal، payroll، update11)، اسکیمای Model A (payroll nav)، cache-bust prod-ui، انبار فروش کاربر میدانی، skip تمیز mahak بدون DB.
+  - **تست جدید `test-business-cycle.js` (۲۹ سنجش):** چرخهٔ کامل خرید نسیه→پرداخت→فروش رسمی→تسویه→هزینه با تطبیق تراز آزمایشی/ترازنامه/صورت‌حساب/ارزش‌گذاری موجودی و سپس ابطال R13 با برگشت کامل و صفرشدن همهٔ گزارش‌های فروش/مالیاتی.
+  - **راهنما:** بخش گزارشات + SW `v123`.
+- **فایل‌های کلیدی:** `routes/reports.js`, `routes/accounting.js`, `routes/adv-reports.js`, `routes/admin.js`, `lib/rep-ledger.js`, `lib/ledger.js`, `server.js`, `scripts/test-business-cycle.js`, `scripts/test-sync.js`, `public/index.html`, `public/sw.js`
+- **Deploy:** ❌ SSH این محیط پذیرفته نمی‌شود — روی سرور: `git pull --ff-only` + `pm2 restart erp-taranom --update-env`
+- **یادداشت:** `node server/scripts/test-business-cycle.js` از این پس بعد از هر تغییر حسابداری/گزارش اجرا شود.
 
 ### 2026-07-27 — رفع وایپ موجودی/پک هنگام آپلود عکس کالا
 - **شاخه:** `claude/claude-md-docs-2ssrpy` (+ `cursor/fix-product-image-stock-wipe-f75b`)

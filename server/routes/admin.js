@@ -181,7 +181,7 @@ router.get('/dashboard', auth, adminOnly, (req, res) => {
     db.prepare('SELECT user_id, COUNT(*) c FROM customers GROUP BY user_id').all().map(r => [r.user_id, r.c])
   );
   const salesMap = Object.fromEntries(
-    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE type='final'${dateClause} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
+    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND COALESCE(deleted_at,0)=0${dateClause} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
   );
   const fupMap = Object.fromEntries(
     db.prepare("SELECT user_id, COUNT(*) c FROM followups WHERE status='open' GROUP BY user_id").all().map(r => [r.user_id, r.c])

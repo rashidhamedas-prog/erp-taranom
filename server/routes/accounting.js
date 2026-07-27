@@ -180,9 +180,9 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
         - COALESCE(pr.total_returned,0)
       ),0) total
       FROM suppliers s
-      LEFT JOIN (SELECT supplier_id, SUM(final) total_purchased FROM purchase_invoices WHERE pay_type='credit' GROUP BY supplier_id) pi ON pi.supplier_id=s.id
-      LEFT JOIN (SELECT supplier_id, SUM(amount) total_paid FROM supplier_payments GROUP BY supplier_id) sp ON sp.supplier_id=s.id
-      LEFT JOIN (SELECT supplier_id, SUM(amount) total_returned FROM purchase_returns GROUP BY supplier_id) pr ON pr.supplier_id=s.id
+      LEFT JOIN (SELECT supplier_id, SUM(final) total_purchased FROM purchase_invoices WHERE pay_type='credit' AND COALESCE(status,'posted')<>'reversed' GROUP BY supplier_id) pi ON pi.supplier_id=s.id
+      LEFT JOIN (SELECT supplier_id, SUM(amount) total_paid FROM supplier_payments WHERE COALESCE(status,'posted')<>'reversed' GROUP BY supplier_id) sp ON sp.supplier_id=s.id
+      LEFT JOIN (SELECT supplier_id, SUM(amount) total_returned FROM purchase_returns WHERE COALESCE(status,'posted')<>'reversed' GROUP BY supplier_id) pr ON pr.supplier_id=s.id
     `).get();
     totalPayable = payRow.total || 0;
   }
@@ -758,19 +758,22 @@ router.get('/general', auth, adminOrAccounting, (req, res) => {
   const sf = safeDate(from), st = safeDate(to);
   const invDateWhere = sf || st ? `AND date >= '${sf||''}' AND date <= '${st||'9999'}'` : '';
   const settDateWhere = sf || st ? `AND date >= '${sf||''}' AND date <= '${st||'9999'}'` : '';
+  // R13: exclude voided invoices/purchases from every revenue & VAT figure
+  const invAlive = "AND COALESCE(deleted_at,0)=0";
+  const purAlive = "AND COALESCE(status,'posted')<>'reversed'";
 
-  const revenue     = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final' ${invDateWhere}`).get().s;
-  const subtotal    = db.prepare(`SELECT COALESCE(SUM(subtotal),0) s FROM invoices WHERE type='final' ${invDateWhere}`).get().s;
-  const discAmt     = db.prepare(`SELECT COALESCE(SUM(disc_amt),0) s FROM invoices WHERE type='final' ${invDateWhere}`).get().s;
-  const vatOutput   = db.prepare(`SELECT COALESCE(SUM(vat_amount),0) s FROM invoices WHERE type='final' ${invDateWhere}`).get().s;
+  const revenue     = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final' ${invAlive} ${invDateWhere}`).get().s;
+  const subtotal    = db.prepare(`SELECT COALESCE(SUM(subtotal),0) s FROM invoices WHERE type='final' ${invAlive} ${invDateWhere}`).get().s;
+  const discAmt     = db.prepare(`SELECT COALESCE(SUM(disc_amt),0) s FROM invoices WHERE type='final' ${invAlive} ${invDateWhere}`).get().s;
+  const vatOutput   = db.prepare(`SELECT COALESCE(SUM(vat_amount),0) s FROM invoices WHERE type='final' ${invAlive} ${invDateWhere}`).get().s;
   const purDateWhere = sf || st ? `AND date >= '${sf||''}' AND date <= '${st||'9999'}'` : '';
-  const vatInput    = db.prepare(`SELECT COALESCE(SUM(vat_amount),0) s FROM purchase_invoices WHERE 1=1 ${purDateWhere}`).get().s;
+  const vatInput    = db.prepare(`SELECT COALESCE(SUM(vat_amount),0) s FROM purchase_invoices WHERE 1=1 ${purAlive} ${purDateWhere}`).get().s;
 
   // Cost of goods sold: sum of (qty × unit cost) across all final invoice rows in range
   const costMap = {};
   db.prepare('SELECT id,cost FROM products').all().forEach(p => { costMap[p.id] = p.cost || 0; });
   let cogs = 0;
-  const finalInvRows = db.prepare(`SELECT rows FROM invoices WHERE type='final' ${invDateWhere}`).all();
+  const finalInvRows = db.prepare(`SELECT rows FROM invoices WHERE type='final' ${invAlive} ${invDateWhere}`).all();
   for (const inv of finalInvRows) {
     let parsed = [];
     try { parsed = JSON.parse(inv.rows || '[]'); } catch (e) { parsed = []; }
@@ -785,19 +788,19 @@ router.get('/general', auth, adminOrAccounting, (req, res) => {
     const users = db.prepare("SELECT id,commission_cash,commission_cheque FROM users WHERE active=1").all();
     let total = 0;
     for (const u of users) {
-      const cs = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND pay_type='cash' ${invDateWhere}`).get(u.id).s;
-      const qs = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND pay_type='cheque' ${invDateWhere}`).get(u.id).s;
+      const cs = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND pay_type='cash' ${invAlive} ${invDateWhere}`).get(u.id).s;
+      const qs = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND pay_type='cheque' ${invAlive} ${invDateWhere}`).get(u.id).s;
       total += cs * (u.commission_cash || 0) / 100 + qs * (u.commission_cheque || 0) / 100;
     }
     return Math.round(total);
   })();
 
   // Monthly revenue & collections for chart
-  const monthlyInv = db.prepare(`SELECT substr(date,1,7) ym, SUM(final) rev FROM invoices WHERE type='final' AND date<>'' GROUP BY ym ORDER BY ym DESC LIMIT 12`).all();
+  const monthlyInv = db.prepare(`SELECT substr(date,1,7) ym, SUM(final) rev FROM invoices WHERE type='final' AND COALESCE(deleted_at,0)=0 AND date<>'' GROUP BY ym ORDER BY ym DESC LIMIT 12`).all();
   const monthlySett = db.prepare(`SELECT substr(date,1,7) ym, SUM(amount) col FROM settlements WHERE date<>'' AND COALESCE(status,'posted')<>'reversed' GROUP BY ym ORDER BY ym DESC LIMIT 12`).all();
 
   // Recent transactions journal
-  const invJournal = db.prepare(`SELECT 'invoice' as entry_type, num ref, date, final amount, cust_id, 0 is_credit FROM invoices WHERE type='final' ORDER BY created_at DESC LIMIT 30`).all();
+  const invJournal = db.prepare(`SELECT 'invoice' as entry_type, num ref, date, final amount, cust_id, 0 is_credit FROM invoices WHERE type='final' AND COALESCE(deleted_at,0)=0 ORDER BY created_at DESC LIMIT 30`).all();
   const settJournal = db.prepare(`SELECT 'settlement' as entry_type, id||'' ref, date, amount, cust_id, 1 is_credit FROM settlements WHERE COALESCE(status,'posted')<>'reversed' ORDER BY created_at DESC LIMIT 30`).all();
   const journal = [...invJournal, ...settJournal].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 50);
 
