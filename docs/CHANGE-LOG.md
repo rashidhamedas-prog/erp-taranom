@@ -40,12 +40,12 @@
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
 
 ### 2026-07-27 — رفع وایپ موجودی/پک هنگام آپلود عکس کالا
-- **شاخه:** `claude/claude-md-docs-2ssrpy` (+ PR branch `cursor/fix-product-image-stock-wipe-f75b`)
-- **Commit:** `57b6ba8`
-- **خلاصه:** باگ: آپلود فوری عکس کالا با `PUT /products/:id` فقط FormData تصویر می‌فرستاد و چون فیلدهای غایب `undefined` بودند، `parseQty(stock)` موجودی را صفر و قیمت/کد/یادداشت را هم خالی می‌کرد (تعداد در پک در UI هم عملاً از بین می‌رفت). رفع: endpoint فقط-تصویر `POST /products/:id/images`؛ PUT جزئی (فیلد غایب = حفظ مقدار قبلی)؛ اصلاح `image=""` به `image=''` در SQLite؛ بازیابی یک‌باره در بوت از `warehouse_stock` + بکاپ `.db`؛ اسکریپت دستی restore. SW `v122`.
-- **فایل‌های کلیدی:** `server/routes/products.js`, `server/public/index.html`, `server/public/sw.js`, `server/db.js`, `server/lib/restore-product-fields.js`, `server/scripts/restore-product-stock-after-image-wipe.js`, `server/scripts/test-product-image-stock-wipe.js`
-- **Deploy:** ⏳
-- **یادداشت:** بعد از deploy/restart، migration `restore_product_stock_after_image_wipe_v1` موجودی را از انبار برمی‌گرداند؛ برای pack/price در صورت وجود فایل `.db` در `server/backups/` از بکاپ هم پر می‌شود.
+- **شاخه:** `claude/claude-md-docs-2ssrpy` (+ `cursor/fix-product-image-stock-wipe-f75b`)
+- **Commit:** `57b6ba8` (+ follow-ups)
+- **خلاصه:** باگ: آپلود فوری عکس کالا با `PUT /products/:id` فقط FormData تصویر می‌فرستاد و چون فیلدهای غایب `undefined` بودند، `parseQty(stock)` موجودی را صفر و قیمت/کد/یادداشت را هم خالی می‌کرد. رفع: endpoint فقط-تصویر `POST /products/:id/images`؛ PUT جزئی؛ اصلاح `image=''`؛ بازیابی از warehouse_stock + بکاپ `.db`/`.tar.gz`/`.zip`؛ دکمهٔ دستی در تنظیمات→پشتیبان؛ SW `v122`.
+- **فایل‌های کلیدی:** `server/routes/products.js`, `server/routes/admin.js`, `server/public/index.html`, `server/public/sw.js`, `server/db.js`, `server/lib/restore-product-fields.js`, `server/scripts/restore-product-stock-after-image-wipe.js`, `server/sync/capture.js`
+- **Deploy:** ❌ SSH این محیط (`VPS_SSH_KEY` → `wholesale-admin@server2`) روی ایران `94.249.244.208` قبول نشد — نیاز به به‌روزرسانی کلید در secrets و سپس `git pull` + `pm2 restart`؛ بعد از بوت migration یا دکمهٔ «بازیابی موجودی پس از آپلود عکس» اعداد را برمی‌گرداند.
+- **یادداشت:** کد روی `origin/claude/claude-md-docs-2ssrpy` push شده (`1851d20`+).
 
 ### 2026-07-26 — R13 ابطال کامل اسناد/فاکتور/عملیات
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
