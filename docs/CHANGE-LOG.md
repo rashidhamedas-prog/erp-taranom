@@ -27,17 +27,30 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۵/۰۴)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۵/۰۵)
+
+> ### ⚠️ اولین اقدام بعد از دسترسی کامل به سرور (اولویت ۱)
+> **اعمال تغییرات روی سرور ایران** — همهٔ کامیت‌های زیر روی `origin/claude/claude-md-docs-2ssrpy` آماده‌اند ولی هنوز deploy نشده‌اند (SSH محیط Cloud Agent پذیرفته نمی‌شود):
+>
+> ```bash
+> ssh taranom@94.249.244.208
+> cd /home/taranom/crm-taranom && git pull --ff-only origin claude/claude-md-docs-2ssrpy
+> cd server && npm install --omit=dev
+> pm2 restart erp-taranom --update-env
+> curl -s -o /dev/null -w 'health:%{http_code}\n' http://127.0.0.1:3000/api/system/health
+> ```
+>
+> شامل: رفع وایپ موجودی با آپلود عکس + **بازیابی خودکار موجودی‌های صفرشده در اولین بوت** (migration `restore_product_stock_after_image_wipe_v1`)، رفع شمارش فاکتور ابطالی در همهٔ گزارش‌ها (فروش/VAT/فصلی ۱۶۹/انگیزه)، پیام واقعی خطاهای 4xx، SW `v123`. بعد از deploy این جدول را ✅ کنید.
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `3eaec49` بازرسی کامل + رفع گزارش‌های ابطالی |
+| آخرین commit | `1872fae` (شامل `3eaec49` بازرسی کامل + `57b6ba8`/`b7b9ca1` رفع وایپ عکس) |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v123` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ❌ SSH blocked — کد روی origin آماده |
+| وضعیت سرور | ❌ **در انتظار deploy — اولویت ۱ (بالا)** |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
-| مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
+| مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` — همهٔ تغییرات push شده |
 
 ### 2026-07-27 — بازرسی کامل پروژه: ۴۳/۴۳ تست سبز + رفع شمارش فاکتور ابطالی در گزارش‌ها
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
