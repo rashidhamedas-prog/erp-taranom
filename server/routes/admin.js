@@ -277,4 +277,20 @@ router.get('/customer-balances', auth, adminOnly, (req, res) => {
   res.json(rows);
 });
 
+// One-shot repair: restore products.stock / pack_size / price wiped by image-only PUT bug
+router.post('/restore-product-stock-wipe', auth, adminOnly, centralOnly, (req, res) => {
+  const db = getDB();
+  const path = require('path');
+  const { restoreProductFieldsAfterImageWipe } = require('../lib/restore-product-fields');
+  const force = !!(req.body && req.body.force);
+  if (!force) {
+    const flag = db.prepare("SELECT value FROM settings WHERE key='restore_product_stock_after_image_wipe_v1'").get();
+    // Still allow manual run even if boot migration already ran — always restore orphans
+  }
+  const summary = restoreProductFieldsAfterImageWipe(db, { backupsDir: path.join(__dirname, '..', 'backups') });
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('restore_product_stock_after_image_wipe_v1','1')").run();
+  try { audit(req.user.id, 'restore', 'products', null, `بازیابی موجودی پس از وایپ عکس: ${JSON.stringify(summary)}`); } catch (_) {}
+  res.json({ ok: true, ...summary });
+});
+
 module.exports = router;

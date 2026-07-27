@@ -26,6 +26,7 @@ const BLOCKLIST = [
   '/api/messages', '/api/v1', '/api/ai', '/api/b2b',
   '/api/admin/backup', '/api/admin/backups', '/api/admin/backup-now',
   '/api/admin/backup-download', '/api/admin/backup-restore',
+  '/api/admin/restore-product-stock-wipe',
 ];
 const BLOCK_PATTERNS = [/\/import/, /\/export/, /\/backup/, /\/backfill/, /\/stock$/];
 
