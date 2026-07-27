@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `57b6ba8` fix product image stock wipe |
+| آخرین commit | `442212f` fix product image stock wipe |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v122` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ⏳ |
+| وضعیت سرور | ❌ SSH blocked — کد روی origin آماده |
 | سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
 
