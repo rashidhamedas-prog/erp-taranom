@@ -28,7 +28,24 @@ function start(name, env) {
   return p;
 }
 function stop(name) { if (procs[name]) { procs[name].kill('SIGKILL'); delete procs[name]; } }
+// Never leave orphan servers holding the test ports (a truncated pipe/SIGINT
+// used to leak children — the next run then talked to stale instances).
+function killAll() { for (const n of Object.keys(procs)) stop(n); }
+process.on('exit', killAll);
+process.on('SIGINT', () => { killAll(); process.exit(130); });
+process.on('SIGTERM', () => { killAll(); process.exit(143); });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Pre-flight: fail fast if the fixed ports are already taken by stale runs.
+async function assertPortsFree(ports) {
+  for (const port of ports) {
+    try {
+      await fetch(`http://127.0.0.1:${port}/api/system/time`, { signal: AbortSignal.timeout(700) });
+      console.error(`⛔ پورت ${port} اشغال است (اجرای قبلی؟) — با pkill -f "node.*server.js" پاک کنید`);
+      process.exit(2);
+    } catch { /* free */ }
+  }
+}
 
 async function req(base, method, path, token, body) {
   const r = await fetch(base + path, {
@@ -49,6 +66,7 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
 (async () => {
 
   console.log('— boot central + devices —');
+  await assertPortsFree([4100, 4101, 4102]);
   start('central', centralEnv);
   start('devA', { JWT_SECRET: 'a', PORT: '4101', DB_PATH: `${S}/e2e-devA.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
   start('devB', { JWT_SECRET: 'b', PORT: '4102', DB_PATH: `${S}/e2e-devB.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
@@ -77,10 +95,28 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
   const pA = await req(A, 'POST', '/api/sync/pair-device', at, { central_url: C, username: 'admin', password: CENTRAL_PASS, device_name: 'دستگاه A' });
   const pB = await req(B, 'POST', '/api/sync/pair-device', bt, { central_url: C, username: 'admin', password: CENTRAL_PASS, device_name: 'دستگاه B' });
   ok(pA.body.ok && pB.body.ok, `pairing (A=device ${pA.body.device_id}, B=device ${pB.body.device_id})`);
-  const aCust = (await req(A, 'GET', '/api/customers', at)).body;
-  const bProd = (await req(B, 'GET', '/api/products', bt)).body;
-  ok(aCust.some(c => c.biz === 'مشتری مشترک'), 'A pulled central customer');
-  ok(bProd.some(p => p.code === 'M-1' && p.stock === 100), 'B pulled central product');
+  // Initial pull runs async after pairing — poll until seeded rows appear
+  // (registry has grown; a fixed read right after pair-device races the pull).
+  async function pollUntil(fn, timeoutMs = 30000) {
+    const deadline = Date.now() + timeoutMs;
+    let last;
+    while (Date.now() < deadline) {
+      last = await fn();
+      if (last) return last;
+      await sleep(500);
+    }
+    return last;
+  }
+  const aCustSeen = await pollUntil(async () => {
+    const rows = (await req(A, 'GET', '/api/customers', at)).body;
+    return Array.isArray(rows) && rows.some(c => c.biz === 'مشتری مشترک');
+  });
+  const bProdSeen = await pollUntil(async () => {
+    const rows = (await req(B, 'GET', '/api/products', bt)).body;
+    return Array.isArray(rows) && rows.some(p => p.code === 'M-1' && p.stock === 100);
+  });
+  ok(aCustSeen, 'A pulled central customer');
+  ok(bProdSeen, 'B pulled central product');
 
   console.log('— scenario 1b: device password change proxies to central —');
   const DEV_NEW_PASS = 'device-new-5678';

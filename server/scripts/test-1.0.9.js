@@ -10,6 +10,8 @@ const PORT = 3479;
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-109-'));
 const DB_PATH = path.join(TMP, 'test.db');
+const { todayJalali } = require('../jalali');
+const TODAY = todayJalali();
 
 let passed = 0, failed = 0;
 function ok(cond, name) {
@@ -49,17 +51,33 @@ async function waitUp() {
     await waitUp();
     let r = await j('POST', '/api/auth/login', { username: 'admin', password: 'admin123' });
     ok(r.status === 200 && r.data.token, 'admin login');
+    // Security hardening: default password must change before any other API call
+    if (r.data.must_change_password) {
+      const chg = await j('POST', '/api/auth/change-password', { oldPass: 'admin123', newPass: 'Adm109!test' }, r.data.token);
+      if (chg.status !== 200) throw new Error('admin change-password failed: ' + JSON.stringify(chg.data));
+      r = await j('POST', '/api/auth/login', { username: 'admin', password: 'Adm109!test' });
+    }
     const admin = r.data.token;
 
     console.log('— §1 invoice sales channel + quick product —');
+    // field_sales users must have a sales warehouse (invoice stock deducts from it)
+    const whList = await j('GET', '/api/warehouses', null, admin);
+    const whId = (whList.data && whList.data[0] && whList.data[0].id) || 1;
     r = await j('POST', '/api/admin/users', {
       name: 'کارشناس میدانی', username: 'field1', password: 'field1234', role: 'field_sales',
+      sales_warehouse_id: whId,
     }, admin);
     ok(r.status === 200 && r.data.id, 'field_sales user created');
     const fieldId = r.data.id;
 
     r = await j('POST', '/api/auth/login', { username: 'field1', password: 'field1234' });
     ok(r.status === 200 && r.data.token, 'field_sales login');
+    // Admin-set passwords are temporary — the user must set their own first
+    if (r.data.must_change_password) {
+      const chg = await j('POST', '/api/auth/change-password', { oldPass: 'field1234', newPass: 'Field1!own' }, r.data.token);
+      if (chg.status !== 200) throw new Error('field change-password failed: ' + JSON.stringify(chg.data));
+      r = await j('POST', '/api/auth/login', { username: 'field1', password: 'Field1!own' });
+    }
     const fieldTok = r.data.token;
 
     r = await j('POST', '/api/products/quick', { name: 'محصول ممنوع' }, fieldTok);
@@ -74,7 +92,7 @@ async function waitUp() {
     const custId = r.data.id;
 
     r = await j('POST', '/api/invoices', {
-      cust_id: custId, type: 'proforma', date: '1404/04/01',
+      cust_id: custId, type: 'proforma', date: TODAY,
       rows: [{ product_id: pid, qty: 1 }],
       sales_channel: 'phone', // must be ignored — field role forces 'field'
     }, fieldTok);
@@ -113,7 +131,7 @@ async function waitUp() {
 
     console.log('— §5 settlement delete → rep payment rejected —');
     r = await j('POST', '/api/accounting/settlements', {
-      cust_id: custId, amount: 100000, pay_type: 'cash', date: '1404/04/01',
+      cust_id: custId, amount: 100000, pay_type: 'cash', date: TODAY,
     }, admin);
     ok(r.status === 200 && r.data.id, 'settlement created');
     const settId = r.data.id;
@@ -122,7 +140,7 @@ async function waitUp() {
       INSERT INTO rep_payment_submissions
         (rep_id,cust_id,pay_type,amount,date,status,settlement_id,approved_by,approved_at,receipt_file)
       VALUES (?,?,?,?,?,?,?,?,strftime('%s','now'),?)
-    `).run(fieldId, custId, 'cash', 100000, '1404/04/01', 'approved', settId, 1, 'test.jpg');
+    `).run(fieldId, custId, 'cash', 100000, TODAY, 'approved', settId, 1, 'test.jpg');
     const subId = subIns.lastInsertRowid;
 
     r = await j('DELETE', '/api/accounting/settlements/' + settId, null, admin);

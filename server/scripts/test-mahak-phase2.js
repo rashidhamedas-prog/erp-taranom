@@ -18,6 +18,14 @@ let TOKEN = '';
 let passed = 0, failed = 0;
 const ok = (name, cond, extra) => { console.log(`${cond ? '✅' : '❌'} ${name}${extra ? ' — ' + extra : ''}`); cond ? passed++ : failed++; };
 
+// This test needs a disposable COPY of a real Mahak-mode DB (it mutates it).
+// Without one there is nothing meaningful to assert — skip cleanly so CI and
+// the run-all harness don't report a false failure.
+if (!process.argv[2] || !require('fs').existsSync(DB)) {
+  console.log('SKIP: به یک کپی از دیتابیس محک نیاز دارد — node test-mahak-phase2.js <mahak.db copy>');
+  process.exit(0);
+}
+
 async function api(method, p, body) {
   const r = await fetch(BASE + '/api' + p, {
     method, headers: { 'Content-Type': 'application/json', ...(TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}) },

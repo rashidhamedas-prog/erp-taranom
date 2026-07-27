@@ -69,8 +69,10 @@ const u11 = ['currencies', 'exchange_rates', 'person_positions', 'pricing_rules'
 ok(u11.every((n, i) => names[prIdx - 3 + i] === n), 'update11 block before portal intact');
 const ouIdx = names.indexOf('op_units');
 ok(ouIdx === prIdx + 1, 'op_units immediately after pricing_rules');
-ok(names.slice(ouIdx).join(',') === SYNC_TAIL.join(','), 'sync tail portal+gap');
-ok(names[names.length - 1] === 'op_dept_delegations', 'sync ends with op_dept_delegations');
+// Registry is APPEND-ONLY: the portal+gap block must appear contiguous and in
+// order starting at op_units, but newer tables may follow it.
+ok(names.slice(ouIdx, ouIdx + SYNC_TAIL.length).join(',') === SYNC_TAIL.join(','), 'sync tail portal+gap');
+ok(names.includes('op_dept_delegations'), 'op_dept_delegations registered');
 
 console.log('\n— rbac + coa —');
 const { RESOURCES } = require('../lib/rbac');

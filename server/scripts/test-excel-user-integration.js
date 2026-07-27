@@ -43,7 +43,7 @@ const expectedEntities = [
   'parties', 'products', 'opening-recv-cheques', 'opening-pay-cheques', 'settlements', 'expenses',
   'coa-codes', 'ledger-accounts', 'subsidiary-accounts', 'detail-accounts', 'sales-invoices',
   'purchases', 'sales-returns', 'purchase-returns', 'warehouse-receipt', 'warehouse-issue',
-  'warehouse-transfer', 'consignments-in', 'consignments-out', 'journal-docs',
+  'warehouse-transfer', 'consignments-in', 'consignments-out', 'journal-docs', 'fixed-assets',
 ];
 assert.deepStrictEqual(Object.keys(DEFINITIONS).sort(), expectedEntities.sort());
 for (const entity of expectedEntities) {
@@ -59,7 +59,9 @@ assert(ui.includes('.btn.excel-btn svg{width:12px;height:12px'), 'minimal Excel 
 for (const label of ['ورودی</button>', 'قالب</button>', 'خروجی</button>']) {
   assert(ui.includes(label), `minimal Excel label missing: ${label}`);
 }
-assert(productRoute.includes('${categoryAlias}.is_shared=1 OR ${categoryAlias}.created_by=?'), 'product-group visibility filter missing');
+const productVisibility = fs.readFileSync(path.join(__dirname, '../lib/product-visibility.js'), 'utf8');
+assert(productVisibility.includes('${categoryAlias}.is_shared=1 OR ${categoryAlias}.created_by=?'), 'product-group visibility filter missing');
+assert(productRoute.includes('addProductGroupVisibility'), 'products route does not apply group visibility');
 assert(ui.includes('id="pc-new-shared"') && ui.includes('id="prg-shared"'), 'product-group sharing control missing');
 
 const routeSources = [

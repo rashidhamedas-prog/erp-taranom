@@ -579,10 +579,14 @@ if (!isDevice()) {
   });
 }
 
-// Global error handler — never leak stack traces to clients
+// Global error handler — never leak stack traces to clients.
+// 4xx errors carry safe validation messages (fiscal year, balance, ...) and
+// must reach the user; only true 5xx get the generic text.
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   console.error('unhandled error:', err.message);
-  res.status(err.status || 500).json({ error: 'خطای داخلی سرور' });
+  const status = err.status || 500;
+  const msg = (status >= 400 && status < 500 && err.message) ? err.message : 'خطای داخلی سرور';
+  res.status(status).json({ error: msg });
 });
 
 app.listen(PORT, process.env.LISTEN_HOST || '0.0.0.0', () => {

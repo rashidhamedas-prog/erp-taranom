@@ -1,7 +1,8 @@
 /* Debug-session b16e78: PATH_TABLE_MAP + SYNCABLE_TABLES gap probe */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const logPath = path.resolve(__dirname, '../../../debug-b16e78.log');
+const logPath = path.join(os.tmpdir(), 'debug-b16e78.log');
 
 function log(hypothesisId, location, message, data) {
   const payload = {
@@ -14,12 +15,7 @@ function log(hypothesisId, location, message, data) {
     timestamp: Date.now(),
   };
   const line = JSON.stringify(payload);
-  fs.appendFileSync(logPath, line + '\n');
-  fetch('http://127.0.0.1:7289/ingest/f0bd7efb-e01b-4c84-91db-1073bbd1ced1', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b16e78' },
-    body: line,
-  }).catch(() => {});
+  try { fs.appendFileSync(logPath, line + '\n'); } catch (_) { /* log file optional */ }
 }
 
 const { tableForPath } = require('../sync/capture');

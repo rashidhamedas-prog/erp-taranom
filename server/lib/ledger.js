@@ -49,7 +49,12 @@ function postToLedger(db, opts) {
   }
 
   const fyCheck = assertFiscalYearWritable(db, date);
-  if (!fyCheck.ok) throw new Error(fyCheck.error);
+  if (!fyCheck.ok) {
+    // Validation, not a server fault — surface the real message to the client
+    const err = new Error(fyCheck.error);
+    err.status = 422;
+    throw err;
+  }
 
   const normalized = (lines || []).map(l => ({
     code: l.code,

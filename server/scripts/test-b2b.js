@@ -49,7 +49,13 @@ async function waitUp() {
   srv.stderr.on('data', d => process.stderr.write('[srv] ' + d));
   try {
     await waitUp();
-    const login = await j('POST', '/api/auth/login', { username: 'admin', password: 'admin123' });
+    let login = await j('POST', '/api/auth/login', { username: 'admin', password: 'admin123' });
+    // Security hardening: default password must change before any other API call
+    if (login.data && login.data.must_change_password) {
+      const chg = await j('POST', '/api/auth/change-password', { oldPass: 'admin123', newPass: 'AdmB2b!test9' }, login.data.token);
+      if (chg.status !== 200) throw new Error('admin change-password failed: ' + JSON.stringify(chg.data));
+      login = await j('POST', '/api/auth/login', { username: 'admin', password: 'AdmB2b!test9' });
+    }
     const admin = login.data.token;
 
     console.log('— feature flag —');

@@ -52,9 +52,9 @@ ok('prod-ui.js attaches window.ProdUI', js.includes('global.ProdUI = ProdUI') ||
   ok(`acc-nav.js registers ${id}`, nav.includes(`'${id}'`) || nav.includes(`"${id}"`));
 });
 
-// ── 5. index.html links the new assets ──
-ok('index.html links /prod-ui.css', html.includes('href="/prod-ui.css"'));
-ok('index.html loads /prod-ui.js', html.includes('src="/prod-ui.js"'));
+// ── 5. index.html links the new assets (cache-busting query allowed) ──
+ok('index.html links /prod-ui.css', /href="\/prod-ui\.css(\?[^"]*)?"/.test(html));
+ok('index.html loads /prod-ui.js', /src="\/prod-ui\.js(\?[^"]*)?"/.test(html));
 
 // ── 6. index.html wires window.__canSeeCost ──
 ok('index.html sets window.__canSeeCost', html.includes('window.__canSeeCost'));

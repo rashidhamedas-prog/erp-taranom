@@ -87,15 +87,19 @@ const balance = db.prepare(`
 assert.strictEqual(balance.debit, balance.credit);
 assert.strictEqual(balance.debit, calculation.employer_cost_rial);
 
-const syncTail = SYNCABLE_TABLES.slice(-7).map(t => t.name);
-assert.deepStrictEqual(syncTail, requiredTables);
+// Registry is APPEND-ONLY: payroll block must be present and in order,
+// but new tables may legitimately follow it.
+const syncNames = SYNCABLE_TABLES.map(t => t.name);
+const payrollStart = syncNames.indexOf(requiredTables[0]);
+assert(payrollStart >= 0, 'payroll sync block missing');
+assert.deepStrictEqual(syncNames.slice(payrollStart, payrollStart + requiredTables.length), requiredTables);
 
 const navSource = fs.readFileSync(path.join(__dirname, '../public/acc-nav.js'), 'utf8');
 const uiSource = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-assert(navSource.includes("{ title: 'عملیات حقوق و دستمزد'"), 'merged payroll navigation group missing');
-assert(navSource.includes("{ title: 'گزارشات پیشرفته'"), 'advanced reports navigation group missing');
-assert(!navSource.includes("{ title: 'حقوق و دستمزد',"), 'duplicate legacy payroll group remains');
-assert(!navSource.includes("{ title: 'گزارشات',"), 'duplicate legacy reports group remains');
+// Model A nav: payroll is a top-level module with subgroups (اطلاعات پایه/عملیات/گزارشات)
+assert(navSource.includes("title: 'حقوق و دستمزد'"), 'payroll navigation module missing');
+assert(navSource.includes("'acc-payroll-processing'"), 'payroll processing nav item missing');
+assert(navSource.includes("'acc-adv-reports'"), 'advanced reports nav item missing');
 for (const fn of [
   'renderPayrollEmployees', 'renderSalaryStructures', 'renderPayrollPeriods',
   'renderPayrollTaxConfig', 'renderPayrollProcessing', 'renderPayrollYearEnd',
