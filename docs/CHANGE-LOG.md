@@ -32,7 +32,7 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | *(در حال push)* fix product image stock wipe |
+| آخرین commit | `57b6ba8` fix product image stock wipe |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v122` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
 | وضعیت سرور | ⏳ |
@@ -41,7 +41,7 @@
 
 ### 2026-07-27 — رفع وایپ موجودی/پک هنگام آپلود عکس کالا
 - **شاخه:** `claude/claude-md-docs-2ssrpy` (+ PR branch `cursor/fix-product-image-stock-wipe-f75b`)
-- **Commit:** *(پس از commit)*
+- **Commit:** `57b6ba8`
 - **خلاصه:** باگ: آپلود فوری عکس کالا با `PUT /products/:id` فقط FormData تصویر می‌فرستاد و چون فیلدهای غایب `undefined` بودند، `parseQty(stock)` موجودی را صفر و قیمت/کد/یادداشت را هم خالی می‌کرد (تعداد در پک در UI هم عملاً از بین می‌رفت). رفع: endpoint فقط-تصویر `POST /products/:id/images`؛ PUT جزئی (فیلد غایب = حفظ مقدار قبلی)؛ اصلاح `image=""` به `image=''` در SQLite؛ بازیابی یک‌باره در بوت از `warehouse_stock` + بکاپ `.db`؛ اسکریپت دستی restore. SW `v122`.
 - **فایل‌های کلیدی:** `server/routes/products.js`, `server/public/index.html`, `server/public/sw.js`, `server/db.js`, `server/lib/restore-product-fields.js`, `server/scripts/restore-product-stock-after-image-wipe.js`, `server/scripts/test-product-image-stock-wipe.js`
 - **Deploy:** ⏳
