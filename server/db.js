@@ -2268,6 +2268,20 @@ function initSyncSchema(db) {
     }
   }
 
+  // One-shot: restore products.stock wiped by image-only PUT bug (stock→0 while warehouse_stock kept qty).
+  // Also restore pack_size/price/code/note from the newest readable backup DB if available.
+  try {
+    const wipeFix = db.prepare("SELECT value FROM settings WHERE key='restore_product_stock_after_image_wipe_v1'").get();
+    if (!wipeFix || wipeFix.value !== '1') {
+      const { restoreProductFieldsAfterImageWipe } = require('./lib/restore-product-fields');
+      const summary = restoreProductFieldsAfterImageWipe(db, { backupsDir: path.join(__dirname, 'backups') });
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('restore_product_stock_after_image_wipe_v1','1')").run();
+      console.log('✅ restore_product_stock_after_image_wipe_v1:', JSON.stringify(summary));
+    }
+  } catch (e) {
+    console.warn('restore_product_stock_after_image_wipe_v1:', e.message);
+  }
+
   // Currency: مبنای ذخیره‌سازی ریال + مهاجرت یک‌باره از تومان
   const { migrateTomanToRial, seedStandardSubgroups } = require('./lib/currency');
   migrateTomanToRial(db);

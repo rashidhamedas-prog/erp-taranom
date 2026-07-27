@@ -40,6 +40,11 @@ function jsonSafeProduct(row) {
   }
 }
 
+/** True when multipart/JSON body explicitly includes the key (even if empty string). */
+function bodyHas(body, key) {
+  return !!body && Object.prototype.hasOwnProperty.call(body, key);
+}
+
 async function attachUploadedImages(db, productId, files, setPrimary) {
   const raw = [];
   if (files?.image?.[0]) raw.push(files.image[0]);
@@ -74,7 +79,8 @@ async function attachUploadedImages(db, productId, files, setPrimary) {
     throw err;
   }
   if (setPrimary && names[0]) {
-    db.prepare('UPDATE products SET image=? WHERE id=? AND (image IS NULL OR image="")').run(names[0], productId);
+    // SQLite: use single quotes for empty string — double quotes are identifiers
+    db.prepare("UPDATE products SET image=? WHERE id=? AND (image IS NULL OR image='')").run(names[0], productId);
   }
   try {
     const all = listProductImages(db, productId).map(r => r.filename);
@@ -245,6 +251,25 @@ router.delete('/images/:imageId', auth, adminOrAccounting, (req, res) => {
   const all = listProductImages(db, img.product_id).map(r => r.filename);
   try { db.prepare('UPDATE products SET images_json=? WHERE id=?').run(JSON.stringify(all), img.product_id); } catch (_) {}
   res.json({ ok: true, images: all });
+});
+
+// Image-only upload — NEVER touches stock/pack_size/price/code/note/etc.
+// Instant gallery upload in the product modal must use this endpoint, not PUT.
+router.post('/:id/images', auth, adminOrAccounting, uploadProductMedia, async (req, res) => {
+  const db = getDB();
+  const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  if (!prod) return res.status(404).json({ error: 'یافت نشد' });
+  try {
+    await attachUploadedImages(db, req.params.id, req.files, !prod.image);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || 'آپلود تصویر ناموفق' });
+  }
+  try {
+    audit(req.user.id, 'update', 'product', req.params.id, `آپلود تصویر محصول ${prod.name}`);
+  } catch (_) {}
+  const row = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  row.images = listProductImages(db, row.id);
+  res.json(jsonSafeProduct(row));
 });
 
 router.get('/:id', auth, (req, res) => {
@@ -565,47 +590,90 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
 });
 
 // Update product (admin only)
+// IMPORTANT: absent body fields must keep existing DB values.
+// Image-only FormData (old instant-upload) used to send no stock/pack_size/price
+// and wipe them to 0/defaults via parseQty(undefined) / parseFloat(undefined)||0.
 router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
+  const body = req.body || {};
   const { category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, warehouse_id, barcode,
-    full_name, product_type, product_index, tax_id, consumer_price, location, opening_price, sms_code, tax_stuff_id } = req.body;
-  let catName = category || prod.category || '';
-  let catId = category_id != null && category_id !== '' ? (parseInt(category_id) || null) : prod.category_id;
+    full_name, product_type, product_index, tax_id, consumer_price, location, opening_price, sms_code, tax_stuff_id } = body;
+
+  let catName = prod.category || '';
+  let catId = prod.category_id;
+  if (bodyHas(body, 'category_id')) {
+    catId = category_id != null && category_id !== '' ? (parseInt(category_id, 10) || null) : null;
+  }
+  if (bodyHas(body, 'category') && category) catName = category;
+  else if (!bodyHas(body, 'category') && !bodyHas(body, 'category_id')) catName = prod.category || '';
   if (catId) {
     const c = db.prepare('SELECT name FROM product_categories WHERE id=?').get(catId);
     if (c) catName = c.name;
+  } else if (bodyHas(body, 'category')) {
+    catName = category || '';
   }
+
   let image = prod.image;
   // Gallery add only — never replace/delete existing primary on edit.
-  const whId = warehouse_id != null && warehouse_id !== '' ? (parseInt(warehouse_id) || null) : prod.warehouse_id;
+  const whId = bodyHas(body, 'warehouse_id')
+    ? (warehouse_id != null && warehouse_id !== '' ? (parseInt(warehouse_id, 10) || null) : null)
+    : prod.warehouse_id;
+
   const oldStock = prod.stock;
+  const nameVal = bodyHas(body, 'name') ? (name || prod.name) : prod.name;
+  const codeVal = bodyHas(body, 'code') ? (code || '') : (prod.code || '');
+  const priceVal = bodyHas(body, 'price') ? (parseFloat(price) || 0) : (Number(prod.price) || 0);
+  const costVal = bodyHas(body, 'cost') ? (parseFloat(cost) || 0) : (Number(prod.cost) || 0);
+  const stockVal = bodyHas(body, 'stock') ? parseQty(stock) : parseQty(prod.stock);
+  const alertVal = bodyHas(body, 'stock_alert') ? (parseInt(stock_alert, 10) || 5) : (parseInt(prod.stock_alert, 10) || 5);
+  const unitVal = bodyHas(body, 'unit') ? (unit || 'عدد') : (prod.unit || 'عدد');
+  const noteVal = bodyHas(body, 'note') ? (note || '') : (prod.note || '');
+  const colorsVal = bodyHas(body, 'colors')
+    ? Math.max(1, parseInt(colors, 10) || 1)
+    : Math.max(1, parseInt(prod.colors, 10) || 1);
+  const packVal = bodyHas(body, 'pack_size')
+    ? Math.max(1, parseInt(pack_size, 10) || 1)
+    : Math.max(1, parseInt(prod.pack_size, 10) || 1);
+  const barcodeVal = bodyHas(body, 'barcode')
+    ? ((barcode || '').trim() || null)
+    : prod.barcode;
+  const fullNameVal = bodyHas(body, 'full_name') ? (full_name || '') : (prod.full_name || '');
+  const productTypeVal = bodyHas(body, 'product_type') ? (product_type || '') : (prod.product_type || '');
+  const productIndexVal = bodyHas(body, 'product_index') ? (product_index || '') : (prod.product_index || '');
+  const taxIdVal = bodyHas(body, 'tax_id') ? (tax_id || '') : (prod.tax_id || '');
+  const consumerVal = bodyHas(body, 'consumer_price')
+    ? (parseFloat(consumer_price) || 0)
+    : (Number(prod.consumer_price) || 0);
+  const locationVal = bodyHas(body, 'location') ? (location || '') : (prod.location || '');
+  const openingPriceVal = bodyHas(body, 'opening_price')
+    ? (parseFloat(opening_price) || 0)
+    : (Number(prod.opening_price) || 0);
+  const smsCodeVal = bodyHas(body, 'sms_code') ? (sms_code || '') : (prod.sms_code || '');
+  const taxStuffVal = bodyHas(body, 'tax_stuff_id')
+    ? (String(tax_stuff_id || '').trim() || null)
+    : (prod.tax_stuff_id || null);
+
   db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=?,
     full_name=?,product_type=?,product_index=?,tax_id=?,consumer_price=?,location=?,opening_price=?,sms_code=?,tax_stuff_id=? WHERE id=?`)
-    .run(catName, catId, code || '', name || prod.name, parseFloat(price) || 0,
-         cost !== undefined ? (parseFloat(cost) || 0) : (prod.cost || 0), parseQty(stock),
-         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
-         parseInt(colors) || prod.colors || 1, parseInt(pack_size) || prod.pack_size || 1,
-         whId, barcode !== undefined ? ((barcode || '').trim() || null) : prod.barcode,
-         full_name ?? prod.full_name ?? '', product_type ?? prod.product_type ?? '',
-         product_index ?? prod.product_index ?? '', tax_id ?? prod.tax_id ?? '',
-         consumer_price !== undefined ? (parseFloat(consumer_price) || 0) : (prod.consumer_price || 0),
-         location ?? prod.location ?? '', opening_price !== undefined ? (parseFloat(opening_price) || 0) : (prod.opening_price || 0),
-         sms_code ?? prod.sms_code ?? '',
-         tax_stuff_id !== undefined ? (String(tax_stuff_id || '').trim() || null) : (prod.tax_stuff_id || null),
+    .run(catName, catId, codeVal, nameVal, priceVal, costVal, stockVal, alertVal, unitVal, noteVal, image,
+         colorsVal, packVal, whId, barcodeVal,
+         fullNameVal, productTypeVal, productIndexVal, taxIdVal, consumerVal,
+         locationVal, openingPriceVal, smsCodeVal, taxStuffVal,
          req.params.id);
-  if (req.body.retail_price !== undefined) {
-    const rp = Math.round(parseFloat(req.body.retail_price) || 0);
+  if (bodyHas(body, 'retail_price')) {
+    const rp = Math.round(parseFloat(body.retail_price) || 0);
     db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, req.params.id);
   }
-  if (req.body.costing_method !== undefined) {
-    const cm = String(req.body.costing_method || '').trim() || null;
+  if (bodyHas(body, 'costing_method')) {
+    const cm = String(body.costing_method || '').trim() || null;
     db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, req.params.id);
   }
+  // Only seed missing warehouse_stock row — never overwrite existing qty with a partial PUT.
   if (whId) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(req.params.id, whId, parseQty(stock) || prod.stock || 0);
+      .run(req.params.id, whId, stockVal);
   }
   try {
     await attachUploadedImages(db, req.params.id, req.files, !prod.image);
@@ -613,9 +681,9 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     return res.status(e.status || 400).json({ error: e.message || 'آپلود تصویر ناموفق' });
   }
   try {
-    audit(req.user.id, 'update', 'product', req.params.id, `ویرایش محصول ${name || prod.name}`);
+    audit(req.user.id, 'update', 'product', req.params.id, `ویرایش محصول ${nameVal}`);
   } catch (_) {}
-  if (parseQty(stock) !== parseQty(oldStock)) {
+  if (parseQty(stockVal) !== parseQty(oldStock)) {
     try { require('../lib/website-stock-sync').notifyStockChanged(db, req.params.id); } catch (_) {}
   }
   const row = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);

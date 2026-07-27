@@ -5097,15 +5097,12 @@ function bindProductImageInstantUpload(productId){
     const muted=box.querySelector('.muted');
     if(muted) muted.remove();
     box.appendChild(frag);
-    // If editing existing product, upload immediately via PUT with only images
+    // If editing existing product, upload via image-only endpoint (never touch stock/pack)
     if(productId){
       try{
         const fd=new FormData();
         for(const f of files){ fd.append('images', await compressProductImageFile(f)); }
-        // keep required fields minimal — server merge on PUT
-        const name=el('p-name')?.value?.trim();
-        if(name) fd.append('name', name);
-        const saved=await api('PUT','/products/'+productId,fd,true,true);
+        const saved=await api('POST','/products/'+productId+'/images',fd,true,true);
         if(saved){
           window._prodModalProduct=saved;
           showToast('تصاویر آپلود شد');
@@ -17169,11 +17166,13 @@ function renderAdminGuide(){
         <li>گروه کالا در نوار سمت راست؛ جدول کالاها سمت چپ</li>
         <li>انتخاب و حذف گروهی؛ ویرایش با ✏️</li>
         <li>چند تصویر برای هر کالا — عکس‌های جدید به گالری <b>اضافه</b> می‌شوند و عکس قبلی را پاک نمی‌کنند</li>
+        <li>آپلود فوری عکس در مودال ویرایش فقط تصویر را ذخیره می‌کند و <b>موجودی، تعداد در پک، قیمت و سایر فیلدها را تغییر نمی‌دهد</b></li>
         <li>دسته‌بندی‌ها از زیرمنوی گروه‌های کالا</li>
       </ul>
       <h5>موجودی و انبار</h5><ul>
         <li>موجودی کم با هشدار قرمز نمایش داده می‌شود</li>
         <li>انتقال و موجودی انبارها از منوی انبار حسابداری</li>
+        <li>اگر موجودی کالا صفر دیده می‌شود ولی در انبار عدد دارد، با ری‌استارت سرور یک‌بار از جمع موجودی انبار بازگردانی می‌شود</li>
       </ul>
       <div class="tip">کد محصول باید منحصربه‌فرد باشد — از آن برای جستجوی سریع در فاکتورساز استفاده کنید.</div>
       <div class="tip">صفحه ERP محصولات فقط مشاهده است؛ مدیریت کامل در حسابداری → کالاها.</div>`),
