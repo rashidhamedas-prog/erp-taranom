@@ -32,10 +32,10 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit روی سرور | (در حال deploy) |
+| آخرین commit روی سرور | `100f9e9` (SFTP فایل‌های `e552a78`+) |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v124` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ⏳ deploy بازیابی قیمت/کد |
+| وضعیت سرور | ✅ **deploy شده** — health 200، SW `v124`، بازیابی قیمت/کد |
 | سرور production | تنها ایران `94.249.244.208` — `/home/taranom/crm-taranom` |
 | SSH محلی | Host `taranom-ir` → `~/.ssh/id_ed25519_taranom` + `IdentitiesOnly yes` (بدون پسورد) |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
@@ -49,8 +49,8 @@
   - روی production از بکاپ ۲۶ تیر حدود **۳۹ قیمت + ۳۹ کد** قابل بازیابی است؛ پک‌های >۱ از قبل سالم بودند.
   - راهنما + دکمهٔ تنظیمات → پشتیبان؛ SW `v124`.
 - **فایل‌های کلیدی:** `server/lib/restore-product-fields.js`, `server/db.js`, `server/routes/admin.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-product-image-stock-wipe.js`
-- **Deploy:** ⏳
-- **یادداشت:** پس از pm2 restart باید لاگ `restore_product_stock_after_image_wipe_v2` با `priceRestored`/`codeRestored`≈۳۹ دیده شود.
+- **Deploy:** ✅ `100f9e9` / SFTP — ایران، SW `v124`؛ لاگ: `priceRestored:39, codeRestored:39` از `crm-backup-20260726-000000.tar.gz`؛ تأیید: emptyCode=0، withPrice=268
+- **یادداشت:** سرور به GitHub DNS ندارد؛ deploy با SFTP. ۲۲۷ کالای بدون قیمت از قبل در بکاپ هم صفر بودند.
 
 ### 2026-07-28 — Deploy ایران + رفع درخواست پسورد SSH
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
