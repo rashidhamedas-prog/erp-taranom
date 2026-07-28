@@ -27,30 +27,29 @@
 
 ---
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۵/۰۵)
-
-> ### ⚠️ اولین اقدام بعد از دسترسی کامل به سرور (اولویت ۱)
-> **اعمال تغییرات روی سرور ایران** — همهٔ کامیت‌های زیر روی `origin/claude/claude-md-docs-2ssrpy` آماده‌اند ولی هنوز deploy نشده‌اند (SSH محیط Cloud Agent پذیرفته نمی‌شود):
->
-> ```bash
-> ssh taranom@94.249.244.208
-> cd /home/taranom/crm-taranom && git pull --ff-only origin claude/claude-md-docs-2ssrpy
-> cd server && npm install --omit=dev
-> pm2 restart erp-taranom --update-env
-> curl -s -o /dev/null -w 'health:%{http_code}\n' http://127.0.0.1:3000/api/system/health
-> ```
->
-> شامل: رفع وایپ موجودی با آپلود عکس + **بازیابی خودکار موجودی‌های صفرشده در اولین بوت** (migration `restore_product_stock_after_image_wipe_v1`)، رفع شمارش فاکتور ابطالی در همهٔ گزارش‌ها (فروش/VAT/فصلی ۱۶۹/انگیزه)، پیام واقعی خطاهای 4xx، SW `v123`. بعد از deploy این جدول را ✅ کنید.
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۵/۰۶)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit | `1872fae` (شامل `3eaec49` بازرسی کامل + `57b6ba8`/`b7b9ca1` رفع وایپ عکس) |
+| آخرین commit روی سرور | `199f73d` |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v123` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ❌ **در انتظار deploy — اولویت ۱ (بالا)** |
-| سرور production | تنها ایران `94.249.244.208` — مسیر دیسک هنوز `/home/taranom/crm-taranom` |
-| مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` — همهٔ تغییرات push شده |
+| وضعیت سرور | ✅ **deploy شده** — health 200، SW `v123`، migration بازیابی موجودی اجرا شد |
+| سرور production | تنها ایران `94.249.244.208` — `/home/taranom/crm-taranom` |
+| SSH محلی | Host `taranom-ir` → `~/.ssh/id_ed25519_taranom` + `IdentitiesOnly yes` (بدون پسورد) |
+| مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
+
+### 2026-07-28 — Deploy ایران + رفع درخواست پسورد SSH
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `199f73d` (کد) + این ورودی CHANGE-LOG
+- **خلاصه:**
+  - **Deploy:** روی `94.249.244.208` از `af00f96` → `199f73d` با `git pull --ff-only`، `npm install --omit=dev`، `pm2 restart erp-taranom --update-env`؛ health HTTP **200**؛ SW **`erp-taranom-v123`**.
+  - **بازیابی موجودی:** در بوت، `restore_product_stock_after_image_wipe_v1` موجودی **۳۹** کالا را از `warehouse_stock` برگرداند (`stockFromWarehouse:39`).
+  - **SSH بدون پسورد:** علت درخواست پسورد نبودن Host در `~/.ssh/config` بود (چند کلید اشتباه امتحان می‌شد). کلید درست: `id_ed25519_taranom`. ورود: `ssh taranom-ir`.
+- **فایل‌های کلیدی:** `docs/CHANGE-LOG.md`؛ SSH config محلی کاربر (خارج از مخزن)
+- **Deploy:** ✅ `199f73d` — ایران، SW `v123`
+- **یادداشت:** از این پس `ssh taranom-ir` یا `ssh taranom@94.249.244.208` با همان IdentityFile و بدون پسورد کار می‌کند.
 
 ### 2026-07-27 — بازرسی کامل پروژه: ۴۳/۴۳ تست سبز + رفع شمارش فاکتور ابطالی در گزارش‌ها
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -63,7 +62,7 @@
   - **تست جدید `test-business-cycle.js` (۲۹ سنجش):** چرخهٔ کامل خرید نسیه→پرداخت→فروش رسمی→تسویه→هزینه با تطبیق تراز آزمایشی/ترازنامه/صورت‌حساب/ارزش‌گذاری موجودی و سپس ابطال R13 با برگشت کامل و صفرشدن همهٔ گزارش‌های فروش/مالیاتی.
   - **راهنما:** بخش گزارشات + SW `v123`.
 - **فایل‌های کلیدی:** `routes/reports.js`, `routes/accounting.js`, `routes/adv-reports.js`, `routes/admin.js`, `lib/rep-ledger.js`, `lib/ledger.js`, `server.js`, `scripts/test-business-cycle.js`, `scripts/test-sync.js`, `public/index.html`, `public/sw.js`
-- **Deploy:** ❌ SSH این محیط پذیرفته نمی‌شود — روی سرور: `git pull --ff-only` + `pm2 restart erp-taranom --update-env`
+- **Deploy:** ✅ همراه با deploy ۱۴۰۵/۰۵/۰۶ روی `199f73d`
 - **یادداشت:** `node server/scripts/test-business-cycle.js` از این پس بعد از هر تغییر حسابداری/گزارش اجرا شود.
 
 ### 2026-07-27 — رفع وایپ موجودی/پک هنگام آپلود عکس کالا
@@ -71,8 +70,8 @@
 - **Commit:** `57b6ba8` (+ follow-ups)
 - **خلاصه:** باگ: آپلود فوری عکس کالا با `PUT /products/:id` فقط FormData تصویر می‌فرستاد و چون فیلدهای غایب `undefined` بودند، `parseQty(stock)` موجودی را صفر و قیمت/کد/یادداشت را هم خالی می‌کرد. رفع: endpoint فقط-تصویر `POST /products/:id/images`؛ PUT جزئی؛ اصلاح `image=''`؛ بازیابی از warehouse_stock + بکاپ `.db`/`.tar.gz`/`.zip`؛ دکمهٔ دستی در تنظیمات→پشتیبان؛ SW `v122`.
 - **فایل‌های کلیدی:** `server/routes/products.js`, `server/routes/admin.js`, `server/public/index.html`, `server/public/sw.js`, `server/db.js`, `server/lib/restore-product-fields.js`, `server/scripts/restore-product-stock-after-image-wipe.js`, `server/sync/capture.js`
-- **Deploy:** ❌ SSH این محیط (`VPS_SSH_KEY` → `wholesale-admin@server2`) روی ایران `94.249.244.208` قبول نشد — نیاز به به‌روزرسانی کلید در secrets و سپس `git pull` + `pm2 restart`؛ بعد از بوت migration یا دکمهٔ «بازیابی موجودی پس از آپلود عکس» اعداد را برمی‌گرداند.
-- **یادداشت:** کد روی `origin/claude/claude-md-docs-2ssrpy` push شده (`1851d20`+).
+- **Deploy:** ✅ همراه با deploy ۱۴۰۵/۰۵/۰۶ — migration موجودی ۳۹ کالا را از انبار برگرداند
+- **یادداشت:** کد روی `origin/claude/claude-md-docs-2ssrpy` push شده؛ SSH درست = `id_ed25519_taranom`.
 
 ### 2026-07-26 — R13 ابطال کامل اسناد/فاکتور/عملیات
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
