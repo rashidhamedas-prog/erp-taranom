@@ -146,6 +146,12 @@ server.listen(0, async () => {
     bak.prepare('INSERT INTO products (id,stock,pack_size,price,code,note) VALUES (?,?,?,?,?,?)')
       .run(pid, 48, 12, 150000, 'T-WIPE-1', 'یادداشت');
     bak.close();
+    // Empty decoy .db must not block the real backup (prod bug: pre-prod empty snapshot)
+    const emptyBak = new Database(path.join(bakDir, 'zzz-empty-newer.db'));
+    emptyBak.exec(`CREATE TABLE products (
+      id INTEGER PRIMARY KEY, stock REAL, pack_size INTEGER, price REAL, code TEXT, note TEXT
+    )`);
+    emptyBak.close();
     const summary = restoreProductFieldsAfterImageWipe(db, { backupsDir: bakDir });
     row = db.prepare('SELECT stock, pack_size, price, code, note FROM products WHERE id=?').get(pid);
     assert.equal(Number(row.stock), 48, 'stock restored from warehouse');
@@ -154,6 +160,7 @@ server.listen(0, async () => {
     assert.equal(row.code, 'T-WIPE-1');
     assert.equal(row.note, 'یادداشت');
     assert.ok(summary.stockFromWarehouse >= 1 || summary.packRestored >= 1);
+    assert.ok((summary.priceRestored || 0) >= 1 && (summary.codeRestored || 0) >= 1, 'price+code from backup despite empty sibling db');
 
     console.log('OK product-image-stock-wipe', { pid, summary });
     server.close();

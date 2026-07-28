@@ -16699,7 +16699,7 @@ async function loadSettBackupPanel(){
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
           <button class="btn green" onclick="downloadBackup()">ساخت و دانلود آخرین پشتیبان</button>
           <button class="btn" onclick="refreshBackupList()">بروزرسانی لیست</button>
-          <button class="btn orange" onclick="restoreProductStockWipe()" title="اگر با آپلود عکس، موجودی/پک صفر شده">↩ بازیابی موجودی پس از آپلود عکس</button>
+          <button class="btn orange" onclick="restoreProductStockWipe()" title="اگر با آپلود عکس، موجودی/پک/قیمت/کد خالی شده">↩ بازیابی موجودی/قیمت/کد پس از آپلود عکس</button>
           <span id="bk-status" style="font-size:13px;color:var(--muted);align-self:center"></span>
         </div>
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>فایل</th><th>حجم</th><th>رمزنگاری</th><th>تاریخ</th><th></th></tr></thead><tbody id="bk-tbody">
@@ -16750,14 +16750,14 @@ function refreshSettBackup(){ if(el('sett-mount-backup')) loadSettBackupPanel();
 async function refreshBackupList(){ refreshSettBackup(); }
 async function restoreProductStockWipe(){
   if(!guardBackupAccess()) return;
-  if(!confirm('موجودی کالاهایی که صفر شده‌اند از موجودی انبار (و در صورت نیاز از آخرین پشتیبان) بازگردانی شود؟\nتعداد در پک/قیمت/کد هم در صورت موجود بودن بکاپ پر می‌شود.')) return;
-  const st=el('bk-status'); if(st) st.textContent='در حال بازیابی موجودی...';
+  if(!confirm('موجودی کالاهایی که صفر شده‌اند از موجودی انبار (و در صورت نیاز از پشتیبان) بازگردانی شود؟\nتعداد در پک / قیمت / کد کالا هم از بکاپ‌های tar.gz پر می‌شود.')) return;
+  const st=el('bk-status'); if(st) st.textContent='در حال بازیابی موجودی/قیمت/کد...';
   try{
     const r=await api('POST','/admin/restore-product-stock-wipe',{force:true});
     if(!r||!r.ok){ showToast((r&&r.error)||'بازیابی ناموفق','error'); if(st) st.textContent='❌ خطا'; return; }
-    const msg=`✅ انبار→موجودی: ${fmt(r.stockFromWarehouse||0)} · بکاپ→موجودی: ${fmt(r.stockFromBackup||0)} · پک: ${fmt(r.packRestored||0)} · قیمت: ${fmt(r.priceRestored||0)}`;
+    const msg=`✅ انبار→موجودی: ${fmt(r.stockFromWarehouse||0)} · بکاپ→موجودی: ${fmt(r.stockFromBackup||0)} · پک: ${fmt(r.packRestored||0)} · قیمت: ${fmt(r.priceRestored||0)} · کد: ${fmt(r.codeRestored||0)}`;
     if(st) st.textContent=msg+(r.backupUsed?` (${r.backupUsed})`:'');
-    showToast('بازیابی موجودی انجام شد');
+    showToast('بازیابی موجودی/قیمت/کد انجام شد');
     try{ CACHE.products=null; CACHE.allProducts=null; }catch(_){}
   }catch(e){ if(st) st.textContent='❌ '+(e.message||'خطا'); showToast(e.message||'خطا','error'); }
 }
@@ -17187,7 +17187,7 @@ function renderAdminGuide(){
         <li>موجودی کم با هشدار قرمز نمایش داده می‌شود</li>
         <li>انتقال و موجودی انبارها از منوی انبار حسابداری</li>
         <li>اگر موجودی کالا صفر دیده می‌شود ولی در انبار عدد دارد، با ری‌استارت سرور یک‌بار از جمع موجودی انبار بازگردانی می‌شود</li>
-        <li>دکمهٔ <b>«بازیابی موجودی پس از آپلود عکس»</b> در تنظیمات → پشتیبان همان کار را دستی اجرا می‌کند (از انبار + آخرین بکاپ)</li>
+        <li>دکمهٔ <b>«بازیابی موجودی/قیمت/کد پس از آپلود عکس»</b> در تنظیمات → پشتیبان همان کار را دستی اجرا می‌کند (از انبار + همهٔ بکاپ‌های خوانا؛ قیمت و کد خالی‌شده هم پر می‌شوند)</li>
       </ul>
       <div class="tip">کد محصول باید منحصربه‌فرد باشد — از آن برای جستجوی سریع در فاکتورساز استفاده کنید.</div>
       <div class="tip">صفحه ERP محصولات فقط مشاهده است؛ مدیریت کامل در حسابداری → کالاها.</div>`),

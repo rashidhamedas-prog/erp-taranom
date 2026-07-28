@@ -32,13 +32,25 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit روی سرور | `199f73d` |
-| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v123` |
+| آخرین commit روی سرور | (در حال deploy) |
+| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v124` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ✅ **deploy شده** — health 200، SW `v123`، migration بازیابی موجودی اجرا شد |
+| وضعیت سرور | ⏳ deploy بازیابی قیمت/کد |
 | سرور production | تنها ایران `94.249.244.208` — `/home/taranom/crm-taranom` |
 | SSH محلی | Host `taranom-ir` → `~/.ssh/id_ed25519_taranom` + `IdentitiesOnly yes` (بدون پسورد) |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
+
+### 2026-07-28 — بازیابی قیمت و کد کالای وایپ‌شده از بکاپ tar.gz
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:**
+  - باگ قبلی بازیابی: اولین فایل `.db` خالی (`crm-pre-prod-module-…`) انتخاب می‌شد و آرشیوهای `crm-backup-*.tar.gz` که قیمت/کد سالم داشتند هرگز اسکن نمی‌شدند → فقط موجودی از انبار برگشت، قیمت/کد نه.
+  - الان همهٔ بکاپ‌های خوانا (با skip کردن جدول خالی) ادغام می‌شوند و فقط فیلدهای صفر/خالی پر می‌شوند؛ migration یک‌بارهٔ `restore_product_stock_after_image_wipe_v2`.
+  - روی production از بکاپ ۲۶ تیر حدود **۳۹ قیمت + ۳۹ کد** قابل بازیابی است؛ پک‌های >۱ از قبل سالم بودند.
+  - راهنما + دکمهٔ تنظیمات → پشتیبان؛ SW `v124`.
+- **فایل‌های کلیدی:** `server/lib/restore-product-fields.js`, `server/db.js`, `server/routes/admin.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-product-image-stock-wipe.js`
+- **Deploy:** ⏳
+- **یادداشت:** پس از pm2 restart باید لاگ `restore_product_stock_after_image_wipe_v2` با `priceRestored`/`codeRestored`≈۳۹ دیده شود.
 
 ### 2026-07-28 — Deploy ایران + رفع درخواست پسورد SSH
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

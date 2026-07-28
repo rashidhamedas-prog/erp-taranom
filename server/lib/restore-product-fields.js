@@ -194,6 +194,30 @@ function applyBackupProductMeta(db, bakProducts) {
   return summary;
 }
 
+function mergeMetaSummary(summary, part, backupName) {
+  if (!part) return;
+  const touched = (part.packRestored || 0) + (part.priceRestored || 0)
+    + (part.codeRestored || 0) + (part.noteRestored || 0) + (part.stockRestored || 0);
+  summary.packRestored += part.packRestored || 0;
+  summary.priceRestored += part.priceRestored || 0;
+  summary.codeRestored += part.codeRestored || 0;
+  summary.noteRestored += part.noteRestored || 0;
+  summary.stockRestored += part.stockRestored || 0;
+  if (touched > 0) {
+    if (!summary.backupUsed) summary.backupUsed = backupName;
+    else if (!String(summary.backupUsed).split(',').includes(backupName)) {
+      summary.backupUsed = `${summary.backupUsed},${backupName}`;
+    }
+  }
+}
+
+/**
+ * Scan ALL readable backups (plain .db + tar.gz/zip) and fill empty wiped fields.
+ * Previously returned on the first .db even when it had 0 products (e.g. empty
+ * pre-prod snapshot), so newer tar.gz backups with price/code were never used.
+ * applyBackupProductMeta only fills zeros/empties, so merging is safe.
+ * Archives are tried oldest-first (pre-wipe data preferred).
+ */
 function restoreMetaFromBackup(db, backupsDir) {
   const summary = { backupUsed: null, packRestored: 0, priceRestored: 0, codeRestored: 0, noteRestored: 0, stockRestored: 0 };
 
@@ -208,13 +232,14 @@ function restoreMetaFromBackup(db, backupsDir) {
       try { bdb.close(); } catch (__) {}
       continue;
     }
-    const part = applyBackupProductMeta(db, bakProducts);
     try { bdb.close(); } catch (_) {}
-    Object.assign(summary, part, { backupUsed: path.basename(c.path) });
-    return summary;
+    if (!bakProducts || bakProducts.length === 0) continue;
+    mergeMetaSummary(summary, applyBackupProductMeta(db, bakProducts), path.basename(c.path));
   }
 
-  for (const a of listCandidateArchives(backupsDir)) {
+  // Oldest archive first → recover from pre-wipe snapshots before later partial wipes
+  const archives = listCandidateArchives(backupsDir).slice().sort((a, b) => a.mtime - b.mtime);
+  for (const a of archives) {
     const extracted = extractDbFromArchive(a.path, a.kind);
     if (!extracted) continue;
     const bdb = openReadonlySqlite(extracted.dbPath);
@@ -231,11 +256,10 @@ function restoreMetaFromBackup(db, backupsDir) {
       try { fs.rmSync(extracted.cleanup, { recursive: true, force: true }); } catch (__) {}
       continue;
     }
-    const part = applyBackupProductMeta(db, bakProducts);
     try { bdb.close(); } catch (_) {}
     try { fs.rmSync(extracted.cleanup, { recursive: true, force: true }); } catch (_) {}
-    Object.assign(summary, part, { backupUsed: path.basename(a.path) });
-    return summary;
+    if (!bakProducts || bakProducts.length === 0) continue;
+    mergeMetaSummary(summary, applyBackupProductMeta(db, bakProducts), path.basename(a.path));
   }
 
   return summary;
