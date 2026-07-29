@@ -2692,6 +2692,7 @@ async function boot(){
   initOmnibox();
   initNotifications();
   if(typeof applyAppLanguage==='function') applyAppLanguage();
+  if(isAdmin()) refreshWorkspaceBadge();
 }
 
 /* ===== Command Palette (Ctrl+K) ===== */
@@ -5897,6 +5898,80 @@ async function fiscalUnlock(id){
   if(!confirm('سال مالی بازگشایی شود؟')) return;
   await api('POST','/fiscal-year/'+id+'/unlock',{});
   showToast('سال مالی باز شد'); ROUTES.settings();
+}
+async function companyCreate(activate){
+  const name=(el('co-new-name')?.value||'').trim();
+  if(!name){ showToast('نام شرکت الزامی است','error'); return; }
+  const code=(el('co-new-code')?.value||'').trim();
+  const fiscal_label=(el('co-new-fy')?.value||'').trim();
+  const start_date=(el('co-new-start')?.value||'').trim();
+  if(!confirm(activate?'شرکت جدید ساخته و فوراً فعال شود؟ صفحه رفرش می‌شود.':'شرکت جدید با دادهٔ خام ساخته شود؟')) return;
+  const r=await api('POST','/companies',{name,code,fiscal_label,start_date,activate:!!activate});
+  if(r?.ok){
+    showToast('شرکت ایجاد شد');
+    if(r.reload||r.activated) location.reload();
+    else settOpenTab('general');
+  }
+}
+async function companyActivate(id){
+  if(!id) return;
+  const cur=CACHE.companies?.activeCompanyId;
+  if(cur && +cur===+id) return;
+  if(!confirm('تعویض شرکت فعال؟ صفحه رفرش می‌شود و داده‌های شرکت انتخاب‌شده نمایش داده می‌شود.')) {
+    // revert select
+    if(el('co-active-select') && cur) el('co-active-select').value=String(cur);
+    return;
+  }
+  const r=await api('POST','/companies/'+id+'/activate',{});
+  if(r?.ok){ showToast('شرکت فعال شد'); location.reload(); }
+}
+async function companyRename(id){
+  const oldName=(CACHE.companies?.companies||[]).find(c=>c.id===+id)?.name||'';
+  const name=prompt('نام جدید شرکت:', oldName);
+  if(!name||!name.trim()) return;
+  await api('PUT','/companies/'+id,{name:name.trim()});
+  showToast('نام به‌روز شد'); settOpenTab('general');
+}
+async function companyDelete(id){
+  const pass=prompt('رمز عبور مدیر برای حذف شرکت:');
+  if(!pass) return;
+  let body={confirm_password:pass};
+  try{
+    await api('DELETE','/companies/'+id,body);
+  }catch(e){
+    const msg=e?.message||e?.error||'';
+    if(/سند|فاکتور|DELETE-COMPANY/i.test(msg)){
+      const text=prompt(msg+'\n\nبرای حذف اجباری عبارت DELETE-COMPANY را تایپ کنید:');
+      if(text!=='DELETE-COMPANY') return;
+      await api('DELETE','/companies/'+id,{confirm_password:pass,confirm_text:text});
+    }else{ showToast(msg||'حذف نشد','error'); return; }
+  }
+  showToast('شرکت حذف شد'); settOpenTab('general');
+}
+async function refreshWorkspaceBadge(){
+  try{
+    const co=await api('GET','/companies').catch(()=>null);
+    const fy=await api('GET','/fiscal-year').catch(()=>null);
+    CACHE.companies=co;
+    const active=(co?.companies||[]).find(c=>c.isActive);
+    const label=[active?.name, fy?.current?.label].filter(Boolean).join(' · ');
+    let badge=el('workspaceBadge');
+    if(!badge){
+      const right=document.querySelector('.topbar .right');
+      if(!right) return;
+      badge=document.createElement('span');
+      badge.id='workspaceBadge';
+      badge.className='clock';
+      badge.style.cssText='max-width:220px;overflow:hidden;text-overflow:ellipsis;cursor:pointer';
+      badge.title='شرکت و سال مالی فعال — کلیک برای تنظیمات';
+      badge.onclick=()=>settOpenTab('general');
+      right.insertBefore(badge, right.firstChild);
+    }
+    if(label){ badge.textContent=label; badge.style.display=''; }
+    else badge.style.display='none';
+    const brand=el('brandRole');
+    if(brand && active?.name) brand.textContent=active.name;
+  }catch(_){}
 }
 async function runIntegrityCheck(){
   const box=el('integrity-result'); if(box) box.textContent='در حال بررسی...';
@@ -12368,12 +12443,99 @@ async function renderAccCompanySettingsTab(body){
 }
 async function renderFiscalPeriodTab(body){
   const d=await api('GET','/fiscal-year')||{};
+  const cur=d.current;
+  const years=d.years||[];
+  const stFa={open:'باز',closed:'بسته',locked:'قفل'};
   body.innerHTML=`
-    <div class="panel"><div class="panel-head"><h4>دوره مالی جاری</h4></div><div class="panel-body">
-      ${d.current?`<p><b>${esc(d.current.label||d.current.year_label||'-')}</b> — ${esc(d.current.start_date||'')} الی ${esc(d.current.end_date||'')} — وضعیت: ${d.current.status==='open'?'باز':'بسته'}</p>`:'<p class="muted">دوره مالی تعریف نشده</p>'}
-      <table class="tbl" style="margin-top:12px"><thead><tr><th>برچسب</th><th>شروع</th><th>پایان</th><th>وضعیت</th></tr></thead>
-      <tbody>${(d.years||[]).map(y=>`<tr><td>${esc(y.label||y.year_label||'-')}</td><td class="mono">${esc(y.start_date||'-')}</td><td class="mono">${esc(y.end_date||'-')}</td><td>${esc(y.status||'-')}</td></tr>`).join('')||emptyRow(4)}</tbody></table>
+    <div class="panel"><div class="panel-head"><h4>${lucide('calendar')} عملیات سال مالی</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;line-height:1.9;margin-bottom:14px">
+        <b>سال فعال</b> مبنای ثبت سند و گزارش‌هاست. برای شروع از صفر از «افتتاح سال خام» استفاده کنید (تراکنش‌ها پاک می‌شوند؛ اطلاعات پایه می‌ماند مگر گزینهٔ پاک‌سازی پایه را بزنید).<br>
+        <b>حذف سال</b> فقط برای سال غیرفعال؛ اگر سند داشته باشد نیاز به تأیید اجباری دارد.
+      </div>
+      <div style="padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--bg);margin-bottom:14px">
+        <div class="muted" style="font-size:11px;margin-bottom:4px">دوره مالی جاری</div>
+        ${cur?`<b>${esc(cur.label||'-')}</b> — ${esc(cur.start_date||'')} الی ${esc(cur.end_date||'—')} — وضعیت: <b>${stFa[cur.status]||esc(cur.status||'-')}</b>`
+          :'<span class="muted">دوره مالی تعریف نشده</span>'}
+      </div>
+      <div class="form-grid" style="margin-bottom:10px">
+        <div class="fg"><label>برچسب سال جدید</label><input id="fy-op-label" placeholder="سال مالی 1405" value="سال مالی ${esc((typeof todayJalali==='function'?todayJalali():'').slice(0,4)||'1405')}"></div>
+        <div class="fg"><label>تاریخ شروع</label><input id="fy-op-start" data-jdate placeholder="1405/01/01" value="${esc(((typeof todayJalali==='function'?todayJalali():'')||'1405/01/01').slice(0,4)+'/01/01')}"></div>
+        <div class="fg"><label>تاریخ پایان (اختیاری)</label><input id="fy-op-end" data-jdate placeholder="1405/12/29"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+        <button class="btn" onclick="fiscalOpenClean()">${lucide('plus')} افتتاح سال خام (از صفر)</button>
+        <button class="btn ghost" onclick="fiscalRolloverFromOps()">${lucide('repeat')} انتقال با مانده</button>
+        ${cur?`<button class="btn ghost" onclick="fiscalLock(${cur.id})">${lucide('lock')} قفل سال فعال</button>
+        <button class="btn ghost" onclick="fiscalUnlock(${cur.id})">بازگشایی</button>`:''}
+      </div>
+      <table class="tbl" style="font-size:12px"><thead><tr>
+        <th>برچسب</th><th>شروع</th><th>پایان</th><th>وضعیت</th><th>اسناد</th><th>فعال</th><th class="no-sort">عملیات</th>
+      </tr></thead>
+      <tbody>${years.map(y=>`<tr>
+        <td>${esc(y.label||'-')}${y.is_active?' <span class="pill" style="font-size:10px;background:var(--purple-light);color:var(--purple)">جاری</span>':''}</td>
+        <td class="mono">${esc(y.start_date||'-')}</td>
+        <td class="mono">${esc(y.end_date||'-')}</td>
+        <td>${stFa[y.status]||esc(y.status||'-')}</td>
+        <td class="mono">${y.txn_count||0}</td>
+        <td>${y.is_active?'✓':''}</td>
+        <td style="white-space:nowrap">
+          ${!y.is_active?`<button class="btn sm ghost" onclick="fiscalActivate(${y.id})" title="فعال‌سازی">فعال</button>`:''}
+          ${y.status==='open'||y.status==='locked'?`<button class="btn sm ghost" onclick="fiscal${y.status==='locked'?'Unlock':'Lock'}(${y.id})" title="${y.status==='locked'?'بازگشایی':'قفل'}">${y.status==='locked'?'باز':'قفل'}</button>`:''}
+          ${!y.is_active?`<button class="btn sm red" onclick="fiscalDeleteYear(${y.id},${y.txn_count||0})" title="حذف">حذف</button>`:''}
+        </td>
+      </tr>`).join('')||emptyRow(7)}</tbody></table>
     </div></div>`;
+  if(typeof attachDatepickers==='function') attachDatepickers(body);
+}
+async function fiscalActivate(id){
+  if(!confirm('این سال مالی فعال شود؟ ثبت اسناد بعدی در بازهٔ همین سال انجام می‌شود.')) return;
+  const r=await api('POST','/fiscal-year/'+id+'/activate',{});
+  showToast('سال مالی فعال شد');
+  if(r?.data?.reload||r?.reload){ location.reload(); return; }
+  loadAccTab('fiscal-period');
+}
+async function fiscalDeleteYear(id, txnCount){
+  if(txnCount>0){
+    const text=prompt('این سال سند دارد. برای حذف اجباری عبارت DELETE-FISCAL-YEAR را تایپ کنید:');
+    if(text!=='DELETE-FISCAL-YEAR') return;
+    const pass=prompt('رمز عبور مدیر:');
+    if(!pass) return;
+    if(!confirm('اسناد این سال از سال مالی جدا می‌شوند و ردیف سال حذف می‌شود. ادامه؟')) return;
+    await api('DELETE','/fiscal-year/'+id,{confirm_text:text,confirm_password:pass,force:true});
+  }else{
+    if(!confirm('این سال مالی حذف شود؟')) return;
+    await api('DELETE','/fiscal-year/'+id,{});
+  }
+  showToast('سال مالی حذف شد');
+  loadAccTab('fiscal-period');
+}
+async function fiscalOpenClean(){
+  const label=(el('fy-op-label')?.value||'').trim();
+  const start=(el('fy-op-start')?.value||'').trim();
+  const end=(el('fy-op-end')?.value||'').trim();
+  if(!label||!start){ showToast('برچسب و تاریخ شروع الزامی است','error'); return; }
+  const mode=prompt('حالت افتتاح خام:\n1 = فقط پاک‌سازی تراکنش‌ها (پایه می‌ماند)\n2 = پاک‌سازی تراکنش + پایه\nلغو = خالی بگذارید','1');
+  if(mode!=='1' && mode!=='2') return;
+  const text=prompt('عبارت OPEN-CLEAN-YEAR را تایپ کنید:');
+  if(text!=='OPEN-CLEAN-YEAR') return;
+  const pass=prompt('رمز عبور مدیر:');
+  if(!pass) return;
+  if(!confirm('هشدار: داده‌های تراکنشی این شرکت پاک و سال جدید باز می‌شود. ادامه؟')) return;
+  const r=await api('POST','/fiscal-year/open-clean',{
+    label, start_date:start, end_date:end||'',
+    confirm_text:text, confirm_password:pass,
+    wipe_master: mode==='2'
+  });
+  if(r?.ok){ showToast('سال خام افتتاح شد'); location.reload(); }
+}
+async function fiscalRolloverFromOps(){
+  const label=(el('fy-op-label')?.value||'').trim();
+  const start=(el('fy-op-start')?.value||'').trim();
+  const end=(el('fy-op-end')?.value||'').trim();
+  if(!label||!start){ showToast('برچسب و تاریخ شروع الزامی است','error'); return; }
+  if(!confirm('سال جاری بسته و سال جدید با انتقال مانده افتتاح شود؟')) return;
+  const r=await api('POST','/fiscal-year/rollover',{new_year_label:label,start_date:start,end_date:end});
+  if(r?.ok){ showToast('سال جدید افتتاح شد'); loadAccTab('fiscal-period'); }
 }
 async function renderAccOrdersTab(body){
   let rows=[];
@@ -16211,7 +16373,7 @@ function invoiceTemplateSettingsHtml(s){
 
 
 const SETT_TABS = [
-  {id:'general', icon:'building', label:'عمومی', meta:'شرکت، پول، پنجره، زبان', keys:'شرکت نام تلفن آدرس ریال واحد پولی پنجره چندگانه به‌روزرسانی دسکتاپ زبان فارسی انگلیسی language'},
+  {id:'general', icon:'building', label:'عمومی', meta:'شرکت، چندشرکتی، پول، پنجره، زبان', keys:'شرکت چندشرکتی نام تلفن آدرس ریال واحد پولی پنجره چندگانه به‌روزرسانی دسکتاپ زبان فارسی انگلیسی language workspace'},
   {id:'users', icon:'users', label:'کاربران', meta:'نقش و دسترسی', keys:'کاربران user نقش دسترسی رمز مدیر حسابدار کارشناس'},
   {id:'invoice', icon:'receipt', label:'قالب فاکتور', meta:'رسمی، عادی، حرارتی', keys:'فاکتور قالب رسمی عادی حرارتی کاغذ لوگو پاورقی چاپ A4 A5'},
   {id:'messaging', icon:'chat', label:'پیام‌رسان', meta:'تلگرام، روبیکا، خوش‌آمد', keys:'تلگرام روبیکا خوش‌آمد کیمیا'},
@@ -16219,7 +16381,7 @@ const SETT_TABS = [
   {id:'backup', icon:'archive', label:'پشتیبان', meta:'پشتیبان و بازیابی', keys:'پشتیبان بکاپ رمزنگاری بازیابی'},
   {id:'api', icon:'plug', label:'API', meta:'کلید و وب‌هوک', keys:'api کلید webhook n8n scope rate limit'},
   {id:'web', icon:'plug', label:'وب‌سایت', meta:'همگام‌سازی موجودی فروشگاه', keys:'وب‌سایت موجودی ووکامرس همگام'},
-  {id:'accounting', icon:'wallet', label:'حسابداری', meta:'کدینگ، سال مالی، ماژول', keys:'کدینگ حساب نگاشت سال مالی ماژول تنخواه انبار تولید حقوق مالیات فاکتور پیشوند'},
+  {id:'accounting', icon:'wallet', label:'حسابداری', meta:'کدینگ، سال مالی، ماژول', keys:'کدینگ حساب نگاشت سال مالی ماژول تنخواه انبار تولید حقوق مالیات فاکتور پیشوند افتتاح خام حذف سال'},
   {id:'features', icon:'sparkles', label:'قابلیت‌ها', meta:'هوش مصنوعی و پورتال مشتریان', keys:'هوش مصنوعی پورتال مشتری'},
   {id:'audit', icon:'clipboard', label:'ممیزی', meta:'گزارش فعالیت کاربران', keys:'ممیزی لاگ گزارش کاربر'}
 ];
@@ -16289,12 +16451,51 @@ ROUTES.settings = async function(){
   const fyData = await api('GET','/fiscal-year').catch(()=>({current:null,years:[]}));
   const curFy = fyData.current;
   const fyRows = (fyData.years||[]).slice(0,8);
+  const coData = await api('GET','/companies').catch(()=>({companies:[],activeCompanyId:null,device:true}));
+  CACHE.companies = coData;
   try{ SETT_ACTIVE_TAB = sessionStorage.getItem('crm_settings_tab') || 'general'; }catch(e){ SETT_ACTIVE_TAB='general'; }
   if(!SETT_TABS.some(t=>t.id===SETT_ACTIVE_TAB)) SETT_ACTIVE_TAB='general';
 
+  const companiesPanel = coData.device ? '' : `
+    <div class="panel"><div class="panel-head"><h4>${lucide('building')} چندشرکتی — انتخاب فضای کاری</h4></div><div class="panel-body">
+      <div class="muted" style="font-size:12px;margin-bottom:12px;line-height:1.9">
+        هر شرکت دیتابیس و سال مالی مستقل دارد. با تعویض شرکت، کل برنامه روی داده‌های همان شرکت سوار می‌شود.
+        شرکت جدید از صفر (بدون تراکنش) ساخته می‌شود؛ کاربران فعلی برای ورود کپی می‌شوند.
+      </div>
+      <div class="form-grid" style="margin-bottom:12px">
+        <div class="fg"><label>شرکت فعال</label>
+          <select id="co-active-select" onchange="companyActivate(+this.value)">
+            ${(coData.companies||[]).map(c=>`<option value="${c.id}" ${c.isActive?'selected':''}>${esc(c.name)}${c.code?' ('+esc(c.code)+')':''}${c.isActive?' — جاری':''}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <table class="tbl" style="font-size:12px;margin-bottom:12px"><thead><tr><th>نام</th><th>کد</th><th>وضعیت</th><th></th></tr></thead>
+      <tbody>${(coData.companies||[]).map(c=>`<tr>
+        <td>${esc(c.name)}${c.isDefault?' <span class="muted">(پیش‌فرض)</span>':''}</td>
+        <td class="mono">${esc(c.code||'-')}</td>
+        <td>${c.isActive?'<b style="color:var(--green)">فعال</b>':'—'}</td>
+        <td style="white-space:nowrap">
+          ${!c.isActive?`<button class="btn sm ghost" onclick="companyActivate(${c.id})">انتخاب</button>`:''}
+          <button class="btn sm ghost" onclick="companyRename(${c.id})">✏️</button>
+          ${!c.isActive && !c.isDefault?`<button class="btn sm red" onclick="companyDelete(${c.id})">حذف</button>`:''}
+        </td>
+      </tr>`).join('')||emptyRow(4)}</tbody></table>
+      <div class="form-grid">
+        <div class="fg"><label>نام شرکت جدید</label><input id="co-new-name" placeholder="مثلاً فروشگاه ۲"></div>
+        <div class="fg"><label>کد (اختیاری)</label><input id="co-new-code" placeholder="C2" dir="ltr"></div>
+        <div class="fg"><label>برچسب سال مالی اولیه</label><input id="co-new-fy" placeholder="سال مالی 1405"></div>
+        <div class="fg"><label>شروع سال</label><input id="co-new-start" data-jdate placeholder="1405/01/01"></div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="companyCreate(false)">➕ ایجاد شرکت (خام)</button>
+        <button class="btn ghost" onclick="companyCreate(true)">ایجاد و ورود فوری</button>
+      </div>
+    </div></div>`;
+
   const generalPanel = `
     ${appUpdatePanelHtml()}
-    <div class="panel"><div class="panel-head"><h4>${lucide('building')} اطلاعات شرکت</h4></div><div class="panel-body"><div class="form-grid">
+    ${companiesPanel}
+    <div class="panel"><div class="panel-head"><h4>${lucide('building')} اطلاعات شرکت جاری</h4></div><div class="panel-body"><div class="form-grid">
       <div class="fg"><label>نام شرکت</label><input id="s-company_name" value="${esc(s.company_name||'')}"></div>
       <div class="fg"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}"></div>
       <div class="fg full"><label>آدرس شرکت</label><input id="s-company_address" value="${esc(s.company_address||'')}"></div>
@@ -16429,6 +16630,7 @@ ROUTES.settings = async function(){
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
         <button class="btn" onclick="fiscalRollover()">${lucide('repeat')} انتقال به سال جدید</button>
+        <button class="btn" onclick="go('acc-fiscal-ops')">📅 عملیات کامل سال مالی</button>
         <button class="btn red" onclick="fiscalFactoryReset()">بازنشانی کامل مالی</button>
         ${curFy?`<button class="btn ghost" onclick="fiscalLock(${curFy.id})">${lucide('lock')} قفل سال جاری</button>
         <button class="btn ghost" onclick="fiscalUnlock(${curFy.id})">بازگشایی سال</button>`:''}
@@ -16436,11 +16638,13 @@ ROUTES.settings = async function(){
       </div>
       <div id="fy-status" class="muted" style="font-size:12px;margin-top:10px">${curFy?`سال فعال: <b>${esc(curFy.label)}</b> (${esc(curFy.status||'open')}) — ${esc(curFy.start_date||'')} الی ${esc(curFy.end_date||'—')}`:''}</div>
       <div id="integrity-result" class="muted" style="font-size:12px;margin-top:8px"></div>
-      ${fyRows.length?`<div class="tbl-wrap" style="margin-top:12px"><table class="tbl" style="font-size:12px"><thead><tr><th>سال</th><th>شروع</th><th>پایان</th><th>وضعیت</th><th></th></tr></thead><tbody>
-        ${fyRows.map(f=>`<tr><td>${esc(f.label)}</td><td class="mono">${esc(f.start_date||'')}</td><td class="mono">${esc(f.end_date||'')}</td>
-        <td>${esc(f.status||'open')}</td><td style="white-space:nowrap">
+      ${fyRows.length?`<div class="tbl-wrap" style="margin-top:12px"><table class="tbl" style="font-size:12px"><thead><tr><th>سال</th><th>شروع</th><th>پایان</th><th>وضعیت</th><th>اسناد</th><th></th></tr></thead><tbody>
+        ${fyRows.map(f=>`<tr><td>${esc(f.label)}${f.is_active?' ★':''}</td><td class="mono">${esc(f.start_date||'')}</td><td class="mono">${esc(f.end_date||'')}</td>
+        <td>${esc(f.status||'open')}</td><td class="mono">${f.txn_count||0}</td><td style="white-space:nowrap">
+          ${!f.is_active?`<button class="btn sm ghost" onclick="fiscalActivate(${f.id})">فعال</button>`:''}
           ${f.status==='open'?`<button class="btn sm ghost" onclick="fiscalLock(${f.id})">${lucide('lock')}</button>`:''}
           ${f.status==='locked'?`<button class="btn sm ghost" onclick="fiscalUnlock(${f.id})">باز</button>`:''}
+          ${!f.is_active?`<button class="btn sm red" onclick="fiscalDeleteYear(${f.id},${f.txn_count||0})">حذف</button>`:''}
         </td></tr>`).join('')}</tbody></table></div>`:''}
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('layers')} ماژول‌ها و شماره‌گذاری</h4></div><div class="panel-body">
@@ -17333,7 +17537,7 @@ function renderAdminGuide(){
       <h5>ناوبری جدید (دسته‌بندی‌شده)</h5>
       <p>صفحه تنظیمات دیگر یک فهرست بلند نیست: از منوی کناری بین بخش‌ها جابه‌جا شوید یا در کادر جستجوی بالای صفحه عبارت بزنید (مثلاً «فاکتور»، «تلگرام»، «سال مالی»). نوار «ذخیره تنظیمات» پایین صفحه همیشه در دسترس است.</p>
       <ul>
-        <li><b>عمومی</b>: اطلاعات شرکت، واحد پولی، پنجره‌های چندگانه، به‌روزرسانی دسکتاپ</li>
+        <li><b>عمومی</b>: چندشرکتی (انتخاب/ایجاد شرکت)، اطلاعات شرکت جاری، واحد پولی، پنجره‌های چندگانه، به‌روزرسانی دسکتاپ</li>
         <li><b>کاربران</b> و <b>API</b>: مدیریت نقش‌ها/کلیدها — فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
         <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی و شخصی‌سازی چاپ</li>
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
@@ -17490,7 +17694,18 @@ function renderAdminGuide(){
       <h5>حذف نرم فاکتور و سند</h5><p>حذف فاکتور و اسناد دستی «نرم» است (در audit_log ثبت می‌شود) — فقط نقش‌های دارای دسترسی Delete.</p>
       <h5>گردش حساب مشتریان</h5><p>صفحه «دفتر معین» (گردش حساب) حذف شد — از <b>صورت‌حساب مشتری</b> در حسابداری استفاده کنید.</p>
       <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. اعمال اصلاحات، سند حسابداری تولید می‌کند.</p>
-      <h5>سال مالی</h5><p>تنظیمات → مدیریت سال مالی: انتقال (Rollover) یا بازنشانی کامل تراکنش‌ها (Factory Reset با تأیید RESET-FISCAL).</p>
+      <h5>چندشرکتی و سال مالی</h5>
+      <p>از <b>تنظیمات → عمومی</b> می‌توانید چند شرکت تعریف کنید؛ هر شرکت دیتابیس مستقل دارد. با «انتخاب» شرکت، کل برنامه روی همان فضای کاری سوار می‌شود (صفحه رفرش می‌شود). کاربران فعلی برای ورود در شرکت جدید کپی می‌شوند.</p>
+      <p>از <b>حسابداری → عملیات سال مالی</b> یا تنظیمات → حسابداری:</p>
+      <ul>
+        <li><b>افتتاح سال خام</b>: پاک‌سازی تراکنش‌ها و باز کردن سال جدید از صفر (تأیید <code>OPEN-CLEAN-YEAR</code> + رمز). حالت ۱ پایه را نگه می‌دارد؛ حالت ۲ پایه را هم پاک می‌کند.</li>
+        <li><b>انتقال (Rollover)</b>: بستن سال جاری با انتقال مانده/سود انباشته.</li>
+        <li><b>فعال‌سازی سال</b>: سال انتخاب‌شده مبنای ثبت سند می‌شود.</li>
+        <li><b>حذف سال</b>: فقط سال غیرفعال؛ اگر سند داشته باشد نیاز به <code>DELETE-FISCAL-YEAR</code> دارد.</li>
+        <li><b>قفل / بازگشایی</b>: مسدود یا آزاد کردن ثبت سند روی سال فعال.</li>
+      </ul>
+      <div class="tip">چندشرکتی فقط روی سرور مرکزی است؛ دستگاه‌های آفلاین روی یک دیتابیس می‌مانند.</div>
+      <h5>سال مالی (خلاصه)</h5><p>مسیر سریع: تنظیمات → مدیریت سال مالی. برای کنترل کامل به «عملیات سال مالی» بروید.</p>
       <h5>ساخت سریع کالا در فاکتور</h5><p>فقط مدیر و حسابدار در فاکتورساز دکمه «➕ ساخت کالای جدید» دارند — مدیریت کامل کالاها در حسابداری → کالاها است.</p>
       <h5>مشاور هوشمند (مدیر)</h5><p>منوی «مشاور هوشمند» فقط برای مدیر سیستم و مدیر فروش — پرسش آزاد با داده‌های تجمیع‌شده.</p>
       <h5>دسترسی‌های granular</h5><p>کاربران → ویرایش → «🔐 دسترسی‌ها» — ماتریس View/Create/Edit/Delete/Approve/Export.</p>

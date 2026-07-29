@@ -5,9 +5,18 @@ const { execSync } = require('child_process');
 const { UPLOADS_ROOT } = require('./paths');
 
 const SERVER_DIR = __dirname;
-const DB_PATH = process.env.DB_PATH || path.join(SERVER_DIR, 'crm.db');
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(SERVER_DIR, 'backups');
 const MAX_KEEP = Math.min(parseInt(process.env.BACKUP_KEEP_COUNT) || 14, 60);
+
+/** Always backup the *active* company DB (multi-company aware). */
+function resolveBackupDbPath() {
+  try {
+    const { getDBPath } = require('./db');
+    return getDBPath() || process.env.DB_PATH || path.join(SERVER_DIR, 'crm.db');
+  } catch {
+    return process.env.DB_PATH || path.join(SERVER_DIR, 'crm.db');
+  }
+}
 
 function ensureDir() {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
@@ -99,6 +108,7 @@ function addFileToZip(zip, filePath, entryName) {
 function createZipBackup(outPath) {
   const AdmZip = require('adm-zip');
   const zip = new AdmZip();
+  const DB_PATH = resolveBackupDbPath();
   const manifest = {
     version: 1,
     created_at: new Date().toISOString(),
@@ -119,6 +129,7 @@ function createZipBackup(outPath) {
 
 function createTarBackup(outPath) {
   const tmp = path.join(BACKUP_DIR, `.tmp-${crypto.randomBytes(4).toString('hex')}`);
+  const DB_PATH = resolveBackupDbPath();
   fs.mkdirSync(tmp, { recursive: true });
   try {
     if (fs.existsSync(DB_PATH)) fs.copyFileSync(DB_PATH, path.join(tmp, 'crm.db'));
@@ -218,6 +229,7 @@ function restoreBackup(archivePath) {
     }
     const dbSrc = path.join(tmp, 'crm.db');
     if (!fs.existsSync(dbSrc)) throw new Error('crm.db در پشتیبان یافت نشد');
+    const DB_PATH = resolveBackupDbPath();
     const pre = DB_PATH + '.pre-restore-' + Date.now();
     if (fs.existsSync(DB_PATH)) fs.copyFileSync(DB_PATH, pre);
     fs.copyFileSync(dbSrc, DB_PATH);

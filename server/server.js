@@ -142,6 +142,18 @@ app.use('/api/b2b/auth', authLimiter);
 assertSecurityConfig();
 initDB();
 
+// Mirror active company display name from settings → registry (central only)
+if (!isDevice()) {
+  try {
+    const ws = require('./lib/company-workspace');
+    const cn = getDB().prepare("SELECT value FROM settings WHERE key='company_name'").get()?.value;
+    const active = ws.getActiveCompany();
+    if (cn && active && active.name !== cn) ws.updateCompanyMeta(active.id, { name: cn });
+  } catch (e) {
+    console.warn('company registry sync:', e.message);
+  }
+}
+
 // Device builds record every successful mutating API call into the sync
 // outbox for later replay against central (see sync/capture.js).
 if (isDevice()) {
@@ -156,6 +168,7 @@ app.use('/api/ai', require('./routes/ai'));
 app.use('/api/search', require('./routes/search'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/fiscal-year', require('./routes/fiscal-year'));
+app.use('/api/companies', require('./routes/companies'));
 app.use('/api/rbac', require('./routes/rbac'));
 app.use('/api/b2b', require('./routes/b2b'));
 app.use('/api/customers', require('./routes/customers'));

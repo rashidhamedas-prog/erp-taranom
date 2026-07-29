@@ -45,6 +45,7 @@ server/*.db-shm
 server/*.db-wal
 server/backups/
 server/uploads/
+server/data/
 
 # OS junk
 Thumbs.db

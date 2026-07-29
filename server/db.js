@@ -4,7 +4,9 @@ const path = require('path');
 
 // DB_PATH is env-overridable so device builds (desktop/mobile) can keep their
 // local database in a per-user writable directory instead of the app folder.
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'crm.db');
+// On central, multi-company may override the live path via reopenDatabase().
+const DEFAULT_DB_PATH = process.env.DB_PATH || path.join(__dirname, 'crm.db');
+let liveDbPath = DEFAULT_DB_PATH;
 let db;
 
 // SYNC_ROLE: 'central' (the one authoritative server — default) or 'device'
@@ -25,13 +27,123 @@ function applyConnectionPragmas(database) {
   try { database.pragma('mmap_size = 268435456'); } catch { /* optional on some builds */ }
 }
 
+function resolveBootDbPath() {
+  if (isDevice()) return path.resolve(DEFAULT_DB_PATH);
+  try {
+    const { resolveActiveDbPath } = require('./lib/company-workspace');
+    return path.resolve(resolveActiveDbPath());
+  } catch {
+    return path.resolve(DEFAULT_DB_PATH);
+  }
+}
+
+function getDBPath() { return liveDbPath; }
+
 function getDB() {
   if (!db) {
+    liveDbPath = resolveBootDbPath();
     // timeout: wait on SQLITE_BUSY instead of failing instantly (device sync + UI reads).
-    db = new Database(DB_PATH, { timeout: 5000 });
+    db = new Database(liveDbPath, { timeout: 5000 });
     applyConnectionPragmas(db);
   }
   return db;
+}
+
+function closeDB() {
+  if (db) {
+    try { db.close(); } catch { /* ignore */ }
+    db = null;
+  }
+}
+
+/** Swap the live SQLite handle to another company database (central only). */
+function reopenDatabase(newPath) {
+  if (isDevice()) throw new Error('تعویض شرکت روی دستگاه آفلاین مجاز نیست');
+  const resolved = path.resolve(newPath);
+  closeDB();
+  liveDbPath = resolved;
+  db = new Database(liveDbPath, { timeout: 5000 });
+  applyConnectionPragmas(db);
+  return db;
+}
+
+/** Run full schema init on an arbitrary DB handle (used when creating a company workspace). */
+function initDBOn(database) {
+  const prev = db;
+  db = database;
+  try {
+    initDB();
+  } finally {
+    db = prev;
+  }
+}
+
+/** Copy login users (same password hashes) into a freshly-inited company DB. */
+function copyUsersInto(targetDb, sourceDb) {
+  if (!sourceDb || !targetDb) return 0;
+  const srcCols = new Set(sourceDb.prepare('PRAGMA table_info(users)').all().map(c => c.name));
+  const users = sourceDb.prepare(`
+    SELECT * FROM users WHERE COALESCE(active,1)=1
+  `).all();
+  if (!users.length) return 0;
+  const tgtCols = tableColumns(targetDb, 'users');
+  const hasMust = tgtCols.includes('must_change_password');
+  let n = 0;
+  for (const u of users) {
+    try {
+      const existing = targetDb.prepare('SELECT id FROM users WHERE username=?').get(u.username);
+      const mustVal = srcCols.has('must_change_password') ? (u.must_change_password || 0) : 0;
+      if (existing) {
+        if (hasMust) {
+          targetDb.prepare(`
+            UPDATE users SET name=?, password=?, role=?, phone=?, active=?,
+              commission_cash=?, commission_cheque=?, must_change_password=?
+            WHERE id=?
+          `).run(
+            u.name, u.password, u.role || 'admin', u.phone || null,
+            u.active == null ? 1 : u.active,
+            u.commission_cash || 0, u.commission_cheque || 0, mustVal,
+            existing.id
+          );
+        } else {
+          targetDb.prepare(`
+            UPDATE users SET name=?, password=?, role=?, phone=?, active=?,
+              commission_cash=?, commission_cheque=?
+            WHERE id=?
+          `).run(
+            u.name, u.password, u.role || 'admin', u.phone || null,
+            u.active == null ? 1 : u.active,
+            u.commission_cash || 0, u.commission_cheque || 0,
+            existing.id
+          );
+        }
+      } else if (hasMust) {
+        targetDb.prepare(`
+          INSERT INTO users (name, username, password, role, phone, active,
+            commission_cash, commission_cheque, must_change_password)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          u.name, u.username, u.password, u.role || 'admin', u.phone || null,
+          u.active == null ? 1 : u.active,
+          u.commission_cash || 0, u.commission_cheque || 0, mustVal
+        );
+      } else {
+        targetDb.prepare(`
+          INSERT INTO users (name, username, password, role, phone, active,
+            commission_cash, commission_cheque)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          u.name, u.username, u.password, u.role || 'admin', u.phone || null,
+          u.active == null ? 1 : u.active,
+          u.commission_cash || 0, u.commission_cheque || 0
+        );
+      }
+      n++;
+    } catch (e) {
+      console.warn('copyUsersInto skip', u.username, e.message);
+    }
+  }
+  return n;
 }
 
 // Add a column only if it does not already exist (safe migration helper)
@@ -2628,7 +2740,8 @@ function syncCashBoxAccount(db, box) {
 }
 
 module.exports = {
-  getDB, initDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting,
+  getDB, getDBPath, closeDB, reopenDatabase, initDBOn, copyUsersInto, applyConnectionPragmas,
+  initDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting,
   resolveCashAccount, syncBankAccount, syncCashBoxAccount,
   SYNC_ROLE, isDevice, allocateNumber, seedProvisionalSequences
 };
