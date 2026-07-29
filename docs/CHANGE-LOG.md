@@ -32,25 +32,24 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit روی سرور | (pending deploy) |
+| آخرین commit روی سرور | `65ee5e9` |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v125` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ⏳ deploy در حال انجام |
+| وضعیت سرور | ✅ **deploy شده** — health 200، SW `v125`، چندشرکتی+سال مالی |
 | سرور production | تنها ایران `94.249.244.208` — `/home/taranom/crm-taranom` |
 | SSH محلی | Host `taranom-ir` → `~/.ssh/id_ed25519_taranom` + `IdentitiesOnly yes` (بدون پسورد) |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
 
 ### 2026-07-29 — چندشرکتی + سال مالی خام/حذف/فعال‌سازی
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `65ee5e9`
 - **خلاصه:**
   - **چندشرکتی:** هر شرکت یک فایل SQLite مستقل (`data/companies/` + `registry.json`). ایجاد شرکت خام، انتخاب شرکت فعال در تنظیمات→عمومی، حذف شرکت (با رمز؛ در صورت داشتن سند `DELETE-COMPANY`)، نشان شرکت/سال در topbar.
   - **سال مالی:** در «عملیات سال مالی» و تنظیمات حسابداری: افتتاح سال خام (`OPEN-CLEAN-YEAR`)، فعال‌سازی سال، حذف سال غیرفعال، قفل/بازگشایی. بکاپ از DB فعال شرکت گرفته می‌شود.
   - بهبود: کپی کاربران به شرکت جدید با upsert (بدون شکست FK). فقط سرور مرکزی؛ دستگاه آفلاین تک‌شرکتی می‌ماند.
-  - تست: `node server/scripts/test-companies-fiscal.js` → ۱۸/۱۸؛ `test-sms` ۲۲/۲۲؛ SW `v125`.
+  - تست: `node server/scripts/test-companies-fiscal.js` → ۱۸/۱۸؛ `test-sms` ۲۲/۲۲؛ `test-sync` ۳۳/۳۳؛ SW `v125`.
 - **فایل‌های کلیدی:** `server/lib/company-workspace.js`, `server/routes/companies.js`, `server/routes/fiscal-year.js`, `server/db.js`, `server/backup.js`, `server/server.js`, `server/public/index.html`, `server/public/sw.js`, `server/scripts/test-companies-fiscal.js`
-- **Deploy:** ⏳
-- **یادداشت:** تصمیم قبلی «چندشرکتی خارج از محدوده» با درخواست صریح کاربر لغو عملی شد؛ پیاده‌سازی با جداسازی DB (نه company_id روی همه جداول).
+- **Deploy:** ✅ `65ee5e9` — ایران، health 200، SW `v125`
 
 ### 2026-07-28 — بازیابی قیمت و کد کالای وایپ‌شده از بکاپ tar.gz
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
