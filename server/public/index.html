@@ -426,23 +426,41 @@ html[data-theme="dark"] .sett-savebar{background:rgba(19,31,26,.9)}
 .btn.excel-btn svg{width:12px;height:12px;flex:0 0 12px}
 
 /* ===== Table ===== */
-/* فقط اسکرول افقی روی wrap — اسکرول عمودی صفحه تا sticky سرتیتر کار کند */
-.tbl-wrap{overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch}
-/* separate+spacing0: sticky thead با collapse دفرمه/همپوشان می‌شود */
+/*
+  Sticky thead design rules (do not regress):
+  1) .tbl-wrap always establishes a scrollport (overflow-x:auto → overflow-y computes to auto).
+     Therefore sticky `top` inside .tbl-wrap MUST be 0 — never the topbar offset (88px).
+     Using topbar offset here pushes <th> down over the first data rows.
+  2) Page-level freeze (below topbar) only for tables NOT wrapped in .tbl-wrap.
+  3) .tbl-scroll adds max-height so vertical scroll freezes thead at top:0 inside the box.
+*/
+.tbl-wrap{overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
 table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;min-width:600px}
-table.tbl th{background:var(--th-bg);color:var(--purple);text-align:right;padding:11px 12px;font-weight:700;border-bottom:2px solid var(--border);white-space:nowrap}
-/* فریز سرتیتر زیر topbar هنگام اسکرول صفحه / داخل جعبهٔ اسکرول گزارش */
+table.tbl thead{position:relative;z-index:5}
+table.tbl th{
+  background:var(--th-bg,#EAF4EE);color:var(--purple);text-align:right;
+  padding:11px 12px;font-weight:700;border-bottom:2px solid var(--border);white-space:nowrap;
+  vertical-align:middle;line-height:1.35;
+  background-clip:padding-box;
+}
+table.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap;vertical-align:middle;line-height:1.35}
 :root{--tbl-sticky-top:88px}
-.tbl-wrap > table.tbl > thead > tr > th,
+/* Page-flow tables (no .tbl-wrap scrollport): stick under topbar */
 .panel-body > table.tbl > thead > tr > th,
-#view > table.tbl > thead > tr > th{
+#view > table.tbl > thead > tr > th,
+.content > table.tbl > thead > tr > th{
   position:sticky;top:var(--tbl-sticky-top);z-index:6;
-  background:var(--th-bg,#EAF4EE);
+  background:var(--th-bg,#EAF4EE);background-clip:padding-box;
+  box-shadow:inset 0 -1px 0 var(--border), 0 1px 0 rgba(0,0,0,.04);
+}
+/* Wrapped tables: sticky relative to the wrap — ALWAYS top:0 (fixes header-over-row-1) */
+.tbl-wrap > table.tbl > thead > tr > th{
+  position:sticky;top:0;z-index:6;
+  background:var(--th-bg,#EAF4EE);background-clip:padding-box;
   box-shadow:inset 0 -1px 0 var(--border), 0 1px 0 rgba(0,0,0,.04);
 }
 .tbl-wrap.tbl-scroll{
   max-height:min(62vh,560px);overflow:auto;-webkit-overflow-scrolling:touch;
-  --tbl-sticky-top:0px;
 }
 /* چند جدول پشت‌سرهم (مثل کدینگ): فریز صفحه‌ای همه را روی هم می‌چسباند → داخل جعبه اسکرول یا خاموش */
 .tbl-wrap.tbl-no-sticky > table.tbl > thead > tr > th,
@@ -508,7 +526,6 @@ table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{width:36px;text-align:center}
 .mdi-body{flex:1;overflow:auto;padding:12px;background:var(--bg)}
 #mdiLayer{pointer-events:none}
 #mdiLayer .mdi-win,#mdiLayer .mdi-taskbar{pointer-events:auto}
-table.tbl td{padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
 table.tbl tr:hover td{background:var(--row-hover)}
 /* Long text (آدرس و …) — جلوگیری از سرریز به ستون بعدی */
 table.tbl td.td-clip{
@@ -857,7 +874,8 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
   .inv-cart{position:static;min-height:auto}
   .inv-lines-wrap{min-height:280px;max-height:50vh}
   .form-grid{grid-template-columns:1fr}
-  .tbl-wrap{overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch;width:100%}
+  .tbl-wrap{overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch;width:100%}
+  .tbl-wrap > table.tbl > thead > tr > th{top:0}
   .content{padding:12px;width:100%}
   .view{width:100%}
   .pipeline-col{flex:0 0 190px}
@@ -17440,7 +17458,7 @@ function renderAdminGuide(){
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی ERP. برای بازگشت، از دکمه «🔙 بازگشت به ERP» بالای منوی کناری آن استفاده کنید.</p>
       <p>منوی کناری این ماژول <b>آکاردئونی و ماژول‌محور (مدل A)</b> است: هر ماژول (انبار، بانک، کالا، حسابداری، …) سرگروه است و زیر آن سه بخش <b>اطلاعات پایه / عملیات / گزارشات</b> قرار دارد. سرفصل‌ها با کلیک باز/بسته می‌شوند.</p>
       <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا، پرداخت انگیزه، <b>مانده/موجودی اول دوره</b> (اشخاص، چک، بانک) و ورود اکسل، سند حسابداری دوطرفه خودکار ثبت می‌شود. در فهرست اسناد برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> نمایش داده می‌شود.</p>
-      <p><b>جداول:</b> در انتهای اکثر لیست‌ها جمع ستون‌های عددی، میانگین قیمت‌ها، و برای بدهکار/بستانکار تفاضل رنگی نمایش داده می‌شود. انتخاب چندتایی + عملیات گروهی (حذف/ابطال) در جداول دارای چک‌باکس فعال است.</p>
+      <p><b>جداول:</b> سرتیتر ستون‌ها دیگر روی ردیف اول نمی‌افتد (sticky داخل جعبه جدول با top:0). در انتهای اکثر لیست‌ها جمع ستون‌های عددی، میانگین قیمت‌ها، و برای بدهکار/بستانکار تفاضل رنگی نمایش داده می‌شود. انتخاب چندتایی + عملیات گروهی (حذف/ابطال) در جداول دارای چک‌باکس فعال است.</p>
       <p><b>دستگاه‌ها و ورود:</b> از تنظیمات سیستم یا امکانات → مدیریت دستگاه‌ها، دستگاه‌های موبایل/ویندوز همگام‌سازی و نشست‌های ورود را ببینید و قطع کنید. هر کاربر همزمان حداکثر <b>یک موبایل + یک دسکتاپ (+ وب)</b>. اپ‌ها Online-First هستند؛ قطع اینترنت → آفلاین محلی + همگام خودکار هنگام وصل.</p>
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
