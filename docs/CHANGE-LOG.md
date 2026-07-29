@@ -32,20 +32,20 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit روی سرور | (pending) |
+| آخرین commit روی سرور | `2ec18dc` |
 | نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v126` |
 | اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ⏳ deploy |
+| وضعیت سرور | ✅ **deploy شده** — health 200، SW `v126`، رفع هم‌پوشانی سرتیتر جدول |
 | سرور production | تنها ایران `94.249.244.208` — `/home/taranom/crm-taranom` |
 | SSH محلی | Host `taranom-ir` → `~/.ssh/id_ed25519_taranom` + `IdentitiesOnly yes` (بدون پسورد) |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
 
 ### 2026-07-29 — رفع هم‌پوشانی سرتیتر جدول روی ردیف اول (سراسر پروژه)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
+- **Commit:** `2ec18dc`
 - **خلاصه:** علت: `overflow-x:auto` روی `.tbl-wrap` اسکرول‌پورت محلی می‌سازد و `sticky; top:88px` (فاصله topbar) سرتیتر را داخل جعبه ۸۸px پایین می‌کشید و روی ردیف اول می‌نشست. اصلاح: داخل `.tbl-wrap` همیشه `top:0`؛ آفست topbar فقط برای جداول بدون wrap. SW `v126`.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ `2ec18dc` — ایران، health 200، SW `v126`
 
 ### 2026-07-29 — چندشرکتی + سال مالی خام/حذف/فعال‌سازی
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
