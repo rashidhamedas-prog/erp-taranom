@@ -5458,10 +5458,12 @@ async function excelImport(entity){
     const rowCount=prepared.row_count||0;
     const skipped=prepared.skipped_blank||0;
     const dupsCount=prepared.skipped_duplicates||0;
+    const updatesCount=prepared.updates_count||0;
+    const createsCount=prepared.creates_count!=null?prepared.creates_count:(count-updatesCount);
     const dups=prepared.duplicates||[];
     if(!count){ showToast('عملیاتی برای ثبت یافت نشد','error'); return; }
-    let msg=`${fmt(count)} ردیف جدید آماده ثبت است`;
-    if(dupsCount) msg+=`\n⚠️ ${fmt(dupsCount)} ردیف تکراری رد می‌شود (وارد نمی‌شود)`;
+    let msg=`${fmt(createsCount)} ردیف جدید + ${fmt(updatesCount)} به‌روزرسانی آماده ثبت است`;
+    if(dupsCount) msg+=`\n⚠️ ${fmt(dupsCount)} ردیف تکراری داخل فایل رد می‌شود`;
     if(skipped) msg+=`\n${fmt(skipped)} ردیف خالی رد شد`;
     msg+=`\n(از ${fmt(rowCount)} ردیف اکسل)\nثبت نهایی انجام شود؟`;
     if(!confirm(msg)) return;
@@ -5472,16 +5474,16 @@ async function excelImport(entity){
       catch(e){ failed.push({label:a.label||('عملیات '+(i+1)),error:e?.message||'خطای ثبت'}); }
     }
     const dupReport=dups.slice(0,30).map(x=>`${x.label}: ${x.reason}`).join('\n');
-    if(failed.length||dupsCount){
+    if(failed.length||dupsCount||updatesCount){
       const failReport=failed.slice(0,20).map(x=>`${x.label}: ${x.error}`).join('\n');
       openModal(`<div class="modal-head"><h3>${lucide('alert')} گزارش ورود اکسل</h3><button class="x" onclick="closeModal()">×</button></div>
         <div class="modal-body">
-          <p>${fmt(ok)} ردیف جدید ثبت شد${dupsCount?`؛ <b style="color:var(--orange)">${fmt(dupsCount)} تکراری رد شد</b>`:''}${failed.length?`؛ ${fmt(failed.length)} ناموفق`:''}.</p>
-          ${dupReport?`<h4 style="margin:10px 0 6px">تکراری‌ها</h4><textarea readonly style="width:100%;min-height:140px;direction:rtl">${esc(dupReport)}</textarea>`:''}
+          <p>${fmt(ok)} عملیات موفق${updatesCount?` (شامل آپدیت تکراری‌ها)`:''}${dupsCount?`؛ <b style="color:var(--orange)">${fmt(dupsCount)} رد داخل فایل</b>`:''}${failed.length?`؛ ${fmt(failed.length)} ناموفق`:''}.</p>
+          ${dupReport?`<h4 style="margin:10px 0 6px">تکراری / آپدیت</h4><textarea readonly style="width:100%;min-height:140px;direction:rtl">${esc(dupReport)}</textarea>`:''}
           ${failReport?`<h4 style="margin:10px 0 6px">خطاها</h4><textarea readonly style="width:100%;min-height:120px;direction:rtl">${esc(failReport)}</textarea>`:''}
         </div>
         <div class="modal-foot"><button class="btn" onclick="closeModal()">بستن</button></div>`);
-    }else showToast(`${fmt(ok)} ردیف جدید با موفقیت ثبت شد`);
+    }else showToast(`${fmt(ok)} ردیف با موفقیت ثبت شد`);
     if(IN_ACC_SHELL&&accTab) await loadAccTab(accTab);
     else if(CURRENT_PAGE==='products') await refreshProd(true);
   };
@@ -11573,7 +11575,8 @@ function chartOfAccountsGroupedHtml(accounts){
         <td class="mono muted">${a.parent_code||'-'}</td>
         <td style="white-space:nowrap">
           <button class="btn sm blue" onclick="go('acc-dash');dashPreselectGL('${esc(a.code)}')">📒</button>
-          ${canEdit?`<button class="btn sm ghost" onclick="chartAccountEditModal('${esc(a.code)}')">✏️</button>`:''}
+          ${canEdit?`<button class="btn sm ghost" onclick="chartAccountEditModal('${esc(a.code)}')">✏️</button>
+          <button class="btn sm orange" onclick="deleteChartAccount('${esc(a.code)}')" title="حذف حساب">🗑️</button>`:''}
         </td>
       </tr>`).join('')}
       </tbody></table></div>
@@ -11630,7 +11633,20 @@ function chartAccountEditModal(code){
       </select></div>
     </div></div>
     <div class="modal-foot"><button class="btn" onclick="saveChartAccountEdit('${esc(code)}')">💾 ذخیره</button>
+      <button class="btn orange" onclick="deleteChartAccount('${esc(code)}')">🗑️ حذف</button>
       <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+}
+async function deleteChartAccount(code){
+  if(!code) return;
+  if(!confirm(`حساب «${code}» حذف شود؟\nفقط حساب بدون فرزند و بدون گردش سند قابل حذف است.`)) return;
+  try{
+    await api('DELETE','/accounting/chart-of-accounts/'+encodeURIComponent(code));
+    closeModal(); showToast('حساب حذف شد');
+    CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
+    if(CURRENT_PAGE==='acc-dash') ROUTES['acc-dash']();
+    else if(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts'].includes(accTab)) loadAccTab(accTab);
+    const dashChart=el('accDashChart'); if(dashChart) dashChart.innerHTML=chartOfAccountsGroupedHtml(CACHE.chartOfAccounts);
+  }catch(e){}
 }
 async function saveChartAccountEdit(code){
   try{
@@ -12135,6 +12151,7 @@ async function renderCoaSectionTab(body, mode){
       ${canEdit?`<td style="white-space:nowrap">
         <button class="btn sm blue" onclick="go('acc-dash');dashPreselectGL('${esc(a.code)}')">📒</button>
         <button class="btn sm ghost" onclick="chartAccountEditModal('${esc(a.code)}')">✏️</button>
+        <button class="btn sm orange" onclick="deleteChartAccount('${esc(a.code)}')" title="حذف حساب">🗑️</button>
       </td>`:''}
     </tr>`).join('')||emptyRow(canEdit?8:7)}
     </tbody></table></div>`;
@@ -17490,7 +17507,7 @@ function renderAdminGuide(){
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب و مشاهده گردش با مانده لحظه‌ای</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص</li>
-        <li><b>کدینگ حساب‌ها</b>: در همان داشبورد یکپارچه — ساخت و ویرایش حساب با سلسله‌مراتب والد/فرزند</li>
+        <li><b>کدینگ حساب‌ها</b>: در همان داشبورد یکپارچه — ساخت، ویرایش و <b>حذف</b> حساب (حذف فقط وقتی فرزند و گردش سند و اتصال موجودیت نداشته باشد). هزینه/درآمد عملیاتی با ساختار کل→معین قابل انتخاب در پرداخت هزینه و سند دستی هستند.</li>
         <li><b>تأیید و انگیزه فروش</b>: تأیید فاکتورهای رسمی برای محاسبه انگیزه، و دکمهٔ <b>لغو فاکتور</b> توسط مدیر/حسابداری. لغو همهٔ اثرات را برمی‌گرداند (سند حسابداری، موجودی، انگیزه، تسویه‌های وابسته). اگر فاکتور از پیش‌فاکتور تبدیل شده باشد دوباره به پیش‌فاکتور فعال برمی‌گردد. پس از لغو، پیام داخل‌برنامه با تیتر «فاکتور لغو شده توسط مدیر/حسابداری» و عکس فاکتور ثبت می‌شود. پرداخت انگیزه (💵) و تاریخچه (📜) هم اینجاست.</li>
         <li><b>مراکز هزینه</b>: تعریف واحد/شعبه/خط تولید برای تفکیک هزینه‌ها در گزارش‌های آینده</li>
         <li><b>گروه‌های مشتری (ماهیت حساب)</b>: تعیین اینکه هر گروه از مشتریان «بدهکار» (پیش‌فرض) یا «بستانکار» باشند — فقط مدیر و حسابدار</li>
@@ -17595,9 +17612,10 @@ function renderAdminGuide(){
       </ul>
       <h5>ورود اکسل و اسناد اتومات</h5><ul>
         <li>ورود از اکسل از مسیرهای رسمی هر ماژول انجام می‌شود؛ برای عملیات مالی (فاکتور، خرید، تسویه، هزینه، چک اول دوره، رسید انبار، …) <b>سند حسابداری اتومات</b> ثبت می‌شود.</li>
+        <li><b>آپدیت تکراری‌ها:</b> در اشخاص، کالاها و کدینگ، ردیف تکراری (کد/تلفن/بارکد/نام) به‌جای رد شدن، <b>به‌روزرسانی</b> می‌شود. برای کالا: عکس و کد کالا حفظ می‌ماند و موجودی/قیمت از اکسل آپدیت می‌شود؛ کالای جدید اضافه می‌شود.</li>
         <li><b>مانده اول دوره اشخاص</b> و <b>موجودی اول دوره کالا</b> (با بهای تمام‌شده/قیمت اول دوره) سند افتتاحیه می‌سازند.</li>
         <li>در «فهرست اسناد» هر سند برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> دارد؛ ورودی اکسل برچسب سبز «اکسل» هم می‌گیرد.</li>
-        <li>نوع سند در قالب اکسل فهرست اسناد: <code>opening</code> / افتتاحیه / موجودی اول دوره → افتتاحیه.</li>
+        <li>نوع سند در قالب اکسل فهرست اسناد: <code>opening</code> / افتتاحیه / موجودی اول دوره → افتتاحیه. مبالغ اکسل اسناد حسابداری <b>ریال</b> هستند.</li>
       </ul>
       <h5>بازیابی رمز عبور</h5><p>در صفحه ورود، لینک «رمز عبور را فراموش کرده‌اید؟» کد یک‌بارمصرف (OTP) را به موبایل ثبت‌شده کاربر پیامک می‌کند. پس از وارد کردن کد، رمز جدید باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد. اگر پیامک ارسال نشد، تنظیمات سرویس پیامک را بررسی کنید.</p>
       <h5>تغییر اجباری رمز در اولین ورود</h5><p>در اولین ورود با رمز پیش‌فرض (<code>admin123</code>) یا هر رمزی که مدیر برای کاربر تعیین کرده، پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود و تا رمز شخصی جدید انتخاب نشود، هیچ عملیات دیگری در برنامه ممکن نیست. این الزام روی سرور مرکزی اعمال می‌شود؛ در دستگاه‌های آفلاین رمز جدید با اولین همگام‌سازی از مرکز می‌رسد.</p>

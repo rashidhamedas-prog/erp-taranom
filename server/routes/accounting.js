@@ -878,24 +878,71 @@ router.put('/chart-of-accounts/:code', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(code);
   if (!row) return res.status(404).json({ error: 'حساب یافت نشد' });
-  const { name, type, parent_code, is_active } = req.body;
+  const { name, type, parent_code, is_active, nature, level, balance_type, tafsili_type } = req.body;
   const validTypes = ['asset', 'liability', 'equity', 'revenue', 'cogs', 'expense'];
   if (type && !validTypes.includes(type)) return res.status(400).json({ error: 'نوع حساب نامعتبر است' });
   if (parent_code) {
     if (parent_code === code) return res.status(400).json({ error: 'حساب نمی‌تواند والد خودش باشد' });
     const parent = db.prepare('SELECT code FROM chart_of_accounts WHERE code=? AND is_active=1').get(parent_code);
     if (!parent) return res.status(400).json({ error: 'حساب والد یافت نشد' });
+    if (!validateChildCode(parent_code, code)) {
+      return res.status(400).json({ error: 'کد فرزند باید با پیشوند کد والد شروع شود' });
+    }
   }
-  db.prepare('UPDATE chart_of_accounts SET name=?,type=?,parent_code=?,is_active=? WHERE code=?')
+  db.prepare(`UPDATE chart_of_accounts SET name=?,type=?,parent_code=?,is_active=?,
+    nature=COALESCE(?,nature), level=COALESCE(?,level), balance_type=COALESCE(?,balance_type),
+    tafsili_type=COALESCE(?,tafsili_type) WHERE code=?`)
     .run(
       name != null ? String(name).trim() : row.name,
       type || row.type,
       parent_code !== undefined ? (parent_code || null) : row.parent_code,
       is_active != null ? (is_active ? 1 : 0) : row.is_active,
+      nature != null ? nature : null,
+      level != null ? parseInt(level, 10) || null : null,
+      balance_type != null ? balance_type : null,
+      tafsili_type != null ? tafsili_type : null,
       code
     );
   audit(req.user.id, 'update', 'chart_of_accounts', row.id, `ویرایش حساب ${code}`);
   res.json(db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(code));
+});
+
+/** Delete COA account — blocked if has children, journal usage, or linked entities. */
+router.delete('/chart-of-accounts/:code', auth, adminOrAccounting, (req, res) => {
+  const code = String(req.params.code || '').trim();
+  const db = getDB();
+  const row = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(code);
+  if (!row) return res.status(404).json({ error: 'حساب یافت نشد' });
+
+  const child = db.prepare('SELECT code FROM chart_of_accounts WHERE parent_code=? LIMIT 1').get(code);
+  if (child) {
+    return res.status(400).json({ error: `حساب فرزند دارد (${child.code}) — ابتدا فرزندها را حذف کنید` });
+  }
+  const jl = db.prepare('SELECT COUNT(*) c FROM journal_lines WHERE account_code=?').get(code)?.c || 0;
+  if (jl > 0) {
+    return res.status(400).json({ error: 'این حساب در اسناد گردش دارد و قابل حذف نیست' });
+  }
+  const refTables = [
+    ['products', 'coa_code'], ['persons', 'coa_code'], ['parties', 'coa_code'],
+    ['customers', 'coa_code'], ['suppliers', 'coa_code'], ['banks', 'coa_code'], ['cash_boxes', 'coa_code'],
+  ];
+  for (const [tbl, col] of refTables) {
+    try {
+      if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(tbl)) continue;
+      const n = db.prepare(`SELECT COUNT(*) c FROM ${tbl} WHERE ${col}=?`).get(code)?.c || 0;
+      if (n > 0) return res.status(400).json({ error: `حساب به ${tbl} وصل است و قابل حذف نیست` });
+    } catch (_) { /* ignore */ }
+  }
+  try {
+    const settingsHit = db.prepare("SELECT key FROM settings WHERE key LIKE 'coa_%' AND value=?").get(code);
+    if (settingsHit) {
+      return res.status(400).json({ error: `این کد در نگاشت کنترل (${settingsHit.key}) استفاده شده` });
+    }
+  } catch (_) { /* ignore */ }
+
+  db.prepare('DELETE FROM chart_of_accounts WHERE code=?').run(code);
+  audit(req.user.id, 'delete', 'chart_of_accounts', row.id, `حذف حساب ${code} ${row.name}`);
+  res.json({ ok: true, code });
 });
 
 // Link an operational entity to an existing chart account (Mahak mode)

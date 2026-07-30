@@ -623,7 +623,10 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
 
   const oldStock = prod.stock;
   const nameVal = bodyHas(body, 'name') ? (name || prod.name) : prod.name;
-  const codeVal = bodyHas(body, 'code') ? (code || '') : (prod.code || '');
+  // Excel upsert: empty code must not wipe existing product code
+  const codeVal = bodyHas(body, 'code')
+    ? ((code && String(code).trim()) || prod.code || '')
+    : (prod.code || '');
   const priceVal = bodyHas(body, 'price') ? (parseFloat(price) || 0) : (Number(prod.price) || 0);
   const costVal = bodyHas(body, 'cost') ? (parseFloat(cost) || 0) : (Number(prod.cost) || 0);
   const stockVal = bodyHas(body, 'stock') ? parseQty(stock) : parseQty(prod.stock);
@@ -670,10 +673,21 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     const cm = String(body.costing_method || '').trim() || null;
     db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, req.params.id);
   }
-  // Only seed missing warehouse_stock row — never overwrite existing qty with a partial PUT.
+  // Excel upsert: set absolute stock on primary warehouse. Normal UI PUT only seeds missing rows.
   if (whId) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(req.params.id, whId, stockVal);
+    if (body.excel_upsert || body.from_excel) {
+      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
+        .run(req.params.id, whId);
+      db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+        .run(stockVal, req.params.id, whId);
+    } else {
+      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
+        .run(req.params.id, whId, stockVal);
+    }
+  }
+  // Excel upsert must never clear primary image / gallery
+  if ((body.excel_upsert || body.from_excel) && prod.image) {
+    db.prepare('UPDATE products SET image=? WHERE id=?').run(prod.image, req.params.id);
   }
   try {
     await attachUploadedImages(db, req.params.id, req.files, !prod.image);
