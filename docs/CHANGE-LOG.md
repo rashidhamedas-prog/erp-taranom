@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-01 — Wave 0 execution pack (skill, agents, plan, roadmap)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (pending)
+- **خلاصه:** زیرساخت Cursor برای موج صفر: کپی `docs/erp-taranom-master-roadmap.md`، skill `erp-roadmap-wave0` (قواعد §3/§19/§20 + override عدم deploy تا gate)، agents `erp-wave0-executor` و `erp-p0-bom-ci`، plan زنده `docs/.plans/260801-wave0-critical-path/`. بدون تغییر runtime.
+- **فایل‌های کلیدی:** `docs/erp-taranom-master-roadmap.md`, `.cursor/skills/erp-roadmap-wave0/`, `.cursor/agents/`, `docs/.plans/260801-wave0-critical-path/`
+- **Deploy:** ❌ Wave 0 — infrastructure-only; deploy blocked until gate
+- **یادداشت:** P0-A probe: `test-production-bom.js` 27/27 در worktree؛ `test:production` کامل هنوز ×3 تأیید نشده.
+
 ### 2026-07-30 — کدینگ P&L + افتتاحیه YTD + اکسل upsert + حذف حساب
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `a44f596`
