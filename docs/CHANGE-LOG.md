@@ -29,10 +29,10 @@
 
 ### 2026-08-01 — بیلد دسکتاپ 2.0.9 + اندروید 2.0.32 (خروجی New folder)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین ورودی)
-- **خلاصه:** bump نسخه پلتفرم‌ها پس از Wave 0؛ `prepare-embedded` drift=0؛ بیلد Windows NSIS و APK release؛ کپی به `D:\soft\Claud\porje\crm-taranom\New folder` (نه scp به `/releases/` سرور). ایران: pull تا `e8f4a69`+؛ health `/api/system/health` =200.
-- **فایل‌های کلیدی:** `server/public/releases/manifest.json`, `android/app/build.gradle`, `android/.../main.js`, `scripts/test-android-apk.ps1`
-- **Deploy:** ✅ وب ایران online؛ بسته‌های EXE/APK فقط محلی در New folder
+- **Commit:** `078b868`
+- **خلاصه:** bump نسخه پلتفرم‌ها پس از Wave 0؛ `prepare-embedded` drift=0؛ بیلد Windows NSIS و APK release؛ کپی به `D:\soft\Claud\porje\crm-taranom\New folder` (نه scp به `/releases/` سرور). ایران: pull تا `078b868`؛ health `/api/system/health` =200.
+- **فایل‌های کلیدی:** `server/public/releases/manifest.json`, `android/app/build.gradle`, `android/.../main.js`, `scripts/test-android-apk.ps1`, `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ✅ `078b868` — وب ایران online؛ بسته‌های EXE/APK فقط محلی در New folder (فایل باینری روی سرور آپلود نشد)
 - **یادداشت:** خروجی: `ERP-Taranom-Setup-2.0.9.exe` (~93MB)، `erp-taranom-2.0.32.apk` (~67MB). SW `v129`. Gate موج صفر (xlsx/Playwright/امضا/DR off-site) هنوز باز است.
 
 ### 2026-08-01 — hotfix deploy: پیش‌فرض ALLOWED_ORIGINS تا سرویس ایران بالا بیاید
