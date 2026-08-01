@@ -28,8 +28,8 @@
 ---
 
 ### 2026-08-01 — Wave 0 execution pack (skill, agents, plan, roadmap)
-- **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (pending)
+- **شاخه:** `codex/wave0-execution-pack-260801`
+- **Commit:** `31d3c8e`
 - **خلاصه:** زیرساخت Cursor برای موج صفر: کپی `docs/erp-taranom-master-roadmap.md`، skill `erp-roadmap-wave0` (قواعد §3/§19/§20 + override عدم deploy تا gate)، agents `erp-wave0-executor` و `erp-p0-bom-ci`، plan زنده `docs/.plans/260801-wave0-critical-path/`. بدون تغییر runtime.
 - **فایل‌های کلیدی:** `docs/erp-taranom-master-roadmap.md`, `.cursor/skills/erp-roadmap-wave0/`, `.cursor/agents/`, `docs/.plans/260801-wave0-critical-path/`
 - **Deploy:** ❌ Wave 0 — infrastructure-only; deploy blocked until gate
