@@ -29,11 +29,11 @@
 
 ### 2026-08-01 — hotfix deploy: پیش‌فرض ALLOWED_ORIGINS تا سرویس ایران بالا بیاید
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `3eff7ab`
 - **خلاصه:** بعد از pull Wave 0، PM2 به‌خاطر اجباری بودن `ALLOWED_ORIGINS` در production کرش می‌کرد. پیش‌فرض دامنه ترنم + جابه‌جایی `assertSecurityConfig` قبل از CORS.
 - **فایل‌های کلیدی:** `server/lib/security.js`, `server/server.js`
-- **Deploy:** ⏳ در حال deploy ایران
-- **یادداشت:** بهتر است `ALLOWED_ORIGINS` صریح در PM2 تنظیم شود.
+- **Deploy:** ✅ `3eff7ab` — ایران؛ health ROOT/TIME 200؛ SW `v128`
+- **یادداشت:** بهتر است `ALLOWED_ORIGINS` صریح در PM2 تنظیم شود. Gate موج صفر هنوز باز است.
 
 ### 2026-08-01 — Cursor review: تأیید commit GPT Wave 0 (`6b53483`)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
@@ -101,11 +101,9 @@
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit روی GitHub | `6b53483` (Wave 0 harden — GPT Pro) |
-| آخرین commit روی سرور ایران | `0c9c58a` / قدیمی‌تر — **هنوز deploy نشده** |
-| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v128` (محلی؛ روی ایران قدیمی‌تر) |
-| اندروید | **`2.0.31`** (versionCode 33) — سورس prepare همگام؛ بدون APK کامل |
-| وضعیت سرور | ⏳ کد Wave 0 روی گیت است؛ production ایران عقب است تا دستور deploy |
+| آخرین commit روی GitHub | `3eff7ab` (hotfix ALLOWED_ORIGINS + Wave 0) |
+| آخرین commit روی سرور ایران | `3eff7ab` — ✅ deploy شده |
+| وضعیت سرور | ✅ online — health 200 |
 | Gate موج صفر | 🟡 باز — audit/xlsx، restore off-site، Playwright، امضای updater، unsafe-inline |
 | سرور production | تنها ایران `94.249.244.208` — `/home/taranom/crm-taranom` |
 | SSH محلی | Host `taranom-ir` → `~/.ssh/id_ed25519_taranom` + `IdentitiesOnly yes` (بدون پسورد) |
