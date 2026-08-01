@@ -186,14 +186,30 @@ async function runBackup() {
 
     const checksum = crypto.createHash('sha256').update(fs.readFileSync(outPath)).digest('hex');
     fs.writeFileSync(outPath + '.sha256', `${checksum}  ${path.basename(outPath)}\n`, { mode: 0o600 });
-    let offsite = { configured: false, ok: false };
+    let offsite = { configured: false, ok: false, method: null };
+    // Prefer S3 when configured; otherwise filesystem mirror (second disk/NAS path).
     if (process.env.BACKUP_S3_URI) {
       offsite.configured = true;
+      offsite.method = 's3';
       const target = process.env.BACKUP_S3_URI.replace(/\/$/, '') + '/' + path.basename(outPath);
       const up = spawnSync('aws', ['s3', 'cp', outPath, target, '--only-show-errors'], { encoding: 'utf8', timeout: 15 * 60 * 1000 });
-      offsite = { configured: true, ok: up.status === 0, target, error: up.status === 0 ? null : String(up.stderr || up.error || 'upload failed').trim() };
+      offsite = { configured: true, method: 's3', ok: up.status === 0, target, error: up.status === 0 ? null : String(up.stderr || up.error || 'upload failed').trim() };
       if (!offsite.ok) throw new Error(`off-site backup failed: ${offsite.error}`);
       spawnSync('aws', ['s3', 'cp', outPath + '.sha256', target + '.sha256', '--only-show-errors'], { encoding: 'utf8', timeout: 5 * 60 * 1000 });
+    } else if (process.env.BACKUP_OFFSITE_DIR) {
+      offsite.configured = true;
+      offsite.method = 'fs';
+      const destDir = path.resolve(process.env.BACKUP_OFFSITE_DIR);
+      if (destDir === path.resolve(BACKUP_DIR)) {
+        throw new Error('BACKUP_OFFSITE_DIR must differ from BACKUP_DIR');
+      }
+      fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
+      const target = path.join(destDir, path.basename(outPath));
+      fs.copyFileSync(outPath, target);
+      fs.copyFileSync(outPath + '.sha256', target + '.sha256');
+      const remoteSum = crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex');
+      if (remoteSum !== checksum) throw new Error('off-site filesystem checksum mismatch');
+      offsite = { configured: true, method: 'fs', ok: true, target, error: null };
     }
 
     pruneOld();

@@ -6,6 +6,7 @@
 - RTO: at most 4 hours for a clean host with Node.js, repository access, secrets and object-storage credentials.
 - `BACKUP_PASSWORD` must come from the secret manager/operator and must not be stored on the VPS or in Git.
 - `BACKUP_S3_URI` points to an S3-compatible off-server bucket; the host needs an `aws` CLI profile through environment/instance credentials.
+- If S3 is not ready yet, set `BACKUP_OFFSITE_DIR` to a **different physical path** (second disk, mounted NAS, or synced folder). The backup job mirrors the encrypted archive + `.sha256` there and verifies checksum. S3 takes precedence when both are set.
 
 ## Full-server recovery
 
@@ -26,4 +27,5 @@
 
 - A weekly isolated job must download the latest off-site object, validate its checksum, decrypt/extract it outside production, run `PRAGMA integrity_check`, and compare invoice/customer counts and trial balance totals captured in the drill record.
 - Alert when the latest successful off-site backup is older than 20 minutes, checksum/integrity fails, disk free space is below 20%, or a weekly drill is missing/failed.
-- Production deploy remains blocked until an actual off-server restore drill is recorded within the 4-hour RTO.
+- Automated gate: `node server/scripts/test-backup-dr.js` creates a temp DB, writes encrypted backup, mirrors to `BACKUP_OFFSITE_DIR`, restores from the offsite copy, and checks integrity + user counts.
+- Production: set `BACKUP_OFFSITE_DIR` (or `BACKUP_S3_URI`) on PM2, run one real restore onto a spare host/path, and log RTO + checksum in CHANGE-LOG.

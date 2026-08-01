@@ -186,6 +186,11 @@ function setupAutoUpdate(port) {
     if (updateState.status !== 'ready') {
       return { ok: false, error: 'به‌روزرسانی هنوز آماده نصب نیست' };
     }
+    // Wave 0: when signed updates are required, only electron-updater (publisher
+    // signature + blockmap) may install — never the unsigned fallback EXE URL.
+    if (process.env.REQUIRE_SIGNED_UPDATES === '1' && updateState.status === 'available-fallback') {
+      return { ok: false, error: 'نصب به‌روزرسانی بدون امضا غیرفعال است (REQUIRE_SIGNED_UPDATES)' };
+    }
     try {
       autoUpdater.quitAndInstall(false, true);
       return { ok: true };

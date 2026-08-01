@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const multer = require('multer');
-const XLSX = require('xlsx');
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { getDB, audit } = require('../db');
 
@@ -796,7 +796,7 @@ router.get('/:entity/export', auth, adminOrAccounting, ensureDefinition, (req, r
 router.post('/:entity/prepare-import', auth, adminOrAccounting, ensureDefinition, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل اکسل انتخاب نشده است' });
   try {
-    const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
+    const wb = readWorkbook(req.file.buffer, { cellDates: true });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     // raw:true keeps Excel serial dates/numbers; excelDateCell/num coerce them
     const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });

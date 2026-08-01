@@ -16936,6 +16936,7 @@ async function loadSettBackupPanel(){
         <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
           هر شب ساعت ۰۰:۰۰ پشتیبان خودکار ساخته می‌شود. تا ${fmt(14)} نسخهٔ قبلی نگه داشته می‌شود.
           هر پشتیبان شامل <strong>دیتابیس</strong> و <strong>تصاویر آپلودشده</strong> است.
+          اگر روی سرور <code dir="ltr">BACKUP_OFFSITE_DIR</code> یا <code dir="ltr">BACKUP_S3_URI</code> تنظیم شود، همان لحظه یک کپی off-site (رمزنگاری‌شده + SHA-256) هم ساخته می‌شود.
         </p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
           <button class="btn green" onclick="downloadBackup()">ساخت و دانلود آخرین پشتیبان</button>

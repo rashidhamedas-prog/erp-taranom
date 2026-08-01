@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-01 — بستن Gate کدی موج صفر (deps / offsite / مالی / Playwright)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین ورودی)
+- **خلاصه:** تصمیم اجرایی بدون GPT: ارتقای `adm-zip`/`nodemailer`/`sharp`؛ waiver زمان‌دار `xlsx` + `excel-safe`؛ `BACKUP_OFFSITE_DIR` + DR ۶/۶ از کپی offsite؛ تست مالی+hostile شرکت ۲۰/۰؛ Playwright login؛ CI `wave0-gate`؛ runbook امضا؛ `unsafe-inline` آگاهانه تعویق.
+- **فایل‌های کلیدی:** `server/lib/excel-safe.js`, `server/backup.js`, `server/scripts/test-backup-dr.js`, `server/scripts/test-wave0-financial-hostile.js`, `server/scripts/check-audit-waivers.js`, `e2e/`, `docs/WAVE0-GATE-STATUS.md`, `.github/workflows/wave0-gate.yml`
+- **Deploy:** ⏳
+- **یادداشت:** ops باقی: `BACKUP_OFFSITE_DIR` یا S3 روی PM2 ایران + کلید امضای EXE/APK. SW `v135`.
+
 ### 2026-08-01 — بازسازی اسناد کالا پس از wipe (تفصیلی + کاردکس + رسید + JE)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `551de7e`

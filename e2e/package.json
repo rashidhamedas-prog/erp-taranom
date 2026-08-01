@@ -1,0 +1,11 @@
+{
+  "name": "erp-taranom-e2e",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:login": "playwright test login.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2"
+  }
+}

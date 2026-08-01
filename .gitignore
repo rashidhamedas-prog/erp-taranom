@@ -19,6 +19,9 @@ _code-overview-for-ai.md
 .gradle/
 **/build/
 **/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+e2e/.cache/
 desktop/dist/
 android/app/build/
 android/.cxx/

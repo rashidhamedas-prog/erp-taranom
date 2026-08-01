@@ -28,10 +28,13 @@
     "test:inventory": "node scripts/test-inventory-smoke.js",
     "test:payroll-accounting": "node scripts/test-payroll-accounting.js",
     "test:excel-user-integration": "node scripts/test-excel-user-integration.js",
-    "test:production": "node scripts/run-production-tests.js"
+    "test:production": "node scripts/run-production-tests.js",
+    "test:wave0-financial": "node scripts/test-wave0-financial-hostile.js",
+    "test:backup-dr": "node scripts/test-backup-dr.js",
+    "audit:gate": "node scripts/check-audit-waivers.js"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16",
+    "adm-zip": "^0.6.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.10.0",
     "compression": "^1.7.4",
@@ -43,9 +46,9 @@
     "mssql": "^11.0.1",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^3.0.3",
-    "nodemailer": "^6.9.13",
+    "nodemailer": "^9.0.3",
     "otplib": "^12.0.1",
-    "sharp": "^0.33.3",
+    "sharp": "^0.35.3",
     "xlsx": "^0.18.5"
   }
 }
