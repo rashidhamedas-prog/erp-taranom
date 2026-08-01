@@ -26,6 +26,8 @@
 | 2026-08-01 | Local gate | Frontend parse 2 scripts; embedded 199/199 drift 0; platform 7/7; TLS 9/9; SMS 22/22; B2B 30/30; DR 6/6; companies/fiscal 18/18; sync 41/41; production 18 suites all green in 484.5s. |
 | 2026-08-01 | Dependency gate ❌ | Online `npm audit --omit=dev --audit-level=high` found 7 advisories (4 high). Breaking upgrades are available for adm-zip/nodemailer/sharp; SheetJS `xlsx` has no published fix. No forced upgrade applied. |
 | 2026-08-01 | Gate close ✅ (code) | Upgraded adm-zip/nodemailer/sharp; xlsx waiver+excel-safe; BACKUP_OFFSITE_DIR drill; financial/hostile API 20/0; Playwright login; CI updated. Ops signing + prod OFFSITE wiring remain. |
+| 2026-08-01 | P0-S2 resumed | Full non-signing closure started: protected local secrets (Android Keystore / Windows DPAPI), encrypted device credential storage, checksum-gated updater paths, permission/navigation hardening, and behavioral negative tests. APK/EXE signing, full builds, and Iran deploy remain explicitly excluded. |
+| 2026-08-01 | Signing ops ✅ (self-signed) | APK 2.0.32 + EXE 2.0.9 signed on build PC; artifacts in New folder + `releases/`; handoff `docs/WAVE0-SIGNING-HANDOFF-GPT.md`. Commercial OV/EV + REQUIRE_SIGNED_UPDATES e2e still open. Offsite Iran PM2 env + restore drill also closed. |
 
 ---
 

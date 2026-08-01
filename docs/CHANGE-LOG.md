@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-01 — امضای APK/EXE + انتشار releases + handoff GPT
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** APK 2.0.32 و EXE 2.0.9 امضا و در `releases/` + New folder؛ `manifest.json`/`latest.yml` به‌روز؛ راهنمای Help؛ handoff `WAVE0-SIGNING-HANDOFF-GPT.md` برای ChatGPT. گواهی تجاری ویندوز هنوز باز.
+- **فایل‌های کلیدی:** `docs/WAVE0-SIGNING-HANDOFF-GPT.md`, `docs/WAVE0-SIGNING-RUNBOOK.md`, `server/public/releases/manifest.json`, `server/public/releases/latest.yml`, `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ⏳ در حال اعمال ایران (SFTP باینری + کد؛ SW `v136`)
+- **یادداشت:** JKS/PFX در git نیستند. EXE روی PC بیلد Authenticode Valid (خودامضا).
+
 ### 2026-08-01 — ops: آف‌سایت دائم ایران + امضای APK/EXE (خودامضا)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `dfa08ca`

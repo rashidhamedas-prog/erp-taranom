@@ -6,14 +6,14 @@
   "desktop": {
     "version": "2.0.9",
     "url": "/releases/ERP-Taranom-Setup-2.0.9.exe",
-    "feed_url": "",
-    "notes": "آپدیت 2.0.9: Wave 0 — harden sync/TLS/backup/CI، SW v128."
+    "feed_url": "/releases/latest.yml",
+    "notes": "آپدیت 2.0.9 امضاشده (Authenticode خودامضا CN=Poshak Taranom). SHA256=940922969311FA7D187C7638E2A912A204F0989149B1F3BC2C2719B80A866C22 — روی PC دیگر SmartScreen ممکن است ناشناس بماند تا گواهی تجاری."
   },
   "android": {
     "version": "2.0.32",
     "versionCode": 34,
     "url": "/releases/erp-taranom.apk",
     "distribution": "server",
-    "notes": "آپدیت 2.0.32: Wave 0 — harden sync/TLS/backup، SW v128."
+    "notes": "آپدیت 2.0.32 امضاشده با keystore جدید release (CN=Poshak Taranom). SHA256=CF60CF86B49508721C7E70986996514734902CE0AE423B3C73800B38257F0C90 — اگر ارتقا خطا داد یک‌بار uninstall سپس نصب."
   }
 }

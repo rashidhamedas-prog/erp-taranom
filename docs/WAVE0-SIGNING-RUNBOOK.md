@@ -19,9 +19,13 @@ Code signing **keys stay with the operator** (never in Git). The app enforces si
 3. Publish SHA-256 of the APK next to `server/public/releases/manifest.json` notes (manual until feed field exists).
 4. Devices: sideload signed APK; if signing key changes, uninstall once.
 
-## Gate evidence
+## Gate evidence (2026-08-01 — Cursor)
 
-- [ ] Signed EXE Authenticode Valid
-- [ ] Signed APK (`apksigner verify`)
-- [ ] Desktop with `REQUIRE_SIGNED_UPDATES=1` rejects unsigned fallback
+- [x] Signed EXE Authenticode **Valid** on build PC (self-signed PFX `desktop/certs/…`, gitignored; CN=Poshak Taranom)
+- [x] Signed APK (`apksigner verify`) — new release JKS `android/erp-taranom.jks` (gitignored)
+- [ ] Desktop with `REQUIRE_SIGNED_UPDATES=1` rejects unsigned fallback (ops; not forced on all prod clients yet)
 - [ ] One successful in-app update on a test PC
+- [ ] Commercial Windows OV/EV cert (SmartScreen on other PCs)
+
+Artifacts (local deliver folder): `D:\soft\Claud\porje\crm-taranom\New folder\`  
+Handoff for ChatGPT: `docs/WAVE0-SIGNING-HANDOFF-GPT.md`
