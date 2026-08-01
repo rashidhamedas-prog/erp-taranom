@@ -34,7 +34,14 @@ let helmet = null;
 try { helmet = require('helmet'); } catch {}
 if (helmet) {
   app.use(helmet({
+    // HSTS/HTTPS redirect belong to nginx/Cloudflare — Helmet HSTS on the Node
+    // app (often reached over plain HTTP from the proxy) + upgrade-insecure-requests
+    // breaks Chrome login when the user lands on http://erp...
+    hsts: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginEmbedderPolicy: false,
     contentSecurityPolicy: {
+      useDefaults: false,
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'"],
@@ -43,16 +50,19 @@ if (helmet) {
         scriptSrcAttr: ["'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'", 'https:'],
+        // Allow same-host http+https fetches (Cloudflare/http transitional).
+        connectSrc: ["'self'", 'https:', 'http:', 'ws:', 'wss:'],
         fontSrc: ["'self'", 'data:'],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         frameAncestors: ["'self'"],
+        formAction: ["'self'"],
         // SW + blob workers used by the SPA
         workerSrc: ["'self'", 'blob:'],
+        // Explicitly omit upgrade-insecure-requests — it turns same-origin
+        // http fetch into cross-origin https and breaks login behind CF/nginx 301.
       }
     },
-    crossOriginEmbedderPolicy: false,
   }));
 } else {
   app.use((req, res, next) => {

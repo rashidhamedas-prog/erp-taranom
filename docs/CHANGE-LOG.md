@@ -27,6 +27,13 @@
 
 ---
 
+### 2026-08-01 — hotfix لاگین Chrome: HTTPS redirect + CSP/CORP
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین ورودی)
+- **خلاصه:** روی `http://erp...` کلادفلر/nginx با ۳۰۱، POST لاگین را خراب می‌کرد؛ CSP `upgrade-insecure-requests` + CORP `same-origin` هم fetch را می‌کشت. حذف upgrade/HSTS از Helmet، CORP=cross-origin، redirect سمت کلاینت به https، SW v132.
+- **فایل‌های کلیدی:** `server/server.js`, `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ⏳
+
 ### 2026-08-01 — hotfix لاگین وب روی http (CORS)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `d47d148`

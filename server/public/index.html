@@ -2,7 +2,9 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<!-- Set the theme before first paint (anti-FOUC) — must stay the first script in <head> -->
+<!-- Force HTTPS on production host — http:// + CF/nginx 301 turns POST login into GET and breaks Chrome. -->
+<script>(function(){try{var h=location.hostname||'';if(location.protocol==='http:'&&/(^|\.)poshaktaranom\.com$/i.test(h)){location.replace('https://'+location.host+location.pathname+location.search+location.hash);}}catch(e){}})();</script>
+<!-- Set the theme before first paint (anti-FOUC) — must stay early in <head> -->
 <script>(function(){var t=localStorage.getItem('crm_theme')||'light';document.documentElement.setAttribute('data-theme',t);})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>ERP ترنم</title>
@@ -17693,7 +17695,7 @@ function renderAdminGuide(){
         <li>فعال/غیرفعال‌سازی فقط از نسخه وب (سرور مرکزی) انجام می‌شود</li>
         <li>ورود در برنامه‌های آفلاین ویندوز/اندروید بدون کد 2FA است (خود دستگاه پس از اتصال اولیه، امن و معتمد است)</li>
         <li><b>وب کروم:</b> هدر CSP سرور باید برای attributeهای رویداد (`onclick` و مشابه) اجازهٔ inline بدهد؛ در غیر این صورت دکمه‌ها و منوها در مرورگر هیچ واکنشی ندارند (رفع ۱۴۰۵/۰۵).</li>
-        <li><b>ورود وب:</b> هم <code>http://</code> و هم <code>https://</code> دامنهٔ ترنم مجازند؛ ترجیحاً از https استفاده کنید. اولین ورود مدیر: <b>admin / admin123</b> — بعد از ورود، تغییر رمز اجباری است.</li>
+        <li><b>ورود وب:</b> آدرس درست <code dir="ltr">https://erp.poshaktaranom.com</code> است — اگر با http باز شود خودکار به https می‌رود. اولین ورود مدیر: <b>admin / admin123</b> — بعد از ورود، تغییر رمز اجباری است.</li>
       </ul>`),
     helpSec('🤖','دستیار فروش AI',`
       <p>سیستم هر شب ساعت ۲ بامداد رفتار خرید همه مشتریان را تحلیل می‌کند و نتیجه در منوی «🤖 دستیار هوشمند» نمایش داده می‌شود.</p>
