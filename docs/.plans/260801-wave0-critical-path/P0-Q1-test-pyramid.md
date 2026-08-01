@@ -1,13 +1,13 @@
 # Phase P0-Q1 — Test pyramid baseline
 
-**Status:** `[-]` — matrix created; browser/platform E2E gaps explicit
+**Status:** `[x]` — Playwright critical + API hostile/tenant coverage in CI
 **Roadmap:** فاز P0-Q1
 
 ## Tasks
 
 - [x] Inventory unit tests (money, jalali, tax, commission, payroll, costing, state)
 - [x] Integration: financial routes, RBAC/IDOR, sync conflict, migration
-- [x] Playwright E2E list from roadmap (documented as open gap)
+- [x] Playwright E2E critical: login, invoice+cross-company, private media, B2B
 - [x] Mobile/desktop: install, upgrade, offline sync scenarios (documented waiver; full builds prohibited)
 - [x] Gap tests filed in matrix with owners
 

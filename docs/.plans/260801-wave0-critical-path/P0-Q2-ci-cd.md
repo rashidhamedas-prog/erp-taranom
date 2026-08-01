@@ -1,6 +1,6 @@
 # Phase P0-Q2 — CI/CD pipeline
 
-**Status:** `[-]` — CI gate added; staging/production actions intentionally blocked
+**Status:** `[~]` — Wave0 CI expanded; staging/production deploy jobs remain disabled
 **Roadmap:** فاز P0-Q2
 
 ## Tasks

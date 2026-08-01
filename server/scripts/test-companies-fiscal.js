@@ -129,6 +129,12 @@ async function main() {
     // Activate new company
     const act = await req('POST', `/companies/${newId}/activate`, {}, token);
     assert(act.status === 200 && act.body?.ok, 'activate company');
+    // P0-S3: company switch revokes sessions
+    {
+      const rel = await req('POST', '/auth/login', { username: 'admin', password: adminPass });
+      assert(rel.status === 200 && !!rel.body?.token, 're-login after company activate');
+      token = rel.body.token;
+    }
 
     // Fiscal years on new company should be clean (1 open year)
     let fy = await req('GET', '/fiscal-year', null, token);
@@ -159,6 +165,11 @@ async function main() {
     // Switch back to default company
     const back = await req('POST', `/companies/${defaultId}/activate`, {}, token);
     assert(back.status === 200 && back.body?.ok, 'activate default company');
+    {
+      const rel = await req('POST', '/auth/login', { username: 'admin', password: adminPass });
+      assert(rel.status === 200 && !!rel.body?.token, 're-login after return to default');
+      token = rel.body.token;
+    }
 
     // Delete the test company (empty)
     let delCo = await req('DELETE', `/companies/${newId}`, { confirm_password: adminPass }, token);

@@ -31,6 +31,7 @@
 | 2026-08-01 | P0-S2 ✅ source gate | AndroidKeyStore + DPAPI secret migration; encrypted device token; Android APK hash/package/version/signer verification; Electron verified updater + packaged signed-update default; 27/27 Android, 42/42 desktop, sync 41/41, signatures and 204-file embedded drift verified. Existing signed binaries predate this source change and require one final rebuild/re-sign before release; no deploy. |
 | 2026-08-01 | P0-S3 ✅ | CSP/Trusted Types asset split; upload/SSRF/private media; secret enc:v2; staff/B2B sessions; company switch; portal CSPRNG password; sync repair+attestation. Mirror UNIQUE fix + company_id on challenge/B2B revoke. Auth 46/46, sync 44/44, upload 55/55, secrets 37/37, CSP browser 15/15, portal 64/64. Deploy blocked. |
 | 2026-08-01 | P0-Q deps ✅ | Replaced SheetJS `xlsx` with `exceljs@4` (`excel-io` + hardened `excel-safe`); async call sites; Mahak helpers fixed; waiver emptied; audit gate OK; production-export + upload 55 + SMS 22 + sync 44. CI/E2E expand still open. |
+| 2026-08-01 | P0-Q CI/E2E ✅ | wave0-gate expanded; Playwright critical 5/5; company-switch re-login fixed in hostile/fiscal tests; offsite policy 4/4; P0-B 224 drift 0; offsite runbook. Ops: real S3/volume still open. |
 
 ---
 
@@ -87,8 +88,8 @@ Execute in order. Mark `[x]` when gate passed.
 | 4 | P0-S2 Android/Electron | [P0-S2-platform-hardening.md](./P0-S2-platform-hardening.md) | `[x]` |
 | 5 | P0-S3 Web/API security | [P0-S3-web-api-security.md](./P0-S3-web-api-security.md) | `[x]` |
 | 6 | P0-C Backup/restore | [P0-C-backup-restore.md](./P0-C-backup-restore.md) | `[-]` |
-| 7 | P0-Q1 Test pyramid | [P0-Q1-test-pyramid.md](./P0-Q1-test-pyramid.md) | `[-]` |
-| 8 | P0-Q2 CI/CD | [P0-Q2-ci-cd.md](./P0-Q2-ci-cd.md) | `[-]` |
+| 7 | P0-Q1 Test pyramid | [P0-Q1-test-pyramid.md](./P0-Q1-test-pyramid.md) | `[x]` |
+| 8 | P0-Q2 CI/CD | [P0-Q2-ci-cd.md](./P0-Q2-ci-cd.md) | `[~]` |
 
 ---
 

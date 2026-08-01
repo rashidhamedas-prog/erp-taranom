@@ -11,8 +11,8 @@
 |-------|--------|-------|
 | P0-S3 | ✅ | Auth/CSP/upload/secrets/sync green; mirror UNIQUE + company_id fixes |
 | P0-C | 🟡 partial | Package v2, private uploads, verify-only API, CLI restore, DR 11/11; true off-server S3/volume still ops |
-| P0-Q | 🟡 deps ✅ | exceljs migration done; waiver removed; CI/E2E expand still open |
-| P0-B re-prepare | ⏳ | run after this commit |
+| P0-Q | ✅ code | exceljs + expanded CI + Playwright critical 5/5 |
+| P0-B re-prepare | ✅ | 224/224 drift 0 after exceljs/CI session |
 
 ## Key test evidence (serial)
 
@@ -26,7 +26,7 @@
 - `DATA_ENCRYPTION_KEY` production rollout (handoff §4.3)
 - Commercial Windows code-signing OV/EV
 - Real off-server backup destination (not same-VPS folder alone)
-- Expanded CI/E2E beyond Playwright login (exceljs deps gate closed)
+- Real S3/off-volume backup destination + weekly restore drill log
 
 ## Rollback
 

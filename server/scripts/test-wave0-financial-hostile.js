@@ -72,9 +72,22 @@ async function loginAdmin() {
     pass = 'AdminWave0#1405';
     login = await req('POST', '/auth/login', { username: 'admin', password: pass });
     token = login.body?.token;
+  } else if (!token) {
+    // After company switch, sessions are revoked — login with current password.
+    login = await req('POST', '/auth/login', { username: 'admin', password: 'AdminWave0#1405' });
+    if (login.body?.token) {
+      token = login.body.token;
+      pass = 'AdminWave0#1405';
+    }
   }
   assert(!!token, 'admin login');
   return { token, pass };
+}
+
+async function relogin(pass) {
+  const login = await req('POST', '/auth/login', { username: 'admin', password: pass });
+  assert(login.status === 200 && !!login.body?.token, 're-login after company switch');
+  return login.body.token;
 }
 
 async function main() {
@@ -100,7 +113,8 @@ async function main() {
 
   try {
     await waitHealth();
-    const { token, pass } = await loginAdmin();
+    const { token: loginToken, pass } = await loginAdmin();
+    let token = loginToken;
 
     // ── Financial smoke: customer → product → final invoice ─────────────
     const cust = await req('POST', '/customers', {
@@ -150,6 +164,8 @@ async function main() {
 
     const actB = await req('POST', `/companies/${bId}/activate`, {}, token);
     assert(actB.status === 200 && actB.body?.ok, 'activate company B');
+    // Company switch revokes all staff sessions (P0-S3) — must re-authenticate.
+    token = await relogin(pass);
 
     const listB = await req('GET', '/invoices', null, token);
     assert(listB.status === 200, 'list invoices on B');
@@ -162,6 +178,7 @@ async function main() {
 
     const back = await req('POST', `/companies/${defaultId}/activate`, {}, token);
     assert(back.status === 200, 'return to company A');
+    token = await relogin(pass);
     const again = await req('GET', '/invoices/' + invId, null, token);
     assert(again.status === 200 && (again.body?.id === invId || again.body?.num === invNum), 'invoice still on A');
 

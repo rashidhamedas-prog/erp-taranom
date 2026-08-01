@@ -27,6 +27,15 @@
 
 ---
 
+### 2026-08-01 — P0-Q CI/E2E + P0-B re-prep + سیاست offsite
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:** گسترش `wave0-gate` (auth/upload/CSP/secrets/portal/export/offsite-policy)؛ Playwright critical ۵/۵ با `COMPANIES_DIR` ایزوله؛ تست سیاست same-device؛ اصلاح re-login پس از company switch؛ runbook off-server؛ P0-B drift=0 (۲۲۴ فایل)؛ SW `v140`.
+- **فایل‌های کلیدی:** `.github/workflows/wave0-gate.yml`, `e2e/critical-paths.spec.js`, `e2e/start-e2e-server.js`, `server/scripts/test-backup-offsite-policy.js`, `docs/WAVE0-OFFSITE-BACKUP-RUNBOOK.md`
+- **تست:** Playwright ۵/۵؛ financial/hostile ۲۲/۰؛ companies-fiscal ۲۰/۰؛ offsite-policy ۴/۴؛ SMS ۲۲؛ sync ۴۴؛ embedded drift 0
+- **Deploy:** ❌ Wave 0 — deploy blocked
+- **یادداشت:** off-server واقعی هنوز نیازمند S3/volume جدا روی ایران است.
+
 ### 2026-08-01 — P0-Q: مهاجرت `xlsx` → `exceljs` + حذف waiver
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `15bc11c`
