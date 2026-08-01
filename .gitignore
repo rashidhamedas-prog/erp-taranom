@@ -54,3 +54,8 @@ server/data/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Code signing secrets
+desktop/certs/
+*.pfx
+
