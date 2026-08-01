@@ -15,6 +15,7 @@ const { assertSecurityConfig } = require('./lib/security');
 const app = express();
 app.set('trust proxy', 1); // trust Nginx reverse proxy
 const PORT = process.env.PORT || 3000;
+assertSecurityConfig(); // may fill ALLOWED_ORIGINS default in production
 
 // Gzip compression — shrinks JSON/HTML responses for faster load (graceful if not installed)
 try {
@@ -156,7 +157,6 @@ app.use('/api/reports', heavyLimiter);
 app.use('/api/adv-reports', heavyLimiter);
 app.use('/api/admin/backup-restore', heavyLimiter);
 
-assertSecurityConfig();
 initDB();
 
 // Mirror active company display name from settings → registry (central only)

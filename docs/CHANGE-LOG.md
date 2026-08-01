@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-01 — hotfix deploy: پیش‌فرض ALLOWED_ORIGINS تا سرویس ایران بالا بیاید
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:** بعد از pull Wave 0، PM2 به‌خاطر اجباری بودن `ALLOWED_ORIGINS` در production کرش می‌کرد. پیش‌فرض دامنه ترنم + جابه‌جایی `assertSecurityConfig` قبل از CORS.
+- **فایل‌های کلیدی:** `server/lib/security.js`, `server/server.js`
+- **Deploy:** ⏳ در حال deploy ایران
+- **یادداشت:** بهتر است `ALLOWED_ORIGINS` صریح در PM2 تنظیم شود.
+
 ### 2026-08-01 — Cursor review: تأیید commit GPT Wave 0 (`6b53483`)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** (همین ورودی docs)
