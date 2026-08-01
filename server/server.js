@@ -9,13 +9,14 @@ const { initDB, getDB, isDevice, audit } = require('./db');
 const { todayJalali, nowHHMM } = require('./jalali');
 const { sendSMS } = require('./sms');
 const { hashKey } = require('./routes/api_keys');
-const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile, restoreBackup } = require('./backup');
+const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile } = require('./backup');
 const { assertSecurityConfig } = require('./lib/security');
+const { getSmsSettings } = require('./lib/secret-settings');
 
 const app = express();
 app.set('trust proxy', 1); // trust Nginx reverse proxy
 const PORT = process.env.PORT || 3000;
-assertSecurityConfig(); // may fill ALLOWED_ORIGINS default in production
+const securityConfig = assertSecurityConfig();
 
 // Gzip compression — shrinks JSON/HTML responses for faster load (graceful if not installed)
 try {
@@ -23,13 +24,45 @@ try {
   app.use(compression());
 } catch { /* compression optional — run without it if the module is missing */ }
 
-// Ensure uploads directory exists
+// Only product images are public. Private categories create their own
+// directories outside the web root when a validated file is persisted.
 const { UPLOADS_ROOT } = require('./paths');
-for (const sub of ['products', 'messages', 'vouchers', 'reps']) {
-  fs.mkdirSync(path.join(UPLOADS_ROOT, sub), { recursive: true });
-}
+fs.mkdirSync(path.join(UPLOADS_ROOT, 'products'), { recursive: true });
 
 // Security headers (helmet if available, manual fallback)
+const APP_CSP_DIRECTIVES = {
+  defaultSrc: ["'none'"],
+  scriptSrc: ["'self'"],
+  scriptSrcElem: ["'self'"],
+  scriptSrcAttr: ["'none'"],
+  styleSrc: ["'self'"],
+  styleSrcElem: ["'self'"],
+  styleSrcAttr: ["'none'"],
+  imgSrc: ["'self'", 'data:', 'blob:'],
+  connectSrc: ["'self'"],
+  fontSrc: ["'self'"],
+  mediaSrc: ["'self'", 'blob:'],
+  objectSrc: ["'none'"],
+  baseUri: ["'none'"],
+  frameAncestors: ["'none'"],
+  // Verified print previews use a locally-created Blob URL. Keep frames limited
+  // to this origin and authenticated Blob documents; remote frames stay blocked.
+  frameSrc: ["'self'", 'blob:'],
+  childSrc: ["'none'"],
+  formAction: ["'self'"],
+  workerSrc: ["'self'", 'blob:'],
+  manifestSrc: ["'self'"],
+  trustedTypes: ['erp-sanitizer-parser', 'erp-taranom'],
+  requireTrustedTypesFor: ["'script'"],
+};
+
+const APP_CSP_HEADER = Object.entries(APP_CSP_DIRECTIVES)
+  .map(([key, values]) => {
+    const name = key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    return `${name} ${values.join(' ')}`;
+  })
+  .join('; ');
+
 let helmet = null;
 try { helmet = require('helmet'); } catch {}
 if (helmet) {
@@ -38,63 +71,40 @@ if (helmet) {
     // app (often reached over plain HTTP from the proxy) + upgrade-insecure-requests
     // breaks Chrome login when the user lands on http://erp...
     hsts: false,
-    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginResourcePolicy: { policy: 'same-origin' },
     crossOriginEmbedderPolicy: false,
     contentSecurityPolicy: {
       useDefaults: false,
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
-        // index.html is full of onclick=/onchange= handlers — Helmet 7 default
-        // script-src-attr 'none' blocks them in Chrome and the UI looks "dead".
-        scriptSrcAttr: ["'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'blob:'],
-        // Allow same-host http+https fetches (Cloudflare/http transitional).
-        connectSrc: ["'self'", 'https:', 'http:', 'ws:', 'wss:'],
-        fontSrc: ["'self'", 'data:'],
-        objectSrc: ["'none'"],
-        baseUri: ["'self'"],
-        frameAncestors: ["'self'"],
-        formAction: ["'self'"],
-        // SW + blob workers used by the SPA
-        workerSrc: ["'self'", 'blob:'],
-        // Explicitly omit upgrade-insecure-requests — it turns same-origin
-        // http fetch into cross-origin https and breaks login behind CF/nginx 301.
-      }
+      directives: APP_CSP_DIRECTIVES,
     },
   }));
 } else {
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('X-XSS-Protection', '0'); // modern browsers ignore it; rely on CSP
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('Content-Security-Policy', APP_CSP_HEADER);
     next();
   });
 }
 
 // CORS — restrict to same origin in production, allow dev origins
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+const ALLOWED_ORIGINS = securityConfig.allowedOrigins;
 function originAllowed(origin) {
   if (!origin) return true;
-  if (ALLOWED_ORIGINS.includes(origin)) return true;
-  // Accept http↔https for the same host listed in ALLOWED_ORIGINS (users often open http://).
-  try {
-    const u = new URL(origin);
-    return ALLOWED_ORIGINS.some((allowed) => {
-      try {
-        const a = new URL(allowed);
-        return a.hostname === u.hostname;
-      } catch {
-        return false;
-      }
-    });
-  } catch {
-    return false;
-  }
+  return ALLOWED_ORIGINS.includes(String(origin));
 }
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (process.env.NODE_ENV === 'production' && origin && !originAllowed(origin)) {
+    return res.status(403).json({ error: 'Origin مجاز نیست' });
+  }
+  next();
+});
 app.use(cors({
   origin(origin, cb) {
     if (originAllowed(origin) || process.env.NODE_ENV !== 'production') return cb(null, true);
@@ -125,6 +135,23 @@ app.get('/barcode-input.js', (req, res) => {
   res.type('application/javascript').sendFile(path.join(__dirname, 'lib', 'barcode-input.js'));
 });
 
+// Public uploads are fail-closed. This MUST precede express.static(public),
+// otherwise legacy private attachments under public/uploads bypass auth.
+const { blockSensitivePublicUploads } = require('./lib/private-uploads');
+app.use('/uploads', blockSensitivePublicUploads);
+
+// Device builds may lazily fetch a missing public product image. Sensitive
+// media never enters this path and is served only by authenticated API routes.
+if (isDevice()) {
+  const { uploadFallbackMiddleware } = require('./sync/files');
+  const { getConfig } = require('./sync/client');
+  app.use('/uploads', uploadFallbackMiddleware(() => getConfig(getDB())));
+}
+app.use('/uploads', express.static(UPLOADS_ROOT, {
+  maxAge: '30d',
+  immutable: true,
+}));
+
 // Static assets (includes /logo.png if present; /uploads served separately below)
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
@@ -143,19 +170,6 @@ app.use(express.static(path.join(__dirname, 'public'), {
     }
   }
 }));
-// Device builds: pull missing uploads from central on first request
-if (isDevice()) {
-  const { uploadFallbackMiddleware } = require('./sync/files');
-  const { getConfig } = require('./sync/client');
-  const { getDB } = require('./db');
-  app.use('/uploads', uploadFallbackMiddleware(() => getConfig(getDB())));
-}
-// Uploaded images are content-addressed by unique filename → safe to cache long-term
-app.use('/uploads', express.static(UPLOADS_ROOT, {
-  maxAge: '30d',
-  immutable: true,
-}));
-
 // Per-process secret marking loopback replay requests (sync engine): the
 // central push endpoint re-executes device operations against its own routes;
 // those internal requests must not consume the public rate-limit budget.
@@ -178,6 +192,28 @@ const authLimiter = rateLimit({
   message: { error: 'تعداد تلاش‌های ورود بیش از حد مجاز است. ۱۵ دقیقه دیگر تلاش کنید.' },
   skipSuccessfulRequests: true,
 });
+const otpSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  message: { error: 'تعداد درخواست کد بیش از حد مجاز است. ۱۵ دقیقه دیگر تلاش کنید.' },
+});
+const otpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  message: { error: 'تعداد تلاش تأیید کد بیش از حد مجاز است. ۱۵ دقیقه دیگر تلاش کنید.' },
+});
+app.post('/api/auth/forgot', otpSendLimiter);
+app.post('/api/auth/forgot-reset', otpVerifyLimiter);
+app.post('/api/auth/2fa/verify', otpVerifyLimiter);
+app.post('/api/auth/2fa/recovery-code', otpVerifyLimiter);
+app.post('/api/b2b/auth/otp', otpSendLimiter);
+app.post('/api/b2b/auth/otp/verify', otpVerifyLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/forgot', authLimiter);
 app.use('/api/auth/forgot-reset', authLimiter);
@@ -189,6 +225,12 @@ const heavyLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, standardHead
 app.use('/api/reports', heavyLimiter);
 app.use('/api/adv-reports', heavyLimiter);
 app.use('/api/admin/backup-restore', heavyLimiter);
+
+// Company activation swaps the process-global SQLite handle. Refuse a switch
+// until all other API handlers have drained, and reject new work during the
+// short synchronous swap window.
+const { requestGuard: companyRequestGuard } = require('./lib/company-switch-guard');
+app.use('/api', companyRequestGuard);
 
 initDB();
 
@@ -269,13 +311,18 @@ const backupUpload = multer({
 app.post('/api/admin/backup-restore', auth, adminOnly, centralOnlyStrict, backupUpload.single('backup'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل پشتیبان الزامی است' });
   try {
-    const result = restoreBackup(req.file.path);
-    audit(req.user.id, 'restore', 'system_backup', null, req.file.originalname || 'uploaded backup', req);
+    const { verifyBackupPackage } = require('./backup');
+    const result = verifyBackupPackage(req.file.path);
+    audit(req.user.id, 'backup_verify', 'system_backup', null, req.file.originalname || 'uploaded backup', req);
     try { fs.unlinkSync(req.file.path); } catch { /* */ }
-    res.json({ success: true, data: result, message: 'بازیابی انجام شد — PM2 را مجدداً راه‌اندازی کنید' });
+    res.json({
+      success: true,
+      data: result,
+      message: 'تأیید بسته پشتیبان موفق بود — بازیابی واقعی فقط با CLI آفلاین (restore-backup.js) پس از توقف سرویس',
+    });
   } catch (e) {
     try { fs.unlinkSync(req.file.path); } catch { /* */ }
-    res.status(500).json({ error: e.message || 'خطا در بازیابی' });
+    res.status(400).json({ error: e.message || 'تأیید پشتیبان ناموفق' });
   }
 });
 
@@ -359,7 +406,7 @@ app.get('/api/system/health', (req, res) => {
   });
 });
 
-const { readManifest, buildUpdateResponse } = require('./lib/app-update');
+const { readManifest, buildUpdateResponse, resolveReleaseUrl } = require('./lib/app-update');
 
 // App version info (bundled manifest — used by offline builds to know their own version)
 app.get('/api/system/app-info', (req, res) => {
@@ -412,8 +459,10 @@ app.get('/api/system/update-feed', async (req, res) => {
   }
   const manifest = readManifest();
   const external = process.env.DESKTOP_UPDATE_FEED_URL || manifest.desktop?.feed_url;
-  if (external) return res.json({ url: external });
   const base = process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  if (external) {
+    return res.json({ url: resolveReleaseUrl(external, base) });
+  }
   res.json({ url: base.replace(/\/$/, '') + '/releases/' });
 });
 
@@ -433,11 +482,7 @@ app.get('*', (req, res, next) => {
 
 function getSMSSettings() {
   try {
-    const db = getDB();
-    const rows = db.prepare("SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from')").all();
-    const s = {};
-    for (const r of rows) s[r.key] = r.value;
-    return s;
+    return getSmsSettings(getDB());
   } catch { return {}; }
 }
 

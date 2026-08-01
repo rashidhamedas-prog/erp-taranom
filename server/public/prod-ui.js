@@ -106,7 +106,7 @@
 
   /** نوار مراحل تولید */
   function stageFlow(stages) {
-    if (!stages || !stages.length) return '<div class="text-mute" style="font-size:12px">مرحله‌ای ثبت نشده</div>';
+    if (!stages || !stages.length) return `<div class="text-mute" data-csp-style="${CSP.style(`font-size:12px`)}">مرحله‌ای ثبت نشده</div>`;
     const items = stages.map(s => {
       const status = s.status || 'pending';
       const cls = status === 'done' ? 'done' : (status === 'in_progress' ? 'active' : (status === 'blocked' ? 'blocked' : 'pending'));
@@ -152,7 +152,7 @@
     return `
     <div class="prod-load-row">
       <span class="prod-load-label">${escHtml(label || '')}</span>
-      <div class="prod-load-track"><div class="prod-load-fill ${cls}" style="width:${w}%"></div></div>
+      <div class="prod-load-track"><div class="prod-load-fill ${cls}" data-csp-style="${CSP.style(`width:${w}%`)}"></div></div>
       <span class="prod-load-pct num">${pct(p)}</span>
       ${p > 85 ? '<span class="prod-load-flag">◄ گلوگاه</span>' : ''}
     </div>`;
@@ -168,7 +168,7 @@
 
   /** پیش‌نمایش سند حسابداری — لیست ورودی entries: [{title, lines:[{code,name,debit,credit}]}] */
   function jePreview(entries) {
-    if (!entries || !entries.length) return '<div class="text-mute" style="font-size:12px">سندی برای پیش‌نمایش نیست</div>';
+    if (!entries || !entries.length) return `<div class="text-mute" data-csp-style="${CSP.style(`font-size:12px`)}">سندی برای پیش‌نمایش نیست</div>`;
     return entries.map((je, i) => {
       const lines = je.lines || [];
       const totalDebit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
@@ -187,7 +187,7 @@
         <tfoot><tr>
           <td colspan="2">جمع</td><td class="num">${rial(totalDebit)}</td><td class="num">${rial(totalCredit)}</td>
         </tr></tfoot></table>
-        <div style="padding:6px 10px;font-size:12px" class="${balanced ? 'prod-je-balanced' : 'prod-je-unbalanced'}">
+        <div data-csp-style="${CSP.style(`padding:6px 10px;font-size:12px`)}" class="${balanced ? 'prod-je-balanced' : 'prod-je-unbalanced'}">
           ${balanced ? '✅ تراز' : '⚠️ نامتوازن'}
         </div>
       </div>`;
@@ -231,7 +231,7 @@
     if (_chartJsPromise) return _chartJsPromise;
     _chartJsPromise = new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = '/vendor/chart.umd.js';
+      s.src = CSP.scriptUrl('/vendor/chart.umd.js');
       s.onload = () => resolve(global.Chart);
       s.onerror = () => reject(new Error('Chart.js load failed'));
       document.head.appendChild(s);

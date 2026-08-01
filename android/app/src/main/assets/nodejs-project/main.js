@@ -7,6 +7,13 @@ const crypto = require('crypto');
 const dataDir = process.argv[2];
 const port = process.argv[3] || '3210';
 const nativeLibDir = process.argv[4] || '';
+const jwtSecretArgIndex = 5;
+const inMemoryJwtSecret = typeof process.argv[jwtSecretArgIndex] === 'string'
+  ? process.argv[jwtSecretArgIndex]
+  : '';
+if (process.argv.length > jwtSecretArgIndex) {
+  process.argv[jwtSecretArgIndex] = '[REDACTED]';
+}
 const bootLog = path.join(dataDir, 'boot.log');
 const readyFile = path.join(dataDir, 'server.ready');
 const failFile = path.join(dataDir, 'server.fail');
@@ -168,16 +175,11 @@ process.on('unhandledRejection', (reason) => {
 try {
   try { fs.unlinkSync(readyFile); } catch { /* first boot */ }
   try { fs.unlinkSync(failFile); } catch { /* first boot */ }
+  if (inMemoryJwtSecret.length < 32) {
+    throw new Error('AndroidKeyStore JWT secret missing or invalid');
+  }
   logBoot(`boot start arch=${process.arch} node=${process.version} nativeLibDir=${nativeLibDir || '(none)'}`);
   ensureBetterSqlite3Native();
-
-  function getOrCreateSecret(dir) {
-    const f = path.join(dir, 'jwt-secret');
-    if (fs.existsSync(f)) return fs.readFileSync(f, 'utf8').trim();
-    const s = crypto.randomBytes(32).toString('hex');
-    fs.writeFileSync(f, s);
-    return s;
-  }
 
   process.env.SYNC_ROLE = 'device';
   process.env.APP_PLATFORM = 'android';
@@ -193,7 +195,7 @@ try {
   process.env.TMPDIR = tmpDir;
   process.env.TMP = tmpDir;
   process.env.TEMP = tmpDir;
-  process.env.JWT_SECRET = getOrCreateSecret(dataDir);
+  process.env.JWT_SECRET = inMemoryJwtSecret;
 
   try {
     require(path.join(__dirname, 'server', 'server.js'));

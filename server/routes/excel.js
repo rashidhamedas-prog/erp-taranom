@@ -1,13 +1,10 @@
 const router = require('express').Router();
-const multer = require('multer');
 const { XLSX, readWorkbook } = require('../lib/excel-safe');
+const { createSecureUpload } = require('../lib/upload-policy');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { getDB, audit } = require('../db');
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024, files: 1 },
-});
+const upload = createSecureUpload('xlsx');
 
 const MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const toFa = (n) => Number(n || 0) * 10; // legacy operational tables store toman

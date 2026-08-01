@@ -27,6 +27,32 @@
 
 ---
 
+### 2026-08-01 — P0-C partial: بسته بکاپ v2 + verify-only آنلاین
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** پکیج بکاپ نسخه ۲ با manifest/SHA-256، snapshot WAL همهٔ DBهای registry، private-uploads، رمز اجباری در production، رد same-device مگر فلگ تست، API restore فقط verify، CLI آفلاین `restore-backup.js`. DR تست ۱۱/۱۱.
+- **فایل‌های کلیدی:** `server/backup.js`, `server/scripts/test-backup-dr.js`, `server/scripts/restore-backup.js`, `server/server.js`
+- **Deploy:** ❌ Wave 0 — deploy blocked
+- **یادداشت:** مسیر `/home/taranom/crm-offsite-backups` روی همان VPS هنوز off-server واقعی نیست؛ S3 یا volume مستقل لازم است.
+
+### 2026-08-01 — P0-S3: امنیت وب/API + نشست/tenant (Gate کد بسته)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit)
+- **خلاصه:** CSP بدون unsafe-inline/eval + Trusted Types و تفکیک asset؛ upload/SSRF/private media؛ secret `enc:v2`؛ staff/B2B session با sid؛ company switch؛ portal بدون رمز ثابت؛ sync repair+attestation. رفع mirror UNIQUE و محدودسازی company_id روی challenge/B2B revoke.
+- **فایل‌های کلیدی:** `server/lib/auth-sessions.js`, `server/public/app.js`, `server/lib/upload-policy.js`, `server/lib/secret-settings.js`, `server/lib/secure-html-response.js`, `docs/WAVE0-CODEX-TO-CURSOR-HANDOFF-2026-08-01.md`
+- **تست:** auth 46/46؛ sync 44/44؛ upload 55/55؛ secrets 37/37؛ CSP browser 15/15؛ portal 64/64؛ B2B 34/34؛ SMS 22/22؛ P0-S2 regression سبز
+- **Deploy:** ❌ Wave 0 — deploy blocked (فقط commit/push)
+- **یادداشت:** `DATA_ENCRYPTION_KEY` برای production باید جداگانه provision شود؛ rollout طبق handoff §4.3.
+
+### 2026-08-01 — P0-S2: سخت‌سازی کامل Android/Electron و زنجیره آپدیت
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** در انتظار commit نهایی موج صفر
+- **خلاصه:** JWT محلی با AndroidKeyStore/DPAPI محافظت و توکن دستگاه در SQLite با AES-256-GCM رمز شد؛ APK فقط پس از کنترل HTTPS، اندازه، SHA-256، package/version و signer نصب می‌شود؛ دسکتاپ فقط updater/fallback صحت‌سنجی‌شده را از IPC معتبر اجرا می‌کند و Windows packaged به‌صورت پیش‌فرض امضای updater را اجباری می‌کند.
+- **فایل‌های کلیدی:** `android/app/src/main/java/ir/taranom/crm/SecureSecretStore.java`, `android/app/src/main/java/ir/taranom/crm/MainActivity.java`, `desktop/local-secret-store.js`, `desktop/main.js`, `server/sync/secure-kv.js`, `server/lib/app-update.js`, `server/public/index.html`
+- **تست:** Android 27/27 + Java compile؛ Desktop 42/42 + syntax؛ local secret/app-update/sync 41/41؛ release checksum/feed؛ امضای APK v2 و Authenticode Valid؛ embedded 204/204 و drift=0.
+- **Deploy:** ❌ انجام نشد — Gate موج صفر و منع صریح deploy ایران.
+- **یادداشت:** فایل‌های امضاشده موجود قبل از این تغییرات source ساخته شده‌اند؛ RC نهایی باید پس از پایان موج صفر دوباره build/sign/verify شود. هیچ کلید یا رمز وارد Git نشد.
+
 ### 2026-08-01 — امضای APK/EXE + انتشار releases + handoff GPT
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `1ad3acf`

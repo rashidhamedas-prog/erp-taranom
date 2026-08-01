@@ -13,6 +13,7 @@ const { rialToLedger } = require('../lib/money');
 const { todayJalali } = require('../jalali');
 const { notifyRoles } = require('../lib/notifications');
 const { round3, parseQty } = require('../lib/round3');
+const { getSmsSettings } = require('../lib/secret-settings');
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -270,11 +271,7 @@ function portalNotify(db, opts) {
     const users = db.prepare(
       `SELECT username FROM users WHERE active=1 AND role IN (${ph}) AND username IS NOT NULL AND username!=''`
     ).all(...roles);
-    const settingsRows = db.prepare(
-      "SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from')"
-    ).all();
-    const settings = {};
-    settingsRows.forEach(r => { settings[r.key] = r.value; });
+    const settings = getSmsSettings(db);
     if (!settings.sms_api_key) return;
     const text = `${opts.title || ''}${opts.body ? ' — ' + opts.body : ''}`.slice(0, 200);
     users.forEach(u => {

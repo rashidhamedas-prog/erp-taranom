@@ -1,17 +1,36 @@
 /**
  * Ensure a login user exists for a person (username = phone).
  * Spec: must_change_password=1; never return the password in API responses.
- * SMS of temp password is optional (opts.sendSms) — without SMS, default temp is 12345.
+ * SMS of a temporary password is optional (opts.sendSms). A predictable
+ * fallback password is never created; without SMS the user must use the
+ * verified password-recovery flow or ask an administrator to reset access.
  */
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const { getSmsSettings } = require('./secret-settings');
 
 const PORTAL_ROLES = ['unit_manager', 'department_manager'];
-const DEFAULT_TEMP_PASSWORD = '12345';
+
+function revokeExistingSessions(db, userId) {
+  // Lazy import avoids loading the auth stack in schema-only tooling.
+  require('../middleware/auth').revokeUserSessions(db, userId);
+}
 
 function randomTempPassword() {
-  // 10 chars, alphanumeric — readable in SMS, not a dictionary word
-  return crypto.randomBytes(8).toString('base64url').replace(/[^a-zA-Z0-9]/g, 'x').slice(0, 10);
+  // Fourteen readable characters with guaranteed upper/lower/digit classes.
+  // Random placement prevents the class positions from becoming a template.
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const chars = [
+    'ABCDEFGHJKLMNPQRSTUVWXYZ'[crypto.randomInt(24)],
+    'abcdefghijkmnopqrstuvwxyz'[crypto.randomInt(25)],
+    '23456789'[crypto.randomInt(8)],
+  ];
+  while (chars.length < 14) chars.push(alphabet[crypto.randomInt(alphabet.length)]);
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = crypto.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
 }
 
 function ensurePersonUser(db, personId, role, opts) {
@@ -31,14 +50,18 @@ function ensurePersonUser(db, personId, role, opts) {
   const existing = db.prepare('SELECT id, username, role, active FROM users WHERE username=?').get(phone);
   if (existing) {
     if (role && existing.role !== role && existing.role !== 'admin') {
+      revokeExistingSessions(db, existing.id);
       db.prepare('UPDATE users SET role=?, active=1 WHERE id=?').run(role, existing.id);
     } else if (existing.active !== 1) {
+      revokeExistingSessions(db, existing.id);
       db.prepare('UPDATE users SET active=1 WHERE id=?').run(existing.id);
     }
     return { userId: existing.id, created: false, username: existing.username };
   }
-  // SMS on → random (sent by SMS). SMS off → fixed default; first login forces change.
-  const tempPass = sendSms ? randomTempPassword() : DEFAULT_TEMP_PASSWORD;
+  // Always generate an unguessable credential. When SMS is disabled, do not
+  // return it even to internal callers; activation continues through the
+  // verified forgot-password flow or an explicit administrator reset.
+  const tempPass = randomTempPassword();
   const hash = bcrypt.hashSync(tempPass, 10);
   const r = db.prepare(`
     INSERT INTO users (name, username, password, role, active, must_change_password)
@@ -48,7 +71,7 @@ function ensurePersonUser(db, personId, role, opts) {
     userId: r.lastInsertRowid,
     created: true,
     username: phone,
-    tempPassword: tempPass,
+    ...(sendSms ? { tempPassword: tempPass } : {}),
     sendSms,
   };
 }
@@ -59,11 +82,7 @@ function sendTempPasswordSms(db, createdUser) {
   if (createdUser.sendSms === false) return;
   try {
     const { sendSMS } = require('../sms');
-    const settingsRows = db.prepare(
-      "SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from')"
-    ).all();
-    const settings = {};
-    settingsRows.forEach(r => { settings[r.key] = r.value; });
+    const settings = getSmsSettings(db);
     if (!settings.sms_api_key) return;
     const text = `ورود پورتال ترنم\nنام کاربری: ${createdUser.username}\nرمز موقت: ${createdUser.tempPassword}\nدر اولین ورود رمز را تغییر دهید.`;
     sendSMS(settings, createdUser.username, text).catch(() => {});
@@ -111,7 +130,8 @@ function ensurePersonRowByPhone(db, { phone, name }) {
 /**
  * Grant or revoke portal login for a person (by persons.id or phone+name).
  * portalRole: 'unit_manager' | 'department_manager' | '' | 'none'
- * sendSms: if true and user is newly created, SMS random temp password; else default 12345.
+ * sendSms: if true and user is newly created, SMS a random temporary password.
+ * If false, no initial credential is disclosed and recovery/reset is required.
  * Never expose password in API JSON — use _temp only for SMS then drop.
  */
 function setPortalAccess(db, { personId, phone, name, portalRole, sendSms }) {
@@ -141,6 +161,7 @@ function setPortalAccess(db, { personId, phone, name, portalRole, sendSms }) {
   if (wantNone) {
     const existing = db.prepare('SELECT id, role, active FROM users WHERE username=?').get(phoneStr);
     if (existing && PORTAL_ROLES.includes(existing.role)) {
+      revokeExistingSessions(db, existing.id);
       db.prepare('UPDATE users SET active=0 WHERE id=?').run(existing.id);
     }
     return {
@@ -181,5 +202,4 @@ module.exports = {
   ensurePersonRowByPhone,
   setPortalAccess,
   PORTAL_ROLES,
-  DEFAULT_TEMP_PASSWORD,
 };

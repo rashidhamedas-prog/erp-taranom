@@ -1,14 +1,18 @@
+'use strict';
+
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { execSync, spawnSync } = require('child_process');
 const { UPLOADS_ROOT } = require('./paths');
+const { getSetting } = require('./lib/secret-settings');
 
 const SERVER_DIR = __dirname;
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(SERVER_DIR, 'backups');
-const MAX_KEEP = Math.min(parseInt(process.env.BACKUP_KEEP_COUNT) || 14, 60);
+const PACKAGE_VERSION = 2;
+const ENC_MAGIC = Buffer.from('TRNMBKP1', 'ascii');
+let backupLock = false;
 
-/** Always backup the *active* company DB (multi-company aware). */
 function resolveBackupDbPath() {
   try {
     const { getDBPath } = require('./db');
@@ -19,29 +23,40 @@ function resolveBackupDbPath() {
 }
 
 function ensureDir() {
-  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 });
   return BACKUP_DIR;
 }
 
 function tsName() {
   const d = new Date();
-  const p = n => String(n).padStart(2, '0');
+  const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-// ── Backup encryption (AES-256-GCM) ──────────────────────────────────────────
-// Password comes from env BACKUP_PASSWORD, or the settings key backup_password
-// (set by the admin in the backup page). If neither is set, backups stay plain.
-// File format: MAGIC(8) + salt(16) + iv(12) + ciphertext + authTag(16)
-const ENC_MAGIC = Buffer.from('TRNMBKP1', 'ascii');
-
 function getBackupPassword() {
+  if (process.env.BACKUP_ENCRYPTION_KEY) return process.env.BACKUP_ENCRYPTION_KEY;
   if (process.env.BACKUP_PASSWORD) return process.env.BACKUP_PASSWORD;
   try {
     const { getDB } = require('./db');
-    const row = getDB().prepare("SELECT value FROM settings WHERE key='backup_password'").get();
-    return (row && row.value) ? row.value : null;
-  } catch { return null; }
+    return getSetting(getDB(), 'backup_password') || null;
+  } catch {
+    return null;
+  }
+}
+
+function isProduction() {
+  return String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+}
+
+function assertBackupPolicy() {
+  const password = getBackupPassword();
+  if (isProduction() && !password) {
+    throw new Error('production requires BACKUP_ENCRYPTION_KEY (or BACKUP_PASSWORD)');
+  }
+  if (isProduction() && !process.env.BACKUP_S3_URI && !process.env.BACKUP_OFFSITE_DIR) {
+    throw new Error('production requires BACKUP_S3_URI or BACKUP_OFFSITE_DIR off-server destination');
+  }
+  return password;
 }
 
 function encryptFile(srcPath, destPath, password) {
@@ -51,7 +66,7 @@ function encryptFile(srcPath, destPath, password) {
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const data = fs.readFileSync(srcPath);
   const enc = Buffer.concat([cipher.update(data), cipher.final()]);
-  fs.writeFileSync(destPath, Buffer.concat([ENC_MAGIC, salt, iv, enc, cipher.getAuthTag()]));
+  fs.writeFileSync(destPath, Buffer.concat([ENC_MAGIC, salt, iv, enc, cipher.getAuthTag()]), { mode: 0o600 });
 }
 
 function decryptFile(srcPath, destPath, password) {
@@ -65,14 +80,200 @@ function decryptFile(srcPath, destPath, password) {
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   const out = Buffer.concat([decipher.update(enc), decipher.final()]);
-  fs.writeFileSync(destPath, out);
+  fs.writeFileSync(destPath, out, { mode: 0o600 });
+}
+
+function sha256File(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function sameFilesystemDevice(a, b) {
+  try {
+    return fs.statSync(a).dev === fs.statSync(b).dev;
+  } catch {
+    return false;
+  }
+}
+
+function fingerprintDb(dbPath) {
+  const Database = require('better-sqlite3');
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const integrity = db.pragma('integrity_check', { simple: true });
+    const count = (sql) => {
+      try { return Number(db.prepare(sql).get().c || 0); } catch { return 0; }
+    };
+    let debit = 0;
+    let credit = 0;
+    try {
+      const row = db.prepare(`
+        SELECT COALESCE(SUM(debit_rial),SUM(debit),0) d, COALESCE(SUM(credit_rial),SUM(credit),0) c
+        FROM journal_lines
+      `).get();
+      debit = Number(row.d || 0);
+      credit = Number(row.c || 0);
+    } catch { /* older schema */ }
+    return {
+      integrity,
+      invoices: count("SELECT COUNT(*) c FROM invoices"),
+      customers: count("SELECT COUNT(*) c FROM customers"),
+      journals: count("SELECT COUNT(*) c FROM journal_entries"),
+      trial_balance: { debit, credit, balanced: debit === credit },
+    };
+  } finally {
+    db.close();
+  }
+}
+
+function listCompanyDbTargets() {
+  try {
+    const { readRegistry } = require('./lib/company-workspace');
+    const reg = readRegistry();
+    return (reg.companies || [])
+      .filter((c) => c.dbPath && fs.existsSync(c.dbPath))
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        code: c.code || '',
+        absPath: path.resolve(c.dbPath),
+        entry: `companies/company-${c.id}.db`,
+      }));
+  } catch {
+    const p = resolveBackupDbPath();
+    if (!fs.existsSync(p)) return [];
+    return [{ id: 1, name: 'default', code: '', absPath: path.resolve(p), entry: 'crm.db' }];
+  }
+}
+
+function addFileToZip(zip, filePath, entryName, filesMeta) {
+  if (!fs.existsSync(filePath)) return;
+  const st = fs.statSync(filePath);
+  if (st.isDirectory()) {
+    for (const ent of fs.readdirSync(filePath, { withFileTypes: true })) {
+      if (ent.name === '.' || ent.name === '..') continue;
+      addFileToZip(zip, path.join(filePath, ent.name), path.posix.join(entryName, ent.name), filesMeta);
+    }
+    return;
+  }
+  const rel = entryName.replace(/\\/g, '/');
+  if (rel.includes('..') || path.isAbsolute(rel)) throw new Error(`unsafe backup entry: ${rel}`);
+  if (filesMeta.some((f) => f.path === rel)) throw new Error(`duplicate backup entry: ${rel}`);
+  const buf = fs.readFileSync(filePath);
+  zip.addFile(rel, buf);
+  filesMeta.push({
+    path: rel,
+    size: buf.length,
+    sha256: crypto.createHash('sha256').update(buf).digest('hex'),
+  });
+}
+
+function releaseId() {
+  try {
+    const man = JSON.parse(fs.readFileSync(path.join(SERVER_DIR, 'public', 'releases', 'manifest.json'), 'utf8'));
+    return `web:${man.web?.version || '?'}/desk:${man.desktop?.version || '?'}/and:${man.android?.version || '?'}`;
+  } catch {
+    return 'unknown';
+  }
+}
+
+async function snapshotCompanyDbs(tmpDir) {
+  const Database = require('better-sqlite3');
+  const targets = listCompanyDbTargets();
+  const out = [];
+  for (const t of targets) {
+    const snap = path.join(tmpDir, `snap-${t.id}-${crypto.randomBytes(4).toString('hex')}.db`);
+    const src = new Database(t.absPath);
+    try {
+      await src.backup(snap);
+    } finally {
+      src.close();
+    }
+    const fp = fingerprintDb(snap);
+    if (fp.integrity !== 'ok') throw new Error(`integrity failed for company ${t.id}: ${fp.integrity}`);
+    out.push({ ...t, snapshotPath: snap, fingerprint: fp });
+  }
+  return out;
+}
+
+function createZipBackup(outPath, companySnaps) {
+  const AdmZip = require('adm-zip');
+  const zip = new AdmZip();
+  const filesMeta = [];
+  const companies = [];
+
+  for (const c of companySnaps) {
+    addFileToZip(zip, c.snapshotPath, c.entry, filesMeta);
+    companies.push({
+      id: c.id,
+      name: c.name,
+      code: c.code,
+      entry: c.entry,
+      fingerprint: c.fingerprint,
+    });
+  }
+  // Legacy alias: active company also as crm.db when stored under companies/
+  try {
+    const activeId = require('./lib/company-workspace').getActiveCompany()?.id;
+    const active = companySnaps.find((c) => c.id === activeId) || companySnaps[0];
+    if (active && active.entry !== 'crm.db' && !filesMeta.some((f) => f.path === 'crm.db')) {
+      addFileToZip(zip, active.snapshotPath, 'crm.db', filesMeta);
+    }
+  } catch {
+    if (companySnaps[0] && companySnaps[0].entry !== 'crm.db' && !filesMeta.some((f) => f.path === 'crm.db')) {
+      addFileToZip(zip, companySnaps[0].snapshotPath, 'crm.db', filesMeta);
+    }
+  }
+
+  if (fs.existsSync(UPLOADS_ROOT)) addFileToZip(zip, UPLOADS_ROOT, 'uploads', filesMeta);
+
+  try {
+    const { PRIVATE_UPLOADS_ROOT } = require('./lib/private-uploads');
+    if (fs.existsSync(PRIVATE_UPLOADS_ROOT)) {
+      addFileToZip(zip, PRIVATE_UPLOADS_ROOT, 'private-uploads', filesMeta);
+    }
+  } catch { /* private module may throw if misconfigured in exotic tests */ }
+
+  try {
+    const { registryPath, readRegistry } = require('./lib/company-workspace');
+    const reg = readRegistry();
+    const portable = {
+      ...reg,
+      companies: (reg.companies || []).map((c) => ({
+        ...c,
+        dbPath: `companies/company-${c.id}.db`,
+      })),
+    };
+    const buf = Buffer.from(JSON.stringify(portable, null, 2), 'utf8');
+    zip.addFile('registry.json', buf);
+    filesMeta.push({ path: 'registry.json', size: buf.length, sha256: crypto.createHash('sha256').update(buf).digest('hex') });
+    if (fs.existsSync(registryPath())) {
+      // already included as portable registry.json
+    }
+  } catch { /* single-company */ }
+
+  const manifest = {
+    version: PACKAGE_VERSION,
+    created_at: new Date().toISOString(),
+    app: 'crm-taranom',
+    release_id: releaseId(),
+    companies,
+    files: filesMeta,
+  };
+  zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'));
+  zip.writeZip(outPath);
+  return manifest;
+}
+
+function createTarBackup(outPath, companySnaps) {
+  // Prefer zip package on all platforms for authenticated multi-file manifests.
+  return createZipBackup(outPath.replace(/\.tar\.gz$/, '.zip'), companySnaps);
 }
 
 function listBackups() {
   ensureDir();
   return fs.readdirSync(BACKUP_DIR)
-    .filter(f => /^crm-backup-.*\.(tar\.gz|zip)(\.enc)?$/i.test(f))
-    .map(name => {
+    .filter((f) => /^crm-backup-.*\.(tar\.gz|zip)(\.enc)?$/i.test(f))
+    .map((name) => {
       const fp = path.join(BACKUP_DIR, name);
       const st = fs.statSync(fp);
       return {
@@ -80,147 +281,160 @@ function listBackups() {
         size: st.size,
         sizeMB: (st.size / 1024 / 1024).toFixed(2),
         encrypted: name.endsWith('.enc'),
-        created_at: Math.floor(st.mtimeMs / 1000)
+        created_at: Math.floor(st.mtimeMs / 1000),
       };
     })
     .sort((a, b) => b.created_at - a.created_at);
 }
 
 function pruneOld() {
+  // GFS-ish: keep all from last 24h, then daily/weekly/monthly buckets (cap total).
   const items = listBackups();
-  for (const old of items.slice(MAX_KEEP)) {
-    try { fs.unlinkSync(path.join(BACKUP_DIR, old.name)); } catch { /* */ }
+  const now = Date.now();
+  const keep = new Set();
+  const day = 86400000;
+  for (const it of items) {
+    const age = now - it.created_at * 1000;
+    if (age <= day) keep.add(it.name);
+  }
+  const byDay = new Map();
+  const byWeek = new Map();
+  const byMonth = new Map();
+  for (const it of items) {
+    const d = new Date(it.created_at * 1000);
+    const dayKey = d.toISOString().slice(0, 10);
+    const weekKey = `${d.getUTCFullYear()}-W${Math.ceil((((d - Date.UTC(d.getUTCFullYear(), 0, 1)) / day) + 1) / 7)}`;
+    const monthKey = d.toISOString().slice(0, 7);
+    if (!byDay.has(dayKey)) byDay.set(dayKey, it.name);
+    if (!byWeek.has(weekKey)) byWeek.set(weekKey, it.name);
+    if (!byMonth.has(monthKey)) byMonth.set(monthKey, it.name);
+  }
+  [...byDay.values()].slice(0, 31).forEach((n) => keep.add(n));
+  [...byWeek.values()].slice(0, 12).forEach((n) => keep.add(n));
+  [...byMonth.values()].slice(0, 12).forEach((n) => keep.add(n));
+  for (const old of items) {
+    if (keep.has(old.name)) continue;
+    try {
+      fs.unlinkSync(path.join(BACKUP_DIR, old.name));
+      try { fs.unlinkSync(path.join(BACKUP_DIR, old.name + '.sha256')); } catch { /* */ }
+    } catch { /* */ }
   }
 }
 
-function addFileToZip(zip, filePath, entryName) {
-  if (!fs.existsSync(filePath)) return;
-  const st = fs.statSync(filePath);
-  if (st.isDirectory()) {
-    for (const ent of fs.readdirSync(filePath, { withFileTypes: true })) {
-      addFileToZip(zip, path.join(filePath, ent.name), path.join(entryName, ent.name).replace(/\\/g, '/'));
-    }
-  } else {
-    zip.addFile(entryName.replace(/\\/g, '/'), fs.readFileSync(filePath));
-  }
-}
-
-function createZipBackup(outPath, dbSnapshot) {
-  const AdmZip = require('adm-zip');
-  const zip = new AdmZip();
-  const DB_PATH = dbSnapshot || resolveBackupDbPath();
-  const manifest = {
-    version: 1,
-    created_at: new Date().toISOString(),
-    app: 'crm-taranom',
-    files: []
-  };
-  if (fs.existsSync(DB_PATH)) {
-    zip.addFile('crm.db', fs.readFileSync(DB_PATH));
-    manifest.files.push('crm.db');
-  }
-  if (fs.existsSync(UPLOADS_ROOT)) {
-    addFileToZip(zip, UPLOADS_ROOT, 'uploads');
-    manifest.files.push('uploads/');
-  }
-  zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'));
-  zip.writeZip(outPath);
-}
-
-function createTarBackup(outPath, dbSnapshot) {
-  const tmp = path.join(BACKUP_DIR, `.tmp-${crypto.randomBytes(4).toString('hex')}`);
-  const DB_PATH = dbSnapshot || resolveBackupDbPath();
-  fs.mkdirSync(tmp, { recursive: true });
-  try {
-    if (fs.existsSync(DB_PATH)) fs.copyFileSync(DB_PATH, path.join(tmp, 'crm.db'));
-    if (fs.existsSync(UPLOADS_ROOT)) {
-      execSync(`cp -a "${UPLOADS_ROOT}" "${path.join(tmp, 'uploads')}"`, { stdio: 'pipe' });
-    }
-    const manifest = { version: 1, created_at: new Date().toISOString(), app: 'crm-taranom' };
-    fs.writeFileSync(path.join(tmp, 'manifest.json'), JSON.stringify(manifest, null, 2));
-    execSync(`tar -czf "${outPath}" -C "${tmp}" .`, { timeout: 300000, stdio: 'pipe' });
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
+function writeStatus(patch) {
+  ensureDir();
+  const statusPath = path.join(BACKUP_DIR, 'backup-status.json');
+  let cur = {};
+  try { cur = JSON.parse(fs.readFileSync(statusPath, 'utf8')); } catch { /* */ }
+  const next = { ...cur, ...patch, updated_at: new Date().toISOString() };
+  fs.writeFileSync(statusPath, JSON.stringify(next, null, 2));
+  return next;
 }
 
 async function runBackup() {
-  let snapshotPath = null;
+  if (backupLock) return { ok: false, error: 'backup already running' };
+  backupLock = true;
+  const started = Date.now();
+  let tmpDir = null;
   try {
     ensureDir();
-    const db = require('./db').getDB();
-    const integrity = db.pragma('integrity_check', { simple: true });
-    if (integrity !== 'ok') throw new Error(`SQLite integrity_check failed: ${integrity}`);
-    snapshotPath = path.join(BACKUP_DIR, `.snapshot-${crypto.randomBytes(8).toString('hex')}.db`);
-    await db.backup(snapshotPath);
-    const useZip = process.platform === 'win32';
-    const ext = useZip ? 'zip' : 'tar.gz';
-    let fileName = `crm-backup-${tsName()}.${ext}`;
-    let outPath = path.join(BACKUP_DIR, fileName);
+    const password = assertBackupPolicy();
+    tmpDir = path.join(BACKUP_DIR, `.tmp-pkg-${crypto.randomBytes(6).toString('hex')}`);
+    fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
+    const companySnaps = await snapshotCompanyDbs(tmpDir);
+    if (!companySnaps.length) throw new Error('no company databases found to back up');
 
-    if (useZip) createZipBackup(outPath, snapshotPath);
-    else {
-      try { createTarBackup(outPath, snapshotPath); }
-      catch { createZipBackup(outPath, snapshotPath); }
-    }
+    const useZip = true;
+    let fileName = `crm-backup-${tsName()}.zip`;
+    const tmpOut = path.join(BACKUP_DIR, `.partial-${crypto.randomBytes(4).toString('hex')}.zip`);
+    const manifest = createZipBackup(tmpOut, companySnaps);
 
-    // Encrypt when a backup password is configured (env or settings)
-    const password = getBackupPassword();
     let encrypted = false;
+    let outPath = tmpOut;
     if (password) {
-      const encPath = outPath + '.enc';
-      encryptFile(outPath, encPath, password);
-      fs.unlinkSync(outPath);
+      const encPath = tmpOut + '.enc';
+      encryptFile(tmpOut, encPath, password);
+      fs.unlinkSync(tmpOut);
       outPath = encPath;
       fileName += '.enc';
       encrypted = true;
+    } else if (isProduction()) {
+      throw new Error('refusing plaintext backup in production');
     }
 
-    // Symlink/copy latest for backward-compatible download endpoint
-    const latestBase = path.join(BACKUP_DIR, useZip ? 'crm-latest.zip' : 'crm-latest.tar.gz');
-    for (const p of [latestBase, latestBase + '.enc']) {
+    const finalPath = path.join(BACKUP_DIR, fileName);
+    fs.renameSync(outPath, finalPath);
+
+    const latest = path.join(BACKUP_DIR, encrypted ? 'crm-latest.zip.enc' : 'crm-latest.zip');
+    for (const p of [
+      path.join(BACKUP_DIR, 'crm-latest.zip'),
+      path.join(BACKUP_DIR, 'crm-latest.zip.enc'),
+      path.join(BACKUP_DIR, 'crm-latest.tar.gz'),
+      path.join(BACKUP_DIR, 'crm-latest.tar.gz.enc'),
+    ]) {
       try { fs.unlinkSync(p); } catch { /* */ }
     }
-    const latest = encrypted ? latestBase + '.enc' : latestBase;
-    fs.copyFileSync(outPath, latest);
+    fs.copyFileSync(finalPath, latest);
 
-    const checksum = crypto.createHash('sha256').update(fs.readFileSync(outPath)).digest('hex');
-    fs.writeFileSync(outPath + '.sha256', `${checksum}  ${path.basename(outPath)}\n`, { mode: 0o600 });
+    const checksum = sha256File(finalPath);
+    fs.writeFileSync(finalPath + '.sha256', `${checksum}  ${path.basename(finalPath)}\n`, { mode: 0o600 });
+
     let offsite = { configured: false, ok: false, method: null };
-    // Prefer S3 when configured; otherwise filesystem mirror (second disk/NAS path).
     if (process.env.BACKUP_S3_URI) {
       offsite.configured = true;
       offsite.method = 's3';
-      const target = process.env.BACKUP_S3_URI.replace(/\/$/, '') + '/' + path.basename(outPath);
-      const up = spawnSync('aws', ['s3', 'cp', outPath, target, '--only-show-errors'], { encoding: 'utf8', timeout: 15 * 60 * 1000 });
-      offsite = { configured: true, method: 's3', ok: up.status === 0, target, error: up.status === 0 ? null : String(up.stderr || up.error || 'upload failed').trim() };
+      const target = process.env.BACKUP_S3_URI.replace(/\/$/, '') + '/' + path.basename(finalPath);
+      const up = spawnSync('aws', ['s3', 'cp', finalPath, target, '--only-show-errors'], { encoding: 'utf8', timeout: 15 * 60 * 1000 });
+      offsite = {
+        configured: true, method: 's3', ok: up.status === 0, target,
+        error: up.status === 0 ? null : String(up.stderr || up.error || 'upload failed').trim(),
+      };
       if (!offsite.ok) throw new Error(`off-site backup failed: ${offsite.error}`);
-      spawnSync('aws', ['s3', 'cp', outPath + '.sha256', target + '.sha256', '--only-show-errors'], { encoding: 'utf8', timeout: 5 * 60 * 1000 });
+      const side = spawnSync('aws', ['s3', 'cp', finalPath + '.sha256', target + '.sha256', '--only-show-errors'], {
+        encoding: 'utf8', timeout: 5 * 60 * 1000,
+      });
+      if (side.status !== 0) throw new Error('off-site sidecar upload failed');
     } else if (process.env.BACKUP_OFFSITE_DIR) {
       offsite.configured = true;
       offsite.method = 'fs';
       const destDir = path.resolve(process.env.BACKUP_OFFSITE_DIR);
-      if (destDir === path.resolve(BACKUP_DIR)) {
-        throw new Error('BACKUP_OFFSITE_DIR must differ from BACKUP_DIR');
-      }
+      if (destDir === path.resolve(BACKUP_DIR)) throw new Error('BACKUP_OFFSITE_DIR must differ from BACKUP_DIR');
       fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
-      const target = path.join(destDir, path.basename(outPath));
-      fs.copyFileSync(outPath, target);
-      fs.copyFileSync(outPath + '.sha256', target + '.sha256');
-      const remoteSum = crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex');
-      if (remoteSum !== checksum) throw new Error('off-site filesystem checksum mismatch');
+      if (sameFilesystemDevice(BACKUP_DIR, destDir) && process.env.BACKUP_ALLOW_SAME_DEVICE !== '1') {
+        if (isProduction()) throw new Error('BACKUP_OFFSITE_DIR is on the same device as BACKUP_DIR (not off-server)');
+        // non-prod: warn but allow only with explicit flag; tests set the flag
+        if (process.env.BACKUP_ALLOW_SAME_DEVICE !== '1') {
+          throw new Error('same-device offsite rejected (set BACKUP_ALLOW_SAME_DEVICE=1 for local drills)');
+        }
+      }
+      const target = path.join(destDir, path.basename(finalPath));
+      fs.copyFileSync(finalPath, target);
+      fs.copyFileSync(finalPath + '.sha256', target + '.sha256');
+      if (sha256File(target) !== checksum) throw new Error('off-site filesystem checksum mismatch');
       offsite = { configured: true, method: 'fs', ok: true, target, error: null };
     }
 
     pruneOld();
-    const sizeMB = (fs.statSync(outPath).size / 1024 / 1024).toFixed(2);
-    console.log(`✅ پشتیبان: ${fileName} (${sizeMB} MB)${encrypted ? ' 🔒 رمزنگاری‌شده' : ''}`);
-    return { ok: true, file: fileName, path: outPath, local: outPath, sizeMB, encrypted, latest, checksum, integrity, offsite };
+    const sizeMB = (fs.statSync(finalPath).size / 1024 / 1024).toFixed(2);
+    const integrity = companySnaps.every((c) => c.fingerprint.integrity === 'ok') ? 'ok' : 'fail';
+    writeStatus({
+      last: {
+        ok: true, file: fileName, checksum, encrypted, offsite, sizeMB,
+        duration_ms: Date.now() - started, companies: manifest.companies.length,
+      },
+    });
+    console.log(`✅ پشتیبان: ${fileName} (${sizeMB} MB)${encrypted ? ' 🔒' : ''}`);
+    return {
+      ok: true, file: fileName, path: finalPath, local: finalPath, sizeMB,
+      encrypted, latest, checksum, integrity, offsite, manifest_version: PACKAGE_VERSION,
+    };
   } catch (e) {
     console.error('backup error:', e.message);
+    writeStatus({ last: { ok: false, error: e.message, duration_ms: Date.now() - started } });
     return { ok: false, error: e.message };
   } finally {
-    if (snapshotPath) try { fs.unlinkSync(snapshotPath); } catch { /* */ }
+    backupLock = false;
+    if (tmpDir) try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* */ }
   }
 }
 
@@ -235,57 +449,142 @@ function getLatestBackupFile() {
   ensureDir();
   const candidates = [
     'crm-latest.zip.enc', 'crm-latest.tar.gz.enc',
-    'crm-latest.zip', 'crm-latest.tar.gz'
-  ].map(n => path.join(BACKUP_DIR, n));
+    'crm-latest.zip', 'crm-latest.tar.gz',
+  ].map((n) => path.join(BACKUP_DIR, n));
   for (const p of candidates) if (fs.existsSync(p)) return p;
   return candidates[candidates.length - 1];
 }
 
-function restoreBackup(archivePath) {
-  const path = require('path');
-  const fs = require('fs');
-  const { execSync } = require('child_process');
+/** Verify archive (and decrypt if needed). Does NOT mutate production DB. */
+function verifyBackupPackage(archivePath, options = {}) {
   const AdmZip = require('adm-zip');
-  const tmp = path.join(BACKUP_DIR, `.restore-${Date.now()}`);
-  fs.mkdirSync(tmp, { recursive: true });
+  const tmp = path.join(BACKUP_DIR, `.verify-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`);
+  fs.mkdirSync(tmp, { recursive: true, mode: 0o700 });
+  let zipPath = archivePath;
+  let decryptedTemp = null;
   try {
-    if (archivePath.endsWith('.zip') || archivePath.endsWith('.zip.enc')) {
-      let zipPath = archivePath;
-      if (archivePath.endsWith('.enc')) {
-        const password = getBackupPassword();
-        if (!password) throw new Error('رمز پشتیبان برای بازگشایی لازم است');
-        zipPath = archivePath.replace(/\.enc$/, '');
-        decryptFile(archivePath, zipPath, password);
+    if (String(archivePath).endsWith('.enc')) {
+      const password = options.password || getBackupPassword();
+      if (!password) throw new Error('رمز پشتیبان برای تأیید لازم است');
+      decryptedTemp = path.join(tmp, 'payload.zip');
+      decryptFile(archivePath, decryptedTemp, password);
+      zipPath = decryptedTemp;
+    }
+    if (!/\.zip$/i.test(zipPath)) throw new Error('only zip packages are supported for verify');
+    const zip = new AdmZip(zipPath);
+    const entries = zip.getEntries();
+    const seen = new Set();
+    for (const ent of entries) {
+      const name = String(ent.entryName || '').replace(/\\/g, '/');
+      if (!name || name.includes('..') || path.isAbsolute(name) || name.startsWith('/')) {
+        throw new Error(`unsafe entry rejected: ${name}`);
       }
-      const zip = new AdmZip(zipPath);
-      zip.extractAllTo(tmp, true);
-      if (zipPath !== archivePath) try { fs.unlinkSync(zipPath); } catch { /* */ }
-    } else {
-      execSync(`tar -xzf "${archivePath}" -C "${tmp}"`, { stdio: 'pipe', timeout: 300000 });
+      if (seen.has(name)) throw new Error(`duplicate entry: ${name}`);
+      seen.add(name);
+      if (ent.getData().length > 512 * 1024 * 1024) throw new Error(`entry oversize: ${name}`);
     }
-    const dbSrc = path.join(tmp, 'crm.db');
-    if (!fs.existsSync(dbSrc)) throw new Error('crm.db در پشتیبان یافت نشد');
-    const verifyDb = new (require('better-sqlite3'))(dbSrc, { readonly: true });
-    try {
-      const integrity = verifyDb.pragma('integrity_check', { simple: true });
-      if (integrity !== 'ok') throw new Error(`SQLite integrity_check failed: ${integrity}`);
-    } finally { verifyDb.close(); }
-    const DB_PATH = resolveBackupDbPath();
-    const pre = DB_PATH + '.pre-restore-' + Date.now();
-    if (fs.existsSync(DB_PATH)) fs.copyFileSync(DB_PATH, pre);
-    fs.copyFileSync(dbSrc, DB_PATH);
-    const uploadsSrc = path.join(tmp, 'uploads');
-    if (fs.existsSync(uploadsSrc)) {
-      fs.rmSync(UPLOADS_ROOT, { recursive: true, force: true });
-      fs.cpSync(uploadsSrc, UPLOADS_ROOT, { recursive: true });
+    zip.extractAllTo(tmp, true);
+    const manifestPath = path.join(tmp, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) throw new Error('manifest.json missing');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (!manifest.files || !Array.isArray(manifest.files)) throw new Error('manifest.files missing');
+    for (const meta of manifest.files) {
+      const fp = path.join(tmp, meta.path);
+      if (!fp.startsWith(tmp + path.sep)) throw new Error(`path escape: ${meta.path}`);
+      if (!fs.existsSync(fp)) throw new Error(`missing file: ${meta.path}`);
+      const st = fs.statSync(fp);
+      if (st.size !== meta.size) throw new Error(`size mismatch: ${meta.path}`);
+      if (sha256File(fp) !== meta.sha256) throw new Error(`hash mismatch: ${meta.path}`);
     }
-    return { ok: true, pre_restore_db: pre };
+    const dbs = [];
+    if (fs.existsSync(path.join(tmp, 'crm.db'))) dbs.push(path.join(tmp, 'crm.db'));
+    const companyDir = path.join(tmp, 'companies');
+    if (fs.existsSync(companyDir)) {
+      for (const name of fs.readdirSync(companyDir)) {
+        if (name.endsWith('.db')) dbs.push(path.join(companyDir, name));
+      }
+    }
+    const fingerprints = [];
+    for (const dbPath of dbs) {
+      const fp = fingerprintDb(dbPath);
+      if (fp.integrity !== 'ok') throw new Error(`integrity failed: ${path.basename(dbPath)}`);
+      fingerprints.push({ db: path.relative(tmp, dbPath).replace(/\\/g, '/'), ...fp });
+    }
+    return {
+      ok: true,
+      verified: true,
+      restore_applied: false,
+      manifest_version: manifest.version,
+      companies: manifest.companies || [],
+      fingerprints,
+      files: manifest.files.length,
+    };
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
+/**
+ * Offline/maintenance restore only. Callers must stop the live service.
+ * Online HTTP handlers must use verifyBackupPackage instead.
+ */
+function restoreBackup(archivePath, options = {}) {
+  if (!options.confirmOfflineRestore) {
+    throw new Error('online restore disabled — use verify only; CLI restore requires confirmOfflineRestore');
+  }
+  const verify = verifyBackupPackage(archivePath, options);
+  if (!verify.ok) throw new Error('verify failed');
+  // Staging extract again for apply
+  const AdmZip = require('adm-zip');
+  const staging = options.targetDir || path.join(BACKUP_DIR, `.restore-stage-${Date.now()}`);
+  fs.mkdirSync(staging, { recursive: true, mode: 0o700 });
+  let zipPath = archivePath;
+  let decrypted = null;
+  try {
+    if (String(archivePath).endsWith('.enc')) {
+      const password = options.password || getBackupPassword();
+      decrypted = path.join(staging, 'payload.zip');
+      decryptFile(archivePath, decrypted, password);
+      zipPath = decrypted;
+    }
+    new AdmZip(zipPath).extractAllTo(staging, true);
+    const dbSrc = path.join(staging, 'crm.db');
+    if (!fs.existsSync(dbSrc)) throw new Error('crm.db در پشتیبان یافت نشد');
+    const DB_PATH = options.dbPath || resolveBackupDbPath();
+    const pre = DB_PATH + '.pre-restore-' + Date.now();
+    if (fs.existsSync(DB_PATH)) fs.copyFileSync(DB_PATH, pre);
+    fs.copyFileSync(dbSrc, DB_PATH);
+    const uploadsSrc = path.join(staging, 'uploads');
+    if (fs.existsSync(uploadsSrc) && options.restoreUploads !== false) {
+      fs.rmSync(UPLOADS_ROOT, { recursive: true, force: true });
+      fs.cpSync(uploadsSrc, UPLOADS_ROOT, { recursive: true });
+    }
+    const privateSrc = path.join(staging, 'private-uploads');
+    if (fs.existsSync(privateSrc) && options.restorePrivate !== false) {
+      try {
+        const { PRIVATE_UPLOADS_ROOT } = require('./lib/private-uploads');
+        fs.mkdirSync(PRIVATE_UPLOADS_ROOT, { recursive: true, mode: 0o700 });
+        fs.cpSync(privateSrc, PRIVATE_UPLOADS_ROOT, { recursive: true });
+      } catch { /* */ }
+    }
+    return { ok: true, pre_restore_db: pre, verify };
+  } finally {
+    if (!options.keepStaging) fs.rmSync(staging, { recursive: true, force: true });
+  }
+}
+
 module.exports = {
-  runBackup, listBackups, resolveBackupFile, getLatestBackupFile,
-  getBackupPassword, encryptFile, decryptFile, restoreBackup, BACKUP_DIR
+  runBackup,
+  listBackups,
+  resolveBackupFile,
+  getLatestBackupFile,
+  getBackupPassword,
+  encryptFile,
+  decryptFile,
+  restoreBackup,
+  verifyBackupPackage,
+  sameFilesystemDevice,
+  fingerprintDb,
+  BACKUP_DIR,
+  PACKAGE_VERSION,
 };

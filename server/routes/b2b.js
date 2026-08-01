@@ -13,12 +13,23 @@
 //    the feature_b2b_portal setting turned on.
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { getDB, audit, allocateNumber } = require('../db');
 const { auth: internalAuth, adminOnly, centralOnlyStrict, SECRET } = require('../middleware/auth');
+const {
+  issueB2BSession,
+  verifyB2BToken,
+  validateB2BSession,
+  revokeAllB2BSessions,
+  revokeCurrentB2BSession,
+  consumeRateLimit,
+  rateLimitStatus,
+  clearRateLimit,
+} = require('../lib/auth-sessions');
 const { sendSMS } = require('../sms');
 const { todayJalali } = require('../jalali');
+const { validatePassword } = require('../lib/security');
+const { getSmsSettings } = require('../lib/secret-settings');
 
 router.use(centralOnlyStrict);
 
@@ -32,28 +43,34 @@ function featureEnabled(db) {
 }
 
 function issueB2BToken(account) {
-  return jwt.sign({ id: account.customer_id, aid: account.id, scope: 'b2b' }, SECRET, { expiresIn: '7d' });
+  return issueB2BSession(account);
 }
 
 // Portal session middleware — only accepts scope:'b2b' tokens
 function b2bAuth(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
+  const bearer = /^Bearer ([^\s]+)$/.exec(String(req.headers.authorization || ''));
+  const token = bearer ? bearer[1] : '';
   if (!token) return res.status(401).json({ error: 'توکن یافت نشد' });
   try {
-    const payload = jwt.verify(token, SECRET);
+    const payload = verifyB2BToken(token);
     if (payload.scope !== 'b2b') return res.status(401).json({ error: 'توکن نامعتبر' });
+    if (!validateB2BSession(payload)) return res.status(401).json({ error: 'نشست پورتال منقضی یا باطل شده است' });
     const db = getDB();
     const acc = db.prepare(
       'SELECT a.*, c.biz, c.b2b_enabled FROM b2b_portal_accounts a JOIN customers c ON a.customer_id=c.id WHERE a.id=? AND a.active=1'
     ).get(payload.aid);
-    if (!acc || !acc.b2b_enabled) return res.status(401).json({ error: 'دسترسی پورتال غیرفعال است' });
+    if (!acc || !acc.b2b_enabled || Number(acc.customer_id) !== Number(payload.id)
+      || Number(acc.auth_epoch || 0) !== Number(payload.ae || 0)) {
+      return res.status(401).json({ error: 'دسترسی پورتال غیرفعال است' });
+    }
     if (!featureEnabled(db)) return res.status(403).json({ error: 'پورتال B2B فعال نیست' });
     req.account = acc;
     req.customerId = acc.customer_id;
-    next();
+    req.b2bToken = payload;
   } catch {
-    res.status(401).json({ error: 'توکن نامعتبر' });
+    return res.status(401).json({ error: 'توکن نامعتبر' });
   }
+  return next();
 }
 
 function normalizePhone(p) {
@@ -73,6 +90,30 @@ function findAccount(db, phone) {
   `).get(phone);
 }
 
+function otpDigest(accountId, code) {
+  return crypto.createHmac('sha256', SECRET)
+    .update(`b2b-login:${accountId}:${String(code || '')}`)
+    .digest('hex');
+}
+
+function safeDigestEqual(left, right) {
+  const a = Buffer.from(String(left || ''), 'hex');
+  const b = Buffer.from(String(right || ''), 'hex');
+  return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+}
+
+const B2B_LOGIN_FAILURE = 'شماره یا رمز عبور اشتباه است یا تلاش‌ها بیش از حد مجاز بوده است';
+const B2B_DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(24).toString('hex'), 10);
+
+function b2bLoginIp(req) {
+  return String(req.ip || req.socket?.remoteAddress || 'unknown').slice(0, 128);
+}
+
+function rejectB2BLogin(res, retryAfter = 0) {
+  if (retryAfter > 0) res.setHeader('Retry-After', String(Math.max(1, Math.ceil(retryAfter))));
+  return res.status(retryAfter > 0 ? 429 : 401).json({ error: B2B_LOGIN_FAILURE, code: 'B2B_LOGIN_REJECTED' });
+}
+
 // ── Auth: phone + password ───────────────────────────────────────────────────
 router.post('/auth/login', (req, res) => {
   const phone = normalizePhone(req.body.phone);
@@ -80,10 +121,20 @@ router.post('/auth/login', (req, res) => {
   if (!phone || !password) return res.status(400).json({ error: 'اطلاعات ناقص' });
   const db = getDB();
   if (!featureEnabled(db)) return res.status(403).json({ error: 'پورتال B2B فعال نیست' });
-  const acc = findAccount(db, phone);
-  if (!acc || !acc.password || !bcrypt.compareSync(password, acc.password)) {
-    return res.status(401).json({ error: 'شماره یا رمز عبور اشتباه است' });
+  const ip = b2bLoginIp(req);
+  const phoneState = rateLimitStatus('b2b_login_phone', phone);
+  const ipState = rateLimitStatus('b2b_login_ip', ip);
+  if (!phoneState.allowed || !ipState.allowed) {
+    return rejectB2BLogin(res, Math.max(phoneState.retryAfter, ipState.retryAfter));
   }
+  const acc = findAccount(db, phone);
+  const passwordMatches = bcrypt.compareSync(password, acc && acc.password ? acc.password : B2B_DUMMY_PASSWORD_HASH);
+  if (!acc || !passwordMatches) {
+    const phoneLimit = consumeRateLimit('b2b_login_phone', phone, { max: 10, windowSec: 900, blockSec: 900 });
+    const ipLimit = consumeRateLimit('b2b_login_ip', ip, { max: 50, windowSec: 900, blockSec: 900 });
+    return rejectB2BLogin(res, Math.max(phoneLimit.retryAfter, ipLimit.retryAfter));
+  }
+  clearRateLimit('b2b_login_phone', phone);
   db.prepare("UPDATE b2b_portal_accounts SET last_login=strftime('%s','now') WHERE id=?").run(acc.id);
   audit(null, 'b2b_login', 'b2b_account', acc.id, `ورود پورتال ${acc.biz}`, req);
   res.json({ token: issueB2BToken(acc), customer: { id: acc.customer_id, biz: acc.biz } });
@@ -96,43 +147,89 @@ router.post('/auth/otp', async (req, res) => {
   const db = getDB();
   // uniform response — never leak whether the phone exists
   const generic = { ok: true, message: 'در صورت فعال بودن حساب، کد ورود پیامک شد' };
+  const phoneRate = consumeRateLimit('b2b-otp-send', phone, { max: 5, windowSec: 900, blockSec: 900 });
+  const ipRate = consumeRateLimit('b2b-otp-send-ip', req.ip || req.socket?.remoteAddress || '', { max: 20, windowSec: 900, blockSec: 900 });
+  if (!phoneRate.allowed || !ipRate.allowed) {
+    return res.status(429).json({ error: 'تعداد درخواست کد بیش از حد است. ۱۵ دقیقه دیگر تلاش کنید.' });
+  }
   if (!featureEnabled(db)) return res.json(generic);
   const acc = findAccount(db, phone);
   if (!acc) return res.json(generic);
+  if (Number(acc.otp_locked_until || 0) > Math.floor(Date.now() / 1000)) {
+    return res.status(429).json({ error: 'تلاش‌های کد بیش از حد است. ۱۵ دقیقه دیگر تلاش کنید.' });
+  }
 
-  const otp = String(crypto.randomInt(100000, 999999));
-  const hash = crypto.createHash('sha256').update(otp).digest('hex');
-  db.prepare('UPDATE b2b_portal_accounts SET otp_hash=?, otp_expires=? WHERE id=?')
+  const otp = String(crypto.randomInt(100000, 1000000));
+  const hash = otpDigest(acc.id, otp);
+  db.prepare('UPDATE b2b_portal_accounts SET otp_hash=?,otp_expires=?,otp_attempts=0,otp_locked_until=NULL WHERE id=?')
     .run(hash, Math.floor(Date.now() / 1000) + 300, acc.id);
 
-  const rows = db.prepare("SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from')").all();
-  const settings = Object.fromEntries(rows.map(r => [r.key, r.value]));
+  const settings = getSmsSettings(db);
+  let delivered = false;
   if (settings.sms_api_key) {
-    await sendSMS(settings, phone, `کد ورود پورتال ترنم: ${otp}\nاعتبار: ۵ دقیقه`);
-  } else {
-    console.log(`📟 [B2B OTP] phone=${phone} otp=${otp} (SMS تنظیم نشده)`);
+    const result = await sendSMS(settings, phone, `کد ورود پورتال ترنم: ${otp}\nاعتبار: ۵ دقیقه`);
+    delivered = !!result.ok;
   }
+  if (!delivered) {
+    db.prepare('UPDATE b2b_portal_accounts SET otp_hash=NULL,otp_expires=NULL,otp_attempts=0 WHERE id=?').run(acc.id);
+    audit(null, 'b2b_otp_delivery_failed', 'b2b_account', acc.id, 'عدم تحویل کد پورتال', req);
+    return res.json(generic);
+  }
+  audit(null, 'b2b_otp_sent', 'b2b_account', acc.id, 'ارسال کد ورود پورتال', req);
   res.json(generic);
 });
 
 router.post('/auth/otp/verify', (req, res) => {
   const phone = normalizePhone(req.body.phone);
   const otp = String(req.body.code || req.body.otp || '').replace(/\D/g, '');
-  if (!phone || !otp) return res.status(400).json({ error: 'اطلاعات ناقص' });
+  if (!phone || !/^\d{6}$/.test(otp)) return res.status(400).json({ error: 'اطلاعات ناقص' });
   const db = getDB();
+  const phoneRate = consumeRateLimit('b2b-otp-verify', phone, { max: 10, windowSec: 900, blockSec: 900 });
+  const ipRate = consumeRateLimit('b2b-otp-verify-ip', req.ip || req.socket?.remoteAddress || '', { max: 30, windowSec: 900, blockSec: 900 });
+  if (!phoneRate.allowed || !ipRate.allowed) {
+    return res.status(429).json({ error: 'تعداد تلاش بیش از حد است. ۱۵ دقیقه دیگر تلاش کنید.' });
+  }
   if (!featureEnabled(db)) return res.status(403).json({ error: 'پورتال B2B فعال نیست' });
   const acc = findAccount(db, phone);
   if (!acc || !acc.otp_hash || !acc.otp_expires) return res.status(401).json({ error: 'کد نامعتبر است' });
-  if (acc.otp_expires < Math.floor(Date.now() / 1000)) return res.status(401).json({ error: 'کد منقضی شده — دوباره درخواست کنید' });
-  const hash = crypto.createHash('sha256').update(otp).digest('hex');
-  if (hash !== acc.otp_hash) return res.status(401).json({ error: 'کد نامعتبر است' });
-  db.prepare("UPDATE b2b_portal_accounts SET otp_hash=NULL, otp_expires=NULL, last_login=strftime('%s','now') WHERE id=?").run(acc.id);
+  const now = Math.floor(Date.now() / 1000);
+  if (Number(acc.otp_locked_until || 0) > now) return res.status(429).json({ error: 'تعداد تلاش بیش از حد است' });
+  if (acc.otp_expires < now) {
+    db.prepare('UPDATE b2b_portal_accounts SET otp_hash=NULL,otp_expires=NULL,otp_attempts=0 WHERE id=?').run(acc.id);
+    return res.status(401).json({ error: 'کد منقضی شده — دوباره درخواست کنید' });
+  }
+  const hash = otpDigest(acc.id, otp);
+  if (!safeDigestEqual(hash, acc.otp_hash)) {
+    const attempts = Number(acc.otp_attempts || 0) + 1;
+    if (attempts >= 5) {
+      db.prepare(`
+        UPDATE b2b_portal_accounts
+        SET otp_hash=NULL,otp_expires=NULL,otp_attempts=?,otp_locked_until=? WHERE id=?
+      `).run(attempts, now + 900, acc.id);
+    } else {
+      db.prepare('UPDATE b2b_portal_accounts SET otp_attempts=? WHERE id=?').run(attempts, acc.id);
+    }
+    audit(null, 'b2b_otp_failed', 'b2b_account', acc.id, 'کد ورود نامعتبر', req);
+    return res.status(401).json({ error: 'کد نامعتبر است' });
+  }
+  db.prepare(`
+    UPDATE b2b_portal_accounts
+    SET otp_hash=NULL,otp_expires=NULL,otp_attempts=0,otp_locked_until=NULL,last_login=strftime('%s','now')
+    WHERE id=?
+  `).run(acc.id);
+  clearRateLimit('b2b-otp-verify', phone);
   audit(null, 'b2b_login', 'b2b_account', acc.id, `ورود پورتال با OTP - ${acc.biz}`, req);
   res.json({ token: issueB2BToken(acc), customer: { id: acc.customer_id, biz: acc.biz } });
 });
 
 // ── Authenticated portal endpoints — every query pinned to req.customerId ───
 router.use('/me', b2bAuth);
+
+router.post('/me/logout', (req, res) => {
+  revokeCurrentB2BSession(req.b2bToken);
+  audit(null, 'b2b_logout', 'b2b_account', req.account.id, 'خروج و ابطال نشست پورتال', req);
+  res.json({ ok: true });
+});
 
 // Live account statement (same engine the accounting module uses)
 router.get('/me/statement', (req, res) => {
@@ -237,23 +334,39 @@ router.post('/admin/customers/:id/access', internalAuth, adminOnly, (req, res) =
   const password = String(req.body.password || '');
 
   if (enabled && !phone) return res.status(400).json({ error: 'مشتری شماره موبایل ندارد' });
-  if (enabled && password && password.length < 6) return res.status(400).json({ error: 'رمز حداقل ۶ کاراکتر' });
+  if (enabled && password) {
+    const passwordError = validatePassword(password);
+    if (passwordError) return res.status(400).json({ error: passwordError });
+  }
 
+  const currentAccount = db.prepare('SELECT * FROM b2b_portal_accounts WHERE customer_id=?').get(cust.id);
+  if (currentAccount) revokeAllB2BSessions(currentAccount.id);
   db.transaction(() => {
     db.prepare('UPDATE customers SET b2b_enabled=? WHERE id=?').run(enabled, cust.id);
     const acc = db.prepare('SELECT * FROM b2b_portal_accounts WHERE customer_id=?').get(cust.id);
     if (enabled) {
       const hash = password ? bcrypt.hashSync(password, 10) : (acc ? acc.password : null);
       if (acc) {
-        db.prepare('UPDATE b2b_portal_accounts SET phone=?, password=?, active=1 WHERE customer_id=?').run(phone, hash, cust.id);
+        db.prepare(`
+          UPDATE b2b_portal_accounts
+          SET phone=?,password=?,active=1,auth_epoch=COALESCE(auth_epoch,0)+1,
+              otp_hash=NULL,otp_expires=NULL,otp_attempts=0,otp_locked_until=NULL
+          WHERE customer_id=?
+        `).run(phone, hash, cust.id);
       } else {
         db.prepare('INSERT INTO b2b_portal_accounts (customer_id,phone,password,active) VALUES (?,?,?,1)').run(cust.id, phone, hash);
       }
     } else if (acc) {
-      db.prepare('UPDATE b2b_portal_accounts SET active=0 WHERE customer_id=?').run(cust.id);
+      db.prepare(`
+        UPDATE b2b_portal_accounts
+        SET active=0,auth_epoch=COALESCE(auth_epoch,0)+1,
+            otp_hash=NULL,otp_expires=NULL,otp_attempts=0,otp_locked_until=NULL
+        WHERE customer_id=?
+      `).run(cust.id);
     }
   })();
-  audit(req.user.id, enabled ? 'b2b_enabled' : 'b2b_disabled', 'customer', cust.id, `پورتال B2B ${cust.biz}`, req);
+  audit(req.user.id, enabled ? 'b2b_enabled' : 'b2b_disabled', 'customer', cust.id,
+    `پورتال B2B ${cust.biz} — ابطال نشست‌های قبلی`, req);
   res.json({ ok: true, enabled: !!enabled });
 });
 

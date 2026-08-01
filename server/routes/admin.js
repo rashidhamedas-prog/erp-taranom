@@ -1,10 +1,12 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, centralOnly, invalidateUserCache } = require('../middleware/auth');
+const { auth, adminOnly, centralOnly, invalidateUserCache, revokeUserSessions } = require('../middleware/auth');
+const { DEFAULT_ROLE_PERMISSIONS } = require('../lib/rbac');
 const { validatePassword } = require('../lib/security');
 const { j2g } = require('../jalali');
 const { ensureUserParty } = require('../lib/user-party');
+const ALLOWED_ROLES = new Set(Object.keys(DEFAULT_ROLE_PERMISSIONS));
 
 function jalaliDayBounds(jStr) {
   const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(String(jStr || '').trim());
@@ -32,10 +34,11 @@ router.get('/users', auth, adminOnly, (req, res) => {
 
 // Create user (salesperson or admin) — incentive is locked immediately after creation
 router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
-  const { name, username, password, phone, role = 'salesperson', commission_cash = 0, commission_cheque = 0,
+  const { name, username, password, phone, role = 'field_sales', commission_cash = 0, commission_cheque = 0,
     commission_basis = 'invoice', monthly_target = 0, quarterly_target = 0, annual_target = 0, bonus_pct = 0, commission_fixed = 0, penalty_pct = 0, supervisor_commission_pct = 0,
     rep_code, rep_subtype, territory, supervisor_id, employment_status, bank_name, bank_account, bank_iban, rep_opening_balance, sales_warehouse_id } = req.body;
   if (!name || !username || !password) return res.status(400).json({ error: 'اطلاعات ناقص' });
+  if (!ALLOWED_ROLES.has(role)) return res.status(400).json({ error: 'نقش کاربر نامعتبر است' });
   const passErr = validatePassword(password);
   if (passErr) return res.status(400).json({ error: passErr });
   const db = getDB();
@@ -74,6 +77,13 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const existing = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'کاربر یافت نشد' });
+  const nextRole = role || existing.role;
+  const nextActive = active == null ? Number(existing.active || 0) : (active ? 1 : 0);
+  if (!ALLOWED_ROLES.has(nextRole)) return res.status(400).json({ error: 'نقش کاربر نامعتبر است' });
+  if (existing.role === 'admin' && existing.active && (nextRole !== 'admin' || !nextActive)) {
+    const otherAdmins = db.prepare("SELECT COUNT(*) c FROM users WHERE role='admin' AND active=1 AND id<>?").get(existing.id).c;
+    if (!otherAdmins) return res.status(400).json({ error: 'آخرین مدیر فعال را نمی‌توان غیرفعال یا تنزل نقش داد' });
+  }
   const basis = ['collection', 'profit', 'invoice'].includes(commission_basis) ? commission_basis : (existing.commission_basis || 'invoice');
   const target = monthly_target != null ? parseFloat(monthly_target) || 0 : (existing.monthly_target || 0);
   const qTarget = quarterly_target != null ? parseFloat(quarterly_target) || 0 : (existing.quarterly_target || 0);
@@ -97,6 +107,9 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
     if (passErr) return res.status(400).json({ error: passErr });
   }
 
+  const authChanged = !!password || nextRole !== existing.role || nextActive !== Number(existing.active || 0);
+  if (authChanged) revokeUserSessions(db, existing.id);
+
   db.transaction(() => {
     const salesWhId = sales_warehouse_id === '' || sales_warehouse_id == null
       ? (existing.sales_warehouse_id || null)
@@ -104,7 +117,7 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
     if (password) {
       db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,password=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,penalty_pct=?,supervisor_commission_pct=?,incentive_locked=1,must_change_password=1,
         rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=?,sales_warehouse_id=? WHERE id=?`)
-        .run(name, active, role, phone || '', bcrypt.hashSync(password, 10), newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
+        .run(name, nextActive, nextRole, phone || '', bcrypt.hashSync(password, 10), newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
           rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
           supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
           employment_status || existing.employment_status || 'active',
@@ -115,7 +128,7 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
     } else {
       db.prepare(`UPDATE users SET name=?,active=?,role=?,phone=?,commission_cash=?,commission_cheque=?,commission_basis=?,monthly_target=?,quarterly_target=?,annual_target=?,bonus_pct=?,commission_fixed=?,penalty_pct=?,supervisor_commission_pct=?,incentive_locked=1,
         rep_code=?,rep_subtype=?,territory=?,supervisor_id=?,employment_status=?,bank_name=?,bank_account=?,bank_iban=?,rep_opening_balance=?,sales_warehouse_id=? WHERE id=?`)
-        .run(name, active, role, phone || '', newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
+        .run(name, nextActive, nextRole, phone || '', newCash, newCheque, basis, target, qTarget, aTarget, bonus, fixed, penalty, supComm,
           rep_code || existing.rep_code || '', rep_subtype || existing.rep_subtype || '', territory || existing.territory || '',
           supervisor_id ? parseInt(supervisor_id) : existing.supervisor_id,
           employment_status || existing.employment_status || 'active',
@@ -127,7 +140,10 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
     ensureUserParty(db, Number(req.params.id), req.body);
   })();
   invalidateUserCache(+req.params.id);
-  if (rateChanged) {
+  if (authChanged) {
+    audit(req.user.id, 'security_update', 'user', req.params.id,
+      `تغییر امنیتی کاربر ${name}: نقش ${existing.role}→${nextRole}، فعال ${existing.active}→${nextActive}، رمز ${password ? 'تغییر کرد' : 'بدون تغییر'}؛ همه نشست‌ها باطل شد`, req);
+  } else if (rateChanged) {
     audit(req.user.id, 'update', 'user', req.params.id, `تغییر نرخ انگیزه فروش ${name}: نقد ${existing.commission_cash}%→${newCash}% چک ${existing.commission_cheque}%→${newCheque}%`);
   } else {
     audit(req.user.id, 'update', 'user', req.params.id, `ویرایش کاربر ${name}`);

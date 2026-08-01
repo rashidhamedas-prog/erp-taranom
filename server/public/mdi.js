@@ -48,10 +48,10 @@
     if (!list.length) { bar.hidden = true; inner.innerHTML = ''; syncTaskbarSpace(); return; }
     bar.hidden = false;
     inner.innerHTML = list.map((w) =>
-      `<button type="button" class="mdi-task ${w.minimized ? 'min' : ''} ${w.id === WinMgr.focusedId ? 'active' : ''}" onclick="WinMgr.focus(${w.id})" title="${escAttr(w.title)}">${escHtml(taskChip(w.title))}</button>`
+      `<button type="button" class="mdi-task ${w.minimized ? 'min' : ''} ${w.id === WinMgr.focusedId ? 'active' : ''}" data-csp-click="${CSP.bind('click',function(event){WinMgr.focus((w.id))})}" title="${escAttr(w.title)}">${escHtml(taskChip(w.title))}</button>`
     ).join('') +
-      `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.cascade()" title="چینش پنجره‌ها">⧉</button>` +
-      `<button type="button" class="mdi-task mdi-task-tools" onclick="WinMgr.toggleMode()" title="خاموش/روشن حالت پنجره">${enabled() ? '🗔' : '📄'}</button>`;
+      `<button type="button" class="mdi-task mdi-task-tools" data-csp-click="${CSP.bind('click',function(event){WinMgr.cascade()})}" title="چینش پنجره‌ها">⧉</button>` +
+      `<button type="button" class="mdi-task mdi-task-tools" data-csp-click="${CSP.bind('click',function(event){WinMgr.toggleMode()})}" title="خاموش/روشن حالت پنجره">${enabled() ? '🗔' : '📄'}</button>`;
     syncTaskbarSpace();
   }
 
@@ -132,9 +132,9 @@
         <div class="mdi-titlebar">
           <span class="mdi-title">${escHtml(title)}</span>
           <div class="mdi-controls">
-            <button type="button" title="کوچک کردن" onclick="WinMgr.minimize(${id})">─</button>
-            <button type="button" class="mdi-max-btn" title="بازگرداندن از تمام‌صفحه" onclick="WinMgr.toggleMax(${id})">❐</button>
-            <button type="button" class="mdi-close" title="بستن" onclick="WinMgr.close(${id})">×</button>
+            <button type="button" title="کوچک کردن" data-csp-click="${CSP.bind('click',function(event){WinMgr.minimize((id))})}">─</button>
+            <button type="button" class="mdi-max-btn" title="بازگرداندن از تمام‌صفحه" data-csp-click="${CSP.bind('click',function(event){WinMgr.toggleMax((id))})}">❐</button>
+            <button type="button" class="mdi-close" title="بستن" data-csp-click="${CSP.bind('click',function(event){WinMgr.close((id))})}">×</button>
           </div>
         </div>
         <div class="mdi-body" id="mdiBody-${id}"></div>`;
@@ -148,7 +148,7 @@
       updateTaskbar();
       if (typeof renderFn === 'function') {
         Promise.resolve(renderFn(body)).catch((e) => {
-          body.innerHTML = `<div class="empty" style="padding:16px">${escHtml(e.message || 'خطا در بارگذاری')}</div>`;
+          body.innerHTML = `<div class="empty" data-csp-style="${CSP.style(`padding:16px`)}">${escHtml(e.message || 'خطا در بارگذاری')}</div>`;
         });
       }
       return true;

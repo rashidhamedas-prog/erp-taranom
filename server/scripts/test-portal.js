@@ -7,7 +7,6 @@ const fs = require('fs');
 const os = require('os');
 const http = require('http');
 const express = require('express');
-const jwt = require('jsonwebtoken');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-'));
 const dbFile = path.join(dir, 't.db');
@@ -88,19 +87,25 @@ COA_GAP_KEYS.forEach(k => {
 });
 
 console.log('\n— ensurePersonUser temp password modes —');
-const { ensurePersonUser, DEFAULT_TEMP_PASSWORD } = require('../lib/portal-users');
+const bcrypt = require('bcryptjs');
+const { ensurePersonUser } = require('../lib/portal-users');
 const pPhone = db.prepare("INSERT INTO persons (name,phone) VALUES ('تست رمز','09121110000')").run().lastInsertRowid;
 const uDef = ensurePersonUser(db, pPhone, 'department_manager');
 ok(uDef.created === true, 'ensurePersonUser created (default no SMS)');
-ok(uDef.tempPassword === DEFAULT_TEMP_PASSWORD || uDef.tempPassword === '12345',
-  'temp password default 12345 without SMS');
+ok(!Object.prototype.hasOwnProperty.call(uDef, 'tempPassword'),
+  'no-SMS path never discloses the generated credential');
+const noSmsHash = db.prepare('SELECT password FROM users WHERE id=?').get(uDef.userId)?.password;
+ok(noSmsHash && !bcrypt.compareSync('12345', noSmsHash) && !bcrypt.compareSync('admin123', noSmsHash),
+  'no-SMS path rejects historical predictable defaults');
 ok(db.prepare('SELECT must_change_password FROM users WHERE id=?').get(uDef.userId)?.must_change_password === 1,
   'must_change_password=1');
 const pPhone2 = db.prepare("INSERT INTO persons (name,phone) VALUES ('تست رمز SMS','09121110009')").run().lastInsertRowid;
 const uSms = ensurePersonUser(db, pPhone2, 'department_manager', { sendSms: true });
 ok(uSms.created === true, 'ensurePersonUser created with sendSms');
-ok(uSms.tempPassword && uSms.tempPassword.length >= 8 && uSms.tempPassword !== '12345',
-  'temp password random when sendSms');
+ok(uSms.tempPassword && uSms.tempPassword.length === 14
+    && /[A-Z]/.test(uSms.tempPassword) && /[a-z]/.test(uSms.tempPassword) && /\d/.test(uSms.tempPassword)
+    && uSms.tempPassword !== '12345' && uSms.tempPassword !== 'admin123',
+  'temp password is strong and random when sendSms');
 ok(db.prepare('SELECT must_change_password FROM users WHERE id=?').get(uSms.userId)?.must_change_password === 1,
   'must_change_password=1 (SMS path)');
 
@@ -134,12 +139,14 @@ db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('portal_review_t
 // ─── HTTP E2E ──────────────────────────────────────────────────────────────
 (async () => {
   console.log('\n— E2E HTTP workflow —');
-  const admin = db.prepare("SELECT id,username,role FROM users WHERE username='admin'").get();
+  const admin = db.prepare("SELECT id,username,role,name,phone,auth_epoch FROM users WHERE username='admin'").get();
   db.prepare('UPDATE users SET must_change_password=0 WHERE id=?').run(admin.id);
-  const token = jwt.sign(
-    { id: admin.id, username: admin.username, role: admin.role || 'admin' },
-    process.env.JWT_SECRET
-  );
+  const { issueStaffSession } = require('../lib/auth-sessions');
+  const token = issueStaffSession(db, admin, {
+    device_kind: 'test',
+    device_name: 'portal-e2e',
+    device_fingerprint: 'portal-e2e-fingerprint',
+  }).token;
 
   const app = express();
   app.use(express.json());

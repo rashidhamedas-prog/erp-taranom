@@ -1,33 +1,45 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
 const { getDB, audit, isDevice } = require('../db');
-const { auth, adminOnly, invalidateUserCache, SECRET } = require('../middleware/auth');
+const {
+  auth,
+  adminOnly,
+  invalidateUserCache,
+  revokeUserSessions,
+  revokeCurrentSession,
+  SECRET,
+} = require('../middleware/auth');
+const {
+  issueStaffSession,
+  createLoginChallenge,
+  revokeStaffSessionByHash,
+  consumeRateLimit,
+  rateLimitStatus,
+  clearRateLimit,
+} = require('../lib/auth-sessions');
 const { validatePassword } = require('../lib/security');
+const { getSmsSettings } = require('../lib/secret-settings');
 const { sendSMS } = require('../sms');
 
-// In-memory failed-login tracker: { username: { count, until } }
-const failedLogins = new Map();
-const forgotAttempts = new Map();
-const MAX_FAILURES = 10;
-const LOCKOUT_MS = 15 * 60 * 1000;
 const OTP_TTL_SEC = 10 * 60;
 const MAX_OTP_ATTEMPTS = 5;
+const LOGIN_WINDOW_SEC = 15 * 60;
+const LOGIN_FAILURE_MESSAGE = 'نام کاربری یا رمز عبور اشتباه است یا تلاش‌ها بیش از حد مجاز بوده است';
+// Unknown accounts still execute bcrypt so timing does not become a username
+// enumeration channel. The value is process-local and is never persisted.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(24).toString('hex'), 10);
 
-function isLockedOut(username) {
-  const rec = failedLogins.get(username);
-  if (!rec) return false;
-  if (Date.now() < rec.until) return true;
-  failedLogins.delete(username);
-  return false;
+function loginIp(req) {
+  return String(req.ip || req.socket?.remoteAddress || 'unknown').slice(0, 128);
 }
 
-function recordFailure(username) {
-  const rec = failedLogins.get(username) || { count: 0, until: 0 };
-  rec.count += 1;
-  if (rec.count >= MAX_FAILURES) rec.until = Date.now() + LOCKOUT_MS;
-  failedLogins.set(username, rec);
+function rejectLogin(res, retryAfter = 0) {
+  if (retryAfter > 0) res.setHeader('Retry-After', String(Math.max(1, Math.ceil(retryAfter))));
+  return res.status(retryAfter > 0 ? 429 : 401).json({
+    error: LOGIN_FAILURE_MESSAGE,
+    code: 'LOGIN_REJECTED',
+  });
 }
 
 function normalizePhone(p) {
@@ -39,23 +51,7 @@ function normalizePhone(p) {
 }
 
 function getSMSSettings(db) {
-  const rows = db.prepare("SELECT key,value FROM settings WHERE key LIKE 'sms_%'").all();
-  const s = {};
-  for (const r of rows) s[r.key] = r.value;
-  return s;
-}
-
-function forgotRateLimit(key) {
-  const rec = forgotAttempts.get(key) || { count: 0, until: 0 };
-  if (Date.now() < rec.until) return false;
-  if (rec.count >= 5) {
-    rec.until = Date.now() + 15 * 60 * 1000;
-    forgotAttempts.set(key, rec);
-    return false;
-  }
-  rec.count += 1;
-  forgotAttempts.set(key, rec);
-  return true;
+  return getSmsSettings(db);
 }
 
 function normalizeUsername(u) {
@@ -66,24 +62,79 @@ function normalizeUsername(u) {
     .slice(0, 64);
 }
 
+function otpDigest(purpose, subject, code) {
+  return crypto.createHmac('sha256', SECRET)
+    .update(`${purpose}:${subject}:${String(code || '')}`)
+    .digest('hex');
+}
+
+function safeDigestEqual(left, right) {
+  const a = Buffer.from(String(left || ''), 'hex');
+  const b = Buffer.from(String(right || ''), 'hex');
+  return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+}
+
+function loginConflict(res, error) {
+  const existing = error.existing || {};
+  const slotFa = { mobile: 'موبایل', desktop: 'دسکتاپ/ویندوز', web: 'وب' }[existing.device_slot] || existing.device_slot;
+  return res.status(409).json({
+    error: `این حساب روی یک دستگاه ${slotFa || ''} دیگر فعال است. برای ورود، نشست قبلی همان نوع باید قطع شود.`,
+    code: 'DEVICE_SESSION_ACTIVE',
+    other_device: {
+      device_name: existing.device_name || '',
+      device_kind: existing.device_kind || '',
+      device_slot: existing.device_slot || '',
+      last_seen: existing.last_seen || null,
+    },
+  });
+}
+
+function loginPayload(db, user, deviceInput) {
+  const issued = issueStaffSession(db, user, deviceInput);
+  const mustChange = !isDevice() && !!user.must_change_password;
+  invalidateUserCache(user.id);
+  return {
+    token: issued.token,
+    must_change_password: mustChange,
+    user: {
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: user.role,
+      phone: user.phone || '',
+    },
+  };
+}
+
 // Login
 router.post('/login', (req, res) => {
   const username = normalizeUsername(req.body.username);
   const password = (req.body.password || '').slice(0, 128);
   if (!username || !password) return res.status(400).json({ error: 'اطلاعات ناقص' });
 
-  if (isLockedOut(username))
-    return res.status(429).json({ error: 'حساب به دلیل تلاش‌های مکرر ناموفق قفل شده است. ۱۵ دقیقه دیگر تلاش کنید.' });
+  const ip = loginIp(req);
+  const identityState = rateLimitStatus('login_identity', username);
+  const ipState = rateLimitStatus('login_ip', ip);
+  if (!identityState.allowed || !ipState.allowed) {
+    return rejectLogin(res, Math.max(identityState.retryAfter, ipState.retryAfter));
+  }
 
   const db = getDB();
   const user = db.prepare('SELECT * FROM users WHERE username=? AND active=1').get(username);
-  if (!user || !user.password || !bcrypt.compareSync(password, user.password)) {
-    recordFailure(username);
+  const passwordMatches = bcrypt.compareSync(password, user && user.password ? user.password : DUMMY_PASSWORD_HASH);
+  if (!user || !passwordMatches) {
+    const identityLimit = consumeRateLimit('login_identity', username, {
+      max: 10, windowSec: LOGIN_WINDOW_SEC, blockSec: LOGIN_WINDOW_SEC,
+    });
+    const ipLimit = consumeRateLimit('login_ip', ip, {
+      max: 50, windowSec: LOGIN_WINDOW_SEC, blockSec: LOGIN_WINDOW_SEC,
+    });
     if (user) audit(user.id, 'login_failed', 'user', user.id, 'رمز اشتباه', req);
-    return res.status(401).json({ error: 'نام کاربری یا رمز عبور اشتباه است' });
+    const retryAfter = Math.max(identityLimit.retryAfter, ipLimit.retryAfter);
+    return rejectLogin(res, retryAfter);
   }
 
-  failedLogins.delete(username);
+  clearRateLimit('login_identity', username);
 
   // Flag default password before 2FA step so must_change_password survives the 2FA round-trip.
   if (!isDevice() && password === 'admin123') {
@@ -93,75 +144,33 @@ router.post('/login', (req, res) => {
 
   // 2FA: enabled for this user → require TOTP verification before issuing the real token.
   // Device builds never have two_factor_auth rows (central-only table) → step is skipped.
+  const deviceInput = {
+    device_fingerprint: req.body.device_fingerprint,
+    device_name: req.body.device_name,
+    device_kind: req.body.device_kind,
+    force_logout_other: req.body.force_logout_other,
+  };
   const tfa = db.prepare('SELECT enabled FROM two_factor_auth WHERE user_id=?').get(user.id);
   if (tfa && tfa.enabled) {
-    const preToken = jwt.sign({ id: user.id, scope: 'pre-2fa' }, SECRET, { expiresIn: '5m' });
-    return res.json({ twofa_required: true, pre_token: preToken });
+    try {
+      const challenge = createLoginChallenge(user, deviceInput);
+      return res.json({ twofa_required: true, pre_token: challenge.preToken });
+    } catch (error) {
+      if (error.code === 'DEVICE_SESSION_ACTIVE') return loginConflict(res, error);
+      throw error;
+    }
   }
 
   db.prepare("UPDATE users SET last_login=strftime('%s','now') WHERE id=?").run(user.id);
 
-  // Slot-based device sessions: 1 mobile + 1 desktop + 1 web per user
-  const fingerprint = String(req.body.device_fingerprint || '').slice(0, 200);
-  const deviceName = String(req.body.device_name || '').slice(0, 120);
-  const deviceKind = String(req.body.device_kind || 'web').slice(0, 32);
-  const forceKick = !!req.body.force_logout_other;
-  function deviceSlotOf(kind) {
-    const k = String(kind || 'web').toLowerCase();
-    if (/android|ios|mobile/.test(k)) return 'mobile';
-    if (/desktop|windows|electron|win/.test(k)) return 'desktop';
-    return 'web';
+  try {
+    const payload = loginPayload(db, user, deviceInput);
+    audit(user.id, 'login', 'user', user.id, 'ورود موفق و ایجاد نشست معتبر', req);
+    return res.json(payload);
+  } catch (error) {
+    if (error.code === 'DEVICE_SESSION_ACTIVE') return loginConflict(res, error);
+    throw error;
   }
-  const deviceSlot = deviceSlotOf(deviceKind);
-  if (fingerprint) {
-    try {
-      const existing = db.prepare(
-        'SELECT * FROM user_device_sessions WHERE user_id=? AND device_slot=?'
-      ).get(user.id, deviceSlot);
-      if (existing && existing.device_fingerprint !== fingerprint && !forceKick) {
-        const slotFa = { mobile: 'موبایل', desktop: 'دسکتاپ/ویندوز', web: 'وب' }[deviceSlot] || deviceSlot;
-        return res.status(409).json({
-          error: `این حساب روی یک دستگاه ${slotFa} دیگر فعال است. برای ورود، نشست قبلی همان نوع باید قطع شود.`,
-          code: 'DEVICE_SESSION_ACTIVE',
-          other_device: {
-            device_name: existing.device_name,
-            device_kind: existing.device_kind,
-            device_slot: existing.device_slot || deviceSlot,
-            last_seen: existing.last_seen,
-          },
-        });
-      }
-      db.prepare(`
-        INSERT INTO user_device_sessions (user_id, device_slot, device_fingerprint, device_name, device_kind, last_seen)
-        VALUES (?,?,?,?,?,strftime('%s','now'))
-        ON CONFLICT(user_id, device_slot) DO UPDATE SET
-          device_fingerprint=excluded.device_fingerprint,
-          device_name=excluded.device_name,
-          device_kind=excluded.device_kind,
-          last_seen=excluded.last_seen
-      `).run(user.id, deviceSlot, fingerprint, deviceName || deviceKind, deviceKind);
-    } catch (e) {
-      console.warn('user_device_sessions:', e.message);
-    }
-  }
-
-  // Central only: default/assigned passwords must be changed on first login.
-  let mustChange = false;
-  if (!isDevice()) {
-    mustChange = !!user.must_change_password;
-    invalidateUserCache(user.id);
-  }
-
-  audit(user.id, 'login', 'user', user.id, 'ورود موفق', req);
-  const token = jwt.sign(
-    { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '', ae: Number(user.auth_epoch || 0), dfp: fingerprint || undefined, dslot: fingerprint ? deviceSlot : undefined },
-    SECRET, { expiresIn: '30d' }
-  );
-  res.json({
-    token,
-    must_change_password: mustChange,
-    user: { id: user.id, name: user.name, username: user.username, role: user.role, phone: user.phone || '' }
-  });
 });
 
 // Admin: list / revoke device sessions (slot-aware)
@@ -180,23 +189,28 @@ router.delete('/device-sessions/:id', auth, adminOnly, (req, res) => {
   const db = getDB();
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'شناسه نامعتبر' });
-  // Prefer delete by session id; fallback: treat param as user_id (legacy) → wipe all slots
-  const byId = db.prepare('SELECT id, user_id FROM user_device_sessions WHERE id=?').get(id);
-  if (byId) {
-    db.prepare('DELETE FROM user_device_sessions WHERE id=?').run(id);
-    audit(req.user.id, 'revoke', 'user_device_session', byId.user_id, 'قطع نشست دستگاه #' + id);
-  } else {
-    db.prepare('DELETE FROM user_device_sessions WHERE user_id=?').run(id);
-    audit(req.user.id, 'revoke', 'user_device_session', id, 'قطع همه نشست‌های کاربر');
+  const byId = db.prepare('SELECT id,user_id,session_id FROM user_device_sessions WHERE id=?').get(id);
+  if (!byId) return res.status(404).json({ error: 'نشست یافت نشد' });
+  if (byId.session_id) revokeStaffSessionByHash(byId.session_id);
+  db.prepare('DELETE FROM user_device_sessions WHERE id=?').run(id);
+  audit(req.user.id, 'revoke', 'user_device_session', byId.user_id, 'قطع نشست دستگاه #' + id, req);
+  res.json({ ok: true });
+});
+
+router.post('/logout', auth, (req, res) => {
+  const db = getDB();
+  revokeCurrentSession(req);
+  if (req.user.sid) {
+    const sidHash = require('../lib/auth-sessions').opaqueHash(req.user.sid);
+    db.prepare('DELETE FROM user_device_sessions WHERE session_id=?').run(sidHash);
   }
+  audit(req.user.id, 'logout', 'user_session', req.user.id, 'خروج و ابطال نشست جاری', req);
   res.json({ ok: true });
 });
 
 router.post('/logout-all', auth, (req, res) => {
   const db = getDB();
-  db.prepare('UPDATE users SET auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?').run(req.user.id);
-  db.prepare('DELETE FROM user_device_sessions WHERE user_id=?').run(req.user.id);
-  invalidateUserCache(req.user.id);
+  revokeUserSessions(db, req.user.id);
   audit(req.user.id, 'revoke', 'user_session', req.user.id, 'خروج از همه دستگاه‌ها');
   res.json({ ok: true });
 });
@@ -215,7 +229,9 @@ router.post('/forgot', async (req, res) => {
   if (!/^09\d{9}$/.test(phone)) return res.status(400).json({ error: 'شماره موبایل نامعتبر است' });
 
   const key = username + ':' + phone;
-  if (!forgotRateLimit(key)) {
+  const byIdentity = consumeRateLimit('password-reset-send', key, { max: 5, windowSec: 900, blockSec: 900 });
+  const byIp = consumeRateLimit('password-reset-send-ip', req.ip || req.socket?.remoteAddress || '', { max: 20, windowSec: 900, blockSec: 900 });
+  if (!byIdentity.allowed || !byIp.allowed) {
     return res.status(429).json({ error: 'تعداد درخواست‌ها زیاد است. ۱۵ دقیقه دیگر تلاش کنید.' });
   }
 
@@ -230,8 +246,8 @@ router.post('/forgot', async (req, res) => {
     return res.json({ ok: true, message: 'اگر اطلاعات صحیح باشد، کد بازیابی ارسال می‌شود.' });
   }
 
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+  const code = String(crypto.randomInt(100000, 1000000));
+  const codeHash = otpDigest('password-reset', user.id, code);
   const expires = Math.floor(Date.now() / 1000) + OTP_TTL_SEC;
   db.prepare('DELETE FROM password_reset_otps WHERE user_id=?').run(user.id);
   db.prepare('INSERT INTO password_reset_otps (user_id,code_hash,expires_at) VALUES (?,?,?)')
@@ -241,9 +257,14 @@ router.post('/forgot', async (req, res) => {
   const text = `کد بازیابی رمز ERP ترنم: ${code}\nاعتبار: ۱۰ دقیقه`;
   const sms = await sendSMS(settings, phone, text);
   if (!sms.ok) {
-    return res.status(503).json({ error: 'ارسال پیامک ممکن نشد. با مدیر سیستم تماس بگیرید یا رمز را از مدیر بخواهید.' });
+    // Delivery failed: the generated credential must not remain usable.
+    db.prepare('DELETE FROM password_reset_otps WHERE user_id=?').run(user.id);
+    audit(user.id, 'otp_delivery_failed', 'user', user.id, 'عدم تحویل کد بازیابی رمز', req);
+    // Keep the public response indistinguishable from an unknown account.
+    return res.json({ ok: true, message: 'اگر اطلاعات صحیح باشد، کد بازیابی ارسال می‌شود.' });
   }
-  res.json({ ok: true, message: 'کد بازیابی به موبایل شما ارسال شد.' });
+  audit(user.id, 'otp_sent', 'user', user.id, 'ارسال کد بازیابی رمز', req);
+  res.json({ ok: true, message: 'اگر اطلاعات صحیح باشد، کد بازیابی ارسال می‌شود.' });
 });
 
 // Forgot password — step 2: verify OTP and set new password
@@ -258,6 +279,13 @@ router.post('/forgot-reset', (req, res) => {
   const code = String(req.body.code || '').trim();
   const newPass = (req.body.newPass || '').slice(0, 128);
   if (!username || !code || !newPass) return res.status(400).json({ error: 'اطلاعات ناقص' });
+  if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: 'کد نامعتبر یا منقضی شده است' });
+
+  const identityRate = consumeRateLimit('password-reset-verify', username, { max: 10, windowSec: 900, blockSec: 900 });
+  const ipRate = consumeRateLimit('password-reset-verify-ip', req.ip || req.socket?.remoteAddress || '', { max: 30, windowSec: 900, blockSec: 900 });
+  if (!identityRate.allowed || !ipRate.allowed) {
+    return res.status(429).json({ error: 'تعداد تلاش بیش از حد است. ۱۵ دقیقه دیگر تلاش کنید.' });
+  }
 
   const passErr = validatePassword(newPass);
   if (passErr) return res.status(400).json({ error: passErr });
@@ -270,22 +298,34 @@ router.post('/forgot-reset', (req, res) => {
     'SELECT * FROM password_reset_otps WHERE user_id=? ORDER BY id DESC LIMIT 1'
   ).get(user.id);
   if (!otp || otp.expires_at < Math.floor(Date.now() / 1000)) {
+    if (otp) db.prepare('DELETE FROM password_reset_otps WHERE id=?').run(otp.id);
     return res.status(400).json({ error: 'کد منقضی شده — دوباره درخواست دهید' });
   }
   if (otp.attempts >= MAX_OTP_ATTEMPTS) {
     return res.status(429).json({ error: 'تعداد تلاش بیش از حد — دوباره درخواست کد دهید' });
   }
 
-  const hash = crypto.createHash('sha256').update(code).digest('hex');
-  if (hash !== otp.code_hash) {
-    db.prepare('UPDATE password_reset_otps SET attempts=attempts+1 WHERE id=?').run(otp.id);
+  const hash = otpDigest('password-reset', user.id, code);
+  if (!safeDigestEqual(hash, otp.code_hash)) {
+    const attempts = Number(otp.attempts || 0) + 1;
+    if (attempts >= MAX_OTP_ATTEMPTS) {
+      db.prepare('DELETE FROM password_reset_otps WHERE id=?').run(otp.id);
+    } else {
+      db.prepare('UPDATE password_reset_otps SET attempts=? WHERE id=?').run(attempts, otp.id);
+    }
+    audit(user.id, 'otp_failed', 'user', user.id, 'کد بازیابی رمز نامعتبر', req);
     return res.status(400).json({ error: 'کد اشتباه است' });
   }
 
-  db.prepare('UPDATE users SET password=?, must_change_password=0 WHERE id=?').run(bcrypt.hashSync(newPass, 10), user.id);
-  db.prepare('DELETE FROM password_reset_otps WHERE user_id=?').run(user.id);
+  revokeUserSessions(db, user.id, { bumpEpoch: false });
+  db.transaction(() => {
+    db.prepare('UPDATE users SET password=?,must_change_password=0,auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?')
+      .run(bcrypt.hashSync(newPass, 10), user.id);
+    db.prepare('DELETE FROM password_reset_otps WHERE user_id=?').run(user.id);
+  })();
+  clearRateLimit('password-reset-verify', username);
   invalidateUserCache(user.id);
-  audit(user.id, 'reset_password', 'user', user.id, 'بازیابی رمز از طریق پیامک');
+  audit(user.id, 'reset_password', 'user', user.id, 'بازیابی رمز از طریق پیامک و ابطال همه نشست‌ها', req);
   res.json({ ok: true, message: 'رمز جدید ذخیره شد. اکنون وارد شوید.' });
 });
 
@@ -354,17 +394,22 @@ router.post('/change-password', auth, async (req, res) => {
           code: proxied.code || undefined
         });
       }
-      db.prepare('UPDATE users SET password=?, must_change_password=0 WHERE id=?')
+      revokeUserSessions(db, req.user.id, { bumpEpoch: false });
+      db.prepare('UPDATE users SET password=?,must_change_password=0,auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?')
         .run(bcrypt.hashSync(newPass, 10), req.user.id);
       invalidateUserCache(req.user.id);
+      audit(req.user.id, 'change_password', 'user', req.user.id, 'تغییر رمز و ابطال نشست‌های محلی', req);
       return res.json({ ok: true });
     }
   }
 
   if (!bcrypt.compareSync(oldPass, user.password))
     return res.status(400).json({ error: 'رمز قدیمی اشتباه است' });
-  db.prepare('UPDATE users SET password=?, must_change_password=0, auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?').run(bcrypt.hashSync(newPass, 10), req.user.id);
+  revokeUserSessions(db, req.user.id, { bumpEpoch: false });
+  db.prepare('UPDATE users SET password=?,must_change_password=0,auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?')
+    .run(bcrypt.hashSync(newPass, 10), req.user.id);
   invalidateUserCache(req.user.id);
+  audit(req.user.id, 'change_password', 'user', req.user.id, 'تغییر رمز و ابطال همه نشست‌ها', req);
   res.json({ ok: true });
 });
 
@@ -378,9 +423,11 @@ router.post('/reset-password', auth, adminOnly, (req, res) => {
   const target = db.prepare('SELECT id,name FROM users WHERE id=?').get(user_id);
   if (!target) return res.status(404).json({ error: 'کاربر یافت نشد' });
   // رمزی که مدیر تعیین کرده موقتی است — کاربر در اولین ورود باید عوضش کند
-  db.prepare('UPDATE users SET password=?, must_change_password=1, auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?').run(bcrypt.hashSync(new_pass, 10), user_id);
+  revokeUserSessions(db, user_id, { bumpEpoch: false });
+  db.prepare('UPDATE users SET password=?,must_change_password=1,auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?')
+    .run(bcrypt.hashSync(new_pass, 10), user_id);
   invalidateUserCache(+user_id);
-  audit(req.user.id, 'reset_password', 'user', user_id, `بازنشانی رمز ${target.name}`);
+  audit(req.user.id, 'reset_password', 'user', user_id, `بازنشانی رمز ${target.name} و ابطال همه نشست‌ها`, req);
   res.json({ ok: true });
 });
 

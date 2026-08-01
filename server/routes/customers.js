@@ -5,10 +5,11 @@ const { assignCustomerByTerritory } = require('../lib/rep-ledger');
 const { syncCustomerToParty, deactivatePartyFromCustomer, CRM_CUSTOMER_ACTIVE_SQL } = require('../lib/parties-sync');
 const { auth, adminOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
-const XLSX = require('xlsx');
-const multer = require('multer');
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
+const { createSecureUpload } = require('../lib/upload-policy');
+const { getSmsSettings } = require('../lib/secret-settings');
 
-const memUpload = multer({ storage: multer.memoryStorage() });
+const excelUpload = createSecureUpload('xlsx');
 
 // Pre-aggregated ledger balances — one GROUP BY pass instead of a correlated subquery per row.
 const LEDGER_BAL_JOIN = `LEFT JOIN (
@@ -55,11 +56,7 @@ const DEFAULT_WELCOME_SMS = `سلام 🌸 به خانواده پوشاک ترن
 
 async function sendWelcomeSMSToCust(db, phone) {
   try {
-    const rows = db.prepare(
-      "SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from','welcome_sms_text','kimia_address')"
-    ).all();
-    const s = {};
-    for (const r of rows) s[r.key] = r.value;
+    const s = getSmsSettings(db, ['welcome_sms_text', 'kimia_address']);
     if (!s.sms_api_key || !phone) return;
     const addrLine = s.kimia_address ? `\n🏢 آدرس دفتر: ${s.kimia_address}` : '';
     const text = (s.welcome_sms_text || DEFAULT_WELCOME_SMS).replace('{address}', addrLine);
@@ -247,10 +244,10 @@ router.get('/export/excel', auth, adminOnly, (req, res) => {
 });
 
 // Import customers from Excel
-router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => {
+router.post('/import', auth, adminOnly, excelUpload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل آپلود نشد' });
   try {
-    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const wb = readWorkbook(req.file.buffer);
     const ws = wb.Sheets[wb.SheetNames[0]];
     const data = XLSX.utils.sheet_to_json(ws);
     const db = getDB();

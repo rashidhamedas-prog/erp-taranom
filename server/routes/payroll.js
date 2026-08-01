@@ -1,5 +1,4 @@
 const router = require('express').Router();
-const multer = require('multer');
 const { getDB, audit, createPersonLedgerEntry, resolveCashAccount } = require('../db');
 const { acct: coaAcct } = require('../lib/coa-map');
 const { postToLedger } = require('../lib/ledger');
@@ -7,13 +6,14 @@ const { rialToLedger } = require('../lib/money');
 const { calculatePayroll } = require('../lib/payroll/engine');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
+const { createSecureUpload } = require('../lib/upload-policy');
 const {
   parseFarankenouBuffer,
   calcPayrollFromAttendance,
   matchPerson
 } = require('../lib/farankenou');
 
-const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024 } });
+const lwteUpload = createSecureUpload('lwte');
 
 // Hourly payroll — employees are Persons (category "کارمند"). Each record
 // accrues the salary as a real double-entry posting:
@@ -96,7 +96,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
 });
 
 // Preview Farankenou .lwte import — match employees and calculate payroll
-router.post('/farankenou/preview', auth, adminOrAccounting, memUpload.single('file'), (req, res) => {
+router.post('/farankenou/preview', auth, adminOrAccounting, lwteUpload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل کارکرد (.lwte) الزامی است' });
 
   const defaultHourly = parseFloat(req.body.default_hourly_rate) || 0;

@@ -1,8 +1,54 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
-const { getDB, reopenDatabase, initDB, audit, isDevice } = require('../db');
+const { getDB, getDBPath, reopenDatabase, initDB, audit, isDevice } = require('../db');
 const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const ws = require('../lib/company-workspace');
+const { revokeAllAuthSessions } = require('../lib/auth-sessions');
+const { beginCompanySwitch } = require('../lib/company-switch-guard');
+
+function activateCompanySafely(companyId, options = {}) {
+  const previousCompany = ws.getActiveCompany();
+  const previousDbPath = getDBPath();
+  const endSwitch = beginCompanySwitch();
+  try {
+    const oldDb = getDB();
+    // Global session rows use numeric ids that can collide across company DBs.
+    // Revoke before changing either registry or handle; cid binding remains a
+    // second independent deny if a stale token survived unexpectedly.
+    revokeAllAuthSessions();
+    try { oldDb.prepare('DELETE FROM user_device_sessions').run(); } catch { /* migration-safe */ }
+    const company = ws.setActiveCompanyId(companyId);
+    try {
+      if (typeof options.openTarget === 'function') options.openTarget(company);
+      else {
+        reopenDatabase(company.dbPath);
+        initDB();
+      }
+    } catch (switchError) {
+      // Registry is written before the handle swap. Restore both registry and
+      // live handle before surfacing failure so startup and subsequent requests
+      // cannot observe different active companies.
+      try {
+        if (previousCompany) ws.setActiveCompanyId(previousCompany.id);
+        reopenDatabase(previousDbPath);
+        initDB();
+      } catch (rollbackError) {
+        const fatal = new Error('تغییر شرکت و بازگردانی وضعیت قبلی هر دو ناموفق شدند');
+        fatal.code = 'COMPANY_SWITCH_ROLLBACK_FAILED';
+        fatal.status = 500;
+        fatal.cause = rollbackError;
+        throw fatal;
+      }
+      switchError.code = switchError.code || 'COMPANY_SWITCH_FAILED';
+      switchError.status = switchError.status || 500;
+      throw switchError;
+    }
+    try { getDB().prepare('DELETE FROM user_device_sessions').run(); } catch { /* migration-safe */ }
+    return company;
+  } finally {
+    endSwitch();
+  }
+}
 
 router.get('/', auth, adminOnly, (req, res) => {
   if (isDevice()) {
@@ -40,15 +86,13 @@ router.post('/', auth, adminOnly, centralOnly, (req, res) => {
     audit(req.user.id, 'company_create', 'company', entry.id, `ایجاد شرکت ${entry.name}`);
 
     if (activate) {
-      ws.setActiveCompanyId(entry.id);
-      reopenDatabase(entry.dbPath);
-      initDB(); // idempotent ensure on live handle
+      activateCompanySafely(entry.id);
       audit(req.user.id, 'company_activate', 'company', entry.id, `فعال‌سازی شرکت ${entry.name}`);
       return res.json({ ok: true, company: entry, activated: true, reload: true });
     }
     res.json({ ok: true, company: entry, activated: false });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 });
 
@@ -73,13 +117,11 @@ router.put('/:id', auth, adminOnly, centralOnly, (req, res) => {
 
 router.post('/:id/activate', auth, adminOnly, centralOnly, (req, res) => {
   try {
-    const c = ws.setActiveCompanyId(req.params.id);
-    reopenDatabase(c.dbPath);
-    initDB();
+    const c = activateCompanySafely(req.params.id);
     audit(req.user.id, 'company_activate', 'company', c.id, `فعال‌سازی شرکت ${c.name}`);
     res.json({ ok: true, company: { id: c.id, name: c.name, code: c.code }, reload: true });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 });
 
@@ -100,3 +142,4 @@ router.delete('/:id', auth, adminOnly, centralOnly, (req, res) => {
 });
 
 module.exports = router;
+module.exports._test = { activateCompanySafely };

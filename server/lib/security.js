@@ -1,5 +1,4 @@
-// Production security checks and password policy.
-const DEFAULT_JWT = 'taranom-crm-secret-2024';
+// Central security configuration and password policy.
 
 function validatePassword(pass) {
   const p = String(pass || '');
@@ -11,27 +10,73 @@ function validatePassword(pass) {
   return null;
 }
 
-function assertSecurityConfig() {
-  const secret = process.env.JWT_SECRET || DEFAULT_JWT;
-  const isProd = process.env.NODE_ENV === 'production';
-
-  if (isProd) {
-    if (!process.env.JWT_SECRET || secret === DEFAULT_JWT || secret.length < 32) {
-      console.error('❌ امنیت: در production متغیر JWT_SECRET (حداقل ۳۲ کاراکتر تصادفی) الزامی است.');
-      console.error('   تولید: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
-      if (process.env.SECURITY_STRICT !== '0') process.exit(1);
-      console.warn('⚠️ SECURITY_STRICT=0 — ادامه با رمز ضعیف (فقط موقت)');
-    }
-  } else if (!process.env.JWT_SECRET || secret === DEFAULT_JWT) {
-    console.warn('⚠️ JWT_SECRET پیش‌فرض — فقط برای توسعه. در production حتماً تغییر دهید.');
+/**
+ * Return the one explicit JWT secret used by every auth surface.
+ * There is deliberately no development/default fallback: a missing secret
+ * would make tokens unpredictable across restarts and can silently weaken a
+ * production process that was started with an incomplete environment.
+ */
+function getJwtSecret() {
+  const secret = String(process.env.JWT_SECRET || '');
+  if (!secret) {
+    const error = new Error('JWT_SECRET is required');
+    error.code = 'E_JWT_SECRET_REQUIRED';
+    throw error;
   }
-
-  if (isProd && !process.env.ALLOWED_ORIGINS) {
-    // Operational default for the single known central host until PM2/env is set.
-    // Prefer explicit ALLOWED_ORIGINS in production process env.
-    process.env.ALLOWED_ORIGINS = 'https://erp.poshaktaranom.com,http://erp.poshaktaranom.com,https://poshaktaranom.com,http://poshaktaranom.com';
-    console.warn('⚠️ ALLOWED_ORIGINS خالی بود — پیش‌فرض دامنه ترنم (http+https) اعمال شد. حتماً در PM2 تنظیم کنید.');
+  if (process.env.NODE_ENV === 'production' && secret.length < 32) {
+    const error = new Error('JWT_SECRET must contain at least 32 characters in production');
+    error.code = 'E_JWT_SECRET_WEAK';
+    throw error;
   }
+  return secret;
 }
 
-module.exports = { validatePassword, assertSecurityConfig, DEFAULT_JWT };
+function parseAllowedOrigins(raw = process.env.ALLOWED_ORIGINS || '') {
+  const isProd = process.env.NODE_ENV === 'production';
+  const isDevice = process.env.SYNC_ROLE === 'device';
+  const values = String(raw).split(',').map((value) => value.trim()).filter(Boolean);
+  const origins = [];
+
+  for (const value of values) {
+    let parsed;
+    try { parsed = new URL(value); }
+    catch {
+      const error = new Error(`Invalid ALLOWED_ORIGINS entry: ${value}`);
+      error.code = 'E_ALLOWED_ORIGIN_INVALID';
+      throw error;
+    }
+    if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+      const error = new Error(`ALLOWED_ORIGINS entries must be exact origins: ${value}`);
+      error.code = 'E_ALLOWED_ORIGIN_INVALID';
+      throw error;
+    }
+    if (!['https:', 'http:'].includes(parsed.protocol)) {
+      const error = new Error(`Unsupported ALLOWED_ORIGINS scheme: ${value}`);
+      error.code = 'E_ALLOWED_ORIGIN_SCHEME';
+      throw error;
+    }
+    if (isProd && parsed.protocol !== 'https:') {
+      const error = new Error(`Production ALLOWED_ORIGINS entries must use HTTPS: ${value}`);
+      error.code = 'E_ALLOWED_ORIGIN_HTTPS';
+      throw error;
+    }
+    if (!origins.includes(parsed.origin)) origins.push(parsed.origin);
+  }
+
+  // Device builds are same-origin loopback servers. They do not need a remote
+  // browser allow-list, but any request that supplies Origin is still denied
+  // unless that exact origin was explicitly configured.
+  if (isProd && !isDevice && origins.length === 0) {
+    const error = new Error('ALLOWED_ORIGINS with at least one explicit HTTPS origin is required in production');
+    error.code = 'E_ALLOWED_ORIGINS_REQUIRED';
+    throw error;
+  }
+  return origins;
+}
+
+function assertSecurityConfig() {
+  getJwtSecret();
+  return { allowedOrigins: parseAllowedOrigins() };
+}
+
+module.exports = { validatePassword, getJwtSecret, parseAllowedOrigins, assertSecurityConfig };

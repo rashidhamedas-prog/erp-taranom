@@ -69,7 +69,7 @@
     const view = el('view');
     const invOk = canInvoice();
     view.innerHTML = `
-      <div class="toolbar" style="gap:8px;flex-wrap:wrap">
+      <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;flex-wrap:wrap`)}">
         <button class="btn" id="mkTabCat">🛍️ کاتالوگ</button>
         <button class="btn ghost" id="mkTabCart">🛒 سبد <span id="mkCartBadge" class="tag t-new">${cart.reduce((a,c)=>a+(Number(c.qty)||0),0)}</span></button>
         <button class="btn ghost" id="mkTabInv" ${invOk ? '' : 'disabled title="دسترسی ایجاد فاکتور ندارید"'}>🧾 ثبت فاکتور</button>
@@ -122,8 +122,8 @@
             <div class="code">${esc(p.code || '')} ${p.category ? '· ' + esc(p.category) : ''}</div>
             <div class="price">${fmt(p.price)} ریال</div>
             <div class="stock ${low ? 'low' : ''}">موجودی: ${fmt(p.stock)} ${esc(p.unit || '')}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px">📦 ${pack} عدد/پک</div>
-            <button class="btn sm" style="width:100%;margin-top:8px" onclick="MarketerUI.addToCart(${p.id})">➕ افزودن به سبد (${pack} عدد)</button>
+            <div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:2px`)}">📦 ${pack} عدد/پک</div>
+            <button class="btn sm" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){MarketerUI.addToCart((p.id))})}">➕ افزودن به سبد (${pack} عدد)</button>
           </div>
         </div>`;
     }).join('') || '<div class="empty">کالایی یافت نشد</div>';
@@ -141,12 +141,12 @@
     cats = cats.map(c => (typeof c === 'string' ? c : (c && (c.name || c.category || ''))).trim()).filter(Boolean);
     const prods = await loadMkProducts();
     body.innerHTML = `
-      <div class="toolbar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
-        <input class="search" id="mkSearch" placeholder="جستجو نام یا کد..." value="${esc(mkFilter.search)}" style="flex:1;min-width:160px">
-        <select id="mkCat" style="min-width:140px"><option value="">همه گروه‌ها</option>
+      <div class="toolbar" data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px`)}">
+        <input class="search" id="mkSearch" placeholder="جستجو نام یا کد..." value="${esc(mkFilter.search)}" data-csp-style="${CSP.style(`flex:1;min-width:160px`)}">
+        <select id="mkCat" data-csp-style="${CSP.style(`min-width:140px`)}"><option value="">همه گروه‌ها</option>
           ${cats.map(c => `<option value="${esc(c)}" ${mkFilter.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
         </select>
-        <select id="mkStock" style="min-width:120px">
+        <select id="mkStock" data-csp-style="${CSP.style(`min-width:120px`)}">
           <option value="all" ${mkFilter.stock_status === 'all' ? 'selected' : ''}>همه موجودی</option>
           <option value="ok" ${mkFilter.stock_status === 'ok' ? 'selected' : ''}>موجود</option>
           <option value="low" ${mkFilter.stock_status === 'low' ? 'selected' : ''}>موجودی کم</option>
@@ -174,7 +174,7 @@
   async function refreshMkGrid() {
     const grid = el('mkGrid');
     if (!grid) return;
-    grid.innerHTML = '<div class="muted" style="padding:12px">در حال بارگذاری...</div>';
+    grid.innerHTML = `<div class="muted" data-csp-style="${CSP.style(`padding:12px`)}">در حال بارگذاری...</div>`;
     const prods = await loadMkProducts();
     window._mkProds = prods;
     paintMkGrid(prods);
@@ -226,17 +226,17 @@
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کالا</th><th>فی</th><th>تعداد</th><th>جمع</th><th></th></tr></thead>
       <tbody>${cart.map((c, i) => `
         <tr>
-          <td>${c.image ? prodImgTag(c.image, 'style="height:40px;border-radius:6px;margin-left:8px;vertical-align:middle"') : ''} ${esc(c.name)}${c.pack_size > 1 ? `<div class="muted" style="font-size:11px">📦 پک ${fmt(c.pack_size)}</div>` : ''}</td>
+          <td>${c.image ? prodImgTag(c.image, `data-csp-style="${CSP.style('height:40px;border-radius:6px;margin-left:8px;vertical-align:middle')}"`) : ''} ${esc(c.name)}${c.pack_size > 1 ? `<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">📦 پک ${fmt(c.pack_size)}</div>` : ''}</td>
           <td class="mono">${fmt(c.price)}</td>
-          <td><input type="number" min="1" value="${c.qty}" style="width:70px" onchange="MarketerUI.setQty(${i},+this.value)"></td>
+          <td><input type="number" min="1" value="${c.qty}" data-csp-style="${CSP.style(`width:70px`)}" data-csp-change="${CSP.bind('change',function(event){MarketerUI.setQty((i),+this.value)})}"></td>
           <td class="mono">${fmt(c.price * c.qty)}</td>
-          <td><button class="btn sm red" onclick="MarketerUI.remove(${i})">🗑️</button></td>
+          <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){MarketerUI.remove((i))})}">🗑️</button></td>
         </tr>`).join('')}</tbody>
-      <tfoot><tr><td colspan="3">جمع</td><td class="mono" style="font-weight:800">${fmt(cart.reduce((a,c)=>a+c.price*c.qty,0))}</td><td></td></tr></tfoot>
+      <tfoot><tr><td colspan="3">جمع</td><td class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(cart.reduce((a,c)=>a+c.price*c.qty,0))}</td><td></td></tr></tfoot>
       </table></div>
-      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" onclick="document.getElementById('mkTabInv').click()">ادامه → ثبت فاکتور</button>
-        <button class="btn green" onclick="MarketerUI.openInvoiceWithCart()">🧾 باز کردن فاکتورساز با اقلام سبد</button>
+      <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
+        <button class="btn" data-csp-click="${CSP.bind('click',function(event){document.getElementById('mkTabInv').click()})}">ادامه → ثبت فاکتور</button>
+        <button class="btn green" data-csp-click="${CSP.bind('click',function(event){MarketerUI.openInvoiceWithCart()})}">🧾 باز کردن فاکتورساز با اقلام سبد</button>
       </div>`;
   }
 
@@ -288,12 +288,12 @@
     el('mkBody').innerHTML = `
       <div class="panel"><div class="panel-body">
         <p class="muted">اقلام سبد (${cart.length} ردیف، با تعداد پک) آماده انتقال به فاکتورساز هستند.</p>
-        <ul class="muted" style="font-size:13px;margin:8px 0 14px;padding-right:18px;line-height:1.8">
+        <ul class="muted" data-csp-style="${CSP.style(`font-size:13px;margin:8px 0 14px;padding-right:18px;line-height:1.8`)}">
           ${cart.slice(0, 8).map(c => `<li>${esc(c.name)} × ${fmt(c.qty)}</li>`).join('')}
           ${cart.length > 8 ? `<li>… و ${cart.length - 8} مورد دیگر</li>` : ''}
         </ul>
-        <button class="btn" onclick="MarketerUI.openInvoiceWithCart()">🧾 باز کردن فاکتورساز با اقلام سبد</button>
-        <button class="btn ghost" style="margin-right:8px" onclick="MarketerUI.clearAfterInvoice()">پاک کردن سبد پس از ثبت</button>
+        <button class="btn" data-csp-click="${CSP.bind('click',function(event){MarketerUI.openInvoiceWithCart()})}">🧾 باز کردن فاکتورساز با اقلام سبد</button>
+        <button class="btn ghost" data-csp-style="${CSP.style(`margin-right:8px`)}" data-csp-click="${CSP.bind('click',function(event){MarketerUI.clearAfterInvoice()})}">پاک کردن سبد پس از ثبت</button>
       </div></div>`;
   }
 

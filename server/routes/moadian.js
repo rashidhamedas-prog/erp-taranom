@@ -1,6 +1,9 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOnly, adminOrAccounting, centralOnly } = require('../middleware/auth');
+const { getPublicSettings, updateSettings } = require('../lib/secret-settings');
+
+const MOADIAN_SETTING_KEYS = ['moadian_enabled', 'moadian_fiscal_id', 'moadian_private_key_path', 'moadian_adapter'];
 
 function enqueueMoadian(db, docType, docId) {
   const enabled = db.prepare("SELECT value FROM settings WHERE key='moadian_enabled'").get()?.value;
@@ -128,22 +131,12 @@ router.post('/queue/:id/correct', auth, adminOnly, (req, res) => {
 });
 
 router.get('/settings', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
-  const keys = ['moadian_enabled', 'moadian_fiscal_id', 'moadian_private_key_path', 'moadian_adapter'];
-  const out = {};
-  for (const k of keys) {
-    out[k] = db.prepare('SELECT value FROM settings WHERE key=?').get(k)?.value || '';
-  }
-  res.json({ success: true, data: out });
+  res.json({ success: true, data: getPublicSettings(getDB(), MOADIAN_SETTING_KEYS) });
 });
 
-router.put('/settings', auth, adminOnly, (req, res) => {
+router.put('/settings', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
-  for (const [k, v] of Object.entries(req.body || {})) {
-    if (['moadian_enabled', 'moadian_fiscal_id', 'moadian_private_key_path', 'moadian_adapter'].includes(k)) {
-      db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(k, String(v ?? ''));
-    }
-  }
+  updateSettings(db, Object.entries(req.body || {}), new Set(MOADIAN_SETTING_KEYS));
   res.json({ success: true });
 });
 

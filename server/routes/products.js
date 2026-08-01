@@ -1,23 +1,20 @@
 const router = require('express').Router();
 const { allocTafsili, releaseTafsili } = require('../lib/coa-map');
 const { parseQty } = require('../lib/round3');
-const jwt = require('jsonwebtoken');
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, adminOrAccounting, centralOnly, SECRET, requirePermission } = require('../middleware/auth');
-const XLSX = require('xlsx');
-const multer = require('multer');
+const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
+const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
-
-let sharp = null;
-try { sharp = require('sharp'); } catch (e) { /* optional — falls back to raw storage */ }
+const { createSecureUpload } = require('../lib/upload-policy');
+const { sendSecureHtml } = require('../lib/secure-html-response');
 
 const { UPLOADS_ROOT } = require('../paths');
 const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'products');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const storage = multer.memoryStorage();
-const upload = multer({ storage, limits: { fileSize: 12 * 1024 * 1024 } });
+const upload = createSecureUpload('image');
 const uploadProductMedia = upload.fields([
   { name: 'image', maxCount: 1 },
   { name: 'images', maxCount: 12 },
@@ -54,7 +51,7 @@ async function attachUploadedImages(db, productId, files, setPrimary) {
   const imgs = [];
   for (const f of raw) {
     if (!f || !f.buffer) continue;
-    const key = (f.originalname || '') + '|' + (f.size || f.buffer.length) + '|' + f.buffer.length;
+    const key = crypto.createHash('sha256').update(f.buffer).digest('hex');
     if (seen.has(key)) continue;
     seen.add(key);
     imgs.push(f);
@@ -65,11 +62,15 @@ async function attachUploadedImages(db, productId, files, setPrimary) {
   const names = [];
   const errors = [];
   for (const f of imgs) {
+    let fn = null;
     try {
-      const fn = await saveImage(f.buffer, f.originalname);
+      fn = saveImage(f);
       ins.run(productId, fn, sort++);
       names.push(fn);
     } catch (e) {
+      if (fn) {
+        try { fs.unlinkSync(path.join(UPLOAD_DIR, fn)); } catch { /* file was not committed */ }
+      }
       errors.push((f.originalname || 'file') + ': ' + (e && e.message ? e.message : String(e)));
     }
   }
@@ -106,28 +107,17 @@ function nextProductCode(db) {
   return `K-${String(n).padStart(5, '0')}`;
 }
 
-async function saveImage(buffer, originalName) {
-  // Auto-optimize for app: max edge 960, WebP ~70, effort 1 (fast under proxy timeouts).
-  if (sharp) {
-    try {
-      const filename = 'p_' + Date.now() + '_' + Math.round(Math.random() * 1e6) + '.webp';
-      const dest = path.join(UPLOAD_DIR, filename);
-      await sharp(buffer)
-        .rotate() // honor EXIF orientation from phone cameras
-        .resize({ width: 960, height: 960, fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: 70, effort: 1 })
-        .toFile(dest);
-      return filename;
-    } catch (e) {
-      console.error('sharp processing failed, saving original:', e.message);
-    }
+function saveImage(file) {
+  if (!file || !file.uploadValidated || file.mimetype !== 'image/webp' || !Buffer.isBuffer(file.buffer)) {
+    const error = new Error('تصویر پیش از ذخیره‌سازی اعتبارسنجی نشده است');
+    error.status = 400;
+    throw error;
   }
-  const ext = path.extname(originalName || '').toLowerCase() || '.jpg';
-  const fallback = 'p_' + Date.now() + '_' + Math.round(Math.random() * 1e6) + ext;
-  fs.writeFileSync(path.join(UPLOAD_DIR, fallback), buffer);
-  return fallback;
+  const filename = `p_${crypto.randomBytes(18).toString('hex')}.webp`;
+  fs.writeFileSync(path.join(UPLOAD_DIR, filename), file.buffer, { flag: 'wx', mode: 0o600 });
+  return filename;
 }
-const memUpload = multer({ storage: multer.memoryStorage() });
+const excelUpload = createSecureUpload('xlsx');
 
 // GET / — visibility: shared groups (+ creator) for users; optional per-user catalog ACL.
 // Filtering: ?category=&search=&stock_status=low|ok|all
@@ -370,6 +360,37 @@ function generateBarcode(productId) {
   return base + check;
 }
 
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function ean13Svg(value) {
+  const code = String(value || '');
+  if (!/^\d{13}$/.test(code)) return `<div class="barcode-text">${escapeHtml(code)}</div>`;
+  const sets = {
+    L: ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'],
+    G: ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'],
+    R: ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'],
+  };
+  const parity = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+  let bits = '101';
+  const p = parity[Number(code[0])];
+  for (let i = 1; i <= 6; i += 1) bits += sets[p[i - 1]][Number(code[i])];
+  bits += '01010';
+  for (let i = 7; i <= 12; i += 1) bits += sets.R[Number(code[i])];
+  bits += '101';
+  let bars = '';
+  for (let i = 0; i < bits.length; i += 1) {
+    if (bits[i] === '1') bars += `<rect x="${i}" y="0" width="1" height="42"></rect>`;
+  }
+  return `<svg class="bc" viewBox="0 0 95 55" role="img" aria-label="${escapeHtml(code)}" xmlns="http://www.w3.org/2000/svg"><g>${bars}</g><text x="47.5" y="53" text-anchor="middle">${escapeHtml(code)}</text></svg>`;
+}
+
 // Generate a barcode for a product that lacks one (admin only).
 // Deterministic per product id → device replay converges with central.
 router.post('/:id/generate-barcode', auth, adminOnly, (req, res) => {
@@ -383,46 +404,40 @@ router.post('/:id/generate-barcode', auth, adminOnly, (req, res) => {
   res.json({ ok: true, barcode });
 });
 
-// Printable barcode label page. Opened as a plain link in a new tab, so the
-// JWT arrives via ?token= query param instead of the Authorization header.
-router.get('/:id/labels', (req, res) => {
-  let tokenUser;
-  try { tokenUser = jwt.verify(String(req.query.token || ''), SECRET); }
-  catch { return res.status(401).send('توکن نامعتبر — دوباره وارد شوید'); }
+// Printable barcode labels are fetched with the normal Authorization header.
+// Never place a bearer token in the URL: query strings leak via logs/history/referrers.
+router.get('/:id/labels', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const count = Math.min(50, Math.max(1, parseInt(req.query.count || '12')));
+  const requestedCount = Number.parseInt(String(req.query.count || '12'), 10);
+  const count = Math.min(50, Math.max(1, Number.isFinite(requestedCount) ? requestedCount : 12));
   const prod = db.prepare(`SELECT p.* FROM products p WHERE p.id=?`).get(req.params.id);
   if (!prod) return res.status(404).send('محصول یافت نشد');
   if (!prod.barcode) return res.status(400).send('این محصول بارکد ندارد — ابتدا بارکد تولید کنید');
-  const escName = String(prod.name || '').replace(/</g, '&lt;');
+  const escName = escapeHtml(prod.name);
+  const barcode = ean13Svg(prod.barcode);
   const labels = Array.from({ length: count }, () => `
     <div class="label">
       <div class="name">${escName}</div>
-      <svg class="bc" data-code="${prod.barcode}"></svg>
-      <div class="meta">${String(prod.code || '').replace(/</g, '&lt;')} — ${Number(prod.price || 0).toLocaleString('fa-IR')} ریال</div>
+      ${barcode}
+      <div class="meta">${escapeHtml(prod.code)} — ${Number(prod.price || 0).toLocaleString('fa-IR')} ریال</div>
     </div>`).join('');
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(`<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
+  const html = `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
 <title>برچسب ${escName}</title>
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Vazirmatn',sans-serif}
 body{padding:16px;display:flex;flex-wrap:wrap;gap:8px}
 .label{width:58mm;height:40mm;border:1px dashed #bbb;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;page-break-inside:avoid}
 .name{font-size:11px;font-weight:700;text-align:center}
 .meta{font-size:10px;color:#444}
+.bc{width:48mm;height:22mm;fill:#111}.bc text{font:8px monospace;letter-spacing:1px}.barcode-text{direction:ltr;font:12px monospace}
 .pbtn{position:fixed;bottom:14px;left:14px;background:#1A5C38;color:#fff;border:none;padding:10px 26px;border-radius:8px;font-family:inherit;font-size:14px;cursor:pointer}
 @media print{.pbtn{display:none}.label{border-color:transparent}}
 </style></head><body>
 ${labels}
-<button class="pbtn" onclick="window.print()">چاپ 🖨️</button>
-<script>
-document.querySelectorAll('svg.bc').forEach(function(el){
-  try{ JsBarcode(el, el.dataset.code, {format:'ean13', width:1.6, height:44, fontSize:12, margin:0}); }
-  catch(e){ el.outerHTML='<div style="font-size:12px;direction:ltr">'+el.dataset.code+'</div>'; }
-});
-</script></body></html>`);
+<button class="pbtn" type="button" data-print>چاپ 🖨️</button>
+<script src="/print-page.js"></script></body></html>`;
+  return sendSecureHtml(res, html, { allowPrintScript: true });
 });
 
 // Quick create from invoice modals — admin/accounting only (product master lives in accounting)
@@ -807,10 +822,10 @@ function normalizeStr(s) {
 }
 
 // Import from Excel (admin only)
-router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => {
+router.post('/import', auth, adminOnly, excelUpload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل آپلود نشد' });
   try {
-    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const wb = readWorkbook(req.file.buffer);
     const ws = wb.Sheets[wb.SheetNames[0]];
     const data = XLSX.utils.sheet_to_json(ws);
     const db = getDB();

@@ -1,61 +1,115 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { getDB, isDevice } = require('../db');
-const SECRET = process.env.JWT_SECRET || 'taranom-crm-secret-2024';
+const {
+  SECRET,
+  verifyStaffToken,
+  validateStaffSession,
+  revokeAllStaffSessions,
+  revokeCurrentStaffSession,
+} = require('../lib/auth-sessions');
 
-const _activeCache = new Map(); // userId -> { active, mustChange, t }
-const ACTIVE_TTL_MS = 30000;
+// Kept as a compatibility hook for callers that used to clear the 30-second
+// cache. Security-sensitive user state is now read on every request.
+function invalidateUserCache() {}
 
-function getUserState(id) {
-  const hit = _activeCache.get(id);
-  if (hit && Date.now() - hit.t < ACTIVE_TTL_MS) return hit;
-  const user = getDB().prepare('SELECT active, must_change_password, auth_epoch FROM users WHERE id=?').get(id);
-  const state = {
-    active: !!(user && user.active),
-    mustChange: !!(user && user.must_change_password),
-    authEpoch: Number(user && user.auth_epoch || 0),
-    t: Date.now()
-  };
-  _activeCache.set(id, state);
-  return state;
+function currentUser(db, id) {
+  return db.prepare(`
+    SELECT id,username,name,role,phone,active,must_change_password,auth_epoch
+    FROM users WHERE id=?
+  `).get(Number(id));
 }
 
-// Invalidate the cached state after password/active changes take effect immediately
-function invalidateUserCache(id) { _activeCache.delete(id); }
+function exactBearer(req) {
+  const header = String(req.headers.authorization || '');
+  const match = /^Bearer ([^\s]+)$/.exec(header);
+  return match ? match[1] : '';
+}
+
+function safeEqual(a, b) {
+  const left = Buffer.from(String(a || ''));
+  const right = Buffer.from(String(b || ''));
+  return left.length === right.length && left.length > 0 && crypto.timingSafeEqual(left, right);
+}
+
+function isTrustedInternalReplay(req) {
+  const supplied = req.headers['x-internal-replay'];
+  const expected = req.app && req.app.get('internalReplayToken');
+  return safeEqual(supplied, expected);
+}
+
+function revokeUserSessions(db, userId, { bumpEpoch = true } = {}) {
+  const id = Number(userId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error('invalid user id');
+  // Revoke the global store first. If the business DB update fails, the safe
+  // failure mode is an extra login prompt, never a still-valid remote token.
+  revokeAllStaffSessions(id);
+  db.transaction(() => {
+    if (bumpEpoch) {
+      db.prepare('UPDATE users SET auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?').run(id);
+    }
+    db.prepare('DELETE FROM user_device_sessions WHERE user_id=?').run(id);
+  })();
+  invalidateUserCache(id);
+}
 
 // While a forced password change is pending, only these endpoints stay usable.
-const MUST_CHANGE_ALLOWED = ['/api/auth/change-password', '/api/auth/me'];
+const MUST_CHANGE_ALLOWED = ['/api/auth/change-password', '/api/auth/me', '/api/auth/logout'];
 
 function auth(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
+  const token = exactBearer(req);
   if (!token) return res.status(401).json({ error: 'توکن یافت نشد' });
   try {
-    const payload = jwt.verify(token, SECRET);
-    // Scoped tokens (B2B portal customers, pre-2FA step) share the signing
-    // secret but must never pass internal staff auth.
-    if (payload.scope) return res.status(401).json({ error: 'توکن نامعتبر' });
-    const state = getUserState(payload.id);
-    if (!state.active) return res.status(401).json({ error: 'حساب کاربری غیرفعال است' });
-    // Central web/API sessions are revocable immediately. Offline device
-    // sessions cannot be invalidated safely by a pulled epoch while the user
-    // is mid-operation; device access is controlled by its pairing token.
-    if (!isDevice() && Number(payload.ae || 0) !== state.authEpoch) return res.status(401).json({ error: 'نشست کاربری باطل شده است' });
-    // Forced password change is enforced on central only. Device builds pull
-    // the users table from central, and a local change would be overwritten
-    // by the next sync pull — the change must happen on central.
-    if (state.mustChange && !isDevice()) {
-      const p = (req.originalUrl || '').split('?')[0];
-      if (!MUST_CHANGE_ALLOWED.includes(p)) {
+    const db = getDB();
+    let payload;
+
+    // Sync replay tokens are short-lived and are accepted only together with
+    // the unguessable per-process loopback header. Public callers cannot set a
+    // valid header and therefore must always present a server-side session id.
+    if (isTrustedInternalReplay(req)) {
+      payload = jwt.verify(token, SECRET);
+      if (payload.scope) throw new Error('scoped token');
+    } else {
+      payload = verifyStaffToken(token);
+      if (payload.scope || !validateStaffSession(payload)) throw new Error('invalid session');
+    }
+
+    const user = currentUser(db, payload.id);
+    if (!user || !user.active) return res.status(401).json({ error: 'حساب کاربری غیرفعال است' });
+    if (Number(payload.ae || 0) !== Number(user.auth_epoch || 0)) {
+      return res.status(401).json({ error: 'نشست کاربری باطل شده است' });
+    }
+
+    // Never authorize from stale role/name claims. The current database row is
+    // authoritative on every request; sid is retained for logout/revocation.
+    req.user = {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      role: user.role,
+      phone: user.phone || '',
+      ae: Number(user.auth_epoch || 0),
+      sid: payload.sid,
+      dslot: payload.dslot,
+    };
+
+    if (user.must_change_password && !isDevice()) {
+      const requestPath = (req.originalUrl || '').split('?')[0];
+      if (!MUST_CHANGE_ALLOWED.includes(requestPath)) {
         return res.status(403).json({
           error: 'برای ادامه باید ابتدا رمز عبور خود را تغییر دهید',
-          code: 'must_change_password'
+          code: 'must_change_password',
         });
       }
     }
-    req.user = payload;
-    next();
   } catch {
-    res.status(401).json({ error: 'توکن نامعتبر' });
+    return res.status(401).json({ error: 'توکن یا نشست نامعتبر است' });
   }
+  return next();
+}
+
+function revokeCurrentSession(req) {
+  return revokeCurrentStaffSession(req.user || {});
 }
 
 function adminOnly(req, res, next) {
@@ -63,7 +117,6 @@ function adminOnly(req, res, next) {
   next();
 }
 
-// Accounting staff have full access to the accounting module (admin included)
 function adminOrAccounting(req, res, next) {
   if (req.user?.role !== 'admin' && req.user?.role !== 'accounting') {
     return res.status(403).json({ error: 'دسترسی ندارید' });
@@ -71,7 +124,6 @@ function adminOrAccounting(req, res, next) {
   next();
 }
 
-// Rep module admin: finance + sales managers
 function repModuleAdmin(req, res, next) {
   if (!['admin', 'accounting', 'sales_manager'].includes(req.user?.role)) {
     return res.status(403).json({ error: 'دسترسی ندارید' });
@@ -83,8 +135,6 @@ function isDesktopPlatform() {
   return process.env.APP_PLATFORM === 'desktop';
 }
 
-// Business config that used to be central-only: desktop is a full peer;
-// Android/other device builds stay blocked.
 function centralOnly(req, res, next) {
   if (isDevice() && !isDesktopPlatform()) {
     return res.status(403).json({ error: 'این عملیات فقط روی سرور مرکزی یا نسخه دسکتاپ امکان‌پذیر است' });
@@ -92,7 +142,6 @@ function centralOnly(req, res, next) {
   next();
 }
 
-/** Infra/security surfaces that must never run on any device build. */
 function centralOnlyStrict(req, res, next) {
   if (isDevice()) {
     return res.status(403).json({ error: 'این عملیات فقط روی سرور مرکزی امکان‌پذیر است' });
@@ -100,9 +149,7 @@ function centralOnlyStrict(req, res, next) {
   next();
 }
 
-// Granular RBAC — checks user_permissions overrides + role defaults
 function requirePermission(resource, action) {
-  const { getDB } = require('../db');
   const { hasPermission } = require('../lib/rbac');
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'توکن یافت نشد' });
@@ -119,7 +166,17 @@ function managerOnly(req, res, next) {
 }
 
 module.exports = {
-  auth, adminOnly, adminOrAccounting, repModuleAdmin,
-  centralOnly, centralOnlyStrict, isDesktopPlatform,
-  requirePermission, managerOnly, invalidateUserCache, SECRET
+  auth,
+  adminOnly,
+  adminOrAccounting,
+  repModuleAdmin,
+  centralOnly,
+  centralOnlyStrict,
+  isDesktopPlatform,
+  requirePermission,
+  managerOnly,
+  invalidateUserCache,
+  revokeUserSessions,
+  revokeCurrentSession,
+  SECRET,
 };

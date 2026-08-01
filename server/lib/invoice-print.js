@@ -180,7 +180,7 @@ function buildThermalRows(rows) {
 
 function logoHtml(customize, dims) {
   if (!customize.show_logo) return '';
-  return `<div class="logo-box"><img src="/logo-sm.png" alt="" style="height:${dims.logoH}" onerror="this.src='/logo.png';this.onerror=()=>{this.style.display='none'}"></div>`;
+  return '<div class="logo-box"><img src="/logo-sm.png" alt="لوگو"></div>';
 }
 
 function expertHtml(inv, customize) {
@@ -210,10 +210,16 @@ function themeCss(id, dims) {
   .pad{padding:${dims.pad}}
   .num{font-variant-numeric:tabular-nums}
   .rtl{text-align:right}
+  .brand-row{display:flex;gap:10px;align-items:center}
+  .brand-sub{font-size:.85em;color:#5F7268}
+  .thermal-brand{font-weight:800;color:#1A5C38;font-size:1.15em;margin-top:6px}
+  .thermal-kind{color:#5F7268;margin-top:3px}
+  .thermal-number{margin-top:4px}
+  .thermal-customer{line-height:1.7}
   .row-desc{font-size:9px;color:#5F7268;margin-top:2px;font-weight:400}
   .disc{color:#b45309;font-weight:700}
   .logo-box{background:#fff;border:1px solid #c5d6cc;border-radius:10px;padding:3px 8px;display:inline-flex;align-items:center}
-  .logo-box img{display:block;background:transparent;mix-blend-mode:multiply}
+  .logo-box img{display:block;height:${dims.logoH};background:transparent;mix-blend-mode:multiply}
   .pbtn{display:block;margin:14px auto 0;background:#1A5C38;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-family:inherit;font-size:13px;cursor:pointer}
   .watermark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:5}
   .watermark span{transform:rotate(-25deg);font-size:32px;font-weight:800;color:rgba(220,38,38,.14);border:3px solid rgba(220,38,38,.14);border-radius:12px;padding:6px 18px;white-space:nowrap}
@@ -421,13 +427,13 @@ function renderInvoicePrintHtml(opts) {
       <div class="pad">
         <div class="center">
           ${logo}
-          <div style="font-weight:800;color:#1A5C38;font-size:1.15em;margin-top:6px">${esc(companyName)}</div>
-          <div style="color:#5F7268;margin-top:3px">فاکتور حرارتی · ${dims.thermalMm}mm</div>
-          <div style="margin-top:4px">${esc(inv.num || '')} · ${esc(inv.date || '—')}</div>
+          <div class="thermal-brand">${esc(companyName)}</div>
+          <div class="thermal-kind">فاکتور حرارتی · ${dims.thermalMm}mm</div>
+          <div class="thermal-number">${esc(inv.num || '')} · ${esc(inv.date || '—')}</div>
           ${customize.show_company_phone && companyPhone ? `<div>${esc(companyPhone)}</div>` : ''}
         </div>
         <hr class="dash">
-        <div class="center" style="line-height:1.7">
+        <div class="center thermal-customer">
           ${esc(inv.cust_biz || '')}${inv.cust_owner ? ' — ' + esc(inv.cust_owner) : ''}<br>
           ${esc(inv.cust_phone || '')}
         </div>
@@ -446,11 +452,11 @@ function renderInvoicePrintHtml(opts) {
     bodyInner = `
       <div class="pad">
         <div class="top-simple">
-          <div style="display:flex;gap:10px;align-items:center">
+          <div class="brand-row">
             ${logo}
             <div>
               <div class="title">${esc(companyName)}</div>
-              <div style="font-size:.85em;color:#5F7268">${esc(subtitle)} · ${typeLabel}</div>
+              <div class="brand-sub">${esc(subtitle)} · ${esc(typeLabel)}</div>
             </div>
           </div>
           <div class="inv-meta"><div class="box">
@@ -486,7 +492,7 @@ function renderInvoicePrintHtml(opts) {
   } else if (templateId === 'formal-premium') {
     bodyInner = `
       <div class="hero">
-        <div style="display:flex;gap:10px;align-items:center">
+        <div class="brand-row">
           ${logo}
           <div>
             <div class="name">${esc(companyName)}</div>
@@ -588,8 +594,9 @@ function renderInvoicePrintHtml(opts) {
   <div class="sheet">
     ${isProvisional ? `<div class="watermark"><span>پیش‌نویس — در انتظار شماره رسمی</span></div>` : ''}
     ${bodyInner}
-    <button class="pbtn" onclick="window.print()">${printLabel}</button>
+    <button class="pbtn" type="button" data-print>${printLabel}</button>
   </div>
+  <script src="/print-page.js"></script>
 </body>
 </html>`;
 }

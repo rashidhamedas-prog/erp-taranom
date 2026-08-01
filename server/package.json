@@ -31,6 +31,7 @@
     "test:production": "node scripts/run-production-tests.js",
     "test:wave0-financial": "node scripts/test-wave0-financial-hostile.js",
     "test:backup-dr": "node scripts/test-backup-dr.js",
+    "test:secret-settings": "node scripts/test-secret-settings-security.js",
     "audit:gate": "node scripts/check-audit-waivers.js"
   },
   "dependencies": {

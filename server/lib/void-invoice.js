@@ -5,8 +5,6 @@
  * - Converted proforma → restores active proforma (un-convert)
  * - Direct final → soft reverse (status=reversed + deleted_at)
  */
-const path = require('path');
-const fs = require('fs');
 const { createLedgerEntry, resolveCashAccount, audit } = require('../db');
 const { acct } = require('./coa-map');
 const { postToLedger } = require('./ledger');
@@ -15,10 +13,7 @@ const { reverseCommissionAccrual } = require('./rep-ledger');
 const { reverseSettlementInTx } = require('./void-settlement');
 const { todayJalali } = require('../jalali');
 const notif = require('./notifications');
-const { UPLOADS_ROOT } = require('../paths');
-
-const MSG_UPLOAD_DIR = path.join(UPLOADS_ROOT, 'messages');
-fs.mkdirSync(MSG_UPLOAD_DIR, { recursive: true });
+const { persistPrivateUpload } = require('./private-uploads');
 
 function cancelTitleForRole(role) {
   if (role === 'admin') return 'فاکتور لغو شده توسط مدیر';
@@ -226,17 +221,9 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
   };
 }
 
-async function saveCancelImage(buffer) {
-  if (!buffer || !buffer.length) return null;
-  const name = 'cancel-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.png';
-  const dest = path.join(MSG_UPLOAD_DIR, name);
-  try {
-    const sharp = require('sharp');
-    await sharp(buffer).resize({ width: 1200, withoutEnlargement: true }).png({ quality: 80 }).toFile(dest);
-  } catch {
-    fs.writeFileSync(dest, buffer);
-  }
-  return name;
+function saveCancelImage(file) {
+  if (!file) return null;
+  return persistPrivateUpload(file, 'messages', 'cancel');
 }
 
 /**

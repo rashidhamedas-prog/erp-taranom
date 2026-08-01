@@ -5,6 +5,7 @@
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const { getSettings } = require('./secret-settings');
 
 function postJSON(hostname, urlPath, body, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -36,10 +37,7 @@ function postJSON(hostname, urlPath, body, headers = {}) {
 }
 
 function getRubikaSettings(db) {
-  const rows = db.prepare("SELECT key,value FROM settings WHERE key IN ('rubika_bot_token','rubika_chat_id','rubika_invoice_enabled')").all();
-  const m = {};
-  for (const r of rows) m[r.key] = r.value;
-  return m;
+  return getSettings(db, ['rubika_bot_token', 'rubika_chat_id', 'rubika_invoice_enabled']);
 }
 
 async function sendRubikaText(db, text) {
@@ -55,8 +53,8 @@ async function sendRubikaText(db, text) {
       { chat_id: chatId, text: String(text || '').slice(0, 4000) }
     );
     return { ok: r.status === 200, data: r.body };
-  } catch (e) {
-    return { ok: false, reason: e.message };
+  } catch {
+    return { ok: false, reason: 'rubika provider request failed' };
   }
 }
 
@@ -87,8 +85,8 @@ async function sendRubikaImage(db, filePath, caption) {
     if (r.status === 200) return { ok: true, data: r.body };
     // Fallback: text with caption if file API rejects
     return sendRubikaText(db, (caption || 'فاکتور') + '\n(ارسال تصویر ناموفق — خلاصه متنی)');
-  } catch (e) {
-    return { ok: false, reason: e.message };
+  } catch {
+    return { ok: false, reason: 'rubika provider request failed' };
   }
 }
 

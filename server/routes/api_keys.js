@@ -2,6 +2,7 @@ const router = require('express').Router();
 const crypto = require('crypto');
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnlyStrict } = require('../middleware/auth');
+const { assertSafeOutboundTarget } = require('../lib/safe-outbound-request');
 
 function hashKey(key) {
   return crypto.createHash('sha256').update(key).digest('hex');
@@ -68,17 +69,22 @@ router.get('/webhooks', auth, adminOnly, (req, res) => {
   res.json(db.prepare('SELECT * FROM webhooks ORDER BY created_at DESC').all());
 });
 
-router.post('/webhooks', auth, adminOnly, centralOnlyStrict, (req, res) => {
+router.post('/webhooks', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   const { name, url, events = 'customer.created', secret = '' } = req.body;
   if (!name || !url) return res.status(400).json({ error: 'نام و آدرس الزامی است' });
+  try { await assertSafeOutboundTarget(url); }
+  catch (error) { return res.status(400).json({ error: error.message || 'آدرس webhook مجاز نیست' }); }
   const db = getDB();
   const r = db.prepare('INSERT INTO webhooks (user_id,name,url,events,secret) VALUES (?,?,?,?,?)')
     .run(req.user.id, name, url, events, secret);
   res.json({ id: r.lastInsertRowid, name, url, events, secret, active: 1 });
 });
 
-router.put('/webhooks/:id', auth, adminOnly, centralOnlyStrict, (req, res) => {
+router.put('/webhooks/:id', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   const { name, url, events, secret, active } = req.body;
+  if (!name || !url) return res.status(400).json({ error: 'نام و آدرس الزامی است' });
+  try { await assertSafeOutboundTarget(url); }
+  catch (error) { return res.status(400).json({ error: error.message || 'آدرس webhook مجاز نیست' }); }
   getDB().prepare('UPDATE webhooks SET name=?,url=?,events=?,secret=?,active=? WHERE id=?')
     .run(name, url, events, secret || '', active ? 1 : 0, req.params.id);
   res.json({ ok: true });

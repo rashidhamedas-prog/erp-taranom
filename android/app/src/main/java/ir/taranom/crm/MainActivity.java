@@ -10,7 +10,10 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.Signature;
 import android.content.res.AssetManager;
 import android.net.Uri;
 import android.os.Build;
@@ -19,6 +22,7 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.URLUtil;
@@ -33,11 +37,20 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
+
+import org.json.JSONObject;
 
 /**
  * ERP Taranom — offline Android app.
@@ -52,6 +65,10 @@ public class MainActivity extends Activity {
     private static final String LOCAL_URL = "http://127.0.0.1:" + LOCAL_PORT + "/";
     private static final String UPDATE_CHANNEL_ID = "erp_updates";
     private static final int REQ_POST_NOTIFICATIONS = 4401;
+    private static final long MAX_APK_SIZE_BYTES = 512L * 1024L * 1024L;
+    private static final String APK_PREFS = "verified_apk_download";
+    private static final Set<String> APK_UPDATE_HOSTS = Collections.unmodifiableSet(
+            new HashSet<>(Arrays.asList("erp.poshaktaranom.com", "poshaktaranom.com")));
     private static int updateNotifId = 7100;
 
     /** JNI bridge implemented in cpp/native-lib.cpp */
@@ -67,6 +84,7 @@ public class MainActivity extends Activity {
     private volatile boolean nodeLaunchRequested = false;
     private File dataDir;
     private boolean nativeReady = false;
+    private final Set<Long> activeApkDownloads = Collections.synchronizedSet(new HashSet<>());
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -87,6 +105,8 @@ public class MainActivity extends Activity {
             ws.setDatabaseEnabled(true);
             ws.setAllowFileAccess(false);
             ws.setAllowContentAccess(false);
+            ws.setAllowFileAccessFromFileURLs(false);
+            ws.setAllowUniversalAccessFromFileURLs(false);
             ws.setSupportMultipleWindows(false);
             ws.setLoadsImagesAutomatically(true);
             ws.setBlockNetworkImage(false);
@@ -105,7 +125,9 @@ public class MainActivity extends Activity {
             webView.setWebChromeClient(new WebChromeClient() {
                 @Override
                 public boolean onConsoleMessage(ConsoleMessage msg) {
-                    Log.d(TAG, "JS: " + msg.message() + " (" + msg.sourceId() + ":" + msg.lineNumber() + ")");
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "JS console message at line " + msg.lineNumber());
+                    }
                     return true;
                 }
             });
@@ -127,29 +149,14 @@ public class MainActivity extends Activity {
                 }
             });
 
-            webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
-                try {
-                    String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
-                    DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
-                    req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                    req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
-                    DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-                    if (dm != null) {
-                        long id = dm.enqueue(req);
-                        boolean isApk = fileName.endsWith(".apk")
-                                || "application/vnd.android.package-archive".equals(mimeType);
-                        // APK installation is intentionally not launched from WebView.
-                        // Updates are distributed locally and Android verifies their signer.
-                        if (isApk) Log.w(TAG, "APK downloaded; automatic install is disabled by security policy");
-                    }
-                } catch (Exception e) {
-                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-                }
-            });
+            webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) ->
+                    handleUnstructuredWebDownload(url, contentDisposition, mimeType));
             ensureUpdateNotificationChannel();
             requestNotificationPermissionIfNeeded();
             webView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
             setContentView(webView);
+            warnIfRiskyEnvironment();
+            resumePendingApkDownload();
         } catch (Exception e) {
             Log.e(TAG, "WebView init failed", e);
             showErrorPage("خطا در بارگذاری رابط برنامه", e.getMessage());
@@ -261,14 +268,20 @@ public class MainActivity extends Activity {
         Log.i(TAG, "Starting embedded Node server...");
         final String nativeLibDir = getApplicationInfo().nativeLibraryDir;
         new Thread(() -> {
+            String[] nodeArguments = null;
             try {
-                Integer code = startNodeWithArguments(new String[]{
+                String jwtSecret = SecureSecretStore.getOrCreateJwtSecret(
+                        getApplicationContext(), dataDir);
+                nodeArguments = new String[]{
                         "node",
                         mainJs.getAbsolutePath(),
                         dataDir.getAbsolutePath(),
                         String.valueOf(LOCAL_PORT),
-                        nativeLibDir != null ? nativeLibDir : ""
-                });
+                        nativeLibDir != null ? nativeLibDir : "",
+                        jwtSecret
+                };
+                jwtSecret = null;
+                Integer code = startNodeWithArguments(nodeArguments);
                 Log.w(TAG, "Node runtime returned code=" + code);
                 nodeLaunchRequested = false;
                 showErrorPage("سرور داخلی متوقف شد",
@@ -279,6 +292,8 @@ public class MainActivity extends Activity {
                 showErrorPage("سرور داخلی متوقف شد",
                         (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName())
                                 + "\n\n" + readBootLogTail());
+            } finally {
+                if (nodeArguments != null) Arrays.fill(nodeArguments, "[REDACTED]");
             }
         }, "crm-node").start();
     }
@@ -408,39 +423,377 @@ public class MainActivity extends Activity {
         else super.onBackPressed();
     }
 
-    private void trackApkDownload(final DownloadManager dm, final long id) {
-        final Handler h = new Handler(Looper.getMainLooper());
-        h.post(new Runnable() {
+    private void handleUnstructuredWebDownload(String url, String contentDisposition, String mimeType) {
+        boolean isApk = "application/vnd.android.package-archive".equalsIgnoreCase(mimeType)
+                || (url != null && url.toLowerCase(Locale.ROOT).split("[?#]", 2)[0].endsWith(".apk"));
+        if (isApk) {
+            Log.w(TAG, "Blocked APK download without verified metadata");
+            postApkProgress(0, 0, "failed");
+            Toast.makeText(this, "دانلود APK بدون هش و اندازه معتبر مسدود شد.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!isAllowedRegularDownloadUrl(url)) {
+            Log.w(TAG, "Blocked non-allowlisted WebView download");
+            Toast.makeText(this, "آدرس دانلود مجاز نیست.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        try {
+            String guessed = URLUtil.guessFileName(url, contentDisposition, mimeType);
+            String fileName = new File(guessed != null ? guessed : "download").getName();
+            if (fileName.isEmpty()) fileName = "download";
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, fileName);
+            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            if (dm == null) throw new IllegalStateException("download service unavailable");
+            dm.enqueue(request);
+        } catch (Exception e) {
+            Log.w(TAG, "WebView download rejected: " + e.getClass().getSimpleName());
+            Toast.makeText(this, "شروع دانلود ممکن نشد.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private static boolean isAllowedRegularDownloadUrl(String value) {
+        try {
+            java.net.URI uri = new java.net.URI(value);
+            if (uri.getUserInfo() != null || uri.getFragment() != null) return false;
+            String host = uri.getHost() != null ? uri.getHost().toLowerCase(Locale.ROOT) : "";
+            if ("http".equalsIgnoreCase(uri.getScheme())) {
+                return "127.0.0.1".equals(host) && uri.getPort() == LOCAL_PORT;
+            }
+            return "https".equalsIgnoreCase(uri.getScheme())
+                    && (uri.getPort() == -1 || uri.getPort() == 443)
+                    && APK_UPDATE_HOSTS.contains(host);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static boolean isAllowedApkUpdateUrl(String value) {
+        try {
+            if (value == null || value.length() > 2048) return false;
+            java.net.URI uri = new java.net.URI(value);
+            String host = uri.getHost() != null ? uri.getHost().toLowerCase(Locale.ROOT) : "";
+            String path = uri.getPath() != null ? uri.getPath().toLowerCase(Locale.ROOT) : "";
+            return "https".equalsIgnoreCase(uri.getScheme())
+                    && (uri.getPort() == -1 || uri.getPort() == 443)
+                    && uri.getUserInfo() == null
+                    && uri.getFragment() == null
+                    && APK_UPDATE_HOSTS.contains(host)
+                    && path.endsWith(".apk");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String beginVerifiedApkDownload(String url, String expectedSha256, long expectedSize) {
+        String sha256 = expectedSha256 != null
+                ? expectedSha256.trim().toLowerCase(Locale.ROOT) : "";
+        if (!isAllowedApkUpdateUrl(url)) return apkBridgeResult(false, -1, "url_not_allowed");
+        if (!sha256.matches("^[0-9a-f]{64}$")) return apkBridgeResult(false, -1, "invalid_sha256");
+        if (expectedSize <= 0 || expectedSize > MAX_APK_SIZE_BYTES) {
+            return apkBridgeResult(false, -1, "invalid_size");
+        }
+
+        DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+        if (dm == null) return apkBridgeResult(false, -1, "download_service_unavailable");
+        long id = -1;
+        try {
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+            request.setMimeType("application/vnd.android.package-archive");
+            request.setTitle("ERP Taranom update");
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
+            request.setDestinationInExternalFilesDir(
+                    this,
+                    Environment.DIRECTORY_DOWNLOADS,
+                    "erp-taranom-update-" + System.currentTimeMillis() + ".apk");
+            id = dm.enqueue(request);
+            if (!persistPendingApk(id, sha256, expectedSize)) {
+                dm.remove(id);
+                return apkBridgeResult(false, -1, "metadata_persist_failed");
+            }
+            trackVerifiedApkDownload(dm, id, sha256, expectedSize);
+            return apkBridgeResult(true, id, null);
+        } catch (Exception e) {
+            if (id >= 0) dm.remove(id);
+            Log.w(TAG, "Verified APK download start failed: " + e.getClass().getSimpleName());
+            return apkBridgeResult(false, -1, "enqueue_failed");
+        }
+    }
+
+    private static String apkBridgeResult(boolean accepted, long id, String error) {
+        try {
+            JSONObject out = new JSONObject();
+            out.put("accepted", accepted);
+            if (id >= 0) out.put("downloadId", id);
+            if (error != null) out.put("error", error);
+            return out.toString();
+        } catch (Exception e) {
+            return accepted ? "{\"accepted\":true}" : "{\"accepted\":false}";
+        }
+    }
+
+    private boolean persistPendingApk(long id, String sha256, long size) {
+        return getSharedPreferences(APK_PREFS, MODE_PRIVATE).edit()
+                .putLong("id", id)
+                .putString("sha256", sha256)
+                .putLong("size", size)
+                .commit();
+    }
+
+    private void clearPendingApk(long id) {
+        SharedPreferences prefs = getSharedPreferences(APK_PREFS, MODE_PRIVATE);
+        if (prefs.getLong("id", -1) == id) prefs.edit().clear().commit();
+    }
+
+    private void resumePendingApkDownload() {
+        SharedPreferences prefs = getSharedPreferences(APK_PREFS, MODE_PRIVATE);
+        long id = prefs.getLong("id", -1);
+        String sha256 = prefs.getString("sha256", "");
+        long size = prefs.getLong("size", -1);
+        if (id < 0) return;
+        if (sha256 == null || !sha256.matches("^[0-9a-f]{64}$")
+                || size <= 0 || size > MAX_APK_SIZE_BYTES) {
+            clearPendingApk(id);
+            return;
+        }
+        DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+        if (dm != null) trackVerifiedApkDownload(dm, id, sha256, size);
+    }
+
+    private void trackVerifiedApkDownload(
+            final DownloadManager dm,
+            final long id,
+            final String expectedSha256,
+            final long expectedSize) {
+        if (!activeApkDownloads.add(id)) return;
+        final Handler handler = new Handler(Looper.getMainLooper());
+        handler.post(new Runnable() {
+            private int missingPolls = 0;
+
             @Override
             public void run() {
-                long done = 0, total = 0;
-                int status = DownloadManager.STATUS_RUNNING;
-                DownloadManager.Query q = new DownloadManager.Query().setFilterById(id);
-                try (android.database.Cursor c = dm.query(q)) {
-                    if (c != null && c.moveToFirst()) {
-                        done = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
-                        total = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-                        status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+                long done = 0;
+                long total = -1;
+                int status = DownloadManager.STATUS_PENDING;
+                boolean found = false;
+                DownloadManager.Query query = new DownloadManager.Query().setFilterById(id);
+                try (android.database.Cursor cursor = dm.query(query)) {
+                    if (cursor != null && cursor.moveToFirst()) {
+                        found = true;
+                        done = cursor.getLong(cursor.getColumnIndexOrThrow(
+                                DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+                        total = cursor.getLong(cursor.getColumnIndexOrThrow(
+                                DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+                        status = cursor.getInt(cursor.getColumnIndexOrThrow(
+                                DownloadManager.COLUMN_STATUS));
                     }
-                } catch (Exception ignored) { }
-                String jsStatus = status == DownloadManager.STATUS_SUCCESSFUL ? "done"
-                        : status == DownloadManager.STATUS_FAILED ? "failed" : "downloading";
-                final String js = "window.onApkDownloadProgress&&window.onApkDownloadProgress("
-                        + done + "," + total + ",'" + jsStatus + "')";
-                if (webView != null) webView.evaluateJavascript(js, null);
-                if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    try {
-                        Uri apk = dm.getUriForDownloadedFile(id);
-                        Intent install = new Intent(Intent.ACTION_VIEW)
-                                .setDataAndType(apk, "application/vnd.android.package-archive")
-                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(install);
-                    } catch (Exception ignored) { }
-                } else if (status != DownloadManager.STATUS_FAILED) {
-                    h.postDelayed(this, 600);
+                } catch (Exception e) {
+                    Log.w(TAG, "APK download query failed: " + e.getClass().getSimpleName());
                 }
+
+                if (!found) {
+                    missingPolls++;
+                    if (missingPolls >= 3) {
+                        rejectApkDownload(dm, id, "download_missing");
+                        return;
+                    }
+                    handler.postDelayed(this, 750);
+                    return;
+                }
+                if (done > expectedSize || (total > 0 && total != expectedSize)) {
+                    rejectApkDownload(dm, id, "size_mismatch");
+                    return;
+                }
+                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                    activeApkDownloads.remove(id);
+                    postApkProgress(done, expectedSize, "verifying");
+                    new Thread(() -> verifyAndInstallApk(dm, id, expectedSha256, expectedSize),
+                            "crm-apk-verify").start();
+                    return;
+                }
+                if (status == DownloadManager.STATUS_FAILED) {
+                    rejectApkDownload(dm, id, "download_failed");
+                    return;
+                }
+                postApkProgress(Math.max(0, done), expectedSize, "downloading");
+                handler.postDelayed(this, 750);
             }
         });
+    }
+
+    private void verifyAndInstallApk(
+            DownloadManager dm, long id, String expectedSha256, long expectedSize) {
+        Uri apkUri = dm.getUriForDownloadedFile(id);
+        if (apkUri == null) {
+            rejectApkDownload(dm, id, "download_uri_missing");
+            return;
+        }
+        try {
+            File apkFile = resolveDownloadedApkFile(dm, id);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[64 * 1024];
+            long actualSize = 0;
+            int read;
+            try (InputStream input = new FileInputStream(apkFile)) {
+                while ((read = input.read(buffer)) != -1) {
+                    actualSize += read;
+                    if (actualSize > expectedSize) {
+                        rejectApkDownload(dm, id, "size_mismatch");
+                        return;
+                    }
+                    digest.update(buffer, 0, read);
+                }
+            }
+            byte[] expectedHash = hexToBytes(expectedSha256);
+            boolean sizeMatches = actualSize == expectedSize;
+            boolean hashMatches = MessageDigest.isEqual(expectedHash, digest.digest());
+            if (!sizeMatches || !hashMatches) {
+                rejectApkDownload(dm, id, sizeMatches ? "sha256_mismatch" : "size_mismatch");
+                return;
+            }
+
+            String identityFailure = verifyApkIdentityAndSigner(apkFile);
+            if (identityFailure != null) {
+                rejectApkDownload(dm, id, identityFailure);
+                return;
+            }
+
+            clearPendingApk(id);
+            postApkProgress(actualSize, expectedSize, "done");
+            runOnUiThread(() -> launchVerifiedApkInstaller(apkUri, dm, id));
+        } catch (Exception e) {
+            Log.w(TAG, "APK verification failed: " + e.getClass().getSimpleName());
+            rejectApkDownload(dm, id, "verification_failed");
+        }
+    }
+
+    private File resolveDownloadedApkFile(DownloadManager dm, long id) throws Exception {
+        String localUri = null;
+        DownloadManager.Query query = new DownloadManager.Query().setFilterById(id);
+        try (android.database.Cursor cursor = dm.query(query)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                localUri = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI));
+            }
+        }
+        if (localUri == null) throw new SecurityException("download local path missing");
+        Uri parsed = Uri.parse(localUri);
+        if (!"file".equalsIgnoreCase(parsed.getScheme()) || parsed.getPath() == null) {
+            throw new SecurityException("download local path invalid");
+        }
+        File file = new File(parsed.getPath()).getCanonicalFile();
+        File allowedRoot = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        if (allowedRoot == null) throw new IOException("download directory unavailable");
+        String rootPath = allowedRoot.getCanonicalPath() + File.separator;
+        if (!file.getPath().startsWith(rootPath) || !file.isFile()) {
+            throw new SecurityException("download path escaped app directory");
+        }
+        return file;
+    }
+
+    @SuppressWarnings("deprecation")
+    private String verifyApkIdentityAndSigner(File apkFile) throws Exception {
+        PackageManager packageManager = getPackageManager();
+        int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                ? PackageManager.GET_SIGNING_CERTIFICATES
+                : PackageManager.GET_SIGNATURES;
+        PackageInfo archive = packageManager.getPackageArchiveInfo(apkFile.getAbsolutePath(), flags);
+        PackageInfo installed = packageManager.getPackageInfo(getPackageName(), flags);
+        if (archive == null || installed == null) return "apk_metadata_invalid";
+        if (!BuildConfig.APPLICATION_ID.equals(archive.packageName)
+                || !getPackageName().equals(archive.packageName)) {
+            return "package_name_mismatch";
+        }
+        if (getLongVersionCode(archive) <= getLongVersionCode(installed)) {
+            return "version_not_newer";
+        }
+        Set<String> archiveSigners = signerDigests(archive);
+        Set<String> installedSigners = signerDigests(installed);
+        if (archiveSigners.isEmpty() || !archiveSigners.equals(installedSigners)) {
+            return "signer_mismatch";
+        }
+        return null;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static long getLongVersionCode(PackageInfo info) {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                ? info.getLongVersionCode()
+                : info.versionCode;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static Set<String> signerDigests(PackageInfo info) throws Exception {
+        Signature[] signatures;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            if (info.signingInfo == null) return Collections.emptySet();
+            signatures = info.signingInfo.getApkContentsSigners();
+        } else {
+            signatures = info.signatures;
+        }
+        if (signatures == null || signatures.length == 0) return Collections.emptySet();
+        Set<String> digests = new HashSet<>();
+        for (Signature signature : signatures) {
+            if (signature == null) return Collections.emptySet();
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digests.add(bytesToHex(digest.digest(signature.toByteArray())));
+        }
+        return digests;
+    }
+
+    private void launchVerifiedApkInstaller(Uri apkUri, DownloadManager dm, long id) {
+        try {
+            Intent install = new Intent(Intent.ACTION_INSTALL_PACKAGE)
+                    .setData(apkUri)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(install);
+        } catch (Exception e) {
+            Log.w(TAG, "Verified APK installer unavailable: " + e.getClass().getSimpleName());
+            dm.remove(id);
+            postApkProgress(0, 0, "failed");
+            Toast.makeText(this, "باز کردن نصب‌کننده ممکن نشد.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void rejectApkDownload(DownloadManager dm, long id, String reason) {
+        activeApkDownloads.remove(id);
+        clearPendingApk(id);
+        try {
+            dm.remove(id);
+        } catch (Exception e) {
+            Log.w(TAG, "Rejected APK cleanup failed: " + e.getClass().getSimpleName());
+        }
+        Log.w(TAG, "APK update rejected: " + reason);
+        postApkProgress(0, 0, "failed");
+        runOnUiThread(() -> Toast.makeText(
+                this, "فایل به‌روزرسانی معتبر نبود و حذف شد.", Toast.LENGTH_LONG).show());
+    }
+
+    private void postApkProgress(long done, long total, String status) {
+        final String safeStatus = Arrays.asList("downloading", "verifying", "done", "failed")
+                .contains(status) ? status : "failed";
+        final String js = "window.onApkDownloadProgress&&window.onApkDownloadProgress("
+                + Math.max(0, done) + "," + Math.max(0, total) + ",'" + safeStatus + "')";
+        runOnUiThread(() -> {
+            if (webView != null) webView.evaluateJavascript(js, null);
+        });
+    }
+
+    private static byte[] hexToBytes(String value) {
+        if (value == null || !value.matches("^[0-9a-f]{64}$")) {
+            throw new IllegalArgumentException("invalid sha256");
+        }
+        byte[] out = new byte[value.length() / 2];
+        for (int i = 0; i < value.length(); i += 2) {
+            out[i / 2] = (byte) Integer.parseInt(value.substring(i, i + 2), 16);
+        }
+        return out;
+    }
+
+    private static String bytesToHex(byte[] value) {
+        StringBuilder out = new StringBuilder(value.length * 2);
+        for (byte b : value) out.append(String.format(Locale.ROOT, "%02x", b & 0xff));
+        return out.toString();
     }
 
     // ---- asset extraction helpers (iterative — avoids stack overflow on deep node_modules) ----
@@ -520,6 +873,35 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void warnIfRiskyEnvironment() {
+        boolean debuggable = BuildConfig.DEBUG
+                || (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        boolean rooted = isLikelyRooted();
+        if (!debuggable && !rooted) return;
+        Log.w(TAG, "Security warning: debuggable=" + debuggable + ", rooted=" + rooted);
+        String message = rooted
+                ? "هشدار امنیتی: دستگاه احتمالاً روت شده است. اطلاعات حساس در معرض خطر است."
+                : "هشدار امنیتی: نسخه Debug برای استفاده عملیاتی مناسب نیست.";
+        runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_LONG).show());
+    }
+
+    private static boolean isLikelyRooted() {
+        if (Build.TAGS != null && Build.TAGS.contains("test-keys")) return true;
+        String[] paths = {
+                "/system/app/Superuser.apk",
+                "/system/bin/su",
+                "/system/xbin/su",
+                "/sbin/su",
+                "/su/bin/su",
+                "/data/adb/magisk",
+                "/data/adb/modules"
+        };
+        for (String path : paths) {
+            if (new File(path).exists()) return true;
+        }
+        return false;
+    }
+
     private void ensureUpdateNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -579,6 +961,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void notifyUpdate(String title, String body) {
             runOnUiThread(() -> showUpdateNotification(title, body));
+        }
+
+        @JavascriptInterface
+        public String downloadVerifiedApk(String url, String sha256, long size) {
+            return beginVerifiedApkDownload(url, sha256, size);
         }
     }
 }

@@ -637,8 +637,7 @@ function notifyRep(db, repId, body, fromId, opts = {}) {
     if (flag && flag.value === '0') return;
     const rep = db.prepare('SELECT phone FROM users WHERE id=?').get(repId);
     if (!rep?.phone) return;
-    const rows = db.prepare("SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from')").all();
-    const settings = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    const settings = require('./secret-settings').getSmsSettings(db);
     if (!settings.sms_api_key) return;
     const { sendSMS } = require('../sms');
     sendSMS(settings, rep.phone, body).catch(() => {});

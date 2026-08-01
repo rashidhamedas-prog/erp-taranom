@@ -3,6 +3,12 @@ const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 const { clearCoaCache } = require('../lib/coa-map');
+const { assertSafeOutboundTarget } = require('../lib/safe-outbound-request');
+const {
+  getPublicSettings,
+  getSmsSettings,
+  updateSettings,
+} = require('../lib/secret-settings');
 
 const ALLOWED_KEYS = [
   'currency_base','currency_display',
@@ -51,34 +57,22 @@ router.get('/modules', auth, (req, res) => {
 
 // GET all settings (admin only)
 router.get('/', auth, adminOnly, (req, res) => {
-  const db = getDB();
-  const rows = db.prepare('SELECT key,value FROM settings').all();
-  const obj = {};
-  for (const r of rows) obj[r.key] = r.value;
-  res.json(obj);
+  res.json(getPublicSettings(getDB()));
 });
 
 // PUT upsert key-value pairs (admin only)
-router.put('/', auth, adminOnly, centralOnly, (req, res) => {
-  const db = getDB();
-  const stmt = db.prepare(`
-    INSERT INTO settings (key,value) VALUES (?,?)
-    ON CONFLICT(key) DO UPDATE SET value=excluded.value
-  `);
-  const tx = db.transaction((entries) => {
-    for (const [k, v] of entries) {
-      if (!ALLOWED_KEYS.includes(k)) continue;
-      stmt.run(k, v == null ? '' : String(v));
-    }
-  });
+router.put('/', auth, adminOnly, centralOnly, async (req, res) => {
   const entries = Object.entries(req.body || {});
-  tx(entries);
+  for (const [key, value] of entries) {
+    if (!['website_stock_webhook_url', 'website_wc_url'].includes(key) || value == null || String(value).trim() === '') continue;
+    try { await assertSafeOutboundTarget(String(value)); }
+    catch (error) { return res.status(400).json({ error: error.message || 'آدرس ارتباط با وب‌سایت مجاز نیست' }); }
+  }
+  const db = getDB();
+  updateSettings(db, entries, new Set(ALLOWED_KEYS));
   if (entries.some(([k]) => k.startsWith('coa_') || k === 'feature_cogs_voucher')) clearCoaCache();
   audit(req.user.id, 'update', 'settings', null, 'بروزرسانی تنظیمات');
-  const rows = db.prepare('SELECT key,value FROM settings').all();
-  const obj = {};
-  for (const r of rows) obj[r.key] = r.value;
-  res.json(obj);
+  res.json(getPublicSettings(db));
 });
 
 const DEFAULT_WELCOME_SMS = `سلام 🌸 به خانواده پوشاک ترنم خوش‌آمدید!
@@ -94,9 +88,7 @@ const DEFAULT_WELCOME_SMS = `سلام 🌸 به خانواده پوشاک ترن
 // Test SMS — sends the welcome SMS template to the given phone number
 router.post('/test-sms', auth, adminOnly, async (req, res) => {
   const db = getDB();
-  const rows = db.prepare("SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from','welcome_sms_text','kimia_address')").all();
-  const settings = {};
-  for (const r of rows) settings[r.key] = r.value;
+  const settings = getSmsSettings(db, ['welcome_sms_text', 'kimia_address']);
   const to = (req.body.phone || '').trim();
   if (!to) return res.status(400).json({ error: 'شماره موبایل الزامی است' });
   const addrLine = settings.kimia_address ? `\n🏢 آدرس دفتر: ${settings.kimia_address}` : '';
@@ -106,3 +98,4 @@ router.post('/test-sms', auth, adminOnly, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.ALLOWED_KEYS = ALLOWED_KEYS;

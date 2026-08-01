@@ -47,12 +47,6 @@
 
   function findDeleteBtn(root) {
     const btns = [...(root.querySelectorAll('button.btn.red, button.btn.sm.red') || [])];
-    const byFn = btns.find((b) =>
-      /^(delete|void|confirmDelete|discard|stkDelete|remDelete|prodBom|prodOrderCancel)/i.test(
-        (b.getAttribute('onclick') || '').trim()
-      )
-    );
-    if (byFn) return byFn;
     return btns.find((b) => /حذف|ابطال/.test(b.textContent || '') || b.getAttribute('title') === 'ابطال') || null;
   }
 
@@ -61,10 +55,8 @@
     if (!tbody) return;
     [...tbody.rows].forEach((tr) => {
       if (tr.dataset.id) return;
-      const red = findDeleteBtn(tr);
-      const src = red ? (red.getAttribute('onclick') || '') : tr.innerHTML;
-      const m = src.match(/\((\d+)\b/) || src.match(/,\s*(\d+)\s*[,)]/);
-      if (m) tr.dataset.id = m[1];
+      const checkbox = tr.querySelector('.tbl-sel-row[data-id]');
+      if (checkbox?.dataset?.id) tr.dataset.id = checkbox.dataset.id;
     });
   }
 
@@ -362,7 +354,7 @@
       });
       if (kind === 'avg') {
         const avg = count ? sum / count : 0;
-        td.innerHTML = `<span class="muted" style="font-size:11px">میانگین</span><br><strong class="mono">${fmtN(Math.round(avg))}</strong>`;
+        td.innerHTML = `<span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">میانگین</span><br><strong class="mono">${fmtN(Math.round(avg))}</strong>`;
         td.dataset.colKind = 'avg';
       } else {
         td.innerHTML = `<strong class="mono">${fmtN(sum)}</strong>`;
@@ -383,7 +375,7 @@
         if (ci === netProps.debitCol || ci === netProps.creditCol) {
           const show = (ci === netProps.debitCol && debitWins) || (ci === netProps.creditCol && !debitWins);
           if (show) {
-            td.innerHTML = `<span style="font-size:11px">تفاضل</span><br><strong class="mono">${fmtN(diff)}</strong>`;
+            td.innerHTML = `<span data-csp-style="${CSP.style(`font-size:11px`)}">تفاضل</span><br><strong class="mono">${fmtN(diff)}</strong>`;
             td.style.color = debitWins ? 'var(--red, #c0392b)' : 'var(--green, #1A5C38)';
             td.style.fontWeight = '700';
           }
@@ -431,57 +423,9 @@
       };
     }
     // از دکمه حذف ردیف استنباط کن
-    const btn = findDeleteBtn(table.tBodies[0] || table);
-    if (!btn) return null;
-    const oc = btn.getAttribute('onclick') || '';
-    const fnMatch = oc.match(/^([a-zA-Z_$][\w$]*)\s*\(/);
-    if (!fnMatch) return null;
-    const fnName = fnMatch[1];
-    const fn = global[fnName];
-    if (typeof fn !== 'function') return null;
-    const isVoid = /void|ابطال|reverse|Cancel/i.test(fnName + (table.dataset.bulkLabel || '') + (btn.textContent || ''));
-    return {
-      label: table.dataset.bulkLabel || (isVoid ? 'ابطال' : 'حذف'),
-      confirm: table.dataset.bulkConfirm || null,
-      canDelete: () => true,
-      deleteOne: async (id) => {
-        const tr = [...(table.tBodies[0]?.rows || [])].find((r) => String(r.dataset.id) === String(id));
-        const rowBtn = tr ? findDeleteBtn(tr) : null;
-        const rowOc = rowBtn ? (rowBtn.getAttribute('onclick') || '') : oc;
-        const rowFn = (rowOc.match(/^([a-zA-Z_$][\w$]*)\s*\(/) || [])[1] || fnName;
-
-        if (rowFn === 'confirmDelete') {
-          const ent = rowOc.match(/confirmDelete\s*\(\s*['"]([^'"]+)['"]/);
-          if (ent) await global.api('DELETE', '/' + ent[1] + '/' + id);
-          else throw new Error('entity نامشخص');
-          return;
-        }
-        if (rowFn === 'deletePaymentOp') {
-          const kind = rowOc.match(/deletePaymentOp\s*\(\s*['"]([^'"]+)['"]/);
-          if (!kind) throw new Error('نوع پرداخت نامشخص');
-          const endpoint = kind[1] === 'supplier'
-            ? '/purchases/payments/' + id
-            : kind[1] === 'incentive'
-              ? '/accounting/incentive-payments/' + id
-              : '/expenses/' + id;
-          await global.api('DELETE', endpoint);
-          return;
-        }
-        const mapped = DELETE_API[rowFn];
-        if (mapped) {
-          const [method, path] = mapped(id);
-          await global.api(method, path);
-          return;
-        }
-        await fn(id);
-      },
-      refresh: () => {
-        if (typeof IN_ACC_SHELL !== 'undefined' && IN_ACC_SHELL && typeof accTab !== 'undefined' && accTab && typeof loadAccTab === 'function') {
-          return loadAccTab(accTab);
-        }
-        return null;
-      },
-    };
+    // CSP forbids executable handler strings. Bulk actions must declare an auditable
+    // data-bulk-delete endpoint (or pass an explicit bulkDelete option).
+    return null;
   }
 
   global.enhanceDataTable = enhanceDataTable;

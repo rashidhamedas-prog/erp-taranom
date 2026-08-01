@@ -3,12 +3,16 @@
  */
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOnly, adminOrAccounting, centralOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
 const { todayJalali } = require('../jalali');
 const {
   SMS_VARS, SMS_EVENTS, dispatchSmsEvent, ensureSmsRulesTable, settingsMap,
 } = require('../lib/sms-dispatch');
+const {
+  getPublicSmsSettings,
+  updateSettings,
+} = require('../lib/secret-settings');
 
 function canManageSms(req) {
   return req.user && (req.user.role === 'admin' || req.user.role === 'accounting');
@@ -20,16 +24,13 @@ router.get('/vars', auth, adminOrAccounting, (req, res) => {
 
 // ── Provider settings
 router.get('/provider', auth, adminOrAccounting, (req, res) => {
-  res.json(settingsMap(getDB()));
+  res.json(getPublicSmsSettings(getDB(), ['welcome_sms_text']));
 });
 
-router.put('/provider', auth, adminOnly, (req, res) => {
+router.put('/provider', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const keys = ['sms_provider', 'sms_api_key', 'sms_from', 'niksms_api_key', 'smsir_api_key', 'smsir_line', 'welcome_sms_text'];
-  const up = db.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
-  for (const k of keys) {
-    if (req.body[k] !== undefined) up.run(k, String(req.body[k] ?? ''));
-  }
+  updateSettings(db, Object.entries(req.body || {}), new Set(keys));
   audit(req.user.id, 'update', 'sms_provider', null, 'ویرایش تنظیمات پیامک');
   res.json({ ok: true });
 });

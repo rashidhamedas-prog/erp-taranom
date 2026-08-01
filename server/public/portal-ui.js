@@ -21,8 +21,8 @@
 
   function timelineHtml(logs) {
     if (!logs || !logs.length) return '<span class="muted">—</span>';
-    return `<div style="display:flex;gap:3px;align-items:center">${logs.map(l =>
-      `<div title="${esc(l.department_name || '')} (${esc(l.status || '')})" style="flex:1;min-width:12px;height:10px;border-radius:3px;background:${deptColor(l.status)}"></div>`
+    return `<div data-csp-style="${CSP.style(`display:flex;gap:3px;align-items:center`)}">${logs.map(l =>
+      `<div title="${esc(l.department_name || '')} (${esc(l.status || '')})" data-csp-style="${CSP.style(`flex:1;min-width:12px;height:10px;border-radius:3px;background:${deptColor(l.status)}`)}"></div>`
     ).join('')}</div>`;
   }
 
@@ -80,48 +80,48 @@
         .map(id => (CACHE.persons || []).find(p => p.id === id)?.name || ('#' + id))
         .join('، ');
       detailHtml = `
-        <div class="panel" style="margin-top:12px">
+        <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
           <div class="panel-head"><h4>🏢 ${esc(u.name)} — بخش‌ها و پارامترها</h4>
-            <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button class="btn sm ghost" onclick="PortalUI.openEditUnitModal(${u.id})">✏️ ویرایش واحد</button>
-              <button class="btn sm red" onclick='PortalUI.deleteUnit(${u.id},${JSON.stringify(u.name || "")})'>🗑️ حذف واحد</button>
-              <button class="btn sm" onclick="PortalUI.openCreateDeptModal(${u.id})">➕ دپارتمان</button>
-              <button class="btn sm ghost" onclick="PortalUI.openCreateParamModal(${u.id})">➕ پارامتر جدید</button>
+            <div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap`)}">
+              <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.openEditUnitModal((u.id))})}">✏️ ویرایش واحد</button>
+              <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){PortalUI.deleteUnit((u.id),(u.name || ""))})}">🗑️ حذف واحد</button>
+              <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.openCreateDeptModal((u.id))})}">➕ دپارتمان</button>
+              <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.openCreateParamModal((u.id))})}">➕ پارامتر جدید</button>
             </div>
           </div>
           <div class="panel-body">
-            <div class="muted" style="font-size:12px;margin-bottom:10px;line-height:1.7">
+            <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.7`)}">
               <b>مدیران:</b> ${esc(mgrNames || '—')}
               &nbsp;|&nbsp; <b>نوع خروجی:</b> ${esc(u.output_type || '—')}
               &nbsp;|&nbsp; <b>انبارها:</b> ${(u.warehouses || []).map(w => esc(w.name)).join('، ') || '—'}
               &nbsp;|&nbsp; <b>اشخاص در جریان:</b> ${(u.persons || []).map(p => esc(p.name)).join('، ') || '—'}
               &nbsp;|&nbsp; <b>اتصالات:</b> ${(u.module_links || []).map(m => esc(m.module_key)).join('، ') || '—'}
             </div>
-            <h5 style="margin:0 0 8px;font-size:13px">بخش‌های عملیاتی (مرحله‌بندی مسیر)</h5>
-            <div class="tbl-wrap" style="margin-bottom:14px"><table class="tbl" style="font-size:12px"><thead><tr>
+            <h5 data-csp-style="${CSP.style(`margin:0 0 8px;font-size:13px`)}">بخش‌های عملیاتی (مرحله‌بندی مسیر)</h5>
+            <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-bottom:14px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
               <th>ترتیب</th><th>نام</th><th>مدیر</th><th>انبار</th><th>عملیات</th>
             </tr></thead><tbody>${(u.departments || []).map((d, i, arr) => `<tr>
               <td class="mono">${fmt(d.sequence_order)}</td>
               <td>${esc(d.name)}</td>
               <td>${esc(d.manager_name || '-')}</td>
               <td>${esc(d.warehouse_name || '-')}</td>
-              <td style="white-space:nowrap">
-                <button class="btn sm ghost" ${i === 0 ? 'disabled' : ''} onclick="PortalUI.moveDept(${d.id},${d.sequence_order - 1},${u.id})" title="بالا">↑</button>
-                <button class="btn sm ghost" ${i === arr.length - 1 ? 'disabled' : ''} onclick="PortalUI.moveDept(${d.id},${d.sequence_order + 1},${u.id})" title="پایین">↓</button>
-                <button class="btn sm ghost" onclick="PortalUI.openEditDeptModal(${d.id},${u.id})">✏️</button>
-                <button class="btn sm ghost" onclick="PortalUI.openDeptExtrasModal(${d.id})" title="امکان و وظیفه">📋 امکانات</button>
-                <button class="btn sm ghost" onclick="PortalUI.openDelegateModal(${d.id})" title="واگذاری موقت">🔀 واگذاری</button>
+              <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+                <button class="btn sm ghost" ${i === 0 ? 'disabled' : ''} data-csp-click="${CSP.bind('click',function(event){PortalUI.moveDept((d.id),(d.sequence_order - 1),(u.id))})}" title="بالا">↑</button>
+                <button class="btn sm ghost" ${i === arr.length - 1 ? 'disabled' : ''} data-csp-click="${CSP.bind('click',function(event){PortalUI.moveDept((d.id),(d.sequence_order + 1),(u.id))})}" title="پایین">↓</button>
+                <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.openEditDeptModal((d.id),(u.id))})}">✏️</button>
+                <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.openDeptExtrasModal((d.id))})}" title="امکان و وظیفه">📋 امکانات</button>
+                <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.openDelegateModal((d.id))})}" title="واگذاری موقت">🔀 واگذاری</button>
               </td>
             </tr>`).join('') || emptyRow(5)}</tbody></table></div>
-            <h5 style="margin:0 0 8px;font-size:13px">پارامترها</h5>
-            <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+            <h5 data-csp-style="${CSP.style(`margin:0 0 8px;font-size:13px`)}">پارامترها</h5>
+            <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
               <th>شماره</th><th>نام</th><th>وضعیت</th><th>خط زمانی بخش‌ها</th><th></th>
             </tr></thead><tbody>${unitParams.map(p => `<tr>
               <td class="mono">${esc(p.num || p.id)}</td>
               <td>${esc(p.name)}</td>
               <td><span class="tag">${esc(paramStatusLabel(p.status))}</span></td>
               <td id="ptl-${p.id}"><span class="muted">…</span></td>
-              <td><button class="btn sm" onclick="PortalUI.showParamDetail(${p.id})">جزئیات</button></td>
+              <td><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.showParamDetail((p.id))})}">جزئیات</button></td>
             </tr>`).join('') || emptyRow(5)}</tbody></table></div>
             <div id="portalParamDetail"></div>
           </div>
@@ -141,35 +141,35 @@
       const pending = await api('GET', '/portal/products/pending') || [];
       if (pending.length) {
         pendingHtml = `
-          <div class="panel" style="margin-top:12px">
+          <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
             <div class="panel-head"><h4>⏳ کالاهای در انتظار تأیید</h4></div>
-            <div class="panel-body"><div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+            <div class="panel-body"><div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
               <th>کد</th><th>نام</th><th></th>
             </tr></thead><tbody>${pending.map(p => `<tr>
               <td class="mono">${esc(p.code || p.id)}</td>
               <td>${esc(p.name)}</td>
-              <td><button class="btn sm green" onclick="PortalUI.approvePortalProduct(${p.id})">✅ تأیید</button></td>
+              <td><button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){PortalUI.approvePortalProduct((p.id))})}">✅ تأیید</button></td>
             </tr>`).join('')}</tbody></table></div></div>
           </div>`;
       }
     } catch (_) { /* optional */ }
 
     body.innerHTML = `
-      <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
-        <button class="btn sm" onclick="PortalUI.openCreateUnitModal()">➕ واحد عملیاتی</button>
-        <button class="btn sm ghost" onclick="loadAccTab('portal-units')">🔄</button>
+      <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
+        <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.openCreateUnitModal()})}">➕ واحد عملیاتی</button>
+        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('portal-units')})}">🔄</button>
       </div>
-      <p class="muted" style="font-size:12px;margin-bottom:10px">مسئول واحد از <b>اطلاعات اشخاص</b> انتخاب می‌شود؛ با ذخیره، حساب کاربری با نام کاربری=تلفن ساخته می‌شود. رمز اولیه بدون پیامک <b>12345</b> است و در اولین ورود باید عوض شود. ارسال پیامک رمز موقت اختیاری است (از تنظیمات شخص).</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">مسئول واحد از <b>اطلاعات اشخاص</b> انتخاب می‌شود؛ با ذخیره، حساب کاربری با نام کاربری=تلفن و رمز تصادفی ساخته می‌شود. برای ورود فوری، ارسال رمز موقت با پیامک را فعال کنید؛ در غیر این صورت کاربر باید از بازیابی رمز تأییدشده یا بازنشانی توسط مدیر استفاده کند.</p>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
         <th>نام واحد</th><th>نوع خروجی</th><th>وضعیت</th><th>عملیات</th>
-      </tr></thead><tbody>${units.map(u => `<tr style="${_portalUnitId === u.id ? 'background:var(--purple-light)' : ''}">
+      </tr></thead><tbody>${units.map(u => `<tr data-csp-style="${CSP.style(`${_portalUnitId === u.id ? 'background:var(--purple-light)' : ''}`)}">
         <td>${esc(u.name)}</td>
         <td class="muted">${esc(u.output_type || '-')}</td>
         <td>${u.status === 'inactive' ? '<span class="tag t-cancel">غیرفعال</span>' : '<span class="tag t-done">فعال</span>'}</td>
-        <td style="white-space:nowrap">
-          <button class="btn sm ${ _portalUnitId === u.id ? '' : 'ghost'}" onclick="PortalUI.selectUnit(${u.id})">مدیریت</button>
-          <button class="btn sm ghost" onclick="PortalUI.openEditUnitModal(${u.id})" title="ویرایش">✏️</button>
-          <button class="btn sm red" onclick='PortalUI.deleteUnit(${u.id},${JSON.stringify(u.name || "")})' title="حذف کامل">🗑️</button>
+        <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+          <button class="btn sm ${ _portalUnitId === u.id ? '' : 'ghost'}" data-csp-click="${CSP.bind('click',function(event){PortalUI.selectUnit((u.id))})}">مدیریت</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.openEditUnitModal((u.id))})}" title="ویرایش">✏️</button>
+          <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){PortalUI.deleteUnit((u.id),(u.name || ""))})}" title="حذف کامل">🗑️</button>
         </td>
       </tr>`).join('') || emptyRow(4)}</tbody></table></div>
       ${pendingHtml}
@@ -192,7 +192,7 @@
 
   function multiSelectHtml(id, options, selectedIds, size) {
     const sel = new Set((selectedIds || []).map(String));
-    return `<select id="${id}" multiple size="${size || 5}" style="min-height:${(size || 5) * 22}px;width:100%">
+    return `<select id="${id}" multiple size="${size || 5}" data-csp-style="${CSP.style(`min-height:${(size || 5) * 22}px;width:100%`)}">
       ${options.map(o => `<option value="${o.id}" ${sel.has(String(o.id)) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}
     </select>`;
   }
@@ -225,7 +225,7 @@
         <option value="active" ${u.status !== 'inactive' ? 'selected' : ''}>فعال</option>
         <option value="inactive" ${u.status === 'inactive' ? 'selected' : ''}>غیرفعال</option>
       </select></div>` : ''}
-      <p class="muted" style="font-size:11px;grid-column:1/-1">چندانتخابی: Ctrl+کلیک (ویندوز) یا Cmd+کلیک (مک).</p>`;
+      <p class="muted" data-csp-style="${CSP.style(`font-size:11px;grid-column:1/-1`)}">چندانتخابی: Ctrl+کلیک (ویندوز) یا Cmd+کلیک (مک).</p>`;
   }
 
   function collectUnitPayload() {
@@ -250,20 +250,20 @@
   async function openCreateUnitModal() {
     await ensurePortalCaches();
     openModal(`
-      <div class="modal-head"><h3>➕ واحد عملیاتی جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>➕ واحد عملیاتی جدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">${unitFormFieldsHtml({})}</div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveUnit(0)">💾 ذخیره</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveUnit(0)})}">💾 ذخیره</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
 
   async function openEditUnitModal(id) {
     await ensurePortalCaches();
     const u = await api('GET', '/portal/units/' + id);
     openModal(`
-      <div class="modal-head"><h3>✏️ ویرایش واحد عملیاتی</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>✏️ ویرایش واحد عملیاتی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">${unitFormFieldsHtml(u)}</div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveUnit(${id})">💾 ذخیره</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveUnit((id))})}">💾 ذخیره</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
 
   async function saveUnit(id) {
@@ -307,7 +307,7 @@
       showToast('اول انبارهای واحد را در ویرایش واحد تعریف کنید', 'error'); return;
     }
     openModal(`
-      <div class="modal-head"><h3>➕ دپارتمان جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>➕ دپارتمان جدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>نام دپارتمان *</label><input id="pd-name" placeholder="مثال: دپارتمان برش"></div>
         <div class="fg full"><label>مسئول دپارتمان *</label>
@@ -318,8 +318,8 @@
           </select></div>
         <div class="fg"><label>ترتیب مرحله (خالی=آخر)</label><input id="pd-seq" type="number" min="1" placeholder="خودکار"></div>
       </div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDept(0,${unitId})">💾 ذخیره</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveDept(0,(unitId))})}">💾 ذخیره</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
 
   async function openEditDeptModal(deptId, unitId) {
@@ -329,7 +329,7 @@
     if (!d) { showToast('دپارتمان یافت نشد', 'error'); return; }
     const whs = u.warehouses || [];
     openModal(`
-      <div class="modal-head"><h3>✏️ ویرایش دپارتمان</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>✏️ ویرایش دپارتمان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>نام دپارتمان *</label><input id="pd-name" value="${esc(d.name || '')}"></div>
         <div class="fg full"><label>مسئول دپارتمان *</label>
@@ -339,8 +339,8 @@
             ${whs.map(w => `<option value="${w.id}" ${String(d.warehouse_id) === String(w.id) ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}
           </select></div>
       </div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDept(${deptId},${unitId})">💾 ذخیره</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveDept((deptId),(unitId))})}">💾 ذخیره</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
 
   async function saveDept(deptId, unitId) {
@@ -381,7 +381,7 @@
     const whs = u.warehouses || CACHE.warehouses || [];
     _paramItems = [{ product_id: '', quantity: '1' }];
     openModal(`
-      <div class="modal-head"><h3>➕ پارامتر جدید</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>➕ پارامتر جدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>نام پارامتر *</label><input id="pp-name"></div>
         <div class="fg full"><label>انبار مبدأ (مواد)</label>
@@ -390,12 +390,12 @@
           </select></div>
         <div class="fg full"><label>اقلام پارامتر *</label>
           <div id="pp-items-box"></div>
-          <button type="button" class="btn sm ghost" onclick="PortalUI.addParamItemRow()">➕ مقدار / کالای بعدی</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.addParamItemRow()})}">➕ مقدار / کالای بعدی</button>
         </div>
         <div class="fg full"><label>توضیحات</label><textarea id="pp-desc"></textarea></div>
       </div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveParameter(${unitId})">💾 ایجاد و تحویل به اولین دپارتمان</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveParameter((unitId))})}">💾 ایجاد و تحویل به اولین دپارتمان</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
     window._paramItems = _paramItems;
     window._paramProds = prods;
     renderParamItemRows();
@@ -413,14 +413,14 @@
     const prods = window._paramProds || CACHE.allProducts || CACHE.products || [];
     const box = el('pp-items-box'); if (!box) return;
     box.innerHTML = _paramItems.map((it, i) => `
-      <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap">
-        <select style="flex:1;min-width:180px" onchange="window._paramItems[${i}].product_id=this.value">
+      <div data-csp-style="${CSP.style(`display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap`)}">
+        <select data-csp-style="${CSP.style(`flex:1;min-width:180px`)}" data-csp-change="${CSP.bind('change',function(event){window._paramItems[(i)].product_id=this.value})}">
           <option value="">— انتخاب کالا —</option>
           ${prods.slice(0, 800).map(p => `<option value="${p.id}" ${String(it.product_id) === String(p.id) ? 'selected' : ''}>${esc(p.name)}${p.code ? ' (' + esc(p.code) + ')' : ''}</option>`).join('')}
         </select>
         <input type="number" step="0.001" min="0.001" placeholder="مقدار" value="${esc(String(it.quantity || '1'))}"
-          oninput="window._paramItems[${i}].quantity=this.value" style="width:110px">
-        ${_paramItems.length > 1 ? `<button type="button" class="btn sm red" onclick="window._paramItems.splice(${i},1);PortalUI.renderParamItemRows()">×</button>` : ''}
+          data-csp-input="${CSP.bind('input',function(event){window._paramItems[(i)].quantity=this.value})}" data-csp-style="${CSP.style(`width:110px`)}">
+        ${_paramItems.length > 1 ? `<button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(event){window._paramItems.splice((i),1);PortalUI.renderParamItemRows()})}">×</button>` : ''}
       </div>`).join('');
   }
 
@@ -460,22 +460,22 @@
     if (!box) return;
     const canFinal = p.status === 'dept_completed' || p.status === 'in_progress';
     box.innerHTML = `
-      <div class="panel" style="margin-top:12px;border:1px solid var(--purple)">
+      <div class="panel" data-csp-style="${CSP.style(`margin-top:12px;border:1px solid var(--purple)`)}">
         <div class="panel-head"><h4>📋 ${esc(p.num || p.id)} — ${esc(p.name)}</h4>
-          ${canFinal ? `<button class="btn sm green" onclick="PortalUI.finalOutput(${p.id})">🏁 ثبت خروجی نهایی</button>` : ''}
+          ${canFinal ? `<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){PortalUI.finalOutput((p.id))})}">🏁 ثبت خروجی نهایی</button>` : ''}
         </div>
         <div class="panel-body">
           ${timelineHtml(p.dept_logs)}
-          <div class="tbl-wrap" style="margin-top:10px"><table class="tbl" style="font-size:12px"><thead><tr>
+          <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:10px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
             <th>بخش</th><th>وضعیت</th><th>تأیید</th><th>مقدار</th><th>پرداخت</th>
           </tr></thead><tbody>${(p.dept_logs || []).map(l => `<tr>
             <td>${esc(l.department_name)}</td>
             <td>${esc(l.status)}</td>
             <td>${l.confirmed ? '✅' : '—'}</td>
             <td class="mono">${l.received_quantity != null ? fmt(l.received_quantity) : '—'}</td>
-            <td class="muted" style="font-size:11px">${esc(l.payment_status || '—')}${l.payment_amount ? ' · '+fmt(l.payment_amount)+' ریال' : ''}</td>
+            <td class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(l.payment_status || '—')}${l.payment_amount ? ' · '+fmt(l.payment_amount)+' ریال' : ''}</td>
           </tr>`).join('')}</tbody></table></div>
-          <div class="tbl-wrap" style="margin-top:8px"><table class="tbl" style="font-size:12px"><thead><tr>
+          <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
             <th>کالا</th><th>مقدار</th>
           </tr></thead><tbody>${(p.items || []).map(it => `<tr>
             <td>${esc(it.product_name || it.product_id)}</td>
@@ -491,41 +491,41 @@
       || ['admin', 'accounting', 'unit_manager'].includes(ME?.role);
     const active = rows.filter(p => p.status !== 'completed' && p.status !== 'cancelled');
     body.innerHTML = `
-      <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
-        <button class="btn sm ghost" onclick="loadAccTab('portal-my-dept')">🔄 بروزرسانی</button>
-        <span class="muted" style="font-size:12px">${fmt(active.length)} پارامتر فعال در صف</span>
+      <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
+        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('portal-my-dept')})}">🔄 بروزرسانی</button>
+        <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${fmt(active.length)} پارامتر فعال در صف</span>
       </div>
-      <div class="muted" style="font-size:12px;margin-bottom:12px">پارامترهای در صف بخش شما — دکمه‌های عملیات روی بخش فعلی اعمال می‌شوند.</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">
-        ${active.length ? active.map(p => `<div class="panel" style="margin:0">
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px`)}">پارامترهای در صف بخش شما — دکمه‌های عملیات روی بخش فعلی اعمال می‌شوند.</div>
+      <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px`)}">
+        ${active.length ? active.map(p => `<div class="panel" data-csp-style="${CSP.style(`margin:0`)}">
           <div class="panel-head"><h4>${esc(p.num || ('#'+p.id))}</h4>
             <span class="tag">${esc(paramStatusLabel(p.status))}</span></div>
           <div class="panel-body">
-            <div style="font-weight:600;margin-bottom:6px">${esc(p.name)}</div>
-            <div class="muted" style="font-size:11px;margin-bottom:4px">واحد: ${esc(p.unit_name || '—')}</div>
-            <div class="muted" style="font-size:11px;margin-bottom:10px">بخش جاری: <b>${esc(p.current_department_name || (p.current_department_id ? ('#'+p.current_department_id) : '—'))}</b>${p.current_department_seq != null ? ` <span class="tag" style="font-size:10px">مرحله ${fmt(p.current_department_seq)}</span>` : ''}</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-              <button class="btn sm" onclick="PortalUI.deptConfirm(${p.id},${p.current_department_id || 0})">✅ تأیید مقدار</button>
-              <button class="btn sm ghost" onclick="PortalUI.deptReview(${p.id},${p.current_department_id || 0})">🔍 بازبینی</button>
-              <button class="btn sm" onclick="PortalUI.deptPayment(${p.id},${p.current_department_id || 0})">💳 درخواست پرداخت</button>
-              ${canApprovePay ? `<button class="btn sm orange" onclick="PortalUI.deptApprovePayment(${p.id},${p.current_department_id || 0})">✔ تأیید پرداخت</button>` : ''}
-              <button class="btn sm ghost" onclick="PortalUI.deptConvert(${p.id},${p.current_department_id || 0})">🔄 تبدیل</button>
-              <button class="btn sm green" style="grid-column:1/-1" onclick="PortalUI.deptComplete(${p.id},${p.current_department_id || 0})">🏁 اتمام بخش</button>
+            <div data-csp-style="${CSP.style(`font-weight:600;margin-bottom:6px`)}">${esc(p.name)}</div>
+            <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-bottom:4px`)}">واحد: ${esc(p.unit_name || '—')}</div>
+            <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-bottom:10px`)}">بخش جاری: <b>${esc(p.current_department_name || (p.current_department_id ? ('#'+p.current_department_id) : '—'))}</b>${p.current_department_seq != null ? ` <span class="tag" data-csp-style="${CSP.style(`font-size:10px`)}">مرحله ${fmt(p.current_department_seq)}</span>` : ''}</div>
+            <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr;gap:6px`)}">
+              <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.deptConfirm((p.id),(p.current_department_id || 0))})}">✅ تأیید مقدار</button>
+              <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.deptReview((p.id),(p.current_department_id || 0))})}">🔍 بازبینی</button>
+              <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.deptPayment((p.id),(p.current_department_id || 0))})}">💳 درخواست پرداخت</button>
+              ${canApprovePay ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){PortalUI.deptApprovePayment((p.id),(p.current_department_id || 0))})}">✔ تأیید پرداخت</button>` : ''}
+              <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.deptConvert((p.id),(p.current_department_id || 0))})}">🔄 تبدیل</button>
+              <button class="btn sm green" data-csp-style="${CSP.style(`grid-column:1/-1`)}" data-csp-click="${CSP.bind('click',function(event){PortalUI.deptComplete((p.id),(p.current_department_id || 0))})}">🏁 اتمام بخش</button>
             </div>
           </div>
-        </div>`).join('') : '<div class="empty" style="grid-column:1/-1">پارامتری در صف بخش شما نیست</div>'}
+        </div>`).join('') : `<div class="empty" data-csp-style="${CSP.style(`grid-column:1/-1`)}">پارامتری در صف بخش شما نیست</div>`}
       </div>`;
   }
 
   async function deptConfirm(paramId, deptId) {
     if (!deptId) { showToast('بخش فعال مشخص نیست', 'error'); return; }
     openModal(`
-      <div class="modal-head"><h3>✅ تأیید مقدار دریافتی</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>✅ تأیید مقدار دریافتی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>مقدار دریافتی *</label><input id="pd-qty" type="number" step="0.001" min="0" value="0"></div>
       </div></div>
-      <div class="modal-foot"><button class="btn green" onclick="PortalUI.saveDeptConfirm(${paramId},${deptId})">💾 تأیید</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveDeptConfirm((paramId),(deptId))})}">💾 تأیید</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
   async function saveDeptConfirm(paramId, deptId) {
     const q = +el('pd-qty')?.value;
@@ -562,7 +562,7 @@
       }
     } catch (_) {}
     openModal(`
-      <div class="modal-head"><h3>💳 درخواست پرداخت</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>💳 درخواست پرداخت</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>شخص * ${unitPersons !== persons ? '(اشخاص در جریان واحد)' : ''}</label>
           <select id="pd-person"><option value="">— انتخاب —</option>
@@ -575,8 +575,8 @@
         </select></div>
         <div class="fg full"><label>یادداشت</label><input id="pd-note"></div>
       </div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDeptPayment(${paramId},${deptId})">📤 ارسال</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveDeptPayment((paramId),(deptId))})}">📤 ارسال</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
   async function saveDeptPayment(paramId, deptId) {
     const person_id = +el('pd-person')?.value;
@@ -614,7 +614,7 @@
       }
     } catch (_) {}
     openModal(`
-      <div class="modal-head"><h3>🏁 ثبت خروجی نهایی</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>🏁 ثبت خروجی نهایی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg"><label>تعداد نهایی *</label><input id="fo-qty" type="number" step="0.001" min="0.001" value="1"></div>
         <div class="fg"><label>انبار مقصد *</label><select id="fo-wh"><option value="">— انتخاب —</option>
@@ -622,11 +622,11 @@
         </select></div>
         <div class="fg full"><label>هزینه‌های اضافه</label>
           <div id="fo-costs"></div>
-          <button type="button" class="btn sm ghost" onclick="PortalUI.addFinalCostRow()">➕ هزینه بعدی</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.addFinalCostRow()})}">➕ هزینه بعدی</button>
         </div>
       </div></div>
-      <div class="modal-foot"><button class="btn green" onclick="PortalUI.saveFinalOutput(${paramId})">💾 ثبت نهایی</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveFinalOutput((paramId))})}">💾 ثبت نهایی</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
     _foCosts = [{ description: '', amount_rial: '' }];
     renderFinalCostRows();
   }
@@ -636,10 +636,10 @@
     const box = el('fo-costs'); if (!box) return;
     window._foCosts = _foCosts;
     box.innerHTML = _foCosts.map((c, i) => `
-      <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
-        <input placeholder="شرح" value="${esc(c.description || '')}" oninput="window._foCosts[${i}].description=this.value" style="flex:1">
-        <input placeholder="مبلغ ریال" type="text" inputmode="numeric" class="money" value="${esc(String(c.amount_rial || ''))}" oninput="window._foCosts[${i}].amount_rial=this.value" style="width:140px">
-        ${_foCosts.length > 1 ? `<button type="button" class="btn sm red" onclick="window._foCosts.splice(${i},1);PortalUI.renderFinalCostRows()">×</button>` : ''}
+      <div data-csp-style="${CSP.style(`display:flex;gap:8px;margin-bottom:6px;align-items:center`)}">
+        <input placeholder="شرح" value="${esc(c.description || '')}" data-csp-input="${CSP.bind('input',function(event){window._foCosts[(i)].description=this.value})}" data-csp-style="${CSP.style(`flex:1`)}">
+        <input placeholder="مبلغ ریال" type="text" inputmode="numeric" class="money" value="${esc(String(c.amount_rial || ''))}" data-csp-input="${CSP.bind('input',function(event){window._foCosts[(i)].amount_rial=this.value})}" data-csp-style="${CSP.style(`width:140px`)}">
+        ${_foCosts.length > 1 ? `<button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(event){window._foCosts.splice((i),1);PortalUI.renderFinalCostRows()})}">×</button>` : ''}
       </div>`).join('');
   }
   async function saveFinalOutput(paramId) {
@@ -661,13 +661,13 @@
 
   async function addDeptCapability(deptId) {
     openModal(`
-      <div class="modal-head"><h3>➕ امکان / خدمت دپارتمان</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>➕ امکان / خدمت دپارتمان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>نام *</label><input id="cap-name"></div>
         <div class="fg full"><label>توضیحات</label><textarea id="cap-desc"></textarea></div>
       </div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDeptCapability(${deptId})">💾 ذخیره</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveDeptCapability((deptId))})}">💾 ذخیره</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
   async function saveDeptCapability(deptId) {
     const name = el('cap-name')?.value?.trim();
@@ -680,13 +680,13 @@
   }
   async function addDeptTask(deptId) {
     openModal(`
-      <div class="modal-head"><h3>➕ شرح وظیفه دپارتمان</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>➕ شرح وظیفه دپارتمان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>نام *</label><input id="task-name"></div>
         <div class="fg full"><label>توضیحات</label><textarea id="task-desc"></textarea></div>
       </div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDeptTask(${deptId})">💾 ذخیره</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveDeptTask((deptId))})}">💾 ذخیره</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
   async function saveDeptTask(deptId) {
     const name = el('task-name')?.value?.trim();
@@ -704,54 +704,54 @@
       api('GET', `/portal/departments/${deptId}/tasks`).catch(() => []),
     ]);
     openModal(`
-      <div class="modal-head"><h3>📋 امکانات و وظایف دپارتمان</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>📋 امکانات و وظایف دپارتمان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <h5 style="margin:0;font-size:13px">امکانات / خدمات</h5>
-          <button class="btn sm" onclick="PortalUI.addDeptCapability(${deptId})">➕ امکان</button>
+        <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;margin-bottom:8px`)}">
+          <h5 data-csp-style="${CSP.style(`margin:0;font-size:13px`)}">امکانات / خدمات</h5>
+          <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.addDeptCapability((deptId))})}">➕ امکان</button>
         </div>
-        <div class="tbl-wrap" style="margin-bottom:16px"><table class="tbl" style="font-size:12px"><thead><tr>
+        <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-bottom:16px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
           <th>نام</th><th>توضیح</th>
         </tr></thead><tbody>${(caps || []).map(c => `<tr>
           <td>${esc(c.name)}</td><td class="muted">${esc(c.description || '-')}</td>
         </tr>`).join('') || emptyRow(2)}</tbody></table></div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <h5 style="margin:0;font-size:13px">شرح وظایف</h5>
-          <button class="btn sm" onclick="PortalUI.addDeptTask(${deptId})">➕ وظیفه</button>
+        <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;margin-bottom:8px`)}">
+          <h5 data-csp-style="${CSP.style(`margin:0;font-size:13px`)}">شرح وظایف</h5>
+          <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.addDeptTask((deptId))})}">➕ وظیفه</button>
         </div>
-        <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
           <th>نام</th><th>توضیح</th>
         </tr></thead><tbody>${(tasks || []).map(t => `<tr>
           <td>${esc(t.name)}</td><td class="muted">${esc(t.description || '-')}</td>
         </tr>`).join('') || emptyRow(2)}</tbody></table></div>
       </div>
-      <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">بستن</button></div>`);
+      <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`);
   }
 
   async function openDelegateModal(deptId) {
     await ensurePortalCaches();
     const list = await api('GET', `/portal/departments/${deptId}/delegations`).catch(() => []) || [];
     openModal(`
-      <div class="modal-head"><h3>🔀 واگذاری موقت مدیریت بخش</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>🔀 واگذاری موقت مدیریت بخش</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>شخص جایگزین *</label>
           <select id="dlg-person"><option value="">— انتخاب —</option>${personOptionsHtml()}</select></div>
         <div class="fg"><label>مدت (ساعت)</label><input id="dlg-hours" type="number" min="1" max="720" value="72"></div>
         <div class="fg full"><label>یادداشت</label><input id="dlg-note" placeholder="دلیل واگذاری"></div>
       </div>
-      <h5 style="margin:14px 0 8px;font-size:13px">واگذاری‌های اخیر</h5>
-      <div class="tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr>
+      <h5 data-csp-style="${CSP.style(`margin:14px 0 8px;font-size:13px`)}">واگذاری‌های اخیر</h5>
+      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:11px`)}"><thead><tr>
         <th>شخص</th><th>از</th><th>تا</th><th>فعال</th><th></th>
       </tr></thead><tbody>${list.map(d => `<tr>
         <td>${esc(d.delegate_name || '#' + d.delegate_person_id)}</td>
         <td class="mono">${fmt(d.starts_at)}</td>
         <td class="mono">${fmt(d.ends_at)}</td>
         <td>${d.active ? '✅' : '—'}</td>
-        <td>${d.active ? `<button class="btn sm red" onclick="PortalUI.revokeDelegation(${deptId},${d.id})">ابطال</button>` : ''}</td>
+        <td>${d.active ? `<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){PortalUI.revokeDelegation((deptId),(d.id))})}">ابطال</button>` : ''}</td>
       </tr>`).join('') || emptyRow(5)}</tbody></table></div>
       </div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDelegation(${deptId})">💾 ثبت واگذاری</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveDelegation((deptId))})}">💾 ثبت واگذاری</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
   async function saveDelegation(deptId) {
     const delegate_person_id = +el('dlg-person')?.value;
@@ -786,7 +786,7 @@
       .filter(p => !p.approval_status || p.approval_status === 'approved')
       .slice(0, 500);
     openModal(`
-      <div class="modal-head"><h3>🔄 تبدیل کالا</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>🔄 تبدیل کالا</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>کالای خروجی موجود</label><select id="cv-prod"><option value="">— انتخاب یا نام جدید زیر —</option>
           ${list.map(p => `<option value="${p.id}">${esc(p.name)}${p.code ? ' (' + esc(p.code) + ')' : ''}</option>`).join('')}
@@ -795,8 +795,8 @@
           <input id="cv-new-name" type="text" placeholder="نام کالا اگر در لیست نیست"></div>
         <div class="fg"><label>مقدار *</label><input id="cv-qty" type="number" step="0.001" min="0.001" value="1"></div>
       </div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveDeptConvert(${paramId},${deptId})">💾 ثبت تبدیل</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveDeptConvert((paramId),(deptId))})}">💾 ثبت تبدیل</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
   async function saveDeptConvert(paramId, deptId) {
     const product_id = +el('cv-prod')?.value || null;
@@ -835,21 +835,21 @@
       const diff = (r.statement_balance_rial || 0) - (r.book_balance_rial || 0);
       const open = r.status !== 'closed';
       detail = `
-        <div class="panel" style="margin-top:12px">
+        <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
           <div class="panel-head"><h4>تطبیق #${fmt(r.id)} — ${esc(r.bank_name)}</h4>
-            <div style="display:flex;gap:6px;flex-wrap:wrap">
-              ${open ? `<button class="btn sm" onclick="PortalUI.openBankReconItemModal(${r.id})">➕ ردیف</button>` : ''}
-              ${open ? `<button class="btn sm ghost" onclick="PortalUI.matchBankReconItems(${r.id})">🔗 تطبیق انتخاب‌شده</button>` : ''}
-              ${open ? `<button class="btn sm green" onclick="PortalUI.closeBankRecon(${r.id})">🔒 بستن تطبیق</button>` : ''}
+            <div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap`)}">
+              ${open ? `<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.openBankReconItemModal((r.id))})}">➕ ردیف</button>` : ''}
+              ${open ? `<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.matchBankReconItems((r.id))})}">🔗 تطبیق انتخاب‌شده</button>` : ''}
+              ${open ? `<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){PortalUI.closeBankRecon((r.id))})}">🔒 بستن تطبیق</button>` : ''}
             </div>
           </div>
           <div class="panel-body">
-            <div class="cards" style="margin-bottom:12px">
+            <div class="cards" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
               ${statCard('b', '📒', fmt(r.book_balance_rial || 0), 'مانده دفتر (ریال)')}
               ${statCard('o', '🏦', fmt(r.statement_balance_rial || 0), 'مانده صورت‌حساب (ریال)')}
               ${statCard('r', 'Δ', fmt(diff), 'اختلاف (ریال)')}
             </div>
-            <div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+            <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
               ${open ? '<th></th>' : ''}<th>طرف</th><th>شرح</th><th>مبلغ (ریال)</th><th>تطبیق</th>
             </tr></thead><tbody>${(r.items || []).map(it => `<tr>
               ${open ? `<td><input type="checkbox" class="br-match" value="${it.id}" ${it.matched ? 'disabled' : ''}></td>` : ''}
@@ -862,8 +862,8 @@
         </div>`;
     }
     body.innerHTML = `
-      <div class="toolbar" style="margin-bottom:12px;gap:8px">
-        <button class="btn sm" onclick="PortalUI.openBankReconModal()">➕ تطبیق جدید</button>
+      <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px`)}">
+        <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.openBankReconModal()})}">➕ تطبیق جدید</button>
       </div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
         <th>#</th><th>بانک</th><th>تاریخ صورت‌حساب</th><th>مانده بانک</th><th>مانده دفتر</th><th>وضعیت</th><th></th>
@@ -874,7 +874,7 @@
         <td class="mono">${fmt(r.statement_balance_rial || 0)}</td>
         <td class="mono">${fmt(r.book_balance_rial || 0)}</td>
         <td><span class="tag ${r.status === 'closed' ? 't-done' : ''}">${esc(r.status)}</span></td>
-        <td><button class="btn sm ghost" onclick="PortalUI.showBankRecon(${r.id})">مشاهده</button></td>
+        <td><button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.showBankRecon((r.id))})}">مشاهده</button></td>
       </tr>`).join('') || emptyRow(7)}</tbody></table></div>${detail}`;
     if (typeof fitStatNums === 'function') fitStatNums();
   }
@@ -884,7 +884,7 @@
   async function openBankReconModal() {
     if (!CACHE.banks) CACHE.banks = await api('GET', '/banks') || [];
     openModal(`
-      <div class="modal-head"><h3>➕ تطبیق بانک</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>➕ تطبیق بانک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>بانک *</label><select id="br-bank"><option value="">—</option>
           ${(CACHE.banks || []).filter(b => b.active !== 0).map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}
@@ -893,8 +893,8 @@
         <div class="fg"><label>مانده صورت‌حساب (ریال) *</label><input id="br-bal" class="money" inputmode="numeric"></div>
         <div class="fg full"><label>یادداشت</label><textarea id="br-note"></textarea></div>
       </div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveBankRecon()">💾 ثبت</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveBankRecon()})}">💾 ثبت</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
     if (typeof initJalaliPickers === 'function') initJalaliPickers();
   }
 
@@ -914,7 +914,7 @@
 
   async function openBankReconItemModal(reconId) {
     openModal(`
-      <div class="modal-head"><h3>➕ ردیف تطبیق</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>➕ ردیف تطبیق</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg"><label>طرف *</label><select id="bri-side">
           <option value="bank">بانک (صورت‌حساب)</option>
@@ -922,10 +922,10 @@
         </select></div>
         <div class="fg"><label>مبلغ (ریال) *</label><input id="bri-amt" class="money" inputmode="numeric"></div>
         <div class="fg full"><label>شرح</label><input id="bri-desc"></div>
-        <div class="fg"><label><input type="checkbox" id="bri-stmt" style="width:auto;margin-left:6px"> خط صورت‌حساب</label></div>
+        <div class="fg"><label><input type="checkbox" id="bri-stmt" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> خط صورت‌حساب</label></div>
       </div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveBankReconItem(${reconId})">💾 افزودن</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveBankReconItem((reconId))})}">💾 افزودن</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
   async function saveBankReconItem(reconId) {
     const amount_rial = Math.round(typeof moneyVal === 'function' ? moneyVal('bri-amt') : +el('bri-amt')?.value || 0);
@@ -963,20 +963,20 @@
     if (_budgetId) {
       const v = await api('GET', '/budgeting/' + _budgetId + '/variance') || {};
       varHtml = `
-        <div class="panel" style="margin-top:12px">
+        <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
           <div class="panel-head"><h4>📊 انحراف بودجه #${fmt(_budgetId)} (${esc(v.year_label || '')})</h4>
-            <button class="btn sm ghost" onclick="PortalUI.openBudgetLinesModal(${_budgetId})">✏️ ردیف‌های بودجه</button>
+            <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.openBudgetLinesModal((_budgetId))})}">✏️ ردیف‌های بودجه</button>
           </div>
-          <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+          <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
             <th>حساب</th><th>ماه</th><th>بودجه</th><th>واقعی</th><th>انحراف</th>
           </tr></thead><tbody>${(v.rows || []).slice(0, 100).map(r => `<tr>
             <td class="mono">${esc(r.account_code)}</td>
             <td class="mono">${fmt(r.month)}</td>
             <td class="mono">${fmt(r.budget_rial)}</td>
             <td class="mono">${fmt(r.actual_rial)}</td>
-            <td class="mono" style="color:${(r.variance_rial || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(r.variance_rial)}</td>
+            <td class="mono" data-csp-style="${CSP.style(`color:${(r.variance_rial || 0) >= 0 ? 'var(--green)' : 'var(--red)'}`)}">${fmt(r.variance_rial)}</td>
           </tr>`).join('') || emptyRow(5)}</tbody>
-          ${v.totals ? `<tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
+          ${v.totals ? `<tfoot><tr data-csp-style="${CSP.style(`font-weight:700;border-top:2px solid var(--border)`)}">
             <td colspan="2">جمع</td>
             <td class="mono">${fmt(v.totals.budget_rial)}</td>
             <td class="mono">${fmt(v.totals.actual_rial)}</td>
@@ -985,7 +985,7 @@
         </div>`;
     }
     body.innerHTML = `
-      <div class="toolbar" style="margin-bottom:12px"><button class="btn sm" onclick="PortalUI.openBudgetModal()">➕ بودجه جدید</button></div>
+      <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.openBudgetModal()})}">➕ بودجه جدید</button></div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr>
         <th>نام</th><th>سال</th><th>وضعیت</th><th>ردیف‌ها</th><th></th>
       </tr></thead><tbody>${rows.map(b => `<tr>
@@ -994,8 +994,8 @@
         <td>${esc(b.status)}</td>
         <td class="mono">${fmt(b.line_count || 0)}</td>
         <td>
-          <button class="btn sm ghost" onclick="PortalUI.showBudgetVariance(${b.id})">انحراف</button>
-          <button class="btn sm ghost" onclick="PortalUI.openBudgetLinesModal(${b.id})">ردیف‌ها</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.showBudgetVariance((b.id))})}">انحراف</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.openBudgetLinesModal((b.id))})}">ردیف‌ها</button>
         </td>
       </tr>`).join('') || emptyRow(5)}</tbody></table></div>${varHtml}`;
   }
@@ -1004,14 +1004,14 @@
 
   async function openBudgetModal() {
     openModal(`
-      <div class="modal-head"><h3>➕ بودجه</h3><button class="x" onclick="closeModal()">×</button></div>
+      <div class="modal-head"><h3>➕ بودجه</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body"><div class="form-grid">
         <div class="fg full"><label>نام *</label><input id="bg-name"></div>
         <div class="fg"><label>برچسب سال (مثلاً 1404/01)</label><input id="bg-year" value="${todayJalali().slice(0, 4)}"></div>
         <div class="fg full"><label>یادداشت</label><textarea id="bg-note"></textarea></div>
       </div></div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveBudget()">💾 ذخیره</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveBudget()})}">💾 ذخیره</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   }
 
   async function saveBudget() {
@@ -1041,13 +1041,13 @@
     }
     openModal(`
       <div class="modal-head"><h3>✏️ ردیف‌های بودجه — ${esc(b.name || '#' + budgetId)}</h3>
-        <button class="x" onclick="closeModal()">×</button></div>
+        <button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body">
         <div id="bg-lines"></div>
-        <button type="button" class="btn sm ghost" style="margin-top:8px" onclick="PortalUI.addBudgetLineRow()">➕ ردیف</button>
+        <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){PortalUI.addBudgetLineRow()})}">➕ ردیف</button>
       </div>
-      <div class="modal-foot"><button class="btn" onclick="PortalUI.saveBudgetLines(${budgetId})">💾 ذخیره ردیف‌ها</button>
-        <button class="btn ghost" onclick="closeModal()">انصراف</button></div>`);
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){PortalUI.saveBudgetLines((budgetId))})}">💾 ذخیره ردیف‌ها</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
     renderBudgetLineRows();
   }
   function addBudgetLineRow() {
@@ -1059,12 +1059,12 @@
     const box = el('bg-lines'); if (!box) return;
     const lines = window._budgetLines || [];
     box.innerHTML = lines.map((l, i) => `
-      <div style="display:grid;grid-template-columns:1.2fr 70px 1fr 1fr 28px;gap:6px;margin-bottom:6px;align-items:center">
-        <input placeholder="کد حساب" value="${esc(l.account_code || '')}" oninput="window._budgetLines[${i}].account_code=this.value" dir="ltr">
-        <input type="number" min="1" max="12" title="ماه" value="${l.month || 1}" oninput="window._budgetLines[${i}].month=+this.value||1">
-        <input placeholder="مبلغ ریال" class="money" inputmode="numeric" value="${esc(String(l.amount_rial || ''))}" oninput="window._budgetLines[${i}].amount_rial=this.value">
-        <input placeholder="دسته / یادداشت" value="${esc(l.category || l.notes || '')}" oninput="window._budgetLines[${i}].category=this.value;window._budgetLines[${i}].notes=this.value">
-        ${lines.length > 1 ? `<button type="button" class="btn sm red" onclick="window._budgetLines.splice(${i},1);PortalUI.renderBudgetLineRows()">×</button>` : '<span></span>'}
+      <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1.2fr 70px 1fr 1fr 28px;gap:6px;margin-bottom:6px;align-items:center`)}">
+        <input placeholder="کد حساب" value="${esc(l.account_code || '')}" data-csp-input="${CSP.bind('input',function(event){window._budgetLines[(i)].account_code=this.value})}" dir="ltr">
+        <input type="number" min="1" max="12" title="ماه" value="${l.month || 1}" data-csp-input="${CSP.bind('input',function(event){window._budgetLines[(i)].month=+this.value||1})}">
+        <input placeholder="مبلغ ریال" class="money" inputmode="numeric" value="${esc(String(l.amount_rial || ''))}" data-csp-input="${CSP.bind('input',function(event){window._budgetLines[(i)].amount_rial=this.value})}">
+        <input placeholder="دسته / یادداشت" value="${esc(l.category || l.notes || '')}" data-csp-input="${CSP.bind('input',function(event){window._budgetLines[(i)].category=this.value;window._budgetLines[(i)].notes=this.value})}">
+        ${lines.length > 1 ? `<button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(event){window._budgetLines.splice((i),1);PortalUI.renderBudgetLineRows()})}">×</button>` : '<span></span>'}
       </div>`).join('');
   }
   async function saveBudgetLines(budgetId) {
@@ -1086,31 +1086,31 @@
   async function renderReservesTab(body) {
     const stale = await api('GET', '/reserves/stale-products?months=6') || {};
     body.innerHTML = `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px`)}">
         <div class="panel"><div class="panel-head"><h4>⚖️ اندوخته قانونی</h4></div>
           <div class="panel-body"><div class="form-grid">
             <div class="fg"><label>سود قابل تخصیص (ریال)</label><input id="lr-profit" class="money" inputmode="numeric"></div>
             <div class="fg"><label>سرمایه (ریال — اختیاری)</label><input id="lr-capital" class="money" inputmode="numeric"></div>
             <div class="fg"><label>تاریخ</label><input id="lr-date" data-jdate value="${todayJalali()}"></div>
           </div>
-          <button class="btn sm" style="margin-top:10px" onclick="PortalUI.postLegalReserve()">ثبت اندوخته</button>
+          <button class="btn sm" data-csp-style="${CSP.style(`margin-top:10px`)}" data-csp-click="${CSP.bind('click',function(event){PortalUI.postLegalReserve()})}">ثبت اندوخته</button>
           </div></div>
         <div class="panel"><div class="panel-head"><h4>📉 ذخیره مطالبات مشکوک‌الوصول</h4></div>
           <div class="panel-body"><div class="form-grid">
             <div class="fg"><label>تاریخ</label><input id="dp-date" data-jdate value="${todayJalali()}"></div>
             <div class="fg"><label>درصد (bp — خالی=روش سنی)</label><input id="dp-bp" type="number" placeholder="مثلاً 500 = 5%"></div>
           </div>
-          <button class="btn sm" style="margin-top:10px" onclick="PortalUI.postDoubtful()">محاسبه و ثبت</button>
+          <button class="btn sm" data-csp-style="${CSP.style(`margin-top:10px`)}" data-csp-click="${CSP.bind('click',function(event){PortalUI.postDoubtful()})}">محاسبه و ثبت</button>
           </div></div>
       </div>
-      <div class="panel" style="margin-bottom:16px"><div class="panel-head"><h4>📦 ذخیره کاهش ارزش موجودی (NRV)</h4></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px`)}"><div class="panel-head"><h4>📦 ذخیره کاهش ارزش موجودی (NRV)</h4></div>
         <div class="panel-body">
-          <label class="muted" style="font-size:12px">هر خط: product_id | qty | cost_rial | nrv_rial</label>
-          <textarea id="nrv-lines" rows="4" dir="ltr" style="width:100%;margin:8px 0" placeholder="5 | 10 | 1000000 | 800000"></textarea>
-          <button class="btn sm" onclick="PortalUI.postInventoryNrv()">ثبت NRV</button>
+          <label class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">هر خط: product_id | qty | cost_rial | nrv_rial</label>
+          <textarea id="nrv-lines" rows="4" dir="ltr" data-csp-style="${CSP.style(`width:100%;margin:8px 0`)}" placeholder="5 | 10 | 1000000 | 800000"></textarea>
+          <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){PortalUI.postInventoryNrv()})}">ثبت NRV</button>
         </div></div>
       <div class="panel"><div class="panel-head"><h4>🕐 کالاهای راکد (${fmt(stale.count || 0)} مورد — ${stale.months || 6} ماه)</h4></div>
-        <div class="panel-body tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr>
+        <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
           <th>کد</th><th>نام</th><th>موجودی</th>
         </tr></thead><tbody>${(stale.rows || []).slice(0, 50).map(p => `<tr>
           <td class="mono">${esc(p.code || p.id)}</td>
@@ -1157,11 +1157,11 @@
 
   function quarterBar(prefix) {
     const y = todayJalali().slice(0, 4);
-    return `<div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
-      <label class="muted" style="font-size:12px">فصل:
-        <input id="${prefix}-q" value="${y}-Q1" dir="ltr" style="width:100px;padding:6px 8px;border-radius:6px;border:1px solid var(--border)">
+    return `<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
+      <label class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">فصل:
+        <input id="${prefix}-q" value="${y}-Q1" dir="ltr" data-csp-style="${CSP.style(`width:100px;padding:6px 8px;border-radius:6px;border:1px solid var(--border)`)}">
       </label>
-      <button class="btn sm ghost" onclick="PortalUI.reloadReport('${prefix}')">🔍</button>
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){PortalUI.reloadReport(`${String((prefix) ?? '')}`)})}">🔍</button>
     </div>`;
   }
 
@@ -1182,20 +1182,20 @@
     const d = await api('GET', '/adv-reports/cash-flow' + (qp.length ? '?' + qp.join('&') : '')) || {};
     const sec = (name, s) => `
       <div class="panel"><div class="panel-head"><h4>${name}</h4></div><div class="panel-body">
-        <div style="display:flex;gap:12px;margin-bottom:8px;font-size:13px">
+        <div data-csp-style="${CSP.style(`display:flex;gap:12px;margin-bottom:8px;font-size:13px`)}">
           <span>ورودی: <b class="mono">${fmt(s.inflow_rial || 0)}</b></span>
           <span>خروجی: <b class="mono">${fmt(s.outflow_rial || 0)}</b></span>
-          <span>خالص: <b class="mono" style="color:${(s.net_rial || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(s.net_rial || 0)}</b></span>
+          <span>خالص: <b class="mono" data-csp-style="${CSP.style(`color:${(s.net_rial || 0) >= 0 ? 'var(--green)' : 'var(--red)'}`)}">${fmt(s.net_rial || 0)}</b></span>
         </div>
       </div></div>`;
     body.innerHTML = `
-      <div class="muted" style="font-size:12px;margin-bottom:10px">بازه: ${esc(d.from || '—')} تا ${esc(d.to || '—')} — فیلتر تاریخ از نوار بالا</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">بازه: ${esc(d.from || '—')} تا ${esc(d.to || '—')} — فیلتر تاریخ از نوار بالا</div>
+      <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px`)}">
         ${sec('عملیاتی', d.sections?.operating || {})}
         ${sec('سرمایه‌گذاری', d.sections?.investing || {})}
         ${sec('تأمین مالی', d.sections?.financing || {})}
       </div>
-      <div class="panel"><div class="panel-body" style="font-weight:700;text-align:center">
+      <div class="panel"><div class="panel-body" data-csp-style="${CSP.style(`font-weight:700;text-align:center`)}">
         خالص جریان وجوه نقد: <span class="mono">${fmt(d.total_net_rial || 0)}</span> ریال
       </div></div>`;
   }
@@ -1203,7 +1203,7 @@
   async function renderKpiDashboardTab(body) {
     const d = await api('GET', '/adv-reports/kpi-dashboard') || {};
     body.innerHTML = `
-      <div class="cards" style="margin-bottom:16px">
+      <div class="cards" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
         ${statCard('b', '📅', fmt(d.dso_days || 0), 'DSO (روز)')}
         ${statCard('o', '📦', fmt(d.dio_days || 0), 'DIO (روز)')}
         ${statCard('g', '💳', fmt(d.dpo_days || 0), 'DPO (روز)')}
@@ -1230,26 +1230,26 @@
       if (kind === 'vat') {
         const d = await api('GET', '/adv-reports/vat-return?quarter=' + encodeURIComponent(q)) || {};
         box.innerHTML = `
-          <div class="cards" style="margin-bottom:12px">
+          <div class="cards" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
             ${statCard('r', '📤', fmt(d.output_vat_rial || 0), 'مالیات فروش (ریال)')}
             ${statCard('b', '📥', fmt(d.input_vat_rial || 0), 'مالیات خرید (ریال)')}
             ${statCard('o', '💰', fmt(d.net_payable_rial || 0), 'خالص قابل پرداخت (ریال)')}
           </div>
-          <div class="muted" style="font-size:12px">بازه ${esc(d.from)} — ${esc(d.to)} ${d.quarter ? '(' + esc(d.quarter) + ')' : ''}</div>`;
+          <div class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">بازه ${esc(d.from)} — ${esc(d.to)} ${d.quarter ? '(' + esc(d.quarter) + ')' : ''}</div>`;
       } else {
         const d = await api('GET', '/adv-reports/seasonal-169?quarter=' + encodeURIComponent(q)) || {};
         box.innerHTML = `
-          <div class="cards" style="margin-bottom:12px">
+          <div class="cards" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
             ${statCard('g', '🛒', fmt(d.totals?.sales_rial || 0), 'فروش فصلی (' + fmt(d.totals?.sales_count || 0) + ' فاکتور)')}
             ${statCard('b', '📦', fmt(d.totals?.purchase_rial || 0), 'خرید فصلی (' + fmt(d.totals?.purchase_count || 0) + ' فاکتور)')}
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div class="panel"><div class="panel-head"><h4>فروش</h4></div><div class="panel-body tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr>
+          <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr;gap:12px`)}">
+            <div class="panel"><div class="panel-head"><h4>فروش</h4></div><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:11px`)}"><thead><tr>
               <th>شماره</th><th>تاریخ</th><th>طرف</th><th>مبلغ</th>
             </tr></thead><tbody>${(d.sales || []).slice(0, 30).map(r => `<tr>
               <td class="mono">${esc(r.num)}</td><td>${escDate(r.date)}</td><td>${esc(r.party_name)}</td><td class="mono">${fmt(r.amount_rial)}</td>
             </tr>`).join('') || emptyRow(4)}</tbody></table></div></div>
-            <div class="panel"><div class="panel-head"><h4>خرید</h4></div><div class="panel-body tbl-wrap"><table class="tbl" style="font-size:11px"><thead><tr>
+            <div class="panel"><div class="panel-head"><h4>خرید</h4></div><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:11px`)}"><thead><tr>
               <th>شماره</th><th>تاریخ</th><th>طرف</th><th>مبلغ</th>
             </tr></thead><tbody>${(d.purchases || []).slice(0, 30).map(r => `<tr>
               <td class="mono">${esc(r.num)}</td><td>${escDate(r.date)}</td><td>${esc(r.party_name)}</td><td class="mono">${fmt(r.amount_rial)}</td>

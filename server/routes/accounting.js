@@ -70,21 +70,22 @@ const { reverseSettlementInTx } = require('../lib/void-settlement');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { voidInvoiceFully, notifyInvoiceCancelled, saveCancelImage } = require('../lib/void-invoice');
 const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+const { createSecureUpload } = require('../lib/upload-policy');
+const { sendSecureHtml } = require('../lib/secure-html-response');
+const {
+  persistPrivateUpload, persistPrivateUploadWithCommit, locatePrivateFile, removeStoredFile, sendPrivateFile,
+} = require('../lib/private-uploads');
+const imageUpload = createSecureUpload('messageImage');
+const voucherUpload = createSecureUpload('document');
 
-const { UPLOADS_ROOT } = require('../paths');
-const VOUCHER_UPLOAD_DIR = path.join(UPLOADS_ROOT, 'vouchers');
-fs.mkdirSync(VOUCHER_UPLOAD_DIR, { recursive: true });
-const voucherUpload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, VOUCHER_UPLOAD_DIR),
-    filename: (req, file, cb) => cb(null, 'v_' + Date.now() + '_' + Math.round(Math.random() * 1e6) + path.extname(file.originalname || ''))
-  }),
-  limits: { fileSize: 5 * 1024 * 1024 }
-});
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 const ENTRY_LABEL = {
   invoice: 'فاکتور فروش',
@@ -652,13 +653,13 @@ router.get('/pending-approvals', auth, adminOrAccounting, (req, res) => {
 });
 
 // Cancel / void formal invoice (full reverse — R13). Optional snapshot image for in-app message.
-router.post('/invoices/:id/cancel', auth, adminOrAccounting, memUpload.single('image'), async (req, res) => {
+router.post('/invoices/:id/cancel', auth, adminOrAccounting, imageUpload.single('image'), async (req, res) => {
   const db = getDB();
   try {
     const result = voidInvoiceFully(db, req.params.id, req.user, { reason: 'cancel' });
     let imageFileName = null;
     if (req.file && req.file.buffer) {
-      imageFileName = await saveCancelImage(req.file.buffer);
+      imageFileName = saveCancelImage(req.file);
     }
     notifyInvoiceCancelled(db, {
       inv: result.invoice,
@@ -721,33 +722,27 @@ router.post('/invoices/:id/approve', auth, adminOrAccounting, async (req, res) =
 });
 
 // Upload invoice image to Rubika after approval (client html2canvas)
-router.post('/invoices/:id/rubika', auth, adminOrAccounting, (req, res, next) => {
-  const multer = require('multer');
-  const path = require('path');
-  const fs = require('fs');
-  const uploadDir = path.join(__dirname, '..', 'uploads', 'rubika');
-  fs.mkdirSync(uploadDir, { recursive: true });
-  const up = multer({ dest: uploadDir, limits: { fileSize: 8 * 1024 * 1024 } }).single('image');
-  up(req, res, async (err) => {
-    if (err) return res.status(400).json({ error: err.message });
-    try {
-      const db = getDB();
-      const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
-      if (!inv) return res.status(404).json({ error: 'یافت نشد' });
-      const { sendRubikaImage, invoiceSummaryText } = require('../lib/rubika');
-      const cust = inv.cust_id ? db.prepare('SELECT biz FROM customers WHERE id=?').get(inv.cust_id) : null;
-      const caption = invoiceSummaryText(inv, cust?.biz || '');
-      if (!req.file) {
-        const { sendRubikaText } = require('../lib/rubika');
-        return res.json(await sendRubikaText(db, caption));
-      }
-      const result = await sendRubikaImage(db, req.file.path, caption);
-      try { fs.unlinkSync(req.file.path); } catch (_) {}
-      res.json(result);
-    } catch (e) {
-      res.status(500).json({ error: e.message });
+router.post('/invoices/:id/rubika', auth, adminOrAccounting, imageUpload.single('image'), async (req, res) => {
+  let temporaryName = null;
+  try {
+    const db = getDB();
+    const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
+    if (!inv) return res.status(404).json({ error: 'یافت نشد' });
+    const { sendRubikaImage, invoiceSummaryText } = require('../lib/rubika');
+    const cust = inv.cust_id ? db.prepare('SELECT biz FROM customers WHERE id=?').get(inv.cust_id) : null;
+    const caption = invoiceSummaryText(inv, cust?.biz || '');
+    if (!req.file) {
+      const { sendRubikaText } = require('../lib/rubika');
+      return res.json(await sendRubikaText(db, caption));
     }
-  });
+    temporaryName = persistPrivateUpload(req.file, 'rubika', 'invoice');
+    const temporaryPath = locatePrivateFile('rubika', temporaryName, { migrateLegacy: false });
+    return res.json(await sendRubikaImage(db, temporaryPath, caption));
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  } finally {
+    if (temporaryName) removeStoredFile('rubika', temporaryName);
+  }
 });
 
 // General Accounting — P&L, cash flow, ledger summary
@@ -1053,16 +1048,21 @@ router.get('/statement/:customerId/export', auth, adminOrAccounting, (req, res) 
     // Printable HTML — user prints to PDF from the browser
     const rowsHtml = data.entries.map((e, i) => `
       <tr>
-        <td>${faNum(i + 1)}</td><td>${e.date || '-'}</td><td>${e.type_label}</td>
-        <td style="text-align:right">${(e.description || '-').replace(/</g, '&lt;')}</td>
+        <td>${faNum(i + 1)}</td><td>${escapeHtml(e.date || '-')}</td><td>${escapeHtml(e.type_label)}</td>
+        <td class="description">${escapeHtml(e.description || '-')}</td>
         <td>${e.debit > 0 ? faNum(e.debit) : '-'}</td>
         <td>${e.credit > 0 ? faNum(e.credit) : '-'}</td>
         <td>${faNum(Math.abs(e.running_balance || 0))} ${(e.running_balance || 0) > 0 ? 'بد' : 'بس'}</td>
       </tr>`).join('');
-    const company = (db.prepare("SELECT value FROM settings WHERE key='company_name'").get() || {}).value || 'پوشاک ترنم';
+    const company = escapeHtml((db.prepare("SELECT value FROM settings WHERE key='company_name'").get() || {}).value || 'پوشاک ترنم');
+    const customerBiz = escapeHtml(data.customer.biz);
+    const customerOwner = escapeHtml(data.customer.owner || '-');
+    const customerSalesperson = escapeHtml(data.customer.salesperson || '-');
+    const customerCity = escapeHtml(data.customer.city || '-');
+    const customerPhone = escapeHtml(data.customer.phone || '-');
     const html = `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
-<title>صورت‌حساب ${data.customer.biz}</title>
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;800&display=swap" rel="stylesheet">
+<title>صورت‌حساب ${customerBiz}</title>
+<link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Vazirmatn',sans-serif}
 body{background:#f3f4f6;color:#1f2937;padding:20px;font-size:12px}
@@ -1072,6 +1072,7 @@ h1{font-size:20px;color:#1A5C38}.sub{color:#6b7280;font-size:12px;margin-top:4px
 .info{display:flex;gap:24px;margin-bottom:14px;font-size:13px}.info b{color:#1A5C38}
 table{width:100%;border-collapse:collapse;margin-top:8px}
 th,td{border:1px solid #e5e7eb;padding:7px 6px;text-align:center}
+.description{text-align:right}.brand{display:flex;align-items:center;gap:14px}.brand img{height:58px}.head-meta{text-align:left}
 thead th{background:#1A5C38;color:#fff}tbody tr:nth-child(even){background:#f4f7f5}
 .tot{margin-top:14px;margin-right:auto;width:320px;font-size:13px}
 .tot .l{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #e5e7eb}
@@ -1079,9 +1080,9 @@ thead th{background:#1A5C38;color:#fff}tbody tr:nth-child(even){background:#f4f7
 .pbtn{display:block;margin:18px auto 0;background:#1A5C38;color:#fff;border:none;padding:10px 28px;border-radius:8px;font-size:14px;cursor:pointer}
 @media print{body{background:#fff;padding:0}.sheet{box-shadow:none}.pbtn{display:none}@page{size:A4;margin:10mm}}
 </style></head><body><div class="sheet">
-<div class="head"><div style="display:flex;align-items:center;gap:14px"><img src="/logo-sm.png" style="height:58px" onerror="this.style.display='none'"><div><h1>صورت‌حساب مشتری</h1><div class="sub">${company}</div></div></div>
-<div style="text-align:left"><div><b>مشتری:</b> ${data.customer.biz}</div><div><b>کارشناس:</b> ${data.customer.salesperson || '-'}</div>${(from || to) ? `<div><b>دوره:</b> ${from || '...'} تا ${to || '...'}</div>` : ''}</div></div>
-<div class="info"><div><b>نام کامل:</b> ${data.customer.owner || '-'}</div><div><b>شهر:</b> ${data.customer.city || '-'}</div><div><b>تلفن:</b> ${data.customer.phone || '-'}</div></div>
+<div class="head"><div class="brand"><img src="/logo-sm.png" alt="لوگو"><div><h1>صورت‌حساب مشتری</h1><div class="sub">${company}</div></div></div>
+<div class="head-meta"><div><b>مشتری:</b> ${customerBiz}</div><div><b>کارشناس:</b> ${customerSalesperson}</div>${(from || to) ? `<div><b>دوره:</b> ${escapeHtml(from || '...')} تا ${escapeHtml(to || '...')}</div>` : ''}</div></div>
+<div class="info"><div><b>نام کامل:</b> ${customerOwner}</div><div><b>شهر:</b> ${customerCity}</div><div><b>تلفن:</b> ${customerPhone}</div></div>
 <table><thead><tr><th>ردیف</th><th>تاریخ</th><th>نوع</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th></tr></thead>
 <tbody>${rowsHtml || '<tr><td colspan="7">تراکنشی ثبت نشده</td></tr>'}</tbody></table>
 <div class="tot">
@@ -1090,10 +1091,9 @@ thead th{background:#1A5C38;color:#fff}tbody tr:nth-child(even){background:#f4f7
 <div class="l"><span>جمع بستانکار دوره</span><span>${faNum(data.totalCredit)} ت</span></div>
 <div class="l f"><span>مانده نهایی</span><span>${faNum(Math.abs(data.closing))} ${data.closing > 0 ? 'بدهکار' : 'بستانکار'}</span></div>
 </div>
-<button class="pbtn" onclick="window.print()">چاپ / ذخیره PDF 🖨️</button>
-</div></body></html>`;
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    return res.send(html);
+<button class="pbtn" type="button" data-print>چاپ / ذخیره PDF 🖨️</button>
+</div><script src="/print-page.js"></script></body></html>`;
+    return sendSecureHtml(res, html, { allowPrintScript: true });
   }
 
   // default: excel
@@ -1447,12 +1447,16 @@ router.post('/vouchers/:id/attachment', auth, adminOrAccounting, voucherUpload.s
   const entry = db.prepare("SELECT * FROM journal_entries WHERE id=? AND ref_type='manual_voucher'").get(req.params.id);
   if (!entry) return res.status(404).json({ error: 'سند دستی یافت نشد' });
   if (!req.file) return res.status(400).json({ error: 'فایلی آپلود نشد' });
-  if (entry.attachment) {
-    const oldPath = path.join(VOUCHER_UPLOAD_DIR, entry.attachment);
-    fs.unlink(oldPath, () => {});
-  }
-  db.prepare('UPDATE journal_entries SET attachment=? WHERE id=?').run(req.file.filename, req.params.id);
-  res.json({ ok: true, attachment: req.file.filename });
+  const { filename } = persistPrivateUploadWithCommit(req.file, 'vouchers', 'voucher', (storedName) =>
+    db.prepare('UPDATE journal_entries SET attachment=? WHERE id=?').run(storedName, req.params.id));
+  if (entry.attachment) removeStoredFile('vouchers', entry.attachment);
+  res.json({ ok: true, attachment: filename, attachment_url: `/api/accounting/vouchers/${entry.id}/attachment` });
+});
+
+router.get('/vouchers/:id/attachment', auth, adminOrAccounting, (req, res) => {
+  const entry = getDB().prepare("SELECT attachment FROM journal_entries WHERE id=? AND ref_type='manual_voucher'").get(req.params.id);
+  if (!entry || !entry.attachment) return res.status(404).json({ error: 'پیوست سند یافت نشد' });
+  return sendPrivateFile(res, 'vouchers', entry.attachment, { inline: false });
 });
 
 // ---- Journal templates (recurring entries) ----

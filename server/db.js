@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const { validatePassword } = require('./lib/security');
 
 // DB_PATH is env-overridable so device builds (desktop/mobile) can keep their
 // local database in a per-user writable directory instead of the app folder.
@@ -137,6 +138,13 @@ function copyUsersInto(targetDb, sourceDb) {
           u.active == null ? 1 : u.active,
           u.commission_cash || 0, u.commission_cheque || 0
         );
+      }
+      // Keep revocation epochs aligned when a company workspace is created;
+      // otherwise switching to the new DB would invalidate a legitimate
+      // server-backed session or, worse, resurrect an older epoch.
+      if (srcCols.has('auth_epoch') && tgtCols.includes('auth_epoch')) {
+        targetDb.prepare('UPDATE users SET auth_epoch=? WHERE username=?')
+          .run(Number(u.auth_epoch || 0), u.username);
       }
       n++;
     } catch (e) {
@@ -1408,11 +1416,21 @@ function initDB() {
   // ---- Default admin ----
   const admin = db.prepare('SELECT id FROM users WHERE username=?').get('admin');
   if (!admin) {
-    const hash = bcrypt.hashSync('admin123', 10);
+    let bootstrapPassword = 'admin123';
+    if (!isDevice() && process.env.NODE_ENV === 'production') {
+      bootstrapPassword = String(process.env.BOOTSTRAP_ADMIN_PASSWORD || '');
+      const passwordError = validatePassword(bootstrapPassword);
+      if (!bootstrapPassword || bootstrapPassword === 'admin123' || passwordError) {
+        const error = new Error('A strong BOOTSTRAP_ADMIN_PASSWORD is required for a fresh production database');
+        error.code = 'E_BOOTSTRAP_ADMIN_PASSWORD_REQUIRED';
+        throw error;
+      }
+    }
+    const hash = bcrypt.hashSync(bootstrapPassword, 10);
     // must_change_password=1 → رمز پیش‌فرض باید در اولین ورود عوض شود (روی سرور مرکزی)
     db.prepare('INSERT INTO users (name,username,password,role,must_change_password) VALUES (?,?,?,?,1)')
       .run('حامد رشید', 'admin', hash, 'admin');
-    console.log('✅ ادمین پیش‌فرض ساخته شد (admin / admin123) — تغییر رمز در اولین ورود الزامی است');
+    console.log('✅ حساب مدیر اولیه ساخته شد — تغییر رمز در اولین ورود الزامی است');
   }
 
   // ---- Default settings ----
@@ -1586,6 +1604,34 @@ function initSyncSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_outbox_status ON sync_outbox(status);
 
+    -- A route mutation may commit before the generic capture wrapper runs.
+    -- If signing/outbox insertion then fails, retain a complete local repair
+    -- record and return an explicit non-success response instead of silently
+    -- losing the operation from sync forever.
+    CREATE TABLE IF NOT EXISTS sync_capture_failures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      method TEXT NOT NULL,
+      path TEXT NOT NULL,
+      body_json TEXT,
+      user_id INTEGER,
+      base_version INTEGER,
+      entity_table TEXT,
+      entity_local_id INTEGER,
+      captured_rows_json TEXT,
+      has_file INTEGER DEFAULT 0,
+      file_path TEXT,
+      replay_file_hash TEXT,
+      replay_file_field TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      status TEXT DEFAULT 'pending',
+      outbox_id INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      reconciled_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_sync_capture_failures_status
+      ON sync_capture_failures(status,id);
+
     -- Device-side key/value config (central_url, device_id, device_token, last_pull_seq)
     CREATE TABLE IF NOT EXISTS sync_local_kv (
       key TEXT PRIMARY KEY,
@@ -1659,6 +1705,9 @@ function initSyncSchema(db) {
   ensureColumn(db, 'customers', 'churn_score', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'customers', 'b2b_enabled', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'products', 'barcode', 'TEXT');
+  ensureColumn(db, 'b2b_portal_accounts', 'auth_epoch', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'b2b_portal_accounts', 'otp_attempts', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'b2b_portal_accounts', 'otp_locked_until', 'INTEGER');
 
   // v1.0.11 — soft-delete, RBAC, fiscal years, notifications
   ensureColumn(db, 'invoices', 'deleted_at', 'INTEGER');
@@ -1736,12 +1785,34 @@ function initSyncSchema(db) {
   } catch (e) {
     console.warn('user_device_sessions migrate:', e.message);
   }
+  ensureColumn(db, 'user_device_sessions', 'session_id', 'TEXT');
+  ensureColumn(db, 'user_device_sessions', 'expires_at', 'INTEGER');
+  ensureColumn(db, 'user_device_sessions', 'auth_epoch', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'user_device_sessions', 'company_id', 'INTEGER DEFAULT 1');
+  ensureColumn(db, 'user_device_sessions', 'revoked_at', 'INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS idx_user_device_sessions_user ON user_device_sessions(user_id)');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_user_device_sessions_sid ON user_device_sessions(session_id) WHERE session_id IS NOT NULL');
+  // Pre-v1 rows had no server-side sid and therefore cannot be validated or
+  // revoked safely. Treat the migration as a deliberate one-time logout.
+  db.prepare('DELETE FROM user_device_sessions WHERE session_id IS NULL').run();
+  db.prepare(`
+    INSERT INTO settings (key,value) VALUES ('schema_auth_sessions_v1','1')
+    ON CONFLICT(key) DO UPDATE SET value='1'
+  `).run();
   db.exec('CREATE INDEX IF NOT EXISTS idx_outbox_pending ON sync_outbox(status, id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_sync_devices_active ON sync_devices(active)');
   ensureColumn(db, 'sync_devices', 'token_expires_at', 'INTEGER');
   ensureColumn(db, 'sync_devices', 'token_rotated_at', 'INTEGER');
   ensureColumn(db, 'sync_devices', 'revoked_at', 'INTEGER');
+  // Device credentials authenticate transport; a separate Ed25519 key binds
+  // every replay envelope (including its acting user) to the local instance
+  // that captured the authenticated operation. Legacy devices without a key
+  // remain pull-only until they are securely re-paired.
+  ensureColumn(db, 'sync_devices', 'signing_public_key', 'TEXT');
+  ensureColumn(db, 'sync_devices', 'signing_key_version', 'INTEGER DEFAULT 1');
+  ensureColumn(db, 'sync_outbox', 'replay_proof', 'TEXT');
+  ensureColumn(db, 'sync_outbox', 'replay_file_hash', 'TEXT');
+  ensureColumn(db, 'sync_outbox', 'replay_file_field', 'TEXT');
   db.exec(`CREATE TABLE IF NOT EXISTS sync_device_nonces (
     device_id INTEGER NOT NULL,
     nonce TEXT NOT NULL,

@@ -21,15 +21,24 @@
 // operations can never post differently than direct ones.
 const router = require('express').Router();
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getDB, isDevice, audit } = require('../db');
 const { auth, adminOnly, SECRET } = require('../middleware/auth');
 const { SYNCABLE_TABLES, isProvisionalId } = require('../sync/tables');
 const { tableForPath } = require('../sync/capture');
-const { MAX_CLOCK_SKEW_SEC, tokenHash, signature, timingSafeHexEqual } = require('../sync/device-auth');
+const {
+  MAX_CLOCK_SKEW_SEC,
+  tokenHash,
+  signature,
+  timingSafeHexEqual,
+  normalizeReplayPublicKey,
+  verifyReplayEnvelope,
+  sha256Buffer,
+} = require('../sync/device-auth');
+const { createRelayEnvelopeUpload, validateUploadedFile, uploadErrorResponse } = require('../lib/upload-policy');
+const { validateRelayPath, validateRelayUserId, matchMultipartRelay } = require('../sync/multipart-policy');
+const { parseFileReference, resolveReferencedFile, isSensitiveSubdir } = require('../sync/files');
 
 function sha256(s) { return crypto.createHash('sha256').update(s).digest('hex'); }
 
@@ -67,8 +76,8 @@ function deviceAuth(req, res, next) {
 if (!isDevice()) {
   // ---- Pairing ----
   router.post('/pair', (req, res) => {
-    const { username, password, device_name } = req.body;
-    if (!username || !password || !device_name) {
+    const { username, password, device_name, replay_public_key } = req.body;
+    if (!username || !password || !device_name || !replay_public_key) {
       return res.status(400).json({ error: 'نام کاربری، رمز عبور و نام دستگاه الزامی است' });
     }
     const db = getDB();
@@ -79,10 +88,22 @@ if (!isDevice()) {
     if (user.role !== 'admin') {
       return res.status(403).json({ error: 'فقط مدیر سیستم می‌تواند دستگاه جدید متصل کند' });
     }
+    let signingPublicKey;
+    try {
+      signingPublicKey = normalizeReplayPublicKey(replay_public_key);
+    } catch {
+      return res.status(400).json({
+        error: 'کلید امضای دستگاه نامعتبر است',
+        code: 'SYNC_SIGNING_KEY_REJECTED',
+      });
+    }
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = Math.floor(Date.now() / 1000) + (180 * 24 * 60 * 60);
-    const result = db.prepare('INSERT INTO sync_devices (name, token_hash, paired_by, token_expires_at) VALUES (?,?,?,?)')
-      .run(device_name, sha256(token), user.id, expiresAt);
+    const result = db.prepare(`
+      INSERT INTO sync_devices
+        (name,token_hash,paired_by,token_expires_at,signing_public_key,signing_key_version)
+      VALUES (?,?,?,?,?,1)
+    `).run(device_name, sha256(token), user.id, expiresAt, signingPublicKey);
     audit(user.id, 'create', 'sync_device', result.lastInsertRowid, `اتصال دستگاه آفلاین: ${device_name}`);
     res.json({ device_id: result.lastInsertRowid, device_token: token, token_expires_at: expiresAt });
   });
@@ -143,16 +164,49 @@ if (!isDevice()) {
     }).join('/');
   }
 
+  function validReplayProof(device, op) {
+    if (!device.signing_public_key || Number(device.signing_key_version || 0) !== 1) return false;
+    if (!op || !Number.isSafeInteger(op.seq) || op.seq <= 0
+        || !Number.isSafeInteger(op.user_id) || op.user_id <= 0
+        || !op.body || typeof op.body !== 'object' || Array.isArray(op.body)) return false;
+    return verifyReplayEnvelope(device.signing_public_key, op.replay_proof, {
+      deviceId: device.id,
+      seq: op.seq,
+      method: op.method,
+      path: op.path,
+      userId: op.user_id,
+      body: op.body,
+      fileHash: op.file_hash || '',
+      fileField: op.file_field || '',
+    });
+  }
+
+  function rejectReplayProof(req, res, op) {
+    const requestedUser = Number.isSafeInteger(op && op.user_id) ? op.user_id : null;
+    const requestedPath = typeof (op && op.path) === 'string' ? op.path.slice(0, 300) : 'invalid';
+    audit(req.device.paired_by || null, 'sync_replay_denied', 'sync_device', req.device.id,
+      `invalid signed replay envelope; requested_user=${requestedUser || 'invalid'}; path=${requestedPath}`, req);
+    return res.status(403).json({
+      error: 'اثبات هویت عملیات همگام‌سازی نامعتبر است',
+      code: 'SYNC_REPLAY_PROOF_REJECTED',
+    });
+  }
+
   // ---- Push: ordered, idempotent replay ----
   router.post('/push', deviceAuth, async (req, res) => {
     const db = getDB();
     const deviceId = req.device.id;
     const ops = Array.isArray(req.body.ops) ? req.body.ops : [];
+    if (ops.length > 400) return res.status(413).json({ error: 'تعداد عملیات همگام‌سازی بیش از حد مجاز است' });
     const results = [];
     const port = process.env.PORT || 3000;
     const replayToken = req.app.get('internalReplayToken') || '';
 
     for (const op of ops) {
+      // Check the authenticated-capture attestation before idempotency lookup,
+      // user selection, ID translation, or loopback JWT issuance. Otherwise a
+      // copied transport token could choose an administrator as `user_id`.
+      if (!validReplayProof(req.device, op)) return rejectReplayProof(req, res, op);
       const key = `${deviceId}:${op.seq}`;
 
       // Idempotency: an op already processed returns its stored outcome.
@@ -280,48 +334,100 @@ if (!isDevice()) {
 
   // ---- File download for device sync (product images, attachments) ----
   router.get('/files', deviceAuth, (req, res) => {
-    const rel = req.query.path;
-    if (!rel || typeof rel !== 'string' || rel.includes('..')) {
-      return res.status(400).json({ error: 'مسیر فایل نامعتبر است' });
-    }
-    const { UPLOADS_ROOT } = require('../paths');
-    const filePath = path.join(UPLOADS_ROOT, rel);
-    const root = path.resolve(UPLOADS_ROOT);
-    if (!path.resolve(filePath).startsWith(root) || !fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'فایل یافت نشد' });
+    const parsed = parseFileReference(req.query.path);
+    if (!parsed) return res.status(404).json({ error: 'فایل یافت نشد' });
+    const filePath = resolveReferencedFile(getDB(), parsed.subdir, parsed.name, { migrateLegacy: true });
+    if (!filePath) return res.status(404).json({ error: 'فایل یافت نشد' });
+    if (isSensitiveSubdir(parsed.subdir)) {
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
     }
     res.sendFile(filePath);
   });
 
   // ---- File relay: product images / voucher attachments created offline ----
-  const multer = require('multer');
-  const relayUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
-  router.post('/replay-multipart', deviceAuth, relayUpload.single('file'), async (req, res) => {
+  const relayUpload = createRelayEnvelopeUpload();
+  router.post('/replay-multipart', deviceAuth, relayUpload, async (req, res) => {
     const db = getDB();
-    const { path: opPath, method, user_id, field } = req.body;
-    if (!opPath || !req.file) return res.status(400).json({ error: 'path و file الزامی است' });
-    const user = db.prepare('SELECT * FROM users WHERE id=? AND active=1').get(+user_id);
+    const { path: opPath, method, user_id, field, seq, replay_proof, body_json } = req.body;
+    if (!req.file) return res.status(400).json({ error: 'file الزامی است' });
+    const controlFields = new Set(['path', 'method', 'user_id', 'field', 'seq', 'replay_proof', 'body_json']);
+    if (Object.keys(req.body).some((key) => !controlFields.has(key))) {
+      return res.status(400).json({ error: 'فیلد کنترلی ناشناخته در بازپخش فایل', code: 'SYNC_MULTIPART_CONTROL_REJECTED' });
+    }
+    let userId, replaySeq, signedBody;
+    try {
+      validateRelayPath(opPath);
+      userId = validateRelayUserId(user_id);
+      if (typeof seq !== 'string' || !/^[1-9]\d{0,14}$/.test(seq)) throw new Error('invalid sequence');
+      replaySeq = Number(seq);
+      if (!Number.isSafeInteger(replaySeq)) throw new Error('invalid sequence');
+      signedBody = JSON.parse(body_json || '{}');
+      if (!signedBody || typeof signedBody !== 'object' || Array.isArray(signedBody)) throw new Error('invalid body');
+    } catch (error) {
+      return res.status(error.status || 400).json({
+        error: error.code ? error.message : 'پاکت بازپخش فایل نامعتبر است',
+        code: error.code || 'SYNC_MULTIPART_ENVELOPE_REJECTED',
+      });
+    }
+    const fileHash = sha256Buffer(req.file.buffer);
+    const proofOp = {
+      seq: replaySeq,
+      method,
+      path: opPath,
+      user_id: userId,
+      body: signedBody,
+      replay_proof,
+      file_hash: fileHash,
+      file_field: field,
+    };
+    if (!validReplayProof(req.device, proofOp)) return rejectReplayProof(req, res, proofOp);
+
+    const user = db.prepare('SELECT * FROM users WHERE id=? AND active=1').get(userId);
     if (!user) return res.status(400).json({ error: 'کاربر نامعتبر' });
     const missing = [];
     const path = translatePath(db, req.device.id, opPath, missing);
+    const replayBody = translateIds(db, req.device.id, signedBody, missing);
     if (missing.length) return res.status(409).json({ error: 'شناسه محلی نگاشت نشده', deferred: true });
+    let rule;
+    try {
+      rule = matchMultipartRelay({ path, method, field, userId, userRole: user.role });
+    } catch (error) {
+      return res.status(error.status || 400).json({ error: error.message, code: error.code });
+    }
+    let file;
+    try { file = await validateUploadedFile(req.file, rule.profile); }
+    catch (error) { return uploadErrorResponse(res, error); }
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '', ae: Number(user.auth_epoch || 0) },
       SECRET, { expiresIn: '5m' }
     );
     const port = process.env.PORT || 3000;
     const form = new FormData();
-    for (const [k, v] of Object.entries(req.body)) {
-      if (!['path', 'method', 'user_id', 'field'].includes(k)) form.append(k, v);
+    const blockedBodyFields = new Set(['path', 'method', 'user_id', 'field', rule.field,
+      'receipt_file', 'photo_file', 'signature_file', 'attachment']);
+    const bodyEntries = Object.entries(replayBody);
+    if (bodyEntries.length > 80) return res.status(400).json({ error: 'تعداد فیلدهای بازپخش بیش از حد مجاز است' });
+    for (const [k, v] of bodyEntries) {
+      if (blockedBodyFields.has(k)) continue;
+      const serialized = v && typeof v === 'object' ? JSON.stringify(v) : String(v == null ? '' : v);
+      if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(k) || serialized.length > 512 * 1024) {
+        return res.status(400).json({ error: 'فیلد بدنه بازپخش نامعتبر است' });
+      }
+      form.append(k, serialized);
     }
-    form.append(field || 'image', new Blob([req.file.buffer]), req.file.originalname || 'upload.jpg');
-    const resp = await fetch(`http://127.0.0.1:${port}${path}`, {
-      method: method || 'PUT',
-      headers: { 'Authorization': `Bearer ${token}`, 'x-internal-replay': req.app.get('internalReplayToken') || '' },
-      body: form
-    });
-    const out = await resp.json().catch(() => ({}));
-    res.status(resp.status).json(out);
+    form.append(rule.field, new Blob([file.buffer], { type: file.mimetype }), `upload${file.extension}`);
+    try {
+      const resp = await fetch(`http://127.0.0.1:${port}${rule.path}`, {
+        method: rule.method,
+        headers: { 'Authorization': `Bearer ${token}`, 'x-internal-replay': req.app.get('internalReplayToken') || '' },
+        body: form
+      });
+      const out = await resp.json().catch(() => ({}));
+      return res.status(resp.status).json(out);
+    } catch {
+      return res.status(502).json({ error: 'بازپخش داخلی فایل ناموفق بود' });
+    }
   });
 
   // ---- Pull: incremental changes since a global sequence ----
@@ -462,7 +568,11 @@ if (isDevice()) {
 
   router.post('/conflicts/:outboxId/discard', auth, async (req, res) => {
     try {
-      const result = await client.discardConflict(+req.params.outboxId, req.user);
+      const result = await client.discardConflict(
+        +req.params.outboxId,
+        req.user,
+        req.app.get('internalReplayToken') || ''
+      );
       res.json(result);
     } catch (e) {
       res.status(400).json({ error: e.message });

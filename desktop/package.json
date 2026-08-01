@@ -46,6 +46,7 @@
       "main.js",
       "preload.js",
       "security-policy.js",
+      "local-secret-store.js",
       "server/**/*",
       "!server/node_modules",
       "!server/crm.db*",

@@ -3,6 +3,7 @@
 
 # Secrets — never commit
 server/jwt-secret.txt
+server/data-encryption-key.txt
 android/keystore.properties
 *.jks
 *.keystore
@@ -48,6 +49,7 @@ server/*.db-shm
 server/*.db-wal
 server/backups/
 server/uploads/
+server/private-uploads/
 server/data/
 
 # OS junk

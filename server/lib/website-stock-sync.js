@@ -3,49 +3,31 @@
  * - Fires webhook event product.stock
  * - Optional push to WooCommerce REST (by SKU = product.code)
  */
-const https = require('https');
-const http = require('http');
-const { URL } = require('url');
+const { safeRequestJSON } = require('./safe-outbound-request');
+const { getSetting, getSettings } = require('./secret-settings');
 
 function getSettingsMap(db) {
-  const rows = db.prepare("SELECT key,value FROM settings WHERE key LIKE 'website_%' OR key='webhook_secret'").all();
-  const m = {};
-  for (const r of rows) m[r.key] = r.value;
-  return m;
+  return getSettings(db, [
+    'website_stock_sync_enabled',
+    'website_stock_sync_mode',
+    'website_stock_webhook_url',
+    'website_wc_url',
+    'website_wc_key',
+    'website_wc_secret',
+    'webhook_secret',
+  ]);
 }
 
-function requestJSON(urlStr, method, body, headers = {}) {
-  return new Promise((resolve) => {
-    try {
-      const u = new URL(urlStr);
-      const lib = u.protocol === 'https:' ? https : http;
-      const data = body != null ? JSON.stringify(body) : null;
-      const opts = {
-        hostname: u.hostname,
-        port: u.port || (u.protocol === 'https:' ? 443 : 80),
-        path: u.pathname + u.search,
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}),
-          ...headers,
-        },
-        timeout: 15000,
-      };
-      const req = lib.request(opts, (res) => {
-        let raw = '';
-        res.on('data', (d) => (raw += d));
-        res.on('end', () => resolve({ status: res.statusCode, body: raw }));
-      });
-      req.on('error', (e) => resolve({ status: 0, body: e.message }));
-      req.on('timeout', () => { req.destroy(); resolve({ status: 0, body: 'timeout' }); });
-      if (data) req.write(data);
-      req.end();
-    } catch (e) {
-      resolve({ status: 0, body: e.message });
-    }
-  });
+async function requestJSON(urlStr, method, body, headers = {}) {
+  try {
+    return await safeRequestJSON(urlStr, method, body, headers, {
+      timeoutMs: 15_000,
+      maxResponseBytes: 2 * 1024 * 1024,
+      maxRedirects: 3,
+    });
+  } catch (error) {
+    return { status: 0, body: error && error.code ? error.code : 'outbound request rejected' };
+  }
 }
 
 function stockPayload(product) {
@@ -63,7 +45,7 @@ function stockPayload(product) {
 
 async function fireStockWebhooks(db, product) {
   const payload = stockPayload(product);
-  const secret = db.prepare("SELECT value FROM settings WHERE key='webhook_secret'").get()?.value || '';
+  const secret = getSetting(db, 'webhook_secret');
   const hooks = db.prepare("SELECT * FROM webhooks WHERE active=1").all()
     .filter((w) => String(w.events || '').includes('product.stock') || String(w.events || '').includes('*'));
   const s = getSettingsMap(db);
@@ -118,4 +100,4 @@ function notifyStockChanged(db, productId) {
   });
 }
 
-module.exports = { notifyStockChanged, stockPayload, pushWooCommerceStock, fireStockWebhooks };
+module.exports = { notifyStockChanged, stockPayload, pushWooCommerceStock, fireStockWebhooks, requestJSON };

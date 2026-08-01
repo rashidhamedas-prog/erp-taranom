@@ -28,11 +28,14 @@
 | 2026-08-01 | Gate close ✅ (code) | Upgraded adm-zip/nodemailer/sharp; xlsx waiver+excel-safe; BACKUP_OFFSITE_DIR drill; financial/hostile API 20/0; Playwright login; CI updated. Ops signing + prod OFFSITE wiring remain. |
 | 2026-08-01 | P0-S2 resumed | Full non-signing closure started: protected local secrets (Android Keystore / Windows DPAPI), encrypted device credential storage, checksum-gated updater paths, permission/navigation hardening, and behavioral negative tests. APK/EXE signing, full builds, and Iran deploy remain explicitly excluded. |
 | 2026-08-01 | Signing ops ✅ (self-signed) | APK 2.0.32 + EXE 2.0.9 signed on build PC; artifacts in New folder + `releases/`; handoff `docs/WAVE0-SIGNING-HANDOFF-GPT.md`. Commercial OV/EV + REQUIRE_SIGNED_UPDATES e2e still open. Offsite Iran PM2 env + restore drill also closed. |
+| 2026-08-01 | P0-S2 ✅ source gate | AndroidKeyStore + DPAPI secret migration; encrypted device token; Android APK hash/package/version/signer verification; Electron verified updater + packaged signed-update default; 27/27 Android, 42/42 desktop, sync 41/41, signatures and 204-file embedded drift verified. Existing signed binaries predate this source change and require one final rebuild/re-sign before release; no deploy. |
+| 2026-08-01 | P0-S3 ✅ | CSP/Trusted Types asset split; upload/SSRF/private media; secret enc:v2; staff/B2B sessions; company switch; portal CSPRNG password; sync repair+attestation. Mirror UNIQUE fix + company_id on challenge/B2B revoke. Auth 46/46, sync 44/44, upload 55/55, secrets 37/37, CSP browser 15/15, portal 64/64. Deploy blocked. |
 
 ---
 
 ## Surprises & Discoveries
 
+- Codex handoff: login HTTP 500 after password OK traced to `mirrorStaffSession` DELETE scoped by `company_id` while UNIQUE is `(user_id, device_slot)` — fixed by deleting on unique key.
 - Roadmap hang T1-07→T1-08 **not reproducible**; isolated BOM 29/29 after new cycle/diamond tests.
 - Suite hang risk was process-level (missing per-script timeout), not infinite explode on T1-08.
 - Concurrent `test-sync` + production suite can ECONNREFUSED on :4100 — run serially.
@@ -80,8 +83,8 @@ Execute in order. Mark `[x]` when gate passed.
 | 1 | P0-A BOM / CI | [P0-A-bom-ci.md](./P0-A-bom-ci.md) | `[x]` |
 | 2 | P0-B Source drift | [P0-B-source-drift.md](./P0-B-source-drift.md) | `[x]` |
 | 3 | P0-S1 TLS sync | [P0-S1-tls-sync.md](./P0-S1-tls-sync.md) | `[x]` |
-| 4 | P0-S2 Android/Electron | [P0-S2-platform-hardening.md](./P0-S2-platform-hardening.md) | `[-]` |
-| 5 | P0-S3 Web/API security | [P0-S3-web-api-security.md](./P0-S3-web-api-security.md) | `[-]` |
+| 4 | P0-S2 Android/Electron | [P0-S2-platform-hardening.md](./P0-S2-platform-hardening.md) | `[x]` |
+| 5 | P0-S3 Web/API security | [P0-S3-web-api-security.md](./P0-S3-web-api-security.md) | `[x]` |
 | 6 | P0-C Backup/restore | [P0-C-backup-restore.md](./P0-C-backup-restore.md) | `[-]` |
 | 7 | P0-Q1 Test pyramid | [P0-Q1-test-pyramid.md](./P0-Q1-test-pyramid.md) | `[-]` |
 | 8 | P0-Q2 CI/CD | [P0-Q2-ci-cd.md](./P0-Q2-ci-cd.md) | `[-]` |

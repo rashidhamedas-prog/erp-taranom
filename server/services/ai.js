@@ -8,15 +8,14 @@
 //     action suggestions and the weekly summary. Results are cached in
 //     ai_insights so the dashboard never calls the API on page load.
 
-const { decrypt } = require('./crypto');
+const { getSetting } = require('../lib/secret-settings');
 
 const DAY = 24 * 3600;
 
 function nowSec() { return Math.floor(Date.now() / 1000); }
 
 function getSettingValue(db, key) {
-  const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
-  return row ? row.value : '';
+  return getSetting(db, key);
 }
 
 // ── Heuristic churn score ────────────────────────────────────────────────────
@@ -70,9 +69,7 @@ async function callClaude(apiKey, model, system, userText, maxTokens = 1500) {
 }
 
 function getApiKey(db) {
-  const raw = getSettingValue(db, 'ai_api_key');
-  if (!raw) return null;
-  try { return raw.includes(':') ? decrypt(raw) : raw; } catch { return raw; }
+  return getSettingValue(db, 'ai_api_key') || null;
 }
 
 function extractJSON(text) {

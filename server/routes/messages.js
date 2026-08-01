@@ -1,26 +1,14 @@
 const router = require('express').Router();
-const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
 const { getDB } = require('../db');
 const { auth } = require('../middleware/auth');
+const { createSecureUpload } = require('../lib/upload-policy');
+const { persistPrivateUploadWithCommit, removeStoredFile, sendPrivateFile } = require('../lib/private-uploads');
 
-const { UPLOADS_ROOT } = require('../paths');
-const MSG_UPLOAD_DIR = path.join(UPLOADS_ROOT, 'messages');
-fs.mkdirSync(MSG_UPLOAD_DIR, { recursive: true });
-const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+const imageUpload = createSecureUpload('messageImage');
 
-// Save an image buffer (PNG) to uploads/messages, optionally re-encoding via sharp
-async function saveMsgImage(buffer) {
-  const name = 'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.png';
-  const dest = path.join(MSG_UPLOAD_DIR, name);
-  try {
-    const sharp = require('sharp');
-    await sharp(buffer).resize({ width: 1200, withoutEnlargement: true }).png({ quality: 80 }).toFile(dest);
-  } catch (e) {
-    fs.writeFileSync(dest, buffer); // fallback: store as-is
-  }
-  return name;
+function withImageUrl(message) {
+  if (!message || !message.image) return message;
+  return { ...message, image_url: `/api/messages/media/${message.id}` };
 }
 
 // List messages for current user
@@ -50,7 +38,7 @@ router.get('/', auth, (req, res) => {
       LIMIT 200
     `).all(req.user.id, req.user.id);
   }
-  res.json(msgs.map(m => ({
+  res.json(msgs.map(m => withImageUrl({
     ...m,
     direction: m.from_id === req.user.id ? 'sent' : 'received'
   })));
@@ -119,7 +107,7 @@ router.get('/thread/:peer', auth, (req, res) => {
     rows = db.prepare(SEL + ` WHERE (m.from_id=? AND m.to_id=?) OR (m.from_id=? AND m.to_id=?)
       ORDER BY m.created_at ASC LIMIT 300`).all(me, pid, pid, me);
   }
-  res.json(rows.map(m => ({ ...m, mine: m.from_id === me && peer !== 'self' && peer !== 'broadcast' })));
+  res.json(rows.map(m => withImageUrl({ ...m, mine: m.from_id === me && peer !== 'self' && peer !== 'broadcast' })));
 });
 
 // Mark a whole thread read (drives the double-tick on the sender's side)
@@ -185,7 +173,7 @@ router.post('/', auth, (req, res) => {
 });
 
 // Send a message with an image attachment (e.g. a customer account statement)
-router.post('/with-image', auth, memUpload.single('image'), async (req, res) => {
+router.post('/with-image', auth, imageUpload.single('image'), async (req, res) => {
   const { to_id, body } = req.body;
   if (!req.file) return res.status(400).json({ error: 'تصویر الزامی است' });
   const db = getDB();
@@ -193,17 +181,34 @@ router.post('/with-image', auth, memUpload.single('image'), async (req, res) => 
     if (!canMessage(db, req.user, to_id)) return res.status(403).json({ error: 'فقط می‌توانید به مدیر یا کسی که به شما پیام داده پاسخ دهید' });
   }
   if (!to_id && req.user.role !== 'admin') return res.status(403).json({ error: 'ارسال همگانی فقط توسط مدیر' });
-  let image;
-  try { image = await saveMsgImage(req.file.buffer); }
-  catch (e) { return res.status(500).json({ error: 'خطا در ذخیره تصویر' }); }
   const recipient = to_id || null;
-  const result = db.prepare('INSERT INTO messages (from_id,to_id,body,image) VALUES (?,?,?,?)')
-    .run(req.user.id, recipient, (body || '').trim(), image);
+  let image;
+  let result;
+  try {
+    const persisted = persistPrivateUploadWithCommit(req.file, 'messages', 'msg', (storedName) =>
+      db.prepare('INSERT INTO messages (from_id,to_id,body,image) VALUES (?,?,?,?)')
+        .run(req.user.id, recipient, (body || '').trim(), storedName));
+    image = persisted.filename;
+    result = persisted.result;
+  } catch {
+    return res.status(500).json({ error: 'خطا در ثبت پیام تصویری' });
+  }
   const row = db.prepare(`
     SELECT m.*, f.name as from_name, t.name as to_name
     FROM messages m LEFT JOIN users f ON m.from_id=f.id LEFT JOIN users t ON m.to_id=t.id
     WHERE m.id=?`).get(result.lastInsertRowid);
-  res.json({ ...row, direction: 'sent' });
+  res.json(withImageUrl({ ...row, direction: 'sent' }));
+});
+
+// Authenticated image delivery. New media is never exposed by /uploads.
+router.get('/media/:id', auth, (req, res) => {
+  const db = getDB();
+  const message = db.prepare('SELECT id,from_id,to_id,image FROM messages WHERE id=?').get(+req.params.id);
+  if (!message || !message.image) return res.status(404).json({ error: 'تصویر یافت نشد' });
+  const canRead = req.user.role === 'admin' || message.from_id === req.user.id
+    || message.to_id === req.user.id || message.to_id == null;
+  if (!canRead) return res.status(403).json({ error: 'دسترسی ندارید' });
+  return sendPrivateFile(res, 'messages', message.image, { inline: true });
 });
 
 // Mark one message as read
@@ -231,6 +236,7 @@ router.delete('/:id', auth, (req, res) => {
   if (!msg) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && msg.from_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   db.prepare('DELETE FROM messages WHERE id=?').run(req.params.id);
+  if (msg.image) removeStoredFile('messages', msg.image);
   res.json({ ok: true });
 });
 

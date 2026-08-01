@@ -7,6 +7,7 @@ const { enqueueMoadian } = require('./moadian');
 const { rialToLedger } = require('../lib/money');
 const { reverseCommissionAccrual } = require('../lib/rep-ledger');
 const { voidInvoiceFully } = require('../lib/void-invoice');
+const { sendSecureHtml } = require('../lib/secure-html-response');
 
 // دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
 function receivableAcct(db, custId) {
@@ -713,8 +714,7 @@ router.get('/:id/print', auth, (req, res) => {
     inv, rows, settings, paper,
     templateOverride: tmpl === 'thermal' ? 'thermal' : (tmpl || undefined),
   });
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(html);
+  return sendSecureHtml(res, html, { allowPrintScript: true });
 });
 
 module.exports = router;

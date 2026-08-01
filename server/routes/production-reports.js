@@ -4,6 +4,7 @@ const { getDB } = require('../db');
 const { auth, requirePermission } = require('../middleware/auth');
 const reports = require('../lib/production/reports');
 const { toCsv, toExcel, toPdf } = require('../lib/production/report-export');
+const { sendSecureHtml } = require('../lib/secure-html-response');
 const { err } = require('../lib/production/posting');
 
 function handle(res, fn) {
@@ -66,8 +67,7 @@ function maybeExport(req, res, result) {
   }
   if (fmt === 'pdf') {
     const p = toPdf(result);
-    res.type('text/html; charset=utf-8');
-    return res.send(p.html);
+    return sendSecureHtml(res, p.html);
   }
   return res.json(result);
 }

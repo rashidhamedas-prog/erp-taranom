@@ -3,6 +3,7 @@
  */
 const { sendSMS } = require('../sms');
 const { todayJalali } = require('../jalali');
+const { getSmsSettings } = require('./secret-settings');
 
 const SMS_VARS = [
   { key: '{name}', label: 'نام شخص / مشتری' },
@@ -27,10 +28,7 @@ const SMS_EVENTS = [
 ];
 
 function settingsMap(db) {
-  const rows = db.prepare("SELECT key,value FROM settings WHERE key LIKE 'sms_%' OR key IN ('niksms_api_key','smsir_api_key','smsir_line')").all();
-  const m = {};
-  for (const r of rows) m[r.key] = r.value;
-  return m;
+  return getSmsSettings(db);
 }
 
 function applyVars(body, vars) {

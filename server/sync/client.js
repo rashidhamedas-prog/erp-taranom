@@ -6,12 +6,20 @@
 // range (see tables.js), so pulled central rows can never collide with rows
 // whose ops haven't been confirmed yet.
 const crypto = require('crypto');
-const { createDeviceHeaders } = require('./device-auth');
+const {
+  createDeviceHeaders,
+  generateReplaySigningKeyPair,
+  signReplayEnvelope,
+  sha256Buffer,
+} = require('./device-auth');
+const { selectClientRelayField } = require('./multipart-policy');
 const fs = require('fs');
+const path = require('path');
 const { getDB, seedProvisionalSequences } = require('../db');
 const { SYNCABLE_TABLES, FK_COLUMNS, isProvisionalId } = require('./tables');
 const { pullMissingFiles, countMissingFiles, listMissingFiles } = require('./files');
 const { readManifest, buildUpdateResponse } = require('../lib/app-update');
+const { getSecret, setSecret } = require('./secure-kv');
 
 const state = {
   online: false,
@@ -134,7 +142,7 @@ function getConfig(db) {
   return {
     centralUrl: kvGet(db, 'central_url'),
     deviceId: parseInt(kvGet(db, 'device_id')) || null,
-    deviceToken: kvGet(db, 'device_token'),
+    deviceToken: getSecret(db, 'device_token'),
     lastPullSeq: parseInt(kvGet(db, 'last_pull_seq'))
   };
 }
@@ -246,7 +254,8 @@ function pairingHealth(db) {
 }
 
 function clearPairingKeys(db) {
-  for (const k of ['central_url', 'device_id', 'device_token', 'last_pull_seq', 'initial_sync_done']) kvDel(db, k);
+  for (const k of ['central_url', 'device_id', 'device_token', 'device_signing_private_key',
+    'last_pull_seq', 'initial_sync_done']) kvDel(db, k);
 }
 
 /**
@@ -341,12 +350,22 @@ async function pair(centralUrl, username, password, deviceName) {
     throw new Error('سرور مرکزی در دسترس نیست — اینترنت موبایل/وای‌فای را روشن کنید و آدرس https://erp.poshaktaranom.com را بررسی کنید');
   }
 
+  // Transport tokens may be copied from logs or a compromised proxy. Replay
+  // authority is therefore a separate device-held Ed25519 private key; the
+  // central server receives only the public half during the authenticated
+  // pairing ceremony.
+  const signingKeys = generateReplaySigningKeyPair();
   let r;
   try {
     r = await fetchWithTimeout(base + '/api/sync/pair', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, device_name: deviceName })
+      body: JSON.stringify({
+        username,
+        password,
+        device_name: deviceName,
+        replay_public_key: signingKeys.publicKey,
+      })
     }, 30000);
   } catch (e) {
     throw new Error(networkErrorMessage(e, 'اتصال به سرور مرکزی ناموفق بود'));
@@ -359,7 +378,8 @@ async function pair(centralUrl, username, password, deviceName) {
 
   kvSet(db, 'central_url', base);
   kvSet(db, 'device_id', body.device_id);
-  kvSet(db, 'device_token', body.device_token);
+  setSecret(db, 'device_token', body.device_token);
+  setSecret(db, 'device_signing_private_key', signingKeys.privateKey);
   kvSet(db, 'last_pull_seq', -1);
   seedProvisionalSequences(db, body.device_id);
   state.online = true;
@@ -411,7 +431,8 @@ function resetPairing() {
         console.warn(`[sync] resetPairing skip ${name}:`, e.message);
       }
     }
-    for (const k of ['central_url', 'device_id', 'device_token', 'last_pull_seq', 'initial_sync_done']) kvDel(db, k);
+    for (const k of ['central_url', 'device_id', 'device_token', 'device_signing_private_key',
+      'last_pull_seq', 'initial_sync_done']) kvDel(db, k);
     const hash = bcrypt.hashSync('admin123', 10);
     db.prepare('INSERT INTO users (name,username,password,role,must_change_password) VALUES (?,?,?,?,0)')
       .run('مدیر موقت', 'admin', hash, 'admin');
@@ -460,14 +481,24 @@ async function syncNow() {
 }
 
 async function pushPending(db, cfg) {
+  const reconciled = reconcileCaptureFailures(db, cfg);
   const ops = db.prepare("SELECT * FROM sync_outbox WHERE status='pending' ORDER BY id LIMIT 400").all();
-  if (!ops.length) return { pushed: 0, confirmed: 0 };
+  if (!ops.length) return { pushed: 0, confirmed: 0, reconciled };
 
+  const unsigned = ops.find((op) => !op.replay_proof);
+  if (unsigned) {
+    const error = new Error('عملیات قدیمی فاقد امضای معتبر است؛ اتصال دستگاه باید دوباره برقرار شود');
+    error.code = 'SYNC_REPAIR_REQUIRED';
+    throw error;
+  }
   const payload = ops.map(o => ({
     seq: o.id, method: o.method, path: o.path,
     body: JSON.parse(o.body_json || '{}'),
     user_id: o.user_id, base_version: o.base_version,
-    entity_table: o.entity_table, entity_local_id: o.entity_local_id
+    entity_table: o.entity_table, entity_local_id: o.entity_local_id,
+    replay_proof: o.replay_proof,
+    file_hash: o.replay_file_hash || '',
+    file_field: o.replay_file_field || '',
   }));
 
   const r = await fetch(cfg.centralUrl + '/api/sync/push', {
@@ -492,7 +523,61 @@ async function pushPending(db, cfg) {
     }
     // 'deferred' → stays pending, retried next cycle
   }
-  return { pushed: ops.length, confirmed };
+  return { pushed: ops.length, confirmed, reconciled };
+}
+
+function reconcileCaptureFailures(db, cfg) {
+  let failures;
+  try {
+    failures = db.prepare("SELECT * FROM sync_capture_failures WHERE status='pending' ORDER BY id LIMIT 100").all();
+  } catch {
+    return 0; // pre-migration standalone database
+  }
+  if (!failures.length) return 0;
+  const privateKey = getSecret(db, 'device_signing_private_key');
+  if (!privateKey || !Number.isSafeInteger(Number(cfg.deviceId)) || Number(cfg.deviceId) <= 0) {
+    const error = new Error('کلید ترمیم عملیات همگام‌سازی موجود نیست؛ دستگاه باید دوباره متصل شود');
+    error.code = 'SYNC_REPAIR_REQUIRED';
+    throw error;
+  }
+
+  let reconciled = 0;
+  for (const failure of failures) {
+    db.transaction(() => {
+      const current = db.prepare("SELECT * FROM sync_capture_failures WHERE id=? AND status='pending'").get(failure.id);
+      if (!current) return;
+      const body = JSON.parse(current.body_json || '{}');
+      const inserted = db.prepare(`INSERT INTO sync_outbox
+        (method,path,body_json,user_id,base_version,entity_table,entity_local_id,
+         captured_rows_json,has_file,file_path,replay_file_hash,replay_file_field)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        current.method, current.path, current.body_json || '{}', current.user_id,
+        current.base_version, current.entity_table, current.entity_local_id,
+        current.captured_rows_json || '{}', Number(current.has_file || 0), current.file_path,
+        current.replay_file_hash, current.replay_file_field
+      );
+      const outboxId = Number(inserted.lastInsertRowid);
+      const proof = signReplayEnvelope(privateKey, {
+        deviceId: Number(cfg.deviceId),
+        seq: outboxId,
+        method: current.method,
+        path: current.path,
+        userId: Number(current.user_id),
+        body,
+        fileHash: current.replay_file_hash || '',
+        fileField: current.replay_file_field || '',
+      });
+      db.prepare('UPDATE sync_outbox SET replay_proof=? WHERE id=?').run(proof, outboxId);
+      db.prepare(`
+        UPDATE sync_capture_failures
+        SET status='reconciled',outbox_id=?,reconciled_at=strftime('%s','now')
+        WHERE id=? AND status='pending'
+      `).run(outboxId, current.id);
+      reconciled += 1;
+    })();
+  }
+  return reconciled;
 }
 
 // Central confirmed the op: delete the rows this op created locally (their
@@ -526,20 +611,35 @@ function confirmOp(db, op, result) {
 async function replayFile(cfg, op) {
   if (!fs.existsSync(op.file_path)) return;
   const buf = fs.readFileSync(op.file_path);
-  const body = JSON.parse(op.body_json || '{}');
-  const field = op.path.includes('/attachment') ? 'file' : 'image';
+  const field = op.replay_file_field
+    ? String(op.replay_file_field)
+    : selectClientRelayField(op.path, op.method).field;
+  if (!op.replay_proof
+      || !op.replay_file_hash || sha256Buffer(buf) !== String(op.replay_file_hash).toLowerCase()) {
+    const error = new Error('فایل یا امضای عملیات همگام‌سازی دستکاری شده است');
+    error.code = 'SYNC_REPLAY_PROOF_INVALID';
+    throw error;
+  }
   const form = new FormData();
   form.append('path', op.path);
   form.append('method', op.method);
   form.append('user_id', String(op.user_id));
   form.append('field', field);
-  for (const [k, v] of Object.entries(body)) form.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
-  form.append('file', new Blob([buf]), op.file_path.split('/').pop());
-  await fetch(cfg.centralUrl + '/api/sync/replay-multipart', {
+  form.append('seq', String(op.id));
+  form.append('replay_proof', op.replay_proof);
+  form.append('body_json', op.body_json || '{}');
+  form.append('file', new Blob([buf]), `upload${path.extname(op.file_path).toLowerCase()}`);
+  const response = await fetch(cfg.centralUrl + '/api/sync/replay-multipart', {
     method: 'POST',
     headers: createDeviceHeaders(cfg),
     body: form
   });
+  if (!response.ok) {
+    const out = await response.json().catch(() => ({}));
+    const error = new Error(out.error || 'بازپخش فایل روی سرور مرکزی ناموفق بود');
+    error.code = out.code || 'SYNC_FILE_REPLAY_FAILED';
+    throw error;
+  }
 }
 
 // ---- Pull ----
@@ -637,7 +737,7 @@ function applyChanges(db, changes, pulledUserIds) {
 //  - creates: run the matching local DELETE route logic via loopback (restores
 //    stock and posts proper reversal entries) — capture-suppressed
 //  - updates/deletes: restore the row to central's current state
-async function discardConflict(outboxId, actingUser) {
+async function discardConflict(outboxId, actingUser, internalReplayToken) {
   const db = getDB();
   const op = db.prepare("SELECT * FROM sync_outbox WHERE id=? AND status='conflict'").get(outboxId);
   if (!op) throw new Error('عملیات متعارض یافت نشد');
@@ -647,7 +747,14 @@ async function discardConflict(outboxId, actingUser) {
     const jwt = require('jsonwebtoken');
     const { SECRET } = require('../middleware/auth');
     const token = jwt.sign(
-      { id: actingUser.id, username: actingUser.username, role: actingUser.role, name: actingUser.name, phone: actingUser.phone || '' },
+      {
+        id: actingUser.id,
+        username: actingUser.username,
+        role: actingUser.role,
+        name: actingUser.name,
+        phone: actingUser.phone || '',
+        ae: Number(actingUser.ae || 0),
+      },
       SECRET, { expiresIn: '5m' }
     );
     const port = process.env.PORT || 3000;
@@ -655,7 +762,11 @@ async function discardConflict(outboxId, actingUser) {
     const delPath = `${basePath}/${op.entity_local_id}`;
     const r = await fetch(`http://127.0.0.1:${port}${delPath}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}`, 'x-sync-suppress': '1' }
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'x-internal-replay': String(internalReplayToken || ''),
+        'x-sync-suppress': '1',
+      }
     });
     if (!r.ok) {
       const b = await r.json().catch(() => ({}));
@@ -859,5 +970,5 @@ module.exports = {
   upgradeHttpCentralUrl, CANONICAL_CENTRAL_URL,
   fetchCentralAppUpdate, getUpdateFeedUrl, fetchCentralUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles,
   changePasswordOnCentral, pairingHealth, resolveReachableCentralUrl, startInitialSyncAfterPair
-  , maskSensitive, networkErrorMessage
+  , maskSensitive, networkErrorMessage, reconcileCaptureFailures
 };
