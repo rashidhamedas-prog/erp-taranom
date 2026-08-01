@@ -29,11 +29,11 @@
 
 ### 2026-08-01 — بستن Gate کدی موج صفر (deps / offsite / مالی / Playwright)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین ورودی)
+- **Commit:** `262b355`
 - **خلاصه:** تصمیم اجرایی بدون GPT: ارتقای `adm-zip`/`nodemailer`/`sharp`؛ waiver زمان‌دار `xlsx` + `excel-safe`؛ `BACKUP_OFFSITE_DIR` + DR ۶/۶ از کپی offsite؛ تست مالی+hostile شرکت ۲۰/۰؛ Playwright login؛ CI `wave0-gate`؛ runbook امضا؛ `unsafe-inline` آگاهانه تعویق.
 - **فایل‌های کلیدی:** `server/lib/excel-safe.js`, `server/backup.js`, `server/scripts/test-backup-dr.js`, `server/scripts/test-wave0-financial-hostile.js`, `server/scripts/check-audit-waivers.js`, `e2e/`, `docs/WAVE0-GATE-STATUS.md`, `.github/workflows/wave0-gate.yml`
-- **Deploy:** ⏳
-- **یادداشت:** ops باقی: `BACKUP_OFFSITE_DIR` یا S3 روی PM2 ایران + کلید امضای EXE/APK. SW `v135`.
+- **Deploy:** ✅ `262b355` — ایران؛ SW `v135`
+- **یادداشت:** پوشه `/home/taranom/crm-offsite-backups` ساخته شد؛ برای فعال‌سازی دائم `BACKUP_OFFSITE_DIR` را در PM2 env بگذارید. امضای EXE/APK هنوز کلید ops می‌خواهد.
 
 ### 2026-08-01 — بازسازی اسناد کالا پس از wipe (تفصیلی + کاردکس + رسید + JE)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
