@@ -214,12 +214,16 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
   return { bom, factor, lines: out, totals: sumTotals(out) };
 }
 
+/** Path-based cycle detection (visited set on the current ancestry path).
+ *  Depth alone is not enough — mid-graph cycles (A→B→C→B) must raise E_BOM_CIRCULAR.
+ *  Diamond DAGs (shared child via two parents) remain valid because the child is not
+ *  already on the *current* path. */
 function detectCircular(db, rootProductId, bomId, depth = 0, path = []) {
   if (depth > 10) throw err('E_BOM_TOO_DEEP', 422);
   const lines = db.prepare('SELECT component_product_id FROM bom_lines WHERE bom_id=?').all(bomId);
   for (const l of lines) {
     const pid = l.component_product_id;
-    if (pid === rootProductId) {
+    if (pid === rootProductId || path.includes(pid)) {
       throw err('E_BOM_CIRCULAR', 422, { path: [...path, pid].join('→') });
     }
     const child = db.prepare(`

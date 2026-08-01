@@ -26,9 +26,9 @@ const state = {
 
 /** Canonical production central (Iran). Legacy German IP must never be used. */
 const CANONICAL_CENTRAL_URL = 'https://erp.poshaktaranom.com';
+/** Remote fallbacks — HTTPS only (P0-S1). Loopback HTTP remains allowed for local tests. */
 const FALLBACK_CENTRAL_URLS = [
   'https://erp.poshaktaranom.com',
-  'http://erp.poshaktaranom.com'
 ];
 const LEGACY_CENTRAL_HOSTS = [
   '45.90.98.99',
@@ -60,6 +60,42 @@ function normalizeCentralUrl(url) {
   return u.replace(/\/$/, '');
 }
 
+function isLoopbackHost(hostname) {
+  const h = String(hostname || '').toLowerCase();
+  return h === '127.0.0.1' || h === 'localhost' || h === '::1';
+}
+
+/** Reject remote HTTP; allow loopback HTTP for device/local harnesses. */
+function assertCentralUrlAllowed(url) {
+  const u = normalizeCentralUrl(url);
+  if (!u) return '';
+  let parsed;
+  try { parsed = new URL(u); } catch {
+    throw Object.assign(new Error('آدرس سرور مرکزی نامعتبر است'), { code: 'E_SYNC_BAD_URL' });
+  }
+  if (parsed.protocol === 'http:' && !isLoopbackHost(parsed.hostname)) {
+    throw Object.assign(
+      new Error('اتصال ریموت فقط با HTTPS مجاز است — HTTP برای سرور غیرمحلی پذیرفته نمی‌شود'),
+      { code: 'E_SYNC_HTTPS_REQUIRED' }
+    );
+  }
+  return u;
+}
+
+/** Upgrade stored remote http://… → https://… (idempotent). */
+function upgradeHttpCentralUrl(url) {
+  const u = normalizeCentralUrl(url);
+  if (!u) return u;
+  try {
+    const parsed = new URL(u);
+    if (parsed.protocol === 'http:' && !isLoopbackHost(parsed.hostname)) {
+      parsed.protocol = 'https:';
+      return parsed.toString().replace(/\/$/, '');
+    }
+  } catch { /* keep */ }
+  return u;
+}
+
 function isLegacyCentralUrl(url) {
   if (!url) return false;
   const u = normalizeCentralUrl(url).toLowerCase();
@@ -69,11 +105,27 @@ function isLegacyCentralUrl(url) {
 /** Rewrite stored German/legacy central URL → Iran canonical. Idempotent. */
 function migrateLegacyCentralUrl(db) {
   const cur = kvGet(db, 'central_url');
-  if (!cur || !isLegacyCentralUrl(cur)) return false;
-  kvSet(db, 'central_url', CANONICAL_CENTRAL_URL);
-  state.lastError = null;
-  console.warn(`[sync] migrated legacy central_url ${cur} → ${CANONICAL_CENTRAL_URL}`);
-  return true;
+  if (!cur) return false;
+  if (isLegacyCentralUrl(cur)) {
+    kvSet(db, 'central_url', CANONICAL_CENTRAL_URL);
+    state.lastError = null;
+    console.warn(`[sync] migrated legacy central_url ${cur} → ${CANONICAL_CENTRAL_URL}`);
+    return true;
+  }
+  const upgraded = upgradeHttpCentralUrl(cur);
+  if (upgraded && upgraded !== cur) {
+    try {
+      assertCentralUrlAllowed(upgraded);
+      kvSet(db, 'central_url', upgraded);
+      console.warn(`[sync] upgraded central_url ${cur} → ${upgraded}`);
+      return true;
+    } catch (e) {
+      console.warn(`[sync] cannot upgrade insecure central_url ${cur}:`, e.message);
+      kvSet(db, 'central_url', CANONICAL_CENTRAL_URL);
+      return true;
+    }
+  }
+  return false;
 }
 
 function getConfig(db) {
@@ -108,7 +160,7 @@ function networkErrorMessage(err, context) {
     return `${context}: ارتباط با سرور برقرار نشد`;
   }
   if (/certificate|SSL|TLS|UNABLE_TO_VERIFY/i.test(msg)) {
-    return `${context}: خطای گواهی SSL — آدرس http://erp.poshaktaranom.com را امتحان کنید`;
+    return `${context}: خطای گواهی SSL — فقط HTTPS معتبر است؛ از https://erp.poshaktaranom.com استفاده کنید`;
   }
   return msg ? `${context}: ${msg}` : context;
 }
@@ -134,15 +186,21 @@ async function probe(centralUrl) {
   } catch { return false; }
 }
 
-/** Try preferred URL then https/http canonical fallbacks; return first reachable base. */
+/** Try preferred URL then HTTPS canonical fallbacks; return first reachable base. */
 async function resolveReachableCentralUrl(preferred) {
   let base = normalizeCentralUrl(preferred) || CANONICAL_CENTRAL_URL;
   if (isLegacyCentralUrl(base)) base = CANONICAL_CENTRAL_URL;
+  try { base = assertCentralUrlAllowed(upgradeHttpCentralUrl(base)); } catch { base = CANONICAL_CENTRAL_URL; }
   const candidates = [base];
   for (const u of FALLBACK_CENTRAL_URLS) {
     if (!candidates.includes(u)) candidates.push(u);
   }
   for (const u of candidates) {
+    try {
+      assertCentralUrlAllowed(u);
+    } catch {
+      continue; // skip remote HTTP candidates
+    }
     if (await probe(u)) return u;
   }
   return null;
@@ -249,7 +307,12 @@ async function pair(centralUrl, username, password, deviceName) {
     }
     throw new Error('این دستگاه قبلاً متصل شده است — از پنل همگام‌سازی «قطع اتصال و اتصال مجدد» را بزنید');
   }
-  let preferred = normalizeCentralUrl(centralUrl);
+  let preferred;
+  try {
+    preferred = assertCentralUrlAllowed(upgradeHttpCentralUrl(centralUrl));
+  } catch (e) {
+    throw new Error(e.message || 'آدرس سرور مرکزی نامعتبر است');
+  }
   if (!preferred) throw new Error('آدرس سرور مرکزی نامعتبر است');
   if (isLegacyCentralUrl(preferred)) {
     console.warn(`[sync] rejecting legacy central URL ${preferred}, using canonical`);
@@ -310,7 +373,7 @@ async function pair(centralUrl, username, password, deviceName) {
 async function setCentralUrl(centralUrl) {
   const db = getDB();
   if (!isPaired(db)) throw new Error('دستگاه هنوز متصل نشده است');
-  let base = normalizeCentralUrl(centralUrl);
+  let base = assertCentralUrlAllowed(upgradeHttpCentralUrl(centralUrl));
   if (!base) throw new Error('آدرس سرور مرکزی نامعتبر است');
   if (isLegacyCentralUrl(base)) base = CANONICAL_CENTRAL_URL;
   const online = await probe(base);
@@ -783,7 +846,8 @@ async function changePasswordOnCentral(username, oldPass, newPass) {
 
 module.exports = {
   pair, syncNow, pullFilesNow, skipSyncFile, discardConflict, getStatus, getConfig, startClientLoop, isPaired,
-  setCentralUrl, resetPairing, migrateLegacyCentralUrl, normalizeCentralUrl, CANONICAL_CENTRAL_URL,
+  setCentralUrl, resetPairing, migrateLegacyCentralUrl, normalizeCentralUrl, assertCentralUrlAllowed,
+  upgradeHttpCentralUrl, CANONICAL_CENTRAL_URL,
   fetchCentralAppUpdate, getUpdateFeedUrl, fetchCentralUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles,
   changePasswordOnCentral, pairingHealth, resolveReachableCentralUrl, startInitialSyncAfterPair
 };

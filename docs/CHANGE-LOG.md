@@ -27,13 +27,24 @@
 
 ---
 
+### 2026-08-01 — موج صفر: P0-A بسته + P0-S1 جزئی + handoff GPT Pro
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:**
+  - P0-A: cycle detection مسیرمحور؛ T1-28/T1-29؛ runner تایم‌اوت؛ `test:production` ×۳ سبز (۱۰٫۶/۸٫۹/۸٫۰ دقیقه).
+  - P0-S1 جزئی: رد HTTP ریموت sync؛ `test-sync-tls-url.js`.
+  - گزارش ناتمام: `docs/WAVE0-GPT-PRO-HANDOFF.md` برای ادامه در ChatGPT Pro.
+- **فایل‌های کلیدی:** `server/lib/production/bom.js`, `server/scripts/run-production-tests.js`, `server/sync/client.js`, `docs/WAVE0-GPT-PRO-HANDOFF.md`
+- **Deploy:** ❌ Wave 0 — deploy blocked تا Gate
+- **یادداشت:** بعدی P0-B؛ تکمیل token/revoke/nonce در P0-S1.
+
 ### 2026-08-01 — Wave 0 execution pack (skill, agents, plan, roadmap)
 - **شاخه:** `codex/wave0-execution-pack-260801`
 - **Commit:** `31d3c8e`
 - **خلاصه:** زیرساخت Cursor برای موج صفر: کپی `docs/erp-taranom-master-roadmap.md`، skill `erp-roadmap-wave0` (قواعد §3/§19/§20 + override عدم deploy تا gate)، agents `erp-wave0-executor` و `erp-p0-bom-ci`، plan زنده `docs/.plans/260801-wave0-critical-path/`. بدون تغییر runtime.
 - **فایل‌های کلیدی:** `docs/erp-taranom-master-roadmap.md`, `.cursor/skills/erp-roadmap-wave0/`, `.cursor/agents/`, `docs/.plans/260801-wave0-critical-path/`
 - **Deploy:** ❌ Wave 0 — infrastructure-only; deploy blocked until gate
-- **یادداشت:** P0-A probe: `test-production-bom.js` 27/27 در worktree؛ `test:production` کامل هنوز ×3 تأیید نشده.
+- **یادداشت:** P0-A بعداً در همین روز بسته شد (نگاه کنید ورودی بالا).
 
 ### 2026-07-30 — کدینگ P&L + افتتاحیه YTD + اکسل upsert + حذف حساب
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
