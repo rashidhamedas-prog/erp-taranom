@@ -29,7 +29,7 @@
 
 ### 2026-08-01 — ops: آف‌سایت دائم ایران + امضای APK/EXE (خودامضا)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit همین ورودی)
+- **Commit:** `dfa08ca`
 - **خلاصه:** `BACKUP_OFFSITE_DIR=/home/taranom/crm-offsite-backups` در PM2 dump و environ فرایند ماندگار شد (JWT حفظ شد). یک بکاپ دستی `crm-backup-20260801-120822.tar.gz` با کپی آف‌سایت + sha256؛ drill استخراج در `/tmp` → `integrity=ok`, users=1. امضای APK با JKS جدید و EXE با PFX خودامضا روی PC بیلد (Valid محلی؛ SmartScreen روی PC دیگر ممکن است ناشناس بماند تا گواهی تجاری).
 - **فایل‌های کلیدی:** `scripts/_iran-enable-offsite-backup.py`, `scripts/_iran-verify-offsite-env.py`, `docs/WAVE0-GATE-STATUS.md`, `docs/WAVE0-SIGNING-RUNBOOK.md`
 - **Deploy:** ✅ ops روی ایران (بدون تغییر کد اپ؛ health 200)؛ SW `v135` بدون تغییر
