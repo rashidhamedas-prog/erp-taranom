@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-01 — ops: آف‌سایت دائم ایران + امضای APK/EXE (خودامضا)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از commit همین ورودی)
+- **خلاصه:** `BACKUP_OFFSITE_DIR=/home/taranom/crm-offsite-backups` در PM2 dump و environ فرایند ماندگار شد (JWT حفظ شد). یک بکاپ دستی `crm-backup-20260801-120822.tar.gz` با کپی آف‌سایت + sha256؛ drill استخراج در `/tmp` → `integrity=ok`, users=1. امضای APK با JKS جدید و EXE با PFX خودامضا روی PC بیلد (Valid محلی؛ SmartScreen روی PC دیگر ممکن است ناشناس بماند تا گواهی تجاری).
+- **فایل‌های کلیدی:** `scripts/_iran-enable-offsite-backup.py`, `scripts/_iran-verify-offsite-env.py`, `docs/WAVE0-GATE-STATUS.md`, `docs/WAVE0-SIGNING-RUNBOOK.md`
+- **Deploy:** ✅ ops روی ایران (بدون تغییر کد اپ؛ health 200)؛ SW `v135` بدون تغییر
+- **یادداشت:** keystore/PFX در git نیستند. رمزها فقط نزد ops. بکاپ‌های فعلی `.tar.gz` بدون `.enc` (رمزنگاری بکاپ هنوز اختیاری/جدا).
+
 ### 2026-08-01 — بستن Gate کدی موج صفر (deps / offsite / مالی / Playwright)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `262b355`
@@ -149,15 +157,15 @@
 - **Deploy:** ✅ `a44f596` — ایران؛ wipe ۱۰۴ شخص + seed OPEN-PL-YTD (JE 271)؛ root 200؛ SW `v127`
 - **یادداشت:** تفصیلی‌های دارای گردش سند (محک قدیمی) عمداً حذف نشدند. اشخاص فعال=۰ برای ورود مجدد اکسل.
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۵/۱۰)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۵/۱۱)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit روی GitHub | `3eff7ab` (hotfix ALLOWED_ORIGINS + Wave 0) |
-| آخرین commit روی سرور ایران | `3eff7ab` — ✅ deploy شده |
-| وضعیت سرور | ✅ online — health 200 |
-| Gate موج صفر | 🟡 باز — audit/xlsx، restore off-site، Playwright، امضای updater، unsafe-inline |
+| آخرین commit روی GitHub | `e5e6949` (+ docs/ops بعدی) |
+| آخرین commit روی سرور ایران | کد `262b355`+؛ ops آف‌سایت فعال |
+| وضعیت سرور | ✅ online — health 200؛ `BACKUP_OFFSITE_DIR` روی PM2 |
+| Gate موج صفر | 🟡 باقی: xlsx waiver، امضای تجاری ویندوز، unsafe-inline؛ ✅ offsite DR + Playwright + مالی |
 | سرور production | تنها ایران `94.249.244.208` — `/home/taranom/crm-taranom` |
 | SSH محلی | Host `taranom-ir` → `~/.ssh/id_ed25519_taranom` + `IdentitiesOnly yes` (بدون پسورد) |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |

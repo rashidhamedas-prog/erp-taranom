@@ -10,15 +10,15 @@
 | restore off-site | ✅ مسیر خودکار filesystem + drill | `BACKUP_OFFSITE_DIR` در `backup.js`؛ `test-backup-dr.js` ۶/۶ از کپی offsite |
 | مالی + hostile cross-tenant | ✅ | `test-wave0-financial-hostile.js` ۲۰/۰ |
 | Playwright login | ✅ | `e2e/login.spec.js` + job در `wave0-gate.yml` |
-| امضای updater/APK | 🟡 کد آماده؛ کلید ops لازم | `REQUIRE_SIGNED_UPDATES` + `docs/WAVE0-SIGNING-RUNBOOK.md` |
+| امضای updater/APK | 🟡 خودامضا روی PC بیلد؛ گواهی تجاری هنوز لازم | JKS release + PFX self-signed؛ `apksigner`/`Get-AuthenticodeSignature` Valid روی همان ماشین |
 | حذف کامل `unsafe-inline` | 🟡 تعویق آگاهانه | تک‌فایل + هزاران onclick؛ حذف الان وب را دوباره می‌کشد |
 | موج ۱–۴ | ❌ عمداً شروع نشده | قانون roadmap تا Gate کامل |
 
 ## کار ops باقی‌مانده (کوتاه)
 
-1. روی ایران: `BACKUP_OFFSITE_DIR=/home/taranom/crm-offsite-backups` (یا `BACKUP_S3_URI`) در PM2  
-2. یک restore واقعی روی مسیر جدا + ثبت RTO در CHANGE-LOG  
-3. گواهی ویندوز + keystore اندروید طبق `WAVE0-SIGNING-RUNBOOK.md`  
+1. ~~روی ایران: `BACKUP_OFFSITE_DIR` در PM2~~ ✅ `=/home/taranom/crm-offsite-backups` (dump + process environ؛ cron داخلی `*/15`)
+2. ~~restore واقعی از offsite~~ ✅ drill 2026-08-01: checksum match + `integrity_check=ok` + users=1 (بدون دست‌زدن به DB تولید)
+3. گواهی **تجاری** ویندوز (OV/EV) برای SmartScreen روی PCهای دیگر؛ keystore اندروید release ساخته شد (sideload اگر امضای قبلی فرق دارد)
 4. جایگزینی `xlsx` → `exceljs` قبل از انقضای waiver (۲۰۲۶-۱۰-۰۱)
 
 ## دستورهای تأیید محلی
