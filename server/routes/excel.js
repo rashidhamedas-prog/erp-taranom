@@ -50,7 +50,7 @@ function field(row, ...names) {
   }
   return '';
 }
-function rowsToBook(rows, sheetName, guide) {
+async function rowsToBook(rows, sheetName, guide) {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = Object.keys(rows[0] || {}).map((key) => ({ wch: Math.max(14, Math.min(35, key.length + 8)) }));
@@ -60,12 +60,12 @@ function rowsToBook(rows, sheetName, guide) {
     info['!cols'] = [{ wch: 100 }];
     XLSX.utils.book_append_sheet(wb, info, 'راهنما');
   }
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  return XLSX.write(wb);
 }
-function sendBook(res, rows, sheetName, filename, guide) {
+async function sendBook(res, rows, sheetName, filename, guide) {
   res.setHeader('Content-Type', MIME);
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.send(rowsToBook(rows.length ? rows : [{}], sheetName, guide));
+  res.send(await rowsToBook(rows.length ? rows : [{}], sheetName, guide));
 }
 function groupBy(rows, keyNames = ['شماره سند*', 'شماره سند', 'document_no']) {
   const map = new Map();
@@ -774,26 +774,26 @@ function buildActions(db, entity, rows) {
   return [];
 }
 
-router.get('/:entity/template', auth, adminOrAccounting, ensureDefinition, (req, res) => {
-  sendBook(res, req.excelDef.sampleRows || [req.excelDef.sample], req.excelDef.title, `${req.params.entity}-template.xlsx`, [
+router.get('/:entity/template', auth, adminOrAccounting, ensureDefinition, async (req, res) => {
+  await sendBook(res, req.excelDef.sampleRows || [req.excelDef.sample], req.excelDef.title, `${req.params.entity}-template.xlsx`, [
     'نام ستون‌ها را تغییر ندهید. ستون‌های دارای * الزامی هستند.',
     'همه مبالغ در قالب‌ها و خروجی‌ها فقط ریال هستند.',
     ...(req.excelDef.guide || []),
   ]);
 });
 
-router.get('/:entity/export', auth, adminOrAccounting, ensureDefinition, (req, res) => {
+router.get('/:entity/export', auth, adminOrAccounting, ensureDefinition, async (req, res) => {
   try {
-    sendBook(res, exportRows(getDB(), req.params.entity), req.excelDef.title, `${req.params.entity}.xlsx`);
+    await sendBook(res, exportRows(getDB(), req.params.entity), req.excelDef.title, `${req.params.entity}.xlsx`);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
 });
 
-router.post('/:entity/prepare-import', auth, adminOrAccounting, ensureDefinition, upload.single('file'), (req, res) => {
+router.post('/:entity/prepare-import', auth, adminOrAccounting, ensureDefinition, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل اکسل انتخاب نشده است' });
   try {
-    const wb = readWorkbook(req.file.buffer, { cellDates: true });
+    const wb = await readWorkbook(req.file.buffer, { cellDates: true });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     // raw:true keeps Excel serial dates/numbers; excelDateCell/num coerce them
     const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });

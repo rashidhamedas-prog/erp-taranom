@@ -27,6 +27,15 @@
 
 ---
 
+### 2026-08-01 — P0-Q: مهاجرت `xlsx` → `exceljs` + حذف waiver
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:** وابستگی آسیب‌پذیر SheetJS حذف شد؛ I/O اکسل از طریق `exceljs` + `excel-safe`/`excel-io`؛ مسیرهای import/export و گزارش تولید async؛ helper مهاک و اسکریپت‌ها اصلاح؛ waiver audit خالی؛ راهنمای داخل برنامه + SW `v139`.
+- **فایل‌های کلیدی:** `server/lib/excel-io.js`, `server/lib/excel-safe.js`, `server/package.json`, `desktop/package.json`, `android/.../nodejs-project/package.json`, `server/public/app.js`, `server/public/sw.js`
+- **تست:** smoke write/read؛ `audit:gate` OK؛ production-export 4/4؛ upload/SSRF 55/55؛ SMS 22/22؛ sync 44/44
+- **Deploy:** ❌ Wave 0 — deploy blocked (فقط commit/push)
+- **یادداشت:** گسترش CI/E2E مالی هنوز باز است؛ gate وابستگی `xlsx` بسته شد.
+
 ### 2026-08-01 — P0-C partial: بسته بکاپ v2 + verify-only آنلاین
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `2b6b280`

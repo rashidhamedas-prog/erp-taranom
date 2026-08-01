@@ -1,10 +1,17 @@
 'use strict';
 /**
- * Hardened SheetJS (xlsx) access — Wave 0 dependency waiver mitigation.
- * Full library replace (exceljs) is deferred; until then every read goes through
- * size/sheet/cell caps so prototype-pollution / ReDoS inputs are harder to land.
+ * Hardened Excel access via exceljs (Wave 0 — replaces vulnerable `xlsx`).
+ * Every read goes through size/sheet/cell caps.
  */
-const XLSX = require('xlsx');
+const {
+  utils,
+  readWorkbookAsync,
+  writeWorkbook,
+  book_new,
+  json_to_sheet,
+  aoa_to_sheet,
+  book_append_sheet,
+} = require('./excel-io');
 
 const MAX_BYTES = Math.min(
   parseInt(process.env.EXCEL_MAX_BYTES || '', 10) || 15 * 1024 * 1024,
@@ -21,42 +28,44 @@ function assertBuffer(buf) {
   if (buf.length > MAX_BYTES) throw new Error(`حجم فایل اکسل بیش از حد مجاز است (${MAX_BYTES} بایت)`);
 }
 
-function readWorkbook(buf, opts = {}) {
+async function readWorkbook(buf, _opts = {}) {
   assertBuffer(buf);
-  const wb = XLSX.read(buf, {
-    type: 'buffer',
-    cellDates: true,
-    dense: false,
-    ...opts,
-  });
+  const wb = await readWorkbookAsync(buf);
   const names = wb.SheetNames || [];
   if (names.length > MAX_SHEETS) {
     throw new Error(`تعداد شیت‌های اکسل بیش از حد مجاز است (${MAX_SHEETS})`);
   }
-  let cells = 0;
-  for (const name of names) {
-    const sheet = wb.Sheets[name];
-    if (!sheet || !sheet['!ref']) continue;
-    const range = XLSX.utils.decode_range(sheet['!ref']);
-    const count = (range.e.r - range.s.r + 1) * (range.e.c - range.s.c + 1);
-    cells += count;
-    if (cells > MAX_CELLS) {
-      throw new Error(`حجم سلول‌های اکسل بیش از حد مجاز است (${MAX_CELLS})`);
-    }
+  if ((wb._cellEstimate || 0) > MAX_CELLS) {
+    throw new Error(`حجم سلول‌های اکسل بیش از حد مجاز است (${MAX_CELLS})`);
   }
   return wb;
 }
 
 function sheetToJson(sheet, opts) {
-  return XLSX.utils.sheet_to_json(sheet, opts);
+  return utils.sheet_to_json(sheet, opts);
 }
+
+/** Compatibility object shaped like former SheetJS export. */
+const XLSX = {
+  utils: {
+    ...utils,
+    book_new,
+    json_to_sheet,
+    aoa_to_sheet,
+    book_append_sheet,
+    sheet_to_json: sheetToJson,
+  },
+  write: writeWorkbook,
+  read: readWorkbook,
+};
 
 module.exports = {
   XLSX,
   readWorkbook,
   sheetToJson,
+  writeWorkbook,
   utils: XLSX.utils,
-  write: (...args) => XLSX.write(...args),
+  write: writeWorkbook,
   MAX_BYTES,
   MAX_SHEETS,
   MAX_CELLS,

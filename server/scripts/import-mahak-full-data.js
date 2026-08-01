@@ -7,7 +7,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const XLSX = require('xlsx');
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { fa, parsePersonName } = require('../lib/mahak-import-helpers');
 const { storeRial, seedMahakSubgroups } = require('../lib/currency');
 
@@ -35,7 +35,9 @@ if (done?.value === '1' && !force) {
   process.exit(0);
 }
 
-const wb = XLSX.readFile(path.resolve(xlsxPath));
+
+(async () => {
+const wb = await readWorkbook(require("fs").readFileSync(path.resolve(xlsxPath)));
 const sheet = (name) => {
   const n = wb.SheetNames.find(s => fa(s) === fa(name) || s.trim() === name.trim());
   return n ? XLSX.utils.sheet_to_json(wb.Sheets[n], { defval: '' }) : [];
@@ -405,3 +407,8 @@ fs.writeFileSync(repPath, report, 'utf8');
 
 console.log('import-mahak-full-data:', JSON.stringify(stats, null, 2));
 console.log('report →', repPath);
+
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

@@ -42,7 +42,8 @@ if (existing > 0 && !FORCE) {
   process.exit(1);
 }
 
-const vouchers = parseMahakJournal(journalPath);
+(async () => {
+const vouchers = await parseMahakJournal(journalPath);
 const adminId = db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").get().id;
 const defaultWh = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get()?.id || null;
 
@@ -506,3 +507,8 @@ console.log(`   sup_payments=${stats.supplier_payment} expenses=${stats.expense_
 console.log(`   warehouse out=${stats.warehouse_issue} in=${stats.warehouse_receipt} transfers=${stats.transfer}`);
 console.log(`   journal linked=${linked} remaining mahak_import=${remaining}`);
 console.log(`   report: ${repPath}`);
+
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

@@ -12,7 +12,7 @@
 // to the target DB. Any failed assertion rolls the whole import back.
 const path = require('path');
 const fs = require('fs');
-const XLSX = require('xlsx');
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { fa, parsePersonName, guessProductCategory, buildAccountUsage, mapPersonAccounts } = require('../lib/mahak-import-helpers');
 const { storeRial } = require('../lib/currency');
 
@@ -44,7 +44,9 @@ function sheetRows(wb, name) {
 }
 
 // ---------- parse coding ----------
-const cwb = XLSX.readFile(codingPath);
+
+(async () => {
+const cwb = await readWorkbook(require("fs").readFileSync(codingPath));
 const groups = sheetRows(cwb, 'گروه حساب ها').filter(r => r[0] && r[0] !== '0');
 const kols = sheetRows(cwb, 'حسابهای کل').filter(r => r[0]);
 const moeins = sheetRows(cwb, 'حسابهای معین').filter(r => r[0]);
@@ -55,7 +57,7 @@ const kolInfo = {};   kols.forEach(r => { kolInfo[String(r[0]).trim()] = { name:
 const groupInfo = {}; groups.forEach(r => { groupInfo[String(r[0]).trim()] = { name: fa(r[1]), type: TYPE_MAP[fa(r[2])] || 'expense' }; });
 
 // ---------- parse journal ----------
-const jwb = XLSX.readFile(journalPath);
+const jwb = await readWorkbook(require("fs").readFileSync(journalPath));
 const jrows = XLSX.utils.sheet_to_json(jwb.Sheets[jwb.SheetNames[0]], { header: 1, raw: false }).slice(1);
 const vouchers = new Map();   // docNo → {date, atf, desc, lines:[{code,name,debit,credit}]}
 for (const r of jrows) {
@@ -325,3 +327,8 @@ console.log(`\n${failures.length ? '❌ FAILED' : '✅ OK'} — entries=${stats.
 console.log(`   debit=credit=${Math.round(tb.d).toLocaleString('en-US')} toman`);
 console.log(`   report: ${repPath}`);
 if (failures.length) { failures.forEach(f => console.error('  ✗ ' + f)); process.exit(1); }
+
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

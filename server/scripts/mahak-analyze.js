@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Deep analysis of Mahak Excel files before import — run locally, no DB writes. */
 const path = require('path');
-const XLSX = require('xlsx');
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
 
 const codingPath = process.argv[2] || path.join(__dirname, '../../..', 'coding hesbha.xlsx');
 const journalPath = process.argv[3] || path.join(__dirname, '../../..', 'daftar roznameh.xlsx');
@@ -18,7 +18,9 @@ function sheetRows(wb, name) {
 }
 
 // --- coding ---
-const cwb = XLSX.readFile(codingPath);
+
+(async () => {
+const cwb = await readWorkbook(require("fs").readFileSync(codingPath));
 const tafRows = sheetRows(cwb, 'حسابهای تفصیلی').slice(1).filter(r => r[1]);
 const tafByType = {};
 const tafByCode = {};
@@ -30,7 +32,7 @@ for (const r of tafRows) {
 }
 
 // --- journal ---
-const jwb = XLSX.readFile(journalPath);
+const jwb = await readWorkbook(require("fs").readFileSync(journalPath));
 const jrows = sheetRows(jwb, jwb.SheetNames[0]).slice(1);
 const vouchers = new Map();
 const accountUsage = new Map(); // full12 -> {debit,credit,count,kol,moein,taf}
@@ -89,7 +91,7 @@ for (const [, v] of vouchers) {
 }
 
 // mojodi analysis
-const mwb = XLSX.readFile(mojodiPath);
+const mwb = await readWorkbook(require("fs").readFileSync(mojodiPath));
 const mrows = sheetRows(mwb, mwb.SheetNames[0]);
 const mHeader = mrows[0];
 const mData = mrows.slice(1).filter(r => r[0]);
@@ -163,3 +165,8 @@ for (const [docNo, v] of vouchers) {
   }
 }
 for (const [k, s] of Object.entries(samples)) if (s) console.log(`  [${k}] doc ${s.docNo} ${s.date}: ${s.desc} (${s.lines} lines)`);
+
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

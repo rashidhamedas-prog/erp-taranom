@@ -822,10 +822,10 @@ function normalizeStr(s) {
 }
 
 // Import from Excel (admin only)
-router.post('/import', auth, adminOnly, excelUpload.single('file'), (req, res) => {
+router.post('/import', auth, adminOnly, excelUpload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل آپلود نشد' });
   try {
-    const wb = readWorkbook(req.file.buffer);
+    const wb = await readWorkbook(req.file.buffer);
     const ws = wb.Sheets[wb.SheetNames[0]];
     const data = XLSX.utils.sheet_to_json(ws);
     const db = getDB();
@@ -861,7 +861,7 @@ router.post('/import', auth, adminOnly, excelUpload.single('file'), (req, res) =
 });
 
 // Export all products
-router.get('/export/excel', auth, adminOnly, (req, res) => {
+router.get('/export/excel', auth, adminOnly, async (req, res) => {
   const db = getDB();
   const rows = db.prepare('SELECT * FROM products ORDER BY created_at DESC').all();
   const data = rows.map(r => ({
@@ -871,14 +871,14 @@ router.get('/export/excel', auth, adminOnly, (req, res) => {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(data);
   XLSX.utils.book_append_sheet(wb, ws, 'محصولات');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', 'attachment; filename=products.xlsx');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
 });
 
 // Excel template
-router.get('/template', auth, (req, res) => {
+router.get('/template', auth, async (req, res) => {
   const wb = XLSX.utils.book_new();
   const data = [
     { 'دسته‌بندی': 'مانتو', 'کد محصول': 'MT-001', 'نام محصول': 'مانتو لینن بهاره', 'قیمت': 350000, 'موجودی': 50, 'هشدار موجودی': 5, 'واحد': 'عدد' },
@@ -886,7 +886,7 @@ router.get('/template', auth, (req, res) => {
   ];
   const ws = XLSX.utils.json_to_sheet(data);
   XLSX.utils.book_append_sheet(wb, ws, 'محصولات');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', 'attachment; filename=products-template.xlsx');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);

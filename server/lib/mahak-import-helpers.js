@@ -70,9 +70,10 @@ const num = v => parseFloat(String(v == null ? '' : v).replace(/,/g, '')) || 0;
 const toman = storeRial;
 
 /** Parse roznameh.xlsx into Map docNo → voucher. */
-function parseMahakJournal(journalPath) {
-  const XLSX = require('xlsx');
-  const jwb = XLSX.readFile(journalPath);
+async function parseMahakJournal(journalPath) {
+  const fs = require('fs');
+  const { XLSX, readWorkbook } = require('./excel-safe');
+  const jwb = await readWorkbook(fs.readFileSync(journalPath));
   const jrows = XLSX.utils.sheet_to_json(jwb.Sheets[jwb.SheetNames[0]], { header: 1, raw: false }).slice(1);
   const vouchers = new Map();
   for (const r of jrows) {

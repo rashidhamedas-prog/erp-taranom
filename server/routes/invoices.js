@@ -1,3 +1,4 @@
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const router = require('express').Router();
 const { getDB, audit, createLedgerEntry, allocateNumber, isDevice, resolveCashAccount } = require('../db');
 const { acct, coaMode } = require('../lib/coa-map');
@@ -320,9 +321,7 @@ router.get('/', auth, (req, res) => {
 });
 
 // Export invoices to Excel (must be before /:id to avoid route capture)
-router.get('/export/excel', auth, adminOnly, (req, res) => {
-  const XLSX = require('xlsx');
-  const db = getDB();
+router.get('/export/excel', auth, adminOnly, async (req, res) => {  const db = getDB();
   const scope = getScope(req);
   let rows;
   if (scope === null) {
@@ -347,7 +346,7 @@ router.get('/export/excel', auth, adminOnly, (req, res) => {
   const ws = XLSX.utils.json_to_sheet(data);
   ws['!cols'] = [12,20,12,12,18,10,18,12,10,15,20].map(w => ({ wch: w }));
   XLSX.utils.book_append_sheet(wb, ws, 'فاکتورها');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', 'attachment; filename=invoices.xlsx');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);

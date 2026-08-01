@@ -1,3 +1,4 @@
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const router = require('express').Router();
 const { getDB, audit, resolveCashAccount, createLedgerEntry } = require('../db');
 const { postToLedger } = require('../lib/ledger');
@@ -383,8 +384,7 @@ router.delete('/commission-tiers/:tierId', auth, adminOrAccounting, (req, res) =
   res.json({ ok: true });
 });
 
-router.get('/export/all-excel', auth, repModuleAdmin, (req, res) => {
-  const XLSX = require('xlsx');
+router.get('/export/all-excel', auth, repModuleAdmin, async (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
   const rows = getRepRanking(db, { from, to }).map(r => ({
@@ -393,7 +393,7 @@ router.get('/export/all-excel', auth, repModuleAdmin, (req, res) => {
   }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'نمایندگان');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', 'attachment; filename=reps-all.xlsx');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
@@ -863,8 +863,7 @@ router.post('/:id/calls', auth, adminRepOrSelf, (req, res) => {
   res.json({ id: r.lastInsertRowid, ok: true });
 });
 
-router.get('/:id/export/excel', auth, adminRepOrSelf, (req, res) => {
-  const XLSX = require('xlsx');
+router.get('/:id/export/excel', auth, adminRepOrSelf, async (req, res) => {
   const db = getDB();
   const repId = +req.params.id;
   const rep = repGuard(db, repId);
@@ -881,7 +880,7 @@ router.get('/:id/export/excel', auth, adminRepOrSelf, (req, res) => {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(stmt.entries.map(e => ({
     'تاریخ': e.date, 'نوع': e.type_label, 'شرح': e.description, 'بدهکار': e.debit || 0, 'بستانکار': e.credit || 0
   }))), 'گردش');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', `attachment; filename=rep-${repId}.xlsx`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);

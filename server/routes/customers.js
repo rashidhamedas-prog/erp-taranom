@@ -216,7 +216,7 @@ router.get('/balances', auth, (req, res) => {
   res.json(rows);
 });
 
-router.get('/export/excel', auth, adminOnly, (req, res) => {
+router.get('/export/excel', auth, adminOnly, async (req, res) => {
   const db = getDB();
   const scope = getScope(req);
   const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
@@ -237,17 +237,17 @@ router.get('/export/excel', auth, adminOnly, (req, res) => {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(data);
   XLSX.utils.book_append_sheet(wb, ws, 'مشتریان');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', 'attachment; filename=customers.xlsx');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
 });
 
 // Import customers from Excel
-router.post('/import', auth, adminOnly, excelUpload.single('file'), (req, res) => {
+router.post('/import', auth, adminOnly, excelUpload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل آپلود نشد' });
   try {
-    const wb = readWorkbook(req.file.buffer);
+    const wb = await readWorkbook(req.file.buffer);
     const ws = wb.Sheets[wb.SheetNames[0]];
     const data = XLSX.utils.sheet_to_json(ws);
     const db = getDB();
@@ -308,8 +308,7 @@ router.post('/:id/welcome-sms', auth, async (req, res) => {
 });
 
 // Downloadable Excel template for customer import
-router.get('/template', auth, adminOnly, (req, res) => {
-  const XLSX = require('xlsx');
+router.get('/template', auth, adminOnly, async (req, res) => {
   const wb = XLSX.utils.book_new();
   const data = [
     { 'نام فروشگاه': 'بوتیک بهار', 'نام کامل': 'زهره احمدی', 'استان': 'خراسان رضوی', 'شهر': 'مشهد', 'آدرس کامل': 'بلوار فردوسی، پلاک ۱۲', 'موبایل': '09151234567', 'اینستاگرام': 'bahar_boutique', 'نوع': 'بوتیک', 'وضعیت': 'active', 'منبع آشنایی': 'instagram', 'کارشناس': '', 'موجودی حساب': 0 },
@@ -330,7 +329,7 @@ router.get('/template', auth, adminOnly, (req, res) => {
   const ws2 = XLSX.utils.json_to_sheet(info);
   ws2['!cols'] = [{wch:80}];
   XLSX.utils.book_append_sheet(wb, ws2, 'راهنما');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', 'attachment; filename=customers-template.xlsx');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);

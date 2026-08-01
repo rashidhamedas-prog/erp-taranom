@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const express = require('express');
 const sharp = require('sharp');
-const XLSX = require('xlsx');
+const { XLSX } = require('../lib/excel-safe');
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'erp-wave0-upload-'));
 process.env.PRIVATE_UPLOADS_DIR = path.join(tempRoot, 'private');
@@ -115,7 +115,7 @@ async function main() {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['name'], ['safe']]), 'Sheet1');
-  const xlsx = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const xlsx = await XLSX.write(wb);
   const safeXlsx = await validateUploadedFile(file(xlsx, 'import.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'), 'xlsx');
   ok('XLSX واقعی با workbook داخلی پذیرفته می‌شود', safeXlsx.detectedKind === 'xlsx');
   await rejects('فایل متن با نام/MIME اکسل (magic mismatch) رد می‌شود',

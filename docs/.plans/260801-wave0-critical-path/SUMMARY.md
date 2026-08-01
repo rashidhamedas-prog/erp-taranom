@@ -30,6 +30,7 @@
 | 2026-08-01 | Signing ops ✅ (self-signed) | APK 2.0.32 + EXE 2.0.9 signed on build PC; artifacts in New folder + `releases/`; handoff `docs/WAVE0-SIGNING-HANDOFF-GPT.md`. Commercial OV/EV + REQUIRE_SIGNED_UPDATES e2e still open. Offsite Iran PM2 env + restore drill also closed. |
 | 2026-08-01 | P0-S2 ✅ source gate | AndroidKeyStore + DPAPI secret migration; encrypted device token; Android APK hash/package/version/signer verification; Electron verified updater + packaged signed-update default; 27/27 Android, 42/42 desktop, sync 41/41, signatures and 204-file embedded drift verified. Existing signed binaries predate this source change and require one final rebuild/re-sign before release; no deploy. |
 | 2026-08-01 | P0-S3 ✅ | CSP/Trusted Types asset split; upload/SSRF/private media; secret enc:v2; staff/B2B sessions; company switch; portal CSPRNG password; sync repair+attestation. Mirror UNIQUE fix + company_id on challenge/B2B revoke. Auth 46/46, sync 44/44, upload 55/55, secrets 37/37, CSP browser 15/15, portal 64/64. Deploy blocked. |
+| 2026-08-01 | P0-Q deps ✅ | Replaced SheetJS `xlsx` with `exceljs@4` (`excel-io` + hardened `excel-safe`); async call sites; Mahak helpers fixed; waiver emptied; audit gate OK; production-export + upload 55 + SMS 22 + sync 44. CI/E2E expand still open. |
 
 ---
 
@@ -70,7 +71,7 @@
 - [x] Automated off-site restore drill (`BACKUP_OFFSITE_DIR`); prod path wiring pending
 - [x] Quality gate: Playwright login + API financial/hostile cross-company suite
 - [ ] Web hardening gate: remove legacy inline HTML/`unsafe-inline` (deferred — Chrome break risk)
-- [x] Dependency gate: high vulns fixed except time-boxed `xlsx` waiver + `excel-safe`
+- [x] Dependency gate: `xlsx` removed → `exceljs`; audit waiver empty; CI/E2E expand still open
 
 ---
 

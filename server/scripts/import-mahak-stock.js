@@ -11,7 +11,7 @@
 // value stashed in the product note by the journal importer (value ÷ qty).
 const path = require('path');
 const fs = require('fs');
-const XLSX = require('xlsx');
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { guessProductCategory } = require('../lib/mahak-import-helpers');
 
 const [codingPath, mojodiPath, dbPath] = process.argv.slice(2);
@@ -28,12 +28,14 @@ const fa = s => String(s == null ? '' : s).replace(/[۰-۹]/g, d => '۰۱۲۳۴�
 const qty = v => Math.round(parseFloat(String(v == null ? '0' : v).replace(/,/g, '')) || 0);
 
 // کد عملیاتی → کد تفصیلی for کالاها only
-const cwb = XLSX.readFile(codingPath);
+
+(async () => {
+const cwb = await readWorkbook(require("fs").readFileSync(codingPath));
 const tafRows = XLSX.utils.sheet_to_json(cwb.Sheets['حسابهای تفصیلی'], { header: 1, raw: false }).slice(1);
 const opToTaf = new Map();
 for (const r of tafRows) if (fa(r[3]) === 'کالاها') opToTaf.set(fa(r[0]), String(r[1]).trim());
 
-const mwb = XLSX.readFile(mojodiPath);
+const mwb = await readWorkbook(require("fs").readFileSync(mojodiPath));
 const rows = XLSX.utils.sheet_to_json(mwb.Sheets[mwb.SheetNames[0]], { header: 1, raw: false }).slice(1).filter(r => r[0]);
 
 const byCode = db.prepare('SELECT id,name,note FROM products WHERE code=?');
@@ -79,3 +81,8 @@ const repPath = path.join(path.dirname(path.resolve(dbPath)), 'mahak-stock-repor
 fs.writeFileSync(repPath, rep.join('\n') + '\n');
 console.log(`${report.unmatched.length ? '⚠️' : '✅'} matched=${report.matched} unmatched=${report.unmatched.length} zeroed=${report.zeroed} cost-set=${report.withCost}`);
 console.log('   total stock:', totalStock.s, '| report:', repPath);
+
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

@@ -1,3 +1,4 @@
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const router = require('express').Router();
 const { acct: coaAcct, suggestChildCode, validateChildCode } = require('../lib/coa-map');
 const { DELETED_FILTER, postToLedger } = require('../lib/ledger');
@@ -1018,7 +1019,7 @@ router.get('/statement/:customerId', auth, adminOrAccounting, (req, res) => {
 });
 
 // Customer account statement export — format: excel | csv | pdf
-router.get('/statement/:customerId/export', auth, adminOrAccounting, (req, res) => {
+router.get('/statement/:customerId/export', auth, adminOrAccounting, async (req, res) => {
   const db = getDB();
   const { from, to, type, format = 'excel' } = req.query;
   const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : undefined;
@@ -1097,7 +1098,6 @@ thead th{background:#1A5C38;color:#fff}tbody tr:nth-child(even){background:#f4f7
   }
 
   // default: excel
-  const XLSX = require('xlsx');
   const wb = XLSX.utils.book_new();
   const sheetData = [...rows,
     {},
@@ -1107,7 +1107,7 @@ thead th{background:#1A5C38;color:#fff}tbody tr:nth-child(even){background:#f4f7
   const ws = XLSX.utils.json_to_sheet(sheetData);
   ws['!cols'] = [14, 14, 30, 16, 16, 16, 14, 16].map(w => ({ wch: w }));
   XLSX.utils.book_append_sheet(wb, ws, 'صورت‌حساب');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', `attachment; filename=statement-${data.customer.id}.xlsx`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);

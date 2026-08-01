@@ -49,7 +49,7 @@ function runNamed(req, res, name, extra = {}) {
   }));
 }
 
-function maybeExport(req, res, result) {
+async function maybeExport(req, res, result) {
   const fmt = (req.query.format || 'json').toLowerCase();
   if (fmt === 'json') return res.json(result);
   if (fmt === 'csv') {
@@ -57,7 +57,7 @@ function maybeExport(req, res, result) {
     return res.send(toCsv(result));
   }
   if (fmt === 'excel' || fmt === 'xlsx') {
-    const x = toExcel(result);
+    const x = await toExcel(result);
     if (x.format === 'xlsx') {
       res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       return res.send(x.buffer);
@@ -80,7 +80,7 @@ router.get('/orders', auth, requirePermission('production_reports', 'view'), (re
   runNamed(req, res, 'PR-01');
 });
 
-router.get('/cost-sheet', auth, requirePermission('production_reports', 'view'), (req, res) => {
+router.get('/cost-sheet', auth, requirePermission('production_reports', 'view'), async (req, res) => {
   if (!req.query.order_id) {
     return res.status(422).json({ error: 'order_id الزامی است', code: 'E_ORDER_REQUIRED' });
   }
@@ -90,7 +90,7 @@ router.get('/cost-sheet', auth, requirePermission('production_reports', 'view'),
       params: qp(req),
       user: req.user,
     });
-    maybeExport(req, res, result);
+    return await maybeExport(req, res, result);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
   }
@@ -180,7 +180,7 @@ router.get('/subcontractor-performance', auth, requirePermission('production_rep
   runNamed(req, res, 'PR-21');
 });
 
-router.get('/:code/export', auth, requirePermission('production_reports', 'export'), (req, res) => {
+router.get('/:code/export', auth, requirePermission('production_reports', 'export'), async (req, res) => {
   try {
     const code = String(req.params.code || '').toUpperCase();
     if (!reports.REPORTS[code]) throw err('E_NOT_FOUND', 404);
@@ -189,7 +189,7 @@ router.get('/:code/export', auth, requirePermission('production_reports', 'expor
       params: qp(req),
       user: req.user,
     });
-    maybeExport(req, res, result);
+    return await maybeExport(req, res, result);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
   }
