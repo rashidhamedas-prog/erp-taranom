@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-01 — Wave 0 Cursor execution pack (infrastructure)
+- **شاخه:** `codex/wave0-execution-pack`
+- **Commit:** (پس از commit همین نشست)
+- **خلاصه:** پک اجرایی موج صفر از master roadmap: کپی سند به `docs/erp-taranom-master-roadmap.md`، skill `erp-roadmap-wave0`، agentهای `erp-wave0-executor` / `erp-p0-bom-ci`، و plan زنده `docs/.plans/260801-wave0-critical-path/SUMMARY.md`. ترتیب P0-A→B→S1/S2/S3→C→Q1/Q2؛ override بدون deploy ایران تا gate موج صفر. رفع hang بم (P0-A) فقط برنامه‌ریزی شد، کد تست/BOM تغییر نکرد.
+- **فایل‌های کلیدی:** `docs/erp-taranom-master-roadmap.md`, `.cursor/skills/erp-roadmap-wave0/SKILL.md`, `.cursor/agents/erp-wave0-executor.md`, `.cursor/agents/erp-p0-bom-ci.md`, `docs/.plans/260801-wave0-critical-path/SUMMARY.md`
+- **Deploy:** ❌ no deploy (Wave 0 gate) — infrastructure-only
+- **یادداشت:** commit+push مجاز؛ `pm2` / pull سرور ایران ممنوع تا gate §17.
+
 ### 2026-07-30 — کدینگ P&L + افتتاحیه YTD + اکسل upsert + حذف حساب
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `a44f596`
