@@ -67,11 +67,29 @@ if (helmet) {
 
 // CORS — restrict to same origin in production, allow dev origins
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+function originAllowed(origin) {
+  if (!origin) return true;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  // Accept http↔https for the same host listed in ALLOWED_ORIGINS (users often open http://).
+  try {
+    const u = new URL(origin);
+    return ALLOWED_ORIGINS.some((allowed) => {
+      try {
+        const a = new URL(allowed);
+        return a.hostname === u.hostname;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
 app.use(cors({
   origin(origin, cb) {
-    // Same-origin requests (origin===undefined) and explicitly listed origins are allowed
-    if (!origin || ALLOWED_ORIGINS.includes(origin) || process.env.NODE_ENV !== 'production') return cb(null, true);
-    cb(new Error('CORS origin not allowed'));
+    if (originAllowed(origin) || process.env.NODE_ENV !== 'production') return cb(null, true);
+    // cb(null, false) → proper CORS deny without Express 500 (cb(Error) crashed login UI)
+    return cb(null, false);
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

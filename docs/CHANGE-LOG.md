@@ -27,6 +27,13 @@
 
 ---
 
+### 2026-08-01 — hotfix لاگین وب روی http (CORS)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین ورودی)
+- **خلاصه:** باز کردن `http://erp.poshaktaranom.com` با Origin غیر از لیست https باعث `cb(Error)` در CORS و پاسخ ۵۰۰ می‌شد و ورود جلو نمی‌رفت. پذیرش http↔https همان host + deny بدون ۵۰۰؛ پیش‌فرض ALLOWED_ORIGINS هر دو scheme.
+- **فایل‌های کلیدی:** `server/server.js`, `server/lib/security.js`
+- **Deploy:** ⏳
+
 ### 2026-08-01 — hotfix کروم: CSP script-src-attr برای onclick
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `194e1de`

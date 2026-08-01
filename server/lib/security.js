@@ -29,8 +29,8 @@ function assertSecurityConfig() {
   if (isProd && !process.env.ALLOWED_ORIGINS) {
     // Operational default for the single known central host until PM2/env is set.
     // Prefer explicit ALLOWED_ORIGINS in production process env.
-    process.env.ALLOWED_ORIGINS = 'https://erp.poshaktaranom.com,https://poshaktaranom.com';
-    console.warn('⚠️ ALLOWED_ORIGINS خالی بود — پیش‌فرض دامنه ترنم اعمال شد. حتماً در PM2 تنظیم کنید.');
+    process.env.ALLOWED_ORIGINS = 'https://erp.poshaktaranom.com,http://erp.poshaktaranom.com,https://poshaktaranom.com,http://poshaktaranom.com';
+    console.warn('⚠️ ALLOWED_ORIGINS خالی بود — پیش‌فرض دامنه ترنم (http+https) اعمال شد. حتماً در PM2 تنظیم کنید.');
   }
 }
 
