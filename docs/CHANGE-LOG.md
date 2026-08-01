@@ -29,7 +29,7 @@
 
 ### 2026-08-01 — موج صفر: P0-A بسته + P0-S1 جزئی + handoff GPT Pro
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `df1107b`
 - **خلاصه:**
   - P0-A: cycle detection مسیرمحور؛ T1-28/T1-29؛ runner تایم‌اوت؛ `test:production` ×۳ سبز (۱۰٫۶/۸٫۹/۸٫۰ دقیقه).
   - P0-S1 جزئی: رد HTTP ریموت sync؛ `test-sync-tls-url.js`.
