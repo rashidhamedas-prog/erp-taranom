@@ -27,9 +27,17 @@
 
 ---
 
+### 2026-08-01 — Cursor review: تأیید commit GPT Wave 0 (`6b53483`)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (همین ورودی docs)
+- **خلاصه:** Review پس از push GPT: working tree تمیز (به‌جز untracked شخصی). تأیید محلی: SMS ۲۲/۲۲، TLS ۹/۹، sync ۴۱/۴۱. Gate موج صفر همچنان باز (xlsx/audit، restore off-site، Playwright، امضای updater، unsafe-inline). **بدون deploy ایران.**
+- **فایل‌های کلیدی:** `docs/CHANGE-LOG.md`, `docs/.plans/260801-wave0-critical-path/SUMMARY.md`
+- **Deploy:** ❌ Wave 0 — deploy blocked
+- **یادداشت:** سرور ایران هنوز روی commit قدیمی است تا دستور صریح deploy.
+
 ### 2026-08-01 — Wave 0 handoff execution: P0-B → P0-Q
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** همین commit
+- **Commit:** `6b53483`
 - **خلاصه:**
   - **P0-B:** pipeline یکتای prepare برای desktop/Android، حذف runtime data، کنترل SHA-256 و release-id مشترک.
   - **P0-S1:** TLS-only، token با expiry/rotation/revoke، nonce امضاشده و جلوگیری از replay، پوشاندن credential در خطا.
@@ -80,15 +88,17 @@
 - **Deploy:** ✅ `a44f596` — ایران؛ wipe ۱۰۴ شخص + seed OPEN-PL-YTD (JE 271)؛ root 200؛ SW `v127`
 - **یادداشت:** تفصیلی‌های دارای گردش سند (محک قدیمی) عمداً حذف نشدند. اشخاص فعال=۰ برای ورود مجدد اکسل.
 
-## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۵/۰۸)
+## وضعیت فعلی (آخرین به‌روزرسانی: ۱۴۰۵/۰۵/۱۰)
 
 | مورد | مقدار |
 |------|--------|
 | شاخهٔ کاری | `claude/claude-md-docs-2ssrpy` |
-| آخرین commit روی سرور | `a44f596` |
-| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v127` |
-| اندروید | **`2.0.31`** (versionCode 33) — سورس embed همگام؛ بدون APK/EXE |
-| وضعیت سرور | ✅ **deploy شده** — کدینگ P&L + افتتاحیه YTD + اکسل upsert |
+| آخرین commit روی GitHub | `6b53483` (Wave 0 harden — GPT Pro) |
+| آخرین commit روی سرور ایران | `0c9c58a` / قدیمی‌تر — **هنوز deploy نشده** |
+| نسخه وب/دسکتاپ | وب **`2.1.10`** / دسکتاپ **`2.0.9`** / SW `erp-taranom-v128` (محلی؛ روی ایران قدیمی‌تر) |
+| اندروید | **`2.0.31`** (versionCode 33) — سورس prepare همگام؛ بدون APK کامل |
+| وضعیت سرور | ⏳ کد Wave 0 روی گیت است؛ production ایران عقب است تا دستور deploy |
+| Gate موج صفر | 🟡 باز — audit/xlsx، restore off-site، Playwright، امضای updater، unsafe-inline |
 | سرور production | تنها ایران `94.249.244.208` — `/home/taranom/crm-taranom` |
 | SSH محلی | Host `taranom-ir` → `~/.ssh/id_ed25519_taranom` + `IdentitiesOnly yes` (بدون پسورد) |
 | مخزن GitHub | ✅ `rashidhamedas-prog/erp-taranom` |
