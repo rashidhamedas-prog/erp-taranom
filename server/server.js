@@ -38,6 +38,9 @@ if (helmet) {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'"],
+        // index.html is full of onclick=/onchange= handlers — Helmet 7 default
+        // script-src-attr 'none' blocks them in Chrome and the UI looks "dead".
+        scriptSrcAttr: ["'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'blob:'],
         connectSrc: ["'self'", 'https:'],
@@ -45,6 +48,8 @@ if (helmet) {
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         frameAncestors: ["'self'"],
+        // SW + blob workers used by the SPA
+        workerSrc: ["'self'", 'blob:'],
       }
     },
     crossOriginEmbedderPolicy: false,
