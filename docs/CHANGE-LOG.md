@@ -29,11 +29,10 @@
 
 ### 2026-08-01 — hotfix کروم: CSP script-src-attr برای onclick
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین ورودی)
+- **Commit:** `194e1de`
 - **خلاصه:** Helmet 7 به‌صورت پیش‌فرض `script-src-attr 'none'` می‌گذارد و همهٔ `onclick`/`onchange`های `index.html` در Chrome بلاک می‌شدند → UI «هیچ‌چیز کار نمی‌کند». صریحاً `scriptSrcAttr: unsafe-inline` + `workerSrc` اضافه شد.
 - **فایل‌های کلیدی:** `server/server.js`, `server/public/index.html`
-- **Deploy:** ⏳
-- **یادداشت:** مهاجرت کامل به addEventListener هنوز در gate موج صفر است؛ تا آن موقع این استثنا لازم است.
+- **Deploy:** ✅ `194e1de` — ایران؛ CSP اکنون `script-src-attr 'unsafe-inline'`؛ health 200؛ SW `v130`
 
 ### 2026-08-01 — بیلد دسکتاپ 2.0.9 + اندروید 2.0.32 (خروجی New folder)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
