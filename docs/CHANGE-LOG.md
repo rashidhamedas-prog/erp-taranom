@@ -29,10 +29,10 @@
 
 ### 2026-08-01 — پاک‌سازی ایران: فقط کالا + عکس (keep-products-clean)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین نوبت)
+- **Commit:** `e4ee442`
 - **خلاصه:** پس از wipe ناقص قبلی، هنوز ۳۰ مشتری + مانده دفتر (~۱۴ میلیارد) + کاربران aref/sharafi + بانک/اسناد روی ایران مانده بود. اسکریپت `server/scripts/keep-products-clean.js` همهٔ دادهٔ کسب‌وکار را پاک کرد و **کالا (۴۹۵)، product_images (۳۵۱)، گروه کالا، انبار و warehouse_stock** را نگه داشت؛ کدینگ پایه بازسازی شد؛ فقط `@admin` ماند. بکاپ: `crm.db.pre-keep-products-2026-08-01T04-03-00-942Z.bak`.
 - **فایل‌های کلیدی:** `server/scripts/keep-products-clean.js`, `scripts/_wipe-iran-keep-products.py`, `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ✅ ایران — VERIFY: customers/parties(customer)/journal/ledger/invoices/banks=0؛ products=495؛ product_images=351؛ users=`admin`؛ health 200؛ SW `v133`
+- **Deploy:** ✅ `e4ee442` — ایران؛ VERIFY: customers/journal/ledger/invoices/banks=0؛ products=495؛ product_images=351؛ users=`admin`؛ health 200؛ SW `v133`
 - **یادداشت:** یک party سیستمی `USER-00001` برای خودِ کاربر admin در بوت ساخته می‌شود (مشتری نیست). دستگاه‌های آفلاین باید pair/sync مجدد شوند. رمز admin دست نخورده ماند.
 
 ### 2026-08-01 — hotfix لاگین Chrome: HTTPS redirect + CSP/CORP
