@@ -35,15 +35,21 @@
 
 ### 2) P0-B — حذف source drift وب/دسکتاپ/اندروید
 
-**وضعیت:** فقط اکتشاف؛ کد prepare/hash مشترک کامل نشده.
+**وضعیت:** فقط اکتشاف ([P0-B drift prep](09aa31a2-502b-4e49-a916-42ecdb9157d9))؛ کد prepare/hash مشترک کامل نشده.
+
+**یافتهٔ فعلی (محلی):**
+- Desktop: `desktop/scripts/prepare-server.js` (`npm run prepare-server`)
+- Android: Gradle `copyServerSources`؛ `scripts/_sync-android-server.py` **stale** (مسیر اشتباه CursorCrm)
+- Excludeها نامتقارن‌اند (Android تست/mahak/`releases` را بیشتر حذف می‌کند)
+- Embedها gitignore هستند؛ drift محلی: ~**۴۷** hash vs desktop، ~**۳۷** vs Android؛ `db.js` / `index.html` / sync حیاتی همه فرق دارند
+- **وجود ندارد:** `scripts/compare-embedded-hash.js`
 
 **کار:**
-- `server/` را SoT اعلام و enforce کن.
-- اسکریپت prepare یکپارچه برای `desktop/` و `android/` (کپی بدون db/uploads/node_modules/log).
-- مقایسه SHA-256 فایل‌های runtime پس از prepare → اختلاف صفر.
-- CI fail روی drift در `db.js`، routes، lib، sync، UI، SW.
-- نسخه واحد از release manifest.
-- **بدون** `npm run dist:win` / APK کامل مگر کاربر صریح بخواهد (قانون پروژه).
+1. یکسان‌سازی exclude + pipeline واحد (desktop prepare + Android copy از همان لیست).
+2. ساخت `scripts/compare-embedded-hash.js` → exit≠0 روی mismatch؛ wire به CI / قبل از dist.
+3. deprecate/fix `_sync-android-server.py`.
+4. unified release id از `releases/manifest.json` + `/api/system/app-info`.
+5. بدون بیلد کامل APK/EXE مگر کاربر بخواهد.
 
 **مرجع:** `docs/.plans/260801-wave0-critical-path/P0-B-source-drift.md` + roadmap §P0-B.
 
@@ -51,7 +57,7 @@
 
 ### 3) P0-S1 — تکمیل TLS sync
 
-**وضعیت:** هسته URL انجام شد؛ بقیه باز است.
+**وضعیت:** هسته URL در `client.js` + تست TLS + حذف پیشنهاد HTTP در pairing UI انجام شد؛ بقیه باز است ([P0-S1 explore](94210d1e-7563-44b0-bb2a-f943d6ab0534)).
 
 **باقی:**
 - [ ] device token rotation / revoke / expiry
@@ -59,8 +65,8 @@
 - [ ] replay nonce/idempotency + محدودیت زمانی
 - [ ] ثبت certificate failure به‌عنوان خطای امنیتی
 - [ ] تست MITM با cert نامعتبر
-- [ ] سخت‌سازی Android `usesCleartextTraffic` وابسته به P0-S2
-- [ ] اطمینان از اینکه همه مسیرهای pair در UI از `assertCentralUrlAllowed` عبور می‌کنند (بررسی `index.html` pairing form)
+- [ ] Android: `usesCleartextTraffic=false` + NSC فقط loopback (هم‌تراز P0-S2)
+- [ ] `network_security_config.xml` هنوز cleartext برای hostهای production دارد
 
 **تأیید فوری:**
 ```powershell

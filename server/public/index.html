@@ -3184,7 +3184,7 @@ function openSyncPairModal(opts){
       <div class="form-grid">
         <div class="fg full"><label>آدرس سرور مرکزی *</label>
           <input id="pair-url" dir="ltr" placeholder="https://erp.poshaktaranom.com" value="https://erp.poshaktaranom.com" ${repair?'disabled':''}>
-          <div class="muted" style="font-size:11px;margin-top:4px">پیش‌فرض درست است — معمولاً عوض نکنید. اگر HTTPS مشکل داشت: <code dir="ltr">http://erp.poshaktaranom.com</code></div>
+          <div class="muted" style="font-size:11px;margin-top:4px">پیش‌فرض درست است — معمولاً عوض نکنید. فقط <code dir="ltr">https://erp.poshaktaranom.com</code> — HTTP ریموت مجاز نیست.</div>
         </div>
         <div class="fg"><label>نام کاربری مدیر سیستم *</label><input id="pair-user" dir="ltr" autocomplete="username" ${repair?'disabled':''}></div>
         <div class="fg"><label>رمز عبور مدیر سیستم *</label><input id="pair-pass" type="password" dir="ltr" autocomplete="current-password" ${repair?'disabled':''}></div>

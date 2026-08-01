@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-01 — pairing UI: فقط HTTPS + handoff P0-B/S1 جزئیات اکتشاف
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:** حذف پیشنهاد HTTP در فرم pairing؛ غنی‌سازی `WAVE0-GPT-PRO-HANDOFF.md` با یافتهٔ drift (~۴۷/۳۷) و NSC Android؛ SW `v128`.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `docs/WAVE0-GPT-PRO-HANDOFF.md`
+- **Deploy:** ❌ Wave 0 — deploy blocked
+- **یادداشت:** هسته TLS URL قبلاً در `df1107b`؛ Android cleartext هنوز باز است.
+
 ### 2026-08-01 — موج صفر: P0-A بسته + P0-S1 جزئی + handoff GPT Pro
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `df1107b`
