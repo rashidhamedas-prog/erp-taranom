@@ -29,16 +29,14 @@
 
 ### 2026-08-01 — P0-C partial: بسته بکاپ v2 + verify-only آنلاین
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
-- **خلاصه:** پکیج بکاپ نسخه ۲ با manifest/SHA-256، snapshot WAL همهٔ DBهای registry، private-uploads، رمز اجباری در production، رد same-device مگر فلگ تست، API restore فقط verify، CLI آفلاین `restore-backup.js`. DR تست ۱۱/۱۱.
+- **Commit:** `2b6b280`
 - **فایل‌های کلیدی:** `server/backup.js`, `server/scripts/test-backup-dr.js`, `server/scripts/restore-backup.js`, `server/server.js`
 - **Deploy:** ❌ Wave 0 — deploy blocked
 - **یادداشت:** مسیر `/home/taranom/crm-offsite-backups` روی همان VPS هنوز off-server واقعی نیست؛ S3 یا volume مستقل لازم است.
 
 ### 2026-08-01 — P0-S3: امنیت وب/API + نشست/tenant (Gate کد بسته)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از commit)
-- **خلاصه:** CSP بدون unsafe-inline/eval + Trusted Types و تفکیک asset؛ upload/SSRF/private media؛ secret `enc:v2`؛ staff/B2B session با sid؛ company switch؛ portal بدون رمز ثابت؛ sync repair+attestation. رفع mirror UNIQUE و محدودسازی company_id روی challenge/B2B revoke.
+- **Commit:** `2b6b280`
 - **فایل‌های کلیدی:** `server/lib/auth-sessions.js`, `server/public/app.js`, `server/lib/upload-policy.js`, `server/lib/secret-settings.js`, `server/lib/secure-html-response.js`, `docs/WAVE0-CODEX-TO-CURSOR-HANDOFF-2026-08-01.md`
 - **تست:** auth 46/46؛ sync 44/44؛ upload 55/55؛ secrets 37/37؛ CSP browser 15/15؛ portal 64/64؛ B2B 34/34؛ SMS 22/22؛ P0-S2 regression سبز
 - **Deploy:** ❌ Wave 0 — deploy blocked (فقط commit/push)
