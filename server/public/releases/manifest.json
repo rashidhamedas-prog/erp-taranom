@@ -4,16 +4,16 @@
     "notes": "پاک‌سازی go-live + کدینگ پایه + cascade حذف تفصیلی — SW v99."
   },
   "desktop": {
-    "version": "2.0.8",
-    "url": "/releases/ERP-Taranom-Setup-2.0.8.exe",
+    "version": "2.0.9",
+    "url": "/releases/ERP-Taranom-Setup-2.0.9.exe",
     "feed_url": "",
-    "notes": "آپدیت 2.0.8: درصد پورسانت ۳ رقم اعشار، حساب معین در دریافت/پرداخت، netProps/nav، SW v108."
+    "notes": "آپدیت 2.0.9: Wave 0 — harden sync/TLS/backup/CI، SW v128."
   },
   "android": {
-    "version": "2.0.30",
-    "versionCode": 32,
+    "version": "2.0.32",
+    "versionCode": 34,
     "url": "/releases/erp-taranom.apk",
     "distribution": "server",
-    "notes": "آپدیت 2.0.30: درصد پورسانت ۳ رقم اعشار، حساب معین، netProps/nav، SW v108."
+    "notes": "آپدیت 2.0.32: Wave 0 — harden sync/TLS/backup، SW v128."
   }
 }
