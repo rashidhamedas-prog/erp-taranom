@@ -29,10 +29,10 @@
 
 ### 2026-08-01 — بازسازی اسناد کالا پس از wipe (تفصیلی + کاردکس + رسید + JE)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (همین نوبت)
+- **Commit:** `551de7e`
 - **خلاصه:** بعد از keep-products-clean، کالاها بدون تفصیلی/کاردکس/رسید/سند افتتاحیه مانده بودند. اسکریپت `rebuild-product-docs.js` برای همهٔ ۴۹۵ کالا تفصیلی ساخت؛ برای ۳۴۴ کالای دارای موجودی: stock_logs + inventory_ledger + warehouse_moves (رسید «موجودی اول دوره»)؛ برای ۲۱ کالا با بها: JE `opening_inventory`. هم‌ترازی stock↔warehouse_stock=۰ mismatch.
 - **فایل‌های کلیدی:** `server/scripts/rebuild-product-docs.js`, `scripts/_run-rebuild-product-docs-iran.py`, `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ✅ ایران — VERIFY: with_coa=495، stock_logs/ledger/moves=344، opening_je=21، health 200؛ SW `v134`
+- **Deploy:** ✅ `551de7e` — ایران؛ VERIFY: with_coa=495، stock_logs/ledger/moves=344، opening_je=21، health 200؛ SW `v134`
 - **یادداشت:** کالاهای بدون موجودی فقط تفصیلی گرفتند؛ بدون بها سند حسابداری ساخته نمی‌شود (همان قانون create محصول).
 
 ### 2026-08-01 — پاک‌سازی ایران: فقط کالا + عکس (keep-products-clean)
