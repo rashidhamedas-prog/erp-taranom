@@ -1,0 +1,34 @@
+'use strict';
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'erp-drill-'));
+process.env.DB_PATH = path.join(root, 'source.db');
+process.env.UPLOADS_DIR = path.join(root, 'uploads');
+process.env.BACKUP_DIR = path.join(root, 'backups');
+process.env.BACKUP_PASSWORD = 'isolated-drill-password-123';
+process.env.JWT_SECRET = 'isolated-drill-jwt-secret-123456789012345';
+const { initDB, getDB } = require('../db');
+const { runBackup, decryptFile } = require('../backup');
+const AdmZip = require('adm-zip');
+const Database = require('better-sqlite3');
+
+(async () => {
+  initDB();
+  const db = getDB();
+  const before = db.prepare('SELECT COUNT(*) c FROM users').get().c;
+  const result = await runBackup();
+  if (!result.ok || !result.encrypted || result.integrity !== 'ok') throw new Error(JSON.stringify(result));
+  const expected = require('crypto').createHash('sha256').update(fs.readFileSync(result.path)).digest('hex');
+  if (expected !== result.checksum || !fs.existsSync(result.path + '.sha256')) throw new Error('checksum mismatch');
+  const zipPath = path.join(root, 'drill.zip');
+  decryptFile(result.path, zipPath, process.env.BACKUP_PASSWORD);
+  const extract = path.join(root, 'extract');
+  new AdmZip(zipPath).extractAllTo(extract, true);
+  const restored = new Database(path.join(extract, 'crm.db'), { readonly: true });
+  const integrity = restored.pragma('integrity_check', { simple: true });
+  const after = restored.prepare('SELECT COUNT(*) c FROM users').get().c;
+  restored.close();
+  if (integrity !== 'ok' || before !== after) throw new Error(`restore verification failed: ${integrity} ${before}/${after}`);
+  console.log(`backup DR drill: 6/6 pass; users=${before}; sha256=${result.checksum.slice(0, 16)}…`);
+})().catch(e => { console.error(e); process.exit(1); });

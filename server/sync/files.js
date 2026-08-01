@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { UPLOADS_ROOT } = require('../paths');
+const { createDeviceHeaders } = require('./device-auth');
 
 const FILE_QUERIES = [
   { subdir: 'products', sql: "SELECT DISTINCT image AS name FROM products WHERE image IS NOT NULL AND image != ''" },
@@ -80,7 +81,7 @@ async function pullOneFile(cfg, subdir, name) {
   if (isPresent(subdir, name)) return true;
 
   const rel = `${subdir}/${name}`;
-  const headers = { Authorization: `Device ${cfg.deviceId}:${cfg.deviceToken}` };
+  const headers = createDeviceHeaders(cfg);
   const r = await fetch(
     `${cfg.centralUrl.replace(/\/$/, '')}/api/sync/files?path=${encodeURIComponent(rel)}`,
     { headers }

@@ -86,7 +86,7 @@ public class MainActivity extends Activity {
             ws.setDomStorageEnabled(true);
             ws.setDatabaseEnabled(true);
             ws.setAllowFileAccess(false);
-            ws.setAllowContentAccess(true);
+            ws.setAllowContentAccess(false);
             ws.setSupportMultipleWindows(false);
             ws.setLoadsImagesAutomatically(true);
             ws.setBlockNetworkImage(false);
@@ -94,11 +94,12 @@ public class MainActivity extends Activity {
             ws.setUseWideViewPort(true);
             ws.setLoadWithOverviewMode(true);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ws.setSafeBrowsingEnabled(false);
+                ws.setSafeBrowsingEnabled(true);
             }
+            WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
             ws.setUserAgentString(ws.getUserAgentString() + " ERPTaranomAndroid/" + BuildConfig.VERSION_NAME);
 
             webView.setWebChromeClient(new WebChromeClient() {
@@ -110,6 +111,12 @@ public class MainActivity extends Activity {
             });
 
             webView.setWebViewClient(new WebViewClient() {
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                    Uri target = request != null ? request.getUrl() : null;
+                    return target == null || !"http".equals(target.getScheme())
+                            || !"127.0.0.1".equals(target.getHost()) || target.getPort() != LOCAL_PORT;
+                }
                 @Override
                 public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                     if (request == null || !request.isForMainFrame()) return;
@@ -131,7 +138,9 @@ public class MainActivity extends Activity {
                         long id = dm.enqueue(req);
                         boolean isApk = fileName.endsWith(".apk")
                                 || "application/vnd.android.package-archive".equals(mimeType);
-                        if (isApk) trackApkDownload(dm, id);
+                        // APK installation is intentionally not launched from WebView.
+                        // Updates are distributed locally and Android verifies their signer.
+                        if (isApk) Log.w(TAG, "APK downloaded; automatic install is disabled by security policy");
                     }
                 } catch (Exception e) {
                     startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));

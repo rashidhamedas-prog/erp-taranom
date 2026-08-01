@@ -154,7 +154,7 @@ router.post('/login', (req, res) => {
 
   audit(user.id, 'login', 'user', user.id, 'ورود موفق', req);
   const token = jwt.sign(
-    { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '', dfp: fingerprint || undefined, dslot: fingerprint ? deviceSlot : undefined },
+    { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '', ae: Number(user.auth_epoch || 0), dfp: fingerprint || undefined, dslot: fingerprint ? deviceSlot : undefined },
     SECRET, { expiresIn: '30d' }
   );
   res.json({
@@ -189,6 +189,15 @@ router.delete('/device-sessions/:id', auth, adminOnly, (req, res) => {
     db.prepare('DELETE FROM user_device_sessions WHERE user_id=?').run(id);
     audit(req.user.id, 'revoke', 'user_device_session', id, 'قطع همه نشست‌های کاربر');
   }
+  res.json({ ok: true });
+});
+
+router.post('/logout-all', auth, (req, res) => {
+  const db = getDB();
+  db.prepare('UPDATE users SET auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?').run(req.user.id);
+  db.prepare('DELETE FROM user_device_sessions WHERE user_id=?').run(req.user.id);
+  invalidateUserCache(req.user.id);
+  audit(req.user.id, 'revoke', 'user_session', req.user.id, 'خروج از همه دستگاه‌ها');
   res.json({ ok: true });
 });
 
@@ -354,7 +363,7 @@ router.post('/change-password', auth, async (req, res) => {
 
   if (!bcrypt.compareSync(oldPass, user.password))
     return res.status(400).json({ error: 'رمز قدیمی اشتباه است' });
-  db.prepare('UPDATE users SET password=?, must_change_password=0 WHERE id=?').run(bcrypt.hashSync(newPass, 10), req.user.id);
+  db.prepare('UPDATE users SET password=?, must_change_password=0, auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?').run(bcrypt.hashSync(newPass, 10), req.user.id);
   invalidateUserCache(req.user.id);
   res.json({ ok: true });
 });
@@ -369,7 +378,7 @@ router.post('/reset-password', auth, adminOnly, (req, res) => {
   const target = db.prepare('SELECT id,name FROM users WHERE id=?').get(user_id);
   if (!target) return res.status(404).json({ error: 'کاربر یافت نشد' });
   // رمزی که مدیر تعیین کرده موقتی است — کاربر در اولین ورود باید عوضش کند
-  db.prepare('UPDATE users SET password=?, must_change_password=1 WHERE id=?').run(bcrypt.hashSync(new_pass, 10), user_id);
+  db.prepare('UPDATE users SET password=?, must_change_password=1, auth_epoch=COALESCE(auth_epoch,0)+1 WHERE id=?').run(bcrypt.hashSync(new_pass, 10), user_id);
   invalidateUserCache(+user_id);
   audit(req.user.id, 'reset_password', 'user', user_id, `بازنشانی رمز ${target.name}`);
   res.json({ ok: true });

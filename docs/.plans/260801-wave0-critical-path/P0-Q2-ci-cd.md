@@ -1,15 +1,15 @@
 # Phase P0-Q2 — CI/CD pipeline
 
-**Status:** `[ ]`  
+**Status:** `[-]` — CI gate added; staging/production actions intentionally blocked
 **Roadmap:** فاز P0-Q2
 
 ## Tasks
 
-- [ ] Lint + frontend script parse in CI
-- [ ] Parallel test suites with per-job timeout
-- [ ] Dependency/security scan
-- [ ] Migration test job
-- [ ] Source drift check (from P0-B)
+- [x] Lint + frontend script parse in CI
+- [x] Parallel test suites with per-job timeout
+- [x] Dependency/security scan
+- [x] Migration test job
+- [x] Source drift check (from P0-B)
 - [ ] Staging deploy + smoke
 - [ ] Production approval gate + rollback artifacts
 - [ ] Versioned artifacts + checksum

@@ -1,0 +1,87 @@
+name: Wave 0 Gate
+
+on:
+  push:
+    branches: [claude/claude-md-docs-2ssrpy]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  embedded-and-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: node scripts/prepare-embedded-server.js all
+      - run: node scripts/compare-embedded-hash.js
+      - run: node scripts/test-embedded-release.js
+      - run: node scripts/test-platform-security.js
+      - run: node scripts/check-frontend-inline.js
+      - run: node --check server/server.js && node --check server/routes/sync.js && node --check server/backup.js
+
+  sync-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: node scripts/test-sync-tls-url.js 2>&1 | tee sync-security.log
+        working-directory: server
+      - run: node scripts/test-sync.js 2>&1 | tee -a sync-security.log
+        working-directory: server
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: sync-security-log, path: server/sync-security.log }
+
+  core-and-dr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: node scripts/test-sms.js
+        working-directory: server
+      - run: node scripts/test-b2b.js
+        working-directory: server
+      - run: node scripts/test-backup-dr.js
+        working-directory: server
+      - run: node scripts/test-companies-fiscal.js
+        working-directory: server
+
+  production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: npm run test:production 2>&1 | tee production.log
+        working-directory: server
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: production-log, path: server/production.log }
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: server

@@ -27,6 +27,20 @@
 
 ---
 
+### 2026-08-01 — Wave 0 handoff execution: P0-B → P0-Q
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** همین commit
+- **خلاصه:**
+  - **P0-B:** pipeline یکتای prepare برای desktop/Android، حذف runtime data، کنترل SHA-256 و release-id مشترک.
+  - **P0-S1:** TLS-only، token با expiry/rotation/revoke، nonce امضاشده و جلوگیری از replay، پوشاندن credential در خطا.
+  - **P0-S2:** خاموش‌کردن Android backup/cleartext عمومی و WebView debug release؛ sandbox و navigation/openExternal allowlist در Electron.
+  - **P0-S3:** CORS production fail-fast، CSP بدون unsafe-eval، rate-limit، logout-all مبتنی بر auth epoch، audit عملیات backup/restore و Dependabot.
+  - **P0-C:** snapshot امن SQLite، رمزنگاری، SHA-256، مسیر S3-compatible، RPO پانزده‌دقیقه‌ای و runbook؛ restore drill محلی ۶/۶.
+  - **P0-Q1/Q2:** ماتریس تست و workflow موازی Wave 0 با timeout و artifact لاگ.
+- **فایل‌های کلیدی:** `scripts/prepare-embedded-server.js`, `server/routes/sync.js`, `server/sync/device-auth.js`, `android/app/src/main/AndroidManifest.xml`, `desktop/main.js`, `server/backup.js`, `.github/workflows/wave0-gate.yml`, `docs/TEST-MATRIX-WAVE0.md`, `docs/DR-RUNBOOK.md`
+- **Deploy:** ❌ Wave 0 — deploy مسدود؛ APK/EXE کامل ساخته نشد
+- **یادداشت:** Gate هنوز به‌علت restore واقعی off-site، امضای updater، Playwright مالی/cross-tenant، مهاجرت کامل inline HTML و audit وابستگی‌ها باز است. `npm audit` آنلاین: ۷ advisory شامل ۴ high؛ برای `xlsx` اصلاح منتشرشده وجود ندارد و ارتقای breaking اجباری انجام نشد.
+
 ### 2026-08-01 — pairing UI: فقط HTTPS + handoff P0-B/S1 جزئیات اکتشاف
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `7df60c6`

@@ -652,6 +652,7 @@ function initDB() {
   ensureColumn(db, 'users', 'last_login', 'INTEGER');
   // امنیت: الزام تغییر رمز در اولین ورود (ادمین پیش‌فرض / رمز تعیین‌شده توسط مدیر)
   ensureColumn(db, 'users', 'must_change_password', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'users', 'auth_epoch', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'users', 'commission_cash', 'REAL DEFAULT 0');
   ensureColumn(db, 'users', 'commission_cheque', 'REAL DEFAULT 0');
   ensureColumn(db, 'products', 'image', 'TEXT');
@@ -1738,6 +1739,16 @@ function initSyncSchema(db) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_user_device_sessions_user ON user_device_sessions(user_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_outbox_pending ON sync_outbox(status, id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_sync_devices_active ON sync_devices(active)');
+  ensureColumn(db, 'sync_devices', 'token_expires_at', 'INTEGER');
+  ensureColumn(db, 'sync_devices', 'token_rotated_at', 'INTEGER');
+  ensureColumn(db, 'sync_devices', 'revoked_at', 'INTEGER');
+  db.exec(`CREATE TABLE IF NOT EXISTS sync_device_nonces (
+    device_id INTEGER NOT NULL,
+    nonce TEXT NOT NULL,
+    seen_at INTEGER NOT NULL,
+    PRIMARY KEY (device_id, nonce)
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sync_device_nonces_seen ON sync_device_nonces(seen_at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_customers_biz ON customers(biz)');
   ensureColumn(db, 'persons',    'coa_code', 'TEXT');

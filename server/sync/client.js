@@ -6,6 +6,7 @@
 // range (see tables.js), so pulled central rows can never collide with rows
 // whose ops haven't been confirmed yet.
 const crypto = require('crypto');
+const { createDeviceHeaders } = require('./device-auth');
 const fs = require('fs');
 const { getDB, seedProvisionalSequences } = require('../db');
 const { SYNCABLE_TABLES, FK_COLUMNS, isProvisionalId } = require('./tables');
@@ -144,11 +145,18 @@ function isPaired(db) {
 }
 
 function deviceHeaders(cfg) {
-  return { 'Authorization': `Device ${cfg.deviceId}:${cfg.deviceToken}`, 'Content-Type': 'application/json' };
+  return { ...createDeviceHeaders(cfg), 'Content-Type': 'application/json' };
+}
+
+function maskSensitive(value) {
+  return String(value || '')
+    .replace(/(Device\s+\d+:)[a-f0-9]+/gi, '$1[REDACTED]')
+    .replace(/(Bearer\s+)[A-Za-z0-9._~-]+/gi, '$1[REDACTED]')
+    .replace(/([?&](?:token|device_token)=)[^&\s]+/gi, '$1[REDACTED]');
 }
 
 function networkErrorMessage(err, context) {
-  const msg = String(err && err.message || err || '');
+  const msg = maskSensitive(err && err.message || err || '');
   const name = err && err.name;
   if (name === 'AbortError' || /aborted|timeout/i.test(msg)) {
     return `${context}: زمان انتظار تمام شد — اینترنت را بررسی کنید و دوباره تلاش کنید`;
@@ -160,6 +168,7 @@ function networkErrorMessage(err, context) {
     return `${context}: ارتباط با سرور برقرار نشد`;
   }
   if (/certificate|SSL|TLS|UNABLE_TO_VERIFY/i.test(msg)) {
+    console.error('[sync-security] TLS certificate validation failed');
     return `${context}: خطای گواهی SSL — فقط HTTPS معتبر است؛ از https://erp.poshaktaranom.com استفاده کنید`;
   }
   return msg ? `${context}: ${msg}` : context;
@@ -528,7 +537,7 @@ async function replayFile(cfg, op) {
   form.append('file', new Blob([buf]), op.file_path.split('/').pop());
   await fetch(cfg.centralUrl + '/api/sync/replay-multipart', {
     method: 'POST',
-    headers: { 'Authorization': `Device ${cfg.deviceId}:${cfg.deviceToken}` },
+    headers: createDeviceHeaders(cfg),
     body: form
   });
 }
@@ -850,4 +859,5 @@ module.exports = {
   upgradeHttpCentralUrl, CANONICAL_CENTRAL_URL,
   fetchCentralAppUpdate, getUpdateFeedUrl, fetchCentralUpdateFeedUrl, getLocalAppUpdate, pullMissingFiles,
   changePasswordOnCentral, pairingHealth, resolveReachableCentralUrl, startInitialSyncAfterPair
+  , maskSensitive, networkErrorMessage
 };

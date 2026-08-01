@@ -29,6 +29,7 @@ const { getDB, isDevice, audit } = require('../db');
 const { auth, adminOnly, SECRET } = require('../middleware/auth');
 const { SYNCABLE_TABLES, isProvisionalId } = require('../sync/tables');
 const { tableForPath } = require('../sync/capture');
+const { MAX_CLOCK_SKEW_SEC, tokenHash, signature, timingSafeHexEqual } = require('../sync/device-auth');
 
 function sha256(s) { return crypto.createHash('sha256').update(s).digest('hex'); }
 
@@ -38,9 +39,24 @@ function deviceAuth(req, res, next) {
   const m = h.match(/^Device (\d+):([a-f0-9]+)$/);
   if (!m) return res.status(401).json({ error: 'اعتبار دستگاه نامعتبر است' });
   const db = getDB();
+  const now = Math.floor(Date.now() / 1000);
   const device = db.prepare('SELECT * FROM sync_devices WHERE id=? AND active=1').get(+m[1]);
-  if (!device || device.token_hash !== sha256(m[2])) {
+  const suppliedHash = tokenHash(m[2]);
+  if (!device || device.token_hash !== suppliedHash || (device.token_expires_at && device.token_expires_at <= now)) {
     return res.status(401).json({ error: 'اعتبار دستگاه نامعتبر است' });
+  }
+  const timestamp = Number(req.headers['x-sync-time']);
+  const nonce = String(req.headers['x-sync-nonce'] || '');
+  const suppliedSignature = String(req.headers['x-sync-signature'] || '');
+  if (!Number.isInteger(timestamp) || Math.abs(now - timestamp) > MAX_CLOCK_SKEW_SEC || !/^[a-f0-9]{36}$/i.test(nonce)
+      || !timingSafeHexEqual(suppliedSignature, signature(device.token_hash, timestamp, nonce, true))) {
+    return res.status(401).json({ error: 'درخواست همگام‌سازی نامعتبر یا منقضی است' });
+  }
+  db.prepare('DELETE FROM sync_device_nonces WHERE seen_at < ?').run(now - MAX_CLOCK_SKEW_SEC);
+  try {
+    db.prepare('INSERT INTO sync_device_nonces (device_id, nonce, seen_at) VALUES (?,?,?)').run(device.id, nonce, now);
+  } catch {
+    return res.status(409).json({ error: 'درخواست تکراری همگام‌سازی رد شد' });
   }
   req.device = device;
   next();
@@ -64,20 +80,31 @@ if (!isDevice()) {
       return res.status(403).json({ error: 'فقط مدیر سیستم می‌تواند دستگاه جدید متصل کند' });
     }
     const token = crypto.randomBytes(32).toString('hex');
-    const result = db.prepare('INSERT INTO sync_devices (name, token_hash, paired_by) VALUES (?,?,?)')
-      .run(device_name, sha256(token), user.id);
+    const expiresAt = Math.floor(Date.now() / 1000) + (180 * 24 * 60 * 60);
+    const result = db.prepare('INSERT INTO sync_devices (name, token_hash, paired_by, token_expires_at) VALUES (?,?,?,?)')
+      .run(device_name, sha256(token), user.id, expiresAt);
     audit(user.id, 'create', 'sync_device', result.lastInsertRowid, `اتصال دستگاه آفلاین: ${device_name}`);
-    res.json({ device_id: result.lastInsertRowid, device_token: token });
+    res.json({ device_id: result.lastInsertRowid, device_token: token, token_expires_at: expiresAt });
   });
 
   // List/deactivate paired devices (admin UI)
   router.get('/devices', auth, adminOnly, (req, res) => {
     const db = getDB();
-    res.json(db.prepare('SELECT id,name,active,last_push_at,last_pull_at,created_at FROM sync_devices ORDER BY id').all());
+    res.json(db.prepare('SELECT id,name,active,last_push_at,last_pull_at,created_at,token_expires_at,token_rotated_at,revoked_at FROM sync_devices ORDER BY id').all());
   });
   router.post('/devices/:id/deactivate', auth, adminOnly, (req, res) => {
-    getDB().prepare('UPDATE sync_devices SET active=0 WHERE id=?').run(req.params.id);
+    getDB().prepare("UPDATE sync_devices SET active=0, revoked_at=strftime('%s','now') WHERE id=?").run(req.params.id);
     res.json({ ok: true });
+  });
+  router.post('/devices/:id/rotate-token', auth, adminOnly, (req, res) => {
+    const db = getDB();
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = Math.floor(Date.now() / 1000) + (180 * 24 * 60 * 60);
+    const result = db.prepare("UPDATE sync_devices SET token_hash=?, token_expires_at=?, token_rotated_at=strftime('%s','now'), active=1, revoked_at=NULL WHERE id=?")
+      .run(sha256(token), expiresAt, req.params.id);
+    if (!result.changes) return res.status(404).json({ error: 'دستگاه یافت نشد' });
+    audit(req.user.id, 'rotate_token', 'sync_device', req.params.id, 'چرخش اعتبار دستگاه همگام‌سازی');
+    res.json({ device_id: Number(req.params.id), device_token: token, token_expires_at: expiresAt });
   });
 
   // Open conflicts overview for admins on central
@@ -178,7 +205,7 @@ if (!isDevice()) {
 
       // Replay through the real route handler as the acting user.
       const token = jwt.sign(
-        { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '' },
+        { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '', ae: Number(user.auth_epoch || 0) },
         SECRET, { expiresIn: '5m' }
       );
       let resp, respBody;
@@ -279,7 +306,7 @@ if (!isDevice()) {
     const path = translatePath(db, req.device.id, opPath, missing);
     if (missing.length) return res.status(409).json({ error: 'شناسه محلی نگاشت نشده', deferred: true });
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '' },
+      { id: user.id, username: user.username, role: user.role, name: user.name, phone: user.phone || '', ae: Number(user.auth_epoch || 0) },
       SECRET, { expiresIn: '5m' }
     );
     const port = process.env.PORT || 3000;

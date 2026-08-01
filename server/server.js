@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
-const { initDB, getDB, isDevice } = require('./db');
+const { initDB, getDB, isDevice, audit } = require('./db');
 const { todayJalali, nowHHMM } = require('./jalali');
 const { sendSMS } = require('./sms');
 const { hashKey } = require('./routes/api_keys');
@@ -33,7 +33,19 @@ let helmet = null;
 try { helmet = require('helmet'); } catch {}
 if (helmet) {
   app.use(helmet({
-    contentSecurityPolicy: false, // SPA manages its own CSP
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'", 'https:'],
+        fontSrc: ["'self'", 'data:'],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'self'"],
+      }
+    },
     crossOriginEmbedderPolicy: false,
   }));
 } else {
@@ -52,7 +64,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => 
 app.use(cors({
   origin(origin, cb) {
     // Same-origin requests (origin===undefined) and explicitly listed origins are allowed
-    if (!origin || ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    if (!origin || ALLOWED_ORIGINS.includes(origin) || process.env.NODE_ENV !== 'production') return cb(null, true);
     cb(new Error('CORS origin not allowed'));
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -138,6 +150,11 @@ app.use('/api/auth/forgot-reset', authLimiter);
 app.use('/api/auth/2fa/verify', authLimiter);
 app.use('/api/auth/2fa/recovery-code', authLimiter);
 app.use('/api/b2b/auth', authLimiter);
+app.use('/api/sync/pair', authLimiter);
+const heavyLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
+app.use('/api/reports', heavyLimiter);
+app.use('/api/adv-reports', heavyLimiter);
+app.use('/api/admin/backup-restore', heavyLimiter);
 
 assertSecurityConfig();
 initDB();
@@ -185,6 +202,7 @@ app.use('/api/admin', require('./routes/admin'));
 const { auth, adminOnly, centralOnlyStrict } = require('./middleware/auth');
 app.post('/api/admin/backup-now', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   const result = await runBackup();
+  audit(req.user.id, result.ok ? 'backup' : 'backup_failed', 'system_backup', null, result.ok ? result.file : result.error, req);
   res.json({ ...result, role: 'central' });
 });
 
@@ -210,11 +228,16 @@ app.get('/api/admin/backup-download/:name', auth, adminOnly, centralOnlyStrict, 
 });
 
 const multer = require('multer');
-const backupUpload = multer({ dest: path.join(__dirname, 'backups'), limits: { fileSize: 512 * 1024 * 1024 } });
+const backupUpload = multer({
+  dest: path.join(__dirname, 'backups'),
+  limits: { fileSize: 512 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, /\.(?:zip|tar\.gz)(?:\.enc)?$/i.test(file.originalname || ''))
+});
 app.post('/api/admin/backup-restore', auth, adminOnly, centralOnlyStrict, backupUpload.single('backup'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل پشتیبان الزامی است' });
   try {
     const result = restoreBackup(req.file.path);
+    audit(req.user.id, 'restore', 'system_backup', null, req.file.originalname || 'uploaded backup', req);
     try { fs.unlinkSync(req.file.path); } catch { /* */ }
     res.json({ success: true, data: result, message: 'بازیابی انجام شد — PM2 را مجدداً راه‌اندازی کنید' });
   } catch (e) {
@@ -319,7 +342,14 @@ app.get('/api/system/app-info', (req, res) => {
       b2bPortal = row?.value === '1';
     } catch { /* db not ready */ }
   }
-  res.json({ manifest, role: isDevice() ? 'device' : 'central', platform, version, b2b_portal: b2bPortal });
+  res.json({
+    manifest,
+    release_id: manifest.releaseId,
+    role: isDevice() ? 'device' : 'central',
+    platform,
+    version,
+    b2b_portal: b2bPortal
+  });
 });
 
 // Check for newer desktop/android/web builds
@@ -527,7 +557,9 @@ if (!isDevice()) {
   cron.schedule('* * * * *', runTimedFollowupSMS);
 
   // Daily at 00:00: full app backup → local file + Gmail
-  cron.schedule('0 0 * * *', runBackup);
+  // Wave-0 RPO: WAL-safe snapshot every 15 minutes. Off-site upload is
+  // mandatory when BACKUP_S3_URI is configured.
+  cron.schedule('*/15 * * * *', runBackup);
 
   // Daily at 02:00: AI churn scoring + insights (heuristics always; Claude narratives if configured)
   cron.schedule('0 2 * * *', async () => {

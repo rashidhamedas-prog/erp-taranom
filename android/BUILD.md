@@ -44,6 +44,13 @@ npm rebuild better-sqlite3 --build-from-source \
 
 ## مرحله ۳ — ساخت APK
 
+> منبع یکتای بک‌اند پوشه `server/` در ریشه پروژه است. task گرادل
+> `copyServerSources` همان pipeline مشترک `scripts/prepare-embedded-server.js`
+> را اجرا می‌کند. پیش از بسته‌بندی می‌توان با
+> `node scripts/compare-embedded-hash.js` از ریشه پروژه، برابری SHA-256 نسخه‌های
+> desktop و Android را کنترل کرد؛ فایل‌های DB، آپلود، بکاپ، لاگ و `node_modules`
+> عمداً از بسته حذف می‌شوند.
+
 1. پوشه `android/` را در Android Studio باز کنید و منتظر Gradle Sync بمانید
 2. تسک `copyServerSources` به‌طور خودکار آخرین سورس `server/` را داخل assets کپی می‌کند
 3. `Build → Generate Signed Bundle / APK → APK`

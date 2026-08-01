@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+const { readManifest } = require('../lib/app-update');
 
 const PORT = 3478;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -63,6 +64,7 @@ async function waitUp() {
     ok(r.status === 403, 'portal login rejected while feature is off');
     r = await j('GET', '/api/system/app-info');
     ok(r.status === 200 && r.data.b2b_portal === false, 'app-info reports portal off');
+    ok(r.status === 200 && r.data.release_id === readManifest().releaseId, 'app-info reports shared release id');
 
     r = await j('PUT', '/api/settings', { feature_b2b_portal: '1' }, admin);
     ok(r.status === 200, 'admin enables feature_b2b_portal');

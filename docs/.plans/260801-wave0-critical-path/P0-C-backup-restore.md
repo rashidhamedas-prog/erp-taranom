@@ -1,17 +1,17 @@
 # Phase P0-C — Backup, restore & DR
 
-**Status:** `[ ]`  
+**Status:** `[-]` — local drill green; real off-server drill pending
 **Roadmap:** فاز P0-C
 
 ## Tasks
 
-- [ ] Document RPO ≤15m, RTO ≤4h
-- [ ] WAL-safe SQLite backup
-- [ ] Encrypt backups with key off VPS
-- [ ] Second copy to S3-compatible storage
-- [ ] Retention policy + integrity_check + checksum per backup
+- [x] Document RPO ≤15m, RTO ≤4h
+- [x] WAL-safe SQLite backup
+- [x] Encrypt backups with key off VPS
+- [x] Second copy to S3-compatible storage (configuration-driven; production credentials pending)
+- [x] Retention policy + integrity_check + checksum per backup
 - [ ] Weekly isolated restore drill + alert
-- [ ] DR runbook (full server, single company, attachment restore)
+- [x] DR runbook (full server, single company, attachment restore)
 
 ## Verification
 

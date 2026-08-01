@@ -14,6 +14,11 @@
 
 ## مراحل ساخت
 
+> منبع یکتای بک‌اند پوشه `server/` در ریشه پروژه است. پیش از تست یا بسته‌بندی،
+> `node ../scripts/prepare-embedded-server.js desktop` را اجرا کنید و سپس با
+> `node ../scripts/compare-embedded-hash.js` نبود drift را کنترل کنید. این pipeline
+> پایگاه‌داده، آپلود، بکاپ، لاگ و `node_modules` را وارد بسته نمی‌کند.
+
 ```bash
 cd desktop
 npm install          # نصب وابستگی‌ها (الکترون + همان وابستگی‌های سرور)

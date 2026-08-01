@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 const { UPLOADS_ROOT } = require('./paths');
 
 const SERVER_DIR = __dirname;
@@ -105,10 +105,10 @@ function addFileToZip(zip, filePath, entryName) {
   }
 }
 
-function createZipBackup(outPath) {
+function createZipBackup(outPath, dbSnapshot) {
   const AdmZip = require('adm-zip');
   const zip = new AdmZip();
-  const DB_PATH = resolveBackupDbPath();
+  const DB_PATH = dbSnapshot || resolveBackupDbPath();
   const manifest = {
     version: 1,
     created_at: new Date().toISOString(),
@@ -127,9 +127,9 @@ function createZipBackup(outPath) {
   zip.writeZip(outPath);
 }
 
-function createTarBackup(outPath) {
+function createTarBackup(outPath, dbSnapshot) {
   const tmp = path.join(BACKUP_DIR, `.tmp-${crypto.randomBytes(4).toString('hex')}`);
-  const DB_PATH = resolveBackupDbPath();
+  const DB_PATH = dbSnapshot || resolveBackupDbPath();
   fs.mkdirSync(tmp, { recursive: true });
   try {
     if (fs.existsSync(DB_PATH)) fs.copyFileSync(DB_PATH, path.join(tmp, 'crm.db'));
@@ -145,17 +145,23 @@ function createTarBackup(outPath) {
 }
 
 async function runBackup() {
+  let snapshotPath = null;
   try {
     ensureDir();
+    const db = require('./db').getDB();
+    const integrity = db.pragma('integrity_check', { simple: true });
+    if (integrity !== 'ok') throw new Error(`SQLite integrity_check failed: ${integrity}`);
+    snapshotPath = path.join(BACKUP_DIR, `.snapshot-${crypto.randomBytes(8).toString('hex')}.db`);
+    await db.backup(snapshotPath);
     const useZip = process.platform === 'win32';
     const ext = useZip ? 'zip' : 'tar.gz';
     let fileName = `crm-backup-${tsName()}.${ext}`;
     let outPath = path.join(BACKUP_DIR, fileName);
 
-    if (useZip) createZipBackup(outPath);
+    if (useZip) createZipBackup(outPath, snapshotPath);
     else {
-      try { createTarBackup(outPath); }
-      catch { createZipBackup(outPath); }
+      try { createTarBackup(outPath, snapshotPath); }
+      catch { createZipBackup(outPath, snapshotPath); }
     }
 
     // Encrypt when a backup password is configured (env or settings)
@@ -178,13 +184,27 @@ async function runBackup() {
     const latest = encrypted ? latestBase + '.enc' : latestBase;
     fs.copyFileSync(outPath, latest);
 
+    const checksum = crypto.createHash('sha256').update(fs.readFileSync(outPath)).digest('hex');
+    fs.writeFileSync(outPath + '.sha256', `${checksum}  ${path.basename(outPath)}\n`, { mode: 0o600 });
+    let offsite = { configured: false, ok: false };
+    if (process.env.BACKUP_S3_URI) {
+      offsite.configured = true;
+      const target = process.env.BACKUP_S3_URI.replace(/\/$/, '') + '/' + path.basename(outPath);
+      const up = spawnSync('aws', ['s3', 'cp', outPath, target, '--only-show-errors'], { encoding: 'utf8', timeout: 15 * 60 * 1000 });
+      offsite = { configured: true, ok: up.status === 0, target, error: up.status === 0 ? null : String(up.stderr || up.error || 'upload failed').trim() };
+      if (!offsite.ok) throw new Error(`off-site backup failed: ${offsite.error}`);
+      spawnSync('aws', ['s3', 'cp', outPath + '.sha256', target + '.sha256', '--only-show-errors'], { encoding: 'utf8', timeout: 5 * 60 * 1000 });
+    }
+
     pruneOld();
     const sizeMB = (fs.statSync(outPath).size / 1024 / 1024).toFixed(2);
     console.log(`✅ پشتیبان: ${fileName} (${sizeMB} MB)${encrypted ? ' 🔒 رمزنگاری‌شده' : ''}`);
-    return { ok: true, file: fileName, path: outPath, local: outPath, sizeMB, encrypted, latest };
+    return { ok: true, file: fileName, path: outPath, local: outPath, sizeMB, encrypted, latest, checksum, integrity, offsite };
   } catch (e) {
     console.error('backup error:', e.message);
     return { ok: false, error: e.message };
+  } finally {
+    if (snapshotPath) try { fs.unlinkSync(snapshotPath); } catch { /* */ }
   }
 }
 
@@ -229,6 +249,11 @@ function restoreBackup(archivePath) {
     }
     const dbSrc = path.join(tmp, 'crm.db');
     if (!fs.existsSync(dbSrc)) throw new Error('crm.db در پشتیبان یافت نشد');
+    const verifyDb = new (require('better-sqlite3'))(dbSrc, { readonly: true });
+    try {
+      const integrity = verifyDb.pragma('integrity_check', { simple: true });
+      if (integrity !== 'ok') throw new Error(`SQLite integrity_check failed: ${integrity}`);
+    } finally { verifyDb.close(); }
     const DB_PATH = resolveBackupDbPath();
     const pre = DB_PATH + '.pre-restore-' + Date.now();
     if (fs.existsSync(DB_PATH)) fs.copyFileSync(DB_PATH, pre);

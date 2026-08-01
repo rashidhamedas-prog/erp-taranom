@@ -27,7 +27,8 @@ function assertSecurityConfig() {
   }
 
   if (isProd && !process.env.ALLOWED_ORIGINS) {
-    console.warn('⚠️ ALLOWED_ORIGINS تنظیم نشده — CORS برای همه originها باز است.');
+    console.error('❌ امنیت: ALLOWED_ORIGINS در production الزامی است.');
+    if (process.env.SECURITY_STRICT !== '0') process.exit(1);
   }
 }
 

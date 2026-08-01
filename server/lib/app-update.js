@@ -11,9 +11,16 @@ const DEFAULT_MANIFEST = {
 
 function readManifest() {
   try {
-    return { ...DEFAULT_MANIFEST, ...JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8')) };
+    const parsed = { ...DEFAULT_MANIFEST, ...JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8')) };
+    parsed.releaseId = parsed.releaseId || [
+      parsed.web?.version || '0', parsed.desktop?.version || '0', parsed.android?.version || '0'
+    ].join('-');
+    return parsed;
   } catch {
-    return { ...DEFAULT_MANIFEST };
+    return {
+      ...DEFAULT_MANIFEST,
+      releaseId: [DEFAULT_MANIFEST.web.version, DEFAULT_MANIFEST.desktop.version, DEFAULT_MANIFEST.android.version].join('-')
+    };
   }
 }
 

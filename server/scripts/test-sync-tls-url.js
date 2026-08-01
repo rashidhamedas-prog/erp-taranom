@@ -6,6 +6,8 @@ const {
   normalizeCentralUrl,
   assertCentralUrlAllowed,
   upgradeHttpCentralUrl,
+  maskSensitive,
+  networkErrorMessage,
 } = require('../sync/client');
 
 let pass = 0, fail = 0;
@@ -35,6 +37,11 @@ ok('remote https allowed', (() => {
 })());
 ok('upgrade http→https', upgradeHttpCentralUrl('http://erp.poshaktaranom.com') === 'https://erp.poshaktaranom.com');
 ok('loopback not upgraded', upgradeHttpCentralUrl('http://127.0.0.1:4100') === 'http://127.0.0.1:4100');
+ok('tokens masked in errors', !maskSensitive('Device 7:abcdef012345 Bearer aaa.bbb.ccc?token=secret').includes('abcdef012345'));
+ok('invalid certificate becomes safe TLS error', (() => {
+  const message = networkErrorMessage(new Error('UNABLE_TO_VERIFY_LEAF_SIGNATURE Device 7:abcdef'), 'sync failed');
+  return message.includes('SSL') && !message.includes('abcdef');
+})());
 
 console.log(`\n${fail ? '❌' : '🎉'} ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

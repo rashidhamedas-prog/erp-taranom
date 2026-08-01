@@ -189,28 +189,9 @@ tasks.register('copyBetterSqlite3Jni') {
     }
 }
 
-tasks.register('copyServerSources', Copy) {
-    doFirst { delete file('src/main/assets/nodejs-project/server') }
-    from(file('../../server')) {
-        // Keep APK lean and avoid CompressAssets failures (spaces in paths,
-        // huge mahak xlsx, test scripts). Runtime never needs these on-device.
-        exclude 'node_modules/**', 'backups/**', '*.db', '*.db-wal', '*.db-shm', '.env',
-                'public/uploads/**',
-                'public/releases/**',
-                'uploads/**',
-                'scripts/test-*.js',
-                'scripts/test-*.mjs',
-                'scripts/*mahak*',
-                'scripts/import-mahak*',
-                'scripts/verify-mahak*',
-                'scripts/seed-*.js',
-                'lib/mahak-import.js',
-                'lib/mahak-import-helpers.js',
-                'mahak-*.md',
-                '**/*.xlsx',
-                '**/*.xls'
-    }
-    into file('src/main/assets/nodejs-project/server')
+tasks.register('copyServerSources', Exec) {
+    workingDir file('../..')
+    commandLine 'node', 'scripts/prepare-embedded-server.js', 'android'
 }
 
 preBuild.dependsOn 'layoutNodeLibs'

@@ -11,6 +11,7 @@ const fs = require('fs');
 const net = require('net');
 const crypto = require('crypto');
 const pkg = require('./package.json');
+const { isLoopbackUrl, isAllowedExternalUrl } = require('./security-policy');
 
 let mainWindow = null;
 let autoUpdater = null;
@@ -218,6 +219,9 @@ async function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
       preload: path.join(__dirname, 'preload.js')
     }
   });
@@ -233,9 +237,12 @@ async function createWindow() {
   setupAutoUpdate(port);
 
   mainWindow.webContents.setWindowOpenHandler(({ url: target }) => {
-    if (target.startsWith(url)) return { action: 'allow' };
-    shell.openExternal(target);
+    if (isLoopbackUrl(target, port)) return { action: 'allow' };
+    if (isAllowedExternalUrl(target)) shell.openExternal(target);
     return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, target) => {
+    if (!isLoopbackUrl(target, port)) event.preventDefault();
   });
 
   mainWindow.on('close', (e) => {

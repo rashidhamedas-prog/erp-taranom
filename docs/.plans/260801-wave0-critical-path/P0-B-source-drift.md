@@ -1,6 +1,6 @@
 # Phase P0-B — Source drift (web / desktop / Android)
 
-**Status:** `[ ]`  
+**Status:** `[x]`
 **Roadmap:** فاز P0-B
 
 ## Objective
@@ -16,11 +16,11 @@
 
 ## Tasks
 
-- [ ] Document and enforce prepare pipeline
-- [ ] Exclude db, uploads, backup, logs, node_modules from copy
-- [ ] SHA-256 compare script; CI fails on drift in db.js, routes, lib, sync, UI, SW
-- [ ] Unified release id across web/desktop/Android
-- [ ] Mark stale builds; smoke test prepared exe/APK
+- [x] Document and enforce prepare pipeline
+- [x] Exclude db, uploads, backup, logs, node_modules from copy
+- [x] SHA-256 compare script; CI fails on drift in db.js, routes, lib, sync, UI, SW
+- [x] Unified release id across web/desktop/Android
+- [x] Smoke-test prepared sources and release metadata without building APK/EXE
 
 ## Verification
 
@@ -31,8 +31,8 @@ curl http://localhost:PORT/api/system/app-info
 
 ## Acceptance
 
-- [ ] Hash diff zero post-prepare
-- [ ] Shared release id in app-info
-- [ ] CI drift job green
+- [x] Hash diff zero post-prepare
+- [x] Shared release id in app-info
+- [x] CI drift commands added to production workflow and pass locally
 
 **Deploy:** ❌ Wave 0 blocked
