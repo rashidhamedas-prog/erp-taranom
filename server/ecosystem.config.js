@@ -15,6 +15,14 @@ try {
   DATA_ENCRYPTION_KEY = fs.readFileSync(__dirname + '/data-encryption-key.txt', 'utf8').trim() || DATA_ENCRYPTION_KEY;
 } catch { /* services/crypto.js validates the data key during production boot. */ }
 
+// Non-secret production defaults for Iran central (override via env when needed).
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  || 'https://erp.poshaktaranom.com,https://poshaktaranom.com';
+const PUBLIC_URL = process.env.PUBLIC_URL || 'https://erp.poshaktaranom.com';
+const BACKUP_OFFSITE_DIR = process.env.BACKUP_OFFSITE_DIR || '/home/taranom/crm-offsite-backups';
+// Same-VPS offsite is not true DR; keep backups alive until S3/volume exists.
+const BACKUP_ALLOW_SAME_DEVICE = process.env.BACKUP_ALLOW_SAME_DEVICE || '1';
+
 module.exports = {
   apps: [{
     name: 'erp-taranom',
@@ -27,8 +35,11 @@ module.exports = {
     max_memory_restart: '300M',
     env: {
       NODE_ENV: 'production',
-      PORT: 3000,
-      PUBLIC_URL: process.env.PUBLIC_URL || 'https://erp.poshaktaranom.com',
+      PORT: Number(process.env.PORT) || 3000,
+      PUBLIC_URL,
+      ALLOWED_ORIGINS,
+      BACKUP_OFFSITE_DIR,
+      BACKUP_ALLOW_SAME_DEVICE,
       JWT_SECRET,
       DATA_ENCRYPTION_KEY,
     },

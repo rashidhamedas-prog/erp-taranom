@@ -3,7 +3,12 @@
 const path = require('path');
 const multer = require('multer');
 const AdmZip = require('adm-zip');
-const sharp = require('sharp');
+let sharp = null;
+try {
+  sharp = require('sharp');
+} catch (err) {
+  console.warn('⚠️ sharp unavailable — image upload validation degraded:', err && err.message ? err.message : err);
+}
 
 const MB = 1024 * 1024;
 const GENERIC_MIME = new Set(['', 'application/octet-stream']);
@@ -220,6 +225,9 @@ function inspectLwte(buffer) {
 }
 
 async function normalizeImage(buffer, profile) {
+  if (!sharp) {
+    throw new UploadPolicyError('پردازش تصویر روی سرور در دسترس نیست؛ بعداً دوباره تلاش کنید', 'UPLOAD_IMAGE_ENGINE_UNAVAILABLE');
+  }
   let metadata;
   try {
     metadata = await sharp(buffer, { failOn: 'warning', limitInputPixels: profile.maxPixels }).metadata();

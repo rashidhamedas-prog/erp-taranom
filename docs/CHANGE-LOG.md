@@ -27,13 +27,21 @@
 
 ---
 
+### 2026-08-02 — Deploy ایران Wave0 + بازیابی production (DEK/ALLOWED_ORIGINS/sharp)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `0b1add0`
+- **خلاصه:** pull تا `6062121`؛ ایجاد `data-encryption-key.txt`؛ تکمیل `ecosystem.config.js` با `ALLOWED_ORIGINS`/`BACKUP_*`؛ soft-require برای `sharp` تا boot در نبود باینری native نشکند؛ health HTTP ۲۰۰؛ SW `v142`.
+- **فایل‌های کلیدی:** `server/ecosystem.config.js`, `server/lib/upload-policy.js`, `docs/WAVE0-GATE-STATUS.md`, `server/public/sw.js`
+- **Deploy:** ✅ ایران `94.249.244.208` — `erp-taranom` online، `/api/system/health`=200
+- **یادداشت:** P0-C ops هنوز باز (بدون S3/volume جدا). DNS npm روی VPS گاه `EAI_AGAIN`؛ باینری sharp از tarball محلی در حال تکمیل. توصیه: چرخش JWT پس از نشت ops قبلی.
+
 ### 2026-08-02 — P0-C: health/alert + weekly drill CLI + S3 round-trip verify
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** acd43a5
 - **خلاصه:** `getBackupHealth` + API `/admin/backup-health`؛ CLI `verify-backup` و `weekly-backup-drill`؛ مقایسه fingerprint؛ تأیید download/SHA پس از آپلود S3؛ UI/راهنما؛ DR ۱۳/۱۳؛ SW `v141`.
 - **فایل‌های کلیدی:** `server/backup.js`, `server/server.js`, `server/scripts/weekly-backup-drill.js`, `server/scripts/verify-backup.js`, `server/scripts/test-backup-dr.js`, `docs/WAVE0-OFFSITE-BACKUP-RUNBOOK.md`
 - **تست:** backup-dr ۱۳/۱۳؛ offsite-policy ۴/۴؛ SMS ۲۲؛ sync ۴۴
-- **Deploy:** ❌ Wave 0 — deploy blocked
+- **Deploy:** ✅ (با ورودی بعدی همین روز)
 - **یادداشت:** برای بستن کامل Gate هنوز `BACKUP_S3_URI`/volume جدا روی ایران + ثبت drill واقعی لازم است.
 
 ### 2026-08-01 — P0-Q CI/E2E + P0-B re-prep + سیاست offsite
