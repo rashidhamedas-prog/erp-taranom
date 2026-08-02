@@ -29,7 +29,7 @@
 
 ### 2026-08-02 — P0-C: health/alert + weekly drill CLI + S3 round-trip verify
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** acd43a5
 - **خلاصه:** `getBackupHealth` + API `/admin/backup-health`؛ CLI `verify-backup` و `weekly-backup-drill`؛ مقایسه fingerprint؛ تأیید download/SHA پس از آپلود S3؛ UI/راهنما؛ DR ۱۳/۱۳؛ SW `v141`.
 - **فایل‌های کلیدی:** `server/backup.js`, `server/server.js`, `server/scripts/weekly-backup-drill.js`, `server/scripts/verify-backup.js`, `server/scripts/test-backup-dr.js`, `docs/WAVE0-OFFSITE-BACKUP-RUNBOOK.md`
 - **تست:** backup-dr ۱۳/۱۳؛ offsite-policy ۴/۴؛ SMS ۲۲؛ sync ۴۴
