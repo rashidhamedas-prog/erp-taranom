@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-02 — RC امضاشده Android 2.0.33 + Desktop 2.0.10 + deploy وب
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از این ورودی)
+- **خلاصه:** بیلد/امضای RC؛ به‌روز `manifest.json`/`latest.yml`؛ راهنما ۲.۰.۳۳/۲.۰.۱۰؛ تست APK OK؛ EXE Authenticode Valid؛ SW `v143`. Deploy وب ایران با SFTP (GitHub DNS روی VPS قطع).
+- **فایل‌های کلیدی:** `server/public/releases/*`, `android/app/build.gradle`, `desktop/package.json`, `scripts/test-android-apk.ps1`, `server/public/app.js`
+- **Deploy:** ✅ وب+releases (SFTP)؛ APK/EXE در `New folder` و `/releases`
+- **یادداشت:** OV/EV هنوز نیست. P0-C off-server واقعی باز است.
+
 ### 2026-08-02 — Deploy ایران Wave0 + بازیابی production (DEK/ALLOWED_ORIGINS/sharp)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `6390bcc`

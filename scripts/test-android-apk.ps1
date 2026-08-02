@@ -63,7 +63,7 @@ if ($main) {
   $sr = New-Object IO.StreamReader($main.Open())
   $txt = $sr.ReadToEnd(); $sr.Close()
   Assert ($txt -match 'ensureBetterSqlite3Native') 'main.js has sqlite path fix'
-  Assert ($txt -match "APP_VERSION = '2.0.32'") 'main.js version 2.0.32'
+  Assert ($txt -match "APP_VERSION = '2.0.33'") 'main.js version 2.0.33'
   Assert ($txt -match 'TMPDIR') 'main.js sets writable TMPDIR on Android'
   Assert ($txt -notmatch 'MAHAK_IMPORT_DIR') 'main.js has no Mahak import (cancelled)'
   Assert ($txt -match 'blocked process\.exit|never call process\.exit|Do NOT process\.exit') 'main.js blocks process.exit on Android'

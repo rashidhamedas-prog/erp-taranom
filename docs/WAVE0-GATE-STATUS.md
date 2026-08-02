@@ -9,13 +9,13 @@
 | P0-Q CI/E2E | ✅ code | wave0-gate گسترش؛ Playwright ۵/۵ (login+invoice+tenant+B2B+private) |
 | P0-B drift | ✅ | prepare ۲۲۶ فایل؛ SHA-256 diff=0 |
 | Playwright | ✅ | critical-paths + login؛ COMPANIES_DIR ایزوله |
-| امضای تجاری ویندوز | 🟡 | خودامضا Valid محلی؛ OV/EV لازم |
+| امضای تجاری ویندوز | 🟡 | خودامضا Valid محلی (RC 2.0.10)؛ OV/EV لازم |
 | موج ۱–۴ | ❌ | شروع نشده |
-| Deploy ایران | ✅ | `6062121` + ecosystem (`ALLOWED_ORIGINS`/`DEK`)؛ health ۲۰۰؛ sharp soft-require تا باینری کامل |
+| Deploy ایران | ✅ | وب `5cb88ce`/SFTP؛ health ۲۰۰؛ SW v143 + RC releases |
+| RC APK/EXE | ✅ | Android 2.0.33 / Desktop 2.0.10 امضاشده محلی |
 
 ## باقی‌ماندهٔ کوتاه
 
-1. تکمیل P0-C ops: `BACKUP_S3_URI` یا volume جدا + drill هفتگی (`docs/WAVE0-OFFSITE-BACKUP-RUNBOOK.md`) — پوشهٔ same-VPS کافی نیست
+1. تکمیل P0-C ops: `BACKUP_S3_URI` یا volume جدا + drill هفتگی — same-VPS کافی نیست (DNS npm/GitHub روی VPS ضعیف)
 2. امضای تجاری OV/EV ویندوز
-3. RC نهایی APK/EXE (در جریان با اجازهٔ کاربر)
-4. چرخش `JWT_SECRET` پس از نشت تصادفی در لاگ‌های ops قبلی
+3. چرخش `JWT_SECRET` پس از نشت تصادفی در لاگ‌های ops قبلی
