@@ -29,11 +29,11 @@
 
 ### 2026-08-02 — RC امضاشده Android 2.0.33 + Desktop 2.0.10 + deploy وب
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از این ورودی)
-- **خلاصه:** بیلد/امضای RC؛ به‌روز `manifest.json`/`latest.yml`؛ راهنما ۲.۰.۳۳/۲.۰.۱۰؛ تست APK OK؛ EXE Authenticode Valid؛ SW `v143`. Deploy وب ایران با SFTP (GitHub DNS روی VPS قطع).
-- **فایل‌های کلیدی:** `server/public/releases/*`, `android/app/build.gradle`, `desktop/package.json`, `scripts/test-android-apk.ps1`, `server/public/app.js`
-- **Deploy:** ✅ وب+releases (SFTP)؛ APK/EXE در `New folder` و `/releases`
-- **یادداشت:** OV/EV هنوز نیست. P0-C off-server واقعی باز است.
+- **Commit:** `fbb07a3`
+- **خلاصه:** بیلد/امضای RC؛ به‌روز `manifest.json`/`latest.yml` در گیت؛ راهنما ۲.۰.۳۳/۲.۰.۱۰؛ تست APK OK؛ EXE Authenticode Valid؛ SW `v143`. وب ایران SFTP شد. **آپلود باینری APK/EXE به VPS به‌خاطر قطع مکرر SSH شکست خورد** — فایل‌ها در `New folder` و `server/public/releases/` محلی آماده‌اند؛ روی ایران موقت دانلود همان ۲.۰.۳۲/۲.۰.۹ مانده.
+- **فایل‌های کلیدی:** `server/public/releases/manifest.json`, `android/app/build.gradle`, `desktop/package.json`, `scripts/test-android-apk.ps1`, `server/public/app.js`
+- **Deploy:** ✅ وب/manifest/SW؛ ⚠️ باینری RC روی ایران هنوز منتقل نشده (SSH drop)
+- **یادداشت:** OV/EV هنوز نیست. P0-C off-server واقعی باز است. برای انتشار باینری: USB/سی‌دی یا آپلود وقتی SSH پایدار شد (`scripts/_deploy-rc-chunked-sftp.py`).
 
 ### 2026-08-02 — Deploy ایران Wave0 + بازیابی production (DEK/ALLOWED_ORIGINS/sharp)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

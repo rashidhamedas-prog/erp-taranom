@@ -12,7 +12,8 @@
 | امضای تجاری ویندوز | 🟡 | خودامضا Valid محلی (RC 2.0.10)؛ OV/EV لازم |
 | موج ۱–۴ | ❌ | شروع نشده |
 | Deploy ایران | ✅ | وب `5cb88ce`/SFTP؛ health ۲۰۰؛ SW v143 + RC releases |
-| RC APK/EXE | ✅ | Android 2.0.33 / Desktop 2.0.10 امضاشده محلی |
+| RC APK/EXE | ✅ محلی | Android 2.0.33 / Desktop 2.0.10 امضاشده؛ آپلود ایران به‌خاطر SSH drop معلق |
+
 
 ## باقی‌ماندهٔ کوتاه
 
