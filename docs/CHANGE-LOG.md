@@ -29,7 +29,7 @@
 
 ### 2026-08-02 — Deploy ایران Wave0 + بازیابی production (DEK/ALLOWED_ORIGINS/sharp)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** `0b1add0`
+- **Commit:** `6390bcc`
 - **خلاصه:** pull تا `6062121`؛ ایجاد `data-encryption-key.txt`؛ تکمیل `ecosystem.config.js` با `ALLOWED_ORIGINS`/`BACKUP_*`؛ soft-require برای `sharp` تا boot در نبود باینری native نشکند؛ health HTTP ۲۰۰؛ SW `v142`.
 - **فایل‌های کلیدی:** `server/ecosystem.config.js`, `server/lib/upload-policy.js`, `docs/WAVE0-GATE-STATUS.md`, `server/public/sw.js`
 - **Deploy:** ✅ ایران `94.249.244.208` — `erp-taranom` online، `/api/system/health`=200
