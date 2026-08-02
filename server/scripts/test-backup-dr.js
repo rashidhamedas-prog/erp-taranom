@@ -82,10 +82,10 @@ function ok(msg) {
     throw new Error('private uploads missing from package');
   }
   ok('private-uploads packaged');
-  const restored = new Database(path.join(extract, 'crm.db'), { readonly: true });
-  const integrity = restored.pragma('integrity_check', { simple: true });
-  const after = restored.prepare('SELECT COUNT(*) c FROM users').get().c;
-  restored.close();
+  const extractDb = new Database(path.join(extract, 'crm.db'), { readonly: true });
+  const integrity = extractDb.pragma('integrity_check', { simple: true });
+  const after = extractDb.prepare('SELECT COUNT(*) c FROM users').get().c;
+  extractDb.close();
   if (integrity !== 'ok' || before !== after) throw new Error(`restore verification failed: ${integrity} ${before}/${after}`);
   ok('extract integrity + users fingerprint');
 
@@ -93,6 +93,40 @@ function ok(msg) {
   const remoteSum = fs.readFileSync(result.offsite.target + '.sha256', 'utf8').trim().split(/\s+/)[0];
   if (localSum !== remoteSum || localSum !== result.checksum) throw new Error('sha256 files diverge');
   ok('local/offsite sha256 agreement');
+
+  const {
+    getBackupHealth, recordDrillResult, compareFingerprints, fingerprintDb, restoreBackup: restoreFn,
+  } = require('../backup');
+  const health1 = getBackupHealth({ maxAgeMin: 60, maxDrillAgeDays: 8 });
+  if (!health1.last || health1.last.ok !== true) throw new Error('health missing last ok backup');
+  ok(`backup health last.ok + age=${health1.latest_age_min}m`);
+
+  const isolate = path.join(root, 'weekly-isolate');
+  fs.mkdirSync(isolate, { recursive: true });
+  const targetDb = path.join(isolate, 'restored.db');
+  const offlineRestore = restoreFn(result.offsite.target, {
+    confirmOfflineRestore: true,
+    dbPath: targetDb,
+    restoreUploads: false,
+    restorePrivate: false,
+  });
+  if (!offlineRestore.ok) throw new Error('offline restore failed');
+  const restoredFp = fingerprintDb(targetDb);
+  const pkgFp = (verified.fingerprints || [])[0];
+  const cmp = compareFingerprints(restoredFp, pkgFp);
+  if (!cmp.ok) throw new Error('fingerprint mismatch: ' + cmp.reason);
+  recordDrillResult({
+    ok: true,
+    source: result.offsite.target,
+    duration_ms: 1,
+    rto_estimate_sec: 1,
+    fingerprints: { package: pkgFp, restored: restoredFp },
+  });
+  const health2 = getBackupHealth({ maxAgeMin: 60, maxDrillAgeDays: 8 });
+  if (health2.alerts.some((a) => a.code === 'BACKUP_DRILL_MISSING')) {
+    throw new Error('drill still missing after record');
+  }
+  ok('weekly-style isolated restore + fingerprint + drill status');
 
   console.log(`backup DR drill: ${step}/${step} pass; users=${before}; method=fs; sha256=${result.checksum.slice(0, 16)}…`);
 })().catch((e) => {

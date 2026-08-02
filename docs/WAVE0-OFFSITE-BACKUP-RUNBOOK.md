@@ -25,12 +25,24 @@ BACKUP_OFFSITE_DIR=/mnt/backup-volume/crm-offsite
 پوشهٔ فعلی `/home/taranom/crm-offsite-backups` روی همان VPS **Gate را نمی‌بندد**.
 
 ## Drill هفتگی
-1. بکاپ تازه بگیرید.
-2. روی ماشین ایزوله: `node server/scripts/restore-backup.js --verify <file>` سپس restore CLI.
-3. تعداد فاکتور + تراز آزمایشی را با pre-backup مقایسه کنید.
-4. نتیجه را در `docs/WAVE0-GATE-STATUS.md` ثبت کنید.
+1. بکاپ تازه بگیرید (یا از آخرین فایل offsite استفاده کنید).
+2. روی ماشین ایزوله / همین سرور با مسیر موقت:
+   ```bash
+   cd server
+   BACKUP_OFFSITE_DIR=/path/to/offsite npm run backup:weekly-drill
+   # یا: npm run backup:weekly-drill -- --file /path/to/crm-backup-....zip.enc
+   ```
+3. نتیجه در `backups/backup-status.json` → `last_drill` و API `/api/admin/backup-health` ثبت می‌شود.
+4. تعداد فاکتور/مشتری/journal و تراز آزمایشی با fingerprint پکیج مقایسه می‌شود.
+5. نتیجه را در `docs/WAVE0-GATE-STATUS.md` ثبت کنید.
+
+## تأیید بدون restore
+```bash
+npm run backup:verify -- --file /path/to/crm-backup-....zip.enc
+```
 
 ## تست سیاست (بدون S3 واقعی)
 ```bash
 node server/scripts/test-backup-offsite-policy.js
+node server/scripts/test-backup-dr.js
 ```

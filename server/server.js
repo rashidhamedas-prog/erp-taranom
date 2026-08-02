@@ -9,7 +9,7 @@ const { initDB, getDB, isDevice, audit } = require('./db');
 const { todayJalali, nowHHMM } = require('./jalali');
 const { sendSMS } = require('./sms');
 const { hashKey } = require('./routes/api_keys');
-const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile } = require('./backup');
+const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile, getBackupHealth } = require('./backup');
 const { assertSecurityConfig } = require('./lib/security');
 const { getSmsSettings } = require('./lib/secret-settings');
 
@@ -283,6 +283,10 @@ app.post('/api/admin/backup-now', auth, adminOnly, centralOnlyStrict, async (req
 
 app.get('/api/admin/backups', auth, adminOnly, centralOnlyStrict, (req, res) => {
   res.json(listBackups());
+});
+
+app.get('/api/admin/backup-health', auth, adminOnly, centralOnlyStrict, (req, res) => {
+  res.json(getBackupHealth());
 });
 
 app.get('/api/admin/backup-download', auth, adminOnly, centralOnlyStrict, async (req, res) => {

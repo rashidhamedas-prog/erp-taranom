@@ -10,7 +10,7 @@
 | Phase | Status | Notes |
 |-------|--------|-------|
 | P0-S3 | ✅ | Auth/CSP/upload/secrets/sync green; mirror UNIQUE + company_id fixes |
-| P0-C | 🟡 partial | Package v2, private uploads, verify-only API, CLI restore, DR 11/11; true off-server S3/volume still ops |
+| P0-C | 🟡 code↑ | health API, weekly drill CLI, fingerprint compare, S3 download verify; true off-server still ops |
 | P0-Q | ✅ code | exceljs + expanded CI + Playwright critical 5/5 |
 | P0-B re-prepare | ✅ | 224/224 drift 0 after exceljs/CI session |
 

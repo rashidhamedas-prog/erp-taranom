@@ -15731,15 +15731,19 @@ async function loadSettBackupPanel(){
   box.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`padding:12px`)}">در حال بارگذاری...</div>`;
   const backups = await api('GET','/admin/backups').catch(()=>[]);
   const settings = await api('GET','/settings').catch(()=>({}));
+  const health = await api('GET','/admin/backup-health').catch(()=>null);
   const encOn = !!(settings && settings.backup_password_has_value);
+  const alertsHtml = (health && health.alerts && health.alerts.length)
+    ? `<div class="warn" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">${health.alerts.map(a=>`• ${esc(a.message||a.code)}`).join('<br>')}</div>`
+    : (health && health.ok ? `<div class="ok" data-csp-style="${CSP.style(`margin-bottom:12px`)}">وضعیت بکاپ سالم — سن آخرین: ${fmt(health.latest_age_min||0)} دقیقه</div>` : '');
   box.innerHTML=`
     <div class="panel">
       <div class="panel-head"><h4>پشتیبان‌گیری پیشرفته</h4></div>
       <div class="panel-body">
+        ${alertsHtml}
         <p data-csp-style="${CSP.style(`font-size:13px;color:var(--muted);margin-bottom:16px`)}">
-          هر شب ساعت ۰۰:۰۰ پشتیبان خودکار ساخته می‌شود. تا ${fmt(14)} نسخهٔ قبلی نگه داشته می‌شود.
-          هر پشتیبان شامل <strong>دیتابیس</strong> و <strong>تصاویر آپلودشده</strong> است.
-          اگر روی سرور <code dir="ltr">BACKUP_OFFSITE_DIR</code> یا <code dir="ltr">BACKUP_S3_URI</code> تنظیم شود، همان لحظه یک کپی off-site (رمزنگاری‌شده + SHA-256) هم ساخته می‌شود.
+          پشتیبان خودکار هر ۱۵ دقیقه. شامل دیتابیس شرکت‌ها، تصاویر عمومی و فایل‌های خصوصی.
+          مقصد off-server: <code dir="ltr">BACKUP_OFFSITE_DIR</code> یا <code dir="ltr">BACKUP_S3_URI</code>.
         </p>
         <div data-csp-style="${CSP.style(`display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px`)}">
           <button class="btn green" data-csp-click="${CSP.bind('click',function(event){downloadBackup()})}">ساخت و دانلود آخرین پشتیبان</button>
@@ -16431,10 +16435,12 @@ function renderAdminGuide(){
       <h5>تغییر اجباری رمز در اولین ورود</h5><p>در اولین ورود با رمز پیش‌فرض (<code>admin123</code>) یا هر رمزی که مدیر برای کاربر تعیین کرده، پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود و تا رمز شخصی جدید انتخاب نشود، هیچ عملیات دیگری در برنامه ممکن نیست. این الزام روی سرور مرکزی اعمال می‌شود؛ در دستگاه‌های آفلاین رمز جدید با اولین همگام‌سازی از مرکز می‌رسد.</p>
       <h5>پشتیبان‌گیری پیشرفته (فقط سرور مرکزی)</h5><ul>
         <li>تب «پشتیبان» در تنظیمات و ساخت/دانلود dump فقط روی <strong>نسخه وب سرور مرکزی</strong> — در دسکتاپ و اندروید غیرفعال است</li>
-        <li>هر شب ساعت ۰۰:۰۰ پشتیبان خودکار ساخته می‌شود — شامل دیتابیس و تصاویر آپلودشده</li>
-        <li>تا ۱۴ نسخهٔ قبلی نگه داشته می‌شود؛ نسخه‌های قدیمی‌تر خودکار حذف می‌شوند</li>
-        <li>لیست پشتیبان‌ها و دانلود هر نسخه از تنظیمات → «پشتیبان»</li>
-        <li><b>رمزنگاری پشتیبان</b>: در تنظیمات → «پشتیبان» می‌توانید رمز پشتیبان تعیین کنید؛ از آن پس همه پشتیبان‌ها با AES-256 رمزنگاری می‌شوند (پسوند <code>.enc</code>). بازگشایی با <code dir="ltr">node server/scripts/decrypt-backup.js</code> انجام می‌شود. <b>رمز را گم نکنید — بدون آن پشتیبان قابل بازیابی نیست.</b></li>
+        <li>پشتیبان خودکار هر <b>۱۵ دقیقه</b> (WAL-safe، چندشرکتی، private-uploads، رمزنگاری AES-GCM)</li>
+        <li>وضعیت سلامت از API <code dir="ltr">/api/admin/backup-health</code> (سن آخرین بکاپ، دیسک، drill هفتگی، هشدارها)</li>
+        <li>مقصد off-server: <code dir="ltr">BACKUP_S3_URI</code> (با تأیید download/SHA) یا volume جدا با <code dir="ltr">BACKUP_OFFSITE_DIR</code> — same-VPS کافی نیست</li>
+        <li>تأیید بدون بازیابی: <code dir="ltr">npm run backup:verify -- --file …</code>؛ drill ایزوله: <code dir="ltr">npm run backup:weekly-drill</code></li>
+        <li>بازیابی واقعی فقط CLI آفلاین با <code dir="ltr">--confirm-offline</code>؛ API آنلاین فقط verify است</li>
+        <li><b>رمزنگاری</b>: <code dir="ltr">BACKUP_ENCRYPTION_KEY</code> / رمز تنظیمات؛ بدون رمز، پشتیبان قابل بازیابی نیست</li>
       </ul>`),
     helpSec('📴','برنامه آفلاین ویندوز/اندروید و همگام‌سازی',`
       <p>نسخه دسکتاپ (ویندوز) و اندرویدِ برنامه به‌صورت <b>کاملاً آفلاین</b> کار می‌کنند: همه اطلاعات روی خود دستگاه ذخیره می‌شود و به محض دسترسی به اینترنت، تغییرات به‌طور خودکار با سرور مرکزی همگام می‌شود.</p>

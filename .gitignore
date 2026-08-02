@@ -23,6 +23,8 @@ _code-overview-for-ai.md
 e2e/test-results/
 e2e/playwright-report/
 e2e/.cache/
+test-results/
+playwright-report/
 desktop/dist/
 android/app/build/
 android/.cxx/

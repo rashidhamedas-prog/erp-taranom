@@ -331,6 +331,119 @@ function writeStatus(patch) {
   return next;
 }
 
+function readStatus() {
+  ensureDir();
+  const statusPath = path.join(BACKUP_DIR, 'backup-status.json');
+  try { return JSON.parse(fs.readFileSync(statusPath, 'utf8')); } catch { return {}; }
+}
+
+function diskFreeBytes(dirPath) {
+  try {
+    if (typeof fs.statfsSync === 'function') {
+      const st = fs.statfsSync(dirPath);
+      return Number(st.bavail) * Number(st.bsize);
+    }
+  } catch { /* */ }
+  return null;
+}
+
+function compareFingerprints(a, b) {
+  if (!a || !b) return { ok: false, reason: 'missing fingerprint' };
+  const keys = ['invoices', 'customers', 'journals'];
+  for (const k of keys) {
+    if (Number(a[k] || 0) !== Number(b[k] || 0)) {
+      return { ok: false, reason: `${k} mismatch ${a[k]}≠${b[k]}` };
+    }
+  }
+  const ad = a.trial_balance || {};
+  const bd = b.trial_balance || {};
+  if (Number(ad.debit || 0) !== Number(bd.debit || 0) || Number(ad.credit || 0) !== Number(bd.credit || 0)) {
+    return { ok: false, reason: 'trial_balance mismatch' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Operational health for Gate/ops dashboards.
+ * Alerts: failed last backup, age > 20m, disk low, missing weekly drill.
+ */
+function getBackupHealth(options = {}) {
+  const status = readStatus();
+  const last = status.last || null;
+  const drill = status.last_drill || null;
+  const latest = getLatestBackupFile();
+  const latestAgeMin = latest && fs.existsSync(latest)
+    ? Math.round((Date.now() - fs.statSync(latest).mtimeMs) / 60000)
+    : null;
+  const free = diskFreeBytes(BACKUP_DIR);
+  const minFreeMb = Number(options.minFreeMb || process.env.BACKUP_MIN_FREE_MB || 512);
+  const maxAgeMin = Number(options.maxAgeMin || process.env.BACKUP_MAX_AGE_MIN || 20);
+  const maxDrillAgeDays = Number(options.maxDrillAgeDays || process.env.BACKUP_MAX_DRILL_AGE_DAYS || 8);
+  const alerts = [];
+  if (!last || last.ok === false) alerts.push({ code: 'BACKUP_LAST_FAILED', severity: 'critical', message: last?.error || 'no successful backup' });
+  if (latestAgeMin == null) alerts.push({ code: 'BACKUP_MISSING', severity: 'critical', message: 'latest backup file missing' });
+  else if (latestAgeMin > maxAgeMin) alerts.push({ code: 'BACKUP_STALE', severity: 'high', message: `latest backup age ${latestAgeMin}m > ${maxAgeMin}m` });
+  if (free != null && free < minFreeMb * 1024 * 1024) {
+    alerts.push({ code: 'BACKUP_DISK_LOW', severity: 'high', message: `free disk ${(free / 1024 / 1024).toFixed(0)}MB < ${minFreeMb}MB` });
+  }
+  if (isProduction() && !process.env.BACKUP_S3_URI && !process.env.BACKUP_OFFSITE_DIR) {
+    alerts.push({ code: 'BACKUP_OFFSITE_UNCONFIGURED', severity: 'critical', message: 'no BACKUP_S3_URI / BACKUP_OFFSITE_DIR' });
+  }
+  if (process.env.BACKUP_OFFSITE_DIR && sameFilesystemDevice(BACKUP_DIR, process.env.BACKUP_OFFSITE_DIR)
+    && process.env.BACKUP_ALLOW_SAME_DEVICE !== '1') {
+    alerts.push({ code: 'BACKUP_OFFSITE_SAME_DEVICE', severity: 'critical', message: 'offsite dir is same device as BACKUP_DIR' });
+  }
+  const drillAgeDays = drill?.at
+    ? (Date.now() - Date.parse(drill.at)) / 86400000
+    : null;
+  if (!drill || drill.ok === false) {
+    alerts.push({ code: 'BACKUP_DRILL_MISSING', severity: 'medium', message: drill?.error || 'weekly offsite restore drill not recorded' });
+  } else if (drillAgeDays != null && drillAgeDays > maxDrillAgeDays) {
+    alerts.push({ code: 'BACKUP_DRILL_STALE', severity: 'medium', message: `last drill ${drillAgeDays.toFixed(1)}d ago` });
+  }
+  return {
+    ok: alerts.filter((a) => a.severity === 'critical' || a.severity === 'high').length === 0,
+    last,
+    last_drill: drill,
+    latest_age_min: latestAgeMin,
+    disk_free_bytes: free,
+    offsite_configured: !!(process.env.BACKUP_S3_URI || process.env.BACKUP_OFFSITE_DIR),
+    alerts,
+    updated_at: status.updated_at || null,
+  };
+}
+
+function recordDrillResult(result) {
+  return writeStatus({
+    last_drill: {
+      ok: !!result.ok,
+      at: new Date().toISOString(),
+      source: result.source || null,
+      duration_ms: result.duration_ms || null,
+      fingerprints: result.fingerprints || null,
+      error: result.error || null,
+      rto_estimate_sec: result.rto_estimate_sec || null,
+    },
+  });
+}
+
+function verifyS3ObjectChecksum(s3Uri, expectedSha256) {
+  const tmp = path.join(BACKUP_DIR, `.s3-verify-${crypto.randomBytes(4).toString('hex')}`);
+  try {
+    const dl = spawnSync('aws', ['s3', 'cp', s3Uri, tmp, '--only-show-errors'], {
+      encoding: 'utf8', timeout: 15 * 60 * 1000,
+    });
+    if (dl.status !== 0) {
+      return { ok: false, error: String(dl.stderr || dl.error || 's3 download failed').trim() };
+    }
+    const got = sha256File(tmp);
+    if (got !== expectedSha256) return { ok: false, error: `s3 checksum mismatch ${got}≠${expectedSha256}` };
+    return { ok: true, checksum: got };
+  } finally {
+    try { fs.unlinkSync(tmp); } catch { /* */ }
+  }
+}
+
 async function runBackup() {
   if (backupLock) return { ok: false, error: 'backup already running' };
   backupLock = true;
@@ -394,6 +507,10 @@ async function runBackup() {
         encoding: 'utf8', timeout: 5 * 60 * 1000,
       });
       if (side.status !== 0) throw new Error('off-site sidecar upload failed');
+      // Round-trip: download archive and confirm SHA-256 matches local.
+      const roundTrip = verifyS3ObjectChecksum(target, checksum);
+      if (!roundTrip.ok) throw new Error(`off-site s3 verify failed: ${roundTrip.error}`);
+      offsite.verify = roundTrip;
     } else if (process.env.BACKUP_OFFSITE_DIR) {
       offsite.configured = true;
       offsite.method = 'fs';
@@ -417,16 +534,22 @@ async function runBackup() {
     pruneOld();
     const sizeMB = (fs.statSync(finalPath).size / 1024 / 1024).toFixed(2);
     const integrity = companySnaps.every((c) => c.fingerprint.integrity === 'ok') ? 'ok' : 'fail';
+    const fingerprints = companySnaps.map((c) => ({
+      company_id: c.id, name: c.name, code: c.code, ...c.fingerprint,
+    }));
     writeStatus({
       last: {
         ok: true, file: fileName, checksum, encrypted, offsite, sizeMB,
         duration_ms: Date.now() - started, companies: manifest.companies.length,
+        fingerprints,
+        disk_free_bytes: diskFreeBytes(BACKUP_DIR),
       },
     });
     console.log(`✅ پشتیبان: ${fileName} (${sizeMB} MB)${encrypted ? ' 🔒' : ''}`);
     return {
       ok: true, file: fileName, path: finalPath, local: finalPath, sizeMB,
-      encrypted, latest, checksum, integrity, offsite, manifest_version: PACKAGE_VERSION,
+      encrypted, latest, checksum, integrity, offsite, fingerprints,
+      manifest_version: PACKAGE_VERSION,
     };
   } catch (e) {
     console.error('backup error:', e.message);
@@ -585,6 +708,12 @@ module.exports = {
   verifyBackupPackage,
   sameFilesystemDevice,
   fingerprintDb,
+  compareFingerprints,
+  getBackupHealth,
+  recordDrillResult,
+  readStatus,
+  writeStatus,
+  verifyS3ObjectChecksum,
   BACKUP_DIR,
   PACKAGE_VERSION,
 };

@@ -27,9 +27,18 @@
 
 ---
 
-### 2026-08-01 — P0-Q CI/E2E + P0-B re-prep + سیاست offsite
+### 2026-08-02 — P0-C: health/alert + weekly drill CLI + S3 round-trip verify
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** (پس از push)
+- **خلاصه:** `getBackupHealth` + API `/admin/backup-health`؛ CLI `verify-backup` و `weekly-backup-drill`؛ مقایسه fingerprint؛ تأیید download/SHA پس از آپلود S3؛ UI/راهنما؛ DR ۱۳/۱۳؛ SW `v141`.
+- **فایل‌های کلیدی:** `server/backup.js`, `server/server.js`, `server/scripts/weekly-backup-drill.js`, `server/scripts/verify-backup.js`, `server/scripts/test-backup-dr.js`, `docs/WAVE0-OFFSITE-BACKUP-RUNBOOK.md`
+- **تست:** backup-dr ۱۳/۱۳؛ offsite-policy ۴/۴؛ SMS ۲۲؛ sync ۴۴
+- **Deploy:** ❌ Wave 0 — deploy blocked
+- **یادداشت:** برای بستن کامل Gate هنوز `BACKUP_S3_URI`/volume جدا روی ایران + ثبت drill واقعی لازم است.
+
+### 2026-08-01 — P0-Q CI/E2E + P0-B re-prep + سیاست offsite
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `f6dbc4e`
 - **خلاصه:** گسترش `wave0-gate` (auth/upload/CSP/secrets/portal/export/offsite-policy)؛ Playwright critical ۵/۵ با `COMPANIES_DIR` ایزوله؛ تست سیاست same-device؛ اصلاح re-login پس از company switch؛ runbook off-server؛ P0-B drift=0 (۲۲۴ فایل)؛ SW `v140`.
 - **فایل‌های کلیدی:** `.github/workflows/wave0-gate.yml`, `e2e/critical-paths.spec.js`, `e2e/start-e2e-server.js`, `server/scripts/test-backup-offsite-policy.js`, `docs/WAVE0-OFFSITE-BACKUP-RUNBOOK.md`
 - **تست:** Playwright ۵/۵؛ financial/hostile ۲۲/۰؛ companies-fiscal ۲۰/۰؛ offsite-policy ۴/۴؛ SMS ۲۲؛ sync ۴۴؛ embedded drift 0
