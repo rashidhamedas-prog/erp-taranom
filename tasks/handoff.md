@@ -25,4 +25,4 @@ P0-C و P0-Q2 operational بسته‌اند؛ GitHub Wave 0 Gate هر ۷ job ر�
 - task Interactive در logout RPO را تضمین نمی‌کند.
 
 ## مرحله دقیق بعدی
-انتخاب اولویت موج‌های ۱ تا ۴ توسط مالک؛ hardeningهای اختیاری در runbook ثبت‌اند.
+Cursor ابتدا `sharp@0.35.0` را با bundle/cache آفلاین یا registry پایدار روی VPS deploy و smoke کند. production فعلاً سالم و rollback‌شده روی 0.33.5 است. سپس dirty VPS/local worktree را بدون overwrite reconcile کند. موج ۱–۴ فقط با انتخاب مالک.

@@ -21,7 +21,7 @@
 
 ## نتیجه خروج Wave 0
 
-Gate کد، امنیت، بکاپ/DR، باینری و CI موج صفر کامل است. اجرای GitHub Actions شماره `31265434377` برای commit `7460857` هر ۷ job را سبز کرد. نصب Administrator/S4U، خرید OV/EV، immutable cold copy و restricted release-publisher hardening اختیاری/بعدی‌اند و blocker P0 نیستند.
+Gate کد، امنیت، بکاپ/DR، باینری و CI موج صفر کامل است. اجرای GitHub Actions شماره `31265434377` برای commit `7460857` هر ۷ job را سبز کرد. نکته production: تلاش deploy هدفمند `sharp@0.35.0` به‌علت DNS/registry timeout شد و کاملاً به 0.33.5 سالم rollback شد؛ اعمال advisory روی runtime VPS به Cursor handoff شده است. نصب Administrator/S4U، خرید OV/EV، immutable cold copy و restricted release-publisher hardening اختیاری/بعدی‌اند.
 
 ## Exception منقضی‌شده انتشار RC
 
