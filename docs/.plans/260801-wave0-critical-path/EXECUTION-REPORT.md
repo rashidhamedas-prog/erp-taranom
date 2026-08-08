@@ -31,6 +31,7 @@ P0-C is operational: encrypted production backups are copied outside the VPS to 
 - Real Windows restore: fingerprints match, RTO estimate 3 seconds.
 - Real release: all five artifacts verified/promoted/HTTP-hashed.
 - `git diff --check`: PASS.
+- Dependency gate after `sharp@0.35.0`: no unwaived high/critical; upload 55/55 and sync-file 19/19 PASS.
 
 ## Review and deviations
 
@@ -38,6 +39,7 @@ P0-C is operational: encrypted production backups are copied outside the VPS to 
 - Independent Security: Approved with documented waivers.
 - A dedicated Unix user approach was attempted but rolled back before use; the final design uses a tracked root-owned strict command wrapper. Temporary account/export files were removed.
 - First release upload attempt failed safely before promotion because initial SFTP required `put`; implementation was corrected to initial `put` and resumed `reput`, then the full real publish passed.
+- The first remote CI run exposed a new `sharp <0.35.0` high advisory; `sharp` was upgraded to 0.35.0 and the audit/image security suites passed locally before the follow-up push.
 
 ## Residual risks / follow-up
 

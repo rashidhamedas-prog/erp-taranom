@@ -30,6 +30,8 @@ tasks:
       - "server/scripts/test-release-artifact-integrity.js"
       - "server/scripts/weekly-backup-drill.js"
       - "server/scripts/test-backup-dr.js"
+      - "server/package.json"
+      - "server/package-lock.json"
       - "docs/WAVE0-OFFSITE-BACKUP-RUNBOOK.md"
       - "docs/WAVE0-GATE-STATUS.md"
       - "docs/.plans/260801-wave0-critical-path/SUMMARY.md"
