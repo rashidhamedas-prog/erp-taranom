@@ -4,7 +4,7 @@
 **Roadmap:** `docs/erp-taranom-master-roadmap.md` (§ موج صفر)  
 **Skill:** `.cursor/skills/erp-roadmap-wave0/SKILL.md`  
 **Executor agent:** `@erp-wave0-executor`  
-**Status:** 🟡 Operational P0-C and signed RC delivery closed; remote CI/staging evidence remains for P0-Q2
+**Status:** ✅ Wave 0 code, security, operations, RC delivery and remote CI gates closed
 
 ---
 
@@ -91,14 +91,14 @@ Execute in order. Mark `[x]` when gate passed.
 | 5 | P0-S3 Web/API security | [P0-S3-web-api-security.md](./P0-S3-web-api-security.md) | `[x]` |
 | 6 | P0-C Backup/restore | [P0-C-backup-restore.md](./P0-C-backup-restore.md) | `[x]` |
 | 7 | P0-Q1 Test pyramid | [P0-Q1-test-pyramid.md](./P0-Q1-test-pyramid.md) | `[x]` |
-| 8 | P0-Q2 CI/CD | [P0-Q2-ci-cd.md](./P0-Q2-ci-cd.md) | `[~]` |
+| 8 | P0-Q2 CI/CD | [P0-Q2-ci-cd.md](./P0-Q2-ci-cd.md) | `[x]` |
 
 ---
 
 ## Wave 0 exit gate (from roadmap)
 
-- [ ] Full test suite green *(production ×3 done; broader suites still open)*
-- [ ] Remote sync TLS-only (no HTTP fallback off localhost) *(URL layer done; token/nonce open)*
+- [x] Full Wave 0 Gate green (7/7 jobs, run `31265434377`)
+- [x] Remote sync TLS-only with credential rotation/revoke/nonce protections
 - [x] Off-server backup operational
 - [x] Successful restore drill documented
 

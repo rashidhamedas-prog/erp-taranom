@@ -32,6 +32,7 @@ P0-C is operational: encrypted production backups are copied outside the VPS to 
 - Real release: all five artifacts verified/promoted/HTTP-hashed.
 - `git diff --check`: PASS.
 - Dependency gate after `sharp@0.35.0`: no unwaived high/critical; upload 55/55 and sync-file 19/19 PASS.
+- GitHub Wave 0 Gate run `31265434377`: 7/7 jobs successful, including production, dependency audit, Playwright, sync, DR and web/API security.
 
 ## Review and deviations
 
@@ -46,4 +47,4 @@ P0-C is operational: encrypted production backups are copied outside the VPS to 
 - Replace the broad admin release key with a restricted publisher account and server-side promote protocol.
 - Reinstall Scheduled Task elevated as S4U to preserve RPO while logged out.
 - Add immutable/cold backup and commercial OV/EV certificate if desired.
-- Collect remote CI/staging automation evidence for the remaining P0-Q2 follow-up.
+- Optional staging automation remains a delivery enhancement; approved RC feed deploy/smoke and Wave 0 CI are complete.

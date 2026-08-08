@@ -11,7 +11,7 @@
 - provision fail-closed در برابر overwrite/rotation ناخواسته.
 
 ## وضعیت فعلی
-P0-C operational بسته است؛ P0-Q2 فقط CI remote/staging automation را باز دارد.
+P0-C و P0-Q2 operational بسته‌اند؛ GitHub Wave 0 Gate هر ۷ job را سبز کرد.
 
 ## تست‌ها و نتایج واقعی
 - offsite contract 25/25؛ policy 4/4؛ DR 14/14؛ uploader 3/3.
@@ -25,4 +25,4 @@ P0-C operational بسته است؛ P0-Q2 فقط CI remote/staging automation ر�
 - task Interactive در logout RPO را تضمین نمی‌کند.
 
 ## مرحله دقیق بعدی
-commit/push branch و بررسی CI remote؛ سپس fast-forward شاخه اصلی.
+انتخاب اولویت موج‌های ۱ تا ۴ توسط مالک؛ hardeningهای اختیاری در runbook ثبت‌اند.

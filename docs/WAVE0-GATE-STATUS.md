@@ -8,7 +8,7 @@
 | P0-S3 web/API/auth | ✅ | CSP/TT، secrets v2، upload/SSRF، session/tenant tests |
 | P0-C backup/DR | ✅ operational | backup رمز‌شده production، pull واقعی خارج VPS، receipt/SHA-256، drill واقعی Windows و RTO 3s |
 | P0-Q1 test pyramid | ✅ | suiteهای Wave-0 و negative tests |
-| P0-Q2 delivery controls | 🟡 local ready | آپلودر resume/verify/atomic/rollback آماده؛ CI remote/staging evidence هنوز باید روی branch ثبت شود |
+| P0-Q2 delivery controls | ✅ | Wave 0 Gate هر ۷ job سبز؛ RC feed deploy + HTTP smoke؛ rollback/versioned checks |
 | گواهی تجاری Windows | ⚪ waiver | مانع P0 نیست؛ EXE خودامضا است و روی PC دیگر احتمال Unknown Publisher/SmartScreen دارد |
 | موج ۱–۴ | ❌ | شروع نشده |
 
@@ -17,12 +17,11 @@
 - `crm-backup-20260808-153000.zip.enc` از VPS با wrapper فقط‌خواندنی به `D:\ERP-Taranom-Offsite` منتقل شد.
 - SHA-256: `2166FB8E9C0F75719F7B87DFA4A01D4F72DA442C4D0553DB53F92986C5A1B866`؛ اندازه: 12,268,025 bytes.
 - restore ایزوله: `ok=true`، fingerprint برابر، `companies_package_verified=1`، RTO تخمینی ۳ ثانیه.
-- task پانزده‌دقیقه‌ای واقعی با نتیجه ۰ اجرا شد. به‌دلیل نبود elevation فعلی، task فقط هنگام login کاربر اجرا می‌شود.
+- task پانزده‌دقیقه‌ای و task هفتگی drill هر دو با نتیجه ۰ اجرا شدند. به‌دلیل نبود elevation فعلی، taskها فقط هنگام login کاربر اجرا می‌شوند.
 
-## موارد باقی‌مانده برای خروج نهایی Wave 0
+## نتیجه خروج Wave 0
 
-1. دریافت نتیجه CI remote روی branch و ثبت evidence مربوط P0-Q2.
-2. اختیاری: نصب task به‌صورت Administrator/S4U و خرید OV/EV؛ این دو blocker کد یا backup نیستند.
+Gate کد، امنیت، بکاپ/DR، باینری و CI موج صفر کامل است. اجرای GitHub Actions شماره `31265434377` برای commit `7460857` هر ۷ job را سبز کرد. نصب Administrator/S4U، خرید OV/EV، immutable cold copy و restricted release-publisher hardening اختیاری/بعدی‌اند و blocker P0 نیستند.
 
 ## Exception منقضی‌شده انتشار RC
 

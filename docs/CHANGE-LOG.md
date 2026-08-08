@@ -1891,6 +1891,7 @@ curl -s http://127.0.0.1:3000/api/system/time
 # 2026-08-08 — P0-C واقعی + انتشار RC 2.0.33/2.0.10
 
 - CI dependency gate پس از advisory جدید با ارتقای `sharp` از 0.33.5 به 0.35.0 بسته شد؛ audit بدون high/critical، upload security 55/55 و sync-file 19/19.
+- GitHub Wave 0 Gate اجرای `31265434377`: هر ۷ job سبز؛ task هفتگی restore نیز نصب و اجرای دستی آن با نتیجه ۰ تأیید شد.
 - بکاپ رمز‌شده production به Windows off-server منتقل شد؛ sidecar-before/after، SHA-256، receipt، lock، retention و atomic promotion.
 - کلید pull جدا و پیش‌فرض شد و روی VPS فقط به wrapper ریشه‌مالک محدود است؛ key/DB/.env/private uploads/SFTP/upload/delete در تست منفی رد شدند.
 - Scheduled Task پانزده‌دقیقه‌ای Limited اجرا شد (`LastTaskResult=0`)؛ به‌دلیل نبود elevation فعلی fallback آن Interactive است.
