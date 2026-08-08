@@ -1888,3 +1888,12 @@ curl -s http://127.0.0.1:3000/api/system/time
 ```
 
 **هرگز** `git reset --hard` روی production نزنید مگر برای rollback آگاهانه.
+# 2026-08-08 — P0-C واقعی + انتشار RC 2.0.33/2.0.10
+
+- بکاپ رمز‌شده production به Windows off-server منتقل شد؛ sidecar-before/after، SHA-256، receipt، lock، retention و atomic promotion.
+- کلید pull جدا و پیش‌فرض شد و روی VPS فقط به wrapper ریشه‌مالک محدود است؛ key/DB/.env/private uploads/SFTP/upload/delete در تست منفی رد شدند.
+- Scheduled Task پانزده‌دقیقه‌ای Limited اجرا شد (`LastTaskResult=0`)؛ به‌دلیل نبود elevation فعلی fallback آن Interactive است.
+- restore واقعی فایل `crm-backup-20260808-151500.zip.enc` با fingerprint برابر و RTO تخمینی ۳ ثانیه Pass شد.
+- provision کلید fail-closed شد: remote file/PM2 hash با DPAPI محلی تطبیق داده می‌شود؛ missing/mismatch اجازه overwrite ندارد و rotation غیرفعال است.
+- uploader باینری با host pinning، resume digest-scoped، hash پیش از promote، rollback و HTTP hash عملیاتی شد؛ APK 2.0.33 و EXE 2.0.10 منتشر شدند.
+- تست‌ها: artifact real PASS؛ offsite 25/25؛ policy 4/4؛ DR 14/14؛ uploader 3/3؛ embedded 224/224 هر هدف، drift=0؛ `git diff --check` PASS.

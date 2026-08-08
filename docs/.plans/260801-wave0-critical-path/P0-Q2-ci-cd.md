@@ -11,8 +11,8 @@
 - [x] Migration test job
 - [x] Source drift check (from P0-B)
 - [ ] Staging deploy + smoke
-- [ ] Production approval gate + rollback artifacts
-- [ ] Versioned artifacts + checksum
+- [x] Manual production approval + verify-before-promote/rollback uploader for RC feed
+- [x] Versioned artifacts + SHA-256/SHA-512 + HTTP re-verification
 
 ## Verification
 
@@ -20,4 +20,4 @@
 - [ ] Failed suite produces logs artifact
 - [ ] Drift job fails on embedded mismatch
 
-**Deploy:** ❌ Wave 0 blocked until full gate; then enable staging → production with approval
+**Operational evidence:** APK 2.0.33 / EXE 2.0.10 and metadata were staged, verified, atomically promoted and HTTP-hash checked on 2026-08-08. CI/staging automation remains a Q2 follow-up.

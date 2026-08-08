@@ -5,7 +5,19 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const releaseDir = path.join(__dirname, '..', 'public', 'releases');
+const releaseDirArg = process.argv.find((arg) => arg.startsWith('--release-dir='));
+const releaseDir = releaseDirArg
+  ? path.resolve(releaseDirArg.slice('--release-dir='.length))
+  : path.join(__dirname, '..', 'public', 'releases');
+const artifactDirArg = process.argv.find((arg) => arg.startsWith('--artifact-dir='));
+const artifactDir = artifactDirArg
+  ? path.resolve(artifactDirArg.slice('--artifact-dir='.length))
+  : releaseDir;
+const fileOverride = Object.fromEntries(['android', 'desktop'].map((platform) => {
+  const prefix = `--${platform}-file=`;
+  const value = process.argv.find((arg) => arg.startsWith(prefix));
+  return [platform, value ? value.slice(prefix.length) : null];
+}));
 const manifest = JSON.parse(fs.readFileSync(path.join(releaseDir, 'manifest.json'), 'utf8'));
 const requireArtifacts = process.argv.includes('--require-artifacts');
 
@@ -23,7 +35,7 @@ function artifactPath(url) {
   assert.ok(parsed.pathname.startsWith('/releases/'), 'release URL must stay below /releases');
   const name = decodeURIComponent(parsed.pathname.slice('/releases/'.length));
   assert.strictEqual(name, path.basename(name), 'release filename must not traverse directories');
-  return path.join(releaseDir, name);
+  return path.join(artifactDir, name);
 }
 
 function verifyManifestArtifact(platform) {
@@ -31,7 +43,12 @@ function verifyManifestArtifact(platform) {
   assert.ok(item && item.url, `${platform} release URL is required`);
   assert.match(String(item.sha256 || ''), /^[a-f0-9]{64}$/i, `${platform} SHA-256 is required`);
   assert.ok(Number.isSafeInteger(item.size) && item.size > 0, `${platform} size is required`);
-  const filePath = artifactPath(item.url);
+  const filePath = fileOverride[platform]
+    ? path.join(artifactDir, path.basename(fileOverride[platform]))
+    : artifactPath(item.url);
+  if (fileOverride[platform]) {
+    assert.strictEqual(fileOverride[platform], path.basename(fileOverride[platform]), `${platform} override must be a filename`);
+  }
   if (!fs.existsSync(filePath)) {
     if (requireArtifacts) assert.fail(`${platform} artifact is missing: ${path.basename(filePath)}`);
     console.log(`SKIP ${platform}: ignored binary is not present in this checkout`);
@@ -55,7 +72,9 @@ assert.strictEqual(latestVersion, manifest.desktop.version, 'latest.yml version 
 assert.strictEqual(latestSize, manifest.desktop.size, 'latest.yml size must match manifest');
 assert.strictEqual(latestSha512, manifest.desktop.sha512, 'latest.yml SHA-512 must match manifest');
 
-const installerPath = path.join(releaseDir, latestInstaller || '');
+const installerPath = fileOverride.desktop
+  ? path.join(artifactDir, path.basename(fileOverride.desktop))
+  : path.join(artifactDir, latestInstaller || '');
 if (fs.existsSync(installerPath)) {
   assert.strictEqual(fs.statSync(installerPath).size, latestSize, 'latest.yml installer size mismatch');
   assert.strictEqual(digest(installerPath, 'sha512'), latestSha512, 'latest.yml installer SHA-512 mismatch');

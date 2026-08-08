@@ -1,0 +1,5 @@
+# تاریخچه تغییرات
+
+## Unreleased
+
+- W0-OPS-001: بکاپ رمز‌شده خارج VPS، agent ویندوز، restore drill واقعی، confinement کلید pull و انتشار امن APK 2.0.33 / EXE 2.0.10.

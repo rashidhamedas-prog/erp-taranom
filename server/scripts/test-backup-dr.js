@@ -52,6 +52,13 @@ function ok(msg) {
   const verified = verifyBackupPackage(result.offsite.target);
   if (!verified.ok || verified.restore_applied) throw new Error(JSON.stringify(verified));
   ok('verifyBackupPackage from offsite (no mutate)');
+  for (const company of (verified.companies || [])) {
+    const extracted = (verified.fingerprints || []).find((fp) => fp.db === company.entry);
+    if (!extracted) throw new Error(`company fingerprint missing: ${company.entry}`);
+    const companyCmp = require('../backup').compareFingerprints(extracted, company.fingerprint);
+    if (!companyCmp.ok) throw new Error(`company fingerprint mismatch: ${companyCmp.reason}`);
+  }
+  ok(`all company fingerprints match (${(verified.companies || []).length})`);
 
   // Tamper fails closed
   const bad = path.join(root, 'tampered.enc');
@@ -112,7 +119,7 @@ function ok(msg) {
   });
   if (!offlineRestore.ok) throw new Error('offline restore failed');
   const restoredFp = fingerprintDb(targetDb);
-  const pkgFp = (verified.fingerprints || [])[0];
+  const pkgFp = (verified.fingerprints || []).find((fp) => fp.db === 'crm.db') || (verified.fingerprints || [])[0];
   const cmp = compareFingerprints(restoredFp, pkgFp);
   if (!cmp.ok) throw new Error('fingerprint mismatch: ' + cmp.reason);
   recordDrillResult({

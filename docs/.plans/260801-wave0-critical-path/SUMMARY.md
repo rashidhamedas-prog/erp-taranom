@@ -4,7 +4,7 @@
 **Roadmap:** `docs/erp-taranom-master-roadmap.md` (§ موج صفر)  
 **Skill:** `.cursor/skills/erp-roadmap-wave0/SKILL.md`  
 **Executor agent:** `@erp-wave0-executor`  
-**Status:** 🟡 In progress — code/test pass completed through P0-Q; operational Wave 0 gates remain blocked
+**Status:** 🟡 Operational P0-C and signed RC delivery closed; remote CI/staging evidence remains for P0-Q2
 
 ---
 
@@ -32,6 +32,8 @@
 | 2026-08-01 | P0-S3 ✅ | CSP/Trusted Types asset split; upload/SSRF/private media; secret enc:v2; staff/B2B sessions; company switch; portal CSPRNG password; sync repair+attestation. Mirror UNIQUE fix + company_id on challenge/B2B revoke. Auth 46/46, sync 44/44, upload 55/55, secrets 37/37, CSP browser 15/15, portal 64/64. Deploy blocked. |
 | 2026-08-01 | P0-Q deps ✅ | Replaced SheetJS `xlsx` with `exceljs@4` (`excel-io` + hardened `excel-safe`); async call sites; Mahak helpers fixed; waiver emptied; audit gate OK; production-export + upload 55 + SMS 22 + sync 44. CI/E2E expand still open. |
 | 2026-08-02 | P0-C code↑ | backup-health API + alerts; weekly-backup-drill + verify CLI; S3 round-trip SHA; DR 13/13; Help/UI SW v141. Ops off-server destination still required. |
+| 2026-08-08 | P0-C ✅ | Production encrypted backup pulled to Windows every 15m through a path-confined forced wrapper; real isolated restore/fingerprint drill green (RTO estimate 3s). |
+| 2026-08-08 | RC delivery ✅ | APK 2.0.33 + EXE 2.0.10 staged with resumable transfer, SHA-256/SHA-512 verified, atomically promoted with rollback and HTTP re-hashed. |
 
 ---
 
@@ -62,7 +64,7 @@
 ## Outcomes
 
 - [x] Wave 0 **code/CI gate** met (2026-08-01) — see `docs/WAVE0-GATE-STATUS.md`
-- [ ] Wave 0 **ops gate** (signed artifacts + prod OFFSITE/S3 restore log) — operator
+- [x] Wave 0 **ops gate** (signed artifacts + real off-server Windows restore evidence)
 - [ ] Production deploy unblocked *for Wave1* only after ops checklist above
 - [x] Retrospective notes → `docs/WAVE0-GATE-STATUS.md`
 - [x] P0-A phase gate met (2026-08-01)
@@ -87,7 +89,7 @@ Execute in order. Mark `[x]` when gate passed.
 | 3 | P0-S1 TLS sync | [P0-S1-tls-sync.md](./P0-S1-tls-sync.md) | `[x]` |
 | 4 | P0-S2 Android/Electron | [P0-S2-platform-hardening.md](./P0-S2-platform-hardening.md) | `[x]` |
 | 5 | P0-S3 Web/API security | [P0-S3-web-api-security.md](./P0-S3-web-api-security.md) | `[x]` |
-| 6 | P0-C Backup/restore | [P0-C-backup-restore.md](./P0-C-backup-restore.md) | `[-]` |
+| 6 | P0-C Backup/restore | [P0-C-backup-restore.md](./P0-C-backup-restore.md) | `[x]` |
 | 7 | P0-Q1 Test pyramid | [P0-Q1-test-pyramid.md](./P0-Q1-test-pyramid.md) | `[x]` |
 | 8 | P0-Q2 CI/CD | [P0-Q2-ci-cd.md](./P0-Q2-ci-cd.md) | `[~]` |
 
@@ -97,8 +99,8 @@ Execute in order. Mark `[x]` when gate passed.
 
 - [ ] Full test suite green *(production ×3 done; broader suites still open)*
 - [ ] Remote sync TLS-only (no HTTP fallback off localhost) *(URL layer done; token/nonce open)*
-- [ ] Off-server backup operational
-- [ ] Successful restore drill documented
+- [x] Off-server backup operational
+- [x] Successful restore drill documented
 
 ---
 

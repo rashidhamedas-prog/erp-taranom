@@ -63,7 +63,17 @@ function pickOffsiteFile() {
       keepStaging: false,
     });
     const liveFp = fingerprintDb(targetDb);
-    const pkgFp = (verified.fingerprints || [])[0] || null;
+    const verifiedFingerprints = verified.fingerprints || [];
+    const companyResults = [];
+    for (const company of (verified.companies || [])) {
+      const entry = String(company.entry || '').replace(/\\/g, '/');
+      const extracted = verifiedFingerprints.find((item) => item.db === entry);
+      if (!extracted) throw new Error(`company backup missing: ${entry || company.id}`);
+      const companyCmp = compareFingerprints(extracted, company.fingerprint);
+      if (!companyCmp.ok) throw new Error(`company ${company.id} fingerprint: ${companyCmp.reason}`);
+      companyResults.push({ company_id: company.id, entry, ok: true, restored: extracted });
+    }
+    const pkgFp = verifiedFingerprints.find((item) => item.db === 'crm.db') || verifiedFingerprints[0] || null;
     const cmp = compareFingerprints(liveFp, pkgFp);
     if (!cmp.ok) throw new Error(cmp.reason || 'fingerprint mismatch');
 
@@ -73,7 +83,7 @@ function pickOffsiteFile() {
       source,
       duration_ms,
       rto_estimate_sec: Math.round(duration_ms / 1000),
-      fingerprints: { package: pkgFp, restored: liveFp },
+      fingerprints: { package: pkgFp, restored: liveFp, companies: companyResults },
     });
     console.log(JSON.stringify({
       ok: true,
@@ -81,6 +91,7 @@ function pickOffsiteFile() {
       duration_ms,
       rto_estimate_sec: Math.round(duration_ms / 1000),
       fingerprints_match: true,
+      companies_package_verified: companyResults.length,
       pre_restore_db: restored.pre_restore_db || null,
       status_file: path.join(BACKUP_DIR, 'backup-status.json'),
     }, null, 2));
