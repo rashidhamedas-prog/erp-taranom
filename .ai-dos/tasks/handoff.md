@@ -2,6 +2,13 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T04:55:00+03:30 — W2-ORCH claimed; P1 work by this owner abandoned
+
+- Owner clarified: this Cursor session owns **Wave 2 / P2**, not Wave 1.
+- Abandoned/cleaned local `ai/W1-001-moadian-ops` worktree (never pushed). Did **not** touch other agents' `ai/W1-*` worktrees.
+- Active task: `W2-ORCH` on `ai/W2-ORCH-wave2` at `D:/soft/Claud/porje/Run in the project/erp-taranom-w2-orch`.
+- Next: parallel MVP implementers for license, onboarding, B2B, treasury/cheques, HR legal export, observability/support; orch merges.
+
 ## 2026-08-09T05:00:00+03:30 — W0-OPS-002 completed under permanent owner waiver
 
 - Owner accepted permanent production waiver `W0-OPS-002-SHARP-RUNTIME-0335` with **no expiry**: VPS runtime may remain `sharp@0.33.5`; source/CI stay `0.35.0`.
