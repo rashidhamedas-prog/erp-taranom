@@ -48,7 +48,7 @@
 - **Commit:** `d0465ac` (merge tip پس از push)
 - **خلاصه:** تکمیل موج تولید P4: bootstrap/محرک‌های سربار، چهار روش دستمزد، API نرخ مراکز، تست‌های طلایی → 38/38 PASS.
 - **فایل‌های کلیدی:** `server/lib/production/overhead.js`, `server/lib/production/labor.js`, `server/routes/production-cost-centers.js`, `server/scripts/test-production-overhead-labor.js`
-- **Deploy:** ✅ ایران SFTP همراه sync tip — health/ready 200
+- **Deploy:** ✅ Iran 68d901 — SSH ff-pull (	aranom@94.249.244.208) + pm2 restart erp-taranom; root HTTP 200; SW 144; stash pre-p4-deploy-tracked-*; secrets/_recover حفظ
 - **یادداشت:** UI کامل routing مربوط به P5 است؛ این فاز فقط جذب نرخ/دستمزد/API مراکز.
 
 ### 2026-08-09 — PROD-P3 تکمیل آنالیز متغیر تولید (ADR-011)
