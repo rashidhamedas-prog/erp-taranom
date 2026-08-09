@@ -2,6 +2,11 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T14:55:00+03:30 — Bugbot LIMIT re-review unavailable; switched reviewer
+
+- [W1 re-review LIMIT fix](01d839d8-7b13-4e92-8317-6da44ecba85d) (and prior attempts) failed with connection interrupt.
+- Launched independent generalPurpose re-review of `listQueryPlan` / bare-GET full catalog instead of further Bugbot retries.
+
 ## 2026-08-09T14:30:00+03:30 — Security remediation SEC-001..008 (W1 gate)
 
 - [W1 security review F1/APP1](bbcb1881-1e63-4ce9-bd73-fa03a90102ac) → **Blocked**; ORCH reclaimed F1/APP1 surfaces for gate fix (recorded here).
