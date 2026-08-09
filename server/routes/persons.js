@@ -2,7 +2,7 @@ const router = require('express').Router();
 const { getDB, audit, createPersonLedgerEntry } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
-const { parseListQuery, paginatedJson } = require('../lib/pagination');
+const { parseListQuery, listResponse } = require('../lib/pagination');
 
 // General "Persons" module — for anyone who isn't already a customer or
 // supplier (employees, partners, investors, contractors, service providers, ...).
@@ -59,7 +59,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
     ORDER BY p.name
     LIMIT ? OFFSET ?
   `).all(pageSize, offset);
-  res.json(paginatedJson(rows, { page, pageSize, total }));
+  res.json(listResponse(rows, { page, pageSize, total }, req.query));
 });
 
 const PARTY_MAHAK_COLS = ['prefix', 'phone2', 'fax', 'mobile', 'email', 'economic_code', 'postal_code', 'national_id', 'referrer', 'birth_date', 'company_name', 'account_nature'];

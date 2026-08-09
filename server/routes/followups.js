@@ -4,7 +4,7 @@ const { getDB } = require('../db');
 const notif = require('../lib/notifications');
 const { auth, adminOnly } = require('../middleware/auth');
 const { todayJalali, nowHHMM } = require('../jalali');
-const { parseListQuery, paginatedJson } = require('../lib/pagination');
+const { parseListQuery, listResponse } = require('../lib/pagination');
 function getScope(req) {
   if (req.user.role === 'admin' && req.query.user_id) return parseInt(req.query.user_id);
   if (req.user.role === 'admin') return null;
@@ -30,7 +30,7 @@ router.get('/', auth, (req, res) => {
     ? `SELECT f.*,c.biz as cust_biz,u.name as salesperson FROM followups f LEFT JOIN customers c ON f.cust_id=c.id LEFT JOIN users u ON f.user_id=u.id`
     : `SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id`;
   const rows = db.prepare(`${select} ${where} ORDER BY f.created_at DESC LIMIT ? OFFSET ?`).all(...params, pageSize, offset);
-  res.json(paginatedJson(rows, { page, pageSize, total }));
+  res.json(listResponse(rows, { page, pageSize, total }, req.query));
 });
 
 // Activity timeline for a specific customer

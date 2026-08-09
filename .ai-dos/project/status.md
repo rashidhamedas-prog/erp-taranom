@@ -6,7 +6,7 @@
 - W0-OPS-001: completed (offsite backup + RC binary publish).
 - W0-OPS-002: completed with **owner permanent production waiver** for runtime `sharp@0.33.5` (no expiry). Source/CI remains pinned to `sharp@0.35.0`. Deploy tooling retained for optional future CPU upgrade.
 - Production: healthy on `sharp@0.33.5`; dirty VPS/`erp-taranom1` trees must not be blindly reset.
-- Next milestone: **Wave 1 parallel in progress** — tasks W1-ORCH, W1-F1, W1-HR1, W1-APP1, W1-PAGE, W1-E2E claimed; no Iran deploy until Wave 1 gate.
+- Next milestone: **Wave 1 MVP integrated** on `ai/W1-ORCH-wave1-integration` — tax advisor sign-off and Iran deploy still open; do not blind-pull dirty VPS.
 
 ## Working quality commands
 

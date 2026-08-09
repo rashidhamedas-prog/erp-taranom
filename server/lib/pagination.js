@@ -106,6 +106,24 @@ function sqlLimitOffset(pageSize, offset) {
   return { sql: ' LIMIT ? OFFSET ?', params: [pageSize, offset] };
 }
 
+function wantsPaginatedEnvelope(query = {}) {
+  return query.page != null
+    || query.pageSize != null
+    || query.page_size != null
+    || query.limit != null
+    || query.paginated === '1'
+    || query.paginated === 'true';
+}
+
+/**
+ * Prefer envelope when client opts into pagination params; otherwise return raw array
+ * for legacy UI/sync harness compatibility (still apply LIMIT/OFFSET internally).
+ */
+function listResponse(data, pagination, query = {}) {
+  if (wantsPaginatedEnvelope(query)) return wrapListResponse(data, pagination);
+  return Array.isArray(data) ? data : [];
+}
+
 module.exports = {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
@@ -113,5 +131,7 @@ module.exports = {
   parseListQuery,
   wrapListResponse,
   paginatedJson: wrapListResponse,
+  wantsPaginatedEnvelope,
+  listResponse,
   sqlLimitOffset,
 };

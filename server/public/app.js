@@ -16075,6 +16075,13 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🧭','موج یک — انطباق و ظرفیت',`
+      <ul>
+        <li><b>مودیان:</b> صف ارسال با adapterهای stub/sandbox؛ فاکتور ارسال‌شده قفل ویرایش دارد (فقط اصلاحی/ابطالی)</li>
+        <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
+        <li><b>SKU پوشاک:</b> مدل × رنگ × سایز از مسیر <code>/api/product-variants</code>؛ موجودی هر SKU مستقل است</li>
+        <li><b>صفحه‌بندی:</b> لیست مشتریان، سفارش‌ها، پیگیری‌ها، تأمین‌کنندگان، اشخاص، کالا و فاکتور با <code>page</code>/<code>pageSize</code>/<code>total</code></li>
+      </ul>`),
     helpSec('📥','ورودی اکسل و واحد پول',`
       <p>مبالغ در کل برنامه فقط <b>ریال</b> هستند — ذخیره، نمایش، اکسل و سند حسابداری (با تبدیل داخلی به تومان فقط برای ورودی <code>postToLedger</code>).</p>
       <ul>

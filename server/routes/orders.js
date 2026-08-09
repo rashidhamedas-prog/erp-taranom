@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth } = require('../middleware/auth');
-const { parseListQuery, paginatedJson } = require('../lib/pagination');
+const { parseListQuery, listResponse } = require('../lib/pagination');
 
 function getScope(req) {
   if (req.user.role === 'admin' && req.query.user_id) return parseInt(req.query.user_id);
@@ -34,7 +34,7 @@ router.get('/', auth, (req, res) => {
     ? 'SELECT o.*,c.biz as cust_biz,u.name as salesperson FROM orders o LEFT JOIN customers c ON o.cust_id=c.id LEFT JOIN users u ON o.user_id=u.id'
     : 'SELECT o.*,c.biz as cust_biz FROM orders o LEFT JOIN customers c ON o.cust_id=c.id';
   const rows = db.prepare(`${select} ${where} ORDER BY o.created_at DESC LIMIT ? OFFSET ?`).all(...params, pageSize, offset);
-  res.json(paginatedJson(rows, { page, pageSize, total }));
+  res.json(listResponse(rows, { page, pageSize, total }, req.query));
 });
 
 router.post('/', auth, (req, res) => {

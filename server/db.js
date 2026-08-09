@@ -2345,6 +2345,19 @@ function initSyncSchema(db) {
     throw e;
   }
 
+  // W1-APP1 product variants + W1-F1 moadian queue columns (before sync column pass)
+  try {
+    require('./lib/product-variants').initProductVariantsSchema(db);
+    const moadianSql = require('./lib/moadian/schema-sql');
+    for (const [table, column, definition] of moadianSql.ENSURE_COLUMNS) {
+      ensureColumn(db, table, column, definition);
+    }
+    db.exec(moadianSql.STATUS_HISTORY_SQL);
+  } catch (e) {
+    console.error('❌ product-variants/moadian schema init failed:', e.message);
+    throw e;
+  }
+
   // Second pass — tables created above in this function (parties, fiscal_years, production, …).
   ensureSyncColumnsForAllTables(db);
   if (!isDevice()) {
@@ -2459,6 +2472,19 @@ function initSyncSchema(db) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v6','1')").run();
+    }
+    const backfillV7 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v7'").get();
+    if (!backfillV7 || backfillV7.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v7 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v7','1')").run();
     }
   }
 

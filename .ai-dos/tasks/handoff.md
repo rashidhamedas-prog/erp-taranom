@@ -2,6 +2,14 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T12:40:00+03:30 — Wave 1 parallel MVP merged into ORCH
+
+- Specialist branches pushed: PAGE `8b40e4e`, F1 `01f2eef`, HR1 `b79f0cc`, APP1 `a5ebed3`, E2E `8a5c694`.
+- ORCH merges complete on `ai/W1-ORCH-wave1-integration`; wired `db.js` (variants+moadian columns+backfill v7), `server.js` mount, invoices lock+pagination, products pagination, Help, SW v144.
+- Tests: moadian 10/10, payroll snapshot 6/6, variants 4/4, pagination 22/22 (run on specialist worktrees / re-run on ORCH).
+- Remaining: tax advisor sign-off, full Playwright local run if deps present, Iran deploy blocked, matrix UI polish.
+- Do not blind pull/reset dirty VPS or `erp-taranom1`.
+
 ## 2026-08-09T04:45:00+03:30 — Wave 1 parallel claimed (W1-ORCH + five specialists)
 
 - Owner selection: execute Wave 1 in parallel per AI-DOS (F1, HR1, APP1, PAGE, E2E) with orchestrator owning hot files.

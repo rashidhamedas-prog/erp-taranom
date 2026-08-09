@@ -8,7 +8,7 @@ const { sendSMS } = require('../sms');
 const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { getSmsSettings } = require('../lib/secret-settings');
-const { parseListQuery, paginatedJson } = require('../lib/pagination');
+const { parseListQuery, listResponse } = require('../lib/pagination');
 
 const excelUpload = createSecureUpload('xlsx');
 
@@ -98,7 +98,7 @@ router.get('/', auth, (req, res) => {
   const rows = db.prepare(
     `SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} ${whereSql} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`
   ).all(...params, pageSize, offset);
-  res.json(paginatedJson(rows, { page, pageSize, total }));
+  res.json(listResponse(rows, { page, pageSize, total }, req.query));
 });
 
 router.post('/', auth, (req, res) => {
