@@ -16622,7 +16622,9 @@ function renderAdminGuide(){
         <li><b>واگذاری به بانک</b>: از وضعیت ثبت‌شده — سند انتقال به «در جریان وصول»</li>
         <li><b>وصول</b>: وقتی چک در «جریان وصول» است — بستانکار بانک</li>
         <li><b>برگشت</b>: ثبت برگشت از بانک</li>
-      </ul>`)
+      </ul>`),
+    helpSec('📡','سلامت سرویس و پشتیبانی',`
+      <p><code dir="ltr">/api/system/health</code> زنده بودن فرایند را نشان می‌دهد؛ <code dir="ltr">/api/system/ready</code> آمادگی دیتابیس را بررسی می‌کند. هر درخواست هدر <code dir="ltr">X-Request-Id</code> دارد (برای پیگیری لاگ). متای پشتیبانی در <code dir="ltr">/api/support/meta</code> است — تیکتینگ داخل برنامه فعلاً فعال نیست و از کانال خارجی سازمان استفاده می‌شود.</p>`)
   ].join('');
 }
 function renderSalesGuide(){
