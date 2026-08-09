@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { getDB, audit, createPersonLedgerEntry } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
+const { parseListQuery, paginatedJson } = require('../lib/pagination');
 
 // General "Persons" module — for anyone who isn't already a customer or
 // supplier (employees, partners, investors, contractors, service providers, ...).
@@ -47,6 +48,8 @@ router.delete('/categories/:id', auth, adminOrAccounting, (req, res) => {
 // ---- Persons ----
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  const { page, pageSize, offset } = parseListQuery(req.query);
+  const total = db.prepare('SELECT COUNT(*) AS c FROM persons').get()?.c || 0;
   const rows = db.prepare(`
     SELECT p.*, ${LIVE_BAL} AS balance, c.name as category_name, c.nature as category_nature,
       pg.name as party_group_name, pp.name as position_name
@@ -54,8 +57,9 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
     LEFT JOIN party_groups pg ON p.party_group_id=pg.id
     LEFT JOIN person_positions pp ON p.position_id=pp.id
     ORDER BY p.name
-  `).all();
-  res.json(rows);
+    LIMIT ? OFFSET ?
+  `).all(pageSize, offset);
+  res.json(paginatedJson(rows, { page, pageSize, total }));
 });
 
 const PARTY_MAHAK_COLS = ['prefix', 'phone2', 'fax', 'mobile', 'email', 'economic_code', 'postal_code', 'national_id', 'referrer', 'birth_date', 'company_name', 'account_nature'];

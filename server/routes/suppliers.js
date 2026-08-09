@@ -4,12 +4,15 @@ const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { syncSupplierToParty, deactivatePartyFromSupplier } = require('../lib/parties-sync');
+const { parseListQuery, paginatedJson } = require('../lib/pagination');
 
 // Suppliers are shared company-wide (not owned by a salesperson) — accounting/admin only
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const rows = db.prepare('SELECT * FROM suppliers ORDER BY name').all();
-  res.json(rows);
+  const { page, pageSize, offset } = parseListQuery(req.query);
+  const total = db.prepare('SELECT COUNT(*) AS c FROM suppliers').get()?.c || 0;
+  const rows = db.prepare('SELECT * FROM suppliers ORDER BY name LIMIT ? OFFSET ?').all(pageSize, offset);
+  res.json(paginatedJson(rows, { page, pageSize, total }));
 });
 
 router.get('/:id', auth, adminOrAccounting, (req, res) => {
