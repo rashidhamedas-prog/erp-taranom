@@ -2489,7 +2489,7 @@ function initSyncSchema(db) {
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v7','1')").run();
     }
-    // v8: product_colors/sizes/variants (W1-APP1) appended after bank_statement_lines
+    // v8: product_colors/sizes/variants (W1-APP1) after bank_statement_lines; also covers DBs stamped v7 before variants (W1 SEC)
     const backfillV8 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v8'").get();
     if (!backfillV8 || backfillV8.value !== '1') {
       for (const t of SYNCABLE_TABLES) {

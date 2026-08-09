@@ -129,6 +129,16 @@ function generateMatrix(db, opts) {
     throw Object.assign(new Error('حداقل یک سایز لازم است'), { status: 400 });
   }
 
+  const colorCount = colorSpecs.length || colorIds.length;
+  const sizeCount = sizeSpecs.length || sizeIds.length;
+  const MAX_MATRIX_SKUS = 500;
+  if (colorCount * sizeCount > MAX_MATRIX_SKUS) {
+    throw Object.assign(
+      new Error(`حداکثر ${MAX_MATRIX_SKUS} ترکیب SKU در هر درخواست مجاز است (دریافت: ${colorCount}×${sizeCount})`),
+      { status: 400, code: 'VARIANT_MATRIX_TOO_LARGE' }
+    );
+  }
+
   const basePrice = opts.price != null ? Number(opts.price) : Number(product.price) || 0;
   const basePriceRial = opts.price_rial != null
     ? Math.round(Number(opts.price_rial) || 0)

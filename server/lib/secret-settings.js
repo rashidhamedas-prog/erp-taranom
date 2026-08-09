@@ -17,7 +17,7 @@ const SECRET_SETTING_KEYS = Object.freeze([
   'webhook_secret',
   'backup_smtp_pass',
   'backup_password',
-  'moadian_private_key_path',
+  // moadian_private_key_path is a filesystem path (not PEM) — keep plaintext; PEM stays on disk.
   'ai_api_key',
   'website_wc_key',
   'website_wc_secret',

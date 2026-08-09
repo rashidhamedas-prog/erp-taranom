@@ -1,6 +1,6 @@
 # Wave 1 Parallel — Living Plan
 
-Base: started from `35aa24e`; ORCH tip (integration) `0785648` → legacy-LIMIT fix pending push  
+Base: started from `35aa24e`; ORCH tip `7ef8c72` (legacy-LIMIT fix after `0785648`)  
 Started: 2026-08-09T04:45:00+03:30  
 Mode: Batch parallel (5 implementers + orchestrator)
 
@@ -8,7 +8,7 @@ Mode: Batch parallel (5 implementers + orchestrator)
 
 - 2026-08-09T04:45 — ORCH claimed; six worktrees created; active.yaml registered.
 - 2026-08-09T12:40 — Specialist MVPs pushed; ORCH merges + wiring; legacy listResponse compat; SMS 22, sync 44, drift 0; push `0785648`.
-- 2026-08-09T13:45 — Reviewer Changes requested (silent LIMIT 50); fixed via `listQueryPlan` — bare GET = full array, no SQL LIMIT; pagination tests 30/30, sync 44, SMS 22.
+- 2026-08-09T13:45 — Reviewer Changes requested (silent LIMIT 50); fixed via `listQueryPlan` — bare GET = full array, no SQL LIMIT; pagination 30/30, sync 44, SMS 22; push `7ef8c72`.
 
 ## Phases
 
@@ -35,7 +35,7 @@ Mode: Batch parallel (5 implementers + orchestrator)
 
 ## Outcomes & Retrospective
 
-- MVP Wave 1 integrated on `ai/W1-ORCH-wave1-integration` @ `0785648`; reviewer blocker (legacy LIMIT) fixed on same branch (commit after push).
+- MVP Wave 1 integrated on `ai/W1-ORCH-wave1-integration` @ `0785648`; reviewer blocker (legacy LIMIT) fixed @ `7ef8c72`.
 - Open: live Moadian, tax advisor, matrix UI, full retro payroll, merge into primary after re-review.
 
 ## Merge order into W1-ORCH

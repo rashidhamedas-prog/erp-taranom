@@ -43,7 +43,13 @@ function createSandboxAdapter(opts = {}) {
 
 function getAdapter(name, opts = {}) {
   const n = String(name || 'stub').toLowerCase();
-  if (n === 'sandbox' || n === 'live') return createSandboxAdapter(opts);
+  if (n === 'live') {
+    const err = new Error('آداپتر live مودیان هنوز پیاده‌سازی نشده — stub یا sandbox را انتخاب کنید');
+    err.code = 'MOADIAN_LIVE_UNAVAILABLE';
+    err.status = 501;
+    throw err;
+  }
+  if (n === 'sandbox') return createSandboxAdapter(opts);
   return createStubAdapter();
 }
 

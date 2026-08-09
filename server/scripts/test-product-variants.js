@@ -87,6 +87,16 @@ const b1 = db.prepare('SELECT stock FROM product_variants WHERE id=?').get(b.id)
 ok('SKU A stock increased', Number(a1.stock) === stockA0 + 5);
 ok('SKU B unchanged', Number(b1.stock) === stockB0);
 
+let matrixCap = false;
+try {
+  const manyColors = Array.from({ length: 26 }, (_, i) => ({ code: `X${i}`, name: `C${i}` }));
+  const manySizes = Array.from({ length: 20 }, (_, i) => ({ code: `Z${i}`, name: `S${i}` }));
+  generateMatrix(db, { product_id: productId, colors: manyColors, sizes: manySizes });
+} catch (e) {
+  matrixCap = e.code === 'VARIANT_MATRIX_TOO_LARGE' || (e.status === 400 && /500/.test(String(e.message)));
+}
+ok('matrix >500 rejected', matrixCap);
+
 db.close();
 try { fs.unlinkSync(dbPath); } catch (_) {}
 console.log(`\nResult: ${passed} passed, ${failed} failed`);

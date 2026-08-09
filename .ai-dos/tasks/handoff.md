@@ -1,6 +1,37 @@
-﻿# Handoff Log
+# Handoff Log
 
 Newest entries are added at the top. Never erase another agent's record.
+
+## 2026-08-09T15:15:00+03:30 - W1 ORCH tip merged into primary (pre-Iran deploy)
+
+- Worktree: `erp-taranom-w1-merge-primary` / branch `ai/W1-merge-primary-deploy`.
+- Base `ced58ef` + merge `aca247f` (W1 ORCH security remediations after `7ef8c72`).
+- Prefer primary W2/P3/P4; keep W1 SEC/pagination/moadian/variant fixes; SYNCABLE append-only.
+- Next: tests + push primary for Iran pull (deploy by other agent).
+
+## 2026-08-09T15:05:00+03:30 ΓÇö Security re-check: Approve with comments
+
+- [Security re-check SEC fixes](bb7a9718-bc4e-427b-9bc0-f3fb8aae96f3): **Approve with comments** ΓÇö no residual High in SEC-001..008 @ `dcb9b40`.
+- Follow-up: added regression asserts for key-path traversal + matrix >500; recorded in WAVE1-GATE-STATUS.
+- Non-blocking leftovers: sign `keyPathPresent` if ever serialized; auto-commit-deploy rule; android agent-log ingest for APK gate.
+
+## 2026-08-09T15:00:00+03:30 ΓÇö LIMIT blocker re-review: Approve
+
+- [LIMIT fix independent review](42283476-259e-4017-bb57-ceab1f1ccdf1): **Approve** ΓÇö bare GET catalogs no longer silent LIMIT 50 (`listQueryPlan` @ `7ef8c72`; test 30/0).
+- Bugbot path abandoned after repeated connection interrupts.
+
+## 2026-08-09T14:55:00+03:30 ΓÇö Bugbot LIMIT re-review unavailable; switched reviewer
+
+- [W1 re-review LIMIT fix](01d839d8-7b13-4e92-8317-6da44ecba85d) (and prior attempts) failed with connection interrupt.
+- Launched independent generalPurpose re-review of `listQueryPlan` / bare-GET full catalog instead of further Bugbot retries.
+
+## 2026-08-09T14:30:00+03:30 ΓÇö Security remediation SEC-001..008 (W1 gate)
+
+- [W1 security review F1/APP1](bbcb1881-1e63-4ce9-bd73-fa03a90102ac) ΓåÆ **Blocked**; ORCH reclaimed F1/APP1 surfaces for gate fix (recorded here).
+- High: centralOnlyStrict on moadian submit/correct; reject `live` adapter; void lock in `voidInvoiceFully`; decrypt/plaintext path via getSetting + drop path from SECRET keys; variant stock `centralOnly`.
+- Medium: moadian key path allowlist; matrix Γëñ500 SKUs; `sync_seq_backfill_v8` for variant tables.
+- Help + SW v145. Tests: moadian 11, variants 4, pagination 30, SMS 22, sync 44.
+- Iran deploy still blocked. Next: security re-check + LIMIT bugbot.
 
 ## 2026-08-09T14:20:00+03:30 — MERGE-ALL-DEPLOY reconciled with primary P4
 

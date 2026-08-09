@@ -1,13 +1,31 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, adminOrAccounting, centralOnly } = require('../middleware/auth');
-const { getPublicSettings, updateSettings } = require('../lib/secret-settings');
+const { auth, adminOnly, adminOrAccounting, centralOnly, centralOnlyStrict } = require('../middleware/auth');
+const { getPublicSettings, updateSettings, getSetting } = require('../lib/secret-settings');
+const { ENVELOPE_PREFIX, LEGACY_ENVELOPE_RE, decryptDetailed } = require('../services/crypto');
 const moadian = require('../lib/moadian');
 
 const MOADIAN_SETTING_KEYS = ['moadian_enabled', 'moadian_fiscal_id', 'moadian_private_key_path', 'moadian_adapter'];
 
 function enqueueMoadian(db, docType, docId) {
   return moadian.enqueueMoadian(db, docType, docId);
+}
+
+/** Path setting may still be legacy-encrypted from when it was classified as secret. */
+function readMoadianKeyPath(db) {
+  let value = getSetting(db, 'moadian_private_key_path') || '';
+  if (!value) return '';
+  const looksEncrypted = value.startsWith(ENVELOPE_PREFIX) || LEGACY_ENVELOPE_RE.test(value);
+  if (looksEncrypted) {
+    try {
+      value = decryptDetailed(value, 'setting:moadian_private_key_path').plaintext || '';
+      db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)')
+        .run('moadian_private_key_path', value);
+    } catch (_) {
+      return '';
+    }
+  }
+  return value;
 }
 
 router.get('/queue', auth, adminOrAccounting, (req, res) => {
@@ -40,7 +58,7 @@ router.get('/queue/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ success: true, data: row });
 });
 
-router.post('/queue/:id/submit', auth, adminOnly, async (req, res) => {
+router.post('/queue/:id/submit', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   try {
     const db = getDB();
     const row = db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(req.params.id);
@@ -58,17 +76,23 @@ router.post('/queue/:id/submit', auth, adminOnly, async (req, res) => {
       }
     }
 
-    const adapterSetting = db.prepare("SELECT value FROM settings WHERE key='moadian_adapter'").get()?.value || 'stub';
-    const fiscalId = db.prepare("SELECT value FROM settings WHERE key='moadian_fiscal_id'").get()?.value || '';
-    const keyPath = db.prepare("SELECT value FROM settings WHERE key='moadian_private_key_path'").get()?.value || '';
+    const adapterSetting = getSetting(db, 'moadian_adapter') || 'stub';
+    const fiscalId = getSetting(db, 'moadian_fiscal_id') || '';
+    const keyPath = readMoadianKeyPath(db);
     const invoiceType = parseInt(inv?.moadian_invoice_type || row.invoice_type, 10) || 1;
+
+    let adapter;
+    try {
+      adapter = moadian.getAdapter(adapterSetting, { fiscalId, privateKeyPath: keyPath });
+    } catch (e) {
+      return res.status(e.status || 501).json({ error: e.message, code: e.code || 'MOADIAN_ADAPTER' });
+    }
 
     const payload = moadian.buildSalesPayload(inv || { final: 0, rows: [] }, {
       fiscalId,
       invoiceType,
     });
     const signed = moadian.signPayload(payload, { privateKeyPath: keyPath || undefined });
-    const adapter = moadian.getAdapter(adapterSetting, { fiscalId, privateKeyPath: keyPath });
 
     let result;
     try {
@@ -83,9 +107,12 @@ router.post('/queue/:id/submit', auth, adminOnly, async (req, res) => {
       return res.status(422).json({ error: e.message, code: e.code || 'MOADIAN_SUBMIT_FAILED' });
     }
 
+    const usedAdapter = result.adapter || adapterSetting;
+    // Tax stamp is central-authority-only (this route is centralOnlyStrict).
+    // Stub/sandbox may stamp with explicit adapter; live is rejected above.
     moadian.markSent(db, row.id, result.taxId, result.response);
     db.prepare('UPDATE moadian_queue SET invoice_type=?, adapter=? WHERE id=?')
-      .run(invoiceType, result.adapter || adapterSetting, row.id);
+      .run(invoiceType, usedAdapter, row.id);
 
     if (inv) {
       db.prepare('UPDATE invoices SET moadian_tax_id=?, moadian_status=? WHERE id=?')
@@ -98,7 +125,7 @@ router.post('/queue/:id/submit', auth, adminOnly, async (req, res) => {
         tax_id: result.taxId,
         status: 'sent',
         invoice_type: invoiceType,
-        adapter: result.adapter || adapterSetting,
+        adapter: usedAdapter,
       },
     });
   } catch (e) {
@@ -106,7 +133,7 @@ router.post('/queue/:id/submit', auth, adminOnly, async (req, res) => {
   }
 });
 
-router.post('/queue/:id/correct', auth, adminOnly, (req, res) => {
+router.post('/queue/:id/correct', auth, adminOnly, centralOnlyStrict, (req, res) => {
   try {
     const db = getDB();
     const orig = db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(req.params.id);

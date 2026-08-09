@@ -113,7 +113,7 @@ function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
 
 /**
  * @returns {{ restoredToProforma: boolean, invoice: object, title: string, settlementsReversed: number }}
- * @throws Error with .status = 400/404
+ * @throws Error with .status = 400/404/422
  */
 function voidInvoiceFully(db, invId, user, opts = {}) {
   const id = typeof invId === 'object' ? invId.id : invId;
@@ -122,6 +122,14 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
     const err = new Error('یافت نشد');
     err.status = 404;
     throw err;
+  }
+  // Tax-stamped invoices must not reverse locally without Moadian cancel/correct flow.
+  try {
+    const { assertInvoiceEditableForMoadian } = require('./moadian/invoice-hooks');
+    assertInvoiceEditableForMoadian(row);
+  } catch (e) {
+    if (e && e.code === 'MOADIAN_LOCKED') throw e;
+    throw e;
   }
   if (row.status === 'reversed') {
     const err = new Error('این فاکتور قبلاً ابطال شده است');
