@@ -1,31 +1,24 @@
 schema_version: 1
 tasks:
   - id: "MERGE-ALL-DEPLOY"
-    title: "Merge W1 orch into primary and deploy full tip to Iran"
+    title: "Merge all waves/prod modules and deploy full tip to Iran"
     status: "claimed"
     risk: "high"
     owner: "cursor:implementer"
     branch: "ai/merge-all-deploy"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-merge-deploy"
     claimed_at: "2026-08-09T13:50:00+03:30"
-    heartbeat_at: "2026-08-09T13:50:00+03:30"
+    heartbeat_at: "2026-08-09T14:15:00+03:30"
     scope:
-      - "Merge origin/ai/W1-ORCH-wave1-integration into primary with W2+PROD-P3"
-      - "Preserve SYNCABLE_TABLES append order (bank_statement_lines before variants)"
-      - "Deploy Iran without blind wipe of untracked secrets"
+      - "Integrate W1 orch + W2 + PROD-P3/P4 on primary"
+      - "Deploy Iran without wiping untracked secrets"
     non_goals:
       - "No force-reset of VPS untracked encryption keys"
-      - "No live Moadian sandbox credentials"
     file_claims:
       - ".ai-dos/tasks/active.yaml"
       - ".ai-dos/tasks/handoff.md"
       - ".ai-dos/project/status.md"
       - "docs/CHANGE-LOG.md"
-      - "server/db.js"
-      - "server/sync/tables.js"
-      - "server/routes/payroll.js"
-      - "server/public/app.js"
     acceptance_criteria:
-      - "Primary contains W1+W2+PROD-P3"
       - "Iran HEAD matches primary tip; health/ready 200"
-    notes: "Conflict resolution in progress."
+    notes: "Resolving docs conflicts with latest primary P4 tip."

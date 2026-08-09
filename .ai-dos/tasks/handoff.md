@@ -2,54 +2,51 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
-<<<<<<< HEAD
-## 2026-08-09T14:00:00+03:30 — MERGE-ALL-DEPLOY: W1 orch into primary (in progress)
+## 2026-08-09T14:20:00+03:30 — MERGE-ALL-DEPLOY reconciled with primary P4
 
-- Merging `origin/ai/W1-ORCH-wave1-integration` onto primary (already has W2 + PROD-P3).
+- Merged latest `origin/claude/claude-md-docs-2ssrpy` (PROD-P4 + prior) into `ai/merge-all-deploy` (already has W1 orch + W2 + P3).
+- Sync append order: `bank_statement_lines` then product variants + `sync_seq_backfill_v8`.
+- Next: push primary tip and Iran deploy (stash tracked-only; keep untracked secrets).
+
+## 2026-08-09T14:05:00+03:30 — PROD-P4 merge to primary + Iran deploy
+
+- Merging `origin/ai/PROD-P4-overhead-labor` into primary (`claude/claude-md-docs-2ssrpy`).
+- Code: `overhead.js`, `labor.js`, `production-cost-centers.js`, `test-production-overhead-labor.js` (38/38).
+
+## 2026-08-09T14:00:00+03:30 — MERGE-ALL-DEPLOY: W1 orch into primary
+
+- Merged `origin/ai/W1-ORCH-wave1-integration` onto primary stack.
 - Sync append order preserved: `bank_statement_lines` then product variant tables; `sync_seq_backfill_v8` added.
-- Next: commit merge, push primary, Iran deploy.
 
 ## 2026-08-09T13:50:00+03:30 — Reviewer blocker: legacy list LIMIT fixed
 
-- [W1 code review ORCH](5c2367f2-979c-4c67-96ef-caaa79422d5a) → **Changes requested**: bare GET still SQL `LIMIT 50`.
-- Fix: `listQueryPlan` in `server/lib/pagination.js`; all seven list routes omit LIMIT unless pagination query present.
-- Tests re-run on ORCH worktree: pagination 30/30, sync 44/44, SMS 22/22, moadian 10, payroll 6, variants 4.
-- Iran deploy still blocked at that time. Next: push fix + delta re-review only.
-=======
+- [W1 code review ORCH](5c2367f2-979c-4c67-96ef-caaa79422d5a) → bare GET LIMIT fixed via `listQueryPlan`.
+
 ## 2026-08-09T13:50:00+03:30 — PROD-P3 finalize complete
 
-- Merged primary into `ai/PROD-P3-variable-analysis` @ `fefedda`; FF-pushed to `claude/claude-md-docs-2ssrpy`.
+- Merged primary into `ai/PROD-P3-variable-analysis` @ `fefedda`.
 - Tests: `test-production-variable.js` 27/27 PASS; SW v144.
-- Deploy Iran: targeted SFTP (`scripts/_deploy-prod-p3-sftp.py`) — health 200, ready 200, VARIANCE=YES; pm2 restart without `--update-env`.
-- Claims released; task completed.
->>>>>>> origin/claude/claude-md-docs-2ssrpy
+- Deploy Iran: targeted SFTP — health 200, ready 200.
 
 ## 2026-08-09T13:20:00+03:30 — PROD-P3 finalize (merge primary + deploy)
 
 - Merged `origin/claude/claude-md-docs-2ssrpy` into `ai/PROD-P3-variable-analysis`.
-- Tests: `test-production-variable.js` 27/27 PASS; SW v144.
-- Deploy: targeted SFTP (no blind VPS pull).
 
 ## 2026-08-09T12:40:00+03:30 — Wave 1 parallel MVP merged into ORCH
 
-- Specialist branches pushed: PAGE `8b40e4e`, F1 `01f2eef`, HR1 `b79f0cc`, APP1 `a5ebed3`, E2E `8a5c694`.
-- ORCH merges complete on `ai/W1-ORCH-wave1-integration`; wired `db.js` (variants+moadian columns+backfill v7), `server.js` mount, invoices lock+pagination, products pagination, Help, SW v144.
-- Remaining: tax advisor sign-off, Iran deploy of full merged tip.
+- Specialist branches: PAGE/F1/HR1/APP1/E2E; ORCH on `ai/W1-ORCH-wave1-integration`.
 
 ## 2026-08-09T05:35:00+03:30 — W2-ORCH: six MVP slices merged
 
-- Task / owner: `W2-ORCH` / `cursor:implementer`
-- Branch tip: `d411f0e` on `ai/W2-ORCH-wave2`
-- Deploy: ✅ Iran production at `b4b653b` (2026-08-09); health/ready/root 200; tracked dirty stashed as `w2-pre-deploy-tracked`
-- Residual gaps: full Wave-2 exit gate; HR CSV draft; B2B consume-on-invoice; bank 1:N matching
+- Deploy: ✅ Iran at `b4b653b`; health/ready/root 200.
 
 ## 2026-08-09T04:55:00+03:30 — W2-ORCH claimed; P1 work by this owner abandoned
 
-- Owner clarified session ownership for Wave 2; W1 worktrees of other agents left untouched.
+- W1 worktrees of other agents left untouched.
 
 ## 2026-08-09T04:45:00+03:30 — Wave 1 parallel claimed (W1-ORCH + five specialists)
 
-- Six tasks claimed; worktrees from `origin/claude/claude-md-docs-2ssrpy` @ `35aa24e`.
+- Six tasks claimed from `35aa24e`.
 
 ## 2026-08-09T05:00:00+03:30 — W0-OPS-002 completed under permanent owner waiver
 
