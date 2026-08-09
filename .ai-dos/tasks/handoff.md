@@ -2,6 +2,7 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+<<<<<<< HEAD
 ## 2026-08-09T14:00:00+03:30 — MERGE-ALL-DEPLOY: W1 orch into primary (in progress)
 
 - Merging `origin/ai/W1-ORCH-wave1-integration` onto primary (already has W2 + PROD-P3).
@@ -14,6 +15,14 @@ Newest entries are added at the top. Never erase another agent's record.
 - Fix: `listQueryPlan` in `server/lib/pagination.js`; all seven list routes omit LIMIT unless pagination query present.
 - Tests re-run on ORCH worktree: pagination 30/30, sync 44/44, SMS 22/22, moadian 10, payroll 6, variants 4.
 - Iran deploy still blocked at that time. Next: push fix + delta re-review only.
+=======
+## 2026-08-09T13:50:00+03:30 — PROD-P3 finalize complete
+
+- Merged primary into `ai/PROD-P3-variable-analysis` @ `fefedda`; FF-pushed to `claude/claude-md-docs-2ssrpy`.
+- Tests: `test-production-variable.js` 27/27 PASS; SW v144.
+- Deploy Iran: targeted SFTP (`scripts/_deploy-prod-p3-sftp.py`) — health 200, ready 200, VARIANCE=YES; pm2 restart without `--update-env`.
+- Claims released; task completed.
+>>>>>>> origin/claude/claude-md-docs-2ssrpy
 
 ## 2026-08-09T13:20:00+03:30 — PROD-P3 finalize (merge primary + deploy)
 
