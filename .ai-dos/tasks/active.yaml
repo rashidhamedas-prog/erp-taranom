@@ -1,2 +1,97 @@
 schema_version: 1
-tasks: []
+tasks:
+  - id: "PROD-P3"
+    title: "Orchestrate Production Module P3 — variable analysis + ADR-011"
+    status: "claimed"
+    risk: "high"
+    owner: "cursor:orchestrator"
+    roles:
+      orchestrator: "cursor:orchestrator"
+      architect: "cursor:architect"
+      implementer: "cursor:implementer"
+      reviewer: "cursor:reviewer"
+      security: "cursor:security"
+    branch: "ai/PROD-P3-variable-analysis"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3"
+    claimed_at: "2026-08-09T04:43:00+03:30"
+    heartbeat_at: "2026-08-09T04:56:00+03:30"
+    scope:
+      - "Split P3 across parallel sub-tasks with non-overlapping file claims."
+      - "Integrate and verify T3-01..T3-24 after parallel agents finish."
+    non_goals:
+      - "No variable_adv / module 8."
+      - "No Waves 1-4."
+      - "No full APK/EXE builds."
+      - "No blind VPS git pull/reset."
+    file_claims:
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+      - "docs/CHANGE-LOG.md"
+    notes: "Parallel sub-tasks: PROD-P3-A engine, PROD-P3-B routes, PROD-P3-C UI, PROD-P3-D tests."
+
+  - id: "PROD-P3-A"
+    title: "P3 engine + variance helpers"
+    status: "claimed"
+    risk: "high"
+    owner: "cursor:agent-engine"
+    branch: "ai/PROD-P3-variable-analysis"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3"
+    claimed_at: "2026-08-09T04:56:00+03:30"
+    heartbeat_at: "2026-08-09T04:56:00+03:30"
+    file_claims:
+      - "server/lib/production/variance.js"
+      - "server/lib/production/engine.js"
+      - "server/lib/production/costing.js"
+    acceptance_criteria:
+      - "variance.js exports computeVariance, insertVarianceMemo, varianceAnalysis, checkBomRevisionSuggestion, listBomRevisionSuggestions, varianceTrend, varianceReasonThreshold."
+      - "engine: previewMaterialIssue, postMaterialReturn, updateOrderAnalysis lock E_ANALYSIS_LOCKED, W_ITEM_NOT_IN_BOM, recalcAvgOnReturn on returns, unit_cost golden 2299697."
+
+  - id: "PROD-P3-B"
+    title: "P3 routes + report endpoints"
+    status: "claimed"
+    risk: "medium"
+    owner: "cursor:agent-routes"
+    branch: "ai/PROD-P3-variable-analysis"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3"
+    claimed_at: "2026-08-09T04:56:00+03:30"
+    heartbeat_at: "2026-08-09T04:56:00+03:30"
+    file_claims:
+      - "server/routes/production-orders.js"
+      - "server/routes/production-reports.js"
+      - "server/lib/production/reports.js"
+    acceptance_criteria:
+      - "GET issues, POST return, GET variance-analysis, PUT analysis lock, stripCostFields on issue."
+      - "GET bom-revision-suggestions + variance-trend wired."
+
+  - id: "PROD-P3-C"
+    title: "P3 UI issue modal + in-app Help"
+    status: "claimed"
+    risk: "medium"
+    owner: "cursor:agent-ui"
+    branch: "ai/PROD-P3-variable-analysis"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3"
+    claimed_at: "2026-08-09T04:56:00+03:30"
+    heartbeat_at: "2026-08-09T04:56:00+03:30"
+    file_claims:
+      - "server/public/app.js"
+      - "server/public/prod-ui.js"
+      - "server/public/index.html"
+    acceptance_criteria:
+      - "Issue modal shows live amount/summary variance, favorable colors, operator cost hide."
+      - "Help (renderAdminGuide/renderSalesGuide) mentions variable issue/return/ADR-011."
+
+  - id: "PROD-P3-D"
+    title: "P3 expand T3-01..T3-24 tests"
+    status: "claimed"
+    risk: "medium"
+    owner: "cursor:agent-tests"
+    branch: "ai/PROD-P3-variable-analysis"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3"
+    claimed_at: "2026-08-09T04:56:00+03:30"
+    heartbeat_at: "2026-08-09T04:56:00+03:30"
+    file_claims:
+      - "server/scripts/test-production-variable.js"
+    acceptance_criteria:
+      - "Covers T3-01..T3-24 per docs/Production/03-variable-analysis.md §18."
+      - "JWT_SECRET set in harness to silence pricing_rules warning."

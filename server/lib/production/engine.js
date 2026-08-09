@@ -8,10 +8,17 @@ const { assertFiscalYearWritable } = require('../fiscal-period');
 const { acct } = require('../coa-map');
 const { explodeBom, resolveBom } = require('./bom');
 const { dr, cr, plug, postEvent, reverseEvent, err } = require('./posting');
-const { issueFromStock, updateMovingAverage, receiveScrap, restoreStock, setting } = require('./costing');
+const {
+  issueFromStock, updateMovingAverage, receiveScrap, restoreStock, recalcAvgOnReturn, setting,
+} = require('./costing');
 const { applyOverhead } = require('./overhead');
 const { sumLabor, autoPostLabor } = require('./labor');
 const { classifyWaste, normalWastePct } = require('./waste');
+const variance = require('./variance');
+const {
+  computeVariance, insertVarianceMemo, varianceReasonThreshold, varianceAnalysis,
+  checkBomRevisionSuggestion, standardMapFromBom, round6,
+} = variance;
 
 function num(v) { return Number(v) || 0; }
 
@@ -917,21 +924,6 @@ function reverseOrder(db, orderId, userId, reason = '') {
   })();
 }
 
-function round6(n) {
-  return Math.round(Number(n) * 1e6) / 1e6;
-}
-
-function insertVarianceMemo(db, { period, orderId, productId, type, rial }) {
-  if (!rial) return;
-  try {
-    db.prepare(`
-      INSERT INTO production_variances
-        (period_label, order_id, product_id, variance_type, amount_rial, status)
-      VALUES (?,?,?,?,?,'memo')
-    `).run(period, orderId, productId, type, Math.round(rial));
-  } catch { /* schema may vary */ }
-}
-
 function issueTemplate(db, { orderId, qtyStarted }) {
   const po = getOrder(db, orderId);
   const qty = num(qtyStarted) || num(po.qty_planned);
@@ -982,26 +974,12 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
     if (!fy.ok) throw err('E_PERIOD_CLOSED', 409, { detail: fy.error });
 
     const qtyStarted = num(body.qty_started) || num(po.qty_planned);
-    const threshold = Number(setting(db, 'production_variance_reason_pct', '5')) || 5;
+    const threshold = varianceReasonThreshold(db);
     const materials = body.materials || body.lines || [];
     if (!materials.length) throw err('E_QTY_INVALID', 422);
 
     // Standard map from BOM explode
-    const ex = explodeBom(db, {
-      bomId: po.bom_id,
-      qty: qtyStarted,
-      sizeBreakdown: safeJson(po.size_breakdown),
-      priceBasis: 'std',
-    });
-    const std = {};
-    for (const L of ex.lines) {
-      std[L.product_id] = {
-        qty: L.qty_final,
-        price: L.unit_cost_rial,
-        kind: L.line_kind,
-        bom_line_id: L.bom_line_id,
-      };
-    }
+    const { std } = standardMapFromBom(db, po, qtyStarted);
 
     let issueNo;
     try { issueNo = allocateNumber(db, 'material_issue', 'MI'); }
@@ -1027,26 +1005,40 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
         SP = AP;
         warnings.push(`نرخ استاندارد «${prod.name}» تعریف نشده — از نرخ واقعی استفاده شد`);
       }
-      if (!s) warnings.push(`«${prod.name}» در فرمول نیست — کل مصرف انحراف محسوب می‌شود`);
+      if (!s) {
+        warnings.push({
+          code: 'W_ITEM_NOT_IN_BOM',
+          product_id: L.product_id,
+          message: `«${prod.name}» در فرمول نیست — کل مصرف انحراف محسوب می‌شود`,
+        });
+      }
 
       let unitCost = AP;
       if (AQ < 0) {
-        const orig = db.prepare(`
-          SELECT unit_cost_rial, COALESCE(SUM(qty_actual),0) tot
+        const totRow = db.prepare(`
+          SELECT COALESCE(SUM(qty_actual),0) tot
           FROM production_material_issues
           WHERE order_id=? AND product_id=? AND status='posted'
         `).get(orderId, L.product_id);
-        if (!orig || orig.tot <= 0) throw err('E_RETURN_WITHOUT_ISSUE', 422, { name: prod.name });
-        if (Math.abs(AQ) > orig.tot + 1e-9) {
-          throw err('E_RETURN_EXCEEDS_ISSUE', 422, { r: Math.abs(AQ), i: orig.tot });
+        const origRate = db.prepare(`
+          SELECT unit_cost_rial FROM production_material_issues
+          WHERE order_id=? AND product_id=? AND status='posted' AND qty_actual > 0
+          ORDER BY id ASC LIMIT 1
+        `).get(orderId, L.product_id);
+        if (!totRow || totRow.tot <= 0 || !origRate) {
+          throw err('E_RETURN_WITHOUT_ISSUE', 422, { name: prod.name });
         }
-        unitCost = Math.round(Number(orig.unit_cost_rial) || AP);
+        if (Math.abs(AQ) > totRow.tot + 1e-9) {
+          throw err('E_RETURN_EXCEEDS_ISSUE', 422, { r: Math.abs(AQ), i: totRow.tot });
+        }
+        unitCost = Math.round(Number(origRate.unit_cost_rial) || AP);
       }
 
-      const varQty = round6(AQ - SQ);
-      const varPRial = Math.round((unitCost - SP) * AQ);
-      const varQRial = Math.round(varQty * SP);
-      const pct = SQ ? (varQty / SQ) * 100 : (AQ > 0 ? 100 : 0);
+      const v = computeVariance({ AQ, SQ, AP: unitCost, SP });
+      const varQty = v.qty_variance;
+      const varPRial = v.varPrice;
+      const varQRial = v.varQty;
+      const pct = v.pct;
 
       if (Math.abs(pct) > threshold && !L.reason && AQ > 0) {
         throw err('E_VARIANCE_NEEDS_REASON', 422, { name: prod.name, pct: pct.toFixed(1) });
@@ -1059,8 +1051,9 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
           note: `حواله ${issueNo}`,
         });
       } else if (AQ < 0) {
-        restoreStock(db, {
-          productId: L.product_id, warehouseId: whId, qty: -AQ, userId,
+        recalcAvgOnReturn(db, {
+          productId: L.product_id, warehouseId: whId, qty: -AQ,
+          unitCostRial: unitCost, userId,
           note: `برگشت ${issueNo}`,
         });
       }
@@ -1221,10 +1214,10 @@ function postReceiptVariable(db, { orderId, body, userId }) {
       }
     }
 
-    // R7: variable OH uses actual material
+    // R7: variable OH uses actual material (material + packaging)
     const oh = applyOverhead(db, {
       po, qtyStarted, laborRial,
-      matRial: matActual,
+      matRial: matActual + pkgActual,
       date, period, userId,
     });
     if (oh.amount_rial) {
@@ -1436,6 +1429,149 @@ function getOrderDetail(db, orderId) {
   };
 }
 
+function listIssues(db, orderId) {
+  getOrder(db, orderId);
+  return db.prepare(`
+    SELECT mi.*, p.name AS product_name
+    FROM production_material_issues mi
+    LEFT JOIN products p ON p.id = mi.product_id
+    WHERE mi.order_id=?
+    ORDER BY mi.id
+  `).all(orderId);
+}
+
+/** Dry-run material issue — same math, no stock/JE writes. */
+function previewMaterialIssue(db, { orderId, body }) {
+  const po = getOrder(db, orderId);
+  if (po.analysis_type !== 'variable') throw err('E_WRONG_ANALYSIS', 409);
+  const qtyStarted = num(body?.qty_started) || num(po.qty_planned);
+  const threshold = varianceReasonThreshold(db);
+  const materials = body?.materials || body?.lines || [];
+  if (!materials.length) throw err('E_QTY_INVALID', 422);
+  const { std } = standardMapFromBom(db, po, qtyStarted);
+  const warnings = [];
+  const out = [];
+  let matRial = 0; let pkgRial = 0; let varP = 0; let varQ = 0;
+
+  for (const L of materials) {
+    const AQ = num(L.qty_actual != null ? L.qty_actual : L.qty);
+    const prod = db.prepare('SELECT * FROM products WHERE id=?').get(L.product_id);
+    if (!prod) throw err('E_NOT_FOUND', 404, { productId: L.product_id });
+    const s = std[L.product_id] || (L.substitute_of_product_id ? std[L.substitute_of_product_id] : null);
+    const SQ = s?.qty ?? 0;
+    let SP = s?.price ?? 0;
+    const AP = Math.round(Number(prod.average_cost_rial) || 0);
+    if (!SP) {
+      SP = AP;
+      warnings.push(`نرخ استاندارد «${prod.name}» تعریف نشده — از نرخ واقعی استفاده شد`);
+    }
+    if (!s) {
+      warnings.push({
+        code: 'W_ITEM_NOT_IN_BOM',
+        product_id: L.product_id,
+        message: `«${prod.name}» در فرمول نیست — کل مصرف انحراف محسوب می‌شود`,
+      });
+    }
+    let unitCost = AP;
+    if (AQ < 0) {
+      const orig = db.prepare(`
+        SELECT unit_cost_rial, COALESCE(SUM(qty_actual),0) tot
+        FROM production_material_issues
+        WHERE order_id=? AND product_id=? AND status='posted'
+      `).get(orderId, L.product_id);
+      if (!orig || orig.tot <= 0) throw err('E_RETURN_WITHOUT_ISSUE', 422, { name: prod.name });
+      if (Math.abs(AQ) > orig.tot + 1e-9) {
+        throw err('E_RETURN_EXCEEDS_ISSUE', 422, { r: Math.abs(AQ), i: orig.tot });
+      }
+      unitCost = Math.round(Number(orig.unit_cost_rial) || AP);
+    }
+    const v = computeVariance({ AQ, SQ, AP: unitCost, SP });
+    const amount = Math.round(AQ * unitCost);
+    const kind = s?.kind || (prod.item_type === 'packaging' ? 'packaging' : 'material');
+    if (kind === 'packaging') pkgRial += amount; else matRial += amount;
+    varP += v.varPrice;
+    varQ += v.varQty;
+    out.push({
+      product_id: L.product_id, name: prod.name,
+      qty_standard: SQ, qty_actual: AQ, qty_variance: v.qty_variance,
+      std_cost_rial: SP, unit_cost_rial: unitCost,
+      std_amount_rial: Math.round(SQ * SP), amount_rial: amount,
+      var_price_rial: v.varPrice, var_qty_rial: v.varQty,
+      var_total_rial: v.varTotal, pct: v.pct,
+      needs_reason: Math.abs(v.pct) > threshold && AQ > 0,
+    });
+  }
+
+  return {
+    ok: true,
+    preview: true,
+    order_id: orderId,
+    qty_started: qtyStarted,
+    threshold_pct: threshold,
+    lines: out,
+    totals: {
+      material_rial: matRial,
+      packaging_rial: pkgRial,
+      total_rial: matRial + pkgRial,
+      std_total_rial: out.reduce((s, l) => s + l.std_amount_rial, 0),
+      var_price_rial: varP,
+      var_qty_rial: varQ,
+      var_total_rial: varP + varQ,
+    },
+    warnings,
+    note: 'پیش‌نمایش — بدون ثبت انبار/سند (ADR-011)',
+  };
+}
+
+function postMaterialReturn(db, { orderId, body, userId }) {
+  const materials = (body?.materials || body?.lines || []).map((L) => {
+    const q = num(L.qty_actual != null ? L.qty_actual : L.qty);
+    return { ...L, qty_actual: q > 0 ? -q : q };
+  });
+  if (!materials.length) throw err('E_QTY_INVALID', 422);
+  return issueMaterialsVariable(db, {
+    orderId,
+    body: { ...body, materials, lines: materials },
+    userId,
+  });
+}
+
+/**
+ * Update order fields. Changing analysis_type after posted issues → E_ANALYSIS_LOCKED.
+ */
+function updateOrder(db, orderId, body = {}) {
+  const po = getOrder(db, orderId);
+  if (body.analysis_type != null && String(body.analysis_type) !== String(po.analysis_type)) {
+    const hasIssue = db.prepare(`
+      SELECT 1 FROM production_material_issues
+      WHERE order_id=? AND status='posted' LIMIT 1
+    `).get(orderId);
+    if (hasIssue) throw err('E_ANALYSIS_LOCKED', 409);
+  }
+  const fields = [];
+  const params = [];
+  const allow = {
+    analysis_type: 'analysis_type',
+    note: 'note',
+    priority: 'priority',
+    warehouse_raw_id: 'warehouse_raw_id',
+    warehouse_fg_id: 'warehouse_fg_id',
+    cost_center_id: 'cost_center_id',
+  };
+  for (const [k, col] of Object.entries(allow)) {
+    if (body[k] !== undefined) {
+      fields.push(`${col}=?`);
+      params.push(body[k]);
+    }
+  }
+  if (!fields.length) return getOrderDetail(db, orderId);
+  params.push(orderId);
+  db.prepare(`
+    UPDATE production_orders SET ${fields.join(', ')}, updated_at=strftime('%s','now') WHERE id=?
+  `).run(...params);
+  return getOrderDetail(db, orderId);
+}
+
 module.exports = {
   createOrder,
   releaseOrder,
@@ -1447,6 +1583,10 @@ module.exports = {
   postReceiptVariable,
   issueMaterialsVariable,
   issueTemplate,
+  previewMaterialIssue,
+  postMaterialReturn,
+  updateOrder,
+  listIssues,
   reverseOrder,
   wipResidual,
   listOrders,
@@ -1454,5 +1594,7 @@ module.exports = {
   jalaliPeriod,
   ledgerBalance,
   checkCostDeviation,
+  varianceAnalysis,
+  checkBomRevisionSuggestion,
   recomputeOrderTotals: (db, orderId) => wipResidual(db, orderId),
 };

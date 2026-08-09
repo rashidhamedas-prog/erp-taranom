@@ -164,6 +164,32 @@ router.get('/material-variance', auth, requirePermission('production_reports', '
   runNamed(req, res, 'PR-12');
 });
 
+router.get('/bom-revision-suggestions', auth, requirePermission('production_reports', 'view'), (req, res) => {
+  try {
+    const { listBomRevisionSuggestions } = require('../lib/production/variance');
+    const data = listBomRevisionSuggestions(getDB(), {
+      productId: req.query.product_id ? Number(req.query.product_id) : null,
+      limit: req.query.limit,
+    });
+    res.json(data);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
+  }
+});
+
+router.get('/variance-trend', auth, requirePermission('production_reports', 'view'), (req, res) => {
+  try {
+    const { varianceTrend } = require('../lib/production/variance');
+    const data = varianceTrend(getDB(), {
+      productId: req.query.product_id ? Number(req.query.product_id) : null,
+      periods: req.query.periods,
+    });
+    res.json(data);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
+  }
+});
+
 router.get('/variance-reasons', auth, requirePermission('production_reports', 'view'), (req, res) => {
   runNamed(req, res, 'PR-13');
 });

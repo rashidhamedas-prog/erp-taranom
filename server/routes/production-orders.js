@@ -3,6 +3,8 @@ const router = require('express').Router();
 const { getDB } = require('../db');
 const { auth, requirePermission } = require('../middleware/auth');
 const engine = require('../lib/production/engine');
+const { varianceAnalysis } = require('../lib/production/variance');
+const { canSeeCost, stripCostFields, applyCostPolicy } = require('../lib/production/access');
 
 function handle(res, fn) {
   try {
@@ -26,7 +28,8 @@ function withIdempotency(req, res, endpoint, fn) {
     }
   }
   try {
-    const data = fn();
+    let data = fn();
+    if (!canSeeCost(db, req.user)) data = stripCostFields(data);
     if (key) {
       try {
         db.prepare(`
@@ -68,24 +71,65 @@ router.post('/', auth, requirePermission('production', 'create'), (req, res) => 
   }
 });
 
-router.get('/:id', auth, requirePermission('production', 'view'), (req, res) => {
-  handle(res, () => engine.getOrderDetail(getDB(), Number(req.params.id)));
+router.get('/:id/issue-template', auth, requirePermission('production', 'view'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const data = engine.issueTemplate(db, {
+      orderId: Number(req.params.id),
+      qtyStarted: req.query.qty_started,
+    });
+    return applyCostPolicy(db, req.user, data);
+  });
 });
 
-router.post('/:id/release', auth, requirePermission('production', 'edit'), (req, res) => {
-  handle(res, () => engine.releaseOrder(getDB(), Number(req.params.id), req.user.id));
+router.get('/:id/issue-preview', auth, requirePermission('production', 'view'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const data = engine.previewMaterialIssue(db, {
+      orderId: Number(req.params.id),
+      body: req.body || {
+        qty_started: req.query.qty_started,
+        materials: req.query.materials ? JSON.parse(req.query.materials) : undefined,
+      },
+    });
+    return applyCostPolicy(db, req.user, data);
+  });
 });
 
-router.post('/:id/cancel', auth, requirePermission('production', 'edit'), (req, res) => {
-  handle(res, () => engine.cancelOrder(getDB(), Number(req.params.id), req.user.id, req.body?.reason));
+router.post('/:id/issue', auth, requirePermission('production', 'create'), (req, res) => {
+  withIdempotency(req, res, 'issue', () =>
+    engine.issueMaterialsVariable(getDB(), {
+      orderId: Number(req.params.id),
+      body: req.body || {},
+      userId: req.user.id,
+    })
+  );
 });
 
-router.post('/:id/close', auth, requirePermission('production_close', 'edit'), (req, res) => {
-  handle(res, () => engine.closeOrder(getDB(), Number(req.params.id), req.user.id));
+router.post('/:id/return', auth, requirePermission('production', 'create'), (req, res) => {
+  withIdempotency(req, res, 'return', () =>
+    engine.postMaterialReturn(getDB(), {
+      orderId: Number(req.params.id),
+      body: req.body || {},
+      userId: req.user.id,
+    })
+  );
 });
 
-router.post('/:id/reopen', auth, requirePermission('production_close', 'edit'), (req, res) => {
-  handle(res, () => engine.reopenOrder(getDB(), Number(req.params.id), req.user.id));
+router.get('/:id/issues', auth, requirePermission('production', 'view'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const rows = engine.listIssues(db, Number(req.params.id));
+    return applyCostPolicy(db, req.user, { order_id: Number(req.params.id), rows });
+  });
+});
+
+router.get('/:id/variance-analysis', auth, requirePermission('production', 'view'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const data = varianceAnalysis(db, Number(req.params.id));
+    return applyCostPolicy(db, req.user, data);
+  });
 });
 
 router.get('/:id/preview', auth, requirePermission('production', 'view'), (req, res) => {
@@ -117,21 +161,20 @@ router.post('/:id/receipt', auth, requirePermission('production', 'create'), (re
   });
 });
 
-router.get('/:id/issue-template', auth, requirePermission('production', 'view'), (req, res) => {
-  handle(res, () => engine.issueTemplate(getDB(), {
-    orderId: Number(req.params.id),
-    qtyStarted: req.query.qty_started,
-  }));
+router.post('/:id/release', auth, requirePermission('production', 'edit'), (req, res) => {
+  handle(res, () => engine.releaseOrder(getDB(), Number(req.params.id), req.user.id));
 });
 
-router.post('/:id/issue', auth, requirePermission('production', 'create'), (req, res) => {
-  withIdempotency(req, res, 'issue', () =>
-    engine.issueMaterialsVariable(getDB(), {
-      orderId: Number(req.params.id),
-      body: req.body || {},
-      userId: req.user.id,
-    })
-  );
+router.post('/:id/cancel', auth, requirePermission('production', 'edit'), (req, res) => {
+  handle(res, () => engine.cancelOrder(getDB(), Number(req.params.id), req.user.id, req.body?.reason));
+});
+
+router.post('/:id/close', auth, requirePermission('production_close', 'edit'), (req, res) => {
+  handle(res, () => engine.closeOrder(getDB(), Number(req.params.id), req.user.id));
+});
+
+router.post('/:id/reopen', auth, requirePermission('production_close', 'edit'), (req, res) => {
+  handle(res, () => engine.reopenOrder(getDB(), Number(req.params.id), req.user.id));
 });
 
 router.post('/:id/reverse', auth, requirePermission('production', 'delete'), (req, res) => {
@@ -145,6 +188,17 @@ router.get('/:id/wip', auth, requirePermission('production', 'view'), (req, res)
     order_id: Number(req.params.id),
     wip_residual_rial: engine.wipResidual(getDB(), Number(req.params.id)),
   }));
+});
+
+router.put('/:id', auth, requirePermission('production', 'edit'), (req, res) => {
+  handle(res, () => engine.updateOrder(getDB(), Number(req.params.id), req.body || {}));
+});
+
+router.get('/:id', auth, requirePermission('production', 'view'), (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    return applyCostPolicy(db, req.user, engine.getOrderDetail(db, Number(req.params.id)));
+  });
 });
 
 module.exports = router;

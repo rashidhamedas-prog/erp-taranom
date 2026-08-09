@@ -8629,19 +8629,25 @@ async function prodOrderIssueModal(id){
   try{ tpl=await api('GET','/production/orders/'+id+'/issue-template'); }
   catch(e){ showToast(e.message||'خطا در دریافت الگو','error'); return; }
   const lines=tpl.lines||[];
+  const seeCost=!(window.ProdUI) || window.ProdUI.canSeeCost();
   showModal('حواله مواد — آنالیز متغیر',`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}"><div class="fg"><label>تاریخ</label><input id="pim-date" value="${todayJalali()}"></div></div>
+    <div id="pim-summary" class="prod-issue-summary" data-csp-style="${CSP.style(`display:${seeCost?'flex':'none'};gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px`)}"></div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>کالا</th><th>استاندارد</th><th>واقعی</th><th>انحراف٪</th><th>دلیل (در صورت انحراف زیاد)</th>
+      <th>کالا</th><th>استاندارد</th><th>واقعی</th><th>انحراف٪</th>
+      ${seeCost?'<th>انحراف نرخ</th><th>انحراف مقدار</th><th>جمع انحراف</th>':''}
+      <th>دلیل (در صورت انحراف زیاد)</th>
     </tr></thead><tbody id="pim-rows">
       ${lines.map((L,i)=>`<tr data-idx="${i}" data-pid="${L.product_id}" data-sq="${L.qty_standard}" data-sp="${L.std_cost_rial}" data-ap="${L.average_cost_rial}">
         <td>${esc(L.name||('#'+L.product_id))}</td>
         <td class="num">${L.qty_standard}</td>
         <td><input class="pim-qty-actual" type="number" step="0.001" value="${L.qty_actual}" data-csp-style="${CSP.style(`width:90px`)}" data-csp-input="${CSP.bind('input',function(event){prodIssueRecalc((i))})}"></td>
         <td class="num pim-pct" id="pim-pct-${i}">۰٪</td>
+        ${seeCost?`<td class="num" id="pim-vp-${i}">۰</td><td class="num" id="pim-vq-${i}">۰</td><td class="num" id="pim-vt-${i}">۰</td>`:''}
         <td><input class="pim-reason" id="pim-reason-${i}" placeholder="دلیل انحراف" data-csp-style="${CSP.style(`width:140px`)}"></td>
-      </tr>`).join('')||`<tr><td colspan="5" data-csp-style="${CSP.style(`text-align:center`)}">فرمولی برای این سفارش نیست</td></tr>`}
+      </tr>`).join('')||`<tr><td colspan="${seeCost?8:5}" data-csp-style="${CSP.style(`text-align:center`)}">فرمولی برای این سفارش نیست</td></tr>`}
     </tbody></table></div>
+    <p data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:8px`)}">ℹ️ انحراف مواد اطلاعاتی است و سند حسابداری ندارد (ADR-011).</p>
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
       <button class="btn" id="pim-btn-submit" data-csp-click="${CSP.bind('click',function(event){prodOrderIssueSave((id))})}">ثبت حواله</button>
@@ -8653,9 +8659,15 @@ function prodIssueRecalc(i){
   if(!row) return;
   const SQ=+row.dataset.sq||0, SP=+row.dataset.sp||0, AP=+row.dataset.ap||0;
   const AQ=+row.querySelector('.pim-qty-actual').value||0;
-  const v=window.ProdUI?window.ProdUI.calcVariance(AQ,SQ,AP,SP):{pct:SQ?((AQ-SQ)/SQ*100):(AQ>0?100:0)};
+  const v=window.ProdUI?window.ProdUI.calcVariance(AQ,SQ,AP,SP):{pct:SQ?((AQ-SQ)/SQ*100):(AQ>0?100:0),varPrice:0,varQtyR:0,total:0,favorable:false};
+  const fav='#2D7A5F', unfav='#C0392B';
+  const color=v.favorable?fav:(Math.abs(v.pct)>0.0001?unfav:'inherit');
   const cell=el('pim-pct-'+i);
-  if(cell){ cell.textContent=(window.ProdUI?window.ProdUI.pct(v.pct,true):v.pct.toFixed(1)+'٪'); cell.style.color=Math.abs(v.pct)>5?'var(--state-danger)':'inherit'; }
+  if(cell){ cell.textContent=(window.ProdUI?window.ProdUI.pct(v.pct,true):v.pct.toFixed(1)+'٪'); cell.style.color=color; }
+  const fmtN=(n)=> (window.ProdUI&&window.ProdUI.rial)?window.ProdUI.rial(n):String(Math.round(n||0));
+  const vp=el('pim-vp-'+i); if(vp){ vp.textContent=fmtN(v.varPrice); vp.style.color=(v.varPrice||0)<0?fav:(v.varPrice?unfav:'inherit'); }
+  const vq=el('pim-vq-'+i); if(vq){ vq.textContent=fmtN(v.varQtyR); vq.style.color=(v.varQtyR||0)<0?fav:(v.varQtyR?unfav:'inherit'); }
+  const vt=el('pim-vt-'+i); if(vt){ vt.textContent=fmtN(v.total); vt.style.color=v.favorable?fav:(v.total?unfav:'inherit'); }
   const reasonEl=el('pim-reason-'+i);
   const threshold=5;
   if(reasonEl){
@@ -8666,7 +8678,22 @@ function prodIssueRecalc(i){
       reasonEl.classList.remove('prod-required-error');
     }
   }
+  prodIssueUpdateSummary();
   prodIssueUpdateSubmitState();
+}
+function prodIssueUpdateSummary(){
+  const box=el('pim-summary'); if(!box) return;
+  const rows=document.querySelectorAll('#pim-rows tr[data-idx]');
+  let std=0, act=0, totVar=0;
+  rows.forEach(row=>{
+    const SQ=+row.dataset.sq||0, SP=+row.dataset.sp||0, AP=+row.dataset.ap||0;
+    const AQ=+row.querySelector('.pim-qty-actual').value||0;
+    const v=window.ProdUI?window.ProdUI.calcVariance(AQ,SQ,AP,SP):{total:0};
+    std += Math.round(SQ*SP); act += Math.round(AQ*AP); totVar += (v.total||0);
+  });
+  const fmt=(n)=> (window.ProdUI&&window.ProdUI.rial)?window.ProdUI.rial(n):String(n);
+  const col=totVar<0?'#2D7A5F':(totVar>0?'#C0392B':'inherit');
+  box.innerHTML=`<span>استاندارد: <b>${fmt(std)}</b></span><span>واقعی: <b>${fmt(act)}</b></span><span style="color:${col}">انحراف کل: <b>${fmt(totVar)}</b></span>`;
 }
 function prodIssueUpdateSubmitState(){
   const rows=document.querySelectorAll('#pim-rows tr[data-idx]');
@@ -16139,6 +16166,7 @@ function renderAdminGuide(){
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
         <li>سفارش تولید: انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
+        <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
       </ul>
       <h5>🔎 جستجوی سراسری پیشرفته (Ctrl+K)</h5><ul>
         <li>علاوه بر مشتری/محصول/فاکتور، اکنون <b>همهٔ بخش‌ها و زیرمنوهای برنامه</b> (از جمله تمام زیرماژول‌های حسابداری) قابل جستجو و باز شدن مستقیم هستند.</li>
