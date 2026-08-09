@@ -8,7 +8,7 @@ const { sendSMS } = require('../sms');
 const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { getSmsSettings } = require('../lib/secret-settings');
-const { parseListQuery, listResponse } = require('../lib/pagination');
+const { listQueryPlan, listResponse } = require('../lib/pagination');
 
 const excelUpload = createSecureUpload('xlsx');
 
@@ -86,7 +86,7 @@ function canMutateCustomer(user, row) {
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
-  const { page, pageSize, offset } = parseListQuery(req.query);
+  const pq = listQueryPlan(req.query);
   const hasPartyGroups = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='party_groups'").get();
   const pgJoin = hasPartyGroups ? 'LEFT JOIN party_groups pg ON c.party_group_id=pg.id' : '';
   const pgCol = hasPartyGroups ? ',pg.name as party_group_name' : ",'' as party_group_name";
@@ -94,11 +94,13 @@ router.get('/', auth, (req, res) => {
   const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
   const whereSql = scope === null ? `WHERE 1=1${activeClause}` : `WHERE c.user_id=?${activeClause}`;
   const params = scope === null ? [] : [scope];
-  const total = db.prepare(`SELECT COUNT(*) AS c FROM customers c ${whereSql}`).get(...params)?.c || 0;
+  const total = pq.paginate
+    ? (db.prepare(`SELECT COUNT(*) AS c FROM customers c ${whereSql}`).get(...params)?.c || 0)
+    : 0;
   const rows = db.prepare(
-    `SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} ${whereSql} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`
-  ).all(...params, pageSize, offset);
-  res.json(listResponse(rows, { page, pageSize, total }, req.query));
+    `SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} ${whereSql} ORDER BY c.created_at DESC${pq.limitSql}`
+  ).all(...params, ...pq.limitParams);
+  res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
 router.post('/', auth, (req, res) => {

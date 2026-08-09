@@ -4,6 +4,7 @@ const path = require('path');
 const {
   parseListQuery,
   listResponse,
+  listQueryPlan,
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
 } = require('../lib/pagination');
@@ -37,13 +38,20 @@ ok('legacy empty array', Array.isArray(legacy) && legacy.length === 0);
 const env = listResponse([], { page: 1, pageSize: 50, total: 0 }, { page: '1' });
 ok('envelope when page set', env.success === true && env.pagination.total === 0);
 
+const planLegacy = listQueryPlan({});
+ok('legacy plan has no LIMIT', planLegacy.paginate === false && planLegacy.limitSql === '' && planLegacy.limitParams.length === 0);
+const planPage = listQueryPlan({ page: '1', pageSize: '25' });
+ok('paged plan has LIMIT', planPage.paginate === true && planPage.limitSql.includes('LIMIT') && planPage.limitParams[0] === 25);
+
 const routesDir = path.join(__dirname, '..', 'routes');
 for (const f of ['customers.js', 'orders.js', 'followups.js', 'suppliers.js', 'persons.js']) {
   const src = fs.readFileSync(path.join(routesDir, f), 'utf8');
   ok(`${f} imports pagination`, /require\(['"]\.\.\/lib\/pagination['"]\)/.test(src));
-  ok(`${f} uses parseListQuery`, /parseListQuery\(/.test(src));
+  ok(`${f} uses listQueryPlan`, /listQueryPlan\(/.test(src));
   ok(`${f} uses listResponse`, /listResponse\(/.test(src));
+  ok(`${f} no hard LIMIT`, !/LIMIT \? OFFSET \?/.test(src));
 }
 
 console.log(`\nResult: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
+

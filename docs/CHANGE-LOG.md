@@ -27,9 +27,17 @@
 
 ---
 
+### 2026-08-09 — اصلاح legacy list: بدون LIMIT روی bare GET
+- **شاخه:** `ai/W1-ORCH-wave1-integration`
+- **Commit:** (پس از push)
+- **خلاصه:** رفع blocker بازبینی — `listQueryPlan` فقط وقتی `page`/`limit`/`pageSize`/`paginated` هست SQL LIMIT می‌زند؛ بدون پارامتر = آرایهٔ کامل برای UI/sync. تست pagination ۳۰/۳۰.
+- **فایل‌های کلیدی:** `server/lib/pagination.js`, `server/routes/{customers,orders,followups,suppliers,persons,products,invoices}.js`, `server/scripts/test-list-pagination.js`
+- **Deploy:** ❌ Wave 1 — deploy blocked
+- **یادداشت:** پاسخ به Changes requested روی `0785648`.
+
 ### 2026-08-09 — موج یک موازی MVP (F1/HR1/APP1/PAGE/E2E + ORCH)
 - **شاخه:** `ai/W1-ORCH-wave1-integration`
-- **Commit:** (پس از push ORCH)
+- **Commit:** `0785648`
 - **خلاصه:** یکپارچه‌سازی پنج برش موازی موج یک: foundation مودیان، snapshot حقوق، SKU رنگ/سایز، pagination لیست‌ها، Playwright money-cycle؛ schema/mount/Help/SW v144.
 - **فایل‌های کلیدی:** `server/lib/moadian/**`, `server/lib/product-variants/**`, `server/lib/pagination.js`, `server/db.js`, `server/server.js`, `server/routes/{invoices,products,moadian,payroll}.js`, `e2e/money-cycle.spec.js`, `docs/WAVE1-GATE-STATUS.md`
 - **Deploy:** ❌ Wave 1 — deploy blocked (dirty VPS / tax sign-off open)

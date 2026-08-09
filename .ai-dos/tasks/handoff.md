@@ -2,6 +2,13 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T13:50:00+03:30 — Reviewer blocker: legacy list LIMIT fixed
+
+- [W1 code review ORCH](5c2367f2-979c-4c67-96ef-caaa79422d5a) → **Changes requested**: bare GET still SQL `LIMIT 50`.
+- Fix: `listQueryPlan` in `server/lib/pagination.js`; all seven list routes omit LIMIT unless pagination query present.
+- Tests re-run on ORCH worktree: pagination 30/30, sync 44/44, SMS 22/22, moadian 10, payroll 6, variants 4.
+- Iran deploy still blocked. Next: push fix + delta re-review only.
+
 ## 2026-08-09T12:40:00+03:30 — Wave 1 parallel MVP merged into ORCH
 
 - Specialist branches pushed: PAGE `8b40e4e`, F1 `01f2eef`, HR1 `b79f0cc`, APP1 `a5ebed3`, E2E `8a5c694`.

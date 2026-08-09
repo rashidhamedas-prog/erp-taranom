@@ -117,11 +117,29 @@ function wantsPaginatedEnvelope(query = {}) {
 
 /**
  * Prefer envelope when client opts into pagination params; otherwise return raw array
- * for legacy UI/sync harness compatibility (still apply LIMIT/OFFSET internally).
+ * for legacy UI/sync harness compatibility.
+ * IMPORTANT: callers must omit SQL LIMIT when !wantsPaginatedEnvelope(query)
+ * so legacy responses are complete catalogs (not silently truncated).
  */
 function listResponse(data, pagination, query = {}) {
   if (wantsPaginatedEnvelope(query)) return wrapListResponse(data, pagination);
   return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Shared LIMIT/OFFSET wiring for list handlers.
+ * Legacy (no page/limit): no SQL limit — full result set + array body.
+ * Paginated: LIMIT/OFFSET + envelope via listResponse.
+ */
+function listQueryPlan(query = {}, opts = {}) {
+  const parsed = parseListQuery(query, opts);
+  const paginate = wantsPaginatedEnvelope(query);
+  return {
+    ...parsed,
+    paginate,
+    limitSql: paginate ? ' LIMIT ? OFFSET ?' : '',
+    limitParams: paginate ? [parsed.pageSize, parsed.offset] : [],
+  };
 }
 
 module.exports = {
@@ -133,5 +151,6 @@ module.exports = {
   paginatedJson: wrapListResponse,
   wantsPaginatedEnvelope,
   listResponse,
+  listQueryPlan,
   sqlLimitOffset,
 };

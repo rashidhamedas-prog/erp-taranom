@@ -4,15 +4,17 @@ const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { syncSupplierToParty, deactivatePartyFromSupplier } = require('../lib/parties-sync');
-const { parseListQuery, listResponse } = require('../lib/pagination');
+const { listQueryPlan, listResponse } = require('../lib/pagination');
 
 // Suppliers are shared company-wide (not owned by a salesperson) — accounting/admin only
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const { page, pageSize, offset } = parseListQuery(req.query);
-  const total = db.prepare('SELECT COUNT(*) AS c FROM suppliers').get()?.c || 0;
-  const rows = db.prepare('SELECT * FROM suppliers ORDER BY name LIMIT ? OFFSET ?').all(pageSize, offset);
-  res.json(listResponse(rows, { page, pageSize, total }, req.query));
+  const pq = listQueryPlan(req.query);
+  const total = pq.paginate
+    ? (db.prepare('SELECT COUNT(*) AS c FROM suppliers').get()?.c || 0)
+    : 0;
+  const rows = db.prepare(`SELECT * FROM suppliers ORDER BY name${pq.limitSql}`).all(...pq.limitParams);
+  res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
 router.get('/:id', auth, adminOrAccounting, (req, res) => {

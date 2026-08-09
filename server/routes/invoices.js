@@ -10,7 +10,7 @@ const { rialToLedger } = require('../lib/money');
 const { reverseCommissionAccrual } = require('../lib/rep-ledger');
 const { voidInvoiceFully } = require('../lib/void-invoice');
 const { sendSecureHtml } = require('../lib/secure-html-response');
-const { parseListQuery, listResponse } = require('../lib/pagination');
+const { listQueryPlan, listResponse } = require('../lib/pagination');
 
 // دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
 function receivableAcct(db, custId) {
@@ -305,7 +305,7 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
-  const { page, pageSize, offset } = parseListQuery(req.query);
+  const pq = listQueryPlan(req.query);
   // List view omits the heavy `rows` JSON blob — fetch line items via GET /:id when editing.
   const cols = `i.id,i.num,i.cust_id,i.user_id,i.type,i.date,i.subtotal,i.disc,i.disc_amt,i.final,i.pay_type,
     i.cheque_duration,i.cheque_due_date,i.cheque_info,i.approved,i.converted,i.note,i.created_at,
@@ -318,14 +318,16 @@ router.get('/', auth, (req, res) => {
     ? `WHERE COALESCE(i.deleted_at,0)=0${typeSql}`
     : `WHERE i.user_id=? AND COALESCE(i.deleted_at,0)=0${typeSql}`;
   const countParams = scope === null ? [...typeArgs] : [scope, ...typeArgs];
-  const total = db.prepare(`SELECT COUNT(*) AS c FROM invoices i ${baseWhere}`).get(...countParams)?.c || 0;
+  const total = pq.paginate
+    ? (db.prepare(`SELECT COUNT(*) AS c FROM invoices i ${baseWhere}`).get(...countParams)?.c || 0)
+    : 0;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ${baseWhere} ORDER BY i.created_at DESC LIMIT ? OFFSET ?`).all(...typeArgs, pageSize, offset);
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ${baseWhere} ORDER BY i.created_at DESC${pq.limitSql}`).all(...typeArgs, ...pq.limitParams);
   } else {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id ${baseWhere} ORDER BY i.created_at DESC LIMIT ? OFFSET ?`).all(scope, ...typeArgs, pageSize, offset);
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id ${baseWhere} ORDER BY i.created_at DESC${pq.limitSql}`).all(scope, ...typeArgs, ...pq.limitParams);
   }
-  res.json(listResponse(rows, { page, pageSize, total }, req.query));
+  res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
 // Export invoices to Excel (must be before /:id to avoid route capture)
