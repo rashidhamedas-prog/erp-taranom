@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-09 — PROD-P4: سربار + دستمزد + مراکز هزینه (جذب نرخ)
+- **شاخه:** i/PROD-P4-overhead-labor → merge به claude/claude-md-docs-2ssrpy
+- **Commit:** d0465ac (merge tip پس از push)
+- **خلاصه:** تکمیل موج تولید P4: bootstrap/محرک‌های سربار (toman×10)، چهار روش دستمزد، API نرخ مراکز (PUT/ootstrap)، تست‌های طلایی T4-07..12 + T4-24 → **38/38 PASS**.
+- **فایل‌های کلیدی:** server/lib/production/overhead.js, server/lib/production/labor.js, server/routes/production-cost-centers.js, server/scripts/test-production-overhead-labor.js
+- **Deploy:** ⏳ در حال merge+deploy ایران
+- **یادداشت:** UI کامل routing مربوط به P5 است؛ این فاز فقط جذب نرخ/دستمزد/API مراکز.
+
 ### 2026-08-09 — PROD-P3 تکمیل آنالیز متغیر تولید (ADR-011)
 - **شاخه:** `ai/PROD-P3-variable-analysis` → merge به `claude/claude-md-docs-2ssrpy`
 - **Commit:** `ecba58b`

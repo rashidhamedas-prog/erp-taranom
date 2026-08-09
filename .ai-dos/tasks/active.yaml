@@ -1,14 +1,16 @@
 schema_version: 1
 tasks:
-  - id: "W2-ORCH"
-    title: "Wave 2 orchestration — آماده فروش کنترل‌شده"
+  - id: "PROD-P4"
+    title: "Production Module P4 — overhead + labor + cost centers"
     status: "completed"
     risk: "high"
-    owner: "cursor:implementer"
-    branch: "ai/W2-ORCH-wave2"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w2-orch"
+    owner: "cursor:orchestrator"
+    branch: "ai/PROD-P4-overhead-labor"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p4"
+    claimed_at: "2026-08-09T05:02:00+03:30"
+    completed_at: "2026-08-09T14:05:00+03:30"
     file_claims: []
-    notes: "MVP integration complete. Claims released."
+    notes: "38/38 PASS. Merged to primary; claims released. Iran deploy via SSH taranom@94.249.244.208."
 
   - id: "PROD-P3"
     title: "Complete Production Module P3 — variable analysis + ADR-011"
@@ -20,4 +22,14 @@ tasks:
     claimed_at: "2026-08-09T04:43:00+03:30"
     completed_at: "2026-08-09T13:20:00+03:30"
     file_claims: []
-    notes: "27/27 PASS. Merged with primary; claims released. Deploy via targeted SFTP."
+    notes: "27/27 PASS. Merged with primary; claims released."
+
+  - id: "W2-ORCH"
+    title: "Wave 2 orchestration — آماده فروش کنترل‌شده"
+    status: "completed"
+    risk: "high"
+    owner: "cursor:implementer"
+    branch: "ai/W2-ORCH-wave2"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w2-orch"
+    file_claims: []
+    notes: "MVP integration complete. Claims released. Iran deploy b4b653b."

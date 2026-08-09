@@ -3,16 +3,18 @@
 - Last verified: 2026-08-09
 - Primary branch: `claude/claude-md-docs-2ssrpy`
 - Wave 0: complete (sharp production waiver `0.33.5`)
-- **Wave 2 / P2:** MVP slices merged on `ai/W2-ORCH-wave2` @ `3b0c790` — license, onboarding, B2B credit, bank recon, HR draft export, observability. Exit gate (pilots/SLA) still open. Iran deploy `b4b653b`.
-- **PROD-P3** (variable analysis / ADR-011): completed on `ai/PROD-P3-variable-analysis` (`ecba58b`); `test-production-variable.js` 27/27 PASS; SW `v144`.
+- **Wave 2 / P2:** MVP slices merged; Iran deploy `b4b653b`. Exit gate (pilots/SLA) still open.
+- **PROD-P3** (variable analysis / ADR-011): completed (`ecba58b`); `test-production-variable.js` 27/27 PASS; SW `v144`.
+- **PROD-P4** (overhead + labor + cost-center rates): completed (`d0465ac`); `test-production-overhead-labor.js` 38/38 PASS; merging + Iran deploy in progress.
 - Wave 1 / P1: other agents (`ai/W1-*`) — do not modify from unrelated owners.
-- Production: healthy on `sharp@0.33.5`; dirty VPS trees must not be blindly reset.
+- Production: healthy on `sharp@0.33.5`; dirty VPS trees must not be blindly reset. SSH: `taranom@94.249.244.208` with `id_ed25519_taranom`.
 
 ## Working quality commands
 
 - `git diff --check`
 - `node server/scripts/check-audit-waivers.js`
 - `node server/scripts/test-production-variable.js`
+- `node server/scripts/test-production-overhead-labor.js`
 - `node server/scripts/test-license.js`
 - `node server/scripts/test-onboarding.js`
 - `node server/scripts/test-b2b-credit.js`

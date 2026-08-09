@@ -2,6 +2,18 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T14:05:00+03:30 — PROD-P4 merge to primary + Iran deploy
+
+- Merging `origin/ai/PROD-P4-overhead-labor` into primary (`claude/claude-md-docs-2ssrpy`).
+- Code clean-merged: `overhead.js`, `labor.js`, `production-cost-centers.js`, `test-production-overhead-labor.js` (38/38).
+- SSH production: `taranom@94.249.244.208` key `~/.ssh/id_ed25519_taranom` — ff-pull only, no dirty reset.
+- Docs conflicts resolved (CHANGE-LOG / AI-DOS status/active/handoff).
+
+## 2026-08-09T05:35:00+03:30 — PROD-P4 integration complete
+
+- Evidence: `test-production-overhead-labor.js` → **38/38 PASS** on `ai/PROD-P4-overhead-labor` (`d0465ac`).
+- Deliverables: overhead bootstrap (toman×10), four labor methods, cost-center rates PUT/bootstrap API.
+
 ## 2026-08-09T13:20:00+03:30 — PROD-P3 finalize (merge primary + deploy)
 
 - Merged `origin/claude/claude-md-docs-2ssrpy` into `ai/PROD-P3-variable-analysis`.
