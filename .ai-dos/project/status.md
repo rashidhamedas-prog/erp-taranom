@@ -2,11 +2,11 @@
 
 - Last verified: 2026-08-09
 - Primary branch: `claude/claude-md-docs-2ssrpy`
-- Current source state: Wave 0 Gate run `31265434377` passed 7/7 on commit `7460857`; final handoff commits are pushed through `97375fc`.
-- Current production operations: encrypted Windows offsite pull and weekly restore drill are scheduled and previously returned result `0`; APK 2.0.33 and EXE 2.0.10 release feed is published and hash-verified.
-- Production dependency exception: source uses `sharp@0.35.0`, but VPS runtime is healthy and deliberately rolled back to `sharp@0.33.5` after registry timeout. Deploying 0.35.0 safely is the active task.
-- Known dirty state: VPS repository at `6390bcc` has operational modifications/untracked recovery and secret files; original local workspace has user-owned `server/routes/accounting.js` and untracked AI-DOS/docs changes. Blind pull/reset is prohibited.
-- Next milestone: W0-OPS-002 safe production sharp deployment and state reconciliation; do not start Waves 1–4 without owner selection.
+- Wave 0 Gate: complete — GitHub run `31265434377` on `7460857` was 7/7 green; P0-A through P0-Q2 closed.
+- W0-OPS-001: completed (offsite backup + RC binary publish).
+- W0-OPS-002: completed with **owner permanent production waiver** for runtime `sharp@0.33.5` (no expiry). Source/CI remains pinned to `sharp@0.35.0`. Deploy tooling retained for optional future CPU upgrade.
+- Production: healthy on `sharp@0.33.5`; dirty VPS/`erp-taranom1` trees must not be blindly reset.
+- Next milestone: **Wave 1 (P1)** — owner may start; select priority/scope before implementation.
 
 ## Working quality commands
 

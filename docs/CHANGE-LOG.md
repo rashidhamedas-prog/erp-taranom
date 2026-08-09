@@ -27,6 +27,30 @@
 
 ---
 
+### 2026-08-09 — W0-OPS-002 بسته با waiver دائمی sharp runtime؛ Wave 0 خروج کامل
+- **شاخه:** `ai/W0-OPS-002-sharp-production-deploy` → merge به `claude/claude-md-docs-2ssrpy`
+- **Commit:** 76a241e
+- **خلاصه:** مالک waiver دائمی بدون انقضا برای ماندن production روی `sharp@0.33.5` پذیرفت (سورس/CI همچنان `0.35.0`). W0-OPS-002 completed؛ active claims آزاد؛ Gate موج صفر برای شروع P1 آماده اعلام شد.
+- **فایل‌های کلیدی:** `docs/WAVE0-GATE-STATUS.md`, `.ai-dos/tasks/active.yaml`, `.ai-dos/project/status.md`
+- **Deploy:** ❌ تغییر runtime نشد؛ production عمداً `0.33.5`؛ HTTP سالم
+- **یادداشت:** ارتقای بعدی CPU/hypervisor اختیاری است نه پیش‌شرط P1.
+
+### 2026-08-09 — W0-OPS-002: سخت‌سازی اسکریپت پس از security review
+- **شاخه:** `ai/W0-OPS-002-sharp-production-deploy`
+- **Commit:** `24eace9`
+- **خلاصه:** پس از بازبینی امنیتی مستقل: `known_hosts` اجباری + `RejectPolicy`، تأیید SHA-256 باندل روی سرور، و rollback خودکار اگر smoke بعد از `pm2 restart` شکست بخورد. تسک همچنان blocked روی CPU است.
+- **فایل‌های کلیدی:** `scripts/deploy-sharp-production.ps1`, `.ai-dos/tasks/handoff.md`
+- **Deploy:** ❌ runtime همچنان `0.33.5` (عمدی)
+- **یادداشت:** یافته High مربوط به `auto-commit-deploy.mdc` خارج از file_claims این تسک است و باید جدا claim شود.
+
+### 2026-08-09 — W0-OPS-002: تلاش امن deploy sharp@0.35.0 (مسدود روی CPU)
+- **شاخه:** `ai/W0-OPS-002-sharp-production-deploy`
+- **Commit:** `6c82a9d`
+- **خلاصه:** اسکریپت deploy آفلاین با backup/rollback/CPU-preflight اضافه شد؛ باندل Linux x64 ساخته و روی VPS ایران بدون pull/reset کور اعمال آزمایشی شد. باینری `0.35.0` به‌خاطر نبود x86-64-v2 روی QEMU CPU لود نشد؛ restore خودکار runtime را روی `0.33.5` نگه داشت (HTTP 200، بدون restart ناموفق).
+- **فایل‌های کلیدی:** `scripts/deploy-sharp-production.ps1`, `.ai-dos/tasks/*`, `docs/WAVE0-GATE-STATUS.md`
+- **Deploy:** ❌ `sharp@0.35.0` روی runtime اعمال نشد (blocker سخت‌افزاری); production سالم روی `0.33.5`
+- **یادداشت:** برای unblock باید CPU مهمان در hypervisor به `x86-64-v2`/`host` ارتقا یابد؛ سپس همان اسکریپت `-Deploy` تکرار شود. `erp-taranom1` و VPS dirty دست‌نخورده ماندند.
+
 ### 2026-08-02 — RC امضاشده Android 2.0.33 + Desktop 2.0.10 + deploy وب
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `fbb07a3`

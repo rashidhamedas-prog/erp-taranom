@@ -25,3 +25,5 @@ Clients communicate with the central API over TLS. Production runs under PM2. Ge
 - 2026-08-08: Windows PC accepted as real off-server backup target; access is constrained by a tracked root-owned forced-command wrapper.
 - 2026-08-08: Commercial Windows OV/EV certificate deferred; self-signed SmartScreen risk is documented.
 - 2026-08-09: Production dependency deploy must use bounded timeout, exact version/load verification, rollback and post-restart smoke.
+- 2026-08-09: `sharp@0.35.x` Linux x64 prebuilds require CPU x86-64-v2 (SSE4.2). Current Iran VPS QEMU CPU lacks `popcnt`/`sse4_*`/`ssse3`; wasm fallback also needs SSE4.1.
+- 2026-08-09: Owner accepted **permanent** production waiver `W0-OPS-002-SHARP-RUNTIME-0335` (no expiry): runtime may stay on `sharp@0.33.5` while source/CI stay on `0.35.0`. Optional later path: upgrade guest CPU then `scripts/deploy-sharp-production.ps1 -Deploy`.

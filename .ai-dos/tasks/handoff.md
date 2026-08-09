@@ -2,6 +2,54 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T05:00:00+03:30 — W0-OPS-002 completed under permanent owner waiver
+
+- Owner accepted permanent production waiver `W0-OPS-002-SHARP-RUNTIME-0335` with **no expiry**: VPS runtime may remain `sharp@0.33.5`; source/CI stay `0.35.0`.
+- Task status: **completed**; `file_claims` released; `.ai-dos/tasks/active.yaml` cleared.
+- Wave 0 exit: closed. **Ready for Wave 1 / P1** when owner selects scope.
+- Residual (not blockers): optional CPU upgrade later; S4U; OV/EV; cold backup; restricted publisher; fix `auto-commit-deploy.mdc` conflict before autonomous Iran deploys.
+- Do not claim production is on `0.35.0`. Do not blind pull/reset dirty VPS or `erp-taranom1`.
+
+## 2026-08-09T04:55:00+03:30 — Independent reviewer disposition
+
+- [Reviewer](bbb4b9b8-47d4-40b4-a61f-459265612f72): **Approved with comments**. Declaring `blocked` (not complete) is correct; AC for production `0.35.0` unmet.
+- Comments addressed in claimed script: backup/restore/rollback now include `detect-libc` + `semver` and clean `*.__old` leftovers.
+- Raw blocker transcript (from VPS probe, preserved):
+  ```
+  Model name: QEMU Virtual CPU version 2.5+
+  cx16=yes lahf_lm=yes popcnt=NO sse4_1=NO sse4_2=NO ssse3=NO
+  Error: Unsupported CPU: Prebuilt binaries for Linux x64 require v2 microarchitecture
+  Post-restore: PKG=0.33.5 RT=0.33.5 REQUIRE_OK root=200 health=200
+  ```
+- Next step confirmed sound: hypervisor `x86-64-v2`/`host` → reboot → flag check → `-Deploy` → pull/drill → attach raw logs before complete claim.
+
+## 2026-08-09T04:50:00+03:30 — Security review disposition + deploy-script hardening
+
+- Independent [security review](5816c075-fa15-4eee-9dc3-639b922c018e): **blocked disposition Approved / completion Not approved**.
+- Residual advisory on production `sharp@0.33.5` accepted until CPU upgrade or explicit time-boxed owner waiver.
+- High finding (out of this task's file_claims): `.cursor/rules/auto-commit-deploy.mdc` still mandates blind `git pull` + `pm2 restart --update-env` and can bypass the reviewed sharp path — needs separate ownership change before any autonomous Iran deploy.
+- Medium findings remediated in claimed `scripts/deploy-sharp-production.ps1`:
+  1. SSH `RejectPolicy` + required pinned `known_hosts`
+  2. Remote SHA-256 sidecar verify before extract
+  3. Auto-rollback from recover stamp if post-PM2 smoke fails
+- Task remains `blocked` on CPU; do not claim `0.35.0` deployed.
+
+## 2026-08-09T04:10:00+03:30 — W0-OPS-002 blocked on VPS CPU microarchitecture
+
+- Task / owner / role: `W0-OPS-002` / `cursor:implementer` / Implementer (status=`blocked`).
+- Branch / worktree: `ai/W0-OPS-002-sharp-production-deploy` / `D:/soft/Claud/porje/Run in the project/erp-taranom-w0-ops-002`.
+- What was done:
+  - Created dedicated worktree from `origin/claude/claude-md-docs-2ssrpy`.
+  - Added `scripts/deploy-sharp-production.ps1` (inventory / offline Linux bundle / bounded swap / rollback / CPU preflight).
+  - Built offline bundle `sharp-0.35.0-linux-x64.tgz` (SHA-256 `8BF9B7FDE5D2933E4B7B1AAB5D0268BE2A3D3B83F83CBE076BF5962F04634ABD`).
+  - Attempted production apply twice without `git pull`/`reset`; both failed before PM2 restart; automatic restore kept live modules.
+- Production evidence after attempts: `PKG=0.33.5`, `RT=0.33.5`, `REQUIRE_OK`, HTTP `root=200`/`health=200`, PM2 `online`, restarts still `8` (no restart during failed applies).
+- Dirty VPS inventory preserved (no blind clean): HEAD `6390bcc`; modified docs/app/sw/releases; untracked `.sftp-deploy-stamp`, `server/_recover/`, `server/backup-encryption-key.txt`, broken APK.
+- Blocker: CPU `QEMU Virtual CPU version 2.5+` missing `popcnt sse4_1 sse4_2 ssse3`. Error: `Unsupported CPU: Prebuilt binaries for Linux x64 require v2 microarchitecture`. Wasm needs SSE4.1 → also unavailable.
+- Recover stamps retained on VPS: `sharp-20260808T160047Z`, `sharp-20260809T003020Z`, `sharp-20260809T003451Z`, plus uploaded bundle under `server/_recover/bundles/`.
+- Exact next action for owner/infra: change hypervisor CPU type to `x86-64-v2` or `host` (expose SSE4.2), reboot guest, then from this worktree run `powershell -File scripts/deploy-sharp-production.ps1 -Deploy`. After success: backup pull + restore drill + independent reviewer/security approval.
+- Do not declare W0-OPS-002 complete; do not start Waves 1–4.
+
 ## 2026-08-09 — Ownership transferred to Cursor as W0-OPS-002
 
 - `W0-OPS-001` is completed and its claims are released from the active registry; history remains below and in Git.

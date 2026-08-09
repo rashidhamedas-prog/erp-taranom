@@ -48,3 +48,12 @@ P0-C is operational: encrypted production backups are copied outside the VPS to 
 - Reinstall Scheduled Task elevated as S4U to preserve RPO while logged out.
 - Add immutable/cold backup and commercial OV/EV certificate if desired.
 - Optional staging automation remains a delivery enhancement; approved RC feed deploy/smoke and Wave 0 CI are complete.
+
+## W0-OPS-002 addendum (2026-08-09)
+
+- Cursor attempted safe offline deploy of source-pinned `sharp@0.35.0` from branch `ai/W0-OPS-002-sharp-production-deploy`.
+- Production apply failed before PM2 restart because the Iran VPS QEMU CPU lacks x86-64-v2 (`popcnt`/`sse4_1`/`sse4_2`/`ssse3`).
+- Automatic restore kept runtime on `sharp@0.33.5` with HTTP 200; no blind git mutation of the dirty VPS tree.
+- Owner accepted permanent waiver `W0-OPS-002-SHARP-RUNTIME-0335` (no expiry): production runtime may remain `0.33.5`; source/CI remain `0.35.0`.
+- Task status: **completed** under that waiver. Wave 0 exit closed; Wave 1/P1 may start when owner selects scope.
+- Optional later: hypervisor CPU upgrade then `scripts/deploy-sharp-production.ps1 -Deploy` (not a P1 prerequisite).
