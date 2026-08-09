@@ -13,13 +13,21 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-09 — Deploy ایران Wave1 merge via SFTP
+- **شاخه:** `claude/claude-md-docs-2ssrpy` / `ai/W1-merge-primary-deploy`
+- **Commit کد:** `f67a9fc`
+- **خلاصه:** پس از merge W1 روی primary، به‌خاطر عدم resolve بودن github.com روی VPS، delta از طریق SFTP آپلود شد؛ PM2 بدون `--update-env`؛ health/ready/root=200؛ SW v145؛ stamp `.sftp-deploy-stamp-w1-merge`.
+- **فایل‌های کلیدی:** `scripts/_deploy-w1-merge-sftp.py`, `server/lib/moadian/*`, `server/routes/moadian.js`, `server/public/sw.js`, `docs/WAVE1-GATE-STATUS.md`
+- **Deploy:** ✅ Iran SFTP @ 2026-08-09T12:31:55Z (git HEAD روی سرور هنوز `8a5cd54` — فقط فایل‌ها sync)
+- **یادداشت:** live مودیان و تأیید مشاور مالیاتی باز؛ DNS گیت‌هاب VPS هنوز خراب.
+
 ### 2026-08-09 — Merge W1 ORCH tip (امنیت/موادیان/variants) روی primary برای deploy ایران
 - **شاخه:** `ai/W1-merge-primary-deploy` → `claude/claude-md-docs-2ssrpy`
 - **Commit:** `6bd5884` (+ merge docs tip)
 - **خلاصه:** ادغام `origin/ai/W1-ORCH-wave1-integration` (`aca247f`) روی tip primary (`ced58ef`). حفظ قابلیت‌های جدیدتر primary (W2/P3/P4) + remediation امنیتی W1 پس از merge-base `7ef8c72` (به‌ویژه `dcb9b40` SEC، تست `9053883`). ترتیب SYNCABLE: `bank_statement_lines` سپس variants؛ backfill v8.
 - **فایل‌های کلیدی:** `server/db.js`, `server/routes/moadian.js`, `server/lib/moadian/*`, `server/lib/void-invoice.js`, `server/routes/product-variants.js`, `server/lib/secret-settings.js`, `docs/WAVE1-GATE-STATUS.md`
-- **Deploy:** ⏳ توسط عامل دیگر پس از push
-- **یادداشت:** این worktree فقط merge+push؛ deploy ایران انجام نشد.
+- **Deploy:** ✅ تکمیل شد با SFTP (رکورد بالا)
+- **یادداشت:** این worktree ابتدا merge+push؛ سپس SFTP deploy.
 
 ### 2026-08-09 ΓÇö ╪¬╪│╪¬ ╪▒┌»╪▒╪│█î┘ê┘å path/matrix ┘╛╪│ ╪º╪▓ Approve ╪º┘à┘å█î╪¬█î
 - **╪┤╪º╪«┘ç:** `ai/W1-ORCH-wave1-integration`

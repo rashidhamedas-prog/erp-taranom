@@ -2,6 +2,13 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T16:25:00+03:30 — Iran SFTP deploy of W1 merge complete
+
+- [SFTP deploy W1 merge Iran](ad0a4caa-9a12-41c6-9716-7454ba564243): **success** — health/ready/root 200, SW v145, stamp hash=`f67a9fc`.
+- Probe earlier: [Probe Iran VPS](e69afb67-4223-4c0e-a775-42bb2acab7fb) DIRTY_NEEDS_SFTP (GitHub DNS broken).
+- Merge earlier: [Merge W1 tip into primary](879ea04e-7848-4f28-af80-e2ef076d5b5c) primary tip `f67a9fc`.
+- Remaining (non-blocking for runtime): tax advisor / live Moadian; fix VPS GitHub DNS for future git pull; sharp runtime gap.
+
 ## 2026-08-09T15:15:00+03:30 - W1 ORCH tip merged into primary (pre-Iran deploy)
 
 - Worktree: `erp-taranom-w1-merge-primary` / branch `ai/W1-merge-primary-deploy`.
