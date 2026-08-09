@@ -2,6 +2,18 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09 — Ownership transferred to Cursor as W0-OPS-002
+
+- `W0-OPS-001` is completed and its claims are released from the active registry; history remains below and in Git.
+- New active owner/implementer: `cursor:implementer`; independent role identities: `cursor:reviewer` and `cursor:security`.
+- Required branch/worktree: `ai/W0-OPS-002-sharp-production-deploy` at `D:/soft/Claud/porje/Run in the project/erp-taranom-w0-ops-002`.
+- Cursor must create the worktree from `origin/claude/claude-md-docs-2ssrpy`, enter it, reread the AI-DOS load order, verify its claim, and only then edit claimed files.
+- Exact first setup commands (no destructive action):
+  1. `git fetch origin claude/claude-md-docs-2ssrpy`
+  2. `git worktree add "D:/soft/Claud/porje/Run in the project/erp-taranom-w0-ops-002" -b ai/W0-OPS-002-sharp-production-deploy origin/claude/claude-md-docs-2ssrpy`
+  3. Change directory to that worktree and run the AI-DOS preflight.
+- Do not work in dirty `erp-taranom1`; do not blindly pull/reset the dirty VPS. Follow the production rollback evidence in the next handoff entry.
+
 ## 2026-08-08T16:12:00Z — Cursor continuation handoff (do not redo completed work)
 
 ### Completed and verified

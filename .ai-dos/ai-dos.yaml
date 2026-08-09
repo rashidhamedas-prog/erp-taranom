@@ -1,0 +1,55 @@
+schema_version: 1
+ai_dos_version: "2.0.0"
+project:
+  name: "ERP Taranom"
+  type: "Node.js ERP/CRM with web, Android and Electron clients"
+  primary_branch: "claude/claude-md-docs-2ssrpy"
+roles:
+  high_risk_requires_independent_reviewer: true
+  high_risk_requires_security_review: true
+concurrency:
+  task_registry: ".ai-dos/tasks/active.yaml"
+  handoff_log: ".ai-dos/tasks/handoff.md"
+  one_writer_per_file: true
+  stale_claim_hours: 24
+git:
+  branch_pattern: "^(ai|feat|fix|chore)/[A-Za-z0-9._-]+$"
+  worktree_per_task: true
+  direct_commit_to_primary: false
+context:
+  soft_limit_percent: 65
+  checkpoint_percent: 75
+  new_session_percent: 85
+  load_order:
+    - "AGENTS.md"
+    - ".ai-dos/ai-dos.yaml"
+    - ".ai-dos/project/overview.md"
+    - ".ai-dos/project/architecture.md"
+    - ".ai-dos/project/status.md"
+    - ".ai-dos/tasks/active.yaml"
+    - ".ai-dos/tasks/handoff.md"
+quality_gates:
+  required:
+    - "format"
+    - "static_check"
+    - "dependency_audit"
+    - "integration_test_when_affected"
+    - "source_drift"
+    - "review"
+    - "security_review_for_high_risk"
+  commands:
+    format: "git diff --check"
+    static_check: "node --check server/server.js"
+    dependency_audit: "node server/scripts/check-audit-waivers.js"
+    integration_test: "npm.cmd --prefix server run test:production"
+    source_drift_prepare: "node scripts/prepare-embedded-server.js all"
+    source_drift_verify: "node scripts/compare-embedded-hash.js"
+security:
+  review_triggers:
+    - "authentication_or_authorization"
+    - "secrets_or_cryptography"
+    - "payments_or_personal_data"
+    - "network_or_file_input"
+    - "dependency_or_ci_change"
+    - "database_migration"
+  secret_scan_policy: "Scan staged diff and claimed files; treat any credential or private key match as a blocker. Never print secret values."
