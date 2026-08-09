@@ -2,6 +2,19 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T04:55:00+03:30 — Independent reviewer disposition
+
+- [Reviewer](bbb4b9b8-47d4-40b4-a61f-459265612f72): **Approved with comments**. Declaring `blocked` (not complete) is correct; AC for production `0.35.0` unmet.
+- Comments addressed in claimed script: backup/restore/rollback now include `detect-libc` + `semver` and clean `*.__old` leftovers.
+- Raw blocker transcript (from VPS probe, preserved):
+  ```
+  Model name: QEMU Virtual CPU version 2.5+
+  cx16=yes lahf_lm=yes popcnt=NO sse4_1=NO sse4_2=NO ssse3=NO
+  Error: Unsupported CPU: Prebuilt binaries for Linux x64 require v2 microarchitecture
+  Post-restore: PKG=0.33.5 RT=0.33.5 REQUIRE_OK root=200 health=200
+  ```
+- Next step confirmed sound: hypervisor `x86-64-v2`/`host` → reboot → flag check → `-Deploy` → pull/drill → attach raw logs before complete claim.
+
 ## 2026-08-09T04:50:00+03:30 — Security review disposition + deploy-script hardening
 
 - Independent [security review](5816c075-fa15-4eee-9dc3-639b922c018e): **blocked disposition Approved / completion Not approved**.

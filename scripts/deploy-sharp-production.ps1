@@ -237,6 +237,8 @@ cp -a {APP}/server/package.json "$DEST/package.json"
 cp -a {APP}/server/package-lock.json "$DEST/package-lock.json" 2>/dev/null || true
 if [ -d {APP}/server/node_modules/sharp ]; then cp -a {APP}/server/node_modules/sharp "$DEST/sharp"; fi
 if [ -d {APP}/server/node_modules/@img ]; then cp -a {APP}/server/node_modules/@img "$DEST/img"; fi
+if [ -d {APP}/server/node_modules/detect-libc ]; then cp -a {APP}/server/node_modules/detect-libc "$DEST/detect-libc"; fi
+if [ -d {APP}/server/node_modules/semver ]; then cp -a {APP}/server/node_modules/semver "$DEST/semver"; fi
 if [ -d {APP}/server/_recover/sharp-20260808T160047Z ]; then
   echo PREV_RECOVER=sharp-20260808T160047Z > "$DEST/PREV_RECOVER.txt"
 fi
@@ -292,6 +294,7 @@ echo APPLY_OK
         restore = f"""
 set -e
 cd {APP}/server
+rm -rf node_modules/sharp.__old node_modules/@img.__old node_modules/detect-libc.__old node_modules/semver.__old
 if [ -f "{recover_dir}/package.json" ]; then cp -a "{recover_dir}/package.json" package.json; fi
 if [ -f "{recover_dir}/package-lock.json" ]; then cp -a "{recover_dir}/package-lock.json" package-lock.json; fi
 if [ -d "{recover_dir}/sharp" ]; then
@@ -301,6 +304,14 @@ fi
 if [ -d "{recover_dir}/img" ]; then
   rm -rf node_modules/@img
   cp -a "{recover_dir}/img" node_modules/@img
+fi
+if [ -d "{recover_dir}/detect-libc" ]; then
+  rm -rf node_modules/detect-libc
+  cp -a "{recover_dir}/detect-libc" node_modules/detect-libc
+fi
+if [ -d "{recover_dir}/semver" ]; then
+  rm -rf node_modules/semver
+  cp -a "{recover_dir}/semver" node_modules/semver
 fi
 node -e "console.log('RESTORED', require('./node_modules/sharp/package.json').version); require('sharp'); console.log('PKG', require('./package.json').dependencies.sharp)"
 """
@@ -377,11 +388,14 @@ set -e
 DEST="{dest}"
 test -d "$DEST/sharp"
 cd {APP}/server
+rm -rf node_modules/sharp.__old node_modules/@img.__old node_modules/detect-libc.__old node_modules/semver.__old
 cp -a "$DEST/package.json" package.json
 if [ -f "$DEST/package-lock.json" ]; then cp -a "$DEST/package-lock.json" package-lock.json; fi
 rm -rf node_modules/sharp node_modules/@img
 cp -a "$DEST/sharp" node_modules/sharp
 if [ -d "$DEST/img" ]; then cp -a "$DEST/img" node_modules/@img; fi
+if [ -d "$DEST/detect-libc" ]; then rm -rf node_modules/detect-libc; cp -a "$DEST/detect-libc" node_modules/detect-libc; fi
+if [ -d "$DEST/semver" ]; then rm -rf node_modules/semver; cp -a "$DEST/semver" node_modules/semver; fi
 node -e "console.log('ROLLBACK_RUNTIME', require('./node_modules/sharp/package.json').version); require('sharp')"
 pm2 restart erp-taranom
 sleep 4
