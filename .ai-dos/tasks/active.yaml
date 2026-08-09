@@ -32,7 +32,16 @@ tasks:
       - "docs/CHANGE-LOG.md"
       - "server/db.js"
       - "server/public/app.js"
+      - "server/public/sw.js"
       - "server/routes/invoices.js"
+      - "server/lib/void-invoice.js"
+      - "server/lib/moadian/**"
+      - "server/routes/moadian.js"
+      - "server/scripts/test-moadian-foundation.js"
+      - "server/lib/product-variants/**"
+      - "server/routes/product-variants.js"
+      - "server/lib/secret-settings.js"
+      - "server/lib/pagination.js"
       - "tasks/active-task.md"
       - "tasks/handoff.md"
     acceptance_criteria:
@@ -50,7 +59,7 @@ tasks:
 
   - id: "W1-F1"
     title: "P0-F1 Moadian foundation — adapter, queue, stub/sandbox"
-    status: "claimed"
+    status: "completed"
     risk: "high"
     owner: "cursor:f1"
     roles:
@@ -69,10 +78,7 @@ tasks:
     non_goals:
       - "Do not edit db.js, app.js, CHANGE-LOG, invoices.js (hooks file only)."
       - "Do not store secrets in git; no Iran deploy."
-    file_claims:
-      - "server/lib/moadian/**"
-      - "server/routes/moadian.js"
-      - "server/scripts/test-moadian-foundation.js"
+    file_claims: []
     acceptance_criteria:
       - "Adapter interface with stub and sandbox paths."
       - "Queue status machine pending|sent|failed|cancelled with retry fields in patch notes."
@@ -82,6 +88,7 @@ tasks:
     validation:
       - "node server/scripts/test-moadian-foundation.js"
       - "node --check server/routes/moadian.js"
+    notes: "MVP complete; file claims released to W1-ORCH for security remediation 2026-08-09."
 
   - id: "W1-HR1"
     title: "P0-HR1 versioned payroll params + period snapshot"
@@ -117,7 +124,7 @@ tasks:
 
   - id: "W1-APP1"
     title: "P0-APP1 product style/color/size/variant SKU"
-    status: "claimed"
+    status: "completed"
     risk: "high"
     owner: "cursor:app1"
     roles:
@@ -135,13 +142,7 @@ tasks:
     non_goals:
       - "Do not edit db.js/app.js/CHANGE-LOG; provide SQL apply notes for ORCH."
       - "Full matrix UI deferred to ORCH/follow-up."
-    file_claims:
-      - "server/lib/product-variants/**"
-      - "server/routes/products.js"
-      - "server/routes/product-variants.js"
-      - "server/sync/tables.js"
-      - "server/sync/capture.js"
-      - "server/scripts/test-product-variants.js"
+    file_claims: []
     acceptance_criteria:
       - "1 style x 4 colors x 6 sizes yields 24 independent SKUs."
       - "Stock move on one SKU does not change another."
@@ -151,6 +152,7 @@ tasks:
     validation:
       - "node server/scripts/test-product-variants.js"
       - "node server/scripts/_diag-sync-gaps-b16e78.js"
+    notes: "MVP complete; file claims released to W1-ORCH for security remediation 2026-08-09."
 
   - id: "W1-PAGE"
     title: "List pagination contract for main CRM entities"

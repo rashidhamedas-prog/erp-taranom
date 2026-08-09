@@ -2,6 +2,14 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T14:30:00+03:30 — Security remediation SEC-001..008 (W1 gate)
+
+- [W1 security review F1/APP1](bbcb1881-1e63-4ce9-bd73-fa03a90102ac) → **Blocked**; ORCH reclaimed F1/APP1 surfaces for gate fix (recorded here).
+- High: centralOnlyStrict on moadian submit/correct; reject `live` adapter; void lock in `voidInvoiceFully`; decrypt/plaintext path via getSetting + drop path from SECRET keys; variant stock `centralOnly`.
+- Medium: moadian key path allowlist; matrix ≤500 SKUs; `sync_seq_backfill_v8` for variant tables.
+- Help + SW v145. Tests: moadian 11, variants 4, pagination 30, SMS 22, sync 44.
+- Iran deploy still blocked. Next: security re-check + LIMIT bugbot.
+
 ## 2026-08-09T13:50:00+03:30 — Reviewer blocker: legacy list LIMIT fixed
 
 - [W1 code review ORCH](5c2367f2-979c-4c67-96ef-caaa79422d5a) → **Changes requested**: bare GET still SQL `LIMIT 50`.

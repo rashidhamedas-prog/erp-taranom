@@ -6,7 +6,7 @@
  */
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOrAccounting, centralOnly } = require('../middleware/auth');
 const {
   initProductVariantsSchema,
   upsertColor,
@@ -229,7 +229,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
-router.patch('/:id/stock', auth, adminOrAccounting, (req, res) => {
+router.patch('/:id/stock', auth, adminOrAccounting, centralOnly, (req, res) => {
   try {
     const db = getDB();
     ensureSchema(db);

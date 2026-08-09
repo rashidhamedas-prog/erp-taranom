@@ -89,6 +89,14 @@ const stub = moadian.getAdapter('stub');
   });
   ok('sandbox accepts with fiscal id', sbxOk.ok && String(sbxOk.taxId).startsWith('SBX-'));
 
+  let liveRejected = false;
+  try {
+    moadian.getAdapter('live');
+  } catch (e) {
+    liveRejected = e.code === 'MOADIAN_LIVE_UNAVAILABLE';
+  }
+  ok('live adapter unavailable', liveRejected);
+
   moadian.markSent(db, id1, stubRes.taxId, stubRes.response);
   const sent = db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(id1);
   ok('status sent', sent.status === 'sent' && sent.tax_id === stubRes.taxId);

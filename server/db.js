@@ -2486,6 +2486,24 @@ function initSyncSchema(db) {
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v7','1')").run();
     }
+    // v8: product-variants tables may have been created after a DB already stamped v7=1
+    const backfillV8 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v8'").get();
+    if (!backfillV8 || backfillV8.value !== '1') {
+      const variantTables = [
+        'product_colors', 'product_sizes', 'product_variants',
+        'product_style_colors', 'product_style_sizes',
+      ];
+      for (const name of variantTables) {
+        if (!tableExists(db, name)) continue;
+        if (!tableColumns(db, name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v8 skipped for ${name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v8','1')").run();
+    }
   }
 
   // One-shot: restore products.stock wiped by image-only PUT bug (stock→0 while warehouse_stock kept qty).

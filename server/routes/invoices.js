@@ -610,6 +610,14 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
     return res.status(403).json({ error: 'دسترسی ندارید' });
   }
   try {
+    assertInvoiceEditableForMoadian(row);
+  } catch (e) {
+    return res.status(e.status || 422).json({
+      error: e.message || 'فاکتور قفل مودیان — ابطال محلی مجاز نیست؛ سند اصلاحی/ابطالی مودیان لازم است',
+      code: e.code || 'MOADIAN_LOCKED',
+    });
+  }
+  try {
     const result = voidInvoiceFully(db, row.id, req.user, { reason: 'void' });
     res.json({
       ok: true,
