@@ -210,6 +210,84 @@ function initPayrollSchema(db) {
       ON group_salary_structures(employee_group_id, fiscal_year);
   `);
   ensureColumn(db, 'persons', 'employee_group_id', 'INTEGER');
+
+  // W1-HR1: immutable params snapshot captured at period process time
+  ensureColumn(db, 'payroll_periods', 'params_snapshot_json', 'TEXT');
+
+  // Versioned labor settings (effective dating); year row remains for backward compat
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS payroll_labor_settings_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      year INTEGER NOT NULL,
+      effective_from TEXT NOT NULL,
+      effective_to TEXT,
+      min_daily_wage_rial INTEGER NOT NULL DEFAULT 0,
+      housing_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      grocery_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      child_allowance_rial INTEGER NOT NULL DEFAULT 0,
+      seniority_daily_rial INTEGER NOT NULL DEFAULT 0,
+      insurance_base_cap_rial INTEGER NOT NULL DEFAULT 0,
+      tax_exemption_rial INTEGER NOT NULL DEFAULT 0,
+      overtime_factor_bp INTEGER NOT NULL DEFAULT 14000,
+      night_factor_bp INTEGER NOT NULL DEFAULT 13500,
+      friday_factor_bp INTEGER NOT NULL DEFAULT 14000,
+      shift_factor_bp INTEGER NOT NULL DEFAULT 0,
+      note TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_payroll_labor_versions_year
+      ON payroll_labor_settings_versions(year, effective_from);
+  `);
 }
 
-module.exports = { initPayrollSchema };
+/**
+ * Build a frozen snapshot of labor settings + tax brackets for a fiscal year.
+ */
+function buildPayrollParamsSnapshot(db, year) {
+  const labor = db.prepare('SELECT * FROM payroll_labor_settings WHERE year=?').get(year) || null;
+  const brackets = db.prepare(
+    'SELECT * FROM payroll_tax_brackets WHERE fiscal_year=? AND active=1 ORDER BY bracket_order'
+  ).all(year);
+  return {
+    captured_at: Math.floor(Date.now() / 1000),
+    year: Number(year),
+    labor,
+    brackets,
+  };
+}
+
+function savePeriodParamsSnapshot(db, periodId, snapshot) {
+  db.prepare('UPDATE payroll_periods SET params_snapshot_json=? WHERE id=?')
+    .run(JSON.stringify(snapshot), periodId);
+}
+
+function loadPeriodParamsSnapshot(db, periodId) {
+  const row = db.prepare('SELECT params_snapshot_json, status FROM payroll_periods WHERE id=?').get(periodId);
+  if (!row || !row.params_snapshot_json) return null;
+  try {
+    return JSON.parse(row.params_snapshot_json);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Prefer snapshot for processed periods; otherwise live settings.
+ */
+function resolveLaborSettingsForPeriod(db, period) {
+  if (!period) return null;
+  if (period.status === 'processed' || period.status === 'closed') {
+    const snap = loadPeriodParamsSnapshot(db, period.id);
+    if (snap?.labor) return snap.labor;
+  }
+  return db.prepare('SELECT * FROM payroll_labor_settings WHERE year=?').get(period.fiscal_year) || null;
+}
+
+module.exports = {
+  initPayrollSchema,
+  buildPayrollParamsSnapshot,
+  savePeriodParamsSnapshot,
+  loadPeriodParamsSnapshot,
+  resolveLaborSettingsForPeriod,
+};

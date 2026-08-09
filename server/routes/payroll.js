@@ -4,6 +4,11 @@ const { acct: coaAcct } = require('../lib/coa-map');
 const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
 const { calculatePayroll } = require('../lib/payroll/engine');
+const {
+  buildPayrollParamsSnapshot,
+  savePeriodParamsSnapshot,
+  loadPeriodParamsSnapshot,
+} = require('../lib/payroll/schema');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
@@ -694,9 +699,16 @@ function payrollContext(db, periodId, personId, opts = {}) {
     };
   }
   if (!structure && !opts.manual_mode) throw new Error('ساختار حقوق کارمند برای این سال ثبت نشده است');
-  const brackets = db.prepare(`
+  let brackets = db.prepare(`
     SELECT * FROM payroll_tax_brackets WHERE fiscal_year=? AND active=1 ORDER BY bracket_order
   `).all(period.fiscal_year);
+  // W1-HR1: processed/closed periods prefer immutable snapshot brackets
+  if (period.status === 'processed' || period.status === 'closed') {
+    const snap = loadPeriodParamsSnapshot(db, period.id);
+    if (snap && Array.isArray(snap.brackets) && snap.brackets.length) {
+      brackets = snap.brackets;
+    }
+  }
   if (!brackets.length && !opts.manual_mode) throw new Error('پله‌های مالیات حقوق این سال ثبت نشده است');
   return { period, structure, brackets, person };
 }
@@ -808,6 +820,11 @@ router.post('/process', auth, adminOrAccounting, (req, res) => {
         return { id: recordId, person_id: personId, person_name: person.name, ...calc, journal_entry_id: journalId };
       });
       db.prepare("UPDATE payroll_periods SET status='processed',processed_at=strftime('%s','now') WHERE id=?").run(periodId);
+      const periodRow = db.prepare('SELECT * FROM payroll_periods WHERE id=?').get(periodId);
+      if (periodRow) {
+        const snap = buildPayrollParamsSnapshot(db, periodRow.fiscal_year);
+        savePeriodParamsSnapshot(db, periodId, snap);
+      }
       return records;
     })();
     created.forEach(row => audit(req.user.id, 'create', 'payroll_record', row.id, `پردازش حقوق ${row.person_name}`));
