@@ -14,6 +14,13 @@ Newest entries are added at the top. Never erase another agent's record.
 - Evidence: `test-production-overhead-labor.js` → **38/38 PASS** on `ai/PROD-P4-overhead-labor` (`d0465ac`).
 - Deliverables: overhead bootstrap (toman×10), four labor methods, cost-center rates PUT/bootstrap API.
 
+## 2026-08-09T13:50:00+03:30 — PROD-P3 finalize complete
+
+- Merged primary into `ai/PROD-P3-variable-analysis` @ `fefedda`; FF-pushed to `claude/claude-md-docs-2ssrpy`.
+- Tests: `test-production-variable.js` 27/27 PASS; SW v144.
+- Deploy Iran: targeted SFTP (`scripts/_deploy-prod-p3-sftp.py`) — health 200, ready 200, VARIANCE=YES; pm2 restart without `--update-env`.
+- Claims released; task completed.
+
 ## 2026-08-09T13:20:00+03:30 — PROD-P3 finalize (merge primary + deploy)
 
 - Merged `origin/claude/claude-md-docs-2ssrpy` into `ai/PROD-P3-variable-analysis`.

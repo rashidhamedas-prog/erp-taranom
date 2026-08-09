@@ -37,11 +37,11 @@
 
 ### 2026-08-09 — PROD-P3 تکمیل آنالیز متغیر تولید (ADR-011)
 - **شاخه:** `ai/PROD-P3-variable-analysis` → merge به `claude/claude-md-docs-2ssrpy`
-- **Commit:** `ecba58b`
+- **Commit:** `ecba58b` (feat) · tip `fefedda` (merge primary)
 - **خلاصه:** تکمیل ماژول ۳ تولید: `variance.js`، برگشت مواد با نرخ سند اصلی، قفل `analysis_type`، preview، routeهای issues/return/variance-analysis + گزارش BOM revision/variance-trend، UI حواله، Help، تست T3 (۲۷/۲۷).
 - **فایل‌های کلیدی:** `server/lib/production/variance.js`, `server/lib/production/engine.js`, `server/routes/production-orders.js`, `server/routes/production-reports.js`, `server/public/app.js`, `server/scripts/test-production-variable.js`
-- **Deploy:** ⏳ SFTP هدفمند در حال اجرا
-- **یادداشت:** SW `v144`.
+- **Deploy:** ✅ SFTP هدفمند ایران (`fefedda` / SW `v144`) — health+ready 200؛ بدون `--update-env`
+- **یادداشت:** VPS بدون blind pull؛ فایل‌های P3 overlay شدند.
 
 ### 2026-08-09 — Wave 2 / P2 MVP slices merged on orch branch
 - **شاخه:** `ai/W2-ORCH-wave2`
