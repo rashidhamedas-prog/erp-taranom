@@ -234,6 +234,10 @@ app.use('/api', companyRequestGuard);
 
 initDB();
 
+// License entitlement: after expiry+grace (or clock rollback) → read-only safe mode.
+const { licenseGuard } = require('./lib/license/middleware');
+app.use('/api', licenseGuard);
+
 // Mirror active company display name from settings → registry (central only)
 if (!isDevice()) {
   try {
@@ -254,6 +258,7 @@ if (isDevice()) {
 }
 
 app.use('/api/sync', require('./routes/sync'));
+app.use('/api/license', require('./routes/license'));
 app.use('/api/auth/2fa', require('./routes/twofa'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/ai', require('./routes/ai'));
