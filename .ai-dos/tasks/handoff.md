@@ -15,9 +15,10 @@ Newest entries are added at the top. Never erase another agent's record.
   - HR export `5486ca8`
 - Agent evidence tests (pre-merge, per slice): license 24/24, onboarding 29/29, b2b-credit 19/19 + b2b 34/34, bank-recon 24/24, payroll-export+accounting green, observability 9/9, sms 22/22
 - Orch re-validation (NODE_PATH / local node_modules): license 24/24, onboarding 29/29, b2b-credit 19/19 (harness wait+SYNC_ROLE fixed), bank-recon 24/24, payroll-export green, observability 9/9, sms 22/22
-- Deploy: blocked
+- Deploy: ✅ Iran production at `b4b653b` (2026-08-09); health/ready/root 200; tracked dirty stashed as `w2-pre-deploy-tracked`
 - Residual gaps: full Wave-2 exit gate (paid pilots, support SLA); HR CSV draft; B2B consume-on-invoice; bank 1:N matching; license max_users/feature UI; onboarding wizard UI
 - Do not claim Wave 2 complete. P1 remains other agents' `ai/W1-*`.
+- Primary branch `origin/claude/claude-md-docs-2ssrpy` FF'd to `b4b653b`.
 
 ## 2026-08-09T04:55:00+03:30 — W2-ORCH claimed; P1 work by this owner abandoned
 
