@@ -2340,7 +2340,8 @@ function initSyncSchema(db) {
     require('./lib/gap-accounting-schema').initGapAccountingSchema(db);
     require('./lib/portal-schema').initPortalSchema(db);
     require('./lib/update-md-schema').ensureUpdateMdSchema(db, ensureColumn);
-    require('./lib/license/schema').initLicenseSchema(db);
+require('./lib/license/schema').initLicenseSchema(db);
+    require('./lib/b2b/schema').initB2bSchema(db);
   } catch (e) {
     console.error('❌ update11 schema init failed:', e.message);
     throw e;
