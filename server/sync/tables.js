@@ -348,6 +348,9 @@ const FK_COLUMNS = [
   ['product_variants', 'color_id'],
   ['product_variants', 'size_id'],
   ['products', 'default_variant_id'],
+  // PROD-P5 advanced BOM FKs (append-only)
+  ['bom_operations', 'subcontract_supplier_id'],
+  ['bom_outputs', 'stage_cost_center_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };
