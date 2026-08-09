@@ -29,10 +29,10 @@
 
 ### 2026-08-09 — Merge کامل W1+W2+PROD-P3/P4 برای deploy ایران
 - **شاخه:** `ai/merge-all-deploy` → `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `ced58ef`
 - **خلاصه:** ادغام موج یک (مودیان/HR snapshot/variants/pagination/E2E) روی primary که W2 و PROD-P3/P4 را داشت؛ ترتیب sync: `bank_statement_lines` سپس variants + backfill v8.
-- **Deploy:** ⏳ در حال اجرا
-- **یادداشت:** بدون پاک کردن untrackedهای حساس VPS؛ sharp runtime روی `0.33.5` می‌ماند.
+- **Deploy:** ✅ Iran `ced58ef` — ff-pull + `npm install --omit=dev` + `pm2 restart` (بدون `--update-env`)؛ health/ready/root=200؛ sharp=`0.33.5`؛ SW `v144`
+- **یادداشت:** untrackedهای حساس VPS (`server/_recover/` و stamps) حفظ شدند؛ `/api/license/status` بدون توکن 401 (طبیعی).
 
 ### 2026-08-09 — Sync tip ایران + بازیابی sharp@0.33.5 (waiver)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

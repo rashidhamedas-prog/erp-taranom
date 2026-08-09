@@ -2,6 +2,13 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T15:30:00+03:30 — MERGE-ALL-DEPLOY complete on Iran
+
+- Tip `ced58ef` on `claude/claude-md-docs-2ssrpy` = W1 orch + W2 + PROD-P3/P4.
+- Iran: ff-pull to `ced58ef`, `npm install --omit=dev`, sharp remains `0.33.5`, `pm2 restart` without `--update-env`.
+- Evidence: health/ready/root 200; license unauth 401; SW `v144`.
+- Claims released (`active.yaml` empty).
+
 ## 2026-08-09T14:20:00+03:30 — MERGE-ALL-DEPLOY reconciled with primary P4
 
 - Merged latest `origin/claude/claude-md-docs-2ssrpy` (PROD-P4 + prior) into `ai/merge-all-deploy` (already has W1 orch + W2 + P3).
