@@ -2,6 +2,17 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T04:50:00+03:30 — Security review disposition + deploy-script hardening
+
+- Independent [security review](5816c075-fa15-4eee-9dc3-639b922c018e): **blocked disposition Approved / completion Not approved**.
+- Residual advisory on production `sharp@0.33.5` accepted until CPU upgrade or explicit time-boxed owner waiver.
+- High finding (out of this task's file_claims): `.cursor/rules/auto-commit-deploy.mdc` still mandates blind `git pull` + `pm2 restart --update-env` and can bypass the reviewed sharp path — needs separate ownership change before any autonomous Iran deploy.
+- Medium findings remediated in claimed `scripts/deploy-sharp-production.ps1`:
+  1. SSH `RejectPolicy` + required pinned `known_hosts`
+  2. Remote SHA-256 sidecar verify before extract
+  3. Auto-rollback from recover stamp if post-PM2 smoke fails
+- Task remains `blocked` on CPU; do not claim `0.35.0` deployed.
+
 ## 2026-08-09T04:10:00+03:30 — W0-OPS-002 blocked on VPS CPU microarchitecture
 
 - Task / owner / role: `W0-OPS-002` / `cursor:implementer` / Implementer (status=`blocked`).

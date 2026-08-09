@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-09 — W0-OPS-002: سخت‌سازی اسکریپت پس از security review
+- **شاخه:** `ai/W0-OPS-002-sharp-production-deploy`
+- **Commit:** (پس از این ورودی)
+- **خلاصه:** پس از بازبینی امنیتی مستقل: `known_hosts` اجباری + `RejectPolicy`، تأیید SHA-256 باندل روی سرور، و rollback خودکار اگر smoke بعد از `pm2 restart` شکست بخورد. تسک همچنان blocked روی CPU است.
+- **فایل‌های کلیدی:** `scripts/deploy-sharp-production.ps1`, `.ai-dos/tasks/handoff.md`
+- **Deploy:** ❌ runtime همچنان `0.33.5` (عمدی)
+- **یادداشت:** یافته High مربوط به `auto-commit-deploy.mdc` خارج از file_claims این تسک است و باید جدا claim شود.
+
 ### 2026-08-09 — W0-OPS-002: تلاش امن deploy sharp@0.35.0 (مسدود روی CPU)
 - **شاخه:** `ai/W0-OPS-002-sharp-production-deploy`
 - **Commit:** `6c82a9d`

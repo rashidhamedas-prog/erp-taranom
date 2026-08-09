@@ -41,7 +41,8 @@ param(
     [string]$BundleDir = '',
     [string]$RecoverStamp = '',
     [string]$HttpProxy = 'http://127.0.0.1:10808',
-    [string]$PublicBaseUrl = 'https://erp.taranom.app'
+    [string]$PublicBaseUrl = 'https://erp.taranom.app',
+    [string]$KnownHostsFile = (Join-Path $env:USERPROFILE '.ssh\known_hosts')
 )
 
 Set-StrictMode -Version Latest
@@ -56,6 +57,9 @@ $BundleTar = Join-Path $BundleDir ("sharp-{0}-linux-x64.tgz" -f $TargetVersion)
 function Assert-Prereqs {
     if (-not (Test-Path -LiteralPath $IdentityFile -PathType Leaf)) {
         throw "SSH identity not found: $IdentityFile"
+    }
+    if (-not (Test-Path -LiteralPath $KnownHostsFile -PathType Leaf)) {
+        throw "Pinned known_hosts not found: $KnownHostsFile"
     }
     if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
         throw 'python is required (paramiko).'
@@ -95,7 +99,11 @@ BUNDLE = cfg.get("bundle_tar") or ""; STAMP = (cfg.get("recover_stamp") or "").s
 def connect():
     pkey = paramiko.Ed25519Key.from_private_key_file(KEY)
     c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    kh = cfg.get("known_hosts") or ""
+    if not kh or not os.path.isfile(kh):
+        raise SystemExit("known_hosts required and missing")
+    c.load_host_keys(kh)
+    c.set_missing_host_key_policy(paramiko.RejectPolicy())
     c.connect(HOST, username=USER, pkey=pkey, timeout=CT, allow_agent=False, look_for_keys=False)
     return c
 
@@ -198,11 +206,23 @@ def sha256_file(path):
 def upload_bundle(c, local_tar):
     remote_dir = f"{APP}/server/_recover/bundles"
     remote_tar = f"{remote_dir}/sharp-{TARGET}-linux-x64.tgz"
+    remote_sha = remote_tar + ".sha256"
+    digest = sha256_file(local_tar)
     run(c, f"mkdir -p {remote_dir}", timeout=30)
     sftp = c.open_sftp()
-    print("PUT", local_tar, "->", remote_tar, "sha256", sha256_file(local_tar))
+    print("PUT", local_tar, "->", remote_tar, "sha256", digest)
     sftp.put(local_tar, remote_tar)
+    with sftp.file(remote_sha, "w") as fh:
+        fh.write(f"{digest}  {os.path.basename(remote_tar)}\n")
     sftp.close()
+    code, text = run(
+        c,
+        f"cd {remote_dir} && sha256sum -c sharp-{TARGET}-linux-x64.tgz.sha256",
+        timeout=60,
+    )
+    if code != 0 or "OK" not in text:
+        raise SystemExit("remote bundle SHA-256 verification failed")
+    print("REMOTE_BUNDLE_HASH_OK", digest)
     return remote_tar
 
 
@@ -242,6 +262,8 @@ def apply_bundle(c, remote_tar, recover_dir):
     cmd = f"""
 set -e
 cd {APP}/server
+test -f "{remote_tar}.sha256"
+( cd "$(dirname "{remote_tar}")" && sha256sum -c "$(basename "{remote_tar}").sha256" )
 STAGE=$(mktemp -d /tmp/sharp-stage-XXXXXX)
 tar -xzf "{remote_tar}" -C "$STAGE"
 test -d "$STAGE/sharp"
@@ -299,10 +321,19 @@ def pin_packages(c, local_pkg, local_lock):
         raise SystemExit("package.json pin mismatch after upload")
 
 
-def restart_and_smoke(c):
+def restart_and_smoke(c, recover_dir=None):
+    def _fail(msg):
+        if recover_dir:
+            print("SMOKE_FAIL_ROLLBACK", msg)
+            try:
+                rollback(c, recover_dir)
+            except Exception as ex:
+                raise SystemExit(f"{msg}; rollback also failed: {ex}") from ex
+        raise SystemExit(msg)
+
     code, _ = run(c, "pm2 restart erp-taranom", timeout=90)
     if code != 0:
-        raise SystemExit("pm2 restart failed")
+        _fail("pm2 restart failed")
     time.sleep(5)
     cmd = f"""
 set -e
@@ -316,13 +347,13 @@ node -e "const sharp=require('sharp'); const fs=require('fs'); const path=requir
 """
     code, text = run_bash(c, cmd, timeout=90)
     if code != 0:
-        raise SystemExit("post-restart smoke command failed")
+        _fail("post-restart smoke command failed")
     if f"RUNTIME {TARGET}" not in text:
-        raise SystemExit("post-restart runtime version check failed")
+        _fail("post-restart runtime version check failed")
     if "root=200" not in text and "health=200" not in text:
-        raise SystemExit("HTTP smoke failed")
+        _fail("HTTP smoke failed")
     if "SMOKE_THUMB_OK" not in text:
-        raise SystemExit("thumbnail smoke failed")
+        _fail("thumbnail smoke failed")
     print("DEPLOY_SMOKE_OK")
     return True
 
@@ -381,7 +412,7 @@ def main():
             remote_tar = upload_bundle(c, BUNDLE)
             pin_packages(c, cfg.get("local_pkg") or "", cfg.get("local_lock") or "")
             apply_bundle(c, remote_tar, recover_dir)
-            restart_and_smoke(c)
+            restart_and_smoke(c, recover_dir)
             print("FINAL_STAMP", stamp)
             print("FINAL_RECOVER", recover_dir)
             sys.exit(0)
@@ -419,6 +450,7 @@ function Invoke-RemotePython {
         bundle_tar       = $BundleTar
         recover_stamp    = $RecoverStamp
         public_base      = $PublicBaseUrl
+        known_hosts      = $KnownHostsFile
     }
     foreach ($k in $Extra.Keys) { $payload[$k] = $Extra[$k] }
     $json = ($payload | ConvertTo-Json -Compress -Depth 6)
