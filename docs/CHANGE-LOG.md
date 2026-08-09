@@ -29,7 +29,7 @@
 
 ### 2026-08-09 — اصلاح legacy list: بدون LIMIT روی bare GET
 - **شاخه:** `ai/W1-ORCH-wave1-integration`
-- **Commit:** (پس از push)
+- **Commit:** `7ef8c72`
 - **خلاصه:** رفع blocker بازبینی — `listQueryPlan` فقط وقتی `page`/`limit`/`pageSize`/`paginated` هست SQL LIMIT می‌زند؛ بدون پارامتر = آرایهٔ کامل برای UI/sync. تست pagination ۳۰/۳۰.
 - **فایل‌های کلیدی:** `server/lib/pagination.js`, `server/routes/{customers,orders,followups,suppliers,persons,products,invoices}.js`, `server/scripts/test-list-pagination.js`
 - **Deploy:** ❌ Wave 1 — deploy blocked
