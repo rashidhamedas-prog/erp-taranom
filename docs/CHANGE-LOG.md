@@ -15,7 +15,7 @@
 
 ### 2026-08-09 — Merge W1 ORCH tip (امنیت/موادیان/variants) روی primary برای deploy ایران
 - **شاخه:** `ai/W1-merge-primary-deploy` → `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `6bd5884` (+ merge docs tip)
 - **خلاصه:** ادغام `origin/ai/W1-ORCH-wave1-integration` (`aca247f`) روی tip primary (`ced58ef`). حفظ قابلیت‌های جدیدتر primary (W2/P3/P4) + remediation امنیتی W1 پس از merge-base `7ef8c72` (به‌ویژه `dcb9b40` SEC، تست `9053883`). ترتیب SYNCABLE: `bank_statement_lines` سپس variants؛ backfill v8.
 - **فایل‌های کلیدی:** `server/db.js`, `server/routes/moadian.js`, `server/lib/moadian/*`, `server/lib/void-invoice.js`, `server/routes/product-variants.js`, `server/lib/secret-settings.js`, `docs/WAVE1-GATE-STATUS.md`
 - **Deploy:** ⏳ توسط عامل دیگر پس از push
@@ -56,6 +56,13 @@
 - **╪«┘ä╪º╪╡┘ç:** ╪º╪»╪║╪º┘à ┘à┘ê╪¼ █î┌⌐ (┘à┘ê╪»█î╪º┘å/HR snapshot/variants/pagination/E2E) ╪▒┘ê█î primary ┌⌐┘ç W2 ┘ê PROD-P3/P4 ╪▒╪º ╪»╪º╪┤╪¬╪¢ ╪¬╪▒╪¬█î╪¿ sync: `bank_statement_lines` ╪│┘╛╪│ variants + backfill v8.
 - **Deploy:** ΓÅ│ ╪»╪▒ ╪¡╪º┘ä ╪º╪¼╪▒╪º
 - **█î╪º╪»╪»╪º╪┤╪¬:** ╪¿╪»┘ê┘å ┘╛╪º┌⌐ ┌⌐╪▒╪»┘å untracked┘ç╪º█î ╪¡╪│╪º╪│ VPS╪¢ sharp runtime ╪▒┘ê█î `0.33.5` ┘à█îΓÇî┘à╪º┘å╪».
+
+### 2026-08-09 — Merge کامل W1+W2+PROD-P3/P4 برای deploy ایران
+- **شاخه:** `ai/merge-all-deploy` → `claude/claude-md-docs-2ssrpy`
+- **Commit:** `ced58ef`
+- **خلاصه:** ادغام موج یک (مودیان/HR snapshot/variants/pagination/E2E) روی primary که W2 و PROD-P3/P4 را داشت؛ ترتیب sync: `bank_statement_lines` سپس variants + backfill v8.
+- **Deploy:** ✅ Iran `ced58ef` — ff-pull + `npm install --omit=dev` + `pm2 restart` (بدون `--update-env`)؛ health/ready/root=200؛ sharp=`0.33.5`؛ SW `v144`
+- **یادداشت:** untrackedهای حساس VPS (`server/_recover/` و stamps) حفظ شدند؛ `/api/license/status` بدون توکن 401 (طبیعی).
 
 ### 2026-08-09 ΓÇö Sync tip ╪º█î╪▒╪º┘å + ╪¿╪º╪▓█î╪º╪¿█î sharp@0.33.5 (waiver)
 - **╪┤╪º╪«┘ç:** `claude/claude-md-docs-2ssrpy`
