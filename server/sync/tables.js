@@ -180,6 +180,13 @@ const SYNCABLE_TABLES = [
   // ===== Employee groups / payroll 1405/05/04 — APPEND-ONLY =====
   { name: 'employee_groups',                   upsertKey: 'id' },
   { name: 'group_salary_structures',           upsertKey: 'id' },
+
+  // ===== P0-APP1 product variants (style/color/size/SKU) — APPEND-ONLY =====
+  { name: 'product_colors',                    upsertKey: 'id' },
+  { name: 'product_sizes',                     upsertKey: 'id' },
+  { name: 'product_style_colors',              upsertKey: 'id' },
+  { name: 'product_style_sizes',               upsertKey: 'id' },
+  { name: 'product_variants',                  upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -325,6 +332,15 @@ const FK_COLUMNS = [
   // Employee groups / payroll 1405/05/04 (append-only)
   ['persons', 'employee_group_id'],
   ['group_salary_structures', 'employee_group_id'],
+  // P0-APP1 product variants (append-only)
+  ['product_style_colors', 'product_id'],
+  ['product_style_colors', 'color_id'],
+  ['product_style_sizes', 'product_id'],
+  ['product_style_sizes', 'size_id'],
+  ['product_variants', 'product_id'],
+  ['product_variants', 'color_id'],
+  ['product_variants', 'size_id'],
+  ['products', 'default_variant_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };
