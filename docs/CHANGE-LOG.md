@@ -29,7 +29,7 @@
 
 ### 2026-08-09 — PROD-P3 تکمیل آنالیز متغیر تولید (ADR-011)
 - **شاخه:** `ai/PROD-P3-variable-analysis`
-- **Commit:** (پس از commit)
+- **Commit:** `ecba58b`
 - **خلاصه:** تکمیل ماژول ۳ تولید: `variance.js`، برگشت مواد با نرخ سند اصلی، قفل `analysis_type`، preview، routeهای issues/return/variance-analysis + گزارش پیشنهاد بازنگری BOM و روند انحراف، UI حواله با مبلغ/خلاصه/مخفی‌سازی بها، Help، و تست‌های T3-01..T3-24 (۲۷ پاس).
 - **فایل‌های کلیدی:** `server/lib/production/variance.js`, `server/lib/production/engine.js`, `server/routes/production-orders.js`, `server/routes/production-reports.js`, `server/public/app.js`, `server/scripts/test-production-variable.js`
 - **Deploy:** ⏳ بدون `git pull` کور روی VPS کثیف — نیاز به SFTP هدفمند یا deploy پس از reconcile
