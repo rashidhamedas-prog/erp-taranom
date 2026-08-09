@@ -29,7 +29,7 @@
 
 ### 2026-08-09 — W0-OPS-002: سخت‌سازی اسکریپت پس از security review
 - **شاخه:** `ai/W0-OPS-002-sharp-production-deploy`
-- **Commit:** (پس از این ورودی)
+- **Commit:** `24eace9`
 - **خلاصه:** پس از بازبینی امنیتی مستقل: `known_hosts` اجباری + `RejectPolicy`، تأیید SHA-256 باندل روی سرور، و rollback خودکار اگر smoke بعد از `pm2 restart` شکست بخورد. تسک همچنان blocked روی CPU است.
 - **فایل‌های کلیدی:** `scripts/deploy-sharp-production.ps1`, `.ai-dos/tasks/handoff.md`
 - **Deploy:** ❌ runtime همچنان `0.33.5` (عمدی)
