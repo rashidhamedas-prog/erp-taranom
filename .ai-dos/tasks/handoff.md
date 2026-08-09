@@ -2,6 +2,50 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T05:35:00+03:30 — PROD-P4 integration complete
+
+- Evidence: `node server/scripts/test-production-overhead-labor.js` → **38/38 PASS**.
+- Deliverables on `ai/PROD-P4-overhead-labor`:
+  - `overhead.js` ([overhead](637976fb-a748-4dcd-b579-86084e28b3de))
+  - `labor.js` ([labor](97379d88-e7b4-4a48-9fc0-f40a4a83d9bc))
+  - `production-cost-centers.js` (orchestrator after [rates-api](d096b2eb-27bf-4503-a626-cbb829668207) stall)
+  - `test-production-overhead-labor.js` (orchestrator after [tests](51692f23-a71d-44ec-a937-5069d0c69fa9) stall)
+- Gates: `node --check` on overhead/labor/routes OK.
+- Next: push task branch; merge to primary when P3 releases CHANGE-LOG; then Iran deploy.
+
+## 2026-08-09T05:26:00+03:30 — PROD-P4-C completed by orchestrator
+
+- [rates-api](d096b2eb-27bf-4503-a626-cbb829668207) stalled (no file edits); interrupted.
+- Orchestrator implemented `production-cost-centers.js`: `PUT /rates/:id`, `POST /rates/bootstrap`, `PUT /:id` (after `/rates*`), soft DELETE retained.
+- Mount remains `/api/production/cost-centers` in `server.js`.
+- Still waiting: PROD-P4-D test agent final report / run.
+
+## 2026-08-09T05:20:00+03:30 — PROD-P4-A complete (overhead.js)
+
+- Owner: `cursor:agent-overhead` ([overhead](637976fb-a748-4dcd-b579-86084e28b3de)).
+- Delivered: rate preference chain, toman×10 bootstrap, fixed machine_hours drivers, applyOverhead without ledger; `node --check` OK.
+- Still waiting: PROD-P4-C rates API, PROD-P4-D tests (test file may already exist untracked).
+
+## 2026-08-09T05:19:00+03:30 — PROD-P4-B complete (labor.js)
+
+- Owner: `cursor:agent-labor` ([labor](97379d88-e7b4-4a48-9fc0-f40a4a83d9bc)).
+- Delivered: `computeLaborAmount` + wired `postLabor`/`autoPostLabor` (piece/hourly/monthly/contract), `node --check` exit 0, smoke math OK.
+- Still waiting: PROD-P4-A overhead, PROD-P4-C rates API, PROD-P4-D tests (files partially appearing: overhead.js + test script modified; rates route not yet).
+- Integration/gates deferred until A/C/D finish.
+
+## 2026-08-09T05:02:00+03:30 — PROD-P4 claimed (parallel with P1–P3)
+
+- Task: Production Module **P4** = سربار + دستمزد + مراکز هزینه (`docs/Production/04-advanced-formulas.md` §5 + §20 overhead slice).
+- Worktree/branch: `D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p4` / `ai/PROD-P4-overhead-labor`.
+- Parallel sub-tasks (non-overlapping claims):
+  - `PROD-P4-A` → `overhead.js`
+  - `PROD-P4-B` → `labor.js`
+  - `PROD-P4-C` → `production-cost-centers.js`
+  - `PROD-P4-D` → `test-production-overhead-labor.js` (new)
+- Explicitly **avoid** PROD-P3 claims: `engine.js`, `variance.js`, `costing.js`, `production-orders.js`, `production-reports.js`, `reports.js`, `app.js`, `prod-ui.js`, `index.html`, `test-production-variable.js`.
+- CHANGE-LOG update deferred until integration (P3 orch currently owns CHANGE-LOG in its worktree).
+- Do not start PROD-P5 routing/UI in this task.
+
 ## 2026-08-09T05:00:00+03:30 — W0-OPS-002 completed under permanent owner waiver
 
 - Owner accepted permanent production waiver `W0-OPS-002-SHARP-RUNTIME-0335` with **no expiry**: VPS runtime may remain `sharp@0.33.5`; source/CI stay `0.35.0`.
