@@ -27,6 +27,13 @@
 
 ---
 
+### 2026-08-09 — تست رگرسیون path/matrix پس از Approve امنیتی
+- **شاخه:** `ai/W1-ORCH-wave1-integration`
+- **Commit:** (پس از push)
+- **خلاصه:** پس از Approve with comments امنیت، assert برای `MOADIAN_KEY_PATH_REJECTED` و سقف ماتریس ۵۰۰ اضافه شد؛ gate Security ✅.
+- **فایل‌های کلیدی:** `server/scripts/test-moadian-foundation.js`, `server/scripts/test-product-variants.js`, `docs/WAVE1-GATE-STATUS.md`
+- **Deploy:** ❌ Wave 1 — deploy blocked
+
 ### 2026-08-09 — رفع یافته‌های امنیتی موج یک (SEC-001..008)
 - **شاخه:** `ai/W1-ORCH-wave1-integration`
 - **Commit:** `dcb9b40`

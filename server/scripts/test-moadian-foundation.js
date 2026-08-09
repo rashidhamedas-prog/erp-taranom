@@ -97,6 +97,15 @@ const stub = moadian.getAdapter('stub');
   }
   ok('live adapter unavailable', liveRejected);
 
+  const { resolveMoadianKeyPath } = require('../lib/moadian/sign');
+  let pathRejected = false;
+  try {
+    resolveMoadianKeyPath('../../etc/passwd');
+  } catch (e) {
+    pathRejected = e.code === 'MOADIAN_KEY_PATH_REJECTED';
+  }
+  ok('key path traversal rejected', pathRejected);
+
   moadian.markSent(db, id1, stubRes.taxId, stubRes.response);
   const sent = db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(id1);
   ok('status sent', sent.status === 'sent' && sent.tax_id === stubRes.taxId);

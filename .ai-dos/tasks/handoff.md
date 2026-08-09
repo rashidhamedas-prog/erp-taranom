@@ -2,6 +2,12 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T15:05:00+03:30 — Security re-check: Approve with comments
+
+- [Security re-check SEC fixes](bb7a9718-bc4e-427b-9bc0-f3fb8aae96f3): **Approve with comments** — no residual High in SEC-001..008 @ `dcb9b40`.
+- Follow-up: added regression asserts for key-path traversal + matrix >500; recorded in WAVE1-GATE-STATUS.
+- Non-blocking leftovers: sign `keyPathPresent` if ever serialized; auto-commit-deploy rule; android agent-log ingest for APK gate.
+
 ## 2026-08-09T15:00:00+03:30 — LIMIT blocker re-review: Approve
 
 - [LIMIT fix independent review](42283476-259e-4017-bb57-ceab1f1ccdf1): **Approve** — bare GET catalogs no longer silent LIMIT 50 (`listQueryPlan` @ `7ef8c72`; test 30/0).
