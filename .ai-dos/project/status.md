@@ -5,10 +5,10 @@
 - Wave 0: complete (sharp production waiver `0.33.5`)
 - Wave 1 / P1: MVP integrated (moadian foundation, HR snapshot, variants, pagination, E2E)
 - Wave 2 / P2: MVP on primary (license, onboarding, B2B credit, bank recon, HR draft export, observability)
-- PROD-P3: variable analysis ADR-011
-- PROD-P4: overhead + labor + cost-center rates merged on primary
-- Active: MERGE-ALL-DEPLOY — push full tip to Iran
-- Production: do not blind-reset dirty VPS untracked secrets/`_recover`
+- PROD-P3: variable analysis ADR-011 — Iran SFTP ✅
+- PROD-P4: overhead + labor + cost-center rates — prior tip `a68d901`
+- Active: MERGE-ALL-DEPLOY — push full W1+W2+P3+P4 tip to Iran
+- Production: do not blind-reset dirty VPS untracked secrets/`_recover`; sharp stays `0.33.5`
 
 ## Working quality commands
 
