@@ -117,6 +117,9 @@ function initPayrollSchema(db) {
   ];
   for (const [name, definition] of personColumns) ensureColumn(db, 'persons', name, definition);
 
+  // P0-HR1: freeze labor/insurance params used at process time (JSON snapshot).
+  ensureColumn(db, 'payroll_periods', 'params_json', 'TEXT');
+
   const payrollColumns = [
     ['period_id', 'INTEGER'],
     ['working_days_x100', 'INTEGER DEFAULT 0'],

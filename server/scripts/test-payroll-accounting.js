@@ -96,6 +96,8 @@ assert.deepStrictEqual(syncNames.slice(payrollStart, payrollStart + requiredTabl
 
 const navSource = fs.readFileSync(path.join(__dirname, '../public/acc-nav.js'), 'utf8');
 const uiSource = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
+const appSource = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+const uiBundle = uiSource + '\n' + appSource;
 // Model A nav: payroll is a top-level module with subgroups (اطلاعات پایه/عملیات/گزارشات)
 assert(navSource.includes("title: 'حقوق و دستمزد'"), 'payroll navigation module missing');
 assert(navSource.includes("'acc-payroll-processing'"), 'payroll processing nav item missing');
@@ -105,11 +107,33 @@ for (const fn of [
   'renderPayrollTaxConfig', 'renderPayrollProcessing', 'renderPayrollYearEnd',
   'renderPayrollLegalReports', 'renderVatLedgerReport', 'renderCostAccountingReport',
   'renderFinancialReportDesigner',
-]) assert(uiSource.includes(`function ${fn}`) || uiSource.includes(`async function ${fn}`), `${fn} UI missing`);
-const payrollUi = uiSource.slice(uiSource.indexOf('HOURLY PAYROLL'), uiSource.indexOf('PURCHASE INVOICES'));
+]) assert(uiBundle.includes(`function ${fn}`) || uiBundle.includes(`async function ${fn}`), `${fn} UI missing`);
+assert(appSource.includes('/export/insurance-csv'), 'DRAFT insurance CSV export UI missing');
+assert(appSource.includes('/export/tax-csv'), 'DRAFT tax CSV export UI missing');
+const payrollUiStart = Math.max(uiBundle.indexOf('HOURLY PAYROLL'), 0);
+const payrollUiEnd = uiBundle.indexOf('PURCHASE INVOICES');
+const payrollUi = payrollUiEnd > payrollUiStart
+  ? uiBundle.slice(payrollUiStart, payrollUiEnd)
+  : appSource;
 assert(!payrollUi.includes('(ت)'), 'payroll UI still contains Toman unit');
 for (const match of uiSource.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)) {
   if (match[1].trim()) new Function(match[1]);
+}
+
+// Labor settings (insurance cap) must change net vs uncapped baseline.
+{
+  const capped = calculatePayroll({
+    period, structure, brackets,
+    laborSettings: { min_wage_daily_rial: 0, insurance_cap_monthly_rial: 100000000 },
+    input: {
+      working_days_x100: 3000, regular_hours_x100: 22000,
+      overtime_hours_x100: 1000, night_shift_hours_x100: 0,
+      hardship_allowance_rial: 0, other_allowance_rial: 0,
+      insurance_exempt_rial: 0, tax_exemption_rial: 0, other_deductions_rial: 0,
+    },
+  });
+  assert.strictEqual(capped.insurance_base_rial, 100000000);
+  assert.notStrictEqual(capped.net_pay_rial, calculation.net_pay_rial);
 }
 
 db.close();

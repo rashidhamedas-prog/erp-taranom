@@ -9403,7 +9403,12 @@ async function postPayrollYearEnd(id){
 async function renderPayrollLegalReports(body){
   const year=todayJalali().slice(0,4);
   const d=await api('GET','/payroll/legal-reports?fiscal_year='+year)||{rows:[],totals:{}};
-  body.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:12px`)}">خلاصه لیست بیمه و مالیات حقوق سال ${year} — همه مبالغ ریال</div>
+  const periodIds=[...new Set((d.rows||[]).map(r=>r.period_id).filter(Boolean))];
+  const exportBtns=periodIds.map(id=>`
+    <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){downloadAuth('/payroll/periods/${id}/export/insurance-csv','payroll-insurance-DRAFT-${id}.csv')})}">بیمه DRAFT #${id}</button>
+    <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){downloadAuth('/payroll/periods/${id}/export/tax-csv','payroll-tax-DRAFT-${id}.csv')})}">مالیات DRAFT #${id}</button>`).join(' ');
+  body.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:12px`)}">خلاصه لیست بیمه و مالیات حقوق سال ${year} — همه مبالغ ریال. خروجی CSV فعلاً پیش‌نویس (DRAFT) است و نیازمند تأیید متخصص.</div>
+  <div data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px`)}">${exportBtns||'<span class="muted">دوره‌ای برای خروجی نیست</span>'}</div>
   <div class="tbl-wrap"><table class="tbl"><thead><tr><th>دوره</th><th>کارمند</th><th>ناخالص</th><th>مشمول بیمه</th><th>سهم کارگر</th><th>سهم کارفرما</th><th>مشمول مالیات</th><th>مالیات</th></tr></thead>
   <tbody>${(d.rows||[]).map(r=>`<tr><td>${esc(r.period_label)}</td><td>${esc(r.person_name)}</td><td>${fmt(r.gross_earnings_rial)}</td><td>${fmt(r.insurance_base_rial)}</td><td>${fmt(r.sso_employee_rial)}</td><td>${fmt(r.sso_employer_rial)}</td><td>${fmt(r.taxable_income_rial)}</td><td>${fmt(r.income_tax_rial)}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
 }
@@ -16335,7 +16340,7 @@ function renderAdminGuide(){
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان به گروه اشخاص «پرسنل» متصل است — هر شخصی در آن گروه در لیست کارکنان ظاهر می‌شود و کد پرسنلی/جزئیات را دستی تکمیل می‌کنید. گروه کارکنان و ساختار حقوق گروهی در «ساختار حقوق و مزایا» تعریف می‌شود. امکان حذف ردیف‌ها و ثبت دستی حقوق هر ماه در پردازش وجود دارد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند. دکمه «پرداخت» جداگانه وجه را از صندوق/بانک پرداخت می‌کند.</li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان به گروه اشخاص «پرسنل» متصل است — هر شخصی در آن گروه در لیست کارکنان ظاهر می‌شود و کد پرسنلی/جزئیات را دستی تکمیل می‌کنید. گروه کارکنان و ساختار حقوق گروهی در «ساختار حقوق و مزایا» تعریف می‌شود. امکان حذف ردیف‌ها و ثبت دستی حقوق هر ماه در پردازش وجود دارد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند. دکمه «پرداخت» جداگانه وجه را از صندوق/بانک پرداخت می‌کند. تنظیمات کار سالانه (حداقل مزد روزانه و سقف بیمه) در محاسبه حقوق اعمال می‌شود؛ مزایایی که در ساختار حقوق ثبت شده‌اند دوباره از تنظیمات کار اضافه نمی‌شوند. هنگام پردازش دوره، پارامترها در <code>params_json</code> دوره ذخیره می‌شوند. از گزارشات قانونی می‌توان CSV پیش‌نویس (DRAFT) لیست بیمه و مالیات هر دوره را دریافت کرد — فرمت نهایی پس از تأیید متخصص حقوق است.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>

@@ -4,6 +4,7 @@ const { acct: coaAcct } = require('../lib/coa-map');
 const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
 const { calculatePayroll } = require('../lib/payroll/engine');
+const { buildInsuranceListCsv, buildTaxDraftCsv } = require('../lib/payroll/export-legal');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
@@ -698,7 +699,28 @@ function payrollContext(db, periodId, personId, opts = {}) {
     SELECT * FROM payroll_tax_brackets WHERE fiscal_year=? AND active=1 ORDER BY bracket_order
   `).all(period.fiscal_year);
   if (!brackets.length && !opts.manual_mode) throw new Error('پله‌های مالیات حقوق این سال ثبت نشده است');
-  return { period, structure, brackets, person };
+  const laborSettings = db.prepare('SELECT * FROM payroll_labor_settings WHERE year=?')
+    .get(period.fiscal_year) || null;
+  return { period, structure, brackets, person, laborSettings };
+}
+
+/** Snapshot yearly labor params + period rates onto payroll_periods.params_json. */
+function snapshotPeriodParams(db, period) {
+  const laborSettings = db.prepare('SELECT * FROM payroll_labor_settings WHERE year=?')
+    .get(period.fiscal_year) || null;
+  const payload = {
+    snapshot_at: Math.floor(Date.now() / 1000),
+    fiscal_year: period.fiscal_year,
+    month_no: period.month_no,
+    employee_insurance_bp: period.employee_insurance_bp,
+    employer_insurance_bp: period.employer_insurance_bp,
+    standard_days: period.standard_days,
+    standard_hours_x100: period.standard_hours_x100,
+    labor_settings: laborSettings,
+  };
+  db.prepare('UPDATE payroll_periods SET params_json=? WHERE id=?')
+    .run(JSON.stringify(payload), period.id);
+  return payload;
 }
 
 router.post('/calculate', auth, adminOrAccounting, (req, res) => {
@@ -807,11 +829,45 @@ router.post('/process', auth, adminOrAccounting, (req, res) => {
       });
         return { id: recordId, person_id: personId, person_name: person.name, ...calc, journal_entry_id: journalId };
       });
+      const periodRow = db.prepare('SELECT * FROM payroll_periods WHERE id=?').get(periodId);
+      if (periodRow) snapshotPeriodParams(db, periodRow);
       db.prepare("UPDATE payroll_periods SET status='processed',processed_at=strftime('%s','now') WHERE id=?").run(periodId);
       return records;
     })();
     created.forEach(row => audit(req.user.id, 'create', 'payroll_record', row.id, `پردازش حقوق ${row.person_name}`));
     res.json({ ok: true, count: created.length, records: created });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/periods/:id/export/insurance-csv', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const periodId = Number(req.params.id);
+    const csv = buildInsuranceListCsv(db, periodId);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="payroll-insurance-DRAFT-period-${periodId}.csv"`
+    );
+    res.send(csv);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.get('/periods/:id/export/tax-csv', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const periodId = Number(req.params.id);
+    const csv = buildTaxDraftCsv(db, periodId);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="payroll-tax-DRAFT-period-${periodId}.csv"`
+    );
+    res.send(csv);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -921,7 +977,7 @@ router.get('/legal-reports', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const year = Number(req.query.fiscal_year);
   const rows = db.prepare(`
-    SELECT r.period_label,p.name person_name,p.personnel_code,p.national_id,p.insurance_id,p.tax_id,
+    SELECT r.period_id,r.period_label,p.name person_name,p.personnel_code,p.national_id,p.insurance_id,p.tax_id,
            r.gross_earnings_rial,r.insurance_base_rial,r.sso_employee_rial,r.sso_employer_rial,
            r.taxable_income_rial,r.income_tax_rial,r.net_pay_rial
     FROM payroll_records r
