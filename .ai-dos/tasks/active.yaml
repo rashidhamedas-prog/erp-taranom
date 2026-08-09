@@ -1,2 +1,216 @@
 schema_version: 1
-tasks: []
+tasks:
+  - id: "W1-ORCH"
+    title: "Wave 1 integration — shared hot files and merge gate"
+    status: "claimed"
+    risk: "high"
+    owner: "cursor:orchestrator"
+    roles:
+      orchestrator: "cursor:orchestrator"
+      architect: "cursor:orchestrator"
+      implementer: "cursor:orchestrator"
+      reviewer: "cursor:reviewer"
+      security: "cursor:security"
+    branch: "ai/W1-ORCH-wave1-integration"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w1-orch"
+    claimed_at: "2026-08-09T04:45:00+03:30"
+    heartbeat_at: "2026-08-09T04:45:00+03:30"
+    depends_on: []
+    scope:
+      - "Register Wave 1 parallel tasks and living plan."
+      - "Own shared hot files: db.js, app.js/Help, CHANGE-LOG, gate status."
+      - "Merge PAGE→HR1→F1→APP1→E2E; wire schema and UI; run Wave 1 gate."
+    non_goals:
+      - "No Iran VPS deploy or blind git pull/reset on dirty production."
+      - "No full P1-A frontend rewrite."
+    file_claims:
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+      - "docs/.plans/260809-wave1-parallel/SUMMARY.md"
+      - "docs/WAVE1-GATE-STATUS.md"
+      - "docs/CHANGE-LOG.md"
+      - "server/db.js"
+      - "server/public/app.js"
+      - "server/routes/invoices.js"
+      - "tasks/active-task.md"
+      - "tasks/handoff.md"
+    acceptance_criteria:
+      - "Five parallel task branches merged into integration with green gate commands."
+      - "Help + CHANGE-LOG updated; WAVE1-GATE-STATUS written."
+      - "No production deploy claimed."
+    rollback:
+      - "Abandon integration branch; leave parallel branches intact."
+    validation:
+      - "git diff --check"
+      - "node server/scripts/test-sms.js"
+      - "node server/scripts/test-sync.js"
+      - "node scripts/prepare-embedded-server.js all"
+      - "node scripts/compare-embedded-hash.js"
+
+  - id: "W1-F1"
+    title: "P0-F1 Moadian foundation — adapter, queue, stub/sandbox"
+    status: "claimed"
+    risk: "high"
+    owner: "cursor:f1"
+    roles:
+      implementer: "cursor:f1"
+      reviewer: "cursor:reviewer"
+      security: "cursor:security"
+    branch: "ai/W1-F1-moadian"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w1-f1"
+    claimed_at: "2026-08-09T04:45:00+03:30"
+    heartbeat_at: "2026-08-09T04:45:00+03:30"
+    depends_on: []
+    scope:
+      - "server/lib/moadian modules and routes/moadian refactor."
+      - "Stub + sandbox adapter; schema SQL patch notes for ORCH."
+      - "Behavioral tests without live production claim."
+    non_goals:
+      - "Do not edit db.js, app.js, CHANGE-LOG, invoices.js (hooks file only)."
+      - "Do not store secrets in git; no Iran deploy."
+    file_claims:
+      - "server/lib/moadian/**"
+      - "server/routes/moadian.js"
+      - "server/scripts/test-moadian-foundation.js"
+    acceptance_criteria:
+      - "Adapter interface with stub and sandbox paths."
+      - "Queue status machine pending|sent|failed|cancelled with retry fields in patch notes."
+      - "test-moadian-foundation.js passes (payload, idempotency, reject without fiscal id)."
+    rollback:
+      - "Revert branch; leave central routes untouched."
+    validation:
+      - "node server/scripts/test-moadian-foundation.js"
+      - "node --check server/routes/moadian.js"
+
+  - id: "W1-HR1"
+    title: "P0-HR1 versioned payroll params + period snapshot"
+    status: "claimed"
+    risk: "medium"
+    owner: "cursor:hr1"
+    roles:
+      implementer: "cursor:hr1"
+    branch: "ai/W1-HR1-payroll-params"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w1-hr1"
+    claimed_at: "2026-08-09T04:45:00+03:30"
+    heartbeat_at: "2026-08-09T04:45:00+03:30"
+    depends_on: []
+    scope:
+      - "Versioned labor params with effective dates; snapshot into payroll_periods on process."
+      - "Prevent past rewrite when year settings change."
+    non_goals:
+      - "Do not edit db.js/app.js/CHANGE-LOG."
+      - "Full retro delta engine may be deferred with handoff note."
+    file_claims:
+      - "server/lib/payroll/**"
+      - "server/routes/payroll.js"
+      - "server/scripts/test-payroll-snapshot.js"
+    acceptance_criteria:
+      - "Processed period stores immutable params snapshot."
+      - "Changing labor settings after process does not alter prior period calc inputs."
+      - "test-payroll-snapshot.js passes."
+    rollback:
+      - "Revert branch."
+    validation:
+      - "node server/scripts/test-payroll-snapshot.js"
+      - "node --check server/routes/payroll.js"
+
+  - id: "W1-APP1"
+    title: "P0-APP1 product style/color/size/variant SKU"
+    status: "claimed"
+    risk: "high"
+    owner: "cursor:app1"
+    roles:
+      implementer: "cursor:app1"
+      reviewer: "cursor:reviewer"
+      security: "cursor:security"
+    branch: "ai/W1-APP1-product-variants"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w1-app1"
+    claimed_at: "2026-08-09T04:45:00+03:30"
+    heartbeat_at: "2026-08-09T04:45:00+03:30"
+    depends_on: []
+    scope:
+      - "Variant schema module + API; products as style; default variant migration helper."
+      - "Append-only sync tables + capture prefixes; stock isolation test 4x6=24 SKU."
+    non_goals:
+      - "Do not edit db.js/app.js/CHANGE-LOG; provide SQL apply notes for ORCH."
+      - "Full matrix UI deferred to ORCH/follow-up."
+    file_claims:
+      - "server/lib/product-variants/**"
+      - "server/routes/products.js"
+      - "server/routes/product-variants.js"
+      - "server/sync/tables.js"
+      - "server/sync/capture.js"
+      - "server/scripts/test-product-variants.js"
+    acceptance_criteria:
+      - "1 style x 4 colors x 6 sizes yields 24 independent SKUs."
+      - "Stock move on one SKU does not change another."
+      - "SYNCABLE_TABLES append-only; test-product-variants.js passes."
+    rollback:
+      - "Revert branch; do not reorder sync tables."
+    validation:
+      - "node server/scripts/test-product-variants.js"
+      - "node server/scripts/_diag-sync-gaps-b16e78.js"
+
+  - id: "W1-PAGE"
+    title: "List pagination contract for main CRM entities"
+    status: "claimed"
+    risk: "low"
+    owner: "cursor:page"
+    roles:
+      implementer: "cursor:page"
+    branch: "ai/W1-PAGE-list-pagination"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w1-page"
+    claimed_at: "2026-08-09T04:45:00+03:30"
+    heartbeat_at: "2026-08-09T04:45:00+03:30"
+    depends_on: []
+    scope:
+      - "Shared pagination helper; apply to customers/orders/followups/suppliers/persons."
+    non_goals:
+      - "Do not edit products.js or invoices.js (ORCH after merge)."
+      - "Do not edit db.js/app.js/CHANGE-LOG."
+    file_claims:
+      - "server/lib/pagination.js"
+      - "server/routes/customers.js"
+      - "server/routes/orders.js"
+      - "server/routes/followups.js"
+      - "server/routes/suppliers.js"
+      - "server/routes/persons.js"
+      - "server/scripts/test-list-pagination.js"
+    acceptance_criteria:
+      - "Contract page/pageSize|limit/sort/filters/total on five list endpoints."
+      - "Safe defaults when page omitted; empty list regression covered."
+      - "test-list-pagination.js passes."
+    rollback:
+      - "Revert branch."
+    validation:
+      - "node server/scripts/test-list-pagination.js"
+
+  - id: "W1-E2E"
+    title: "Playwright money-cycle paths + CI job"
+    status: "claimed"
+    risk: "medium"
+    owner: "cursor:e2e"
+    roles:
+      implementer: "cursor:e2e"
+    branch: "ai/W1-E2E-money-paths"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w1-e2e"
+    claimed_at: "2026-08-09T04:45:00+03:30"
+    heartbeat_at: "2026-08-09T04:45:00+03:30"
+    depends_on: []
+    scope:
+      - "Money cycle e2e: customer→product→final invoice→receipt/settle→cancel."
+      - "Keep existing critical-paths green; add CI job."
+    non_goals:
+      - "Do not edit server routes/lib except e2e harness; no db.js/app.js/CHANGE-LOG."
+    file_claims:
+      - "e2e/**"
+      - ".github/workflows/wave1-e2e.yml"
+    acceptance_criteria:
+      - "money-cycle.spec.js (or equivalent) passes locally against e2e server."
+      - "Existing login/critical specs still pass."
+      - "CI workflow present with timeout and artifact upload."
+    rollback:
+      - "Revert branch."
+    validation:
+      - "npx playwright test --config e2e/playwright.config.js"

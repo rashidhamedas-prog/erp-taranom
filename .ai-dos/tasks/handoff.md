@@ -2,6 +2,21 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T04:45:00+03:30 — Wave 1 parallel claimed (W1-ORCH + five specialists)
+
+- Owner selection: execute Wave 1 in parallel per AI-DOS (F1, HR1, APP1, PAGE, E2E) with orchestrator owning hot files.
+- Registry: six tasks in `.ai-dos/tasks/active.yaml`.
+- Worktrees from `origin/claude/claude-md-docs-2ssrpy` @ `35aa24e`:
+  - `erp-taranom-w1-orch` / `ai/W1-ORCH-wave1-integration`
+  - `erp-taranom-w1-f1` / `ai/W1-F1-moadian`
+  - `erp-taranom-w1-hr1` / `ai/W1-HR1-payroll-params`
+  - `erp-taranom-w1-app1` / `ai/W1-APP1-product-variants`
+  - `erp-taranom-w1-page` / `ai/W1-PAGE-list-pagination`
+  - `erp-taranom-w1-e2e` / `ai/W1-E2E-money-paths`
+- Living plan: `docs/.plans/260809-wave1-parallel/SUMMARY.md`
+- Forbidden until gate: Iran deploy, blind VPS pull/reset, editing another task's claimed files.
+- Exact next action: five implementer agents code in their worktrees; ORCH waits for merges.
+
 ## 2026-08-09T05:00:00+03:30 — W0-OPS-002 completed under permanent owner waiver
 
 - Owner accepted permanent production waiver `W0-OPS-002-SHARP-RUNTIME-0335` with **no expiry**: VPS runtime may remain `sharp@0.33.5`; source/CI stay `0.35.0`.
