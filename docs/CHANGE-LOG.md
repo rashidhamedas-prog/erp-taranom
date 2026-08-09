@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-09 — موج یک موازی MVP (F1/HR1/APP1/PAGE/E2E + ORCH)
+- **شاخه:** `ai/W1-ORCH-wave1-integration`
+- **Commit:** (پس از push ORCH)
+- **خلاصه:** یکپارچه‌سازی پنج برش موازی موج یک: foundation مودیان، snapshot حقوق، SKU رنگ/سایز، pagination لیست‌ها، Playwright money-cycle؛ schema/mount/Help/SW v144.
+- **فایل‌های کلیدی:** `server/lib/moadian/**`, `server/lib/product-variants/**`, `server/lib/pagination.js`, `server/db.js`, `server/server.js`, `server/routes/{invoices,products,moadian,payroll}.js`, `e2e/money-cycle.spec.js`, `docs/WAVE1-GATE-STATUS.md`
+- **Deploy:** ❌ Wave 1 — deploy blocked (dirty VPS / tax sign-off open)
+- **یادداشت:** تست‌های foundation/snapshot/variants/pagination پاس؛ live مودیان و تأیید مشاور مالیاتی باز.
+
 ### 2026-08-09 — W0-OPS-002 بسته با waiver دائمی sharp runtime؛ Wave 0 خروج کامل
 - **شاخه:** `ai/W0-OPS-002-sharp-production-deploy` → merge به `claude/claude-md-docs-2ssrpy`
 - **Commit:** 76a241e
