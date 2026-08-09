@@ -12,11 +12,19 @@ const { hashKey } = require('./routes/api_keys');
 const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile, getBackupHealth } = require('./backup');
 const { assertSecurityConfig } = require('./lib/security');
 const { getSmsSettings } = require('./lib/secret-settings');
+const {
+  requestIdMiddleware,
+  checkDbReady,
+  jsonLog,
+} = require('./lib/observability');
 
 const app = express();
 app.set('trust proxy', 1); // trust Nginx reverse proxy
 const PORT = process.env.PORT || 3000;
 const securityConfig = assertSecurityConfig();
+
+// Request correlation id + access log (method/path/status only — no bodies/secrets)
+app.use(requestIdMiddleware);
 
 // Gzip compression — shrinks JSON/HTML responses for faster load (graceful if not installed)
 try {
@@ -112,8 +120,9 @@ app.use(cors({
     return cb(null, false);
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
   credentials: true,
+  exposedHeaders: ['X-Request-Id'],
 }));
 
 app.use(express.json({ limit: '2mb' }));
@@ -234,6 +243,10 @@ app.use('/api', companyRequestGuard);
 
 initDB();
 
+// License entitlement: after expiry+grace (or clock rollback) → read-only safe mode.
+const { licenseGuard } = require('./lib/license/middleware');
+app.use('/api', licenseGuard);
+
 // Mirror active company display name from settings → registry (central only)
 if (!isDevice()) {
   try {
@@ -254,6 +267,7 @@ if (isDevice()) {
 }
 
 app.use('/api/sync', require('./routes/sync'));
+app.use('/api/license', require('./routes/license'));
 app.use('/api/auth/2fa', require('./routes/twofa'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/ai', require('./routes/ai'));
@@ -261,6 +275,7 @@ app.use('/api/search', require('./routes/search'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/fiscal-year', require('./routes/fiscal-year'));
 app.use('/api/companies', require('./routes/companies'));
+app.use('/api/onboarding', require('./routes/onboarding'));
 app.use('/api/rbac', require('./routes/rbac'));
 app.use('/api/b2b', require('./routes/b2b'));
 app.use('/api/customers', require('./routes/customers'));
@@ -400,13 +415,35 @@ app.get('/api/system/integrity-check/last-result', authMw, adminOnlyMw, (req, re
   res.json({ success: true, data });
 });
 
-// Lightweight health check — used by Android WebView boot poll
+// Lightweight health check — used by Android WebView boot poll (liveness; no DB)
 app.get('/api/system/health', (req, res) => {
   res.json({
     ok: true,
     role: isDevice() ? 'device' : 'central',
     platform: process.env.APP_PLATFORM || (isDevice() ? 'device' : 'web'),
     version: process.env.APP_VERSION || '0',
+  });
+});
+
+// Readiness — SQLite must answer SELECT 1 (load balancers / ops probes)
+app.get('/api/system/ready', (req, res) => {
+  if (checkDbReady(getDB)) {
+    return res.status(200).json({ ok: true, ready: true });
+  }
+  jsonLog({
+    level: 'error',
+    msg: 'readiness_failed',
+    requestId: req.requestId,
+  });
+  return res.status(503).json({ ok: false, ready: false });
+});
+
+// Support meta stub (P2-M4 thin) — external ticketing only; no in-app product
+app.get('/api/support/meta', (req, res) => {
+  res.json({
+    ticketing: 'external',
+    sla_note: 'پشتیبانی از طریق کانال خارجی سازمان پیگیری می‌شود؛ تیکتینگ داخل ERP فعلاً فعال نیست.',
+    kb_url: null,
   });
 });
 

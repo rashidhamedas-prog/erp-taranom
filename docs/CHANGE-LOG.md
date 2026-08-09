@@ -28,12 +28,20 @@
 ---
 
 ### 2026-08-09 — PROD-P3 تکمیل آنالیز متغیر تولید (ADR-011)
-- **شاخه:** `ai/PROD-P3-variable-analysis`
+- **شاخه:** `ai/PROD-P3-variable-analysis` → merge به `claude/claude-md-docs-2ssrpy`
 - **Commit:** `ecba58b`
-- **خلاصه:** تکمیل ماژول ۳ تولید: `variance.js`، برگشت مواد با نرخ سند اصلی، قفل `analysis_type`، preview، routeهای issues/return/variance-analysis + گزارش پیشنهاد بازنگری BOM و روند انحراف، UI حواله با مبلغ/خلاصه/مخفی‌سازی بها، Help، و تست‌های T3-01..T3-24 (۲۷ پاس).
+- **خلاصه:** تکمیل ماژول ۳ تولید: `variance.js`، برگشت مواد با نرخ سند اصلی، قفل `analysis_type`، preview، routeهای issues/return/variance-analysis + گزارش BOM revision/variance-trend، UI حواله، Help، تست T3 (۲۷/۲۷).
 - **فایل‌های کلیدی:** `server/lib/production/variance.js`, `server/lib/production/engine.js`, `server/routes/production-orders.js`, `server/routes/production-reports.js`, `server/public/app.js`, `server/scripts/test-production-variable.js`
-- **Deploy:** ⏳ بدون `git pull` کور روی VPS کثیف — نیاز به SFTP هدفمند یا deploy پس از reconcile
-- **یادداشت:** `node scripts/test-production-variable.js` → ۲۷/۲۷ پاس؛ SW `v144`.
+- **Deploy:** ⏳ SFTP هدفمند در حال اجرا
+- **یادداشت:** SW `v144`.
+
+### 2026-08-09 — Wave 2 / P2 MVP slices merged on orch branch
+- **شاخه:** `ai/W2-ORCH-wave2`
+- **Commit:** `d411f0e` (tip؛ merges تا `3b0c790` + harness/docs)
+- **خلاصه:** شش MVP موازی موج دو ادغام شد: license Ed25519 + safe mode؛ onboarding bootstrap/checklist/dry-run؛ B2B company+credit reserve؛ bank statement import + 1:1 match؛ HR labor settings + DRAFT insurance/tax CSV؛ observability request-id/ready/support meta. تعارض `db.js` (license+b2b init) حل شد.
+- **فایل‌های کلیدی:** `server/lib/license/*`, `server/lib/onboarding/*`, `server/lib/b2b/*`, `server/lib/observability.js`, `server/lib/payroll/export-legal.js`, `server/routes/{license,onboarding,b2b,bank-reconciliation,payroll}.js`, `server/scripts/test-{license,onboarding,b2b-credit,bank-recon-import,payroll-export,observability}.js`
+- **Deploy:** ✅ Iran `b4b653b` — stash tracked dirty → ff-pull → `npm install --omit=dev` → `pm2 restart` (بدون `--update-env`)؛ health/ready/root = 200؛ PID `336042` online؛ untracked secrets/`_recover` حفظ شد؛ stash `w2-pre-deploy-tracked` روی VPS مانده
+- **یادداشت:** P1 توسط ایجنت‌های دیگر؛ این session فقط P2. خروجی‌های قانونی حقوق DRAFT و نیازمند مشاور. Gate کامل موج دو (۳ pilot پولی، SLA پشتیبانی) هنوز باز است. Primary `claude/claude-md-docs-2ssrpy` هم به `b4b653b` FF شد.
 
 ### 2026-08-09 — W0-OPS-002 بسته با waiver دائمی sharp runtime؛ Wave 0 خروج کامل
 - **شاخه:** `ai/W0-OPS-002-sharp-production-deploy` → merge به `claude/claude-md-docs-2ssrpy`

@@ -2,39 +2,38 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
-## 2026-08-09T12:55:00+03:30 — PROD-P3 implementation complete (pending push/deploy)
+## 2026-08-09T13:20:00+03:30 — PROD-P3 finalize (merge primary + deploy)
 
-- Engine: `variance.js` + issue/return/preview/updateOrder lock; returns use `recalcAvgOnReturn`; ADR-011 intact.
-- Routes: issues, return, variance-analysis, PUT, bom-revision-suggestions, variance-trend; cost strip on issue/return.
-- UI/Help: issue modal amounts/summary/operator hide; admin Help ADR-011 note; SW v144.
-- Tests: `test-production-variable.js` **27/27 PASS**.
-- Exact next: commit+push `ai/PROD-P3-variable-analysis`; deploy only via targeted SFTP (no blind VPS pull).
+- Merged `origin/claude/claude-md-docs-2ssrpy` into `ai/PROD-P3-variable-analysis`.
+- Tests: `test-production-variable.js` 27/27 PASS; SW v144.
+- Deploy: targeted SFTP (no blind VPS pull).
 
-## 2026-08-09T04:56:00+03:30 — PROD-P3 split into 4 parallel agents
+## 2026-08-09T05:35:00+03:30 — W2-ORCH: six MVP slices merged
 
-- Owner asked to parallelize all P3 sections.
-- Sub-tasks (non-overlapping `file_claims` on same worktree `erp-taranom-prod-p3`):
-  - **PROD-P3-A** engine: `variance.js`, `engine.js`, `costing.js` — [engine](4f967e2d-6d5f-4e6a-9865-9fba26d0dafe)
-  - **PROD-P3-B** routes: `production-orders.js`, `production-reports.js`, `reports.js` — [routes](9fca28b1-63f3-4e68-8aaf-b9d50a9c11e1)
-  - **PROD-P3-C** UI/Help: `app.js`, `prod-ui.js`, `index.html` — [ui](4189e1bc-d630-4fba-b7db-b0dc48dfaf4c)
-  - **PROD-P3-D** tests: `test-production-variable.js` — [tests](21b750f9-8778-450b-abd6-ecce5e23d6dc)
-- Orchestrator keeps CHANGE-LOG / AI-DOS status for post-merge integrate + verify T3-01..T3-24.
-- Exact next action after agents finish: integrate, run full P3 suite + fixed/sms/sync, then commit/push.
+- Task / owner: `W2-ORCH` / `cursor:implementer`
+- Branch tip: `d411f0e` on `ai/W2-ORCH-wave2` (worktree `erp-taranom-w2-orch`)
+- Merged slices:
+  - O1 observability `07bf7e3`
+  - M3 onboarding `29d4f67`
+  - M1 license `22dce30`
+  - F5 bank recon `55415a6`
+  - B2B credit `317dd6d` (db.js conflict resolved: both `initLicenseSchema` + `initB2bSchema`)
+  - HR export `5486ca8`
+- Agent evidence tests (pre-merge, per slice): license 24/24, onboarding 29/29, b2b-credit 19/19 + b2b 34/34, bank-recon 24/24, payroll-export+accounting green, observability 9/9, sms 22/22
+- Orch re-validation (NODE_PATH / local node_modules): license 24/24, onboarding 29/29, b2b-credit 19/19 (harness wait+SYNC_ROLE fixed), bank-recon 24/24, payroll-export green, observability 9/9, sms 22/22
+- Deploy: ✅ Iran production at `b4b653b` (2026-08-09); health/ready/root 200; tracked dirty stashed as `w2-pre-deploy-tracked`
+- Residual gaps: full Wave-2 exit gate (paid pilots, support SLA); HR CSV draft; B2B consume-on-invoice; bank 1:N matching; license max_users/feature UI; onboarding wizard UI
+- Do not claim Wave 2 complete. P1 remains other agents' `ai/W1-*`.
+- Primary branch `origin/claude/claude-md-docs-2ssrpy` FF'd to `b4b653b`.
 
-## 2026-08-09T04:45:00+03:30 — PROD-P3 claimed (owner started Production P3)
+## 2026-08-09T04:55:00+03:30 — W2-ORCH claimed; P1 work by this owner abandoned
 
-- Owner requested «فاز p3» → Production Module P3 (variable analysis / ADR-011), not Wave 3 roadmap.
-- Task `PROD-P3` claimed by `cursor:implementer` on branch `ai/PROD-P3-variable-analysis`, worktree `D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3`.
-- Prior `W0-OPS-002` remains completed under permanent sharp 0.33.5 waiver; do not resume unless owner re-authorizes CPU upgrade path.
-- Exact next action: implement variance helpers, missing routes, expand T3-01..T3-24 tests, UI/Help/CHANGE-LOG; no blind VPS pull.
-## 2026-08-09T04:45:00+03:30 â€” PROD-P3 claimed (owner started Production P3)
+- Owner clarified: this Cursor session owns **Wave 2 / P2**, not Wave 1.
+- Abandoned/cleaned local `ai/W1-001-moadian-ops` worktree (never pushed). Did **not** touch other agents' `ai/W1-*` worktrees.
+- Active task: `W2-ORCH` on `ai/W2-ORCH-wave2` at `D:/soft/Claud/porje/Run in the project/erp-taranom-w2-orch`.
+- Next: parallel MVP implementers for license, onboarding, B2B, treasury/cheques, HR legal export, observability/support; orch merges.
 
-- Owner requested Â«ÙØ§Ø² p3Â» â†’ Production Module P3 (variable analysis / ADR-011), not Wave 3 roadmap.
-- Task `PROD-P3` claimed by `cursor:implementer` on branch `ai/PROD-P3-variable-analysis`, worktree `D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3`.
-- Prior `W0-OPS-002` remains completed under permanent sharp 0.33.5 waiver; do not resume unless owner re-authorizes CPU upgrade path.
-- Exact next action: implement variance helpers, missing routes, expand T3-01..T3-24 tests, UI/Help/CHANGE-LOG; no blind VPS pull.
-
-## 2026-08-09T05:00:00+03:30 â€” W0-OPS-002 completed under permanent owner waiver
+## 2026-08-09T05:00:00+03:30 — W0-OPS-002 completed under permanent owner waiver
 
 - Owner accepted permanent production waiver `W0-OPS-002-SHARP-RUNTIME-0335` with **no expiry**: VPS runtime may remain `sharp@0.33.5`; source/CI stay `0.35.0`.
 - Task status: **completed**; `file_claims` released; `.ai-dos/tasks/active.yaml` cleared.
@@ -42,7 +41,7 @@ Newest entries are added at the top. Never erase another agent's record.
 - Residual (not blockers): optional CPU upgrade later; S4U; OV/EV; cold backup; restricted publisher; fix `auto-commit-deploy.mdc` conflict before autonomous Iran deploys.
 - Do not claim production is on `0.35.0`. Do not blind pull/reset dirty VPS or `erp-taranom1`.
 
-## 2026-08-09T04:55:00+03:30 â€” Independent reviewer disposition
+## 2026-08-09T04:55:00+03:30 — Independent reviewer disposition
 
 - [Reviewer](bbb4b9b8-47d4-40b4-a61f-459265612f72): **Approved with comments**. Declaring `blocked` (not complete) is correct; AC for production `0.35.0` unmet.
 - Comments addressed in claimed script: backup/restore/rollback now include `detect-libc` + `semver` and clean `*.__old` leftovers.
@@ -53,20 +52,20 @@ Newest entries are added at the top. Never erase another agent's record.
   Error: Unsupported CPU: Prebuilt binaries for Linux x64 require v2 microarchitecture
   Post-restore: PKG=0.33.5 RT=0.33.5 REQUIRE_OK root=200 health=200
   ```
-- Next step confirmed sound: hypervisor `x86-64-v2`/`host` â†’ reboot â†’ flag check â†’ `-Deploy` â†’ pull/drill â†’ attach raw logs before complete claim.
+- Next step confirmed sound: hypervisor `x86-64-v2`/`host` → reboot → flag check → `-Deploy` → pull/drill → attach raw logs before complete claim.
 
-## 2026-08-09T04:50:00+03:30 â€” Security review disposition + deploy-script hardening
+## 2026-08-09T04:50:00+03:30 — Security review disposition + deploy-script hardening
 
 - Independent [security review](5816c075-fa15-4eee-9dc3-639b922c018e): **blocked disposition Approved / completion Not approved**.
 - Residual advisory on production `sharp@0.33.5` accepted until CPU upgrade or explicit time-boxed owner waiver.
-- High finding (out of this task's file_claims): `.cursor/rules/auto-commit-deploy.mdc` still mandates blind `git pull` + `pm2 restart --update-env` and can bypass the reviewed sharp path â€” needs separate ownership change before any autonomous Iran deploy.
+- High finding (out of this task's file_claims): `.cursor/rules/auto-commit-deploy.mdc` still mandates blind `git pull` + `pm2 restart --update-env` and can bypass the reviewed sharp path — needs separate ownership change before any autonomous Iran deploy.
 - Medium findings remediated in claimed `scripts/deploy-sharp-production.ps1`:
   1. SSH `RejectPolicy` + required pinned `known_hosts`
   2. Remote SHA-256 sidecar verify before extract
   3. Auto-rollback from recover stamp if post-PM2 smoke fails
 - Task remains `blocked` on CPU; do not claim `0.35.0` deployed.
 
-## 2026-08-09T04:10:00+03:30 â€” W0-OPS-002 blocked on VPS CPU microarchitecture
+## 2026-08-09T04:10:00+03:30 — W0-OPS-002 blocked on VPS CPU microarchitecture
 
 - Task / owner / role: `W0-OPS-002` / `cursor:implementer` / Implementer (status=`blocked`).
 - Branch / worktree: `ai/W0-OPS-002-sharp-production-deploy` / `D:/soft/Claud/porje/Run in the project/erp-taranom-w0-ops-002`.
@@ -77,12 +76,12 @@ Newest entries are added at the top. Never erase another agent's record.
   - Attempted production apply twice without `git pull`/`reset`; both failed before PM2 restart; automatic restore kept live modules.
 - Production evidence after attempts: `PKG=0.33.5`, `RT=0.33.5`, `REQUIRE_OK`, HTTP `root=200`/`health=200`, PM2 `online`, restarts still `8` (no restart during failed applies).
 - Dirty VPS inventory preserved (no blind clean): HEAD `6390bcc`; modified docs/app/sw/releases; untracked `.sftp-deploy-stamp`, `server/_recover/`, `server/backup-encryption-key.txt`, broken APK.
-- Blocker: CPU `QEMU Virtual CPU version 2.5+` missing `popcnt sse4_1 sse4_2 ssse3`. Error: `Unsupported CPU: Prebuilt binaries for Linux x64 require v2 microarchitecture`. Wasm needs SSE4.1 â†’ also unavailable.
+- Blocker: CPU `QEMU Virtual CPU version 2.5+` missing `popcnt sse4_1 sse4_2 ssse3`. Error: `Unsupported CPU: Prebuilt binaries for Linux x64 require v2 microarchitecture`. Wasm needs SSE4.1 → also unavailable.
 - Recover stamps retained on VPS: `sharp-20260808T160047Z`, `sharp-20260809T003020Z`, `sharp-20260809T003451Z`, plus uploaded bundle under `server/_recover/bundles/`.
 - Exact next action for owner/infra: change hypervisor CPU type to `x86-64-v2` or `host` (expose SSE4.2), reboot guest, then from this worktree run `powershell -File scripts/deploy-sharp-production.ps1 -Deploy`. After success: backup pull + restore drill + independent reviewer/security approval.
-- Do not declare W0-OPS-002 complete; do not start Waves 1â€“4.
+- Do not declare W0-OPS-002 complete; do not start Waves 1–4.
 
-## 2026-08-09 â€” Ownership transferred to Cursor as W0-OPS-002
+## 2026-08-09 — Ownership transferred to Cursor as W0-OPS-002
 
 - `W0-OPS-001` is completed and its claims are released from the active registry; history remains below and in Git.
 - New active owner/implementer: `cursor:implementer`; independent role identities: `cursor:reviewer` and `cursor:security`.
@@ -94,7 +93,7 @@ Newest entries are added at the top. Never erase another agent's record.
   3. Change directory to that worktree and run the AI-DOS preflight.
 - Do not work in dirty `erp-taranom1`; do not blindly pull/reset the dirty VPS. Follow the production rollback evidence in the next handoff entry.
 
-## 2026-08-08T16:12:00Z â€” Cursor continuation handoff (do not redo completed work)
+## 2026-08-08T16:12:00Z — Cursor continuation handoff (do not redo completed work)
 
 ### Completed and verified
 
@@ -104,7 +103,7 @@ Newest entries are added at the top. Never erase another agent's record.
 - APK 2.0.33 / EXE 2.0.10 are published; stage/hash/atomic promote/rollback/HTTP re-hash passed.
 - Reviewer: Approved. Security: Approved with documented waivers.
 
-### Production sharp attempt â€” rolled back safely
+### Production sharp attempt — rolled back safely
 
 - Source/lock use `sharp@0.35.0`; audit has zero unwaived high/critical and image tests pass.
 - A targeted VPS `npm install sharp@0.35.0` hung on registry/DNS. It was stopped; no PM2 restart occurred.
@@ -117,17 +116,17 @@ Newest entries are added at the top. Never erase another agent's record.
 2. **Do not `git pull` blindly on VPS.** `/home/taranom/crm-taranom` is at `6390bcc` and dirty: modified docs, `server/public/app.js`, releases metadata, `sw.js`; untracked deploy stamp, recover directory, encryption key and broken APK. Reconcile/preserve each operational change first, then use a reviewed deploy plan.
 3. **Do not fast-forward the user's original local worktree blindly.** `D:/soft/Claud/porje/crm-taranom/erp-taranom1` has user-owned `server/routes/accounting.js` changes and many untracked AI-DOS/docs files. Continue from clean worktree `D:/soft/Claud/porje/Run in the project/erp-taranom-w0-ops` or merge with explicit preservation.
 4. Optional hardening: elevated S4U Scheduled Tasks (current Interactive mode does not run logged out), restricted release-publisher replacing broad admin key, immutable/cold offsite generation, commercial Windows OV/EV certificate.
-5. Do not start Waves 1â€“4 until the owner selects priority.
+5. Do not start Waves 1–4 until the owner selects priority.
 
 ### Required validation after Cursor production dependency deployment
 
-- `node -e "require('sharp'); console.log(require('sharp/package.json').version)"` â†’ `0.35.0`.
+- `node -e "require('sharp'); console.log(require('sharp/package.json').version)"` → `0.35.0`.
 - `pm2 describe erp-taranom` online; restart must preserve backup/data encryption env.
 - HTTP root/health and one image upload/thumbnail smoke pass.
 - New encrypted backup + Windows pull + isolated drill still pass.
 - Update `docs/WAVE0-GATE-STATUS.md`, `docs/CHANGE-LOG.md`, this handoff and task files with exact commit/hash/results; commit and push the same branch.
 
-## 2026-08-08T15:43:00Z â€” W0-OPS-001 complete
+## 2026-08-08T15:43:00Z — W0-OPS-001 complete
 
 - Completion: acceptance criteria met; Reviewer approved; Security approved with documented waivers; no remaining release blocker.
 - Final production evidence: wrapper tracked and deployed `root:root 0755` with matching SHA-256 `d28baf01768fdf21c51bc1a606c89b68b0b563eec8540f444d7f390e22e2afe6`; contract 26/26; actual newest pull/drill `crm-backup-20260808-153000.zip.enc`, SHA-256 `2166FB8E9C0F75719F7B87DFA4A01D4F72DA442C4D0553DB53F92986C5A1B866`, fingerprints match, RTO estimate 3s.
@@ -136,7 +135,7 @@ Newest entries are added at the top. Never erase another agent's record.
 - CI follow-up: first remote run exposed new `sharp <0.35.0` advisory; upgraded to `sharp@0.35.0`. Local dependency gate has zero unwaived high/critical; upload security 55/55 and sync-file 19/19 PASS.
 - Final CI: GitHub Wave 0 Gate run `31265434377` on `7460857` completed successfully with 7/7 jobs. Weekly restore Scheduled Task was also registered and manually executed with result `0` (next Sunday 03:00).
 
-## 2026-08-08T15:36:00Z â€” W0-OPS-001 implementation checkpoint
+## 2026-08-08T15:36:00Z — W0-OPS-001 implementation checkpoint
 
 - Task / owner / role: `W0-OPS-001` / `codex:root` / Orchestrator, Architect, Implementer.
 - Branch / worktree: `ai/W0-OPS-001-wave0-ops-close` / `D:/soft/Claud/porje/Run in the project/erp-taranom-w0-ops`.
@@ -148,7 +147,7 @@ Newest entries are added at the top. Never erase another agent's record.
 - Review/security disposition: path-confinement, unsafe default identity and accidental key replacement findings fixed. Residual waiver: existing release admin key is broad and was used manually for this one RC with pinned host/hashes; permanent restricted publisher remains hardening work.
 - Exact next action: final diff audit, remove generated cache, independent re-review delta, commit and push; then collect remote CI evidence.
 
-## 2026-08-08T14:42:49Z â€” W0-OPS-001 claimed
+## 2026-08-08T14:42:49Z — W0-OPS-001 claimed
 
 - Task / owner / role: `W0-OPS-001` / `codex:root` / Orchestrator, Architect, Implementer
 - Branch / worktree / commit: `ai/W0-OPS-001-wave0-ops-close` / `D:/soft/Claud/porje/Run in the project/erp-taranom-w0-ops` / base `a45b97c`

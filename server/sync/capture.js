@@ -29,6 +29,7 @@ const { PRIVATE_UPLOADS_ROOT } = require('../lib/private-uploads');
 const BLOCKLIST = [
   '/api/auth', '/api/sync', '/api/api-keys',
   '/api/messages', '/api/v1', '/api/ai', '/api/b2b',
+  '/api/onboarding',
   '/api/admin/backup', '/api/admin/backups', '/api/admin/backup-now',
   '/api/admin/backup-download', '/api/admin/backup-restore',
   '/api/admin/restore-product-stock-wipe',
