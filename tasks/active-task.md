@@ -1,33 +1,35 @@
 # Task فعال
 
 ## شناسه
-W0-OPS-001
+W0-OPS-002
 
 ## عنوان
-بستن عملیات P0-C و انتشار امن باینری موج صفر
+Deploy امن `sharp@0.35.0` روی production و ثبت شواهد
 
 ## هدف
-کپی واقعی بکاپ رمز‌شده خارج VPS، drill بازیابی، و انتشار verify-before-promote باینری‌های امضاشده.
+اعمال pin سورس (`0.35.0`) روی runtime VPS با timeout/rollback/smoke، بدون pull/reset کور روی درخت‌های کثیف.
 
 ## محدوده مجاز
-- اسکریپت‌های pull/install/drill/provision و uploader
-- تست‌ها و مستندات Gate موج صفر
-- عملیات VPS فقط برای بکاپ و feed نسخه 2.0.33/2.0.10
+- worktree: `D:/soft/Claud/porje/Run in the project/erp-taranom-w0-ops-002`
+- branch: `ai/W0-OPS-002-sharp-production-deploy`
+- فایل‌های `file_claims` در `.ai-dos/tasks/active.yaml`
+- عملیات VPS فقط برای dependency deploy کنترل‌شده + smoke/backup شواهد
 
 ## خارج از محدوده
-- build مجدد APK/EXE
-- restore مخرب production
-- شروع موج ۱ تا ۴
-
-## معیارهای پذیرش
-- pull و restore واقعی با hash/fingerprint معتبر
-- confinement منفی secret/DB/upload/delete
-- انتشار اتمیک و HTTP hash باینری‌ها
-- تست‌های مرتبط و drift صفر
-
-## ریسک‌ها
-- کلید admin انتشار هنوز broad است؛ استفاده دستی و محدود به این RC، با hardening بعدی release-publisher.
-- task فعلی هنگام logout اجرا نمی‌شود تا نصب Administrator/S4U انجام شود.
+- blind `git pull`/`reset`/`clean` روی VPS یا `erp-taranom1`
+- rebuild APK/EXE، restore مخرب، Waves 1–4
+- افشا/چرخش secrets
 
 ## وضعیت
-Completed and pushed; remote Wave 0 Gate 7/7 green
+**blocked** — CPU مهمان فاقد x86-64-v2 است؛ native/wasm `sharp@0.35.0` قابل اجرا نیست. production سالم روی `0.33.5`.
+
+## شواهد blocker
+- Model: `QEMU Virtual CPU version 2.5+`
+- Missing flags: `popcnt sse4_1 sse4_2 ssse3`
+- Error: `Unsupported CPU: Prebuilt binaries for Linux x64 require v2 microarchitecture`
+- Post-attempt: `PKG=0.33.5` `RT=0.33.5` HTTP 200
+
+## مرحله بعدی
+1. مالک/infra نوع CPU hypervisor را ارتقا دهد.
+2. `scripts/deploy-sharp-production.ps1 -Deploy`
+3. backup pull + restore drill + reviewer/security

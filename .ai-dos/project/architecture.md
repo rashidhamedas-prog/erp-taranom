@@ -25,3 +25,4 @@ Clients communicate with the central API over TLS. Production runs under PM2. Ge
 - 2026-08-08: Windows PC accepted as real off-server backup target; access is constrained by a tracked root-owned forced-command wrapper.
 - 2026-08-08: Commercial Windows OV/EV certificate deferred; self-signed SmartScreen risk is documented.
 - 2026-08-09: Production dependency deploy must use bounded timeout, exact version/load verification, rollback and post-restart smoke.
+- 2026-08-09: `sharp@0.35.x` Linux x64 prebuilds require CPU x86-64-v2 (SSE4.2). Current Iran VPS QEMU CPU lacks `popcnt`/`sse4_*`/`ssse3`; wasm fallback also needs SSE4.1. Production therefore remains on `0.33.5` until hypervisor CPU type is upgraded; deploy script refuses apply without CPU preflight.

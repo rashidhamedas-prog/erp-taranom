@@ -1,28 +1,26 @@
 # Handoff
 
 ## هدف اصلی
-بستن P0-C واقعی و تحویل امن RC موج صفر.
+Deploy امن `sharp@0.35.0` روی VPS ایران بدون خراب کردن production یا درخت‌های کثیف.
 
 ## کارهای انجام‌شده
-- بکاپ production رمز‌شده، pull واقعی Windows، DPAPI و restore drill.
-- wrapper محدود backup؛ تست‌های دسترسی منفی و دانلود مثبت.
-- Scheduled Task پانزده‌دقیقه‌ای با اجرای واقعی موفق.
-- uploader امن و انتشار APK 2.0.33 / EXE 2.0.10.
-- provision fail-closed در برابر overwrite/rotation ناخواسته.
+- worktree/branch تسک از `origin/claude/claude-md-docs-2ssrpy` ساخته شد.
+- `scripts/deploy-sharp-production.ps1` با inventory، باندل آفلاین، backup، swap، rollback و CPU preflight اضافه شد.
+- باندل Linux x64 ساخته و دو بار apply آزمایشی روی VPS انجام شد؛ هر دو قبل از restart شکست و restore شدند.
+- inventory dirty VPS ثبت شد؛ هیچ pull/reset/clean کوری انجام نشد.
 
 ## وضعیت فعلی
-P0-C و P0-Q2 operational بسته‌اند؛ GitHub Wave 0 Gate هر ۷ job را سبز کرد.
+**blocked** روی microarchitecture. production: `sharp@0.33.5` سالم، HTTP 200، PM2 online.
 
-## تست‌ها و نتایج واقعی
-- offsite contract 25/25؛ policy 4/4؛ DR 14/14؛ uploader 3/3.
-- artifact integrity واقعی PASS؛ embedded desktop/android هرکدام 224 و diff=0.
-- actual restore `ok=true`, fingerprints match, RTO estimate 3s.
-- actual release: stage/verify/promote/HTTP-hash PASS.
+## تست‌ها / شواهد واقعی
+- Inventory: HEAD `6390bcc`, dirty docs/app/releases/sw + untracked recover/key/broken APK.
+- Apply fail: missing `detect-libc` (رفع شد در باندل) سپس `Unsupported CPU ... v2 microarchitecture`.
+- CPU flags missing: `popcnt sse4_1 sse4_2 ssse3`.
+- Final health: PKG/RT `0.33.5`, REQUIRE_OK, root/health 200.
 
 ## ریسک باقی‌مانده
-- Windows self-signed باعث SmartScreen احتمالی است؛ blocker P0 نیست.
-- release admin key باید در hardening بعدی با publisher محدود جایگزین شود.
-- task Interactive در logout RPO را تضمین نمی‌کند.
+- Advisory `sharp <0.35.0` روی runtime production تا ارتقای CPU یا waiver رسمی باقی است.
+- VPS و `erp-taranom1` همچنان dirty هستند؛ reconcile جدا لازم است.
 
 ## مرحله دقیق بعدی
-Cursor ابتدا `sharp@0.35.0` را با bundle/cache آفلاین یا registry پایدار روی VPS deploy و smoke کند. production فعلاً سالم و rollback‌شده روی 0.33.5 است. سپس dirty VPS/local worktree را بدون overwrite reconcile کند. موج ۱–۴ فقط با انتخاب مالک.
+ارتقای CPU مهمان به x86-64-v2/host → `-Deploy` → pull/drill بکاپ → approval مستقل reviewer/security.

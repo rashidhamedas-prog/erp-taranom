@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-09 — W0-OPS-002: تلاش امن deploy sharp@0.35.0 (مسدود روی CPU)
+- **شاخه:** `ai/W0-OPS-002-sharp-production-deploy`
+- **Commit:** (در همان نوبت)
+- **خلاصه:** اسکریپت deploy آفلاین با backup/rollback/CPU-preflight اضافه شد؛ باندل Linux x64 ساخته و روی VPS ایران بدون pull/reset کور اعمال آزمایشی شد. باینری `0.35.0` به‌خاطر نبود x86-64-v2 روی QEMU CPU لود نشد؛ restore خودکار runtime را روی `0.33.5` نگه داشت (HTTP 200، بدون restart ناموفق).
+- **فایل‌های کلیدی:** `scripts/deploy-sharp-production.ps1`, `.ai-dos/tasks/*`, `docs/WAVE0-GATE-STATUS.md`
+- **Deploy:** ❌ `sharp@0.35.0` روی runtime اعمال نشد (blocker سخت‌افزاری); production سالم روی `0.33.5`
+- **یادداشت:** برای unblock باید CPU مهمان در hypervisor به `x86-64-v2`/`host` ارتقا یابد؛ سپس همان اسکریپت `-Deploy` تکرار شود. `erp-taranom1` و VPS dirty دست‌نخورده ماندند.
+
 ### 2026-08-02 — RC امضاشده Android 2.0.33 + Desktop 2.0.10 + deploy وب
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `fbb07a3`

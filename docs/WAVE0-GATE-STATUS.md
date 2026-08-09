@@ -21,7 +21,15 @@
 
 ## نتیجه خروج Wave 0
 
-Gate کد، امنیت، بکاپ/DR، باینری و CI موج صفر کامل است. اجرای GitHub Actions شماره `31265434377` برای commit `7460857` هر ۷ job را سبز کرد. نکته production: تلاش deploy هدفمند `sharp@0.35.0` به‌علت DNS/registry timeout شد و کاملاً به 0.33.5 سالم rollback شد؛ اعمال advisory روی runtime VPS به Cursor handoff شده است. نصب Administrator/S4U، خرید OV/EV، immutable cold copy و restricted release-publisher hardening اختیاری/بعدی‌اند.
+Gate کد، امنیت، بکاپ/DR، باینری و CI موج صفر کامل است. اجرای GitHub Actions شماره `31265434377` برای commit `7460857` هر ۷ job را سبز کرد.
+
+### W0-OPS-002 — sharp production (blocked)
+
+- Source همچنان `sharp@0.35.0` است؛ runtime production عمداً روی `0.33.5` سالم مانده است.
+- Cursor باندل آفلاین Linux x64 ساخت و بدون `git pull`/`reset` روی VPS کثیف (`6390bcc`) اعمال را آزمود؛ قبل از `pm2 restart` شکست خورد و restore خودکار module+pin را به `0.33.5` برگرداند (`REQUIRE_OK`, HTTP 200).
+- علت قطعی: CPU مهمان `QEMU Virtual CPU version 2.5+` فاقد پرچم‌های x86-64-v2 (`popcnt`/`sse4_1`/`sse4_2`/`ssse3`) است. خطای sharp: `Unsupported CPU: Prebuilt binaries for Linux x64 require v2 microarchitecture`. مسیر wasm هم SSE4.1 می‌خواهد و روی این CPU در دسترس نیست.
+- Unblock: ارتقای نوع CPU در hypervisor (مثلاً `x86-64-v2`/`host`) سپس `scripts/deploy-sharp-production.ps1 -Deploy`.
+- نصب Administrator/S4U، خرید OV/EV، immutable cold copy و restricted release-publisher hardening اختیاری/بعدی‌اند.
 
 ## Exception منقضی‌شده انتشار RC
 
