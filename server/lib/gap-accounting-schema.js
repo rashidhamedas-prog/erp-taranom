@@ -75,7 +75,34 @@ function initGapAccountingSchema(db) {
       created_at INTEGER DEFAULT (strftime('%s','now')),
       FOREIGN KEY(reconciliation_id) REFERENCES bank_reconciliations(id)
     );
+    CREATE TABLE IF NOT EXISTS bank_statement_lines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      reconciliation_id INTEGER NOT NULL,
+      line_date TEXT NOT NULL,
+      amount_rial INTEGER NOT NULL DEFAULT 0,
+      description TEXT DEFAULT '',
+      ref TEXT DEFAULT '',
+      matched INTEGER DEFAULT 0,
+      match_confidence INTEGER DEFAULT 0,
+      matched_ref_type TEXT,
+      matched_ref_id INTEGER,
+      matched_item_id INTEGER,
+      bank_item_id INTEGER,
+      status TEXT DEFAULT 'active',
+      deleted_at INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(reconciliation_id) REFERENCES bank_reconciliations(id)
+    );
   `);
+  ensureColumn(db, 'bank_reconciliation_items', 'match_confidence', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'bank_reconciliation_items', 'statement_line_id', 'INTEGER');
+  ensureColumn(db, 'bank_statement_lines', 'match_confidence', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'bank_statement_lines', 'matched_ref_type', 'TEXT');
+  ensureColumn(db, 'bank_statement_lines', 'matched_ref_id', 'INTEGER');
+  ensureColumn(db, 'bank_statement_lines', 'matched_item_id', 'INTEGER');
+  ensureColumn(db, 'bank_statement_lines', 'bank_item_id', 'INTEGER');
+  ensureColumn(db, 'bank_statement_lines', 'status', "TEXT DEFAULT 'active'");
+  ensureColumn(db, 'bank_statement_lines', 'deleted_at', 'INTEGER');
 
   // ---- Doubtful debts / NRV ----
   db.exec(`
