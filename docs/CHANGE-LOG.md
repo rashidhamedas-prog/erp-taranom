@@ -29,7 +29,7 @@
 
 ### 2026-08-09 — رفع یافته‌های امنیتی موج یک (SEC-001..008)
 - **شاخه:** `ai/W1-ORCH-wave1-integration`
-- **Commit:** (پس از push)
+- **Commit:** `dcb9b40`
 - **خلاصه:** centralOnlyStrict برای submit/correct مودیان؛ رد live؛ قفل ابطال روی فاکتور مهرخورده؛ مسیر کلید plaintext+allowlist؛ موجودی واریانت centralOnly؛ سقف ماتریس ۵۰۰؛ backfill v8؛ Help/SW v145.
 - **فایل‌های کلیدی:** `server/routes/moadian.js`, `server/lib/moadian/*`, `server/lib/void-invoice.js`, `server/routes/product-variants.js`, `server/db.js`, `server/lib/secret-settings.js`, `server/public/{app.js,sw.js}`
 - **Deploy:** ❌ Wave 1 — deploy blocked
