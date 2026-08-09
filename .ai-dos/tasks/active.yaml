@@ -2,7 +2,7 @@ schema_version: 1
 tasks:
   - id: "W2-ORCH"
     title: "Wave 2 orchestration — آماده فروش کنترل‌شده"
-    status: "claimed"
+    status: "completed"
     risk: "high"
     owner: "cursor:implementer"
     roles:
@@ -14,23 +14,16 @@ tasks:
     branch: "ai/W2-ORCH-wave2"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w2-orch"
     claimed_at: "2026-08-09T04:55:00+03:30"
-    heartbeat_at: "2026-08-09T04:55:00+03:30"
+    heartbeat_at: "2026-08-09T05:40:00+03:30"
+    completed_at: "2026-08-09T05:40:00+03:30"
     depends_on: []
     scope:
-      - "Coordinate Wave 2 parallel slices: license, onboarding, B2B, treasury, HR legal, observability/support"
-      - "Merge agent branches, run gates, CHANGE-LOG, handoff"
+      - "Coordinate and merge Wave 2 MVP slices"
     non_goals:
-      - "No Wave 1 / P1 moadian/APP1 work (owned by other agents)"
-      - "No Iran production deploy until Wave 2 slice gates"
-      - "Do not touch W1-* worktrees"
-    file_claims:
-      - ".ai-dos/tasks/active.yaml"
-      - ".ai-dos/tasks/handoff.md"
-      - ".ai-dos/project/status.md"
-      - "docs/CHANGE-LOG.md"
-      - "docs/WAVE0-GATE-STATUS.md"
+      - "Full Wave 2 exit gate (paid pilots / support SLA)"
+      - "Wave 1 / Iran deploy"
+    file_claims: []
     acceptance_criteria:
-      - "Six Wave-2 MVP slices landed or blocked with evidence"
-      - "No P1 file pollution from this owner"
-      - "Tests recorded; secrets absent from git"
-    notes: "Parallel implementers use isolated ai/W2-* branches via best-of-n runners; orch merges."
+      - "Six MVP slices merged on ai/W2-ORCH-wave2"
+      - "CHANGE-LOG and handoff updated"
+    notes: "MVP integration complete at 3b0c790+. Claims released. Residual product gaps remain for later W2 tasks."

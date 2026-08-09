@@ -37,12 +37,17 @@ async function j(method, p, body, token) {
 }
 
 async function waitUp() {
-  for (let i = 0; i < 80; i += 1) {
+  // Cold initDB on a fresh worktree can exceed 20s; probe health+time.
+  for (let i = 0; i < 180; i += 1) {
     try {
-      const r = await fetch(BASE + '/api/system/time');
+      const r = await fetch(BASE + '/api/system/health');
       if (r.ok) return;
     } catch { /* retry */ }
-    await new Promise((r) => setTimeout(r, 250));
+    try {
+      const r2 = await fetch(BASE + '/api/system/time');
+      if (r2.ok) return;
+    } catch { /* retry */ }
+    await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error('server did not start');
 }
@@ -139,6 +144,8 @@ function runUnitCreditTests() {
       UPLOADS_DIR: path.join(TMP, 'uploads'),
       JWT_SECRET,
       AUTH_SESSION_DB_PATH: path.join(TMP, 'sessions.db'),
+      SYNC_ROLE: 'central',
+      NODE_ENV: 'test',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
