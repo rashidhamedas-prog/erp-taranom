@@ -4,7 +4,7 @@
 - Primary branch: `claude/claude-md-docs-2ssrpy`
 - Wave 0: complete (sharp production waiver `0.33.5`)
 - **Wave 2 / P2:** MVP slices merged on `ai/W2-ORCH-wave2` @ `3b0c790` — license, onboarding, B2B credit, bank recon, HR draft export, observability. Exit gate (pilots/SLA) still open. Iran deploy `b4b653b`.
-- **PROD-P3** (variable analysis / ADR-011): completed on `ai/PROD-P3-variable-analysis` (`ecba58b`); `test-production-variable.js` 27/27 PASS; SW `v144`.
+- **PROD-P3** (variable analysis / ADR-011): completed; merged to primary @ `fefedda`; Iran SFTP deploy ✅ (health/ready 200, SW `v144`); `test-production-variable.js` 27/27 PASS.
 - Wave 1 / P1: other agents (`ai/W1-*`) — do not modify from unrelated owners.
 - Production: healthy on `sharp@0.33.5`; dirty VPS trees must not be blindly reset.
 
