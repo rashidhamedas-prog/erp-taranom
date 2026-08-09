@@ -9,6 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { sendSecureHtml } = require('../lib/secure-html-response');
+const { listQueryPlan, listResponse } = require('../lib/pagination');
 
 const { UPLOADS_ROOT } = require('../paths');
 const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'products');
@@ -161,6 +162,10 @@ router.get('/', auth, (req, res) => {
   if (warehouseId) { where.push('(p.warehouse_id=? OR EXISTS (SELECT 1 FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=? AND ws.qty>0))'); params.push(warehouseId, warehouseId); }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const pq = listQueryPlan(req.query);
+  const total = pq.paginate
+    ? (db.prepare(`SELECT COUNT(*) AS c FROM products p ${whereSql}`).get(...params)?.c || 0)
+    : 0;
   const whSelect = warehouseId
     ? `, (SELECT COALESCE(ws.qty, p.stock) FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=${warehouseId} LIMIT 1) as wh_qty`
     : '';
@@ -170,7 +175,8 @@ router.get('/', auth, (req, res) => {
     LEFT JOIN warehouses w ON p.warehouse_id=w.id
     LEFT JOIN product_categories pc ON pc.id=p.category_id
     ${whereSql} ORDER BY CAST(p.stock AS REAL) DESC, p.id DESC
-  `).all(...params);
+    ${pq.limitSql}
+  `).all(...params, ...pq.limitParams);
   // Attach gallery filenames for album UI (catalog / marketer / cards)
   for (const row of rows) {
     let imgs = listProductImages(db, row.id);
@@ -183,7 +189,7 @@ router.get('/', auth, (req, res) => {
     row.images = imgs;
     if (!row.image && imgs[0]) row.image = imgs[0].filename;
   }
-  res.json(rows);
+  res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
 // Distinct categories (for filter dropdown) — MUST be registered before /:id/*

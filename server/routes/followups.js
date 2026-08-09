@@ -3,7 +3,9 @@ const router = require('express').Router();
 const { getDB } = require('../db');
 const notif = require('../lib/notifications');
 const { auth, adminOnly } = require('../middleware/auth');
-const { todayJalali, nowHHMM } = require('../jalali');function getScope(req) {
+const { todayJalali, nowHHMM } = require('../jalali');
+const { listQueryPlan, listResponse } = require('../lib/pagination');
+function getScope(req) {
   if (req.user.role === 'admin' && req.query.user_id) return parseInt(req.query.user_id);
   if (req.user.role === 'admin') return null;
   return req.user.id;
@@ -12,19 +14,25 @@ const { todayJalali, nowHHMM } = require('../jalali');function getScope(req) {
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
+  const pq = listQueryPlan(req.query);
   // Skip followups whose customer was removed or whose accounting party is inactive
   const activeCust = `EXISTS (
     SELECT 1 FROM customers c
     WHERE c.id=f.cust_id
       AND (c.party_id IS NULL OR EXISTS (SELECT 1 FROM parties p WHERE p.id=c.party_id AND p.is_active=1))
   )`;
-  let rows;
-  if (scope === null) {
-    rows = db.prepare(`SELECT f.*,c.biz as cust_biz,u.name as salesperson FROM followups f LEFT JOIN customers c ON f.cust_id=c.id LEFT JOIN users u ON f.user_id=u.id WHERE ${activeCust} ORDER BY f.created_at DESC`).all();
-  } else {
-    rows = db.prepare(`SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.user_id=? AND ${activeCust} ORDER BY f.created_at DESC`).all(scope);
-  }
-  res.json(rows);
+  const where = scope === null
+    ? `WHERE ${activeCust}`
+    : `WHERE f.user_id=? AND ${activeCust}`;
+  const params = scope === null ? [] : [scope];
+  const total = pq.paginate
+    ? (db.prepare(`SELECT COUNT(*) AS c FROM followups f ${where}`).get(...params)?.c || 0)
+    : 0;
+  const select = scope === null
+    ? `SELECT f.*,c.biz as cust_biz,u.name as salesperson FROM followups f LEFT JOIN customers c ON f.cust_id=c.id LEFT JOIN users u ON f.user_id=u.id`
+    : `SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id`;
+  const rows = db.prepare(`${select} ${where} ORDER BY f.created_at DESC${pq.limitSql}`).all(...params, ...pq.limitParams);
+  res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
 // Activity timeline for a specific customer

@@ -282,6 +282,7 @@ app.use('/api/customers', require('./routes/customers'));
 app.use('/api/followups', require('./routes/followups'));
 app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/products', require('./routes/products'));
+app.use('/api/product-variants', require('./routes/product-variants'));
 app.use('/api/product-categories', require('./routes/product-categories'));
 app.use('/api/party-groups', require('./routes/party-groups'));
 // data-wipe UI/API removed (go-live) — use server/scripts/go-live-clean.js on central if needed

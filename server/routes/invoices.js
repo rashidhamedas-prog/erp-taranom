@@ -5,10 +5,12 @@ const { acct, coaMode } = require('../lib/coa-map');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
 const { enqueueMoadian } = require('./moadian');
+const { assertInvoiceEditableForMoadian } = require('../lib/moadian/invoice-hooks');
 const { rialToLedger } = require('../lib/money');
 const { reverseCommissionAccrual } = require('../lib/rep-ledger');
 const { voidInvoiceFully } = require('../lib/void-invoice');
 const { sendSecureHtml } = require('../lib/secure-html-response');
+const { listQueryPlan, listResponse } = require('../lib/pagination');
 
 // دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
 function receivableAcct(db, custId) {
@@ -303,6 +305,7 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
+  const pq = listQueryPlan(req.query);
   // List view omits the heavy `rows` JSON blob — fetch line items via GET /:id when editing.
   const cols = `i.id,i.num,i.cust_id,i.user_id,i.type,i.date,i.subtotal,i.disc,i.disc_amt,i.final,i.pay_type,
     i.cheque_duration,i.cheque_due_date,i.cheque_info,i.approved,i.converted,i.note,i.created_at,
@@ -311,17 +314,25 @@ router.get('/', auth, (req, res) => {
   const typeFilter = String(req.query.type || '').trim();
   const typeSql = (typeFilter === 'proforma' || typeFilter === 'final') ? ' AND i.type=?' : '';
   const typeArgs = typeSql ? [typeFilter] : [];
+  const baseWhere = scope === null
+    ? `WHERE COALESCE(i.deleted_at,0)=0${typeSql}`
+    : `WHERE i.user_id=? AND COALESCE(i.deleted_at,0)=0${typeSql}`;
+  const countParams = scope === null ? [...typeArgs] : [scope, ...typeArgs];
+  const total = pq.paginate
+    ? (db.prepare(`SELECT COUNT(*) AS c FROM invoices i ${baseWhere}`).get(...countParams)?.c || 0)
+    : 0;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id WHERE COALESCE(i.deleted_at,0)=0${typeSql} ORDER BY i.created_at DESC`).all(...typeArgs);
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner,u.name as salesperson FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id LEFT JOIN users u ON i.user_id=u.id ${baseWhere} ORDER BY i.created_at DESC${pq.limitSql}`).all(...typeArgs, ...pq.limitParams);
   } else {
-    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.user_id=? AND COALESCE(i.deleted_at,0)=0${typeSql} ORDER BY i.created_at DESC`).all(scope, ...typeArgs);
+    rows = db.prepare(`SELECT ${cols},c.biz as cust_biz,c.owner as cust_owner FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id ${baseWhere} ORDER BY i.created_at DESC${pq.limitSql}`).all(scope, ...typeArgs, ...pq.limitParams);
   }
-  res.json(rows);
+  res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
 // Export invoices to Excel (must be before /:id to avoid route capture)
-router.get('/export/excel', auth, adminOnly, async (req, res) => {  const db = getDB();
+router.get('/export/excel', auth, adminOnly, async (req, res) => {
+  const db = getDB();
   const scope = getScope(req);
   let rows;
   if (scope === null) {
@@ -511,6 +522,11 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   const row = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
+  try {
+    assertInvoiceEditableForMoadian(row);
+  } catch (e) {
+    return res.status(e.status || 422).json({ error: e.message, code: e.code });
+  }
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info, sales_channel, lead_source, campaign,
     bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
     moadian_invoice_type, expert_user_id } = req.body;

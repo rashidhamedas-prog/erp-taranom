@@ -27,21 +27,42 @@
 
 ---
 
+### 2026-08-09 — Merge W1 orch + W2/P3 for full deploy
+- **شاخه:** `ai/merge-all-deploy` → `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از push)
+- **خلاصه:** ادغام `ai/W1-ORCH-wave1-integration` روی primary (حاوی W2 + PROD-P3): مودیان foundation، snapshot حقوق، SKU variants، pagination، E2E money-cycle؛ تعارض sync append-only با حفظ `bank_statement_lines` قبل از variants + backfill v8.
+- **فایل‌های کلیدی:** `server/lib/moadian/**`, `server/lib/product-variants/**`, `server/lib/pagination.js`, `server/sync/tables.js`, `server/db.js`
+- **Deploy:** ⏳ در همان نوبت Iran
+
 ### 2026-08-09 — PROD-P3 تکمیل آنالیز متغیر تولید (ADR-011)
 - **شاخه:** `ai/PROD-P3-variable-analysis` → merge به `claude/claude-md-docs-2ssrpy`
 - **Commit:** `ecba58b`
 - **خلاصه:** تکمیل ماژول ۳ تولید: `variance.js`، برگشت مواد با نرخ سند اصلی، قفل `analysis_type`، preview، routeهای issues/return/variance-analysis + گزارش BOM revision/variance-trend، UI حواله، Help، تست T3 (۲۷/۲۷).
 - **فایل‌های کلیدی:** `server/lib/production/variance.js`, `server/lib/production/engine.js`, `server/routes/production-orders.js`, `server/routes/production-reports.js`, `server/public/app.js`, `server/scripts/test-production-variable.js`
-- **Deploy:** ⏳ SFTP هدفمند در حال اجرا
-- **یادداشت:** SW `v144`.
+- **Deploy:** ⏳ با merge کامل همین نوبت
 
 ### 2026-08-09 — Wave 2 / P2 MVP slices merged on orch branch
 - **شاخه:** `ai/W2-ORCH-wave2`
 - **Commit:** `d411f0e` (tip؛ merges تا `3b0c790` + harness/docs)
 - **خلاصه:** شش MVP موازی موج دو ادغام شد: license Ed25519 + safe mode؛ onboarding bootstrap/checklist/dry-run؛ B2B company+credit reserve؛ bank statement import + 1:1 match؛ HR labor settings + DRAFT insurance/tax CSV؛ observability request-id/ready/support meta. تعارض `db.js` (license+b2b init) حل شد.
 - **فایل‌های کلیدی:** `server/lib/license/*`, `server/lib/onboarding/*`, `server/lib/b2b/*`, `server/lib/observability.js`, `server/lib/payroll/export-legal.js`, `server/routes/{license,onboarding,b2b,bank-reconciliation,payroll}.js`, `server/scripts/test-{license,onboarding,b2b-credit,bank-recon-import,payroll-export,observability}.js`
-- **Deploy:** ✅ Iran `b4b653b` — stash tracked dirty → ff-pull → `npm install --omit=dev` → `pm2 restart` (بدون `--update-env`)؛ health/ready/root = 200؛ PID `336042` online؛ untracked secrets/`_recover` حفظ شد؛ stash `w2-pre-deploy-tracked` روی VPS مانده
-- **یادداشت:** P1 توسط ایجنت‌های دیگر؛ این session فقط P2. خروجی‌های قانونی حقوق DRAFT و نیازمند مشاور. Gate کامل موج دو (۳ pilot پولی، SLA پشتیبانی) هنوز باز است. Primary `claude/claude-md-docs-2ssrpy` هم به `b4b653b` FF شد.
+- **Deploy:** ✅ Iran `b4b653b` — stash tracked dirty → ff-pull → `npm install --omit=dev` → `pm2 restart` (بدون `--update-env`)؛ health/ready/root = 200
+- **یادداشت:** خروجی‌های قانونی حقوق DRAFT و نیازمند مشاور.
+
+### 2026-08-09 — اصلاح legacy list: بدون LIMIT روی bare GET
+- **شاخه:** `ai/W1-ORCH-wave1-integration`
+- **Commit:** `7ef8c72`
+- **خلاصه:** رفع blocker بازبینی — `listQueryPlan` فقط وقتی `page`/`limit`/`pageSize`/`paginated` هست SQL LIMIT می‌زند؛ بدون پارامتر = آرایهٔ کامل برای UI/sync. تست pagination ۳۰/۳۰.
+- **فایل‌های کلیدی:** `server/lib/pagination.js`, `server/routes/{customers,orders,followups,suppliers,persons,products,invoices}.js`, `server/scripts/test-list-pagination.js`
+- **Deploy:** ⏳ با merge کامل همین نوبت
+
+### 2026-08-09 — موج یک موازی MVP (F1/HR1/APP1/PAGE/E2E + ORCH)
+- **شاخه:** `ai/W1-ORCH-wave1-integration`
+- **Commit:** `0785648`
+- **خلاصه:** یکپارچه‌سازی پنج برش موازی موج یک: foundation مودیان، snapshot حقوق، SKU رنگ/سایز، pagination لیست‌ها، Playwright money-cycle؛ schema/mount/Help/SW v144.
+- **فایل‌های کلیدی:** `server/lib/moadian/**`, `server/lib/product-variants/**`, `server/lib/pagination.js`, `server/db.js`, `server/server.js`, `server/routes/{invoices,products,moadian,payroll}.js`, `e2e/money-cycle.spec.js`, `docs/WAVE1-GATE-STATUS.md`
+- **Deploy:** ⏳ با merge کامل همین نوبت
+- **یادداشت:** live مودیان و تأیید مشاور مالیاتی باز.
 
 ### 2026-08-09 — W0-OPS-002 بسته با waiver دائمی sharp runtime؛ Wave 0 خروج کامل
 - **شاخه:** `ai/W0-OPS-002-sharp-production-deploy` → merge به `claude/claude-md-docs-2ssrpy`

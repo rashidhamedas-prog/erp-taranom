@@ -2340,10 +2340,23 @@ function initSyncSchema(db) {
     require('./lib/gap-accounting-schema').initGapAccountingSchema(db);
     require('./lib/portal-schema').initPortalSchema(db);
     require('./lib/update-md-schema').ensureUpdateMdSchema(db, ensureColumn);
-require('./lib/license/schema').initLicenseSchema(db);
+    require('./lib/license/schema').initLicenseSchema(db);
     require('./lib/b2b/schema').initB2bSchema(db);
   } catch (e) {
     console.error('❌ update11 schema init failed:', e.message);
+    throw e;
+  }
+
+  // W1-APP1 product variants + W1-F1 moadian queue columns (before sync column pass)
+  try {
+    require('./lib/product-variants').initProductVariantsSchema(db);
+    const moadianSql = require('./lib/moadian/schema-sql');
+    for (const [table, column, definition] of moadianSql.ENSURE_COLUMNS) {
+      ensureColumn(db, table, column, definition);
+    }
+    db.exec(moadianSql.STATUS_HISTORY_SQL);
+  } catch (e) {
+    console.error('❌ product-variants/moadian schema init failed:', e.message);
     throw e;
   }
 
@@ -2462,7 +2475,7 @@ require('./lib/license/schema').initLicenseSchema(db);
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v6','1')").run();
     }
-    // v7: bank_statement_lines (W2-F5) appended after v6
+// v7: bank_statement_lines (W2-F5) appended after v6
     const backfillV7 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v7'").get();
     if (!backfillV7 || backfillV7.value !== '1') {
       for (const t of SYNCABLE_TABLES) {
@@ -2475,6 +2488,20 @@ require('./lib/license/schema').initLicenseSchema(db);
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v7','1')").run();
+    }
+    // v8: product_colors/sizes/variants (W1-APP1) appended after bank_statement_lines
+    const backfillV8 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v8'").get();
+    if (!backfillV8 || backfillV8.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v8 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v8','1')").run();
     }
   }
 

@@ -2,36 +2,45 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T14:00:00+03:30 — MERGE-ALL-DEPLOY: W1 orch into primary (in progress)
+
+- Merging `origin/ai/W1-ORCH-wave1-integration` onto primary (already has W2 + PROD-P3).
+- Sync append order preserved: `bank_statement_lines` then product variant tables; `sync_seq_backfill_v8` added.
+- Next: commit merge, push primary, Iran deploy.
+
+## 2026-08-09T13:50:00+03:30 — Reviewer blocker: legacy list LIMIT fixed
+
+- [W1 code review ORCH](5c2367f2-979c-4c67-96ef-caaa79422d5a) → **Changes requested**: bare GET still SQL `LIMIT 50`.
+- Fix: `listQueryPlan` in `server/lib/pagination.js`; all seven list routes omit LIMIT unless pagination query present.
+- Tests re-run on ORCH worktree: pagination 30/30, sync 44/44, SMS 22/22, moadian 10, payroll 6, variants 4.
+- Iran deploy still blocked at that time. Next: push fix + delta re-review only.
+
 ## 2026-08-09T13:20:00+03:30 — PROD-P3 finalize (merge primary + deploy)
 
 - Merged `origin/claude/claude-md-docs-2ssrpy` into `ai/PROD-P3-variable-analysis`.
 - Tests: `test-production-variable.js` 27/27 PASS; SW v144.
 - Deploy: targeted SFTP (no blind VPS pull).
 
+## 2026-08-09T12:40:00+03:30 — Wave 1 parallel MVP merged into ORCH
+
+- Specialist branches pushed: PAGE `8b40e4e`, F1 `01f2eef`, HR1 `b79f0cc`, APP1 `a5ebed3`, E2E `8a5c694`.
+- ORCH merges complete on `ai/W1-ORCH-wave1-integration`; wired `db.js` (variants+moadian columns+backfill v7), `server.js` mount, invoices lock+pagination, products pagination, Help, SW v144.
+- Remaining: tax advisor sign-off, Iran deploy of full merged tip.
+
 ## 2026-08-09T05:35:00+03:30 — W2-ORCH: six MVP slices merged
 
 - Task / owner: `W2-ORCH` / `cursor:implementer`
-- Branch tip: `d411f0e` on `ai/W2-ORCH-wave2` (worktree `erp-taranom-w2-orch`)
-- Merged slices:
-  - O1 observability `07bf7e3`
-  - M3 onboarding `29d4f67`
-  - M1 license `22dce30`
-  - F5 bank recon `55415a6`
-  - B2B credit `317dd6d` (db.js conflict resolved: both `initLicenseSchema` + `initB2bSchema`)
-  - HR export `5486ca8`
-- Agent evidence tests (pre-merge, per slice): license 24/24, onboarding 29/29, b2b-credit 19/19 + b2b 34/34, bank-recon 24/24, payroll-export+accounting green, observability 9/9, sms 22/22
-- Orch re-validation (NODE_PATH / local node_modules): license 24/24, onboarding 29/29, b2b-credit 19/19 (harness wait+SYNC_ROLE fixed), bank-recon 24/24, payroll-export green, observability 9/9, sms 22/22
+- Branch tip: `d411f0e` on `ai/W2-ORCH-wave2`
 - Deploy: ✅ Iran production at `b4b653b` (2026-08-09); health/ready/root 200; tracked dirty stashed as `w2-pre-deploy-tracked`
-- Residual gaps: full Wave-2 exit gate (paid pilots, support SLA); HR CSV draft; B2B consume-on-invoice; bank 1:N matching; license max_users/feature UI; onboarding wizard UI
-- Do not claim Wave 2 complete. P1 remains other agents' `ai/W1-*`.
-- Primary branch `origin/claude/claude-md-docs-2ssrpy` FF'd to `b4b653b`.
+- Residual gaps: full Wave-2 exit gate; HR CSV draft; B2B consume-on-invoice; bank 1:N matching
 
 ## 2026-08-09T04:55:00+03:30 — W2-ORCH claimed; P1 work by this owner abandoned
 
-- Owner clarified: this Cursor session owns **Wave 2 / P2**, not Wave 1.
-- Abandoned/cleaned local `ai/W1-001-moadian-ops` worktree (never pushed). Did **not** touch other agents' `ai/W1-*` worktrees.
-- Active task: `W2-ORCH` on `ai/W2-ORCH-wave2` at `D:/soft/Claud/porje/Run in the project/erp-taranom-w2-orch`.
-- Next: parallel MVP implementers for license, onboarding, B2B, treasury/cheques, HR legal export, observability/support; orch merges.
+- Owner clarified session ownership for Wave 2; W1 worktrees of other agents left untouched.
+
+## 2026-08-09T04:45:00+03:30 — Wave 1 parallel claimed (W1-ORCH + five specialists)
+
+- Six tasks claimed; worktrees from `origin/claude/claude-md-docs-2ssrpy` @ `35aa24e`.
 
 ## 2026-08-09T05:00:00+03:30 — W0-OPS-002 completed under permanent owner waiver
 

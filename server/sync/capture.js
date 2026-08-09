@@ -65,6 +65,13 @@ const PATH_TABLE_MAP = [
   ['/api/parties', 'parties'],
   ['/api/invoices', 'invoices'],
   ['/api/followups', 'followups'],
+  // Product variants — specific prefixes BEFORE generic /api/product-variants
+  ['/api/product-variants/colors', 'product_colors'],
+  ['/api/product-variants/sizes', 'product_sizes'],
+  ['/api/product-variants/generate-matrix', 'product_variants'],
+  ['/api/product-variants/ensure-default', 'product_variants'],
+  ['/api/product-variants/style', 'product_variants'],
+  ['/api/product-variants', 'product_variants'],
   ['/api/products', 'products'],
   ['/api/product-categories', 'product_categories'],
   ['/api/suppliers', 'suppliers'],

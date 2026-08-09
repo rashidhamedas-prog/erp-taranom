@@ -1,23 +1,31 @@
 schema_version: 1
 tasks:
-  - id: "W2-ORCH"
-    title: "Wave 2 orchestration — آماده فروش کنترل‌شده"
-    status: "completed"
+  - id: "MERGE-ALL-DEPLOY"
+    title: "Merge W1 orch into primary and deploy full tip to Iran"
+    status: "claimed"
     risk: "high"
     owner: "cursor:implementer"
-    branch: "ai/W2-ORCH-wave2"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w2-orch"
-    file_claims: []
-    notes: "MVP integration complete. Claims released."
-
-  - id: "PROD-P3"
-    title: "Complete Production Module P3 — variable analysis + ADR-011"
-    status: "completed"
-    risk: "high"
-    owner: "cursor:implementer"
-    branch: "ai/PROD-P3-variable-analysis"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3"
-    claimed_at: "2026-08-09T04:43:00+03:30"
-    completed_at: "2026-08-09T13:20:00+03:30"
-    file_claims: []
-    notes: "27/27 PASS. Merged with primary; claims released. Deploy via targeted SFTP."
+    branch: "ai/merge-all-deploy"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-merge-deploy"
+    claimed_at: "2026-08-09T13:50:00+03:30"
+    heartbeat_at: "2026-08-09T13:50:00+03:30"
+    scope:
+      - "Merge origin/ai/W1-ORCH-wave1-integration into primary with W2+PROD-P3"
+      - "Preserve SYNCABLE_TABLES append order (bank_statement_lines before variants)"
+      - "Deploy Iran without blind wipe of untracked secrets"
+    non_goals:
+      - "No force-reset of VPS untracked encryption keys"
+      - "No live Moadian sandbox credentials"
+    file_claims:
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+      - "docs/CHANGE-LOG.md"
+      - "server/db.js"
+      - "server/sync/tables.js"
+      - "server/routes/payroll.js"
+      - "server/public/app.js"
+    acceptance_criteria:
+      - "Primary contains W1+W2+PROD-P3"
+      - "Iran HEAD matches primary tip; health/ready 200"
+    notes: "Conflict resolution in progress."

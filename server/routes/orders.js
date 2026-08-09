@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth } = require('../middleware/auth');
+const { listQueryPlan, listResponse } = require('../lib/pagination');
 
 function getScope(req) {
   if (req.user.role === 'admin' && req.query.user_id) return parseInt(req.query.user_id);
@@ -25,13 +26,17 @@ function maybeDeductStock(db, order) {
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
-  let rows;
-  if (scope === null) {
-    rows = db.prepare('SELECT o.*,c.biz as cust_biz,u.name as salesperson FROM orders o LEFT JOIN customers c ON o.cust_id=c.id LEFT JOIN users u ON o.user_id=u.id ORDER BY o.created_at DESC').all();
-  } else {
-    rows = db.prepare('SELECT o.*,c.biz as cust_biz FROM orders o LEFT JOIN customers c ON o.cust_id=c.id WHERE o.user_id=? ORDER BY o.created_at DESC').all(scope);
-  }
-  res.json(rows);
+  const pq = listQueryPlan(req.query);
+  const where = scope === null ? '' : 'WHERE o.user_id=?';
+  const params = scope === null ? [] : [scope];
+  const total = pq.paginate
+    ? (db.prepare(`SELECT COUNT(*) AS c FROM orders o ${where}`).get(...params)?.c || 0)
+    : 0;
+  const select = scope === null
+    ? 'SELECT o.*,c.biz as cust_biz,u.name as salesperson FROM orders o LEFT JOIN customers c ON o.cust_id=c.id LEFT JOIN users u ON o.user_id=u.id'
+    : 'SELECT o.*,c.biz as cust_biz FROM orders o LEFT JOIN customers c ON o.cust_id=c.id';
+  const rows = db.prepare(`${select} ${where} ORDER BY o.created_at DESC${pq.limitSql}`).all(...params, ...pq.limitParams);
+  res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
 router.post('/', auth, (req, res) => {
