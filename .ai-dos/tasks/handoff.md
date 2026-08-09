@@ -2,6 +2,11 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T15:00:00+03:30 — LIMIT blocker re-review: Approve
+
+- [LIMIT fix independent review](42283476-259e-4017-bb57-ceab1f1ccdf1): **Approve** — bare GET catalogs no longer silent LIMIT 50 (`listQueryPlan` @ `7ef8c72`; test 30/0).
+- Bugbot path abandoned after repeated connection interrupts.
+
 ## 2026-08-09T14:55:00+03:30 — Bugbot LIMIT re-review unavailable; switched reviewer
 
 - [W1 re-review LIMIT fix](01d839d8-7b13-4e92-8317-6da44ecba85d) (and prior attempts) failed with connection interrupt.
