@@ -29,7 +29,7 @@
 
 ### 2026-08-09 — Wave 2 / P2 MVP slices merged on orch branch
 - **شاخه:** `ai/W2-ORCH-wave2`
-- **Commit:** `3b0c790` (tip پس از merge شش اسلایس)
+- **Commit:** `d411f0e` (tip؛ merges تا `3b0c790` + harness/docs)
 - **خلاصه:** شش MVP موازی موج دو ادغام شد: license Ed25519 + safe mode؛ onboarding bootstrap/checklist/dry-run؛ B2B company+credit reserve؛ bank statement import + 1:1 match؛ HR labor settings + DRAFT insurance/tax CSV؛ observability request-id/ready/support meta. تعارض `db.js` (license+b2b init) حل شد.
 - **فایل‌های کلیدی:** `server/lib/license/*`, `server/lib/onboarding/*`, `server/lib/b2b/*`, `server/lib/observability.js`, `server/lib/payroll/export-legal.js`, `server/routes/{license,onboarding,b2b,bank-reconciliation,payroll}.js`, `server/scripts/test-{license,onboarding,b2b-credit,bank-recon-import,payroll-export,observability}.js`
 - **Deploy:** ❌ Wave 2 — deploy blocked تا gate اسلایس / تأیید مالک

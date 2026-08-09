@@ -5,7 +5,7 @@ Newest entries are added at the top. Never erase another agent's record.
 ## 2026-08-09T05:35:00+03:30 — W2-ORCH: six MVP slices merged
 
 - Task / owner: `W2-ORCH` / `cursor:implementer`
-- Branch tip: `3b0c790` on `ai/W2-ORCH-wave2` (worktree `erp-taranom-w2-orch`)
+- Branch tip: `d411f0e` on `ai/W2-ORCH-wave2` (worktree `erp-taranom-w2-orch`)
 - Merged slices:
   - O1 observability `07bf7e3`
   - M3 onboarding `29d4f67`
@@ -14,7 +14,7 @@ Newest entries are added at the top. Never erase another agent's record.
   - B2B credit `317dd6d` (db.js conflict resolved: both `initLicenseSchema` + `initB2bSchema`)
   - HR export `5486ca8`
 - Agent evidence tests (pre-merge, per slice): license 24/24, onboarding 29/29, b2b-credit 19/19 + b2b 34/34, bank-recon 24/24, payroll-export+accounting green, observability 9/9, sms 22/22
-- Orch re-validation: use `NODE_PATH` to a tree with `server/node_modules` (worktree has none)
+- Orch re-validation (NODE_PATH / local node_modules): license 24/24, onboarding 29/29, b2b-credit 19/19 (harness wait+SYNC_ROLE fixed), bank-recon 24/24, payroll-export green, observability 9/9, sms 22/22
 - Deploy: blocked
 - Residual gaps: full Wave-2 exit gate (paid pilots, support SLA); HR CSV draft; B2B consume-on-invoice; bank 1:N matching; license max_users/feature UI; onboarding wizard UI
 - Do not claim Wave 2 complete. P1 remains other agents' `ai/W1-*`.
