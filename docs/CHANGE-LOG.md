@@ -29,7 +29,7 @@
 
 ### 2026-08-09 — PROD-P4: سربار + دستمزد + مراکز هزینه (جذب نرخ)
 - **شاخه:** `ai/PROD-P4-overhead-labor`
-- **Commit:** (پس از push)
+- **Commit:** `d0465ac`
 - **خلاصه:** تکمیل موج تولید P4 با ۴ اسلایس موازی AI-DOS: bootstrap/محرک‌های سربار (toman×10)، چهار روش دستمزد، API نرخ مراکز (`PUT`/`bootstrap`)، و تست‌های طلایی T4-07..12 + T4-24 → **38/38 PASS**.
 - **فایل‌های کلیدی:** `server/lib/production/overhead.js`, `server/lib/production/labor.js`, `server/routes/production-cost-centers.js`, `server/scripts/test-production-overhead-labor.js`
 - **Deploy:** ⏳ نیاز به merge به primary سپس pull — هم‌زمان با PROD-P3/Waves
