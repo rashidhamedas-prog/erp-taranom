@@ -27,6 +27,14 @@
 
 ---
 
+### 2026-08-09 — W0-OPS-002 بسته با waiver دائمی sharp runtime؛ Wave 0 خروج کامل
+- **شاخه:** `ai/W0-OPS-002-sharp-production-deploy` → merge به `claude/claude-md-docs-2ssrpy`
+- **Commit:** (پس از این ورودی)
+- **خلاصه:** مالک waiver دائمی بدون انقضا برای ماندن production روی `sharp@0.33.5` پذیرفت (سورس/CI همچنان `0.35.0`). W0-OPS-002 completed؛ active claims آزاد؛ Gate موج صفر برای شروع P1 آماده اعلام شد.
+- **فایل‌های کلیدی:** `docs/WAVE0-GATE-STATUS.md`, `.ai-dos/tasks/active.yaml`, `.ai-dos/project/status.md`
+- **Deploy:** ❌ تغییر runtime نشد؛ production عمداً `0.33.5`؛ HTTP سالم
+- **یادداشت:** ارتقای بعدی CPU/hypervisor اختیاری است نه پیش‌شرط P1.
+
 ### 2026-08-09 — W0-OPS-002: سخت‌سازی اسکریپت پس از security review
 - **شاخه:** `ai/W0-OPS-002-sharp-production-deploy`
 - **Commit:** `24eace9`

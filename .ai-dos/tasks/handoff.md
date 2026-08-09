@@ -2,6 +2,14 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-09T05:00:00+03:30 — W0-OPS-002 completed under permanent owner waiver
+
+- Owner accepted permanent production waiver `W0-OPS-002-SHARP-RUNTIME-0335` with **no expiry**: VPS runtime may remain `sharp@0.33.5`; source/CI stay `0.35.0`.
+- Task status: **completed**; `file_claims` released; `.ai-dos/tasks/active.yaml` cleared.
+- Wave 0 exit: closed. **Ready for Wave 1 / P1** when owner selects scope.
+- Residual (not blockers): optional CPU upgrade later; S4U; OV/EV; cold backup; restricted publisher; fix `auto-commit-deploy.mdc` conflict before autonomous Iran deploys.
+- Do not claim production is on `0.35.0`. Do not blind pull/reset dirty VPS or `erp-taranom1`.
+
 ## 2026-08-09T04:55:00+03:30 — Independent reviewer disposition
 
 - [Reviewer](bbb4b9b8-47d4-40b4-a61f-459265612f72): **Approved with comments**. Declaring `blocked` (not complete) is correct; AC for production `0.35.0` unmet.
