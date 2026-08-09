@@ -261,6 +261,7 @@ app.use('/api/search', require('./routes/search'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/fiscal-year', require('./routes/fiscal-year'));
 app.use('/api/companies', require('./routes/companies'));
+app.use('/api/onboarding', require('./routes/onboarding'));
 app.use('/api/rbac', require('./routes/rbac'));
 app.use('/api/b2b', require('./routes/b2b'));
 app.use('/api/customers', require('./routes/customers'));
