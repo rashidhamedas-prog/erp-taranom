@@ -1,4 +1,12 @@
-﻿# Handoff Log
+﻿
+## 2026-08-10T14:40:00+03:30 — Applied to program (merge + Iran SFTP)
+
+- Merge primary: `889b61b` pushed to `origin/claude/claude-md-docs-2ssrpy`
+- Feature tip: `5fb2276` (getBom) / remedia `6271a3f` / docs `5ae889c` / handoff `d571af9`
+- Iran SFTP: stamp `.sftp-deploy-stamp-prod-p5-rereview`; smoke `root=200 health=200 ready=200`; getBom/tree/compare wraps verified on VPS
+- Independent Reviewer: Approved with comments; Security: Approved (no open High/Medium)
+- PROD-P5: completed; claims released
+# Handoff Log
 
 Newest entries are added at the top. Never erase another agent's record.
 
@@ -318,3 +326,4 @@ Parallel preflight agents: claim-audit, roadmap-priority, gates-plan, architect 
 - Known failures, risks, and assumptions: production/SSH operations are high-risk; no destructive restore is authorized; existing source worktree contains unrelated user files and is not used for implementation.
 - File claims released or retained: all claims in `active.yaml` retained.
 - Exact next action: inspect existing deployment/backup interfaces inside the isolated worktree, then implement the smallest secure Windows pull workflow.
+
