@@ -18,7 +18,7 @@
 - **Commit:** `ac078a7` / tip `45961c4`
 - **خلاصه:** رفع یافته‌های متوسط Security Review: `applyCostPolicy` روی GET operations/routing/outputs/explode/std-cost؛ قفل `resequenceOperations` روی BOM فعال؛ تست‌ها 34/34.
 - **فایل‌های کلیدی:** `server/routes/production-boms.js`, `server/lib/production/bom-advanced.js`, `server/scripts/test-production-bom-advanced.js`
-- **Deploy:** ⏳ پس از merge
+- **Deploy:** ✅ Iran SFTP `c22c0fb` — root/health/ready 200; stamp `.sftp-deploy-stamp-prod-p5-sec`
 - **یادداشت:** [Security Review] Approved with comments → remediated.
 ### 2026-08-10 — PROD-P5 merge + Iran SFTP deploy
 - **شاخه:** `ai/PROD-P5-advanced-bom` → merge `4306168` به `claude/claude-md-docs-2ssrpy`
