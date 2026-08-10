@@ -1,11 +1,10 @@
 # Project Status
 
-- Last verified: 2026-08-10 (~19:00 +03:30)
-- Corrective **PROD-P5-R2**: Independent Reviewer **Approved with comments**; Security **Approved**.
-- Code tip: `1728626` (+ docs `97af788` / approval record `f2d6a51`).
-- Gates on tip: `npm run test:production` ALL GREEN; embedded diff=0; P2 36/36; advanced 46/46.
-- Apply phase: merge → primary `claude/claude-md-docs-2ssrpy` + Iran SFTP overlay (no blind pull / no `--update-env`).
-- SW `erp-taranom-v146`. Do not implement in dirty `erp-taranom1`. Leave `ai/W1-*` alone.
+- Last verified: 2026-08-10 (~19:15 +03:30)
+- **PROD-P5-R2 completed.** Independent Reviewer Approved with comments; Security Approved.
+- Code tip: `1728626`; primary `claude/claude-md-docs-2ssrpy` @ `33ab46e` (FF from fix branch).
+- Iran: SFTP overlay stamp `.sftp-deploy-stamp-prod-p5-r2` hash=1728626; probe hashes YES; health/ready/root 200; SW `erp-taranom-v146`.
+- Claims released. Do not implement in dirty `erp-taranom1`. Leave `ai/W1-*` alone.
 
 ## Working quality commands
 

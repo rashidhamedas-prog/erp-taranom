@@ -18,7 +18,7 @@
 - **Commit:** `1728626`
 - **خلاصه:** تکمیل نامعتبر PROD-P5 بازگشایی شد. High-1: ایزولاسیون freshDb/ERP_TEST_ISOLATION تا T2-05/07/08 و health 5201/5203 سبز شوند + رگرسیون pack_size×20/×25. High-2: sensitivity فقط in-memory priceOverrides (بدون UPDATE روی products) + تست‌های a–d. High-3: prepare/compare embedded diff=0. Medium-1: CRUD ops/outputs + auto-share + E_* فارسی + smoke نقش‌ها. Medium-2: دامنه canonical erp.poshaktaranom.com + hash/smoke scripts.
 - **فایل‌های کلیدی:** server/scripts/lib/test-harness.js, server/db.js, server/lib/company-workspace.js, server/lib/production/bom.js, server/lib/production/bom-advanced.js, server/public/app.js, server/public/sw.js (v146), scripts/_probe-prod-p5-r2-hashes.py, scripts/_smoke-prod-p5-r2-roles.py, docs/08-deployment.md
-- **Deploy:** ✅ Iran SFTP هدفمند — stamp `.sftp-deploy-stamp-prod-p5-r2` · tip `1728626` (بدون blind pull / بدون `--update-env`)؛ Independent+Security Approved
+- **Deploy:** ✅ Iran SFTP هدفمند — stamp `.sftp-deploy-stamp-prod-p5-r2` · primary `33ab46e` · tip `1728626` (بدون blind pull / بدون `--update-env`)؛ hash probe YES؛ health/ready/root 200
 - **SW:** `erp-taranom-v146`
 
 ### 2026-08-10 — PROD-P5 Independent Review remediation (10 items + getBom R11)

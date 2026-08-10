@@ -1,4 +1,14 @@
-﻿## 2026-08-10T18:40:00+03:30 — Independent + Security Approved on 1728626
+﻿## 2026-08-10T19:15:00+03:30 — PROD-P5-R2 completed (merge + Iran SFTP)
+
+- Independent Reviewer: **Approved with comments** (97b82c6e)
+- Security: **Approved** (7d68a554)
+- Primary FF: `origin/claude/claude-md-docs-2ssrpy` → `33ab46e` (code tip `1728626`)
+- Iran SFTP: stamp `.sftp-deploy-stamp-prod-p5-r2` hash=1728626; no blind pull; no `--update-env`
+- Probe: app.js / bom-advanced.js / production-boms.js local=remote YES
+- Smoke: health/ready/root **200**; priceOverrides present; SW v146
+- PROD-P5-R2: **completed**; `file_claims: []`
+
+## 2026-08-10T18:40:00+03:30 — Independent + Security Approved on 1728626
 
 - Independent Reviewer: **Approved with comments** (agent 97b82c6e) — no open High/Medium
 - Security (re-review on tip worktree): **Approved** (agent 7d68a554) — High-2 closed (priceOverrides; no UPDATE products); residual auto-commit-deploy.mdc out of R2 claims
