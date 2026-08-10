@@ -1,83 +1,20 @@
 schema_version: 1
 tasks:
   - id: "PROD-P5"
-    title: "PROD-P5 reviewer remediation — R11/resequence/CHANGE-LOG/gates + re-review"
-    status: "active"
+    title: "Production Module P5 — advanced BOM + routing + co/by-products (Module 4)"
+    status: "completed"
     risk: "high"
     owner: "cursor:orchestrator"
-    roles:
-      orchestrator: "cursor:orchestrator"
-      implementer: "cursor:implementer"
-      reviewer: "cursor:reviewer"
-      security: "cursor:security"
     branch: "ai/PROD-P5-advanced-bom"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5"
-    claimed_at: "2026-08-10T12:55:00+03:30"
-    base_branch: "claude/claude-md-docs-2ssrpy"
-    acceptance_criteria:
-      - "All 10 reviewer/security corrective items verified or fixed"
-      - "No open High/Medium from Independent Review + Security Review"
-      - "test-production-bom-advanced.js green with sec regressions"
-      - "Gates: overhead, variable, sms, sync, diag mismatches=[]"
-      - "Independent re-review Approved (or Approved with non-blocking only)"
-      - "handoff records commit/hash, diffstat, raw test output"
-      - "Do NOT mark completed / do NOT Iran-deploy until re-review done"
-    corrective_items:
-      - id: 1
-        source: "Independent Reviewer"
-        text: "CHANGE-LOG must stamp full tip (sync/routes/tests/security), not only UI 83003d7"
-      - id: 2
-        source: "Independent Reviewer / Security advisory"
-        text: "GET /:id/std-cost wrap with applyCostPolicy"
-      - id: 3
-        source: "Security #1 Medium"
-        text: "GET /:id/operations applyCostPolicy (R11)"
-      - id: 4
-        source: "Security #1 Medium"
-        text: "GET /:id/outputs applyCostPolicy (R11)"
-      - id: 5
-        source: "Security #1 Medium"
-        text: "GET /:id/explode (+ routing) applyCostPolicy (R11)"
-      - id: 6
-        source: "Security #2 Medium"
-        text: "resequenceOperations assertDraftBom → E_BOM_LOCKED on active"
-      - id: 7
-        source: "Security follow-up test"
-        text: "Regression: active resequence → E_BOM_LOCKED"
-      - id: 8
-        source: "Security follow-up test"
-        text: "Regression: non-cost viewer payload has no _rial (stripCostFields/R11)"
-      - id: 9
-        source: "Security follow-up / sync hygiene"
-        text: "_diag-sync-gaps-b16e78.js mismatches=[]"
-      - id: 10
-        source: "AI-DOS gates + Independent re-review"
-        text: "Full suites (advanced/OH/var/sms/sync) + independent reviewer re-approval"
-    file_claims:
-      - path: "server/lib/production/bom-advanced.js"
-        reason: "resequence lock verification"
-      - path: "server/routes/production-boms.js"
-        reason: "R11 applyCostPolicy on BOM reads"
-      - path: "server/scripts/test-production-bom-advanced.js"
-        reason: "sec regression tests"
-      - path: "server/sync/capture.js"
-        reason: "PATH ops/outputs verify"
-      - path: "server/sync/tables.js"
-        reason: "FK append verify"
-      - path: "server/public/app.js"
-        reason: "Help/tab key only if needed"
-      - path: "docs/CHANGE-LOG.md"
-        reason: "full tip stamps for remediation"
-      - path: ".ai-dos/tasks/active.yaml"
-        reason: "task registry"
-      - path: ".ai-dos/tasks/handoff.md"
-        reason: "evidence handoff"
-      - path: ".ai-dos/project/status.md"
-        reason: "status pointer"
-    notes: >
-      Reactivated for reviewer remediation. No completed claim and no Iran deploy
-      until High/Medium closed, full tests recorded, and independent re-review passes.
-      Prior medium fixes may already be in tip ac078a7/c22c0fb — must verify then finish gaps.
+    claimed_at: "2026-08-09T17:05:00+03:30"
+    completed_at: "2026-08-10T14:30:00+03:30"
+    file_claims: []
+    notes: >-
+      Advanced BOM Module 4 complete. Remedia tip 5fb2276/5ae889c/d571af9 re-reviewed Approved
+      (Independent Reviewer + Security); merged to primary via ai/PROD-P5-merge-primary.
+      Prior: 32/32 advanced; security R11+resequence; Iran SFTP overlays as recorded in CHANGE-LOG.
+      Claims released.
 
   - id: "PROD-P4"
     title: "Production Module P4 — overhead + labor + cost centers"
