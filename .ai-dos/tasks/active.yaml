@@ -35,6 +35,7 @@ tasks:
       - "scripts/deploy-sharp-production.ps1"
       - "scripts/_probe-prod-p5-r2-hashes.py"
       - "scripts/_smoke-prod-p5-r2-roles.py"
+      - "scripts/_deploy-prod-p5-r2-sftp.py"
       - "desktop/server"
       - "android/app/src/main/assets/nodejs-project/server"
     acceptance_criteria:

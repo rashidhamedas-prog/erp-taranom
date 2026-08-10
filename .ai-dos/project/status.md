@@ -1,15 +1,11 @@
 # Project Status
 
-- Last verified: 2026-08-10 (~18:30 +03:30)
-- Active corrective: **PROD-P5-R2** on `fix/PROD-P5-R2-review-remediation`
-  worktree `D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5-r2` (base `a152086`).
-- Code tip: `1728626` (+ docs stamp `97af788`).
-- Status: **active** — NOT completed; **NO Iran deploy**.
-- Independent Reviewer: **Approved with comments** (no open High/Medium).
-- Security: re-review required on tip `1728626` only (prior review inspected wrong tree / stale `UPDATE products`).
+- Last verified: 2026-08-10 (~19:00 +03:30)
+- Corrective **PROD-P5-R2**: Independent Reviewer **Approved with comments**; Security **Approved**.
+- Code tip: `1728626` (+ docs `97af788` / approval record `f2d6a51`).
 - Gates on tip: `npm run test:production` ALL GREEN; embedded diff=0; P2 36/36; advanced 46/46.
-- Production VPS hashes still pre-R2 (expected until Approved deploy). SW `erp-taranom-v146`.
-- Do not implement in dirty `erp-taranom1`. Leave `ai/W1-*` alone.
+- Apply phase: merge → primary `claude/claude-md-docs-2ssrpy` + Iran SFTP overlay (no blind pull / no `--update-env`).
+- SW `erp-taranom-v146`. Do not implement in dirty `erp-taranom1`. Leave `ai/W1-*` alone.
 
 ## Working quality commands
 
