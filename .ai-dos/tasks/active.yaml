@@ -25,8 +25,10 @@ tasks:
       - "NO deploy and NO completed until both reviewers approve"
     notes: >-
       Completed after Independent Approved-with-comments + Security Approved.
-      Tip code 1728626; primary FF 33ab46e; Iran SFTP stamp .sftp-deploy-stamp-prod-p5-r2;
+      Tip code 1728626; primary FF a1f219b lineage; Iran SFTP stamp .sftp-deploy-stamp-prod-p5-r2;
       hashes match; health/ready/root 200. Claims released.
+      2026-08-10T20:10 re-verification: Independent Reviewer APPROVED + Security Approved;
+      no open High/Medium; gates re-run green (sync 44/44 on retry).
 
   - id: "PROD-P5"
     title: "Production Module P5 — advanced BOM + routing + co/by-products (Module 4)"
