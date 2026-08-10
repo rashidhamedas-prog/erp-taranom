@@ -7502,15 +7502,56 @@ async function prodBomCreateSave(){
     await prodBomEditModal(r.id);
   }catch(e){ showToast(e.message||e.error||'خطا','error'); }
 }
-async function prodBomEditModal(id){
+async function prodBomEditModal(id, tab){
   await prodBomEnsureProducts();
   let bom;
   try{ bom=await api('GET','/production/boms/'+id); }catch(e){ showToast(e.message||'خطا','error'); return; }
   const locked=bom.status!=='draft';
-  const comps=p=>Number(p.id)!==Number(bom.product_id);
   const lines=bom.lines||[];
   const prodName=bom.product_name||(CACHE.allProducts||[]).find(p=>Number(p.id)===Number(bom.product_id))?.name||('#'+bom.product_id);
+  const canSeeCost=!!(window.__canSeeCost || ME.role==='admin' || ME.role==='accounting' || (typeof canPerm==='function' && canPerm('production_cost','view')));
+  let activeTab=tab||window._prodBomEditTab||'items';
+  if(activeTab==='cost' && !canSeeCost) activeTab='items';
+  window._prodBomEditTab=activeTab;
+  window._prodBomEditId=id;
   window._prodBomEditProductId=bom.product_id;
+
+  let ops=[], outs=[];
+  if(activeTab==='ops'){
+    try{ ops=(await api('GET','/production/boms/'+id+'/operations'))?.rows||[]; }catch(e){ ops=[]; }
+  }
+  if(activeTab==='outputs'){
+    try{ outs=(await api('GET','/production/boms/'+id+'/outputs'))?.rows||[]; }catch(e){ outs=[]; }
+  }
+
+  const tabBtn=(k,label)=>`<button type="button" class="btn sm ${activeTab===k?'':'ghost'}" data-csp-click="${CSP.bind('click',function(event){prodBomEditModal((id),`${String((k) ?? '')}`)})}">${label}</button>`;
+  const tabBar=`<div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 10px`)}">
+      ${tabBtn('items','اقلام')}
+      ${tabBtn('ops','مسیر عملیات')}
+      ${tabBtn('outputs','خروجی‌ها')}
+      ${canSeeCost?tabBtn('cost','بهای تمام‌شده'):''}
+    </div>`;
+
+  let panel='';
+  if(activeTab==='items'){
+    panel=`
+    <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;margin:4px 0 8px`)}">
+      <strong>اقلام مواد / بسته‌بندی</strong>
+      ${!locked?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomAddLineRow()})}">➕ ردیف</button>`:''}
+    </div>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>نوع</th><th>جزء</th><th>مقدار/پایه</th><th>ضایعات٪</th><th>${locked?'':'حذف'}</th>
+    </tr></thead><tbody id="pbe-lines">
+      ${lines.map(L=>prodBomLineRowHtml(L, locked, bom.product_id)).join('')||(!locked?'':`<tr><td colspan="5" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">بدون قلم</td></tr>`)}
+    </tbody></table></div>`;
+  } else if(activeTab==='ops'){
+    panel=prodBomOpsPanelHtml(id, ops, locked);
+  } else if(activeTab==='outputs'){
+    panel=prodBomOutputsPanelHtml(id, outs, locked, bom);
+  } else if(activeTab==='cost'){
+    panel=prodBomCostPanelHtml(id);
+  }
+
   showModal((locked?'مشاهده':'ویرایش')+' فرمول '+esc(bom.code||''),`
     ${locked?`<div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">🔒 فرمول ${esc(bom.status==='active'?'فعال':'قفل')} است — برای تغییر «نسخه جدید» بسازید.</div>`:''}
     <div class="form-grid">
@@ -7520,24 +7561,156 @@ async function prodBomEditModal(id){
       <div class="fg"><label>بازده٪</label><input id="pbe-yield" type="number" value="${bom.has_routing?100:(bom.yield_percent??100)}" ${locked||bom.has_routing?'disabled':''}></div>
       <div class="fg full"><label>یادداشت</label><textarea id="pbe-note" rows="2" ${locked?'disabled':''}>${esc(bom.note||'')}</textarea></div>
     </div>
-    <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;margin:14px 0 8px`)}">
-      <strong>اقلام مواد / بسته‌بندی</strong>
-      ${!locked?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomAddLineRow()})}">➕ ردیف</button>`:''}
-    </div>
-    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>نوع</th><th>جزء</th><th>مقدار/پایه</th><th>ضایعات٪</th><th>${locked?'':'حذف'}</th>
-    </tr></thead><tbody id="pbe-lines">
-      ${lines.map(L=>prodBomLineRowHtml(L, locked, bom.product_id)).join('')||(!locked?'':`<tr><td colspan="5" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">بدون قلم</td></tr>`)}
-    </tbody></table></div>
-    ${!locked&&!lines.length?``:''}
+    ${tabBar}
+    ${panel}
     <div data-csp-style="${CSP.style(`margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap`)}">
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button>
       ${!locked?`<button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodBomSaveHeader((id))})}">ذخیره سرفصل</button>
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomSaveLines((id))})}">ذخیره اقلام</button>
+      ${activeTab==='items'?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomSaveLines((id))})}">ذخیره اقلام</button>`:''}
       <button class="btn green" data-csp-click="${CSP.bind('click',function(event){prodBomActivate((id))})}">فعال‌سازی</button>`:''}
       ${bom.status==='active'?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomVersionUp((id))})}">نسخه جدید برای ویرایش</button>`:''}
-    </div>`);
-  if(!locked && !lines.length) prodBomAddLineRow();
+    </div>`, true);
+  if(!locked && activeTab==='items' && !lines.length) prodBomAddLineRow();
+}
+function prodBomOpsPanelHtml(id, ops, locked){
+  return `
+    <div data-csp-style="${CSP.style(`display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center`)}">
+      ${!locked?`<button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomApplyRoutingInEditor((id))})}">از الگوی ترنم</button>
+      <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResequenceOps((id))})}">مرتب‌سازی مجدد</button>`:''}
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">V4-21: با مسیر عملیات، بازده سرفصل = ۱۰۰٪</span>
+    </div>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>ترتیب</th><th>عملیات</th><th>مرکز هزینه</th><th>بازده٪</th><th>ضایعات٪</th><th>دقیقه/واحد</th>
+    </tr></thead><tbody>
+      ${(ops||[]).map(o=>`<tr>
+        <td class="num">${o.seq}</td>
+        <td>${esc(o.operation_name||'—')}</td>
+        <td class="num">${o.cost_center_id||'—'}</td>
+        <td class="num">${o.yield_percent??100}</td>
+        <td class="num">${o.normal_waste_percent??0}</td>
+        <td class="num">${o.run_minutes_per_unit??0}</td>
+      </tr>`).join('')||`<tr><td colspan="6" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">عملیاتی ثبت نشده — «از الگوی ترنم» را بزنید</td></tr>`}
+    </tbody></table></div>`;
+}
+async function prodBomApplyRoutingInEditor(id){
+  try{
+    await api('POST','/production/boms/'+id+'/apply-routing-template',{});
+    showToast('مسیر عملیات پیش‌فرض (الگوی ترنم) اعمال شد');
+    await prodBomEditModal(id,'ops');
+  }catch(e){ showToast(e.message||e.error||'خطا','error'); }
+}
+async function prodBomResequenceOps(id){
+  try{
+    await api('POST','/production/boms/'+id+'/operations/resequence',{});
+    showToast('ترتیب عملیات به‌روز شد');
+    await prodBomEditModal(id,'ops');
+  }catch(e){ showToast(e.message||e.error||'خطا','error'); }
+}
+function prodBomOutputsPanelHtml(id, outs, locked, bom){
+  const typeLabel={main:'اصلی',co:'هم‌محصول',by:'فرعی',scrap:'ضایعات'};
+  const nameOf=pid=>{
+    const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===Number(pid));
+    return p?p.name:('#'+pid);
+  };
+  return `
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>نوع</th><th>کالا</th><th>مقدار/پایه</th><th>روش</th><th>سهم٪</th><th>NRV</th>
+    </tr></thead><tbody>
+      ${(outs||[]).map(o=>`<tr>
+        <td>${typeLabel[o.output_type]||esc(o.output_type||'')}</td>
+        <td>${esc(nameOf(o.product_id))}</td>
+        <td class="num">${o.qty_per_base??1}</td>
+        <td>${esc(o.cost_method||'share')}</td>
+        <td class="num">${o.cost_share_percent??0}</td>
+        <td class="num">${fmt(o.nrv_rial||0)}</td>
+      </tr>`).join('')||`<tr><td colspan="6" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">خروجی ثبت نشده — محصول اصلی به‌صورت پیش‌فرض در محاسبه استفاده می‌شود</td></tr>`}
+    </tbody></table></div>
+    ${!locked?`
+    <div class="form-grid" data-csp-style="${CSP.style(`margin-top:12px`)}">
+      <div class="fg"><label>کالا</label><select id="pbe-out-prod">${prodBomProductOpts(bom.product_id)}</select></div>
+      <div class="fg"><label>نوع</label><select id="pbe-out-type">
+        <option value="main">اصلی (main)</option>
+        <option value="co">هم‌محصول (co)</option>
+        <option value="by">فرعی (by)</option>
+        <option value="scrap">ضایعات (scrap)</option>
+      </select></div>
+      <div class="fg"><label>مقدار/پایه</label><input id="pbe-out-qty" type="number" step="any" min="0" value="1"></div>
+      <div class="fg"><label>سهم هزینه٪</label><input id="pbe-out-share" type="number" step="any" value="100"></div>
+      <div class="fg"><label>روش هزینه</label><select id="pbe-out-method">
+        <option value="share">سهمی (share)</option>
+        <option value="nrv">NRV</option>
+        <option value="zero">صفر</option>
+      </select></div>
+      <div class="fg"><label>NRV (ریال)</label><input id="pbe-out-nrv" type="number" min="0" value="0"></div>
+    </div>
+    <button class="btn sm" type="button" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){prodBomAddOutput((id))})}">➕ افزودن خروجی</button>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">خروجی‌های co/by برای تخصیص هزینه هم‌محصول و فرعی؛ جمع سهم main+co باید ۱۰۰٪ باشد.</p>`:''}`;
+}
+async function prodBomAddOutput(id){
+  const product_id=+el('pbe-out-prod')?.value;
+  if(!product_id){ showToast('کالای خروجی الزامی است','error'); return; }
+  try{
+    await api('POST','/production/boms/'+id+'/outputs',{
+      product_id,
+      output_type:el('pbe-out-type')?.value||'main',
+      qty_per_base:+el('pbe-out-qty')?.value||1,
+      cost_share_percent:+el('pbe-out-share')?.value||0,
+      cost_method:el('pbe-out-method')?.value||'share',
+      nrv_rial:+el('pbe-out-nrv')?.value||0
+    });
+    showToast('خروجی افزوده شد');
+    await prodBomEditModal(id,'outputs');
+  }catch(e){ showToast(e.message||e.error||'خطا','error'); }
+}
+function prodBomCostPanelHtml(id){
+  const period=todayJalali().slice(0,7);
+  return `
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">محاسبه بهای تمام‌شده فرمول — فقط تحلیلی؛ سند حسابداری (JE) ثبت نمی‌شود.</p>
+    <div class="form-grid">
+      <div class="fg"><label>مقدار هدف</label><input id="pbe-cost-qty" type="number" min="1" step="any" value="300"></div>
+      <div class="fg"><label>دوره (سال/ماه)</label><input id="pbe-cost-period" value="${esc(period)}" placeholder="1405/05"></div>
+    </div>
+    <button class="btn" type="button" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){prodBomComputeFullCost((id))})}">محاسبه بها</button>
+    <div id="pbe-cost-result" data-csp-style="${CSP.style(`margin-top:12px`)}"></div>`;
+}
+async function prodBomComputeFullCost(id){
+  const qty=+el('pbe-cost-qty')?.value||300;
+  const period=(el('pbe-cost-period')?.value||'').trim();
+  const box=el('pbe-cost-result');
+  if(box) box.innerHTML=`<div class="muted">در حال محاسبه…</div>`;
+  try{
+    let path='/production/boms/'+id+'/full-cost?qty='+encodeURIComponent(qty);
+    if(period) path+='&period='+encodeURIComponent(period);
+    const r=await api('GET',path)||{};
+    const unit=r.breakdown?.unit_cost_rial ?? r.unit_cost_rial;
+    const stages=r.stages||[];
+    if(!box) return;
+    box.innerHTML=`
+      <div data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--well);border:1px solid var(--border);font-size:13px`)}">
+        <b>بهای واحد:</b> <span class="mono">${fmt(unit||0)}</span> ریال
+        ${r.qty_start!=null?` · شروع: ${toFa(r.qty_start)}`:''}
+        ${r.total_yield_percent!=null?` · بازده کل: ${r.total_yield_percent}%`:''}
+        ${r.breakdown?.net_rial!=null?` · خالص: ${fmt(r.breakdown.net_rial)} ریال`:''}
+      </div>
+      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+        <th>مرحله</th><th>مرکز</th><th>ورود</th><th>خروج</th><th>مواد</th><th>دستمزد</th><th>سربار</th><th>بهای خروجی</th><th>واحد</th>
+      </tr></thead><tbody>
+        ${stages.map(s=>`<tr>
+          <td class="num">${s.seq??''}</td>
+          <td>${esc(s.cost_center||String(s.cost_center_id||''))}</td>
+          <td class="num">${s.qty_in??''}</td>
+          <td class="num">${s.qty_out??''}</td>
+          <td class="num">${fmt(s.material_rial||0)}</td>
+          <td class="num">${fmt(s.labor_rial||0)}</td>
+          <td class="num">${fmt(s.overhead_rial||0)}</td>
+          <td class="num">${fmt(s.cost_out_rial||0)}</td>
+          <td class="num">${fmt(s.unit_cost_out_rial||0)}</td>
+        </tr>`).join('')||`<tr><td colspan="9" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">مرحله‌ای برای نمایش نیست (فرمول بدون مسیر)</td></tr>`}
+      </tbody></table></div>`;
+  }catch(e){
+    if(box) box.innerHTML='';
+    showToast(e.message||e.error||'خطا در محاسبه','error');
+  }
 }
 function prodBomLineRowHtml(L, locked, excludeProductId){
   L=L||{};
@@ -7612,8 +7785,12 @@ async function prodBomActivate(id){
   }catch(e){ showToast(e.message||e.error||'خطا در فعال‌سازی','error'); }
 }
 async function prodBomApplyRouting(id){
-  try{ await api('POST','/production/boms/'+id+'/apply-routing-template',{}); showToast('مسیر عملیات پیش‌فرض اعمال شد'); loadAccTab('production-boms'); }
-  catch(e){ showToast(e.message||'خطا','error'); }
+  try{
+    await api('POST','/production/boms/'+id+'/apply-routing-template',{});
+    showToast('مسیر عملیات پیش‌فرض اعمال شد');
+    if(el('activeModal')) await prodBomEditModal(id,'ops');
+    else loadAccTab('production-boms');
+  }catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function prodBomDelete(id){
   if(!confirm('حذف پیش‌نویس فرمول؟')) return;
@@ -16177,6 +16354,10 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
         <li>در <b>حسابداری → عملیات تولید → فرمول تولید (BOM)</b> با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید.</li>
+        <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code>).</li>
+        <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند. با مسیر فعال، بازده سرفصل باید ۱۰۰٪ باشد (<b>V4-21</b>) تا بازده دوبار شمارش نشود.</li>
+        <li><b>خروجی‌ها:</b> محصول اصلی (main) و هم‌محصول/فرعی (co/by) با سهم هزینه یا NRV؛ جمع سهم main+co = ۱۰۰٪.</li>
+        <li><b>بهای تمام‌شده:</b> محاسبه تحلیلی با مقدار هدف (پیش‌فرض ۳۰۰) — <b>بدون ثبت سند حسابداری (JE)</b>.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
         <li>سفارش تولید: انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
