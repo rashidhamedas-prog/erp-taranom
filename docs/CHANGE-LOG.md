@@ -15,7 +15,7 @@
 
 ### 2026-08-10 — PROD-P5 Independent Review remediation (10 items + getBom R11)
 - **شاخه:** `ai/PROD-P5-advanced-bom`
-- **Commit:** $h — پس از `6271a3f`؛ wrap `GET /:id` + `/tree` + `/compare`
+- **Commit:** `5fb2276` — پس از `6271a3f`؛ wrap `GET /:id` + `/tree` + `/compare`
 - **خلاصه:** رفع Changes requested بازبین مستقل: `applyCostPolicy` روی `getBom`/`bomTree`/`compare`؛ تست getBom-shape؛ گیت advanced **38/38**.
 - **فایل‌های کلیدی:** `server/routes/production-boms.js`, `server/scripts/test-production-bom-advanced.js`, `docs/CHANGE-LOG.md`
 - **Deploy:** ⛔ blocked until independent re-review Approved
