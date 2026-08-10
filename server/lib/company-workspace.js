@@ -93,6 +93,10 @@ function getCompanyById(id) {
 }
 
 function resolveActiveDbPath() {
+  // Explicit test isolation: honor DB_PATH and skip shared Temp company registry.
+  if (process.env.ERP_TEST_ISOLATION === '1' && process.env.DB_PATH) {
+    return path.resolve(process.env.DB_PATH);
+  }
   try {
     const c = getActiveCompany();
     if (c?.dbPath && fs.existsSync(c.dbPath)) return c.dbPath;

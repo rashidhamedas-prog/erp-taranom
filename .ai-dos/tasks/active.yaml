@@ -1,20 +1,66 @@
 schema_version: 1
 tasks:
+  - id: "PROD-P5-R2"
+    title: "Reopen invalid PROD-P5 completion; restore P0–P5 gates and secure sensitivity"
+    status: "active"
+    risk: "high"
+    owner: "cursor:implementer"
+    roles:
+      implementer: "cursor:implementer"
+      reviewer: "cursor:independent-reviewer"
+      security: "cursor:independent-security"
+    branch: "fix/PROD-P5-R2-review-remediation"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5-r2"
+    base_commit: "a152086"
+    claimed_at: "2026-08-10T15:40:00+03:30"
+    file_claims:
+      - ".ai-dos/project/status.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - "docs/CHANGE-LOG.md"
+      - "docs/08-deployment.md"
+      - "server/db.js"
+      - "server/lib/company-workspace.js"
+      - "server/lib/production/bom.js"
+      - "server/lib/production/bom-advanced.js"
+      - "server/routes/production-boms.js"
+      - "server/public/app.js"
+      - "server/public/sw.js"
+      - "server/scripts/lib/test-harness.js"
+      - "server/scripts/test-production-fixed.js"
+      - "server/scripts/test-production-bom-advanced.js"
+      - "server/scripts/test-production-health.js"
+      - "server/scripts/test-production-bom-editor-smoke.js"
+      - "server/scripts/test-production-ui-smoke.js"
+      - "scripts/deploy-sharp-production.ps1"
+      - "scripts/_probe-prod-p5-r2-hashes.py"
+      - "scripts/_smoke-prod-p5-r2-roles.py"
+      - "desktop/server"
+      - "android/app/src/main/assets/nodejs-project/server"
+    acceptance_criteria:
+      - "P0/P1/P2/P3/P4/P5 all green on one commit"
+      - "No T2-05/T2-07/T2-08 failures; health 5201/5202/5203 zero and ok=true"
+      - "sensitivity is DB side-effect-free (no product/production UPDATE)"
+      - "embedded desktop/android SHA diff=0 after prepare"
+      - "BOM editor CRUD+template+resequence; role UI/API cost strip; browser smoke"
+      - "Independent Reviewer Approved; Security Approved; no open High/Medium"
+      - "NO deploy and NO completed until both reviewers approve"
+    notes: >-
+      Corrective reopen: prior PROD-P5 completion rejected by Independent Reviewer.
+      High-1 P2 regression; High-2 sensitivity writes; High-3 source drift;
+      Medium-1 BOM editor; Medium-2 deploy evidence. No Iran deploy until Approved.
+
   - id: "PROD-P5"
     title: "Production Module P5 — advanced BOM + routing + co/by-products (Module 4)"
-    status: "completed"
+    status: "superseded"
     risk: "high"
     owner: "cursor:orchestrator"
     branch: "ai/PROD-P5-advanced-bom"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5"
-    claimed_at: "2026-08-09T17:05:00+03:30"
-    completed_at: "2026-08-10T14:30:00+03:30"
     file_claims: []
     notes: >-
-      Advanced BOM Module 4 complete. Remedia tip 5fb2276/5ae889c/d571af9 re-reviewed Approved
-      (Independent Reviewer + Security); merged to primary via ai/PROD-P5-merge-primary.
-      Prior: 32/32 advanced; security R11+resequence; Iran SFTP overlays as recorded in CHANGE-LOG.
-      Claims released.
+      Completion invalidated by Independent Reviewer (High/Medium open).
+      Remediation tracked under PROD-P5-R2. Claims released.
 
   - id: "PROD-P4"
     title: "Production Module P4 — overhead + labor + cost centers"

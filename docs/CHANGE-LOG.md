@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-10 — PROD-P5-R2 review remediation (High/Medium reopen)
+- **شاخه:** `fix/PROD-P5-R2-review-remediation` (base `a152086`)
+- **Commit:** _(pending — همین نوبت)_
+- **خلاصه:** تکمیل نامعتبر PROD-P5 بازگشایی شد. High-1: ایزولاسیون freshDb/ERP_TEST_ISOLATION تا T2-05/07/08 و health 5201/5203 سبز شوند + رگرسیون pack_size×20/×25. High-2: sensitivity فقط in-memory priceOverrides (بدون UPDATE روی products) + تست‌های a–d. High-3: prepare/compare embedded diff=0. Medium-1: CRUD ops/outputs + auto-share + E_* فارسی + smoke نقش‌ها. Medium-2: دامنه canonical erp.poshaktaranom.com + hash/smoke scripts.
+- **فایل‌های کلیدی:** server/scripts/lib/test-harness.js, server/db.js, server/lib/company-workspace.js, server/lib/production/bom.js, server/lib/production/bom-advanced.js, server/public/app.js, server/public/sw.js (v146), scripts/_probe-prod-p5-r2-hashes.py, scripts/_smoke-prod-p5-r2-roles.py, docs/08-deployment.md
+- **Deploy:** ⏳ مسدود تا Independent Reviewer + Security Approved (بدون Iran deploy در این نوبت)
+- **SW:** `erp-taranom-v146`
+
 ### 2026-08-10 — PROD-P5 Independent Review remediation (10 items + getBom R11)
 - **شاخه:** `ai/PROD-P5-advanced-bom`
 - **Commit:** `5fb2276` — پس از `6271a3f`؛ wrap `GET /:id` + `/tree` + `/compare`

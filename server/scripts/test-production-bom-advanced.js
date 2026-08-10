@@ -334,6 +334,51 @@ try {
   ok('smoke sensitivity', false, e.message);
 }
 
+// High-2: sensitivity must be DB side-effect-free
+try {
+  const snapProducts = () => db.prepare('SELECT id, average_cost_rial, std_cost_rial, price, stock, item_type FROM products ORDER BY id').all();
+  const before = snapProducts();
+  const s10 = adv.sensitivity(db, { bomId: draft.id, qtyTarget: 300, period: PERIOD, param: 'fabric_price', deltaPercent: 10 });
+  const mid = snapProducts();
+  const s30 = adv.sensitivity(db, { bomId: draft.id, qtyTarget: 300, period: PERIOD, param: 'fabric_price', deltaPercent: 30 });
+  const after = snapProducts();
+  ok('sens-a snapshot محصولات قبل=بعد ۱۰٪', JSON.stringify(before) === JSON.stringify(mid));
+  ok('sens-a snapshot محصولات قبل=بعد ۳۰٪', JSON.stringify(before) === JSON.stringify(after));
+  ok('sens-b دلتای مستقل ۱۰ vs ۳۰', s30.new_unit_cost_rial > s10.new_unit_cost_rial && s30.delta_rial > s10.delta_rial);
+  ok('sens-b نتایج مستقل از هم', s10.delta_percent === 10 && s30.delta_percent === 30);
+
+  // sens-c: exception mid-calc must leave product costs unchanged
+  const beforeExc = snapProducts();
+  const hdr = db.prepare('SELECT has_routing, yield_percent FROM bom_headers WHERE id=?').get(draft.id);
+  db.prepare('UPDATE bom_headers SET has_routing=1, yield_percent=50 WHERE id=?').run(draft.id);
+  try {
+    try {
+      adv.sensitivity(db, { bomId: draft.id, qtyTarget: 300, period: PERIOD, param: 'fabric_price', deltaPercent: 15 });
+      ok('sens-c باید خطا بدهد', false);
+    } catch (e) {
+      ok('sens-c خطای محاسبه (بدون write روی محصول)', String(e.code || e.message).includes('E_YIELD_DOUBLE_COUNT') || String(e.code || e.message).includes('E_ROUTING'));
+    }
+  } finally {
+    db.prepare('UPDATE bom_headers SET has_routing=?, yield_percent=? WHERE id=?')
+      .run(hdr.has_routing, hdr.yield_percent, draft.id);
+  }
+  ok('sens-c بدون تغییر محصولات پس از استثنا', JSON.stringify(beforeExc) === JSON.stringify(snapProducts()));
+
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../lib/production/bom-advanced.js'), 'utf8');
+  const sensFn = src.slice(src.indexOf('function sensitivity'), src.indexOf('function breakeven'));
+  ok('sens-c هیچ UPDATE products در sensitivity', !/UPDATE\s+products/i.test(sensFn));
+
+  const { applyCostPolicy } = require('../lib/production/access');
+  const opUser = { id: 913, role: 'production_operator' };
+  db.prepare('INSERT OR IGNORE INTO users (id, username, password, name, role) VALUES (?,?,?,?,?)')
+    .run(opUser.id, 'po_sens', 'x', 'اپراتور حساسیت', opUser.role);
+  const stripped = applyCostPolicy(db, opUser, s10);
+  const sj = JSON.stringify(stripped);
+  ok('sens-d اپراتور بدون *_rial', !sj.includes('_rial') && !sj.includes('_toman'));
+} catch (e) {
+  ok('sens-a..d side-effect-free', false, e.stack || e.message);
+}
+
 try {
   const be = adv.breakeven(db, { bomId: draft.id, qtyTarget: 300, period: PERIOD, priceRial: 4000000 });
   ok('smoke breakeven سودآور با قیمت بالاتر از بها', be.profitable === true && be.margin_rial > 0);

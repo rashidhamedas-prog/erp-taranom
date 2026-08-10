@@ -29,12 +29,17 @@ function applyConnectionPragmas(database) {
 }
 
 function resolveBootDbPath() {
-  if (isDevice()) return path.resolve(DEFAULT_DB_PATH);
+  // Test harness: never route through multi-company registry (pollutes JE sums).
+  if (process.env.ERP_TEST_ISOLATION === '1' && process.env.DB_PATH) {
+    return path.resolve(process.env.DB_PATH);
+  }
+  const envPath = process.env.DB_PATH || DEFAULT_DB_PATH;
+  if (isDevice()) return path.resolve(envPath);
   try {
     const { resolveActiveDbPath } = require('./lib/company-workspace');
     return path.resolve(resolveActiveDbPath());
   } catch {
-    return path.resolve(DEFAULT_DB_PATH);
+    return path.resolve(envPath);
   }
 }
 

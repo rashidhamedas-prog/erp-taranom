@@ -300,7 +300,7 @@ router.post('/:id/outputs/auto-share', auth, requirePermission('production_bom',
       e.code = 'E_BAD_SHARE_METHOD';
       throw e;
     }
-    return adv.autoShare(getDB(), Number(req.params.id), method);
+    return applyCostPolicy(getDB(), req.user, adv.autoShare(getDB(), Number(req.params.id), method));
   });
 });
 

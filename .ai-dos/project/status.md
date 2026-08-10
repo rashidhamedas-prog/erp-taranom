@@ -1,13 +1,12 @@
 # Project Status
 
-- Last verified: 2026-08-10 (~14:30 +03:30)
-- Primary branch: `claude/claude-md-docs-2ssrpy` (merge worktree `ai/PROD-P5-merge-primary` based on `11c5e85`)
-- **PROD-P5 completed** after Independent Review remediation merge: tip `5fb2276` / docs `5ae889c` / ai-dos `d571af9` re-reviewed **Approved**; applying via this merge (`getBom`/`tree`/`compare` + mutate R11).
-- Prior P5: Module 4 advanced BOM; security follow-up Iran SFTP ✅ (`c22c0fb` / docs `11c5e85`).
-- **PROD-P3/P4** completed earlier.
-- Wave 2 MVP merged; exit gate (pilots/SLA) still open.
-- Wave 1 / P1: other agents (`ai/W1-*`) — do not modify from unrelated owners.
-- Production: healthy; dirty VPS trees must not be blindly reset. SSH: `taranom@94.249.244.208`.
+- Last verified: 2026-08-10 (~17:15 +03:30)
+- Active corrective: **PROD-P5-R2** on `fix/PROD-P5-R2-review-remediation`
+  worktree `D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5-r2` (base `a152086`).
+- Status: **active** — NOT completed; **NO Iran deploy** until Independent + Security Approved.
+- High-1/2/3 + Medium-1/2 implemented; gates green pending final `npm run test:production` tip commit.
+- Production VPS hashes still pre-R2 (expected until Approved deploy). SW tip `erp-taranom-v146`.
+- Do not implement in dirty `erp-taranom1`. Leave `ai/W1-*` alone.
 
 ## Working quality commands
 

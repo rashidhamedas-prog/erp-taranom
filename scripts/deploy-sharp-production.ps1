@@ -41,7 +41,7 @@ param(
     [string]$BundleDir = '',
     [string]$RecoverStamp = '',
     [string]$HttpProxy = 'http://127.0.0.1:10808',
-    [string]$PublicBaseUrl = 'https://erp.taranom.app',
+    [string]$PublicBaseUrl = 'https://erp.poshaktaranom.com',
     [string]$KnownHostsFile = (Join-Path $env:USERPROFILE '.ssh\known_hosts')
 )
 

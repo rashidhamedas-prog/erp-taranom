@@ -75,7 +75,12 @@ function lastPurchasePrice(db, productId) {
   }
 }
 
-function getPrice(db, productId, basis, line) {
+function getPrice(db, productId, basis, line, priceOverrides = null) {
+  if (priceOverrides && (basis === 'average' || basis == null || basis === '')) {
+    if (priceOverrides.has(productId)) {
+      return Number(priceOverrides.get(productId)) || 0;
+    }
+  }
   const p = db.prepare('SELECT average_cost_rial, std_cost_rial FROM products WHERE id=?').get(productId);
   switch (basis) {
     case 'std': return Number(line?.std_cost_rial || p?.std_cost_rial) || 0;
@@ -150,7 +155,7 @@ function resolveSubstitutes(db, lines, factor, yieldF) {
   return [...plain, ...picked].sort((a, b) => a.line_no - b.line_no);
 }
 
-function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'average', level = 0, yieldOverride = null }) {
+function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'average', level = 0, yieldOverride = null, priceOverrides = null }) {
   if (level > 10) throw err('E_BOM_TOO_DEEP', 422);
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   if (!bom) throw err('E_NOT_FOUND', 404);
@@ -184,7 +189,7 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
     if (scrapF <= 0) throw err('E_BOM_SCRAP_RANGE', 422);
     const qtyGross = qtyNet / scrapF;
     const qtyFinal = round6(qtyGross / yieldF);
-    const unitCost = getPrice(db, L.component_product_id, priceBasis, L);
+    const unitCost = getPrice(db, L.component_product_id, priceBasis, L, priceOverrides);
     out.push({
       line_no: L.line_no,
       bom_line_id: L.id,
@@ -205,7 +210,7 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
       try {
         const childBom = resolveBom(db, { productId: L.component_product_id, date: todayJalali() });
         const child = explodeBom(db, {
-          bomId: childBom.id, qty: qtyFinal, priceBasis, level: level + 1,
+          bomId: childBom.id, qty: qtyFinal, priceBasis, level: level + 1, priceOverrides,
         });
         out.push(...child.lines.map(x => ({ ...x, parent_line_no: L.line_no })));
       } catch { /* no child bom — leaf */ }

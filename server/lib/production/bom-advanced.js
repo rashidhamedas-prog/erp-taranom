@@ -118,7 +118,7 @@ function stageDriverQty(db, op, cc, ctx) {
 /**
  * Full stage roll-up. No ledger.
  */
-function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level = 0 }) {
+function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level = 0, priceOverrides = null }) {
   if (level > 10) throw err('E_BOM_TOO_DEEP', 422);
 
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
@@ -142,6 +142,7 @@ function rollUpBom(db, { bomId, qtyTarget, period, priceBasis = 'average', level
     priceBasis,
     level,
     yieldOverride: bom.has_routing ? 100 : null,
+    priceOverrides,
   });
 
   const matByStage = {};
@@ -647,26 +648,19 @@ function sensitivity(db, { bomId, qtyTarget = 1, period, param = 'fabric_price',
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   const lines = db.prepare('SELECT * FROM bom_lines WHERE bom_id=?').all(bomId);
   const factor = 1 + (Number(deltaPercent) || 0) / 100;
-  const touched = [];
+  const priceOverrides = new Map();
   if (param === 'fabric_price' || param === 'material_avg') {
     for (const L of lines) {
       const p = db.prepare('SELECT id, average_cost_rial, item_type FROM products WHERE id=?').get(L.component_product_id);
       if (!p) continue;
       if (param === 'fabric_price' && p.item_type && p.item_type !== 'raw') continue;
-      touched.push({ id: p.id, prev: p.average_cost_rial });
-      db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?')
-        .run(Math.round(Number(p.average_cost_rial) * factor), p.id);
+      priceOverrides.set(p.id, Math.round(Number(p.average_cost_rial) * factor));
     }
   }
-  let perturbed;
-  try {
-    clearRollUpMemo();
-    perturbed = rollUpBom(db, { bomId, qtyTarget, period, priceBasis: 'average' });
-  } finally {
-    for (const t of touched) {
-      db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?').run(t.prev, t.id);
-    }
-  }
+  clearRollUpMemo();
+  const perturbed = rollUpBom(db, {
+    bomId, qtyTarget, period, priceBasis: 'average', priceOverrides,
+  });
   return {
     param,
     delta_percent: deltaPercent,

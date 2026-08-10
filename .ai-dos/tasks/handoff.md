@@ -1,4 +1,28 @@
-﻿
+﻿## 2026-08-10T16:10:00+03:30 — PROD-P5-R2 implementation checkpoint (pre-review)
+
+- **Task:** still `active` — NOT completed; **NO Iran deploy**
+- **Branch/worktree:** `fix/PROD-P5-R2-review-remediation` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5-r2` @ base `a152086`
+- **High-1:** `ERP_TEST_ISOLATION` + unique `COMPANIES_DIR` in `freshDb`; T2-05/07/08 PASS; health 5201/5202/5203 zero; pack×20/×25 regression PASS
+- **High-2:** `sensitivity` uses in-memory `priceOverrides` via `getPrice`/`explodeBom`/`rollUpBom`; tests sens-a..d PASS; no `UPDATE products`
+- **High-3:** `prepare-embedded-server all` + `compare-embedded-hash` → desktop/android **diff=0** (251 files)
+- **Medium-1:** ops/outputs CRUD + auto-share UI + E_* map + Help path; smoke **29/29**
+- **Medium-2:** canonical `https://erp.poshaktaranom.com`; probe/smoke scripts + `docs/08-deployment.md`
+- **Next:** full P0–P5 gate suite on one commit → Independent Reviewer + Security (no deploy)
+
+## 2026-08-10T15:40:00+03:30 — PROD-P5-R2 claimed (corrective reopen)
+
+- **Task:** `PROD-P5-R2` status=`active`; owner `cursor:implementer`
+- **Reviewer / Security:** independent identities `cursor:independent-reviewer` / `cursor:independent-security` (not Implementer)
+- **Branch / worktree:** `fix/PROD-P5-R2-review-remediation` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5-r2`
+- **Base:** `origin/claude/claude-md-docs-2ssrpy@a152086` (clean worktree; NOT erp-taranom1)
+- **PROD-P5:** status=`superseded` (invalid completion); claims empty
+- **Constraint:** NO `completed` and NO Iran deploy until High/Medium closed + full P0–P5 gates + Independent Reviewer Approved + Security Approved
+- **Scope High:** P2 fixed T2-05/07/08 + health 5201/5203; sensitivity read-only; embedded prepare/hash diff=0
+- **Scope Medium:** BOM editor CRUD+template+resequence+Help; deploy evidence/domain/hashes/role smoke
+- **Exact next:** parallel diagnose High-1/High-2; then implement on claimed files only
+
 ## 2026-08-10T14:40:00+03:30 — Applied to program (merge + Iran SFTP)
 
 - Merge primary: `889b61b` pushed to `origin/claude/claude-md-docs-2ssrpy`
