@@ -1,4 +1,4 @@
-# ┘ä╪º┌» ╪¬╪║█î█î╪▒╪º╪¬ ╪º╪╣┘à╪º┘äΓÇî╪┤╪»┘ç ΓÇö ERP ╪¬╪▒┘å┘à
+﻿# ┘ä╪º┌» ╪¬╪║█î█î╪▒╪º╪¬ ╪º╪╣┘à╪º┘äΓÇî╪┤╪»┘ç ΓÇö ERP ╪¬╪▒┘å┘à
 
 ╪º█î┘å ┘ü╪º█î┘ä ╪¬╪º╪▒█î╪«┌å┘ç┘ö ╪¬╪║█î█î╪▒╪º╪¬█î ╪▒╪º ┌⌐┘ç ╪»╪▒ Cursor / Claude Code ╪º╪╣┘à╪º┘ä ╪┤╪»┘ç ┘å┌»┘ç ┘à█îΓÇî╪»╪º╪▒╪».
 **┘é╪¿┘ä ╪º╪▓ ╪┤╪▒┘ê╪╣ ┌⌐╪º╪▒ ╪¼╪»█î╪»╪î ╪º█î┘å ┘ü╪º█î┘ä ╪▒╪º ╪¿╪«┘ê╪º┘å█î╪»** ╪¬╪º ╪¿╪»╪º┘å█î╪» ┌å┘ç ┌å█î╪▓┘ç╪º█î█î ┘é╪¿┘ä╪º┘ï ╪º┘å╪¼╪º┘à ╪┤╪»┘ç ╪º╪│╪¬.
@@ -15,7 +15,7 @@
 
 ### 2026-08-10 — PROD-P5-R2 review remediation (High/Medium reopen)
 - **شاخه:** `fix/PROD-P5-R2-review-remediation` (base `a152086`)
-- **Commit:** _(pending — همین نوبت)_
+- **Commit:** `1728626`
 - **خلاصه:** تکمیل نامعتبر PROD-P5 بازگشایی شد. High-1: ایزولاسیون freshDb/ERP_TEST_ISOLATION تا T2-05/07/08 و health 5201/5203 سبز شوند + رگرسیون pack_size×20/×25. High-2: sensitivity فقط in-memory priceOverrides (بدون UPDATE روی products) + تست‌های a–d. High-3: prepare/compare embedded diff=0. Medium-1: CRUD ops/outputs + auto-share + E_* فارسی + smoke نقش‌ها. Medium-2: دامنه canonical erp.poshaktaranom.com + hash/smoke scripts.
 - **فایل‌های کلیدی:** server/scripts/lib/test-harness.js, server/db.js, server/lib/company-workspace.js, server/lib/production/bom.js, server/lib/production/bom-advanced.js, server/public/app.js, server/public/sw.js (v146), scripts/_probe-prod-p5-r2-hashes.py, scripts/_smoke-prod-p5-r2-roles.py, docs/08-deployment.md
 - **Deploy:** ⏳ مسدود تا Independent Reviewer + Security Approved (بدون Iran deploy در این نوبت)
