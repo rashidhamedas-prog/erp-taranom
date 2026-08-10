@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-10 — PROD-P5 security follow-up (R11 + resequence lock)
+- **شاخه:** `ai/PROD-P5-advanced-bom` → merge به primary
+- **Commit:** `ac078a7` / tip `45961c4`
+- **خلاصه:** رفع یافته‌های متوسط Security Review: `applyCostPolicy` روی GET operations/routing/outputs/explode/std-cost؛ قفل `resequenceOperations` روی BOM فعال؛ تست‌ها 34/34.
+- **فایل‌های کلیدی:** `server/routes/production-boms.js`, `server/lib/production/bom-advanced.js`, `server/scripts/test-production-bom-advanced.js`
+- **Deploy:** ⏳ پس از merge
+- **یادداشت:** [Security Review] Approved with comments → remediated.
 ### 2026-08-10 — PROD-P5 merge + Iran SFTP deploy
 - **شاخه:** `ai/PROD-P5-advanced-bom` → merge `4306168` به `claude/claude-md-docs-2ssrpy`
 - **Commit:** `4306168` (merge) · tip feature `9878f11`

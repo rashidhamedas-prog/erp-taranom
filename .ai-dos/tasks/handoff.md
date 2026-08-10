@@ -2,13 +2,21 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-10T11:45:00+03:30 — PROD-P5 security remediation (post-review)
+
+- **Security:** [Security Review](be434b0a-32ae-4e19-8f58-dbb653ddc5d1) → **Approved with comments**; remediated medium findings in `ac078a7`
+- **Fixes:** `applyCostPolicy` on GET operations/routing/outputs/explode/std-cost; `assertDraftBom` in `resequenceOperations`; regression tests (suite **34/34**)
+- **Next:** push `ac078a7` → primary merge → Iran SFTP overlay of 3 server files + CHANGE-LOG
+
 ## 2026-08-10T11:20:00+03:30 — PROD-P5 complete: merge + Iran SFTP
 
-- **Task:** `PROD-P5` completed; claims released
-- **Merge:** `4306168` on primary; feature tip `9878f11`
-- **Tests:** advanced 32/32; OH 38/38; var 27/27; sms 22/22; sync 44/44; diag mismatches=[]
-- **Deploy:** Iran SFTP stamp `.sftp-deploy-stamp-prod-p5`; root/health/ready 200; pm2 online
-- **Next:** owner selects P6; avoid ai/W1-*
+- **Task:** `PROD-P5` / `cursor:orchestrator` → **completed**; `file_claims` released
+- **Merge:** `4306168` on `claude/claude-md-docs-2ssrpy` (from `ai/PROD-P5-advanced-bom` tip `9878f11`)
+- **Agents:** sync PATH ([Sync](350cf600-4c0a-49da-bc45-d3117f44fe92)); API routes ([API](7d05729c-6331-424b-99b1-2dae2df10cc6)); UI ([UI](2804c4ab-2d16-41b7-9fad-d2e3ac89c75e)); tests orchestrated locally after seed UNIQUE fix; reviews ([Reviewer](1178c628-2f0f-4eaf-8307-46194d7e42ad), [Security](560d0fca-e2bd-438b-956f-89a645453f95))
+- **Tests:** advanced **32/32**; overhead 38/38; variable 27/27; sms 22/22; sync **44/44** (retry); `_diag-sync-gaps` mismatches=[]
+- **Deploy:** SFTP overlay to `taranom@94.249.244.208` (no blind pull); stamp `.sftp-deploy-stamp-prod-p5`; HTTP `/=200` `/health=200` `/ready=200`; pm2 online; no `--update-env`
+- **Delivered:** bom-advanced helpers, ops/outputs PATH map + FK appends, routes+R11, BOM 4 tabs + Help, CHANGE-LOG
+- **Next:** P6 advanced fixed execution only when owner selects; leave `ai/W1-*` alone
 
 ## 2026-08-09T17:05:00+03:30 — PROD-P5 preflight claimed (no app code yet)
 
