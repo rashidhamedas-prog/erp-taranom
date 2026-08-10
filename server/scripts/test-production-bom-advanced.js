@@ -353,10 +353,16 @@ throws('sec resequence on active → E_BOM_LOCKED', () => {
   adv.resequenceOperations(db, draft.id);
 }, 'E_BOM_LOCKED');
 
-// SEC follow-up: R11 strip removes *_rial from operations-shaped payload
+// SEC follow-up: applyCostPolicy strips *_rial for non-cost-viewer (ops payload)
+// (assertDraftBom in resequenceOperations already covered above via E_BOM_LOCKED)
 try {
-  const { stripCostFields } = require('../lib/production/access');
-  const sample = {
+  const { applyCostPolicy, canSeeCost } = require('../lib/production/access');
+  const fakeUser = { id: 912, role: 'production_operator' };
+  db.prepare('INSERT OR IGNORE INTO users (id, username, password, name, role) VALUES (?,?,?,?,?)')
+    .run(fakeUser.id, 'po_sec_bom', 'x', 'اپراتور تست هزینه', fakeUser.role);
+  ok('sec R11 کاربر بدون production_cost', !canSeeCost(db, fakeUser));
+
+  const sampleOpsPayload = {
     rows: [{
       seq: 10,
       labor_rate_rial: 180000,
@@ -364,11 +370,38 @@ try {
       operation_name: 'دوخت',
     }],
   };
-  const stripped = stripCostFields(sample);
-  const json = JSON.stringify(stripped);
-  ok('sec R11 strip ops payload', !json.includes('_rial') && stripped.rows[0].operation_name === 'دوخت');
+  const filtered = applyCostPolicy(db, fakeUser, sampleOpsPayload);
+  const json = JSON.stringify(filtered);
+  ok(
+    'sec R11 applyCostPolicy حذف *_rial از عملیات',
+    !json.includes('_rial')
+      && filtered.rows[0].operation_name === 'دوخت'
+      && filtered.rows[0].seq === 10
+      && filtered.rows[0].labor_rate_rial === undefined
+      && filtered.rows[0].subcontract_fee_rial === undefined
+  );
+
+  // Same strip for single cost-bearing row shapes returned by POST/PUT ops/outputs
+  const filteredOpRow = applyCostPolicy(db, fakeUser, {
+    id: 1, seq: 10, operation_name: 'برش', labor_rate_rial: 90000, subcontract_fee_rial: 0,
+  });
+  ok(
+    'sec R11 applyCostPolicy حذف *_rial از ردیف عملیات (POST/PUT)',
+    filteredOpRow.operation_name === 'برش'
+      && filteredOpRow.labor_rate_rial === undefined
+      && filteredOpRow.subcontract_fee_rial === undefined
+  );
+  const filteredOutRow = applyCostPolicy(db, fakeUser, {
+    id: 2, product_id: 1, output_type: 'by', qty_per_base: 0.1, nrv_rial: 120000,
+  });
+  ok(
+    'sec R11 applyCostPolicy حذف *_rial از ردیف خروجی (POST/PUT)',
+    filteredOutRow.output_type === 'by'
+      && filteredOutRow.qty_per_base === 0.1
+      && filteredOutRow.nrv_rial === undefined
+  );
 } catch (e) {
-  ok('sec R11 strip ops payload', false, e.message);
+  ok('sec R11 applyCostPolicy حذف *_rial از عملیات', false, e.message);
 }
 
 cleanup();
