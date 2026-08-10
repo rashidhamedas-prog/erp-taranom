@@ -187,20 +187,24 @@ router.get('/:id/explode', auth, requirePermission('production_bom', 'view'), (r
     if (typeof sizeBreakdown === 'string') {
       try { sizeBreakdown = JSON.parse(sizeBreakdown); } catch { sizeBreakdown = null; }
     }
-    return bom.explodeBom(getDB(), {
+    const data = bom.explodeBom(getDB(), {
       bomId: Number(req.params.id),
       qty: Number(req.query.qty) || 1,
       sizeBreakdown,
       priceBasis: req.query.price_basis || 'average',
     });
+    return applyCostPolicy(getDB(), req.user, data);
   });
 });
 
 router.get('/:id/std-cost', auth, requirePermission('production_cost', 'view'), (req, res) => {
-  handle(res, () => bom.stdCost(getDB(), Number(req.params.id), {
-    qty: Number(req.query.qty) || 1,
-    priceBasis: req.query.price_basis || 'average',
-  }));
+  handle(res, () => {
+    const data = bom.stdCost(getDB(), Number(req.params.id), {
+      qty: Number(req.query.qty) || 1,
+      priceBasis: req.query.price_basis || 'average',
+    });
+    return applyCostPolicy(getDB(), req.user, data);
+  });
 });
 
 router.get('/:id/tree', auth, requirePermission('production_bom', 'view'), (req, res) => {
@@ -227,13 +231,13 @@ router.post('/:id/operations/from-template', auth, requirePermission('production
 });
 
 router.get('/:id/operations', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => ({
+  handle(res, () => applyCostPolicy(getDB(), req.user, {
     rows: getDB().prepare('SELECT * FROM bom_operations WHERE bom_id=? ORDER BY seq').all(Number(req.params.id)),
   }));
 });
 
 router.get('/:id/routing', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => ({
+  handle(res, () => applyCostPolicy(getDB(), req.user, {
     rows: getDB().prepare('SELECT * FROM bom_operations WHERE bom_id=? ORDER BY seq').all(Number(req.params.id)),
   }));
 });
@@ -260,7 +264,7 @@ router.post('/:id/operations/resequence', auth, requirePermission('production_bo
 });
 
 router.get('/:id/outputs', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => ({
+  handle(res, () => applyCostPolicy(getDB(), req.user, {
     rows: getDB().prepare('SELECT * FROM bom_outputs WHERE bom_id=?').all(Number(req.params.id)),
   }));
 });

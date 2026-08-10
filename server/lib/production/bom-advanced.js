@@ -444,6 +444,7 @@ function addOperation(db, bomId, body, userId) {
 }
 
 function resequenceOperations(db, bomId) {
+  assertDraftBom(db, bomId);
   const ops = db.prepare('SELECT id FROM bom_operations WHERE bom_id=? ORDER BY seq, id').all(bomId);
   let seq = 10;
   const upd = db.prepare('UPDATE bom_operations SET seq=? WHERE id=?');

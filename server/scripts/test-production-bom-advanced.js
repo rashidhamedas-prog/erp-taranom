@@ -348,5 +348,28 @@ try {
   ok('smoke compareScenarios', false, e.message);
 }
 
+// SEC follow-up: active BOM cannot resequence (E_BOM_LOCKED)
+throws('sec resequence on active → E_BOM_LOCKED', () => {
+  adv.resequenceOperations(db, draft.id);
+}, 'E_BOM_LOCKED');
+
+// SEC follow-up: R11 strip removes *_rial from operations-shaped payload
+try {
+  const { stripCostFields } = require('../lib/production/access');
+  const sample = {
+    rows: [{
+      seq: 10,
+      labor_rate_rial: 180000,
+      subcontract_fee_rial: 38000,
+      operation_name: 'دوخت',
+    }],
+  };
+  const stripped = stripCostFields(sample);
+  const json = JSON.stringify(stripped);
+  ok('sec R11 strip ops payload', !json.includes('_rial') && stripped.rows[0].operation_name === 'دوخت');
+} catch (e) {
+  ok('sec R11 strip ops payload', false, e.message);
+}
+
 cleanup();
 summary('P4 Advanced BOM');

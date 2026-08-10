@@ -1,4 +1,4 @@
-# ┘ä╪º┌» ╪¬╪║█î█î╪▒╪º╪¬ ╪º╪╣┘à╪º┘äΓÇî╪┤╪»┘ç ΓÇö ERP ╪¬╪▒┘å┘à
+﻿# ┘ä╪º┌» ╪¬╪║█î█î╪▒╪º╪¬ ╪º╪╣┘à╪º┘äΓÇî╪┤╪»┘ç ΓÇö ERP ╪¬╪▒┘å┘à
 
 ╪º█î┘å ┘ü╪º█î┘ä ╪¬╪º╪▒█î╪«┌å┘ç┘ö ╪¬╪║█î█î╪▒╪º╪¬█î ╪▒╪º ┌⌐┘ç ╪»╪▒ Cursor / Claude Code ╪º╪╣┘à╪º┘ä ╪┤╪»┘ç ┘å┌»┘ç ┘à█îΓÇî╪»╪º╪▒╪».
 **┘é╪¿┘ä ╪º╪▓ ╪┤╪▒┘ê╪╣ ┌⌐╪º╪▒ ╪¼╪»█î╪»╪î ╪º█î┘å ┘ü╪º█î┘ä ╪▒╪º ╪¿╪«┘ê╪º┘å█î╪»** ╪¬╪º ╪¿╪»╪º┘å█î╪» ┌å┘ç ┌å█î╪▓┘ç╪º█î█î ┘é╪¿┘ä╪º┘ï ╪º┘å╪¼╪º┘à ╪┤╪»┘ç ╪º╪│╪¬.
@@ -12,6 +12,21 @@
 1. █î┌⌐ ┘ê╪▒┘ê╪»█î ╪¼╪»█î╪» ╪»╪▒ **╪¿╪º┘ä╪º█î ╪¿╪«╪┤ ┬½╪¬╪º╪▒█î╪«┌å┘ç┬╗** (╪▓█î╪▒ ╪º█î┘å ┘é┘ê╪º┘å█î┘å) ╪º╪╢╪º┘ü┘ç ┌⌐┘å.
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
+
+### 2026-08-10 — PROD-P5 security follow-up (R11 + resequence lock)
+- **شاخه:** `ai/PROD-P5-advanced-bom`
+- **Commit:** (این commit)
+- **خلاصه:** رفع یافته‌های متوسط [Security Review]: `applyCostPolicy` روی GET operations/routing/outputs/explode/std-cost؛ `assertDraftBom` روی `resequenceOperations`؛ تست‌های sec → 34/34.
+- **فایل‌های کلیدی:** `server/routes/production-boms.js`, `server/lib/production/bom-advanced.js`, `server/scripts/test-production-bom-advanced.js`
+- **Deploy:** ⏳ pending push
+- **یادداشت:** Disposition امنیت: Approved with comments → remediated.
+### 2026-08-10 — PROD-P5 merge + Iran SFTP deploy
+- **شاخه:** `ai/PROD-P5-advanced-bom` → merge `4306168` به `claude/claude-md-docs-2ssrpy`
+- **Commit:** `4306168` (merge) · tip feature `9878f11`
+- **خلاصه:** تکمیل ماژول ۴ BOM پیشرفته: helpers (costTree/sensitivity/…)، مسیرهای API + R11 cost policy، اصلاح PATH ops/outputs، UI چهارتب، تست §18 → **32/32** (T4-13/15 با ±۱).
+- **فایل‌های کلیدی:** `server/lib/production/bom-advanced.js`, `server/routes/production-boms.js`, `server/sync/capture.js`, `server/sync/tables.js`, `server/public/app.js`, `server/scripts/test-production-bom-advanced.js`
+- **Deploy:** ✅ ایران SFTP هدفمند (بدون blind pull) — stamp `.sftp-deploy-stamp-prod-p5`؛ `root/health/ready=200` روی `/` و `/health` و `/ready`؛ pm2 online؛ بدون `--update-env`
+- **یادداشت:** گیت‌ها: advanced 32/32، overhead 38/38، variable 27/27، sms 22/22، sync 44/44 (retry)، diag mismatches=[]
 
 ### 2026-08-10 — PROD-P5 UI: تب‌های فرمول (اقلام / مسیر / خروجی / بها)
 - **شاخه:** `ai/PROD-P5-advanced-bom`
