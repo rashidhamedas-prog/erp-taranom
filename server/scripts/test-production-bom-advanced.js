@@ -400,6 +400,23 @@ try {
       && filteredOutRow.qty_per_base === 0.1
       && filteredOutRow.nrv_rial === undefined
   );
+
+  // Aggregate getBom-shaped payload (GET /:id embeds ops/outputs)
+  const getBomShape = {
+    id: draft.id,
+    status: 'active',
+    operations: [{ seq: 10, labor_rate_rial: 180000, operation_name: 'دوخت' }],
+    outputs: [{ output_type: 'by', nrv_rial: 5000 }],
+    lines: [{ component_product_id: 1, std_cost_rial: 999 }],
+  };
+  const filteredBom = applyCostPolicy(db, fakeUser, getBomShape);
+  const bomJson = JSON.stringify(filteredBom);
+  ok(
+    'sec R11 applyCostPolicy حذف *_rial از getBom',
+    !bomJson.includes('_rial')
+      && filteredBom.operations[0].operation_name === 'دوخت'
+      && filteredBom.outputs[0].output_type === 'by'
+  );
 } catch (e) {
   ok('sec R11 applyCostPolicy حذف *_rial از عملیات', false, e.message);
 }

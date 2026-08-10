@@ -13,9 +13,17 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-10 — PROD-P5 Independent Review remediation (10 items + getBom R11)
+- **شاخه:** `ai/PROD-P5-advanced-bom`
+- **Commit:** $h — پس از `6271a3f`؛ wrap `GET /:id` + `/tree` + `/compare`
+- **خلاصه:** رفع Changes requested بازبین مستقل: `applyCostPolicy` روی `getBom`/`bomTree`/`compare`؛ تست getBom-shape؛ گیت advanced **38/38**.
+- **فایل‌های کلیدی:** `server/routes/production-boms.js`, `server/scripts/test-production-bom-advanced.js`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⛔ blocked until independent re-review Approved
+- **یادداشت:** روی tip قبلی `6271a3f` (POST/PUT R11 + tip stamps).
+
 ### 2026-08-10 — PROD-P5 Independent Review remediation (10 items)
 - **شاخه:** `ai/PROD-P5-advanced-bom`
-- **Commit:** (این commit) — روی tip `45961c4` / زنجیره: `83003d7`→`9878f11`→`ac078a7`→`45961c4`→این
+- **Commit:** `6271a3f` — روی tip `45961c4` / زنجیره: `83003d7`→`9878f11`→`ac078a7`→`45961c4`→`6271a3f`
 - **خلاصه:** ۱۰ دستور اصلاحی Reviewer+Security: stamp کامل tip در CHANGE-LOG؛ تأیید R11 روی GET std-cost/ops/outputs/explode/routing؛ قفل resequence؛ wrap `applyCostPolicy` روی پاسخ POST/PUT ops/outputs + resequence؛ تست `applyCostPolicy` با `production_operator`؛ گیت‌ها سبز.
 - **فایل‌های کلیدی:** `server/routes/production-boms.js`, `server/scripts/test-production-bom-advanced.js`, `docs/CHANGE-LOG.md`, `.ai-dos/tasks/*`
 - **Deploy:** ⛔ blocked until independent re-review (بدون deploy جدید ایران)

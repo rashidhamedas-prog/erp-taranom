@@ -46,7 +46,8 @@ router.get('/resolve', auth, requirePermission('production_bom', 'view'), (req, 
 });
 
 router.get('/compare', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => bom.compareBoms(getDB(), Number(req.query.a), Number(req.query.b)));
+  handle(res, () => applyCostPolicy(getDB(), req.user,
+    bom.compareBoms(getDB(), Number(req.query.a), Number(req.query.b))));
 });
 
 // Must be registered before `/:id` — Express matches in order.
@@ -113,7 +114,7 @@ router.post('/validate', auth, requirePermission('production_bom', 'view'), (req
 });
 
 router.get('/:id', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => bom.getBom(getDB(), Number(req.params.id)));
+  handle(res, () => applyCostPolicy(getDB(), req.user, bom.getBom(getDB(), Number(req.params.id))));
 });
 
 router.put('/:id', auth, requirePermission('production_bom', 'edit'), (req, res) => {
@@ -208,7 +209,7 @@ router.get('/:id/std-cost', auth, requirePermission('production_cost', 'view'), 
 });
 
 router.get('/:id/tree', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => bom.bomTree(getDB(), Number(req.params.id)));
+  handle(res, () => applyCostPolicy(getDB(), req.user, bom.bomTree(getDB(), Number(req.params.id))));
 });
 
 router.get('/:id/history', auth, requirePermission('production_bom', 'view'), (req, res) => {

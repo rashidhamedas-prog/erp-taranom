@@ -2,10 +2,19 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-10T13:55:00+03:30 — close Independent Reviewer Medium (getBom R11)
+
+- Independent Reviewer on `6271a3f`: **Changes requested** — Medium bypass via `GET /:id` / `/tree` / `/compare`
+- Security on `6271a3f`: **Approved with comments** (same residual GET /:id)
+- Fix applied (pending commit): wrap `applyCostPolicy` on GET `/:id`, `/:id/tree`, `/compare` + regression getBom-shape
+- Raw: advanced **38/38 PASS**
+- Task remains **active** until re-review Approved; **no Iran deploy yet**
+
 ## 2026-08-10T13:35:00+03:30 — PROD-P5 remediation evidence (pre re-review)
 
 - **Task:** still `active` — NOT completed; **NO Iran deploy**
 - **Branch/worktree:** `ai/PROD-P5-advanced-bom` / `D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5`
+- **Remedia commit:** `6271a3f` (pushed to `origin/ai/PROD-P5-advanced-bom`)
 - **Base tip before remedia commit:** `45961c4`
 - **Diffstat (staged for remedia):**
   ```
