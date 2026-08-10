@@ -15,7 +15,7 @@
 
 ### 2026-08-10 — PROD-P5 UI: تب‌های فرمول (اقلام / مسیر / خروجی / بها)
 - **شاخه:** `ai/PROD-P5-advanced-bom`
-- **Commit:** (پس از commit)
+- **Commit:** `83003d7`
 - **خلاصه:** ویرایشگر BOM با چهار تب Module-4: اقلام، مسیر عملیات («از الگوی ترنم» + resequence)، خروجی‌های main/co/by، بهای تمام‌شده (`full-cost?qty` پیش‌فرض ۳۰۰، بدون JE). تب بها با `canPerm('production_cost','view')` / `__canSeeCost` مخفی می‌شود. Help: V4-21 (بازده سرفصل=۱۰۰ با routing)، full-cost بدون سند، co/by.
 - **فایل‌های کلیدی:** `server/public/app.js`, `docs/CHANGE-LOG.md`
 - **Deploy:** ⏳ pending merge
