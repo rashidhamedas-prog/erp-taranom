@@ -2,74 +2,17 @@ schema_version: 1
 tasks:
   - id: "PROD-P5"
     title: "Production Module P5 — advanced BOM + routing + co/by-products (Module 4)"
-    status: "active"
+    status: "completed"
     risk: "high"
     owner: "cursor:orchestrator"
-    roles:
-      orchestrator: "cursor:orchestrator"
-      architect: "cursor:architect"
-      implementer: "cursor:implementer"
-      reviewer: "cursor:reviewer"
-      security: "cursor:security"
     branch: "ai/PROD-P5-advanced-bom"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5"
     claimed_at: "2026-08-09T17:05:00+03:30"
-    base_branch: "claude/claude-md-docs-2ssrpy"
-    acceptance_criteria:
-      - "Reproduce docs/Production/04-advanced-formulas.md §6.6 stage table and §6.8 cost breakdown exactly"
-      - "GET /boms/:id/full-cost?qty=300 matches §15 sample shape/amounts"
-      - "cost-tree on 5-level tree completes in ≤5s"
-      - "Module 4 emits zero journal entries / ledger posts"
-      - "Critical tests green: T4-05 yield≈95.5647, T4-06 qty_start=314, T4-13 cost_out[60]=698324500±1, T4-15 unit_cost=2315880, T4-21 circular, T4-29 V4-21"
-      - "test-production-bom-advanced.js covers §18 suite (target 28); prior P3/P4 suites remain green"
-      - "Routing UI tabs (items/operations/outputs/cost) + Help + CHANGE-LOG updated"
-      - "AI-DOS gates: git diff --check, node --check server/server.js, check-audit-waivers, independent reviewer+security"
-    scope:
-      in:
-        - "Gap-close Module 4: bom_operations/bom_outputs, roll-up, validations V4-01..V4-21"
-        - "Missing helpers/APIs: costTree, yieldAnalysis, sensitivity, breakeven, compareScenarios, autoShare (+ routes)"
-        - "Full routing UI deferred from P4"
-        - "Expand/fix test-production-bom-advanced.js golden cases"
-        - "Help (ROUTES.help) + docs/CHANGE-LOG.md"
-      out:
-        - "P6/P6b advanced execution engines (Modules 7–8 posting)"
-        - "P7 MRP/estimation, P8 period close, P9 reports pack, P10 full RBAC redesign"
-        - "Wave 1 ai/W1-* branches/worktrees"
-        - "Wave 2 exit ops (paid pilots / support SLA)"
-        - "Ledger posting from Module 4"
-        - "Full Android/Desktop platform builds"
-        - "Rewriting P4 overhead/labor rate engine except consume-only fixes"
-    file_claims:
-      - path: "server/lib/production/bom-advanced.js"
-        reason: "core roll-up / routing / missing helpers"
-      - path: "server/routes/production-boms.js"
-        reason: "operations/outputs/cost API gap-close"
-      - path: "server/scripts/test-production-bom-advanced.js"
-        reason: "§18 golden + regression gate"
-      - path: "server/public/app.js"
-        reason: "BOM editor tabs: items/routing/outputs/cost"
-      - path: "server/public/index.html"
-        reason: "in-app Help + any bundled UI strings"
-      - path: "server/db.js"
-        reason: "schema ensureColumn gaps only if Module 4 tables/cols missing"
-      - path: "server/server.js"
-        reason: "route mount wiring only if incomplete"
-      - path: "server/sync/tables.js"
-        reason: "append-only only if new syncable tables appear (unlikely)"
-      - path: "server/sync/capture.js"
-        reason: "PATH_TABLE_MAP only if new mutating prefixes"
-      - path: "docs/CHANGE-LOG.md"
-        reason: "session changelog entry"
-      - path: ".ai-dos/tasks/active.yaml"
-        reason: "task registry ownership"
-      - path: ".ai-dos/tasks/handoff.md"
-        reason: "preflight + progress handoff"
-      - path: ".ai-dos/project/status.md"
-        reason: "project status pointer"
-    notes: >
-      Gap-close task (not greenfield). P4 delivered rates; UI routing explicitly deferred to P5.
-      Do not implement in dirty primary erp-taranom1. Independent reviewer/security required (high risk).
-      Prefer consume overhead.js/labor.js; claim those only via handoff if a blocking P4 bug appears.
+    completed_at: "2026-08-10T11:20:00+03:30"
+    file_claims: []
+    notes: >-
+      32/32 advanced PASS; merged 4306168 to primary; Iran SFTP ✅ root/health/ready 200;
+      sync 44/44; mismatches=[]. Claims released.
 
   - id: "PROD-P4"
     title: "Production Module P4 — overhead + labor + cost centers"
@@ -78,10 +21,8 @@ tasks:
     owner: "cursor:orchestrator"
     branch: "ai/PROD-P4-overhead-labor"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p4"
-    claimed_at: "2026-08-09T05:02:00+03:30"
-    completed_at: "2026-08-09T14:05:00+03:30"
     file_claims: []
-    notes: "38/38 PASS. Merged to primary; claims released. Iran deploy via SSH taranom@94.249.244.208."
+    notes: "38/38 PASS. Merged; claims released."
 
   - id: "PROD-P3"
     title: "Complete Production Module P3 — variable analysis + ADR-011"
@@ -90,10 +31,8 @@ tasks:
     owner: "cursor:implementer"
     branch: "ai/PROD-P3-variable-analysis"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3"
-    claimed_at: "2026-08-09T04:43:00+03:30"
-    completed_at: "2026-08-09T13:20:00+03:30"
     file_claims: []
-    notes: "27/27 PASS. Merged with primary; claims released."
+    notes: "27/27 PASS. Merged; claims released."
 
   - id: "W2-ORCH"
     title: "Wave 2 orchestration — آماده فروش کنترل‌شده"
@@ -103,4 +42,4 @@ tasks:
     branch: "ai/W2-ORCH-wave2"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w2-orch"
     file_claims: []
-    notes: "MVP integration complete. Claims released. Iran deploy b4b653b."
+    notes: "MVP integration complete. Claims released."

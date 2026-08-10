@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-10 — PROD-P5 merge + Iran SFTP deploy
+- **شاخه:** `ai/PROD-P5-advanced-bom` → merge `4306168` به `claude/claude-md-docs-2ssrpy`
+- **Commit:** `4306168` (merge) · tip feature `9878f11`
+- **خلاصه:** تکمیل ماژول ۴ BOM پیشرفته: helpers (costTree/sensitivity/…)، مسیرهای API + R11 cost policy، اصلاح PATH ops/outputs، UI چهارتب، تست §18 → **32/32** (T4-13/15 با ±۱).
+- **فایل‌های کلیدی:** `server/lib/production/bom-advanced.js`, `server/routes/production-boms.js`, `server/sync/capture.js`, `server/sync/tables.js`, `server/public/app.js`, `server/scripts/test-production-bom-advanced.js`
+- **Deploy:** ✅ ایران SFTP هدفمند (بدون blind pull) — stamp `.sftp-deploy-stamp-prod-p5`؛ `root/health/ready=200` روی `/` و `/health` و `/ready`؛ pm2 online؛ بدون `--update-env`
+- **یادداشت:** گیت‌ها: advanced 32/32، overhead 38/38، variable 27/27، sms 22/22، sync 44/44 (retry)، diag mismatches=[]
+
 ### 2026-08-10 — PROD-P5 UI: تب‌های فرمول (اقلام / مسیر / خروجی / بها)
 - **شاخه:** `ai/PROD-P5-advanced-bom`
 - **Commit:** `83003d7`

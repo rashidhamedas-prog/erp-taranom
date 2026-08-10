@@ -2,6 +2,14 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-10T11:20:00+03:30 — PROD-P5 complete: merge + Iran SFTP
+
+- **Task:** `PROD-P5` completed; claims released
+- **Merge:** `4306168` on primary; feature tip `9878f11`
+- **Tests:** advanced 32/32; OH 38/38; var 27/27; sms 22/22; sync 44/44; diag mismatches=[]
+- **Deploy:** Iran SFTP stamp `.sftp-deploy-stamp-prod-p5`; root/health/ready 200; pm2 online
+- **Next:** owner selects P6; avoid ai/W1-*
+
 ## 2026-08-09T17:05:00+03:30 — PROD-P5 preflight claimed (no app code yet)
 
 - **Task / owner:** `PROD-P5` / `cursor:orchestrator` (roles: architect/implementer/reviewer/security recorded in `active.yaml`)
