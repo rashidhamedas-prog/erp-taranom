@@ -2,6 +2,13 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-10T14:20:00+03:30 — Independent + Security re-review Approved → apply
+
+- Tip code: `5fb2276` (+ docs stamp `5ae889c`)
+- Independent Reviewer: **Approved with comments** (getBom Medium closed; 38/38)
+- Security: **Approved** for R11/operator cost-leak scope (no open High/Medium on production-boms.js)
+- Next: merge to `claude/claude-md-docs-2ssrpy` + precise Iran apply; then mark PROD-P5 completed / release claims
+
 ## 2026-08-10T13:55:00+03:30 — close Independent Reviewer Medium (getBom R11)
 
 - Independent Reviewer on `6271a3f`: **Changes requested** — Medium bypass via `GET /:id` / `/tree` / `/compare`
