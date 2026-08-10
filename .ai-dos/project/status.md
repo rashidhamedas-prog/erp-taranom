@@ -1,9 +1,9 @@
 # Project Status
 
-- Last verified: 2026-08-10 (~11:20 +03:30)
-- Primary branch: `claude/claude-md-docs-2ssrpy` @ `4306168` (PROD-P5 merge)
-- Wave 0: complete (sharp production waiver `0.33.5`)
-- **PROD-P5** completed: advanced BOM Module 4 (routing/co-by/full-cost). Tests 32/32. Iran SFTP ✅.
+- Last verified: 2026-08-10 (~14:30 +03:30)
+- Primary branch: `claude/claude-md-docs-2ssrpy` (merge worktree `ai/PROD-P5-merge-primary` based on `11c5e85`)
+- **PROD-P5 completed** after Independent Review remediation merge: tip `5fb2276` / docs `5ae889c` / ai-dos `d571af9` re-reviewed **Approved**; applying via this merge (`getBom`/`tree`/`compare` + mutate R11).
+- Prior P5: Module 4 advanced BOM; security follow-up Iran SFTP ✅ (`c22c0fb` / docs `11c5e85`).
 - **PROD-P3/P4** completed earlier.
 - Wave 2 MVP merged; exit gate (pilots/SLA) still open.
 - Wave 1 / P1: other agents (`ai/W1-*`) — do not modify from unrelated owners.
@@ -18,3 +18,5 @@
 - `node server/scripts/test-production-variable.js`
 - `node server/scripts/test-sms.js`
 - `node server/scripts/test-sync.js`
+- `node server/scripts/_diag-sync-gaps-b16e78.js`
+- `node --check server/server.js`

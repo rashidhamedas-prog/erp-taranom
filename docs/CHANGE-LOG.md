@@ -13,20 +13,38 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-10 — PROD-P5 Independent Review remediation (10 items + getBom R11)
+- **شاخه:** `ai/PROD-P5-advanced-bom`
+- **Commit:** `5fb2276` — پس از `6271a3f`؛ wrap `GET /:id` + `/tree` + `/compare`
+- **خلاصه:** رفع Changes requested بازبین مستقل: `applyCostPolicy` روی `getBom`/`bomTree`/`compare`؛ تست getBom-shape؛ گیت advanced **38/38**.
+- **فایل‌های کلیدی:** `server/routes/production-boms.js`, `server/scripts/test-production-bom-advanced.js`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⛔ blocked until independent re-review Approved
+- **یادداشت:** روی tip قبلی `6271a3f` (POST/PUT R11 + tip stamps).
+
+### 2026-08-10 — PROD-P5 Independent Review remediation (10 items)
+- **شاخه:** `ai/PROD-P5-advanced-bom`
+- **Commit:** `6271a3f` — روی tip `45961c4` / زنجیره: `83003d7`→`9878f11`→`ac078a7`→`45961c4`→`6271a3f`
+- **خلاصه:** ۱۰ دستور اصلاحی Reviewer+Security: stamp کامل tip در CHANGE-LOG؛ تأیید R11 روی GET std-cost/ops/outputs/explode/routing؛ قفل resequence؛ wrap `applyCostPolicy` روی پاسخ POST/PUT ops/outputs + resequence؛ تست `applyCostPolicy` با `production_operator`؛ گیت‌ها سبز.
+- **فایل‌های کلیدی:** `server/routes/production-boms.js`, `server/scripts/test-production-bom-advanced.js`, `docs/CHANGE-LOG.md`, `.ai-dos/tasks/*`
+- **Deploy:** ⛔ blocked until independent re-review (بدون deploy جدید ایران)
+- **یادداشت:** advanced **37/37** · OH 38/38 · var 27/27 · sms 22/22 · sync 44/44 · diag mismatches=[] · merge امنیت primary `c22c0fb`.
+
 ### 2026-08-10 — PROD-P5 security follow-up (R11 + resequence lock)
+
 - **شاخه:** `ai/PROD-P5-advanced-bom` → merge به primary
 - **Commit:** `ac078a7` / tip `45961c4`
 - **خلاصه:** رفع یافته‌های متوسط Security Review: `applyCostPolicy` روی GET operations/routing/outputs/explode/std-cost؛ قفل `resequenceOperations` روی BOM فعال؛ تست‌ها 34/34.
 - **فایل‌های کلیدی:** `server/routes/production-boms.js`, `server/lib/production/bom-advanced.js`, `server/scripts/test-production-bom-advanced.js`
 - **Deploy:** ✅ Iran SFTP `c22c0fb` — root/health/ready 200; stamp `.sftp-deploy-stamp-prod-p5-sec`
 - **یادداشت:** [Security Review] Approved with comments → remediated.
+
 ### 2026-08-10 — PROD-P5 merge + Iran SFTP deploy
 - **شاخه:** `ai/PROD-P5-advanced-bom` → merge `4306168` به `claude/claude-md-docs-2ssrpy`
-- **Commit:** `4306168` (merge) · tip feature `9878f11`
+- **Commit:** `4306168` (merge اولیه ایران) · tip feature پس از امنیت: `ac078a7`+ (نه فقط `83003d7`/`9878f11`) · merge امنیت `c22c0fb`
 - **خلاصه:** تکمیل ماژول ۴ BOM پیشرفته: helpers (costTree/sensitivity/…)، مسیرهای API + R11 cost policy، اصلاح PATH ops/outputs، UI چهارتب، تست §18 → **32/32** (T4-13/15 با ±۱).
 - **فایل‌های کلیدی:** `server/lib/production/bom-advanced.js`, `server/routes/production-boms.js`, `server/sync/capture.js`, `server/sync/tables.js`, `server/public/app.js`, `server/scripts/test-production-bom-advanced.js`
 - **Deploy:** ✅ ایران SFTP هدفمند (بدون blind pull) — stamp `.sftp-deploy-stamp-prod-p5`؛ `root/health/ready=200` روی `/` و `/health` و `/ready`؛ pm2 online؛ بدون `--update-env`
-- **یادداشت:** گیت‌ها: advanced 32/32، overhead 38/38، variable 27/27، sms 22/22، sync 44/44 (retry)، diag mismatches=[]
+- **یادداشت:** گیت‌ها: advanced 32/32، overhead 38/38، variable 27/27، sms 22/22، sync 44/44 (retry)، diag mismatches=[]؛ پس از این merge، security follow-up `ac078a7` / `c22c0fb` tip را جلو برد — stamp کامل در ورودی remediation بالا.
 
 ### 2026-08-10 — PROD-P5 UI: تب‌های فرمول (اقلام / مسیر / خروجی / بها)
 - **شاخه:** `ai/PROD-P5-advanced-bom`

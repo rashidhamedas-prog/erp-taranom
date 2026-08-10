@@ -46,7 +46,8 @@ router.get('/resolve', auth, requirePermission('production_bom', 'view'), (req, 
 });
 
 router.get('/compare', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => bom.compareBoms(getDB(), Number(req.query.a), Number(req.query.b)));
+  handle(res, () => applyCostPolicy(getDB(), req.user,
+    bom.compareBoms(getDB(), Number(req.query.a), Number(req.query.b))));
 });
 
 // Must be registered before `/:id` — Express matches in order.
@@ -113,7 +114,7 @@ router.post('/validate', auth, requirePermission('production_bom', 'view'), (req
 });
 
 router.get('/:id', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => bom.getBom(getDB(), Number(req.params.id)));
+  handle(res, () => applyCostPolicy(getDB(), req.user, bom.getBom(getDB(), Number(req.params.id))));
 });
 
 router.put('/:id', auth, requirePermission('production_bom', 'edit'), (req, res) => {
@@ -208,7 +209,7 @@ router.get('/:id/std-cost', auth, requirePermission('production_cost', 'view'), 
 });
 
 router.get('/:id/tree', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => bom.bomTree(getDB(), Number(req.params.id)));
+  handle(res, () => applyCostPolicy(getDB(), req.user, bom.bomTree(getDB(), Number(req.params.id))));
 });
 
 router.get('/:id/history', auth, requirePermission('production_bom', 'view'), (req, res) => {
@@ -245,14 +246,15 @@ router.get('/:id/routing', auth, requirePermission('production_bom', 'view'), (r
 router.post('/:id/operations', auth, requirePermission('production_bom', 'edit'), (req, res) => {
   try {
     const row = adv.addOperation(getDB(), Number(req.params.id), req.body || {}, req.user.id);
-    res.status(201).json(row);
+    res.status(201).json(applyCostPolicy(getDB(), req.user, row));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
   }
 });
 
 router.put('/:id/operations/:opId', auth, requirePermission('production_bom', 'edit'), (req, res) => {
-  handle(res, () => adv.updateOperation(getDB(), Number(req.params.id), Number(req.params.opId), req.body || {}));
+  handle(res, () => applyCostPolicy(getDB(), req.user,
+    adv.updateOperation(getDB(), Number(req.params.id), Number(req.params.opId), req.body || {})));
 });
 
 router.delete('/:id/operations/:opId', auth, requirePermission('production_bom', 'edit'), (req, res) => {
@@ -260,7 +262,9 @@ router.delete('/:id/operations/:opId', auth, requirePermission('production_bom',
 });
 
 router.post('/:id/operations/resequence', auth, requirePermission('production_bom', 'edit'), (req, res) => {
-  handle(res, () => ({ rows: adv.resequenceOperations(getDB(), Number(req.params.id)) }));
+  handle(res, () => applyCostPolicy(getDB(), req.user, {
+    rows: adv.resequenceOperations(getDB(), Number(req.params.id)),
+  }));
 });
 
 router.get('/:id/outputs', auth, requirePermission('production_bom', 'view'), (req, res) => {
@@ -272,14 +276,15 @@ router.get('/:id/outputs', auth, requirePermission('production_bom', 'view'), (r
 router.post('/:id/outputs', auth, requirePermission('production_bom', 'edit'), (req, res) => {
   try {
     const row = adv.addOutput(getDB(), Number(req.params.id), req.body || {});
-    res.status(201).json(row);
+    res.status(201).json(applyCostPolicy(getDB(), req.user, row));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
   }
 });
 
 router.put('/:id/outputs/:outId', auth, requirePermission('production_bom', 'edit'), (req, res) => {
-  handle(res, () => adv.updateOutput(getDB(), Number(req.params.id), Number(req.params.outId), req.body || {}));
+  handle(res, () => applyCostPolicy(getDB(), req.user,
+    adv.updateOutput(getDB(), Number(req.params.id), Number(req.params.outId), req.body || {})));
 });
 
 router.delete('/:id/outputs/:outId', auth, requirePermission('production_bom', 'edit'), (req, res) => {

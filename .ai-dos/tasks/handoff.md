@@ -2,6 +2,61 @@
 
 Newest entries are added at the top. Never erase another agent's record.
 
+## 2026-08-10T14:20:00+03:30 — Independent + Security re-review Approved → apply
+
+- Tip code: `5fb2276` (+ docs stamp `5ae889c`)
+- Independent Reviewer: **Approved with comments** (getBom Medium closed; 38/38)
+- Security: **Approved** for R11/operator cost-leak scope (no open High/Medium on production-boms.js)
+- Next: merge to `claude/claude-md-docs-2ssrpy` + precise Iran apply; then mark PROD-P5 completed / release claims
+
+## 2026-08-10T13:55:00+03:30 — close Independent Reviewer Medium (getBom R11)
+
+- Independent Reviewer on `6271a3f`: **Changes requested** — Medium bypass via `GET /:id` / `/tree` / `/compare`
+- Security on `6271a3f`: **Approved with comments** (same residual GET /:id)
+- Fix applied (pending commit): wrap `applyCostPolicy` on GET `/:id`, `/:id/tree`, `/compare` + regression getBom-shape
+- Raw: advanced **38/38 PASS**
+- Task remains **active** until re-review Approved; **no Iran deploy yet**
+
+## 2026-08-10T13:35:00+03:30 — PROD-P5 remediation evidence (pre re-review)
+
+- **Task:** still `active` — NOT completed; **NO Iran deploy**
+- **Branch/worktree:** `ai/PROD-P5-advanced-bom` / `D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5`
+- **Remedia commit:** `6271a3f` (pushed to `origin/ai/PROD-P5-advanced-bom`)
+- **Base tip before remedia commit:** `45961c4`
+- **Diffstat (staged for remedia):**
+  ```
+  .ai-dos/project/status.md                      |  30 +++----
+  .ai-dos/tasks/active.yaml                      | 112 +++++++++++++------------
+  .ai-dos/tasks/handoff.md                       |  18 ++++
+  docs/CHANGE-LOG.md                             |  19 +++--
+  server/routes/production-boms.js               |  14 ++--
+  server/scripts/test-production-bom-advanced.js |  47 +++++++++--
+  6 files changed, 150 insertions(+), 90 deletions(-)
+  ```
+- **10 items status:**
+  1. CHANGE-LOG full tip — DONE (this remedia entry)
+  2–5. GET std-cost/ops/outputs/explode/routing `applyCostPolicy` — VERIFIED (tip `ac078a7`)
+  6–7. resequence `assertDraftBom` + test `E_BOM_LOCKED` — VERIFIED
+  8. `applyCostPolicy` + `production_operator` + POST/PUT row shapes — DONE (37/37)
+  9. diag `mismatches=[]` — PASS
+  10. full gates PASS; independent re-review PENDING
+- **Extra Medium closed:** POST/PUT ops/outputs + resequence responses wrapped with `applyCostPolicy`
+- **Raw gates:**
+  - advanced: `P4 Advanced BOM: ✅ 37 پاس`
+  - overhead: `P4 Overhead + Labor: ✅ 38 پاس`
+  - variable: `P3 Variable: ✅ 27 پاس`
+  - sms: `🎉 22 passed, 0 failed`
+  - sync: `🎉 44 passed, 0 failed` (retry without `SYNC_ROLE=device`)
+  - diag: `{"mismatches":[],"registryMissing":[],"hasOldDebug":false,"count":147}`
+  - audit waivers: `Dependency gate OK`
+- **Next:** commit+push remedia → Independent Reviewer + Security re-review → only if Approved: merge/apply to program (still no premature completed)
+
+## 2026-08-10T12:55:00+03:30 — PROD-P5 REACTIVATED for Independent Review remediation
+
+- **Task:** `PROD-P5` status=`active` again; file_claims restored; owner `cursor:orchestrator`
+- **Constraint:** NO `completed` and NO Iran deploy until High/Medium closed + full tests + independent re-review
+- **10 corrective items listed in active.yaml `corrective_items`**
+
 ## 2026-08-10T11:45:00+03:30 — PROD-P5 security remediation (post-review)
 
 - **Security:** [Security Review](be434b0a-32ae-4e19-8f58-dbb653ddc5d1) → **Approved with comments**; remediated medium findings in `ac078a7`
