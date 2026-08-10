@@ -94,6 +94,8 @@ const PATH_TABLE_MAP = [
   ['/api/fixed-assets', 'fixed_assets'],
   // Production — longer prefixes BEFORE /api/production (legacy production_runs)
   ['/api/production/cost-centers/rates', 'cost_center_rates'],
+  // BOM ops/outputs: /api/production/boms/:id/{operations|outputs} — id mid-path;
+  // cannot encode with startsWith prefixes; see tableForPath custom branch (PROD-P5).
   ['/api/production/boms', 'bom_headers'],
   ['/api/production/orders', 'production_orders'],
   ['/api/production/execution', 'production_orders'],
@@ -142,6 +144,10 @@ function tableForPath(path) {
   if (path.startsWith('/api/reps/') && path.includes('/expenses')) return 'rep_expenses';
   if (path.startsWith('/api/reps/') && path.includes('/advances')) return 'rep_advances';
   if (path === '/api/reps/transfer-customer') return 'customers';
+  // PROD-P5: BOM child resources have :id between boms/ and ops|outputs —
+  // PATH_TABLE_MAP prefixes cannot distinguish them from bom_headers.
+  if (path.startsWith('/api/production/boms/') && path.includes('/operations')) return 'bom_operations';
+  if (path.startsWith('/api/production/boms/') && path.includes('/outputs')) return 'bom_outputs';
   for (const [prefix, tbl] of PATH_TABLE_MAP) {
     if (path === prefix || path.startsWith(prefix + '/')) return tbl;
   }

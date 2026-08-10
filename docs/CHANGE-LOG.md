@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-10 — PROD-P5 UI: تب‌های فرمول (اقلام / مسیر / خروجی / بها)
+- **شاخه:** `ai/PROD-P5-advanced-bom`
+- **Commit:** `83003d7`
+- **خلاصه:** ویرایشگر BOM با چهار تب Module-4: اقلام، مسیر عملیات («از الگوی ترنم» + resequence)، خروجی‌های main/co/by، بهای تمام‌شده (`full-cost?qty` پیش‌فرض ۳۰۰، بدون JE). تب بها با `canPerm('production_cost','view')` / `__canSeeCost` مخفی می‌شود. Help: V4-21 (بازده سرفصل=۱۰۰ با routing)، full-cost بدون سند، co/by.
+- **فایل‌های کلیدی:** `server/public/app.js`, `docs/CHANGE-LOG.md`
+- **Deploy:** ⏳ pending merge
+- **یادداشت:** فقط UI؛ موتور/API پیشرفته در همان شاخه؛ بدون بیلد APK/دسکتاپ.
+
 ### 2026-08-09 — Deploy ایران Wave1 merge via SFTP
 - **شاخه:** `claude/claude-md-docs-2ssrpy` / `ai/W1-merge-primary-deploy`
 - **Commit کد:** `f67a9fc`
