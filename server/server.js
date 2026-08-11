@@ -167,15 +167,16 @@ app.use(express.static(path.join(__dirname, 'public'), {
     if (filePath.endsWith('assetlinks.json')) {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-cache');
-    } else if (/(?:^|[\\/])(?:acc-nav|tbl-enhance|prod-ui|portal-ui|i18n|marketer-ui)\.js$/i.test(filePath)) {
-      // Versioned UI shells must not stick on stale 24h browser/CDN cache
+    } else if (/(?:^|[\\/])(?:app|acc-nav|tbl-enhance|prod-ui|portal-ui|i18n|marketer-ui|mdi|boot|csp-runtime|barcode-input)\.js$/i.test(filePath)
+      || /(?:^|[\\/])(?:app|prod-ui)\.css$/i.test(filePath)) {
+      // App shells + CSS must not stick on stale browser/CDN cache (query ?v= alone is not enough behind some proxies)
       res.setHeader('Cache-Control', 'no-store, must-revalidate');
     } else if (/\.(js|css)$/i.test(filePath) && !filePath.endsWith('sw.js')) {
       res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     } else if (/\.(woff2?|png|svg|ico)$/i.test(filePath)) {
       res.setHeader('Cache-Control', 'public, max-age=86400');
     } else if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
-      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Cache-Control', 'no-store, must-revalidate');
     }
   }
 }));
