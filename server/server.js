@@ -281,6 +281,7 @@ app.use('/api/rbac', require('./routes/rbac'));
 app.use('/api/b2b', require('./routes/b2b'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/followups', require('./routes/followups'));
+app.use('/api/crm', require('./routes/crm'));
 app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/product-variants', require('./routes/product-variants'));

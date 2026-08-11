@@ -6,8 +6,10 @@ const { auth, adminOnly } = require('../middleware/auth');
 const { todayJalali, nowHHMM } = require('../jalali');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
 function getScope(req) {
-  if (req.user.role === 'admin' && req.query.user_id) return parseInt(req.query.user_id);
-  if (req.user.role === 'admin') return null;
+  // هم‌راستا با crmScopeUserId — مدیر فروش هم دید کامل CRM دارد
+  const full = req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager';
+  if (full && req.query.user_id) return parseInt(req.query.user_id);
+  if (full) return null;
   return req.user.id;
 }
 

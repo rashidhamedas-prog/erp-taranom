@@ -11,6 +11,11 @@ const { reverseCommissionAccrual } = require('../lib/rep-ledger');
 const { voidInvoiceFully } = require('../lib/void-invoice');
 const { sendSecureHtml } = require('../lib/secure-html-response');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
+const {
+  normalizeInvoiceType, isFirmSale, invoiceTypeLabel,
+  assertJournalIdempotent, assertWarehouseLines,
+  postSaleStockMovements, postCogsFromMovements, perpetualDocsEnabled,
+} = require('../lib/sales-document');
 
 // دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
 function receivableAcct(db, custId) {
@@ -312,7 +317,7 @@ router.get('/', auth, (req, res) => {
     i.seller_name,i.mahak_doc_no,i.mahak_doc_type,i.mahak_invoice_code,i.atf_no,i.visitor,i.freight_amount,
     i.settled_amount,i.balance_due,i.settlement_status,i.delivered,i.freight_alloc_method`;
   const typeFilter = String(req.query.type || '').trim();
-  const typeSql = (typeFilter === 'proforma' || typeFilter === 'final') ? ' AND i.type=?' : '';
+  const typeSql = (typeFilter === 'proforma' || typeFilter === 'final' || typeFilter === 'normal') ? ' AND i.type=?' : '';
   const typeArgs = typeSql ? [typeFilter] : [];
   const baseWhere = scope === null
     ? `WHERE COALESCE(i.deleted_at,0)=0${typeSql}`
@@ -343,7 +348,7 @@ router.get('/export/excel', auth, adminOnly, async (req, res) => {
   const data = rows.map(r => ({
     'شماره': r.num || '',
     'مشتری': r.cust_biz || '',
-    'نوع': r.type === 'final' ? 'فاکتور رسمی' : 'پیش‌فاکتور',
+    'نوع': invoiceTypeLabel(r.type),
     'تاریخ': r.date || '',
     'مبلغ کل (ت)': r.subtotal || 0,
     'تخفیف (٪)': r.disc || 0,
@@ -425,7 +430,14 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   const journalOpts = { payType: pType, bankId: bank_id || null, cashBoxId: cash_box_id || null, rows: built.rows };
 
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
-  const invType = type || 'proforma';
+  let invType;
+  try { invType = normalizeInvoiceType(type || 'proforma'); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+
+  if (isFirmSale(invType)) {
+    try { assertWarehouseLines(db, built.rows, whId, { requirePositive: true }); }
+    catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+  }
 
   let created;
   try {
@@ -433,14 +445,6 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       const num = isDevice()
         ? ('موقت-' + Date.now().toString(36).toUpperCase())
         : allocateNumber(db, 'invoice', prefixRow?.value || 'T');
-
-      let stockDeducted = 0;
-      const stockMeta = {};
-      if (invType === 'final') {
-        const stockErr = deductStock(db, built.rows, whId, req.user.id, stockMeta);
-        if (stockErr) throw new Error(stockErr);
-        stockDeducted = 1;
-      }
 
       const result = db.prepare(
         `INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,subtotal_rial,final_rial,vat_amount_rial,
@@ -452,30 +456,52 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             Math.round(subtotal), Math.round(final), Math.round(vatAmount),
             seller ? seller.name : '', seller ? (seller.phone || '') : '',
             pType, cheque_duration || '', cheque_due_date || '', cheque_info || '',
-            stockDeducted, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '',
+            0, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '',
             bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
             allocMethod, vat_exempt ? 1 : 0, ccId,
             parseInt(moadian_invoice_type, 10) || 1);
       const invId = result.lastInsertRowid;
+      const stockMeta = {};
+      let saleCogsRial = 0;
 
-      if (invType === 'final') {
+      if (isFirmSale(invType)) {
+        if (perpetualDocsEnabled(db)) {
+          const stocked = postSaleStockMovements(db, {
+            rows: built.rows, warehouseId: whId, sourceType: 'invoice', sourceId: invId,
+            userId: req.user.id, date: entryDate, note: `فروش ${invoiceTypeLabel(invType)} ${num}`,
+          });
+          saleCogsRial = stocked.cogsRial;
+          stockMeta.usedWarehouses = stocked.usedWarehouses;
+        } else {
+          const stockErr = deductStock(db, built.rows, whId, req.user.id, stockMeta);
+          if (stockErr) throw new Error(stockErr);
+        }
+        db.prepare('UPDATE invoices SET stock_deducted=1 WHERE id=?').run(invId);
+
         db.prepare("UPDATE customers SET status='active' WHERE id=?").run(cust_id);
         if (pType === 'credit') {
           createLedgerEntry(db, {
             customer_id: cust_id, date: entryDate, entry_type: 'invoice',
             ref_type: 'invoice', ref_id: invId,
-            description: `فاکتور رسمی ${num}`,
+            description: `${invoiceTypeLabel(invType)} ${num}`,
             debit: final, credit: 0, user_id: req.user.id
           });
         }
+        assertJournalIdempotent(db, 'invoice', invId);
         postToLedger(db, {
           sourceType: 'invoice', sourceId: invId, date: entryDate,
-          description: `فاکتور رسمی ${num}${freightRial ? ' (با کرایه حمل)' : ''}`, createdBy: req.user.id,
+          description: `${invoiceTypeLabel(invType)} ${num}${freightRial ? ' (با کرایه حمل)' : ''}`, createdBy: req.user.id,
           lines: salesJournalLines(db, cust_id, { subtotal, discAmt, final, vatAmount, netBeforeVat }, false, journalOpts),
           costCenterId: ccId,
         });
-        postCogsVoucher(db, invId, num, entryDate, built.rows, req.user.id, false);
-        enqueueMoadian(db, 'sales', invId);
+        if (perpetualDocsEnabled(db) && saleCogsRial > 0) {
+          postCogsFromMovements(db, {
+            invId, num, date: entryDate, userId: req.user.id, cogsRial: saleCogsRial,
+          });
+        } else {
+          postCogsVoucher(db, invId, num, entryDate, built.rows, req.user.id, false);
+        }
+        if (invType === 'final') enqueueMoadian(db, 'sales', invId);
       }
 
       // Auto-create a 7-day quality follow-up — only if the customer has
@@ -530,11 +556,11 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info, sales_channel, lead_source, campaign,
     bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
     moadian_invoice_type, expert_user_id } = req.body;
-  if (row.type === 'final') {
-    return res.status(409).json({ error: 'فاکتور رسمی ثبت حسابداری شده است؛ برای اصلاح، آن را ابطال و فاکتور جدید ثبت کنید' });
+  if (isFirmSale(row.type)) {
+    return res.status(409).json({ error: 'فاکتور قطعی ثبت حسابداری شده است؛ برای اصلاح، آن را ابطال و فاکتور جدید ثبت کنید' });
   }
-  if ((type || row.type) === 'final') {
-    return res.status(409).json({ error: 'تبدیل پیش‌فاکتور به رسمی فقط از عملیات «تبدیل به فاکتور» انجام می‌شود' });
+  if (isFirmSale(type || row.type)) {
+    return res.status(409).json({ error: 'تبدیل پیش‌فاکتور به فاکتور قطعی فقط از عملیات «تبدیل» انجام می‌شود' });
   }
   let built;
   const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting';
@@ -550,7 +576,12 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   let { subtotal, discAmt, final, vatAmount, vatRate } = totals;
   final += freightRial;
 
-  const newType = type || 'proforma';
+  let newType;
+  try { newType = normalizeInvoiceType(type || 'proforma'); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+  if (isFirmSale(newType)) {
+    return res.status(409).json({ error: 'تبدیل پیش‌فاکتور به فاکتور قطعی فقط از عملیات «تبدیل» انجام می‌شود' });
+  }
   const isSalesRep = req.user.role === 'field_sales' || req.user.role === 'inside_sales';
   let whId = warehouse_id != null && warehouse_id !== '' ? parseInt(warehouse_id, 10) : (row.warehouse_id || null);
   const uWh = db.prepare('SELECT sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
@@ -569,12 +600,6 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
 
   try {
     db.transaction(() => {
-      let stockDeducted = row.stock_deducted || 0;
-      if (newType === 'final' && !stockDeducted) {
-        const stockErr = deductStock(db, built.rows, whId, req.user.id);
-        if (stockErr) throw new Error(stockErr);
-        stockDeducted = 1;
-      }
       const moadianType = moadian_invoice_type != null && moadian_invoice_type !== ''
         ? (parseInt(moadian_invoice_type, 10) || 1)
         : (row.moadian_invoice_type != null ? row.moadian_invoice_type : 1);
@@ -585,7 +610,7 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
         .run(cust_id, newType, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
              vatAmount, vatRate, Math.round(subtotal), Math.round(final), Math.round(vatAmount),
              pay_type || row.pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
-             stockDeducted, resolveSalesChannel(req), lead_source || '', campaign || '',
+             row.stock_deducted || 0, resolveSalesChannel(req), lead_source || '', campaign || '',
              bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
              allocMethod, vat_exempt ? 1 : 0, ccId, moadianType, req.params.id);
       if ((req.user.role === 'admin' || req.user.role === 'accounting') && expert_user_id) {
@@ -630,14 +655,21 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
   }
 });
 
-// Convert proforma to official invoice (type='final')
+// Convert proforma → normal|final (default final for backward compatibility)
 router.post('/:id/convert', auth, (req, res) => {
   const db = getDB();
   const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && inv.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   if (inv.converted) return res.status(400).json({ error: 'قبلاً تبدیل شده' });
-  if (inv.type === 'final') return res.status(400).json({ error: 'این فاکتور رسمی است' });
+  if (isFirmSale(inv.type)) return res.status(400).json({ error: 'این فاکتور قبلاً قطعی است' });
+
+  let targetType;
+  try { targetType = normalizeInvoiceType(req.body?.target_type || req.body?.type || 'final'); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+  if (!isFirmSale(targetType)) {
+    return res.status(400).json({ error: 'هدف تبدیل باید فاکتور معمولی یا رسمی باشد' });
+  }
 
   const rows = JSON.parse(inv.rows || '[]');
   const built = { rows, subtotal: inv.subtotal };
@@ -657,32 +689,46 @@ router.post('/:id/convert', auth, (req, res) => {
   }
 
   try {
+    assertWarehouseLines(db, rows, convertWhId, { requirePositive: true });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+
+  try {
     db.transaction(() => {
-      // Stock deduction if not already done
       let stockDeducted = inv.stock_deducted || 0;
+      let saleCogsRial = 0;
       if (!stockDeducted) {
-        const stockErr = deductStock(db, rows, convertWhId, req.user.id);
-        if (stockErr) throw new Error(stockErr);
+        if (perpetualDocsEnabled(db)) {
+          const stocked = postSaleStockMovements(db, {
+            rows, warehouseId: convertWhId, sourceType: 'invoice', sourceId: inv.id,
+            userId: req.user.id, date: inv.date || '', note: `تبدیل به ${invoiceTypeLabel(targetType)} ${inv.num}`,
+          });
+          saleCogsRial = stocked.cogsRial;
+        } else {
+          const stockErr = deductStock(db, rows, convertWhId, req.user.id);
+          if (stockErr) throw new Error(stockErr);
+        }
         stockDeducted = 1;
       }
 
       db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=?,final=?,vat_amount=?,vat_rate=?,final_rial=?,vat_amount_rial=?,warehouse_id=COALESCE(?,warehouse_id),rows=? WHERE id=?')
-        .run('final', stockDeducted, totals.final, totals.vatAmount, totals.vatRate,
+        .run(targetType, stockDeducted, totals.final, totals.vatAmount, totals.vatRate,
           Math.round(totals.final), Math.round(totals.vatAmount), convertWhId, JSON.stringify(rows), inv.id);
-      // Auto-update customer status to 'active' when proforma is converted to final
       db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
 
       if ((inv.pay_type || 'cash') === 'credit') {
         createLedgerEntry(db, {
           customer_id: inv.cust_id, date: inv.date || '', entry_type: 'invoice',
           ref_type: 'invoice', ref_id: inv.id,
-          description: `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`,
+          description: `تبدیل پیش‌فاکتور ${inv.num} به ${invoiceTypeLabel(targetType)}`,
           debit: totals.final, credit: 0, user_id: req.user.id
         });
       }
+      assertJournalIdempotent(db, 'invoice', inv.id);
       postToLedger(db, {
         sourceType: 'invoice', sourceId: inv.id, date: inv.date || '',
-        description: `فاکتور رسمی ${inv.num} (تبدیل از پیش‌فاکتور)`,
+        description: `${invoiceTypeLabel(targetType)} ${inv.num} (تبدیل از پیش‌فاکتور)`,
         createdBy: req.user.id, lines: salesJournalLines(db, inv.cust_id, {
           subtotal: totals.subtotal, discAmt: totals.discAmt, final: totals.final,
           vatAmount: totals.vatAmount, netBeforeVat: totals.netBeforeVat,
@@ -690,15 +736,21 @@ router.post('/:id/convert', auth, (req, res) => {
           payType: inv.pay_type || 'cash', bankId: inv.bank_id, cashBoxId: inv.cash_box_id,
         }),
       });
-      postCogsVoucher(db, inv.id, inv.num, inv.date, rows, req.user.id, false);
-      enqueueMoadian(db, 'sales', inv.id);
+      if (perpetualDocsEnabled(db) && saleCogsRial > 0) {
+        postCogsFromMovements(db, {
+          invId: inv.id, num: inv.num, date: inv.date, userId: req.user.id, cogsRial: saleCogsRial,
+        });
+      } else {
+        postCogsVoucher(db, inv.id, inv.num, inv.date, rows, req.user.id, false);
+      }
+      if (targetType === 'final') enqueueMoadian(db, 'sales', inv.id);
     })();
   } catch (e) {
-    return res.status(400).json({ error: e.message });
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  audit(req.user.id, 'convert', 'invoice', inv.id, `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`);
+  audit(req.user.id, 'convert', 'invoice', inv.id, `تبدیل پیش‌فاکتور ${inv.num} به ${invoiceTypeLabel(targetType)}`);
 
-  res.json({ ok: true });
+  res.json({ ok: true, type: targetType });
 });
 
 // Standalone printable HTML page — templates from server/lib/invoice-print.js

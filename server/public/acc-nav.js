@@ -32,8 +32,10 @@ const ACC_TAB_RESOLVE = {
   'acc-payments': 'settlements',
   'acc-cheques-recv': 'cheques',
   'acc-cheques-pay': 'cheque-register',
-  'acc-proforma': 'proforma-invoices',
   'acc-sales-invoices': 'sales-invoices',
+  'acc-normal-invoices': 'normal-invoices',
+  'acc-final-invoices': 'final-invoices',
+  'acc-proforma': 'proforma-invoices',
   'acc-purchases': 'purchases',
   'acc-sales-returns': 'sales-returns',
   'acc-purchase-returns': 'purchase-returns',
@@ -144,7 +146,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-units', icon: '📏', label: 'واحدهای اندازه‌گیری' },
     ]},
     { title: 'گزارشات', items: [
-      { id: 'acc-item-kardex', icon: '🗃️', label: 'کاردکس کالا' },
+      /* کاردکس canonical فقط زیر انبار — از تکرار در کالا اجتناب شود */
     ]},
   ]},
   { title: 'انبار', subgroups: [
@@ -187,6 +189,8 @@ const ACC_NAV_SECTIONS = [
     ]},
     { title: 'عملیات', items: [
       { id: 'acc-sales-invoices', icon: '🧾', label: 'فاکتورهای فروش' },
+      { id: 'acc-normal-invoices', icon: '🧾', label: 'فاکتور معمولی' },
+      { id: 'acc-final-invoices', icon: '📜', label: 'فاکتور رسمی' },
       { id: 'acc-purchases', icon: '📦', label: 'فاکتورهای خرید' },
       { id: 'acc-proforma', icon: '📄', label: 'پیش‌فاکتور' },
       { id: 'acc-sales-returns', icon: '↪️', label: 'برگشت از فروش' },

@@ -457,47 +457,43 @@ table.tbl th.tbl-sortable{cursor:pointer;user-select:none}
 table.tbl th.tbl-sortable:hover{background:var(--purple-light)}
 table.tbl th .tbl-sort-ind{font-size:10px;opacity:.7}
 table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{width:36px;text-align:center}
-/* نوار پنجره چندگانه — لبه چپ، مخفی؛ با هاور ریل باریک (~۱/۵ عرض قبلی) */
+/* نوار پنجره چندگانه — پایین صفحه، عرض کامل، همیشه قابل مشاهده هنگام وجود پنجره */
 .mdi-taskbar{
-  position:fixed;top:0;bottom:0;left:0;right:auto;z-index:9990;
-  width:8px;padding:0;margin:0;box-sizing:border-box;
-  display:flex;flex-direction:column;justify-content:center;
-  background:transparent;border:0;overflow:hidden;
-  transition:width .16s ease, background .16s ease, box-shadow .16s ease;
+  position:fixed;left:0;right:0;bottom:0;top:auto;z-index:9990;
+  width:100%;height:48px;padding:0;margin:0;box-sizing:border-box;
+  display:flex;flex-direction:row;align-items:center;justify-content:stretch;
+  background:rgba(18,39,28,.96);backdrop-filter:blur(10px);
+  border-top:1px solid rgba(255,255,255,.12);
+  box-shadow:0 -6px 20px -10px rgba(0,0,0,.45);
+  overflow-x:auto;overflow-y:hidden;
 }
-.mdi-taskbar::before{
-  content:'';position:absolute;left:0;top:22%;bottom:22%;width:3px;
-  border-radius:0 6px 6px 0;background:rgba(26,92,56,.55);
-  box-shadow:0 0 0 1px rgba(255,255,255,.08);pointer-events:none;
-  transition:opacity .12s ease;
-}
+.mdi-taskbar::before{display:none;content:none}
 .mdi-taskbar-inner{
-  display:none;flex-direction:column;gap:4px;width:100%;align-items:stretch;
-  max-height:100%;overflow:auto;padding:8px 4px;box-sizing:border-box;
+  display:flex;flex-direction:row;gap:6px;width:100%;align-items:center;
+  height:100%;overflow-x:auto;overflow-y:hidden;padding:6px 10px;box-sizing:border-box;
+  direction:rtl;
 }
 .mdi-taskbar:hover,
 .mdi-taskbar:focus-within{
-  width:40px;padding:0;
-  background:rgba(18,39,28,.96);backdrop-filter:blur(10px);
-  border-right:1px solid rgba(255,255,255,.12);
-  box-shadow:6px 0 20px -10px rgba(0,0,0,.45);
+  width:100%;padding:0;
+  background:rgba(18,39,28,.96);
+  border-right:0;border-top:1px solid rgba(255,255,255,.12);
+  box-shadow:0 -6px 20px -10px rgba(0,0,0,.45);
 }
-.mdi-taskbar:hover::before,
-.mdi-taskbar:focus-within::before{opacity:0}
 .mdi-taskbar:hover .mdi-taskbar-inner,
 .mdi-taskbar:focus-within .mdi-taskbar-inner{display:flex}
 .mdi-task{
   background:rgba(255,255,255,.12);color:#fff;border:0;border-radius:6px;
-  padding:7px 2px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;
-  width:100%;max-width:none;text-align:center;line-height:1.1;
-  overflow:hidden;white-space:nowrap;flex-shrink:0;
+  padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;
+  width:auto;max-width:220px;min-width:64px;text-align:center;line-height:1.2;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex-shrink:0;
 }
 .mdi-task.active{background:var(--purple2)}
 .mdi-task.min{opacity:.55}
-.mdi-task-tools{max-width:none;padding:7px 2px;font-size:13px;font-weight:600}
+.mdi-task-tools{max-width:none;padding:8px 10px;font-size:13px;font-weight:600}
 .mdi-win{position:fixed;width:min(920px,92vw);height:min(620px,78vh);background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 18px 50px -20px rgba(0,0,0,.45);display:flex;flex-direction:column;overflow:hidden;z-index:200}
-/* نوار چپ مخفی است — تمام‌صفحه کل viewport را می‌گیرد */
-.mdi-win.mdi-maximized{left:0!important;top:0!important;right:0!important;bottom:0!important;width:100vw!important;height:auto!important;max-height:100vh!important;border-radius:0}
+/* تمام‌صفحه بالای نوار پایین قرار می‌گیرد */
+.mdi-win.mdi-maximized{left:0!important;top:0!important;right:0!important;bottom:var(--mdi-taskbar-h,0px)!important;width:100vw!important;height:auto!important;max-height:calc(100vh - var(--mdi-taskbar-h,0px))!important;border-radius:0}
 .mdi-titlebar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:linear-gradient(90deg,var(--purple),var(--purple2));color:#fff;cursor:move;user-select:none;flex-shrink:0}
 .mdi-title{font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mdi-controls{display:flex;gap:4px}

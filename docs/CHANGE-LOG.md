@@ -13,6 +13,30 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### قالب تاریخچه
+
+بعد از **هر تسک** که تغییر می‌دهید یک ورودی در بالای بخش «تاریخچه» اضافه کنید.
+
+---
+
+## قانون برای دستیار (Cursor / Claude Code)
+
+بعد از **هر تسک** که کد یا مستندات را عوض می‌کنید:
+
+1. یک ورودی جدید زیر **بالای بخش «تاریخچه»** (زیر این قوانین) اضافه کنید.
+2. commit مربوطه را با پیام واضح بنویسید.
+3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
+
+### 2026-08-11 — ACC-CRM-UNIFY wave0–6: فاکتور معمولی + دائمی + CRM + MDI پایین (SW v149)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** (pending)
+- **خلاصه:** نوع `normal` برای فاکتور فروش؛ فروش/خرید قطعی از مسیر `postInventoryMovement`؛ محدودیت کالا به انبار مبدأ؛ سخت‌سازی `users.party_id`؛ حذف تکرار کاردکس؛ نوار MDI پایین صفحه؛ منوی پیگیری CRM + داشبورد/API واقعی؛ تست‌های `test-acc-crm-*.js`. بدون deploy تولید تا تأیید مالک + Reviewer/Security.
+- **تکمیل موج ۲/۵/۶ (همین روز):** برگشت از فروش هم به مسیر دائمی وصل شد (`postSaleReturnStockMovements` + reverse از `inventory_ledger` در ابطال + بهای واقعی از میانگین انبار)؛ گارد idempotency روی سه گذار چک (`send-to-bank`/`clear`/`bounce`) با کد `E_JE_DUPLICATE`؛ redirect مسیرهای legacy در `go()` (کاردکس/فاکتور معمولی/رسمی/CRM)؛ تاریخچهٔ مشتری از `/api/crm/timeline` (فاکتور+تسویه+برگشت+پیگیری) با fallback به پیگیری‌ها. تست perpetual: **۳۴/۳۴**؛ party ۵/۵؛ dashboard ۸/۸؛ SMS ۲۲/۲۲.
+- **رفع یافته‌های ممیزی دوم:** ۱) PATCH متن‌آزاد وضعیت چک برای «وصول/برگشت/واگذاری» چک دریافتی مسدود شد (`E_CHEQUE_USE_LIFECYCLE`) — گذار مالی فقط از endpointهای چرخه با سند. ۲) `wireModalChrome` دیگر `--mdi-taskbar-h` را صفر نمی‌کند (همگام با `WinMgr.syncTaskbarSpace`). ۳) timeline رویدادهای برگشت فروش و چک را هم برمی‌گرداند. ۴) `NAV_ACCOUNTING` گروه «پیگیری CRM» گرفت. ۵) scope پیگیری‌ها برای `sales_manager`/`accounting` با `crmScopeUserId` هم‌راستا شد. ۶) **سازگاری عقب‌روی گیت انبار:** بدون `warehouse_id` هدر، fallback به انبار خود کالا + معناشناسی seed قدیمی (`products.stock` = موجودی انبار خانگی)؛ `E_WH_MISMATCH` صریح همچنان 409 — رفع شکست replay دستگاه در test-sync. ۷) harness `test-sync`: حذف پروکسی از loopback + مهلت بوت قابل‌تنظیم (`SYNC_TEST_BOOT_TIMEOUT_MS`). ۸) **باگ سینک دائمی:** `tx_no` کاردکس روی دستگاه‌ها با ردیف‌های pull‌شدهٔ مرکز تصادم می‌کرد (`UNIQUE inventory_ledger.tx_no`) — دستگاه حالا مثل شماره فاکتور، `موقت-INV-…` یکتا می‌سازد و شماره واقعی را مرکز در replay صادر می‌کند. **test-sync: ۴۴/۴۴ سبز.**
+- **فایل‌های کلیدی:** `server/lib/sales-document.js`, `server/lib/crm-analytics.js`, `server/routes/{invoices,purchases,crm,products,accounting,cheque-records}.js`, `server/lib/{void-invoice,user-party}.js`, `server/public/{app.js,acc-nav.js,mdi.js,app.css,sw.js,index.html}`, `server/db.js`, `server/scripts/test-acc-crm-*.js`, `docs/architecture/*`
+- **Deploy:** ⏭ عمداً انجام نشد (دستور مالک: بدون deploy تا اجازه صریح)
+- **SW:** `erp-taranom-v149`
+
 ### 2026-08-11 — UI fixes: کالاها rows.map + Help در پوسته + SKU + منوی تولید (SW v148)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **Commit:** `815171b`

@@ -39,10 +39,18 @@ function costingMethod(db, opts = {}) {
 
 function nextTxNo(db) {
   try {
-    const { allocateNumber } = require('../../db');
+    const { allocateNumber, isDevice } = require('../../db');
+    // دستگاه‌ها ردیف‌های مرکز را pull می‌کنند (tx_no مرکزی INV-xxxx)؛ شمارندهٔ
+    // محلی با آن‌ها تصادم می‌کند — مثل شماره فاکتور، شمارهٔ موقت یکتا بده.
+    // بعد از replay روی مرکز، شماره واقعی همان‌جا صادر و pull می‌شود.
+    if (typeof isDevice === 'function' && isDevice()) {
+      return 'موقت-INV-' + Date.now().toString(36).toUpperCase() + '-'
+        + Math.random().toString(36).slice(2, 7).toUpperCase();
+    }
     return allocateNumber(db, 'inventory_tx', 'INV');
   } catch (_) {
-    return 'INV-' + Date.now().toString(36).toUpperCase();
+    return 'INV-' + Date.now().toString(36).toUpperCase()
+      + '-' + Math.random().toString(36).slice(2, 7).toUpperCase();
   }
 }
 

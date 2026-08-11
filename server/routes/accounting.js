@@ -70,6 +70,9 @@ const { recordCommissionAccrual, recordSettlementCommissionAccrual, reverseCommi
 const { reverseSettlementInTx } = require('../lib/void-settlement');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { voidInvoiceFully, notifyInvoiceCancelled, saveCancelImage } = require('../lib/void-invoice');
+const {
+  perpetualDocsEnabled, postSaleReturnStockMovements, reverseStockBySource, assertJournalIdempotent,
+} = require('../lib/sales-document');
 const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { sendSecureHtml } = require('../lib/secure-html-response');
@@ -1162,7 +1165,7 @@ router.get('/sales-returns/available/:invoiceId', auth, adminOrAccounting, (req,
 });
 
 router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
-  const { cust_id, invoice_id, date, note, rows } = req.body;
+  const { cust_id, invoice_id, date, note, rows, warehouse_id } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
 
@@ -1171,9 +1174,11 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
   // per product can never exceed what was actually sold minus what has
   // already been returned against that same invoice.
   let invoiceLineMap = null, alreadyReturnedMap = {};
+  let parentWhId = warehouse_id ? parseInt(warehouse_id, 10) : null;
   if (invoice_id) {
     const inv = db.prepare('SELECT * FROM invoices WHERE id=? AND cust_id=?').get(invoice_id, cust_id);
     if (!inv) return res.status(400).json({ error: 'فاکتور یافت نشد یا متعلق به این مشتری نیست' });
+    if (!parentWhId && inv.warehouse_id) parentWhId = parseInt(inv.warehouse_id, 10);
     invoiceLineMap = {};
     JSON.parse(inv.rows || '[]').forEach(r => { invoiceLineMap[r.product_id] = r; });
     db.prepare("SELECT rows FROM sales_returns WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(invoice_id).forEach(pr => {
@@ -1189,6 +1194,7 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
     if (!prod) continue;
     let qty = Math.max(0.001, parseQty(r.qty, 1));
     let price, disc = 0, discAmt = 0;
+    let lineWh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : null;
     if (invoiceLineMap) {
       const origLine = invoiceLineMap[pid];
       if (!origLine) return res.status(400).json({ error: `کالای ${prod.name} در این فاکتور وجود ندارد` });
@@ -1198,50 +1204,80 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
       price = origLine.price;
       disc = origLine.disc || 0;
       discAmt = Math.round(qty * price * disc / 100);
+      if (!lineWh && origLine.warehouse_id) lineWh = parseInt(origLine.warehouse_id, 10);
     } else {
       price = parseFloat(r.price) || prod.price;
     }
     const sum = qty * price - discAmt;
     amount += sum;
-    costAmount += qty * ((Number(prod.average_cost_rial) > 0 ? Number(prod.average_cost_rial) : Number(prod.cost)) || 0);
-    built.push({ product_id: pid, name: prod.name, qty, price, disc, disc_amt: discAmt, sum });
+    const avgRial = Number(prod.average_cost_rial) || 0;
+    const unitCostDisplay = avgRial > 0 ? (avgRial / 10) : (Number(prod.cost) || 0);
+    costAmount += qty * unitCostDisplay;
+    built.push({
+      product_id: pid, name: prod.name, qty, price, disc, disc_amt: discAmt, sum,
+      warehouse_id: lineWh || parentWhId || null,
+      unit_cost: unitCostDisplay,
+      cost_rial: avgRial > 0 ? avgRial : Math.round(unitCostDisplay * 10),
+    });
   }
   if (!built.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
 
-  const retId = db.transaction(() => {
-    const result = db.prepare(
-      'INSERT INTO sales_returns (user_id,cust_id,invoice_id,date,note,rows,amount,cost_amount) VALUES (?,?,?,?,?,?,?,?)'
-    ).run(req.user.id, cust_id, invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built), amount, costAmount);
-    const retId = result.lastInsertRowid;
+  let retId;
+  try {
+    retId = db.transaction(() => {
+      const result = db.prepare(
+        'INSERT INTO sales_returns (user_id,cust_id,invoice_id,date,note,rows,amount,cost_amount) VALUES (?,?,?,?,?,?,?,?)'
+      ).run(req.user.id, cust_id, invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built), amount, costAmount);
+      const retId = result.lastInsertRowid;
 
-    for (const r of built) {
-      db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `برگشت از فروش #${retId}`);
-    }
-    createLedgerEntry(db, {
-      customer_id: cust_id, date: date || todayJalali(), entry_type: 'reversal', ref_type: 'sales_return', ref_id: retId,
-      description: `برگشت از فروش #${retId}`, debit: 0, credit: amount, user_id: req.user.id
-    });
-    const salesReturn = coaAcct(db, 'coa_sales_return');
-    const inventory = coaAcct(db, 'coa_inventory');
-    const cogs = coaAcct(db, 'coa_cogs');
-    const journalLines = [
-      { code: salesReturn.code, name: salesReturn.name, debit: rialToLedger(amount), credit: 0 },
-      (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(amount) };})(),
-    ];
-    if (costAmount > 0) {
-      journalLines.push(
-        { code: inventory.code, name: inventory.name, debit: rialToLedger(costAmount), credit: 0 },
-        { code: cogs.code, name: cogs.name, debit: 0, credit: rialToLedger(costAmount) }
-      );
-    }
-    postToLedger(db, {
-      sourceType: 'sales_return', sourceId: retId,
-      date: date || todayJalali(), description: `برگشت از فروش #${retId}`, createdBy: req.user.id,
-      lines: journalLines,
-    });
-    return retId;
-  })();
+      if (perpetualDocsEnabled(db)) {
+        const stocked = postSaleReturnStockMovements(db, {
+          rows: built,
+          warehouseId: parentWhId,
+          sourceType: 'sales_return',
+          sourceId: retId,
+          userId: req.user.id,
+          date: date || todayJalali(),
+          note: `برگشت از فروش #${retId}`,
+        });
+        if (stocked.costRial > 0) {
+          costAmount = stocked.costRial / 10;
+          db.prepare('UPDATE sales_returns SET cost_amount=? WHERE id=?').run(costAmount, retId);
+        }
+      } else {
+        for (const r of built) {
+          db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `برگشت از فروش #${retId}`);
+        }
+      }
+      createLedgerEntry(db, {
+        customer_id: cust_id, date: date || todayJalali(), entry_type: 'reversal', ref_type: 'sales_return', ref_id: retId,
+        description: `برگشت از فروش #${retId}`, debit: 0, credit: amount, user_id: req.user.id
+      });
+      assertJournalIdempotent(db, 'sales_return', retId);
+      const salesReturn = coaAcct(db, 'coa_sales_return');
+      const inventory = coaAcct(db, 'coa_inventory');
+      const cogs = coaAcct(db, 'coa_cogs');
+      const journalLines = [
+        { code: salesReturn.code, name: salesReturn.name, debit: rialToLedger(amount), credit: 0 },
+        (()=>{const a=recvAcct(db,cust_id);return { code: a.code, name: a.name, debit: 0, credit: rialToLedger(amount) };})(),
+      ];
+      if (costAmount > 0) {
+        journalLines.push(
+          { code: inventory.code, name: inventory.name, debit: rialToLedger(costAmount), credit: 0 },
+          { code: cogs.code, name: cogs.name, debit: 0, credit: rialToLedger(costAmount) }
+        );
+      }
+      postToLedger(db, {
+        sourceType: 'sales_return', sourceId: retId,
+        date: date || todayJalali(), description: `برگشت از فروش #${retId}`, createdBy: req.user.id,
+        lines: journalLines,
+      });
+      return retId;
+    })();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   audit(req.user.id, 'create', 'sales_return', retId, `برگشت از فروش به مبلغ ${amount}`);
   res.json({ id: retId, ok: true });
 });
@@ -1251,36 +1287,53 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
   const row = db.prepare('SELECT * FROM sales_returns WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.status === 'reversed') return res.status(400).json({ error: 'این برگشت فروش قبلاً ابطال شده است' });
-  db.transaction(() => {
-    const invRows = JSON.parse(row.rows || '[]');
-    for (const r of invRows) {
-      db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `ابطال برگشت از فروش #${row.id}`);
-    }
-    createLedgerEntry(db, {
-      customer_id: row.cust_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'sales_return_reversal', ref_id: row.id,
-      description: `ابطال برگشت از فروش #${row.id}`, debit: row.amount, credit: 0, user_id: req.user.id
-    });
-    const salesReturn = coaAcct(db, 'coa_sales_return');
-    const inventory = coaAcct(db, 'coa_inventory');
-    const cogs = coaAcct(db, 'coa_cogs');
-    const journalLines = [
-      (()=>{const a=recvAcct(db,row.cust_id);return { code: a.code, name: a.name, debit: rialToLedger(row.amount), credit: 0 };})(),
-      { code: salesReturn.code, name: salesReturn.name, debit: 0, credit: rialToLedger(row.amount) },
-    ];
-    if (row.cost_amount > 0) {
-      journalLines.push(
-        { code: cogs.code, name: cogs.name, debit: rialToLedger(row.cost_amount), credit: 0 },
-        { code: inventory.code, name: inventory.name, debit: 0, credit: rialToLedger(row.cost_amount) }
-      );
-    }
-    const reversalId = postToLedger(db, {
-      sourceType: 'sales_return_reversal', sourceId: row.id, date: todayJalali(),
-      description: `ابطال برگشت از فروش #${row.id}`, createdBy: req.user.id, lines: journalLines,
-    });
-    db.prepare("UPDATE sales_returns SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
-      .run(reversalId, req.user.id, row.id);
-  })();
+  try {
+    db.transaction(() => {
+      if (perpetualDocsEnabled(db)) {
+        const reversed = reverseStockBySource(db, 'sales_return', row.id, {
+          createdBy: req.user.id, date: todayJalali(), note: `ابطال برگشت از فروش #${row.id}`,
+        });
+        if (!reversed.length) {
+          const invRows = JSON.parse(row.rows || '[]');
+          for (const r of invRows) {
+            db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
+            db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `ابطال برگشت از فروش #${row.id}`);
+          }
+        }
+      } else {
+        const invRows = JSON.parse(row.rows || '[]');
+        for (const r of invRows) {
+          db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `ابطال برگشت از فروش #${row.id}`);
+        }
+      }
+      createLedgerEntry(db, {
+        customer_id: row.cust_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'sales_return_reversal', ref_id: row.id,
+        description: `ابطال برگشت از فروش #${row.id}`, debit: row.amount, credit: 0, user_id: req.user.id
+      });
+      const salesReturn = coaAcct(db, 'coa_sales_return');
+      const inventory = coaAcct(db, 'coa_inventory');
+      const cogs = coaAcct(db, 'coa_cogs');
+      const journalLines = [
+        (()=>{const a=recvAcct(db,row.cust_id);return { code: a.code, name: a.name, debit: rialToLedger(row.amount), credit: 0 };})(),
+        { code: salesReturn.code, name: salesReturn.name, debit: 0, credit: rialToLedger(row.amount) },
+      ];
+      if (row.cost_amount > 0) {
+        journalLines.push(
+          { code: cogs.code, name: cogs.name, debit: rialToLedger(row.cost_amount), credit: 0 },
+          { code: inventory.code, name: inventory.name, debit: 0, credit: rialToLedger(row.cost_amount) }
+        );
+      }
+      const reversalId = postToLedger(db, {
+        sourceType: 'sales_return_reversal', sourceId: row.id, date: todayJalali(),
+        description: `ابطال برگشت از فروش #${row.id}`, createdBy: req.user.id, lines: journalLines,
+      });
+      db.prepare("UPDATE sales_returns SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+        .run(reversalId, req.user.id, row.id);
+    })();
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   res.json({ ok: true });
 });
 

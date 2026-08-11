@@ -1,4 +1,25 @@
-﻿## 2026-08-10T20:10:00+03:30 — Independent Reviewer re-verification APPROVED (PROD-P5-R2)
+﻿## 2026-08-11T20:15:00+03:30 — ACC-CRM-UNIFY implementation checkpoint (waves 0–6 code-complete, pre-review)
+
+- **Task:** `ACC-CRM-UNIFY` still `active` — NOT completed; **NO Iran deploy**
+- **Branch/worktree:** `ai/ACC-CRM-UNIFY-accounting-crm` / `D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify` @ base `448a8c1`
+- **Waves 0–6 code-complete:**
+  - `normal` invoice type; firm sale = `normal|final` → stock via `postInventoryMovement` + sales JE + COGS JE; Moadian only `final`; proforma no effects
+  - Purchases + purchase returns + sales returns + voids all on perpetual path behind `feature_perpetual_docs` (default on); void reverses from `inventory_ledger`
+  - `sales-returns` now perpetual: `postSaleReturnStockMovements` (sale_return qtyIn, real avg cost) + `reverseStockBySource` on cancel + `assertJournalIdempotent`
+  - Cheque lifecycle transitions (`send-to-bank`/`clear`/`bounce`) guarded with `assertJournalIdempotent` (`E_JE_DUPLICATE`) + error codes `E_CHEQUE_LIFECYCLE`
+  - `users.party_id` unique binding (`E_PARTY_ALREADY_LINKED`); migration `acc_crm_unify_v1`
+  - UI: legacy route redirects in `go()` (kardex canonical `acc-item-kardex`, normal/final invoice pages, crm); MDI taskbar fixed bottom with real `--mdi-taskbar-h`; CRM group (پیگیری‌ها + داشبورد) + customer history modal now uses `/api/crm/timeline` (invoice+settlement+return+followup) with followups fallback; SW v149
+  - `/api/crm` read-only (GET only) — no sync capture needed
+- **Gates so far:** perpetual **34/34**, party **5/5**, dashboard **8/8**, SMS **22/22**, diag `mismatches=[]`, app.js parse OK, lints clean
+- **Sync gate:** initially failed twice (boot timeout under a concurrent Next.js build), then exposed TWO real bugs once boot succeeded:
+  1. warehouse gate broke legacy device flows (no header warehouse_id / no warehouse_stock row) → fixed with per-line fallback to product home warehouse + legacy seed semantics (`E_WH_MISMATCH` stays strict 409)
+  2. `inventory_ledger.tx_no` UNIQUE collision on devices (local counter vs pulled central INV-xxxx) → devices now issue provisional `موقت-INV-…`, central allocates real numbers on replay (mirrors invoice numbering)
+  After fixes: **test-sync 44/44 green** including oversell conflict now surfacing as `E_WH_INSUFFICIENT` reason.
+- **Harness fixes:** both `test-acc-crm-perpetual.js` and `test-sync.js` strip HTTP(S)_PROXY for loopback + tunable boot timeout (`SYNC_TEST_BOOT_TIMEOUT_MS`)
+- **Second audit findings closed:** cheque free-text status PATCH blocked for lifecycle transitions (`E_CHEQUE_USE_LIFECYCLE`); modal no longer zeroes `--mdi-taskbar-h`; timeline adds sales_return+cheque kinds; `NAV_ACCOUNTING` got CRM group; followups scope aligned with `crmScopeUserId` (sales_manager/accounting full)
+- **Next:** production gates → commit+push branch → Independent Reviewer + Security (separate identities) → owner approval before any deploy/merge
+
+## 2026-08-10T20:10:00+03:30 — Independent Reviewer re-verification APPROVED (PROD-P5-R2)
 
 - Role: Independent Reviewer (orchestrator + parallel agents); **no product code changes**
 - Scope: tip `1728626` vs base `a152086` on `fix/PROD-P5-R2-review-remediation` @ worktree `erp-taranom-prod-p5-r2`

@@ -158,8 +158,21 @@ router.get('/', auth, (req, res) => {
     where.push("(p.approval_status IS NULL OR p.approval_status='' OR p.approval_status='approved')");
   }
 
-  const warehouseId = parseInt(req.query.warehouse_id);
-  if (warehouseId) { where.push('(p.warehouse_id=? OR EXISTS (SELECT 1 FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=? AND ws.qty>0))'); params.push(warehouseId, warehouseId); }
+  const warehouseId = parseInt(req.query.warehouse_id, 10);
+  if (warehouseId) {
+    const includeZero = String(req.query.include_zero || '') === '1';
+    const allowNeg = (() => {
+      try {
+        const wh = db.prepare('SELECT allow_negative FROM warehouses WHERE id=?').get(warehouseId);
+        if (wh?.allow_negative) return true;
+        const g = db.prepare("SELECT value FROM settings WHERE key='inventory_allow_negative'").get();
+        return g && g.value === '1';
+      } catch (_) { return false; }
+    })();
+    // Stocked products must have a warehouse_stock row in the selected WH
+    where.push(`EXISTS (SELECT 1 FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=? ${includeZero || allowNeg ? '' : 'AND ws.qty>0'})`);
+    params.push(warehouseId);
+  }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const pq = listQueryPlan(req.query);

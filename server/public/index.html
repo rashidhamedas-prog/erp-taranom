@@ -1,62 +1,62 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-<script src="/csp-runtime.js?v=148"></script>
+<script src="/csp-runtime.js?v=149"></script>
 <meta charset="UTF-8">
-<!-- Force HTTPS on production host — http:// + CF/nginx 301 turns POST login into GET and breaks Chrome. -->
-<script src="/boot.js?v=148"></script>
+<!-- Force HTTPS on production host � http:// + CF/nginx 301 turns POST login into GET and breaks Chrome. -->
+<script src="/boot.js?v=149"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>ERP ترنم</title>
+<title>ERP ????</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1A5C38">
 <link rel="apple-touch-icon" href="/logo.png">
-<!-- همه دارایی‌ها محلی هستند — هیچ وابستگی به CDN خارجی (Google Fonts / jsDelivr)
-     تا زیر فیلترینگ/اینترنت داخلی هم برنامه فوری و کامل بارگذاری شود.
-     اسکریپت‌ها defer دارند تا رندر صفحه را بلوکه نکنند. -->
+<!-- ??? ????????? ???? ????? � ??? ??????? ?? CDN ????? (Google Fonts / jsDelivr)
+     ?? ??? ????????/??????? ????? ?? ?????? ???? ? ???? ???????? ???.
+     ?????????? defer ????? ?? ???? ???? ?? ????? ?????. -->
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<link rel="stylesheet" href="/prod-ui.css?v=148">
+<link rel="stylesheet" href="/prod-ui.css?v=149">
 <script src="/vendor/html2canvas.min.js" defer></script>
-<script src="/marketer-ui.js?v=148" defer></script>
-<link rel="stylesheet" href="/app.css?v=148">
+<script src="/marketer-ui.js?v=149" defer></script>
+<link rel="stylesheet" href="/app.css?v=149">
 </head>
 <body>
 
 <!-- ===== LOGIN ===== -->
 <div id="login">
-  <button class="theme-toggle-btn" data-csp-click="s_0a3f6e8040676843de3f04aa" data-csp-style="s_a93cfffa8c0c55688aa9ebf4">🌙 حالت تاریک</button>
+  <button class="theme-toggle-btn" data-csp-click="s_0a3f6e8040676843de3f04aa" data-csp-style="s_a93cfffa8c0c55688aa9ebf4">?? ???? ?????</button>
   <div class="login-card">
-    <div class="logo"><img src="/logo-sm.png" alt="ترنم" data-csp-style="s_15dec1bf18470f419392226d" data-csp-error="s_2f0e41562cb9debea9944bb0"><span data-csp-style="s_422c33beb115603a0c0b754e">🌿</span></div>
-    <h1>ERP ترنم</h1>
-    <p>سامانه یکپارچه ERP پوشاک ترنم</p>
+    <div class="logo"><img src="/logo-sm.png" alt="????" data-csp-style="s_15dec1bf18470f419392226d" data-csp-error="s_2f0e41562cb9debea9944bb0"><span data-csp-style="s_422c33beb115603a0c0b754e">??</span></div>
+    <h1>ERP ????</h1>
+    <p>?????? ??????? ERP ????? ????</p>
     <form id="loginForm">
       <div class="field">
-        <label>نام کاربری</label>
+        <label>??? ??????</label>
         <input id="loginUser" autocomplete="username" placeholder="admin">
       </div>
       <div class="field">
-        <label>رمز عبور</label>
-        <input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••••">
+        <label>??? ????</label>
+        <input id="loginPass" type="password" autocomplete="current-password" placeholder="��������">
       </div>
-      <button type="submit">ورود به سامانه</button>
+      <button type="submit">???? ?? ??????</button>
       <div data-csp-style="s_b7423d859ccaaa96e8e2796f">
-        <a href="#" data-csp-click="s_8a71e98e13b13714a42fa7d9" data-csp-style="s_312d3494f9edb044d48d7d47">رمز عبور را فراموش کرده‌اید؟</a>
+        <a href="#" data-csp-click="s_8a71e98e13b13714a42fa7d9" data-csp-style="s_312d3494f9edb044d48d7d47">??? ???? ?? ?????? ?????????</a>
       </div>
       <div id="b2bEntryLink" data-csp-style="s_72c16271d8964e133a24f4fb">
-        <a href="#portal" data-csp-click="s_d33d3fedc02f222946db0f9f" data-csp-style="s_2675f5bf9c94991eeed5b080" data-i18n="portal-entry">🛒 ورود پورتال مشتریان</a>
+        <a href="#portal" data-csp-click="s_d33d3fedc02f222946db0f9f" data-csp-style="s_2675f5bf9c94991eeed5b080" data-i18n="portal-entry">?? ???? ?????? ???????</a>
       </div>
       <div id="deviceResetLink" data-csp-style="s_b4d1d87a041bda3f347aec63">
-        <a href="#" data-csp-click="s_91b2cd2e2a63e0751b4932b9" data-csp-style="s_1b359a5203e0dea68c0b3c7c">اتصال خراب است؟ قطع اتصال و اتصال مجدد</a>
+        <a href="#" data-csp-click="s_91b2cd2e2a63e0751b4932b9" data-csp-style="s_1b359a5203e0dea68c0b3c7c">????? ???? ???? ??? ????? ? ????? ????</a>
       </div>
       <div class="login-err" id="loginErr"></div>
     </form>
-    <div class="login-hint">نسخه ۳ · پوشاک ترنم مشهد<br><span data-csp-style="s_81407354a30c7015e96f6ae2">اولین ورود: admin / admin123</span></div>
+    <div class="login-hint">???? ? � ????? ???? ????<br><span data-csp-style="s_81407354a30c7015e96f6ae2">????? ????: admin / admin123</span></div>
   </div>
 </div>
 
 <!-- ===== B2B CUSTOMER PORTAL ===== -->
 <div id="b2bPortal">
   <div class="b2b-wrap">
-    <span class="b2b-back" data-csp-click="s_2f3e7cbd6f08222b4e89c773">← بازگشت به ورود کارکنان</span>
+    <span class="b2b-back" data-csp-click="s_2f3e7cbd6f08222b4e89c773">? ?????? ?? ???? ???????</span>
     <div class="b2b-card" id="b2bContent"></div>
   </div>
 </div>
@@ -66,8 +66,8 @@
   <div class="layout">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <img src="/logo-sm.png" alt="ترنم" data-csp-style="s_eac40dfc10b359d5a4cf922f" data-csp-error="s_df4c0d7e38b6cc7e74737b3b"><span class="emoji" data-csp-style="s_6a0e5aa35744331ef2e3ac4c">🌿</span>
-        <div><h2>ERP ترنم</h2><small id="brandRole">پنل مدیریت</small></div>
+        <img src="/logo-sm.png" alt="????" data-csp-style="s_eac40dfc10b359d5a4cf922f" data-csp-error="s_df4c0d7e38b6cc7e74737b3b"><span class="emoji" data-csp-style="s_6a0e5aa35744331ef2e3ac4c">??</span>
+        <div><h2>ERP ????</h2><small id="brandRole">??? ??????</small></div>
       </div>
       <nav class="nav" id="nav"></nav>
     </aside>
@@ -75,17 +75,17 @@
     <div class="main">
       <header class="topbar">
         <div class="left">
-          <button class="menu-btn" data-csp-click="s_c9e66d3feb6b2f566def08cd">☰</button>
-          <button type="button" class="back-btn" id="navBackBtn" data-csp-click="s_b137eab182cd94efdc4cb9ff" title="بالا — سطح والد (مثل Up ویندوز)" aria-label="بالا">↑</button>
-          <h3 id="pageTitle">داشبورد</h3>
+          <button class="menu-btn" data-csp-click="s_c9e66d3feb6b2f566def08cd">?</button>
+          <button type="button" class="back-btn" id="navBackBtn" data-csp-click="s_b137eab182cd94efdc4cb9ff" title="???? � ??? ???? (??? Up ??????)" aria-label="????">?</button>
+          <h3 id="pageTitle">???????</h3>
         </div>
         <div class="right">
-          <button class="notif-bell" id="notifBell" data-csp-click="s_63eae3c3ff5aaa2014c528ad" title="اعلان‌ها" data-csp-style="s_6a0e5aa35744331ef2e3ac4c">🔔<span class="nbadge hide" id="notifBadge">0</span></button>
-          <button class="btn sm ghost omnibox-btn" data-csp-click="s_eae5bb7bea204d72bcc746fe" title="جستجوی سریع" data-i18n-title="جستجوی سریع">⌕</button>
-          <span id="syncBadge" class="sync-badge" data-csp-style="s_590bbb077b0c9725d5b47577" data-csp-click="s_fb8c1c32e9e1ff06b920a521" title="وضعیت همگام‌سازی با سرور مرکزی"></span>
+          <button class="notif-bell" id="notifBell" data-csp-click="s_63eae3c3ff5aaa2014c528ad" title="????????" data-csp-style="s_6a0e5aa35744331ef2e3ac4c">??<span class="nbadge hide" id="notifBadge">0</span></button>
+          <button class="btn sm ghost omnibox-btn" data-csp-click="s_eae5bb7bea204d72bcc746fe" title="?????? ????" data-i18n-title="?????? ????">?</button>
+          <span id="syncBadge" class="sync-badge" data-csp-style="s_590bbb077b0c9725d5b47577" data-csp-click="s_fb8c1c32e9e1ff06b920a521" title="????? ?????????? ?? ???? ?????"></span>
           <span class="clock" id="clock"></span>
           <div class="user">
-            <div class="avatar" id="avatar">؟</div>
+            <div class="avatar" id="avatar">?</div>
             <div><div id="userName" data-csp-style="s_cd7e45eab35dac2ab4b04e89"></div><div class="muted" id="userRole" data-csp-style="s_6eddd132309c5e3ab4002ee1"></div></div>
           </div>
         </div>
@@ -94,20 +94,20 @@
     </div>
   </div>
 
-  <!-- Account menu: power FAB + slide sheet (گوشه صفحه) -->
-  <button type="button" id="acctFab" class="acct-fab" data-csp-click="s_9b185f50004721adce7b118b" title="حساب کاربری" aria-label="منوی حساب کاربری" aria-expanded="false" aria-controls="acctDrawer">
+  <!-- Account menu: power FAB + slide sheet (???? ????) -->
+  <button type="button" id="acctFab" class="acct-fab" data-csp-click="s_9b185f50004721adce7b118b" title="???? ??????" aria-label="???? ???? ??????" aria-expanded="false" aria-controls="acctDrawer">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
   </button>
   <div id="acctDrawerBackdrop" data-csp-click="s_269de94ec79e9ce3fd67c88b" aria-hidden="true"></div>
-  <div id="acctDrawer" role="dialog" aria-label="منوی حساب کاربری">
+  <div id="acctDrawer" role="dialog" aria-label="???? ???? ??????">
     <div class="acct-drawer-user">
-      <b id="acctDrawerName">—</b>
-      <span id="acctDrawerUser">—</span>
+      <b id="acctDrawerName">�</b>
+      <span id="acctDrawerUser">�</span>
     </div>
-    <button type="button" class="acct-drawer-btn theme-toggle-btn" data-csp-click="s_0a3f6e8040676843de3f04aa">🌙 حالت تاریک</button>
-    <button type="button" class="acct-drawer-btn" id="acctBtnPass" data-csp-click="s_110ae53daa7846d2c65aed69">🔑 تغییر رمز</button>
-    <button type="button" class="acct-drawer-btn" id="acctBtnSec" data-csp-click="s_4e7d7c95264ab8f6dabb9cf0">🔐 امنیت</button>
-    <button type="button" class="acct-drawer-btn danger" id="acctBtnOut" data-csp-click="s_dadb5187cd6da35c90fa46c6">🚪 خروج</button>
+    <button type="button" class="acct-drawer-btn theme-toggle-btn" data-csp-click="s_0a3f6e8040676843de3f04aa">?? ???? ?????</button>
+    <button type="button" class="acct-drawer-btn" id="acctBtnPass" data-csp-click="s_110ae53daa7846d2c65aed69">?? ????? ???</button>
+    <button type="button" class="acct-drawer-btn" id="acctBtnSec" data-csp-click="s_4e7d7c95264ab8f6dabb9cf0">?? ?????</button>
+    <button type="button" class="acct-drawer-btn danger" id="acctBtnOut" data-csp-click="s_dadb5187cd6da35c90fa46c6">?? ????</button>
   </div>
 </div>
 
@@ -117,8 +117,8 @@
 <!-- ===== Command Palette ===== -->
 <div id="omniboxOverlay" class="omnibox-overlay" data-csp-click="s_98243680aa7a1fddf176be9d">
   <div class="omnibox" data-csp-click="s_f26edef237d1ca483e326664">
-    <input id="omniboxInput" placeholder="جستجو: مشتری، کالا، فاکتور، بخش‌ها و زیرمنوها..." autocomplete="off">
-    <div class="omnibox-hint" id="omniboxHint">جستجو — مشتریان، کالاها، فاکتورها و همهٔ بخش‌ها</div>
+    <input id="omniboxInput" placeholder="?????: ?????? ????? ??????? ?????? ? ????????..." autocomplete="off">
+    <div class="omnibox-hint" id="omniboxHint">????? � ???????? ??????? ???????? ? ???? ??????</div>
     <div class="omnibox-results" id="omniboxResults"></div>
   </div>
 </div>
@@ -132,28 +132,28 @@
 
 <!-- ===== PWA Install Banner ===== -->
 <div id="installBanner">
-  <span data-csp-style="s_0539973dc9f6c0ea8f34890a">📲 ERP ترنم را نصب کنید</span>
-  <button data-csp-click="s_bd89716ecaf3f58812e129cb">نصب</button>
-  <button class="x-btn" data-csp-click="s_da9b2690edba9947065eb54b">×</button>
+  <span data-csp-style="s_0539973dc9f6c0ea8f34890a">?? ERP ???? ?? ??? ????</span>
+  <button data-csp-click="s_bd89716ecaf3f58812e129cb">???</button>
+  <button class="x-btn" data-csp-click="s_da9b2690edba9947065eb54b">�</button>
 </div>
 
 <!-- ===== App Update Banner (desktop / android) ===== -->
 <div id="updateBanner">
   <span id="updateBannerText" data-csp-style="s_0539973dc9f6c0ea8f34890a"></span>
-  <button data-csp-click="s_9c24b892a420b6732a4ee6ca">⬇️ دانلود</button>
-  <button class="x-btn" data-csp-click="s_a5607849c3b6f80a439ea4e2">×</button>
+  <button data-csp-click="s_9c24b892a420b6732a4ee6ca">?? ??????</button>
+  <button class="x-btn" data-csp-click="s_a5607849c3b6f80a439ea4e2">�</button>
 </div>
 
 <!-- ===== Toasts ===== -->
 <div id="toasts"></div>
 
-<script src="/barcode-input.js?v=148" defer></script>
-<script src="/i18n.js?v=148"></script>
-<script src="/acc-nav.js?v=148"></script>
-<script src="/portal-ui.js?v=148"></script>
-<script src="/mdi.js?v=148" defer></script>
-<script src="/tbl-enhance.js?v=148" defer></script>
-<script src="/prod-ui.js?v=148" defer></script>
-<script src="/app.js?v=148"></script>
+<script src="/barcode-input.js?v=149" defer></script>
+<script src="/i18n.js?v=149"></script>
+<script src="/acc-nav.js?v=149"></script>
+<script src="/portal-ui.js?v=149"></script>
+<script src="/mdi.js?v=149" defer></script>
+<script src="/tbl-enhance.js?v=149" defer></script>
+<script src="/prod-ui.js?v=149" defer></script>
+<script src="/app.js?v=149"></script>
 </body>
 </html>

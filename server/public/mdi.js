@@ -1,7 +1,7 @@
 /**
  * MDI — پنجره‌های شناور شبیه ویندوز برای زیرمنوهای حسابداری / CRM
  * هر زیرگروه می‌تواند در پنجره جدا باز شود؛ کنترل: جابجایی، کوچک/بزرگ، بستن،
- * نوار وظیفهٔ چپ (مخفی؛ با هاور ریل باریک ۴۰px)
+ * نوار وظایف در پایین صفحه (عرض کامل؛ هنگام وجود پنجره همیشه قابل مشاهده)
  */
 (function (global) {
   const STORAGE_KEY = 'crm_mdi';
@@ -26,12 +26,12 @@
     return layer;
   }
 
-  /** برچسب کوتاه برای ریل باریک — عنوان کامل در title */
+  /** برچسب کوتاه برای دکمهٔ نوار پایین — عنوان کامل در title */
   function taskChip(title) {
     const t = String(title || '').trim();
     if (!t) return '•';
-    const chars = [...t];
-    return chars[0];
+    if (t.length <= 18) return t;
+    return [...t].slice(0, 16).join('') + '…';
   }
 
   function updateTaskbar() {
@@ -55,11 +55,13 @@
     syncTaskbarSpace();
   }
 
-  /** نوار چپ مخفی است — فضای رزرو پایین لازم نیست */
+  /** نوار پایین — ارتفاع واقعی را در --mdi-taskbar-h می‌نویسد */
   function syncTaskbarSpace() {
-    document.documentElement.style.setProperty('--mdi-taskbar-h', '0px');
     const bar = document.getElementById('mdiTaskbar');
-    document.body.classList.toggle('has-mdi-taskbar', !!(bar && !bar.hidden));
+    const visible = !!(bar && !bar.hidden);
+    const h = visible ? Math.max(bar.offsetHeight || 0, 48) : 0;
+    document.documentElement.style.setProperty('--mdi-taskbar-h', h + 'px');
+    document.body.classList.toggle('has-mdi-taskbar', visible);
   }
 
   if (!global.__mdiTaskbarResizeBound) {
@@ -99,6 +101,7 @@
     focusedId: null,
     enabled,
     setEnabled,
+    syncTaskbarSpace,
     toggleMode() {
       setEnabled(!enabled());
       if (typeof showToast === 'function') {

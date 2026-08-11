@@ -505,7 +505,7 @@ const STATUS_LABEL = {
   vip:'ویژه', active:'فعال', followup:'پیگیری', silent:'خاموش', new:'جدید',
   pending:'در انتظار', onway:'در راه', done:'تحویل شده', cancel:'لغو شده',
   open:'باز', high:'بالا', mid:'متوسط', low:'پایین',
-  proforma:'پیش‌فاکتور', final:'فاکتور رسمی',
+  proforma:'پیش‌فاکتور', normal:'فاکتور معمولی', final:'فاکتور رسمی',
   lead:'سرنخ', contact:'تماس', proposal:'پیشنهاد', negotiation:'مذاکره', won:'خرید کرد', lost:'از دست رفت',
   very_low:'خیلی کم', very_high:'خیلی زیاد',
   received:'وصول شد', bounced:'برگشت خورد', cancelled:'لغو شد'
@@ -1141,7 +1141,8 @@ const EMO_LU = {
 const NAV_ADMIN = [
   {id:'dash', icon:'📊', label:'داشبورد'},
   {id:'customers', icon:'👥', label:'مشتریان'},
-  {id:'followups', icon:'📞', label:'پیگیری‌ها'},
+  {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
+  {id:'crm-dashboard', icon:'📉', label:'داشبورد و گزارش‌های CRM', group:'پیگیری CRM'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'products', icon:'🛍️', label:'کالاها'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
@@ -1156,7 +1157,8 @@ const NAV_ADMIN = [
 const NAV_SALES = [
   {id:'dash', icon:'🏠', label:'داشبورد'},
   {id:'customers', icon:'👥', label:'مشتریان'},
-  {id:'followups', icon:'📞', label:'پیگیری‌ها'},
+  {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
+  {id:'crm-dashboard', icon:'📉', label:'داشبورد و گزارش‌های CRM', group:'پیگیری CRM'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'catalog', icon:'🛍️', label:'کاتالوگ'},
   {id:'marketer', icon:'🛒', label:'فروش بازاریاب'},
@@ -1168,6 +1170,8 @@ const NAV_SALES = [
 const NAV_ACCOUNTING = [
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'customers', icon:'👥', label:'مشتریان'},
+  {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
+  {id:'crm-dashboard', icon:'📉', label:'داشبورد و گزارش‌های CRM', group:'پیگیری CRM'},
   {id:'ai', icon:'🤖', label:'دستیار هوشمند'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'help', icon:'📖', label:'راهنما'},
@@ -1376,6 +1380,19 @@ function exitAccountingShell(){
 }
 
 function go(page){
+  // ACC-CRM-UNIFY — redirects for legacy/duplicate routes
+  const ROUTE_REDIRECTS = {
+    'kardex': 'acc-item-kardex',
+    'item-kardex': 'acc-item-kardex',
+    'acc-kardex': 'acc-item-kardex',
+    'products-kardex': 'acc-item-kardex',
+    'acc-products-kardex': 'acc-item-kardex',
+    'normal-invoices': 'acc-normal-invoices',
+    'final-invoices': 'acc-final-invoices',
+    'crm': 'crm-dashboard',
+    'crm-reports': 'crm-dashboard',
+  };
+  if (ROUTE_REDIRECTS[page]) page = ROUTE_REDIRECTS[page];
   if(page==='accounting'){ enterAccountingShell(); return; }
   if(page==='exit-acc-shell'){ exitAccountingShell(); if(window.WinMgr) WinMgr.closeAll(); return; }
   if(page!=='messages' && typeof stopMsgPoll==='function') stopMsgPoll();
@@ -2211,8 +2228,8 @@ function openModal(html, lg){
 function wireModalChrome(){
   const modal=el('activeModal');
   if(!modal) return;
-  // نوار چپ مخفی است — فضای پایین رزرو نمی‌شود
-  try{ document.documentElement.style.setProperty('--mdi-taskbar-h','0px'); }catch(_){}
+  // ارتفاع واقعی نوار پایین MDI حفظ می‌شود تا modal تمام‌صفحه روی نوار نیفتد
+  try{ if(window.WinMgr && WinMgr.syncTaskbarSpace) WinMgr.syncTaskbarSpace(); }catch(_){}
   let head=modal.querySelector('.modal-head');
   if(!head){
     head=document.createElement('div');
@@ -2893,6 +2910,7 @@ ROUTES.followups = async function(){
         ${showFolders?`<button id="btnFolders" class="btn sm ${fupFilter.view==='folders'?'':'ghost'}" data-csp-click="${CSP.bind('click',function(event){setFupView('folders')})}">📁 پوشه کارشناسان</button>`:''}
         <button id="btnKanban" class="btn sm ${fupFilter.view==='kanban'?'':'ghost'}" data-csp-click="${CSP.bind('click',function(event){setFupView('kanban')})}">🗂️ پایپ‌لاین</button>
         <button id="btnList" class="btn sm ${fupFilter.view==='list'?'':'ghost'}" data-csp-click="${CSP.bind('click',function(event){setFupView('list')})}">📋 لیست</button>
+        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('crm-dashboard')})}">📉 داشبورد CRM</button>
       </div>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){fupModal()})}">➕ جدید</button>
       ${isAdmin()?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){exportExcel('followups')})}">📥 اکسل</button>`:''}
@@ -2903,6 +2921,70 @@ ROUTES.followups = async function(){
   el('fStage').addEventListener('change',e=>{fupFilter.stage=e.target.value;renderFupView();});
   renderFupView();
 };
+
+ROUTES['crm-dashboard'] = async function(){
+  el('view').innerHTML='<div class="muted">در حال بارگذاری داشبورد CRM...</div>';
+  const q = new URLSearchParams();
+  const from = el('crmFrom')?.value || '';
+  const to = el('crmTo')?.value || '';
+  if(from) q.set('from', from);
+  if(to) q.set('to', to);
+  let data;
+  try { data = await api('GET','/crm/dashboard'+(q.toString()?'?'+q:'')); }
+  catch(e){ el('view').innerHTML=`<div class="err">${esc(e.message||'خطا')}</div>`; return; }
+  const k = data.kpis||{};
+  const byType = data.invoices_by_type||[];
+  const experts = data.sales_by_expert||[];
+  el('view').innerHTML=`
+    <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;flex-wrap:wrap`)}">
+      <h3 data-csp-style="${CSP.style(`margin:0;flex:1`)}">داشبورد و گزارش‌های CRM</h3>
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('followups')})}">← پیگیری‌ها</button>
+      <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){go('crm-dashboard')})}">↻ بروزرسانی</button>
+    </div>
+    <div class="grid" data-csp-style="${CSP.style(`display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:12px 0`)}">
+      ${[
+        ['مشتریان',k.new_customers,'firm_sales'],
+        ['پیگیری باز',k.open_followups,'open_followups'],
+        ['عقب‌افتاده',k.overdue_followups,'overdue_followups'],
+        ['فروش قطعی',k.firm_invoice_count,'firm_sales'],
+        ['مبلغ فروش قطعی',fmt((k.firm_sales_rial||0)/10),'firm_sales'],
+        ['مطالبات',fmt((k.receivables_rial||0)/10),''],
+        ['چک سررسید ۱۴روز',k.cheques_due_14d,''],
+        ['چک برگشتی',k.cheques_bounced,''],
+        ['بدون فعالیت ۹۰روز',k.inactive_customers_90d,''],
+      ].map(([label,val,metric])=>`
+        <div class="panel" data-csp-style="${CSP.style(`padding:12px;cursor:${metric?'pointer':'default'}`)}" ${metric?`data-csp-click="${CSP.bind('click',function(event){crmDrill('${metric}')})}"`:''}>
+          <div class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${label}</div>
+          <div data-csp-style="${CSP.style(`font-size:22px;font-weight:800`)}">${val??0}</div>
+        </div>`).join('')}
+    </div>
+    <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>تبدیل و انواع فاکتور</h4></div>
+      <div class="panel-body"><table class="tbl"><thead><tr><th>نوع</th><th>تعداد</th><th>مبلغ</th></tr></thead>
+      <tbody>${byType.map(r=>`<tr data-csp-click="${CSP.bind('click',function(event){crmDrill((r.type))})}" data-csp-style="${CSP.style(`cursor:pointer`)}">
+        <td>${esc({proforma:'پیش‌فاکتور',normal:'معمولی',final:'رسمی'}[r.type]||r.type)}</td>
+        <td>${r.cnt}</td><td>${fmt((r.amount_rial||0)/10)}</td></tr>`).join('')||emptyRow(3)}</tbody></table></div></div>
+    <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>فروش کارشناسان</h4></div>
+      <div class="panel-body"><table class="tbl"><thead><tr><th>کارشناس</th><th>تعداد</th><th>مبلغ</th></tr></thead>
+      <tbody>${experts.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.cnt}</td><td>${fmt((r.amount_rial||0)/10)}</td></tr>`).join('')||emptyRow(3)}</tbody></table></div></div>
+    <div id="crmDrill" class="panel" data-csp-style="${CSP.style(`margin-top:12px;display:none`)}"></div>`;
+};
+async function crmDrill(metric){
+  const box=el('crmDrill'); if(!box) return;
+  box.style.display='block';
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  try{
+    const data=await api('GET','/crm/drilldown?metric='+encodeURIComponent(metric));
+    const rows=data.rows||[];
+    box.innerHTML=`<div class="panel-head"><h4>جزئیات: ${esc(metric)}</h4></div><div class="panel-body">
+      <table class="tbl"><thead><tr><th>شناسه</th><th>عنوان</th><th>تاریخ</th><th>مبلغ/وضعیت</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td>${r.id||''}</td>
+        <td>${esc(r.num||r.subject||r.cust_biz||r.type||'')}</td>
+        <td>${esc(r.date||'')}</td>
+        <td>${r.final!=null?fmt(r.final):esc(r.status||'')}</td>
+      </tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
+  }catch(e){ box.innerHTML=`<div class="err">${esc(e.message||'خطا')}</div>`; }
+}
 
 function setFupView(v){
   fupFilter.view=v;
@@ -3153,7 +3235,7 @@ async function saveFup(id){
 async function custActivityModal(custId){
   const cust=CACHE.customers.find(x=>x.id===custId)||{biz:'مشتری',id:custId};
   openModal(`
-    <div class="modal-head"><h3>📋 تاریخچه — ${esc(cust.biz)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-head"><h3>📋 تاریخچه CRM — ${esc(cust.biz)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body" id="activityBody"><div data-csp-style="${CSP.style(`text-align:center;padding:24px;color:var(--muted)`)}">در حال بارگذاری...</div></div>
     <div class="modal-foot">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();fupModal(null,null,(custId))})}">➕ پیگیری جدید</button>
@@ -3161,30 +3243,37 @@ async function custActivityModal(custId){
     </div>
   `,true);
   try{
-    const history=await api('GET','/followups/by-customer/'+custId)||[];
+    let events=[];
+    try{
+      const tl=await api('GET','/crm/timeline?customer_id='+custId+'&limit=80');
+      events=(tl&&tl.events)||[];
+    }catch(_){ events=[]; }
+    if(!events.length){
+      const history=await api('GET','/followups/by-customer/'+custId)||[];
+      events=history.map(f=>({kind:'followup',id:f.id,date:f.date,title:f.subject||f.type,status:f.status,note:f.note,type:f.type,meta:f}));
+    }
     const body=el('activityBody');
     if(!body) return;
-    if(!history.length){ body.innerHTML='<div class="empty">هنوز پیگیری‌ای ثبت نشده است.</div>'; return; }
-    const typeIcons={'📱 تلفن':'📱','💬 واتساپ':'💬','📸 اینستاگرام':'📸','📲 تلگرام':'📲','🏪 حضوری':'🏪','✉️ پیامک':'✉️'};
-    body.innerHTML=`<ul class="timeline">${history.map(f=>{
-      const stage=PIPELINE_STAGES.find(s=>s.id===(f.pipeline_stage||'lead'))||PIPELINE_STAGES[0];
-      const icon=typeIcons[f.type]||'📞';
+    if(!events.length){ body.innerHTML='<div class="empty">هنوز رویدادی ثبت نشده است.</div>'; return; }
+    const kindIcon={followup:'📞',invoice:'🧾',settlement:'💵',sales_return:'↪️',cheque:'🏦'};
+    const kindLabel={followup:'پیگیری',invoice:'فاکتور',settlement:'تسویه',sales_return:'برگشت فروش',cheque:'چک'};
+    body.innerHTML=`<ul class="timeline">${events.map(ev=>{
+      const icon=kindIcon[ev.kind]||'•';
+      const label=kindLabel[ev.kind]||ev.kind;
+      const amt=ev.amount!=null?fmt(ev.amount):(ev.amount_rial!=null?fmt((ev.amount_rial||0)/10):'');
       return `<li class="timeline-item">
         <div class="timeline-dot">${icon}</div>
         <div class="timeline-body">
           <div class="tm-head">
-            <span class="tm-type">${esc(f.type||'تماس')}</span>
-            <span class="tm-date">${escDate(f.date)}${f.time?' · '+esc(f.time):''}</span>
+            <span class="tm-type">${esc(label)}</span>
+            <span class="tm-date">${escDate(ev.date||'')}</span>
           </div>
-          ${f.subject?`<div data-csp-style="${CSP.style(`font-weight:600;font-size:13px;margin-bottom:4px`)}">${esc(f.subject)}</div>`:''}
-          ${f.note?`<div class="tm-text">${esc(f.note)}</div>`:''}
-          ${f.action?`<div data-csp-style="${CSP.style(`font-size:12px;color:var(--blue);margin-top:4px`)}">⏭️ ${esc(f.action)}</div>`:''}
-          <div class="tm-meta" data-csp-style="${CSP.style(`margin-top:8px`)}">
-            <span class="tag ${stage.color}">${stage.icon} ${stage.label}</span>
-            ${statusTag(f.priority)}${statusTag(f.status)}
-            ${f.purchase_prob?`<span class="tag" data-csp-style="${CSP.style(`background:#e0fdf4;color:#065f46`)}">${f.purchase_prob}٪</span>`:''}
+          <div data-csp-style="${CSP.style(`font-weight:600;font-size:13px;margin-bottom:4px`)}">${esc(ev.title||'')}</div>
+          ${ev.note?`<div class="tm-text">${esc(ev.note)}</div>`:''}
+          <div class="tm-meta" data-csp-style="${CSP.style(`margin-top:6px`)}">
+            ${ev.status?statusTag(ev.status):''}
+            ${amt?`<span class="tag" data-csp-style="${CSP.style(`background:#eef2ff;color:#3730a3`)}">${amt}</span>`:''}
           </div>
-          ${f.next_date?`<div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:6px`)}">📅 پیگیری بعدی: ${escDate(f.next_date)}</div>`:''}
         </div>
       </li>`;
     }).join('')}</ul>`;
@@ -3205,6 +3294,7 @@ ROUTES.invoices = async function(){
       <select id="iType">
         <option value="" ${invFilter.type===''?'selected':''}>همه انواع</option>
         <option value="proforma" ${invFilter.type==='proforma'?'selected':''}>پیش‌فاکتور</option>
+        <option value="normal" ${invFilter.type==='normal'?'selected':''}>فاکتور معمولی</option>
         <option value="final" ${invFilter.type==='final'?'selected':''}>فاکتور رسمی</option>
       </select>
       ${canCreateInvoice()?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){openInvBuilder()})}">➕ فاکتور جدید</button>`:''}
@@ -3317,8 +3407,9 @@ async function _openInvBuilder(id){
           <select id="inv-expert"><option value="">— خودکار (کارشناس مشتری / من) —</option>
             ${salesUsers.map(u=>`<option value="${u.id}" ${Number(defExpert)===Number(u.id)?'selected':''}>${esc(u.name||u.username)}</option>`).join('')}
           </select></div>`:`<input type="hidden" id="inv-expert" value="">`}
-        <div class="fg"><label>نوع ${hlp('پیش‌فاکتور: برای اعلام قیمت به مشتری — در درآمد محاسبه نمی‌شود. فاکتور رسمی: فروش قطعی — در گزارش درآمد ثبت می‌شود.')}</label><select id="inv-type">
+        <div class="fg"><label>نوع ${hlp('پیش‌فاکتور: اعلام قیمت بدون اثر موجودی/حسابداری. فاکتور معمولی: فروش قطعی با موجودی و سند — بدون مودیان. فاکتور رسمی: فروش قطعی + صف مودیان در صورت فعال بودن.')}</label><select id="inv-type">
           <option value="proforma" ${inv&&inv.type==='proforma'?'selected':''}>پیش‌فاکتور</option>
+          <option value="normal" ${inv&&inv.type==='normal'?'selected':''}>فاکتور معمولی</option>
           <option value="final" ${inv&&inv.type==='final'?'selected':''}>فاکتور رسمی</option></select></div>
         <div class="fg"><label>تاریخ ${hlp('تاریخ صدور فاکتور. در گزارش‌های دوره‌ای بر اساس این تاریخ فیلتر می‌شود.')}</label><input id="inv-date" data-jdate value="${esc(inv?inv.date:todayJalali())}"></div>
         <div class="fg"><label>تخفیف کل (٪) ${hlp('درصد تخفیف از مجموع کل فاکتور (پس از تخفیف ردیف‌ها). با تغییر درصد، مبلغ تخفیف به‌روز می‌شود و برعکس.')}</label><input id="inv-disc" type="number" min="0" max="100" step="0.01" value="${inv?inv.disc:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct');renderCart()})}"></div>
@@ -3407,11 +3498,22 @@ async function _openInvBuilder(id){
   renderInvPicker();
   renderCart();
   toggleInvPayFields();
+  const whSel = el('inv-warehouse');
+  if (whSel && !whSel.dataset.whBound) {
+    whSel.dataset.whBound = '1';
+    whSel.addEventListener('change', () => { reloadInvProductsForWarehouse(); });
+  }
+  if (+(whSel?.value || 0)) reloadInvProductsForWarehouse();
   _bcWedgeHandler = scanBarcodeToCart;
   const hint=el('mobPickHint'); if(hint) hint.style.display=window.matchMedia('(hover:none)').matches?'block':'none';
 }
 function renderInvPicker(){
+  const whId = +(el('inv-warehouse')?.value || 0);
   const q=(el('invProdSearch')?.value||'').trim();
+  if(!whId && !(ME.role==='field_sales'||ME.role==='inside_sales')){
+    el('invPicker').innerHTML=`<div class="empty" data-csp-style="${CSP.style(`padding:16px;text-align:center`)}">ابتدا انبار مبدأ را انتخاب کنید</div>`;
+    return;
+  }
   let prods=(CACHE.allProducts.length?CACHE.allProducts:CACHE.products).slice();
   if(q) prods=prods.filter(p=>textMatchesQuery((p.name||'')+' '+(p.code||'')+' '+(p.category||'')+' '+(p.barcode||''), q));
   const INV_PICK_LIMIT=60;
@@ -3420,7 +3522,7 @@ function renderInvPicker(){
   el('invPicker').innerHTML = shown.map(p=>{
     // Real-time available stock = current stock minus qty already reserved in this invoice's cart
     const reserved=invCart.filter(r=>r.product_id===p.id).reduce((a,r)=>a+r.qty,0);
-    const avail=(p.stock||0)-reserved;
+    const avail=(p.wh_qty!=null?p.wh_qty:(p.stock||0))-reserved;
     return `
     <div class="pick-card" id="pc-${p.id}" data-csp-click="${CSP.bind('click',function(event){pickCardTap(event,(p.id))})}">
       <div class="pimg">${p.image?prodImgTag(p.image):'🧥'}</div>
@@ -3429,6 +3531,25 @@ function renderInvPicker(){
       <div class="pst" data-csp-style="${CSP.style(`font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}`)}">موجودی: ${fmt(avail)}</div>
     </div>`;
   }).join('') + (extra?`<div class="muted" data-csp-style="${CSP.style(`padding:10px;text-align:center;font-size:12px`)}">${fmt(extra)} کالای دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" data-csp-style="${CSP.style(`padding:16px;text-align:center`)}">کالایی یافت نشد — از بخش کالاها، کالای جدید اضافه کنید</div>`;
+}
+async function reloadInvProductsForWarehouse(){
+  const whId = +(el('inv-warehouse')?.value || 0);
+  if(!whId){ CACHE.allProducts=[]; CACHE.products=[]; renderInvPicker(); return; }
+  try{
+    const rows = await api('GET','/products?warehouse_id='+whId+'&pageSize=500') || [];
+    const list = Array.isArray(rows) ? rows : (rows.rows || rows.data || []);
+    CACHE.allProducts = list;
+    CACHE.products = list;
+    // Drop cart lines that are no longer in this warehouse's product set
+    const ids = new Set(list.map(p=>p.id));
+    const before = invCart.length;
+    invCart = invCart.filter(r => r.row_type==='income' || r.item_kind==='service' || ids.has(r.product_id));
+    if(before !== invCart.length){
+      try{ showToast('با تغییر انبار، اقلام ناسازگار از سبد حذف شدند','warning'); }catch(_){}
+      try{ renderCart(); }catch(_){}
+    }
+    renderInvPicker();
+  }catch(e){ try{ showToast(e.message||'خطا در بارگذاری کالاهای انبار','error'); }catch(_){ } }
 }
 async function invProdQuickModal(prefill){
   await ensureProductCategories();
@@ -3636,13 +3757,16 @@ async function saveInvoice(id){
     showToast(whNames.length?('فاکتور ذخیره شد — کسر از انبار: '+whNames.join('، ')):'فاکتور ذخیره شد');
   }catch(e){}
 }
-async function convertProforma(id){
-  if(!confirm('پیش‌فاکتور به فاکتور رسمی تبدیل شود؟')) return;
+async function convertProforma(id, targetType){
+  const target = targetType || 'final';
+  const label = target==='normal'?'فاکتور معمولی':'فاکتور رسمی';
+  if(!confirm('پیش‌فاکتور به '+label+' تبدیل شود؟')) return;
   try{
-    await api('POST','/invoices/'+id+'/convert',{});
+    await api('POST','/invoices/'+id+'/convert',{ target_type: target });
     CACHE.invoices = await api('GET','/invoices'); _invoicesFetched=true;
-    renderInvTable();
-    showToast('تبدیل شد');
+    if(el('invTable')) renderInvTable();
+    else if(IN_ACC_SHELL) loadAccTab(accTab||'sales-invoices');
+    showToast('تبدیل به '+label+' انجام شد');
   }catch(e){}
 }
 async function printInvoice(id, paper){
@@ -5418,6 +5542,8 @@ ROUTES['acc-parties']=()=>renderAccPage('parties','👥','اشخاص');
 ROUTES['acc-suppliers']=()=>go('acc-parties');
 ROUTES['acc-persons']=()=>go('acc-parties');
 ROUTES['acc-sales-invoices']=()=>renderAccPage('sales-invoices','🧾','فاکتورهای فروش');
+ROUTES['acc-normal-invoices']=()=>renderAccPage('normal-invoices','🧾','فاکتور معمولی');
+ROUTES['acc-final-invoices']=()=>renderAccPage('final-invoices','📜','فاکتور رسمی');
 ROUTES['acc-proforma']=()=>renderAccPage('proforma-invoices','📄','پیش‌فاکتورها');
 ROUTES['acc-purchases']=()=>renderAccPage('purchases','📦','فاکتور خرید');
 ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','برگشت از خرید');
@@ -5564,9 +5690,13 @@ async function loadAccTab(tab){
   } else if(tab==='persons'){
     await renderPersonsTab(body);
   } else if(tab==='sales-invoices'){
-    await renderSalesInvoicesTab(body, 'final');
+    await renderSalesInvoicesTab(body, '');
+  } else if(tab==='normal-invoices'){
+    await renderSalesInvoicesTab(body, 'normal');
   } else if(tab==='proforma-invoices'){
     await renderSalesInvoicesTab(body, 'proforma');
+  } else if(tab==='final-invoices'){
+    await renderSalesInvoicesTab(body, 'final');
   } else if(tab==='item-kardex'){
     await renderItemKardexTab(body);
   } else if(tab==='inv-batches'){
@@ -6666,34 +6796,43 @@ async function deletePersonCategory(id){
 async function renderSalesInvoicesTab(body, typeLock){
   if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
   if(!CACHE.allProducts?.length){ CACHE.allProducts=await api('GET','/products')||[]; CACHE.products=CACHE.allProducts; }
-  const lock = typeLock==='proforma' || typeLock==='final' ? typeLock : '';
+  const lock = (typeLock==='proforma' || typeLock==='final' || typeLock==='normal') ? typeLock : '';
   const qType = lock ? ('?type='+lock) : '';
   CACHE.invoices=await api('GET','/invoices'+qType)||[];
   _invoicesFetched=true;
+  const filterType = lock || (el('accInvTypeFilter')?.value || '');
   const rows=CACHE.invoices.filter(i=>{
     if(i.deleted_at) return false;
     if(String(i.status||'')==='reversed') return false;
     if(lock && i.type!==lock) return false;
+    if(!lock && filterType && i.type!==filterType) return false;
     if(accDateFrom && (i.date||'')<accDateFrom) return false;
     if(accDateTo && (i.date||'')>accDateTo) return false;
     return true;
   }).sort((a,b)=>(b.created_at||0)-(a.created_at||0));
-  const typeLabel={proforma:'پیش‌فاکتور',final:'فاکتور رسمی'};
+  const typeLabel={proforma:'پیش‌فاکتور',normal:'فاکتور معمولی',final:'فاکتور رسمی'};
+  const typeBadge=(t)=>t==='final'?'t-done':(t==='normal'?'t-active':'t-pending');
   const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'};
   const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
-  const titleBtn = lock==='proforma' ? '➕ پیش‌فاکتور جدید' : '➕ فاکتور جدید';
+  const titleBtn = lock==='proforma' ? '➕ پیش‌فاکتور جدید' : (lock==='normal' ? '➕ فاکتور معمولی' : '➕ فاکتور جدید');
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
       ${canCreateInvoice()?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){openInvBuilder()})}">${titleBtn}</button>`:''}
+      ${!lock?`<select id="accInvTypeFilter" data-csp-change="${CSP.bind('change',function(event){renderSalesInvoicesTab(body,'')})}">
+        <option value="">همه</option>
+        <option value="proforma">پیش‌فاکتور</option>
+        <option value="normal">معمولی</option>
+        <option value="final">رسمی</option>
+      </select>`:''}
       <input id="accInvSearch" class="search" placeholder="جستجو شماره/مشتری..." data-csp-style="${CSP.style(`min-width:180px`)}" data-csp-input="${CSP.bind('input',function(event){filterAccInvTable()})}">
     </div>
     <div class="tbl-wrap"><table class="tbl" id="accSalesInvTbl" data-bulk-delete="/invoices" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} فاکتور ابطال شود؟ سند معکوس ثبت می‌شود."><thead><tr>
       <th>شماره</th><th>سند مرجع</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th class="no-sort">عملیات</th>
-    </tr></thead><tbody>${rows.map(i=>`<tr data-id="${i.id}" data-search="${esc((i.num||'')+' '+(i.cust_biz||''))}">
+    </tr></thead><tbody>${rows.map(i=>`<tr data-id="${i.id}" data-search="${esc((i.num||'')+' '+(i.cust_biz||'')+' '+(typeLabel[i.type]||i.type||''))}">
       <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${invNumCell(i.num)}</td>
       <td>${refDocCell(i.ref_doc_no,i.ref_doc_type)}</td>
       <td>${esc(i.cust_biz||'-')}</td>
-      <td>${typeLabel[i.type]||i.type}${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" data-csp-style="${CSP.style(`font-size:10px`)}">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
+      <td><span class="tag ${typeBadge(i.type)}" data-csp-style="${CSP.style(`font-size:11px`)}">${typeLabel[i.type]||i.type}</span>${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" data-csp-style="${CSP.style(`font-size:10px`)}">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
       <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
       <td>${payLabel[i.pay_type]||i.pay_type||'-'}</td>
       <td class="muted">${esc(i.seller_name||i.salesperson||'-')}</td>
@@ -15974,9 +16113,9 @@ ROUTES.settings = async function(){
     <div class="panel"><div class="panel-head"><h4>${lucide('layers')} پنجره‌های چندگانه</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
         با فعال بودن این گزینه، هر زیرمنوی حسابداری در یک پنجره جدا باز می‌شود (جابجایی، کوچک/بزرگ، بستن).
-        نوار وظایف در لبه چپ است و فقط وقتی موس روی آن می‌رود ظاهر می‌شود.
+        نوار وظایف در پایین صفحه است و هنگام وجود پنجره همیشه قابل مشاهده و قابل استفاده است.
       </div>
-      ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'شبیه ویندوز — هر زیرمنو در پنجره مستقل؛ نوار وظایف در لبه چپ و با هاور موس ظاهر می‌شود')}
+      ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'شبیه ویندوز — هر زیرمنو در پنجره مستقل؛ نوار وظایف در پایین صفحه')}
     </div></div>
     ${isAdmin()?`<div class="panel"><div class="panel-head"><h4>📱 دستگاه‌های متصل و ورود</h4></div><div class="panel-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.85;margin-bottom:12px`)}">
@@ -16704,9 +16843,23 @@ helpSec('🔑','لایسنس و entitlement',`
     helpSec('🗔','پنجره‌های چندگانه (شبیه ویندوز)',`
       <p>فعال/غیرفعال کردن از <b>تنظیمات → عمومی → پنجره‌های چندگانه</b>. با فعال بودن، هر زیرمنوی حسابداری در پنجره جدا باز می‌شود.</p>
       <ul>
-        <li>نوار وظایف در <b>لبه چپ</b> مخفی است؛ با هاور یک <b>ریل باریک (~۴۰px)</b> باز می‌شود (حرف اول عنوان + tooltip نام کامل).</li>
+        <li>نوار وظایف در <b>پایین صفحه</b> است؛ هنگام وجود پنجره‌ها همیشه قابل مشاهده است و اسکرول افقی دارد.</li>
         <li>چینش و تک‌صفحه/چندپنجره با آیکون‌های کوچک همان ریل در دسترس است.</li>
         <li>نوار عنوان هر پنجره: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن</li>
+      </ul>`),
+    helpSec('🧾','انواع فاکتور فروش و موجودی دائمی',`
+      <ul>
+        <li><b>پیش‌فاکتور:</b> اعلام قیمت — بدون کسر موجودی و بدون سند حسابداری</li>
+        <li><b>فاکتور معمولی:</b> فروش قطعی — موجودی دائمی + سند فروش + بهای تمام‌شده؛ به صف مودیان نمی‌رود</li>
+        <li><b>فاکتور رسمی:</b> همان فروش قطعی + در صورت فعال بودن مودیان وارد صف می‌شود</li>
+        <li>قبل از انتخاب کالا باید <b>انبار مبدأ</b> انتخاب شود؛ فقط کالاهای همان انبار نمایش داده می‌شوند</li>
+        <li>ابطال فاکتور قطعی سند معکوس می‌زند و موجودی را برمی‌گرداند (حذف فیزیکی نیست)</li>
+      </ul>`),
+    helpSec('📞','پیگیری CRM',`
+      <p>منوی <b>پیگیری CRM</b> دو بخش دارد: <b>پیگیری‌ها</b> (همان صفحه قبلی) و <b>داشبورد و گزارش‌های CRM</b> با شاخص‌های واقعی از فاکتور، پیگیری، مطالبات و چک.</p>
+      <ul>
+        <li>کلیک روی کارت‌های داشبورد لیست drill-down فیلترشده را باز می‌کند</li>
+        <li>کارشناس فروش فقط دادهٔ خود را می‌بیند؛ مدیر/حسابداری دید تجمیعی دارند</li>
       </ul>`),
     helpSec('↑','دکمه بالا (سطح والد)',`
       <p>دکمه <b>↑</b> کنار عنوان صفحه مثل دکمه <b>Up</b> اکسپلورر ویندوز عمل می‌کند — نه Back تاریخچه:</p>
@@ -17243,7 +17396,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>واگذاری به بانک</b>: از وضعیت ثبت‌شده — سند انتقال به «در جریان وصول»</li>
         <li><b>وصول</b>: وقتی چک در «جریان وصول» است — بستانکار بانک</li>
         <li><b>برگشت</b>: ثبت برگشت از بانک</li>
-      </ul>`),
+      </ul>
+      <div class="tip">هر گذار چرخه فقط یک‌بار سند می‌زند (تکرار = خطای سند تکراری). تغییر وضعیت با متن آزاد برای «وصول/برگشت/واگذاری» چک دریافتی مسدود است — از همین عملیات چرخه استفاده کنید تا سند حسابداری هم ثبت شود.</div>`),
     helpSec('📡','سلامت سرویس و پشتیبانی',`
       <p><code dir="ltr">/api/system/health</code> زنده بودن فرایند را نشان می‌دهد؛ <code dir="ltr">/api/system/ready</code> آمادگی دیتابیس را بررسی می‌کند. هر درخواست هدر <code dir="ltr">X-Request-Id</code> دارد (برای پیگیری لاگ). متای پشتیبانی در <code dir="ltr">/api/support/meta</code> است — تیکتینگ داخل برنامه فعلاً فعال نیست و از کانال خارجی سازمان استفاده می‌شود.</p>`)
   ].join('');

@@ -2339,6 +2339,23 @@ function initSyncSchema(db) {
     throw e;
   }
 
+  // ACC-CRM-UNIFY v1 — perpetual docs flag + unique users.party_id (partial)
+  try {
+    const unifyDone = db.prepare("SELECT value FROM settings WHERE key='acc_crm_unify_v1'").get();
+    if (!unifyDone || unifyDone.value !== '1') {
+      db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('feature_perpetual_docs','1')").run();
+      db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('feature_cogs_voucher','1')").run();
+      try {
+        db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_party_id_unique ON users(party_id) WHERE party_id IS NOT NULL');
+      } catch (idxErr) {
+        console.warn('acc_crm_unify_v1 unique party_id index deferred:', idxErr.message);
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('acc_crm_unify_v1','1')").run();
+    }
+  } catch (e) {
+    console.warn('acc_crm_unify_v1 migration:', e.message);
+  }
+
   // Update 11 — decimals, FX, tafsili2, positions, pricing, warehouse flags, stocktake counts
   try {
     require('./lib/update11-schema').initUpdate11Schema(db);

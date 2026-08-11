@@ -14,6 +14,7 @@ const { reverseSettlementInTx } = require('./void-settlement');
 const { todayJalali } = require('../jalali');
 const notif = require('./notifications');
 const { persistPrivateUpload } = require('./private-uploads');
+const { reverseStockBySource, postCogsFromMovements, isFirmSale, perpetualDocsEnabled } = require('./sales-document');
 
 function cancelTitleForRole(role) {
   if (role === 'admin') return 'فاکتور لغو شده توسط مدیر';
@@ -162,20 +163,41 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
 
     if (row.stock_deducted) {
       const invRows = JSON.parse(row.rows || '[]');
-      for (const r of invRows) {
-        if (r.row_type === 'income' || !r.product_id) continue;
-        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
-          r.product_id, user.id, r.qty, `بازگشت موجودی از لغو فاکتور ${row.num}`
-        );
-        if (row.warehouse_id) {
-          db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
-            .run(r.product_id, row.warehouse_id, r.qty);
+      if (perpetualDocsEnabled(db)) {
+        const reversed = reverseStockBySource(db, 'invoice', row.id, {
+          createdBy: user.id, date: todayJalali(), note: `بازگشت موجودی از لغو فاکتور ${row.num}`,
+        });
+        if (!reversed.length) {
+          // Legacy firm docs without inventory_ledger rows
+          for (const r of invRows) {
+            if (r.row_type === 'income' || !r.product_id) continue;
+            db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+            db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
+              r.product_id, user.id, r.qty, `بازگشت موجودی از لغو فاکتور ${row.num}`
+            );
+            const whId = r.warehouse_id || row.warehouse_id;
+            if (whId) {
+              db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
+                .run(r.product_id, whId, r.qty);
+            }
+          }
+        }
+      } else {
+        for (const r of invRows) {
+          if (r.row_type === 'income' || !r.product_id) continue;
+          db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
+            r.product_id, user.id, r.qty, `بازگشت موجودی از لغو فاکتور ${row.num}`
+          );
+          if (row.warehouse_id) {
+            db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
+              .run(r.product_id, row.warehouse_id, r.qty);
+          }
         }
       }
     }
 
-    if (row.type === 'final') {
+    if (isFirmSale(row.type)) {
       if ((row.pay_type || 'cash') === 'credit') {
         createLedgerEntry(db, {
           customer_id: row.cust_id, date: todayJalali(), entry_type: 'reversal',
@@ -197,7 +219,20 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
           rows: JSON.parse(row.rows || '[]'),
         }),
       });
-      postCogsVoucher(db, row.id, row.num, todayJalali(), JSON.parse(row.rows || '[]'), user.id, true);
+      const cogsOrig = db.prepare(
+        "SELECT id FROM journal_entries WHERE ref_type='invoice_cogs' AND ref_id=? AND COALESCE(deleted_at,0)=0"
+      ).get(row.id);
+      if (cogsOrig) {
+        const cogsLines = db.prepare(
+          'SELECT COALESCE(SUM(debit_rial),0) AS d FROM journal_lines WHERE entry_id=?'
+        ).get(cogsOrig.id);
+        postCogsFromMovements(db, {
+          invId: row.id, num: row.num, date: todayJalali(), userId: user.id,
+          cogsRial: Number(cogsLines?.d) || 0, reverse: true,
+        });
+      } else {
+        postCogsVoucher(db, row.id, row.num, todayJalali(), JSON.parse(row.rows || '[]'), user.id, true);
+      }
       reverseCommissionAccrual(db, 'invoice', row.id, user.id, todayJalali());
     }
 

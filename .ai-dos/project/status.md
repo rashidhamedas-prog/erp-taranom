@@ -1,12 +1,19 @@
 # Project Status
 
-- Last verified: 2026-08-10 (~20:10 +03:30)
-- **PROD-P5-R2 completed** (reconfirmed by fresh Independent Reviewer session).
-- Independent Reviewer: **APPROVED** (orchestrated re-review; no open Critical/High/Medium).
-- Security: **Approved** (agent f3d138f1; no open Critical/High/Medium).
-- Code tip: `1728626`; primary `claude/claude-md-docs-2ssrpy` @ `a1f219b` (same tip lineage).
-- Iran: SFTP overlay stamp `.sftp-deploy-stamp-prod-p5-r2` hash=1728626; probe hashes YES; health/ready/root 200; SW `erp-taranom-v146`.
-- Claims remain released (`file_claims: []`). Do not implement in dirty `erp-taranom1`. Leave `ai/W1-*` alone.
+- Last verified: 2026-08-11 (~20:20 +03:30)
+- **Active task:** `ACC-CRM-UNIFY` (high risk) — accounting perpetual unify + normal invoice + CRM.
+- **Progress:** waves 0–6 code-complete (normal invoice + perpetual sales/purchase/returns/void,
+  cheque transition idempotency, user↔party unique, UI redirects, MDI bottom bar, CRM dashboard/timeline).
+  Gates green: perpetual 34/34, party 5/5, dashboard 8/8, SMS 22/22, diag mismatches=[].
+  Pending: test-sync (machine-load flake — concurrent Next.js build), test:production, dual review.
+- Branch / worktree: `ai/ACC-CRM-UNIFY-accounting-crm` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify` @ base `448a8c1`.
+- Roles: Orchestrator `cursor:orchestrator`; Implementer `cursor:implementer-acc-crm`;
+  Reviewer `cursor:independent-reviewer-acc-crm`; Security `cursor:independent-security-acc-crm`
+  (Reviewer/Security distinct from Implementer).
+- **NO Iran deploy** until explicit owner approval after dual review.
+- Do not implement in dirty `erp-taranom1`. Leave `ai/W1-*` alone.
+- Prior: PROD-P5-R2 completed (tip lineage from primary `448a8c1`).
 
 ## Working quality commands
 
@@ -20,3 +27,6 @@
 - `node server/scripts/_diag-sync-gaps-b16e78.js`
 - `node --check server/server.js`
 - `npm.cmd --prefix server run test:production`
+- `node server/scripts/test-acc-crm-perpetual.js` (added by this task)
+- `node server/scripts/test-acc-crm-party.js` (added by this task)
+- `node server/scripts/test-acc-crm-dashboard.js` (added by this task)

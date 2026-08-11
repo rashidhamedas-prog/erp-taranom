@@ -15,6 +15,11 @@ const { todayJalali } = require('../jalali');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
+const {
+  postPurchaseStockMovements, reverseStockBySource,
+  perpetualDocsEnabled, assertJournalIdempotent,
+} = require('../lib/sales-document');
+const { postInventoryMovement } = require('../lib/inventory/ledger');
 
 // Create a supplier ledger entry (debit = we owe less / paid, credit = we owe more / purchased)
 function createSupplierLedgerEntry(db, { supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
@@ -136,18 +141,27 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, chqDur, chqDue, chqInfo, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', allocMethod, vat_exempt ? 1 : 0, ccId);
     const invId = result.lastInsertRowid;
 
-    // Stock increases immediately on purchase (per-row warehouse or header default)
-    for (const r of built.rows) {
-      const rowWh = r.warehouse_id || whId;
-      db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `افزودن موجودی از فاکتور خرید ${num}`);
-      if (rowWh) {
-        db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
-          .run(r.product_id, rowWh, r.qty);
+    if (perpetualDocsEnabled(db)) {
+      const priced = built.rows.map((r) => ({
+        ...r,
+        price_rial: Math.round((Number(r.price) || 0) * 10),
+      }));
+      postPurchaseStockMovements(db, {
+        rows: priced, warehouseId: whId, sourceType: 'purchase', sourceId: invId,
+        userId: req.user.id, date: entryDate, note: `خرید ${num}`,
+      });
+    } else {
+      for (const r of built.rows) {
+        const rowWh = r.warehouse_id || whId;
+        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `افزودن موجودی از فاکتور خرید ${num}`);
+        if (rowWh) {
+          db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
+            .run(r.product_id, rowWh, r.qty);
+        }
       }
     }
 
-    // Supplier ledger: credit = we now owe the supplier (only tracked for on-account purchases)
     if (pType === 'credit') {
       createSupplierLedgerEntry(db, {
         supplier_id, date: date || '', entry_type: 'purchase', ref_type: 'purchase', ref_id: invId,
@@ -155,7 +169,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       });
     }
 
-    // Journal: Dr Inventory + Dr VAT receivable / Cr Payable or Cash
+    assertJournalIdempotent(db, 'purchase', invId);
     const invAcct = coaAcct(db, 'coa_inventory');
     const vatRec = coaAcct(db, 'coa_vat_receivable');
     const inventoryDebit = rialToLedger(netBeforeVat);
@@ -196,13 +210,30 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
 
   db.transaction(() => {
     if (row.stock_added) {
-      const invRows = JSON.parse(row.rows || '[]');
-      for (const r of invRows) {
-        const rowWh = r.warehouse_id || row.warehouse_id;
-        db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `بازگشت موجودی از حذف فاکتور خرید ${row.num}`);
-        if (rowWh) {
-          db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, rowWh);
+      if (perpetualDocsEnabled(db)) {
+        const reversed = reverseStockBySource(db, 'purchase', row.id, {
+          createdBy: req.user.id, date: todayJalali(), note: `بازگشت موجودی از حذف فاکتور خرید ${row.num}`,
+        });
+        if (!reversed.length) {
+          const invRows = JSON.parse(row.rows || '[]');
+          for (const r of invRows) {
+            const rowWh = r.warehouse_id || row.warehouse_id;
+            db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
+            db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `بازگشت موجودی از حذف فاکتور خرید ${row.num}`);
+            if (rowWh) {
+              db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, rowWh);
+            }
+          }
+        }
+      } else {
+        const invRows = JSON.parse(row.rows || '[]');
+        for (const r of invRows) {
+          const rowWh = r.warehouse_id || row.warehouse_id;
+          db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `بازگشت موجودی از حذف فاکتور خرید ${row.num}`);
+          if (rowWh) {
+            db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, rowWh);
+          }
         }
       }
     }
@@ -321,16 +352,38 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
     ).run(req.user.id, supplier_id, purchase_invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built.rows), amount);
     const retId = result.lastInsertRowid;
 
-    // Returned goods leave inventory
-    for (const r of built.rows) {
-      db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `برگشت از خرید #${retId}`);
+    if (perpetualDocsEnabled(db)) {
+      const parent = purchase_invoice_id
+        ? db.prepare('SELECT warehouse_id FROM purchase_invoices WHERE id=?').get(purchase_invoice_id)
+        : null;
+      for (const r of built.rows) {
+        const whId = r.warehouse_id || parent?.warehouse_id || null;
+        postInventoryMovement(db, {
+          eventType: 'purchase_return',
+          productId: r.product_id,
+          warehouseId: whId,
+          qtyOut: Number(r.qty) || 0,
+          unitCostRial: Math.round((Number(r.price) || 0) * 10),
+          sourceType: 'purchase_return',
+          sourceId: retId,
+          date: date || todayJalali(),
+          note: `برگشت از خرید #${retId}`,
+          createdBy: req.user.id,
+          updateAvg: true,
+        });
+      }
+    } else {
+      for (const r of built.rows) {
+        db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
+        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `برگشت از خرید #${retId}`);
+      }
     }
 
     createSupplierLedgerEntry(db, {
       supplier_id, date: date || todayJalali(), entry_type: 'purchase_return', ref_type: 'purchase_return', ref_id: retId,
       description: `برگشت از خرید #${retId}`, debit: amount, credit: 0, user_id: req.user.id
     });
+    assertJournalIdempotent(db, 'purchase_return', retId);
     postToLedger(db, {
       sourceType: 'purchase_return', sourceId: retId,
       date: date || todayJalali(), description: `برگشت از خرید #${retId}`, createdBy: req.user.id,
@@ -352,10 +405,23 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.status === 'reversed') return res.status(400).json({ error: 'این برگشت خرید قبلاً ابطال شده است' });
   db.transaction(() => {
-    const invRows = JSON.parse(row.rows || '[]');
-    for (const r of invRows) {
-      db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `ابطال برگشت از خرید #${row.id}`);
+    if (perpetualDocsEnabled(db)) {
+      const reversed = reverseStockBySource(db, 'purchase_return', row.id, {
+        createdBy: req.user.id, date: todayJalali(), note: `ابطال برگشت از خرید #${row.id}`,
+      });
+      if (!reversed.length) {
+        const invRows = JSON.parse(row.rows || '[]');
+        for (const r of invRows) {
+          db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `ابطال برگشت از خرید #${row.id}`);
+        }
+      }
+    } else {
+      const invRows = JSON.parse(row.rows || '[]');
+      for (const r of invRows) {
+        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `ابطال برگشت از خرید #${row.id}`);
+      }
     }
     createSupplierLedgerEntry(db, {
       supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'purchase_return', ref_id: row.id,

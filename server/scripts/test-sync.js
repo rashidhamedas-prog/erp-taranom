@@ -19,6 +19,17 @@ const S = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-sync-e2e-'));
 const SERVER = path.join(__dirname, '..', 'server.js');
 const CWD = path.join(__dirname, '..');
 
+// Loopback health checks must never route through a system VPN proxy
+// (Windows: HTTP(S)_PROXY set per-shell breaks 127.0.0.1 fetches).
+for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']) {
+  delete process.env[k];
+}
+process.env.NO_PROXY = '127.0.0.1,localhost';
+process.env.no_proxy = '127.0.0.1,localhost';
+
+// Cold boot of 3 servers on a loaded machine can exceed 60s each — tunable.
+const BOOT_TIMEOUT_MS = Math.max(60000, parseInt(process.env.SYNC_TEST_BOOT_TIMEOUT_MS, 10) || 60000);
+
 let passed = 0, failed = 0;
 function ok(cond, label) {
   if (cond) { passed++; console.log('  ✅', label); }
@@ -42,7 +53,7 @@ process.on('SIGINT', () => { killAll(); process.exit(130); });
 process.on('SIGTERM', () => { killAll(); process.exit(143); });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function waitForServer(base, timeoutMs = 60000) {
+async function waitForServer(base, timeoutMs = BOOT_TIMEOUT_MS) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
@@ -309,6 +320,7 @@ const centralEnv = { JWT_SECRET: 'sync-central-test-secret-at-least-32-bytes', P
   // B, seeing the stale higher stock, sells more than central now has:
   const oversellQty = Math.min(bStale, 5);
   const bInv = (await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', rows: [{ product_id: 1, qty: oversellQty, price: 50000 }] })).body;
+  if (!(bInv.id >= 1e12)) console.log('   bInv response:', JSON.stringify(bInv));
   ok(bInv.id >= 1e12, `B created invoice locally against stale stock ${bStale} (qty ${oversellQty})`);
   await req(B, 'POST', '/api/sync/now', bt);
   await req(B, 'POST', '/api/sync/now', bt); // idempotent retry

@@ -40,6 +40,17 @@ function ensureUserParty(db, userId, details = {}) {
   const requestedPartyId = details.party_id ? Number(details.party_id) : null;
   if (requestedPartyId) party = db.prepare('SELECT * FROM parties WHERE id=?').get(requestedPartyId);
   if (requestedPartyId && !party) throw new Error('شخص انتخاب‌شده یافت نشد');
+  // R13-adjacent guard: هر شخص فقط به یک کاربر متصل باشد — اتصال دوباره به
+  // کاربر دیگر مجاز نیست (باید ابتدا از کاربر قبلی جدا شود).
+  if (requestedPartyId) {
+    const otherOwner = db.prepare('SELECT id,name,username FROM users WHERE party_id=? AND id<>?').get(requestedPartyId, userId);
+    if (otherOwner) {
+      const err = new Error(`این شخص قبلاً به کاربر «${otherOwner.name || otherOwner.username}» متصل است — هر شخص فقط می‌تواند به یک کاربر متصل باشد`);
+      err.status = 409;
+      err.code = 'E_PARTY_ALREADY_LINKED';
+      throw err;
+    }
+  }
   if (!party && user.party_id) party = db.prepare('SELECT * FROM parties WHERE id=?').get(user.party_id);
 
   const source = party || {};
@@ -99,6 +110,10 @@ function ensureUserParty(db, userId, details = {}) {
   }
 
   db.prepare('UPDATE users SET party_id=? WHERE id=?').run(partyId, user.id);
+  // Defensive cleanup — never leave two users pointing at the same party even
+  // if legacy data slipped past the guard above (belt-and-suspenders with the
+  // partial unique index created in db.js's acc_crm_unify_v1 migration).
+  db.prepare('UPDATE users SET party_id=NULL WHERE party_id=? AND id<>?').run(partyId, user.id);
   return db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
 }
 
