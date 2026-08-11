@@ -15,10 +15,10 @@
 
 ### 2026-08-11 — UI fixes: کالاها rows.map + Help در پوسته + SKU + منوی تولید (SW v148)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `815171b`
 - **خلاصه:** ۱) رفع `rows.map is not a function` در کالاها با `listRows()` برای envelope Wave1. ۲) افزودن «راهنما» به سایدبار پوسته حسابداری (امکانات). ۳) UI ماتریس SKU رنگ×سایز + صفحات رنگ/سایز. ۴) جلوگیری autofill admin روی جستجوی تنظیمات/رمز بکاپ. ۵) باز بودن پیش‌فرض بخش تولید + اصلاح مسیر Help.
 - **فایل‌های کلیدی:** `server/public/app.js`, `server/public/acc-nav.js`, `server/public/sw.js`, `server/public/index.html`
-- **Deploy:** ⏳
+- **Deploy:** ✅ Iran SFTP `.sftp-deploy-stamp-ui-fix-v148` @ 2026-08-11T12:43:25Z — health/ready/root 200 · SW v148
 - **SW:** `erp-taranom-v148`
 
 ### 2026-08-11 — Fix P0–P5 UI/API frankenstein deploy gap (SW v147)
