@@ -15,7 +15,7 @@
 
 ### 2026-08-11 — Fix P0–P5 UI/API frankenstein deploy gap (SW v147)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
-- **Commit:** (پس از push)
+- **Commit:** `9fd57cc`
 - **خلاصه:** علت «UI موج‌ها عوض نشده»: SFTPهای جزئی فقط بخشی از tip را روی ایران گذاشته بودند (`app.js` جدید + ده‌ها route/lib قدیمی + `index.html`/`app.css`/`acc-nav` کهنه؛ `app.js?v=1` هرگز cache-bust نمی‌شد). resync کامل فایل‌های ناهم‌خوان + `?v=147` + SW `erp-taranom-v147` + `Cache-Control: no-store` برای shellهای UI.
 - **فایل‌های کلیدی:** `server/public/{index.html,app.js,app.css,sw.js,acc-nav.js,...}`, `server/server.js`, `server/lib/production/*`, `server/lib/moadian/*`, `server/routes/*`, `scripts/_deploy-p0-p5-ui-resync-sftp.py`, `scripts/_probe-*-deploy-gap.py`
 - **Deploy:** ✅ Iran SFTP resync `.sftp-deploy-stamp-p0-p5-ui-resync` @ 2026-08-11T11:34:10Z — health/ready/root 200؛ UI probe mismatches=0؛ SW `erp-taranom-v147`؛ `app.js?v=147` (بدون blind pull / بدون `--update-env` / بدون npm install)
