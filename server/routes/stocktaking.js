@@ -1,15 +1,9 @@
 const router = require('express').Router();
-const { getDB, audit, createJournalEntry } = require('../db');
+const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
-
-function warehouseQty(db, productId, warehouseId) {
-  const ws = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(productId, warehouseId);
-  if (ws && ws.qty != null) return ws.qty;
-  const p = db.prepare('SELECT warehouse_id, stock FROM products WHERE id=?').get(productId);
-  if (p && p.warehouse_id === parseInt(warehouseId, 10)) return p.stock || 0;
-  return 0;
-}
+const { applyCycleCount, voidCycleCount } = require('../lib/inventory/cycle-count');
+const { round3, parseQty } = require('../lib/round3');
 
 function productsForWarehouse(db, warehouseId) {
   const rows = db.prepare(`
@@ -30,8 +24,17 @@ function productsForWarehouse(db, warehouseId) {
     code: r.code,
     name: r.name,
     unit: r.unit,
-    system_qty: r.wh_qty != null ? r.wh_qty : (r.warehouse_id === parseInt(warehouseId, 10) ? (r.stock || 0) : 0)
+    system_qty: round3(r.wh_qty != null ? r.wh_qty : (r.warehouse_id === parseInt(warehouseId, 10) ? (r.stock || 0) : 0))
   }));
+}
+
+function qtyFromConfirmed(it, fallback) {
+  const conf = parseInt(it.confirmed_count, 10) || 1;
+  if (conf === 2 && it.count2_qty != null && it.count2_qty !== '') return parseQty(it.count2_qty);
+  if (conf === 3 && it.count3_qty != null && it.count3_qty !== '') return parseQty(it.count3_qty);
+  if (it.count1_qty != null && it.count1_qty !== '') return parseQty(it.count1_qty);
+  if (it.counted_qty != null && it.counted_qty !== '') return parseQty(it.counted_qty);
+  return parseQty(fallback);
 }
 
 router.get('/', auth, adminOrAccounting, (req, res) => {
@@ -57,6 +60,21 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
   res.json(rows);
 });
 
+router.get('/:id/tags', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const session = db.prepare('SELECT id FROM stocktaking_sessions WHERE id=?').get(req.params.id);
+  if (!session) return res.status(404).json({ error: 'یافت نشد' });
+  const items = db.prepare(`
+    SELECT i.id, i.product_id, i.system_qty, i.counted_qty, i.count1_qty, i.count2_qty, i.count3_qty,
+      i.count_tag, i.confirmed_count, p.code, p.name, p.unit
+    FROM stocktaking_items i
+    JOIN products p ON i.product_id=p.id
+    WHERE i.session_id=?
+    ORDER BY i.count_tag, p.name
+  `).all(session.id);
+  res.json({ session_id: session.id, items });
+});
+
 router.get('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const session = db.prepare(`
@@ -74,7 +92,7 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
     WHERE i.session_id=?
     ORDER BY p.name
   `).all(session.id);
-  items.forEach(it => { it.variance = (it.counted_qty || 0) - (it.system_qty || 0); });
+  items.forEach(it => { it.variance = round3((it.counted_qty || 0) - (it.system_qty || 0)); });
   res.json({ session, items });
 });
 
@@ -91,8 +109,14 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   `).run(whId, date || todayJalali(), responsible_user_id ? parseInt(responsible_user_id, 10) : req.user.id, note || '', req.user.id);
   const sessionId = result.lastInsertRowid;
   const prods = productsForWarehouse(db, whId);
-  const ins = db.prepare('INSERT INTO stocktaking_items (session_id,product_id,system_qty,counted_qty) VALUES (?,?,?,?)');
-  for (const p of prods) ins.run(sessionId, p.product_id, p.system_qty, p.system_qty);
+  const ins = db.prepare(`
+    INSERT INTO stocktaking_items (session_id,product_id,system_qty,counted_qty,count1_qty,confirmed_count)
+    VALUES (?,?,?,?,?,1)
+  `);
+  for (const p of prods) {
+    const sys = round3(p.system_qty || 0);
+    ins.run(sessionId, p.product_id, sys, sys, sys);
+  }
   audit(req.user.id, 'create', 'stocktaking', sessionId, `شروع انبارگردانی انبار #${whId}`);
   res.json({ id: sessionId, item_count: prods.length });
 });
@@ -103,11 +127,29 @@ router.put('/:id/items', auth, adminOrAccounting, (req, res) => {
   if (!session) return res.status(404).json({ error: 'یافت نشد' });
   if (session.status === 'adjusted') return res.status(400).json({ error: 'این انبارگردانی قبلاً اعمال شده است' });
   const items = req.body.items || [];
-  const upd = db.prepare('UPDATE stocktaking_items SET counted_qty=? WHERE id=? AND session_id=?');
+  const upd = db.prepare(`
+    UPDATE stocktaking_items SET
+      count1_qty=?, count2_qty=?, count3_qty=?, count_tag=?, confirmed_count=?, counted_qty=?
+    WHERE id=? AND session_id=?
+  `);
   db.transaction(() => {
     for (const it of items) {
       if (!it.id) continue;
-      upd.run(Math.max(0, parseInt(it.counted_qty, 10) || 0), it.id, session.id);
+      const row = db.prepare('SELECT * FROM stocktaking_items WHERE id=? AND session_id=?').get(it.id, session.id);
+      if (!row) continue;
+      const count1 = it.count1_qty != null && it.count1_qty !== '' ? parseQty(it.count1_qty) : round3(row.count1_qty != null ? row.count1_qty : row.system_qty || 0);
+      const count2 = it.count2_qty != null && it.count2_qty !== '' ? parseQty(it.count2_qty) : (row.count2_qty != null ? round3(row.count2_qty) : null);
+      const count3 = it.count3_qty != null && it.count3_qty !== '' ? parseQty(it.count3_qty) : (row.count3_qty != null ? round3(row.count3_qty) : null);
+      const count_tag = it.count_tag != null ? String(it.count_tag) : (row.count_tag || null);
+      const confirmed = it.confirmed_count != null ? (parseInt(it.confirmed_count, 10) || 1) : (row.confirmed_count || 1);
+      const counted = qtyFromConfirmed({
+        confirmed_count: confirmed,
+        count1_qty: count1,
+        count2_qty: count2,
+        count3_qty: count3,
+        counted_qty: it.counted_qty,
+      }, row.counted_qty || 0);
+      upd.run(count1, count2, count3, count_tag, confirmed, Math.max(0, counted), it.id, session.id);
     }
   })();
   res.json({ ok: true });
@@ -124,62 +166,34 @@ router.post('/:id/complete', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/:id/apply', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
-  const session = db.prepare('SELECT * FROM stocktaking_sessions WHERE id=?').get(req.params.id);
-  if (!session) return res.status(404).json({ error: 'یافت نشد' });
-  if (session.status === 'adjusted') return res.status(400).json({ error: 'قبلاً اعمال شده' });
-  const items = db.prepare('SELECT * FROM stocktaking_items WHERE session_id=?').all(session.id);
-  let totalGain = 0, totalLoss = 0;
-  db.transaction(() => {
-    for (const it of items) {
-      const counted = Math.max(0, parseInt(it.counted_qty, 10) || 0);
-      const system = it.system_qty || 0;
-      const diff = counted - system;
-      db.prepare(`
-        INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)
-        ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=?
-      `).run(it.product_id, session.warehouse_id, counted, counted);
-      const prod = db.prepare('SELECT warehouse_id, stock, cost, name FROM products WHERE id=?').get(it.product_id);
-      if (prod && prod.warehouse_id === session.warehouse_id) {
-        db.prepare('UPDATE products SET stock=? WHERE id=?').run(counted, it.product_id);
-      } else if (diff !== 0) {
-        db.prepare('UPDATE products SET stock=MAX(0, stock+?) WHERE id=?').run(diff, it.product_id);
-      }
-      if (diff !== 0) {
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-          .run(it.product_id, req.user.id, diff, `انبارگردانی #${session.id}`);
-        const val = Math.abs(diff) * (prod?.cost || 0);
-        if (diff > 0) totalGain += val; else totalLoss += val;
-      }
-    }
-    if (totalGain > 0 || totalLoss > 0) {
-      const lines = [];
-      if (totalGain > 0) {
-        lines.push({ code: '1101', name: 'موجودی کالا', debit: totalGain, credit: 0, description: 'انبارگردانی — اضافه' });
-        lines.push({ code: '5101', name: 'تعدیلات انبارگردانی', debit: 0, credit: totalGain, description: 'انبارگردانی' });
-      }
-      if (totalLoss > 0) {
-        lines.push({ code: '5101', name: 'تعدیلات انبارگردانی', debit: totalLoss, credit: 0, description: 'انبارگردانی — کسری' });
-        lines.push({ code: '1101', name: 'موجودی کالا', debit: 0, credit: totalLoss, description: 'انبارگردانی' });
-      }
-      createJournalEntry(db, {
-        date: session.date || todayJalali(),
-        description: `سند انبارگردانی #${session.id}`,
-        ref_type: 'stocktaking', ref_id: session.id, created_by: req.user.id, lines,
-      });
-    }
-    db.prepare("UPDATE stocktaking_sessions SET status='adjusted',approved_by=?,approved_at=strftime('%s','now') WHERE id=?")
-      .run(req.user.id, session.id);
-  })();
-  audit(req.user.id, 'approve', 'stocktaking', session.id, 'اعمال اصلاحات انبارگردانی');
-  res.json({ ok: true });
+  try {
+    const db = getDB();
+    const result = applyCycleCount(db, +req.params.id, { createdBy: req.user.id });
+    audit(req.user.id, 'approve', 'stocktaking', req.params.id, 'اعمال اصلاحات انبارگردانی');
+    res.json(result);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+router.post('/:id/void', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const result = voidCycleCount(db, +req.params.id, { createdBy: req.user.id });
+    audit(req.user.id, 'reverse', 'stocktaking', req.params.id, 'ابطال اعمال انبارگردانی');
+    res.json(result);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
 });
 
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const session = db.prepare('SELECT * FROM stocktaking_sessions WHERE id=?').get(req.params.id);
   if (!session) return res.status(404).json({ error: 'یافت نشد' });
-  if (session.status === 'adjusted') return res.status(400).json({ error: 'انبارگردانی اعمال‌شده قابل حذف نیست' });
+  if (session.status === 'adjusted') {
+    return res.status(400).json({ error: 'انبارگردانی اعمال‌شده را ابتدا ابطال کنید، سپس حذف کنید' });
+  }
   db.prepare('DELETE FROM stocktaking_items WHERE session_id=?').run(session.id);
   db.prepare('DELETE FROM stocktaking_sessions WHERE id=?').run(session.id);
   audit(req.user.id, 'delete', 'stocktaking', session.id, 'حذف انبارگردانی');

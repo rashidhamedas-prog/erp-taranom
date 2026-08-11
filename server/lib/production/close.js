@@ -65,8 +65,8 @@ function accountBalance(db, accountKeyOrCode, asOfDate) {
   }
   const r = db.prepare(`
     SELECT
-      COALESCE(SUM(COALESCE(jl.debit_rial, ROUND(jl.debit * 10))), 0) -
-      COALESCE(SUM(COALESCE(jl.credit_rial, ROUND(jl.credit * 10))), 0) bal
+      COALESCE(SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)), 0) -
+      COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)), 0) bal
     FROM journal_lines jl
     JOIN journal_entries je ON je.id = jl.entry_id
     WHERE jl.account_code = ? AND COALESCE(je.deleted_at, 0) = 0
@@ -189,10 +189,10 @@ function ohByCostCenter(db, period, endDate) {
   const rows = db.prepare(`
     SELECT cc.id, cc.code, cc.name,
       COALESCE(SUM(CASE WHEN jl.account_code = ? THEN
-        COALESCE(jl.debit_rial, ROUND(jl.debit*10)) - COALESCE(jl.credit_rial, ROUND(jl.credit*10))
+        COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0) - COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)
       ELSE 0 END), 0) actual_rial,
       COALESCE(SUM(CASE WHEN jl.account_code = ? THEN
-        COALESCE(jl.credit_rial, ROUND(jl.credit*10)) - COALESCE(jl.debit_rial, ROUND(jl.debit*10))
+        COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0) - COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)
       ELSE 0 END), 0) applied_rial
     FROM cost_centers cc
     LEFT JOIN journal_lines jl ON jl.detail_account_id = cc.coa_tafsili_oh OR jl.detail_account_id = cc.code
@@ -357,7 +357,7 @@ function appliedLaborRial(db, period, endDate, row) {
   const code = acct(db, 'coa_labor_control').code;
   const start = row?.start_date || `${period}/01`;
   const r = db.prepare(`
-    SELECT COALESCE(SUM(COALESCE(jl.credit_rial, ROUND(jl.credit*10))), 0) s
+    SELECT COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)), 0) s
     FROM journal_lines jl
     JOIN journal_entries je ON je.id = jl.entry_id
     WHERE jl.account_code = ? AND je.ref_type = 'production_labor'

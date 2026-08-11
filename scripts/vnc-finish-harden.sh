@@ -19,7 +19,7 @@ apt-get install -y ufw fail2ban unattended-upgrades chrony curl ca-certificates
 
 echo "==> 3) User taranom + SSH key"
 if ! id taranom >/dev/null 2>&1; then
-  adduser --disabled-password --gecos 'CRM Taranom' taranom
+  adduser --disabled-password --gecos 'ERP Taranom' taranom
 fi
 usermod -aG sudo taranom
 echo 'taranom ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/taranom

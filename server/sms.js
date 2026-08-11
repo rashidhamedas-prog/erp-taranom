@@ -80,21 +80,21 @@ async function sendSMS(settings, to, text) {
       // SMS.ir REST API v1: X-API-KEY header, body uses MessageText (singular) + Mobiles array
       const body = { MessageText: text, Mobiles: [phone] };
       if (from) body.lineNumber = from; // optional — uses account default line if omitted
-      console.log('[smsir] sending to', phone, '| body keys:', Object.keys(body));
       const r = await postJSON(
         'api.sms.ir',
         '/v1/send/bulk',
         body,
         { 'x-api-key': apiKey }
       );
-      console.log('[smsir] response status:', r.status, '| body:', JSON.stringify(r.body));
       const ok = r.status === 200 && r.body && r.body.status === 1;
       return { ok, data: r.body };
     }
 
     return { ok: false, reason: `unsupported provider: ${provider}` };
-  } catch (e) {
-    return { ok: false, reason: e.message };
+  } catch {
+    // Do not reflect transport errors that may contain a credential-bearing
+    // provider path (for example Kavenegar embeds the key in its URL).
+    return { ok: false, reason: 'sms provider request failed' };
   }
 }
 

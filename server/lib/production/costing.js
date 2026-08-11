@@ -106,7 +106,7 @@ function updateMovingAverage(db, { productId, warehouseId, qtyIn, amountRial, us
   `).run(
     newQty,
     newAvg,
-    newAvg / 10,
+    newAvg,
     qty > 0 ? Math.round(amt / qty) : 0,
     productId
   );
@@ -146,7 +146,7 @@ function receiveScrap(db, {
 
   db.prepare(`
     UPDATE products SET stock=?, average_cost_rial=?, cost=? WHERE id=?
-  `).run(newQty, newAvg, newAvg / 10, productId);
+  `).run(newQty, newAvg, newAvg, productId);
 
   if (warehouseId) {
     ensureWhRow(db, productId, warehouseId);

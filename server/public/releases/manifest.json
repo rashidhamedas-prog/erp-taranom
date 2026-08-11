@@ -1,19 +1,24 @@
 {
   "web": {
-    "version": "2.1.0",
-    "notes": "به‌روزرسانی رابط وب — با باز کردن سایت در مرورگر خودکار اعمال می‌شود."
+    "version": "2.1.8",
+    "notes": "پاک‌سازی go-live + کدینگ پایه + cascade حذف تفصیلی — SW v99."
   },
   "desktop": {
-    "version": "1.0.11",
-    "url": "/releases/CRM-Taranom-Setup-1.0.11.exe",
-    "feed_url": "",
-    "notes": "نسخه 1.0.11: Command Palette، مرکز اقدامات، RBAC، مشاور AI، سال مالی، کدینگ تفصیلی، هات‌فیکس ورود، بارکد wedge، SW v30"
+    "version": "2.0.10",
+    "url": "/releases/ERP-Taranom-Setup-2.0.10.exe",
+    "feed_url": "/releases/latest.yml",
+    "sha256": "2D427958647788EDB7F416E44A285E013E3048CB46A4D973618043B6EC6D4456",
+    "sha512": "el9Hfdz45zIBg9MC1FAL4viIvqxl65D0DuGHdSleugGY6l8m0m8cyw8fyWtqryefMD+qWGj3RdgFs09KsK5Gbg==",
+    "size": 100270552,
+    "notes": "آپدیت 2.0.10 امضاشده (Authenticode خودامضا CN=Poshak Taranom). SHA256=2D427958647788EDB7F416E44A285E013E3048CB46A4D973618043B6EC6D4456 — روی PC دیگر SmartScreen ممکن است ناشناس بماند تا گواهی تجاری."
   },
   "android": {
-    "version": "2.0.9",
-    "versionCode": 11,
-    "url": "",
-    "distribution": "local",
-    "notes": "نسخه 2.0.9: نصب فقط از APK محلی (sideload/USB) — سرور APK ارائه نمی‌دهد. رفع بنیادی بوت اندروید."
+    "version": "2.0.33",
+    "versionCode": 35,
+    "url": "/releases/erp-taranom.apk",
+    "distribution": "server",
+    "sha256": "E0EC3938A9BF0061557139EAD8EDAE026AE0251F4ACB0CAB5A0A1CDDB8645A02",
+    "size": 69316805,
+    "notes": "آپدیت 2.0.33 امضاشده با keystore release (CN=Poshak Taranom). SHA256=E0EC3938A9BF0061557139EAD8EDAE026AE0251F4ACB0CAB5A0A1CDDB8645A02 — اگر ارتقا خطا داد یک‌بار uninstall سپس نصب."
   }
 }

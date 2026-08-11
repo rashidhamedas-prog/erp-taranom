@@ -35,6 +35,12 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - name: Install dependencies
         run: npm ci || npm install
+      - name: Prepare embedded runtimes
+        working-directory: .
+        run: node scripts/prepare-embedded-server.js all
+      - name: Verify embedded runtime SHA-256
+        working-directory: .
+        run: node scripts/compare-embedded-hash.js
       - name: Production suite
         run: npm run test:production
       - name: Health check

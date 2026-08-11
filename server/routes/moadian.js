@@ -1,14 +1,39 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOnly, adminOrAccounting, centralOnly, centralOnlyStrict } = require('../middleware/auth');
+const { getPublicSettings, updateSettings, getSetting } = require('../lib/secret-settings');
+const { ENVELOPE_PREFIX, LEGACY_ENVELOPE_RE, decryptDetailed } = require('../services/crypto');
+const moadian = require('../lib/moadian');
 
-// Moadian e-invoicing queue — Phase 3 (submit stub; wire real SDK later)
+const MOADIAN_SETTING_KEYS = ['moadian_enabled', 'moadian_fiscal_id', 'moadian_private_key_path', 'moadian_adapter'];
+
+function enqueueMoadian(db, docType, docId) {
+  return moadian.enqueueMoadian(db, docType, docId);
+}
+
+/** Path setting may still be legacy-encrypted from when it was classified as secret. */
+function readMoadianKeyPath(db) {
+  let value = getSetting(db, 'moadian_private_key_path') || '';
+  if (!value) return '';
+  const looksEncrypted = value.startsWith(ENVELOPE_PREFIX) || LEGACY_ENVELOPE_RE.test(value);
+  if (looksEncrypted) {
+    try {
+      value = decryptDetailed(value, 'setting:moadian_private_key_path').plaintext || '';
+      db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)')
+        .run('moadian_private_key_path', value);
+    } catch (_) {
+      return '';
+    }
+  }
+  return value;
+}
 
 router.get('/queue', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { status } = req.query;
   let sql = `
-    SELECT q.*, i.num as invoice_num, i.final, i.date as invoice_date, c.biz as cust_biz
+    SELECT q.*, i.num as invoice_num, i.final, i.date as invoice_date,
+           i.moadian_invoice_type, c.biz as cust_biz
     FROM moadian_queue q
     LEFT JOIN invoices i ON q.doc_type='sales' AND q.doc_id=i.id
     LEFT JOIN customers c ON i.cust_id=c.id
@@ -19,61 +44,144 @@ router.get('/queue', auth, adminOrAccounting, (req, res) => {
   res.json({ success: true, data: db.prepare(sql).all(...params) });
 });
 
-router.post('/queue/:id/submit', auth, adminOnly, (req, res) => {
+router.get('/queue/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(req.params.id);
+  const row = db.prepare(`
+    SELECT q.*, i.num as invoice_num, i.moadian_invoice_type, i.moadian_ref_tax_id,
+           i.moadian_correction_type, c.biz as cust_biz
+    FROM moadian_queue q
+    LEFT JOIN invoices i ON q.doc_type='sales' AND q.doc_id=i.id
+    LEFT JOIN customers c ON i.cust_id=c.id
+    WHERE q.id=?
+  `).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (row.status === 'accepted') return res.status(422).json({ error: 'قبلاً پذیرفته شده' });
+  res.json({ success: true, data: row });
+});
 
-  const inv = row.doc_type === 'sales'
-    ? db.prepare('SELECT i.*, c.national_id, c.economic_code, c.biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(row.doc_id)
-    : null;
-  if (inv && inv.type === 'final') {
-    if (!inv.economic_code && !inv.national_id) {
-      return res.status(422).json({ error: 'کد ملی/اقتصادی مشتری برای مودیان الزامی است' });
+router.post('/queue/:id/submit', auth, adminOnly, centralOnlyStrict, async (req, res) => {
+  try {
+    const db = getDB();
+    const row = db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'یافت نشد' });
+    if (row.status === 'accepted' || row.status === 'sent') {
+      return res.status(422).json({ error: 'قبلاً ارسال/پذیرفته شده' });
     }
-  }
 
-  const taxId = 'MOADIAN-' + Date.now().toString(36).toUpperCase();
-  db.prepare(`
-    UPDATE moadian_queue SET status='sent', tax_id=?, sent_at=strftime('%s','now'), response_json=?
-    WHERE id=?
-  `).run(taxId, JSON.stringify({ stub: true, message: 'ارسال آزمایشی — اتصال SDK مودیان در فاز بعد' }), req.params.id);
+    const inv = row.doc_type === 'sales'
+      ? db.prepare('SELECT i.*, c.national_id, c.economic_code, c.biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(row.doc_id)
+      : null;
+    if (inv && inv.type === 'final') {
+      if (!inv.economic_code && !inv.national_id) {
+        return res.status(422).json({ error: 'کد ملی/اقتصادی مشتری برای مودیان الزامی است' });
+      }
+    }
 
-  if (inv) {
-    db.prepare('UPDATE invoices SET moadian_tax_id=?, moadian_status=? WHERE id=?').run(taxId, 'sent', inv.id);
+    const adapterSetting = getSetting(db, 'moadian_adapter') || 'stub';
+    const fiscalId = getSetting(db, 'moadian_fiscal_id') || '';
+    const keyPath = readMoadianKeyPath(db);
+    const invoiceType = parseInt(inv?.moadian_invoice_type || row.invoice_type, 10) || 1;
+
+    let adapter;
+    try {
+      adapter = moadian.getAdapter(adapterSetting, { fiscalId, privateKeyPath: keyPath });
+    } catch (e) {
+      return res.status(e.status || 501).json({ error: e.message, code: e.code || 'MOADIAN_ADAPTER' });
+    }
+
+    const payload = moadian.buildSalesPayload(inv || { final: 0, rows: [] }, {
+      fiscalId,
+      invoiceType,
+    });
+    const signed = moadian.signPayload(payload, { privateKeyPath: keyPath || undefined });
+
+    let result;
+    try {
+      result = await adapter.submit({
+        payload,
+        signed,
+        fiscalId,
+        privateKeyPath: keyPath,
+      });
+    } catch (e) {
+      moadian.markFailed(db, row.id, e.message);
+      return res.status(422).json({ error: e.message, code: e.code || 'MOADIAN_SUBMIT_FAILED' });
+    }
+
+    const usedAdapter = result.adapter || adapterSetting;
+    // Tax stamp is central-authority-only (this route is centralOnlyStrict).
+    // Stub/sandbox may stamp with explicit adapter; live is rejected above.
+    moadian.markSent(db, row.id, result.taxId, result.response);
+    db.prepare('UPDATE moadian_queue SET invoice_type=?, adapter=? WHERE id=?')
+      .run(invoiceType, usedAdapter, row.id);
+
+    if (inv) {
+      db.prepare('UPDATE invoices SET moadian_tax_id=?, moadian_status=? WHERE id=?')
+        .run(result.taxId, 'sent', inv.id);
+    }
+    audit(req.user.id, 'moadian_submit', 'moadian_queue', req.params.id, result.taxId);
+    res.json({
+      success: true,
+      data: {
+        tax_id: result.taxId,
+        status: 'sent',
+        invoice_type: invoiceType,
+        adapter: usedAdapter,
+      },
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
   }
-  audit(req.user.id, 'moadian_submit', 'moadian_queue', req.params.id, taxId);
-  res.json({ success: true, data: { tax_id: taxId, status: 'sent' } });
+});
+
+router.post('/queue/:id/correct', auth, adminOnly, centralOnlyStrict, (req, res) => {
+  try {
+    const db = getDB();
+    const orig = db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(req.params.id);
+    if (!orig) return res.status(404).json({ error: 'یافت نشد' });
+    if (orig.doc_type !== 'sales') throw new Error('اصلاح فقط برای فاکتور فروش پشتیبانی می‌شود');
+
+    const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(orig.doc_id);
+    if (!inv) throw new Error('فاکتور مبنا یافت نشد');
+
+    const refTaxId = req.body.moadian_ref_tax_id || inv.moadian_tax_id || orig.tax_id;
+    if (!refTaxId) throw new Error('شناسه مالیاتی مرجع الزامی است');
+
+    const correctionType = req.body.correction_type || 'correct';
+    const invoiceType = parseInt(req.body.moadian_invoice_type || inv.moadian_invoice_type || 1, 10) || 1;
+    const adapter = db.prepare("SELECT value FROM settings WHERE key='moadian_adapter'").get()?.value || 'stub';
+
+    const result = db.transaction(() => {
+      db.prepare(`
+        UPDATE invoices SET moadian_ref_tax_id=?, moadian_correction_type=?, moadian_invoice_type=?
+        WHERE id=?
+      `).run(refTaxId, correctionType, invoiceType, inv.id);
+
+      const ins = db.prepare(`
+        INSERT INTO moadian_queue (doc_type, doc_id, status, invoice_type, adapter, response_json)
+        VALUES ('sales', ?, 'pending', ?, ?, ?)
+      `).run(
+        inv.id, invoiceType, adapter,
+        JSON.stringify({ correction: true, ref_tax_id: refTaxId, correction_type: correctionType })
+      );
+      return ins.lastInsertRowid;
+    })();
+
+    audit(req.user.id, 'moadian_correct', 'moadian_queue', result, `اصلاح ${refTaxId}`);
+    res.json({ success: true, data: { queue_id: result, moadian_ref_tax_id: refTaxId, invoice_type: invoiceType } });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 router.get('/settings', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
-  const keys = ['moadian_enabled', 'moadian_fiscal_id', 'moadian_private_key_path'];
-  const out = {};
-  for (const k of keys) {
-    out[k] = db.prepare('SELECT value FROM settings WHERE key=?').get(k)?.value || '';
-  }
-  res.json({ success: true, data: out });
+  res.json({ success: true, data: getPublicSettings(getDB(), MOADIAN_SETTING_KEYS) });
 });
 
-router.put('/settings', auth, adminOnly, (req, res) => {
+router.put('/settings', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
-  for (const [k, v] of Object.entries(req.body || {})) {
-    if (['moadian_enabled', 'moadian_fiscal_id', 'moadian_private_key_path'].includes(k)) {
-      db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(k, String(v ?? ''));
-    }
-  }
+  updateSettings(db, Object.entries(req.body || {}), new Set(MOADIAN_SETTING_KEYS));
   res.json({ success: true });
 });
-
-function enqueueMoadian(db, docType, docId) {
-  const enabled = db.prepare("SELECT value FROM settings WHERE key='moadian_enabled'").get()?.value;
-  if (enabled !== '1') return;
-  const exists = db.prepare('SELECT id FROM moadian_queue WHERE doc_type=? AND doc_id=?').get(docType, docId);
-  if (exists) return;
-  db.prepare('INSERT INTO moadian_queue (doc_type, doc_id, status) VALUES (?,?,?)').run(docType, docId, 'pending');
-}
 
 module.exports = router;
 module.exports.enqueueMoadian = enqueueMoadian;

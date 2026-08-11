@@ -31,10 +31,20 @@ function seedProducts() {
   const p206 = run('نایلون', 9000, 'packaging', 0, 100);
   const pA = run('نیمه‌ساخته A', 100000, 'semi', 1, 0);
   const pB = run('نیمه‌ساخته B', 100000, 'semi', 1, 0);
+  const pCycRoot = run('cycle-root', 100000, 'semi', 1, 0);
+  const pCycB = run('cycle-B', 100000, 'semi', 1, 0);
+  const pCycC = run('cycle-C', 100000, 'semi', 1, 0);
+  const pDiaA = run('diamond-A', 100000, 'semi', 1, 0);
+  const pDiaB = run('diamond-B', 100000, 'semi', 1, 0);
+  const pDiaC = run('diamond-C', 100000, 'semi', 1, 0);
+  const pDiaD = run('diamond-D', 100000, 'semi', 1, 0);
   const pFab1 = run('پارچه سبز', 900000, 'raw', 0, 10);
   const pFab2 = run('پارچه یشمی', 880000, 'raw', 0, 5000);
   const pFab3 = run('پارچه آبی', 870000, 'raw', 0, 5000);
-  return { p101, p102, p201, p202, p203, p204, p205, p206, pA, pB, pFab1, pFab2, pFab3 };
+  return {
+    p101, p102, p201, p202, p203, p204, p205, p206, pA, pB,
+    pCycRoot, pCycB, pCycC, pDiaA, pDiaB, pDiaC, pDiaD, pFab1, pFab2, pFab3,
+  };
 }
 
 const P = seedProducts();
@@ -299,6 +309,52 @@ throws('T1-27 مقدار صفر', () => {
   }, adminId);
   bom.activateBom(db, d.id, '1405/06/01', adminId);
 }, 'E_BOM_QTY_ZERO');
+
+// T1-28 mid-path cycle Root→B→C→B (not involving root) — path visited-set
+try {
+  bom.createBom(db, {
+    product_id: P.pCycB, name: 'cyc-B',
+    lines: [{ component_product_id: P.pCycC, qty_per_base: 1, line_type: 'material' }],
+  }, adminId);
+  bom.createBom(db, {
+    product_id: P.pCycC, name: 'cyc-C',
+    lines: [{ component_product_id: P.pCycB, qty_per_base: 1, line_type: 'material' }],
+  }, adminId);
+  const root = bom.createBom(db, {
+    product_id: P.pCycRoot, name: 'cyc-root',
+    lines: [{ component_product_id: P.pCycB, qty_per_base: 1, line_type: 'material' }],
+  }, adminId);
+  throws('T1-28 حلقه میانی مسیر', () => bom.validateBom(db, root.id), 'E_BOM_CIRCULAR');
+} catch (e) {
+  ok('T1-28 حلقه میانی مسیر', false, e.message);
+}
+
+// T1-29 diamond DAG A→B→D and A→C→D must NOT be circular
+try {
+  bom.createBom(db, {
+    product_id: P.pDiaD, name: 'dia-D',
+    lines: [{ component_product_id: P.p201, qty_per_base: 1, line_type: 'material' }],
+  }, adminId);
+  bom.createBom(db, {
+    product_id: P.pDiaB, name: 'dia-B',
+    lines: [{ component_product_id: P.pDiaD, qty_per_base: 1, line_type: 'material' }],
+  }, adminId);
+  bom.createBom(db, {
+    product_id: P.pDiaC, name: 'dia-C',
+    lines: [{ component_product_id: P.pDiaD, qty_per_base: 1, line_type: 'material' }],
+  }, adminId);
+  const dia = bom.createBom(db, {
+    product_id: P.pDiaA, name: 'dia-A',
+    lines: [
+      { component_product_id: P.pDiaB, qty_per_base: 1, line_type: 'material' },
+      { component_product_id: P.pDiaC, qty_per_base: 1, line_type: 'material' },
+    ],
+  }, adminId);
+  bom.validateBom(db, dia.id);
+  ok('T1-29 گراف الماسی مجاز', true);
+} catch (e) {
+  ok('T1-29 گراف الماسی مجاز', false, e.message);
+}
 
 cleanup();
 summary('P1 BOM');

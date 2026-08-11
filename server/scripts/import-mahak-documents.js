@@ -31,8 +31,9 @@ function ensureColumn(table, column, definition) {
   if (!cols.some(c => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
-for (const tbl of ['invoices', 'purchase_invoices', 'settlements', 'supplier_payments', 'expense_payments', 'warehouse_moves', 'account_transfers', 'payroll_records']) {
+for (const tbl of ['invoices', 'purchase_invoices', 'settlements', 'supplier_payments', 'expense_payments', 'warehouse_moves', 'account_transfers', 'payroll_records', 'sales_returns', 'purchase_returns']) {
   ensureColumn(tbl, 'mahak_doc_no', 'TEXT');
+  ensureColumn(tbl, 'mahak_doc_type', 'TEXT');
 }
 
 const existing = db.prepare("SELECT COUNT(*) c FROM invoices WHERE mahak_doc_no IS NOT NULL AND mahak_doc_no<>''").get().c;
@@ -41,7 +42,8 @@ if (existing > 0 && !FORCE) {
   process.exit(1);
 }
 
-const vouchers = parseMahakJournal(journalPath);
+(async () => {
+const vouchers = await parseMahakJournal(journalPath);
 const adminId = db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").get().id;
 const defaultWh = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get()?.id || null;
 
@@ -160,9 +162,11 @@ const stats = db.transaction(() => {
 
   const lookups = buildLookups();
   const report = {
-    sales_invoice: 0, receipt: 0, purchase: 0, supplier_payment: 0, expense_payment: 0,
-    warehouse_issue: 0, warehouse_receipt: 0, transfer: 0, payroll: 0,
-    opening: 0, person_transfer: 0, production: 0, cogs_only: 0, cheque_ops: 0, cheque_settlement: 0, payment_misc: 0, other: 0, adjustment: 0,
+    sales_invoice: 0, sales_return: 0, receipt: 0, purchase: 0, purchase_return: 0,
+    supplier_payment: 0, expense_payment: 0,
+    warehouse_issue: 0, warehouse_receipt: 0, warehouse_transfer: 0, transfer: 0, payroll: 0,
+    opening: 0, person_transfer: 0, production: 0, cogs_only: 0, cheque_ops: 0, cheque_settlement: 0,
+    payment_misc: 0, stocktaking: 0, account_transfer: 0, other: 0, adjustment: 0,
     skipped: [], warnings: [],
   };
 
@@ -207,16 +211,34 @@ const stats = db.transaction(() => {
       const final = rows.reduce((a, r) => a + (r.sum || 0), 0) || sumKol(v, '203', 'debit');
       invSeq++;
       const num = `F-${docNo}`;
-      const r = db.prepare(`INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,pay_type,stock_deducted,approved,sales_channel,mahak_doc_no)
-                            VALUES (?,?,?,?,?,?,?,?,0,0,?,?,1,1,'shop',?)`).run(
+      const r = db.prepare(`INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,pay_type,stock_deducted,approved,sales_channel,mahak_doc_no,mahak_doc_type)
+                            VALUES (?,?,?,?,?,?,?,?,0,0,?,?,1,1,'shop',?,?)`).run(
         adminId, custId, num, 'final', v.date, `[محک:${docNo}] ${desc}`, JSON.stringify(rows),
-        final, final, 'credit', docNo);
+        final, final, 'credit', docNo, 'sales_invoice');
       createLedgerEntry(db, {
         customer_id: custId, date: v.date, entry_type: 'invoice', ref_type: 'invoice', ref_id: r.lastInsertRowid,
         description: `فاکتور ${num}`, debit: final, credit: 0, user_id: adminId,
       });
       linkJournal(docNo, 'invoice', r.lastInsertRowid);
       report.sales_invoice++;
+      continue;
+    }
+
+    if (type === 'sales_return') {
+      const custId = resolveCustomer(v, lookups, adminId, 'invoice');
+      if (!custId) { report.skipped.push(`برگشت فروش ${docNo}`); report.other++; continue; }
+      const rawRows = extractSalesRows(v);
+      const rows = mapRows(rawRows, lookups);
+      const amount = rows.reduce((a, r) => a + (r.sum || 0), 0) || sumKol(v, '203', 'credit') || sumKol(v, '601', 'debit');
+      const r = db.prepare(`INSERT INTO sales_returns (user_id,cust_id,date,note,rows,amount,mahak_doc_no,mahak_doc_type)
+                            VALUES (?,?,?,?,?,?,?,?)`).run(
+        adminId, custId, v.date, `[محک:${docNo}] ${desc}`, JSON.stringify(rows), amount, docNo, 'sales_return');
+      createLedgerEntry(db, {
+        customer_id: custId, date: v.date, entry_type: 'return', ref_type: 'sales_return', ref_id: r.lastInsertRowid,
+        description: `برگشت از فروش — ${desc}`, debit: 0, credit: amount, user_id: adminId,
+      });
+      linkJournal(docNo, 'sales_return', r.lastInsertRowid);
+      report.sales_return++;
       continue;
     }
 
@@ -232,10 +254,10 @@ const stats = db.transaction(() => {
       if (!custId || !amount) { report.skipped.push(`دریافت ${docNo}: مشتری/مبلغ نامشخص`); report.other++; continue; }
       const cash = resolveCashFrom206(v, lookups);
       const payType = receiptPayType(v);
-      const r = db.prepare(`INSERT INTO settlements (user_id,cust_id,amount,pay_type,date,note,bank_id,cash_box_id,mahak_doc_no)
-                            VALUES (?,?,?,?,?,?,?,?,?)`).run(
+      const r = db.prepare(`INSERT INTO settlements (user_id,cust_id,amount,pay_type,date,note,bank_id,cash_box_id,mahak_doc_no,mahak_doc_type)
+                            VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
         adminId, custId, amount, payType, v.date, `[محک:${docNo}] ${desc}`,
-        cash.bank_id ?? null, cash.cash_box_id ?? null, String(docNo));
+        cash.bank_id ?? null, cash.cash_box_id ?? null, String(docNo), 'receipt');
       createLedgerEntry(db, {
         customer_id: custId, date: v.date, entry_type: 'settlement', ref_type: 'settlement', ref_id: r.lastInsertRowid,
         description: `دریافت — ${desc}`, debit: 0, credit: amount, user_id: adminId,
@@ -253,14 +275,31 @@ const stats = db.transaction(() => {
       const final = rows.reduce((a, r) => a + (r.sum || 0), 0) || sumKol(v, '501', 'credit');
       purSeq++;
       const num = `P-${docNo}`;
-      const r = db.prepare(`INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,pay_type,stock_added,mahak_doc_no)
-                            VALUES (?,?,?,?,?,?,?,0,0,?,?,1,?)`).run(
-        adminId, supId, num, v.date, `[محک:${docNo}] ${desc}`, JSON.stringify(rows), final, final, 'credit', docNo);
+      const r = db.prepare(`INSERT INTO purchase_invoices (user_id,supplier_id,num,date,note,rows,subtotal,disc,disc_amt,final,pay_type,stock_added,mahak_doc_no,mahak_doc_type)
+                            VALUES (?,?,?,?,?,?,?,0,0,?,?,1,?,?)`).run(
+        adminId, supId, num, v.date, `[محک:${docNo}] ${desc}`, JSON.stringify(rows), final, final, 'credit', docNo, 'purchase');
       db.prepare(`INSERT INTO supplier_ledger (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
                   VALUES (?,?,?,?,?,?,?,?,?)`).run(
         supId, v.date, 'purchase', 'purchase', r.lastInsertRowid, `فاکتور خرید ${num}`, 0, final, adminId);
       linkJournal(docNo, 'purchase', r.lastInsertRowid);
       report.purchase++;
+      continue;
+    }
+
+    if (type === 'purchase_return') {
+      const supId = supFrom501(v, lookups, 'debit');
+      if (!supId) { report.skipped.push(`برگشت خرید ${docNo}`); report.other++; continue; }
+      const rawRows = extractPurchaseRows(v);
+      const rows = mapRows(rawRows, lookups);
+      const amount = rows.reduce((a, r) => a + (r.sum || 0), 0) || sumKol(v, '501', 'debit') || sumKol(v, '202', 'credit');
+      const r = db.prepare(`INSERT INTO purchase_returns (user_id,supplier_id,date,note,rows,amount,mahak_doc_no,mahak_doc_type)
+                            VALUES (?,?,?,?,?,?,?,?)`).run(
+        adminId, supId, v.date, `[محک:${docNo}] ${desc}`, JSON.stringify(rows), amount, docNo, 'purchase_return');
+      db.prepare(`INSERT INTO supplier_ledger (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
+                  VALUES (?,?,?,?,?,?,?,?,?)`).run(
+        supId, v.date, 'return', 'purchase_return', r.lastInsertRowid, `برگشت از خرید — ${desc}`, amount, 0, adminId);
+      linkJournal(docNo, 'purchase_return', r.lastInsertRowid);
+      report.purchase_return++;
       continue;
     }
 
@@ -271,9 +310,9 @@ const stats = db.transaction(() => {
       const cash = resolveCashFrom206(v, lookups);
       const payType = v.lines.some(l => l.code.startsWith('206') && l.credit > 0) ? (cash.pay_type || 'cash')
         : v.lines.some(l => l.code.startsWith('203001') && l.credit > 0) ? 'cheque' : 'cash';
-      const r = db.prepare(`INSERT INTO supplier_payments (supplier_id,amount,pay_type,date,note,bank_id,cash_box_id,mahak_doc_no)
-                            VALUES (?,?,?,?,?,?,?,?)`).run(
-        supId, amount, payType, v.date, `[محک:${docNo}] ${desc}`, cash.bank_id ?? null, cash.cash_box_id ?? null, docNo);
+      const r = db.prepare(`INSERT INTO supplier_payments (supplier_id,amount,pay_type,date,note,bank_id,cash_box_id,mahak_doc_no,mahak_doc_type)
+                            VALUES (?,?,?,?,?,?,?,?,?)`).run(
+        supId, amount, payType, v.date, `[محک:${docNo}] ${desc}`, cash.bank_id ?? null, cash.cash_box_id ?? null, docNo, 'supplier_payment');
       db.prepare(`INSERT INTO supplier_ledger (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
                   VALUES (?,?,?,?,?,?,?,?,?)`).run(
         supId, v.date, 'payment', 'supplier_payment', r.lastInsertRowid, desc, amount, 0, adminId);
@@ -288,35 +327,45 @@ const stats = db.transaction(() => {
       if (!amount) { report.other++; continue; }
       const cash = resolveCashFrom206(v, lookups);
       const title = expLine ? expLine.name.split(' - ').pop() : desc;
-      const r = db.prepare(`INSERT INTO expense_payments (category,title,amount,pay_type,date,note,bank_id,cash_box_id,account_code,created_by,mahak_doc_no)
-                            VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+      const r = db.prepare(`INSERT INTO expense_payments (category,title,amount,pay_type,date,note,bank_id,cash_box_id,account_code,created_by,mahak_doc_no,mahak_doc_type)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         'هزینه محک', title, amount, cash.pay_type, v.date, `[محک:${docNo}] ${desc}`,
-        cash.bank_id, cash.cash_box_id, expLine?.code || null, adminId, docNo);
+        cash.bank_id, cash.cash_box_id, expLine?.code || null, adminId, docNo, 'expense_payment');
       linkJournal(docNo, 'expense_payment', r.lastInsertRowid);
       report.expense_payment++;
       continue;
     }
 
-    if (type === 'warehouse_issue' || type === 'warehouse_receipt') {
+    if (type === 'warehouse_issue' || type === 'warehouse_receipt' || type === 'warehouse_transfer') {
       const isReceipt = type === 'warehouse_receipt';
+      const isTransfer = type === 'warehouse_transfer';
       const prodLines = v.lines.filter(l => l.kol === '202' && (isReceipt ? l.debit > 0 : l.credit > 0));
       if (!prodLines.length) { report.other++; continue; }
+      let lastMoveId = null;
       for (const pl of prodLines) {
         const prod = lookups.prodByCode.get(pl.taf);
         if (!prod) { report.warnings.push(`انبار ${docNo}: کالا ${pl.taf} یافت نشد`); continue; }
         const qty = 1;
         const whId = prod.warehouse_id || defaultWh;
+        const moveType = isTransfer ? 'transfer' : isReceipt ? 'receipt' : 'issue';
         if (isReceipt) {
-          db.prepare(`INSERT INTO warehouse_moves (type,product_id,to_warehouse_id,qty,date,note,created_by,mahak_doc_no)
-                      VALUES ('receipt',?,?,?,?,?,?,?)`).run(prod.id, whId, qty, v.date, `[محک:${docNo}] ${desc}`, adminId, docNo);
+          const r = db.prepare(`INSERT INTO warehouse_moves (type,product_id,to_warehouse_id,qty,date,note,created_by,mahak_doc_no,mahak_doc_type)
+                      VALUES ('receipt',?,?,?,?,?,?,?,?)`).run(prod.id, whId, qty, v.date, `[محک:${docNo}] ${desc}`, adminId, docNo, 'warehouse_receipt');
+          lastMoveId = r.lastInsertRowid;
           report.warehouse_receipt++;
+        } else if (isTransfer) {
+          const r = db.prepare(`INSERT INTO warehouse_moves (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by,mahak_doc_no,mahak_doc_type)
+                      VALUES ('transfer',?,?,?,?,?,?,?,?,?)`).run(prod.id, whId, whId, qty, v.date, `[محک:${docNo}] ${desc}`, adminId, docNo, 'warehouse_transfer');
+          lastMoveId = r.lastInsertRowid;
+          report.warehouse_transfer++;
         } else {
-          db.prepare(`INSERT INTO warehouse_moves (type,product_id,from_warehouse_id,qty,date,note,created_by,mahak_doc_no)
-                      VALUES ('issue',?,?,?,?,?,?,?)`).run(prod.id, whId, qty, v.date, `[محک:${docNo}] ${desc}`, adminId, docNo);
+          const r = db.prepare(`INSERT INTO warehouse_moves (type,product_id,from_warehouse_id,qty,date,note,created_by,mahak_doc_no,mahak_doc_type)
+                      VALUES ('issue',?,?,?,?,?,?,?,?)`).run(prod.id, whId, qty, v.date, `[محک:${docNo}] ${desc}`, adminId, docNo, 'warehouse_issue');
+          lastMoveId = r.lastInsertRowid;
           report.warehouse_issue++;
         }
       }
-      linkJournal(docNo, 'manual_voucher', null);
+      linkJournal(docNo, 'warehouse_move', lastMoveId);
       continue;
     }
 
@@ -330,9 +379,9 @@ const stats = db.transaction(() => {
       const fromId = lookups.bankByCoa.get(dr.code) || lookups.boxByCoa.get(dr.code);
       const toId = lookups.bankByCoa.get(cr.code) || lookups.boxByCoa.get(cr.code);
       if (!fromId || !toId) { report.skipped.push(`انتقال ${docNo}`); report.other++; continue; }
-      const r = db.prepare(`INSERT INTO account_transfers (date,from_type,from_id,to_type,to_id,amount,note,user_id,mahak_doc_no)
-                            VALUES (?,?,?,?,?,?,?,?,?)`).run(
-        v.date, fromType, fromId, toType, toId, amount, `[محک:${docNo}] ${desc}`, adminId, docNo);
+      const r = db.prepare(`INSERT INTO account_transfers (date,from_type,from_id,to_type,to_id,amount,note,user_id,mahak_doc_no,mahak_doc_type)
+                            VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+        v.date, fromType, fromId, toType, toId, amount, `[محک:${docNo}] ${desc}`, adminId, docNo, 'transfer');
       linkJournal(docNo, 'transfer', r.lastInsertRowid);
       report.transfer++;
       continue;
@@ -347,9 +396,9 @@ const stats = db.transaction(() => {
           .run(catId, 'کارکنان محک', 'ایجاد خودکار برای import حقوق محک').lastInsertRowid;
       }
       const amt = sumKol(v, '701', 'debit') || sumKol(v, '501', 'credit') || sumKol(v, '206', 'credit');
-      const r = db.prepare(`INSERT INTO payroll_records (person_id,period_label,date,gross_pay,net_pay,paid,note,created_by,mahak_doc_no)
-                            VALUES (?,?,?,?,?,1,?,?,?)`).run(
-        personId, v.date.slice(0, 7) || v.date, v.date, amt, amt, `[محک:${docNo}] ${desc}`, adminId, docNo);
+      const r = db.prepare(`INSERT INTO payroll_records (person_id,period_label,date,gross_pay,net_pay,paid,note,created_by,mahak_doc_no,mahak_doc_type)
+                            VALUES (?,?,?,?,?,1,?,?,?,?)`).run(
+        personId, v.date.slice(0, 7) || v.date, v.date, amt, amt, `[محک:${docNo}] ${desc}`, adminId, docNo, 'payroll');
       linkJournal(docNo, 'payroll', r.lastInsertRowid);
       report.payroll++;
       continue;
@@ -364,9 +413,9 @@ const stats = db.transaction(() => {
         report.cheque_ops++;
         continue;
       }
-      const r = db.prepare(`INSERT INTO settlements (user_id,cust_id,amount,pay_type,date,note,bank_id,cash_box_id,mahak_doc_no)
-                            VALUES (?,?,?,?,?,?,?,?,?)`).run(
-        adminId, custId, amount, 'cheque', v.date, `[محک:${docNo}] ${desc}`, null, null, String(docNo));
+      const r = db.prepare(`INSERT INTO settlements (user_id,cust_id,amount,pay_type,date,note,bank_id,cash_box_id,mahak_doc_no,mahak_doc_type)
+                            VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+        adminId, custId, amount, 'cheque', v.date, `[محک:${docNo}] ${desc}`, null, null, String(docNo), 'cheque_settlement');
       createLedgerEntry(db, {
         customer_id: custId, date: v.date, entry_type: 'settlement', ref_type: 'settlement', ref_id: r.lastInsertRowid,
         description: `عملیات چک — ${desc}`, debit: 0, credit: amount, user_id: adminId,
@@ -458,3 +507,8 @@ console.log(`   sup_payments=${stats.supplier_payment} expenses=${stats.expense_
 console.log(`   warehouse out=${stats.warehouse_issue} in=${stats.warehouse_receipt} transfers=${stats.transfer}`);
 console.log(`   journal linked=${linked} remaining mahak_import=${remaining}`);
 console.log(`   report: ${repPath}`);
+
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

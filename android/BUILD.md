@@ -1,4 +1,4 @@
-# ساخت اپلیکیشن اندروید (CRM ترنم — نسخه آفلاین)
+# ساخت اپلیکیشن اندروید (ERP ترنم — نسخه آفلاین)
 
 **نسخه ۲ (این نسخه):** اپلیکیشن دیگر پوستهٔ آنلاین TWA نیست. یک **Node.js داخلی** (nodejs-mobile) همان بک‌اند سرور مرکزی را با `SYNC_ROLE=device` روی خود گوشی اجرا می‌کند: همه داده‌ها روی دستگاه ذخیره می‌شود، همه عملیات **بدون اینترنت** انجام می‌شود و به‌محض اتصال، تغییرات خودکار با سرور مرکزی همگام می‌شود — دقیقاً مثل نسخه دسکتاپ ویندوز.
 
@@ -44,15 +44,22 @@ npm rebuild better-sqlite3 --build-from-source \
 
 ## مرحله ۳ — ساخت APK
 
+> منبع یکتای بک‌اند پوشه `server/` در ریشه پروژه است. task گرادل
+> `copyServerSources` همان pipeline مشترک `scripts/prepare-embedded-server.js`
+> را اجرا می‌کند. پیش از بسته‌بندی می‌توان با
+> `node scripts/compare-embedded-hash.js` از ریشه پروژه، برابری SHA-256 نسخه‌های
+> desktop و Android را کنترل کرد؛ فایل‌های DB، آپلود، بکاپ، لاگ و `node_modules`
+> عمداً از بسته حذف می‌شوند.
+
 1. پوشه `android/` را در Android Studio باز کنید و منتظر Gradle Sync بمانید
 2. تسک `copyServerSources` به‌طور خودکار آخرین سورس `server/` را داخل assets کپی می‌کند
 3. `Build → Generate Signed Bundle / APK → APK`
 4. Keystore و رمزهایش **در گیت نیستند** (و نباید باشند). فایل `android/keystore.properties` را محلی بسازید (این فایل در `.gitignore` است):
 
 ```properties
-storeFile=crm-taranom.jks
+storeFile=erp-taranom.jks
 storePassword=<رمز keystore>
-keyAlias=crm-taranom
+keyAlias=erp-taranom
 keyPassword=<رمز کلید>
 ```
 
@@ -61,7 +68,7 @@ keyPassword=<رمز کلید>
 > ⚠️ **چرخش keystore الزامی است**: keystore قبلی و رمز آن در تاریخچه گیت این مخزن افشا شده‌اند. یک keystore جدید بسازید و نسخه‌های بعدی را با آن امضا کنید (کاربران باید نسخه قدیمی را یک‌بار حذف و نسخه جدید را نصب کنند، چون امضا عوض می‌شود):
 >
 > ```bash
-> keytool -genkeypair -v -keystore crm-taranom.jks -alias crm-taranom \
+> keytool -genkeypair -v -keystore erp-taranom.jks -alias erp-taranom \
 >   -keyalg RSA -keysize 2048 -validity 10000
 > ```
 
@@ -78,7 +85,7 @@ cd android
 **APK هرگز روی سرور production آپلود نمی‌شود.** دلایل: فایل ~۶۰MB، آپلود ناپایدار (قطع scp)، و APK خراب روی سرور باعث بنر آپدیت شکسته می‌شد.
 
 1. `scripts/build-android.ps1` را روی ویندوز اجرا کنید
-2. خروجی: `server/public/releases/crm-taranom.apk` (فقط محلی)
+2. خروجی: `server/public/releases/erp-taranom.apk` (فقط محلی)
 3. نصب روی گوشی: USB / sideload / ارسال مستقیم — **نه** از `http://45.90.98.99/releases/`
 4. `manifest.json` اندروید `url` خالی دارد (`distribution: local`) تا بنر آپدیت لینک شکسته نشان ندهد
 
@@ -86,8 +93,10 @@ cd android
 
 1. APK را نصب و باز کنید — چند ثانیه اول، سرور داخلی بالا می‌آید
 2. ورود با کاربر پیش‌فرض: `admin` / `admin123`
-3. پنجره «اتصال به سرور مرکزی» → آدرس `http://45.90.98.99:3000` + نام کاربری/رمز مدیر (یک‌بار، با اینترنت)
-4. از این پس با نام کاربری اصلی خودتان وارد می‌شوید و برنامه کاملاً آفلاین کار می‌کند؛ نشانگر بالای صفحه وضعیت همگام‌سازی را نشان می‌دهد
+3. پنجره «اتصال به سرور مرکزی» → آدرس `https://erp.poshaktaranom.com` + نام کاربری/رمز مدیر (یک‌بار، با اینترنت)
+4. بعد از زدن اتصال، صفحهٔ «دریافت اطلاعات» می‌آید — تا پیام موفقیت صبر کنید (APK **۲.۰.۲۱+**)
+5. اگر پیام «قبلاً متصل شده» / رمز خودتان کار نکرد: در صفحه ورود «قطع اتصال و اتصال مجدد» را بزنید، یا دادهٔ اپ را پاک کنید و از نو وصل شوید
+6. از این پس با نام کاربری اصلی خودتان وارد می‌شوید و برنامه کاملاً آفلاین کار می‌کند؛ نشانگر بالای صفحه وضعیت همگام‌سازی را نشان می‌دهد
 
 ## معماری
 

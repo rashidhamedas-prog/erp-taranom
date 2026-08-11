@@ -1,12 +1,10 @@
 const router = require('express').Router();
-const { getDB, audit, createJournalEntry, resolveCashAccount } = require('../db');
+const { getDB, audit, resolveCashAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
-
-const FALLBACK_ACCOUNTS = {
-  admin: { code: '6102', name: 'هزینه‌های عمومی و اداری' },
-  sales: { code: '6103', name: 'هزینه‌های توزیع و فروش' }
-};
+const { postToLedger } = require('../lib/ledger');
+const { rialToLedger } = require('../lib/money');
+const { acct } = require('../lib/coa-map');
 
 function resolveExpenseAccount(db, category, account_code) {
   if (account_code) {
@@ -21,7 +19,7 @@ function resolveExpenseAccount(db, category, account_code) {
       return { code: cat.account_code, name: cat.name };
     }
   }
-  return FALLBACK_ACCOUNTS[category] || FALLBACK_ACCOUNTS.admin;
+  return acct(db, category === 'sales' ? 'coa_sales_expense' : 'coa_admin_expense');
 }
 
 router.get('/categories', auth, adminOrAccounting, (req, res) => {
@@ -30,11 +28,20 @@ router.get('/categories', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/categories', auth, adminOrAccounting, (req, res) => {
-  const { name, code, account_code } = req.body;
+  const { name, code, account_code, coa_code, parent_id } = req.body;
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'نام دسته‌بندی الزامی است' });
   const db = getDB();
-  const r = db.prepare('INSERT INTO expense_categories (code,name,account_code) VALUES (?,?,?)')
-    .run(code || null, String(name).trim(), account_code || null);
+  const parentId = parent_id ? parseInt(parent_id, 10) : null;
+  let level = 1;
+  if (parentId) {
+    const parent = db.prepare('SELECT id, level FROM expense_categories WHERE id=?').get(parentId);
+    if (!parent) return res.status(400).json({ error: 'دسته والد یافت نشد' });
+    level = (parent.level || 1) + 1;
+  }
+  const coa = coa_code || account_code || null;
+  const r = db.prepare(
+    'INSERT INTO expense_categories (code,name,account_code,coa_code,parent_id,level) VALUES (?,?,?,?,?,?)'
+  ).run(code || null, String(name).trim(), account_code || coa, coa, parentId, level);
   audit(req.user.id, 'create', 'expense_category', r.lastInsertRowid, name);
   res.json(db.prepare('SELECT * FROM expense_categories WHERE id=?').get(r.lastInsertRowid));
 });
@@ -43,9 +50,26 @@ router.put('/categories/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM expense_categories WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const { name, code, account_code, active } = req.body;
-  db.prepare('UPDATE expense_categories SET name=?, code=?, account_code=?, active=? WHERE id=?').run(
-    name || row.name, code ?? row.code, account_code ?? row.account_code,
+  const { name, code, account_code, active, coa_code, parent_id } = req.body;
+  let parentId = row.parent_id;
+  let level = row.level || 1;
+  if (parent_id !== undefined) {
+    parentId = parent_id ? parseInt(parent_id, 10) : null;
+    if (parentId) {
+      if (parentId === parseInt(req.params.id, 10)) return res.status(400).json({ error: 'دسته نمی‌تواند والد خودش باشد' });
+      const parent = db.prepare('SELECT id, level FROM expense_categories WHERE id=?').get(parentId);
+      if (!parent) return res.status(400).json({ error: 'دسته والد یافت نشد' });
+      level = (parent.level || 1) + 1;
+    } else {
+      level = 1;
+    }
+  }
+  const coa = coa_code !== undefined ? (coa_code || null) : (row.coa_code || null);
+  const acc = account_code !== undefined ? (account_code || null) : (row.account_code || coa);
+  db.prepare(
+    'UPDATE expense_categories SET name=?, code=?, account_code=?, coa_code=?, parent_id=?, level=?, active=? WHERE id=?'
+  ).run(
+    name || row.name, code ?? row.code, acc, coa, parentId, level,
     active != null ? (active ? 1 : 0) : row.active, req.params.id
   );
   res.json({ ok: true });
@@ -68,6 +92,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
     LEFT JOIN users u ON e.created_by=u.id
     LEFT JOIN cost_centers cc ON e.cost_center_id=cc.id
     LEFT JOIN purchase_invoices pi ON e.purchase_invoice_id=pi.id
+    WHERE COALESCE(e.status,'posted')<>'reversed'
     ORDER BY e.created_at DESC LIMIT 300
   `).all();
   res.json(rows);
@@ -92,19 +117,32 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     const expId = result.lastInsertRowid;
 
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    const entryId = createJournalEntry(db, {
+    const entryId = postToLedger(db, {
+      sourceType: 'expense_payment', sourceId: expId,
       date: date || todayJalali(), description: `پرداخت هزینه: ${title || acc.name}`,
-      ref_type: 'expense_payment', ref_id: expId, created_by: req.user.id,
+      createdBy: req.user.id, costCenterId: cost_center_id || null,
       lines: [
-        { code: acc.code, name: acc.name, debit: amt, credit: 0, description: title || '' },
-        { code: cash.code, name: cash.name, debit: 0, credit: amt }
+        { code: acc.code, name: acc.name, debit: rialToLedger(amt), credit: 0, description: title || '' },
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) }
       ]
     });
-    if (cost_center_id) db.prepare('UPDATE journal_entries SET cost_center_id=? WHERE id=?').run(cost_center_id, entryId);
+    db.prepare('UPDATE expense_payments SET journal_entry_id=? WHERE id=?').run(entryId, expId);
     return expId;
   })();
 
-  audit(req.user.id, 'create', 'expense_payment', expId, `پرداخت هزینه ${amt} تومان (${title || acc.name})`);
+  audit(req.user.id, 'create', 'expense_payment', expId, `پرداخت هزینه ${amt} ریال (${title || acc.name})`);
+  try {
+    const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+    setImmediate(() => dispatchSmsEvent(db, 'payment.created', {
+      phone: '',
+      name: title || acc.name,
+      amount: amt,
+      date: date || '',
+      note: note || '',
+      created_by: req.user.id,
+      user: req.user.name,
+    }));
+  } catch (_) {}
   res.json({ id: expId, ok: true });
 });
 
@@ -112,7 +150,7 @@ router.get('/overhead-pool', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const from = req.query.from || '';
   const to = req.query.to || '';
-  const where = ["is_overhead=1"], params = [];
+  const where = ["is_overhead=1", "COALESCE(status,'posted')<>'reversed'"], params = [];
   if (from) { where.push('date>=?'); params.push(from); }
   if (to) { where.push('date<=?'); params.push(to); }
   const tagged = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM expense_payments WHERE ${where.join(' AND ')}`).get(...params).s;
@@ -141,20 +179,29 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM expense_payments WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  if (row.status === 'reversed') return res.status(400).json({ error: 'این هزینه قبلاً ابطال شده است' });
   const acc = resolveExpenseAccount(db, row.category, row.account_code);
   db.transaction(() => {
     const cash = resolveCashAccount(db, row.pay_type, row.bank_id, row.cash_box_id);
-    createJournalEntry(db, {
-      date: row.date || '', description: `ابطال پرداخت هزینه #${row.id}`,
-      ref_type: 'expense_payment_reversal', ref_id: row.id, created_by: req.user.id,
+    const reversalId = postToLedger(db, {
+      sourceType: 'expense_payment_reversal', sourceId: row.id,
+      date: todayJalali(), description: `ابطال پرداخت هزینه #${row.id}`, createdBy: req.user.id,
+      costCenterId: row.cost_center_id || null,
       lines: [
-        { code: cash.code, name: cash.name, debit: row.amount, credit: 0 },
-        { code: acc.code, name: acc.name, debit: 0, credit: row.amount }
+        { code: cash.code, name: cash.name, debit: rialToLedger(row.amount), credit: 0 },
+        { code: acc.code, name: acc.name, debit: 0, credit: rialToLedger(row.amount) }
       ]
     });
-    db.prepare('DELETE FROM expense_payments WHERE id=?').run(req.params.id);
+    try {
+      db.prepare(`
+        UPDATE journal_entries SET status='reversed'
+        WHERE ref_type='expense_payment' AND ref_id=? AND COALESCE(deleted_at,0)=0 AND id<>?
+      `).run(row.id, reversalId);
+    } catch (_) {}
+    db.prepare("UPDATE expense_payments SET status='reversed',reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
+      .run(reversalId, req.user.id, row.id);
   })();
-  audit(req.user.id, 'delete', 'expense_payment', req.params.id, `حذف پرداخت هزینه #${req.params.id}`);
+  audit(req.user.id, 'reverse', 'expense_payment', req.params.id, `ابطال پرداخت هزینه #${req.params.id}`);
   res.json({ ok: true });
 });
 

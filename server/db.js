@@ -1,10 +1,13 @@
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const { validatePassword } = require('./lib/security');
 
 // DB_PATH is env-overridable so device builds (desktop/mobile) can keep their
 // local database in a per-user writable directory instead of the app folder.
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'crm.db');
+// On central, multi-company may override the live path via reopenDatabase().
+const DEFAULT_DB_PATH = process.env.DB_PATH || path.join(__dirname, 'crm.db');
+let liveDbPath = DEFAULT_DB_PATH;
 let db;
 
 // SYNC_ROLE: 'central' (the one authoritative server — default) or 'device'
@@ -15,9 +18,145 @@ let db;
 const SYNC_ROLE = process.env.SYNC_ROLE === 'device' ? 'device' : 'central';
 function isDevice() { return SYNC_ROLE === 'device'; }
 
+function applyConnectionPragmas(database) {
+  // Per-connection: must run on every new SQLite handle (WAL/FK are not sticky across opens).
+  database.pragma('journal_mode = WAL');
+  database.pragma('synchronous = NORMAL');
+  database.pragma('cache_size = -64000');
+  database.pragma('temp_store = MEMORY');
+  database.pragma('foreign_keys = ON');
+  try { database.pragma('mmap_size = 268435456'); } catch { /* optional on some builds */ }
+}
+
+function resolveBootDbPath() {
+  // Test harness: never route through multi-company registry (pollutes JE sums).
+  if (process.env.ERP_TEST_ISOLATION === '1' && process.env.DB_PATH) {
+    return path.resolve(process.env.DB_PATH);
+  }
+  const envPath = process.env.DB_PATH || DEFAULT_DB_PATH;
+  if (isDevice()) return path.resolve(envPath);
+  try {
+    const { resolveActiveDbPath } = require('./lib/company-workspace');
+    return path.resolve(resolveActiveDbPath());
+  } catch {
+    return path.resolve(envPath);
+  }
+}
+
+function getDBPath() { return liveDbPath; }
+
 function getDB() {
-  if (!db) db = new Database(DB_PATH);
+  if (!db) {
+    liveDbPath = resolveBootDbPath();
+    // timeout: wait on SQLITE_BUSY instead of failing instantly (device sync + UI reads).
+    db = new Database(liveDbPath, { timeout: 5000 });
+    applyConnectionPragmas(db);
+  }
   return db;
+}
+
+function closeDB() {
+  if (db) {
+    try { db.close(); } catch { /* ignore */ }
+    db = null;
+  }
+}
+
+/** Swap the live SQLite handle to another company database (central only). */
+function reopenDatabase(newPath) {
+  if (isDevice()) throw new Error('تعویض شرکت روی دستگاه آفلاین مجاز نیست');
+  const resolved = path.resolve(newPath);
+  closeDB();
+  liveDbPath = resolved;
+  db = new Database(liveDbPath, { timeout: 5000 });
+  applyConnectionPragmas(db);
+  return db;
+}
+
+/** Run full schema init on an arbitrary DB handle (used when creating a company workspace). */
+function initDBOn(database) {
+  const prev = db;
+  db = database;
+  try {
+    initDB();
+  } finally {
+    db = prev;
+  }
+}
+
+/** Copy login users (same password hashes) into a freshly-inited company DB. */
+function copyUsersInto(targetDb, sourceDb) {
+  if (!sourceDb || !targetDb) return 0;
+  const srcCols = new Set(sourceDb.prepare('PRAGMA table_info(users)').all().map(c => c.name));
+  const users = sourceDb.prepare(`
+    SELECT * FROM users WHERE COALESCE(active,1)=1
+  `).all();
+  if (!users.length) return 0;
+  const tgtCols = tableColumns(targetDb, 'users');
+  const hasMust = tgtCols.includes('must_change_password');
+  let n = 0;
+  for (const u of users) {
+    try {
+      const existing = targetDb.prepare('SELECT id FROM users WHERE username=?').get(u.username);
+      const mustVal = srcCols.has('must_change_password') ? (u.must_change_password || 0) : 0;
+      if (existing) {
+        if (hasMust) {
+          targetDb.prepare(`
+            UPDATE users SET name=?, password=?, role=?, phone=?, active=?,
+              commission_cash=?, commission_cheque=?, must_change_password=?
+            WHERE id=?
+          `).run(
+            u.name, u.password, u.role || 'admin', u.phone || null,
+            u.active == null ? 1 : u.active,
+            u.commission_cash || 0, u.commission_cheque || 0, mustVal,
+            existing.id
+          );
+        } else {
+          targetDb.prepare(`
+            UPDATE users SET name=?, password=?, role=?, phone=?, active=?,
+              commission_cash=?, commission_cheque=?
+            WHERE id=?
+          `).run(
+            u.name, u.password, u.role || 'admin', u.phone || null,
+            u.active == null ? 1 : u.active,
+            u.commission_cash || 0, u.commission_cheque || 0,
+            existing.id
+          );
+        }
+      } else if (hasMust) {
+        targetDb.prepare(`
+          INSERT INTO users (name, username, password, role, phone, active,
+            commission_cash, commission_cheque, must_change_password)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          u.name, u.username, u.password, u.role || 'admin', u.phone || null,
+          u.active == null ? 1 : u.active,
+          u.commission_cash || 0, u.commission_cheque || 0, mustVal
+        );
+      } else {
+        targetDb.prepare(`
+          INSERT INTO users (name, username, password, role, phone, active,
+            commission_cash, commission_cheque)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          u.name, u.username, u.password, u.role || 'admin', u.phone || null,
+          u.active == null ? 1 : u.active,
+          u.commission_cash || 0, u.commission_cheque || 0
+        );
+      }
+      // Keep revocation epochs aligned when a company workspace is created;
+      // otherwise switching to the new DB would invalidate a legitimate
+      // server-backed session or, worse, resurrect an older epoch.
+      if (srcCols.has('auth_epoch') && tgtCols.includes('auth_epoch')) {
+        targetDb.prepare('UPDATE users SET auth_epoch=? WHERE username=?')
+          .run(Number(u.auth_epoch || 0), u.username);
+      }
+      n++;
+    } catch (e) {
+      console.warn('copyUsersInto skip', u.username, e.message);
+    }
+  }
+  return n;
 }
 
 // Add a column only if it does not already exist (safe migration helper)
@@ -93,6 +232,14 @@ function repairProductCategoriesSchema(db) {
 // Sync triggers must match each table's real primary/business key — not every
 // syncable table has an `id` column (e.g. warehouse_stock, legacy settings).
 function syncTriggerMatch(t, db) {
+  if (t.compositeKeys && t.compositeKeys.length) {
+    const keys = t.compositeKeys;
+    return {
+      updateWhere: keys.map(k => `${k} = NEW.${k}`).join(' AND '),
+      tombstone: keys.map(k => `CAST(OLD.${k} AS TEXT)`).join(" || ':' || ")
+    };
+  }
+  // Legacy special-case kept for older registries without compositeKeys
   if (t.name === 'warehouse_stock') {
     return {
       updateWhere: 'product_id = NEW.product_id AND warehouse_id = NEW.warehouse_id',
@@ -132,14 +279,9 @@ function seedWarehouseStock(db) {
 
 function initDB() {
   const db = getDB();
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('cache_size = -64000');
-  db.pragma('temp_store = MEMORY');
-  try { db.pragma('mmap_size = 268435456'); } catch { /* optional */ }
+  // Pragmas already applied in getDB(); keep FK ON explicit before schema DDL.
+  db.pragma('foreign_keys = ON');
   db.exec(`
-    PRAGMA foreign_keys=ON;
-
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -523,6 +665,7 @@ function initDB() {
   ensureColumn(db, 'users', 'last_login', 'INTEGER');
   // امنیت: الزام تغییر رمز در اولین ورود (ادمین پیش‌فرض / رمز تعیین‌شده توسط مدیر)
   ensureColumn(db, 'users', 'must_change_password', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'users', 'auth_epoch', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'users', 'commission_cash', 'REAL DEFAULT 0');
   ensureColumn(db, 'users', 'commission_cheque', 'REAL DEFAULT 0');
   ensureColumn(db, 'products', 'image', 'TEXT');
@@ -855,6 +998,7 @@ function initDB() {
   // Unrestricted bank management — every settlement/payment can be tied to a specific
   // bank ledger account, and (for cheques we ourselves issue) a specific checkbook.
   ensureColumn(db, 'settlements', 'bank_id', 'INTEGER');
+  ensureColumn(db, 'settlements', 'check_category_id', 'INTEGER');
   ensureColumn(db, 'purchase_invoices', 'bank_id', 'INTEGER');
   ensureColumn(db, 'purchase_invoices', 'check_category_id', 'INTEGER');
   ensureColumn(db, 'supplier_payments', 'bank_id', 'INTEGER');
@@ -864,6 +1008,8 @@ function initDB() {
   // Unrestricted cash-box management — mirrors banks: every payment/receipt can
   // optionally be tied to a specific cash box's own ledger sub-account.
   ensureColumn(db, 'settlements', 'cash_box_id', 'INTEGER');
+  ensureColumn(db, 'settlements', 'account_code', "TEXT DEFAULT ''");
+  ensureColumn(db, 'supplier_payments', 'account_code', "TEXT DEFAULT ''");
   ensureColumn(db, 'purchase_invoices', 'cash_box_id', 'INTEGER');
   ensureColumn(db, 'supplier_payments', 'cash_box_id', 'INTEGER');
   ensureColumn(db, 'incentive_payments', 'cash_box_id', 'INTEGER');
@@ -887,13 +1033,19 @@ function initDB() {
   ensureColumn(db, 'expense_payments', 'account_code', 'TEXT');
   ensureColumn(db, 'expense_payments', 'purchase_invoice_id', 'INTEGER');
   ensureColumn(db, 'expense_payments', 'is_overhead', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'expense_payments', 'status', "TEXT NOT NULL DEFAULT 'posted'");
+  ensureColumn(db, 'expense_payments', 'journal_entry_id', 'INTEGER');
+  ensureColumn(db, 'expense_payments', 'reversal_journal_id', 'INTEGER');
+  ensureColumn(db, 'expense_payments', 'reversed_at', 'INTEGER');
+  ensureColumn(db, 'expense_payments', 'reversed_by', 'INTEGER');
   ensureColumn(db, 'settlements', 'installment_group', 'TEXT');
   ensureColumn(db, 'production_runs', 'warehouse_id', 'INTEGER');
   ensureColumn(db, 'products', 'category_id', 'INTEGER');
   repairWarehousesSchema(db);
   repairProductCategoriesSchema(db);
+  const whCleared = db.prepare("SELECT value FROM settings WHERE key='warehouses_user_cleared'").get()?.value;
   const whCount = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
-  if (whCount === 0) {
+  if (whCount === 0 && whCleared !== '1') {
     const mainWhId = db.prepare("INSERT INTO warehouses (name,address) VALUES ('انبار مرکزی','')").run().lastInsertRowid;
     db.prepare('UPDATE products SET warehouse_id=? WHERE warehouse_id IS NULL').run(mainWhId);
   }
@@ -975,9 +1127,18 @@ function initDB() {
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1106','حساب اشخاص متفرقه','asset','1100')").run();
   // Added for the Payroll module (Phase 9) — same unconditional-insert pattern.
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6104','هزینه حقوق و دستمزد','expense','6000')").run();
-  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2104','بدهی بیمه و مالیات کارکنان','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2104','حقوق پرداختنی کارکنان','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2105','بیمه پرداختنی','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2106','مالیات حقوق پرداختنی','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2108','سایر کسورات حقوق پرداختنی','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6106','هزینه بیمه سهم کارفرما','expense','6000')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6110','هزینه عیدی کارکنان','expense','6000')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('6111','هزینه مزایای پایان خدمت','expense','6000')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1107','مساعده نمایندگان فروش','asset','1100')").run();
   db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2107','بستانکاران انگیزه نمایندگان','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('1109','اسناد دریافتنی','asset','1100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('2109','اسناد پرداختنی','liability','2100')").run();
+  db.prepare("INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES ('3102','تراز افتتاحیه','equity','3000')").run();
 
   // ---- Marketing representatives module ----
   ensureColumn(db, 'users', 'rep_code', 'TEXT');
@@ -1260,11 +1421,21 @@ function initDB() {
   // ---- Default admin ----
   const admin = db.prepare('SELECT id FROM users WHERE username=?').get('admin');
   if (!admin) {
-    const hash = bcrypt.hashSync('admin123', 10);
+    let bootstrapPassword = 'admin123';
+    if (!isDevice() && process.env.NODE_ENV === 'production') {
+      bootstrapPassword = String(process.env.BOOTSTRAP_ADMIN_PASSWORD || '');
+      const passwordError = validatePassword(bootstrapPassword);
+      if (!bootstrapPassword || bootstrapPassword === 'admin123' || passwordError) {
+        const error = new Error('A strong BOOTSTRAP_ADMIN_PASSWORD is required for a fresh production database');
+        error.code = 'E_BOOTSTRAP_ADMIN_PASSWORD_REQUIRED';
+        throw error;
+      }
+    }
+    const hash = bcrypt.hashSync(bootstrapPassword, 10);
     // must_change_password=1 → رمز پیش‌فرض باید در اولین ورود عوض شود (روی سرور مرکزی)
     db.prepare('INSERT INTO users (name,username,password,role,must_change_password) VALUES (?,?,?,?,1)')
       .run('حامد رشید', 'admin', hash, 'admin');
-    console.log('✅ ادمین پیش‌فرض ساخته شد (admin / admin123) — تغییر رمز در اولین ورود الزامی است');
+    console.log('✅ حساب مدیر اولیه ساخته شد — تغییر رمز در اولین ورود الزامی است');
   }
 
   // ---- Default settings ----
@@ -1438,6 +1609,34 @@ function initSyncSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_outbox_status ON sync_outbox(status);
 
+    -- A route mutation may commit before the generic capture wrapper runs.
+    -- If signing/outbox insertion then fails, retain a complete local repair
+    -- record and return an explicit non-success response instead of silently
+    -- losing the operation from sync forever.
+    CREATE TABLE IF NOT EXISTS sync_capture_failures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      method TEXT NOT NULL,
+      path TEXT NOT NULL,
+      body_json TEXT,
+      user_id INTEGER,
+      base_version INTEGER,
+      entity_table TEXT,
+      entity_local_id INTEGER,
+      captured_rows_json TEXT,
+      has_file INTEGER DEFAULT 0,
+      file_path TEXT,
+      replay_file_hash TEXT,
+      replay_file_field TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      status TEXT DEFAULT 'pending',
+      outbox_id INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      reconciled_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_sync_capture_failures_status
+      ON sync_capture_failures(status,id);
+
     -- Device-side key/value config (central_url, device_id, device_token, last_pull_seq)
     CREATE TABLE IF NOT EXISTS sync_local_kv (
       key TEXT PRIMARY KEY,
@@ -1511,6 +1710,9 @@ function initSyncSchema(db) {
   ensureColumn(db, 'customers', 'churn_score', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'customers', 'b2b_enabled', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'products', 'barcode', 'TEXT');
+  ensureColumn(db, 'b2b_portal_accounts', 'auth_epoch', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'b2b_portal_accounts', 'otp_attempts', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'b2b_portal_accounts', 'otp_locked_until', 'INTEGER');
 
   // v1.0.11 — soft-delete, RBAC, fiscal years, notifications
   ensureColumn(db, 'invoices', 'deleted_at', 'INTEGER');
@@ -1524,7 +1726,107 @@ function initSyncSchema(db) {
   ensureColumn(db, 'suppliers',  'coa_code', 'TEXT');
   ensureColumn(db, 'products',   'coa_code', 'TEXT');
   ensureColumn(db, 'banks',      'coa_code', 'TEXT');
+  ensureColumn(db, 'banks',      'opening_balance_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'banks',      'opening_balance_je_id', 'INTEGER');
+  ensureColumn(db, 'banks',      'opening_balance_date', 'TEXT');
   ensureColumn(db, 'cash_boxes', 'coa_code', 'TEXT');
+  ensureColumn(db, 'cash_boxes', 'currency', "TEXT DEFAULT 'IRR'");
+  ensureColumn(db, 'cash_boxes', 'is_foreign', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'cash_boxes', 'opening_balance_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'cash_boxes', 'opening_balance_je_id', 'INTEGER');
+  ensureColumn(db, 'cash_boxes', 'opening_balance_date', 'TEXT');
+
+  // Single-device login sessions (central-only; not in SYNCABLE_TABLES)
+  // Slots: mobile | desktop | web — یک نشست فعال به ازای هر اسلات (۱ موبایل + ۱ دسکتاپ + ۱ وب)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_device_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      device_slot TEXT NOT NULL,
+      device_fingerprint TEXT NOT NULL,
+      device_name TEXT,
+      device_kind TEXT,
+      last_seen INTEGER DEFAULT (strftime('%s','now')),
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      UNIQUE(user_id, device_slot),
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+  `);
+  // Migrate legacy PK(user_id)-only table → slotted model
+  try {
+    const udsCols = db.prepare('PRAGMA table_info(user_device_sessions)').all();
+    const hasSlot = udsCols.some(c => c.name === 'device_slot');
+    const pkIsUserId = udsCols.some(c => c.name === 'user_id' && c.pk === 1);
+    if (udsCols.length && (!hasSlot || pkIsUserId)) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS user_device_sessions_v2 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          device_slot TEXT NOT NULL,
+          device_fingerprint TEXT NOT NULL,
+          device_name TEXT,
+          device_kind TEXT,
+          last_seen INTEGER DEFAULT (strftime('%s','now')),
+          created_at INTEGER DEFAULT (strftime('%s','now')),
+          UNIQUE(user_id, device_slot),
+          FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+      `);
+      const oldRows = db.prepare('SELECT * FROM user_device_sessions').all();
+      const ins = db.prepare(`INSERT OR REPLACE INTO user_device_sessions_v2
+        (user_id, device_slot, device_fingerprint, device_name, device_kind, last_seen, created_at)
+        VALUES (?,?,?,?,?,?,?)`);
+      for (const r of oldRows) {
+        const kind = String(r.device_kind || r.device_slot || 'web');
+        let slot = 'web';
+        if (/android|ios|mobile/i.test(kind)) slot = 'mobile';
+        else if (/desktop|windows|electron|win/i.test(kind)) slot = 'desktop';
+        else if (r.device_slot === 'mobile' || r.device_slot === 'desktop' || r.device_slot === 'web') slot = r.device_slot;
+        ins.run(r.user_id, slot, r.device_fingerprint, r.device_name || kind, r.device_kind || kind, r.last_seen || null, r.created_at || null);
+      }
+      db.exec('DROP TABLE user_device_sessions');
+      db.exec('ALTER TABLE user_device_sessions_v2 RENAME TO user_device_sessions');
+    }
+  } catch (e) {
+    console.warn('user_device_sessions migrate:', e.message);
+  }
+  ensureColumn(db, 'user_device_sessions', 'session_id', 'TEXT');
+  ensureColumn(db, 'user_device_sessions', 'expires_at', 'INTEGER');
+  ensureColumn(db, 'user_device_sessions', 'auth_epoch', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'user_device_sessions', 'company_id', 'INTEGER DEFAULT 1');
+  ensureColumn(db, 'user_device_sessions', 'revoked_at', 'INTEGER');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_user_device_sessions_user ON user_device_sessions(user_id)');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_user_device_sessions_sid ON user_device_sessions(session_id) WHERE session_id IS NOT NULL');
+  // Pre-v1 rows had no server-side sid and therefore cannot be validated or
+  // revoked safely. Treat the migration as a deliberate one-time logout.
+  db.prepare('DELETE FROM user_device_sessions WHERE session_id IS NULL').run();
+  db.prepare(`
+    INSERT INTO settings (key,value) VALUES ('schema_auth_sessions_v1','1')
+    ON CONFLICT(key) DO UPDATE SET value='1'
+  `).run();
+  db.exec('CREATE INDEX IF NOT EXISTS idx_outbox_pending ON sync_outbox(status, id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sync_devices_active ON sync_devices(active)');
+  ensureColumn(db, 'sync_devices', 'token_expires_at', 'INTEGER');
+  ensureColumn(db, 'sync_devices', 'token_rotated_at', 'INTEGER');
+  ensureColumn(db, 'sync_devices', 'revoked_at', 'INTEGER');
+  // Device credentials authenticate transport; a separate Ed25519 key binds
+  // every replay envelope (including its acting user) to the local instance
+  // that captured the authenticated operation. Legacy devices without a key
+  // remain pull-only until they are securely re-paired.
+  ensureColumn(db, 'sync_devices', 'signing_public_key', 'TEXT');
+  ensureColumn(db, 'sync_devices', 'signing_key_version', 'INTEGER DEFAULT 1');
+  ensureColumn(db, 'sync_outbox', 'replay_proof', 'TEXT');
+  ensureColumn(db, 'sync_outbox', 'replay_file_hash', 'TEXT');
+  ensureColumn(db, 'sync_outbox', 'replay_file_field', 'TEXT');
+  db.exec(`CREATE TABLE IF NOT EXISTS sync_device_nonces (
+    device_id INTEGER NOT NULL,
+    nonce TEXT NOT NULL,
+    seen_at INTEGER NOT NULL,
+    PRIMARY KEY (device_id, nonce)
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sync_device_nonces_seen ON sync_device_nonces(seen_at)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_customers_biz ON customers(biz)');
   ensureColumn(db, 'persons',    'coa_code', 'TEXT');
   ensureColumn(db, 'products',   'needs_qty', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'journal_entries', 'src_system', 'TEXT');
@@ -1534,9 +1836,24 @@ function initSyncSchema(db) {
     ensureColumn(db, tbl, 'mahak_doc_no', 'TEXT');
     ensureColumn(db, tbl, 'mahak_doc_type', 'TEXT');
   }
+  for (const tbl of ['invoices', 'purchase_invoices', 'settlements', 'supplier_payments', 'expense_payments', 'account_transfers', 'sales_returns', 'purchase_returns']) {
+    ensureColumn(db, tbl, 'status', "TEXT NOT NULL DEFAULT 'posted'");
+    ensureColumn(db, tbl, 'reversal_journal_id', 'INTEGER');
+    ensureColumn(db, tbl, 'reversed_at', 'INTEGER');
+    ensureColumn(db, tbl, 'reversed_by', 'INTEGER');
+  }
+  ensureColumn(db, 'sales_returns', 'cost_amount', 'REAL NOT NULL DEFAULT 0');
+  ensureColumn(db, 'incentive_payments', 'status', "TEXT NOT NULL DEFAULT 'posted'");
+  ensureColumn(db, 'incentive_payments', 'reversal_journal_id', 'INTEGER');
+  ensureColumn(db, 'incentive_payments', 'reversed_at', 'INTEGER');
+  ensureColumn(db, 'incentive_payments', 'reversed_by', 'INTEGER');
   ensureColumn(db, 'product_categories', 'code', 'INTEGER');
   ensureColumn(db, 'product_categories', 'parent_id', 'INTEGER');
   ensureColumn(db, 'product_categories', 'description', 'TEXT');
+  ensureColumn(db, 'product_categories', 'is_shared', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(db, 'product_categories', 'created_by', 'INTEGER');
+  ensureColumn(db, 'users', 'party_id', 'INTEGER');
+  ensureColumn(db, 'users', 'sales_warehouse_id', 'INTEGER');
   ensureColumn(db, 'customers', 'party_group_id', 'INTEGER');
   ensureColumn(db, 'suppliers', 'party_group_id', 'INTEGER');
   ensureColumn(db, 'persons', 'party_group_id', 'INTEGER');
@@ -1662,6 +1979,11 @@ function initSyncSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_cheque_records_dir ON cheque_records(direction);
     CREATE INDEX IF NOT EXISTS idx_cheque_records_due ON cheque_records(due_date);
   `);
+  ensureColumn(db, 'cheque_records', 'record_status', "TEXT NOT NULL DEFAULT 'posted'");
+  ensureColumn(db, 'cheque_records', 'journal_entry_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'reversal_journal_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'reversed_at', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'reversed_by', 'INTEGER');
 
   // ---- Accounting module foundation (spec phase 1) ----
   db.exec(`
@@ -1728,6 +2050,7 @@ function initSyncSchema(db) {
   ensureColumn(db, 'journal_entries', 'status', "TEXT DEFAULT 'approved'");
   ensureColumn(db, 'journal_entries', 'total_debit_rial', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'journal_entries', 'total_credit_rial', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'journal_entries', 'doc_type', 'TEXT');
   ensureColumn(db, 'journal_lines', 'line_no', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'journal_lines', 'detail_account_id', 'INTEGER');
   ensureColumn(db, 'journal_lines', 'debit_rial', 'INTEGER DEFAULT 0');
@@ -1735,6 +2058,10 @@ function initSyncSchema(db) {
   ensureColumn(db, 'invoices', 'party_id', 'INTEGER');
   ensureColumn(db, 'settlements', 'party_id', 'INTEGER');
   ensureColumn(db, 'customers', 'party_id', 'INTEGER');
+  ensureColumn(db, 'customers', 'created_by', 'INTEGER');
+  try {
+    db.prepare('UPDATE customers SET created_by = user_id WHERE created_by IS NULL AND user_id IS NOT NULL').run();
+  } catch (_) { /* ignore */ }
   ensureColumn(db, 'suppliers', 'party_id', 'INTEGER');
   ensureColumn(db, 'warehouses', 'entity', "TEXT DEFAULT 'distribution_office'");
   ensureColumn(db, 'warehouses', 'cost_center_id', 'INTEGER');
@@ -1802,9 +2129,10 @@ function initSyncSchema(db) {
   ensureColumn(db, 'products', 'costing_method', "TEXT DEFAULT 'moving_average'");
   ensureColumn(db, 'products', 'average_cost_rial', 'INTEGER DEFAULT 0');
 
-  // Default warehouses for workshop + distribution office
-  const whCount = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
-  if (!whCount) {
+  // Default warehouses for workshop + distribution office (skip after user wipe)
+  const whCleared2 = db.prepare("SELECT value FROM settings WHERE key='warehouses_user_cleared'").get()?.value;
+  const whCount2 = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
+  if (!whCount2 && whCleared2 !== '1') {
     const ccW = db.prepare("SELECT id FROM cost_centers WHERE code='CC-WORKSHOP'").get()?.id;
     const ccD = db.prepare("SELECT id FROM cost_centers WHERE code='CC-DISTRIBUTION'").get()?.id;
     db.prepare(`INSERT INTO warehouses (code,name,address,entity,warehouse_type,cost_center_id,is_default,active) VALUES (?,?,?,?,?,?,?,1)`)
@@ -1938,6 +2266,26 @@ function initSyncSchema(db) {
     }
   } catch (e) { console.warn('parties migration:', e.message); }
 
+  // One-time: cascade-clean CRM customers left behind after accounting soft-deletes
+  try {
+    const orphaned = db.prepare(`
+      SELECT c.id FROM customers c
+      JOIN parties p ON p.id=c.party_id
+      WHERE p.is_active=0
+    `).all();
+    if (orphaned.length) {
+      const delFup = db.prepare('DELETE FROM followups WHERE cust_id=?');
+      const delCust = db.prepare('DELETE FROM customers WHERE id=?');
+      db.transaction(() => {
+        for (const o of orphaned) {
+          try { delFup.run(o.id); } catch (_) {}
+          try { delCust.run(o.id); } catch (_) {}
+        }
+      })();
+      console.log(`🧹 cleaned ${orphaned.length} CRM customers linked to inactive parties`);
+    }
+  } catch (e) { console.warn('orphan customer cleanup:', e.message); }
+
   // Rial INTEGER migration for key monetary columns (×10 from toman REAL)
   try {
     const { migrateRealToRial } = require('./lib/money');
@@ -1972,6 +2320,48 @@ function initSyncSchema(db) {
     require('./lib/production/schema').initProductionSchema(db);
   } catch (e) {
     console.error('❌ production schema init failed:', e.message);
+    throw e;
+  }
+
+  try {
+    require('./lib/inventory/schema').initInventorySchema(db);
+  } catch (e) {
+    console.error('❌ inventory schema init failed:', e.message);
+    throw e;
+  }
+
+  try {
+    require('./lib/payroll/schema').initPayrollSchema(db);
+    require('./lib/accounting/reporting-schema').initReportingSchema(db);
+    require('./lib/user-party').ensureAllUserParties(db);
+  } catch (e) {
+    console.error('❌ payroll/reporting/user-party schema init failed:', e.message);
+    throw e;
+  }
+
+  // Update 11 — decimals, FX, tafsili2, positions, pricing, warehouse flags, stocktake counts
+  try {
+    require('./lib/update11-schema').initUpdate11Schema(db);
+    require('./lib/gap-accounting-schema').initGapAccountingSchema(db);
+    require('./lib/portal-schema').initPortalSchema(db);
+    require('./lib/update-md-schema').ensureUpdateMdSchema(db, ensureColumn);
+    require('./lib/license/schema').initLicenseSchema(db);
+    require('./lib/b2b/schema').initB2bSchema(db);
+  } catch (e) {
+    console.error('❌ update11 schema init failed:', e.message);
+    throw e;
+  }
+
+  // W1-APP1 product variants + W1-F1 moadian queue columns (before sync column pass)
+  try {
+    require('./lib/product-variants').initProductVariantsSchema(db);
+    const moadianSql = require('./lib/moadian/schema-sql');
+    for (const [table, column, definition] of moadianSql.ENSURE_COLUMNS) {
+      ensureColumn(db, table, column, definition);
+    }
+    db.exec(moadianSql.STATUS_HISTORY_SQL);
+  } catch (e) {
+    console.error('❌ product-variants/moadian schema init failed:', e.message);
     throw e;
   }
 
@@ -2021,12 +2411,167 @@ function initSyncSchema(db) {
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v1','1')").run();
     }
+    // v2: tables created AFTER v1 (e.g. Update 11 seeds) can land with sync_seq NULL
+    // because INSERT before triggers + v1 already done skips them from pull forever.
+    const backfillV2 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v2'").get();
+    if (!backfillV2 || backfillV2.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v2 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v2','1')").run();
+    }
+    // v3: newly appended SYNCABLE_TABLES (party_groups, cheque_records, …) after v2 flag
+    const backfillV3 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v3'").get();
+    if (!backfillV3 || backfillV3.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v3 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v3','1')").run();
+    }
+    // v4: fixed_assets / depreciation / user_cost_centers / rep_payment_submissions
+    const backfillV4 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v4'").get();
+    if (!backfillV4 || backfillV4.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v4 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v4','1')").run();
+    }
+    const backfillV5 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v5'").get();
+    if (!backfillV5 || backfillV5.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v5 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v5','1')").run();
+    }
+    const backfillV6 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v6'").get();
+    if (!backfillV6 || backfillV6.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v6 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v6','1')").run();
+    }
+// v7: bank_statement_lines (W2-F5) appended after v6
+    const backfillV7 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v7'").get();
+    if (!backfillV7 || backfillV7.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v7 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v7','1')").run();
+    }
+    // v8: product_colors/sizes/variants (W1-APP1) after bank_statement_lines; also covers DBs stamped v7 before variants (W1 SEC)
+    const backfillV8 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v8'").get();
+    if (!backfillV8 || backfillV8.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v8 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v8','1')").run();
+    }
+  }
+
+  // One-shot: restore products.stock wiped by image-only PUT bug (stock→0 while warehouse_stock kept qty).
+  // Also restore pack_size/price/code/note from readable backup DBs/archives if available.
+  try {
+    const wipeFix = db.prepare("SELECT value FROM settings WHERE key='restore_product_stock_after_image_wipe_v1'").get();
+    if (!wipeFix || wipeFix.value !== '1') {
+      const { restoreProductFieldsAfterImageWipe } = require('./lib/restore-product-fields');
+      const summary = restoreProductFieldsAfterImageWipe(db, { backupsDir: path.join(__dirname, 'backups') });
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('restore_product_stock_after_image_wipe_v1','1')").run();
+      console.log('✅ restore_product_stock_after_image_wipe_v1:', JSON.stringify(summary));
+    }
+  } catch (e) {
+    console.warn('restore_product_stock_after_image_wipe_v1:', e.message);
+  }
+
+  // v2: v1 often stopped on an empty plain .db and never scanned tar.gz backups for price/code/pack.
+  try {
+    const wipeFix2 = db.prepare("SELECT value FROM settings WHERE key='restore_product_stock_after_image_wipe_v2'").get();
+    if (!wipeFix2 || wipeFix2.value !== '1') {
+      const { restoreProductFieldsAfterImageWipe } = require('./lib/restore-product-fields');
+      const summary = restoreProductFieldsAfterImageWipe(db, { backupsDir: path.join(__dirname, 'backups') });
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('restore_product_stock_after_image_wipe_v2','1')").run();
+      console.log('✅ restore_product_stock_after_image_wipe_v2:', JSON.stringify(summary));
+    }
+  } catch (e) {
+    console.warn('restore_product_stock_after_image_wipe_v2:', e.message);
   }
 
   // Currency: مبنای ذخیره‌سازی ریال + مهاجرت یک‌باره از تومان
   const { migrateTomanToRial, seedStandardSubgroups } = require('./lib/currency');
   migrateTomanToRial(db);
-  // party_groups + product_categories seeds are required in standard mode too (CRM customers API joins party_groups).
+
+  // Backfill debit_rial/credit_rial for old journal lines where only debit/credit were ×10'd to rial
+  try {
+    const mig = db.prepare("SELECT value FROM settings WHERE key='currency_rial_migration_v1'").get();
+    const done = db.prepare("SELECT value FROM settings WHERE key='journal_rial_backfill_v1'").get();
+    if (mig?.value === '1' && done?.value !== '1') {
+      try {
+        db.exec(`
+          UPDATE journal_lines SET
+            debit_rial = CASE WHEN COALESCE(debit_rial,0)=0 AND COALESCE(debit,0)!=0 THEN ROUND(debit) ELSE debit_rial END,
+            credit_rial = CASE WHEN COALESCE(credit_rial,0)=0 AND COALESCE(credit,0)!=0 THEN ROUND(credit) ELSE credit_rial END
+          WHERE (COALESCE(debit_rial,0)=0 AND COALESCE(debit,0)!=0)
+             OR (COALESCE(credit_rial,0)=0 AND COALESCE(credit,0)!=0)
+        `);
+      } catch (e) { console.warn('journal_lines rial backfill:', e.message); }
+      try {
+        db.exec(`
+          UPDATE journal_entries SET
+            total_debit_rial = (SELECT COALESCE(SUM(debit_rial),0) FROM journal_lines WHERE entry_id=journal_entries.id),
+            total_credit_rial = (SELECT COALESCE(SUM(credit_rial),0) FROM journal_lines WHERE entry_id=journal_entries.id)
+          WHERE COALESCE(total_debit_rial,0)=0 AND COALESCE(total_credit_rial,0)=0
+            AND EXISTS (SELECT 1 FROM journal_lines WHERE entry_id=journal_entries.id AND (debit_rial!=0 OR credit_rial!=0))
+        `);
+      } catch (e) { console.warn('journal_entries rial backfill:', e.message); }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('journal_rial_backfill_v1','1')").run();
+      console.log('✅ journal_rial_backfill_v1: debit_rial/credit_rial filled from migrated debit/credit');
+    }
+  } catch (e) {
+    console.warn('journal rial backfill:', e.message);
+  }
+
+  // party_groups: فقط «کلیه اشخاص». گروه‌های کالا seed نمی‌شوند (تعریف دستی + purge یک‌بارهٔ seed قدیمی).
   seedStandardSubgroups(db);
   const cmLegacy = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get();
   if (cmLegacy?.value === 'mahak') {
@@ -2073,6 +2618,7 @@ function allocateNumber(db, key, prefix) {
 // duplicates entries the live engine already produced. Runs once, then sets a flag.
 function backfillAccounting(db) {
   try {
+    const { acct } = require('./lib/coa-map');
     const flag = db.prepare("SELECT value FROM settings WHERE key='accounting_backfill_v1'").get();
     if (flag && flag.value === '1') return;
 
@@ -2116,9 +2662,19 @@ function backfillAccounting(db) {
             created++;
           }
           if (!invHasJournal.get(inv.id)) {
-            const lines = [{ code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: inv.final, credit: 0 }];
-            if ((inv.disc_amt || 0) > 0) lines.push({ code: '4103', name: 'تخفیفات فروش', debit: inv.disc_amt, credit: 0, description: 'تخفیف فاکتور' });
-            lines.push({ code: '4101', name: 'درآمد فروش کالا', debit: 0, credit: inv.subtotal });
+            const receivable = acct(db, 'coa_receivable');
+            const discount = acct(db, 'coa_sales_discount');
+            const sales = acct(db, 'coa_sales');
+            const toLine = (debitRial, creditRial, extra = {}) => ({
+              ...extra,
+              debit: (Number(debitRial) || 0) / 10,
+              credit: (Number(creditRial) || 0) / 10,
+              debit_rial: Math.round(Number(debitRial) || 0),
+              credit_rial: Math.round(Number(creditRial) || 0),
+            });
+            const lines = [{ code: receivable.code, name: receivable.name, ...toLine(inv.final, 0) }];
+            if ((inv.disc_amt || 0) > 0) lines.push({ code: discount.code, name: discount.name, ...toLine(inv.disc_amt, 0), description: 'تخفیف فاکتور' });
+            lines.push({ code: sales.code, name: sales.name, ...toLine(0, inv.subtotal) });
             createJournalEntry(db, { date: inv.date || '', description: `فاکتور رسمی ${inv.num}`, ref_type: 'invoice', ref_id: inv.id, created_by: inv.user_id, lines });
           }
         } else {
@@ -2128,20 +2684,22 @@ function backfillAccounting(db) {
             createLedgerEntry(db, {
               customer_id: s.cust_id, date: s.date || '', entry_type: 'settlement',
               ref_type: 'settlement', ref_id: s.id,
-              description: `تسویه ${payLabel} - ${Number(s.amount || 0).toLocaleString('fa-IR')} تومان`,
+              description: `تسویه ${payLabel} - ${Number(s.amount || 0).toLocaleString('fa-IR')} ریال`,
               debit: 0, credit: s.amount, user_id: s.user_id
             });
             created++;
           }
           if (!settHasJournal.get(s.id)) {
-            const cashCode = s.pay_type === 'cheque' ? '1102' : '1101';
-            const cashName = s.pay_type === 'cheque' ? 'موجودی بانک' : 'موجودی صندوق';
+            const cash = resolveCashAccount(db, s.pay_type, s.bank_id, s.cash_box_id);
+            const receivable = acct(db, 'coa_receivable');
+            const amtRial = Math.round(Number(s.amount) || 0);
+            const amtToman = amtRial / 10;
             createJournalEntry(db, {
               date: s.date || '', description: `تسویه ${payLabel} مشتری`,
               ref_type: 'settlement', ref_id: s.id, created_by: s.user_id,
               lines: [
-                { code: cashCode, name: cashName, debit: s.amount, credit: 0 },
-                { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: s.amount }
+                { code: cash.code, name: cash.name, debit: amtToman, credit: 0, debit_rial: amtRial, credit_rial: 0 },
+                { code: receivable.code, name: receivable.name, debit: 0, credit: amtToman, debit_rial: 0, credit_rial: amtRial }
               ]
             });
           }
@@ -2220,23 +2778,27 @@ function createJournalEntry(db, opts) {
     date, description, ref_type, ref_id, created_by, lines,
     fiscal_year_id, voucher_number, voucher_type, status,
     total_debit_rial, total_credit_rial,
+    src_system, src_doc_no, doc_type,
   } = opts;
   try {
     const entry = db.prepare(`
       INSERT INTO journal_entries (
         entry_date, description, ref_type, ref_id, created_by,
         fiscal_year_id, voucher_number, voucher_type, status,
-        total_debit_rial, total_credit_rial
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        total_debit_rial, total_credit_rial, src_system, src_doc_no, doc_type
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       date || '', description || '', ref_type || '', ref_id || null, created_by || null,
       fiscal_year_id || null, voucher_number || null, voucher_type || 'auto', status || 'approved',
-      total_debit_rial || 0, total_credit_rial || 0
+      total_debit_rial || 0, total_credit_rial || 0,
+      src_system || null, src_doc_no || null, doc_type || null
     );
     const entryId = entry.lastInsertRowid;
     const lineStmt = db.prepare(`
-      INSERT INTO journal_lines (entry_id,account_code,account_name,debit,credit,description,line_no,detail_account_id,debit_rial,credit_rial)
-      VALUES (?,?,?,?,?,?,?,?,?,?)
+      INSERT INTO journal_lines (
+        entry_id,account_code,account_name,debit,credit,description,line_no,detail_account_id,
+        debit_rial,credit_rial,cost_center_id,project_id,tax_type,tafsili2_code
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `);
     let lineNo = 0;
     for (const line of (lines || [])) {
@@ -2247,7 +2809,9 @@ function createJournalEntry(db, opts) {
         entryId, line.code, line.name, dr, cr, line.description || '', lineNo,
         line.detail_account_id || null,
         line.debit_rial != null ? line.debit_rial : Math.round(dr * 10),
-        line.credit_rial != null ? line.credit_rial : Math.round(cr * 10)
+        line.credit_rial != null ? line.credit_rial : Math.round(cr * 10),
+        line.cost_center_id || null, line.project_id || null, line.tax_type || null,
+        line.tafsili2_code || null
       );
     }
     return entryId;
@@ -2264,6 +2828,7 @@ function createJournalEntry(db, opts) {
 // way; otherwise fall back to the generic صندوق/بانک buckets — fully
 // backward-compatible with records created before banks/cash boxes existed.
 function resolveCashAccount(db, payType, bankId, cashBoxId) {
+  const { acct } = require('./lib/coa-map');
   if (bankId) {
     const bank = db.prepare('SELECT * FROM banks WHERE id=?').get(bankId);
     // بانک مستقیماً به تفصیلی خودش می‌خورد
@@ -2277,8 +2842,8 @@ function resolveCashAccount(db, payType, bankId, cashBoxId) {
   }
   // 'cheque' and 'bank' (e.g. card-to-card / wire transfer) both fall back to the
   // generic bank bucket when no specific bank was chosen; only true cash uses صندوق
-  if (payType === 'cheque' || payType === 'bank') return { code: '1102', name: 'موجودی بانک' };
-  return { code: '1101', name: 'موجودی صندوق' };
+  if (payType === 'cheque' || payType === 'bank' || payType === 'bank_transfer') return acct(db, 'coa_bank_default');
+  return acct(db, 'coa_cash_default');
 }
 
 // Create/update the chart-of-accounts sub-ledger row that represents a bank,
@@ -2305,7 +2870,8 @@ function syncCashBoxAccount(db, box) {
 }
 
 module.exports = {
-  getDB, initDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting,
+  getDB, getDBPath, closeDB, reopenDatabase, initDBOn, copyUsersInto, applyConnectionPragmas,
+  initDB, audit, createLedgerEntry, createPersonLedgerEntry, createJournalEntry, backfillAccounting,
   resolveCashAccount, syncBankAccount, syncCashBoxAccount,
   SYNC_ROLE, isDevice, allocateNumber, seedProvisionalSequences
 };

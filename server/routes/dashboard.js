@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const { getDB } = require('../db');
 const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
-const { rialToToman } = require('../lib/money');
+const { rialToToman, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { DELETED_FILTER } = require('../lib/ledger');
 const { getActiveFiscalYear } = require('../lib/fiscal-period');
 
@@ -18,7 +18,9 @@ router.get('/summary', auth, (req, res) => {
   let cashBank = 0;
   try {
     const rows = db.prepare(`
-      SELECT jl.account_code, COALESCE(SUM(jl.debit),0)-COALESCE(SUM(jl.credit),0) AS bal
+      SELECT jl.account_code,
+        COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0)
+        - COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS bal
       FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
       WHERE ${DELETED_FILTER} AND (jl.account_code LIKE '1101%' OR jl.account_code LIKE '1102%')
       GROUP BY jl.account_code
@@ -44,8 +46,8 @@ router.get('/summary', auth, (req, res) => {
   } catch (_) { /* */ }
 
   res.json(ok({
-    cash_bank_balance_rial: Math.round(cashBank * 10),
-    cash_bank_balance_toman: cashBank,
+    cash_bank_balance_rial: Math.round(cashBank),
+    cash_bank_balance_toman: rialToToman(cashBank),
     today_sales_toman: todaySales,
     today_purchases_toman: todayPurchases,
     net_receivables_toman: receivables,

@@ -1,7 +1,8 @@
 const router = require('express').Router();
 const crypto = require('crypto');
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, centralOnly } = require('../middleware/auth');
+const { auth, adminOnly, centralOnlyStrict } = require('../middleware/auth');
+const { assertSafeOutboundTarget } = require('../lib/safe-outbound-request');
 
 function hashKey(key) {
   return crypto.createHash('sha256').update(key).digest('hex');
@@ -31,7 +32,7 @@ router.get('/usage', auth, adminOnly, (req, res) => {
 });
 
 // Create API key (admin)
-router.post('/', auth, adminOnly, centralOnly, (req, res) => {
+router.post('/', auth, adminOnly, centralOnlyStrict, (req, res) => {
   const { name, scopes = 'read' } = req.body;
   if (!name) return res.status(400).json({ error: 'نام الزامی است' });
   const key = generateKey();
@@ -45,7 +46,7 @@ router.post('/', auth, adminOnly, centralOnly, (req, res) => {
 });
 
 // Update API key (toggle active, rename)
-router.put('/:id', auth, adminOnly, centralOnly, (req, res) => {
+router.put('/:id', auth, adminOnly, centralOnlyStrict, (req, res) => {
   const { name, scopes, active } = req.body;
   const db = getDB();
   db.prepare('UPDATE api_keys SET name=?,scopes=?,active=? WHERE id=?')
@@ -55,7 +56,7 @@ router.put('/:id', auth, adminOnly, centralOnly, (req, res) => {
 });
 
 // Delete API key (admin)
-router.delete('/:id', auth, adminOnly, centralOnly, (req, res) => {
+router.delete('/:id', auth, adminOnly, centralOnlyStrict, (req, res) => {
   const db = getDB();
   db.prepare('DELETE FROM api_keys WHERE id=?').run(req.params.id);
   audit(req.user.id, 'delete', 'api_key', req.params.id, `حذف کلید API`);
@@ -68,23 +69,28 @@ router.get('/webhooks', auth, adminOnly, (req, res) => {
   res.json(db.prepare('SELECT * FROM webhooks ORDER BY created_at DESC').all());
 });
 
-router.post('/webhooks', auth, adminOnly, centralOnly, (req, res) => {
+router.post('/webhooks', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   const { name, url, events = 'customer.created', secret = '' } = req.body;
   if (!name || !url) return res.status(400).json({ error: 'نام و آدرس الزامی است' });
+  try { await assertSafeOutboundTarget(url); }
+  catch (error) { return res.status(400).json({ error: error.message || 'آدرس webhook مجاز نیست' }); }
   const db = getDB();
   const r = db.prepare('INSERT INTO webhooks (user_id,name,url,events,secret) VALUES (?,?,?,?,?)')
     .run(req.user.id, name, url, events, secret);
   res.json({ id: r.lastInsertRowid, name, url, events, secret, active: 1 });
 });
 
-router.put('/webhooks/:id', auth, adminOnly, centralOnly, (req, res) => {
+router.put('/webhooks/:id', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   const { name, url, events, secret, active } = req.body;
+  if (!name || !url) return res.status(400).json({ error: 'نام و آدرس الزامی است' });
+  try { await assertSafeOutboundTarget(url); }
+  catch (error) { return res.status(400).json({ error: error.message || 'آدرس webhook مجاز نیست' }); }
   getDB().prepare('UPDATE webhooks SET name=?,url=?,events=?,secret=?,active=? WHERE id=?')
     .run(name, url, events, secret || '', active ? 1 : 0, req.params.id);
   res.json({ ok: true });
 });
 
-router.delete('/webhooks/:id', auth, adminOnly, centralOnly, (req, res) => {
+router.delete('/webhooks/:id', auth, adminOnly, centralOnlyStrict, (req, res) => {
   getDB().prepare('DELETE FROM webhooks WHERE id=?').run(req.params.id);
   res.json({ ok: true });
 });

@@ -38,10 +38,23 @@ function postToLedger(db, opts) {
   const {
     sourceType, sourceId, date, description, createdBy, lines,
     voucherType = 'auto', status = 'approved',
+    srcSystem = null, srcDocNo = null, docType = null,
   } = opts;
 
+  let resolvedSrc = srcSystem;
+  if (!resolvedSrc) {
+    try {
+      if (require('./excel-origin').isExcelOrigin()) resolvedSrc = 'excel';
+    } catch (_) {}
+  }
+
   const fyCheck = assertFiscalYearWritable(db, date);
-  if (!fyCheck.ok) throw new Error(fyCheck.error);
+  if (!fyCheck.ok) {
+    // Validation, not a server fault — surface the real message to the client
+    const err = new Error(fyCheck.error);
+    err.status = 422;
+    throw err;
+  }
 
   const normalized = (lines || []).map(l => ({
     code: l.code,
@@ -50,6 +63,10 @@ function postToLedger(db, opts) {
     credit: tomanToRial(l.credit_toman != null ? l.credit_toman : l.credit),
     description: l.description || '',
     detail_account_id: l.detail_account_id || null,
+    cost_center_id: l.cost_center_id || null,
+    project_id: l.project_id || null,
+    tax_type: l.tax_type || null,
+    tafsili2_code: l.tafsili2_code || null,
   }));
 
   const bal = validateBalancedLines(normalized);
@@ -82,6 +99,10 @@ function postToLedger(db, opts) {
       credit_rial: l.credit,
       description: l.description,
       detail_account_id: l.detail_account_id,
+      cost_center_id: l.cost_center_id,
+      project_id: l.project_id,
+      tax_type: l.tax_type,
+      tafsili2_code: l.tafsili2_code || null,
     })),
     fiscal_year_id: fiscalYearId,
     voucher_type: voucherType,
@@ -89,6 +110,9 @@ function postToLedger(db, opts) {
     voucher_number: voucherNumber,
     total_debit_rial: bal.totalDebit,
     total_credit_rial: bal.totalCredit,
+    src_system: resolvedSrc || null,
+    src_doc_no: srcDocNo || null,
+    doc_type: docType || null,
   });
 
   if (!entryId) throw new Error('ثبت سند حسابداری ناموفق بود');

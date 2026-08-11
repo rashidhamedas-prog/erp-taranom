@@ -44,15 +44,15 @@ if sqlite3 "$CORRUPT" ".recover" > "$SQL" 2>/dev/null; then
     rm -f crm.db-shm crm.db-wal
     cp "$OUT" crm.db
     echo "==> SUCCESS: crm.db replaced with recovered Mahak DB"
-    echo "    Restart: pm2 restart crm-taranom"
+    echo "    Restart: pm2 restart erp-taranom"
     exit 0
   fi
 fi
 
 echo "==> .recover failed or incomplete — re-import from Excel required:"
-echo "    pm2 stop crm-taranom"
+echo "    pm2 stop erp-taranom"
 echo "    cp crm.db backups/pre-recover-${TS}.db"
 echo "    node scripts/import-mahak-journal.js <coding.xlsx> <roznameh.xlsx> crm.db"
 echo "    node scripts/import-mahak-stock.js <mojodi.xlsx> crm.db"
-echo "    pm2 restart crm-taranom"
+echo "    pm2 restart erp-taranom"
 exit 2

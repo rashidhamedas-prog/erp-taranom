@@ -1,0 +1,73 @@
+schema_version: 1
+tasks:
+  - id: "PROD-P5-R2"
+    title: "Reopen invalid PROD-P5 completion; restore P0–P5 gates and secure sensitivity"
+    status: "completed"
+    risk: "high"
+    owner: "cursor:implementer"
+    roles:
+      implementer: "cursor:implementer"
+      reviewer: "cursor:independent-reviewer"
+      security: "cursor:independent-security"
+    branch: "fix/PROD-P5-R2-review-remediation"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5-r2"
+    base_commit: "a152086"
+    claimed_at: "2026-08-10T15:40:00+03:30"
+    completed_at: "2026-08-10T19:15:00+03:30"
+    file_claims: []
+    acceptance_criteria:
+      - "P0/P1/P2/P3/P4/P5 all green on one commit"
+      - "No T2-05/T2-07/T2-08 failures; health 5201/5202/5203 zero and ok=true"
+      - "sensitivity is DB side-effect-free (no product/production UPDATE)"
+      - "embedded desktop/android SHA diff=0 after prepare"
+      - "BOM editor CRUD+template+resequence; role UI/API cost strip; browser smoke"
+      - "Independent Reviewer Approved; Security Approved; no open High/Medium"
+      - "NO deploy and NO completed until both reviewers approve"
+    notes: >-
+      Completed after Independent Approved-with-comments + Security Approved.
+      Tip code 1728626; primary FF a1f219b lineage; Iran SFTP stamp .sftp-deploy-stamp-prod-p5-r2;
+      hashes match; health/ready/root 200. Claims released.
+      2026-08-10T20:10 re-verification: Independent Reviewer APPROVED + Security Approved;
+      no open High/Medium; gates re-run green (sync 44/44 on retry).
+
+  - id: "PROD-P5"
+    title: "Production Module P5 — advanced BOM + routing + co/by-products (Module 4)"
+    status: "superseded"
+    risk: "high"
+    owner: "cursor:orchestrator"
+    branch: "ai/PROD-P5-advanced-bom"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5"
+    file_claims: []
+    notes: >-
+      Completion invalidated by Independent Reviewer (High/Medium open).
+      Remediation tracked under PROD-P5-R2 (now completed). Claims released.
+
+  - id: "PROD-P4"
+    title: "Production Module P4 — overhead + labor + cost centers"
+    status: "completed"
+    risk: "high"
+    owner: "cursor:orchestrator"
+    branch: "ai/PROD-P4-overhead-labor"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p4"
+    file_claims: []
+    notes: "38/38 PASS. Merged; claims released."
+
+  - id: "PROD-P3"
+    title: "Complete Production Module P3 — variable analysis + ADR-011"
+    status: "completed"
+    risk: "high"
+    owner: "cursor:implementer"
+    branch: "ai/PROD-P3-variable-analysis"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3"
+    file_claims: []
+    notes: "27/27 PASS. Merged; claims released."
+
+  - id: "W2-ORCH"
+    title: "Wave 2 orchestration — آماده فروش کنترل‌شده"
+    status: "completed"
+    risk: "high"
+    owner: "cursor:implementer"
+    branch: "ai/W2-ORCH-wave2"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w2-orch"
+    file_claims: []
+    notes: "MVP integration complete. Claims released."

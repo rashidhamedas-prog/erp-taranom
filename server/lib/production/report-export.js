@@ -1,4 +1,5 @@
 'use strict';
+const { XLSX } = require('../excel-safe');
 /** CSV / XLSX / HTML-PDF export for production reports */
 
 const { err } = require('./posting');
@@ -30,9 +31,7 @@ function toCsv(reportResult) {
   return lines.join('\n');
 }
 
-function toExcel(reportResult) {
-  const XLSX = require('xlsx');
-
+async function toExcel(reportResult) {
   if (reportResult.report === 'PR-02' || reportResult.data?.summary) {
     const stages = reportResult.data?.stages || [];
     assertRowLimit(stages);
@@ -43,7 +42,7 @@ function toExcel(reportResult) {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(stages.length ? stages : [{ seq: '' }]), 'Stages');
     return {
       format: 'xlsx',
-      buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }),
+      buffer: await XLSX.write(wb),
     };
   }
 
@@ -53,7 +52,7 @@ function toExcel(reportResult) {
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, reportResult.report || 'Report');
-  return { format: 'xlsx', buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) };
+  return { format: 'xlsx', buffer: await XLSX.write(wb) };
 }
 
 function escHtml(s) {

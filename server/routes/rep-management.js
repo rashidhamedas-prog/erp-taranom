@@ -1,8 +1,9 @@
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const router = require('express').Router();
-const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
-const { getDB, audit, createJournalEntry, resolveCashAccount, createLedgerEntry } = require('../db');
+const { getDB, audit, resolveCashAccount, createLedgerEntry } = require('../db');
+const { postToLedger } = require('../lib/ledger');
+const { rialToLedger } = require('../lib/money');
+const { acct } = require('../lib/coa-map');
 const { auth, adminOrAccounting, repModuleAdmin } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const {
@@ -10,22 +11,44 @@ const {
   computeRepCommission, computeRepPayable, settleAdvancesAgainstPayment, notifyRep, getRepRanking,
   getRepAgingReceivables, getTeamRollup, canAccessRep, getRepProfitReport, recordSettlementCommissionAccrual
 } = require('../lib/rep-ledger');
+const { createSecureUpload, assertNoClientFileReferences } = require('../lib/upload-policy');
+const { persistPrivateUpload, persistPrivateUploadWithCommit, removeStoredFile, sendPrivateFile } = require('../lib/private-uploads');
+const { sendSecureHtml } = require('../lib/secure-html-response');
+const repImageUpload = createSecureUpload('messageImage');
+const repDocumentUpload = createSecureUpload('document');
 
-const { UPLOADS_ROOT } = require('../paths');
-const repUpload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => {
-      const dir = path.join(UPLOADS_ROOT, 'reps');
-      fs.mkdirSync(dir, { recursive: true });
-      cb(null, dir);
-    },
-    filename: (req, file, cb) => cb(null, `${Date.now()}-${(file.originalname || 'file').replace(/[^\w.-]/g, '_')}`)
-  }),
-  limits: { fileSize: 8 * 1024 * 1024 }
-});
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function paymentFileUrl(row) {
+  return row && row.receipt_file ? { ...row, receipt_url: `/api/reps/payments/${row.id}/receipt` } : row;
+}
+
+function expenseFileUrl(row) {
+  return row && row.receipt_file ? { ...row, receipt_url: `/api/reps/expenses/${row.id}/receipt` } : row;
+}
+
+function canReadRepFile(db, user, repId) {
+  return user.role === 'admin' || user.role === 'accounting' || user.id === repId || canAccessRep(db, user, repId);
+}
 
 function repGuard(db, id) {
   return db.prepare(`SELECT * FROM users WHERE id=? AND active=1 AND role IN ${REP_ROLES_SQL}`).get(id) || null;
+}
+
+function customerAssignedToRep(db, customerId, repId) {
+  const id = Number(customerId);
+  if (!Number.isInteger(id) || id <= 0) return false;
+  return !!db.prepare(`
+    SELECT 1 FROM customers
+    WHERE id=? AND (user_id=? OR assigned_to=?)
+  `).get(id, Number(repId), Number(repId));
 }
 
 function repAccess(req, res, next) {
@@ -85,7 +108,7 @@ router.get('/expenses/pending', auth, repModuleAdmin, (req, res) => {
     SELECT e.*, u.name as rep_name, r.name as recorder
     FROM rep_expenses e JOIN users u ON e.rep_id=u.id LEFT JOIN users r ON e.created_by=r.id
     WHERE e.status='pending' ORDER BY e.created_at DESC LIMIT 100
-  `).all());
+  `).all().map(expenseFileUrl));
 });
 
 function applyRepPaymentAsSettlement(db, sub, userId) {
@@ -110,16 +133,17 @@ function applyRepPaymentAsSettlement(db, sub, userId) {
   createLedgerEntry(db, {
     customer_id: sub.cust_id, date: sub.date || '', entry_type: 'settlement',
     ref_type: 'settlement', ref_id: settlementId,
-    description: `تسویه ${payLabel} (تأیید پرداخت میدانی) - ${amount.toLocaleString('fa-IR')} تومان`,
+    description: `تسویه ${payLabel} (تأیید پرداخت میدانی) - ${amount.toLocaleString('fa-IR')} ریال`,
     debit: 0, credit: amount, user_id: userId
   });
   const cash = resolveCashAccount(db, pay_type, null, null);
-  createJournalEntry(db, {
-    date: sub.date || '', description: `تسویه ${payLabel} مشتری (نماینده میدانی)`,
-    ref_type: 'settlement', ref_id: settlementId, created_by: userId,
+  const receivable = acct(db, 'coa_receivable');
+  postToLedger(db, {
+    sourceType: 'settlement', sourceId: settlementId,
+    date: sub.date || todayJalali(), description: `تسویه ${payLabel} مشتری (نماینده میدانی)`, createdBy: userId,
     lines: [
-      { code: cash.code, name: cash.name, debit: amount, credit: 0 },
-      { code: '1103', name: 'حساب‌های دریافتنی از مشتریان', debit: 0, credit: amount }
+      { code: cash.code, name: cash.name, debit: rialToLedger(amount), credit: 0 },
+      { code: receivable.code, name: receivable.name, debit: 0, credit: rialToLedger(amount) }
     ]
   });
   return settlementId;
@@ -134,7 +158,7 @@ router.get('/payments/pending', auth, adminOrAccounting, (req, res) => {
     JOIN customers c ON p.cust_id=c.id
     WHERE p.status='pending'
     ORDER BY p.created_at DESC LIMIT 200
-  `).all());
+  `).all().map(paymentFileUrl));
 });
 
 router.get('/payments/mine', auth, (req, res) => {
@@ -144,10 +168,18 @@ router.get('/payments/mine', auth, (req, res) => {
     SELECT p.*, c.biz as cust_biz FROM rep_payment_submissions p
     LEFT JOIN customers c ON p.cust_id=c.id
     WHERE p.rep_id=? ORDER BY p.created_at DESC LIMIT 100
-  `).all(req.user.id));
+  `).all(req.user.id).map(paymentFileUrl));
 });
 
-router.post('/payments', auth, repUpload.single('receipt'), (req, res) => {
+router.get('/payments/:id/receipt', auth, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT id,rep_id,receipt_file FROM rep_payment_submissions WHERE id=?').get(+req.params.id);
+  if (!row || !row.receipt_file) return res.status(404).json({ error: 'رسید یافت نشد' });
+  if (!canReadRepFile(db, req.user, row.rep_id)) return res.status(403).json({ error: 'دسترسی ندارید' });
+  return sendPrivateFile(res, 'reps', row.receipt_file, { inline: true });
+});
+
+router.post('/payments', auth, repImageUpload.single('receipt'), (req, res) => {
   if (req.user.role !== 'field_sales') return res.status(403).json({ error: 'فقط کارشناس میدانی' });
   const db = getDB();
   const {
@@ -158,22 +190,26 @@ router.post('/payments', auth, repUpload.single('receipt'), (req, res) => {
   const custId = parseInt(cust_id);
   const amt = parseFloat(amount);
   if (!custId || !amt || amt <= 0) return res.status(400).json({ error: 'مشتری و مبلغ الزامی است' });
+  if (!customerAssignedToRep(db, custId, req.user.id)) {
+    audit(req.user.id, 'idor_denied', 'customer', custId, 'رد ثبت پرداخت برای مشتری خارج از مالکیت نماینده', req);
+    return res.status(403).json({ error: 'این مشتری به شما تخصیص داده نشده است' });
+  }
   const pt = ['cash', 'cheque', 'bank_transfer'].includes(pay_type) ? pay_type : 'cash';
   if (pt === 'cheque' && (!cheque_bank || !cheque_sayadi || !cheque_due)) {
     return res.status(400).json({ error: 'اطلاعات چک ناقص است' });
   }
-  const receiptName = req.file?.filename || '';
-  if (!receiptName) return res.status(400).json({ error: 'عکس رسید/چک الزامی است' });
-  const r = db.prepare(`
-    INSERT INTO rep_payment_submissions
-      (rep_id,cust_id,pay_type,amount,date,note,receipt_file,bank_ref,
-       cheque_bank,cheque_sayadi,cheque_number,cheque_account,cheque_amount,cheque_owner,cheque_due,status,created_by)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)
-  `).run(req.user.id, custId, pt, amt, date || todayJalali(), note || '', receiptName, bank_ref || '',
-    cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
-    parseFloat(cheque_amount || amt) || amt, cheque_owner || '', cheque_due || '', req.user.id);
+  if (!req.file) return res.status(400).json({ error: 'عکس رسید/چک الزامی است' });
+  const { filename: receiptName, result: r } = persistPrivateUploadWithCommit(req.file, 'reps', 'payment', (storedName) =>
+    db.prepare(`
+      INSERT INTO rep_payment_submissions
+        (rep_id,cust_id,pay_type,amount,date,note,receipt_file,bank_ref,
+         cheque_bank,cheque_sayadi,cheque_number,cheque_account,cheque_amount,cheque_owner,cheque_due,status,created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)
+    `).run(req.user.id, custId, pt, amt, date || todayJalali(), note || '', storedName, bank_ref || '',
+      cheque_bank || '', cheque_sayadi || '', cheque_number || '', cheque_account || '',
+      parseFloat(cheque_amount || amt) || amt, cheque_owner || '', cheque_due || '', req.user.id));
   audit(req.user.id, 'create', 'rep_payment', r.lastInsertRowid, `ثبت پرداخت میدانی ${amt} ت — مشتری ${custId}`);
-  res.json({ id: r.lastInsertRowid, ok: true });
+  res.json({ id: r.lastInsertRowid, ok: true, receipt_url: `/api/reps/payments/${r.lastInsertRowid}/receipt` });
 });
 
 router.post('/payments/:id/approve', auth, adminOrAccounting, (req, res) => {
@@ -207,19 +243,31 @@ router.post('/payments/:id/reject', auth, adminOrAccounting, (req, res) => {
 
 router.get('/alerts', auth, repModuleAdmin, (req, res) => {
   const db = getDB();
-  const pendingExpenses = db.prepare("SELECT COUNT(*) c FROM rep_expenses WHERE status='pending'").get().c;
-  const reps = db.prepare(`SELECT id,name,monthly_target FROM users WHERE active=1 AND role IN ${REP_ROLES_SQL} AND monthly_target>0`).all();
-  const targetHits = [];
-  for (const r of reps) {
-    const comm = computeRepCommission(db, r.id, {});
-    if (comm.targetPct >= 100) targetHits.push({ id: r.id, name: r.name, pct: comm.targetPct });
+  try {
+    const pendingExpenses = db.prepare("SELECT COUNT(*) c FROM rep_expenses WHERE status='pending'").get().c;
+    const reps = db.prepare(`SELECT id,name,monthly_target FROM users WHERE active=1 AND role IN ${REP_ROLES_SQL} AND monthly_target>0`).all();
+    const targetHits = [];
+    for (const r of reps) {
+      const comm = computeRepCommission(db, r.id, {});
+      if (comm.targetPct >= 100) targetHits.push({ id: r.id, name: r.name, pct: comm.targetPct });
+    }
+    // چک‌های معوق روی settlements است (نه invoices) — ستون cheque_status فقط آنجا وجود دارد
+    let overdueCheques = 0;
+    try {
+      overdueCheques = db.prepare(`
+        SELECT COUNT(*) c FROM settlements s
+        JOIN invoices i ON s.invoice_id=i.id
+        WHERE s.pay_type='cheque' AND COALESCE(s.cheque_status,'pending')='pending'
+          AND i.user_id IN (SELECT id FROM users WHERE role IN ${REP_ROLES_SQL})
+          AND s.cheque_due IS NOT NULL AND s.cheque_due <> '' AND s.cheque_due < ?
+      `).get(todayJalali()).c;
+    } catch {
+      overdueCheques = 0;
+    }
+    res.json({ pendingExpenses, targetHits, overdueCheques });
+  } catch (e) {
+    res.status(500).json({ error: e.message, code: e.code || 'E_REPS_ALERTS' });
   }
-  const overdueCheques = db.prepare(`
-    SELECT COUNT(*) c FROM invoices i
-    WHERE i.type='final' AND i.pay_type='cheque' AND i.cheque_status='pending'
-    AND i.user_id IN (SELECT id FROM users WHERE role IN ${REP_ROLES_SQL})
-  `).get().c;
-  res.json({ pendingExpenses, targetHits, overdueCheques });
 });
 
 router.get('/assignment-history', auth, repModuleAdmin, (req, res) => {
@@ -294,16 +342,17 @@ router.post('/expenses/:expenseId/approve', auth, repModuleAdmin, (req, res) => 
       description: `هزینه: ${EXPENSE_CATEGORIES[row.category] || row.category}`, debit: row.amount, credit: 0, created_by: req.user.id
     });
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    createJournalEntry(db, {
-      date: row.date, description: `بازپرداخت هزینه نماینده ${row.rep_name}`,
-      ref_type: 'rep_expense', ref_id: row.id, created_by: req.user.id,
+    const expense = acct(db, 'coa_sales_expense');
+    postToLedger(db, {
+      sourceType: 'rep_expense', sourceId: row.id,
+      date: row.date || todayJalali(), description: `بازپرداخت هزینه نماینده ${row.rep_name}`, createdBy: req.user.id,
       lines: [
-        { code: '6103', name: 'هزینه‌های توزیع و فروش', debit: row.amount, credit: 0 },
-        { code: cash.code, name: cash.name, debit: 0, credit: row.amount }
+        { code: expense.code, name: expense.name, debit: rialToLedger(row.amount), credit: 0 },
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(row.amount) }
       ]
     });
   })();
-  notifyRep(db, row.rep_id, `✅ هزینه ${row.amount} تومان تأیید شد.`, req.user.id, { sms: true });
+  notifyRep(db, row.rep_id, `✅ هزینه ${row.amount} ریال تأیید شد.`, req.user.id, { sms: true });
   res.json({ ok: true });
 });
 
@@ -313,8 +362,16 @@ router.post('/expenses/:expenseId/reject', auth, repModuleAdmin, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.status !== 'pending') return res.status(400).json({ error: 'فقط pending' });
   db.prepare("UPDATE rep_expenses SET status='rejected',approved_by=?,approved_at=strftime('%s','now') WHERE id=?").run(req.user.id, row.id);
-  notifyRep(db, row.rep_id, `❌ هزینه ${row.amount} تومان رد شد.${req.body.note ? ' — ' + req.body.note : ''}`, req.user.id);
+  notifyRep(db, row.rep_id, `❌ هزینه ${row.amount} ریال رد شد.${req.body.note ? ' — ' + req.body.note : ''}`, req.user.id);
   res.json({ ok: true });
+});
+
+router.get('/expenses/:expenseId/receipt', auth, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT id,rep_id,receipt_file FROM rep_expenses WHERE id=?').get(+req.params.expenseId);
+  if (!row || !row.receipt_file) return res.status(404).json({ error: 'رسید یافت نشد' });
+  if (!canReadRepFile(db, req.user, row.rep_id)) return res.status(403).json({ error: 'دسترسی ندارید' });
+  return sendPrivateFile(res, 'reps', row.receipt_file, { inline: true });
 });
 
 router.delete('/commission-rules/:ruleId', auth, adminOrAccounting, (req, res) => {
@@ -327,8 +384,7 @@ router.delete('/commission-tiers/:tierId', auth, adminOrAccounting, (req, res) =
   res.json({ ok: true });
 });
 
-router.get('/export/all-excel', auth, repModuleAdmin, (req, res) => {
-  const XLSX = require('xlsx');
+router.get('/export/all-excel', auth, repModuleAdmin, async (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
   const rows = getRepRanking(db, { from, to }).map(r => ({
@@ -337,7 +393,7 @@ router.get('/export/all-excel', auth, repModuleAdmin, (req, res) => {
   }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'نمایندگان');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', 'attachment; filename=reps-all.xlsx');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
@@ -469,32 +525,47 @@ router.get('/:id/expenses', auth, adminRepOrSelf, (req, res) => {
   res.json(db.prepare(`
     SELECT e.*, u.name as recorder FROM rep_expenses e LEFT JOIN users u ON e.created_by=u.id
     WHERE e.rep_id=? ORDER BY e.created_at DESC LIMIT 200
-  `).all(+req.params.id));
+  `).all(+req.params.id).map(expenseFileUrl));
 });
 
-router.post('/:id/expenses', auth, adminRepOrSelf, repUpload.single('receipt'), (req, res) => {
+router.post('/:id/expenses', auth, adminRepOrSelf, repImageUpload.single('receipt'), (req, res) => {
   const db = getDB();
   const repId = +req.params.id;
   if (!repGuard(db, repId)) return res.status(404).json({ error: 'نماینده یافت نشد' });
   const { category, amount, date, description, receipt_file, cost_center_id } = req.body;
+  try { assertNoClientFileReferences(req.body, ['receipt_file']); }
+  catch (error) { return res.status(400).json({ error: error.message, code: error.code }); }
   const amt = parseFloat(amount);
   if (!amt || amt <= 0) return res.status(400).json({ error: 'مبلغ معتبر الزامی است' });
-  const receiptName = req.file?.filename || receipt_file || '';
-  const r = db.prepare(`
-    INSERT INTO rep_expenses (rep_id,category,amount,date,description,receipt_file,cost_center_id,status,created_by)
-    VALUES (?,?,?,?,?,?,?,'pending',?)
-  `).run(repId, category || 'other', amt, date || todayJalali(), description || '', receiptName, cost_center_id || null, req.user.id);
+  let receiptName = '';
+  let r;
+  if (req.file) {
+    const persisted = persistPrivateUploadWithCommit(req.file, 'reps', 'expense', (storedName) => db.prepare(`
+      INSERT INTO rep_expenses (rep_id,category,amount,date,description,receipt_file,cost_center_id,status,created_by)
+      VALUES (?,?,?,?,?,?,?,'pending',?)
+    `).run(repId, category || 'other', amt, date || todayJalali(), description || '', storedName, cost_center_id || null, req.user.id));
+    receiptName = persisted.filename;
+    r = persisted.result;
+  } else {
+    r = db.prepare(`
+      INSERT INTO rep_expenses (rep_id,category,amount,date,description,receipt_file,cost_center_id,status,created_by)
+      VALUES (?,?,?,?,?,?,?,'pending',?)
+    `).run(repId, category || 'other', amt, date || todayJalali(), description || '', '', cost_center_id || null, req.user.id);
+  }
   audit(req.user.id, 'create', 'rep_expense', r.lastInsertRowid, `هزینه نماینده: ${amt}`, req);
-  res.json({ id: r.lastInsertRowid, ok: true, receipt_file: receiptName });
+  res.json({ id: r.lastInsertRowid, ok: true, receipt_file: receiptName,
+    receipt_url: receiptName ? `/api/reps/expenses/${r.lastInsertRowid}/receipt` : null });
 });
 
-router.post('/:id/expenses/:expenseId/receipt', auth, adminRepOrSelf, repUpload.single('file'), (req, res) => {
+router.post('/:id/expenses/:expenseId/receipt', auth, adminRepOrSelf, repImageUpload.single('file'), (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM rep_expenses WHERE id=? AND rep_id=?').get(+req.params.expenseId, +req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (!req.file) return res.status(400).json({ error: 'فایل الزامی است' });
-  db.prepare('UPDATE rep_expenses SET receipt_file=? WHERE id=?').run(req.file.filename, row.id);
-  res.json({ ok: true, file: req.file.filename });
+  const { filename } = persistPrivateUploadWithCommit(req.file, 'reps', 'expense', (storedName) =>
+    db.prepare('UPDATE rep_expenses SET receipt_file=? WHERE id=?').run(storedName, row.id));
+  if (row.receipt_file) removeStoredFile('reps', row.receipt_file);
+  res.json({ ok: true, file: filename, receipt_url: `/api/reps/expenses/${row.id}/receipt` });
 });
 
 router.get('/:id/advances', auth, adminRepOrSelf, (req, res) => {
@@ -519,17 +590,18 @@ router.post('/:id/advances', auth, adminOrAccounting, (req, res) => {
       description: `مساعده — ${note || ''}`, debit: amt, credit: 0, created_by: req.user.id
     });
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    createJournalEntry(db, {
-      date: date || todayJalali(), description: `مساعده به نماینده ${rep.name}`,
-      ref_type: 'rep_advance', ref_id: r.lastInsertRowid, created_by: req.user.id,
+    const advance = acct(db, 'coa_rep_advance');
+    postToLedger(db, {
+      sourceType: 'rep_advance', sourceId: r.lastInsertRowid,
+      date: date || todayJalali(), description: `مساعده به نماینده ${rep.name}`, createdBy: req.user.id,
       lines: [
-        { code: '1107', name: 'مساعده نمایندگان فروش', debit: amt, credit: 0 },
-        { code: cash.code, name: cash.name, debit: 0, credit: amt }
+        { code: advance.code, name: advance.name, debit: rialToLedger(amt), credit: 0 },
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) }
       ]
     });
     return r;
   })();
-  notifyRep(db, repId, `💰 مساعده ${amt} تومان به حساب شما ثبت شد.`, req.user.id);
+  notifyRep(db, repId, `💰 مساعده ${amt} ریال به حساب شما ثبت شد.`, req.user.id);
   audit(req.user.id, 'create', 'rep_advance', result.lastInsertRowid, `مساعده ${amt}`);
   res.json({ id: result.lastInsertRowid, ok: true });
 });
@@ -552,12 +624,13 @@ router.post('/:id/settle', auth, adminOrAccounting, (req, res) => {
     let advSettled = 0;
     if (settle_advances !== false) advSettled = settleAdvancesAgainstPayment(db, repId, amt, pay.lastInsertRowid, req.user.id);
     const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
-    createJournalEntry(db, {
-      date: date || todayJalali(), description: `تسویه نماینده ${rep.name}`,
-      ref_type: 'rep_settlement', ref_id: pay.lastInsertRowid, created_by: req.user.id,
+    const payable = acct(db, 'coa_rep_commission_payable');
+    postToLedger(db, {
+      sourceType: 'rep_settlement', sourceId: pay.lastInsertRowid,
+      date: date || todayJalali(), description: `تسویه نماینده ${rep.name}`, createdBy: req.user.id,
       lines: [
-        { code: '6101', name: 'هزینه انگیزه فروش', debit: amt, credit: 0 },
-        { code: cash.code, name: cash.name, debit: 0, credit: amt }
+        { code: payable.code, name: payable.name, debit: rialToLedger(amt), credit: 0 },
+        { code: cash.code, name: cash.name, debit: 0, credit: rialToLedger(amt) }
       ]
     });
     db.prepare(`
@@ -566,7 +639,7 @@ router.post('/:id/settle', auth, adminOrAccounting, (req, res) => {
     `).run(repId, date || todayJalali(), 'combined', amt, advSettled, amt, balanceBefore, balanceBefore - amt, note || '', pay.lastInsertRowid, req.user.id);
     return { paymentId: pay.lastInsertRowid, advSettled };
   })();
-  notifyRep(db, repId, `💵 تسویه ${amt} تومان انجام شد.${result.advSettled ? ` (مساعده: ${result.advSettled})` : ''}`, req.user.id, { sms: true });
+  notifyRep(db, repId, `💵 تسویه ${amt} ریال انجام شد.${result.advSettled ? ` (مساعده: ${result.advSettled})` : ''}`, req.user.id, { sms: true });
   res.json({ ok: true, ...result });
 });
 
@@ -596,17 +669,29 @@ router.get('/:id/contract', auth, adminRepOrSelf, (req, res) => {
   if (!rep) return res.status(404).json({ error: 'نماینده یافت نشد' });
   const u = db.prepare('SELECT contract_file FROM users WHERE id=?').get(rep.id);
   if (!u?.contract_file) return res.json({ file: null });
-  res.json({ file: u.contract_file, url: `/uploads/reps/${u.contract_file}` });
+  res.json({ file: u.contract_file, url: `/api/reps/${rep.id}/contract/file` });
 });
 
-router.post('/:id/contract', auth, adminOrAccounting, repUpload.single('file'), (req, res) => {
+router.get('/:id/contract/file', auth, adminRepOrSelf, (req, res) => {
+  const db = getDB();
+  const rep = repGuard(db, +req.params.id);
+  if (!rep) return res.status(404).json({ error: 'نماینده یافت نشد' });
+  const row = db.prepare('SELECT contract_file FROM users WHERE id=?').get(rep.id);
+  if (!row?.contract_file) return res.status(404).json({ error: 'قرارداد یافت نشد' });
+  return sendPrivateFile(res, 'reps', row.contract_file, { inline: false });
+});
+
+router.post('/:id/contract', auth, adminOrAccounting, repDocumentUpload.single('file'), (req, res) => {
   const db = getDB();
   const rep = repGuard(db, +req.params.id);
   if (!rep) return res.status(404).json({ error: 'نماینده یافت نشد' });
   if (!req.file) return res.status(400).json({ error: 'فایل الزامی است' });
-  db.prepare('UPDATE users SET contract_file=? WHERE id=?').run(req.file.filename, rep.id);
+  const previous = db.prepare('SELECT contract_file FROM users WHERE id=?').get(rep.id)?.contract_file;
+  const { filename } = persistPrivateUploadWithCommit(req.file, 'reps', 'contract', (storedName) =>
+    db.prepare('UPDATE users SET contract_file=? WHERE id=?').run(storedName, rep.id));
+  if (previous) removeStoredFile('reps', previous);
   audit(req.user.id, 'update', 'user', rep.id, `آپلود قرارداد نماینده ${rep.name}`, req);
-  res.json({ ok: true, file: req.file.filename, url: `/uploads/reps/${req.file.filename}` });
+  res.json({ ok: true, file: filename, url: `/api/reps/${rep.id}/contract/file` });
 });
 
 router.get('/:id/commission-rules', auth, adminOrAccounting, (req, res) => {
@@ -709,22 +794,53 @@ router.get('/:id/reports/activity', auth, adminRepOrSelf, (req, res) => {
 router.get('/:id/visits', auth, adminRepOrSelf, (req, res) => {
   const db = getDB();
   if (!repGuard(db, +req.params.id)) return res.status(404).json({ error: 'نماینده یافت نشد' });
-  res.json(db.prepare('SELECT v.*, c.biz as customer_name FROM rep_visit_logs v LEFT JOIN customers c ON v.customer_id=c.id WHERE v.rep_id=? ORDER BY v.created_at DESC LIMIT 200').all(+req.params.id));
+  const rows = db.prepare('SELECT v.*, c.biz as customer_name FROM rep_visit_logs v LEFT JOIN customers c ON v.customer_id=c.id WHERE v.rep_id=? ORDER BY v.created_at DESC LIMIT 200').all(+req.params.id);
+  res.json(rows.map((row) => ({
+    ...row,
+    photo_url: row.photo_file ? `/api/reps/${req.params.id}/visits/${row.id}/photo` : null,
+    signature_url: row.signature_file ? `/api/reps/${req.params.id}/visits/${row.id}/signature` : null,
+  })));
 });
 
-router.post('/:id/visits', auth, adminRepOrSelf, repUpload.fields([{ name: 'photo', maxCount: 1 }, { name: 'signature', maxCount: 1 }]), (req, res) => {
+router.get('/:id/visits/:visitId/photo', auth, adminRepOrSelf, (req, res) => {
+  const row = getDB().prepare('SELECT photo_file FROM rep_visit_logs WHERE id=? AND rep_id=?').get(+req.params.visitId, +req.params.id);
+  if (!row?.photo_file) return res.status(404).json({ error: 'تصویر بازدید یافت نشد' });
+  return sendPrivateFile(res, 'reps', row.photo_file, { inline: true });
+});
+
+router.get('/:id/visits/:visitId/signature', auth, adminRepOrSelf, (req, res) => {
+  const row = getDB().prepare('SELECT signature_file FROM rep_visit_logs WHERE id=? AND rep_id=?').get(+req.params.visitId, +req.params.id);
+  if (!row?.signature_file) return res.status(404).json({ error: 'امضای بازدید یافت نشد' });
+  return sendPrivateFile(res, 'reps', row.signature_file, { inline: true });
+});
+
+router.post('/:id/visits', auth, adminRepOrSelf, repImageUpload.fields([{ name: 'photo', maxCount: 1 }, { name: 'signature', maxCount: 1 }]), (req, res) => {
   const db = getDB();
   const repId = +req.params.id;
   if (!repGuard(db, repId)) return res.status(404).json({ error: 'نماینده یافت نشد' });
   const { customer_id, date, note, lat, lng, check_in_at, check_out_at, signature_file, photo_file } = req.body;
-  const photo = req.files?.photo?.[0]?.filename || photo_file || '';
-  const signature = req.files?.signature?.[0]?.filename || signature_file || '';
-  const r = db.prepare(`
-    INSERT INTO rep_visit_logs (rep_id,customer_id,date,note,lat,lng,check_in_at,check_out_at,signature_file,photo_file)
-    VALUES (?,?,?,?,?,?,?,?,?,?)
-  `).run(repId, customer_id || null, date || todayJalali(), note || '', lat || null, lng || null,
-    check_in_at || Math.floor(Date.now() / 1000), check_out_at || null, signature, photo);
-  res.json({ id: r.lastInsertRowid, ok: true });
+  if (customer_id && !customerAssignedToRep(db, customer_id, repId)) {
+    audit(req.user.id, 'idor_denied', 'customer', customer_id, 'رد ثبت ویزیت برای مشتری خارج از مالکیت نماینده', req);
+    return res.status(403).json({ error: 'این مشتری به نماینده انتخاب‌شده تخصیص ندارد' });
+  }
+  try { assertNoClientFileReferences(req.body, ['signature_file', 'photo_file']); }
+  catch (error) { return res.status(400).json({ error: error.message, code: error.code }); }
+  const photo = req.files?.photo?.[0] ? persistPrivateUpload(req.files.photo[0], 'reps', 'visit-photo') : '';
+  const signature = req.files?.signature?.[0] ? persistPrivateUpload(req.files.signature[0], 'reps', 'visit-signature') : '';
+  try {
+    const r = db.prepare(`
+      INSERT INTO rep_visit_logs (rep_id,customer_id,date,note,lat,lng,check_in_at,check_out_at,signature_file,photo_file)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
+    `).run(repId, customer_id || null, date || todayJalali(), note || '', lat || null, lng || null,
+      check_in_at || Math.floor(Date.now() / 1000), check_out_at || null, signature, photo);
+    res.json({ id: r.lastInsertRowid, ok: true,
+      photo_url: photo ? `/api/reps/${repId}/visits/${r.lastInsertRowid}/photo` : null,
+      signature_url: signature ? `/api/reps/${repId}/visits/${r.lastInsertRowid}/signature` : null });
+  } catch (error) {
+    if (photo) removeStoredFile('reps', photo);
+    if (signature) removeStoredFile('reps', signature);
+    throw error;
+  }
 });
 
 router.get('/:id/calls', auth, adminRepOrSelf, (req, res) => {
@@ -738,13 +854,16 @@ router.post('/:id/calls', auth, adminRepOrSelf, (req, res) => {
   const repId = +req.params.id;
   if (!repGuard(db, repId)) return res.status(404).json({ error: 'نماینده یافت نشد' });
   const { customer_id, date, duration_min, outcome, note } = req.body;
+  if (customer_id && !customerAssignedToRep(db, customer_id, repId)) {
+    audit(req.user.id, 'idor_denied', 'customer', customer_id, 'رد ثبت تماس برای مشتری خارج از مالکیت نماینده', req);
+    return res.status(403).json({ error: 'این مشتری به نماینده انتخاب‌شده تخصیص ندارد' });
+  }
   const r = db.prepare(`INSERT INTO rep_call_logs (rep_id,customer_id,date,duration_min,outcome,note) VALUES (?,?,?,?,?,?)`)
     .run(repId, customer_id || null, date || todayJalali(), parseInt(duration_min) || 0, outcome || '', note || '');
   res.json({ id: r.lastInsertRowid, ok: true });
 });
 
-router.get('/:id/export/excel', auth, adminRepOrSelf, (req, res) => {
-  const XLSX = require('xlsx');
+router.get('/:id/export/excel', auth, adminRepOrSelf, async (req, res) => {
   const db = getDB();
   const repId = +req.params.id;
   const rep = repGuard(db, repId);
@@ -761,7 +880,7 @@ router.get('/:id/export/excel', auth, adminRepOrSelf, (req, res) => {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(stmt.entries.map(e => ({
     'تاریخ': e.date, 'نوع': e.type_label, 'شرح': e.description, 'بدهکار': e.debit || 0, 'بستانکار': e.credit || 0
   }))), 'گردش');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', `attachment; filename=rep-${repId}.xlsx`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
@@ -774,16 +893,16 @@ router.get('/:id/export/pdf', auth, adminRepOrSelf, (req, res) => {
   if (!rep) return res.status(404).json({ error: 'نماینده یافت نشد' });
   const stmt = buildRepStatement(db, repId, { from: req.query.from, to: req.query.to });
   const faNum = n => Number(n || 0).toLocaleString('fa-IR');
-  const rowsHtml = stmt.entries.map((e, i) => `<tr><td>${i + 1}</td><td>${e.date || '-'}</td><td>${e.type_label}</td><td>${(e.description || '').replace(/</g, '&lt;')}</td><td>${e.debit ? faNum(e.debit) : '-'}</td><td>${e.credit ? faNum(e.credit) : '-'}</td></tr>`).join('');
-  const html = `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>صورت‌حساب ${rep.name}</title>
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;800&display=swap" rel="stylesheet">
+  const repName = escapeHtml(rep.name);
+  const rowsHtml = stmt.entries.map((e, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(e.date || '-')}</td><td>${escapeHtml(e.type_label)}</td><td>${escapeHtml(e.description || '')}</td><td>${e.debit ? faNum(e.debit) : '-'}</td><td>${e.credit ? faNum(e.credit) : '-'}</td></tr>`).join('');
+  const html = `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>صورت‌حساب ${repName}</title>
+<link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
 <style>*{font-family:Vazirmatn,sans-serif}body{padding:24px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:center}th{background:#1A5C38;color:#fff}.head{margin-bottom:16px}.pbtn{margin-top:16px;background:#1A5C38;color:#fff;border:none;padding:10px 24px;border-radius:8px;cursor:pointer}@media print{.pbtn{display:none}}</style></head><body>
-<div class="head"><h1>صورت‌حساب نماینده: ${rep.name}</h1>
+<div class="head"><h1>صورت‌حساب نماینده: ${repName}</h1>
 <p>انگیزه: ${faNum(Math.round(stmt.commission.totalComm))} | پرداخت: ${faNum(stmt.paid)} | مانده: ${faNum(Math.round(stmt.closing))}</p></div>
 <table><thead><tr><th>#</th><th>تاریخ</th><th>نوع</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th></tr></thead><tbody>${rowsHtml || '<tr><td colspan="6">—</td></tr>'}</tbody></table>
-<button class="pbtn" onclick="window.print()">🖨️ چاپ / PDF</button></body></html>`;
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(html);
+<button class="pbtn" type="button" data-print>🖨️ چاپ / PDF</button><script src="/print-page.js"></script></body></html>`;
+  return sendSecureHtml(res, html, { allowPrintScript: true });
 });
 
 module.exports = router;

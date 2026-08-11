@@ -94,8 +94,8 @@ function runHealthCheck(db) {
     `, [varPriceCode, varQtyCode])),
     mkCheck('C4', 'همه اسناد تولیدی تراز', runQuery(db, `
       SELECT je.id, je.voucher_number,
-             SUM(COALESCE(jl.debit_rial, ROUND(jl.debit * 10))) d,
-             SUM(COALESCE(jl.credit_rial, ROUND(jl.credit * 10))) c
+             SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)) d,
+             SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)) c
       FROM journal_entries je
       JOIN journal_lines jl ON jl.entry_id = je.id
       WHERE je.ref_type LIKE 'production_%' AND COALESCE(je.deleted_at, 0) = 0

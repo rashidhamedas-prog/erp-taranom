@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Seed a DEMO database for CRM Taranom — for presentations.
+// Seed a DEMO database for ERP Taranom — for presentations.
 //
 //   node server/scripts/seed-demo.js /path/to/demo.db [port]
 //
@@ -98,7 +98,7 @@ async function main() {
     for (let i = 0; i < 60; i++) {
       const cat = catNames[i % catNames.length];
       const name = `${cat} ${pick(fabrics)} مدل ${pick(models)}${i >= 30 ? ' ' + (i - 28) : ''}`;
-      const price = ri(38, 260) * 10000;                     // 380,000 تا 2,600,000 تومان
+      const price = ri(38, 260) * 10000;                     // 380,000 تا 2,600,000 ریال
       const cost = Math.round(price * (0.55 + rnd() * 0.15) / 1000) * 1000;
       const p = await api('POST', '/products', {
         name, code: 'T-' + String(101 + i), category_id: cats[cat] || undefined, category: cat,

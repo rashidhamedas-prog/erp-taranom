@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bootstrap CRM ترنم روی VPS ایران (اجرا با sudo روی سرور)
+# Bootstrap ERP ترنم روی VPS ایران (اجرا با sudo روی سرور)
 set -euo pipefail
 
 APP_USER="${APP_USER:-taranom}"
@@ -44,7 +44,7 @@ sudo -u "${APP_USER}" bash -lc "cd '${SERVER_DIR}' && npm install --omit=dev"
 sudo -u "${APP_USER}" bash -lc "
   cd '${SERVER_DIR}'
   export JWT_SECRET=\$(cat jwt-secret.txt | tr -d '\n')
-  pm2 delete crm-taranom >/dev/null 2>&1 || true
+  pm2 delete erp-taranom >/dev/null 2>&1 || true
   JWT_SECRET=\"\$JWT_SECRET\" pm2 start ecosystem.config.js --update-env
   pm2 save
   pm2 startup systemd -u ${APP_USER} --hp /home/${APP_USER} | tail -n 1 | bash || true

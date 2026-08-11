@@ -7,11 +7,13 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+const { readManifest } = require('../lib/app-update');
 
 const PORT = 3478;
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-b2b-'));
 const DB_PATH = path.join(TMP, 'test.db');
+const JWT_SECRET = 'b2b-test-secret-explicit-32-bytes-min';
 
 let passed = 0, failed = 0;
 function ok(cond, name) {
@@ -43,13 +45,19 @@ async function waitUp() {
 
 (async () => {
   const srv = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
-    env: { ...process.env, PORT: String(PORT), DB_PATH, UPLOADS_DIR: path.join(TMP, 'uploads'), JWT_SECRET: 'b2b-test-secret' },
+    env: { ...process.env, PORT: String(PORT), DB_PATH, UPLOADS_DIR: path.join(TMP, 'uploads'), JWT_SECRET },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   srv.stderr.on('data', d => process.stderr.write('[srv] ' + d));
   try {
     await waitUp();
-    const login = await j('POST', '/api/auth/login', { username: 'admin', password: 'admin123' });
+    let login = await j('POST', '/api/auth/login', { username: 'admin', password: 'admin123' });
+    // Security hardening: default password must change before any other API call
+    if (login.data && login.data.must_change_password) {
+      const chg = await j('POST', '/api/auth/change-password', { oldPass: 'admin123', newPass: 'AdmB2b!test9' }, login.data.token);
+      if (chg.status !== 200) throw new Error('admin change-password failed: ' + JSON.stringify(chg.data));
+      login = await j('POST', '/api/auth/login', { username: 'admin', password: 'AdmB2b!test9' });
+    }
     const admin = login.data.token;
 
     console.log('— feature flag —');
@@ -57,6 +65,7 @@ async function waitUp() {
     ok(r.status === 403, 'portal login rejected while feature is off');
     r = await j('GET', '/api/system/app-info');
     ok(r.status === 200 && r.data.b2b_portal === false, 'app-info reports portal off');
+    ok(r.status === 200 && r.data.release_id === readManifest().releaseId, 'app-info reports shared release id');
 
     r = await j('PUT', '/api/settings', { feature_b2b_portal: '1' }, admin);
     ok(r.status === 200, 'admin enables feature_b2b_portal');
@@ -70,6 +79,8 @@ async function waitUp() {
 
     r = await j('POST', `/api/b2b/admin/customers/${custId}/access`, { enabled: true, phone: '09150000001', password: '123' }, admin);
     ok(r.status === 400, 'short password rejected');
+    r = await j('POST', `/api/b2b/admin/customers/${custId}/access`, { enabled: true, phone: '09150000001', password: 'onlyletters' }, admin);
+    ok(r.status === 400, 'B2B password uses the shared strong password policy');
     r = await j('POST', `/api/b2b/admin/customers/${custId}/access`, { enabled: true, phone: '09150000001', password: 'secret99' }, admin);
     ok(r.status === 200 && r.data.enabled === true, 'B2B access enabled with password');
 
@@ -79,9 +90,26 @@ async function waitUp() {
     console.log('— portal auth —');
     r = await j('POST', '/api/b2b/auth/login', { phone: '09150000001', password: 'wrongpass' });
     ok(r.status === 401, 'wrong password rejected');
+    const knownFailure = r;
+    const unknownFailure = await j('POST', '/api/b2b/auth/login', { phone: '09158888888', password: 'wrongpass' });
+    ok(unknownFailure.status === knownFailure.status
+      && JSON.stringify(unknownFailure.data) === JSON.stringify(knownFailure.data),
+    'known and unknown B2B accounts receive an identical login failure');
     r = await j('POST', '/api/b2b/auth/login', { phone: '۰۹۱۵۰۰۰۰۰۰۱', password: 'secret99' });
     ok(r.status === 200 && r.data.token && r.data.customer.id === custId, 'login works (Persian digits normalized)');
     const b2bToken = r.data.token;
+
+    const malformedBearer = await fetch(BASE + '/api/b2b/me/catalog', {
+      headers: { Authorization: `Bearer ${b2bToken} extra` },
+    });
+    ok(malformedBearer.status === 401, 'B2B middleware requires an exact Bearer header');
+
+    let persistentBlock;
+    for (let i = 0; i < 11; i += 1) {
+      persistentBlock = await j('POST', '/api/b2b/auth/login', { phone: '09157777777', password: 'wrongpass' });
+    }
+    ok(persistentBlock.status === 429 && persistentBlock.data?.code === 'B2B_LOGIN_REJECTED',
+      'B2B phone credential stuffing is blocked by the persistent limiter');
 
     r = await j('GET', '/api/customers', null, b2bToken);
     ok(r.status === 401, 'B2B token rejected by internal staff API');
@@ -96,8 +124,11 @@ async function waitUp() {
     // No SMS provider in test env — plant a known OTP hash directly in the DB
     const Database = require('better-sqlite3');
     const tdb = new Database(DB_PATH);
-    tdb.prepare('UPDATE b2b_portal_accounts SET otp_hash=?, otp_expires=? WHERE customer_id=?')
-      .run(crypto.createHash('sha256').update('123456').digest('hex'), Math.floor(Date.now() / 1000) + 300, custId);
+    const b2bAccount = tdb.prepare('SELECT id FROM b2b_portal_accounts WHERE customer_id=?').get(custId);
+    const otpHash = crypto.createHmac('sha256', JWT_SECRET)
+      .update(`b2b-login:${b2bAccount.id}:123456`).digest('hex');
+    tdb.prepare('UPDATE b2b_portal_accounts SET otp_hash=?,otp_expires=?,otp_attempts=0,otp_locked_until=NULL WHERE customer_id=?')
+      .run(otpHash, Math.floor(Date.now() / 1000) + 300, custId);
     tdb.close();
     r = await j('POST', '/api/b2b/auth/otp/verify', { phone: '09150000001', code: '999999' });
     ok(r.status === 401, 'wrong OTP rejected');

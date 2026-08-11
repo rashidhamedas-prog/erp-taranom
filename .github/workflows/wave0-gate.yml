@@ -1,0 +1,149 @@
+name: Wave 0 Gate
+
+on:
+  push:
+    branches: [claude/claude-md-docs-2ssrpy]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  embedded-and-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: node scripts/prepare-embedded-server.js all
+      - run: node scripts/compare-embedded-hash.js
+      - run: node scripts/test-embedded-release.js
+      - run: node scripts/test-platform-security.js
+      - run: node scripts/check-frontend-inline.js
+      - run: node --check server/server.js && node --check server/routes/sync.js && node --check server/backup.js && node --check server/lib/excel-io.js && node --check server/lib/excel-safe.js
+
+  sync-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: node scripts/test-sync-tls-url.js 2>&1 | tee sync-security.log
+        working-directory: server
+      - run: node scripts/test-sync.js 2>&1 | tee -a sync-security.log
+        working-directory: server
+      - run: node scripts/test-sync-capture-repair.js 2>&1 | tee -a sync-security.log
+        working-directory: server
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: sync-security-log, path: server/sync-security.log }
+
+  web-api-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: |
+          set -e
+          node scripts/test-auth-session-security.js 2>&1 | tee web-api-security.log
+          node scripts/test-auth-login-rate-persistence.js 2>&1 | tee -a web-api-security.log
+          node scripts/test-company-switch-safety.js 2>&1 | tee -a web-api-security.log
+          node scripts/test-cross-company-session-isolation.js 2>&1 | tee -a web-api-security.log
+          node scripts/test-upload-ssrf-sync-security.js 2>&1 | tee -a web-api-security.log
+          node scripts/test-secret-settings-security.js 2>&1 | tee -a web-api-security.log
+          node scripts/test-csp-browser.js 2>&1 | tee -a web-api-security.log
+          node scripts/test-secure-html-response.js 2>&1 | tee -a web-api-security.log
+        working-directory: server
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: web-api-security-log, path: server/web-api-security.log }
+
+  core-and-dr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: |
+          set -e
+          node scripts/test-sms.js 2>&1 | tee core-dr.log
+          node scripts/test-b2b.js 2>&1 | tee -a core-dr.log
+          node scripts/test-portal.js 2>&1 | tee -a core-dr.log
+          node scripts/test-backup-dr.js 2>&1 | tee -a core-dr.log
+          node scripts/test-backup-offsite-policy.js 2>&1 | tee -a core-dr.log
+          node scripts/test-companies-fiscal.js 2>&1 | tee -a core-dr.log
+          node scripts/test-wave0-financial-hostile.js 2>&1 | tee -a core-dr.log
+          node scripts/test-production-export.js 2>&1 | tee -a core-dr.log
+        working-directory: server
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: core-dr-log, path: server/core-dr.log }
+
+  production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: npm run test:production 2>&1 | tee production.log
+        working-directory: server
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: production-log, path: server/production.log }
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+        working-directory: server
+      - run: node scripts/check-audit-waivers.js
+        working-directory: server
+      - name: Fail if xlsx still declared
+        run: |
+          if grep -R --include='package.json' -n '"xlsx"' server/package.json desktop/package.json android/app/src/main/assets/nodejs-project/package.json; then
+            echo 'xlsx must not remain in package.json'
+            exit 1
+          fi
+          echo 'xlsx absent from tracked package.json files'
+
+  playwright-critical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm ci
+        working-directory: server
+      - run: npm install
+        working-directory: e2e
+      - run: npx playwright install --with-deps chromium
+        working-directory: e2e
+      - run: npx playwright test --config=playwright.config.js login.spec.js critical-paths.spec.js 2>&1 | tee playwright.log
+        working-directory: e2e
+        env:
+          CI: '1'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: playwright-log, path: e2e/playwright.log }

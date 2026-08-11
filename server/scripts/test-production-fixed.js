@@ -108,7 +108,7 @@ function snapshotState() {
 
 function jeDebit(accountCode, refType = null) {
   let sql = `
-    SELECT COALESCE(SUM(COALESCE(jl.debit_rial, ROUND(jl.debit*10))),0) s
+    SELECT COALESCE(SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)),0) s
     FROM journal_lines jl
     JOIN journal_entries je ON je.id=jl.entry_id
     WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0
@@ -124,8 +124,8 @@ function jeDebit(accountCode, refType = null) {
 function allJesBalanced() {
   const rows = db.prepare(`
     SELECT je.id,
-      SUM(COALESCE(jl.debit_rial, ROUND(jl.debit*10))) d,
-      SUM(COALESCE(jl.credit_rial, ROUND(jl.credit*10))) c
+      SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)) d,
+      SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)) c
     FROM journal_entries je
     JOIN journal_lines jl ON jl.entry_id=je.id
     WHERE COALESCE(je.deleted_at,0)=0
@@ -374,6 +374,43 @@ try {
   }
 } catch (e) {
   ok('T2-16 Bootstrap سربار', false, e.message);
+}
+
+// Regression: sales pack_size 20/25 must NOT inflate production explode/JE amounts
+try {
+  db.prepare('UPDATE products SET pack_size=20 WHERE id=?').run(P.p101);
+  db.prepare('UPDATE products SET pack_size=25 WHERE id=?').run(P.p201);
+  const ex = bom.explodeBom(db, { bomId: bom1.id, qty: 300, priceBasis: 'average' });
+  const fabric = ex.lines.find(L => L.product_id === P.p201);
+  eq('T2-pack qty پارچه با pack_size', fabric?.qty_final, 515.4639, 0.0001);
+  eq('T2-pack مبلغ explode با pack_size', ex.totals.total_rial, 539242632, 0);
+  const poPack = engine.createOrder(db, {
+    product_id: P.p101, qty_planned: 300, analysis_type: 'fixed', date: DATE,
+    warehouse_raw_id: whRaw, warehouse_fg_id: whFg, cost_center_id: cc30,
+  }, adminId);
+  engine.releaseOrder(db, poPack.id, adminId);
+  // restore stocks depleted by prior tests
+  for (const id of [P.p201, P.p202, P.p203, P.p204, P.p205, P.p206]) {
+    db.prepare('UPDATE products SET stock=10000, average_cost_rial=COALESCE(NULLIF(average_cost_rial,0), std_cost_rial) WHERE id=?').run(id);
+    if (whRaw) db.prepare('UPDATE warehouse_stock SET qty=10000 WHERE product_id=? AND warehouse_id=?').run(id, whRaw);
+  }
+  db.prepare('UPDATE products SET average_cost_rial=950000, std_cost_rial=950000, pack_size=25 WHERE id=?').run(P.p201);
+  db.prepare('UPDATE products SET average_cost_rial=180000 WHERE id=?').run(P.p202);
+  db.prepare('UPDATE products SET average_cost_rial=85000 WHERE id=?').run(P.p203);
+  db.prepare('UPDATE products SET average_cost_rial=12000 WHERE id=?').run(P.p204);
+  db.prepare('UPDATE products SET average_cost_rial=6000 WHERE id=?').run(P.p205);
+  db.prepare('UPDATE products SET average_cost_rial=9000 WHERE id=?').run(P.p206);
+  db.prepare('UPDATE products SET stock=50, average_cost_rial=2100000, pack_size=20 WHERE id=?').run(P.p101);
+  const beforeMi = jeDebit(acct(db, 'coa_wip').code, 'production_material_issue');
+  engine.postReceiptFixed(db, {
+    orderId: poPack.id,
+    body: { ...RECEIPT_BODY, scrap: [{ product_id: P.p299, qty: 27, nrv_unit_rial: 120000 }] },
+    userId: adminId,
+  });
+  const deltaMi = jeDebit(acct(db, 'coa_wip').code, 'production_material_issue') - beforeMi;
+  eq('T2-pack JE PRD-01 با pack×20/×25', deltaMi, 539242632, 0);
+} catch (e) {
+  ok('T2-pack pack_size بی‌اثر بر تولید', false, e.stack || e.message);
 }
 
 cleanup();

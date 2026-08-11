@@ -10,7 +10,7 @@ Also append an entry to **`docs/CHANGE-LOG.md`** (date, commit hash, summary, ke
 
 ## ⚠️ MANDATORY RULE: Coordination with Cursor (dual-assistant workflow)
 
-This project is developed by **two assistants in parallel**: Cursor (on the user's Windows machine, working folder `D:\soft\claud\porje\CursorCrm`) and Claude Code (remote, git-only). Git on branch `claude/claude-md-docs-2ssrpy` is the ONLY shared channel — neither assistant can see the other's uncommitted work.
+This project is developed by **two assistants in parallel**: Cursor (on the user's Windows machine, working folder `D:\soft\claud\porje\CursorCrm\erp-taranom`) and Claude Code (remote, git-only). Git on branch `claude/claude-md-docs-2ssrpy` is the ONLY shared channel — neither assistant can see the other's uncommitted work.
 
 Therefore, after **every** task (even docs-only or no-op sessions worth recording):
 
@@ -21,7 +21,7 @@ Therefore, after **every** task (even docs-only or no-op sessions worth recordin
 
 ## Project Overview
 
-CRM ترنم (CRM Taranom) is a wholesale customer management + full accounting system for a women's clothing manufacturer ("پوشاک ترنم", based in Mashhad).
+ERP ترنم (ERP Taranom) is a wholesale customer management + full accounting system for a women's clothing manufacturer ("پوشاک ترنم", based in Mashhad).
 
 ## Current Architecture (v3 — authoritative; sections further below describe the legacy v1 prototype)
 
@@ -112,7 +112,7 @@ All collections are ordered by `createdAt desc` in their Firestore queries.
 - **User**: `taranom-admin`
 - **SSH key** (client-side, never commit): `C:\Users\DayaTech\.ssh\taranom_server`
 - **App path**: `/home/taranom-admin/crm-taranom`
-- **Process manager**: PM2, process name `crm-taranom`
+- **Process manager**: PM2, process name `erp-taranom`
 - **Branch**: `claude/claude-md-docs-2ssrpy`
 
 Connect:
@@ -122,7 +122,7 @@ ssh -p 2299 -i C:\Users\DayaTech\.ssh\taranom_server taranom-admin@45.90.98.99
 
 Deploy command (run on server):
 ```bash
-cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssrpy && cd server && npm install && pm2 restart crm-taranom
+cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssrpy && cd server && npm install && pm2 restart erp-taranom
 ```
 
 **Android APK policy:** build locally with `scripts/build-android.ps1` only. Never `scp` APK to production `/releases/`. Sideload to devices via USB or direct file transfer.

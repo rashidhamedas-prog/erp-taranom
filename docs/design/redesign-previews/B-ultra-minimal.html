@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نمونه B — Ultra Minimal | ERP ترنم</title>
+<link href="../../../server/public/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
+<style>
+:root{
+  --purple:#1A5C38; --purple2:#2E7D4F; --purple-light:#EAF4EE;
+  --gold:#C9A843; --bg:#F5F8F4; --card:#FFFFFF; --text:#12271C;
+  --muted:#5F7268; --border:rgba(18,39,28,.11); --on-accent:#fff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Vazirmatn',Tahoma,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.65;min-height:100vh}
+.badge{position:fixed;top:12px;left:12px;z-index:99;background:var(--text);color:#fff;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:700}
+.layout{display:flex;min-height:100vh}
+.rail{width:72px;background:var(--card);border-left:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:8px;position:sticky;top:0;height:100vh}
+.rail .logo{width:40px;height:40px;border-radius:12px;background:var(--purple);color:#fff;display:grid;place-items:center;font-weight:800;margin-bottom:10px}
+.rail a{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:var(--muted);text-decoration:none;position:relative}
+.rail a svg{width:20px;height:20px}
+.rail a:hover{background:var(--purple-light);color:var(--purple)}
+.rail a.active{background:var(--purple);color:#fff}
+.rail a.active::after{content:"";position:absolute;right:-1px;top:12px;bottom:12px;width:3px;background:var(--gold);border-radius:2px}
+.main{flex:1;min-width:0}
+.topbar{padding:18px 28px 8px;display:flex;align-items:flex-end;justify-content:space-between}
+.topbar .title{font-size:26px;font-weight:800;letter-spacing:-.02em}
+.topbar .sub{color:var(--muted);font-size:13px;margin-top:2px}
+.top-actions{display:flex;gap:8px;align-items:center}
+.ghost{border:1px solid var(--border);background:transparent;padding:8px 12px;border-radius:10px;font:inherit;color:var(--text)}
+.btn{background:var(--purple);color:#fff;border:none;padding:8px 14px;border-radius:10px;font:inherit;font-weight:700}
+.btn.gold{background:var(--gold);color:#1A3A26}
+.content{padding:10px 28px 28px}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}
+@media(max-width:1100px){.cards{grid-template-columns:repeat(2,1fr)}}
+.stat{background:transparent;border:1px solid var(--border);border-radius:12px;padding:18px 16px}
+.stat .l{font-size:12px;color:var(--muted);margin-bottom:6px}
+.stat .v{font-size:22px;font-weight:800}
+.stat .delta{font-size:11px;color:var(--purple2);margin-top:6px;font-weight:600}
+.panel{border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden}
+.panel-head{padding:14px 16px;display:flex;justify-content:space-between;align-items:center}
+.panel-head h4{font-size:14px;font-weight:700}
+table{width:100%;border-collapse:collapse}
+th,td{padding:13px 16px;text-align:right;border-top:1px solid var(--border);font-size:13px}
+th{color:var(--muted);font-weight:600;border-top:none;background:transparent}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--purple);margin-left:6px}
+.note{margin-top:14px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="badge">نمونه B — Ultra Minimal</div>
+<div class="layout">
+  <aside class="rail">
+    <div class="logo">ت</div>
+    <a class="active" href="#" title="داشبورد"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5z"/></svg></a>
+    <a href="#" title="مشتریان"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3 2.8-4.5 5.5-4.5s4.7 1.5 5.5 4.5"/><circle cx="16.5" cy="9.5" r="2.5"/><path d="M14 19c.4-1.8 1.6-2.8 3.3-2.8"/></svg></a>
+    <a href="#" title="فروش"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16v12H4z"/><path d="M8 7V5h8v2"/></svg></a>
+    <a href="#" title="انبار"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h18v4H3z"/><path d="M5 11v8h14v-8"/></svg></a>
+    <a href="#" title="تولید"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg></a>
+    <a href="#" title="حسابداری"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h8M8 13h5"/></svg></a>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <div class="title">داشبورد</div>
+        <div class="sub">نمای کلی عملیات امروز</div>
+      </div>
+      <div class="top-actions">
+        <button class="ghost">جستجو</button>
+        <button class="btn gold">اقدام سریع</button>
+      </div>
+    </header>
+    <main class="content">
+      <div class="cards">
+        <div class="stat"><div class="l">فروش امروز</div><div class="v">۱۲۸٫۴ م</div><div class="delta">+۱۲٪ نسبت به دیروز</div></div>
+        <div class="stat"><div class="l">سفارش‌های باز</div><div class="v">۴۲</div><div class="delta">۸ نیازمند پیگیری</div></div>
+        <div class="stat"><div class="l">موجودی بحرانی</div><div class="v">۷</div><div class="delta">۳ زیر حداقل</div></div>
+        <div class="stat"><div class="l">وصول مطالبات</div><div class="v">۳۱٫۲ م</div><div class="delta">۵ فاکتور سررسید</div></div>
+      </div>
+      <section class="panel">
+        <div class="panel-head"><h4>آخرین مشتریان</h4><button class="btn">افزودن</button></div>
+        <table>
+          <thead><tr><th>نام فروشگاه</th><th>شهر</th><th>وضعیت</th><th>مانده</th></tr></thead>
+          <tbody>
+            <tr><td>پوشاک آوا</td><td>مشهد</td><td><span class="dot"></span>فعال</td><td>۴٬۲۰۰٬۰۰۰</td></tr>
+            <tr><td>گالری نسیم</td><td>تهران</td><td><span class="dot" style="background:var(--gold)"></span>VIP</td><td>۰</td></tr>
+            <tr><td>مزون ساحل</td><td>اصفهان</td><td><span class="dot" style="background:var(--muted)"></span>پیگیری</td><td>۱٬۱۵۰٬۰۰۰</td></tr>
+          </tbody>
+        </table>
+      </section>
+      <p class="note">B: ریل آیکونی باریک + سطوح تخت + فضای سفید زیاد — طلا فقط روی CTA و نشان فعال.</p>
+    </main>
+  </div>
+</div>
+</body>
+</html>

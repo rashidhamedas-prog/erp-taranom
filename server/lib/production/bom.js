@@ -75,7 +75,12 @@ function lastPurchasePrice(db, productId) {
   }
 }
 
-function getPrice(db, productId, basis, line) {
+function getPrice(db, productId, basis, line, priceOverrides = null) {
+  if (priceOverrides && (basis === 'average' || basis == null || basis === '')) {
+    if (priceOverrides.has(productId)) {
+      return Number(priceOverrides.get(productId)) || 0;
+    }
+  }
   const p = db.prepare('SELECT average_cost_rial, std_cost_rial FROM products WHERE id=?').get(productId);
   switch (basis) {
     case 'std': return Number(line?.std_cost_rial || p?.std_cost_rial) || 0;
@@ -150,7 +155,7 @@ function resolveSubstitutes(db, lines, factor, yieldF) {
   return [...plain, ...picked].sort((a, b) => a.line_no - b.line_no);
 }
 
-function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'average', level = 0, yieldOverride = null }) {
+function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'average', level = 0, yieldOverride = null, priceOverrides = null }) {
   if (level > 10) throw err('E_BOM_TOO_DEEP', 422);
   const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
   if (!bom) throw err('E_NOT_FOUND', 404);
@@ -184,7 +189,7 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
     if (scrapF <= 0) throw err('E_BOM_SCRAP_RANGE', 422);
     const qtyGross = qtyNet / scrapF;
     const qtyFinal = round6(qtyGross / yieldF);
-    const unitCost = getPrice(db, L.component_product_id, priceBasis, L);
+    const unitCost = getPrice(db, L.component_product_id, priceBasis, L, priceOverrides);
     out.push({
       line_no: L.line_no,
       bom_line_id: L.id,
@@ -205,7 +210,7 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
       try {
         const childBom = resolveBom(db, { productId: L.component_product_id, date: todayJalali() });
         const child = explodeBom(db, {
-          bomId: childBom.id, qty: qtyFinal, priceBasis, level: level + 1,
+          bomId: childBom.id, qty: qtyFinal, priceBasis, level: level + 1, priceOverrides,
         });
         out.push(...child.lines.map(x => ({ ...x, parent_line_no: L.line_no })));
       } catch { /* no child bom — leaf */ }
@@ -214,12 +219,16 @@ function explodeBom(db, { bomId, qty, sizeBreakdown = null, priceBasis = 'averag
   return { bom, factor, lines: out, totals: sumTotals(out) };
 }
 
+/** Path-based cycle detection (visited set on the current ancestry path).
+ *  Depth alone is not enough — mid-graph cycles (A→B→C→B) must raise E_BOM_CIRCULAR.
+ *  Diamond DAGs (shared child via two parents) remain valid because the child is not
+ *  already on the *current* path. */
 function detectCircular(db, rootProductId, bomId, depth = 0, path = []) {
   if (depth > 10) throw err('E_BOM_TOO_DEEP', 422);
   const lines = db.prepare('SELECT component_product_id FROM bom_lines WHERE bom_id=?').all(bomId);
   for (const l of lines) {
     const pid = l.component_product_id;
-    if (pid === rootProductId) {
+    if (pid === rootProductId || path.includes(pid)) {
       throw err('E_BOM_CIRCULAR', 422, { path: [...path, pid].join('→') });
     }
     const child = db.prepare(`

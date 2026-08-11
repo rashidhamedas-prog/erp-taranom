@@ -1,4 +1,7 @@
 // Representative sub-ledger + commission engine — loosely coupled to core accounting.
+const { postToLedger } = require('./ledger');
+const { rialToLedger } = require('./money');
+const { acct } = require('./coa-map');
 const EXPENSE_CATEGORIES = {
   transport: 'حمل‌ونقل', fuel: 'سوخت', hotel: 'هتل', meals: 'پذیرایی',
   gifts: 'هدایا', advertising: 'تبلیغات', entertainment: 'پذیرایی مشتری',
@@ -133,7 +136,7 @@ function computeRepCommission(db, repId, { from, to } = {}) {
       }
     }
   } else {
-    let sql = "SELECT * FROM invoices WHERE user_id=? AND type='final' AND approved=1";
+    let sql = "SELECT * FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND COALESCE(deleted_at,0)=0";
     const p = [repId];
     if (from) { sql += ' AND date>=?'; p.push(from); }
     if (to) { sql += ' AND date<=?'; p.push(to); }
@@ -373,7 +376,7 @@ function getRepAgingReceivables(db, repId) {
   `).all(repId);
   const buckets = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
   for (const r of rows) {
-    const lastInv = db.prepare("SELECT date FROM invoices WHERE cust_id=? AND type='final' ORDER BY date DESC LIMIT 1").get(r.id);
+    const lastInv = db.prepare("SELECT date FROM invoices WHERE cust_id=? AND type='final' AND COALESCE(deleted_at,0)=0 ORDER BY date DESC LIMIT 1").get(r.id);
     buckets.current += r.balance;
     if (lastInv?.date && lastInv.date < today) buckets.d30 += r.balance * 0.3;
   }
@@ -434,25 +437,28 @@ function computeSingleInvoiceCommission(db, inv) {
   return Math.round(comm * 100) / 100;
 }
 
-function recordCommissionAccrual(db, inv, userId, createJournalEntry) {
+function recordCommissionAccrual(db, inv, userId) {
   const amount = computeSingleInvoiceCommission(db, inv);
   if (amount <= 0) return null;
   const rep = db.prepare('SELECT name FROM users WHERE id=?').get(inv.user_id);
   const existing = db.prepare("SELECT id FROM rep_ledger WHERE rep_id=? AND ref_type='invoice' AND ref_id=? AND entry_type='commission_accrual'").get(inv.user_id, inv.id);
   if (existing) return amount;
-  createJournalEntry(db, {
-    date: inv.date || '', description: `تعهد انگیزه فروش — فاکتور ${inv.num} — ${rep?.name || ''}`,
-    ref_type: 'commission_accrual', ref_id: inv.id, created_by: userId,
+  const expense = acct(db, 'coa_rep_commission_expense');
+  const payable = acct(db, 'coa_rep_commission_payable');
+  postToLedger(db, {
+    sourceType: 'commission_accrual_invoice', sourceId: inv.id,
+    date: inv.date || require('../jalali').todayJalali(),
+    description: `تعهد انگیزه فروش — فاکتور ${inv.num} — ${rep?.name || ''}`, createdBy: userId,
     lines: [
-      { code: '6101', name: 'هزینه انگیزه فروش', debit: amount, credit: 0 },
-      { code: '2107', name: 'بستانکاران انگیزه نمایندگان', debit: 0, credit: amount }
+      { code: expense.code, name: expense.name, debit: rialToLedger(amount), credit: 0 },
+      { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(amount) }
     ]
   });
   addRepLedger(db, {
     rep_id: inv.user_id, date: inv.date || '', entry_type: 'commission_accrual', ref_type: 'invoice', ref_id: inv.id,
     description: `تعهد انگیزه فاکتور ${inv.num}`, debit: 0, credit: amount, created_by: userId
   });
-  notifyRep(db, inv.user_id, `🎯 انگیزه فاکتور ${inv.num} تأیید شد: ${amount.toLocaleString('fa-IR')} تومان`, userId, { sms: true });
+  notifyRep(db, inv.user_id, `🎯 انگیزه فاکتور ${inv.num} تأیید شد: ${amount.toLocaleString('fa-IR')} ریال`, userId, { sms: true });
   return amount;
 }
 
@@ -483,31 +489,65 @@ function computeSettlementCommission(db, settlement, inv) {
   return Math.round(comm * 100) / 100;
 }
 
-function recordSettlementCommissionAccrual(db, settlement, inv, userId, createJournalEntry) {
+function recordSettlementCommissionAccrual(db, settlement, inv, userId) {
   const amount = computeSettlementCommission(db, settlement, inv);
   if (amount <= 0) return null;
   const repId = inv.user_id;
   const existing = db.prepare("SELECT id FROM rep_ledger WHERE rep_id=? AND ref_type='settlement' AND ref_id=? AND entry_type='commission_accrual'").get(repId, settlement.id);
   if (existing) return amount;
   const rep = db.prepare('SELECT name FROM users WHERE id=?').get(repId);
-  createJournalEntry(db, {
-    date: settlement.date || '', description: `تعهد انگیزه وصول — فاکتور ${inv.num} — ${rep?.name || ''}`,
-    ref_type: 'commission_accrual', ref_id: settlement.id, created_by: userId,
+  const expense = acct(db, 'coa_rep_commission_expense');
+  const payable = acct(db, 'coa_rep_commission_payable');
+  postToLedger(db, {
+    sourceType: 'commission_accrual_settlement', sourceId: settlement.id,
+    date: settlement.date || require('../jalali').todayJalali(),
+    description: `تعهد انگیزه وصول — فاکتور ${inv.num} — ${rep?.name || ''}`, createdBy: userId,
     lines: [
-      { code: '6101', name: 'هزینه انگیزه فروش', debit: amount, credit: 0 },
-      { code: '2107', name: 'بستانکاران انگیزه نمایندگان', debit: 0, credit: amount }
+      { code: expense.code, name: expense.name, debit: rialToLedger(amount), credit: 0 },
+      { code: payable.code, name: payable.name, debit: 0, credit: rialToLedger(amount) }
     ]
   });
   addRepLedger(db, {
     rep_id: repId, date: settlement.date || '', entry_type: 'commission_accrual', ref_type: 'settlement', ref_id: settlement.id,
     description: `تعهد انگیزه وصول فاکتور ${inv.num}`, debit: 0, credit: amount, created_by: userId
   });
-  notifyRep(db, repId, `💰 انگیزه وصول ${amount.toLocaleString('fa-IR')} تومان ثبت شد (فاکتور ${inv.num})`, userId, { sms: true });
+  notifyRep(db, repId, `💰 انگیزه وصول ${amount.toLocaleString('fa-IR')} ریال ثبت شد (فاکتور ${inv.num})`, userId, { sms: true });
   return amount;
 }
 
+function reverseCommissionAccrual(db, refType, refId, userId, date) {
+  const row = db.prepare(`
+    SELECT * FROM rep_ledger
+    WHERE ref_type=? AND ref_id=? AND entry_type='commission_accrual'
+    ORDER BY id DESC LIMIT 1
+  `).get(refType, refId);
+  if (!row || !(Number(row.credit) > 0)) return null;
+  const exists = db.prepare(`
+    SELECT id FROM rep_ledger
+    WHERE ref_type=? AND ref_id=? AND entry_type='commission_reversal' LIMIT 1
+  `).get(refType, refId);
+  if (exists) return null;
+  const postingDate = date || require('../jalali').todayJalali();
+  const expense = acct(db, 'coa_rep_commission_expense');
+  const payable = acct(db, 'coa_rep_commission_payable');
+  const journalId = postToLedger(db, {
+    sourceType: `commission_accrual_${refType}_reversal`, sourceId: refId, date: postingDate,
+    description: `ابطال ${row.description || 'تعهد انگیزه فروش'}`, createdBy: userId,
+    lines: [
+      { code: payable.code, name: payable.name, debit: rialToLedger(row.credit), credit: 0 },
+      { code: expense.code, name: expense.name, debit: 0, credit: rialToLedger(row.credit) },
+    ],
+  });
+  addRepLedger(db, {
+    rep_id: row.rep_id, date: postingDate, entry_type: 'commission_reversal',
+    ref_type: refType, ref_id: refId, description: `ابطال ${row.description || 'تعهد انگیزه فروش'}`,
+    debit: row.credit, credit: 0, created_by: userId,
+  });
+  return journalId;
+}
+
 function getRepProfitReport(db, repId, { from, to } = {}) {
-  let sql = "SELECT id,num,date,rows,final,cust_id FROM invoices WHERE user_id=? AND type='final' AND approved=1";
+  let sql = "SELECT id,num,date,rows,final,cust_id FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND COALESCE(deleted_at,0)=0";
   const p = [repId];
   if (from) { sql += ' AND date>=?'; p.push(from); }
   if (to) { sql += ' AND date<=?'; p.push(to); }
@@ -546,7 +586,7 @@ function runRepDailyAlerts(db) {
       const key = `rep_alert_receivable_${r.id}_${today.slice(0, 7)}`;
       const sent = db.prepare("SELECT value FROM settings WHERE key=?").get(key);
       if (!sent) {
-        notifyRep(db, r.id, `⚠️ مطالبات مشتریان شما: ${Math.round(aging.total).toLocaleString('fa-IR')} تومان`, 1, { sms: true });
+        notifyRep(db, r.id, `⚠️ مطالبات مشتریان شما: ${Math.round(aging.total).toLocaleString('fa-IR')} ریال`, 1, { sms: true });
         db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)").run(key, '1');
         n++;
       }
@@ -597,8 +637,7 @@ function notifyRep(db, repId, body, fromId, opts = {}) {
     if (flag && flag.value === '0') return;
     const rep = db.prepare('SELECT phone FROM users WHERE id=?').get(repId);
     if (!rep?.phone) return;
-    const rows = db.prepare("SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from')").all();
-    const settings = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    const settings = require('./secret-settings').getSmsSettings(db);
     if (!settings.sms_api_key) return;
     const { sendSMS } = require('../sms');
     sendSMS(settings, rep.phone, body).catch(() => {});
@@ -609,6 +648,6 @@ module.exports = {
   EXPENSE_CATEGORIES, REP_ROLES_SQL, isRepRole, addRepLedger, computeRepCommission, buildRepLedgerView,
   buildRepStatement, settleAdvancesAgainstPayment, recordIncentivePaymentLedger, getRepRanking,
   getRepAgingReceivables, getTeamRollup, canAccessRep, notifyRep, getRepRates, getAdvanceBalance,
-  computeRepPayable, computeSingleInvoiceCommission, recordCommissionAccrual, recordSettlementCommissionAccrual,
+  computeRepPayable, computeSingleInvoiceCommission, recordCommissionAccrual, recordSettlementCommissionAccrual, reverseCommissionAccrual,
   assignCustomerByTerritory, getRepProfitReport, runRepDailyAlerts, lineProfit
 };

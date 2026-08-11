@@ -1,0 +1,18 @@
+﻿const path=require('path');const fs=require('fs');const os=require('os');
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'u11-'));
+process.env.DB_PATH=path.join(dir,'t.db');process.env.SYNC_ROLE='central';process.env.JWT_SECRET='test';
+const {initDB,getDB}=require('../db');initDB();const db=getDB();
+let f=0;const c=(ok,l)=>{if(ok)console.log('  OK',l);else{console.log(' FAIL',l);f++;}};
+['currencies','exchange_rates','person_positions','pricing_rules'].forEach(t=>c(!!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(t),'table '+t));
+c(db.prepare('PRAGMA table_info(journal_lines)').all().some(x=>x.name==='tafsili2_code'),'tafsili2');
+c(db.prepare('PRAGMA table_info(warehouses)').all().some(x=>x.name==='allow_negative'),'allow_neg');
+const names=require('../sync/tables').SYNCABLE_TABLES.map(t=>t.name);
+const prIdx=names.indexOf('pricing_rules');
+c(prIdx>=0,'pricing_rules in sync');
+c(['currencies','exchange_rates','person_positions','pricing_rules'].every((n,i)=>names[prIdx-3+i]===n),'update11 block order');
+c(names[prIdx+1]==='op_units','portal follows pricing_rules');
+c(names.includes('budget_lines') && names.indexOf('budget_lines') > prIdx,'budget_lines after update11 block');
+const {acct}=require('../lib/coa-map');c(acct(db,'coa_fx_gain').code==='4206','fx');
+const {round3}=require('../lib/round3');c(round3(1.23456)===1.235,'round3');
+c(db.prepare('SELECT COUNT(*) c FROM product_categories WHERE is_shared=0').get().c===0,'shared');
+console.log(f?'FAILED':'ALL CHECKS PASSED');process.exit(f?1:0);

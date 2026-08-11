@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Cleartext HTTP is required for (a) the embedded local server on
-     127.0.0.1 and (b) the central server, which is currently served over
-     plain HTTP. Everything else stays HTTPS-only. -->
+<!-- Cleartext is restricted to the embedded loopback server. All central
+     synchronization must use a certificate-valid HTTPS endpoint. -->
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>
-        <domain includeSubdomains="false">45.90.98.99</domain>
     </domain-config>
     <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

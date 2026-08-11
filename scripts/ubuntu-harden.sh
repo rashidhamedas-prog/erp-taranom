@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Ubuntu 24.04 Security Hardening — CRM ترنم (VPS ایران)
+# Ubuntu 24.04 Security Hardening — ERP ترنم (VPS ایران)
 # اجرا: sudo bash ubuntu-harden.sh
 #
 # اصلاح نسبت به نسخهٔ قبلی:
@@ -75,7 +75,7 @@ if [[ ! -s "/home/${TARGET_USER}/.ssh/authorized_keys" ]]; then
 fi
 
 cat >/etc/ssh/sshd_config.d/99-hardening.conf <<EOF
-# CRM ترنم — SSH hardening (Ubuntu 24.04 drop-in)
+# ERP ترنم — SSH hardening (Ubuntu 24.04 drop-in)
 PermitRootLogin no
 PubkeyAuthentication yes
 PasswordAuthentication yes

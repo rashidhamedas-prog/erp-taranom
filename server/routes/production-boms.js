@@ -3,6 +3,8 @@ const router = require('express').Router();
 const { getDB } = require('../db');
 const { auth, requirePermission } = require('../middleware/auth');
 const bom = require('../lib/production/bom');
+const adv = require('../lib/production/bom-advanced');
+const { applyCostPolicy } = require('../lib/production/access');
 
 function handle(res, fn) {
   try {
@@ -44,7 +46,22 @@ router.get('/resolve', auth, requirePermission('production_bom', 'view'), (req, 
 });
 
 router.get('/compare', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => bom.compareBoms(getDB(), Number(req.query.a), Number(req.query.b)));
+  handle(res, () => applyCostPolicy(getDB(), req.user,
+    bom.compareBoms(getDB(), Number(req.query.a), Number(req.query.b))));
+});
+
+// Must be registered before `/:id` — Express matches in order.
+router.get('/compare-scenarios', auth, requirePermission('production_cost', 'view'), (req, res) => {
+  handle(res, () => {
+    const data = adv.compareScenarios(
+      getDB(),
+      Number(req.query.a),
+      Number(req.query.b),
+      Number(req.query.qty) || 1,
+      req.query.period || ''
+    );
+    return applyCostPolicy(getDB(), req.user, data);
+  });
 });
 
 router.get('/where-used/:productId', auth, requirePermission('production_bom', 'view'), (req, res) => {
@@ -97,7 +114,7 @@ router.post('/validate', auth, requirePermission('production_bom', 'view'), (req
 });
 
 router.get('/:id', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => bom.getBom(getDB(), Number(req.params.id)));
+  handle(res, () => applyCostPolicy(getDB(), req.user, bom.getBom(getDB(), Number(req.params.id))));
 });
 
 router.put('/:id', auth, requirePermission('production_bom', 'edit'), (req, res) => {
@@ -171,24 +188,28 @@ router.get('/:id/explode', auth, requirePermission('production_bom', 'view'), (r
     if (typeof sizeBreakdown === 'string') {
       try { sizeBreakdown = JSON.parse(sizeBreakdown); } catch { sizeBreakdown = null; }
     }
-    return bom.explodeBom(getDB(), {
+    const data = bom.explodeBom(getDB(), {
       bomId: Number(req.params.id),
       qty: Number(req.query.qty) || 1,
       sizeBreakdown,
       priceBasis: req.query.price_basis || 'average',
     });
+    return applyCostPolicy(getDB(), req.user, data);
   });
 });
 
 router.get('/:id/std-cost', auth, requirePermission('production_cost', 'view'), (req, res) => {
-  handle(res, () => bom.stdCost(getDB(), Number(req.params.id), {
-    qty: Number(req.query.qty) || 1,
-    priceBasis: req.query.price_basis || 'average',
-  }));
+  handle(res, () => {
+    const data = bom.stdCost(getDB(), Number(req.params.id), {
+      qty: Number(req.query.qty) || 1,
+      priceBasis: req.query.price_basis || 'average',
+    });
+    return applyCostPolicy(getDB(), req.user, data);
+  });
 });
 
 router.get('/:id/tree', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => bom.bomTree(getDB(), Number(req.params.id)));
+  handle(res, () => applyCostPolicy(getDB(), req.user, bom.bomTree(getDB(), Number(req.params.id))));
 });
 
 router.get('/:id/history', auth, requirePermission('production_bom', 'view'), (req, res) => {
@@ -200,15 +221,24 @@ router.get('/:id/history', auth, requirePermission('production_bom', 'view'), (r
   });
 });
 
-// ─── P4 advanced ───
-const adv = require('../lib/production/bom-advanced');
+// ─── P4/P5 advanced ───
 
 router.post('/:id/apply-routing-template', auth, requirePermission('production_bom', 'edit'), (req, res) => {
   handle(res, () => adv.applyRoutingTemplate(getDB(), Number(req.params.id), req.user.id));
 });
 
+router.post('/:id/operations/from-template', auth, requirePermission('production_bom', 'edit'), (req, res) => {
+  handle(res, () => adv.applyRoutingTemplate(getDB(), Number(req.params.id), req.user.id));
+});
+
 router.get('/:id/operations', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => ({
+  handle(res, () => applyCostPolicy(getDB(), req.user, {
+    rows: getDB().prepare('SELECT * FROM bom_operations WHERE bom_id=? ORDER BY seq').all(Number(req.params.id)),
+  }));
+});
+
+router.get('/:id/routing', auth, requirePermission('production_bom', 'view'), (req, res) => {
+  handle(res, () => applyCostPolicy(getDB(), req.user, {
     rows: getDB().prepare('SELECT * FROM bom_operations WHERE bom_id=? ORDER BY seq').all(Number(req.params.id)),
   }));
 });
@@ -216,18 +246,29 @@ router.get('/:id/operations', auth, requirePermission('production_bom', 'view'),
 router.post('/:id/operations', auth, requirePermission('production_bom', 'edit'), (req, res) => {
   try {
     const row = adv.addOperation(getDB(), Number(req.params.id), req.body || {}, req.user.id);
-    res.status(201).json(row);
+    res.status(201).json(applyCostPolicy(getDB(), req.user, row));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
   }
 });
 
+router.put('/:id/operations/:opId', auth, requirePermission('production_bom', 'edit'), (req, res) => {
+  handle(res, () => applyCostPolicy(getDB(), req.user,
+    adv.updateOperation(getDB(), Number(req.params.id), Number(req.params.opId), req.body || {})));
+});
+
+router.delete('/:id/operations/:opId', auth, requirePermission('production_bom', 'edit'), (req, res) => {
+  handle(res, () => adv.deleteOperation(getDB(), Number(req.params.id), Number(req.params.opId)));
+});
+
 router.post('/:id/operations/resequence', auth, requirePermission('production_bom', 'edit'), (req, res) => {
-  handle(res, () => ({ rows: adv.resequenceOperations(getDB(), Number(req.params.id)) }));
+  handle(res, () => applyCostPolicy(getDB(), req.user, {
+    rows: adv.resequenceOperations(getDB(), Number(req.params.id)),
+  }));
 });
 
 router.get('/:id/outputs', auth, requirePermission('production_bom', 'view'), (req, res) => {
-  handle(res, () => ({
+  handle(res, () => applyCostPolicy(getDB(), req.user, {
     rows: getDB().prepare('SELECT * FROM bom_outputs WHERE bom_id=?').all(Number(req.params.id)),
   }));
 });
@@ -235,10 +276,32 @@ router.get('/:id/outputs', auth, requirePermission('production_bom', 'view'), (r
 router.post('/:id/outputs', auth, requirePermission('production_bom', 'edit'), (req, res) => {
   try {
     const row = adv.addOutput(getDB(), Number(req.params.id), req.body || {});
-    res.status(201).json(row);
+    res.status(201).json(applyCostPolicy(getDB(), req.user, row));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message, code: e.code || e.message });
   }
+});
+
+router.put('/:id/outputs/:outId', auth, requirePermission('production_bom', 'edit'), (req, res) => {
+  handle(res, () => applyCostPolicy(getDB(), req.user,
+    adv.updateOutput(getDB(), Number(req.params.id), Number(req.params.outId), req.body || {})));
+});
+
+router.delete('/:id/outputs/:outId', auth, requirePermission('production_bom', 'edit'), (req, res) => {
+  handle(res, () => adv.deleteOutput(getDB(), Number(req.params.id), Number(req.params.outId)));
+});
+
+router.post('/:id/outputs/auto-share', auth, requirePermission('production_bom', 'edit'), (req, res) => {
+  handle(res, () => {
+    const method = req.body?.method || 'sales_value';
+    if (method !== 'sales_value' && method !== 'physical') {
+      const e = new Error('E_BAD_SHARE_METHOD');
+      e.status = 422;
+      e.code = 'E_BAD_SHARE_METHOD';
+      throw e;
+    }
+    return applyCostPolicy(getDB(), req.user, adv.autoShare(getDB(), Number(req.params.id), method));
+  });
 });
 
 router.get('/:id/backward-qty', auth, requirePermission('production_bom', 'view'), (req, res) => {
@@ -248,12 +311,73 @@ router.get('/:id/backward-qty', auth, requirePermission('production_bom', 'view'
 router.get('/:id/full-cost', auth, requirePermission('production_cost', 'view'), (req, res) => {
   handle(res, () => {
     adv.clearRollUpMemo();
-    return adv.rollUpBom(getDB(), {
+    const data = adv.rollUpBom(getDB(), {
       bomId: Number(req.params.id),
       qtyTarget: Number(req.query.qty) || 1,
       period: req.query.period || '',
       priceBasis: req.query.price_basis || 'average',
     });
+    return applyCostPolicy(getDB(), req.user, data);
+  });
+});
+
+router.get('/:id/roll-up', auth, requirePermission('production_cost', 'view'), (req, res) => {
+  handle(res, () => {
+    adv.clearRollUpMemo();
+    const data = adv.rollUpBom(getDB(), {
+      bomId: Number(req.params.id),
+      qtyTarget: Number(req.query.qty) || 1,
+      period: req.query.period || '',
+      priceBasis: req.query.price_basis || 'average',
+    });
+    return applyCostPolicy(getDB(), req.user, data);
+  });
+});
+
+router.get('/:id/cost-tree', auth, requirePermission('production_cost', 'view'), (req, res) => {
+  handle(res, () => {
+    const data = adv.costTree(getDB(), {
+      bomId: Number(req.params.id),
+      qty: Number(req.query.qty) || 1,
+      period: req.query.period || '',
+      priceBasis: req.query.price_basis || 'average',
+    });
+    return applyCostPolicy(getDB(), req.user, data);
+  });
+});
+
+router.get('/:id/yield-analysis', auth, requirePermission('production_bom', 'view'), (req, res) => {
+  handle(res, () => adv.yieldAnalysis(getDB(), Number(req.params.id), Number(req.query.qty) || 1));
+});
+
+router.get('/:id/sensitivity', auth, requirePermission('production_cost', 'view'), (req, res) => {
+  handle(res, () => {
+    let deltaPercent = Number(req.query.delta) || Number(req.query.delta_percent);
+    if (!Number.isFinite(deltaPercent) && typeof req.query.range === 'string') {
+      const m = req.query.range.match(/(-?\d+(?:\.\d+)?)/);
+      deltaPercent = m ? Number(m[1]) : 10;
+    }
+    if (!Number.isFinite(deltaPercent)) deltaPercent = 10;
+    const data = adv.sensitivity(getDB(), {
+      bomId: Number(req.params.id),
+      qtyTarget: Number(req.query.qty) || 1,
+      period: req.query.period || '',
+      param: req.query.param || 'fabric_price',
+      deltaPercent,
+    });
+    return applyCostPolicy(getDB(), req.user, data);
+  });
+});
+
+router.get('/:id/breakeven', auth, requirePermission('production_cost', 'view'), (req, res) => {
+  handle(res, () => {
+    const data = adv.breakeven(getDB(), {
+      bomId: Number(req.params.id),
+      qtyTarget: Number(req.query.qty) || 1,
+      period: req.query.period || '',
+      priceRial: req.query.price != null ? Number(req.query.price) : undefined,
+    });
+    return applyCostPolicy(getDB(), req.user, data);
   });
 });
 

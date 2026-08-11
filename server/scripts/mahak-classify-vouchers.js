@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /** Classify all Mahak journal vouchers by line-pattern + description. Read-only. */
 const path = require('path');
-const XLSX = require('xlsx');
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { fa } = require('../lib/mahak-import-helpers');
 
 const journalPath = process.argv[2] || path.join(__dirname, '../../..', 'daftar roznameh.xlsx');
 const num = v => parseFloat(String(v == null ? '' : v).replace(/,/g, '')) || 0;
 const toman = rial => Math.round(rial / 10);
 
-const jwb = XLSX.readFile(journalPath);
+
+(async () => {
+const jwb = await readWorkbook(require("fs").readFileSync(journalPath));
 const jrows = XLSX.utils.sheet_to_json(jwb.Sheets[jwb.SheetNames[0]], { header: 1, raw: false }).slice(1);
 const vouchers = new Map();
 for (const r of jrows) {
@@ -87,3 +89,8 @@ Object.entries(counts).sort((a, b) => b[1] - a[1]).forEach(([t, n]) => {
   (samples[t] || []).forEach(s => console.log(`  ex ${s.docNo} ${s.date} [${s.kols.join(',')}] ${s.lines}L — ${s.desc}`));
 });
 console.log('\nTotal classified:', Object.values(counts).reduce((a, b) => a + b, 0));
+
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

@@ -1,27 +1,47 @@
-// رمز JWT هرگز اینجا (داخل گیت) نوشته نشود.
-// از فایل server/jwt-secret.txt (خارج از گیت — در .gitignore) یا متغیر محیطی JWT_SECRET خوانده می‌شود:
-//   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > jwt-secret.txt
-//   chmod 600 jwt-secret.txt
+'use strict';
+
+// Secrets must be supplied by the environment or local gitignored files.
+// Never paste either value into this tracked configuration.
 const fs = require('fs');
+
 let JWT_SECRET = process.env.JWT_SECRET || '';
+let DATA_ENCRYPTION_KEY = process.env.DATA_ENCRYPTION_KEY || '';
+
 try {
   JWT_SECRET = fs.readFileSync(__dirname + '/jwt-secret.txt', 'utf8').trim() || JWT_SECRET;
-} catch { /* فایل هنوز ساخته نشده — server.js در production بدون JWT_SECRET بالا نمی‌آید */ }
+} catch { /* server.js validates JWT_SECRET during production boot. */ }
+
+try {
+  DATA_ENCRYPTION_KEY = fs.readFileSync(__dirname + '/data-encryption-key.txt', 'utf8').trim() || DATA_ENCRYPTION_KEY;
+} catch { /* services/crypto.js validates the data key during production boot. */ }
+
+// Non-secret production defaults for Iran central (override via env when needed).
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  || 'https://erp.poshaktaranom.com,https://poshaktaranom.com';
+const PUBLIC_URL = process.env.PUBLIC_URL || 'https://erp.poshaktaranom.com';
+const BACKUP_OFFSITE_DIR = process.env.BACKUP_OFFSITE_DIR || '/home/taranom/crm-offsite-backups';
+// Same-VPS offsite is not true DR; keep backups alive until S3/volume exists.
+const BACKUP_ALLOW_SAME_DEVICE = process.env.BACKUP_ALLOW_SAME_DEVICE || '1';
 
 module.exports = {
   apps: [{
-    name: 'crm-taranom',
+    name: 'erp-taranom',
     script: 'server.js',
     cwd: __dirname,
-    exec_mode: 'fork', // cluster + Express listen() → EADDRINUSE on port 3000
+    exec_mode: 'fork',
     instances: 1,
     autorestart: true,
     watch: false,
     max_memory_restart: '300M',
     env: {
       NODE_ENV: 'production',
-      PORT: 3000,
-      JWT_SECRET
-    }
-  }]
+      PORT: Number(process.env.PORT) || 3000,
+      PUBLIC_URL,
+      ALLOWED_ORIGINS,
+      BACKUP_OFFSITE_DIR,
+      BACKUP_ALLOW_SAME_DEVICE,
+      JWT_SECRET,
+      DATA_ENCRYPTION_KEY,
+    },
+  }],
 };

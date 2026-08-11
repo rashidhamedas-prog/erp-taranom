@@ -1,0 +1,48 @@
+---
+description: Sync hygiene checklist — prevent PATH_TABLE_MAP / SYNCABLE_TABLES / file-sync gaps
+globs: server/sync/**/*,server/db.js,server/routes/**/*,server/lib/**/schema.js
+alwaysApply: true
+---
+
+# Sync Hygiene — جلوگیری از تکرار باگ‌های سینک
+
+هر بار که جدول، مسیر API، یا آپلود فایل جدید اضافه می‌کنی این چک‌لیست را کامل کن. نقض = باگ آفلاین خاموش.
+
+## درس‌های ثبت‌شده (۱۴۰۵/۰۵ — تکرار ممنوع)
+
+| اشتباه | اثر | قانون |
+|--------|-----|--------|
+| جدول در اسکیما هست ولی در `SYNCABLE_TABLES` نیست | دستگاه هرگز pull نمی‌کند | append فقط به **انتهای** آرایه + `FK_COLUMNS` در صورت نیاز |
+| API جدید بدون ردیف در `PATH_TABLE_MAP` | outbox `entity_table=null`؛ remap/تأیید خراب | هر `app.use('/api/…')` mutating → یک prefix در `capture.js` |
+| پیشوند کوتاه قبل از پیشوند بلند | `/api/warehouses/moves` → اشتباه `warehouses` | مسیرهای خاص‌تر **بالای** عمومی |
+| PK مرکب بدون `compositeKeys` | tombstone/حذف روی دستگاه کار نمی‌کند | مثل `warehouse_stock` / `user_cost_centers` |
+| جدول جدید بعد از `sync_seq_backfill_vN` | ردیف‌های قدیمی `sync_seq=NULL` → هرگز pull نمی‌شوند | `sync_seq_backfill_v(N+1)` در `db.js` |
+| فایل در DB سینک می‌شود ولی نه در `files.js` | عکس/رسید شکسته روی دستگاه | `FILE_QUERIES` + `ALLOWED_SUBDIRS` |
+| `fetch(…/ingest…)` دیباگ در production | نویز/کندی روی هر tombstone | قبل از commit پاک کن |
+
+عمداً فقط-مرکز (بدون append): `api_keys`, `sms_log`, `b2b_*`, `two_factor_auth`, `audit_log`, `production_events`, `production_idempotency`.
+
+## چک‌لیست اجباری (قبل از commit)
+
+1. `CREATE TABLE` جدید؟ → اگر باید روی دستگاه باشد: append به `server/sync/tables.js` (هرگز reorder/حذف).
+2. `router.post/put/patch/delete` یا `app.use('/api/…')` جدید؟ → `PATH_TABLE_MAP` یا شاخهٔ خاص در `tableForPath` (`capture.js`).
+3. PK بدون `id`؟ → `compositeKeys: [...]` + tombstone `a:b`.
+4. FK به id موقت دستگاه؟ → append به `FK_COLUMNS`.
+5. آپلود فایل؟ → `files.js` + در صورت نیاز `resolveUploadedFilePath`.
+6. بعد از append جدول: `sync_seq_backfill_vN` جدید در `db.js`.
+7. تأیید: `node server/scripts/_diag-sync-gaps-b16e78.js` (mismatches=[]) و در صورت تغییر موتور: `node server/scripts/test-sync.js`.
+
+## نمونه درست
+
+```js
+// tables.js — فقط انتها
+{ name: 'rep_payment_submissions', upsertKey: 'id' },
+
+// capture.js — خاص قبل از عام
+['/api/warehouses/moves', 'warehouse_moves'],
+['/api/warehouses', 'warehouses'],
+['/api/detail-accounts/categories', 'detail_categories'],
+['/api/detail-accounts', 'detail_accounts'],
+```
+
+مرجع: `docs/OFFLINE-SYNC.md` § چک‌لیست افزودن قابلیت.

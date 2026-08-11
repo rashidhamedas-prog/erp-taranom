@@ -67,8 +67,27 @@ run('import-mahak-journal.js', [codingPath, journalPath, dbPath]);
 console.log('\n==> phase 2/3: stock import...');
 run('import-mahak-stock.js', [codingPath, mojodiPath, dbPath]);
 
-console.log('\n==> phase 3/3: operational documents reconstruction...');
+console.log('\n==> phase 3/4: operational documents reconstruction...');
 run('import-mahak-documents.js', [journalPath, dbPath]);
+
+console.log('\n==> phase 4/5: document placement + subgroup assignment...');
+run('fix-mahak-placement.js', [dbPath]);
+
+const fullDataArg = args[4] && !args[4].endsWith('.db') ? path.resolve(args[4]) : null;
+const fullDataCandidates = [
+  fullDataArg,
+  path.resolve(path.dirname(codingPath), 'full data.xlsx'),
+  path.resolve(path.dirname(codingPath), '..', 'full data.xlsx'),
+  path.resolve(path.dirname(codingPath), '..', '..', 'full data.xlsx'),
+  'd:/soft/Claud/porje/CursorCrm/full data.xlsx',
+].filter(Boolean);
+const fullData = fullDataCandidates.find(p => fs.existsSync(p)) || null;
+if (fullData) {
+  console.log('\n==> phase 5/5: full data.xlsx enrichment...');
+  run('import-mahak-full-data.js', [fullData, dbPath, '--force']);
+} else {
+  console.log('\n==> phase 5/5: skipped (full data.xlsx not found next to coding file)');
+}
 
 const db = require('better-sqlite3')(dbPath, { readonly: true });
 const summary = {
@@ -90,10 +109,11 @@ const summary = {
   linked_journals: db.prepare("SELECT COUNT(*) c FROM journal_entries WHERE src_system='mahak' AND ref_type!='mahak_import'").get().c,
   banks: db.prepare('SELECT COUNT(*) c FROM banks').get().c,
   cash_boxes: db.prepare('SELECT COUNT(*) c FROM cash_boxes').get().c,
+  cheque_records: db.prepare('SELECT COUNT(*) c FROM cheque_records').get().c,
 };
 db.close();
 
 console.log('\n==> GO-LIVE SUMMARY');
 console.log(JSON.stringify(summary, null, 2));
 console.log(`\n✅ Mahak import complete → ${dbPath}`);
-console.log('   Restart server: pm2 restart crm-taranom');
+console.log('   Restart server: pm2 restart erp-taranom');

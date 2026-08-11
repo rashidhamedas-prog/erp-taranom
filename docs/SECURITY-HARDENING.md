@@ -1,4 +1,4 @@
-# سخت‌سازی امنیتی — CRM ترنم
+# سخت‌سازی امنیتی — ERP ترنم
 
 این سند مرجع اجرای بند «ب» از `docs/PROJECT-HANDOFF.md` (بخش ۶) است: چه چیزهایی در کد اعمال شده و چه کارهایی باید **روی سرور** انجام شود.
 
@@ -35,7 +35,7 @@
 cd /home/taranom-admin/crm-taranom/server
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > jwt-secret.txt
 chmod 600 jwt-secret.txt
-pm2 restart crm-taranom --update-env
+pm2 restart erp-taranom --update-env
 ```
 > از قبل `assertSecurityConfig()` در production بدون `JWT_SECRET` معتبر (≥۳۲ کاراکتر) سرور را بالا نمی‌آورد.
 > ⚠️ با تغییر JWT_SECRET همه توکن‌های فعلی باطل می‌شوند — همه کاربران باید دوباره وارد شوند (یک‌بار، طبیعی است).

@@ -9,7 +9,7 @@
 # 🎯 پرامپت اصلی (Master Prompt)
 
 ````
-# پروژه: ماژول «عملیات تولید» — CRM Taranom
+# پروژه: ماژول «عملیات تولید» — ERP Taranom
 
 تو یک معمار ارشد نرم‌افزار حسابداری صنعتی هستی که روی یک سیستم production واقعی کار می‌کند.
 این ماژول بهای تمام‌شده و سود ماهانه یک کارخانه پوشاک واقعی را محاسبه می‌کند.
@@ -17,7 +17,7 @@
 
 ## مخزن
 rashidhamedas-prog/crm-taranom
-مسیر production: /home/taranom/crm-taranom/  ·  VPS ایران: 94.249.244.208  ·  PM2: crm-taranom
+مسیر production: /home/taranom/crm-taranom/  ·  VPS ایران: 94.249.244.208  ·  PM2: erp-taranom
 
 ## استک موجود (تغییر نده)
 - Node.js + Express (بدون TypeScript)
@@ -470,18 +470,18 @@ cd server && npm install --omit=dev
 npm run test:production:health
 
 # ۴) restart
-pm2 restart crm-taranom --update-env
-pm2 logs crm-taranom --lines 50
+pm2 restart erp-taranom --update-env
+pm2 logs erp-taranom --lines 50
 
 # ۵) تأیید
 curl -sf http://127.0.0.1:3000/api/system/health
 node scripts/production-go-live-check.js
 
 # ۶) rollback در صورت مشکل
-pm2 stop crm-taranom
+pm2 stop erp-taranom
 cp server/backups/crm-<timestamp>.db server/crm.db
 git reset --hard HEAD~1 && npm install --omit=dev
-pm2 start crm-taranom
+pm2 start erp-taranom
 ```
 
 ---

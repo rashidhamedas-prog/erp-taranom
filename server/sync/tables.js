@@ -4,6 +4,10 @@
 // each table's index feeds into the provisional id formula, so reordering or
 // removing entries would corrupt existing devices' id ranges.
 //
+// Checklist when appending (do not skip): PATH_TABLE_MAP, FK_COLUMNS,
+// compositeKeys if needed, sync_seq_backfill_vN, files.js for uploads —
+// see .cursor/rules/sync-hygiene.mdc and docs/OFFLINE-SYNC.md.
+//
 // upsertKey: column used to apply pulled rows. 'id' for normal tables;
 // business keys for tables the device also seeds locally at initDB (settings,
 // chart_of_accounts) where local autoincrement ids differ from central's.
@@ -49,7 +53,8 @@ const SYNCABLE_TABLES = [
   { name: 'messages', upsertKey: 'id' },
   { name: 'reminders', upsertKey: 'id' },
   { name: 'product_categories', upsertKey: 'id' },
-  { name: 'warehouse_stock', upsertKey: 'id' },
+  // Composite PK (no id column) — tombstone format product_id:warehouse_id
+  { name: 'warehouse_stock', upsertKey: 'product_id:warehouse_id', compositeKeys: ['product_id', 'warehouse_id'] },
   { name: 'rep_assignment_history', upsertKey: 'id' },
   { name: 'rep_ledger', upsertKey: 'id' },
   { name: 'rep_expenses', upsertKey: 'id' },
@@ -93,22 +98,126 @@ const SYNCABLE_TABLES = [
   { name: 'mrp_runs',                         upsertKey: 'id' },
   { name: 'mrp_requirements',                 upsertKey: 'id' },
   { name: 'production_reservations',          upsertKey: 'id' },
+
+  // ===== Inventory module — appended 1405/04 (APPEND-ONLY) =====
+  { name: 'inventory_ledger',                 upsertKey: 'id' },
+  { name: 'inventory_cost_layers',            upsertKey: 'id' },
+  { name: 'inventory_batches',                upsertKey: 'id' },
+  { name: 'inventory_serials',                upsertKey: 'id' },
+  { name: 'inventory_reservations',           upsertKey: 'id' },
+  { name: 'landed_cost_docs',                 upsertKey: 'id' },
+  { name: 'landed_cost_lines',                upsertKey: 'id' },
+  { name: 'landed_cost_allocations',          upsertKey: 'id' },
+
+  // ===== Payroll and advanced reporting — appended 1405/04 (APPEND-ONLY) =====
+  { name: 'payroll_periods',                   upsertKey: 'id' },
+  { name: 'salary_structures',                 upsertKey: 'id' },
+  { name: 'payroll_tax_brackets',              upsertKey: 'id' },
+  { name: 'payroll_year_end_bonuses',          upsertKey: 'id' },
+  { name: 'projects',                          upsertKey: 'id' },
+  { name: 'report_configurations',             upsertKey: 'id' },
+  { name: 'vat_records',                       upsertKey: 'id' },
+
+  // ===== Update 11 — FX / positions / pricing (APPEND-ONLY) =====
+  { name: 'currencies',                        upsertKey: 'code' },
+  { name: 'exchange_rates',                    upsertKey: 'id' },
+  { name: 'person_positions',                  upsertKey: 'id' },
+  { name: 'pricing_rules',                     upsertKey: 'id' },
+
+  // ===== Portal karmandan (APPEND-ONLY) =====
+  { name: 'op_units',                          upsertKey: 'id' },
+  { name: 'op_unit_warehouses',                upsertKey: 'id' },
+  { name: 'op_unit_persons',                   upsertKey: 'id' },
+  { name: 'op_departments',                    upsertKey: 'id' },
+  { name: 'op_parameters',                     upsertKey: 'id' },
+  { name: 'op_parameter_items',                upsertKey: 'id' },
+  { name: 'op_parameter_dept_log',             upsertKey: 'id' },
+
+  // ===== Accounting gap — reserves / recon / budget (APPEND-ONLY) =====
+  { name: 'bank_reconciliations',              upsertKey: 'id' },
+  { name: 'bank_reconciliation_items',         upsertKey: 'id' },
+  { name: 'doubtful_debt_provisions',          upsertKey: 'id' },
+  { name: 'inventory_nrv_provisions',          upsertKey: 'id' },
+  { name: 'inventory_nrv_lines',               upsertKey: 'id' },
+  { name: 'legal_reserve_entries',             upsertKey: 'id' },
+  { name: 'payroll_labor_settings',            upsertKey: 'id' },
+  { name: 'payroll_monthly_accruals',          upsertKey: 'id' },
+  { name: 'budgets',                           upsertKey: 'id' },
+  { name: 'budget_lines',                      upsertKey: 'id' },
+
+  // ===== Portal v2 — capabilities / tasks / costs (APPEND-ONLY) =====
+  { name: 'op_dept_capabilities',              upsertKey: 'id' },
+  { name: 'op_dept_tasks',                     upsertKey: 'id' },
+  { name: 'op_unit_module_links',              upsertKey: 'id' },
+  { name: 'op_parameter_extra_costs',          upsertKey: 'id' },
+  { name: 'op_field_followups',                upsertKey: 'id' },
+  { name: 'expense_categories',                upsertKey: 'id' },
+
+  // ===== Portal v3 — temporary dept delegation (APPEND-ONLY) =====
+  { name: 'op_dept_delegations',               upsertKey: 'id' },
+
+  // ===== update.md tasks — product images / catalog ACL / SMS / marketer (APPEND-ONLY) =====
+  { name: 'product_images',                    upsertKey: 'id' },
+  { name: 'user_catalog_categories',           upsertKey: 'id' },
+  { name: 'sms_templates',                     upsertKey: 'id' },
+  { name: 'sms_options',                       upsertKey: 'id' },
+  { name: 'sms_scheduled',                     upsertKey: 'id' },
+  { name: 'marketer_carts',                    upsertKey: 'id' },
+
+  // ===== Sync gaps fix 1405/04/31 — APPEND-ONLY =====
+  { name: 'party_groups',                      upsertKey: 'id' },
+  { name: 'cheque_records',                    upsertKey: 'id' },
+
+  // ===== Sync gaps fix 1405/05/01 — assets / ACL / field payments (APPEND-ONLY) =====
+  { name: 'fixed_assets',                      upsertKey: 'id' },
+  { name: 'fixed_asset_depreciation',          upsertKey: 'id' },
+  { name: 'user_cost_centers',                 upsertKey: 'user_id:cost_center_id', compositeKeys: ['user_id', 'cost_center_id'] },
+  { name: 'rep_payment_submissions',           upsertKey: 'id' },
+
+  // ===== SMS auto rules 1405/05/04 — APPEND-ONLY =====
+  { name: 'sms_rules',                         upsertKey: 'id' },
+
+  // ===== Employee groups / payroll 1405/05/04 — APPEND-ONLY =====
+  { name: 'employee_groups',                   upsertKey: 'id' },
+  { name: 'group_salary_structures',           upsertKey: 'id' },
+
+// ===== W2-F5 bank statement import — APPEND-ONLY (already on Iran @ c2add63) =====
+  { name: 'bank_statement_lines',              upsertKey: 'id' },
+
+  // ===== P0-APP1 product variants (style/color/size/SKU) — APPEND-ONLY after bank =====
+  { name: 'product_colors',                    upsertKey: 'id' },
+  { name: 'product_sizes',                     upsertKey: 'id' },
+  { name: 'product_style_colors',              upsertKey: 'id' },
+  { name: 'product_style_sizes',               upsertKey: 'id' },
+  { name: 'product_variants',                  upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
-// every new local row of table index i with ids starting at:
-//   PROVISIONAL_FLOOR + D*DEVICE_SPAN + i*TABLE_SPAN
+// every new local row of table index i with ids starting at tableBase(D, i).
 // Central autoincrement ids stay tiny (< PROVISIONAL_FLOOR), so a pulled
 // central row can never collide with a device's own not-yet-synced rows, and
-// two devices can never mint the same provisional id. TABLE_SPAN of 1e6 gives
-// each table a million offline-created rows per device; DEVICE_SPAN of 1e8
-// supports the 40 tables with room for future ones (99 slots of 1e6).
+// two devices can never mint the same provisional id.
+//
+// Legacy layout (indices 0–99): FLOOR + D*DEVICE_SPAN + i*TABLE_SPAN
+// (DEVICE_SPAN=1e8 holds 100 table slots of TABLE_SPAN=1e6). Indices ≥100
+// overflow into a separate high band so we never collide with device D+1
+// table 0 — critical after Update 11 appended tables past index 99.
+// DO NOT change FLOOR / DEVICE_SPAN / TABLE_SPAN / LEGACY_TABLE_SLOTS for
+// indices 0–99: existing devices already minted ids in that formula.
 const PROVISIONAL_FLOOR = 1_000_000_000_000;
 const DEVICE_SPAN = 100_000_000;
 const TABLE_SPAN = 1_000_000;
+const LEGACY_TABLE_SLOTS = 100;
+const OVERFLOW_FLOOR = PROVISIONAL_FLOOR + 10_000_000_000; // 1.01e13
 
 function tableBase(deviceId, tableIndex) {
-  return PROVISIONAL_FLOOR + deviceId * DEVICE_SPAN + tableIndex * TABLE_SPAN;
+  const d = Number(deviceId) || 0;
+  const i = Number(tableIndex) || 0;
+  if (i < LEGACY_TABLE_SLOTS) {
+    return PROVISIONAL_FLOOR + d * DEVICE_SPAN + i * TABLE_SPAN;
+  }
+  const overflowIndex = i - LEGACY_TABLE_SLOTS;
+  return OVERFLOW_FLOOR + d * DEVICE_SPAN + overflowIndex * TABLE_SPAN;
 }
 
 function isProvisionalId(v) {
@@ -122,6 +231,7 @@ function isProvisionalId(v) {
 // a blind column-wide UPDATE is safe.
 const FK_COLUMNS = [
   ['customers', 'group_id'], ['customers', 'user_id'], ['customers', 'assigned_to'],
+  ['customers', 'party_id'], ['customers', 'party_group_id'],
   ['orders', 'cust_id'],
   ['followups', 'cust_id'],
   ['invoices', 'cust_id'],
@@ -164,6 +274,83 @@ const FK_COLUMNS = [
   ['production_estimate_lines', 'estimate_id'],
   ['mrp_requirements', 'run_id'],
   ['production_reservations', 'order_id'],
+  // Inventory FKs (append-only)
+  ['inventory_ledger', 'product_id'], ['inventory_ledger', 'warehouse_id'],
+  ['inventory_cost_layers', 'product_id'], ['inventory_cost_layers', 'warehouse_id'],
+  ['inventory_batches', 'product_id'], ['inventory_batches', 'warehouse_id'],
+  ['inventory_serials', 'product_id'], ['inventory_serials', 'warehouse_id'], ['inventory_serials', 'batch_id'],
+  ['inventory_reservations', 'product_id'], ['inventory_reservations', 'warehouse_id'],
+  ['landed_cost_lines', 'doc_id'],
+  ['landed_cost_allocations', 'doc_id'], ['landed_cost_allocations', 'product_id'],
+  // Payroll/reporting FKs (append-only)
+  ['salary_structures', 'person_id'],
+  ['payroll_records', 'period_id'],
+  ['payroll_year_end_bonuses', 'person_id'],
+  ['vat_records', 'journal_line_id'],
+  // Update 11 FKs (append-only)
+  ['persons', 'position_id'],
+  ['pricing_rules', 'scope_id'],
+  // Portal FKs (append-only)
+  ['op_units', 'manager_person_id'], ['op_units', 'manager2_person_id'], ['op_units', 'manager3_person_id'],
+  ['op_unit_warehouses', 'unit_id'], ['op_unit_warehouses', 'warehouse_id'],
+  ['op_unit_persons', 'unit_id'], ['op_unit_persons', 'person_id'],
+  ['op_departments', 'unit_id'], ['op_departments', 'manager_person_id'], ['op_departments', 'warehouse_id'],
+  ['op_parameters', 'unit_id'], ['op_parameters', 'current_department_id'], ['op_parameters', 'destination_warehouse_id'],
+  ['op_parameter_items', 'parameter_id'], ['op_parameter_items', 'product_id'],
+  ['op_parameter_dept_log', 'parameter_id'], ['op_parameter_dept_log', 'department_id'],
+  ['op_parameter_dept_log', 'payment_person_id'], ['op_parameter_dept_log', 'converted_product_id'],
+  // Gap accounting FKs (append-only)
+  ['bank_reconciliations', 'bank_id'],
+  ['bank_reconciliation_items', 'reconciliation_id'],
+  ['inventory_nrv_lines', 'provision_id'], ['inventory_nrv_lines', 'product_id'],
+  ['budget_lines', 'budget_id'],
+  ['payroll_monthly_accruals', 'person_id'],
+  // Portal v3 FKs (append-only)
+  ['op_dept_delegations', 'department_id'],
+  ['op_dept_delegations', 'delegate_person_id'],
+  // update.md FKs (append-only)
+  ['product_images', 'product_id'],
+  ['user_catalog_categories', 'user_id'],
+  ['user_catalog_categories', 'category_id'],
+  ['sms_options', 'template_id'],
+  ['sms_scheduled', 'template_id'],
+  ['marketer_carts', 'user_id'],
+  // Sync gaps FKs (append-only)
+  ['suppliers', 'party_id'], ['suppliers', 'party_group_id'],
+  ['parties', 'party_group_id'],
+  ['persons', 'party_group_id'],
+  ['cheque_records', 'collection_bank_id'],
+  ['cheque_records', 'journal_entry_id'],
+  // Sync gaps 1405/05/01 FKs (append-only)
+  ['fixed_asset_depreciation', 'asset_id'],
+  ['user_cost_centers', 'user_id'],
+  ['user_cost_centers', 'cost_center_id'],
+  ['rep_payment_submissions', 'rep_id'],
+  ['rep_payment_submissions', 'cust_id'],
+  ['rep_payment_submissions', 'settlement_id'],
+  // SMS rules 1405/05/04 (append-only)
+  ['sms_rules', 'template_id'],
+  ['sms_rules', 'party_group_id'],
+  ['sms_rules', 'user_id'],
+  // Employee groups / payroll 1405/05/04 (append-only)
+  ['persons', 'employee_group_id'],
+  ['group_salary_structures', 'employee_group_id'],
+// W2-F5 bank statement lines (append-only)
+  ['bank_statement_lines', 'reconciliation_id'],
+  ['bank_statement_lines', 'matched_item_id'],
+  ['bank_statement_lines', 'bank_item_id'],
+  // P0-APP1 product variants (append-only)
+  ['product_style_colors', 'product_id'],
+  ['product_style_colors', 'color_id'],
+  ['product_style_sizes', 'product_id'],
+  ['product_style_sizes', 'size_id'],
+  ['product_variants', 'product_id'],
+  ['product_variants', 'color_id'],
+  ['product_variants', 'size_id'],
+  ['products', 'default_variant_id'],
+  // PROD-P5 advanced BOM FKs (append-only)
+  ['bom_operations', 'subcontract_supplier_id'],
+  ['bom_outputs', 'stage_cost_center_id'],
 ];
 
-module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, tableBase, isProvisionalId };
+module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

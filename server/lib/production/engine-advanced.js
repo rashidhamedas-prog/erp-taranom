@@ -815,6 +815,11 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     const residual = wipResidual(db, orderId);
     emit(db, 'production.order.finalized', { orderId, unitCostRial: unitCost, wipNet });
 
+    try {
+      const { applyPricingFromCost } = require('../../routes/pricing-rules');
+      applyPricingFromCost(db, po.product_id, unitCost);
+    } catch (e) { console.warn('pricing_rules:', e.message); }
+
     return {
       ok: true,
       receipt_id: receiptId,
@@ -1203,6 +1208,29 @@ function issueStageMaterials(db, { orderId, stageId, body, userId }) {
   })();
 }
 
+function getStageIssueTemplate(db, orderId, stageId) {
+  const po = getOrder(db, orderId);
+  const stage = getStage(db, orderId, stageId);
+  const lines = stageMaterialLines(db, po, stage).map(L => {
+    const prod = db.prepare('SELECT id, name, average_cost_rial, std_cost_rial FROM products WHERE id=?').get(L.product_id);
+    return {
+      product_id: L.product_id,
+      name: prod?.name || ('#' + L.product_id),
+      qty_standard: L.qty_final,
+      qty_actual: L.qty_final,
+      std_cost_rial: Math.round(Number(L.unit_cost_rial) || Number(prod?.std_cost_rial) || 0),
+      average_cost_rial: Math.round(Number(prod?.average_cost_rial) || 0),
+      bom_line_id: L.bom_line_id || null,
+    };
+  });
+  return {
+    order_id: orderId,
+    stage_id: stageId,
+    qty_in: stage.qty_in,
+    lines,
+  };
+}
+
 module.exports = {
   releaseAdvancedOrder,
   startStage,
@@ -1215,4 +1243,5 @@ module.exports = {
   reverseStage,
   issueStageMaterials,
   stageList,
+  getStageIssueTemplate,
 };

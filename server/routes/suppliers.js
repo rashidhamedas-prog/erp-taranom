@@ -3,13 +3,18 @@ const { allocTafsili } = require('../lib/coa-map');
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
-const { syncSupplierToParty } = require('../lib/parties-sync');
+const { syncSupplierToParty, deactivatePartyFromSupplier } = require('../lib/parties-sync');
+const { listQueryPlan, listResponse } = require('../lib/pagination');
 
 // Suppliers are shared company-wide (not owned by a salesperson) — accounting/admin only
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const rows = db.prepare('SELECT * FROM suppliers ORDER BY name').all();
-  res.json(rows);
+  const pq = listQueryPlan(req.query);
+  const total = pq.paginate
+    ? (db.prepare('SELECT COUNT(*) AS c FROM suppliers').get()?.c || 0)
+    : 0;
+  const rows = db.prepare(`SELECT * FROM suppliers ORDER BY name${pq.limitSql}`).all(...pq.limitParams);
+  res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
 router.get('/:id', auth, adminOrAccounting, (req, res) => {
@@ -69,9 +74,10 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   const hasInvoices = db.prepare('SELECT COUNT(*) c FROM purchase_invoices WHERE supplier_id=?').get(req.params.id).c;
   if (hasInvoices) return res.status(400).json({ error: 'این تأمین‌کننده دارای فاکتور خرید است و قابل حذف نیست' });
-  db.prepare('DELETE FROM suppliers WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'supplier', req.params.id, `حذف تأمین‌کننده ${row.name}`);
-  res.json({ ok: true });
+  const result = db.transaction(() => deactivatePartyFromSupplier(db, req.params.id))();
+  if (!result.ok) return res.status(400).json({ error: 'امکان حذف تأمین‌کننده نیست' });
+  audit(req.user.id, 'delete', 'supplier', req.params.id, `حذف تأمین‌کننده ${row.name}; party=${result.partyId||'-'}`);
+  res.json({ ok: true, partyId: result.partyId || null });
 });
 
 // Payable balances (mirrors /customers/balances for receivables)

@@ -1,5 +1,5 @@
-# Build CRM Taranom Android release APK (Windows).
-# Output: server/public/releases/crm-taranom.apk (LOCAL ONLY — never scp to production server)
+# Build ERP Taranom Android release APK (Windows).
+# Output: server/public/releases/erp-taranom.apk (LOCAL ONLY — never scp to production server)
 # Prerequisites: Android SDK (sdkmanager), JDK 17, nodejs-mobile.aar in app/libs/
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/build-android.ps1
 $ErrorActionPreference = 'Stop'
@@ -8,7 +8,7 @@ $Android = Join-Path $Root 'android'
 $Sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
 $env:ANDROID_HOME = $Sdk
 
-Write-Host "==> CRM Taranom Android build"
+Write-Host "==> ERP Taranom Android build"
 Write-Host "    Root: $Root"
 Write-Host "    SDK:  $Sdk"
 
@@ -72,7 +72,9 @@ if (-not (Test-Path $bsPrebuilt)) {
   & (Join-Path $Root 'scripts\build-better-sqlite3-android.ps1')
   if ($LASTEXITCODE -ne 0) { throw 'build-better-sqlite3-android.ps1 failed' }
 }
-if (-not (Test-Path (Join-Path $npDir 'node_modules\express'))) {
+if (-not (Test-Path (Join-Path $npDir 'node_modules\express')) -or
+    -not (Test-Path (Join-Path $npDir 'node_modules\adm-zip\package.json')) -or
+    -not (Test-Path (Join-Path $npDir 'node_modules\thirty-two\lib\thirty-two\index.js'))) {
   Write-Host '==> npm install (nodejs-project assets)...'
   Push-Location $npDir
   npm install --omit=dev
@@ -87,11 +89,17 @@ Get-ChildItem -Path $npDir -Recurse -Filter '*.gz' -File -ErrorAction SilentlyCo
 Get-ChildItem -Path $npDir -Recurse -Filter '*.br' -File -ErrorAction SilentlyContinue | Remove-Item -Force
 
 # --- prune node_modules bloat (speeds first-launch extraction on low-RAM phones) ---
+# IMPORTANT: never delete package runtime .js under lib/ — thirty-two ships code in
+# lib/thirty-two/*.js and a broken root index.js that used to hide missing files.
 Write-Host '==> Pruning node_modules for Android assets...'
-$prunePatterns = @('*.md', '*.markdown', '*.map', '*.ts', '*.flow', 'CHANGELOG*', 'README*', 'LICENSE*', 'test', 'tests', '__tests__', 'docs', 'example', 'examples')
+$prunePatterns = @('*.md', '*.markdown', '*.map', '*.ts', '*.flow', 'CHANGELOG*', 'README*', 'LICENSE*', 'LICENSE.txt', 'test', 'tests', '__tests__', 'docs', 'example', 'examples', 'spec')
 foreach ($pat in $prunePatterns) {
   Get-ChildItem -Path (Join-Path $npDir 'node_modules') -Recurse -Include $pat -Force -ErrorAction SilentlyContinue |
-    Where-Object { $_.PSIsContainer -or $true } |
+    Where-Object {
+      # Keep runtime JS; only prune docs/tests metadata
+      if (-not $_.PSIsContainer -and $_.Extension -in @('.js', '.cjs', '.mjs', '.node')) { return $false }
+      return $true
+    } |
     ForEach-Object {
       try {
         if ($_.PSIsContainer) { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
@@ -100,15 +108,42 @@ foreach ($pat in $prunePatterns) {
     }
 }
 
+# Guard critical packages after prune
+$mustExist = @(
+  'node_modules\thirty-two\lib\thirty-two\index.js',
+  'node_modules\thirty-two\lib\thirty-two\thirty-two.js',
+  'node_modules\express\package.json',
+  'node_modules\otplib\package.json',
+  'node_modules\adm-zip\package.json'
+)
+foreach ($rel in $mustExist) {
+  $p = Join-Path $npDir $rel
+  if (-not (Test-Path $p)) { throw "Android assets missing after prune: $rel" }
+}
+
+# Upstream thirty-two@1.0.2 root index.js requires missing ./lib/base32 — patch every build
+$thirtyIdx = Join-Path $npDir 'node_modules\thirty-two\index.js'
+$thirtyPatch = @'
+/* thirty-two root shim for Android embed — see scripts/build-android.ps1 */
+module.exports = require('./lib/thirty-two/');
+'@
+[IO.File]::WriteAllText($thirtyIdx, $thirtyPatch)
+
+Write-Host '==> Smoke-require otplib + thirty-two + adm-zip...'
+Push-Location $npDir
+node -e "require('thirty-two'); require('otplib'); require('adm-zip'); console.log('deps-ok')"
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Android asset dependency smoke test failed' }
+Pop-Location
+
 # --- local.properties (UTF8 *without* BOM - java.util.Properties cannot read a BOM'd key) ---
 $localProps = Join-Path $Android 'local.properties'
 [IO.File]::WriteAllText($localProps, "sdk.dir=$($Sdk -replace '\\','/')`n")
 
 # Remove nested APK from server tree before copyServerSources (prevents 300MB+ recursive packaging)
-$releasesApk = Join-Path $Root 'server\public\releases\crm-taranom.apk'
+$releasesApk = Join-Path $Root 'server\public\releases\erp-taranom.apk'
 if (Test-Path $releasesApk) {
   Write-Host '==> Moving previous release APK out of server tree (avoid nested packaging)...'
-  $hold = Join-Path $Root '.tmp-build\last-crm-taranom.apk'
+  $hold = Join-Path $Root '.tmp-build\last-erp-taranom.apk'
   New-Item -ItemType Directory -Force -Path (Split-Path $hold) | Out-Null
   Move-Item $releasesApk $hold -Force
 }
@@ -119,14 +154,14 @@ if (-not (Test-Path 'gradlew.bat')) {
   Write-Host '==> Generating Gradle wrapper...'
   $gradle = Get-Command gradle -ErrorAction SilentlyContinue
   if (-not $gradle) {
-    $gw = Join-Path $env:TEMP 'gradle-8.4-bin.zip'
-    if (-not (Test-Path $gw)) { Invoke-WebRequest 'https://services.gradle.org/distributions/gradle-8.4-bin.zip' -OutFile $gw }
-    $gd = Join-Path $env:TEMP 'gradle-8.4'
+    $gw = Join-Path $env:TEMP 'gradle-8.7-bin.zip'
+    if (-not (Test-Path $gw)) { Invoke-WebRequest 'https://services.gradle.org/distributions/gradle-8.7-bin.zip' -OutFile $gw }
+    $gd = Join-Path $env:TEMP 'gradle-8.7'
     if (-not (Test-Path $gd)) { Expand-Archive $gw $gd -Force }
-    $gradleBin = Join-Path $gd 'gradle-8.4\bin\gradle.bat'
-    & $gradleBin wrapper --gradle-version 8.4
+    $gradleBin = Join-Path $gd 'gradle-8.7\bin\gradle.bat'
+    & $gradleBin wrapper --gradle-version 8.7
   } else {
-    & gradle wrapper --gradle-version 8.4
+    & gradle wrapper --gradle-version 8.7
   }
 }
 
@@ -135,6 +170,13 @@ $apkRelease = Join-Path $Android 'app\build\outputs\apk\release\app-release.apk'
 $apkUnsigned = Join-Path $Android 'app\build\outputs\apk\release\app-release-unsigned.apk'
 if (Test-Path $apkRelease) { Remove-Item $apkRelease -Force }
 if (Test-Path $apkUnsigned) { Remove-Item $apkUnsigned -Force }
+
+# Stale mergeReleaseAssets can leave deleted files referenced -> CompressAssets fails
+$assetsMerge = Join-Path $Android 'app\build\intermediates\assets'
+if (Test-Path $assetsMerge) {
+  Write-Host '==> Cleaning stale mergeReleaseAssets...'
+  Remove-Item $assetsMerge -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host '==> assembleRelease (this may take several minutes)...'
 & .\gradlew.bat assembleRelease --no-daemon --rerun-tasks
@@ -165,7 +207,7 @@ if ($apk -like '*-unsigned.apk') {
   Write-Warning 'APK is UNSIGNED — create android/keystore.properties to sign for device install'
 }
 
-$dest = Join-Path $Root 'server\public\releases\crm-taranom.apk'
+$dest = Join-Path $Root 'server\public\releases\erp-taranom.apk'
 Copy-Item $apk $dest -Force
 Write-Host "==> APK ready: $dest"
 Write-Host "    Size: $([math]::Round((Get-Item $dest).Length/1MB, 1)) MB"
@@ -173,3 +215,8 @@ Write-Host "    Size: $([math]::Round((Get-Item $dest).Length/1MB, 1)) MB"
 Write-Host '==> Running APK validation tests...'
 & (Join-Path $Root 'scripts\test-android-apk.ps1') $dest
 if ($LASTEXITCODE -ne 0) { throw 'test-android-apk.ps1 failed' }
+
+# Legacy filename for old download links
+$legacy = Join-Path $Root 'server\public\releases\crm-taranom.apk'
+Copy-Item (Join-Path $Root 'server\public\releases\erp-taranom.apk') $legacy -Force
+Write-Host 'Also wrote legacy crm-taranom.apk for compatibility'

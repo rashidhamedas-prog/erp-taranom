@@ -5,16 +5,26 @@ const fs = require('fs');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const cron = require('node-cron');
-const { initDB, getDB, isDevice } = require('./db');
+const { initDB, getDB, isDevice, audit } = require('./db');
 const { todayJalali, nowHHMM } = require('./jalali');
 const { sendSMS } = require('./sms');
 const { hashKey } = require('./routes/api_keys');
-const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile, restoreBackup } = require('./backup');
+const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile, getBackupHealth } = require('./backup');
 const { assertSecurityConfig } = require('./lib/security');
+const { getSmsSettings } = require('./lib/secret-settings');
+const {
+  requestIdMiddleware,
+  checkDbReady,
+  jsonLog,
+} = require('./lib/observability');
 
 const app = express();
 app.set('trust proxy', 1); // trust Nginx reverse proxy
 const PORT = process.env.PORT || 3000;
+const securityConfig = assertSecurityConfig();
+
+// Request correlation id + access log (method/path/status only — no bodies/secrets)
+app.use(requestIdMiddleware);
 
 // Gzip compression — shrinks JSON/HTML responses for faster load (graceful if not installed)
 try {
@@ -22,53 +32,134 @@ try {
   app.use(compression());
 } catch { /* compression optional — run without it if the module is missing */ }
 
-// Ensure uploads directory exists
+// Only product images are public. Private categories create their own
+// directories outside the web root when a validated file is persisted.
 const { UPLOADS_ROOT } = require('./paths');
-for (const sub of ['products', 'messages', 'vouchers', 'reps']) {
-  fs.mkdirSync(path.join(UPLOADS_ROOT, sub), { recursive: true });
-}
+fs.mkdirSync(path.join(UPLOADS_ROOT, 'products'), { recursive: true });
 
 // Security headers (helmet if available, manual fallback)
+const APP_CSP_DIRECTIVES = {
+  defaultSrc: ["'none'"],
+  scriptSrc: ["'self'"],
+  scriptSrcElem: ["'self'"],
+  scriptSrcAttr: ["'none'"],
+  styleSrc: ["'self'"],
+  styleSrcElem: ["'self'"],
+  styleSrcAttr: ["'none'"],
+  imgSrc: ["'self'", 'data:', 'blob:'],
+  connectSrc: ["'self'"],
+  fontSrc: ["'self'"],
+  mediaSrc: ["'self'", 'blob:'],
+  objectSrc: ["'none'"],
+  baseUri: ["'none'"],
+  frameAncestors: ["'none'"],
+  // Verified print previews use a locally-created Blob URL. Keep frames limited
+  // to this origin and authenticated Blob documents; remote frames stay blocked.
+  frameSrc: ["'self'", 'blob:'],
+  childSrc: ["'none'"],
+  formAction: ["'self'"],
+  workerSrc: ["'self'", 'blob:'],
+  manifestSrc: ["'self'"],
+  trustedTypes: ['erp-sanitizer-parser', 'erp-taranom'],
+  requireTrustedTypesFor: ["'script'"],
+};
+
+const APP_CSP_HEADER = Object.entries(APP_CSP_DIRECTIVES)
+  .map(([key, values]) => {
+    const name = key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    return `${name} ${values.join(' ')}`;
+  })
+  .join('; ');
+
 let helmet = null;
 try { helmet = require('helmet'); } catch {}
 if (helmet) {
   app.use(helmet({
-    contentSecurityPolicy: false, // SPA manages its own CSP
+    // HSTS/HTTPS redirect belong to nginx/Cloudflare — Helmet HSTS on the Node
+    // app (often reached over plain HTTP from the proxy) + upgrade-insecure-requests
+    // breaks Chrome login when the user lands on http://erp...
+    hsts: false,
+    crossOriginResourcePolicy: { policy: 'same-origin' },
     crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: APP_CSP_DIRECTIVES,
+    },
   }));
 } else {
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('X-XSS-Protection', '0'); // modern browsers ignore it; rely on CSP
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('Content-Security-Policy', APP_CSP_HEADER);
     next();
   });
 }
 
 // CORS — restrict to same origin in production, allow dev origins
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+const ALLOWED_ORIGINS = securityConfig.allowedOrigins;
+function originAllowed(origin) {
+  if (!origin) return true;
+  return ALLOWED_ORIGINS.includes(String(origin));
+}
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (process.env.NODE_ENV === 'production' && origin && !originAllowed(origin)) {
+    return res.status(403).json({ error: 'Origin مجاز نیست' });
+  }
+  next();
+});
 app.use(cors({
   origin(origin, cb) {
-    // Same-origin requests (origin===undefined) and explicitly listed origins are allowed
-    if (!origin || ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    cb(new Error('CORS origin not allowed'));
+    if (originAllowed(origin) || process.env.NODE_ENV !== 'production') return cb(null, true);
+    // cb(null, false) → proper CORS deny without Express 500 (cb(Error) crashed login UI)
+    return cb(null, false);
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
   credentials: true,
+  exposedHeaders: ['X-Request-Id'],
 }));
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 const { refDocResponseMiddleware } = require('./lib/ref-doc-sanitize');
 app.use('/api', refDocResponseMiddleware);
+app.use((req, res, next) => {
+  try {
+    const xo = require('./lib/excel-origin');
+    xo.clear();
+    xo.markFromRequest(req);
+    res.on('finish', () => { try { xo.clear(); } catch (_) {} });
+  } catch (_) {}
+  next();
+});
 
 // Barcode wedge/debounce helpers (browser + unit tests share this file)
 app.get('/barcode-input.js', (req, res) => {
   res.type('application/javascript').sendFile(path.join(__dirname, 'lib', 'barcode-input.js'));
 });
+
+// Public uploads are fail-closed. This MUST precede express.static(public),
+// otherwise legacy private attachments under public/uploads bypass auth.
+const { blockSensitivePublicUploads } = require('./lib/private-uploads');
+app.use('/uploads', blockSensitivePublicUploads);
+
+// Device builds may lazily fetch a missing public product image. Sensitive
+// media never enters this path and is served only by authenticated API routes.
+if (isDevice()) {
+  const { uploadFallbackMiddleware } = require('./sync/files');
+  const { getConfig } = require('./sync/client');
+  app.use('/uploads', uploadFallbackMiddleware(() => getConfig(getDB())));
+}
+app.use('/uploads', express.static(UPLOADS_ROOT, {
+  maxAge: '30d',
+  immutable: true,
+}));
 
 // Static assets (includes /logo.png if present; /uploads served separately below)
 app.use(express.static(path.join(__dirname, 'public'), {
@@ -76,22 +167,19 @@ app.use(express.static(path.join(__dirname, 'public'), {
     if (filePath.endsWith('assetlinks.json')) {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-cache');
+    } else if (/(?:^|[\\/])(?:app|acc-nav|tbl-enhance|prod-ui|portal-ui|i18n|marketer-ui|mdi|boot|csp-runtime|barcode-input)\.js$/i.test(filePath)
+      || /(?:^|[\\/])(?:app|prod-ui)\.css$/i.test(filePath)) {
+      // App shells + CSS must not stick on stale browser/CDN cache (query ?v= alone is not enough behind some proxies)
+      res.setHeader('Cache-Control', 'no-store, must-revalidate');
+    } else if (/\.(js|css)$/i.test(filePath) && !filePath.endsWith('sw.js')) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    } else if (/\.(woff2?|png|svg|ico)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    } else if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
+      res.setHeader('Cache-Control', 'no-store, must-revalidate');
     }
   }
 }));
-// Device builds: pull missing uploads from central on first request
-if (isDevice()) {
-  const { uploadFallbackMiddleware } = require('./sync/files');
-  const { getConfig } = require('./sync/client');
-  const { getDB } = require('./db');
-  app.use('/uploads', uploadFallbackMiddleware(() => getConfig(getDB())));
-}
-// Uploaded images are content-addressed by unique filename → safe to cache long-term
-app.use('/uploads', express.static(UPLOADS_ROOT, {
-  maxAge: '30d',
-  immutable: true,
-}));
-
 // Per-process secret marking loopback replay requests (sync engine): the
 // central push endpoint re-executes device operations against its own routes;
 // those internal requests must not consume the public rate-limit budget.
@@ -114,15 +202,63 @@ const authLimiter = rateLimit({
   message: { error: 'تعداد تلاش‌های ورود بیش از حد مجاز است. ۱۵ دقیقه دیگر تلاش کنید.' },
   skipSuccessfulRequests: true,
 });
+const otpSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  message: { error: 'تعداد درخواست کد بیش از حد مجاز است. ۱۵ دقیقه دیگر تلاش کنید.' },
+});
+const otpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  message: { error: 'تعداد تلاش تأیید کد بیش از حد مجاز است. ۱۵ دقیقه دیگر تلاش کنید.' },
+});
+app.post('/api/auth/forgot', otpSendLimiter);
+app.post('/api/auth/forgot-reset', otpVerifyLimiter);
+app.post('/api/auth/2fa/verify', otpVerifyLimiter);
+app.post('/api/auth/2fa/recovery-code', otpVerifyLimiter);
+app.post('/api/b2b/auth/otp', otpSendLimiter);
+app.post('/api/b2b/auth/otp/verify', otpVerifyLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/forgot', authLimiter);
 app.use('/api/auth/forgot-reset', authLimiter);
 app.use('/api/auth/2fa/verify', authLimiter);
 app.use('/api/auth/2fa/recovery-code', authLimiter);
 app.use('/api/b2b/auth', authLimiter);
+app.use('/api/sync/pair', authLimiter);
+const heavyLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
+app.use('/api/reports', heavyLimiter);
+app.use('/api/adv-reports', heavyLimiter);
+app.use('/api/admin/backup-restore', heavyLimiter);
 
-assertSecurityConfig();
+// Company activation swaps the process-global SQLite handle. Refuse a switch
+// until all other API handlers have drained, and reject new work during the
+// short synchronous swap window.
+const { requestGuard: companyRequestGuard } = require('./lib/company-switch-guard');
+app.use('/api', companyRequestGuard);
+
 initDB();
+
+// License entitlement: after expiry+grace (or clock rollback) → read-only safe mode.
+const { licenseGuard } = require('./lib/license/middleware');
+app.use('/api', licenseGuard);
+
+// Mirror active company display name from settings → registry (central only)
+if (!isDevice()) {
+  try {
+    const ws = require('./lib/company-workspace');
+    const cn = getDB().prepare("SELECT value FROM settings WHERE key='company_name'").get()?.value;
+    const active = ws.getActiveCompany();
+    if (cn && active && active.name !== cn) ws.updateCompanyMeta(active.id, { name: cn });
+  } catch (e) {
+    console.warn('company registry sync:', e.message);
+  }
+}
 
 // Device builds record every successful mutating API call into the sync
 // outbox for later replay against central (see sync/capture.js).
@@ -132,35 +268,45 @@ if (isDevice()) {
 }
 
 app.use('/api/sync', require('./routes/sync'));
+app.use('/api/license', require('./routes/license'));
 app.use('/api/auth/2fa', require('./routes/twofa'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/ai', require('./routes/ai'));
 app.use('/api/search', require('./routes/search'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/fiscal-year', require('./routes/fiscal-year'));
+app.use('/api/companies', require('./routes/companies'));
+app.use('/api/onboarding', require('./routes/onboarding'));
 app.use('/api/rbac', require('./routes/rbac'));
 app.use('/api/b2b', require('./routes/b2b'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/followups', require('./routes/followups'));
 app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/products', require('./routes/products'));
+app.use('/api/product-variants', require('./routes/product-variants'));
 app.use('/api/product-categories', require('./routes/product-categories'));
 app.use('/api/party-groups', require('./routes/party-groups'));
+// data-wipe UI/API removed (go-live) — use server/scripts/go-live-clean.js on central if needed
 app.use('/api/admin', require('./routes/admin'));
 
 // Manual backup endpoint — registered before admin router catch-all.
 // Central-only: device/desktop builds sync data but cannot dump the DB here.
-const { auth, adminOnly, centralOnly } = require('./middleware/auth');
-app.post('/api/admin/backup-now', auth, adminOnly, centralOnly, async (req, res) => {
+const { auth, adminOnly, centralOnlyStrict } = require('./middleware/auth');
+app.post('/api/admin/backup-now', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   const result = await runBackup();
+  audit(req.user.id, result.ok ? 'backup' : 'backup_failed', 'system_backup', null, result.ok ? result.file : result.error, req);
   res.json({ ...result, role: 'central' });
 });
 
-app.get('/api/admin/backups', auth, adminOnly, centralOnly, (req, res) => {
+app.get('/api/admin/backups', auth, adminOnly, centralOnlyStrict, (req, res) => {
   res.json(listBackups());
 });
 
-app.get('/api/admin/backup-download', auth, adminOnly, centralOnly, async (req, res) => {
+app.get('/api/admin/backup-health', auth, adminOnly, centralOnlyStrict, (req, res) => {
+  res.json(getBackupHealth());
+});
+
+app.get('/api/admin/backup-download', auth, adminOnly, centralOnlyStrict, async (req, res) => {
   let filePath = getLatestBackupFile();
   if (!fs.existsSync(filePath)) {
     const result = await runBackup();
@@ -171,31 +317,43 @@ app.get('/api/admin/backup-download', auth, adminOnly, centralOnly, async (req, 
   res.download(filePath, base);
 });
 
-app.get('/api/admin/backup-download/:name', auth, adminOnly, centralOnly, (req, res) => {
+app.get('/api/admin/backup-download/:name', auth, adminOnly, centralOnlyStrict, (req, res) => {
   const filePath = resolveBackupFile(req.params.name);
   if (!filePath) return res.status(404).json({ error: 'فایل پشتیبان یافت نشد' });
   res.download(filePath, req.params.name);
 });
 
 const multer = require('multer');
-const backupUpload = multer({ dest: path.join(__dirname, 'backups'), limits: { fileSize: 512 * 1024 * 1024 } });
-app.post('/api/admin/backup-restore', auth, adminOnly, centralOnly, backupUpload.single('backup'), (req, res) => {
+const backupUpload = multer({
+  dest: path.join(__dirname, 'backups'),
+  limits: { fileSize: 512 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, /\.(?:zip|tar\.gz)(?:\.enc)?$/i.test(file.originalname || ''))
+});
+app.post('/api/admin/backup-restore', auth, adminOnly, centralOnlyStrict, backupUpload.single('backup'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل پشتیبان الزامی است' });
   try {
-    const result = restoreBackup(req.file.path);
+    const { verifyBackupPackage } = require('./backup');
+    const result = verifyBackupPackage(req.file.path);
+    audit(req.user.id, 'backup_verify', 'system_backup', null, req.file.originalname || 'uploaded backup', req);
     try { fs.unlinkSync(req.file.path); } catch { /* */ }
-    res.json({ success: true, data: result, message: 'بازیابی انجام شد — PM2 را مجدداً راه‌اندازی کنید' });
+    res.json({
+      success: true,
+      data: result,
+      message: 'تأیید بسته پشتیبان موفق بود — بازیابی واقعی فقط با CLI آفلاین (restore-backup.js) پس از توقف سرویس',
+    });
   } catch (e) {
     try { fs.unlinkSync(req.file.path); } catch { /* */ }
-    res.status(500).json({ error: e.message || 'خطا در بازیابی' });
+    res.status(400).json({ error: e.message || 'تأیید پشتیبان ناموفق' });
   }
 });
 
 app.use('/api/import', require('./routes/import'));
+app.use('/api/excel', require('./routes/excel'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/reminders', require('./routes/reminders'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
+app.use('/api/sms-module', require('./routes/sms-module'));
 app.use('/api/reps', require('./routes/rep-management'));
 app.use('/api/accounting', require('./routes/accounting'));
 app.use('/api/suppliers', require('./routes/suppliers'));
@@ -210,9 +368,17 @@ app.use('/api/persons', require('./routes/persons'));
 app.use('/api/trust-checks', require('./routes/trust-checks'));
 app.use('/api/cheque-records', require('./routes/cheque-records'));
 app.use('/api/warehouses', require('./routes/warehouses'));
+app.use('/api/inventory', require('./routes/inventory'));
 app.use('/api/stocktaking', require('./routes/stocktaking'));
+app.use('/api/fx', require('./routes/fx'));
+app.use('/api/person-positions', require('./routes/person-positions'));
+app.use('/api/pricing-rules', require('./routes/pricing-rules'));
 app.use('/api/consignments', require('./routes/consignments'));
 app.use('/api/adv-reports', require('./routes/adv-reports'));
+app.use('/api/portal', require('./routes/portal'));
+app.use('/api/bank-reconciliation', require('./routes/bank-reconciliation'));
+app.use('/api/budgeting', require('./routes/budgeting'));
+app.use('/api/reserves', require('./routes/reserves'));
 app.use('/api/production/close', require('./routes/production-close'));
 app.use('/api/production/reports', require('./routes/production-reports'));
 app.use('/api/production/boms', require('./routes/production-boms'));
@@ -251,7 +417,7 @@ app.get('/api/system/integrity-check/last-result', authMw, adminOnlyMw, (req, re
   res.json({ success: true, data });
 });
 
-// Lightweight health check — used by Android WebView boot poll
+// Lightweight health check — used by Android WebView boot poll (liveness; no DB)
 app.get('/api/system/health', (req, res) => {
   res.json({
     ok: true,
@@ -261,7 +427,29 @@ app.get('/api/system/health', (req, res) => {
   });
 });
 
-const { readManifest, buildUpdateResponse } = require('./lib/app-update');
+// Readiness — SQLite must answer SELECT 1 (load balancers / ops probes)
+app.get('/api/system/ready', (req, res) => {
+  if (checkDbReady(getDB)) {
+    return res.status(200).json({ ok: true, ready: true });
+  }
+  jsonLog({
+    level: 'error',
+    msg: 'readiness_failed',
+    requestId: req.requestId,
+  });
+  return res.status(503).json({ ok: false, ready: false });
+});
+
+// Support meta stub (P2-M4 thin) — external ticketing only; no in-app product
+app.get('/api/support/meta', (req, res) => {
+  res.json({
+    ticketing: 'external',
+    sla_note: 'پشتیبانی از طریق کانال خارجی سازمان پیگیری می‌شود؛ تیکتینگ داخل ERP فعلاً فعال نیست.',
+    kb_url: null,
+  });
+});
+
+const { readManifest, buildUpdateResponse, resolveReleaseUrl } = require('./lib/app-update');
 
 // App version info (bundled manifest — used by offline builds to know their own version)
 app.get('/api/system/app-info', (req, res) => {
@@ -277,7 +465,14 @@ app.get('/api/system/app-info', (req, res) => {
       b2bPortal = row?.value === '1';
     } catch { /* db not ready */ }
   }
-  res.json({ manifest, role: isDevice() ? 'device' : 'central', platform, version, b2b_portal: b2bPortal });
+  res.json({
+    manifest,
+    release_id: manifest.releaseId,
+    role: isDevice() ? 'device' : 'central',
+    platform,
+    version,
+    b2b_portal: b2bPortal
+  });
 });
 
 // Check for newer desktop/android/web builds
@@ -307,8 +502,10 @@ app.get('/api/system/update-feed', async (req, res) => {
   }
   const manifest = readManifest();
   const external = process.env.DESKTOP_UPDATE_FEED_URL || manifest.desktop?.feed_url;
-  if (external) return res.json({ url: external });
   const base = process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  if (external) {
+    return res.json({ url: resolveReleaseUrl(external, base) });
+  }
   res.json({ url: base.replace(/\/$/, '') + '/releases/' });
 });
 
@@ -328,11 +525,7 @@ app.get('*', (req, res, next) => {
 
 function getSMSSettings() {
   try {
-    const db = getDB();
-    const rows = db.prepare("SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from')").all();
-    const s = {};
-    for (const r of rows) s[r.key] = r.value;
-    return s;
+    return getSmsSettings(getDB());
   } catch { return {}; }
 }
 
@@ -485,7 +678,9 @@ if (!isDevice()) {
   cron.schedule('* * * * *', runTimedFollowupSMS);
 
   // Daily at 00:00: full app backup → local file + Gmail
-  cron.schedule('0 0 * * *', runBackup);
+  // Wave-0 RPO: WAL-safe snapshot every 15 minutes. Off-site upload is
+  // mandatory when BACKUP_S3_URI is configured.
+  cron.schedule('*/15 * * * *', runBackup);
 
   // Daily at 02:00: AI churn scoring + insights (heuristics always; Claude narratives if configured)
   cron.schedule('0 2 * * *', async () => {
@@ -532,16 +727,36 @@ if (!isDevice()) {
       }
     } catch (e) { console.error('cron production-health error:', e.message); }
   });
+
+  // Hourly: portal under_review auto-approve after timeout (default 72h)
+  cron.schedule('20 * * * *', () => {
+    try {
+      const { autoApproveStalePortalReviews } = require('./lib/portal-jobs');
+      const n = autoApproveStalePortalReviews(getDB());
+      if (n) console.log(`🏭 portal auto-approve reviews: ${n}`);
+    } catch (e) { console.error('cron portal-review error:', e.message); }
+  });
+
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const { processScheduledSms } = require('./routes/sms-module');
+      await processScheduledSms(getDB());
+    } catch (e) { console.error('cron sms-scheduled error:', e.message); }
+  });
 }
 
-// Global error handler — never leak stack traces to clients
+// Global error handler — never leak stack traces to clients.
+// 4xx errors carry safe validation messages (fiscal year, balance, ...) and
+// must reach the user; only true 5xx get the generic text.
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   console.error('unhandled error:', err.message);
-  res.status(err.status || 500).json({ error: 'خطای داخلی سرور' });
+  const status = err.status || 500;
+  const msg = (status >= 400 && status < 500 && err.message) ? err.message : 'خطای داخلی سرور';
+  res.status(status).json({ error: msg });
 });
 
 app.listen(PORT, process.env.LISTEN_HOST || '0.0.0.0', () => {
-  console.log(`CRM ترنم نسخه ۳ روی پورت ${PORT} اجرا شد`);
+  console.log(`ERP ترنم نسخه ۳ روی پورت ${PORT} اجرا شد`);
   if (process.env.APP_PLATFORM === 'android' && process.env.DB_PATH) {
     try {
       const ready = path.join(path.dirname(process.env.DB_PATH), 'server.ready');

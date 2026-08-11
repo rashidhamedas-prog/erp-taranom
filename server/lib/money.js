@@ -1,20 +1,60 @@
-// Monetary helpers — DB stores INTEGER Rials; UI shows Toman (/10).
+// Monetary helpers — DB+UI store INTEGER Rials (currency_base=rial).
+// Only postToLedger still expects Toman input (internally ×10 → debit_rial).
 
 const RIAL_PER_TOMAN = 10;
+
+/** Reject values that cannot be represented exactly as a JS integer (avoids silent money corruption). */
+function assertSafeRial(n, label) {
+  if (!Number.isFinite(n)) {
+    throw new Error(`مقدار پولی نامعتبر${label ? ` (${label})` : ''}`);
+  }
+  const rounded = Math.round(n);
+  if (!Number.isSafeInteger(rounded)) {
+    throw new Error(
+      `مقدار پولی خارج از محدوده امن JavaScript است${label ? ` (${label})` : ''}: ${rounded}`
+    );
+  }
+  return rounded;
+}
 
 function tomanToRial(v) {
   if (v == null || v === '') return 0;
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
-  return Math.round(n * RIAL_PER_TOMAN);
+  return assertSafeRial(n * RIAL_PER_TOMAN, 'tomanToRial');
 }
 
 function rialToToman(v) {
   if (v == null || v === '') return 0;
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
+  assertSafeRial(n, 'rialToToman');
   return n / RIAL_PER_TOMAN;
 }
+
+/** Convert rial amount to postToLedger toman input. */
+function rialToLedger(v) {
+  const n = Number(v) || 0;
+  if (n) assertSafeRial(n, 'rialToLedger');
+  return n / RIAL_PER_TOMAN;
+}
+
+/** Read journal line amount in rial (prefer debit_rial; fallback debit after migration). */
+function jlDebitRial(l) {
+  const r = Number(l?.debit_rial);
+  if (r) return assertSafeRial(r, 'jlDebitRial');
+  return assertSafeRial(Number(l?.debit) || 0, 'jlDebitRial');
+}
+
+function jlCreditRial(l) {
+  const r = Number(l?.credit_rial);
+  if (r) return assertSafeRial(r, 'jlCreditRial');
+  return assertSafeRial(Number(l?.credit) || 0, 'jlCreditRial');
+}
+
+/** SQL expr: journal line debit/credit in rial */
+const SQL_JL_DEBIT_RIAL = 'COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)';
+const SQL_JL_CREDIT_RIAL = 'COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)';
 
 /** Attach display_toman alongside rial integer fields on a row object. */
 function withTomanDisplay(row, fields) {
@@ -41,4 +81,8 @@ function migrateRealToRial(db, table, realCol, rialCol) {
   return true;
 }
 
-module.exports = { RIAL_PER_TOMAN, tomanToRial, rialToToman, withTomanDisplay, migrateRealToRial };
+module.exports = {
+  RIAL_PER_TOMAN, assertSafeRial, tomanToRial, rialToToman, rialToLedger,
+  jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL,
+  withTomanDisplay, migrateRealToRial,
+};

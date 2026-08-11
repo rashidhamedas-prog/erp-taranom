@@ -10,7 +10,8 @@ const { initDB, getDB } = require('../db');
 initDB();
 const db = getDB();
 
-const vouchers = parseMahakJournal(journalPath);
+(async () => {
+const vouchers = await parseMahakJournal(journalPath);
 const remaining = db.prepare("SELECT src_doc_no, ref_type, description FROM journal_entries WHERE src_system='mahak' AND ref_type='mahak_import' ORDER BY entry_date, src_doc_no").all();
 
 const byType = {};
@@ -25,3 +26,7 @@ for (const [t, list] of Object.entries(byType).sort((a, b) => b[1].length - a[1]
   console.log(`\n${t}: ${list.length}`);
   list.slice(0, 8).forEach(x => console.log(`  ${x.docNo} ${x.desc}`));
 }
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

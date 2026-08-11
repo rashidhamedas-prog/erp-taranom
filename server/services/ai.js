@@ -8,15 +8,14 @@
 //     action suggestions and the weekly summary. Results are cached in
 //     ai_insights so the dashboard never calls the API on page load.
 
-const { decrypt } = require('./crypto');
+const { getSetting } = require('../lib/secret-settings');
 
 const DAY = 24 * 3600;
 
 function nowSec() { return Math.floor(Date.now() / 1000); }
 
 function getSettingValue(db, key) {
-  const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
-  return row ? row.value : '';
+  return getSetting(db, key);
 }
 
 // ── Heuristic churn score ────────────────────────────────────────────────────
@@ -70,9 +69,7 @@ async function callClaude(apiKey, model, system, userText, maxTokens = 1500) {
 }
 
 function getApiKey(db) {
-  const raw = getSettingValue(db, 'ai_api_key');
-  if (!raw) return null;
-  try { return raw.includes(':') ? decrypt(raw) : raw; } catch { return raw; }
+  return getSettingValue(db, 'ai_api_key') || null;
 }
 
 function extractJSON(text) {
@@ -188,7 +185,7 @@ async function runNightlyAnalysis(db, { weekly = false } = {}) {
       }
     }
     if (!body) {
-      body = `این هفته ${stats.invoices} فاکتور رسمی به مبلغ ${Number(stats.revenue).toLocaleString('fa-IR')} تومان صادر شد و ${Number(stats.collected).toLocaleString('fa-IR')} تومان وصول گردید. ${stats.new_customers} مشتری جدید اضافه شد و ${stats.at_risk_customers} مشتری در ریسک ریزش هستند${atRisk.length ? ` (در صدر: «${atRisk[0].biz}»)` : ''}.`;
+      body = `این هفته ${stats.invoices} فاکتور رسمی به مبلغ ${Number(stats.revenue).toLocaleString('fa-IR')} ریال صادر شد و ${Number(stats.collected).toLocaleString('fa-IR')} ریال وصول گردید. ${stats.new_customers} مشتری جدید اضافه شد و ${stats.at_risk_customers} مشتری در ریسک ریزش هستند${atRisk.length ? ` (در صدر: «${atRisk[0].biz}»)` : ''}.`;
     }
     const period = 'w-' + new Date().toISOString().slice(0, 10);
     db.prepare("DELETE FROM ai_insights WHERE kind='weekly_summary' AND period=?").run(period);
@@ -250,9 +247,9 @@ async function buildConsultantReply(db, question) {
   }
 
   const parts = [];
-  parts.push(`این هفته ${weekSales.c} فاکتور رسمی به مبلغ ${Number(weekSales.s).toLocaleString('fa-IR')} تومان ثبت شده.`);
-  parts.push(`فروش این ماه: ${Number(monthSales.s).toLocaleString('fa-IR')} تومان.`);
-  if (overdue.length) parts.push(`${overdue.length} مشتری با مانده بالای ۱ میلیون تومان دارید — اولویت وصول.`);
+  parts.push(`این هفته ${weekSales.c} فاکتور رسمی به مبلغ ${Number(weekSales.s).toLocaleString('fa-IR')} ریال ثبت شده.`);
+  parts.push(`فروش این ماه: ${Number(monthSales.s).toLocaleString('fa-IR')} ریال.`);
+  if (overdue.length) parts.push(`${overdue.length} مشتری با مانده بالای ۱ میلیون ریال دارید — اولویت وصول.`);
   if (lowStock.length) parts.push(`${lowStock.length} محصول موجودی کم دارند.`);
   parts.push(`سؤال شما: «${question}» — برای تحلیل عمیق‌تر، کلید API هوش مصنوعی را در تنظیمات فعال کنید.`);
   return { answer: parts.join(' '), context_summary: context, source: 'heuristic' };
@@ -310,7 +307,7 @@ async function buildMySummary(db, userId, { narrative = false } = {}) {
     const trend = prevWeek.s > 0
       ? (week.s >= prevWeek.s ? `فروش این هفته نسبت به هفته قبل ${prevWeek.s ? Math.round(((week.s - prevWeek.s) / prevWeek.s) * 100) : 0}٪ رشد داشته.` : `فروش این هفته نسبت به هفته قبل ${Math.round(((prevWeek.s - week.s) / prevWeek.s) * 100)}٪ کمتر بوده.`)
       : '';
-    body = `این هفته ${week.c} فاکتور رسمی به مبلغ ${Number(week.s).toLocaleString('fa-IR')} تومان ثبت کرده‌ای و فروش این ماه به ${Number(month.s).toLocaleString('fa-IR')} تومان رسیده. ${trend} ${openFups ? `${openFups} پیگیری باز داری.` : ''} ${atRisk.length ? `مشتریان در ریسک: ${atRisk.map(c => `«${c.biz}»`).join('، ')} — امروز با آن‌ها تماس بگیر.` : 'مشتری پرریسکی نداری — روی جذب مشتری جدید تمرکز کن.'}`;
+    body = `این هفته ${week.c} فاکتور رسمی به مبلغ ${Number(week.s).toLocaleString('fa-IR')} ریال ثبت کرده‌ای و فروش این ماه به ${Number(month.s).toLocaleString('fa-IR')} ریال رسیده. ${trend} ${openFups ? `${openFups} پیگیری باز داری.` : ''} ${atRisk.length ? `مشتریان در ریسک: ${atRisk.map(c => `«${c.biz}»`).join('، ')} — امروز با آن‌ها تماس بگیر.` : 'مشتری پرریسکی نداری — روی جذب مشتری جدید تمرکز کن.'}`;
   }
   return { stats, narrative: body };
 }

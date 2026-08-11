@@ -1,4 +1,5 @@
 // Shared helpers for Mahak Excel import (entity parsing, product categories).
+const { storeRial, guessMahakProductGroup } = require('./currency');
 const fa = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
 
 /** Split Mahak person tafsili title → owner / business / phone. */
@@ -23,14 +24,9 @@ function parsePersonName(name) {
   return { owner, biz, phone };
 }
 
-/** Classify inventory row for product_categories (مواد اولیه vs محصول نهایی). */
+/** Classify inventory row for product_categories (Mahak groups). */
 function guessProductCategory(name) {
-  const n = fa(name);
-  if (/پارچه|مغزی|نخ\b|جارو|کاور|پاکت|برچسب|دکمه|مارک|ته طاق|بسته|پلمپ|چسب|قفل|زیپ|آستر|آستین|یقه|الگو|شابلون|قیصری|کاور|نخ|رنگ|رنگر|دوخت|ملزوم|خرجکار|پوشاک\s*$/i.test(n))
-    return 'مواد اولیه';
-  if (/مانتو|پیراهن|دامن|شلوار|کت\b|ست\b|بالاپوش|لباس|پالتو|کاپشن|تیشرت|بلوز|شومیز/i.test(n))
-    return 'محصول نهایی';
-  return 'محصول نهایی';
+  return guessMahakProductGroup(name);
 }
 
 /** Build map full12 → {debit,credit,count} from parsed vouchers. */
@@ -70,12 +66,14 @@ function mapPersonAccounts(accountUsage, tafBestFull) {
 }
 
 const num = v => parseFloat(String(v == null ? '' : v).replace(/,/g, '')) || 0;
-const toman = rial => Math.round(rial / 10);
+/** Mahak amounts are Rial — store as-is (no ÷10). */
+const toman = storeRial;
 
 /** Parse roznameh.xlsx into Map docNo → voucher. */
-function parseMahakJournal(journalPath) {
-  const XLSX = require('xlsx');
-  const jwb = XLSX.readFile(journalPath);
+async function parseMahakJournal(journalPath) {
+  const fs = require('fs');
+  const { XLSX, readWorkbook } = require('./excel-safe');
+  const jwb = await readWorkbook(fs.readFileSync(journalPath));
   const jrows = XLSX.utils.sheet_to_json(jwb.Sheets[jwb.SheetNames[0]], { header: 1, raw: false }).slice(1);
   const vouchers = new Map();
   for (const r of jrows) {
@@ -102,10 +100,15 @@ function hasKol(v, kol) { return v.lines.some(l => l.kol === kol); }
 function classifyMahakVoucher(docNo, v) {
   const d = `${v.desc || ''} ${v.atf || ''}`;
   if (docNo === '1' || /سند افتتاح|افتتاحيه/.test(d)) return 'opening';
+  if (/برگشت\s*از\s*فروش/i.test(d)) return 'sales_return';
+  if (/برگشت\s*از\s*خرید/i.test(d)) return 'purchase_return';
   if (/فاکتور\s*فروش|فاکتور فروش/i.test(d)) return 'sales_invoice';
+  if (/حواله\s*بین\s*انبار|بین\s*انبار/.test(d)) return 'warehouse_transfer';
+  if (/رسيد\s*انبار.*ورود|رسید انبار - ورود|رسید انبار.*ورود/.test(d)) return 'warehouse_receipt';
   if (/حواله\s*انبار.*خروج|حواله انبار - خروج/.test(d)) return 'warehouse_issue';
-  if (/رسيد\s*انبار.*ورود|رسید انبار - ورود/.test(d)) return 'warehouse_receipt';
   if (/حواله\s*انبار/.test(d)) return 'warehouse_issue';
+  if (/انبارگردانی|انبار گردانی/.test(d)) return 'stocktaking';
+  if (/حواله\s*حساب|حواله حساب/.test(d)) return 'account_transfer';
   if (/چک|چك|خواباندن|واگذار|عودت\s*چک|اسناد\s*دریافت/.test(d) && !v.lines.some(l => l.code.startsWith('203004'))) return 'cheque_ops';
   if (/دريافت|دریافت|واریز|واريز/.test(d) && !/پرداخت/.test(d)) return 'receipt';
   if (/پرداخت\s*حقوق|حقوق\s|دستمزد/.test(d)) return 'payroll';
@@ -121,6 +124,8 @@ function classifyMahakVoucher(docNo, v) {
   const dr704 = sumKol(v, '704', 'debit'), dr702 = sumKol(v, '702', 'debit');
   const dr801 = sumKol(v, '801', 'debit');
 
+  if (cr601 > 0 && dr203 > 0 && /برگشت/.test(d)) return 'sales_return';
+  if (dr202 > 0 && cr501 > 0 && /برگشت/.test(d)) return 'purchase_return';
   if (cr601 > 0 && dr203 > 0) return 'sales_invoice';
   if (dr206 > 0 && cr203 > 0 && !hasKol(v, '601')) return 'receipt';
   if (dr203 > 0 && cr203 > 0 && v.lines.some(l => l.code.startsWith('203001')) && v.lines.some(l => l.code.startsWith('203004'))) return 'receipt';

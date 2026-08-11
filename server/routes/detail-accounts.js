@@ -40,14 +40,15 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
 });
 
 router.post('/', auth, adminOrAccounting, (req, res) => {
-  const { code, name, detail_category_id, linked_table, linked_id } = req.body;
+  const { code, name, detail_category_id, linked_table, linked_id, is_active } = req.body;
   if (!code || !name) return res.status(400).json({ error: 'کد و نام الزامی است' });
   const db = getDB();
   try {
     const r = db.prepare(`
-      INSERT INTO detail_accounts (code,name,detail_category_id,linked_table,linked_id)
-      VALUES (?,?,?,?,?)
-    `).run(code, name, detail_category_id || null, linked_table || null, linked_id || null);
+      INSERT INTO detail_accounts (code,name,detail_category_id,linked_table,linked_id,is_active)
+      VALUES (?,?,?,?,?,?)
+    `).run(code, name, detail_category_id || null, linked_table || null, linked_id || null,
+      is_active === false || is_active === 0 ? 0 : 1);
     audit(req.user.id, 'create', 'detail_account', r.lastInsertRowid, code);
     res.json(db.prepare('SELECT * FROM detail_accounts WHERE id=?').get(r.lastInsertRowid));
   } catch (e) {

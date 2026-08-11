@@ -1,22 +1,101 @@
 const router = require('express').Router();
-const { allocTafsili } = require('../lib/coa-map');
-const jwt = require('jsonwebtoken');
+const { allocTafsili, releaseTafsili } = require('../lib/coa-map');
+const { parseQty } = require('../lib/round3');
 const { getDB, audit } = require('../db');
-const { auth, adminOnly, centralOnly, SECRET, requirePermission } = require('../middleware/auth');
-const XLSX = require('xlsx');
-const multer = require('multer');
+const { auth, adminOnly, adminOrAccounting, centralOnly, requirePermission } = require('../middleware/auth');
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
+const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
-
-let sharp = null;
-try { sharp = require('sharp'); } catch (e) { /* optional — falls back to raw storage */ }
+const { createSecureUpload } = require('../lib/upload-policy');
+const { sendSecureHtml } = require('../lib/secure-html-response');
+const { listQueryPlan, listResponse } = require('../lib/pagination');
 
 const { UPLOADS_ROOT } = require('../paths');
 const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'products');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const storage = multer.memoryStorage();
-const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+const upload = createSecureUpload('image');
+const uploadProductMedia = upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'images', maxCount: 12 },
+]);
+
+function listProductImages(db, productId) {
+  try {
+    return db.prepare('SELECT id,filename,sort_order FROM product_images WHERE product_id=? ORDER BY sort_order,id').all(productId);
+  } catch (_) { return []; }
+}
+
+function jsonSafeProduct(row) {
+  if (!row || typeof row !== 'object') return row;
+  try {
+    return JSON.parse(JSON.stringify(row, (_, v) => (typeof v === 'bigint' ? Number(v) : v)));
+  } catch (_) {
+    const out = Object.assign({}, row);
+    if (Array.isArray(row.images)) out.images = row.images.slice();
+    return out;
+  }
+}
+
+/** True when multipart/JSON body explicitly includes the key (even if empty string). */
+function bodyHas(body, key) {
+  return !!body && Object.prototype.hasOwnProperty.call(body, key);
+}
+
+async function attachUploadedImages(db, productId, files, setPrimary) {
+  const raw = [];
+  if (files?.image?.[0]) raw.push(files.image[0]);
+  if (files?.images?.length) raw.push(...files.images);
+  // Deduplicate when client accidentally sends the same file as both image and images
+  const seen = new Set();
+  const imgs = [];
+  for (const f of raw) {
+    if (!f || !f.buffer) continue;
+    const key = crypto.createHash('sha256').update(f.buffer).digest('hex');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    imgs.push(f);
+  }
+  if (!imgs.length) return;
+  let sort = db.prepare('SELECT COALESCE(MAX(sort_order),-1)+1 s FROM product_images WHERE product_id=?').get(productId).s;
+  const ins = db.prepare('INSERT INTO product_images (product_id,filename,sort_order) VALUES (?,?,?)');
+  const names = [];
+  const errors = [];
+  for (const f of imgs) {
+    let fn = null;
+    try {
+      fn = saveImage(f);
+      ins.run(productId, fn, sort++);
+      names.push(fn);
+    } catch (e) {
+      if (fn) {
+        try { fs.unlinkSync(path.join(UPLOAD_DIR, fn)); } catch { /* file was not committed */ }
+      }
+      errors.push((f.originalname || 'file') + ': ' + (e && e.message ? e.message : String(e)));
+    }
+  }
+  if (!names.length && errors.length) {
+    const err = new Error('آپلود تصویر ناموفق: ' + errors.slice(0, 3).join('؛ '));
+    err.status = 400;
+    throw err;
+  }
+  if (setPrimary && names[0]) {
+    // SQLite: use single quotes for empty string — double quotes are identifiers
+    db.prepare("UPDATE products SET image=? WHERE id=? AND (image IS NULL OR image='')").run(names[0], productId);
+  }
+  try {
+    const all = listProductImages(db, productId).map(r => r.filename);
+    db.prepare('UPDATE products SET images_json=? WHERE id=?').run(JSON.stringify(all), productId);
+  } catch (_) {}
+}
+
+const {
+  canSeeAllProductGroups,
+  userCatalogAclIds,
+  addProductGroupVisibility,
+  addCatalogAclFilter,
+} = require('../lib/product-visibility');
 
 // Auto product code (کد کالا) when the user leaves it blank: sequential K-00001.
 function nextProductCode(db) {
@@ -29,70 +108,115 @@ function nextProductCode(db) {
   return `K-${String(n).padStart(5, '0')}`;
 }
 
-async function saveImage(buffer, originalName) {
-  if (sharp) {
-    try {
-      const filename = 'p_' + Date.now() + '_' + Math.round(Math.random() * 1e6) + '.webp';
-      const dest = path.join(UPLOAD_DIR, filename);
-      await sharp(buffer)
-        .resize(600, 600, { fit: 'cover', position: 'centre' })
-        .webp({ quality: 82 })
-        .toFile(dest);
-      return filename;
-    } catch (e) {
-      console.error('sharp processing failed, saving original:', e.message);
-    }
+function saveImage(file) {
+  if (!file || !file.uploadValidated || file.mimetype !== 'image/webp' || !Buffer.isBuffer(file.buffer)) {
+    const error = new Error('تصویر پیش از ذخیره‌سازی اعتبارسنجی نشده است');
+    error.status = 400;
+    throw error;
   }
-  const ext = path.extname(originalName || '').toLowerCase() || '.jpg';
-  const fallback = 'p_' + Date.now() + '_' + Math.round(Math.random() * 1e6) + ext;
-  fs.writeFileSync(path.join(UPLOAD_DIR, fallback), buffer);
-  return fallback;
+  const filename = `p_${crypto.randomBytes(18).toString('hex')}.webp`;
+  fs.writeFileSync(path.join(UPLOAD_DIR, filename), file.buffer, { flag: 'wx', mode: 0o600 });
+  return filename;
 }
-const memUpload = multer({ storage: multer.memoryStorage() });
+const excelUpload = createSecureUpload('xlsx');
 
-// GET /  — products are GLOBAL: every authenticated user can read all.
-// Filtering: ?category=&search=&stock_status=low|ok|all  (FIXED)
+// GET / — visibility: shared groups (+ creator) for users; optional per-user catalog ACL.
+// Filtering: ?category=&search=&stock_status=low|ok|all
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const where = [];
   const params = [];
+  addProductGroupVisibility(req.user, where, params);
+  addCatalogAclFilter(db, req.user, where, params);
 
   const category = (req.query.category || '').trim();
   if (category && category !== 'all') { where.push('p.category = ?'); params.push(category); }
+  const categoryId = req.query.category_id;
+  if (categoryId && String(categoryId) !== 'all' && String(categoryId) !== '') {
+    where.push('p.category_id = ?');
+    params.push(parseInt(categoryId, 10));
+  }
 
   const search = (req.query.search || '').trim();
   if (search) {
-    where.push('(p.name LIKE ? OR p.code LIKE ? OR p.barcode LIKE ?)');
-    params.push('%' + search + '%', '%' + search + '%', '%' + search + '%');
+    const { sqlTokenSearch } = require('../lib/search-normalize');
+    const tok = sqlTokenSearch(['p.name', 'p.code', 'p.barcode'], search);
+    if (tok) {
+      where.push(tok.clause);
+      params.push(...tok.params);
+    }
   }
 
   const stockStatus = (req.query.stock_status || 'all').trim();
   if (stockStatus === 'low') where.push('p.stock <= p.stock_alert');
   else if (stockStatus === 'ok') where.push('p.stock > p.stock_alert');
 
+  // Hide portal-created pending products from sales catalogs unless explicitly requested
+  const hasApproval = db.prepare("PRAGMA table_info(products)").all()
+    .some(c => c.name === 'approval_status');
+  if (hasApproval && String(req.query.include_pending || '') !== '1') {
+    where.push("(p.approval_status IS NULL OR p.approval_status='' OR p.approval_status='approved')");
+  }
+
   const warehouseId = parseInt(req.query.warehouse_id);
   if (warehouseId) { where.push('(p.warehouse_id=? OR EXISTS (SELECT 1 FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=? AND ws.qty>0))'); params.push(warehouseId, warehouseId); }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const pq = listQueryPlan(req.query);
+  const total = pq.paginate
+    ? (db.prepare(`SELECT COUNT(*) AS c FROM products p ${whereSql}`).get(...params)?.c || 0)
+    : 0;
   const whSelect = warehouseId
     ? `, (SELECT COALESCE(ws.qty, p.stock) FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=${warehouseId} LIMIT 1) as wh_qty`
     : '';
   const rows = db.prepare(`
     SELECT p.*, w.name as warehouse_name${whSelect}
-    FROM products p LEFT JOIN warehouses w ON p.warehouse_id=w.id
-    ${whereSql} ORDER BY p.created_at DESC
-  `).all(...params);
-  res.json(rows);
+    FROM products p
+    LEFT JOIN warehouses w ON p.warehouse_id=w.id
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    ${whereSql} ORDER BY CAST(p.stock AS REAL) DESC, p.id DESC
+    ${pq.limitSql}
+  `).all(...params, ...pq.limitParams);
+  // Attach gallery filenames for album UI (catalog / marketer / cards)
+  for (const row of rows) {
+    let imgs = listProductImages(db, row.id);
+    if (!imgs.length && row.images_json) {
+      try {
+        imgs = JSON.parse(row.images_json).map((filename, i) => ({ id: 0, filename, sort_order: i }));
+      } catch (_) { imgs = []; }
+    }
+    if (!imgs.length && row.image) imgs = [{ id: 0, filename: row.image, sort_order: 0 }];
+    row.images = imgs;
+    if (!row.image && imgs[0]) row.image = imgs[0].filename;
+  }
+  res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
 // Distinct categories (for filter dropdown) — MUST be registered before /:id/*
 // routes so GET /categories is never captured as an id (spec 1.0.9 §2 catalog).
 router.get('/categories', auth, (req, res) => {
   const db = getDB();
-  const fromTable = db.prepare('SELECT name FROM product_categories WHERE active=1 ORDER BY sort_order, name').all().map(r => r.name);
-  const fromLegacy = db.prepare("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>'' ORDER BY category").all().map(r => r.category);
+  const visibility = canSeeAllProductGroups(req.user) ? '' : ' AND (is_shared=1 OR created_by=?)';
+  const args = visibility ? [req.user.id] : [];
+  let fromTable = db.prepare(`SELECT id,name FROM product_categories WHERE active=1${visibility} ORDER BY sort_order, name`).all(...args);
+  const acl = userCatalogAclIds(db, req.user);
+  if (acl && acl.length) {
+    const set = new Set(acl);
+    fromTable = fromTable.filter(c => set.has(c.id));
+  }
+  const names = fromTable.map(r => r.name);
+  const fromLegacy = db.prepare(`
+    SELECT DISTINCT p.category FROM products p
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE p.category IS NOT NULL AND p.category<>''
+      ${canSeeAllProductGroups(req.user) ? '' : 'AND (p.category_id IS NULL OR pc.id IS NULL OR pc.is_shared=1 OR pc.created_by=?)'}
+    ORDER BY p.category
+  `).all(...args).map(r => r.category);
   const seen = new Set();
-  res.json([...fromTable, ...fromLegacy].filter(c => { if (seen.has(c)) return false; seen.add(c); return true; }));
+  const filteredLegacy = acl
+    ? fromLegacy.filter(n => names.includes(n))
+    : fromLegacy;
+  res.json([...names, ...filteredLegacy].filter(c => { if (seen.has(c)) return false; seen.add(c); return true; }));
 });
 
 // Lookup by barcode or product code — used by the invoice builder camera scanner
@@ -100,8 +224,69 @@ router.get('/by-barcode/:code', auth, (req, res) => {
   const db = getDB();
   const code = String(req.params.code || '').trim();
   if (!code) return res.status(400).json({ error: 'کد الزامی است' });
-  const row = db.prepare('SELECT * FROM products WHERE barcode=? OR code=?').get(code, code);
+  const where = ['(p.barcode=? OR p.code=?)'];
+  const params = [code, code];
+  addProductGroupVisibility(req.user, where, params);
+  addCatalogAclFilter(db, req.user, where, params);
+  const row = db.prepare(`
+    SELECT p.* FROM products p
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE ${where.join(' AND ')}
+  `).get(...params);
   if (!row) return res.status(404).json({ error: 'محصولی با این بارکد یافت نشد' });
+  row.images = listProductImages(db, row.id);
+  res.json(row);
+});
+
+router.delete('/images/:imageId', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const img = db.prepare('SELECT * FROM product_images WHERE id=?').get(req.params.imageId);
+  if (!img) return res.status(404).json({ error: 'یافت نشد' });
+  db.prepare('DELETE FROM product_images WHERE id=?').run(img.id);
+  try { fs.unlinkSync(path.join(UPLOAD_DIR, img.filename)); } catch (_) {}
+  const all = listProductImages(db, img.product_id).map(r => r.filename);
+  try { db.prepare('UPDATE products SET images_json=? WHERE id=?').run(JSON.stringify(all), img.product_id); } catch (_) {}
+  res.json({ ok: true, images: all });
+});
+
+// Image-only upload — NEVER touches stock/pack_size/price/code/note/etc.
+// Instant gallery upload in the product modal must use this endpoint, not PUT.
+router.post('/:id/images', auth, adminOrAccounting, uploadProductMedia, async (req, res) => {
+  const db = getDB();
+  const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  if (!prod) return res.status(404).json({ error: 'یافت نشد' });
+  try {
+    await attachUploadedImages(db, req.params.id, req.files, !prod.image);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || 'آپلود تصویر ناموفق' });
+  }
+  try {
+    audit(req.user.id, 'update', 'product', req.params.id, `آپلود تصویر محصول ${prod.name}`);
+  } catch (_) {}
+  const row = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  row.images = listProductImages(db, row.id);
+  res.json(jsonSafeProduct(row));
+});
+
+router.get('/:id', auth, (req, res) => {
+  const db = getDB();
+  const where = ['p.id=?'];
+  const params = [req.params.id];
+  addProductGroupVisibility(req.user, where, params);
+  addCatalogAclFilter(db, req.user, where, params);
+  const row = db.prepare(`
+    SELECT p.*, w.name as warehouse_name
+    FROM products p
+    LEFT JOIN warehouses w ON w.id=p.warehouse_id
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE ${where.join(' AND ')}
+  `).get(...params);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  row.images = listProductImages(db, row.id);
+  if (!row.images.length && row.images_json) {
+    try { row.images = JSON.parse(row.images_json).map((filename, i) => ({ id: 0, filename, sort_order: i })); } catch (_) {}
+  }
+  if (!row.image && row.images && row.images[0]) row.image = row.images[0].filename;
   res.json(row);
 });
 
@@ -112,16 +297,62 @@ router.get('/by-barcode/:code', auth, (req, res) => {
 // change) so the final computed balance always reconciles with reality.
 router.get('/:id/kardex', auth, (req, res) => {
   const db = getDB();
-  const product = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  const where = ['p.id=?'];
+  const params = [req.params.id];
+  addProductGroupVisibility(req.user, where, params);
+  addCatalogAclFilter(db, req.user, where, params);
+  const product = db.prepare(`
+    SELECT p.* FROM products p
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE ${where.join(' AND ')}
+  `).get(...params);
   if (!product) return res.status(404).json({ error: 'محصول یافت نشد' });
+
+  // Prefer immutable inventory_ledger when present
+  const hasLedger = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'"
+  ).get();
+  if (hasLedger) {
+    const rows = db.prepare(`
+      SELECT l.*, u.name as user_name, w.name as warehouse_name
+      FROM inventory_ledger l
+      LEFT JOIN users u ON l.created_by=u.id
+      LEFT JOIN warehouses w ON l.warehouse_id=w.id
+      WHERE l.product_id=? AND l.status IN ('posted','reversed')
+      ORDER BY l.id ASC
+    `).all(req.params.id);
+    if (rows.length) {
+      const logs = rows.map(l => ({
+        id: l.id,
+        tx_no: l.tx_no,
+        event_type: l.event_type,
+        change: (Number(l.qty_in) || 0) - (Number(l.qty_out) || 0),
+        qty_in: l.qty_in,
+        qty_out: l.qty_out,
+        running_balance: l.qty_balance,
+        unit_cost_rial: l.unit_cost_rial,
+        amount_rial: l.amount_rial,
+        avg_cost_after_rial: l.avg_cost_after_rial,
+        note: l.note,
+        date: l.date,
+        warehouse_name: l.warehouse_name,
+        user_name: l.user_name,
+        created_at: l.created_at,
+        status: l.status,
+        source: 'inventory_ledger',
+      }));
+      return res.json({ product, logs, source: 'inventory_ledger' });
+    }
+  }
+
   const logs = db.prepare(`
     SELECT sl.*, u.name as user_name FROM stock_logs sl LEFT JOIN users u ON sl.user_id=u.id
     WHERE sl.product_id=? ORDER BY sl.created_at ASC, sl.id ASC
   `).all(req.params.id);
   const totalChange = logs.reduce((a, l) => a + (l.change || 0), 0);
   let running = (product.stock || 0) - totalChange;
-  logs.forEach(l => { running += (l.change || 0); l.running_balance = running; });
-  res.json({ product, logs });
+  logs.forEach(l => { running += (l.change || 0); l.running_balance = running; l.source = 'stock_logs'; });
+  res.json({ product, logs, source: 'stock_logs' });
 });
 
 // ── Barcode support (ported from CRM v4) ────────────────────────────────────
@@ -133,6 +364,37 @@ function generateBarcode(productId) {
   for (let i = 0; i < 12; i++) sum += Number(base[i]) * (i % 2 === 0 ? 1 : 3);
   const check = (10 - (sum % 10)) % 10;
   return base + check;
+}
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function ean13Svg(value) {
+  const code = String(value || '');
+  if (!/^\d{13}$/.test(code)) return `<div class="barcode-text">${escapeHtml(code)}</div>`;
+  const sets = {
+    L: ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'],
+    G: ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'],
+    R: ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'],
+  };
+  const parity = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+  let bits = '101';
+  const p = parity[Number(code[0])];
+  for (let i = 1; i <= 6; i += 1) bits += sets[p[i - 1]][Number(code[i])];
+  bits += '01010';
+  for (let i = 7; i <= 12; i += 1) bits += sets.R[Number(code[i])];
+  bits += '101';
+  let bars = '';
+  for (let i = 0; i < bits.length; i += 1) {
+    if (bits[i] === '1') bars += `<rect x="${i}" y="0" width="1" height="42"></rect>`;
+  }
+  return `<svg class="bc" viewBox="0 0 95 55" role="img" aria-label="${escapeHtml(code)}" xmlns="http://www.w3.org/2000/svg"><g>${bars}</g><text x="47.5" y="53" text-anchor="middle">${escapeHtml(code)}</text></svg>`;
 }
 
 // Generate a barcode for a product that lacks one (admin only).
@@ -148,77 +410,137 @@ router.post('/:id/generate-barcode', auth, adminOnly, (req, res) => {
   res.json({ ok: true, barcode });
 });
 
-// Printable barcode label page. Opened as a plain link in a new tab, so the
-// JWT arrives via ?token= query param instead of the Authorization header.
-router.get('/:id/labels', (req, res) => {
-  try { jwt.verify(String(req.query.token || ''), SECRET); }
-  catch { return res.status(401).send('توکن نامعتبر — دوباره وارد شوید'); }
+// Printable barcode labels are fetched with the normal Authorization header.
+// Never place a bearer token in the URL: query strings leak via logs/history/referrers.
+router.get('/:id/labels', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const count = Math.min(50, Math.max(1, parseInt(req.query.count || '12')));
-  const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  const requestedCount = Number.parseInt(String(req.query.count || '12'), 10);
+  const count = Math.min(50, Math.max(1, Number.isFinite(requestedCount) ? requestedCount : 12));
+  const prod = db.prepare(`SELECT p.* FROM products p WHERE p.id=?`).get(req.params.id);
   if (!prod) return res.status(404).send('محصول یافت نشد');
   if (!prod.barcode) return res.status(400).send('این محصول بارکد ندارد — ابتدا بارکد تولید کنید');
-  const escName = String(prod.name || '').replace(/</g, '&lt;');
+  const escName = escapeHtml(prod.name);
+  const barcode = ean13Svg(prod.barcode);
   const labels = Array.from({ length: count }, () => `
     <div class="label">
       <div class="name">${escName}</div>
-      <svg class="bc" data-code="${prod.barcode}"></svg>
-      <div class="meta">${String(prod.code || '').replace(/</g, '&lt;')} — ${Number(prod.price || 0).toLocaleString('fa-IR')} تومان</div>
+      ${barcode}
+      <div class="meta">${escapeHtml(prod.code)} — ${Number(prod.price || 0).toLocaleString('fa-IR')} ریال</div>
     </div>`).join('');
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(`<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
+  const html = `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
 <title>برچسب ${escName}</title>
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Vazirmatn',sans-serif}
 body{padding:16px;display:flex;flex-wrap:wrap;gap:8px}
 .label{width:58mm;height:40mm;border:1px dashed #bbb;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;page-break-inside:avoid}
 .name{font-size:11px;font-weight:700;text-align:center}
 .meta{font-size:10px;color:#444}
+.bc{width:48mm;height:22mm;fill:#111}.bc text{font:8px monospace;letter-spacing:1px}.barcode-text{direction:ltr;font:12px monospace}
 .pbtn{position:fixed;bottom:14px;left:14px;background:#1A5C38;color:#fff;border:none;padding:10px 26px;border-radius:8px;font-family:inherit;font-size:14px;cursor:pointer}
 @media print{.pbtn{display:none}.label{border-color:transparent}}
 </style></head><body>
 ${labels}
-<button class="pbtn" onclick="window.print()">چاپ 🖨️</button>
-<script>
-document.querySelectorAll('svg.bc').forEach(function(el){
-  try{ JsBarcode(el, el.dataset.code, {format:'ean13', width:1.6, height:44, fontSize:12, margin:0}); }
-  catch(e){ el.outerHTML='<div style="font-size:12px;direction:ltr">'+el.dataset.code+'</div>'; }
-});
-</script></body></html>`);
+<button class="pbtn" type="button" data-print>چاپ 🖨️</button>
+<script src="/print-page.js"></script></body></html>`;
+  return sendSecureHtml(res, html, { allowPrintScript: true });
 });
 
-// Quick create from invoice modals — managers and accountants (v1.0.11)
-router.post('/quick', auth, requirePermission('products', 'create'), (req, res) => {
-  const { name, category_id, category, code, price, cost, warehouse_id, unit } = req.body;
+// Quick create from invoice modals — admin/accounting only (product master lives in accounting)
+router.post('/quick', auth, adminOrAccounting, (req, res) => {
+  const {
+    name, category_id, category, code, price, cost, warehouse_id, unit, stock, stock_alert,
+    note, colors, pack_size, barcode, full_name, product_type, product_index, tax_id,
+    consumer_price, location, opening_price, sms_code
+  } = req.body;
   if (!name) return res.status(400).json({ error: 'نام محصول الزامی است' });
   const db = getDB();
+  const codeTrim = code && String(code).trim();
+  const barcodeTrim = barcode && String(barcode).trim();
+  if (codeTrim && db.prepare('SELECT id FROM products WHERE code=?').get(codeTrim)) {
+    return res.status(409).json({ error: 'کد کالا تکراری است — داده تکراری ذخیره نمی‌شود' });
+  }
+  if (barcodeTrim && db.prepare('SELECT id FROM products WHERE barcode=?').get(barcodeTrim)) {
+    return res.status(409).json({ error: 'بارکد تکراری است — داده تکراری ذخیره نمی‌شود' });
+  }
+  if (db.prepare('SELECT id FROM products WHERE name=?').get(String(name).trim())) {
+    return res.status(409).json({ error: 'نام کالا تکراری است — داده تکراری ذخیره نمی‌شود' });
+  }
   let catName = category || '';
   let catId = category_id || null;
   if (catId) {
     const c = db.prepare('SELECT name FROM product_categories WHERE id=?').get(catId);
+    if (!c) return res.status(400).json({ error: 'گروه کالا یافت نشد' });
     if (c) catName = c.name;
+  } else if (catName) {
+    const c = db.prepare('SELECT id,name FROM product_categories WHERE name=?').get(catName);
+    if (c) { catId = c.id; catName = c.name; }
   }
   const defaultWarehouse = warehouse_id || db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get()?.id || null;
   const prodCode = (code && String(code).trim()) || nextProductCode(db);
-  const result = db.prepare(
-    'INSERT INTO products (user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,warehouse_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, 0, 5, unit || 'عدد', defaultWarehouse);
-  const pid = result.lastInsertRowid;
-  if (defaultWarehouse) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
-      .run(pid, defaultWarehouse);
+  const openingStock = Math.max(0, parseQty(stock, 0));
+  const costRial = Math.round(parseFloat(cost) || 0);
+  const openingPriceRial = Math.round(parseFloat(opening_price) || 0);
+  const unitCostForOpening = costRial || openingPriceRial;
+  let pid;
+  try {
+    pid = db.transaction(() => {
+      const result = db.prepare(`
+        INSERT INTO products (
+          user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,warehouse_id,
+          note,colors,pack_size,barcode,full_name,product_type,product_index,tax_id,consumer_price,
+          location,opening_price,sms_code,tax_stuff_id
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, costRial,
+        openingStock, parseInt(stock_alert, 10) || 5, unit || 'عدد', defaultWarehouse,
+        note || '', Math.max(1, parseInt(colors, 10) || 1), Math.max(1, parseInt(pack_size, 10) || 1),
+        String(barcode || '').trim() || null, full_name || '', product_type || '', product_index || '',
+        tax_id || '', parseFloat(consumer_price) || 0, location || '', openingPriceRial,
+        sms_code || '', String(req.body.tax_stuff_id || '').trim() || null
+      );
+      const productId = result.lastInsertRowid;
+      if (defaultWarehouse) {
+        db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
+          .run(productId, defaultWarehouse, openingStock);
+      }
+      try {
+        const cc = allocTafsili(db, 'product', name);
+        if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, productId);
+      } catch (_) { /* optional in legacy mode */ }
+      if (openingStock > 0 && unitCostForOpening > 0) {
+        const { postProductOpeningInventory } = require('../lib/opening-post');
+        postProductOpeningInventory(db, {
+          productId,
+          qty: openingStock,
+          unitCostRial: unitCostForOpening,
+          userId: req.user.id,
+          srcSystem: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
+        });
+      }
+      if (openingStock > 0) {
+        try {
+          db.prepare('INSERT INTO stock_logs (product_id,change,reason,user_id) VALUES (?,?,?,?)')
+            .run(productId, openingStock, 'موجودی اول دوره', req.user.id);
+        } catch (_) {}
+      }
+      return productId;
+    })();
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    throw e;
   }
-  // حالت کدینگ محک: تفصیلی اختصاصی کالا زیر معین موجودی (برای سند COGS)
-  try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, pid); } catch (_) {}
   audit(req.user.id, 'create', 'product', pid, `ساخت سریع محصول ${name}`);
   res.json(db.prepare('SELECT * FROM products WHERE id=?').get(pid));
 });
 
-// Create product (admin only) — multipart form-data for optional image
-router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
-  const { category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, barcode } = req.body;
+// Create product — multipart form-data for optional image(s) (admin/accounting)
+router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) => {
+  const {
+    category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors,
+    pack_size, barcode, warehouse_id, full_name, product_type, product_index, tax_id,
+    consumer_price, location, opening_price, sms_code, tax_stuff_id
+  } = req.body;
   if (!name) return res.status(400).json({ error: 'نام محصول الزامی است' });
   const db = getDB();
   let catName = category || '';
@@ -228,64 +550,180 @@ router.post('/', auth, adminOnly, upload.single('image'), async (req, res) => {
     if (c) catName = c.name;
   }
   let image = null;
-  if (req.file) {
-    try { image = await saveImage(req.file.buffer, req.file.originalname); } catch (e) { image = null; }
-  }
+  // Create: defer image save to attachUploadedImages (single pass, no duplicate)
   // New products default into the first warehouse so warehouse_id is never
   // null — Warehouse Transfer can relocate them afterward.
-  const defaultWarehouse = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
+  const defaultWarehouse = warehouse_id
+    ? db.prepare('SELECT id FROM warehouses WHERE id=?').get(parseInt(warehouse_id, 10))
+    : db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
   const prodCode = (code && String(code).trim()) || nextProductCode(db);
   const result = db.prepare(
-    'INSERT INTO products (user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,note,image,colors,pack_size,warehouse_id,barcode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, parseInt(stock) || 0,
+    `INSERT INTO products (
+      user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,note,image,colors,
+      pack_size,warehouse_id,barcode,full_name,product_type,product_index,tax_id,consumer_price,
+      location,opening_price,sms_code,tax_stuff_id
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, parseQty(stock),
         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
         parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null,
-        (barcode || '').trim() || null);
-  // حالت کدینگ محک: تفصیلی اختصاصی کالا (برای سند COGS)
+        (barcode || '').trim() || null, full_name || '', product_type || '', product_index || '', tax_id || '',
+        parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0, sms_code || '',
+        String(tax_stuff_id || '').trim() || null);
+  if (defaultWarehouse) {
+    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
+      .run(result.lastInsertRowid, defaultWarehouse.id, parseQty(stock));
+  }
+  try {
+    const openQty = parseQty(stock);
+    const unitCost = Math.round(parseFloat(cost) || parseFloat(opening_price) || 0);
+    if (openQty > 0 && unitCost > 0) {
+      const { postProductOpeningInventory } = require('../lib/opening-post');
+      postProductOpeningInventory(db, {
+        productId: result.lastInsertRowid,
+        qty: openQty,
+        unitCostRial: unitCost,
+        userId: req.user.id,
+        srcSystem: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
+      });
+    }
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+  }
+  if (req.body.retail_price != null && req.body.retail_price !== '') {
+    const rp = Math.round(parseFloat(req.body.retail_price) || 0);
+    db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, result.lastInsertRowid);
+  }
+  if (req.body.costing_method !== undefined) {
+    const cm = String(req.body.costing_method || '').trim() || null;
+    db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, result.lastInsertRowid);
+  }
   try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
+  try {
+    await attachUploadedImages(db, result.lastInsertRowid, req.files, true);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || 'آپلود تصویر ناموفق' });
+  }
   audit(req.user.id, 'create', 'product', result.lastInsertRowid, `ساخت محصول ${name}`);
-  res.json(db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid));
+  try { require('../lib/website-stock-sync').notifyStockChanged(db, result.lastInsertRowid); } catch (_) {}
+  const row = db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid);
+  row.images = listProductImages(db, row.id);
+  res.json(jsonSafeProduct(row));
 });
 
 // Update product (admin only)
-router.put('/:id', auth, adminOnly, upload.single('image'), async (req, res) => {
+// IMPORTANT: absent body fields must keep existing DB values.
+// Image-only FormData (old instant-upload) used to send no stock/pack_size/price
+// and wipe them to 0/defaults via parseQty(undefined) / parseFloat(undefined)||0.
+router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
+  const body = req.body || {};
   const { category, category_id, code, name, price, cost, stock, stock_alert, unit, note, colors, pack_size, warehouse_id, barcode,
-    full_name, product_type, product_index, tax_id, consumer_price, location, opening_price, sms_code } = req.body;
-  let catName = category || prod.category || '';
-  let catId = category_id != null && category_id !== '' ? (parseInt(category_id) || null) : prod.category_id;
+    full_name, product_type, product_index, tax_id, consumer_price, location, opening_price, sms_code, tax_stuff_id } = body;
+
+  let catName = prod.category || '';
+  let catId = prod.category_id;
+  if (bodyHas(body, 'category_id')) {
+    catId = category_id != null && category_id !== '' ? (parseInt(category_id, 10) || null) : null;
+  }
+  if (bodyHas(body, 'category') && category) catName = category;
+  else if (!bodyHas(body, 'category') && !bodyHas(body, 'category_id')) catName = prod.category || '';
   if (catId) {
     const c = db.prepare('SELECT name FROM product_categories WHERE id=?').get(catId);
     if (c) catName = c.name;
+  } else if (bodyHas(body, 'category')) {
+    catName = category || '';
   }
+
   let image = prod.image;
-  if (req.file) {
-    try {
-      image = await saveImage(req.file.buffer, req.file.originalname);
-      if (prod.image) { try { fs.unlinkSync(path.join(UPLOAD_DIR, prod.image)); } catch (e) {} }
-    } catch (e) { image = prod.image; }
-  }
-  const whId = warehouse_id != null && warehouse_id !== '' ? (parseInt(warehouse_id) || null) : prod.warehouse_id;
+  // Gallery add only — never replace/delete existing primary on edit.
+  const whId = bodyHas(body, 'warehouse_id')
+    ? (warehouse_id != null && warehouse_id !== '' ? (parseInt(warehouse_id, 10) || null) : null)
+    : prod.warehouse_id;
+
+  const oldStock = prod.stock;
+  const nameVal = bodyHas(body, 'name') ? (name || prod.name) : prod.name;
+  // Excel upsert: empty code must not wipe existing product code
+  const codeVal = bodyHas(body, 'code')
+    ? ((code && String(code).trim()) || prod.code || '')
+    : (prod.code || '');
+  const priceVal = bodyHas(body, 'price') ? (parseFloat(price) || 0) : (Number(prod.price) || 0);
+  const costVal = bodyHas(body, 'cost') ? (parseFloat(cost) || 0) : (Number(prod.cost) || 0);
+  const stockVal = bodyHas(body, 'stock') ? parseQty(stock) : parseQty(prod.stock);
+  const alertVal = bodyHas(body, 'stock_alert') ? (parseInt(stock_alert, 10) || 5) : (parseInt(prod.stock_alert, 10) || 5);
+  const unitVal = bodyHas(body, 'unit') ? (unit || 'عدد') : (prod.unit || 'عدد');
+  const noteVal = bodyHas(body, 'note') ? (note || '') : (prod.note || '');
+  const colorsVal = bodyHas(body, 'colors')
+    ? Math.max(1, parseInt(colors, 10) || 1)
+    : Math.max(1, parseInt(prod.colors, 10) || 1);
+  const packVal = bodyHas(body, 'pack_size')
+    ? Math.max(1, parseInt(pack_size, 10) || 1)
+    : Math.max(1, parseInt(prod.pack_size, 10) || 1);
+  const barcodeVal = bodyHas(body, 'barcode')
+    ? ((barcode || '').trim() || null)
+    : prod.barcode;
+  const fullNameVal = bodyHas(body, 'full_name') ? (full_name || '') : (prod.full_name || '');
+  const productTypeVal = bodyHas(body, 'product_type') ? (product_type || '') : (prod.product_type || '');
+  const productIndexVal = bodyHas(body, 'product_index') ? (product_index || '') : (prod.product_index || '');
+  const taxIdVal = bodyHas(body, 'tax_id') ? (tax_id || '') : (prod.tax_id || '');
+  const consumerVal = bodyHas(body, 'consumer_price')
+    ? (parseFloat(consumer_price) || 0)
+    : (Number(prod.consumer_price) || 0);
+  const locationVal = bodyHas(body, 'location') ? (location || '') : (prod.location || '');
+  const openingPriceVal = bodyHas(body, 'opening_price')
+    ? (parseFloat(opening_price) || 0)
+    : (Number(prod.opening_price) || 0);
+  const smsCodeVal = bodyHas(body, 'sms_code') ? (sms_code || '') : (prod.sms_code || '');
+  const taxStuffVal = bodyHas(body, 'tax_stuff_id')
+    ? (String(tax_stuff_id || '').trim() || null)
+    : (prod.tax_stuff_id || null);
+
   db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=?,
-    full_name=?,product_type=?,product_index=?,tax_id=?,consumer_price=?,location=?,opening_price=?,sms_code=? WHERE id=?`)
-    .run(catName, catId, code || '', name || prod.name, parseFloat(price) || 0,
-         cost !== undefined ? (parseFloat(cost) || 0) : (prod.cost || 0), parseInt(stock) || 0,
-         parseInt(stock_alert) || 5, unit || 'عدد', note || '', image,
-         parseInt(colors) || prod.colors || 1, parseInt(pack_size) || prod.pack_size || 1,
-         whId, barcode !== undefined ? ((barcode || '').trim() || null) : prod.barcode,
-         full_name ?? prod.full_name ?? '', product_type ?? prod.product_type ?? '',
-         product_index ?? prod.product_index ?? '', tax_id ?? prod.tax_id ?? '',
-         consumer_price !== undefined ? (parseFloat(consumer_price) || 0) : (prod.consumer_price || 0),
-         location ?? prod.location ?? '', opening_price !== undefined ? (parseFloat(opening_price) || 0) : (prod.opening_price || 0),
-         sms_code ?? prod.sms_code ?? '', req.params.id);
-  if (whId) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(req.params.id, whId, parseInt(stock) || prod.stock || 0);
+    full_name=?,product_type=?,product_index=?,tax_id=?,consumer_price=?,location=?,opening_price=?,sms_code=?,tax_stuff_id=? WHERE id=?`)
+    .run(catName, catId, codeVal, nameVal, priceVal, costVal, stockVal, alertVal, unitVal, noteVal, image,
+         colorsVal, packVal, whId, barcodeVal,
+         fullNameVal, productTypeVal, productIndexVal, taxIdVal, consumerVal,
+         locationVal, openingPriceVal, smsCodeVal, taxStuffVal,
+         req.params.id);
+  if (bodyHas(body, 'retail_price')) {
+    const rp = Math.round(parseFloat(body.retail_price) || 0);
+    db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, req.params.id);
   }
-  audit(req.user.id, 'update', 'product', req.params.id, `ویرایش محصول ${name || prod.name}`);
-  res.json(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id));
+  if (bodyHas(body, 'costing_method')) {
+    const cm = String(body.costing_method || '').trim() || null;
+    db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, req.params.id);
+  }
+  // Excel upsert: set absolute stock on primary warehouse. Normal UI PUT only seeds missing rows.
+  if (whId) {
+    if (body.excel_upsert || body.from_excel) {
+      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
+        .run(req.params.id, whId);
+      db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
+        .run(stockVal, req.params.id, whId);
+    } else {
+      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
+        .run(req.params.id, whId, stockVal);
+    }
+  }
+  // Excel upsert must never clear primary image / gallery
+  if ((body.excel_upsert || body.from_excel) && prod.image) {
+    db.prepare('UPDATE products SET image=? WHERE id=?').run(prod.image, req.params.id);
+  }
+  try {
+    await attachUploadedImages(db, req.params.id, req.files, !prod.image);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || 'آپلود تصویر ناموفق' });
+  }
+  try {
+    audit(req.user.id, 'update', 'product', req.params.id, `ویرایش محصول ${nameVal}`);
+  } catch (_) {}
+  if (parseQty(stockVal) !== parseQty(oldStock)) {
+    try { require('../lib/website-stock-sync').notifyStockChanged(db, req.params.id); } catch (_) {}
+  }
+  const row = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  row.images = listProductImages(db, row.id);
+  res.json(jsonSafeProduct(row));
 });
 
 // Update stock (admin only)
@@ -295,20 +733,88 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
-  const change = parseInt(stock) - prod.stock;
-  db.prepare('UPDATE products SET stock=? WHERE id=?').run(parseInt(stock), req.params.id);
-  db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(req.params.id, req.user.id, change, note || '');
-  res.json({ ok: true, new_stock: parseInt(stock) });
+  const newStock = parseQty(stock);
+  const change = newStock - (Number(prod.stock) || 0);
+  db.prepare('UPDATE products SET stock=? WHERE id=?').run(newStock, req.params.id);
+  // Keep the product's warehouse_stock in step with the manual override so the
+  // per-warehouse figure (used by invoice deduction) never drifts from
+  // products.stock.
+  if (prod.warehouse_id) {
+    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
+      .run(req.params.id, prod.warehouse_id);
+    db.prepare('UPDATE warehouse_stock SET qty=CASE WHEN qty+? < 0 THEN 0 ELSE qty+? END WHERE product_id=? AND warehouse_id=?')
+      .run(change, change, req.params.id, prod.warehouse_id);
+  }
+  audit(req.user.id, 'update_stock', 'product', req.params.id, note || `موجودی → ${newStock}`);
+  try { db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(req.params.id, req.user.id, change, note || ''); } catch (_) {}
+  try { require('../lib/website-stock-sync').notifyStockChanged(db, req.params.id); } catch (_) {}
+  res.json({ ok: true, stock: newStock, new_stock: newStock });
 });
 
-// Delete (admin only)
-router.delete('/:id', auth, adminOnly, (req, res) => {
+// Delete (admin only) — cascade stock children; block if used in documents
+router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
-  if (prod.image) { try { fs.unlinkSync(path.join(UPLOAD_DIR, prod.image)); } catch (e) {} }
-  db.prepare('DELETE FROM products WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'product', req.params.id, `حذف محصول ${prod.name}`);
+  const pid = parseInt(req.params.id, 10);
+
+  const usedInInvoice = db.prepare(`
+    SELECT id, num FROM invoices WHERE COALESCE(deleted_at,0)=0 AND rows LIKE ?
+    LIMIT 1
+  `).get(`%"product_id":${pid}%`) || db.prepare(`
+    SELECT id, num FROM invoices WHERE COALESCE(deleted_at,0)=0 AND rows LIKE ?
+    LIMIT 1
+  `).get(`%"product_id": ${pid}%`);
+  if (usedInInvoice) {
+    return res.status(409).json({ error: `این کالا در فاکتور ${usedInInvoice.num || usedInInvoice.id} استفاده شده و قابل حذف نیست` });
+  }
+  const usedInPurchase = db.prepare(`
+    SELECT id, num FROM purchase_invoices WHERE COALESCE(status,'posted')<>'reversed' AND rows LIKE ?
+    LIMIT 1
+  `).get(`%"product_id":${pid}%`);
+  if (usedInPurchase) {
+    return res.status(409).json({ error: `این کالا در فاکتور خرید ${usedInPurchase.num || usedInPurchase.id} استفاده شده و قابل حذف نیست` });
+  }
+    try {
+      const bomHit = db.prepare(`
+        SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='bom_lines'
+      `).get();
+      if (bomHit) {
+        const cols = db.prepare('PRAGMA table_info(bom_lines)').all().map((c) => c.name);
+        if (cols.includes('component_product_id') && db.prepare('SELECT id FROM bom_lines WHERE component_product_id=? LIMIT 1').get(pid)) {
+          return res.status(409).json({ error: 'این کالا در فرمول تولید (BOM) استفاده شده و قابل حذف نیست' });
+        }
+        if (cols.includes('product_id') && db.prepare('SELECT id FROM bom_lines WHERE product_id=? LIMIT 1').get(pid)) {
+          return res.status(409).json({ error: 'این کالا در فرمول تولید (BOM) استفاده شده و قابل حذف نیست' });
+        }
+      }
+    } catch (_) { /* optional */ }
+
+  try {
+    db.transaction(() => {
+      db.prepare('DELETE FROM warehouse_stock WHERE product_id=?').run(pid);
+      try { db.prepare('DELETE FROM stock_logs WHERE product_id=?').run(pid); } catch (_) {}
+      try { db.prepare('DELETE FROM stocktaking_items WHERE product_id=?').run(pid); } catch (_) {}
+      try { db.prepare('DELETE FROM product_images WHERE product_id=?').run(pid); } catch (_) {}
+      if (prod.image) { try { fs.unlinkSync(path.join(UPLOAD_DIR, prod.image)); } catch (e) {} }
+      db.prepare('DELETE FROM products WHERE id=?').run(pid);
+      // پس از حذف کالا، تفصیلی بدون گردش هم حذف می‌شود (سینک tombstone)
+      if (prod.coa_code) {
+        const rel = releaseTafsili(db, prod.coa_code);
+        if (!rel.ok && rel.reason === 'in_use') {
+          const err = new Error(rel.error || 'کدینگ در گردش است');
+          err.status = 409;
+          throw err;
+        }
+      }
+    })();
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    return res.status(409).json({ error: e.message.includes('FOREIGN KEY')
+      ? 'این کالا به اسناد دیگر وابسته است و قابل حذف نیست'
+      : (e.message || 'حذف ناموفق') });
+  }
+  audit(req.user.id, 'delete', 'product', pid, `حذف محصول ${prod.name}`);
   res.json({ ok: true });
 });
 
@@ -322,10 +828,10 @@ function normalizeStr(s) {
 }
 
 // Import from Excel (admin only)
-router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => {
+router.post('/import', auth, adminOnly, excelUpload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل آپلود نشد' });
   try {
-    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const wb = await readWorkbook(req.file.buffer);
     const ws = wb.Sheets[wb.SheetNames[0]];
     const data = XLSX.utils.sheet_to_json(ws);
     const db = getDB();
@@ -341,8 +847,8 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
           normalizeStr(row['کد محصول'] || row['code'] || ''),
           name,
           parseFloat(row['قیمت'] || row['price'] || 0),
-          parseInt(row['موجودی'] || row['stock'] || 0),
-          parseInt(row['هشدار موجودی'] || row['stock_alert'] || 5),
+          parseQty(row['موجودی'] || row['stock'] || 0),
+          parseInt(row['هشدار موجودی'] || row['stock_alert'] || 5) || 5,
           row['واحد'] || row['unit'] || 'عدد',
           parseInt(row['تعداد رنگ'] || row['colors'] || 1),
           parseInt(row['تعداد در پک'] || row['pack_size'] || 1),
@@ -361,7 +867,7 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
 });
 
 // Export all products
-router.get('/export/excel', auth, adminOnly, (req, res) => {
+router.get('/export/excel', auth, adminOnly, async (req, res) => {
   const db = getDB();
   const rows = db.prepare('SELECT * FROM products ORDER BY created_at DESC').all();
   const data = rows.map(r => ({
@@ -371,14 +877,14 @@ router.get('/export/excel', auth, adminOnly, (req, res) => {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(data);
   XLSX.utils.book_append_sheet(wb, ws, 'محصولات');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', 'attachment; filename=products.xlsx');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
 });
 
 // Excel template
-router.get('/template', auth, (req, res) => {
+router.get('/template', auth, async (req, res) => {
   const wb = XLSX.utils.book_new();
   const data = [
     { 'دسته‌بندی': 'مانتو', 'کد محصول': 'MT-001', 'نام محصول': 'مانتو لینن بهاره', 'قیمت': 350000, 'موجودی': 50, 'هشدار موجودی': 5, 'واحد': 'عدد' },
@@ -386,7 +892,7 @@ router.get('/template', auth, (req, res) => {
   ];
   const ws = XLSX.utils.json_to_sheet(data);
   XLSX.utils.book_append_sheet(wb, ws, 'محصولات');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', 'attachment; filename=products-template.xlsx');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);

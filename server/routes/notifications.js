@@ -88,5 +88,17 @@ router.post('/entity-viewed', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+/** ثبت اعلان نسخه جدید (از کلاینت پس از بررسی به‌روزرسانی) */
+router.post('/register-update', auth, (req, res) => {
+  const platform = String(req.body.platform || '').slice(0, 32);
+  const version = String(req.body.version || '').slice(0, 32);
+  const notes = String(req.body.notes || '').slice(0, 500);
+  if (!platform || !version) return res.status(400).json({ error: 'platform و version الزامی است' });
+  const db = getDB();
+  const id = notif.notifyAppUpdate(db, { platform, version, notes });
+  broadcastNotification({ type: 'app_update', id, platform, version });
+  res.json({ ok: true, id });
+});
+
 module.exports = router;
 module.exports.broadcastNotification = broadcastNotification;

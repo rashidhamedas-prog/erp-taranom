@@ -9,6 +9,12 @@ const fs = require('fs');
 
 const os = require('os');
 const path = require('path');
+const {
+  createDeviceHeaders,
+  signature,
+  generateReplaySigningKeyPair,
+  signReplayEnvelope,
+} = require('../sync/device-auth');
 const S = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-sync-e2e-'));
 const SERVER = path.join(__dirname, '..', 'server.js');
 const CWD = path.join(__dirname, '..');
@@ -28,7 +34,39 @@ function start(name, env) {
   return p;
 }
 function stop(name) { if (procs[name]) { procs[name].kill('SIGKILL'); delete procs[name]; } }
+// Never leave orphan servers holding the test ports (a truncated pipe/SIGINT
+// used to leak children — the next run then talked to stale instances).
+function killAll() { for (const n of Object.keys(procs)) stop(n); }
+process.on('exit', killAll);
+process.on('SIGINT', () => { killAll(); process.exit(130); });
+process.on('SIGTERM', () => { killAll(); process.exit(143); });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function waitForServer(base, timeoutMs = 60000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(base + '/api/system/time', { signal: AbortSignal.timeout(1500) });
+      if (response.ok) return;
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(500);
+  }
+  throw new Error(`server readiness timeout for ${base}: ${lastError?.message || 'not ready'}`);
+}
+
+// Pre-flight: fail fast if the fixed ports are already taken by stale runs.
+async function assertPortsFree(ports) {
+  for (const port of ports) {
+    try {
+      await fetch(`http://127.0.0.1:${port}/api/system/time`, { signal: AbortSignal.timeout(700) });
+      console.error(`⛔ پورت ${port} اشغال است (اجرای قبلی؟) — با pkill -f "node.*server.js" پاک کنید`);
+      process.exit(2);
+    } catch { /* free */ }
+  }
+}
 
 async function req(base, method, path, token, body) {
   const r = await fetch(base + path, {
@@ -44,15 +82,16 @@ const C = 'http://127.0.0.1:4100';
 const A = 'http://127.0.0.1:4101';
 const B = 'http://127.0.0.1:4102';
 
-const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.db` };
+const centralEnv = { JWT_SECRET: 'sync-central-test-secret-at-least-32-bytes', PORT: '4100', DB_PATH: `${S}/e2e-central.db` };
 
 (async () => {
 
   console.log('— boot central + devices —');
+  await assertPortsFree([4100, 4101, 4102]);
   start('central', centralEnv);
-  start('devA', { JWT_SECRET: 'a', PORT: '4101', DB_PATH: `${S}/e2e-devA.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
-  start('devB', { JWT_SECRET: 'b', PORT: '4102', DB_PATH: `${S}/e2e-devB.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
-  await sleep(3000);
+  start('devA', { JWT_SECRET: 'sync-device-a-test-secret-at-least-32-bytes', PORT: '4101', DB_PATH: `${S}/e2e-devA.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
+  start('devB', { JWT_SECRET: 'sync-device-b-test-secret-at-least-32-bytes', PORT: '4102', DB_PATH: `${S}/e2e-devB.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
+  await Promise.all([waitForServer(C), waitForServer(A), waitForServer(B)]);
 
   let CENTRAL_PASS = 'sync-test-1234';
   let loginC = (await req(C, 'POST', '/api/auth/login', null, { username: 'admin', password: 'admin123' })).body;
@@ -63,10 +102,57 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
   ok(blocked.status === 403 && blocked.body.code === 'must_change_password', 'central blocks API calls until password change');
   const chg = await req(C, 'POST', '/api/auth/change-password', ct, { oldPass: 'admin123', newPass: CENTRAL_PASS });
   ok(chg.status === 200, 'central admin password changed');
+  ct = (await req(C, 'POST', '/api/auth/login', null, { username: 'admin', password: CENTRAL_PASS })).body.token;
   // Devices skip forced-change locally (their users table is overwritten by pull)
   let at = (await req(A, 'POST', '/api/auth/login', null, { username: 'admin', password: 'admin123' })).body.token;
   let bt = (await req(B, 'POST', '/api/auth/login', null, { username: 'admin', password: 'admin123' })).body.token;
   ok(ct && at && bt, 'all three instances up + login');
+
+  console.log('— device request replay/time-window guard —');
+  const replayKeys = generateReplaySigningKeyPair();
+  const replayPair = await req(C, 'POST', '/api/sync/pair', null, {
+    username: 'admin', password: CENTRAL_PASS, device_name: 'replay-probe',
+    replay_public_key: replayKeys.publicKey,
+  });
+  const replayCfg = { deviceId: replayPair.body.device_id, deviceToken: replayPair.body.device_token };
+  const replayHeaders = createDeviceHeaders(replayCfg);
+  const replayOnce = await fetch(C + '/api/sync/pull?since=-1&limit=1', { headers: replayHeaders });
+  const replayTwice = await fetch(C + '/api/sync/pull?since=-1&limit=1', { headers: replayHeaders });
+  ok(replayOnce.status === 200 && replayTwice.status === 409, 'same signed nonce is accepted once then rejected');
+  const oldTime = Math.floor(Date.now() / 1000) - 601;
+  const oldNonce = 'a'.repeat(36);
+  const staleHeaders = {
+    Authorization: `Device ${replayCfg.deviceId}:${replayCfg.deviceToken}`,
+    'x-sync-time': String(oldTime),
+    'x-sync-nonce': oldNonce,
+    'x-sync-signature': signature(replayCfg.deviceToken, oldTime, oldNonce),
+  };
+  const staleRequest = await fetch(C + '/api/sync/pull?since=-1&limit=1', { headers: staleHeaders });
+  ok(staleRequest.status === 401, 'signed request outside time window is rejected');
+
+  const forgedOp = {
+    seq: 900001,
+    method: 'POST',
+    path: '/api/admin/users',
+    body: { name: 'forged-admin', username: 'forged-admin', password: 'ForgedPass1405', role: 'admin' },
+    user_id: 1,
+    replay_proof: signReplayEnvelope(replayKeys.privateKey, {
+      deviceId: replayCfg.deviceId,
+      seq: 900001,
+      method: 'POST',
+      path: '/api/admin/users',
+      userId: 999999,
+      body: { name: 'forged-admin', username: 'forged-admin', password: 'ForgedPass1405', role: 'admin' },
+    }),
+  };
+  const forgedReplay = await fetch(C + '/api/sync/push', {
+    method: 'POST',
+    headers: { ...createDeviceHeaders(replayCfg), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ops: [forgedOp] }),
+  });
+  const forgedReplayBody = await forgedReplay.json().catch(() => ({}));
+  ok(forgedReplay.status === 403 && forgedReplayBody.code === 'SYNC_REPLAY_PROOF_REJECTED',
+    'stolen device token cannot change signed user_id to admin');
 
   console.log('— seed central —');
   await req(C, 'POST', '/api/products', ct, { name: 'کالای اصلی', code: 'M-1', price: 50000, cost: 20000, stock: 100 });
@@ -77,10 +163,49 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
   const pA = await req(A, 'POST', '/api/sync/pair-device', at, { central_url: C, username: 'admin', password: CENTRAL_PASS, device_name: 'دستگاه A' });
   const pB = await req(B, 'POST', '/api/sync/pair-device', bt, { central_url: C, username: 'admin', password: CENTRAL_PASS, device_name: 'دستگاه B' });
   ok(pA.body.ok && pB.body.ok, `pairing (A=device ${pA.body.device_id}, B=device ${pB.body.device_id})`);
-  const aCust = (await req(A, 'GET', '/api/customers', at)).body;
-  const bProd = (await req(B, 'GET', '/api/products', bt)).body;
-  ok(aCust.some(c => c.biz === 'مشتری مشترک'), 'A pulled central customer');
-  ok(bProd.some(p => p.code === 'M-1' && p.stock === 100), 'B pulled central product');
+  // Initial pull runs async after pairing — poll until seeded rows appear
+  // (registry has grown; a fixed read right after pair-device races the pull).
+  async function pollUntil(fn, timeoutMs = 30000) {
+    const deadline = Date.now() + timeoutMs;
+    let last;
+    while (Date.now() < deadline) {
+      last = await fn();
+      if (last) return last;
+      await sleep(500);
+    }
+    return last;
+  }
+  // The initial users-table pull intentionally replaces the placeholder
+  // account (password hash + auth_epoch), so its pre-pair local session must
+  // be treated as revoked. Re-authenticate with the central credential once
+  // the authoritative user row has arrived.
+  const loginAfterPullA = await pollUntil(async () => {
+    const login = await req(A, 'POST', '/api/auth/login', null, { username: 'admin', password: CENTRAL_PASS });
+    return login.status === 200 && login.body.token ? login.body : null;
+  });
+  const loginAfterPullB = await pollUntil(async () => {
+    const login = await req(B, 'POST', '/api/auth/login', null, { username: 'admin', password: CENTRAL_PASS });
+    return login.status === 200 && login.body.token ? login.body : null;
+  });
+  at = loginAfterPullA && loginAfterPullA.token;
+  bt = loginAfterPullB && loginAfterPullB.token;
+  ok(!!at && !!bt, 'devices re-authenticate after authoritative initial user pull');
+  const aCustSeen = await pollUntil(async () => {
+    const rows = (await req(A, 'GET', '/api/customers', at)).body;
+    return Array.isArray(rows) && rows.some(c => c.biz === 'مشتری مشترک');
+  });
+  const bProdSeen = await pollUntil(async () => {
+    const rows = (await req(B, 'GET', '/api/products', bt)).body;
+    return Array.isArray(rows) && rows.some(p => p.code === 'M-1' && p.stock === 100);
+  });
+  if (!aCustSeen || !bProdSeen) {
+    console.log('   initial pull status A:', JSON.stringify((await req(A, 'GET', '/api/sync/status', at)).body));
+    console.log('   initial pull status B:', JSON.stringify((await req(B, 'GET', '/api/sync/status', bt)).body));
+    console.log('   customers A:', JSON.stringify((await req(A, 'GET', '/api/customers', at)).body));
+    console.log('   products B:', JSON.stringify((await req(B, 'GET', '/api/products', bt)).body));
+  }
+  ok(aCustSeen, 'A pulled central customer');
+  ok(bProdSeen, 'B pulled central product');
 
   console.log('— scenario 1b: device password change proxies to central —');
   const DEV_NEW_PASS = 'device-new-5678';
@@ -141,6 +266,11 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
   await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', rows: [{ product_id: 1, qty: 2, price: 50000 }] });
   await req(A, 'POST', '/api/sync/now', at);
   await req(B, 'POST', '/api/sync/now', bt);
+  // B has now pulled the password/auth_epoch changed through device A; its
+  // old local session is correctly revoked and must be renewed.
+  const loginBNew = await req(B, 'POST', '/api/auth/login', null, { username: 'admin', password: CENTRAL_PASS });
+  ok(loginBNew.status === 200 && !!loginBNew.body.token, 'device B re-authenticates after password epoch reaches it');
+  bt = loginBNew.body.token;
   const nums = (await req(C, 'GET', '/api/invoices', ct)).body.map(i => i.num);
   ok(new Set(nums).size === nums.length, `all invoice numbers unique: ${nums.join(', ')}`);
 
@@ -190,6 +320,20 @@ const centralEnv = { JWT_SECRET: 'c', PORT: '4100', DB_PATH: `${S}/e2e-central.d
   await req(B, 'POST', `/api/sync/conflicts/${confB[0].id}/discard`, bt);
   const confB2 = (await req(B, 'GET', '/api/sync/conflicts', bt)).body;
   ok(confB2.length === 0, 'discard cleared the conflict on B');
+
+  console.log('— scenario 8: device credential lifecycle —');
+  const devicesBefore = await req(C, 'GET', '/api/sync/devices', ct);
+  const deviceB = devicesBefore.body.find(d => d.name.includes('B'));
+  ok(deviceB && deviceB.token_expires_at > Math.floor(Date.now() / 1000), 'paired token has a server-side expiry');
+  ok(!devicesBefore.body.some(d => d.token_hash || d.device_token), 'device listing never exposes token material');
+  const rotated = await req(C, 'POST', `/api/sync/devices/${deviceB.id}/rotate-token`, ct, {});
+  ok(rotated.status === 200 && rotated.body.device_token && rotated.body.token_expires_at, 'admin can rotate device token');
+  const staleTokenSync = (await req(B, 'POST', '/api/sync/now', bt)).body;
+  ok(staleTokenSync.ok === false, 'old device token is blocked immediately after rotation');
+  const deactivated = await req(C, 'POST', `/api/sync/devices/${deviceB.id}/deactivate`, ct, {});
+  ok(deactivated.status === 200, 'admin can revoke paired device');
+  const revokedSync = (await req(B, 'POST', '/api/sync/now', bt)).body;
+  ok(revokedSync.ok === false, 'revoked device is blocked on its next sync');
 
   console.log('— final: books balanced on central —');
   const tb = (await req(C, 'GET', '/api/accounting/trial-balance', ct)).body;

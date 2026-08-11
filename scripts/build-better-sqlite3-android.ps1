@@ -12,10 +12,16 @@ if (-not (Test-Path $NdkHome)) {
   if ($found) { $NdkHome = $found.FullName }
 }
 $Toolchain = Join-Path $NdkHome 'toolchains\llvm\prebuilt\windows-x86_64\bin'
-$Make = Join-Path $Toolchain 'make.exe'
+# NDK r25+ dropped make from the LLVM toolchain bin; use NDK prebuilt or PATH.
+$Make = Join-Path $NdkHome 'prebuilt\windows-x86_64\bin\make.exe'
+if (-not (Test-Path $Make)) { $Make = Join-Path $Toolchain 'make.exe' }
+if (-not (Test-Path $Make)) {
+  $cmd = Get-Command make -ErrorAction SilentlyContinue
+  if ($cmd) { $Make = $cmd.Source }
+}
 $Api = 24
 
-if (-not (Test-Path $Make)) { throw "NDK make not found: $Make" }
+if (-not (Test-Path $Make)) { throw "make not found (tried NDK prebuilt + PATH): $Make" }
 if (-not (Test-Path (Join-Path $Nodedir 'include\node\node_version.h'))) {
   throw 'nodejs-mobile headers missing - run build-android.ps1 libnode step first'
 }
@@ -44,7 +50,16 @@ function Build-Abi($Abi, $NpmArch, $Target) {
   $env:LINK = $env:CXX
   $env:CFLAGS = '-fPIC -O2'
   $env:CXXFLAGS = '-fPIC -O2'
-  $env:LDFLAGS = '-shared'
+  # Android 15+ 16KB page devices need ELF LOAD align >= 0x4000.
+  # Must DT_NEEDED libnode.so — Android does not export libnode symbols to
+  # dlopen()'d addons (nodejs-mobile#70 / NDK#201).
+  $libnodeSo = (Resolve-Path (Join-Path $Nodedir "bin\$Abi\libnode.so")).Path
+  if (-not (Test-Path $libnodeSo)) { throw ("libnode.so missing for {0}: {1}" -f $Abi, $libnodeSo) }
+  # Link libnode by path so DT_NEEDED=libnode.so is written into the addon ELF.
+  # Without this, Android cannot resolve V8 symbols (nodejs-mobile#70).
+  $libnodeDir = Split-Path $libnodeSo -Parent
+  # Single-quoted so $ORIGIN is literal for the linker, not PowerShell.
+  $env:LDFLAGS = '-shared -Wl,-z,max-page-size=16384 -Wl,--no-as-needed -L"' + $libnodeDir + '" -lnode'
   $env:MAKE = $Make
   $env:Path = "$Toolchain;$env:Path"
 
@@ -64,6 +79,14 @@ function Build-Abi($Abi, $NpmArch, $Target) {
   $magic = -join ($bytes | ForEach-Object { '{0:X2}' -f $_ })
   Write-Host "    magic=$magic size=$((Get-Item $outFile).Length)"
   if ($magic -ne '7F454C46') { throw "Expected ELF for $Abi, got $magic" }
+  $readelf = Join-Path $Toolchain 'llvm-readelf.exe'
+  if (Test-Path $readelf) {
+    $needed = & $readelf -d $outFile | Select-String 'NEEDED'
+    Write-Host "    $needed"
+    if (-not ($needed -match 'libnode\.so')) {
+      throw ("FATAL: {0} better_sqlite3 missing DT_NEEDED libnode.so" -f $Abi)
+    }
+  }
 }
 
 Build-Abi 'arm64-v8a'   'arm64' 'aarch64-linux-android'

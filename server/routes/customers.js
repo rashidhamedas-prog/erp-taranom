@@ -2,13 +2,15 @@ const router = require('express').Router();
 const { allocTafsili } = require('../lib/coa-map');
 const { getDB, audit, createLedgerEntry, isDevice } = require('../db');
 const { assignCustomerByTerritory } = require('../lib/rep-ledger');
-const { syncCustomerToParty } = require('../lib/parties-sync');
+const { syncCustomerToParty, deactivatePartyFromCustomer, CRM_CUSTOMER_ACTIVE_SQL } = require('../lib/parties-sync');
 const { auth, adminOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
-const XLSX = require('xlsx');
-const multer = require('multer');
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
+const { createSecureUpload } = require('../lib/upload-policy');
+const { getSmsSettings } = require('../lib/secret-settings');
+const { listQueryPlan, listResponse } = require('../lib/pagination');
 
-const memUpload = multer({ storage: multer.memoryStorage() });
+const excelUpload = createSecureUpload('xlsx');
 
 // Pre-aggregated ledger balances — one GROUP BY pass instead of a correlated subquery per row.
 const LEDGER_BAL_JOIN = `LEFT JOIN (
@@ -55,11 +57,7 @@ const DEFAULT_WELCOME_SMS = `سلام 🌸 به خانواده پوشاک ترن
 
 async function sendWelcomeSMSToCust(db, phone) {
   try {
-    const rows = db.prepare(
-      "SELECT key,value FROM settings WHERE key IN ('sms_provider','sms_api_key','sms_from','welcome_sms_text','kimia_address')"
-    ).all();
-    const s = {};
-    for (const r of rows) s[r.key] = r.value;
+    const s = getSmsSettings(db, ['welcome_sms_text', 'kimia_address']);
     if (!s.sms_api_key || !phone) return;
     const addrLine = s.kimia_address ? `\n🏢 آدرس دفتر: ${s.kimia_address}` : '';
     const text = (s.welcome_sms_text || DEFAULT_WELCOME_SMS).replace('{address}', addrLine);
@@ -77,19 +75,32 @@ function getScope(req) {
   return req.user.id;
 }
 
+/** Edit/delete: admin OR original creator (created_by). Assigned expert alone cannot mutate. */
+function canMutateCustomer(user, row) {
+  if (!row) return false;
+  if (user.role === 'admin') return true;
+  const creator = row.created_by != null ? row.created_by : row.user_id;
+  return creator === user.id;
+}
+
 router.get('/', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
+  const pq = listQueryPlan(req.query);
   const hasPartyGroups = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='party_groups'").get();
   const pgJoin = hasPartyGroups ? 'LEFT JOIN party_groups pg ON c.party_group_id=pg.id' : '';
   const pgCol = hasPartyGroups ? ',pg.name as party_group_name' : ",'' as party_group_name";
-  let rows;
-  if (scope === null) {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} ORDER BY c.created_at DESC`).all();
-  } else {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
-  }
-  res.json(rows);
+  // Hide CRM customers whose linked accounting party was soft-deleted
+  const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
+  const whereSql = scope === null ? `WHERE 1=1${activeClause}` : `WHERE c.user_id=?${activeClause}`;
+  const params = scope === null ? [] : [scope];
+  const total = pq.paginate
+    ? (db.prepare(`SELECT COUNT(*) AS c FROM customers c ${whereSql}`).get(...params)?.c || 0)
+    : 0;
+  const rows = db.prepare(
+    `SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} ${whereSql} ORDER BY c.created_at DESC${pq.limitSql}`
+  ).all(...params, ...pq.limitParams);
+  res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
 router.post('/', auth, (req, res) => {
@@ -103,15 +114,16 @@ router.post('/', auth, (req, res) => {
   const canSetGroup = req.user.role === 'admin' || req.user.role === 'accounting';
   const gid = (canSetGroup && group_id) ? parseInt(group_id) : null;
   const pgid = (canSetGroup && party_group_id) ? parseInt(party_group_id) : null;
-  // admin can assign customer to a specific salesperson
+  // admin can assign customer to a specific salesperson; creator remains the admin
   const uid = (req.user.role === 'admin' && assigned_to) ? parseInt(assigned_to) : req.user.id;
+  const createdBy = req.user.id;
   const newId = db.transaction(() => {
     const result = db.prepare(
       `INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,note,source,balance,assigned_to,auto_followup,group_id,party_group_id,
-        prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        prefix,phone2,fax,mobile,email,economic_code,postal_code,national_id,referrer,birth_date,company_name,account_nature,created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(uid, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, assigned_to ? parseInt(assigned_to) : null, autoF, gid, pgid,
-      prefix || '', phone2 || '', fax || '', mobile || '', email || '', economic_code || '', postal_code || '', national_id || '', referrer || '', birth_date || '', company_name || '', account_nature || '');
+      prefix || '', phone2 || '', fax || '', mobile || '', email || '', economic_code || '', postal_code || '', national_id || '', referrer || '', birth_date || '', company_name || '', account_nature || '', createdBy);
     const created = db.prepare('SELECT id,created_at FROM customers WHERE id=?').get(result.lastInsertRowid);
     if (bal) syncOpeningLedger(db, created.id, bal, created.created_at, req.user.id);
     return created.id;
@@ -133,13 +145,27 @@ router.post('/', auth, (req, res) => {
   // Fire welcome SMS after response — non-blocking. Central-only: device
   // builds never send SMS (the central replay of this op sends it once).
   if (phone && !isDevice()) sendWelcomeSMSToCust(db, phone);
+  try {
+    if (!isDevice()) {
+      const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+      setImmediate(() => dispatchSmsEvent(db, 'customer.created', {
+        phone: mobile || phone,
+        name: owner || biz,
+        biz,
+        party_group_id: pgid,
+        user_id: uid,
+        created_by: req.user.id,
+        user: req.user.name,
+      }));
+    }
+  } catch (_) {}
 });
 
 router.put('/:id', auth, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
+  if (!canMutateCustomer(req.user, row)) return res.status(403).json({ error: 'فقط ایجادکننده یا مدیر می‌تواند این مشتری را ویرایش کند' });
   const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id, party_group_id,
     prefix, phone2, fax, mobile, email, economic_code, postal_code, national_id, referrer, birth_date, company_name, account_nature } = req.body;
   const bal = (req.user.role === 'admin' && balance !== undefined) ? (parseFloat(balance) || 0) : row.balance || 0;
@@ -171,33 +197,38 @@ router.delete('/:id', auth, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
-  db.prepare('DELETE FROM customers WHERE id=?').run(req.params.id);
-  audit(req.user.id, 'delete', 'customer', req.params.id, `حذف مشتری ${row.biz}`);
-  res.json({ ok: true });
+  if (!canMutateCustomer(req.user, row)) return res.status(403).json({ error: 'فقط ایجادکننده یا مدیر می‌تواند این مشتری را حذف کند' });
+  // Cascade: remove followups + soft-delete linked accounting party
+  const result = db.transaction(() => deactivatePartyFromCustomer(db, req.params.id))();
+  if (!result.ok) return res.status(400).json({ error: 'امکان حذف مشتری نیست (سوابق مالی مرتبط)' });
+  audit(req.user.id, 'delete', 'customer', req.params.id, `حذف مشتری ${row.biz}; party=${result.partyId||'-'}`);
+  res.json({ ok: true, partyId: result.partyId || null });
 });
 
 // Customer balances for current user's customers (non-zero only)
 router.get('/balances', auth, (req, res) => {
   const db = getDB();
   const scope = getScope(req);
+  // Hide CRM customers whose linked accounting party was soft-deleted
+  const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id WHERE ${BAL_COL}<>0 ORDER BY ABS(${BAL_COL}) DESC`).all();
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE ${BAL_COL}<>0${activeClause} ORDER BY ABS(${BAL_COL}) DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=? AND ${BAL_COL}<>0 ORDER BY ABS(${BAL_COL}) DESC`).all(scope);
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE c.user_id=? AND ${BAL_COL}<>0${activeClause} ORDER BY ABS(${BAL_COL}) DESC`).all(scope);
   }
   res.json(rows);
 });
 
-router.get('/export/excel', auth, adminOnly, (req, res) => {
+router.get('/export/excel', auth, adminOnly, async (req, res) => {
   const db = getDB();
   const scope = getScope(req);
+  const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id ORDER BY c.created_at DESC`).all();
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id WHERE 1=1${activeClause} ORDER BY c.created_at DESC`).all();
   } else {
-    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=? ORDER BY c.created_at DESC`).all(scope);
+    rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=?${activeClause} ORDER BY c.created_at DESC`).all(scope);
   }
   const isAdmin = req.user.role === 'admin';
   const data = rows.map(r => ({
@@ -210,30 +241,30 @@ router.get('/export/excel', auth, adminOnly, (req, res) => {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(data);
   XLSX.utils.book_append_sheet(wb, ws, 'مشتریان');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', 'attachment; filename=customers.xlsx');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);
 });
 
 // Import customers from Excel
-router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => {
+router.post('/import', auth, adminOnly, excelUpload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل آپلود نشد' });
   try {
-    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const wb = await readWorkbook(req.file.buffer);
     const ws = wb.Sheets[wb.SheetNames[0]];
     const data = XLSX.utils.sheet_to_json(ws);
     const db = getDB();
     let inserted = 0;
     const allUsers = db.prepare('SELECT id,name FROM users').all();
     const stmt = db.prepare(
-      'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,source,balance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,source,balance,created_by,assigned_to) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
     );
     const insertMany = db.transaction((rows) => {
       for (const row of rows) {
         const biz = normalizeStr(row['نام فروشگاه'] || row['biz'] || row['نام کسب‌وکار'] || '');
         if (!biz) continue;
-        // Resolve salesperson by name or id
+        // Resolve salesperson by name or id — importer remains created_by
         let targetUserId = req.user.id;
         const salesRep = normalizeStr(row['کارشناس'] || row['نام کارشناس'] || row['salesperson'] || '');
         if (salesRep) {
@@ -243,6 +274,7 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
           targetUserId = parseInt(row['user_id']);
         }
         const balance = parseFloat(row['موجودی حساب'] || row['balance'] || 0) || 0;
+        const assigned = targetUserId !== req.user.id ? targetUserId : null;
         stmt.run(
           targetUserId, biz,
           normalizeStr(row['نام کامل'] || row['owner'] || row['نام مالک'] || ''),
@@ -254,7 +286,9 @@ router.post('/import', auth, adminOnly, memUpload.single('file'), (req, res) => 
           row['نوع'] || row['type'] || 'بوتیک',
           row['وضعیت'] || row['status'] || 'new',
           row['منبع آشنایی'] || row['source'] || '',
-          balance
+          balance,
+          req.user.id,
+          assigned
         );
         inserted++;
       }
@@ -278,8 +312,7 @@ router.post('/:id/welcome-sms', auth, async (req, res) => {
 });
 
 // Downloadable Excel template for customer import
-router.get('/template', auth, adminOnly, (req, res) => {
-  const XLSX = require('xlsx');
+router.get('/template', auth, adminOnly, async (req, res) => {
   const wb = XLSX.utils.book_new();
   const data = [
     { 'نام فروشگاه': 'بوتیک بهار', 'نام کامل': 'زهره احمدی', 'استان': 'خراسان رضوی', 'شهر': 'مشهد', 'آدرس کامل': 'بلوار فردوسی، پلاک ۱۲', 'موبایل': '09151234567', 'اینستاگرام': 'bahar_boutique', 'نوع': 'بوتیک', 'وضعیت': 'active', 'منبع آشنایی': 'instagram', 'کارشناس': '', 'موجودی حساب': 0 },
@@ -295,12 +328,12 @@ router.get('/template', auth, adminOnly, (req, res) => {
     { 'راهنما': 'مقادیر مجاز برای منبع آشنایی: instagram, referral, exhibition, store_front, online, other' },
     { 'راهنما': 'مقادیر مجاز برای نوع: بوتیک، عمده‌فروش، تولیدی، فروشگاه، آنلاین' },
     { 'راهنما': 'ستون کارشناس: نام کارشناس دقیقاً همانطور که در سیستم ثبت شده (اختیاری)' },
-    { 'راهنما': 'ستون موجودی حساب: موجودی اولیه مشتری به تومان (فقط مدیر می‌تواند تنظیم کند)' },
+    { 'راهنما': 'ستون موجودی حساب: موجودی اولیه مشتری به ریال (فقط مدیر می‌تواند تنظیم کند)' },
   ];
   const ws2 = XLSX.utils.json_to_sheet(info);
   ws2['!cols'] = [{wch:80}];
   XLSX.utils.book_append_sheet(wb, ws2, 'راهنما');
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const buf = await XLSX.write(wb);
   res.setHeader('Content-Disposition', 'attachment; filename=customers-template.xlsx');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buf);

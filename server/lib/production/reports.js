@@ -148,7 +148,7 @@ function costSheet(db, { orderId }) {
   const wip = db.prepare('SELECT wip_rial FROM v_wip_by_order WHERE order_id=?').get(Number(orderId));
   const journals = db.prepare(`
     SELECT je.id, je.entry_date, je.description, je.voucher_number, je.ref_type,
-           SUM(COALESCE(jl.debit_rial, ROUND(jl.debit * 10))) AS total_debit_rial
+           SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)) AS total_debit_rial
     FROM journal_entries je
     JOIN journal_lines jl ON jl.entry_id = je.id
     WHERE je.ref_type LIKE 'production_%' AND je.ref_id = ?
@@ -208,8 +208,8 @@ function wipReport(db, { date } = {}) {
   const wipCode = wipAccountCode(db);
 
   const ledgerWip = db.prepare(`
-    SELECT COALESCE(SUM(COALESCE(jl.debit_rial, ROUND(jl.debit * 10))), 0) -
-           COALESCE(SUM(COALESCE(jl.credit_rial, ROUND(jl.credit * 10))), 0) bal
+    SELECT COALESCE(SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)), 0) -
+           COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)), 0) bal
     FROM journal_lines jl
     JOIN journal_entries je ON je.id = jl.entry_id
     WHERE jl.account_code = ? AND je.entry_date <= ?
@@ -299,8 +299,8 @@ function overheadVariance(db, { period } = {}) {
     let appliedOh = Math.round(Number(r.rate_applied_oh_rial) || 0);
     if (!actualOh && r.coa_tafsili_oh) {
       actualOh = Math.round(Number(db.prepare(`
-        SELECT COALESCE(SUM(COALESCE(jl.debit_rial, ROUND(jl.debit * 10))), 0) -
-               COALESCE(SUM(COALESCE(jl.credit_rial, ROUND(jl.credit * 10))), 0) bal
+        SELECT COALESCE(SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)), 0) -
+               COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)), 0) bal
         FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
         WHERE jl.account_code = ? AND jl.detail_account_id = ?
           AND je.entry_date BETWEEN ? AND ? AND COALESCE(je.deleted_at, 0) = 0
@@ -308,8 +308,8 @@ function overheadVariance(db, { period } = {}) {
     }
     if (!appliedOh && r.coa_tafsili_oh) {
       appliedOh = Math.round(Number(db.prepare(`
-        SELECT COALESCE(SUM(COALESCE(jl.credit_rial, ROUND(jl.credit * 10))), 0) -
-               COALESCE(SUM(COALESCE(jl.debit_rial, ROUND(jl.debit * 10))), 0) bal
+        SELECT COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)), 0) -
+               COALESCE(SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)), 0) bal
         FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
         WHERE jl.account_code = ? AND jl.detail_account_id = ?
           AND je.entry_date BETWEEN ? AND ? AND COALESCE(je.deleted_at, 0) = 0
@@ -560,8 +560,8 @@ function monthlyProfit(db, { period } = {}) {
   const bal = (key) => {
     const code = acct(db, key).code;
     return Math.round(Number(db.prepare(`
-      SELECT COALESCE(SUM(COALESCE(jl.debit_rial, ROUND(jl.debit * 10))), 0) -
-             COALESCE(SUM(COALESCE(jl.credit_rial, ROUND(jl.credit * 10))), 0) b
+      SELECT COALESCE(SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)), 0) -
+             COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)), 0) b
       FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
       WHERE jl.account_code = ? AND je.entry_date BETWEEN ? AND ?
         AND COALESCE(je.deleted_at, 0) = 0

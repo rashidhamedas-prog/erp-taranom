@@ -1,19 +1,20 @@
 #!/usr/bin/env node
-// Import the full Mahak accounting books into a fresh CRM Taranom database.
+// Import the full Mahak accounting books into a fresh ERP Taranom database.
 // docs/MAHAK-MIGRATION.md is the authoritative spec (owner-approved decisions).
 //
 //   node server/scripts/import-mahak-journal.js <coding.xlsx> <roznameh.xlsx> <target.db> [--force]
 //
 // Everything runs in ONE transaction: chart of accounts (4-level Mahak tree),
 // products/banks/cash-boxes/warehouses from tafsili definitions, and every
-// journal voucher (amounts rial→toman ÷10 rounded PER LINE; unbalanced
+// journal voucher (amounts stored as Rial per Mahak; unbalanced
 // vouchers get an explicit adjustment line on account 906001). Verification
 // runs inside the same process and a mahak-import-report.md is written next
 // to the target DB. Any failed assertion rolls the whole import back.
 const path = require('path');
 const fs = require('fs');
-const XLSX = require('xlsx');
+const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { fa, parsePersonName, guessProductCategory, buildAccountUsage, mapPersonAccounts } = require('../lib/mahak-import-helpers');
+const { storeRial } = require('../lib/currency');
 
 const [codingPath, journalPath, dbPath] = process.argv.slice(2);
 const FORCE = process.argv.includes('--force');
@@ -29,7 +30,7 @@ const db = getDB();
 
 const faLocal = fa;
 const num = v => parseFloat(String(v == null ? '' : v).replace(/,/g, '')) || 0;
-const toman = rial => Math.round(rial / 10);          // decision #1: rial ÷ 10, per line
+const toman = storeRial; // Mahak Excel amounts are Rial — store as-is
 
 // group نوع → app account type (drives balance sheet / P&L classification)
 const TYPE_MAP = { 'دارايي': 'asset', 'دارایی': 'asset', 'بدهي': 'liability', 'بدهی': 'liability', 'سرمايه': 'equity', 'سرمایه': 'equity', 'درآمد': 'revenue', 'هزينه': 'expense', 'هزینه': 'expense' };
@@ -43,7 +44,9 @@ function sheetRows(wb, name) {
 }
 
 // ---------- parse coding ----------
-const cwb = XLSX.readFile(codingPath);
+
+(async () => {
+const cwb = await readWorkbook(require("fs").readFileSync(codingPath));
 const groups = sheetRows(cwb, 'گروه حساب ها').filter(r => r[0] && r[0] !== '0');
 const kols = sheetRows(cwb, 'حسابهای کل').filter(r => r[0]);
 const moeins = sheetRows(cwb, 'حسابهای معین').filter(r => r[0]);
@@ -54,7 +57,7 @@ const kolInfo = {};   kols.forEach(r => { kolInfo[String(r[0]).trim()] = { name:
 const groupInfo = {}; groups.forEach(r => { groupInfo[String(r[0]).trim()] = { name: fa(r[1]), type: TYPE_MAP[fa(r[2])] || 'expense' }; });
 
 // ---------- parse journal ----------
-const jwb = XLSX.readFile(journalPath);
+const jwb = await readWorkbook(require("fs").readFileSync(journalPath));
 const jrows = XLSX.utils.sheet_to_json(jwb.Sheets[jwb.SheetNames[0]], { header: 1, raw: false }).slice(1);
 const vouchers = new Map();   // docNo → {date, atf, desc, lines:[{code,name,debit,credit}]}
 for (const r of jrows) {
@@ -148,6 +151,11 @@ const stats = db.transaction(() => {
   };
 
   const wh = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
+  const { seedMahakSubgroups } = require('../lib/currency');
+  seedMahakSubgroups(db);
+  const custGrpId = db.prepare("SELECT id FROM party_groups WHERE name='مشتریان' LIMIT 1").get()?.id;
+  const supGrpId = db.prepare("SELECT id FROM party_groups WHERE name='فروشندگان' LIMIT 1").get()?.id;
+  const storeGrpId = db.prepare("SELECT id FROM party_groups WHERE name='فروشگاه‌های ترنم' LIMIT 1").get()?.id;
   const ensureCat = db.prepare('INSERT OR IGNORE INTO product_categories (name) VALUES (?)');
   const getCatId = db.prepare('SELECT id FROM product_categories WHERE name=? LIMIT 1');
   const insProd = db.prepare(`INSERT INTO products (user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,coa_code,needs_qty,note,warehouse_id)
@@ -157,10 +165,10 @@ const stats = db.transaction(() => {
   const insWh = db.prepare('INSERT INTO warehouses (name) VALUES (?)');
   db.exec(`INSERT OR IGNORE INTO person_categories (name,nature) VALUES ('سایر اشخاص','debit')`);
   const miscCatId = db.prepare("SELECT id FROM person_categories WHERE name='سایر اشخاص' LIMIT 1").get()?.id;
-  const insCust = db.prepare(`INSERT INTO customers (user_id,biz,owner,phone,coa_code,balance,note,status,type,source)
-                              VALUES (?,?,?,?,?,?,?,?,?,?)`);
-  const insSup = db.prepare('INSERT INTO suppliers (name,phone,note,coa_code,balance) VALUES (?,?,?,?,?)');
-  const insPerson = db.prepare('INSERT INTO persons (category_id,name,phone,note,coa_code) VALUES (?,?,?,?,?)');
+  const insCust = db.prepare(`INSERT INTO customers (user_id,biz,owner,phone,coa_code,balance,note,status,type,source,party_group_id)
+                              VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+  const insSup = db.prepare('INSERT INTO suppliers (name,phone,note,coa_code,balance,party_group_id) VALUES (?,?,?,?,?,?)');
+  const insPerson = db.prepare('INSERT INTO persons (category_id,name,phone,note,coa_code,party_group_id) VALUES (?,?,?,?,?,?)');
   // opening values from voucher #1 (1405/01/01) — kept for the report/product note
   const opening = new Map();
   const v1 = vouchers.get('1');
@@ -175,7 +183,7 @@ const stats = db.transaction(() => {
       ensureCat.run(catName);
       const catId = getCatId.get(catName)?.id || null;
       insProd.run(adminId, catName, catId, taf, info.name, full,
-        opv ? `ارزش افتتاحیه محک: ${opv.toLocaleString('en-US')} تومان — تعداد را تعیین کنید` : 'ورود از محک — تعداد را تعیین کنید',
+        opv ? `ارزش افتتاحیه محک: ${opv.toLocaleString('en-US')} ریال — تعداد را تعیین کنید` : 'ورود از محک — تعداد را تعیین کنید',
         wh ? wh.id : null);
       if (opv) report.openings.push({ taf, name: info.name, value: opv });
       products++;
@@ -195,17 +203,19 @@ const stats = db.transaction(() => {
 
     if (recvFull) {
       const bal = balOf(recvFull, 'receivable');
+      const isStore = /فروشگاه|ترنم/i.test(parsed.biz || rawName);
+      const grpId = isStore ? storeGrpId : custGrpId;
       insCust.run(adminId, parsed.biz, parsed.owner, parsed.phone, recvFull, bal,
-        `ورود از محک — کد ${recvFull}`, bal > 0 ? 'active' : 'followup', 'عمده', 'mahak');
+        `ورود از محک — کد ${recvFull}`, bal > 0 ? 'active' : 'followup', 'عمده', 'mahak', grpId || null);
       customers++;
     }
     if (payFull) {
       const bal = balOf(payFull, 'payable');
-      insSup.run(parsed.biz || rawName, parsed.phone, `ورود از محک — کد ${payFull}`, payFull, bal);
+      insSup.run(parsed.biz || rawName, parsed.phone, `ورود از محک — کد ${payFull}`, payFull, bal, supGrpId || null);
       suppliers++;
     }
     if (miscFull && !recvFull && !payFull) {
-      insPerson.run(miscCatId, rawName, parsed.phone, `ورود از محک — کد ${miscFull}`, miscFull);
+      insPerson.run(miscCatId, rawName, parsed.phone, `ورود از محک — کد ${miscFull}`, miscFull, null);
       persons++;
     }
   };
@@ -257,7 +267,8 @@ const stats = db.transaction(() => {
     coa_cash_default: tafBestFull.get('500001') || '206002500001',
     coa_bank_default: '206001', coa_adjustment: '906001',
     coa_payroll_expense: best('701') || '701001', coa_payroll_payable: '501002',
-    coa_misc_persons: '204001', feature_cogs_voucher: '1'
+    coa_misc_persons: '204001', feature_cogs_voucher: '1',
+    currency_base: 'rial', currency_display: 'rial',
   };
   for (const [k, val] of Object.entries(mapping)) setS.run(k, String(val));
 
@@ -292,21 +303,21 @@ const failures = [];
 
 // ---------- report ----------
 const rep = [];
-rep.push('# گزارش ورود اسناد محک به CRM ترنم');
+rep.push('# گزارش ورود اسناد محک به ERP ترنم');
 rep.push(`- تاریخ اجرا: ${new Date().toISOString()}`);
 rep.push(`- سند: **${stats.entries}** | آرتیکل: **${stats.lines}** (شامل ${report.adjustments.length} خط تعدیل)`);
 rep.push(`- حساب تفصیلی: ${stats.tafCount} | محصول: ${stats.products} | مشتری: ${stats.customers} | تأمین‌کننده: ${stats.suppliers} | شخص: ${stats.persons}`);
 rep.push(`- بانک: ${stats.banks} | صندوق: ${stats.boxes} | انبار: ${stats.whs}`);
-rep.push(`- جمع بدهکار=بستانکار: **${Math.round(tb.d).toLocaleString('en-US')} تومان** ${Math.round(tb.d) === Math.round(tb.c) ? '✅' : '❌'}`);
-rep.push('\n## گردش حساب‌های کل (تومان — مقایسه با محک ÷۱۰)');
+rep.push(`- جمع بدهکار=بستانکار: **${Math.round(tb.d).toLocaleString('en-US')} ریال** ${Math.round(tb.d) === Math.round(tb.c) ? '✅' : '❌'}`);
+rep.push('\n## گردش حساب‌های کل (ریال)');
 rep.push('| کل | نام | بدهکار | بستانکار |'); rep.push('|---|---|---|---|');
 for (const row of perKol) rep.push(`| ${row.k} | ${(kolInfo[row.k] || {}).name || ''} | ${Math.round(row.d).toLocaleString('en-US')} | ${Math.round(row.c).toLocaleString('en-US')} |`);
 rep.push(`\n## تعدیل‌های کسری (${report.adjustments.length} سند — تصمیم ۴)`);
-rep.push('| ش سند | تاریخ | اختلاف (تومان) |'); rep.push('|---|---|---|');
+rep.push('| ش سند | تاریخ | اختلاف (ریال) |'); rep.push('|---|---|---|');
 for (const a of report.adjustments) rep.push(`| ${a.docNo} | ${a.date} | ${a.diff} |`);
 if (report.warnings.length) { rep.push('\n## هشدارها'); report.warnings.forEach(w => rep.push('- ' + w)); }
 rep.push(`\n## ارزش افتتاحیه کالاها (${report.openings.length} قلم از سند ۱)`);
-report.openings.slice(0, 30).forEach(o => rep.push(`- ${o.name}: ${o.value.toLocaleString('en-US')} تومان`));
+report.openings.slice(0, 30).forEach(o => rep.push(`- ${o.name}: ${o.value.toLocaleString('en-US')} ریال`));
 if (report.openings.length > 30) rep.push(`- ... و ${report.openings.length - 30} قلم دیگر`);
 if (failures.length) { rep.push('\n## ❌ خطاهای راستی‌آزمایی'); failures.forEach(f => rep.push('- ' + f)); }
 const repPath = path.join(path.dirname(path.resolve(dbPath)), 'mahak-import-report.md');
@@ -316,3 +327,8 @@ console.log(`\n${failures.length ? '❌ FAILED' : '✅ OK'} — entries=${stats.
 console.log(`   debit=credit=${Math.round(tb.d).toLocaleString('en-US')} toman`);
 console.log(`   report: ${repPath}`);
 if (failures.length) { failures.forEach(f => console.error('  ✗ ' + f)); process.exit(1); }
+
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

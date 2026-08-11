@@ -125,9 +125,13 @@ try {
   const actual = SYNCABLE_TABLES.map(t => t.name);
   ok('TS-08a ترتیب قبلی دست‌نخورده',
     EXPECTED_PREFIX.every((n, i) => actual[i] === n));
-  const tail = actual.slice(-24);
+  const prodStart = actual.indexOf('bom_headers');
+  const prodEnd = actual.indexOf('production_reservations');
+  const invStart = actual.indexOf('inventory_ledger');
   ok('TS-08b جداول تولید در انتها',
-    tail.includes('bom_headers') && tail.includes('mrp_runs') && tail.includes('production_reservations'));
+    prodStart > 0 && prodEnd > prodStart
+    && actual.slice(prodStart, prodEnd + 1).includes('mrp_runs')
+    && (invStart < 0 || invStart === prodEnd + 1));
 }
 
 // ── TS-09: sequences ──

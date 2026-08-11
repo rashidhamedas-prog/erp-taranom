@@ -98,29 +98,24 @@ function migrateTomanToRial(db) {
   return true;
 }
 
-/** Mahak product group names from full data.xlsx — گروه کالا sheet. */
-const MAHAK_PRODUCT_GROUPS = [
-  { code: 0, name: 'کلیه کالاها', parent: null },
-  { code: 1, name: 'پارچه', parent: 0 },
-  { code: 2, name: 'خرج کار', parent: 0 },
-  { code: 3, name: 'زیپ ها', parent: 0 },
-  { code: 4, name: 'اثاثه', parent: 0 },
-  { code: 5, name: 'لینن', parent: 0 },
-  { code: 6, name: 'زمستونی', parent: 0 },
-  { code: 8, name: 'لی', parent: 0 },
-  { code: 9, name: 'خرید محصول متفرقه', parent: 0 },
-  { code: 10, name: 'کتان', parent: 0 },
-  { code: 11, name: 'برش خورده', parent: 0 },
-  { code: 12, name: 'متفرقه', parent: 0 },
-  { code: 13, name: 'مواد اولیه', parent: 0 },
-  { code: 14, name: 'محصول نهایی', parent: 0 },
+/**
+ * نام‌های قدیمی seed محک — دیگر در boot درج نمی‌شوند.
+ * فقط برای تشخیص/پاک‌سازی یک‌باره و اسکریپت‌های import نگه داشته شده‌اند.
+ */
+const LEGACY_SEEDED_PRODUCT_GROUP_NAMES = [
+  'کلیه کالاها', 'پارچه', 'خرج کار', 'زیپ ها', 'اثاثه', 'لینن', 'زمستونی',
+  'لی', 'خرید محصول متفرقه', 'کتان', 'برش خورده', 'متفرقه', 'مواد اولیه', 'محصول نهایی', 'لایی', 'جین',
 ];
+
+/** @deprecated خالی — گروه‌های کالا فقط دستی ساخته می‌شوند. */
+const MAHAK_PRODUCT_GROUPS = [];
 
 /** فقط گروه مجازی «کلیه اشخاص» — بقیه گروه‌ها توسط کاربر تعریف می‌شوند. */
 const MAHAK_PARTY_GROUPS = [
   { code: 0, name: 'کلیه اشخاص', entity_type: 'all' },
 ];
 
+/** پیشنهاد نام گروه هنگام import محک — گروه را خودش نمی‌سازد. */
 function guessMahakProductGroup(name) {
   const n = String(name || '').replace(/\s+/g, ' ').trim();
   if (/پارچه|لنین|لینن|کتان\b|جین\b|لی\b|زمستون|زمستانی|پارچه/i.test(n)) {
@@ -142,6 +137,72 @@ function guessMahakProductGroup(name) {
   return 'متفرقه';
 }
 
+/**
+ * یک‌بار: حذف گروه‌های seed‌شدهٔ قدیمی که کالایی به آن‌ها وصل نیست.
+ * (قبلاً هر boot با INSERT OR IGNORE دوباره ساخته می‌شدند.)
+ */
+function purgeAutoSeededProductCategories(db) {
+  const done = db.prepare("SELECT value FROM settings WHERE key='product_categories_no_auto_seed_v1'").get();
+  if (done?.value === '1') return 0;
+
+  const hasTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='product_categories'").get();
+  if (!hasTable) {
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('product_categories_no_auto_seed_v1','1')").run();
+    return 0;
+  }
+
+  // فقط ردیف‌های seed قدیمی (description ثابت) یا ریشهٔ مجازی «کلیه کالاها»
+  const seedWhere = `(description='گروه استاندارد' OR (name='کلیه کالاها' AND COALESCE(code,0)=0))`;
+  const candidates = db.prepare(`
+    SELECT id, name, parent_id FROM product_categories
+    WHERE ${seedWhere}
+    ORDER BY CASE WHEN parent_id IS NULL THEN 1 ELSE 0 END, id DESC
+  `).all();
+
+  let removed = 0;
+  let delAcl = null;
+  try {
+    if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='user_catalog_categories'").get()) {
+      delAcl = db.prepare('DELETE FROM user_catalog_categories WHERE category_id=?');
+    }
+  } catch (_) { /* ignore */ }
+  const inUseProd = db.prepare('SELECT COUNT(*) c FROM products WHERE category_id=?');
+  const childCount = db.prepare('SELECT COUNT(*) c FROM product_categories WHERE parent_id=?');
+  const delCat = db.prepare('DELETE FROM product_categories WHERE id=?');
+
+  for (const row of candidates) {
+    if (inUseProd.get(row.id).c > 0) continue;
+    if (childCount.get(row.id).c > 0) continue;
+    try {
+      if (delAcl) delAcl.run(row.id);
+      delCat.run(row.id);
+      removed++;
+    } catch (e) {
+      console.warn('purge product category skipped:', row.name, e.message);
+    }
+  }
+
+  // اگر هنوز والد خالی مانده، یک دور دیگر
+  const leftovers = db.prepare(`
+    SELECT id FROM product_categories
+    WHERE ${seedWhere}
+      AND id NOT IN (SELECT DISTINCT category_id FROM products WHERE category_id IS NOT NULL)
+      AND id NOT IN (SELECT DISTINCT parent_id FROM product_categories WHERE parent_id IS NOT NULL)
+  `).all();
+  for (const row of leftovers) {
+    try {
+      if (delAcl) delAcl.run(row.id);
+      delCat.run(row.id);
+      removed++;
+    } catch (_) { /* ignore */ }
+  }
+
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('product_categories_no_auto_seed_v1','1')").run();
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('product_categories_user_cleared','1')").run();
+  if (removed) console.log(`✅ purged ${removed} auto-seeded product categories (no re-seed)`);
+  return removed;
+}
+
 function seedStandardSubgroups(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS party_groups (
@@ -155,39 +216,31 @@ function seedStandardSubgroups(db) {
     );
   `);
 
-  const pgCount = db.prepare('SELECT COUNT(*) c FROM party_groups').get().c;
   const insPg = db.prepare('INSERT OR IGNORE INTO party_groups (code,name,entity_type,description) VALUES (?,?,?,?)');
   const updPg = db.prepare('UPDATE party_groups SET entity_type=?,description=? WHERE name=?');
   for (const g of MAHAK_PARTY_GROUPS) {
     insPg.run(g.code, g.name, g.entity_type, '');
     updPg.run(g.entity_type, '', g.name);
   }
-
-  const insCat = db.prepare('INSERT OR IGNORE INTO product_categories (name,code,parent_id,sort_order,description) VALUES (?,?,?,?,?)');
-  const updCat = db.prepare('UPDATE product_categories SET code=?,sort_order=?,description=? WHERE name=?');
-  const catByName = new Map();
-  const getId = (name) => {
-    if (catByName.has(name)) return catByName.get(name);
-    const r = db.prepare('SELECT id FROM product_categories WHERE name=?').get(name);
-    if (r) { catByName.set(name, r.id); return r.id; }
-    return null;
-  };
-
-  for (const g of MAHAK_PRODUCT_GROUPS) {
-    insCat.run(g.name, g.code, null, g.code, 'گروه استاندارد');
-    updCat.run(g.code, g.code, 'گروه استاندارد', g.name);
+  // گروه پرسنل: برای اتصال پرونده کارکنان به اشخاص
+  const staffGroup = db.prepare("SELECT id FROM party_groups WHERE name='پرسنل'").get();
+  if (!staffGroup) {
+    const nextCode = db.prepare('SELECT COALESCE(MAX(code),0)+1 AS c FROM party_groups').get().c;
+    try {
+      db.prepare('INSERT INTO party_groups (code,name,entity_type,description) VALUES (?,?,?,?)')
+        .run(nextCode, 'پرسنل', 'person', 'اشخاص این گروه در پرونده کارکنان حقوق ظاهر می‌شوند');
+    } catch (_) { /* name unique race */ }
   }
-  for (const g of MAHAK_PRODUCT_GROUPS) {
-    if (g.parent == null) continue;
-    const parentName = MAHAK_PRODUCT_GROUPS.find(x => x.code === g.parent)?.name;
-    const parentId = parentName ? getId(parentName) : null;
-    if (parentId) db.prepare('UPDATE product_categories SET parent_id=? WHERE name=?').run(parentId, g.name);
-  }
+
+  // گروه‌های کالا دیگر seed نمی‌شوند — فقط تعریف دستی کاربر.
+  // (قبلاً MAHAK_PRODUCT_GROUPS هر boot دوباره INSERT می‌شد و حذف کاربر را خنثی می‌کرد.)
+  purgeAutoSeededProductCategories(db);
 }
 
 module.exports = {
   BASE, storeRial, toDisplay, fromInput, unitLabel, displayMode,
   migrateTomanToRial, seedStandardSubgroups, guessMahakProductGroup,
+  purgeAutoSeededProductCategories,
   seedMahakSubgroups: seedStandardSubgroups,
-  MAHAK_PRODUCT_GROUPS, MAHAK_PARTY_GROUPS,
+  MAHAK_PRODUCT_GROUPS, MAHAK_PARTY_GROUPS, LEGACY_SEEDED_PRODUCT_GROUP_NAMES,
 };

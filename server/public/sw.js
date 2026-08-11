@@ -1,5 +1,5 @@
-// CRM ترنم - service worker: network-first for HTML, cache-first for assets
-const CACHE = 'crm-taranom-v38';
+﻿// ERP Taranom - service worker: network-first for HTML+JS+CSS, cache-first for images
+const CACHE = 'erp-taranom-v147';
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
@@ -17,19 +17,20 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || req.url.includes('/api/')) return;
-  // User uploads (product photos etc.) must always hit the server — device
-  // builds pull missing files from central on demand.
   if (req.url.includes('/uploads/')) return;
 
+  const url = new URL(req.url);
+  const path = url.pathname || '';
   const isHTML = req.headers.get('accept')?.includes('text/html') ||
-                 req.url.endsWith('/') || req.url.endsWith('.html');
+                 path.endsWith('/') || path.endsWith('.html');
+  // App logic must not stick on stale cache (marketer-ui.js etc.)
+  const isAppCode = /\.(js|css)$/i.test(path) || path.endsWith('sw.js');
 
-  if (isHTML) {
-    // Network-first for HTML: always get the latest app, fall back to cache offline
+  if (isHTML || isAppCode) {
     e.respondWith(
       fetch(req)
         .then((res) => {
-          if (res && res.status === 200) {
+          if (res && res.status === 200 && res.type === 'basic') {
             caches.open(CACHE).then((c) => c.put(req, res.clone()));
           }
           return res;
@@ -37,7 +38,6 @@ self.addEventListener('fetch', (e) => {
         .catch(() => caches.match(req))
     );
   } else {
-    // Cache-first for static assets (images, icons, manifest)
     e.respondWith(
       caches.match(req).then((cached) => {
         if (cached) return cached;
