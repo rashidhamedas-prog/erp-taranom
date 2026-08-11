@@ -139,6 +139,8 @@ const ACC_NAV_SECTIONS = [
     { title: 'اطلاعات پایه', items: [
       { id: 'acc-products', icon: '📦', label: 'کالاها' },
       { id: 'acc-product-groups', icon: '🏷️', label: 'گروه‌های کالا' },
+      { id: 'acc-product-colors', icon: '🎨', label: 'رنگ‌های کالا (SKU)' },
+      { id: 'acc-product-sizes', icon: '📐', label: 'سایزهای کالا (SKU)' },
       { id: 'acc-units', icon: '📏', label: 'واحدهای اندازه‌گیری' },
     ]},
     { title: 'گزارشات', items: [
@@ -311,6 +313,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-moadian', icon: '📡', label: 'سامانه مودیان' },
       { id: 'acc-commissions', icon: '🎯', label: 'انگیزه فروش' },
       { id: 'acc-reps', icon: '👔', label: 'نمایندگان فروش' },
+      { id: 'help', icon: '📖', label: 'راهنما' },
     ]},
   ]},
 ];

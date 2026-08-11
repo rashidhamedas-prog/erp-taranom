@@ -1082,7 +1082,7 @@ const LU = (()=> {
     'acc-payroll-processing':'calc', 'acc-payroll-year-end':'gift',
     'acc-payroll-reports':'clipboard',
     'acc-parties':'users', 'acc-party-groups':'folder', 'acc-products':'box',
-    'acc-product-groups':'tags', 'acc-incomes':'trending', 'acc-expenses':'linechart',
+    'acc-product-groups':'tags', 'acc-product-colors':'palette', 'acc-product-sizes':'ruler', 'acc-incomes':'trending', 'acc-expenses':'linechart',
     'acc-expense-categories':'folder', 'acc-person-positions':'tags', 'acc-opening-recv-cheques':'download',
     'acc-opening-pay-cheques':'upload', 'acc-coa-codes':'hash', 'acc-account-groups':'layers',
     'acc-ledger-accounts':'book', 'acc-subsidiary-accounts':'book', 'acc-detail-accounts':'book',
@@ -1178,6 +1178,23 @@ const NAV_ACCOUNTING = [
 // ---- Accounting module nav: see /acc-nav.js (ACC_NAV_SECTIONS) ----
 const ACC_NAV = accNavFlat();
 const ACC_NAV_COLLAPSED = new Set(ACC_NAV_SECTIONS.map((_, i) => i));
+// بخش‌های پرتکرار به‌صورت پیش‌فرض باز باشند تا مسیرهایی مثل «تولید → اطلاعات پایه» دیده شوند
+;(()=>{
+  const keepOpen = new Set(['تولید','کالا','امکانات']);
+  ACC_NAV_SECTIONS.forEach((sec, i)=>{ if(keepOpen.has(sec.title)) ACC_NAV_COLLAPSED.delete(i); });
+})();
+function expandAccNavForPage(page){
+  if(!IN_ACC_SHELL || typeof ACC_NAV_SECTIONS==='undefined' || !page) return;
+  const idx = ACC_NAV_SECTIONS.findIndex(sec=>{
+    const items = sec.items || (sec.subgroups||[]).flatMap(sg=>sg.items||[]);
+    return items.some(it=>it.id===page);
+  });
+  if(idx<0) return;
+  if(ACC_NAV_COLLAPSED.has(idx)){
+    ACC_NAV_COLLAPSED.delete(idx);
+    buildNav();
+  }
+}
 function toggleAccNavSection(si){
   if(ACC_NAV_COLLAPSED.has(si)) ACC_NAV_COLLAPSED.delete(si); else ACC_NAV_COLLAPSED.add(si);
   buildNav();
@@ -1220,10 +1237,17 @@ function filterAccNavItem(it){
 function accNavForRole(){
   let nav=accNavFlat().filter(filterAccNavItem);
   if(ME?.role==='sales_manager'){
-    const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements']);
+    const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements','help']);
     nav=nav.filter(it=>allowed.has(it.id));
   }
   return nav;
+}
+/** نرمال‌سازی پاسخ لیست Wave1: آرایه خام یا {data,pagination} */
+function listRows(resp){
+  if(Array.isArray(resp)) return resp;
+  if(resp && Array.isArray(resp.data)) return resp.data;
+  if(resp && Array.isArray(resp.rows)) return resp.rows;
+  return [];
 }
 function navItems(){
   if(IN_ACC_SHELL){
@@ -1294,7 +1318,7 @@ function buildNav(){
       const secItems = sec.items || (sec.subgroups||[]).flatMap(sg=>sg.items||[]);
       let items = secItems.filter(filterAccNavItem);
       if(ME?.role==='sales_manager'){
-        const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements']);
+        const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements','help']);
         items=items.filter(it=>allowed.has(it.id));
       }
       if(!items.length) return '';
@@ -1302,7 +1326,7 @@ function buildNav(){
       let bodyHtml='';
       if(sec.subgroups && sec.subgroups.length){
         bodyHtml = sec.subgroups.map((sg)=>{
-          const sgItems=(sg.items||[]).filter(filterAccNavItem).filter(it=>!ME||ME.role!=='sales_manager'||['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements'].includes(it.id));
+          const sgItems=(sg.items||[]).filter(filterAccNavItem).filter(it=>!ME||ME.role!=='sales_manager'||['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements','help'].includes(it.id));
           if(!sgItems.length) return '';
           return `<div class="nav-acc-sub">
             <div class="nav-acc-sub-title">${T(sg.title)}</div>
@@ -1396,9 +1420,10 @@ function go(page){
   CURRENT_PAGE = page;
   document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
   const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && accNavFlat().find(x=>x.id===page));
-  el('pageTitle').textContent = it?T(it.label):'';
+  el('pageTitle').textContent = it?T(it.label):(page==='help'?'راهنما':'');
   if(window.innerWidth<=900) closeSidebar();
   updateBackBtn();
+  try{ expandAccNavForPage(page); }catch(_){}
   // After every page render, shrink stat-card numbers that overflow their card
   // (large totals like فروش کل on حساب من were spilling out — spec 1.0.9 §4)
   ROUTES[page] ? Promise.resolve(ROUTES[page]()).finally(()=>{ setTimeout(fitStatNums,60); if(typeof enhanceAccTables==='function') enhanceAccTables(el('view')); }) : (el('view').innerHTML='');
@@ -3870,6 +3895,16 @@ async function prodModal(id){
       <div class="fg"><label>واحد ${hlp('واحد شمارش محصول: عدد، دست، بسته و…')}</label><input id="p-unit" value="${esc(p.unit||'عدد')}"></div>
       <div class="fg"><label>تعداد رنگ ${hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" value="${p.colors!=null?p.colors:1}"></div>
       <div class="fg"><label>تعداد در پک ${hlp('تعداد پیش‌فرض هر بسته. در فاکتور به صورت خودکار اعمال می‌شود.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
+      <div class="fg full" id="p-variants-wrap">
+        <label>SKU مدل × رنگ × سایز ${hlp('هر ترکیب رنگ/سایز یک SKU مستقل با موجودی جدا است. ابتدا کالا را ذخیره کنید، سپس ماتریس بسازید.')}</label>
+        ${id?`<div id="p-variants-panel" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">در حال بارگذاری واریانت‌ها...</div>
+        <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;margin-top:8px`)}">
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){openProdVariantMatrixModal((id))})}">➕ ساخت ماتریس رنگ×سایز</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){refreshProdVariantsPanel((id))})}">🔄 بروزرسانی</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-product-colors');closeModal()})}">🎨 رنگ‌ها</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-product-sizes');closeModal()})}">📐 سایزها</button>
+        </div>`:`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">پس از ذخیرهٔ کالا، ویرایش را دوباره باز کنید تا ماتریس SKU ساخته شود.</div>`}
+      </div>
       <div class="fg"><label>بارکد (EAN-13) ${hlp('بارکد محصول برای اسکن با دوربین در فاکتورساز و چاپ برچسب. اگر خالی باشد می‌توانید بعد از ذخیره، خودکار تولید کنید.')}</label>
         <div data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}">
           <input id="p-barcode" dir="ltr" value="${esc(p.barcode||'')}" placeholder="مثلاً 2000000001234" data-csp-style="${CSP.style(`flex:1`)}">
@@ -3913,6 +3948,190 @@ async function prodModal(id){
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProduct((id||0))})}">💾 ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   bindProductImageInstantUpload(id||0);
+  if(id) setTimeout(()=>{ try{ refreshProdVariantsPanel(id); }catch(_){} }, 0);
+}
+async function refreshProdVariantsPanel(productId){
+  const box=el('p-variants-panel'); if(!box||!productId) return;
+  box.innerHTML='در حال بارگذاری...';
+  try{
+    const style=await api('GET','/product-variants/style/'+productId);
+    const vars=(style&&style.variants)||[];
+    const matrix=vars.filter(v=>!v.is_default && v.active!==0);
+    if(!matrix.length){
+      box.innerHTML='<span class="muted">هنوز SKU رنگ×سایز ساخته نشده — «ساخت ماتریس» را بزنید.</span>';
+      return;
+    }
+    box.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>SKU</th><th>رنگ</th><th>سایز</th><th>موجودی</th><th>بارکد</th></tr></thead><tbody>
+      ${matrix.map(v=>`<tr>
+        <td class="mono" dir="ltr">${esc(v.sku||'—')}</td>
+        <td>${esc(v.color_name||v.color_code||'—')}</td>
+        <td>${esc(v.size_name||v.size_code||'—')}</td>
+        <td class="mono">${fmt(v.stock||0)}</td>
+        <td class="mono" dir="ltr">${esc(v.barcode||'—')}</td>
+      </tr>`).join('')}
+    </tbody></table></div>
+    <div class="muted" data-csp-style="${CSP.style(`margin-top:6px`)}">${fmt(matrix.length)} ترکیب فعال</div>`;
+  }catch(e){
+    box.innerHTML=`<span style="color:var(--red)">${esc(e.message||'خطا در بارگذاری واریانت')}</span>`;
+  }
+}
+async function openProdVariantMatrixModal(productId){
+  let colors=[], sizes=[];
+  try{ colors=listRows(await api('GET','/product-variants/colors'))||[]; }catch(_){ colors=[]; }
+  try{ sizes=listRows(await api('GET','/product-variants/sizes'))||[]; }catch(_){ sizes=[]; }
+  openModal(`
+    <div class="modal-head"><h3>ساخت ماتریس SKU (رنگ × سایز)</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">رنگ/سایزهای موجود را تیک بزنید، یا در کادر پایین نام جدید (با ویرگول) وارد کنید. ترکیب‌های تکراری ساخته نمی‌شوند.</p>
+      <div class="form-grid">
+        <div class="fg full"><label>رنگ‌های تعریف‌شده</label>
+          <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px`)}">
+            ${colors.length?colors.map(c=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="pv-color" value="${c.id}"> ${esc(c.name)}</label>`).join(''):'<span class="muted">رنگی ثبت نشده</span>'}
+          </div></div>
+        <div class="fg full"><label>سایزهای تعریف‌شده</label>
+          <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px`)}">
+            ${sizes.length?sizes.map(s=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="pv-size" value="${s.id}"> ${esc(s.name)}</label>`).join(''):'<span class="muted">سایزی ثبت نشده</span>'}
+          </div></div>
+        <div class="fg full"><label>رنگ‌های جدید (ویرگول‌جدا)</label><input id="pv-new-colors" placeholder="مثلاً مشکی, سفید, کرم"></div>
+        <div class="fg full"><label>سایزهای جدید (ویرگول‌جدا)</label><input id="pv-new-sizes" placeholder="مثلاً S, M, L, XL"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){submitProdVariantMatrix((productId))})}">ساخت ماتریس</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`);
+}
+async function submitProdVariantMatrix(productId){
+  const color_ids=[...document.querySelectorAll('.pv-color:checked')].map(el=>Number(el.value)).filter(Boolean);
+  const size_ids=[...document.querySelectorAll('.pv-size:checked')].map(el=>Number(el.value)).filter(Boolean);
+  const colors=String(el('pv-new-colors')?.value||'').split(/[,،]/).map(s=>s.trim()).filter(Boolean).map((name,i)=>({name, code:name, sort_order:i}));
+  const sizes=String(el('pv-new-sizes')?.value||'').split(/[,،]/).map(s=>s.trim()).filter(Boolean).map((name,i)=>({name, code:name, sort_order:i}));
+  if(!color_ids.length && !colors.length){ showToast('حداقل یک رنگ لازم است','error'); return; }
+  if(!size_ids.length && !sizes.length){ showToast('حداقل یک سایز لازم است','error'); return; }
+  try{
+    const body={ product_id:Number(productId), auto_barcode:true };
+    if(color_ids.length) body.color_ids=color_ids; else body.colors=colors;
+    if(size_ids.length) body.size_ids=size_ids; else body.sizes=sizes;
+    // اگر هم id و هم نام جدید داریم، اول نام‌ها را بساز سپس با idها ترکیب کن
+    if(color_ids.length && colors.length){
+      for(const c of colors){ await api('POST','/product-variants/colors',c); }
+      const all=listRows(await api('GET','/product-variants/colors'));
+      body.color_ids=[...new Set([...color_ids, ...all.filter(x=>colors.some(n=>n.name===x.name)).map(x=>x.id)])];
+      delete body.colors;
+    }
+    if(size_ids.length && sizes.length){
+      for(const s of sizes){ await api('POST','/product-variants/sizes',s); }
+      const all=listRows(await api('GET','/product-variants/sizes'));
+      body.size_ids=[...new Set([...size_ids, ...all.filter(x=>sizes.some(n=>n.name===x.name)).map(x=>x.id)])];
+      delete body.sizes;
+    }
+    const r=await api('POST','/product-variants/generate-matrix', body);
+    showToast(`ماتریس: ${fmt(r.created?.length||0)} SKU جدید / ${fmt(r.total_skus||0)} کل`);
+    closeModal();
+    await prodModal(productId);
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function renderProductColorsTab(body){
+  let rows=[];
+  try{ rows=listRows(await api('GET','/product-variants/colors?all=1')); }catch(e){ rows=[]; }
+  const canMut=isAdmin()||ME.role==='accounting';
+  body.innerHTML=`
+    <div class="panel"><div class="panel-head"><h4>🎨 رنگ‌های کالا (برای ماتریس SKU)</h4>
+      ${canMut?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){editProductColorMaster(0)})}">➕ رنگ جدید</button>`:''}
+    </div><div class="panel-body">
+      <p class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;font-size:12px`)}">این فهرست در ویرایش کالا → «ساخت ماتریس رنگ×سایز» استفاده می‌شود.</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>کد</th><th>رنگ</th><th>وضعیت</th><th></th></tr></thead><tbody>
+        ${rows.map(r=>`<tr>
+          <td>${esc(r.name)}</td><td class="mono" dir="ltr">${esc(r.code||'—')}</td>
+          <td>${r.hex?`<span data-csp-style="${CSP.style(`display:inline-block;width:18px;height:18px;border-radius:4px;background:${esc(r.hex)};border:1px solid #ccc;vertical-align:middle`)}"></span> <code dir="ltr">${esc(r.hex)}</code>`:'—'}</td>
+          <td>${r.active?'فعال':'غیرفعال'}</td>
+          <td>${canMut?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){editProductColorMaster((r.id))})}">✏️</button>`:'—'}</td>
+        </tr>`).join('')||emptyRow(5)}
+      </tbody></table></div>
+    </div></div>`;
+}
+async function editProductColorMaster(id){
+  let row={};
+  if(id){
+    const all=listRows(await api('GET','/product-variants/colors?all=1'));
+    row=all.find(x=>Number(x.id)===Number(id))||{};
+  }
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش رنگ':'رنگ جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>نام *</label><input id="pc-name" value="${esc(row.name||'')}"></div>
+      <div class="fg"><label>کد</label><input id="pc-code" dir="ltr" value="${esc(row.code||'')}" placeholder="BLK"></div>
+      <div class="fg"><label>کد رنگ (hex)</label><input id="pc-hex" dir="ltr" value="${esc(row.hex||'')}" placeholder="#000000"></div>
+      <div class="fg"><label>ترتیب</label><input id="pc-sort" type="number" value="${row.sort_order!=null?row.sort_order:0}"></div>
+      ${id?`<div class="fg"><label><input type="checkbox" id="pc-active" ${row.active!==0?'checked':''}> فعال</label></div>`:''}
+    </div></div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProductColorMaster((id||0))})}">💾 ذخیره</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+}
+async function saveProductColorMaster(id){
+  const body={
+    name:el('pc-name')?.value?.trim(),
+    code:el('pc-code')?.value?.trim(),
+    hex:el('pc-hex')?.value?.trim(),
+    sort_order:Number(el('pc-sort')?.value||0)
+  };
+  if(!body.name){ showToast('نام الزامی است','error'); return; }
+  if(id) body.active=el('pc-active')?.checked?1:0;
+  try{
+    if(id) await api('PUT','/product-variants/colors/'+id, body);
+    else await api('POST','/product-variants/colors', body);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('product-colors');
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function renderProductSizesTab(body){
+  let rows=[];
+  try{ rows=listRows(await api('GET','/product-variants/sizes?all=1')); }catch(e){ rows=[]; }
+  const canMut=isAdmin()||ME.role==='accounting';
+  body.innerHTML=`
+    <div class="panel"><div class="panel-head"><h4>📐 سایزهای کالا (برای ماتریس SKU)</h4>
+      ${canMut?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){editProductSizeMaster(0)})}">➕ سایز جدید</button>`:''}
+    </div><div class="panel-body">
+      <p class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;font-size:12px`)}">این فهرست در ویرایش کالا → «ساخت ماتریس رنگ×سایز» استفاده می‌شود.</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>کد</th><th>ترتیب</th><th>وضعیت</th><th></th></tr></thead><tbody>
+        ${rows.map(r=>`<tr>
+          <td>${esc(r.name)}</td><td class="mono" dir="ltr">${esc(r.code||'—')}</td>
+          <td class="mono">${fmt(r.sort_order||0)}</td>
+          <td>${r.active?'فعال':'غیرفعال'}</td>
+          <td>${canMut?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){editProductSizeMaster((r.id))})}">✏️</button>`:'—'}</td>
+        </tr>`).join('')||emptyRow(5)}
+      </tbody></table></div>
+    </div></div>`;
+}
+async function editProductSizeMaster(id){
+  let row={};
+  if(id){
+    const all=listRows(await api('GET','/product-variants/sizes?all=1'));
+    row=all.find(x=>Number(x.id)===Number(id))||{};
+  }
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش سایز':'سایز جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>نام *</label><input id="psz-name" value="${esc(row.name||'')}"></div>
+      <div class="fg"><label>کد</label><input id="psz-code" dir="ltr" value="${esc(row.code||'')}" placeholder="M"></div>
+      <div class="fg"><label>ترتیب</label><input id="psz-sort" type="number" value="${row.sort_order!=null?row.sort_order:0}"></div>
+      ${id?`<div class="fg"><label><input type="checkbox" id="psz-active" ${row.active!==0?'checked':''}> فعال</label></div>`:''}
+    </div></div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProductSizeMaster((id||0))})}">💾 ذخیره</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+}
+async function saveProductSizeMaster(id){
+  const body={
+    name:el('psz-name')?.value?.trim(),
+    code:el('psz-code')?.value?.trim(),
+    sort_order:Number(el('psz-sort')?.value||0)
+  };
+  if(!body.name){ showToast('نام الزامی است','error'); return; }
+  if(id) body.active=el('psz-active')?.checked?1:0;
+  try{
+    if(id) await api('PUT','/product-variants/sizes/'+id, body);
+    else await api('POST','/product-variants/sizes', body);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('product-sizes');
+  }catch(e){ showToast(e.message||'خطا','error'); }
 }
 function bindProductImageInstantUpload(productId){
   const inp=el('p-image');
@@ -5133,7 +5352,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -5641,6 +5860,10 @@ async function loadAccTab(tab){
     await renderPartyGroupsTab(body);
   } else if(tab==='product-groups'){
     await renderProductGroupsTab(body);
+  } else if(tab==='product-colors'){
+    await renderProductColorsTab(body);
+  } else if(tab==='product-sizes'){
+    await renderProductSizesTab(body);
   } else if(tab==='banks'){
     await renderBanksTab(body);
   } else if(tab==='check-categories'){
@@ -7460,7 +7683,7 @@ async function renderProductionBomsTab(body){
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       ${canBomCreate?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomCreateModal()})}">➕ فرمول جدید</button>`:''}
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){loadAccTab('production-boms')})}">🔄 تازه‌سازی</button>
-      <span data-csp-style="${CSP.style(`color:var(--muted);font-size:13px`)}">مسیر: حسابداری → عملیات تولید → فرمول تولید (BOM) → تب‌ها: اقلام | مسیر | خروجی | بها</span>
+      <span data-csp-style="${CSP.style(`color:var(--muted);font-size:13px`)}">مسیر: ماژول حسابداری → سایدبار «تولید» → اطلاعات پایه → فرمول تولید (BOM) → تب‌ها: اقلام | مسیر | خروجی | بها</span>
     </div>
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 10px;line-height:1.7`)}">ویرایشگر چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با <code>production_cost/view</code>). پیش‌نویس بسازید، اقلام/مسیر/خروجی را تکمیل کنید، سپس فعال کنید.</p>
     ${missing.length?`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--well)`)}">
@@ -11156,7 +11379,8 @@ async function refreshAccProductsTableOnly(){
   let qp=['limit=500'];
   if(catFilter) qp.push('category_id='+encodeURIComponent(catFilter));
   if(search) qp.push('search='+encodeURIComponent(search));
-  const rows=await api('GET','/products?'+qp.join('&'))||[];
+  const resp=await api('GET','/products?'+qp.join('&'))||{};
+  const rows=listRows(resp);
   CACHE.allProducts=rows;
   const canMut=isAdmin()||ME.role==='accounting';
   const tbl=el('accProductsTbl');
@@ -11188,7 +11412,8 @@ async function renderAccProductsTab(body){
   let qp=['limit=500'];
   if(catFilter) qp.push('category_id='+encodeURIComponent(catFilter));
   if(search) qp.push('search='+encodeURIComponent(search));
-  const rows=await api('GET','/products?'+qp.join('&'))||[];
+  const resp=await api('GET','/products?'+qp.join('&'))||{};
+  const rows=listRows(resp);
   CACHE.allProducts=rows;
   const cats=(CACHE.productCategories||[]).filter(g=>g.code!==0);
   const canMut=isAdmin()||ME.role==='accounting';
@@ -16148,7 +16373,9 @@ async function loadSettBackupPanel(){
           ${encOn?'رمزنگاری فعال است — پشتیبان‌های جدید به‌صورت AES-256 رمزنگاری می‌شوند (پسوند .enc)':'رمزنگاری غیرفعال است — تعیین رمز به‌شدت توصیه می‌شود.'}
         </p>
         <div data-csp-style="${CSP.style(`display:flex;gap:10px;flex-wrap:wrap;align-items:center`)}">
-          <input id="bk-enc-pass" type="password" dir="ltr" placeholder="رمز پشتیبان (حداقل ۸ کاراکتر)" data-csp-style="${CSP.style(`max-width:280px`)}">
+          <!-- جلوگیری از autofill مرورگر روی فیلد جستجوی تنظیمات -->
+          <input type="text" name="prevent_autofill_user" autocomplete="username" data-csp-style="${CSP.style(`position:absolute;left:-9999px;width:1px;height:1px;opacity:0`)}" tabindex="-1" aria-hidden="true">
+          <input id="bk-enc-pass" type="password" dir="ltr" name="backup_encryption_pass" autocomplete="new-password" placeholder="رمز پشتیبان (حداقل ۸ کاراکتر)" data-csp-style="${CSP.style(`max-width:280px`)}">
           <button class="btn" data-csp-click="${CSP.bind('click',function(event){saveBackupPassword()})}">ذخیره رمز</button>
           ${encOn?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){clearBackupPassword()})}">حذف رمز</button>`:''}
         </div>
@@ -16459,8 +16686,9 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>مودیان:</b> صف ارسال فقط روی سرور مرکزی (stub/sandbox؛ live خاموش تا SDK واقعی). فاکتور با مهر مالیاتی قفل ویرایش و ابطال محلی است</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک:</b> مدل × رنگ × سایز از مسیر <code>/api/product-variants</code>؛ موجودی هر SKU مستقل است؛ تغییر موجودی واریانت مثل کالا فقط مرکزی</li>
-        <li><b>صفحه‌بندی:</b> با <code>page</code>/<code>pageSize</code> envelope می‌آید؛ بدون پارامتر، کاتالوگ کامل (سازگار با UI فعلی)</li>
+        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>؛ سپس در ویرایش هر کالا دکمه <b>«ساخت ماتریس رنگ×سایز»</b>. API: <code>/api/product-variants</code></li>
+        <li><b>صفحه‌بندی:</b> لیست کالاها در حسابداری با <code>limit</code> لود می‌شود و پاسخ envelope را UI باز می‌کند؛ بدون پارامتر page/limit کاتالوگ کامل است</li>
+        <li><b>راهنما:</b> در پوستهٔ حسابداری از <b>امکانات → راهنما</b> (پایین سایدبار) باز می‌شود</li>
       </ul>`),
     helpSec('📥','ورودی اکسل و واحد پول',`
       <p>مبالغ در کل برنامه فقط <b>ریال</b> هستند — ذخیره، نمایش، اکسل و سند حسابداری (با تبدیل داخلی به تومان فقط برای ورودی <code>postToLedger</code>).</p>
@@ -16522,7 +16750,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>بارگذاری اولیه سریع‌تر (لیست‌های سنگین به‌صورت lazy)</li>
       </ul>
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
-        <li>مسیر دقیق: <b>حسابداری → عملیات تولید → فرمول تولید (BOM)</b> سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>.</li>
+        <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
         <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. با مسیر فعال، بازده سرفصل باید ۱۰۰٪ باشد (<b>V4-21</b>).</li>
@@ -16866,7 +17094,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v147</b> است و اسکریپت‌ها با <code>?v=147</code> بارگذاری می‌شوند؛ اگر منو/تولید/مودیان قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v148</b> است و اسکریپت‌ها با <code>?v=148</code> بارگذاری می‌شوند؛ اگر منو/تولید/مودیان قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -17033,7 +17261,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v147</b> است.</div>`),
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v148</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
       <h5>ثبت مشتری جدید</h5><ul>
