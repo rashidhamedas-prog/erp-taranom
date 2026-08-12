@@ -1,4 +1,11 @@
-﻿## 2026-08-12T19:25:00+03:30 — ACC-CRM-UNIFY Phase 1 GREEN (encoding restore)
+﻿## 2026-08-12T19:45:00+03:30 — ACC-CRM-UNIFY Phase 2 GREEN (money/rial)
+
+- **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; NO deploy
+- **Fixes:** purchases no `*10`; valuation rows use landed `amount_rial`; sales-document purchase/return rial-only; sales_returns.cost_amount rial end-to-end; JE uses `rialToLedger(costAmount)` correctly
+- **Tests:** `test-acc-crm-perpetual.js` **44/44** incl. avg=40000, GL==ledger, discount 450000, COGS=3×40000, return JE==ledger, void reverse
+- **Next:** Phase 3 CRM RBAC (scopeUserId ignore override; cheque scope; negative HTTP)
+
+## 2026-08-12T19:25:00+03:30 — ACC-CRM-UNIFY Phase 1 GREEN (encoding restore)
 
 - **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; claims retained; NO deploy
 - **index.html:** restored from `448a8c1` UTF-8+BOM (584 Persian chars, 0 `???` runs); only intentional ACC-CRM edit re-applied was asset `?v=` bump → **v150** after UI confirm

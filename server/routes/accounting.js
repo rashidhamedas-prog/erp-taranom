@@ -1210,14 +1210,14 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
     }
     const sum = qty * price - discAmt;
     amount += sum;
-    const avgRial = Number(prod.average_cost_rial) || 0;
-    const unitCostDisplay = avgRial > 0 ? (avgRial / 10) : (Number(prod.cost) || 0);
-    costAmount += qty * unitCostDisplay;
+    const avgRial = Number(prod.average_cost_rial) || Math.round((Number(prod.cost) || 0) * 10) || 0;
+    // sales_returns.cost_amount is INTEGER rial going forward (legacy rows may be toman).
+    costAmount += Math.round(qty * avgRial);
     built.push({
       product_id: pid, name: prod.name, qty, price, disc, disc_amt: discAmt, sum,
       warehouse_id: lineWh || parentWhId || null,
-      unit_cost: unitCostDisplay,
-      cost_rial: avgRial > 0 ? avgRial : Math.round(unitCostDisplay * 10),
+      unit_cost: avgRial,
+      cost_rial: avgRial,
     });
   }
   if (!built.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
@@ -1241,7 +1241,8 @@ router.post('/sales-returns', auth, adminOrAccounting, (req, res) => {
           note: `برگشت از فروش #${retId}`,
         });
         if (stocked.costRial > 0) {
-          costAmount = stocked.costRial / 10;
+          // Keep cost_amount in rial end-to-end (matches inventory_ledger.amount_rial).
+          costAmount = stocked.costRial;
           db.prepare('UPDATE sales_returns SET cost_amount=? WHERE id=?').run(costAmount, retId);
         }
       } else {

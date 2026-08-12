@@ -83,6 +83,27 @@ function allocateFreight(rows, freightAmount, method) {
   return rows;
 }
 
+function buildInventoryValuationRows(rows, documentDiscountRial) {
+  const discount = Math.round(Number(documentDiscountRial) || 0);
+  const total = rows.reduce((sum, row) => sum + Math.round(Number(row.sum) || 0), 0);
+  let allocatedDiscount = 0;
+  return rows.map((row, index) => {
+    const lineValue = Math.round(Number(row.sum) || 0);
+    const discountShare = index === rows.length - 1
+      ? discount - allocatedDiscount
+      : (total > 0 ? Math.round(discount * lineValue / total) : 0);
+    allocatedDiscount += discountShare;
+    const amountRial = lineValue - discountShare + Math.round(Number(row.allocated_freight) || 0);
+    const qty = Number(row.qty) || 0;
+    return {
+      ...row,
+      // Landed unit in rial so inventory_ledger matches purchase JE (netBeforeVat).
+      price_rial: qty > 0 ? Math.round(amountRial / qty) : Math.round(Number(row.price) || 0),
+      amount_rial: amountRial,
+    };
+  });
+}
+
 // ---------------- Purchase invoices ----------------
 
 router.get('/', auth, adminOrAccounting, (req, res) => {
@@ -142,10 +163,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     const invId = result.lastInsertRowid;
 
     if (perpetualDocsEnabled(db)) {
-      const priced = built.rows.map((r) => ({
-        ...r,
-        price_rial: Math.round((Number(r.price) || 0) * 10),
-      }));
+      const priced = buildInventoryValuationRows(built.rows, discAmt);
       postPurchaseStockMovements(db, {
         rows: priced, warehouseId: whId, sourceType: 'purchase', sourceId: invId,
         userId: req.user.id, date: entryDate, note: `خرید ${num}`,
@@ -363,7 +381,7 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
           productId: r.product_id,
           warehouseId: whId,
           qtyOut: Number(r.qty) || 0,
-          unitCostRial: Math.round((Number(r.price) || 0) * 10),
+          unitCostRial: Math.round(Number(r.price) || 0),
           sourceType: 'purchase_return',
           sourceId: retId,
           date: date || todayJalali(),

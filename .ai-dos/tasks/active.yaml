@@ -16,7 +16,7 @@ tasks:
     base_commit: "448a8c1"
     reviewed_tip: "d5a2f51"
     claimed_at: "2026-08-11T16:55:00+03:30"
-    remediation_phase: "1-done"
+    remediation_phase: "2-done"
     file_claims:
       - ".ai-dos/project/status.md"
       - ".ai-dos/tasks/active.yaml"

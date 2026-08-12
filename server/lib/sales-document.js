@@ -186,13 +186,23 @@ function postPurchaseStockMovements(db, {
     if (!r.product_id) continue;
     const whId = r.warehouse_id ? parseInt(r.warehouse_id, 10) : warehouseId;
     const qty = Number(r.qty) || 0;
-    const unit = Math.round(Number(r.price_rial != null ? r.price_rial : (Number(r.price) || 0) * 10) || 0);
+    // DB/UI contract: amounts are INTEGER rial. Prefer explicit amount_rial (landed
+    // after discount/freight); else price_rial / price already in rial — never ×10.
+    const amountOverride = r.amount_rial != null ? Math.round(Number(r.amount_rial) || 0) : null;
+    const unit = Math.round(
+      Number(
+        r.price_rial != null
+          ? r.price_rial
+          : (amountOverride != null && qty ? amountOverride / qty : (Number(r.price) || 0))
+      ) || 0
+    );
     const mv = postInventoryMovement(db, {
       eventType: 'purchase',
       productId: r.product_id,
       warehouseId: whId,
       qtyIn: qty,
       unitCostRial: unit,
+      amountRial: amountOverride != null ? amountOverride : undefined,
       sourceType,
       sourceId,
       date: date || '',
@@ -215,8 +225,10 @@ function postSaleReturnStockMovements(db, {
     if (!r.product_id) continue;
     const whId = r.warehouse_id ? parseInt(r.warehouse_id, 10) : warehouseId;
     const qty = Number(r.qty) || 0;
+    // cost_rial / unit_cost are rial under money.js contract (legacy unit_cost
+    // that was toman×display is no longer multiplied here).
     const unitCost = Math.round(
-      Number(r.cost_rial != null ? r.cost_rial : (Number(r.unit_cost) || 0) * 10) || 0
+      Number(r.cost_rial != null ? r.cost_rial : (Number(r.unit_cost) || 0)) || 0
     );
     const mv = postInventoryMovement(db, {
       eventType: 'sale_return',

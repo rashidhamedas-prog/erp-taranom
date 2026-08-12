@@ -27,6 +27,14 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-12 — ACC-CRM-UNIFY Phase 2: واحد پول ریال + تست مبالغ دقیق
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** (pending Phase 2)
+- **خلاصه:** حذف `*10` نادرست خرید/برگشت؛ `cost_amount` برگشت فروش ریالی؛ تخفیف خرید با `amount_rial` همسو با JE؛ تست‌های مبلغ‌محور (avg=40000، GL=ledger، COGS، void). perpetual **۴۴/۴۴**.
+- **فایل‌های کلیدی:** `purchases.js`, `sales-document.js`, `accounting.js`, `test-acc-crm-perpetual.js`
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** بدون تغییر
+
 ### 2026-08-12 — ACC-CRM-UNIFY Phase 1: بازیابی encoding فارسی index.html + guard (SW v150)
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
 - **Commit:** `f83b00f`
