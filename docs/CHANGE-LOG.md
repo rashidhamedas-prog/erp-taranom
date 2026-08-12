@@ -29,7 +29,7 @@
 
 ### 2026-08-12 — ACC-CRM-UNIFY Phase 8a: review remediation (pre-approve)
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
-- **Commit:** _(pending stamp)_
+- **Commit:** `c0ed4c9`
 - **خلاصه:** رفع یافته‌های Reviewer/Security: receivables بدون ×۱۰؛ KPI تاریخ شمسی؛ cheque lifecycle idempotency داخل transaction؛ ensureAllUserParties پس از unify؛ COGS void با fallback toman؛ تست dashboard due تاریخ جلالی.
 - **Deploy:** ⏭ عمداً انجام نشد
 - **SW:** بدون تغییر (منطق سرور)

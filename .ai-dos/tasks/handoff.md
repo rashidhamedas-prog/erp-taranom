@@ -1,4 +1,10 @@
-﻿## 2026-08-12T23:40:00+03:30 — ACC-CRM-UNIFY Phase 7 GREEN (full gates)
+﻿## 2026-08-12T24:00:00+03:30 — ACC-CRM-UNIFY Phase 8a review-fix (`c0ed4c9`)
+
+- Closed Independent Reviewer Highs: CRM receivables ×10 removed; Jalali dates for overdue/inactive/cheque-due KPIs; invoice amount_rial no longer `final*10`
+- Closed Mediums: ensureAllUserParties after unify; void COGS debit_rial||debit×10; cheque send/clear/bounce/resend idempotency+lifecycle inside `db.transaction` with conditional UPDATE
+- Tip: `c0ed4c9` — still NOT completed; awaiting re-review; NO deploy
+
+## 2026-08-12T23:40:00+03:30 — ACC-CRM-UNIFY Phase 7 GREEN (full gates)
 
 - **Task:** still `active` — awaiting Independent Reviewer + Security; NO deploy
 - **Tip:** `0d043fd` (Phase 6 stamp on `bce9943`)
