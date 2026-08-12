@@ -29,7 +29,7 @@
 
 ### 2026-08-12 — ACC-CRM-UNIFY Phase 1: بازیابی encoding فارسی index.html + guard (SW v150)
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
-- **Commit:** (pending Phase 1)
+- **Commit:** `f83b00f`
 - **خلاصه:** `index.html` از `448a8c1` با UTF-8/BOM سالم بازگردانی شد؛ فقط bump دارایی‌ها به v150. گارد `check-ui-encoding.js` (حداقل ۴۰۰ نویسه فارسی، رد `???`). اسکرین‌شات‌ها در `docs/architecture/ui-baseline/`. SW → `erp-taranom-v150` پس از تأیید UI.
 - **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `server/scripts/check-ui-encoding.js`, `server/scripts/phase1-ui-screenshots.js`, `docs/architecture/ui-baseline/*`
 - **Deploy:** ⏭ عمداً انجام نشد
