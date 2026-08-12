@@ -31,6 +31,13 @@ function choose(value, fallback) {
   return value === undefined ? fallback : value;
 }
 
+function partyAlreadyLinkedError(owner) {
+  const err = new Error(`این شخص قبلاً به کاربر «${owner.name || owner.username}» متصل است — هر شخص فقط می‌تواند به یک کاربر متصل باشد`);
+  err.status = 409;
+  err.code = 'E_PARTY_ALREADY_LINKED';
+  return err;
+}
+
 function ensureUserParty(db, userId, details = {}) {
   details = { ...details, ...(details.person || {}) };
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(userId);
@@ -40,18 +47,13 @@ function ensureUserParty(db, userId, details = {}) {
   const requestedPartyId = details.party_id ? Number(details.party_id) : null;
   if (requestedPartyId) party = db.prepare('SELECT * FROM parties WHERE id=?').get(requestedPartyId);
   if (requestedPartyId && !party) throw new Error('شخص انتخاب‌شده یافت نشد');
-  // R13-adjacent guard: هر شخص فقط به یک کاربر متصل باشد — اتصال دوباره به
-  // کاربر دیگر مجاز نیست (باید ابتدا از کاربر قبلی جدا شود).
-  if (requestedPartyId) {
-    const otherOwner = db.prepare('SELECT id,name,username FROM users WHERE party_id=? AND id<>?').get(requestedPartyId, userId);
-    if (otherOwner) {
-      const err = new Error(`این شخص قبلاً به کاربر «${otherOwner.name || otherOwner.username}» متصل است — هر شخص فقط می‌تواند به یک کاربر متصل باشد`);
-      err.status = 409;
-      err.code = 'E_PARTY_ALREADY_LINKED';
-      throw err;
-    }
-  }
   if (!party && user.party_id) party = db.prepare('SELECT * FROM parties WHERE id=?').get(user.party_id);
+  // Check before mutating the party or user. Normal requests must never steal a
+  // link or silently clear the existing owner's users.party_id.
+  if (party) {
+    const otherOwner = db.prepare('SELECT id,name,username FROM users WHERE party_id=? AND id<>?').get(party.id, userId);
+    if (otherOwner) throw partyAlreadyLinkedError(otherOwner);
+  }
 
   const source = party || {};
   const fullName = String(choose(details.full_name, choose(details.person_full_name, user.name)) || user.name).trim();
@@ -109,11 +111,15 @@ function ensureUserParty(db, userId, details = {}) {
     partyId = result.lastInsertRowid;
   }
 
-  db.prepare('UPDATE users SET party_id=? WHERE id=?').run(partyId, user.id);
-  // Defensive cleanup — never leave two users pointing at the same party even
-  // if legacy data slipped past the guard above (belt-and-suspenders with the
-  // partial unique index created in db.js's acc_crm_unify_v1 migration).
-  db.prepare('UPDATE users SET party_id=NULL WHERE party_id=? AND id<>?').run(partyId, user.id);
+  try {
+    db.prepare('UPDATE users SET party_id=? WHERE id=?').run(partyId, user.id);
+  } catch (e) {
+    if (e.code === 'SQLITE_CONSTRAINT_UNIQUE' || /UNIQUE constraint failed: users\.party_id/.test(e.message)) {
+      const owner = db.prepare('SELECT id,name,username FROM users WHERE party_id=? AND id<>?').get(partyId, user.id);
+      if (owner) throw partyAlreadyLinkedError(owner);
+    }
+    throw e;
+  }
   return db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
 }
 
@@ -126,4 +132,117 @@ function ensureAllUserParties(db) {
   return users.length;
 }
 
-module.exports = { ensureUserParty, ensureAllUserParties, partyRolesForUser };
+/**
+ * ACC-CRM-UNIFY v1 migration — transaction-safe unique users.party_id.
+ * Policy for legacy duplicates: keep lowest user id; audit then clear others.
+ * Stamp settings.acc_crm_unify_v1=1 only after unique index is verified.
+ */
+function verifyPartyUniqueIndex(db) {
+  const indexName = 'idx_users_party_id_unique';
+  const master = db.prepare(
+    'SELECT name, sql FROM sqlite_master WHERE type=? AND name=?'
+  ).get('index', indexName);
+  const listed = db.prepare("PRAGMA index_list('users')").all().find((row) => row.name === indexName);
+  const columns = master ? db.prepare(`PRAGMA index_info('${indexName}')`).all() : [];
+  const valid = !!master
+    && listed?.unique === 1
+    && listed?.partial === 1
+    && columns.length === 1
+    && columns[0].name === 'party_id'
+    && /\bWHERE\s+party_id\s+IS\s+NOT\s+NULL\b/i.test(master.sql || '');
+  if (!valid) {
+    const err = new Error(
+      `${indexName} missing or invalid (expected UNIQUE users(party_id) WHERE party_id IS NOT NULL)`
+    );
+    err.code = 'E_ACC_CRM_UNIFY_INDEX_INVALID';
+    throw err;
+  }
+  return { name: master.name, sql: master.sql, unique: true, partial: true };
+}
+
+function runAccCrmUnifyV1(db, options = {}) {
+  const done = db.prepare("SELECT value FROM settings WHERE key='acc_crm_unify_v1'").get();
+  if (done && done.value === '1') {
+    return { skipped: true, index: verifyPartyUniqueIndex(db) };
+  }
+
+  const run = db.transaction(() => {
+    db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('feature_perpetual_docs','1')").run();
+    db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('feature_cogs_voucher','1')").run();
+
+    const dups = db.prepare(`
+      SELECT party_id AS party_id, GROUP_CONCAT(id) AS ids, COUNT(*) AS c
+      FROM users
+      WHERE party_id IS NOT NULL
+      GROUP BY party_id
+      HAVING c > 1
+    `).all();
+
+    const reconcileLog = [];
+    const nowIso = new Date().toISOString();
+    for (const d of dups) {
+      const ids = String(d.ids).split(',').map((x) => parseInt(x, 10)).filter(Number.isFinite).sort((a, b) => a - b);
+      const keep = ids[0];
+      for (const uid of ids.slice(1)) {
+        const entry = {
+          action: 'clear_duplicate_party_link',
+          user_id: uid,
+          party_id: d.party_id,
+          kept_user_id: keep,
+          policy: 'keep_lowest_user_id',
+          at: nowIso,
+        };
+        reconcileLog.push(entry);
+      }
+    }
+    if (reconcileLog.length) {
+      // This settings record is the authoritative audit trail. It is written
+      // before clearing any duplicate link and shares the same transaction.
+      const auditRecord = {
+        migration: 'acc_crm_unify_v1',
+        policy: 'keep_lowest_user_id',
+        reconciled_at: nowIso,
+        records: reconcileLog,
+      };
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('acc_crm_unify_v1_reconcile',?)")
+        .run(JSON.stringify(auditRecord));
+      for (const entry of reconcileLog) {
+        const changed = db.prepare('UPDATE users SET party_id=NULL WHERE id=? AND party_id=?')
+          .run(entry.user_id, entry.party_id);
+        if (changed.changes !== 1) {
+          const err = new Error(`duplicate link changed during reconcile (user_id=${entry.user_id}, party_id=${entry.party_id})`);
+          err.code = 'E_ACC_CRM_UNIFY_RECONCILE';
+          throw err;
+        }
+      }
+    }
+
+    if (typeof options.beforeCreateIndex === 'function') options.beforeCreateIndex();
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_party_id_unique ON users(party_id) WHERE party_id IS NOT NULL');
+    const index = verifyPartyUniqueIndex(db);
+    const still = db.prepare(`
+      SELECT party_id FROM users WHERE party_id IS NOT NULL GROUP BY party_id HAVING COUNT(*)>1
+    `).get();
+    if (still) {
+      const err = new Error(`acc_crm_unify_v1: duplicate party_id=${still.party_id} پس از reconcile باقی است`);
+      err.code = 'E_ACC_CRM_UNIFY_DUP';
+      throw err;
+    }
+
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('acc_crm_unify_v1','1')").run();
+    return { skipped: false, reconciled: reconcileLog.length, index };
+  });
+
+  try {
+    return run();
+  } catch (cause) {
+    const err = new Error(`acc_crm_unify_v1 failed; transaction rolled back: ${cause.message}`);
+    err.code = cause.code || 'E_ACC_CRM_UNIFY_MIGRATION';
+    err.cause = cause;
+    throw err;
+  }
+}
+
+module.exports = {
+  ensureUserParty, ensureAllUserParties, partyRolesForUser, runAccCrmUnifyV1,
+};

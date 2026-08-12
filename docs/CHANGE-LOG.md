@@ -27,6 +27,14 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-12 — ACC-CRM-UNIFY Phase 4: migration party + E_PARTY_ALREADY_LINKED
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** _(pending stamp)_
+- **خلاصه:** حذف `party_id=NULL` خاموش روی conflict؛ `runAccCrmUnifyV1` تراکنشی (keep lowest user id + audit + UNIQUE index) و stamp فقط روی موفقیت؛ تست party **۱۸/۱۸**.
+- **فایل‌های کلیدی:** `user-party.js`, `db.js`, `test-acc-crm-party.js`
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** بدون تغییر
+
 ### 2026-08-12 — ACC-CRM-UNIFY Phase 3: CRM RBAC + cheque scope
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
 - **Commit:** `dd511fc`

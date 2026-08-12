@@ -1,4 +1,11 @@
-﻿## 2026-08-12T20:25:00+03:30 — ACC-CRM-UNIFY Phase 3 GREEN (CRM RBAC)
+﻿## 2026-08-12T20:40:00+03:30 — ACC-CRM-UNIFY Phase 4 GREEN (party migration)
+
+- **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; NO deploy
+- **Fixes:** no silent `UPDATE users SET party_id=NULL` on conflict; conflict → `E_PARTY_ALREADY_LINKED` + revert requester link; `runAccCrmUnifyV1` transactional reconcile (keep lowest user id, audit_log + settings snapshot, UNIQUE index) stamps `acc_crm_unify_v1=1` only on success; failure rethrows (boot fails)
+- **Tests:** `test-acc-crm-party.js` **18/18** (duplicates, idempotency, retry after unstamp, keep-lowest, implicit bind, no silent NULL)
+- **Next:** Phase 5 — firm-sale reports (`normal|final`) + ADR classification vs Moadian final-only
+
+## 2026-08-12T20:25:00+03:30 — ACC-CRM-UNIFY Phase 3 GREEN (CRM RBAC)
 
 - **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; NO deploy
 - **Fixes:** `resolveEffectiveUserId` ignores client `user_id` when scoped (incl. 0); CRM routes `requirePermission('followups','view')`; cheque KPIs scoped via customer_id/party_id; timeline cheque binding stable IDs + unique-name legacy only; `cheque_records.party_id/customer_id/lifecycle_status` columns
