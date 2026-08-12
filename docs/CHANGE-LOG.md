@@ -29,7 +29,7 @@
 
 ### 2026-08-12 — ACC-CRM-UNIFY Phase 0: تثبیت baseline + پورت قابل‌تنظیم (بدون deploy)
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
-- **Commit:** (pending Phase 0)
+- **Commit:** `8fea0d4`
 - **خلاصه:** پس از Reviewer=`CHANGES_REQUIRED` و Security=`NOT_APPROVED` روی `d5a2f51`، فاز ۰ remediation: helper پورت/cleanup (`test-server-boot.js`)، پورت قابل‌تنظیم در `test-acc-crm-perpetual` (`ACC_CRM_TEST_PORT`) و `test-sync` (`SYNC_TEST_PORT_BASE`)، runner سریال `run-acc-crm-baseline.js`، ثبت مالکیت/claim در AI-DOS. stamp قبلی CHANGE-LOG برای `d5a2f51` حفظ شد.
 - **فایل‌های کلیدی:** `server/scripts/lib/test-server-boot.js`, `test-acc-crm-perpetual.js`, `test-sync.js`, `run-acc-crm-baseline.js`, `.ai-dos/tasks/{active.yaml,handoff.md}`, `.ai-dos/project/status.md`
 - **Deploy:** ⏭ عمداً انجام نشد (مجوز مالک + dual Approved لازم)
