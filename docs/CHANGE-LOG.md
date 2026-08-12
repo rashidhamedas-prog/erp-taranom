@@ -27,6 +27,13 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-12 — ACC-CRM-UNIFY completed: dual Approved (no deploy)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Code tip:** `c0ed4c9` · **Stamp:** `fe2f1da`
+- **خلاصه:** Independent Reviewer + Security هر دو APPROVED پس از remediation فازهای ۰–۸؛ claims آزاد شد. merge/deploy ایران فقط با مجوز صریح مالک.
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** `erp-taranom-v151`
+
 ### 2026-08-12 — ACC-CRM-UNIFY Phase 8a: review remediation (pre-approve)
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
 - **Commit:** `c0ed4c9`

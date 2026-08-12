@@ -1,4 +1,12 @@
-﻿## 2026-08-12T24:00:00+03:30 — ACC-CRM-UNIFY Phase 8a review-fix (`c0ed4c9`)
+﻿## 2026-08-12T24:15:00+03:30 — ACC-CRM-UNIFY COMPLETED (dual Approved; no deploy)
+
+- **Independent Reviewer:** APPROVED (agent 09471755) — prior High/Medium closed on `c0ed4c9`
+- **Security:** APPROVED (agent 5f0954d9) — M1 cheque txn idempotency closed
+- **Tip:** code `c0ed4c9` · stamp `fe2f1da` · branch `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Task:** `completed`; `file_claims: []`; review_status=APPROVED; security_status=APPROVED
+- **NOT done:** merge to primary · Iran SFTP/deploy — need explicit owner approval
+
+## 2026-08-12T24:00:00+03:30 — ACC-CRM-UNIFY Phase 8a review-fix (`c0ed4c9`)
 
 - Closed Independent Reviewer Highs: CRM receivables ×10 removed; Jalali dates for overdue/inactive/cheque-due KPIs; invoice amount_rial no longer `final*10`
 - Closed Mediums: ensureAllUserParties after unify; void COGS debit_rial||debit×10; cheque send/clear/bounce/resend idempotency+lifecycle inside `db.transaction` with conditional UPDATE

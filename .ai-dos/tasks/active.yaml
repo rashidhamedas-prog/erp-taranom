@@ -2,9 +2,9 @@ schema_version: 1
 tasks:
   - id: "ACC-CRM-UNIFY"
     title: "Accounting perpetual unify + normal invoice + CRM dashboard"
-    status: "active"
-    review_status: "CHANGES_REQUIRED"
-    security_status: "NOT_APPROVED"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:orchestrator"
     roles:
@@ -15,49 +15,12 @@ tasks:
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify"
     base_commit: "448a8c1"
     reviewed_tip: "d5a2f51"
+    approved_tip: "c0ed4c9"
+    tip_stamp: "fe2f1da"
     claimed_at: "2026-08-11T16:55:00+03:30"
-    remediation_phase: "7-done"
-    file_claims:
-      - ".ai-dos/project/status.md"
-      - ".ai-dos/tasks/active.yaml"
-      - ".ai-dos/tasks/handoff.md"
-      - "docs/architecture/ACC-CRM-UNIFY-AUDIT.md"
-      - "docs/architecture/ADR-ACC-CRM-UNIFY.md"
-      - "docs/architecture/ui-baseline/"
-      - "docs/CHANGE-LOG.md"
-      - "server/db.js"
-      - "server/server.js"
-      - "server/lib/user-party.js"
-      - "server/lib/void-invoice.js"
-      - "server/lib/ledger.js"
-      - "server/lib/inventory/ledger.js"
-      - "server/lib/sales-document.js"
-      - "server/lib/crm-analytics.js"
-      - "server/routes/invoices.js"
-      - "server/routes/purchases.js"
-      - "server/routes/accounting.js"
-      - "server/routes/admin.js"
-      - "server/routes/parties.js"
-      - "server/routes/cheque-records.js"
-      - "server/routes/crm.js"
-      - "server/routes/products.js"
-      - "server/public/app.js"
-      - "server/public/acc-nav.js"
-      - "server/public/mdi.js"
-      - "server/public/app.css"
-      - "server/public/index.html"
-      - "server/public/sw.js"
-      - "server/scripts/test-acc-crm-perpetual.js"
-      - "server/scripts/test-acc-crm-party.js"
-      - "server/scripts/test-acc-crm-dashboard.js"
-      - "server/scripts/test-acc-crm-reports.js"
-      - "server/scripts/test-acc-crm-phase6.js"
-      - "server/scripts/test-sync.js"  # harness-only: proxy strip + tunable boot timeout + port base
-      - "server/scripts/lib/test-server-boot.js"
-      - "server/scripts/run-acc-crm-baseline.js"
-      - "server/scripts/check-ui-encoding.js"
-      - "server/scripts/phase1-ui-screenshots.js"
-      - "server/routes/followups.js"  # sales_manager scope align with crmScopeUserId
+    completed_at: "2026-08-12T24:15:00+03:30"
+    remediation_phase: "8-approved"
+    file_claims: []
     acceptance_criteria:
       - "Audit + ADR + canonical redirect map committed"
       - "Invoice types proforma|normal|final; normal posts stock+JE+COGS; Moadian only final"
@@ -71,11 +34,9 @@ tasks:
       - "Browser UI smoke + screenshots; Independent Reviewer + Security Approved"
       - "NO Iran deploy until explicit owner approval; no completed before dual approval"
     notes: >-
-      Independent Reviewer CHANGES_REQUIRED + Security NOT_APPROVED on tip d5a2f51.
-      Remediation phases 0–8 in progress; DO NOT mark completed / release claims /
-      merge / Iran deploy until dual Approved. Implement only in worktree.
-      Dual identity: implementer-acc-crm vs independent-reviewer/security.
-      Dirty CHANGE-LOG stamp (commit d5a2f51) preserved — not overwritten.
+      Dual Approved on tip c0ed4c9 (stamp fe2f1da): Independent Reviewer APPROVED
+      (09471755) + Security APPROVED (5f0954d9). Claims released. Merge / Iran deploy
+      still require explicit owner approval — not performed.
 
   - id: "PROD-P5-R2"
     title: "Reopen invalid PROD-P5 completion; restore P0–P5 gates and secure sensitivity"

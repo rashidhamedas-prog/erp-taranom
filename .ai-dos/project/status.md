@@ -1,19 +1,13 @@
 # Project Status
 
-- Last verified: 2026-08-12 (~18:50 +03:30)
-- **Active task:** `ACC-CRM-UNIFY` (high risk) — remediation after dual review.
-- **Review disposition:** Independent Reviewer **CHANGES_REQUIRED**; Security **NOT APPROVED**
-  (reviewed tip `d5a2f51` vs base `448a8c1`). Task remains `active` — NOT completed; claims retained.
-- **Remediation:** Phases 0–8. **Phase 0+1 GREEN** (ports/cleanup; index.html UTF-8 restored + encoding guard + ui-baseline screenshots; SW v150).
-  Phases 2–3 in parallel (money ×10 / CRM RBAC). Task still CHANGES_REQUIRED / Security NOT APPROVED.
-- Branch / worktree: `ai/ACC-CRM-UNIFY-accounting-crm` /
-  `D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify`.
-- Roles: Orchestrator `cursor:orchestrator`; Implementer `cursor:implementer-acc-crm`;
-  Reviewer `cursor:independent-reviewer-acc-crm`; Security `cursor:independent-security-acc-crm`
-  (Reviewer/Security distinct from Implementer — Implementer must not self-approve).
-- **NO Iran deploy / merge** until explicit owner approval after dual Approved.
-- Do not implement in dirty `erp-taranom1`. Leave `ai/W1-*` alone.
-- Prior: PROD-P5-R2 completed (tip lineage from primary `448a8c1`).
+- Last verified: 2026-08-12 (~24:15 +03:30)
+- **Active task:** none (ACC-CRM-UNIFY completed after dual Approved)
+- **ACC-CRM-UNIFY:** Independent Reviewer **APPROVED** + Security **APPROVED** on code tip `c0ed4c9` (stamp `fe2f1da`)
+  vs base `448a8c1`. Claims released. Branch `ai/ACC-CRM-UNIFY-accounting-crm` ready for owner merge.
+- **NO Iran deploy / merge** until explicit owner approval (not performed).
+- Roles used: Implementer `cursor:implementer-acc-crm`; Reviewer `cursor:independent-reviewer-acc-crm`;
+  Security `cursor:independent-security-acc-crm` (distinct from Implementer).
+- Prior: PROD-P5-R2 completed.
 
 ## Working quality commands
 
@@ -27,7 +21,10 @@
 - `node server/scripts/_diag-sync-gaps-b16e78.js`
 - `node --check server/server.js`
 - `npm.cmd --prefix server run test:production`
-- `node server/scripts/test-acc-crm-perpetual.js` (added by this task)
-- `node server/scripts/test-acc-crm-party.js` (added by this task)
-- `node server/scripts/test-acc-crm-dashboard.js` (added by this task)
-- `node server/scripts/run-acc-crm-baseline.js` (Phase 0 serial runner; env ACC_CRM_TEST_PORT / SYNC_TEST_PORT_BASE)
+- `node server/scripts/test-acc-crm-perpetual.js`
+- `node server/scripts/test-acc-crm-party.js`
+- `node server/scripts/test-acc-crm-dashboard.js`
+- `node server/scripts/test-acc-crm-reports.js`
+- `node server/scripts/test-acc-crm-phase6.js`
+- `node server/scripts/run-acc-crm-baseline.js`
+- `node server/scripts/check-ui-encoding.js`
