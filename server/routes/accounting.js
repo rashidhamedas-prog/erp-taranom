@@ -5,6 +5,7 @@ const { DELETED_FILTER, postToLedger } = require('../lib/ledger');
 const { rialToLedger, jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { todayJalali } = require('../jalali');
 const { parseQty } = require('../lib/round3');
+const { firmSaleTypeSql, commissionEligibleSql } = require('../lib/sales-document');
 // دریافتنیِ مشتری: تفصیلی خودش وگرنه حساب کنترلی نگاشت‌شده
 function recvAcct(db, custId) {
   const c = custId ? db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId) : null;
@@ -135,7 +136,7 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
 // Overview stats for accounting dashboard
 router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const totalInvoiced = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND COALESCE(deleted_at,0)=0").get().s;
+  const totalInvoiced = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0`).get().s;
   const totalSettled = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE COALESCE(status,'posted')<>'reversed'").get().s;
   const pendingApproval = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=0 AND COALESCE(deleted_at,0)=0").get().c;
   const pendingSettlements = db.prepare("SELECT COUNT(*) c FROM rep_payment_submissions WHERE status='pending'").get().c;
@@ -222,7 +223,7 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
     FROM customers c
     LEFT JOIN (
       SELECT i.cust_id, SUM(i.final) as total_invoiced
-      FROM invoices i WHERE i.type='final' AND COALESCE(i.deleted_at,0)=0${invTo}${invFrom}
+      FROM invoices i WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0${invTo}${invFrom}
       GROUP BY i.cust_id
     ) inv ON inv.cust_id=c.id
     LEFT JOIN (
@@ -271,7 +272,7 @@ router.get('/receivables/by-invoice', auth, adminOrAccounting, (req, res) => {
       WHERE invoice_id IS NOT NULL AND COALESCE(status,'posted')<>'reversed'${settDate}
       GROUP BY invoice_id
     ) sp ON sp.invoice_id=i.id
-    WHERE i.type='final' AND COALESCE(i.deleted_at,0)=0${invTo}${invFrom}
+    WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0${invTo}${invFrom}
     ORDER BY i.date DESC, i.id DESC
     LIMIT 500
   `).all(...settParams, ...params);
@@ -761,10 +762,10 @@ router.get('/general', auth, adminOrAccounting, (req, res) => {
   const invAlive = "AND COALESCE(deleted_at,0)=0";
   const purAlive = "AND COALESCE(status,'posted')<>'reversed'";
 
-  const revenue     = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final' ${invAlive} ${invDateWhere}`).get().s;
-  const subtotal    = db.prepare(`SELECT COALESCE(SUM(subtotal),0) s FROM invoices WHERE type='final' ${invAlive} ${invDateWhere}`).get().s;
-  const discAmt     = db.prepare(`SELECT COALESCE(SUM(disc_amt),0) s FROM invoices WHERE type='final' ${invAlive} ${invDateWhere}`).get().s;
-  const vatOutput   = db.prepare(`SELECT COALESCE(SUM(vat_amount),0) s FROM invoices WHERE type='final' ${invAlive} ${invDateWhere}`).get().s;
+  const revenue     = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} ${invAlive} ${invDateWhere}`).get().s;
+  const subtotal    = db.prepare(`SELECT COALESCE(SUM(subtotal),0) s FROM invoices WHERE ${firmSaleTypeSql()} ${invAlive} ${invDateWhere}`).get().s;
+  const discAmt     = db.prepare(`SELECT COALESCE(SUM(disc_amt),0) s FROM invoices WHERE ${firmSaleTypeSql()} ${invAlive} ${invDateWhere}`).get().s;
+  const vatOutput   = db.prepare(`SELECT COALESCE(SUM(vat_amount),0) s FROM invoices WHERE ${firmSaleTypeSql()} ${invAlive} ${invDateWhere}`).get().s;
   const purDateWhere = sf || st ? `AND date >= '${sf||''}' AND date <= '${st||'9999'}'` : '';
   const vatInput    = db.prepare(`SELECT COALESCE(SUM(vat_amount),0) s FROM purchase_invoices WHERE 1=1 ${purAlive} ${purDateWhere}`).get().s;
 
@@ -772,7 +773,7 @@ router.get('/general', auth, adminOrAccounting, (req, res) => {
   const costMap = {};
   db.prepare('SELECT id,cost FROM products').all().forEach(p => { costMap[p.id] = p.cost || 0; });
   let cogs = 0;
-  const finalInvRows = db.prepare(`SELECT rows FROM invoices WHERE type='final' ${invAlive} ${invDateWhere}`).all();
+  const finalInvRows = db.prepare(`SELECT rows FROM invoices WHERE ${firmSaleTypeSql()} ${invAlive} ${invDateWhere}`).all();
   for (const inv of finalInvRows) {
     let parsed = [];
     try { parsed = JSON.parse(inv.rows || '[]'); } catch (e) { parsed = []; }
@@ -787,19 +788,19 @@ router.get('/general', auth, adminOrAccounting, (req, res) => {
     const users = db.prepare("SELECT id,commission_cash,commission_cheque FROM users WHERE active=1").all();
     let total = 0;
     for (const u of users) {
-      const cs = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND pay_type='cash' ${invAlive} ${invDateWhere}`).get(u.id).s;
-      const qs = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND pay_type='cheque' ${invAlive} ${invDateWhere}`).get(u.id).s;
+      const cs = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND ${commissionEligibleSql()} AND pay_type='cash' ${invAlive} ${invDateWhere}`).get(u.id).s;
+      const qs = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND ${commissionEligibleSql()} AND pay_type='cheque' ${invAlive} ${invDateWhere}`).get(u.id).s;
       total += cs * (u.commission_cash || 0) / 100 + qs * (u.commission_cheque || 0) / 100;
     }
     return Math.round(total);
   })();
 
   // Monthly revenue & collections for chart
-  const monthlyInv = db.prepare(`SELECT substr(date,1,7) ym, SUM(final) rev FROM invoices WHERE type='final' AND COALESCE(deleted_at,0)=0 AND date<>'' GROUP BY ym ORDER BY ym DESC LIMIT 12`).all();
+  const monthlyInv = db.prepare(`SELECT substr(date,1,7) ym, SUM(final) rev FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0 AND date<>'' GROUP BY ym ORDER BY ym DESC LIMIT 12`).all();
   const monthlySett = db.prepare(`SELECT substr(date,1,7) ym, SUM(amount) col FROM settlements WHERE date<>'' AND COALESCE(status,'posted')<>'reversed' GROUP BY ym ORDER BY ym DESC LIMIT 12`).all();
 
   // Recent transactions journal
-  const invJournal = db.prepare(`SELECT 'invoice' as entry_type, num ref, date, final amount, cust_id, 0 is_credit FROM invoices WHERE type='final' AND COALESCE(deleted_at,0)=0 ORDER BY created_at DESC LIMIT 30`).all();
+  const invJournal = db.prepare(`SELECT 'invoice' as entry_type, num ref, date, final amount, cust_id, 0 is_credit FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0 ORDER BY created_at DESC LIMIT 30`).all();
   const settJournal = db.prepare(`SELECT 'settlement' as entry_type, id||'' ref, date, amount, cust_id, 1 is_credit FROM settlements WHERE COALESCE(status,'posted')<>'reversed' ORDER BY created_at DESC LIMIT 30`).all();
   const journal = [...invJournal, ...settJournal].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 50);
 
@@ -970,7 +971,7 @@ router.get('/customers/:custId/open-invoices', auth, adminOrAccounting, (req, re
     SELECT i.id, i.num, i.date, i.final,
       COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.invoice_id=i.id AND COALESCE(s.status,'posted')<>'reversed'), 0) as paid
     FROM invoices i
-    WHERE i.cust_id=? AND i.type='final'
+    WHERE i.cust_id=? AND ${firmSaleTypeSql('i')}
     ORDER BY i.date DESC, i.id DESC
   `).all(req.params.custId);
   rows.forEach(r => { r.outstanding = Math.max(0, (r.final || 0) - (r.paid || 0)); });

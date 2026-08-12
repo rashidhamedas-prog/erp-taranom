@@ -2662,7 +2662,7 @@ function backfillAccounting(db) {
 
       // 2) Final invoices + settlements, inserted in chronological (date) order for a readable statement
       const events = [];
-      for (const inv of db.prepare("SELECT * FROM invoices WHERE type='final'").all()) events.push({ date: inv.date || '', kind: 'invoice', row: inv });
+      for (const inv of db.prepare(`SELECT * FROM invoices WHERE ${require('./lib/sales-document').firmSaleTypeSql()}`).all()) events.push({ date: inv.date || '', kind: 'invoice', row: inv });
       for (const s of db.prepare('SELECT * FROM settlements').all()) events.push({ date: s.date || '', kind: 'settlement', row: s });
       events.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 

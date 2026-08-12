@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { getDB } = require('../db');
 const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
+const { firmSaleTypeSql } = require('../lib/sales-document');
 const { buildVatReturnReport, buildSeasonal169Report } = require('./adv-reports');
 
 // R13: voided invoices are soft-deleted (deleted_at) and dependent settlements
@@ -16,7 +17,7 @@ router.get('/summary', auth, adminOnly, (req, res) => {
   const to = req.query.to || '';
   const invWhere = [];
   const invParams = [];
-  invWhere.push("type='final'");
+  invWhere.push(firmSaleTypeSql());
   invWhere.push(INV_ALIVE);
   if (from) { invWhere.push("date>=?"); invParams.push(from); }
   if (to)   { invWhere.push("date<=?"); invParams.push(to); }
@@ -27,7 +28,7 @@ router.get('/summary', auth, adminOnly, (req, res) => {
   ).get(...invParams);
 
   // Outstanding debt = total invoiced minus total settled (not date-filtered on settlements)
-  const totalInvoiced = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND ${INV_ALIVE}`).get().s;
+  const totalInvoiced = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND ${INV_ALIVE}`).get().s;
   const totalSettled  = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE ${SETT_ALIVE}`).get().s;
   const debt = Math.max(0, totalInvoiced - totalSettled);
 
@@ -52,7 +53,7 @@ router.get('/monthly', auth, adminOnly, (req, res) => {
   const rows = db.prepare(`
     SELECT substr(date,1,7) as ym, COUNT(*) orders, COALESCE(SUM(final),0) revenue
     FROM invoices
-    WHERE type='final' AND ${INV_ALIVE} AND date IS NOT NULL AND date<>'' AND length(date)>=7
+    WHERE ${firmSaleTypeSql()} AND ${INV_ALIVE} AND date IS NOT NULL AND date<>'' AND length(date)>=7
     GROUP BY ym
     ORDER BY ym ASC
   `).all();
@@ -64,7 +65,7 @@ router.get('/salesperson', auth, adminOnly, (req, res) => {
   const db = getDB();
   const users = db.prepare("SELECT id,name,username FROM users WHERE active=1 ORDER BY name").all();
   const invMap = Object.fromEntries(
-    db.prepare(`SELECT user_id, COUNT(*) c, COALESCE(SUM(final),0) revenue FROM invoices WHERE type='final' AND ${INV_ALIVE} GROUP BY user_id`).all()
+    db.prepare(`SELECT user_id, COUNT(*) c, COALESCE(SUM(final),0) revenue FROM invoices WHERE ${firmSaleTypeSql()} AND ${INV_ALIVE} GROUP BY user_id`).all()
       .map(r => [r.user_id, { c: r.c, revenue: r.revenue }])
   );
   const custMap = Object.fromEntries(
@@ -77,7 +78,7 @@ router.get('/salesperson', auth, adminOnly, (req, res) => {
     db.prepare(`SELECT user_id, COUNT(*) c FROM invoices WHERE ${INV_ALIVE} GROUP BY user_id`).all().map(r => [r.user_id, r.c])
   );
   const invoicedMap = Object.fromEntries(
-    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND ${INV_ALIVE} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
+    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND ${INV_ALIVE} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
   );
   const settledMap = Object.fromEntries(
     db.prepare(`SELECT i.user_id uid, COALESCE(SUM(s.amount),0) s FROM settlements s JOIN invoices i ON s.invoice_id=i.id WHERE COALESCE(s.status,'posted')<>'reversed' GROUP BY i.user_id`).all().map(r => [r.uid, r.s])
@@ -103,7 +104,7 @@ router.get('/top-customers', auth, adminOnly, (req, res) => {
            COUNT(i.id) orders, COALESCE(SUM(i.final),0) total,
            COALESCE(SUM(i.final),0) - COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.cust_id=c.id AND ${SETT_ALIVE.replace(/status/g, 's.status')}),0) debt
     FROM customers c
-    JOIN invoices i ON i.cust_id=c.id AND i.type='final' AND COALESCE(i.deleted_at,0)=0
+    JOIN invoices i ON i.cust_id=c.id AND ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0
     GROUP BY c.id
     ORDER BY total DESC
     LIMIT 10
@@ -119,7 +120,7 @@ router.get('/debt', auth, adminOnly, (req, res) => {
            COALESCE(SUM(i.final),0) as total_invoiced,
            COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.cust_id=c.id AND ${SETT_ALIVE.replace(/status/g, 's.status')}),0) as total_settled
     FROM customers c
-    JOIN invoices i ON i.cust_id=c.id AND i.type='final' AND COALESCE(i.deleted_at,0)=0
+    JOIN invoices i ON i.cust_id=c.id AND ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0
     LEFT JOIN users u ON c.user_id=u.id
     GROUP BY c.id
     HAVING total_invoiced > total_settled

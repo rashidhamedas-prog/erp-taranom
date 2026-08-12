@@ -2,6 +2,8 @@
  * CRM analytics — real aggregates only (no mock).
  * RBAC: when scopeUserId is non-null, client user_id is ignored (never widens/overrides).
  */
+const { firmSaleTypeSql } = require('./sales-document');
+
 function crmScopeUserId(req) {
   const role = req.user?.role;
   if (role === 'admin' || role === 'accounting') return null;
@@ -204,7 +206,7 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
 
   const firmSales = db.prepare(`
     SELECT COUNT(*) AS cnt, COALESCE(SUM(COALESCE(NULLIF(i.final_rial,0), ROUND(i.final*10), 0)),0) AS amount_rial
-    FROM invoices i WHERE ${invWhere.join(' AND ')} AND i.type IN ('normal','final')
+    FROM invoices i WHERE ${invWhere.join(' AND ')} AND ${firmSaleTypeSql('i')}
   `).get(...invParams);
 
   const proformaCount = byType.find((r) => r.type === 'proforma')?.cnt || 0;
@@ -222,7 +224,7 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
       COALESCE(SUM(COALESCE(NULLIF(i.final_rial,0), ROUND(i.final*10), 0)),0) AS amount_rial
     FROM invoices i
     JOIN users u ON u.id=i.user_id
-    WHERE ${invWhere.join(' AND ')} AND i.type IN ('normal','final')
+    WHERE ${invWhere.join(' AND ')} AND ${firmSaleTypeSql('i')}
     GROUP BY u.id ORDER BY amount_rial DESC LIMIT 20
   `).all(...invParams);
 
@@ -245,7 +247,7 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
     SELECT COUNT(*) AS c FROM customers c
     WHERE ${custWhere.join(' AND ')}
       AND NOT EXISTS (
-        SELECT 1 FROM invoices i WHERE i.cust_id=c.id AND i.type IN ('normal','final')
+        SELECT 1 FROM invoices i WHERE i.cust_id=c.id AND ${firmSaleTypeSql('i')}
           AND COALESCE(i.deleted_at,0)=0 AND i.date>=date('now','-90 day')
       )
       AND NOT EXISTS (
@@ -377,7 +379,7 @@ function buildDrilldown(db, metric, filters, scopeUserId) {
   if (metric === 'firm_sales' || metric === 'normal' || metric === 'final' || metric === 'proforma') {
     const where = ["COALESCE(i.deleted_at,0)=0"];
     const params = [];
-    if (metric === 'firm_sales') where.push("i.type IN ('normal','final')");
+    if (metric === 'firm_sales') where.push(firmSaleTypeSql('i'));
     else where.push('i.type=?'), params.push(metric);
     if (userId) { where.push('i.user_id=?'); params.push(userId); }
     if (from) { where.push('i.date>=?'); params.push(from); }

@@ -15,6 +15,7 @@ const {
   normalizeInvoiceType, isFirmSale, invoiceTypeLabel,
   assertJournalIdempotent, assertWarehouseLines,
   postSaleStockMovements, postCogsFromMovements, perpetualDocsEnabled,
+  autoApproveNormalInvoice,
 } = require('../lib/sales-document');
 
 // دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
@@ -502,6 +503,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
           postCogsVoucher(db, invId, num, entryDate, built.rows, req.user.id, false);
         }
         if (invType === 'final') enqueueMoadian(db, 'sales', invId);
+        if (invType === 'normal') autoApproveNormalInvoice(db, invId, req.user.id);
       }
 
       // Auto-create a 7-day quality follow-up — only if the customer has
@@ -744,6 +746,7 @@ router.post('/:id/convert', auth, (req, res) => {
         postCogsVoucher(db, inv.id, inv.num, inv.date, rows, req.user.id, false);
       }
       if (targetType === 'final') enqueueMoadian(db, 'sales', inv.id);
+      if (targetType === 'normal') autoApproveNormalInvoice(db, inv.id, req.user.id);
     })();
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });

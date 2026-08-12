@@ -11,6 +11,7 @@ const { sendSMS } = require('./sms');
 const { hashKey } = require('./routes/api_keys');
 const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile, getBackupHealth } = require('./backup');
 const { assertSecurityConfig } = require('./lib/security');
+const { firmSaleTypeSql } = require('./lib/sales-document');
 const { getSmsSettings } = require('./lib/secret-settings');
 const {
   requestIdMiddleware,
@@ -645,7 +646,7 @@ function runActiveToFollowupCheck() {
     const customers = db.prepare("SELECT * FROM customers WHERE status='active'").all();
     let updated = 0;
     for (const c of customers) {
-      const lastInv = db.prepare("SELECT created_at FROM invoices WHERE cust_id=? AND type='final' ORDER BY created_at DESC LIMIT 1").get(c.id);
+      const lastInv = db.prepare(`SELECT created_at FROM invoices WHERE cust_id=? AND ${firmSaleTypeSql()} ORDER BY created_at DESC LIMIT 1`).get(c.id);
       if (!lastInv || lastInv.created_at < cutoff) {
         db.prepare("UPDATE customers SET status='followup' WHERE id=?").run(c.id);
         updated++;

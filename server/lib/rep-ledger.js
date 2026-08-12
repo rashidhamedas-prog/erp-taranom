@@ -2,6 +2,7 @@
 const { postToLedger } = require('./ledger');
 const { rialToLedger } = require('./money');
 const { acct } = require('./coa-map');
+const { firmSaleTypeSql, commissionEligibleSql } = require('./sales-document');
 const EXPENSE_CATEGORIES = {
   transport: 'حمل‌ونقل', fuel: 'سوخت', hotel: 'هتل', meals: 'پذیرایی',
   gifts: 'هدایا', advertising: 'تبلیغات', entertainment: 'پذیرایی مشتری',
@@ -107,7 +108,7 @@ function computeRepCommission(db, repId, { from, to } = {}) {
     let sql = `
       SELECT i.id, i.pay_type, i.cust_id, i.rows, s.amount as collected
       FROM settlements s JOIN invoices i ON s.invoice_id=i.id
-      WHERE i.user_id=? AND i.type='final' AND i.approved=1`;
+      WHERE i.user_id=? AND ${commissionEligibleSql('i')}`;
     const p = [repId];
     if (from) { sql += ' AND s.date>=?'; p.push(from); }
     if (to) { sql += ' AND s.date<=?'; p.push(to); }
@@ -136,7 +137,7 @@ function computeRepCommission(db, repId, { from, to } = {}) {
       }
     }
   } else {
-    let sql = "SELECT * FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND COALESCE(deleted_at,0)=0";
+    let sql = `SELECT * FROM invoices WHERE user_id=? AND ${commissionEligibleSql()} AND COALESCE(deleted_at,0)=0`;
     const p = [repId];
     if (from) { sql += ' AND date>=?'; p.push(from); }
     if (to) { sql += ' AND date<=?'; p.push(to); }
@@ -376,7 +377,7 @@ function getRepAgingReceivables(db, repId) {
   `).all(repId);
   const buckets = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
   for (const r of rows) {
-    const lastInv = db.prepare("SELECT date FROM invoices WHERE cust_id=? AND type='final' AND COALESCE(deleted_at,0)=0 ORDER BY date DESC LIMIT 1").get(r.id);
+    const lastInv = db.prepare(`SELECT date FROM invoices WHERE cust_id=? AND ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0 ORDER BY date DESC LIMIT 1`).get(r.id);
     buckets.current += r.balance;
     if (lastInv?.date && lastInv.date < today) buckets.d30 += r.balance * 0.3;
   }
@@ -547,7 +548,7 @@ function reverseCommissionAccrual(db, refType, refId, userId, date) {
 }
 
 function getRepProfitReport(db, repId, { from, to } = {}) {
-  let sql = "SELECT id,num,date,rows,final,cust_id FROM invoices WHERE user_id=? AND type='final' AND approved=1 AND COALESCE(deleted_at,0)=0";
+  let sql = `SELECT id,num,date,rows,final,cust_id FROM invoices WHERE user_id=? AND ${commissionEligibleSql()} AND COALESCE(deleted_at,0)=0`;
   const p = [repId];
   if (from) { sql += ' AND date>=?'; p.push(from); }
   if (to) { sql += ' AND date<=?'; p.push(to); }

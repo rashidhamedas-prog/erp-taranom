@@ -1,4 +1,11 @@
-﻿## 2026-08-12T20:40:00+03:30 — ACC-CRM-UNIFY Phase 4 GREEN (party migration)
+﻿## 2026-08-12T22:25:00+03:30 — ACC-CRM-UNIFY Phase 5 GREEN (firm-sale reports)
+
+- **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; NO deploy
+- **Fixes:** `firmSaleTypeSql` / `commissionEligibleSql` / `autoApproveNormalInvoice`; revenue/AR/P&L/VAT/KPIs include `normal|final`; Moadian + pending approval + seasonal-169 remain final-only; ADR decision #12
+- **Tests:** `test-acc-crm-reports.js` **15/15**
+- **Next:** Phase 6 — warehouse gate ADR, cheque enum/bounce→resend, product CACHE, new-customer from/to
+
+## 2026-08-12T20:40:00+03:30 — ACC-CRM-UNIFY Phase 4 GREEN (party migration)
 
 - **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; NO deploy
 - **Fixes:** no silent `UPDATE users SET party_id=NULL` on conflict; conflict → `E_PARTY_ALREADY_LINKED` + revert requester link; `runAccCrmUnifyV1` transactional reconcile (keep lowest user id, audit_log + settings snapshot, UNIQUE index) stamps `acc_crm_unify_v1=1` only on success; failure rethrows (boot fails)

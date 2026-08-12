@@ -9,6 +9,7 @@
 //     ai_insights so the dashboard never calls the API on page load.
 
 const { getSetting } = require('../lib/secret-settings');
+const { firmSaleTypeSql } = require('../lib/sales-document');
 
 const DAY = 24 * 3600;
 
@@ -23,13 +24,13 @@ function getSettingValue(db, key) {
 function computeChurnScore(db, cust) {
   const now = nowSec();
   const lastInv = db.prepare(
-    "SELECT MAX(created_at) t FROM invoices WHERE cust_id=? AND type='final'"
+    `SELECT MAX(created_at) t FROM invoices WHERE cust_id=? AND ${firmSaleTypeSql()}`
   ).get(cust.id).t;
   const lastFup = db.prepare(
     'SELECT MAX(created_at) t FROM followups WHERE cust_id=?'
   ).get(cust.id).t;
   const invCount = db.prepare(
-    "SELECT COUNT(*) c FROM invoices WHERE cust_id=? AND type='final'"
+    `SELECT COUNT(*) c FROM invoices WHERE cust_id=? AND ${firmSaleTypeSql()}`
   ).get(cust.id).c;
 
   const lastTouch = Math.max(lastInv || 0, lastFup || 0, cust.created_at || 0);
@@ -102,7 +103,7 @@ async function runNightlyAnalysis(db, { weekly = false } = {}) {
 
   const atRisk = scored.filter(c => c.churn_score >= 60).sort((a, b) => b.churn_score - a.churn_score).slice(0, 30);
   for (const c of atRisk) {
-    const lastInv = db.prepare("SELECT MAX(created_at) t FROM invoices WHERE cust_id=? AND type='final'").get(c.id).t;
+    const lastInv = db.prepare(`SELECT MAX(created_at) t FROM invoices WHERE cust_id=? AND ${firmSaleTypeSql()}`).get(c.id).t;
     const days = lastInv ? Math.floor((nowSec() - lastInv) / DAY) : null;
     ins.run(c.id, c.user_id, 'churn_risk', c.churn_score,
       `ریسک ریزش ${c.churn_score}٪ — ${c.biz}`,
@@ -115,7 +116,7 @@ async function runNightlyAnalysis(db, { weekly = false } = {}) {
   // Re-order opportunities: bought ≥3 times, average gap passed since last purchase, low churn
   const buyers = db.prepare(`
     SELECT cust_id, COUNT(*) n, MIN(created_at) first_t, MAX(created_at) last_t
-    FROM invoices WHERE type='final' GROUP BY cust_id HAVING n >= 3
+    FROM invoices WHERE ${firmSaleTypeSql()} GROUP BY cust_id HAVING n >= 3
   `).all();
   for (const b of buyers) {
     const avgGap = (b.last_t - b.first_t) / Math.max(1, b.n - 1);
@@ -167,7 +168,7 @@ async function runNightlyAnalysis(db, { weekly = false } = {}) {
   const isSunday = new Date().getDay() === 0; // یکشنبه
   if (weekly || isSunday) {
     const weekAgo = nowSec() - 7 * DAY;
-    const sales = db.prepare("SELECT COUNT(*) c, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND created_at>=?").get(weekAgo);
+    const sales = db.prepare(`SELECT COUNT(*) c, COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND created_at>=?`).get(weekAgo);
     const newCust = db.prepare('SELECT COUNT(*) c FROM customers WHERE created_at>=?').get(weekAgo).c;
     const settled = db.prepare('SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE created_at>=?').get(weekAgo).s;
     const riskCount = scored.filter(c => c.churn_score >= 60).length;
@@ -201,8 +202,8 @@ async function buildConsultantReply(db, question) {
   const weekAgo = now - 7 * DAY;
   const monthPrefix = require('../jalali').todayJalali().slice(0, 8);
 
-  const weekSales = db.prepare("SELECT COUNT(*) c, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND created_at>=? AND COALESCE(deleted_at,0)=0").get(weekAgo);
-  const monthSales = db.prepare("SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND date LIKE ? AND COALESCE(deleted_at,0)=0").get(monthPrefix + '%');
+  const weekSales = db.prepare(`SELECT COUNT(*) c, COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND created_at>=? AND COALESCE(deleted_at,0)=0`).get(weekAgo);
+  const monthSales = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND date LIKE ? AND COALESCE(deleted_at,0)=0`).get(monthPrefix + '%');
   const overdue = db.prepare(`
     SELECT c.biz, SUM(cl.debit - cl.credit) as balance
     FROM customer_ledger cl JOIN customers c ON cl.customer_id=c.id
@@ -215,7 +216,7 @@ async function buildConsultantReply(db, question) {
       SELECT p.name, COUNT(*) as qty
       FROM invoices i, json_each(i.rows) je
       JOIN products p ON p.id = CAST(json_extract(je.value,'$.product_id') AS INTEGER)
-      WHERE i.type='final' AND COALESCE(i.deleted_at,0)=0 AND i.created_at>=?
+      WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0 AND i.created_at>=?
       GROUP BY p.id ORDER BY qty DESC LIMIT 5
     `).all(weekAgo);
   } catch { /* json_each may fail on empty rows */ }
@@ -263,13 +264,13 @@ async function buildMySummary(db, userId, { narrative = false } = {}) {
   const monthPrefix = todayJalali().slice(0, 8); // '1405/04/'
 
   const week = db.prepare(
-    "SELECT COUNT(*) c, COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND created_at>=?"
+    `SELECT COUNT(*) c, COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND ${firmSaleTypeSql()} AND created_at>=?`
   ).get(userId, weekAgo);
   const month = db.prepare(
-    "SELECT COUNT(*) c, COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND date LIKE ?"
+    `SELECT COUNT(*) c, COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND ${firmSaleTypeSql()} AND date LIKE ?`
   ).get(userId, monthPrefix + '%');
   const prevWeek = db.prepare(
-    "SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND type='final' AND created_at>=? AND created_at<?"
+    `SELECT COALESCE(SUM(final),0) s FROM invoices WHERE user_id=? AND ${firmSaleTypeSql()} AND created_at>=? AND created_at<?`
   ).get(userId, now - 14 * DAY, weekAgo);
   const openFups = db.prepare("SELECT COUNT(*) c FROM followups WHERE user_id=? AND status='open'").get(userId).c;
   const myCustomers = db.prepare('SELECT COUNT(*) c FROM customers WHERE user_id=?').get(userId).c;
@@ -278,7 +279,7 @@ async function buildMySummary(db, userId, { narrative = false } = {}) {
   ).all(userId);
   const topCustomers = db.prepare(`
     SELECT c.biz, COALESCE(SUM(i.final),0) total FROM invoices i JOIN customers c ON i.cust_id=c.id
-    WHERE i.user_id=? AND i.type='final' AND i.date LIKE ?
+    WHERE i.user_id=? AND ${firmSaleTypeSql('i')} AND i.date LIKE ?
     GROUP BY i.cust_id ORDER BY total DESC LIMIT 3
   `).all(userId, monthPrefix + '%');
 

@@ -6,6 +6,7 @@ const { postToLedger } = require('../lib/ledger');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { todayJalali, j2g } = require('../jalali');
 const { postLegalReserve } = require('../lib/reserves/legal-reserve');
+const { firmSaleTypeSql } = require('../lib/sales-document');
 
 function daysSinceJalali(dateStr) {
   try {
@@ -37,7 +38,7 @@ function computeAgingProvision(db, asOfDate, percentBp) {
   for (const c of customers) {
     const invoices = db.prepare(`
       SELECT id, date, COALESCE(NULLIF(final_rial, 0), ROUND(final), 0) final_rial
-      FROM invoices WHERE cust_id=? AND type='final'
+      FROM invoices WHERE cust_id=? AND ${firmSaleTypeSql()}
       ORDER BY date ASC, id ASC
     `).all(c.id);
     if (!invoices.length) continue;

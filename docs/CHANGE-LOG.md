@@ -27,6 +27,14 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-12 — ACC-CRM-UNIFY Phase 5: گزارش فروش قطعی + ADR فیلترها
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** _(pending stamp)_
+- **خلاصه:** helperهای `firmSaleTypeSql` / `commissionEligibleSql`؛ درآمد/AR/P&L/VAT/KPIها با `normal|final`؛ Moadian و pending-approval و seasonal-169 فقط `final`؛ auto-approve برای فاکتور معمولی؛ تست reconciliation **۱۵/۱۵**.
+- **فایل‌های کلیدی:** `sales-document.js`, `reports.js`, `accounting.js`, `adv-reports.js`, `dashboard.js`, `admin.js`, `ai.js`, `crm-analytics.js`, `test-acc-crm-reports.js`, `ADR-ACC-CRM-UNIFY.md`
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** بدون تغییر
+
 ### 2026-08-12 — ACC-CRM-UNIFY Phase 4: migration party + E_PARTY_ALREADY_LINKED
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
 - **Commit:** `294c48f`

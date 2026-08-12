@@ -10,6 +10,28 @@ const { rialToLedger } = require('./money');
 const FIRM_TYPES = new Set(['normal', 'final']);
 const ALL_TYPES = new Set(['proforma', 'normal', 'final']);
 
+/** Bare SQL fragment — firm commercial sales (revenue / AR / KPIs). */
+const FIRM_SALE_TYPE_SQL = "type IN ('normal','final')";
+
+/**
+ * SQL predicate for firm sale invoice types.
+ * @param {string} [alias] table alias (e.g. 'i') or '' for bare `type`
+ */
+function firmSaleTypeSql(alias = '') {
+  if (!alias) return FIRM_SALE_TYPE_SQL;
+  return `${alias}.type IN ('normal','final')`;
+}
+
+/**
+ * Commission base: firm + approved.
+ * Normal invoices are auto-approved on create; final needs explicit approve.
+ */
+function commissionEligibleSql(alias = '') {
+  const t = alias ? `${alias}.type` : 'type';
+  const a = alias ? `${alias}.approved` : 'approved';
+  return `${t} IN ('normal','final') AND COALESCE(${a},0)=1`;
+}
+
 function normalizeInvoiceType(type, fallback = 'proforma') {
   const t = String(type || fallback).trim();
   if (!ALL_TYPES.has(t)) {
@@ -29,6 +51,14 @@ function invoiceTypeLabel(type) {
   if (type === 'final') return 'فاکتور رسمی';
   if (type === 'normal') return 'فاکتور معمولی';
   return 'پیش‌فاکتور';
+}
+
+/** Mark normal invoices commission-ready (no Moadian / approval queue). */
+function autoApproveNormalInvoice(db, invId, userId) {
+  db.prepare(`
+    UPDATE invoices SET approved=1, approved_at=?, approved_by=?
+    WHERE id=? AND type='normal' AND COALESCE(approved,0)=0
+  `).run(Date.now(), userId || null, invId);
 }
 
 function assertJournalIdempotent(db, sourceType, sourceId) {
@@ -317,9 +347,13 @@ function perpetualDocsEnabled(db) {
 module.exports = {
   FIRM_TYPES,
   ALL_TYPES,
+  FIRM_SALE_TYPE_SQL,
+  firmSaleTypeSql,
+  commissionEligibleSql,
   normalizeInvoiceType,
   isFirmSale,
   invoiceTypeLabel,
+  autoApproveNormalInvoice,
   assertJournalIdempotent,
   assertWarehouseLines,
   postSaleStockMovements,

@@ -30,10 +30,17 @@ Sales/purchases use legacy stock updates while warehouse ops use `postInventoryM
 
 11. **Deploy:** No production deploy until owner explicit approval after Independent Reviewer + Security Approved.
 
+12. **Report type filters (Phase 5):** Classify every invoice consumer:
+    - **Firm sale** (`type IN ('normal','final')` via `firmSaleTypeSql`): revenue, P&L invoice side, VAT invoice fallback (aligned with JE), AR/debt/open invoices, dashboard/admin/rep/AI sales KPIs, CRM firm metrics, reserves, integrity JE checks, last-sale heuristics.
+    - **Commission-eligible** (`commissionEligibleSql`): firm + `approved=1`. Normal invoices are **auto-approved** on create/convert (`autoApproveNormalInvoice`); final still requires explicit commission approve.
+    - **Final-only:** Moadian enqueue/submit, pending official-approval queues/counts/notifications, seasonal tax report 169, approve-gate endpoints.
+    - Proforma never enters revenue/AR/Moadian.
+
 ## Consequences
 - Large touch surface on `invoices.js`, `purchases.js`, void helpers, `app.js`, nav, CRM routes.
 - Additive schema only; Help + CHANGE-LOG + SW bump required.
 - Sync hygiene if new mutating `/api/crm` paths need capture (CRM read-mostly preferred).
+- Report SQL must import `firmSaleTypeSql` / `commissionEligibleSql` — do not hard-code `type='final'` for commercial metrics.
 
 ## Rollback
 - Abandon branch before merge.

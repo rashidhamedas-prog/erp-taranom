@@ -4,6 +4,7 @@ const { auth, adminOrAccounting } = require('../middleware/auth');
 const { j2g, todayJalali } = require('../jalali');
 const { acct } = require('../lib/coa-map');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
+const { firmSaleTypeSql } = require('../lib/sales-document');
 
 function parseQuarter(query) {
   if (query.quarter) {
@@ -137,7 +138,7 @@ function buildVatReturnReport(db, query) {
       ${dateWhere.length ? 'AND ' + dateWhere.join(' AND ') : ''}
   `).get(vatInput, ...dateParams)?.v || 0;
 
-  const invWhere = ["type='final'", 'COALESCE(deleted_at,0)=0'], invParams = [];
+  const invWhere = [firmSaleTypeSql(), 'COALESCE(deleted_at,0)=0'], invParams = [];
   if (from) { invWhere.push('date>=?'); invParams.push(from); }
   if (to) { invWhere.push('date<=?'); invParams.push(to); }
   const salesVat = db.prepare(`
@@ -217,7 +218,7 @@ function buildFinancialRatios(db) {
 
   const sales365 = db.prepare(`
     SELECT COALESCE(SUM(COALESCE(NULLIF(final_rial,0),ROUND(final),0)),0) v
-    FROM invoices WHERE type='final' AND COALESCE(deleted_at,0)=0 AND date>=?
+    FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0 AND date>=?
   `).get(todayJalali().slice(0, 4) + '/01/01')?.v || 0;
   const cogs365 = Math.abs(sumBalanceByPrefix(db, acct(db, 'coa_cogs').code));
   const purchases365 = db.prepare(`
@@ -245,7 +246,7 @@ function buildKpiDashboard(db) {
   const cashCycle = (ratios.dso_days || 0) + (ratios.dio_days || 0) - (ratios.dpo_days || 0);
   const topCustomers = db.prepare(`
     SELECT c.id, c.biz, COALESCE(SUM(COALESCE(NULLIF(i.final_rial,0),ROUND(i.final),0)),0) revenue_rial
-    FROM customers c JOIN invoices i ON i.cust_id=c.id AND i.type='final' AND COALESCE(i.deleted_at,0)=0
+    FROM customers c JOIN invoices i ON i.cust_id=c.id AND ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0
     GROUP BY c.id ORDER BY revenue_rial DESC LIMIT 10
   `).all();
   const totalRevenue = topCustomers.reduce((s, r) => s + (r.revenue_rial || 0), 0) || 1;
@@ -283,7 +284,7 @@ router.get('/aging', auth, adminOrAccounting, (req, res) => {
   const rows = [];
   const totals = { b0_30: 0, b31_60: 0, b61_90: 0, b90plus: 0, total: 0 };
   for (const c of customers) {
-    const invoices = db.prepare("SELECT id,date,COALESCE(NULLIF(final_rial,0),ROUND(final),0) final_rial FROM invoices WHERE cust_id=? AND type='final' AND COALESCE(deleted_at,0)=0 ORDER BY date ASC, id ASC").all(c.id);
+    const invoices = db.prepare(`SELECT id,date,COALESCE(NULLIF(final_rial,0),ROUND(final),0) final_rial FROM invoices WHERE cust_id=? AND ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0 ORDER BY date ASC, id ASC`).all(c.id);
     if (!invoices.length) continue;
     let settledPool = db.prepare("SELECT COALESCE(SUM(COALESCE(NULLIF(amount_rial,0),ROUND(amount),0)),0) s FROM settlements WHERE cust_id=? AND COALESCE(status,'posted')<>'reversed'").get(c.id).s;
     const bucket = { b0_30: 0, b31_60: 0, b61_90: 0, b90plus: 0 };
@@ -316,7 +317,7 @@ router.get('/cash-flow', auth, adminOrAccounting, (req, res) => {
 });
 
 function aggregateSalesByProduct(db, from, to) {
-  const where = ["type='final'", 'COALESCE(deleted_at,0)=0'];
+  const where = [firmSaleTypeSql(), 'COALESCE(deleted_at,0)=0'];
   const params = [];
   if (from) { where.push('date>=?'); params.push(from); }
   if (to) { where.push('date<=?'); params.push(to); }
@@ -365,7 +366,7 @@ router.get('/inventory-health', auth, adminOrAccounting, (req, res) => {
 router.get('/vat-summary', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
-  const where = ["type='final'", 'COALESCE(deleted_at,0)=0'], params = [];
+  const where = [firmSaleTypeSql(), 'COALESCE(deleted_at,0)=0'], params = [];
   if (from) { where.push('date>=?'); params.push(from); }
   if (to) { where.push('date<=?'); params.push(to); }
   const salesVat = db.prepare(`SELECT COALESCE(SUM(COALESCE(NULLIF(vat_amount_rial,0),ROUND(vat_amount),0)),0) s, COALESCE(SUM(COALESCE(NULLIF(final_rial,0),ROUND(final),0)),0) f FROM invoices WHERE ${where.join(' AND ')}`).get(...params);
@@ -386,7 +387,7 @@ router.get('/party-turnover', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to, limit } = req.query;
   const lim = Math.min(parseInt(limit, 10) || 50, 200);
-  const invWhere = ["i.type='final'", 'COALESCE(i.deleted_at,0)=0'], invParams = [];
+  const invWhere = [firmSaleTypeSql('i'), 'COALESCE(i.deleted_at,0)=0'], invParams = [];
   if (from) { invWhere.push('i.date>=?'); invParams.push(from); }
   if (to) { invWhere.push('i.date<=?'); invParams.push(to); }
   const sales = db.prepare(`
@@ -425,7 +426,7 @@ function syncVatRecords(db) {
   const sources = [
     {
       table: 'invoices', sourceType: 'invoice', category: 'output', account: vatOutput,
-      rows: db.prepare("SELECT id,num,date,subtotal,subtotal_rial,vat_rate,vat_amount,vat_amount_rial FROM invoices WHERE type='final' AND COALESCE(deleted_at,0)=0 AND COALESCE(vat_amount_rial,ROUND(vat_amount),0)>0").all(),
+      rows: db.prepare(`SELECT id,num,date,subtotal,subtotal_rial,vat_rate,vat_amount,vat_amount_rial FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0 AND COALESCE(vat_amount_rial,ROUND(vat_amount),0)>0`).all(),
     },
     {
       table: 'purchase_invoices', sourceType: 'purchase', category: 'input', account: vatInput,

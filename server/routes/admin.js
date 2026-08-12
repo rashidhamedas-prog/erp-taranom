@@ -6,6 +6,7 @@ const { DEFAULT_ROLE_PERMISSIONS } = require('../lib/rbac');
 const { validatePassword } = require('../lib/security');
 const { j2g } = require('../jalali');
 const { ensureUserParty } = require('../lib/user-party');
+const { firmSaleTypeSql } = require('../lib/sales-document');
 const ALLOWED_ROLES = new Set(Object.keys(DEFAULT_ROLE_PERMISSIONS));
 
 function jalaliDayBounds(jStr) {
@@ -197,7 +198,7 @@ router.get('/dashboard', auth, adminOnly, (req, res) => {
     db.prepare('SELECT user_id, COUNT(*) c FROM customers GROUP BY user_id').all().map(r => [r.user_id, r.c])
   );
   const salesMap = Object.fromEntries(
-    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND COALESCE(deleted_at,0)=0${dateClause} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
+    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0${dateClause} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
   );
   const fupMap = Object.fromEntries(
     db.prepare("SELECT user_id, COUNT(*) c FROM followups WHERE status='open' GROUP BY user_id").all().map(r => [r.user_id, r.c])
@@ -222,8 +223,8 @@ router.get('/stats/overview', auth, adminOnly, (req, res) => {
     : '';
   const totalCustomers = db.prepare('SELECT COUNT(*) c FROM customers').get().c;
   const notDeleted = ` AND COALESCE(deleted_at,0)=0`;
-  const totalRevenue = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final'${notDeleted}${dateClause}`).get().s;
-  const totalInvoices = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE type='final'${notDeleted}${dateClause}`).get().c;
+  const totalRevenue = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()}${notDeleted}${dateClause}`).get().s;
+  const totalInvoices = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE ${firmSaleTypeSql()}${notDeleted}${dateClause}`).get().c;
   const totalProforma = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE type='proforma'${notDeleted}${dateClause}`).get().c
   const totalProducts = db.prepare('SELECT COUNT(*) c FROM products').get().c;
   const openFollowups = db.prepare("SELECT COUNT(*) c FROM followups WHERE status='open'").get().c;
