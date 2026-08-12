@@ -1,4 +1,14 @@
-﻿## 2026-08-12T24:15:00+03:30 — ACC-CRM-UNIFY COMPLETED (dual Approved; no deploy)
+﻿## 2026-08-13T01:06:00+03:30 — ACC-CRM-UNIFY MERGED + IRAN DEPLOYED ✅
+
+- **Owner approval:** explicit 100% OK for merge + primary + deploy
+- **FF-merge:** `origin/claude/claude-md-docs-2ssrpy` = `448a8c1..aa1ee64` (from `ai/ACC-CRM-UNIFY-accounting-crm`)
+- **Iran deploy:** SFTP overlay (script `scripts/_deploy-acc-crm-unify-sftp.py`); `pm2 restart erp-taranom` **without** `--update-env`
+- **Stamp:** `.sftp-deploy-stamp-acc-crm-unify` → `SFTP_ACC_CRM_UNIFY=2026-08-12T21:36:19Z hash=aa1ee64`
+- **VPS verify:** health/ready/root 200; `CACHE='erp-taranom-v151'`; `app.js?v=151`; crm + sales-document present
+- **Public:** `https://erp.poshaktaranom.com/sw.js` = v151
+- **Task remains:** `completed`; claims empty; no further ACC-CRM gate work
+
+## 2026-08-12T24:15:00+03:30 — ACC-CRM-UNIFY COMPLETED (dual Approved; no deploy)
 
 - **Independent Reviewer:** APPROVED (agent 09471755) — prior High/Medium closed on `c0ed4c9`
 - **Security:** APPROVED (agent 5f0954d9) — M1 cheque txn idempotency closed
