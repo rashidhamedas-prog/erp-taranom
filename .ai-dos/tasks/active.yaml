@@ -3,6 +3,8 @@ tasks:
   - id: "ACC-CRM-UNIFY"
     title: "Accounting perpetual unify + normal invoice + CRM dashboard"
     status: "active"
+    review_status: "CHANGES_REQUIRED"
+    security_status: "NOT_APPROVED"
     risk: "high"
     owner: "cursor:orchestrator"
     roles:
@@ -12,7 +14,9 @@ tasks:
     branch: "ai/ACC-CRM-UNIFY-accounting-crm"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify"
     base_commit: "448a8c1"
+    reviewed_tip: "d5a2f51"
     claimed_at: "2026-08-11T16:55:00+03:30"
+    remediation_phase: "0-done"
     file_claims:
       - ".ai-dos/project/status.md"
       - ".ai-dos/tasks/active.yaml"
@@ -46,7 +50,10 @@ tasks:
       - "server/scripts/test-acc-crm-perpetual.js"
       - "server/scripts/test-acc-crm-party.js"
       - "server/scripts/test-acc-crm-dashboard.js"
-      - "server/scripts/test-sync.js"  # harness-only: proxy strip + tunable boot timeout
+      - "server/scripts/test-sync.js"  # harness-only: proxy strip + tunable boot timeout + port base
+      - "server/scripts/lib/test-server-boot.js"
+      - "server/scripts/run-acc-crm-baseline.js"
+      - "server/scripts/check-ui-encoding.js"
       - "server/routes/followups.js"  # sales_manager scope align with crmScopeUserId
     acceptance_criteria:
       - "Audit + ADR + canonical redirect map committed"
@@ -61,8 +68,11 @@ tasks:
       - "Browser UI smoke + screenshots; Independent Reviewer + Security Approved"
       - "NO Iran deploy until explicit owner approval; no completed before dual approval"
     notes: >-
-      Wave 0 claimed. Implement only in worktree. Do not edit erp-taranom1.
+      Independent Reviewer CHANGES_REQUIRED + Security NOT_APPROVED on tip d5a2f51.
+      Remediation phases 0–8 in progress; DO NOT mark completed / release claims /
+      merge / Iran deploy until dual Approved. Implement only in worktree.
       Dual identity: implementer-acc-crm vs independent-reviewer/security.
+      Dirty CHANGE-LOG stamp (commit d5a2f51) preserved — not overwritten.
 
   - id: "PROD-P5-R2"
     title: "Reopen invalid PROD-P5 completion; restore P0–P5 gates and secure sensitivity"

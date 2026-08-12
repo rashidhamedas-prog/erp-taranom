@@ -8,13 +8,16 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const Database = require('better-sqlite3');
+const {
+  preferredPort, pickFreePort, killProcessTree, installCleanupHooks,
+} = require('./lib/test-server-boot');
 
-const PORT = 3488;
-const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'acc-crm-perp-'));
 const JWT = 'acc-crm-unify-test-jwt-secret-32chars!!';
 let adminPass = 'admin123';
 const TEST_PASS = 'AccCrmUnify1!';
+let BASE = '';
+let srv = null;
 
 // Parent process fetch must not go through system proxy for loopback.
 for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']) {
@@ -22,6 +25,8 @@ for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_
 }
 process.env.NO_PROXY = '127.0.0.1,localhost';
 process.env.no_proxy = '127.0.0.1,localhost';
+
+installCleanupHooks(() => (srv ? [srv] : []));
 
 let passed = 0, failed = 0;
 function ok(cond, name, extra) {
@@ -43,10 +48,10 @@ async function j(method, p, body, token) {
   return { status: res.status, data };
 }
 
-async function waitUp(srv, getStderr) {
+async function waitUp(child, getStderr) {
   for (let i = 0; i < 300; i++) {
-    if (srv && srv.exitCode != null) {
-      throw new Error('server exited early code=' + srv.exitCode + ' stderr=' + String(getStderr?.() || '').slice(-1500));
+    if (child && child.exitCode != null) {
+      throw new Error('server exited early code=' + child.exitCode + ' stderr=' + String(getStderr?.() || '').slice(-1500));
     }
     try {
       const r = await fetch(BASE + '/api/system/time', { signal: AbortSignal.timeout(1500) });
@@ -68,6 +73,11 @@ async function login() {
 }
 
 (async () => {
+  const preferred = preferredPort('ACC_CRM_TEST_PORT', 3488);
+  const PORT = await pickFreePort(preferred, { allowFallback: true });
+  BASE = `http://127.0.0.1:${PORT}`;
+  console.log(`[harness] PORT=${PORT} (preferred=${preferred || 'ephemeral'}) DB=${TMP}`);
+
   const dbPath = path.join(TMP, 'test.db');
   // Avoid system HTTP(S)_PROXY hijacking loopback health checks / API calls.
   const env = {
@@ -87,7 +97,7 @@ async function login() {
   delete env.ALL_PROXY;
   delete env.all_proxy;
 
-  const srv = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
+  srv = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -244,7 +254,8 @@ async function login() {
     if (stderr) console.error(stderr.slice(-2000));
     failed++;
   } finally {
-    try { srv.kill(); } catch {}
+    await killProcessTree(srv, { graceMs: 2000 });
+    srv = null;
     try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   }
   console.log(`\nACC-CRM perpetual: ${passed} passed, ${failed} failed`);

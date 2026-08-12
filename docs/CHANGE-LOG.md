@@ -27,9 +27,17 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-12 — ACC-CRM-UNIFY Phase 0: تثبیت baseline + پورت قابل‌تنظیم (بدون deploy)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** (pending Phase 0)
+- **خلاصه:** پس از Reviewer=`CHANGES_REQUIRED` و Security=`NOT_APPROVED` روی `d5a2f51`، فاز ۰ remediation: helper پورت/cleanup (`test-server-boot.js`)، پورت قابل‌تنظیم در `test-acc-crm-perpetual` (`ACC_CRM_TEST_PORT`) و `test-sync` (`SYNC_TEST_PORT_BASE`)، runner سریال `run-acc-crm-baseline.js`، ثبت مالکیت/claim در AI-DOS. stamp قبلی CHANGE-LOG برای `d5a2f51` حفظ شد.
+- **فایل‌های کلیدی:** `server/scripts/lib/test-server-boot.js`, `test-acc-crm-perpetual.js`, `test-sync.js`, `run-acc-crm-baseline.js`, `.ai-dos/tasks/{active.yaml,handoff.md}`, `.ai-dos/project/status.md`
+- **Deploy:** ⏭ عمداً انجام نشد (مجوز مالک + dual Approved لازم)
+- **SW:** بدون تغییر (Phase 0)
+
 ### 2026-08-11 — ACC-CRM-UNIFY wave0–6: فاکتور معمولی + دائمی + CRM + MDI پایین (SW v149)
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
-- **Commit:** (pending)
+- **Commit:** `d5a2f51`
 - **خلاصه:** نوع `normal` برای فاکتور فروش؛ فروش/خرید قطعی از مسیر `postInventoryMovement`؛ محدودیت کالا به انبار مبدأ؛ سخت‌سازی `users.party_id`؛ حذف تکرار کاردکس؛ نوار MDI پایین صفحه؛ منوی پیگیری CRM + داشبورد/API واقعی؛ تست‌های `test-acc-crm-*.js`. بدون deploy تولید تا تأیید مالک + Reviewer/Security.
 - **تکمیل موج ۲/۵/۶ (همین روز):** برگشت از فروش هم به مسیر دائمی وصل شد (`postSaleReturnStockMovements` + reverse از `inventory_ledger` در ابطال + بهای واقعی از میانگین انبار)؛ گارد idempotency روی سه گذار چک (`send-to-bank`/`clear`/`bounce`) با کد `E_JE_DUPLICATE`؛ redirect مسیرهای legacy در `go()` (کاردکس/فاکتور معمولی/رسمی/CRM)؛ تاریخچهٔ مشتری از `/api/crm/timeline` (فاکتور+تسویه+برگشت+پیگیری) با fallback به پیگیری‌ها. تست perpetual: **۳۴/۳۴**؛ party ۵/۵؛ dashboard ۸/۸؛ SMS ۲۲/۲۲.
 - **رفع یافته‌های ممیزی دوم:** ۱) PATCH متن‌آزاد وضعیت چک برای «وصول/برگشت/واگذاری» چک دریافتی مسدود شد (`E_CHEQUE_USE_LIFECYCLE`) — گذار مالی فقط از endpointهای چرخه با سند. ۲) `wireModalChrome` دیگر `--mdi-taskbar-h` را صفر نمی‌کند (همگام با `WinMgr.syncTaskbarSpace`). ۳) timeline رویدادهای برگشت فروش و چک را هم برمی‌گرداند. ۴) `NAV_ACCOUNTING` گروه «پیگیری CRM» گرفت. ۵) scope پیگیری‌ها برای `sales_manager`/`accounting` با `crmScopeUserId` هم‌راستا شد. ۶) **سازگاری عقب‌روی گیت انبار:** بدون `warehouse_id` هدر، fallback به انبار خود کالا + معناشناسی seed قدیمی (`products.stock` = موجودی انبار خانگی)؛ `E_WH_MISMATCH` صریح همچنان 409 — رفع شکست replay دستگاه در test-sync. ۷) harness `test-sync`: حذف پروکسی از loopback + مهلت بوت قابل‌تنظیم (`SYNC_TEST_BOOT_TIMEOUT_MS`). ۸) **باگ سینک دائمی:** `tx_no` کاردکس روی دستگاه‌ها با ردیف‌های pull‌شدهٔ مرکز تصادم می‌کرد (`UNIQUE inventory_ledger.tx_no`) — دستگاه حالا مثل شماره فاکتور، `موقت-INV-…` یکتا می‌سازد و شماره واقعی را مرکز در replay صادر می‌کند. **test-sync: ۴۴/۴۴ سبز.**

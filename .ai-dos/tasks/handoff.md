@@ -1,4 +1,39 @@
-﻿## 2026-08-11T20:15:00+03:30 — ACC-CRM-UNIFY implementation checkpoint (waves 0–6 code-complete, pre-review)
+﻿## 2026-08-12T19:05:00+03:30 — ACC-CRM-UNIFY Phase 0 GREEN (baseline + ports)
+
+- **Task:** still `active` — `CHANGES_REQUIRED` / Security `NOT_APPROVED` unchanged; claims retained
+- **Tip before this commit:** `d5a2f51`; Phase 0 commit pending
+- **Harness:**
+  - `server/scripts/lib/test-server-boot.js` — `pickFreePort`, `assertPortsFree`, Windows `taskkill /T /F`
+  - `ACC_CRM_TEST_PORT` (perpetual) + `SYNC_TEST_PORT_BASE` (sync e2e)
+  - `run-acc-crm-baseline.js` serial runner
+  - sync stop/restart: await kill + `waitPortFree` + `waitForServer` (fixes EADDRINUSE / ECONNREFUSED flake)
+- **Baseline evidence (serial, isolated DB/ports):**
+  - party PASS (~20s)
+  - dashboard PASS (~12s)
+  - perpetual **34/34** PASS (~27s) on free/fallback port
+  - sms **22/22** PASS
+  - `_diag-sync-gaps` mismatches=[]
+  - test-sync on ports **4120/4121/4122**: **PASS** (exit 0) after stop/restart harden
+- **CHANGE-LOG:** preserved prior dirty stamp `d5a2f51` + added Phase 0 entry
+- **NO deploy / merge / completed**
+- **Next:** Phase 1 — restore `index.html` UTF-8 from `448a8c1`, re-apply ACC-CRM edits, encoding guard, browser smoke
+
+## 2026-08-12T18:50:00+03:30 — ACC-CRM-UNIFY Phase 0 start (remediation; CHANGES_REQUIRED)
+
+- **Task:** still `active` — review_status=`CHANGES_REQUIRED`, security_status=`NOT_APPROVED`
+- **Do NOT:** completed / release claims / merge / Iran deploy / mark Approved
+- **Worktree:** `D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify`
+  branch `ai/ACC-CRM-UNIFY-accounting-crm` @ tip was `d5a2f51` (reviewed); base `448a8c1`
+- **Dirty file at session start:** only `docs/CHANGE-LOG.md` (stamp Commit `d5a2f51` instead of pending).
+  Preserved — no overwrite of user/content intent; included in Phase 0 commit.
+- **File claims:** retained + appended `server/scripts/lib/test-server-boot.js`,
+  `run-acc-crm-baseline.js`, `check-ui-encoding.js` (encoding guard reserved for Phase 1)
+- **Phase 0 scope:** configurable ports (`ACC_CRM_TEST_PORT`, `SYNC_TEST_PORT_BASE`),
+  Windows process-tree kill (`taskkill /T /F`), serial baseline runner, record ownership/git
+- **Next:** finish Phase 0 baseline evidence → commit → Phase 1 encoding restore
+- **Parallel discovery:** Accounting/RBAC/Migration inventory + UI encoding inventory agents
+
+## 2026-08-11T20:15:00+03:30 — ACC-CRM-UNIFY implementation checkpoint (waves 0–6 code-complete, pre-review)
 
 - **Task:** `ACC-CRM-UNIFY` still `active` — NOT completed; **NO Iran deploy**
 - **Branch/worktree:** `ai/ACC-CRM-UNIFY-accounting-crm` / `D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify` @ base `448a8c1`

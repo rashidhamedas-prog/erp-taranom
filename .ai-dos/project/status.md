@@ -1,17 +1,18 @@
 # Project Status
 
-- Last verified: 2026-08-11 (~20:20 +03:30)
-- **Active task:** `ACC-CRM-UNIFY` (high risk) — accounting perpetual unify + normal invoice + CRM.
-- **Progress:** waves 0–6 code-complete (normal invoice + perpetual sales/purchase/returns/void,
-  cheque transition idempotency, user↔party unique, UI redirects, MDI bottom bar, CRM dashboard/timeline).
-  Gates green: perpetual 34/34, party 5/5, dashboard 8/8, SMS 22/22, diag mismatches=[].
-  Pending: test-sync (machine-load flake — concurrent Next.js build), test:production, dual review.
+- Last verified: 2026-08-12 (~18:50 +03:30)
+- **Active task:** `ACC-CRM-UNIFY` (high risk) — remediation after dual review.
+- **Review disposition:** Independent Reviewer **CHANGES_REQUIRED**; Security **NOT APPROVED**
+  (reviewed tip `d5a2f51` vs base `448a8c1`). Task remains `active` — NOT completed; claims retained.
+- **Remediation:** Phases 0–8 (baseline → encoding → money → RBAC → migration → reports →
+  mediums → full gates → independent re-review). Phase 0 in progress: configurable test ports +
+  process-tree cleanup + serial baseline runner.
 - Branch / worktree: `ai/ACC-CRM-UNIFY-accounting-crm` /
-  `D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify` @ base `448a8c1`.
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify`.
 - Roles: Orchestrator `cursor:orchestrator`; Implementer `cursor:implementer-acc-crm`;
   Reviewer `cursor:independent-reviewer-acc-crm`; Security `cursor:independent-security-acc-crm`
-  (Reviewer/Security distinct from Implementer).
-- **NO Iran deploy** until explicit owner approval after dual review.
+  (Reviewer/Security distinct from Implementer — Implementer must not self-approve).
+- **NO Iran deploy / merge** until explicit owner approval after dual Approved.
 - Do not implement in dirty `erp-taranom1`. Leave `ai/W1-*` alone.
 - Prior: PROD-P5-R2 completed (tip lineage from primary `448a8c1`).
 
@@ -30,3 +31,4 @@
 - `node server/scripts/test-acc-crm-perpetual.js` (added by this task)
 - `node server/scripts/test-acc-crm-party.js` (added by this task)
 - `node server/scripts/test-acc-crm-dashboard.js` (added by this task)
+- `node server/scripts/run-acc-crm-baseline.js` (Phase 0 serial runner; env ACC_CRM_TEST_PORT / SYNC_TEST_PORT_BASE)
