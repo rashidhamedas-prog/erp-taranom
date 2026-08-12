@@ -27,6 +27,14 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-12 — ACC-CRM-UNIFY Phase 1: بازیابی encoding فارسی index.html + guard (SW v150)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** (pending Phase 1)
+- **خلاصه:** `index.html` از `448a8c1` با UTF-8/BOM سالم بازگردانی شد؛ فقط bump دارایی‌ها به v150. گارد `check-ui-encoding.js` (حداقل ۴۰۰ نویسه فارسی، رد `???`). اسکرین‌شات‌ها در `docs/architecture/ui-baseline/`. SW → `erp-taranom-v150` پس از تأیید UI.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `server/scripts/check-ui-encoding.js`, `server/scripts/phase1-ui-screenshots.js`, `docs/architecture/ui-baseline/*`
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** `erp-taranom-v150`
+
 ### 2026-08-12 — ACC-CRM-UNIFY Phase 0: تثبیت baseline + پورت قابل‌تنظیم (بدون deploy)
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
 - **Commit:** `8fea0d4`

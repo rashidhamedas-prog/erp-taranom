@@ -1,4 +1,18 @@
-﻿## 2026-08-12T19:05:00+03:30 — ACC-CRM-UNIFY Phase 0 GREEN (baseline + ports)
+﻿## 2026-08-12T19:25:00+03:30 — ACC-CRM-UNIFY Phase 1 GREEN (encoding restore)
+
+- **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; claims retained; NO deploy
+- **index.html:** restored from `448a8c1` UTF-8+BOM (584 Persian chars, 0 `???` runs); only intentional ACC-CRM edit re-applied was asset `?v=` bump → **v150** after UI confirm
+- **Guard:** `node server/scripts/check-ui-encoding.js` PASS
+- **HTTP smoke:** `/` 200 persian=584 hasLogin/hasUser/title true; login 200
+- **Screenshots:**
+  - `docs/architecture/ui-baseline/phase1-login.png` (Chrome headless live login — Persian readable)
+  - `docs/architecture/ui-baseline/phase1-shell-admin.png` / `phase1-crm-dashboard.png`
+  - `phase1-login.html`, `phase1-crm-dashboard.json` (CRM dashboard status 200)
+- **SW:** `erp-taranom-v150` (bumped only after UI confirm)
+- **Parallel:** Phase 2 money + Phase 3 RBAC agents running; not committed in this phase
+- **Next:** await Phase 2/3 green → commit each separately → Phase 4 migration
+
+## 2026-08-12T19:05:00+03:30 — ACC-CRM-UNIFY Phase 0 GREEN (baseline + ports)
 
 - **Task:** still `active` — `CHANGES_REQUIRED` / Security `NOT_APPROVED` unchanged; claims retained
 - **Tip before this commit:** `d5a2f51`; Phase 0 commit pending

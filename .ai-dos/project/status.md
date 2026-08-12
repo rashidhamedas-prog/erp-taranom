@@ -4,9 +4,8 @@
 - **Active task:** `ACC-CRM-UNIFY` (high risk) — remediation after dual review.
 - **Review disposition:** Independent Reviewer **CHANGES_REQUIRED**; Security **NOT APPROVED**
   (reviewed tip `d5a2f51` vs base `448a8c1`). Task remains `active` — NOT completed; claims retained.
-- **Remediation:** Phases 0–8 (baseline → encoding → money → RBAC → migration → reports →
-  mediums → full gates → independent re-review). Phase 0 in progress: configurable test ports +
-  process-tree cleanup + serial baseline runner.
+- **Remediation:** Phases 0–8. **Phase 0+1 GREEN** (ports/cleanup; index.html UTF-8 restored + encoding guard + ui-baseline screenshots; SW v150).
+  Phases 2–3 in parallel (money ×10 / CRM RBAC). Task still CHANGES_REQUIRED / Security NOT APPROVED.
 - Branch / worktree: `ai/ACC-CRM-UNIFY-accounting-crm` /
   `D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify`.
 - Roles: Orchestrator `cursor:orchestrator`; Implementer `cursor:implementer-acc-crm`;
