@@ -29,7 +29,7 @@
 
 ### 2026-08-12 — ACC-CRM-UNIFY Phase 3: CRM RBAC + cheque scope
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
-- **Commit:** (pending Phase 3)
+- **Commit:** `dd511fc`
 - **خلاصه:** نادیده گرفتن `user_id` کلاینت وقتی scope فعال است (شامل 0)؛ permission صریح CRM؛ KPI چک scoped؛ timeline چک با party_id/customer_id؛ تست منفی HTTP+unit **۲۱/۲۱**.
 - **فایل‌های کلیدی:** `crm-analytics.js`, `crm.js`, `db.js`, `test-acc-crm-dashboard.js`
 - **Deploy:** ⏭ عمداً انجام نشد
