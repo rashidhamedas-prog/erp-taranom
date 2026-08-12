@@ -5,7 +5,7 @@ if(typeof T!=='function'){ window.T=function(s){return s;}; window.tt=function(a
 let ME = null;
 // Master lists (warehouses, groups, …) must be null — NOT [] — so `if(!CACHE.warehouses)`
 // actually fetches. Empty array is truthy and used to block reload until you open that section.
-let CACHE = { customers:[], products:[], allProducts:[], users:[], orders:[], followups:[], invoices:[], settings:{}, productCategories:null, warehouses:null, productCats:null, partyGroups:null, _prodWarehouses:null, _prodCats:null, _prodMetaLoaded:false };
+let CACHE = { customers:[], products:[], allProducts:[], _invProducts:[], users:[], orders:[], followups:[], invoices:[], settings:{}, productCategories:null, warehouses:null, productCats:null, partyGroups:null, _prodWarehouses:null, _prodCats:null, _prodMetaLoaded:false };
 let mChart = null;
 let APP_INFO = null, PENDING_UPDATE = null;
 const _apiCache = {};
@@ -3514,7 +3514,9 @@ function renderInvPicker(){
     el('invPicker').innerHTML=`<div class="empty" data-csp-style="${CSP.style(`padding:16px;text-align:center`)}">ابتدا انبار مبدأ را انتخاب کنید</div>`;
     return;
   }
-  let prods=(CACHE.allProducts.length?CACHE.allProducts:CACHE.products).slice();
+  let prods=(CACHE._invProducts && CACHE._invProducts.length
+    ? CACHE._invProducts
+    : (CACHE.allProducts.length?CACHE.allProducts:CACHE.products)).slice();
   if(q) prods=prods.filter(p=>textMatchesQuery((p.name||'')+' '+(p.code||'')+' '+(p.category||'')+' '+(p.barcode||''), q));
   const INV_PICK_LIMIT=60;
   const extra=Math.max(0,prods.length-INV_PICK_LIMIT);
@@ -3534,12 +3536,12 @@ function renderInvPicker(){
 }
 async function reloadInvProductsForWarehouse(){
   const whId = +(el('inv-warehouse')?.value || 0);
-  if(!whId){ CACHE.allProducts=[]; CACHE.products=[]; renderInvPicker(); return; }
+  // Never overwrite CACHE.allProducts with a WH subset (poisons catalog/BOM pickers).
+  if(!whId){ CACHE._invProducts=[]; renderInvPicker(); return; }
   try{
     const rows = await api('GET','/products?warehouse_id='+whId+'&pageSize=500') || [];
     const list = Array.isArray(rows) ? rows : (rows.rows || rows.data || []);
-    CACHE.allProducts = list;
-    CACHE.products = list;
+    CACHE._invProducts = list;
     // Drop cart lines that are no longer in this warehouse's product set
     const ids = new Set(list.map(p=>p.id));
     const before = invCart.length;
@@ -5853,6 +5855,8 @@ async function loadAccTab(tab){
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){editChequeRegisterStatus((r.id),`${String((CSP.htmlDecode(String(esc(r.status||'')))) ?? '')}`)})}">✏️ وضعیت</button>
           ${r.direction==='in'&&(!r.lifecycle_status||r.lifecycle_status==='registered')?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chequeSendToBank((r.id))})}">🏦 واگذاری</button>`:''}
           ${r.direction==='in'&&r.lifecycle_status==='in_collection'?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){chequeClear((r.id))})}">✅ وصول</button><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){chequeBounce((r.id))})}">↩️ برگشت</button>`:''}
+          ${r.direction==='in'&&r.lifecycle_status==='cleared'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){chequeBounce((r.id))})}">↩️ برگشت</button>`:''}
+          ${r.direction==='in'&&r.lifecycle_status==='bounced'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){chequeResend((r.id))})}">🔁 ارسال مجدد</button>`:''}
           ${(ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidChequeRegister((r.id),`${String((CSP.htmlDecode(String(esc(r.cheque_number||'')))) ?? '')}`)})}" title="ابطال کامل">⛔</button>`:''}
         </td>
       </tr>`).join('')||emptyRow(11)}</tbody>
@@ -15645,6 +15649,13 @@ async function chequeBounce(id){
     showToast('برگشت ثبت شد'); loadAccTab('cheque-register');
   }catch(e){}
 }
+async function chequeResend(id){
+  if(!confirm('ارسال مجدد پس از برگشت؟ سند برگشت معکوس و وضعیت قبلی چرخه بازیابی می‌شود.')) return;
+  try{
+    await api('POST','/cheque-records/'+id+'/resend',{date:todayJalali()});
+    showToast('ارسال مجدد ثبت شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
 async function voidChequeRegister(id,num){
   if(!confirm(`چک «${num||id}» کاملاً ابطال شود؟\nهمهٔ اسناد واگذاری/وصول/برگشت/افتتاحیه معکوس می‌شوند.`)) return;
   try{
@@ -17087,7 +17098,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
-        <li><b>دفتر چک</b>: واگذاری/وصول/برگشت + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
+        <li><b>دفتر چک</b>: واگذاری/وصول/برگشت/ارسال مجدد + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: پیگیری کالاهایی که مالکیتشان هنوز نهایی نشده — <b>ارسالی</b> (کالای ما نزد دیگران، بلافاصله از موجودی کسر می‌شود) و <b>دریافتی</b> (کالای دیگران نزد ما، به موجودی خودمان اضافه نمی‌شود). با «تسویه» فروش قطعی می‌شود (فاکتور/پرداخت واقعی را جداگانه ثبت کنید) و با «استرداد» کالای ارسالی به موجودی برمی‌گردد</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
@@ -17395,9 +17406,10 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>واگذاری به بانک</b>: از وضعیت ثبت‌شده — سند انتقال به «در جریان وصول»</li>
         <li><b>وصول</b>: وقتی چک در «جریان وصول» است — بستانکار بانک</li>
-        <li><b>برگشت</b>: ثبت برگشت از بانک</li>
+        <li><b>برگشت</b>: از «جریان وصول» یا «وصول‌شده» — سند برگشت</li>
+        <li><b>ارسال مجدد</b>: پس از برگشت — معکوس سند برگشت و بازگشت به وضعیت قبلی چرخه</li>
       </ul>
-      <div class="tip">هر گذار چرخه فقط یک‌بار سند می‌زند (تکرار = خطای سند تکراری). تغییر وضعیت با متن آزاد برای «وصول/برگشت/واگذاری» چک دریافتی مسدود است — از همین عملیات چرخه استفاده کنید تا سند حسابداری هم ثبت شود.</div>`),
+      <div class="tip">هر گذار چرخه فقط یک‌بار سند می‌زند (تکرار = خطای سند تکراری). تغییر وضعیت با متن آزاد (فارسی/انگلیسی) برای گذارهای مالی چک دریافتی مسدود است — از همین عملیات چرخه استفاده کنید تا سند حسابداری هم ثبت شود.</div>`),
     helpSec('📡','سلامت سرویس و پشتیبانی',`
       <p><code dir="ltr">/api/system/health</code> زنده بودن فرایند را نشان می‌دهد؛ <code dir="ltr">/api/system/ready</code> آمادگی دیتابیس را بررسی می‌کند. هر درخواست هدر <code dir="ltr">X-Request-Id</code> دارد (برای پیگیری لاگ). متای پشتیبانی در <code dir="ltr">/api/support/meta</code> است — تیکتینگ داخل برنامه فعلاً فعال نیست و از کانال خارجی سازمان استفاده می‌شود.</p>`)
   ].join('');

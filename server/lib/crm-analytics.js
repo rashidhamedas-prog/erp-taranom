@@ -186,6 +186,26 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
   if (from) { fuWhere.push('f.date>=?'); fuParams.push(from); }
   if (to) { fuWhere.push('f.date<=?'); fuParams.push(to); }
 
+  // new_customers: when from/to set, filter by customers.created_at (unix) in Jalali day bounds
+  if (from || to) {
+    const { j2g } = require('../jalali');
+    const dayBounds = (jStr) => {
+      const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(String(jStr || '').trim());
+      if (!m) return null;
+      const [gy, gm, gd] = j2g(+m[1], +m[2], +m[3]);
+      const start = Math.floor(new Date(gy, gm - 1, gd, 0, 0, 0).getTime() / 1000);
+      return { start, end: start + 86400 - 1 };
+    };
+    if (from) {
+      const b = dayBounds(from);
+      if (b) { custWhere.push('COALESCE(c.created_at,0)>=?'); custParams.push(b.start); }
+    }
+    if (to) {
+      const b = dayBounds(to);
+      if (b) { custWhere.push('COALESCE(c.created_at,0)<=?'); custParams.push(b.end); }
+    }
+  }
+
   const newCustomers = db.prepare(
     `SELECT COUNT(*) AS c FROM customers c WHERE ${custWhere.join(' AND ')}`
   ).get(...custParams)?.c || 0;

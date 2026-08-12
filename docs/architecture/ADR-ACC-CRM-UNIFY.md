@@ -16,7 +16,12 @@ Sales/purchases use legacy stock updates while warehouse ops use `postInventoryM
 
 4. **Conversions:** `proforma → normal|final` via dedicated convert endpoints. Posted `normal|final` are not edited in place; cancel (full reverse) then re-issue.
 
-5. **Warehouse gate:** Stocked lines require header `warehouse_id`; products must have valid `warehouse_stock` in that WH (positive unless negative sales allowed). Services (`item_kind=service`) exempt. API enforces independently of UI.
+5. **Warehouse gate:** Firm sales with stocked lines need an effective warehouse per line.
+   - **Preferred:** header `warehouse_id` set by UI/API.
+   - **Legacy fallback (devices / older clients):** `header || line.warehouse_id || products.warehouse_id`.
+   - Hard `E_WH_MISMATCH` only when header AND line WH both set and differ.
+   - Missing `warehouse_stock` uses seed semantics (`products.stock` only on home WH) for backward compatibility with sync replay; services exempt.
+   - API may soft-fill header from seller `sales_warehouse_id` (reps forced). This is intentional compatibility, documented here — not a silent bypass of stock checks (`E_WH_INSUFFICIENT` still applies).
 
 6. **Canonical UI:** Accounting shell pages are source of truth; duplicate menu entries redirect. Single kardex route `acc-item-kardex`.
 
@@ -35,6 +40,20 @@ Sales/purchases use legacy stock updates while warehouse ops use `postInventoryM
     - **Commission-eligible** (`commissionEligibleSql`): firm + `approved=1`. Normal invoices are **auto-approved** on create/convert (`autoApproveNormalInvoice`); final still requires explicit commission approve.
     - **Final-only:** Moadian enqueue/submit, pending official-approval queues/counts/notifications, seasonal tax report 169, approve-gate endpoints.
     - Proforma never enters revenue/AR/Moadian.
+
+13. **Cheque lifecycle (Phase 6):** Canonical path for incoming cheques is
+    `registered → in_collection → cleared|bounced`. Free-text `PATCH …/status` must not
+    mutate financial meaning (Persian or English synonyms, or when lifecycle is past
+    `registered`). `POST …/resend` reverses the bounce JE and restores the prior
+    lifecycle state (`in_collection` or `cleared`) with idempotent guards.
+    Outgoing cheques keep register notes only until a dedicated payable lifecycle exists.
+
+14. **CRM new_customers KPI:** When dashboard `from`/`to` (Jalali) are set, count
+    customers whose `created_at` (unix) falls in that inclusive day range (same scope
+    filters). Without dates: all customers in scope (legacy).
+
+15. **Invoice product picker cache:** Warehouse-filtered product lists must not overwrite
+    `CACHE.allProducts`; use a dedicated picker cache so catalog/BOM/other pages keep the full set.
 
 ## Consequences
 - Large touch surface on `invoices.js`, `purchases.js`, void helpers, `app.js`, nav, CRM routes.

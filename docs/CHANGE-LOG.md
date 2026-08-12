@@ -27,9 +27,17 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
-### 2026-08-12 — ACC-CRM-UNIFY Phase 5: گزارش فروش قطعی + ADR فیلترها
+### 2026-08-12 — ACC-CRM-UNIFY Phase 6: Medium edge cases (SW v151)
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
 - **Commit:** _(pending stamp)_
+- **خلاصه:** ADR انبار با fallback صریح؛ مسدودسازی PATCH وضعیت مالی چک (فارسی/انگلیسی) + `POST /resend` پس از برگشت؛ جلوگیری از overwrite شدن `CACHE.allProducts` با subset انبار؛ KPI `new_customers` با from/to روی `created_at`؛ تست **۱۳/۱۳**.
+- **فایل‌های کلیدی:** `cheque-records.js`, `crm-analytics.js`, `app.js`, `ADR-ACC-CRM-UNIFY.md`, `test-acc-crm-phase6.js`, `sw.js`, `index.html`
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** `erp-taranom-v151`
+
+### 2026-08-12 — ACC-CRM-UNIFY Phase 5: گزارش فروش قطعی + ADR فیلترها
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** `cdde2c8`
 - **خلاصه:** helperهای `firmSaleTypeSql` / `commissionEligibleSql`؛ درآمد/AR/P&L/VAT/KPIها با `normal|final`؛ Moadian و pending-approval و seasonal-169 فقط `final`؛ auto-approve برای فاکتور معمولی؛ تست reconciliation **۱۵/۱۵**.
 - **فایل‌های کلیدی:** `sales-document.js`, `reports.js`, `accounting.js`, `adv-reports.js`, `dashboard.js`, `admin.js`, `ai.js`, `crm-analytics.js`, `test-acc-crm-reports.js`, `ADR-ACC-CRM-UNIFY.md`
 - **Deploy:** ⏭ عمداً انجام نشد

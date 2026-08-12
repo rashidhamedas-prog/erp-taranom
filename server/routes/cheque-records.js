@@ -5,9 +5,30 @@ const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
 const { todayJalali } = require('../jalali');
 const { voidChequeRecord } = require('../lib/void-cheque');
+const { reverseJournalEntry } = require('../lib/void-journal');
 const { assertJournalIdempotent } = require('../lib/sales-document');
 
 const OPENING_NOTE = 'مانده اول دوره';
+
+/** Free-text / English synonyms that imply a financial lifecycle transition. */
+const FINANCIAL_STATUS_RE = /وصول|برگشت|واگذار|cleared|bounced|received|in[_ ]?collection|send[_ -]?to[_ -]?bank|resend|واگذارى/i;
+const ACTIVE_LIFECYCLE = new Set(['in_collection', 'cleared', 'bounced']);
+
+function refuseFreeTextFinancial(row, status) {
+  const s = String(status || '');
+  if (row.direction === 'in' && FINANCIAL_STATUS_RE.test(s)) {
+    const err = new Error('این تغییر وضعیت سند حسابداری لازم دارد — از عملیات چرخه چک (واگذاری/وصول/برگشت/ارسال مجدد) استفاده کنید');
+    err.status = 400;
+    err.code = 'E_CHEQUE_USE_LIFECYCLE';
+    throw err;
+  }
+  if (row.direction === 'in' && ACTIVE_LIFECYCLE.has(String(row.lifecycle_status || ''))) {
+    const err = new Error('وضعیت چرخه فعال است — فقط از endpointهای چرخه یا ابطال کامل استفاده کنید');
+    err.status = 400;
+    err.code = 'E_CHEQUE_USE_LIFECYCLE';
+    throw err;
+  }
+}
 
 router.get('/', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
@@ -81,14 +102,10 @@ router.patch('/:id/status', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM cheque_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  // گذارهای مالی (وصول/برگشت/واگذاری) فقط از endpointهای چرخه با سند حسابداری —
-  // متن آزاد نباید بدون JE وضعیت مالی چک را عوض کند.
-  const s = String(status || '');
-  if (row.direction === 'in' && /وصول|برگشت|واگذار/.test(s)) {
-    return res.status(400).json({
-      error: 'این تغییر وضعیت سند حسابداری لازم دارد — از عملیات چرخه چک (واگذاری/وصول/برگشت) استفاده کنید',
-      code: 'E_CHEQUE_USE_LIFECYCLE',
-    });
+  try {
+    refuseFreeTextFinancial(row, status);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
   db.prepare('UPDATE cheque_records SET status=?, status_note=? WHERE id=?')
     .run(status || row.status, status_note ?? row.status_note, req.params.id);
@@ -233,6 +250,50 @@ router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
 
     audit(req.user.id, 'cheque_bounce', 'cheque_record', row.id, row.cheque_number);
     res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'bounced' });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+/**
+ * bounce → resend: reverse bounce JE and restore prior lifecycle
+ * (cleared if clear JE still present, else in_collection).
+ */
+router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
+    if (row.lifecycle_status !== 'bounced') {
+      throw Object.assign(new Error('فقط چک برگشتی قابل ارسال مجدد است'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+    }
+    if (!row.bounced_je_id) {
+      throw Object.assign(new Error('سند برگشت یافت نشد — ابطال کامل یا اصلاح دستی لازم است'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+    }
+
+    const prior = row.cleared_je_id ? 'cleared' : (row.collection_je_id ? 'in_collection' : 'registered');
+    const statusLabel = prior === 'cleared' ? 'وصول‌شده' : (prior === 'in_collection' ? 'در جریان وصول' : 'ثبت‌شده');
+
+    const revId = db.transaction(() => {
+      const id = reverseJournalEntry(db, row.bounced_je_id, {
+        userId: req.user.id,
+        date: req.body.date || todayJalali(),
+        reason: `ارسال مجدد چک ${row.cheque_number || row.id} پس از برگشت`,
+        sourceType: 'cheque_resend',
+      });
+      if (!id) {
+        throw Object.assign(new Error('معکوس سند برگشت ناموفق بود'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
+      db.prepare(`
+        UPDATE cheque_records
+        SET lifecycle_status=?, bounced_je_id=NULL, status=?
+        WHERE id=?
+      `).run(prior, statusLabel, row.id);
+      return id;
+    })();
+
+    audit(req.user.id, 'cheque_resend', 'cheque_record', row.id, row.cheque_number);
+    res.json({ ok: true, journal_entry_id: revId, lifecycle_status: prior });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
   }

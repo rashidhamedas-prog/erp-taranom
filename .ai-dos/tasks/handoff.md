@@ -1,4 +1,11 @@
-﻿## 2026-08-12T22:25:00+03:30 — ACC-CRM-UNIFY Phase 5 GREEN (firm-sale reports)
+﻿## 2026-08-12T22:55:00+03:30 — ACC-CRM-UNIFY Phase 6 GREEN (medium edges)
+
+- **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; NO deploy
+- **Fixes:** ADR #5/#13–15; cheque PATCH financial synonyms blocked + bounce→resend; `CACHE._invProducts` for WH picker; `new_customers` respects Jalali from/to via `created_at`; Help+SW v151
+- **Tests:** phase6 **13/13**; dashboard **21/21**; reports **15/15**
+- **Next:** Phase 7 full gates on clean tip
+
+## 2026-08-12T22:25:00+03:30 — ACC-CRM-UNIFY Phase 5 GREEN (firm-sale reports)
 
 - **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; NO deploy
 - **Fixes:** `firmSaleTypeSql` / `commissionEligibleSql` / `autoApproveNormalInvoice`; revenue/AR/P&L/VAT/KPIs include `normal|final`; Moadian + pending approval + seasonal-169 remain final-only; ADR decision #12

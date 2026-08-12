@@ -16,7 +16,7 @@ tasks:
     base_commit: "448a8c1"
     reviewed_tip: "d5a2f51"
     claimed_at: "2026-08-11T16:55:00+03:30"
-    remediation_phase: "5-done"
+    remediation_phase: "6-done"
     file_claims:
       - ".ai-dos/project/status.md"
       - ".ai-dos/tasks/active.yaml"
@@ -51,6 +51,7 @@ tasks:
       - "server/scripts/test-acc-crm-party.js"
       - "server/scripts/test-acc-crm-dashboard.js"
       - "server/scripts/test-acc-crm-reports.js"
+      - "server/scripts/test-acc-crm-phase6.js"
       - "server/scripts/test-sync.js"  # harness-only: proxy strip + tunable boot timeout + port base
       - "server/scripts/lib/test-server-boot.js"
       - "server/scripts/run-acc-crm-baseline.js"
