@@ -1,10 +1,9 @@
 # Project Status
 
-- Last verified: 2026-08-12 (~24:15 +03:30)
-- **Active task:** none (ACC-CRM-UNIFY completed after dual Approved)
-- **ACC-CRM-UNIFY:** Independent Reviewer **APPROVED** + Security **APPROVED** on code tip `c0ed4c9` (stamp `fe2f1da`)
-  vs base `448a8c1`. Claims released. Branch `ai/ACC-CRM-UNIFY-accounting-crm` ready for owner merge.
-- **NO Iran deploy / merge** until explicit owner approval (not performed).
+- Last verified: 2026-08-13 (~01:06 +03:30)
+- **Active task:** none (ACC-CRM-UNIFY merged + Iran deployed)
+- **ACC-CRM-UNIFY:** dual Approved → owner OK → FF-merge primary `aa1ee64` + SFTP Iran ✅
+  Stamp `.sftp-deploy-stamp-acc-crm-unify` hash=`aa1ee64` · SW `erp-taranom-v151` live.
 - Roles used: Implementer `cursor:implementer-acc-crm`; Reviewer `cursor:independent-reviewer-acc-crm`;
   Security `cursor:independent-security-acc-crm` (distinct from Implementer).
 - Prior: PROD-P5-R2 completed.

@@ -27,6 +27,15 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-13 — ACC-CRM-UNIFY: FF-merge primary + Iran SFTP deploy ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` ← FF از `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Tip:** `aa1ee64` (merge tip = feature tip)
+- **خلاصه:** با تأیید صریح مالک: FF-merge + push primary؛ overlay SFTP به `taranom@94.249.244.208:/home/taranom/crm-taranom`؛ `pm2 restart erp-taranom` بدون `--update-env`؛ stamp `.sftp-deploy-stamp-acc-crm-unify` = `2026-08-12T21:36:19Z hash=aa1ee64`.
+- **تأیید runtime:** loopback health/ready/root **200**؛ `sw.js` = `erp-taranom-v151`؛ `app.js?v=151`؛ `crm.js` + `sales-document.js` + `firmSaleTypeSql` روی VPS.
+- **تأیید عمومی:** `https://erp.poshaktaranom.com/sw.js` → `CACHE = 'erp-taranom-v151'` (دیگر v148 نیست).
+- **Deploy:** ✅ SFTP overlay (بدون blind git pull روی VPS کثیف)
+- **SW:** `erp-taranom-v151`
+
 ### 2026-08-12 — ACC-CRM-UNIFY completed: dual Approved (no deploy)
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
 - **Code tip:** `c0ed4c9` · **Stamp:** `fe2f1da`
