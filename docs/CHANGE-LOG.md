@@ -29,7 +29,7 @@
 
 ### 2026-08-12 — ACC-CRM-UNIFY Phase 6: Medium edge cases (SW v151)
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
-- **Commit:** _(pending stamp)_
+- **Commit:** `bce9943`
 - **خلاصه:** ADR انبار با fallback صریح؛ مسدودسازی PATCH وضعیت مالی چک (فارسی/انگلیسی) + `POST /resend` پس از برگشت؛ جلوگیری از overwrite شدن `CACHE.allProducts` با subset انبار؛ KPI `new_customers` با from/to روی `created_at`؛ تست **۱۳/۱۳**.
 - **فایل‌های کلیدی:** `cheque-records.js`, `crm-analytics.js`, `app.js`, `ADR-ACC-CRM-UNIFY.md`, `test-acc-crm-phase6.js`, `sw.js`, `index.html`
 - **Deploy:** ⏭ عمداً انجام نشد
