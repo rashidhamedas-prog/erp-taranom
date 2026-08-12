@@ -125,24 +125,29 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
 router.post('/:id/send-to-bank', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
-    const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
-    if (!row) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
-    if (row.lifecycle_status && row.lifecycle_status !== 'registered') {
-      throw Object.assign(new Error('وضعیت چرخه این چک اجازه ارسال به بانک را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
-    }
-    assertJournalIdempotent(db, 'cheque_send_to_bank', row.id);
-    const amountRial = Math.round(Number(row.amount) || 0);
+    const amountProbe = db.prepare("SELECT amount FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+    if (!amountProbe) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
+    const amountRial = Math.round(Number(amountProbe.amount) || 0);
     if (amountRial <= 0) throw new Error('مبلغ چک نامعتبر است');
 
     const collection = acct(db, 'coa_cheques_in_collection');
     const receivable = acct(db, 'coa_cheques_receivable');
     const amt = amountRial / 10;
     const bankId = req.body.collection_bank_id || null;
+    const entryDate = req.body.date || todayJalali();
 
     const jeId = db.transaction(() => {
+      const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+      if (!row) {
+        throw Object.assign(new Error('چک دریافتنی یافت نشد'), { status: 404 });
+      }
+      if (row.lifecycle_status && row.lifecycle_status !== 'registered') {
+        throw Object.assign(new Error('وضعیت چرخه این چک اجازه ارسال به بانک را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
+      assertJournalIdempotent(db, 'cheque_send_to_bank', row.id);
       const id = postToLedger(db, {
         sourceType: 'cheque_send_to_bank', sourceId: row.id,
-        date: req.body.date || todayJalali(),
+        date: entryDate,
         description: `واگذاری چک ${row.cheque_number || row.id} به بانک`,
         createdBy: req.user.id,
         lines: [
@@ -150,14 +155,18 @@ router.post('/:id/send-to-bank', auth, adminOrAccounting, (req, res) => {
           { code: receivable.code, name: receivable.name, debit: 0, credit: amt, credit_rial: amountRial },
         ],
       });
-      db.prepare(`
+      const updated = db.prepare(`
         UPDATE cheque_records SET lifecycle_status='in_collection', collection_bank_id=?, collection_je_id=?
-        WHERE id=?
+        WHERE id=? AND (lifecycle_status IS NULL OR lifecycle_status='' OR lifecycle_status='registered')
       `).run(bankId, id, row.id);
+      if (!updated.changes) {
+        throw Object.assign(new Error('وضعیت چرخه این چک اجازه ارسال به بانک را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
       return id;
     })();
 
-    audit(req.user.id, 'cheque_send_bank', 'cheque_record', row.id, row.cheque_number);
+    const row = db.prepare('SELECT cheque_number FROM cheque_records WHERE id=?').get(req.params.id);
+    audit(req.user.id, 'cheque_send_bank', 'cheque_record', req.params.id, row?.cheque_number);
     res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'in_collection' });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
@@ -167,18 +176,24 @@ router.post('/:id/send-to-bank', auth, adminOrAccounting, (req, res) => {
 router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
-    const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
-    if (!row) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
-    if (row.lifecycle_status !== 'in_collection') throw Object.assign(new Error('چک باید در وضعیت «در جریان وصول» باشد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
-    assertJournalIdempotent(db, 'cheque_clear', row.id);
+    const amountProbe = db.prepare("SELECT amount, collection_bank_id FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+    if (!amountProbe) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
 
-    const amountRial = Math.round(Number(row.amount) || 0);
+    const amountRial = Math.round(Number(amountProbe.amount) || 0);
     const bank = acct(db, 'coa_bank_default');
     const collection = acct(db, 'coa_cheques_in_collection');
     const amt = amountRial / 10;
-    const bankId = req.body.bank_id || row.collection_bank_id;
+    const bankId = req.body.bank_id || amountProbe.collection_bank_id;
+    const entryDate = req.body.date || todayJalali();
 
     const jeId = db.transaction(() => {
+      const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+      if (!row) throw Object.assign(new Error('چک دریافتنی یافت نشد'), { status: 404 });
+      if (row.lifecycle_status !== 'in_collection') {
+        throw Object.assign(new Error('چک باید در وضعیت «در جریان وصول» باشد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
+      assertJournalIdempotent(db, 'cheque_clear', row.id);
+
       const cashLine = bankId
         ? (() => {
           const b = db.prepare('SELECT coa_code, name FROM banks WHERE id=?').get(bankId);
@@ -188,7 +203,7 @@ router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
 
       const id = postToLedger(db, {
         sourceType: 'cheque_clear', sourceId: row.id,
-        date: req.body.date || todayJalali(),
+        date: entryDate,
         description: `وصول چک ${row.cheque_number || row.id}`,
         createdBy: req.user.id,
         lines: [
@@ -196,14 +211,18 @@ router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
           { code: collection.code, name: collection.name, debit: 0, credit: amt, credit_rial: amountRial },
         ],
       });
-      db.prepare(`
+      const updated = db.prepare(`
         UPDATE cheque_records SET lifecycle_status='cleared', cleared_je_id=?, status='وصول‌شده'
-        WHERE id=?
+        WHERE id=? AND lifecycle_status='in_collection'
       `).run(id, row.id);
+      if (!updated.changes) {
+        throw Object.assign(new Error('چک باید در وضعیت «در جریان وصول» باشد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
       return id;
     })();
 
-    audit(req.user.id, 'cheque_clear', 'cheque_record', row.id, row.cheque_number);
+    const row = db.prepare('SELECT cheque_number FROM cheque_records WHERE id=?').get(req.params.id);
+    audit(req.user.id, 'cheque_clear', 'cheque_record', req.params.id, row?.cheque_number);
     res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'cleared' });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
@@ -213,19 +232,23 @@ router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
 router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
-    const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
-    if (!row) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
-    if (!['in_collection', 'cleared'].includes(row.lifecycle_status)) {
-      throw Object.assign(new Error('فقط چک‌های واگذارشده یا وصول‌شده قابل برگشت هستند'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
-    }
-    assertJournalIdempotent(db, 'cheque_bounce', row.id);
+    const amountProbe = db.prepare("SELECT amount FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+    if (!amountProbe) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
 
-    const amountRial = Math.round(Number(row.amount) || 0);
+    const amountRial = Math.round(Number(amountProbe.amount) || 0);
     const collection = acct(db, 'coa_cheques_in_collection');
     const receivable = acct(db, 'coa_cheques_receivable');
     const amt = amountRial / 10;
+    const entryDate = req.body.date || todayJalali();
 
     const jeId = db.transaction(() => {
+      const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+      if (!row) throw Object.assign(new Error('چک دریافتنی یافت نشد'), { status: 404 });
+      if (!['in_collection', 'cleared'].includes(row.lifecycle_status)) {
+        throw Object.assign(new Error('فقط چک‌های واگذارشده یا وصول‌شده قابل برگشت هستند'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
+      assertJournalIdempotent(db, 'cheque_bounce', row.id);
+
       const lines = row.lifecycle_status === 'in_collection'
         ? [
           { code: receivable.code, name: receivable.name, debit: amt, credit: 0, debit_rial: amountRial },
@@ -237,18 +260,22 @@ router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
         ];
       const id = postToLedger(db, {
         sourceType: 'cheque_bounce', sourceId: row.id,
-        date: req.body.date || todayJalali(),
+        date: entryDate,
         description: `برگشت چک ${row.cheque_number || row.id}`,
         createdBy: req.user.id, lines,
       });
-      db.prepare(`
+      const updated = db.prepare(`
         UPDATE cheque_records SET lifecycle_status='bounced', bounced_je_id=?, status='برگشتی'
-        WHERE id=?
+        WHERE id=? AND lifecycle_status IN ('in_collection','cleared')
       `).run(id, row.id);
+      if (!updated.changes) {
+        throw Object.assign(new Error('فقط چک‌های واگذارشده یا وصول‌شده قابل برگشت هستند'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
       return id;
     })();
 
-    audit(req.user.id, 'cheque_bounce', 'cheque_record', row.id, row.cheque_number);
+    const row = db.prepare('SELECT cheque_number FROM cheque_records WHERE id=?').get(req.params.id);
+    audit(req.user.id, 'cheque_bounce', 'cheque_record', req.params.id, row?.cheque_number);
     res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'bounced' });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
@@ -262,38 +289,43 @@ router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
 router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
-    const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
-    if (!row) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
-    if (row.lifecycle_status !== 'bounced') {
-      throw Object.assign(new Error('فقط چک برگشتی قابل ارسال مجدد است'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
-    }
-    if (!row.bounced_je_id) {
-      throw Object.assign(new Error('سند برگشت یافت نشد — ابطال کامل یا اصلاح دستی لازم است'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
-    }
+    const entryDate = req.body.date || todayJalali();
 
-    const prior = row.cleared_je_id ? 'cleared' : (row.collection_je_id ? 'in_collection' : 'registered');
-    const statusLabel = prior === 'cleared' ? 'وصول‌شده' : (prior === 'in_collection' ? 'در جریان وصول' : 'ثبت‌شده');
+    const result = db.transaction(() => {
+      const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+      if (!row) throw Object.assign(new Error('چک دریافتنی یافت نشد'), { status: 404 });
+      if (row.lifecycle_status !== 'bounced') {
+        throw Object.assign(new Error('فقط چک برگشتی قابل ارسال مجدد است'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
+      if (!row.bounced_je_id) {
+        throw Object.assign(new Error('سند برگشت یافت نشد — ابطال کامل یا اصلاح دستی لازم است'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
 
-    const revId = db.transaction(() => {
+      const prior = row.cleared_je_id ? 'cleared' : (row.collection_je_id ? 'in_collection' : 'registered');
+      const statusLabel = prior === 'cleared' ? 'وصول‌شده' : (prior === 'in_collection' ? 'در جریان وصول' : 'ثبت‌شده');
+
       const id = reverseJournalEntry(db, row.bounced_je_id, {
         userId: req.user.id,
-        date: req.body.date || todayJalali(),
+        date: entryDate,
         reason: `ارسال مجدد چک ${row.cheque_number || row.id} پس از برگشت`,
         sourceType: 'cheque_resend',
       });
       if (!id) {
         throw Object.assign(new Error('معکوس سند برگشت ناموفق بود'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
-      db.prepare(`
+      const updated = db.prepare(`
         UPDATE cheque_records
         SET lifecycle_status=?, bounced_je_id=NULL, status=?
-        WHERE id=?
+        WHERE id=? AND lifecycle_status='bounced'
       `).run(prior, statusLabel, row.id);
-      return id;
+      if (!updated.changes) {
+        throw Object.assign(new Error('فقط چک برگشتی قابل ارسال مجدد است'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
+      return { id, prior, cheque_number: row.cheque_number };
     })();
 
-    audit(req.user.id, 'cheque_resend', 'cheque_record', row.id, row.cheque_number);
-    res.json({ ok: true, journal_entry_id: revId, lifecycle_status: prior });
+    audit(req.user.id, 'cheque_resend', 'cheque_record', req.params.id, result.cheque_number);
+    res.json({ ok: true, journal_entry_id: result.id, lifecycle_status: result.prior });
   } catch (e) {
     res.status(e.status || 400).json({ error: e.message, code: e.code });
   }

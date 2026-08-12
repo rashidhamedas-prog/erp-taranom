@@ -1,4 +1,20 @@
-﻿## 2026-08-12T22:55:00+03:30 — ACC-CRM-UNIFY Phase 6 GREEN (medium edges)
+﻿## 2026-08-12T23:40:00+03:30 — ACC-CRM-UNIFY Phase 7 GREEN (full gates)
+
+- **Task:** still `active` — awaiting Independent Reviewer + Security; NO deploy
+- **Tip:** `0d043fd` (Phase 6 stamp on `bce9943`)
+- **Gates (clean tip):**
+  - `git diff --check` OK · `node --check` server/app OK
+  - encoding guard PASS (BOM, 584 Persian)
+  - audit waivers OK
+  - party **22/22** · reports **15/15** · phase6 **13/13** · dashboard **21/21**
+  - perpetual **44/44** · sms **22/22** · sync **44/44**
+  - diag mismatches=[]
+  - `test:production` **ALL GREEN** (~13m)
+  - embedded prepare+compare **diff=0** (desktop/android 258)
+  - secret scan: only ephemeral test harness passwords (no production secrets)
+- **Next:** Phase 8 dual review (identities ≠ implementer); do NOT completed/claims/deploy until Approved
+
+## 2026-08-12T22:55:00+03:30 — ACC-CRM-UNIFY Phase 6 GREEN (medium edges)
 
 - **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; NO deploy
 - **Fixes:** ADR #5/#13–15; cheque PATCH financial synonyms blocked + bounce→resend; `CACHE._invProducts` for WH picker; `new_customers` respects Jalali from/to via `created_at`; Help+SW v151

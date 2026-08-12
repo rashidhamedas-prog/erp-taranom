@@ -27,6 +27,20 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-12 — ACC-CRM-UNIFY Phase 8a: review remediation (pre-approve)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** _(pending stamp)_
+- **خلاصه:** رفع یافته‌های Reviewer/Security: receivables بدون ×۱۰؛ KPI تاریخ شمسی؛ cheque lifecycle idempotency داخل transaction؛ ensureAllUserParties پس از unify؛ COGS void با fallback toman؛ تست dashboard due تاریخ جلالی.
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** بدون تغییر (منطق سرور)
+
+### 2026-08-12 — ACC-CRM-UNIFY Phase 7: full gates green (no deploy)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit tip:** `0d043fd`
+- **خلاصه:** گیت‌های کامل روی tip تمیز: perpetual/party/dashboard/reports/phase6/sms/sync/production ALL GREEN؛ embedded diff=0؛ encoding PASS؛ بدون deploy.
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** `erp-taranom-v151`
+
 ### 2026-08-12 — ACC-CRM-UNIFY Phase 6: Medium edge cases (SW v151)
 - **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
 - **Commit:** `bce9943`

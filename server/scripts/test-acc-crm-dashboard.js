@@ -13,6 +13,7 @@ const {
 const {
   pickFreePort, killProcessTree, preferredPort,
 } = require('./lib/test-server-boot');
+const { todayJalali, addDaysToJalali } = require('../jalali');
 
 console.log('══ ACC-CRM dashboard analytics ══');
 const { db, cleanup } = freshDb();
@@ -69,28 +70,30 @@ try {
   `).run(repB, custB, 'T-CRM-B', 'normal');
 
   // Cheques: A via customer_id; B via party_id; ambiguous name-only should not leak
+  // due_date is Jalali in production — fixture must match CRM KPI comparison.
+  const dueJ = addDaysToJalali(todayJalali(), 7);
   try {
     db.prepare(`
       INSERT INTO cheque_records (direction, cheque_number, due_date, party_name, status, amount, customer_id, party_id, lifecycle_status)
-      VALUES ('incoming','CH-A',date('now','+7 day'),'هم‌نام','pending',100000,?,?, 'registered')
-    `).run(custA, pa.lastInsertRowid);
+      VALUES ('incoming','CH-A',?,'هم‌نام','pending',100000,?,?, 'registered')
+    `).run(dueJ, custA, pa.lastInsertRowid);
   } catch {
     db.exec(`ALTER TABLE cheque_records ADD COLUMN customer_id INTEGER`);
     db.exec(`ALTER TABLE cheque_records ADD COLUMN party_id INTEGER`);
     db.exec(`ALTER TABLE cheque_records ADD COLUMN lifecycle_status TEXT`);
     db.prepare(`
       INSERT INTO cheque_records (direction, cheque_number, due_date, party_name, status, amount, customer_id, party_id, lifecycle_status)
-      VALUES ('incoming','CH-A',date('now','+7 day'),'هم‌نام','pending',100000,?,?, 'registered')
-    `).run(custA, pa.lastInsertRowid);
+      VALUES ('incoming','CH-A',?,'هم‌نام','pending',100000,?,?, 'registered')
+    `).run(dueJ, custA, pa.lastInsertRowid);
   }
   db.prepare(`
     INSERT INTO cheque_records (direction, cheque_number, due_date, party_name, status, amount, customer_id, party_id, lifecycle_status)
-    VALUES ('incoming','CH-B',date('now','+7 day'),'هم‌نام','pending',200000,?,?, 'registered')
-  `).run(custB, pb.lastInsertRowid);
+    VALUES ('incoming','CH-B',?,'هم‌نام','pending',200000,?,?, 'registered')
+  `).run(dueJ, custB, pb.lastInsertRowid);
   db.prepare(`
     INSERT INTO cheque_records (direction, cheque_number, due_date, party_name, status, amount, lifecycle_status)
-    VALUES ('incoming','CH-AMB',date('now','+7 day'),'هم‌نام','pending',999999,'registered')
-  `).run();
+    VALUES ('incoming','CH-AMB',?,'هم‌نام','pending',999999,'registered')
+  `).run(dueJ);
 
   const dash = buildDashboard(db, {}, null);
   ok('dashboard has kpis', !!dash.kpis);

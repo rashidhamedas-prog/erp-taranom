@@ -2350,6 +2350,8 @@ function initSyncSchema(db) {
   // Transaction-safe: reconcile duplicates with audit → unique index → stamp only on success.
   try {
     require('./lib/user-party').runAccCrmUnifyV1(db);
+    // Re-bind users cleared during duplicate reconcile (keep-lowest) so they are not left party_id=NULL.
+    require('./lib/user-party').ensureAllUserParties(db);
   } catch (e) {
     console.error('❌ acc_crm_unify_v1 migration failed:', e.message);
     throw e;

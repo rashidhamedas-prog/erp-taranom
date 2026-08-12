@@ -3,6 +3,13 @@
  * RBAC: when scopeUserId is non-null, client user_id is ignored (never widens/overrides).
  */
 const { firmSaleTypeSql } = require('./sales-document');
+const { todayJalali, addDaysToJalali } = require('../jalali');
+
+/** Invoice amount in rial — DB stores rial in `final`; prefer final_rial when set. */
+function sqlInvoiceAmountRial(alias = 'i') {
+  const a = alias ? `${alias}.` : '';
+  return `COALESCE(NULLIF(${a}final_rial,0), ROUND(${a}final), 0)`;
+}
 
 function crmScopeUserId(req) {
   const role = req.user?.role;
@@ -93,6 +100,7 @@ function chequeRowsForCustomer(db, custId, { limit = 50 } = {}) {
 function chequeKpis(db, userId) {
   let chequesDue = 0;
   let chequesBounced = 0;
+  const dueLimit = addDaysToJalali(todayJalali(), 14);
   try {
     const hasCustCol = tableHasColumn(db, 'cheque_records', 'customer_id');
     const hasPartyCol = tableHasColumn(db, 'cheque_records', 'party_id');
@@ -101,14 +109,14 @@ function chequeKpis(db, userId) {
         SELECT COUNT(*) AS c FROM cheque_records cr
         WHERE COALESCE(cr.record_status,'posted')<>'reversed'
           AND COALESCE(cr.lifecycle_status,cr.status) IN ('registered','in_collection','pending')
-          AND cr.due_date<>'' AND cr.due_date<=date('now','+14 day')
+          AND cr.due_date<>'' AND cr.due_date<=?
           AND (
             ${hasCustCol ? 'cr.customer_id IN (SELECT id FROM customers WHERE user_id=?)' : '0'}
             ${hasCustCol && hasPartyCol ? ' OR ' : ''}
             ${hasPartyCol ? 'cr.party_id IN (SELECT party_id FROM customers WHERE user_id=? AND party_id IS NOT NULL)' : ''}
           )
       `;
-      const params = [];
+      const params = [dueLimit];
       if (hasCustCol) params.push(userId);
       if (hasPartyCol) params.push(userId);
       chequesDue = db.prepare(dueSql).get(...params)?.c || 0;
@@ -132,8 +140,8 @@ function chequeKpis(db, userId) {
         SELECT COUNT(*) AS c FROM cheque_records
         WHERE COALESCE(record_status,'posted')<>'reversed'
           AND COALESCE(lifecycle_status,status) IN ('registered','in_collection','pending')
-          AND due_date<>'' AND due_date<=date('now','+14 day')
-      `).get()?.c || 0;
+          AND due_date<>'' AND due_date<=?
+      `).get(dueLimit)?.c || 0;
       chequesBounced = db.prepare(`
         SELECT COUNT(*) AS c FROM cheque_records
         WHERE COALESCE(record_status,'posted')<>'reversed'
@@ -214,18 +222,21 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
     `SELECT COUNT(*) AS c FROM followups f WHERE ${fuWhere.join(' AND ')} AND f.status='open'`
   ).get(...fuParams)?.c || 0;
 
+  const todayJ = todayJalali();
+  const inactiveSince = addDaysToJalali(todayJ, -90);
+
   const overdueFollowups = db.prepare(
-    `SELECT COUNT(*) AS c FROM followups f WHERE ${fuWhere.join(' AND ')} AND f.status='open' AND f.next_date<>'' AND f.next_date < date('now')`
-  ).get(...fuParams)?.c || 0;
+    `SELECT COUNT(*) AS c FROM followups f WHERE ${fuWhere.join(' AND ')} AND f.status='open' AND f.next_date<>'' AND f.next_date < ?`
+  ).get(...fuParams, todayJ)?.c || 0;
 
   const byType = db.prepare(`
-    SELECT i.type, COUNT(*) AS cnt, COALESCE(SUM(COALESCE(NULLIF(i.final_rial,0), ROUND(i.final*10), 0)),0) AS amount_rial
+    SELECT i.type, COUNT(*) AS cnt, COALESCE(SUM(${sqlInvoiceAmountRial('i')}),0) AS amount_rial
     FROM invoices i WHERE ${invWhere.join(' AND ')}
     GROUP BY i.type
   `).all(...invParams);
 
   const firmSales = db.prepare(`
-    SELECT COUNT(*) AS cnt, COALESCE(SUM(COALESCE(NULLIF(i.final_rial,0), ROUND(i.final*10), 0)),0) AS amount_rial
+    SELECT COUNT(*) AS cnt, COALESCE(SUM(${sqlInvoiceAmountRial('i')}),0) AS amount_rial
     FROM invoices i WHERE ${invWhere.join(' AND ')} AND ${firmSaleTypeSql('i')}
   `).get(...invParams);
 
@@ -241,7 +252,7 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
 
   const byExpert = db.prepare(`
     SELECT u.id, u.name, COUNT(i.id) AS cnt,
-      COALESCE(SUM(COALESCE(NULLIF(i.final_rial,0), ROUND(i.final*10), 0)),0) AS amount_rial
+      COALESCE(SUM(${sqlInvoiceAmountRial('i')}),0) AS amount_rial
     FROM invoices i
     JOIN users u ON u.id=i.user_id
     WHERE ${invWhere.join(' AND ')} AND ${firmSaleTypeSql('i')}
@@ -260,7 +271,8 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
           WHERE c.user_id=?
         `).get(userId)
       : db.prepare(`SELECT COALESCE(SUM(debit-credit),0) AS bal FROM customer_ledger`).get();
-    receivablesRial = Math.round(Number(q?.bal) || 0) * 10;
+    // customer_ledger stores rial (same unit as invoices.final)
+    receivablesRial = Math.round(Number(q?.bal) || 0);
   } catch (_) {}
 
   const inactiveCustomers = db.prepare(`
@@ -268,12 +280,12 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
     WHERE ${custWhere.join(' AND ')}
       AND NOT EXISTS (
         SELECT 1 FROM invoices i WHERE i.cust_id=c.id AND ${firmSaleTypeSql('i')}
-          AND COALESCE(i.deleted_at,0)=0 AND i.date>=date('now','-90 day')
+          AND COALESCE(i.deleted_at,0)=0 AND i.date>=?
       )
       AND NOT EXISTS (
-        SELECT 1 FROM followups f WHERE f.cust_id=c.id AND f.date>=date('now','-90 day')
+        SELECT 1 FROM followups f WHERE f.cust_id=c.id AND f.date>=?
       )
-  `).get(...custParams)?.c || 0;
+  `).get(...custParams, inactiveSince, inactiveSince)?.c || 0;
 
   const conversion = {
     leads_or_customers: newCustomers,
@@ -338,7 +350,7 @@ function buildTimeline(db, { partyId, customerId, limit = 50, offset = 0, scopeU
   for (const i of invs) {
     events.push({
       kind: 'invoice', id: i.id, date: i.date,
-      title: `${i.type} ${i.num}`, amount: i.final, amount_rial: i.final_rial || Math.round((i.final || 0) * 10),
+      title: `${i.type} ${i.num}`, amount: i.final, amount_rial: i.final_rial || Math.round(i.final || 0),
       status: i.type, ts: i.created_at || 0,
     });
   }
@@ -387,7 +399,7 @@ function buildDrilldown(db, metric, filters, scopeUserId) {
     const where = ["f.status='open'"];
     const params = [];
     if (userId) { where.push('f.user_id=?'); params.push(userId); }
-    if (metric === 'overdue_followups') where.push("f.next_date<>'' AND f.next_date < date('now')");
+    if (metric === 'overdue_followups') where.push("f.next_date<>'' AND f.next_date < ?"), params.push(todayJalali());
     if (from) { where.push('f.date>=?'); params.push(from); }
     if (to) { where.push('f.date<=?'); params.push(to); }
     return db.prepare(`

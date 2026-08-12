@@ -223,9 +223,14 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
         "SELECT id FROM journal_entries WHERE ref_type='invoice_cogs' AND ref_id=? AND COALESCE(deleted_at,0)=0"
       ).get(row.id);
       if (cogsOrig) {
-        const cogsLines = db.prepare(
-          'SELECT COALESCE(SUM(debit_rial),0) AS d FROM journal_lines WHERE entry_id=?'
-        ).get(cogsOrig.id);
+        const cogsLines = db.prepare(`
+          SELECT COALESCE(
+            NULLIF(SUM(COALESCE(debit_rial,0)),0),
+            ROUND(SUM(COALESCE(debit,0))*10),
+            0
+          ) AS d
+          FROM journal_lines WHERE entry_id=?
+        `).get(cogsOrig.id);
         postCogsFromMovements(db, {
           invId: row.id, num: row.num, date: todayJalali(), userId: user.id,
           cogsRial: Number(cogsLines?.d) || 0, reverse: true,
