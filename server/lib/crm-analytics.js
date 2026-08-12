@@ -1,5 +1,6 @@
 /**
  * CRM analytics — real aggregates only (no mock).
+ * RBAC: when scopeUserId is non-null, client user_id is ignored (never widens/overrides).
  */
 function crmScopeUserId(req) {
   const role = req.user?.role;
@@ -8,10 +9,147 @@ function crmScopeUserId(req) {
   return req.user.id;
 }
 
+/**
+ * Effective filter user id.
+ * - Scoped sessions (scopeUserId != null): ALWAYS scopeUserId; ignore filters.user_id
+ *   (including 0 / NaN / other reps).
+ * - Privileged (scopeUserId == null): optional positive user_id filter.
+ */
+function resolveEffectiveUserId(scopeUserId, filters = {}) {
+  if (scopeUserId != null) {
+    return scopeUserId;
+  }
+  if (filters.user_id == null || String(filters.user_id).trim() === '') return null;
+  const requested = parseInt(filters.user_id, 10);
+  if (!Number.isFinite(requested) || requested <= 0) return null;
+  return requested;
+}
+
+function tableHasColumn(db, table, col) {
+  try {
+    return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+  } catch {
+    return false;
+  }
+}
+
+/** Cheque rows for a customer: prefer customer_id / party_id; legacy name only if UNIQUE. */
+function chequeRowsForCustomer(db, custId, { limit = 50 } = {}) {
+  const cust = db.prepare('SELECT id, biz, owner, party_id FROM customers WHERE id=?').get(custId);
+  if (!cust) return [];
+  const hasCustCol = tableHasColumn(db, 'cheque_records', 'customer_id');
+  const hasPartyCol = tableHasColumn(db, 'cheque_records', 'party_id');
+  const rows = [];
+  const seen = new Set();
+
+  const pushAll = (list) => {
+    for (const r of list || []) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      rows.push(r);
+    }
+  };
+
+  if (hasCustCol) {
+    pushAll(db.prepare(`
+      SELECT * FROM cheque_records
+      WHERE COALESCE(record_status,'posted')<>'reversed' AND customer_id=?
+      ORDER BY id DESC LIMIT ?
+    `).all(custId, limit));
+  }
+  if (hasPartyCol && cust.party_id) {
+    pushAll(db.prepare(`
+      SELECT * FROM cheque_records
+      WHERE COALESCE(record_status,'posted')<>'reversed' AND party_id=?
+      ORDER BY id DESC LIMIT ?
+    `).all(cust.party_id, limit));
+  }
+
+  // Legacy party_name fallback — only when the name uniquely identifies one customer.
+  for (const name of [cust.biz, cust.owner].filter(Boolean)) {
+    const nameCount = db.prepare(`
+      SELECT COUNT(*) AS c FROM customers
+      WHERE biz=? OR owner=?
+    `).get(name, name)?.c || 0;
+    if (nameCount !== 1) continue;
+    const chqCount = db.prepare(`
+      SELECT COUNT(DISTINCT party_name) AS c FROM cheque_records
+      WHERE COALESCE(record_status,'posted')<>'reversed' AND party_name=?
+    `).get(name)?.c || 0;
+    if (chqCount === 0) continue;
+    pushAll(db.prepare(`
+      SELECT * FROM cheque_records
+      WHERE COALESCE(record_status,'posted')<>'reversed' AND party_name=?
+      ORDER BY id DESC LIMIT ?
+    `).all(name, limit));
+  }
+
+  rows.sort((a, b) => (b.id || 0) - (a.id || 0));
+  return rows.slice(0, limit);
+}
+
+function chequeKpis(db, userId) {
+  let chequesDue = 0;
+  let chequesBounced = 0;
+  try {
+    const hasCustCol = tableHasColumn(db, 'cheque_records', 'customer_id');
+    const hasPartyCol = tableHasColumn(db, 'cheque_records', 'party_id');
+    if (userId != null && (hasCustCol || hasPartyCol)) {
+      const dueSql = `
+        SELECT COUNT(*) AS c FROM cheque_records cr
+        WHERE COALESCE(cr.record_status,'posted')<>'reversed'
+          AND COALESCE(cr.lifecycle_status,cr.status) IN ('registered','in_collection','pending')
+          AND cr.due_date<>'' AND cr.due_date<=date('now','+14 day')
+          AND (
+            ${hasCustCol ? 'cr.customer_id IN (SELECT id FROM customers WHERE user_id=?)' : '0'}
+            ${hasCustCol && hasPartyCol ? ' OR ' : ''}
+            ${hasPartyCol ? 'cr.party_id IN (SELECT party_id FROM customers WHERE user_id=? AND party_id IS NOT NULL)' : ''}
+          )
+      `;
+      const params = [];
+      if (hasCustCol) params.push(userId);
+      if (hasPartyCol) params.push(userId);
+      chequesDue = db.prepare(dueSql).get(...params)?.c || 0;
+      const bounceSql = `
+        SELECT COUNT(*) AS c FROM cheque_records cr
+        WHERE COALESCE(cr.record_status,'posted')<>'reversed'
+          AND COALESCE(cr.lifecycle_status,cr.status)='bounced'
+          AND (
+            ${hasCustCol ? 'cr.customer_id IN (SELECT id FROM customers WHERE user_id=?)' : '0'}
+            ${hasCustCol && hasPartyCol ? ' OR ' : ''}
+            ${hasPartyCol ? 'cr.party_id IN (SELECT party_id FROM customers WHERE user_id=? AND party_id IS NOT NULL)' : ''}
+          )
+      `;
+      const bParams = [];
+      if (hasCustCol) bParams.push(userId);
+      if (hasPartyCol) bParams.push(userId);
+      chequesBounced = db.prepare(bounceSql).get(...bParams)?.c || 0;
+    } else if (userId == null) {
+      // Privileged: company-wide KPIs
+      chequesDue = db.prepare(`
+        SELECT COUNT(*) AS c FROM cheque_records
+        WHERE COALESCE(record_status,'posted')<>'reversed'
+          AND COALESCE(lifecycle_status,status) IN ('registered','in_collection','pending')
+          AND due_date<>'' AND due_date<=date('now','+14 day')
+      `).get()?.c || 0;
+      chequesBounced = db.prepare(`
+        SELECT COUNT(*) AS c FROM cheque_records
+        WHERE COALESCE(record_status,'posted')<>'reversed'
+          AND COALESCE(lifecycle_status,status)='bounced'
+      `).get()?.c || 0;
+    } else {
+      // Scoped but no stable cheque FK columns yet — hide company-wide leak
+      chequesDue = 0;
+      chequesBounced = 0;
+    }
+  } catch (_) { /* table may vary */ }
+  return { chequesDue, chequesBounced };
+}
+
 function buildDashboard(db, filters = {}, scopeUserId = null) {
   const from = String(filters.from || '').trim();
   const to = String(filters.to || '').trim();
-  const userId = filters.user_id ? parseInt(filters.user_id, 10) : scopeUserId;
+  const userId = resolveEffectiveUserId(scopeUserId, filters);
   const partyGroupId = filters.party_group_id ? parseInt(filters.party_group_id, 10) : null;
   const province = String(filters.province || '').trim();
   const leadSource = String(filters.lead_source || '').trim();
@@ -88,19 +226,7 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
     GROUP BY u.id ORDER BY amount_rial DESC LIMIT 20
   `).all(...invParams);
 
-  let chequesDue = 0;
-  let chequesBounced = 0;
-  try {
-    chequesDue = db.prepare(`
-      SELECT COUNT(*) AS c FROM cheque_records
-      WHERE COALESCE(lifecycle_status,status) IN ('registered','in_collection','pending')
-        AND due_date<>'' AND due_date<=date('now','+14 day')
-    `).get()?.c || 0;
-    chequesBounced = db.prepare(`
-      SELECT COUNT(*) AS c FROM cheque_records
-      WHERE COALESCE(lifecycle_status,status)='bounced'
-    `).get()?.c || 0;
-  } catch (_) { /* table may vary */ }
+  const { chequesDue, chequesBounced } = chequeKpis(db, userId);
 
   let receivablesRial = 0;
   try {
@@ -218,19 +344,11 @@ function buildTimeline(db, { partyId, customerId, limit = 50, offset = 0, scopeU
     }
   } catch (_) {}
   try {
-    const cust = db.prepare('SELECT biz, owner FROM customers WHERE id=?').get(custId);
-    if (cust?.biz || cust?.owner) {
-      const chq = db.prepare(`
-        SELECT id, due_date, amount, status, lifecycle_status, cheque_number, created_at FROM cheque_records
-        WHERE COALESCE(record_status,'posted')<>'reversed' AND party_name IN (?, ?)
-        ORDER BY id DESC LIMIT 50
-      `).all(cust.biz || '', cust.owner || '');
-      for (const c of chq) {
-        events.push({
-          kind: 'cheque', id: c.id, date: c.due_date, title: `چک ${c.cheque_number || c.id}`,
-          amount: c.amount, status: c.lifecycle_status || c.status, ts: c.created_at || 0,
-        });
-      }
+    for (const c of chequeRowsForCustomer(db, custId, { limit: 50 })) {
+      events.push({
+        kind: 'cheque', id: c.id, date: c.due_date, title: `چک ${c.cheque_number || c.id}`,
+        amount: c.amount, status: c.lifecycle_status || c.status, ts: c.created_at || 0,
+      });
     }
   } catch (_) {}
 
@@ -240,7 +358,7 @@ function buildTimeline(db, { partyId, customerId, limit = 50, offset = 0, scopeU
 }
 
 function buildDrilldown(db, metric, filters, scopeUserId) {
-  const userId = filters.user_id ? parseInt(filters.user_id, 10) : scopeUserId;
+  const userId = resolveEffectiveUserId(scopeUserId, filters);
   const from = String(filters.from || '').trim();
   const to = String(filters.to || '').trim();
   if (metric === 'open_followups' || metric === 'overdue_followups') {
@@ -273,4 +391,11 @@ function buildDrilldown(db, metric, filters, scopeUserId) {
   return [];
 }
 
-module.exports = { crmScopeUserId, buildDashboard, buildTimeline, buildDrilldown };
+module.exports = {
+  crmScopeUserId,
+  resolveEffectiveUserId,
+  buildDashboard,
+  buildTimeline,
+  buildDrilldown,
+  chequeRowsForCustomer,
+};

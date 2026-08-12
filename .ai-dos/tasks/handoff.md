@@ -1,4 +1,11 @@
-﻿## 2026-08-12T19:45:00+03:30 — ACC-CRM-UNIFY Phase 2 GREEN (money/rial)
+﻿## 2026-08-12T20:25:00+03:30 — ACC-CRM-UNIFY Phase 3 GREEN (CRM RBAC)
+
+- **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; NO deploy
+- **Fixes:** `resolveEffectiveUserId` ignores client `user_id` when scoped (incl. 0); CRM routes `requirePermission('followups','view')`; cheque KPIs scoped via customer_id/party_id; timeline cheque binding stable IDs + unique-name legacy only; `cheque_records.party_id/customer_id/lifecycle_status` columns
+- **Tests:** dashboard unit+HTTP green (override/0/drilldown/same-name/cheque scope)
+- **Next:** Phase 4 migration transaction-safety + E_PARTY_ALREADY_LINKED
+
+## 2026-08-12T19:45:00+03:30 — ACC-CRM-UNIFY Phase 2 GREEN (money/rial)
 
 - **Task:** still `active` — CHANGES_REQUIRED / NOT_APPROVED; NO deploy
 - **Fixes:** purchases no `*10`; valuation rows use landed `amount_rial`; sales-document purchase/return rial-only; sales_returns.cost_amount rial end-to-end; JE uses `rialToLedger(costAmount)` correctly

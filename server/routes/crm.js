@@ -1,14 +1,18 @@
 const router = require('express').Router();
 const { getDB } = require('../db');
-const { auth } = require('../middleware/auth');
+const { auth, requirePermission } = require('../middleware/auth');
 const {
   crmScopeUserId, buildDashboard, buildTimeline, buildDrilldown,
 } = require('../lib/crm-analytics');
 
-router.get('/dashboard', auth, (req, res) => {
+// Explicit RBAC: same surface as followups/customers view
+const crmView = [auth, requirePermission('followups', 'view')];
+
+router.get('/dashboard', ...crmView, (req, res) => {
   try {
     const db = getDB();
     const scope = crmScopeUserId(req);
+    // When scoped, query user_id is ignored inside buildDashboard.
     const data = buildDashboard(db, req.query, scope);
     res.json(data);
   } catch (e) {
@@ -16,7 +20,7 @@ router.get('/dashboard', auth, (req, res) => {
   }
 });
 
-router.get('/timeline', auth, (req, res) => {
+router.get('/timeline', ...crmView, (req, res) => {
   try {
     const db = getDB();
     const scope = crmScopeUserId(req);
@@ -33,7 +37,7 @@ router.get('/timeline', auth, (req, res) => {
   }
 });
 
-router.get('/drilldown', auth, (req, res) => {
+router.get('/drilldown', ...crmView, (req, res) => {
   try {
     const db = getDB();
     const scope = crmScopeUserId(req);

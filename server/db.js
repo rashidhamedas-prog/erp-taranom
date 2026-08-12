@@ -1984,6 +1984,13 @@ function initSyncSchema(db) {
   ensureColumn(db, 'cheque_records', 'reversal_journal_id', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'reversed_at', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'reversed_by', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'party_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'customer_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'lifecycle_status', "TEXT DEFAULT ''");
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_party ON cheque_records(party_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_customer ON cheque_records(customer_id)');
+  } catch (_) { /* */ }
 
   // ---- Accounting module foundation (spec phase 1) ----
   db.exec(`
