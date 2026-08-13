@@ -1,7 +1,6 @@
 /**
- * MDI — پنجره‌های شناور شبیه ویندوز برای کل برنامه (CRM + حسابداری)
- * نوار وظایف در پایین صفحه، همیشه بالای محتوا، قابل کلیک در Chrome
- * (لایهٔ پنجره‌ها pointer-events:none + ارتفاع صفر بود و در Chrome کلیک‌ها را می‌بلعید)
+ * MDI — پنجره‌های شناور فقط برای زیرمنوهای حسابداری (نه داشبورد)
+ * نوار وظایف شناور پایین صفحه؛ siblingِ body تا در Chrome کلیک شود
  */
 (function (global) {
   const STORAGE_KEY = 'crm_mdi';
@@ -105,7 +104,7 @@
     }
     inner.textContent = '';
     const list = [...wins.values()];
-    const showBar = enabled();
+    const showBar = enabled() && list.length > 0;
     bar.classList.toggle('is-hidden', !showBar);
     if (bar.hasAttribute('hidden')) bar.removeAttribute('hidden');
     if (!showBar) { syncTaskbarSpace(); return; }

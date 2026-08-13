@@ -96,8 +96,6 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .sidebar{width:260px;background:var(--side-bg);color:#fff;
   position:fixed;top:0;right:0;bottom:0;display:flex;flex-direction:column;z-index:50;
   transition:transform .25s cubic-bezier(.4,0,.2,1)}
-body.has-mdi-taskbar .sidebar{bottom:var(--mdi-taskbar-h,48px)}
-body.has-mdi-taskbar .main{padding-bottom:var(--mdi-taskbar-h,48px)}
 .sidebar.collapsed{transform:translateX(110%)}
 .main.expanded{margin-right:0!important}
 .sidebar .brand{padding:22px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.12)}
@@ -459,20 +457,25 @@ table.tbl th.tbl-sortable{cursor:pointer;user-select:none}
 table.tbl th.tbl-sortable:hover{background:var(--purple-light)}
 table.tbl th .tbl-sort-ind{font-size:10px;opacity:.7}
 table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{width:36px;text-align:center}
-/* نوار پنجره چندگانه — پایین صفحه؛ خارج از #mdiLayer تا در Chrome کلیک شود */
+/* نوار شناور چندپنجره‌ای — روی محتوا؛ خارج از #mdiLayer تا در Chrome کلیک شود */
 .mdi-taskbar{
-  position:fixed;left:0;right:0;bottom:0;top:auto;z-index:9990;
-  width:100%;min-height:48px;height:48px;padding:0;margin:0;box-sizing:border-box;
-  display:flex;flex-direction:row;align-items:center;justify-content:stretch;
-  background:rgba(18,39,28,.96);backdrop-filter:blur(10px);
-  border-top:1px solid rgba(255,255,255,.12);
-  box-shadow:0 -6px 20px -10px rgba(0,0,0,.45);
+  position:fixed;left:50%;right:auto;bottom:14px;top:auto;z-index:9990;
+  width:auto;max-width:min(92vw,920px);min-height:44px;height:auto;padding:0;margin:0;
+  box-sizing:border-box;transform:translateX(-50%);
+  display:flex;flex-direction:row;align-items:center;justify-content:center;
+  background:rgba(18,39,28,.94);backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.16);border-radius:16px;
+  box-shadow:0 14px 36px -14px rgba(0,0,0,.5);
   overflow-x:auto;overflow-y:hidden;pointer-events:auto;
   -webkit-tap-highlight-color:transparent;touch-action:manipulation;
 }
+.mdi-taskbar:hover,.mdi-taskbar:focus-within{
+  transform:translateX(-50%) translateY(-2px);
+  box-shadow:0 18px 40px -12px rgba(0,0,0,.55);
+}
 .mdi-taskbar.is-hidden{display:none!important}
 .mdi-taskbar-inner{
-  display:flex;flex-direction:row;gap:6px;width:100%;align-items:center;
+  display:flex;flex-direction:row;gap:6px;width:auto;max-width:min(92vw,900px);align-items:center;
   height:100%;overflow-x:auto;overflow-y:hidden;padding:6px 10px;box-sizing:border-box;
   direction:rtl;pointer-events:auto;
 }
@@ -488,7 +491,7 @@ table.tbl .tbl-sel-th,table.tbl .tbl-sel-td{width:36px;text-align:center}
 .mdi-task-tools{max-width:none;padding:8px 10px;font-size:13px;font-weight:600}
 .mdi-win{position:fixed;width:min(920px,92vw);height:min(620px,78vh);background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 18px 50px -20px rgba(0,0,0,.45);display:flex;flex-direction:column;overflow:hidden;z-index:200;pointer-events:auto}
 /* تمام‌صفحه بالای نوار پایین قرار می‌گیرد */
-.mdi-win.mdi-maximized{left:0!important;top:0!important;right:0!important;bottom:var(--mdi-taskbar-h,48px)!important;width:100vw!important;height:auto!important;max-height:calc(100vh - var(--mdi-taskbar-h,48px))!important;max-height:calc(100dvh - var(--mdi-taskbar-h,48px))!important;border-radius:0}
+.mdi-win.mdi-maximized{left:0!important;top:0!important;right:0!important;bottom:0!important;width:100vw!important;height:auto!important;max-height:100vh!important;max-height:100dvh!important;border-radius:0}
 .mdi-titlebar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:linear-gradient(90deg,var(--purple),var(--purple2));color:#fff;cursor:move;user-select:none;flex-shrink:0}
 .mdi-title{font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mdi-controls{display:flex;gap:4px}

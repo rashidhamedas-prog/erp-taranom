@@ -27,6 +27,13 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-14 — MDI فقط حسابداری + نوار شناور (SW v153)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **خلاصه:** چندپنجره‌ای دوباره فقط برای زیرمنوهای حسابداری است. داشبورد CRM و داشبورد حسابداری تک‌صفحه‌ای ماندند. نوار وظایف شناور پایین صفحه است (روی محتوا، بدون کوتاه کردن سایدبار) و کلیک Chrome حفظ شد.
+- **فایل‌های کلیدی:** `server/public/app.js`, `server/public/mdi.js`, `server/public/app.css`, `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ⏳ در حال استقرار
+- **SW:** `erp-taranom-v153`
+
 ### 2026-08-14 — MDI taskbar Chrome + کل برنامه (SW v152)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **خلاصه:** نوار چندپنجره‌ای پایین صفحه در Chrome کلیک نمی‌گرفت (لایهٔ `#mdiLayer` بدون اندازه + `pointer-events:none` hit-test زیر‌درخت را در Chromium رد می‌کرد). نوار حالا sibling مستقیم `body` است با z-index مستقل و کلیک delegated. حالت چندپنجره برای **کل برنامه** (CRM + حسابداری) فعال است و نوار با روشن بودن تنظیمات همیشه دیده می‌شود.

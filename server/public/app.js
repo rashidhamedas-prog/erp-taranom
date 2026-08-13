@@ -1374,6 +1374,7 @@ async function enterAccountingShell(){
 }
 function exitAccountingShell(){
   IN_ACC_SHELL = false;
+  if(window.WinMgr) WinMgr.closeAll();
   el('brandRole').textContent = isAdmin()?T('پنل مدیریت'):(ME.role==='accounting'||ME.role==='sales_manager')?T('پنل حسابداری'):T('پنل فروش');
   buildNav();
   go(ME.role==='accounting'||ME.role==='sales_manager'?'customers':'dash');
@@ -1448,8 +1449,10 @@ function go(page){
     if(PAGE_HISTORY.length>60) PAGE_HISTORY.shift();
   }
   hookWinMgrNav();
-  // حالت پنجره چندگانه: هر صفحهٔ برنامه در پنجره جدا (نه فقط حسابداری)
-  if(window.WinMgr && WinMgr.enabled() && typeof ROUTES[page]==='function'){
+  // چندپنجره‌ای فقط داخل حسابداری — نه داشبورد CRM و نه داشبورد حسابداری
+  const openAsMdi = IN_ACC_SHELL && String(page).startsWith('acc-') && page!=='acc-dash'
+    && window.WinMgr && WinMgr.enabled() && typeof ROUTES[page]==='function';
+  if(openAsMdi){
     const title = mdiPageTitle(page);
     const opened = WinMgr.open(page, title, (body)=>renderPageIntoMdiBody(page, body));
     if(opened){
@@ -1485,7 +1488,7 @@ function goUp(){
   const parent=pageParent(CURRENT_PAGE);
   if(!parent) return;
   // بستن پنجره MDI فعلی قبل از رفتن به والد
-  if(window.WinMgr && CURRENT_PAGE){
+  if(window.WinMgr && IN_ACC_SHELL && CURRENT_PAGE && CURRENT_PAGE!=='acc-dash'){
     const w=typeof WinMgr.findByKey==='function' ? WinMgr.findByKey(CURRENT_PAGE) : null;
     if(w) WinMgr.close(w.id);
   }
@@ -1577,7 +1580,6 @@ async function boot(){
   syncAcctDrawerUser();
   buildNav();
   await loadInitial();
-  try{ if(window.WinMgr && WinMgr.mount){ hookWinMgrNav(); WinMgr.mount(); } }catch(_){}
   go(ME.role==='accounting'||ME.role==='sales_manager'?'accounting':'dash');
   refreshMsgBadge();
   refreshRemBadge();
@@ -16141,10 +16143,10 @@ ROUTES.settings = async function(){
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('layers')} پنجره‌های چندگانه</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
-        با فعال بودن این گزینه، هر صفحهٔ برنامه (داشبورد، مشتریان، فاکتور، حسابداری و …) در یک پنجره جدا باز می‌شود (جابجایی، کوچک/بزرگ، بستن).
-        نوار وظایف در پایین صفحه همیشه دیده می‌شود و در کروم هم قابل کلیک است.
+        فقط داخل <b>ماژول حسابداری</b>: هر زیرمنو در پنجره جدا باز می‌شود. داشبورد حسابداری و بقیهٔ برنامه تک‌صفحه‌ای می‌مانند.
+        نوار وظایف به‌صورت شناور پایین صفحه است و محتوا را جمع نمی‌کند.
       </div>
-      ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'شبیه ویندوز — هر صفحه در پنجره مستقل؛ نوار وظایف در پایین صفحه')}
+      ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'فقط حسابداری — نوار شناور پایین صفحه')}
     </div></div>
     ${isAdmin()?`<div class="panel"><div class="panel-head"><h4>📱 دستگاه‌های متصل و ورود</h4></div><div class="panel-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.85;margin-bottom:12px`)}">
@@ -16871,11 +16873,11 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>حذف کالای واردشده از اکسل پس از پاک‌سازی موجودی انبار ممکن است؛ اگر در فاکتور باشد مسدود می‌شود</li>
       </ul>`),
     helpSec('🗔','پنجره‌های چندگانه (شبیه ویندوز)',`
-      <p>فعال/غیرفعال کردن از <b>تنظیمات → عمومی → پنجره‌های چندگانه</b>. با فعال بودن، <b>هر صفحهٔ برنامه</b> (داشبورد، مشتریان، فاکتور، کالا، حسابداری و …) در پنجره جدا باز می‌شود — نه فقط زیرمنوهای حسابداری.</p>
+      <p>فعال/غیرفعال کردن از <b>تنظیمات → عمومی → پنجره‌های چندگانه</b>. فقط داخل <b>ماژول حسابداری</b> هر زیرمنو در پنجره جدا باز می‌شود.</p>
       <ul>
-        <li>نوار وظایف در <b>پایین صفحه</b> است و در کل برنامه (از جمله کروم) همیشه قابل مشاهده و قابل کلیک است.</li>
-        <li>روی دکمهٔ هر پنجره در نوار بزنید تا همان صفحه جلو بیاید؛ پنجرهٔ کوچک‌شده با یک کلیک برمی‌گردد.</li>
-        <li>چینش پنجره‌ها و خاموش/روشن کردن حالت چندپنجره با آیکون‌های همان نوار در دسترس است.</li>
+        <li><b>داشبورد</b> (CRM و حسابداری) همیشه تک‌صفحه‌ای است — مثل قبل.</li>
+        <li>نوار وظایف <b>شناور</b> پایین صفحه است؛ روی محتوا می‌نشیند و سایدبار را کوتاه نمی‌کند.</li>
+        <li>روی دکمهٔ هر پنجره بزنید تا جلو بیاید؛ چینش و خاموش/روشن از همان نوار.</li>
         <li>نوار عنوان هر پنجره: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن</li>
       </ul>`),
     helpSec('🧾','انواع فاکتور فروش و موجودی دائمی',`
@@ -17447,9 +17449,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v152</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>`),
-    helpSec('🗔','پنجره‌های چندگانه',`
-      <p>اگر در تنظیمات «پنجره‌های چندگانه» روشن باشد، هر صفحه (مشتریان، فاکتور، پیام‌ها و …) در پنجره جدا باز می‌شود. نوار پایین صفحه برای جابه‌جایی بین پنجره‌ها است و در کروم هم کار می‌کند.</p>`),
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v153</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
       <h5>ثبت مشتری جدید</h5><ul>
