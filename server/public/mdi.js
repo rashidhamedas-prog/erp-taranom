@@ -1,13 +1,15 @@
 /**
- * MDI — پنجره‌های شناور شبیه ویندوز برای زیرمنوهای حسابداری / CRM
- * هر زیرگروه می‌تواند در پنجره جدا باز شود؛ کنترل: جابجایی، کوچک/بزرگ، بستن،
- * نوار وظایف در پایین صفحه (عرض کامل؛ هنگام وجود پنجره همیشه قابل مشاهده)
+ * MDI — پنجره‌های شناور شبیه ویندوز برای کل برنامه (CRM + حسابداری)
+ * نوار وظایف در پایین صفحه، همیشه بالای محتوا، قابل کلیک در Chrome
+ * (لایهٔ پنجره‌ها pointer-events:none + ارتفاع صفر بود و در Chrome کلیک‌ها را می‌بلعید)
  */
 (function (global) {
   const STORAGE_KEY = 'crm_mdi';
   let seq = 0;
   let zTop = 200;
   const wins = new Map();
+  let taskbarBound = false;
+  let layerBound = false;
 
   function enabled() {
     try { return localStorage.getItem(STORAGE_KEY) !== '0'; } catch (_) { return true; }
@@ -18,20 +20,77 @@
 
   function ensureLayer() {
     let layer = document.getElementById('mdiLayer');
-    if (layer) return layer;
-    layer = document.createElement('div');
-    layer.id = 'mdiLayer';
-    layer.innerHTML = '<div id="mdiTaskbar" class="mdi-taskbar" hidden><div class="mdi-taskbar-inner"></div></div>';
-    document.body.appendChild(layer);
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.id = 'mdiLayer';
+      document.body.appendChild(layer);
+    }
+    let bar = document.getElementById('mdiTaskbar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'mdiTaskbar';
+      bar.className = 'mdi-taskbar is-hidden';
+      bar.setAttribute('role', 'toolbar');
+      bar.setAttribute('aria-label', 'نوار پنجره‌های باز');
+      const inner = document.createElement('div');
+      inner.className = 'mdi-taskbar-inner';
+      bar.appendChild(inner);
+      document.body.appendChild(bar);
+    }
+    bindTaskbar(bar);
+    bindLayer(layer);
     return layer;
   }
 
-  /** برچسب کوتاه برای دکمهٔ نوار پایین — عنوان کامل در title */
+  function bindTaskbar(bar) {
+    if (taskbarBound || !bar) return;
+    taskbarBound = true;
+    const onActivate = (e) => {
+      const btn = e.target && e.target.closest ? e.target.closest('.mdi-task') : null;
+      if (!btn || !bar.contains(btn)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const winId = btn.getAttribute('data-win-id');
+      const action = btn.getAttribute('data-mdi-action');
+      if (winId) WinMgr.focus(+winId);
+      else if (action === 'cascade') WinMgr.cascade();
+      else if (action === 'toggle') WinMgr.toggleMode();
+    };
+    bar.addEventListener('click', onActivate, true);
+  }
+
+  function bindLayer(layer) {
+    if (layerBound || !layer) return;
+    layerBound = true;
+    layer.addEventListener('click', (e) => {
+      const btn = e.target && e.target.closest ? e.target.closest('[data-mdi-cmd]') : null;
+      if (!btn || !layer.contains(btn)) return;
+      const winEl = btn.closest('.mdi-win');
+      const id = winEl ? +winEl.dataset.winId : 0;
+      if (!id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const cmd = btn.getAttribute('data-mdi-cmd');
+      if (cmd === 'min') WinMgr.minimize(id);
+      else if (cmd === 'max') WinMgr.toggleMax(id);
+      else if (cmd === 'close') WinMgr.close(id);
+    }, true);
+  }
+
   function taskChip(title) {
     const t = String(title || '').trim();
     if (!t) return '•';
     if (t.length <= 18) return t;
     return [...t].slice(0, 16).join('') + '…';
+  }
+
+  function makeBtn(className, title, label) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = className;
+    btn.title = title || '';
+    btn.textContent = label;
+    return btn;
   }
 
   function updateTaskbar() {
@@ -44,22 +103,39 @@
       inner.className = 'mdi-taskbar-inner';
       bar.appendChild(inner);
     }
+    inner.textContent = '';
     const list = [...wins.values()];
-    if (!list.length) { bar.hidden = true; inner.innerHTML = ''; syncTaskbarSpace(); return; }
-    bar.hidden = false;
-    inner.innerHTML = list.map((w) =>
-      `<button type="button" class="mdi-task ${w.minimized ? 'min' : ''} ${w.id === WinMgr.focusedId ? 'active' : ''}" data-csp-click="${CSP.bind('click',function(event){WinMgr.focus((w.id))})}" title="${escAttr(w.title)}">${escHtml(taskChip(w.title))}</button>`
-    ).join('') +
-      `<button type="button" class="mdi-task mdi-task-tools" data-csp-click="${CSP.bind('click',function(event){WinMgr.cascade()})}" title="چینش پنجره‌ها">⧉</button>` +
-      `<button type="button" class="mdi-task mdi-task-tools" data-csp-click="${CSP.bind('click',function(event){WinMgr.toggleMode()})}" title="خاموش/روشن حالت پنجره">${enabled() ? '🗔' : '📄'}</button>`;
+    const showBar = enabled();
+    bar.classList.toggle('is-hidden', !showBar);
+    if (bar.hasAttribute('hidden')) bar.removeAttribute('hidden');
+    if (!showBar) { syncTaskbarSpace(); return; }
+
+    for (const w of list) {
+      const cls = ['mdi-task'];
+      if (w.minimized) cls.push('min');
+      if (w.id === WinMgr.focusedId) cls.push('active');
+      const btn = makeBtn(cls.join(' '), w.title, taskChip(w.title));
+      btn.setAttribute('data-win-id', String(w.id));
+      inner.appendChild(btn);
+    }
+    const cascadeBtn = makeBtn('mdi-task mdi-task-tools', 'چینش پنجره‌ها', '⧉');
+    cascadeBtn.setAttribute('data-mdi-action', 'cascade');
+    inner.appendChild(cascadeBtn);
+    const toggleBtn = makeBtn('mdi-task mdi-task-tools', 'خاموش/روشن حالت پنجره', '🗔');
+    toggleBtn.setAttribute('data-mdi-action', 'toggle');
+    inner.appendChild(toggleBtn);
     syncTaskbarSpace();
+    requestAnimationFrame(() => { try { syncTaskbarSpace(); } catch (_) {} });
   }
 
-  /** نوار پایین — ارتفاع واقعی را در --mdi-taskbar-h می‌نویسد */
   function syncTaskbarSpace() {
     const bar = document.getElementById('mdiTaskbar');
-    const visible = !!(bar && !bar.hidden);
-    const h = visible ? Math.max(bar.offsetHeight || 0, 48) : 0;
+    const visible = !!(bar && !bar.classList.contains('is-hidden'));
+    let h = 0;
+    if (visible) {
+      const rectH = bar.getBoundingClientRect().height || 0;
+      h = Math.max(rectH, bar.offsetHeight || 0, 48);
+    }
     document.documentElement.style.setProperty('--mdi-taskbar-h', h + 'px');
     document.body.classList.toggle('has-mdi-taskbar', visible);
   }
@@ -74,27 +150,34 @@
   function escHtml(s) {
     return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
-  function escAttr(s) { return escHtml(s).replace(/"/g, '&quot;'); }
 
   function makeDraggable(winEl, handle) {
     let ox = 0, oy = 0, sx = 0, sy = 0, dragging = false;
-    handle.addEventListener('mousedown', (e) => {
-      if (e.button !== 0 || e.target.closest('button')) return;
+    handle.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || (e.target && e.target.closest && e.target.closest('button'))) return;
       const w = wins.get(+winEl.dataset.winId);
       if (w?.maximized) return;
       dragging = true;
       sx = e.clientX; sy = e.clientY;
       ox = winEl.offsetLeft; oy = winEl.offsetTop;
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
       WinMgr.focus(+winEl.dataset.winId);
       e.preventDefault();
     });
-    document.addEventListener('mousemove', (e) => {
+    handle.addEventListener('pointermove', (e) => {
       if (!dragging) return;
       winEl.style.left = Math.max(0, ox + (e.clientX - sx)) + 'px';
       winEl.style.top = Math.max(0, oy + (e.clientY - sy)) + 'px';
       winEl.style.right = 'auto';
     });
-    document.addEventListener('mouseup', () => { dragging = false; });
+    handle.addEventListener('pointerup', () => { dragging = false; });
+    handle.addEventListener('pointercancel', () => { dragging = false; });
+  }
+
+  function notifyFocus(w) {
+    try {
+      if (typeof WinMgr.onFocus === 'function') WinMgr.onFocus(w);
+    } catch (_) {}
   }
 
   const WinMgr = {
@@ -102,10 +185,16 @@
     enabled,
     setEnabled,
     syncTaskbarSpace,
+    mount() {
+      ensureLayer();
+      updateTaskbar();
+    },
     toggleMode() {
-      setEnabled(!enabled());
+      const next = !enabled();
+      setEnabled(next);
+      if (!next) this.closeAll();
       if (typeof showToast === 'function') {
-        showToast(enabled() ? 'حالت پنجره چندگانه فعال شد' : 'حالت تک‌صفحه‌ای فعال شد');
+        showToast(next ? 'حالت پنجره چندگانه فعال شد' : 'حالت تک‌صفحه‌ای فعال شد');
       }
       updateTaskbar();
     },
@@ -117,7 +206,11 @@
           this.focus(w.id);
           if (typeof renderFn === 'function') {
             Promise.resolve(renderFn(w.body)).catch((e) => {
-              w.body.innerHTML = `<div class="empty">${escHtml(e.message || 'خطا')}</div>`;
+              w.body.textContent = '';
+              const err = document.createElement('div');
+              err.className = 'empty';
+              err.textContent = e.message || 'خطا';
+              w.body.appendChild(err);
             });
           }
           return true;
@@ -131,19 +224,19 @@
       el.style.zIndex = String(++zTop);
       el.style.left = (40 + offset) + 'px';
       el.style.top = (60 + offset) + 'px';
-      el.innerHTML = `
-        <div class="mdi-titlebar">
-          <span class="mdi-title">${escHtml(title)}</span>
-          <div class="mdi-controls">
-            <button type="button" title="کوچک کردن" data-csp-click="${CSP.bind('click',function(event){WinMgr.minimize((id))})}">─</button>
-            <button type="button" class="mdi-max-btn" title="بازگرداندن از تمام‌صفحه" data-csp-click="${CSP.bind('click',function(event){WinMgr.toggleMax((id))})}">❐</button>
-            <button type="button" class="mdi-close" title="بستن" data-csp-click="${CSP.bind('click',function(event){WinMgr.close((id))})}">×</button>
-          </div>
-        </div>
-        <div class="mdi-body" id="mdiBody-${id}"></div>`;
+      el.innerHTML =
+        '<div class="mdi-titlebar">' +
+          '<span class="mdi-title">' + escHtml(title) + '</span>' +
+          '<div class="mdi-controls">' +
+            '<button type="button" data-mdi-cmd="min" title="کوچک کردن">─</button>' +
+            '<button type="button" class="mdi-max-btn" data-mdi-cmd="max" title="بازگرداندن از تمام‌صفحه">❐</button>' +
+            '<button type="button" class="mdi-close" data-mdi-cmd="close" title="بستن">×</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="mdi-body" id="mdiBody-' + id + '"></div>';
       document.getElementById('mdiLayer').appendChild(el);
       makeDraggable(el, el.querySelector('.mdi-titlebar'));
-      el.addEventListener('mousedown', () => this.focus(id));
+      el.addEventListener('pointerdown', () => this.focus(id));
       const body = el.querySelector('.mdi-body');
       const rec = { id, key, title, el, body, minimized: false, maximized: true, page: key };
       wins.set(id, rec);
@@ -151,11 +244,16 @@
       updateTaskbar();
       if (typeof renderFn === 'function') {
         Promise.resolve(renderFn(body)).catch((e) => {
-          body.innerHTML = `<div class="empty" data-csp-style="${CSP.style(`padding:16px`)}">${escHtml(e.message || 'خطا در بارگذاری')}</div>`;
+          body.textContent = '';
+          const err = document.createElement('div');
+          err.className = 'empty';
+          err.textContent = e.message || 'خطا در بارگذاری';
+          body.appendChild(err);
         });
       }
       return true;
     },
+    get(id) { return wins.get(id) || null; },
     focus(id) {
       const w = wins.get(id);
       if (!w) return;
@@ -165,6 +263,7 @@
       w.el.style.zIndex = String(++zTop);
       this.focusedId = id;
       updateTaskbar();
+      notifyFocus(w);
     },
     minimize(id) {
       const w = wins.get(id);

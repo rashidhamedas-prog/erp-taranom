@@ -1379,6 +1379,52 @@ function exitAccountingShell(){
   go(ME.role==='accounting'||ME.role==='sales_manager'?'customers':'dash');
 }
 
+function mdiPageTitle(page){
+  const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && accNavFlat().find(x=>x.id===page));
+  if(it && it.label) return T(it.label);
+  if(page==='help') return 'راهنما';
+  if(page==='dash') return 'داشبورد';
+  if(page==='acc-dash') return 'داشبورد حسابداری';
+  return page;
+}
+function syncChromeForPage(page, title){
+  CURRENT_PAGE = page;
+  document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
+  const titleEl = el('pageTitle');
+  if(titleEl) titleEl.textContent = title || mdiPageTitle(page) || '';
+  if(window.innerWidth<=900) closeSidebar();
+  updateBackBtn();
+  try{ expandAccNavForPage(page); }catch(_){}
+}
+function hookWinMgrNav(){
+  if(!window.WinMgr || WinMgr._navHooked) return;
+  WinMgr._navHooked = true;
+  WinMgr.onFocus = function(w){
+    if(!w || !w.key) return;
+    syncChromeForPage(w.key, w.title);
+  };
+}
+async function renderPageIntoMdiBody(page, body){
+  body.innerHTML = '';
+  const mainView = el('view');
+  const placeholder = document.createElement('div');
+  placeholder.id = 'view';
+  placeholder.style.display = 'none';
+  const realId = mainView ? mainView.id : 'view';
+  if(mainView) mainView.id = 'view-main-backup';
+  body.appendChild(placeholder);
+  try{
+    CURRENT_PAGE = page;
+    if(ROUTES[page]) await ROUTES[page]();
+    while(placeholder.firstChild) body.appendChild(placeholder.firstChild);
+    if(typeof enhanceAccTables==='function') enhanceAccTables(body);
+  } finally {
+    placeholder.remove();
+    const bak = document.getElementById('view-main-backup');
+    if(bak) bak.id = realId || 'view';
+  }
+}
+
 function go(page){
   // ACC-CRM-UNIFY — redirects for legacy/duplicate routes
   const ROUTE_REDIRECTS = {
@@ -1394,53 +1440,24 @@ function go(page){
   };
   if (ROUTE_REDIRECTS[page]) page = ROUTE_REDIRECTS[page];
   if(page==='accounting'){ enterAccountingShell(); return; }
-  if(page==='exit-acc-shell'){ exitAccountingShell(); if(window.WinMgr) WinMgr.closeAll(); return; }
+  if(page==='exit-acc-shell'){ exitAccountingShell(); return; }
   if(page!=='messages' && typeof stopMsgPoll==='function') stopMsgPoll();
   // تاریخچهٔ ناوبری برای دکمه بازگشت (به‌جز حرکت برگشتی)
   if(!_navGoingBack && CURRENT_PAGE && CURRENT_PAGE!==page){
     PAGE_HISTORY.push(CURRENT_PAGE);
     if(PAGE_HISTORY.length>60) PAGE_HISTORY.shift();
   }
-  // حالت پنجره چندگانه: هر زیرمنوی حسابداری در پنجره جدا
-  if(IN_ACC_SHELL && page.startsWith('acc-') && page!=='acc-dash' && window.WinMgr && WinMgr.enabled()){
-    const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && accNavFlat().find(x=>x.id===page));
-    const title = (it && T(it.label)) || page;
-    const opened = WinMgr.open(page, title, async (body)=>{
-      // پاک‌کردن placeholder بارگذاری تا متن «در حال بارگذاری» روی محتوا نماند
-      body.innerHTML = '';
-      const mainView = el('view');
-      const placeholder = document.createElement('div');
-      placeholder.id = 'view';
-      placeholder.style.display = 'none';
-      const realId = mainView.id;
-      mainView.id = 'view-main-backup';
-      body.appendChild(placeholder);
-      try{
-        CURRENT_PAGE = page;
-        if(ROUTES[page]) await ROUTES[page]();
-        while(placeholder.firstChild) body.appendChild(placeholder.firstChild);
-        if(typeof enhanceAccTables==='function') enhanceAccTables(body);
-      } finally {
-        placeholder.remove();
-        const bak = document.getElementById('view-main-backup');
-        if(bak) bak.id = realId || 'view';
-      }
-    });
+  hookWinMgrNav();
+  // حالت پنجره چندگانه: هر صفحهٔ برنامه در پنجره جدا (نه فقط حسابداری)
+  if(window.WinMgr && WinMgr.enabled() && typeof ROUTES[page]==='function'){
+    const title = mdiPageTitle(page);
+    const opened = WinMgr.open(page, title, (body)=>renderPageIntoMdiBody(page, body));
     if(opened){
-      CURRENT_PAGE = page;
-      document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
-      if(window.innerWidth<=900) closeSidebar();
-      updateBackBtn();
+      syncChromeForPage(page, title);
       return;
     }
   }
-  CURRENT_PAGE = page;
-  document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
-  const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && accNavFlat().find(x=>x.id===page));
-  el('pageTitle').textContent = it?T(it.label):(page==='help'?'راهنما':'');
-  if(window.innerWidth<=900) closeSidebar();
-  updateBackBtn();
-  try{ expandAccNavForPage(page); }catch(_){}
+  syncChromeForPage(page);
   // After every page render, shrink stat-card numbers that overflow their card
   // (large totals like فروش کل on حساب من were spilling out — spec 1.0.9 §4)
   ROUTES[page] ? Promise.resolve(ROUTES[page]()).finally(()=>{ setTimeout(fitStatNums,60); if(typeof enhanceAccTables==='function') enhanceAccTables(el('view')); }) : (el('view').innerHTML='');
@@ -1468,7 +1485,7 @@ function goUp(){
   const parent=pageParent(CURRENT_PAGE);
   if(!parent) return;
   // بستن پنجره MDI فعلی قبل از رفتن به والد
-  if(window.WinMgr && IN_ACC_SHELL && CURRENT_PAGE && CURRENT_PAGE!=='acc-dash'){
+  if(window.WinMgr && CURRENT_PAGE){
     const w=typeof WinMgr.findByKey==='function' ? WinMgr.findByKey(CURRENT_PAGE) : null;
     if(w) WinMgr.close(w.id);
   }
@@ -1560,6 +1577,7 @@ async function boot(){
   syncAcctDrawerUser();
   buildNav();
   await loadInitial();
+  try{ if(window.WinMgr && WinMgr.mount){ hookWinMgrNav(); WinMgr.mount(); } }catch(_){}
   go(ME.role==='accounting'||ME.role==='sales_manager'?'accounting':'dash');
   refreshMsgBadge();
   refreshRemBadge();
@@ -16123,10 +16141,10 @@ ROUTES.settings = async function(){
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('layers')} پنجره‌های چندگانه</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
-        با فعال بودن این گزینه، هر زیرمنوی حسابداری در یک پنجره جدا باز می‌شود (جابجایی، کوچک/بزرگ، بستن).
-        نوار وظایف در پایین صفحه است و هنگام وجود پنجره همیشه قابل مشاهده و قابل استفاده است.
+        با فعال بودن این گزینه، هر صفحهٔ برنامه (داشبورد، مشتریان، فاکتور، حسابداری و …) در یک پنجره جدا باز می‌شود (جابجایی، کوچک/بزرگ، بستن).
+        نوار وظایف در پایین صفحه همیشه دیده می‌شود و در کروم هم قابل کلیک است.
       </div>
-      ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'شبیه ویندوز — هر زیرمنو در پنجره مستقل؛ نوار وظایف در پایین صفحه')}
+      ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'شبیه ویندوز — هر صفحه در پنجره مستقل؛ نوار وظایف در پایین صفحه')}
     </div></div>
     ${isAdmin()?`<div class="panel"><div class="panel-head"><h4>📱 دستگاه‌های متصل و ورود</h4></div><div class="panel-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.85;margin-bottom:12px`)}">
@@ -16389,6 +16407,7 @@ async function saveSettings(){
   if(mdiEl && window.WinMgr){
     WinMgr.setEnabled(!!mdiEl.checked);
     if(!mdiEl.checked) WinMgr.closeAll();
+    else if(typeof WinMgr.mount==='function') WinMgr.mount();
   }
   // قالب فاکتور + شخصی‌سازی
   const formalEl=document.querySelector('input[name="s-invoice_template_formal"]:checked');
@@ -16852,10 +16871,11 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>حذف کالای واردشده از اکسل پس از پاک‌سازی موجودی انبار ممکن است؛ اگر در فاکتور باشد مسدود می‌شود</li>
       </ul>`),
     helpSec('🗔','پنجره‌های چندگانه (شبیه ویندوز)',`
-      <p>فعال/غیرفعال کردن از <b>تنظیمات → عمومی → پنجره‌های چندگانه</b>. با فعال بودن، هر زیرمنوی حسابداری در پنجره جدا باز می‌شود.</p>
+      <p>فعال/غیرفعال کردن از <b>تنظیمات → عمومی → پنجره‌های چندگانه</b>. با فعال بودن، <b>هر صفحهٔ برنامه</b> (داشبورد، مشتریان، فاکتور، کالا، حسابداری و …) در پنجره جدا باز می‌شود — نه فقط زیرمنوهای حسابداری.</p>
       <ul>
-        <li>نوار وظایف در <b>پایین صفحه</b> است؛ هنگام وجود پنجره‌ها همیشه قابل مشاهده است و اسکرول افقی دارد.</li>
-        <li>چینش و تک‌صفحه/چندپنجره با آیکون‌های کوچک همان ریل در دسترس است.</li>
+        <li>نوار وظایف در <b>پایین صفحه</b> است و در کل برنامه (از جمله کروم) همیشه قابل مشاهده و قابل کلیک است.</li>
+        <li>روی دکمهٔ هر پنجره در نوار بزنید تا همان صفحه جلو بیاید؛ پنجرهٔ کوچک‌شده با یک کلیک برمی‌گردد.</li>
+        <li>چینش پنجره‌ها و خاموش/روشن کردن حالت چندپنجره با آیکون‌های همان نوار در دسترس است.</li>
         <li>نوار عنوان هر پنجره: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن</li>
       </ul>`),
     helpSec('🧾','انواع فاکتور فروش و موجودی دائمی',`
@@ -17427,7 +17447,9 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v148</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>`),
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v152</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>`),
+    helpSec('🗔','پنجره‌های چندگانه',`
+      <p>اگر در تنظیمات «پنجره‌های چندگانه» روشن باشد، هر صفحه (مشتریان، فاکتور، پیام‌ها و …) در پنجره جدا باز می‌شود. نوار پایین صفحه برای جابه‌جایی بین پنجره‌ها است و در کروم هم کار می‌کند.</p>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
       <h5>ثبت مشتری جدید</h5><ul>
