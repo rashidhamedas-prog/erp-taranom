@@ -31,7 +31,7 @@
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **خلاصه:** چندپنجره‌ای دوباره فقط برای زیرمنوهای حسابداری است. داشبورد CRM و داشبورد حسابداری تک‌صفحه‌ای ماندند. نوار وظایف شناور پایین صفحه است (روی محتوا، بدون کوتاه کردن سایدبار) و کلیک Chrome حفظ شد.
 - **فایل‌های کلیدی:** `server/public/app.js`, `server/public/mdi.js`, `server/public/app.css`, `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳ در حال استقرار
+- **Deploy:** ✅ SFTP overlay ایران؛ health/ready/root **200**؛ stamp `.sftp-deploy-stamp-mdi-v153` = `2026-08-13T22:12:55Z hash=eedd689`
 - **SW:** `erp-taranom-v153`
 
 ### 2026-08-14 — MDI taskbar Chrome + کل برنامه (SW v152)
