@@ -31,7 +31,7 @@
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **خلاصه:** نوار چندپنجره‌ای پایین صفحه در Chrome کلیک نمی‌گرفت (لایهٔ `#mdiLayer` بدون اندازه + `pointer-events:none` hit-test زیر‌درخت را در Chromium رد می‌کرد). نوار حالا sibling مستقیم `body` است با z-index مستقل و کلیک delegated. حالت چندپنجره برای **کل برنامه** (CRM + حسابداری) فعال است و نوار با روشن بودن تنظیمات همیشه دیده می‌شود.
 - **فایل‌های کلیدی:** `server/public/mdi.js`, `server/public/app.css`, `server/public/app.js`, `server/public/index.html`, `server/public/sw.js`
-- **Deploy:** ⏳ در حال استقرار
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208:/home/taranom/crm-taranom` (VPS git کثیف بود؛ pull نشد). `pm2 restart erp-taranom --update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-mdi-v152` = `2026-08-13T22:05:04Z hash=9d5319f`.
 - **SW:** `erp-taranom-v152`
 
 ### 2026-08-13 — ACC-CRM-UNIFY: FF-merge primary + Iran SFTP deploy ✅
