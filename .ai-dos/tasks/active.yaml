@@ -4,7 +4,7 @@ tasks:
     title: "Guided, role-based, sales-oriented Demo V3"
     status: "active"
     review_status: "APPROVED"
-    security_status: "PENDING"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:orchestrator-demo-v3"
     roles:

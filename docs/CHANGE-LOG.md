@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-15 — DEMO-V3 dual APPROVED (pre-merge)
+- **شاخه:** `feat/DEMO-V3-GUIDED-SALES` @ product `dbc2ec4` (docs stamp `f29da49`)
+- **Independent:** APPROVED — [e84b9701](e84b9701-1cbe-4db1-a4c9-0d93b70ae458)
+- **Security:** APPROVED — [0e9e56e1](0e9e56e1-e80e-484e-81d1-289a6d709352) C0/H0/M0/L0
+- **تست:** `test-demo-v3.js` ۶۵/۶۵ · `test-demo-static.js` OK
+- **Deploy:** اعمال نشد — منتظر تأیید مالک برای merge/push
+- **SW:** بدون bump
+
 ### 2026-08-15 — DEMO-V3 M7 no-oversell
 - **خلاصه:** پیش‌فاکتور تور کالای با موجودی کافی برمی‌دارد؛ تبدیل مقدار سند/COGS/گردش را به موجودی واقعی محدود می‌کند (بدون `Math.max` پنهان). تست `path-stock-out` دلتای دقیق را می‌سنجد.
 - **بازبینی:** Independent `1e8243c` = CHANGES_REQUIRED (M7). Security `1e8243c` = APPROVED (باید روی نوک جدید تکرار شود).
