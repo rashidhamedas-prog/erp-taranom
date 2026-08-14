@@ -1,4 +1,11 @@
-﻿## 2026-08-14T05:00:00+03:30 — CRM-PRO dual APPROVED (task still active; no deploy)
+﻿## 2026-08-14T09:00:00+03:30 — CRM-PRO owner approved merge + Iran deploy
+
+- Owner explicit: merge + pull/SFTP + restart + SW bump
+- Task → `completed`; claims released
+- SW `erp-taranom-v154` / `app.js?v=154`
+- Dual approval already on file (Reviewer a092902a, Security 16b3d555)
+
+## 2026-08-14T05:00:00+03:30 — CRM-PRO dual APPROVED (task still active; no deploy)
 
 - Independent Reviewer [Review](a092902a-0680-44f5-bd5c-4323c524fc44): **APPROVED** (no High/Medium)
 - Independent Security [Review](16b3d555-0b6b-44b3-bec4-2b939e933dda): **APPROVED**

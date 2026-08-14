@@ -1,16 +1,16 @@
 # Project Status
 
-- Last verified: 2026-08-14 (~04:10 +03:30)
-- **Active task:** CRM-PRO-ANALYTICS (high risk; isolated worktree)
-- **CRM-PRO-ANALYTICS:** implementation + dedicated tests green; still `active`
+- Last verified: 2026-08-14 (~09:00 +03:30)
+- **Active task:** none (CRM-PRO-ANALYTICS completing: owner merge + Iran deploy)
+- **CRM-PRO-ANALYTICS:** dual Approved; owner deploy approved; SW v154
   Branch `ai/CRM-PRO-ANALYTICS-crm-dashboard`
   Worktree `D:/soft/Claud/porje/Run in the project/erp-taranom-crm-pro-analytics`
   Base `eae0a14`
   Roles: Implementer `cursor:implementer-crm-pro`; Reviewer `cursor:independent-reviewer-crm-pro`;
   Security `cursor:independent-security-crm-pro` (distinct from Implementer).
   Gates: analytics 33 · RBAC 17 · UI 17 · perf 8 · SMS 22 · sync 44 · diag []
-  Security: APPROVED (16b3d555). Reviewer: APPROVED (a092902a). Task still active; no completed; no Iran deploy.
-  **NO Iran deploy** and **NO completed** until Independent Reviewer + Security Approved + explicit owner deploy approval.
+  Security: APPROVED (16b3d555). Reviewer: APPROVED (a092902a).
+  Owner approved merge + Iran deploy; task `completed`; claims empty.
 - Prior: ACC-CRM-UNIFY merged + Iran deployed (SW v151 lineage; later MDI v153).
 
 ## Working quality commands

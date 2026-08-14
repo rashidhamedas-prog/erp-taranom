@@ -27,6 +27,12 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-14 — CRM-PRO-ANALYTICS merge + SW v154 (owner deploy)
+- **شاخه:** `claude/claude-md-docs-2ssrpy` ← FF از `ai/CRM-PRO-ANALYTICS-crm-dashboard`
+- **خلاصه:** ادغام داشبورد CRM حرفه‌ای + bump Service Worker به v154 پس از تأیید مالک برای merge و deploy ایران.
+- **Deploy:** ⏳ در حال اعمال
+- **SW:** `erp-taranom-v154`
+
 ### 2026-08-14 — CRM-PRO-ANALYTICS (شاخه ai/CRM-PRO-ANALYTICS-crm-dashboard)
 - **commit:** `48ea171`
 - **شاخه:** `ai/CRM-PRO-ANALYTICS-crm-dashboard`
