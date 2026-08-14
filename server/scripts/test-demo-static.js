@@ -21,6 +21,8 @@ function scanDemoStatic(publicDir) {
   if (networkHits.length) fails.push('network primitive found');
   if (secretHits.length) fails.push('hardcoded credential found');
   if (!/ساختگی/.test(text)) fails.push('missing fake-data watermark text');
+  if (!/ترانه اندیشه پردازان ریان/.test(text)) fails.push('missing manufacturer credit');
+  if (!/app\.css/.test(text)) fails.push('static demo must reuse app.css');
   if (!/پیش‌فاکتور|پيش فاکتور/.test(text)) fails.push('missing proforma mention');
   if (!/عادی|معمولی/.test(text)) fails.push('missing normal invoice mention');
   if (!/نهایی/.test(text)) fails.push('missing final invoice mention');
