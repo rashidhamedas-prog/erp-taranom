@@ -1,12 +1,14 @@
 # Project Status
 
-- Last verified: 2026-08-15 (~03:08 +03:30)
-- **Active task:** DEMO-V3-GUIDED-SALES (`active`, dual APPROVED on `dbc2ec4`; waiting owner merge/deploy)
+- Last verified: 2026-08-15 (~03:15 +03:30)
+- **DEMO-V3-GUIDED-SALES:** `completed` — dual APPROVED + owner merge/deploy
+  Primary `bb868c5`; SFTP stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`
+  health/demo/seed 200; public `https://erp.poshaktaranom.com/demo.html`
 - **Implementation:** welcome + 4 role tours + free sandbox; H1–H3/M1–M6 + tour-stay/pause-resume/BOM
 - **Gates so far:** test-demo-v3 62/62 · static OK
 - **Branch / worktree:** `feat/DEMO-V3-GUIDED-SALES` /
   `D:/soft/Claud/porje/Run in the project/erp-taranom-demo-v3` @ base `8a1d699`
-- **Constraint:** NO merge / push / Iran deploy / PM2 / SW bump until owner approval
+- **Constraint:** Demo V3 deploy done; do not overwrite dirty VPS files outside demo overlay
 - **Dirty user files in erp-taranom1 (untouched):**
   `scripts/_deploy-demo-ui-v156-sftp.py`, `scripts/_deploy-mdi-v152-sftp.py`
 - **DEMO-V2-SECURE-SALES:** merged + Iran deployed ✅

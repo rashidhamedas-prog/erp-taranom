@@ -1,3 +1,12 @@
+## 2026-08-15T03:15:00+03:30 — DEMO-V3 merged + Iran deployed
+
+- Owner approved merge/push/deploy.
+- FF `feat/DEMO-V3-GUIDED-SALES` → `claude/claude-md-docs-2ssrpy` @ `bb868c5` (then this stamp commit).
+- VPS git dirty (behind 63); SFTP overlay of demo files only. `pm2 restart` without `--update-env`.
+- health/demo/seed 200; public `https://erp.poshaktaranom.com/demo.html` 200.
+- Stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`
+- Task `completed`. Dirty user deploy scripts in erp-taranom1 untouched.
+
 ## 2026-08-15T03:08:00+03:30 — Dual APPROVED; waiting owner
 
 - [Independent Demo V3 re-review](e84b9701-1cbe-4db1-a4c9-0d93b70ae458) **APPROVED** on `dbc2ec4`

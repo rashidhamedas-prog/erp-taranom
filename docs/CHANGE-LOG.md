@@ -13,10 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
-### 2026-08-15 — DEMO-V3 merge + Iran deploy (in progress)
-- **شاخه:** merge `feat/DEMO-V3-GUIDED-SALES` → `claude/claude-md-docs-2ssrpy`
-- **SW:** بدون bump (`erp-taranom-v158`) — HTML/JS شبکه-اول؛ `demo.css`/`demo.js` `?v=7`
-- **Deploy:** در حال اجرا
+### 2026-08-15 — DEMO-V3 merge + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `bb868c5` ← FF `feat/DEMO-V3-GUIDED-SALES`
+- **خلاصه:** نسخه نمایشی فروش‌محور (خوش‌آمد نقش، چهار تور، محیط آزاد، دادهٔ سپیدارگل) روی `/demo.html` عمومی شد.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208:/home/taranom/crm-taranom` (VPS git کثیف بود؛ pull نشد). `pm2 restart erp-taranom` بدون `--update-env`. health/demo/seed **200**. stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`.
+- **تأیید عمومی:** `https://erp.poshaktaranom.com/demo.html`
+- **SW:** بدون bump (`erp-taranom-v158`) — HTML/JS شبکه-اول؛ `demo.css`/`demo.js` `?v=7`. Hard Refresh اگر صفحهٔ قبلی ماند.
+- **Independent:** APPROVED e84b9701 · **Security:** APPROVED 0e9e56e1
 
 ### 2026-08-15 — DEMO-V3 dual APPROVED (pre-merge)
 - **شاخه:** `feat/DEMO-V3-GUIDED-SALES` @ product `dbc2ec4` (docs stamp `f29da49`)

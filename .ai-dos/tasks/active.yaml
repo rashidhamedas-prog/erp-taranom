@@ -2,7 +2,7 @@ schema_version: 1
 tasks:
   - id: "DEMO-V3-GUIDED-SALES"
     title: "Guided, role-based, sales-oriented Demo V3"
-    status: "active"
+    status: "completed"
     review_status: "APPROVED"
     security_status: "APPROVED"
     risk: "high"
