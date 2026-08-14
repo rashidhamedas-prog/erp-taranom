@@ -15,7 +15,8 @@ body{background:var(--bg);color:#1e1b4b;min-height:100vh;direction:rtl}
 #splash.hidden{opacity:0;transform:scale(1.04);pointer-events:none}
 .splash-logo{font-size:64px;animation:float 3s ease-in-out infinite}
 .splash-title{color:#fff;font-size:38px;font-weight:800;margin:18px 0 8px;letter-spacing:-1px}
-.splash-sub{color:#c4b5fd;font-size:16px;margin-bottom:40px;text-align:center;max-width:400px;line-height:1.8}
+.splash-sub{color:#c4b5fd;font-size:16px;margin-bottom:16px;text-align:center;max-width:400px;line-height:1.8}
+.splash-fake{color:#fde68a;font-size:14px;font-weight:700;margin-bottom:28px;text-align:center}
 .splash-btn{background:#fff;color:#7c3aed;padding:16px 48px;border:none;border-radius:50px;
   font-size:18px;font-weight:700;cursor:pointer;transition:.2s;font-family:inherit;
   box-shadow:0 8px 32px rgba(0,0,0,.2)}
@@ -90,7 +91,7 @@ table.data-tbl tr:last-child td{border-bottom:none}
 .badge.vip{background:#fef9c3;color:#854d0e}.badge.active{background:#dcfce7;color:#14532d}
 .badge.followup{background:#dbeafe;color:#1e40af}.badge.silent{background:#f3f4f6;color:#374141}
 .badge.new{background:#fce7f3;color:#9d174d}
-.badge.proforma{background:#e0f2fe;color:#075985}.badge.final{background:#dcfce7;color:#14532d}
+.badge.proforma{background:#e0f2fe;color:#075985}.badge.normal{background:#fef3c7;color:#92400e}.badge.final{background:#dcfce7;color:#14532d}
 .badge.high{background:#fee2e2;color:#991b1b}.badge.mid{background:#fef9c3;color:#854d0e}
 .badge.low{background:#f0fdf4;color:#14532d}
 
@@ -224,3 +225,62 @@ table.data-tbl tr:last-child td{border-bottom:none}
 .sparkline-bar{width:5px;border-radius:2px 2px 0 0;background:var(--purple);opacity:.7;transition:.2s}
 .progress-wrap{background:#f3f4f6;border-radius:4px;height:6px;overflow:hidden;width:80px;display:inline-block;vertical-align:middle}
 .progress-bar{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--purple),#a855f7)}
+
+/* ── WATERMARK + INVOICE TYPES + CRM TIMELINE ─────────── */
+.demo-watermark{
+  position:fixed;inset:0;pointer-events:none;z-index:120;
+  display:flex;align-items:center;justify-content:center;
+  font-size:clamp(22px,6vw,64px);font-weight:800;
+  color:rgba(124,58,237,.1);transform:rotate(-22deg);
+  white-space:nowrap;user-select:none}
+.inv-types{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+.inv-type-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+  padding:14px 16px;box-shadow:var(--shadow)}
+.inv-type-card h4{font-size:14px;font-weight:800;margin-bottom:6px}
+.inv-type-card p{font-size:12px;color:var(--muted);line-height:1.7}
+.inv-type-card.proforma{border-top:3px solid #0284c7}
+.inv-type-card.normal{border-top:3px solid #d97706}
+.inv-type-card.final{border-top:3px solid #16a34a}
+.inv-type-note{font-size:12px;color:var(--muted);background:#f8fafc;border-radius:8px;
+  padding:8px 10px;margin-bottom:12px;line-height:1.6}
+.dash-split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.crm-timeline-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+  box-shadow:var(--shadow);margin-bottom:20px;overflow:hidden}
+.crm-timeline{list-style:none;padding:8px 16px 16px;margin:0}
+.crm-tl-item{display:grid;grid-template-columns:88px 1fr auto auto;gap:10px;align-items:center;
+  padding:10px 0;border-bottom:1px solid #f3f4f6;font-size:13px}
+.crm-tl-item:last-child{border-bottom:none}
+.crm-tl-date{color:var(--muted);font-weight:600}
+.crm-tl-title{font-weight:700}
+.crm-tl-sub{color:var(--muted)}
+.crm-tl-item.proforma .crm-tl-title{color:#075985}
+.crm-tl-item.normal .crm-tl-title{color:#92400e}
+.crm-tl-item.final .crm-tl-title{color:#14532d}
+.crm-tl-item.followup .crm-tl-title{color:#1e40af}
+
+@media(max-width:900px){
+  .dash-split{grid-template-columns:1fr}
+  .inv-types{grid-template-columns:1fr}
+  .crm-tl-item{grid-template-columns:1fr 1fr;gap:4px 10px}
+  .crm-tl-amt{grid-column:2}
+  .app-body{padding:14px}
+  .splash-title{font-size:28px}
+  .kpi-v{font-size:20px}
+  .tbl-wrap{overflow-x:auto}
+}
+@media(max-width:600px){
+  .app-header{padding:10px 14px}
+  .app-name{font-size:16px}
+  .header-user span{display:none}
+  .nav-tab{padding:12px 14px;font-size:13px}
+  .search-box{width:100%}
+}
+@media print{
+  #splash,.app-nav,.demo-banner,.splash-btn{display:none!important}
+  #app{display:block!important}
+  body::after{
+    content:'داده‌ها کاملاً ساختگی هستند';
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:42px;font-weight:800;color:rgba(0,0,0,.12);
+    transform:rotate(-24deg);z-index:99999;pointer-events:none}
+}

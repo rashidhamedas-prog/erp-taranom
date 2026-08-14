@@ -44,6 +44,15 @@ function stockPayload(product) {
 }
 
 async function fireStockWebhooks(db, product) {
+  try {
+    const { guardDemoEgressOrBlock } = require('./demo-egress');
+    const blocked = guardDemoEgressOrBlock('webhook');
+    if (blocked) return blocked;
+  } catch {
+    if (/^(true|1|yes)$/i.test(String(process.env.ERP_DEMO_MODE || ''))) {
+      return { ok: false, simulated: true, demo: true, channel: 'webhook', code: 'demo_simulation', reason: 'در نسخه دمو ارسال واقعی انجام نمی‌شود' };
+    }
+  }
   const payload = stockPayload(product);
   const secret = getSetting(db, 'webhook_secret');
   const hooks = db.prepare("SELECT * FROM webhooks WHERE active=1").all()
@@ -61,6 +70,15 @@ async function fireStockWebhooks(db, product) {
 }
 
 async function pushWooCommerceStock(db, product) {
+  try {
+    const { guardDemoEgressOrBlock } = require('./demo-egress');
+    const blocked = guardDemoEgressOrBlock('woocommerce');
+    if (blocked) return blocked;
+  } catch {
+    if (/^(true|1|yes)$/i.test(String(process.env.ERP_DEMO_MODE || ''))) {
+      return { ok: false, simulated: true, demo: true, channel: 'woocommerce', code: 'demo_simulation', reason: 'در نسخه دمو ارسال واقعی انجام نمی‌شود' };
+    }
+  }
   const s = getSettingsMap(db);
   if (s.website_stock_sync_enabled !== '1') return { skipped: true };
   if (!['push', 'both'].includes(s.website_stock_sync_mode || 'pull')) return { skipped: true };

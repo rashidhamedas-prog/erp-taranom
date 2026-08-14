@@ -11,6 +11,13 @@ const { sendSMS } = require('./sms');
 const { hashKey } = require('./routes/api_keys');
 const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile, getBackupHealth } = require('./backup');
 const { assertSecurityConfig } = require('./lib/security');
+const { assertDemoBoot, refreshMaintenanceFlag, isDemoMode } = require('./lib/demo-mode');
+try {
+  assertDemoBoot();
+} catch (e) {
+  console.error('DEMO BOOT FAILED:', e && e.message ? e.message : 'invalid demo config');
+  process.exit(1);
+}
 const { firmSaleTypeSql } = require('./lib/sales-document');
 const { getSmsSettings } = require('./lib/secret-settings');
 const {
@@ -248,6 +255,8 @@ initDB();
 // License entitlement: after expiry+grace (or clock rollback) → read-only safe mode.
 const { licenseGuard } = require('./lib/license/middleware');
 app.use('/api', licenseGuard);
+const { demoGuard } = require('./middleware/demo-guard');
+app.use('/api', demoGuard);
 
 // Mirror active company display name from settings → registry (central only)
 if (!isDevice()) {
@@ -268,6 +277,7 @@ if (isDevice()) {
   app.use(captureMiddleware);
 }
 
+app.use('/api/demo', require('./routes/demo'));
 app.use('/api/sync', require('./routes/sync'));
 app.use('/api/license', require('./routes/license'));
 app.use('/api/auth/2fa', require('./routes/twofa'));
@@ -421,16 +431,23 @@ app.get('/api/system/integrity-check/last-result', authMw, adminOnlyMw, (req, re
 
 // Lightweight health check — used by Android WebView boot poll (liveness; no DB)
 app.get('/api/system/health', (req, res) => {
+  const demo = refreshMaintenanceFlag();
   res.json({
     ok: true,
     role: isDevice() ? 'device' : 'central',
     platform: process.env.APP_PLATFORM || (isDevice() ? 'device' : 'web'),
     version: process.env.APP_VERSION || '0',
+    demo: !!demo.enabled,
+    maintenance: !!(demo.enabled && demo.maintenance),
   });
 });
 
 // Readiness — SQLite must answer SELECT 1 (load balancers / ops probes)
 app.get('/api/system/ready', (req, res) => {
+  const demo = refreshMaintenanceFlag();
+  if (demo.enabled && demo.maintenance) {
+    return res.status(503).json({ ok: false, ready: false, demo: true, maintenance: true });
+  }
   if (checkDbReady(getDB)) {
     return res.status(200).json({ ok: true, ready: true });
   }
@@ -663,7 +680,7 @@ function runActiveToFollowupCheck() {
 // customer statuses on a schedule, or run the tar-based backup — those are
 // central responsibilities, and running them per-device would duplicate SMS
 // sends and create diverging automated edits that fight the sync engine.
-if (!isDevice()) {
+if (!isDevice() && !isDemoMode()) {
   // Daily at 08:00: batch SMS + silent customer check + active→followup + rep alerts
   cron.schedule('0 8 * * *', () => {
     runFollowupSMSBatch();
@@ -757,7 +774,11 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   res.status(status).json({ error: msg });
 });
 
-app.listen(PORT, process.env.LISTEN_HOST || '0.0.0.0', () => {
+function resolveListenHost() {
+  if (isDemoMode() && process.env.ERP_DEMO_BIND_PUBLIC !== 'true') return '127.0.0.1';
+  return process.env.LISTEN_HOST || '0.0.0.0';
+}
+app.listen(PORT, resolveListenHost(), () => {
   console.log(`ERP ترنم نسخه ۳ روی پورت ${PORT} اجرا شد`);
   if (process.env.APP_PLATFORM === 'android' && process.env.DB_PATH) {
     try {

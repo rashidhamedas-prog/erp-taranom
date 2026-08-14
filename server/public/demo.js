@@ -71,7 +71,7 @@ const D = {
       salesperson:c.id<=6?'حامد رشید':'زهره میرزایی',
       product:p.name,category:p.cat,
       qty,price:p.price,subtotal,disc,discAmt,final,
-      type:rand()<0.35?'proforma':'final',
+      type:(()=>{ const x=rand(); return x<0.25?'proforma':x<0.62?'normal':'final'; })(),
       month:m,date:`${m}/${String(d).padStart(2,'0')}`,
       paid:rand()<0.65
     });
@@ -87,7 +87,29 @@ const statusLabel = {vip:'VIP 👑',active:'فعال',followup:'پیگیری',si
 const statusClass = {vip:'vip',active:'active',followup:'followup',silent:'silent',new:'new'};
 const priLabel = {high:'فوری',mid:'متوسط',low:'عادی'};
 const priClass = {high:'high',mid:'mid',low:'low'};
+const invTypeLabel = {proforma:'پیش‌فاکتور',normal:'فاکتور عادی',final:'فاکتور نهایی'};
+const invTypeShort = {proforma:'پیش',normal:'عادی',final:'نهایی'};
+const isFirm = i => i.type==='normal'||i.type==='final';
 const catEmoji = {'مانتو':'🧥','شومیز':'👚','دامن':'👗','بلوز':'👕','پالتو':'🧣','تونیک':'👘','شلوار':'👖','کاپشن':'🥻'};
+
+function invTypeCards(){
+  return `<div class="inv-types">
+    <div class="inv-type-card proforma"><h4>پیش‌فاکتور</h4><p>اعلام قیمت — بدون کسر موجودی و بدون سند حسابداری (JE)</p></div>
+    <div class="inv-type-card normal"><h4>فاکتور عادی</h4><p>فروش قطعی — موجودی + سند فروش + بهای تمام‌شده (COGS)؛ صف مودیان ندارد</p></div>
+    <div class="inv-type-card final"><h4>فاکتور نهایی</h4><p>همان اثر فروش قطعی + ارسال به مودیان فقط برای این نوع</p></div>
+  </div>`;
+}
+
+function getCrmTimeline(){
+  const events=[];
+  D.invoices.forEach(i=>{
+    events.push({date:i.date,kind:i.type,title:`صدور ${invTypeLabel[i.type]||i.type} ${i.num}`,sub:i.cust,amount:i.final});
+  });
+  D.followups.forEach(f=>{
+    events.push({date:f.date,kind:'followup',title:f.subject,sub:f.cust,amount:null});
+  });
+  return events.sort((a,b)=>b.date.localeCompare(a.date)).slice(0,10);
+}
 
 function sparkline(data, color='#7c3aed'){
   const mx=Math.max(...data,1);
@@ -99,6 +121,7 @@ function sparkline(data, color='#7c3aed'){
 // ══════════════════════════════════════════════════════════════
 function startDemo(){
   document.getElementById('splash').classList.add('hidden');
+  demoStarted=true;
   setTimeout(()=>{
     document.getElementById('app').style.display='block';
     renderDash();
@@ -107,6 +130,8 @@ function startDemo(){
 
 let currentTab='dash';
 let chartInstances={};
+let demoStarted=false;
+const TAB_ORDER=['dash','customers','analytics','invoices','products','followups'];
 
 function showTab(tab){
   currentTab=tab;
@@ -123,42 +148,57 @@ function showTab(tab){
 // DASHBOARD
 // ══════════════════════════════════════════════════════════════
 function renderDash(){
-  const finals=D.invoices.filter(i=>i.type==='final');
-  const totalRev=finals.reduce((s,i)=>s+i.final,0);
+  const firm=D.invoices.filter(isFirm);
+  const totalRev=firm.reduce((s,i)=>s+i.final,0);
   const totalCust=D.customers.length;
   const openFup=D.followups.filter(f=>f.status==='open').length;
   const vipCount=D.customers.filter(c=>c.status==='vip').length;
   const monthlyRev={};
-  finals.forEach(i=>{ monthlyRev[i.month]=(monthlyRev[i.month]||0)+i.final; });
+  firm.forEach(i=>{ monthlyRev[i.month]=(monthlyRev[i.month]||0)+i.final; });
   const months=['1403/01','1403/02','1403/03','1403/04','1403/05','1403/06'];
   const monthNames=['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور'];
   const revValues=months.map(m=>monthlyRev[m]||0);
   const statusCount={};
   D.customers.forEach(c=>{ statusCount[c.status]=(statusCount[c.status]||0)+1; });
   const catRev={};
-  finals.forEach(i=>{ catRev[i.category]=(catRev[i.category]||0)+i.final; });
+  firm.forEach(i=>{ catRev[i.category]=(catRev[i.category]||0)+i.final; });
   const topCats=Object.entries(catRev).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const typeCount={proforma:0,normal:0,final:0};
+  D.invoices.forEach(i=>{ typeCount[i.type]=(typeCount[i.type]||0)+1; });
 
   // Recent invoices for activity feed
   const recent=D.invoices.slice(-6).reverse();
+  const timeline=getCrmTimeline();
 
   document.getElementById('appBody').innerHTML=`
+    <div class="section-head"><h2>📊 داشبورد CRM</h2>
+      <div class="sh-sub">اعداد نمونه — داده‌ها کاملاً ساختگی هستند</div></div>
     <div class="kpi-row">
       <div class="kpi"><div class="kpi-icon" data-csp-style="${CSP.style(`background:#f0fdf4`)}">💰</div>
-        <div><div class="kpi-v">${fmt(totalRev)} ت</div><div class="kpi-l">درآمد کل</div>
+        <div><div class="kpi-v">${fmt(totalRev)} ت</div><div class="kpi-l">فروش قطعی (عادی + نهایی)</div>
           <div class="kpi-chg up">↑ ۱۸٪ نسبت به دوره قبل</div></div></div>
       <div class="kpi"><div class="kpi-icon" data-csp-style="${CSP.style(`background:#f5f3ff`)}">👥</div>
         <div><div class="kpi-v">${fmt(totalCust)}</div><div class="kpi-l">مشتری فعال</div>
           <div class="kpi-chg up">↑ ${vipCount} مشتری VIP</div></div></div>
       <div class="kpi"><div class="kpi-icon" data-csp-style="${CSP.style(`background:#dbeafe`)}">📄</div>
-        <div><div class="kpi-v">${fmt(finals.length)}</div><div class="kpi-l">فاکتور رسمی</div>
-          <div class="kpi-chg up">↑ ۲۳٪ رشد ماهانه</div></div></div>
+        <div><div class="kpi-v">${fmt(firm.length)}</div><div class="kpi-l">فاکتور قطعی</div>
+          <div class="kpi-chg up">${fmt(typeCount.proforma)} پیش‌فاکتور · ${fmt(typeCount.normal)} عادی · ${fmt(typeCount.final)} نهایی</div></div></div>
       <div class="kpi"><div class="kpi-icon" data-csp-style="${CSP.style(`background:#fef9c3`)}">📌</div>
         <div><div class="kpi-v">${fmt(openFup)}</div><div class="kpi-l">پیگیری باز</div>
           <div class="kpi-chg dn">${D.followups.filter(f=>f.priority==='high'&&f.status==='open').length} فوری</div></div></div>
       <div class="kpi"><div class="kpi-icon" data-csp-style="${CSP.style(`background:#fee2e2`)}">⚠️</div>
         <div><div class="kpi-v">${fmt(D.products.filter(p=>p.stock<10).length)}</div><div class="kpi-l">موجودی کم</div>
           <div class="kpi-chg dn">نیاز به سفارش مجدد</div></div></div>
+    </div>
+    ${invTypeCards()}
+    <div class="crm-timeline-wrap">
+      <div class="tbl-head"><h3>📅 تایم‌لاین CRM</h3><span class="sh-sub">۱۰ رویداد اخیر (نمونه)</span></div>
+      <ul class="crm-timeline">${timeline.map(e=>`<li class="crm-tl-item ${esc(e.kind)}">
+        <span class="crm-tl-date">${esc(e.date)}</span>
+        <span class="crm-tl-title">${esc(e.title)}</span>
+        <span class="crm-tl-sub">${esc(e.sub)}</span>
+        ${e.amount!=null?`<span class="mono crm-tl-amt">${fmt(e.amount)}</span>`:''}
+      </li>`).join('')}</ul>
     </div>
     <div class="charts-row">
       <div class="chart-card">
@@ -174,16 +214,16 @@ function renderDash(){
         <canvas id="cCat" height="200"></canvas>
       </div>
     </div>
-    <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr;gap:16px`)}">
+    <div class="dash-split">
       <div class="tbl-wrap">
         <div class="tbl-head"><h3>📋 آخرین تراکنش‌ها</h3></div>
         <table class="data-tbl">
-          <thead><tr><th>شماره</th><th>مشتری</th><th>مبلغ</th><th>وضعیت</th></tr></thead>
+          <thead><tr><th>شماره</th><th>مشتری</th><th>مبلغ</th><th>نوع</th></tr></thead>
           <tbody>${recent.map(i=>`<tr>
-            <td><span class="tag">${i.num}</span></td>
+            <td><span class="tag">${esc(i.num)}</span></td>
             <td>${esc(i.cust)}</td>
             <td class="mono">${fmt(i.final)}</td>
-            <td><span class="badge ${i.type}">${i.type==='final'?'رسمی':'پیش'}</span></td>
+            <td><span class="badge ${esc(i.type)}">${esc(invTypeShort[i.type]||i.type)}</span></td>
           </tr>`).join('')}</tbody>
         </table>
       </div>
@@ -234,7 +274,7 @@ function renderDash(){
 
 function getTopCustomers(){
   const totals={};
-  D.invoices.filter(i=>i.type==='final').forEach(i=>{ totals[i.custId]=(totals[i.custId]||0)+i.final; });
+  D.invoices.filter(isFirm).forEach(i=>{ totals[i.custId]=(totals[i.custId]||0)+i.final; });
   return D.customers.map(c=>({...c,total:totals[c.id]||0})).sort((a,b)=>b.total-a.total).slice(0,5);
 }
 
@@ -274,7 +314,7 @@ function renderCustomers(){
 function renderCustTable(){
   const q=custSearch.toLowerCase();
   const totals={};
-  D.invoices.filter(i=>i.type==='final').forEach(i=>{ totals[i.custId]=(totals[i.custId]||0)+i.final; });
+  D.invoices.filter(isFirm).forEach(i=>{ totals[i.custId]=(totals[i.custId]||0)+i.final; });
   const filtered=D.customers.filter(c=>{
     if(custFilter!=='all'&&c.status!==custFilter)return false;
     if(q&&!c.biz.toLowerCase().includes(q)&&!c.owner.toLowerCase().includes(q))return false;
@@ -282,7 +322,7 @@ function renderCustTable(){
   });
   const monthRev=cid=>{
     const months=['1403/04','1403/05','1403/06'];
-    return months.map(m=>D.invoices.filter(i=>i.custId===cid&&i.type==='final'&&i.month===m).reduce((s,i)=>s+i.final,0));
+    return months.map(m=>D.invoices.filter(i=>i.custId===cid&&isFirm(i)&&i.month===m).reduce((s,i)=>s+i.final,0));
   };
   document.getElementById('custBody').innerHTML=filtered.map(c=>`<tr>
     <td>${c.id}</td>
@@ -331,7 +371,7 @@ function showCustDetail(id){
   if(!c)return;
   const invs=D.invoices.filter(i=>i.custId===id);
   const fups=D.followups.filter(f=>f.custId===id);
-  const total=invs.filter(i=>i.type==='final').reduce((s,i)=>s+i.final,0);
+  const total=invs.filter(isFirm).reduce((s,i)=>s+i.final,0);
   document.getElementById('drillTitle').textContent=c.biz;
   document.getElementById('drillContent').innerHTML=`
     <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px`)}">
@@ -348,7 +388,7 @@ function showCustDetail(id){
       <tbody>${invs.slice(-5).reverse().map(i=>`<tr>
         <td><span class="tag">${i.num}</span></td><td>${i.date}</td>
         <td>${esc(i.product)}</td><td class="mono">${fmt(i.final)}</td>
-        <td><span class="badge ${i.type}">${i.type==='final'?'رسمی':'پیش'}</span></td>
+        <td><span class="badge ${esc(i.type)}">${esc(invTypeShort[i.type]||i.type)}</span></td>
       </tr>`).join('')}</tbody>
     </table>
     <h4 data-csp-style="${CSP.style(`margin-bottom:8px`)}">پیگیری‌ها (${fups.length})</h4>
@@ -387,7 +427,7 @@ let pivotChart=null;
 function getPivotData(){
   return D.invoices.map(i=>({
     cust:i.cust, city:i.city, category:i.category, product:i.product,
-    month:i.month, salesperson:i.salesperson, type:i.type==='final'?'رسمی':'پیش‌فاکتور',
+    month:i.month, salesperson:i.salesperson, type:invTypeLabel[i.type]||i.type,
     final:i.final, qty:i.qty
   }));
 }
@@ -714,10 +754,12 @@ let selInv=null, invFilter='all';
 
 function renderInvoices(){
   document.getElementById('appBody').innerHTML=`
-    <div class="section-head"><h2>📄 فاکتورها</h2></div>
+    <div class="section-head"><h2>📄 فاکتورها</h2>
+      <div class="sh-sub">سه نوع فاکتور — اثر موجودی و سند فقط روی فروش قطعی</div></div>
+    ${invTypeCards()}
     <div class="filters-row">
-      ${['all','final','proforma'].map(t=>`<button class="filter-btn ${invFilter===t?'active':''}"
-        data-csp-click="${CSP.bind('click',function(event){invFilter=`${String((t) ?? '')}`;renderInvoices()})}">${t==='all'?'همه':t==='final'?'رسمی':'پیش‌فاکتور'}</button>`).join('')}
+      ${['all','proforma','normal','final'].map(t=>`<button class="filter-btn ${invFilter===t?'active':''}"
+        data-csp-click="${CSP.bind('click',function(event){invFilter=`${String((t) ?? '')}`;renderInvoices()})}">${t==='all'?'همه':invTypeLabel[t]}</button>`).join('')}
     </div>
     <div class="inv-layout">
       <div class="tbl-wrap">
@@ -749,7 +791,7 @@ function renderInvList(){
     <td data-csp-style="${CSP.style(`max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`)}">${esc(i.product)}</td>
     <td>${fmt(i.qty)}</td>
     <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(i.final)}</td>
-    <td><span class="badge ${i.type}">${i.type==='final'?'رسمی':'پیش'}</span></td>
+    <td><span class="badge ${esc(i.type)}">${esc(invTypeShort[i.type]||i.type)}</span></td>
   </tr>`).join('');
 }
 
@@ -766,8 +808,9 @@ function showInvPreview(id){
         <div><div data-csp-style="${CSP.style(`color:var(--muted)`)}">مشتری</div><strong>${esc(i.cust)}</strong></div>
         <div><div data-csp-style="${CSP.style(`color:var(--muted)`)}">تاریخ</div><strong>${i.date}</strong></div>
         <div><div data-csp-style="${CSP.style(`color:var(--muted)`)}">شهر</div><span class="city-tag">${esc(i.city)}</span></div>
-        <div><div data-csp-style="${CSP.style(`color:var(--muted)`)}">نوع</div><span class="badge ${i.type}">${i.type==='final'?'رسمی':'پیش'}</span></div>
+        <div><div data-csp-style="${CSP.style(`color:var(--muted)`)}">نوع</div><span class="badge ${esc(i.type)}">${esc(invTypeLabel[i.type]||i.type)}</span></div>
       </div>
+      <div class="inv-type-note">${i.type==='proforma'?'بدون موجودی و بدون سند حسابداری':i.type==='normal'?'موجودی + سند فروش + COGS — بدون مودیان':'موجودی + سند فروش + COGS + صف مودیان'}</div>
       <table class="inv-prev-rows">
         <thead><tr><th>محصول</th><th>تعداد</th><th>قیمت</th><th>جمع</th></tr></thead>
         <tbody><tr>
@@ -814,7 +857,7 @@ function renderProdGrid(){
     return true;
   });
   const soldMap={};
-  D.invoices.filter(i=>i.type==='final').forEach(i=>{ soldMap[i.product]=(soldMap[i.product]||0)+i.qty; });
+  D.invoices.filter(isFirm).forEach(i=>{ soldMap[i.product]=(soldMap[i.product]||0)+i.qty; });
   document.getElementById('prodGridDiv').innerHTML=`<div class="prod-grid">${filtered.map(p=>{
     const icon=icons[p.cat]||'📦';
     const sold=soldMap[p.name]||0;
@@ -834,7 +877,7 @@ function renderProdGrid(){
 
 function showProdDetail(id){
   const p=D.products.find(x=>x.id===id); if(!p)return;
-  const invs=D.invoices.filter(i=>i.product===p.name&&i.type==='final');
+  const invs=D.invoices.filter(i=>i.product===p.name&&isFirm(i));
   const totalSold=invs.reduce((s,i)=>s+i.qty,0);
   const totalRev=invs.reduce((s,i)=>s+i.final,0);
   const icons={مانتو:'🧥',شومیز:'👚',دامن:'👗',بلوز:'👕',پالتو:'🧣',تونیک:'👘',شلوار:'👖',کاپشن:'🥻'};
@@ -916,10 +959,15 @@ function renderFupColumn(title,label,pri,items,bg,txt){
 // ══════════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════════
-// Auto-show app in demo mode (click splash to proceed normally)
-window.onload=()=>{
-  // Pre-warm: nothing needed
-};
+document.addEventListener('keydown',function(event){
+  if(!demoStarted) return;
+  const tag=(event.target&&event.target.tagName)||'';
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') return;
+  const i=TAB_ORDER.indexOf(currentTab);
+  if(i<0) return;
+  if(event.key==='ArrowLeft'&&i<TAB_ORDER.length-1){ event.preventDefault(); showTab(TAB_ORDER[i+1]); }
+  else if(event.key==='ArrowRight'&&i>0){ event.preventDefault(); showTab(TAB_ORDER[i-1]); }
+});
 
 /* Static actions migrated from demo.html. */
 CSP.register('s_da784bcbfc3f2826447c7a25','click',function(event){closeDrill()});

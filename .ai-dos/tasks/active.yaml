@@ -1,5 +1,46 @@
 schema_version: 1
 tasks:
+  - id: "DEMO-V2-SECURE-SALES"
+    title: "Secure independent resettable sales demo (static + interactive)"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator"
+    roles:
+      orchestrator: "cursor:orchestrator"
+      architect: "cursor:orchestrator"
+      implementer: "cursor:implementer-demo-v2"
+      reviewer: "cursor:independent-reviewer-demo-v2"
+      security: "cursor:independent-security-demo-v2"
+    branch: "ai/DEMO-V2-SECURE-SALES"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-demo-v2"
+    base_commit: "eae0a14"
+    claimed_at: "2026-08-14T11:05:00+03:30"
+    completed_at: "2026-08-14T13:05:00+03:30"
+    file_claims: []
+    notes: >-
+      Dual Approved on uncommitted-then-committed tip of ai/DEMO-V2-SECURE-SALES
+      (base eae0a14). Independent [a925eb95] APPROVED; Security [1471cb54] APPROVED;
+      no open C/H/M. Residual Lows L1–L3 and optional live-seed R3 do not block.
+      Claims released. Merge / Iran deploy require explicit owner approval —
+      not performed. Protected dirty file in erp-taranom1
+      scripts/_deploy-mdi-v152-sftp.py was never touched.
+    acceptance_criteria:
+      - "Task/branch/worktree/claims recorded before edit"
+      - "User dirty deploy script untouched"
+      - "Static showcase offline, no credentials, watermark"
+      - "Interactive demo only with explicit fail-closed env"
+      - "No Production DB/uploads/companies fallback"
+      - "Atomic path-safe reset; no wildcard delete"
+      - "External integrations zero network in demo"
+      - "Sensitive APIs 403 demo_operation_blocked"
+      - "No unrestricted public admin; no hardcoded secrets"
+      - "Seed deterministic + current schema + invariants"
+      - "Accounting-only MDI and dashboard single-page unchanged"
+      - "Independent Reviewer + Security Approved; no open C/H/M"
+      - "NO production deploy"
+
   - id: "ACC-CRM-UNIFY"
     title: "Accounting perpetual unify + normal invoice + CRM dashboard"
     status: "completed"

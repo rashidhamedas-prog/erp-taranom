@@ -27,6 +27,26 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-14 — DEMO-V2-SECURE-SALES dual Approved (no Iran deploy)
+- **شاخه:** `ai/DEMO-V2-SECURE-SALES` (base `eae0a14`)
+- **خلاصه:** Independent + Security هر دو Approved؛ بدون یافتهٔ باز Critical/High/Medium. تسک completed؛ claimها آزاد. merge و deploy ایران انجام نشد.
+- **Deploy:** ⏭ اعمال نشد — نیاز به تأیید صریح مالک
+- **SW:** `erp-taranom-v154`
+
+### 2026-08-14 — DEMO-V2-SECURE-SALES remediation (SEC-001…005 + R1…R6)
+- **شاخه:** `ai/DEMO-V2-SECURE-SALES` (worktree جدا؛ هنوز uncommitted)
+- **خلاصه:** بستن یافته‌های Security/Independent: رد offsite backup در دمو، scrub env لانچر، wipe `auth-sessions.db` بعد از reset، `auth_epoch` برای همه کاربران، bind لوپ‌بک، IP دقیق، egress fail-closed، lock `wx`، bak دقیق، PID verified، مسدود DELETE کاربر، جداسازی رمز admin، راهنمای فروش + SW v154.
+- **فایل‌های کلیدی:** `server/lib/demo-mode.js`, `server/lib/demo-reset.js`, `server/backup.js`, `scripts/demo-v2/launch.js`, `scripts/demo-v2/reset.js`, `server/middleware/demo-guard.js`, `server/public/app.js`
+- **Deploy:** ⏭ اعمال نشد — هیچ deploy به Production انجام نشده
+- **SW:** `erp-taranom-v154`
+
+### 2026-08-14 — DEMO-V2-SECURE-SALES (در حال پیاده‌سازی)
+- **شاخه:** `ai/DEMO-V2-SECURE-SALES` (worktree جدا؛ base `eae0a14`)
+- **خلاصه:** نسخه دمو امن دوتکه: Static Showcase آفلاین + Interactive Demo با Demo Mode صریح، جداسازی مسیر، Demo Guard، no-op سرویس‌های خارجی، reset اتمیک، seed قطعی. شاخهٔ `feat/DEMO-V2-SECURE-SALES` به‌خاطر اتصال به worktree دیگر reuse نشد.
+- **فایل‌های کلیدی:** `server/lib/demo-*.js`, `server/middleware/demo-guard.js`, `server/routes/demo.js`, `server/scripts/seed-demo.js`, `scripts/demo-v2/*`, `docs/runbooks/DEMO-V2-SECURE-SALES.md`
+- **Deploy:** ⏭ اعمال نشد — هیچ deploy به Production انجام نشده
+- **SW:** در صورت تغییر UI به v154؛ در غیر این صورت v153 باقی است
+
 ### 2026-08-14 — MDI فقط حسابداری + نوار شناور (SW v153)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **خلاصه:** چندپنجره‌ای دوباره فقط برای زیرمنوهای حسابداری است. داشبورد CRM و داشبورد حسابداری تک‌صفحه‌ای ماندند. نوار وظایف شناور پایین صفحه است (روی محتوا، بدون کوتاه کردن سایدبار) و کلیک Chrome حفظ شد.

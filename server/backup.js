@@ -493,7 +493,15 @@ async function runBackup() {
     fs.writeFileSync(finalPath + '.sha256', `${checksum}  ${path.basename(finalPath)}\n`, { mode: 0o600 });
 
     let offsite = { configured: false, ok: false, method: null };
-    if (process.env.BACKUP_S3_URI) {
+    let demoForbidsOffsite = false;
+    try {
+      demoForbidsOffsite = require('./lib/demo-mode').isDemoMode();
+    } catch {
+      demoForbidsOffsite = /^(true|1|yes)$/i.test(String(process.env.ERP_DEMO_MODE || ''));
+    }
+    if (demoForbidsOffsite) {
+      offsite = { configured: false, ok: false, method: null, skipped: 'demo' };
+    } else if (process.env.BACKUP_S3_URI) {
       offsite.configured = true;
       offsite.method = 's3';
       const target = process.env.BACKUP_S3_URI.replace(/\/$/, '') + '/' + path.basename(finalPath);

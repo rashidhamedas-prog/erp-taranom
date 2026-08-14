@@ -1,7 +1,15 @@
 # Project Status
 
-- Last verified: 2026-08-13 (~01:06 +03:30)
-- **Active task:** none (ACC-CRM-UNIFY merged + Iran deployed)
+- Last verified: 2026-08-14 (~13:05 +03:30)
+- **Active task:** none — DEMO-V2-SECURE-SALES `completed` (dual Approved).
+  Merge / Iran deploy still require explicit owner approval.
+- **Worktree:** `D:/soft/Claud/porje/Run in the project/erp-taranom-demo-v2`
+- **Branch:** `ai/DEMO-V2-SECURE-SALES` @ base `eae0a14`
+- **Constraint:** NO Iran/production deploy; do not touch `erp-taranom1` dirty file
+  `scripts/_deploy-mdi-v152-sftp.py`. Do not reuse attached
+  `feat/DEMO-V2-SECURE-SALES` worktree.
+- **ACC-CRM-UNIFY:** dual Approved → owner OK → FF-merge primary `aa1ee64` + SFTP Iran ✅
+  Stamp `.sftp-deploy-stamp-acc-crm-unify` hash=`aa1ee64` · later MDI SW `erp-taranom-v153`.
 - **ACC-CRM-UNIFY:** dual Approved → owner OK → FF-merge primary `aa1ee64` + SFTP Iran ✅
   Stamp `.sftp-deploy-stamp-acc-crm-unify` hash=`aa1ee64` · SW `erp-taranom-v151` live.
 - Roles used: Implementer `cursor:implementer-acc-crm`; Reviewer `cursor:independent-reviewer-acc-crm`;

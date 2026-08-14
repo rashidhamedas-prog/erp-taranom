@@ -1,4 +1,67 @@
-﻿## 2026-08-13T01:06:00+03:30 — ACC-CRM-UNIFY MERGED + IRAN DEPLOYED ✅
+﻿## 2026-08-14T13:05:00+03:30 — DEMO-V2-SECURE-SALES COMPLETED (dual Approved; no deploy)
+
+- **Independent:** [Independent re-review demo v2](a925eb95-5742-4bed-8574-6374a2a2695d) **APPROVED**
+  (R1/R2/R4/R5/R6 closed; R3 residual optional live seed; Lows L1–L3)
+- **Security:** [Security Review](1471cb54-6e3c-45e5-93af-34dee967ad44) **APPROVED**
+- **Task:** `completed`; `file_claims: []`; review_status=APPROVED; security_status=APPROVED
+- **NOT done:** merge to primary · Iran SFTP/deploy — need explicit owner approval
+- **Gates:** test-demo-v2 **36/36** · test-demo-static OK · SW v154
+
+## 2026-08-14T13:00:00+03:30 — Security re-review APPROVED
+
+- **Security:** [Security Review](1471cb54-6e3c-45e5-93af-34dee967ad44) **APPROVED**
+  (SEC-001…005 and R1/R2/R4/R5/R6 closed; no new C/H/M; license fail-open residual accepted)
+- **Independent:** [Independent re-review demo v2](a925eb95-5742-4bed-8574-6374a2a2695d) still running
+- **Task:** still `active` — NOT completed; claims kept; **NO production deploy**; no commit until Independent Approved
+- **Remaining evidence gap (R3):** live `seed-demo.js` + `validate-demo-invariants.js` on an isolated root
+
+## 2026-08-14T12:20:00+03:30 — Security + Independent CHANGES REQUIRED remediations
+
+- **Task:** still `active` — NOT completed; **NO production deploy**
+- **Reviews:** [Security review demo v2](9489d326-cfdf-4c86-a547-de6237073433) CHANGES REQUIRED
+  (SEC-001 High backup cron/S3 inherit; SEC-002 session store; SEC-003 LISTEN_HOST/JWT inherit;
+  SEC-004 IP substring; SEC-005 egress catch). [Independent Reviewer](88138888-8b60-4854-94ee-57fd758ffb47)
+  CHANGES REQUIRED (R1 unverified taskkill; R2 prefix bak + TOCTOU lock; R3 seed evidence;
+  R4 user DELETE + admin in presenter file; R5 egress; R6 sales guide/SW).
+- **Closed in this tip:** SEC-001…005 and R1/R2/R4/R5/R6 in worktree code. R3 still needs a
+  recorded live seed+invariants run (NODE_PATH). License fail-open residual unchanged.
+- **Gates this tip:** `test-demo-v2.js` **36/36** · `test-demo-static.js` OK · `node --check` on
+  server.js / demo-reset / demo-mode / launch / reset / provision
+- **Next:** re-review both identities. Do not complete/merge/deploy.
+
+## 2026-08-14T12:40:00+03:30 — DEMO-V2-SECURE-SALES implementation checkpoint
+
+- **Task:** still `active` — NOT completed; **NO production deploy**
+- **Tip:** uncommitted work on `ai/DEMO-V2-SECURE-SALES`
+- **Done:** Demo Mode fail-closed + path isolation + Demo Guard + egress no-op +
+  brand sanitizer + atomic reset lib + static showcase update + demo-shell v154 +
+  seed-demo v2 + launchers + runbook + D-suite unit tests **28/28** + static OK
+- **Gates so far:** `git diff --check` 0 · `node --check` server/app 0 ·
+  audit waivers OK · encoding PASS · SMS 22/22 · secret-settings 37/37
+- **Pending:** live seed smoke (needs NODE_PATH/better-sqlite3), ACC-CRM/license/
+  production suites, Independent Reviewer, Security Reviewer
+- **Do not:** completed / release claims / merge / Iran deploy
+
+## 2026-08-14T11:05:00+03:30 — DEMO-V2-SECURE-SALES claimed (pre-implementation)
+
+- **Task:** `DEMO-V2-SECURE-SALES` status=`active`; owner `cursor:orchestrator`
+- **Roles:** Implementer `cursor:implementer-demo-v2`; Reviewer
+  `cursor:independent-reviewer-demo-v2`; Security `cursor:independent-security-demo-v2`
+  (identities distinct from Implementer). High-risk dual review required.
+- **Branch / worktree:** `ai/DEMO-V2-SECURE-SALES` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-demo-v2` @ base `eae0a14`
+- **Why new branch:** `feat/DEMO-V2-SECURE-SALES` is already attached to
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-demo-v2-secure-sales`
+  at the same tip (`eae0a14`, 0 unique commits, clean). Per instruction it was
+  neither reused, deleted, nor force-reset.
+- **Primary `erp-taranom1`:** dirty user file `scripts/_deploy-mdi-v152-sftp.py`
+  only — out of claim; do not overwrite/stage/commit.
+- **Non-goals:** Iran VPS deploy, PM2 production restart, Production DB/reset,
+  APK/EXE, Desktop Hub, rebrand script execution, `--update-env` on production.
+- **Next:** Design Note + Threat Model, then implement claimed files only.
+- **NO completed / claims release / merge / deploy** until dual Approved.
+
+## 2026-08-13T01:06:00+03:30 — ACC-CRM-UNIFY MERGED + IRAN DEPLOYED ✅
 
 - **Owner approval:** explicit 100% OK for merge + primary + deploy
 - **FF-merge:** `origin/claude/claude-md-docs-2ssrpy` = `448a8c1..aa1ee64` (from `ai/ACC-CRM-UNIFY-accounting-crm`)
