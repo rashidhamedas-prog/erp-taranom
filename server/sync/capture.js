@@ -33,6 +33,7 @@ const BLOCKLIST = [
   '/api/admin/backup', '/api/admin/backups', '/api/admin/backup-now',
   '/api/admin/backup-download', '/api/admin/backup-restore',
   '/api/admin/restore-product-stock-wipe',
+  '/api/crm/automations',
 ];
 const BLOCK_PATTERNS = [/\/import/, /\/export/, /\/backup/, /\/backfill/, /\/stock$/];
 
@@ -65,6 +66,9 @@ const PATH_TABLE_MAP = [
   ['/api/parties', 'parties'],
   ['/api/invoices', 'invoices'],
   ['/api/followups', 'followups'],
+  ['/api/crm/opportunities', 'crm_opportunities'],
+  ['/api/crm/activities', 'crm_activities'],
+  ['/api/crm/segmentation', 'crm_customer_segments'],
   // Product variants — specific prefixes BEFORE generic /api/product-variants
   ['/api/product-variants/colors', 'product_colors'],
   ['/api/product-variants/sizes', 'product_sizes'],

@@ -1,4 +1,45 @@
-﻿## 2026-08-13T01:06:00+03:30 — ACC-CRM-UNIFY MERGED + IRAN DEPLOYED ✅
+﻿## 2026-08-14T05:00:00+03:30 — CRM-PRO dual APPROVED (task still active; no deploy)
+
+- Independent Reviewer [Review](a092902a-0680-44f5-bd5c-4323c524fc44): **APPROVED** (no High/Medium)
+- Independent Security [Review](16b3d555-0b6b-44b3-bec4-2b939e933dda): **APPROVED**
+- Task remains `active` — **not** `completed`; claims kept until owner says complete
+- **NO Iran deploy** without explicit separate owner approval
+- Tests: analytics 33/33 · RBAC 17/17 · UI 17/17 · perf 8/8 · SMS 22/22 · sync 44/44
+- SW still v153 (no bump; browser smoke on production not done)
+
+## 2026-08-14T04:40:00+03:30 — CRM-PRO review-fix (High/Medium closed; re-review needed)
+
+- Independent Reviewer [Review](a092902a-0680-44f5-bd5c-4323c524fc44): CHANGES_REQUIRED (H1 filters, H2 drill reconcile)
+- Independent Security [Review](16b3d555-0b6b-44b3-bec4-2b939e933dda): NOT_APPROVED (SEC-001 GET segmentation, SEC-002 v10, SEC-003 followup IDOR, SEC-004 automations)
+- **Fixes applied:** shared addInv/addOpp/addCust filters + dates/geo/segment; drilldown uses DRILL_METRICS allow-list; GET segments/churn/profile read-only; `sync_seq_backfill_v10`; followup POST/PUT customer scope 403; automations `crmEdit`+`centralOnlyStrict`; campaign/source lead counts scoped; export uses `audit()`; by-customer requires view + 403 if missing
+- **Tests:** analytics 32/32 · RBAC 17/17 · UI 17/17 · perf 8/8
+- Task still `active`; NO completed; NO Iran deploy
+- **Exact next:** re-review by same independent identities; browser smoke; commit on feature branch
+
+## 2026-08-14T04:10:00+03:30 — CRM-PRO-ANALYTICS implementation gates green (no deploy)
+
+- **Task:** still `active`; review_status/security_status still PENDING
+- **Fix:** `migrateFollowupsToOpportunities` after stamp still backfills customers with followups/invoices and no opportunity (no duplicates). Test seeds then backfills then asserts idempotent rerun.
+- **Sync hygiene:** `crm_customer_segments` now `compositeKeys: ['customer_id']`; PATH `/api/crm/segmentation`; `/api/crm/automations` blocklisted from device capture
+- **Help:** admin pipeline stages aligned to 8-stage model; sales guide has داشبورد CRM
+- **Gates:** analytics 28/28 · RBAC 11/11 · UI 17/17 · perf 8/8 · ACC-CRM dash 21/21 · SMS 22/22 · sync 44/44 · encoding PASS · diag mismatches=[]
+- **NOT done:** SW bump · Iran deploy · `completed` · Independent Reviewer/Security APPROVED
+- **Exact next:** browser smoke + dual independent review; commit on feature branch only
+
+## 2026-08-14T03:10:00+03:30 — CRM-PRO-ANALYTICS claimed (pre-implementation)
+
+- **Task:** `CRM-PRO-ANALYTICS` status=`active`; owner `cursor:orchestrator-crm-pro`
+- **Implementer:** `cursor:implementer-crm-pro`
+- **Reviewer / Security:** `cursor:independent-reviewer-crm-pro` / `cursor:independent-security-crm-pro` (≠ Implementer)
+- **Branch / worktree:** `ai/CRM-PRO-ANALYTICS-crm-dashboard` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-crm-pro-analytics` @ base `eae0a14`
+- **Not used:** dirty `erp-taranom1` (only unrelated `scripts/_deploy-mdi-v152-sftp.py`)
+- **Root cause of limited CRM:** dashboard is KPI cards + tables; pipeline SQL groups `followups.status` (open/done/cancel) instead of `pipeline_stage`; no Chart.js; date filters wired but not rendered; no mock-free professional analytics
+- **Decision:** add `crm_opportunities` / `crm_activities` / `crm_stage_history` (+ campaigns, lead sources, segments, automation log). Keep `followups` as daily activity UI; migrate stage onto one opportunity per customer; no financial rewrite
+- **Constraint:** NO `completed` and NO Iran deploy until Independent Reviewer + Security Approved + explicit owner deploy approval
+- **Exact next:** schema + analytics APIs + dashboard charts + tests
+
+## 2026-08-13T01:06:00+03:30 — ACC-CRM-UNIFY MERGED + IRAN DEPLOYED ✅
 
 - **Owner approval:** explicit 100% OK for merge + primary + deploy
 - **FF-merge:** `origin/claude/claude-md-docs-2ssrpy` = `448a8c1..aa1ee64` (from `ai/ACC-CRM-UNIFY-accounting-crm`)

@@ -4,156 +4,14 @@
  */
 const { firmSaleTypeSql } = require('./sales-document');
 const { todayJalali, addDaysToJalali } = require('../jalali');
+const {
+  crmScopeUserId, resolveEffectiveUserId, tableHasColumn,
+  chequeRowsForCustomer, chequeKpis,
+} = require('./crm-analytics-scope');
 
-/** Invoice amount in rial — DB stores rial in `final`; prefer final_rial when set. */
 function sqlInvoiceAmountRial(alias = 'i') {
   const a = alias ? `${alias}.` : '';
   return `COALESCE(NULLIF(${a}final_rial,0), ROUND(${a}final), 0)`;
-}
-
-function crmScopeUserId(req) {
-  const role = req.user?.role;
-  if (role === 'admin' || role === 'accounting') return null;
-  if (role === 'sales_manager') return null;
-  return req.user.id;
-}
-
-/**
- * Effective filter user id.
- * - Scoped sessions (scopeUserId != null): ALWAYS scopeUserId; ignore filters.user_id
- *   (including 0 / NaN / other reps).
- * - Privileged (scopeUserId == null): optional positive user_id filter.
- */
-function resolveEffectiveUserId(scopeUserId, filters = {}) {
-  if (scopeUserId != null) {
-    return scopeUserId;
-  }
-  if (filters.user_id == null || String(filters.user_id).trim() === '') return null;
-  const requested = parseInt(filters.user_id, 10);
-  if (!Number.isFinite(requested) || requested <= 0) return null;
-  return requested;
-}
-
-function tableHasColumn(db, table, col) {
-  try {
-    return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
-  } catch {
-    return false;
-  }
-}
-
-/** Cheque rows for a customer: prefer customer_id / party_id; legacy name only if UNIQUE. */
-function chequeRowsForCustomer(db, custId, { limit = 50 } = {}) {
-  const cust = db.prepare('SELECT id, biz, owner, party_id FROM customers WHERE id=?').get(custId);
-  if (!cust) return [];
-  const hasCustCol = tableHasColumn(db, 'cheque_records', 'customer_id');
-  const hasPartyCol = tableHasColumn(db, 'cheque_records', 'party_id');
-  const rows = [];
-  const seen = new Set();
-
-  const pushAll = (list) => {
-    for (const r of list || []) {
-      if (seen.has(r.id)) continue;
-      seen.add(r.id);
-      rows.push(r);
-    }
-  };
-
-  if (hasCustCol) {
-    pushAll(db.prepare(`
-      SELECT * FROM cheque_records
-      WHERE COALESCE(record_status,'posted')<>'reversed' AND customer_id=?
-      ORDER BY id DESC LIMIT ?
-    `).all(custId, limit));
-  }
-  if (hasPartyCol && cust.party_id) {
-    pushAll(db.prepare(`
-      SELECT * FROM cheque_records
-      WHERE COALESCE(record_status,'posted')<>'reversed' AND party_id=?
-      ORDER BY id DESC LIMIT ?
-    `).all(cust.party_id, limit));
-  }
-
-  // Legacy party_name fallback — only when the name uniquely identifies one customer.
-  for (const name of [cust.biz, cust.owner].filter(Boolean)) {
-    const nameCount = db.prepare(`
-      SELECT COUNT(*) AS c FROM customers
-      WHERE biz=? OR owner=?
-    `).get(name, name)?.c || 0;
-    if (nameCount !== 1) continue;
-    const chqCount = db.prepare(`
-      SELECT COUNT(DISTINCT party_name) AS c FROM cheque_records
-      WHERE COALESCE(record_status,'posted')<>'reversed' AND party_name=?
-    `).get(name)?.c || 0;
-    if (chqCount === 0) continue;
-    pushAll(db.prepare(`
-      SELECT * FROM cheque_records
-      WHERE COALESCE(record_status,'posted')<>'reversed' AND party_name=?
-      ORDER BY id DESC LIMIT ?
-    `).all(name, limit));
-  }
-
-  rows.sort((a, b) => (b.id || 0) - (a.id || 0));
-  return rows.slice(0, limit);
-}
-
-function chequeKpis(db, userId) {
-  let chequesDue = 0;
-  let chequesBounced = 0;
-  const dueLimit = addDaysToJalali(todayJalali(), 14);
-  try {
-    const hasCustCol = tableHasColumn(db, 'cheque_records', 'customer_id');
-    const hasPartyCol = tableHasColumn(db, 'cheque_records', 'party_id');
-    if (userId != null && (hasCustCol || hasPartyCol)) {
-      const dueSql = `
-        SELECT COUNT(*) AS c FROM cheque_records cr
-        WHERE COALESCE(cr.record_status,'posted')<>'reversed'
-          AND COALESCE(cr.lifecycle_status,cr.status) IN ('registered','in_collection','pending')
-          AND cr.due_date<>'' AND cr.due_date<=?
-          AND (
-            ${hasCustCol ? 'cr.customer_id IN (SELECT id FROM customers WHERE user_id=?)' : '0'}
-            ${hasCustCol && hasPartyCol ? ' OR ' : ''}
-            ${hasPartyCol ? 'cr.party_id IN (SELECT party_id FROM customers WHERE user_id=? AND party_id IS NOT NULL)' : ''}
-          )
-      `;
-      const params = [dueLimit];
-      if (hasCustCol) params.push(userId);
-      if (hasPartyCol) params.push(userId);
-      chequesDue = db.prepare(dueSql).get(...params)?.c || 0;
-      const bounceSql = `
-        SELECT COUNT(*) AS c FROM cheque_records cr
-        WHERE COALESCE(cr.record_status,'posted')<>'reversed'
-          AND COALESCE(cr.lifecycle_status,cr.status)='bounced'
-          AND (
-            ${hasCustCol ? 'cr.customer_id IN (SELECT id FROM customers WHERE user_id=?)' : '0'}
-            ${hasCustCol && hasPartyCol ? ' OR ' : ''}
-            ${hasPartyCol ? 'cr.party_id IN (SELECT party_id FROM customers WHERE user_id=? AND party_id IS NOT NULL)' : ''}
-          )
-      `;
-      const bParams = [];
-      if (hasCustCol) bParams.push(userId);
-      if (hasPartyCol) bParams.push(userId);
-      chequesBounced = db.prepare(bounceSql).get(...bParams)?.c || 0;
-    } else if (userId == null) {
-      // Privileged: company-wide KPIs
-      chequesDue = db.prepare(`
-        SELECT COUNT(*) AS c FROM cheque_records
-        WHERE COALESCE(record_status,'posted')<>'reversed'
-          AND COALESCE(lifecycle_status,status) IN ('registered','in_collection','pending')
-          AND due_date<>'' AND due_date<=?
-      `).get(dueLimit)?.c || 0;
-      chequesBounced = db.prepare(`
-        SELECT COUNT(*) AS c FROM cheque_records
-        WHERE COALESCE(record_status,'posted')<>'reversed'
-          AND COALESCE(lifecycle_status,status)='bounced'
-      `).get()?.c || 0;
-    } else {
-      // Scoped but no stable cheque FK columns yet — hide company-wide leak
-      chequesDue = 0;
-      chequesBounced = 0;
-    }
-  } catch (_) { /* table may vary */ }
-  return { chequesDue, chequesBounced };
 }
 
 function buildDashboard(db, filters = {}, scopeUserId = null) {
@@ -173,12 +31,12 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
     custWhere.push('EXISTS (SELECT 1 FROM parties p WHERE p.legacy_table=\'customers\' AND p.legacy_id=c.id AND p.party_group_id=?)');
     custParams.push(partyGroupId);
   }
-  if (leadSource) { custWhere.push('c.lead_source=?'); custParams.push(leadSource); }
+  if (leadSource) { custWhere.push('COALESCE(c.lead_source,c.source,\'\')=?'); custParams.push(leadSource); }
   if (campaign) { custWhere.push('c.campaign=?'); custParams.push(campaign); }
 
   const invWhere = ["COALESCE(i.deleted_at,0)=0"];
   try {
-    const hasStatus = db.prepare("PRAGMA table_info(invoices)").all().some((c) => c.name === 'status');
+    const hasStatus = db.prepare('PRAGMA table_info(invoices)').all().some((c) => c.name === 'status');
     if (hasStatus) invWhere.push("COALESCE(i.status,'posted')<>'reversed'");
   } catch (_) {}
   const invParams = [];
@@ -188,13 +46,12 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
   if (leadSource) { invWhere.push('i.lead_source=?'); invParams.push(leadSource); }
   if (campaign) { invWhere.push('i.campaign=?'); invParams.push(campaign); }
 
-  const fuWhere = ["1=1"];
+  const fuWhere = ['1=1'];
   const fuParams = [];
   if (userId) { fuWhere.push('f.user_id=?'); fuParams.push(userId); }
   if (from) { fuWhere.push('f.date>=?'); fuParams.push(from); }
   if (to) { fuWhere.push('f.date<=?'); fuParams.push(to); }
 
-  // new_customers: when from/to set, filter by customers.created_at (unix) in Jalali day bounds
   if (from || to) {
     const { j2g } = require('../jalali');
     const dayBounds = (jStr) => {
@@ -244,11 +101,27 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
   const normalCount = byType.find((r) => r.type === 'normal')?.cnt || 0;
   const finalCount = byType.find((r) => r.type === 'final')?.cnt || 0;
 
-  const pipeline = db.prepare(`
-    SELECT f.status AS stage, COUNT(*) AS cnt
-    FROM followups f WHERE ${fuWhere.join(' AND ')}
-    GROUP BY f.status
-  `).all(...fuParams);
+  let pipeline = [];
+  const hasOpp = !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='crm_opportunities'").get();
+  if (hasOpp) {
+    const oppWhere = ['1=1']; const oppParams = [];
+    if (userId) { oppWhere.push('o.owner_user_id=?'); oppParams.push(userId); }
+    if (leadSource) { oppWhere.push('o.lead_source=?'); oppParams.push(leadSource); }
+    if (campaign) { oppWhere.push('o.campaign=?'); oppParams.push(campaign); }
+    pipeline = db.prepare(`
+      SELECT o.pipeline_stage AS stage, COUNT(*) AS cnt,
+        COALESCE(SUM(o.estimated_amount_rial),0) AS amount_rial,
+        COALESCE(SUM(o.weighted_amount_rial),0) AS weighted_amount_rial
+      FROM crm_opportunities o WHERE ${oppWhere.join(' AND ')}
+      GROUP BY o.pipeline_stage
+    `).all(...oppParams);
+  } else {
+    pipeline = db.prepare(`
+      SELECT COALESCE(f.pipeline_stage,'lead') AS stage, COUNT(*) AS cnt
+      FROM followups f WHERE ${fuWhere.join(' AND ')}
+      GROUP BY COALESCE(f.pipeline_stage,'lead')
+    `).all(...fuParams);
+  }
 
   const byExpert = db.prepare(`
     SELECT u.id, u.name, COUNT(i.id) AS cnt,
@@ -270,8 +143,7 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
           JOIN customers c ON c.id=cl.customer_id
           WHERE c.user_id=?
         `).get(userId)
-      : db.prepare(`SELECT COALESCE(SUM(debit-credit),0) AS bal FROM customer_ledger`).get();
-    // customer_ledger stores rial (same unit as invoices.final)
+      : db.prepare('SELECT COALESCE(SUM(debit-credit),0) AS bal FROM customer_ledger').get();
     receivablesRial = Math.round(Number(q?.bal) || 0);
   } catch (_) {}
 
@@ -296,8 +168,30 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
     firm_amount_rial: Number(firmSales?.amount_rial) || 0,
   };
 
+  const applied = {
+    from, to, user_id: userId, party_group_id: partyGroupId,
+    province, lead_source: leadSource, campaign,
+  };
+
+  let pro = {};
+  try {
+    const analytics = require('./crm-pro-analytics');
+    pro = {
+      kpis_compare: analytics.buildKpis(db, filters, scopeUserId).kpis,
+      pipeline_detail: analytics.buildPipeline(db, filters, scopeUserId).stages,
+      funnel: analytics.buildConversionFunnel(db, filters, scopeUserId).funnel,
+      sales_trend: analytics.buildSalesTrend(db, filters, scopeUserId).series,
+      experts_detail: analytics.buildExpertPerformance(db, filters, scopeUserId).experts,
+      sources: analytics.buildSourcePerformance(db, filters, scopeUserId).sources,
+      campaigns: analytics.buildCampaignPerformance(db, filters, scopeUserId).campaigns,
+      segments: analytics.buildSegmentReport(db, filters, scopeUserId).segments,
+      urgent: analytics.buildUrgentActions(db, filters, scopeUserId),
+    };
+  } catch (_) { pro = {}; }
+
   return {
-    filters: { from, to, user_id: userId, party_group_id: partyGroupId, province, lead_source: leadSource, campaign },
+    filters: applied,
+    applied_filters: applied,
     kpis: {
       new_customers: newCustomers,
       open_followups: openFollowups,
@@ -313,17 +207,20 @@ function buildDashboard(db, filters = {}, scopeUserId = null) {
     conversion,
     pipeline,
     sales_by_expert: byExpert,
+    ...pro,
   };
 }
 
-function buildTimeline(db, { partyId, customerId, limit = 50, offset = 0, scopeUserId = null }) {
+function buildTimeline(db, {
+  partyId, customerId, limit = 50, offset = 0, scopeUserId = null, kinds = '',
+} = {}) {
   const events = [];
   let custId = customerId ? parseInt(customerId, 10) : null;
   if (!custId && partyId) {
     const p = db.prepare('SELECT legacy_table, legacy_id FROM parties WHERE id=?').get(partyId);
     if (p?.legacy_table === 'customers') custId = p.legacy_id;
   }
-  if (!custId) return { events: [], total: 0 };
+  if (!custId) return { events: [], total: 0, applied_filters: { customer_id: null } };
 
   if (scopeUserId) {
     const own = db.prepare('SELECT user_id FROM customers WHERE id=?').get(custId);
@@ -334,46 +231,57 @@ function buildTimeline(db, { partyId, customerId, limit = 50, offset = 0, scopeU
     }
   }
 
+  const kindFilter = String(kinds || '').split(',').map((s) => s.trim()).filter(Boolean);
+
   const fus = db.prepare(`
-    SELECT id, date, type, subject, status, created_at FROM followups WHERE cust_id=? ORDER BY created_at DESC LIMIT 200
+    SELECT id, date, type, subject, status, note, action, user_id, created_at, pipeline_stage
+    FROM followups WHERE cust_id=? ORDER BY created_at DESC LIMIT 200
   `).all(custId);
   for (const f of fus) {
     events.push({
       kind: 'followup', id: f.id, date: f.date, title: f.subject || f.type,
-      status: f.status, ts: f.created_at || 0,
+      description: f.note || '', status: f.status, ts: f.created_at || 0,
+      sourceType: 'followups', sourceId: f.id, user_id: f.user_id,
     });
   }
   const invs = db.prepare(`
-    SELECT id, num, type, date, final, final_rial, created_at FROM invoices
-    WHERE cust_id=? AND COALESCE(deleted_at,0)=0 ORDER BY created_at DESC LIMIT 200
+    SELECT id, num, type, date, final, final_rial, created_at, status
+    FROM invoices WHERE cust_id=? AND COALESCE(deleted_at,0)=0 ORDER BY created_at DESC LIMIT 200
   `).all(custId);
   for (const i of invs) {
+    const reversed = i.status === 'reversed';
     events.push({
-      kind: 'invoice', id: i.id, date: i.date,
-      title: `${i.type} ${i.num}`, amount: i.final, amount_rial: i.final_rial || Math.round(i.final || 0),
-      status: i.type, ts: i.created_at || 0,
+      kind: i.type === 'proforma' ? 'proforma' : (i.type === 'final' ? 'invoice_final' : 'invoice'),
+      id: i.id, date: i.date,
+      title: `${i.type} ${i.num}`,
+      amount_rial: i.final_rial || Math.round(i.final || 0),
+      status: reversed ? 'reversed' : i.type, ts: i.created_at || 0,
+      sourceType: 'invoices', sourceId: i.id, reversed,
     });
   }
   try {
     const settles = db.prepare(`
-      SELECT id, date, amount, pay_type, created_at FROM settlements WHERE cust_id=? ORDER BY created_at DESC LIMIT 100
+      SELECT id, date, amount, amount_rial, pay_type, created_at FROM settlements WHERE cust_id=? ORDER BY created_at DESC LIMIT 100
     `).all(custId);
     for (const s of settles) {
       events.push({
         kind: 'settlement', id: s.id, date: s.date, title: `دریافت ${s.pay_type}`,
-        amount: s.amount, ts: s.created_at || 0,
+        amount_rial: s.amount_rial || Math.round(s.amount || 0),
+        ts: s.created_at || 0, sourceType: 'settlements', sourceId: s.id,
       });
     }
   } catch (_) {}
   try {
     const rets = db.prepare(`
-      SELECT id, date, amount, created_at FROM sales_returns
-      WHERE cust_id=? AND COALESCE(status,'posted')<>'reversed' ORDER BY created_at DESC LIMIT 100
+      SELECT id, date, amount, created_at, status FROM sales_returns WHERE cust_id=? ORDER BY created_at DESC LIMIT 100
     `).all(custId);
     for (const r of rets) {
       events.push({
         kind: 'sales_return', id: r.id, date: r.date, title: `برگشت از فروش #${r.id}`,
-        amount: r.amount, ts: r.created_at || 0,
+        amount_rial: Math.round(r.amount || 0),
+        status: r.status, ts: r.created_at || 0,
+        sourceType: 'sales_returns', sourceId: r.id,
+        reversed: r.status === 'reversed',
       });
     }
   } catch (_) {}
@@ -381,48 +289,183 @@ function buildTimeline(db, { partyId, customerId, limit = 50, offset = 0, scopeU
     for (const c of chequeRowsForCustomer(db, custId, { limit: 50 })) {
       events.push({
         kind: 'cheque', id: c.id, date: c.due_date, title: `چک ${c.cheque_number || c.id}`,
-        amount: c.amount, status: c.lifecycle_status || c.status, ts: c.created_at || 0,
+        amount_rial: Math.round(c.amount || 0),
+        status: c.lifecycle_status || c.status, ts: c.created_at || 0,
+        sourceType: 'cheque_records', sourceId: c.id,
+      });
+    }
+  } catch (_) {}
+  try {
+    const hist = db.prepare(`
+      SELECT h.id, h.to_stage, h.from_stage, h.changed_at, h.reason, h.changed_by
+      FROM crm_stage_history h
+      JOIN crm_opportunities o ON o.id=h.opportunity_id
+      WHERE o.customer_id=? ORDER BY h.changed_at DESC LIMIT 100
+    `).all(custId);
+    for (const h of hist) {
+      events.push({
+        kind: 'opportunity_stage', id: h.id, date: '', title: `مرحله ${h.from_stage || '—'} ← ${h.to_stage}`,
+        description: h.reason || '', ts: h.changed_at || 0, user_id: h.changed_by,
+        sourceType: 'crm_stage_history', sourceId: h.id,
+      });
+    }
+  } catch (_) {}
+  try {
+    const segs = db.prepare(`
+      SELECT id, from_segment, to_segment, reason, changed_at FROM crm_segment_history
+      WHERE customer_id=? ORDER BY changed_at DESC LIMIT 50
+    `).all(custId);
+    for (const s of segs) {
+      events.push({
+        kind: 'segment', id: s.id, date: '', title: `سگمنت ${s.from_segment || '—'} ← ${s.to_segment}`,
+        description: s.reason || '', ts: s.changed_at || 0,
+        sourceType: 'crm_segment_history', sourceId: s.id,
       });
     }
   } catch (_) {}
 
-  events.sort((a, b) => (b.ts || 0) - (a.ts || 0) || String(b.date).localeCompare(String(a.date)));
-  const total = events.length;
-  return { events: events.slice(offset, offset + limit), total };
+  const filtered = kindFilter.length ? events.filter((e) => kindFilter.includes(e.kind)) : events;
+  filtered.sort((a, b) => (b.ts || 0) - (a.ts || 0) || String(b.date).localeCompare(String(a.date)));
+  const total = filtered.length;
+  const lim = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
+  const off = Math.max(0, parseInt(offset, 10) || 0);
+  return { events: filtered.slice(off, off + lim), total, applied_filters: { customer_id: custId, kinds: kindFilter } };
 }
 
 function buildDrilldown(db, metric, filters, scopeUserId) {
-  const userId = resolveEffectiveUserId(scopeUserId, filters);
-  const from = String(filters.from || '').trim();
-  const to = String(filters.to || '').trim();
-  if (metric === 'open_followups' || metric === 'overdue_followups') {
-    const where = ["f.status='open'"];
-    const params = [];
-    if (userId) { where.push('f.user_id=?'); params.push(userId); }
-    if (metric === 'overdue_followups') where.push("f.next_date<>'' AND f.next_date < ?"), params.push(todayJalali());
-    if (from) { where.push('f.date>=?'); params.push(from); }
-    if (to) { where.push('f.date<=?'); params.push(to); }
-    return db.prepare(`
-      SELECT f.*, c.biz as cust_biz FROM followups f
-      LEFT JOIN customers c ON c.id=f.cust_id
-      WHERE ${where.join(' AND ')} ORDER BY f.created_at DESC LIMIT 200
-    `).all(...params);
+  const analytics = require('./crm-pro-analytics');
+  const { getSettingInt } = require('./crm-pro');
+  const m = String(metric || '').trim();
+  if (!analytics.DRILL_METRICS.has(m)) {
+    const err = new Error('metric ناشناخته');
+    err.status = 400;
+    throw err;
   }
-  if (metric === 'firm_sales' || metric === 'normal' || metric === 'final' || metric === 'proforma') {
-    const where = ["COALESCE(i.deleted_at,0)=0"];
-    const params = [];
-    if (metric === 'firm_sales') where.push(firmSaleTypeSql('i'));
-    else where.push('i.type=?'), params.push(metric);
-    if (userId) { where.push('i.user_id=?'); params.push(userId); }
-    if (from) { where.push('i.date>=?'); params.push(from); }
-    if (to) { where.push('i.date<=?'); params.push(to); }
-    return db.prepare(`
-      SELECT i.id,i.num,i.type,i.date,i.final,i.cust_id,c.biz as cust_biz
-      FROM invoices i LEFT JOIN customers c ON c.id=i.cust_id
-      WHERE ${where.join(' AND ')} ORDER BY i.created_at DESC LIMIT 200
-    `).all(...params);
+  const f = analytics.parseFilters(filters, scopeUserId);
+  const page = f.page;
+  const pageSize = analytics.parseLimit(filters.page_size || filters.limit, 50);
+  const offset = (page - 1) * pageSize;
+
+  const finish = (sql, params, countSql, countParams) => {
+    const total = countSql
+      ? (db.prepare(countSql).get(...(countParams || params))?.c || 0)
+      : 0;
+    const rows = db.prepare(sql).all(...params);
+    rows.total = total || rows.length;
+    rows.page = page;
+    rows.page_size = pageSize;
+    return rows;
+  };
+
+  if (m === 'open_followups' || m === 'overdue_followups' || m === 'due_today_followups') {
+    const where = ["f.status='open'"]; const params = [];
+    analytics.addFuFilters(where, params, { ...f, status: '' });
+    if (m === 'overdue_followups') { where.push("f.next_date<>'' AND f.next_date < ?"); params.push(todayJalali()); }
+    if (m === 'due_today_followups') { where.push('f.next_date=?'); params.push(todayJalali()); }
+    return finish(
+      `SELECT f.*, c.biz as cust_biz FROM followups f LEFT JOIN customers c ON c.id=f.cust_id
+       WHERE ${where.join(' AND ')} ORDER BY f.created_at DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset],
+      `SELECT COUNT(*) AS c FROM followups f WHERE ${where.join(' AND ')}`,
+      params
+    );
   }
-  return [];
+  if (m === 'firm_sales' || m === 'normal' || m === 'final' || m === 'proforma' || m === 'funnel_firm') {
+    const where = []; const params = [];
+    const invF = (m === 'normal' || m === 'final' || m === 'proforma') ? { ...f, invoice_type: m } : f;
+    analytics.addInvFilters(where, params, invF);
+    if (m === 'firm_sales' || m === 'funnel_firm') where.push(firmSaleTypeSql('i'));
+    return finish(
+      `SELECT i.id,i.num,i.type,i.date,i.final,i.final_rial,i.cust_id,c.biz as cust_biz
+       FROM invoices i LEFT JOIN customers c ON c.id=i.cust_id
+       WHERE ${where.join(' AND ')} ORDER BY i.created_at DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset],
+      `SELECT COUNT(*) AS c FROM invoices i WHERE ${where.join(' AND ')}`,
+      params
+    );
+  }
+
+  const stageMetric = m.match(/^pipeline_(.+)$/) || m.match(/^funnel_(lead|qualified|proposal|negotiation)$/);
+  if (stageMetric) {
+    const stage = stageMetric[1];
+    const hasOpp = !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='crm_opportunities'").get();
+    if (hasOpp) {
+      const where = []; const params = [];
+      analytics.addOppFilters(where, params, { ...f, pipeline_stage: stage });
+      return finish(
+        `SELECT o.*, c.biz AS cust_biz FROM crm_opportunities o LEFT JOIN customers c ON c.id=o.customer_id
+         WHERE ${where.join(' AND ')} ORDER BY o.updated_at DESC LIMIT ? OFFSET ?`,
+        [...params, pageSize, offset],
+        `SELECT COUNT(*) AS c FROM crm_opportunities o WHERE ${where.join(' AND ')}`,
+        params
+      );
+    }
+    const where = []; const params = [];
+    analytics.addFuFilters(where, params, { ...f, pipeline_stage: stage });
+    return finish(
+      `SELECT f.*, c.biz AS cust_biz FROM followups f LEFT JOIN customers c ON c.id=f.cust_id
+       WHERE ${where.join(' AND ')} ORDER BY f.created_at DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset],
+      `SELECT COUNT(*) AS c FROM followups f WHERE ${where.join(' AND ')}`,
+      params
+    );
+  }
+
+  if (m === 'new_customers' || m === 'inactive_customers_90d' || m === 'churn_risk_customers' || m === 'repeat_customers' || m === 'funnel_repeat') {
+    const where = ['1=1']; const params = [];
+    if (m === 'inactive_customers_90d') {
+      analytics.addCustFilters(where, params, { ...f, from: '', to: '' });
+      const since = addDaysToJalali(todayJalali(), -90);
+      where.push(`NOT EXISTS (SELECT 1 FROM invoices i WHERE i.cust_id=c.id AND ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0 AND i.date>=?)`);
+      where.push('NOT EXISTS (SELECT 1 FROM followups fu WHERE fu.cust_id=c.id AND fu.date>=?)');
+      params.push(since, since);
+    } else if (m === 'repeat_customers' || m === 'funnel_repeat') {
+      analytics.addCustFilters(where, params, { ...f, from: '', to: '' });
+      const invWhere = []; const invParams = [];
+      analytics.addInvFilters(invWhere, invParams, f);
+      where.push(`c.id IN (SELECT i.cust_id FROM invoices i WHERE ${invWhere.join(' AND ')} AND ${firmSaleTypeSql('i')} GROUP BY i.cust_id HAVING COUNT(*)>1)`);
+      params.push(...invParams);
+    } else if (m === 'churn_risk_customers') {
+      analytics.addCustFilters(where, params, { ...f, from: '', to: '' });
+      where.push("EXISTS (SELECT 1 FROM crm_customer_segments s WHERE s.customer_id=c.id AND s.effective_segment='churn_risk')");
+    } else {
+      analytics.addCustFilters(where, params, f);
+      if (f.from) { const b = analytics.jalaliDayBounds(f.from); if (b) { where.push('COALESCE(c.created_at,0)>=?'); params.push(b.start); } }
+      if (f.to) { const b = analytics.jalaliDayBounds(f.to); if (b) { where.push('COALESCE(c.created_at,0)<=?'); params.push(b.end); } }
+    }
+    return finish(
+      `SELECT c.id, c.biz, c.city, c.user_id FROM customers c WHERE ${where.join(' AND ')} ORDER BY c.id DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset],
+      `SELECT COUNT(*) AS c FROM customers c WHERE ${where.join(' AND ')}`,
+      params
+    );
+  }
+
+  if (m === 'open_opportunities' || m === 'won_opportunities' || m === 'lost_opportunities' || m === 'stale_opportunities' || m === 'new_leads') {
+    const where = []; const params = [];
+    analytics.addOppFilters(where, params, f);
+    if (m === 'open_opportunities') where.push("o.status='open'");
+    if (m === 'won_opportunities') where.push("o.pipeline_stage IN ('first_order','won','repeat')");
+    if (m === 'lost_opportunities') where.push("o.pipeline_stage='lost'");
+    if (m === 'new_leads') where.push("o.pipeline_stage='lead'");
+    if (m === 'stale_opportunities') {
+      where.push("o.status='open'");
+      const staleDays = getSettingInt(db, 'crm_stale_opportunity_days', 14);
+      params.push(Math.floor(Date.now() / 1000) - staleDays * 86400);
+      where.push('COALESCE(o.entered_stage_at,o.updated_at,0)<?');
+    }
+    return finish(
+      `SELECT o.*, c.biz AS cust_biz FROM crm_opportunities o LEFT JOIN customers c ON c.id=o.customer_id
+       WHERE ${where.join(' AND ')} ORDER BY o.updated_at DESC LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset],
+      `SELECT COUNT(*) AS c FROM crm_opportunities o WHERE ${where.join(' AND ')}`,
+      params
+    );
+  }
+
+  const err = new Error('metric ناشناخته');
+  err.status = 400;
+  throw err;
 }
 
 module.exports = {
@@ -432,4 +475,7 @@ module.exports = {
   buildTimeline,
   buildDrilldown,
   chequeRowsForCustomer,
+  chequeKpis,
+  tableHasColumn,
+  sqlInvoiceAmountRial,
 };

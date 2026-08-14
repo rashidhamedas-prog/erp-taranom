@@ -217,6 +217,7 @@ function currencyUnitShort(){ return 'ریال'; }
 function toDisplayAmount(stored){ return Math.round(parseFloat(stored)||0); }
 function fromInputAmount(input){ return Math.round(parseFloat(input)||0); }
 function fmt(n){ return Number(toDisplayAmount(n||0)).toLocaleString('fa-IR'); }
+function fmtCrmRial(n){ return fmt(n)+' ریال'; }
 /** مقدار کالا — تا ۳ رقم اعشار، رقم سوم رند می‌شود */
 function round3(n){
   const x=Number(n);
@@ -2830,13 +2831,19 @@ function downloadCustTemplate(){ downloadAuth('/customers/template','customers-t
    FOLLOWUPS — ERP Pipeline (redesigned)
 ============================================================ */
 const PIPELINE_STAGES = [
-  {id:'lead',      label:'سرنخ',        icon:'🌱', color:'t-lead'},
-  {id:'contact',   label:'تماس',        icon:'📞', color:'t-contact'},
-  {id:'proposal',  label:'پیشنهاد',     icon:'📋', color:'t-proposal'},
-  {id:'negotiation',label:'مذاکره',     icon:'🤝', color:'t-negotiation'},
-  {id:'won',       label:'خرید کرد',    icon:'✅', color:'t-won'},
-  {id:'lost',      label:'از دست رفت',  icon:'❌', color:'t-lost'}
+  {id:'lead',       label:'سرنخ',           icon:'🌱', color:'t-lead'},
+  {id:'qualified',  label:'واجد شرایط',     icon:'📞', color:'t-contact'},
+  {id:'proposal',   label:'پیشنهاد',        icon:'📋', color:'t-proposal'},
+  {id:'negotiation',label:'مذاکره',         icon:'🤝', color:'t-negotiation'},
+  {id:'first_order',label:'سفارش اول',      icon:'🛒', color:'t-won'},
+  {id:'won',        label:'برنده',          icon:'✅', color:'t-won'},
+  {id:'repeat',     label:'تکراری',         icon:'🔁', color:'t-won'},
+  {id:'lost',       label:'از دست رفته',    icon:'❌', color:'t-lost'}
 ];
+function fupStageId(f){
+  const s=String(f&&f.pipeline_stage||'lead');
+  return s==='contact'?'qualified':s;
+}
 const INTEREST_LEVELS = [
   {id:'very_low',  label:'خیلی کم',     cls:'int-very_low'},
   {id:'low',       label:'کم',          cls:'int-low'},
@@ -2942,68 +2949,291 @@ ROUTES.followups = async function(){
   renderFupView();
 };
 
+let crmDashFilter={preset:'month',from:'',to:'',user_id:'',province:'',city:'',lead_source:'',campaign:'',pipeline_stage:'',segment:'',invoice_type:'',activity_type:''};
+let _crmDashGen=0;
+window._crmCharts=window._crmCharts||{};
+function destroyCrmCharts(){
+  Object.values(window._crmCharts||{}).forEach(c=>{ try{ c.destroy(); }catch(e){} });
+  window._crmCharts={};
+}
+function crmAddDays(jStr, days){
+  const p=String(jStr||'').split('/').map(Number);
+  if(p.length!==3) return jStr;
+  const [gy,gm,gd]=_j2g(p[0],p[1],p[2]);
+  const d=new Date(gy,gm-1,gd); d.setDate(d.getDate()+days);
+  const [jy,jm,jd]=_g2j(d.getFullYear(),d.getMonth()+1,d.getDate());
+  return _jfmt(jy,jm,jd);
+}
+function crmPresetRange(p){
+  const today=todayJalali();
+  const [jy,jm]=today.split('/').map(Number);
+  if(p==='today') return [today,today];
+  if(p==='week') return jPresetRange('week');
+  if(p==='month') return jPresetRange('month');
+  if(p==='quarter'){ const q=Math.floor((jm-1)/3)*3+1; return [_jfmt(jy,q,1), today]; }
+  if(p==='year') return [_jfmt(jy,1,1), today];
+  if(p==='d30') return [crmAddDays(today,-29), today];
+  if(p==='d90') return [crmAddDays(today,-89), today];
+  if(p==='all') return ['',''];
+  return [crmDashFilter.from||'', crmDashFilter.to||''];
+}
+function crmFilterQuery(){
+  const q=new URLSearchParams();
+  const f=crmDashFilter;
+  if(f.from) q.set('from',f.from);
+  if(f.to) q.set('to',f.to);
+  if(f.user_id && (ME.role==='admin'||ME.role==='accounting'||ME.role==='sales_manager')) q.set('user_id',f.user_id);
+  ['province','city','lead_source','campaign','pipeline_stage','segment','invoice_type','activity_type'].forEach(k=>{ if(f[k]) q.set(k,f[k]); });
+  return q;
+}
+function crmReadFilterForm(){
+  const g=id=>el(id)?.value||'';
+  crmDashFilter.from=g('crmFrom'); crmDashFilter.to=g('crmTo');
+  crmDashFilter.user_id=g('crmUser'); crmDashFilter.province=g('crmProvince');
+  crmDashFilter.city=g('crmCity'); crmDashFilter.lead_source=g('crmSource');
+  crmDashFilter.campaign=g('crmCampaign'); crmDashFilter.pipeline_stage=g('crmStage');
+  crmDashFilter.segment=g('crmSegment'); crmDashFilter.invoice_type=g('crmInvType');
+  crmDashFilter.activity_type=g('crmActType');
+}
+function crmClearFilters(){
+  crmDashFilter={preset:'month',from:'',to:'',user_id:'',province:'',city:'',lead_source:'',campaign:'',pipeline_stage:'',segment:'',invoice_type:'',activity_type:''};
+  const [a,b]=crmPresetRange('month'); crmDashFilter.from=a; crmDashFilter.to=b;
+  ROUTES['crm-dashboard']();
+}
+function crmApplyPreset(p){
+  crmDashFilter.preset=p;
+  if(p!=='custom'){ const [a,b]=crmPresetRange(p); crmDashFilter.from=a; crmDashFilter.to=b; }
+  ROUTES['crm-dashboard']();
+}
+function crmKpiDelta(block, invert){
+  if(!block||typeof block!=='object'||!('current' in block)) return {value:block, deltaHtml:''};
+  if(block.current==null) return {value:null, deltaHtml:''};
+  const ch=Number(block.change)||0;
+  const good=invert?ch<0:ch>0;
+  const cls=ch===0?'muted':(good?'ok':'bad');
+  const sign=ch>0?'+':'';
+  const pct=block.change_percent==null?'':` (${sign}${block.change_percent}٪)`;
+  return {value:block.current, deltaHtml:`<div class="crm-delta ${cls}">${sign}${fmt(ch)}${pct} نسبت به دوره قبل</div>`};
+}
+function crmChartEmpty(canvasId, msg){
+  const c=el(canvasId); if(!c) return;
+  const wrap=c.parentElement;
+  if(wrap) wrap.innerHTML=`<div class="empty crm-chart-empty">${esc(msg||'داده‌ای برای نمایش نیست')}</div>`;
+}
+async function crmEnsureChart(){
+  if(window.Chart) return window.Chart;
+  return loadProdChartJs();
+}
+function crmMkChart(id, cfg){
+  const ctx=el(id); if(!ctx) return;
+  if(window._crmCharts[id]){ try{ window._crmCharts[id].destroy(); }catch(e){} }
+  window._crmCharts[id]=new Chart(ctx, cfg);
+}
 ROUTES['crm-dashboard'] = async function(){
-  el('view').innerHTML='<div class="muted">در حال بارگذاری داشبورد CRM...</div>';
-  const q = new URLSearchParams();
-  const from = el('crmFrom')?.value || '';
-  const to = el('crmTo')?.value || '';
-  if(from) q.set('from', from);
-  if(to) q.set('to', to);
-  let data;
-  try { data = await api('GET','/crm/dashboard'+(q.toString()?'?'+q:'')); }
-  catch(e){ el('view').innerHTML=`<div class="err">${esc(e.message||'خطا')}</div>`; return; }
-  const k = data.kpis||{};
-  const byType = data.invoices_by_type||[];
-  const experts = data.sales_by_expert||[];
+  if(!crmDashFilter.from && crmDashFilter.preset!=='all' && crmDashFilter.preset!=='custom'){
+    const [a,b]=crmPresetRange(crmDashFilter.preset||'month'); crmDashFilter.from=a; crmDashFilter.to=b;
+  }
+  const gen=++_crmDashGen;
+  destroyCrmCharts();
+  el('view').innerHTML='<div class="crm-dash-skel muted">در حال بارگذاری داشبورد CRM...</div>';
+  const scoped=!(ME.role==='admin'||ME.role==='accounting'||ME.role==='sales_manager');
+  const users=(CACHE.users||[]).map(u=>`<option value="${u.id}" ${String(crmDashFilter.user_id)===String(u.id)?'selected':''}>${esc(u.name)}</option>`).join('');
+  const chips=[];
+  if(crmDashFilter.from||crmDashFilter.to) chips.push(`بازه ${crmDashFilter.from||'…'} تا ${crmDashFilter.to||'…'}`);
+  ['lead_source','campaign','pipeline_stage','segment','province','city','invoice_type'].forEach(k=>{ if(crmDashFilter[k]) chips.push(crmDashFilter[k]); });
   el('view').innerHTML=`
-    <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;flex-wrap:wrap`)}">
-      <h3 data-csp-style="${CSP.style(`margin:0;flex:1`)}">داشبورد و گزارش‌های CRM</h3>
-      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('followups')})}">← پیگیری‌ها</button>
-      <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){go('crm-dashboard')})}">↻ بروزرسانی</button>
-    </div>
-    <div class="grid" data-csp-style="${CSP.style(`display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:12px 0`)}">
-      ${[
-        ['مشتریان',k.new_customers,'firm_sales'],
-        ['پیگیری باز',k.open_followups,'open_followups'],
-        ['عقب‌افتاده',k.overdue_followups,'overdue_followups'],
-        ['فروش قطعی',k.firm_invoice_count,'firm_sales'],
-        ['مبلغ فروش قطعی',fmt((k.firm_sales_rial||0)/10),'firm_sales'],
-        ['مطالبات',fmt((k.receivables_rial||0)/10),''],
-        ['چک سررسید ۱۴روز',k.cheques_due_14d,''],
-        ['چک برگشتی',k.cheques_bounced,''],
-        ['بدون فعالیت ۹۰روز',k.inactive_customers_90d,''],
-      ].map(([label,val,metric])=>`
-        <div class="panel" data-csp-style="${CSP.style(`padding:12px;cursor:${metric?'pointer':'default'}`)}" ${metric?`data-csp-click="${CSP.bind('click',function(event){crmDrill('${metric}')})}"`:''}>
-          <div class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${label}</div>
-          <div data-csp-style="${CSP.style(`font-size:22px;font-weight:800`)}">${val??0}</div>
-        </div>`).join('')}
-    </div>
-    <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>تبدیل و انواع فاکتور</h4></div>
-      <div class="panel-body"><table class="tbl"><thead><tr><th>نوع</th><th>تعداد</th><th>مبلغ</th></tr></thead>
-      <tbody>${byType.map(r=>`<tr data-csp-click="${CSP.bind('click',function(event){crmDrill((r.type))})}" data-csp-style="${CSP.style(`cursor:pointer`)}">
-        <td>${esc({proforma:'پیش‌فاکتور',normal:'معمولی',final:'رسمی'}[r.type]||r.type)}</td>
-        <td>${r.cnt}</td><td>${fmt((r.amount_rial||0)/10)}</td></tr>`).join('')||emptyRow(3)}</tbody></table></div></div>
-    <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>فروش کارشناسان</h4></div>
-      <div class="panel-body"><table class="tbl"><thead><tr><th>کارشناس</th><th>تعداد</th><th>مبلغ</th></tr></thead>
-      <tbody>${experts.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.cnt}</td><td>${fmt((r.amount_rial||0)/10)}</td></tr>`).join('')||emptyRow(3)}</tbody></table></div></div>
-    <div id="crmDrill" class="panel" data-csp-style="${CSP.style(`margin-top:12px;display:none`)}"></div>`;
-};
-async function crmDrill(metric){
-  const box=el('crmDrill'); if(!box) return;
-  box.style.display='block';
-  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+    <div class="crm-dash">
+      <div class="toolbar crm-dash-head">
+        <div>
+          <h3 data-csp-style="${CSP.style(`margin:0`)}">داشبورد و گزارش‌های CRM</h3>
+          <div class="muted" id="crmUpdatedAt">به‌روزرسانی: —</div>
+        </div>
+        <div class="crm-dash-actions">
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('followups')})}">← پیگیری‌ها</button>
+          <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){ROUTES['crm-dashboard']()})}">↻ بروزرسانی</button>
+          ${(ME.role==='admin'||ME.role==='sales_manager')?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){crmExportDash()})}">📥 اکسل</button>`:''}
+        </div>
+      </div>
+      <div class="panel crm-filter-bar" id="crmFilterForm">
+        <div class="crm-filter-grid">
+          <label>بازه آماده
+            <select id="crmPreset" data-csp-change="${CSP.bind('change',function(event){crmApplyPreset(this.value)})}">
+              ${[['today','امروز'],['week','این هفته'],['month','این ماه'],['quarter','فصل جاری'],['year','سال جاری'],['d30','۳۰ روز اخیر'],['d90','۹۰ روز اخیر'],['custom','بازه دلخواه'],['all','همه']].map(([v,l])=>`<option value="${v}" ${crmDashFilter.preset===v?'selected':''}>${l}</option>`).join('')}
+            </select>
+          </label>
+          <label>از تاریخ<input id="crmFrom" data-jdate value="${esc(crmDashFilter.from)}"></label>
+          <label>تا تاریخ<input id="crmTo" data-jdate value="${esc(crmDashFilter.to)}"></label>
+          ${scoped?'':`<label>کارشناس<select id="crmUser"><option value="">همه</option>${users}</select></label>`}
+          <label>استان<input id="crmProvince" value="${esc(crmDashFilter.province)}"></label>
+          <label>شهر<input id="crmCity" value="${esc(crmDashFilter.city)}"></label>
+          <label>منبع<input id="crmSource" value="${esc(crmDashFilter.lead_source)}"></label>
+          <label>کمپین<input id="crmCampaign" value="${esc(crmDashFilter.campaign)}"></label>
+          <label>مرحله<select id="crmStage"><option value="">همه</option>${PIPELINE_STAGES.map(s=>`<option value="${s.id}" ${crmDashFilter.pipeline_stage===s.id?'selected':''}>${s.label}</option>`).join('')}</select></label>
+          <label>سگمنت<select id="crmSegment"><option value="">همه</option>${['VIP','A','B','C','churn_risk','inactive','new'].map(s=>`<option value="${s}" ${crmDashFilter.segment===s?'selected':''}>${s}</option>`).join('')}</select></label>
+          <label>نوع فاکتور<select id="crmInvType"><option value="">همه</option><option value="proforma" ${crmDashFilter.invoice_type==='proforma'?'selected':''}>پیش‌فاکتور</option><option value="normal" ${crmDashFilter.invoice_type==='normal'?'selected':''}>معمولی</option><option value="final" ${crmDashFilter.invoice_type==='final'?'selected':''}>رسمی</option></select></label>
+          <label>نوع فعالیت<select id="crmActType"><option value="">همه</option>${['call','meeting','message','visit','note','task','complaint','service'].map(s=>`<option value="${s}" ${crmDashFilter.activity_type===s?'selected':''}>${s}</option>`).join('')}</select></label>
+        </div>
+        <div class="crm-filter-actions">
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){crmReadFilterForm();crmDashFilter.preset='custom';ROUTES['crm-dashboard']();})}">اعمال فیلتر</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){crmClearFilters()})}">پاک‌کردن فیلترها</button>
+        </div>
+        ${chips.length?`<div class="crm-chips">${chips.map(c=>`<span class="tag">${esc(c)}</span>`).join('')}</div>`:''}
+      </div>
+      <div id="crmKpiGrid" class="crm-kpi-grid" aria-live="polite"></div>
+      <div class="crm-chart-row">
+        <div class="panel"><div class="panel-head"><h4>قیف تبدیل فروش</h4></div><div class="panel-body crm-chart-box"><canvas id="crmFunnelChart" height="220"></canvas></div></div>
+        <div class="panel"><div class="panel-head"><h4>روند فروش قطعی</h4></div><div class="panel-body crm-chart-box"><canvas id="crmTrendChart" height="220"></canvas></div></div>
+      </div>
+      <div class="crm-chart-row">
+        <div class="panel"><div class="panel-head"><h4>پایپ‌لاین (مرحله فرصت)</h4></div><div class="panel-body crm-chart-box"><canvas id="crmPipeChart" height="220"></canvas></div></div>
+        <div class="panel"><div class="panel-head"><h4>عملکرد کارشناسان</h4></div><div class="panel-body crm-chart-box"><canvas id="crmExpertChart" height="220"></canvas></div></div>
+      </div>
+      <div class="crm-chart-row">
+        <div class="panel"><div class="panel-head"><h4>منابع جذب</h4></div><div class="panel-body crm-chart-box"><canvas id="crmSourceChart" height="220"></canvas></div></div>
+        <div class="panel"><div class="panel-head"><h4>کمپین‌ها</h4></div><div class="panel-body crm-chart-box"><canvas id="crmCampChart" height="220"></canvas></div></div>
+      </div>
+      <div class="crm-chart-row">
+        <div class="panel"><div class="panel-head"><h4>سگمنت مشتریان</h4></div><div class="panel-body crm-chart-box"><canvas id="crmSegChart" height="220"></canvas></div></div>
+        <div class="panel"><div class="panel-head"><h4>ریسک ریزش و مطالبات</h4></div><div class="panel-body" id="crmRecvBox"><div class="muted">در حال بارگذاری...</div></div></div>
+      </div>
+      <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>اقدامات فوری</h4></div><div class="panel-body" id="crmUrgentBox"></div></div>
+      <div id="crmDrill" class="panel" data-csp-style="${CSP.style(`margin-top:12px;display:none`)}"></div>
+    </div>`;
+  attachDatepickers(el('view'));
   try{
-    const data=await api('GET','/crm/drilldown?metric='+encodeURIComponent(metric));
+    const qs=crmFilterQuery().toString();
+    const data=await api('GET','/crm/dashboard'+(qs?'?'+qs:''));
+    if(gen!==_crmDashGen) return;
+    renderCrmDashData(data);
+  }catch(e){
+    if(gen!==_crmDashGen) return;
+    el('crmKpiGrid').innerHTML=`<div class="err">${esc(e.message||'خطا در بارگذاری')}<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){ROUTES['crm-dashboard']()})}">تلاش دوباره</button></div>`;
+  }
+};
+function renderCrmDashData(data){
+  const k=data.kpis||{};
+  const cmp=data.kpis_compare||{};
+  const updated=el('crmUpdatedAt'); if(updated) updated.textContent='به‌روزرسانی: '+new Date().toLocaleString('fa-IR');
+  const cards=[
+    ['سرنخ جدید',cmp.new_leads||k.new_customers,'new_leads',false],
+    ['فرصت باز',cmp.open_opportunities,'open_opportunities',false],
+    ['ارزش پایپ‌لاین',cmp.pipeline_value_rial, '',false,true],
+    ['ارزش موزون',cmp.pipeline_weighted_rial,'',false,true],
+    ['فرصت برنده',cmp.won_opportunities,'won_opportunities',false],
+    ['فرصت باخته',cmp.lost_opportunities,'lost_opportunities',true],
+    ['نرخ برد ٪',cmp.win_rate,'',false],
+    ['فروش قطعی',cmp.firm_invoice_count||k.firm_invoice_count,'firm_sales',false],
+    ['مبلغ فروش قطعی',cmp.firm_sales_rial||k.firm_sales_rial,'firm_sales',false,true],
+    ['میانگین خرید',cmp.avg_order_rial,'',false,true],
+    ['مشتری جدید',cmp.new_customers||k.new_customers,'new_customers',false],
+    ['مشتری تکراری',cmp.repeat_customers,'',false],
+    ['پیگیری باز',cmp.open_followups||k.open_followups,'open_followups',false],
+    ['سررسید امروز',cmp.due_today_followups,'due_today_followups',false],
+    ['عقب‌افتاده',cmp.overdue_followups||k.overdue_followups,'overdue_followups',true],
+    ['فرصت متوقف',cmp.stale_opportunities,'stale_opportunities',true],
+    ['بدون فعالیت',cmp.inactive_customers_90d||k.inactive_customers_90d,'inactive_customers_90d',true],
+    ['ریسک ریزش',cmp.churn_risk_customers,'churn_risk_customers',true],
+    ['مطالبات',cmp.receivables_rial||k.receivables_rial,'',true,true],
+    ['مطالبات معوق',cmp.overdue_receivables_rial,'',true,true],
+    ['چک نزدیک سررسید',cmp.cheques_due||k.cheques_due_14d,'',true],
+    ['چک برگشتی',cmp.cheques_bounced||k.cheques_bounced,'',true],
+    ['تحقق هدف ٪',cmp.sales_target_percent,'',false],
+    ['شکایت باز',cmp.open_complaints,'',true],
+  ];
+  el('crmKpiGrid').innerHTML=cards.map(([label,raw,metric,invert,money])=>{
+    const d=crmKpiDelta(raw,invert);
+    const val=money?fmtCrmRial(d.value||0):(d.value==null?'—':fmt(d.value));
+    const tip=metric?`drill-down ${metric}`:label;
+    return `<button type="button" class="crm-kpi" title="${esc(tip)}" ${metric?`data-csp-click="${CSP.bind('click',function(event){crmDrill('${metric}')})}"`:''}>
+      <div class="muted">${esc(label)}</div>
+      <div class="crm-kpi-val">${val}</div>
+      ${d.deltaHtml||''}
+    </button>`;
+  }).join('');
+  const recv=el('crmRecvBox');
+  if(recv){
+    recv.innerHTML=`<ul class="crm-recv-list">
+      <li>مانده مطالبات: <b>${fmtCrmRial(k.receivables_rial||0)}</b></li>
+      <li>چک نزدیک سررسید: <b>${k.cheques_due_14d||0}</b></li>
+      <li>چک برگشتی: <b>${k.cheques_bounced||0}</b></li>
+    </ul>`;
+  }
+  const urgent=data.urgent||{};
+  const ub=el('crmUrgentBox');
+  if(ub){
+    const rows=[].concat(urgent.overdue_followups||[], urgent.stale_opportunities||[], urgent.churn_risk||[]);
+    ub.innerHTML=rows.length?`<table class="tbl"><thead><tr><th>نوع</th><th>مشتری</th><th>موضوع</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr>
+      <td>${esc(r.kind||'')}</td><td>${esc(r.cust_biz||'')}</td><td>${esc(r.subject||'')}</td>
+      <td>${r.cust_id?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){custActivityModal((r.cust_id))})}">مشتری</button>`:''}</td>
+    </tr>`).join('')}</tbody></table>`:'<div class="empty">اقدام فوری ثبت‌نشده است.</div>';
+  }
+  crmRenderCharts(data);
+}
+async function crmRenderCharts(data){
+  try{ await crmEnsureChart(); }catch(e){ return; }
+  const th=chartTheme();
+  const funnel=(data.funnel||[]).map(s=>({label:s.label,count:s.count,id:s.id}));
+  if(!funnel.some(s=>s.count)) crmChartEmpty('crmFunnelChart','قیف خالی است — هنوز فرصت یا فروش قطعی در این فیلتر نیست.');
+  else crmMkChart('crmFunnelChart',{type:'bar',data:{labels:funnel.map(s=>s.label),datasets:[{label:'تعداد',data:funnel.map(s=>s.count),backgroundColor:th.bar}]},options:{indexAxis:'y',plugins:{legend:{display:true}},onClick:(ev,els)=>{ if(!els[0]) return; const id=funnel[els[0].index].id; crmDrill(id==='firm'?'firm_sales':(id==='repeat'?'repeat_customers':('pipeline_'+id))); }}});
+  const trend=data.sales_trend||[];
+  if(!trend.length) crmChartEmpty('crmTrendChart','روند فروش در این بازه خالی است.');
+  else crmMkChart('crmTrendChart',{type:'line',data:{labels:trend.map(s=>s.bucket),datasets:[{label:'مبلغ ریال',data:trend.map(s=>s.amount_rial),borderColor:th.bar,backgroundColor:th.fill,fill:true,tension:.3},{label:'تعداد فاکتور',data:trend.map(s=>s.invoice_count),borderColor:th.gold,yAxisID:'y1'}]},options:{plugins:{legend:{display:true}},scales:{y1:{position:'right'}},onClick:(ev,els)=>{ if(els[0]) crmDrill('firm_sales'); }}});
+  const pipe=data.pipeline_detail||data.pipeline||[];
+  if(!pipe.length) crmChartEmpty('crmPipeChart','پایپ‌لاین خالی است.');
+  else crmMkChart('crmPipeChart',{type:'bar',data:{labels:pipe.map(s=>s.stage),datasets:[{label:'تعداد',data:pipe.map(s=>s.cnt),backgroundColor:th.bar},{label:'مبلغ موزون ریال',data:pipe.map(s=>s.weighted_amount_rial||0),backgroundColor:th.gold}]},options:{plugins:{legend:{display:true}},onClick:(ev,els)=>{ if(els[0]) crmDrill('pipeline_'+(pipe[els[0].index].stage||'')); }}});
+  const experts=data.experts_detail||data.sales_by_expert||[];
+  if(!experts.length) crmChartEmpty('crmExpertChart','فروش کارشناسی در این فیلتر نیست.');
+  else crmMkChart('crmExpertChart',{type:'bar',data:{labels:experts.map(s=>s.name),datasets:[{label:'فروش ریال',data:experts.map(s=>s.sales_rial||s.amount_rial||0),backgroundColor:th.bar}]},options:{plugins:{legend:{display:true}},onClick:(ev,els)=>{ if(els[0]) crmDrill('firm_sales'); }}});
+  const sources=data.sources||[];
+  if(!sources.length) crmChartEmpty('crmSourceChart','منبع جذب ثبت نشده است.');
+  else crmMkChart('crmSourceChart',{type:'doughnut',data:{labels:sources.map(s=>s.lead_source),datasets:[{data:sources.map(s=>s.sales_rial),backgroundColor:[th.bar,th.gold,th.fill]}]},options:{plugins:{legend:{display:true,position:'bottom'}},onClick:(ev,els)=>{ if(els[0]) crmDrill('firm_sales'); }}});
+  const camps=data.campaigns||[];
+  if(!camps.length) crmChartEmpty('crmCampChart','کمپینی با فروش قطعی در این فیلتر نیست.');
+  else crmMkChart('crmCampChart',{type:'bar',data:{labels:camps.map(s=>s.campaign),datasets:[{label:'فروش ریال',data:camps.map(s=>s.sales_rial),backgroundColor:th.bar}]},options:{plugins:{legend:{display:true}},onClick:(ev,els)=>{ if(els[0]) crmDrill('firm_sales'); }}});
+  const segs=data.segments||[];
+  if(!segs.length) crmChartEmpty('crmSegChart','سگمنت محاسبه‌شده‌ای نیست.');
+  else crmMkChart('crmSegChart',{type:'pie',data:{labels:segs.map(s=>s.segment),datasets:[{data:segs.map(s=>s.cnt),backgroundColor:[th.bar,th.gold,'#2563EB','#D97706','#dc2626','#6b7280','#7c3aed']}]},options:{plugins:{legend:{display:true,position:'bottom'}},onClick:(ev,els)=>{ if(els[0]) crmDrill('churn_risk_customers'); }}});
+}
+function crmExportDash(){
+  const qs=crmFilterQuery().toString();
+  const t=localStorage.getItem('crm_token')||'';
+  fetch('/api/crm/export/excel'+(qs?'?'+qs:''),{headers:{Authorization:'Bearer '+t}}).then(r=>{
+    if(!r.ok) throw new Error('خروجی مجاز نیست');
+    return r.blob();
+  }).then(b=>{
+    const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='crm-dashboard.xlsx'; a.click();
+  }).catch(e=>showToast(e.message||'خطا در خروجی','error'));
+}
+async function crmDrill(metric, page){
+  const box=el('crmDrill'); if(!box) return;
+  window._crmLastMetric=metric;
+  box.style.display='block';
+  box.innerHTML='<div class="muted">در حال بارگذاری جزئیات...</div>';
+  try{
+    const q=crmFilterQuery();
+    q.set('metric',metric);
+    q.set('page',String(page||1));
+    q.set('page_size','50');
+    const data=await api('GET','/crm/drilldown?'+q.toString());
     const rows=data.rows||[];
-    box.innerHTML=`<div class="panel-head"><h4>جزئیات: ${esc(metric)}</h4></div><div class="panel-body">
-      <table class="tbl"><thead><tr><th>شناسه</th><th>عنوان</th><th>تاریخ</th><th>مبلغ/وضعیت</th></tr></thead>
+    const total=data.total||rows.length;
+    window._crmLastMetric=metric;
+    const nextPage=(page||1)+1;
+    box.innerHTML=`<div class="panel-head"><h4>جزئیات: ${esc(metric)} (${fmt(total)} مورد)</h4>
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){box.style.display='none'})}">بستن</button></div>
+      <div class="panel-body"><table class="tbl"><thead><tr><th>شناسه</th><th>عنوان</th><th>تاریخ</th><th>مبلغ/وضعیت</th><th></th></tr></thead>
       <tbody>${rows.map(r=>`<tr>
         <td>${r.id||''}</td>
-        <td>${esc(r.num||r.subject||r.cust_biz||r.type||'')}</td>
+        <td>${esc(r.num||r.subject||r.title||r.cust_biz||r.type||'')}</td>
         <td>${esc(r.date||'')}</td>
-        <td>${r.final!=null?fmt(r.final):esc(r.status||'')}</td>
-      </tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
-  }catch(e){ box.innerHTML=`<div class="err">${esc(e.message||'خطا')}</div>`; }
+        <td>${r.final_rial!=null?fmtCrmRial(r.final_rial):(r.final!=null?fmtCrmRial(r.final):esc(r.status||r.pipeline_stage||''))}</td>
+        <td>${r.cust_id||r.customer_id?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){custActivityModal((r.cust_id||r.customer_id))})}">مشتری</button>`:''}
+          ${r.num?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('invoices')})}">فاکتور</button>`:''}</td>
+      </tr>`).join('')||emptyRow(5)}</tbody></table>
+      ${total>50?`<div class="toolbar"><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){crmDrill(window._crmLastMetric,nextPage)})}">صفحه بعد</button></div>`:''}
+      </div>`;
+    box.scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(e){ box.innerHTML=`<div class="err">${esc(e.message||'خطا')}<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){crmDrill(window._crmLastMetric||'firm_sales')})}">تلاش دوباره</button></div>`; }
 }
 
 function setFupView(v){
@@ -3018,7 +3248,7 @@ function filterFups(){
   let rows=CACHE.followups.slice().sort((a,b)=>(b.created_at||0)-(a.created_at||0));
   if(fupFilter.q){const q=fupFilter.q.toLowerCase();rows=rows.filter(f=>((f.cust_biz||'')+' '+(f.subject||'')+' '+(f.note||'')+' '+(f.tags||'')).toLowerCase().includes(q));}
   if(fupFilter.status)rows=rows.filter(f=>f.status===fupFilter.status);
-  if(fupFilter.stage)rows=rows.filter(f=>(f.pipeline_stage||'lead')===fupFilter.stage);
+  if(fupFilter.stage)rows=rows.filter(f=>fupStageId(f)===fupFilter.stage);
   return rows;
 }
 function renderFupView(){
@@ -3032,7 +3262,7 @@ function fupRowsHtml(rows, showSalesperson){
   return `<table class="tbl" data-bulk-delete="0"><thead><tr>
     <th>مشتری</th><th>مرحله</th><th>تاریخ</th><th>نوع</th><th>موضوع</th><th>احتمال</th><th>اولویت</th><th>بعدی</th><th>وضعیت</th>${showSalesperson?'<th>کارشناس</th>':''}<th class="no-sort">عملیات</th>
   </tr></thead><tbody>${rows.map(f=>{
-    const stage=PIPELINE_STAGES.find(s=>s.id===(f.pipeline_stage||'lead'))||PIPELINE_STAGES[0];
+    const stage=PIPELINE_STAGES.find(s=>s.id===fupStageId(f))||PIPELINE_STAGES[0];
     const prob=parseInt(f.purchase_prob)||0;
     return `<tr data-id="${f.id}">
       <td><b>${esc(f.cust_biz||'-')}</b></td>
@@ -3131,20 +3361,25 @@ function toggleFupFolder(gi){
 
 function renderFupKanban(){
   const rows=filterFups();
+  const today=todayJalali();
   el('fupView').innerHTML=`<div class="pipeline-board">${PIPELINE_STAGES.map(stage=>{
-    const cards=rows.filter(f=>(f.pipeline_stage||'lead')===stage.id);
-    return `<div class="pipeline-col">
+    const cards=rows.filter(f=>fupStageId(f)===stage.id);
+    const weighted=cards.reduce((a,f)=>a+((parseInt(f.purchase_prob,10)||0)/100),0);
+    return `<div class="pipeline-col" data-stage="${stage.id}" data-csp-dragover="${CSP.bind('dragover',function(event){event.preventDefault();this.classList.add('drop-on')})}" data-csp-dragleave="${CSP.bind('dragleave',function(event){this.classList.remove('drop-on')})}" data-csp-drop="${CSP.bind('drop',function(event){event.preventDefault();this.classList.remove('drop-on');crmKanbanDrop(event,this.getAttribute('data-stage'))})}">
       <div class="col-head"><span>${stage.icon} ${stage.label}</span><span class="cnt">${cards.length}</span></div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:11px;padding:0 8px`)}">وزن احتمال: ${fmt(Math.round(weighted*100)/100)}</div>
       ${cards.map(f=>{
         const prob=parseInt(f.purchase_prob)||0;
         const interest=INTEREST_LEVELS.find(l=>l.id===(f.interest_level||'mid'))||INTEREST_LEVELS[2];
-        return `<div class="f-card" data-csp-click="${CSP.bind('click',function(event){fupModal((f.id))})}">
+        const stale=f.next_date && f.status==='open' && f.next_date<today;
+        return `<div class="f-card ${stale?'stale':''}" draggable="true" data-id="${f.id}" data-csp-dragstart="${CSP.bind('dragstart',function(event){event.dataTransfer.setData('text/plain',String(f.id))})}" data-csp-click="${CSP.bind('click',function(event){fupModal((f.id))})}">
           <div class="fc-cust">${esc(f.cust_biz||'-')}</div>
-          ${stage.id==='lead' && (f.account_balance||0)>0?`<div data-csp-style="${CSP.style(`font-size:11px;color:#dc2626;font-weight:600;margin-top:4px`)}">💰 مانده: ${fmt(f.account_balance)} ریال</div>`:''}
+          ${stale?`<div class="tag t-lost">متوقف / عقب‌افتاده</div>`:''}
+          ${stage.id==='lead' && (f.account_balance||0)>0?`<div data-csp-style="${CSP.style(`font-size:11px;color:var(--red);font-weight:600;margin-top:4px`)}">مانده: ${fmtCrmRial(f.account_balance)}</div>`:''}
           ${f.subject?`<div class="fc-sub">${esc(f.subject)}</div>`:''}
           <div class="fc-meta">
             ${statusTag(f.priority)}
-            <span class="tag" data-csp-style="${CSP.style(`background:#f3f4f6;color:var(--muted);gap:3px;display:inline-flex;align-items:center`)}">
+            <span class="tag" data-csp-style="${CSP.style(`background:var(--well);color:var(--muted);gap:3px;display:inline-flex;align-items:center`)}">
               <span class="interest-dot ${interest.cls}"></span>${interest.label}
             </span>
           </div>
@@ -3158,6 +3393,27 @@ function renderFupKanban(){
       <button class="btn ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px;font-size:12px;padding:7px`)}" data-csp-click="${CSP.bind('click',function(event){fupModal(null,`${String((stage.id) ?? '')}`)})}">+ اضافه</button>
     </div>`;
   }).join('')}</div>`;
+}
+async function crmKanbanDrop(ev, stage){
+  const id=parseInt(ev.dataTransfer.getData('text/plain'),10);
+  if(!id||!stage) return;
+  const f=(CACHE.followups||[]).find(x=>x.id===id);
+  if(!f) return;
+  if(fupStageId(f)===stage) return;
+  let lost='';
+  if(stage==='lost'){
+    lost=prompt('دلیل از دست رفتن فرصت؟')||'';
+    if(!lost.trim()){ showToast('دلیل باخت الزامی است','error'); return; }
+  }
+  if(!confirm('مرحله به «'+stage+'» ذخیره شود؟')) return;
+  try{
+    if(f.opportunity_id){
+      await api('PATCH','/crm/opportunities/'+f.opportunity_id+'/stage',{pipeline_stage:stage,lost_reason:lost});
+    }
+    await api('PUT','/followups/'+id,Object.assign({},f,{pipeline_stage:stage,lost_reason:lost||f.lost_reason||''}));
+    CACHE.followups=await api('GET','/followups')||CACHE.followups;
+    renderFupKanban(); showToast('مرحله ذخیره شد');
+  }catch(e){ showToast(e.message||'خطا در ذخیره مرحله','error'); }
 }
 
 function fupModal(id, defaultStage, presetCustId){
@@ -3232,6 +3488,7 @@ function toggleLostReason(){
 async function saveFup(id){
   const cust_id=+el('f-cust').value;
   if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
+  if(el('f-stage')?.value==='lost' && !(el('f-lost')?.value||'').trim()){ showToast('دلیل باخت الزامی است','error'); return; }
   const data={
     cust_id, date:el('f-date').value, type:el('f-type').value,
     priority:el('f-priority').value, subject:el('f-subject').value,
@@ -3275,12 +3532,12 @@ async function custActivityModal(custId){
     const body=el('activityBody');
     if(!body) return;
     if(!events.length){ body.innerHTML='<div class="empty">هنوز رویدادی ثبت نشده است.</div>'; return; }
-    const kindIcon={followup:'📞',invoice:'🧾',settlement:'💵',sales_return:'↪️',cheque:'🏦'};
-    const kindLabel={followup:'پیگیری',invoice:'فاکتور',settlement:'تسویه',sales_return:'برگشت فروش',cheque:'چک'};
+    const kindIcon={followup:'📞',invoice:'🧾',invoice_final:'🧾',proforma:'📋',settlement:'💵',sales_return:'↪️',cheque:'🏦',opportunity_stage:'📈',segment:'🏷️'};
+    const kindLabel={followup:'پیگیری',invoice:'فاکتور معمولی',invoice_final:'فاکتور رسمی',proforma:'پیش‌فاکتور',settlement:'تسویه',sales_return:'برگشت فروش',cheque:'چک',opportunity_stage:'تغییر مرحله',segment:'سگمنت'};
     body.innerHTML=`<ul class="timeline">${events.map(ev=>{
       const icon=kindIcon[ev.kind]||'•';
       const label=kindLabel[ev.kind]||ev.kind;
-      const amt=ev.amount!=null?fmt(ev.amount):(ev.amount_rial!=null?fmt((ev.amount_rial||0)/10):'');
+      const amt=ev.amount_rial!=null?fmtCrmRial(ev.amount_rial):(ev.amount!=null?fmtCrmRial(ev.amount):'');
       return `<li class="timeline-item">
         <div class="timeline-dot">${icon}</div>
         <div class="timeline-body">
@@ -16889,10 +17146,16 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>ابطال فاکتور قطعی سند معکوس می‌زند و موجودی را برمی‌گرداند (حذف فیزیکی نیست)</li>
       </ul>`),
     helpSec('📞','پیگیری CRM',`
-      <p>منوی <b>پیگیری CRM</b> دو بخش دارد: <b>پیگیری‌ها</b> (همان صفحه قبلی) و <b>داشبورد و گزارش‌های CRM</b> با شاخص‌های واقعی از فاکتور، پیگیری، مطالبات و چک.</p>
+      <p>منوی <b>پیگیری CRM</b> دو بخش دارد: <b>پیگیری‌ها</b> و <b>داشبورد و گزارش‌های CRM</b>.</p>
       <ul>
-        <li>کلیک روی کارت‌های داشبورد لیست drill-down فیلترشده را باز می‌کند</li>
-        <li>کارشناس فروش فقط دادهٔ خود را می‌بیند؛ مدیر/حسابداری دید تجمیعی دارند</li>
+        <li>داشبورد نموداری از دادهٔ واقعی است (Chart.js محلی). هیچ عدد نمایشی یا نمونه ندارد</li>
+        <li>پایپ‌لاین و قیف بر اساس <b>مرحله فرصت</b> (<code>pipeline_stage</code>) است، نه وضعیت باز/انجام‌شده پیگیری</li>
+        <li>فروش قطعی فقط فاکتور <b>معمولی و رسمی</b> است؛ پیش‌فاکتور و اسناد ابطال‌شده وارد KPI نمی‌شوند</li>
+        <li>مبالغ API و کارت‌ها <b>ریال</b> هستند</li>
+        <li>فیلتر سراسری روی همه KPI، نمودار و drill-down یکسان اعمال می‌شود؛ بازه روی تاریخ ایجاد فرصت و تاریخ فاکتور است — برای کل پایپ‌لاین بازه را «همه» بگذارید</li>
+        <li>کلیک روی کارت یا ستون نمودار جزئیات صفحه‌بندی‌شده و لینک به مشتری/فاکتور را باز می‌کند</li>
+        <li>کارشناس فروش فقط دادهٔ خود را می‌بیند و نمی‌تواند با user_id دامنه را باز کند</li>
+        <li>سگمنت VIP/A/B/C/ریزش از تنظیمات CRM و فاکتور قطعی محاسبه می‌شود</li>
       </ul>`),
     helpSec('↑','دکمه بالا (سطح والد)',`
       <p>دکمه <b>↑</b> کنار عنوان صفحه مثل دکمه <b>Up</b> اکسپلورر ویندوز عمل می‌کند — نه Back تاریخچه:</p>
@@ -17019,16 +17282,14 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <div class="tip">در بخش تنظیمات → پیامک، API سرویس پیامکی را وارد کنید تا یادآورها ارسال شوند.</div>`),
     helpSec('📈','پایپ‌لاین فروش',`
-      <p>پایپ‌لاین مسیر تبدیل یک سرنخ به مشتری را دنبال می‌کند.</p>
-      <h5>مراحل پایپ‌لاین</h5><ul>
-        <li><b>سرنخ</b>: اطلاعات اولیه دریافت شده</li>
-        <li><b>تماس</b>: اولین تماس برقرار شده</li>
-        <li><b>پیشنهاد</b>: قیمت یا نمونه ارائه شده</li>
-        <li><b>مذاکره</b>: در حال توافق</li>
-        <li><b>برنده</b>: فروش انجام شد</li>
-        <li><b>ازدست‌رفته</b>: فروش نشد — دلیل را ثبت کنید</li>
+      <p>پایپ‌لاین مسیر تبدیل سرنخ به فروش قطعی است. مرحله فرصت با وضعیت پیگیری (باز/انجام) قاطی نمی‌شود.</p>
+      <h5>مراحل استاندارد</h5><ul>
+        <li><b>سرنخ</b> → <b>واجد شرایط</b> → <b>پیشنهاد / پیش‌فاکتور</b> → <b>مذاکره</b></li>
+        <li><b>سفارش اول</b> با اولین فاکتور معمولی/رسمی؛ <b>تکراری</b> با خرید بعدی</li>
+        <li><b>برنده</b> فقط با اتصال به فاکتور قطعی معتبر</li>
+        <li><b>از دست رفته</b> فقط با دلیل باخت</li>
       </ul>
-      <div class="tip">احتمال خرید (۰-۱۰۰٪) و سطح علاقه‌مندی را دقیق وارد کنید تا گزارش‌های پیش‌بینی دقیق‌تر باشد.</div>`),
+      <div class="tip">کشیدن کارت کانبان پس از تأیید در سرور ذخیره می‌شود. داشبورد CRM همان مراحل را با مبلغ و مبلغ موزون ریال نشان می‌دهد.</div>`),
     helpSec('🛍️','محصولات و موجودی',`
       <p>صفحه <b>محصولات در ERP فقط برای مشاهده و فیلتر</b> است. افزودن، ویرایش، حذف و دسته‌بندی فقط از <b>ماژول حسابداری → کالاها</b> انجام می‌شود.</p>
       <h5>مشاهده در ERP</h5><ul>
@@ -17478,14 +17739,20 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">اگر ساعت دقیق هم وارد کنید، پیامک یادآور ۱ ساعت قبل از آن ساعت ارسال می‌شود. بدون ساعت، پیامک ساعت ۸ صبح فرستاده می‌شود.</div>`),
     helpSec('📈','پایپ‌لاین فروش',`
-      <p>پایپ‌لاین نشان می‌دهد هر مشتری در چه مرحله‌ای از خرید است.</p>
+      <p>پایپ‌لاین نشان می‌دهد هر فرصت در چه مرحله‌ای از خرید است. وضعیت پیگیری (باز/انجام) با مرحله قاطی نمی‌شود.</p>
       <h5>مراحل</h5><ul>
-        <li><b>سرنخ</b>: اطلاعات گرفتید ولی تماس نگرفتید</li>
-        <li><b>تماس</b>: اول تماس برقرار شده</li>
-        <li><b>پیشنهاد</b>: قیمت یا نمونه دادید</li>
-        <li><b>مذاکره</b>: دارید توافق می‌کنید</li>
-        <li><b>برنده</b>: خرید انجام شد</li>
-        <li><b>ازدست‌رفته</b>: نخرید — دلیلش را ثبت کنید تا یاد بگیرید</li>
+        <li><b>سرنخ</b> → <b>واجد شرایط</b> → <b>پیشنهاد</b> → <b>مذاکره</b></li>
+        <li><b>سفارش اول / برنده / تکراری</b> پس از فاکتور قطعی</li>
+        <li><b>از دست رفته</b> فقط با دلیل باخت</li>
+      </ul>
+      <div class="tip">کشیدن کارت در کانبان پس از تأیید، مرحله را در سرور ذخیره می‌کند. داشبورد CRM همان مراحل را با مبلغ و مبلغ موزون ریال نشان می‌دهد. کارشناس فقط دادهٔ خودش را می‌بیند.</div>`),
+    helpSec('📉','داشبورد CRM',`
+      <p>از منو <b>پیگیری CRM → داشبورد و گزارش‌های CRM</b> قیف، روند فروش قطعی، پایپ‌لاین، عملکرد و اقدامات فوری را ببینید.</p>
+      <ul>
+        <li>اعداد از دادهٔ واقعی است و واحد همه مبالغ <b>ریال</b> است</li>
+        <li>پیش‌فاکتور فروش قطعی نیست؛ فاکتور ابطال‌شده در KPI نمی‌آید</li>
+        <li>فیلتر تاریخ/مرحله را اعمال کنید؛ کلیک روی کارت جزئیات همان شاخص را باز می‌کند</li>
+        <li>شما فقط مشتریان و فروش خودتان را می‌بینید</li>
       </ul>`),
     helpSec('🧾','صدور فاکتور',`
       <h5>مراحل</h5><ol>

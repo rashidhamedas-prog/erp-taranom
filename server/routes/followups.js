@@ -2,7 +2,7 @@ const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const router = require('express').Router();
 const { getDB } = require('../db');
 const notif = require('../lib/notifications');
-const { auth, adminOnly } = require('../middleware/auth');
+const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { todayJalali, nowHHMM } = require('../jalali');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
 function getScope(req) {
@@ -37,11 +37,31 @@ router.get('/', auth, (req, res) => {
   res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
+function assertCustomerInScope(req, db, custId) {
+  const full = req.user.role === 'admin' || req.user.role === 'accounting' || req.user.role === 'sales_manager';
+  const own = db.prepare('SELECT id, user_id FROM customers WHERE id=?').get(custId);
+  if (!own) {
+    const err = new Error(full ? 'مشتری یافت نشد' : 'دسترسی به این مشتری ندارید');
+    err.status = full ? 404 : 403;
+    throw err;
+  }
+  if (!full && Number(own.user_id) !== Number(req.user.id)) {
+    const err = new Error('دسترسی به این مشتری ندارید');
+    err.status = 403;
+    throw err;
+  }
+}
+
 // Activity timeline for a specific customer
-router.get('/by-customer/:cust_id', auth, (req, res) => {
+router.get('/by-customer/:cust_id', auth, requirePermission('followups', 'view'), (req, res) => {
   const db = getDB();
+  const scope = getScope(req);
+  if (scope != null) {
+    const own = db.prepare('SELECT user_id FROM customers WHERE id=?').get(req.params.cust_id);
+    if (!own || own.user_id !== scope) return res.status(403).json({ error: 'دسترسی به این مشتری ندارید' });
+  }
   const rows = db.prepare(
-    'SELECT f.*,u.name as salesperson FROM followups f LEFT JOIN users u ON f.user_id=u.id WHERE f.cust_id=? ORDER BY f.created_at DESC'
+    'SELECT f.*,u.name as salesperson FROM followups f LEFT JOIN users u ON f.user_id=u.id WHERE f.cust_id=? ORDER BY f.created_at DESC LIMIT 200'
   ).all(req.params.cust_id);
   res.json(rows);
 });
@@ -51,6 +71,8 @@ router.post('/', auth, (req, res) => {
           interest_level, purchase_prob, pipeline_stage, tags, lost_reason, assigned_to, account_balance } = req.body;
   if (!cust_id) return res.status(400).json({ error: 'مشتری الزامی است' });
   const db = getDB();
+  try { assertCustomerInScope(req, db, cust_id); }
+  catch (e) { return res.status(e.status || 403).json({ error: e.message }); }
   const finalDate = date && String(date).trim() ? date : todayJalali();
   const time = nowHHMM();
   const result = db.prepare(
@@ -66,6 +88,9 @@ router.post('/', auth, (req, res) => {
   );
   const row = db.prepare('SELECT f.*,c.biz as cust_biz FROM followups f LEFT JOIN customers c ON f.cust_id=c.id WHERE f.id=?').get(result.lastInsertRowid);
   try {
+    require('../lib/crm-pro').upsertOpportunityFromFollowup(db, row, { userId: req.user.id });
+  } catch (e) { console.error('crm opportunity sync:', e.message); }
+  try {
     const cust = db.prepare('SELECT biz FROM customers WHERE id=?').get(cust_id);
     notif.notifyNewFollowup(db, row, cust);
   } catch (e) { console.error('notify followup:', e.message); }
@@ -79,13 +104,16 @@ router.put('/:id', auth, (req, res) => {
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   const { cust_id, date, type, subject, note, action, next_date, next_time, status, priority,
           interest_level, purchase_prob, pipeline_stage, tags, lost_reason, assigned_to, account_balance } = req.body;
+  const targetCustId = cust_id || row.cust_id;
+  try { assertCustomerInScope(req, db, targetCustId); }
+  catch (e) { return res.status(e.status || 403).json({ error: e.message }); }
   const finalDate = date && String(date).trim() ? date : (row.date || todayJalali());
   // Reset sms_sent when next_date/next_time changes so reminder fires again
   const smsReset = (next_date !== row.next_date || next_time !== row.next_time) ? 0 : row.sms_sent;
   db.prepare(
     'UPDATE followups SET cust_id=?,date=?,type=?,subject=?,note=?,action=?,next_date=?,next_time=?,status=?,priority=?,interest_level=?,purchase_prob=?,pipeline_stage=?,tags=?,lost_reason=?,assigned_to=?,sms_sent=?,account_balance=? WHERE id=?'
   ).run(
-    cust_id, finalDate,
+    targetCustId, finalDate,
     type || '📱 تلفن', subject || '', note || '', action || '', next_date || '', next_time || '',
     status || 'open', priority || 'mid',
     interest_level || 'mid', parseInt(purchase_prob) || 50,
@@ -94,6 +122,10 @@ router.put('/:id', auth, (req, res) => {
     account_balance != null ? parseFloat(account_balance) || 0 : (row.account_balance || 0),
     req.params.id
   );
+  try {
+    const updated = db.prepare('SELECT * FROM followups WHERE id=?').get(req.params.id);
+    require('../lib/crm-pro').upsertOpportunityFromFollowup(db, updated, { userId: req.user.id });
+  } catch (e) { console.error('crm opportunity sync:', e.message); }
   res.json({ ok: true });
 });
 

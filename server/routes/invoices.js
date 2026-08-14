@@ -528,6 +528,13 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       } catch (e) {
         console.error('auto-followup error:', e.message);
       }
+      try {
+        require('../lib/crm-pro').onInvoiceCreated(db, {
+          invoiceId: invId, custId: cust_id, userId: ownerUserId, type: invType,
+          amountRial: built.final_rial || built.final || 0,
+          leadSource: req.body.lead_source || '', campaign: req.body.campaign || '',
+        });
+      } catch (e) { console.error('crm invoice stage:', e.message); }
 
       return { id: invId, usedWarehouses: stockMeta.usedWarehouses || [] };
     })();

@@ -1,5 +1,60 @@
 schema_version: 1
 tasks:
+  - id: "CRM-PRO-ANALYTICS"
+    title: "تکمیل CRM حرفه‌ای، نموداری و یکپارچه ERP Taranom"
+    status: "active"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-crm-pro"
+    roles:
+      implementer: "cursor:implementer-crm-pro"
+      reviewer: "cursor:independent-reviewer-crm-pro"
+      security: "cursor:independent-security-crm-pro"
+    branch: "ai/CRM-PRO-ANALYTICS-crm-dashboard"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-crm-pro-analytics"
+    base_commit: "eae0a14"
+    claimed_at: "2026-08-14T03:10:00+03:30"
+    file_claims:
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+      - "docs/CHANGE-LOG.md"
+      - "docs/architecture/CRM-PRO-ANALYTICS.md"
+      - "server/lib/crm-pro-schema.js"
+      - "server/lib/crm-pro.js"
+      - "server/lib/crm-pro-analytics.js"
+      - "server/lib/crm-analytics.js"
+      - "server/lib/crm-analytics-scope.js"
+      - "server/routes/crm.js"
+      - "server/routes/followups.js"
+      - "server/routes/invoices.js"
+      - "server/db.js"
+      - "server/sync/tables.js"
+      - "server/sync/capture.js"
+      - "server/public/app.js"
+      - "server/public/app.css"
+      - "server/scripts/test-crm-pro-analytics.js"
+      - "server/scripts/test-crm-pro-rbac.js"
+      - "server/scripts/test-crm-pro-ui-smoke.js"
+      - "server/scripts/test-crm-pro-performance.js"
+    acceptance_criteria:
+      - "Pipeline KPIs from pipeline_stage / crm_opportunities, never followups.status"
+      - "No mock/sample/hard-coded KPI numbers; API amounts rial with _rial suffix"
+      - "Firm sale = normal|final; proforma excluded; reversed/void excluded"
+      - "Additive idempotent migration; existing followups preserved and readable"
+      - "Global filters apply equally to KPI, charts, drill-down; scoped user_id cannot widen"
+      - "KPI count/amount reconciles with drilldown.total"
+      - "Unknown drill-down metric returns 400"
+      - "Charts from real APIs; Chart.js destroy on rerender; empty/error/loading states"
+      - "Timeline party_id/customer_id; scoped 403; pagination"
+      - "RBAC tested for sales/manager/accounting/admin; no High/Medium open"
+      - "Independent Reviewer APPROVED + Security APPROVED before completed"
+      - "NO Iran deploy without explicit separate owner approval"
+    notes: >-
+      Implement in isolated worktree only. Do not edit dirty erp-taranom1.
+      Do not mark completed or deploy until dual independent approval.
+
   - id: "ACC-CRM-UNIFY"
     title: "Accounting perpetual unify + normal invoice + CRM dashboard"
     status: "completed"
@@ -13,99 +68,39 @@ tasks:
       security: "cursor:independent-security-acc-crm"
     branch: "ai/ACC-CRM-UNIFY-accounting-crm"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify"
-    base_commit: "448a8c1"
-    reviewed_tip: "d5a2f51"
-    approved_tip: "c0ed4c9"
-    tip_stamp: "fe2f1da"
-    claimed_at: "2026-08-11T16:55:00+03:30"
-    completed_at: "2026-08-12T24:15:00+03:30"
-    remediation_phase: "8-approved"
     file_claims: []
-    acceptance_criteria:
-      - "Audit + ADR + canonical redirect map committed"
-      - "Invoice types proforma|normal|final; normal posts stock+JE+COGS; Moadian only final"
-      - "Sales/purchase/return/void use postInventoryMovement atomically; no physical delete"
-      - "Warehouse-scoped product validation UI+API; manipulated warehouse returns 400/409"
-      - "Duplicate menus redirect to canonical pages with equal RBAC"
-      - "users.party_id unique binding + idempotent backfill"
-      - "MDI taskbar bottom; --mdi-taskbar-h real height"
-      - "CRM menu subgroups + real dashboard/timeline APIs; no mock numbers"
-      - "New perpetual/party/crm tests green; sms+sync+production gates green"
-      - "Browser UI smoke + screenshots; Independent Reviewer + Security Approved"
-      - "NO Iran deploy until explicit owner approval; no completed before dual approval"
-    notes: >-
-      Dual Approved on tip c0ed4c9 (stamp fe2f1da): Independent Reviewer APPROVED
-      (09471755) + Security APPROVED (5f0954d9). Claims released. Merge / Iran deploy
-      still require explicit owner approval — not performed.
 
   - id: "PROD-P5-R2"
     title: "Reopen invalid PROD-P5 completion; restore P0–P5 gates and secure sensitivity"
     status: "completed"
     risk: "high"
     owner: "cursor:implementer"
-    roles:
-      implementer: "cursor:implementer"
-      reviewer: "cursor:independent-reviewer"
-      security: "cursor:independent-security"
-    branch: "fix/PROD-P5-R2-review-remediation"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5-r2"
-    base_commit: "a152086"
-    claimed_at: "2026-08-10T15:40:00+03:30"
-    completed_at: "2026-08-10T19:15:00+03:30"
     file_claims: []
-    acceptance_criteria:
-      - "P0/P1/P2/P3/P4/P5 all green on one commit"
-      - "No T2-05/T2-07/T2-08 failures; health 5201/5202/5203 zero and ok=true"
-      - "sensitivity is DB side-effect-free (no product/production UPDATE)"
-      - "embedded desktop/android SHA diff=0 after prepare"
-      - "BOM editor CRUD+template+resequence; role UI/API cost strip; browser smoke"
-      - "Independent Reviewer Approved; Security Approved; no open High/Medium"
-      - "NO deploy and NO completed until both reviewers approve"
-    notes: >-
-      Completed after Independent Approved-with-comments + Security Approved.
-      Tip code 1728626; primary FF a1f219b lineage; Iran SFTP stamp .sftp-deploy-stamp-prod-p5-r2;
-      hashes match; health/ready/root 200. Claims released.
-      2026-08-10T20:10 re-verification: Independent Reviewer APPROVED + Security Approved;
-      no open High/Medium; gates re-run green (sync 44/44 on retry).
 
   - id: "PROD-P5"
     title: "Production Module P5 — advanced BOM + routing + co/by-products (Module 4)"
     status: "superseded"
     risk: "high"
     owner: "cursor:orchestrator"
-    branch: "ai/PROD-P5-advanced-bom"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5"
     file_claims: []
-    notes: >-
-      Completion invalidated by Independent Reviewer (High/Medium open).
-      Remediation tracked under PROD-P5-R2 (now completed). Claims released.
 
   - id: "PROD-P4"
     title: "Production Module P4 — overhead + labor + cost centers"
     status: "completed"
     risk: "high"
     owner: "cursor:orchestrator"
-    branch: "ai/PROD-P4-overhead-labor"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p4"
     file_claims: []
-    notes: "38/38 PASS. Merged; claims released."
 
   - id: "PROD-P3"
     title: "Complete Production Module P3 — variable analysis + ADR-011"
     status: "completed"
     risk: "high"
     owner: "cursor:implementer"
-    branch: "ai/PROD-P3-variable-analysis"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3"
     file_claims: []
-    notes: "27/27 PASS. Merged; claims released."
 
   - id: "W2-ORCH"
     title: "Wave 2 orchestration — آماده فروش کنترل‌شده"
     status: "completed"
     risk: "high"
     owner: "cursor:implementer"
-    branch: "ai/W2-ORCH-wave2"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w2-orch"
     file_claims: []
-    notes: "MVP integration complete. Claims released."

@@ -190,6 +190,15 @@ const SYNCABLE_TABLES = [
   { name: 'product_style_colors',              upsertKey: 'id' },
   { name: 'product_style_sizes',               upsertKey: 'id' },
   { name: 'product_variants',                  upsertKey: 'id' },
+  // ===== CRM-PRO-ANALYTICS — APPEND-ONLY =====
+  { name: 'crm_lead_sources',                  upsertKey: 'id' },
+  { name: 'crm_campaigns',                     upsertKey: 'id' },
+  { name: 'crm_opportunities',                 upsertKey: 'id' },
+  { name: 'crm_activities',                    upsertKey: 'id' },
+  { name: 'crm_stage_history',                 upsertKey: 'id' },
+  { name: 'crm_customer_segments',             upsertKey: 'customer_id', compositeKeys: ['customer_id'] },
+  { name: 'crm_segment_history',               upsertKey: 'id' },
+  { name: 'crm_files',                         upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -351,6 +360,26 @@ const FK_COLUMNS = [
   // PROD-P5 advanced BOM FKs (append-only)
   ['bom_operations', 'subcontract_supplier_id'],
   ['bom_outputs', 'stage_cost_center_id'],
+  // CRM-PRO-ANALYTICS FKs (append-only)
+  ['crm_opportunities', 'party_id'],
+  ['crm_opportunities', 'customer_id'],
+  ['crm_opportunities', 'owner_user_id'],
+  ['crm_opportunities', 'campaign_id'],
+  ['crm_opportunities', 'won_invoice_id'],
+  ['crm_activities', 'party_id'],
+  ['crm_activities', 'customer_id'],
+  ['crm_activities', 'opportunity_id'],
+  ['crm_activities', 'owner_user_id'],
+  ['crm_activities', 'followup_id'],
+  ['crm_stage_history', 'opportunity_id'],
+  ['crm_stage_history', 'changed_by'],
+  ['crm_customer_segments', 'party_id'],
+  ['crm_segment_history', 'customer_id'],
+  ['crm_files', 'party_id'],
+  ['crm_files', 'customer_id'],
+  ['crm_files', 'opportunity_id'],
+  ['followups', 'opportunity_id'],
+  ['followups', 'party_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

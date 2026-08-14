@@ -2373,6 +2373,8 @@ function initSyncSchema(db) {
   // W1-APP1 product variants + W1-F1 moadian queue columns (before sync column pass)
   try {
     require('./lib/product-variants').initProductVariantsSchema(db);
+    require('./lib/crm-pro-schema').initCrmProSchema(db);
+    ensureSyncColumnsForAllTables(db);
     const moadianSql = require('./lib/moadian/schema-sql');
     for (const [table, column, definition] of moadianSql.ENSURE_COLUMNS) {
       ensureColumn(db, table, column, definition);
@@ -2525,6 +2527,32 @@ function initSyncSchema(db) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v8','1')").run();
+    }
+    const backfillV9 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v9'").get();
+    if (!backfillV9 || backfillV9.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v9 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v9','1')").run();
+    }
+    const backfillV10 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v10'").get();
+    if (!backfillV10 || backfillV10.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v10 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v10','1')").run();
     }
   }
 

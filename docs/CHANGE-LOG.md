@@ -27,6 +27,16 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-14 — CRM-PRO-ANALYTICS (شاخه ai/CRM-PRO-ANALYTICS-crm-dashboard)
+- **شاخه:** `ai/CRM-PRO-ANALYTICS-crm-dashboard`
+- **خلاصه:** داشبورد CRM نموداری با داده واقعی؛ پایپ‌لاین از pipeline_stage/فرصت نه followups.status؛ جداول فرصت/فعالیت/تاریخچه مرحله + سگمنت و اتوماسیون idempotent؛ فیلتر سراسری و drill-down reconcile؛ واحد ریال. مهاجرت پس از مهر، فرصت‌های جاافتاده را بدون تکرار backfill می‌کند.
+- **فایل‌های کلیدی:** server/lib/crm-pro*.js, server/lib/crm-analytics.js, server/lib/crm-analytics-scope.js, server/routes/crm.js, server/public/app.js, server/public/app.css, server/db.js, server/sync/tables.js, server/sync/capture.js
+- **تست:** analytics 32/32 · RBAC 17/17 · UI smoke 17/17 · performance 8/8 · ACC-CRM dashboard 21/21 · SMS 22/22 · sync 44/44 · encoding PASS · diag mismatches=[]
+- **بازبینی اول:** Reviewer CHANGES_REQUIRED + Security NOT_APPROVED — Highها بسته شد (فیلتر/دریل مشترک، GET بدون سگمنت، backfill v10، مالکیت پیگیری، اتوماسیون فقط مرکز)
+- **بازبینی نهایی:** Reviewer APPROVED + Security APPROVED — تسک `active` ماند؛ completed نشد
+- **Deploy:** اعمال نشد — نیاز به اجازه جداگانه مالک
+- **SW:** بدون bump تا تأیید UI مرورگر
+
 ### 2026-08-14 — MDI فقط حسابداری + نوار شناور (SW v153)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`
 - **خلاصه:** چندپنجره‌ای دوباره فقط برای زیرمنوهای حسابداری است. داشبورد CRM و داشبورد حسابداری تک‌صفحه‌ای ماندند. نوار وظایف شناور پایین صفحه است (روی محتوا، بدون کوتاه کردن سایدبار) و کلیک Chrome حفظ شد.

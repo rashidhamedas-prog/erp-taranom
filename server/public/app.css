@@ -1060,3 +1060,34 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
   body.pcs-print-active #pcs-print-sheet{position:absolute;left:0;top:0;width:100%;border:none;padding:0;margin:0}
   body.pcs-print-active .toolbar,body.pcs-print-active .sidebar,body.pcs-print-active .acc-shell-head{display:none!important}
 }
+
+/* CRM Pro dashboard */
+.crm-dash{display:flex;flex-direction:column;gap:12px;min-width:0}
+.crm-dash-head{align-items:flex-start;justify-content:space-between}
+.crm-dash-actions{display:flex;gap:8px;flex-wrap:wrap}
+.crm-filter-bar{padding:12px}
+.crm-filter-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.crm-filter-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);min-width:0}
+.crm-filter-grid input,.crm-filter-grid select{width:100%;min-height:40px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-family:inherit}
+.crm-filter-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.crm-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.crm-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.crm-kpi{text-align:right;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;cursor:pointer;min-height:88px;font-family:inherit;color:var(--text)}
+.crm-kpi:focus{outline:2px solid var(--purple);outline-offset:2px}
+.crm-kpi-val{font-size:18px;font-weight:800;word-break:break-word}
+.crm-delta{font-size:11px;margin-top:4px}
+.crm-delta.ok{color:var(--green)}
+.crm-delta.bad{color:var(--red)}
+.crm-chart-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.crm-chart-box{height:260px;position:relative}
+.crm-chart-empty{padding:24px;text-align:center}
+.crm-recv-list{margin:0;padding:0 18px;line-height:1.9}
+.pipeline-col.drop-on{outline:2px dashed var(--purple)}
+.f-card.stale{border-color:var(--red)}
+@media (max-width:800px){
+  .crm-chart-row{grid-template-columns:1fr}
+  .crm-kpi-grid{grid-template-columns:1fr 1fr}
+}
+@media (max-width:420px){
+  .crm-kpi-grid{grid-template-columns:1fr}
+}
