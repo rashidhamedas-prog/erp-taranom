@@ -1,7 +1,7 @@
 # Project Status
 
-- Last verified: 2026-08-15 (~02:55 +03:30)
-- **Active task:** DEMO-V3-GUIDED-SALES (`active`, review PENDING re-review, security PENDING re-review)
+- Last verified: 2026-08-15 (~03:06 +03:30)
+- **Active task:** DEMO-V3-GUIDED-SALES (`active`, review APPROVED on `dbc2ec4`, security PENDING on same tip)
 - **Implementation:** welcome + 4 role tours + free sandbox; H1–H3/M1–M6 + tour-stay/pause-resume/BOM
 - **Gates so far:** test-demo-v3 62/62 · static OK
 - **Branch / worktree:** `feat/DEMO-V3-GUIDED-SALES` /

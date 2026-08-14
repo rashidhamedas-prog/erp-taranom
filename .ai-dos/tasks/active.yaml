@@ -3,7 +3,7 @@ tasks:
   - id: "DEMO-V3-GUIDED-SALES"
     title: "Guided, role-based, sales-oriented Demo V3"
     status: "active"
-    review_status: "PENDING"
+    review_status: "APPROVED"
     security_status: "PENDING"
     risk: "high"
     owner: "cursor:orchestrator-demo-v3"

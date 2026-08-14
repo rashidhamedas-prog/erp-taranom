@@ -1,3 +1,10 @@
+## 2026-08-15T03:06:00+03:30 — Independent APPROVED on dbc2ec4
+
+- [Independent Demo V3 re-review](e84b9701-1cbe-4db1-a4c9-0d93b70ae458) **APPROVED** — M7 closed; prior H/M closed; C0/H0/M0; Lows advisory only.
+- Gates: test-demo-v3 **65/65**
+- Security on this tip still PENDING ([Security Review](0e9e56e1-e80e-484e-81d1-289a6d709352)); prior security APPROVED was `1e8243c` only.
+- Task stays `active`. NO merge/push/deploy until Security APPROVED + owner approval.
+
 ## 2026-08-15T03:00:00+03:30 — Security APPROVED on 1e8243c; Independent M7
 
 - [Security Review](9c36aaac-b069-485a-a3f5-7ca91edbd317) **APPROVED** C0/H0/M0/L0 on `1e8243c` (tip has since moved).
