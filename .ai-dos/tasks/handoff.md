@@ -1,4 +1,14 @@
-﻿## 2026-08-14T09:00:00+03:30 — CRM-PRO owner approved merge + Iran deploy
+﻿## 2026-08-14T09:05:00+03:30 — CRM-PRO MERGED + IRAN DEPLOYED ✅
+
+- **Owner approval:** explicit merge + pull/SFTP + restart + SW bump
+- **FF-merge:** `origin/claude/claude-md-docs-2ssrpy` = `eae0a14..d3b6136` (from `ai/CRM-PRO-ANALYTICS-crm-dashboard`)
+- **Iran deploy:** SFTP overlay (`scripts/_deploy-crm-pro-v154-sftp.py`); VPS dirty so no `git pull`; `pm2 restart erp-taranom` **without** `--update-env`
+- **Stamp:** `.sftp-deploy-stamp-crm-pro-v154` → `SFTP_CRM_PRO_V154=2026-08-14T05:33:42Z hash=d3b6136`
+- **VPS verify:** health/ready/root 200; `CACHE='erp-taranom-v154'`; `app.js?v=154`; crm-pro-analytics + crm route + Chart.js present; PM2 online
+- **Public:** `https://erp.poshaktaranom.com/sw.js` = v154
+- **Task:** `completed`; claims empty; Reviewer a092902a + Security 16b3d555 APPROVED
+
+## 2026-08-14T09:00:00+03:30 — CRM-PRO owner approved merge + Iran deploy
 
 - Owner explicit: merge + pull/SFTP + restart + SW bump
 - Task → `completed`; claims released

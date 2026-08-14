@@ -27,10 +27,11 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
-### 2026-08-14 — CRM-PRO-ANALYTICS merge + SW v154 (owner deploy)
-- **شاخه:** `claude/claude-md-docs-2ssrpy` ← FF از `ai/CRM-PRO-ANALYTICS-crm-dashboard`
+### 2026-08-14 — CRM-PRO-ANALYTICS merge + Iran SFTP + SW v154 ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` ← FF `eae0a14..d3b6136` از `ai/CRM-PRO-ANALYTICS-crm-dashboard`
 - **خلاصه:** ادغام داشبورد CRM حرفه‌ای + bump Service Worker به v154 پس از تأیید مالک برای merge و deploy ایران.
-- **Deploy:** ⏳ در حال اعمال
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208:/home/taranom/crm-taranom` (VPS git کثیف بود؛ pull نشد). `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-crm-pro-v154` = `2026-08-14T05:33:42Z hash=d3b6136`.
+- **تأیید عمومی:** `https://erp.poshaktaranom.com/sw.js` = `erp-taranom-v154`؛ `app.js?v=154`
 - **SW:** `erp-taranom-v154`
 
 ### 2026-08-14 — CRM-PRO-ANALYTICS (شاخه ai/CRM-PRO-ANALYTICS-crm-dashboard)

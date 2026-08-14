@@ -15,7 +15,7 @@ USER = "taranom"
 KEY = Path.home() / ".ssh" / "id_ed25519_taranom"
 APP = "/home/taranom/crm-taranom"
 ROOT = Path(__file__).resolve().parents[1]
-STAMP_HASH = "PENDING"
+STAMP_HASH = "d3b6136"
 STAMP_FILE = ".sftp-deploy-stamp-crm-pro-v154"
 
 FILES = [
