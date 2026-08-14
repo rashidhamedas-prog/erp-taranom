@@ -1,9 +1,9 @@
 # Project Status
 
-- Last verified: 2026-08-15 (~02:50 +03:30)
+- Last verified: 2026-08-15 (~02:55 +03:30)
 - **Active task:** DEMO-V3-GUIDED-SALES (`active`, review PENDING re-review, security PENDING re-review)
-- **Implementation:** welcome + 4 role tours + free sandbox + namespaced reset; review-fix for H1–H3 / M1–M6
-- **Gates so far:** test-demo-v3 52/52 · static OK
+- **Implementation:** welcome + 4 role tours + free sandbox; H1–H3/M1–M6 + tour-stay/pause-resume/BOM
+- **Gates so far:** test-demo-v3 62/62 · static OK
 - **Branch / worktree:** `feat/DEMO-V3-GUIDED-SALES` /
   `D:/soft/Claud/porje/Run in the project/erp-taranom-demo-v3` @ base `8a1d699`
 - **Constraint:** NO merge / push / Iran deploy / PM2 / SW bump until owner approval

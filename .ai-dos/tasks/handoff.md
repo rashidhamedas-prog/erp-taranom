@@ -1,3 +1,9 @@
+## 2026-08-15T02:55:00+03:30 — UX review on stale tip; remaining Highs closed
+
+- [Independent UX review V3](fd094008-0625-42fa-b7df-87ad195043c2) reviewed `3dd0d11` (stale). H1/H2/H4/H5 already in `1e8243c`.
+- New on current tip: tour action no longer auto-advances (drill stays); pause/resume bar; acc section collapse; recon ≠ trial; BOM consume; MO cost; activity↔opp customer.
+- Next: local commit, then re-review after in-flight agents finish. NO push/merge/deploy.
+
 ## 2026-08-15T02:50:00+03:30 — Implementer closed review High/Medium (pre re-review)
 
 - Identity: `cursor:implementer-demo-v3`

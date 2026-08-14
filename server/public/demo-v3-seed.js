@@ -163,8 +163,8 @@
     var activities = [];
     var actTypes = ['تماس تلفنی', 'بازدید حضوری', 'پیام واتساپ', 'جلسه'];
     for (i = 0; i < 110; i++) {
-      var oc = customers[i % customers.length];
       var opp = opportunities[i % opportunities.length];
+      var oc = customers.find(function (c) { return c.id === opp.customerId; }) || customers[i % customers.length];
       activities.push({
         id: i + 1,
         customerId: oc.id,
@@ -274,11 +274,12 @@
     var productionOrders = [];
     for (i = 0; i < 12; i++) {
       var fp = products[i % 8];
+      var moQty = irand(rand, 20, 80);
       productionOrders.push({
         id: i + 1, num: 'MO-' + pad(i + 1, 3), productId: fp.id, product: fp.name,
-        qty: irand(rand, 20, 80), status: pStatuses[i],
+        qty: moQty, status: pStatuses[i],
         due: dateIn(MONTHS[6 + (i % 6)], rand), warehouseId: 1,
-        cost: fp.cost * 30, sample: true
+        cost: fp.cost * moQty, sample: true
       });
     }
 

@@ -23,6 +23,7 @@
     return null;
   }
   var viewBound = false;
+  var lastDrill = null;
   var STAGE_LABEL = { lead: 'سرنخ', qualified: 'واجد شرایط', proposal: 'پیشنهاد', proforma: 'پیش‌فاکتور', won: 'برنده', lost: 'از دست رفته' };
   function product(id) { return S.products.find(function (p) { return p.id === id; }); }
   function customer(id) { return S.customers.find(function (c) { return c.id === id; }); }
@@ -72,8 +73,15 @@
     var overdue = S.customers.filter(function (c) { return c.balance < 0; }).reduce(function (a, c) { return a - c.balance; }, 0);
     var days = 28;
     var recs = S.receipts || [];
-    if (recs.length) {
-      days = Math.max(7, Math.round(recs.reduce(function (a, r, i) { return a + 10 + (i % 17); }, 0) / recs.length));
+    var dayPairs = recs.map(function (r) {
+      var inv = S.invoices.find(function (i) { return i.id === r.invoiceId; });
+      if (!inv) return null;
+      var a = String(inv.date || '').split('/');
+      var b = String(r.date || '').split('/');
+      return (Number(b[1] || 0) * 30 + Number(b[2] || 0)) - (Number(a[1] || 0) * 30 + Number(a[2] || 0));
+    }).filter(function (n) { return n != null; });
+    if (dayPairs.length) {
+      days = Math.max(1, Math.round(dayPairs.reduce(function (a, n) { return a + Math.abs(n); }, 0) / dayPairs.length));
     }
     var low = S.stock.filter(function (s) { return s.qty < s.reorderPoint; }).length;
     var openInv = S.invoices.filter(function (i) { return i.type === 'proforma'; }).length;
@@ -201,9 +209,11 @@
   }
 
   function showDrill(kind) {
+    lastDrill = kind;
     var box = el('drillBox');
     if (!box) {
-      go('invoices');
+      if (kind === 'sales' || kind === 'profit') go('invoices');
+      else if (kind === 'ar') go('parties');
       return;
     }
     var rows = [];
@@ -217,11 +227,20 @@
         return '<tr><td>' + esc(c.biz) + '</td><td class="mono">' + toman(-c.balance) + '</td></tr>';
       });
       box.innerHTML = '<h3>بدهکاران</h3>' + table(['مشتری', 'مانده'], rows);
+    } else if (kind === 'days') {
+      rows = recsPreview();
+      box.innerHTML = '<h3>رسیدهای مبنای میانگین وصول</h3>' + table(['شماره فاکتور', 'مبلغ'], rows);
     } else if (kind === 'low') { go('stock'); filters.shortage = true; render(); }
     else if (kind === 'wip') { go('production'); }
     else if (kind === 'collections') { go('receipts'); }
     else if (kind === 'crm') { go('opportunities'); }
     else if (kind === 'open') { go('invoices'); }
+  }
+  function recsPreview() {
+    return (S.receipts || []).slice(0, 12).map(function (r) {
+      var inv = S.invoices.find(function (i) { return i.id === r.invoiceId; });
+      return '<tr><td class="mono">' + esc(inv ? inv.num : String(r.invoiceId)) + '</td><td class="mono">' + toman(r.amount) + '</td></tr>';
+    });
   }
 
   function renderCustomers() {
@@ -414,7 +433,7 @@
   }
 
   function renderHelp() {
-    el('view').innerHTML = '<div class="panel"><div class="panel-body"><h2>راهنمای نسخه نمایشی</h2><p>سه لایه: معرفی نقش، تور هدایت‌شده، محیط آزاد.</p><p>مسیر فروش نمونه: مشتری → فرصت → پیگیری → پیش‌فاکتور → تبدیل به فاکتور (کاهش موجودی + سند فروش و بهای تمام‌شده + مانده مشتری) → کسری → دستور تولید → تکمیل → ثبت تحویل روی فاکتور → دریافت (کاهش مطالبات + سند بانک).</p><p>داده‌ها متعلق به «' + esc(S.meta.company) + '» است و کاملاً ساختگی‌اند.</p><p>ساخته‌شده توسط ' + esc(S.meta.maker) + '</p><p>بازنشانی فقط کلیدهای erp.taranom.demo.v3.1 را پاک می‌کند.</p></div></div>';
+    el('view').innerHTML = '<div class="panel"><div class="panel-body"><h2>راهنمای نسخه نمایشی</h2><p>سه لایه: معرفی نقش، تور هدایت‌شده، محیط آزاد.</p><p>در تور، «اقدام این مرحله» نتیجه را همان‌جا نشان می‌دهد؛ «مرحله بعد» جلو می‌رود. توقف تور با دکمهٔ «ادامه تور» از سر گرفته می‌شود.</p><p>مسیر فروش نمونه: مشتری → فرصت → پیگیری → پیش‌فاکتور → تبدیل به فاکتور (کاهش موجودی + سند فروش و بهای تمام‌شده + مانده مشتری) → کسری → دستور تولید → تکمیل (مصرف BOM) → ثبت تحویل روی فاکتور → دریافت (کاهش مطالبات + سند بانک).</p><p>داده‌ها متعلق به «' + esc(S.meta.company) + '» است و کاملاً ساختگی‌اند.</p><p>ساخته‌شده توسط ' + esc(S.meta.maker) + '</p><p>بازنشانی فقط کلیدهای erp.taranom.demo.v3.1 را پاک می‌کند.</p></div></div>';
   }
 
   function nextId(list) { return list.reduce(function (m, x) { return Math.max(m, x.id || 0); }, 0) + 1; }
@@ -546,12 +565,25 @@
     persist(); toast(); renderProduction();
   }
 
+  function consumeBom(o) {
+    if (o.consumed) return;
+    var bom = (S.boms || []).find(function (b) { return b.productId === o.productId; });
+    if (bom) {
+      (bom.lines || []).forEach(function (ln) {
+        var st = S.stock.find(function (s) { return s.productId === ln.materialId; });
+        if (st) st.qty = Math.max(0, st.qty - Math.ceil(ln.qty * o.qty));
+      });
+    }
+    var fg = S.stock.find(function (s) { return s.productId === o.productId && s.warehouseId === 1; });
+    if (fg) fg.qty += o.qty;
+    o.consumed = true;
+  }
+
   function completeMo(id) {
     var o = S.productionOrders.find(function (x) { return x.id === id; }) || S.productionOrders[0];
     if (!o) return;
     o.status = 'done';
-    var st = S.stock.find(function (s) { return s.productId === o.productId && s.warehouseId === 1; });
-    if (st) st.qty += o.qty;
+    consumeBom(o);
     persist(); toast(); renderProduction();
   }
 
@@ -560,7 +592,14 @@
     if (!o) return;
     var seq = { draft: 'in_progress', in_progress: 'done', delayed: 'in_progress', done: 'done' };
     o.status = seq[o.status] || 'in_progress';
+    if (o.status === 'done') consumeBom(o);
     persist(); toast(); renderProduction();
+  }
+
+  function toggleAccSection(idx) {
+    if (ACC_NAV_COLLAPSED.has(idx)) ACC_NAV_COLLAPSED.delete(idx);
+    else ACC_NAV_COLLAPSED.add(idx);
+    buildNav();
   }
 
   function applyTourAction(key) {
@@ -629,7 +668,14 @@
     if (/purchase/.test(p)) { renderPurchases(); return; }
     if (/invoice|proforma|sales|order/.test(p)) { renderInvoices(); return; }
     if (/journal|opening|close|reval/.test(p)) { renderJournals(); return; }
-    if (/trial|financial|recon/.test(p)) { renderTrial(); return; }
+    if (/bank-recon|recon/.test(p)) {
+      renderNamedTable('مغایرت بانکی نمونه', ['حساب', 'مانده دفتر', 'مانده صورت'],
+        (S.banks || []).map(function (b) {
+          return '<tr><td>' + esc(b.name) + '</td><td class="mono">' + toman(b.balance) + '</td><td class="mono">' + toman(b.balance) + '</td></tr>';
+        }));
+      return;
+    }
+    if (/trial|financial/.test(p)) { renderTrial(); return; }
     if (/coa|ledger|kpi/.test(p)) { renderLedger(); return; }
     if (/bank|cash|petty|flow/.test(p)) { renderBanks(); return; }
     if (/warehouse|kardex|stock|batch|reserv|landed|consign/.test(p)) { renderStock(); return; }
@@ -808,7 +854,9 @@
     hideSummary: hideSummary,
     enterFree: enterFree,
     enterAccountingShell: enterAccountingShell,
+    toggleAccSection: toggleAccSection,
     renderAccPage: renderAccPage,
+    getLastDrill: function () { return lastDrill; },
     confirmReset: confirmReset,
     getPage: function () { return page; },
     getState: function () { return S; }

@@ -599,6 +599,14 @@ html[data-theme="dark"] body.demo-v3 .t-followup{background:#1E2822;color:var(--
   transition:opacity .2s ease,transform .2s ease;
 }
 .tour-highlight:not([hidden]){opacity:1;transform:none}
+.tour-resume-bar{
+  position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+  z-index:10015;min-height:40px;padding:8px 16px;
+  border:0;border-radius:999px;cursor:pointer;
+  background:var(--demo-green-dark);color:var(--demo-cream);
+  font-weight:800;font-size:13px;box-shadow:var(--demo-shadow);
+}
+.tour-resume-bar[hidden]{display:none}
 #app:has(.tour-dock:not([hidden])) #acctFab{z-index:80}
 
 /* ─── Summary ─── */

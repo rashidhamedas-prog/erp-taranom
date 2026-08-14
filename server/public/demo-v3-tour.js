@@ -73,8 +73,17 @@
 
   function current() { return steps()[state.index] || null; }
 
-  function paintDock() {
+  function paintResumeBar() {
+    var bar = document.getElementById('tourResumeBar');
+    if (!bar) return;
+    bar.hidden = !(state.role && state.paused);
+  }
+
+  function paintDock(opts) {
+    var navigate = !opts || opts.navigate !== false;
+    var force = !!(opts && opts.force);
     var dock = document.getElementById('tourDock');
+    paintResumeBar();
     if (!dock) return;
     if (!state.role || state.paused) {
       dock.hidden = true;
@@ -103,8 +112,9 @@
         ol.appendChild(li);
       });
     }
-    if (step && global.DemoV3App && typeof global.DemoV3App.go === 'function') {
-      global.DemoV3App.go(step.page);
+    if (navigate && step && global.DemoV3App && typeof global.DemoV3App.go === 'function') {
+      var curPage = typeof global.DemoV3App.getPage === 'function' ? global.DemoV3App.getPage() : null;
+      if (force || curPage !== step.page) global.DemoV3App.go(step.page);
     }
     requestAnimationFrame(function () { highlight(step && step.target); });
     var focusEl = act || dock;
@@ -146,18 +156,19 @@
     if (state.index >= steps().length - 1) { persist(); finish(); return; }
     state.index += 1;
     persist();
-    paintDock();
+    paintDock({ force: true });
   }
 
   function start(role) {
     if (role === 'free') { goFree(); return; }
     state = { role: role, index: 0, done: [], paused: false };
     persist();
-    paintDock();
+    paintDock({ force: true });
   }
 
   function pause() { state.paused = true; persist(); paintDock(); }
-  function resume() { state.paused = false; persist(); paintDock(); }
+  function resume() { state.paused = false; persist(); paintDock({ force: true }); }
+  function togglePause() { if (state.paused) resume(); else pause(); }
   function skip() { advance(); }
   function restart() { if (!state.role) return; start(state.role); }
   function stop() { state.paused = true; persist(); paintDock(); }
@@ -172,8 +183,9 @@
     var saved = global.DemoV3Store && global.DemoV3Store.loadTour();
     if (!saved || !saved.role) return false;
     state = { role: saved.role, index: saved.index || 0, done: saved.done || [], paused: !!saved.paused };
-    if (!state.paused) paintDock();
-    return !state.paused;
+    if (state.paused) paintResumeBar();
+    else paintDock();
+    return true;
   }
 
   function onAction() {
@@ -182,29 +194,38 @@
     if (global.DemoV3App && typeof global.DemoV3App.applyTourAction === 'function') {
       global.DemoV3App.applyTourAction(step.action);
     }
-    advance();
+    if (step && state.done.indexOf(step.id) === -1) state.done.push(step.id);
+    persist();
+    paintDock({ navigate: false });
   }
 
   function bind() {
     var act = document.getElementById('tourAction');
+    var nx = document.getElementById('tourNext');
     var sk = document.getElementById('tourSkip');
     var ps = document.getElementById('tourPause');
     var rs = document.getElementById('tourRestart');
     var fr = document.getElementById('tourFree');
+    var rb = document.getElementById('tourResumeBar');
     if (act) act.addEventListener('click', onAction);
+    if (nx) nx.addEventListener('click', advance);
     if (sk) sk.addEventListener('click', skip);
-    if (ps) ps.addEventListener('click', pause);
+    if (ps) ps.addEventListener('click', togglePause);
     if (rs) rs.addEventListener('click', restart);
     if (fr) fr.addEventListener('click', goFree);
+    if (rb) rb.addEventListener('click', resume);
     document.addEventListener('keydown', function (e) {
-      if (!state.role || state.paused) return;
-      if (e.key === 'Escape') { e.preventDefault(); pause(); }
-      if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); skip(); }
+      if (!state.role) return;
+      if (e.key === 'Escape') { e.preventDefault(); if (state.paused) resume(); else pause(); }
+      if (state.paused) return;
+      if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); skip(); }
     });
-    global.addEventListener('resize', function () {
+    function relayout() {
       var step = current();
       if (step && !state.paused) highlight(step.target);
-    });
+    }
+    global.addEventListener('resize', relayout);
+    global.addEventListener('scroll', relayout, true);
   }
 
   var api = {
@@ -212,6 +233,9 @@
     start: start,
     pause: pause,
     resume: resume,
+    togglePause: togglePause,
+    runAction: onAction,
+    advance: advance,
     skip: skip,
     restart: restart,
     stop: stop,

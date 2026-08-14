@@ -179,6 +179,39 @@ function noNetwork(text) {
   rec('path-receipt-balance', afterRc.customers.find((c) => c.id === pf.customerId).balance > balAfterSale, 'AR reduced');
   rec('path-coa-from-je', afterRc.coa.every((a) => afterRc.journals.some((j) => (j.lines || []).some((ln) => ln.account === a.name))), 'COA from journals');
 
+  const matBefore = (afterCv.stock.find((s) => s.productId === 23) || { qty: 0 }).qty;
+  appCtx.DemoV3App.applyTourAction('add-mo');
+  const newMo = appCtx.DemoV3App.getState().productionOrders[0];
+  rec('path-mo-cost', newMo.cost === (appCtx.DemoV3App.getState().products[0].cost * newMo.qty), 'MO cost = unit*qty');
+  appCtx.DemoV3App.applyTourAction('complete-mo');
+  const matAfter = (appCtx.DemoV3App.getState().stock.find((s) => s.productId === 23) || { qty: 0 }).qty;
+  rec('path-mo-bom', newMo.productId === 1 ? matAfter < matBefore : true, 'BOM consume');
+
+  const tourCtx = loadBrowser(['demo-v3-seed.js', 'demo-v3-store.js', 'demo-v3-tour.js', 'demo-v3-app.js']);
+  tourCtx.DemoV3App.init();
+  tourCtx.DemoV3Tour.start('manager');
+  const idx0 = tourCtx.DemoV3Tour.getState().index;
+  tourCtx.DemoV3Tour.runAction();
+  rec('tour-action-stays', tourCtx.DemoV3Tour.getState().index === idx0, 'action does not advance');
+  rec('tour-drill-kept', tourCtx.DemoV3App.getLastDrill() === 'sales', 'drill-sales visible');
+  tourCtx.DemoV3Tour.advance();
+  rec('tour-next-advances', tourCtx.DemoV3Tour.getState().index === idx0 + 1, 'next moves');
+  tourCtx.DemoV3Tour.pause();
+  rec('tour-paused', tourCtx.DemoV3Tour.getState().paused === true, 'paused');
+  tourCtx.DemoV3Tour.resume();
+  rec('tour-resumed', tourCtx.DemoV3Tour.getState().paused === false, 'resumed');
+  rec('tour-next-btn', html.includes('id="tourNext"') && html.includes('id="tourResumeBar"'), 'next+resume controls');
+
+  const seedActs = data.activities.slice(0, 20);
+  rec('seed-act-opp', seedActs.every((a) => {
+    const opp = data.opportunities.find((o) => o.id === a.opportunityId);
+    return opp && opp.customerId === a.customerId;
+  }), 'activity matches customer opp');
+  rec('seed-mo-cost', data.productionOrders.every((o) => {
+    const p = data.products.find((x) => x.id === o.productId);
+    return p && o.cost === p.cost * o.qty;
+  }), 'seed MO cost');
+
   ['demo.js', 'demo-v3-seed.js', 'demo-v3-store.js', 'demo-v3-tour.js', 'demo-v3-app.js'].forEach((name) => {
     try {
       execFileSync(process.execPath, ['--check', path.join(PUBLIC, name)], { stdio: 'pipe' });

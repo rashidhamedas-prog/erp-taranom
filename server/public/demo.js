@@ -161,6 +161,9 @@ function bindShell() {
     var head = e.target.closest('[data-acc-sec]');
     if (head && typeof ACC_NAV_SECTIONS !== 'undefined') {
       e.preventDefault();
+      if (window.DemoV3App && typeof DemoV3App.toggleAccSection === 'function') {
+        DemoV3App.toggleAccSection(Number(head.getAttribute('data-acc-sec')));
+      }
       return;
     }
     var a = e.target.closest('a[data-page]');
