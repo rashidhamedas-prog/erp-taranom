@@ -28,6 +28,7 @@
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
 ### 2026-08-14 — CRM-PRO-ANALYTICS (شاخه ai/CRM-PRO-ANALYTICS-crm-dashboard)
+- **commit:** `48ea171`
 - **شاخه:** `ai/CRM-PRO-ANALYTICS-crm-dashboard`
 - **خلاصه:** داشبورد CRM نموداری با داده واقعی؛ پایپ‌لاین از pipeline_stage/فرصت نه followups.status؛ جداول فرصت/فعالیت/تاریخچه مرحله + سگمنت و اتوماسیون idempotent؛ فیلتر سراسری و drill-down reconcile؛ واحد ریال. مهاجرت پس از مهر، فرصت‌های جاافتاده را بدون تکرار backfill می‌کند.
 - **فایل‌های کلیدی:** server/lib/crm-pro*.js, server/lib/crm-analytics.js, server/lib/crm-analytics-scope.js, server/routes/crm.js, server/public/app.js, server/public/app.css, server/db.js, server/sync/tables.js, server/sync/capture.js
