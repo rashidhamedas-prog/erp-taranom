@@ -23,6 +23,7 @@ function scanDemoStatic(publicDir) {
   if (!/ساختگی/.test(text)) fails.push('missing fake-data watermark text');
   if (!/ترانه اندیشه پردازان ریان/.test(text)) fails.push('missing manufacturer credit');
   if (!/app\.css/.test(text)) fails.push('static demo must reuse app.css');
+  if (!/height:110px/.test(text) || !/height:44px/.test(text)) fails.push('logo sizes must match main app (110px login / 44px sidebar)');
   if (!/پیش‌فاکتور|پيش فاکتور/.test(text)) fails.push('missing proforma mention');
   if (!/عادی|معمولی/.test(text)) fails.push('missing normal invoice mention');
   if (!/نهایی/.test(text)) fails.push('missing final invoice mention');

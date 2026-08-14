@@ -497,6 +497,9 @@ function tickClock(){
 }
 
 function bindShell(){
+  document.querySelectorAll('img[src*="logo-sm"]').forEach(img=>{
+    img.addEventListener('error', ()=> img.classList.add('is-broken'));
+  });
   el('loginForm').addEventListener('submit', e=>{ e.preventDefault(); enterDemo(); });
   el('loginThemeBtn').addEventListener('click', toggleTheme);
   el('acctThemeBtn').addEventListener('click', toggleTheme);

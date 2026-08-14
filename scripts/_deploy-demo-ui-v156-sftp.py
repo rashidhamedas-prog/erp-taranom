@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""SFTP overlay: static demo = real ERP shell + maker credit. SW v156."""
+"""SFTP overlay: static demo logo sizes + thin watermark. SW v157."""
 from __future__ import annotations
 
 import sys
@@ -15,10 +15,11 @@ USER = "taranom"
 KEY = Path.home() / ".ssh" / "id_ed25519_taranom"
 APP = "/home/taranom/crm-taranom"
 ROOT = Path(__file__).resolve().parents[1]
-STAMP_FILE = ".sftp-deploy-stamp-demo-ui-v156"
+STAMP_FILE = ".sftp-deploy-stamp-demo-ui-v157"
 
 FILES = [
     "docs/CHANGE-LOG.md",
+    "server/public/app.css",
     "server/public/app.js",
     "server/public/demo.css",
     "server/public/demo.html",

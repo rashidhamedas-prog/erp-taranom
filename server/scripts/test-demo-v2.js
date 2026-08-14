@@ -250,8 +250,8 @@ async function runSecureSalesAppendedChecks() {
   const swJs = fs.readFileSync(path.join(ROOT, 'server', 'public', 'sw.js'), 'utf8');
   rec(
     'D38',
-    /const CACHE\s*=\s*'erp-taranom-v15[3456]'/.test(swJs),
-    /v156/.test(swJs) ? 'CACHE v156' : (/v155/.test(swJs) ? 'CACHE v155' : (/v154/.test(swJs) ? 'CACHE v154' : 'CACHE string missing'))
+    /const CACHE\s*=\s*'erp-taranom-v15[34567]'/.test(swJs),
+    /v157/.test(swJs) ? 'CACHE v157' : (/v156/.test(swJs) ? 'CACHE v156' : 'CACHE string missing')
   );
 
   const encScript = path.join(__dirname, 'check-ui-encoding.js');
@@ -406,7 +406,7 @@ async function runSecureSalesAppendedChecks() {
   rec(
     'D53',
     /helpSec\('🎯','نسخه نمایشی'/.test(appJs)
-      && /Service Worker <b>v15[456]<\/b>/.test(appJs)
+      && /Service Worker <b>v15[4567]<\/b>/.test(appJs)
       && (appJs.split("helpSec('🎯','نسخه نمایشی'").length - 1) >= 2,
     'admin + sales guides have demo section and SW version'
   );

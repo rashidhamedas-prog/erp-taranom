@@ -76,8 +76,16 @@ input,select,textarea{font-family:inherit;font-size:14px}
 #login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
   background:var(--hero);padding:20px;z-index:1000}
 .login-card{background:var(--card);border-radius:20px;padding:38px 30px;width:100%;max-width:380px;
-  box-shadow:0 20px 60px rgba(0,0,0,.25);text-align:center}
+  box-shadow:0 20px 60px rgba(0,0,0,.25);text-align:center;overflow:hidden}
 .login-card .logo{font-size:54px;margin-bottom:8px}
+.login-card .logo img{height:110px;width:auto;max-width:100%;display:block;margin:0 auto 6px;object-fit:contain}
+.login-card .logo img + span{display:none}
+.login-card .logo img.is-broken{display:none}
+.login-card .logo img.is-broken + span{display:inline}
+#login > .theme-toggle-btn{
+  position:fixed;top:14px;left:14px;z-index:1001;
+  background:rgba(255,255,255,.15);color:#fff;border:none;padding:8px 14px;
+  border-radius:20px;font-size:12px;font-weight:700;backdrop-filter:blur(4px)}
 .login-card h1{color:var(--purple);font-size:24px;margin-bottom:4px}
 .login-card p{color:var(--muted);font-size:13px;margin-bottom:24px}
 .login-card .field{text-align:right;margin-bottom:14px}
@@ -98,7 +106,11 @@ input,select,textarea{font-family:inherit;font-size:14px}
   transition:transform .25s cubic-bezier(.4,0,.2,1)}
 .sidebar.collapsed{transform:translateX(110%)}
 .main.expanded{margin-right:0!important}
-.sidebar .brand{padding:22px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.12)}
+.sidebar .brand{padding:22px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.12);overflow:hidden}
+.sidebar .brand img{height:44px;width:auto;max-width:56px;object-fit:contain;background:#fff;border-radius:12px;padding:3px;flex-shrink:0}
+.sidebar .brand img + .emoji{display:none}
+.sidebar .brand img.is-broken{display:none}
+.sidebar .brand img.is-broken + .emoji{display:inline}
 .sidebar .brand .emoji{font-size:22px}
 .sidebar .brand h2{font-size:17px}
 .sidebar .brand small{font-size:11px;opacity:.75;display:block}

@@ -1,11 +1,16 @@
-/* فقط پوشش نسخه نمایشی — رنگ و شل از app.css می‌آید */
+/* پوشش نسخه نمایشی — شل و رنگ از app.css؛ لوگو اینجا بزرگ نمی‌شود */
 .demo-watermark{
-  position:fixed;inset:0;pointer-events:none;z-index:3;
-  display:flex;align-items:center;justify-content:center;
-  font-size:clamp(28px,5vw,64px);font-weight:800;letter-spacing:.04em;
-  color:rgba(26,92,56,.06);transform:rotate(-18deg);user-select:none;
+  position:fixed;top:0;left:0;right:0;z-index:10040;
+  display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;
+  height:auto;padding:6px 14px;
+  font-size:12px;font-weight:700;letter-spacing:0;transform:none;
+  background:#92400e;color:#fff;pointer-events:none;user-select:none;
 }
-html[data-theme="dark"] .demo-watermark{color:rgba(61,220,140,.07)}
+html[data-theme="dark"] .demo-watermark{color:#fff}
+body{padding-top:32px}
+#login{top:32px}
+#login > .theme-toggle-btn{top:46px}
+.sidebar{top:32px}
 #app{display:none}
 #app.demo-on{display:block}
 #app.demo-on #acctFab{display:flex}
@@ -24,3 +29,7 @@ html[data-theme="dark"] .demo-watermark{color:rgba(61,220,140,.07)}
 .crm-chart-box{height:220px}
 .demo-debit{color:var(--red);font-weight:700}
 .demo-credit{color:var(--green);font-weight:700}
+.login-card .logo img{height:110px;width:auto;max-width:100%;display:block;margin:0 auto 6px;object-fit:contain}
+.login-card .logo img + span{display:none}
+.sidebar .brand img{height:44px;width:auto;max-width:56px;object-fit:contain;background:#fff;border-radius:12px;padding:3px;flex-shrink:0}
+.sidebar .brand img + .emoji{display:none}
