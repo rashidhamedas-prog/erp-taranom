@@ -27,10 +27,11 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
-### 2026-08-14 — DEMO-V2-SECURE-SALES merge + Iran SFTP + SW v155
-- **شاخه primary:** `claude/claude-md-docs-2ssrpy` ← merge `ai/DEMO-V2-SECURE-SALES` روی CRM-PRO `1287a1a`
+### 2026-08-14 — DEMO-V2-SECURE-SALES merge + Iran SFTP + SW v155 ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `6f4d24a` ← merge `ai/DEMO-V2-SECURE-SALES` روی CRM-PRO `1287a1a`
 - **خلاصه:** نسخه نمایشی امن (static `/demo.html` + Demo Mode تعاملی) با تأیید مالک merge و deploy شد.
-- **Deploy:** ⏳ در حال SFTP
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208:/home/taranom/crm-taranom` (VPS git کثیف بود؛ pull نشد). `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root/demo **200**. stamp `.sftp-deploy-stamp-demo-v2-v155` = `2026-08-14T09:51:15Z hash=6f4d24a`.
+- **تأیید عمومی:** `https://erp.poshaktaranom.com/demo.html` و `https://erp.poshaktaranom.com/sw.js` = `erp-taranom-v155`
 - **SW:** `erp-taranom-v155`
 
 ### 2026-08-14 — CRM-PRO-ANALYTICS merge + Iran SFTP + SW v154 ✅

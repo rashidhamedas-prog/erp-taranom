@@ -1,3 +1,13 @@
+## 2026-08-14T13:25:00+03:30 — DEMO-V2 MERGED + IRAN DEPLOYED ✅
+
+- **Owner approval:** explicit merge + SFTP + demo file
+- **Merge:** `claude/claude-md-docs-2ssrpy` = `6f4d24a` (DEMO-V2 onto CRM-PRO `1287a1a`)
+- **Iran deploy:** SFTP overlay (`scripts/_deploy-demo-v2-v155-sftp.py`); no `git pull`; `pm2 restart erp-taranom` **without** `--update-env`
+- **Stamp:** `.sftp-deploy-stamp-demo-v2-v155` → `2026-08-14T09:51:15Z hash=6f4d24a`
+- **VPS:** health/ready/root/demo 200; `CACHE='erp-taranom-v155'`; `app.js?v=155`; crm-pro still present
+- **Public:** `https://erp.poshaktaranom.com/demo.html`
+- Dirty `scripts/_deploy-mdi-v152-sftp.py` not staged
+
 ## 2026-08-14T13:20:00+03:30 — DEMO-V2 merge into primary (owner-approved deploy)
 
 - Owner explicit: merge to `claude/claude-md-docs-2ssrpy` + Iran SFTP + demo file

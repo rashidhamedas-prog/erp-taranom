@@ -1,8 +1,10 @@
 # Project Status
 
-- Last verified: 2026-08-14 (~13:20 +03:30)
+- Last verified: 2026-08-14 (~13:25 +03:30)
 - **Active task:** none
-- **DEMO-V2-SECURE-SALES:** merge into primary in progress (owner-approved deploy)
+- **DEMO-V2-SECURE-SALES:** merged + Iran deployed ✅
+  Primary `6f4d24a`; stamp `.sftp-deploy-stamp-demo-v2-v155` = `2026-08-14T09:51:15Z hash=6f4d24a`
+  health/ready/root/demo 200; public SW `erp-taranom-v155`; `https://erp.poshaktaranom.com/demo.html`
 - **CRM-PRO-ANALYTICS:** merged + Iran deployed ✅
   Primary tip before this merge `d3b6136` / stamp `1287a1a`
   SFTP stamp `.sftp-deploy-stamp-crm-pro-v154` = `2026-08-14T05:33:42Z hash=d3b6136`
