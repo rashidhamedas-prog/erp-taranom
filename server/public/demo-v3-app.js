@@ -433,7 +433,7 @@
   }
 
   function renderHelp() {
-    el('view').innerHTML = '<div class="panel"><div class="panel-body"><h2>راهنمای نسخه نمایشی</h2><p>سه لایه: معرفی نقش، تور هدایت‌شده، محیط آزاد.</p><p>در تور، «اقدام این مرحله» نتیجه را همان‌جا نشان می‌دهد؛ «مرحله بعد» جلو می‌رود. توقف تور با دکمهٔ «ادامه تور» از سر گرفته می‌شود.</p><p>مسیر فروش نمونه: مشتری → فرصت → پیگیری → پیش‌فاکتور → تبدیل به فاکتور (کاهش موجودی + سند فروش و بهای تمام‌شده + مانده مشتری) → کسری → دستور تولید → تکمیل (مصرف BOM) → ثبت تحویل روی فاکتور → دریافت (کاهش مطالبات + سند بانک).</p><p>داده‌ها متعلق به «' + esc(S.meta.company) + '» است و کاملاً ساختگی‌اند.</p><p>ساخته‌شده توسط ' + esc(S.meta.maker) + '</p><p>بازنشانی فقط کلیدهای erp.taranom.demo.v3.1 را پاک می‌کند.</p></div></div>';
+    el('view').innerHTML = '<div class="panel"><div class="panel-body"><h2>راهنمای نسخه نمایشی</h2><p>سه لایه: معرفی نقش، تور هدایت‌شده، محیط آزاد.</p><p>در تور، «اقدام این مرحله» نتیجه را همان‌جا نشان می‌دهد؛ «مرحله بعد» جلو می‌رود. توقف تور با دکمهٔ «ادامه تور» از سر گرفته می‌شود.</p><p>مسیر فروش نمونه: مشتری → فرصت → پیگیری → پیش‌فاکتور (کالای با موجودی کافی) → تبدیل به فاکتور (فقط به اندازه موجودی؛ سند و بهای تمام‌شده و گردش انبار همان مقدار) → کسری → دستور تولید → تکمیل (مصرف BOM) → ثبت تحویل روی فاکتور → دریافت (کاهش مطالبات + سند بانک).</p><p>داده‌ها متعلق به «' + esc(S.meta.company) + '» است و کاملاً ساختگی‌اند.</p><p>ساخته‌شده توسط ' + esc(S.meta.maker) + '</p><p>بازنشانی فقط کلیدهای erp.taranom.demo.v3.1 را پاک می‌کند.</p></div></div>';
   }
 
   function nextId(list) { return list.reduce(function (m, x) { return Math.max(m, x.id || 0); }, 0) + 1; }
@@ -467,14 +467,39 @@
     persist(); toast(); renderFollowups();
   }
 
+  function stockQty(productId, warehouseId) {
+    var st = S.stock.find(function (s) { return s.productId === productId && s.warehouseId === (warehouseId || 1); });
+    return st ? st.qty : 0;
+  }
+
+  function pickSellable(want) {
+    var best = null;
+    var bestQty = -1;
+    (S.products || []).forEach(function (p) {
+      if (p.kind && p.kind !== 'fg') return;
+      var q = stockQty(p.id, 1);
+      if (q >= want && q > bestQty) { best = p; bestQty = q; }
+    });
+    if (best) return { product: best, qty: want };
+    (S.products || []).forEach(function (p) {
+      if (p.kind && p.kind !== 'fg') return;
+      var q = stockQty(p.id, 1);
+      if (q > bestQty) { best = p; bestQty = q; }
+    });
+    var p = best || S.products[0];
+    return { product: p, qty: Math.max(1, Math.min(want, stockQty(p.id, 1) || 1)) };
+  }
+
   function addProforma() {
     var c = S.customers[0];
-    var p = S.products[0];
+    var pick = pickSellable(4);
+    var p = pick.product;
+    var qty = pick.qty;
     var id = nextId(S.invoices);
     S.invoices.push({
       id: id, num: 'T-' + String(id).padStart(4, '0'), customerId: c.id, cust: c.biz,
-      type: 'proforma', date: '1405/05/24', month: '1405/05', subtotal: p.price * 4, disc: 0, discAmt: 0, freight: 0,
-      final: p.price * 4, paid: false, salespersonId: 2, lines: [{ productId: p.id, qty: 4, price: p.price }], sample: true
+      type: 'proforma', date: '1405/05/24', month: '1405/05', subtotal: p.price * qty, disc: 0, discAmt: 0, freight: 0,
+      final: p.price * qty, paid: false, salespersonId: 2, lines: [{ productId: p.id, qty: qty, price: p.price }], sample: true
     });
     persist(); toast(); renderInvoices();
   }
@@ -509,18 +534,30 @@
     if (!inv) { toast('پیش‌فاکتور باز نیست'); return; }
     inv.type = 'normal';
     inv.delivered = false;
+    var cogs = 0;
+    var subtotal = 0;
+    (inv.lines || []).forEach(function (ln) {
+      var st = S.stock.find(function (s) { return s.productId === ln.productId && s.warehouseId === 1; });
+      var avail = st ? st.qty : 0;
+      var issue = Math.min(ln.qty, avail);
+      ln.qty = issue;
+      var p = product(ln.productId);
+      if (p) {
+        cogs += p.cost * issue;
+        ln.price = p.price;
+        subtotal += p.price * issue;
+      } else {
+        subtotal += (ln.price || 0) * issue;
+      }
+      if (st) st.qty = avail - issue;
+      S.movements.push({ id: nextId(S.movements), productId: ln.productId, warehouseId: 1, qty: -issue, kind: 'sale', date: '1405/05/24', ref: inv.num, sample: true });
+    });
+    inv.subtotal = subtotal;
+    inv.final = subtotal - (inv.discAmt || 0) + (inv.freight || 0);
     postJournal('فروش ' + inv.num, 'invoice', inv.id, [
       { account: '1103 دریافتنی', debit: inv.final, credit: 0 },
       { account: '4101 فروش', debit: 0, credit: inv.final }
     ]);
-    var cogs = 0;
-    (inv.lines || []).forEach(function (ln) {
-      var p = product(ln.productId);
-      if (p) cogs += p.cost * ln.qty;
-      var st = S.stock.find(function (s) { return s.productId === ln.productId && s.warehouseId === 1; });
-      if (st) st.qty = Math.max(0, st.qty - ln.qty);
-      S.movements.push({ id: nextId(S.movements), productId: ln.productId, warehouseId: 1, qty: -ln.qty, kind: 'sale', date: '1405/05/24', ref: inv.num, sample: true });
-    });
     if (cogs) {
       postJournal('بهای تمام‌شده ' + inv.num, 'cogs', inv.id, [
         { account: '5101 بهای تمام‌شده', debit: cogs, credit: 0 },

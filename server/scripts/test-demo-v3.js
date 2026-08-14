@@ -132,7 +132,6 @@ function noNetwork(text) {
   const opp0 = before.opportunities.length;
   const act0 = before.activities.length;
   const inv0 = before.invoices.length;
-  const stockBefore = (before.stock.find((s) => s.productId === 1 && s.warehouseId === 1) || { qty: 0 }).qty;
   const je0 = before.journals.length;
   const rec0 = before.receipts.length;
   const mo0 = before.productionOrders.length;
@@ -152,6 +151,8 @@ function noNetwork(text) {
   rec('path-proforma', afterPf.invoices.length === inv0 + 1 && pf.type === 'proforma', 'proforma');
   const owner = afterPf.customers.find((c) => c.id === pf.customerId);
   const balBefore = owner.balance;
+  const line0 = (pf.lines || [])[0];
+  const stockBeforeLine = (afterPf.stock.find((s) => s.productId === line0.productId && s.warehouseId === 1) || { qty: 0 }).qty;
 
   appCtx.DemoV3App.applyTourAction('convert-proforma');
   const afterCv = appCtx.DemoV3App.getState();
@@ -159,9 +160,15 @@ function noNetwork(text) {
   rec('path-convert', converted && converted.type === 'normal', 'type normal');
   rec('path-convert-je', afterCv.journals.length >= je0 + 1 && afterCv.journals.some((j) => j.sourceType === 'invoice' && j.sourceId === pf.id), 'sale JE');
   rec('path-convert-cogs', afterCv.journals.some((j) => j.sourceType === 'cogs' && j.sourceId === pf.id), 'cogs JE');
-  rec('path-convert-ar', afterCv.customers.find((c) => c.id === pf.customerId).balance === balBefore - pf.final, 'AR updated');
-  const stockAfterSale = (afterCv.stock.find((s) => s.productId === 1 && s.warehouseId === 1) || { qty: 0 }).qty;
-  rec('path-stock-out', stockAfterSale < stockBefore, 'stock decreased');
+  rec('path-convert-ar', afterCv.customers.find((c) => c.id === pf.customerId).balance === balBefore - converted.final, 'AR updated');
+  const line = (converted.lines || [])[0];
+  const stockAfterSale = (afterCv.stock.find((s) => s.productId === line.productId && s.warehouseId === 1) || { qty: 0 }).qty;
+  rec('path-stock-out', stockAfterSale === stockBeforeLine - line.qty, 'stock delta equals line qty');
+  rec('path-stock-fit', line.qty > 0 && stockBeforeLine >= line.qty, 'no oversell');
+  rec('path-stock-move', afterCv.movements.some((m) => m.ref === converted.num && m.qty === -line.qty), 'movement qty');
+  const cogsJe = afterCv.journals.find((j) => j.sourceType === 'cogs' && j.sourceId === pf.id);
+  const unitCost = (afterCv.products.find((p) => p.id === line.productId) || {}).cost || 0;
+  rec('path-cogs-qty', cogsJe && cogsJe.debit === unitCost * line.qty, 'COGS matches issued qty');
 
   appCtx.DemoV3App.applyTourAction('filter-shortage');
   rec('path-shortage-page', appCtx.DemoV3App.getPage() === 'stock', 'stock page');

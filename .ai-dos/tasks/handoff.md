@@ -1,3 +1,9 @@
+## 2026-08-15T03:00:00+03:30 — Security APPROVED on 1e8243c; Independent M7
+
+- [Security Review](9c36aaac-b069-485a-a3f5-7ca91edbd317) **APPROVED** C0/H0/M0/L0 on `1e8243c` (tip has since moved).
+- [Independent Demo V3 re-review](a64f05fb-e166-4431-9b6e-a0f2596cdecb) **CHANGES_REQUIRED** — prior H/M closed; new **M7** oversell (qty 4 vs stock 3).
+- Implementer closing M7 (pick sellable + clamp issue qty + exact stock assert). Then dual re-review on new tip. NO push/merge/deploy.
+
 ## 2026-08-15T02:55:00+03:30 — UX review on stale tip; remaining Highs closed
 
 - [Independent UX review V3](fd094008-0625-42fa-b7df-87ad195043c2) reviewed `3dd0d11` (stale). H1/H2/H4/H5 already in `1e8243c`.
