@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-15 — DEMO-V3-GUIDED-SALES (شاخه feat/DEMO-V3-GUIDED-SALES)
+- **خلاصه:** نسخه نمایشی فروش‌محور با صفحه معرفی نقش، تور هدایت‌شده، دادهٔ نمونه «پوشاک نمونه سپیدارگل»، محیط آزاد و بازنشانی نام‌فضای v3. واترمارک نارنجی حذف شد.
+- **فایل‌ها:** `server/public/demo.html`, `demo.css`, `demo.js`, `demo-v3-seed.js`, `demo-v3-store.js`, `demo-v3-tour.js`, `demo-v3-app.js`, `server/scripts/test-demo-v3.js`, `docs/architecture/DEMO-V3-DESIGN.md`
+- **تست:** `test-demo-v3.js` ۳۴/۳۴ · `test-demo-static.js` OK · encoding PASS
+- **Deploy:** اعمال نشد — بدون merge/push تا تأیید مالک
+- **SW:** بدون bump
+
 ### 2026-08-14 — دمو: شل کامل حسابداری از آخرین acc-nav ✅
 - **خلاصه:** `/demo.html` منوی حسابداری را از `acc-nav.js` همین نسخه می‌خواند. زدن «حسابداری» همان شل ماژول (اشخاص، کالا، انبار، بانک، فروش، چک، اسناد، تولید، حقوق، دارایی) را باز می‌کند.
 - **SW:** `erp-taranom-v158`

@@ -1,3 +1,45 @@
+## 2026-08-15T01:45:00+03:30 — Demo V3 implementation on disk (pre dual-review)
+
+- Failed agents (connection): inventory [38705563](38705563-83a9-421a-b60d-e753c5cbb026),
+  seed/store [4a1948a9](4a1948a9-a384-4e04-886a-70ed25188982),
+  app/tour [e22bd6f7](e22bd6f7-47c7-4584-b521-71bf03794f52)
+- CSS succeeded: [Demo V3 CSS](6e4d7cc3-ce91-47cb-9677-72aabe30291d)
+- Orchestrator wrote seed/store/tour/app/bootstrap + tests after agent failures
+- Gates: test-demo-v3 **34/34** · test-demo-static OK · encoding PASS · audit OK
+- Still PENDING: Independent Reviewer + Security
+- NO push / merge / deploy / SW bump
+
+## 2026-08-15T01:20:00+03:30 — inventory agent failed; mapping recorded
+
+- [ERP feature inventory](38705563-83a9-421a-b60d-e753c5cbb026) **error** (connection failed)
+- Replacement: inventory + role mapping written into
+  `docs/architecture/DEMO-V3-DESIGN.md` (section «ERP inventory → Demo V3 mapping»)
+- Implementers still in flight (no `demo-v3-*.js` on disk yet):
+  seed/store [4a1948a9](4a1948a9-a384-4e04-886a-70ed25188982),
+  CSS [6e4d7cc3](6e4d7cc3-ce91-47cb-9677-72aabe30291d),
+  app/tour [e22bd6f7](e22bd6f7-47c7-4584-b521-71bf03794f52)
+- No push / merge / deploy
+
+## 2026-08-15T00:34:00+03:30 — DEMO-V3-GUIDED-SALES claimed (pre-implementation)
+
+- **Task:** `DEMO-V3-GUIDED-SALES` status=`active`; owner `cursor:orchestrator-demo-v3`
+- **Implementer:** `cursor:implementer-demo-v3`
+- **Reviewer / Security:** `cursor:independent-reviewer-demo-v3` / `cursor:independent-security-demo-v3` (≠ Implementer)
+- **Branch / worktree:** `feat/DEMO-V3-GUIDED-SALES` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-demo-v3` @ base `8a1d699`
+- **Not used:** dirty `erp-taranom1` (user-owned deploy scripts untouched)
+- **Architecture decision:** keep public path `/demo.html`; add modular V3 files
+  (`demo-v3-seed.js`, `demo-v3-store.js`, `demo-v3-tour.js`, `demo-v3-app.js`).
+  Static-only sandbox (no fetch). Demo Mode server stack unchanged.
+  CTA URLs configurable via `window.DEMO_V3_CTA` — no invented phone/email
+  (repo `demo-brand.js` has empty support_phone/support_email).
+  Sample company: «پوشاک نمونه سپیدارگل». Maker credit stays
+  «شرکت ترانه اندیشه پردازان ریان».
+  localStorage keys explicit allow-list under `erp.taranom.demo.v3.1.*` — no wildcard delete.
+- **Constraint:** NO `completed`, NO push, NO merge, NO Iran deploy until
+  Independent Reviewer + Security Approved + explicit owner approval
+- **Exact next:** implement welcome + role tours + linked seed + sandbox + tests
+
 ## 2026-08-14T13:25:00+03:30 — DEMO-V2 MERGED + IRAN DEPLOYED ✅
 
 - **Owner approval:** explicit merge + SFTP + demo file

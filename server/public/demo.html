@@ -3,74 +3,219 @@
 <head>
 <script src="/csp-runtime.js?v=158"></script>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>ERP ترنم</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>نسخه نمایشی ERP ترنم — پوشاک نمونه سپیدارگل</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1A5C38">
 <link rel="apple-touch-icon" href="/logo.png">
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
 <link rel="stylesheet" href="/prod-ui.css?v=158">
 <link rel="stylesheet" href="/app.css?v=158">
-<link rel="stylesheet" href="/demo.css?v=5">
+<link rel="stylesheet" href="/demo.css?v=6">
 <script src="/vendor/chart.umd.js" defer></script>
+<script>
+window.DEMO_V3_CTA = {
+  consultUrl: '',
+  quoteUrl: '',
+  consultLabel: 'درخواست جلسه مشاوره',
+  quoteLabel: 'درخواست قیمت'
+};
+</script>
 </head>
-<body>
+<body class="demo-v3">
 
-<div class="demo-watermark" role="status">نسخه نمایشی — داده‌ها کاملاً ساختگی هستند · ساخته‌شده توسط شرکت ترانه اندیشه پردازان ریان</div>
+<a class="skip-link" href="#welcomeMain">پرش به محتوا</a>
 
-<!-- ===== LOGIN — همان کارت ورود برنامه ===== -->
-<div id="login">
-  <button type="button" class="theme-toggle-btn" id="loginThemeBtn">🌙 حالت تاریک</button>
-  <div class="login-card">
-    <div class="logo"><img src="/logo-sm.png" alt="ترنم"><span>🌿</span></div>
-    <h1>ERP ترنم</h1>
-    <p>سامانه یکپارچه ERP پوشاک ترنم</p>
-    <form id="loginForm">
-      <div class="field">
-        <label>نام کاربری</label>
-        <input id="loginUser" autocomplete="username" placeholder="admin">
-      </div>
-      <div class="field">
-        <label>رمز عبور</label>
-        <input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••••">
-      </div>
-      <button type="submit">ورود به سامانه</button>
-      <div class="login-err" id="loginErr"></div>
-    </form>
-    <div class="login-hint">نسخه نمایشی · داده‌ها کاملاً ساختگی هستند<br>ساخته‌شده توسط <b>شرکت ترانه اندیشه پردازان ریان</b></div>
-  </div>
+<div id="demoBadge" class="demo-badge" role="status">
+  <strong>نسخه نمایشی</strong>
+  <span>اطلاعات کاملاً ساختگی</span>
+  <button type="button" class="demo-badge-info" id="demoSecurityBtn" aria-expanded="false" aria-controls="demoSecurityPop">جزئیات امنیت دمو</button>
+</div>
+<div id="demoSecurityPop" class="demo-security-pop" hidden role="dialog" aria-labelledby="demoSecTitle">
+  <h2 id="demoSecTitle">امنیت نسخه نمایشی</h2>
+  <p>داده‌ها متعلق به شرکت ساختگی «پوشاک نمونه سپیدارگل» است و به اطلاعات واقعی مشتریان وصل نیست. تغییرات فقط در همین مرورگر نگهداری می‌شود.</p>
+  <button type="button" id="demoSecurityClose">بستن</button>
 </div>
 
-<!-- ===== APP — همان شل سایدبار + نوار بالا ===== -->
-<div id="app">
+<section id="welcome" class="welcome" aria-label="معرفی نسخه نمایشی">
+  <header class="welcome-top">
+    <div class="welcome-brand">
+      <img src="/logo-sm.png" alt="ERP ترنم">
+      <div>
+        <p class="eyebrow">ERP ترنم · صنعت پوشاک</p>
+        <p class="maker">ساخته‌شده توسط شرکت ترانه اندیشه پردازان ریان</p>
+      </div>
+    </div>
+    <div class="welcome-tools">
+      <button type="button" class="ghost-btn" id="welcomeThemeBtn">حالت تاریک</button>
+    </div>
+  </header>
+
+  <main id="welcomeMain" class="welcome-hero">
+    <p class="kicker">شرکت نمونه · پوشاک نمونه سپیدارگل</p>
+    <h1>از اولین تماس با مشتری تا تولید، فروش، حسابداری و وصول؛ همه‌چیز در یک سیستم</h1>
+    <p class="lede">یک شرکت پوشاک نمونه با اطلاعات کامل در اختیار شماست. نقش خود را انتخاب کنید و فرآیند واقعی کسب‌وکار را تجربه کنید.</p>
+  </main>
+
+  <section class="role-grid" aria-label="انتخاب تجربه">
+    <article class="role-card" data-role="manager">
+      <h2>تور مدیریتی</h2>
+      <p class="role-who">مخاطب: مدیرعامل، هیئت‌مدیره و مدیر فروش</p>
+      <p class="role-see">آنچه می‌بینید: فروش، سود، مطالبات، موجودی، تولید و هشدارهای تصمیم‌ساز</p>
+      <p class="role-time">زمان تقریبی: ۸ دقیقه</p>
+      <ul>
+        <li>فروش و سود این ماه در یک نگاه</li>
+        <li>مطالبات سررسیدشده و چک‌های نزدیک</li>
+        <li>کالاهای کمبود و تولید عقب‌افتاده</li>
+        <li>عملکرد کارشناسان فروش</li>
+        <li>drill-down از KPI به رکورد سازنده</li>
+      </ul>
+      <button type="button" class="primary-btn" data-start="manager">شروع تور مدیریتی</button>
+    </article>
+    <article class="role-card" data-role="sales">
+      <h2>تور فروش و CRM</h2>
+      <p class="role-who">مخاطب: مدیر فروش و کارشناس CRM</p>
+      <p class="role-see">آنچه می‌بینید: از مشتری جدید تا پیش‌فاکتور، تولید، تحویل و وصول</p>
+      <p class="role-time">زمان تقریبی: ۱۲ دقیقه</p>
+      <ul>
+        <li>ثبت مشتری و فرصت فروش</li>
+        <li>تبدیل پیش‌فاکتور به سفارش قطعی</li>
+        <li>کنترل موجودی و درخواست تولید</li>
+        <li>اثر حسابداری فروش</li>
+        <li>ثبت دریافت و مشاهده سود</li>
+      </ul>
+      <button type="button" class="primary-btn" data-start="sales">شروع تور فروش</button>
+    </article>
+    <article class="role-card" data-role="accounting">
+      <h2>تور مالی و حسابداری</h2>
+      <p class="role-who">مخاطب: مدیر مالی و حسابدار</p>
+      <p class="role-see">آنچه می‌بینید: اسناد متوازن، اشخاص، بانک، چک و گزارش‌های مالی</p>
+      <p class="role-time">زمان تقریبی: ۱۰ دقیقه</p>
+      <ul>
+        <li>سند فروش و گردش مشتری</li>
+        <li>دفتر روزنامه و دفتر کل</li>
+        <li>دریافت، پرداخت و چک</li>
+        <li>تراز آزمایشی متوازن</li>
+        <li>سود و زیان معنادار</li>
+      </ul>
+      <button type="button" class="primary-btn" data-start="accounting">شروع تور حسابداری</button>
+    </article>
+    <article class="role-card" data-role="warehouse">
+      <h2>تور انبار و تولید</h2>
+      <p class="role-who">مخاطب: مدیر انبار و مدیر تولید</p>
+      <p class="role-see">آنچه می‌بینید: موجودی، نقطه سفارش، BOM، سفارش تولید و بهای تمام‌شده</p>
+      <p class="role-time">زمان تقریبی: ۱۰ دقیقه</p>
+      <ul>
+        <li>کسری موجودی و نقطه سفارش</li>
+        <li>فرمول ساخت واقعی‌نما</li>
+        <li>مواد اولیه تا کالای تکمیل‌شده</li>
+        <li>مراحل تولید</li>
+        <li>بهای تمام‌شده سفارش</li>
+      </ul>
+      <button type="button" class="primary-btn" data-start="warehouse">شروع تور انبار</button>
+    </article>
+  </section>
+  <p class="free-entry">
+    <button type="button" class="ghost-btn" data-start="free">ورود آزاد به نسخه نمایشی</button>
+  </p>
+
+  <section class="welcome-cycle" aria-labelledby="cycleTitle">
+    <h2 id="cycleTitle">چرخه کامل کسب‌وکار</h2>
+    <ol class="cycle-flow">
+      <li>CRM</li>
+      <li>فروش</li>
+      <li>انبار</li>
+      <li>تولید</li>
+      <li>حسابداری</li>
+      <li>وصول</li>
+    </ol>
+    <p>هر عدد در داشبورد به همان مشتری، فاکتور، موجودی یا سند حسابداری وصل است. یکپارچگی یعنی مدیر یک روایت می‌بیند، نه چند فایل جدا.</p>
+  </section>
+
+  <section class="welcome-modules" aria-labelledby="modTitle">
+    <h2 id="modTitle">ماژول‌های مهم</h2>
+    <ul class="mod-list">
+      <li>فروش، پیش‌فاکتور، فاکتور عادی و فاکتور نهایی</li>
+      <li>CRM و فرصت‌ها</li>
+      <li>انبار چندگانه</li>
+      <li>تولید و BOM</li>
+      <li>حسابداری دو طرفه</li>
+      <li>چک و خزانه‌داری</li>
+      <li>پورتال B2B</li>
+      <li>گزارش مدیریتی</li>
+    </ul>
+  </section>
+
+  <section class="welcome-trust" aria-labelledby="trustTitle">
+    <h2 id="trustTitle">داده‌ها ساختگی است</h2>
+    <p>شرکت «پوشاک نمونه سپیدارگل» فقط برای نمایش ساخته شده. شماره تماس و هویت‌ها واقعی نیستند. ذخیره روی سرور تولید انجام نمی‌شود و بازنشانی دمو فقط کلیدهای همین نسخه را پاک می‌کند.</p>
+  </section>
+
+  <section class="welcome-cta" aria-labelledby="ctaTitle">
+    <h2 id="ctaTitle">ادامه گفتگو</h2>
+    <p>برای جلسه یا قیمت، پیوندها از پیکربندی دمو خوانده می‌شوند و اطلاعات جعلی ارسال نمی‌شود.</p>
+    <div class="cta-row">
+      <a class="primary-btn cta-btn is-disabled" id="ctaConsult" aria-disabled="true">درخواست جلسه مشاوره</a>
+      <a class="ghost-btn cta-btn is-disabled" id="ctaQuote" aria-disabled="true">درخواست قیمت</a>
+    </div>
+    <p class="cta-sample" id="ctaSampleNote">نمونه قابل پیکربندی — آدرس جلسه/قیمت در این محیط تنظیم نشده است.</p>
+  </section>
+
+  <footer class="welcome-foot">
+    <p>ساخته‌شده توسط <strong>شرکت ترانه اندیشه پردازان ریان</strong></p>
+  </footer>
+</section>
+
+<div id="app" hidden>
   <div class="layout">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <img src="/logo-sm.png" alt="ترنم"><span class="emoji">🌿</span>
-        <div><h2>ERP ترنم</h2><small id="brandRole">پنل مدیریت</small></div>
+        <img src="/logo-sm.png" alt="ترنم">
+        <div>
+          <h2>ERP ترنم</h2>
+          <small id="brandRole">پوشاک نمونه سپیدارگل</small>
+        </div>
       </div>
-      <nav class="nav" id="nav"></nav>
+      <nav class="nav" id="nav" aria-label="منوی اصلی"></nav>
     </aside>
-
     <div class="main">
       <header class="topbar">
         <div class="left">
-          <button type="button" class="menu-btn" id="menuBtn">☰</button>
-          <button type="button" class="back-btn" id="navBackBtn" title="بالا" aria-label="بالا">↑</button>
+          <button type="button" class="menu-btn" id="menuBtn" aria-label="منو">منو</button>
+          <button type="button" class="back-btn" id="navBackBtn" aria-label="بازگشت">بازگشت</button>
           <h3 id="pageTitle">داشبورد</h3>
         </div>
         <div class="right">
-          <button type="button" class="notif-bell" id="notifBell" title="اعلان‌ها">🔔<span class="nbadge" id="notifBadge">7</span></button>
+          <button type="button" class="ghost-btn" id="resetDemoBtn">بازنشانی دمو</button>
+          <button type="button" class="notif-bell" id="notifBell" aria-label="اعلان‌ها">اعلان‌ها<span class="nbadge" id="notifBadge">0</span></button>
           <span class="clock" id="clock"></span>
           <div class="user">
             <div class="avatar" id="avatar">م</div>
-            <div><div id="userName">مدیر سیستم</div><div class="muted" id="userRole">مدیر</div></div>
+            <div>
+              <div id="userName">مدیر نمونه</div>
+              <div class="muted" id="userRole">نسخه نمایشی</div>
+            </div>
           </div>
         </div>
       </header>
-      <main class="content" id="view"></main>
+      <main class="content" id="view" tabindex="-1"></main>
     </div>
   </div>
+
+  <aside id="tourDock" class="tour-dock" hidden role="dialog" aria-modal="false" aria-labelledby="tourTitle">
+    <div class="tour-progress" id="tourProgress" aria-live="polite"></div>
+    <h2 id="tourTitle">تور</h2>
+    <ol id="tourSteps" class="tour-steps"></ol>
+    <p id="tourBody" class="tour-body"></p>
+    <div class="tour-actions">
+      <button type="button" class="primary-btn" id="tourAction">اقدام این مرحله</button>
+      <button type="button" class="ghost-btn" id="tourSkip">رد کردن مرحله</button>
+      <button type="button" class="ghost-btn" id="tourPause">توقف تور</button>
+      <button type="button" class="ghost-btn" id="tourRestart">شروع دوباره</button>
+      <button type="button" class="ghost-btn" id="tourFree">محیط آزاد</button>
+    </div>
+  </aside>
+  <div id="tourHighlight" class="tour-highlight" hidden></div>
 
   <button type="button" id="acctFab" class="acct-fab" title="حساب کاربری" aria-label="منوی حساب کاربری" aria-expanded="false" aria-controls="acctDrawer">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
@@ -78,19 +223,38 @@
   <div id="acctDrawerBackdrop" aria-hidden="true"></div>
   <div id="acctDrawer" role="dialog" aria-label="منوی حساب کاربری">
     <div class="acct-drawer-user">
-      <b id="acctDrawerName">مدیر سیستم</b>
-      <span id="acctDrawerUser">admin</span>
+      <b id="acctDrawerName">مدیر نمونه</b>
+      <span id="acctDrawerUser">demo</span>
     </div>
-    <button type="button" class="acct-drawer-btn" id="acctThemeBtn">🌙 حالت تاریک</button>
-    <button type="button" class="acct-drawer-btn danger" id="acctBtnOut">🚪 خروج</button>
+    <button type="button" class="acct-drawer-btn" id="acctThemeBtn">حالت تاریک</button>
+    <button type="button" class="acct-drawer-btn" id="acctWelcomeBtn">بازگشت به معرفی</button>
+    <button type="button" class="acct-drawer-btn danger" id="acctBtnOut">خروج از محیط</button>
+  </div>
+</div>
+
+<div id="summary" class="summary-screen" hidden>
+  <div class="summary-card">
+    <h2 id="summaryTitle">جمع‌بندی تور</h2>
+    <div id="summaryBody"></div>
+    <div class="cta-row">
+      <button type="button" class="primary-btn" id="summaryFree">ورود آزاد</button>
+      <button type="button" class="ghost-btn" id="summaryOther">شروع تور دیگر</button>
+      <a class="ghost-btn cta-btn is-disabled" id="summaryConsult" aria-disabled="true">درخواست جلسه</a>
+      <a class="ghost-btn cta-btn is-disabled" id="summaryQuote" aria-disabled="true">درخواست قیمت</a>
+    </div>
   </div>
 </div>
 
 <div id="modalRoot"></div>
 <div id="sidebarBackdrop"></div>
 <div id="toasts"></div>
+<div id="confirmRoot"></div>
 
 <script src="/acc-nav.js?v=158"></script>
-<script src="/demo.js?v=5"></script>
+<script src="/demo-v3-seed.js?v=1"></script>
+<script src="/demo-v3-store.js?v=1"></script>
+<script src="/demo-v3-tour.js?v=1"></script>
+<script src="/demo-v3-app.js?v=1"></script>
+<script src="/demo.js?v=6"></script>
 </body>
 </html>

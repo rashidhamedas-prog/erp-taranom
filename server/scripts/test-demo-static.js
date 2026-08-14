@@ -4,9 +4,21 @@
 const fs = require('fs');
 const path = require('path');
 
+function listDemoStaticFiles(dir) {
+  const required = ['demo.html', 'demo.js', 'demo.css'];
+  const extra = [
+    'demo-v3-seed.js',
+    'demo-v3-store.js',
+    'demo-v3-tour.js',
+    'demo-v3-app.js',
+  ];
+  const names = required.concat(extra.filter((n) => fs.existsSync(path.join(dir, n))));
+  return names.map((n) => path.join(dir, n));
+}
+
 function scanDemoStatic(publicDir) {
   const dir = publicDir || path.join(__dirname, '..', 'public');
-  const files = ['demo.html', 'demo.js', 'demo.css'].map((n) => path.join(dir, n));
+  const files = listDemoStaticFiles(dir);
   const text = files.map((f) => fs.readFileSync(f, 'utf8')).join('\n');
   const networkHits = [];
   if (/\bfetch\s*\(/.test(text)) networkHits.push('fetch');
