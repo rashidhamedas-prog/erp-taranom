@@ -3,6 +3,7 @@
 - **Independent:** [Independent re-review demo v2](a925eb95-5742-4bed-8574-6374a2a2695d) **APPROVED**
   (R1/R2/R4/R5/R6 closed; R3 residual optional live seed; Lows L1–L3)
 - **Security:** [Security Review](1471cb54-6e3c-45e5-93af-34dee967ad44) **APPROVED**
+- **Tip:** `af9859f` on `ai/DEMO-V2-SECURE-SALES`
 - **Task:** `completed`; `file_claims: []`; review_status=APPROVED; security_status=APPROVED
 - **NOT done:** merge to primary · Iran SFTP/deploy — need explicit owner approval
 - **Gates:** test-demo-v2 **36/36** · test-demo-static OK · SW v154

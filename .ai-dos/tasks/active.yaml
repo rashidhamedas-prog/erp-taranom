@@ -20,8 +20,8 @@ tasks:
     completed_at: "2026-08-14T13:05:00+03:30"
     file_claims: []
     notes: >-
-      Dual Approved on uncommitted-then-committed tip of ai/DEMO-V2-SECURE-SALES
-      (base eae0a14). Independent [a925eb95] APPROVED; Security [1471cb54] APPROVED;
+      Dual Approved on tip af9859f of ai/DEMO-V2-SECURE-SALES (base eae0a14).
+      Independent [a925eb95] APPROVED; Security [1471cb54] APPROVED;
       no open C/H/M. Residual Lows L1–L3 and optional live-seed R3 do not block.
       Claims released. Merge / Iran deploy require explicit owner approval —
       not performed. Protected dirty file in erp-taranom1

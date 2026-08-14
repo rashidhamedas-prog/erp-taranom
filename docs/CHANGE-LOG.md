@@ -28,7 +28,7 @@
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
 ### 2026-08-14 — DEMO-V2-SECURE-SALES dual Approved (no Iran deploy)
-- **شاخه:** `ai/DEMO-V2-SECURE-SALES` (base `eae0a14`)
+- **شاخه:** `ai/DEMO-V2-SECURE-SALES` @ `af9859f` (base `eae0a14`)
 - **خلاصه:** Independent + Security هر دو Approved؛ بدون یافتهٔ باز Critical/High/Medium. تسک completed؛ claimها آزاد. merge و deploy ایران انجام نشد.
 - **Deploy:** ⏭ اعمال نشد — نیاز به تأیید صریح مالک
 - **SW:** `erp-taranom-v154`
