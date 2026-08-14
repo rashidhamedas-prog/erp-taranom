@@ -118,8 +118,8 @@
     if (!el) { box.hidden = true; return; }
     var r = el.getBoundingClientRect();
     box.hidden = false;
-    box.style.top = (r.top + global.scrollY - 6) + 'px';
-    box.style.left = (r.left + global.scrollX - 6) + 'px';
+    box.style.top = (r.top - 6) + 'px';
+    box.style.left = (r.left - 6) + 'px';
     box.style.width = (r.width + 12) + 'px';
     box.style.height = (r.height + 12) + 'px';
     if (!reduced()) box.style.opacity = '1';

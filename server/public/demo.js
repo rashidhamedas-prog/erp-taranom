@@ -76,7 +76,7 @@ function showWelcome() {
 
 function enterRole(role) {
   showApp();
-  DemoV3App.init();
+  if (window.DemoV3App) DemoV3App.init();
   if (role === 'free') DemoV3App.enterFree();
   else {
     DemoV3App.go('dash');

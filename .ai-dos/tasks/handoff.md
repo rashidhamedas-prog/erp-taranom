@@ -1,3 +1,37 @@
+## 2026-08-15T02:50:00+03:30 — Implementer closed review High/Medium (pre re-review)
+
+- Identity: `cursor:implementer-demo-v3`
+- Closed [Independent Demo V3 review](8e7351b6-e721-4798-9f36-ef4cc075e3e4) findings:
+  H1 delivery writes `delivered`/`deliveryDate`; H2 `viewBound` once; H3 sales-path asserts in `test-demo-v3.js`
+  M1 convert/receipt post JE + AR; M2 COA from journals; M3 acc pages not dash / P&L first
+  M4 highlight = `getBoundingClientRect`; M5 `.tour-progress` visible; M6 reset dialog a11y
+- Gates: test-demo-v3 **52/52** · test-demo-static OK
+- Next: commit locally, Independent + Security re-review on new tip. NO push/merge/deploy.
+
+## 2026-08-15T02:42:00+03:30 — Independent Reviewer DEMO-V3-GUIDED-SALES
+
+- Identity: `cursor:independent-reviewer-demo-v3` (≠ implementer/security). Product code not edited.
+- Scope: committed tip `3dd0d11` only (dirty `demo-v3-app.js` WIP ignored).
+- Disposition: **CHANGES_REQUIRED** — open High/Medium. See review message.
+- test-demo-v3 34/34 green; does not exercise sales-path mutations.
+- Production `app.js` / auth untouched. NO commit / push / deploy.
+
+## 2026-08-15T02:35:00+03:30 — Independent Reviewer DEMO-V3-GUIDED-SALES
+
+- Identity: `cursor:independent-reviewer-demo-v3` (≠ implementer). No product files edited.
+- Tip reviewed: `3dd0d11` on `feat/DEMO-V3-GUIDED-SALES`
+- Disposition: **CHANGES_REQUIRED** — open High/Medium (delivery no-op; double-bind init; tests are string/count not sales-path behavior; AR/JE unlink; acc-shell fallback to dash)
+- Production auth/app.js untouched. test-demo-v3 34/34 still green (does not catch the Highs).
+- NO commit / push / deploy
+
+## 2026-08-15T02:35:00+03:30 — Security APPROVED on 3dd0d11
+
+- [Security](afd96821-5e12-46c3-a002-bf9a0f6a6665) **APPROVED** — no Critical/High/Medium
+- Prior empty-diff attempt [7a18a8d3](7a18a8d3-6f85-49c5-b6df-59fa742d0c8e) skipped (already committed)
+- Low advisories only: re-validate seed on load; escape numeric data-id
+- Independent Reviewer still PENDING (8e7351b6 no result yet — relaunch)
+- Task remains `active`; NO merge/push/deploy
+
 ## 2026-08-15T01:45:00+03:30 — Demo V3 implementation on disk (pre dual-review)
 
 - Failed agents (connection): inventory [38705563](38705563-83a9-421a-b60d-e753c5cbb026),

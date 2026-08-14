@@ -125,6 +125,60 @@ function noNetwork(text) {
   rec('acc-shell-ids', /enterAccountingShell/.test(bootFile) && /renderAccPage/.test(bootFile) && /ACC_NAV_SECTIONS/.test(bootFile), 'acc identifiers');
   rec('namespace', /erp\.taranom\.demo\.v3\.1/.test(storeFile), 'ns');
 
+  const appCtx = loadBrowser(['demo-v3-seed.js', 'demo-v3-store.js', 'demo-v3-tour.js', 'demo-v3-app.js']);
+  appCtx.DemoV3App.init();
+  const before = appCtx.DemoV3App.getState();
+  const cust0 = before.customers.length;
+  const opp0 = before.opportunities.length;
+  const act0 = before.activities.length;
+  const inv0 = before.invoices.length;
+  const stockBefore = (before.stock.find((s) => s.productId === 1 && s.warehouseId === 1) || { qty: 0 }).qty;
+  const je0 = before.journals.length;
+  const rec0 = before.receipts.length;
+  const mo0 = before.productionOrders.length;
+
+  appCtx.DemoV3App.init();
+  appCtx.DemoV3App.applyTourAction('add-customer');
+  rec('path-customer', appCtx.DemoV3App.getState().customers.length === cust0 + 1, 'one customer');
+  rec('path-no-double-bind', appCtx.DemoV3App.getState().customers.length === cust0 + 1, 'second init does not double');
+
+  appCtx.DemoV3App.applyTourAction('add-opportunity');
+  rec('path-opportunity', appCtx.DemoV3App.getState().opportunities.length === opp0 + 1, 'opp');
+  appCtx.DemoV3App.applyTourAction('add-followup');
+  rec('path-followup', appCtx.DemoV3App.getState().activities.length === act0 + 1, 'activity');
+  appCtx.DemoV3App.applyTourAction('add-proforma');
+  const afterPf = appCtx.DemoV3App.getState();
+  const pf = afterPf.invoices[afterPf.invoices.length - 1];
+  rec('path-proforma', afterPf.invoices.length === inv0 + 1 && pf.type === 'proforma', 'proforma');
+  const owner = afterPf.customers.find((c) => c.id === pf.customerId);
+  const balBefore = owner.balance;
+
+  appCtx.DemoV3App.applyTourAction('convert-proforma');
+  const afterCv = appCtx.DemoV3App.getState();
+  const converted = afterCv.invoices.find((i) => i.id === pf.id);
+  rec('path-convert', converted && converted.type === 'normal', 'type normal');
+  rec('path-convert-je', afterCv.journals.length >= je0 + 1 && afterCv.journals.some((j) => j.sourceType === 'invoice' && j.sourceId === pf.id), 'sale JE');
+  rec('path-convert-cogs', afterCv.journals.some((j) => j.sourceType === 'cogs' && j.sourceId === pf.id), 'cogs JE');
+  rec('path-convert-ar', afterCv.customers.find((c) => c.id === pf.customerId).balance === balBefore - pf.final, 'AR updated');
+  const stockAfterSale = (afterCv.stock.find((s) => s.productId === 1 && s.warehouseId === 1) || { qty: 0 }).qty;
+  rec('path-stock-out', stockAfterSale < stockBefore, 'stock decreased');
+
+  appCtx.DemoV3App.applyTourAction('filter-shortage');
+  rec('path-shortage-page', appCtx.DemoV3App.getPage() === 'stock', 'stock page');
+  appCtx.DemoV3App.applyTourAction('add-mo');
+  rec('path-mo', appCtx.DemoV3App.getState().productionOrders.length === mo0 + 1, 'MO added');
+  appCtx.DemoV3App.applyTourAction('complete-mo');
+  rec('path-mo-done', appCtx.DemoV3App.getState().productionOrders[0].status === 'done', 'MO done');
+  appCtx.DemoV3App.applyTourAction('mark-delivered');
+  rec('path-delivery', !!appCtx.DemoV3App.getState().invoices.find((i) => i.id === pf.id && i.delivered), 'delivered flag');
+  const balAfterSale = afterCv.customers.find((c) => c.id === pf.customerId).balance;
+  appCtx.DemoV3App.applyTourAction('add-receipt');
+  const afterRc = appCtx.DemoV3App.getState();
+  rec('path-receipt', afterRc.receipts.length === rec0 + 1, 'receipt row');
+  rec('path-receipt-je', afterRc.journals.some((j) => j.sourceType === 'receipt' && j.sourceId === pf.id), 'receipt JE');
+  rec('path-receipt-balance', afterRc.customers.find((c) => c.id === pf.customerId).balance > balAfterSale, 'AR reduced');
+  rec('path-coa-from-je', afterRc.coa.every((a) => afterRc.journals.some((j) => (j.lines || []).some((ln) => ln.account === a.name))), 'COA from journals');
+
   ['demo.js', 'demo-v3-seed.js', 'demo-v3-store.js', 'demo-v3-tour.js', 'demo-v3-app.js'].forEach((name) => {
     try {
       execFileSync(process.execPath, ['--check', path.join(PUBLIC, name)], { stdio: 'pipe' });

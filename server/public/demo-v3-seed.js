@@ -314,37 +314,40 @@
       { id: 1, name: 'صندوق فروشگاه نمونه', balance: 12800000, sample: true }
     ];
 
-    var coa = [
-      { code: '1101', name: 'صندوق', kind: 'دارایی', debit: 12800000, credit: 0 },
-      { code: '1102', name: 'بانک', kind: 'دارایی', debit: 240000000, credit: 0 },
-      { code: '1103', name: 'حساب‌های دریافتنی', kind: 'دارایی', debit: 0, credit: 0 },
-      { code: '1105', name: 'موجودی کالا', kind: 'دارایی', debit: 0, credit: 0 },
-      { code: '2101', name: 'حساب‌های پرداختنی', kind: 'بدهی', debit: 0, credit: 0 },
-      { code: '4101', name: 'فروش', kind: 'درآمد', debit: 0, credit: 0 },
-      { code: '5101', name: 'بهای تمام‌شده', kind: 'هزینه', debit: 0, credit: 0 }
-    ];
-    var ar = 0, sales = 0, cogsSum = 0, invAsset = 0;
-    customers.forEach(function (c) { if (c.balance < 0) ar += -c.balance; });
-    invoices.filter(function (x) { return x.type !== 'proforma'; }).forEach(function (x) {
-      sales += x.final;
-      x.lines.forEach(function (ln) {
-        var pr = products.find(function (p) { return p.id === ln.productId; });
-        if (pr) cogsSum += pr.cost * ln.qty;
+    customers.forEach(function (c) {
+      var sold = 0, got = 0;
+      invoices.forEach(function (inv) {
+        if (inv.customerId === c.id && inv.type !== 'proforma') sold += inv.final;
+      });
+      receipts.forEach(function (r) {
+        if (r.customerId === c.id) got += r.amount;
+      });
+      c.balance = got - sold;
+    });
+    if (!customers.some(function (c) { return c.balance > 0; })) {
+      customers[0].balance += 2500000;
+      receipts.push({
+        id: receipts.length + 1, customerId: customers[0].id, invoiceId: invoices[0].id,
+        method: 'transfer', amount: 2500000, date: '1405/05/01', sample: true
+      });
+      addJournal('پیش‌دریافت نمونه', '1405/05/01', [
+        { account: '1102 بانک', debit: 2500000, credit: 0 },
+        { account: '1103 دریافتنی', debit: 0, credit: 2500000 }
+      ], 'receipt', receipts.length);
+    }
+
+    var coaMap = {};
+    journals.forEach(function (j) {
+      (j.lines || []).forEach(function (ln) {
+        var key = ln.account;
+        if (!coaMap[key]) coaMap[key] = { code: String(key).slice(0, 4), name: key, kind: 'حساب', debit: 0, credit: 0 };
+        coaMap[key].debit += ln.debit || 0;
+        coaMap[key].credit += ln.credit || 0;
       });
     });
-    stock.forEach(function (s) {
-      var pr = products.find(function (p) { return p.id === s.productId; });
-      if (pr) invAsset += s.qty * pr.cost;
-    });
-    coa[2].debit = ar;
-    coa[3].debit = invAsset;
-    coa[5].credit = sales;
-    coa[6].debit = cogsSum;
-    var debitCoa = 0, creditCoa = 0;
-    coa.forEach(function (a) { debitCoa += a.debit; creditCoa += a.credit; });
-    if (debitCoa !== creditCoa) {
-      if (debitCoa > creditCoa) coa[4].credit += debitCoa - creditCoa;
-      else coa[1].debit += creditCoa - debitCoa;
+    var coa = Object.keys(coaMap).map(function (k) { return coaMap[k]; });
+    if (!coa.length) {
+      coa = [{ code: '1103', name: 'دریافتنی', kind: 'دارایی', debit: 0, credit: 0 }];
     }
 
     var notifications = [

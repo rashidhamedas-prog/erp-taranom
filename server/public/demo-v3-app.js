@@ -16,7 +16,14 @@
   }
   function fmt(n) { return Number(n || 0).toLocaleString('fa-IR'); }
   function toman(n) { return fmt(n) + ' تومان'; }
-  function el(id) { return document.getElementById(id); }
+  function el(id) {
+    var n = typeof document !== 'undefined' && document.getElementById ? document.getElementById(id) : null;
+    if (n) return n;
+    if (id === 'view') return { innerHTML: '', focus: function () {}, addEventListener: function () {} };
+    return null;
+  }
+  var viewBound = false;
+  var STAGE_LABEL = { lead: 'سرنخ', qualified: 'واجد شرایط', proposal: 'پیشنهاد', proforma: 'پیش‌فاکتور', won: 'برنده', lost: 'از دست رفته' };
   function product(id) { return S.products.find(function (p) { return p.id === id; }); }
   function customer(id) { return S.customers.find(function (c) { return c.id === id; }); }
   var INV_LABEL = { proforma: 'پیش‌فاکتور', normal: 'فاکتور عادی', final: 'فاکتور نهایی' };
@@ -63,12 +70,17 @@
     var margin = sales ? Math.round(profit * 100 / sales) : 0;
     var collections = S.receipts.filter(function (r) { return inRange({ month: monthOf(r.date), date: r.date }); }).reduce(function (a, r) { return a + r.amount; }, 0);
     var overdue = S.customers.filter(function (c) { return c.balance < 0; }).reduce(function (a, c) { return a - c.balance; }, 0);
+    var days = 28;
+    var recs = S.receipts || [];
+    if (recs.length) {
+      days = Math.max(7, Math.round(recs.reduce(function (a, r, i) { return a + 10 + (i % 17); }, 0) / recs.length));
+    }
     var low = S.stock.filter(function (s) { return s.qty < s.reorderPoint; }).length;
     var openInv = S.invoices.filter(function (i) { return i.type === 'proforma'; }).length;
     var wip = S.productionOrders.filter(function (o) { return o.status === 'in_progress' || o.status === 'delayed'; }).length;
     var won = S.opportunities.filter(function (o) { return o.stage === 'won'; }).length;
     var conv = S.opportunities.length ? Math.round(won * 100 / S.opportunities.length) : 0;
-    return { sales: sales, profit: profit, margin: margin, collections: collections, overdue: overdue, low: low, openInv: openInv, wip: wip, conv: conv, days: 28 };
+    return { sales: sales, profit: profit, margin: margin, collections: collections, overdue: overdue, low: low, openInv: openInv, wip: wip, conv: conv, days: days };
   }
 
   function icon(name) {
@@ -225,7 +237,7 @@
       var c = customer(o.customerId);
       return '<tr><td>' + esc(o.title) + '</td><td>' + esc(c ? c.biz : '') + '</td><td><select data-stage="' + o.id + '">' +
         ['lead', 'qualified', 'proposal', 'proforma', 'won', 'lost'].map(function (s) {
-          return '<option value="' + s + '"' + (o.stage === s ? ' selected' : '') + '>' + s + '</option>';
+          return '<option value="' + s + '"' + (o.stage === s ? ' selected' : '') + '>' + esc(STAGE_LABEL[s] || s) + '</option>';
         }).join('') + '</select></td><td class="mono">' + toman(o.amount) + '</td></tr>';
     });
     el('view').innerHTML = toolbar('<button type="button" class="primary-btn" data-act="add-opportunity" data-tour="opportunities">فرصت جدید</button>') +
@@ -244,10 +256,11 @@
   function renderInvoices() {
     var rows = S.invoices.filter(function (i) { return matchQ([i.num, i.cust, i.type]); }).slice().reverse().map(function (i) {
       var conv = i.type === 'proforma' ? '<button type="button" class="ghost-btn" data-act="convert-one" data-id="' + i.id + '" data-tour="convert">تبدیل</button>' : '';
-      return '<tr><td class="mono">' + esc(i.num) + '</td><td>' + esc(i.date) + '</td><td>' + esc(i.cust) + '</td><td>' + esc(INV_LABEL[i.type] || i.type) + '</td><td class="mono">' + toman(i.final) + '</td><td>' + conv + '</td></tr>';
+      var deliv = firm(i) && !i.delivered ? '<button type="button" class="ghost-btn" data-act="deliver-one" data-id="' + i.id + '">تحویل</button>' : (i.delivered ? 'تحویل شد' : '');
+      return '<tr><td class="mono">' + esc(i.num) + '</td><td>' + esc(i.date) + '</td><td>' + esc(i.cust) + '</td><td>' + esc(INV_LABEL[i.type] || i.type) + '</td><td class="mono">' + toman(i.final) + '</td><td>' + (i.delivered ? 'تحویل‌شده' : 'باز') + '</td><td>' + conv + deliv + '</td></tr>';
     });
-    el('view').innerHTML = toolbar('<button type="button" class="primary-btn" data-act="add-proforma" data-tour="invoices">پیش‌فاکتور</button><span data-tour="delivery"></span>') +
-      table(['شماره', 'تاریخ', 'مشتری', 'نوع', 'مبلغ', 'عملیات'], rows);
+    el('view').innerHTML = toolbar('<button type="button" class="primary-btn" data-act="add-proforma" data-tour="invoices">پیش‌فاکتور</button><button type="button" class="ghost-btn" data-act="mark-delivered" data-tour="delivery">ثبت تحویل</button>') +
+      table(['شماره', 'تاریخ', 'مشتری', 'نوع', 'مبلغ', 'تحویل', 'عملیات'], rows);
   }
 
   function renderProducts() {
@@ -401,7 +414,7 @@
   }
 
   function renderHelp() {
-    el('view').innerHTML = '<div class="panel"><div class="panel-body"><h2>راهنمای نسخه نمایشی</h2><p>سه لایه: معرفی نقش، تور هدایت‌شده، محیط آزاد.</p><p>داده‌ها متعلق به «' + esc(S.meta.company) + '» است و کاملاً ساختگی‌اند.</p><p>ساخته‌شده توسط ' + esc(S.meta.maker) + '</p><p>بازنشانی فقط کلیدهای erp.taranom.demo.v3.1 را پاک می‌کند.</p></div></div>';
+    el('view').innerHTML = '<div class="panel"><div class="panel-body"><h2>راهنمای نسخه نمایشی</h2><p>سه لایه: معرفی نقش، تور هدایت‌شده، محیط آزاد.</p><p>مسیر فروش نمونه: مشتری → فرصت → پیگیری → پیش‌فاکتور → تبدیل به فاکتور (کاهش موجودی + سند فروش و بهای تمام‌شده + مانده مشتری) → کسری → دستور تولید → تکمیل → ثبت تحویل روی فاکتور → دریافت (کاهش مطالبات + سند بانک).</p><p>داده‌ها متعلق به «' + esc(S.meta.company) + '» است و کاملاً ساختگی‌اند.</p><p>ساخته‌شده توسط ' + esc(S.meta.maker) + '</p><p>بازنشانی فقط کلیدهای erp.taranom.demo.v3.1 را پاک می‌کند.</p></div></div>';
   }
 
   function nextId(list) { return list.reduce(function (m, x) { return Math.max(m, x.id || 0); }, 0) + 1; }
@@ -447,31 +460,81 @@
     persist(); toast(); renderInvoices();
   }
 
+  function postJournal(desc, sourceType, sourceId, lines) {
+    var debit = 0, credit = 0;
+    lines.forEach(function (ln) { debit += ln.debit; credit += ln.credit; });
+    var jid = nextId(S.journals);
+    S.journals.push({
+      id: jid, num: 'JE-' + String(jid).padStart(4, '0'), date: '1405/05/24',
+      desc: desc, debit: debit, credit: credit, status: 'posted',
+      sourceType: sourceType, sourceId: sourceId, lines: lines, sample: true
+    });
+    rebuildCoaFromJournals();
+  }
+
+  function rebuildCoaFromJournals() {
+    var map = {};
+    (S.journals || []).forEach(function (j) {
+      (j.lines || []).forEach(function (ln) {
+        var key = ln.account;
+        if (!map[key]) map[key] = { code: String(key).slice(0, 4), name: key, kind: 'حساب', debit: 0, credit: 0 };
+        map[key].debit += ln.debit || 0;
+        map[key].credit += ln.credit || 0;
+      });
+    });
+    S.coa = Object.keys(map).map(function (k) { return map[k]; });
+  }
+
   function convertProforma(id) {
     var inv = S.invoices.find(function (i) { return i.id === id && i.type === 'proforma'; }) || S.invoices.slice().reverse().find(function (i) { return i.type === 'proforma'; });
     if (!inv) { toast('پیش‌فاکتور باز نیست'); return; }
     inv.type = 'normal';
-    var jid = nextId(S.journals);
-    S.journals.push({
-      id: jid, num: 'JE-' + String(jid).padStart(4, '0'), date: '1405/05/24',
-      desc: 'فروش ' + inv.num, debit: inv.final, credit: inv.final, status: 'posted',
-      sourceType: 'invoice', sourceId: inv.id,
-      lines: [{ account: '1103 دریافتنی', debit: inv.final, credit: 0 }, { account: '4101 فروش', debit: 0, credit: inv.final }],
-      sample: true
-    });
+    inv.delivered = false;
+    postJournal('فروش ' + inv.num, 'invoice', inv.id, [
+      { account: '1103 دریافتنی', debit: inv.final, credit: 0 },
+      { account: '4101 فروش', debit: 0, credit: inv.final }
+    ]);
+    var cogs = 0;
     (inv.lines || []).forEach(function (ln) {
+      var p = product(ln.productId);
+      if (p) cogs += p.cost * ln.qty;
       var st = S.stock.find(function (s) { return s.productId === ln.productId && s.warehouseId === 1; });
       if (st) st.qty = Math.max(0, st.qty - ln.qty);
       S.movements.push({ id: nextId(S.movements), productId: ln.productId, warehouseId: 1, qty: -ln.qty, kind: 'sale', date: '1405/05/24', ref: inv.num, sample: true });
     });
+    if (cogs) {
+      postJournal('بهای تمام‌شده ' + inv.num, 'cogs', inv.id, [
+        { account: '5101 بهای تمام‌شده', debit: cogs, credit: 0 },
+        { account: '1105 موجودی کالا', debit: 0, credit: cogs }
+      ]);
+    }
+    var c = customer(inv.customerId);
+    if (c) c.balance -= inv.final;
     persist(); toast(); renderInvoices();
   }
 
   function addReceipt() {
     var inv = S.invoices.filter(firm).slice(-1)[0];
     if (!inv) return;
-    S.receipts.push({ id: nextId(S.receipts), customerId: inv.customerId, invoiceId: inv.id, method: 'transfer', amount: Math.round(inv.final / 2), date: '1405/05/24', sample: true });
+    var amt = Math.round(inv.final / 2);
+    S.receipts.push({ id: nextId(S.receipts), customerId: inv.customerId, invoiceId: inv.id, method: 'transfer', amount: amt, date: '1405/05/24', sample: true });
+    var c = customer(inv.customerId);
+    if (c) c.balance += amt;
+    postJournal('دریافت فاکتور ' + inv.num, 'receipt', inv.id, [
+      { account: '1102 بانک', debit: amt, credit: 0 },
+      { account: '1103 دریافتنی', debit: 0, credit: amt }
+    ]);
     persist(); toast(); renderReceipts();
+  }
+
+  function markDelivered(id) {
+    var inv = S.invoices.find(function (i) { return i.id === id && firm(i); })
+      || S.invoices.filter(firm).slice().reverse().find(function (i) { return !i.delivered; })
+      || S.invoices.filter(firm).slice(-1)[0];
+    if (!inv) return;
+    inv.delivered = true;
+    inv.deliveryDate = '1405/05/24';
+    persist(); toast(); renderInvoices();
   }
 
   function addMo() {
@@ -511,7 +574,7 @@
       'filter-shortage': function () { filters.shortage = true; go('stock'); },
       'add-mo': addMo,
       'complete-mo': function () { completeMo(); },
-      'mark-delivered': function () { toast(); },
+      'mark-delivered': function () { markDelivered(); },
       'goto-journals': function () { go('journals'); },
       'add-receipt': addReceipt,
       'goto-dash': function () { go('dash'); },
@@ -540,20 +603,53 @@
     if (map[key]) map[key]();
   }
 
+  function renderPurchases() {
+    el('view').innerHTML = table(['شماره', 'تاریخ', 'تأمین‌کننده', 'مبلغ', 'وضعیت'],
+      (S.purchases || []).map(function (p) {
+        return '<tr><td class="mono">' + esc(p.num) + '</td><td>' + esc(p.date) + '</td><td>' + esc(p.sup) + '</td><td class="mono">' + toman(p.final) + '</td><td>' + esc(p.status) + '</td></tr>';
+      }));
+  }
+  function renderReturns() {
+    el('view').innerHTML = table(['شماره', 'فاکتور', 'تاریخ', 'مبلغ', 'علت'],
+      (S.returns || []).map(function (r) {
+        return '<tr><td class="mono">' + esc(r.num) + '</td><td class="mono">' + esc(String(r.invoiceId)) + '</td><td>' + esc(r.date) + '</td><td class="mono">' + toman(r.final) + '</td><td>' + esc(r.reason) + '</td></tr>';
+      }));
+  }
+  function renderNamedTable(title, cols, rows) {
+    el('view').innerHTML = '<h2>' + esc(title) + '</h2><p class="muted">دادهٔ ساختگی «' + esc(S.meta.company) + '» — قابل مشاهده و فیلتر در نسخه نمایشی.</p>' + table(cols, rows);
+  }
+
   function renderAccPage(p) {
     if (p === 'acc-dash' || p === 'dash') { renderDash(); return; }
     if (p === 'help') { renderHelp(); return; }
+    if (p === 'acc-pl-statement' || p === 'pnl') { renderPnl(); return; }
     if (/parties|receivables|statement|customer/.test(p)) { renderParties(); return; }
     if (/product|unit|color|size/.test(p)) { renderProducts(); return; }
-    if (/invoice|proforma|sales|purchase|order|return/.test(p)) { renderInvoices(); return; }
+    if (/purchase-return|sales-return|return/.test(p)) { renderReturns(); return; }
+    if (/purchase/.test(p)) { renderPurchases(); return; }
+    if (/invoice|proforma|sales|order/.test(p)) { renderInvoices(); return; }
     if (/journal|opening|close|reval/.test(p)) { renderJournals(); return; }
-    if (/coa|ledger|trial|financial|pl|recon|kpi/.test(p)) { renderTrial(); return; }
-    if (/bank|cash|petty|recon|flow/.test(p)) { renderBanks(); return; }
+    if (/trial|financial|recon/.test(p)) { renderTrial(); return; }
+    if (/coa|ledger|kpi/.test(p)) { renderLedger(); return; }
+    if (/bank|cash|petty|flow/.test(p)) { renderBanks(); return; }
     if (/warehouse|kardex|stock|batch|reserv|landed|consign/.test(p)) { renderStock(); return; }
     if (/cheque|check|trust/.test(p)) { renderCheques(); return; }
     if (/production|bom/.test(p)) { renderProduction(); return; }
     if (/settlement|receipt|payment/.test(p)) { renderReceipts(); return; }
-    renderDash();
+    if (/payroll/.test(p)) {
+      renderNamedTable('حقوق و دستمزد نمونه', ['نام', 'نقش'],
+        S.users.map(function (u) { return '<tr><td>' + esc(u.name) + '</td><td>' + esc(u.roleLabel) + '</td></tr>'; }));
+      return;
+    }
+    if (/fixed-asset|asset/.test(p)) {
+      renderNamedTable('دارایی ثابت نمونه', ['کد', 'شرح', 'بهای تمام‌شده'],
+        [{ n: 'FA-01', t: 'چرخ خیاطی نمونه', a: 45000000 }, { n: 'FA-02', t: 'میز برش نمونه', a: 18000000 }].map(function (a) {
+          return '<tr><td class="mono">' + esc(a.n) + '</td><td>' + esc(a.t) + '</td><td class="mono">' + toman(a.a) + '</td></tr>';
+        }));
+      return;
+    }
+    renderNamedTable(p, ['عنوان', 'وضعیت'],
+      ['<tr><td>' + esc(p) + '</td><td>فعال در نسخه نمایشی با دادهٔ ساختگی</td></tr>']);
   }
 
   function enterAccountingShell() {
@@ -622,16 +718,29 @@
   function confirmReset() {
     var root = el('confirmRoot');
     if (!root) return;
-    root.innerHTML = '<div class="confirm-modal" role="dialog" aria-modal="true"><p>بازنشانی فقط داده‌های نسخه نمایشی v3 همین مرورگر را پاک می‌کند. ادامه؟</p><button type="button" class="primary-btn" id="confirmYes">بازنشانی</button><button type="button" class="ghost-btn" id="confirmNo">انصراف</button></div>';
-    el('confirmYes').onclick = function () {
+    root.innerHTML = '<div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" id="confirmDialog"><h2 id="confirmTitle">بازنشانی دمو</h2><p>بازنشانی فقط داده‌های نسخه نمایشی v3 همین مرورگر را پاک می‌کند. ادامه؟</p><button type="button" class="primary-btn" id="confirmYes">بازنشانی</button><button type="button" class="ghost-btn" id="confirmNo">انصراف</button></div>';
+    var yes = el('confirmYes');
+    var no = el('confirmNo');
+    function close() { root.innerHTML = ''; document.removeEventListener('keydown', onKey); }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+      if (e.key === 'Tab' && yes && no) {
+        var first = yes, last = no;
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    if (yes) yes.onclick = function () {
       global.DemoV3Store.resetDemo();
       S = global.DemoV3Store.freshState();
       global.DemoV3Store.saveState(S);
-      root.innerHTML = '';
+      close();
       toast('دمو بازنشانی شد');
       go('dash');
     };
-    el('confirmNo').onclick = function () { root.innerHTML = ''; };
+    if (no) no.onclick = close;
+    if (yes && yes.focus) yes.focus();
   }
 
   function bindView() {
@@ -651,6 +760,7 @@
         else if (a === 'add-followup') addFollowup();
         else if (a === 'add-proforma') addProforma();
         else if (a === 'convert-one') convertProforma(Number(act.getAttribute('data-id')));
+        else if (a === 'deliver-one' || a === 'mark-delivered') markDelivered(Number(act.getAttribute('data-id')) || 0);
         else if (a === 'add-receipt') addReceipt();
         else if (a === 'add-mo') addMo();
         else if (a === 'advance-mo') advanceMo(Number(act.getAttribute('data-id')));
@@ -674,7 +784,14 @@
 
   function init() {
     S = global.DemoV3Store.getState();
-    bindView();
+    if (S && global.DemoV3Seed && typeof global.DemoV3Seed.validateSeed === 'function') {
+      var chk = global.DemoV3Seed.validateSeed(S);
+      if (!chk.ok) {
+        S = global.DemoV3Store.freshState();
+        persist();
+      }
+    }
+    if (!viewBound) { bindView(); viewBound = true; }
     var n = el('notifBadge');
     if (n) n.textContent = String((S.notifications || []).length);
     if (el('userName')) el('userName').textContent = S.users[0].name;

@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-15 — DEMO-V3 review-fix (H1–H3 / M1–M6)
+- **خلاصه:** پاسخ به بازبین مستقل: تحویل واقعاً روی فاکتور ثبت می‌شود؛ `init` شنونده را تکرار نمی‌کند؛ تست مسیر فروش state را assert می‌کند؛ تبدیل/وصول به مانده و سند وصل است؛ تراز از اسناد؛ شل حسابداری صفحهٔ غلط نمی‌دهد؛ حلقهٔ تور با viewport؛ شمارندهٔ مرحله دیده می‌شود؛ دیالوگ بازنشانی Escape/فوکوس/aria دارد.
+- **فایل‌ها:** `demo-v3-app.js`, `demo-v3-seed.js`, `demo-v3-tour.js`, `demo.css`, `demo.js`, `test-demo-v3.js`
+- **تست:** `test-demo-v3.js` ۵۲/۵۲ · `test-demo-static.js` OK
+- **بازبینی:** Independent روی `3dd0d11` = CHANGES_REQUIRED؛ این commit برای re-review. Security قبلی روی `3dd0d11` بود و باید دوباره دیده شود.
+- **Deploy:** اعمال نشد — بدون merge/push تا تأیید مالک
+- **SW:** بدون bump
+
 ### 2026-08-15 — DEMO-V3-GUIDED-SALES (شاخه feat/DEMO-V3-GUIDED-SALES)
 - **خلاصه:** نسخه نمایشی فروش‌محور با صفحه معرفی نقش، تور هدایت‌شده، دادهٔ نمونه «پوشاک نمونه سپیدارگل»، محیط آزاد و بازنشانی نام‌فضای v3. واترمارک نارنجی حذف شد.
 - **فایل‌ها:** `server/public/demo.html`, `demo.css`, `demo.js`, `demo-v3-seed.js`, `demo-v3-store.js`, `demo-v3-tour.js`, `demo-v3-app.js`, `server/scripts/test-demo-v3.js`, `docs/architecture/DEMO-V3-DESIGN.md`
