@@ -24,6 +24,8 @@ function scanDemoStatic(publicDir) {
   if (!/ترانه اندیشه پردازان ریان/.test(text)) fails.push('missing manufacturer credit');
   if (!/app\.css/.test(text)) fails.push('static demo must reuse app.css');
   if (!/height:110px/.test(text) || !/height:44px/.test(text)) fails.push('logo sizes must match main app (110px login / 44px sidebar)');
+  if (!/acc-nav\.js/.test(text)) fails.push('static demo must load latest acc-nav.js');
+  if (!/ACC_NAV_SECTIONS|renderAccPage|enterAccountingShell/.test(text)) fails.push('accounting shell missing from demo.js');
   if (!/پیش‌فاکتور|پيش فاکتور/.test(text)) fails.push('missing proforma mention');
   if (!/عادی|معمولی/.test(text)) fails.push('missing normal invoice mention');
   if (!/نهایی/.test(text)) fails.push('missing final invoice mention');

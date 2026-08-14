@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""SFTP overlay: static demo logo sizes + thin watermark. SW v157."""
+"""SFTP overlay: static demo full accounting shell. SW v158."""
 from __future__ import annotations
 
 import sys
@@ -15,10 +15,11 @@ USER = "taranom"
 KEY = Path.home() / ".ssh" / "id_ed25519_taranom"
 APP = "/home/taranom/crm-taranom"
 ROOT = Path(__file__).resolve().parents[1]
-STAMP_FILE = ".sftp-deploy-stamp-demo-ui-v157"
+STAMP_FILE = ".sftp-deploy-stamp-demo-ui-v158"
 
 FILES = [
     "docs/CHANGE-LOG.md",
+    "server/public/acc-nav.js",
     "server/public/app.css",
     "server/public/app.js",
     "server/public/demo.css",
@@ -91,7 +92,7 @@ def main() -> None:
         f"grep -n erp-taranom-v {APP}/server/public/sw.js | head -1; "
         f"grep -o 'ترانه اندیشه پردازان ریان' {APP}/server/public/demo.html | head -1; "
         f"grep -o 'app.css' {APP}/server/public/demo.html | head -1; "
-        f"cd {APP} && echo SFTP_DEMO_UI_V156=$(date -u +%Y-%m-%dT%H:%M:%SZ) > {STAMP_FILE} && cat {STAMP_FILE}",
+        f"cd {APP} && echo SFTP_DEMO_UI_V157=$(date -u +%Y-%m-%dT%H:%M:%SZ) > {STAMP_FILE} && cat {STAMP_FILE}",
         timeout=90,
     )
     c.close()

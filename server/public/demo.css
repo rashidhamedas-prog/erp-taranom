@@ -33,3 +33,4 @@ body{padding-top:32px}
 .login-card .logo img + span{display:none}
 .sidebar .brand img{height:44px;width:auto;max-width:56px;object-fit:contain;background:#fff;border-radius:12px;padding:3px;flex-shrink:0}
 .sidebar .brand img + .emoji{display:none}
+.nav-acc-items[hidden]{display:none!important}

@@ -126,14 +126,50 @@ let chartInstances=[];
 let custFilter={q:'',status:''};
 let invFilter={q:'',type:''};
 let fupFilter={q:'',status:''};
+let IN_ACC_SHELL=false;
+const ACC_NAV_COLLAPSED=new Set();
+if(typeof ACC_NAV_SECTIONS!=='undefined'){
+  ACC_NAV_SECTIONS.forEach((_,i)=>ACC_NAV_COLLAPSED.add(i));
+  const keepOpen=new Set(['حسابداری','فروش و خرید','انبار','بانک و صندوق','تولید','کالا','امکانات']);
+  ACC_NAV_SECTIONS.forEach((sec,i)=>{ if(keepOpen.has(sec.title)) ACC_NAV_COLLAPSED.delete(i); });
+}
 
 function destroyCharts(){
   chartInstances.forEach(c=>{ try{c.destroy();}catch(e){} });
   chartInstances=[];
 }
 
+function accItemLabel(id){
+  if(typeof accNavFlat==='function'){
+    const it=accNavFlat().find(x=>x.id===id);
+    if(it) return it.label;
+  }
+  return PAGE_TITLE[id]||id;
+}
+
 function buildNav(){
   const nav=el('nav');
+  if(IN_ACC_SHELL && typeof ACC_NAV_SECTIONS!=='undefined'){
+    const linkHtml=it=>`<a href="#${it.id}" data-page="${it.id}" class="${currentPage===it.id?'active':''}"><span class="ico">${it.icon||''}</span>${esc(it.label)}</a>`;
+    nav.innerHTML=ACC_NAV_SECTIONS.map((sec,secIdx)=>{
+      const collapsed=ACC_NAV_COLLAPSED.has(secIdx);
+      let body='';
+      if(sec.subgroups&&sec.subgroups.length){
+        body=sec.subgroups.map(sg=>{
+          const items=sg.items||[];
+          if(!items.length) return '';
+          return `<div class="nav-acc-sub"><div class="nav-acc-sub-title">${esc(sg.title)}</div>${items.map(linkHtml).join('')}</div>`;
+        }).join('');
+      } else {
+        body=(sec.items||[]).map(linkHtml).join('');
+      }
+      return `<div class="nav-section">
+        <div class="nav-section-title nav-acc-head ${collapsed?'':'open'}" data-acc-sec="${secIdx}">${esc(sec.title)}<span class="chev">▾</span></div>
+        <div class="nav-acc-items" ${collapsed?'hidden':''}>${body}</div>
+      </div>`;
+    }).join('')+`<div class="demo-maker">ساخته‌شده توسط ${esc(MAKER)}<br>داده‌ها کاملاً ساختگی هستند</div>`;
+    return;
+  }
   let html='';
   let lastGroup=null;
   NAV.forEach(it=>{
@@ -149,21 +185,37 @@ function buildNav(){
   nav.innerHTML=html;
 }
 
+function enterAccountingShell(){
+  IN_ACC_SHELL=true;
+  el('brandRole').textContent='🧮 ماژول حسابداری';
+  go('acc-dash');
+}
+function exitAccountingShell(){
+  IN_ACC_SHELL=false;
+  el('brandRole').textContent='پنل مدیریت';
+  go('dash');
+}
+
 function go(page, fromBack){
-  if(!PAGE_TITLE[page]) page='dash';
+  if(page==='accounting'){ enterAccountingShell(); return; }
+  if(page==='exit-acc-shell'){ exitAccountingShell(); return; }
+  const known=PAGE_TITLE[page] || (page&&page.startsWith('acc-'));
+  if(!known) page='dash';
   if(!fromBack && currentPage && currentPage!==page) pageHistory.push(currentPage);
   currentPage=page;
-  el('pageTitle').textContent=PAGE_TITLE[page];
+  el('pageTitle').textContent=PAGE_TITLE[page]||accItemLabel(page);
   buildNav();
   destroyCharts();
   const fn={
     dash:renderDash, customers:renderCustomers, followups:renderFollowups,
     'crm-dashboard':renderCrmDash, invoices:renderInvoices, products:renderProducts,
     reminders:renderReminders, reports:renderReports, ai:renderAi,
-    b2bOrders:renderB2b, accounting:renderAccounting, messages:renderMessages,
+    b2bOrders:renderB2b, accounting:enterAccountingShell, messages:renderMessages,
     settings:renderSettings, help:renderHelp,
   };
-  (fn[page]||renderDash)();
+  if(fn[page]) fn[page]();
+  else if(page.startsWith('acc-')) renderAccPage(page);
+  else renderDash();
 }
 
 function enterDemo(){
@@ -455,12 +507,7 @@ function renderAi(){
 function renderB2b(){
   modulePanel('سفارشات پورتال', `<p class="muted">سفارش‌های پورتال مشتریان در نسخه اصلی اینجا فهرست می‌شوند. دادهٔ این صفحه ساختگی است و سفارشی ثبت نمی‌شود.</p>`);
 }
-function renderAccounting(){
-  modulePanel('حسابداری', `
-    <p>دفتر کل، اسناد، خزانه، انبار و تولید در منوی حسابداری نسخه اصلی هستند.</p>
-    <p class="muted">نمایش ایستا فقط ظاهر برنامه را نشان می‌دهد؛ سند حسابداری ساخته نمی‌شود.</p>
-    <p class="muted">پیش‌فاکتور اثر دفتر ندارد؛ فاکتور عادی و نهایی فروش قطعی دارند؛ فقط نهایی به مودیان می‌رود.</p>`);
-}
+function renderAccounting(){ enterAccountingShell(); }
 function renderMessages(){
   modulePanel('پیام‌ها', `<p class="muted">صندوق پیام داخلی نسخه اصلی. در نمایش ایستا پیامی ارسال یا ذخیره نمی‌شود.</p>`);
 }
@@ -486,9 +533,221 @@ function renderHelp(){
           <li><b>پیش‌فاکتور</b> اعلام قیمت است</li>
           <li><b>فاکتور عادی</b> فروش قطعی است</li>
           <li><b>فاکتور نهایی</b> فروش قطعی به‌همراه مودیان است</li>
+          <li>منوی <b>حسابداری</b> همان شل کامل برنامه است (اشخاص، کالا، انبار، بانک، فروش، چک، اسناد، تولید، حقوق، دارایی)</li>
         </ul>
       </div>
     </div>`;
+}
+
+(function seedAccounting(){
+  D.coa=[
+    {code:'1101',name:'صندوق',kind:'دارایی',debit:8500000,credit:0},
+    {code:'1103',name:'حساب‌های دریافتنی',kind:'دارایی',debit:27500000,credit:0},
+    {code:'1105',name:'موجودی کالا',kind:'دارایی',debit:42000000,credit:0},
+    {code:'1201',name:'بانک ملت',kind:'دارایی',debit:18500000,credit:0},
+    {code:'2101',name:'حساب‌های پرداختنی',kind:'بدهی',debit:0,credit:9200000},
+    {code:'2103',name:'اسناد پرداختنی',kind:'بدهی',debit:0,credit:4500000},
+    {code:'3101',name:'سرمایه',kind:'حقوق صاحبان سهام',debit:0,credit:50000000},
+    {code:'4101',name:'فروش',kind:'درآمد',debit:0,credit:119846750},
+    {code:'5101',name:'بهای تمام‌شده کالای فروش‌رفته',kind:'هزینه',debit:62000000,credit:0},
+    {code:'6101',name:'هزینه عملیاتی',kind:'هزینه',debit:8400000,credit:0},
+  ];
+  D.journals=[
+    {num:'JE-01402',date:'1403/06/12',desc:'فروش قطعی بوتیک بهار',debit:2450000,credit:2450000,status:'ثبت‌شده'},
+    {num:'JE-01403',date:'1403/06/14',desc:'خرید پارچه از تأمین‌کننده',debit:6800000,credit:6800000,status:'ثبت‌شده'},
+    {num:'JE-01404',date:'1403/06/18',desc:'دریافت چک بوتیک مروارید',debit:5000000,credit:5000000,status:'ثبت‌شده'},
+    {num:'JE-01405',date:'1403/06/22',desc:'هزینه حمل انبار',debit:420000,credit:420000,status:'پیش‌نویس'},
+    {num:'JE-01406',date:'1403/06/25',desc:'حقوق خرداد',debit:18700000,credit:18700000,status:'ثبت‌شده'},
+  ];
+  D.banks=[
+    {name:'بانک ملت — جاری',no:'1234567890',balance:18500000},
+    {name:'بانک ملی — کوتاه‌مدت',no:'0099887766',balance:6200000},
+  ];
+  D.cashBoxes=[{name:'صندوق فروشگاه',balance:3200000},{name:'صندوق کارگاه',balance:5300000}];
+  D.warehouses=[{name:'انبار کارگاه',city:'مشهد',sku:12},{name:'انبار فروش',city:'مشهد',sku:8}];
+  D.purchases=[
+    {num:'P-0012',date:'1403/05/20',sup:'نساجی شرق',final:6800000,status:'ثبت‌شده'},
+    {num:'P-0013',date:'1403/06/02',sup:'نخ و دوخت پارس',final:2100000,status:'ثبت‌شده'},
+    {num:'P-0014',date:'1403/06/18',sup:'ملزومات بسته‌بندی',final:890000,status:'پیش‌فاکتور'},
+  ];
+  D.cheques=[
+    {num:'889221',kind:'دریافتنی',party:'بوتیک مروارید',date:'1403/07/01',amount:5000000,status:'نزد صندوق'},
+    {num:'441102',kind:'پرداختنی',party:'نساجی شرق',date:'1403/07/10',amount:3200000,status:'صادر شده'},
+    {num:'889334',kind:'دریافتنی',party:'بوتیک رز',date:'1403/07/15',amount:8000000,status:'در جریان وصول'},
+  ];
+  D.payroll=[
+    {name:'فاطمه نوری',role:'خیاط',base:14500000,net:12800000},
+    {name:'حسین اکبری',role:'برشکار',base:13200000,net:11600000},
+    {name:'مریم صالحی',role:'حسابدار',base:16000000,net:14100000},
+  ];
+  D.prodOrders=[
+    {num:'MO-118',product:'مانتو لینن بهاره',qty:80,status:'در جریان'},
+    {num:'MO-119',product:'پالتو زمستانی',qty:40,status:'برنامه‌ریزی'},
+    {num:'MO-120',product:'شومیز کتان',qty:120,status:'بسته'},
+  ];
+  D.assets=[
+    {name:'چرخ صنعتی جکی',code:'FA-01',cost:28000000,dep:4200000},
+    {name:'وانت حمل',code:'FA-02',cost:65000000,dep:9800000},
+  ];
+})();
+
+function accTable(title, cols, rows, extra){
+  el('view').innerHTML=`
+    <div class="toolbar">
+      <button type="button" class="btn" data-act="readonly">➕ جدید</button>
+      <button type="button" class="btn ghost" data-act="readonly">📥 اکسل</button>
+    </div>
+    ${extra||''}
+    <div class="panel">
+      <div class="panel-head"><h4>${esc(title)}</h4></div>
+      <div class="panel-body tbl-wrap tbl-scroll">
+        <table class="tbl"><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead>
+        <tbody>${rows.join('')||`<tr><td colspan="${cols.length}" class="empty">موردی یافت نشد</td></tr>`}</tbody></table>
+      </div>
+    </div>`;
+}
+
+function renderAccDash(){
+  const firm=D.invoices.filter(isFirm);
+  const sales=firm.reduce((s,i)=>s+i.final,0);
+  const recv=D.customers.filter(c=>c.balance<0).reduce((s,c)=>s-c.balance,0);
+  const pay=D.customers.filter(c=>c.balance>0).reduce((s,c)=>s+c.balance,0);
+  el('view').innerHTML=`
+    <div class="cards bento-hero">
+      ${statCard('g','💰', fmt(sales),'فروش قطعی')}
+      ${statCard('r','📤', fmt(recv),'مطالبات')}
+      ${statCard('b','🏦', fmt(D.banks.reduce((s,b)=>s+b.balance,0)),'مانده بانک')}
+      ${statCard('o','📝', fmt(D.journals.length),'اسناد دوره')}
+      ${statCard('p','📦', fmt(D.products.length),'کالا')}
+      ${statCard('g','🏭', fmt(D.prodOrders.length),'سفارش تولید')}
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h4>آخرین اسناد حسابداری</h4></div>
+      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
+        <th>شماره</th><th>تاریخ</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>وضعیت</th>
+      </tr></thead><tbody>${D.journals.map(j=>`<tr>
+        <td class="mono">${esc(j.num)}</td><td class="mono">${esc(j.date)}</td><td>${esc(j.desc)}</td>
+        <td class="mono">${fmt(j.debit)}</td><td class="mono">${fmt(j.credit)}</td>
+        <td><span class="tag ${j.status==='ثبت‌شده'?'t-active':'t-pending'}">${esc(j.status)}</span></td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h4>کدینگ حساب‌ها</h4></div>
+      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
+        <th>کد</th><th>حساب</th><th>ماهیت</th><th>بدهکار</th><th>بستانکار</th>
+      </tr></thead><tbody>${D.coa.map(a=>`<tr>
+        <td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td><td>${esc(a.kind)}</td>
+        <td class="mono">${a.debit?fmt(a.debit):'-'}</td><td class="mono">${a.credit?fmt(a.credit):'-'}</td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>`;
+}
+
+function renderAccPage(page){
+  const title=accItemLabel(page);
+  const firm=D.invoices.filter(isFirm);
+  if(page==='acc-dash'){ renderAccDash(); return; }
+  if(page==='help'){ renderHelp(); return; }
+
+  if(page==='acc-parties'||page==='acc-customer-groups'){
+    accTable(title,['نام کامل','فروشگاه','شهر','بدهکار','بستانکار','کارشناس'],
+      D.customers.map(c=>`<tr><td>${esc(c.owner)}</td><td>${esc(c.biz)}</td><td>${esc(c.city)}</td>
+        <td class="mono">${debit(c.balance)}</td><td class="mono">${credit(c.balance)}</td>
+        <td class="muted">${esc(c.salesperson)}</td></tr>`));
+    return;
+  }
+  if(page==='acc-receivables'||page==='acc-statement'){
+    accTable(title,['فروشگاه','نام','بدهکار','بستانکار','کارشناس'],
+      D.customers.filter(c=>c.balance!==0).map(c=>`<tr><td>${esc(c.biz)}</td><td>${esc(c.owner)}</td>
+        <td class="mono">${debit(c.balance)}</td><td class="mono">${credit(c.balance)}</td>
+        <td class="muted">${esc(c.salesperson)}</td></tr>`));
+    return;
+  }
+  if(page==='acc-products'||page==='acc-product-groups'||page==='acc-units'||page==='acc-product-colors'||page==='acc-product-sizes'){
+    accTable(title,['کد','نام','گروه','قیمت','موجودی'],
+      D.products.map(p=>`<tr><td class="mono">${esc(p.code)}</td><td>${esc(p.name)}</td><td>${esc(p.cat)}</td>
+        <td class="mono">${fmt(p.price)}</td><td class="mono">${fmt(p.stock)}</td></tr>`));
+    return;
+  }
+  if(page==='acc-sales-invoices'||page==='acc-normal-invoices'||page==='acc-final-invoices'||page==='acc-proforma'||page==='acc-invoice-list-tax'){
+    const type=page==='acc-proforma'?'proforma':page==='acc-normal-invoices'?'normal':page==='acc-final-invoices'?'final':'';
+    const rows=type?D.invoices.filter(i=>i.type===type):D.invoices;
+    accTable(title,['شماره','تاریخ','مشتری','نوع','مبلغ'],
+      rows.slice().reverse().map(i=>`<tr><td class="mono">${esc(i.num)}</td><td class="mono">${esc(i.date)}</td>
+        <td>${esc(i.cust)}</td><td><span class="tag t-${i.type==='final'?'final':i.type==='proforma'?'proforma':'active'}">${esc(INV_LABEL[i.type])}</span></td>
+        <td class="mono">${fmt(i.final)}</td></tr>`),
+      `<div class="panel"><div class="panel-body muted">پیش‌فاکتور اثر دفتر ندارد. فاکتور عادی فروش قطعی است. فاکتور نهایی فروش قطعی + مودیان است.</div></div>`);
+    return;
+  }
+  if(page==='acc-purchases'||page==='acc-purchase-returns'||page==='acc-sales-returns'||page==='acc-orders-list'){
+    accTable(title,['شماره','تاریخ','طرف‌حساب','مبلغ','وضعیت'],
+      D.purchases.map(p=>`<tr><td class="mono">${esc(p.num)}</td><td class="mono">${esc(p.date)}</td>
+        <td>${esc(p.sup)}</td><td class="mono">${fmt(p.final)}</td><td>${esc(p.status)}</td></tr>`));
+    return;
+  }
+  if(page==='acc-journal-docs'||page==='acc-journal-entry'||page==='acc-journal-book'||page==='acc-opening-voucher'||page==='acc-close-temp'||page==='acc-close-perm'||page==='acc-revaluation'){
+    accTable(title,['شماره','تاریخ','شرح','بدهکار','بستانکار','وضعیت'],
+      D.journals.map(j=>`<tr><td class="mono">${esc(j.num)}</td><td class="mono">${esc(j.date)}</td><td>${esc(j.desc)}</td>
+        <td class="mono">${fmt(j.debit)}</td><td class="mono">${fmt(j.credit)}</td><td>${esc(j.status)}</td></tr>`));
+    return;
+  }
+  if(page==='acc-coa-codes'||page==='acc-account-groups'||page==='acc-ledger-accounts'||page==='acc-subsidiary-accounts'||page==='acc-detail-accounts'||page==='acc-detail-categories'||page==='acc-other-details'||page==='acc-trial-balance'||page==='acc-financial-statement'||page==='acc-pl-statement'||page==='acc-reconciliation'){
+    const deb=D.coa.reduce((s,a)=>s+a.debit,0);
+    const cred=D.coa.reduce((s,a)=>s+a.credit,0);
+    accTable(title,['کد','حساب','ماهیت','بدهکار','بستانکار'],
+      D.coa.map(a=>`<tr><td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td><td>${esc(a.kind)}</td>
+        <td class="mono">${a.debit?fmt(a.debit):'-'}</td><td class="mono">${a.credit?fmt(a.credit):'-'}</td></tr>`),
+      `<div class="cards">${statCard('r','📤',fmt(deb),'جمع بدهکار')}${statCard('g','📥',fmt(cred),'جمع بستانکار')}</div>`);
+    return;
+  }
+  if(page==='acc-banks'||page==='acc-account-transfer'||page==='acc-bank-recon'||page==='acc-cash-flow-std'){
+    accTable(title,['حساب','شماره','مانده'],
+      D.banks.map(b=>`<tr><td>${esc(b.name)}</td><td class="mono">${esc(b.no)}</td><td class="mono">${fmt(b.balance)}</td></tr>`));
+    return;
+  }
+  if(page==='acc-cash-boxes'||page==='acc-petty-cash-ops'){
+    accTable(title,['صندوق','مانده'],
+      D.cashBoxes.map(c=>`<tr><td>${esc(c.name)}</td><td class="mono">${fmt(c.balance)}</td></tr>`));
+    return;
+  }
+  if(page==='acc-warehouses'||page==='acc-warehouse-ops'||page==='acc-warehouse-report'||page==='acc-stocktaking'||page==='acc-item-kardex'||page==='acc-inv-batches'||page==='acc-inv-reservations'||page==='acc-inv-landed'||page==='acc-consignments'){
+    accTable(title,['انبار','شهر','تعداد کالا'],
+      D.warehouses.map(w=>`<tr><td>${esc(w.name)}</td><td>${esc(w.city)}</td><td class="mono">${fmt(w.sku)}</td></tr>`));
+    return;
+  }
+  if(page.startsWith('acc-cheques')||page==='acc-cheque-register'||page==='acc-trust-checks'||page==='acc-opening-recv-cheques'||page==='acc-opening-pay-cheques'||page==='acc-check-categories'){
+    accTable(title,['شماره چک','نوع','طرف‌حساب','سررسید','مبلغ','وضعیت'],
+      D.cheques.map(c=>`<tr><td class="mono">${esc(c.num)}</td><td>${esc(c.kind)}</td><td>${esc(c.party)}</td>
+        <td class="mono">${esc(c.date)}</td><td class="mono">${fmt(c.amount)}</td><td>${esc(c.status)}</td></tr>`));
+    return;
+  }
+  if(page.startsWith('acc-payroll')){
+    accTable(title,['کارمند','سمت','حقوق پایه','خالص پرداختی'],
+      D.payroll.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(p.role)}</td>
+        <td class="mono">${fmt(p.base)}</td><td class="mono">${fmt(p.net)}</td></tr>`));
+    return;
+  }
+  if(page.startsWith('acc-production')){
+    accTable(title,['شماره','محصول','تعداد','وضعیت'],
+      D.prodOrders.map(o=>`<tr><td class="mono">${esc(o.num)}</td><td>${esc(o.product)}</td>
+        <td class="mono">${fmt(o.qty)}</td><td>${esc(o.status)}</td></tr>`));
+    return;
+  }
+  if(page==='acc-fixed-assets'){
+    accTable(title,['کد','دارایی','بهای تمام‌شده','استهلاک انباشته'],
+      D.assets.map(a=>`<tr><td class="mono">${esc(a.code)}</td><td>${esc(a.name)}</td>
+        <td class="mono">${fmt(a.cost)}</td><td class="mono">${fmt(a.dep)}</td></tr>`));
+    return;
+  }
+  if(page==='acc-settlements'||page==='acc-receipts'||page==='acc-payments'){
+    accTable(title,['تاریخ','طرف‌حساب','نوع','مبلغ'],
+      D.journals.filter(j=>/دریافت|فروش|حقوق/.test(j.desc)).map(j=>`<tr>
+        <td class="mono">${esc(j.date)}</td><td>${esc(j.desc)}</td><td>دریافت/پرداخت</td>
+        <td class="mono">${fmt(j.debit)}</td></tr>`));
+    return;
+  }
+  accTable(title,['عنوان','وضعیت'],
+    [`<tr><td>${esc(title)}</td><td><span class="tag t-active">فعال در نسخه نمایشی</span></td></tr>`],
+    `<div class="panel"><div class="panel-body muted">این بخش از آخرین منوی حسابداری برنامه است. داده ساختگی است و سندی روی سرور ثبت نمی‌شود.</div></div>`);
 }
 
 function tickClock(){
@@ -521,6 +780,13 @@ function bindShell(){
     if(prev) go(prev, true);
   });
   el('nav').addEventListener('click', e=>{
+    const head=e.target.closest('[data-acc-sec]');
+    if(head){
+      const i=Number(head.getAttribute('data-acc-sec'));
+      if(ACC_NAV_COLLAPSED.has(i)) ACC_NAV_COLLAPSED.delete(i); else ACC_NAV_COLLAPSED.add(i);
+      buildNav();
+      return;
+    }
     const a=e.target.closest('a[data-page]');
     if(!a) return;
     e.preventDefault();
