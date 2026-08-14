@@ -239,6 +239,12 @@ function dispatchHttps(target, { method, data, headers, timeoutMs, maxResponseBy
 }
 
 async function safeRequestJSON(urlValue, method = 'GET', body = null, headers = {}, options = {}) {
+  try {
+    const { assertNoDemoNetwork } = require('./demo-egress');
+    assertNoDemoNetwork();
+  } catch (e) {
+    if (e && e.code === 'DEMO_EGRESS_BLOCKED') throw e;
+  }
   const lookup = options.lookup || defaultLookup;
   const dispatch = options.dispatch || dispatchHttps;
   const timeoutMs = Math.min(Math.max(Number(options.timeoutMs) || DEFAULT_TIMEOUT_MS, 1000), 30_000);

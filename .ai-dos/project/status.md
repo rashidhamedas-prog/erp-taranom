@@ -1,12 +1,12 @@
 # Project Status
 
-- Last verified: 2026-08-14 (~09:05 +03:30)
+- Last verified: 2026-08-14 (~13:20 +03:30)
 - **Active task:** none
+- **DEMO-V2-SECURE-SALES:** merge into primary in progress (owner-approved deploy)
 - **CRM-PRO-ANALYTICS:** merged + Iran deployed ✅
-  Primary `origin/claude/claude-md-docs-2ssrpy` = `d3b6136` (FF from `ai/CRM-PRO-ANALYTICS-crm-dashboard`)
+  Primary tip before this merge `d3b6136` / stamp `1287a1a`
   SFTP stamp `.sftp-deploy-stamp-crm-pro-v154` = `2026-08-14T05:33:42Z hash=d3b6136`
-  health/ready/root 200; public SW `erp-taranom-v154`; `app.js?v=154`
-  Task `completed`; claims empty; Reviewer a092902a + Security 16b3d555 APPROVED
+  Task `completed`; Reviewer a092902a + Security 16b3d555 APPROVED
 - Prior: ACC-CRM-UNIFY merged + Iran deployed (SW v151 lineage; later MDI v153).
 
 ## Working quality commands

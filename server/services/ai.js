@@ -51,6 +51,13 @@ function computeChurnScore(db, cust) {
 
 // ── Claude API (optional narrative layer) ────────────────────────────────────
 async function callClaude(apiKey, model, system, userText, maxTokens = 1500) {
+  const { guardDemoEgress } = require('../lib/demo-egress');
+  const blocked = guardDemoEgress('ai');
+  if (blocked) {
+    const err = new Error(blocked.reason);
+    err.code = 'demo_simulation';
+    throw err;
+  }
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {

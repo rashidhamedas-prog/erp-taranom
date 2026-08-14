@@ -27,6 +27,12 @@
 2. commit مربوطه را با پیام واضح بنویسید.
 3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
 
+### 2026-08-14 — DEMO-V2-SECURE-SALES merge + Iran SFTP + SW v155
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` ← merge `ai/DEMO-V2-SECURE-SALES` روی CRM-PRO `1287a1a`
+- **خلاصه:** نسخه نمایشی امن (static `/demo.html` + Demo Mode تعاملی) با تأیید مالک merge و deploy شد.
+- **Deploy:** ⏳ در حال SFTP
+- **SW:** `erp-taranom-v155`
+
 ### 2026-08-14 — CRM-PRO-ANALYTICS merge + Iran SFTP + SW v154 ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` ← FF `eae0a14..d3b6136` از `ai/CRM-PRO-ANALYTICS-crm-dashboard`
 - **خلاصه:** ادغام داشبورد CRM حرفه‌ای + bump Service Worker به v154 پس از تأیید مالک برای merge و deploy ایران.
@@ -44,6 +50,12 @@
 - **بازبینی نهایی:** Reviewer APPROVED + Security APPROVED — تسک `active` ماند؛ completed نشد
 - **Deploy:** اعمال نشد — نیاز به اجازه جداگانه مالک
 - **SW:** بدون bump تا تأیید UI مرورگر
+
+### 2026-08-14 — DEMO-V2-SECURE-SALES dual Approved (pre-merge)
+- **شاخه:** `ai/DEMO-V2-SECURE-SALES` @ `af9859f` (base `eae0a14`)
+- **خلاصه:** Independent + Security هر دو Approved؛ بدون یافتهٔ باز Critical/High/Medium.
+- **Deploy:** بعداً با تأیید مالک merge+SFTP شد
+- **SW:** سپس v155
 
 ### 2026-08-14 — MDI فقط حسابداری + نوار شناور (SW v153)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

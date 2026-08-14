@@ -57,7 +57,13 @@ router.get('/modules', auth, (req, res) => {
 
 // GET all settings (admin only)
 router.get('/', auth, adminOnly, (req, res) => {
-  res.json(getPublicSettings(getDB()));
+  const payload = getPublicSettings(getDB());
+  try {
+    const { isDemoMode } = require('../lib/demo-mode');
+    const { redactSecretSettingsIfDemo } = require('../middleware/demo-guard');
+    if (isDemoMode()) return res.json(redactSecretSettingsIfDemo(payload));
+  } catch { /* production path */ }
+  res.json(payload);
 });
 
 // PUT upsert key-value pairs (admin only)

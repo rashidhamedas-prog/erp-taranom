@@ -1,4 +1,17 @@
-﻿## 2026-08-14T09:05:00+03:30 — CRM-PRO MERGED + IRAN DEPLOYED ✅
+## 2026-08-14T13:20:00+03:30 — DEMO-V2 merge into primary (owner-approved deploy)
+
+- Owner explicit: merge to `claude/claude-md-docs-2ssrpy` + Iran SFTP + demo file
+- Dual Approved already: Independent a925eb95 + Security 1471cb54
+- Dirty `scripts/_deploy-mdi-v152-sftp.py` not staged
+- SW bump to v155 for demo-shell + static showcase
+
+## 2026-08-14T13:05:00+03:30 — DEMO-V2-SECURE-SALES COMPLETED (dual Approved; no deploy)
+
+- **Independent:** [Independent re-review demo v2](a925eb95-5742-4bed-8574-6374a2a2695d) **APPROVED**
+- **Security:** [Security Review](1471cb54-6e3c-45e5-93af-34dee967ad44) **APPROVED**
+- **Tip:** `af9859f` on `ai/DEMO-V2-SECURE-SALES`
+
+## 2026-08-14T09:05:00+03:30 — CRM-PRO MERGED + IRAN DEPLOYED ✅
 
 - **Owner approval:** explicit merge + pull/SFTP + restart + SW bump
 - **FF-merge:** `origin/claude/claude-md-docs-2ssrpy` = `eae0a14..d3b6136` (from `ai/CRM-PRO-ANALYTICS-crm-dashboard`)
