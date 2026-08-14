@@ -13,6 +13,11 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-15 — DEMO-V3 merge + Iran deploy (in progress)
+- **شاخه:** merge `feat/DEMO-V3-GUIDED-SALES` → `claude/claude-md-docs-2ssrpy`
+- **SW:** بدون bump (`erp-taranom-v158`) — HTML/JS شبکه-اول؛ `demo.css`/`demo.js` `?v=7`
+- **Deploy:** در حال اجرا
+
 ### 2026-08-15 — DEMO-V3 dual APPROVED (pre-merge)
 - **شاخه:** `feat/DEMO-V3-GUIDED-SALES` @ product `dbc2ec4` (docs stamp `f29da49`)
 - **Independent:** APPROVED — [e84b9701](e84b9701-1cbe-4db1-a4c9-0d93b70ae458)
