@@ -1,3 +1,11 @@
+## 2026-08-19 — Independent APPROVED on 34e1891
+
+- [Independent ACC-04 re-review](324293a7-3f99-43de-b3f5-e0146aa23584) **APPROVED** — H1–H3 and M1–M4 closed; 79/79 stitch-p2
+- Remaining M5–M7 advisory (dashboard net-vs-gross banner; control GL no child roll-up; invoice-mode still invoice−settlement) — not merge-blocking
+- Security on this tip still PENDING ([Security Review](e235c782-4567-4256-bc79-110b9f7d9ed5)); prior APPROVED was `759a63d` only
+- Task stays `active`. **NO merge / Iran deploy / PM2** until Security APPROVED + owner approval
+- SW: `erp-taranom-v160`
+
 ## 2026-08-18 — Implementer closed Independent ACC-04 Highs
 
 - Identity: `cursor:implementer-stitch-impl`

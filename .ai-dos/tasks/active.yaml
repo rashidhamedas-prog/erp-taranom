@@ -3,8 +3,8 @@ tasks:
   - id: "UI-STITCH-IMPL"
     title: "Stitch MASTER wave: OPS-01, TRS-02, ACC-01..06, INV-01"
     status: "active"
-    review_status: "PENDING"
-    security_status: "APPROVED"
+    review_status: "APPROVED"
+    security_status: "PENDING"
     risk: "high"
     owner: "cursor:orchestrator-stitch-impl"
     roles:
@@ -35,9 +35,9 @@ tasks:
       - "server/scripts/test-acc-stitch-p2.js"
       - "server/scripts/test-portal.js"
     notes: >-
-      Independent CHANGES_REQUIRED on 759a63d (ACC-04 H1–H3). Implementer closed
-      GL cutoff + mismatch + GL q totals + column Add + leaf pickers. SW v160.
-      No Iran deploy / merge until Independent re-APPROVED + owner approval.
+      Independent APPROVED on 34e1891 (H1–H3/M1–M4 closed; M5–M7 advisory).
+      Security APPROVED only on 759a63d; ACC-04 delta re-review in flight.
+      SW v160. No Iran deploy / merge until Security re-APPROVED + owner approval.
       Production/Padena (ADR-007) deferred. Do not touch dirty erp-taranom1 deploy scripts.
     acceptance_criteria:
       - "OPS-01 none persists after reload; portal_role null when !has_access"
