@@ -13,6 +13,12 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — Dual APPROVED ACC-04 on 34e1891 (pre-merge)
+- **شاخه:** `ai/UI-STITCH-IMPL` محصول `34e1891`
+- **خلاصه:** Independent و Security هر دو APPROVED. منتظر تأیید مالک برای merge/deploy.
+- **Deploy:** اعمال نشد
+- **SW:** `erp-taranom-v160`
+
 ### 2026-08-19 — Independent APPROVED ACC-04 on 34e1891 (pre-merge)
 - **شاخه:** `ai/UI-STITCH-IMPL` @ `34e1891`
 - **خلاصه:** بازبین مستقل H1–H3 و M1–M4 را بست. M5–M7 مشورتی. امنیت روی این نوک هنوز باز است (تأیید قبلی فقط `759a63d`).

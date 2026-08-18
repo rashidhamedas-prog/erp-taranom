@@ -1,3 +1,10 @@
+## 2026-08-19 — Dual APPROVED on 34e1891; waiting owner
+
+- [Independent ACC-04 re-review](324293a7-3f99-43de-b3f5-e0146aa23584) **APPROVED** on product `34e1891`
+- [Security Review](e235c782-4567-4256-bc79-110b9f7d9ed5) **APPROVED** C0/H0/M0 on ACC-04 delta (consistent with `759a63d`; Lows non-blocking: bound inv dates, `link-coa` leaf)
+- Task remains `active`. **NO merge / push-to-primary / Iran deploy / PM2** until explicit owner approval
+- SW: `erp-taranom-v160`
+
 ## 2026-08-19 — Independent APPROVED on 34e1891
 
 - [Independent ACC-04 re-review](324293a7-3f99-43de-b3f5-e0146aa23584) **APPROVED** — H1–H3 and M1–M4 closed; 79/79 stitch-p2
