@@ -213,6 +213,10 @@ function isLeaf(code) {
   r = await api('GET', '/api/accounting/general-ledger/218801?from=1405/01/01&to=1405/12/29&q='
     + encodeURIComponent('خرید دوره'));
   ok(Number(r.data?.total) === 1, 'q filter total = 1', r.data?.total);
+  ok(Number(r.data?.unfiltered_total) === 4, 'q does not drop unfiltered_total', r.data?.unfiltered_total);
+  ok(Number(r.data?.closing_rial) === 730_000, 'q does not rewrite closing_rial', r.data?.closing_rial);
+  ok(Number(r.data?.period_debit_rial) === 50_000, 'q does not rewrite period_debit', r.data?.period_debit_rial);
+  ok(Number(r.data?.period_credit_rial) === 780_000, 'q does not rewrite period_credit', r.data?.period_credit_rial);
   ok(r.data?.lines?.[0]?.entry_description?.includes('خرید دوره')
     || r.data?.lines?.[0]?.description?.includes('خرید دوره'),
     'q matched description', r.data?.lines?.[0]?.entry_description);
@@ -342,11 +346,81 @@ function isLeaf(code) {
   r = await api('GET', '/api/accounting/overview');
   ok(Number(r.data?.totalReceivable) >= AR_RIAL,
     'totalReceivable includes GL AR child', r.data?.totalReceivable);
+  r = await api('GET', '/api/accounting/overview?asOf=1405/04/10');
+  const ovCut = Number(r.data?.totalReceivable);
+  ok(ovCut === AR_RIAL, 'overview asOf cutoff equals AR', ovCut);
+  r = await api('GET', '/api/accounting/overview?asOf=1405/04/01');
+  ok(Number(r.data?.totalReceivable) === 0,
+    'overview asOf before AR is 0', r.data?.totalReceivable);
+
   r = await api('GET', '/api/accounting/statement/' + custId);
   ok(r.status === 200, 'GET statement 200', r.data?.error);
   ok(r.data?.gl_account_code === '11039901', 'statement gl_account_code', r.data?.gl_account_code);
   ok(Number(r.data?.gl_closing_rial) === AR_RIAL,
     'statement gl_closing_rial matches posted AR', r.data?.gl_closing_rial);
+  ok(Number(r.data?.closing) === AR_RIAL, 'statement primary closing is GL', r.data?.closing);
+  ok(r.data?.books_mismatch === true, 'JE-only AR vs empty customer_ledger is mismatch', r.data?.books_mismatch);
+  ok(r.data?.source === 'gl', 'statement source=gl', r.data?.source);
+
+  r = await api('GET', '/api/accounting/statement/' + custId + '?to=1405/04/10');
+  ok(Number(r.data?.closing) === AR_RIAL, 'statement closing as-of to', r.data?.closing);
+  r = await api('GET', '/api/accounting/statement/' + custId + '?to=1405/04/01');
+  ok(Number(r.data?.closing) === 0, 'statement closing before AR date is 0', r.data?.closing);
+
+  r = await api('GET', '/api/accounting/receivables?to=1405/04/10');
+  ok(r.status === 200 && Array.isArray(r.data), 'GET receivables 200');
+  const recvRow = (r.data || []).find((x) => Number(x.id) === Number(custId));
+  ok(!!recvRow, 'JE-only customer appears on receivables', JSON.stringify(r.data?.map((x) => x.id)));
+  ok(Number(recvRow?.outstanding) === AR_RIAL, 'receivables outstanding is GL', recvRow?.outstanding);
+  ok(recvRow?.books_mismatch === true, 'receivables flags ledger/GL mismatch', recvRow?.books_mismatch);
+
+  r = await api('GET', '/api/accounting/general-ledger/11039901?to=1405/04/10');
+  ok(Number(r.data?.closing_rial) === AR_RIAL, 'GL tafsili close equals AR', r.data?.closing_rial);
+  ok(ovCut === Number(r.data?.closing_rial) && ovCut === AR_RIAL,
+    'dashboard KPI = GL tafsili close at cutoff', ovCut);
+
+  const LEDGER_ONLY = 111_000;
+  const ledCust = db.prepare(
+    "INSERT INTO customers (user_id, biz, phone, coa_code) VALUES (?, 'مشتری فقط دفتر', '09120003333', '11039902')"
+  ).run(admin.id).lastInsertRowid;
+  db.prepare(`
+    INSERT INTO chart_of_accounts (code,name,type,parent_code,level,is_active)
+    VALUES ('11039902','تفصیلی دفتر-تنها','asset',?,4,1)
+  `).run(receivable.code);
+  db.prepare(`
+    INSERT INTO customer_ledger (customer_id, date, entry_type, description, debit, credit, user_id)
+    VALUES (?, '1405/04/10', 'opening', 'مانده دفتر بدون سند', ?, 0, ?)
+  `).run(ledCust, LEDGER_ONLY, admin.id);
+  r = await api('GET', '/api/accounting/statement/' + ledCust);
+  ok(r.data?.books_mismatch === true, 'ledger-only opening vs empty GL is mismatch');
+  ok(Number(r.data?.closing) === 0, 'ledger-only primary close is GL 0', r.data?.closing);
+  ok(Number(r.data?.ledger_closing) === LEDGER_ONLY, 'ledger_closing keeps book', r.data?.ledger_closing);
+  r = await api('GET', '/api/accounting/receivables');
+  const ledRow = (r.data || []).find((x) => Number(x.id) === Number(ledCust));
+  ok(Number(ledRow?.outstanding) === 0, 'ledger-only outstanding uses GL 0', ledRow?.outstanding);
+
+  const OVERPAY = 1_000_000;
+  postToLedger(db, {
+    sourceType: 'test_ar_overpay',
+    sourceId: 91,
+    date: '1405/04/12',
+    description: 'اضافه‌پرداخت مشتری تست',
+    createdBy: admin.id,
+    lines: [
+      { code: cash.code, name: cash.name, debit: OVERPAY / 10, credit: 0 },
+      { code: '11039901', name: 'تفصیلی مشتری تست', debit: 0, credit: OVERPAY / 10 },
+    ],
+  });
+  const afterOver = AR_RIAL - OVERPAY;
+  r = await api('GET', '/api/accounting/statement/' + custId);
+  ok(Number(r.data?.closing) === afterOver, 'overpay → creditor GL closing', r.data?.closing);
+  r = await api('GET', '/api/accounting/overview');
+  ok(Number(r.data?.totalReceivable) === 0, 'overpay zeroes GL AR display', r.data?.totalReceivable);
+  ok(Number(r.data?.creditorBalance) === Math.abs(afterOver),
+    'overpay → creditorBalance from GL', r.data?.creditorBalance);
+  r = await api('GET', '/api/accounting/receivables');
+  const overRow = (r.data || []).find((x) => Number(x.id) === Number(custId));
+  ok(Number(overRow?.outstanding) === afterOver, 'receivables outstanding creditor after overpay', overRow?.outstanding);
 
   // ── INV-01: product group moin must be a leaf ──
   console.log('\n— INV-01 product group coa_code —');

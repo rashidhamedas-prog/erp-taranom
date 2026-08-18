@@ -35,13 +35,16 @@ tasks:
       - "server/scripts/test-acc-stitch-p2.js"
       - "server/scripts/test-portal.js"
     notes: >-
-      Continue MASTER after Phase 0 map. No Iran deploy / merge until owner approval.
+      Independent CHANGES_REQUIRED on 759a63d (ACC-04 H1–H3). Implementer closed
+      GL cutoff + mismatch + GL q totals + column Add + leaf pickers. SW v160.
+      No Iran deploy / merge until Independent re-APPROVED + owner approval.
       Production/Padena (ADR-007) deferred. Do not touch dirty erp-taranom1 deploy scripts.
     acceptance_criteria:
       - "OPS-01 none persists after reload; portal_role null when !has_access"
       - "TRS-02 payable cheque menu defaults to direction=out"
       - "ACC-02..06 APIs and UI as mapped; ACC-01 identity lock; INV-01 group coa leaf"
-      - "Tests recorded; Help + CHANGE-LOG + SW v159"
+      - "ACC-04: Dashboard KPI = GL control/tafsili close = Receivables debit = Statement close at one cutoff; customer_ledger labeled when it differs"
+      - "Tests recorded; Help + CHANGE-LOG + SW v160"
       - "NO production deploy / merge until explicit owner approval"
     non_goals:
       - "Iran VPS deploy, PM2, merge to primary"

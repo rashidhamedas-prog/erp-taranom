@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-18 — ACC-04 cutoff reconcile H1–H3 (بدون deploy ایران)
+- **شاخه:** `ai/UI-STITCH-IMPL`
+- **خلاصه:** مطالبات و صورت‌حساب در تاریخ قطع از دفتر کل؛ داشبورد `asOf`/`to`؛ مانده انتهای صورت‌حساب تا `to`؛ هشدار اختلاف دفتر مشتری؛ خروجی صورت‌حساب عدد دفتر کل. جستجوی دفتر کل مانده را عوض نمی‌کند. افزودن حساب در هر ستون کدینگ؛ picker دریافت/پرداخت فقط حساب برگ. SW `erp-taranom-v160`.
+- **فایل‌های کلیدی:** `server/routes/accounting.js`, `server/public/app.js`, `server/public/sw.js`, `server/public/index.html`, `server/scripts/test-acc-stitch-p2.js`
+- **تست:** `test-acc-stitch-p2.js` · `test-portal.js` · `node --check` · encoding
+- **Deploy:** ⏭ اعمال نشد — بدون merge/SFTP/PM2 تا تأیید جداگانه مالک
+- **SW:** `erp-taranom-v160`
+
 ### 2026-08-18 — UI-STITCH-IMPL Security APPROVED (pre-merge)
 - **شاخه:** `ai/UI-STITCH-IMPL` @ `759a63d`
 - **خلاصه:** بازبین امنیت روی موج حسابداری APPROVED شد (C0/H0/M0). بازبین مستقل هنوز باز است.

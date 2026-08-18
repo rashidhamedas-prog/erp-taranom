@@ -2916,7 +2916,8 @@ function renderAccReceivablesBody(body){
         <td class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:800`)}">${fmt(rows.reduce((a,r)=>{const o=Number(r.outstanding)||0;return a+(o<0?-o:0);},0))}</td>
         <td></td>
       </tr></tfoot></table></div>
-      ${!rows.length?`<div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">مانده از دفتر مشتری (شامل مانده اول دوره) خوانده می‌شود. فیلتر تاریخ فقط ستون‌های «کل فاکتور» و «پرداخت‌شده» را محدود می‌کند — برای دیدن همه مانده‌ها preset را روی «همه» بگذارید.</div>`:''}`;
+      ${rows.some(r=>r.books_mismatch)?`<div class="panel" data-csp-style="${CSP.style(`margin-top:10px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: برای برخی مشتریان مانده دفتر مشتری با دفتر کل یکی نیست. ستون مانده از دفتر کل تا تاریخ قطع است؛ دفتر مشتری فقط نمای دوم است.</div></div>`:''}
+      <div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">مانده بدهکار/بستانکار از دفتر کل (حساب کنترل یا تفصیلی مشتری) تا تاریخ نوار حسابداری خوانده می‌شود. دفتر مشتری فقط وقتی جداگانه نشان داده می‌شود که با دفتر کل اختلاف داشته باشد.</div>`;
 }
 
 ROUTES.followups = async function(){
@@ -5671,20 +5672,33 @@ function applyAccPreset(p){
 ROUTES['acc-dash'] = async function(){
   // Always refetch KPIs (do not serve stale zero-stats page cache)
   try { delete _apiCache['page:acc-dash']; delete _apiCache['GET:/accounting/overview']; } catch (_) {}
+  if(accPreset!=='custom'&&accPreset!=='all'&&!accDateFrom) [accDateFrom,accDateTo]=jPresetRange(accPreset);
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const ov = await api('GET','/accounting/overview');
+  const ovQ=accDateTo?'?asOf='+encodeURIComponent(accDateTo):'';
+  const ov = await api('GET','/accounting/overview'+ovQ);
   if(!ov) return;
   const pendingRep = await api('GET','/reps/payments/pending').catch(()=>[]);
   const totalPayable = ov.totalPayable || 0;
   const tbBalanced = ov.trialBalanced;
   const recv = Number(ov.totalReceivable != null ? ov.totalReceivable : ov.outstanding)||0;
   const cred = Number(ov.creditorBalance)||0;
+  const cutoffLabel=accDateTo||'آخرین سند (همه)';
+  const booksMismatch=!!ov.books_mismatch;
   el('view').innerHTML=`
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px;align-items:center`)}">
+      ${presetSelect('accPresetSel',accPreset,'applyAccPreset')}
+      ${accPreset==='custom'?`
+      <input id="accFrom" data-jdate placeholder="از تاریخ" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px`)}" value="${accDateFrom}" data-csp-change="${CSP.bind('change',function(event){accDateFrom=this.value})}">
+      <input id="accTo" data-jdate placeholder="تا تاریخ" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px`)}" value="${accDateTo}" data-csp-change="${CSP.bind('change',function(event){accDateTo=this.value})}">
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){ROUTES['acc-dash']()})}">🔍 اعمال</button>`:''}
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">مانده‌ها از دفتر کل تا ${esc(cutoffLabel)}</span>
+    </div>
+    ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: مانده دفتر مشتری (${fmt(ov.outstandingLedger||0)}) با دفتر کل (${fmt(recv)}) یکی نیست. عدد کارت‌ها از دفتر کل است.</div></div>`:''}
     <div class="cards">
       ${statCard('g','🧾',fmt(ov.totalInvoiced),'کل فاکتور رسمی (ت)')}
       ${statCard('b','✅',fmt(ov.totalSettled),'تسویه شده (ت)')}
-      ${statCard('r','⏳',fmt(recv),'مانده مطالبات مشتریان (ت)')}
-      ${cred?statCard('g','📥',fmt(cred),'مانده بستانکار مشتریان (ت)'):''}
+      ${statCard('r','⏳',fmt(recv),'مانده مطالبات مشتریان — دفتر کل (ت)')}
+      ${cred?statCard('g','📥',fmt(cred),'مانده بستانکار مشتریان — دفتر کل (ت)'):''}
       ${statCard('o','🚚',fmt(totalPayable),'مانده پرداختنی تأمین‌کنندگان (ت)')}
       ${statCard('p','🔔',fmt(ov.pendingApproval),'فاکتور منتظر تأیید')}
       ${statCard('o','⏳',fmt(ov.pendingSettlements||0),'تسویه منتظر تأیید')}
@@ -5749,6 +5763,7 @@ ROUTES['acc-dash'] = async function(){
     const c=el('accDashChart');
     if(c){ c.innerHTML=chartOfAccountsGroupedHtml(accounts||[]); cacheSet('page:acc-dash', el('view').innerHTML); }
     fitStatNums();
+    attachDatepickers(el('view'));
   });
 };
 
@@ -11486,21 +11501,22 @@ function dashPreselectGL(code){
   };
   trySel();
 }
-function chartAccountModal(){
+function chartAccountModal(parentCode){
   const parents=(CACHE.chartOfAccounts||[]).filter(a=>a.is_active!==0);
+  const pre=parentCode?String(parentCode):'';
+  const parentAcc=pre?(CACHE.chartOfAccounts||[]).find(a=>a.code===pre):null;
+  const defaultType=parentAcc&&parentAcc.type?parentAcc.type:'expense';
   openModal(`
     <div class="modal-head"><h3>➕ حساب جدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>کد حساب *</label><input id="coa-code" placeholder="مثال: 6105" class="mono"></div>
       <div class="fg"><label>نام حساب *</label><input id="coa-name" placeholder="نام حساب"></div>
       <div class="fg"><label>نوع حساب *</label><select id="coa-type">
-        <option value="asset">دارایی</option><option value="liability">بدهی</option>
-        <option value="equity">حقوق صاحبان سرمایه</option><option value="revenue">درآمد</option>
-        <option value="cogs">بهای تمام‌شده</option><option value="expense" selected>هزینه</option>
+        ${['asset','liability','equity','revenue','cogs','expense'].map(t=>`<option value="${t}" ${defaultType===t?'selected':''}>${{asset:'دارایی',liability:'بدهی',equity:'حقوق صاحبان سرمایه',revenue:'درآمد',cogs:'بهای تمام‌شده',expense:'هزینه'}[t]}</option>`).join('')}
       </select></div>
       <div class="fg"><label>حساب والد (اختیاری)</label>
         <select id="coa-parent"><option value="">— بدون والد —</option>
-        ${parents.map(p=>`<option value="${esc(p.code)}">${esc(p.code)} — ${esc(p.name)}</option>`).join('')}
+        ${parents.map(p=>`<option value="${esc(p.code)}" ${pre===p.code?'selected':''}>${esc(p.code)} — ${esc(p.name)}</option>`).join('')}
         </select></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveChartAccount()})}">💾 ذخیره</button>
@@ -12064,7 +12080,10 @@ function renderCoaFourColumn(body, accounts, canEdit){
         const locked=ci>0 && !col.parent;
         const list=locked?[]:coaFourKids(accounts, col.parent).filter(a=>coaFourMatch(a, COA_FOUR.q[ci]));
         return `<div class="panel" data-csp-style="${CSP.style(`margin:0;min-width:0`)}">
-          <div class="panel-head"><h4>${col.title}</h4></div>
+          <div class="panel-head" data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap`)}">
+            <h4>${col.title}</h4>
+            ${!locked && canEdit?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chartAccountModal(`${String((CSP.htmlDecode(String(esc(col.parent||'')))) ?? '')}`)})}">➕</button>`:''}
+          </div>
           <div class="panel-body">
             <input class="search" placeholder="جستجو..." value="${esc(COA_FOUR.q[ci]||'')}" ${locked?'disabled':''}
               data-csp-input="${CSP.bind('input',function(event){coaFourQuery((ci),this.value)})}"
@@ -13606,7 +13625,7 @@ function coaAllAccounts(){
   return coaDepthOf(CACHE.chartOfAccounts||[]);
 }
 function coaAcctHtml(prefix, help){
-  return `<div class="fg full"><label>حساب (کل تا تفصیلی) ${hlp(help||'انتخاب از تمام سطوح کدینگ')}</label>
+  return `<div class="fg full"><label>حساب برگ (قابل ثبت) ${hlp(help||'فقط حساب بدون فرزند فعال')}</label>
     <input type="hidden" id="${prefix}-account-code" value="">
     <input type="text" id="${prefix}-account-search" class="search" placeholder="جستجوی حساب: کد یا نام..." autocomplete="off"
       data-csp-input="${CSP.bind('input',function(event){coaAcctShow(`${String((prefix) ?? '')}`,this.value)})}" data-csp-focus="${CSP.bind('focus',function(event){coaAcctShow(`${String((prefix) ?? '')}`,this.value)})}"
@@ -13618,7 +13637,7 @@ function coaAcctShow(prefix, q){
   const drop=el(prefix+'-acct-drop'), inp=el(prefix+'-account-search'); if(!drop||!inp) return;
   const term=(q||'').trim().toLowerCase();
   const depthLabel={0:'گروه',1:'کل',2:'معین',3:'تفصیلی'};
-  let list=coaAllAccounts();
+  let list=coaAllAccounts().filter(a=>vcCoaIsLeaf(a.code));
   if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
   const rect=inp.getBoundingClientRect();
   drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=Math.max(rect.width,320)+'px'; drop.style.display='block'; drop.style.zIndex='9999';
@@ -13716,7 +13735,7 @@ async function accountReceiptModal(){
   openModal(`
     <div class="modal-head"><h3>📒 دریافت از حساب</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      ${coaAcctHtml('arr','حساب مبدأ دریافت — تمام سطوح')}
+      ${coaAcctHtml('arr','حساب مبدأ دریافت — فقط حساب برگ')}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="arr-amount" type="text" inputmode="numeric" class="money"></div>
       <div class="fg"><label>تاریخ</label><input id="arr-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg"><label>واریز به</label><select id="arr-paytype"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
@@ -13749,7 +13768,7 @@ async function accountPaymentModal(){
   openModal(`
     <div class="modal-head"><h3>📒 پرداخت به حساب</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      ${coaAcctHtml('apay','حساب مقصد پرداخت — تمام سطوح')}
+      ${coaAcctHtml('apay','حساب مقصد پرداخت — فقط حساب برگ')}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="apay-amount" type="text" inputmode="numeric" class="money"></div>
       <div class="fg"><label>تاریخ</label><input id="apay-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg"><label>پرداخت از</label><select id="apay-paytype"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
@@ -14030,7 +14049,9 @@ async function loadStatement(){
   const d=await api('GET','/accounting/statement/'+stmtCustId+stmtQuery());
   if(!d){ box.innerHTML='<div class="empty">خطا در دریافت صورت‌حساب</div>'; return; }
   const bal=v=>`${fmt(Math.abs(v||0))} ${(v||0)>0?'بد':'بس'}`;
+  const mismatchBanner=d.books_mismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: مانده دفتر مشتری (${fmt(Math.abs(d.ledger_closing||0))}) با دفتر کل (${fmt(Math.abs(d.closing||0))}) یکی نیست. عدد اصلی و خروجی از دفتر کل است.</div></div>`:'';
   box.innerHTML=`
+    ${mismatchBanner}
     <div class="panel">
       <div class="panel-head">
         <h4 data-csp-style="${CSP.style(`display:flex;align-items:center;gap:10px`)}"><img src="/logo-sm.png" data-csp-style="${CSP.style(`height:32px`)}" data-csp-error="${CSP.bind('error',function(event){this.style.display='none'})}"> صورت‌حساب: ${esc(d.customer.biz)} ${d.customer.owner?'— '+esc(d.customer.owner):''}</h4>
@@ -14064,8 +14085,8 @@ async function loadStatement(){
         </table>
       </div>
       <div data-csp-style="${CSP.style(`padding:12px 16px;border-top:1px solid var(--border);font-weight:700`)}">
-        مانده نهایی: <span data-csp-style="${CSP.style(`color:${(d.closing||0)>0?'var(--red)':'var(--green)'}`)}">${fmt(Math.abs(d.closing||0))} ریال ${(d.closing||0)>0?'(بدهکار)':'(بستانکار)'}</span>
-        ${d.gl_account_code!=null?`<div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">مانده دفتر کل حساب ${esc(d.gl_account_code)}: ${fmt(Math.abs(d.gl_closing_rial||0))} ریال ${(d.gl_closing_rial||0)>=0?'(بدهکار)':'(بستانکار)'}</div>`:''}
+        مانده نهایی (دفتر کل): <span data-csp-style="${CSP.style(`color:${(d.closing||0)>0?'var(--red)':'var(--green)'}`)}">${fmt(Math.abs(d.closing||0))} ریال ${(d.closing||0)>0?'(بدهکار)':'(بستانکار)'}</span>
+        ${d.gl_account_code!=null?`<div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">نمای دوم — مانده دفتر مشتری: ${fmt(Math.abs(d.ledger_closing||0))} ریال ${(d.ledger_closing||0)>0?'(بدهکار)':'(بستانکار)'} · حساب ${esc(d.gl_account_code)}</div>`:''}
       </div>
     </div>`;
 }
@@ -17281,9 +17302,12 @@ helpSec('🔑','لایسنس و entitlement',`
     helpSec('📒','حسابداری — دفتر، کدینگ، پورتال و چک',`
       <ul>
         <li><b>مانده پرداختنی داشبورد</b> از حساب کنترل پرداختنی دفتر کل (و تفصیلی‌های زیر آن) است، نه جمع خام دفتر تأمین‌کننده</li>
-        <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها، جستجوی شرح و مرجع، و فیلتر تاریخ نوار حسابداری</li>
-        <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است؛ روی موبایل ستونی می‌شود</li>
+        <li><b>مانده مطالبات و بستانکار مشتریان</b> هم از دفتر کل تا تاریخ نوار حسابداری است؛ داشبورد، مطالبات، دفتر کل و صورت‌حساب در یک تاریخ قطع باید یکی باشند</li>
+        <li>دفتر مشتری فقط <b>نمای دوم</b> است؛ اگر با دفتر کل اختلاف داشت هشدار نارنجی نشان داده می‌شود و خروجی صورت‌حساب عدد دفتر کل را می‌نویسد</li>
+        <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها روی کل دوره است؛ جستجوی شرح فقط فهرست ردیف‌ها را محدود می‌کند و مانده را عوض نمی‌کند</li>
+        <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است؛ روی هر ستون دکمه ➕ حساب زیر همان والد می‌سازد</li>
         <li><b>سند دستی:</b> انتخاب آبشاری گروه→کل→معین→تفصیلی؛ فقط حساب برگ (بدون فرزند فعال) قابل ثبت است</li>
+        <li><b>دریافت/پرداخت از حساب:</b> فقط حساب برگ در فهرست است</li>
         <li><b>معین گروه کالا:</b> در فرم گروه کالا حساب معین برگ اختیاری است؛ تغییر آن اسناد قبلی را عوض نمی‌کند</li>
         <li><b>چک پرداختی:</b> منوی چک‌های پرداختی پیش‌فرض فقط جهت پرداختی را نشان می‌دهد</li>
         <li><b>پورتال عملیاتی:</b> «بدون دسترسی» بعد از ذخیره و بارگذاری مجدد همان می‌ماند و نقش مدیر واحد برنمی‌گردد</li>
@@ -17513,7 +17537,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
-        <li><b>مطالبات مشتریان</b>: نمایش به تفکیک مشتری یا فاکتور، با دکمه ثبت پرداخت</li>
+        <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است (نه فقط دفتر مشتری)؛ اگر دو دفتر اختلاف داشتند هشدار می‌آید. نمایش به تفکیک مشتری یا فاکتور، با دکمه ثبت پرداخت</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی)</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده</li>
@@ -17692,7 +17716,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v159</b> است و اسکریپت‌ها با <code>?v=159</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v160</b> است و اسکریپت‌ها با <code>?v=160</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -17868,7 +17892,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v159</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>`),
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v160</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">مانده مطالبات و صورت‌حساب مشتری از دفتر کل تا همان تاریخ قطع خوانده می‌شود؛ اگر با دفتر مشتری فرق داشت هشدار نارنجی می‌بینید.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
       <h5>ثبت مشتری جدید</h5><ul>
@@ -17953,6 +17978,8 @@ function renderSalesGuide(){
         <li>تعداد پیگیری‌های باز</li>
       </ul>
       <div class="tip">برای دیدن جزئیات بیشتر، از بخش «گزارشات» (فقط مدیر) درخواست دهید.</div>`),
+    helpSec('🧾','مطالبات و صورت‌حساب',`
+      <p>مانده بدهکار/بستانکار مشتریان از <b>دفتر کل</b> تا تاریخ نوار حسابداری خوانده می‌شود. دفتر مشتری فقط نمای دوم است؛ در صورت اختلاف هشدار نشان داده می‌شود و خروجی صورت‌حساب عدد دفتر کل را می‌نویسد.</p>`),
     helpSec('📴','کار آفلاین (نسخه ویندوز/اندروید)',`
       <p>در برنامه دسکتاپ و اندروید، همه کارها (ثبت مشتری، فاکتور، پیگیری و...) <b>بدون اینترنت</b> هم انجام می‌شود و به محض اتصال، خودکار با سرور مرکزی همگام می‌شود.</p>
       <ul>

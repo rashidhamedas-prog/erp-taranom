@@ -114,6 +114,9 @@ function assertPostableAccount(db, code) {
   const hasChild = db.prepare(
     'SELECT 1 FROM chart_of_accounts WHERE parent_code=? AND is_active=1 LIMIT 1'
   ).get(acc.code);
+  if (acc.is_active === 0) {
+    return { error: `حساب ${acc.code} غیرفعال است`, code: 'E_COA_INACTIVE' };
+  }
   if (hasChild) {
     return {
       error: `حساب ${acc.code} سطح پست نیست؛ معین/تفصیلی برگ را انتخاب کنید`,
@@ -204,24 +207,48 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
     ORDER BY cl.created_at ASC, cl.id ASC
   `).all(customerId);
 
-  let balance = 0, opening = 0, openingCounted = false;
-  const entries = [];
+  let running = 0;
+  const tagged = [];
   for (const e of all) {
-    balance += (e.debit || 0) - (e.credit || 0);
-    e.running_balance = balance;
+    running += (e.debit || 0) - (e.credit || 0);
+    e.running_balance = running;
     e.type_label = ENTRY_LABEL[e.entry_type] || e.entry_type || '-';
     e.reference = (e.ref_type ? e.ref_type + '-' : '') + (e.ref_id || '');
-    // Everything strictly before the `from` date rolls into the opening balance
-    if (from && (e.date || '') < from) { opening = balance; openingCounted = true; continue; }
+    tagged.push(e);
+  }
+  let opening = 0;
+  if (from) {
+    for (const e of tagged) {
+      if ((e.date || '') < from) opening = e.running_balance;
+      else break;
+    }
+  }
+  const entries = [];
+  let ledger_closing = from ? opening : (tagged.length ? tagged[tagged.length - 1].running_balance : 0);
+  for (const e of tagged) {
+    if (from && (e.date || '') < from) continue;
     if (to && (e.date || '') > to) continue;
     if (type && e.entry_type !== type) continue;
     entries.push(e);
+    ledger_closing = e.running_balance;
   }
-  if (!openingCounted) opening = 0;
+  if (!entries.length && (from || to)) ledger_closing = opening;
   const totalDebit = entries.reduce((a, e) => a + (e.debit || 0), 0);
   const totalCredit = entries.reduce((a, e) => a + (e.credit || 0), 0);
   const gl = glCustomerCoaSummary(db, customerId, { from, to });
-  return { customer, entries, opening, totalDebit, totalCredit, closing: balance, ...gl };
+  const hasGl = gl.gl_account_code != null && gl.gl_closing_rial != null;
+  const closing = hasGl ? gl.gl_closing_rial : ledger_closing;
+  const books_mismatch = hasGl && Math.abs(Number(gl.gl_closing_rial) - Number(ledger_closing)) > 1;
+  return {
+    customer, entries,
+    opening: hasGl ? gl.gl_opening_rial : opening,
+    totalDebit, totalCredit, closing,
+    ledger_opening: opening,
+    ledger_closing,
+    books_mismatch,
+    source: hasGl ? 'gl' : 'customer_ledger',
+    ...gl,
+  };
 }
 
 // Overview stats for accounting dashboard
@@ -251,13 +278,17 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   `).get();
   const invOutstanding = Number(totalInvoiced) - Number(totalSettled);
   const hasLedger = (Number(ledRecv.recv) || 0) !== 0 || (Number(ledRecv.cred) || 0) !== 0;
-  const outstanding = hasLedger ? Number(ledRecv.recv) || 0 : Math.max(0, invOutstanding);
+  const outstandingLedger = hasLedger ? Number(ledRecv.recv) || 0 : Math.max(0, invOutstanding);
+  const creditorLedger = hasLedger ? (Number(ledRecv.cred) || 0) : Math.max(0, -invOutstanding);
 
-  const asOf = safeJalaliDate(req.query.asOf);
+  const asOf = safeJalaliDate(req.query.asOf) || safeJalaliDate(req.query.to);
   const payableCode = coaAcct(db, 'coa_payable').code;
   const totalPayable = glPrefixBalanceRial(db, payableCode, { asOf, debitNormal: false }).display;
   const receivableCode = coaAcct(db, 'coa_receivable').code;
-  const totalReceivable = glPrefixBalanceRial(db, receivableCode, { asOf, debitNormal: true }).display;
+  const recvGl = glPrefixBalanceRial(db, receivableCode, { asOf, debitNormal: true });
+  const totalReceivable = recvGl.display;
+  const creditorBalance = Math.max(0, -Number(recvGl.signed) || 0);
+  const outstanding = totalReceivable;
 
   // Old supplier_ledger path — totalPayableLedger for reconciliation only.
   let totalPayableLedger = 0;
@@ -293,32 +324,38 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   res.json({
     totalInvoiced, totalSettled,
     outstanding,
-    creditorBalance: hasLedger ? (Number(ledRecv.cred) || 0) : Math.max(0, -invOutstanding),
+    creditorBalance,
+    creditorBalanceLedger: creditorLedger,
     pendingApproval, approvedCount, trialBalanced,
     totalPayable,
     totalPayableLedger,
     totalReceivable,
-    outstandingLedger: outstanding,
-    pendingSettlements
+    outstandingLedger,
+    asOf: asOf || null,
+    pendingSettlements,
+    books_mismatch: Math.abs(Number(totalReceivable) - Number(outstandingLedger)) > 1
+      || Math.abs(Number(creditorBalance) - Number(creditorLedger)) > 1,
   });
 });
 
-// Receivables per customer — ledger outstanding is source of truth (opening + invoices − settlements).
-// Invoice/settlement sums are informational; go-live DBs may have openings with zero invoices.
+// Receivables per customer — posted GL under the customer COA is the cutoff source.
+// customer_ledger remains a labeled second view (ledger_outstanding / books_mismatch).
 router.get('/receivables', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
-  const safeDate = v => (v && /^[\d/]+$/.test(v)) ? v : null;
-  const sf = safeDate(from), st = safeDate(to);
+  const sf = safeJalaliDate(from), st = safeJalaliDate(to);
   const invTo = st ? ` AND i.date <= '${st}'` : '';
   const invFrom = (!st && sf) ? ` AND i.date >= '${sf}'` : '';
   const settTo = st ? ` AND s.date <= '${st}'` : '';
   const settFrom = (!st && sf) ? ` AND s.date >= '${sf}'` : '';
+  const ledTo = st ? ' AND cl.date <= ?' : '';
+  const ledFrom = (!st && sf) ? ' AND cl.date >= ?' : '';
+  const ledParams = st ? [st] : ((!st && sf) ? [sf] : []);
   const rows = db.prepare(`
-    SELECT c.id, c.biz, c.owner, c.city, c.phone,
+    SELECT c.id, c.biz, c.owner, c.city, c.phone, c.coa_code,
       u.name as salesperson,
       COALESCE(inv.total_invoiced, 0) as total_invoiced,
-      COALESCE(st.total_settled, 0) as total_settled,
+      COALESCE(stt.total_settled, 0) as total_settled,
       COALESCE(lb.balance, 0) as ledger_balance
     FROM customers c
     LEFT JOIN (
@@ -330,22 +367,31 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
       SELECT cust_id, SUM(amount) as total_settled FROM settlements s
       WHERE COALESCE(status,'posted')<>'reversed'${settTo}${settFrom}
       GROUP BY cust_id
-    ) st ON st.cust_id=c.id
+    ) stt ON stt.cust_id=c.id
     LEFT JOIN (
       SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS balance
-      FROM customer_ledger GROUP BY customer_id
+      FROM customer_ledger cl WHERE 1=1${ledTo}${ledFrom}
+      GROUP BY customer_id
     ) lb ON lb.customer_id=c.id
     LEFT JOIN users u ON c.user_id=u.id
-    WHERE COALESCE(inv.total_invoiced,0) > 0 OR COALESCE(lb.balance,0) <> 0
     ORDER BY ABS(COALESCE(lb.balance,0)) DESC
-  `).all();
-  rows.forEach(r => {
-    // Prefer live ledger (includes opening). Fall back to invoice−settlement if ledger empty.
+  `).all(...ledParams);
+  const out = [];
+  for (const r of rows) {
     const led = Number(r.ledger_balance) || 0;
     const invOut = (Number(r.total_invoiced) || 0) - (Number(r.total_settled) || 0);
-    r.outstanding = led !== 0 ? led : invOut;
-  });
-  res.json(rows);
+    const ledgerOut = led !== 0 ? led : invOut;
+    const gl = r.coa_code ? glCustomerCoaSummary(db, r.id, { from: sf, to: st }) : null;
+    const hasGl = !!(gl && gl.gl_account_code && gl.gl_closing_rial != null);
+    r.ledger_outstanding = ledgerOut;
+    r.gl_closing_rial = hasGl ? gl.gl_closing_rial : null;
+    r.outstanding = hasGl ? gl.gl_closing_rial : ledgerOut;
+    r.source = hasGl ? 'gl' : 'customer_ledger';
+    r.books_mismatch = hasGl && Math.abs(Number(gl.gl_closing_rial) - Number(ledgerOut)) > 1;
+    if (hasGl || ledgerOut || invOut) out.push(r);
+  }
+  out.sort((a, b) => Math.abs(Number(b.outstanding) || 0) - Math.abs(Number(a.outstanding) || 0));
+  res.json(out);
 });
 
 // Receivables per final invoice (for invoice-level tracking) — as-of `to` when provided
@@ -1160,8 +1206,15 @@ router.get('/statement/:customerId/export', auth, adminOrAccounting, async (req,
     const lines = [headers.join(',')];
     for (const r of rows) lines.push(headers.map(h => esc(r[h])).join(','));
     lines.push('');
-    lines.push([esc('مانده اول دوره'), '', '', '', '', esc(data.opening)].join(','));
+    lines.push([esc('مانده اول دوره (دفتر کل)'), '', '', '', '', esc(data.opening)].join(','));
     lines.push([esc('جمع دوره'), '', '', esc(data.totalDebit), esc(data.totalCredit), esc(data.closing)].join(','));
+    lines.push([esc('مانده نهایی (دفتر کل)'), '', '', '', '', esc(data.closing)].join(','));
+    if (data.gl_account_code) {
+      lines.push([esc('مانده دفتر مشتری (نمای دوم)'), '', '', '', '', esc(data.ledger_closing)].join(','));
+    }
+    if (data.books_mismatch) {
+      lines.push([esc('هشدار: دفتر مشتری و دفتر کل یکی نیستند — عدد اصلی از دفتر کل است'), '', '', '', '', esc(Math.abs(Number(data.closing) - Number(data.ledger_closing)))].join(','));
+    }
     res.setHeader('Content-Disposition', `attachment; filename=statement-${data.customer.id}.csv`);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     return res.send('﻿' + lines.join('\n')); // BOM for Excel UTF-8
@@ -1209,10 +1262,12 @@ thead th{background:#1A5C38;color:#fff}tbody tr:nth-child(even){background:#f4f7
 <table><thead><tr><th>ردیف</th><th>تاریخ</th><th>نوع</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th></tr></thead>
 <tbody>${rowsHtml || '<tr><td colspan="7">تراکنشی ثبت نشده</td></tr>'}</tbody></table>
 <div class="tot">
-<div class="l"><span>مانده اول دوره</span><span>${faNum(Math.abs(data.opening))} ${data.opening > 0 ? 'بدهکار' : 'بستانکار'}</span></div>
+<div class="l"><span>مانده اول دوره (دفتر کل)</span><span>${faNum(Math.abs(data.opening))} ${data.opening > 0 ? 'بدهکار' : 'بستانکار'}</span></div>
 <div class="l"><span>جمع بدهکار دوره</span><span>${faNum(data.totalDebit)} ت</span></div>
 <div class="l"><span>جمع بستانکار دوره</span><span>${faNum(data.totalCredit)} ت</span></div>
-<div class="l f"><span>مانده نهایی</span><span>${faNum(Math.abs(data.closing))} ${data.closing > 0 ? 'بدهکار' : 'بستانکار'}</span></div>
+<div class="l f"><span>مانده نهایی (دفتر کل)</span><span>${faNum(Math.abs(data.closing))} ${data.closing > 0 ? 'بدهکار' : 'بستانکار'}</span></div>
+${data.gl_account_code ? `<div class="l"><span>مانده دفتر مشتری (نمای دوم)</span><span>${faNum(Math.abs(data.ledger_closing || 0))} ${(data.ledger_closing || 0) > 0 ? 'بدهکار' : 'بستانکار'}</span></div>` : ''}
+${data.books_mismatch ? `<div class="l" style="color:#b45309"><span>هشدار عدم تطابق دفاتر</span><span>${faNum(Math.abs(Number(data.closing) - Number(data.ledger_closing || 0)))}</span></div>` : ''}
 </div>
 <button class="pbtn" type="button" data-print>چاپ / ذخیره PDF 🖨️</button>
 </div><script src="/print-page.js"></script></body></html>`;
@@ -1223,9 +1278,19 @@ thead th{background:#1A5C38;color:#fff}tbody tr:nth-child(even){background:#f4f7
   const wb = XLSX.utils.book_new();
   const sheetData = [...rows,
     {},
-    { 'تاریخ': 'مانده اول دوره', 'مانده (ریال)': data.opening },
-    { 'تاریخ': 'جمع دوره', 'بدهکار (ریال)': data.totalDebit, 'بستانکار (ریال)': data.totalCredit, 'مانده (ریال)': data.closing }
+    { 'تاریخ': 'مانده اول دوره (دفتر کل)', 'مانده (ریال)': data.opening },
+    { 'تاریخ': 'جمع دوره', 'بدهکار (ریال)': data.totalDebit, 'بستانکار (ریال)': data.totalCredit, 'مانده (ریال)': data.closing },
+    { 'تاریخ': 'مانده نهایی (دفتر کل)', 'مانده (ریال)': data.closing },
   ];
+  if (data.gl_account_code) {
+    sheetData.push({ 'تاریخ': 'مانده دفتر مشتری (نمای دوم)', 'مانده (ریال)': data.ledger_closing });
+  }
+  if (data.books_mismatch) {
+    sheetData.push({
+      'تاریخ': 'هشدار: دفتر مشتری و دفتر کل یکی نیستند — عدد اصلی از دفتر کل است',
+      'مانده (ریال)': Math.abs(Number(data.closing) - Number(data.ledger_closing || 0)),
+    });
+  }
   const ws = XLSX.utils.json_to_sheet(sheetData);
   ws['!cols'] = [14, 14, 30, 16, 16, 16, 14, 16].map(w => ({ wch: w }));
   XLSX.utils.book_append_sheet(wb, ws, 'صورت‌حساب');
@@ -1830,16 +1895,6 @@ router.get('/general-ledger/:code', auth, adminOrAccounting, (req, res) => {
   const params = [account.code];
   if (from) { where.push('je.entry_date >= ?'); params.push(from); }
   if (to) { where.push('je.entry_date <= ?'); params.push(to); }
-  if (q) {
-    where.push(`(
-      COALESCE(je.description,'') LIKE ? OR
-      COALESCE(je.ref_type,'') LIKE ? OR
-      CAST(je.ref_id AS TEXT) LIKE ? OR
-      COALESCE(jl.description,'') LIKE ?
-    )`);
-    const like = '%' + q + '%';
-    params.push(like, like, like, like);
-  }
 
   const periodLines = db.prepare(`
     SELECT jl.*, je.entry_date, je.description as entry_description, je.ref_type, je.ref_id
@@ -1862,12 +1917,24 @@ router.get('/general-ledger/:code', auth, adminOrAccounting, (req, res) => {
     l.running_balance = running;
   });
   const closing_rial = opening_rial + signMove(period_debit_rial, period_credit_rial);
-  const total = periodLines.length;
+  const unfiltered_total = periodLines.length;
 
-  let lines = periodLines;
+  let displayLines = periodLines;
+  if (q) {
+    const needle = q.toLowerCase();
+    displayLines = periodLines.filter((l) => {
+      const hay = [
+        l.entry_description, l.description, l.ref_type, l.ref_id,
+      ].map((x) => String(x == null ? '' : x).toLowerCase()).join('\n');
+      return hay.includes(needle);
+    });
+  }
+  const total = displayLines.length;
+
+  let lines = displayLines;
   if (paginate) {
     const start = (page - 1) * pageSize;
-    lines = periodLines.slice(start, start + pageSize);
+    lines = displayLines.slice(start, start + pageSize);
   } else {
     page = 1;
     pageSize = total || pageSize;
@@ -1883,6 +1950,8 @@ router.get('/general-ledger/:code', auth, adminOrAccounting, (req, res) => {
     page,
     pageSize,
     total,
+    unfiltered_total,
+    q: q || null,
     balance: closing_rial,
   });
 });

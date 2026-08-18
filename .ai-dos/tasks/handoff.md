@@ -1,3 +1,14 @@
+## 2026-08-18 — Implementer closed Independent ACC-04 Highs
+
+- Identity: `cursor:implementer-stitch-impl`
+- Closed [Independent Stitch review](0e8c3afd-c8e0-424d-be8e-2855d39692a1) H1–H3 + M1–M4 on worktree `erp-taranom-stitch-impl`
+- H1 receivables outstanding from posted GL; ledger as labeled second + `books_mismatch`
+- H2 shared cutoff: dashboard `asOf`/`to`, statement `closing` as-of `to`, receivables ledger/GL at same `to`
+- H3 statement primary close = GL; export writes GL + mismatch warning
+- M1 GL `q` filters rows only; M2 creditor from GL; M3 Add per four-col; M4 leaf pickers
+- Next: gates, then Independent + Security re-review. **NO merge / Iran deploy / PM2**
+- SW: `erp-taranom-v160`
+
 ## 2026-08-18 — Security APPROVED on 759a63d
 
 - [Security Review](d8ad5a9d-ec38-4a14-8ac2-859e393161f4) **APPROVED** — C0/H0/M0 on product tip `759a63d`
