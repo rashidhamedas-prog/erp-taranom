@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-18 — UI-STITCH-IMPL موج حسابداری OPS/TRS/ACC (بدون deploy ایران)
+- **شاخه:** `ai/UI-STITCH-IMPL`
+- **خلاصه:** باگ زنده OPS-01 (بدون دسترسی پورتال بعد از Reload) و TRS-02 (چک پرداختی پیش‌فرض `direction=out`). ACC-02 KPI پرداختنی از GL؛ ACC-03 دفتر کل دوره/صفحه/جستجو؛ ACC-04 مطالبات از GL + `gl_closing` صورتحساب؛ ACC-05 کدینگ چهارستون؛ ACC-06 سند آبشاری و فقط حساب برگ؛ ACC-01 تفصیلی شخص پایدار؛ INV-01 معین گروه کالا. SW `erp-taranom-v159`.
+- **فایل‌های کلیدی:** `server/routes/accounting.js`, `server/routes/parties.js`, `server/routes/product-categories.js`, `server/lib/portal-users.js`, `server/public/app.js`, `server/public/app.css`, `server/public/sw.js`, `server/scripts/test-acc-stitch-p2.js`, `server/scripts/test-portal.js`
+- **تست:** `test-acc-stitch-p2.js` · `test-portal.js` · `node --check` · encoding
+- **Deploy:** ⏭ اعمال نشد — بدون merge/SFTP/PM2 تا تأیید جداگانه مالک
+- **SW:** `erp-taranom-v159`
+
 ### 2026-08-15 — DEMO-V3 merge + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `bb868c5` ← FF `feat/DEMO-V3-GUIDED-SALES`
 - **خلاصه:** نسخه نمایشی فروش‌محور (خوش‌آمد نقش، چهار تور، محیط آزاد، دادهٔ سپیدارگل) روی `/demo.html` عمومی شد.

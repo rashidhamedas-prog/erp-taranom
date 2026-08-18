@@ -1,3 +1,12 @@
+## 2026-08-18 — UI-STITCH-IMPL accounting wave (pre dual-review)
+
+- Identity: `cursor:implementer-stitch-impl`
+- Worktree: `D:/soft/Claud/porje/Run in the project/erp-taranom-stitch-impl` branch `ai/UI-STITCH-IMPL`
+- Done: OPS-01, TRS-02, ACC-01 identity lock, ACC-02..06, INV-01 group COA, Help, SW v159
+- Remaining MASTER: HR-02 invite tokens, INV-02/03, UX-01, Phase 5 production (ADR-007), TRS-01/03, POS, CON, LED-01, Phase 8 hardening
+- **NO merge / push-to-primary / Iran deploy / PM2** until owner approval
+- Next: gates + Independent Reviewer + Security on this tip
+
 ## 2026-08-15T03:15:00+03:30 — DEMO-V3 merged + Iran deployed
 
 - Owner approved merge/push/deploy.

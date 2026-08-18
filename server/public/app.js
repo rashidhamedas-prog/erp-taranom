@@ -5677,7 +5677,7 @@ ROUTES['acc-dash'] = async function(){
   const pendingRep = await api('GET','/reps/payments/pending').catch(()=>[]);
   const totalPayable = ov.totalPayable || 0;
   const tbBalanced = ov.trialBalanced;
-  const recv = Number(ov.outstanding)||0;
+  const recv = Number(ov.totalReceivable != null ? ov.totalReceivable : ov.outstanding)||0;
   const cred = Number(ov.creditorBalance)||0;
   el('view').innerHTML=`
     <div class="cards">
@@ -5719,10 +5719,11 @@ ROUTES['acc-dash'] = async function(){
     <div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
       <div class="panel-head"><h4>📒 دفتر کل حساب‌ها</h4></div>
       <div class="panel-body">
-        <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+        <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
           <select id="glAccount" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px`)}" data-csp-change="${CSP.bind('change',function(event){loadGeneralLedger(this.value)})}">
             <option value="">-- انتخاب حساب --</option>
           </select>
+          <input id="glSearch" class="search" placeholder="جستجو در شرح/مرجع..." data-csp-change="${CSP.bind('change',function(event){const s=el('glAccount');if(s&&s.value)loadGeneralLedger(s.value)})}" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;min-width:180px`)}">
         </div>
         <div id="glBody"><div class="empty" data-csp-style="${CSP.style(`padding:30px`)}">یک حساب را برای مشاهده دفتر کل انتخاب کنید</div></div>
       </div>
@@ -6098,7 +6099,13 @@ async function loadAccTab(tab){
         <td colspan="7"></td>
       </tr></tfoot></table></div>`;
   } else if(tab==='cheque-register'){
-    const dirFilter=el('mchqDir')?.value||'';
+    const dirSelect=el('mchqDir');
+    const payNav=accNavId==='acc-cheques-pay';
+    const recvNav=accNavId==='acc-cheques-recv';
+    const sameView=dirSelect && dirSelect.getAttribute('data-nav')===accNavId;
+    const dirFilter=sameView
+      ? dirSelect.value
+      : (payNav?'out':recvNav?'in':'');
     const statusFilter=el('mchqStatus')?.value||'';
     const qps=[];
     if(dirFilter) qps.push('direction='+encodeURIComponent(dirFilter));
@@ -6107,9 +6114,9 @@ async function loadAccTab(tab){
     const rows=await api('GET','/cheque-records'+qp)||[];
     const dirLabel={in:'📥 دریافتی',out:'📤 پرداختی'};
     body.innerHTML=`
-      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">دفتر چک — واردشده از <code>فایل داده</code> (لیست چک‌های دریافتی/پرداختی)</div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">${accNavId==='acc-cheques-pay'?'چک‌های پرداختی — پیش‌فرض فقط جهت پرداختی.':'دفتر چک — واردشده از فایل داده (لیست چک‌های دریافتی/پرداختی)'}</div>
       <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
-        <select id="mchqDir" data-csp-change="${CSP.bind('change',function(event){loadAccTab('cheque-register')})}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px`)}">
+        <select id="mchqDir" data-nav="${esc(accNavId||'')}" data-csp-change="${CSP.bind('change',function(event){loadAccTab('cheque-register')})}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px`)}">
           <option value="">همه جهت‌ها</option>
           <option value="in" ${dirFilter==='in'?'selected':''}>دریافتی</option>
           <option value="out" ${dirFilter==='out'?'selected':''}>پرداختی</option>
@@ -6616,7 +6623,7 @@ async function partyModal(id){
   }
   const roles=p.party_roles||[];
   const roleChk=(k,l)=>`<label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:13px`)}"><input type="checkbox" class="pty-role" value="${k}" ${roles.includes(k)?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> ${l}</label>`;
-  const prPortal=portalAccess.portal_role||'';
+  const prPortal=portalAccess.has_access?(portalAccess.portal_role||''):'';
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body" data-csp-style="${CSP.style(`max-height:75vh;overflow:auto`)}"><div class="form-grid">
@@ -6911,7 +6918,7 @@ async function personModal(id){
     if(id) portalAccess=await api('GET','/portal/access?person_id='+id)||portalAccess;
     else if(p?.phone) portalAccess=await api('GET','/portal/access?phone='+encodeURIComponent(p.phone))||portalAccess;
   }catch(_){}
-  const prPortal=portalAccess.portal_role||'';
+  const prPortal=portalAccess.has_access?(portalAccess.portal_role||''):'';
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -11046,20 +11053,68 @@ function accountOptions(selectedCode){
 // Searchable account picker for manual-voucher lines (spec item 8).
 // Mirrors the product-search dropdown: a text input filters the chart of
 // accounts by code or name as you type, and picking sets the line's code.
+function vcCoaChildren(parent){
+  const all=CACHE.chartOfAccounts||[];
+  if(!parent) return all.filter(a=>!a.parent_code);
+  return all.filter(a=>a.parent_code===parent);
+}
+function vcCoaIsLeaf(code){
+  return !!(code && !vcCoaChildren(code).length);
+}
+function vcCoaChain(code){
+  const by={};
+  (CACHE.chartOfAccounts||[]).forEach(a=>{ by[a.code]=a; });
+  const chain=[];
+  let cur=by[code];
+  while(cur){ chain.unshift(cur.code); cur=cur.parent_code?by[cur.parent_code]:null; }
+  return chain;
+}
+function vcSyncCascadeFromCode(L){
+  if(!L||!L.code) return;
+  const ch=vcCoaChain(L.code);
+  L.c_group=ch[0]||''; L.c_kol=ch[1]||''; L.c_moin=ch[2]||''; L.c_tafsili=ch[3]||'';
+}
 function acctSearchHtml(i, code){
+  const L=voucherLines[i]||{};
+  if(code && !L.c_group) vcSyncCascadeFromCode(L);
   const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
-  return `<div data-csp-style="${CSP.style(`position:relative`)}">
-    <input type="text" id="vc-acct-${i}" class="search" data-csp-style="${CSP.style(`width:100%`)}" autocomplete="off"
-      placeholder="جستجوی حساب: کد یا نام..." value="${a?esc(a.code+' — '+a.name):''}"
-      data-csp-input="${CSP.bind('input',function(event){vcAcctShow((i),this.value)})}" data-csp-focus="${CSP.bind('focus',function(event){vcAcctShow((i),this.value)})}"
-      data-csp-blur="${CSP.bind('blur',function(event){setTimeout(()=>{const d=el(`vc-acctdrop-${String((i) ?? '')}`);if(d)d.style.display='none'},200)})}">
-    <div id="vc-acctdrop-${i}" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
+  const g=L.c_group||'', k=L.c_kol||'', m=L.c_moin||'', t=L.c_tafsili||'';
+  const opt=(rows,sel)=>`<option value="">—</option>`+(rows||[]).map(x=>`<option value="${esc(x.code)}" ${x.code===sel?'selected':''}>${esc(x.code)} — ${esc(x.name)}</option>`).join('');
+  return `<div>
+    <div class="vc-cascade">
+      <select title="گروه" data-csp-change="${CSP.bind('change',function(event){vcCascadePick((i),'g',this.value)})}">${opt(vcCoaChildren(null),g)}</select>
+      <select title="کل" ${g?'':'disabled'} data-csp-change="${CSP.bind('change',function(event){vcCascadePick((i),'k',this.value)})}">${opt(g?vcCoaChildren(g):[],k)}</select>
+      <select title="معین" ${k?'':'disabled'} data-csp-change="${CSP.bind('change',function(event){vcCascadePick((i),'m',this.value)})}">${opt(k?vcCoaChildren(k):[],m)}</select>
+      <select title="تفصیلی" ${m?'':'disabled'} data-csp-change="${CSP.bind('change',function(event){vcCascadePick((i),'t',this.value)})}">${opt(m?vcCoaChildren(m):[],t)}</select>
+    </div>
+    <div data-csp-style="${CSP.style(`position:relative`)}">
+      <input type="text" id="vc-acct-${i}" class="search" data-csp-style="${CSP.style(`width:100%`)}" autocomplete="off"
+        placeholder="جستجوی حساب برگ: کد یا نام..." value="${a?esc(a.code+' — '+a.name):''}"
+        data-csp-input="${CSP.bind('input',function(event){vcAcctShow((i),this.value)})}" data-csp-focus="${CSP.bind('focus',function(event){vcAcctShow((i),this.value)})}"
+        data-csp-blur="${CSP.bind('blur',function(event){setTimeout(()=>{const d=el(`vc-acctdrop-${String((i) ?? '')}`);if(d)d.style.display='none'},200)})}">
+      <div id="vc-acctdrop-${i}" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
+    </div>
   </div>`;
+}
+function vcCascadePick(i, level, code){
+  const L=voucherLines[i];
+  if(!L) return;
+  if(level==='g'){ L.c_group=code; L.c_kol=L.c_moin=L.c_tafsili=''; }
+  else if(level==='k'){ L.c_kol=code; L.c_moin=L.c_tafsili=''; }
+  else if(level==='m'){ L.c_moin=code; L.c_tafsili=''; }
+  else L.c_tafsili=code;
+  const pick=L.c_tafsili||L.c_moin||L.c_kol||L.c_group||'';
+  L.code=vcCoaIsLeaf(pick)?pick:'';
+  renderVoucherLines();
 }
 function vcAcctShow(i, q){
   const drop=el('vc-acctdrop-'+i), inp=el('vc-acct-'+i); if(!drop||!inp) return;
   const term=(q||'').trim().toLowerCase();
-  let list=(CACHE.chartOfAccounts||[]);
+  const parentCodes=new Set((CACHE.chartOfAccounts||[]).map(a=>a.parent_code).filter(Boolean));
+  let list=(CACHE.chartOfAccounts||[]).filter(a=>!parentCodes.has(a.code));
+  if(!list.length && (CACHE.chartOfAccounts||[]).length){
+    list=CACHE.chartOfAccounts||[];
+  }
   if(!list.length){ drop.style.display='block'; drop.innerHTML='<div class="cust-si-item muted">کدینگ بارگذاری نشده</div>'; return; }
   if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
   const rect=inp.getBoundingClientRect();
@@ -11067,13 +11122,12 @@ function vcAcctShow(i, q){
   drop.innerHTML = list.slice(0,80).map(a=>`
     <div class="cust-si-item" data-csp-mousedown="${CSP.bind('mousedown',function(event){vcAcctPick((i),(a.code))})}">
       <span>${esc(a.name)}</span><span class="cust-si-meta">${esc(a.code)}${a.type?' · '+esc(ACC_TYPE_FA[a.type]||a.type):''}</span>
-    </div>`).join('') || '<div class="cust-si-item muted">حسابی یافت نشد</div>';
+    </div>`).join('') || '<div class="cust-si-item muted">حساب برگ (قابل ثبت) یافت نشد — گروه/کل را انتخاب نکنید</div>';
 }
 function vcAcctPick(i, code){
   voucherLines[i].code=code;
-  const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
-  const inp=el('vc-acct-'+i); if(inp&&a) inp.value=a.code+' — '+a.name;
-  const drop=el('vc-acctdrop-'+i); if(drop) drop.style.display='none';
+  vcSyncCascadeFromCode(voucherLines[i]);
+  renderVoucherLines();
 }
 const ACC_TYPE_FA={asset:'دارایی',liability:'بدهی',equity:'سرمایه',revenue:'درآمد',cogs:'بهای تمام‌شده',expense:'هزینه'};
 function personOptions(selectedId){
@@ -11250,19 +11304,30 @@ async function deleteVoucher(id){
 async function loadGeneralLedger(code){
   const box=el('glBody'); if(!box||!code) return;
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const params=[];
+  if(accDateFrom) params.push('from='+encodeURIComponent(accDateFrom));
+  if(accDateTo) params.push('to='+encodeURIComponent(accDateTo));
+  const gq=el('glSearch')?.value?.trim();
+  if(gq) params.push('q='+encodeURIComponent(gq));
+  const qp=params.length?'?'+params.join('&'):'';
   const dq=(accDateFrom||accDateTo)?'?'+(accDateFrom?'from='+encodeURIComponent(accDateFrom):'')+(accDateFrom&&accDateTo?'&':'')+(accDateTo?'to='+encodeURIComponent(accDateTo):''):'';
   const [d, dash]=await Promise.all([
-    api('GET','/accounting/general-ledger/'+encodeURIComponent(code)),
+    api('GET','/accounting/general-ledger/'+encodeURIComponent(code)+qp),
     api('GET','/accounting/account-dashboard/'+encodeURIComponent(code)+dq).catch(()=>null)
   ]);
-  if(!d){ box.innerHTML='<div class="empty">خطا</div>'; return; }
+  if(!d){ box.innerHTML='<div class="empty">خطا در بارگذاری دفتر کل</div>'; return; }
   const period=dash?.period||{};
   const last=(dash?.recent||dash?.last_entries||[]).slice(0,10);
+  const opening=d.opening_rial??0;
+  const periodDr=d.period_debit_rial??period.debit_rial??period.total_debit??0;
+  const periodCr=d.period_credit_rial??period.credit_rial??period.total_credit??0;
+  const closing=d.closing_rial??d.balance??0;
   box.innerHTML=`
     <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px`)}">
-      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">مانده</div><div class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(Math.abs(dash?.balance??d.balance??0))} ریال</div></div>
-      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بدهکار دوره</div><div class="mono" data-csp-style="${CSP.style(`color:var(--orange);font-weight:700`)}">${fmt(period.debit_rial||period.total_debit||0)}</div></div>
-      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بستانکار دوره</div><div class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">${fmt(period.credit_rial||period.total_credit||0)}</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">مانده ابتدا</div><div class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(Math.abs(opening))} ریال</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بدهکار دوره</div><div class="mono" data-csp-style="${CSP.style(`color:var(--orange);font-weight:700`)}">${fmt(periodDr)}</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بستانکار دوره</div><div class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">${fmt(periodCr)}</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">مانده انتها</div><div class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(Math.abs(closing))} ریال</div></div>
       <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;flex:1`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">حساب</div><div data-csp-style="${CSP.style(`font-weight:700`)}">${esc((dash?.account||d.account||{}).name||code)} <span class="mono muted">${esc(code)}</span></div></div>
     </div>
     ${last.length?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px`)}">آخرین اسناد</div>
@@ -11281,7 +11346,7 @@ async function loadGeneralLedger(code){
       <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${cr>0?fmt(cr):'-'}</td>
       <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(Math.abs(l.running_balance||0))}</td>
     </tr>`;}).join('')||'<tr><td colspan="6" class="empty">تراکنشی ثبت نشده</td></tr>'}</tbody></table></div>
-    <div data-csp-style="${CSP.style(`padding:12px 0;font-weight:700`)}">مانده نهایی: ${fmt(Math.abs(d.balance||0))} ریال</div>`;
+    <div data-csp-style="${CSP.style(`padding:12px 0;font-weight:700`)}">مانده نهایی: ${fmt(Math.abs(closing))} ریال${d.total!=null?` <span class="muted">· ${fmt(d.total)} ردیف</span>`:''}</div>`;
 }
 
 /* ============================================================
@@ -11951,18 +12016,82 @@ function filterCoaByMode(accounts, mode){
   return list;
 }
 const COA_SECTION_META={
-  'coa-codes':{title:'کدهای حسابداری (کامل)',hint:'فهرست کامل ساختار کدینگ حساب‌ها — کل، معین و تفصیلی شناور'},
+  'coa-codes':{title:'کدهای حسابداری (کامل)',hint:'چهار ستون از راست: گروه، کل، معین، تفصیلی — انتخاب هر سطح فرزندان بعدی را نشان می‌دهد'},
   'account-groups':{title:'گروه‌های حساب',hint:'سطح اول کدینگ (دارایی، بدهی، حقوق صاحبان سرمایه، درآمد، هزینه)'},
   'ledger-accounts':{title:'حساب‌های کل',hint:'حساب‌های سطح دوم زیر هر گروه — مثال: ۱۱ موجودی نقد و بانک، ۲۱ بدهی‌های جاری'},
   'subsidiary-accounts':{title:'حساب‌های معین',hint:'حساب‌های سطح سوم — تفصیل‌پذیر و قابل گردش در دفاتر'}
 };
+let COA_FOUR={group:null,kol:null,moin:null,tafsili:null,q:['','','','']};
+function coaFourKids(accounts, parent){
+  if(!parent) return (accounts||[]).filter(a=>!a.parent_code);
+  return (accounts||[]).filter(a=>a.parent_code===parent);
+}
+function coaFourMatch(a, q){
+  const term=String(q||'').trim().toLowerCase();
+  if(!term) return true;
+  const hay=((a.code||'')+' '+(a.name||'')).toLowerCase();
+  return term.split(/\s+/).every(w=>hay.includes(w));
+}
+function coaFourPick(level, code){
+  if(level==='group'){ COA_FOUR.group=code; COA_FOUR.kol=COA_FOUR.moin=COA_FOUR.tafsili=null; }
+  else if(level==='kol'){ COA_FOUR.kol=code; COA_FOUR.moin=COA_FOUR.tafsili=null; }
+  else if(level==='moin'){ COA_FOUR.moin=code; COA_FOUR.tafsili=null; }
+  else COA_FOUR.tafsili=code;
+  const body=el('accBody');
+  if(body) renderCoaFourColumn(body, CACHE.chartOfAccounts||[], isAdmin()||ME.role==='accounting');
+}
+function coaFourQuery(idx, val){
+  COA_FOUR.q[idx]=val;
+  const body=el('accBody');
+  if(body) renderCoaFourColumn(body, CACHE.chartOfAccounts||[], isAdmin()||ME.role==='accounting');
+}
+function renderCoaFourColumn(body, accounts, canEdit){
+  const cols=[
+    {key:'group',title:'گروه',parent:null,sel:COA_FOUR.group},
+    {key:'kol',title:'کل',parent:COA_FOUR.group,sel:COA_FOUR.kol},
+    {key:'moin',title:'معین',parent:COA_FOUR.kol,sel:COA_FOUR.moin},
+    {key:'tafsili',title:'تفصیلی',parent:COA_FOUR.moin,sel:COA_FOUR.tafsili},
+  ];
+  const meta=COA_SECTION_META['coa-codes'];
+  body.innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">${meta.hint}</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+      ${canEdit?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){chartAccountModal()})}">➕ حساب جدید</button>`:''}
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-dash')})}">📊 داشبورد</button>
+    </div>
+    <div class="coa-four">
+      ${cols.map((col,ci)=>{
+        const locked=ci>0 && !col.parent;
+        const list=locked?[]:coaFourKids(accounts, col.parent).filter(a=>coaFourMatch(a, COA_FOUR.q[ci]));
+        return `<div class="panel" data-csp-style="${CSP.style(`margin:0;min-width:0`)}">
+          <div class="panel-head"><h4>${col.title}</h4></div>
+          <div class="panel-body">
+            <input class="search" placeholder="جستجو..." value="${esc(COA_FOUR.q[ci]||'')}" ${locked?'disabled':''}
+              data-csp-input="${CSP.bind('input',function(event){coaFourQuery((ci),this.value)})}"
+              data-csp-style="${CSP.style(`width:100%;margin-bottom:8px;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px`)}">
+            <div data-csp-style="${CSP.style(`max-height:min(52vh,420px);overflow:auto`)}">
+              ${locked?`<div class="empty">ابتدا سطح قبلی را انتخاب کنید</div>`:(list.map(a=>`
+                <button type="button" class="btn ${a.code===col.sel?'':'ghost'} sm" data-csp-style="${CSP.style(`display:flex;justify-content:space-between;width:100%;margin-bottom:4px;text-align:right`)}"
+                  data-csp-click="${CSP.bind('click',function(event){coaFourPick(`${String((col.key) ?? '')}`,`${String((CSP.htmlDecode(String(esc(a.code)))) ?? '')}`)})}">
+                  <span>${esc(a.name)}</span><span class="mono muted">${esc(a.code)}</span>
+                </button>`).join('')||`<div class="empty">${ci===3?'تفصیلی ثبت نشده':'موردی نیست'}</div>`)}
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
 async function renderCoaSectionTab(body, mode){
   const accounts=await api('GET','/accounting/chart-of-accounts')||[];
   CACHE.chartOfAccounts=accounts;
+  const canEdit=isAdmin()||ME.role==='accounting';
+  if(mode==='coa-codes'){
+    renderCoaFourColumn(body, accounts, canEdit);
+    return;
+  }
   const meta=COA_SECTION_META[mode]||COA_SECTION_META['coa-codes'];
   const filtered=filterCoaByMode(accounts, mode);
   const typeLabel={asset:'دارایی',liability:'بدهی',equity:'حقوق صاحبان سرمایه',revenue:'درآمد',cogs:'بهای تمام‌شده',expense:'هزینه'};
-  const canEdit=isAdmin()||ME.role==='accounting';
   body.innerHTML=`
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">${meta.hint}</div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
@@ -12644,16 +12773,19 @@ async function productGroupModal(id, parentHint){
         <select id="prg-parent"><option value="">— بدون والد (گروه اصلی) —</option>
         ${list.filter(x=>x.id!==id && x.code!==0).map(x=>`<option value="${x.id}" ${String(parentVal)==String(x.id)?'selected':''}>${esc(x.name)}${x.parent_id?' (زیرگروه)':''}</option>`).join('')}</select></div>
       <div class="fg full">${typeof settToggle==='function'?settToggle('prg-shared', g.is_shared!==0,'اجازه نمایش به سایر کاربران','اگر خاموش باشد فقط ایجادکننده، مدیر و حسابدار می‌بینند'):`<label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}"><input id="prg-shared" type="checkbox" data-csp-style="${CSP.style(`width:auto`)}" ${g.is_shared!==0?'checked':''}> اجازه نمایش به سایر کاربران</label>`}</div>
+      ${moayanAcctHtml('prg','حساب معین این گروه کالا — اختیاری؛ فقط حساب برگ. تغییر نگاشت روی اسناد قبلی اثر ندارد.')}
       <div class="fg full"><label>توضیحات</label><textarea id="prg-desc">${esc(g.description||'')}</textarea></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProductGroup((id||0))})}">ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   if(needPick && roots.length===1){ const sel=el('prg-parent'); if(sel) sel.value=String(roots[0].id); }
+  if(!CACHE.chartOfAccounts) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
+  if(g.coa_code) moayanAcctPick('prg', g.coa_code);
 }
 async function saveProductGroup(id){
   const name=el('prg-name').value.trim();
   if(!name){ showToast('نام گروه الزامی است','error'); return; }
-  const data={name,code:el('prg-code').value,parent_id:el('prg-parent').value||null,description:el('prg-desc').value,is_shared:el('prg-shared').checked};
+  const data={name,code:el('prg-code').value,parent_id:el('prg-parent').value||null,description:el('prg-desc').value,is_shared:el('prg-shared').checked,coa_code:el('prg-account-code')?.value||''};
   try{
     if(id) await api('PUT','/product-categories/'+id,data); else await api('POST','/product-categories',data);
     CACHE.productCategories=null; CACHE.productCats=null; CACHE._prodCats=null; CACHE._prodMetaLoaded=false; clearPageCache();
@@ -13933,6 +14065,7 @@ async function loadStatement(){
       </div>
       <div data-csp-style="${CSP.style(`padding:12px 16px;border-top:1px solid var(--border);font-weight:700`)}">
         مانده نهایی: <span data-csp-style="${CSP.style(`color:${(d.closing||0)>0?'var(--red)':'var(--green)'}`)}">${fmt(Math.abs(d.closing||0))} ریال ${(d.closing||0)>0?'(بدهکار)':'(بستانکار)'}</span>
+        ${d.gl_account_code!=null?`<div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">مانده دفتر کل حساب ${esc(d.gl_account_code)}: ${fmt(Math.abs(d.gl_closing_rial||0))} ریال ${(d.gl_closing_rial||0)>=0?'(بدهکار)':'(بستانکار)'}</div>`:''}
       </div>
     </div>`;
 }
@@ -17145,6 +17278,16 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>روی دکمهٔ هر پنجره بزنید تا جلو بیاید؛ چینش و خاموش/روشن از همان نوار.</li>
         <li>نوار عنوان هر پنجره: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن</li>
       </ul>`),
+    helpSec('📒','حسابداری — دفتر، کدینگ، پورتال و چک',`
+      <ul>
+        <li><b>مانده پرداختنی داشبورد</b> از حساب کنترل پرداختنی دفتر کل (و تفصیلی‌های زیر آن) است، نه جمع خام دفتر تأمین‌کننده</li>
+        <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها، جستجوی شرح و مرجع، و فیلتر تاریخ نوار حسابداری</li>
+        <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است؛ روی موبایل ستونی می‌شود</li>
+        <li><b>سند دستی:</b> انتخاب آبشاری گروه→کل→معین→تفصیلی؛ فقط حساب برگ (بدون فرزند فعال) قابل ثبت است</li>
+        <li><b>معین گروه کالا:</b> در فرم گروه کالا حساب معین برگ اختیاری است؛ تغییر آن اسناد قبلی را عوض نمی‌کند</li>
+        <li><b>چک پرداختی:</b> منوی چک‌های پرداختی پیش‌فرض فقط جهت پرداختی را نشان می‌دهد</li>
+        <li><b>پورتال عملیاتی:</b> «بدون دسترسی» بعد از ذخیره و بارگذاری مجدد همان می‌ماند و نقش مدیر واحد برنمی‌گردد</li>
+      </ul>`),
     helpSec('🧾','انواع فاکتور فروش و موجودی دائمی',`
       <ul>
         <li><b>پیش‌فاکتور:</b> اعلام قیمت — بدون کسر موجودی و بدون سند حسابداری</li>
@@ -17549,7 +17692,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v158</b> است و اسکریپت‌ها با <code>?v=158</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v159</b> است و اسکریپت‌ها با <code>?v=159</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -17725,7 +17868,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v158</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>`),
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v159</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
       <h5>ثبت مشتری جدید</h5><ul>

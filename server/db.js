@@ -1852,6 +1852,7 @@ function initSyncSchema(db) {
   ensureColumn(db, 'product_categories', 'description', 'TEXT');
   ensureColumn(db, 'product_categories', 'is_shared', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumn(db, 'product_categories', 'created_by', 'INTEGER');
+  ensureColumn(db, 'product_categories', 'coa_code', 'TEXT');
   ensureColumn(db, 'users', 'party_id', 'INTEGER');
   ensureColumn(db, 'users', 'sales_warehouse_id', 'INTEGER');
   ensureColumn(db, 'customers', 'party_group_id', 'INTEGER');

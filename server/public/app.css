@@ -1135,3 +1135,11 @@ body.erp-demo-mode{padding-top:32px}
     transform:rotate(-24deg);z-index:99999;pointer-events:none;
   }
 }
+
+/* Stitch ACC-05: four-column COA desktop; stacked mobile */
+.coa-four{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:start}
+.vc-cascade{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:6px}
+.vc-cascade select{width:100%;min-width:0;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:12px;background:var(--card,#fff)}
+@media(max-width:900px){
+  .coa-four,.vc-cascade{grid-template-columns:1fr}
+}

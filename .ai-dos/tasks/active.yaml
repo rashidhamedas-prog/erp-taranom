@@ -1,5 +1,53 @@
 schema_version: 1
 tasks:
+  - id: "UI-STITCH-IMPL"
+    title: "Stitch MASTER wave: OPS-01, TRS-02, ACC-01..06, INV-01"
+    status: "active"
+    review_status: "PENDING"
+    security_status: "PENDING"
+    risk: "high"
+    owner: "cursor:orchestrator-stitch-impl"
+    roles:
+      orchestrator: "cursor:orchestrator-stitch-impl"
+      architect: "cursor:orchestrator-stitch-impl"
+      implementer: "cursor:implementer-stitch-impl"
+      reviewer: "cursor:independent-reviewer-stitch-impl"
+      security: "cursor:independent-security-stitch-impl"
+    branch: "ai/UI-STITCH-IMPL"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-stitch-impl"
+    base_commit: "51be279"
+    claimed_at: "2026-08-18T15:00:00+03:30"
+    file_claims:
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+      - "docs/CHANGE-LOG.md"
+      - "server/routes/accounting.js"
+      - "server/routes/parties.js"
+      - "server/routes/product-categories.js"
+      - "server/lib/portal-users.js"
+      - "server/db.js"
+      - "server/public/app.js"
+      - "server/public/app.css"
+      - "server/public/index.html"
+      - "server/public/demo.html"
+      - "server/public/sw.js"
+      - "server/scripts/test-acc-stitch-p2.js"
+      - "server/scripts/test-portal.js"
+    notes: >-
+      Continue MASTER after Phase 0 map. No Iran deploy / merge until owner approval.
+      Production/Padena (ADR-007) deferred. Do not touch dirty erp-taranom1 deploy scripts.
+    acceptance_criteria:
+      - "OPS-01 none persists after reload; portal_role null when !has_access"
+      - "TRS-02 payable cheque menu defaults to direction=out"
+      - "ACC-02..06 APIs and UI as mapped; ACC-01 identity lock; INV-01 group coa leaf"
+      - "Tests recorded; Help + CHANGE-LOG + SW v159"
+      - "NO production deploy / merge until explicit owner approval"
+    non_goals:
+      - "Iran VPS deploy, PM2, merge to primary"
+      - "PROD/PACK/POS/CON full MASTER phases"
+      - "React/Tailwind/CDN Stitch HTML copy"
+
   - id: "DEMO-V3-GUIDED-SALES"
     title: "Guided, role-based, sales-oriented Demo V3"
     status: "completed"

@@ -88,7 +88,7 @@ COA_GAP_KEYS.forEach(k => {
 
 console.log('\n— ensurePersonUser temp password modes —');
 const bcrypt = require('bcryptjs');
-const { ensurePersonUser } = require('../lib/portal-users');
+const { ensurePersonUser, setPortalAccess, getPortalAccessByPhone } = require('../lib/portal-users');
 const pPhone = db.prepare("INSERT INTO persons (name,phone) VALUES ('تست رمز','09121110000')").run().lastInsertRowid;
 const uDef = ensurePersonUser(db, pPhone, 'department_manager');
 ok(uDef.created === true, 'ensurePersonUser created (default no SMS)');
@@ -108,6 +108,16 @@ ok(uSms.tempPassword && uSms.tempPassword.length === 14
   'temp password is strong and random when sendSms');
 ok(db.prepare('SELECT must_change_password FROM users WHERE id=?').get(uSms.userId)?.must_change_password === 1,
   'must_change_password=1 (SMS path)');
+
+console.log('\n— OPS-01 portal_access=none persistence —');
+const pNone = db.prepare("INSERT INTO persons (name,phone) VALUES ('OPS-01 none','09121110999')").run().lastInsertRowid;
+setPortalAccess(db, { personId: pNone, portalRole: 'unit_manager' });
+let accNone = getPortalAccessByPhone(db, '09121110999');
+ok(accNone.has_access === true && accNone.portal_role === 'unit_manager', 'grant unit_manager');
+setPortalAccess(db, { personId: pNone, portalRole: 'none' });
+accNone = getPortalAccessByPhone(db, '09121110999');
+ok(accNone.has_access === false && accNone.portal_role == null, 'revoked GET portal_role is null (reload-safe)');
+ok(db.prepare('SELECT active FROM users WHERE username=?').get('09121110999')?.active === 0, 'revoked user inactive');
 
 console.log('\n— auto-approve job —');
 const { autoApproveStalePortalReviews } = require('../lib/portal-jobs');

@@ -99,6 +99,96 @@ const ENTRY_LABEL = {
   opening: 'مانده اول دوره'
 };
 
+/** Jalali date for parameterized SQL only — never interpolate into the query string. */
+function safeJalaliDate(v) {
+  if (v == null || v === '') return null;
+  const s = String(v).trim();
+  return /^\d{4}\/\d{1,2}\/\d{1,2}$/.test(s) ? s : null;
+}
+
+const JE_ALIVE = `${DELETED_FILTER} AND COALESCE(je.status,'posted')<>'reversed'`;
+
+function assertPostableAccount(db, code) {
+  const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(code);
+  if (!acc) return { error: `کد حساب ${code} یافت نشد` };
+  const hasChild = db.prepare(
+    'SELECT 1 FROM chart_of_accounts WHERE parent_code=? AND is_active=1 LIMIT 1'
+  ).get(acc.code);
+  if (hasChild) {
+    return {
+      error: `حساب ${acc.code} سطح پست نیست؛ معین/تفصیلی برگ را انتخاب کنید`,
+      code: 'E_COA_NOT_POSTABLE',
+    };
+  }
+  return { acc };
+}
+
+function glPrefixBalanceRial(db, prefix, { asOf, debitNormal } = {}) {
+  const params = [String(prefix || '') + '%'];
+  let asOfSql = '';
+  if (asOf) {
+    asOfSql = ' AND je.entry_date <= ?';
+    params.push(asOf);
+  }
+  const row = db.prepare(`
+    SELECT
+      COALESCE(SUM(${SQL_JL_DEBIT_RIAL}), 0) AS debit,
+      COALESCE(SUM(${SQL_JL_CREDIT_RIAL}), 0) AS credit
+    FROM journal_lines jl
+    JOIN journal_entries je ON jl.entry_id = je.id
+    WHERE jl.account_code LIKE ?
+      AND ${JE_ALIVE}
+      ${asOfSql}
+  `).get(...params);
+  const debit = Number(row.debit || 0);
+  const credit = Number(row.credit || 0);
+  const signed = debitNormal ? (debit - credit) : (credit - debit);
+  return { debit, credit, signed, display: Math.max(0, signed) };
+}
+
+function glCustomerCoaSummary(db, customerId, { from, to } = {}) {
+  const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(customerId);
+  if (!c || !c.coa_code) {
+    return {
+      gl_account_code: null,
+      gl_opening_rial: null,
+      gl_period_debit_rial: null,
+      gl_period_credit_rial: null,
+      gl_closing_rial: null,
+    };
+  }
+  const like = String(c.coa_code) + '%';
+  const sumSql = `
+    SELECT
+      COALESCE(SUM(${SQL_JL_DEBIT_RIAL}), 0) AS debit,
+      COALESCE(SUM(${SQL_JL_CREDIT_RIAL}), 0) AS credit
+    FROM journal_lines jl
+    JOIN journal_entries je ON jl.entry_id = je.id
+    WHERE jl.account_code LIKE ?
+      AND ${JE_ALIVE}
+  `;
+  let opening_rial = 0;
+  if (from) {
+    const openRow = db.prepare(sumSql + ' AND je.entry_date < ?').get(like, from);
+    opening_rial = Number(openRow.debit || 0) - Number(openRow.credit || 0);
+  }
+  const periodParts = [];
+  const periodParams = [like];
+  if (from) { periodParts.push('je.entry_date >= ?'); periodParams.push(from); }
+  if (to) { periodParts.push('je.entry_date <= ?'); periodParams.push(to); }
+  const periodSql = periodParts.length ? ' AND ' + periodParts.join(' AND ') : '';
+  const period = db.prepare(sumSql + periodSql).get(...periodParams);
+  const periodDr = Number(period.debit || 0);
+  const periodCr = Number(period.credit || 0);
+  return {
+    gl_account_code: c.coa_code,
+    gl_opening_rial: opening_rial,
+    gl_period_debit_rial: periodDr,
+    gl_period_credit_rial: periodCr,
+    gl_closing_rial: opening_rial + periodDr - periodCr,
+  };
+}
+
 // Build a customer account statement (opening balance + period movements + running balance).
 // Running balance is always computed from the very first entry; date/type filters only
 // affect which rows are *returned*, so the opening balance reflects everything before `from`.
@@ -130,7 +220,8 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
   if (!openingCounted) opening = 0;
   const totalDebit = entries.reduce((a, e) => a + (e.debit || 0), 0);
   const totalCredit = entries.reduce((a, e) => a + (e.credit || 0), 0);
-  return { customer, entries, opening, totalDebit, totalCredit, closing: balance };
+  const gl = glCustomerCoaSummary(db, customerId, { from, to });
+  return { customer, entries, opening, totalDebit, totalCredit, closing: balance, ...gl };
 }
 
 // Overview stats for accounting dashboard
@@ -162,8 +253,14 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const hasLedger = (Number(ledRecv.recv) || 0) !== 0 || (Number(ledRecv.cred) || 0) !== 0;
   const outstanding = hasLedger ? Number(ledRecv.recv) || 0 : Math.max(0, invOutstanding);
 
-  // Payables: supplier_ledger (credit−debit = we owe). Else purchase/payment formula.
-  let totalPayable = 0;
+  const asOf = safeJalaliDate(req.query.asOf);
+  const payableCode = coaAcct(db, 'coa_payable').code;
+  const totalPayable = glPrefixBalanceRial(db, payableCode, { asOf, debitNormal: false }).display;
+  const receivableCode = coaAcct(db, 'coa_receivable').code;
+  const totalReceivable = glPrefixBalanceRial(db, receivableCode, { asOf, debitNormal: true }).display;
+
+  // Old supplier_ledger path — totalPayableLedger for reconciliation only.
+  let totalPayableLedger = 0;
   let hasSupplierLedger = false;
   try {
     const sl = db.prepare(`
@@ -174,7 +271,7 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
         FROM supplier_ledger GROUP BY supplier_id
       )
     `).get();
-    totalPayable = Number(sl.payable) || 0;
+    totalPayableLedger = Number(sl.payable) || 0;
     hasSupplierLedger = Number(sl.n) > 0;
   } catch (_) { /* table may be empty/absent on older DBs */ }
   if (!hasSupplierLedger) {
@@ -190,7 +287,7 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
       LEFT JOIN (SELECT supplier_id, SUM(amount) total_paid FROM supplier_payments WHERE COALESCE(status,'posted')<>'reversed' GROUP BY supplier_id) sp ON sp.supplier_id=s.id
       LEFT JOIN (SELECT supplier_id, SUM(amount) total_returned FROM purchase_returns WHERE COALESCE(status,'posted')<>'reversed' GROUP BY supplier_id) pr ON pr.supplier_id=s.id
     `).get();
-    totalPayable = payRow.total || 0;
+    totalPayableLedger = payRow.total || 0;
   }
 
   res.json({
@@ -199,6 +296,9 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
     creditorBalance: hasLedger ? (Number(ledRecv.cred) || 0) : Math.max(0, -invOutstanding),
     pendingApproval, approvedCount, trialBalanced,
     totalPayable,
+    totalPayableLedger,
+    totalReceivable,
+    outstandingLedger: outstanding,
     pendingSettlements
   });
 });
@@ -830,6 +930,17 @@ router.get('/income-statement', auth, adminOrAccounting, (req, res, next) => {
 // Chart of accounts
 router.get('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  if (Object.prototype.hasOwnProperty.call(req.query, 'parent')) {
+    const parent = String(req.query.parent ?? '');
+    if (parent === '' || parent === '__root__') {
+      return res.json(db.prepare(
+        'SELECT * FROM chart_of_accounts WHERE is_active=1 AND parent_code IS NULL ORDER BY code'
+      ).all());
+    }
+    return res.json(db.prepare(
+      'SELECT * FROM chart_of_accounts WHERE is_active=1 AND parent_code=? ORDER BY code'
+    ).all(parent));
+  }
   const accounts = db.prepare('SELECT * FROM chart_of_accounts WHERE is_active=1 ORDER BY code').all();
   res.json(accounts);
 });
@@ -957,8 +1068,15 @@ router.patch('/link-coa', auth, adminOnly, centralOnly, (req, res) => {
   const db = getDB();
   const acc = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=? AND is_active=1').get(code);
   if (!acc) return res.status(400).json({ error: 'حساب در کدینگ یافت نشد' });
-  const row = db.prepare(`SELECT id FROM ${table} WHERE id=?`).get(id);
+  const row = db.prepare(`SELECT id, coa_code FROM ${table} WHERE id=?`).get(id);
   if (!row) return res.status(404).json({ error: 'رکورد یافت نشد' });
+  if (row.coa_code && String(row.coa_code) !== code) {
+    return res.status(400).json({
+      error: 'تفصیلی این موجودیت پایدار است و با اتصال مجدد عوض نمی‌شود',
+      code: 'E_COA_IDENTITY_LOCKED',
+      coa_code: row.coa_code,
+    });
+  }
   db.prepare(`UPDATE ${table} SET coa_code=? WHERE id=?`).run(code, id);
   audit(req.user.id, 'link_coa', entity_type, id, `اتصال به ${code} ${acc.name}`);
   res.json({ ok: true, coa_code: acc.code, coa_name: acc.name });
@@ -1367,8 +1485,9 @@ function validateAndBuildVoucherLines(db, lines) {
       });
       personPostings.push({ person_id: person.id, debit, credit, description: l.description || '' });
     } else {
-      const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(l.code);
-      if (!acc) return { error: `کد حساب ${l.code} یافت نشد` };
+      const posted = assertPostableAccount(db, l.code);
+      if (posted.error) return posted;
+      const acc = posted.acc;
       cleanLines.push({
         code: acc.code, name: acc.name, debit, credit, description: l.description || '',
         detail_account_id: l.detail_account_id || null, cost_center_id: l.cost_center_id || null,
@@ -1392,7 +1511,7 @@ router.post('/vouchers', auth, adminOrAccounting, (req, res) => {
   }
   const db = getDB();
   const built = validateAndBuildVoucherLines(db, lines);
-  if (built.error) return res.status(400).json({ error: built.error });
+  if (built.error) return res.status(400).json({ error: built.error, code: built.code });
 
   const rawType = String(doc_type || voucher_type || 'manual').toLowerCase().trim();
   const OPENING_TYPES = new Set(['opening', 'افتتاحیه', 'opening_balance', 'مانده اول دوره', 'beginning_inventory', 'موجودی اول دوره', 'fiscal_opening']);
@@ -1443,8 +1562,9 @@ router.post('/account-payments', auth, adminOrAccounting, (req, res) => {
   if (!amt || amt <= 0) return res.status(400).json({ error: 'مبلغ معتبر الزامی است' });
   if (!code) return res.status(400).json({ error: 'حساب مقصد الزامی است' });
   const db = getDB();
-  const dest = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(code);
-  if (!dest) return res.status(400).json({ error: 'حساب مقصد در کدینگ یافت نشد' });
+  const posted = assertPostableAccount(db, code);
+  if (posted.error) return res.status(400).json({ error: posted.error, code: posted.code });
+  const dest = posted.acc;
   const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
   const entryId = db.transaction(() => {
     return postToLedger(db, {
@@ -1477,8 +1597,9 @@ router.post('/account-receipts', auth, adminOrAccounting, (req, res) => {
   if (!amt || amt <= 0) return res.status(400).json({ error: 'مبلغ معتبر الزامی است' });
   if (!code) return res.status(400).json({ error: 'حساب مبدأ الزامی است' });
   const db = getDB();
-  const src = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(code);
-  if (!src) return res.status(400).json({ error: 'حساب مبدأ در کدینگ یافت نشد' });
+  const posted = assertPostableAccount(db, code);
+  if (posted.error) return res.status(400).json({ error: posted.error, code: posted.code });
+  const src = posted.acc;
   const cash = resolveCashAccount(db, pay_type || 'cash', bank_id, cash_box_id);
   const entryId = db.transaction(() => {
     return postToLedger(db, {
@@ -1566,7 +1687,7 @@ router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => 
   if (!draft) return res.status(404).json({ error: 'پیش‌نویس یافت نشد' });
   const lines = JSON.parse(draft.lines_json || '[]');
   const built = validateAndBuildVoucherLines(db, lines);
-  if (built.error) return res.status(400).json({ error: built.error });
+  if (built.error) return res.status(400).json({ error: built.error, code: built.code });
   const entryId = db.transaction(() => {
     const entryId = postToLedger(db, {
       sourceType: 'manual_voucher', sourceId: null, date: draft.date || todayJalali(),
@@ -1677,24 +1798,93 @@ router.get('/general-ledger/:code', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const account = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(req.params.code);
   if (!account) return res.status(404).json({ error: 'حساب یافت نشد' });
-  const lines = db.prepare(`
+
+  const from = safeJalaliDate(req.query.from);
+  const to = safeJalaliDate(req.query.to);
+  const q = req.query.q != null ? String(req.query.q).trim() : '';
+  const hasPage = req.query.page != null && String(req.query.page) !== '';
+  const hasPageSize = req.query.pageSize != null && String(req.query.pageSize) !== '';
+  const paginate = hasPage || hasPageSize;
+  let page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  let pageSize = parseInt(req.query.pageSize, 10);
+  if (!Number.isFinite(pageSize) || pageSize <= 0) pageSize = 50;
+  pageSize = Math.min(200, pageSize);
+
+  const debitNormal = ['asset', 'expense', 'cogs'].includes(account.type);
+  const signMove = (dr, cr) => (debitNormal ? (dr - cr) : (cr - dr));
+
+  let opening_rial = 0;
+  if (from) {
+    const openRow = db.prepare(`
+      SELECT
+        COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) AS d,
+        COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS c
+      FROM journal_lines jl
+      JOIN journal_entries je ON jl.entry_id=je.id
+      WHERE jl.account_code=? AND ${JE_ALIVE} AND je.entry_date < ?
+    `).get(account.code, from);
+    opening_rial = signMove(Number(openRow.d) || 0, Number(openRow.c) || 0);
+  }
+
+  const where = ['jl.account_code=?', JE_ALIVE];
+  const params = [account.code];
+  if (from) { where.push('je.entry_date >= ?'); params.push(from); }
+  if (to) { where.push('je.entry_date <= ?'); params.push(to); }
+  if (q) {
+    where.push(`(
+      COALESCE(je.description,'') LIKE ? OR
+      COALESCE(je.ref_type,'') LIKE ? OR
+      CAST(je.ref_id AS TEXT) LIKE ? OR
+      COALESCE(jl.description,'') LIKE ?
+    )`);
+    const like = '%' + q + '%';
+    params.push(like, like, like, like);
+  }
+
+  const periodLines = db.prepare(`
     SELECT jl.*, je.entry_date, je.description as entry_description, je.ref_type, je.ref_id
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id
-    WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0
-    ORDER BY je.entry_date ASC, je.id ASC
-  `).all(req.params.code);
-  // Normal balance side determines running-balance sign: debit-normal accounts (asset/expense/cogs) add debit, subtract credit
-  const debitNormal = ['asset', 'expense', 'cogs'].includes(account.type);
-  let balance = 0;
-  lines.forEach(l => {
+    WHERE ${where.join(' AND ')}
+    ORDER BY je.entry_date ASC, je.id ASC, jl.id ASC
+  `).all(...params);
+
+  let period_debit_rial = 0;
+  let period_credit_rial = 0;
+  let running = opening_rial;
+  periodLines.forEach((l) => {
     const dr = jlDebitRial(l);
     const cr = jlCreditRial(l);
     l.debit_rial = dr;
     l.credit_rial = cr;
-    balance += debitNormal ? (dr - cr) : (cr - dr);
-    l.running_balance = balance;
+    period_debit_rial += dr;
+    period_credit_rial += cr;
+    running += signMove(dr, cr);
+    l.running_balance = running;
   });
-  res.json({ account, lines, balance });
+  const closing_rial = opening_rial + signMove(period_debit_rial, period_credit_rial);
+  const total = periodLines.length;
+
+  let lines = periodLines;
+  if (paginate) {
+    const start = (page - 1) * pageSize;
+    lines = periodLines.slice(start, start + pageSize);
+  } else {
+    page = 1;
+    pageSize = total || pageSize;
+  }
+
+  res.json({
+    account,
+    opening_rial,
+    period_debit_rial,
+    period_credit_rial,
+    closing_rial,
+    lines,
+    page,
+    pageSize,
+    total,
+    balance: closing_rial,
+  });
 });
 
 // ============================================================

@@ -312,9 +312,13 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       : (b.opening_balance != null ? Math.round(Number(b.opening_balance) || 0) : row.opening_balance))
     : row.opening_balance;
   const pgid = b.party_group_id != null ? (b.party_group_id ? parseInt(b.party_group_id, 10) : null) : row.party_group_id;
-  let coaCode = b.coa_code != null ? b.coa_code : row.coa_code;
+  // ACC-01: allocated tafsili is the identity. Group changes must not rewrite it.
+  let coaCode = row.coa_code || null;
   if (!coaCode) {
-    try { coaCode = allocTafsili(db, coaKindForRoles(roles), b.full_name || row.full_name); } catch (_) {}
+    coaCode = b.coa_code != null ? b.coa_code : null;
+    if (!coaCode) {
+      try { coaCode = allocTafsili(db, coaKindForRoles(roles), b.full_name || row.full_name); } catch (_) {}
+    }
   }
   const userId = b.user_id != null || b.assigned_to != null
     ? parseInt(b.user_id || b.assigned_to, 10) || row.user_id
