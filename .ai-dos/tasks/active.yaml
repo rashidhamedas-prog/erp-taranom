@@ -4,7 +4,7 @@ tasks:
     title: "Stitch MASTER wave: OPS-01, TRS-02, ACC-01..06, INV-01"
     status: "active"
     review_status: "PENDING"
-    security_status: "PENDING"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:orchestrator-stitch-impl"
     roles:

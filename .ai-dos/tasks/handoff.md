@@ -1,3 +1,10 @@
+## 2026-08-18 — Security APPROVED on 759a63d
+
+- [Security Review](d8ad5a9d-ec38-4a14-8ac2-859e393161f4) **APPROVED** — C0/H0/M0 on product tip `759a63d`
+- Low advisories only (non-blocking): `link-coa` not leaf-checked; empty `parties.coa_code` body not chart-validated
+- Independent Reviewer still PENDING ([Independent Stitch review](0e8c3afd-c8e0-424d-be8e-2855d39692a1))
+- Task remains `active`. **NO merge / Iran deploy / PM2** until Independent APPROVED + owner approval
+
 ## 2026-08-18 — UI-STITCH-IMPL accounting wave (pre dual-review)
 
 - Identity: `cursor:implementer-stitch-impl`

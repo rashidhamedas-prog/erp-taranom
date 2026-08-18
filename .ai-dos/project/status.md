@@ -4,7 +4,7 @@
 - **UI-STITCH-IMPL:** `active` on `ai/UI-STITCH-IMPL`
   Worktree `D:/soft/Claud/porje/Run in the project/erp-taranom-stitch-impl`
   Wave: OPS-01, TRS-02, ACC-01..06, INV-01. SW v159. **No Iran deploy** until owner approval.
-  Dual Independent+Security review still PENDING (high-risk accounting).
+  Security [d8ad5a9d] **APPROVED** C0/H0/M0 on `759a63d`. Independent Reviewer still PENDING.
 - **DEMO-V3-GUIDED-SALES:** `completed` — dual APPROVED + owner merge/deploy
   Primary `bb868c5`; SFTP stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`
   health/demo/seed 200; public `https://erp.poshaktaranom.com/demo.html`
