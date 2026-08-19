@@ -95,8 +95,9 @@ tasks:
       - "server/routes/cheque-records.js"
       - "server/scripts/test-trs-cheque-out.js"
     notes: >-
-      direction=out pay/expense/endorse + JE. POS localStorage replacement is follow-on (needs db.js — wait for HR).
-      No physical delete. No ADR-007.
+      Implementer done on ca4e22a: pay/expense/endorse + R13 cancel. Tests 36/36 + SMS 22/22.
+      Touched app.js (buttons/Help) — merge after HR/INV. Dual review in flight. No Iran deploy.
+      POS schema still deferred. No ADR-007.
     acceptance_criteria:
       - "Out-cheque lifecycle APIs + JE in transaction"
       - "Idempotent / reverse on cancel"

@@ -1,3 +1,11 @@
+## 2026-08-19 — TRS-01 implementer done on ca4e22a (pre-review)
+
+- [TRS-01 cheques](8bb2dc0b-7ab0-4df6-801b-ef495998d710) shipped `ai/TRS-STITCH-P6` @ `ca4e22a`
+- Pay / expense / endorse JE + R13 cancel; test-trs-cheque-out **36/36**; SMS **22/22**
+- Also edited `app.js` (tab buttons + Help) — rebase after HR/INV
+- Dual review next. **NO merge / Iran deploy** until Independent + Security APPROVED
+- POS-01/02 still deferred (needs db.js after HR)
+
 ## 2026-08-19 — UI-STITCH-IMPL merged + Iran deployed; next waves claimed
 
 - Owner approved merge/deploy. FF `ai/UI-STITCH-IMPL` → `claude/claude-md-docs-2ssrpy` @ `7dd5481`
