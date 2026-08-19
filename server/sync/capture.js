@@ -90,7 +90,7 @@ const PATH_TABLE_MAP = [
   ['/api/warehouses/stock', 'warehouse_stock'],
   ['/api/warehouses', 'warehouses'],
   ['/api/stocktaking', 'stocktaking_sessions'],
-  ['/api/consignments', 'consignments'],
+  ['/api/consignments', 'consignments'], // settle/cancel share this prefix
   // Detail accounts — categories before generic
   ['/api/detail-accounts/categories', 'detail_categories'],
   ['/api/detail-accounts', 'detail_accounts'],

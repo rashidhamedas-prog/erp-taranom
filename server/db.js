@@ -2584,6 +2584,16 @@ function initSyncSchema(db) {
     }
   }
 
+  // CON-01/CON-02 — person FK, warehouse, settle metadata (no new table)
+  ensureColumn(db, 'consignments', 'person_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'warehouse_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'invoice_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'settle_path', 'TEXT');
+  ensureColumn(db, 'consignments', 'settle_je_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'issue_ledger_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'record_status', "TEXT DEFAULT 'active'");
+  ensureColumn(db, 'consignments', 'unit_price_rial', 'INTEGER DEFAULT 0');
+
   // One-shot: restore products.stock wiped by image-only PUT bug (stock→0 while warehouse_stock kept qty).
   // Also restore pack_size/price/code/note from readable backup DBs/archives if available.
   try {

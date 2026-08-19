@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — CON-01+CON-02 consignment person/warehouse + four settle paths (pre-merge)
+- **شاخه:** `ai/CON-STITCH-P7` (worktree `erp-taranom-con-stitch-p7`) — **بدون merge به primary و بدون deploy ایران**
+- **خلاصه:** امانی با `person_id` و انبار؛ حواله/رسید از دفتر موجودی؛ چهار مسیر تسویه (برگشت/فروش/خرید/کسری)؛ فقط فروش فاکتور می‌سازد؛ ابطال R13 بدون حذف فیزیکی.
+- **فایل‌ها:** `server/lib/consignments.js`، `server/routes/consignments.js`، `server/db.js`، `server/sync/tables.js`، `server/public/app.js`، `server/scripts/test-con-stitch-p7.js`، Help + SW v164
+- **تست:** CON-P7 **47/47** · SMS **22/22** · encoding PASS
+- **Deploy:** اعمال نشد
+
 ### 2026-08-19 — HR+INV+TRS merge + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `02872a5`
 - **خلاصه:** دعوت امن، رنگ hex، جستجوی انبار ATP، پرداخت/خرج چک پس از dual APPROVED merge و deploy شد.

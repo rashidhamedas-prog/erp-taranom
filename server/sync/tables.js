@@ -380,6 +380,10 @@ const FK_COLUMNS = [
   ['crm_files', 'opportunity_id'],
   ['followups', 'opportunity_id'],
   ['followups', 'party_id'],
+  // CON-STITCH-P7 (append-only)
+  ['consignments', 'person_id'],
+  ['consignments', 'warehouse_id'],
+  ['consignments', 'invoice_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

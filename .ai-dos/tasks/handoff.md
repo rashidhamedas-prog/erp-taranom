@@ -1,3 +1,12 @@
+## 2026-08-19T05:20:00+03:30 — CON-STITCH-P7 claimed (implementer)
+
+- **Task:** `CON-STITCH-P7` owner `cursor:implementer-con-07`
+- **Branch/worktree:** `ai/CON-STITCH-P7` / `D:/soft/Claud/porje/Run in the project/erp-taranom-con-stitch-p7` @ `e16d681`
+- **Scope:** CON-01 person FK + warehouse ledger; CON-02 return/sale/purchase/shortage; R13 void
+- **Out:** merge to primary, Iran deploy/PM2, ADR-007, LED-01, POS
+- **Tests:** CON-P7 47/47 · SMS 22/22 · encoding PASS · `node --check` app/lib/routes
+- **Exact next:** commit+push `ai/CON-STITCH-P7` only — no merge, no Iran deploy, no ADR-007
+
 ## 2026-08-19 — HR+INV+TRS Iran SFTP v163 @ 02872a5
 
 - Stamp `.sftp-deploy-stamp-stitch-v163` = `2026-08-19T01:34:41Z hash=02872a5`

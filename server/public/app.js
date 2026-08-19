@@ -7792,10 +7792,13 @@ async function saveWarehouseTransfer(){
    owner until settled. "out" reduces our stock immediately (goods leave
    physically); "in" never touches our stock (never ours to begin with).
 ============================================================ */
-const CS_STATUS_LABEL={open:'باز',settled:'تسویه شده (فروخته شد)',returned:'مسترد شده'};
-const CS_STATUS_COLOR={open:'var(--orange)',settled:'var(--green)',returned:'var(--muted)'};
+const CS_STATUS_LABEL={open:'باز',sold:'فروخته شد',settled:'فروخته شد',returned:'برگشت',purchased:'خرید قطعی',shortage:'کسری',reversed:'ابطال‌شده'};
+const CS_STATUS_COLOR={open:'var(--orange)',sold:'var(--green)',settled:'var(--green)',returned:'var(--muted)',purchased:'var(--green)',shortage:'var(--red)',reversed:'var(--muted)'};
+const CS_SETTLE_LABEL={return:'برگشت',sale:'فروش قطعی',purchase:'خرید قطعی',shortage:'کسری'};
 async function renderConsignmentsTab(body){
   if(!CACHE.allProducts||!CACHE.allProducts.length) CACHE.allProducts=await api('GET','/products')||[];
+  await ensureWarehouses();
+  if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
   const dirFilter=el('csDirFilter')?.value||'';
   const statusFilter=el('csStatusFilter')?.value||'';
   const qp=[]; if(dirFilter) qp.push('direction='+dirFilter); if(statusFilter) qp.push('status='+statusFilter);
@@ -7810,27 +7813,33 @@ async function renderConsignmentsTab(body){
       </select>
       <select id="csStatusFilter" data-csp-change="${CSP.bind('change',function(event){loadAccTab('consignments')})}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px`)}">
         <option value="">همه وضعیت‌ها</option>
-        ${Object.entries(CS_STATUS_LABEL).map(([k,v])=>`<option value="${k}" ${statusFilter===k?'selected':''}>${v}</option>`).join('')}
+        ${[['open','باز'],['sold','فروخته شد'],['returned','برگشت'],['purchased','خرید قطعی'],['shortage','کسری'],['reversed','ابطال‌شده']].map(([k,v])=>`<option value="${k}" ${statusFilter===k?'selected':''}>${v}</option>`).join('')}
       </select>
     </div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
-      <th>جهت</th><th>طرف حساب</th><th>کالا</th><th>تعداد</th><th>قیمت واحد (ت)</th><th>تاریخ</th><th>وضعیت</th><th>عملیات</th>
+      <th>جهت</th><th>شخص</th><th>کالا</th><th>تعداد</th><th>قیمت واحد (ریال)</th><th>تاریخ</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr>
       <td>${r.direction==='out'?'📤 ارسالی':'📥 دریافتی'}</td>
-      <td>${esc(r.party_name)}</td><td>${esc(r.product_name||'-')}</td>
-      <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.unit_price)}</td>
+      <td>${esc(r.person_name||r.party_name||'-')}</td><td>${esc(r.product_name||'-')}</td>
+      <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.unit_price_rial||r.unit_price)}</td>
       <td class="mono">${escDate(r.date)}</td>
-      <td><span class="tag" data-csp-style="${CSP.style(`background:${CS_STATUS_COLOR[r.status]};color:#fff`)}">${CS_STATUS_LABEL[r.status]||r.status}</span></td>
+      <td><span class="tag" data-csp-style="${CSP.style(`background:${CS_STATUS_COLOR[r.status]||'var(--muted)'};color:#fff`)}">${CS_STATUS_LABEL[r.status]||r.status}</span></td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
         ${r.status==='open'?`
-          <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){setConsignmentStatus((r.id),'settled')})}">✅ تسویه (فروخته شد)</button>
-          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){setConsignmentStatus((r.id),'returned')})}">↩️ استرداد</button>`:''}
-        <button class="btn sm red icon" data-csp-click="${CSP.bind('click',function(event){deleteConsignment((r.id))})}">🗑️</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'return')})}">↩️ برگشت</button>
+          <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'sale')})}">💰 فروش</button>
+          <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'purchase')})}">🛒 خرید</button>
+          <button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'shortage')})}">⚠️ کسری</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){previewConsignmentSettle((r.id))})}">👁 پیش‌نمایش</button>`:''}
+        ${r.status!=='reversed'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){cancelConsignment((r.id))})}">🚫 ابطال</button>`:''}
       </td>
     </tr>`).join('')||emptyRow(8)}</tbody></table></div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">با «تسویه»، مالکیت کالا نهایی می‌شود — فروش/پرداخت واقعی را جداگانه از فاکتور فروش یا عملیات پرداخت ثبت کنید. با «استرداد» کالای ارسالی به موجودی انبار بازمی‌گردد.</div>`;
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">شخص از فهرست اشخاص انتخاب می‌شود. فقط مسیر «فروش قطعی» فاکتور صادر می‌کند. ابطال فیزیکی نیست — موجودی و سند معکوس می‌شوند.</div>`;
 }
-function consignmentModal(){
+async function consignmentModal(){
+  await ensureWarehouses();
+  if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
+  const whs=(CACHE.warehouses||[]).filter(w=>w.active!==0);
   openModal(`
     <div class="modal-head"><h3>🔄 ثبت کالای امانی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -7838,8 +7847,9 @@ function consignmentModal(){
         <option value="out">ارسالی (کالای ما نزد دیگران است)</option>
         <option value="in">دریافتی (کالای دیگران نزد ماست)</option>
       </select></div>
-      <div class="fg"><label>طرف حساب * ${hlp('نام مشتری، تأمین‌کننده یا شخصی که این کالا نزد او امانت است.')}</label><input id="cs-party"></div>
-      <div class="fg"><label>تلفن طرف حساب</label><input id="cs-phone"></div>
+      <div class="fg"><label>جستجوی شخص</label><input id="cs-person-q" placeholder="نام یا تلفن" data-csp-input="${CSP.bind('input',function(){filterCsPersons()})}"></div>
+      <div class="fg"><label>شخص * ${hlp('منبع حقیقت شخص است؛ نام از کارت شخص کپی می‌شود.')}</label><select id="cs-person">${personOptions()}</select></div>
+      <div class="fg"><label>انبار *</label><select id="cs-warehouse">${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
       <div class="fg full"><label>کالا *</label><select id="cs-product">${productOptions()}</select></div>
       <div class="fg"><label>تعداد *</label><input id="cs-qty" type="number" min="1"></div>
       <div class="fg"><label>قیمت واحد مرجع (ریال)</label><input id="cs-price" type="number" min="0"></div>
@@ -7850,27 +7860,52 @@ function consignmentModal(){
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
 }
+function filterCsPersons(){
+  const q=(el('cs-person-q')?.value||'').trim();
+  const sel=el('cs-person'); if(!sel) return;
+  const cur=sel.value;
+  const rows=(CACHE.persons||[]).filter(p=>{
+    if(!q) return true;
+    const hay=((p.name||'')+' '+(p.phone||'')).toLowerCase();
+    return hay.includes(q.toLowerCase());
+  });
+  sel.innerHTML=`<option value="">-- انتخاب شخص --</option>`+rows.map(p=>`<option value="${p.id}" ${String(p.id)===String(cur)?'selected':''}>${esc(p.name)}${p.phone?' — '+esc(p.phone):''}</option>`).join('');
+}
 async function saveConsignment(){
-  const party_name=el('cs-party').value.trim();
-  const product_id=+el('cs-product').value, qty=+el('cs-qty').value;
-  if(!party_name){ showToast('نام طرف حساب الزامی است','error'); return; }
+  const person_id=+el('cs-person').value, product_id=+el('cs-product').value, qty=+el('cs-qty').value;
+  const warehouse_id=+el('cs-warehouse').value||undefined;
+  if(!person_id){ showToast('انتخاب شخص الزامی است','error'); return; }
   if(!product_id||!qty){ showToast('کالا و تعداد معتبر الزامی است','error'); return; }
   try{
     await api('POST','/consignments',{
-      direction:el('cs-direction').value, party_name, party_phone:el('cs-phone').value,
-      product_id, qty, unit_price:+el('cs-price').value||0, date:el('cs-date').value, note:el('cs-note').value
+      direction:el('cs-direction').value, person_id, warehouse_id,
+      product_id, qty, unit_price:+el('cs-price').value||0, unit_price_rial:+el('cs-price').value||0,
+      date:el('cs-date').value, note:el('cs-note').value
     });
     closeModal(); showToast('کالای امانی ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('consignments');
   }catch(e){}
 }
-async function setConsignmentStatus(id,status){
-  const labels={settled:'تسویه شود',returned:'مسترد شود'};
-  if(!confirm(`وضعیت این کالای امانی به «${labels[status]||status}» تغییر کند؟`)) return;
-  try{ await api('PATCH','/consignments/'+id+'/status',{status}); showToast('وضعیت به‌روزرسانی شد'); loadAccTab('consignments'); }catch(e){}
+async function settleConsignment(id,path){
+  if(!confirm('مسیر «'+(CS_SETTLE_LABEL[path]||path)+'» برای این امانی اجرا شود؟')) return;
+  try{
+    const r=await api('POST','/consignments/'+id+'/settle',{path});
+    showToast(r && r.invoice_id ? 'فروش قطعی و فاکتور ثبت شد' : 'تسویه ثبت شد');
+    CACHE.allProducts=await api('GET','/products')||[];
+    loadAccTab('consignments');
+  }catch(e){}
 }
-async function deleteConsignment(id){
-  if(!confirm('این رکورد حذف شود؟ در صورت باز بودن و ارسالی بودن، موجودی بازگردانده می‌شود.')) return;
-  try{ await api('DELETE','/consignments/'+id); showToast('حذف شد'); loadAccTab('consignments'); }catch(e){}
+async function previewConsignmentSettle(id){
+  const path=prompt('مسیر پیش‌نمایش: return / sale / purchase / shortage','sale');
+  if(!path) return;
+  try{
+    const r=await api('POST','/consignments/'+id+'/settle',{path,preview:true});
+    const je=(r.journal||[]).map(l=>(l.code||'')+' د '+(l.debit||0)+' / ب '+(l.credit||0)).join(' | ');
+    showToast('پیش‌نمایش: وضعیت='+(r.next_status||'')+' فاکتور='+(r.invoice?'بله':'خیر')+(je?(' سند: '+je):''));
+  }catch(e){}
+}
+async function cancelConsignment(id){
+  if(!confirm('این امانی ابطال شود؟ ردیف می‌ماند؛ موجودی و اسناد معکوس می‌شوند (حذف فیزیکی نیست).')) return;
+  try{ await api('POST','/consignments/'+id+'/cancel',{}); showToast('امانی ابطال شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('consignments'); }catch(e){}
 }
 
 /* ============================================================
@@ -17667,7 +17702,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دفتر چک</b>: واگذاری/وصول/برگشت/ارسال مجدد + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
-        <li><b>کالای امانی</b>: پیگیری کالاهایی که مالکیتشان هنوز نهایی نشده — <b>ارسالی</b> (کالای ما نزد دیگران، بلافاصله از موجودی کسر می‌شود) و <b>دریافتی</b> (کالای دیگران نزد ما، به موجودی خودمان اضافه نمی‌شود). با «تسویه» فروش قطعی می‌شود (فاکتور/پرداخت واقعی را جداگانه ثبت کنید) و با «استرداد» کالای ارسالی به موجودی برمی‌گردد</li>
+        <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور فروش و حساب دریافتنی می‌سازد؛ موجودی ارسالی دوباره کسر نمی‌شود)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
         <li><b>ابطال کامل (R13)</b>: برای فاکتور فروش/خرید، تسویه، هزینه، انتقال وجه، چک، عملیات انبار، انبارگردانی اعمال‌شده، پرداخت حقوق، افتتاحیه بانک/صندوق و اسناد دستی — ابطال = سند معکوس + برگرداندن موجودی/مانده/وابستگی‌ها (حذف فیزیکی سند ثبت‌شده نیست)</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب و مشاهده گردش با مانده لحظه‌ای</li>
@@ -17826,7 +17861,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v163</b> است و اسکریپت‌ها با <code>?v=163</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v164</b> است و اسکریپت‌ها با <code>?v=164</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
