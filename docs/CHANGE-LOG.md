@@ -13,19 +13,24 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — CON-01/02 dual APPROVED merge (Iran SFTP next)
+- **شاخه:** `ai/UI-STITCH-IMPL` ← `ai/CON-STITCH-P7` @ `f79127c`
+- **خلاصه:** شخص اجباری، چهار مسیر تسویه، خریدار جدا، COGS ارسالی، FK سینک. Independent + Security APPROVED. SW v164.
+- **Deploy:** در جریان (SFTP overlay؛ `db.js` کامل جایگزین نمی‌شود)
+
 ### 2026-08-19 — CON Security APPROVED on f79127c
 - **شاخه:** `ai/CON-STITCH-P7` @ `f79127c`
-- **خلاصه:** امنیت C0/H0/M0 روی اصلاح M1–M3. منتظر Independent.
-- **Deploy:** اعمال نشد
+- **خلاصه:** امنیت C0/H0/M0 روی اصلاح M1–M3.
+- **Deploy:** اعمال نشد (pre-merge)
 
 ### 2026-08-19 — CON M1–M3 fix (pre-merge)
 - **شاخه:** `ai/CON-STITCH-P7` @ `f79127c`
-- **خلاصه:** خریدار جدا برای فروش دریافتی؛ COGS فروش ارسالی؛ FK سینک. تست ۶۱/۶۱. منتظر re-review.
+- **خلاصه:** خریدار جدا برای فروش دریافتی؛ COGS فروش ارسالی؛ FK سینک. تست ۶۱/۶۱.
 - **Deploy:** اعمال نشد
 
 ### 2026-08-19 — CON Independent CHANGES_REQUIRED M1–M3
 - **شاخه:** `ai/CON-STITCH-P7` @ `ca6f5a2`
-- **خلاصه:** فروش دریافتی طرف غلط؛ فروش ارسالی بدون COGS؛ FK سینک ناقص. اصلاح در جریان.
+- **خلاصه:** فروش دریافتی طرف غلط؛ فروش ارسالی بدون COGS؛ FK سینک ناقص. اصلاح شد روی `f79127c`.
 - **Deploy:** اعمال نشد
 
 ### 2026-08-19 — CON-01/02 Security APPROVED (pre-merge)
@@ -35,8 +40,7 @@
 
 ### 2026-08-19 — CON-01/02 implementer (pre-merge)
 - **شاخه:** `ai/CON-STITCH-P7` @ `ca6f5a2`
-- **خلاصه:** طرف‌حساب شخص، چهار مسیر تسویه، فقط فروش فاکتور. تست ۴۷/۴۷. SW v164. منتظر dual review.
-- **Deploy:** اعمال نشد
+- **خلاصه:** طرف‌حساب شخص، چهار مسیر تسویه، فقط فروش فاکتور. تست ۴۷/۴۷. SW v164.
 
 ### 2026-08-19 — HR+INV+TRS merge + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `02872a5`

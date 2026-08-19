@@ -1,16 +1,20 @@
+## 2026-08-19 — CON-01/02 dual APPROVED; merge + Iran SFTP v164
+
+- [Independent re-review](73cd20d1-4ad6-46eb-b506-1691ace7df18) **APPROVED** on `f79127c` (M1–M3 closed, 61/61)
+- [Security CON delta](e69a57e1-870a-4dae-9284-d6787930ce83) **APPROVED** C0/H0/M0 on same tip
+- Merged `origin/ai/CON-STITCH-P7` into `ai/UI-STITCH-IMPL`. Claims released. SW v164
+- Next: Iran SFTP overlay (do not replace VPS `db.js` — patch consignment columns). Then POS-01/02 + LED-01 + Phase 8. ADR-007 stays closed
+
 ## 2026-08-19 — CON Security APPROVED on f79127c (delta)
 
 - [Security CON delta](e69a57e1-870a-4dae-9284-d6787930ce83) **APPROVED** C0/H0/M0 on `f79127c`
 - Buyer isolation, COGS+void, append-only FK remap verified; RBAC `adminOrAccounting`
-- Independent re-review still in flight ([Independent re-review](73cd20d1-4ad6-46eb-b506-1691ace7df18))
-- **NO merge / Iran deploy** until Independent APPROVED
 
 ## 2026-08-19 — CON M1–M3 fix on f79127c (re-review)
 
 - [CON-01/02 consignment](16450d8f-c62d-49b4-af27-bd973dcd570d) closed Independent M1–M3
 - in+sale needs distinct buyer; out+sale posts COGS without second qty drop; FK remap settle_je_id/issue_ledger_id
-- Tests **61/61** · SMS **22/22**. Independent re-review + Security delta next
-- **NO merge / Iran deploy**
+- Tests **61/61** · SMS **22/22**
 
 ## 2026-08-19 — CON Independent CHANGES_REQUIRED M1–M3
 
@@ -18,26 +22,21 @@
 - M1: `in`+sale must not invoice the consignor / Dr AP; require a distinct buyer `cust_id`/`buyer_person_id`
 - M2: `out`+sale must post inventory GL + COGS (qty already issued; no second warehouse qty drop)
 - M3: append `consignments.settle_je_id` and `issue_ledger_id` to `FK_COLUMNS`
-- Security already APPROVED. Implementer fix next. **NO merge / Iran deploy**
 
 ## 2026-08-19 — CON-01/02 Security APPROVED on ca6f5a2
 
 - [Security CON](dfe2d2bd-b84a-492f-b0cc-1a29b298c894) **APPROVED** C0/H0/M0 — person FK, RBAC, no double stock, JE, sync, R13 void
-- Independent still in flight ([Independent CON](9cb86e60-da40-402a-ad31-a3b275b3531f))
-- **NO merge / Iran deploy** until Independent APPROVED
 
 ## 2026-08-19 — CON-01/02 implementer done on ca6f5a2 (pre-review)
 
 - [CON-01/02 consignment](16450d8f-c62d-49b4-af27-bd973dcd570d) shipped `ai/CON-STITCH-P7` @ `ca6f5a2`
 - Person FK, warehouse issue/receipt, four settle paths, sale-only invoice, R13 no physical delete
 - test-con-stitch-p7 **47/47** · SMS **22/22**; SW v164
-- Dual review next. **NO merge / Iran deploy** until Independent + Security APPROVED
 
 ## 2026-08-19 — CON-STITCH-P7 claimed (CON-01/02)
 
 - Owner: execute next wave after HR+INV+TRS Iran v163
 - Claims: consignments.js, lib/consignments.js, test-con-stitch-p7.js, db.js
-- LED-01 and POS deferred. No merge until dual review
 
 ## 2026-08-19 — HR+INV+TRS Iran SFTP v163 @ 02872a5
 
