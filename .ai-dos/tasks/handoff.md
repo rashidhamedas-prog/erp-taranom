@@ -1,3 +1,9 @@
+## 2026-08-19 — POS Independent APPROVED on 7cab828
+
+- [Independent POS](c5058adb-ce19-4880-8468-b099d33e73e6) **APPROVED** High 0 / Medium 0; tests 55/55
+- Security product re-run still in flight ([Security POS product](f97371e8-d74b-4222-a789-75f429799fab)); prior pass void
+- **NO merge / Iran deploy** until Security APPROVED on POS code
+
 ## 2026-08-19 — POS Security pass invalid (wrong tree)
 
 - [Security POS](6f2a51d4-f2a0-419e-b800-ae56f5317fb6) reviewed stitch-impl docs/demo, not `pos.js`

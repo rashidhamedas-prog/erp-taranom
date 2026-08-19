@@ -114,7 +114,7 @@ tasks:
   - id: "POS-STITCH-P8"
     title: "POS-01 terminal bank FK + POS-02 card in-transit settle"
     status: "active"
-    review_status: "PENDING"
+    review_status: "APPROVED"
     security_status: "PENDING"
     risk: "high"
     owner: "cursor:implementer-pos-08"
@@ -129,10 +129,9 @@ tasks:
       - "server/scripts/test-pos-stitch-p8.js"
       - "server/sync/tables.js"
     notes: >-
-      Implementer tip 7cab828. Tests 55/55 + SMS 22/22. SW v165.
-      First Security pass (6f2a51d4) was WRONG TREE — not POS product; ignored.
-      Independent in flight; Security re-run on pos-stitch-p8 worktree.
-      No merge / Iran deploy.
+      Independent APPROVED (c5058adb) on 7cab828, 55/55. Lows advisory.
+      First Security pass (6f2a51d4) VOID (wrong tree). Product Security re-run in flight.
+      No merge / Iran deploy until Security APPROVED on pos.js.
     acceptance_criteria:
       - "Terminal requires active bank FK; unique terminal_id; not localStorage"
       - "Card receipt posts in-transit not bank; batch settle net to bank; idempotent"
