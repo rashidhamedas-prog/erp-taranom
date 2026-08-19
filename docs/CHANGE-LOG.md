@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — HR-02 M1: حذف توکن دعوت از لاگ مسیر
+- **شاخه:** `ai/HR-STITCH-P3`
+- **خلاصه:** `sanitizeLogPath` توکن خام `/api/auth/invite/…` و `/invite?token=` را در `requestIdMiddleware` / `jsonLog` با `[REDACTED]` عوض می‌کند. API عمومی عوض نشد.
+- **فایل‌ها:** `server/lib/observability.js`, `server/scripts/test-observability.js`, `server/scripts/test-hr-invite.js`
+- **تست:** observability ۱۲/۱۲ · test-hr-invite ۳۸/۳۸ · test-sms ۲۲/۲۲
+- **Deploy:** ⏭ اعمال نشد — بدون merge/Iran/PM2
+- **SW:** بدون bump
+
 ### 2026-08-19 — HR-02 دعوت امن کاربر (شاخه ai/HR-STITCH-P3)
 - **شاخه:** `ai/HR-STITCH-P3` (base `7b3d60f`)
 - **خلاصه:** جدول مرکزی `user_invitations` با هش sha256 توکن تصادفی، انقضای ۷۲ ساعت و یک‌بارمصرف. ساخت دعوت فقط مدیر/حسابدار روی مرکز. پذیرش عمومی با نام کاربری و رمز (حداقل ۸، حرف+عدد)؛ حساب با `must_change_password=0` و لینک شخص/طرف‌حساب. بدون سینک دستگاه.

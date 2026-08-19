@@ -1,3 +1,10 @@
+## 2026-08-19T04:40:00+03:30 — HR-02 Independent M1 fix
+
+- **Owner:** `cursor:implementer-hr-02` on `ai/HR-STITCH-P3`
+- Independent [b61c3c16] CHANGES_REQUIRED → M1 only. Security [fff3c354] APPROVED (crypto not reopened).
+- `sanitizeLogPath` in `observability.js`; access-log `path` never contains raw invite token.
+- Next: Independent re-review M1. No merge/deploy.
+
 ## 2026-08-19T04:20:00+03:30 — HR-STITCH-P3 / HR-02 implementer checkpoint
 
 - **Owner/implementer:** `cursor:implementer-hr-02`

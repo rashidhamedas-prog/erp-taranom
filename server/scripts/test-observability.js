@@ -13,11 +13,14 @@ const os = require('os');
 const {
   createRequestId,
   redactFields,
+  sanitizeLogPath,
   jsonLog,
   checkDbReady,
   REDACTED,
   requestIdMiddleware,
 } = require('../lib/observability');
+
+const SAMPLE_INVITE_TOKEN = 'HrInviteRawToken_TEST_abc123XYZ';
 
 let passed = 0;
 function ok(name, fn) {
@@ -91,6 +94,30 @@ ok('jsonLog redacts PII in stdout JSON', () => {
   }
 });
 
+ok('sanitizeLogPath redacts invite API token and keeps /accept', () => {
+  assert.strictEqual(
+    sanitizeLogPath('/api/auth/invite/' + SAMPLE_INVITE_TOKEN),
+    '/api/auth/invite/' + REDACTED
+  );
+  assert.strictEqual(
+    sanitizeLogPath('/api/auth/invite/' + SAMPLE_INVITE_TOKEN + '/accept'),
+    '/api/auth/invite/' + REDACTED + '/accept'
+  );
+  assert.strictEqual(sanitizeLogPath('/api/system/health'), '/api/system/health');
+  assert.strictEqual(sanitizeLogPath('/api/auth/login'), '/api/auth/login');
+});
+
+ok('sanitizeLogPath redacts /invite?token= and keeps other query keys', () => {
+  assert.strictEqual(
+    sanitizeLogPath('/invite?token=' + SAMPLE_INVITE_TOKEN),
+    '/invite?token=' + REDACTED
+  );
+  assert.strictEqual(
+    sanitizeLogPath('/invite?token=' + SAMPLE_INVITE_TOKEN + '&next=/dash'),
+    '/invite?token=' + REDACTED + '&next=/dash'
+  );
+});
+
 ok('requestIdMiddleware sets header and req.requestId', () => {
   const req = {
     method: 'GET',
@@ -121,6 +148,42 @@ ok('requestIdMiddleware sets header and req.requestId', () => {
     }));
   } finally {
     console.log = orig;
+  }
+});
+
+ok('requestIdMiddleware logged path does not contain raw invite token', () => {
+  const cases = [
+    { originalUrl: '/api/auth/invite/' + SAMPLE_INVITE_TOKEN, expect: '/api/auth/invite/' + REDACTED },
+    { originalUrl: '/api/auth/invite/' + SAMPLE_INVITE_TOKEN + '/accept', expect: '/api/auth/invite/' + REDACTED + '/accept' },
+    { originalUrl: '/invite?token=' + SAMPLE_INVITE_TOKEN, expect: '/invite?token=' + REDACTED },
+  ];
+  for (const c of cases) {
+    const req = {
+      method: c.originalUrl.startsWith('/api/auth/invite') && c.originalUrl.endsWith('/accept') ? 'POST' : 'GET',
+      url: c.originalUrl,
+      originalUrl: c.originalUrl,
+      headers: {},
+    };
+    const listeners = {};
+    const res = {
+      setHeader() {},
+      statusCode: 200,
+      on(ev, fn) { listeners[ev] = fn; },
+    };
+    const lines = [];
+    const orig = console.log;
+    console.log = (line) => { lines.push(line); };
+    try {
+      requestIdMiddleware(req, res, () => {});
+      listeners.finish();
+      assert.ok(lines.length >= 1);
+      const parsed = JSON.parse(lines[0]);
+      assert.strictEqual(parsed.path, c.expect);
+      assert.doesNotMatch(lines[0], new RegExp(SAMPLE_INVITE_TOKEN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      assert.ok(!JSON.stringify(parsed).includes(SAMPLE_INVITE_TOKEN));
+    } finally {
+      console.log = orig;
+    }
   }
 });
 

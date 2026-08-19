@@ -56,6 +56,8 @@ tasks:
       - "server/public/index.html"
       - "server/public/sw.js"
       - "server/scripts/test-hr-invite.js"
+      - "server/lib/observability.js"
+      - "server/scripts/test-observability.js"
       - "docs/CHANGE-LOG.md"
     notes: >-
       HR-02 only: hashed invite token, 72h expiry, accept once. app.js is

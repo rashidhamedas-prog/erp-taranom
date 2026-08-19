@@ -41,6 +41,11 @@ const cols = db.prepare('PRAGMA table_info(user_invitations)').all().map((c) => 
 ok(!SYNCABLE_TABLES.some((t) => t.name === 'user_invitations'), 'user_invitations not in SYNCABLE_TABLES');
 ok(db.prepare("PRAGMA table_info(users)").all().some((c) => c.name === 'person_id'), 'users.person_id');
 
+const { sanitizeLogPath, REDACTED } = require('../lib/observability');
+ok(sanitizeLogPath('/api/auth/invite/HrInviteRawToken_TEST_abc123XYZ') === '/api/auth/invite/' + REDACTED
+  && !sanitizeLogPath('/api/auth/invite/HrInviteRawToken_TEST_abc123XYZ').includes('HrInviteRawToken_TEST_abc123XYZ'),
+  'access-log path redacts raw invite token');
+
 (async () => {
   console.log('\n— HTTP invite flow —');
   const admin = db.prepare("SELECT id,username,role,name,phone,auth_epoch FROM users WHERE username='admin'").get();
