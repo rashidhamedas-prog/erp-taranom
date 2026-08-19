@@ -4,8 +4,7 @@
 - **UI-STITCH-IMPL:** `completed` — dual APPROVED + owner merge/deploy
   Primary `7dd5481`; SFTP stamp `.sftp-deploy-stamp-stitch-v160` = `2026-08-19T00:19:57Z hash=7dd5481`
   health/ready/root **200**; SW `erp-taranom-v160`
-- **Next (parallel, ADR-007 closed):** HR+INV+TRS all dual APPROVED — merge rebase `app.js` then Iran deploy. Then CON + POS-01/02 + Phase 8. Skip PROD/PACK.
-  Skip PROD/PACK. No merge until HR Independent APPROVED then rebase `app.js`.
+- **Next (parallel, ADR-007 closed):** HR+INV+TRS merged on `ai/UI-STITCH-IMPL` (SW v163). Iran SFTP overlay. Then CON + POS-01/02 + Phase 8. Skip PROD/PACK.
 - **DEMO-V3-GUIDED-SALES:** `completed` — dual APPROVED + owner merge/deploy
   Primary `bb868c5`; SFTP stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`
   health/demo/seed 200; public `https://erp.poshaktaranom.com/demo.html`

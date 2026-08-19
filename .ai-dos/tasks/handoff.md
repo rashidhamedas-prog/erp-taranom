@@ -1,3 +1,10 @@
+## 2026-08-19 — HR+INV+TRS merged (SW v163); Iran deploy next
+
+- [Independent HR re-review](4450ae38-7d9d-419f-832b-6495a85ee7fa) **APPROVED** on `6c65660` closed log+role M1s
+- Merged into `ai/UI-STITCH-IMPL`: HR `6c65660` + INV `d1ea078` + TRS `ca4e22a`
+- Tests: invite 51/51 · obs 12/12 · inv-p4 25/25 · cheque-out 36/36 · SMS 22/22
+- Claims released. CON + POS after deploy
+
 ## 2026-08-19 — HR-02 dual APPROVED on 6c65660; merge three waves
 
 - [Independent HR re-review](4450ae38-7d9d-419f-832b-6495a85ee7fa) **APPROVED** — log M1 and role M1 closed; 51/51 + 12/12

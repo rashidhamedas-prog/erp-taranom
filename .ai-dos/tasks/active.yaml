@@ -35,7 +35,7 @@ tasks:
 
   - id: "HR-STITCH-P3"
     title: "HR-02 secure user invitation tokens"
-    status: "active"
+    status: "completed"
     review_status: "APPROVED"
     security_status: "APPROVED"
     risk: "high"
@@ -43,18 +43,10 @@ tasks:
     branch: "ai/HR-STITCH-P3"
     base_commit: "7dd5481"
     claimed_at: "2026-08-19T03:50:00+03:30"
-    file_claims:
-      - "server/lib/portal-users.js"
-      - "server/lib/user-invitations.js"
-      - "server/lib/observability.js"
-      - "server/routes/auth.js"
-      - "server/db.js"
-      - "server/public/portal-ui.js"
-      - "server/scripts/test-hr-invite.js"
-      - "server/scripts/test-observability.js"
+    completed_at: "2026-08-19T04:55:00+03:30"
+    file_claims: []
     notes: >-
-      Dual APPROVED on 6c65660 (Independent 4450ae38; Security b8f07eb4 C0/H0/M0).
-      Log+role M1s closed. Tests 51/51. SW v162. Merge with INV/TRS next (app.js rebase).
+      Dual APPROVED 6c65660. Merged into ai/UI-STITCH-IMPL with INV/TRS. SW v163. Iran SFTP next.
     acceptance_criteria:
       - "user_invitations table; hashed token; expiry; used_at"
       - "Invite creates no known password; accept sets user + person link"
@@ -62,7 +54,7 @@ tasks:
 
   - id: "INV-STITCH-P4"
     title: "INV-02 color picker + INV-03 warehouse product search"
-    status: "active"
+    status: "completed"
     review_status: "APPROVED"
     security_status: "APPROVED"
     risk: "medium"
@@ -70,14 +62,10 @@ tasks:
     branch: "ai/INV-STITCH-P4"
     base_commit: "7dd5481"
     claimed_at: "2026-08-19T03:50:00+03:30"
-    file_claims:
-      - "server/routes/product-variants.js"
-      - "server/routes/warehouses.js"
-      - "server/routes/products.js"
-      - "server/scripts/test-inv-stitch-p4.js"
+    completed_at: "2026-08-19T04:55:00+03:30"
+    file_claims: []
     notes: >-
-      Dual APPROVED on d1ea078 (Independent 0b08900f; Security ebbc2bb0 C0/H0/M0).
-      Tests 25/25. Wait HR + rebase app.js before merge. No Iran deploy.
+      Dual APPROVED d1ea078. Merged into ai/UI-STITCH-IMPL with HR/TRS. SW v163.
     acceptance_criteria:
       - "Invalid hex rejected; duplicate hex warned"
       - "Receipt/issue/transfer can search products with available qty at source"
@@ -85,7 +73,7 @@ tasks:
 
   - id: "TRS-STITCH-P6"
     title: "TRS-01 payable cheque pay/expense state machine"
-    status: "active"
+    status: "completed"
     review_status: "APPROVED"
     security_status: "APPROVED"
     risk: "high"
@@ -93,13 +81,10 @@ tasks:
     branch: "ai/TRS-STITCH-P6"
     base_commit: "7dd5481"
     claimed_at: "2026-08-19T03:50:00+03:30"
-    file_claims:
-      - "server/routes/cheque-records.js"
-      - "server/scripts/test-trs-cheque-out.js"
+    completed_at: "2026-08-19T04:55:00+03:30"
+    file_claims: []
     notes: >-
-      Dual APPROVED on ca4e22a (Security 7e136658 C0/H0/M0; Independent 2180f9f2).
-      Tests 36/36. INV also dual APPROVED. Wait HR role+log re-review then rebase app.js.
-      No Iran deploy. POS-01/02 still deferred.
+      Dual APPROVED ca4e22a. Merged into ai/UI-STITCH-IMPL with HR/INV. POS-01/02 still deferred.
     acceptance_criteria:
       - "Out-cheque lifecycle APIs + JE in transaction"
       - "Idempotent / reverse on cancel"
