@@ -13,11 +13,12 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
-### 2026-08-19 — HR+INV+TRS merge (SW v163)
-- **شاخه:** `ai/UI-STITCH-IMPL` (HR `6c65660` + INV `d1ea078` + TRS `ca4e22a`)
-- **خلاصه:** دعوت امن، رنگ hex، جستجوی انبار ATP، پرداخت/خرج چک. تست‌ها سبز. deploy ایران SFTP.
-- **Deploy:** در جریان
+### 2026-08-19 — HR+INV+TRS merge + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `02872a5`
+- **خلاصه:** دعوت امن، رنگ hex، جستجوی انبار ATP، پرداخت/خرج چک پس از dual APPROVED merge و deploy شد.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` کامل جایگزین نشد — پچ `user_invitations`. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v163` = `2026-08-19T01:34:41Z hash=02872a5`.
 - **SW:** `erp-taranom-v163`
+- **تست:** invite 51/51 · obs 12/12 · inv-p4 25/25 · cheque-out 36/36 · SMS 22/22
 
 ### 2026-08-19 — HR-02 dual APPROVED; merging HR+INV+TRS
 - **شاخه:** `ai/HR-STITCH-P3` @ `6c65660` + `ai/INV-STITCH-P4` @ `d1ea078` + `ai/TRS-STITCH-P6` @ `ca4e22a`

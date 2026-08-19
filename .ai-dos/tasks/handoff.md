@@ -1,3 +1,9 @@
+## 2026-08-19 — HR+INV+TRS Iran SFTP v163 @ 02872a5
+
+- Stamp `.sftp-deploy-stamp-stitch-v163` = `2026-08-19T01:34:41Z hash=02872a5`
+- health/ready/root **200**; SW `erp-taranom-v163`; `db.js` patched in place (`user_invitations`)
+- Next: CON + POS-01/02 + Phase 8. ADR-007 stays closed
+
 ## 2026-08-19 — HR+INV+TRS merged (SW v163); Iran deploy next
 
 - [Independent HR re-review](4450ae38-7d9d-419f-832b-6495a85ee7fa) **APPROVED** on `6c65660` closed log+role M1s
