@@ -1,3 +1,9 @@
+## 2026-08-19 — CON-01/02 Security APPROVED on ca6f5a2
+
+- [Security CON](dfe2d2bd-b84a-492f-b0cc-1a29b298c894) **APPROVED** C0/H0/M0 — person FK, RBAC, no double stock, JE, sync, R13 void
+- Independent still in flight ([Independent CON](9cb86e60-da40-402a-ad31-a3b275b3531f))
+- **NO merge / Iran deploy** until Independent APPROVED
+
 ## 2026-08-19 — CON-01/02 implementer done on ca6f5a2 (pre-review)
 
 - [CON-01/02 consignment](16450d8f-c62d-49b4-af27-bd973dcd570d) shipped `ai/CON-STITCH-P7` @ `ca6f5a2`

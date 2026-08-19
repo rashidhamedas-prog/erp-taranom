@@ -3,7 +3,7 @@
 - Last verified: 2026-08-19
 - **UI-STITCH-IMPL + HR/INV/TRS:** merged `02872a5`; Iran SFTP stamp `.sftp-deploy-stamp-stitch-v163` = `2026-08-19T01:34:41Z hash=02872a5`
   health/ready/root **200**; SW `erp-taranom-v163`
-- **Next (ADR-007 closed):** CON-STITCH-P7 (CON-01/02) in flight. Then POS-01/02 + LED-01 + Phase 8. Skip PROD/PACK.
+- **Next (ADR-007 closed):** CON-STITCH-P7 @ `ca6f5a2` (Security APPROVED; Independent PENDING). Then POS-01/02 + LED-01 + Phase 8.
 - **DEMO-V3-GUIDED-SALES:** `completed` — dual APPROVED + owner merge/deploy
   Primary `bb868c5`; SFTP stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`
   health/demo/seed 200; public `https://erp.poshaktaranom.com/demo.html`

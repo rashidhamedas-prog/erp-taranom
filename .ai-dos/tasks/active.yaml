@@ -94,7 +94,7 @@ tasks:
     title: "CON-01 person FK + CON-02 four-path consignment settle"
     status: "active"
     review_status: "PENDING"
-    security_status: "PENDING"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:implementer-con-07"
     branch: "ai/CON-STITCH-P7"
@@ -106,8 +106,8 @@ tasks:
       - "server/scripts/test-con-stitch-p7.js"
       - "server/db.js"
     notes: >-
-      Implementer done on ca6f5a2: person FK, four settle paths, R13 cancel.
-      Tests 47/47 + SMS 22/22. SW v164. Dual review next. No Iran deploy.
+      Security APPROVED C0/H0/M0 on ca6f5a2 (dfe2d2bd). Independent still PENDING (9cb86e60).
+      Tests 47/47. SW v164. No Iran deploy until Independent APPROVED.
     acceptance_criteria:
       - "Create requires person_id; party_name snapshot"
       - "Settle paths: return, sale, purchase, shortage; sale-only invoice"
