@@ -1,3 +1,12 @@
+## 2026-08-19 — TRS-STITCH-P6 TRS-01 implementer (no deploy)
+
+- **Identity:** `cursor:implementer-trs-06` on `ai/TRS-STITCH-P6` @ isolated worktree `erp-taranom-trs-stitch-p6` (base `7b3d60f`)
+- **Done:** payable/out cheque state machine — `POST /pay` ` /expense` `/endorse` + `POST /cancel|/void` alias of R13 void. JE in `db.transaction` via `acct()` + `postToLedger` (toman). Reused `collection_je_id` so existing `voidChequeRecord` reverses. TRS-02 `direction=out` default untouched.
+- **UI:** smallest pay-tab buttons + Help in `app.js`
+- **Tests:** `test-trs-cheque-out.js` **36/36** · `test-sms.js` **22/22**
+- **NOT done:** POS-01/02/03 · ADR-007 · Iran deploy · merge primary · `db.js`
+- **Exact next:** Independent Reviewer + Security; no merge/deploy until owner
+
 ## 2026-08-19 — UI-STITCH-IMPL merged + Iran deployed; next waves claimed
 
 - Owner approved merge/deploy. FF `ai/UI-STITCH-IMPL` → `claude/claude-md-docs-2ssrpy` @ `7dd5481`

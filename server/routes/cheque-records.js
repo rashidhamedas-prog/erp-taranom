@@ -11,23 +11,154 @@ const { assertJournalIdempotent } = require('../lib/sales-document');
 const OPENING_NOTE = 'مانده اول دوره';
 
 /** Free-text / English synonyms that imply a financial lifecycle transition. */
-const FINANCIAL_STATUS_RE = /وصول|برگشت|واگذار|cleared|bounced|received|in[_ ]?collection|send[_ -]?to[_ -]?bank|resend|واگذارى/i;
-const ACTIVE_LIFECYCLE = new Set(['in_collection', 'cleared', 'bounced']);
+const FINANCIAL_STATUS_RE = /وصول|برگشت|واگذار|cleared|bounced|received|in[_ ]?collection|send[_ -]?to[_ -]?bank|resend|واگذارى|پرداخت|خرج|صدور|issued|expensed|endorsed|endorse|expense/i;
+const ACTIVE_LIFECYCLE_IN = new Set(['in_collection', 'cleared', 'bounced', 'endorsed']);
+const ACTIVE_LIFECYCLE_OUT = new Set(['issued', 'expensed', 'endorsed']);
+const REGISTERED = new Set(['', 'registered']);
+
+function lifecycleOf(row) {
+  return String(row && row.lifecycle_status || '').trim();
+}
+
+function isRegistered(row) {
+  return REGISTERED.has(lifecycleOf(row));
+}
+
+function isOpeningCheque(row) {
+  const note = String(row && row.note || '');
+  const status = String(row && row.status || '');
+  return !!(row && row.journal_entry_id && (note.includes(OPENING_NOTE) || status.includes('اول دوره')));
+}
 
 function refuseFreeTextFinancial(row, status) {
   const s = String(status || '');
-  if (row.direction === 'in' && FINANCIAL_STATUS_RE.test(s)) {
-    const err = new Error('این تغییر وضعیت سند حسابداری لازم دارد — از عملیات چرخه چک (واگذاری/وصول/برگشت/ارسال مجدد) استفاده کنید');
+  if (FINANCIAL_STATUS_RE.test(s)) {
+    const err = new Error('این تغییر وضعیت سند حسابداری لازم دارد — از عملیات چرخه چک استفاده کنید');
     err.status = 400;
     err.code = 'E_CHEQUE_USE_LIFECYCLE';
     throw err;
   }
-  if (row.direction === 'in' && ACTIVE_LIFECYCLE.has(String(row.lifecycle_status || ''))) {
+  const lc = lifecycleOf(row);
+  if (row.direction === 'in' && ACTIVE_LIFECYCLE_IN.has(lc)) {
     const err = new Error('وضعیت چرخه فعال است — فقط از endpointهای چرخه یا ابطال کامل استفاده کنید');
     err.status = 400;
     err.code = 'E_CHEQUE_USE_LIFECYCLE';
     throw err;
   }
+  if (row.direction === 'out' && ACTIVE_LIFECYCLE_OUT.has(lc)) {
+    const err = new Error('وضعیت چرخه فعال است — فقط از endpointهای پرداخت/خرج یا ابطال کامل استفاده کنید');
+    err.status = 400;
+    err.code = 'E_CHEQUE_USE_LIFECYCLE';
+    throw err;
+  }
+}
+
+function chequeAmountRial(row) {
+  const amountRial = Math.round(Number(row && row.amount) || 0);
+  if (amountRial <= 0) {
+    const err = new Error('مبلغ چک نامعتبر است');
+    err.status = 400;
+    throw err;
+  }
+  return amountRial;
+}
+
+function resolveNamedAcct(db, key, fallbackKey) {
+  const k = String(key || fallbackKey || '').trim();
+  try {
+    return acct(db, k);
+  } catch (_) {
+    const err = new Error('کلید حساب نامعتبر است');
+    err.status = 400;
+    err.code = 'E_CHEQUE_ACCOUNT';
+    throw err;
+  }
+}
+
+function assertPosted(row) {
+  if (row && row.record_status === 'reversed') {
+    const err = new Error('این چک ابطال شده است');
+    err.status = 400;
+    err.code = 'E_CHEQUE_LIFECYCLE';
+    throw err;
+  }
+}
+
+function assertOutPayableAction(row) {
+  if (!row || row.direction !== 'out') {
+    const err = new Error('چک پرداختنی یافت نشد');
+    err.status = 404;
+    throw err;
+  }
+  assertPosted(row);
+  if (isOpeningCheque(row)) {
+    const err = new Error('چک اول دوره قبلاً در سند افتتاحیه ثبت شده و قابل پرداخت/خرج جداگانه نیست');
+    err.status = 400;
+    err.code = 'E_CHEQUE_LIFECYCLE';
+    throw err;
+  }
+  if (!isRegistered(row)) {
+    const err = new Error('وضعیت چرخه این چک اجازه این عملیات را نمی‌دهد');
+    err.status = 400;
+    err.code = 'E_CHEQUE_LIFECYCLE';
+    throw err;
+  }
+}
+
+function postChequeAction(db, {
+  row, user, date, sourceType, lifecycle, statusLabel, debitAcct, creditAcct,
+}) {
+  const amountRial = chequeAmountRial(row);
+  const amt = amountRial / 10;
+  assertJournalIdempotent(db, sourceType, row.id);
+  const id = postToLedger(db, {
+    sourceType,
+    sourceId: row.id,
+    date,
+    description: `${statusLabel} چک ${row.cheque_number || row.id}`,
+    createdBy: user.id,
+    lines: [
+      { code: debitAcct.code, name: debitAcct.name, debit: amt, credit: 0, debit_rial: amountRial },
+      { code: creditAcct.code, name: creditAcct.name, debit: 0, credit: amt, credit_rial: amountRial },
+    ],
+  });
+  const updated = db.prepare(`
+    UPDATE cheque_records
+    SET lifecycle_status=?, collection_je_id=?, status=?
+    WHERE id=? AND (lifecycle_status IS NULL OR lifecycle_status='' OR lifecycle_status='registered')
+      AND COALESCE(record_status,'posted')<>'reversed'
+  `).run(lifecycle, id, statusLabel, row.id);
+  if (!updated.changes) {
+    const err = new Error('وضعیت چرخه این چک اجازه این عملیات را نمی‌دهد');
+    err.status = 400;
+    err.code = 'E_CHEQUE_LIFECYCLE';
+    throw err;
+  }
+  return id;
+}
+
+function runOutAction(req, { sourceType, lifecycle, statusLabel, debitKey }) {
+  const db = getDB();
+  const entryDate = req.body.date || todayJalali();
+  const jeId = db.transaction(() => {
+    const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='out'").get(req.params.id);
+    assertOutPayableAction(row);
+    const debitAcct = resolveNamedAcct(db, req.body.account_key, debitKey);
+    const creditAcct = acct(db, 'coa_cheques_payable');
+    return postChequeAction(db, {
+      row,
+      user: req.user,
+      date: entryDate,
+      sourceType,
+      lifecycle,
+      statusLabel,
+      debitAcct,
+      creditAcct,
+    });
+  })();
+  const row = db.prepare('SELECT cheque_number FROM cheque_records WHERE id=?').get(req.params.id);
+  audit(req.user.id, sourceType, 'cheque_record', req.params.id, row?.cheque_number);
+  return { ok: true, journal_entry_id: jeId, lifecycle_status: lifecycle };
 }
 
 router.get('/', auth, adminOrAccounting, (req, res) => {
@@ -113,12 +244,93 @@ router.patch('/:id/status', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/:id', auth, adminOrAccounting, (req, res) => {
+function voidChequeHttp(req, res) {
   try {
     const db = getDB();
     res.json(voidChequeRecord(db, req.params.id, req.user));
   } catch (e) {
-    res.status(e.status || 400).json({ error: e.message });
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+}
+
+router.delete('/:id', auth, adminOrAccounting, voidChequeHttp);
+router.post('/:id/cancel', auth, adminOrAccounting, voidChequeHttp);
+router.post('/:id/void', auth, adminOrAccounting, voidChequeHttp);
+
+/** Handover our cheque to the payee — Dr payable, Cr notes payable. */
+router.post('/:id/pay', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(runOutAction(req, {
+      sourceType: 'cheque_pay',
+      lifecycle: 'issued',
+      statusLabel: 'پرداخت‌شده',
+      debitKey: 'coa_payable',
+    }));
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+/** خرج چک پرداختنی — Dr expense (acct key), Cr notes payable. */
+router.post('/:id/expense', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(runOutAction(req, {
+      sourceType: 'cheque_expense',
+      lifecycle: 'expensed',
+      statusLabel: 'خرج‌شده',
+      debitKey: 'coa_admin_expense',
+    }));
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+});
+
+/**
+ * خرج چک: پرداختنی → همان expense؛ دریافتنی → ظهرنویسی به ذینفع
+ * (بدهکار پرداختنی، بستانکار اسناد دریافتنی) به‌جای واگذاری به بانک.
+ */
+router.post('/:id/endorse', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const probe = db.prepare('SELECT direction FROM cheque_records WHERE id=?').get(req.params.id);
+    if (!probe) return res.status(404).json({ error: 'یافت نشد' });
+    if (probe.direction === 'out') {
+      return res.json(runOutAction(req, {
+        sourceType: 'cheque_endorse',
+        lifecycle: 'endorsed',
+        statusLabel: 'خرج‌شده',
+        debitKey: 'coa_admin_expense',
+      }));
+    }
+
+    const entryDate = req.body.date || todayJalali();
+    const jeId = db.transaction(() => {
+      const row = db.prepare("SELECT * FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
+      if (!row) {
+        throw Object.assign(new Error('چک دریافتنی یافت نشد'), { status: 404 });
+      }
+      assertPosted(row);
+      if (!isRegistered(row)) {
+        throw Object.assign(new Error('وضعیت چرخه این چک اجازه خرج/ظهرنویسی را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
+      const debitAcct = resolveNamedAcct(db, req.body.account_key, 'coa_payable');
+      const creditAcct = acct(db, 'coa_cheques_receivable');
+      return postChequeAction(db, {
+        row,
+        user: req.user,
+        date: entryDate,
+        sourceType: 'cheque_endorse',
+        lifecycle: 'endorsed',
+        statusLabel: 'خرج‌شده',
+        debitAcct,
+        creditAcct,
+      });
+    })();
+    const row = db.prepare('SELECT cheque_number FROM cheque_records WHERE id=?').get(req.params.id);
+    audit(req.user.id, 'cheque_endorse', 'cheque_record', req.params.id, row?.cheque_number);
+    res.json({ ok: true, journal_entry_id: jeId, lifecycle_status: 'endorsed' });
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 });
 

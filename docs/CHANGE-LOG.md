@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — TRS-01 چک پرداختنی: پرداخت / خرج / ابطال (بدون deploy)
+- **شاخه:** `ai/TRS-STITCH-P6`
+- **خلاصه:** ماشین‌حالت چک پرداختنی (`direction=out`): پرداخت به ذینفع، خرج چک (هزینه از `acct`)، ظهرنویسی دریافتنی. سند داخل `db.transaction` با تومان به `postToLedger`. ابطال = معکوس کامل (R13)، بدون DELETE فیزیکی. فیلتر TRS-02 (`direction=out`) دست نخورده.
+- **فایل‌های کلیدی:** `server/routes/cheque-records.js`, `server/scripts/test-trs-cheque-out.js`, `server/public/app.js` (تب پرداخت + راهنما)
+- **تست:** `test-trs-cheque-out.js` · `test-sms.js`
+- **Deploy:** ⏭ اعمال نشد — بدون merge/SFTP/PM2
+- **SW:** بدون bump (`erp-taranom-v160`)
+
 ### 2026-08-19 — UI-STITCH-IMPL merge + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `7dd5481` ← FF `ai/UI-STITCH-IMPL`
 - **خلاصه:** موج حسابداری Stitch (OPS-01، TRS-02، ACC-01..06، INV-01، ACC-04 cutoff) پس از dual APPROVED merge و deploy شد.
