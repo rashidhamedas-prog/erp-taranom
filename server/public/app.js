@@ -6911,6 +6911,7 @@ async function renderPersonsTab(body){
       <td>${p.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){personModal((p.id))})}">✏️</button>
+        <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){invitePersonUser((p.id))})}">دعوت ورود</button>
         <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){showPersonLedger((p.id),`${String((CSP.htmlDecode(String(esc(p.name)))) ?? '')}`)})}">📋 دفتر معین</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePerson((p.id))})}">🗑️</button>
       </td>
@@ -6985,6 +6986,7 @@ async function personModal(id){
       ${personExtraFieldsHtml(p)}
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePerson((id||0))})}">💾 ذخیره</button>
+      ${id?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){invitePersonUser((id))})}">دعوت به ورود</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
 }
 async function savePerson(id){
@@ -17614,6 +17616,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کارشناس داخلی (تلفنی)</b>: فروش و پیگیری تلفنی</li>
       </ul>
       <h5>انگیزه فروش</h5><p>درصد انگیزه فروش نقد و چک هر کارشناس را جداگانه تنظیم کنید. پس از ذخیره اولیه، نرخ قفل می‌شود و تغییر آن نیاز به تأیید مدیر دارد.</p>
+      <h5>دعوت امن کاربر از روی شخص</h5><p>پس از ثبت شخص/کارمند، مدیر یا حسابدار از فهرست اشخاص یا فرم شخص دکمه <b>دعوت ورود</b> را می‌زند و <b>نقش ورود را خودش انتخاب می‌کند</b> (پیش‌فرض کارشناس میدانی). <b>مدیر سیستم را نمی‌توان با دعوت ساخت</b>؛ حسابدار فقط توسط مدیر سیستم دعوت می‌شود و حسابدار نمی‌تواند حسابدار دعوت کند. نقش ذخیره‌شده روی دعوت اعمال می‌شود و دعوت‌شونده نمی‌تواند نقش را در پذیرش عوض کند. لینک یک‌بارمصرف با مسیر <code>/invite?token=</code> و اعتبار پیش‌فرض <b>۷۲ ساعت</b> است. توکن تصادفی است و فقط هش آن ذخیره می‌شود — رمز ثابت یا شناخته‌شده ساخته نمی‌شود. دعوت‌شونده خودش نام کاربری و رمز (حداقل ۸ کاراکتر، حرف و عدد) را انتخاب می‌کند و <code>must_change_password</code> صفر می‌ماند. لینک منقضی یا استفاده‌شده رد می‌شود. دعوت فقط روی سرور مرکزی است و به دستگاه‌ها سینک نمی‌شود.</p>
       <h5>رمز موقت و تغییر اجباری</h5><p>رمزی که هنگام ساخت کاربر، ویرایش (فیلد رمز)، یا بازنشانی رمز تعیین می‌کنید <b>موقتی</b> است و باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد — در غیر این صورت ذخیره نمی‌شود. کاربر در اولین ورود به سرور مرکزی مجبور می‌شود رمز شخصی خودش را انتخاب کند. پس از تغییر رمز روی سرور مرکزی، موبایل/دسکتاپ باید آنلاین باشد تا همگام‌سازی هش جدید را بگیرد (بعد از wipe معمولاً pair مجدد لازم است). کاربر پیش‌فرض <code>admin</code> هم تا وقتی رمز کارخانه‌ای دارد، اجازهٔ هیچ کاری جز تغییر رمز ندارد.</p>
       <h5>گروه مشتری و ماهیت حساب</h5><p>در فرم ویرایش هر مشتری (فقط برای مدیر/حسابدار)، می‌توانید مشتری را به یک «گروه مشتری» نسبت دهید. هر گروه یک ماهیت حساب دارد: <b>بدهکار</b> (پیش‌فرض همه مشتریان) یا <b>بستانکار</b> (برای موارد خاص مثل مشتریانی که پیش‌پرداخت کرده‌اند). مدیریت گروه‌ها از داخل ماژول حسابداری → «گروه‌های مشتری» انجام می‌شود.</p>
       <div class="warn">شماره موبایل کارشناس را حتماً وارد کنید تا یادآور پیامکی دریافت کند.</div>`),
@@ -17716,7 +17719,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v160</b> است و اسکریپت‌ها با <code>?v=160</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v162</b> است و اسکریپت‌ها با <code>?v=162</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -18775,6 +18778,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   await syncServerTime();
   // B2B portal deep link (#portal) — customers land here directly
   if(location.hash==='#portal'){ openB2BPortal(); return; }
+  if(typeof maybeShowInviteAccept==='function' && maybeShowInviteAccept()) return;
   // Show the portal link on the staff login page only when the feature is
   // enabled on the central server (app-info is public, returns no secrets)
   fetch('/api/system/app-info').then(r=>r.json()).then(info=>{

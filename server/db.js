@@ -1653,6 +1653,22 @@ function initSyncSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_reset_otp_user ON password_reset_otps(user_id);
 
+    -- Staff invite tokens: central-only — NOT in SYNCABLE_TABLES
+    CREATE TABLE IF NOT EXISTS user_invitations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id INTEGER NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at INTEGER NOT NULL,
+      used_at INTEGER,
+      invited_email TEXT,
+      intended_role TEXT,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(person_id) REFERENCES persons(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_invitations_person ON user_invitations(person_id);
+    CREATE INDEX IF NOT EXISTS idx_user_invitations_hash ON user_invitations(token_hash);
+
     -- 2FA (TOTP): central-only — NOT in SYNCABLE_TABLES, device builds keep it empty
     CREATE TABLE IF NOT EXISTS two_factor_auth (
       user_id INTEGER PRIMARY KEY,
@@ -1854,7 +1870,18 @@ function initSyncSchema(db) {
   ensureColumn(db, 'product_categories', 'created_by', 'INTEGER');
   ensureColumn(db, 'product_categories', 'coa_code', 'TEXT');
   ensureColumn(db, 'users', 'party_id', 'INTEGER');
+  ensureColumn(db, 'users', 'person_id', 'INTEGER');
   ensureColumn(db, 'users', 'sales_warehouse_id', 'INTEGER');
+  if (tableExists(db, 'user_invitations')) {
+    ensureColumn(db, 'user_invitations', 'person_id', 'INTEGER');
+    ensureColumn(db, 'user_invitations', 'token_hash', 'TEXT');
+    ensureColumn(db, 'user_invitations', 'expires_at', 'INTEGER');
+    ensureColumn(db, 'user_invitations', 'used_at', 'INTEGER');
+    ensureColumn(db, 'user_invitations', 'invited_email', 'TEXT');
+    ensureColumn(db, 'user_invitations', 'intended_role', 'TEXT');
+    ensureColumn(db, 'user_invitations', 'created_by', 'INTEGER');
+    ensureColumn(db, 'user_invitations', 'created_at', "INTEGER DEFAULT (strftime('%s','now'))");
+  }
   ensureColumn(db, 'customers', 'party_group_id', 'INTEGER');
   ensureColumn(db, 'suppliers', 'party_group_id', 'INTEGER');
   ensureColumn(db, 'persons', 'party_group_id', 'INTEGER');

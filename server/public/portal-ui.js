@@ -1262,6 +1262,204 @@
     }
   }
 
+  function inviteTokenFromLocation() {
+    try {
+      const u = new URL(location.href);
+      if (u.pathname.replace(/\/+$/, '') === '/invite') return String(u.searchParams.get('token') || '').trim();
+    } catch (_) { /* ignore */ }
+    return '';
+  }
+
+  function setInviteMsg(text, isErr) {
+    const box = typeof el === 'function' ? el('hr-invite-msg') : document.getElementById('hr-invite-msg');
+    if (!box) return;
+    box.textContent = text || '';
+    box.style.color = isErr ? '#dc2626' : '';
+  }
+
+  async function copyInviteLink(url) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(url);
+      else {
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      if (typeof showToast === 'function') showToast('لینک دعوت کپی شد');
+    } catch (_) {
+      if (typeof showToast === 'function') showToast('کپی نشد — لینک را دستی بردارید', 'error');
+    }
+  }
+
+  function inviteRoleOptionsHtml() {
+    const actor = (typeof ME !== 'undefined' && ME && ME.role) ? ME.role : '';
+    const rows = [
+      ['field_sales', 'کارشناس میدانی (حضوری)'],
+      ['inside_sales', 'کارشناس داخلی (تلفنی)'],
+      ['distribution_office', 'دفتر پخش'],
+      ['sales_manager', 'مدیر فروش'],
+      ['production_manager', 'مدیر تولید'],
+      ['production_operator', 'اپراتور تولید'],
+      ['unit_manager', 'مدیر واحد عملیاتی'],
+      ['department_manager', 'مدیر بخش'],
+    ];
+    if (actor === 'admin') rows.splice(4, 0, ['accounting', 'حسابدار (بخش حسابداری)']);
+    return rows.map(([value, label]) =>
+      `<option value="${value}" ${value === 'field_sales' ? 'selected' : ''}>${label}</option>`
+    ).join('');
+  }
+
+  function showInviteLinkModal(abs) {
+    if (typeof openModal !== 'function') {
+      if (typeof showToast === 'function') showToast('دعوت ساخته شد');
+      return;
+    }
+    openModal(`
+      <div class="modal-head"><h3>دعوت به ورود</h3><button class="x" data-csp-click="${CSP.bind('click', function () { closeModal(); })}">×</button></div>
+      <div class="modal-body">
+        <p class="muted" data-csp-style="${CSP.style('font-size:13px;line-height:1.9;margin-bottom:10px')}">لینک یک‌بارمصرف است و تا ۷۲ ساعت اعتبار دارد. رمز از پیش ساخته نمی‌شود؛ دعوت‌شونده خودش نام کاربری و رمز را انتخاب می‌کند. نقش را دعوت‌کننده انتخاب کرده و دعوت‌شونده نمی‌تواند آن را عوض کند.</p>
+        <div class="fg full"><label>لینک دعوت</label>
+          <input id="hr-invite-url" dir="ltr" readonly value="${esc(abs)}"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-csp-click="${CSP.bind('click', function () { copyInviteLink(abs); })}">کپی لینک</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click', function () { closeModal(); })}">بستن</button>
+      </div>`);
+  }
+
+  async function sendPersonInvite(personId) {
+    const id = parseInt(personId, 10);
+    const roleEl = typeof el === 'function' ? el('hr-invite-role') : document.getElementById('hr-invite-role');
+    const role = roleEl ? String(roleEl.value || '').trim() : '';
+    try {
+      const r = await api('POST', '/users/invitations', { person_id: id, role: role || undefined });
+      const path = r.invite_url || ('/invite?token=' + encodeURIComponent(r.token));
+      showInviteLinkModal((location.origin || '') + path);
+    } catch (e) {
+      if (typeof showToast === 'function') showToast((e && e.message) || 'خطا در ساخت دعوت', 'error');
+    }
+  }
+
+  async function invitePersonUser(personId) {
+    const id = parseInt(personId, 10);
+    if (!id) {
+      if (typeof showToast === 'function') showToast('ابتدا شخص را ذخیره کنید', 'error');
+      return;
+    }
+    if (typeof openModal !== 'function') {
+      try {
+        const r = await api('POST', '/users/invitations', { person_id: id });
+        if (typeof showToast === 'function') showToast('دعوت ساخته شد');
+        return r;
+      } catch (e) {
+        if (typeof showToast === 'function') showToast((e && e.message) || 'خطا در ساخت دعوت', 'error');
+        return;
+      }
+    }
+    openModal(`
+      <div class="modal-head"><h3>دعوت به ورود</h3><button class="x" data-csp-click="${CSP.bind('click', function () { closeModal(); })}">×</button></div>
+      <div class="modal-body">
+        <p class="muted" data-csp-style="${CSP.style('font-size:13px;line-height:1.9;margin-bottom:10px')}">نقش ورود را انتخاب کنید. مدیر سیستم قابل دعوت نیست. حسابدار فقط توسط مدیر دعوت می‌شود.</p>
+        <div class="fg full"><label>نقش</label>
+          <select id="hr-invite-role">${inviteRoleOptionsHtml()}</select></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-csp-click="${CSP.bind('click', function () { sendPersonInvite(id); })}">ساخت لینک دعوت</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click', function () { closeModal(); })}">انصراف</button>
+      </div>`);
+  }
+
+  async function submitInviteAccept(token) {
+    const userEl = document.getElementById('hr-invite-user');
+    const passEl = document.getElementById('hr-invite-pass');
+    const pass2El = document.getElementById('hr-invite-pass2');
+    const username = (userEl && userEl.value || '').trim();
+    const password = passEl && passEl.value || '';
+    const password2 = pass2El && pass2El.value || '';
+    if (!username || username.length < 3) { setInviteMsg('نام کاربری باید حداقل ۳ کاراکتر باشد', true); return; }
+    if (password !== password2) { setInviteMsg('تکرار رمز یکسان نیست', true); return; }
+    setInviteMsg('در حال ثبت…');
+    try {
+      const res = await fetch('/api/auth/invite/' + encodeURIComponent(token) + '/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      let j = {};
+      try { j = await res.json(); } catch (_) { j = {}; }
+      if (!res.ok) { setInviteMsg(j.error || 'پذیرش دعوت ناموفق بود', true); return; }
+      setInviteMsg('حساب ساخته شد. اکنون می‌توانید وارد شوید.');
+      const form = document.getElementById('hr-invite-form');
+      if (form) form.style.display = 'none';
+      const loginForm = document.getElementById('loginForm');
+      if (loginForm) loginForm.style.display = '';
+      const loginUser = document.getElementById('loginUser');
+      if (loginUser) loginUser.value = j.username || username;
+    } catch (_) {
+      setInviteMsg('خطای ارتباط با سرور', true);
+    }
+  }
+
+  async function renderInviteAccept(token) {
+    const card = document.querySelector('#login .login-card');
+    const form = document.getElementById('loginForm');
+    if (!card) return;
+    if (form) form.style.display = 'none';
+    let panel = document.getElementById('hr-invite-panel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'hr-invite-panel';
+      card.appendChild(panel);
+    }
+    panel.innerHTML = '<p class="muted">در حال بررسی لینک دعوت…</p>';
+    try {
+      const res = await fetch('/api/auth/invite/' + encodeURIComponent(token));
+      let j = {};
+      try { j = await res.json(); } catch (_) { j = {}; }
+      const status = j.status || 'invalid';
+      const name = j.person_name ? esc(j.person_name) : '';
+      if (status === 'valid') {
+        panel.innerHTML = `
+          <p>دعوت برای ${name || 'همکار'}</p>
+          <p class="muted" data-csp-style="${CSP.style('font-size:13px;line-height:1.8;margin:8px 0 12px')}">نام کاربری و رمز خود را انتخاب کنید. رمز حداقل ۸ کاراکتر و شامل حرف و عدد است.</p>
+          <form id="hr-invite-form">
+            <div class="field"><label>نام کاربری</label><input id="hr-invite-user" dir="ltr" autocomplete="username"></div>
+            <div class="field"><label>رمز عبور</label><input id="hr-invite-pass" type="password" dir="ltr" autocomplete="new-password"></div>
+            <div class="field"><label>تکرار رمز</label><input id="hr-invite-pass2" type="password" dir="ltr" autocomplete="new-password"></div>
+            <button type="submit">ساخت حساب و ورود</button>
+          </form>
+          <div class="login-err" id="hr-invite-msg"></div>`;
+        const inviteForm = document.getElementById('hr-invite-form');
+        if (inviteForm) {
+          inviteForm.addEventListener('submit', function (ev) {
+            ev.preventDefault();
+            submitInviteAccept(token);
+          });
+        }
+      } else if (status === 'expired') {
+        panel.innerHTML = `<p>لینک دعوت ${name ? 'برای ' + name + ' ' : ''}منقضی شده است. از مدیر بخواهید دعوت جدید بفرستد.</p>`;
+      } else if (status === 'used') {
+        panel.innerHTML = `<p>این دعوت قبلاً استفاده شده است. از صفحه ورود وارد شوید.</p>
+          <p><a href="/">بازگشت به ورود</a></p>`;
+      } else {
+        panel.innerHTML = '<p>لینک دعوت نامعتبر است.</p><p><a href="/">بازگشت به ورود</a></p>';
+      }
+    } catch (_) {
+      panel.innerHTML = '<p>خطای ارتباط با سرور.</p>';
+    }
+  }
+
+  function maybeShowInviteAccept() {
+    const token = inviteTokenFromLocation();
+    if (!token) return false;
+    global.__HR_INVITE_ACTIVE = true;
+    renderInviteAccept(token);
+    return true;
+  }
+
   const PortalUI = {
     renderPortalUnitsTab,
     renderPortalMyDeptTab,
@@ -1326,9 +1524,16 @@
     postDoubtful,
     postInventoryNrv,
     reloadReport,
+    invitePersonUser,
+    sendPersonInvite,
+    maybeShowInviteAccept,
+    copyInviteLink,
   };
 
   global.PortalUI = PortalUI;
+  global.invitePersonUser = invitePersonUser;
+  global.maybeShowInviteAccept = maybeShowInviteAccept;
+  global.copyInviteLink = copyInviteLink;
   global.renderPortalUnitsTab = renderPortalUnitsTab;
   global.renderPortalMyDeptTab = renderPortalMyDeptTab;
   global.renderBankReconTab = renderBankReconTab;

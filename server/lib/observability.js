@@ -35,6 +35,50 @@ function isPiiKey(key) {
   return false;
 }
 
+/**
+ * Strip raw invite tokens from logged request paths. Public URLs stay
+ * token-in-path; access logs must not record the bearer value.
+ */
+function sanitizeLogPath(raw) {
+  const input = raw == null ? '' : String(raw);
+  if (!input) return input;
+
+  let pathname = input;
+  let search = '';
+  let hash = '';
+  const hashIdx = input.indexOf('#');
+  if (hashIdx >= 0) {
+    hash = input.slice(hashIdx);
+    pathname = input.slice(0, hashIdx);
+  }
+  const qIdx = pathname.indexOf('?');
+  if (qIdx >= 0) {
+    search = pathname.slice(qIdx);
+    pathname = pathname.slice(0, qIdx);
+  }
+
+  const inviteApi = pathname.match(/^(\/api\/auth\/invite)\/([^/]+)(\/accept)?\/?$/i);
+  if (inviteApi) {
+    pathname = `${inviteApi[1]}/${REDACTED}${inviteApi[3] || ''}`;
+  }
+
+  const invitePage = pathname.replace(/\/+$/, '') === '/invite';
+  if (invitePage && search) {
+    const parts = search.slice(1).split('&');
+    search = '?' + parts.map((part) => {
+      if (!part) return part;
+      const eq = part.indexOf('=');
+      const key = eq >= 0 ? part.slice(0, eq) : part;
+      let decoded = key;
+      try { decoded = decodeURIComponent(key.replace(/\+/g, ' ')); } catch { /* keep raw key */ }
+      if (decoded === 'token') return 'token=' + REDACTED;
+      return part;
+    }).join('&');
+  }
+
+  return pathname + search + hash;
+}
+
 /** Deep-clone fields with PII keys redacted. Non-objects pass through. */
 function redactFields(value, depth = 0) {
   if (value == null || typeof value !== 'object') return value;
@@ -65,6 +109,7 @@ function jsonLog(entry) {
   const rest = Object.assign({}, entry);
   delete rest.level;
   delete rest.msg;
+  if (typeof rest.path === 'string') rest.path = sanitizeLogPath(rest.path);
   const safe = redactFields(rest);
   const line = Object.assign({ ts: new Date().toISOString(), level, msg }, safe);
   // eslint-disable-next-line no-console
@@ -96,7 +141,7 @@ function requestIdMiddleware(req, res, next) {
       msg: 'http_request',
       requestId: id,
       method: req.method,
-      path: req.originalUrl || req.url,
+      path: sanitizeLogPath(req.originalUrl || req.url),
       status: res.statusCode,
       duration_ms: Date.now() - started,
     });
@@ -109,6 +154,7 @@ module.exports = {
   REDACTED,
   createRequestId,
   redactFields,
+  sanitizeLogPath,
   jsonLog,
   checkDbReady,
   requestIdMiddleware,
