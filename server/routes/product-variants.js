@@ -20,6 +20,9 @@ const {
   softDeleteVariant,
   ensureDefaultVariant,
   styleMetadata,
+  decorateColor,
+  normalizeAndAssertHex,
+  assertUniqueHex,
 } = require('../lib/product-variants');
 
 function ensureSchema(db) {
@@ -33,7 +36,10 @@ function ensureSchema(db) {
 
 function sendErr(res, e) {
   const status = e.status || e.statusCode || 500;
-  return res.status(status).json({ error: e.message || String(e) });
+  const body = { error: e.message || String(e) };
+  if (e.code) body.code = e.code;
+  if (e.existing_id) body.existing_id = e.existing_id;
+  return res.status(status).json(body);
 }
 
 // ── Colors ──────────────────────────────────────────────────────────────
@@ -47,7 +53,7 @@ router.get('/colors', auth, (req, res) => {
       SELECT * FROM product_colors
       ${activeOnly ? 'WHERE active=1' : ''}
       ORDER BY sort_order, id
-    `).all();
+    `).all().map(decorateColor);
     res.json(rows);
   } catch (e) { sendErr(res, e); }
 });
@@ -56,7 +62,7 @@ router.post('/colors', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
     ensureSchema(db);
-    const row = upsertColor(db, req.body || {});
+    const row = decorateColor(upsertColor(db, req.body || {}));
     try { audit(req.user.id, 'create', 'product_colors', row.id, `رنگ ${row.name}`, req); } catch (_) {}
     res.status(201).json(row);
   } catch (e) { sendErr(res, e); }
@@ -70,14 +76,16 @@ router.put('/colors/:id', auth, adminOrAccounting, (req, res) => {
     const existing = db.prepare('SELECT * FROM product_colors WHERE id=?').get(id);
     if (!existing) return res.status(404).json({ error: 'رنگ یافت نشد' });
     const name = req.body.name != null ? String(req.body.name).trim() : existing.name;
+    if (!name) return res.status(400).json({ error: 'نام رنگ الزامی است' });
     const code = req.body.code != null ? String(req.body.code).trim() : existing.code;
-    const hex = req.body.hex != null ? String(req.body.hex).trim() : existing.hex;
+    const hex = req.body.hex != null ? normalizeAndAssertHex(req.body.hex) : existing.hex;
+    assertUniqueHex(db, hex, id);
     const sort = req.body.sort_order != null ? parseInt(req.body.sort_order, 10) : existing.sort_order;
     const active = req.body.active != null ? (req.body.active ? 1 : 0) : existing.active;
     db.prepare(
       'UPDATE product_colors SET name=?, code=?, hex=?, sort_order=?, active=? WHERE id=?'
     ).run(name, code, hex, sort, active, id);
-    res.json(db.prepare('SELECT * FROM product_colors WHERE id=?').get(id));
+    res.json(decorateColor(db.prepare('SELECT * FROM product_colors WHERE id=?').get(id)));
   } catch (e) { sendErr(res, e); }
 });
 

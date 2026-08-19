@@ -15,13 +15,15 @@ function buildSku(styleCode, colorCode, sizeCode) {
 }
 
 function upsertColor(db, spec, sortOrder = 0) {
+  const { normalizeAndAssertHex, assertUniqueHex } = require('./color-hex');
   const name = String(spec.name || spec.code || '').trim();
   if (!name) throw Object.assign(new Error('نام رنگ الزامی است'), { status: 400 });
   const code = String(spec.code || name).trim();
-  const hex = String(spec.hex || '').trim();
+  const hex = normalizeAndAssertHex(spec.hex);
   let row = db.prepare(
     'SELECT * FROM product_colors WHERE (code=? AND code<>\'\') OR name=? LIMIT 1'
   ).get(code, name);
+  assertUniqueHex(db, hex, row ? row.id : null);
   if (row) {
     db.prepare(
       'UPDATE product_colors SET name=?, hex=COALESCE(NULLIF(?,\'\'), hex), sort_order=?, active=1 WHERE id=?'

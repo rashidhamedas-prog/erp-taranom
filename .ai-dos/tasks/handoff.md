@@ -1,3 +1,14 @@
+## 2026-08-19 — INV-STITCH-P4 implementer (INV-02 + INV-03, no Iran deploy)
+
+- **Owner / role:** `cursor:implementer-inv-04` / Implementer
+- **Branch / worktree:** `ai/INV-STITCH-P4` / `D:/soft/Claud/porje/Run in the project/erp-taranom-inv-stitch-p4` @ base `7b3d60f`
+- **INV-02:** hex `#RGB`/`#RRGGBB` validate; `E_COLOR_INVALID_HEX`; duplicate `400 E_COLOR_DUPLICATE`; `contrast_ok` vs white/black; Persian name kept
+- **INV-03:** `GET /api/warehouses/products/search?q=` + `GET /api/products?q=` search name/code/barcode/SKU, pagination, ATP via `availableQty`
+- **UI:** smallest color picker + warehouse line search dropdown in `app.js` (no rewrite)
+- **Tests:** `test-inv-stitch-p4.js` + `test-sms.js`
+- **NO** Iran deploy / merge primary / ADR-007 / lots / pack / db.js
+- **SW:** `erp-taranom-v161`
+
 ## 2026-08-19 — UI-STITCH-IMPL merged + Iran deployed; next waves claimed
 
 - Owner approved merge/deploy. FF `ai/UI-STITCH-IMPL` → `claude/claude-md-docs-2ssrpy` @ `7dd5481`

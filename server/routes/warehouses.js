@@ -7,6 +7,7 @@ const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
 const { parseQty } = require('../lib/round3');
 const { voidWarehouseMove } = require('../lib/void-warehouse-move');
+const { searchWarehouseLineProducts } = require('../lib/inventory/product-line-search');
 
 
 // Stock overview — all warehouses with product quantities
@@ -107,6 +108,16 @@ router.get('/stock/report', auth, adminOrAccounting, (req, res) => {
     });
   })();
   res.json({ filters: { warehouse_id: warehouseId, q, category, include_zero: includeZero }, rows: overview });
+});
+
+// INV-03 — shared picker for receipt/issue/transfer lines (before /:id)
+router.get('/products/search', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    res.json(searchWarehouseLineProducts(db, req.user, req.query));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || String(e), code: e.code });
+  }
 });
 
 // Read-only list is open to all authenticated users — the products/catalog

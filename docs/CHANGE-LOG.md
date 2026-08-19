@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — INV-STITCH-P4 رنگ کالا + جستجوی خط انبار (بدون deploy ایران)
+- **شاخه:** `ai/INV-STITCH-P4`
+- **خلاصه:** INV-02 اعتبار hex (`#RGB` / `#RRGGBB`)، رد تکراری با `E_COLOR_DUPLICATE`، و فیلد محاسبه‌ای `contrast_ok`. INV-03 جستجوی مشترک کالا برای رسید/حواله/انتقال روی SKU/کد/بارکد/نام با صفحه‌بندی و موجودی قابل‌فروش (ATP) انبار مبدأ. SW `erp-taranom-v161`.
+- **فایل‌های کلیدی:** `server/routes/product-variants.js`, `server/lib/product-variants/color-hex.js`, `server/routes/warehouses.js`, `server/routes/products.js`, `server/lib/inventory/product-line-search.js`, `server/public/app.js`, `server/scripts/test-inv-stitch-p4.js`
+- **تست:** `test-inv-stitch-p4.js` · `test-sms.js`
+- **Deploy:** ⏭ اعمال نشد — بدون merge/SFTP/PM2
+- **SW:** `erp-taranom-v161`
+
 ### 2026-08-19 — UI-STITCH-IMPL merge + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `7dd5481` ← FF `ai/UI-STITCH-IMPL`
 - **خلاصه:** موج حسابداری Stitch (OPS-01، TRS-02، ACC-01..06، INV-01، ACC-04 cutoff) پس از dual APPROVED merge و deploy شد.

@@ -72,10 +72,18 @@ tasks:
       - "server/routes/product-variants.js"
       - "server/routes/warehouses.js"
       - "server/routes/products.js"
+      - "server/lib/product-variants/color-hex.js"
+      - "server/lib/product-variants/service.js"
+      - "server/lib/inventory/product-line-search.js"
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
       - "server/scripts/test-inv-stitch-p4.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/handoff.md"
     notes: >-
       Hex validate + duplicate warning API; warehouse line search SKU/barcode/name + ATP.
-      Avoid app.js until coordinated. No ADR-007 / lot / pack.
+      Smallest warehouse picker in app.js (no rewrite). No ADR-007 / lot / pack.
     acceptance_criteria:
       - "Invalid hex rejected; duplicate hex warned"
       - "Receipt/issue/transfer can search products with available qty at source"
