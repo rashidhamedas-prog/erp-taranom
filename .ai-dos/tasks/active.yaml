@@ -107,9 +107,9 @@ tasks:
       - "server/db.js"
       - "server/sync/tables.js"
     notes: >-
-      f79127c: M1–M3 closed (buyer on in+sale, out+sale COGS, FK remap). Tests 61/61.
-      Security was APPROVED on ca6f5a2; Independent re-review + Security delta in flight.
-      No Iran deploy.
+      f79127c: M1–M3 closed. Tests 61/61.
+      Security APPROVED C0/H0/M0 on this tip (e69a57e1). Independent re-review still in flight.
+      No Iran deploy until Independent APPROVED.
     acceptance_criteria:
       - "Create requires person_id; party_name snapshot"
       - "Settle paths: return, sale, purchase, shortage; sale-only invoice"

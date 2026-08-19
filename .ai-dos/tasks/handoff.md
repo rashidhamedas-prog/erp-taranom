@@ -1,3 +1,10 @@
+## 2026-08-19 — CON Security APPROVED on f79127c (delta)
+
+- [Security CON delta](e69a57e1-870a-4dae-9284-d6787930ce83) **APPROVED** C0/H0/M0 on `f79127c`
+- Buyer isolation, COGS+void, append-only FK remap verified; RBAC `adminOrAccounting`
+- Independent re-review still in flight ([Independent re-review](73cd20d1-4ad6-46eb-b506-1691ace7df18))
+- **NO merge / Iran deploy** until Independent APPROVED
+
 ## 2026-08-19 — CON M1–M3 fix on f79127c (re-review)
 
 - [CON-01/02 consignment](16450d8f-c62d-49b4-af27-bd973dcd570d) closed Independent M1–M3
