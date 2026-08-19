@@ -10,6 +10,7 @@ const fs = require('fs');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { sendSecureHtml } = require('../lib/secure-html-response');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
+const { applyNameCodeBarcodeSkuSearch, attachAvailableQty } = require('../lib/inventory/product-line-search');
 
 const { UPLOADS_ROOT } = require('../paths');
 const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'products');
@@ -137,14 +138,9 @@ router.get('/', auth, (req, res) => {
     params.push(parseInt(categoryId, 10));
   }
 
-  const search = (req.query.search || '').trim();
+  const search = (req.query.q || req.query.search || '').trim();
   if (search) {
-    const { sqlTokenSearch } = require('../lib/search-normalize');
-    const tok = sqlTokenSearch(['p.name', 'p.code', 'p.barcode'], search);
-    if (tok) {
-      where.push(tok.clause);
-      params.push(...tok.params);
-    }
+    applyNameCodeBarcodeSkuSearch(db, where, params, search);
   }
 
   const stockStatus = (req.query.stock_status || 'all').trim();
@@ -202,6 +198,7 @@ router.get('/', auth, (req, res) => {
     row.images = imgs;
     if (!row.image && imgs[0]) row.image = imgs[0].filename;
   }
+  if (warehouseId) attachAvailableQty(db, rows, warehouseId);
   res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 

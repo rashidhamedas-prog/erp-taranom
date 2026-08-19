@@ -196,6 +196,8 @@ async function api(method, path, data, isFormData, silent){
         E_COST_TREE_TIMEOUT:'محاسبهٔ درخت بها زمان‌بر شد — دوباره تلاش کنید',
         'no such column: is_active':'خطای ستون پایگاه‌داده — سرور را به‌روز کنید',
         demo_operation_blocked:'این عملیات در نسخه نمایشی مجاز نیست',
+        E_COLOR_INVALID_HEX:'کد رنگ باید #RGB یا #RRGGBB باشد',
+        E_COLOR_DUPLICATE:'این کد رنگ قبلاً ثبت شده است',
       };
       if(!silent) showToast(prodFriendly[code] || j.error || 'خطا رخ داد','error');
       const err=new Error(j.error||'error'); err.code=code; err.status=r.status; err.payload=j; throw err;
@@ -4445,13 +4447,14 @@ async function renderProductColorsTab(body){
       ${canMut?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){editProductColorMaster(0)})}">➕ رنگ جدید</button>`:''}
     </div><div class="panel-body">
       <p class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;font-size:12px`)}">این فهرست در ویرایش کالا → «ساخت ماتریس رنگ×سایز» استفاده می‌شود.</p>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>کد</th><th>رنگ</th><th>وضعیت</th><th></th></tr></thead><tbody>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>کد</th><th>رنگ</th><th>کنتراست</th><th>وضعیت</th><th></th></tr></thead><tbody>
         ${rows.map(r=>`<tr>
           <td>${esc(r.name)}</td><td class="mono" dir="ltr">${esc(r.code||'—')}</td>
-          <td>${r.hex?`<span data-csp-style="${CSP.style(`display:inline-block;width:18px;height:18px;border-radius:4px;background:${esc(r.hex)};border:1px solid #ccc;vertical-align:middle`)}"></span> <code dir="ltr">${esc(r.hex)}</code>`:'—'}</td>
+          <td>${r.hex?`<span data-csp-style="${CSP.style(`display:inline-block;width:18px;height:18px;border-radius:4px;background:${esc(r.hex_normalized||r.hex)};border:1px solid #ccc;vertical-align:middle`)}"></span> <code dir="ltr">${esc(r.hex_normalized||r.hex)}</code>`:'—'}</td>
+          <td class="muted">${r.hex?(r.contrast_ok?'قابل‌خواندن':'ضعیف'):'—'}</td>
           <td>${r.active?'فعال':'غیرفعال'}</td>
           <td>${canMut?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){editProductColorMaster((r.id))})}">✏️</button>`:'—'}</td>
-        </tr>`).join('')||emptyRow(5)}
+        </tr>`).join('')||emptyRow(6)}
       </tbody></table></div>
     </div></div>`;
 }
@@ -4466,12 +4469,38 @@ async function editProductColorMaster(id){
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>نام *</label><input id="pc-name" value="${esc(row.name||'')}"></div>
       <div class="fg"><label>کد</label><input id="pc-code" dir="ltr" value="${esc(row.code||'')}" placeholder="BLK"></div>
-      <div class="fg"><label>کد رنگ (hex)</label><input id="pc-hex" dir="ltr" value="${esc(row.hex||'')}" placeholder="#000000"></div>
+      <div class="fg"><label>کد رنگ (hex)</label>
+        <div data-csp-style="${CSP.style('display:flex;gap:8px;align-items:center')}">
+          <input type="color" id="pc-hex-pick" value="${esc((row.hex_normalized||row.hex||'#000000'))}" data-csp-input="${CSP.bind('input',function(){syncProductColorHexFromPicker()})}">
+          <input id="pc-hex" dir="ltr" value="${esc(row.hex||'')}" placeholder="#000000" data-csp-input="${CSP.bind('input',function(){syncProductColorContrastHint()})}">
+        </div>
+        <div id="pc-contrast" class="muted" data-csp-style="${CSP.style('font-size:11px;margin-top:4px')}"></div>
+      </div>
       <div class="fg"><label>ترتیب</label><input id="pc-sort" type="number" value="${row.sort_order!=null?row.sort_order:0}"></div>
       ${id?`<div class="fg"><label><input type="checkbox" id="pc-active" ${row.active!==0?'checked':''}> فعال</label></div>`:''}
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProductColorMaster((id||0))})}">💾 ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  syncProductColorContrastHint();
+}
+function syncProductColorHexFromPicker(){
+  const pick=el('pc-hex-pick');
+  const hexInp=el('pc-hex');
+  if(pick&&hexInp) hexInp.value=String(pick.value||'').toUpperCase();
+  syncProductColorContrastHint();
+}
+function syncProductColorContrastHint(){
+  const raw=String(el('pc-hex')?.value||'').trim();
+  const hint=el('pc-contrast');
+  const pick=el('pc-hex-pick');
+  const ok=/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(raw);
+  if(pick&&ok){
+    pick.value=raw.length===4?('#'+raw[1]+raw[1]+raw[2]+raw[2]+raw[3]+raw[3]):raw;
+  }
+  if(!hint) return;
+  if(!raw) hint.textContent='کد رنگ اختیاری است؛ در صورت ورود باید #RGB یا #RRGGBB باشد.';
+  else if(!ok) hint.textContent='کد رنگ نامعتبر است (فقط #RGB یا #RRGGBB).';
+  else hint.textContent='کنتراست متن سفید/سیاه روی نمونه پس از ذخیره محاسبه می‌شود.';
 }
 async function saveProductColorMaster(id){
   const body={
@@ -4481,6 +4510,9 @@ async function saveProductColorMaster(id){
     sort_order:Number(el('pc-sort')?.value||0)
   };
   if(!body.name){ showToast('نام الزامی است','error'); return; }
+  if(body.hex && !/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(body.hex)){
+    showToast('کد رنگ باید #RGB یا #RRGGBB باشد','error'); return;
+  }
   if(id) body.active=el('pc-active')?.checked?1:0;
   try{
     if(id) await api('PUT','/product-variants/colors/'+id, body);
@@ -7620,10 +7652,62 @@ async function voidWarehouseMove(id){
   }catch(e){}
 }
 let whDocLines=[{product_id:'',qty:1}];
+let _whSearchTimer=null;
+function whLineWarehouseId(){
+  return Number(el('wi-warehouse')?.value||el('wt-from')?.value||el('wr-warehouse')?.value||0)||0;
+}
+function whProductPickerHtml(i,l){
+  const label=l.product_label||'';
+  const atp=l.available!=null?('موجود قابل‌فروش: '+fmt(l.available)):'';
+  return `<div class="wh-prod-pick" data-csp-style="${CSP.style('position:relative')}">
+    <input id="wh-q-${i}" type="search" autocomplete="off"
+      placeholder="جستجوی کد / بارکد / نام / SKU"
+      value="${esc(label)}"
+      data-csp-input="${CSP.bind('input',function(){whScheduleProductSearch((i),this.value)})}"
+      data-csp-focus="${CSP.bind('focus',function(){whScheduleProductSearch((i),this.value)})}">
+    <div id="wh-dd-${i}" hidden data-csp-style="${CSP.style('position:absolute;z-index:30;right:0;left:0;max-height:220px;overflow:auto;background:#fff;border:1px solid var(--border);border-radius:8px')}"></div>
+    <div id="wh-atp-${i}" class="muted" data-csp-style="${CSP.style('font-size:11px;margin-top:4px')}">${atp}</div>
+  </div>`;
+}
+function whScheduleProductSearch(i,q){
+  clearTimeout(_whSearchTimer);
+  _whSearchTimer=setTimeout(function(){whSearchProduct(i,q);},250);
+}
+async function whSearchProduct(i,q){
+  const box=el('wh-dd-'+i);
+  if(!box) return;
+  const qs=new URLSearchParams({q:String(q||'').trim(),page:'1',pageSize:'20',include_zero:'1'});
+  const wh=whLineWarehouseId();
+  if(wh) qs.set('warehouse_id',String(wh));
+  try{
+    const resp=await api('GET','/warehouses/products/search?'+qs.toString());
+    const rows=listRows(resp);
+    if(!rows.length){
+      box.hidden=false;
+      box.innerHTML='<div class="muted" data-csp-style="'+CSP.style('padding:8px')+'">کالایی یافت نشد</div>';
+      return;
+    }
+    box.hidden=false;
+    box.innerHTML=rows.map(p=>{
+      const label=`${p.name||''} (${p.code||p.sku||'-'})`;
+      const avail=p.available!=null?p.available:0;
+      return `<button type="button" class="btn sm ghost" data-csp-style="${CSP.style('display:block;width:100%;text-align:right')}" data-csp-click="${CSP.bind('click',function(){whPickProduct((i),(p.id),label,p.available)})}">${esc(p.name)} <span class="mono">${esc(p.code||p.sku||'')}</span> — موجود: ${fmt(avail)}</button>`;
+    }).join('');
+  }catch(e){ box.hidden=true; }
+}
+function whPickProduct(i,id,label,available){
+  if(!whDocLines[i]) return;
+  whDocLines[i].product_id=id;
+  whDocLines[i].product_label=label;
+  whDocLines[i].available=available;
+  const inp=el('wh-q-'+i); if(inp) inp.value=label;
+  const dd=el('wh-dd-'+i); if(dd) dd.hidden=true;
+  const atp=el('wh-atp-'+i); if(atp) atp.textContent=available!=null?('موجود قابل‌فروش: '+fmt(available)):'';
+}
 function whDocLinesHtml(){
   return `<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-bottom:8px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کالا</th><th>تعداد</th><th></th></tr></thead>
     <tbody id="whDocBody">${whDocLines.map((l,i)=>`<tr>
-      <td><select data-csp-change="${CSP.bind('change',function(event){whDocLines[(i)].product_id=this.value})}">${productOptions(l.product_id)}</select></td>
+      <td>${whProductPickerHtml(i,l)}</td>
       <td><input type="number" min="1" value="${l.qty||1}" data-csp-change="${CSP.bind('change',function(event){whDocLines[(i)].qty=+this.value||1})}" data-csp-style="${CSP.style(`width:80px`)}"></td>
       <td>${whDocLines.length>1?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){whDocLines.splice((i),1);renderWhDocLines()})}">×</button>`:''}</td>
     </tr>`).join('')}</tbody></table></div>
@@ -17278,7 +17362,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>مودیان:</b> صف ارسال فقط روی سرور مرکزی (stub/sandbox؛ live خاموش تا SDK واقعی). فاکتور با مهر مالیاتی قفل ویرایش و ابطال محلی است</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>؛ سپس در ویرایش هر کالا دکمه <b>«ساخت ماتریس رنگ×سایز»</b>. API: <code>/api/product-variants</code></li>
+        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>؛ سپس در ویرایش هر کالا دکمه <b>«ساخت ماتریس رنگ×سایز»</b>. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد؛ کد تکراری رد می‌شود و کنتراست متن سفید/سیاه به‌صورت راهنما نشان داده می‌شود</li>
         <li><b>صفحه‌بندی:</b> لیست کالاها در حسابداری با <code>limit</code> لود می‌شود و پاسخ envelope را UI باز می‌کند؛ بدون پارامتر page/limit کاتالوگ کامل است</li>
         <li><b>راهنما:</b> در پوستهٔ حسابداری از <b>امکانات → راهنما</b> (پایین سایدبار) باز می‌شود</li>
       </ul>`),
@@ -17557,7 +17641,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی؛ پس از شروع تمیز، ردیف «موجودی اول دوره» برای کالاهای دارای موجودی ثبت می‌شود</li>
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
-        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
+        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دفتر چک</b>: واگذاری/وصول/برگشت/ارسال مجدد + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: پیگیری کالاهایی که مالکیتشان هنوز نهایی نشده — <b>ارسالی</b> (کالای ما نزد دیگران، بلافاصله از موجودی کسر می‌شود) و <b>دریافتی</b> (کالای دیگران نزد ما، به موجودی خودمان اضافه نمی‌شود). با «تسویه» فروش قطعی می‌شود (فاکتور/پرداخت واقعی را جداگانه ثبت کنید) و با «استرداد» کالای ارسالی به موجودی برمی‌گردد</li>
@@ -17719,7 +17803,11 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
+<<<<<<< HEAD
         <li>وب: Service Worker فعلی <b>erp-taranom-v162</b> است و اسکریپت‌ها با <code>?v=162</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+=======
+        <li>وب: Service Worker فعلی <b>erp-taranom-v161</b> است و اسکریپت‌ها با <code>?v=161</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+>>>>>>> origin/ai/INV-STITCH-P4
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -17895,7 +17983,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v160</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v161</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">مانده مطالبات و صورت‌حساب مشتری از دفتر کل تا همان تاریخ قطع خوانده می‌شود؛ اگر با دفتر مشتری فرق داشت هشدار نارنجی می‌بینید.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>

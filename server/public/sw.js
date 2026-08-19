@@ -1,5 +1,9 @@
 ﻿// ERP Taranom - service worker: network-first for HTML+JS+CSS, cache-first for images
+<<<<<<< HEAD
 const CACHE = 'erp-taranom-v162';
+=======
+const CACHE = 'erp-taranom-v161';
+>>>>>>> origin/ai/INV-STITCH-P4
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
