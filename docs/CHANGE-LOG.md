@@ -13,6 +13,12 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — CON-STITCH-P7 review-fix M1–M3 (pre-merge)
+- **شاخه:** `ai/CON-STITCH-P7` — بدون merge/deploy
+- **خلاصه:** فروش دریافتی فقط با خریدار جدا (`E_CONSIGNMENT_BUYER`)؛ فروش ارسالی سند COGS/موجودی بدون کسر دوباره تعداد؛ FKهای `settle_je_id` و `issue_ledger_id` به انتهای FK_COLUMNS.
+- **تست:** CON-P7 **61/61** · SMS **22/22** · encoding PASS
+- **Deploy:** اعمال نشد
+
 ### 2026-08-19 — CON-01+CON-02 consignment person/warehouse + four settle paths (pre-merge)
 - **شاخه:** `ai/CON-STITCH-P7` (worktree `erp-taranom-con-stitch-p7`) — **بدون merge به primary و بدون deploy ایران**
 - **خلاصه:** امانی با `person_id` و انبار؛ حواله/رسید از دفتر موجودی؛ چهار مسیر تسویه (برگشت/فروش/خرید/کسری)؛ فقط فروش فاکتور می‌سازد؛ ابطال R13 بدون حذف فیزیکی.

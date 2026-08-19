@@ -62,7 +62,13 @@ router.patch('/:id/status', auth, adminOrAccounting, (req, res) => {
   if (!path) return res.status(400).json({ error: 'وضعیت نامعتبر — از مسیرهای تسویه استفاده کنید', code: 'E_CONSIGNMENT_PATH' });
   try {
     const db = getDB();
-    res.json(settleConsignment(db, req.params.id, { path, date: req.body.date, note: req.body.note }, req.user));
+    res.json(settleConsignment(db, req.params.id, {
+      path,
+      date: req.body.date,
+      note: req.body.note,
+      cust_id: req.body.cust_id,
+      buyer_person_id: req.body.buyer_person_id,
+    }, req.user));
   } catch (e) {
     sendErr(res, e);
   }

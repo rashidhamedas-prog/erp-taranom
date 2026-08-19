@@ -96,6 +96,10 @@ function jeBalanced(jeId) {
   ok(FK_COLUMNS.some((x) => x[0] === 'consignments' && x[1] === 'person_id'), 'FK person_id');
   ok(FK_COLUMNS.some((x) => x[0] === 'consignments' && x[1] === 'warehouse_id'), 'FK warehouse_id');
   ok(FK_COLUMNS.some((x) => x[0] === 'consignments' && x[1] === 'invoice_id'), 'FK invoice_id');
+  ok(FK_COLUMNS.some((x) => x[0] === 'consignments' && x[1] === 'settle_je_id'), 'FK settle_je_id');
+  ok(FK_COLUMNS.some((x) => x[0] === 'consignments' && x[1] === 'issue_ledger_id'), 'FK issue_ledger_id');
+  const fkTail = FK_COLUMNS.slice(-2);
+  ok(fkTail[0][1] === 'settle_je_id' && fkTail[1][1] === 'issue_ledger_id', 'COGS/issue FKs appended at end');
 
   let wh = db.prepare('SELECT id FROM warehouses WHERE COALESCE(active,1)=1 ORDER BY id LIMIT 1').get();
   if (!wh) {
@@ -175,6 +179,35 @@ function jeBalanced(jeId) {
   ok(inv && inv.type === 'normal' && Number(inv.stock_deducted) === 0, 'invoice normal stock_deducted=0');
   const invJe = db.prepare("SELECT id FROM journal_entries WHERE ref_type='invoice' AND ref_id=? AND COALESCE(deleted_at,0)=0").get(inv.id);
   ok(invJe && jeBalanced(invJe.id), 'invoice JE balanced', invJe && invJe.id);
+  ok(sale.data && sale.data.settle_je_id, 'out+sale stores COGS on settle_je_id', sale.data);
+  ok(jeBalanced(sale.data.settle_je_id), 'COGS JE balanced');
+  const cogsHead = db.prepare('SELECT ref_type FROM journal_entries WHERE id=?').get(sale.data.settle_je_id);
+  ok(cogsHead && cogsHead.ref_type === 'consignment_cogs', 'COGS ref_type consignment_cogs', cogsHead);
+  const cogsLines = db.prepare('SELECT account_code, debit_rial, credit_rial FROM journal_lines WHERE entry_id=?').all(sale.data.settle_je_id);
+  ok(cogsLines.some((l) => Number(l.debit_rial) > 0) && cogsLines.some((l) => Number(l.credit_rial) > 0),
+    'COGS has inventory credit and expense debit', cogsLines);
+
+  console.log('\n— M1 in+sale explicit buyer —');
+  const inNoBuyer = await api('POST', '/api/consignments/' + createdIn.data.id + '/settle', { path: 'sale' });
+  ok(inNoBuyer.status === 400 && inNoBuyer.data && inNoBuyer.data.code === 'E_CONSIGNMENT_BUYER',
+    'in+sale without buyer → 400', inNoBuyer.status + ' ' + (inNoBuyer.data && inNoBuyer.data.code));
+  const inSelf = await api('POST', '/api/consignments/' + createdIn.data.id + '/settle', {
+    path: 'sale', buyer_person_id: personIn,
+  });
+  ok(inSelf.status === 400 && inSelf.data && inSelf.data.code === 'E_CONSIGNMENT_BUYER',
+    'in+sale buyer=consignor → 400', inSelf.data);
+  const buyerCustId = db.prepare(`
+    INSERT INTO customers (user_id, biz, owner, phone, type, status)
+    VALUES (?, 'بوتیک خریدار', 'خریدار امانی', '09125556677', 'بوتیک', 'active')
+  `).run(admin.id).lastInsertRowid;
+  const inSale = await api('POST', '/api/consignments/' + createdIn.data.id + '/settle', {
+    path: 'sale', cust_id: buyerCustId,
+  });
+  ok(inSale.status === 200 && inSale.data && inSale.data.invoice_id, 'in+sale with other customer', inSale.data);
+  const inInv = db.prepare('SELECT cust_id FROM invoices WHERE id=?').get(inSale.data.invoice_id);
+  ok(inInv && Number(inInv.cust_id) === Number(buyerCustId), 'invoice is the buyer not consignor', inInv);
+  const consignorCust = db.prepare("SELECT id FROM customers WHERE note LIKE ?").get('%consignment person#' + personIn + '%');
+  ok(!consignorCust || Number(inInv.cust_id) !== Number(consignorCust.id), 'invoice customer is not consignor-linked');
 
   console.log('\n— purchase in —');
   const purchIn = await api('POST', '/api/consignments', {
@@ -227,6 +260,20 @@ function jeBalanced(jeId) {
   ok(db.prepare('SELECT id FROM consignments WHERE id=?').get(saleOut.data.id), 'sold row still present after DELETE');
   const invAfter = db.prepare('SELECT status,deleted_at FROM invoices WHERE id=?').get(inv.id);
   ok(invAfter && (invAfter.status === 'reversed' || invAfter.deleted_at), 'sale invoice voided');
+  const cogsId = sale.data.settle_je_id;
+  const cogsRev = db.prepare(`
+    SELECT id FROM journal_entries WHERE description LIKE ? AND COALESCE(deleted_at,0)=0
+  `).get('ابطال سند #' + cogsId + '%');
+  ok(!!cogsRev, 'COGS reversal JE posted on cancel');
+  const cogsNet = db.prepare(`
+    SELECT account_code,
+      COALESCE(SUM(debit_rial),0) AS d, COALESCE(SUM(credit_rial),0) AS c
+    FROM journal_lines
+    WHERE entry_id IN (?, ?)
+    GROUP BY account_code
+  `).all(cogsId, cogsRev && cogsRev.id);
+  ok(cogsNet.length && cogsNet.every((r) => Math.abs((Number(r.d) || 0) - (Number(r.c) || 0)) < 1),
+    'cancel nets COGS/inventory to zero', cogsNet);
 
   server.close();
   try { closeSessionStore(); } catch (_) {}

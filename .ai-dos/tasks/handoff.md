@@ -1,3 +1,9 @@
+## 2026-08-19T05:50:00+03:30 — CON-STITCH-P7 review-fix M1–M3
+
+- Closed Independent CHANGES_REQUIRED: buyer distinct on in+sale; COGS JE on out+sale; FK append settle_je_id/issue_ledger_id
+- Security APPROVED left untouched
+- No merge / no Iran deploy
+
 ## 2026-08-19T05:20:00+03:30 — CON-STITCH-P7 claimed (implementer)
 
 - **Task:** `CON-STITCH-P7` owner `cursor:implementer-con-07`

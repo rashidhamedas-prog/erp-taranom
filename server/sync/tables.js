@@ -384,6 +384,8 @@ const FK_COLUMNS = [
   ['consignments', 'person_id'],
   ['consignments', 'warehouse_id'],
   ['consignments', 'invoice_id'],
+  ['consignments', 'settle_je_id'],
+  ['consignments', 'issue_ledger_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

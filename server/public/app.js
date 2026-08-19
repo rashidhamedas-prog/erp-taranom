@@ -7826,11 +7826,11 @@ async function renderConsignmentsTab(body){
       <td><span class="tag" data-csp-style="${CSP.style(`background:${CS_STATUS_COLOR[r.status]||'var(--muted)'};color:#fff`)}">${CS_STATUS_LABEL[r.status]||r.status}</span></td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
         ${r.status==='open'?`
-          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'return')})}">↩️ برگشت</button>
-          <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'sale')})}">💰 فروش</button>
-          <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'purchase')})}">🛒 خرید</button>
-          <button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'shortage')})}">⚠️ کسری</button>
-          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){previewConsignmentSettle((r.id))})}">👁 پیش‌نمایش</button>`:''}
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'return',(r.direction))})}">↩️ برگشت</button>
+          <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'sale',(r.direction))})}">💰 فروش</button>
+          ${r.direction==='in'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'purchase',(r.direction))})}">🛒 خرید</button>`:''}
+          <button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'shortage',(r.direction))})}">⚠️ کسری</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){previewConsignmentSettle((r.id),(r.direction))})}">👁 پیش‌نمایش</button>`:''}
         ${r.status!=='reversed'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){cancelConsignment((r.id))})}">🚫 ابطال</button>`:''}
       </td>
     </tr>`).join('')||emptyRow(8)}</tbody></table></div>
@@ -7885,7 +7885,10 @@ async function saveConsignment(){
     closeModal(); showToast('کالای امانی ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('consignments');
   }catch(e){}
 }
-async function settleConsignment(id,path){
+async function settleConsignment(id,path,direction){
+  if(path==='sale' && direction==='in'){
+    return saleInBuyerModal(id);
+  }
   if(!confirm('مسیر «'+(CS_SETTLE_LABEL[path]||path)+'» برای این امانی اجرا شود؟')) return;
   try{
     const r=await api('POST','/consignments/'+id+'/settle',{path});
@@ -7894,11 +7897,43 @@ async function settleConsignment(id,path){
     loadAccTab('consignments');
   }catch(e){}
 }
-async function previewConsignmentSettle(id){
+async function saleInBuyerModal(id){
+  if(!CACHE.customers||!CACHE.customers.length) CACHE.customers=listRows(await api('GET','/customers'))||[];
+  if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
+  const custOpts=(CACHE.customers||[]).map(c=>`<option value="${c.id}">${esc(c.biz||c.owner||('#'+c.id))}</option>`).join('');
+  openModal(`
+    <div class="modal-head"><h3>فروش قطعی امانی دریافتی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full muted">خریدار باید غیر از امانت‌گذار باشد.</div>
+      <div class="fg"><label>مشتری خریدار</label><select id="cs-buyer-cust"><option value="">-- انتخاب مشتری --</option>${custOpts}</select></div>
+      <div class="fg"><label>یا شخص خریدار</label><select id="cs-buyer-person">${personOptions()}</select></div>
+    </div></div>
+    <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){confirmSaleInBuyer((id))})}">💰 صدور فاکتور</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+}
+async function confirmSaleInBuyer(id){
+  const cust_id=+el('cs-buyer-cust').value||undefined;
+  const buyer_person_id=+el('cs-buyer-person').value||undefined;
+  if(!cust_id && !buyer_person_id){ showToast('خریدار را انتخاب کنید','error'); return; }
+  try{
+    const r=await api('POST','/consignments/'+id+'/settle',{path:'sale',cust_id,buyer_person_id});
+    closeModal();
+    showToast(r && r.invoice_id ? 'فروش قطعی و فاکتور برای خریدار ثبت شد' : 'تسویه ثبت شد');
+    CACHE.allProducts=await api('GET','/products')||[];
+    loadAccTab('consignments');
+  }catch(e){}
+}
+async function previewConsignmentSettle(id,direction){
   const path=prompt('مسیر پیش‌نمایش: return / sale / purchase / shortage','sale');
   if(!path) return;
+  const body={path,preview:true};
+  if(path==='sale' && direction==='in'){
+    const cust=prompt('شناسه مشتری خریدار (غیر از امانت‌گذار)','');
+    if(!cust){ showToast('خریدار الزامی است','error'); return; }
+    body.cust_id=+cust;
+  }
   try{
-    const r=await api('POST','/consignments/'+id+'/settle',{path,preview:true});
+    const r=await api('POST','/consignments/'+id+'/settle',body);
     const je=(r.journal||[]).map(l=>(l.code||'')+' د '+(l.debit||0)+' / ب '+(l.credit||0)).join(' | ');
     showToast('پیش‌نمایش: وضعیت='+(r.next_status||'')+' فاکتور='+(r.invoice?'بله':'خیر')+(je?(' سند: '+je):''));
   }catch(e){}
@@ -17702,7 +17737,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دفتر چک</b>: واگذاری/وصول/برگشت/ارسال مجدد + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
-        <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور فروش و حساب دریافتنی می‌سازد؛ موجودی ارسالی دوباره کسر نمی‌شود)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
+        <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور می‌سازد؛ ارسالی فاکتور امانت‌گیرنده است و سند بهای تمام‌شده می‌زند بدون کسر دوباره موجودی؛ دریافتی نیازمند خریدار جدا از امانت‌گذار است)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
         <li><b>ابطال کامل (R13)</b>: برای فاکتور فروش/خرید، تسویه، هزینه، انتقال وجه، چک، عملیات انبار، انبارگردانی اعمال‌شده، پرداخت حقوق، افتتاحیه بانک/صندوق و اسناد دستی — ابطال = سند معکوس + برگرداندن موجودی/مانده/وابستگی‌ها (حذف فیزیکی سند ثبت‌شده نیست)</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب و مشاهده گردش با مانده لحظه‌ای</li>
@@ -18044,7 +18079,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v163</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v164</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">مانده مطالبات و صورت‌حساب مشتری از دفتر کل تا همان تاریخ قطع خوانده می‌شود؛ اگر با دفتر مشتری فرق داشت هشدار نارنجی می‌بینید.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>

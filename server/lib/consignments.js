@@ -156,6 +156,56 @@ function resolveCustomerForSale(db, person, userId, { createIfMissing }) {
   return createCustomerForPerson(db, person, userId);
 }
 
+function customerIsConsignor(db, customer, consignor) {
+  if (!customer || !consignor) return false;
+  const linked = findCustomerForPerson(db, consignor);
+  if (linked && linked.id === customer.id) return true;
+  if (customer.note && String(customer.note).includes('consignment person#' + consignor.id)) return true;
+  return false;
+}
+
+/** M1: in+sale buyer must be explicit and distinct from the consignor. */
+function resolveExplicitBuyer(db, body, consignor, userId) {
+  const custId = parseInt(body && body.cust_id, 10);
+  const buyerPersonId = parseInt(body && body.buyer_person_id, 10);
+  if (!custId && !buyerPersonId) {
+    throw httpErr(400, 'برای فروش امانی دریافتی خریدار جدا از امانت‌گذار الزامی است', 'E_CONSIGNMENT_BUYER');
+  }
+  if (buyerPersonId && consignor && buyerPersonId === Number(consignor.id)) {
+    throw httpErr(400, 'خریدار نمی‌تواند همان امانت‌گذار باشد', 'E_CONSIGNMENT_BUYER');
+  }
+  let customer = null;
+  if (custId) {
+    customer = db.prepare('SELECT * FROM customers WHERE id=?').get(custId);
+    if (!customer) throw httpErr(400, 'مشتری خریدار یافت نشد', 'E_CONSIGNMENT_BUYER');
+  } else {
+    const buyer = resolvePerson(db, buyerPersonId);
+    customer = resolveCustomerForSale(db, buyer, userId, { createIfMissing: true });
+  }
+  if (consignor && customerIsConsignor(db, customer, consignor)) {
+    throw httpErr(400, 'خریدار نمی‌تواند همان امانت‌گذار باشد', 'E_CONSIGNMENT_BUYER');
+  }
+  return customer;
+}
+
+function inventoryCostRial(product, qty) {
+  const q = Number(qty) || 0;
+  const avg = Math.round(Number(product && product.average_cost_rial) || 0);
+  if (avg > 0) return Math.round(avg * q);
+  const costToman = Number(product && product.cost) || 0;
+  return Math.round(costToman * 10 * q);
+}
+
+function cogsLines(db, warehouseId, amt) {
+  const L = rialToLedger(amt);
+  const cogs = acct(db, 'coa_cogs');
+  const inv = inventoryAcct(db, warehouseId);
+  return [
+    { code: cogs.code, name: cogs.name, debit: L, credit: 0, description: 'بهای تمام‌شده فروش امانی' },
+    { code: inv.code, name: inv.name, debit: 0, credit: L, description: 'بهای تمام‌شده فروش امانی' },
+  ];
+}
+
 function createSaleInvoice(db, { user, customer, row, product, date, note }) {
   const amt = amountRial(row);
   const num = isDevice()
@@ -201,16 +251,6 @@ function createSaleInvoice(db, { user, customer, row, product, date, note }) {
   });
   autoApproveNormalInvoice(db, invId, user.id);
   return { invId, jeId, num };
-}
-
-function saleOnBehalfLines(db, amt) {
-  const L = rialToLedger(amt);
-  const pay = payableAcct(db);
-  const sales = acct(db, 'coa_sales');
-  return [
-    { code: pay.code, name: pay.name, debit: L, credit: 0, description: 'فروش امانی از طرف' },
-    { code: sales.code, name: sales.name, debit: 0, credit: L, description: 'فروش امانی از طرف' },
-  ];
 }
 
 function purchaseLines(db, warehouseId, amt) {
@@ -342,7 +382,7 @@ function createConsignment(db, body, user) {
   })();
 }
 
-function settleEffects(db, row, path) {
+function settleEffects(db, row, path, body, user) {
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(row.product_id) || { name: '' };
   const amt = amountRial(row);
   if (path === 'return') {
@@ -353,14 +393,23 @@ function settleEffects(db, row, path) {
   }
   if (path === 'sale') {
     const person = row.person_id ? db.prepare('SELECT * FROM persons WHERE id=?').get(row.person_id) : null;
-    const customer = person ? findCustomerForPerson(db, person) : null;
-    const willInvoice = row.direction === 'out' || !!customer;
-    const journal = willInvoice
-      ? (customer ? salesJournalLines(db, customer.id, {
+    if (row.direction === 'in') {
+      const buyer = resolveExplicitBuyer(db, body || {}, person, user && user.id);
+      const journal = salesJournalLines(db, buyer.id, {
         subtotal: amt, discAmt: 0, final: amt, vatAmount: 0, netBeforeVat: amt,
-      }, false, { payType: 'credit' }) : [])
-      : saleOnBehalfLines(db, amt);
-    return { stockDelta: null, invoice: willInvoice, journal, nextStatus: 'sold', product, amt, customer, person };
+      }, false, { payType: 'credit' });
+      return { stockDelta: null, invoice: true, journal, nextStatus: 'sold', product, amt, customer: buyer, person };
+    }
+    const customer = person ? findCustomerForPerson(db, person) : null;
+    const journal = [];
+    if (customer) {
+      journal.push(...salesJournalLines(db, customer.id, {
+        subtotal: amt, discAmt: 0, final: amt, vatAmount: 0, netBeforeVat: amt,
+      }, false, { payType: 'credit' }));
+    }
+    const cogsAmt = inventoryCostRial(product, row.qty);
+    if (cogsAmt > 0) journal.push(...cogsLines(db, row.warehouse_id, cogsAmt));
+    return { stockDelta: null, invoice: true, journal, nextStatus: 'sold', product, amt, customer, person, cogsAmt };
   }
   if (path === 'purchase') {
     if (row.direction === 'out') {
@@ -388,8 +437,8 @@ function settleEffects(db, row, path) {
   throw httpErr(400, 'مسیر تسویه نامعتبر است', 'E_CONSIGNMENT_PATH');
 }
 
-function applySettle(db, row, path, { date, note, user }) {
-  const effects = settleEffects(db, row, path);
+function applySettle(db, row, path, { date, note, user, body }) {
+  const effects = settleEffects(db, row, path, body, user);
   let invoiceId = null;
   let settleJeId = null;
   const person = row.person_id
@@ -419,26 +468,24 @@ function applySettle(db, row, path, { date, note, user }) {
         user, customer, row, product: effects.product, date, note: note || `فروش قطعی امانی #${row.id}`,
       });
       invoiceId = inv.invId;
-      settleJeId = inv.jeId;
-    } else {
-      const customer = resolveCustomerForSale(db, person, user.id, { createIfMissing: false });
-      if (customer) {
-        const inv = createSaleInvoice(db, {
-          user, customer, row, product: effects.product, date, note: note || `فروش قطعی امانی #${row.id}`,
-        });
-        invoiceId = inv.invId;
-        settleJeId = inv.jeId;
-      } else {
-        assertJournalIdempotent(db, 'consignment_sale', row.id);
+      const cogsAmt = inventoryCostRial(effects.product, row.qty);
+      if (cogsAmt > 0) {
+        assertJournalIdempotent(db, 'consignment_cogs', row.id);
         settleJeId = postToLedger(db, {
-          sourceType: 'consignment_sale',
+          sourceType: 'consignment_cogs',
           sourceId: row.id,
           date,
-          description: note || `فروش از طرف امانی #${row.id}`,
+          description: note || `بهای تمام‌شده فروش امانی #${row.id}`,
           createdBy: user.id,
-          lines: saleOnBehalfLines(db, effects.amt),
+          lines: cogsLines(db, row.warehouse_id, cogsAmt),
         });
       }
+    } else {
+      const buyer = resolveExplicitBuyer(db, body || {}, person, user.id);
+      const inv = createSaleInvoice(db, {
+        user, customer: buyer, row, product: effects.product, date, note: note || `فروش قطعی امانی #${row.id}`,
+      });
+      invoiceId = inv.invId;
     }
   }
 
@@ -509,7 +556,7 @@ function settleConsignment(db, id, body, user) {
   const date = body.date || todayJalali();
   const note = body.note || '';
   if (body.preview) {
-    const effects = settleEffects(db, row, path);
+    const effects = settleEffects(db, row, path, body, user);
     return sketchPreview({
       path, row,
       stockDelta: effects.stockDelta,
@@ -521,7 +568,7 @@ function settleConsignment(db, id, body, user) {
   return db.transaction(() => {
     const fresh = getConsignment(db, id);
     assertOpen(fresh);
-    return applySettle(db, fresh, path, { date, note, user });
+    return applySettle(db, fresh, path, { date, note, user, body });
   })();
 }
 
