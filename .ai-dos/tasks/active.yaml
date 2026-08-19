@@ -2,7 +2,7 @@ schema_version: 1
 tasks:
   - id: "UI-STITCH-IMPL"
     title: "Stitch MASTER wave: OPS-01, TRS-02, ACC-01..06, INV-01"
-    status: "active"
+    status: "completed"
     review_status: "APPROVED"
     security_status: "APPROVED"
     risk: "high"
@@ -17,38 +17,90 @@ tasks:
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-stitch-impl"
     base_commit: "51be279"
     claimed_at: "2026-08-18T15:00:00+03:30"
-    file_claims:
-      - ".ai-dos/tasks/active.yaml"
-      - ".ai-dos/tasks/handoff.md"
-      - ".ai-dos/project/status.md"
-      - "docs/CHANGE-LOG.md"
-      - "server/routes/accounting.js"
-      - "server/routes/parties.js"
-      - "server/routes/product-categories.js"
-      - "server/lib/portal-users.js"
-      - "server/db.js"
-      - "server/public/app.js"
-      - "server/public/app.css"
-      - "server/public/index.html"
-      - "server/public/demo.html"
-      - "server/public/sw.js"
-      - "server/scripts/test-acc-stitch-p2.js"
-      - "server/scripts/test-portal.js"
+    completed_at: "2026-08-19T03:50:00+03:30"
+    file_claims: []
     notes: >-
-      Dual APPROVED on product 34e1891: Independent H1–H3/M1–M4; Security C0/H0/M0 on ACC-04 delta.
-      M5–M7 advisory. SW v160. Task stays active. NO Iran deploy / merge until explicit owner approval.
-      Production/Padena (ADR-007) deferred. Do not touch dirty erp-taranom1 deploy scripts.
+      Merged FF to claude/claude-md-docs-2ssrpy @ 7dd5481. Iran SFTP overlay v160;
+      stamp .sftp-deploy-stamp-stitch-v160. Dual APPROVED. ADR-007 still closed.
     acceptance_criteria:
       - "OPS-01 none persists after reload; portal_role null when !has_access"
       - "TRS-02 payable cheque menu defaults to direction=out"
       - "ACC-02..06 APIs and UI as mapped; ACC-01 identity lock; INV-01 group coa leaf"
       - "ACC-04: Dashboard KPI = GL control/tafsili close = Receivables debit = Statement close at one cutoff; customer_ledger labeled when it differs"
       - "Tests recorded; Help + CHANGE-LOG + SW v160"
-      - "NO production deploy / merge until explicit owner approval"
+      - "Owner merge + Iran deploy completed"
     non_goals:
-      - "Iran VPS deploy, PM2, merge to primary"
-      - "PROD/PACK/POS/CON full MASTER phases"
+      - "PROD/PACK (ADR-007)"
       - "React/Tailwind/CDN Stitch HTML copy"
+
+  - id: "HR-STITCH-P3"
+    title: "HR-02 secure user invitation tokens"
+    status: "active"
+    review_status: "PENDING"
+    security_status: "PENDING"
+    risk: "high"
+    owner: "cursor:implementer-hr-02"
+    branch: "ai/HR-STITCH-P3"
+    base_commit: "7dd5481"
+    claimed_at: "2026-08-19T03:50:00+03:30"
+    file_claims:
+      - "server/lib/portal-users.js"
+      - "server/routes/auth.js"
+      - "server/db.js"
+      - "server/public/portal-ui.js"
+      - "server/scripts/test-hr-invite.js"
+    notes: >-
+      Token invite + expiry + accept; no static password. Payslip self-service if time.
+      Do not claim app.js until INV/TRS API waves finish, or only add invite modal with care.
+      No ADR-007. No Iran merge until dual review + this wave deploy policy.
+    acceptance_criteria:
+      - "user_invitations table; hashed token; expiry; used_at"
+      - "Invite creates no known password; accept sets user + person link"
+      - "Tests cover expiry/reuse; Help updated; no secrets committed"
+
+  - id: "INV-STITCH-P4"
+    title: "INV-02 color picker + INV-03 warehouse product search"
+    status: "active"
+    review_status: "PENDING"
+    security_status: "PENDING"
+    risk: "medium"
+    owner: "cursor:implementer-inv-04"
+    branch: "ai/INV-STITCH-P4"
+    base_commit: "7dd5481"
+    claimed_at: "2026-08-19T03:50:00+03:30"
+    file_claims:
+      - "server/routes/product-variants.js"
+      - "server/routes/warehouses.js"
+      - "server/routes/products.js"
+      - "server/scripts/test-inv-stitch-p4.js"
+    notes: >-
+      Hex validate + duplicate warning API; warehouse line search SKU/barcode/name + ATP.
+      Avoid app.js until coordinated. No ADR-007 / lot / pack.
+    acceptance_criteria:
+      - "Invalid hex rejected; duplicate hex warned"
+      - "Receipt/issue/transfer can search products with available qty at source"
+      - "Tests + Help; vanilla UI only"
+
+  - id: "TRS-STITCH-P6"
+    title: "TRS-01 payable cheque pay/expense state machine"
+    status: "active"
+    review_status: "PENDING"
+    security_status: "PENDING"
+    risk: "high"
+    owner: "cursor:implementer-trs-06"
+    branch: "ai/TRS-STITCH-P6"
+    base_commit: "7dd5481"
+    claimed_at: "2026-08-19T03:50:00+03:30"
+    file_claims:
+      - "server/routes/cheque-records.js"
+      - "server/scripts/test-trs-cheque-out.js"
+    notes: >-
+      direction=out pay/expense/endorse + JE. POS localStorage replacement is follow-on (needs db.js — wait for HR).
+      No physical delete. No ADR-007.
+    acceptance_criteria:
+      - "Out-cheque lifecycle APIs + JE in transaction"
+      - "Idempotent / reverse on cancel"
+      - "Regression tests; TRS-02 default out remains"
 
   - id: "DEMO-V3-GUIDED-SALES"
     title: "Guided, role-based, sales-oriented Demo V3"

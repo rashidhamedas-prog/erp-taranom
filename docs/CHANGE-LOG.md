@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — UI-STITCH-IMPL merge + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `7dd5481` ← FF `ai/UI-STITCH-IMPL`
+- **خلاصه:** موج حسابداری Stitch (OPS-01، TRS-02، ACC-01..06، INV-01، ACC-04 cutoff) پس از dual APPROVED merge و deploy شد.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208:/home/taranom/crm-taranom` (VPS به GitHub نمی‌رسد؛ `db.js` کامل جایگزین نشد — فقط `ensureColumn` معین گروه کالا). `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v160` = `2026-08-19T00:19:57Z hash=7dd5481`.
+- **SW:** `erp-taranom-v160`
+- **Independent:** APPROVED 324293a7 · **Security:** APPROVED e235c782
+
 ### 2026-08-19 — Dual APPROVED ACC-04 on 34e1891 (pre-merge)
 - **شاخه:** `ai/UI-STITCH-IMPL` محصول `34e1891`
 - **خلاصه:** Independent و Security هر دو APPROVED. منتظر تأیید مالک برای merge/deploy.

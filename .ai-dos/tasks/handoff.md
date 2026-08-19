@@ -1,3 +1,11 @@
+## 2026-08-19 — UI-STITCH-IMPL merged + Iran deployed; next waves claimed
+
+- Owner approved merge/deploy. FF `ai/UI-STITCH-IMPL` → `claude/claude-md-docs-2ssrpy` @ `7dd5481`
+- Iran: GitHub DNS fail on VPS; SFTP overlay of stitch files; `db.js` patched with `product_categories.coa_code` only. health/ready/root 200. SW v160. stamp `.sftp-deploy-stamp-stitch-v160`
+- Task `UI-STITCH-IMPL` completed. PROD/PACK skipped (ADR-007 stays closed)
+- Claimed parallel: `HR-STITCH-P3`, `INV-STITCH-P4`, `TRS-STITCH-P6` (disjoint file_claims; app.js later)
+- CON + POS schema + Phase 8 after those APIs. Do not touch dirty erp-taranom1 deploy scripts
+
 ## 2026-08-19 — Dual APPROVED on 34e1891; waiting owner
 
 - [Independent ACC-04 re-review](324293a7-3f99-43de-b3f5-e0146aa23584) **APPROVED** on product `34e1891`
