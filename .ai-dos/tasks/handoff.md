@@ -1,3 +1,10 @@
+## 2026-08-19 — POS-01/02 implementer done on 7cab828 (pre-review)
+
+- [POS-01/02 implementer](51006781-358a-4ef6-99a3-70a7492fa52a) shipped `ai/POS-STITCH-P8` @ `7cab828`
+- Terminal bank FK (not localStorage); receipt → in-transit 1118; batch net to bank + fee/shortage; R13 void
+- test-pos-stitch-p8 **55/55** · SMS **22/22**; SW v165; sync append + backfill v11
+- Dual review next. **NO merge / Iran deploy** until Independent + Security APPROVED
+
 ## 2026-08-19 — POS-STITCH-P8 claimed (POS-01/02)
 
 - Owner: next wave after CON Iran v164

@@ -119,7 +119,7 @@ tasks:
     risk: "high"
     owner: "cursor:implementer-pos-08"
     branch: "ai/POS-STITCH-P8"
-    base_commit: "1a1bf0f"
+    base_commit: "bca393e"
     claimed_at: "2026-08-19T06:05:00+03:30"
     file_claims:
       - "server/db.js"
@@ -129,8 +129,8 @@ tasks:
       - "server/scripts/test-pos-stitch-p8.js"
       - "server/sync/tables.js"
     notes: >-
-      Isolated branch from 1a1bf0f. No merge/Iran deploy until dual APPROVED.
-      POS-03 reports out of scope. ADR-007 stays closed.
+      Implementer tip 7cab828. Tests 55/55 + SMS 22/22. SW v165.
+      Dual review in flight. No merge / Iran deploy. POS-03 out. ADR-007 closed.
     acceptance_criteria:
       - "Terminal requires active bank FK; unique terminal_id; not localStorage"
       - "Card receipt posts in-transit not bank; batch settle net to bank; idempotent"

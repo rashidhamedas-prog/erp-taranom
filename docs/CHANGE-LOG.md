@@ -13,6 +13,11 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — POS-01/02 implementer (pre-merge)
+- **شاخه:** `ai/POS-STITCH-P8` @ `7cab828`
+- **خلاصه:** پایانه با بانک فعال؛ دریافت به وجوه در راه؛ تسویه دسته‌ای به بانک. تست ۵۵/۵۵. SW v165. منتظر dual review.
+- **Deploy:** اعمال نشد
+
 ### 2026-08-19 — CON-01/02 dual APPROVED + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `1a1bf0f` (از `ai/CON-STITCH-P7` @ `f79127c`)
 - **خلاصه:** شخص اجباری، چهار مسیر تسویه، خریدار جدا، COGS ارسالی، FK سینک. Independent + Security APPROVED.
