@@ -1,9 +1,8 @@
 # Project Status
 
 - Last verified: 2026-08-19
-- **UI-STITCH-IMPL + HR/INV/TRS + CON + POS:** merged `bdcc84a`; Iran SFTP stamp `.sftp-deploy-stamp-stitch-v165` = `2026-08-19T03:05:04Z hash=bdcc84a`
-  health/ready/root **200**; SW `erp-taranom-v165`
-- **Next (ADR-007 closed):** LED-STITCH-P9 @ `a464b2e` (Security APPROVED; Independent in flight). Then Phase 8.
+- **UI-STITCH-IMPL + HR/INV/TRS + CON + POS + LED:** POS Iran v165 @ `bdcc84a`; LED merged (owner merge/deploy). Iran SFTP v166 next
+- **Next (ADR-007 closed):** Iran SFTP LED v166, then Phase 8.
 - **DEMO-V3-GUIDED-SALES:** `completed` — dual APPROVED + owner merge/deploy
   Primary `bb868c5`; SFTP stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`
   health/demo/seed 200; public `https://erp.poshaktaranom.com/demo.html`

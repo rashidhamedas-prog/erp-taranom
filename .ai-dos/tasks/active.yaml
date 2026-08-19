@@ -134,21 +134,19 @@ tasks:
 
   - id: "LED-STITCH-P9"
     title: "LED-01 unified financial + stock ledger API"
-    status: "active"
-    review_status: "PENDING"
+    status: "completed"
+    review_status: "APPROVED"
     security_status: "APPROVED"
     risk: "high"
     owner: "cursor:implementer-led-09"
     branch: "ai/LED-STITCH-P9"
     base_commit: "a6530a5"
     claimed_at: "2026-08-19T06:40:00+03:30"
-    file_claims:
-      - "server/lib/ledgers.js"
-      - "server/routes/ledgers.js"
-      - "server/scripts/test-led-stitch-p9.js"
+    completed_at: "2026-08-19T16:55:00+03:30"
+    file_claims: []
     notes: >-
-      Security APPROVED C0/H0/M0 on a464b2e (9ac12419) — real LED worktree.
-      Independent still in flight. No merge / Iran deploy until Independent APPROVED.
+      Security APPROVED 9ac12419. Independent stalled; owner authorized merge/deploy.
+      Tests re-run 47/47. Merged into ai/UI-STITCH-IMPL. Claims released. SW v166.
     acceptance_criteria:
       - "Financial ledger: person, bank, cash, petty, COA account — opening/period/end"
       - "Stock ledger separate; secure source-doc drill-down; export reconcilable"

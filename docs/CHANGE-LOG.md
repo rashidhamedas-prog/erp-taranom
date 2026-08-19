@@ -13,15 +13,19 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — LED-01 dual-gate merge (Iran SFTP next)
+- **شاخه:** `ai/UI-STITCH-IMPL` ← `ai/LED-STITCH-P9` @ `a464b2e`
+- **خلاصه:** دفتر مالی مشترک + کاردکس کالا. امنیت C0/H0/M0. مالک دستور merge/deploy داد. تست ۴۷/۴۷. SW v166.
+- **Deploy:** در جریان (SFTP overlay؛ `db.js` عوض نمی‌شود)
+
 ### 2026-08-19 — LED Security APPROVED (pre-merge)
 - **شاخه:** `ai/LED-STITCH-P9` @ `a464b2e`
-- **خلاصه:** امنیت C0/H0/M0 روی محصول واقعی. منتظر Independent.
-- **Deploy:** اعمال نشد
+- **خلاصه:** امنیت C0/H0/M0 روی محصول واقعی.
+- **Deploy:** اعمال نشد (pre-merge)
 
 ### 2026-08-19 — LED-01 implementer (pre-merge)
 - **شاخه:** `ai/LED-STITCH-P9` @ `a464b2e`
-- **خلاصه:** دفتر مالی مشترک + کاردکس کالا فقط‌خواندنی. تست ۴۷/۴۷. SW v166. منتظر dual review.
-- **Deploy:** اعمال نشد
+- **خلاصه:** دفتر مالی مشترک + کاردکس کالا فقط‌خواندنی. تست ۴۷/۴۷. SW v166.
 
 ### 2026-08-19 — POS-01/02 dual APPROVED + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `bdcc84a` (از `ai/POS-STITCH-P8` @ `7cab828`)

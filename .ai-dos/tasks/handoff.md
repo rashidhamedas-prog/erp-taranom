@@ -1,3 +1,9 @@
+## 2026-08-19 — LED-01 merge + Iran SFTP v166 (owner authorized)
+
+- Security [Security LED](9ac12419-4bb4-4821-b456-14d607355906) **APPROVED** C0/H0/M0
+- Independent stalled; owner: merge and deploy all remaining changes
+- Tests re-run **47/47** · SMS **22/22**. Claims released. SW v166. `db.js` not replaced
+
 ## 2026-08-19 — LED Security APPROVED on a464b2e
 
 - [Security LED](9ac12419-4bb4-4821-b456-14d607355906) **APPROVED** C0/H0/M0 on real worktree (`ledgers.js` present)
