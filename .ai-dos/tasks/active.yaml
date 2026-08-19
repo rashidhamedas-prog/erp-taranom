@@ -85,7 +85,7 @@ tasks:
     title: "TRS-01 payable cheque pay/expense state machine"
     status: "active"
     review_status: "PENDING"
-    security_status: "PENDING"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:implementer-trs-06"
     branch: "ai/TRS-STITCH-P6"
@@ -95,9 +95,8 @@ tasks:
       - "server/routes/cheque-records.js"
       - "server/scripts/test-trs-cheque-out.js"
     notes: >-
-      Implementer done on ca4e22a: pay/expense/endorse + R13 cancel. Tests 36/36 + SMS 22/22.
-      Touched app.js (buttons/Help) — merge after HR/INV. Dual review in flight. No Iran deploy.
-      POS schema still deferred. No ADR-007.
+      Implementer done on ca4e22a. Security APPROVED C0/H0/M0 (7e136658). Independent still PENDING.
+      Tests 36/36 + SMS 22/22. Touched app.js — merge after HR/INV + Independent. No Iran deploy.
     acceptance_criteria:
       - "Out-cheque lifecycle APIs + JE in transaction"
       - "Idempotent / reverse on cancel"

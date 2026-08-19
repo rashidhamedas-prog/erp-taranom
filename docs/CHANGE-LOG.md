@@ -13,6 +13,12 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — TRS-01 Security APPROVED (pre-merge)
+- **شاخه:** `ai/TRS-STITCH-P6` @ `ca4e22a`
+- **خلاصه:** بازبین امنیت C0/H0/M0. Independent هنوز باز است.
+- **Deploy:** اعمال نشد
+- **SW:** بدون bump تا merge
+
 ### 2026-08-19 — UI-STITCH-IMPL merge + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `7dd5481` ← FF `ai/UI-STITCH-IMPL`
 - **خلاصه:** موج حسابداری Stitch (OPS-01، TRS-02، ACC-01..06، INV-01، ACC-04 cutoff) پس از dual APPROVED merge و deploy شد.

@@ -1,3 +1,10 @@
+## 2026-08-19 — TRS-01 Security APPROVED on ca4e22a
+
+- [Security Review](7e136658-7a4d-4ddf-b50f-cb0c916dc216) **APPROVED** C0/H0/M0 on `ai/TRS-STITCH-P6` @ `ca4e22a`
+- Lows non-blocking: add 403 RBAC test; `account_key` any LEGACY key by design; `collection_je_id` naming
+- Independent still PENDING ([Independent TRS-01 review](2180f9f2-ed29-4880-8f57-2d743a0e8096))
+- **NO merge / Iran deploy** until Independent APPROVED
+
 ## 2026-08-19 — TRS-01 implementer done on ca4e22a (pre-review)
 
 - [TRS-01 cheques](8bb2dc0b-7ab0-4df6-801b-ef495998d710) shipped `ai/TRS-STITCH-P6` @ `ca4e22a`
