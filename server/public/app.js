@@ -6186,6 +6186,8 @@ async function loadAccTab(tab){
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){editChequeRegisterStatus((r.id),`${String((CSP.htmlDecode(String(esc(r.status||'')))) ?? '')}`)})}">✏️ وضعیت</button>
           ${r.direction==='in'&&(!r.lifecycle_status||r.lifecycle_status==='registered')?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chequeSendToBank((r.id))})}">🏦 واگذاری</button>`:''}
+          ${r.direction==='in'&&(!r.lifecycle_status||r.lifecycle_status==='registered')?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chequeEndorseIn((r.id))})}">✍️ خرج</button>`:''}
+          ${payNav&&r.direction==='out'&&(!r.lifecycle_status||r.lifecycle_status==='registered')?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){chequePayOut((r.id))})}">💸 پرداخت</button><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chequeExpenseOut((r.id))})}">📤 خرج چک</button>`:''}
           ${r.direction==='in'&&r.lifecycle_status==='in_collection'?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){chequeClear((r.id))})}">✅ وصول</button><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){chequeBounce((r.id))})}">↩️ برگشت</button>`:''}
           ${r.direction==='in'&&r.lifecycle_status==='cleared'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){chequeBounce((r.id))})}">↩️ برگشت</button>`:''}
           ${r.direction==='in'&&r.lifecycle_status==='bounced'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){chequeResend((r.id))})}">🔁 ارسال مجدد</button>`:''}
@@ -16174,8 +16176,29 @@ async function chequeResend(id){
     showToast('ارسال مجدد ثبت شد'); loadAccTab('cheque-register');
   }catch(e){}
 }
+async function chequePayOut(id){
+  if(!confirm('پرداخت/تحویل چک به ذینفع ثبت شود؟ سند بدهکار پرداختنی و بستانکار اسناد پرداختنی زده می‌شود.')) return;
+  try{
+    await api('POST','/cheque-records/'+id+'/pay',{date:todayJalali()});
+    showToast('پرداخت چک ثبت شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
+async function chequeExpenseOut(id){
+  if(!confirm('خرج چک ثبت شود؟ مبلغ به حساب هزینه اداری می‌رود و اسناد پرداختنی بستانکار می‌شود.')) return;
+  try{
+    await api('POST','/cheque-records/'+id+'/expense',{date:todayJalali()});
+    showToast('خرج چک ثبت شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
+async function chequeEndorseIn(id){
+  if(!confirm('خرج/ظهرنویسی چک دریافتنی به ذینفع ثبت شود؟ به‌جای واگذاری به بانک، اسناد دریافتنی بسته می‌شود.')) return;
+  try{
+    await api('POST','/cheque-records/'+id+'/endorse',{date:todayJalali()});
+    showToast('خرج چک ثبت شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
 async function voidChequeRegister(id,num){
-  if(!confirm(`چک «${num||id}» کاملاً ابطال شود؟\nهمهٔ اسناد واگذاری/وصول/برگشت/افتتاحیه معکوس می‌شوند.`)) return;
+  if(!confirm(`چک «${num||id}» کاملاً ابطال شود؟\nهمهٔ اسناد پرداخت/خرج/واگذاری/وصول/برگشت/افتتاحیه معکوس می‌شوند.`)) return;
   try{
     await api('DELETE','/cheque-records/'+id);
     showToast('چک ابطال شد'); loadAccTab('cheque-register');
@@ -17395,7 +17418,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>سند دستی:</b> انتخاب آبشاری گروه→کل→معین→تفصیلی؛ فقط حساب برگ (بدون فرزند فعال) قابل ثبت است</li>
         <li><b>دریافت/پرداخت از حساب:</b> فقط حساب برگ در فهرست است</li>
         <li><b>معین گروه کالا:</b> در فرم گروه کالا حساب معین برگ اختیاری است؛ تغییر آن اسناد قبلی را عوض نمی‌کند</li>
-        <li><b>چک پرداختی:</b> منوی چک‌های پرداختی پیش‌فرض فقط جهت پرداختی را نشان می‌دهد</li>
+        <li><b>چک پرداختی:</b> منوی چک‌های پرداختی پیش‌فرض فقط جهت پرداختی را نشان می‌دهد؛ از همان تب می‌توانید <b>پرداخت</b> (تحویل به ذینفع) یا <b>خرج چک</b> بزنید — هر کدام یک سند حسابداری می‌سازد و ابطال کامل همهٔ اثرها را برمی‌گرداند</li>
         <li><b>پورتال عملیاتی:</b> «بدون دسترسی» بعد از ذخیره و بارگذاری مجدد همان می‌ماند و نقش مدیر واحد برنمی‌گردد</li>
       </ul>`),
     helpSec('🧾','انواع فاکتور فروش و موجودی دائمی',`
@@ -17950,11 +17973,18 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>در <b>عملیات خاص → دفتر چک</b> برای چک‌های دریافتی:</p>
       <ul>
         <li><b>واگذاری به بانک</b>: از وضعیت ثبت‌شده — سند انتقال به «در جریان وصول»</li>
+        <li><b>خرج / ظهرنویسی</b>: از وضعیت ثبت‌شده — به‌جای بانک، چک را به ذینفع می‌دهید (بدهکار پرداختنی، بستانکار اسناد دریافتنی)</li>
         <li><b>وصول</b>: وقتی چک در «جریان وصول» است — بستانکار بانک</li>
         <li><b>برگشت</b>: از «جریان وصول» یا «وصول‌شده» — سند برگشت</li>
         <li><b>ارسال مجدد</b>: پس از برگشت — معکوس سند برگشت و بازگشت به وضعیت قبلی چرخه</li>
       </ul>
-      <div class="tip">هر گذار چرخه فقط یک‌بار سند می‌زند (تکرار = خطای سند تکراری). تغییر وضعیت با متن آزاد (فارسی/انگلیسی) برای گذارهای مالی چک دریافتی مسدود است — از همین عملیات چرخه استفاده کنید تا سند حسابداری هم ثبت شود.</div>`),
+      <p>برای چک‌های پرداختی (منوی <b>چک‌های پرداختی</b>، پیش‌فرض فقط جهت پرداختی):</p>
+      <ul>
+        <li><b>پرداخت / تحویل</b>: از ثبت‌شده — بدهکار حساب‌های پرداختنی، بستانکار اسناد پرداختنی</li>
+        <li><b>خرج چک</b>: از ثبت‌شده — بدهکار هزینه (پیش‌فرض هزینه اداری؛ کلید حساب از نگاشت کدینگ)، بستانکار اسناد پرداختنی</li>
+        <li>چک اول دوره پرداختنی سند افتتاحیه دارد و دوباره پرداخت/خرج نمی‌شود</li>
+      </ul>
+      <div class="tip">هر گذار چرخه فقط یک‌بار سند می‌زند (تکرار = خطای سند تکراری). تغییر وضعیت با متن آزاد برای گذارهای مالی مسدود است. <b>ابطال کامل</b> همهٔ اسناد چرخه و افتتاحیه را در یک تراکنش معکوس می‌کند (حذف فیزیکی نیست).</div>`),
     helpSec('📡','سلامت سرویس و پشتیبانی',`
       <p><code dir="ltr">/api/system/health</code> زنده بودن فرایند را نشان می‌دهد؛ <code dir="ltr">/api/system/ready</code> آمادگی دیتابیس را بررسی می‌کند. هر درخواست هدر <code dir="ltr">X-Request-Id</code> دارد (برای پیگیری لاگ). متای پشتیبانی در <code dir="ltr">/api/support/meta</code> است — تیکتینگ داخل برنامه فعلاً فعال نیست و از کانال خارجی سازمان استفاده می‌شود.</p>`)
   ].join('');
