@@ -136,7 +136,7 @@ tasks:
     title: "LED-01 unified financial + stock ledger API"
     status: "active"
     review_status: "PENDING"
-    security_status: "PENDING"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:implementer-led-09"
     branch: "ai/LED-STITCH-P9"
@@ -147,8 +147,8 @@ tasks:
       - "server/routes/ledgers.js"
       - "server/scripts/test-led-stitch-p9.js"
     notes: >-
-      Implementer tip a464b2e. Tests 47/47 + SMS 22/22. SW v166. Read-only API.
-      Dual review in flight. No merge / Iran deploy. POS-03 out. ADR-007 closed.
+      Security APPROVED C0/H0/M0 on a464b2e (9ac12419) — real LED worktree.
+      Independent still in flight. No merge / Iran deploy until Independent APPROVED.
     acceptance_criteria:
       - "Financial ledger: person, bank, cash, petty, COA account — opening/period/end"
       - "Stock ledger separate; secure source-doc drill-down; export reconcilable"

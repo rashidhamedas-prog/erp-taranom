@@ -1,3 +1,10 @@
+## 2026-08-19 — LED Security APPROVED on a464b2e
+
+- [Security LED](9ac12419-4bb4-4821-b456-14d607355906) **APPROVED** C0/H0/M0 on real worktree (`ledgers.js` present)
+- RBAC DB-role, parameterized SQL, read-only, export same gate as JSON
+- Independent still in flight ([Independent LED](d48d2faa-8e9a-48a4-b418-0443a03c162e))
+- **NO merge / Iran deploy** until Independent APPROVED
+
 ## 2026-08-19 — LED-01 implementer done on a464b2e (pre-review)
 
 - [LED-01 implementer](fcedf052-bc55-4ac8-a27d-e37e0bbd01ff) shipped `ai/LED-STITCH-P9` @ `a464b2e`
