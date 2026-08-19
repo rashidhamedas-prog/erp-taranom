@@ -104,11 +104,37 @@ tasks:
     file_claims: []
     notes: >-
       Dual APPROVED f79127c (Independent 73cd20d1 + Security e69a57e1).
-      Merged into ai/UI-STITCH-IMPL. Claims released. SW v164. Iran SFTP next.
+      Merged into ai/UI-STITCH-IMPL @ 1a1bf0f. Claims released. SW v164.
+      Iran SFTP stamp .sftp-deploy-stamp-stitch-v164 = 2026-08-19T02:33:45Z hash=1a1bf0f.
     acceptance_criteria:
       - "Create requires person_id; party_name snapshot"
       - "Settle paths: return, sale, purchase, shortage; sale-only invoice"
       - "Idempotent + transactional + cancel reverse; tests + Help"
+
+  - id: "POS-STITCH-P8"
+    title: "POS-01 terminal bank FK + POS-02 card in-transit settle"
+    status: "active"
+    review_status: "PENDING"
+    security_status: "PENDING"
+    risk: "high"
+    owner: "cursor:implementer-pos-08"
+    branch: "ai/POS-STITCH-P8"
+    base_commit: "1a1bf0f"
+    claimed_at: "2026-08-19T06:05:00+03:30"
+    file_claims:
+      - "server/db.js"
+      - "server/lib/coa-map.js"
+      - "server/lib/pos.js"
+      - "server/routes/pos.js"
+      - "server/scripts/test-pos-stitch-p8.js"
+      - "server/sync/tables.js"
+    notes: >-
+      Isolated branch from 1a1bf0f. No merge/Iran deploy until dual APPROVED.
+      POS-03 reports out of scope. ADR-007 stays closed.
+    acceptance_criteria:
+      - "Terminal requires active bank FK; unique terminal_id; not localStorage"
+      - "Card receipt posts in-transit not bank; batch settle net to bank; idempotent"
+      - "R13 void; tests + Help; SW bump; vanilla UI"
 
   - id: "DEMO-V3-GUIDED-SALES"
     title: "Guided, role-based, sales-oriented Demo V3"

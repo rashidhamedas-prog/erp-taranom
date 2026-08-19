@@ -1,3 +1,17 @@
+## 2026-08-19 — POS-STITCH-P8 claimed (POS-01/02)
+
+- Owner: next wave after CON Iran v164
+- Claims: db.js, coa-map.js, lib/pos.js, routes/pos.js, test-pos-stitch-p8.js, sync/tables.js
+- POS-03 and ADR-007 out. No merge until dual review
+
+## 2026-08-19 — CON-01/02 Iran SFTP v164 @ 1a1bf0f
+
+- Dual APPROVED: [Independent re-review](73cd20d1-4ad6-46eb-b506-1691ace7df18) + [Security CON delta](e69a57e1-870a-4dae-9284-d6787930ce83)
+- Merged `f79127c` into `ai/UI-STITCH-IMPL` @ `1a1bf0f`; FF to primary
+- Stamp `.sftp-deploy-stamp-stitch-v164` = `2026-08-19T02:33:45Z hash=1a1bf0f`
+- health/ready/root **200**; SW `erp-taranom-v164`; `db.js` patched in place (consignment columns)
+- Next: POS-01/02 + LED-01 + Phase 8. ADR-007 stays closed
+
 ## 2026-08-19 — CON-01/02 dual APPROVED; merge + Iran SFTP v164
 
 - [Independent re-review](73cd20d1-4ad6-46eb-b506-1691ace7df18) **APPROVED** on `f79127c` (M1–M3 closed, 61/61)
