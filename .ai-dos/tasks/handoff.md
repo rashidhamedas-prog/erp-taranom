@@ -1,3 +1,20 @@
+## 2026-08-19 — HR-02 implementer done on bc6b975 (pre-review)
+
+- [HR-02 invitation](93b50704-54ab-430b-bb9e-af7fc99a3186) shipped `ai/HR-STITCH-P3` @ `bc6b975`
+- Hashed one-time token, 72h expiry, accept creates user with chosen password; SW v161
+- test-hr-invite **37/37** · SMS **22/22**
+- Also edited `app.js` / `db.js` / `capture.js` — rebase after TRS/INV
+- Dual review next. **NO merge / Iran deploy** until Independent + Security APPROVED
+- Payslip self-service not in this tip
+
+## 2026-08-19 — HR-02 implementer done on bc6b975 (pre-review)
+
+- [HR-02 invitation](93b50704-54ab-430b-bb9e-af7fc99a3186) shipped `ai/HR-STITCH-P3` @ `bc6b975`
+- Hashed token, 72h expiry, one-shot accept; no static password; central-only table
+- test-hr-invite **37/37**; SMS **22/22**; SW v161
+- Also edited `db.js` / `app.js` / `capture.js` — rebase after INV/TRS
+- Dual review next. **NO merge / Iran deploy** until Independent + Security APPROVED
+
 ## 2026-08-19 — TRS-01 Security APPROVED on ca4e22a
 
 - [Security Review](7e136658-7a4d-4ddf-b50f-cb0c916dc216) **APPROVED** C0/H0/M0 on `ai/TRS-STITCH-P6` @ `ca4e22a`

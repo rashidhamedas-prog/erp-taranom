@@ -50,9 +50,9 @@ tasks:
       - "server/public/portal-ui.js"
       - "server/scripts/test-hr-invite.js"
     notes: >-
-      Token invite + expiry + accept; no static password. Payslip self-service if time.
-      Do not claim app.js until INV/TRS API waves finish, or only add invite modal with care.
-      No ADR-007. No Iran merge until dual review + this wave deploy policy.
+      Implementer done on bc6b975: hashed 72h one-time invite, accept sets password, SW v161.
+      Tests 37/37 + SMS 22/22. Touched app.js/db.js/capture.js — rebase with TRS/INV.
+      Dual review in flight. No Iran deploy. Payslip self-service still out of this tip.
     acceptance_criteria:
       - "user_invitations table; hashed token; expiry; used_at"
       - "Invite creates no known password; accept sets user + person link"

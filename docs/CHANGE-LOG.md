@@ -13,6 +13,11 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — HR-02 invite tokens implementer (pre-merge)
+- **شاخه:** `ai/HR-STITCH-P3` @ `bc6b975`
+- **خلاصه:** دعوت یک‌بارمصرف با هش sha256 و انقضای ۷۲ ساعت. تست ۳۷/۳۷. SW v161. منتظر dual review.
+- **Deploy:** اعمال نشد
+
 ### 2026-08-19 — TRS-01 Security APPROVED (pre-merge)
 - **شاخه:** `ai/TRS-STITCH-P6` @ `ca4e22a`
 - **خلاصه:** بازبین امنیت C0/H0/M0. Independent هنوز باز است.
