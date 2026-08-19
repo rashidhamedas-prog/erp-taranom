@@ -130,7 +130,9 @@ tasks:
       - "server/sync/tables.js"
     notes: >-
       Implementer tip 7cab828. Tests 55/55 + SMS 22/22. SW v165.
-      Dual review in flight. No merge / Iran deploy. POS-03 out. ADR-007 closed.
+      First Security pass (6f2a51d4) was WRONG TREE — not POS product; ignored.
+      Independent in flight; Security re-run on pos-stitch-p8 worktree.
+      No merge / Iran deploy.
     acceptance_criteria:
       - "Terminal requires active bank FK; unique terminal_id; not localStorage"
       - "Card receipt posts in-transit not bank; batch settle net to bank; idempotent"

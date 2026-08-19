@@ -1,3 +1,9 @@
+## 2026-08-19 — POS Security pass invalid (wrong tree)
+
+- [Security POS](6f2a51d4-f2a0-419e-b800-ae56f5317fb6) reviewed stitch-impl docs/demo, not `pos.js`
+- Verdict on that diff is irrelevant to POS-STITCH-P8. Re-run on `erp-taranom-pos-stitch-p8` @ `7cab828`
+- **NO merge / Iran deploy**
+
 ## 2026-08-19 — POS-01/02 implementer done on 7cab828 (pre-review)
 
 - [POS-01/02 implementer](51006781-358a-4ef6-99a3-70a7492fa52a) shipped `ai/POS-STITCH-P8` @ `7cab828`
