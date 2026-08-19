@@ -36,8 +36,8 @@ tasks:
   - id: "HR-STITCH-P3"
     title: "HR-02 secure user invitation tokens"
     status: "active"
-    review_status: "PENDING"
-    security_status: "PENDING"
+    review_status: "CHANGES_REQUIRED"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:implementer-hr-02"
     branch: "ai/HR-STITCH-P3"
@@ -45,14 +45,17 @@ tasks:
     claimed_at: "2026-08-19T03:50:00+03:30"
     file_claims:
       - "server/lib/portal-users.js"
+      - "server/lib/user-invitations.js"
+      - "server/lib/observability.js"
       - "server/routes/auth.js"
       - "server/db.js"
       - "server/public/portal-ui.js"
       - "server/scripts/test-hr-invite.js"
+      - "server/scripts/test-observability.js"
     notes: >-
-      Implementer done on bc6b975: hashed 72h one-time invite, accept sets password, SW v161.
-      Tests 37/37 + SMS 22/22. Touched app.js/db.js/capture.js — rebase with TRS/INV.
-      Dual review in flight. No Iran deploy. Payslip self-service still out of this tip.
+      fdb39ae: M1 log-redact shipped (sanitizeLogPath). Security APPROVED on bc6b975 (fff3c354).
+      Independent CHANGES_REQUIRED on bc6b975 — re-review of M1 in flight. Tests 38/38 + obs 12/12.
+      Touched app.js/db.js/capture.js — rebase with TRS/INV. No Iran deploy.
     acceptance_criteria:
       - "user_invitations table; hashed token; expiry; used_at"
       - "Invite creates no known password; accept sets user + person link"
@@ -74,8 +77,9 @@ tasks:
       - "server/routes/products.js"
       - "server/scripts/test-inv-stitch-p4.js"
     notes: >-
-      Hex validate + duplicate warning API; warehouse line search SKU/barcode/name + ATP.
-      Avoid app.js until coordinated. No ADR-007 / lot / pack.
+      Implementer done on d1ea078: hex #RGB/#RRGGBB + E_COLOR_DUPLICATE; warehouse
+      search SKU/barcode/name + ATP. Tests 25/25 + SMS 22/22. Touched app.js (minimal).
+      Dual review in flight. No Iran deploy.
     acceptance_criteria:
       - "Invalid hex rejected; duplicate hex warned"
       - "Receipt/issue/transfer can search products with available qty at source"
@@ -84,7 +88,7 @@ tasks:
   - id: "TRS-STITCH-P6"
     title: "TRS-01 payable cheque pay/expense state machine"
     status: "active"
-    review_status: "PENDING"
+    review_status: "APPROVED"
     security_status: "APPROVED"
     risk: "high"
     owner: "cursor:implementer-trs-06"
@@ -95,8 +99,9 @@ tasks:
       - "server/routes/cheque-records.js"
       - "server/scripts/test-trs-cheque-out.js"
     notes: >-
-      Implementer done on ca4e22a. Security APPROVED C0/H0/M0 (7e136658). Independent still PENDING.
-      Tests 36/36 + SMS 22/22. Touched app.js — merge after HR/INV + Independent. No Iran deploy.
+      Dual APPROVED on ca4e22a (Security 7e136658 C0/H0/M0; Independent 2180f9f2).
+      Tests 36/36. Low advisories only. Touched app.js — wait HR M1 + INV dual review
+      then rebase before merge. No Iran deploy. POS-01/02 still deferred.
     acceptance_criteria:
       - "Out-cheque lifecycle APIs + JE in transaction"
       - "Idempotent / reverse on cancel"

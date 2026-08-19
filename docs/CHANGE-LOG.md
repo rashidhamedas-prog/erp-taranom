@@ -13,6 +13,26 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — HR-02 M1 log-redact (pre-merge)
+- **شاخه:** `ai/HR-STITCH-P3` @ `fdb39ae`
+- **خلاصه:** توکن خام دعوت از `path` لاگ حذف شد. تست دعوت ۳۸/۳۸ و observability ۱۲/۱۲. منتظر re-review Independent.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — INV-02/03 implementer (pre-merge)
+- **شاخه:** `ai/INV-STITCH-P4` @ `d1ea078`
+- **خلاصه:** اعتبار hex رنگ + جستجوی خط انبار با ATP. تست ۲۵/۲۵. منتظر dual review.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — HR-02 Independent CHANGES_REQUIRED M1; Security APPROVED
+- **شاخه:** `ai/HR-STITCH-P3` @ `bc6b975`
+- **خلاصه:** امنیت C0/H0/M0. Independent: توکن خام دعوت در لاگ `path` (M1). اصلاح در جریان. merge نشد.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — TRS-01 dual APPROVED (pre-merge)
+- **شاخه:** `ai/TRS-STITCH-P6` @ `ca4e22a`
+- **خلاصه:** Independent و Security هر دو APPROVED. منتظر rebase با HR/INV.
+- **Deploy:** اعمال نشد
+
 ### 2026-08-19 — HR-02 invite tokens implementer (pre-merge)
 - **شاخه:** `ai/HR-STITCH-P3` @ `bc6b975`
 - **خلاصه:** دعوت یک‌بارمصرف با هش sha256 و انقضای ۷۲ ساعت. تست ۳۷/۳۷. SW v161. منتظر dual review.

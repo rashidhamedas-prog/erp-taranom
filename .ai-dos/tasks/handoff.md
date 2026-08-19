@@ -1,19 +1,36 @@
+## 2026-08-19 — HR-02 M1 log-redact on fdb39ae (Independent re-review)
+
+- [HR-02 invitation](93b50704-54ab-430b-bb9e-af7fc99a3186) closed Independent M1: `sanitizeLogPath` redacts invite tokens in `http_request` path
+- Tip `ai/HR-STITCH-P3` @ `fdb39ae`; tests obs **12/12** · invite **38/38** · SMS **22/22**
+- Independent re-review of M1 next. Security was APPROVED on `bc6b975` — delta is log-only
+- **NO merge / Iran deploy**
+
+## 2026-08-19 — INV-02/03 implementer done on d1ea078 (pre-review)
+
+- [INV-02/03 warehouse search](c083e408-cac8-4676-89b2-089a1d19c98a) shipped `ai/INV-STITCH-P4` @ `d1ea078`
+- Hex `#RGB`/`#RRGGBB` + `E_COLOR_DUPLICATE`; warehouse search SKU/barcode/name + ATP
+- test-inv-stitch-p4 **25/25** · SMS **22/22**; SW bump on that branch
+- Minimal `app.js` search in receipt/issue/transfer — rebase with HR/TRS
+- Dual review next. **NO merge / Iran deploy**
+
+## 2026-08-19 — HR-02 Independent CHANGES_REQUIRED M1; Security APPROVED
+
+- [Independent HR-02](b61c3c16-2e0f-4141-81d4-29a60bb9649c) **CHANGES_REQUIRED** — Medium M1: raw invite token in `http_request` `path` (`req.originalUrl`) for `/api/auth/invite/:token` and `/invite?token=`
+- [Security HR-02](fff3c354-809f-44f8-a811-a36942ab7906) **APPROVED** C0/H0/M0 on same tip (did not treat log path as Medium)
+- Independent Medium is merge-blocking. M1 fix: redact invite tokens in `observability.js` logger (keep public URL API). Re-review Independent after.
+- Payslip self-service remains Low/out of scope. **NO merge / Iran deploy**
+
+## 2026-08-19 — TRS-01 Independent APPROVED; dual gate closed on ca4e22a
+
+- [Independent TRS-01](2180f9f2-ed29-4880-8f57-2d743a0e8096) **APPROVED** H0/M0 (Lows: PATCH regex, 403 test, `collection_je_id` reuse, `app.js` rebase)
+- Security already APPROVED (7e136658). Dual APPROVED but **NO merge** until HR M1 + INV reviews; then rebase `app.js`
+
 ## 2026-08-19 — HR-02 implementer done on bc6b975 (pre-review)
 
 - [HR-02 invitation](93b50704-54ab-430b-bb9e-af7fc99a3186) shipped `ai/HR-STITCH-P3` @ `bc6b975`
 - Hashed one-time token, 72h expiry, accept creates user with chosen password; SW v161
 - test-hr-invite **37/37** · SMS **22/22**
 - Also edited `app.js` / `db.js` / `capture.js` — rebase after TRS/INV
-- Dual review next. **NO merge / Iran deploy** until Independent + Security APPROVED
-- Payslip self-service not in this tip
-
-## 2026-08-19 — HR-02 implementer done on bc6b975 (pre-review)
-
-- [HR-02 invitation](93b50704-54ab-430b-bb9e-af7fc99a3186) shipped `ai/HR-STITCH-P3` @ `bc6b975`
-- Hashed token, 72h expiry, one-shot accept; no static password; central-only table
-- test-hr-invite **37/37**; SMS **22/22**; SW v161
-- Also edited `db.js` / `app.js` / `capture.js` — rebase after INV/TRS
-- Dual review next. **NO merge / Iran deploy** until Independent + Security APPROVED
 
 ## 2026-08-19 — TRS-01 Security APPROVED on ca4e22a
 
