@@ -1090,6 +1090,7 @@ const LU = (()=> {
     'acc-expense-categories':'folder', 'acc-person-positions':'tags', 'acc-opening-recv-cheques':'download',
     'acc-opening-pay-cheques':'upload', 'acc-coa-codes':'hash', 'acc-account-groups':'layers',
     'acc-ledger-accounts':'book', 'acc-subsidiary-accounts':'book', 'acc-detail-accounts':'book',
+    'acc-shared-ledger':'book',
     'acc-detail-categories':'tags', 'acc-other-details':'clipboard', 'acc-equity-info':'briefcase',
     'acc-shareholders':'handshake', 'acc-units':'ruler', 'acc-fiscal-period':'file',
     'acc-cheques-recv':'download', 'acc-cheques-pay':'upload', 'acc-proforma':'file',
@@ -5877,6 +5878,7 @@ ROUTES['acc-purchases']=()=>renderAccPage('purchases','📦','فاکتور خر�
 ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','برگشت از خرید');
 ROUTES['acc-sales-returns']=()=>renderAccPage('sales-returns','↪️','برگشت از فروش');
 ROUTES['acc-item-kardex']=()=>renderAccPage('item-kardex','📋','کاردکس کالا');
+ROUTES['acc-shared-ledger']=()=>renderAccPage('shared-ledger','📒','دفتر مالی مشترک');
 ROUTES['acc-inv-batches']=()=>renderAccPage('inv-batches','🏷️','بچ و سریال');
 ROUTES['acc-inv-reservations']=()=>renderAccPage('inv-reservations','🔒','رزرو موجودی');
 ROUTES['acc-inv-landed']=()=>renderAccPage('inv-landed','🚢','هزینه حمل (Landed Cost)');
@@ -6027,6 +6029,8 @@ async function loadAccTab(tab){
     await renderSalesInvoicesTab(body, 'final');
   } else if(tab==='item-kardex'){
     await renderItemKardexTab(body);
+  } else if(tab==='shared-ledger'){
+    await renderSharedLedgerTab(body);
   } else if(tab==='inv-batches'){
     await renderInvBatchesTab(body);
   } else if(tab==='inv-reservations'){
@@ -7277,7 +7281,17 @@ async function loadItemKardex(productId){
   const box=el('kardexBody'); if(!box) return;
   if(!productId){ box.innerHTML=''; return; }
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const d=await api('GET','/products/'+productId+'/kardex');
+  let d=await api('GET','/ledgers/stock?product_id='+encodeURIComponent(productId)).catch(()=>null);
+  if(d && d.lines){
+    d={ product:d.product, logs:d.lines.map(l=>({
+      date:l.date, event_type:l.event_type, note:l.description, warehouse_name:l.warehouse_name,
+      change:(Number(l.qty_in)||0)-(Number(l.qty_out)||0), qty_in:l.qty_in, qty_out:l.qty_out,
+      running_balance:l.running_qty, unit_cost_rial:l.unit_cost_rial, amount_rial:l.amount_rial,
+      user_name:'', status:'posted', source:'inventory_ledger'
+    })), source:'inventory_ledger' };
+  } else {
+    d=await api('GET','/products/'+productId+'/kardex');
+  }
   if(!d){ box.innerHTML='<div class="empty">خطا در دریافت کاردکس</div>'; return; }
   const logs=d.logs||[];
   box.innerHTML=`
@@ -7313,6 +7327,110 @@ async function loadItemKardex(productId){
         </tbody></table>
       </div>
     </div>`;
+}
+
+let _sharedLedgerPrefill=null;
+async function renderSharedLedgerTab(body){
+  const [persons, banks, boxes, accounts]=await Promise.all([
+    api('GET','/persons').catch(()=>[]),
+    api('GET','/banks').catch(()=>[]),
+    api('GET','/cash-boxes').catch(()=>[]),
+    api('GET','/accounting/chart-of-accounts').catch(()=>[])
+  ]);
+  const personList=Array.isArray(persons)?persons:(persons.rows||persons.items||[]);
+  const bankList=Array.isArray(banks)?banks:(banks.rows||[]);
+  const boxList=Array.isArray(boxes)?boxes:(boxes.rows||[]);
+  const accList=Array.isArray(accounts)?accounts:(accounts.rows||[]);
+  const pref=_sharedLedgerPrefill||{};
+  body.innerHTML=`
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
+      <select id="led-type" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit`)}" data-csp-change="${CSP.bind('change',function(event){fillSharedLedgerEntities()})}">
+        <option value="person" ${pref.type==='person'?'selected':''}>شخص</option>
+        <option value="bank" ${pref.type==='bank'?'selected':''}>بانک</option>
+        <option value="cash" ${pref.type==='cash'?'selected':''}>صندوق</option>
+        <option value="petty" ${pref.type==='petty'?'selected':''}>تنخواه</option>
+        <option value="account" ${pref.type==='account'||!pref.type?'selected':''}>حساب دفتر کل</option>
+      </select>
+      <select id="led-entity" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:220px`)}"></select>
+      <input id="led-from" data-jdate placeholder="از تاریخ" value="${esc(accDateFrom||pref.from||'')}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:130px`)}">
+      <input id="led-to" data-jdate placeholder="تا تاریخ" value="${esc(accDateTo||pref.to||'')}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:130px`)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){loadSharedFinancialLedger()})}">نمایش دفتر</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){exportSharedFinancialLedger()})}">خروجی CSV</button>
+    </div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">دفتر مالی مشترک مانده ابتدا / گردش دوره / مانده انتها را از دفتر کل (سند حسابداری) می‌خواند. برای شخص اگر تفصیلی نباشد، دفتر معین همان شخص با برچسب منبع نشان داده می‌شود. کاردکس کالا از دفتر موجودی جداست.</div>
+    <div id="ledFinBody"><div class="empty" data-csp-style="${CSP.style(`padding:30px`)}">نوع و موجودیت را انتخاب کنید</div></div>`;
+  attachDatepickers(body);
+  window._ledPickers={persons:personList,banks:bankList,boxes:boxList,accounts:accList,pref};
+  fillSharedLedgerEntities();
+  if(pref.id||pref.code) loadSharedFinancialLedger();
+}
+function fillSharedLedgerEntities(){
+  const type=el('led-type')?.value||'account';
+  const sel=el('led-entity'); if(!sel) return;
+  const p=window._ledPickers||{};
+  const pref=p.pref||{};
+  let opts='<option value="">— انتخاب —</option>';
+  if(type==='person') opts+=(p.persons||[]).map(x=>`<option value="${x.id}" ${String(pref.id)===String(x.id)?'selected':''}>${esc(x.name||('#'+x.id))}</option>`).join('');
+  else if(type==='bank') opts+=(p.banks||[]).map(x=>`<option value="${x.id}" ${String(pref.id)===String(x.id)?'selected':''}>${esc(x.name||('#'+x.id))}</option>`).join('');
+  else if(type==='cash') opts+=(p.boxes||[]).filter(x=>!x.is_petty_cash).map(x=>`<option value="${x.id}" ${String(pref.id)===String(x.id)?'selected':''}>${esc(x.name||('#'+x.id))}</option>`).join('');
+  else if(type==='petty') opts+=(p.boxes||[]).filter(x=>x.is_petty_cash).map(x=>`<option value="${x.id}" ${String(pref.id)===String(x.id)?'selected':''}>${esc(x.name||('#'+x.id))}</option>`).join('');
+  else opts+=(p.accounts||[]).map(x=>`<option value="${esc(x.code)}" ${String(pref.code||pref.id)===String(x.code)?'selected':''}>${esc(x.code)} — ${esc(x.name||'')}</option>`).join('');
+  sel.innerHTML=opts;
+}
+function sharedLedgerQuery(){
+  const type=el('led-type')?.value||'';
+  const id=el('led-entity')?.value||'';
+  const from=el('led-from')?.value||'';
+  const to=el('led-to')?.value||'';
+  const params=['entity_type='+encodeURIComponent(type),'entity_id='+encodeURIComponent(id)];
+  if(from) params.push('from='+encodeURIComponent(from));
+  if(to) params.push('to='+encodeURIComponent(to));
+  return params.join('&');
+}
+async function loadSharedFinancialLedger(){
+  const box=el('ledFinBody'); if(!box) return;
+  if(!el('led-entity')?.value){ box.innerHTML='<div class="empty">موجودیت را انتخاب کنید</div>'; return; }
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const d=await api('GET','/ledgers/financial?'+sharedLedgerQuery());
+  if(!d){ box.innerHTML='<div class="empty">خطا در دریافت دفتر مالی</div>'; return; }
+  const opening=d.opening_rial??0, periodDr=d.period_debit_rial??0, periodCr=d.period_credit_rial??0, closing=d.closing_rial??0;
+  const src=d.source==='person_ledger'?'دفتر معین شخص':'دفتر کل';
+  box.innerHTML=`
+    <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px`)}">
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">مانده ابتدا</div><div class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(Math.abs(opening))} ریال</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بدهکار</div><div class="mono" data-csp-style="${CSP.style(`color:var(--orange);font-weight:700`)}">${fmt(periodDr)}</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بستانکار</div><div class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">${fmt(periodCr)}</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">مانده انتها</div><div class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(Math.abs(closing))} ریال</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;flex:1`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">منبع</div><div>${esc(src)}${d.account?` · <span class="mono">${esc(d.account.code)}</span>`:''}</div></div>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>تاریخ</th><th>شرح</th><th>سند مبدأ</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th>
+    </tr></thead><tbody>${(d.lines||[]).map(l=>{
+      const ref=l.journal_id?('سند #'+l.journal_id):((l.ref_type||'')+(l.ref_id?'#'+l.ref_id:''));
+      return `<tr>
+        <td class="mono">${esc(l.date||'-')}</td>
+        <td>${esc(l.description||'-')}</td>
+        <td class="mono muted">${esc(ref||'-')}</td>
+        <td class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${l.debit_rial>0?fmt(l.debit_rial):'-'}</td>
+        <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${l.credit_rial>0?fmt(l.credit_rial):'-'}</td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(Math.abs(l.running_balance||0))}</td>
+      </tr>`;
+    }).join('')||'<tr><td colspan="6" class="empty">تراکنشی در این دوره نیست</td></tr>'}</tbody></table></div>
+    <div data-csp-style="${CSP.style(`padding:12px 0;font-weight:700`)}">مانده ابتدا + گردش خالص = مانده انتها: ${fmt(opening)} + ${fmt(d.period_net_rial||0)} = ${fmt(closing)}</div>`;
+}
+async function exportSharedFinancialLedger(){
+  if(!el('led-entity')?.value){ showToast('موجودیت را انتخاب کنید','error'); return; }
+  try{
+    const tok=localStorage.getItem('crm_token')||'';
+    const res=await fetch('/api/ledgers/financial/export?format=csv&'+sharedLedgerQuery(),{headers:{Authorization:'Bearer '+tok}});
+    if(!res.ok){ showToast('خروجی ناموفق','error'); return; }
+    const blob=await res.blob();
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='financial-ledger.csv';
+    a.click();
+    showToast('خروجی CSV آماده شد');
+  }catch(e){ showToast('خروجی ناموفق','error'); }
 }
 /* ============================================================
    INVENTORY — batches / serials / reservations / landed cost UI
@@ -13311,20 +13429,8 @@ async function voidBankOpening(id){
   try{ await api('POST','/banks/'+id+'/void-opening'); showToast('افتتاحیه ابطال شد'); loadAccTab('banks'); }catch(e){}
 }
 function viewBankLedger(id){
-  const b=(CACHE.banks||[]).find(x=>x.id===id);
-  const glCode=(usesExtendedCoa()&&b?.coa_code)?b.coa_code:('1102-'+id);
-  go('acc-dash');
-  let tries=0;
-  const tryPreselect=()=>{
-    const sel=el('glAccount');
-    if(sel && sel.querySelector(`option[value="${glCode}"]`)){
-      sel.value=glCode;
-      loadGeneralLedger(glCode);
-    } else if(tries++<40){
-      setTimeout(tryPreselect,100);
-    }
-  };
-  tryPreselect();
+  _sharedLedgerPrefill={type:'bank',id};
+  go('acc-shared-ledger');
 }
 
 /* ============================================================
@@ -13462,19 +13568,8 @@ async function voidCashOpening(id){
 }
 function viewCashBoxLedger(id){
   const b=(CACHE.cashBoxes||[]).find(x=>x.id===id);
-  const glCode=(usesExtendedCoa()&&b?.coa_code)?b.coa_code:('1101-'+id);
-  go('acc-dash');
-  let tries=0;
-  const tryPreselect=()=>{
-    const sel=el('glAccount');
-    if(sel && sel.querySelector(`option[value="${glCode}"]`)){
-      sel.value=glCode;
-      loadGeneralLedger(glCode);
-    } else if(tries++<40){
-      setTimeout(tryPreselect,100);
-    }
-  };
-  tryPreselect();
+  _sharedLedgerPrefill={type:b?.is_petty_cash?'petty':'cash',id};
+  go('acc-shared-ledger');
 }
 
 /* ============================================================
@@ -17617,6 +17712,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مانده مطالبات و بستانکار مشتریان</b> هم از دفتر کل تا تاریخ نوار حسابداری است؛ داشبورد، مطالبات، دفتر کل و صورت‌حساب در یک تاریخ قطع باید یکی باشند</li>
         <li>دفتر مشتری فقط <b>نمای دوم</b> است؛ اگر با دفتر کل اختلاف داشت هشدار نارنجی نشان داده می‌شود و خروجی صورت‌حساب عدد دفتر کل را می‌نویسد</li>
         <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها روی کل دوره است؛ جستجوی شرح فقط فهرست ردیف‌ها را محدود می‌کند و مانده را عوض نمی‌کند</li>
+        <li><b>دفتر مالی مشترک</b> (حسابداری → گزارشات): یک گزارش برای شخص، بانک، صندوق، تنخواه و حساب دفتر کل. مانده ابتدا + گردش خالص دوره = مانده انتها. منبع پول دفتر کل است؛ اگر شخص فقط دفتر معین داشته باشد همان با برچسب منبع نشان داده می‌شود. کاردکس کالا از <code>/api/ledgers/stock</code> خوانده می‌شود. خروجی CSV همان جمع‌ها را می‌نویسد. ویزیتور (<code>field_sales</code>) دسترسی ندارد</li>
         <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است؛ روی هر ستون دکمه ➕ حساب زیر همان والد می‌سازد</li>
         <li><b>سند دستی:</b> انتخاب آبشاری گروه→کل→معین→تفصیلی؛ فقط حساب برگ (بدون فرزند فعال) قابل ثبت است</li>
         <li><b>دریافت/پرداخت از حساب:</b> فقط حساب برگ در فهرست است</li>
@@ -17874,6 +17970,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
         <li><b>ابطال کامل (R13)</b>: برای فاکتور فروش/خرید، تسویه، هزینه، انتقال وجه، چک، عملیات انبار، انبارگردانی اعمال‌شده، پرداخت حقوق، افتتاحیه بانک/صندوق و اسناد دستی — ابطال = سند معکوس + برگرداندن موجودی/مانده/وابستگی‌ها (حذف فیزیکی سند ثبت‌شده نیست)</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب و مشاهده گردش با مانده لحظه‌ای</li>
+        <li><b>دفتر مالی مشترک</b>: شخص / بانک / صندوق / تنخواه / حساب + خروجی CSV؛ کاردکس کالا از دفتر موجودی جدا</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص</li>
         <li><b>کدینگ حساب‌ها</b>: در همان داشبورد یکپارچه — ساخت، ویرایش و <b>حذف</b> حساب (حذف فقط وقتی فرزند و گردش سند و اتصال موجودیت نداشته باشد). هزینه/درآمد عملیاتی با ساختار کل→معین قابل انتخاب در پرداخت هزینه و سند دستی هستند.</li>
@@ -18029,7 +18126,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v165</b> است و اسکریپت‌ها با <code>?v=165</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v166</b> است و اسکریپت‌ها با <code>?v=166</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

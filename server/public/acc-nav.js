@@ -50,6 +50,7 @@ const ACC_TAB_RESOLVE = {
   'acc-moadian-hub': 'moadian',
   'acc-petty-cash-ops': 'petty-cash',
   'acc-item-kardex': 'item-kardex',
+  'acc-shared-ledger': 'shared-ledger',
   'acc-consignments': 'consignments',
   'acc-trust-checks': 'trust-checks',
   'acc-cheque-register': 'cheque-register',
@@ -240,6 +241,7 @@ const ACC_NAV_SECTIONS = [
     ]},
     { title: 'گزارشات', items: [
       { id: 'acc-adv-reports', icon: '📊', label: 'داشبورد گزارشات' },
+      { id: 'acc-shared-ledger', icon: '📒', label: 'دفتر مالی مشترک' },
       { id: 'acc-trial-balance', icon: '⚖️', label: 'تراز آزمایشی' },
       { id: 'acc-financial-statement', icon: '🏛️', label: 'ترازنامه' },
       { id: 'acc-pl-statement', icon: '📈', label: 'صورت سود و زیان' },

@@ -370,6 +370,7 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/sms-module', require('./routes/sms-module'));
 app.use('/api/reps', require('./routes/rep-management'));
 app.use('/api/accounting', require('./routes/accounting'));
+app.use('/api/ledgers', require('./routes/ledgers'));
 app.use('/api/suppliers', require('./routes/suppliers'));
 app.use('/api/purchases', require('./routes/purchases'));
 app.use('/api/orders', require('./routes/orders'));
