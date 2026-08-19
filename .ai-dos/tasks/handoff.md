@@ -1,3 +1,12 @@
+## 2026-08-19T04:20:00+03:30 — HR-STITCH-P3 / HR-02 implementer checkpoint
+
+- **Owner/implementer:** `cursor:implementer-hr-02`
+- **Branch/worktree:** `ai/HR-STITCH-P3` / `D:/soft/Claud/porje/Run in the project/erp-taranom-hr-stitch-p3` @ base `7b3d60f`
+- **Done:** `user_invitations` (central-only, not in SYNCABLE_TABLES); random token hashed sha256; POST `/api/users/invitations`; GET/POST `/api/auth/invite/:token`; accept creates user + person/party link; `must_change_password=0`; reuse/expiry rejected; rate-limit via `consumeRateLimit`; Persian UI in `portal-ui.js` + tiny `app.js` hooks; Help + CHANGE-LOG; SW v161
+- **Gates:** test-hr-invite **37/37** · test-sms **22/22** · `node --check` OK · encoding PASS · `git diff --check` OK
+- **Out of scope:** payslip, ADR-007, Iran deploy, merge to `claude/claude-md-docs-2ssrpy`, cheque/variants/warehouses/consignments
+- **Exact next:** Independent Reviewer + Security (auth/crypto); then owner merge decision
+
 ## 2026-08-19 — UI-STITCH-IMPL merged + Iran deployed; next waves claimed
 
 - Owner approved merge/deploy. FF `ai/UI-STITCH-IMPL` → `claude/claude-md-docs-2ssrpy` @ `7dd5481`

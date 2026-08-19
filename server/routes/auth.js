@@ -21,6 +21,7 @@ const {
 const { validatePassword } = require('../lib/security');
 const { getSmsSettings } = require('../lib/secret-settings');
 const { sendSMS } = require('../sms');
+const { publicInviteView, acceptInvitation } = require('../lib/user-invitations');
 
 const OTP_TTL_SEC = 10 * 60;
 const MAX_OTP_ATTEMPTS = 5;
@@ -429,6 +430,56 @@ router.post('/reset-password', auth, adminOnly, (req, res) => {
   invalidateUserCache(+user_id);
   audit(req.user.id, 'reset_password', 'user', user_id, `بازنشانی رمز ${target.name} و ابطال همه نشست‌ها`, req);
   res.json({ ok: true });
+});
+
+function inviteClient(req) {
+  return String(req.ip || req.socket?.remoteAddress || 'unknown').slice(0, 128);
+}
+
+function rejectInviteRate(res, retryAfter) {
+  if (retryAfter > 0) res.setHeader('Retry-After', String(Math.max(1, Math.ceil(retryAfter))));
+  return res.status(429).json({
+    error: 'تعداد تلاش برای دعوت بیش از حد مجاز است. کمی بعد دوباره تلاش کنید.',
+    code: 'E_INVITE_RATE',
+  });
+}
+
+// Public: inspect a one-time staff invite (name only — no phone/email dump)
+router.get('/invite/:token', (req, res) => {
+  const ip = inviteClient(req);
+  const ipState = rateLimitStatus('invite_lookup_ip', ip);
+  if (!ipState.allowed) return rejectInviteRate(res, ipState.retryAfter);
+  consumeRateLimit('invite_lookup_ip', ip, { max: 60, windowSec: LOGIN_WINDOW_SEC, blockSec: LOGIN_WINDOW_SEC });
+  const db = getDB();
+  return res.json(publicInviteView(db, req.params.token));
+});
+
+router.post('/invite/:token/accept', (req, res) => {
+  const ip = inviteClient(req);
+  const ipState = rateLimitStatus('invite_accept_ip', ip);
+  if (!ipState.allowed) return rejectInviteRate(res, ipState.retryAfter);
+  const consumed = consumeRateLimit('invite_accept_ip', ip, {
+    max: 10, windowSec: LOGIN_WINDOW_SEC, blockSec: LOGIN_WINDOW_SEC,
+  });
+  if (!consumed.allowed) return rejectInviteRate(res, consumed.retryAfter);
+
+  const db = getDB();
+  try {
+    const accepted = acceptInvitation(db, {
+      rawToken: req.params.token,
+      username: req.body && req.body.username,
+      password: req.body && req.body.password,
+    });
+    audit(accepted.user_id, 'create', 'user', accepted.user_id, 'پذیرش دعوت و ساخت حساب', req);
+    clearRateLimit('invite_accept_ip', ip);
+    return res.json({
+      ok: true,
+      username: accepted.username,
+      must_change_password: 0,
+    });
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message || 'خطا در پذیرش دعوت', code: err.code });
+  }
 });
 
 router.get('/users', auth, adminOnly, (req, res) => {

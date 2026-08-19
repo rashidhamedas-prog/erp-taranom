@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — HR-02 دعوت امن کاربر (شاخه ai/HR-STITCH-P3)
+- **شاخه:** `ai/HR-STITCH-P3` (base `7b3d60f`)
+- **خلاصه:** جدول مرکزی `user_invitations` با هش sha256 توکن تصادفی، انقضای ۷۲ ساعت و یک‌بارمصرف. ساخت دعوت فقط مدیر/حسابدار روی مرکز. پذیرش عمومی با نام کاربری و رمز (حداقل ۸، حرف+عدد)؛ حساب با `must_change_password=0` و لینک شخص/طرف‌حساب. بدون سینک دستگاه.
+- **فایل‌های کلیدی:** `server/lib/user-invitations.js`, `server/routes/user-invitations.js`, `server/routes/auth.js`, `server/db.js`, `server/public/portal-ui.js`, `server/public/app.js`, `server/scripts/test-hr-invite.js`
+- **تست:** `test-hr-invite.js` ۳۷/۳۷ · `test-sms.js` ۲۲/۲۲
+- **Deploy:** ⏭ اعمال نشد — بدون merge به primary و بدون Iran/PM2
+- **SW:** `erp-taranom-v161`
+
 ### 2026-08-19 — UI-STITCH-IMPL merge + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `7dd5481` ← FF `ai/UI-STITCH-IMPL`
 - **خلاصه:** موج حسابداری Stitch (OPS-01، TRS-02، ACC-01..06، INV-01، ACC-04 cutoff) پس از dual APPROVED merge و deploy شد.

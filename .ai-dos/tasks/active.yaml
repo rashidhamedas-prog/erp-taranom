@@ -41,18 +41,26 @@ tasks:
     risk: "high"
     owner: "cursor:implementer-hr-02"
     branch: "ai/HR-STITCH-P3"
-    base_commit: "7dd5481"
+    base_commit: "7b3d60f"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-hr-stitch-p3"
     claimed_at: "2026-08-19T03:50:00+03:30"
     file_claims:
-      - "server/lib/portal-users.js"
+      - "server/lib/user-invitations.js"
+      - "server/routes/user-invitations.js"
       - "server/routes/auth.js"
       - "server/db.js"
+      - "server/server.js"
+      - "server/sync/capture.js"
       - "server/public/portal-ui.js"
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
       - "server/scripts/test-hr-invite.js"
+      - "docs/CHANGE-LOG.md"
     notes: >-
-      Token invite + expiry + accept; no static password. Payslip self-service if time.
-      Do not claim app.js until INV/TRS API waves finish, or only add invite modal with care.
-      No ADR-007. No Iran merge until dual review + this wave deploy policy.
+      HR-02 only: hashed invite token, 72h expiry, accept once. app.js is
+      minimal (help + person button + /invite boot hook). No payslip.
+      No ADR-007. No Iran merge/deploy. portal-users.js unchanged.
     acceptance_criteria:
       - "user_invitations table; hashed token; expiry; used_at"
       - "Invite creates no known password; accept sets user + person link"

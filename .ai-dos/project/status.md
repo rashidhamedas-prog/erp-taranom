@@ -6,6 +6,7 @@
   health/ready/root **200**; SW `erp-taranom-v160`
 - **Next (parallel, ADR-007 closed):** HR-STITCH-P3 · INV-STITCH-P4 · TRS-STITCH-P6
   Skip PROD/PACK. CON + POS-01/02 + Phase 8 after APIs.
+- **HR-STITCH-P3:** implementer checkpoint on `ai/HR-STITCH-P3` — invite table/API/UI done; SW v161; no Iran deploy; review PENDING
 - **DEMO-V3-GUIDED-SALES:** `completed` — dual APPROVED + owner merge/deploy
   Primary `bb868c5`; SFTP stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`
   health/demo/seed 200; public `https://erp.poshaktaranom.com/demo.html`
