@@ -1,3 +1,16 @@
+## 2026-08-19 — CON-01/02 implementer done on ca6f5a2 (pre-review)
+
+- [CON-01/02 consignment](16450d8f-c62d-49b4-af27-bd973dcd570d) shipped `ai/CON-STITCH-P7` @ `ca6f5a2`
+- Person FK, warehouse issue/receipt, four settle paths, sale-only invoice, R13 no physical delete
+- test-con-stitch-p7 **47/47** · SMS **22/22**; SW v164
+- Dual review next. **NO merge / Iran deploy** until Independent + Security APPROVED
+
+## 2026-08-19 — CON-STITCH-P7 claimed (CON-01/02)
+
+- Owner: execute next wave after HR+INV+TRS Iran v163
+- Claims: consignments.js, lib/consignments.js, test-con-stitch-p7.js, db.js
+- LED-01 and POS deferred. No merge until dual review
+
 ## 2026-08-19 — HR+INV+TRS Iran SFTP v163 @ 02872a5
 
 - Stamp `.sftp-deploy-stamp-stitch-v163` = `2026-08-19T01:34:41Z hash=02872a5`

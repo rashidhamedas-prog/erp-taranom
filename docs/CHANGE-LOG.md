@@ -13,6 +13,11 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — CON-01/02 implementer (pre-merge)
+- **شاخه:** `ai/CON-STITCH-P7` @ `ca6f5a2`
+- **خلاصه:** طرف‌حساب شخص، چهار مسیر تسویه، فقط فروش فاکتور. تست ۴۷/۴۷. SW v164. منتظر dual review.
+- **Deploy:** اعمال نشد
+
 ### 2026-08-19 — HR+INV+TRS merge + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `02872a5`
 - **خلاصه:** دعوت امن، رنگ hex، جستجوی انبار ATP، پرداخت/خرج چک پس از dual APPROVED merge و deploy شد.
