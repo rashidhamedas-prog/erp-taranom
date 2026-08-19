@@ -4,8 +4,8 @@
 - **UI-STITCH-IMPL:** `completed` — dual APPROVED + owner merge/deploy
   Primary `7dd5481`; SFTP stamp `.sftp-deploy-stamp-stitch-v160` = `2026-08-19T00:19:57Z hash=7dd5481`
   health/ready/root **200**; SW `erp-taranom-v160`
-- **Next (parallel, ADR-007 closed):** HR-STITCH-P3 @ `fdb39ae` (M1 log-redact shipped; Independent re-review) · INV-STITCH-P4 @ `d1ea078` (review PENDING) · TRS-STITCH-P6 @ `ca4e22a` (dual APPROVED, wait rebase)
-  Skip PROD/PACK. CON + POS-01/02 + Phase 8 after APIs. No merge until HR M1 + INV dual.
+- **Next (parallel, ADR-007 closed):** HR-STITCH-P3 @ `6c65660` (role+log fixes shipped; Independent re-review) · INV-STITCH-P4 @ `d1ea078` (dual APPROVED) · TRS-STITCH-P6 @ `ca4e22a` (dual APPROVED)
+  Skip PROD/PACK. No merge until HR Independent APPROVED then rebase `app.js`.
 - **DEMO-V3-GUIDED-SALES:** `completed` — dual APPROVED + owner merge/deploy
   Primary `bb868c5`; SFTP stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`
   health/demo/seed 200; public `https://erp.poshaktaranom.com/demo.html`

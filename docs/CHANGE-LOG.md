@@ -13,6 +13,21 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — HR-02 intended_role (pre-merge)
+- **شاخه:** `ai/HR-STITCH-P3` @ `6c65660`
+- **خلاصه:** نقش دعوت ذخیره می‌شود؛ مدیر ساخته نمی‌شود. تست ۵۱/۵۱. SW v162. منتظر re-review.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — INV-02/03 dual APPROVED (pre-merge)
+- **شاخه:** `ai/INV-STITCH-P4` @ `d1ea078`
+- **خلاصه:** Independent و Security هر دو APPROVED. منتظر HR و rebase.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — HR-02 Independent: نقش ثابت field_sales (M1)
+- **شاخه:** `ai/HR-STITCH-P3` @ `fdb39ae` (بازبینی روی `bc6b975`)
+- **خلاصه:** دعوت نباید همه را کارشناس فروش کند. نقش از فهرست مجاز در ساخت دعوت. اصلاح در جریان.
+- **Deploy:** اعمال نشد
+
 ### 2026-08-19 — HR-02 M1 log-redact (pre-merge)
 - **شاخه:** `ai/HR-STITCH-P3` @ `fdb39ae`
 - **خلاصه:** توکن خام دعوت از `path` لاگ حذف شد. تست دعوت ۳۸/۳۸ و observability ۱۲/۱۲. منتظر re-review Independent.

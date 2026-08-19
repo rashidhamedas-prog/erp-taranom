@@ -1,3 +1,24 @@
+## 2026-08-19 — HR-02 intended_role on 6c65660 (re-review)
+
+- [HR-02 invitation](93b50704-54ab-430b-bb9e-af7fc99a3186) closed Independent role M1: persist `intended_role`, never `admin`, accounting-invite admin-only, accept ignores client role
+- Tip `ai/HR-STITCH-P3` @ `6c65660`; invite **51/51** · obs **12/12** · SMS **22/22**; SW v162
+- Also keeps `sanitizeLogPath` from `fdb39ae`. Dual re-review of both M1s next
+- **NO merge / Iran deploy**
+
+## 2026-08-19 — INV-02/03 dual APPROVED on d1ea078
+
+- [Independent INV-02/03](0b08900f-5d27-4e4a-9355-0f74e10d4598) **APPROVED** H0/M0 (Lows: stale ATP, GET reservation expiry, inactive hex lock)
+- [Security INV](ebbc2bb0-af74-40b8-bf73-d369856d1e28) **APPROVED** C0/H0/M0
+- **NO merge** until HR Independent APPROVED; then rebase `app.js` with TRS
+
+## 2026-08-19 — HR-02 Independent CHANGES_REQUIRED (hardcoded field_sales)
+
+- [Independent HR-02](fcc70551-7f87-4354-9554-8cfeb3d556c6) on `bc6b975` **CHANGES_REQUIRED** Medium: accept always inserts `role='field_sales'` (sales write for every invited person)
+- Distinct from log-redact M1 ([Independent HR-02](b61c3c16-2e0f-4141-81d4-29a60bb9649c)); both merge-blocking
+- Fix: allow-listed `role` on create (never `admin`; `accounting` only if creator is admin); persist on invite; accept must not take role from client. Default omitted body stays `field_sales` for sales invites
+- Confirmatory Security [Security HR-02](f8aff36f-d58e-42d6-919f-9f4b318d76bc) **APPROVED** on `bc6b975` (same as fff3c354)
+- **NO merge / Iran deploy**
+
 ## 2026-08-19 — HR-02 M1 log-redact on fdb39ae (Independent re-review)
 
 - [HR-02 invitation](93b50704-54ab-430b-bb9e-af7fc99a3186) closed Independent M1: `sanitizeLogPath` redacts invite tokens in `http_request` path
