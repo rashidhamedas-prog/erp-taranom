@@ -1,3 +1,18 @@
+## 2026-08-19 — CON M1–M3 fix on f79127c (re-review)
+
+- [CON-01/02 consignment](16450d8f-c62d-49b4-af27-bd973dcd570d) closed Independent M1–M3
+- in+sale needs distinct buyer; out+sale posts COGS without second qty drop; FK remap settle_je_id/issue_ledger_id
+- Tests **61/61** · SMS **22/22**. Independent re-review + Security delta next
+- **NO merge / Iran deploy**
+
+## 2026-08-19 — CON Independent CHANGES_REQUIRED M1–M3
+
+- [Independent CON](9cb86e60-da40-402a-ad31-a3b275b3531f) **CHANGES_REQUIRED** on `ca6f5a2` (47/47 still green)
+- M1: `in`+sale must not invoice the consignor / Dr AP; require a distinct buyer `cust_id`/`buyer_person_id`
+- M2: `out`+sale must post inventory GL + COGS (qty already issued; no second warehouse qty drop)
+- M3: append `consignments.settle_je_id` and `issue_ledger_id` to `FK_COLUMNS`
+- Security already APPROVED. Implementer fix next. **NO merge / Iran deploy**
+
 ## 2026-08-19 — CON-01/02 Security APPROVED on ca6f5a2
 
 - [Security CON](dfe2d2bd-b84a-492f-b0cc-1a29b298c894) **APPROVED** C0/H0/M0 — person FK, RBAC, no double stock, JE, sync, R13 void
