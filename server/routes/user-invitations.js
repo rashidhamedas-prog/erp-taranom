@@ -10,12 +10,18 @@ router.post('/invitations', auth, adminOrAccounting, centralOnlyStrict, (req, re
   }
   const db = getDB();
   try {
-    const created = createInvitation(db, { personId, createdBy: req.user.id });
-    audit(req.user.id, 'create', 'user_invitation', created.id, `دعوت کاربر برای شخص #${personId}`, req);
+    const created = createInvitation(db, {
+      personId,
+      createdBy: req.user.id,
+      role: req.body && req.body.role,
+      actorRole: req.user.role,
+    });
+    audit(req.user.id, 'create', 'user_invitation', created.id, `دعوت کاربر برای شخص #${personId} نقش ${created.intended_role}`, req);
     return res.json({
       token: created.token,
       expires_at: created.expires_at,
       invite_url: created.invite_url,
+      intended_role: created.intended_role,
     });
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message || 'خطا در ساخت دعوت', code: err.code });

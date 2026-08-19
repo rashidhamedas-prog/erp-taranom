@@ -5,9 +5,42 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { validatePassword } = require('./security');
+const { DEFAULT_ROLE_PERMISSIONS } = require('./rbac');
 
 const INVITE_TTL_SEC = 72 * 60 * 60;
 const TOKEN_BYTES = 32;
+const DEFAULT_INVITE_ROLE = 'field_sales';
+
+function inviteableRoles() {
+  return Object.keys(DEFAULT_ROLE_PERMISSIONS).filter((role) => role !== 'admin');
+}
+
+function inviteRoleError(message, status) {
+  const err = new Error(message);
+  err.status = status || 400;
+  err.code = 'E_INVITE_ROLE';
+  return err;
+}
+
+/** Empty/null → field_sales. Never admin. Accounting only if actor is admin. */
+function resolveIntendedRole(raw, actorRole) {
+  if (raw == null || raw === '') return DEFAULT_INVITE_ROLE;
+  const role = String(raw).trim();
+  if (!role) return DEFAULT_INVITE_ROLE;
+  if (role === 'admin' || !inviteableRoles().includes(role)) {
+    throw inviteRoleError('نقش دعوت نامعتبر است');
+  }
+  if (role === 'accounting' && String(actorRole || '') !== 'admin') {
+    throw inviteRoleError('فقط مدیر سیستم می‌تواند حسابدار دعوت کند', 403);
+  }
+  return role;
+}
+
+function roleFromInviteRow(row) {
+  const stored = String((row && row.intended_role) || '').trim() || DEFAULT_INVITE_ROLE;
+  if (stored === 'admin' || !inviteableRoles().includes(stored)) return DEFAULT_INVITE_ROLE;
+  return stored;
+}
 
 function nowSec() {
   return Math.floor(Date.now() / 1000);
@@ -65,7 +98,7 @@ function existingUserForPerson(db, person) {
   return null;
 }
 
-function createInvitation(db, { personId, createdBy, ttlSec }) {
+function createInvitation(db, { personId, createdBy, ttlSec, role, actorRole }) {
   const person = db.prepare('SELECT * FROM persons WHERE id=?').get(Number(personId));
   if (!person) {
     const err = new Error('شخص یافت نشد');
@@ -81,6 +114,7 @@ function createInvitation(db, { personId, createdBy, ttlSec }) {
     throw err;
   }
 
+  const intendedRole = resolveIntendedRole(role, actorRole);
   const raw = generateInviteToken();
   if (raw === '12345' || raw === 'admin123') {
     const err = new Error('تولید توکن دعوت ناموفق بود');
@@ -94,10 +128,16 @@ function createInvitation(db, { personId, createdBy, ttlSec }) {
       UPDATE user_invitations SET expires_at=?
       WHERE person_id=? AND used_at IS NULL AND expires_at>?
     `).run(nowSec(), person.id, nowSec());
-    const result = db.prepare(`
-      INSERT INTO user_invitations (person_id, token_hash, expires_at, invited_email, created_by)
-      VALUES (?,?,?,?,?)
-    `).run(person.id, hashInviteToken(raw), expiresAt, personContact(person), createdBy || null);
+    const cols = tableColumns(db, 'user_invitations');
+    const fields = ['person_id', 'token_hash', 'expires_at', 'invited_email', 'created_by'];
+    const values = [person.id, hashInviteToken(raw), expiresAt, personContact(person), createdBy || null];
+    if (cols.includes('intended_role')) {
+      fields.push('intended_role');
+      values.push(intendedRole);
+    }
+    const result = db.prepare(
+      `INSERT INTO user_invitations (${fields.join(',')}) VALUES (${fields.map(() => '?').join(',')})`
+    ).run(...values);
     return result.lastInsertRowid;
   })();
 
@@ -107,6 +147,7 @@ function createInvitation(db, { personId, createdBy, ttlSec }) {
     expires_at: expiresAt,
     invite_url: `/invite?token=${encodeURIComponent(raw)}`,
     person_id: person.id,
+    intended_role: intendedRole,
   };
 }
 
@@ -203,7 +244,8 @@ function acceptInvitation(db, { rawToken, username, password }) {
     const hash = bcrypt.hashSync(pass, 10);
     const userCols = tableColumns(db, 'users');
     const fields = ['name', 'username', 'password', 'role', 'active', 'must_change_password'];
-    const values = [person.name || userName, userName, hash, 'field_sales', 1, 0];
+    const intendedRole = roleFromInviteRow(row);
+    const values = [person.name || userName, userName, hash, intendedRole, 1, 0];
     if (userCols.includes('phone')) {
       fields.push('phone');
       values.push(String(person.phone || '').trim());
@@ -246,6 +288,7 @@ function acceptInvitation(db, { rawToken, username, password }) {
       user_id: userId,
       username: userName,
       person_id: person.id,
+      role: intendedRole,
       must_change_password: 0,
     };
   })();
@@ -253,6 +296,9 @@ function acceptInvitation(db, { rawToken, username, password }) {
 
 module.exports = {
   INVITE_TTL_SEC,
+  DEFAULT_INVITE_ROLE,
+  inviteableRoles,
+  resolveIntendedRole,
   hashInviteToken,
   generateInviteToken,
   createInvitation,

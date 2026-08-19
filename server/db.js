@@ -1661,6 +1661,7 @@ function initSyncSchema(db) {
       expires_at INTEGER NOT NULL,
       used_at INTEGER,
       invited_email TEXT,
+      intended_role TEXT,
       created_by INTEGER,
       created_at INTEGER DEFAULT (strftime('%s','now')),
       FOREIGN KEY(person_id) REFERENCES persons(id)
@@ -1877,6 +1878,7 @@ function initSyncSchema(db) {
     ensureColumn(db, 'user_invitations', 'expires_at', 'INTEGER');
     ensureColumn(db, 'user_invitations', 'used_at', 'INTEGER');
     ensureColumn(db, 'user_invitations', 'invited_email', 'TEXT');
+    ensureColumn(db, 'user_invitations', 'intended_role', 'TEXT');
     ensureColumn(db, 'user_invitations', 'created_by', 'INTEGER');
     ensureColumn(db, 'user_invitations', 'created_at', "INTEGER DEFAULT (strftime('%s','now'))");
   }

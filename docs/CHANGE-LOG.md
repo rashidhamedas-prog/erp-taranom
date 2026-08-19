@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — HR-02 نقش دعوت (نه همیشه field_sales)
+- **شاخه:** `ai/HR-STITCH-P3`
+- **خلاصه:** ستون `intended_role` روی دعوت. نقش اختیاری در POST؛ پیش‌فرض `field_sales`؛ `admin` ممنوع؛ حسابدار فقط توسط مدیر. پذیرش فقط نقش ذخیره‌شده را می‌خواند. UI انتخاب نقش + راهنما.
+- **فایل‌ها:** `server/db.js`, `server/lib/user-invitations.js`, `server/routes/user-invitations.js`, `server/public/portal-ui.js`, `server/public/app.js`, `server/scripts/test-hr-invite.js`
+- **تست:** test-hr-invite ۵۱/۵۱ · observability ۱۲/۱۲ · test-sms ۲۲/۲۲
+- **SW:** `erp-taranom-v162`
+- **Deploy:** ⏭ اعمال نشد — بدون merge/Iran/PM2
+
 ### 2026-08-19 — HR-02 M1: حذف توکن دعوت از لاگ مسیر
 - **شاخه:** `ai/HR-STITCH-P3`
 - **خلاصه:** `sanitizeLogPath` توکن خام `/api/auth/invite/…` و `/invite?token=` را در `requestIdMiddleware` / `jsonLog` با `[REDACTED]` عوض می‌کند. API عمومی عوض نشد.

@@ -1,3 +1,9 @@
+## 2026-08-19T04:50:00+03:30 — HR-02 Independent role Medium
+
+- **Owner:** `cursor:implementer-hr-02` on `ai/HR-STITCH-P3`
+- Independent Medium: no more hardcoded `field_sales`. `intended_role` persisted; admin never invited; accounting-invite admin-only; accept ignores body.role.
+- M1 `sanitizeLogPath` kept. Security crypto not reopened. No merge/deploy.
+
 ## 2026-08-19T04:40:00+03:30 — HR-02 Independent M1 fix
 
 - **Owner:** `cursor:implementer-hr-02` on `ai/HR-STITCH-P3`

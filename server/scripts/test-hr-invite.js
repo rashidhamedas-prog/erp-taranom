@@ -36,7 +36,7 @@ const { SYNCABLE_TABLES } = require('../sync/tables');
 
 console.log('\n— schema + sync hygiene —');
 const cols = db.prepare('PRAGMA table_info(user_invitations)').all().map((c) => c.name);
-['id', 'person_id', 'token_hash', 'expires_at', 'used_at', 'invited_email', 'created_by', 'created_at']
+['id', 'person_id', 'token_hash', 'expires_at', 'used_at', 'invited_email', 'intended_role', 'created_by', 'created_at']
   .forEach((c) => ok(cols.includes(c), 'column ' + c));
 ok(!SYNCABLE_TABLES.some((t) => t.name === 'user_invitations'), 'user_invitations not in SYNCABLE_TABLES');
 ok(db.prepare("PRAGMA table_info(users)").all().some((c) => c.name === 'person_id'), 'users.person_id');
@@ -66,9 +66,10 @@ ok(sanitizeLogPath('/api/auth/invite/HrInviteRawToken_TEST_abc123XYZ') === '/api
   const { port } = server.address();
   const BASE = `http://127.0.0.1:${port}`;
 
-  async function api(method, p, body, withAuth) {
+  async function api(method, p, body, authTok) {
     const headers = { 'Content-Type': 'application/json' };
-    if (withAuth) headers.Authorization = 'Bearer ' + token;
+    if (authTok === true) headers.Authorization = 'Bearer ' + token;
+    else if (typeof authTok === 'string') headers.Authorization = 'Bearer ' + authTok;
     const res = await fetch(BASE + p, {
       method,
       headers,
@@ -94,6 +95,7 @@ ok(sanitizeLogPath('/api/auth/invite/HrInviteRawToken_TEST_abc123XYZ') === '/api
   ok(ttl > 70 * 3600 && ttl <= INVITE_TTL_SEC + 5, 'expiry default ~72h', String(ttl));
 
   const stored = db.prepare('SELECT * FROM user_invitations WHERE person_id=? ORDER BY id DESC').get(personId);
+  ok(stored && stored.intended_role === 'field_sales', 'omit role defaults intended_role=field_sales');
   ok(stored && stored.token_hash === hashInviteToken(raw), 'only sha256 hash stored');
   ok(stored.token_hash !== raw, 'raw token not persisted');
   ok(!JSON.stringify(created.data).includes(stored.token_hash) || created.data.token, 'response is token not dump');
@@ -115,6 +117,7 @@ ok(sanitizeLogPath('/api/auth/invite/HrInviteRawToken_TEST_abc123XYZ') === '/api
   ok(accepted.data.must_change_password === 0, 'must_change_password=0');
   const user = db.prepare('SELECT * FROM users WHERE username=?').get('sara.invite');
   ok(!!user, 'users row created');
+  ok(user.role === 'field_sales', 'default accept role field_sales');
   ok(user.must_change_password === 0, 'db must_change_password=0');
   ok(user.person_id === personId, 'users.person_id linked');
   ok(user.party_id == null || Number(user.party_id) > 0, 'party link optional/ok');
@@ -143,6 +146,52 @@ ok(sanitizeLogPath('/api/auth/invite/HrInviteRawToken_TEST_abc123XYZ') === '/api
 
   const bogus = await api('GET', '/api/auth/invite/' + crypto.randomBytes(16).toString('hex'), undefined, false);
   ok(bogus.data.status === 'invalid' && !bogus.data.person_name, 'unknown token invalid without name');
+
+  console.log('\n— invite intended_role —');
+  const rejectAdmin = await api('POST', '/api/users/invitations', { person_id: person2, role: 'admin' }, true);
+  ok(rejectAdmin.status === 400 && rejectAdmin.data.code === 'E_INVITE_ROLE', 'reject admin role', String(rejectAdmin.status));
+
+  const person3 = db.prepare("INSERT INTO persons (name, phone) VALUES ('نرگس داخلی','09120003333')").run().lastInsertRowid;
+  const created3 = await api('POST', '/api/users/invitations', { person_id: person3, role: 'inside_sales' }, true);
+  ok(created3.status === 200 && created3.data.intended_role === 'inside_sales', 'store inside_sales');
+  const raw3 = created3.data.token;
+  const accepted3 = await api('POST', '/api/auth/invite/' + encodeURIComponent(raw3) + '/accept', {
+    username: 'narges.inside', password: 'NargesIn9', role: 'admin',
+  }, false);
+  ok(accepted3.status === 200, 'accept inside_sales 200', String(accepted3.status));
+  const user3 = db.prepare('SELECT role FROM users WHERE username=?').get('narges.inside');
+  ok(user3 && user3.role === 'inside_sales', 'accept uses stored inside_sales, ignores body role');
+
+  const person4 = db.prepare("INSERT INTO persons (name, phone) VALUES ('پخش تست','09120004444')").run().lastInsertRowid;
+  const created4 = await api('POST', '/api/users/invitations', { person_id: person4, role: 'distribution_office' }, true);
+  ok(created4.status === 200, 'store distribution_office');
+  const accepted4 = await api('POST', '/api/auth/invite/' + encodeURIComponent(created4.data.token) + '/accept', {
+    username: 'pakhsh.office', password: 'PakhshOf9', role: 'accounting',
+  }, false);
+  ok(accepted4.status === 200, 'accept distribution_office 200');
+  ok(db.prepare('SELECT role FROM users WHERE username=?').get('pakhsh.office')?.role === 'distribution_office',
+    'accept ignores body accounting, keeps distribution_office');
+
+  const bcrypt = require('bcryptjs');
+  const accId = db.prepare(`
+    INSERT INTO users (name, username, password, role, active, must_change_password)
+    VALUES ('حسابدار دعوت','acc.inviter',?, 'accounting', 1, 0)
+  `).run(bcrypt.hashSync('AccInviter9', 10)).lastInsertRowid;
+  const accUser = db.prepare('SELECT id,username,role,name,phone,auth_epoch FROM users WHERE id=?').get(accId);
+  const accTok = issueStaffSession(db, accUser, {
+    device_kind: 'test',
+    device_name: 'hr-invite-acc',
+    device_fingerprint: 'hr-invite-acc-fp',
+  }).token;
+  const person5 = db.prepare("INSERT INTO persons (name, phone) VALUES ('حسابدار ممنوع','09120005555')").run().lastInsertRowid;
+  const accInviteAcc = await api('POST', '/api/users/invitations', { person_id: person5, role: 'accounting' }, accTok);
+  ok(accInviteAcc.status === 403 && accInviteAcc.data.code === 'E_INVITE_ROLE',
+    'accounting cannot invite accounting', String(accInviteAcc.status));
+  ok(!db.prepare("SELECT id FROM user_invitations WHERE person_id=? AND intended_role='accounting'").get(person5),
+    'no accounting invite stored by accounting actor');
+  const accInviteOk = await api('POST', '/api/users/invitations', { person_id: person5, role: 'field_sales' }, accTok);
+  ok(accInviteOk.status === 200 && accInviteOk.data.intended_role === 'field_sales',
+    'accounting can invite field_sales');
 
   await new Promise((resolve) => server.close(resolve));
   console.log('\n' + (fail ? `❌ ${fail} failed, ${pass} passed` : `🎉 ${pass} passed, 0 failed`));

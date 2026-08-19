@@ -1294,34 +1294,82 @@
     }
   }
 
+  function inviteRoleOptionsHtml() {
+    const actor = (typeof ME !== 'undefined' && ME && ME.role) ? ME.role : '';
+    const rows = [
+      ['field_sales', 'کارشناس میدانی (حضوری)'],
+      ['inside_sales', 'کارشناس داخلی (تلفنی)'],
+      ['distribution_office', 'دفتر پخش'],
+      ['sales_manager', 'مدیر فروش'],
+      ['production_manager', 'مدیر تولید'],
+      ['production_operator', 'اپراتور تولید'],
+      ['unit_manager', 'مدیر واحد عملیاتی'],
+      ['department_manager', 'مدیر بخش'],
+    ];
+    if (actor === 'admin') rows.splice(4, 0, ['accounting', 'حسابدار (بخش حسابداری)']);
+    return rows.map(([value, label]) =>
+      `<option value="${value}" ${value === 'field_sales' ? 'selected' : ''}>${label}</option>`
+    ).join('');
+  }
+
+  function showInviteLinkModal(abs) {
+    if (typeof openModal !== 'function') {
+      if (typeof showToast === 'function') showToast('دعوت ساخته شد');
+      return;
+    }
+    openModal(`
+      <div class="modal-head"><h3>دعوت به ورود</h3><button class="x" data-csp-click="${CSP.bind('click', function () { closeModal(); })}">×</button></div>
+      <div class="modal-body">
+        <p class="muted" data-csp-style="${CSP.style('font-size:13px;line-height:1.9;margin-bottom:10px')}">لینک یک‌بارمصرف است و تا ۷۲ ساعت اعتبار دارد. رمز از پیش ساخته نمی‌شود؛ دعوت‌شونده خودش نام کاربری و رمز را انتخاب می‌کند. نقش را دعوت‌کننده انتخاب کرده و دعوت‌شونده نمی‌تواند آن را عوض کند.</p>
+        <div class="fg full"><label>لینک دعوت</label>
+          <input id="hr-invite-url" dir="ltr" readonly value="${esc(abs)}"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-csp-click="${CSP.bind('click', function () { copyInviteLink(abs); })}">کپی لینک</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click', function () { closeModal(); })}">بستن</button>
+      </div>`);
+  }
+
+  async function sendPersonInvite(personId) {
+    const id = parseInt(personId, 10);
+    const roleEl = typeof el === 'function' ? el('hr-invite-role') : document.getElementById('hr-invite-role');
+    const role = roleEl ? String(roleEl.value || '').trim() : '';
+    try {
+      const r = await api('POST', '/users/invitations', { person_id: id, role: role || undefined });
+      const path = r.invite_url || ('/invite?token=' + encodeURIComponent(r.token));
+      showInviteLinkModal((location.origin || '') + path);
+    } catch (e) {
+      if (typeof showToast === 'function') showToast((e && e.message) || 'خطا در ساخت دعوت', 'error');
+    }
+  }
+
   async function invitePersonUser(personId) {
     const id = parseInt(personId, 10);
     if (!id) {
       if (typeof showToast === 'function') showToast('ابتدا شخص را ذخیره کنید', 'error');
       return;
     }
-    try {
-      const r = await api('POST', '/users/invitations', { person_id: id });
-      const path = r.invite_url || ('/invite?token=' + encodeURIComponent(r.token));
-      const abs = (location.origin || '') + path;
-      if (typeof openModal === 'function') {
-        openModal(`
-          <div class="modal-head"><h3>دعوت به ورود</h3><button class="x" data-csp-click="${CSP.bind('click', function () { closeModal(); })}">×</button></div>
-          <div class="modal-body">
-            <p class="muted" data-csp-style="${CSP.style('font-size:13px;line-height:1.9;margin-bottom:10px')}">لینک یک‌بارمصرف است و تا ۷۲ ساعت اعتبار دارد. رمز از پیش ساخته نمی‌شود؛ دعوت‌شونده خودش نام کاربری و رمز را انتخاب می‌کند.</p>
-            <div class="fg full"><label>لینک دعوت</label>
-              <input id="hr-invite-url" dir="ltr" readonly value="${esc(abs)}"></div>
-          </div>
-          <div class="modal-foot">
-            <button class="btn" data-csp-click="${CSP.bind('click', function () { copyInviteLink(abs); })}">کپی لینک</button>
-            <button class="btn ghost" data-csp-click="${CSP.bind('click', function () { closeModal(); })}">بستن</button>
-          </div>`);
-      } else if (typeof showToast === 'function') {
-        showToast('دعوت ساخته شد');
+    if (typeof openModal !== 'function') {
+      try {
+        const r = await api('POST', '/users/invitations', { person_id: id });
+        if (typeof showToast === 'function') showToast('دعوت ساخته شد');
+        return r;
+      } catch (e) {
+        if (typeof showToast === 'function') showToast((e && e.message) || 'خطا در ساخت دعوت', 'error');
+        return;
       }
-    } catch (e) {
-      if (typeof showToast === 'function') showToast((e && e.message) || 'خطا در ساخت دعوت', 'error');
     }
+    openModal(`
+      <div class="modal-head"><h3>دعوت به ورود</h3><button class="x" data-csp-click="${CSP.bind('click', function () { closeModal(); })}">×</button></div>
+      <div class="modal-body">
+        <p class="muted" data-csp-style="${CSP.style('font-size:13px;line-height:1.9;margin-bottom:10px')}">نقش ورود را انتخاب کنید. مدیر سیستم قابل دعوت نیست. حسابدار فقط توسط مدیر دعوت می‌شود.</p>
+        <div class="fg full"><label>نقش</label>
+          <select id="hr-invite-role">${inviteRoleOptionsHtml()}</select></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-csp-click="${CSP.bind('click', function () { sendPersonInvite(id); })}">ساخت لینک دعوت</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click', function () { closeModal(); })}">انصراف</button>
+      </div>`);
   }
 
   async function submitInviteAccept(token) {
@@ -1477,6 +1525,7 @@
     postInventoryNrv,
     reloadReport,
     invitePersonUser,
+    sendPersonInvite,
     maybeShowInviteAccept,
     copyInviteLink,
   };
