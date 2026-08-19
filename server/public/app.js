@@ -12411,36 +12411,169 @@ async function saveFxRate(){
     closeModal(); showToast('نرخ ثبت شد'); await renderFxRatesTable();
   }catch(e){}
 }
-let POS_DEVICES=JSON.parse(localStorage.getItem('crm_pos_devices')||'[]');
 async function renderPosDevicesTab(body){
+  let terminals=[], receipts=[], batches=[], banks=[];
+  try{ terminals=await api('GET','/pos/terminals?all=1')||[]; }catch(e){ terminals=[]; }
+  try{ receipts=await api('GET','/pos/receipts')||[]; }catch(e){ receipts=[]; }
+  try{ batches=await api('GET','/pos/batches')||[]; }catch(e){ batches=[]; }
+  try{ banks=(await api('GET','/banks')||[]).filter(b=>Number(b.active)!==0); }catch(e){ banks=[]; }
+  const stLabel={open:'باز',partial:'جزئی',settled:'تسویه‌شده',reversed:'ابطال‌شده',posted:'ثبت‌شده'};
   body.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">دستگاه‌های کارت‌خوان (POS) — شماره پایانه، بانک پذیرنده، حساب واریزی</div>
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){posDeviceModal()})}">➕ دستگاه جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>شماره پایانه</th><th>بانک</th><th>حساب واریزی</th><th>عملیات</th></tr></thead>
-    <tbody>${POS_DEVICES.map((d,i)=>`<tr>
-      <td>${esc(d.name)}</td><td class="mono">${esc(d.terminal_id)}</td><td>${esc(d.bank||'-')}</td>
-      <td class="mono muted">${esc(d.account||'-')}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePosDevice((i))})}">🗑️</button></td>
-    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">کارتخوان — تعریف پایانه روی بانک فعال، دریافت به حساب «در راه»، سپس تسویه دسته‌ای به بانک (کارمزد/کسری جدا)</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){posDeviceModal()})}">➕ کارتخوان جدید</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){posReceiptModal()})}">💳 ثبت دریافت</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){posBatchModal()})}">🏦 تسویه دسته‌ای</button>
+    </div>
+    <h4>پایانه‌ها</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>شماره پایانه</th><th>بانک / حساب</th><th>پذیرنده</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+    <tbody>${(terminals||[]).map(d=>`<tr>
+      <td>${esc(d.name)}</td><td class="mono">${esc(d.terminal_id)}</td>
+      <td>${esc(d.bank_name||'-')}<div class="mono muted">${esc(d.bank_account||'')}</div></td>
+      <td class="mono muted">${esc(d.merchant_id||'-')}</td>
+      <td>${Number(d.active)?'فعال':'غیرفعال'}</td>
+      <td>${Number(d.active)?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deactivatePosDevice(d.id)})}">غیرفعال</button>`:'—'}</td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>
+    <h4 data-csp-style="${CSP.style(`margin-top:18px`)}">دریافت‌ها</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>پایانه</th><th>مبلغ ${moneyColLabel()}</th><th>مانده</th><th>فاکتور</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+    <tbody>${(receipts||[]).map(r=>`<tr>
+      <td class="mono">${escDate(r.date)}</td><td>${esc(r.terminal_name||r.terminal_code||'-')}</td>
+      <td class="mono">${fmt(r.amount_rial)}</td><td class="mono">${fmt(r.open_rial!=null?r.open_rial:(r.amount_rial-(r.settled_rial||0)))}</td>
+      <td class="mono">${esc(r.invoice_num||r.invoice_id||'-')}</td>
+      <td>${esc(stLabel[r.status]||r.status)}</td>
+      <td>${r.status==='reversed'?'—':`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidPosReceipt(r.id)})}">ابطال</button>`}</td>
+    </tr>`).join('')||emptyRow(7)}</tbody></table></div>
+    <h4 data-csp-style="${CSP.style(`margin-top:18px`)}">تسویه‌های دسته‌ای</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>ناخالص</th><th>کارمزد</th><th>کسری</th><th>خالص به بانک</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+    <tbody>${(batches||[]).map(b=>`<tr>
+      <td class="mono">${escDate(b.date)}</td>
+      <td class="mono">${fmt(b.gross_rial)}</td><td class="mono">${fmt(b.fee_rial)}</td>
+      <td class="mono">${fmt(b.shortage_rial)}</td><td class="mono">${fmt(b.net_rial)}</td>
+      <td>${esc(stLabel[b.status]||b.status)}</td>
+      <td>${b.status==='reversed'?'—':`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidPosBatch(b.id)})}">ابطال</button>`}</td>
+    </tr>`).join('')||emptyRow(7)}</tbody></table></div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">بانک‌های فعال برای تعریف پایانه: ${banks.length?banks.map(b=>esc(b.name)+' / '+esc(b.account_number||'—')).join('، '):'هیچ بانک فعالی نیست — ابتدا در منوی بانک‌ها یک حساب فعال بسازید.'}</p>`;
 }
 function posDeviceModal(){
   openModal(`<div class="modal-head"><h3>دستگاه کارت‌خوان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>نام / محل *</label><input id="pos-name" placeholder="صندوق فروشگاه"></div>
       <div class="fg"><label>شماره پایانه *</label><input id="pos-term" class="mono"></div>
-      <div class="fg"><label>بانک پذیرنده</label><input id="pos-bank"></div>
-      <div class="fg full"><label>شماره حساب واریزی</label><input id="pos-acct" class="mono"></div>
+      <div class="fg"><label>شناسه پذیرنده</label><input id="pos-mid" class="mono"></div>
+      <div class="fg full"><label>بانک واریزی *</label><select id="pos-bank"><option value="">در حال بارگذاری…</option></select></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePosDevice()})}">💾 ذخیره</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  (async()=>{
+    let banks=[];
+    try{ banks=(await api('GET','/banks')||[]).filter(b=>Number(b.active)!==0); }catch(e){}
+    const sel=el('pos-bank'); if(!sel) return;
+    sel.innerHTML=banks.length
+      ? `<option value="">انتخاب بانک فعال</option>`+banks.map(b=>`<option value="${b.id}">${esc(b.name)} — ${esc(b.account_number||'بدون شماره')}</option>`).join('')
+      : `<option value="">بانک فعالی یافت نشد</option>`;
+  })();
 }
-function savePosDevice(){
-  const name=el('pos-name').value.trim(), terminal_id=el('pos-term').value.trim();
+async function savePosDevice(){
+  const name=el('pos-name').value.trim(), terminal_id=el('pos-term').value.trim(), bank_id=+el('pos-bank').value||0;
   if(!name||!terminal_id){ showToast('نام و شماره پایانه الزامی است','error'); return; }
-  POS_DEVICES.push({name,terminal_id,bank:el('pos-bank').value,account:el('pos-acct').value});
-  localStorage.setItem('crm_pos_devices',JSON.stringify(POS_DEVICES));
-  closeModal(); showToast('ذخیره شد'); loadAccTab('pos-devices');
+  if(!bank_id){ showToast('یک بانک فعال را از فهرست انتخاب کنید','error'); return; }
+  try{
+    await api('POST','/pos/terminals',{name,terminal_id,bank_id,merchant_id:el('pos-mid').value.trim()||null});
+    closeModal(); showToast('کارتخوان ذخیره شد'); loadAccTab('pos-devices');
+  }catch(e){}
 }
-function deletePosDevice(i){ POS_DEVICES.splice(i,1); localStorage.setItem('crm_pos_devices',JSON.stringify(POS_DEVICES)); loadAccTab('pos-devices'); }
+async function deactivatePosDevice(id){
+  if(!confirm('این کارتخوان غیرفعال شود؟ ردیف مالی حذف نمی‌شود.')) return;
+  try{ await api('DELETE','/pos/terminals/'+id); showToast('غیرفعال شد'); loadAccTab('pos-devices'); }catch(e){}
+}
+function posReceiptModal(){
+  openModal(`<div class="modal-head"><h3>دریافت کارتخوان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>کارتخوان *</label><select id="posr-term"><option value="">در حال بارگذاری…</option></select></div>
+      <div class="fg"><label>تاریخ *</label><input id="posr-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>مبلغ ${moneyColLabel()} *</label><input id="posr-amt" type="text" inputmode="numeric" class="money"></div>
+      <div class="fg"><label>شناسه فاکتور (اختیاری)</label><input id="posr-inv" type="number" min="1"></div>
+      <div class="fg"><label>شناسه مشتری (اختیاری)</label><input id="posr-cust" type="number" min="1"></div>
+      <div class="fg full"><label>شماره پیگیری</label><input id="posr-ref" class="mono"></div>
+      <div class="fg full"><label>یادداشت</label><input id="posr-note"></div>
+    </div><p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">مبلغ ابتدا به حساب «وجوه در راه کارتخوان» می‌رود، نه بانک. اگر فاکتور پیوند شود مثل تسویه مشتری از همان حساب در راه عمل می‌کند.</p></div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePosReceipt()})}">💾 ثبت دریافت</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+  (async()=>{
+    let terms=[];
+    try{ terms=await api('GET','/pos/terminals')||[]; }catch(e){}
+    const sel=el('posr-term'); if(!sel) return;
+    sel.innerHTML=terms.length
+      ? terms.map(t=>`<option value="${t.id}">${esc(t.name)} — ${esc(t.terminal_id)} / ${esc(t.bank_name||'')}</option>`).join('')
+      : `<option value="">کارتخوان فعالی نیست</option>`;
+  })();
+}
+async function savePosReceipt(){
+  const terminal_id=+el('posr-term').value||0;
+  const amount_rial=Math.round(+(String(el('posr-amt').value).replace(/[^\d.]/g,''))||0);
+  if(!terminal_id||!amount_rial){ showToast('کارتخوان و مبلغ الزامی است','error'); return; }
+  try{
+    await api('POST','/pos/receipts',{
+      terminal_id, date:el('posr-date').value, amount_rial,
+      invoice_id:+el('posr-inv').value||null, cust_id:+el('posr-cust').value||null,
+      ref:el('posr-ref').value.trim(), note:el('posr-note').value.trim(),
+      idempotency_key:'pos-r-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)
+    });
+    closeModal(); showToast('دریافت ثبت شد (در راه)'); loadAccTab('pos-devices');
+  }catch(e){}
+}
+async function voidPosReceipt(id){
+  if(!confirm('ابطال این دریافت؟ سند حسابداری و اثر فاکتور برمی‌گردد؛ ردیف حذف نمی‌شود.')) return;
+  try{ await api('POST','/pos/receipts/'+id+'/void',{reason:'ابطال از UI'}); showToast('ابطال شد'); loadAccTab('pos-devices'); }catch(e){}
+}
+function posBatchModal(){
+  openModal(`<div class="modal-head"><h3>تسویه دسته‌ای کارتخوان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="fg"><label>تاریخ *</label><input id="posb-date" data-jdate value="${todayJalali()}"></div>
+        <div class="fg"><label>ناخالص ${moneyColLabel()} *</label><input id="posb-gross" type="text" inputmode="numeric" class="money"></div>
+        <div class="fg"><label>کارمزد ${moneyColLabel()}</label><input id="posb-fee" type="text" inputmode="numeric" class="money" value="0"></div>
+        <div class="fg"><label>کسری ${moneyColLabel()}</label><input id="posb-short" type="text" inputmode="numeric" class="money" value="0"></div>
+        <div class="fg full"><label>شماره واریز / پیگیری</label><input id="posb-ref" class="mono"></div>
+        <div class="fg full"><label>یادداشت</label><input id="posb-note"></div>
+      </div>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:10px 0 6px`)}">دریافت‌های باز — سهم هر ردیف تا ماندهٔ همان دریافت؛ تأیید همین ثبت توسط حسابدار/مدیر است.</p>
+      <div id="posb-open" class="muted">در حال بارگذاری…</div>
+    </div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePosBatch()})}">✅ تأیید و تسویه</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+  (async()=>{
+    let open=[];
+    try{ open=await api('GET','/pos/receipts?open=1')||[]; }catch(e){}
+    const box=el('posb-open'); if(!box) return;
+    box.innerHTML=open.length
+      ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>پایانه</th><th>مانده</th></tr></thead><tbody>${open.map(r=>`<tr>
+          <td><input type="checkbox" class="posb-rec" value="${r.id}" data-open="${Number(r.open_rial!=null?r.open_rial:(r.amount_rial-(r.settled_rial||0)))}"></td>
+          <td>${esc(r.terminal_name||r.terminal_code||'')} <span class="mono muted">#${r.id}</span></td>
+          <td class="mono">${fmt(r.open_rial!=null?r.open_rial:(r.amount_rial-(r.settled_rial||0)))}</td>
+        </tr>`).join('')}</tbody></table></div>`
+      : 'دریافت بازی نیست.';
+  })();
+}
+async function savePosBatch(){
+  const gross_rial=Math.round(+(String(el('posb-gross').value).replace(/[^\d.]/g,''))||0);
+  const fee_rial=Math.round(+(String(el('posb-fee').value).replace(/[^\d.]/g,''))||0);
+  const shortage_rial=Math.round(+(String(el('posb-short').value).replace(/[^\d.]/g,''))||0);
+  const receipt_ids=[...document.querySelectorAll('.posb-rec:checked')].map(x=>+x.value).filter(Boolean);
+  if(!gross_rial){ showToast('مبلغ ناخالص الزامی است','error'); return; }
+  if(!receipt_ids.length){ showToast('حداقل یک دریافت باز را انتخاب کنید','error'); return; }
+  try{
+    await api('POST','/pos/batches',{
+      date:el('posb-date').value, gross_rial, fee_rial, shortage_rial,
+      receipt_ids, ref:el('posb-ref').value.trim(), note:el('posb-note').value.trim(),
+      idempotency_key:'pos-b-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)
+    });
+    closeModal(); showToast('تسویه تأیید و ثبت شد'); loadAccTab('pos-devices');
+  }catch(e){}
+}
+async function voidPosBatch(id){
+  if(!confirm('ابطال این تسویه دسته‌ای؟ سند بانک/کارمزد/کسری برمی‌گردد؛ ردیف حذف نمی‌شود.')) return;
+  try{ await api('POST','/pos/batches/'+id+'/void',{reason:'ابطال از UI'}); showToast('ابطال شد'); loadAccTab('pos-devices'); }catch(e){}
+}
 let SCALE_SETTINGS=JSON.parse(localStorage.getItem('crm_scale_settings')||'null')||{port:'COM1',baud:9600,unit:'kg',prefix:'',enabled:false};
 async function renderScaleSettingsTab(body){
   const s=SCALE_SETTINGS;
@@ -17896,7 +18029,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v164</b> است و اسکریپت‌ها با <code>?v=164</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v165</b> است و اسکریپت‌ها با <code>?v=165</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -18055,6 +18188,15 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>چک اول دوره پرداختنی سند افتتاحیه دارد و دوباره پرداخت/خرج نمی‌شود</li>
       </ul>
       <div class="tip">هر گذار چرخه فقط یک‌بار سند می‌زند (تکرار = خطای سند تکراری). تغییر وضعیت با متن آزاد برای گذارهای مالی مسدود است. <b>ابطال کامل</b> همهٔ اسناد چرخه و افتتاحیه را در یک تراکنش معکوس می‌کند (حذف فیزیکی نیست).</div>`),
+    helpSec('💳','کارتخوان (POS)',`
+      <p>منوی حسابداری <b>دستگاه‌های کارت‌خوان</b> دیگر روی حافظه مرورگر نیست؛ پایانه‌ها، دریافت‌ها و تسویه دسته‌ای در پایگاه ذخیره می‌شوند.</p>
+      <ul>
+        <li><b>تعریف پایانه:</b> نام، شماره پایانه یکتا، شناسه پذیرنده اختیاری، و <b>بانک فعال</b> از فهرست (نام + شماره حساب). بدون بانک فعال ذخیره نمی‌شود. حذف فیزیکی نیست — غیرفعال می‌شود.</li>
+        <li><b>دریافت:</b> مبلغ به حساب <b>وجوه در راه کارتخوان</b> می‌رود، نه بانک. اگر فاکتور پیوند شود مثل تسویه مشتری از همان حساب در راه اعمال می‌شود؛ بدون فاکتور/مشتری بستانکار فروش است.</li>
+        <li><b>تسویه دسته‌ای:</b> ناخالص منهای کارمزد و کسری به حساب بانک پایانه می‌رود؛ کارمزد و کسری هزینه جدا. تأیید همان ثبت حسابدار/مدیر است. دریافت می‌تواند جزئی در چند دسته بیاید.</li>
+        <li><b>ابطال:</b> دریافت یا دسته، همهٔ اسناد و اثر فاکتور را در یک تراکنش برمی‌گرداند؛ ردیف با وضعیت «ابطال‌شده» می‌ماند. کلید تکراری مشتری = خطای تکراری.</li>
+        <li>فقط مدیر و حسابداری؛ فروشنده میدانی دسترسی تغییر ندارد. جداول روی دستگاه‌های حسابداری همگام می‌شوند.</li>
+      </ul>`),
     helpSec('📡','سلامت سرویس و پشتیبانی',`
       <p><code dir="ltr">/api/system/health</code> زنده بودن فرایند را نشان می‌دهد؛ <code dir="ltr">/api/system/ready</code> آمادگی دیتابیس را بررسی می‌کند. هر درخواست هدر <code dir="ltr">X-Request-Id</code> دارد (برای پیگیری لاگ). متای پشتیبانی در <code dir="ltr">/api/support/meta</code> است — تیکتینگ داخل برنامه فعلاً فعال نیست و از کانال خارجی سازمان استفاده می‌شود.</p>`)
   ].join('');
@@ -18079,7 +18221,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v164</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v165</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">مانده مطالبات و صورت‌حساب مشتری از دفتر کل تا همان تاریخ قطع خوانده می‌شود؛ اگر با دفتر مشتری فرق داشت هشدار نارنجی می‌بینید.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>

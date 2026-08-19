@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — POS-01/02 terminals + in-transit settle (branch only)
+- **شاخه:** `ai/POS-STITCH-P8` (از `origin/ai/UI-STITCH-IMPL` @ `bca393e`)
+- **خلاصه:** تعریف کارتخوان روی بانک فعال (SQLite، نه localStorage). دریافت ابتدا به `coa_card_in_transit` (1118) می‌رود نه بانک؛ تسویه دسته‌ای خالص را به بانک پایانه می‌برد (کارمزد 6114 / کسری هزینه اداری). ابطال R13 بدون حذف فیزیکی. سینک append + `sync_seq_backfill_v11`. SW **v165**.
+- **فایل‌ها:** `server/lib/pos.js`, `server/routes/pos.js`, `server/scripts/test-pos-stitch-p8.js`, `server/db.js`, `server/lib/coa-map.js`, `server/sync/tables.js`, `server/sync/capture.js`, `server/server.js`, `server/public/app.js`, `index.html`, `sw.js`, `docs/CHANGE-LOG.md`
+- **تست:** POS-P8 **55/55** · SMS **22/22**
+- **Deploy:** ❌ اعمال نشد (بدون merge به primary / بدون Iran / بدون PM2)
+
 ### 2026-08-19 — CON-01/02 dual APPROVED + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `1a1bf0f` (از `ai/CON-STITCH-P7` @ `f79127c`)
 - **خلاصه:** شخص اجباری، چهار مسیر تسویه، خریدار جدا، COGS ارسالی، FK سینک. Independent + Security APPROVED.
