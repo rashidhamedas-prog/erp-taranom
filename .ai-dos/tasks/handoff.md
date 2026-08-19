@@ -1,3 +1,9 @@
+## 2026-08-19 — POS-01/02 dual APPROVED; merge + Iran SFTP v165
+
+- [Independent POS](c5058adb-ce19-4880-8468-b099d33e73e6) **APPROVED** + [Security POS product](f97371e8-d74b-4222-a789-75f429799fab) **APPROVED** C0/H0/M0 on `7cab828`
+- Merged `origin/ai/POS-STITCH-P8` into `ai/UI-STITCH-IMPL`. Claims released. SW v165
+- Next: Iran SFTP overlay (do not replace VPS `db.js` — patch `initPosSchema` call). Then LED-01 + Phase 8. ADR-007 stays closed
+
 ## 2026-08-19 — POS Independent APPROVED on 7cab828
 
 - [Independent POS](c5058adb-ce19-4880-8468-b099d33e73e6) **APPROVED** High 0 / Medium 0; tests 55/55

@@ -199,6 +199,11 @@ const SYNCABLE_TABLES = [
   { name: 'crm_customer_segments',             upsertKey: 'customer_id', compositeKeys: ['customer_id'] },
   { name: 'crm_segment_history',               upsertKey: 'id' },
   { name: 'crm_files',                         upsertKey: 'id' },
+  // POS-STITCH-P8 — terminals/receipts/batches on accounting devices (append-only)
+  { name: 'pos_terminals',                     upsertKey: 'id' },
+  { name: 'pos_receipts',                      upsertKey: 'id' },
+  { name: 'pos_settlement_batches',            upsertKey: 'id' },
+  { name: 'pos_settlement_items',              upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -386,6 +391,18 @@ const FK_COLUMNS = [
   ['consignments', 'invoice_id'],
   ['consignments', 'settle_je_id'],
   ['consignments', 'issue_ledger_id'],
+  // POS-STITCH-P8 (append-only)
+  ['pos_terminals', 'bank_id'],
+  ['pos_receipts', 'terminal_id'],
+  ['pos_receipts', 'invoice_id'],
+  ['pos_receipts', 'cust_id'],
+  ['pos_receipts', 'settlement_id'],
+  ['pos_receipts', 'journal_id'],
+  ['pos_settlement_batches', 'terminal_id'],
+  ['pos_settlement_batches', 'bank_id'],
+  ['pos_settlement_batches', 'journal_id'],
+  ['pos_settlement_items', 'batch_id'],
+  ['pos_settlement_items', 'receipt_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

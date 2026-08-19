@@ -113,25 +113,19 @@ tasks:
 
   - id: "POS-STITCH-P8"
     title: "POS-01 terminal bank FK + POS-02 card in-transit settle"
-    status: "active"
+    status: "completed"
     review_status: "APPROVED"
-    security_status: "PENDING"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:implementer-pos-08"
     branch: "ai/POS-STITCH-P8"
     base_commit: "bca393e"
     claimed_at: "2026-08-19T06:05:00+03:30"
-    file_claims:
-      - "server/db.js"
-      - "server/lib/coa-map.js"
-      - "server/lib/pos.js"
-      - "server/routes/pos.js"
-      - "server/scripts/test-pos-stitch-p8.js"
-      - "server/sync/tables.js"
+    completed_at: "2026-08-19T06:35:00+03:30"
+    file_claims: []
     notes: >-
-      Independent APPROVED (c5058adb) on 7cab828, 55/55. Lows advisory.
-      First Security pass (6f2a51d4) VOID (wrong tree). Product Security re-run in flight.
-      No merge / Iran deploy until Security APPROVED on pos.js.
+      Dual APPROVED 7cab828 (Independent c5058adb + Security product f97371e8).
+      Merged into ai/UI-STITCH-IMPL. Claims released. SW v165. Iran SFTP next.
     acceptance_criteria:
       - "Terminal requires active bank FK; unique terminal_id; not localStorage"
       - "Card receipt posts in-transit not bank; batch settle net to bank; idempotent"

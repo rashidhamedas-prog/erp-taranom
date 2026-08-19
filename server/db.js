@@ -2413,6 +2413,14 @@ function initSyncSchema(db) {
     throw e;
   }
 
+  // POS-01/02 — card terminals / receipts / settlement batches (before sync column pass)
+  try {
+    require('./lib/pos').initPosSchema(db, ensureColumn);
+  } catch (e) {
+    console.error('❌ pos schema init failed:', e.message);
+    throw e;
+  }
+
   // Second pass — tables created above in this function (parties, fiscal_years, production, …).
   ensureSyncColumnsForAllTables(db);
   if (!isDevice()) {
@@ -2581,6 +2589,19 @@ function initSyncSchema(db) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v10','1')").run();
+    }
+    const backfillV11 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v11'").get();
+    if (!backfillV11 || backfillV11.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v11 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v11','1')").run();
     }
   }
 

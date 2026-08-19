@@ -71,6 +71,9 @@ const LEGACY = {
   coa_eidi_payable:           { code: '2111', name: 'ذخیره عیدی کارکنان' },
   coa_asset_disposal_gain:    { code: '4201', name: 'سود واگذاری دارایی' },
   coa_asset_disposal_loss:    { code: '6105', name: 'زیان واگذاری دارایی' },
+  // POS-01/02 — card in-transit + dedicated fee (1118/6114 unused in existing chart)
+  coa_card_in_transit:        { code: '1118', name: 'وجوه در راه کارتخوان' },
+  coa_card_fee:               { code: '6114', name: 'کارمزد کارتخوان' },
 };
 
 let _cache = null, _cacheAt = 0;
@@ -220,6 +223,7 @@ function baseCoaTree() {
     ['1115', 'موجودی در راه (حمل)', 'asset', '1100', 2],
     ['1116', 'اسناد در جریان وصول', 'asset', '1100', 2],
     ['1117', 'ذخیره کاهش ارزش موجودی', 'asset', '1100', 2],
+    ['1118', 'وجوه در راه کارتخوان', 'asset', '1100', 2],
     ['1201', 'دارایی‌های ثابت', 'asset', '1000', 2],
     ['1202', 'استهلاک انباشته دارایی', 'asset', '1000', 2],
     ['2000', 'بدهی‌ها', 'liability', null, 1],
@@ -276,6 +280,7 @@ function baseCoaTree() {
     ['6111', 'هزینه مزایای پایان خدمت', 'expense', '6000', 2],
     ['6112', 'هزینه مطالبات مشکوک‌الوصول', 'expense', '6000', 2],
     ['6113', 'هزینه کاهش ارزش موجودی', 'expense', '6000', 2],
+    ['6114', 'کارمزد کارتخوان', 'expense', '6000', 2],
     ['9999', 'اصلاحات و تعدیلات', 'equity', null, 1],
   ];
 }

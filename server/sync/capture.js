@@ -91,6 +91,10 @@ const PATH_TABLE_MAP = [
   ['/api/warehouses', 'warehouses'],
   ['/api/stocktaking', 'stocktaking_sessions'],
   ['/api/consignments', 'consignments'], // settle/cancel share this prefix
+  // POS — longer prefixes first (receipts/batches before terminals)
+  ['/api/pos/receipts', 'pos_receipts'],
+  ['/api/pos/batches', 'pos_settlement_batches'],
+  ['/api/pos/terminals', 'pos_terminals'],
   // Detail accounts — categories before generic
   ['/api/detail-accounts/categories', 'detail_categories'],
   ['/api/detail-accounts', 'detail_accounts'],
