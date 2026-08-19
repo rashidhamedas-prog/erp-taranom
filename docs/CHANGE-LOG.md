@@ -13,6 +13,11 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — LED-01 implementer (pre-merge)
+- **شاخه:** `ai/LED-STITCH-P9` @ `a464b2e`
+- **خلاصه:** دفتر مالی مشترک + کاردکس کالا فقط‌خواندنی. تست ۴۷/۴۷. SW v166. منتظر dual review.
+- **Deploy:** اعمال نشد
+
 ### 2026-08-19 — POS-01/02 dual APPROVED + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `bdcc84a` (از `ai/POS-STITCH-P8` @ `7cab828`)
 - **خلاصه:** پایانه SQLite با بانک فعال؛ دریافت به وجوه در راه؛ تسویه دسته‌ای. Independent + Security محصول APPROVED.

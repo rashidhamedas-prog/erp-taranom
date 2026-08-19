@@ -140,15 +140,15 @@ tasks:
     risk: "high"
     owner: "cursor:implementer-led-09"
     branch: "ai/LED-STITCH-P9"
-    base_commit: "bdcc84a"
+    base_commit: "a6530a5"
     claimed_at: "2026-08-19T06:40:00+03:30"
     file_claims:
       - "server/lib/ledgers.js"
       - "server/routes/ledgers.js"
       - "server/scripts/test-led-stitch-p9.js"
     notes: >-
-      Isolated branch from bdcc84a. No merge/Iran deploy until dual APPROVED.
-      POS-03 out. ADR-007 closed. Reuse existing JE/kardex; one financial API + one stock API.
+      Implementer tip a464b2e. Tests 47/47 + SMS 22/22. SW v166. Read-only API.
+      Dual review in flight. No merge / Iran deploy. POS-03 out. ADR-007 closed.
     acceptance_criteria:
       - "Financial ledger: person, bank, cash, petty, COA account — opening/period/end"
       - "Stock ledger separate; secure source-doc drill-down; export reconcilable"
