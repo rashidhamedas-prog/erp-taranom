@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — LED-01 dual-gate merge + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `0daf21f` (از `ai/LED-STITCH-P9` @ `a464b2e`)
+- **خلاصه:** دفتر مالی مشترک + کاردکس کالا. امنیت APPROVED؛ مالک merge/deploy خواست. Independent ناتمام ماند.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` عوض نشد. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v166` = `2026-08-19T13:26:45Z hash=0daf21f`.
+- **SW:** `erp-taranom-v166`
+- **تست:** LED-P9 **47/47** · SMS **22/22**
+
 ### 2026-08-19 — LED-01 dual-gate merge (Iran SFTP next)
 - **شاخه:** `ai/UI-STITCH-IMPL` ← `ai/LED-STITCH-P9` @ `a464b2e`
 - **خلاصه:** دفتر مالی مشترک + کاردکس کالا. امنیت C0/H0/M0. مالک دستور merge/deploy داد. تست ۴۷/۴۷. SW v166.

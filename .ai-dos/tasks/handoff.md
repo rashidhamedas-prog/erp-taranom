@@ -1,3 +1,9 @@
+## 2026-08-19 — LED-01 Iran SFTP v166 @ 0daf21f
+
+- Stamp `.sftp-deploy-stamp-stitch-v166` = `2026-08-19T13:26:45Z hash=0daf21f`
+- health/ready/root **200**; SW `erp-taranom-v166`; `db.js` not replaced
+- Next: Phase 8. ADR-007 stays closed
+
 ## 2026-08-19 — LED-01 merge + Iran SFTP v166 (owner authorized)
 
 - Security [Security LED](9ac12419-4bb4-4821-b456-14d607355906) **APPROVED** C0/H0/M0

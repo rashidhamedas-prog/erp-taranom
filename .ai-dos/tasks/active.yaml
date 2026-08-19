@@ -146,7 +146,8 @@ tasks:
     file_claims: []
     notes: >-
       Security APPROVED 9ac12419. Independent stalled; owner authorized merge/deploy.
-      Tests re-run 47/47. Merged into ai/UI-STITCH-IMPL. Claims released. SW v166.
+      Tests re-run 47/47. Merged @ 0daf21f. Claims released. SW v166.
+      Iran SFTP stamp .sftp-deploy-stamp-stitch-v166 = 2026-08-19T13:26:45Z hash=0daf21f.
     acceptance_criteria:
       - "Financial ledger: person, bank, cash, petty, COA account — opening/period/end"
       - "Stock ledger separate; secure source-doc drill-down; export reconcilable"
