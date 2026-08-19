@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — POS-01/02 dual APPROVED + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `bdcc84a` (از `ai/POS-STITCH-P8` @ `7cab828`)
+- **خلاصه:** پایانه SQLite با بانک فعال؛ دریافت به وجوه در راه؛ تسویه دسته‌ای. Independent + Security محصول APPROVED.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` کامل جایگزین نشد — پچ `initPosSchema`. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v165` = `2026-08-19T03:05:04Z hash=bdcc84a`.
+- **SW:** `erp-taranom-v165`
+- **تست:** POS-P8 **55/55** · SMS **22/22**
+
 ### 2026-08-19 — POS-01/02 dual APPROVED merge (Iran SFTP next)
 - **شاخه:** `ai/UI-STITCH-IMPL` ← `ai/POS-STITCH-P8` @ `7cab828`
 - **خلاصه:** پایانه SQLite با بانک فعال؛ دریافت به وجوه در راه ۱۱۱۸؛ تسویه دسته‌ای به بانک. Independent + Security محصول APPROVED. SW v165.

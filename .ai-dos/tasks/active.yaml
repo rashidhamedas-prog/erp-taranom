@@ -125,11 +125,34 @@ tasks:
     file_claims: []
     notes: >-
       Dual APPROVED 7cab828 (Independent c5058adb + Security product f97371e8).
-      Merged into ai/UI-STITCH-IMPL. Claims released. SW v165. Iran SFTP next.
+      Merged into ai/UI-STITCH-IMPL @ bdcc84a. Claims released. SW v165.
+      Iran SFTP stamp .sftp-deploy-stamp-stitch-v165 = 2026-08-19T03:05:04Z hash=bdcc84a.
     acceptance_criteria:
       - "Terminal requires active bank FK; unique terminal_id; not localStorage"
       - "Card receipt posts in-transit not bank; batch settle net to bank; idempotent"
       - "R13 void; tests + Help; SW bump; vanilla UI"
+
+  - id: "LED-STITCH-P9"
+    title: "LED-01 unified financial + stock ledger API"
+    status: "active"
+    review_status: "PENDING"
+    security_status: "PENDING"
+    risk: "high"
+    owner: "cursor:implementer-led-09"
+    branch: "ai/LED-STITCH-P9"
+    base_commit: "bdcc84a"
+    claimed_at: "2026-08-19T06:40:00+03:30"
+    file_claims:
+      - "server/lib/ledgers.js"
+      - "server/routes/ledgers.js"
+      - "server/scripts/test-led-stitch-p9.js"
+    notes: >-
+      Isolated branch from bdcc84a. No merge/Iran deploy until dual APPROVED.
+      POS-03 out. ADR-007 closed. Reuse existing JE/kardex; one financial API + one stock API.
+    acceptance_criteria:
+      - "Financial ledger: person, bank, cash, petty, COA account — opening/period/end"
+      - "Stock ledger separate; secure source-doc drill-down; export reconcilable"
+      - "Tests + Help; vanilla UI; no new money type; acct() posting unchanged"
 
   - id: "DEMO-V3-GUIDED-SALES"
     title: "Guided, role-based, sales-oriented Demo V3"

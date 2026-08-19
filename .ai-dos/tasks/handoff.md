@@ -1,3 +1,17 @@
+## 2026-08-19 — LED-STITCH-P9 claimed (LED-01)
+
+- Owner: next wave after POS Iran v165
+- Claims: lib/ledgers.js, routes/ledgers.js, test-led-stitch-p9.js
+- POS-03 and ADR-007 out. No merge until dual review
+
+## 2026-08-19 — POS-01/02 Iran SFTP v165 @ bdcc84a
+
+- Dual APPROVED: [Independent POS](c5058adb-ce19-4880-8468-b099d33e73e6) + [Security POS product](f97371e8-d74b-4222-a789-75f429799fab)
+- Merged `7cab828` into `ai/UI-STITCH-IMPL` @ `bdcc84a`; FF to primary
+- Stamp `.sftp-deploy-stamp-stitch-v165` = `2026-08-19T03:05:04Z hash=bdcc84a`
+- health/ready/root **200**; SW `erp-taranom-v165`; `db.js` patched (`initPosSchema`)
+- Next: LED-01 + Phase 8. ADR-007 stays closed
+
 ## 2026-08-19 — POS-01/02 dual APPROVED; merge + Iran SFTP v165
 
 - [Independent POS](c5058adb-ce19-4880-8468-b099d33e73e6) **APPROVED** + [Security POS product](f97371e8-d74b-4222-a789-75f429799fab) **APPROVED** C0/H0/M0 on `7cab828`
