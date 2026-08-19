@@ -1,3 +1,10 @@
+## 2026-08-19 — HR-02 log M1 dual APPROVED on fdb39ae
+
+- [Independent HR M1](8680b9d9-f567-4d5d-88d0-db96089a0d30) **APPROVED** — `sanitizeLogPath` closes token-in-log M1
+- [Security HR M1](4a00f683-711c-47bf-b1d9-3a25d97a448c) **APPROVED** C0/H0/M0 on same tip
+- Current product tip is **`6c65660`** (intended_role). Merge still waits Independent+Security on that delta
+- **NO merge / Iran deploy**
+
 ## 2026-08-19 — HR-02 intended_role on 6c65660 (re-review)
 
 - [HR-02 invitation](93b50704-54ab-430b-bb9e-af7fc99a3186) closed Independent role M1: persist `intended_role`, never `admin`, accounting-invite admin-only, accept ignores client role
