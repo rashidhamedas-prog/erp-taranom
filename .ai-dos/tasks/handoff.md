@@ -1,3 +1,9 @@
+## 2026-08-19 — HR-02 Security APPROVED on 6c65660
+
+- [Security HR 6c65660](b8f07eb4-5487-46fd-8c70-b3675e724fd6) **APPROVED** C0/H0/M0 — log redact + intended_role (no admin, no accept-body escalate, accounting cannot invite accounting, table not syncable)
+- Independent still in flight ([Independent HR re-review](4450ae38-7d9d-419f-832b-6495a85ee7fa))
+- **NO merge / Iran deploy** until Independent APPROVED; then rebase `app.js` with INV/TRS
+
 ## 2026-08-19 — HR-02 log M1 dual APPROVED on fdb39ae
 
 - [Independent HR M1](8680b9d9-f567-4d5d-88d0-db96089a0d30) **APPROVED** — `sanitizeLogPath` closes token-in-log M1

@@ -53,9 +53,9 @@ tasks:
       - "server/scripts/test-hr-invite.js"
       - "server/scripts/test-observability.js"
     notes: >-
-      Log M1 dual APPROVED on fdb39ae (Independent 8680b9d9; Security 4a00f683 C0/H0/M0).
-      Current tip 6c65660 adds intended_role; Independent role re-review (4450ae38) + Security
-      delta (b8f07eb4) in flight. Tests 51/51. SW v162. No Iran deploy.
+      Security APPROVED on 6c65660 (b8f07eb4 C0/H0/M0) covering sanitizeLogPath + intended_role.
+      Independent role re-review still in flight (4450ae38). Log M1 also APPROVED on fdb39ae.
+      Tests 51/51. SW v162. No Iran deploy until Independent APPROVED + app.js rebase.
     acceptance_criteria:
       - "user_invitations table; hashed token; expiry; used_at"
       - "Invite creates no known password; accept sets user + person link"

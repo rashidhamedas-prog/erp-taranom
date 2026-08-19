@@ -13,6 +13,11 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — HR-02 Security APPROVED on 6c65660 (pre-merge)
+- **شاخه:** `ai/HR-STITCH-P3` @ `6c65660`
+- **خلاصه:** امنیت C0/H0/M0 برای لاگ و نقش دعوت. منتظر Independent.
+- **Deploy:** اعمال نشد
+
 ### 2026-08-19 — HR-02 log M1 dual APPROVED (pre-merge)
 - **شاخه:** `ai/HR-STITCH-P3` @ `fdb39ae` (جد فعلی `6c65660`)
 - **خلاصه:** توکن دعوت در لاگ مسیر پاک شد. Independent و Security APPROVED. merge بعد از تأیید نقش روی `6c65660`.
