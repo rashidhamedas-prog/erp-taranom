@@ -1,3 +1,9 @@
+## 2026-08-19 — HR-02 dual APPROVED on 6c65660; merge three waves
+
+- [Independent HR re-review](4450ae38-7d9d-419f-832b-6495a85ee7fa) **APPROVED** — log M1 and role M1 closed; 51/51 + 12/12
+- Security already APPROVED on same tip (b8f07eb4). Triple wave merge next: HR `6c65660` + INV `d1ea078` + TRS `ca4e22a` (rebase `app.js`)
+- Then Iran deploy. CON/POS after `db.js` lands
+
 ## 2026-08-19 — HR-02 Security APPROVED on 6c65660
 
 - [Security HR 6c65660](b8f07eb4-5487-46fd-8c70-b3675e724fd6) **APPROVED** C0/H0/M0 — log redact + intended_role (no admin, no accept-body escalate, accounting cannot invite accounting, table not syncable)

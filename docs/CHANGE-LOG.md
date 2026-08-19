@@ -13,6 +13,11 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-19 — HR-02 dual APPROVED; merging HR+INV+TRS
+- **شاخه:** `ai/HR-STITCH-P3` @ `6c65660` + `ai/INV-STITCH-P4` @ `d1ea078` + `ai/TRS-STITCH-P6` @ `ca4e22a`
+- **خلاصه:** Independent نقش و لاگ APPROVED. rebase سه موج سپس deploy ایران.
+- **Deploy:** در جریان
+
 ### 2026-08-19 — HR-02 Security APPROVED on 6c65660 (pre-merge)
 - **شاخه:** `ai/HR-STITCH-P3` @ `6c65660`
 - **خلاصه:** امنیت C0/H0/M0 برای لاگ و نقش دعوت. منتظر Independent.
