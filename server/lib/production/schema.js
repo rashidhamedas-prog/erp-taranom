@@ -29,6 +29,7 @@ const PROD_TABLES = [
   'production_period_close', 'production_estimates', 'production_estimate_lines',
   'mrp_runs', 'mrp_requirements', 'production_reservations',
   'cutting_lays', 'cutting_lay_rolls',
+  'cutting_packs', 'cutting_pack_bundles',
 ];
 
 const PROD_SEQUENCES = [
@@ -44,6 +45,7 @@ const PROD_SEQUENCES = [
   { key: 'estimate', prefix: 'EST' },
   { key: 'mrp_run', prefix: 'MRP' },
   { key: 'cutting_lay', prefix: 'LAY' },
+  { key: 'cutting_pack', prefix: 'PK' },
 ];
 
 const PRODUCTION_SETTINGS = {
@@ -155,8 +157,32 @@ function ensureExistingColumns(db) {
     ensureColumn(db, 'cost_center_rates', 'monthly_labor_rate_rial', 'INTEGER DEFAULT 0');
   }
   if (tableExists(db, 'cutting_lays')) {
+    ensureColumn(db, 'cutting_lays', 'production_order_id', 'INTEGER');
     try {
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_cutting_lays_idem ON cutting_lays(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''");
+    } catch (_) { /* ignore */ }
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS ix_cutting_lays_po ON cutting_lays(production_order_id, status)');
+    } catch (_) { /* ignore */ }
+  }
+  if (tableExists(db, 'cutting_packs')) {
+    try {
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_cutting_packs_idem ON cutting_packs(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''");
+    } catch (_) { /* ignore */ }
+  }
+  ensureCuttingPackSyncColumns(db);
+}
+
+function ensureCuttingPackSyncColumns(db) {
+  for (const name of ['cutting_packs', 'cutting_pack_bundles']) {
+    if (!tableExists(db, name)) continue;
+    ensureColumn(db, name, 'sync_seq', 'INTEGER');
+    ensureColumn(db, name, 'version', 'INTEGER DEFAULT 0');
+    try {
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_${name}_sync_seq ON ${name}(sync_seq)`);
+    } catch (_) { /* ignore */ }
+    try {
+      db.prepare(`UPDATE ${name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
     } catch (_) { /* ignore */ }
   }
 }
@@ -862,10 +888,12 @@ function createTables(db) {
       created_at           INTEGER DEFAULT (strftime('%s','now')),
       reversed_at          INTEGER,
       reversed_by          INTEGER,
-      reversal_journal_id  INTEGER
+      reversal_journal_id  INTEGER,
+      production_order_id  INTEGER
     );
     CREATE INDEX IF NOT EXISTS ix_cutting_lays_prod ON cutting_lays(product_id, status, id);
     CREATE INDEX IF NOT EXISTS ix_cutting_lays_date ON cutting_lays(date, id);
+    CREATE INDEX IF NOT EXISTS ix_cutting_lays_po ON cutting_lays(production_order_id, status);
 
     CREATE TABLE IF NOT EXISTS cutting_lay_rolls (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -879,6 +907,49 @@ function createTables(db) {
       FOREIGN KEY(lay_id) REFERENCES cutting_lays(id)
     );
     CREATE INDEX IF NOT EXISTS ix_cutting_lay_rolls ON cutting_lay_rolls(lay_id, batch_id);
+
+    CREATE TABLE IF NOT EXISTS cutting_packs (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      pack_no              TEXT NOT NULL UNIQUE,
+      lay_id               INTEGER NOT NULL,
+      production_order_id  INTEGER,
+      product_id           INTEGER NOT NULL,
+      warehouse_id         INTEGER NOT NULL,
+      qty                  REAL NOT NULL,
+      amount_rial          INTEGER NOT NULL DEFAULT 0,
+      unit_cost_rial       INTEGER DEFAULT 0,
+      size_breakdown       TEXT DEFAULT '',
+      journal_id           INTEGER,
+      ledger_id            INTEGER,
+      status               TEXT NOT NULL DEFAULT 'posted',
+      idempotency_key      TEXT,
+      date                 TEXT NOT NULL DEFAULT '',
+      note                 TEXT DEFAULT '',
+      created_by           INTEGER,
+      created_at           INTEGER DEFAULT (strftime('%s','now')),
+      reversed_at          INTEGER,
+      reversed_by          INTEGER,
+      reversal_journal_id  INTEGER,
+      FOREIGN KEY(lay_id) REFERENCES cutting_lays(id)
+    );
+    CREATE INDEX IF NOT EXISTS ix_cutting_packs_lay ON cutting_packs(lay_id, status);
+    CREATE INDEX IF NOT EXISTS ix_cutting_packs_prod ON cutting_packs(product_id, date);
+
+    CREATE TABLE IF NOT EXISTS cutting_pack_bundles (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      pack_id       INTEGER NOT NULL,
+      product_id    INTEGER NOT NULL,
+      color         TEXT DEFAULT '',
+      size_code     TEXT DEFAULT '',
+      qty           REAL NOT NULL DEFAULT 0,
+      amount_rial   INTEGER DEFAULT 0,
+      barcode       TEXT NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'posted',
+      created_at    INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(pack_id) REFERENCES cutting_packs(id)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_cutting_pack_barcode ON cutting_pack_bundles(barcode);
+    CREATE INDEX IF NOT EXISTS ix_cutting_pack_bundles ON cutting_pack_bundles(pack_id, status);
 
     CREATE TABLE IF NOT EXISTS production_idempotency (
       key          TEXT PRIMARY KEY,
@@ -1215,6 +1286,7 @@ function initProductionSchema(db) {
   ensureExistingColumns(db); // columns on newly created production tables
   createTriggers(db);
   createViews(db);
+  ensureCuttingPackSyncColumns(db);
   seedSequences(db);
   seedSettings(db);
   seedCostCenters(db);

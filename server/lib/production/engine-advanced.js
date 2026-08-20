@@ -14,6 +14,7 @@ const {
 const { getOverheadRate } = require('./overhead');
 const { postLabor } = require('./labor');
 const { jalaliPeriod, wipResidual } = require('./engine');
+const { assertFabricIssueAllowed } = require('./cutting');
 
 function num(v) { return Number(v) || 0; }
 function round6(n) { return Math.round(Number(n) * 1e6) / 1e6; }
@@ -167,6 +168,11 @@ function backflushStageMaterials(db, {
     const amount = Math.round(L.qty_final * unitCost);
 
     if (L.qty_final > 0) {
+      assertFabricIssueAllowed(db, {
+        productId: L.product_id,
+        qty: L.qty_final,
+        orderId: po.id,
+      });
       issueFromStock(db, {
         productId: L.product_id,
         warehouseId: whId,

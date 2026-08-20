@@ -275,7 +275,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-production-estimate', icon: '🧮', label: 'برآورد سریع' },
       { id: 'acc-production-mrp', icon: '📦', label: 'برنامه‌ریزی مواد (MRP)' },
       { id: 'acc-production-orders', icon: '🏭', label: 'سفارش‌های تولید' },
-      { id: 'acc-cutting-lays', icon: '✂️', label: 'لایه‌چینی و برش' },
+      { id: 'acc-cutting-lays', icon: '✂️', label: 'لایه‌چینی / رسید برش' },
       { id: 'acc-production-kanban', icon: '📋', label: 'تابلوی خط' },
       { id: 'acc-production-close', icon: '🔒', label: 'بستن دوره' },
     ]},

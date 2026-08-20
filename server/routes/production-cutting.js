@@ -4,6 +4,7 @@ const { getDB, audit } = require('../db');
 const { auth, requirePermission } = require('../middleware/auth');
 const {
   planCutting, listCuttingLays, getCuttingLay, postCuttingLay, voidCuttingLay,
+  postCuttingPack, voidCuttingPackByLay, getCuttingPack, linkCuttingLayOrder,
 } = require('../lib/production/cutting');
 const { listFabricRolls } = require('../lib/inventory/fabric-rolls');
 const { canSeeCost, stripCostFields } = require('../lib/production/access');
@@ -83,6 +84,43 @@ router.post('/:id/void', auth, requirePermission('production', 'create'), (req, 
     const db = getDB();
     const row = voidCuttingLay(db, req.params.id, req.user, { reason: req.body && req.body.reason });
     audit(req.user.id, 'reverse', 'cutting_lay', row.id, 'ابطال لایه‌چینی');
+    sendRow(req, res, row);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/:id/link-order', auth, requirePermission('production', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const row = linkCuttingLayOrder(db, req.params.id, req.body && req.body.production_order_id, req.user);
+    audit(req.user.id, 'update', 'cutting_lay', row.id, `پیوند سفارش ${row.production_order_id}`);
+    sendRow(req, res, row);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.get('/:id/pack', auth, requirePermission('production', 'view'), (req, res) => {
+  try {
+    const db = getDB();
+    const lay = getCuttingLay(db, req.params.id);
+    const pack = (lay.packs || []).find((p) => p.status === 'posted');
+    if (!pack) return res.status(404).json({ error: 'رسید برش فعال نیست', code: 'E_PACK' });
+    sendRow(req, res, getCuttingPack(db, pack.id));
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/:id/pack', auth, requirePermission('production', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const row = postCuttingPack(db, req.params.id, req.body || {}, req.user);
+    audit(req.user.id, 'create', 'cutting_pack', row.id, `رسید برش ${row.pack_no}`);
+    sendRow(req, res, row);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/:id/pack/void', auth, requirePermission('production', 'create'), (req, res) => {
+  try {
+    const db = getDB();
+    const row = voidCuttingPackByLay(db, req.params.id, req.user, { reason: req.body && req.body.reason });
+    audit(req.user.id, 'reverse', 'cutting_pack', row.id, 'ابطال رسید برش');
     sendRow(req, res, row);
   } catch (e) { sendErr(res, e); }
 });

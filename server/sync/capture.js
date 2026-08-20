@@ -164,6 +164,8 @@ function tableForPath(path) {
   // PATH_TABLE_MAP prefixes cannot distinguish them from bom_headers.
   if (path.startsWith('/api/production/boms/') && path.includes('/operations')) return 'bom_operations';
   if (path.startsWith('/api/production/boms/') && path.includes('/outputs')) return 'bom_outputs';
+  if (path.startsWith('/api/production/cutting-lays/') && /\/pack/.test(path)) return 'cutting_packs';
+  if (path.startsWith('/api/production/cutting-lays/') && /\/link-order/.test(path)) return 'cutting_lays';
   for (const [prefix, tbl] of PATH_TABLE_MAP) {
     if (path === prefix || path.startsWith(prefix + '/')) return tbl;
   }

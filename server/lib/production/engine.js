@@ -14,6 +14,7 @@ const {
 const { applyOverhead } = require('./overhead');
 const { sumLabor, autoPostLabor } = require('./labor');
 const { classifyWaste, normalWastePct } = require('./waste');
+const { assertFabricIssueAllowed } = require('./cutting');
 const variance = require('./variance');
 const {
   computeVariance, insertVarianceMemo, varianceReasonThreshold, varianceAnalysis,
@@ -337,6 +338,11 @@ function postReceiptFixed(db, { orderId, body, userId }) {
       if (!unitCost) throw err('E_ZERO_AVG_COST', 422, { name: prod.name, product_id: prod.id });
 
       const amount = Math.round(L.qty_final * unitCost);
+      assertFabricIssueAllowed(db, {
+        productId: L.product_id,
+        qty: L.qty_final,
+        orderId,
+      });
       issueFromStock(db, {
         productId: L.product_id,
         warehouseId: po.warehouse_raw_id,
@@ -994,6 +1000,14 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
       const AQ = num(L.qty_actual != null ? L.qty_actual : L.qty);
       const prod = db.prepare('SELECT * FROM products WHERE id=?').get(L.product_id);
       if (!prod) throw err('E_NOT_FOUND', 404, { productId: L.product_id });
+      if (AQ > 0) {
+        assertFabricIssueAllowed(db, {
+          productId: L.product_id,
+          qty: AQ,
+          batchId: L.batch_id,
+          orderId,
+        });
+      }
 
       const s = std[L.product_id] || (L.substitute_of_product_id ? std[L.substitute_of_product_id] : null);
       const SQ = s?.qty ?? 0;
