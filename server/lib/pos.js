@@ -811,8 +811,96 @@ function inTransitOpenAsOf(db, { to, terminalId, bankId } = {}) {
   return Math.max(0, Math.round(Number(gross) || 0) - Math.round(Number(settled) || 0));
 }
 
+function posReportListLimits() {
+  const batches = Math.max(1, Number(process.env.POS_REPORT_BATCH_LIST_LIMIT || 500) || 500);
+  const receipts = Math.max(1, Number(process.env.POS_REPORT_RECEIPT_LIST_LIMIT || 800) || 800);
+  return { receipts, batches };
+}
+
+const SQL_POS_BATCH_ITEM_AMT_SHARE = `1.0 * i.amount_rial / NULLIF(b.gross_rial, 0)`;
+
+function posBatchAggFilters({ from, to, terminalId, bankId, status, varianceOnly }) {
+  const where = [];
+  const params = [];
+  if (from) { where.push('b.date >= ?'); params.push(from); }
+  if (to) { where.push('b.date <= ?'); params.push(to); }
+  if (bankId) { where.push('b.bank_id = ?'); params.push(bankId); }
+  if (status) { where.push('b.status = ?'); params.push(status); }
+  else { where.push("COALESCE(b.status,'posted') <> 'reversed'"); }
+  if (varianceOnly) { where.push('COALESCE(b.shortage_rial,0) > 0'); }
+  if (terminalId) { where.push('r.terminal_id = ?'); params.push(terminalId); }
+  return { where, params };
+}
+
+function aggregatePosBatchTotals(db, filters) {
+  const { where, params } = posBatchAggFilters(filters);
+  const sql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  if (filters.terminalId) {
+    const row = db.prepare(`
+      SELECT COUNT(DISTINCT b.id) AS batch_count,
+        COALESCE(SUM(i.amount_rial),0) AS batch_gross_rial,
+        COALESCE(SUM(b.fee_rial * ${SQL_POS_BATCH_ITEM_AMT_SHARE}),0) AS batch_fee_rial,
+        COALESCE(SUM(b.shortage_rial * ${SQL_POS_BATCH_ITEM_AMT_SHARE}),0) AS batch_shortage_rial,
+        COALESCE(SUM(b.net_rial * ${SQL_POS_BATCH_ITEM_AMT_SHARE}),0) AS batch_net_rial
+      FROM pos_settlement_batches b
+      JOIN pos_settlement_items i ON i.batch_id = b.id
+      JOIN pos_receipts r ON r.id = i.receipt_id
+      ${sql}
+    `).get(...params);
+    return {
+      batch_count: Number(row && row.batch_count) || 0,
+      batch_gross_rial: Math.round(Number(row && row.batch_gross_rial) || 0),
+      batch_fee_rial: Math.round(Number(row && row.batch_fee_rial) || 0),
+      batch_shortage_rial: Math.round(Number(row && row.batch_shortage_rial) || 0),
+      batch_net_rial: Math.round(Number(row && row.batch_net_rial) || 0),
+    };
+  }
+  const row = db.prepare(`
+    SELECT COUNT(*) AS batch_count,
+      COALESCE(SUM(b.gross_rial),0) AS batch_gross_rial,
+      COALESCE(SUM(b.fee_rial),0) AS batch_fee_rial,
+      COALESCE(SUM(b.shortage_rial),0) AS batch_shortage_rial,
+      COALESCE(SUM(b.net_rial),0) AS batch_net_rial
+    FROM pos_settlement_batches b
+    ${sql}
+  `).get(...params);
+  return {
+    batch_count: Number(row && row.batch_count) || 0,
+    batch_gross_rial: Math.round(Number(row && row.batch_gross_rial) || 0),
+    batch_fee_rial: Math.round(Number(row && row.batch_fee_rial) || 0),
+    batch_shortage_rial: Math.round(Number(row && row.batch_shortage_rial) || 0),
+    batch_net_rial: Math.round(Number(row && row.batch_net_rial) || 0),
+  };
+}
+
+function aggregatePosBankNets(db, filters) {
+  const { where, params } = posBatchAggFilters(filters);
+  const sql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  if (filters.terminalId) {
+    return db.prepare(`
+      SELECT b.bank_id, bk.name AS bank_name, bk.coa_code,
+        COALESCE(SUM(b.net_rial * ${SQL_POS_BATCH_ITEM_AMT_SHARE}),0) AS batch_net_rial
+      FROM pos_settlement_batches b
+      JOIN banks bk ON bk.id = b.bank_id
+      JOIN pos_settlement_items i ON i.batch_id = b.id
+      JOIN pos_receipts r ON r.id = i.receipt_id
+      ${sql}
+      GROUP BY b.bank_id
+    `).all(...params);
+  }
+  return db.prepare(`
+    SELECT b.bank_id, bk.name AS bank_name, bk.coa_code,
+      COALESCE(SUM(b.net_rial),0) AS batch_net_rial
+    FROM pos_settlement_batches b
+    JOIN banks bk ON bk.id = b.bank_id
+    ${sql}
+    GROUP BY b.bank_id
+  `).all(...params);
+}
+
 function buildPosReport(db, query = {}) {
   ensurePosCoaAccounts(db);
+  const listLimits = posReportListLimits();
   const from = String(query.from || '').trim();
   const to = String(query.to || '').trim();
   const terminalId = query.terminal_id ? Number(query.terminal_id) : 0;
@@ -837,8 +925,8 @@ function buildPosReport(db, query = {}) {
     LEFT JOIN banks b ON b.id = t.bank_id
     ${rSql}
     ORDER BY r.date DESC, r.id DESC
-    LIMIT 800
-  `).all(...rParams);
+    LIMIT ?
+  `).all(...rParams, listLimits.receipts);
 
   const bWhere = [];
   const bParams = [];
@@ -865,8 +953,8 @@ function buildPosReport(db, query = {}) {
     LEFT JOIN pos_terminals t ON t.id = b.terminal_id
     ${bSql}
     ORDER BY b.date DESC, b.id DESC
-    LIMIT 500
-  `).all(...bParams);
+    LIMIT ?
+  `).all(...bParams, listLimits.batches);
 
   if (terminalId) {
     const shareStmt = db.prepare(`
@@ -887,43 +975,54 @@ function buildPosReport(db, query = {}) {
     }
   }
 
-  const liveReceipts = receipts.filter((r) => r.status !== 'reversed');
-  const liveBatches = batches.filter((b) => b.status !== 'reversed');
+  const recAggWhere = rWhere.slice();
+  const recAggParams = rParams.slice();
+  if (!status) recAggWhere.push("COALESCE(r.status,'open') <> 'reversed'");
+  const recAggSql = recAggWhere.length ? 'WHERE ' + recAggWhere.join(' AND ') : '';
+  const recTot = db.prepare(`
+    SELECT COUNT(*) AS receipt_count,
+      COALESCE(SUM(r.amount_rial),0) AS receipt_gross_rial,
+      COALESCE(SUM(CASE WHEN r.amount_rial > COALESCE(r.settled_rial,0)
+        THEN r.amount_rial - COALESCE(r.settled_rial,0) ELSE 0 END),0) AS receipt_open_rial,
+      COALESCE(SUM(COALESCE(r.settled_rial,0)),0) AS receipt_settled_rial
+    FROM pos_receipts r
+    LEFT JOIN pos_terminals t ON t.id = r.terminal_id
+    ${recAggSql}
+  `).get(...recAggParams);
+  const batchTot = aggregatePosBatchTotals(db, {
+    from, to, terminalId, bankId, status, varianceOnly,
+  });
   const totals = {
-    receipt_count: liveReceipts.length,
-    receipt_gross_rial: liveReceipts.reduce((s, r) => s + Number(r.amount_rial || 0), 0),
-    receipt_open_rial: liveReceipts.reduce((s, r) => s + Math.max(0, Number(r.open_rial || 0)), 0),
-    receipt_settled_rial: liveReceipts.reduce((s, r) => s + Number(r.settled_rial || 0), 0),
-    batch_count: liveBatches.length,
-    batch_gross_rial: liveBatches.reduce((s, b) => s + Number(b.gross_rial || 0), 0),
-    batch_fee_rial: liveBatches.reduce((s, b) => s + Number(b.fee_rial || 0), 0),
-    batch_shortage_rial: liveBatches.reduce((s, b) => s + Number(b.shortage_rial || 0), 0),
-    batch_net_rial: liveBatches.reduce((s, b) => s + Number(b.net_rial || 0), 0),
+    receipt_count: Number(recTot && recTot.receipt_count) || 0,
+    receipt_gross_rial: Math.round(Number(recTot && recTot.receipt_gross_rial) || 0),
+    receipt_open_rial: Math.round(Number(recTot && recTot.receipt_open_rial) || 0),
+    receipt_settled_rial: Math.round(Number(recTot && recTot.receipt_settled_rial) || 0),
+    batch_count: batchTot.batch_count,
+    batch_gross_rial: batchTot.batch_gross_rial,
+    batch_fee_rial: batchTot.batch_fee_rial,
+    batch_shortage_rial: batchTot.batch_shortage_rial,
+    batch_net_rial: batchTot.batch_net_rial,
   };
 
   const transit = acct(db, 'coa_card_in_transit');
   const openAsOf = inTransitOpenAsOf(db, { to, terminalId: terminalId || null, bankId: bankId || null });
   const inTransitGl = glInTransitPosAsOf(db, { to, terminalId: terminalId || null, bankId: bankId || null });
-  const banks = [];
-  const seenBank = new Set();
-  for (const row of liveBatches) {
-    const id = Number(row.bank_id);
-    if (!id || seenBank.has(id)) continue;
-    seenBank.add(id);
-    const net = liveBatches.filter((b) => Number(b.bank_id) === id)
-      .reduce((s, b) => s + Number(b.net_rial || 0), 0);
-    const glNet = row.bank_coa_code
-      ? glPosBatchNetToBank(db, row.bank_coa_code, from, to, terminalId || null)
+  const banks = aggregatePosBankNets(db, {
+    from, to, terminalId, bankId, status, varianceOnly,
+  }).map((row) => {
+    const net = Math.round(Number(row.batch_net_rial) || 0);
+    const glNet = row.coa_code
+      ? glPosBatchNetToBank(db, row.coa_code, from, to, terminalId || null)
       : 0;
-    banks.push({
-      bank_id: id,
+    return {
+      bank_id: Number(row.bank_id),
       bank_name: row.bank_name,
-      coa_code: row.bank_coa_code,
+      coa_code: row.coa_code,
       batch_net_rial: net,
       pos_gl_net_rial: glNet,
       delta_rial: glNet - net,
-    });
-  }
+    };
+  });
 
   return {
     filters: {
@@ -936,6 +1035,10 @@ function buildPosReport(db, query = {}) {
     },
     receipts,
     batches,
+    list_truncated: {
+      receipts: receipts.length >= listLimits.receipts,
+      batches: batches.length >= listLimits.batches,
+    },
     totals,
     reconcile: {
       in_transit_account: transit.code,

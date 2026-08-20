@@ -1,4 +1,10 @@
-## 2026-08-20T16:10:00+03:30 — Independent Highs: mixed-batch GL + crm_token
+## 2026-08-20T16:40:00+03:30 — Independent High: unbounded bank reconcile vs 500-row list
+
+- Totals + `reconcile.banks` from SQL without LIMIT; UI list still 500/800
+- POS-03 **53/53**; SW v169
+- **NO merge / Iran deploy** until Independent re-APPROVED
+
+
 
 - **Task:** `STITCH-P8-POS03-ADR007` still claimed
 - **High-1:** `exportPosReport` uses `crm_token` (not `token`)

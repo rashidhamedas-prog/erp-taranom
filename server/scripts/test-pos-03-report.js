@@ -221,6 +221,15 @@ function ok(cond, label, extra) {
   ok(mixB.data && mixB.data.reconcile && mixB.data.reconcile.ok === true, 'mixed filter B reconcile', mixB.data && mixB.data.reconcile);
   ok(mixB.data.totals.receipt_gross_rial === 200000, 'mixed B gross 200k');
 
+  console.log('\n— list cap does not break unbounded reconcile —');
+  process.env.POS_REPORT_BATCH_LIST_LIMIT = '1';
+  const capped = await api('GET', '/api/pos/report?from=1405/01/16&to=1405/01/18');
+  delete process.env.POS_REPORT_BATCH_LIST_LIMIT;
+  ok((capped.data.batches || []).length === 1, 'batch list capped at 1');
+  ok(capped.data.list_truncated && capped.data.list_truncated.batches === true, 'truncated flag');
+  ok(capped.data.totals && capped.data.totals.batch_count >= 2, 'totals unbounded batch count', capped.data.totals);
+  ok(capped.data.reconcile && capped.data.reconcile.ok === true, 'reconcile ok when list truncated', capped.data.reconcile);
+
   server.close();
   try { closeSessionStore(); } catch (_) {}
   console.log('\nPOS-03 report: ' + (fail ? '❌ ' : '✅ ') + pass + ' پاس، ' + fail + ' رد');
