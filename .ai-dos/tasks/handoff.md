@@ -1,4 +1,11 @@
-## 2026-08-20T16:55:00+03:30 — owner merge + Iran deploy + ADR-007 Accept
+## 2026-08-20T16:40:04Z — POS-03 Iran SFTP v170 ✅
+
+- Primary FF `claude/claude-md-docs-2ssrpy` = `4d9bc83`
+- Stamp `.sftp-deploy-stamp-stitch-v170` = `2026-08-20T12:40:04Z hash=4d9bc83`
+- health/ready/root **200**; SW `erp-taranom-v170`; `db.js` not replaced
+- ADR-007 Accepted. Claims released. Next: `PROD-STITCH-P5`
+
+
 
 - Owner: merge POS-03/Phase 8 to primary and Iran SFTP; Accept ADR-007 (طاقه فقط WH-RAW)
 - PROD-01 schema **not** in this overlay — next task `PROD-STITCH-P5`

@@ -1,9 +1,12 @@
 # Project Status
 
 - Last verified: 2026-08-20
-- **Active task:** `STITCH-P8-POS03-ADR007` merge+Iran overlay v170 in flight
-- **ADR-007:** Accepted (WH-RAW fabric rolls only; no FG lot/serial/bin)
-- **UI-STITCH-IMPL + HR/INV/TRS + CON + POS + LED + POS-03:** Iran SFTP next `.sftp-deploy-stamp-stitch-v170`
+- **STITCH-P8-POS03-ADR007:** `completed` — dual APPROVED + owner merge/deploy
+  Primary `4d9bc83`; stamp `.sftp-deploy-stamp-stitch-v170` = `2026-08-20T12:40:04Z hash=4d9bc83`
+  health/ready/root **200**; SW `erp-taranom-v170`; `db.js` not replaced
+- **ADR-007:** Accepted (طاقه فقط WH-RAW؛ FG بدون Lot/Serial/Bin)
+- **Next:** PROD-01 fabric receipt (`PROD-STITCH-P5`)
+- **UI-STITCH-IMPL + HR/INV/TRS + CON + POS + LED:** Iran SFTP v166 then v170 overlay
 - **DEMO-V3-GUIDED-SALES:** `completed` — dual APPROVED + owner merge/deploy
   Primary `bb868c5`; SFTP stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`
   health/demo/seed 200; public `https://erp.poshaktaranom.com/demo.html`

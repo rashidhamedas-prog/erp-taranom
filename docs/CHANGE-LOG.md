@@ -13,11 +13,12 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
-### 2026-08-20 — POS-03 + Phase 8 merge + ADR-007 Accepted (Iran SFTP)
-- **شاخه primary:** `claude/claude-md-docs-2ssrpy` ← `ai/STITCH-P8-POS03-ADR007`
+### 2026-08-20 — POS-03 + Phase 8 merge + ADR-007 Accepted + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `4d9bc83` (از `ai/STITCH-P8-POS03-ADR007`)
 - **خلاصه:** گزارش کارتخوان، دروازه فاز ۸، ADR-007 Accepted (طاقه فقط WH-RAW). Schema طاقه در این رلیز نیست.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` عوض نشد. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v170` = `2026-08-20T12:40:04Z hash=4d9bc83`.
 - **SW:** `erp-taranom-v170`
-- **Deploy:** در جریان (SFTP overlay؛ `db.js` عوض نمی‌شود)
+- **تست:** POS-03 **53/53** · فاز ۸ سبز
 
 ### 2026-08-20 — POS-03 unbounded reconcile vs list cap (pre-merge)
 - **شاخه:** `ai/STITCH-P8-POS03-ADR007`
