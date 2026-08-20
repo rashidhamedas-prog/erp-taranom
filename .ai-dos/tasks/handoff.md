@@ -1,3 +1,10 @@
+## 2026-08-20T17:25:00+03:30 — PROD-02/03 Iran SFTP v172 @ b52a1de
+
+- Stamp `.sftp-deploy-stamp-stitch-v172` = `2026-08-20T13:54:13Z hash=b52a1de`
+- health/ready/root **200**; SW `erp-taranom-v172`; `db.js` not replaced; `schema.js` overlaid
+- Independent [Bugbot](15f254b6-11a8-4913-98b3-fd17622b0c74) no bugs; Security [review](47086660-b6fc-4e97-8e9c-0776c9659da7) APPROVED C0/H0/M0
+- Claims released. Next: PACK / FG receipt still out
+
 ## 2026-08-20T17:50:00+03:30 — PROD-02/03 dual APPROVED (Iran overlay next)
 
 - Independent [Bugbot](15f254b6-11a8-4913-98b3-fd17622b0c74) no bugs

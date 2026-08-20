@@ -1,11 +1,11 @@
 # Project Status
 
 - Last verified: 2026-08-20
-- **Active task:** `PROD-STITCH-P5B` — PROD-02/03 cutting lay wizard
-- Branch: `ai/PROD-02-CUTTING` @ worktree stitch-impl, base `be76a5c`
-- Independent Bugbot: no bugs ([re-review](15f254b6-11a8-4913-98b3-fd17622b0c74)). Security: APPROVED C0/H0/M0 ([re-review](47086660-b6fc-4e97-8e9c-0776c9659da7)).
-- Prior completed: `PROD-STITCH-P5` (fabric rolls v171)
+- **Active task:** none — `PROD-STITCH-P5B` completed
 - Independent Bugbot: no bugs. Security: APPROVED C0/H0/M0.
+- **PROD-STITCH-P5B:** `completed` — dual APPROVED + owner merge/deploy
+  Primary `b52a1de`; stamp `.sftp-deploy-stamp-stitch-v172` = `2026-08-20T13:54:13Z hash=b52a1de`
+  health/ready/root **200**; SW `erp-taranom-v172`; `db.js` not replaced; `schema.js` overlaid
 - **PROD-STITCH-P5:** `completed` — dual APPROVED + owner merge/deploy
   Primary `db708a8`; stamp `.sftp-deploy-stamp-stitch-v171` = `2026-08-20T13:09:58Z hash=db708a8`
   health/ready/root **200**; SW `erp-taranom-v171`; `db.js` not replaced; `schema.js` overlaid

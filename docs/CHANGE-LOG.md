@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-20 — PROD-02/03 cutting lay wizard + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `b52a1de` (از `ai/PROD-02-CUTTING`)
+- **خلاصه:** ویزارد لایه‌چینی/ماتریس/ضایعات. برداشت طاقه از انبار مواد. ضایعات عادی بدون سند؛ غیرعادی ۵۲۲۱. رسید کالای آماده نیست. نقش تولید طاقه را بدون بها انتخاب می‌کند.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` عوض نشد؛ `schema.js` overlay شد. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v172` = `2026-08-20T13:54:13Z hash=b52a1de`.
+- **SW:** `erp-taranom-v172`
+- **تست:** PROD-02/03 **39/39** · SMS **22/22**
+
 ### 2026-08-20 — PROD-02/03 dual APPROVED (Iran overlay next)
 - **شاخه:** `ai/PROD-02-CUTTING` @ `37f5f1b`
 - **خلاصه:** Independent بدون باگ؛ امنیت C0/H0/M0. ویزارد لایه‌چینی + انتخاب طاقه برای نقش تولید بدون بها.
