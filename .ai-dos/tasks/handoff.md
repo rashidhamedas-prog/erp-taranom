@@ -1,3 +1,11 @@
+## 2026-08-20T17:45:00+03:30 — PROD-01 review Highs fixed (pre-merge)
+
+- High-1: `supplierDetailId` via `suppliers.party_id` → `parties.detail_account_id`
+- High-2: `supplier_ledger` credit on valued receive; debit on R13 void
+- M1: UI always sends `idempotency_key`; server requires it; replay returns same row
+- FK append: `ledger_id` / `journal_id` / `reversal_journal_id` on `inventory_batches`
+- Tests **23/23**. **NO Iran deploy** until Independent + Security APPROVED
+
 ## 2026-08-20T17:10:00+03:30 — PROD-STITCH-P5 claimed (PROD-01)
 
 - ADR-007 Accepted. Fabric receive on WH-RAW. Tests 17/17. SW v171

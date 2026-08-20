@@ -33,13 +33,14 @@ tasks:
       - ".ai-dos/tasks/handoff.md"
       - ".ai-dos/project/status.md"
     notes: >-
-      Owner accepted ADR-007. PROD-01 receive rolls on WH-RAW only. No FG lot.
-      No Iran deploy until dual review.
+      Owner accepted ADR-007. Review Highs (party_id, supplier_ledger, UI key) fixed.
+      Tests 23/23. No Iran deploy until dual review.
     acceptance_criteria:
       - "POST /api/inventory/fabric-rolls WH-RAW only; color+meters; stock via ledger; JE 1110/2101 when valued"
       - "R13 void; field_sales 403; FG warehouse 400; vanilla UI acc-fabric-rolls"
       - "No new SYNCABLE table; columns on inventory_batches; PATH_TABLE_MAP fabric-rolls"
-      - "No React/Tailwind; no Serial/Bin"
+      - "Valued receive posts supplier_ledger credit and JE tafsili via party_id; void reverses both"
+      - "UI+API idempotency_key required; replay returns same roll"
 
   - id: "STITCH-P8-POS03-ADR007"
     title: "POS-03 card report + open ADR-007 + Phase 8 hardening gates"

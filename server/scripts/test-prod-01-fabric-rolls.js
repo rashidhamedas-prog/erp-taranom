@@ -95,6 +95,13 @@ function gl(code) {
     VALUES (?, 'کرپ مشکی', 'FAB-01', 0, 0, 'متر')
   `).run(admin.id).lastInsertRowid;
   const supId = db.prepare(`INSERT INTO suppliers (name) VALUES ('نساجی تست')`).run().lastInsertRowid;
+  const { syncSupplierToParty } = require('../lib/parties-sync');
+  const partyId = syncSupplierToParty(db, supId);
+  const daId = db.prepare(`
+    INSERT INTO detail_accounts (code, name, linked_table, linked_id)
+    VALUES ('DA-FAB-T1', 'تأمین‌کننده طاقه', 'suppliers', ?)
+  `).run(supId).lastInsertRowid;
+  db.prepare('UPDATE parties SET detail_account_id=? WHERE id=?').run(daId, partyId);
 
   console.log('\n— receive on WH-RAW —');
   const rec = await api('POST', '/api/inventory/fabric-rolls', {
@@ -118,12 +125,30 @@ function gl(code) {
   const stock = db.prepare('SELECT stock FROM products WHERE id=?').get(prodId).stock;
   ok(Number(stock) === 40, 'product stock 40', stock);
   ok(gl('1110') === 40 * 250000, 'GL raw 10,000,000', gl('1110'));
+  ok(gl('2101') === -40 * 250000, 'GL payable credit', gl('2101'));
+  const sl1 = db.prepare(`
+    SELECT COALESCE(SUM(credit),0) c, COALESCE(SUM(debit),0) d
+    FROM supplier_ledger WHERE supplier_id=? AND ref_type='fabric_roll' AND ref_id=?
+  `).get(supId, rec.data.id);
+  ok(Number(sl1.c) === 40 * 250000 && Number(sl1.d) === 0, 'supplier_ledger credit', sl1);
+  const tafsili = db.prepare(`
+    SELECT jl.detail_account_id FROM journal_lines jl
+    JOIN journal_entries je ON je.id=jl.entry_id
+    WHERE je.id=? AND COALESCE(jl.credit,0)+COALESCE(jl.credit_rial,0)>0
+    LIMIT 1
+  `).get(rec.data.journal_id);
+  ok(Number(tafsili && tafsili.detail_account_id) === daId, 'JE tafsili via party_id', tafsili);
+
+  const noKey = await api('POST', '/api/inventory/fabric-rolls', {
+    product_id: prodId, warehouse_id: raw.id, color: 'آبی', meters: 2,
+  });
+  ok(noKey.status === 400, 'missing idempotency_key 400', noKey.data);
 
   const dup = await api('POST', '/api/inventory/fabric-rolls', {
     product_id: prodId, warehouse_id: raw.id, color: 'مشکی', meters: 1,
     unit_cost_rial: 1, supplier_id: supId, idempotency_key: 'fab-1',
   });
-  ok(dup.status === 409, 'idempotent 409');
+  ok(dup.status === 200 && dup.data && dup.data.id === rec.data.id, 'idempotent 200 same id', dup.data);
 
   console.log('\n— FG warehouse rejected —');
   const onFg = await api('POST', '/api/inventory/fabric-rolls', {
@@ -145,6 +170,12 @@ function gl(code) {
   ok(voided.status === 200 && voided.data.status === 'reversed', 'void reversed');
   ok(Number(db.prepare('SELECT stock FROM products WHERE id=?').get(prodId).stock) === 0, 'stock back to 0');
   ok(gl('1110') === 0, 'GL raw 0 after void', gl('1110'));
+  ok(gl('2101') === 0, 'GL payable 0 after void', gl('2101'));
+  const sl2 = db.prepare(`
+    SELECT COALESCE(SUM(credit),0) c, COALESCE(SUM(debit),0) d
+    FROM supplier_ledger WHERE supplier_id=? AND ref_type='fabric_roll' AND ref_id=?
+  `).get(supId, rec.data.id);
+  ok(Number(sl2.c) === Number(sl2.d) && Number(sl2.c) === 40 * 250000, 'supplier_ledger reversed', sl2);
   const void2 = await api('POST', `/api/inventory/fabric-rolls/${rec.data.id}/void`, {});
   ok(void2.status === 409, 'second void 409');
 

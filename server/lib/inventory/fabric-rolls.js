@@ -7,6 +7,7 @@
 const { todayJalali } = require('../../jalali');
 const { acct } = require('../coa-map');
 const { rialToLedger, assertSafeRial } = require('../money');
+const { assertJournalIdempotent } = require('../sales-document');
 const { postInventoryMovement, reverseInventoryMovement, invErr } = require('./ledger');
 const { createBatch, adjustBatchQty } = require('./batch-serial');
 
@@ -36,13 +37,37 @@ function normUnit(v) {
   throw httpErr(400, 'واحد طاقه باید متر باشد', 'E_FABRIC_UNIT');
 }
 
+function payableAcct(db, supplierId) {
+  if (supplierId) {
+    const s = db.prepare('SELECT coa_code FROM suppliers WHERE id=?').get(supplierId);
+    if (s && s.coa_code) {
+      const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(s.coa_code);
+      if (a) return a;
+    }
+  }
+  return acct(db, 'coa_payable');
+}
+
 function supplierDetailId(db, supplierId) {
   if (!supplierId) return null;
   try {
-    const party = db.prepare('SELECT detail_account_id FROM parties WHERE id=?').get(supplierId);
+    const s = db.prepare('SELECT party_id FROM suppliers WHERE id=?').get(supplierId);
+    if (!s || !s.party_id) return null;
+    const party = db.prepare('SELECT detail_account_id FROM parties WHERE id=?').get(s.party_id);
     if (party && party.detail_account_id) return party.detail_account_id;
   } catch (_) { /* parties.detail_account_id may be absent */ }
   return null;
+}
+
+function postSupplierLedger(db, { supplier_id, date, entry_type, ref_id, description, debit, credit, user_id }) {
+  db.prepare(`
+    INSERT INTO supplier_ledger
+      (supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id)
+    VALUES (?,?,?,?,?,?,?,?,?)
+  `).run(
+    supplier_id, date || '', entry_type, 'fabric_roll', ref_id || null,
+    description || '', debit || 0, credit || 0, user_id || null
+  );
 }
 
 function listFabricRolls(db, query = {}) {
@@ -67,10 +92,11 @@ function listFabricRolls(db, query = {}) {
 
 function receiveFabricRoll(db, body, user) {
   const key = String(body.idempotency_key || '').trim();
-  if (key) {
-    const existing = db.prepare('SELECT * FROM inventory_batches WHERE idempotency_key=?').get(key);
-    if (existing) throw httpErr(409, 'این طاقه قبلاً ثبت شده است', 'E_FABRIC_IDEMPOTENT', { id: existing.id });
+  if (!key) {
+    throw httpErr(400, 'کلید تکرارناپذیر الزامی است', 'E_FABRIC_IDEMPOTENCY');
   }
+  const existing = db.prepare('SELECT * FROM inventory_batches WHERE idempotency_key=?').get(key);
+  if (existing) return existing;
   const productId = Number(body.product_id);
   if (!productId) throw httpErr(400, 'کالا الزامی است', 'E_FABRIC_PRODUCT');
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
@@ -101,9 +127,13 @@ function receiveFabricRoll(db, body, user) {
 
   const { postToLedger } = require('../ledger');
   const invAcct = acct(db, 'coa_raw_materials');
-  const payAcct = acct(db, 'coa_payable');
+  const payAcct = payableAcct(db, supplierId);
 
-  const out = db.transaction(() => {
+  let out;
+  try {
+    out = db.transaction(() => {
+    const raced = db.prepare('SELECT * FROM inventory_batches WHERE idempotency_key=?').get(key);
+    if (raced) return { existing: raced };
     let batch;
     try {
       batch = createBatch(db, {
@@ -121,15 +151,22 @@ function receiveFabricRoll(db, body, user) {
       }
       throw e;
     }
-    db.prepare(`
-      UPDATE inventory_batches
-      SET kind='fabric', color=?, pattern=?, width_cm=?, unit=?, unit_cost_rial=?,
-          supplier_id=?, qty_received=?, idempotency_key=?
-      WHERE id=?
-    `).run(
-      color, pattern, widthCm, unit, unitCost,
-      supplierId || null, meters, key || null, batch.id
-    );
+    try {
+      db.prepare(`
+        UPDATE inventory_batches
+        SET kind='fabric', color=?, pattern=?, width_cm=?, unit=?, unit_cost_rial=?,
+            supplier_id=?, qty_received=?, idempotency_key=?
+        WHERE id=?
+      `).run(
+        color, pattern, widthCm, unit, unitCost,
+        supplierId || null, meters, key, batch.id
+      );
+    } catch (e) {
+      if (/UNIQUE/i.test(String(e && e.message))) {
+        throw httpErr(409, 'این طاقه قبلاً ثبت شده است', 'E_FABRIC_IDEMPOTENT');
+      }
+      throw e;
+    }
 
     const led = postInventoryMovement(db, {
       eventType: 'receipt',
@@ -148,6 +185,7 @@ function receiveFabricRoll(db, body, user) {
 
     let journalId = null;
     if (amount > 0) {
+      assertJournalIdempotent(db, 'fabric_roll', batch.id);
       journalId = postToLedger(db, {
         sourceType: 'fabric_roll',
         sourceId: batch.id,
@@ -165,11 +203,31 @@ function receiveFabricRoll(db, body, user) {
           },
         ],
       });
+      if (supplierId) {
+        postSupplierLedger(db, {
+          supplier_id: supplierId,
+          date,
+          entry_type: 'purchase',
+          ref_id: batch.id,
+          description: `دریافت طاقه ${batch.batch_no} — ${meters} متر`,
+          debit: 0,
+          credit: amount,
+          user_id: user.id,
+        });
+      }
     }
     db.prepare('UPDATE inventory_batches SET ledger_id=?, journal_id=? WHERE id=?')
       .run(led.id, journalId, batch.id);
     return { batchId: batch.id, ledgerId: led.id, journalId };
-  })();
+    })();
+  } catch (e) {
+    if (e && e.code === 'E_FABRIC_IDEMPOTENT') {
+      const again = db.prepare('SELECT * FROM inventory_batches WHERE idempotency_key=?').get(key);
+      if (again) return again;
+    }
+    throw e;
+  }
+  if (out.existing) return out.existing;
 
   return db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(out.batchId);
 }
@@ -198,6 +256,22 @@ function voidFabricRoll(db, id, user, { reason } = {}) {
         userId: user.id,
         reason: reason || 'ابطال دریافت طاقه',
         sourceType: 'fabric_roll_reversal',
+      });
+    }
+    const amount = assertSafeRial(
+      Math.round((Number(row.unit_cost_rial) || 0) * (Number(row.qty_received || row.qty_on_hand) || 0)),
+      'fabric void amount'
+    );
+    if (row.supplier_id && amount > 0) {
+      postSupplierLedger(db, {
+        supplier_id: row.supplier_id,
+        date: todayJalali(),
+        entry_type: 'reversal',
+        ref_id: row.id,
+        description: reason || `ابطال دریافت طاقه ${row.batch_no}`,
+        debit: amount,
+        credit: 0,
+        user_id: user.id,
       });
     }
     adjustBatchQty(db, row.id, -onHand);
