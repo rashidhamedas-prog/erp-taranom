@@ -3,8 +3,8 @@ tasks:
   - id: "STITCH-P8-POS03-ADR007"
     title: "POS-03 card report + open ADR-007 + Phase 8 hardening gates"
     status: "active"
-    review_status: "PENDING"
-    security_status: "PENDING"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:orchestrator-stitch-p8"
     roles:
@@ -35,9 +35,8 @@ tasks:
       - ".ai-dos/tasks/handoff.md"
       - ".ai-dos/project/status.md"
     notes: >-
-      Remaining Stitch map: POS-03 report, open ADR-007 (Proposed; no PROD-01 code),
-      Phase 8 gate runner. No Iran deploy until dual review + owner approval.
-      Dirty erp-taranom1 deploy scripts untouched.
+      Dual review APPROVED on bf29bfc (SW v169). No Iran deploy until owner
+      approval. ADR-007 remains Proposed; no PROD-01 schema.
     acceptance_criteria:
       - "GET /api/pos/report filters date/terminal/bank/status/variance; totals reconcile in-transit GL and bank POS net"
       - "Vanilla UI acc-pos-report; field_sales 403; CSV matches JSON totals"

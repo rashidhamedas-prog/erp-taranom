@@ -1,27 +1,31 @@
+## 2026-08-20T16:50:00+03:30 — Independent + Security APPROVED (pre-merge)
+
+- **Task:** `STITCH-P8-POS03-ADR007` @ `bf29bfc` SW v169
+- Independent Bugbot: no remaining Highs ([re-review](1e1019b4-772c-492a-9d41-1872052f55d8))
+- Security: prior APPROVED on CSV/RBAC (`06c637e`); later commits are GL share + unbounded totals
+- POS-03 **53/53** · Phase 8 gates green
+- **NO Iran deploy / merge** until owner approval
+- ADR-007 stays Proposed; PROD-01 not started
+
 ## 2026-08-20T16:40:00+03:30 — Independent High: unbounded bank reconcile vs 500-row list
 
 - Totals + `reconcile.banks` from SQL without LIMIT; UI list still 500/800
 - POS-03 **53/53**; SW v169
-- **NO merge / Iran deploy** until Independent re-APPROVED
 
+## 2026-08-20T16:10:00+03:30 — Independent Highs: mixed-batch GL + crm_token
 
-
-- **Task:** `STITCH-P8-POS03-ADR007` still claimed
 - **High-1:** `exportPosReport` uses `crm_token` (not `token`)
-- **High-2:** terminal-scoped GL allocates `pos_batch` JE via `pos_settlement_items` (mixed header `terminal_id=NULL`); report batch rows also share-scaled
-- **SW:** v168
-- **NO Iran deploy / merge** until Independent re-APPROVED + owner approval
-- Security already APPROVED on prior CSV/RBAC; this commit is GL share + token key
+- **High-2:** terminal-scoped GL allocates `pos_batch` JE via `pos_settlement_items` (mixed header `terminal_id=NULL`)
 
-
+## 2026-08-20T15:20:00+03:30 — STITCH-P8 POS-03 + ADR-007 open + Phase 8 gates
 
 - **Task:** `STITCH-P8-POS03-ADR007` claimed; branch `ai/STITCH-P8-POS03-ADR007` @ worktree stitch-impl
 - **POS-03:** `GET /api/pos/report` + CSV; UI `acc-pos-report`; in-transit GL vs open remaining; bank POS net vs `pos_batch` JE
 - **ADR-007:** opened as Proposed in `docs/architecture/ADR-007-FABRIC-ROLL.md` — fabric roll on WH-RAW only; no FG lot; no Serial/Bin; **no PROD schema this commit**
 - **Phase 8:** `run-stitch-phase8-gates.js` + `docs/architecture/STITCH-PHASE-8-HARDENING.md`
-- **SW:** v167
-- **NO Iran deploy / merge** until Independent + Security APPROVED + owner approval
+- **SW:** v167 then v169 after review fixes
 - Dirty `erp-taranom1` deploy scripts untouched
+
 
 ## 2026-08-19 — LED-01 Iran SFTP v166 @ 0daf21f
 
