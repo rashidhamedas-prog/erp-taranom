@@ -3,8 +3,8 @@ tasks:
   - id: "PROD-STITCH-P5"
     title: "PROD-01 fabric roll receipt on WH-RAW (ADR-007 Accepted)"
     status: "active"
-    review_status: "PENDING"
-    security_status: "PENDING"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:orchestrator-prod-p5"
     roles:
@@ -33,8 +33,8 @@ tasks:
       - ".ai-dos/tasks/handoff.md"
       - ".ai-dos/project/status.md"
     notes: >-
-      Owner accepted ADR-007. Review Highs (party_id, supplier_ledger, UI key) fixed.
-      Tests 23/23. No Iran deploy until dual review.
+      Owner accepted ADR-007. Dual review APPROVED (Bugbot no bugs; Security C0/H0/M0).
+      Tests 23/23. Merge + Iran overlay next.
     acceptance_criteria:
       - "POST /api/inventory/fabric-rolls WH-RAW only; color+meters; stock via ledger; JE 1110/2101 when valued"
       - "R13 void; field_sales 403; FG warehouse 400; vanilla UI acc-fabric-rolls"

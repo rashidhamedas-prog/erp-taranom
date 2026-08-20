@@ -1,7 +1,8 @@
 # Project Status
 
 - Last verified: 2026-08-20
-- **Active task:** `PROD-STITCH-P5` on `ai/PROD-STITCH-P5` — PROD-01 fabric rolls
+- **Active task:** `PROD-STITCH-P5` on `ai/PROD-STITCH-P5` — dual APPROVED, merge/deploy in progress
+- Independent Bugbot: no bugs. Security: APPROVED C0/H0/M0.
 - **STITCH-P8-POS03-ADR007:** `completed` — dual APPROVED + owner merge/deploy
   Primary `9b16876`; stamp `.sftp-deploy-stamp-stitch-v170` = `2026-08-20T12:40:04Z hash=4d9bc83`
   health/ready/root **200**; SW `erp-taranom-v170`; `db.js` not replaced

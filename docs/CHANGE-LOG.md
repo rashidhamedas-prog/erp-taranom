@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-20 — PROD-01 dual APPROVED (Iran overlay next)
+- **شاخه:** `ai/PROD-STITCH-P5` @ `8ebaca7`
+- **خلاصه:** Independent Bugbot بدون باگ؛ امنیت C0/H0/M0. دریافت طاقه WH-RAW + دفتر تأمین‌کننده + کلید تکرارناپذیر.
+- **SW:** `erp-taranom-v171`
+- **تست:** PROD-01 **23/23** · SMS **22/22**
+- **Deploy:** در جریان (SFTP overlay؛ `db.js` عوض نمی‌شود؛ `schema.js` overlay می‌شود)
+
 ### 2026-08-20 — PROD-01 review fixes (pre-merge)
 - **شاخه:** `ai/PROD-STITCH-P5`
 - **خلاصه:** تفصیلی از `suppliers.party_id`؛ بستانکار `supplier_ledger` در دریافت و بدهکار در ابطال؛ کلید تکرارناپذیر اجباری در UI/API (تکرار = همان طاقه). FKهای ledger/journal طاقه append شدند.
