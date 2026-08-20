@@ -149,7 +149,9 @@ function nextBundleBarcode(db, packNo, sizeCode, color) {
 
 /**
  * Block PO issue/backflush of fabric already consumed by a posted cutting lay.
- * Remaining unused BOM meters (std − cut) may still be issued.
+ * Cut meters are global for the fabric SKU (independent of production_order_id)
+ * so linking a lay to a decoy order cannot unlock another order.
+ * Remaining unused BOM meters (std − cut) may still be issued from other rolls.
  */
 function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {}) {
   const AQ = Number(qty) || 0;
@@ -167,17 +169,13 @@ function assertFabricIssueAllowed(db, { productId, qty, batchId, orderId } = {})
       });
     }
   }
+  // Global physical lock: linked-to-PO-A must still block issue on PO B of the same SKU.
   const cutRow = db.prepare(`
     SELECT COALESCE(SUM(l.actual_meters),0) AS s
     FROM cutting_lays l
     WHERE l.fabric_product_id=?
       AND COALESCE(l.status,'posted') <> 'reversed'
-      AND (
-        l.production_order_id IS NULL
-        OR l.production_order_id = ?
-        OR ? IS NULL
-      )
-  `).get(Number(productId), Number(orderId) || 0, orderId == null ? null : Number(orderId));
+  `).get(Number(productId));
   const cutMeters = Number(cutRow && cutRow.s) || 0;
   if (cutMeters <= 0) return;
 
@@ -637,6 +635,8 @@ function postCuttingPack(db, layId, body, user) {
     packId = db.transaction(() => {
       const raced = db.prepare('SELECT id FROM cutting_packs WHERE idempotency_key=?').get(key);
       if (raced) return raced.id;
+      const liveNow = postedPackForLay(db, lay.id);
+      if (liveNow) throw httpErr(409, 'این لایه قبلاً رسید شده است', 'E_PACK_EXISTS');
       if (po && Number(lay.production_order_id) !== Number(po.id)) {
         db.prepare('UPDATE cutting_lays SET production_order_id=? WHERE id=?').run(po.id, lay.id);
       }
@@ -713,11 +713,12 @@ function postCuttingPack(db, layId, body, user) {
         });
       }
       return id;
-    })();
+    }).immediate();
   } catch (e) {
     if (e && (e.code === 'SQLITE_CONSTRAINT_UNIQUE' || /UNIQUE/i.test(String(e.message)))) {
       const again = db.prepare('SELECT id FROM cutting_packs WHERE idempotency_key=?').get(key);
       if (again) return getCuttingPack(db, again.id);
+      throw httpErr(409, 'این لایه قبلاً رسید شده است', 'E_PACK_EXISTS');
     }
     throw e;
   }

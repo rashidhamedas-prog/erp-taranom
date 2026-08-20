@@ -169,6 +169,9 @@ function ensureExistingColumns(db) {
     try {
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_cutting_packs_idem ON cutting_packs(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''");
     } catch (_) { /* ignore */ }
+    try {
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_cutting_packs_live_lay ON cutting_packs(lay_id) WHERE status='posted'");
+    } catch (_) { /* ignore */ }
   }
   ensureCuttingPackSyncColumns(db);
 }
@@ -933,6 +936,7 @@ function createTables(db) {
       FOREIGN KEY(lay_id) REFERENCES cutting_lays(id)
     );
     CREATE INDEX IF NOT EXISTS ix_cutting_packs_lay ON cutting_packs(lay_id, status);
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_cutting_packs_live_lay ON cutting_packs(lay_id) WHERE status='posted';
     CREATE INDEX IF NOT EXISTS ix_cutting_packs_prod ON cutting_packs(product_id, date);
 
     CREATE TABLE IF NOT EXISTS cutting_pack_bundles (

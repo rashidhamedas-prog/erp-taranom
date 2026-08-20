@@ -148,7 +148,6 @@ function gl(code) {
   ok(posted.status === 200 && posted.data && posted.data.id, 'post lay 200', posted.data && posted.data.error);
   const wipAfterCut = gl('1111');
   const wasteAfterCut = gl('5221');
-  const rawAfterCut = gl('1110');
   const rollAfterCut = Number(db.prepare('SELECT qty_on_hand FROM inventory_batches WHERE id=?').get(rec.data.id).qty_on_hand);
   ok(rollAfterCut === 33, 'roll 33m after cut');
   ok(Number(db.prepare('SELECT stock FROM products WHERE id=?').get(fgId).stock) === 0, 'FG 0 before PACK');
@@ -185,6 +184,40 @@ function gl(code) {
       production_order_id: po.id,
     });
     ok(linked.status === 200 && Number(linked.data.production_order_id) === Number(po.id), 'link optional production_order_id');
+
+    const rec2 = await api('POST', '/api/inventory/fabric-rolls', {
+      product_id: fabId, warehouse_id: raw.id, color: 'مشکی', meters: 10,
+      unit: 'متر', unit_cost_rial: 250000, supplier_id: supId, roll_no: 'R-PACK-2',
+      date: '1405/05/29', idempotency_key: 'pack-roll-2',
+    });
+    ok(rec2.status === 200 && rec2.data && rec2.data.id, 'second roll for cross-PO lock', rec2.data && rec2.data.error);
+    let poB;
+    try {
+      poB = engine.createOrder(db, {
+        product_id: fgId, qty_planned: 4, analysis_type: 'variable',
+        date: '1405/05/29', warehouse_raw_id: raw.id, warehouse_fg_id: fgWh.id,
+        size_breakdown: breakdown, bom_id: bom.id,
+      }, admin.id);
+      engine.releaseOrder(db, poB.id, admin.id);
+    } catch (e) {
+      ok(false, 'PO B create/release', e && e.message);
+    }
+    if (poB) {
+      let crossCode = null;
+      try {
+        engine.issueMaterialsVariable(db, {
+          orderId: poB.id,
+          body: {
+            date: '1405/05/29', qty_started: 4,
+            materials: [{ product_id: fabId, qty_actual: 7, batch_id: rec2.data.id, reason: 'قفل بین سفارش' }],
+          },
+          userId: admin.id,
+        });
+      } catch (e) {
+        crossCode = e.code || e.message;
+      }
+      ok(crossCode === 'E_FABRIC_ALREADY_CUT', 'link to PO A then issue PO B → 409', crossCode);
+    }
   }
 
   const salesPack = await api('POST', `/api/production/cutting-lays/${posted.data.id}/pack`, {
@@ -195,6 +228,7 @@ function gl(code) {
   const noKey = await api('POST', `/api/production/cutting-lays/${posted.data.id}/pack`, {});
   ok(noKey.status === 400, 'pack missing key 400');
 
+  const rawBeforePack = gl('1110');
   const packed = await api('POST', `/api/production/cutting-lays/${posted.data.id}/pack`, {
     warehouse_id: fgWh.id,
     date: '1405/05/29',
@@ -202,6 +236,8 @@ function gl(code) {
   }, opTok);
   ok(packed.status === 200 && packed.data && packed.data.id, 'PACK 200', packed.data && packed.data.error);
   ok(packed.data && packed.data.status === 'posted', 'pack posted');
+  ok(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='ux_cutting_packs_live_lay'").get(),
+    'partial unique posted pack per lay');
   ok(!(packed.data && (packed.data.amount_rial != null || packed.data.unit_cost_rial != null || packed.data.wip_net_rial != null)),
     'operator pack JSON has no *_rial', packed.data);
   ok(!JSON.stringify(packed.data || {}).includes('_rial'), 'operator pack nested JSON has no *_rial');
@@ -225,7 +261,7 @@ function gl(code) {
   const fgGl = gl('1104');
   ok(fgGl === wipAfterCut, 'FG GL = prior lay WIP net', { fgGl, wipAfterCut });
   ok(gl('5221') === wasteAfterCut, 'abnormal waste GL unchanged by PACK');
-  ok(gl('1110') === rawAfterCut, 'RAW GL unchanged by PACK');
+  ok(gl('1110') === rawBeforePack, 'RAW GL unchanged by PACK');
 
   const dup = await api('POST', `/api/production/cutting-lays/${posted.data.id}/pack`, {
     idempotency_key: 'pack-1',
