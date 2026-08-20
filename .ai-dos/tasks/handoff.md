@@ -1,3 +1,13 @@
+## 2026-08-20T15:20:00+03:30 — STITCH-P8 POS-03 + ADR-007 open + Phase 8 gates
+
+- **Task:** `STITCH-P8-POS03-ADR007` claimed; branch `ai/STITCH-P8-POS03-ADR007` @ worktree stitch-impl
+- **POS-03:** `GET /api/pos/report` + CSV; UI `acc-pos-report`; in-transit GL vs open remaining; bank POS net vs `pos_batch` JE
+- **ADR-007:** opened as Proposed in `docs/architecture/ADR-007-FABRIC-ROLL.md` — fabric roll on WH-RAW only; no FG lot; no Serial/Bin; **no PROD schema this commit**
+- **Phase 8:** `run-stitch-phase8-gates.js` + `docs/architecture/STITCH-PHASE-8-HARDENING.md`
+- **SW:** v167
+- **NO Iran deploy / merge** until Independent + Security APPROVED + owner approval
+- Dirty `erp-taranom1` deploy scripts untouched
+
 ## 2026-08-19 — LED-01 Iran SFTP v166 @ 0daf21f
 
 - Stamp `.sftp-deploy-stamp-stitch-v166` = `2026-08-19T13:26:45Z hash=0daf21f`

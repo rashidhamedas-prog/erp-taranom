@@ -22,6 +22,7 @@ const ACC_TAB_RESOLVE = {
   'acc-currencies': 'currencies',
   'acc-fx-rates': 'fx-rates',
   'acc-pos-devices': 'pos-devices',
+  'acc-pos-report': 'pos-report',
   'acc-scale-settings': 'scale-settings',
   'acc-company-profile': 'company-profile',
   'acc-units': 'units',
@@ -179,6 +180,7 @@ const ACC_NAV_SECTIONS = [
     ]},
     { title: 'گزارشات', items: [
       { id: 'acc-bank-recon', icon: '🏦', label: 'تطبیق بانک' },
+      { id: 'acc-pos-report', icon: '💳', label: 'گزارش کارتخوان' },
       { id: 'acc-cash-flow-std', icon: '💧', label: 'صورت جریان وجوه نقد' },
     ]},
   ]},

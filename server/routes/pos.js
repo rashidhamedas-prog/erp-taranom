@@ -13,6 +13,8 @@ const {
   listBatches,
   settleBatch,
   voidBatch,
+  buildPosReport,
+  posReportCsv,
 } = require('../lib/pos');
 
 function sendErr(res, e) {
@@ -61,6 +63,21 @@ router.post('/receipts/:id/void', ...gate, (req, res) => {
 router.get('/batches', ...gate, (req, res) => {
   try { res.json(listBatches(getDB(), req.query || {})); }
   catch (e) { sendErr(res, e); }
+});
+
+router.get('/report', ...gate, (req, res) => {
+  try { res.json(buildPosReport(getDB(), req.query || {})); }
+  catch (e) { sendErr(res, e); }
+});
+
+router.get('/report/export', ...gate, (req, res) => {
+  try {
+    const report = buildPosReport(getDB(), req.query || {});
+    const csv = posReportCsv(report);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename=pos-report.csv');
+    res.send('\uFEFF' + csv);
+  } catch (e) { sendErr(res, e); }
 });
 
 router.post('/batches', ...gate, (req, res) => {

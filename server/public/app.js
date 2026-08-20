@@ -1107,7 +1107,7 @@ const LU = (()=> {
     'acc-production-variance':'search', 'acc-production-close':'lock',
     'acc-production-monthly-profit':'coins', 'acc-production-cost-sheet':'file',
     'acc-fixed-assets':'building', 'acc-currencies':'banknote', 'acc-fx-rates':'chart',
-    'acc-pos-devices':'card', 'acc-scale-settings':'scale', 'acc-company-profile':'building',
+    'acc-pos-devices':'card', 'acc-pos-report':'card', 'acc-scale-settings':'scale', 'acc-company-profile':'building',
     'acc-settings':'settings', 'acc-backup':'archive', 'acc-fiscal-ops':'file',
     'acc-moadian':'radio', 'acc-incentive-plans':'target',
     'acc-portal-units':'building', 'acc-portal-my-dept':'factory',
@@ -5805,7 +5805,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -6314,6 +6314,8 @@ async function loadAccTab(tab){
     await renderFxRatesTab(body);
   } else if(tab==='pos-devices'){
     await renderPosDevicesTab(body);
+  } else if(tab==='pos-report'){
+    await renderPosReportTab(body);
   } else if(tab==='scale-settings'){
     await renderScaleSettingsTab(body);
   } else if(tab==='company-profile'){
@@ -12542,6 +12544,7 @@ async function renderPosDevicesTab(body){
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){posDeviceModal()})}">➕ کارتخوان جدید</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){posReceiptModal()})}">💳 ثبت دریافت</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){posBatchModal()})}">🏦 تسویه دسته‌ای</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-pos-report')})}">📊 گزارش کارتخوان</button>
     </div>
     <h4>پایانه‌ها</h4>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>شماره پایانه</th><th>بانک / حساب</th><th>پذیرنده</th><th>وضعیت</th><th>عملیات</th></tr></thead>
@@ -12691,6 +12694,108 @@ async function savePosBatch(){
 async function voidPosBatch(id){
   if(!confirm('ابطال این تسویه دسته‌ای؟ سند بانک/کارمزد/کسری برمی‌گردد؛ ردیف حذف نمی‌شود.')) return;
   try{ await api('POST','/pos/batches/'+id+'/void',{reason:'ابطال از UI'}); showToast('ابطال شد'); loadAccTab('pos-devices'); }catch(e){}
+}
+function posReportQuery(){
+  const from=el('posrep-from')?.value||'';
+  const to=el('posrep-to')?.value||'';
+  const terminal_id=el('posrep-term')?.value||'';
+  const bank_id=el('posrep-bank')?.value||'';
+  const status=el('posrep-st')?.value||'';
+  const variance=el('posrep-var')?.checked?'1':'';
+  const q=new URLSearchParams();
+  if(from) q.set('from',from);
+  if(to) q.set('to',to);
+  if(terminal_id) q.set('terminal_id',terminal_id);
+  if(bank_id) q.set('bank_id',bank_id);
+  if(status) q.set('status',status);
+  if(variance) q.set('variance',variance);
+  return q.toString();
+}
+async function renderPosReportTab(body){
+  let terminals=[], banks=[], report=null, err=null;
+  try{ terminals=await api('GET','/pos/terminals?all=1')||[]; }catch(e){ terminals=[]; }
+  try{ banks=(await api('GET','/banks')||[]).filter(b=>Number(b.active)!==0); }catch(e){ banks=[]; }
+  const prev={
+    from:el('posrep-from')?.value||'',
+    to:el('posrep-to')?.value||'',
+    term:el('posrep-term')?.value||'',
+    bank:el('posrep-bank')?.value||'',
+    st:el('posrep-st')?.value||'',
+    var:!!el('posrep-var')?.checked
+  };
+  const qs=posReportQuery();
+  try{ report=await api('GET','/pos/report'+(qs?'?'+qs:'')); }
+  catch(e){ err=e; }
+  const stLabel={open:'باز',partial:'جزئی',settled:'تسویه‌شده',reversed:'ابطال‌شده',posted:'ثبت‌شده'};
+  const rec=report&&report.reconcile||{};
+  const tot=report&&report.totals||{};
+  const ok=rec.ok===true;
+  const receipts=report&&report.receipts||[];
+  const batches=report&&report.batches||[];
+  body.innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">گزارش کارتخوان — فیلتر تاریخ، پایانه، بانک، وضعیت و مغایرت. جمع «وجوه در راه» باید با مانده دفتر کل حساب واسط یکی باشد؛ خالص تسویه هر بانک با سندهای تسویه همان بانک.</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:end`)}">
+      <div class="fg"><label>از</label><input id="posrep-from" data-jdate value="${esc(prev.from)}"></div>
+      <div class="fg"><label>تا</label><input id="posrep-to" data-jdate value="${esc(prev.to)}"></div>
+      <div class="fg"><label>پایانه</label><select id="posrep-term"><option value="">همه</option>${(terminals||[]).map(t=>`<option value="${t.id}" ${String(prev.term)===String(t.id)?'selected':''}>${esc(t.name)} / ${esc(t.terminal_id)}</option>`).join('')}</select></div>
+      <div class="fg"><label>بانک</label><select id="posrep-bank"><option value="">همه</option>${(banks||[]).map(b=>`<option value="${b.id}" ${String(prev.bank)===String(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>وضعیت</label><select id="posrep-st">
+        <option value="">همه</option>
+        <option value="open" ${prev.st==='open'?'selected':''}>باز</option>
+        <option value="partial" ${prev.st==='partial'?'selected':''}>جزئی</option>
+        <option value="settled" ${prev.st==='settled'?'selected':''}>تسویه‌شده</option>
+        <option value="posted" ${prev.st==='posted'?'selected':''}>ثبت‌شده (دسته)</option>
+        <option value="reversed" ${prev.st==='reversed'?'selected':''}>ابطال‌شده</option>
+      </select></div>
+      <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center;font-size:12px`)}"><input type="checkbox" id="posrep-var" ${prev.var?'checked':''}> فقط مغایرت/کسری</label>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){loadAccTab('pos-report')})}">اعمال</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){exportPosReport()})}">خروجی CSV</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-pos-devices')})}">پایانه‌ها</button>
+    </div>
+    ${err?`<div class="empty">خطا در دریافت گزارش${err.status===403?' — دسترسی ندارید':''}</div>`:''}
+    ${!err&&report?`
+    <div class="cards" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+      ${statCard('b','💳',fmt(tot.receipt_gross_rial||0),'ناخالص دریافت (ریال)')}
+      ${statCard('o','🏦',fmt(tot.batch_net_rial||0),'خالص تسویه به بانک')}
+      ${statCard('r','📉',fmt(tot.batch_fee_rial||0),'کارمزد')}
+      ${statCard(ok?'g':'r','Δ',fmt(rec.in_transit_delta_rial||0),ok?'آشتی وجوه در راه':'اختلاف وجوه در راه')}
+    </div>
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-body" data-csp-style="${CSP.style(`font-size:13px;line-height:1.8`)}">
+      حساب واسط <span class="mono">${esc(rec.in_transit_account||'1118')}</span>:
+      مانده باز ${fmt(rec.in_transit_open_rial||0)} —
+      دفتر کل ${fmt(rec.in_transit_gl_rial||0)} —
+      اختلاف ${fmt(rec.in_transit_delta_rial||0)} ${ok?'✓':'⚠️'}
+      ${(rec.banks||[]).map(bk=>`<div>بانک ${esc(bk.bank_name||bk.bank_id)}: خالص دسته ${fmt(bk.batch_net_rial)} / سند ${fmt(bk.pos_gl_net_rial)} / اختلاف ${fmt(bk.delta_rial)}</div>`).join('')}
+    </div></div>
+    <h4>دریافت‌ها</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>پایانه</th><th>بانک</th><th>ناخالص</th><th>مانده</th><th>وضعیت</th></tr></thead>
+    <tbody>${receipts.map(r=>`<tr>
+      <td class="mono">${escDate(r.date)}</td><td>${esc(r.terminal_name||r.terminal_code||'-')}</td>
+      <td>${esc(r.bank_name||'-')}</td>
+      <td class="mono">${fmt(r.amount_rial)}</td><td class="mono">${fmt(r.open_rial)}</td>
+      <td>${esc(stLabel[r.status]||r.status)}</td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>
+    <h4 data-csp-style="${CSP.style(`margin-top:18px`)}">دسته‌های تسویه</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>پایانه</th><th>بانک</th><th>ناخالص</th><th>کارمزد</th><th>کسری</th><th>خالص</th><th>وضعیت</th></tr></thead>
+    <tbody>${batches.map(b=>`<tr${Number(b.has_variance)?' data-csp-style="'+CSP.style('background:color-mix(in srgb, var(--bad) 8%, transparent)')+'"':''}>
+      <td class="mono">${escDate(b.date)}</td><td>${esc(b.terminal_name||b.terminal_code||'-')}</td>
+      <td>${esc(b.bank_name||'-')}</td>
+      <td class="mono">${fmt(b.gross_rial)}</td><td class="mono">${fmt(b.fee_rial)}</td>
+      <td class="mono">${fmt(b.shortage_rial)}</td><td class="mono">${fmt(b.net_rial)}</td>
+      <td>${esc(stLabel[b.status]||b.status)}</td>
+    </tr>`).join('')||emptyRow(8)}</tbody></table></div>`:''}`;
+  if(typeof attachDatepickers==='function') attachDatepickers(body);
+  if(typeof fitStatNums==='function') fitStatNums();
+}
+async function exportPosReport(){
+  try{
+    const tok=localStorage.getItem('token')||'';
+    const res=await fetch('/api/pos/report/export?format=csv&'+posReportQuery(),{headers:{Authorization:'Bearer '+tok}});
+    if(!res.ok){ showToast('خروجی ناموفق','error'); return; }
+    const blob=await res.blob();
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pos-report.csv'; a.click();
+    URL.revokeObjectURL(a.href);
+  }catch(e){ showToast('خروجی ناموفق','error'); }
 }
 let SCALE_SETTINGS=JSON.parse(localStorage.getItem('crm_scale_settings')||'null')||{port:'COM1',baud:9600,unit:'kg',prefix:'',enabled:false};
 async function renderScaleSettingsTab(body){
@@ -18126,7 +18231,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v166</b> است و اسکریپت‌ها با <code>?v=166</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v167</b> است و اسکریپت‌ها با <code>?v=167</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -18291,6 +18396,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>تعریف پایانه:</b> نام، شماره پایانه یکتا، شناسه پذیرنده اختیاری، و <b>بانک فعال</b> از فهرست (نام + شماره حساب). بدون بانک فعال ذخیره نمی‌شود. حذف فیزیکی نیست — غیرفعال می‌شود.</li>
         <li><b>دریافت:</b> مبلغ به حساب <b>وجوه در راه کارتخوان</b> می‌رود، نه بانک. اگر فاکتور پیوند شود مثل تسویه مشتری از همان حساب در راه اعمال می‌شود؛ بدون فاکتور/مشتری بستانکار فروش است.</li>
         <li><b>تسویه دسته‌ای:</b> ناخالص منهای کارمزد و کسری به حساب بانک پایانه می‌رود؛ کارمزد و کسری هزینه جدا. تأیید همان ثبت حسابدار/مدیر است. دریافت می‌تواند جزئی در چند دسته بیاید.</li>
+        <li><b>گزارش کارتخوان:</b> منوی بانک و صندوق ← گزارشات. فیلتر تاریخ، پایانه، بانک، وضعیت و «فقط مغایرت». جمع مانده باز با حساب <b>وجوه در راه</b> و خالص تسویه با سند بانک باید صفر اختلاف باشد. خروجی CSV همان جمع‌ها را می‌نویسد.</li>
         <li><b>ابطال:</b> دریافت یا دسته، همهٔ اسناد و اثر فاکتور را در یک تراکنش برمی‌گرداند؛ ردیف با وضعیت «ابطال‌شده» می‌ماند. کلید تکراری مشتری = خطای تکراری.</li>
         <li>فقط مدیر و حسابداری؛ فروشنده میدانی دسترسی تغییر ندارد. جداول روی دستگاه‌های حسابداری همگام می‌شوند.</li>
       </ul>`),

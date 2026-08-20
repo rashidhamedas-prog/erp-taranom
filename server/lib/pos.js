@@ -6,7 +6,7 @@
 
 const { todayJalali } = require('../jalali');
 const { acct, clearCoaCache } = require('./coa-map');
-const { rialToLedger } = require('./money');
+const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 
 function dbApi() { return require('../db'); }
 function ledgerApi() { return require('./ledger'); }
@@ -670,6 +670,200 @@ function glBalanceRial(db, accountCode) {
   return Number(row && row.b) || 0;
 }
 
+function glBalanceAsOf(db, accountCode, asOfDate) {
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS b
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE jl.account_code = ?
+      AND COALESCE(je.deleted_at,0)=0
+      AND COALESCE(je.status,'posted') <> 'reversed'
+      AND (? = '' OR je.entry_date <= ?)
+  `).get(accountCode, asOfDate || '', asOfDate || '');
+  return Math.round(Number(row && row.b) || 0);
+}
+
+function glPosBatchNetToBank(db, bankCoa, from, to) {
+  const where = [
+    'jl.account_code = ?',
+    "je.ref_type = 'pos_batch'",
+    'COALESCE(je.deleted_at,0)=0',
+    "COALESCE(je.status,'posted') <> 'reversed'",
+  ];
+  const params = [bankCoa];
+  if (from) { where.push('je.entry_date >= ?'); params.push(from); }
+  if (to) { where.push('je.entry_date <= ?'); params.push(to); }
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS b
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE ${where.join(' AND ')}
+  `).get(...params);
+  return Math.round(Number(row && row.b) || 0);
+}
+
+function inTransitOpenAsOf(db, { to, terminalId, bankId } = {}) {
+  const rWhere = ["COALESCE(r.status,'open') <> 'reversed'"];
+  const rParams = [];
+  if (to) { rWhere.push('r.date <= ?'); rParams.push(to); }
+  if (terminalId) { rWhere.push('r.terminal_id = ?'); rParams.push(terminalId); }
+  if (bankId) { rWhere.push('t.bank_id = ?'); rParams.push(bankId); }
+  const gross = db.prepare(`
+    SELECT COALESCE(SUM(r.amount_rial),0) s
+    FROM pos_receipts r
+    JOIN pos_terminals t ON t.id = r.terminal_id
+    WHERE ${rWhere.join(' AND ')}
+  `).get(...rParams).s;
+
+  const sWhere = ["COALESCE(b.status,'posted') <> 'reversed'", "COALESCE(r.status,'open') <> 'reversed'"];
+  const sParams = [];
+  if (to) { sWhere.push('b.date <= ?'); sParams.push(to); sWhere.push('r.date <= ?'); sParams.push(to); }
+  if (terminalId) { sWhere.push('r.terminal_id = ?'); sParams.push(terminalId); }
+  if (bankId) { sWhere.push('t.bank_id = ?'); sParams.push(bankId); }
+  const settled = db.prepare(`
+    SELECT COALESCE(SUM(i.amount_rial),0) s
+    FROM pos_settlement_items i
+    JOIN pos_settlement_batches b ON b.id = i.batch_id
+    JOIN pos_receipts r ON r.id = i.receipt_id
+    JOIN pos_terminals t ON t.id = r.terminal_id
+    WHERE ${sWhere.join(' AND ')}
+  `).get(...sParams).s;
+  return Math.max(0, Math.round(Number(gross) || 0) - Math.round(Number(settled) || 0));
+}
+
+function buildPosReport(db, query = {}) {
+  ensurePosCoaAccounts(db);
+  const from = String(query.from || '').trim();
+  const to = String(query.to || '').trim();
+  const terminalId = query.terminal_id ? Number(query.terminal_id) : 0;
+  const bankId = query.bank_id ? Number(query.bank_id) : 0;
+  const status = String(query.status || '').trim();
+  const varianceOnly = query.variance === '1' || query.variance === 1 || query.variance === true;
+
+  const rWhere = [];
+  const rParams = [];
+  if (from) { rWhere.push('r.date >= ?'); rParams.push(from); }
+  if (to) { rWhere.push('r.date <= ?'); rParams.push(to); }
+  if (terminalId) { rWhere.push('r.terminal_id = ?'); rParams.push(terminalId); }
+  if (bankId) { rWhere.push('t.bank_id = ?'); rParams.push(bankId); }
+  if (status) { rWhere.push('r.status = ?'); rParams.push(status); }
+  const rSql = rWhere.length ? 'WHERE ' + rWhere.join(' AND ') : '';
+  const receipts = db.prepare(`
+    SELECT r.*, t.name AS terminal_name, t.terminal_id AS terminal_code,
+           t.bank_id, b.name AS bank_name, b.coa_code AS bank_coa_code,
+           (r.amount_rial - COALESCE(r.settled_rial,0)) AS open_rial
+    FROM pos_receipts r
+    LEFT JOIN pos_terminals t ON t.id = r.terminal_id
+    LEFT JOIN banks b ON b.id = t.bank_id
+    ${rSql}
+    ORDER BY r.date DESC, r.id DESC
+    LIMIT 800
+  `).all(...rParams);
+
+  const bWhere = [];
+  const bParams = [];
+  if (from) { bWhere.push('b.date >= ?'); bParams.push(from); }
+  if (to) { bWhere.push('b.date <= ?'); bParams.push(to); }
+  if (terminalId) { bWhere.push('b.terminal_id = ?'); bParams.push(terminalId); }
+  if (bankId) { bWhere.push('b.bank_id = ?'); bParams.push(bankId); }
+  if (status) { bWhere.push('b.status = ?'); bParams.push(status); }
+  if (varianceOnly) { bWhere.push('COALESCE(b.shortage_rial,0) > 0'); }
+  const bSql = bWhere.length ? 'WHERE ' + bWhere.join(' AND ') : '';
+  const batches = db.prepare(`
+    SELECT b.*, bk.name AS bank_name, bk.coa_code AS bank_coa_code,
+           t.name AS terminal_name, t.terminal_id AS terminal_code,
+           CASE WHEN COALESCE(b.shortage_rial,0) > 0 THEN 1 ELSE 0 END AS has_variance
+    FROM pos_settlement_batches b
+    LEFT JOIN banks bk ON bk.id = b.bank_id
+    LEFT JOIN pos_terminals t ON t.id = b.terminal_id
+    ${bSql}
+    ORDER BY b.date DESC, b.id DESC
+    LIMIT 500
+  `).all(...bParams);
+
+  const liveReceipts = receipts.filter((r) => r.status !== 'reversed');
+  const liveBatches = batches.filter((b) => b.status !== 'reversed');
+  const totals = {
+    receipt_count: liveReceipts.length,
+    receipt_gross_rial: liveReceipts.reduce((s, r) => s + Number(r.amount_rial || 0), 0),
+    receipt_open_rial: liveReceipts.reduce((s, r) => s + Math.max(0, Number(r.open_rial || 0)), 0),
+    receipt_settled_rial: liveReceipts.reduce((s, r) => s + Number(r.settled_rial || 0), 0),
+    batch_count: liveBatches.length,
+    batch_gross_rial: liveBatches.reduce((s, b) => s + Number(b.gross_rial || 0), 0),
+    batch_fee_rial: liveBatches.reduce((s, b) => s + Number(b.fee_rial || 0), 0),
+    batch_shortage_rial: liveBatches.reduce((s, b) => s + Number(b.shortage_rial || 0), 0),
+    batch_net_rial: liveBatches.reduce((s, b) => s + Number(b.net_rial || 0), 0),
+  };
+
+  const transit = acct(db, 'coa_card_in_transit');
+  const openAsOf = inTransitOpenAsOf(db, { to, terminalId: terminalId || null, bankId: bankId || null });
+  const inTransitGl = glBalanceAsOf(db, transit.code, to);
+  const banks = [];
+  const seenBank = new Set();
+  for (const row of liveBatches) {
+    const id = Number(row.bank_id);
+    if (!id || seenBank.has(id)) continue;
+    seenBank.add(id);
+    const net = liveBatches.filter((b) => Number(b.bank_id) === id)
+      .reduce((s, b) => s + Number(b.net_rial || 0), 0);
+    const glNet = row.bank_coa_code
+      ? glPosBatchNetToBank(db, row.bank_coa_code, from, to)
+      : 0;
+    banks.push({
+      bank_id: id,
+      bank_name: row.bank_name,
+      coa_code: row.bank_coa_code,
+      batch_net_rial: net,
+      pos_gl_net_rial: glNet,
+      delta_rial: glNet - net,
+    });
+  }
+
+  return {
+    filters: {
+      from: from || null,
+      to: to || null,
+      terminal_id: terminalId || null,
+      bank_id: bankId || null,
+      status: status || null,
+      variance: varianceOnly,
+    },
+    receipts,
+    batches,
+    totals,
+    reconcile: {
+      in_transit_account: transit.code,
+      in_transit_open_rial: openAsOf,
+      in_transit_gl_rial: inTransitGl,
+      in_transit_delta_rial: inTransitGl - openAsOf,
+      banks,
+      ok: (inTransitGl - openAsOf) === 0 && banks.every((b) => b.delta_rial === 0),
+    },
+  };
+}
+
+function posReportCsv(report) {
+  const lines = [];
+  lines.push('section,id,date,terminal,bank,status,gross_rial,fee_rial,shortage_rial,net_or_open_rial');
+  for (const r of report.receipts || []) {
+    lines.push([
+      'receipt', r.id, r.date, r.terminal_code || '', r.bank_name || '', r.status,
+      r.amount_rial || 0, '', '', r.open_rial || 0,
+    ].join(','));
+  }
+  for (const b of report.batches || []) {
+    lines.push([
+      'batch', b.id, b.date, b.terminal_code || '', b.bank_name || '', b.status,
+      b.gross_rial || 0, b.fee_rial || 0, b.shortage_rial || 0, b.net_rial || 0,
+    ].join(','));
+  }
+  const t = report.totals || {};
+  const rec = report.reconcile || {};
+  lines.push(`totals,,receipt_gross,${t.receipt_gross_rial || 0},batch_gross,${t.batch_gross_rial || 0},fee,${t.batch_fee_rial || 0},shortage,${t.batch_shortage_rial || 0},net,${t.batch_net_rial || 0}`);
+  lines.push(`reconcile,,in_transit_open,${rec.in_transit_open_rial || 0},in_transit_gl,${rec.in_transit_gl_rial || 0},delta,${rec.in_transit_delta_rial || 0},ok,${rec.ok ? 1 : 0}`);
+  return lines.join('\n');
+}
+
 module.exports = {
   initPosSchema,
   ensurePosCoaAccounts,
@@ -684,5 +878,8 @@ module.exports = {
   settleBatch,
   voidBatch,
   glBalanceRial,
+  glBalanceAsOf,
   receiptRemaining,
+  buildPosReport,
+  posReportCsv,
 };

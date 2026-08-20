@@ -1,5 +1,50 @@
 schema_version: 1
 tasks:
+  - id: "STITCH-P8-POS03-ADR007"
+    title: "POS-03 card report + open ADR-007 + Phase 8 hardening gates"
+    status: "active"
+    review_status: "PENDING"
+    security_status: "PENDING"
+    risk: "high"
+    owner: "cursor:orchestrator-stitch-p8"
+    roles:
+      orchestrator: "cursor:orchestrator-stitch-p8"
+      architect: "cursor:orchestrator-stitch-p8"
+      implementer: "cursor:implementer-stitch-p8"
+      reviewer: "cursor:independent-reviewer-stitch-p8"
+      security: "cursor:independent-security-stitch-p8"
+    branch: "ai/STITCH-P8-POS03-ADR007"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-stitch-impl"
+    base_commit: "210f360"
+    claimed_at: "2026-08-20T15:10:00+03:30"
+    file_claims:
+      - "server/lib/pos.js"
+      - "server/routes/pos.js"
+      - "server/scripts/test-pos-03-report.js"
+      - "server/scripts/run-stitch-phase8-gates.js"
+      - "server/public/app.js"
+      - "server/public/acc-nav.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "docs/CHANGE-LOG.md"
+      - "docs/architecture/ADR-007-FABRIC-ROLL.md"
+      - "docs/architecture/STITCH-PHASE-8-HARDENING.md"
+      - "docs/Production/README.md"
+      - "docs/Production/Production-Master-Architecture.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    notes: >-
+      Remaining Stitch map: POS-03 report, open ADR-007 (Proposed; no PROD-01 code),
+      Phase 8 gate runner. No Iran deploy until dual review + owner approval.
+      Dirty erp-taranom1 deploy scripts untouched.
+    acceptance_criteria:
+      - "GET /api/pos/report filters date/terminal/bank/status/variance; totals reconcile in-transit GL and bank POS net"
+      - "Vanilla UI acc-pos-report; field_sales 403; CSV matches JSON totals"
+      - "ADR-007 amendment opened as Proposed for fabric rolls only; no Lot on FG; no Serial/Bin"
+      - "Phase 8 runner executes POS+LED+SMS+encoding+parse; Help+CHANGE-LOG+SW bump"
+      - "No React/Tailwind; no production deploy this commit"
+
   - id: "UI-STITCH-IMPL"
     title: "Stitch MASTER wave: OPS-01, TRS-02, ACC-01..06, INV-01"
     status: "completed"
