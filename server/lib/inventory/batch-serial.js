@@ -39,7 +39,11 @@ function adjustBatchQty(db, batchId, delta) {
   if (!b) throw invErr('E_BATCH_NOT_FOUND', 404);
   const next = Math.max(0, (Number(b.qty_on_hand) || 0) + delta);
   db.prepare('UPDATE inventory_batches SET qty_on_hand=? WHERE id=?').run(next, batchId);
-  if (next <= 0) db.prepare("UPDATE inventory_batches SET status='empty' WHERE id=?").run(batchId);
+  if (next <= 0) {
+    if (b.status === 'active') db.prepare("UPDATE inventory_batches SET status='empty' WHERE id=?").run(batchId);
+  } else if (b.status === 'empty') {
+    db.prepare("UPDATE inventory_batches SET status='active' WHERE id=?").run(batchId);
+  }
   return next;
 }
 

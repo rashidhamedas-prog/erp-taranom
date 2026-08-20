@@ -28,6 +28,7 @@ const PROD_TABLES = [
   'production_receipts', 'production_subcontract', 'production_variances',
   'production_period_close', 'production_estimates', 'production_estimate_lines',
   'mrp_runs', 'mrp_requirements', 'production_reservations',
+  'cutting_lays', 'cutting_lay_rolls',
 ];
 
 const PROD_SEQUENCES = [
@@ -42,6 +43,7 @@ const PROD_SEQUENCES = [
   { key: 'bom', prefix: 'BOM' },
   { key: 'estimate', prefix: 'EST' },
   { key: 'mrp_run', prefix: 'MRP' },
+  { key: 'cutting_lay', prefix: 'LAY' },
 ];
 
 const PRODUCTION_SETTINGS = {
@@ -151,6 +153,11 @@ function ensureExistingColumns(db) {
   }
   if (tableExists(db, 'cost_center_rates')) {
     ensureColumn(db, 'cost_center_rates', 'monthly_labor_rate_rial', 'INTEGER DEFAULT 0');
+  }
+  if (tableExists(db, 'cutting_lays')) {
+    try {
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_cutting_lays_idem ON cutting_lays(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''");
+    } catch (_) { /* ignore */ }
   }
 }
 
@@ -821,6 +828,57 @@ function createTables(db) {
       FOREIGN KEY(order_id) REFERENCES production_orders(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS ix_resv ON production_reservations(product_id, warehouse_id, status);
+
+    CREATE TABLE IF NOT EXISTS cutting_lays (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      lay_no               TEXT NOT NULL UNIQUE,
+      product_id           INTEGER NOT NULL,
+      bom_id               INTEGER,
+      warehouse_id         INTEGER,
+      fabric_product_id    INTEGER,
+      color                TEXT DEFAULT '',
+      marker_length_m      REAL NOT NULL DEFAULT 0,
+      ply_count            INTEGER NOT NULL DEFAULT 0,
+      width_cm             INTEGER DEFAULT 0,
+      planned_meters       REAL DEFAULT 0,
+      actual_meters        REAL DEFAULT 0,
+      matrix_meters        REAL DEFAULT 0,
+      size_breakdown       TEXT DEFAULT '',
+      size_matrix          TEXT DEFAULT '',
+      qty_pieces           INTEGER DEFAULT 0,
+      waste_normal_m       REAL DEFAULT 0,
+      waste_abnormal_m     REAL DEFAULT 0,
+      waste_allowed_m      REAL DEFAULT 0,
+      unit_cost_rial       INTEGER DEFAULT 0,
+      amount_rial          INTEGER DEFAULT 0,
+      waste_amount_rial    INTEGER DEFAULT 0,
+      journal_id           INTEGER,
+      waste_journal_id     INTEGER,
+      status               TEXT NOT NULL DEFAULT 'posted',
+      idempotency_key      TEXT,
+      date                 TEXT NOT NULL DEFAULT '',
+      note                 TEXT DEFAULT '',
+      created_by           INTEGER,
+      created_at           INTEGER DEFAULT (strftime('%s','now')),
+      reversed_at          INTEGER,
+      reversed_by          INTEGER,
+      reversal_journal_id  INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS ix_cutting_lays_prod ON cutting_lays(product_id, status, id);
+    CREATE INDEX IF NOT EXISTS ix_cutting_lays_date ON cutting_lays(date, id);
+
+    CREATE TABLE IF NOT EXISTS cutting_lay_rolls (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      lay_id        INTEGER NOT NULL,
+      batch_id      INTEGER NOT NULL,
+      meters        REAL NOT NULL,
+      unit_cost_rial INTEGER DEFAULT 0,
+      amount_rial   INTEGER DEFAULT 0,
+      ledger_id     INTEGER,
+      status        TEXT NOT NULL DEFAULT 'posted',
+      FOREIGN KEY(lay_id) REFERENCES cutting_lays(id)
+    );
+    CREATE INDEX IF NOT EXISTS ix_cutting_lay_rolls ON cutting_lay_rolls(lay_id, batch_id);
 
     CREATE TABLE IF NOT EXISTS production_idempotency (
       key          TEXT PRIMARY KEY,

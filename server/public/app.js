@@ -1096,6 +1096,7 @@ const LU = (()=> {
     'acc-cheques-recv':'download', 'acc-cheques-pay':'upload', 'acc-proforma':'file',
     'acc-orders-list':'cart', 'acc-stocktaking':'clipboard', 'acc-inv-batches':'tags',
     'acc-fabric-rolls':'tags',
+    'acc-cutting-lays':'scissors',
     'acc-inv-reservations':'lock', 'acc-inv-landed':'ship', 'acc-account-transfer':'repeat',
     'acc-moadian-hub':'radio', 'acc-petty-cash-ops':'coins', 'acc-cheque-register':'book',
     'acc-journal-docs':'file', 'acc-journal-entry':'pen', 'acc-opening-voucher':'circle',
@@ -1225,6 +1226,7 @@ const ACC_MODULE_MAP={
   'acc-inv-landed':'module_warehouses',
   'acc-consignments':'module_consignments','acc-production':'module_production',
   'acc-production-orders':'module_production','acc-production-boms':'module_production',
+  'acc-cutting-lays':'module_production',
   'acc-production-dashboard':'module_production','acc-production-close':'module_production',
   'acc-production-monthly-profit':'module_production','acc-production-cost-sheet':'module_production',
   'acc-production-estimate':'module_production','acc-production-kanban':'module_production',
@@ -5806,7 +5808,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -5882,6 +5884,7 @@ ROUTES['acc-item-kardex']=()=>renderAccPage('item-kardex','📋','کاردکس �
 ROUTES['acc-shared-ledger']=()=>renderAccPage('shared-ledger','📒','دفتر مالی مشترک');
 ROUTES['acc-inv-batches']=()=>renderAccPage('inv-batches','🏷️','بچ و سریال');
 ROUTES['acc-fabric-rolls']=()=>renderAccPage('fabric-rolls','🧵','دریافت طاقه پارچه');
+ROUTES['acc-cutting-lays']=()=>renderAccPage('cutting-lays','✂️','لایه‌چینی و برش');
 ROUTES['acc-inv-reservations']=()=>renderAccPage('inv-reservations','🔒','رزرو موجودی');
 ROUTES['acc-inv-landed']=()=>renderAccPage('inv-landed','🚢','هزینه حمل (Landed Cost)');
 ROUTES['acc-warehouses']=()=>renderAccPage('warehouses','🏭','انبارها');
@@ -6037,6 +6040,8 @@ async function loadAccTab(tab){
     await renderInvBatchesTab(body);
   } else if(tab==='fabric-rolls'){
     await renderFabricRollsTab(body);
+  } else if(tab==='cutting-lays'){
+    await renderCuttingLaysTab(body);
   } else if(tab==='inv-reservations'){
     await renderInvReservationsTab(body);
   } else if(tab==='inv-landed'){
@@ -7509,6 +7514,107 @@ async function fabricRollSave(){
 async function voidFabricRollRow(id){
   if(!confirm('ابطال کامل این طاقه؟')) return;
   try{ await api('POST','/inventory/fabric-rolls/'+id+'/void',{reason:'ابطال از گزارش'}); loadAccTab('fabric-rolls'); }
+  catch(e){}
+}
+const CUT_SIZES=['38','40','42','44','46','48'];
+function newCutIdemKey(){
+  try{ if(crypto.randomUUID) return crypto.randomUUID(); }catch(_){}
+  return 'cut-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);
+}
+async function renderCuttingLaysTab(body){
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  const [lays, rolls]=await Promise.all([
+    api('GET','/production/cutting-lays')||{rows:[]},
+    api('GET','/inventory/fabric-rolls')||{rows:[]}
+  ]);
+  window._cutRolls=(rolls.rows||[]).filter(b=>Number(b.qty_on_hand)>0 && b.status!=='reversed' && b.status!=='empty');
+  body.innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">ویزارد لایه‌چینی: طول مارکر × تعداد لایه = متر پهن‌شده. ماتریس سایز مصرف نظری فرمول را می‌دهد. مازاد تا سقف عادی بدون سند می‌ماند؛ بقیه ضایعات غیرعادی است. طاقه از انبار مواد کم می‌شود. رسید کالای آماده اینجا نیست. همان پارچه را در سفارش تولید دوباره حواله نکنید.</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLayModal()})}">➕ لایه‌چینی جدید</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('cutting-lays')})}">🔄</button>
+    </div>
+    <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>شماره</th><th>کالا</th><th>لایه</th><th>متر مصرف</th><th>ماتریس</th><th>ضایعات</th><th></th>
+    </tr></thead><tbody>
+    ${(lays.rows||[]).map(r=>{
+      const act=r.status==='reversed'?'ابطال‌شده':('<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingLayRow(r.id)})+'">ابطال</button>');
+      return '<tr><td class="mono">'+esc(r.lay_no)+'</td><td>'+esc(r.product_name||('#'+r.product_id))+'</td>'
+        +'<td class="num">'+fmt(r.ply_count||0)+'×'+fmt(r.marker_length_m||0)+'</td>'
+        +'<td class="num">'+fmt(r.actual_meters||0)+'</td><td class="num">'+fmt(r.matrix_meters||0)+'</td>'
+        +'<td class="num">'+fmt(r.waste_normal_m||0)+' / '+fmt(r.waste_abnormal_m||0)+'</td><td>'+act+'</td></tr>';
+    }).join('')||'<tr><td colspan="7" class="empty">لایه‌چینی ثبت نشده</td></tr>'}
+    </tbody></table></div></div>`;
+}
+function cuttingLayModal(){
+  window._cutIdemKey=newCutIdemKey();
+  const prods=(CACHE.allProducts||[]).filter(p=>p.is_manufactured||p.item_type==='finished');
+  const list=prods.length?prods:(CACHE.allProducts||[]);
+  const rolls=window._cutRolls||[];
+  showModal('لایه‌چینی و برش',`
+    <div class="form-grid">
+      <div class="fg"><label>کالای دوخته‌شده</label><select id="cl-prod">${list.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>طول مارکر (متر)</label><input id="cl-marker" type="number" min="0" step="0.01" value="2"></div>
+      <div class="fg"><label>تعداد لایه</label><input id="cl-plies" type="number" min="1" step="1" value="10"></div>
+      <div class="fg"><label>متر واقعی (خالی = طول×لایه)</label><input id="cl-actual" type="number" min="0" step="0.01"></div>
+      <div class="fg"><label>عرض (سم)</label><input id="cl-w" type="number" min="0" value="150"></div>
+      <div class="fg"><label>رنگ</label><input id="cl-color"></div>
+    </div>
+    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">ماتریس سایز (تعداد)</div>
+    <div class="form-grid">${CUT_SIZES.map(s=>`<div class="fg"><label>${s}</label><input id="cl-sz-${s}" type="number" min="0" step="1" value="0"></div>`).join('')}</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌ها (متر برداشت)</div>
+    <div id="cl-rolls">${rolls.map(b=>`<label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12px`)}"><input type="checkbox" class="cl-roll" data-id="${b.id}" data-max="${b.qty_on_hand||0}"> ${esc(b.batch_no)} ${esc(b.color||'')} — مانده ${fmt(b.qty_on_hand||0)} متر <input type="number" class="cl-roll-m" data-csp-style="${CSP.style(`width:90px`)}" min="0" step="0.01" placeholder="متر"></label>`).join('')||'<span class="muted">طاقه فعالی نیست — اول دریافت طاقه</span>'}</div>
+    <div id="cl-preview" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}"></div>
+    <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;justify-content:flex-end`)}">
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){cuttingLayPreview()})}">پیش‌نمایش</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLaySave()})}">ثبت برش</button>
+    </div>`);
+}
+function cuttingLayBreakdown(){
+  const o={};
+  CUT_SIZES.forEach(s=>{ const n=+el('cl-sz-'+s).value||0; if(n) o[s]=n; });
+  return o;
+}
+async function cuttingLayPreview(){
+  const bd=cuttingLayBreakdown();
+  const actual=el('cl-actual').value?+el('cl-actual').value:undefined;
+  try{
+    const q='product_id='+encodeURIComponent(el('cl-prod').value)
+      +'&marker_length_m='+encodeURIComponent(el('cl-marker').value)
+      +'&ply_count='+encodeURIComponent(el('cl-plies').value)
+      +(actual!=null?'&actual_meters='+encodeURIComponent(actual):'')
+      +'&size_breakdown='+encodeURIComponent(JSON.stringify(bd));
+    const p=await api('GET','/production/cutting-lays/preview?'+q);
+    el('cl-preview').textContent='مصرف نظری '+fmt(p.matrix_meters||0)+' متر · پهن‌شده '+fmt(p.planned_meters||0)+' · ضایعات عادی '+fmt(p.waste_normal_m||0)+' / غیرعادی '+fmt(p.waste_abnormal_m||0);
+  }catch(e){}
+}
+async function cuttingLaySave(){
+  const planned=(+el('cl-marker').value||0)*(+el('cl-plies').value||0);
+  const actual=el('cl-actual').value?+el('cl-actual').value:planned;
+  const checked=[...document.querySelectorAll('.cl-roll:checked')];
+  const rolls=[];
+  checked.forEach(ch=>{
+    const inp=ch.parentElement.querySelector('.cl-roll-m');
+    let m=+(inp&&inp.value);
+    if(!(m>0) && checked.length===1) m=actual;
+    if(m>0) rolls.push({batch_id:+ch.dataset.id, meters:m});
+  });
+  if(!Object.keys(cuttingLayBreakdown()).length){ showToast('ماتریس سایز را وارد کنید','error'); return; }
+  if(!rolls.length){ showToast('طاقه انتخاب کنید','error'); return; }
+  try{
+    await api('POST','/production/cutting-lays',{
+      product_id:+el('cl-prod').value, color:el('cl-color').value.trim(),
+      marker_length_m:+el('cl-marker').value, ply_count:+el('cl-plies').value,
+      actual_meters:actual, width_cm:+el('cl-w').value||0,
+      size_breakdown:cuttingLayBreakdown(), rolls,
+      idempotency_key:window._cutIdemKey||newCutIdemKey()
+    });
+    closeModal(); showToast('لایه‌چینی ثبت شد'); loadAccTab('cutting-lays');
+  }catch(e){}
+}
+async function voidCuttingLayRow(id){
+  if(!confirm('ابطال کامل این لایه‌چینی؟ موجودی طاقه و سند برمی‌گردد.')) return;
+  try{ await api('POST','/production/cutting-lays/'+id+'/void',{reason:'ابطال از گزارش'}); loadAccTab('cutting-lays'); }
   catch(e){}
 }
 async function renderInvBatchesTab(body){
@@ -17969,6 +18075,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بهای تمام‌شده:</b> محاسبه تحلیلی با مقدار هدف (پیش‌فرض ۳۰۰) — <b>بدون ثبت سند حسابداری (JE)</b>.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
         <li>سفارش تولید: انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
+        <li><b>لایه‌چینی و برش (PROD-02/03):</b> تولید → عملیات → لایه‌چینی و برش. طول مارکر × تعداد لایه = متر پهن‌شده. ماتریس سایز مصرف نظری فرمول را می‌دهد. مازاد تا سقف ضایعات عادی (٪ مصرف واقعی) سند ندارد؛ اضافه ضایعات غیرعادی (۵۲۲۱) است. طاقه از انبار مواد کم می‌شود. ابطال موجودی طاقه و سند را برمی‌گرداند. رسید کالای آماده / بسته‌بندی اینجا نیست. اگر همان پارچه را دوباره در سفارش تولید حواله کنید مصرف دو بار ثبت می‌شود — فقط یکی را بزنید.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
       </ul>
@@ -18144,6 +18251,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. رنگ، طرح، عرض، متر و بها. کالای آماده بدون Lot. با بها، بدهی در دفتر تأمین‌کننده و سند مواد/پرداختنی ثبت می‌شود. دوبار کلیک همان طاقه را تکرار نمی‌کند. ابطال تا وقتی طاقه مصرف نشده موجودی، سند و دفتر تأمین‌کننده را برمی‌گرداند. ویزیتور دسترسی ندارد</li>
+        <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید کالای آماده نیست. همان متر را در حواله سفارش تولید دوباره نزنید</li>
         <li><b>دفتر چک</b>: واگذاری/وصول/برگشت/ارسال مجدد + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور می‌سازد؛ ارسالی فاکتور امانت‌گیرنده است و سند بهای تمام‌شده می‌زند بدون کسر دوباره موجودی؛ دریافتی نیازمند خریدار جدا از امانت‌گذار است)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
@@ -18306,7 +18414,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v171</b> است و اسکریپت‌ها با <code>?v=171</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v172</b> است و اسکریپت‌ها با <code>?v=172</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -18474,7 +18582,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>گزارش کارتخوان:</b> منوی بانک و صندوق ← گزارشات. فیلتر تاریخ، پایانه، بانک، وضعیت و «فقط مغایرت». جمع مانده باز با حساب <b>وجوه در راه</b> و خالص تسویه با سند بانک باید صفر اختلاف باشد. اگر یک دسته چند پایانه داشته باشد، فیلتر پایانه سهم همان پایانه از سند تسویه را می‌سنجد (نه کل دسته). جدول حداکثر ۸۰۰ دریافت / ۵۰۰ دسته نشان می‌دهد ولی جمع‌ها و آشتی دفتر کامل است. خروجی CSV همان جمع‌ها را می‌نویسد.</li>
         <li><b>ابطال:</b> دریافت یا دسته، همهٔ اسناد و اثر فاکتور را در یک تراکنش برمی‌گرداند؛ ردیف با وضعیت «ابطال‌شده» می‌ماند. کلید تکراری مشتری = خطای تکراری.</li>
         <li>فقط مدیر و حسابداری؛ فروشنده میدانی دسترسی تغییر ندارد. جداول روی دستگاه‌های حسابداری همگام می‌شوند.</li>
-        <li><b>طاقه پارچه (ADR-007 Accepted):</b> فقط انبار مواد اولیه. کالای آماده فروش بدون Lot/Serial/قفسه. دریافت از منوی انبار ← دریافت طاقه.</li>
+        <li><b>طاقه پارچه (ADR-007 Accepted):</b> فقط انبار مواد اولیه. کالای آماده فروش بدون Lot/Serial/قفسه. دریافت از منوی انبار ← دریافت طاقه. لایه‌چینی و برش در تولید → عملیات است؛ رسید کالای آماده ندارد.</li>
       </ul>`),
     helpSec('📡','سلامت سرویس و پشتیبانی',`
       <p><code dir="ltr">/api/system/health</code> زنده بودن فرایند را نشان می‌دهد؛ <code dir="ltr">/api/system/ready</code> آمادگی دیتابیس را بررسی می‌کند. هر درخواست هدر <code dir="ltr">X-Request-Id</code> دارد (برای پیگیری لاگ). متای پشتیبانی در <code dir="ltr">/api/support/meta</code> است — تیکتینگ داخل برنامه فعلاً فعال نیست و از کانال خارجی سازمان استفاده می‌شود.</p>`)
@@ -18500,7 +18608,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v165</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v172</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">مانده مطالبات و صورت‌حساب مشتری از دفتر کل تا همان تاریخ قطع خوانده می‌شود؛ اگر با دفتر مشتری فرق داشت هشدار نارنجی می‌بینید.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>

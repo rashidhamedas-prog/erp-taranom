@@ -107,6 +107,7 @@ const PATH_TABLE_MAP = [
   ['/api/production/boms', 'bom_headers'],
   ['/api/production/orders', 'production_orders'],
   ['/api/production/execution', 'production_orders'],
+  ['/api/production/cutting-lays', 'cutting_lays'],
   ['/api/production/mrp', 'mrp_runs'],
   ['/api/production/cost-centers', 'cost_centers'],
   ['/api/production/user-cost-centers', 'user_cost_centers'],

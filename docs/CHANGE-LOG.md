@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-20 — PROD-02/03 cutting lay wizard (pre-merge)
+- **شاخه:** `ai/PROD-02-CUTTING`
+- **خلاصه:** ویزارد لایه‌چینی: طول مارکر × لایه، ماتریس سایز فرمول، برداشت طاقه از انبار مواد. ضایعات عادی بدون سند؛ غیرعادی بدهکار ۵۲۲۱. رسید کالای آماده نیست. ابطال R13. کلید تکرارناپذیر اجباری.
+- **فایل‌های کلیدی:** `server/lib/production/cutting.js`, `server/routes/production-cutting.js`, `server/lib/production/schema.js`, `server/public/app.js`
+- **SW:** `erp-taranom-v172`
+- **Deploy:** ⏭ تا Dual review
+
 ### 2026-08-20 — PROD-01 fabric rolls WH-RAW + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `db708a8` (از `ai/PROD-STITCH-P5`)
 - **خلاصه:** دریافت طاقه فقط انبار مواد. دفتر تأمین‌کننده + تفصیلی از party_id. کلید تکرارناپذیر. ADR-007 Accepted. FG بدون Lot.

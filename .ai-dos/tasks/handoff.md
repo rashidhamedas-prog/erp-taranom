@@ -1,3 +1,17 @@
+## 2026-08-20T17:05:00+03:30 — PROD-02/03 implementer done (pre-review)
+
+- Tests: cutting **32/32** · SMS **22/22** · schema P0 **16/16** · sync gaps mismatches=[] · app.js parse OK
+- SW `erp-taranom-v172`. Help warns against PO backflush of same fabric.
+- Empty roll reactivates on R13 void.
+- **NO Iran deploy / FF** until Independent + Security APPROVED
+
+## 2026-08-20T16:42:00+03:30 — PROD-STITCH-P5B claimed (PROD-02/03)
+
+- Branch `ai/PROD-02-CUTTING` from primary `be76a5c`
+- Spreading wizard + size matrix + waste. Consumes WH-RAW fabric rolls.
+- No PACK / FG receipt. Direct JE `cutting_lay` / `cutting_lay_waste`.
+- **NO Iran deploy / FF** until Independent + Security APPROVED
+
 ## 2026-08-20T17:50:00+03:30 — PROD-01 Iran SFTP v171 @ db708a8
 
 - Stamp `.sftp-deploy-stamp-stitch-v171` = `2026-08-20T13:09:58Z hash=db708a8`

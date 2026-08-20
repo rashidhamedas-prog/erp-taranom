@@ -1,7 +1,10 @@
 # Project Status
 
 - Last verified: 2026-08-20
-- **Active task:** none — `PROD-STITCH-P5` completed
+- **Active task:** `PROD-STITCH-P5B` — PROD-02/03 cutting lay wizard
+- Branch: `ai/PROD-02-CUTTING` @ worktree stitch-impl, base `be76a5c`
+- **NO Iran deploy** until Independent + Security APPROVED
+- Prior completed: `PROD-STITCH-P5` (fabric rolls v171)
 - Independent Bugbot: no bugs. Security: APPROVED C0/H0/M0.
 - **PROD-STITCH-P5:** `completed` — dual APPROVED + owner merge/deploy
   Primary `db708a8`; stamp `.sftp-deploy-stamp-stitch-v171` = `2026-08-20T13:09:58Z hash=db708a8`

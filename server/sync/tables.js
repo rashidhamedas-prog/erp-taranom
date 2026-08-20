@@ -204,6 +204,9 @@ const SYNCABLE_TABLES = [
   { name: 'pos_receipts',                      upsertKey: 'id' },
   { name: 'pos_settlement_batches',            upsertKey: 'id' },
   { name: 'pos_settlement_items',              upsertKey: 'id' },
+  // PROD-02/03 cutting lays (append-only)
+  { name: 'cutting_lays',                      upsertKey: 'id' },
+  { name: 'cutting_lay_rolls',                 upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -408,6 +411,17 @@ const FK_COLUMNS = [
   ['inventory_batches', 'ledger_id'],
   ['inventory_batches', 'journal_id'],
   ['inventory_batches', 'reversal_journal_id'],
+  // PROD-02/03 (append-only)
+  ['cutting_lays', 'product_id'],
+  ['cutting_lays', 'bom_id'],
+  ['cutting_lays', 'warehouse_id'],
+  ['cutting_lays', 'fabric_product_id'],
+  ['cutting_lays', 'journal_id'],
+  ['cutting_lays', 'waste_journal_id'],
+  ['cutting_lays', 'reversal_journal_id'],
+  ['cutting_lay_rolls', 'lay_id'],
+  ['cutting_lay_rolls', 'batch_id'],
+  ['cutting_lay_rolls', 'ledger_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };
