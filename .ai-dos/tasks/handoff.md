@@ -1,3 +1,9 @@
+## 2026-08-20T17:35:00+03:30 — Independent High: production roll picker
+
+- `GET /api/production/cutting-lays/rolls` for `production.view` (no cost fields)
+- UI no longer depends on admin-only `/inventory/fabric-rolls`
+- Tests **39/39**. **NO Iran deploy / FF** until Independent Highs closed
+
 ## 2026-08-20T17:20:00+03:30 — PROD-02/03 Independent Highs fixed
 
 - High: client `waste_abnormal_m` cannot exceed leftover (actual − matrix)

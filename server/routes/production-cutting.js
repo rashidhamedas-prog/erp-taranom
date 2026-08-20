@@ -5,6 +5,7 @@ const { auth, requirePermission } = require('../middleware/auth');
 const {
   planCutting, listCuttingLays, getCuttingLay, postCuttingLay, voidCuttingLay,
 } = require('../lib/production/cutting');
+const { listFabricRolls } = require('../lib/inventory/fabric-rolls');
 const { canSeeCost, stripCostFields } = require('../lib/production/access');
 
 function sendRow(req, res, data) {
@@ -34,6 +35,25 @@ router.get('/preview', auth, requirePermission('production', 'view'), (req, res)
       size_breakdown: breakdown,
       date: req.query.date,
     }));
+  } catch (e) { sendErr(res, e); }
+});
+
+router.get('/rolls', auth, requirePermission('production', 'view'), (req, res) => {
+  try {
+    const rows = listFabricRolls(getDB(), req.query).map((b) => ({
+      id: b.id,
+      batch_no: b.batch_no,
+      color: b.color,
+      pattern: b.pattern,
+      width_cm: b.width_cm,
+      qty_on_hand: b.qty_on_hand,
+      product_id: b.product_id,
+      product_name: b.product_name,
+      warehouse_id: b.warehouse_id,
+      warehouse_code: b.warehouse_code,
+      status: b.status,
+    }));
+    sendRow(req, res, { rows });
   } catch (e) { sendErr(res, e); }
 });
 

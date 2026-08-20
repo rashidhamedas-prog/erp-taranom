@@ -60,6 +60,14 @@ function gl(code) {
   const salesTok = issueStaffSession(db, salesUser, {
     device_kind: 'test', device_name: 'prod-02-sales', device_fingerprint: 'prod-02-sales-fp',
   }).token;
+  const pmId = db.prepare(`
+    INSERT INTO users (name, username, password, role, active, must_change_password)
+    VALUES ('مدیر تولید برش','pm.cut',?, 'production_manager', 1, 0)
+  `).run(bcrypt.hashSync('PmCut9xx', 10)).lastInsertRowid;
+  const pmUser = db.prepare('SELECT id,username,role,name,phone,auth_epoch FROM users WHERE id=?').get(pmId);
+  const pmTok = issueStaffSession(db, pmUser, {
+    device_kind: 'test', device_name: 'prod-02-pm', device_fingerprint: 'prod-02-pm-fp',
+  }).token;
 
   const app = express();
   app.use(express.json());
@@ -104,6 +112,14 @@ function gl(code) {
     date: '1405/05/29', idempotency_key: 'cut-roll-1',
   });
   ok(rec.status === 200 && rec.data && rec.data.id, 'receive roll 200', rec.data && rec.data.error);
+
+  const pmRolls = await api('GET', '/api/production/cutting-lays/rolls', null, pmTok);
+  ok(pmRolls.status === 200 && (pmRolls.data.rows || []).some((r) => r.id === rec.data.id), 'production_manager can pick rolls');
+  ok(!(pmRolls.data.rows || []).some((r) => r.unit_cost_rial != null || r.amount_rial != null), 'picker has no cost fields');
+  const pmInv = await api('GET', '/api/inventory/fabric-rolls', null, pmTok);
+  ok(pmInv.status === 403, 'production_manager inventory fabric-rolls still 403');
+  const salesRolls = await api('GET', '/api/production/cutting-lays/rolls', null, salesTok);
+  ok(salesRolls.status === 403, 'field_sales rolls 403');
 
   const bomLib = require('../lib/production/bom');
   const SIZE_MATRIX = { '38': 1.45, '40': 1.50 };
