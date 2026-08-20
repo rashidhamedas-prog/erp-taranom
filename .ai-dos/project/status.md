@@ -1,11 +1,9 @@
 # Project Status
 
 - Last verified: 2026-08-20
-- **Active task:** `STITCH-P8-POS03-ADR007` on `ai/STITCH-P8-POS03-ADR007` @ `bf29bfc`
-  Dual review APPROVED. POS-03 + Phase 8 gates. SW v169. **No Iran deploy until owner says so.**
-- **UI-STITCH-IMPL + HR/INV/TRS + CON + POS + LED:** merged `0daf21f`; Iran SFTP stamp `.sftp-deploy-stamp-stitch-v166` = `2026-08-19T13:26:45Z hash=0daf21f`
-  health/ready/root **200**; SW `erp-taranom-v166` until this wave merges
-- **ADR-007:** opened Proposed (`docs/architecture/ADR-007-FABRIC-ROLL.md`); not Accepted; no fabric schema
+- **Active task:** `STITCH-P8-POS03-ADR007` merge+Iran overlay v170 in flight
+- **ADR-007:** Accepted (WH-RAW fabric rolls only; no FG lot/serial/bin)
+- **UI-STITCH-IMPL + HR/INV/TRS + CON + POS + LED + POS-03:** Iran SFTP next `.sftp-deploy-stamp-stitch-v170`
 - **DEMO-V3-GUIDED-SALES:** `completed` — dual APPROVED + owner merge/deploy
   Primary `bb868c5`; SFTP stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`
   health/demo/seed 200; public `https://erp.poshaktaranom.com/demo.html`

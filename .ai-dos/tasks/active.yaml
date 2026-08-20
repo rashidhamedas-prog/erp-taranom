@@ -35,8 +35,8 @@ tasks:
       - ".ai-dos/tasks/handoff.md"
       - ".ai-dos/project/status.md"
     notes: >-
-      Dual review APPROVED on bf29bfc (SW v169). No Iran deploy until owner
-      approval. ADR-007 remains Proposed; no PROD-01 schema.
+      Owner approved merge+Iran deploy. ADR-007 Accepted (WH-RAW rolls only).
+      SW v170. PROD-01 schema is a follow-up task after this overlay.
     acceptance_criteria:
       - "GET /api/pos/report filters date/terminal/bank/status/variance; totals reconcile in-transit GL and bank POS net"
       - "Vanilla UI acc-pos-report; field_sales 403; CSV matches JSON totals"

@@ -1,8 +1,8 @@
 # Stitch Phase 8 — سخت‌سازی یکپارچه (بدون Deploy)
 
-**وضعیت:** در حال اجرا روی `ai/STITCH-P8-POS03-ADR007`  
+**وضعیت:** merge/deploy ایران پس از تأیید مالک  
 **مرجع فرمان:** `MASTER-CURSOR-COMMAND.md` فاز ۸  
-**خارج از این نوبت:** PROD/PACK تا Accept شدن `docs/architecture/ADR-007-FABRIC-ROLL.md`
+**خارج از رلیز POS-03:** schema طاقه — بعد از Accept در `PROD-STITCH-P5`
 
 ## چه چیزی در این نوبت سخت می‌شود
 

@@ -13,6 +13,12 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-20 — POS-03 + Phase 8 merge + ADR-007 Accepted (Iran SFTP)
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` ← `ai/STITCH-P8-POS03-ADR007`
+- **خلاصه:** گزارش کارتخوان، دروازه فاز ۸، ADR-007 Accepted (طاقه فقط WH-RAW). Schema طاقه در این رلیز نیست.
+- **SW:** `erp-taranom-v170`
+- **Deploy:** در جریان (SFTP overlay؛ `db.js` عوض نمی‌شود)
+
 ### 2026-08-20 — POS-03 unbounded reconcile vs list cap (pre-merge)
 - **شاخه:** `ai/STITCH-P8-POS03-ADR007`
 - **خلاصه:** جمع و آشتی بانک از همهٔ دسته‌هاست؛ جدول نمایش حداکثر ۵۰۰ دسته / ۸۰۰ دریافت. ADR-007 همچنان Proposed.

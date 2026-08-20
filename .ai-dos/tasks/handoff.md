@@ -1,4 +1,10 @@
-## 2026-08-20T16:50:00+03:30 — Independent + Security APPROVED (pre-merge)
+## 2026-08-20T16:55:00+03:30 — owner merge + Iran deploy + ADR-007 Accept
+
+- Owner: merge POS-03/Phase 8 to primary and Iran SFTP; Accept ADR-007 (طاقه فقط WH-RAW)
+- PROD-01 schema **not** in this overlay — next task `PROD-STITCH-P5`
+- SW v170
+
+
 
 - **Task:** `STITCH-P8-POS03-ADR007` @ `bf29bfc` SW v169
 - Independent Bugbot: no remaining Highs ([re-review](1e1019b4-772c-492a-9d41-1872052f55d8))

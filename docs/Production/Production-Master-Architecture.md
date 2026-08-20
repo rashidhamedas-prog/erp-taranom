@@ -110,7 +110,7 @@ avg_new = (qty_old × avg_old + qty_in × cost_in) / (qty_old + qty_in)
 
 WIP **انبار فیزیکی نیست** — یک حساب کنترلی (`1111`) + جدول `production_orders` است.
 
-**بازگشایی ۱۴۰۵/۰۵/۲۹ (Proposed):** طاقه/Lot فقط برای پارچه در `WH-RAW` پیشنهاد شده؛ FG بدون Lot می‌ماند. جزئیات و شرط Accept: `docs/architecture/ADR-007-FABRIC-ROLL.md`. تا Accept مالک، schema طاقه پیاده نمی‌شود.
+**بازگشایی ۱۴۰۵/۰۵/۲۹ (Accepted):** طاقه/Lot فقط برای پارچه در `WH-RAW`؛ FG بدون Lot و بدون Serial/Bin. جزئیات: `docs/architecture/ADR-007-FABRIC-ROLL.md`. Schema طاقه در Task `PROD-STITCH-P5` (نه در رلیز POS-03).
 
 ### ADR-008 — ثبت اسناد
 **کاملاً خودکار.** هیچ سند تولیدی دستی زده نمی‌شود.
