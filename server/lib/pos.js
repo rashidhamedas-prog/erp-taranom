@@ -683,6 +683,9 @@ function glBalanceAsOf(db, accountCode, asOfDate) {
   return Math.round(Number(row && row.b) || 0);
 }
 
+/** Mixed-terminal batches store header terminal_id=NULL. Allocate JE by item share of gross (REAL, not integer /). */
+const SQL_POS_BATCH_ITEM_SHARE = `(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}) * 1.0 * i.amount_rial / NULLIF(b.gross_rial, 0)`;
+
 function glPosBatchNetToBank(db, bankCoa, from, to, terminalId) {
   const where = [
     'jl.account_code = ?',
@@ -694,7 +697,20 @@ function glPosBatchNetToBank(db, bankCoa, from, to, terminalId) {
   const params = [bankCoa];
   if (from) { where.push('je.entry_date >= ?'); params.push(from); }
   if (to) { where.push('je.entry_date <= ?'); params.push(to); }
-  if (terminalId) { where.push('b.terminal_id = ?'); params.push(terminalId); }
+  if (terminalId) {
+    where.push('r.terminal_id = ?');
+    params.push(terminalId);
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(${SQL_POS_BATCH_ITEM_SHARE}), 0) AS b
+      FROM journal_lines jl
+      JOIN journal_entries je ON je.id = jl.entry_id
+      JOIN pos_settlement_batches b ON b.id = je.ref_id
+      JOIN pos_settlement_items i ON i.batch_id = b.id
+      JOIN pos_receipts r ON r.id = i.receipt_id
+      WHERE ${where.join(' AND ')}
+    `).get(...params);
+    return Math.round(Number(row && row.b) || 0);
+  }
   const row = db.prepare(`
     SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS b
     FROM journal_lines jl
@@ -738,15 +754,30 @@ function glInTransitPosAsOf(db, { to, terminalId, bankId } = {}) {
   ];
   const bParams = [code];
   if (to) { bWhere.push('je.entry_date <= ?'); bParams.push(to); }
-  if (terminalId) { bWhere.push('b.terminal_id = ?'); bParams.push(terminalId); }
   if (bankId) { bWhere.push('b.bank_id = ?'); bParams.push(bankId); }
-  const batchNet = db.prepare(`
-    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS b
-    FROM journal_lines jl
-    JOIN journal_entries je ON je.id = jl.entry_id
-    JOIN pos_settlement_batches b ON b.id = je.ref_id
-    WHERE ${bWhere.join(' AND ')}
-  `).get(...bParams).b;
+  let batchSql;
+  if (terminalId) {
+    bWhere.push('r.terminal_id = ?');
+    bParams.push(terminalId);
+    batchSql = `
+      SELECT COALESCE(SUM(${SQL_POS_BATCH_ITEM_SHARE}), 0) AS b
+      FROM journal_lines jl
+      JOIN journal_entries je ON je.id = jl.entry_id
+      JOIN pos_settlement_batches b ON b.id = je.ref_id
+      JOIN pos_settlement_items i ON i.batch_id = b.id
+      JOIN pos_receipts r ON r.id = i.receipt_id
+      WHERE ${bWhere.join(' AND ')}
+    `;
+  } else {
+    batchSql = `
+      SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS b
+      FROM journal_lines jl
+      JOIN journal_entries je ON je.id = jl.entry_id
+      JOIN pos_settlement_batches b ON b.id = je.ref_id
+      WHERE ${bWhere.join(' AND ')}
+    `;
+  }
+  const batchNet = db.prepare(batchSql).get(...bParams).b;
 
   return Math.round(Number(recNet) || 0) + Math.round(Number(batchNet) || 0);
 }
@@ -813,7 +844,14 @@ function buildPosReport(db, query = {}) {
   const bParams = [];
   if (from) { bWhere.push('b.date >= ?'); bParams.push(from); }
   if (to) { bWhere.push('b.date <= ?'); bParams.push(to); }
-  if (terminalId) { bWhere.push('b.terminal_id = ?'); bParams.push(terminalId); }
+  if (terminalId) {
+    bWhere.push(`EXISTS (
+      SELECT 1 FROM pos_settlement_items i
+      JOIN pos_receipts r ON r.id = i.receipt_id
+      WHERE i.batch_id = b.id AND r.terminal_id = ?
+    )`);
+    bParams.push(terminalId);
+  }
   if (bankId) { bWhere.push('b.bank_id = ?'); bParams.push(bankId); }
   if (status) { bWhere.push('b.status = ?'); bParams.push(status); }
   if (varianceOnly) { bWhere.push('COALESCE(b.shortage_rial,0) > 0'); }
@@ -829,6 +867,25 @@ function buildPosReport(db, query = {}) {
     ORDER BY b.date DESC, b.id DESC
     LIMIT 500
   `).all(...bParams);
+
+  if (terminalId) {
+    const shareStmt = db.prepare(`
+      SELECT COALESCE(SUM(i.amount_rial),0) AS s
+      FROM pos_settlement_items i
+      JOIN pos_receipts r ON r.id = i.receipt_id
+      WHERE i.batch_id=? AND r.terminal_id=?
+    `);
+    for (const b of batches) {
+      const shareGross = Number(shareStmt.get(b.id, terminalId).s) || 0;
+      const g = Number(b.gross_rial) || 0;
+      if (!g) continue;
+      const ratio = shareGross / g;
+      b.gross_rial = shareGross;
+      b.fee_rial = Math.round(Number(b.fee_rial || 0) * ratio);
+      b.shortage_rial = Math.round(Number(b.shortage_rial || 0) * ratio);
+      b.net_rial = Math.round(Number(b.net_rial || 0) * ratio);
+    }
+  }
 
   const liveReceipts = receipts.filter((r) => r.status !== 'reversed');
   const liveBatches = batches.filter((b) => b.status !== 'reversed');

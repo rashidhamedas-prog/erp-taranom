@@ -33,7 +33,7 @@
 
 ## Reconciliation که تست خودکار می‌پوشاند
 
-- POS-03: وجوه در راه = مانده باز دریافت؛ خالص دسته = سند بانک `ref_type=pos_batch`
+- POS-03: وجوه در راه = مانده باز دریافت؛ خالص دسته = سند بانک `ref_type=pos_batch`؛ فیلتر پایانه روی دستهٔ چندپایانه‌ای (`terminal_id` تهی) سهم `pos_settlement_items` را می‌سنجد
 - Cutoff یک روز قبل از تسویه: بانک افزایش نیافته؛ در راه مانده است (سناریو ۹ Master Prompt)
 
 ## Migration rehearsal

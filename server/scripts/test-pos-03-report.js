@@ -196,6 +196,31 @@ function ok(cond, label, extra) {
   const formulaText = await formulaCsv.text();
   ok(formulaText.includes('"\'=CMD"') || formulaText.includes('"\'=1+1"'), 'csv formula cells quoted+prefixed', formulaText.slice(0, 400));
 
+  console.log('\n— mixed-terminal batch (null header) —');
+  const recA = await post('/api/pos/receipts', {
+    terminal_id: term.data.id, date: '1405/01/18', amount_rial: 300000, idempotency_key: 'pos3-mix-a',
+  });
+  const recB = await post('/api/pos/receipts', {
+    terminal_id: term2.data.id, date: '1405/01/18', amount_rial: 200000, idempotency_key: 'pos3-mix-b',
+  });
+  ok(recA.status === 200 && recB.status === 200, 'mixed receipts');
+  const mixed = await post('/api/pos/batches', {
+    date: '1405/01/18',
+    gross_rial: 500000,
+    receipt_ids: [recA.data.id, recB.data.id],
+    idempotency_key: 'pos3-mix-batch',
+  });
+  ok(mixed.status === 200 && mixed.data && mixed.data.terminal_id == null, 'mixed batch header null', mixed.data);
+  const mixA = await api('GET', `/api/pos/report?terminal_id=${term.data.id}&from=1405/01/18&to=1405/01/18`);
+  ok(mixA.data && mixA.data.reconcile && mixA.data.reconcile.ok === true, 'mixed filter A reconcile', mixA.data && mixA.data.reconcile);
+  ok(mixA.data.totals.receipt_gross_rial === 300000, 'mixed A gross 300k');
+  ok(mixA.data.totals.batch_gross_rial === 300000, 'mixed A batch share 300k', mixA.data.totals);
+  const mixBank = (mixA.data.reconcile.banks || [])[0];
+  ok(mixBank && mixBank.delta_rial === 0, 'mixed A bank delta 0', mixBank);
+  const mixB = await api('GET', `/api/pos/report?terminal_id=${term2.data.id}&from=1405/01/18&to=1405/01/18`);
+  ok(mixB.data && mixB.data.reconcile && mixB.data.reconcile.ok === true, 'mixed filter B reconcile', mixB.data && mixB.data.reconcile);
+  ok(mixB.data.totals.receipt_gross_rial === 200000, 'mixed B gross 200k');
+
   server.close();
   try { closeSessionStore(); } catch (_) {}
   console.log('\nPOS-03 report: ' + (fail ? '❌ ' : '✅ ') + pass + ' پاس، ' + fail + ' رد');

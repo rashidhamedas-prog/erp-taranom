@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-20 — POS-03 mixed-batch GL allocate + csv token (pre-merge)
+- **شاخه:** `ai/STITCH-P8-POS03-ADR007`
+- **خلاصه:** آشتی دفتر با فیلتر پایانه روی دستهٔ چندپایانه‌ای (`terminal_id` تهی) از سهم `pos_settlement_items` حساب می‌شود. خروجی CSV از `crm_token`. ADR-007 همچنان Proposed.
+- **فایل‌های کلیدی:** `server/lib/pos.js`, `server/public/app.js`, `server/scripts/test-pos-03-report.js`
+- **SW:** `erp-taranom-v168`
+- **Deploy:** ⏭ اعمال نشد — بدون merge/SFTP تا Independent APPROVED + تأیید مالک
+
 ### 2026-08-20 — POS-03 report + ADR-007 opened + Phase 8 gates (pre-merge)
 - **شاخه:** `ai/STITCH-P8-POS03-ADR007` @ `210f360`
 - **خلاصه:** گزارش کارتخوان با فیلتر تاریخ/پایانه/بانک/وضعیت/مغایرت؛ آشتی وجوه در راه و خالص بانک. ADR-007 برای طاقه پارچه Proposed باز شد (بدون کد تولید). دروازه فاز ۸ روی POS/LED/SMS/encoding.

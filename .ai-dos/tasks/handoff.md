@@ -1,4 +1,13 @@
-## 2026-08-20T15:20:00+03:30 — STITCH-P8 POS-03 + ADR-007 open + Phase 8 gates
+## 2026-08-20T16:10:00+03:30 — Independent Highs: mixed-batch GL + crm_token
+
+- **Task:** `STITCH-P8-POS03-ADR007` still claimed
+- **High-1:** `exportPosReport` uses `crm_token` (not `token`)
+- **High-2:** terminal-scoped GL allocates `pos_batch` JE via `pos_settlement_items` (mixed header `terminal_id=NULL`); report batch rows also share-scaled
+- **SW:** v168
+- **NO Iran deploy / merge** until Independent re-APPROVED + owner approval
+- Security already APPROVED on prior CSV/RBAC; this commit is GL share + token key
+
+
 
 - **Task:** `STITCH-P8-POS03-ADR007` claimed; branch `ai/STITCH-P8-POS03-ADR007` @ worktree stitch-impl
 - **POS-03:** `GET /api/pos/report` + CSV; UI `acc-pos-report`; in-transit GL vs open remaining; bank POS net vs `pos_batch` JE
