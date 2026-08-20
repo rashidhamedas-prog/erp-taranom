@@ -1,3 +1,10 @@
+## 2026-08-20T17:50:00+03:30 — PROD-01 Iran SFTP v171 @ db708a8
+
+- Stamp `.sftp-deploy-stamp-stitch-v171` = `2026-08-20T13:09:58Z hash=db708a8`
+- health/ready/root **200**; SW `erp-taranom-v171`; `db.js` not replaced; `schema.js` overlaid
+- Independent [Bugbot](63fac38b-3c47-4e4e-94b1-73f311d39b8a) no bugs; Security [review](fab46d47-8155-413d-91ea-958c58583d2b) APPROVED C0/H0/M0
+- Claims released. Next: PROD-02/03 wizard not in this task
+
 ## 2026-08-20T17:45:00+03:30 — PROD-01 review Highs fixed (pre-merge)
 
 - High-1: `supplierDetailId` via `suppliers.party_id` → `parties.detail_account_id`

@@ -1,8 +1,11 @@
 # Project Status
 
 - Last verified: 2026-08-20
-- **Active task:** `PROD-STITCH-P5` on `ai/PROD-STITCH-P5` — dual APPROVED, merge/deploy in progress
+- **Active task:** none — `PROD-STITCH-P5` completed
 - Independent Bugbot: no bugs. Security: APPROVED C0/H0/M0.
+- **PROD-STITCH-P5:** `completed` — dual APPROVED + owner merge/deploy
+  Primary `db708a8`; stamp `.sftp-deploy-stamp-stitch-v171` = `2026-08-20T13:09:58Z hash=db708a8`
+  health/ready/root **200**; SW `erp-taranom-v171`; `db.js` not replaced; `schema.js` overlaid
 - **STITCH-P8-POS03-ADR007:** `completed` — dual APPROVED + owner merge/deploy
   Primary `9b16876`; stamp `.sftp-deploy-stamp-stitch-v170` = `2026-08-20T12:40:04Z hash=4d9bc83`
   health/ready/root **200**; SW `erp-taranom-v170`; `db.js` not replaced

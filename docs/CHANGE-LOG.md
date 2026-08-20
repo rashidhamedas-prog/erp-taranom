@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-20 — PROD-01 fabric rolls WH-RAW + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `db708a8` (از `ai/PROD-STITCH-P5`)
+- **خلاصه:** دریافت طاقه فقط انبار مواد. دفتر تأمین‌کننده + تفصیلی از party_id. کلید تکرارناپذیر. ADR-007 Accepted. FG بدون Lot.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` عوض نشد؛ `schema.js` overlay شد. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v171` = `2026-08-20T13:09:58Z hash=db708a8`.
+- **SW:** `erp-taranom-v171`
+- **تست:** PROD-01 **23/23** · SMS **22/22**
+
 ### 2026-08-20 — PROD-01 dual APPROVED (Iran overlay next)
 - **شاخه:** `ai/PROD-STITCH-P5` @ `8ebaca7`
 - **خلاصه:** Independent Bugbot بدون باگ؛ امنیت C0/H0/M0. دریافت طاقه WH-RAW + دفتر تأمین‌کننده + کلید تکرارناپذیر.

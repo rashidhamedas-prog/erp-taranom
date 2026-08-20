@@ -2,7 +2,7 @@ schema_version: 1
 tasks:
   - id: "PROD-STITCH-P5"
     title: "PROD-01 fabric roll receipt on WH-RAW (ADR-007 Accepted)"
-    status: "active"
+    status: "completed"
     review_status: "APPROVED"
     security_status: "APPROVED"
     risk: "high"
@@ -17,24 +17,12 @@ tasks:
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-stitch-impl"
     base_commit: "9b16876"
     claimed_at: "2026-08-20T16:45:00+03:30"
-    file_claims:
-      - "server/lib/inventory/schema.js"
-      - "server/lib/inventory/fabric-rolls.js"
-      - "server/routes/inventory.js"
-      - "server/sync/capture.js"
-      - "server/sync/tables.js"
-      - "server/scripts/test-prod-01-fabric-rolls.js"
-      - "server/public/app.js"
-      - "server/public/acc-nav.js"
-      - "server/public/index.html"
-      - "server/public/sw.js"
-      - "docs/CHANGE-LOG.md"
-      - ".ai-dos/tasks/active.yaml"
-      - ".ai-dos/tasks/handoff.md"
-      - ".ai-dos/project/status.md"
+    completed_at: "2026-08-20T17:50:00+03:30"
+    file_claims: []
     notes: >-
-      Owner accepted ADR-007. Dual review APPROVED (Bugbot no bugs; Security C0/H0/M0).
-      Tests 23/23. Merge + Iran overlay next.
+      Merged FF to primary @ db708a8. Iran SFTP overlay v171.
+      stamp .sftp-deploy-stamp-stitch-v171 = 2026-08-20T13:09:58Z hash=db708a8.
+      db.js not replaced. schema.js overlaid. SW erp-taranom-v171.
     acceptance_criteria:
       - "POST /api/inventory/fabric-rolls WH-RAW only; color+meters; stock via ledger; JE 1110/2101 when valued"
       - "R13 void; field_sales 403; FG warehouse 400; vanilla UI acc-fabric-rolls"
