@@ -3,8 +3,8 @@ tasks:
   - id: "PROD-STITCH-P5B"
     title: "PROD-02/03 cutting lay wizard (spreading / size matrix / waste)"
     status: "in_progress"
-    review_status: "pending"
-    security_status: "pending"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:orchestrator-prod-p5b"
     roles:
@@ -36,10 +36,8 @@ tasks:
       - "server/public/index.html"
       - "server/public/sw.js"
     notes: >-
-      Spreading + size matrix + waste. Consumes fabric rolls on WH-RAW.
-      No PACK / FG receipt. No postEvent PRD-01 with lay id.
-      Direct postToLedger cutting_lay / cutting_lay_waste.
-      NO Iran deploy until Independent + Security APPROVED.
+      Dual APPROVED: Independent Bugbot 15f254b6 no bugs; Security 47086660 C0/H0/M0.
+      Tip 37f5f1b. Iran SFTP overlay v172 next. db.js not replaced.
     acceptance_criteria:
       - "Preview: marker×plies, size_breakdown×BOM size_matrix → matrix_meters (qty_net)"
       - "Leftover=max(0,actual-matrix); normal waste cap % of actual; excess abnormal"

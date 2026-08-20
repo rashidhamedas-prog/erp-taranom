@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-20 — PROD-02/03 dual APPROVED (Iran overlay next)
+- **شاخه:** `ai/PROD-02-CUTTING` @ `37f5f1b`
+- **خلاصه:** Independent بدون باگ؛ امنیت C0/H0/M0. ویزارد لایه‌چینی + انتخاب طاقه برای نقش تولید بدون بها.
+- **SW:** `erp-taranom-v172`
+- **تست:** PROD-02/03 **39/39** · SMS **22/22**
+- **Deploy:** در جریان (SFTP overlay؛ `db.js` عوض نمی‌شود؛ `schema.js` overlay می‌شود)
+
 ### 2026-08-20 — PROD-02/03 production roll picker (pre-merge)
 - **شاخه:** `ai/PROD-02-CUTTING`
 - **خلاصه:** انتخاب طاقه برای نقش تولید بدون بها (`GET .../cutting-lays/rolls`). دریافت طاقه همچنان فقط مدیر/حسابداری.

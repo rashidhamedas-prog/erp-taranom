@@ -3,7 +3,7 @@
 - Last verified: 2026-08-20
 - **Active task:** `PROD-STITCH-P5B` — PROD-02/03 cutting lay wizard
 - Branch: `ai/PROD-02-CUTTING` @ worktree stitch-impl, base `be76a5c`
-- **NO Iran deploy** until Independent + Security APPROVED
+- Independent Bugbot: no bugs ([re-review](15f254b6-11a8-4913-98b3-fd17622b0c74)). Security: APPROVED C0/H0/M0 ([re-review](47086660-b6fc-4e97-8e9c-0776c9659da7)).
 - Prior completed: `PROD-STITCH-P5` (fabric rolls v171)
 - Independent Bugbot: no bugs. Security: APPROVED C0/H0/M0.
 - **PROD-STITCH-P5:** `completed` — dual APPROVED + owner merge/deploy

@@ -1,3 +1,9 @@
+## 2026-08-20T17:50:00+03:30 — PROD-02/03 dual APPROVED (Iran overlay next)
+
+- Independent [Bugbot](15f254b6-11a8-4913-98b3-fd17622b0c74) no bugs
+- Security [review](47086660-b6fc-4e97-8e9c-0776c9659da7) APPROVED C0/H0/M0
+- Tests **39/39**. SW v172. FF + SFTP overlay next. `db.js` not replaced
+
 ## 2026-08-20T17:35:00+03:30 — Independent High: production roll picker
 
 - `GET /api/production/cutting-lays/rolls` for `production.view` (no cost fields)
