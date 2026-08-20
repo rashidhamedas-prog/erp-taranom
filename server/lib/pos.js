@@ -683,23 +683,72 @@ function glBalanceAsOf(db, accountCode, asOfDate) {
   return Math.round(Number(row && row.b) || 0);
 }
 
-function glPosBatchNetToBank(db, bankCoa, from, to) {
+function glPosBatchNetToBank(db, bankCoa, from, to, terminalId) {
   const where = [
     'jl.account_code = ?',
     "je.ref_type = 'pos_batch'",
     'COALESCE(je.deleted_at,0)=0',
     "COALESCE(je.status,'posted') <> 'reversed'",
+    "COALESCE(b.status,'posted') <> 'reversed'",
   ];
   const params = [bankCoa];
   if (from) { where.push('je.entry_date >= ?'); params.push(from); }
   if (to) { where.push('je.entry_date <= ?'); params.push(to); }
+  if (terminalId) { where.push('b.terminal_id = ?'); params.push(terminalId); }
   const row = db.prepare(`
     SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS b
     FROM journal_lines jl
     JOIN journal_entries je ON je.id = jl.entry_id
+    JOIN pos_settlement_batches b ON b.id = je.ref_id
     WHERE ${where.join(' AND ')}
   `).get(...params);
   return Math.round(Number(row && row.b) || 0);
+}
+
+function glInTransitPosAsOf(db, { to, terminalId, bankId } = {}) {
+  const code = acct(db, 'coa_card_in_transit').code;
+  if (!terminalId && !bankId) return glBalanceAsOf(db, code, to);
+
+  const recWhere = [
+    "je.ref_type='pos_receipt'",
+    'jl.account_code=?',
+    'COALESCE(je.deleted_at,0)=0',
+    "COALESCE(je.status,'posted') <> 'reversed'",
+    "COALESCE(r.status,'open') <> 'reversed'",
+  ];
+  const recParams = [code];
+  if (to) { recWhere.push('je.entry_date <= ?'); recParams.push(to); }
+  if (terminalId) { recWhere.push('r.terminal_id = ?'); recParams.push(terminalId); }
+  if (bankId) { recWhere.push('t.bank_id = ?'); recParams.push(bankId); }
+  const recNet = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS b
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    JOIN pos_receipts r ON r.id = je.ref_id
+    JOIN pos_terminals t ON t.id = r.terminal_id
+    WHERE ${recWhere.join(' AND ')}
+  `).get(...recParams).b;
+
+  const bWhere = [
+    "je.ref_type='pos_batch'",
+    'jl.account_code=?',
+    'COALESCE(je.deleted_at,0)=0',
+    "COALESCE(je.status,'posted') <> 'reversed'",
+    "COALESCE(b.status,'posted') <> 'reversed'",
+  ];
+  const bParams = [code];
+  if (to) { bWhere.push('je.entry_date <= ?'); bParams.push(to); }
+  if (terminalId) { bWhere.push('b.terminal_id = ?'); bParams.push(terminalId); }
+  if (bankId) { bWhere.push('b.bank_id = ?'); bParams.push(bankId); }
+  const batchNet = db.prepare(`
+    SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) AS b
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    JOIN pos_settlement_batches b ON b.id = je.ref_id
+    WHERE ${bWhere.join(' AND ')}
+  `).get(...bParams).b;
+
+  return Math.round(Number(recNet) || 0) + Math.round(Number(batchNet) || 0);
 }
 
 function inTransitOpenAsOf(db, { to, terminalId, bankId } = {}) {
@@ -797,7 +846,7 @@ function buildPosReport(db, query = {}) {
 
   const transit = acct(db, 'coa_card_in_transit');
   const openAsOf = inTransitOpenAsOf(db, { to, terminalId: terminalId || null, bankId: bankId || null });
-  const inTransitGl = glBalanceAsOf(db, transit.code, to);
+  const inTransitGl = glInTransitPosAsOf(db, { to, terminalId: terminalId || null, bankId: bankId || null });
   const banks = [];
   const seenBank = new Set();
   for (const row of liveBatches) {
@@ -807,7 +856,7 @@ function buildPosReport(db, query = {}) {
     const net = liveBatches.filter((b) => Number(b.bank_id) === id)
       .reduce((s, b) => s + Number(b.net_rial || 0), 0);
     const glNet = row.bank_coa_code
-      ? glPosBatchNetToBank(db, row.bank_coa_code, from, to)
+      ? glPosBatchNetToBank(db, row.bank_coa_code, from, to, terminalId || null)
       : 0;
     banks.push({
       bank_id: id,
@@ -842,25 +891,31 @@ function buildPosReport(db, query = {}) {
   };
 }
 
+function csvEsc(v) {
+  let s = String(v == null ? '' : v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
 function posReportCsv(report) {
-  const lines = [];
-  lines.push('section,id,date,terminal,bank,status,gross_rial,fee_rial,shortage_rial,net_or_open_rial');
+  const header = ['section', 'id', 'date', 'terminal', 'bank', 'status', 'gross_rial', 'fee_rial', 'shortage_rial', 'net_or_open_rial'];
+  const lines = [header.map(csvEsc).join(',')];
   for (const r of report.receipts || []) {
     lines.push([
       'receipt', r.id, r.date, r.terminal_code || '', r.bank_name || '', r.status,
       r.amount_rial || 0, '', '', r.open_rial || 0,
-    ].join(','));
+    ].map(csvEsc).join(','));
   }
   for (const b of report.batches || []) {
     lines.push([
       'batch', b.id, b.date, b.terminal_code || '', b.bank_name || '', b.status,
       b.gross_rial || 0, b.fee_rial || 0, b.shortage_rial || 0, b.net_rial || 0,
-    ].join(','));
+    ].map(csvEsc).join(','));
   }
   const t = report.totals || {};
   const rec = report.reconcile || {};
-  lines.push(`totals,,receipt_gross,${t.receipt_gross_rial || 0},batch_gross,${t.batch_gross_rial || 0},fee,${t.batch_fee_rial || 0},shortage,${t.batch_shortage_rial || 0},net,${t.batch_net_rial || 0}`);
-  lines.push(`reconcile,,in_transit_open,${rec.in_transit_open_rial || 0},in_transit_gl,${rec.in_transit_gl_rial || 0},delta,${rec.in_transit_delta_rial || 0},ok,${rec.ok ? 1 : 0}`);
+  lines.push(['totals', '', 'receipt_gross', t.receipt_gross_rial || 0, 'batch_gross', t.batch_gross_rial || 0, t.batch_fee_rial || 0, t.batch_shortage_rial || 0, '', t.batch_net_rial || 0].map(csvEsc).join(','));
+  lines.push(['reconcile', '', 'in_transit_open', rec.in_transit_open_rial || 0, 'in_transit_gl', rec.in_transit_gl_rial || 0, rec.in_transit_delta_rial || 0, rec.ok ? 1 : 0, '', ''].map(csvEsc).join(','));
   return lines.join('\n');
 }
 

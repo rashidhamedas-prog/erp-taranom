@@ -172,6 +172,30 @@ function ok(cond, label, extra) {
   ok(csvText.includes('985000') || csvText.includes('reconcile'), 'csv has net or reconcile');
   ok(csvText.includes('in_transit'), 'csv has in-transit row');
 
+  const salesCsv = await fetch(BASE + '/api/pos/report/export', {
+    headers: { Authorization: 'Bearer ' + salesTok },
+  });
+  ok(salesCsv.status === 403, 'field_sales export 403', String(salesCsv.status));
+
+  console.log('\n— second terminal: filtered reconcile stays ok —');
+  const term2 = await post('/api/pos/terminals', {
+    name: '=1+1', terminal_id: '=CMD', bank_id: bankId,
+  });
+  ok(term2.status === 200, 'second terminal with formula-like name');
+  const rec2 = await post('/api/pos/receipts', {
+    terminal_id: term2.data.id, date: '1405/01/16', amount_rial: 400000, idempotency_key: 'pos3-r2',
+  });
+  ok(rec2.status === 200, 'second receipt');
+  const scoped = await api('GET', `/api/pos/report?terminal_id=${term.data.id}&to=1405/01/17`);
+  ok(scoped.data && scoped.data.reconcile && scoped.data.reconcile.ok === true, 'filtered terminal still reconcile ok');
+  ok(scoped.data.reconcile.in_transit_open_rial === 0, 'filtered remaining 0 after settle');
+  ok(scoped.data.totals.receipt_gross_rial === 1000000, 'filtered gross excludes other terminal');
+  const formulaCsv = await fetch(BASE + '/api/pos/report/export', {
+    headers: { Authorization: 'Bearer ' + token },
+  });
+  const formulaText = await formulaCsv.text();
+  ok(formulaText.includes('"\'=CMD"') || formulaText.includes('"\'=1+1"'), 'csv formula cells quoted+prefixed', formulaText.slice(0, 400));
+
   server.close();
   try { closeSessionStore(); } catch (_) {}
   console.log('\nPOS-03 report: ' + (fail ? '❌ ' : '✅ ') + pass + ' پاس، ' + fail + ' رد');
