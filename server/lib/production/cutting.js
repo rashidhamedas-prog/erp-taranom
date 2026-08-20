@@ -60,7 +60,36 @@ function requireRawWarehouse(db, warehouseId) {
   return wh;
 }
 
-function fabricLineFromBom(db, { productId, bomId, date, sizeBreakdown }) {
+function isMeterUnit(unit) {
+  const u = String(unit || '').trim().toLowerCase();
+  return u === 'm' || u === 'meter' || u === 'metre' || u === 'متر' || u.includes('متر');
+}
+
+function pickFabricLine(db, lines, preferredProductId) {
+  const list = Array.isArray(lines) ? lines : [];
+  if (!list.length) return null;
+  if (preferredProductId) {
+    const hit = list.find((L) => Number(L.product_id) === Number(preferredProductId));
+    if (hit) return hit;
+  }
+  const scored = list.map((L) => {
+    const p = db.prepare('SELECT unit, item_type FROM products WHERE id=?').get(L.product_id) || {};
+    const bl = L.bom_line_id
+      ? db.prepare('SELECT size_matrix FROM bom_lines WHERE id=?').get(L.bom_line_id)
+      : null;
+    const matrix = parseJson(bl && bl.size_matrix, {}) || {};
+    let score = 0;
+    if (L.line_kind === 'material') score += 2;
+    if (isMeterUnit(p.unit)) score += 8;
+    if (Object.keys(matrix).length) score += 6;
+    if (String(p.item_type || '') === 'raw') score += 1;
+    return { L, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return (scored[0] && scored[0].score > 0 ? scored[0].L : list[0]) || null;
+}
+
+function fabricLineFromBom(db, { productId, bomId, date, sizeBreakdown, fabricProductId }) {
   let bom = null;
   if (bomId) {
     bom = db.prepare('SELECT * FROM bom_headers WHERE id=? AND deleted_at IS NULL').get(Number(bomId));
@@ -77,7 +106,7 @@ function fabricLineFromBom(db, { productId, bomId, date, sizeBreakdown }) {
     sizeBreakdown,
     priceBasis: 'average',
   });
-  const fabric = (ex.lines || []).find((L) => L.line_kind === 'material') || (ex.lines || [])[0] || null;
+  const fabric = pickFabricLine(db, ex.lines, fabricProductId);
   let sizeMatrix = {};
   if (fabric && fabric.bom_line_id) {
     const bl = db.prepare('SELECT size_matrix FROM bom_lines WHERE id=?').get(fabric.bom_line_id);
@@ -113,10 +142,28 @@ function planCutting(db, body = {}) {
   const date = String(body.date || todayJalali()).trim();
   const { bom, fabricLine, matrixMeters, sizeMatrix } = fabricLineFromBom(db, {
     productId, bomId: body.bom_id, date, sizeBreakdown,
+    fabricProductId: body.fabric_product_id,
   });
   const leftover = round6(Math.max(0, actual - matrixMeters));
-  let wNormal = body.waste_normal_m != null ? Number(body.waste_normal_m) : leftover;
-  let wAbnormal = body.waste_abnormal_m != null ? Number(body.waste_abnormal_m) : 0;
+  let wNormal;
+  let wAbnormal;
+  if (body.waste_normal_m != null || body.waste_abnormal_m != null) {
+    wNormal = Math.max(0, Number(body.waste_normal_m) || 0);
+    wAbnormal = Math.max(0, Number(body.waste_abnormal_m) || 0);
+    if (!Number.isFinite(wNormal) || !Number.isFinite(wAbnormal)) {
+      throw httpErr(400, 'ضایعات نامعتبر است', 'E_CUT_WASTE');
+    }
+    const wasteSum = round6(wNormal + wAbnormal);
+    if (wasteSum > leftover + 1e-9) {
+      throw httpErr(400, 'جمع ضایعات از مازاد مصرف بیشتر است', 'E_CUT_WASTE_SUM', {
+        leftover, waste: wasteSum,
+      });
+    }
+    if (wasteSum + 1e-9 < leftover) wNormal = round6(wNormal + (leftover - wasteSum));
+  } else {
+    wNormal = leftover;
+    wAbnormal = 0;
+  }
   const pct = Number(setting(db, 'production_normal_waste_default_pct', '3')) || 3;
   const classified = classifyWasteMeters(actual, wNormal, wAbnormal, pct);
   return {
@@ -225,7 +272,8 @@ function postCuttingLay(db, body, user) {
   }
   const amount = assertSafeRial(prepared.reduce((s, r) => s + r.amount_rial, 0), 'cut amount');
   const unitCost = plan.actual_meters > 0 ? Math.round(amount / plan.actual_meters) : 0;
-  const wasteAmt = assertSafeRial(Math.round(plan.waste_abnormal_m * unitCost), 'cut waste');
+  let wasteAmt = assertSafeRial(Math.round(plan.waste_abnormal_m * unitCost), 'cut waste');
+  if (wasteAmt > amount) wasteAmt = amount;
   const date = String(body.date || todayJalali()).trim();
   const color = String(body.color || '').trim();
   const widthCm = Math.round(Number(body.width_cm) || 0);

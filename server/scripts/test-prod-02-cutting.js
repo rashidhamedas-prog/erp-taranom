@@ -184,6 +184,35 @@ function gl(code) {
   });
   ok(mismatch.status === 400, 'roll sum mismatch 400');
 
+  const fatWaste = await api('POST', '/api/production/cutting-lays', {
+    product_id: fgId, marker_length_m: 2, ply_count: 3, actual_meters: 6,
+    size_breakdown: breakdown, rolls: [{ batch_id: rec.data.id, meters: 6 }],
+    waste_abnormal_m: 999, idempotency_key: 'cut-fat-waste',
+  });
+  ok(fatWaste.status === 400, 'uncapped abnormal waste 400', fatWaste.data);
+
+  const threadId = db.prepare(`
+    INSERT INTO products (user_id, name, code, price, stock, unit, item_type)
+    VALUES (?, 'نخ تست', 'CUT-TH', 0, 0, 'عدد', 'raw')
+  `).run(admin.id).lastInsertRowid;
+  const bom2 = bomLib.createBom(db, {
+    product_id: fgId, name: 'BOM نخ اول', base_qty: 1, yield_percent: 100,
+  }, admin.id);
+  bomLib.addLine(db, bom2.id, {
+    component_product_id: threadId, qty_per_base: 2, scrap_percent: 0, line_type: 'material',
+  }, admin.id);
+  bomLib.addLine(db, bom2.id, {
+    component_product_id: fabId, qty_per_base: 1.50, scrap_percent: 0,
+    line_type: 'material', size_matrix: JSON.stringify(SIZE_MATRIX),
+  }, admin.id);
+  const preview2 = await api('GET',
+    '/api/production/cutting-lays/preview?product_id=' + fgId
+    + '&bom_id=' + bom2.id
+    + '&marker_length_m=2&ply_count=3&actual_meters=7'
+    + '&size_breakdown=' + encodeURIComponent(JSON.stringify(breakdown)));
+  ok(preview2.status === 200 && Number(preview2.data.fabric_product_id) === Number(fabId), 'fabric not thread', preview2.data);
+  ok(Math.abs(Number(preview2.data && preview2.data.matrix_meters) - 5.9) < 0.001, 'matrix still 5.9 with thread first', preview2.data);
+
   const full = await api('POST', '/api/production/cutting-lays', {
     product_id: fgId, warehouse_id: raw.id,
     marker_length_m: 2, ply_count: 20, actual_meters: 40,

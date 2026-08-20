@@ -27,6 +27,7 @@ router.get('/preview', auth, requirePermission('production', 'view'), (req, res)
     sendRow(req, res, planCutting(db, {
       product_id: req.query.product_id,
       bom_id: req.query.bom_id,
+      fabric_product_id: req.query.fabric_product_id,
       marker_length_m: req.query.marker_length_m,
       ply_count: req.query.ply_count,
       actual_meters: req.query.actual_meters,

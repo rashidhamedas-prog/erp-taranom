@@ -1,3 +1,10 @@
+## 2026-08-20T17:20:00+03:30 — PROD-02/03 Independent Highs fixed
+
+- High: client `waste_abnormal_m` cannot exceed leftover (actual − matrix)
+- Medium: fabric line picked by meter unit / size_matrix, not first material
+- Tests **35/35**. Security already APPROVED on prior commit; Independent re-review next
+- **NO Iran deploy / FF**
+
 ## 2026-08-20T17:05:00+03:30 — PROD-02/03 implementer done (pre-review)
 
 - Tests: cutting **32/32** · SMS **22/22** · schema P0 **16/16** · sync gaps mismatches=[] · app.js parse OK
