@@ -216,6 +216,25 @@ function seedAccounts(db) {
 }
 
 function ensureExistingColumns(db) {
+  if (tableExists(db, 'inventory_batches')) {
+    ensureColumn(db, 'inventory_batches', 'kind', "TEXT DEFAULT 'generic'");
+    ensureColumn(db, 'inventory_batches', 'color', "TEXT DEFAULT ''");
+    ensureColumn(db, 'inventory_batches', 'pattern', "TEXT DEFAULT ''");
+    ensureColumn(db, 'inventory_batches', 'width_cm', 'INTEGER DEFAULT 0');
+    ensureColumn(db, 'inventory_batches', 'unit', "TEXT DEFAULT ''");
+    ensureColumn(db, 'inventory_batches', 'unit_cost_rial', 'INTEGER DEFAULT 0');
+    ensureColumn(db, 'inventory_batches', 'supplier_id', 'INTEGER');
+    ensureColumn(db, 'inventory_batches', 'qty_received', 'REAL DEFAULT 0');
+    ensureColumn(db, 'inventory_batches', 'ledger_id', 'INTEGER');
+    ensureColumn(db, 'inventory_batches', 'journal_id', 'INTEGER');
+    ensureColumn(db, 'inventory_batches', 'idempotency_key', 'TEXT');
+    ensureColumn(db, 'inventory_batches', 'reversed_at', 'INTEGER');
+    ensureColumn(db, 'inventory_batches', 'reversed_by', 'INTEGER');
+    ensureColumn(db, 'inventory_batches', 'reversal_journal_id', 'INTEGER');
+    try {
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_batches_idem ON inventory_batches(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''");
+    } catch (_) { /* ignore */ }
+  }
   if (tableExists(db, 'warehouse_moves')) {
     ensureColumn(db, 'warehouse_moves', 'ledger_id', 'INTEGER');
     ensureColumn(db, 'warehouse_moves', 'unit_cost_rial', 'INTEGER DEFAULT 0');

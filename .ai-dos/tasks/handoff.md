@@ -1,4 +1,9 @@
-## 2026-08-20T16:40:04Z — POS-03 Iran SFTP v170 ✅
+## 2026-08-20T17:10:00+03:30 — PROD-STITCH-P5 claimed (PROD-01)
+
+- ADR-007 Accepted. Fabric receive on WH-RAW. Tests 17/17. SW v171
+- **NO Iran deploy** until Independent + Security APPROVED
+
+
 
 - Primary FF `claude/claude-md-docs-2ssrpy` = `4d9bc83`
 - Stamp `.sftp-deploy-stamp-stitch-v170` = `2026-08-20T12:40:04Z hash=4d9bc83`

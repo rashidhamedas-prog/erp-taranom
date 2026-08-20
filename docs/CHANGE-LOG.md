@@ -13,6 +13,12 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### 2026-08-20 — PROD-01 fabric rolls WH-RAW (pre-merge)
+- **شاخه:** `ai/PROD-STITCH-P5`
+- **خلاصه:** دریافت طاقه روی انبار مواد با رنگ/طرح/عرض/متر/بها. FG بدون Lot. ابطال R13. ADR-007 Accepted.
+- **SW:** `erp-taranom-v171`
+- **Deploy:** ⏭ تا Dual review
+
 ### 2026-08-20 — POS-03 + Phase 8 merge + ADR-007 Accepted + Iran SFTP ✅
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `4d9bc83` (از `ai/STITCH-P8-POS03-ADR007`)
 - **خلاصه:** گزارش کارتخوان، دروازه فاز ۸، ADR-007 Accepted (طاقه فقط WH-RAW). Schema طاقه در این رلیز نیست.

@@ -1095,6 +1095,7 @@ const LU = (()=> {
     'acc-shareholders':'handshake', 'acc-units':'ruler', 'acc-fiscal-period':'file',
     'acc-cheques-recv':'download', 'acc-cheques-pay':'upload', 'acc-proforma':'file',
     'acc-orders-list':'cart', 'acc-stocktaking':'clipboard', 'acc-inv-batches':'tags',
+    'acc-fabric-rolls':'tags',
     'acc-inv-reservations':'lock', 'acc-inv-landed':'ship', 'acc-account-transfer':'repeat',
     'acc-moadian-hub':'radio', 'acc-petty-cash-ops':'coins', 'acc-cheque-register':'book',
     'acc-journal-docs':'file', 'acc-journal-entry':'pen', 'acc-opening-voucher':'circle',
@@ -1220,7 +1221,7 @@ const ACC_MODULE_MAP={
   'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
   'acc-warehouse-report':'module_warehouses',
   'acc-stocktaking':'module_warehouses','acc-item-kardex':'module_warehouses',
-  'acc-inv-batches':'module_warehouses','acc-inv-reservations':'module_warehouses',
+  'acc-inv-batches':'module_warehouses','acc-fabric-rolls':'module_warehouses','acc-inv-reservations':'module_warehouses',
   'acc-inv-landed':'module_warehouses',
   'acc-consignments':'module_consignments','acc-production':'module_production',
   'acc-production-orders':'module_production','acc-production-boms':'module_production',
@@ -5805,7 +5806,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -5880,6 +5881,7 @@ ROUTES['acc-sales-returns']=()=>renderAccPage('sales-returns','↪️','برگش
 ROUTES['acc-item-kardex']=()=>renderAccPage('item-kardex','📋','کاردکس کالا');
 ROUTES['acc-shared-ledger']=()=>renderAccPage('shared-ledger','📒','دفتر مالی مشترک');
 ROUTES['acc-inv-batches']=()=>renderAccPage('inv-batches','🏷️','بچ و سریال');
+ROUTES['acc-fabric-rolls']=()=>renderAccPage('fabric-rolls','🧵','دریافت طاقه پارچه');
 ROUTES['acc-inv-reservations']=()=>renderAccPage('inv-reservations','🔒','رزرو موجودی');
 ROUTES['acc-inv-landed']=()=>renderAccPage('inv-landed','🚢','هزینه حمل (Landed Cost)');
 ROUTES['acc-warehouses']=()=>renderAccPage('warehouses','🏭','انبارها');
@@ -6033,6 +6035,8 @@ async function loadAccTab(tab){
     await renderSharedLedgerTab(body);
   } else if(tab==='inv-batches'){
     await renderInvBatchesTab(body);
+  } else if(tab==='fabric-rolls'){
+    await renderFabricRollsTab(body);
   } else if(tab==='inv-reservations'){
     await renderInvReservationsTab(body);
   } else if(tab==='inv-landed'){
@@ -7437,6 +7441,70 @@ async function exportSharedFinancialLedger(){
 /* ============================================================
    INVENTORY — batches / serials / reservations / landed cost UI
 ============================================================ */
+async function renderFabricRollsTab(body){
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  const [rolls, warehouses, suppliers]=await Promise.all([
+    api('GET','/inventory/fabric-rolls')||{rows:[]},
+    api('GET','/warehouses')||[],
+    api('GET','/suppliers')||[]
+  ]);
+  const rawWh=(Array.isArray(warehouses)?warehouses:(warehouses.rows||warehouses.data||[])).filter(w=>w.code==='WH-RAW'||w.warehouse_type==='raw_material'||w.kind==='raw');
+  const sups=Array.isArray(suppliers)?suppliers:(suppliers.rows||suppliers.data||[]);
+  body.innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">دریافت طاقه پارچه فقط روی انبار مواد اولیه. کالای آماده فروش Lot نمی‌گیرد. ابطال تا وقتی متر باقی‌مانده برابر متر دریافتی باشد.</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){fabricRollModal()})}">➕ دریافت طاقه</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('fabric-rolls')})}">🔄</button>
+    </div>
+    <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>طاقه</th><th>کالا</th><th>رنگ</th><th>طرح</th><th>عرض</th><th>متر</th><th>بها</th><th></th>
+    </tr></thead><tbody>
+    ${(rolls.rows||[]).map(b=>{
+      const act=b.status==='reversed'?'ابطال‌شده':('<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidFabricRollRow(b.id)})+'">ابطال</button>');
+      return '<tr><td class="mono">'+esc(b.batch_no)+'</td><td>'+esc(b.product_name||('#'+b.product_id))+'</td>'
+        +'<td>'+esc(b.color||'')+'</td><td>'+esc(b.pattern||'')+'</td>'
+        +'<td class="num">'+esc(b.width_cm||0)+'</td><td class="num">'+fmt(b.qty_on_hand||0)+'</td>'
+        +'<td class="num">'+fmt(b.unit_cost_rial||0)+'</td><td>'+act+'</td></tr>';
+    }).join('')||'<tr><td colspan="8" class="empty">طاقه‌ای ثبت نشده</td></tr>'}
+    </tbody></table></div></div>`;
+  window._fabricRawWh=rawWh; window._fabricSups=sups;
+}
+function fabricRollModal(){
+  const prods=CACHE.allProducts||[];
+  const whs=window._fabricRawWh||[];
+  const sups=window._fabricSups||[];
+  showModal('دریافت طاقه',`
+    <div class="form-grid">
+      <div class="fg"><label>کالا</label><select id="fr-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>انبار مواد</label><select id="fr-wh">${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>شماره طاقه</label><input id="fr-no" placeholder="خودکار"></div>
+      <div class="fg"><label>رنگ</label><input id="fr-color"></div>
+      <div class="fg"><label>طرح</label><input id="fr-pat"></div>
+      <div class="fg"><label>عرض (سم)</label><input id="fr-w" type="number" min="0" value="150"></div>
+      <div class="fg"><label>متر</label><input id="fr-m" type="number" min="0" step="0.01"></div>
+      <div class="fg"><label>بها هر متر (ریال)</label><input id="fr-cost" type="number" min="0" value="0"></div>
+      <div class="fg"><label>تأمین‌کننده</label><select id="fr-sup"><option value="">—</option>${sups.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>
+    </div>
+    <div data-csp-style="${CSP.style(`margin-top:12px;text-align:left`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){fabricRollSave()})}">ثبت</button></div>`);
+}
+async function fabricRollSave(){
+  if(!el('fr-color').value.trim()){ showToast('رنگ الزامی است','error'); return; }
+  try{
+    await api('POST','/inventory/fabric-rolls',{
+      product_id:+el('fr-prod').value, warehouse_id:+el('fr-wh').value,
+      roll_no:el('fr-no').value||undefined, color:el('fr-color').value.trim(),
+      pattern:el('fr-pat').value.trim(), width_cm:+el('fr-w').value||0,
+      meters:+el('fr-m').value, unit_cost_rial:+el('fr-cost').value||0,
+      supplier_id:el('fr-sup').value?+el('fr-sup').value:undefined, unit:'m'
+    });
+    closeModal(); showToast('طاقه ثبت شد'); loadAccTab('fabric-rolls');
+  }catch(e){}
+}
+async function voidFabricRollRow(id){
+  if(!confirm('ابطال کامل این طاقه؟')) return;
+  try{ await api('POST','/inventory/fabric-rolls/'+id+'/void',{reason:'ابطال از گزارش'}); loadAccTab('fabric-rolls'); }
+  catch(e){}
+}
 async function renderInvBatchesTab(body){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
   const [batches, serials]=await Promise.all([
@@ -18069,6 +18137,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
+        <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. رنگ، طرح، عرض، متر و بها. کالای آماده بدون Lot. ابطال تا وقتی طاقه مصرف نشده موجودی و سند را برمی‌گرداند. ویزیتور دسترسی ندارد</li>
         <li><b>دفتر چک</b>: واگذاری/وصول/برگشت/ارسال مجدد + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور می‌سازد؛ ارسالی فاکتور امانت‌گیرنده است و سند بهای تمام‌شده می‌زند بدون کسر دوباره موجودی؛ دریافتی نیازمند خریدار جدا از امانت‌گذار است)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
@@ -18231,7 +18300,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v170</b> است و اسکریپت‌ها با <code>?v=170</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v171</b> است و اسکریپت‌ها با <code>?v=171</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>

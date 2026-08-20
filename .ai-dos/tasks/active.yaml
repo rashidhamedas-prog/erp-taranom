@@ -1,5 +1,46 @@
 schema_version: 1
 tasks:
+  - id: "PROD-STITCH-P5"
+    title: "PROD-01 fabric roll receipt on WH-RAW (ADR-007 Accepted)"
+    status: "active"
+    review_status: "PENDING"
+    security_status: "PENDING"
+    risk: "high"
+    owner: "cursor:orchestrator-prod-p5"
+    roles:
+      orchestrator: "cursor:orchestrator-prod-p5"
+      architect: "cursor:orchestrator-prod-p5"
+      implementer: "cursor:implementer-prod-p5"
+      reviewer: "cursor:independent-reviewer-prod-p5"
+      security: "cursor:independent-security-prod-p5"
+    branch: "ai/PROD-STITCH-P5"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-stitch-impl"
+    base_commit: "9b16876"
+    claimed_at: "2026-08-20T16:45:00+03:30"
+    file_claims:
+      - "server/lib/inventory/schema.js"
+      - "server/lib/inventory/fabric-rolls.js"
+      - "server/routes/inventory.js"
+      - "server/sync/capture.js"
+      - "server/sync/tables.js"
+      - "server/scripts/test-prod-01-fabric-rolls.js"
+      - "server/public/app.js"
+      - "server/public/acc-nav.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    notes: >-
+      Owner accepted ADR-007. PROD-01 receive rolls on WH-RAW only. No FG lot.
+      No Iran deploy until dual review.
+    acceptance_criteria:
+      - "POST /api/inventory/fabric-rolls WH-RAW only; color+meters; stock via ledger; JE 1110/2101 when valued"
+      - "R13 void; field_sales 403; FG warehouse 400; vanilla UI acc-fabric-rolls"
+      - "No new SYNCABLE table; columns on inventory_batches; PATH_TABLE_MAP fabric-rolls"
+      - "No React/Tailwind; no Serial/Bin"
+
   - id: "STITCH-P8-POS03-ADR007"
     title: "POS-03 card report + open ADR-007 + Phase 8 hardening gates"
     status: "completed"

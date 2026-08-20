@@ -403,6 +403,8 @@ const FK_COLUMNS = [
   ['pos_settlement_batches', 'journal_id'],
   ['pos_settlement_items', 'batch_id'],
   ['pos_settlement_items', 'receipt_id'],
+  // PROD-STITCH-P5 (append-only)
+  ['inventory_batches', 'supplier_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

@@ -113,6 +113,7 @@ const PATH_TABLE_MAP = [
   ['/api/production/close', 'production_period_close'],
   ['/api/production', 'production_runs'],
   // Inventory — specific before generic
+  ['/api/inventory/fabric-rolls', 'inventory_batches'],
   ['/api/inventory/batches', 'inventory_batches'],
   ['/api/inventory/serials', 'inventory_serials'],
   ['/api/inventory/reservations', 'inventory_reservations'],
