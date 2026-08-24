@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High3 opening inventory_ledger (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** موجودی اول دوره کالا ردیف `inventory_ledger` با `eventType=opening` و `skipStock` می‌نویسد. بک‌فیل additive با فلگ `opening_inventory_ledger_backfill_v1`.
+- **فایل‌ها:** `server/lib/opening-post.js`, `server/db.js`, `server/public/app.js`, `server/scripts/test-qa-fix-opening-stock-ledger.js`
+- **تست:** `node server/scripts/test-qa-fix-opening-stock-ledger.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
 ### ۱۴۰۵/۰۶/۰۲ — QA-FIX High2 firm invoice warehouse_id (no deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
