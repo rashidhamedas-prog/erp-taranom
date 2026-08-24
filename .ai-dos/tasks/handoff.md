@@ -1,3 +1,15 @@
+## 2026-08-24T18:57:00+03:30 — QA-ERP-FULL-CYCLE-FIX-HIGHS claimed (owner start)
+
+- **Task:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` status=`active`
+- **Implementer:** `cursor:implementer-qa-fix-highs` (≠ `cursor:implementer-qa-erp`)
+- **Reviewer / Security:** `cursor:independent-reviewer-qa-erp` / `cursor:independent-security-qa-erp`
+- **Branch / worktree:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-fix-highs` @ `aeb5d06`
+- **Registry overlap:** child updates its own block in `active.yaml` plus handoff/status/CHANGE-LOG
+  (parent still claims those paths; owner authorized this child start).
+- **Constraint:** NO merge, NO Iran deploy. Do not edit `scripts/qa/**`.
+- **Exact next:** five Highs with failing tests first, one commit each
+
 ## 2026-08-24T18:40:00+03:30 — QA-ERP-FULL-CYCLE first full run (no deploy)
 
 - **Task:** `QA-ERP-FULL-CYCLE` implementer done (harness). Reviewer still PENDING.

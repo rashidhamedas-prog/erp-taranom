@@ -13,6 +13,15 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High1 cheque party_id (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** POST `/api/cheque-records` فقط با `party_id` معتبر ثبت می‌شود؛ `party_name` از اشخاص مشتق می‌شود. اکسل چک اول دوره طرف حساب را از جدول اشخاص resolve می‌کند.
+- **فایل‌ها:** `server/routes/cheque-records.js`, `server/routes/excel.js`, `server/sync/tables.js`, `server/public/app.js`, `server/scripts/test-qa-fix-cheque-party-id.js`
+- **تست:** `node server/scripts/test-qa-fix-cheque-party-id.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+- **SW:** بدون bump (تا پایان پنج High)
+
 ### ۱۴۰۵/۰۶/۰۲ — QA-ERP-FULL-CYCLE first full run (isolated, no deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles`

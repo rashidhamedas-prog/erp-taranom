@@ -367,7 +367,8 @@ async function seedDemoV2(dbPathOrOpts, maybeOpts) {
 
     const chequeClear = await api('POST', '/api/cheque-records', {
       direction: 'in', cheque_number: '880011', issue_date: daysAgo(18), receive_date: daysAgo(17),
-      due_date: daysAgo(4), bank_name: 'ملت', party_name: shops[0].biz, amount: 45000000,
+      due_date: daysAgo(4), bank_name: 'ملت', party_id: (await api('GET', `/api/parties?search=${encodeURIComponent(shops[0].biz)}&limit=5`)).data[0].id,
+      amount: 45000000,
       opening: true, note: 'چک وصول نمایش',
     });
     await api('POST', `/api/cheque-records/${chequeClear.id}/send-to-bank`, {
@@ -377,7 +378,8 @@ async function seedDemoV2(dbPathOrOpts, maybeOpts) {
 
     const chequeBounce = await api('POST', '/api/cheque-records', {
       direction: 'in', cheque_number: '880022', issue_date: daysAgo(16), receive_date: daysAgo(15),
-      due_date: daysAgo(3), bank_name: 'ملی', party_name: shops[1].biz, amount: 28000000,
+      due_date: daysAgo(3), bank_name: 'ملی', party_id: (await api('GET', `/api/parties?search=${encodeURIComponent(shops[1].biz)}&limit=5`)).data[0].id,
+      amount: 28000000,
       opening: true, note: 'چک برگشتی نمایش',
     });
     await api('POST', `/api/cheque-records/${chequeBounce.id}/send-to-bank`, {

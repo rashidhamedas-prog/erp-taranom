@@ -1,8 +1,10 @@
 # Project Status
 
 - Last verified: 2026-08-24
-- **Active task:** `QA-ERP-FULL-CYCLE` (isolated Admin+Roles QA harness; no deploy)
-- **Child (blocked):** `QA-ERP-FULL-CYCLE-FIX-HIGHS` — product Highs; implementer unassigned (≠ QA implementer)
+- **Active task:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` (product Highs; no deploy)
+- **Parent:** `QA-ERP-FULL-CYCLE` still active (harness claim on `scripts/qa/**`)
+- **Implementer:** `cursor:implementer-qa-fix-highs` on `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+  worktree `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-fix-highs`
 - Branch/worktree: `ai/QA-ERP-FULL-CYCLE-admin-roles` /
   `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-full-cycle` @ `6ce3ac1`
 - First full run `qa-20260824T151001-15880`: exit **3** · PASS 211 · FAIL 24 · NOT_IMPLEMENTED 14

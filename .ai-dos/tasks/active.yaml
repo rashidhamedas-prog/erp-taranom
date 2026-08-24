@@ -55,7 +55,7 @@ tasks:
 
   - id: "QA-ERP-FULL-CYCLE-FIX-HIGHS"
     title: "Product Highs from QA-ERP-FULL-CYCLE (party_id, firm WH, stock ledger, payroll RBAC)"
-    status: "blocked"
+    status: "active"
     review_status: "PENDING"
     security_status: "REQUIRED"
     risk: "high"
@@ -63,20 +63,37 @@ tasks:
     parent: "QA-ERP-FULL-CYCLE"
     roles:
       orchestrator: "cursor:orchestrator-qa-erp"
-      implementer: "unassigned"
+      implementer: "cursor:implementer-qa-fix-highs"
       reviewer: "cursor:independent-reviewer-qa-erp"
       security: "cursor:independent-security-qa-erp"
-    branch: ""
-    worktree: ""
-    claimed_at: "2026-08-24T18:40:00+03:30"
-    file_claims: []
+    branch: "ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-fix-highs"
+    base_commit: "aeb5d06"
+    claimed_at: "2026-08-24T18:57:00+03:30"
+    file_claims:
+      - "server/routes/cheque-records.js"
+      - "server/routes/trust-checks.js"
+      - "server/routes/invoices.js"
+      - "server/routes/payroll.js"
+      - "server/routes/products.js"
+      - "server/lib/opening-post.js"
+      - "server/lib/sales-document.js"
+      - "server/db.js"
+      - "server/sync/tables.js"
+      - "server/public/app.js"
+      - "server/scripts/test-qa-fix-cheque-party-id.js"
+      - "server/scripts/test-qa-fix-invoice-warehouse.js"
+      - "server/scripts/test-qa-fix-opening-stock-ledger.js"
+      - "server/scripts/test-qa-fix-payroll-rbac.js"
+      - "server/scripts/test-qa-fix-party-picker-ui.js"
+      - "server/routes/excel.js"
+      - "server/scripts/test-trs-cheque-out.js"
+      - "server/scripts/lib/seed-demo-v2.js"
     notes: >-
-      Blocked until owner assigns implementer ≠ cursor:implementer-qa-erp.
-      Evidence: artifacts/qa/qa-20260824T151001-15880 and docs/qa/FIRST-RUN.md.
-      Intended claims when started: server/routes/cheque-records.js,
-      server/routes/invoices.js, server/routes/payroll.js,
-      warehouse_stock vs inventory_ledger, UI trust-checks/opening-cheques party_id.
-      Do not weaken QA assertions to force PASS. No deploy.
+      Owner authorized 2026-08-24. Implementer ≠ QA harness implementer.
+      Shared registry/docs (active.yaml, handoff, status, CHANGE-LOG) updated
+      with parent QA-ERP-FULL-CYCLE notified in handoff. No scripts/qa edits.
+      No merge/deploy. Do not weaken QA assertions.
     acceptance_criteria:
       - "cheque_records POST accepts party_id (not only party_name)"
       - "firm invoice without warehouse_id is 4xx"
