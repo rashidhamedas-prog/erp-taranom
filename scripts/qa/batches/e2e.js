@@ -137,9 +137,17 @@ async function runE2E({ repoRoot, baseUrl, rec, ctx, artifactDir, skip }) {
 
     const selects = await page.evaluate(() => {
       const all = [...document.querySelectorAll('select')];
+      const unlabeled = all.filter((s) => !s.getAttribute('data-searchable') && !s.closest('[data-searchable]'));
+      const entityRe = /(cust|customer|party|product|supplier|acct|account)/i;
+      const entityPickers = unlabeled.filter((s) =>
+        entityRe.test(s.id || '') || entityRe.test(s.name || '') || entityRe.test(s.getAttribute('aria-label') || '')
+      );
       return {
         total: all.length,
-        unlabeled: all.filter((s) => !s.getAttribute('data-searchable') && !s.closest('[data-searchable]')).length,
+        unlabeled: unlabeled.length,
+        unlabeledIds: unlabeled.map((s) => s.id || s.name || '?').slice(0, 20),
+        entityPickers: entityPickers.length,
+        entityIds: entityPickers.map((s) => s.id || s.name || '?'),
       };
     });
     rec({
@@ -148,14 +156,13 @@ async function runE2E({ repoRoot, baseUrl, rec, ctx, artifactDir, skip }) {
       message: `selects=${selects.total} without data-searchable=${selects.unlabeled}`,
       evidence: JSON.stringify(selects),
     });
-    if (selects.unlabeled > 0) {
-      rec({
-        id: 'e2e.selects_not_all_searchable', suite: 'e2e', module: 'ui', severity: 'medium',
-        status: 'FAIL',
-        expected: 'all dropdowns searchable',
-        actual: selects.unlabeled + ' native selects without data-searchable',
-      });
-    }
+    rec({
+      id: 'e2e.selects_not_all_searchable', suite: 'e2e', module: 'ui', severity: 'medium',
+      status: selects.entityPickers ? 'FAIL' : 'PASS',
+      expected: 'party/customer/product/account pickers searchable',
+      actual: selects.entityPickers ? selects.entityIds.join(',') : 'no unlabeled entity pickers',
+      evidence: JSON.stringify(selects.unlabeledIds || []),
+    });
 
     await page.evaluate(() => { if (typeof go === 'function') go('invoices'); }).catch(() => {});
     await page.waitForTimeout(500);

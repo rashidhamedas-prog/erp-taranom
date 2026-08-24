@@ -45,7 +45,7 @@ async function runRolesBatch({ http, rec, ctx, Database }) {
       body: (role) => ({ person_id: ctx.personId, period_label: 'qa-' + role.slice(0, 12), regular_hours: 1, hourly_rate: 1 }) },
     { id: 'users.create', method: 'post', path: '/admin/users', resource: 'users', action: 'create',
       body: (role) => ({ name: 'escalate', username: 'esc-' + role.slice(0, 8) + '-' + Date.now().toString(36).slice(-4), password: ROLE_PASS, role: 'field_sales' }) },
-    { id: 'accounting.view', method: 'get', path: '/accounting/sales-returns', resource: 'accounting', action: 'view' },
+    { id: 'accounting.view', method: 'get', path: '/reps', resource: 'accounting', action: 'view' },
     { id: 'settings.view', method: 'get', path: '/settings', resource: 'settings', action: 'view' },
     { id: 'production.view', method: 'get', path: '/production/boms', resource: 'production_bom', action: 'view' },
   ];
@@ -131,6 +131,20 @@ async function runRolesBatch({ http, rec, ctx, Database }) {
         evidence: `HTTP ${res.status}`,
       });
     }
+
+    const salesReturns = await http.get('/accounting/sales-returns', session.token);
+    const salesReturnsAllow = role === 'admin' || role === 'accounting';
+    rec({
+      id: `roles.${role}.sales_returns_gate`, suite: 'roles', module: 'rbac',
+      severity: salesReturnsAllow ? null : 'medium',
+      status: salesReturnsAllow
+        ? ((salesReturns.status < 400 || salesReturns.status === 404) ? 'PASS' : 'FAIL')
+        : ((salesReturns.status === 403 || salesReturns.status === 401) ? 'PASS' : 'FAIL'),
+      expected: salesReturnsAllow ? 'allow (admin|accounting)' : '403',
+      actual: salesReturns.status,
+      message: salesReturns.body?.error || '',
+      evidence: 'GET /accounting/sales-returns is adminOrAccounting, not accounting.view',
+    });
 
     if (role === 'admin') {
       const list = await http.get('/admin/users', session.token);
