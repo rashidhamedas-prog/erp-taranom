@@ -1,3 +1,12 @@
+## 2026-08-25T01:20:00+03:30 — QA-ERP-RBAC-MATRIX-ALIGN claimed + matrix tightened
+
+- **Task:** `QA-ERP-RBAC-MATRIX-ALIGN` (child of QA-ERP-FULL-CYCLE); implementer `cursor:implementer-qa-fix-highs`
+- **Why:** Full E2E `qa-20260824T214150-19348` FAIL 18 were matrix vs route: GET `/settings` adminOnly, GET `/accounting/sales-returns` adminOrAccounting. Not a secret-dump product bug.
+- **Product:** `settings.view=false` for non-admin; `accounting.view=false` except admin/accounting/sales_manager.
+- **Harness (parent commits cherry-picked):** cheque party_id tests; accounting.view probe=`/reps`; entity-picker E2E; sales-returns gate kept.
+- **Test:** `test-qa-fix-rbac-matrix.js` 23/23. **NO merge / Iran deploy.**
+- **Exact next:** `NODE_ENV=test node scripts/qa/run-full-erp-qa.js` then reviews if FAIL=0 ERROR=0
+
 ## 2026-08-25T00:45:00+03:30 — Independent re-review + central-only opening backfill
 
 - **Independent re-review:** [Independent Review](6bc4aad4-719e-47f2-bd33-69805849ebf5) vs `aeb5d06`

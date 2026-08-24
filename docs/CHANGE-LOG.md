@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۳ — QA-FIX align RBAC matrix with route gates (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** `settings.view` فقط ادمین (GET `/settings` همچنان adminOnly و محرمانه). `accounting.view` فقط admin/accounting/sales_manager تا با `repModuleAdmin` هم‌خوان باشد؛ فروشنده میدانی view حسابداری پیش‌فرض ندارد.
+- **فایل‌ها:** `server/lib/rbac.js`, `server/scripts/test-qa-fix-rbac-matrix.js`
+- **تست:** `node server/scripts/test-qa-fix-rbac-matrix.js` — 23/23
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
 ### ۱۴۰۵/۰۶/۰۲ — QA-FIX opening ledger backfill central-only (no deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
