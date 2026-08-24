@@ -10569,7 +10569,7 @@ async function renderPayrollTab(body){
   const records=await api('GET','/payroll')||[];
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){go('acc-payroll-processing')})}">${lucide('calc')} محاسبه و پردازش حقوق</button>
+      ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){go('acc-payroll-processing')})}">${lucide('calc')} محاسبه و پردازش حقوق</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-payroll-employees')})}">${lucide('users')} پرونده کارکنان</button>
     </div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
@@ -10599,7 +10599,7 @@ async function renderPayrollEmployees(body){
   body.innerHTML=`
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">اشخاصی که در گروه اشخاص «پرسنل» باشند اینجا به‌عنوان کارمند دیده می‌شوند. کد پرسنلی و جزئیات را دستی تکمیل کنید.</div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal()})}">${lucide('plus')} کارمند جدید</button>
+      ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal()})}">${lucide('plus')} کارمند جدید</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){employeeGroupModal()})}">${lucide('users')} گروه کارکنان</button>
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد پرسنلی</th><th>نام</th><th>گروه کارکنان</th><th>گروه اشخاص</th><th>حقوق ماهانه</th><th>وضعیت</th><th class="no-sort">عملیات</th></tr></thead>
@@ -18275,7 +18275,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان به گروه اشخاص «پرسنل» متصل است — هر شخصی در آن گروه در لیست کارکنان ظاهر می‌شود و کد پرسنلی/جزئیات را دستی تکمیل می‌کنید. گروه کارکنان و ساختار حقوق گروهی در «ساختار حقوق و مزایا» تعریف می‌شود. امکان حذف ردیف‌ها و ثبت دستی حقوق هر ماه در پردازش وجود دارد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند. دکمه «پرداخت» جداگانه وجه را از صندوق/بانک پرداخت می‌کند. تنظیمات کار سالانه (حداقل مزد روزانه و سقف بیمه) در محاسبه حقوق اعمال می‌شود؛ مزایایی که در ساختار حقوق ثبت شده‌اند دوباره از تنظیمات کار اضافه نمی‌شوند. هنگام پردازش دوره، پارامترها در <code>params_json</code> دوره ذخیره می‌شوند. از گزارشات قانونی می‌توان CSV پیش‌نویس (DRAFT) لیست بیمه و مالیات هر دوره را دریافت کرد — فرمت نهایی پس از تأیید متخصص حقوق است.</li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان به گروه اشخاص «پرسنل» متصل است. ثبت/پردازش حقوق فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند. دکمه «پرداخت» جداگانه وجه را از صندوق/بانک پرداخت می‌کند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>

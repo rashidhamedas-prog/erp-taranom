@@ -10,7 +10,7 @@ const {
   savePeriodParamsSnapshot,
   loadPeriodParamsSnapshot,
 } = require('../lib/payroll/schema');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
 const {
@@ -90,7 +90,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
   res.json(rows);
 });
 
-router.post('/', auth, adminOrAccounting, (req, res) => {
+router.post('/', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const { recId, grossPay, netPay, person } = createPayrollRecord(db, req.user.id, req.body);
@@ -747,7 +747,7 @@ router.post('/calculate', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/process', auth, adminOrAccounting, (req, res) => {
+router.post('/process', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const periodId = Number(req.body.period_id);

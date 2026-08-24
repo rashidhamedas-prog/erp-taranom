@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High4 payroll.create RBAC (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** POST `/api/payroll` و `/process` با `requirePermission('payroll','create')`. حسابداری بدون این مجوز ۴۰۳ می‌گیرد. UI دکمه پردازش را با `canPerm` پنهان می‌کند.
+- **فایل‌ها:** `server/routes/payroll.js`, `server/public/app.js`, `server/scripts/test-qa-fix-payroll-rbac.js`
+- **تست:** `node server/scripts/test-qa-fix-payroll-rbac.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
 ### ۱۴۰۵/۰۶/۰۲ — QA-FIX High3 opening inventory_ledger (no deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
