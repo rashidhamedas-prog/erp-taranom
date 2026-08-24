@@ -89,6 +89,9 @@ tasks:
       - "server/routes/excel.js"
       - "server/scripts/test-trs-cheque-out.js"
       - "server/scripts/lib/seed-demo-v2.js"
+      - "server/scripts/test-sync.js"
+      - "server/scripts/test-wave0-financial-hostile.js"
+      - "server/scripts/test-mahak-phase2.js"
     notes: >-
       Owner authorized 2026-08-24. Implementer ≠ QA harness implementer.
       Shared registry/docs (active.yaml, handoff, status, CHANGE-LOG) updated

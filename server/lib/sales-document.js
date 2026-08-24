@@ -89,17 +89,34 @@ function reservedQty(db, productId, warehouseId) {
 }
 
 /**
- * Validate stocked lines against header warehouse.
+ * Validate stocked lines against warehouses.
  * Services/income rows (row_type=income or item_kind=service) are exempt.
  *
- * Backward compatible with legacy callers (devices/older UI) that send no
- * header warehouse: each line falls back to its own warehouse_id and then to
- * the product's home warehouse (products always get a default warehouse on
- * create). A hard E_WH_MISMATCH is raised only when a header warehouse IS
- * chosen and a line explicitly targets a different one. Missing
- * warehouse_stock rows use legacy seed semantics (product.stock counts as the
- * home-warehouse quantity) instead of hard-failing.
+ * Firm sales must pass a header warehouse (caller enforces E_WH_REQUIRED).
+ * Lines without warehouse_id inherit the header. A line may override with a
+ * different warehouse_id (no E_WH_MISMATCH). Missing warehouse_stock rows use
+ * legacy seed semantics (product.stock counts as the home-warehouse quantity).
  */
+function applyHeaderWarehouseToLines(rows, headerWarehouseId, { force = false } = {}) {
+  const wh = parseInt(headerWarehouseId, 10);
+  if (!Number.isFinite(wh) || wh <= 0) return;
+  for (const r of rows || []) {
+    if (r.row_type === 'income' || r.item_kind === 'service') continue;
+    if (force || !r.warehouse_id) r.warehouse_id = wh;
+  }
+}
+
+function requireFirmHeaderWarehouse(headerWarehouseId) {
+  const whId = parseInt(headerWarehouseId, 10);
+  if (!Number.isFinite(whId) || whId <= 0) {
+    const err = new Error('فاکتور قطعی نیازمند انبار مبدأ در سربرگ است');
+    err.status = 400;
+    err.code = 'E_WH_REQUIRED';
+    throw err;
+  }
+  return whId;
+}
+
 function assertWarehouseLines(db, rows, headerWarehouseId, { requirePositive = true } = {}) {
   const productRows = (rows || []).filter((r) => {
     if (r.row_type === 'income') return false;
@@ -127,13 +144,7 @@ function assertWarehouseLines(db, rows, headerWarehouseId, { requirePositive = t
       throw err;
     }
     const lineWh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : null;
-    if (headerWarehouseId && lineWh && lineWh !== headerWarehouseId) {
-      const err = new Error(`کالای «${r.name || prod.name}» متعلق به انبار دیگری است`);
-      err.status = 409;
-      err.code = 'E_WH_MISMATCH';
-      throw err;
-    }
-    const effWh = headerWarehouseId || lineWh || prod.warehouse_id || null;
+    const effWh = lineWh || headerWarehouseId || prod.warehouse_id || null;
     if (!effWh) {
       const err = new Error(`برای کالای «${r.name || prod.name}» انبار مبدأ مشخص نیست — ابتدا انبار را انتخاب کنید`);
       err.status = 400;
@@ -355,6 +366,8 @@ module.exports = {
   invoiceTypeLabel,
   autoApproveNormalInvoice,
   assertJournalIdempotent,
+  applyHeaderWarehouseToLines,
+  requireFirmHeaderWarehouse,
   assertWarehouseLines,
   postSaleStockMovements,
   postPurchaseStockMovements,
