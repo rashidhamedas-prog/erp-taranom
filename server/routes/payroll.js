@@ -189,7 +189,7 @@ router.post('/farankenou/preview', auth, adminOrAccounting, lwteUpload.single('f
 });
 
 // Commit approved Farankenou rows → payroll records + journal entries
-router.post('/farankenou/commit', auth, adminOrAccounting, (req, res) => {
+router.post('/farankenou/commit', auth, requirePermission('payroll', 'create'), (req, res) => {
   const { period_label, date, rows } = req.body;
   if (!Array.isArray(rows) || !rows.length) {
     return res.status(400).json({ error: 'حداقل یک ردیف برای ثبت انتخاب کنید' });
@@ -951,7 +951,7 @@ router.post('/year-end/calculate', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/year-end/:id/post', auth, adminOrAccounting, (req, res) => {
+router.post('/year-end/:id/post', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const row = db.prepare(`
@@ -1125,7 +1125,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 // Monthly salary batch — persons with salary_type=monthly
-router.post('/monthly-batch', auth, adminOrAccounting, (req, res) => {
+router.post('/monthly-batch', auth, requirePermission('payroll', 'create'), (req, res) => {
   const db = getDB();
   const { period_label, date, person_ids } = req.body;
   const period = period_label || todayJalali().slice(0, 7);
@@ -1222,7 +1222,7 @@ function monthlyAccrualAmounts(db, personId, year, laborSettings) {
   };
 }
 
-router.post('/accruals/monthly', auth, adminOrAccounting, (req, res) => {
+router.post('/accruals/monthly', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const periodLabel = req.body.period_label || todayJalali().slice(0, 7);

@@ -106,6 +106,11 @@ function req(port, method, urlPath, body, token) {
       person_id: personId, period_label: '1405/01', regular_hours: 1, hourly_rate: 1000,
     }, adminTok);
     ok('admin create payroll allowed', allowed.status === 200 || allowed.status === 201, allowed.body?.error);
+
+    for (const p of ['/payroll/farankenou/commit', '/payroll/monthly-batch', '/payroll/year-end/1/post', '/payroll/accruals/monthly']) {
+      const alt = await req(PORT, 'POST', p, { rows: [{ selected: true, person_id: personId }], period_label: '1405/01' }, accTok);
+      ok('accounting 403 on ' + p, alt.status === 403, 'status=' + alt.status);
+    }
   } finally {
     await killProcessTree(srv);
     try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* */ }

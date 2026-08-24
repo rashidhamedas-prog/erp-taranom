@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX payroll.create on sibling POST routes (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** پس از بازبینی امنیتی، `payroll.create` روی `farankenou/commit`، `monthly-batch`، `year-end/:id/post` و `accruals/monthly` هم اعمال شد تا حسابداری فقط-مشاهده نتواند از API سند حقوق بزند.
+- **فایل‌ها:** `server/routes/payroll.js`, `server/public/app.js`, `server/scripts/test-qa-fix-payroll-rbac.js`
+- **تست:** `node server/scripts/test-qa-fix-payroll-rbac.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
 ### ۱۴۰۵/۰۶/۰۲ — QA-FIX High5 party picker trust/opening cheques (no deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
