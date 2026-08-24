@@ -48,6 +48,8 @@ function req(port, method, urlPath, body, token) {
   ok('partySelect helper', appJs.includes('function partySelect'));
   ok('tcParty picker', appJs.includes("partySelect('tcParty')") || appJs.includes('partySelect("tcParty")'));
   ok('ocParty picker', appJs.includes("partySelect('ocParty')") || appJs.includes('partySelect("ocParty")'));
+  ok('glAccount searchable', /id="glAccount"[^>]*data-searchable/.test(appJs) || /data-searchable[\s\S]{0,400}id="glAccount"/.test(appJs));
+  ok('glAcctFind search', appJs.includes('id="glAcctFind"') && appJs.includes('function filterGlAccountOptions'));
   try {
     new Function(appJs);
     ok('app.js parses', true);

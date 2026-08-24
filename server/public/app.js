@@ -5823,9 +5823,12 @@ ROUTES['acc-dash'] = async function(){
       <div class="panel-head"><h4>📒 دفتر کل حساب‌ها</h4></div>
       <div class="panel-body">
         <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
-          <select id="glAccount" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px`)}" data-csp-change="${CSP.bind('change',function(event){loadGeneralLedger(this.value)})}">
-            <option value="">-- انتخاب حساب --</option>
-          </select>
+          <div data-searchable data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;align-items:center`)}">
+            <input id="glAcctFind" class="search" placeholder="جستجوی حساب (کد یا نام)..." data-csp-input="${CSP.bind('input',function(event){filterGlAccountOptions(this.value)})}" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;min-width:200px`)}">
+            <select id="glAccount" data-searchable="1" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px`)}" data-csp-change="${CSP.bind('change',function(event){loadGeneralLedger(this.value)})}">
+              <option value="">-- انتخاب حساب --</option>
+            </select>
+          </div>
           <input id="glSearch" class="search" placeholder="جستجو در شرح/مرجع..." data-csp-change="${CSP.bind('change',function(event){const s=el('glAccount');if(s&&s.value)loadGeneralLedger(s.value)})}" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;min-width:180px`)}">
         </div>
         <div id="glBody"><div class="empty" data-csp-style="${CSP.style(`padding:30px`)}">یک حساب را برای مشاهده دفتر کل انتخاب کنید</div></div>
@@ -5843,11 +5846,7 @@ ROUTES['acc-dash'] = async function(){
     ? CACHE.chartOfAccounts
     : await apiCached('GET','/accounting/chart-of-accounts', 120000);
   CACHE.chartOfAccounts=accounts||[];
-  const sel=el('glAccount');
-  if(sel){
-    sel.innerHTML='<option value="">-- انتخاب حساب --</option>'+
-      (accounts||[]).map(a=>`<option value="${a.code}">${a.code} — ${esc(a.name)}</option>`).join('');
-  }
+  filterGlAccountOptions(el('glAcctFind')?.value || '');
   requestAnimationFrame(()=>{
     const c=el('accDashChart');
     if(c){ c.innerHTML=chartOfAccountsGroupedHtml(accounts||[]); cacheSet('page:acc-dash', el('view').innerHTML); }
@@ -11827,6 +11826,19 @@ async function deleteVoucher(id){
 /* ============================================================
    GENERAL LEDGER (account-level) — embedded in acc-dash; loadGeneralLedger below
 ============================================================ */
+function filterGlAccountOptions(q){
+  const sel=el('glAccount');
+  if(!sel) return;
+  const term=String(q||'').trim().toLowerCase();
+  const cur=sel.value;
+  const accounts=CACHE.chartOfAccounts||[];
+  const rows=term
+    ? accounts.filter(a=>String(a.code||'').toLowerCase().includes(term)||String(a.name||'').toLowerCase().includes(term))
+    : accounts;
+  sel.innerHTML='<option value="">-- انتخاب حساب --</option>'+
+    rows.map(a=>`<option value="${esc(a.code)}">${esc(a.code)} — ${esc(a.name)}</option>`).join('');
+  if(cur && [...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
 async function loadGeneralLedger(code){
   const box=el('glBody'); if(!box||!code) return;
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
@@ -18320,7 +18332,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور می‌سازد؛ ارسالی فاکتور امانت‌گیرنده است و سند بهای تمام‌شده می‌زند بدون کسر دوباره موجودی؛ دریافتی نیازمند خریدار جدا از امانت‌گذار است)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
         <li><b>ابطال کامل (R13)</b>: برای فاکتور فروش/خرید، تسویه، هزینه، انتقال وجه، چک، عملیات انبار، انبارگردانی اعمال‌شده، پرداخت حقوق، افتتاحیه بانک/صندوق و اسناد دستی — ابطال = سند معکوس + برگرداندن موجودی/مانده/وابستگی‌ها (حذف فیزیکی سند ثبت‌شده نیست)</li>
-        <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب و مشاهده گردش با مانده لحظه‌ای</li>
+        <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب با جستجوی کد/نام و مشاهده گردش با مانده لحظه‌ای</li>
         <li><b>دفتر مالی مشترک</b>: شخص / بانک / صندوق / تنخواه / حساب + خروجی CSV؛ کاردکس کالا از دفتر موجودی جدا</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص</li>
