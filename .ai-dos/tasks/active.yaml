@@ -1,5 +1,92 @@
 schema_version: 1
 tasks:
+  - id: "QA-ERP-FULL-CYCLE"
+    title: "Isolated Admin + All-Roles QA harness (no production, no deploy)"
+    status: "active"
+    review_status: "PENDING"
+    security_status: "NOT_REQUIRED"
+    risk: "medium"
+    owner: "cursor:orchestrator-qa-erp"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      architect: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-erp"
+      reviewer: "cursor:independent-reviewer-qa-erp"
+      security: "cursor:independent-security-qa-erp"
+    branch: "ai/QA-ERP-FULL-CYCLE-admin-roles"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-full-cycle"
+    base_commit: "6ce3ac1"
+    claimed_at: "2026-08-24T17:59:00+03:30"
+    file_claims:
+      - "scripts/qa/**"
+      - "docs/qa/**"
+      - ".cursor/commands/qa-admin.md"
+      - ".cursor/commands/qa-roles.md"
+      - ".cursor/commands/qa-full.md"
+      - ".cursor/commands/qa-fix.md"
+      - ".cursor/commands/qa-report.md"
+      - ".cursor/commands/qa-clean.md"
+      - ".cursor/commands/qa-resume.md"
+      - "server/package.json"
+      - ".gitignore"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+      - "docs/CHANGE-LOG.md"
+    notes: >-
+      Owner authorized parallel QA task. Append-only registry.
+      Do not edit product code, Stitch map, or dirty deploy scripts.
+      No merge/deploy/production DB. High/Critical product fixes need
+      independent Reviewer+Security and a child task.
+      Implementer harness done 2026-08-24. First full run qa-20260824T151001-15880
+      exit 3 (product Highs still open — not a harness crash). PASS 211 FAIL 24
+      NOT_IMPLEMENTED 14. Child: QA-ERP-FULL-CYCLE-FIX-HIGHS.
+    acceptance_criteria:
+      - "Admin and All-Roles batches runnable from zero on temp DB"
+      - "Fail-closed: NODE_ENV=test + unique QA_RUN_ID; production-like paths exit 2"
+      - "Roles discovered from Object.keys(DEFAULT_ROLE_PERMISSIONS)"
+      - "Gaps reported as NOT_IMPLEMENTED/BLOCKED not fake PASS"
+      - "Exit 0/1/2/3; artifacts under artifacts/qa/<QA_RUN_ID>/"
+      - "No production deploy or merge"
+    non_goals:
+      - "Iran VPS deploy / merge to primary"
+      - "Product-code fixes inside this claim"
+      - "Real SMS / Moadian / bank / webhook"
+
+  - id: "QA-ERP-FULL-CYCLE-FIX-HIGHS"
+    title: "Product Highs from QA-ERP-FULL-CYCLE (party_id, firm WH, stock ledger, payroll RBAC)"
+    status: "blocked"
+    review_status: "PENDING"
+    security_status: "REQUIRED"
+    risk: "high"
+    owner: "cursor:orchestrator-qa-erp"
+    parent: "QA-ERP-FULL-CYCLE"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      implementer: "unassigned"
+      reviewer: "cursor:independent-reviewer-qa-erp"
+      security: "cursor:independent-security-qa-erp"
+    branch: ""
+    worktree: ""
+    claimed_at: "2026-08-24T18:40:00+03:30"
+    file_claims: []
+    notes: >-
+      Blocked until owner assigns implementer ≠ cursor:implementer-qa-erp.
+      Evidence: artifacts/qa/qa-20260824T151001-15880 and docs/qa/FIRST-RUN.md.
+      Intended claims when started: server/routes/cheque-records.js,
+      server/routes/invoices.js, server/routes/payroll.js,
+      warehouse_stock vs inventory_ledger, UI trust-checks/opening-cheques party_id.
+      Do not weaken QA assertions to force PASS. No deploy.
+    acceptance_criteria:
+      - "cheque_records POST accepts party_id (not only party_name)"
+      - "firm invoice without warehouse_id is 4xx"
+      - "inventory_ledger qty matches warehouse_stock after opening+movements"
+      - "POST /payroll denied when fillRoleDefaults(role).payroll.create is false"
+      - "Regression covered by scripts/qa; Highs need Independent Reviewer+Security"
+    non_goals:
+      - "Harness rewrite"
+      - "Iran deploy"
+
   - id: "PROD-STITCH-P5B"
     title: "PROD-02/03 cutting lay wizard (spreading / size matrix / waste)"
     status: "completed"

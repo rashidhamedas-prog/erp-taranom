@@ -1,7 +1,13 @@
 # Project Status
 
-- Last verified: 2026-08-20
-- **Active task:** none — `PROD-STITCH-P5B` completed
+- Last verified: 2026-08-24
+- **Active task:** `QA-ERP-FULL-CYCLE` (isolated Admin+Roles QA harness; no deploy)
+- **Child (blocked):** `QA-ERP-FULL-CYCLE-FIX-HIGHS` — product Highs; implementer unassigned (≠ QA implementer)
+- Branch/worktree: `ai/QA-ERP-FULL-CYCLE-admin-roles` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-full-cycle` @ `6ce3ac1`
+- First full run `qa-20260824T151001-15880`: exit **3** · PASS 211 · FAIL 24 · NOT_IMPLEMENTED 14
+  Evidence: `docs/qa/FIRST-RUN.md`. **No Iran deploy / merge.**
+- Prior: `PROD-STITCH-P5B` completed
 - Independent Bugbot: no bugs. Security: APPROVED C0/H0/M0.
 - **PROD-STITCH-P5B:** `completed` — dual APPROVED + owner merge/deploy
   Primary `b52a1de`; stamp `.sftp-deploy-stamp-stitch-v172` = `2026-08-20T13:54:13Z hash=b52a1de`
@@ -34,6 +40,7 @@
 
 ## Working quality commands
 
+- Isolated QA (temp DB, no production): `set NODE_ENV=test` then `node scripts/qa/run-full-erp-qa.js` (exit 0/1/2/3)
 - `git diff --check`
 - `node --check server/server.js`
 - `node --check server/public/app.js`

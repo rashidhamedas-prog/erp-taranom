@@ -1,3 +1,24 @@
+## 2026-08-24T18:40:00+03:30 — QA-ERP-FULL-CYCLE first full run (no deploy)
+
+- **Task:** `QA-ERP-FULL-CYCLE` implementer done (harness). Reviewer still PENDING.
+- **Run:** `qa-20260824T151001-15880` · `NODE_ENV=test node scripts/qa/run-full-erp-qa.js`
+- **Exit 3** · PASS 211 · FAIL 24 · NOT_IMPLEMENTED 14 · wrap tests all green · E2E login+nav OK
+- **Highs (not PASS):** cheque `party_name`, firm invoice without warehouse, ledger vs `warehouse_stock`, accounting POST `/payroll` despite `payroll.create=false`, UI free-text party
+- **Child:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` status=`blocked` (implementer unassigned, ≠ QA implementer)
+- **Constraint:** NO merge, NO Iran deploy. Product files not edited.
+- **Exact next:** Independent review of harness; owner assigns child for Highs
+
+## 2026-08-24T17:59:00+03:30 — QA-ERP-FULL-CYCLE claimed (pre-implementation)
+
+- **Task:** `QA-ERP-FULL-CYCLE` status=`active`; owner `cursor:orchestrator-qa-erp`
+- **Implementer:** `cursor:implementer-qa-erp`
+- **Reviewer / Security:** `cursor:independent-reviewer-qa-erp` / `cursor:independent-security-qa-erp` (≠ Implementer; for later High product fixes)
+- **Branch / worktree:** `ai/QA-ERP-FULL-CYCLE-admin-roles` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-full-cycle` @ base `6ce3ac1`
+- **Not used:** dirty `erp-taranom1` (`ai/UI-DOCS-STITCH` / `UI-STITCH-P0-DISCOVERY`); deploy scripts untouched
+- **Constraint:** NO merge, NO Iran deploy, NO production DB/API/SMS/Moadian
+- **Exact next:** fail-closed runner + inventory + Admin/Roles batches on temp DB
+
 ## 2026-08-20T17:25:00+03:30 — PROD-02/03 Iran SFTP v172 @ b52a1de
 
 - Stamp `.sftp-deploy-stamp-stitch-v172` = `2026-08-20T13:54:13Z hash=b52a1de`

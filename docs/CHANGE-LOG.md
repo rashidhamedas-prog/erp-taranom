@@ -13,7 +13,23 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
-### 2026-08-20 — PROD-02/03 cutting lay wizard + Iran SFTP ✅
+### ۱۴۰۵/۰۶/۰۲ — QA-ERP-FULL-CYCLE first full run (isolated, no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles`
+- **خلاصه:** Runner ایزوله Admin+All-Roles+E2E. Fail-closed، inventory، wrap تست‌های موجود، Playwright crawl. اولین full run `qa-20260824T151001-15880`: PASS 211 · FAIL 24 · NOT_IMPLEMENTED 14 · **exit 3** (High محصول؛ harness crash نیست). Child `QA-ERP-FULL-CYCLE-FIX-HIGHS` برای party_id/انبار فاکتور/ledger/payroll RBAC.
+- **فایل‌ها:** `scripts/qa/**`, `docs/qa/**`, `.cursor/commands/qa-*.md`, `server/package.json` (scripts)
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+- **SW:** بدون تغییر (محصول ویرایش نشد)
+
+### ۱۴۰۵/۰۶/۰۲ — QA-ERP-FULL-CYCLE harness (isolated, no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles` (worktree جدا از primary `6ce3ac1`)
+- **خلاصه:** Runner ایزوله Admin + All-Roles با fail-closed، inventory از repo، reconciliation، Playwright اختیاری، artifact در `artifacts/qa/<QA_RUN_ID>/`. نقش‌ها از `DEFAULT_ROLE_PERMISSIONS`. بدون Production/Deploy.
+- **فایل‌ها:** `scripts/qa/**`, `docs/qa/**`, `.cursor/commands/qa-*.md`, `server/package.json` (scripts)
+- **اجرا:** `node scripts/qa/run-full-erp-qa.js` — exit 0/1/2/3
+- **Deploy:** ❌ بدون مجوز مالک — انجام نشد
+
+
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `b52a1de` (از `ai/PROD-02-CUTTING`)
 - **خلاصه:** ویزارد لایه‌چینی/ماتریس/ضایعات. برداشت طاقه از انبار مواد. ضایعات عادی بدون سند؛ غیرعادی ۵۲۲۱. رسید کالای آماده نیست. نقش تولید طاقه را بدون بها انتخاب می‌کند.
 - **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` عوض نشد؛ `schema.js` overlay شد. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v172` = `2026-08-20T13:54:13Z hash=b52a1de`.
