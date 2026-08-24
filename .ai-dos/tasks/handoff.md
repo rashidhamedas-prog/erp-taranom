@@ -1,3 +1,16 @@
+## 2026-08-24T19:54:00+03:30 — FIX-HIGHS product Highs closed; harness leftover
+
+- **Task:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` still `active` (no merge/deploy)
+- **Tip:** `2b005c7` on `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **Security:** [Security Review](e9b016cc-161a-4c75-a4ea-0ad8a57583cd) C0/H0 + Medium sibling payroll POSTs → closed in `2b005c7` (13/13 RBAC test)
+- **Independent Reviewer:** still PENDING ([Independent Review](44682d22-40e7-417d-a8f8-78d715baa679) in flight)
+- **QA `qa-20260824T162339-14916`:** `--skip-e2e` (Playwright chromium missing in sandbox cache) · exit **1** · PASS 182 · FAIL 19 · NOT_IMPLEMENTED 14
+- **Product Highs now PASS:** `fault.invoice_maybe_wh`, `roles.accounting.payroll.create`, `recon.firm_invoice.has_warehouse`, `recon.stock.ledger_vs_warehouse`
+- **Party UI:** `test-qa-fix-party-picker-ui.js` 14/14; no `id="tc-party"` / `id="oc-party"` (E2E skip so `e2e.party_id_required` not rec'd)
+- **Harness leftovers (do not weaken; parent owns `scripts/qa/**`):** hardcoded `cheque.free_text_party` FAIL; `cheque.create_in` posts without `party_id` → 400
+- **Mediums unchanged:** GET `/settings` adminOnly vs matrix `settings.view`; GET sales-returns tighter than `accounting.view`
+- **Constraint:** NO merge, NO Iran deploy. Do not declare full suite PASS.
+
 ## 2026-08-24T18:57:00+03:30 — QA-ERP-FULL-CYCLE-FIX-HIGHS claimed (owner start)
 
 - **Task:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` status=`active`

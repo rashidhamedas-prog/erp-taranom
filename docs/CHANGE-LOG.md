@@ -13,6 +13,12 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX Highs re-run skip-e2e (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product` @ `2b005c7`
+- **خلاصه:** `qa-20260824T162339-14916` با `--skip-e2e` (کرومیوم Playwright در کش sandbox نبود). PASS 182 · FAIL 19 · exit 1. آشتی انبار/دفتر و فاکتور قطعی سبز. High باقی‌مانده FAIL ثابت harness برای `cheque.free_text_party`.
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
 ### ۱۴۰۵/۰۶/۰۲ — QA-FIX payroll.create on sibling POST routes (no deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`

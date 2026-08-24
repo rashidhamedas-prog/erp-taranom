@@ -4,9 +4,10 @@
 - **Active task:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` (product Highs; no deploy)
 - **Parent:** `QA-ERP-FULL-CYCLE` still active (harness claim on `scripts/qa/**`)
 - **Implementer:** `cursor:implementer-qa-fix-highs` on `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
-  worktree `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-fix-highs`
-- Branch/worktree: `ai/QA-ERP-FULL-CYCLE-admin-roles` /
-  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-full-cycle` @ `6ce3ac1`
+  worktree `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-fix-highs` tip `2b005c7`
+- Latest isolated QA `qa-20260824T162339-14916` (`--skip-e2e`): exit **1** · PASS 182 · FAIL 19
+  Product Highs (invoice WH, payroll.create, recon warehouse/ledger) PASS. Remaining High is
+  harness-hardcoded `cheque.free_text_party`. **No Iran deploy / merge.**
 - First full run `qa-20260824T151001-15880`: exit **3** · PASS 211 · FAIL 24 · NOT_IMPLEMENTED 14
   Evidence: `docs/qa/FIRST-RUN.md`. **No Iran deploy / merge.**
 - Prior: `PROD-STITCH-P5B` completed
