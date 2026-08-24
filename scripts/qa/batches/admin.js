@@ -437,23 +437,45 @@ async function runAdminBatch({ http, rec, gap, ctx }) {
   });
 
   // --- treasury / cheque ---
+  const chequePartyId = Number(ctx.partyCustomer);
+  const chqFree = await http.post('/cheque-records', {
+    direction: 'in', cheque_number: 'QA-CH-FREE', amount: 10000000,
+    issue_date: QA_DATE, due_date: QA_DATE, bank_name: 'ملت',
+    party_name: 'متن آزاد بدون شناسه',
+  }, token);
+  rec({
+    id: 'cheque.party_name_without_id', suite: 'admin', module: 'treasury',
+    status: chqFree.status === 400 ? 'PASS' : 'FAIL',
+    expected: 400, actual: chqFree.status,
+    message: chqFree.body?.error || chqFree.body?.code || '',
+  });
+  const freeStoredId = chqFree.body?.id || chqFree.body?.data?.id;
+  const listedAfterFree = await http.get('/cheque-records?direction=in', token);
+  const listedRows = Array.isArray(listedAfterFree.body)
+    ? listedAfterFree.body
+    : (listedAfterFree.body?.data || listedAfterFree.body?.rows || []);
+  const freeTextStored = listedRows.some((row) =>
+    row && (row.cheque_number === 'QA-CH-FREE'
+      || (String(row.party_name || '') === 'متن آزاد بدون شناسه' && !Number(row.party_id)))
+  );
+  rec({
+    id: 'cheque.free_text_party', suite: 'admin', module: 'party',
+    status: chqFree.status >= 400 && !freeStoredId && !freeTextStored ? 'PASS' : 'FAIL',
+    expected: 'reject free-text party_name; cheque not stored',
+    actual: chqFree.status,
+    message: chqFree.body?.error || chqFree.body?.code || (freeStoredId ? 'stored id=' + freeStoredId : '') || (freeTextStored ? 'leaked in list' : ''),
+  });
+
   const chq = await http.post('/cheque-records', {
     direction: 'in', cheque_number: 'QA-CH-1', amount: 10000000,
     issue_date: QA_DATE, due_date: QA_DATE, bank_name: 'ملت',
-    party_name: 'فروشگاه QA مشتری',
+    party_id: chequePartyId,
   }, token);
   rec({
     id: 'cheque.create_in', suite: 'admin', module: 'treasury',
-    status: okStatus(chq) ? 'PASS' : 'FAIL',
-    expected: 200, actual: chq.status, message: chq.body?.error || '',
-  });
-  rec({
-    id: 'cheque.free_text_party', suite: 'admin', module: 'party',
-    status: 'FAIL', severity: 'high',
-    expected: 'party_id searchable from parties',
-    actual: 'party_name free-text on cheque_records POST',
-    message: 'Incoming cheque stores party_name not party_id',
-    file: 'server/routes/cheque-records.js:177',
+    status: okStatus(chq) && Number(chq.body?.party_id) === chequePartyId && chequePartyId > 0 ? 'PASS' : 'FAIL',
+    expected: 200, actual: chq.status,
+    message: chq.body?.error || (Number(chq.body?.party_id) !== chequePartyId ? 'party_id mismatch' : ''),
   });
   ctx.chequeId = chq.body?.id;
   if (ctx.chequeId) {
