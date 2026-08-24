@@ -48,6 +48,13 @@ try {
     WHERE product_id=? AND warehouse_id=? AND COALESCE(status,'posted')='posted'
   `).get(prod2, wh.id).q;
   eq('backfill ledger net equals warehouse', Number(net2), 17);
+
+  const prevRole = process.env.SYNC_ROLE;
+  process.env.SYNC_ROLE = 'device';
+  db.prepare("DELETE FROM settings WHERE key='opening_inventory_ledger_backfill_v1'").run();
+  const bfDev = backfillOpeningInventoryLedger(db);
+  ok('device skips backfill', !!(bfDev && bfDev.skipped && bfDev.reason === 'device'), JSON.stringify(bfDev));
+  process.env.SYNC_ROLE = prevRole;
 } finally {
   cleanup();
 }

@@ -156,6 +156,9 @@ function postProductOpeningInventory(db, {
  * Rollback: DELETE ledger rows with note LIKE '%(backfill)%' then DELETE the setting.
  */
 function backfillOpeningInventoryLedger(db) {
+  if (process.env.SYNC_ROLE === 'device') {
+    return { skipped: true, reason: 'device' };
+  }
   const flag = db.prepare("SELECT value FROM settings WHERE key='opening_inventory_ledger_backfill_v1'").get();
   if (flag && String(flag.value).length) {
     try {

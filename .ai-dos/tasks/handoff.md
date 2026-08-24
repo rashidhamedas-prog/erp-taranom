@@ -1,3 +1,17 @@
+## 2026-08-25T00:45:00+03:30 — Independent re-review + central-only opening backfill
+
+- **Independent re-review:** [Independent Review](6bc4aad4-719e-47f2-bd33-69805849ebf5) vs `aeb5d06`
+  - Prior High (payroll sibling POSTs) **closed** (not re-reported)
+  - New Medium: `backfillOpeningInventoryLedger` on device duplicates ledger after pull → skip on `SYNC_ROLE=device`
+- **Constraint:** NO merge, NO Iran deploy
+
+## 2026-08-24T19:56:00+03:30 — Independent High = sibling payroll POSTs (already closed)
+
+- **Independent:** [Independent Review](44682d22-40e7-417d-a8f8-78d715baa679) High on `POST /payroll/monthly-batch` + `/farankenou/commit` still `adminOrAccounting`
+- **Disposition:** same gap as Security Medium; already gated in `2b005c7` with `requirePermission('payroll','create')` (also `year-end/:id/post`, `accruals/monthly`). Test 13/13.
+- **review_status:** still PENDING until re-review of tip `a79774e` (reviewer saw pre-`2b005c7` diff)
+- **Constraint:** NO merge, NO Iran deploy
+
 ## 2026-08-24T19:54:00+03:30 — FIX-HIGHS product Highs closed; harness leftover
 
 - **Task:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` still `active` (no merge/deploy)

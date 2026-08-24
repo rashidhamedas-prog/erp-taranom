@@ -97,8 +97,8 @@ tasks:
       Shared registry/docs (active.yaml, handoff, status, CHANGE-LOG) updated
       with parent QA-ERP-FULL-CYCLE notified in handoff. No scripts/qa edits.
       No merge/deploy. Do not weaken QA assertions.
-      Highs 1–5 committed; Security Medium sibling payroll POSTs closed @ 2b005c7.
-      QA qa-20260824T162339-14916 skip-e2e exit 1; leftover High = harness cheque.free_text_party.
+      Highs 1–5 committed; payroll sibling POSTs @ 2b005c7; opening backfill
+      central-only after Independent Medium. Independent re-review 6bc4aad4 done.
     acceptance_criteria:
       - "cheque_records POST accepts party_id (not only party_name)"
       - "firm invoice without warehouse_id is 4xx"

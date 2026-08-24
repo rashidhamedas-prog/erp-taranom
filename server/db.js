@@ -2367,10 +2367,12 @@ function initSyncSchema(db) {
   }
 
   try {
-    const { backfillOpeningInventoryLedger } = require('./lib/opening-post');
-    const bf = backfillOpeningInventoryLedger(db);
-    if (bf && !bf.skipped && bf.count) {
-      console.log('✅ opening_inventory_ledger_backfill_v1:', JSON.stringify(bf));
+    if (!isDevice()) {
+      const { backfillOpeningInventoryLedger } = require('./lib/opening-post');
+      const bf = backfillOpeningInventoryLedger(db);
+      if (bf && !bf.skipped && bf.count) {
+        console.log('✅ opening_inventory_ledger_backfill_v1:', JSON.stringify(bf));
+      }
     }
   } catch (e) {
     console.warn('opening_inventory_ledger_backfill_v1:', e.message);
