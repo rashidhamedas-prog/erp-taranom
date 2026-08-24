@@ -10634,9 +10634,9 @@ async function renderPayrollTab(body){
       <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.net_pay_rial||r.net_pay||0)}</td>
       <td>${r.status==='reversed'?'<span class="tag t-cancel">ابطال‌شده</span>':r.paid?'<span class="tag t-done">پرداخت شده</span>':'<span class="tag t-pending">پرداخت‌نشده</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        ${!r.paid&&r.status!=='reversed'?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){payrollPayModal((r.id),`${String((CSP.htmlDecode(String(esc(r.person_name||'')))) ?? '')}`,(r.net_pay_rial||r.net_pay||0))})}">${lucide('wallet')} پرداخت</button>
+        ${canPerm('payroll','create')&&!r.paid&&r.status!=='reversed'?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){payrollPayModal((r.id),`${String((CSP.htmlDecode(String(esc(r.person_name||'')))) ?? '')}`,(r.net_pay_rial||r.net_pay||0))})}">${lucide('wallet')} پرداخت</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollRecord((r.id))})}">${lucide('repeat')} ابطال</button>`:''}
-        ${r.paid&&r.status!=='reversed'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){voidPayrollPayment((r.id))})}">⛔ ابطال پرداخت</button>`:''}
+        ${canPerm('payroll','create')&&r.paid&&r.status!=='reversed'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){voidPayrollPayment((r.id))})}">⛔ ابطال پرداخت</button>`:''}
       </td>
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
@@ -18350,7 +18350,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان به گروه اشخاص «پرسنل» متصل است. ثبت/پردازش حقوق، ورود فراننکو، دسته ماهانه، ثبت عیدی/سنوات و ذخیره ماهانه فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند. دکمه «پرداخت» جداگانه وجه را از صندوق/بانک پرداخت می‌کند.</li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان به گروه اشخاص «پرسنل» متصل است. ثبت/پردازش حقوق، ورود فراننکو، دسته ماهانه، ثبت عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند حقوق فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>

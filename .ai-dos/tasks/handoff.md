@@ -1,3 +1,11 @@
+## 2026-08-25T02:10:00+03:30 — Bugbot High skipStock kardex + Security Medium payroll pay
+
+- **Worktree:** `erp-taranom-qa-erp-fix-highs` @ `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product` (erp-taranom1 stayed on `ai/UI-DOCS-STITCH`)
+- **Bugbot High:** `postInventoryMovement({skipStock:true})` still inserted `stock_logs` → skip when `skipStock`. Claim appended: `server/lib/inventory/ledger.js`.
+- **Security Medium:** `POST /payroll/:id/pay`, `void-payment`, `DELETE /:id` now `requirePermission('payroll','create')`; UI pay/void/cancel gated.
+- **Tests:** opening-stock 10/10 · payroll RBAC 17/17 · SMS 22/22 · `qa:full` `qa-20260824T224056-6580` PASS 246 FAIL 0 ERROR 0 · recon JE 0. **NO merge / Iran deploy.**
+- **Exact next:** Bugbot / Independent / Security on `erp-taranom-qa-erp-fix-highs` only (do not checkout `erp-taranom1`)
+
 ## 2026-08-25T01:20:00+03:30 — QA-ERP-RBAC-MATRIX-ALIGN claimed + matrix tightened
 
 - **Task:** `QA-ERP-RBAC-MATRIX-ALIGN` (child of QA-ERP-FULL-CYCLE); implementer `cursor:implementer-qa-fix-highs`

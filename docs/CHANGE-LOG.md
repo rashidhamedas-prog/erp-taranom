@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۳ — QA-FIX skipStock kardex + payroll pay RBAC (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** `skipStock` دیگر ردیف `stock_logs` نمی‌نویسد (افتتاحیه/بک‌فیل کاردکس شبح نمی‌سازد). پرداخت/ابطال پرداخت/ابطال سند حقوق با `payroll.create` گیت شد تا حسابداری فقط-مشاهده سند وجه نزند.
+- **فایل‌ها:** `server/lib/inventory/ledger.js`, `server/routes/payroll.js`, `server/public/app.js`, `server/scripts/test-qa-fix-opening-stock-ledger.js`, `server/scripts/test-qa-fix-payroll-rbac.js`
+- **تست:** opening-stock 10/10 · payroll RBAC 17/17 · SMS 22/22 · `qa:full` `qa-20260824T224056-6580` PASS 246 FAIL 0 ERROR 0 NOT_IMPLEMENTED 14 · recon JE 0
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
 ### ۱۴۰۵/۰۶/۰۳ — QA-FIX searchable GL account picker on acc-dash (no deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`

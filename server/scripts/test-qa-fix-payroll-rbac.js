@@ -106,6 +106,19 @@ function req(port, method, urlPath, body, token) {
       person_id: personId, period_label: '1405/01', regular_hours: 1, hourly_rate: 1000,
     }, adminTok);
     ok('admin create payroll allowed', allowed.status === 200 || allowed.status === 201, allowed.body?.error);
+    const recId = allowed.body?.id || allowed.body?.data?.id;
+    ok('payroll record id', !!recId, JSON.stringify(allowed.body));
+
+    const payDenied = await req(PORT, 'POST', '/payroll/' + recId + '/pay', {
+      pay_type: 'cash', date: '1405/01/15',
+    }, accTok);
+    ok('accounting pay payroll 403', payDenied.status === 403, 'status=' + payDenied.status);
+
+    const voidDenied = await req(PORT, 'POST', '/payroll/' + recId + '/void-payment', {}, accTok);
+    ok('accounting void-payment 403', voidDenied.status === 403, 'status=' + voidDenied.status);
+
+    const delDenied = await req(PORT, 'DELETE', '/payroll/' + recId, null, accTok);
+    ok('accounting delete payroll 403', delDenied.status === 403, 'status=' + delDenied.status);
 
     for (const p of ['/payroll/farankenou/commit', '/payroll/monthly-batch', '/payroll/year-end/1/post', '/payroll/accruals/monthly']) {
       const alt = await req(PORT, 'POST', p, { rows: [{ selected: true, person_id: personId }], period_label: '1405/01' }, accTok);

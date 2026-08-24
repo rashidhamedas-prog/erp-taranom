@@ -1010,7 +1010,7 @@ router.get('/legal-reports', auth, adminOrAccounting, (req, res) => {
   res.json({ fiscal_year: Number.isInteger(year) ? year : null, rows, totals });
 });
 
-router.post('/:id/pay', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/pay', auth, requirePermission('payroll', 'create'), (req, res) => {
   const { pay_type, bank_id, cash_box_id, date } = req.body;
   const db = getDB();
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
@@ -1043,7 +1043,7 @@ router.post('/:id/pay', auth, adminOrAccounting, (req, res) => {
 });
 
 /** Reverse payroll payment JE (R13) — restores unpaid so accrual can then be voided. */
-router.post('/:id/void-payment', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/void-payment', auth, requirePermission('payroll', 'create'), (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
@@ -1077,7 +1077,7 @@ router.post('/:id/void-payment', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });

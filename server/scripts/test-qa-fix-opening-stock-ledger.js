@@ -34,6 +34,7 @@ try {
   eq('opening warehouse', opening ? Number(opening.warehouse_id) : 0, wh.id);
   eq('products.stock unchanged (skipStock)', db.prepare('SELECT stock FROM products WHERE id=?').get(prodId).stock, 20);
   eq('warehouse_stock unchanged', db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(prodId, wh.id).qty, 20);
+  eq('skipStock does not write stock_logs', db.prepare('SELECT COUNT(*) c FROM stock_logs WHERE product_id=?').get(prodId).c, 0);
 
   const prod2 = db.prepare(`
     INSERT INTO products (user_id,name,code,stock,cost,average_cost_rial,warehouse_id)
@@ -48,6 +49,7 @@ try {
     WHERE product_id=? AND warehouse_id=? AND COALESCE(status,'posted')='posted'
   `).get(prod2, wh.id).q;
   eq('backfill ledger net equals warehouse', Number(net2), 17);
+  eq('backfill skipStock does not write stock_logs', db.prepare('SELECT COUNT(*) c FROM stock_logs WHERE product_id=?').get(prod2).c, 0);
 
   const prevRole = process.env.SYNC_ROLE;
   process.env.SYNC_ROLE = 'device';
