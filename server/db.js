@@ -992,6 +992,7 @@ function initDB() {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
   `);
+  ensureColumn(db, 'trust_checks', 'party_id', 'INTEGER');
   ensureColumn(db, 'customers', 'group_id', 'INTEGER');
   ensureColumn(db, 'journal_entries', 'cost_center_id', 'INTEGER');
   ensureColumn(db, 'settlements', 'cost_center_id', 'INTEGER');

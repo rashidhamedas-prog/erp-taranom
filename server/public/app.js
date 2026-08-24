@@ -646,6 +646,59 @@ function pickSupplier(id, supId){
   hideSupplierDrop(id);
 }
 function hideSupplierDrop(id){ const drop=el(id+'-drop'); if(drop) drop.style.display='none'; }
+function partyDisplayName(p){
+  return (p&& (p.full_name||p.company_name||p.biz||''))||'';
+}
+function partySelect(id, selectedId){
+  const list=CACHE.parties||[];
+  const sel=selectedId?list.find(p=>p.id===+selectedId):null;
+  return `<div class="cust-sw party-sw" data-cs-id="${esc(id)}" data-kind="party">
+    <input type="hidden" id="${esc(id)}" value="${selectedId||''}">
+    <input type="text" id="${esc(id)}-input" class="cust-si" placeholder="جستجو: نام، تلفن، کد شخص..." value="${sel?esc(partyDisplayName(sel)):''}">
+    <div id="${esc(id)}-drop" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
+  </div>`;
+}
+async function ensurePartiesCache(){
+  if(Array.isArray(CACHE.parties)&&CACHE.parties.length) return;
+  const resp=await api('GET','/parties?limit=500')||{};
+  CACHE.parties=Array.isArray(resp.data)?resp.data:(Array.isArray(resp)?resp:[]);
+}
+function initPartySearches(scope){
+  (scope||document).querySelectorAll('.party-sw').forEach(sw=>{
+    const id=sw.dataset.csId;
+    const inp=el(id+'-input');
+    if(!inp||inp.dataset.psBound) return;
+    inp.dataset.psBound='1';
+    inp.addEventListener('focus',()=>showPartyDrop(id,''));
+    inp.addEventListener('input',()=>showPartyDrop(id,inp.value));
+    inp.addEventListener('keydown',e=>{ if(e.key==='Escape') hidePartyDrop(id); });
+  });
+}
+function showPartyDrop(id, q){
+  const drop=el(id+'-drop'); const inp=el(id+'-input'); if(!drop||!inp) return;
+  const term=(q||'').trim().toLowerCase();
+  let list=CACHE.parties||[];
+  if(term){
+    const words=term.split(/\s+/);
+    list=list.filter(p=>{
+      const hay=((p.full_name||'')+' '+(p.company_name||'')+' '+(p.biz||'')+' '+(p.phone||'')+' '+(p.person_code||'')).toLowerCase();
+      return words.every(w=>hay.includes(w));
+    });
+  }
+  const rect=inp.getBoundingClientRect();
+  drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
+  drop.innerHTML = list.slice(0,40).map(p=>`
+    <div class="cust-si-item" data-csp-click="${CSP.bind('click',function(event){pickParty(`${String((id) ?? '')}`,(p.id))})}">
+      <span>${esc(partyDisplayName(p))}</span><span class="cust-si-meta">${esc(p.phone||p.person_code||'')}</span>
+    </div>`).join('') || '<div class="cust-si-empty">شخص یافت نشد</div>';
+}
+function pickParty(id, partyId){
+  const h=el(id); if(h){ h.value=partyId||''; h.dispatchEvent(new Event('change')); }
+  const inp=el(id+'-input');
+  if(inp){ const p=(CACHE.parties||[]).find(x=>x.id===+partyId); inp.value=p?partyDisplayName(p):''; }
+  hidePartyDrop(id);
+}
+function hidePartyDrop(id){ const drop=el(id+'-drop'); if(drop) drop.style.display='none'; }
 function showCustDrop(id, q){
   const drop=el(id+'-drop'); if(!drop) return;
   const inp=el(id+'-input'); if(!inp) return;
@@ -13036,27 +13089,32 @@ async function renderOpeningChequesTab(body, direction){
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
 function openingChequeModal(direction){
-  openModal(`<div class="modal-head"><h3>چک ${direction==='in'?'دریافتنی':'پرداختنی'} اول دوره</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+  ensurePartiesCache().then(()=>{
+    openModal(`<div class="modal-head"><h3>چک ${direction==='in'?'دریافتنی':'پرداختنی'} اول دوره</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>شماره چک</label><input id="oc-num" class="mono"></div>
       <div class="fg"><label>مبلغ ${moneyColLabel()} *</label><input id="oc-amt" type="text" inputmode="numeric" class="money"></div>
       <div class="fg"><label>بانک</label><input id="oc-bank"></div>
       <div class="fg"><label>شعبه</label><input id="oc-branch"></div>
-      <div class="fg"><label>طرف حساب</label><input id="oc-party"></div>
+      <div class="fg"><label>طرف حساب * ${hlp('از فهرست اشخاص جستجو و انتخاب کنید.')}</label>${partySelect('ocParty')}</div>
       <div class="fg"><label>تاریخ سررسید</label><input id="oc-due" data-jdate></div>
       <div class="fg"><label>شماره صیادی</label><input id="oc-sayadi" class="mono"></div>
       <div class="fg full"><label>شرح</label><input id="oc-note" placeholder="مانده اول دوره"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveOpeningCheque(`${String((direction) ?? '')}`)})}">💾 ثبت</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
-  attachDatepickers(el('modalRoot'));
+    attachDatepickers(el('modalRoot'));
+    initPartySearches(el('modalRoot'));
+  });
 }
 async function saveOpeningCheque(direction){
   const amount=moneyVal('oc-amt');
+  const party_id=+el('ocParty')?.value||0;
   if(!amount){ showToast('مبلغ الزامی است','error'); return; }
+  if(!party_id){ showToast('طرف حساب را از فهرست اشخاص انتخاب کنید','error'); return; }
   try{
-    await api('POST','/cheque-records',{direction,amount,opening:true,
+    await api('POST','/cheque-records',{direction,amount,opening:true,party_id,
       cheque_number:el('oc-num').value,bank_name:el('oc-bank').value,branch:el('oc-branch').value,
-      party_name:el('oc-party').value,due_date:el('oc-due').value,sayadi:el('oc-sayadi').value,note:el('oc-note').value});
+      due_date:el('oc-due').value,sayadi:el('oc-sayadi').value,note:el('oc-note').value});
     closeModal(); showToast('ثبت شد'); loadAccTab(direction==='in'?'opening-recv-cheques':'opening-pay-cheques');
   }catch(e){}
 }
@@ -13959,14 +14017,15 @@ async function renderTrustChecksTab(body){
     <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">چک‌های امانی صرفاً برای پیگیری امانت هستند و در سند حسابداری ثبت نمی‌شوند — در صورت وصول/پرداخت واقعی، آن را جداگانه از «عملیات دریافت» یا «عملیات پرداخت» ثبت کنید.</div>`;
 }
 function trustCheckModal(){
-  openModal(`
+  ensurePartiesCache().then(()=>{
+    openModal(`
     <div class="modal-head"><h3>🔖 ثبت چک امانی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>جهت چک *</label><select id="tc-direction">
         <option value="in">دریافتی (نزد ما امانت است)</option>
         <option value="out">پرداختی (نزد طرف مقابل امانت است)</option>
       </select></div>
-      <div class="fg"><label>طرف حساب * ${hlp('نام مشتری، تأمین‌کننده یا شخصی که این چک را داده/گرفته است.')}</label><input id="tc-party"></div>
+      <div class="fg"><label>طرف حساب * ${hlp('از فهرست اشخاص جستجو و انتخاب کنید.')}</label>${partySelect('tcParty')}</div>
       <div class="fg"><label>تلفن طرف حساب</label><input id="tc-phone"></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="tc-amount" type="number" min="1"></div>
       <div class="fg"><label>نام بانک</label><input id="tc-bank"></div>
@@ -13979,16 +14038,20 @@ function trustCheckModal(){
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveTrustCheck()})}">💾 ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
-  attachDatepickers(el('modalRoot'));
+    attachDatepickers(el('modalRoot'));
+    initPartySearches(el('modalRoot'));
+  });
 }
 async function saveTrustCheck(){
-  const party_name=el('tc-party').value.trim();
+  const party_id=+el('tcParty')?.value||0;
   const amount=+el('tc-amount').value;
-  if(!party_name){ showToast('نام طرف حساب الزامی است','error'); return; }
+  if(!party_id){ showToast('طرف حساب را از فهرست اشخاص انتخاب کنید','error'); return; }
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const p=(CACHE.parties||[]).find(x=>x.id===party_id);
   try{
     await api('POST','/trust-checks',{
-      direction:el('tc-direction').value, party_name, party_phone:el('tc-phone').value,
+      direction:el('tc-direction').value, party_id,
+      party_phone:el('tc-phone').value||(p&&p.phone)||'',
       bank_name:el('tc-bank').value, sayadi:el('tc-sayadi').value, cheque_number:el('tc-number').value,
       account_number:el('tc-account').value, amount, owner_name:el('tc-owner').value,
       due_date:el('tc-due').value, note:el('tc-note').value
@@ -18239,7 +18302,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>
         <li><b>صندوق‌های نقدی</b>: ساخت و مدیریت صندوق‌های نقدی شرکت بدون محدودیت در تعداد (مثلاً صندوق فروشگاه، صندوق دفتر مرکزی) — درست مثل بانک‌ها، هر صندوق یک حساب دفتر کل مستقل دارد. در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب صندوق (مثل بانک) اختیاری است</li>
         <li><b>تنخواه گردان</b>: هر صندوق نقدی را می‌توان با گزینه «این صندوق تنخواه‌گردان است» به‌عنوان صندوق تنخواه مشخص کرد تا در این صفحهٔ جداگانه با موجودی زنده نمایش داده شود — دکمهٔ «ثبت هزینه» یک هزینهٔ نقدی از همان صندوق ثبت می‌کند و دکمهٔ «افزایش تنخواه» یک انتقال وجه به آن صندوق انجام می‌دهد</li>
-        <li><b>چک‌های امانی</b>: پیگیری چک‌های دریافتی/پرداختی که صرفاً به‌عنوان امانت/ضمانت نزد ما یا نزد طرف مقابل هستند — <b>در سند حسابداری ثبت نمی‌شوند</b> چون هنوز پول واقعی جابه‌جا نشده. با تغییر وضعیت به «وصول/پرداخت شد»، «مسترد شد» یا «برگشت خورد» فقط وضعیت پیگیری به‌روز می‌شود؛ ثبت واقعی وجه (در صورت وصول) باید جداگانه از «عملیات دریافت» یا «عملیات پرداخت» انجام شود</li>
+        <li><b>چک‌های امانی</b>: پیگیری چک‌های دریافتی/پرداختی که صرفاً به‌عنوان امانت/ضمانت نزد ما یا نزد طرف مقابل هستند — <b>در سند حسابداری ثبت نمی‌شوند</b> چون هنوز پول واقعی جابه‌جا نشده. طرف حساب فقط از فهرست اشخاص با جستجو انتخاب می‌شود (نام آزاد پذیرفته نمی‌شود). با تغییر وضعیت به «وصول/پرداخت شد»، «مسترد شد» یا «برگشت خورد» فقط وضعیت پیگیری به‌روز می‌شود؛ ثبت واقعی وجه (در صورت وصول) باید جداگانه از «عملیات دریافت» یا «عملیات پرداخت» انجام شود</li>
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
@@ -18570,7 +18633,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>پرداخت / تحویل</b>: از ثبت‌شده — بدهکار حساب‌های پرداختنی، بستانکار اسناد پرداختنی</li>
         <li><b>خرج چک</b>: از ثبت‌شده — بدهکار هزینه (پیش‌فرض هزینه اداری؛ کلید حساب از نگاشت کدینگ)، بستانکار اسناد پرداختنی</li>
-        <li>چک اول دوره پرداختنی سند افتتاحیه دارد و دوباره پرداخت/خرج نمی‌شود</li>
+        <li>چک اول دوره پرداختنی سند افتتاحیه دارد و دوباره پرداخت/خرج نمی‌شود. طرف حساب چک اول دوره هم از فهرست اشخاص جستجو و انتخاب می‌شود</li>
       </ul>
       <div class="tip">هر گذار چرخه فقط یک‌بار سند می‌زند (تکرار = خطای سند تکراری). تغییر وضعیت با متن آزاد برای گذارهای مالی مسدود است. <b>ابطال کامل</b> همهٔ اسناد چرخه و افتتاحیه را در یک تراکنش معکوس می‌کند (حذف فیزیکی نیست).</div>`),
     helpSec('💳','کارتخوان (POS)',`

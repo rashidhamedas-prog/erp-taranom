@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High5 party picker trust/opening cheques (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** فرم چک امانی و چک اول دوره طرف حساب را از فهرست اشخاص جستجو می‌کند (`tcParty`/`ocParty`). POST `/api/trust-checks` فقط با `party_id` معتبر ثبت می‌شود.
+- **فایل‌ها:** `server/routes/trust-checks.js`, `server/db.js`, `server/sync/tables.js`, `server/public/app.js`, `server/scripts/test-qa-fix-party-picker-ui.js`
+- **تست:** `node server/scripts/test-qa-fix-party-picker-ui.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
 ### ۱۴۰۵/۰۶/۰۲ — QA-FIX High4 payroll.create RBAC (no deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`

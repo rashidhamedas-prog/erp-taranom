@@ -424,6 +424,8 @@ const FK_COLUMNS = [
   ['cutting_lay_rolls', 'ledger_id'],
   // QA-FIX-HIGHS cheque party_id (append-only)
   ['cheque_records', 'party_id'],
+  // QA-FIX-HIGHS trust-check party_id (append-only)
+  ['trust_checks', 'party_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };
