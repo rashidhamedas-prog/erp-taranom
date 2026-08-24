@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۳ — QA harness cheque tests kept on admin-roles (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles` @ `60e371f` (worktree والد)
+- **خلاصه:** `scripts/qa/batches/admin.js` چک را با `party_id` واقعی می‌زند؛ متن آزاد بدون شناسه باید ۴۰۰ باشد و ذخیره نشود. workspace `erp-taranom1` روی `ai/UI-DOCS-STITCH` ماند. محصول High/Medium در sibling `88d30ab`. `qa:full` `qa-20260824T224056-6580` روی worktree محصول: PASS 246 FAIL 0 ERROR 0.
+- **فایل‌ها:** `.ai-dos/tasks/handoff.md`, `.ai-dos/project/status.md`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
 ### ۱۴۰۵/۰۶/۰۲ — QA-ERP-FULL-CYCLE first full run (isolated, no deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles`

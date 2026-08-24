@@ -1,3 +1,11 @@
+## 2026-08-25T02:15:00+03:30 — Continue on admin-roles; do not touch erp-taranom1
+
+- **Constraint:** Cursor workspace `erp-taranom1` stayed on `ai/UI-DOCS-STITCH`. No checkout of this worktree. `scripts/qa/batches/admin.js` cheque tests remain at `50e8269` / tip `60e371f`.
+- **Harness tip:** `60e371f` on `ai/QA-ERP-FULL-CYCLE-admin-roles` (this worktree). Product High/Medium closed on sibling `erp-taranom-qa-erp-fix-highs` @ `88d30ab` (skipStock `stock_logs`; payroll pay/void/delete `payroll.create`).
+- **Authoritative `qa:full`:** `qa-20260824T224056-6580` on product worktree · PASS **246** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14** · recon JE **0**. No `--skip-e2e`.
+- **NOT_IMPLEMENTED (not PASS):** RFQ, 3-way match, GRNI/`coa_grni`, maker-checker SOD, branch ACL, order reservations, fabric `tracking_profile=roll`, backup/restore not hit in admin batch.
+- **Reviews:** re-run on product worktree only (prior Bugbot High + Security Medium should be closed). **NO merge / Iran deploy.**
+
 ## 2026-08-24T18:40:00+03:30 — QA-ERP-FULL-CYCLE first full run (no deploy)
 
 - **Task:** `QA-ERP-FULL-CYCLE` implementer done (harness). Reviewer still PENDING.
