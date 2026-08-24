@@ -120,6 +120,16 @@ function req(port, method, urlPath, body, token) {
     const delDenied = await req(PORT, 'DELETE', '/payroll/' + recId, null, accTok);
     ok('accounting delete payroll 403', delDenied.status === 403, 'status=' + delDenied.status);
 
+    const empDenied = await req(PORT, 'POST', '/payroll/employees', {
+      first_name: 'QA', last_name: 'Emp', monthly_salary_rial: 999999999,
+    }, accTok);
+    ok('accounting create employee 403', empDenied.status === 403, 'status=' + empDenied.status);
+
+    const laborDenied = await req(PORT, 'PUT', '/payroll/labor-settings/1405', {
+      min_wage_daily_rial: 1,
+    }, accTok);
+    ok('accounting labor-settings 403', laborDenied.status === 403, 'status=' + laborDenied.status);
+
     for (const p of ['/payroll/farankenou/commit', '/payroll/monthly-batch', '/payroll/year-end/1/post', '/payroll/accruals/monthly']) {
       const alt = await req(PORT, 'POST', p, { rows: [{ selected: true, person_id: personId }], period_label: '1405/01' }, accTok);
       ok('accounting 403 on ' + p, alt.status === 403, 'status=' + alt.status);

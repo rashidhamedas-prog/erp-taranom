@@ -10652,7 +10652,7 @@ async function renderPayrollEmployees(body){
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">اشخاصی که در گروه اشخاص «پرسنل» باشند اینجا به‌عنوان کارمند دیده می‌شوند. کد پرسنلی و جزئیات را دستی تکمیل کنید.</div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
       ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal()})}">${lucide('plus')} کارمند جدید</button>`:''}
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){employeeGroupModal()})}">${lucide('users')} گروه کارکنان</button>
+      ${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){employeeGroupModal()})}">${lucide('users')} گروه کارکنان</button>`:''}
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد پرسنلی</th><th>نام</th><th>گروه کارکنان</th><th>گروه اشخاص</th><th>حقوق ماهانه</th><th>وضعیت</th><th class="no-sort">عملیات</th></tr></thead>
     <tbody>${(rows||[]).map(r=>`<tr>
@@ -10661,14 +10661,14 @@ async function renderPayrollEmployees(body){
       <td class="mono">${fmt(r.monthly_salary_rial||0)}</td>
       <td>${r.active?'<span class="tag t-done">فعال</span>':'<span class="tag">غیرفعال</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal((r.id))})}">✏️</button>
-        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollEmployee((r.id))})}">🗑️</button>
+        ${canPerm('payroll','create')?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal((r.id))})}">✏️</button>
+        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollEmployee((r.id))})}">🗑️</button>`:''}
       </td></tr>`).join('')||emptyRow(7)}</tbody></table></div>
     ${(groups||[]).length?`<div class="panel" data-csp-style="${CSP.style(`margin-top:16px`)}"><div class="panel-head"><h4>گروه‌های کارکنان</h4></div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>اعضا</th><th>وضعیت</th><th></th></tr></thead>
       <tbody>${groups.map(g=>`<tr><td>${esc(g.name)}</td><td>${fmt(g.member_count||0)}</td>
         <td>${g.active?'فعال':'غیرفعال'}</td>
-        <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteEmployeeGroup((g.id))})}">🗑️</button></td></tr>`).join('')}</tbody></table></div></div>`:''}`;
+        <td>${canPerm('payroll','create')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteEmployeeGroup((g.id))})}">🗑️</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:''}`;
 }
 function payrollEmployeeModal(id){
   const r=id?(CACHE.payrollEmployees||[]).find(x=>x.id===id):null;
@@ -10725,12 +10725,12 @@ async function deleteEmployeeGroup(id){
 
 async function renderPayrollPeriods(body){
   const rows=await api('GET','/payroll/periods')||[];
-  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollPeriodModal()})}">${lucide('plus')} دوره جدید</button></div>
+  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollPeriodModal()})}">${lucide('plus')} دوره جدید</button>`:''}</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>دوره</th><th>شروع</th><th>پایان</th><th>روز موظفی</th><th>ساعت موظفی</th><th>بیمه کارگر</th><th>بیمه کارفرما</th><th>وضعیت</th><th></th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.label)}</td><td>${escDate(r.start_date)}</td><td>${escDate(r.end_date)}</td>
       <td>${fmt(r.standard_days)}</td><td>${fmt(r.standard_hours_x100/100)}</td><td>${fmt(r.employee_insurance_bp/100)}٪</td>
       <td>${fmt(r.employer_insurance_bp/100)}٪</td><td>${esc(r.status)}</td>
-      <td>${r.status==='open'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollPeriod((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
+      <td>${canPerm('payroll','create')&&r.status==='open'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollPeriod((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
 async function deletePayrollPeriod(id){
   if(!confirm('دوره حذف شود؟')) return;
@@ -10761,19 +10761,19 @@ async function renderSalaryStructures(body){
   CACHE.payrollEmployees=employees||[];
   CACHE.employeeGroups=groups||[];
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){salaryStructureModal()})}">${lucide('plus')} ساختار کارمند</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){groupSalaryStructureModal()})}">${lucide('users')} ساختار گروه کارکنان</button>
+      ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){salaryStructureModal()})}">${lucide('plus')} ساختار کارمند</button>`:''}
+      ${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){groupSalaryStructureModal()})}">${lucide('users')} ساختار گروه کارکنان</button>`:''}
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>سال</th><th>کارمند</th><th>مبنا</th><th>مزد پایه (ریال)</th><th>مسکن</th><th>بن</th><th>اولاد</th><th>بیمه</th><th></th></tr></thead>
     <tbody>${(rows||[]).map(r=>`<tr><td>${fmt(r.fiscal_year)}</td><td>${esc(r.person_name)}</td><td>${esc(r.wage_basis)}</td>
       <td class="mono">${fmt(r.base_wage_rial)}</td><td class="mono">${fmt(r.housing_allowance_rial)}</td><td class="mono">${fmt(r.grocery_allowance_rial)}</td>
       <td class="mono">${fmt(r.child_allowance_rial)} × ${fmt(r.child_count)}</td><td>${esc(r.insurance_type)}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSalaryStructure((r.id))})}">🗑️</button></td></tr>`).join('')||emptyRow(9)}</tbody></table></div>
+      <td>${canPerm('payroll','create')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSalaryStructure((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(9)}</tbody></table></div>
     <h4 data-csp-style="${CSP.style(`margin:18px 0 8px`)}">ساختار حقوق گروه‌های کارکنان</h4>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>سال</th><th>گروه</th><th>مبنا</th><th>مزد پایه</th><th>مسکن</th><th>بن</th><th></th></tr></thead>
     <tbody>${(groupRows||[]).map(r=>`<tr><td>${fmt(r.fiscal_year)}</td><td>${esc(r.group_name)}</td><td>${esc(r.wage_basis)}</td>
       <td class="mono">${fmt(r.base_wage_rial)}</td><td class="mono">${fmt(r.housing_allowance_rial)}</td><td class="mono">${fmt(r.grocery_allowance_rial)}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteGroupSalaryStructure((r.id))})}">🗑️</button></td></tr>`).join('')||emptyRow(7)}</tbody></table></div>`;
+      <td>${canPerm('payroll','create')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteGroupSalaryStructure((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(7)}</tbody></table></div>`;
 }
 function salaryStructureModal(){
   openModal(`<div class="modal-head"><h3>${lucide('receipt')} ساختار حقوق سالانه</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -10827,8 +10827,8 @@ async function renderPayrollTaxConfig(body){
   const rows=await api('GET','/payroll/tax-brackets/'+year)||[];
   body.dataset.taxYear=year;
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><label>سال <input id="taxYear" type="number" value="${year}" data-csp-style="${CSP.style(`width:100px`)}" data-csp-change="${CSP.bind('change',function(event){el('accBody').dataset.taxYear=this.value;renderPayrollTaxConfig(el('accBody'))})}"></label>
-    <button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollTaxModal((year))})}">${lucide('edit')} تعریف پلکان</button>
-    <button class="btn red ghost" data-csp-click="${CSP.bind('click',function(event){deletePayrollTaxYear((year))})}">🗑️ حذف پلکان سال</button></div>
+    ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollTaxModal((year))})}">${lucide('edit')} تعریف پلکان</button>
+    <button class="btn red ghost" data-csp-click="${CSP.bind('click',function(event){deletePayrollTaxYear((year))})}">🗑️ حذف پلکان سال</button>`:''}</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>ردیف</th><th>از مبلغ (ریال)</th><th>تا مبلغ (ریال)</th><th>نرخ</th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td>${fmt(r.bracket_order)}</td><td class="mono">${fmt(r.bracket_min_rial)}</td><td class="mono">${r.bracket_max_rial==null?'بدون سقف':fmt(r.bracket_max_rial)}</td><td>${fmt(r.tax_rate_bp/100)}٪</td></tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
 }
@@ -10850,7 +10850,7 @@ async function savePayrollTax(year){
 async function renderPayrollProcessing(body){
   const [periods,employees]=await Promise.all([api('GET','/payroll/periods'),api('GET','/payroll/employees')]);
   CACHE.payrollPeriods=periods||[];
-  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){farankenouImportModal()})}">${lucide('upload')} ورود کارکرد فراننکو</button></div>
+  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){farankenouImportModal()})}">${lucide('upload')} ورود کارکرد فراننکو</button>`:''}</div>
   <div class="panel"><div class="panel-body"><div class="form-grid">
     <div class="fg"><label>دوره *</label><select id="pc-period"><option value="">—</option>${(periods||[]).filter(p=>p.status!=='closed').map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></div>
     <div class="fg"><label>کارمند *</label><select id="pc-person"><option value="">—</option>${(employees||[]).filter(p=>p.active).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
@@ -10873,7 +10873,7 @@ async function renderPayrollProcessing(body){
     <div class="fg"><label>خالص (ریال)</label><input id="pc-m-net" class="money" inputmode="numeric" value="0" placeholder="خودکار = ناخالص−کسور"></div>
   </div>
   <div class="toolbar" data-csp-style="${CSP.style(`margin-top:14px`)}"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){previewPayrollCalculation()})}">${lucide('eye')} پیش‌نمایش</button>
-  <button class="btn" data-csp-click="${CSP.bind('click',function(event){processPayrollCalculation()})}">${lucide('check')} پردازش و ثبت سند</button></div><div id="pc-result" data-csp-style="${CSP.style(`margin-top:12px`)}"></div></div></div>`;
+  ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){processPayrollCalculation()})}">${lucide('check')} پردازش و ثبت سند</button>`:''}</div><div id="pc-result" data-csp-style="${CSP.style(`margin-top:12px`)}"></div></div></div>`;
   body.querySelectorAll('input').forEach(ensureMoneyField);
 }
 function togglePayrollManualFields(){
@@ -10919,11 +10919,11 @@ async function renderPayrollYearEnd(body){
   const year=todayJalali().slice(0,4);
   const [rows,employees]=await Promise.all([api('GET','/payroll/year-end?fiscal_year='+year),api('GET','/payroll/employees')]);
   CACHE.payrollEmployees=employees||[];
-  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollYearEndModal((year))})}">${lucide('calc')} محاسبه عیدی و سنوات</button></div>
+  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollYearEndModal((year))})}">${lucide('calc')} محاسبه عیدی و سنوات</button>`:''}</div>
   <div class="muted" data-csp-style="${CSP.style(`margin-bottom:12px`)}">عیدی و سنوات بر مبنای مزد و روزهای خدمت محاسبه می‌شود؛ سقف مزد قانونی هنگام محاسبه دریافت می‌شود.</div>
   <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کارمند</th><th>سال</th><th>روز خدمت</th><th>عیدی</th><th>سنوات</th><th>مالیات</th><th>خالص (ریال)</th><th>وضعیت</th></tr></thead>
   <tbody>${(rows||[]).map(r=>`<tr><td>${esc(r.person_name)}</td><td>${fmt(r.fiscal_year)}</td><td>${fmt(r.service_days)}</td><td>${fmt(r.eidi_rial)}</td><td>${fmt(r.severance_rial)}</td><td>${fmt(r.income_tax_rial)}</td><td>${fmt(r.net_pay_rial)}</td>
-    <td>${esc(r.status)} ${r.status==='draft'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){postPayrollYearEnd((r.id))})}">${lucide('check')} ثبت سند</button> <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollYearEnd((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+    <td>${esc(r.status)} ${canPerm('payroll','create')&&r.status==='draft'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){postPayrollYearEnd((r.id))})}">${lucide('check')} ثبت سند</button> <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollYearEnd((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
 }
 async function deletePayrollYearEnd(id){
   if(!confirm('پیش‌نویس عیدی/سنوات حذف شود؟')) return;
@@ -18350,7 +18350,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان به گروه اشخاص «پرسنل» متصل است. ثبت/پردازش حقوق، ورود فراننکو، دسته ماهانه، ثبت عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند حقوق فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند.</li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان به گروه اشخاص «پرسنل» متصل است. ثبت/ویرایش پرونده و ساختار حقوق، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>

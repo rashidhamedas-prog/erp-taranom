@@ -260,7 +260,7 @@ router.get('/employees', auth, adminOrAccounting, (req, res) => {
   `).all());
 });
 
-router.post('/employees', auth, adminOrAccounting, (req, res) => {
+router.post('/employees', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const b = req.body || {};
@@ -297,7 +297,7 @@ router.post('/employees', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.put('/employees/:id', auth, adminOrAccounting, (req, res) => {
+router.put('/employees/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const current = db.prepare('SELECT * FROM persons WHERE id=?').get(req.params.id);
@@ -340,7 +340,7 @@ router.put('/employees/:id', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/employees/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/employees/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const row = db.prepare('SELECT * FROM persons WHERE id=?').get(req.params.id);
@@ -367,7 +367,7 @@ router.get('/employee-groups', auth, adminOrAccounting, (req, res) => {
   `).all());
 });
 
-router.post('/employee-groups', auth, adminOrAccounting, (req, res) => {
+router.post('/employee-groups', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const name = String(req.body?.name || '').trim();
@@ -381,7 +381,7 @@ router.post('/employee-groups', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.put('/employee-groups/:id', auth, adminOrAccounting, (req, res) => {
+router.put('/employee-groups/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const row = db.prepare('SELECT * FROM employee_groups WHERE id=?').get(req.params.id);
@@ -398,7 +398,7 @@ router.put('/employee-groups/:id', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/employee-groups/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/employee-groups/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const members = db.prepare('SELECT COUNT(*) c FROM persons WHERE employee_group_id=?').get(req.params.id).c;
@@ -425,7 +425,7 @@ router.get('/group-salary-structures', auth, adminOrAccounting, (req, res) => {
   `).all(...params));
 });
 
-router.post('/group-salary-structures', auth, adminOrAccounting, (req, res) => {
+router.post('/group-salary-structures', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const b = req.body || {};
@@ -467,7 +467,7 @@ router.post('/group-salary-structures', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/group-salary-structures/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/group-salary-structures/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     db.prepare('DELETE FROM group_salary_structures WHERE id=?').run(req.params.id);
@@ -478,7 +478,7 @@ router.delete('/group-salary-structures/:id', auth, adminOrAccounting, (req, res
   }
 });
 
-router.delete('/salary-structures/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/salary-structures/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     db.prepare('UPDATE salary_structures SET active=0 WHERE id=?').run(req.params.id);
@@ -489,7 +489,7 @@ router.delete('/salary-structures/:id', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/periods/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/periods/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const period = db.prepare('SELECT * FROM payroll_periods WHERE id=?').get(req.params.id);
@@ -505,7 +505,7 @@ router.delete('/periods/:id', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/tax-brackets/:year', auth, adminOrAccounting, (req, res) => {
+router.delete('/tax-brackets/:year', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const year = Number(req.params.year);
@@ -517,7 +517,7 @@ router.delete('/tax-brackets/:year', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/year-end/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/year-end/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const row = db.prepare('SELECT * FROM payroll_year_end_bonuses WHERE id=?').get(req.params.id);
@@ -538,7 +538,7 @@ router.get('/periods', auth, adminOrAccounting, (req, res) => {
   res.json(db.prepare(`SELECT * FROM payroll_periods ${where} ORDER BY fiscal_year DESC,month_no DESC`).all(...params));
 });
 
-router.post('/periods', auth, adminOrAccounting, (req, res) => {
+router.post('/periods', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const b = req.body || {};
@@ -579,7 +579,7 @@ router.get('/salary-structures', auth, adminOrAccounting, (req, res) => {
   `).all(...params));
 });
 
-router.post('/salary-structures', auth, adminOrAccounting, (req, res) => {
+router.post('/salary-structures', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const b = req.body || {};
@@ -628,7 +628,7 @@ router.get('/tax-brackets/:year', auth, adminOrAccounting, (req, res) => {
   `).all(Number(req.params.year)));
 });
 
-router.put('/tax-brackets/:year', auth, adminOrAccounting, (req, res) => {
+router.put('/tax-brackets/:year', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const year = Number(req.params.year);
@@ -901,7 +901,7 @@ router.get('/year-end', auth, adminOrAccounting, (req, res) => {
   `).all(...params));
 });
 
-router.post('/year-end/calculate', auth, adminOrAccounting, (req, res) => {
+router.post('/year-end/calculate', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const year = Number(req.body.fiscal_year);
@@ -1162,7 +1162,7 @@ router.get('/labor-settings/:year', auth, adminOrAccounting, (req, res) => {
   res.json(row || { year, min_wage_daily_rial: 0, housing_allowance_rial: 0, food_allowance_rial: 0 });
 });
 
-router.put('/labor-settings/:year', auth, adminOrAccounting, (req, res) => {
+router.put('/labor-settings/:year', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const year = parseInt(req.params.year, 10);
