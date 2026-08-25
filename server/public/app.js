@@ -646,6 +646,59 @@ function pickSupplier(id, supId){
   hideSupplierDrop(id);
 }
 function hideSupplierDrop(id){ const drop=el(id+'-drop'); if(drop) drop.style.display='none'; }
+function partyDisplayName(p){
+  return (p&& (p.full_name||p.company_name||p.biz||''))||'';
+}
+function partySelect(id, selectedId){
+  const list=CACHE.parties||[];
+  const sel=selectedId?list.find(p=>p.id===+selectedId):null;
+  return `<div class="cust-sw party-sw" data-cs-id="${esc(id)}" data-kind="party">
+    <input type="hidden" id="${esc(id)}" value="${selectedId||''}">
+    <input type="text" id="${esc(id)}-input" class="cust-si" placeholder="جستجو: نام، تلفن، کد شخص..." value="${sel?esc(partyDisplayName(sel)):''}">
+    <div id="${esc(id)}-drop" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
+  </div>`;
+}
+async function ensurePartiesCache(){
+  if(Array.isArray(CACHE.parties)&&CACHE.parties.length) return;
+  const resp=await api('GET','/parties?limit=500')||{};
+  CACHE.parties=Array.isArray(resp.data)?resp.data:(Array.isArray(resp)?resp:[]);
+}
+function initPartySearches(scope){
+  (scope||document).querySelectorAll('.party-sw').forEach(sw=>{
+    const id=sw.dataset.csId;
+    const inp=el(id+'-input');
+    if(!inp||inp.dataset.psBound) return;
+    inp.dataset.psBound='1';
+    inp.addEventListener('focus',()=>showPartyDrop(id,''));
+    inp.addEventListener('input',()=>showPartyDrop(id,inp.value));
+    inp.addEventListener('keydown',e=>{ if(e.key==='Escape') hidePartyDrop(id); });
+  });
+}
+function showPartyDrop(id, q){
+  const drop=el(id+'-drop'); const inp=el(id+'-input'); if(!drop||!inp) return;
+  const term=(q||'').trim().toLowerCase();
+  let list=CACHE.parties||[];
+  if(term){
+    const words=term.split(/\s+/);
+    list=list.filter(p=>{
+      const hay=((p.full_name||'')+' '+(p.company_name||'')+' '+(p.biz||'')+' '+(p.phone||'')+' '+(p.person_code||'')).toLowerCase();
+      return words.every(w=>hay.includes(w));
+    });
+  }
+  const rect=inp.getBoundingClientRect();
+  drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
+  drop.innerHTML = list.slice(0,40).map(p=>`
+    <div class="cust-si-item" data-csp-click="${CSP.bind('click',function(event){pickParty(`${String((id) ?? '')}`,(p.id))})}">
+      <span>${esc(partyDisplayName(p))}</span><span class="cust-si-meta">${esc(p.phone||p.person_code||'')}</span>
+    </div>`).join('') || '<div class="cust-si-empty">شخص یافت نشد</div>';
+}
+function pickParty(id, partyId){
+  const h=el(id); if(h){ h.value=partyId||''; h.dispatchEvent(new Event('change')); }
+  const inp=el(id+'-input');
+  if(inp){ const p=(CACHE.parties||[]).find(x=>x.id===+partyId); inp.value=p?partyDisplayName(p):''; }
+  hidePartyDrop(id);
+}
+function hidePartyDrop(id){ const drop=el(id+'-drop'); if(drop) drop.style.display='none'; }
 function showCustDrop(id, q){
   const drop=el(id+'-drop'); if(!drop) return;
   const inp=el(id+'-input'); if(!inp) return;
@@ -5770,9 +5823,12 @@ ROUTES['acc-dash'] = async function(){
       <div class="panel-head"><h4>📒 دفتر کل حساب‌ها</h4></div>
       <div class="panel-body">
         <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
-          <select id="glAccount" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px`)}" data-csp-change="${CSP.bind('change',function(event){loadGeneralLedger(this.value)})}">
-            <option value="">-- انتخاب حساب --</option>
-          </select>
+          <div data-searchable data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;align-items:center`)}">
+            <input id="glAcctFind" class="search" placeholder="جستجوی حساب (کد یا نام)..." data-csp-input="${CSP.bind('input',function(event){filterGlAccountOptions(this.value)})}" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;min-width:200px`)}">
+            <select id="glAccount" data-searchable="1" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px`)}" data-csp-change="${CSP.bind('change',function(event){loadGeneralLedger(this.value)})}">
+              <option value="">-- انتخاب حساب --</option>
+            </select>
+          </div>
           <input id="glSearch" class="search" placeholder="جستجو در شرح/مرجع..." data-csp-change="${CSP.bind('change',function(event){const s=el('glAccount');if(s&&s.value)loadGeneralLedger(s.value)})}" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;min-width:180px`)}">
         </div>
         <div id="glBody"><div class="empty" data-csp-style="${CSP.style(`padding:30px`)}">یک حساب را برای مشاهده دفتر کل انتخاب کنید</div></div>
@@ -5790,11 +5846,7 @@ ROUTES['acc-dash'] = async function(){
     ? CACHE.chartOfAccounts
     : await apiCached('GET','/accounting/chart-of-accounts', 120000);
   CACHE.chartOfAccounts=accounts||[];
-  const sel=el('glAccount');
-  if(sel){
-    sel.innerHTML='<option value="">-- انتخاب حساب --</option>'+
-      (accounts||[]).map(a=>`<option value="${a.code}">${a.code} — ${esc(a.name)}</option>`).join('');
-  }
+  filterGlAccountOptions(el('glAcctFind')?.value || '');
   requestAnimationFrame(()=>{
     const c=el('accDashChart');
     if(c){ c.innerHTML=chartOfAccountsGroupedHtml(accounts||[]); cacheSet('page:acc-dash', el('view').innerHTML); }
@@ -10569,7 +10621,7 @@ async function renderPayrollTab(body){
   const records=await api('GET','/payroll')||[];
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){go('acc-payroll-processing')})}">${lucide('calc')} محاسبه و پردازش حقوق</button>
+      ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){go('acc-payroll-processing')})}">${lucide('calc')} محاسبه و پردازش حقوق</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-payroll-employees')})}">${lucide('users')} پرونده کارکنان</button>
     </div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
@@ -10582,9 +10634,9 @@ async function renderPayrollTab(body){
       <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.net_pay_rial||r.net_pay||0)}</td>
       <td>${r.status==='reversed'?'<span class="tag t-cancel">ابطال‌شده</span>':r.paid?'<span class="tag t-done">پرداخت شده</span>':'<span class="tag t-pending">پرداخت‌نشده</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        ${!r.paid&&r.status!=='reversed'?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){payrollPayModal((r.id),`${String((CSP.htmlDecode(String(esc(r.person_name||'')))) ?? '')}`,(r.net_pay_rial||r.net_pay||0))})}">${lucide('wallet')} پرداخت</button>
+        ${canPerm('payroll','create')&&!r.paid&&r.status!=='reversed'?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){payrollPayModal((r.id),`${String((CSP.htmlDecode(String(esc(r.person_name||'')))) ?? '')}`,(r.net_pay_rial||r.net_pay||0))})}">${lucide('wallet')} پرداخت</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollRecord((r.id))})}">${lucide('repeat')} ابطال</button>`:''}
-        ${r.paid&&r.status!=='reversed'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){voidPayrollPayment((r.id))})}">⛔ ابطال پرداخت</button>`:''}
+        ${canPerm('payroll','create')&&r.paid&&r.status!=='reversed'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){voidPayrollPayment((r.id))})}">⛔ ابطال پرداخت</button>`:''}
       </td>
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
@@ -10599,8 +10651,8 @@ async function renderPayrollEmployees(body){
   body.innerHTML=`
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">اشخاصی که در گروه اشخاص «پرسنل» باشند اینجا به‌عنوان کارمند دیده می‌شوند. کد پرسنلی و جزئیات را دستی تکمیل کنید.</div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal()})}">${lucide('plus')} کارمند جدید</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){employeeGroupModal()})}">${lucide('users')} گروه کارکنان</button>
+      ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal()})}">${lucide('plus')} کارمند جدید</button>`:''}
+      ${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){employeeGroupModal()})}">${lucide('users')} گروه کارکنان</button>`:''}
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد پرسنلی</th><th>نام</th><th>گروه کارکنان</th><th>گروه اشخاص</th><th>حقوق ماهانه</th><th>وضعیت</th><th class="no-sort">عملیات</th></tr></thead>
     <tbody>${(rows||[]).map(r=>`<tr>
@@ -10609,14 +10661,14 @@ async function renderPayrollEmployees(body){
       <td class="mono">${fmt(r.monthly_salary_rial||0)}</td>
       <td>${r.active?'<span class="tag t-done">فعال</span>':'<span class="tag">غیرفعال</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal((r.id))})}">✏️</button>
-        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollEmployee((r.id))})}">🗑️</button>
+        ${canPerm('payroll','create')?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal((r.id))})}">✏️</button>
+        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollEmployee((r.id))})}">🗑️</button>`:''}
       </td></tr>`).join('')||emptyRow(7)}</tbody></table></div>
     ${(groups||[]).length?`<div class="panel" data-csp-style="${CSP.style(`margin-top:16px`)}"><div class="panel-head"><h4>گروه‌های کارکنان</h4></div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>اعضا</th><th>وضعیت</th><th></th></tr></thead>
       <tbody>${groups.map(g=>`<tr><td>${esc(g.name)}</td><td>${fmt(g.member_count||0)}</td>
         <td>${g.active?'فعال':'غیرفعال'}</td>
-        <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteEmployeeGroup((g.id))})}">🗑️</button></td></tr>`).join('')}</tbody></table></div></div>`:''}`;
+        <td>${canPerm('payroll','create')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteEmployeeGroup((g.id))})}">🗑️</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:''}`;
 }
 function payrollEmployeeModal(id){
   const r=id?(CACHE.payrollEmployees||[]).find(x=>x.id===id):null;
@@ -10673,12 +10725,12 @@ async function deleteEmployeeGroup(id){
 
 async function renderPayrollPeriods(body){
   const rows=await api('GET','/payroll/periods')||[];
-  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollPeriodModal()})}">${lucide('plus')} دوره جدید</button></div>
+  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollPeriodModal()})}">${lucide('plus')} دوره جدید</button>`:''}</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>دوره</th><th>شروع</th><th>پایان</th><th>روز موظفی</th><th>ساعت موظفی</th><th>بیمه کارگر</th><th>بیمه کارفرما</th><th>وضعیت</th><th></th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.label)}</td><td>${escDate(r.start_date)}</td><td>${escDate(r.end_date)}</td>
       <td>${fmt(r.standard_days)}</td><td>${fmt(r.standard_hours_x100/100)}</td><td>${fmt(r.employee_insurance_bp/100)}٪</td>
       <td>${fmt(r.employer_insurance_bp/100)}٪</td><td>${esc(r.status)}</td>
-      <td>${r.status==='open'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollPeriod((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
+      <td>${canPerm('payroll','create')&&r.status==='open'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollPeriod((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
 async function deletePayrollPeriod(id){
   if(!confirm('دوره حذف شود؟')) return;
@@ -10709,19 +10761,19 @@ async function renderSalaryStructures(body){
   CACHE.payrollEmployees=employees||[];
   CACHE.employeeGroups=groups||[];
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){salaryStructureModal()})}">${lucide('plus')} ساختار کارمند</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){groupSalaryStructureModal()})}">${lucide('users')} ساختار گروه کارکنان</button>
+      ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){salaryStructureModal()})}">${lucide('plus')} ساختار کارمند</button>`:''}
+      ${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){groupSalaryStructureModal()})}">${lucide('users')} ساختار گروه کارکنان</button>`:''}
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>سال</th><th>کارمند</th><th>مبنا</th><th>مزد پایه (ریال)</th><th>مسکن</th><th>بن</th><th>اولاد</th><th>بیمه</th><th></th></tr></thead>
     <tbody>${(rows||[]).map(r=>`<tr><td>${fmt(r.fiscal_year)}</td><td>${esc(r.person_name)}</td><td>${esc(r.wage_basis)}</td>
       <td class="mono">${fmt(r.base_wage_rial)}</td><td class="mono">${fmt(r.housing_allowance_rial)}</td><td class="mono">${fmt(r.grocery_allowance_rial)}</td>
       <td class="mono">${fmt(r.child_allowance_rial)} × ${fmt(r.child_count)}</td><td>${esc(r.insurance_type)}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSalaryStructure((r.id))})}">🗑️</button></td></tr>`).join('')||emptyRow(9)}</tbody></table></div>
+      <td>${canPerm('payroll','create')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSalaryStructure((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(9)}</tbody></table></div>
     <h4 data-csp-style="${CSP.style(`margin:18px 0 8px`)}">ساختار حقوق گروه‌های کارکنان</h4>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>سال</th><th>گروه</th><th>مبنا</th><th>مزد پایه</th><th>مسکن</th><th>بن</th><th></th></tr></thead>
     <tbody>${(groupRows||[]).map(r=>`<tr><td>${fmt(r.fiscal_year)}</td><td>${esc(r.group_name)}</td><td>${esc(r.wage_basis)}</td>
       <td class="mono">${fmt(r.base_wage_rial)}</td><td class="mono">${fmt(r.housing_allowance_rial)}</td><td class="mono">${fmt(r.grocery_allowance_rial)}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteGroupSalaryStructure((r.id))})}">🗑️</button></td></tr>`).join('')||emptyRow(7)}</tbody></table></div>`;
+      <td>${canPerm('payroll','create')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteGroupSalaryStructure((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(7)}</tbody></table></div>`;
 }
 function salaryStructureModal(){
   openModal(`<div class="modal-head"><h3>${lucide('receipt')} ساختار حقوق سالانه</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -10775,8 +10827,8 @@ async function renderPayrollTaxConfig(body){
   const rows=await api('GET','/payroll/tax-brackets/'+year)||[];
   body.dataset.taxYear=year;
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><label>سال <input id="taxYear" type="number" value="${year}" data-csp-style="${CSP.style(`width:100px`)}" data-csp-change="${CSP.bind('change',function(event){el('accBody').dataset.taxYear=this.value;renderPayrollTaxConfig(el('accBody'))})}"></label>
-    <button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollTaxModal((year))})}">${lucide('edit')} تعریف پلکان</button>
-    <button class="btn red ghost" data-csp-click="${CSP.bind('click',function(event){deletePayrollTaxYear((year))})}">🗑️ حذف پلکان سال</button></div>
+    ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollTaxModal((year))})}">${lucide('edit')} تعریف پلکان</button>
+    <button class="btn red ghost" data-csp-click="${CSP.bind('click',function(event){deletePayrollTaxYear((year))})}">🗑️ حذف پلکان سال</button>`:''}</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>ردیف</th><th>از مبلغ (ریال)</th><th>تا مبلغ (ریال)</th><th>نرخ</th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td>${fmt(r.bracket_order)}</td><td class="mono">${fmt(r.bracket_min_rial)}</td><td class="mono">${r.bracket_max_rial==null?'بدون سقف':fmt(r.bracket_max_rial)}</td><td>${fmt(r.tax_rate_bp/100)}٪</td></tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
 }
@@ -10798,7 +10850,7 @@ async function savePayrollTax(year){
 async function renderPayrollProcessing(body){
   const [periods,employees]=await Promise.all([api('GET','/payroll/periods'),api('GET','/payroll/employees')]);
   CACHE.payrollPeriods=periods||[];
-  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){farankenouImportModal()})}">${lucide('upload')} ورود کارکرد فراننکو</button></div>
+  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){farankenouImportModal()})}">${lucide('upload')} ورود کارکرد فراننکو</button>`:''}</div>
   <div class="panel"><div class="panel-body"><div class="form-grid">
     <div class="fg"><label>دوره *</label><select id="pc-period"><option value="">—</option>${(periods||[]).filter(p=>p.status!=='closed').map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></div>
     <div class="fg"><label>کارمند *</label><select id="pc-person"><option value="">—</option>${(employees||[]).filter(p=>p.active).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
@@ -10821,7 +10873,7 @@ async function renderPayrollProcessing(body){
     <div class="fg"><label>خالص (ریال)</label><input id="pc-m-net" class="money" inputmode="numeric" value="0" placeholder="خودکار = ناخالص−کسور"></div>
   </div>
   <div class="toolbar" data-csp-style="${CSP.style(`margin-top:14px`)}"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){previewPayrollCalculation()})}">${lucide('eye')} پیش‌نمایش</button>
-  <button class="btn" data-csp-click="${CSP.bind('click',function(event){processPayrollCalculation()})}">${lucide('check')} پردازش و ثبت سند</button></div><div id="pc-result" data-csp-style="${CSP.style(`margin-top:12px`)}"></div></div></div>`;
+  ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){processPayrollCalculation()})}">${lucide('check')} پردازش و ثبت سند</button>`:''}</div><div id="pc-result" data-csp-style="${CSP.style(`margin-top:12px`)}"></div></div></div>`;
   body.querySelectorAll('input').forEach(ensureMoneyField);
 }
 function togglePayrollManualFields(){
@@ -10867,11 +10919,11 @@ async function renderPayrollYearEnd(body){
   const year=todayJalali().slice(0,4);
   const [rows,employees]=await Promise.all([api('GET','/payroll/year-end?fiscal_year='+year),api('GET','/payroll/employees')]);
   CACHE.payrollEmployees=employees||[];
-  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollYearEndModal((year))})}">${lucide('calc')} محاسبه عیدی و سنوات</button></div>
+  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollYearEndModal((year))})}">${lucide('calc')} محاسبه عیدی و سنوات</button>`:''}</div>
   <div class="muted" data-csp-style="${CSP.style(`margin-bottom:12px`)}">عیدی و سنوات بر مبنای مزد و روزهای خدمت محاسبه می‌شود؛ سقف مزد قانونی هنگام محاسبه دریافت می‌شود.</div>
   <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کارمند</th><th>سال</th><th>روز خدمت</th><th>عیدی</th><th>سنوات</th><th>مالیات</th><th>خالص (ریال)</th><th>وضعیت</th></tr></thead>
   <tbody>${(rows||[]).map(r=>`<tr><td>${esc(r.person_name)}</td><td>${fmt(r.fiscal_year)}</td><td>${fmt(r.service_days)}</td><td>${fmt(r.eidi_rial)}</td><td>${fmt(r.severance_rial)}</td><td>${fmt(r.income_tax_rial)}</td><td>${fmt(r.net_pay_rial)}</td>
-    <td>${esc(r.status)} ${r.status==='draft'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){postPayrollYearEnd((r.id))})}">${lucide('check')} ثبت سند</button> <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollYearEnd((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+    <td>${esc(r.status)} ${canPerm('payroll','create')&&r.status==='draft'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){postPayrollYearEnd((r.id))})}">${lucide('check')} ثبت سند</button> <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollYearEnd((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
 }
 async function deletePayrollYearEnd(id){
   if(!confirm('پیش‌نویس عیدی/سنوات حذف شود؟')) return;
@@ -11774,6 +11826,19 @@ async function deleteVoucher(id){
 /* ============================================================
    GENERAL LEDGER (account-level) — embedded in acc-dash; loadGeneralLedger below
 ============================================================ */
+function filterGlAccountOptions(q){
+  const sel=el('glAccount');
+  if(!sel) return;
+  const term=String(q||'').trim().toLowerCase();
+  const cur=sel.value;
+  const accounts=CACHE.chartOfAccounts||[];
+  const rows=term
+    ? accounts.filter(a=>String(a.code||'').toLowerCase().includes(term)||String(a.name||'').toLowerCase().includes(term))
+    : accounts;
+  sel.innerHTML='<option value="">-- انتخاب حساب --</option>'+
+    rows.map(a=>`<option value="${esc(a.code)}">${esc(a.code)} — ${esc(a.name)}</option>`).join('');
+  if(cur && [...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
 async function loadGeneralLedger(code){
   const box=el('glBody'); if(!box||!code) return;
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
@@ -13036,27 +13101,32 @@ async function renderOpeningChequesTab(body, direction){
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
 function openingChequeModal(direction){
-  openModal(`<div class="modal-head"><h3>چک ${direction==='in'?'دریافتنی':'پرداختنی'} اول دوره</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+  ensurePartiesCache().then(()=>{
+    openModal(`<div class="modal-head"><h3>چک ${direction==='in'?'دریافتنی':'پرداختنی'} اول دوره</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>شماره چک</label><input id="oc-num" class="mono"></div>
       <div class="fg"><label>مبلغ ${moneyColLabel()} *</label><input id="oc-amt" type="text" inputmode="numeric" class="money"></div>
       <div class="fg"><label>بانک</label><input id="oc-bank"></div>
       <div class="fg"><label>شعبه</label><input id="oc-branch"></div>
-      <div class="fg"><label>طرف حساب</label><input id="oc-party"></div>
+      <div class="fg"><label>طرف حساب * ${hlp('از فهرست اشخاص جستجو و انتخاب کنید.')}</label>${partySelect('ocParty')}</div>
       <div class="fg"><label>تاریخ سررسید</label><input id="oc-due" data-jdate></div>
       <div class="fg"><label>شماره صیادی</label><input id="oc-sayadi" class="mono"></div>
       <div class="fg full"><label>شرح</label><input id="oc-note" placeholder="مانده اول دوره"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveOpeningCheque(`${String((direction) ?? '')}`)})}">💾 ثبت</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
-  attachDatepickers(el('modalRoot'));
+    attachDatepickers(el('modalRoot'));
+    initPartySearches(el('modalRoot'));
+  });
 }
 async function saveOpeningCheque(direction){
   const amount=moneyVal('oc-amt');
+  const party_id=+el('ocParty')?.value||0;
   if(!amount){ showToast('مبلغ الزامی است','error'); return; }
+  if(!party_id){ showToast('طرف حساب را از فهرست اشخاص انتخاب کنید','error'); return; }
   try{
-    await api('POST','/cheque-records',{direction,amount,opening:true,
+    await api('POST','/cheque-records',{direction,amount,opening:true,party_id,
       cheque_number:el('oc-num').value,bank_name:el('oc-bank').value,branch:el('oc-branch').value,
-      party_name:el('oc-party').value,due_date:el('oc-due').value,sayadi:el('oc-sayadi').value,note:el('oc-note').value});
+      due_date:el('oc-due').value,sayadi:el('oc-sayadi').value,note:el('oc-note').value});
     closeModal(); showToast('ثبت شد'); loadAccTab(direction==='in'?'opening-recv-cheques':'opening-pay-cheques');
   }catch(e){}
 }
@@ -13959,14 +14029,15 @@ async function renderTrustChecksTab(body){
     <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">چک‌های امانی صرفاً برای پیگیری امانت هستند و در سند حسابداری ثبت نمی‌شوند — در صورت وصول/پرداخت واقعی، آن را جداگانه از «عملیات دریافت» یا «عملیات پرداخت» ثبت کنید.</div>`;
 }
 function trustCheckModal(){
-  openModal(`
+  ensurePartiesCache().then(()=>{
+    openModal(`
     <div class="modal-head"><h3>🔖 ثبت چک امانی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>جهت چک *</label><select id="tc-direction">
         <option value="in">دریافتی (نزد ما امانت است)</option>
         <option value="out">پرداختی (نزد طرف مقابل امانت است)</option>
       </select></div>
-      <div class="fg"><label>طرف حساب * ${hlp('نام مشتری، تأمین‌کننده یا شخصی که این چک را داده/گرفته است.')}</label><input id="tc-party"></div>
+      <div class="fg"><label>طرف حساب * ${hlp('از فهرست اشخاص جستجو و انتخاب کنید.')}</label>${partySelect('tcParty')}</div>
       <div class="fg"><label>تلفن طرف حساب</label><input id="tc-phone"></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="tc-amount" type="number" min="1"></div>
       <div class="fg"><label>نام بانک</label><input id="tc-bank"></div>
@@ -13979,16 +14050,20 @@ function trustCheckModal(){
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveTrustCheck()})}">💾 ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
-  attachDatepickers(el('modalRoot'));
+    attachDatepickers(el('modalRoot'));
+    initPartySearches(el('modalRoot'));
+  });
 }
 async function saveTrustCheck(){
-  const party_name=el('tc-party').value.trim();
+  const party_id=+el('tcParty')?.value||0;
   const amount=+el('tc-amount').value;
-  if(!party_name){ showToast('نام طرف حساب الزامی است','error'); return; }
+  if(!party_id){ showToast('طرف حساب را از فهرست اشخاص انتخاب کنید','error'); return; }
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const p=(CACHE.parties||[]).find(x=>x.id===party_id);
   try{
     await api('POST','/trust-checks',{
-      direction:el('tc-direction').value, party_name, party_phone:el('tc-phone').value,
+      direction:el('tc-direction').value, party_id,
+      party_phone:el('tc-phone').value||(p&&p.phone)||'',
       bank_name:el('tc-bank').value, sayadi:el('tc-sayadi').value, cheque_number:el('tc-number').value,
       account_number:el('tc-account').value, amount, owner_name:el('tc-owner').value,
       due_date:el('tc-due').value, note:el('tc-note').value
@@ -18234,19 +18309,19 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است (نه فقط دفتر مشتری)؛ اگر دو دفتر اختلاف داشتند هشدار می‌آید. نمایش به تفکیک مشتری یا فاکتور، با دکمه ثبت پرداخت</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی)</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند</li>
-        <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده</li>
+        <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>
         <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>
         <li><b>صندوق‌های نقدی</b>: ساخت و مدیریت صندوق‌های نقدی شرکت بدون محدودیت در تعداد (مثلاً صندوق فروشگاه، صندوق دفتر مرکزی) — درست مثل بانک‌ها، هر صندوق یک حساب دفتر کل مستقل دارد. در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب صندوق (مثل بانک) اختیاری است</li>
         <li><b>تنخواه گردان</b>: هر صندوق نقدی را می‌توان با گزینه «این صندوق تنخواه‌گردان است» به‌عنوان صندوق تنخواه مشخص کرد تا در این صفحهٔ جداگانه با موجودی زنده نمایش داده شود — دکمهٔ «ثبت هزینه» یک هزینهٔ نقدی از همان صندوق ثبت می‌کند و دکمهٔ «افزایش تنخواه» یک انتقال وجه به آن صندوق انجام می‌دهد</li>
-        <li><b>چک‌های امانی</b>: پیگیری چک‌های دریافتی/پرداختی که صرفاً به‌عنوان امانت/ضمانت نزد ما یا نزد طرف مقابل هستند — <b>در سند حسابداری ثبت نمی‌شوند</b> چون هنوز پول واقعی جابه‌جا نشده. با تغییر وضعیت به «وصول/پرداخت شد»، «مسترد شد» یا «برگشت خورد» فقط وضعیت پیگیری به‌روز می‌شود؛ ثبت واقعی وجه (در صورت وصول) باید جداگانه از «عملیات دریافت» یا «عملیات پرداخت» انجام شود</li>
+        <li><b>چک‌های امانی</b>: پیگیری چک‌های دریافتی/پرداختی که صرفاً به‌عنوان امانت/ضمانت نزد ما یا نزد طرف مقابل هستند — <b>در سند حسابداری ثبت نمی‌شوند</b> چون هنوز پول واقعی جابه‌جا نشده. طرف حساب فقط از فهرست اشخاص با جستجو انتخاب می‌شود (نام آزاد پذیرفته نمی‌شود). با تغییر وضعیت به «وصول/پرداخت شد»، «مسترد شد» یا «برگشت خورد» فقط وضعیت پیگیری به‌روز می‌شود؛ ثبت واقعی وجه (در صورت وصول) باید جداگانه از «عملیات دریافت» یا «عملیات پرداخت» انجام شود</li>
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
-        <li><b>فاکتورهای فروش</b>: لیست همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ، به‌همراه دکمهٔ «فاکتور جدید» — مدیر/حسابدار می‌تواند در فرم فاکتور «کارشناس» را مشخص کند. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
+        <li><b>فاکتورهای فروش</b>: لیست همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ، به‌همراه دکمهٔ «فاکتور جدید» — مدیر/حسابدار می‌تواند در فرم فاکتور «کارشناس» را مشخص کند. فاکتور قطعی (معمولی/رسمی) بدون انبار مبدأ در سربرگ ثبت نمی‌شود؛ انبار سربرگ روی ردیف‌هایی که انبار ندارند کپی می‌شود و ردیف می‌تواند انبار جدا داشته باشد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید (موجودی و سند برمی‌گردند). اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
-        <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی؛ پس از شروع تمیز، ردیف «موجودی اول دوره» برای کالاهای دارای موجودی ثبت می‌شود</li>
+        <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس دفتر موجودی؛ موجودی اول دوره کالا (با بها) هم سند افتتاحیه و هم ردیف دفتر موجودی می‌سازد تا با انبار یکی بماند. پر کردن ردیف‌های قدیمی دفتر موجودی فقط روی سرور مرکزی انجام می‌شود تا دستگاه آفلاین ردیف تکراری نسازد</li>
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
@@ -18257,7 +18332,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور می‌سازد؛ ارسالی فاکتور امانت‌گیرنده است و سند بهای تمام‌شده می‌زند بدون کسر دوباره موجودی؛ دریافتی نیازمند خریدار جدا از امانت‌گذار است)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
         <li><b>ابطال کامل (R13)</b>: برای فاکتور فروش/خرید، تسویه، هزینه، انتقال وجه، چک، عملیات انبار، انبارگردانی اعمال‌شده، پرداخت حقوق، افتتاحیه بانک/صندوق و اسناد دستی — ابطال = سند معکوس + برگرداندن موجودی/مانده/وابستگی‌ها (حذف فیزیکی سند ثبت‌شده نیست)</li>
-        <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب و مشاهده گردش با مانده لحظه‌ای</li>
+        <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب با جستجوی کد/نام و مشاهده گردش با مانده لحظه‌ای</li>
         <li><b>دفتر مالی مشترک</b>: شخص / بانک / صندوق / تنخواه / حساب + خروجی CSV؛ کاردکس کالا از دفتر موجودی جدا</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص</li>
@@ -18275,7 +18350,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان به گروه اشخاص «پرسنل» متصل است — هر شخصی در آن گروه در لیست کارکنان ظاهر می‌شود و کد پرسنلی/جزئیات را دستی تکمیل می‌کنید. گروه کارکنان و ساختار حقوق گروهی در «ساختار حقوق و مزایا» تعریف می‌شود. امکان حذف ردیف‌ها و ثبت دستی حقوق هر ماه در پردازش وجود دارد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند. دکمه «پرداخت» جداگانه وجه را از صندوق/بانک پرداخت می‌کند. تنظیمات کار سالانه (حداقل مزد روزانه و سقف بیمه) در محاسبه حقوق اعمال می‌شود؛ مزایایی که در ساختار حقوق ثبت شده‌اند دوباره از تنظیمات کار اضافه نمی‌شوند. هنگام پردازش دوره، پارامترها در <code>params_json</code> دوره ذخیره می‌شوند. از گزارشات قانونی می‌توان CSV پیش‌نویس (DRAFT) لیست بیمه و مالیات هر دوره را دریافت کرد — فرمت نهایی پس از تأیید متخصص حقوق است.</li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان به گروه اشخاص «پرسنل» متصل است. ثبت/ویرایش پرونده و ساختار حقوق، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>
@@ -18570,7 +18645,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>پرداخت / تحویل</b>: از ثبت‌شده — بدهکار حساب‌های پرداختنی، بستانکار اسناد پرداختنی</li>
         <li><b>خرج چک</b>: از ثبت‌شده — بدهکار هزینه (پیش‌فرض هزینه اداری؛ کلید حساب از نگاشت کدینگ)، بستانکار اسناد پرداختنی</li>
-        <li>چک اول دوره پرداختنی سند افتتاحیه دارد و دوباره پرداخت/خرج نمی‌شود</li>
+        <li>چک اول دوره پرداختنی سند افتتاحیه دارد و دوباره پرداخت/خرج نمی‌شود. طرف حساب چک اول دوره هم از فهرست اشخاص جستجو و انتخاب می‌شود</li>
       </ul>
       <div class="tip">هر گذار چرخه فقط یک‌بار سند می‌زند (تکرار = خطای سند تکراری). تغییر وضعیت با متن آزاد برای گذارهای مالی مسدود است. <b>ابطال کامل</b> همهٔ اسناد چرخه و افتتاحیه را در یک تراکنش معکوس می‌کند (حذف فیزیکی نیست).</div>`),
     helpSec('💳','کارتخوان (POS)',`

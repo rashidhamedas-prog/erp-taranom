@@ -126,6 +126,10 @@ function chequeAccountNetAll(accountCode, chequeId) {
   const notesRecv = acct(db, 'coa_cheques_receivable');
   const expense = acct(db, 'coa_admin_expense');
   const AMT = 2_500_000;
+  const partyId = db.prepare(`
+    INSERT INTO parties (person_code, party_type, full_name, phone, is_active)
+    VALUES ('P-TRS01','other','طرف چک تست','09151118801',1)
+  `).run().lastInsertRowid;
 
   // ── Happy path: pay ──
   console.log('\n— pay (issue to payee) —');
@@ -133,6 +137,7 @@ function chequeAccountNetAll(accountCode, chequeId) {
     direction: 'out',
     cheque_number: 'PAY-001',
     amount: AMT,
+    party_id: partyId,
     party_name: 'تأمین‌کننده تست',
     due_date: '1405/06/01',
   });
@@ -166,7 +171,7 @@ function chequeAccountNetAll(accountCode, chequeId) {
   // ── Expense / endorse (out) ──
   console.log('\n— expense / endorse —');
   r = await api('POST', '/api/cheque-records', {
-    direction: 'out', cheque_number: 'EXP-001', amount: AMT, party_name: 'هزینه تست',
+    direction: 'out', cheque_number: 'EXP-001', amount: AMT, party_id: partyId, party_name: 'هزینه تست',
   });
   const expId = r.data.id;
   r = await api('POST', `/api/cheque-records/${expId}/expense`, { date: '1405/04/03' });
@@ -177,7 +182,7 @@ function chequeAccountNetAll(accountCode, chequeId) {
   ok(expCr.credit === AMT, 'expense Cr notes payable', JSON.stringify(expCr));
 
   r = await api('POST', '/api/cheque-records', {
-    direction: 'out', cheque_number: 'END-OUT', amount: AMT, party_name: 'خرج تست',
+    direction: 'out', cheque_number: 'END-OUT', amount: AMT, party_id: partyId, party_name: 'خرج تست',
   });
   const endOutId = r.data.id;
   r = await api('POST', `/api/cheque-records/${endOutId}/endorse`, {
@@ -197,7 +202,7 @@ function chequeAccountNetAll(accountCode, chequeId) {
     'bad account_key or already endorsed', r.data?.code);
 
   r = await api('POST', '/api/cheque-records', {
-    direction: 'out', cheque_number: 'BAD-KEY', amount: AMT, party_name: 'کلید بد',
+    direction: 'out', cheque_number: 'BAD-KEY', amount: AMT, party_id: partyId, party_name: 'کلید بد',
   });
   const badId = r.data.id;
   r = await api('POST', `/api/cheque-records/${badId}/expense`, {
@@ -208,7 +213,7 @@ function chequeAccountNetAll(accountCode, chequeId) {
 
   // ── Endorse received cheque (خرج دریافتنی) ──
   r = await api('POST', '/api/cheque-records', {
-    direction: 'in', cheque_number: 'END-IN', amount: AMT, party_name: 'مشتری تست',
+    direction: 'in', cheque_number: 'END-IN', amount: AMT, party_id: partyId, party_name: 'مشتری تست',
   });
   const endInId = r.data.id;
   r = await api('POST', `/api/cheque-records/${endInId}/endorse`, { date: '1405/04/06' });
@@ -237,7 +242,7 @@ function chequeAccountNetAll(accountCode, chequeId) {
   ok(r.status === 400, 'second cancel rejected');
 
   r = await api('POST', '/api/cheque-records', {
-    direction: 'out', cheque_number: 'VOID-DEL', amount: AMT, party_name: 'حذف منطقی',
+    direction: 'out', cheque_number: 'VOID-DEL', amount: AMT, party_id: partyId, party_name: 'حذف منطقی',
   });
   const delId = r.data.id;
   await api('POST', `/api/cheque-records/${delId}/pay`, { date: '1405/04/08' });
@@ -248,7 +253,7 @@ function chequeAccountNetAll(accountCode, chequeId) {
 
   // opening out cannot pay
   r = await api('POST', '/api/cheque-records', {
-    direction: 'out', cheque_number: 'OPEN-1', amount: AMT, party_name: 'افتتاحیه', opening: true,
+    direction: 'out', cheque_number: 'OPEN-1', amount: AMT, party_id: partyId, party_name: 'افتتاحیه', opening: true,
     issue_date: '1405/01/01',
   });
   ok(r.status === 200 && r.data?.journal_entry_id, 'opening out still posts JE');

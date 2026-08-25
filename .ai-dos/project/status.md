@@ -1,16 +1,18 @@
 # Project Status
 
 - Last verified: 2026-08-25
-- **Active task:** `QA-ERP-FULL-CYCLE` (isolated Admin+Roles QA harness; no deploy)
-- **Harness tip:** this branch `ai/QA-ERP-FULL-CYCLE-admin-roles`. Cheque admin.js tests kept (`50e8269`).
-- **Child product:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` completed @ `7d60258` (`erp-taranom-qa-erp-fix-highs`)
-- **Authoritative qa:full:** `qa-20260824T224056-6580` · PASS 246 · FAIL 0 · ERROR 0 · NOT_IMPLEMENTED 14 · recon JE 0
-- **Reviews:** Bugbot none; Independent APPROVED; Security C0/H0/M0
-- **Follow-up:** `QA-ERP-GAPS-NOT-IMPLEMENTED`
-- **erp-taranom1:** stayed on `ai/UI-DOCS-STITCH` (not checked out)
-- **No Iran deploy / merge.**
-- Branch/worktree: `ai/QA-ERP-FULL-CYCLE-admin-roles` /
-  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-full-cycle` @ `6ce3ac1`
+- **Active task:** `QA-ERP-FULL-CYCLE-INTEGRATION` (merge harness + product Highs; no Primary/deploy)
+- **Integration branch/worktree:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration` @ Primary `6ce3ac1`
+- **Sources (kept):** harness `a9a7110` (`ai/QA-ERP-FULL-CYCLE-admin-roles`); product `7d60258` (`ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`)
+- **Harness:** cheque admin.js tests kept (`50e8269`). Claims transferred from parent.
+- **Child product:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` + `QA-ERP-RBAC-MATRIX-ALIGN` completed @ `7d60258`
+- **Prior product E2E:** `qa-20260824T214150-19348` exit 1 · PASS 218 · FAIL 18 (matrix vs route; later closed)
+- **Authoritative sibling qa:full:** `qa-20260824T224056-6580` · PASS 246 · FAIL 0 · ERROR 0 · NOT_IMPLEMENTED 14 · recon JE 0
+- **Prior reviews (product tree):** Bugbot none; Independent APPROVED; Security C0/H0/M0
+- **Follow-up:** `QA-ERP-GAPS-NOT-IMPLEMENTED` (classify in Integration; do not fake PASS)
+- **erp-taranom1:** stayed on `ai/UI-DOCS-STITCH` (not checked out; UI-STITCH-P0-DISCOVERY untouched)
+- **No Iran deploy / Primary merge / push this session.**
 - First full run `qa-20260824T151001-15880`: exit **3** · PASS 211 · FAIL 24 · NOT_IMPLEMENTED 14
   Evidence: `docs/qa/FIRST-RUN.md`. **No Iran deploy / merge.**
 - Prior: `PROD-STITCH-P5B` completed
