@@ -188,8 +188,12 @@ tasks:
     worktree: ""
     file_claims: []
     notes: >-
-      Do not mark these PASS. Evidence qa-20260824T224056-6580.
-      Integration classifies the 14 gaps; does not implement them.
+      Do not mark these PASS. Evidence qa-20260825T115815-8164 (Integration).
+      Classification: RFQ/3-way/GRNI/SOD/branch = MISSING_PRODUCT_FEATURE;
+      tracking_profile + sales.reservation_on_order = MISSING_QA_COVERAGE
+      (fabric-roll + inventory reservations exist); backup.restore =
+      MISSING_QA_COVERAGE (admin backup APIs exist). Single-company branch
+      ACL also listed as product gap until owner marks non-goal.
     acceptance_criteria:
       - "Each gap is either implemented with tests or remains an explicit NOT_IMPLEMENTED task"
     non_goals:

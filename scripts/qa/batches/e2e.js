@@ -38,7 +38,30 @@ async function runE2E({ repoRoot, baseUrl, rec, ctx, artifactDir, skip }) {
     return;
   }
 
-  const browser = await playwright.chromium.launch({ headless: true });
+  rec({ id: 'e2e.playwright', suite: 'e2e', module: 'ui', status: 'PASS', message: loc });
+
+  let browser;
+  const launchOpts = { headless: true };
+  try {
+    browser = await playwright.chromium.launch(launchOpts);
+  } catch (e) {
+    const msg = String(e && e.message || e);
+    if (!/Executable doesn't exist/i.test(msg)) throw e;
+    try {
+      browser = await playwright.chromium.launch({ ...launchOpts, channel: 'chrome' });
+      rec({
+        id: 'e2e.browser_channel', suite: 'e2e', module: 'ui', status: 'PASS',
+        message: 'bundled chromium missing; used channel=chrome',
+      });
+    } catch (e2) {
+      browser = await playwright.chromium.launch({ ...launchOpts, channel: 'msedge' });
+      rec({
+        id: 'e2e.browser_channel', suite: 'e2e', module: 'ui', status: 'PASS',
+        message: 'bundled chromium missing; used channel=msedge',
+      });
+    }
+  }
+
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   const consoleErrors = [];
   const pageErrors = [];

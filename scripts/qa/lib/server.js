@@ -12,8 +12,17 @@ async function startQaServer({ repoRoot, dbPath, companiesDir, jwtSecret, portHi
   const env = {
     PATH: process.env.PATH,
     SYSTEMROOT: process.env.SYSTEMROOT,
+    WINDIR: process.env.WINDIR || process.env.SYSTEMROOT,
     TEMP: process.env.TEMP,
     TMP: process.env.TMP,
+    USERPROFILE: process.env.USERPROFILE,
+    HOMEDRIVE: process.env.HOMEDRIVE,
+    HOMEPATH: process.env.HOMEPATH,
+    APPDATA: process.env.APPDATA,
+    LOCALAPPDATA: process.env.LOCALAPPDATA,
+    USERNAME: process.env.USERNAME,
+    COMSPEC: process.env.COMSPEC,
+    PATHEXT: process.env.PATHEXT,
     PORT: String(port),
     LISTEN_HOST: '127.0.0.1',
     SYNC_ROLE: 'central',
@@ -28,6 +37,7 @@ async function startQaServer({ repoRoot, dbPath, companiesDir, jwtSecret, portHi
     SMS_API_KEY: '',
     SMS_DISABLED: '1',
   };
+  Object.keys(env).forEach((k) => { if (env[k] == null || env[k] === '') delete env[k]; });
   const child = spawn(process.execPath, [path.join(repoRoot, 'server', 'server.js')], {
     cwd: path.join(repoRoot, 'server'),
     env,
@@ -41,7 +51,8 @@ async function startQaServer({ repoRoot, dbPath, companiesDir, jwtSecret, portHi
   const started = Date.now();
   const { createHttp } = require('./http');
   const httpc = createHttp(port);
-  while (Date.now() - started < 45000) {
+  const bootMs = Number(process.env.QA_SERVER_BOOT_TIMEOUT_MS) || 120000;
+  while (Date.now() - started < bootMs) {
     try {
       const r = await httpc.get('/system/health');
       if (r.status === 200) {

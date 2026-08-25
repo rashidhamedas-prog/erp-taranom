@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۳ — QA-ERP-FULL-CYCLE Integration qa:full GREEN (no Primary/deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` از Primary `6ce3ac1` (والدین `a9a7110` + `7d60258`)
+- **خلاصه:** `NODE_ENV=test node scripts/qa/run-full-erp-qa.js` بدون `--skip-e2e`. `qa-20260825T115815-8164` exit **0** · PASS **248** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14**. Admin + All-Roles + Playwright E2E (channel=chrome). recon JE=0 · FK=0 · انبار/دفتر=0.
+- **Harness:** boot Windows USERPROFILE + timeout 120s؛ E2E اگر chromium باندل نباشد از Chrome سیستم استفاده می‌کند.
+- **فایل‌ها:** `scripts/qa/lib/server.js`, `scripts/qa/batches/e2e.js`, `.ai-dos/*`, `docs/CHANGE-LOG.md`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
 ### ۱۴۰۵/۰۶/۰۳ — QA-ERP-FULL-CYCLE Integration (no Primary/deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` از Primary `6ce3ac1`

@@ -1,7 +1,14 @@
 # Project Status
 
 - Last verified: 2026-08-25
-- **Active task:** `QA-ERP-FULL-CYCLE-INTEGRATION` (merge harness + product Highs; no Primary/deploy)
+- **Active task:** `QA-ERP-FULL-CYCLE-INTEGRATION` — isolated qa:full GREEN; **MERGE_READY pending dual review**
+- **Integration tip:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration` @ Primary `6ce3ac1`
+- **Sources:** harness `a9a7110` + product `7d60258`
+- **qa:full (this tree, no skip-e2e):** `qa-20260825T115815-8164` · exit **0** · PASS **248** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14**
+  Admin batch ✓ · All-Roles batch ✓ · Playwright E2E ✓ (channel=chrome)
+  recon JE unbalanced **0** · FK **0** · ledger vs warehouse **0**
+- **No Iran deploy / Primary merge / push this session.**
 - **Integration branch/worktree:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` /
   `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration` @ Primary `6ce3ac1`
 - **Sources (kept):** harness `a9a7110` (`ai/QA-ERP-FULL-CYCLE-admin-roles`); product `7d60258` (`ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`)

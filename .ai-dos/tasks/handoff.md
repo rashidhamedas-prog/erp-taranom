@@ -1,3 +1,13 @@
+## 2026-08-25T15:00:00+03:30 — Integration qa:full GREEN (no Primary/deploy)
+
+- **Task:** `QA-ERP-FULL-CYCLE-INTEGRATION` still `active` until Bugbot + Independent + Security on this tip.
+- **Tip:** merge `16791be` (a9a7110 + 7d60258) plus harness boot/E2E fallback (pending this commit).
+- **Run:** `qa-20260825T115815-8164` · `NODE_ENV=test node scripts/qa/run-full-erp-qa.js` (no `--skip-e2e`)
+- **Exit 0** · PASS **248** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14** · SKIP 1
+- Admin + All-Roles + Playwright E2E (system Chrome channel) ran. recon JE=0 FK=0 stock-GL=0.
+- **14 gaps classified** (do not fake PASS). See CHANGE-LOG / report. **NO merge / push / Iran deploy.**
+- **Exact next:** Bugbot + Independent (`/agent-review`) + Security on this worktree only.
+
 ## 2026-08-25T14:15:00+03:30 — QA-ERP-FULL-CYCLE-INTEGRATION claimed + source merge
 
 - **Task:** `QA-ERP-FULL-CYCLE-INTEGRATION` status=`active`; owner `cursor:orchestrator-qa-erp`; implementer `cursor:implementer-qa-integration`.
