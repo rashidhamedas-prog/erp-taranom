@@ -38,9 +38,11 @@ tasks:
       Do not edit product code, Stitch map, or dirty deploy scripts.
       No merge/deploy/production DB. High/Critical product fixes need
       independent Reviewer+Security and a child task.
-      Implementer harness done 2026-08-24. First full run qa-20260824T151001-15880
-      exit 3 (product Highs still open — not a harness crash). PASS 211 FAIL 24
-      NOT_IMPLEMENTED 14. Child: QA-ERP-FULL-CYCLE-FIX-HIGHS.
+      Implementer harness done 2026-08-24. Authoritative qa:full
+      qa-20260824T224056-6580 on product sibling: PASS 246 FAIL 0 ERROR 0.
+      Cheque admin.js kept at 50e8269. erp-taranom1 not checked out.
+      Child product @ 7d60258. Follow-up: QA-ERP-GAPS-NOT-IMPLEMENTED.
+      NO merge/deploy.
     acceptance_criteria:
       - "Admin and All-Roles batches runnable from zero on temp DB"
       - "Fail-closed: NODE_ENV=test + unique QA_RUN_ID; production-like paths exit 2"
@@ -55,28 +57,26 @@ tasks:
 
   - id: "QA-ERP-FULL-CYCLE-FIX-HIGHS"
     title: "Product Highs from QA-ERP-FULL-CYCLE (party_id, firm WH, stock ledger, payroll RBAC)"
-    status: "blocked"
-    review_status: "PENDING"
-    security_status: "REQUIRED"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
     risk: "high"
     owner: "cursor:orchestrator-qa-erp"
     parent: "QA-ERP-FULL-CYCLE"
     roles:
       orchestrator: "cursor:orchestrator-qa-erp"
-      implementer: "unassigned"
+      implementer: "cursor:implementer-qa-fix-highs"
       reviewer: "cursor:independent-reviewer-qa-erp"
       security: "cursor:independent-security-qa-erp"
-    branch: ""
-    worktree: ""
-    claimed_at: "2026-08-24T18:40:00+03:30"
+    branch: "ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-fix-highs"
+    claimed_at: "2026-08-24T18:57:00+03:30"
+    completed_at: "2026-08-25T02:45:00+03:30"
     file_claims: []
     notes: >-
-      Blocked until owner assigns implementer ≠ cursor:implementer-qa-erp.
-      Evidence: artifacts/qa/qa-20260824T151001-15880 and docs/qa/FIRST-RUN.md.
-      Intended claims when started: server/routes/cheque-records.js,
-      server/routes/invoices.js, server/routes/payroll.js,
-      warehouse_stock vs inventory_ledger, UI trust-checks/opening-cheques party_id.
-      Do not weaken QA assertions to force PASS. No deploy.
+      Implemented on sibling worktree (not this harness tree). Tip 7d60258.
+      Bugbot no bugs; Independent APPROVED; Security C0/H0/M0 after payroll
+      master-data gate. qa:full PASS 246. Claims released. NO merge/deploy.
     acceptance_criteria:
       - "cheque_records POST accepts party_id (not only party_name)"
       - "firm invoice without warehouse_id is 4xx"
@@ -85,6 +85,31 @@ tasks:
       - "Regression covered by scripts/qa; Highs need Independent Reviewer+Security"
     non_goals:
       - "Harness rewrite"
+      - "Iran deploy"
+
+  - id: "QA-ERP-GAPS-NOT-IMPLEMENTED"
+    title: "Follow-up product gaps reported as NOT_IMPLEMENTED by QA-ERP-FULL-CYCLE"
+    status: "pending"
+    review_status: "PENDING"
+    security_status: "NOT_REQUIRED"
+    risk: "medium"
+    owner: "unassigned"
+    parent: "QA-ERP-FULL-CYCLE"
+    roles:
+      orchestrator: "unassigned"
+      implementer: "unassigned"
+    branch: ""
+    worktree: ""
+    file_claims: []
+    notes: >-
+      Do not mark these PASS. Evidence qa-20260824T224056-6580.
+      Gaps: RFQ; 3-way match; GRNI/coa_grni; maker-checker SOD;
+      branch ACL; order reservations; purchase RFQ;
+      fabric tracking_profile=roll; backup/restore not hit in admin batch.
+    acceptance_criteria:
+      - "Each gap is either implemented with tests or remains an explicit NOT_IMPLEMENTED task"
+    non_goals:
+      - "Fake PASS in the QA harness"
       - "Iran deploy"
 
   - id: "PROD-STITCH-P5B"

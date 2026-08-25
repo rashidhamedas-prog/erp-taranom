@@ -2,9 +2,11 @@
 
 - Last verified: 2026-08-25
 - **Active task:** `QA-ERP-FULL-CYCLE` (isolated Admin+Roles QA harness; no deploy)
-- **Harness tip:** `60e371f` on `ai/QA-ERP-FULL-CYCLE-admin-roles` (`erp-taranom-qa-erp-full-cycle`). Cheque admin.js tests kept.
-- **Child product:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` on `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product` @ `88d30ab`
+- **Harness tip:** this branch `ai/QA-ERP-FULL-CYCLE-admin-roles`. Cheque admin.js tests kept (`50e8269`).
+- **Child product:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` completed @ `7d60258` (`erp-taranom-qa-erp-fix-highs`)
 - **Authoritative qa:full:** `qa-20260824T224056-6580` · PASS 246 · FAIL 0 · ERROR 0 · NOT_IMPLEMENTED 14 · recon JE 0
+- **Reviews:** Bugbot none; Independent APPROVED; Security C0/H0/M0
+- **Follow-up:** `QA-ERP-GAPS-NOT-IMPLEMENTED`
 - **erp-taranom1:** stayed on `ai/UI-DOCS-STITCH` (not checked out)
 - **No Iran deploy / merge.**
 - Branch/worktree: `ai/QA-ERP-FULL-CYCLE-admin-roles` /

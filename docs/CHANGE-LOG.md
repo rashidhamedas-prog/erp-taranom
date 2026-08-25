@@ -13,6 +13,20 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۳ — QA reviews C0/H0/M0; cheque harness kept (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles`
+- **خلاصه:** `admin.js` چک با `party_id` حفظ شد. workspace روی `ai/UI-DOCS-STITCH` نرفت. محصول sibling `7d60258`. qa:full PASS 246. Bugbot بدون باگ؛ Independent APPROVED؛ Security C0/H0/M0. پیگیری: `QA-ERP-GAPS-NOT-IMPLEMENTED`.
+- **فایل‌ها:** `.ai-dos/tasks/active.yaml`, `.ai-dos/tasks/handoff.md`, `.ai-dos/project/status.md`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA reviews C0/H0/M0; cheque harness kept (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles`
+- **خلاصه:** `admin.js` چک با `party_id` حفظ شد. workspace روی `ai/UI-DOCS-STITCH` نرفت. محصول sibling `7d60258`. qa:full PASS 246. Bugbot بدون باگ؛ Independent APPROVED؛ Security C0/H0/M0. پیگیری: `QA-ERP-GAPS-NOT-IMPLEMENTED`.
+- **فایل‌ها:** `.ai-dos/tasks/active.yaml`, `.ai-dos/tasks/handoff.md`, `.ai-dos/project/status.md`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
 ### ۱۴۰۵/۰۶/۰۳ — QA harness cheque tests kept on admin-roles (no deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles` @ `60e371f` (worktree والد)

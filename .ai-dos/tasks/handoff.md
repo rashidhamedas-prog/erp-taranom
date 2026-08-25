@@ -1,3 +1,21 @@
+## 2026-08-25T02:45:00+03:30 — Reviews green; cheque harness kept on admin-roles
+
+- **This worktree:** `ai/QA-ERP-FULL-CYCLE-admin-roles` @ `9d853c3` then this commit. `scripts/qa/batches/admin.js` cheque tests unchanged since `50e8269`.
+- **erp-taranom1:** stayed `ai/UI-DOCS-STITCH` (not checked out).
+- **Product sibling:** `7d60258` — skipStock no `stock_logs`; payroll pay/void/delete + master-data `payroll.create`.
+- **qa:full:** `qa-20260824T224056-6580` PASS 246 FAIL 0 ERROR 0 · recon JE 0.
+- **Reviews (product worktree):** Bugbot no bugs; Independent APPROVED; Security C0/H0/M0 ([Security Review](6232929e-5149-4fb6-b77b-b45399ff3fab)).
+- **Follow-up task:** `QA-ERP-GAPS-NOT-IMPLEMENTED` (14 gaps, not PASS). **NO merge / Iran deploy.**
+
+## 2026-08-25T02:45:00+03:30 — Reviews green; cheque harness kept on admin-roles
+
+- **This worktree:** `ai/QA-ERP-FULL-CYCLE-admin-roles` @ `9d853c3` then this commit. `scripts/qa/batches/admin.js` cheque tests unchanged since `50e8269`.
+- **erp-taranom1:** stayed `ai/UI-DOCS-STITCH` (not checked out).
+- **Product sibling:** `7d60258` — skipStock no `stock_logs`; payroll pay/void/delete + master-data `payroll.create`.
+- **qa:full:** `qa-20260824T224056-6580` PASS 246 FAIL 0 ERROR 0 · recon JE 0.
+- **Reviews (product worktree):** Bugbot no bugs; Independent APPROVED; Security C0/H0/M0 ([Security Review](6232929e-5149-4fb6-b77b-b45399ff3fab)).
+- **Follow-up task:** `QA-ERP-GAPS-NOT-IMPLEMENTED` (14 gaps, not PASS). **NO merge / Iran deploy.**
+
 ## 2026-08-25T02:15:00+03:30 — Continue on admin-roles; do not touch erp-taranom1
 
 - **Constraint:** Cursor workspace `erp-taranom1` stayed on `ai/UI-DOCS-STITCH`. No checkout of this worktree. `scripts/qa/batches/admin.js` cheque tests remain at `50e8269` / tip `60e371f`.
