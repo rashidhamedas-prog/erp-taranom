@@ -13,6 +13,15 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۴ — QA recon ledger ∪ warehouse_stock (no Primary/deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION`
+- **خلاصه:** `stock.ledger_vs_warehouse` حالا کلیدهای هر دو منبع را با UNION روی company/warehouse/product/variant (در صورت وجود ستون) مقایسه می‌کند: ledger بدون انبار، انبار بدون ledger، و اختلاف مقدار. تست رگرسیون `test-qa-fix-recon-ledger-union.js` ابتدا FAIL بود، بعد از فیکس ۱۲/۱۲. بوت HTTP در `test-crm-pro-rbac.js` تا ۴۵ثانیه صبر می‌کند (قبلاً ۱۵ثانیه و زیر بار flake).
+- **qa:full:** `qa-20260826T135416-20172` بدون `--skip-e2e` · exit **0** · PASS **248** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14** · recon JE=0 · FK=0 · stock=0
+- **فایل‌ها:** `scripts/qa/recon.js`, `server/scripts/test-qa-fix-recon-ledger-union.js`, `server/scripts/test-crm-pro-rbac.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+- **Rollback:** `git checkout -- scripts/qa/recon.js server/scripts/test-crm-pro-rbac.js` روی همین شاخه؛ تست رگرسیون را دوباره باید FAIL ببیند.
+
 ### ۱۴۰۵/۰۶/۰۳ — QA-ERP-FULL-CYCLE Integration qa:full GREEN (no Primary/deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` از Primary `6ce3ac1` (والدین `a9a7110` + `7d60258`)

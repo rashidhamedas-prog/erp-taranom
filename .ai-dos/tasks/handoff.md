@@ -1,3 +1,14 @@
+## 2026-08-26T17:30:00+03:30 — recon UNION fix + qa:full GREEN (no Primary/deploy)
+
+- **Bugbot finding:** `scripts/qa/recon.js` `stock.ledger_vs_warehouse` only walked ledger keys; positive `warehouse_stock` without ledger was PASS.
+- **Regression first:** `test-qa-fix-recon-ledger-union.js` failed 4 cases on old code (warehouse-only + company/variant sides).
+- **Fix:** UNION keys from both sources; dims company/warehouse/product/variant when columns exist; missing side treated as 0.
+- **Harness:** CRM-PRO RBAC HTTP wait 60→180 ticks (boot ~20s under load; 15s was flake). Assertions unchanged.
+- **qa:full:** `qa-20260826T135416-20172` exit **0** · PASS **248** · FAIL **0** · ERROR **0** · JE **0** · FK **0** · stock **0**. Prior flake run `qa-20260826T134136-19508` FAIL 1 wrap.crm_pro_rbac ECONNREFUSED.
+- **Reviews:** Bugbot no bugs ([Bugbot](ae3528f1-ebec-49e1-a8ca-f874b91b6b71)); Independent APPROVED ([Independent](8af62a60-b0a0-4dc7-8476-499d110d3da8)); Security C0/H0/M0 ([Security](15b49fa8-361b-4920-aeeb-28894e97c2d9)).
+- **NO merge / push / Iran deploy.** Rollback: restore `recon.js` + RBAC wait.
+- **MERGE_READY on this worktree** (FAIL=0 ERROR=0 JE=0 FK=0 stock=0, no H/M). Owner still must approve Primary merge.
+
 ## 2026-08-25T15:00:00+03:30 — Integration qa:full GREEN (no Primary/deploy)
 
 - **Task:** `QA-ERP-FULL-CYCLE-INTEGRATION` still `active` until Bugbot + Independent + Security on this tip.

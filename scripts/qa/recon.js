@@ -45,23 +45,43 @@ function runRecon(db) {
   }
   if (firmNoWh >= 0) add('firm_invoice.has_warehouse', firmNoWh === 0, 0, firmNoWh);
 
-  let ledgerVsWh = { ok: true, extra: 'skipped' };
   try {
     const hasLedger = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get();
-    if (hasLedger) {
-      const rows = db.prepare(`
-        SELECT warehouse_id, product_id, ROUND(SUM(qty_in - qty_out), 6) AS q
-        FROM inventory_ledger GROUP BY warehouse_id, product_id
-      `).all();
+    const hasWh = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='warehouse_stock'").get();
+    if (hasLedger && hasWh) {
+      const colNames = (table) => new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+      const ledCols = colNames('inventory_ledger');
+      const wsCols = colNames('warehouse_stock');
+      const dims = ['company_id', 'warehouse_id', 'product_id', 'variant_id']
+        .filter((c) => ledCols.has(c) || wsCols.has(c));
+      const selectList = (avail) => dims.map((c) => (avail.has(c) ? c : `NULL AS ${c}`)).join(', ');
+      const groupList = (avail) => {
+        const g = dims.filter((c) => avail.has(c));
+        return g.length ? g.join(', ') : 'NULL';
+      };
+      const keyOf = (row) => dims.map((c) => (row[c] == null || row[c] === '' ? '∅' : String(row[c]))).join('|');
+      const qtyByKey = new Map();
+      const bump = (row, side, qty) => {
+        const k = keyOf(row);
+        const cur = qtyByKey.get(k) || { ledger: 0, warehouse: 0 };
+        cur[side] += Number(qty) || 0;
+        qtyByKey.set(k, cur);
+      };
+      for (const r of db.prepare(`
+        SELECT ${selectList(ledCols)}, ROUND(SUM(qty_in - qty_out), 6) AS q
+        FROM inventory_ledger GROUP BY ${groupList(ledCols)}
+      `).all()) bump(r, 'ledger', r.q);
+      for (const r of db.prepare(`
+        SELECT ${selectList(wsCols)}, ROUND(SUM(qty), 6) AS q
+        FROM warehouse_stock GROUP BY ${groupList(wsCols)}
+      `).all()) bump(r, 'warehouse', r.q);
       let mismatch = 0;
-      for (const r of rows) {
-        const ws = db.prepare(
-          'SELECT qty FROM warehouse_stock WHERE warehouse_id=? AND product_id=?'
-        ).get(r.warehouse_id, r.product_id);
-        const wq = Number(ws?.qty || 0);
-        if (Math.abs(wq - Number(r.q || 0)) > 0.001) mismatch += 1;
+      for (const v of qtyByKey.values()) {
+        if (Math.abs(v.warehouse - v.ledger) > 0.001) mismatch += 1;
       }
-      add('stock.ledger_vs_warehouse', mismatch === 0, 0, mismatch, 'opening stock may live only on warehouse_stock');
+      add('stock.ledger_vs_warehouse', mismatch === 0, 0, mismatch, 'union company/warehouse/product/variant');
+    } else if (hasLedger) {
+      add('stock.ledger_vs_warehouse', true, 'n/a', 'no warehouse_stock');
     } else {
       add('stock.ledger_vs_warehouse', true, 'n/a', 'no inventory_ledger');
     }
