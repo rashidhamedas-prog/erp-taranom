@@ -20,7 +20,7 @@
 - **اصلاح:** فاکتور قطعی همیشه Dr تفصیلی مشتری + ردیف دفتر؛ نقدی جفت Dr صندوق / Cr AR (+ ردیف دریافت مگر تسویهٔ جدا روی همان فاکتور). تعمیر یک‌باره `customer_books_repair_v1` (افتتاحیه از ۱۱۰۳ به تفصیلی، بازسازی دفتر/سند، `invoice_ar_reclass` برای نقدی قدیمی، افتتاحیهٔ دفتر بدون سند). KPI = جمع تفصیلی مشتریان. صورت‌حساب فاکتور قطعیِ بدون ردیف را هم نشان می‌دهد.
 - **فایل‌ها:** `server/lib/customer-books.js`، `server/routes/invoices.js`، `server/lib/void-invoice.js`، `server/routes/accounting.js`، `server/lib/opening-post.js`، `server/public/{app.js,sw.js,index.html}`، `server/scripts/test-ledger-statement-repair.js`
 - **تست:** `test-ledger-statement-repair.js` ۱۴/۱۴ · `test-acc-stitch-p2.js` ۷۹ · `test-sms.js` ۲۲/۲۲ · `test-sync.js` ۴۴/۴۴
-- **Deploy:** ⏳ ایران overlay v177 — بدون تعویض کامل `db.js`؛ تعمیر با اولین overview/statement
+- **Deploy:** ✅ ایران overlay v177 @ `1788d1b` — health/ready/root 200؛ SW `erp-taranom-v177`؛ `db.js` کامل عوض نشد؛ تعمیر با اولین overview/statement
 
 ### ۱۴۰۵/۰۶/۰۹ — Git hygiene: merge leftover PACK + tidy Primary
 

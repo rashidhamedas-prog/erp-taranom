@@ -5,7 +5,7 @@
 - **Fix:** `server/lib/customer-books.js` — always post AR; repair v1; KPI = customer tafsili sum. Help + SW v177.
 - **Tests:** statement-repair 14, stitch-p2 79, sms 22, sync 44.
 - **Do not commit:** dirty `scripts/_deploy-demo-ui-v156-sftp.py`, `_deploy-mdi-v152-sftp.py`, `_diag-moein-ledger*.py`.
-- **Iran:** overlay without wholesale `db.js`.
+- **Iran:** overlay v177 ✅ health/ready/root 200 @ `1788d1b`. Repair runs on first overview/statement.
 
 ## 2026-08-31T15:20:00+03:30 — Git hygiene + leftover PACK merge
 
