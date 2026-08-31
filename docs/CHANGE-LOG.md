@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۹ — QA gaps: backup create/list/health (no Primary/deploy)
+
+- **شاخه:** `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` از Primary `dbd86fc`
+- **خلاصه:** بچ Admin حالا `/admin/backup-health`، `/admin/backup-now` و `/admin/backups` را روی DB ایزوله می‌زند. restore همچنان `NOT_IMPLEMENTED` است (مخرب وسط اجرا).
+- **فایل‌ها:** `scripts/qa/batches/admin.js`
+- **Deploy:** ❌ بدون merge به Primary در این فرزند
+
 ### ۱۴۰۵/۰۶/۰۹ — QA-ERP merge to Primary + Iran overlay v173
 
 - **شاخه:** `claude/claude-md-docs-2ssrpy` @ `be0faec` (merge `9f37b46` از Integration)
