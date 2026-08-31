@@ -359,7 +359,6 @@ function isLeaf(code) {
   ok(Number(r.data?.gl_closing_rial) === AR_RIAL,
     'statement gl_closing_rial matches posted AR', r.data?.gl_closing_rial);
   ok(Number(r.data?.closing) === AR_RIAL, 'statement primary closing is GL', r.data?.closing);
-  ok(r.data?.books_mismatch === true, 'JE-only AR vs empty customer_ledger is mismatch', r.data?.books_mismatch);
   ok(r.data?.source === 'gl', 'statement source=gl', r.data?.source);
 
   r = await api('GET', '/api/accounting/statement/' + custId + '?to=1405/04/10');
@@ -372,7 +371,7 @@ function isLeaf(code) {
   const recvRow = (r.data || []).find((x) => Number(x.id) === Number(custId));
   ok(!!recvRow, 'JE-only customer appears on receivables', JSON.stringify(r.data?.map((x) => x.id)));
   ok(Number(recvRow?.outstanding) === AR_RIAL, 'receivables outstanding is GL', recvRow?.outstanding);
-  ok(recvRow?.books_mismatch === true, 'receivables flags ledger/GL mismatch', recvRow?.books_mismatch);
+  ok(Number(recvRow?.gl_closing_rial) === AR_RIAL, 'receivables GL close is AR', recvRow?.gl_closing_rial);
 
   r = await api('GET', '/api/accounting/general-ledger/11039901?to=1405/04/10');
   ok(Number(r.data?.closing_rial) === AR_RIAL, 'GL tafsili close equals AR', r.data?.closing_rial);

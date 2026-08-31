@@ -636,20 +636,27 @@ function applyCustomerBalances(db, rows) {
   return rows;
 }
 
-function glCustomersTafsiliBalance(db, { asOf } = {}) {
+function eachUniqueCustomerCoa(db, fn) {
   const customers = db.prepare(`
     SELECT id, coa_code FROM customers
     WHERE coa_code IS NOT NULL AND TRIM(coa_code)<>''
+    ORDER BY id
   `).all();
-  let debit = 0;
-  let credit = 0;
-  let display = 0;
-  let creditor = 0;
   const seen = new Set();
   for (const c of customers) {
     const code = String(c.coa_code);
     if (seen.has(code)) continue;
     seen.add(code);
+    fn(c, code);
+  }
+}
+
+function glCustomersTafsiliBalance(db, { asOf } = {}) {
+  let debit = 0;
+  let credit = 0;
+  let display = 0;
+  let creditor = 0;
+  eachUniqueCustomerCoa(db, (_c, code) => {
     const params = [code];
     let asOfSql = '';
     if (asOf) { asOfSql = ' AND je.entry_date <= ?'; params.push(asOf); }
@@ -670,12 +677,95 @@ function glCustomersTafsiliBalance(db, { asOf } = {}) {
     const signed = d - cr;
     if (signed > 0) display += signed;
     else if (signed < 0) creditor += -signed;
-  }
+  });
   return {
     debit, credit, signed: debit - credit,
     display,
     creditor,
   };
+}
+
+/** Same unique-code set as GL — so dashboard compares apples to apples. */
+function customerLedgerTafsiliBalance(db, { asOf } = {}) {
+  let debit = 0;
+  let credit = 0;
+  let display = 0;
+  let creditor = 0;
+  eachUniqueCustomerCoa(db, (c) => {
+    const params = [c.id];
+    let asOfSql = '';
+    if (asOf) { asOfSql = ' AND date <= ?'; params.push(asOf); }
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(debit),0) AS debit, COALESCE(SUM(credit),0) AS credit
+      FROM customer_ledger WHERE customer_id=? ${asOfSql}
+    `).get(...params);
+    const d = Number(row.debit || 0);
+    const cr = Number(row.credit || 0);
+    debit += d;
+    credit += cr;
+    const signed = d - cr;
+    if (signed > 0) display += signed;
+    else if (signed < 0) creditor += -signed;
+  });
+  return {
+    debit, credit, signed: debit - credit,
+    display,
+    creditor,
+  };
+}
+
+/**
+ * Incremental: each unique customer tafsili gets a balancing customer_ledger
+ * row so signed ledger = signed GL. Safe to run on every overview.
+ */
+function repairLedgerSignedToGl(db) {
+  const { createLedgerEntry } = require('../db');
+  const { todayJalali } = require('../jalali');
+  let aligned = 0;
+  const run = db.transaction(() => {
+    eachUniqueCustomerCoa(db, (c, code) => {
+      const glRow = db.prepare(`
+        SELECT
+          COALESCE(SUM(${SQL_JL_DEBIT_RIAL}), 0) AS debit,
+          COALESCE(SUM(${SQL_JL_CREDIT_RIAL}), 0) AS credit
+        FROM journal_lines jl
+        JOIN journal_entries je ON jl.entry_id = je.id
+        WHERE jl.account_code = ?
+          AND ${JE_ALIVE}
+      `).get(code);
+      const glSigned = Math.round(Number(glRow.debit || 0) - Number(glRow.credit || 0));
+      const ledRow = db.prepare(`
+        SELECT COALESCE(SUM(debit),0) AS debit, COALESCE(SUM(credit),0) AS credit
+        FROM customer_ledger WHERE customer_id=?
+      `).get(c.id);
+      const ledSigned = Math.round(Number(ledRow.debit || 0) - Number(ledRow.credit || 0));
+      const delta = glSigned - ledSigned;
+      if (delta <= 1) return;
+      const lastGl = db.prepare(`
+        SELECT MAX(je.entry_date) AS d
+        FROM journal_lines jl
+        JOIN journal_entries je ON je.id = jl.entry_id
+        WHERE jl.account_code = ? AND ${JE_ALIVE}
+      `).get(code);
+      createLedgerEntry(db, {
+        customer_id: c.id,
+        date: (lastGl && lastGl.d) || todayJalali(),
+        entry_type: 'adjustment',
+        ref_type: 'books_align',
+        ref_id: c.id,
+        description: 'هم‌ترازی دفتر مشتری با دفتر کل',
+        debit: delta,
+        credit: 0,
+        user_id: null,
+      });
+      aligned += 1;
+    });
+  });
+  run();
+  if (aligned) {
+    console.log(`✅ دفتر مشتری با دفتر کل هم‌تراز شد (${aligned} حساب)`);
+  }
+  return { aligned };
 }
 
 function repairCustomerBooks(db) {
@@ -714,7 +804,14 @@ function ensureCustomerBooksRepaired(db) {
     console.error('customer-books repair v2:', e.message);
     v2 = { error: e.message };
   }
-  return { ...v1, v2 };
+  let v3 = {};
+  try {
+    v3 = repairLedgerSignedToGl(db);
+  } catch (e) {
+    console.error('customer-books repair v3:', e.message);
+    v3 = { error: e.message };
+  }
+  return { ...v1, v2, v3 };
 }
 
 module.exports = {
@@ -729,10 +826,12 @@ module.exports = {
   normalizeStmtRefType,
   stmtEntryType,
   glCustomersTafsiliBalance,
+  customerLedgerTafsiliBalance,
   customerSignedBalanceMap,
   applyCustomerBalances,
   repairCustomerBooks,
   repairGlLinesToLedger,
+  repairLedgerSignedToGl,
   ensureCustomerBooksRepaired,
   isFirmSale,
 };

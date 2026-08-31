@@ -7,7 +7,7 @@ const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { getKardex, reverseInventoryMovement, postInventoryMovement, invErr } = require('../lib/inventory/ledger');
-const { listFabricRolls, receiveFabricRoll, voidFabricRoll, updateFabricRoll } = require('../lib/inventory/fabric-rolls');
+const { listFabricRolls, listFabricCirculation, receiveFabricRoll, voidFabricRoll, updateFabricRoll } = require('../lib/inventory/fabric-rolls');
 const {
   createBatch, listBatches, createSerial, listSerials, setSerialStatus, pickBatchesFefo,
 } = require('../lib/inventory/batch-serial');
@@ -70,6 +70,13 @@ router.post('/ledger/:id/reverse', auth, adminOrAccounting, (req, res) => {
 });
 
 // ---- Batches / Serials ----
+router.get('/fabric-rolls/circulation', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    res.json(listFabricCirculation(db, req.query));
+  } catch (e) { sendErr(res, e); }
+});
+
 router.get('/fabric-rolls', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();

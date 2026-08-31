@@ -623,12 +623,23 @@ function initCustSearches(scope){
     const inp=el(id+'-input');
     if(!inp||inp.dataset.csBound) return;
     inp.dataset.csBound='1';
-    inp.addEventListener('focus',()=>kind==='supplier'?showSupplierDrop(id,''):showCustDrop(id,''));
-    inp.addEventListener('input',()=>kind==='supplier'?showSupplierDrop(id,inp.value):showCustDrop(id,inp.value));
-    inp.addEventListener('keydown',e=>{
-      if(e.key==='Escape'){kind==='supplier'?hideSupplierDrop(id):hideCustDrop(id);}
-    });
+    const show=()=>{
+      if(kind==='supplier') showSupplierDrop(id, inp.value);
+      else if(kind==='party') showPartyDrop(id, inp.value);
+      else if(kind==='generic'||kind==='product'||kind==='person'||kind==='roll') showGenericDrop(id, inp.value);
+      else showCustDrop(id, inp.value);
+    };
+    const hide=()=>{
+      if(kind==='supplier') hideSupplierDrop(id);
+      else if(kind==='party') hidePartyDrop(id);
+      else if(kind==='generic'||kind==='product'||kind==='person'||kind==='roll') hideGenericDrop(id);
+      else hideCustDrop(id);
+    };
+    inp.addEventListener('focus',()=>show());
+    inp.addEventListener('input',()=>show());
+    inp.addEventListener('keydown',e=>{ if(e.key==='Escape') hide(); });
   });
+  try{ initPartySearches(scope); }catch(_){}
 }
 // Supplier search initializer — alias so purchase/return modals can call either name
 function initSupplierSearches(scope){ initCustSearches(scope); }
@@ -754,6 +765,90 @@ function pickCust(id, custId){
 function hideCustDrop(id){
   const drop=el(id+'-drop'); if(drop) drop.style.display='none';
 }
+const _searchLists = {};
+function searchSelect(id, items, selectedId, opts){
+  opts=opts||{};
+  _searchLists[id]=items||[];
+  const sel=(items||[]).find(x=>String(x.id)===String(selectedId));
+  const ph=opts.placeholder||'جستجو: نام، کد...';
+  const extraCls=opts.inputClass?esc(opts.inputClass):'';
+  return `<div class="cust-sw search-sw" data-cs-id="${esc(id)}" data-kind="${esc(opts.kind||'generic')}">
+    <input type="hidden" id="${esc(id)}" class="${extraCls}" value="${selectedId||''}">
+    <input type="text" id="${esc(id)}-input" class="cust-si" placeholder="${ph}" value="${sel?esc(sel.label):''}">
+    <div id="${esc(id)}-drop" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
+  </div>`;
+}
+function productSelect(id, selectedId, list, extra){
+  const src=list||CACHE.allProducts||CACHE.products||CACHE._invProducts||[];
+  const items=src.map(p=>({
+    id:p.id,
+    label:p.name||'',
+    meta:(p.code?p.code+' · ':'')+'موجودی '+fmt(p.wh_qty!=null?p.wh_qty:(p.stock||0)),
+    hay:[p.name,p.code,p.barcode,p.sku,p.category].filter(Boolean).join(' ')
+  }));
+  return searchSelect(id, items, selectedId, Object.assign({kind:'product', placeholder:'جستجو: نام، کد کالا...'}, extra||{}));
+}
+function personSelect(id, selectedId, list){
+  const src=list||CACHE.persons||[];
+  const items=(Array.isArray(src)?src:[]).map(p=>({
+    id:p.id,
+    label:p.name||p.full_name||'',
+    meta:p.phone||p.personnel_code||p.category_name||'',
+    hay:[p.name,p.full_name,p.phone,p.personnel_code,p.category_name].filter(Boolean).join(' ')
+  }));
+  return searchSelect(id, items, selectedId, {kind:'person', placeholder:'جستجو: نام، تلفن، کد...'});
+}
+function rollSelect(id, rolls, selectedId){
+  const items=(rolls||[]).map(b=>({
+    id:b.id,
+    label:`${b.batch_no||('#'+b.id)} — ${b.product_name||''} ${b.color||''}`.trim(),
+    meta:`${fmt(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} متر`,
+    hay:[b.batch_no,b.product_name,b.color,b.pattern].filter(Boolean).join(' '),
+    extra:b
+  }));
+  return searchSelect(id, items, selectedId, {kind:'roll', placeholder:'جستجو: شماره طاقه، کالا، رنگ...'});
+}
+function showGenericDrop(id, q){
+  const drop=el(id+'-drop'); const inp=el(id+'-input'); if(!drop||!inp) return;
+  const term=(q||'').trim().toLowerCase();
+  let list=_searchLists[id]||[];
+  if(term){
+    const words=term.split(/\s+/);
+    list=list.filter(it=>{
+      const hay=((it.hay||'')+' '+(it.label||'')+' '+(it.meta||'')).toLowerCase();
+      return words.every(w=>hay.includes(w));
+    });
+  }
+  const rect=inp.getBoundingClientRect();
+  drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
+  drop.innerHTML = list.slice(0,80).map(it=>`
+    <div class="cust-si-item" data-csp-click="${CSP.bind('click',function(event){pickGeneric(`${String((id) ?? '')}`,(it.id))})}">
+      <span>${esc(it.label)}</span><span class="cust-si-meta">${esc(it.meta||'')}</span>
+    </div>`).join('') || '<div class="cust-si-empty">موردی یافت نشد</div>';
+}
+function pickGeneric(id, itemId){
+  const h=el(id);
+  const items=_searchLists[id]||[];
+  const item=items.find(x=>String(x.id)===String(itemId));
+  if(h){
+    h.value=itemId||'';
+    if(item && item.extra){
+      const x=item.extra;
+      h.dataset.pid=x.product_id||'';
+      h.dataset.qty=x.qty_available!=null?x.qty_available:(x.qty_live!=null?x.qty_live:x.qty_on_hand||0);
+      h.dataset.color=x.color||'';
+      h.dataset.pat=x.pattern||'';
+      h.dataset.no=x.batch_no||'';
+      h.dataset.wh=x.warehouse_id||'';
+      h.dataset.cost=x.unit_cost_rial||0;
+    }
+    h.dispatchEvent(new Event('change'));
+  }
+  const inp=el(id+'-input');
+  if(inp) inp.value=item?item.label:'';
+  hideGenericDrop(id);
+}
+function hideGenericDrop(id){ const drop=el(id+'-drop'); if(drop) drop.style.display='none'; }
 
 /* ---- Datepicker popup ---- */
 let DP = { input:null, y:0, m:0, sel:null };
@@ -1162,6 +1257,7 @@ const LU = (()=> {
     'acc-cheques-recv':'download', 'acc-cheques-pay':'upload', 'acc-proforma':'file',
     'acc-orders-list':'cart', 'acc-stocktaking':'clipboard', 'acc-inv-batches':'tags',
     'acc-fabric-rolls':'tags',
+    'acc-fabric-roll-kardex':'clipboard',
     'acc-cutting-lays':'scissors',
     'acc-inv-reservations':'lock', 'acc-inv-landed':'ship', 'acc-account-transfer':'repeat',
     'acc-moadian-hub':'radio', 'acc-petty-cash-ops':'coins', 'acc-cheque-register':'book',
@@ -1255,13 +1351,13 @@ const NAV_ACCOUNTING = [
 // ---- Accounting module nav: see /acc-nav.js (ACC_NAV_SECTIONS) ----
 const ACC_NAV = accNavFlat();
 const ACC_NAV_COLLAPSED = new Set(ACC_NAV_SECTIONS.map((_, i) => i));
-// بخش‌های پرتکرار به‌صورت پیش‌فرض باز باشند تا مسیرهایی مثل «تولید → اطلاعات پایه» دیده شوند
-;(()=>{
-  const keepOpen = new Set(['تولید','کالا','امکانات']);
-  ACC_NAV_SECTIONS.forEach((sec, i)=>{ if(keepOpen.has(sec.title)) ACC_NAV_COLLAPSED.delete(i); });
-})();
+function collapseAllAccNav(){
+  ACC_NAV_COLLAPSED.clear();
+  ACC_NAV_SECTIONS.forEach((_, i)=>ACC_NAV_COLLAPSED.add(i));
+}
 function expandAccNavForPage(page){
   if(!IN_ACC_SHELL || typeof ACC_NAV_SECTIONS==='undefined' || !page) return;
+  if(page==='acc-dash' || page==='exit-acc-shell') return;
   const idx = ACC_NAV_SECTIONS.findIndex(sec=>{
     const items = sec.items || (sec.subgroups||[]).flatMap(sg=>sg.items||[]);
     return items.some(it=>it.id===page);
@@ -1288,7 +1384,7 @@ const ACC_MODULE_MAP={
   'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
   'acc-warehouse-report':'module_warehouses',
   'acc-stocktaking':'module_warehouses','acc-item-kardex':'module_warehouses',
-  'acc-inv-batches':'module_warehouses','acc-fabric-rolls':'module_warehouses','acc-inv-reservations':'module_warehouses',
+  'acc-inv-batches':'module_warehouses','acc-fabric-rolls':'module_warehouses','acc-fabric-roll-kardex':'module_warehouses','acc-inv-reservations':'module_warehouses',
   'acc-inv-landed':'module_warehouses',
   'acc-consignments':'module_consignments','acc-production':'module_production',
   'acc-production-orders':'module_production','acc-production-boms':'module_production',
@@ -1439,6 +1535,7 @@ async function viewCustStatementFromDash(custId){
 }
 async function enterAccountingShell(){
   IN_ACC_SHELL = true;
+  collapseAllAccNav();
   el('brandRole').textContent = '🧮 '+T('ماژول حسابداری');
   buildNav();
   go('acc-dash');
@@ -2971,10 +3068,16 @@ function renderAccReceivablesBody(body){
   if(!body||!_accRecvCache) return;
   const viewMode=accRecvViewMode||'customer';
   const allRows=_accRecvCache[viewMode]||[];
-  const rows=accHideZero ? allRows.filter(r=>(Number(r.outstanding)||0)!==0) : allRows;
-  const hiddenCount=allRows.length-rows.length;
+  const q=(accRecvQ||'').trim().toLowerCase();
+  const matched=q?allRows.filter(r=>{
+    const hay=[r.biz,r.owner,r.phone,r.salesperson,r.num,r.city].filter(Boolean).join(' ').toLowerCase();
+    return q.split(/\s+/).every(w=>hay.includes(w));
+  }):allRows;
+  const rows=accHideZero ? matched.filter(r=>(Number(r.outstanding)||0)!==0) : matched;
+  const hiddenCount=matched.length-rows.length;
   body.innerHTML=`
       <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap;align-items:center`)}">
+        <input class="search" id="recvSearch" placeholder="جستجو طرف حساب: نام فروشگاه، مالک، موبایل، کارشناس..." value="${esc(accRecvQ||'')}" data-csp-style="${CSP.style(`min-width:260px;flex:1`)}" data-csp-input="${CSP.bind('input',function(event){accRecvQ=this.value;renderAccReceivablesBody()})}">
         <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px`)}">
           <input type="checkbox" id="chkHideZero" ${accHideZero?'checked':''} data-csp-change="${CSP.bind('change',function(event){accHideZero=this.checked;renderAccReceivablesBody()})}">
           فقط با مانده (بدهکار یا بستانکار)
@@ -5831,6 +5934,7 @@ let accNavId = '';
 let accDateFrom = '', accDateTo = '', accPreset = 'all';
 let accHideZero = true;
 let accRecvViewMode = 'customer';
+let accRecvQ = '';
 let stmtCustId = '', stmtType = '';
 function applyAccPreset(p){
   accPreset=p;
@@ -5943,7 +6047,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -6019,6 +6123,7 @@ ROUTES['acc-item-kardex']=()=>renderAccPage('item-kardex','📋','کاردکس �
 ROUTES['acc-shared-ledger']=()=>renderAccPage('shared-ledger','📒','دفتر مالی مشترک');
 ROUTES['acc-inv-batches']=()=>renderAccPage('inv-batches','🏷️','بچ و سریال');
 ROUTES['acc-fabric-rolls']=()=>renderAccPage('fabric-rolls','🧵','دریافت طاقه پارچه');
+ROUTES['acc-fabric-roll-kardex']=()=>renderAccPage('fabric-roll-kardex','🧵','گردش طاقه');
 ROUTES['acc-cutting-lays']=()=>renderAccPage('cutting-lays','✂️','لایه‌چینی و برش');
 ROUTES['acc-inv-reservations']=()=>renderAccPage('inv-reservations','🔒','رزرو موجودی');
 ROUTES['acc-inv-landed']=()=>renderAccPage('inv-landed','🚢','هزینه حمل (Landed Cost)');
@@ -6175,6 +6280,8 @@ async function loadAccTab(tab){
     await renderInvBatchesTab(body);
   } else if(tab==='fabric-rolls'){
     await renderFabricRollsTab(body);
+  } else if(tab==='fabric-roll-kardex'){
+    await renderFabricRollKardexTab(body);
   } else if(tab==='cutting-lays'){
     await renderCuttingLaysTab(body);
   } else if(tab==='inv-reservations'){
@@ -7418,12 +7525,11 @@ async function renderItemKardexTab(body){
   const products=CACHE.products||CACHE.allProducts||[];
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-      <select id="kardexProduct" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px`)}" data-csp-change="${CSP.bind('change',function(event){loadItemKardex(this.value)})}">
-        <option value="">-- انتخاب کالا (${fmt(products.length)}) --</option>
-        ${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.code||'-')})</option>`).join('')}
-      </select>
+      ${productSelect('kardexProduct','',products)}
     </div>
     <div id="kardexBody">${products.length?'':'<div class="empty">کالایی یافت نشد — دسترسی گروه کالا یا کاتالوگ را بررسی کنید</div>'}</div>`;
+  initCustSearches(body);
+  el('kardexProduct')?.addEventListener('change',function(){ loadItemKardex(this.value); });
 }
 async function loadItemKardex(productId){
   const box=el('kardexBody'); if(!box) return;
@@ -7499,7 +7605,7 @@ async function renderSharedLedgerTab(body){
         <option value="petty" ${pref.type==='petty'?'selected':''}>تنخواه</option>
         <option value="account" ${pref.type==='account'||!pref.type?'selected':''}>حساب دفتر کل</option>
       </select>
-      <select id="led-entity" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:220px`)}"></select>
+      <span id="led-entity-wrap" data-csp-style="${CSP.style(`min-width:220px`)}"></span>
       <input id="led-from" data-jdate placeholder="از تاریخ" value="${esc(accDateFrom||pref.from||'')}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:130px`)}">
       <input id="led-to" data-jdate placeholder="تا تاریخ" value="${esc(accDateTo||pref.to||'')}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:130px`)}">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){loadSharedFinancialLedger()})}">نمایش دفتر</button>
@@ -7514,16 +7620,26 @@ async function renderSharedLedgerTab(body){
 }
 function fillSharedLedgerEntities(){
   const type=el('led-type')?.value||'account';
-  const sel=el('led-entity'); if(!sel) return;
+  const wrap=el('led-entity-wrap'); if(!wrap) return;
   const p=window._ledPickers||{};
   const pref=p.pref||{};
-  let opts='<option value="">— انتخاب —</option>';
-  if(type==='person') opts+=(p.persons||[]).map(x=>`<option value="${x.id}" ${String(pref.id)===String(x.id)?'selected':''}>${esc(x.name||('#'+x.id))}</option>`).join('');
-  else if(type==='bank') opts+=(p.banks||[]).map(x=>`<option value="${x.id}" ${String(pref.id)===String(x.id)?'selected':''}>${esc(x.name||('#'+x.id))}</option>`).join('');
-  else if(type==='cash') opts+=(p.boxes||[]).filter(x=>!x.is_petty_cash).map(x=>`<option value="${x.id}" ${String(pref.id)===String(x.id)?'selected':''}>${esc(x.name||('#'+x.id))}</option>`).join('');
-  else if(type==='petty') opts+=(p.boxes||[]).filter(x=>x.is_petty_cash).map(x=>`<option value="${x.id}" ${String(pref.id)===String(x.id)?'selected':''}>${esc(x.name||('#'+x.id))}</option>`).join('');
-  else opts+=(p.accounts||[]).map(x=>`<option value="${esc(x.code)}" ${String(pref.code||pref.id)===String(x.code)?'selected':''}>${esc(x.code)} — ${esc(x.name||'')}</option>`).join('');
-  sel.innerHTML=opts;
+  let items=[], selected='', ph='جستجو...';
+  if(type==='person'){
+    items=(p.persons||[]).map(x=>({id:x.id,label:x.name||('#'+x.id),meta:x.phone||'',hay:[x.name,x.phone,x.personnel_code].filter(Boolean).join(' ')}));
+    selected=pref.id||''; ph='جستجو: نام، تلفن، کد...';
+  } else if(type==='bank'){
+    items=(p.banks||[]).map(x=>({id:x.id,label:x.name||('#'+x.id),meta:x.account_no||'',hay:[x.name,x.account_no].filter(Boolean).join(' ')}));
+    selected=pref.id||''; ph='جستجو: نام بانک...';
+  } else if(type==='cash' || type==='petty'){
+    const boxes=(p.boxes||[]).filter(x=>type==='petty'?x.is_petty_cash:!x.is_petty_cash);
+    items=boxes.map(x=>({id:x.id,label:x.name||('#'+x.id),meta:'',hay:x.name||''}));
+    selected=pref.id||''; ph='جستجو: نام صندوق...';
+  } else {
+    items=(p.accounts||[]).map(x=>({id:x.code,label:(x.code||'')+' — '+(x.name||''),meta:x.name||'',hay:[x.code,x.name].filter(Boolean).join(' ')}));
+    selected=pref.code||pref.id||''; ph='جستجو: کد یا نام حساب...';
+  }
+  wrap.innerHTML=searchSelect('led-entity', items, selected, {kind:'generic', placeholder:ph});
+  initCustSearches(wrap);
 }
 function sharedLedgerQuery(){
   const type=el('led-type')?.value||'';
@@ -7593,13 +7709,15 @@ async function renderFabricRollsTab(body){
   const rawWh=(Array.isArray(warehouses)?warehouses:(warehouses.rows||warehouses.data||[])).filter(w=>w.code==='WH-RAW'||w.warehouse_type==='raw_material'||w.kind==='raw');
   const sups=Array.isArray(suppliers)?suppliers:(suppliers.rows||suppliers.data||[]);
   body.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">دریافت طاقه پارچه فقط روی انبار مواد اولیه. کالای آماده فروش Lot نمی‌گیرد. ابطال تا وقتی متر باقی‌مانده برابر متر دریافتی باشد.</div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">دریافت طاقه پارچه فقط روی انبار مواد اولیه. موجودی متر از دفتر انبار لحظه‌ای است. ابطال تا وقتی متر باقی‌مانده برابر متر دریافتی باشد.</div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
+      <input class="search" id="frSearch" placeholder="جستجو طاقه / کالا / رنگ..." data-csp-style="${CSP.style(`min-width:220px;flex:1`)}" data-csp-input="${CSP.bind('input',function(){filterFabricRollRows()})}">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){fabricRollModal()})}">➕ دریافت طاقه</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-fabric-roll-kardex')})}">گزارش گردش</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('fabric-rolls')})}">🔄</button>
     </div>
-    <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>طاقه</th><th>کالا</th><th>رنگ</th><th>طرح</th><th>عرض</th><th>متر</th><th>بها</th><th></th>
+    <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" id="frTable" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>طاقه</th><th>کالا</th><th>رنگ</th><th>طرح</th><th>عرض</th><th>مانده زنده</th><th>بها</th><th></th>
     </tr></thead><tbody>
     ${(rolls.rows||[]).map(b=>{
       const meters=Number(b.qty_received!=null?b.qty_received:b.qty_on_hand)||0;
@@ -7609,13 +7727,69 @@ async function renderFabricRollsTab(body){
         (unused?'<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){fabricRollEditModal(b)})+'">ویرایش</button> ':'')
         +'<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidFabricRollRow(b.id)})+'">ابطال</button>'
       );
-      return '<tr><td class="mono">'+esc(b.batch_no)+'</td><td>'+esc(b.product_name||('#'+b.product_id))+'</td>'
+      return '<tr data-hay="'+esc(((b.batch_no||'')+' '+(b.product_name||'')+' '+(b.color||'')+' '+(b.pattern||'')).toLowerCase())+'"><td class="mono">'+esc(b.batch_no)+'</td><td>'+esc(b.product_name||('#'+b.product_id))+'</td>'
         +'<td>'+esc(b.color||'')+'</td><td>'+esc(b.pattern||'')+'</td>'
-        +'<td class="num">'+esc(b.width_cm||0)+'</td><td class="num">'+fmt(b.qty_on_hand||0)+'</td>'
+        +'<td class="num">'+esc(b.width_cm||0)+'</td><td class="num">'+fmt(b.qty_live!=null?b.qty_live:b.qty_on_hand||0)+'</td>'
         +'<td class="num" data-col-kind="money">'+fmt(total)+'</td><td>'+act+'</td></tr>';
     }).join('')||'<tr><td colspan="8" class="empty">طاقه‌ای ثبت نشده</td></tr>'}
     </tbody></table></div></div>`;
   window._fabricRawWh=rawWh; window._fabricSups=sups;
+}
+function filterFabricRollRows(){
+  const q=(el('frSearch')?.value||'').trim().toLowerCase();
+  document.querySelectorAll('#frTable tbody tr').forEach(tr=>{
+    const hay=tr.getAttribute('data-hay')||'';
+    tr.style.display=!q||hay.includes(q)?'':'none';
+  });
+}
+async function renderFabricRollKardexTab(body){
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  let rolls=[];
+  try{ rolls=(await api('GET','/inventory/fabric-rolls')||{}).rows||[]; }catch(_){ rolls=[]; }
+  body.innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">گردش هر طاقه از دفتر انبار زنده است: دریافت، فروش، برش، برگشت و ابطال. ماندهٔ هر ردیف متر لحظه‌ای همان طاقه است.</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap;align-items:center`)}">
+      ${rollSelect('frk-roll', rolls, '')}
+      ${productSelect('frk-prod','',CACHE.allProducts||[])}
+      <input id="frk-q" class="search" placeholder="جستجو شرح / شماره طاقه..." data-csp-style="${CSP.style(`min-width:180px`)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(){loadFabricRollKardex()})}">نمایش</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-fabric-rolls')})}">دریافت طاقه</button>
+    </div>
+    <div id="frkBody"><div class="empty">طاقه یا کالا را انتخاب کنید</div></div>`;
+  initCustSearches(body);
+  el('frk-roll')?.addEventListener('change', loadFabricRollKardex);
+  el('frk-prod')?.addEventListener('change', loadFabricRollKardex);
+}
+async function loadFabricRollKardex(){
+  const box=el('frkBody'); if(!box) return;
+  const batch_id=el('frk-roll')?.value||'';
+  const product_id=el('frk-prod')?.value||'';
+  const q=el('frk-q')?.value||'';
+  if(!batch_id && !product_id && !q){ box.innerHTML='<div class="empty">طاقه، کالا یا عبارت جستجو را وارد کنید</div>'; return; }
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const qs=new URLSearchParams();
+  if(batch_id) qs.set('batch_id', batch_id);
+  if(product_id) qs.set('product_id', product_id);
+  if(q) qs.set('q', q);
+  const d=await api('GET','/inventory/fabric-rolls/circulation?'+qs.toString());
+  if(!d){ box.innerHTML='<div class="empty">خطا در دریافت گردش</div>'; return; }
+  const rows=d.rows||[];
+  box.innerHTML=`
+    <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>تاریخ</th><th>طاقه</th><th>کالا</th><th>نوع</th><th>شرح</th><th>ورود</th><th>خروج</th><th>مانده</th><th>ثبت‌کننده</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td class="mono">${esc(r.date||'-')}</td>
+      <td class="mono">${esc(r.batch_no||'')} ${esc(r.color||'')}</td>
+      <td>${esc(r.product_name||'-')}</td>
+      <td>${esc(r.event_type||r.source_type||'-')}</td>
+      <td>${esc(r.note||'-')}</td>
+      <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${Number(r.qty_in)?fmt(r.qty_in):'-'}</td>
+      <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${Number(r.qty_out)?fmt(r.qty_out):'-'}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.running_meters||0)}</td>
+      <td class="muted">${esc(r.user_name||'-')}</td>
+    </tr>`).join('')||'<tr><td colspan="9" class="empty">گردشی ثبت نشده</td></tr>'}
+    </tbody></table></div></div>`;
 }
 function newFabricIdemKey(){
   try{ if(crypto.randomUUID) return crypto.randomUUID(); }catch(_){}
@@ -7626,9 +7800,10 @@ function fabricRollModal(){
   const prods=CACHE.allProducts||[];
   const whs=window._fabricRawWh||[];
   const sups=window._fabricSups||[];
+  if(!CACHE.suppliers||!CACHE.suppliers.length) CACHE.suppliers=sups;
   showModal('دریافت طاقه',`
     <div class="form-grid">
-      <div class="fg"><label>کالا</label><select id="fr-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>کالا</label>${productSelect('fr-prod','',prods)}</div>
       <div class="fg"><label>انبار مواد</label><select id="fr-wh">${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>شماره طاقه</label><input id="fr-no" placeholder="خودکار"></div>
       <div class="fg"><label>رنگ</label><input id="fr-color"></div>
@@ -7636,7 +7811,7 @@ function fabricRollModal(){
       <div class="fg"><label>عرض (سم)</label><input id="fr-w" type="number" min="0" value="150"></div>
       <div class="fg"><label>متر</label><input id="fr-m" type="number" min="0" step="0.01" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
       <div class="fg"><label>بها هر متر (ریال)</label><input id="fr-cost" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
-      <div class="fg"><label>تأمین‌کننده</label><select id="fr-sup"><option value="">—</option>${sups.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>تأمین‌کننده</label>${supplierSelect('fr-sup','')}</div>
       <div class="fg full muted" id="fr-cost-hint" data-csp-style="${CSP.style(`font-size:12px`)}">بها طاقه = متر × فی هر متر. اگر فی خالی باشد از بهای کالا محاسبه می‌شود.</div>
       <div class="fg full"><b>جمع بها: <span class="mono" id="fr-total">0</span> ریال</b></div>
     </div>
@@ -7675,7 +7850,11 @@ async function invoiceFabricRollPicker(kind){
       <div class="modal-body">
         <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه یک ردیف کالا است. انبار فاکتور از انبار سربرگ پر می‌شود.</p>
         <div class="fg full"><label>طاقه موجود</label>
-          <select id="ifr-roll">${rolls.filter(b=>b.status!=='reversed'&&(b.qty_on_hand||0)>0).map(b=>`<option value="${b.id}" data-pid="${b.product_id}" data-qty="${b.qty_on_hand||0}" data-color="${esc(b.color||'')}" data-pat="${esc(b.pattern||'')}" data-no="${esc(b.batch_no||'')}" data-wh="${b.warehouse_id||''}" data-cost="${b.unit_cost_rial||0}">${esc(b.batch_no)} — ${esc(b.product_name||'')} ${esc(b.color||'')} (${fmt(b.qty_on_hand||0)} متر)</option>`).join('')||'<option value="">طاقه فعالی نیست</option>'}</select></div>
+          ${rollSelect('ifr-roll', rolls.filter(b=>b.status!=='reversed'&&(Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0)>0).map(b=>{
+            const reserved=(invCart||[]).filter(r=>Number(r.batch_id)===Number(b.id)).reduce((a,r)=>a+(Number(r.qty)||0),0);
+            const live=Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0;
+            return Object.assign({}, b, {qty_available:Math.max(0, live-reserved)});
+          }).filter(b=>b.qty_available>0), '')}</div>
         <div class="fg"><label>متر فروش</label><input id="ifr-m" type="number" min="0.01" step="0.01"></div>
         <div class="fg"><label>فی فروش (ریال)</label><input id="ifr-price" type="text" inputmode="numeric" class="money" value="0"></div>
       </div>
@@ -7683,9 +7862,9 @@ async function invoiceFabricRollPicker(kind){
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button></div>`);
     const sel=el('ifr-roll');
     const sync=()=>{
-      const opt=sel?.selectedOptions?.[0]; if(!opt) return;
-      const p=prods.find(x=>String(x.id)===String(opt.getAttribute('data-pid')));
-      if(el('ifr-m') && !el('ifr-m').value) el('ifr-m').value=opt.getAttribute('data-qty')||'';
+      if(!sel||!sel.value) return;
+      const p=prods.find(x=>String(x.id)===String(sel.dataset.pid||''));
+      if(el('ifr-m') && !el('ifr-m').value) el('ifr-m').value=sel.dataset.qty||'';
       if(el('ifr-price') && p) el('ifr-price').value=p.price||0;
     };
     if(sel) sel.addEventListener('change',sync); sync();
@@ -7696,7 +7875,7 @@ async function invoiceFabricRollPicker(kind){
     <div class="modal-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه به‌صورت یک کالای ردیفی ثبت می‌شود. انبار مقصد سربرگ روی ردیف کپی می‌شود و هویت طاقه بعد از ثبت فاکتور ساخته می‌شود (بدون سند تکراری).</p>
       <div class="form-grid">
-        <div class="fg"><label>کالا</label><select id="pfr-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+        <div class="fg"><label>کالا</label>${productSelect('pfr-prod','',prods)}</div>
         <div class="fg"><label>رنگ *</label><input id="pfr-color"></div>
         <div class="fg"><label>طرح</label><input id="pfr-pat"></div>
         <div class="fg"><label>عرض (سم)</label><input id="pfr-w" type="number" min="0" value="150"></div>
@@ -7709,19 +7888,21 @@ async function invoiceFabricRollPicker(kind){
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button></div>`);
 }
 function invoiceFabricRollAddSale(){
-  const sel=el('ifr-roll'); const opt=sel?.selectedOptions?.[0];
+  const sel=el('ifr-roll');
   const id=+sel?.value; if(!id){ showToast('طاقه را انتخاب کنید','error'); return; }
-  const pid=+opt.getAttribute('data-pid');
+  const pid=+sel.dataset.pid;
   const p=(CACHE.allProducts||CACHE.products||[]).find(x=>Number(x.id)===pid);
-  const qty=Math.max(0.001, Number(el('ifr-m')?.value)||Number(opt.getAttribute('data-qty'))||1);
+  const maxQty=Number(sel.dataset.qty)||0;
+  const qty=Math.max(0.001, Number(el('ifr-m')?.value)||maxQty||1);
+  if(maxQty && qty-maxQty>1e-9){ showToast('متر بیشتر از مانده زنده طاقه است ('+fmt(maxQty)+')','error'); return; }
   const price=moneyVal('ifr-price')|| (p&&p.price)||0;
-  const wh=headerInvoiceWarehouseId()|| (+opt.getAttribute('data-wh')||null);
+  const wh=headerInvoiceWarehouseId()|| (+sel.dataset.wh||null);
   invCart.push({
-    product_id:pid, name:p?p.name:('طاقه '+opt.getAttribute('data-no')),
+    product_id:pid, name:p?p.name:('طاقه '+(sel.dataset.no||'')),
     qty, price, disc:0, disc_amount:0, warehouse_id:wh,
     batch_id:id, is_fabric_roll:1,
-    color:opt.getAttribute('data-color')||'', pattern:opt.getAttribute('data-pat')||'',
-    roll_no:opt.getAttribute('data-no')||'', unit_cost_rial:+opt.getAttribute('data-cost')||0
+    color:sel.dataset.color||'', pattern:sel.dataset.pat||'',
+    roll_no:sel.dataset.no||'', unit_cost_rial:+sel.dataset.cost||0
   });
   closeNestedModal(); renderCart(); if(typeof renderInvPicker==='function') renderInvPicker();
   showToast('طاقه به فاکتور اضافه شد');
@@ -7765,6 +7946,7 @@ function fabricRollEditModal(b){
   const prods=CACHE.allProducts||[];
   const whs=window._fabricRawWh||[];
   const sups=window._fabricSups||[];
+  if(!CACHE.suppliers||!CACHE.suppliers.length) CACHE.suppliers=sups;
   const meters=Number(b.qty_received!=null?b.qty_received:b.qty_on_hand)||0;
   showModal('ویرایش طاقه',`
     <div class="form-grid">
@@ -7776,7 +7958,7 @@ function fabricRollEditModal(b){
       <div class="fg"><label>عرض (سم)</label><input id="fr-w" type="number" min="0" value="${esc(b.width_cm||0)}"></div>
       <div class="fg"><label>متر</label><input id="fr-m" type="number" min="0" step="0.01" value="${meters}" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
       <div class="fg"><label>بها هر متر (ریال)</label><input id="fr-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(b.unit_cost_rial||0)}" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
-      <div class="fg"><label>تأمین‌کننده</label><select id="fr-sup"><option value="">—</option>${sups.map(s=>`<option value="${s.id}" ${Number(s.id)===Number(b.supplier_id)?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>تأمین‌کننده</label>${supplierSelect('fr-sup', b.supplier_id||'')}</div>
       <div class="fg full"><b>جمع بها: <span class="mono" id="fr-total">${fmt(Math.round((Number(b.unit_cost_rial)||0)*meters))}</span> ریال</b></div>
     </div>
     <div data-csp-style="${CSP.style(`margin-top:12px;text-align:left`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(){fabricRollUpdateSave((b.id))})}">ذخیره ویرایش</button></div>`);
@@ -7844,7 +8026,7 @@ function cuttingLayModal(){
   const rolls=window._cutRolls||[];
   showModal('لایه‌چینی و برش',`
     <div class="form-grid">
-      <div class="fg"><label>کالای دوخته‌شده</label><select id="cl-prod">${list.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>کالای دوخته‌شده</label>${productSelect('cl-prod','',list)}</div>
       <div class="fg"><label>طول مارکر (متر)</label><input id="cl-marker" type="number" min="0" step="0.01" value="2"></div>
       <div class="fg"><label>تعداد لایه</label><input id="cl-plies" type="number" min="1" step="1" value="10"></div>
       <div class="fg"><label>متر واقعی (خالی = طول×لایه)</label><input id="cl-actual" type="number" min="0" step="0.01"></div>
@@ -7986,7 +8168,7 @@ function invBatchModal(){
   const prods=CACHE.allProducts||[];
   showModal('بچ جدید',`
     <div class="form-grid">
-      <div class="fg"><label>کالا</label><select id="ib-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>کالا</label>${productSelect('ib-prod','',prods)}</div>
       <div class="fg"><label>شماره بچ (اختیاری)</label><input id="ib-no" placeholder="خودکار"></div>
       <div class="fg"><label>تاریخ انقضا</label><input id="ib-exp" data-jdate></div>
       <div class="fg"><label>تعداد اولیه</label><input id="ib-qty" type="number" min="0" value="0"></div>
@@ -8006,7 +8188,7 @@ function invSerialModal(){
   const prods=CACHE.allProducts||[];
   showModal('سریال جدید',`
     <div class="form-grid">
-      <div class="fg"><label>کالا</label><select id="is-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>کالا</label>${productSelect('is-prod','',prods)}</div>
       <div class="fg"><label>شماره سریال</label><input id="is-no"></div>
       <div class="fg"><label>گارانتی تا</label><input id="is-warr" data-jdate></div>
     </div>
@@ -8050,7 +8232,7 @@ function invRsvModal(){
   const prods=CACHE.allProducts||[];
   showModal('رزرو موجودی',`
     <div class="form-grid">
-      <div class="fg"><label>کالا</label><select id="ir-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)} (موجودی ${fmt(p.stock||0)})</option>`).join('')}</select></div>
+      <div class="fg"><label>کالا</label>${productSelect('ir-prod','',prods)}</div>
       <div class="fg"><label>تعداد</label><input id="ir-qty" type="number" min="1" value="1"></div>
       <div class="fg"><label>نوع</label><select id="ir-kind"><option value="sales">فروش</option><option value="production">تولید</option><option value="project">پروژه</option><option value="manual">دستی</option></select></div>
       <div class="fg"><label>یادداشت</label><input id="ir-note"></div>
@@ -8087,7 +8269,7 @@ async function renderInvLandedTab(body){
           <div class="fg"><label>گمرک (ریال)</label><input id="lc-customs" type="number" min="0" value="0"></div>
           <div class="fg"><label>بیمه (ریال)</label><input id="lc-ins" type="number" min="0" value="0"></div>
           <div class="fg"><label>کالا برای تسهیم</label>
-            <select id="lc-prod">${(CACHE.allProducts||[]).slice(0,300).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+            ${productSelect('lc-prod','',(CACHE.allProducts||[]))}
           </div>
           <div class="fg"><label>تعداد مبنا</label><input id="lc-qty" type="number" min="0" value="1"></div>
           <div class="fg"><label>ارزش مبنا (ریال)</label><input id="lc-base" type="number" min="0" value="0"></div>
@@ -8095,6 +8277,7 @@ async function renderInvLandedTab(body){
         <div data-csp-style="${CSP.style(`margin-top:14px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){invLandedPost()})}">ثبت و تسهیم</button></div>
       </div>
     </div>`;
+  initCustSearches(body);
 }
 async function invLandedPost(){
   const lines=[];
@@ -8474,10 +8657,9 @@ async function consignmentModal(){
         <option value="out">ارسالی (کالای ما نزد دیگران است)</option>
         <option value="in">دریافتی (کالای دیگران نزد ماست)</option>
       </select></div>
-      <div class="fg"><label>جستجوی شخص</label><input id="cs-person-q" placeholder="نام یا تلفن" data-csp-input="${CSP.bind('input',function(){filterCsPersons()})}"></div>
-      <div class="fg"><label>شخص * ${hlp('منبع حقیقت شخص است؛ نام از کارت شخص کپی می‌شود.')}</label><select id="cs-person">${personOptions()}</select></div>
+      <div class="fg"><label>شخص * ${hlp('منبع حقیقت شخص است؛ نام از کارت شخص کپی می‌شود.')}</label>${personSelect('cs-person')}</div>
       <div class="fg"><label>انبار *</label><select id="cs-warehouse">${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
-      <div class="fg full"><label>کالا *</label><select id="cs-product">${productOptions()}</select></div>
+      <div class="fg full"><label>کالا *</label>${productSelect('cs-product')}</div>
       <div class="fg"><label>تعداد *</label><input id="cs-qty" type="number" min="1"></div>
       <div class="fg"><label>قیمت واحد مرجع (ریال)</label><input id="cs-price" type="number" min="0"></div>
       <div class="fg"><label>تاریخ</label><input id="cs-date" data-jdate value="${todayJalali()}"></div>
@@ -8487,17 +8669,7 @@ async function consignmentModal(){
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
 }
-function filterCsPersons(){
-  const q=(el('cs-person-q')?.value||'').trim();
-  const sel=el('cs-person'); if(!sel) return;
-  const cur=sel.value;
-  const rows=(CACHE.persons||[]).filter(p=>{
-    if(!q) return true;
-    const hay=((p.name||'')+' '+(p.phone||'')).toLowerCase();
-    return hay.includes(q.toLowerCase());
-  });
-  sel.innerHTML=`<option value="">-- انتخاب شخص --</option>`+rows.map(p=>`<option value="${p.id}" ${String(p.id)===String(cur)?'selected':''}>${esc(p.name)}${p.phone?' — '+esc(p.phone):''}</option>`).join('');
-}
+function filterCsPersons(){ /* personSelect روی فرم امانی */ }
 async function saveConsignment(){
   const person_id=+el('cs-person').value, product_id=+el('cs-product').value, qty=+el('cs-qty').value;
   const warehouse_id=+el('cs-warehouse').value||undefined;
@@ -8532,8 +8704,8 @@ async function saleInBuyerModal(id){
     <div class="modal-head"><h3>فروش قطعی امانی دریافتی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full muted">خریدار باید غیر از امانت‌گذار باشد.</div>
-      <div class="fg"><label>مشتری خریدار</label><select id="cs-buyer-cust"><option value="">-- انتخاب مشتری --</option>${custOpts}</select></div>
-      <div class="fg"><label>یا شخص خریدار</label><select id="cs-buyer-person">${personOptions()}</select></div>
+      <div class="fg"><label>مشتری خریدار</label>${custSelect('cs-buyer-cust',0,true)}</div>
+      <div class="fg"><label>یا شخص خریدار</label>${personSelect('cs-buyer-person')}</div>
     </div></div>
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){confirmSaleInBuyer((id))})}">💰 صدور فاکتور</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
@@ -8959,7 +9131,7 @@ async function prodBomCreateModal(preProductId){
   const mfg=p=>p.is_manufactured==1||p.item_type==='finished'||p.item_type==='semi';
   showModal('فرمول تولید جدید',`
     <div class="form-grid">
-      <div class="fg"><label>محصول ساخته‌شده *</label><select id="pb-product">${prodBomProductOpts(preProductId,mfg)}</select></div>
+      <div class="fg"><label>محصول ساخته‌شده *</label>${productSelect('pb-product',preProductId||'',(CACHE.allProducts||[]).filter(mfg))}</div>
       <div class="fg"><label>نام فرمول</label><input id="pb-name" placeholder="مثلاً بلوز زمستانه — استاندارد"></div>
       <div class="fg"><label>مقدار پایه</label><input id="pb-base" type="number" min="0.001" step="any" value="1"></div>
       <div class="fg"><label>بازده٪</label><input id="pb-yield" type="number" min="1" max="100" value="100"></div>
@@ -9208,7 +9380,7 @@ function prodBomOutputsPanelHtml(id, outs, locked, bom){
     ${canMut?`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-top:12px`)}" id="pbe-out-form">
       <input type="hidden" id="pbe-out-id" value="">
-      <div class="fg"><label>کالا</label><select id="pbe-out-prod">${prodBomProductOpts(bom.product_id)}</select></div>
+      <div class="fg"><label>کالا</label>${productSelect('pbe-out-prod',bom.product_id||'',CACHE.allProducts||[])}</div>
       <div class="fg"><label>نوع</label><select id="pbe-out-type">
         <option value="main">اصلی (main)</option>
         <option value="co">هم‌محصول (co)</option>
@@ -9348,9 +9520,11 @@ function prodBomLineRowHtml(L, locked, excludeProductId){
       <td></td>
     </tr>`;
   }
+  const cid='pbe-comp-'+(L.id||('n'+Math.random().toString(36).slice(2,8)));
+  const comps=(CACHE.allProducts||[]).filter(p=>Number(p.id)!==Number(exclude));
   return `<tr class="pbe-line">
     <td><select class="pbe-type"><option value="material" ${type==='material'?'selected':''}>مواد</option><option value="packaging" ${type==='packaging'?'selected':''}>بسته‌بندی</option></select></td>
-    <td><select class="pbe-comp" data-csp-style="${CSP.style(`min-width:160px`)}">${prodBomProductOpts(L.component_product_id, p=>Number(p.id)!==Number(exclude))}</select></td>
+    <td>${productSelect(cid, L.component_product_id, comps, {inputClass:'pbe-comp'})}</td>
     <td><input class="pbe-qty" type="number" step="any" min="0" value="${L.qty_per_base??1}" data-csp-style="${CSP.style(`width:90px`)}"></td>
     <td><input class="pbe-scrap" type="number" min="0" max="99.9" step="0.1" value="${L.scrap_percent??0}" data-csp-style="${CSP.style(`width:70px`)}"></td>
     <td>${L.id?`<button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomDeleteLine((L.bom_id||0),(L.id))})}">×</button>`:`<button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){this.closest('tr').remove()})}">×</button>`}</td>
@@ -9359,6 +9533,7 @@ function prodBomLineRowHtml(L, locked, excludeProductId){
 function prodBomAddLineRow(){
   const body=el('pbe-lines'); if(!body) return;
   body.insertAdjacentHTML('beforeend', prodBomLineRowHtml(null, false, window._prodBomEditProductId));
+  initCustSearches(body);
 }
 async function prodBomSaveHeader(id){
   try{
@@ -9770,7 +9945,7 @@ async function renderProductionEstimateTab(body){
       <div class="prod-panel-body">
         <div class="form-grid">
           <div class="fg"><label>محصول</label>
-            <select id="pe-product">${mfg.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+            ${productSelect('pe-product','',mfg)}</div>
           <div class="fg"><label>تعداد</label><input id="pe-qty" type="number" min="1" value="100"></div>
           <div class="fg"><label>حاشیه سود (٪) — اختیاری</label><input id="pe-markup" type="number" min="0" value="35"></div>
         </div>
@@ -9782,6 +9957,7 @@ async function renderProductionEstimateTab(body){
     </div>
     <div id="pe-result"><div class="muted" data-csp-style="${CSP.style(`font-size:13px`)}">محصول و تعداد را انتخاب کنید — محاسبه خودکار یا دکمه «محاسبه».</div></div>
     </div>`;
+  initCustSearches(body);
   el('pe-product')?.addEventListener('change', prodEstimateScheduleLive);
   el('pe-qty')?.addEventListener('input', prodEstimateScheduleLive);
   el('pe-markup')?.addEventListener('input', prodEstimateScheduleLive);
@@ -10283,7 +10459,7 @@ async function prodOrderCreateModal(){
       ${warn?`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;color:var(--state-warn,#E67E22)`)}">${warn}</div>`:''}
       <div class="form-grid">
         <div class="fg"><label>محصول</label>
-          <select id="po-product" data-csp-change="${CSP.bind('change',function(event){prodOrderFilterBoms()})}">${mfg.length?mfg.map(p=>`<option value="${p.id}">${esc(p.name)}${activeBomProductIds.has(Number(p.id))?' ✓فرمول':''}</option>`).join(''):'<option value="">کالایی یافت نشد</option>'}</select>
+          ${productSelect('po-product', mfg[0]&&mfg[0].id, mfg)}
         </div>
         <div class="fg"><label>فرمول ساخت</label>
           <select id="po-bom"><option value="">— خودکار (پیش‌فرض فعال) —</option></select>
@@ -10309,6 +10485,7 @@ async function prodOrderCreateModal(){
         <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
         <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodOrderCreateSave()})}" ${mfg.length?'':'disabled'}>ثبت پیش‌نویس</button>
       </div>`);
+    el('po-product')?.addEventListener('change', prodOrderFilterBoms);
     prodOrderFilterBoms();
   }catch(e){
     showToast(e?.message||e?.error||'خطا در باز کردن فرم سفارش','error');
@@ -10807,7 +10984,7 @@ async function productionModal(){
   openModal(`
     <div class="modal-head"><h3>🏗️ ثبت اجرای تولید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>کالای تولیدی *</label><select id="pd-product">${productOptions()}</select></div>
+      <div class="fg full"><label>کالای تولیدی *</label>${productSelect('pd-product')}</div>
       <div class="fg"><label>انبار مقصد</label>
         <select id="pd-warehouse"><option value="">— انبار محصول —</option>
           ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
@@ -11056,7 +11233,7 @@ async function renderSalaryStructures(body){
 function salaryStructureModal(){
   openModal(`<div class="modal-head"><h3>${lucide('receipt')} ساختار حقوق سالانه</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
   <div class="modal-body"><div class="form-grid">
-    <div class="fg full"><label>کارمند *</label><select id="ss-person"><option value="">—</option>${(CACHE.payrollEmployees||[]).map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.personnel_code||'')})</option>`).join('')}</select></div>
+    <div class="fg full"><label>کارمند *</label>${personSelect('ss-person','',CACHE.payrollEmployees||[])}</div>
     <div class="fg"><label>سال</label><input id="ss-year" type="number" value="${todayJalali().slice(0,4)}"></div>
     <div class="fg"><label>مبنای مزد</label><select id="ss-basis"><option value="monthly">ماهانه</option><option value="daily">روزانه</option><option value="hourly">ساعتی</option><option value="contractor">پیمانکاری</option></select></div>
     ${[['ss-base','مزد پایه'],['ss-house','حق مسکن'],['ss-food','بن کارگری'],['ss-child','حق اولاد هر فرزند'],['ss-spouse','حق تأهل'],['ss-other','سایر مزایای ثابت']].map(x=>`<div class="fg"><label>${x[1]} (ریال)</label><input id="${x[0]}" class="money" inputmode="numeric" value="0"></div>`).join('')}
@@ -11131,7 +11308,7 @@ async function renderPayrollProcessing(body){
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){farankenouImportModal()})}">${lucide('upload')} ورود کارکرد فراننکو</button>`:''}</div>
   <div class="panel"><div class="panel-body"><div class="form-grid">
     <div class="fg"><label>دوره *</label><select id="pc-period"><option value="">—</option>${(periods||[]).filter(p=>p.status!=='closed').map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></div>
-    <div class="fg"><label>کارمند *</label><select id="pc-person"><option value="">—</option>${(employees||[]).filter(p=>p.active).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+    <div class="fg"><label>کارمند *</label>${personSelect('pc-person','',(employees||[]).filter(p=>p.active))}</div>
     <div class="fg"><label>روز کارکرد</label><input id="pc-days" type="number" step=".01" value="30"></div>
     <div class="fg"><label>ساعت عادی</label><input id="pc-hours" type="number" step=".01" value="220"></div>
     <div class="fg"><label>اضافه‌کاری</label><input id="pc-ot" type="number" step=".01" value="0"></div>
@@ -11244,7 +11421,7 @@ function payrollModal(){
   openModal(`
     <div class="modal-head"><h3>🧑‍🏭 ثبت حقوق ساعتی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>کارمند * ${hlp('از ماژول «اشخاص» با دسته «کارمند» انتخاب کنید — در صورت نبود، ابتدا از آنجا اضافه کنید.')}</label><select id="pr-person">${personOptions()}</select></div>
+      <div class="fg full"><label>کارمند * ${hlp('از ماژول «اشخاص» با دسته «کارمند» انتخاب کنید — در صورت نبود، ابتدا از آنجا اضافه کنید.')}</label>${personSelect('pr-person')}</div>
       <div class="fg"><label>دوره (مثال: 1403/04)</label><input id="pr-period" placeholder="1403/04"></div>
       <div class="fg"><label>تاریخ</label><input id="pr-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg"><label>ساعت کارکرد عادی</label><input id="pr-reg-hours" type="number" min="0" value="0" data-csp-input="${CSP.bind('input',function(event){updatePayrollPreview()})}"></div>
@@ -12003,7 +12180,7 @@ function renderVoucherLines(){
         <option value="person" ${l.target_type==='person'?'selected':''}>شخص</option>
       </select></div>
       <div class="fg">${l.target_type==='person'
-        ?`<label>شخص</label><select data-csp-change="${CSP.bind('change',function(event){voucherLines[(i)].person_id=+this.value})}">${personOptions(l.person_id)}</select>`
+        ?`<label>شخص</label>${personSelect('vc-person-'+i, l.person_id)}`
         :`<label>حساب</label>${acctSearchHtml(i,l.code)}`}</div>
       <div class="fg"><label>بدهکار</label><input type="text" inputmode="numeric" class="money" value="${moneyInit(l.debit)}" data-csp-input="${CSP.bind('input',function(event){voucherLines[(i)].debit=(+this.value.replace(/[^\d]/g,''))||0;voucherLines[(i)].credit=0;updateVoucherBalance()})}"></div>
       <div class="fg"><label>بستانکار</label><input type="text" inputmode="numeric" class="money" value="${moneyInit(l.credit)}" data-csp-input="${CSP.bind('input',function(event){voucherLines[(i)].credit=(+this.value.replace(/[^\d]/g,''))||0;voucherLines[(i)].debit=0;updateVoucherBalance()})}"></div>
@@ -12015,6 +12192,12 @@ function renderVoucherLines(){
       </div>
     </div>`;
   }).join('');
+  initCustSearches(el('vcLines'));
+  voucherLines.forEach((row,i)=>{
+    const h=el('vc-person-'+i);
+    if(!h) return;
+    h.addEventListener('change', function(){ voucherLines[i].person_id=+this.value||''; });
+  });
   updateVoucherBalance();
 }
 function addVoucherLine(){ voucherLines.push({target_type:'account',code:'',person_id:'',debit:0,credit:0,description:'',tafsili2_code:''}); renderVoucherLines(); }
@@ -14709,9 +14892,7 @@ async function personReceiptModal(){
   openModal(`
     <div class="modal-head"><h3>🧑 دریافت از شخص</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>شخص *</label><select id="prr-person"><option value="">—</option>
-        ${parties.map(p=>`<option value="${p.id}">${esc(p.full_name||p.company_name||p.biz||('#'+p.id))}</option>`).join('')}
-      </select></div>
+      <div class="fg full"><label>شخص *</label>${(()=>{ CACHE.parties=parties; return partySelect('prr-person'); })()}</div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="prr-amount" type="text" inputmode="numeric" class="money"></div>
       <div class="fg"><label>تاریخ</label><input id="prr-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg"><label>واریز به</label><select id="prr-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('prr')})}"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
@@ -14886,28 +15067,30 @@ function ppKindChanged(){
   const kind=el('pp-kind')?.value||'supplier';
   const wrap=el('pp-target-wrap'); if(!wrap) return;
   if(kind==='supplier'){
-    wrap.innerHTML=`<label>تأمین‌کننده *</label><select id="pp-target"><option value="">— انتخاب —</option>${(window._ppSuppliers||[]).map(s=>{
-      const sid=s.legacy_table==='suppliers'?s.legacy_id:s.id;
-      return `<option value="${s.legacy_table==='suppliers'&&s.legacy_id?s.legacy_id:''}" data-party="${s.id}">${esc(s.full_name||s.biz||'-')}</option>`;
-    }).join('')}</select><div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اگر در لیست نبود، از اطلاعات اشخاص تأمین‌کننده بسازید.</div>`;
-    // Prefer supplier legacy ids via API list
+    wrap.innerHTML=`<label>تأمین‌کننده *</label>${supplierSelect('pp-target','')}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اگر در لیست نبود، از اطلاعات اشخاص تأمین‌کننده بسازید.</div>`;
     api('GET','/suppliers').then(list=>{
-      const sel=el('pp-target'); if(!sel) return;
-      sel.innerHTML='<option value="">— انتخاب —</option>'+(list||[]).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');
+      CACHE.suppliers=list||[];
+      const cur=el('pp-target')?.value||'';
+      wrap.innerHTML=`<label>تأمین‌کننده *</label>${supplierSelect('pp-target',cur)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اگر در لیست نبود، از اطلاعات اشخاص تأمین‌کننده بسازید.</div>`;
+      initCustSearches(wrap);
     }).catch(()=>{});
   } else if(kind==='incentive'){
-    wrap.innerHTML=`<label>کارشناس *</label><select id="pp-target"><option value="">— انتخاب —</option>${(window._ppReps||[]).map(r=>`<option value="${r.id}" data-payable="${Math.round(r.payable||0)}">${esc(r.name)} — مانده: ${fmt(Math.round(r.payable||0))}</option>`).join('')}</select>`;
-    if(!(window._ppReps||[]).length){
+    const reps=window._ppReps||[];
+    wrap.innerHTML=`<label>کارشناس *</label>${searchSelect('pp-target', reps.map(r=>({
+      id:r.id, label:r.name||'', meta:'مانده '+fmt(Math.round(r.payable||0)), hay:r.name||''
+    })), '', {kind:'generic', placeholder:'جستجو: نام کارشناس...'})}`;
+    if(!reps.length){
       api('GET','/accounting/commissions').then(d=>{
-        const rows=d?.reps||d||[];
-        const sel=el('pp-target'); if(!sel) return;
-        sel.innerHTML='<option value="">— انتخاب —</option>'+rows.map(r=>`<option value="${r.id}" data-payable="${Math.round(r.payable||0)}">${esc(r.name)} — ${fmt(Math.round(r.payable||0))}</option>`).join('');
+        window._ppReps=d?.reps||d||[];
+        ppKindChanged();
       }).catch(()=>{});
     }
   } else {
-    wrap.innerHTML=`<label>شخص *</label><select id="pp-target"><option value="">— انتخاب —</option>${(window._ppParties||[]).map(p=>`<option value="${p.id}">${esc(p.full_name||p.biz||'-')}</option>`).join('')}</select>
+    CACHE.parties=window._ppParties||CACHE.parties||[];
+    wrap.innerHTML=`<label>شخص *</label>${partySelect('pp-target')}
       <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">پرداخت سایر اشخاص به‌صورت هزینه ثبت می‌شود.</div>`;
   }
+  initCustSearches(wrap);
 }
 async function savePersonPayment(){
   const kind=el('pp-kind').value;
@@ -15766,11 +15949,8 @@ async function repCommissionRulesModal(repId,repName){
     <div class="modal-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px`)}">نرخ‌های خاص محصول/دسته بر نرخ پایه کاربر اولویت دارند.</p>
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
-        <div class="fg"><label>نوع</label><select id="rcr-type"><option value="product">محصول</option><option value="category">دسته</option></select></div>
-        <div class="fg"><label>انتخاب</label><select id="rcr-id">
-          <optgroup label="محصولات">${(CACHE.allProducts||[]).slice(0,200).map(p=>`<option value="${p.id}" data-type="product">${esc(p.name)}</option>`).join('')}</optgroup>
-          <optgroup label="دسته‌ها">${(CACHE.productCategories||[]).map(c=>`<option value="${c.id}" data-type="category">${esc(c.name)}</option>`).join('')}</optgroup>
-        </select></div>
+        <div class="fg"><label>نوع</label><select id="rcr-type" data-csp-change="${CSP.bind('change',function(){rcrRebuildTarget()})}"><option value="product">محصول</option><option value="category">دسته</option></select></div>
+        <div class="fg" id="rcr-target-wrap"><label>محصول</label>${productSelect('rcr-id','')}</div>
         <div class="fg"><label>نقد (٪)</label><input id="rcr-cash" type="number" step="0.1"></div>
         <div class="fg"><label>چک (٪)</label><input id="rcr-cheque" type="number" step="0.1"></div>
         <div class="fg"><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){saveRepCommissionRule((repId),(repName))})}">➕ افزودن</button></div>
@@ -15786,6 +15966,16 @@ async function repCommissionRulesModal(repId,repName){
       }).join('')||emptyRow(5)}</tbody></table></div>
     </div>
     <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`,true);
+}
+function rcrRebuildTarget(){
+  const wrap=el('rcr-target-wrap'); if(!wrap) return;
+  const t=el('rcr-type')?.value||'product';
+  if(t==='category'){
+    wrap.innerHTML=`<label>دسته</label><select id="rcr-id">${(CACHE.productCategories||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>`;
+  } else {
+    wrap.innerHTML=`<label>محصول</label>${productSelect('rcr-id','')}`;
+    initCustSearches(wrap);
+  }
 }
 async function saveRepCommissionRule(repId, repName){
   const sel=el('rcr-id'); const opt=sel?.selectedOptions?.[0];
@@ -17150,9 +17340,7 @@ async function chequeEndorseIn(id){
     <div class="modal-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">به‌جای واگذاری به بانک، اسناد دریافتنی بسته می‌شود. اگر ذینفع مشتری باشد همان مبلغ در دفتر و صورت‌حساب او (تفصیلی) دیده می‌شود؛ اگر تأمین‌کننده باشد دفتر تأمین‌کننده به‌روز می‌شود.</p>
       <div class="form-grid">
-        <div class="fg full"><label>ذینفع (تأمین‌کننده)</label>
-          <select id="ce-sup"><option value="">— انتخاب تأمین‌کننده —</option>
-            ${sups.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>
+        <div class="fg full"><label>ذینفع (تأمین‌کننده)</label>${supplierSelect('ce-sup','')}</div>
         <div class="fg full"><label>یا شخص از فهرست</label>${partySelect('ce-party')}</div>
         <div class="fg"><label>تاریخ</label><input id="ce-date" data-jdate value="${todayJalali()}"></div>
       </div>
@@ -18622,14 +18810,14 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>`),
     helpSec('💰','حسابداری — ماژول مستقل',`
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی ERP. برای بازگشت، از دکمه «🔙 بازگشت به ERP» بالای منوی کناری آن استفاده کنید.</p>
-      <p>منوی کناری این ماژول <b>آکاردئونی و ماژول‌محور (مدل A)</b> است: هر ماژول (انبار، بانک، کالا، حسابداری، …) سرگروه است و زیر آن سه بخش <b>اطلاعات پایه / عملیات / گزارشات</b> قرار دارد. سرفصل‌ها با کلیک باز/بسته می‌شوند.</p>
+      <p>منوی کناری این ماژول <b>آکاردئونی و ماژول‌محور (مدل A)</b> است: هر ماژول (انبار، بانک، کالا، حسابداری، …) سرگروه است و زیر آن سه بخش <b>اطلاعات پایه / عملیات / گزارشات</b> قرار دارد. با ورود به حسابداری همهٔ سرفصل‌ها <b>بسته‌اند</b>؛ با کلیک باز می‌شوند. انتخاب طرف‌حساب و کالا در فرم‌ها با کادر جستجو (نام، موبایل، کد) است.</p>
       <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا، پرداخت انگیزه، <b>مانده/موجودی اول دوره</b> (اشخاص، چک، بانک) و ورود اکسل، سند حسابداری دوطرفه خودکار ثبت می‌شود. در فهرست اسناد برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> نمایش داده می‌شود.</p>
       <p><b>جداول:</b> سرتیتر ستون‌ها دیگر روی ردیف اول نمی‌افتد (sticky داخل جعبه جدول با top:0). در انتهای اکثر لیست‌ها جمع ستون‌های عددی، میانگین قیمت‌ها، و برای بدهکار/بستانکار تفاضل رنگی نمایش داده می‌شود. انتخاب چندتایی + عملیات گروهی (حذف/ابطال) در جداول دارای چک‌باکس فعال است.</p>
       <p><b>دستگاه‌ها و ورود:</b> از تنظیمات سیستم یا امکانات → مدیریت دستگاه‌ها، دستگاه‌های موبایل/ویندوز همگام‌سازی و نشست‌های ورود را ببینید و قطع کنید. هر کاربر همزمان حداکثر <b>یک موبایل + یک دسکتاپ (+ وب)</b>. اپ‌ها Online-First هستند؛ قطع اینترنت → آفلاین محلی + همگام خودکار هنگام وصل.</p>
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
-        <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است (نه فقط دفتر مشتری)؛ اگر دو دفتر اختلاف داشتند هشدار می‌آید. نمایش به تفکیک مشتری یا فاکتور، با دکمه ثبت پرداخت</li>
+        <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی)</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند</li>
         <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
@@ -18648,7 +18836,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
-        <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. بها طاقه = متر × فی هر متر (اگر فی خالی باشد از بهای کالا). ستون «بها» جمع است نه میانگین واحد. بعد از ثبت، تا وقتی مصرف نشده با <b>ویرایش</b> اصلاح می‌شود (سند و دفتر تأمین‌کننده دوباره زده می‌شود). در فاکتور خرید/فروش هم «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند</li>
+        <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
         <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید برش تعداد را به انبار محصول می‌برد. همان متر را در حواله سفارش تولید دوباره نزنید — سیستم قفل می‌کند</li>
         <li><b>دفتر چک</b>: واگذاری به بانک (بانک وصول اجباری، سند در جریان وصول، وضعیت واگذارشده، سپس وصول/برگشت)، خرج/ظهرنویسی با ذینفع — اگر مشتری باشد در صورت‌حساب و دفتر او دیده می‌شود؛ اگر تأمین‌کننده باشد دفتر تأمین‌کننده — ارسال مجدد + <b>ابطال کامل</b></li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
@@ -18816,7 +19004,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v180</b> است و اسکریپت‌ها با <code>?v=180</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v181</b> است و اسکریپت‌ها با <code>?v=181</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -19010,7 +19198,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v180</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v181</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>مانده و ماهیت</h5><p>ستون بدهکار/بستانکار ماندهٔ <b>خالص</b> همان مشتری است (تفاضل گردش بدهکار و بستانکار). ماهیت از علامت مانده زنده می‌آید، نه از نام گروه. در جمع پایین جدول و کارت‌های داشبورد، ماندهٔ بدهکاران با ماندهٔ بستانکاران <b>جمع نمی‌شود</b> — تفاضل گرفته می‌شود و سمت بزرگ‌تر ماهیت ماندهٔ خالص است.</p>
@@ -19099,7 +19287,7 @@ function renderSalesGuide(){
       </ul>
       <div class="tip">برای دیدن جزئیات بیشتر، از بخش «گزارشات» (فقط مدیر) درخواست دهید.</div>`),
     helpSec('🧾','مطالبات و صورت‌حساب',`
-      <p>مانده بدهکار/بستانکار مشتریان از <b>دفتر کل</b> تا تاریخ نوار حسابداری خوانده می‌شود. دفتر مشتری فقط نمای دوم است؛ در صورت اختلاف هشدار نشان داده می‌شود و خروجی صورت‌حساب عدد دفتر کل را می‌نویسد.</p>`),
+      <p>مانده بدهکار/بستانکار مشتریان از <b>دفتر کل</b> تا تاریخ نوار حسابداری خوانده می‌شود. بالای صفحهٔ مطالبات کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) هست. انتخاب مشتری/کالا/طاقه در فرم‌ها با همان کادر جستجو است. موجودی طاقه لحظه‌ای است و گزارش گردش طاقه در انبار → گزارشات است.</p>`),
     helpSec('📴','کار آفلاین (نسخه ویندوز/اندروید)',`
       <p>در برنامه دسکتاپ و اندروید، همه کارها (ثبت مشتری، فاکتور، پیگیری و...) <b>بدون اینترنت</b> هم انجام می‌شود و به محض اتصال، خودکار با سرور مرکزی همگام می‌شود.</p>
       <ul>

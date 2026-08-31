@@ -93,7 +93,8 @@ function escapeHtml(value) {
 }
 
 const {
-  attachMissingInvoiceRows, listCustomerGlMovements, glCustomersTafsiliBalance, ensureCustomerBooksRepaired,
+  attachMissingInvoiceRows, listCustomerGlMovements, glCustomersTafsiliBalance,
+  customerLedgerTafsiliBalance, ensureCustomerBooksRepaired,
 } = require('../lib/customer-books');
 
 const ENTRY_LABEL = {
@@ -300,29 +301,16 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   `).get();
   const trialBalanced = Math.abs((tb.d || 0) - (tb.c || 0)) < 1;
 
-  // Receivables: prefer customer_ledger (includes opening). Fall back to invoice−settlement.
-  const ledRecv = db.prepare(`
-    SELECT
-      COALESCE(SUM(CASE WHEN bal > 0 THEN bal ELSE 0 END), 0) AS recv,
-      COALESCE(SUM(CASE WHEN bal < 0 THEN -bal ELSE 0 END), 0) AS cred,
-      COALESCE(SUM(bal), 0) AS net
-    FROM (
-      SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS bal
-      FROM customer_ledger GROUP BY customer_id
-    )
-  `).get();
-  const invOutstanding = Number(totalInvoiced) - Number(totalSettled);
-  const hasLedger = (Number(ledRecv.recv) || 0) !== 0 || (Number(ledRecv.cred) || 0) !== 0;
-  const outstandingLedger = hasLedger ? Number(ledRecv.recv) || 0 : Math.max(0, invOutstanding);
-  const creditorLedger = hasLedger ? (Number(ledRecv.cred) || 0) : Math.max(0, -invOutstanding);
-
   const asOf = safeJalaliDate(req.query.asOf) || safeJalaliDate(req.query.to);
   const payableCode = coaAcct(db, 'coa_payable').code;
   const totalPayable = glPrefixBalanceRial(db, payableCode, { asOf, debitNormal: false }).display;
   const recvGl = glCustomersTafsiliBalance(db, { asOf });
+  const ledTaf = customerLedgerTafsiliBalance(db, { asOf });
   const totalReceivable = recvGl.display;
   const creditorBalance = recvGl.creditor;
   const outstanding = totalReceivable;
+  const outstandingLedger = ledTaf.display;
+  const creditorLedger = ledTaf.creditor;
 
   // Old supplier_ledger path — totalPayableLedger for reconciliation only.
   let totalPayableLedger = 0;

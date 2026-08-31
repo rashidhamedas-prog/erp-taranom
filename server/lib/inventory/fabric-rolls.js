@@ -11,6 +11,72 @@ const { assertJournalIdempotent } = require('../sales-document');
 const { postInventoryMovement, reverseInventoryMovement, invErr } = require('./ledger');
 const { createBatch, adjustBatchQty } = require('./batch-serial');
 
+function liveBatchMeters(db, batchId) {
+  const id = Number(batchId);
+  if (!id) return null;
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(qty_in),0) - COALESCE(SUM(qty_out),0) AS qty
+    FROM inventory_ledger
+    WHERE batch_id=? AND status='posted'
+  `).get(id);
+  if (!row) return null;
+  const has = db.prepare(`
+    SELECT 1 FROM inventory_ledger WHERE batch_id=? AND status='posted' LIMIT 1
+  `).get(id);
+  if (!has) return null;
+  return Number(row.qty) || 0;
+}
+
+function applyLiveRollQty(db, r) {
+  if (!r || !r.id) return r;
+  const live = liveBatchMeters(db, r.id);
+  if (live == null) {
+    r.qty_live = Number(r.qty_on_hand) || 0;
+    return r;
+  }
+  if (Math.abs(live - (Number(r.qty_on_hand) || 0)) > 1e-6) {
+    db.prepare('UPDATE inventory_batches SET qty_on_hand=? WHERE id=?').run(live, r.id);
+    r.qty_on_hand = live;
+  } else {
+    r.qty_on_hand = live;
+  }
+  r.qty_live = live;
+  return r;
+}
+
+function listFabricCirculation(db, query = {}) {
+  const where = ["COALESCE(b.kind,'generic')='fabric'", "l.status='posted'"];
+  const params = [];
+  if (query.batch_id) { where.push('l.batch_id=?'); params.push(Number(query.batch_id)); }
+  if (query.product_id) { where.push('b.product_id=?'); params.push(Number(query.product_id)); }
+  if (query.q) {
+    where.push('(b.batch_no LIKE ? OR IFNULL(p.name,\'\') LIKE ? OR IFNULL(b.color,\'\') LIKE ?)');
+    const like = `%${String(query.q).trim()}%`;
+    params.push(like, like, like);
+  }
+  if (query.from) { where.push('l.date>=?'); params.push(String(query.from)); }
+  if (query.to) { where.push('l.date<=?'); params.push(String(query.to)); }
+  const rows = db.prepare(`
+    SELECT l.id, l.date, l.event_type, l.qty_in, l.qty_out, l.note, l.source_type, l.source_id,
+           l.batch_id, b.batch_no, b.color, b.pattern, p.name AS product_name,
+           w.name AS warehouse_name, u.name AS user_name
+    FROM inventory_ledger l
+    JOIN inventory_batches b ON b.id = l.batch_id
+    LEFT JOIN products p ON p.id = b.product_id
+    LEFT JOIN warehouses w ON w.id = l.warehouse_id
+    LEFT JOIN users u ON u.id = l.created_by
+    WHERE ${where.join(' AND ')}
+    ORDER BY l.date ASC, l.id ASC
+    LIMIT 2000
+  `).all(...params);
+  let run = 0;
+  for (const r of rows) {
+    run += (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
+    r.running_meters = run;
+  }
+  return { rows };
+}
+
 function httpErr(status, message, code, extra) {
   const e = new Error(message);
   e.status = status;
@@ -89,6 +155,7 @@ function listFabricRolls(db, query = {}) {
     LIMIT 500
   `).all(...params);
   for (const r of rows) {
+    applyLiveRollQty(db, r);
     const meters = Number(r.qty_received != null ? r.qty_received : r.qty_on_hand) || 0;
     const unit = Math.round(Number(r.unit_cost_rial) || 0);
     r.amount_rial = assertSafeRial(Math.round(unit * meters), 'fabric list amount');
@@ -191,9 +258,13 @@ function consumeFabricRollOnSale(db, { batchId, qty }) {
   if (row.status === 'reversed') {
     throw httpErr(409, 'این طاقه ابطال شده است', 'E_FABRIC_REVERSED');
   }
-  const onHand = Number(row.qty_on_hand) || 0;
+  const live = liveBatchMeters(db, id);
+  const onHand = live != null ? live : (Number(row.qty_on_hand) || 0);
   if (meters - onHand > 1e-9) {
     throw httpErr(409, `متر طاقه ${row.batch_no} کافی نیست (مانده ${onHand})`, 'E_FABRIC_QTY');
+  }
+  if (live != null && Math.abs(live - (Number(row.qty_on_hand) || 0)) > 1e-6) {
+    db.prepare('UPDATE inventory_batches SET qty_on_hand=? WHERE id=?').run(live, id);
   }
   adjustBatchQty(db, id, -meters);
 }
@@ -574,6 +645,9 @@ function updateFabricRoll(db, id, body, user) {
 
 module.exports = {
   listFabricRolls,
+  listFabricCirculation,
+  liveBatchMeters,
+  applyLiveRollQty,
   receiveFabricRoll,
   voidFabricRoll,
   updateFabricRoll,

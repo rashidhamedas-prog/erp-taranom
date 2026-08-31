@@ -1,8 +1,9 @@
 # Project Status
 
 - Last verified: 2026-09-01
-- **Active:** none — SSL/login chat closed; `LEDGER-STMT-CHEQUE-V180` closed (SW **v180**)
+- **Active:** none — `OPS-UI-LEDGER-SEARCH-ROLLS-V181` completed (SW **v181**)
 - **Iran last:** overlay v180 ✅ code `e073c01`; Origin CA 15y on nginx (to 2041); `users.branch_id` on live `crm.db`; health/ready/root 200; SW `erp-taranom-v180`; `db.js` not wholesale-replaced
+- **In flight:** dashboard books v3 + collapsed acc nav + party/product search + live fabric/circulation
 - Prior verified: 2026-08-31
 - **Primary tip (PACK merge note):** `ai/PROD-STITCH-PACK-MERGE` onto `12b0385` — SW **v176**
 - **Iran:** overlay v176 ✅ health/ready/root 200; SW v176; `db.js` not wholesale-replaced

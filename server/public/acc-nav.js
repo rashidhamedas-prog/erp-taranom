@@ -47,6 +47,7 @@ const ACC_TAB_RESOLVE = {
   'acc-stocktaking': 'stocktaking',
   'acc-inv-batches': 'inv-batches',
   'acc-fabric-rolls': 'fabric-rolls',
+  'acc-fabric-roll-kardex': 'fabric-roll-kardex',
   'acc-cutting-lays': 'cutting-lays',
   'acc-inv-reservations': 'inv-reservations',
   'acc-inv-landed': 'inv-landed',
@@ -169,6 +170,7 @@ const ACC_NAV_SECTIONS = [
     { title: 'گزارشات', items: [
       { id: 'acc-warehouse-report', icon: '📊', label: 'گزارش جامع انبار' },
       { id: 'acc-item-kardex', icon: '🗃️', label: 'کاردکس کالا' },
+      { id: 'acc-fabric-roll-kardex', icon: '🧵', label: 'گردش طاقه' },
     ]},
   ]},
   { title: 'بانک و صندوق', subgroups: [

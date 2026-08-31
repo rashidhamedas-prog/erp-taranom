@@ -1,5 +1,47 @@
 schema_version: 1
 tasks:
+  - id: "OPS-UI-LEDGER-SEARCH-ROLLS-V181"
+    title: "Fix dashboard books warning + collapse nav + search + live rolls"
+    status: "completed"
+    claimed_at: "2026-09-01T02:10:00+03:30"
+    completed_at: "2026-09-01T02:40:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "high"
+    owner: "cursor:implementer-v181"
+    roles:
+      implementer: "cursor:implementer-v181"
+    branch: "fix/LEDGER-STATEMENT-AR"
+    worktree: "D:/soft/Claud/porje/crm-taranom/erp-taranom1"
+    file_claims: []
+    released_claims:
+      - "server/lib/customer-books.js"
+      - "server/lib/sales-document.js"
+      - "server/lib/inventory/fabric-rolls.js"
+      - "server/routes/accounting.js"
+      - "server/routes/inventory.js"
+      - "server/public/app.js"
+      - "server/public/acc-nav.js"
+      - "server/public/sw.js"
+      - "server/public/index.html"
+      - "server/scripts/test-ops-v181.js"
+      - "server/scripts/test-acc-stitch-p2.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    acceptance_criteria:
+      - "Overview books_mismatch false after v3 align of GL-only AR"
+      - "Accounting nav chapters collapsed on enter"
+      - "Receivables page has party search"
+      - "Party/product/roll pickers use search widgets"
+      - "Fabric list qty_live from inventory_ledger; circulation report exists"
+      - "node server/scripts/test-ops-v181.js"
+    non_goals:
+      - "Wholesale db.js replace"
+      - "Desktop/Android full builds"
+      - "Committing leftover _deploy-demo/_diag-moein scripts"
+
   - id: "OPS-SSL-ORIGIN-CA-CLOSE"
     title: "Close SSL 526 + login branch_id chat (Origin CA 15y)"
     status: "completed"

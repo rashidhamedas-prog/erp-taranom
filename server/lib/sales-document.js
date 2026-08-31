@@ -294,6 +294,7 @@ function postSaleReturnStockMovements(db, {
     const unitCost = Math.round(
       Number(r.cost_rial != null ? r.cost_rial : (Number(r.unit_cost) || 0)) || 0
     );
+    const batchId = r.batch_id ? parseInt(r.batch_id, 10) : null;
     const mv = postInventoryMovement(db, {
       eventType: 'sale_return',
       productId: r.product_id,
@@ -302,6 +303,7 @@ function postSaleReturnStockMovements(db, {
       unitCostRial: unitCost || undefined,
       sourceType,
       sourceId,
+      batchId: batchId || undefined,
       date: date || '',
       note: note || 'برگشت از فروش',
       createdBy: userId,
@@ -309,6 +311,12 @@ function postSaleReturnStockMovements(db, {
     });
     movements.push(mv);
     costRial += Math.round(Number(mv.amount_rial) || 0);
+    if (batchId && qty > 0) {
+      try {
+        const { adjustBatchQty } = require('./inventory/batch-serial');
+        adjustBatchQty(db, batchId, qty);
+      } catch (_) { /* batch may be gone */ }
+    }
   }
   return { movements, costRial };
 }

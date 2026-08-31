@@ -1,3 +1,10 @@
+## 2026-09-01T02:15:00+03:30 — v181 dashboard align + search + live rolls
+
+- Owner screenshots A/B/C: warning still on, acc nav chapters open, receivables needs party search, all party/product fields need invoice-style search, fabric meters live + circulation.
+- Fix: unique-COA compare + incremental `books_align` (GL>ledger only). Acc nav all collapsed on enter. `#recvSearch`. searchSelect for remaining party/product/roll. Live meters from inventory_ledger; GET circulation; sale return posts batch_id.
+- SW v181. Do not commit `_deploy-demo-ui-v156`, `_deploy-mdi-v152`, `_diag-moein-ledger*`.
+- Next: Iran overlay (no git pull / no wholesale db.js). Hard Refresh.
+
 ## 2026-09-01T01:57:00+03:30 — close LEDGER-STMT-CHEQUE-V180
 
 - Product + Iran overlay already done (SW v180, health 200, Primary FF `108fc1e`).
