@@ -1,3 +1,9 @@
+## 2026-08-31T14:15:00+03:30 — Primary + Iran v174 done
+
+- **Primary FF:** `dbd86fc..f3318bb` on `origin/claude/claude-md-docs-2ssrpy`
+- **Iran:** overlay public SW v174 + surgical backup-restore; health/ready/root 200. No db.js.
+- **Next product children (do not fake PASS):** RFQ → 3-way → GRNI → SOD → branch ACL → reservation on POST /orders.
+
 ## 2026-08-31T14:10:00+03:30 — Gaps coverage + backup verify; merge to Primary
 
 - **Task:** `QA-ERP-GAPS-NOT-IMPLEMENTED` + child `QA-ERP-GAPS-BACKUP-VERIFY-EXT`

@@ -21,7 +21,7 @@
 - **شکاف‌های بسته‌شده (پوشش/فیکس کوچک):** `gap.tracking_profile_roll`، `fabric.tracking_profile`، `backup.restore` (verify)
 - **شکاف محصول باقی:** RFQ، 3-way، GRNI، SOD/maker-checker، branch ACL، reservation روی `POST /orders`
 - **SW:** `erp-taranom-v174`
-- **Deploy:** در حال overlay (بدون `db.js`)
+- **Deploy:** ✅ overlay SFTP hash=`f3318bb` (بدون `db.js`). `server.js` فقط بلوک backup-restore جراحی شد؛ بکاپ `server.js.bak-v174`. health/ready/root **200**.
 
 ### ۱۴۰۵/۰۶/۰۹ — QA gaps: backup create/list/health (no Primary/deploy)
 

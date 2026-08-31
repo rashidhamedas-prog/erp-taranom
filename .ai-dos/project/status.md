@@ -1,8 +1,8 @@
 # Project Status
 
 - Last verified: 2026-08-31
-- **Primary:** merging `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` (SW v174)
-- **Iran:** overlay v174 planned; VPS `db.js` never wholesale-replaced
+- **Primary:** `origin/claude/claude-md-docs-2ssrpy` @ `f3318bb` (QA gaps + SW v174)
+- **Iran:** overlay v174 ✅ health/ready/root 200; VPS `db.js` kept; surgical `server.js` backup-restore
 - **qa:full:** `qa-20260831T103426-14980` PASS 258 FAIL 0 ERROR 0 · NOT_IMPLEMENTED 11
 - **Active task:** `QA-ERP-GAPS-NOT-IMPLEMENTED` — coverage closed; product RFQ/3-way/GRNI/SOD/branch/order-reservation remain
 - **Closed:** `QA-ERP-FULL-CYCLE-INTEGRATION` — owner-approved merge + overlay

@@ -215,7 +215,7 @@ tasks:
 
   - id: "QA-ERP-GAPS-BACKUP-VERIFY-EXT"
     title: "Preserve upload extension so POST /admin/backup-restore can verify zip"
-    status: "active"
+    status: "completed"
     review_status: "PENDING"
     security_status: "NOT_REQUIRED"
     risk: "medium"
@@ -227,7 +227,9 @@ tasks:
     branch: "ai/QA-ERP-GAPS-NOT-IMPLEMENTED"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-gaps"
     claimed_at: "2026-08-31T14:00:00+03:30"
-    file_claims:
+    completed_at: "2026-08-31T14:15:00+03:30"
+    file_claims: []
+    released_claims:
       - "server/server.js"
       - "server/public/app.js"
       - "server/public/sw.js"
