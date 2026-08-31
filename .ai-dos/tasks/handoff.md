@@ -1,3 +1,9 @@
+## 2026-09-01T00:25:00+03:30 — Primary FF merge + complete Iran deploy v179
+
+- Fast-forward `origin/claude/claude-md-docs-2ssrpy` `1b7f2d7` → tip of `fix/LEDGER-STATEMENT-AR` (no checkout: Primary locked in demo-v3-merge worktree at stale `51be279`).
+- Iran: overlay only (VPS dirty @ `8a5cd54`, do not pull/replace `db.js`).
+- Do not commit `_deploy-demo-ui-v156`, `_deploy-mdi-v152`, `_diag-moein-ledger*`.
+
 ## 2026-08-31T23:55:00+03:30 — OPS pack v179 (cash-flow / cheque / warehouse / nav / fabric)
 
 - Cash-flow: isolated builder, never 500 on null/empty `account_code`; all cash/bank codes.
