@@ -1,3 +1,12 @@
+## 2026-08-31T13:20:00+03:30 — Owner approved Primary merge + Iran deploy
+
+- **Task:** `QA-ERP-FULL-CYCLE-INTEGRATION` — owner override of prior no-merge/no-deploy gate
+- **Primary:** `origin/claude/claude-md-docs-2ssrpy` @ `6ce3ac1` (authoritative). Local stale `51be279` in demo-v3-merge worktree left untouched.
+- **Integration tip before stamp:** `1fd4917` (22 commits ahead of origin Primary, 0 behind)
+- **SW:** `erp-taranom-v173`
+- **Constraint kept:** do not checkout `erp-taranom1` / `ai/UI-DOCS-STITCH`
+- **Exact next:** merge `--no-ff` into Primary worktree, run gates + `/qa-full`, push Primary, SFTP Iran, stamp CHANGE-LOG ✅, then claim `QA-ERP-GAPS-NOT-IMPLEMENTED`
+
 ## 2026-08-26T17:30:00+03:30 — recon UNION fix + qa:full GREEN (no Primary/deploy)
 
 - **Bugbot finding:** `scripts/qa/recon.js` `stock.ledger_vs_warehouse` only walked ledger keys; positive `warehouse_stock` without ledger was PASS.

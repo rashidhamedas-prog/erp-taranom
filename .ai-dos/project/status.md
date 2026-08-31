@@ -1,7 +1,8 @@
 # Project Status
 
-- Last verified: 2026-08-26
-- **Active task:** `QA-ERP-FULL-CYCLE-INTEGRATION` — recon UNION fix; qa:full GREEN; Bugbot none; Independent APPROVED; Security C0/H0/M0; **no Primary merge/push/deploy**
+- Last verified: 2026-08-31
+- **Active task:** `QA-ERP-FULL-CYCLE-INTEGRATION` — owner approved Primary merge + Iran deploy (SW v173)
+- **Owner override (2026-08-31):** merge to `claude/claude-md-docs-2ssrpy` + Iran SFTP; erp-taranom1 / UI-STITCH untouched
 - **Integration tip:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` /
   `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration` @ Primary `6ce3ac1`
 - **Sources:** harness `a9a7110` + product `7d60258`

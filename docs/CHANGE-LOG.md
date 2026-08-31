@@ -13,6 +13,15 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۹ — QA-ERP merge to Primary + Iran deploy (SW v173)
+
+- **شاخه:** `claude/claude-md-docs-2ssrpy` از `ai/QA-ERP-FULL-CYCLE-INTEGRATION` @ `1fd4917` + stamp v173
+- **خلاصه:** مالک merge به Primary و deploy ایران را تأیید کرد. harness QA + اصلاحات High محصول (چک `party_id`، انبار فاکتور قطعی، ledger افتتاحیه، RBAC حقوق/تنظیمات، UNION recon) روی Primary می‌آید. SW `erp-taranom-v173`. ۱۴ شکاف `NOT_IMPLEMENTED` عمداً PASS نشدند — تسک پیگیری `QA-ERP-GAPS-NOT-IMPLEMENTED`.
+- **فایل‌ها:** harness `scripts/qa/**`، فیکس‌های محصول (چک/فاکتور/حقوق/ledger/RBAC)، راهنمای داخل برنامه، SW/index
+- **تست:** آخرین `qa:full` `qa-20260826T135416-20172` PASS 248 FAIL 0 ERROR 0؛ گیت‌های merge در همین نوبت تکرار می‌شوند
+- **Deploy:** در حال اجرا — پس از health ۲۰۰ به ✅ به‌روز می‌شود
+- **Rollback:** `git revert` merge commit روی Primary؛ روی VPS overlay قبلی v172
+
 ### ۱۴۰۵/۰۶/۰۴ — QA recon ledger ∪ warehouse_stock (no Primary/deploy)
 
 - **شاخه:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION`

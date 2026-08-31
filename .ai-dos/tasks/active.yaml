@@ -59,19 +59,19 @@ tasks:
       - "server/scripts/test-wave0-financial-hostile.js"
       - "server/scripts/test-mahak-phase2.js"
     notes: >-
-      Owner: Integration of a9a7110 + 7d60258 onto Primary 6ce3ac1.
-      Source tasks notified; claims transferred here. erp-taranom1
-      (UI-STITCH-P0-DISCOVERY) not edited. NO Primary merge, NO push,
-      NO Iran deploy this session.
+      Owner approved 2026-08-31: merge to Primary + Iran deploy.
+      Integration of a9a7110 + 7d60258 onto Primary 6ce3ac1.
+      erp-taranom1 (UI-STITCH-P0-DISCOVERY) not edited.
+      Follow-up after deploy: QA-ERP-GAPS-NOT-IMPLEMENTED.
     acceptance_criteria:
       - "Both source tips merged without dropping product fixes or QA tests"
       - "NODE_ENV=test node scripts/qa/run-full-erp-qa.js without --skip-e2e"
       - "FAIL=0 ERROR=0 unbalanced JE=0 FK/orphan=0 stock-GL recon=0"
       - "Admin + All-Roles + Playwright E2E batches ran"
-      - "14 NOT_IMPLEMENTED classified; no Primary merge/deploy"
+      - "14 NOT_IMPLEMENTED classified; owner-approved Primary merge+deploy"
     non_goals:
-      - "Iran VPS deploy / merge to primary / push"
-      - "Implementing the 14 NOT_IMPLEMENTED gaps"
+      - "Implementing the 14 NOT_IMPLEMENTED gaps in this merge"
+      - "Checking out or editing erp-taranom1 / UI-STITCH"
 
   - id: "QA-ERP-FULL-CYCLE"
     title: "Isolated Admin + All-Roles QA harness (no production, no deploy)"
