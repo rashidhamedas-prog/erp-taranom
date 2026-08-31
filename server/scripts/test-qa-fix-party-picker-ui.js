@@ -1,0 +1,130 @@
+'use strict';
+/**
+ * Regression: trust/opening cheque UI must use searchable party picker (not
+ * free-text ids tc-party / oc-party). POST /trust-checks requires party_id.
+ */
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const http = require('http');
+const { pickFreePort, killProcessTree } = require('./lib/test-server-boot');
+
+let pass = 0, fail = 0;
+function ok(name, cond, extra) {
+  if (cond) { pass++; console.log('  ✅', name); }
+  else { fail++; console.log('  ❌', name, extra || ''); }
+}
+
+function req(port, method, urlPath, body, token) {
+  return new Promise((resolve, reject) => {
+    const data = body != null ? JSON.stringify(body) : null;
+    const r = http.request({
+      hostname: '127.0.0.1', port, path: '/api' + urlPath, method,
+      headers: {
+        ...(token ? { Authorization: 'Bearer ' + token } : {}),
+        ...(data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}),
+      },
+    }, (res) => {
+      let buf = '';
+      res.on('data', (c) => { buf += c; });
+      res.on('end', () => {
+        let j = null;
+        try { j = buf ? JSON.parse(buf) : null; } catch { j = { raw: buf }; }
+        resolve({ status: res.statusCode, body: j });
+      });
+    });
+    r.on('error', reject);
+    if (data) r.write(data);
+    r.end();
+  });
+}
+
+(async () => {
+  console.log('\n══ QA-FIX party picker UI ══\n');
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  ok('no id="tc-party"', !appJs.includes('id="tc-party"'));
+  ok('no id="oc-party"', !appJs.includes('id="oc-party"'));
+  ok('partySelect helper', appJs.includes('function partySelect'));
+  ok('tcParty picker', appJs.includes("partySelect('tcParty')") || appJs.includes('partySelect("tcParty")'));
+  ok('ocParty picker', appJs.includes("partySelect('ocParty')") || appJs.includes('partySelect("ocParty")'));
+  ok('glAccount searchable', /id="glAccount"[^>]*data-searchable/.test(appJs) || /data-searchable[\s\S]{0,400}id="glAccount"/.test(appJs));
+  ok('glAcctFind search', appJs.includes('id="glAcctFind"') && appJs.includes('function filterGlAccountOptions'));
+  try {
+    new Function(appJs);
+    ok('app.js parses', true);
+  } catch (e) {
+    ok('app.js parses', false, e.message);
+  }
+
+  for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']) delete process.env[k];
+  const PORT = await pickFreePort(0, { allowFallback: true });
+  const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-fix-party-'));
+  const env = {
+    ...process.env,
+    PORT: String(PORT),
+    LISTEN_HOST: '127.0.0.1',
+    DB_PATH: path.join(TMP, 't.db'),
+    COMPANIES_DIR: path.join(TMP, 'c'),
+    JWT_SECRET: 'qa-fix-party-picker-ui-secret-32ch!!',
+    SYNC_ROLE: 'central',
+    NODE_ENV: 'test',
+    SMS_DISABLED: '1',
+    MOADIAN_ENABLED: '0',
+    ERP_TEST_ISOLATION: '1',
+  };
+  delete env.HTTP_PROXY; delete env.HTTPS_PROXY;
+  const srv = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
+    cwd: path.join(__dirname, '..'), env, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stderr = '';
+  srv.stderr.on('data', (d) => { stderr += d.toString(); });
+  try {
+    let up = false;
+    for (let i = 0; i < 240; i++) {
+      try {
+        const h = await req(PORT, 'GET', '/system/health');
+        if (h.status === 200) { up = true; break; }
+      } catch { /* retry */ }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    ok('server up', up, up ? '' : (stderr.slice(-400) || 'health timeout'));
+    if (!up) throw new Error('server did not start');
+    let login = await req(PORT, 'POST', '/auth/login', { username: 'admin', password: 'admin123' });
+    let token = login.body?.token;
+    if (login.body?.must_change_password && token) {
+      await req(PORT, 'POST', '/auth/change-password', { oldPass: 'admin123', newPass: 'QaFixPty#1405' }, token);
+      login = await req(PORT, 'POST', '/auth/login', { username: 'admin', password: 'QaFixPty#1405' });
+      token = login.body?.token;
+    }
+    ok('admin login', !!token);
+
+    const party = await req(PORT, 'POST', '/parties', {
+      full_name: 'طرف حساب امانی QA', phone: '09151119902', party_roles: ['customer'],
+    }, token);
+    const partyId = party.body?.data?.id || party.body?.id;
+    ok('party created', !!partyId, party.body?.error);
+
+    const freeText = await req(PORT, 'POST', '/trust-checks', {
+      direction: 'in', amount: 1000000, party_name: 'متن آزاد بدون شناسه',
+    }, token);
+    ok('free-text party_name rejected', freeText.status >= 400, 'status=' + freeText.status);
+
+    const badId = await req(PORT, 'POST', '/trust-checks', {
+      direction: 'in', amount: 1000000, party_id: 999999,
+    }, token);
+    ok('unknown party_id rejected', badId.status >= 400, 'status=' + badId.status);
+
+    const okRow = await req(PORT, 'POST', '/trust-checks', {
+      direction: 'in', amount: 2500000, party_id: partyId,
+    }, token);
+    ok('valid party_id accepted', okRow.status === 200 || okRow.status === 201, okRow.body?.error);
+    ok('stored party_id', Number(okRow.body?.party_id) === Number(partyId), String(okRow.body?.party_id));
+    ok('party_name derived', !!(okRow.body?.party_name && Number(okRow.body?.party_id)), okRow.body?.party_name);
+  } finally {
+    await killProcessTree(srv);
+    try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  console.log('\nparty picker:', pass, 'pass ·', fail, 'fail');
+  process.exit(fail ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(1); });

@@ -64,12 +64,12 @@ async function api(method, p, body) {
     ok('مشتری جدید تفصیلی گرفت', !!custRow.coa_code && custRow.coa_code.startsWith('203004'), custRow.coa_code);
 
     // 2) pick a Mahak product with stock & cost
-    const prod = db.prepare("SELECT id,name,price,cost,coa_code,stock FROM products WHERE stock>2 AND cost>0 AND coa_code LIKE '202%' LIMIT 1").get();
+    const prod = db.prepare("SELECT id,name,price,cost,coa_code,stock,warehouse_id FROM products WHERE stock>2 AND cost>0 AND coa_code LIKE '202%' LIMIT 1").get();
     ok('محصول محک با موجودی/بها موجود است', !!prod, prod && `${prod.name} stock=${prod.stock} cost=${prod.cost}`);
 
     // 3) final invoice → mahak postings + COGS voucher
     const price = prod.price > 0 ? prod.price : 500000;
-    const inv = await api('POST', '/invoices', { cust_id: cust.id, type: 'final', rows: [{ product_id: prod.id, qty: 2, price }], pay_type: 'cash' });
+    const inv = await api('POST', '/invoices', { cust_id: cust.id, type: 'final', warehouse_id: prod.warehouse_id, rows: [{ product_id: prod.id, qty: 2, price }], pay_type: 'cash' });
     const jinv = db.prepare("SELECT je.id FROM journal_entries je WHERE je.ref_type='invoice' AND je.ref_id=? AND COALESCE(je.deleted_at,0)=0").get(inv.id);
     const lines = db.prepare('SELECT account_code,debit,credit FROM journal_lines WHERE entry_id=?').all(jinv.id);
     ok('سند فروش: بدهکار تفصیلی مشتری', lines.some(l => l.account_code === custRow.coa_code && l.debit > 0));

@@ -1,7 +1,30 @@
 # Project Status
 
-- Last verified: 2026-08-20
-- **Active task:** none — `PROD-STITCH-P5B` completed
+- Last verified: 2026-08-31
+- **Active task:** `QA-ERP-FULL-CYCLE-INTEGRATION` — owner approved Primary merge + Iran deploy (SW v173)
+- **Owner override (2026-08-31):** merge to `claude/claude-md-docs-2ssrpy` + Iran SFTP; erp-taranom1 / UI-STITCH untouched
+- **Integration tip:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration` @ Primary `6ce3ac1`
+- **Sources:** harness `a9a7110` + product `7d60258`
+- **qa:full (this tree, no skip-e2e):** `qa-20260826T135416-20172` · exit **0** · PASS **248** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14**
+  Admin batch ✓ · All-Roles batch ✓ · Playwright E2E ✓ (channel=chrome)
+  recon JE unbalanced **0** · FK **0** · ledger ∪ warehouse **0**
+- **Recon fix:** `stock.ledger_vs_warehouse` unions both sources (company/warehouse/product/variant). Regression 12/12.
+- **No Iran deploy / Primary merge / push this session.**
+- **Integration branch/worktree:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration` @ Primary `6ce3ac1`
+- **Sources (kept):** harness `a9a7110` (`ai/QA-ERP-FULL-CYCLE-admin-roles`); product `7d60258` (`ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`)
+- **Harness:** cheque admin.js tests kept (`50e8269`). Claims transferred from parent.
+- **Child product:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` + `QA-ERP-RBAC-MATRIX-ALIGN` completed @ `7d60258`
+- **Prior product E2E:** `qa-20260824T214150-19348` exit 1 · PASS 218 · FAIL 18 (matrix vs route; later closed)
+- **Authoritative sibling qa:full:** `qa-20260824T224056-6580` · PASS 246 · FAIL 0 · ERROR 0 · NOT_IMPLEMENTED 14 · recon JE 0
+- **Prior reviews (product tree):** Bugbot none; Independent APPROVED; Security C0/H0/M0
+- **Follow-up:** `QA-ERP-GAPS-NOT-IMPLEMENTED` (classify in Integration; do not fake PASS)
+- **erp-taranom1:** stayed on `ai/UI-DOCS-STITCH` (not checked out; UI-STITCH-P0-DISCOVERY untouched)
+- **No Iran deploy / Primary merge / push this session.**
+- First full run `qa-20260824T151001-15880`: exit **3** · PASS 211 · FAIL 24 · NOT_IMPLEMENTED 14
+  Evidence: `docs/qa/FIRST-RUN.md`. **No Iran deploy / merge.**
+- Prior: `PROD-STITCH-P5B` completed
 - Independent Bugbot: no bugs. Security: APPROVED C0/H0/M0.
 - **PROD-STITCH-P5B:** `completed` — dual APPROVED + owner merge/deploy
   Primary `b52a1de`; stamp `.sftp-deploy-stamp-stitch-v172` = `2026-08-20T13:54:13Z hash=b52a1de`
@@ -34,6 +57,7 @@
 
 ## Working quality commands
 
+- Isolated QA (temp DB, no production): `set NODE_ENV=test` then `node scripts/qa/run-full-erp-qa.js` (exit 0/1/2/3)
 - `git diff --check`
 - `node --check server/server.js`
 - `node --check server/public/app.js`

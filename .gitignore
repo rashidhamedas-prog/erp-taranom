@@ -55,6 +55,9 @@ server/uploads/
 server/private-uploads/
 server/data/
 
+# Isolated QA run artifacts (keep docs/qa/)
+artifacts/qa/
+
 # OS junk
 Thumbs.db
 Desktop.ini

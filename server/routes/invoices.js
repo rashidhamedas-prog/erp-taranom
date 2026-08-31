@@ -14,6 +14,7 @@ const { listQueryPlan, listResponse } = require('../lib/pagination');
 const {
   normalizeInvoiceType, isFirmSale, invoiceTypeLabel,
   assertJournalIdempotent, assertWarehouseLines,
+  applyHeaderWarehouseToLines, requireFirmHeaderWarehouse,
   postSaleStockMovements, postCogsFromMovements, perpetualDocsEnabled,
   autoApproveNormalInvoice,
 } = require('../lib/sales-document');
@@ -436,8 +437,11 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
 
   if (isFirmSale(invType)) {
-    try { assertWarehouseLines(db, built.rows, whId, { requirePositive: true }); }
-    catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+    try {
+      whId = requireFirmHeaderWarehouse(whId);
+      applyHeaderWarehouseToLines(built.rows, whId, { force: isSalesRep });
+      assertWarehouseLines(db, built.rows, whId, { requirePositive: true });
+    } catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
   }
 
   let created;
@@ -684,20 +688,22 @@ router.post('/:id/convert', auth, (req, res) => {
   const built = { rows, subtotal: inv.subtotal };
   const totals = calcDocTotals(db, built, inv.disc || 0);
   const owner = db.prepare('SELECT role, sales_warehouse_id FROM users WHERE id=?').get(inv.user_id);
-  let convertWhId = inv.warehouse_id || null;
+  let convertWhId = req.body?.warehouse_id
+    ? parseInt(req.body.warehouse_id, 10)
+    : (inv.warehouse_id || null);
   if (owner && (owner.role === 'field_sales' || owner.role === 'inside_sales')) {
     if (!owner.sales_warehouse_id) {
       return res.status(400).json({ error: 'انبار فروش برای کاربر صادرکننده تعریف نشده' });
     }
     convertWhId = owner.sales_warehouse_id;
-    for (const r of rows) {
-      if (r.row_type !== 'income') r.warehouse_id = convertWhId;
-    }
+    applyHeaderWarehouseToLines(rows, convertWhId, { force: true });
   } else if (!convertWhId && owner?.sales_warehouse_id) {
     convertWhId = owner.sales_warehouse_id;
   }
 
   try {
+    convertWhId = requireFirmHeaderWarehouse(convertWhId);
+    applyHeaderWarehouseToLines(rows, convertWhId, { force: false });
     assertWarehouseLines(db, rows, convertWhId, { requirePositive: true });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });

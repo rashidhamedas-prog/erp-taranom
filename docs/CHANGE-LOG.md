@@ -1,4 +1,4 @@
-﻿# ┘ä╪º┌» ╪¬╪║█î█î╪▒╪º╪¬ ╪º╪╣┘à╪º┘äΓÇî╪┤╪»┘ç ΓÇö ERP ╪¬╪▒┘å┘à
+# ┘ä╪º┌» ╪¬╪║█î█î╪▒╪º╪¬ ╪º╪╣┘à╪º┘äΓÇî╪┤╪»┘ç ΓÇö ERP ╪¬╪▒┘å┘à
 
 ╪º█î┘å ┘ü╪º█î┘ä ╪¬╪º╪▒█î╪«┌å┘ç┘ö ╪¬╪║█î█î╪▒╪º╪¬█î ╪▒╪º ┌⌐┘ç ╪»╪▒ Cursor / Claude Code ╪º╪╣┘à╪º┘ä ╪┤╪»┘ç ┘å┌»┘ç ┘à█îΓÇî╪»╪º╪▒╪».
 **┘é╪¿┘ä ╪º╪▓ ╪┤╪▒┘ê╪╣ ┌⌐╪º╪▒ ╪¼╪»█î╪»╪î ╪º█î┘å ┘ü╪º█î┘ä ╪▒╪º ╪¿╪«┘ê╪º┘å█î╪»** ╪¬╪º ╪¿╪»╪º┘å█î╪» ┌å┘ç ┌å█î╪▓┘ç╪º█î█î ┘é╪¿┘ä╪º┘ï ╪º┘å╪¼╪º┘à ╪┤╪»┘ç ╪º╪│╪¬.
@@ -13,7 +13,164 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
-### 2026-08-20 — PROD-02/03 cutting lay wizard + Iran SFTP ✅
+### ۱۴۰۵/۰۶/۰۹ — QA-ERP merge to Primary + Iran deploy (SW v173)
+
+- **شاخه:** `claude/claude-md-docs-2ssrpy` از `ai/QA-ERP-FULL-CYCLE-INTEGRATION` @ `1fd4917` + stamp v173
+- **خلاصه:** مالک merge به Primary و deploy ایران را تأیید کرد. harness QA + اصلاحات High محصول (چک `party_id`، انبار فاکتور قطعی، ledger افتتاحیه، RBAC حقوق/تنظیمات، UNION recon) روی Primary می‌آید. SW `erp-taranom-v173`. ۱۴ شکاف `NOT_IMPLEMENTED` عمداً PASS نشدند — تسک پیگیری `QA-ERP-GAPS-NOT-IMPLEMENTED`.
+- **فایل‌ها:** harness `scripts/qa/**`، فیکس‌های محصول (چک/فاکتور/حقوق/ledger/RBAC)، راهنمای داخل برنامه، SW/index
+- **تست:** آخرین `qa:full` `qa-20260826T135416-20172` PASS 248 FAIL 0 ERROR 0؛ گیت‌های merge در همین نوبت تکرار می‌شوند
+- **Deploy:** در حال اجرا — پس از health ۲۰۰ به ✅ به‌روز می‌شود
+- **Rollback:** `git revert` merge commit روی Primary؛ روی VPS overlay قبلی v172
+
+### ۱۴۰۵/۰۶/۰۴ — QA recon ledger ∪ warehouse_stock (no Primary/deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION`
+- **خلاصه:** `stock.ledger_vs_warehouse` حالا کلیدهای هر دو منبع را با UNION روی company/warehouse/product/variant (در صورت وجود ستون) مقایسه می‌کند: ledger بدون انبار، انبار بدون ledger، و اختلاف مقدار. تست رگرسیون `test-qa-fix-recon-ledger-union.js` ابتدا FAIL بود، بعد از فیکس ۱۲/۱۲. بوت HTTP در `test-crm-pro-rbac.js` تا ۴۵ثانیه صبر می‌کند (قبلاً ۱۵ثانیه و زیر بار flake).
+- **qa:full:** `qa-20260826T135416-20172` بدون `--skip-e2e` · exit **0** · PASS **248** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14** · recon JE=0 · FK=0 · stock=0
+- **فایل‌ها:** `scripts/qa/recon.js`, `server/scripts/test-qa-fix-recon-ledger-union.js`, `server/scripts/test-crm-pro-rbac.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+- **Rollback:** `git checkout -- scripts/qa/recon.js server/scripts/test-crm-pro-rbac.js` روی همین شاخه؛ تست رگرسیون را دوباره باید FAIL ببیند.
+
+### ۱۴۰۵/۰۶/۰۳ — QA-ERP-FULL-CYCLE Integration qa:full GREEN (no Primary/deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` از Primary `6ce3ac1` (والدین `a9a7110` + `7d60258`)
+- **خلاصه:** `NODE_ENV=test node scripts/qa/run-full-erp-qa.js` بدون `--skip-e2e`. `qa-20260825T115815-8164` exit **0** · PASS **248** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14**. Admin + All-Roles + Playwright E2E (channel=chrome). recon JE=0 · FK=0 · انبار/دفتر=0.
+- **Harness:** boot Windows USERPROFILE + timeout 120s؛ E2E اگر chromium باندل نباشد از Chrome سیستم استفاده می‌کند.
+- **فایل‌ها:** `scripts/qa/lib/server.js`, `scripts/qa/batches/e2e.js`, `.ai-dos/*`, `docs/CHANGE-LOG.md`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA-ERP-FULL-CYCLE Integration (no Primary/deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` از Primary `6ce3ac1`
+- **خلاصه:** ادغام harness `a9a7110` و محصول `7d60258` بدون حذف Fix/تست. Task/Claims ثبت شد. بدون merge به Primary، بدون push، بدون deploy ایران.
+- **فایل‌ها:** `.ai-dos/tasks/active.yaml`, `.ai-dos/tasks/handoff.md`, `.ai-dos/project/status.md`, `docs/CHANGE-LOG.md` + کد محصول و harness هر دو شاخه
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA reviews C0/H0/M0; cheque harness kept (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles`
+- **خلاصه:** `admin.js` چک با `party_id` حفظ شد. workspace روی `ai/UI-DOCS-STITCH` نرفت. محصول sibling `7d60258`. qa:full PASS 246. Bugbot بدون باگ؛ Independent APPROVED؛ Security C0/H0/M0. پیگیری: `QA-ERP-GAPS-NOT-IMPLEMENTED`.
+- **فایل‌ها:** `.ai-dos/tasks/active.yaml`, `.ai-dos/tasks/handoff.md`, `.ai-dos/project/status.md`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA harness cheque tests kept on admin-roles (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles` @ `60e371f` (worktree والد)
+- **خلاصه:** `scripts/qa/batches/admin.js` چک را با `party_id` واقعی می‌زند؛ متن آزاد بدون شناسه باید ۴۰۰ باشد و ذخیره نشود. workspace `erp-taranom1` روی `ai/UI-DOCS-STITCH` ماند. محصول High/Medium در sibling `88d30ab`. `qa:full` `qa-20260824T224056-6580` روی worktree محصول: PASS 246 FAIL 0 ERROR 0.
+- **فایل‌ها:** `.ai-dos/tasks/handoff.md`, `.ai-dos/project/status.md`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA-FIX payroll master-data RBAC (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** پس از Medium امنیتی، ایجاد/ویرایش پرونده کارمند، گروه، دوره، ساختار حقوق، پلکان مالیات، تنظیمات قانون کار و محاسبه عیدی با `payroll.create` گیت شد. پیش‌نمایش محاسبه و GET همچنان `adminOrAccounting` است.
+- **فایل‌ها:** `server/routes/payroll.js`, `server/public/app.js`, `server/scripts/test-qa-fix-payroll-rbac.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA-FIX skipStock kardex + payroll pay RBAC (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** `skipStock` دیگر ردیف `stock_logs` نمی‌نویسد (افتتاحیه/بک‌فیل کاردکس شبح نمی‌سازد). پرداخت/ابطال پرداخت/ابطال سند حقوق با `payroll.create` گیت شد تا حسابداری فقط-مشاهده سند وجه نزند.
+- **فایل‌ها:** `server/lib/inventory/ledger.js`, `server/routes/payroll.js`, `server/public/app.js`, `server/scripts/test-qa-fix-opening-stock-ledger.js`, `server/scripts/test-qa-fix-payroll-rbac.js`
+- **تست:** opening-stock 10/10 · payroll RBAC 17/17 · SMS 22/22 · `qa:full` `qa-20260824T224056-6580` PASS 246 FAIL 0 ERROR 0 NOT_IMPLEMENTED 14 · recon JE 0
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA-FIX searchable GL account picker on acc-dash (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** انتخاب حساب دفتر کل روی داشبورد حسابداری جستجوپذیر شد (`#glAcctFind` + `data-searchable` روی `#glAccount`).
+- **فایل‌ها:** `server/public/app.js`, `server/scripts/test-qa-fix-party-picker-ui.js`
+- **تست:** `node server/scripts/test-qa-fix-party-picker-ui.js` — 16/16
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA-FIX align RBAC matrix with route gates (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** `settings.view` فقط ادمین (GET `/settings` همچنان adminOnly و محرمانه). `accounting.view` فقط admin/accounting/sales_manager تا با `repModuleAdmin` هم‌خوان باشد؛ فروشنده میدانی view حسابداری پیش‌فرض ندارد.
+- **فایل‌ها:** `server/lib/rbac.js`, `server/scripts/test-qa-fix-rbac-matrix.js`
+- **تست:** `node server/scripts/test-qa-fix-rbac-matrix.js` — 23/23
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX opening ledger backfill central-only (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** بک‌فیل `inventory_ledger` اول دوره روی دستگاه (`SYNC_ROLE=device`) اجرا نمی‌شود تا بعد از pull از مرکز ردیف تکراری ساخته نشود.
+- **فایل‌ها:** `server/lib/opening-post.js`, `server/db.js`, `server/public/app.js`, `server/scripts/test-qa-fix-opening-stock-ledger.js`
+- **تست:** `node server/scripts/test-qa-fix-opening-stock-ledger.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX Highs re-run skip-e2e (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product` @ `2b005c7`
+- **خلاصه:** `qa-20260824T162339-14916` با `--skip-e2e` (کرومیوم Playwright در کش sandbox نبود). PASS 182 · FAIL 19 · exit 1. آشتی انبار/دفتر و فاکتور قطعی سبز. High باقی‌مانده FAIL ثابت harness برای `cheque.free_text_party`.
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX payroll.create on sibling POST routes (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** پس از بازبینی امنیتی، `payroll.create` روی `farankenou/commit`، `monthly-batch`، `year-end/:id/post` و `accruals/monthly` هم اعمال شد تا حسابداری فقط-مشاهده نتواند از API سند حقوق بزند.
+- **فایل‌ها:** `server/routes/payroll.js`, `server/public/app.js`, `server/scripts/test-qa-fix-payroll-rbac.js`
+- **تست:** `node server/scripts/test-qa-fix-payroll-rbac.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High5 party picker trust/opening cheques (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** فرم چک امانی و چک اول دوره طرف حساب را از فهرست اشخاص جستجو می‌کند (`tcParty`/`ocParty`). POST `/api/trust-checks` فقط با `party_id` معتبر ثبت می‌شود.
+- **فایل‌ها:** `server/routes/trust-checks.js`, `server/db.js`, `server/sync/tables.js`, `server/public/app.js`, `server/scripts/test-qa-fix-party-picker-ui.js`
+- **تست:** `node server/scripts/test-qa-fix-party-picker-ui.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High4 payroll.create RBAC (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** POST `/api/payroll` و `/process` با `requirePermission('payroll','create')`. حسابداری بدون این مجوز ۴۰۳ می‌گیرد. UI دکمه پردازش را با `canPerm` پنهان می‌کند.
+- **فایل‌ها:** `server/routes/payroll.js`, `server/public/app.js`, `server/scripts/test-qa-fix-payroll-rbac.js`
+- **تست:** `node server/scripts/test-qa-fix-payroll-rbac.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High3 opening inventory_ledger (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** موجودی اول دوره کالا ردیف `inventory_ledger` با `eventType=opening` و `skipStock` می‌نویسد. بک‌فیل additive با فلگ `opening_inventory_ledger_backfill_v1`.
+- **فایل‌ها:** `server/lib/opening-post.js`, `server/db.js`, `server/public/app.js`, `server/scripts/test-qa-fix-opening-stock-ledger.js`
+- **تست:** `node server/scripts/test-qa-fix-opening-stock-ledger.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High2 firm invoice warehouse_id (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** فاکتور قطعی بدون انبار سربرگ ۴۰۰ است؛ انبار سربرگ روی ردیف‌های بدون انبار کپی می‌شود؛ تفاوت انبار ردیف دیگر E_WH_MISMATCH نیست.
+- **فایل‌ها:** `server/routes/invoices.js`, `server/lib/sales-document.js`, `server/public/app.js`, `server/scripts/test-qa-fix-invoice-warehouse.js`
+- **تست:** `node server/scripts/test-qa-fix-invoice-warehouse.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High1 cheque party_id (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** POST `/api/cheque-records` فقط با `party_id` معتبر ثبت می‌شود؛ `party_name` از اشخاص مشتق می‌شود. اکسل چک اول دوره طرف حساب را از جدول اشخاص resolve می‌کند.
+- **فایل‌ها:** `server/routes/cheque-records.js`, `server/routes/excel.js`, `server/sync/tables.js`, `server/public/app.js`, `server/scripts/test-qa-fix-cheque-party-id.js`
+- **تست:** `node server/scripts/test-qa-fix-cheque-party-id.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+- **SW:** بدون bump (تا پایان پنج High)
+
+### ۱۴۰۵/۰۶/۰۲ — QA-ERP-FULL-CYCLE first full run (isolated, no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles`
+- **خلاصه:** Runner ایزوله Admin+All-Roles+E2E. Fail-closed، inventory، wrap تست‌های موجود، Playwright crawl. اولین full run `qa-20260824T151001-15880`: PASS 211 · FAIL 24 · NOT_IMPLEMENTED 14 · **exit 3** (High محصول؛ harness crash نیست). Child `QA-ERP-FULL-CYCLE-FIX-HIGHS` برای party_id/انبار فاکتور/ledger/payroll RBAC.
+- **فایل‌ها:** `scripts/qa/**`, `docs/qa/**`, `.cursor/commands/qa-*.md`, `server/package.json` (scripts)
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+- **SW:** بدون تغییر (محصول ویرایش نشد)
+
+### ۱۴۰۵/۰۶/۰۲ — QA-ERP-FULL-CYCLE harness (isolated, no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles` (worktree جدا از primary `6ce3ac1`)
+- **خلاصه:** Runner ایزوله Admin + All-Roles با fail-closed، inventory از repo، reconciliation، Playwright اختیاری، artifact در `artifacts/qa/<QA_RUN_ID>/`. نقش‌ها از `DEFAULT_ROLE_PERMISSIONS`. بدون Production/Deploy.
+- **فایل‌ها:** `scripts/qa/**`, `docs/qa/**`, `.cursor/commands/qa-*.md`, `server/package.json` (scripts)
+- **اجرا:** `node scripts/qa/run-full-erp-qa.js` — exit 0/1/2/3
+- **Deploy:** ❌ بدون مجوز مالک — انجام نشد
+
+
 - **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `b52a1de` (از `ai/PROD-02-CUTTING`)
 - **خلاصه:** ویزارد لایه‌چینی/ماتریس/ضایعات. برداشت طاقه از انبار مواد. ضایعات عادی بدون سند؛ غیرعادی ۵۲۲۱. رسید کالای آماده نیست. نقش تولید طاقه را بدون بها انتخاب می‌کند.
 - **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` عوض نشد؛ `schema.js` overlay شد. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v172` = `2026-08-20T13:54:13Z hash=b52a1de`.

@@ -10,6 +10,31 @@ const { assertJournalIdempotent } = require('../lib/sales-document');
 
 const OPENING_NOTE = 'مانده اول دوره';
 
+function resolveChequeParty(db, body) {
+  const partyId = parseInt(body && body.party_id, 10);
+  if (!Number.isFinite(partyId) || partyId <= 0) {
+    const err = new Error('طرف حساب باید از فهرست اشخاص انتخاب شود');
+    err.status = 400;
+    err.code = 'E_CHEQUE_PARTY_REQUIRED';
+    throw err;
+  }
+  const party = db.prepare(`
+    SELECT id, full_name, company_name, biz, legacy_table, legacy_id
+    FROM parties WHERE id=? AND COALESCE(is_active,1)=1
+  `).get(partyId);
+  if (!party) {
+    const err = new Error('طرف حساب یافت نشد');
+    err.status = 400;
+    err.code = 'E_CHEQUE_PARTY_INVALID';
+    throw err;
+  }
+  return {
+    partyId: party.id,
+    partyName: party.full_name || party.company_name || party.biz || '',
+    customerId: party.legacy_table === 'customers' && party.legacy_id ? party.legacy_id : null,
+  };
+}
+
 /** Free-text / English synonyms that imply a financial lifecycle transition. */
 const FINANCIAL_STATUS_RE = /وصول|برگشت|واگذار|cleared|bounced|received|in[_ ]?collection|send[_ -]?to[_ -]?bank|resend|واگذارى|پرداخت|خرج|صدور|issued|expensed|endorsed|endorse|expense/i;
 const ACTIVE_LIFECYCLE_IN = new Set(['in_collection', 'cleared', 'bounced', 'endorsed']);
@@ -178,7 +203,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const {
     direction, cheque_number, issue_date, receive_date, due_date,
     bank_name, branch, sayadi, sheba, account_number,
-    party_name, status, status_note, amount, note, opening
+    status, status_note, amount, note, opening
   } = req.body;
   if (!direction || !amount) return res.status(400).json({ error: 'جهت و مبلغ الزامی است' });
   const amountNum = Math.round(Number(String(amount).replace(/[,\s]/g, '')));
@@ -186,18 +211,25 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     return res.status(400).json({ error: 'مبلغ چک باید عدد مثبت معتبر باشد (ریال)' });
   }
   const db = getDB();
+  let party;
+  try {
+    party = resolveChequeParty(db, req.body);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
   const finalNote = opening ? (note ? note + ' — ' + OPENING_NOTE : OPENING_NOTE) : (note || '');
   const recordId = db.transaction(() => {
     const result = db.prepare(`
       INSERT INTO cheque_records (
         direction, cheque_number, issue_date, receive_date, due_date,
         bank_name, branch, sayadi, sheba, account_number,
-        party_name, status, status_note, amount, note, created_by_name
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        party_name, party_id, customer_id, status, status_note, amount, note, created_by_name
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       direction, String(cheque_number || ''), issue_date || '', receive_date || '', due_date || '',
       bank_name || '', branch || '', sayadi || '', sheba || '', account_number || '',
-      party_name || '', status || (opening ? 'مانده اول دوره' : ''), status_note || '',
+      party.partyName, party.partyId, party.customerId,
+      status || (opening ? 'مانده اول دوره' : ''), status_note || '',
       amountNum, finalNote, req.user.name || ''
     );
     if (opening) {

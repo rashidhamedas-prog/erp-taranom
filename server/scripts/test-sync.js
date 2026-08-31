@@ -199,6 +199,8 @@ const centralEnv = {
 
   console.log('— seed central —');
   await req(C, 'POST', '/api/products', ct, { name: 'کالای اصلی', code: 'M-1', price: 50000, cost: 20000, stock: 100 });
+  const whSeed = (await req(C, 'GET', '/api/warehouses', ct)).body;
+  const whId = Array.isArray(whSeed) && whSeed[0] ? whSeed[0].id : 1;
   const custC = (await req(C, 'POST', '/api/customers', ct, { biz: 'مشتری مشترک' })).body;
   await req(C, 'POST', '/api/followups', ct, { cust_id: custC.id, date: '1405/04/01', type: 'تماس', subject: 'برای حذف', status: 'open' });
 
@@ -273,7 +275,7 @@ const centralEnv = {
   await sleep(200);
   const offCust = (await req(A, 'POST', '/api/customers', at, { biz: 'مشتری در قطعی' })).body;
   const offInv = (await req(A, 'POST', '/api/invoices', at, {
-    cust_id: offCust.id, type: 'final', rows: [{ product_id: 1, qty: 5, price: 50000 }]
+    cust_id: offCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: 5, price: 50000 }]
   })).body;
   ok(offCust.id >= 1e12 && offInv.id >= 1e12, `offline creates use provisional ids (${offCust.id}, ${offInv.id})`);
   ok(String(offInv.num).startsWith('موقت'), `offline invoice number provisional (${offInv.num})`);
@@ -306,8 +308,8 @@ const centralEnv = {
 
   console.log('— scenario 4: concurrent invoices from A and B → unique numbers —');
   const abCust = (await req(A, 'GET', '/api/customers', at)).body.find(c => c.biz === 'مشتری مشترک');
-  await req(A, 'POST', '/api/invoices', at, { cust_id: abCust.id, type: 'final', rows: [{ product_id: 1, qty: 1, price: 50000 }] });
-  await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', rows: [{ product_id: 1, qty: 2, price: 50000 }] });
+  await req(A, 'POST', '/api/invoices', at, { cust_id: abCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: 1, price: 50000 }] });
+  await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: 2, price: 50000 }] });
   await req(A, 'POST', '/api/sync/now', at);
   await req(B, 'POST', '/api/sync/now', bt);
   // B has now pulled the password/auth_epoch changed through device A; its
@@ -352,7 +354,7 @@ const centralEnv = {
   await req(C, 'PATCH', '/api/products/1/stock', ct, { stock: 1 });
   // B, seeing the stale higher stock, sells more than central now has:
   const oversellQty = Math.min(bStale, 5);
-  const bInv = (await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', rows: [{ product_id: 1, qty: oversellQty, price: 50000 }] })).body;
+  const bInv = (await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: oversellQty, price: 50000 }] })).body;
   if (!(bInv.id >= 1e12)) console.log('   bInv response:', JSON.stringify(bInv));
   ok(bInv.id >= 1e12, `B created invoice locally against stale stock ${bStale} (qty ${oversellQty})`);
   await req(B, 'POST', '/api/sync/now', bt);

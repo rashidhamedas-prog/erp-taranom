@@ -1,3 +1,135 @@
+## 2026-08-31T13:20:00+03:30 — Owner approved Primary merge + Iran deploy
+
+- **Task:** `QA-ERP-FULL-CYCLE-INTEGRATION` — owner override of prior no-merge/no-deploy gate
+- **Primary:** `origin/claude/claude-md-docs-2ssrpy` @ `6ce3ac1` (authoritative). Local stale `51be279` in demo-v3-merge worktree left untouched.
+- **Integration tip before stamp:** `1fd4917` (22 commits ahead of origin Primary, 0 behind)
+- **SW:** `erp-taranom-v173`
+- **Constraint kept:** do not checkout `erp-taranom1` / `ai/UI-DOCS-STITCH`
+- **Exact next:** merge `--no-ff` into Primary worktree, run gates + `/qa-full`, push Primary, SFTP Iran, stamp CHANGE-LOG ✅, then claim `QA-ERP-GAPS-NOT-IMPLEMENTED`
+
+## 2026-08-26T17:30:00+03:30 — recon UNION fix + qa:full GREEN (no Primary/deploy)
+
+- **Bugbot finding:** `scripts/qa/recon.js` `stock.ledger_vs_warehouse` only walked ledger keys; positive `warehouse_stock` without ledger was PASS.
+- **Regression first:** `test-qa-fix-recon-ledger-union.js` failed 4 cases on old code (warehouse-only + company/variant sides).
+- **Fix:** UNION keys from both sources; dims company/warehouse/product/variant when columns exist; missing side treated as 0.
+- **Harness:** CRM-PRO RBAC HTTP wait 60→180 ticks (boot ~20s under load; 15s was flake). Assertions unchanged.
+- **qa:full:** `qa-20260826T135416-20172` exit **0** · PASS **248** · FAIL **0** · ERROR **0** · JE **0** · FK **0** · stock **0**. Prior flake run `qa-20260826T134136-19508` FAIL 1 wrap.crm_pro_rbac ECONNREFUSED.
+- **Reviews:** Bugbot no bugs ([Bugbot](ae3528f1-ebec-49e1-a8ca-f874b91b6b71)); Independent APPROVED ([Independent](8af62a60-b0a0-4dc7-8476-499d110d3da8)); Security C0/H0/M0 ([Security](15b49fa8-361b-4920-aeeb-28894e97c2d9)).
+- **NO merge / push / Iran deploy.** Rollback: restore `recon.js` + RBAC wait.
+- **MERGE_READY on this worktree** (FAIL=0 ERROR=0 JE=0 FK=0 stock=0, no H/M). Owner still must approve Primary merge.
+
+## 2026-08-25T15:00:00+03:30 — Integration qa:full GREEN (no Primary/deploy)
+
+- **Task:** `QA-ERP-FULL-CYCLE-INTEGRATION` still `active` until Bugbot + Independent + Security on this tip.
+- **Tip:** merge `16791be` (a9a7110 + 7d60258) plus harness boot/E2E fallback (pending this commit).
+- **Run:** `qa-20260825T115815-8164` · `NODE_ENV=test node scripts/qa/run-full-erp-qa.js` (no `--skip-e2e`)
+- **Exit 0** · PASS **248** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14** · SKIP 1
+- Admin + All-Roles + Playwright E2E (system Chrome channel) ran. recon JE=0 FK=0 stock-GL=0.
+- **14 gaps classified** (do not fake PASS). See CHANGE-LOG / report. **NO merge / push / Iran deploy.**
+- **Exact next:** Bugbot + Independent (`/agent-review`) + Security on this worktree only.
+
+## 2026-08-25T14:15:00+03:30 — QA-ERP-FULL-CYCLE-INTEGRATION claimed + source merge
+
+- **Task:** `QA-ERP-FULL-CYCLE-INTEGRATION` status=`active`; owner `cursor:orchestrator-qa-erp`; implementer `cursor:implementer-qa-integration`.
+- **Worktree:** `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration` branch `ai/QA-ERP-FULL-CYCLE-INTEGRATION` from Primary `6ce3ac1`.
+- **Sources kept:** harness `a9a7110` (`ai/QA-ERP-FULL-CYCLE-admin-roles`) + product `7d60258` (`ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`).
+- **Claim transfer:** parent `QA-ERP-FULL-CYCLE` / `FIX-HIGHS` / `RBAC-MATRIX-ALIGN` claims released to Integration. `UI-STITCH-P0-DISCOVERY` in erp-taranom1 not edited.
+- **Constraint:** NO Primary merge, NO push, NO Iran deploy this session.
+- **Exact next:** isolated `NODE_ENV=test node scripts/qa/run-full-erp-qa.js` (no --skip-e2e); classify 14 NOT_IMPLEMENTED; Bugbot + Independent + Security on Integration tip.
+
+## 2026-08-25T02:45:00+03:30 — Reviews green; cheque harness kept on admin-roles
+
+- **This worktree:** `ai/QA-ERP-FULL-CYCLE-admin-roles` @ `9d853c3` then this commit. `scripts/qa/batches/admin.js` cheque tests unchanged since `50e8269`.
+- **erp-taranom1:** stayed `ai/UI-DOCS-STITCH` (not checked out).
+- **Product sibling:** `7d60258` — skipStock no `stock_logs`; payroll pay/void/delete + master-data `payroll.create`.
+- **qa:full:** `qa-20260824T224056-6580` PASS 246 FAIL 0 ERROR 0 · recon JE 0.
+- **Reviews (product worktree):** Bugbot no bugs; Independent APPROVED; Security C0/H0/M0 ([Security Review](6232929e-5149-4fb6-b77b-b45399ff3fab)).
+- **Follow-up task:** `QA-ERP-GAPS-NOT-IMPLEMENTED` (14 gaps, not PASS). **NO merge / Iran deploy.**
+
+## 2026-08-25T02:15:00+03:30 — Continue on admin-roles; do not touch erp-taranom1
+
+- **Constraint:** Cursor workspace `erp-taranom1` stayed on `ai/UI-DOCS-STITCH`. No checkout of this worktree. `scripts/qa/batches/admin.js` cheque tests remain at `50e8269` / tip `60e371f`.
+- **Harness tip:** `60e371f` on `ai/QA-ERP-FULL-CYCLE-admin-roles` (this worktree). Product High/Medium closed on sibling `erp-taranom-qa-erp-fix-highs` @ `88d30ab` (skipStock `stock_logs`; payroll pay/void/delete `payroll.create`).
+- **Authoritative `qa:full`:** `qa-20260824T224056-6580` on product worktree · PASS **246** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14** · recon JE **0**. No `--skip-e2e`.
+- **NOT_IMPLEMENTED (not PASS):** RFQ, 3-way match, GRNI/`coa_grni`, maker-checker SOD, branch ACL, order reservations, fabric `tracking_profile=roll`, backup/restore not hit in admin batch.
+- **Reviews:** re-run on product worktree only (prior Bugbot High + Security Medium should be closed). **NO merge / Iran deploy.**
+## 2026-08-25T02:10:00+03:30 — Bugbot High skipStock kardex + Security Medium payroll pay
+
+- **Worktree:** `erp-taranom-qa-erp-fix-highs` @ `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product` (erp-taranom1 stayed on `ai/UI-DOCS-STITCH`)
+- **Bugbot High:** `postInventoryMovement({skipStock:true})` still inserted `stock_logs` → skip when `skipStock`. Claim appended: `server/lib/inventory/ledger.js`.
+- **Security Medium:** `POST /payroll/:id/pay`, `void-payment`, `DELETE /:id` now `requirePermission('payroll','create')`; UI pay/void/cancel gated.
+- **Tests:** opening-stock 10/10 · payroll RBAC 17/17 · SMS 22/22 · `qa:full` `qa-20260824T224056-6580` PASS 246 FAIL 0 ERROR 0 · recon JE 0. **NO merge / Iran deploy.**
+- **Exact next:** Bugbot / Independent / Security on `erp-taranom-qa-erp-fix-highs` only (do not checkout `erp-taranom1`)
+
+## 2026-08-25T01:20:00+03:30 — QA-ERP-RBAC-MATRIX-ALIGN claimed + matrix tightened
+
+- **Task:** `QA-ERP-RBAC-MATRIX-ALIGN` (child of QA-ERP-FULL-CYCLE); implementer `cursor:implementer-qa-fix-highs`
+- **Why:** Full E2E `qa-20260824T214150-19348` FAIL 18 were matrix vs route: GET `/settings` adminOnly, GET `/accounting/sales-returns` adminOrAccounting. Not a secret-dump product bug.
+- **Product:** `settings.view=false` for non-admin; `accounting.view=false` except admin/accounting/sales_manager.
+- **Harness (parent commits cherry-picked):** cheque party_id tests; accounting.view probe=`/reps`; entity-picker E2E; sales-returns gate kept.
+- **Test:** `test-qa-fix-rbac-matrix.js` 23/23. **NO merge / Iran deploy.**
+- **Exact next:** `NODE_ENV=test node scripts/qa/run-full-erp-qa.js` then reviews if FAIL=0 ERROR=0
+
+## 2026-08-25T00:45:00+03:30 — Independent re-review + central-only opening backfill
+
+- **Independent re-review:** [Independent Review](6bc4aad4-719e-47f2-bd33-69805849ebf5) vs `aeb5d06`
+  - Prior High (payroll sibling POSTs) **closed** (not re-reported)
+  - New Medium: `backfillOpeningInventoryLedger` on device duplicates ledger after pull → skip on `SYNC_ROLE=device`
+- **Constraint:** NO merge, NO Iran deploy
+
+## 2026-08-24T19:56:00+03:30 — Independent High = sibling payroll POSTs (already closed)
+
+- **Independent:** [Independent Review](44682d22-40e7-417d-a8f8-78d715baa679) High on `POST /payroll/monthly-batch` + `/farankenou/commit` still `adminOrAccounting`
+- **Disposition:** same gap as Security Medium; already gated in `2b005c7` with `requirePermission('payroll','create')` (also `year-end/:id/post`, `accruals/monthly`). Test 13/13.
+- **review_status:** still PENDING until re-review of tip `a79774e` (reviewer saw pre-`2b005c7` diff)
+- **Constraint:** NO merge, NO Iran deploy
+
+## 2026-08-24T19:54:00+03:30 — FIX-HIGHS product Highs closed; harness leftover
+
+- **Task:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` still `active` (no merge/deploy)
+- **Tip:** `2b005c7` on `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **Security:** [Security Review](e9b016cc-161a-4c75-a4ea-0ad8a57583cd) C0/H0 + Medium sibling payroll POSTs → closed in `2b005c7` (13/13 RBAC test)
+- **Independent Reviewer:** still PENDING ([Independent Review](44682d22-40e7-417d-a8f8-78d715baa679) in flight)
+- **QA `qa-20260824T162339-14916`:** `--skip-e2e` (Playwright chromium missing in sandbox cache) · exit **1** · PASS 182 · FAIL 19 · NOT_IMPLEMENTED 14
+- **Product Highs now PASS:** `fault.invoice_maybe_wh`, `roles.accounting.payroll.create`, `recon.firm_invoice.has_warehouse`, `recon.stock.ledger_vs_warehouse`
+- **Party UI:** `test-qa-fix-party-picker-ui.js` 14/14; no `id="tc-party"` / `id="oc-party"` (E2E skip so `e2e.party_id_required` not rec'd)
+- **Harness leftovers (do not weaken; parent owns `scripts/qa/**`):** hardcoded `cheque.free_text_party` FAIL; `cheque.create_in` posts without `party_id` → 400
+- **Mediums unchanged:** GET `/settings` adminOnly vs matrix `settings.view`; GET sales-returns tighter than `accounting.view`
+- **Constraint:** NO merge, NO Iran deploy. Do not declare full suite PASS.
+
+## 2026-08-24T18:57:00+03:30 — QA-ERP-FULL-CYCLE-FIX-HIGHS claimed (owner start)
+
+- **Task:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` status=`active`
+- **Implementer:** `cursor:implementer-qa-fix-highs` (≠ `cursor:implementer-qa-erp`)
+- **Reviewer / Security:** `cursor:independent-reviewer-qa-erp` / `cursor:independent-security-qa-erp`
+- **Branch / worktree:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-fix-highs` @ `aeb5d06`
+- **Registry overlap:** child updates its own block in `active.yaml` plus handoff/status/CHANGE-LOG
+  (parent still claims those paths; owner authorized this child start).
+- **Constraint:** NO merge, NO Iran deploy. Do not edit `scripts/qa/**`.
+- **Exact next:** five Highs with failing tests first, one commit each
+
+## 2026-08-24T18:40:00+03:30 — QA-ERP-FULL-CYCLE first full run (no deploy)
+
+- **Task:** `QA-ERP-FULL-CYCLE` implementer done (harness). Reviewer still PENDING.
+- **Run:** `qa-20260824T151001-15880` · `NODE_ENV=test node scripts/qa/run-full-erp-qa.js`
+- **Exit 3** · PASS 211 · FAIL 24 · NOT_IMPLEMENTED 14 · wrap tests all green · E2E login+nav OK
+- **Highs (not PASS):** cheque `party_name`, firm invoice without warehouse, ledger vs `warehouse_stock`, accounting POST `/payroll` despite `payroll.create=false`, UI free-text party
+- **Child:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` status=`blocked` (implementer unassigned, ≠ QA implementer)
+- **Constraint:** NO merge, NO Iran deploy. Product files not edited.
+- **Exact next:** Independent review of harness; owner assigns child for Highs
+
+## 2026-08-24T17:59:00+03:30 — QA-ERP-FULL-CYCLE claimed (pre-implementation)
+
+- **Task:** `QA-ERP-FULL-CYCLE` status=`active`; owner `cursor:orchestrator-qa-erp`
+- **Implementer:** `cursor:implementer-qa-erp`
+- **Reviewer / Security:** `cursor:independent-reviewer-qa-erp` / `cursor:independent-security-qa-erp` (≠ Implementer; for later High product fixes)
+- **Branch / worktree:** `ai/QA-ERP-FULL-CYCLE-admin-roles` /
+  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-full-cycle` @ base `6ce3ac1`
+- **Not used:** dirty `erp-taranom1` (`ai/UI-DOCS-STITCH` / `UI-STITCH-P0-DISCOVERY`); deploy scripts untouched
+- **Constraint:** NO merge, NO Iran deploy, NO production DB/API/SMS/Moadian
+- **Exact next:** fail-closed runner + inventory + Admin/Roles batches on temp DB
+
 ## 2026-08-20T17:25:00+03:30 — PROD-02/03 Iran SFTP v172 @ b52a1de
 
 - Stamp `.sftp-deploy-stamp-stitch-v172` = `2026-08-20T13:54:13Z hash=b52a1de`

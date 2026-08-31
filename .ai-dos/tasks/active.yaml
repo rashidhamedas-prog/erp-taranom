@@ -1,5 +1,206 @@
 schema_version: 1
 tasks:
+  - id: "QA-ERP-FULL-CYCLE-INTEGRATION"
+    title: "Integrate admin-roles harness + product Highs; isolated qa:full; no Primary/deploy"
+    status: "active"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-qa-erp"
+    parent: "QA-ERP-FULL-CYCLE"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      architect: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-integration"
+      reviewer: "cursor:independent-reviewer-qa-erp"
+      security: "cursor:independent-security-qa-erp"
+    branch: "ai/QA-ERP-FULL-CYCLE-INTEGRATION"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration"
+    base_commit: "6ce3ac1"
+    claimed_at: "2026-08-25T14:15:00+03:30"
+    file_claims:
+      - "scripts/qa/**"
+      - "docs/qa/**"
+      - ".cursor/commands/qa-admin.md"
+      - ".cursor/commands/qa-roles.md"
+      - ".cursor/commands/qa-full.md"
+      - ".cursor/commands/qa-fix.md"
+      - ".cursor/commands/qa-report.md"
+      - ".cursor/commands/qa-clean.md"
+      - ".cursor/commands/qa-resume.md"
+      - "server/package.json"
+      - ".gitignore"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+      - "docs/CHANGE-LOG.md"
+      - "server/routes/cheque-records.js"
+      - "server/routes/trust-checks.js"
+      - "server/routes/invoices.js"
+      - "server/routes/payroll.js"
+      - "server/lib/opening-post.js"
+      - "server/lib/inventory/ledger.js"
+      - "server/lib/sales-document.js"
+      - "server/lib/rbac.js"
+      - "server/db.js"
+      - "server/sync/tables.js"
+      - "server/public/app.js"
+      - "server/routes/excel.js"
+      - "server/scripts/test-qa-fix-cheque-party-id.js"
+      - "server/scripts/test-qa-fix-invoice-warehouse.js"
+      - "server/scripts/test-qa-fix-opening-stock-ledger.js"
+      - "server/scripts/test-qa-fix-recon-ledger-union.js"
+      - "server/scripts/test-qa-fix-payroll-rbac.js"
+      - "server/scripts/test-qa-fix-party-picker-ui.js"
+      - "server/scripts/test-qa-fix-rbac-matrix.js"
+      - "server/scripts/test-trs-cheque-out.js"
+      - "server/scripts/lib/seed-demo-v2.js"
+      - "server/scripts/test-sync.js"
+      - "server/scripts/test-wave0-financial-hostile.js"
+      - "server/scripts/test-mahak-phase2.js"
+    notes: >-
+      Owner approved 2026-08-31: merge to Primary + Iran deploy.
+      Integration of a9a7110 + 7d60258 onto Primary 6ce3ac1.
+      erp-taranom1 (UI-STITCH-P0-DISCOVERY) not edited.
+      Follow-up after deploy: QA-ERP-GAPS-NOT-IMPLEMENTED.
+    acceptance_criteria:
+      - "Both source tips merged without dropping product fixes or QA tests"
+      - "NODE_ENV=test node scripts/qa/run-full-erp-qa.js without --skip-e2e"
+      - "FAIL=0 ERROR=0 unbalanced JE=0 FK/orphan=0 stock-GL recon=0"
+      - "Admin + All-Roles + Playwright E2E batches ran"
+      - "14 NOT_IMPLEMENTED classified; owner-approved Primary merge+deploy"
+    non_goals:
+      - "Implementing the 14 NOT_IMPLEMENTED gaps in this merge"
+      - "Checking out or editing erp-taranom1 / UI-STITCH"
+
+  - id: "QA-ERP-FULL-CYCLE"
+    title: "Isolated Admin + All-Roles QA harness (no production, no deploy)"
+    status: "completed"
+    review_status: "PENDING"
+    security_status: "NOT_REQUIRED"
+    risk: "medium"
+    owner: "cursor:orchestrator-qa-erp"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      architect: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-erp"
+      reviewer: "cursor:independent-reviewer-qa-erp"
+      security: "cursor:independent-security-qa-erp"
+    branch: "ai/QA-ERP-FULL-CYCLE-admin-roles"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-full-cycle"
+    base_commit: "6ce3ac1"
+    claimed_at: "2026-08-24T17:59:00+03:30"
+    completed_at: "2026-08-25T14:15:00+03:30"
+    file_claims: []
+    notes: >-
+      Harness delivered @ a9a7110. Claims transferred to
+      QA-ERP-FULL-CYCLE-INTEGRATION. Cheque admin.js kept at 50e8269.
+      Authoritative sibling qa:full qa-20260824T224056-6580 PASS 246.
+      Follow-up: QA-ERP-GAPS-NOT-IMPLEMENTED. NO merge/deploy.
+    acceptance_criteria:
+      - "Admin and All-Roles batches runnable from zero on temp DB"
+      - "Fail-closed: NODE_ENV=test + unique QA_RUN_ID; production-like paths exit 2"
+      - "Roles discovered from Object.keys(DEFAULT_ROLE_PERMISSIONS)"
+      - "Gaps reported as NOT_IMPLEMENTED/BLOCKED not fake PASS"
+      - "Exit 0/1/2/3; artifacts under artifacts/qa/<QA_RUN_ID>/"
+      - "No production deploy or merge"
+    non_goals:
+      - "Iran VPS deploy / merge to primary"
+      - "Product-code fixes inside this claim"
+      - "Real SMS / Moadian / bank / webhook"
+
+  - id: "QA-ERP-FULL-CYCLE-FIX-HIGHS"
+    title: "Product Highs from QA-ERP-FULL-CYCLE (party_id, firm WH, stock ledger, payroll RBAC)"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-qa-erp"
+    parent: "QA-ERP-FULL-CYCLE"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-fix-highs"
+      reviewer: "cursor:independent-reviewer-qa-erp"
+      security: "cursor:independent-security-qa-erp"
+    branch: "ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-fix-highs"
+    base_commit: "aeb5d06"
+    claimed_at: "2026-08-24T18:57:00+03:30"
+    completed_at: "2026-08-25T02:45:00+03:30"
+    file_claims: []
+    notes: >-
+      Tip 7d60258. Bugbot no bugs; Independent APPROVED; Security C0/H0/M0
+      after payroll master-data gate. skipStock no stock_logs; payroll
+      pay/void/delete + master-data payroll.create. qa:full PASS 246.
+      Claims transferred to INTEGRATION. NO merge/deploy.
+    acceptance_criteria:
+      - "cheque_records POST accepts party_id (not only party_name)"
+      - "firm invoice without warehouse_id is 4xx"
+      - "inventory_ledger qty matches warehouse_stock after opening+movements"
+      - "POST /payroll denied when fillRoleDefaults(role).payroll.create is false"
+      - "Regression covered by scripts/qa; Highs need Independent Reviewer+Security"
+    non_goals:
+      - "Harness rewrite"
+      - "Iran deploy"
+
+  - id: "QA-ERP-RBAC-MATRIX-ALIGN"
+    title: "Align RBAC matrix settings/accounting.view with actual route gates"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-qa-erp"
+    parent: "QA-ERP-FULL-CYCLE"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-fix-highs"
+      reviewer: "cursor:independent-reviewer-qa-erp"
+      security: "cursor:independent-security-qa-erp"
+    branch: "ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-fix-highs"
+    claimed_at: "2026-08-25T01:20:00+03:30"
+    completed_at: "2026-08-25T02:45:00+03:30"
+    file_claims: []
+    notes: >-
+      Included in product tip 7d60258. GET /settings stays adminOnly.
+      GET /reps is repModuleAdmin. Claims transferred to INTEGRATION.
+      No merge/deploy.
+    acceptance_criteria:
+      - "fillRoleDefaults non-admin settings.view is false"
+      - "fillRoleDefaults accounting.view only admin|accounting|sales_manager"
+      - "GET /settings 403 for accounting and field_sales; 200 for admin"
+      - "GET /reps 403 for field_sales; allow accounting and sales_manager"
+    non_goals:
+      - "Opening GET /settings to non-admin"
+      - "Iran deploy"
+
+  - id: "QA-ERP-GAPS-NOT-IMPLEMENTED"
+    title: "Follow-up product gaps reported as NOT_IMPLEMENTED by QA-ERP-FULL-CYCLE"
+    status: "pending"
+    review_status: "PENDING"
+    security_status: "NOT_REQUIRED"
+    risk: "medium"
+    owner: "unassigned"
+    parent: "QA-ERP-FULL-CYCLE"
+    roles:
+      orchestrator: "unassigned"
+      implementer: "unassigned"
+    branch: ""
+    worktree: ""
+    file_claims: []
+    notes: >-
+      Do not mark these PASS. Evidence qa-20260825T115815-8164 (Integration).
+      Classification: RFQ/3-way/GRNI/SOD/branch = MISSING_PRODUCT_FEATURE;
+      tracking_profile + sales.reservation_on_order = MISSING_QA_COVERAGE
+      (fabric-roll + inventory reservations exist); backup.restore =
+      MISSING_QA_COVERAGE (admin backup APIs exist). Single-company branch
+      ACL also listed as product gap until owner marks non-goal.
+    acceptance_criteria:
+      - "Each gap is either implemented with tests or remains an explicit NOT_IMPLEMENTED task"
+    non_goals:
+      - "Fake PASS in the QA harness"
+      - "Iran deploy"
+
   - id: "PROD-STITCH-P5B"
     title: "PROD-02/03 cutting lay wizard (spreading / size matrix / waste)"
     status: "completed"

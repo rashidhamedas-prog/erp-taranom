@@ -56,7 +56,7 @@ try {
   try {
     const base = `http://127.0.0.1:${PORT}`;
     let up = false;
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 180; i++) {
       try { const r = await fetch(base + '/api/system/time'); if (r.ok) { up = true; break; } } catch (_) {}
       await new Promise((r) => setTimeout(r, 250));
     }
