@@ -23,7 +23,7 @@
 - **F طاقه:** بها = متر × فی (اگر فی خالی از بهای کالا)؛ ستون جمع؛ PATCH ویرایش تا مصرف‌نشده.
 - **فایل‌ها:** `server/lib/cash-flow.js`، `server/lib/inventory/{fabric-rolls,schema}.js`، `server/lib/sales-document.js`، `server/lib/gap-accounting-schema.js`، `server/routes/{adv-reports,cheque-records,inventory,invoices,purchases}.js`، `server/sync/tables.js`، `server/public/{app.js,acc-nav.js,portal-ui.js,sw.js,index.html}`، `server/scripts/test-ops-pack-v179.js`
 - **تست:** `test-ops-pack-v179.js` · `test-trs-cheque-out.js` · `test-prod-01-fabric-rolls.js` · `test-sms.js` · `test-sync.js`
-- **Deploy:** ⏳ در حال انجام — SW `erp-taranom-v179`
+- **Deploy:** ✅ ایران overlay v179 @ `e915292` — health/ready/root 200؛ SW `erp-taranom-v179`؛ `db.js` عوض نشد
 
 ### ۱۴۰۵/۰۶/۰۹ — مانده لیست مشتریان = دفتر کل + تهاتر بدهکار/بستانکار (SW v178)
 

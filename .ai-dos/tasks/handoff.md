@@ -6,7 +6,7 @@
 - Acc nav operations: only «فاکتورهای فروش».
 - Fabric amount = meters × unit; PATCH edit while unused.
 - SW v179. Do not commit dirty `_deploy-demo-ui-v156`, `_deploy-mdi-v152`, `_diag-moein-ledger*`.
-- Iran overlay next.
+- Iran overlay v179 ✅ `e915292` health/ready/root 200. SW `erp-taranom-v179`.
 
 ## 2026-08-31T19:20:00+03:30 — CRM customer list uses same GL net as statement
 
