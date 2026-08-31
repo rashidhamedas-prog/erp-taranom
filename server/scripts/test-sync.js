@@ -198,9 +198,10 @@ const centralEnv = {
     'stolen device token cannot change signed user_id to admin');
 
   console.log('— seed central —');
-  await req(C, 'POST', '/api/products', ct, { name: 'کالای اصلی', code: 'M-1', price: 50000, cost: 20000, stock: 100 });
-  const whSeed = (await req(C, 'GET', '/api/warehouses', ct)).body;
-  const whId = Array.isArray(whSeed) && whSeed[0] ? whSeed[0].id : 1;
+  const prodC = (await req(C, 'POST', '/api/products', ct, { name: 'کالای اصلی', code: 'M-1', price: 50000, cost: 20000, stock: 100 })).body;
+  // Firm invoices require header warehouse; use the product's own WH (ORDER BY id),
+  // not GET /warehouses[0] which is ORDER BY name and can miss warehouse_stock.
+  const whId = prodC.warehouse_id || 1;
   const custC = (await req(C, 'POST', '/api/customers', ct, { biz: 'مشتری مشترک' })).body;
   await req(C, 'POST', '/api/followups', ct, { cust_id: custC.id, date: '1405/04/01', type: 'تماس', subject: 'برای حذف', status: 'open' });
 
@@ -274,9 +275,13 @@ const centralEnv = {
   await waitPortFree(PORT_C);
   await sleep(200);
   const offCust = (await req(A, 'POST', '/api/customers', at, { biz: 'مشتری در قطعی' })).body;
-  const offInv = (await req(A, 'POST', '/api/invoices', at, {
+  const offInvRes = await req(A, 'POST', '/api/invoices', at, {
     cust_id: offCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: 5, price: 50000 }]
-  })).body;
+  });
+  const offInv = offInvRes.body;
+  if (!offInv || !offInv.id) {
+    console.log('   offline invoice status', offInvRes.status, JSON.stringify(offInv));
+  }
   ok(offCust.id >= 1e12 && offInv.id >= 1e12, `offline creates use provisional ids (${offCust.id}, ${offInv.id})`);
   ok(String(offInv.num).startsWith('موقت'), `offline invoice number provisional (${offInv.num})`);
   const syncFail = (await req(A, 'POST', '/api/sync/now', at)).body;
