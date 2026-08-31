@@ -23,7 +23,7 @@
 - **E طاقه:** موجودی متر از دفتر انبار لحظه‌ای است؛ گزارش **گردش طاقه** در انبار → گزارشات؛ برگشت فروش متر طاقه را به دفتر برمی‌گرداند.
 - **فایل‌ها:** `server/lib/{customer-books,sales-document}.js`، `server/lib/inventory/fabric-rolls.js`، `server/routes/{accounting,inventory}.js`، `server/public/{app.js,acc-nav.js,sw.js,index.html}`، `server/scripts/test-ops-v181.js`
 - **تست:** `test-ops-v181.js` · `test-acc-stitch-p2.js` · `test-stmt-gl-cheque-v180.js` · `test-sms.js`
-- **Deploy:** در حال انجام
+- **Deploy:** ✅ ایران overlay v181 @ `796a471` — health/ready/root 200؛ SW `erp-taranom-v181`؛ `db.js` عوض نشد
 - **SW:** `erp-taranom-v181`
 
 ### ۱۴۰۵/۰۶/۱۰ — بستن چت SSL/ورود: Origin CA ۱۵ساله + `users.branch_id`
