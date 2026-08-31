@@ -113,7 +113,7 @@ cd /home/taranom-admin/crm-taranom && git pull origin claude/claude-md-docs-2ssr
 - **رمزنگاری بکاپ** ✅ — AES-256-GCM با رمزِ کلید تنظیمات `backup_password` (صفحهٔ «پشتیبان») یا env `BACKUP_PASSWORD`؛ بازگشایی با `server/scripts/decrypt-backup.js`.
 - **اسرار در گیت** ✅ (فایل‌ها) — رمز keystore از `android/app/build.gradle` و `android/BUILD.md` حذف شد (حالا `android/keystore.properties` در gitignore)، `crm-taranom.jks` از مخزن حذف شد، `JWT_SECRET` هاردکد از `ecosystem.config.js` حذف شد (حالا `server/jwt-secret.txt` در gitignore). ⚠️ تاریخچهٔ گیت پاک نشده — **چرخش keystore و رمزها الزامی است** (دستور در `docs/SECURITY-HARDENING.md`).
 - **کلید JWT پیش‌فرض**: `middleware/auth.js` هنوز مقدار پشتیبان توسعه دارد، اما `assertSecurityConfig()` در production بدون `JWT_SECRET` معتبر سرور را بالا نمی‌آورد. روی سرور: `node -e "..." > server/jwt-secret.txt` (جزئیات در `docs/SECURITY-HARDENING.md`).
-- **HTTPS**: نمونهٔ کامل Nginx + certbot در `docs/SECURITY-HARDENING.md` بخش «د» — روی سرور ایران با دامنه `.ir` اجرا شود.
+- **HTTPS**: عمومی `https://erp.poshaktaranom.com` پشت Cloudflare Full (strict). مبدأ nginx گواهی **Cloudflare Origin CA ۱۵ساله** دارد (تا ۲۰۴۱؛ نه Let's Encrypt). جزئیات: `docs/SECURITY-HARDENING.md` بخش «د» و `docs/08-deployment.md`. Authenticated Origin Pulls خاموش بماند.
 
 **ج) هوش مصنوعی (تصمیم معماری):**
 - سرویس‌های AI خارجی (Anthropic/OpenAI/Google) آی‌پی ایران را تحریمی مسدود می‌کنند و ToS استفاده از ایران را ممنوع کرده.

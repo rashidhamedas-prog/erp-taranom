@@ -6,6 +6,7 @@ Short ops notes for safe production apply. Full history lives in `CHANGE-LOG.md`
 
 - **HTTPS base:** `https://erp.poshaktaranom.com`
 - Deploy / smoke defaults (e.g. `scripts/deploy-sharp-production.ps1` `-PublicBaseUrl`) must use this host — not legacy `erp.taranom.app`.
+- **Origin TLS (Cloudflare Full strict):** nginx uses Cloudflare Origin CA (15y, `*.poshaktaranom.com` + apex) at `/etc/ssl/taranom/erp.poshaktaranom.com.{crt,key}`. Do not revert to self-signed (CF 526) and do not enable Authenticated Origin Pulls without the AOP client CA. Iran VPS cannot reliably reach Let's Encrypt API.
 
 ## Hard rules on Iran VPS (`taranom@94.249.244.208`)
 

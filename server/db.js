@@ -666,6 +666,7 @@ function initDB() {
   // امنیت: الزام تغییر رمز در اولین ورود (ادمین پیش‌فرض / رمز تعیین‌شده توسط مدیر)
   ensureColumn(db, 'users', 'must_change_password', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'users', 'auth_epoch', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'users', 'branch_id', 'INTEGER');
   ensureColumn(db, 'users', 'commission_cash', 'REAL DEFAULT 0');
   ensureColumn(db, 'users', 'commission_cheque', 'REAL DEFAULT 0');
   ensureColumn(db, 'products', 'image', 'TEXT');

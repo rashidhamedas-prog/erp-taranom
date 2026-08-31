@@ -5,6 +5,16 @@
 - Do not commit leftover `_deploy-demo-ui-v156`, `_deploy-mdi-v152`, `_diag-moein-ledger*`.
 - Next session: owner Hard Refresh; first accounting/statement open runs repair v2.
 
+## 2026-09-01T01:57:00+03:30 — close SSL/login chat (Origin CA + branch_id)
+
+- Owner asked to close this chat and finish leftover work.
+- Cloudflare Origin CA 15y installed on Iran nginx (`*.poshaktaranom.com` + apex, until 2041). Full (strict). No AOP. Self-signed caused 526; LE is not sustainable from Iran.
+- Login 401 after 200: `users.branch_id` missing on Iran `crm.db` — column added live. Repo now has `ensureColumn` in `db.js` (qa-gaps-schema already had it; VPS overlay may skip that file).
+- Docs: CHANGE-LOG, 08-deployment, SECURITY-HARDENING §د, PROJECT-HANDOFF §۶ HTTPS.
+- Do not commit `_deploy-demo-ui-v156`, `_deploy-mdi-v152`, `_diag-moein-ledger*`.
+- No Iran `git pull` / no wholesale `db.js` / no `--update-env`. SSL already live. LEDGER v180 remains closed.
+- Next agent: do not reopen SSL or this chat unless 526 returns.
+
 ## 2026-09-01T01:10:00+03:30 — v180 statement GL + dashboard AR + invoice cart/rolls
 
 - Statement rows from live customer tafsili (cheque endorse visible). KPI = Σ max(0, per-customer GL). Repair v2 backfills ledger from GL. Endorse writes customer_ledger; void reverses it.

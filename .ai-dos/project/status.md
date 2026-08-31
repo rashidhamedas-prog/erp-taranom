@@ -1,8 +1,8 @@
 # Project Status
 
 - Last verified: 2026-09-01
-- **Active:** none — `LEDGER-STMT-CHEQUE-V180` closed (SW **v180**)
-- **Iran last:** overlay v180 ✅ code `e073c01` / stamp `108fc1e` health/ready/root 200; SW `erp-taranom-v180`; `db.js` not replaced
+- **Active:** none — SSL/login chat closed; `LEDGER-STMT-CHEQUE-V180` closed (SW **v180**)
+- **Iran last:** overlay v180 ✅ code `e073c01`; Origin CA 15y on nginx (to 2041); `users.branch_id` on live `crm.db`; health/ready/root 200; SW `erp-taranom-v180`; `db.js` not wholesale-replaced
 - Prior verified: 2026-08-31
 - **Primary tip (PACK merge note):** `ai/PROD-STITCH-PACK-MERGE` onto `12b0385` — SW **v176**
 - **Iran:** overlay v176 ✅ health/ready/root 200; SW v176; `db.js` not wholesale-replaced

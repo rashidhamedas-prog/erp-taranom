@@ -1,5 +1,37 @@
 schema_version: 1
 tasks:
+  - id: "OPS-SSL-ORIGIN-CA-CLOSE"
+    title: "Close SSL 526 + login branch_id chat (Origin CA 15y)"
+    status: "completed"
+    completed_at: "2026-09-01T01:57:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "medium"
+    owner: "cursor:ops-ssl-close"
+    roles:
+      implementer: "cursor:ops-ssl-close"
+    branch: "fix/LEDGER-STATEMENT-AR"
+    worktree: "D:/soft/Claud/porje/crm-taranom/erp-taranom1"
+    file_claims: []
+    released_claims:
+      - "server/db.js"
+      - "docs/CHANGE-LOG.md"
+      - "docs/08-deployment.md"
+      - "docs/SECURITY-HARDENING.md"
+      - "docs/PROJECT-HANDOFF.md"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    notes: >-
+      Origin CA installed on Iran nginx to 2041. users.branch_id on live crm.db
+      and ensureColumn in repo db.js. Chat closed. No AOP. No wholesale db.js.
+    acceptance_criteria:
+      - "erp.poshaktaranom.com login page over Cloudflare (no 526)"
+      - "Origin cert issuer CloudFlare Origin SSL CA until 2041"
+      - "ensureColumn users.branch_id in server/db.js"
+    non_goals:
+      - "Authenticated Origin Pulls"
+      - "Iran git pull or wholesale db.js replace"
+
   - id: "LEDGER-STMT-CHEQUE-V180"
     title: "Statement from GL + dashboard AR + invoice cart/rolls"
     status: "completed"

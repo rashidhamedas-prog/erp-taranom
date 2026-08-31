@@ -13,6 +13,16 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۱۰ — بستن چت SSL/ورود: Origin CA ۱۵ساله + `users.branch_id`
+
+- **چت:** ۵۲۶ Cloudflare + لاگین که بعد از رمز بیرون می‌انداخت + نصب Origin Certificate
+- **SSL مبدأ:** گواهی خودامضا → موقت LE → **Cloudflare Origin CA** (RSA، `*.poshaktaranom.com` + apex، تا ۲۰۴۱-۰۸-۲۷) روی `/etc/ssl/taranom/erp.poshaktaranom.com.{crt,key}`؛ nginx reload. حالت CF همان Full (strict). بکاپ LE: `.bak-le`. Authenticated Origin Pulls خاموش.
+- **ورود:** `currentUser` ستون `users.branch_id` را می‌خواند؛ نبود ستون روی ایران → ۴۰۱ بعد از لاگین ۲۰۰. ستون روی `crm.db` ایران اضافه شد. در مخزن `ensureColumn` در `server/db.js` تا بوت بعدی بدون `qa-gaps-schema` هم ستون بسازد.
+- **فایل‌ها:** `server/db.js`، `docs/{CHANGE-LOG,08-deployment,SECURITY-HARDENING,PROJECT-HANDOFF}.md`، `.ai-dos/tasks/{active.yaml,handoff.md}`، `.ai-dos/project/status.md`
+- **عمداً کامیت نشد:** `scripts/_deploy-demo-ui-v156-sftp.py`، `_deploy-mdi-v152-sftp.py`، `_diag-moein-ledger*`
+- **Deploy SSL:** ✅ ایران nginx Origin CA (بدون `git pull` / بدون جایگزینی کامل `db.js` / بدون `--update-env`). سایت از CF صفحه ورود می‌دهد.
+- **SW:** بدون تغییر (`erp-taranom-v180`)
+
 ### ۱۴۰۵/۰۶/۱۰ — صورت‌حساب از تفصیلی + هشدار داشبورد + سبد/طاقه فاکتور (SW v180)
 
 - **شاخه:** `fix/LEDGER-STATEMENT-AR`
