@@ -202,16 +202,13 @@ tasks:
       - ".ai-dos/tasks/handoff.md"
       - ".ai-dos/project/status.md"
     notes: >-
-      Owner asked 2026-08-31: merge this branch to Primary, then continue
-      remaining gaps. Coverage closed: backup.verify, fabric kind=fabric,
-      reservation API. Product still missing: RFQ, 3-way, GRNI, SOD,
-      branch ACL, reservation-on-legacy-orders.
+      Owner asked 2026-08-31: implement remaining product gaps in order.
+      qa:full qa-20260831T105600-14704 PASS 268 NOT_IMPLEMENTED 0.
     acceptance_criteria:
       - "Each gap is either implemented with tests or remains an explicit NOT_IMPLEMENTED task"
       - "Branch merged to origin/claude/claude-md-docs-2ssrpy after qa:full FAIL=0"
     non_goals:
       - "Fake PASS in the QA harness"
-      - "Implementing RFQ / 3-way match / GRNI / maker-checker / branch ACL in this child"
 
   - id: "QA-ERP-GAPS-BACKUP-VERIFY-EXT"
     title: "Preserve upload extension so POST /admin/backup-restore can verify zip"

@@ -207,6 +207,12 @@ const SYNCABLE_TABLES = [
   // PROD-02/03 cutting lays (append-only)
   { name: 'cutting_lays',                      upsertKey: 'id' },
   { name: 'cutting_lay_rolls',                 upsertKey: 'id' },
+  // QA-ERP gaps — RFQ / PO / GR / 3-way (append-only)
+  { name: 'branches',                          upsertKey: 'id' },
+  { name: 'rfqs',                              upsertKey: 'id' },
+  { name: 'purchase_orders',                   upsertKey: 'id' },
+  { name: 'goods_receipts',                    upsertKey: 'id' },
+  { name: 'three_way_matches',                 upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -426,6 +432,28 @@ const FK_COLUMNS = [
   ['cheque_records', 'party_id'],
   // QA-FIX-HIGHS trust-check party_id (append-only)
   ['trust_checks', 'party_id'],
+  // QA-ERP gaps (append-only)
+  ['users', 'branch_id'],
+  ['rfqs', 'party_id'],
+  ['rfqs', 'supplier_id'],
+  ['rfqs', 'cust_id'],
+  ['rfqs', 'branch_id'],
+  ['purchase_orders', 'supplier_id'],
+  ['purchase_orders', 'rfq_id'],
+  ['purchase_orders', 'branch_id'],
+  ['purchase_orders', 'warehouse_id'],
+  ['goods_receipts', 'purchase_order_id'],
+  ['goods_receipts', 'supplier_id'],
+  ['goods_receipts', 'branch_id'],
+  ['goods_receipts', 'warehouse_id'],
+  ['goods_receipts', 'journal_id'],
+  ['three_way_matches', 'purchase_order_id'],
+  ['three_way_matches', 'goods_receipt_id'],
+  ['three_way_matches', 'purchase_invoice_id'],
+  ['orders', 'reservation_id'],
+  ['orders', 'warehouse_id'],
+  ['purchase_invoices', 'goods_receipt_id'],
+  ['purchase_invoices', 'purchase_order_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

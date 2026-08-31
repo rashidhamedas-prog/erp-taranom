@@ -2367,6 +2367,13 @@ function initSyncSchema(db) {
   }
 
   try {
+    require('./lib/qa-gaps-schema').ensureQaGapsSchema(db);
+  } catch (e) {
+    console.error('❌ qa-gaps schema init failed:', e.message);
+    throw e;
+  }
+
+  try {
     if (!isDevice()) {
       const { backfillOpeningInventoryLedger } = require('./lib/opening-post');
       const bf = backfillOpeningInventoryLedger(db);
@@ -2615,6 +2622,19 @@ function initSyncSchema(db) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v11','1')").run();
+    }
+    const backfillV12 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v12'").get();
+    if (!backfillV12 || backfillV12.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v12 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v12','1')").run();
     }
   }
 

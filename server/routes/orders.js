@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth } = require('../middleware/auth');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
+const { createReservation, releaseReservation } = require('../lib/inventory/reservation');
 
 function getScope(req) {
   if (req.user.role === 'admin' && req.query.user_id) return parseInt(req.query.user_id);
@@ -40,16 +41,37 @@ router.get('/', auth, (req, res) => {
 });
 
 router.post('/', auth, (req, res) => {
-  const { cust_id, product_id, date, type, qty, total, paid, pay, deliver, status, note } = req.body;
+  const { cust_id, product_id, date, type, qty, total, paid, pay, deliver, status, note, warehouse_id } = req.body;
   if (!cust_id || !total) return res.status(400).json({ error: 'اطلاعات ناقص' });
   const db = getDB();
-  const result = db.prepare(
-    'INSERT INTO orders (user_id,cust_id,product_id,date,type,qty,total,paid,pay,deliver,status,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(req.user.id, cust_id, product_id || null, date || '', type || '', qty || 0, total || 0, paid || 0, pay || 'نقد', deliver || '', status || 'pending', note || '');
-  const order = db.prepare('SELECT * FROM orders WHERE id=?').get(result.lastInsertRowid);
-  maybeDeductStock(db, order);
-  const row = db.prepare('SELECT o.*,c.biz as cust_biz FROM orders o LEFT JOIN customers c ON o.cust_id=c.id WHERE o.id=?').get(result.lastInsertRowid);
-  res.json(row);
+  try {
+    const saved = db.transaction(() => {
+      const result = db.prepare(
+        'INSERT INTO orders (user_id,cust_id,product_id,date,type,qty,total,paid,pay,deliver,status,note,warehouse_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+      ).run(req.user.id, cust_id, product_id || null, date || '', type || '', qty || 0, total || 0, paid || 0, pay || 'نقد', deliver || '', status || 'pending', note || '', warehouse_id || null);
+      const order = db.prepare('SELECT * FROM orders WHERE id=?').get(result.lastInsertRowid);
+      maybeDeductStock(db, order);
+      if (order.product_id && Number(order.qty) > 0 && order.status !== 'cancel') {
+        const prod = db.prepare('SELECT warehouse_id FROM products WHERE id=?').get(order.product_id);
+        const wh = order.warehouse_id || prod?.warehouse_id || null;
+        const rsv = createReservation(db, {
+          kind: 'sales',
+          productId: order.product_id,
+          warehouseId: wh,
+          qty: Number(order.qty),
+          sourceType: 'order',
+          sourceId: order.id,
+          note: `رزرو سفارش #${order.id}`,
+          createdBy: req.user.id,
+        });
+        db.prepare('UPDATE orders SET reservation_id=?, warehouse_id=? WHERE id=?').run(rsv.id, wh, order.id);
+      }
+      return db.prepare('SELECT o.*,c.biz as cust_biz FROM orders o LEFT JOIN customers c ON o.cust_id=c.id WHERE o.id=?').get(order.id);
+    })();
+    res.json(saved);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message || String(e), code: e.code });
+  }
 });
 
 router.put('/:id', auth, (req, res) => {
@@ -70,7 +92,12 @@ router.delete('/:id', auth, (req, res) => {
   const row = db.prepare('SELECT * FROM orders WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
-  db.prepare('DELETE FROM orders WHERE id=?').run(req.params.id);
+  db.transaction(() => {
+    if (row.reservation_id) {
+      try { releaseReservation(db, row.reservation_id); } catch (_) { /* already released */ }
+    }
+    db.prepare('DELETE FROM orders WHERE id=?').run(req.params.id);
+  })();
   audit(req.user.id, 'delete', 'order', req.params.id, `حذف سفارش #${req.params.id}`);
   res.json({ ok: true });
 });

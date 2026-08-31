@@ -236,7 +236,52 @@ function isManagerRole(role) {
   return role === 'admin' || role === 'sales_manager';
 }
 
+function sodErr(message) {
+  const e = new Error(message);
+  e.status = 403;
+  e.code = 'E_SOD_MAKER_CHECKER';
+  return e;
+}
+
+/** Segregation of duties / maker-checker / sod_ — creator cannot approve the same document. */
+function assertMakerChecker(user, createdByUserId) {
+  if (!user) throw sodErr('ورود لازم است');
+  if (user.role === 'admin') return;
+  if (createdByUserId == null) return;
+  if (Number(createdByUserId) === Number(user.id)) {
+    throw sodErr('سازنده نمی‌تواند همان سند را تأیید کند (segregation / maker-checker)');
+  }
+}
+
+function branchScopeErr(message) {
+  const e = new Error(message);
+  e.status = 403;
+  e.code = 'E_BRANCH_SCOPE';
+  return e;
+}
+
+/** Staff ACL is branch-scoped via users.branch_id. Admin is unrestricted. */
+function assertBranchScope(user, rowBranchId) {
+  if (!user) throw branchScopeErr('ورود لازم است');
+  if (user.role === 'admin') return;
+  const mine = user.branch_id != null ? Number(user.branch_id) : null;
+  if (mine == null) return;
+  if (rowBranchId == null) return;
+  if (Number(rowBranchId) !== mine) {
+    throw branchScopeErr('این رکورد خارج از شعبه شماست');
+  }
+}
+
+function applyBranchScopeSql(user, alias) {
+  if (!user || user.role === 'admin') return { sql: '', params: [] };
+  const mine = user.branch_id != null ? Number(user.branch_id) : null;
+  if (mine == null) return { sql: '', params: [] };
+  const col = alias ? `${alias}.branch_id` : 'branch_id';
+  return { sql: ` AND (${col} IS NULL OR ${col}=?)`, params: [mine] };
+}
+
 module.exports = {
   ACTIONS, RESOURCES, DEFAULT_ROLE_PERMISSIONS,
   getUserPermissions, hasPermission, isManagerRole, fillRoleDefaults,
+  assertMakerChecker, assertBranchScope, applyBranchScopeSql,
 };

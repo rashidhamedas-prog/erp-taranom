@@ -15,7 +15,7 @@ function invalidateUserCache() {}
 
 function currentUser(db, id) {
   return db.prepare(`
-    SELECT id,username,name,role,phone,active,must_change_password,auth_epoch
+    SELECT id,username,name,role,phone,active,must_change_password,auth_epoch,branch_id
     FROM users WHERE id=?
   `).get(Number(id));
 }
@@ -88,6 +88,7 @@ function auth(req, res, next) {
       name: user.name,
       role: user.role,
       phone: user.phone || '',
+      branch_id: user.branch_id != null ? Number(user.branch_id) : null,
       ae: Number(user.auth_epoch || 0),
       sid: payload.sid,
       dslot: payload.dslot,

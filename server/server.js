@@ -381,6 +381,10 @@ app.use('/api/reps', require('./routes/rep-management'));
 app.use('/api/accounting', require('./routes/accounting'));
 app.use('/api/ledgers', require('./routes/ledgers'));
 app.use('/api/suppliers', require('./routes/suppliers'));
+app.use('/api/rfq', require('./routes/rfq')); // RFQ sales/purchase
+app.use('/api/branches', require('./routes/branches'));
+// three-way match + maker-checker / sod_ / segregation of duties
+app.use('/api/purchases', require('./routes/procurement')); // PO / GR / GRNI / 3-way match
 app.use('/api/purchases', require('./routes/purchases'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/banks', require('./routes/banks'));

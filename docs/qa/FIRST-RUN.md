@@ -26,7 +26,7 @@ GET `/settings` is `adminOnly`; GET `/accounting/sales-returns` is `adminOrAccou
 
 ## Gaps (`NOT_IMPLEMENTED`, not PASS)
 
-RFQ, 3-way match, GRNI, maker-checker SOD, branch ACL, and legacy `POST /orders` reservation remain product gaps.
+All former product gaps are implemented on `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` (RFQ, 3-way, GRNI, SOD, branch ACL, order reservation). Authoritative `qa:full` `qa-20260831T105600-14704` PASS 268 · NOT_IMPLEMENTED 0.
 
 Coverage later closed on `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` (do not fake PASS): backup verify via `POST /admin/backup-restore`, fabric rolls as `inventory_batches.kind=fabric`, reservation API create/ATP/release.
 

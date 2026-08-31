@@ -82,7 +82,12 @@ async function runRolesBatch({ http, rec, ctx, Database }) {
         status: lr.status === 200 && lr.body?.token ? 'PASS' : 'FAIL',
         expected: 200, actual: lr.status, message: lr.body?.error || '',
       });
-      if (lr.body?.token) ctx.roleSessions[role] = { token: lr.body.token, username, password };
+      if (lr.body?.token) {
+        ctx.roleSessions[role] = {
+          token: lr.body.token, username, password,
+          userId: created.body?.id || lr.body?.user?.id || null,
+        };
+      }
     }
 
     const session = ctx.roleSessions[role];
@@ -228,15 +233,60 @@ async function runRolesBatch({ http, rec, ctx, Database }) {
     });
   }
 
-  rec({
-    id: 'rbac.sod.maker_checker', suite: 'roles', module: 'rbac',
-    status: 'NOT_IMPLEMENTED',
-    message: 'No maker-checker / SOD policy in rbac.js',
-  });
+  const fsTok = ctx.roleSessions.field_sales?.token;
+  const accTok = ctx.roleSessions.accounting?.token;
+  if (fsTok && ctx.productId && ctx.customerId) {
+    const made = await http.post('/rfq', {
+      kind: 'sales', cust_id: ctx.customerId, date: QA_DATE,
+      rows: [{ product_id: ctx.productId, qty: 1, price: 1000 }],
+      note: 'QA SOD',
+    }, fsTok);
+    const selfAppr = made.body?.id
+      ? await http.post('/rfq/' + made.body.id + '/approve', {}, fsTok)
+      : { status: 0, body: {} };
+    rec({
+      id: 'rbac.sod.maker_checker', suite: 'roles', module: 'rbac',
+      status: selfAppr.status === 403 && (selfAppr.body?.code === 'E_SOD_MAKER_CHECKER' || /سازنده/.test(selfAppr.body?.error || ''))
+        ? 'PASS' : 'FAIL',
+      expected: 403, actual: selfAppr.status,
+      message: selfAppr.body?.error || made.body?.error || '',
+    });
+    if (accTok && made.body?.id) {
+      await http.post('/rfq/' + made.body.id + '/approve', {}, accTok);
+    }
+  } else {
+    rec({
+      id: 'rbac.sod.maker_checker', suite: 'roles', module: 'rbac',
+      status: 'FAIL', message: 'field_sales session missing for SOD',
+    });
+  }
+
+  const freshAdmin = ctx.adminToken || adminToken;
+  const br = await http.post('/branches', { code: 'QA-BR2-' + Date.now(), name: 'شعبه QA ۲' }, freshAdmin);
+  const otherRfq = await http.post('/rfq', {
+    kind: 'sales', cust_id: ctx.customerId, date: QA_DATE, branch_id: br.body?.id,
+    rows: [{ product_id: ctx.productId, qty: 1, price: 1000 }],
+    note: 'other branch',
+  }, freshAdmin);
+  const users = await http.get('/admin/users', freshAdmin);
+  const userList = Array.isArray(users.body) ? users.body
+    : (users.body?.rows || users.body?.users || users.body?.data || []);
+  const fsUser = userList.find((u) => u && u.username === (ctx.roleSessions.field_sales?.username));
+  if (fsUser) {
+    await http.put('/admin/users/' + fsUser.id, {
+      name: fsUser.name, role: fsUser.role, phone: fsUser.phone || '',
+      commission_cash: fsUser.commission_cash || 0, commission_cheque: fsUser.commission_cheque || 0,
+      branch_id: 1,
+    }, freshAdmin);
+  }
+  const peek = (fsTok && otherRfq.body?.id)
+    ? await http.get('/rfq/' + otherRfq.body.id, fsTok)
+    : { status: 0, body: {} };
   rec({
     id: 'rbac.branch_scope', suite: 'roles', module: 'rbac',
-    status: 'NOT_IMPLEMENTED',
-    message: 'Staff ACL is not branch-scoped',
+    status: peek.status === 403 ? 'PASS' : 'FAIL',
+    expected: 403, actual: peek.status,
+    message: peek.body?.error || (br.body?.error || ''),
   });
 
   void ACTIONS; void RESOURCES; void hasPermission; void changeIfNeeded; void Database; void DEFAULT_ROLE_PERMISSIONS;

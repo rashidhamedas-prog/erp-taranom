@@ -74,6 +74,8 @@ const LEGACY = {
   // POS-01/02 — card in-transit + dedicated fee (1118/6114 unused in existing chart)
   coa_card_in_transit:        { code: '1118', name: 'وجوه در راه کارتخوان' },
   coa_card_fee:               { code: '6114', name: 'کارمزد کارتخوان' },
+  // GRNI — goods received not invoiced (append-only)
+  coa_grni:                   { code: '2112', name: 'کالای دریافت‌شده فاکتورنشده (GRNI)' },
 };
 
 let _cache = null, _cacheAt = 0;

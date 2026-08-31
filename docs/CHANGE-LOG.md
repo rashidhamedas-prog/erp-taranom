@@ -13,6 +13,15 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۹ — QA product gaps: RFQ / GRNI / 3-way / SOD / branch / order reserve
+
+- **شاخه:** `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` → FF به Primary
+- **خلاصه:** استعلام فروش/خرید، سفارش و رسید خرید با سند GRNI (`2112`)، فاکتور از رسید، تطبیق سه‌طرفه، maker-checker، ACL شعبه، رزرو موجودی روی `POST /orders`.
+- **qa:full:** `qa-20260831T105600-14704` PASS **268** FAIL 0 ERROR 0 · NOT_IMPLEMENTED **0**
+- **گیت:** SMS 22/22 · sync 44/44 · diag mismatches=[]
+- **SW:** `erp-taranom-v175`
+- **Deploy:** در حال overlay (بدون جایگزینی کامل `db.js`)
+
 ### ۱۴۰۵/۰۶/۰۹ — QA gaps coverage + backup verify ext → Primary + Iran v174
 
 - **شاخه:** `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` سپس FF به `claude/claude-md-docs-2ssrpy`

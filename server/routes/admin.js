@@ -21,7 +21,7 @@ function jalaliDayBounds(jStr) {
 router.get('/users', auth, adminOnly, (req, res) => {
   const db = getDB();
   const users = db.prepare(`
-    SELECT u.id,u.name,u.username,u.role,u.phone,u.active,u.last_login,u.commission_cash,u.commission_cheque,
+    SELECT u.id,u.name,u.username,u.role,u.phone,u.active,u.last_login,u.commission_cash,u.commission_cheque,u.branch_id,
       u.commission_basis,u.monthly_target,u.incentive_locked,u.created_at,u.party_id,u.sales_warehouse_id,
       p.person_code,p.legal_type,p.company_name,p.national_id,p.economic_code,
       p.secondary_phone AS person_secondary_phone,p.mobile AS person_mobile,p.fax AS person_fax,
@@ -65,8 +65,11 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
     ensureUserParty(db, result.lastInsertRowid, req.body);
     return result;
   })();
+  if (req.body.branch_id != null && req.body.branch_id !== '') {
+    getDB().prepare('UPDATE users SET branch_id=? WHERE id=?').run(parseInt(req.body.branch_id, 10) || null, created.lastInsertRowid);
+  }
   audit(req.user.id, 'create', 'user', created.lastInsertRowid, `ساخت کاربر ${name} با انگیزه فروش نقد ${commission_cash}٪ چک ${commission_cheque}٪`);
-  res.json({ id: created.lastInsertRowid, name, username, phone: phone || '', role, commission_cash: parseFloat(commission_cash) || 0, commission_cheque: parseFloat(commission_cheque) || 0, incentive_locked: 1 });
+  res.json({ id: created.lastInsertRowid, name, username, phone: phone || '', role, commission_cash: parseFloat(commission_cash) || 0, commission_cheque: parseFloat(commission_cheque) || 0, incentive_locked: 1, branch_id: req.body.branch_id || null });
 });
 
 // Update user — if incentive rate changed on a locked user, require force:true
@@ -139,6 +142,12 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
           req.params.id);
     }
     ensureUserParty(db, Number(req.params.id), req.body);
+    if (req.body.branch_id !== undefined) {
+      db.prepare('UPDATE users SET branch_id=? WHERE id=?').run(
+        req.body.branch_id === '' || req.body.branch_id == null ? null : parseInt(req.body.branch_id, 10),
+        req.params.id
+      );
+    }
   })();
   invalidateUserCache(+req.params.id);
   if (authChanged) {

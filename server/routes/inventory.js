@@ -182,6 +182,8 @@ router.get('/reservations', auth, adminOrAccounting, (req, res) => {
     warehouseId: req.query.warehouse_id ? +req.query.warehouse_id : null,
     status: req.query.status || 'active',
     kind: req.query.kind,
+    sourceType: req.query.source_type,
+    sourceId: req.query.source_id,
   }) });
 });
 

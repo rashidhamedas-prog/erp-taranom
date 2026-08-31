@@ -97,13 +97,15 @@ function expireReservations(db) {
   return r.changes;
 }
 
-function listReservations(db, { productId, warehouseId, status = 'active', kind } = {}) {
+function listReservations(db, { productId, warehouseId, status = 'active', kind, sourceType, sourceId } = {}) {
   const where = [];
   const params = [];
   if (productId) { where.push('product_id=?'); params.push(productId); }
   if (warehouseId) { where.push('warehouse_id=?'); params.push(warehouseId); }
   if (status) { where.push('status=?'); params.push(status); }
   if (kind) { where.push('kind=?'); params.push(kind); }
+  if (sourceType) { where.push('source_type=?'); params.push(sourceType); }
+  if (sourceId != null) { where.push('source_id=?'); params.push(+sourceId); }
   return db.prepare(`
     SELECT * FROM inventory_reservations
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}

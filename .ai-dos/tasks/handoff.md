@@ -1,3 +1,9 @@
+## 2026-08-31T14:30:00+03:30 — All remaining QA product gaps implemented
+
+- RFQ sales/purchase, PO, GR+GRNI (2112), GR invoice, three-way match, SOD maker-checker, branch ACL, order reservation.
+- qa:full `qa-20260831T105600-14704` PASS 268 · FAIL 0 · NOT_IMPLEMENTED 0.
+- Next: commit + FF Primary + Iran overlay v175 (surgical db.js/server.js).
+
 ## 2026-08-31T14:15:00+03:30 — Primary + Iran v174 done
 
 - **Primary FF:** `dbd86fc..f3318bb` on `origin/claude/claude-md-docs-2ssrpy`

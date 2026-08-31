@@ -274,6 +274,7 @@ async function runAdminBatch({ http, rec, gap, ctx }) {
     status: okStatus(order) ? 'PASS' : 'FAIL',
     expected: 200, actual: order.status, message: order.body?.error || '',
   });
+  ctx.orderId = order.body?.id;
 
   const inv = await http.post('/invoices', {
     cust_id: ctx.customerId, type: 'final', date: QA_DATE, pay_type: 'credit',
@@ -349,7 +350,25 @@ async function runAdminBatch({ http, rec, gap, ctx }) {
     });
   }
 
-  gap('sales.rfq', 'sales', 'No RFQ route in server/routes');
+  const salesRfq = await http.post('/rfq', {
+    kind: 'sales', cust_id: ctx.customerId, date: QA_DATE,
+    rows: [{ product_id: ctx.productId, qty: 1, price: 2500000 }],
+    note: 'QA sales RFQ',
+  }, token);
+  rec({
+    id: 'sales.rfq', suite: 'admin', module: 'sales',
+    status: okStatus(salesRfq) && salesRfq.body?.id ? 'PASS' : 'FAIL',
+    expected: 200, actual: salesRfq.status, message: salesRfq.body?.error || salesRfq.body?.num || '',
+  });
+  ctx.salesRfqId = salesRfq.body?.id;
+  if (ctx.salesRfqId) {
+    const awarded = await http.post('/rfq/' + ctx.salesRfqId + '/award', {}, token);
+    rec({
+      id: 'sales.rfq_award', suite: 'admin', module: 'sales',
+      status: okStatus(awarded) ? 'PASS' : 'FAIL',
+      expected: 200, actual: awarded.status, message: awarded.body?.error || awarded.body?.status || '',
+    });
+  }
 
   const avail0 = ctx.productId
     ? await http.get('/inventory/available/' + ctx.productId + (fgWh ? ('?warehouse_id=' + fgWh) : ''), token)
@@ -389,11 +408,75 @@ async function runAdminBatch({ http, rec, gap, ctx }) {
       expected: 200, actual: rel.status, message: rel.body?.error || rel.body?.status || '',
     });
   }
-  gap('sales.reservation_on_order', 'sales', 'legacy POST /orders still does not call createReservation');
+  const orderRsv = ctx.orderId || order.body?.id
+    ? await http.get('/inventory/reservations?source_type=order&source_id=' + (ctx.orderId || order.body?.id), token)
+    : { status: 0, body: {} };
+  const orderRsvHit = (orderRsv.body?.rows || []).some((r) => r && r.source_type === 'order');
+  rec({
+    id: 'sales.reservation_on_order', suite: 'admin', module: 'sales',
+    status: okStatus(orderRsv) && orderRsvHit ? 'PASS' : 'FAIL',
+    expected: 'reservation source_type=order', actual: orderRsv.status,
+    message: orderRsvHit ? 'order reserved' : (orderRsv.body?.error || 'no order reservation'),
+  });
 
   // --- purchase ---
-  gap('purchase.rfq', 'purchase', 'No RFQ/3-way-match named routes');
-  gap('purchase.grni', 'purchase', 'coa_grni not in coa-map; purchase posts Dr Inventory / Cr AP directly');
+  const purchRfq = await http.post('/rfq', {
+    kind: 'purchase', supplier_id: ctx.supplierId, date: QA_DATE,
+    rows: [{ product_id: ctx.fabricId, qty: 5, price: 250000 }],
+    note: 'QA purchase RFQ',
+  }, token);
+  rec({
+    id: 'purchase.rfq', suite: 'admin', module: 'purchase',
+    status: okStatus(purchRfq) && purchRfq.body?.id ? 'PASS' : 'FAIL',
+    expected: 200, actual: purchRfq.status, message: purchRfq.body?.error || purchRfq.body?.num || '',
+  });
+
+  const poDoc = await http.post('/purchases/orders', {
+    supplier_id: ctx.supplierId, date: QA_DATE, warehouse_id: ctx.whRaw?.id,
+    rfq_id: purchRfq.body?.id || undefined,
+    rows: [{ product_id: ctx.fabricId, qty: 5, price: 250000 }],
+  }, token);
+  rec({
+    id: 'purchase.order', suite: 'admin', module: 'purchase',
+    status: okStatus(poDoc) && poDoc.body?.id ? 'PASS' : 'FAIL',
+    expected: 200, actual: poDoc.status, message: poDoc.body?.error || poDoc.body?.num || '',
+  });
+  ctx.purchaseOrderId = poDoc.body?.id;
+
+  const gr = ctx.purchaseOrderId
+    ? await http.post('/purchases/goods-receipts', {
+      purchase_order_id: ctx.purchaseOrderId, warehouse_id: ctx.whRaw?.id, date: QA_DATE,
+    }, token)
+    : { status: 0, body: {} };
+  rec({
+    id: 'purchase.grni', suite: 'admin', module: 'purchase',
+    status: okStatus(gr) && gr.body?.id ? 'PASS' : 'FAIL',
+    expected: 200, actual: gr.status, message: gr.body?.error || gr.body?.num || '',
+  });
+  ctx.goodsReceiptId = gr.body?.id;
+
+  const grInv = ctx.goodsReceiptId
+    ? await http.post('/purchases/gr-invoices', { goods_receipt_id: ctx.goodsReceiptId, date: QA_DATE }, token)
+    : { status: 0, body: {} };
+  rec({
+    id: 'purchase.gr_invoice', suite: 'admin', module: 'purchase',
+    status: okStatus(grInv) && grInv.body?.id ? 'PASS' : 'FAIL',
+    expected: 200, actual: grInv.status, message: grInv.body?.error || grInv.body?.num || '',
+  });
+
+  const twm = (ctx.purchaseOrderId && ctx.goodsReceiptId)
+    ? await http.post('/purchases/three-way-match', {
+      purchase_order_id: ctx.purchaseOrderId,
+      goods_receipt_id: ctx.goodsReceiptId,
+      purchase_invoice_id: grInv.body?.id,
+    }, token)
+    : { status: 0, body: {} };
+  rec({
+    id: 'purchase.three_way_match', suite: 'admin', module: 'purchase',
+    status: okStatus(twm) && twm.body?.matched ? 'PASS' : 'FAIL',
+    expected: 'matched=true', actual: twm.status,
+    message: twm.body?.message || twm.body?.error || '',
+  });
 
   const po = await http.post('/purchases', {
     supplier_id: ctx.supplierId, date: QA_DATE, pay_type: 'credit', warehouse_id: ctx.whRaw?.id,
