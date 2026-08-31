@@ -21,7 +21,7 @@ FILES = [
     ".ai-dos/project/status.md",
     ".ai-dos/tasks/active.yaml",
     ".ai-dos/tasks/handoff.md",
-    "server/db.js",
+    # Never wholesale-replace VPS db.js (mixed overlay tree; helper mismatch crashes boot).
     "server/lib/inventory/ledger.js",
     "server/lib/opening-post.js",
     "server/lib/rbac.js",
@@ -84,13 +84,7 @@ def main() -> None:
     c.connect(HOST, username=USER, pkey=pkey, timeout=45, allow_agent=False, look_for_keys=False)
 
     run(c, f"cd {APP} && git rev-parse --short HEAD && git status -sb | head -8")
-    pull_code, _ = run(
-        c,
-        f"cd {APP} && git fetch origin claude/claude-md-docs-2ssrpy && git pull --ff-only origin claude/claude-md-docs-2ssrpy",
-        timeout=90,
-    )
-    if pull_code != 0:
-        print("git pull failed (expected if VPS cannot reach GitHub); continuing with SFTP overlay")
+    print("skip git pull on dirty VPS tree; SFTP overlay only")
 
     sftp = c.open_sftp()
     for rel in FILES:

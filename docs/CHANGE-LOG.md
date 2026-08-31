@@ -13,14 +13,16 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
-### ۱۴۰۵/۰۶/۰۹ — QA-ERP merge to Primary + Iran deploy (SW v173)
+### ۱۴۰۵/۰۶/۰۹ — QA-ERP merge to Primary + Iran overlay v173
 
-- **شاخه:** `claude/claude-md-docs-2ssrpy` از `ai/QA-ERP-FULL-CYCLE-INTEGRATION` @ `1fd4917` + stamp v173
-- **خلاصه:** مالک merge به Primary و deploy ایران را تأیید کرد. harness QA + اصلاحات High محصول (چک `party_id`، انبار فاکتور قطعی، ledger افتتاحیه، RBAC حقوق/تنظیمات، UNION recon) روی Primary می‌آید. SW `erp-taranom-v173`. ۱۴ شکاف `NOT_IMPLEMENTED` عمداً PASS نشدند — تسک پیگیری `QA-ERP-GAPS-NOT-IMPLEMENTED`.
-- **فایل‌ها:** harness `scripts/qa/**`، فیکس‌های محصول (چک/فاکتور/حقوق/ledger/RBAC)، راهنمای داخل برنامه، SW/index
-- **تست:** آخرین `qa:full` `qa-20260826T135416-20172` PASS 248 FAIL 0 ERROR 0؛ گیت‌های merge در همین نوبت تکرار می‌شوند
-- **Deploy:** در حال اجرا — پس از health ۲۰۰ به ✅ به‌روز می‌شود
-- **Rollback:** `git revert` merge commit روی Primary؛ روی VPS overlay قبلی v172
+- **شاخه:** `claude/claude-md-docs-2ssrpy` @ `be0faec` (merge `9f37b46` از Integration)
+- **خلاصه:** مالک merge+deploy را تأیید کرد. harness QA + فیکس‌های High محصول روی Primary رفت. SW `erp-taranom-v173`. ۱۴ شکاف `NOT_IMPLEMENTED` عمداً PASS نشدند.
+- **تست merge:** `qa:full` `qa-20260831T095752-10032` PASS 248 FAIL 0 ERROR 0 · NOT_IMPLEMENTED 14 · JE/FK/stock 0؛ SMS 22/22؛ sync 44/44 (بعد از اصلاح warehouse_id تست)
+- **Deploy ایران:** ✅ overlay SFTP مسیرهای محصول + SW (نه `db.js`). VPS درخت مخلوط overlay روی `8a5cd54` است؛ جایگزینی کامل `db.js` باعث `runAccCrmUnifyV1 is not a function` و downtime شد — `git checkout -- server/db.js` برگرداند. health/ready/root **200**. بک‌فیل افتتاحیه یک‌بار اجرا شد (`count:8`). `trust_checks.party_id` روی DB زنده موجود است.
+- **قانون:** روی ایران `db.js` را کامل overlay نکن مگر helperهای هم‌نسخه هم بروند.
+- **فایل‌های overlay:** `app.js` `index.html` `sw.js` invoices/cheque/payroll/trust-checks/excel/rbac/ledger/opening-post/sales-document/`tables.js` + docs
+- **Rollback overlay:** SW v172 + checkout فایل‌های مسیر از git VPS
+- **پیگیری:** `QA-ERP-GAPS-NOT-IMPLEMENTED`
 
 ### ۱۴۰۵/۰۶/۰۴ — QA recon ledger ∪ warehouse_stock (no Primary/deploy)
 

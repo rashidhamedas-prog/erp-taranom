@@ -2,7 +2,7 @@ schema_version: 1
 tasks:
   - id: "QA-ERP-FULL-CYCLE-INTEGRATION"
     title: "Integrate admin-roles harness + product Highs; isolated qa:full; no Primary/deploy"
-    status: "active"
+    status: "completed"
     review_status: "APPROVED"
     security_status: "APPROVED"
     risk: "high"
@@ -18,7 +18,9 @@ tasks:
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration"
     base_commit: "6ce3ac1"
     claimed_at: "2026-08-25T14:15:00+03:30"
-    file_claims:
+    completed_at: "2026-08-31T13:40:00+03:30"
+    file_claims: []
+    released_claims:
       - "scripts/qa/**"
       - "docs/qa/**"
       - ".cursor/commands/qa-admin.md"
@@ -176,18 +178,26 @@ tasks:
 
   - id: "QA-ERP-GAPS-NOT-IMPLEMENTED"
     title: "Follow-up product gaps reported as NOT_IMPLEMENTED by QA-ERP-FULL-CYCLE"
-    status: "pending"
+    status: "active"
     review_status: "PENDING"
     security_status: "NOT_REQUIRED"
     risk: "medium"
-    owner: "unassigned"
+    owner: "cursor:orchestrator-qa-erp"
     parent: "QA-ERP-FULL-CYCLE"
     roles:
-      orchestrator: "unassigned"
-      implementer: "unassigned"
-    branch: ""
-    worktree: ""
-    file_claims: []
+      orchestrator: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-gaps"
+    branch: "ai/QA-ERP-GAPS-NOT-IMPLEMENTED"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-gaps"
+    claimed_at: "2026-08-31T13:40:00+03:30"
+    file_claims:
+      - "scripts/qa/batches/admin.js"
+      - "scripts/qa/inventory.js"
+      - "docs/qa/FIRST-RUN.md"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
     notes: >-
       Do not mark these PASS. Evidence qa-20260825T115815-8164 (Integration).
       Classification: RFQ/3-way/GRNI/SOD/branch = MISSING_PRODUCT_FEATURE;

@@ -1,8 +1,11 @@
 # Project Status
 
 - Last verified: 2026-08-31
-- **Active task:** `QA-ERP-FULL-CYCLE-INTEGRATION` — owner approved Primary merge + Iran deploy (SW v173)
-- **Owner override (2026-08-31):** merge to `claude/claude-md-docs-2ssrpy` + Iran SFTP; erp-taranom1 / UI-STITCH untouched
+- **Primary:** `origin/claude/claude-md-docs-2ssrpy` @ `be0faec` (QA-ERP merge, SW v173)
+- **Iran:** overlay v173 ✅ health/ready/root 200; VPS `db.js` kept (do not wholesale-replace)
+- **Active task next:** `QA-ERP-GAPS-NOT-IMPLEMENTED` (14 gaps; do not fake PASS)
+- **Closed:** `QA-ERP-FULL-CYCLE-INTEGRATION` — owner-approved merge + overlay
+- **erp-taranom1 / UI-STITCH:** untouched
 - **Integration tip:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` /
   `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration` @ Primary `6ce3ac1`
 - **Sources:** harness `a9a7110` + product `7d60258`

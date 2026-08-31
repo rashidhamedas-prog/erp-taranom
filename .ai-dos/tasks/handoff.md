@@ -1,3 +1,10 @@
+## 2026-08-31T13:40:00+03:30 — Primary merge + Iran overlay v173 done
+
+- **Primary push:** `6ce3ac1..be0faec` on `origin/claude/claude-md-docs-2ssrpy`
+- **qa:full:** `qa-20260831T095752-10032` PASS 248 FAIL 0 ERROR 0 · 14 gaps
+- **Iran:** SFTP product overlay; **do not replace VPS db.js**. Outage recovered via `git checkout -- server/db.js`. health/ready/root 200. SW v173.
+- **Integration** claims released (`completed`). Next: `QA-ERP-GAPS-NOT-IMPLEMENTED` on new worktree from Primary. erp-taranom1 untouched.
+
 ## 2026-08-31T13:20:00+03:30 — Owner approved Primary merge + Iran deploy
 
 - **Task:** `QA-ERP-FULL-CYCLE-INTEGRATION` — owner override of prior no-merge/no-deploy gate
