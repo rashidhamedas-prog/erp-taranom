@@ -213,7 +213,7 @@ tasks:
     notes: >-
       Owner asked 2026-08-31: implement remaining product gaps in order.
       qa:full qa-20260831T105600-14704 PASS 268 NOT_IMPLEMENTED 0.
-      Primary FF a75ed64. Iran overlay v175 health/ready/root 200.
+      Primary FF 9151483. Iran overlay v175 health/ready/root 200.
     acceptance_criteria:
       - "Each gap is either implemented with tests or remains an explicit NOT_IMPLEMENTED task"
       - "Branch merged to origin/claude/claude-md-docs-2ssrpy after qa:full FAIL=0"

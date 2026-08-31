@@ -1,7 +1,7 @@
 # Project Status
 
 - Last verified: 2026-08-31
-- **Primary:** `origin/claude/claude-md-docs-2ssrpy` @ `a75ed64` (QA product gaps + SW v175)
+- **Primary:** `origin/claude/claude-md-docs-2ssrpy` @ `9151483` (QA product gaps + SW v175; FF از `ai/QA-ERP-GAPS-NOT-IMPLEMENTED`)
 - **Iran:** overlay v175 ✅ health/ready/root 200; VPS `db.js`/`server.js` surgical only (bak-v175)
 - **qa:full:** `qa-20260831T105600-14704` PASS 268 FAIL 0 ERROR 0 · NOT_IMPLEMENTED 0
 - **Active task:** none for QA gaps — `QA-ERP-GAPS-NOT-IMPLEMENTED` completed

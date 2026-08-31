@@ -2,7 +2,7 @@
 
 - RFQ sales/purchase, PO, GR+GRNI (2112), GR invoice, three-way match, SOD maker-checker, branch ACL, order reservation.
 - qa:full `qa-20260831T105600-14704` PASS 268 · FAIL 0 · NOT_IMPLEMENTED 0.
-- Primary FF `a75ed64`. Iran overlay v175 ✅ health/ready/root 200. `QA-ERP-GAPS-NOT-IMPLEMENTED` completed.
+- Primary FF `9151483` (کد قابلیت `a75ed64` + مهر docs). Iran overlay v175 ✅ health/ready/root 200. `QA-ERP-GAPS-NOT-IMPLEMENTED` completed. بدون merge شاخه‌های غیرمرتبط (UI-STITCH / PACK).
 
 ## 2026-08-31T14:15:00+03:30 — Primary + Iran v174 done
 

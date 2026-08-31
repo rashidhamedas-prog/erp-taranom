@@ -20,7 +20,7 @@
 - **qa:full:** `qa-20260831T105600-14704` PASS **268** FAIL 0 ERROR 0 · NOT_IMPLEMENTED **0**
 - **گیت:** SMS 22/22 · sync 44/44 · diag mismatches=[]
 - **SW:** `erp-taranom-v175`
-- **Deploy:** ✅ ایران overlay v175 @ `a75ed64` — health/ready/root 200؛ `db.js`/`server.js` فقط جراحی (bak-v175)؛ SW `erp-taranom-v175`
+- **Deploy:** ✅ ایران overlay v175 کد @ `a75ed64` / تیپ Primary `9151483` — health/ready/root 200؛ `db.js`/`server.js` فقط جراحی (bak-v175)؛ SW `erp-taranom-v175`؛ بدون `git pull` روی درخت کثیف VPS
 
 ### ۱۴۰۵/۰۶/۰۹ — QA gaps coverage + backup verify ext → Primary + Iran v174
 
