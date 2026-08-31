@@ -1,3 +1,10 @@
+## 2026-09-01T01:57:00+03:30 — close LEDGER-STMT-CHEQUE-V180
+
+- Product + Iran overlay already done (SW v180, health 200, Primary FF `108fc1e`).
+- Task completed; file_claims empty. No further product work in this chat.
+- Do not commit leftover `_deploy-demo-ui-v156`, `_deploy-mdi-v152`, `_diag-moein-ledger*`.
+- Next session: owner Hard Refresh; first accounting/statement open runs repair v2.
+
 ## 2026-09-01T01:10:00+03:30 — v180 statement GL + dashboard AR + invoice cart/rolls
 
 - Statement rows from live customer tafsili (cheque endorse visible). KPI = Σ max(0, per-customer GL). Repair v2 backfills ledger from GL. Endorse writes customer_ledger; void reverses it.

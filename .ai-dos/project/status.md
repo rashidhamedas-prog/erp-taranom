@@ -1,14 +1,14 @@
 # Project Status
 
 - Last verified: 2026-09-01
-- **Active:** `LEDGER-STMT-CHEQUE-V180` on `fix/LEDGER-STATEMENT-AR` — SW **v180** (statement from tafsili, dashboard AR per-customer, invoice cart/rolls)
-- **Iran last:** overlay v180 ✅ `e073c01` health/ready/root 200; SW `erp-taranom-v180`; `db.js` not replaced
+- **Active:** none — `LEDGER-STMT-CHEQUE-V180` closed (SW **v180**)
+- **Iran last:** overlay v180 ✅ code `e073c01` / stamp `108fc1e` health/ready/root 200; SW `erp-taranom-v180`; `db.js` not replaced
 - Prior verified: 2026-08-31
 - **Primary tip (PACK merge note):** `ai/PROD-STITCH-PACK-MERGE` onto `12b0385` — SW **v176**
 - **Iran:** overlay v176 ✅ health/ready/root 200; SW v176; `db.js` not wholesale-replaced
 - **qa:full (QA gaps):** `qa-20260831T105600-14704` PASS 268 FAIL 0 ERROR 0 · NOT_IMPLEMENTED 0
 - **PACK gates:** 48/48 · SMS 22/22 · sync 44/44 · diag mismatches=[]
-- **Active task:** `LEDGER-STMT-CHEQUE-V180` (in progress)
+- **Active task:** none — `LEDGER-STMT-CHEQUE-V180` completed + claims released
 - **Closed:** `QA-ERP-GAPS-NOT-IMPLEMENTED` · `QA-ERP-FULL-CYCLE-INTEGRATION` · `UI-STITCH-P0-DISCOVERY` (0 unique commits, claims released)
 - **Not merged (docs-only / stale stamps):** `codex/wave0-execution-pack`, ACC-CRM stamp `80a5aae`
 - Prior: `PROD-STITCH-P5B` completed

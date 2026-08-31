@@ -4,6 +4,8 @@ tasks:
     title: "Statement from GL + dashboard AR + invoice cart/rolls"
     status: "completed"
     completed_at: "2026-09-01T01:20:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
     risk: "high"
     owner: "cursor:implementer-v180"
     roles:
