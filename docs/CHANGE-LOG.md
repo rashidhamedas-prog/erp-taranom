@@ -21,7 +21,7 @@
 - **فاکتور:** `addToCart` کالا را از فهرست انبار (`_invProducts`) پیدا می‌کند (نه کاتالوگ ناقص). افزودن طاقه/کالای سریع مودال تو در تو است و فرم فاکتور را نمی‌بندد.
 - **فایل‌ها:** `server/lib/customer-books.js`، `server/routes/{accounting,cheque-records}.js`، `server/lib/void-cheque.js`، `server/public/{app.js,app.css,sw.js,index.html}`، `server/scripts/test-stmt-gl-cheque-v180.js`
 - **تست:** `test-stmt-gl-cheque-v180.js` · `test-ledger-statement-repair.js` · `test-ops-pack-v179.js` · `test-sms.js`
-- **Deploy:** ⏳ ایران overlay v180 — پس از push
+- **Deploy:** ✅ ایران overlay v180 @ `e073c01` — health/ready/root 200؛ SW `erp-taranom-v180`؛ `db.js` عوض نشد
 
 ### ۱۴۰۵/۰۶/۱۰ — مرج Primary + دیپلوی کامل v179
 

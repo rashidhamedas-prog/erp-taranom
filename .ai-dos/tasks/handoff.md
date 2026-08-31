@@ -3,7 +3,7 @@
 - Statement rows from live customer tafsili (cheque endorse visible). KPI = Σ max(0, per-customer GL). Repair v2 backfills ledger from GL. Endorse writes customer_ledger; void reverses it.
 - Invoice addToCart uses warehouse product list; fabric/quick-add use nested modal so invoice stays open.
 - SW v180. Do not commit `_deploy-demo-ui-v156`, `_deploy-mdi-v152`, `_diag-moein-ledger*`.
-- Iran overlay next (not git pull / not db.js).
+- Iran overlay v180 ✅ `e073c01` health/ready/root 200. SW `erp-taranom-v180`. VPS still dirty @ `8a5cd54` — no pull / no db.js.
 
 ## 2026-09-01T00:25:00+03:30 — Primary FF merge + complete Iran deploy v179
 
