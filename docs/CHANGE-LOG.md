@@ -13,6 +13,14 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۹ — بستن claim و شاخهٔ محلی `ai/UI-DOCS-STITCH`
+
+- **شاخه:** `chore/UI-DOCS-STITCH-close` از Primary `fd47e86`
+- **خلاصه:** Discovery فاز صفر از قبل نوشته شده بود ولی هرگز commit/push نشده بود (۰ کامیت اختصاصی). پیاده‌سازی Stitch روی شاخه‌های دیگر merge و deploy شده. تسک `UI-STITCH-P0-DISCOVERY` completed؛ `artifacts/` فقط محلی (gitignore)؛ شاخهٔ محلی حذف می‌شود.
+- **فایل‌ها:** `.ai-dos/tasks/active.yaml` `.ai-dos/tasks/handoff.md` `.ai-dos/project/status.md` `.gitignore`
+- **SW:** بدون تغییر
+- **Deploy:** ❌ بدون Iran — فقط registry و gitignore؛ کد محصول نیست
+
 ### ۱۴۰۵/۰۶/۰۹ — QA product gaps: RFQ / GRNI / 3-way / SOD / branch / order reserve
 
 - **شاخه:** `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` → FF به Primary

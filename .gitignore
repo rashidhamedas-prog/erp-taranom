@@ -15,6 +15,9 @@ _full-code-for-ai.txt
 _core-code-for-ai.txt
 _code-overview-for-ai.md
 
+# Local Stitch design dumps (HTML/PNG/ZIP). Not product code; stay on disk only.
+/artifacts/
+
 # Build / IDE / caches
 .tmp-build/
 .gradle-home/

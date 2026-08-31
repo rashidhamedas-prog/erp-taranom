@@ -1,5 +1,33 @@
 schema_version: 1
 tasks:
+  - id: "UI-STITCH-P0-DISCOVERY"
+    title: "Phase 0 Stitch discovery + STITCH-TO-CODE-MAP (no product code)"
+    status: "completed"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "low"
+    owner: "cursor:orchestrator"
+    roles:
+      orchestrator: "cursor:orchestrator"
+    branch: "ai/UI-DOCS-STITCH"
+    worktree: "D:/soft/Claud/porje/crm-taranom/erp-taranom1"
+    claimed_at: "2026-08-18T14:51:00+03:30"
+    completed_at: "2026-08-31T14:55:00+03:30"
+    file_claims: []
+    notes: >-
+      Phase 0 map written locally 2026-08-18; never committed on ai/UI-DOCS-STITCH
+      (0 unique commits, never pushed, 102 behind Primary). Implementation landed
+      on ai/UI-STITCH-IMPL and later stitch phases, merged+deployed. Owner closed
+      the leftover local claim 2026-08-31. Design dumps remain untracked under
+      /artifacts/ (gitignored). Local branch ai/UI-DOCS-STITCH deleted. No product
+      code, no Iran deploy.
+    acceptance_criteria:
+      - "MASTER-CURSOR-COMMAND.md Phase 0 items 1-10 complete"
+      - "STITCH-TO-CODE-MAP.md covers all requirement IDs and 30 frames"
+      - "No server/public or server/routes product code edited"
+      - "Owner stop-gate presented before implementation"
+      - "Stale local branch and claims released; Primary registry closed"
+
   - id: "QA-ERP-FULL-CYCLE-INTEGRATION"
     title: "Integrate admin-roles harness + product Highs; isolated qa:full; no Primary/deploy"
     status: "completed"

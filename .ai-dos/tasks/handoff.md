@@ -1,3 +1,11 @@
+## 2026-08-31T14:55:00+03:30 — UI-DOCS-STITCH / P0 claim closed
+
+- **Owner:** close leftover docs branch; nothing product-open on `ai/UI-DOCS-STITCH`.
+- **Facts:** local branch had 0 unique commits, never pushed, 102 behind Primary. P0 map + Stitch ZIPs lived only as untracked `artifacts/`.
+- **Done:** discarded stale local AI-DOS edits on the old tip; workspace now on `chore/UI-DOCS-STITCH-close` @ Primary `fd47e86`. `UI-STITCH-P0-DISCOVERY` → `completed`, `file_claims: []`. `/artifacts/` gitignored (files stay on disk). Local `ai/UI-DOCS-STITCH` deleted.
+- **Untouched:** `scripts/_deploy-demo-ui-v156-sftp.py`, `scripts/_deploy-mdi-v152-sftp.py`.
+- **No Iran deploy / no product code.**
+
 ## 2026-08-31T14:40:00+03:30 — QA product gaps closed + Iran v175
 
 - RFQ sales/purchase, PO, GR+GRNI (2112), GR invoice, three-way match, SOD maker-checker, branch ACL, order reservation.
