@@ -6,7 +6,7 @@ const { spawn } = require('child_process');
 const { pickFreePort, killProcessTree, sleep } = require('../../../server/scripts/lib/test-server-boot');
 const { QA_JWT } = require('./constants');
 
-async function startQaServer({ repoRoot, dbPath, companiesDir, jwtSecret, portHint }) {
+async function startQaServer({ repoRoot, dbPath, companiesDir, jwtSecret, portHint, backupDir }) {
   fs.mkdirSync(companiesDir, { recursive: true });
   const port = await pickFreePort(portHint || 0, { allowFallback: true });
   const env = {
@@ -36,6 +36,7 @@ async function startQaServer({ repoRoot, dbPath, companiesDir, jwtSecret, portHi
     MOADIAN_ENABLED: '0',
     SMS_API_KEY: '',
     SMS_DISABLED: '1',
+    BACKUP_DIR: backupDir || path.join(companiesDir, 'backups'),
   };
   Object.keys(env).forEach((k) => { if (env[k] == null || env[k] === '') delete env[k]; });
   const child = spawn(process.execPath, [path.join(repoRoot, 'server', 'server.js')], {

@@ -345,18 +345,27 @@ const backupUpload = multer({
 });
 app.post('/api/admin/backup-restore', auth, adminOnly, centralOnlyStrict, backupUpload.single('backup'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل پشتیبان الزامی است' });
+  const uploaded = req.file.path;
+  const orig = String(req.file.originalname || 'backup.zip');
+  const ext = /\.zip\.enc$/i.test(orig) ? '.zip.enc'
+    : /\.tar\.gz\.enc$/i.test(orig) ? '.tar.gz.enc'
+    : /\.tar\.gz$/i.test(orig) ? '.tar.gz'
+    : (path.extname(orig) || '.zip');
+  const named = uploaded + ext;
   try {
+    if (named !== uploaded) fs.renameSync(uploaded, named);
     const { verifyBackupPackage } = require('./backup');
-    const result = verifyBackupPackage(req.file.path);
-    audit(req.user.id, 'backup_verify', 'system_backup', null, req.file.originalname || 'uploaded backup', req);
-    try { fs.unlinkSync(req.file.path); } catch { /* */ }
+    const result = verifyBackupPackage(named);
+    audit(req.user.id, 'backup_verify', 'system_backup', null, orig, req);
+    try { fs.unlinkSync(named); } catch { /* */ }
     res.json({
       success: true,
       data: result,
       message: 'تأیید بسته پشتیبان موفق بود — بازیابی واقعی فقط با CLI آفلاین (restore-backup.js) پس از توقف سرویس',
     });
   } catch (e) {
-    try { fs.unlinkSync(req.file.path); } catch { /* */ }
+    try { fs.unlinkSync(named); } catch { /* */ }
+    try { fs.unlinkSync(uploaded); } catch { /* */ }
     res.status(400).json({ error: e.message || 'تأیید پشتیبان ناموفق' });
   }
 });

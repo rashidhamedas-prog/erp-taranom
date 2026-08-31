@@ -99,7 +99,11 @@ function inventoryRepo(repoRoot) {
   const gaps = {
     rfq: !/rfq/i.test(srcAll + routeFiles.map((f) => fs.readFileSync(f, 'utf8').slice(0, 200)).join('')),
     three_way_match: !/3[\s-]?way|three.?way/i.test(srcAll),
-    tracking_profile_roll: !/tracking_profile/.test(srcAll),
+    tracking_profile_roll: !(
+      fs.existsSync(path.join(repoRoot, 'server', 'lib', 'inventory', 'fabric-rolls.js'))
+      && /fabric-rolls/.test(fs.readFileSync(path.join(repoRoot, 'server', 'routes', 'inventory.js'), 'utf8'))
+      && /kind=['"]fabric['"]/.test(fs.readFileSync(path.join(repoRoot, 'server', 'lib', 'inventory', 'fabric-rolls.js'), 'utf8'))
+    ),
     coa_grni: !/coa_grni|GRNI/.test(fs.readFileSync(path.join(repoRoot, 'server', 'lib', 'coa-map.js'), 'utf8')),
     sod_maker_checker: !/segregation|maker.?checker|sod_/i.test(srcAll),
     branch_acl: !/branch_id/.test(fs.readFileSync(path.join(repoRoot, 'server', 'lib', 'rbac.js'), 'utf8')),

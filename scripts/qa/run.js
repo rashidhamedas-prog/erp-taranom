@@ -118,7 +118,10 @@ async function main() {
       rep.rec({ id: 'seed.module', suite: 'harness', status: 'SKIP', message: e.message });
     }
 
-    server = await startQaServer({ repoRoot, dbPath, companiesDir, jwtSecret: QA_JWT });
+    server = await startQaServer({
+      repoRoot, dbPath, companiesDir, jwtSecret: QA_JWT,
+      backupDir: path.join(tmpRoot, 'backups'),
+    });
     applyFailClosedEnv({
       nodeEnv: 'test', qaRunId: args.qaRunId, dbPath, companiesDir, baseUrl: server.baseUrl,
     });

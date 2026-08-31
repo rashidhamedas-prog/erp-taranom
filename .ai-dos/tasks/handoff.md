@@ -1,3 +1,12 @@
+## 2026-08-31T14:10:00+03:30 — Gaps coverage + backup verify; merge to Primary
+
+- **Task:** `QA-ERP-GAPS-NOT-IMPLEMENTED` + child `QA-ERP-GAPS-BACKUP-VERIFY-EXT`
+- **qa:full:** `qa-20260831T103426-14980` PASS 258 FAIL 0 ERROR 0 · 11 product gaps remain
+- **Closed coverage:** reservation API, fabric kind=fabric, backup verify (multer dest now keeps .zip)
+- **Still NOT_IMPLEMENTED:** RFQ, 3-way, GRNI, SOD, branch ACL, reservation-on-legacy-orders
+- **SW v174.** Owner asked merge to Primary. Iran overlay without db.js.
+- **erp-taranom1 / UI-STITCH:** untouched
+
 ## 2026-08-31T13:50:00+03:30 — QA-ERP-GAPS claimed; backup create/list/health covered
 
 - **Task:** `QA-ERP-GAPS-NOT-IMPLEMENTED` on `ai/QA-ERP-GAPS-NOT-IMPLEMENTED`

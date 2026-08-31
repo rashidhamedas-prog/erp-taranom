@@ -193,23 +193,55 @@ tasks:
     file_claims:
       - "scripts/qa/batches/admin.js"
       - "scripts/qa/inventory.js"
+      - "scripts/qa/lib/http.js"
+      - "scripts/qa/lib/server.js"
+      - "scripts/qa/run.js"
       - "docs/qa/FIRST-RUN.md"
       - "docs/CHANGE-LOG.md"
       - ".ai-dos/tasks/active.yaml"
       - ".ai-dos/tasks/handoff.md"
       - ".ai-dos/project/status.md"
     notes: >-
-      Do not mark these PASS. Evidence qa-20260825T115815-8164 (Integration).
-      Classification: RFQ/3-way/GRNI/SOD/branch = MISSING_PRODUCT_FEATURE;
-      tracking_profile + sales.reservation_on_order = MISSING_QA_COVERAGE
-      (fabric-roll + inventory reservations exist); backup.restore =
-      MISSING_QA_COVERAGE (admin backup APIs exist). Single-company branch
-      ACL also listed as product gap until owner marks non-goal.
+      Owner asked 2026-08-31: merge this branch to Primary, then continue
+      remaining gaps. Coverage closed: backup.verify, fabric kind=fabric,
+      reservation API. Product still missing: RFQ, 3-way, GRNI, SOD,
+      branch ACL, reservation-on-legacy-orders.
     acceptance_criteria:
       - "Each gap is either implemented with tests or remains an explicit NOT_IMPLEMENTED task"
+      - "Branch merged to origin/claude/claude-md-docs-2ssrpy after qa:full FAIL=0"
     non_goals:
       - "Fake PASS in the QA harness"
-      - "Iran deploy"
+      - "Implementing RFQ / 3-way match / GRNI / maker-checker / branch ACL in this child"
+
+  - id: "QA-ERP-GAPS-BACKUP-VERIFY-EXT"
+    title: "Preserve upload extension so POST /admin/backup-restore can verify zip"
+    status: "active"
+    review_status: "PENDING"
+    security_status: "NOT_REQUIRED"
+    risk: "medium"
+    owner: "cursor:orchestrator-qa-erp"
+    parent: "QA-ERP-GAPS-NOT-IMPLEMENTED"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-gaps"
+    branch: "ai/QA-ERP-GAPS-NOT-IMPLEMENTED"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-gaps"
+    claimed_at: "2026-08-31T14:00:00+03:30"
+    file_claims:
+      - "server/server.js"
+      - "server/public/app.js"
+      - "server/public/sw.js"
+      - "server/public/index.html"
+      - "scripts/_deploy-qa-erp-v174-iran.py"
+    notes: >-
+      /qa-fix: multer dest has no .zip suffix; verifyBackupPackage rejects
+      extensionless path. Rename uploaded file to original extension before verify.
+      Still verify-only; no live restore.
+    acceptance_criteria:
+      - "POST /admin/backup-restore of a backup-now zip returns 200 success"
+    non_goals:
+      - "Live DB restore mid-process"
+      - "RFQ / 3-way / GRNI / SOD / branch ACL"
 
   - id: "PROD-STITCH-P5B"
     title: "PROD-02/03 cutting lay wizard (spreading / size matrix / waste)"

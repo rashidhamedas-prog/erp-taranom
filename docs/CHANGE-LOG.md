@@ -13,6 +13,16 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۹ — QA gaps coverage + backup verify ext → Primary + Iran v174
+
+- **شاخه:** `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` سپس FF به `claude/claude-md-docs-2ssrpy`
+- **خلاصه:** پوشش QA برای reservation API، طاقه `kind=fabric`، و تأیید پشتیبان. `POST /admin/backup-restore` پسوند zip آپلود را نگه می‌دارد (قبلاً مسیر multer بدون `.zip` تأیید را می‌شکست). بازیابی زنده همچنان فقط CLI.
+- **qa:full:** `qa-20260831T103426-14980` PASS **258** FAIL 0 ERROR 0 · NOT_IMPLEMENTED **11** · JE/FK/stock 0
+- **شکاف‌های بسته‌شده (پوشش/فیکس کوچک):** `gap.tracking_profile_roll`، `fabric.tracking_profile`، `backup.restore` (verify)
+- **شکاف محصول باقی:** RFQ، 3-way، GRNI، SOD/maker-checker، branch ACL، reservation روی `POST /orders`
+- **SW:** `erp-taranom-v174`
+- **Deploy:** در حال overlay (بدون `db.js`)
+
 ### ۱۴۰۵/۰۶/۰۹ — QA gaps: backup create/list/health (no Primary/deploy)
 
 - **شاخه:** `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` از Primary `dbd86fc`

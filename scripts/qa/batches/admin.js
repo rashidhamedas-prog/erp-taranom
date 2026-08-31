@@ -350,7 +350,46 @@ async function runAdminBatch({ http, rec, gap, ctx }) {
   }
 
   gap('sales.rfq', 'sales', 'No RFQ route in server/routes');
-  gap('sales.reservation_on_order', 'sales', 'orders POST does not call inventory reservations (legacy order table)');
+
+  const avail0 = ctx.productId
+    ? await http.get('/inventory/available/' + ctx.productId + (fgWh ? ('?warehouse_id=' + fgWh) : ''), token)
+    : { status: 0, body: {} };
+  rec({
+    id: 'sales.reservation_available', suite: 'admin', module: 'sales',
+    status: okStatus(avail0) && typeof avail0.body?.available === 'number' ? 'PASS' : 'FAIL',
+    expected: 200, actual: avail0.status, message: String(avail0.body?.available ?? avail0.body?.error ?? ''),
+  });
+  const rsv = ctx.productId
+    ? await http.post('/inventory/reservations', {
+      kind: 'sales', product_id: ctx.productId, warehouse_id: fgWh || undefined,
+      qty: 1, source_type: 'qa', note: 'QA reservation',
+    }, token)
+    : { status: 0, body: {} };
+  rec({
+    id: 'sales.reservation_create', suite: 'admin', module: 'sales',
+    status: okStatus(rsv) && rsv.body?.id ? 'PASS' : 'FAIL',
+    expected: 200, actual: rsv.status, message: rsv.body?.error || rsv.body?.reservation_no || '',
+  });
+  ctx.reservationId = rsv.body?.id;
+  if (ctx.reservationId) {
+    const avail1 = await http.get('/inventory/available/' + ctx.productId + (fgWh ? ('?warehouse_id=' + fgWh) : ''), token);
+    const dropped = typeof avail0.body?.available === 'number'
+      && typeof avail1.body?.available === 'number'
+      && avail1.body.available <= avail0.body.available - 1 + 1e-9;
+    rec({
+      id: 'sales.reservation_reduces_atp', suite: 'admin', module: 'sales',
+      status: dropped ? 'PASS' : 'FAIL',
+      expected: 'available -= 1', actual: String(avail1.body?.available),
+      message: 'before=' + avail0.body?.available + ' after=' + avail1.body?.available,
+    });
+    const rel = await http.post('/inventory/reservations/' + ctx.reservationId + '/release', {}, token);
+    rec({
+      id: 'sales.reservation_release', suite: 'admin', module: 'sales',
+      status: okStatus(rel) ? 'PASS' : 'FAIL',
+      expected: 200, actual: rel.status, message: rel.body?.error || rel.body?.status || '',
+    });
+  }
+  gap('sales.reservation_on_order', 'sales', 'legacy POST /orders still does not call createReservation');
 
   // --- purchase ---
   gap('purchase.rfq', 'purchase', 'No RFQ/3-way-match named routes');
@@ -406,7 +445,20 @@ async function runAdminBatch({ http, rec, gap, ctx }) {
     expected: 'same roll or 409', actual: roll2.status,
     message: roll2.body?.error || '',
   });
-  gap('fabric.tracking_profile', 'fabric', 'products.tracking_profile=roll not present; rolls live on inventory_batches.kind');
+  const rollsList = ctx.fabricId
+    ? await http.get('/inventory/fabric-rolls?product_id=' + ctx.fabricId, token)
+    : { status: 0, body: {} };
+  const fabricRows = rollsList.body?.rows || rollsList.body || [];
+  const fabricHit = Array.isArray(fabricRows) && fabricRows.some((r) => (
+    r && (r.id === ctx.rollId || r.batch_no === 'QA-R-1001' || r.kind === 'fabric')
+  ));
+  rec({
+    id: 'fabric.tracking_profile', suite: 'admin', module: 'fabric',
+    status: okStatus(rollsList) && fabricHit ? 'PASS' : 'FAIL',
+    expected: 'kind=fabric on inventory_batches via /inventory/fabric-rolls',
+    actual: rollsList.status,
+    message: fabricHit ? 'roll listed with fabric kind' : (rollsList.body?.error || 'roll not listed'),
+  });
 
   // --- warehouse ---
   const xfer = await http.post('/warehouses/moves/transfer', {
@@ -608,7 +660,31 @@ async function runAdminBatch({ http, rec, gap, ctx }) {
     status: okStatus(bakList) ? 'PASS' : 'FAIL',
     expected: 200, actual: bakList.status, message: bakList.body?.error || '',
   });
-  gap('backup.restore', 'backup', 'POST /admin/backup-restore is destructive mid-run; not invoked. create/list/health are exercised.');
+  const bakItems = Array.isArray(bakList.body) ? bakList.body
+    : (bakList.body?.rows || bakList.body?.items || []);
+  const bakName = bakNow.body?.file || bakNow.body?.name || bakItems[0]?.name;
+  if (bakName && typeof http.getBuffer === 'function' && typeof http.postMultipart === 'function') {
+    const dl = await http.getBuffer('/admin/backup-download/' + encodeURIComponent(bakName), token);
+    const looksZip = dl.status === 200 && dl.buffer && dl.buffer.length > 32;
+    rec({
+      id: 'backup.download', suite: 'admin', module: 'backup',
+      status: looksZip ? 'PASS' : 'FAIL',
+      expected: 200, actual: dl.status, message: looksZip ? ('bytes=' + dl.buffer.length) : 'empty download',
+    });
+    const verify = looksZip
+      ? await http.postMultipart('/admin/backup-restore', token, 'backup', bakName, dl.buffer,
+        bakName.endsWith('.enc') ? 'application/octet-stream' : 'application/zip')
+      : { status: 0, body: {} };
+    rec({
+      id: 'backup.restore', suite: 'admin', module: 'backup',
+      status: okStatus(verify) && verify.body?.success ? 'PASS' : 'FAIL',
+      expected: '200 verify-only (no live DB swap)',
+      actual: verify.status,
+      message: verify.body?.message || verify.body?.error || '',
+    });
+  } else {
+    gap('backup.restore', 'backup', 'backup file name missing after create/list; verify not invoked');
+  }
 
   const noParty = await http.post('/invoices', {
     type: 'final', date: QA_DATE, rows: [{ product_id: ctx.productId, qty: 1, price: 1 }],
