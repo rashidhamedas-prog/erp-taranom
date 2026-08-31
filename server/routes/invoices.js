@@ -1,6 +1,6 @@
 const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const router = require('express').Router();
-const { getDB, audit, createLedgerEntry, allocateNumber, isDevice, resolveCashAccount } = require('../db');
+const { getDB, audit, allocateNumber, isDevice } = require('../db');
 const { acct, coaMode } = require('../lib/coa-map');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
@@ -18,16 +18,9 @@ const {
   postSaleStockMovements, postCogsFromMovements, perpetualDocsEnabled,
   autoApproveNormalInvoice,
 } = require('../lib/sales-document');
-
-// دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
-function receivableAcct(db, custId) {
-  const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId);
-  if (c && c.coa_code) {
-    const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(c.coa_code);
-    if (a) return a;
-  }
-  return acct(db, 'coa_receivable');
-}
+const {
+  salesJournalLines, postInvoiceCustomerLedger,
+} = require('../lib/customer-books');
 
 // سند بهای تمام‌شده: Dr بهای تمام‌شده / Cr موجودی هر کالا (با feature_cogs_voucher).
 function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
@@ -62,57 +55,6 @@ function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
 const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 const notif = require('../lib/notifications');
-
-function salesJournalLines(db, custId, totals, reverse, opts = {}) {
-  const payType = opts.payType || 'credit';
-  const bankId = opts.bankId || null;
-  const cashBoxId = opts.cashBoxId || null;
-  const recv = payType === 'credit'
-    ? receivableAcct(db, custId)
-    : resolveCashAccount(db, payType === 'bank_transfer' ? 'bank' : payType, bankId, cashBoxId);
-  const sales = acct(db, 'coa_sales');
-  const salesDisc = acct(db, 'coa_sales_discount');
-  const vatPay = acct(db, 'coa_vat_payable');
-  const otherIncome = (() => { try { return acct(db, 'coa_other_income'); } catch { return sales; } })();
-  const { discAmt, final, vatAmount, netBeforeVat } = totals;
-  const L = rialToLedger;
-
-  // Split product vs income row credits (Update 11 / I4)
-  let incomeCredit = 0;
-  const incomeBuckets = new Map();
-  for (const r of opts.rows || []) {
-    if (r.row_type === 'income') {
-      const code = r.income_coa || otherIncome.code;
-      const name = r.name || otherIncome.name;
-      const amt = Math.round(Number(r.sum) || 0);
-      incomeCredit += amt;
-      const prev = incomeBuckets.get(code) || { code, name, amt: 0 };
-      prev.amt += amt;
-      incomeBuckets.set(code, prev);
-    }
-  }
-  const productCredit = Math.max(0, Math.round(Number(netBeforeVat) || 0) - incomeCredit);
-
-  if (!reverse) {
-    const jLines = [{ code: recv.code, name: recv.name, debit: L(final), credit: 0 }];
-    if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: L(discAmt), credit: 0, description: 'تخفیف فاکتور' });
-    if (productCredit > 0) jLines.push({ code: sales.code, name: sales.name, debit: 0, credit: L(productCredit) });
-    for (const b of incomeBuckets.values()) {
-      if (b.amt > 0) jLines.push({ code: b.code, name: b.name, debit: 0, credit: L(b.amt), description: 'درآمد/خدمات' });
-    }
-    if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: 0, credit: L(vatAmount), description: 'مالیات بر ارزش افزوده' });
-    return jLines;
-  }
-  const jLines = [];
-  if (productCredit > 0) jLines.push({ code: sales.code, name: sales.name, debit: L(productCredit), credit: 0, description: 'ابطال' });
-  for (const b of incomeBuckets.values()) {
-    if (b.amt > 0) jLines.push({ code: b.code, name: b.name, debit: L(b.amt), credit: 0, description: 'ابطال درآمد' });
-  }
-  if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: L(vatAmount), credit: 0, description: 'ابطال VAT' });
-  if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: 0, credit: L(discAmt), description: 'ابطال تخفیف' });
-  jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: L(final) });
-  return jLines;
-}
 
 function getScope(req) {
   // Accounting staff see all invoices (read scope) — needed for the Sales
@@ -484,14 +426,10 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
         db.prepare('UPDATE invoices SET stock_deducted=1 WHERE id=?').run(invId);
 
         db.prepare("UPDATE customers SET status='active' WHERE id=?").run(cust_id);
-        if (pType === 'credit') {
-          createLedgerEntry(db, {
-            customer_id: cust_id, date: entryDate, entry_type: 'invoice',
-            ref_type: 'invoice', ref_id: invId,
-            description: `${invoiceTypeLabel(invType)} ${num}`,
-            debit: final, credit: 0, user_id: req.user.id
-          });
-        }
+        postInvoiceCustomerLedger(db, {
+          customerId: cust_id, date: entryDate, invId, num, invType,
+          final, userId: req.user.id, payType: pType,
+        });
         assertJournalIdempotent(db, 'invoice', invId);
         postToLedger(db, {
           sourceType: 'invoice', sourceId: invId, date: entryDate,
@@ -732,14 +670,11 @@ router.post('/:id/convert', auth, (req, res) => {
           Math.round(totals.final), Math.round(totals.vatAmount), convertWhId, JSON.stringify(rows), inv.id);
       db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
 
-      if ((inv.pay_type || 'cash') === 'credit') {
-        createLedgerEntry(db, {
-          customer_id: inv.cust_id, date: inv.date || '', entry_type: 'invoice',
-          ref_type: 'invoice', ref_id: inv.id,
-          description: `تبدیل پیش‌فاکتور ${inv.num} به ${invoiceTypeLabel(targetType)}`,
-          debit: totals.final, credit: 0, user_id: req.user.id
-        });
-      }
+      postInvoiceCustomerLedger(db, {
+        customerId: inv.cust_id, date: inv.date || '', invId: inv.id, num: inv.num,
+        invType: targetType, final: totals.final, userId: req.user.id,
+        payType: inv.pay_type || 'cash',
+      });
       assertJournalIdempotent(db, 'invoice', inv.id);
       postToLedger(db, {
         sourceType: 'invoice', sourceId: inv.id, date: inv.date || '',

@@ -43,7 +43,17 @@ function postPartyOpeningBalance(db, {
   const party = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
   if (!party) throw new Error('شخص برای سند افتتاحیه یافت نشد');
 
-  const control = controlAccountForParty(db, party);
+  let control = controlAccountForParty(db, party);
+  if (party.legacy_table === 'customers' && party.legacy_id) {
+    const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(party.legacy_id);
+    if (c?.coa_code) {
+      const tafsili = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(c.coa_code);
+      if (tafsili) control = tafsili;
+    }
+  } else if (party.coa_code) {
+    const tafsili = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(party.coa_code);
+    if (tafsili) control = tafsili;
+  }
   const opening = acct(db, 'coa_opening_balance');
   const absToman = rialToLedger(Math.abs(amt));
   const lines = amt > 0

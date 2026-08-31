@@ -92,11 +92,16 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+const {
+  attachMissingInvoiceRows, glCustomersTafsiliBalance, ensureCustomerBooksRepaired,
+} = require('../lib/customer-books');
+
 const ENTRY_LABEL = {
   invoice: 'فاکتور فروش',
   settlement: 'دریافت وجه',
   reversal: 'ابطال/اصلاح',
-  opening: 'مانده اول دوره'
+  opening: 'مانده اول دوره',
+  invoice_payment: 'دریافت هنگام فاکتور',
 };
 
 /** Jalali date for parameterized SQL only — never interpolate into the query string. */
@@ -196,6 +201,7 @@ function glCustomerCoaSummary(db, customerId, { from, to } = {}) {
 // Running balance is always computed from the very first entry; date/type filters only
 // affect which rows are *returned*, so the opening balance reflects everything before `from`.
 function buildStatement(db, customerId, { from, to, type } = {}) {
+  ensureCustomerBooksRepaired(db);
   const customer = db.prepare(
     'SELECT c.id,c.biz,c.owner,c.city,c.phone,c.balance,u.name as salesperson FROM customers c LEFT JOIN users u ON c.user_id=u.id WHERE c.id=?'
   ).get(customerId);
@@ -207,14 +213,15 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
     ORDER BY cl.created_at ASC, cl.id ASC
   `).all(customerId);
 
-  let running = 0;
   const tagged = [];
-  for (const e of all) {
+  for (const e of all) tagged.push(e);
+  attachMissingInvoiceRows(db, customerId, tagged);
+  let running = 0;
+  for (const e of tagged) {
     running += (e.debit || 0) - (e.credit || 0);
     e.running_balance = running;
-    e.type_label = ENTRY_LABEL[e.entry_type] || e.entry_type || '-';
+    e.type_label = ENTRY_LABEL[e.entry_type] || ENTRY_LABEL[e.ref_type] || e.entry_type || '-';
     e.reference = (e.ref_type ? e.ref_type + '-' : '') + (e.ref_id || '');
-    tagged.push(e);
   }
   let opening = 0;
   if (from) {
@@ -254,6 +261,7 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
 // Overview stats for accounting dashboard
 router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  ensureCustomerBooksRepaired(db);
   const totalInvoiced = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0`).get().s;
   const totalSettled = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE COALESCE(status,'posted')<>'reversed'").get().s;
   const pendingApproval = db.prepare("SELECT COUNT(*) c FROM invoices WHERE type='final' AND approved=0 AND COALESCE(deleted_at,0)=0").get().c;
@@ -284,10 +292,9 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
   const asOf = safeJalaliDate(req.query.asOf) || safeJalaliDate(req.query.to);
   const payableCode = coaAcct(db, 'coa_payable').code;
   const totalPayable = glPrefixBalanceRial(db, payableCode, { asOf, debitNormal: false }).display;
-  const receivableCode = coaAcct(db, 'coa_receivable').code;
-  const recvGl = glPrefixBalanceRial(db, receivableCode, { asOf, debitNormal: true });
+  const recvGl = glCustomersTafsiliBalance(db, { asOf });
   const totalReceivable = recvGl.display;
-  const creditorBalance = Math.max(0, -Number(recvGl.signed) || 0);
+  const creditorBalance = recvGl.creditor;
   const outstanding = totalReceivable;
 
   // Old supplier_ledger path — totalPayableLedger for reconciliation only.
@@ -342,6 +349,7 @@ router.get('/overview', auth, adminOrAccounting, (req, res) => {
 // customer_ledger remains a labeled second view (ledger_outstanding / books_mismatch).
 router.get('/receivables', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  ensureCustomerBooksRepaired(db);
   const { from, to } = req.query;
   const sf = safeJalaliDate(from), st = safeJalaliDate(to);
   const invTo = st ? ` AND i.date <= '${st}'` : '';

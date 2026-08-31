@@ -13,6 +13,15 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۹ — فاکتور نقدی در صورت‌حساب + رفع هشدار دفتر/کل (SW v177)
+
+- **شاخه:** `fix/LEDGER-STATEMENT-AR`
+- **ریشه:** فاکتور قطعی فقط وقتی `pay_type=credit` بود به دفتر مشتری و تفصیلی می‌رفت. فاکتور نقدی/بانک/چک (مثل T-0003 معین مهدیزاده) فقط به صندوق می‌خورد؛ صورت‌حساب خالی می‌ماند و تسویه جداگانه مشتری را به‌اشتباه بستانکار می‌کرد. KPI مطالبات از `1103%` حساب کنترل می‌خواند و افتتاحیهٔ اشخاص روی کل ۱۱۰۳ (~۴۰ میلیارد) کارت داشبورد را از دفتر مشتری جدا می‌کرد.
+- **اصلاح:** فاکتور قطعی همیشه Dr تفصیلی مشتری + ردیف دفتر؛ نقدی جفت Dr صندوق / Cr AR (+ ردیف دریافت مگر تسویهٔ جدا روی همان فاکتور). تعمیر یک‌باره `customer_books_repair_v1` (افتتاحیه از ۱۱۰۳ به تفصیلی، بازسازی دفتر/سند، `invoice_ar_reclass` برای نقدی قدیمی، افتتاحیهٔ دفتر بدون سند). KPI = جمع تفصیلی مشتریان. صورت‌حساب فاکتور قطعیِ بدون ردیف را هم نشان می‌دهد.
+- **فایل‌ها:** `server/lib/customer-books.js`، `server/routes/invoices.js`، `server/lib/void-invoice.js`، `server/routes/accounting.js`، `server/lib/opening-post.js`، `server/public/{app.js,sw.js,index.html}`، `server/scripts/test-ledger-statement-repair.js`
+- **تست:** `test-ledger-statement-repair.js` ۱۴/۱۴ · `test-acc-stitch-p2.js` ۷۹ · `test-sms.js` ۲۲/۲۲ · `test-sync.js` ۴۴/۴۴
+- **Deploy:** ⏳ ایران overlay v177 — بدون تعویض کامل `db.js`؛ تعمیر با اولین overview/statement
+
 ### ۱۴۰۵/۰۶/۰۹ — Git hygiene: merge leftover PACK + tidy Primary
 
 - **شاخه:** `ai/PROD-STITCH-PACK-MERGE` از Primary `12b0385` (cherry-pick `aa2367b` + `cb10268`)

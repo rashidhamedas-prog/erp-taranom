@@ -1,3 +1,12 @@
+## 2026-08-31T18:50:00+03:30 — Customer statement / red ledger warnings
+
+- **Branch:** `fix/LEDGER-STATEMENT-AR` (workspace `erp-taranom1`)
+- **Root:** firm cash invoices skipped `customer_ledger` + customer tafsili; dashboard AR used `1103%` (party openings on control). Moein Mehdizadeh T-0003 cash + settlement-3 looked like 100M creditor; T-0004 unapproved stayed off the book until attach/repair.
+- **Fix:** `server/lib/customer-books.js` — always post AR; repair v1; KPI = customer tafsili sum. Help + SW v177.
+- **Tests:** statement-repair 14, stitch-p2 79, sms 22, sync 44.
+- **Do not commit:** dirty `scripts/_deploy-demo-ui-v156-sftp.py`, `_deploy-mdi-v152-sftp.py`, `_diag-moein-ledger*.py`.
+- **Iran:** overlay without wholesale `db.js`.
+
 ## 2026-08-31T15:20:00+03:30 — Git hygiene + leftover PACK merge
 
 - Audited all worktrees. Only real unmerged product: `ai/PROD-STITCH-PACK` (`aa2367b`+`cb10268`).
