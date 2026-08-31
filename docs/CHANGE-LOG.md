@@ -20,7 +20,7 @@
 - **اصلاح:** همان ماندهٔ تفصیلی صورت‌حساب روی `GET /customers`، `/balances`، اکسل، `/admin/customer-balances`، داشبورد و سنی ویزیتور. تعمیر با باز شدن لیست مشتریان هم اجرا می‌شود. جمع نهایی = تفاضل بدهکاران و بستانکاران؛ ماهیت سمت بزرگ‌تر.
 - **فایل‌ها:** `server/lib/customer-books.js`، `server/routes/{customers,admin,dashboard}.js`، `server/lib/rep-ledger.js`، `server/public/{app.js,tbl-enhance.js,sw.js,index.html}`
 - **تست:** `test-ledger-statement-repair.js` ۲۰/۲۰
-- **Deploy:** ⏳ ایران overlay v178 — بدون تعویض `db.js`
+- **Deploy:** ✅ ایران overlay v178 @ `c4adf5e` — health/ready/root 200؛ SW `erp-taranom-v178`؛ `db.js` عوض نشد
 
 ### ۱۴۰۵/۰۶/۰۹ — فاکتور نقدی در صورت‌حساب + رفع هشدار دفتر/کل (SW v177)
 
