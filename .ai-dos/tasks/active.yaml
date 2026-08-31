@@ -2,7 +2,8 @@ schema_version: 1
 tasks:
   - id: "PROD-STITCH-P5C"
     title: "PACK / FG receipt from cutting lay + git hygiene merge to Primary"
-    status: "active"
+    status: "completed"
+    completed_at: "2026-08-31T15:20:00+03:30"
     review_status: "PENDING"
     security_status: "NOT_REQUIRED"
     risk: "high"
@@ -13,7 +14,8 @@ tasks:
     branch: "ai/PROD-STITCH-PACK-MERGE"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-pack-merge"
     claimed_at: "2026-08-31T15:10:00+03:30"
-    file_claims:
+    file_claims: []
+    released_claims:
       - "server/lib/production/cutting.js"
       - "server/lib/production/schema.js"
       - "server/routes/production-cutting.js"
@@ -30,7 +32,8 @@ tasks:
       - ".ai-dos/project/status.md"
     notes: >-
       Owner asked 2026-08-31 to finish leftover commit/merge/deploy.
-      Cherry-pick aa2367b+cb10268 onto 12b0385. SW v176.
+      Cherry-pick onto 12b0385. Primary FF fbf157e. Iran v176 health 200.
+      PACK 48/48 SMS 22/22 sync 44/44.
     acceptance_criteria:
       - "node server/scripts/test-prod-stitch-pack.js"
       - "FF or merge to origin/claude/claude-md-docs-2ssrpy"

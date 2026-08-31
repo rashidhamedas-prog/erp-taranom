@@ -18,7 +18,7 @@
 - **شاخه:** `ai/PROD-STITCH-PACK-MERGE` از Primary `12b0385` (cherry-pick `aa2367b` + `cb10268`)
 - **خلاصه:** تنها کار محصولیِ نامرج: رسید برش / PACK از لایه‌چینی + قفل طاقه بریده‌شده. SW `erp-taranom-v176`. `sync_seq_backfill_v13`.
 - **عمداً مرج نشد:** wave0-pack docs، stampهای قدیمی ACC-CRM. dirtyهای `app.js` در worktreeهای کهنه کامیت نشد.
-- **Deploy:** در حال overlay ایران (بدون `git pull` / بدون جایگزینی کامل `db.js`)
+- **Deploy:** ✅ ایران overlay v176 @ `fbf157e` — health/ready/root 200؛ SW `erp-taranom-v176`؛ `schema.js` overlay؛ `db.js` کامل عوض نشد (هوک v13 روی VPS pattern-missing — جدول‌های جدید از schema)
 
 ### ۱۴۰۵/۰۶/۰۹ — بستن claim و شاخهٔ محلی `ai/UI-DOCS-STITCH`
 

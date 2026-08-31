@@ -2,9 +2,10 @@
 
 - Last verified: 2026-08-31
 - **Primary tip (this merge):** `ai/PROD-STITCH-PACK-MERGE` onto `12b0385` — SW **v176**
-- **Iran:** overlay v176 planned; never wholesale-replace VPS `db.js`; no `git pull` on dirty tree
+- **Iran:** overlay v176 ✅ health/ready/root 200; SW v176; `db.js` not wholesale-replaced
 - **qa:full (QA gaps):** `qa-20260831T105600-14704` PASS 268 FAIL 0 ERROR 0 · NOT_IMPLEMENTED 0
-- **Active task:** `PROD-STITCH-P5C` — leftover PACK cherry-picked
+- **PACK gates:** 48/48 · SMS 22/22 · sync 44/44 · diag mismatches=[]
+- **Active task:** none — `PROD-STITCH-P5C` completed
 - **Closed:** `QA-ERP-GAPS-NOT-IMPLEMENTED` · `QA-ERP-FULL-CYCLE-INTEGRATION` · `UI-STITCH-P0-DISCOVERY` (0 unique commits, claims released)
 - **Not merged (docs-only / stale stamps):** `codex/wave0-execution-pack`, ACC-CRM stamp `80a5aae`
 - Prior: `PROD-STITCH-P5B` completed
