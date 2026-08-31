@@ -1,3 +1,13 @@
+## 2026-08-31T23:55:00+03:30 — OPS pack v179 (cash-flow / cheque / warehouse / nav / fabric)
+
+- Cash-flow: isolated builder, never 500 on null/empty `account_code`; all cash/bank codes.
+- Cheque واگذاری requires collection bank; status واگذارشده; endorse writes supplier_ledger + FK remap cols.
+- Invoice header warehouse copies to new/changed lines; fabric rolls as invoice rows (sale consume / purchase identity, no second JE).
+- Acc nav operations: only «فاکتورهای فروش».
+- Fabric amount = meters × unit; PATCH edit while unused.
+- SW v179. Do not commit dirty `_deploy-demo-ui-v156`, `_deploy-mdi-v152`, `_diag-moein-ledger*`.
+- Iran overlay next.
+
 ## 2026-08-31T19:20:00+03:30 — CRM customer list uses same GL net as statement
 
 - CRM list / dashboard balances still showed Moein 99,999,000 creditor (raw customer_ledger; repair only on accounting).

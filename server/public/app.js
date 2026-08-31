@@ -3840,6 +3840,7 @@ async function _openInvBuilder(id){
           </div>
           <div data-csp-style="${CSP.style(`display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap`)}">
             <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){invCart.push({row_type:'income',product_id:null,name:'درآمد/خدمات',qty:1,price:0,disc:0,disc_amount:0,description:'',income_coa:''});renderCart()})}">➕ ردیف درآمد</button>
+            <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){invoiceFabricRollPicker('sale')})}">🧵 افزودن طاقه</button>
           </div>
           <div class="inv-lines-wrap" id="cartRows"></div>
           <div class="cart-tot" id="cartTot"></div>
@@ -3854,7 +3855,11 @@ async function _openInvBuilder(id){
   const whSel = el('inv-warehouse');
   if (whSel && !whSel.dataset.whBound) {
     whSel.dataset.whBound = '1';
-    whSel.addEventListener('change', () => { reloadInvProductsForWarehouse(); });
+    whSel.addEventListener('change', () => {
+      applyHeaderWarehouseToCart(invCart, headerInvoiceWarehouseId());
+      renderCart();
+      reloadInvProductsForWarehouse();
+    });
   }
   if (+(whSel?.value || 0)) reloadInvProductsForWarehouse();
   _bcWedgeHandler = scanBarcodeToCart;
@@ -3940,11 +3945,27 @@ async function saveInvProdQuick(){
     addToCart(p.id); closeModal(); showToast('کالا ساخته و به سبد اضافه شد');
   }catch(e){}
 }
+function headerInvoiceWarehouseId(){
+  return +el('inv-warehouse')?.value || ME?.sales_warehouse_id || null;
+}
+function headerPurchaseWarehouseId(){
+  return +el('po-warehouse')?.value || null;
+}
+function applyHeaderWarehouseToCart(cart, headerId){
+  const wh = +headerId || null;
+  if(!wh || !cart) return;
+  cart.forEach(r=>{
+    if(r.row_type==='income') return;
+    r.warehouse_id = wh;
+  });
+}
 function addToCart(pid){
   const p = CACHE.products.find(x=>x.id===pid); if(!p) return;
-  const ex = invCart.find(r=>r.product_id===pid);
+  const ex = invCart.find(r=>r.product_id===pid && !r.batch_id);
   const defaultQty = p.pack_size > 1 ? p.pack_size : 1;
-  if(ex) ex.qty += defaultQty; else invCart.push({product_id:pid,name:p.name,qty:defaultQty,price:p.price,disc:0});
+  const wh = headerInvoiceWarehouseId();
+  if(ex) ex.qty += defaultQty;
+  else invCart.push({product_id:pid,name:p.name,qty:defaultQty,price:p.price,disc:0,warehouse_id:wh});
   renderCart();
   renderInvPicker(); // stock badges must reflect the newly reserved quantity immediately
 }
@@ -4033,7 +4054,7 @@ function renderCart(){
       const lineSum=Math.max(0,gross-lineDiscAmt);
       return `
       <tr>
-        <td class="cn">${isIncome?'💰 ':''}${esc(r.name)}</td>
+        <td class="cn">${isIncome?'💰 ':''}${esc(r.name)}${r.batch_id||r.is_fabric_roll?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طاقه ${esc(r.roll_no||('#'+(r.batch_id||'')))} ${esc(r.color||'')}</div>`:''}</td>
         <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[(i)].qty);if(canAccounting())invSyncLineDisc(invCart,(i),'pct');renderCart();renderInvPicker()})}"></td>
         <td class="col-price"><input type="number" value="${r.price}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].price=+this.value||0;if(canAccounting())invSyncLineDisc(invCart,(i),'pct');renderCart()})}"></td>
         ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].disc=+this.value||0;invSyncLineDisc(invCart,(i),'pct');renderCart()})}"></td>
@@ -4098,9 +4119,12 @@ async function saveInvoice(id){
     rows: invCart.map(r=>({
       product_id:r.product_id, qty:r.qty, price:r.price, disc:r.disc||0,
       disc_amount:r.disc_amount||0, description:r.description||'',
-      warehouse_id:(typeof isRepRole==='function'&&isRepRole(ME?.role))?(ME?.sales_warehouse_id||null):(r.warehouse_id||null),
+      warehouse_id:(typeof isRepRole==='function'&&isRepRole(ME?.role))?(ME?.sales_warehouse_id||null):(r.warehouse_id||headerInvoiceWarehouseId()||null),
       row_type:r.row_type||'product',
-      income_coa:r.income_coa||'', name:r.name||''
+      income_coa:r.income_coa||'', name:r.name||'',
+      batch_id:r.batch_id||null, is_fabric_roll:r.is_fabric_roll?1:0,
+      color:r.color||'', pattern:r.pattern||'', width_cm:r.width_cm||0,
+      roll_no:r.roll_no||'', unit_cost_rial:r.unit_cost_rial||0
     }))
   };
   try{
@@ -6500,11 +6524,11 @@ let genCartDiscInputId = null; // set per-modal; null = no overall discount
 let GEN_CART_PRICE_FIELD = 'price'; // 'price' for sales-return, 'cost' for purchases
 function genCartAdd(pid){
   const p = (CACHE.allProducts||CACHE.products||[]).find(x=>x.id===pid) || CACHE.products.find(x=>x.id===pid); if(!p) return;
-  const ex = genCart.find(r=>r.product_id===pid);
+  const ex = genCart.find(r=>r.product_id===pid && !r.batch_id && !r.is_fabric_roll);
   const defPrice = GEN_CART_PRICE_FIELD==='cost' ? (p.cost||0) : (p.price||0);
   const defaultQty = p.pack_size > 1 ? p.pack_size : 1;
   if(ex) ex.qty += defaultQty;
-  else genCart.push({product_id:pid,name:p.name,qty:defaultQty,price:defPrice,disc:0,disc_amount:0,description:'',warehouse_id:null});
+  else genCart.push({product_id:pid,name:p.name,qty:defaultQty,price:defPrice,disc:0,disc_amount:0,description:'',warehouse_id:headerPurchaseWarehouseId()});
   renderGenCart();
 }
 function renderGenCart(){
@@ -6530,7 +6554,7 @@ function renderGenCart(){
       const lineSum=Math.max(0,gross-lineDiscAmt);
       return `
       <tr>
-        <td class="cn">${esc(r.name)}</td>
+        <td class="cn">${esc(r.name)}${r.is_fabric_roll||r.color?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طاقه ${esc(r.roll_no||'جدید')} ${esc(r.color||'')}</div>`:''}</td>
         <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(genCart[(i)].qty);if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
         <td class="col-price"><input type="number" value="${r.price}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].price=+this.value||0;if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
         ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].disc=+this.value||0;invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
@@ -7532,11 +7556,17 @@ async function renderFabricRollsTab(body){
       <th>طاقه</th><th>کالا</th><th>رنگ</th><th>طرح</th><th>عرض</th><th>متر</th><th>بها</th><th></th>
     </tr></thead><tbody>
     ${(rolls.rows||[]).map(b=>{
-      const act=b.status==='reversed'?'ابطال‌شده':('<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidFabricRollRow(b.id)})+'">ابطال</button>');
+      const meters=Number(b.qty_received!=null?b.qty_received:b.qty_on_hand)||0;
+      const total=b.amount_rial!=null?Math.round(Number(b.amount_rial)||0):Math.round((Number(b.unit_cost_rial)||0)*meters);
+      const unused=b.status!=='reversed' && Math.abs((Number(b.qty_on_hand)||0)-meters)<1e-6;
+      const act=b.status==='reversed'?'ابطال‌شده':(
+        (unused?'<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){fabricRollEditModal(b)})+'">ویرایش</button> ':'')
+        +'<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidFabricRollRow(b.id)})+'">ابطال</button>'
+      );
       return '<tr><td class="mono">'+esc(b.batch_no)+'</td><td>'+esc(b.product_name||('#'+b.product_id))+'</td>'
         +'<td>'+esc(b.color||'')+'</td><td>'+esc(b.pattern||'')+'</td>'
         +'<td class="num">'+esc(b.width_cm||0)+'</td><td class="num">'+fmt(b.qty_on_hand||0)+'</td>'
-        +'<td class="num">'+fmt(b.unit_cost_rial||0)+'</td><td>'+act+'</td></tr>';
+        +'<td class="num" data-col-kind="money">'+fmt(total)+'</td><td>'+act+'</td></tr>';
     }).join('')||'<tr><td colspan="8" class="empty">طاقه‌ای ثبت نشده</td></tr>'}
     </tbody></table></div></div>`;
   window._fabricRawWh=rawWh; window._fabricSups=sups;
@@ -7558,11 +7588,113 @@ function fabricRollModal(){
       <div class="fg"><label>رنگ</label><input id="fr-color"></div>
       <div class="fg"><label>طرح</label><input id="fr-pat"></div>
       <div class="fg"><label>عرض (سم)</label><input id="fr-w" type="number" min="0" value="150"></div>
-      <div class="fg"><label>متر</label><input id="fr-m" type="number" min="0" step="0.01"></div>
-      <div class="fg"><label>بها هر متر (ریال)</label><input id="fr-cost" type="number" min="0" value="0"></div>
+      <div class="fg"><label>متر</label><input id="fr-m" type="number" min="0" step="0.01" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
+      <div class="fg"><label>بها هر متر (ریال)</label><input id="fr-cost" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
       <div class="fg"><label>تأمین‌کننده</label><select id="fr-sup"><option value="">—</option>${sups.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>
+      <div class="fg full muted" id="fr-cost-hint" data-csp-style="${CSP.style(`font-size:12px`)}">بها طاقه = متر × فی هر متر. اگر فی خالی باشد از بهای کالا محاسبه می‌شود.</div>
+      <div class="fg full"><b>جمع بها: <span class="mono" id="fr-total">0</span> ریال</b></div>
     </div>
     <div data-csp-style="${CSP.style(`margin-top:12px;text-align:left`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){fabricRollSave()})}">ثبت</button></div>`);
+  const prodSel=el('fr-prod'); if(prodSel) prodSel.addEventListener('change',fabricRollLiveTotal);
+  fabricRollLiveTotal();
+}
+function fabricRollCostFromForm(){
+  const raw=toEnDigits(String(el('fr-cost')?.value||'')).replace(/[^\d]/g,'');
+  return parseInt(raw,10)||0;
+}
+function fabricRollLiveTotal(){
+  const m=Number(el('fr-m')?.value)||0;
+  const u=fabricRollCostFromForm();
+  const box=el('fr-total');
+  if(box) box.textContent=fmt(Math.round(m*u));
+  if(!u){
+    const pid=+el('fr-prod')?.value;
+    const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===pid);
+    const hint=el('fr-cost-hint');
+    if(hint && p){
+      const auto=Math.round(Number(p.average_cost_rial)||Number(p.cost)||0);
+      hint.textContent=auto?('پیشنهاد از کالای انتخابی: '+fmt(auto)+' ریال/متر'):'اگر خالی بماند از بهای کالای انتخابی محاسبه می‌شود';
+    }
+  }
+}
+async function invoiceFabricRollPicker(kind){
+  const mode=kind==='purchase'?'purchase':'sale';
+  if(!CACHE.allProducts?.length){ try{ CACHE.allProducts=await api('GET','/products')||[]; }catch(_){ CACHE.allProducts=[]; } }
+  let rolls=[];
+  try{ rolls=(await api('GET','/inventory/fabric-rolls?status=active')||{}).rows||[]; }catch(_){ rolls=[]; }
+  const prods=CACHE.allProducts||[];
+  if(mode==='sale'){
+    openModal(`
+      <div class="modal-head"><h3>افزودن طاقه به فاکتور فروش</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+      <div class="modal-body">
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه یک ردیف کالا است. انبار فاکتور از انبار سربرگ پر می‌شود.</p>
+        <div class="fg full"><label>طاقه موجود</label>
+          <select id="ifr-roll">${rolls.filter(b=>b.status!=='reversed'&&(b.qty_on_hand||0)>0).map(b=>`<option value="${b.id}" data-pid="${b.product_id}" data-qty="${b.qty_on_hand||0}" data-color="${esc(b.color||'')}" data-pat="${esc(b.pattern||'')}" data-no="${esc(b.batch_no||'')}" data-wh="${b.warehouse_id||''}" data-cost="${b.unit_cost_rial||0}">${esc(b.batch_no)} — ${esc(b.product_name||'')} ${esc(b.color||'')} (${fmt(b.qty_on_hand||0)} متر)</option>`).join('')||'<option value="">طاقه فعالی نیست</option>'}</select></div>
+        <div class="fg"><label>متر فروش</label><input id="ifr-m" type="number" min="0.01" step="0.01"></div>
+        <div class="fg"><label>فی فروش (ریال)</label><input id="ifr-price" type="text" inputmode="numeric" class="money" value="0"></div>
+      </div>
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(){invoiceFabricRollAddSale()})}">افزودن به فاکتور</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button></div>`);
+    const sel=el('ifr-roll');
+    const sync=()=>{
+      const opt=sel?.selectedOptions?.[0]; if(!opt) return;
+      const p=prods.find(x=>String(x.id)===String(opt.getAttribute('data-pid')));
+      if(el('ifr-m') && !el('ifr-m').value) el('ifr-m').value=opt.getAttribute('data-qty')||'';
+      if(el('ifr-price') && p) el('ifr-price').value=p.price||0;
+    };
+    if(sel) sel.addEventListener('change',sync); sync();
+    return;
+  }
+  openModal(`
+    <div class="modal-head"><h3>افزودن طاقه به فاکتور خرید</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه به‌صورت یک کالای ردیفی ثبت می‌شود. انبار مقصد سربرگ روی ردیف کپی می‌شود و هویت طاقه بعد از ثبت فاکتور ساخته می‌شود (بدون سند تکراری).</p>
+      <div class="form-grid">
+        <div class="fg"><label>کالا</label><select id="pfr-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+        <div class="fg"><label>رنگ *</label><input id="pfr-color"></div>
+        <div class="fg"><label>طرح</label><input id="pfr-pat"></div>
+        <div class="fg"><label>عرض (سم)</label><input id="pfr-w" type="number" min="0" value="150"></div>
+        <div class="fg"><label>متر</label><input id="pfr-m" type="number" min="0.01" step="0.01"></div>
+        <div class="fg"><label>بها هر متر (ریال)</label><input id="pfr-cost" type="text" inputmode="numeric" class="money" value="0"></div>
+        <div class="fg"><label>شماره طاقه</label><input id="pfr-no" placeholder="خودکار"></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(){invoiceFabricRollAddPurchase()})}">افزودن به فاکتور</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button></div>`);
+}
+function invoiceFabricRollAddSale(){
+  const sel=el('ifr-roll'); const opt=sel?.selectedOptions?.[0];
+  const id=+sel?.value; if(!id){ showToast('طاقه را انتخاب کنید','error'); return; }
+  const pid=+opt.getAttribute('data-pid');
+  const p=(CACHE.allProducts||CACHE.products||[]).find(x=>Number(x.id)===pid);
+  const qty=Math.max(0.001, Number(el('ifr-m')?.value)||Number(opt.getAttribute('data-qty'))||1);
+  const price=moneyVal('ifr-price')|| (p&&p.price)||0;
+  const wh=headerInvoiceWarehouseId()|| (+opt.getAttribute('data-wh')||null);
+  invCart.push({
+    product_id:pid, name:p?p.name:('طاقه '+opt.getAttribute('data-no')),
+    qty, price, disc:0, disc_amount:0, warehouse_id:wh,
+    batch_id:id, is_fabric_roll:1,
+    color:opt.getAttribute('data-color')||'', pattern:opt.getAttribute('data-pat')||'',
+    roll_no:opt.getAttribute('data-no')||'', unit_cost_rial:+opt.getAttribute('data-cost')||0
+  });
+  closeModal(); renderCart(); if(typeof renderInvPicker==='function') renderInvPicker();
+  showToast('طاقه به فاکتور اضافه شد');
+}
+function invoiceFabricRollAddPurchase(){
+  const pid=+el('pfr-prod')?.value; if(!pid){ showToast('کالا را انتخاب کنید','error'); return; }
+  const color=(el('pfr-color')?.value||'').trim(); if(!color){ showToast('رنگ الزامی است','error'); return; }
+  const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===pid);
+  const qty=Math.max(0.001, Number(el('pfr-m')?.value)||1);
+  const cost=moneyVal('pfr-cost') || Math.round(Number(p&& (p.average_cost_rial||p.cost))||0);
+  genCart.push({
+    product_id:pid, name:p?p.name:'طاقه', qty, price:cost, disc:0, disc_amount:0,
+    description:'', warehouse_id:headerPurchaseWarehouseId(),
+    is_fabric_roll:1, color, pattern:(el('pfr-pat')?.value||'').trim(),
+    width_cm:+el('pfr-w')?.value||0, roll_no:(el('pfr-no')?.value||'').trim(),
+    unit_cost_rial:cost
+  });
+  closeModal(); renderGenCart();
+  showToast('طاقه به فاکتور خرید اضافه شد');
 }
 async function fabricRollSave(){
   if(!el('fr-color').value.trim()){ showToast('رنگ الزامی است','error'); return; }
@@ -7571,7 +7703,7 @@ async function fabricRollSave(){
       product_id:+el('fr-prod').value, warehouse_id:+el('fr-wh').value,
       roll_no:el('fr-no').value||undefined, color:el('fr-color').value.trim(),
       pattern:el('fr-pat').value.trim(), width_cm:+el('fr-w').value||0,
-      meters:+el('fr-m').value, unit_cost_rial:+el('fr-cost').value||0,
+      meters:+el('fr-m').value, unit_cost_rial:fabricRollCostFromForm(),
       supplier_id:el('fr-sup').value?+el('fr-sup').value:undefined, unit:'m',
       idempotency_key:window._fabricIdemKey||newFabricIdemKey()
     });
@@ -7582,6 +7714,39 @@ async function voidFabricRollRow(id){
   if(!confirm('ابطال کامل این طاقه؟')) return;
   try{ await api('POST','/inventory/fabric-rolls/'+id+'/void',{reason:'ابطال از گزارش'}); loadAccTab('fabric-rolls'); }
   catch(e){}
+}
+function fabricRollEditModal(b){
+  const prods=CACHE.allProducts||[];
+  const whs=window._fabricRawWh||[];
+  const sups=window._fabricSups||[];
+  const meters=Number(b.qty_received!=null?b.qty_received:b.qty_on_hand)||0;
+  showModal('ویرایش طاقه',`
+    <div class="form-grid">
+      <div class="fg"><label>کالا</label><select id="fr-prod" disabled>${prods.map(p=>`<option value="${p.id}" ${Number(p.id)===Number(b.product_id)?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>انبار مواد</label><select id="fr-wh" disabled>${whs.map(w=>`<option value="${w.id}" ${Number(w.id)===Number(b.warehouse_id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>شماره طاقه</label><input id="fr-no" value="${esc(b.batch_no||'')}"></div>
+      <div class="fg"><label>رنگ</label><input id="fr-color" value="${esc(b.color||'')}"></div>
+      <div class="fg"><label>طرح</label><input id="fr-pat" value="${esc(b.pattern||'')}"></div>
+      <div class="fg"><label>عرض (سم)</label><input id="fr-w" type="number" min="0" value="${esc(b.width_cm||0)}"></div>
+      <div class="fg"><label>متر</label><input id="fr-m" type="number" min="0" step="0.01" value="${meters}" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
+      <div class="fg"><label>بها هر متر (ریال)</label><input id="fr-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(b.unit_cost_rial||0)}" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
+      <div class="fg"><label>تأمین‌کننده</label><select id="fr-sup"><option value="">—</option>${sups.map(s=>`<option value="${s.id}" ${Number(s.id)===Number(b.supplier_id)?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>
+      <div class="fg full"><b>جمع بها: <span class="mono" id="fr-total">${fmt(Math.round((Number(b.unit_cost_rial)||0)*meters))}</span> ریال</b></div>
+    </div>
+    <div data-csp-style="${CSP.style(`margin-top:12px;text-align:left`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(){fabricRollUpdateSave((b.id))})}">ذخیره ویرایش</button></div>`);
+  fabricRollLiveTotal();
+}
+async function fabricRollUpdateSave(id){
+  if(!el('fr-color').value.trim()){ showToast('رنگ الزامی است','error'); return; }
+  try{
+    await api('PATCH','/inventory/fabric-rolls/'+id,{
+      roll_no:el('fr-no').value||undefined, color:el('fr-color').value.trim(),
+      pattern:el('fr-pat').value.trim(), width_cm:+el('fr-w').value||0,
+      meters:+el('fr-m').value, unit_cost_rial:fabricRollCostFromForm(),
+      supplier_id:el('fr-sup').value?+el('fr-sup').value:undefined
+    });
+    closeModal(); showToast('طاقه ویرایش شد'); loadAccTab('fabric-rolls');
+  }catch(e){}
 }
 const CUT_SIZES=['38','40','42','44','46','48'];
 function newCutIdemKey(){
@@ -8436,7 +8601,9 @@ async function renderAgingReport(box){
 }
 async function renderCashFlowReport(box){
   const qp=[]; if(advReportFrom) qp.push('from='+encodeURIComponent(advReportFrom)); if(advReportTo) qp.push('to='+encodeURIComponent(advReportTo));
-  const d=await api('GET','/adv-reports/cash-flow'+(qp.length?'?'+qp.join('&'):''))||{};
+  let d={};
+  try{ d=await api('GET','/adv-reports/cash-flow'+(qp.length?'?'+qp.join('&'):''),null,false,true)||{}; }
+  catch(e){ d={sections:{},total_net_rial:0,warning:(e&&e.message)||'گزارش در دسترس نیست'}; }
   const sec=(name,s)=>`
       <div class="panel"><div class="panel-head"><h4>${name}</h4></div><div class="panel-body">
         <div data-csp-style="${CSP.style(`display:flex;gap:12px;flex-wrap:wrap;margin-bottom:4px;font-size:13px`)}">
@@ -8446,7 +8613,8 @@ async function renderCashFlowReport(box){
         </div>
       </div></div>`;
   box.innerHTML=advDateFilterBar()+`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">بازه: ${esc(d.from||'—')} تا ${esc(d.to||'—')} — طبقه‌بندی عملیاتی / سرمایه‌گذاری / تأمین مالی</div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">بازه: ${esc(d.from||'—')} تا ${esc(d.to||'—')} — طبقه‌بندی عملیاتی / سرمایه‌گذاری / تأمین مالی از همه صندوق‌ها و بانک‌ها</div>
+    ${d.warning?`<div class="empty" data-csp-style="${CSP.style(`margin-bottom:10px`)}">${esc(d.warning)}</div>`:''}
     <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px`)}">
       ${sec('عملیاتی', d.sections?.operating||{})}
       ${sec('سرمایه‌گذاری', d.sections?.investing||{})}
@@ -11339,6 +11507,7 @@ async function purchaseInvoiceModal(){
       <div class="inv-layout">
         <div>${genProductSearchHtml()}
           <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){openBarcodeScanner(function(code){ const p=(CACHE.allProducts||CACHE.products||[]).find(x=>(x.barcode&&String(x.barcode)===String(code))||(x.code&&String(x.code)===String(code))); if(p) genCartAdd(p.id); else showToast('کالا با این بارکد یافت نشد','error'); })})}">📷 اسکن بارکد</button>
+          <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:6px`)}" data-csp-click="${CSP.bind('click',function(event){invoiceFabricRollPicker('purchase')})}">🧵 افزودن طاقه</button>
         </div>
         <div class="inv-cart">
           <div class="inv-cart-head">
@@ -11356,6 +11525,14 @@ async function purchaseInvoiceModal(){
     </div>`,true);
   attachDatepickers(el('modalRoot')); initSupplierSearches(el('modalRoot'));
   renderGenCart(); togglePoBankFields();
+  const poWh=el('po-warehouse');
+  if(poWh && !poWh.dataset.whBound){
+    poWh.dataset.whBound='1';
+    poWh.addEventListener('change',()=>{
+      applyHeaderWarehouseToCart(genCart, headerPurchaseWarehouseId());
+      renderGenCart();
+    });
+  }
 }
 // Purchase invoices add a third state (نسیه/credit) where no cash moves at all,
 // so the bank/checkbook fields are hidden entirely rather than just the checkbook.
@@ -11391,7 +11568,10 @@ async function savePurchaseInvoice(){
       rows: genCart.map(r=>({
         product_id:r.product_id, qty:r.qty, price:r.price,
         disc:r.disc||0, disc_amount:r.disc_amount||0,
-        description:r.description||'', warehouse_id:r.warehouse_id||null
+        description:r.description||'', warehouse_id:r.warehouse_id||headerPurchaseWarehouseId()||null,
+        batch_id:r.batch_id||null, is_fabric_roll:r.is_fabric_roll?1:0,
+        color:r.color||'', pattern:r.pattern||'', width_cm:r.width_cm||0,
+        roll_no:r.roll_no||'', unit_cost_rial:r.unit_cost_rial||0
       }))
     });
     closeModal(); showToast('فاکتور خرید ثبت شد'); loadAccTab('purchases');
@@ -16859,9 +17039,11 @@ async function chequeSendToBank(id){
   if(!CACHE.banks){ try{ CACHE.banks=await api('GET','/banks')||[]; }catch(_){ CACHE.banks=[]; } }
   openModal(`
     <div class="modal-head"><h3>🏦 واگذاری چک به بانک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>بانک وصول (اختیاری)</label>
-        <select id="csb-bank"><option value="">— بدون انتخاب —</option>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">واگذاری به بانک: بدهکار «اسناد در جریان وصول» و بستانکار «اسناد دریافتنی». بعد از ثبت، وصول و برگشت در همین ردیف فعال می‌شود. چک اول دوره هم همین چرخه را دارد.</p>
+      <div class="form-grid">
+      <div class="fg full"><label>بانک وصول *</label>
+        <select id="csb-bank"><option value="">— انتخاب بانک —</option>
           ${(CACHE.banks||[]).filter(b=>b.active!==0).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
         </select></div>
       <div class="fg"><label>تاریخ</label><input id="csb-date" data-jdate value="${todayJalali()}"></div>
@@ -16872,9 +17054,10 @@ async function chequeSendToBank(id){
 }
 async function chequeSendToBankSave(id){
   const bank_id=+el('csb-bank')?.value||null;
+  if(!bank_id){ showToast('بانک وصول را انتخاب کنید','error'); return; }
   try{
-    await api('POST','/cheque-records/'+id+'/send-to-bank',{collection_bank_id:bank_id||null,date:el('csb-date')?.value||todayJalali()});
-    closeModal(); showToast('چک به بانک واگذار شد'); loadAccTab('cheque-register');
+    await api('POST','/cheque-records/'+id+'/send-to-bank',{collection_bank_id:bank_id,date:el('csb-date')?.value||todayJalali()});
+    closeModal(); showToast('واگذاری ثبت شد — اسناد در جریان وصول + وضعیت واگذارشده'); loadAccTab('cheque-register');
   }catch(e){}
 }
 async function chequeClear(id){
@@ -16913,10 +17096,33 @@ async function chequeExpenseOut(id){
   }catch(e){}
 }
 async function chequeEndorseIn(id){
-  if(!confirm('خرج/ظهرنویسی چک دریافتنی به ذینفع ثبت شود؟ به‌جای واگذاری به بانک، اسناد دریافتنی بسته می‌شود.')) return;
+  if(!CACHE.suppliers){ try{ CACHE.suppliers=await api('GET','/suppliers')||[]; }catch(_){ CACHE.suppliers=[]; } }
+  if(!CACHE.parties){ try{ CACHE.parties=await api('GET','/parties')||[]; }catch(_){ CACHE.parties=[]; } }
+  const sups=Array.isArray(CACHE.suppliers)?CACHE.suppliers:(CACHE.suppliers.rows||[]);
+  openModal(`
+    <div class="modal-head"><h3>خرج / ظهرنویسی چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">به‌جای واگذاری به بانک، اسناد دریافتنی بسته و بدهی ذینفع تسویه می‌شود: بدهکار پرداختنی ذینفع / بستانکار اسناد دریافتنی. دفتر تأمین‌کننده هم به‌روز می‌شود.</p>
+      <div class="form-grid">
+        <div class="fg full"><label>ذینفع (تأمین‌کننده)</label>
+          <select id="ce-sup"><option value="">— انتخاب تأمین‌کننده —</option>
+            ${sups.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>
+        <div class="fg full"><label>یا شخص از فهرست</label>${partySelect('ce-party')}</div>
+        <div class="fg"><label>تاریخ</label><input id="ce-date" data-jdate value="${todayJalali()}"></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(){chequeEndorseInSave((id))})}">ثبت خرج</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button></div>`);
+  if(typeof initJalaliPickers==='function') initJalaliPickers();
+  if(typeof initPartySearches==='function') initPartySearches(el('modalRoot'));
+}
+async function chequeEndorseInSave(id){
+  const supplier_id=+el('ce-sup')?.value||null;
+  const party_id=+el('ce-party')?.value||null;
+  if(!supplier_id && !party_id){ showToast('ذینفع را از تأمین‌کننده یا اشخاص انتخاب کنید','error'); return; }
   try{
-    await api('POST','/cheque-records/'+id+'/endorse',{date:todayJalali()});
-    showToast('خرج چک ثبت شد'); loadAccTab('cheque-register');
+    await api('POST','/cheque-records/'+id+'/endorse',{date:el('ce-date')?.value||todayJalali(), supplier_id, party_id});
+    closeModal(); showToast('خرج چک ثبت شد — سند و دفتر ذینفع به‌روز شد'); loadAccTab('cheque-register');
   }catch(e){}
 }
 async function voidChequeRegister(id,num){
@@ -18387,16 +18593,16 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
-        <li><b>فاکتورهای فروش</b>: لیست همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ، به‌همراه دکمهٔ «فاکتور جدید» — مدیر/حسابدار می‌تواند در فرم فاکتور «کارشناس» را مشخص کند. فاکتور قطعی (معمولی/رسمی) بدون انبار مبدأ در سربرگ ثبت نمی‌شود؛ انبار سربرگ روی ردیف‌هایی که انبار ندارند کپی می‌شود و ردیف می‌تواند انبار جدا داشته باشد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
-        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید (موجودی و سند برمی‌گردند). اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
+        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ هنگام انتخاب کالا روی «انبار فاکتور» همان ردیف می‌نشیند. دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
+        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس دفتر موجودی؛ موجودی اول دوره کالا (با بها) هم سند افتتاحیه و هم ردیف دفتر موجودی می‌سازد تا با انبار یکی بماند. پر کردن ردیف‌های قدیمی دفتر موجودی فقط روی سرور مرکزی انجام می‌شود تا دستگاه آفلاین ردیف تکراری نسازد</li>
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
-        <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. رنگ، طرح، عرض، متر و بها. کالای آماده بدون Lot. با بها، بدهی در دفتر تأمین‌کننده و سند مواد/پرداختنی ثبت می‌شود. دوبار کلیک همان طاقه را تکرار نمی‌کند. ابطال تا وقتی طاقه مصرف نشده موجودی، سند و دفتر تأمین‌کننده را برمی‌گرداند. ویزیتور دسترسی ندارد</li>
+        <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. بها طاقه = متر × فی هر متر (اگر فی خالی باشد از بهای کالا). ستون «بها» جمع است نه میانگین واحد. بعد از ثبت، تا وقتی مصرف نشده با <b>ویرایش</b> اصلاح می‌شود (سند و دفتر تأمین‌کننده دوباره زده می‌شود). در فاکتور خرید/فروش هم «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند</li>
         <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید برش تعداد را به انبار محصول می‌برد. همان متر را در حواله سفارش تولید دوباره نزنید — سیستم قفل می‌کند</li>
-        <li><b>دفتر چک</b>: واگذاری/وصول/برگشت/ارسال مجدد + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
+        <li><b>دفتر چک</b>: واگذاری به بانک (بانک وصول اجباری، سند در جریان وصول، وضعیت واگذارشده، سپس وصول/برگشت)، خرج/ظهرنویسی با ذینفع و دفتر تأمین‌کننده، ارسال مجدد + <b>ابطال کامل</b></li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور می‌سازد؛ ارسالی فاکتور امانت‌گیرنده است و سند بهای تمام‌شده می‌زند بدون کسر دوباره موجودی؛ دریافتی نیازمند خریدار جدا از امانت‌گذار است)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
@@ -18562,7 +18768,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v178</b> است و اسکریپت‌ها با <code>?v=178</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v179</b> است و اسکریپت‌ها با <code>?v=179</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -18699,7 +18905,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>اظهارنامه ارزش افزوده</b>: گزارش فصلی مالیات فروش/خرید و خالص قابل پرداخت</li>
         <li><b>فصلی ماده ۱۶۹</b>: لیست فاکتورهای فروش و خرید فصل برای ارسال</li>
-        <li><b>صورت جریان وجوه نقد</b>: تفکیک عملیاتی / سرمایه‌گذاری / تأمین مالی از گردش صندوق و بانک</li>
+        <li><b>صورت جریان وجوه نقد</b>: تفکیک عملیاتی / سرمایه‌گذاری / تأمین مالی از گردش <b>همه</b> صندوق‌ها و بانک‌ها. ردیف سند ناقص گزارش را خراب نمی‌کند</li>
         <li><b>داشبورد KPI</b>: DSO، DIO، DPO، چرخه نقد و تمرکز فروش مشتریان</li>
         <li><b>تطبیق بانک</b>: ثبت مانده صورت‌حساب، واردات ردیف‌های صورتحساب (JSON/CSV)، تطبیق خودکار ۱:۱ با مبلغ دقیق و تاریخ ±۱ روز (اطمینان ۱۰۰)، بستن با سند تعدیل فقط از مسیر تأیید/بستن</li>
         <li><b>بودجه‌بندی</b>: تعریف بودجه سالانه و گزارش انحراف بودجه/واقعی</li>
@@ -18708,8 +18914,8 @@ helpSec('🔑','لایسنس و entitlement',`
     helpSec('📒','چرخه عمر چک (دفتر چک)',`
       <p>در <b>عملیات خاص → دفتر چک</b> برای چک‌های دریافتی:</p>
       <ul>
-        <li><b>واگذاری به بانک</b>: از وضعیت ثبت‌شده — سند انتقال به «در جریان وصول»</li>
-        <li><b>خرج / ظهرنویسی</b>: از وضعیت ثبت‌شده — به‌جای بانک، چک را به ذینفع می‌دهید (بدهکار پرداختنی، بستانکار اسناد دریافتنی)</li>
+        <li><b>واگذاری به بانک</b>: بانک وصول + تاریخ. سند بدهکار «در جریان وصول» / بستانکار اسناد دریافتنی. وضعیت «واگذارشده». بعد از آن وصول و برگشت روی همان ردیف فعال است. چک اول دوره هم همین چرخه را دارد</li>
+        <li><b>خرج / ظهرنویسی</b>: ذینفع از تأمین‌کننده یا اشخاص. بدهکار پرداختنی ذینفع / بستانکار اسناد دریافتنی + ردیف دفتر تأمین‌کننده</li>
         <li><b>وصول</b>: وقتی چک در «جریان وصول» است — بستانکار بانک</li>
         <li><b>برگشت</b>: از «جریان وصول» یا «وصول‌شده» — سند برگشت</li>
         <li><b>ارسال مجدد</b>: پس از برگشت — معکوس سند برگشت و بازگشت به وضعیت قبلی چرخه</li>
@@ -18756,7 +18962,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v178</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v179</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>مانده و ماهیت</h5><p>ستون بدهکار/بستانکار ماندهٔ <b>خالص</b> همان مشتری است (تفاضل گردش بدهکار و بستانکار). ماهیت از علامت مانده زنده می‌آید، نه از نام گروه. در جمع پایین جدول و کارت‌های داشبورد، ماندهٔ بدهکاران با ماندهٔ بستانکاران <b>جمع نمی‌شود</b> — تفاضل گرفته می‌شود و سمت بزرگ‌تر ماهیت ماندهٔ خالص است.</p>
@@ -18807,8 +19013,8 @@ function renderSalesGuide(){
         <li>از منو «فاکتور» را باز کنید</li>
         <li>«فاکتور جدید» را بزنید</li>
         <li>مشتری را انتخاب کنید</li>
-        <li>برای فاکتور قطعی (معمولی/رسمی) ابتدا <b>انبار مبدأ</b> را انتخاب کنید؛ بدون انبار سرور ثبت را رد می‌کند</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — مدیر/حسابدار می‌توانند با «➕ ساخت کالای جدید» در همان صفحه کالا بسازند</li>
+        <li>برای فاکتور قطعی (معمولی/رسمی) ابتدا <b>انبار مبدأ</b> را انتخاب کنید؛ بدون انبار سرور ثبت را رد می‌کند. همان انبار به‌صورت خودکار روی «انبار فاکتور» هر کالای انتخاب‌شده می‌نشیند</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند</li>
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور</li>

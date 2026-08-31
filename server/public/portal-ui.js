@@ -1179,7 +1179,12 @@
     const qp = [];
     if (accDateFrom) qp.push('from=' + encodeURIComponent(accDateFrom));
     if (accDateTo) qp.push('to=' + encodeURIComponent(accDateTo));
-    const d = await api('GET', '/adv-reports/cash-flow' + (qp.length ? '?' + qp.join('&') : '')) || {};
+    let d = {};
+    try {
+      d = await api('GET', '/adv-reports/cash-flow' + (qp.length ? '?' + qp.join('&') : ''), null, false, true) || {};
+    } catch (e) {
+      d = { sections: {}, total_net_rial: 0, warning: (e && e.message) || 'گزارش در دسترس نیست' };
+    }
     const sec = (name, s) => `
       <div class="panel"><div class="panel-head"><h4>${name}</h4></div><div class="panel-body">
         <div data-csp-style="${CSP.style(`display:flex;gap:12px;margin-bottom:8px;font-size:13px`)}">
@@ -1189,7 +1194,8 @@
         </div>
       </div></div>`;
     body.innerHTML = `
-      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">بازه: ${esc(d.from || '—')} تا ${esc(d.to || '—')} — فیلتر تاریخ از نوار بالا</div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">بازه: ${esc(d.from || '—')} تا ${esc(d.to || '—')} — فیلتر تاریخ از نوار بالا. گردش همه صندوق‌ها و بانک‌ها (نه فقط حساب پیش‌فرض).</div>
+      ${d.warning ? `<div class="empty" data-csp-style="${CSP.style(`margin-bottom:10px`)}">${esc(d.warning)}</div>` : ''}
       <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px`)}">
         ${sec('عملیاتی', d.sections?.operating || {})}
         ${sec('سرمایه‌گذاری', d.sections?.investing || {})}

@@ -5,6 +5,7 @@ const { j2g, todayJalali } = require('../jalali');
 const { acct } = require('../lib/coa-map');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const { firmSaleTypeSql } = require('../lib/sales-document');
+const { buildCashFlowReport } = require('../lib/cash-flow');
 
 function parseQuarter(query) {
   if (query.quarter) {
@@ -38,70 +39,9 @@ function accountTypeMap(db) {
 
 function classifyCashFlowCounterpart(code, typeMap) {
   const type = typeMap[code] || '';
-  if (String(code).startsWith('12')) return 'investing';
+  if (String(code || '').startsWith('12')) return 'investing';
   if (type === 'liability' || type === 'equity') return 'financing';
   return 'operating';
-}
-
-function buildCashFlowReport(db, from, to) {
-  const cashCode = acct(db, 'coa_cash_default').code;
-  const bankCode = acct(db, 'coa_bank_default').code;
-  const typeMap = accountTypeMap(db);
-  const dateWhere = [], dateParams = [];
-  if (from) { dateWhere.push('je.entry_date>=?'); dateParams.push(from); }
-  if (to) { dateWhere.push('je.entry_date<=?'); dateParams.push(to); }
-
-  const entries = db.prepare(`
-    SELECT je.id, je.entry_date, je.description
-    FROM journal_entries je
-    WHERE COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'approved')<>'reversed'
-      ${dateWhere.length ? 'AND ' + dateWhere.join(' AND ') : ''}
-      AND EXISTS (
-        SELECT 1 FROM journal_lines jl
-        WHERE jl.entry_id=je.id
-          AND (jl.account_code=? OR jl.account_code LIKE ? OR jl.account_code=? OR jl.account_code LIKE ?)
-      )
-  `).all(...dateParams, cashCode, cashCode + '-%', bankCode, bankCode + '-%');
-
-  const sections = {
-    operating: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
-    investing: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
-    financing: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
-  };
-
-  for (const entry of entries) {
-    const lines = db.prepare(`
-      SELECT account_code, account_name,
-        (${SQL_JL_DEBIT_RIAL}) debit_rial, (${SQL_JL_CREDIT_RIAL}) credit_rial
-      FROM journal_lines WHERE entry_id=?
-    `).all(entry.id);
-    const cashLines = lines.filter(l =>
-      l.account_code === cashCode || l.account_code === bankCode ||
-      l.account_code.startsWith(cashCode + '-') || l.account_code.startsWith(bankCode + '-')
-    );
-    const otherLines = lines.filter(l => !cashLines.includes(l));
-    const cashNet = cashLines.reduce((s, l) => s + (l.debit_rial || 0) - (l.credit_rial || 0), 0);
-    if (!cashNet) continue;
-
-    let section = 'operating';
-    if (otherLines.length) {
-      const counts = { operating: 0, investing: 0, financing: 0 };
-      for (const ol of otherLines) counts[classifyCashFlowCounterpart(ol.account_code, typeMap)]++;
-      section = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
-    }
-
-    const item = {
-      entry_id: entry.id, date: entry.entry_date, description: entry.description,
-      amount_rial: cashNet,
-    };
-    sections[section].lines.push(item);
-    if (cashNet > 0) sections[section].inflow_rial += cashNet;
-    else sections[section].outflow_rial += Math.abs(cashNet);
-    sections[section].net_rial += cashNet;
-  }
-
-  const totalNet = sections.operating.net_rial + sections.investing.net_rial + sections.financing.net_rial;
-  return { from: from || '', to: to || '', sections, total_net_rial: totalNet };
 }
 
 function buildVatReturnReport(db, query) {
@@ -312,8 +252,23 @@ router.get('/aging', auth, adminOrAccounting, (req, res) => {
 });
 
 router.get('/cash-flow', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
-  res.json(buildCashFlowReport(db, req.query.from, req.query.to));
+  try {
+    const db = getDB();
+    res.json(buildCashFlowReport(db, req.query.from, req.query.to));
+  } catch (e) {
+    console.error('GET /adv-reports/cash-flow', e && e.message);
+    res.json({
+      from: req.query.from || '',
+      to: req.query.to || '',
+      sections: {
+        operating: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
+        investing: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
+        financing: { inflow_rial: 0, outflow_rial: 0, net_rial: 0, lines: [] },
+      },
+      total_net_rial: 0,
+      warning: 'گزارش جریان نقد در دسترس نیست',
+    });
+  }
 });
 
 function aggregateSalesByProduct(db, from, to) {

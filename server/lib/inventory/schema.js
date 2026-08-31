@@ -231,6 +231,8 @@ function ensureExistingColumns(db) {
     ensureColumn(db, 'inventory_batches', 'reversed_at', 'INTEGER');
     ensureColumn(db, 'inventory_batches', 'reversed_by', 'INTEGER');
     ensureColumn(db, 'inventory_batches', 'reversal_journal_id', 'INTEGER');
+    ensureColumn(db, 'inventory_batches', 'source_type', 'TEXT');
+    ensureColumn(db, 'inventory_batches', 'source_id', 'INTEGER');
     try {
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_batches_idem ON inventory_batches(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''");
     } catch (_) { /* ignore */ }

@@ -193,6 +193,7 @@ function postSaleStockMovements(db, {
         'INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO NOTHING'
       ).run(r.product_id, whId, seedQty);
     }
+    const batchId = r.batch_id ? parseInt(r.batch_id, 10) : null;
     const mv = postInventoryMovement(db, {
       eventType: 'sale',
       productId: r.product_id,
@@ -200,11 +201,16 @@ function postSaleStockMovements(db, {
       qtyOut: Number(r.qty) || 0,
       sourceType,
       sourceId,
+      batchId: batchId || null,
       date: date || '',
       note: note || 'فروش',
       createdBy: userId,
       updateAvg: false,
     });
+    if (batchId) {
+      const { consumeFabricRollOnSale } = require('./inventory/fabric-rolls');
+      consumeFabricRollOnSale(db, { batchId, qty: Number(r.qty) || 0 });
+    }
     movements.push(mv);
     cogsRial += Math.round(Number(mv.amount_rial) || 0);
     if (whId) {
@@ -220,7 +226,7 @@ function postSaleStockMovements(db, {
 }
 
 function postPurchaseStockMovements(db, {
-  rows, warehouseId, sourceType, sourceId, userId, date, note,
+  rows, warehouseId, sourceType, sourceId, userId, date, note, supplierId,
 }) {
   const movements = [];
   for (const r of rows || []) {
@@ -252,6 +258,23 @@ function postPurchaseStockMovements(db, {
       updateAvg: true,
     });
     movements.push(mv);
+    try {
+      const fabric = require('./inventory/fabric-rolls');
+      if (fabric.isFabricPurchaseLine(db, r, whId)) {
+        fabric.attachFabricIdentityOnPurchase(db, {
+          row: r,
+          movement: mv,
+          supplierId,
+          user: { id: userId },
+          date,
+          warehouseId: whId,
+          sourceId,
+        });
+      }
+    } catch (e) {
+      if (e && e.code && String(e.code).startsWith('E_FABRIC')) throw e;
+      if (db.inTransaction) throw e;
+    }
   }
   return { movements };
 }
@@ -292,7 +315,7 @@ function postSaleReturnStockMovements(db, {
 
 function reverseStockBySource(db, sourceType, sourceId, { createdBy, date, note } = {}) {
   const rows = db.prepare(`
-    SELECT id FROM inventory_ledger
+    SELECT id, batch_id, qty_out FROM inventory_ledger
     WHERE source_type=? AND source_id=? AND status='posted' AND COALESCE(reversed_of,0)=0
     ORDER BY id DESC
   `).all(sourceType, sourceId);
@@ -300,6 +323,11 @@ function reverseStockBySource(db, sourceType, sourceId, { createdBy, date, note 
   for (const r of rows) {
     out.push(reverseInventoryMovement(db, r.id, { createdBy, date, note }));
   }
+  try {
+    const fabric = require('./inventory/fabric-rolls');
+    fabric.restoreFabricQtyFromLedgerRows(db, rows);
+    fabric.reverseFabricIdentitiesBySource(db, sourceType, sourceId);
+  } catch (_) { /* fabric module optional on old DBs */ }
   return out;
 }
 

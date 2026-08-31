@@ -57,6 +57,13 @@ function buildRows(db, inputRows) {
       product_id: pid, name: prod.name, qty, price, disc, disc_amount: discAmount,
       disc_amt: discAmt, sum, description, allocated_freight: 0,
       warehouse_id: r.warehouse_id ? parseInt(r.warehouse_id, 10) : null,
+      batch_id: r.batch_id ? parseInt(r.batch_id, 10) : null,
+      is_fabric_roll: r.is_fabric_roll ? 1 : 0,
+      color: String(r.color || '').trim(),
+      pattern: String(r.pattern || '').trim(),
+      width_cm: Math.round(Number(r.width_cm) || 0),
+      roll_no: String(r.roll_no || '').trim(),
+      unit_cost_rial: Math.round(Number(r.unit_cost_rial) || 0),
     });
   }
   return { rows: out, subtotal };
@@ -145,6 +152,11 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   netBeforeVat += freightRial;
   const entryDate = date || todayJalali();
   const whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
+  if (whId) {
+    for (const r of built.rows) {
+      if (!r.warehouse_id) r.warehouse_id = whId;
+    }
+  }
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='purchase_num_prefix'").get();
   const pType = pay_type || 'credit';
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
@@ -167,6 +179,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       postPurchaseStockMovements(db, {
         rows: priced, warehouseId: whId, sourceType: 'purchase', sourceId: invId,
         userId: req.user.id, date: entryDate, note: `خرید ${num}`,
+        supplierId: supplier_id,
       });
     } else {
       for (const r of built.rows) {
@@ -176,6 +189,17 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
         if (rowWh) {
           db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
             .run(r.product_id, rowWh, r.qty);
+        }
+        try {
+          const fabric = require('../lib/inventory/fabric-rolls');
+          if (fabric.isFabricPurchaseLine(db, r, rowWh)) {
+            fabric.attachFabricIdentityOnPurchase(db, {
+              row: r, movement: null, supplierId: supplier_id,
+              user: req.user, date: entryDate, warehouseId: rowWh, sourceId: invId,
+            });
+          }
+        } catch (e) {
+          if (e && e.code && String(e.code).startsWith('E_FABRIC')) throw e;
         }
       }
     }

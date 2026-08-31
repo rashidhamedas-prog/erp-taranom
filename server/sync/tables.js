@@ -433,6 +433,8 @@ const FK_COLUMNS = [
   ['cutting_lay_rolls', 'ledger_id'],
   // QA-FIX-HIGHS cheque party_id (append-only)
   ['cheque_records', 'party_id'],
+  ['cheque_records', 'endorse_party_id'],
+  ['cheque_records', 'endorse_supplier_id'],
   // QA-FIX-HIGHS trust-check party_id (append-only)
   ['trust_checks', 'party_id'],
   // QA-ERP gaps (append-only)

@@ -195,10 +195,7 @@ const ACC_NAV_SECTIONS = [
     ]},
     { title: 'عملیات', items: [
       { id: 'acc-sales-invoices', icon: '🧾', label: 'فاکتورهای فروش' },
-      { id: 'acc-normal-invoices', icon: '🧾', label: 'فاکتور معمولی' },
-      { id: 'acc-final-invoices', icon: '📜', label: 'فاکتور رسمی' },
       { id: 'acc-purchases', icon: '📦', label: 'فاکتورهای خرید' },
-      { id: 'acc-proforma', icon: '📄', label: 'پیش‌فاکتور' },
       { id: 'acc-sales-returns', icon: '↪️', label: 'برگشت از فروش' },
       { id: 'acc-purchase-returns', icon: '↩️', label: 'برگشت از خرید' },
       { id: 'acc-orders-list', icon: '🛒', label: 'لیست سفارشات' },

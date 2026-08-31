@@ -147,6 +147,13 @@ function buildRows(db, inputRows, canDiscount) {
       warehouse_id: wh || null,
       income_coa: incomeCoa,
       allocated_freight: 0,
+      batch_id: r.batch_id ? parseInt(r.batch_id, 10) : null,
+      is_fabric_roll: r.is_fabric_roll ? 1 : 0,
+      color: String(r.color || '').trim(),
+      pattern: String(r.pattern || '').trim(),
+      width_cm: Math.round(Number(r.width_cm) || 0),
+      roll_no: String(r.roll_no || '').trim(),
+      unit_cost_rial: Math.round(Number(r.unit_cost_rial) || 0),
     });
   }
   return { rows: out, subtotal };

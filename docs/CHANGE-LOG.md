@@ -13,6 +13,18 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۹ — بستهٔ عملیات v179: جریان نقد، واگذاری چک، انبار/طاقه، منو، بهای طاقه (SW v179)
+
+- **شاخه:** `fix/LEDGER-STATEMENT-AR`
+- **A صورت جریان نقد:** ریشهٔ ۵۰۰ تکرارشونده `account_code.startsWith` روی ردیف تهی بود. گزارش به `server/lib/cash-flow.js` منتقل شد — هرگز به HTTP پرتاب نمی‌کند؛ همه صندوق/بانک (`acct` + `banks.coa_code` + `cash_boxes` + `1101%`/`1102%`)؛ JOIN یک‌باره. فرانت هم try/catch دارد.
+- **B واگذاری/خرج چک:** واگذاری بانک وصول اجباری، سند Dr در جریان وصول / Cr اسناد دریافتنی، وضعیت «واگذارشده»، بعد وصول/برگشت. خرج دریافتنی با ذینفع + دفتر تأمین‌کننده (`endorse_party_id` / `endorse_supplier_id` در FK سینک).
+- **C فاکتور:** انبار سربرگ روی ردیف انتخاب‌شده؛ طاقه در فروش و خرید به‌صورت ردیف کالا (خرید هویت طاقه بدون JE دوم؛ فروش مصرف متر).
+- **D منو:** در عملیات فروش فقط «فاکتورهای فروش»؛ معمولی/رسمی/پیش‌فاکتور از سایدبار حذف شدند (بوک‌مارک باقی است).
+- **F طاقه:** بها = متر × فی (اگر فی خالی از بهای کالا)؛ ستون جمع؛ PATCH ویرایش تا مصرف‌نشده.
+- **فایل‌ها:** `server/lib/cash-flow.js`، `server/lib/inventory/{fabric-rolls,schema}.js`، `server/lib/sales-document.js`، `server/lib/gap-accounting-schema.js`، `server/routes/{adv-reports,cheque-records,inventory,invoices,purchases}.js`، `server/sync/tables.js`، `server/public/{app.js,acc-nav.js,portal-ui.js,sw.js,index.html}`، `server/scripts/test-ops-pack-v179.js`
+- **تست:** `test-ops-pack-v179.js` · `test-trs-cheque-out.js` · `test-prod-01-fabric-rolls.js` · `test-sms.js` · `test-sync.js`
+- **Deploy:** ⏳ در حال انجام — SW `erp-taranom-v179`
+
 ### ۱۴۰۵/۰۶/۰۹ — مانده لیست مشتریان = دفتر کل + تهاتر بدهکار/بستانکار (SW v178)
 
 - **شاخه:** `fix/LEDGER-STATEMENT-AR`

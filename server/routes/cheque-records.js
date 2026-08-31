@@ -88,6 +88,60 @@ function chequeAmountRial(row) {
   return amountRial;
 }
 
+function resolveEndorseDebit(db, body) {
+  const supplierId = parseInt(body && body.supplier_id, 10);
+  if (Number.isFinite(supplierId) && supplierId > 0) {
+    const s = db.prepare('SELECT id, name, coa_code FROM suppliers WHERE id=?').get(supplierId);
+    if (!s) {
+      const err = new Error('تأمین‌کننده ذینفع یافت نشد');
+      err.status = 400;
+      err.code = 'E_CHEQUE_ENDORSE_PARTY';
+      throw err;
+    }
+    if (s.coa_code) {
+      const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(s.coa_code);
+      if (a) return { debitAcct: a, supplierId: s.id, partyId: null };
+    }
+    return { debitAcct: acct(db, 'coa_payable'), supplierId: s.id, partyId: null };
+  }
+  const partyId = parseInt(body && body.party_id, 10);
+  if (Number.isFinite(partyId) && partyId > 0) {
+    const p = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
+    if (!p) {
+      const err = new Error('شخص ذینفع یافت نشد');
+      err.status = 400;
+      err.code = 'E_CHEQUE_ENDORSE_PARTY';
+      throw err;
+    }
+    if (p.legacy_table === 'suppliers' && p.legacy_id) {
+      return resolveEndorseDebit(db, { supplier_id: p.legacy_id, account_key: body && body.account_key });
+    }
+    if (p.coa_code) {
+      const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(p.coa_code);
+      if (a) return { debitAcct: a, supplierId: null, partyId: p.id };
+    }
+    return { debitAcct: acct(db, 'coa_payable'), supplierId: null, partyId: p.id };
+  }
+  return {
+    debitAcct: resolveNamedAcct(db, body && body.account_key, 'coa_payable'),
+    supplierId: null,
+    partyId: null,
+  };
+}
+
+function postSupplierEndorseLedger(db, { supplierId, date, chequeId, description, amountRial, userId }) {
+  if (!supplierId || !(amountRial > 0)) return;
+  try {
+    db.prepare(`
+      INSERT INTO supplier_ledger
+        (supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id)
+      VALUES (?,?,?,?,?,?,?,?,?)
+    `).run(supplierId, date || '', 'payment', 'cheque_endorse', chequeId, description || '', amountRial, 0, userId || null);
+  } catch (e) {
+    if (db.inTransaction) throw e;
+  }
+}
+
 function resolveNamedAcct(db, key, fallbackKey) {
   const k = String(key || fallbackKey || '').trim();
   try {
@@ -345,18 +399,30 @@ router.post('/:id/endorse', auth, adminOrAccounting, (req, res) => {
       if (!isRegistered(row)) {
         throw Object.assign(new Error('وضعیت چرخه این چک اجازه خرج/ظهرنویسی را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
-      const debitAcct = resolveNamedAcct(db, req.body.account_key, 'coa_payable');
+      const resolved = resolveEndorseDebit(db, req.body || {});
       const creditAcct = acct(db, 'coa_cheques_receivable');
-      return postChequeAction(db, {
+      const je = postChequeAction(db, {
         row,
         user: req.user,
         date: entryDate,
         sourceType: 'cheque_endorse',
         lifecycle: 'endorsed',
         statusLabel: 'خرج‌شده',
-        debitAcct,
+        debitAcct: resolved.debitAcct,
         creditAcct,
       });
+      db.prepare(`
+        UPDATE cheque_records SET endorse_party_id=?, endorse_supplier_id=? WHERE id=?
+      `).run(resolved.partyId, resolved.supplierId, row.id);
+      postSupplierEndorseLedger(db, {
+        supplierId: resolved.supplierId,
+        date: entryDate,
+        chequeId: row.id,
+        description: `خرج/ظهرنویسی چک ${row.cheque_number || row.id}`,
+        amountRial: chequeAmountRial(row),
+        userId: req.user.id,
+      });
+      return je;
     })();
     const row = db.prepare('SELECT cheque_number FROM cheque_records WHERE id=?').get(req.params.id);
     audit(req.user.id, 'cheque_endorse', 'cheque_record', req.params.id, row?.cheque_number);
@@ -385,8 +451,17 @@ router.post('/:id/send-to-bank', auth, adminOrAccounting, (req, res) => {
       if (!row) {
         throw Object.assign(new Error('چک دریافتنی یافت نشد'), { status: 404 });
       }
+      assertPosted(row);
       if (row.lifecycle_status && row.lifecycle_status !== 'registered') {
-        throw Object.assign(new Error('وضعیت چرخه این چک اجازه ارسال به بانک را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+        throw Object.assign(new Error('وضعیت چرخه این چک اجازه واگذاری به بانک را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
+      }
+      const resolvedBankId = bankId;
+      if (!resolvedBankId) {
+        throw Object.assign(new Error('بانک وصول برای واگذاری الزامی است'), { status: 400, code: 'E_CHEQUE_BANK' });
+      }
+      const bank = db.prepare('SELECT id FROM banks WHERE id=?').get(resolvedBankId);
+      if (!bank) {
+        throw Object.assign(new Error('بانک وصول معتبر نیست'), { status: 400, code: 'E_CHEQUE_BANK' });
       }
       assertJournalIdempotent(db, 'cheque_send_to_bank', row.id);
       const id = postToLedger(db, {
@@ -400,9 +475,11 @@ router.post('/:id/send-to-bank', auth, adminOrAccounting, (req, res) => {
         ],
       });
       const updated = db.prepare(`
-        UPDATE cheque_records SET lifecycle_status='in_collection', collection_bank_id=?, collection_je_id=?
+        UPDATE cheque_records
+        SET lifecycle_status='in_collection', collection_bank_id=?, collection_je_id=?, status='واگذارشده'
         WHERE id=? AND (lifecycle_status IS NULL OR lifecycle_status='' OR lifecycle_status='registered')
-      `).run(bankId, id, row.id);
+          AND COALESCE(record_status,'posted')<>'reversed'
+      `).run(resolvedBankId, id, row.id);
       if (!updated.changes) {
         throw Object.assign(new Error('وضعیت چرخه این چک اجازه ارسال به بانک را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
