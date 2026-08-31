@@ -1,33 +1,12 @@
 # Project Status
 
-- Last verified: 2026-08-31 (~14:55 +03:30)
-- **Primary:** `origin/claude/claude-md-docs-2ssrpy` @ `9151483` (QA product gaps + SW v175; FF از `ai/QA-ERP-GAPS-NOT-IMPLEMENTED`)
-- **Iran:** overlay v175 ✅ health/ready/root 200; VPS `db.js`/`server.js` surgical only (bak-v175)
-- **qa:full:** `qa-20260831T105600-14704` PASS 268 FAIL 0 ERROR 0 · NOT_IMPLEMENTED 0
-- **Active task:** none
-- **Closed:** `QA-ERP-FULL-CYCLE-INTEGRATION` — owner-approved merge + overlay
-- **Closed:** `UI-STITCH-P0-DISCOVERY` / local `ai/UI-DOCS-STITCH` — 0 unique commits, never pushed; artifacts gitignored on disk; claims released. No product leftover on that branch.
-- **Integration tip:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` /
-  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration` @ Primary `6ce3ac1`
-- **Sources:** harness `a9a7110` + product `7d60258`
-- **qa:full (this tree, no skip-e2e):** `qa-20260826T135416-20172` · exit **0** · PASS **248** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14**
-  Admin batch ✓ · All-Roles batch ✓ · Playwright E2E ✓ (channel=chrome)
-  recon JE unbalanced **0** · FK **0** · ledger ∪ warehouse **0**
-- **Recon fix:** `stock.ledger_vs_warehouse` unions both sources (company/warehouse/product/variant). Regression 12/12.
-- **No Iran deploy / Primary merge / push this session.**
-- **Integration branch/worktree:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` /
-  `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration` @ Primary `6ce3ac1`
-- **Sources (kept):** harness `a9a7110` (`ai/QA-ERP-FULL-CYCLE-admin-roles`); product `7d60258` (`ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`)
-- **Harness:** cheque admin.js tests kept (`50e8269`). Claims transferred from parent.
-- **Child product:** `QA-ERP-FULL-CYCLE-FIX-HIGHS` + `QA-ERP-RBAC-MATRIX-ALIGN` completed @ `7d60258`
-- **Prior product E2E:** `qa-20260824T214150-19348` exit 1 · PASS 218 · FAIL 18 (matrix vs route; later closed)
-- **Authoritative sibling qa:full:** `qa-20260824T224056-6580` · PASS 246 · FAIL 0 · ERROR 0 · NOT_IMPLEMENTED 14 · recon JE 0
-- **Prior reviews (product tree):** Bugbot none; Independent APPROVED; Security C0/H0/M0
-- **Follow-up:** `QA-ERP-GAPS-NOT-IMPLEMENTED` (classify in Integration; do not fake PASS)
-- **erp-taranom1:** stayed on `ai/UI-DOCS-STITCH` (not checked out; UI-STITCH-P0-DISCOVERY untouched)
-- **No Iran deploy / Primary merge / push this session.**
-- First full run `qa-20260824T151001-15880`: exit **3** · PASS 211 · FAIL 24 · NOT_IMPLEMENTED 14
-  Evidence: `docs/qa/FIRST-RUN.md`. **No Iran deploy / merge.**
+- Last verified: 2026-08-31
+- **Primary tip (this merge):** `ai/PROD-STITCH-PACK-MERGE` onto `12b0385` — SW **v176**
+- **Iran:** overlay v176 planned; never wholesale-replace VPS `db.js`; no `git pull` on dirty tree
+- **qa:full (QA gaps):** `qa-20260831T105600-14704` PASS 268 FAIL 0 ERROR 0 · NOT_IMPLEMENTED 0
+- **Active task:** `PROD-STITCH-P5C` — leftover PACK cherry-picked
+- **Closed:** `QA-ERP-GAPS-NOT-IMPLEMENTED` · `QA-ERP-FULL-CYCLE-INTEGRATION` · `UI-STITCH-P0-DISCOVERY` (0 unique commits, claims released)
+- **Not merged (docs-only / stale stamps):** `codex/wave0-execution-pack`, ACC-CRM stamp `80a5aae`
 - Prior: `PROD-STITCH-P5B` completed
 - Independent Bugbot: no bugs. Security: APPROVED C0/H0/M0.
 - **PROD-STITCH-P5B:** `completed` — dual APPROVED + owner merge/deploy

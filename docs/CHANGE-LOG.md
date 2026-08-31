@@ -13,6 +13,13 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۰۹ — Git hygiene: merge leftover PACK + tidy Primary
+
+- **شاخه:** `ai/PROD-STITCH-PACK-MERGE` از Primary `12b0385` (cherry-pick `aa2367b` + `cb10268`)
+- **خلاصه:** تنها کار محصولیِ نامرج: رسید برش / PACK از لایه‌چینی + قفل طاقه بریده‌شده. SW `erp-taranom-v176`. `sync_seq_backfill_v13`.
+- **عمداً مرج نشد:** wave0-pack docs، stampهای قدیمی ACC-CRM. dirtyهای `app.js` در worktreeهای کهنه کامیت نشد.
+- **Deploy:** در حال overlay ایران (بدون `git pull` / بدون جایگزینی کامل `db.js`)
+
 ### ۱۴۰۵/۰۶/۰۹ — بستن claim و شاخهٔ محلی `ai/UI-DOCS-STITCH`
 
 - **شاخه:** `chore/UI-DOCS-STITCH-close` از Primary `fd47e86`

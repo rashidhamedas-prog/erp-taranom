@@ -1,3 +1,10 @@
+## 2026-08-31T15:20:00+03:30 — Git hygiene + leftover PACK merge
+
+- Audited all worktrees. Only real unmerged product: `ai/PROD-STITCH-PACK` (`aa2367b`+`cb10268`).
+- Cherry-picked onto Primary `12b0385` as `ai/PROD-STITCH-PACK-MERGE`. SW v176. `sync_seq_backfill_v13`.
+- Kept `UI-STITCH-P0-DISCOVERY` closed (0 unique commits). Did not commit truncated `app.js`. No Iran `git pull`.
+- Next: FF Primary, Iran overlay v176.
+
 ## 2026-08-31T14:55:00+03:30 — UI-DOCS-STITCH / P0 claim closed
 
 - **Owner:** close leftover docs branch; nothing product-open on `ai/UI-DOCS-STITCH`.

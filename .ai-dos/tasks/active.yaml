@@ -1,5 +1,44 @@
 schema_version: 1
 tasks:
+  - id: "PROD-STITCH-P5C"
+    title: "PACK / FG receipt from cutting lay + git hygiene merge to Primary"
+    status: "active"
+    review_status: "PENDING"
+    security_status: "NOT_REQUIRED"
+    risk: "high"
+    owner: "cursor:orchestrator-git-hygiene"
+    roles:
+      orchestrator: "cursor:orchestrator-git-hygiene"
+      implementer: "cursor:implementer-git-hygiene"
+    branch: "ai/PROD-STITCH-PACK-MERGE"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-pack-merge"
+    claimed_at: "2026-08-31T15:10:00+03:30"
+    file_claims:
+      - "server/lib/production/cutting.js"
+      - "server/lib/production/schema.js"
+      - "server/routes/production-cutting.js"
+      - "server/scripts/test-prod-stitch-pack.js"
+      - "server/sync/tables.js"
+      - "server/sync/capture.js"
+      - "server/db.js"
+      - "server/public/app.js"
+      - "server/public/sw.js"
+      - "server/public/index.html"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    notes: >-
+      Owner asked 2026-08-31 to finish leftover commit/merge/deploy.
+      Cherry-pick aa2367b+cb10268 onto 12b0385. SW v176.
+    acceptance_criteria:
+      - "node server/scripts/test-prod-stitch-pack.js"
+      - "FF or merge to origin/claude/claude-md-docs-2ssrpy"
+      - "Iran overlay without wholesale db.js replace; health 200"
+    non_goals:
+      - "Merging erp-taranom1 product code"
+      - "Committing truncated app.js in stale worktrees"
+
   - id: "UI-STITCH-P0-DISCOVERY"
     title: "Phase 0 Stitch discovery + STITCH-TO-CODE-MAP (no product code)"
     status: "completed"
