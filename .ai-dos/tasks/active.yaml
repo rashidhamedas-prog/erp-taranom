@@ -178,7 +178,7 @@ tasks:
 
   - id: "QA-ERP-GAPS-NOT-IMPLEMENTED"
     title: "Follow-up product gaps reported as NOT_IMPLEMENTED by QA-ERP-FULL-CYCLE"
-    status: "active"
+    status: "completed"
     review_status: "PENDING"
     security_status: "NOT_REQUIRED"
     risk: "medium"
@@ -190,8 +190,11 @@ tasks:
     branch: "ai/QA-ERP-GAPS-NOT-IMPLEMENTED"
     worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-gaps"
     claimed_at: "2026-08-31T13:40:00+03:30"
-    file_claims:
+    completed_at: "2026-08-31T14:40:00+03:30"
+    file_claims: []
+    released_claims:
       - "scripts/qa/batches/admin.js"
+      - "scripts/qa/batches/roles.js"
       - "scripts/qa/inventory.js"
       - "scripts/qa/lib/http.js"
       - "scripts/qa/lib/server.js"
@@ -201,9 +204,16 @@ tasks:
       - ".ai-dos/tasks/active.yaml"
       - ".ai-dos/tasks/handoff.md"
       - ".ai-dos/project/status.md"
+      - "server/lib/qa-gaps-schema.js"
+      - "server/routes/rfq.js"
+      - "server/routes/procurement.js"
+      - "server/routes/branches.js"
+      - "server/lib/rbac.js"
+      - "server/routes/orders.js"
     notes: >-
       Owner asked 2026-08-31: implement remaining product gaps in order.
       qa:full qa-20260831T105600-14704 PASS 268 NOT_IMPLEMENTED 0.
+      Primary FF a75ed64. Iran overlay v175 health/ready/root 200.
     acceptance_criteria:
       - "Each gap is either implemented with tests or remains an explicit NOT_IMPLEMENTED task"
       - "Branch merged to origin/claude/claude-md-docs-2ssrpy after qa:full FAIL=0"

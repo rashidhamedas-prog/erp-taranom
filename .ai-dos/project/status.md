@@ -1,10 +1,10 @@
 # Project Status
 
 - Last verified: 2026-08-31
-- **Primary:** merging QA product gaps (SW v175)
-- **Iran:** overlay v175 planned; `db.js` never wholesale-replaced
+- **Primary:** `origin/claude/claude-md-docs-2ssrpy` @ `a75ed64` (QA product gaps + SW v175)
+- **Iran:** overlay v175 ✅ health/ready/root 200; VPS `db.js`/`server.js` surgical only (bak-v175)
 - **qa:full:** `qa-20260831T105600-14704` PASS 268 FAIL 0 ERROR 0 · NOT_IMPLEMENTED 0
-- **Active task:** `QA-ERP-GAPS-NOT-IMPLEMENTED` closing — all 11 product gaps implemented
+- **Active task:** none for QA gaps — `QA-ERP-GAPS-NOT-IMPLEMENTED` completed
 - **Closed:** `QA-ERP-FULL-CYCLE-INTEGRATION` — owner-approved merge + overlay
 - **erp-taranom1 / UI-STITCH:** untouched
 - **Integration tip:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` /
