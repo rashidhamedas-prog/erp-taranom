@@ -59,6 +59,8 @@ function ok(cond, label, extra) {
   const app = express();
   app.use(express.json());
   app.use('/api/accounting', require('../routes/accounting'));
+  app.use('/api/customers', require('../routes/customers'));
+  app.use('/api/admin', require('../routes/admin'));
   const server = http.createServer(app);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const BASE = `http://127.0.0.1:${server.address().port}`;
@@ -140,6 +142,19 @@ function ok(cond, label, extra) {
   ok(r.status === 200, 'overview 200');
   ok(Number(r.data.totalReceivable) < 1_000_000_000, 'overview AR ignores 40B control dump', r.data.totalReceivable);
   ok(r.data.books_mismatch !== true, 'overview books match after repair', r.data.books_mismatch);
+
+  r = await api('GET', '/api/customers');
+  ok(r.status === 200, 'customers list 200');
+  const list = Array.isArray(r.data) ? r.data : (r.data?.data || []);
+  const listed = list.find((c) => Number(c.id) === Number(custId));
+  ok(!!listed, 'test customer on CRM list', list.length);
+  ok(Math.abs(Number(listed && listed.balance) - expectNet) <= 1, 'CRM list uses GL net not stale ledger', listed && listed.balance);
+  ok(Number(listed && listed.balance) > 0, 'Moein-like customer is debtor after invoices', listed && listed.balance);
+
+  r = await api('GET', '/api/admin/customer-balances');
+  ok(r.status === 200, 'admin customer-balances 200');
+  const adminRow = (r.data || []).find((c) => Number(c.id) === Number(custId));
+  ok(!!adminRow && Math.abs(Number(adminRow.balance) - expectNet) <= 1, 'dashboard balances use GL net', adminRow && adminRow.balance);
 
   const lines = salesJournalLines(db, custId, {
     subtotal: 10_000, discAmt: 0, final: 10_000, vatAmount: 0, netBeforeVat: 10_000,

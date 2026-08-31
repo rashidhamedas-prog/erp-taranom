@@ -14,7 +14,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 HOST, USER, APP = "94.249.244.208", "taranom", "/home/taranom/crm-taranom"
 KEY = Path.home() / ".ssh" / "id_ed25519_taranom"
 ROOT = Path(__file__).resolve().parents[1]
-STAMP_FILE = ".sftp-deploy-stamp-ledger-v177"
+STAMP_FILE = ".sftp-deploy-stamp-ledger-v178"
 
 FILES = [
     "docs/CHANGE-LOG.md",
@@ -22,10 +22,15 @@ FILES = [
     "server/lib/customer-books.js",
     "server/lib/opening-post.js",
     "server/lib/void-invoice.js",
+    "server/lib/rep-ledger.js",
     "server/routes/accounting.js",
     "server/routes/invoices.js",
+    "server/routes/customers.js",
+    "server/routes/admin.js",
+    "server/routes/dashboard.js",
     "server/scripts/test-ledger-statement-repair.js",
     "server/public/app.js",
+    "server/public/tbl-enhance.js",
     "server/public/index.html",
     "server/public/sw.js",
 ]

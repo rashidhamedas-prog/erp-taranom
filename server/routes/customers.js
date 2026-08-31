@@ -9,6 +9,7 @@ const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { getSmsSettings } = require('../lib/secret-settings');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
+const { applyCustomerBalances } = require('../lib/customer-books');
 
 const excelUpload = createSecureUpload('xlsx');
 
@@ -100,6 +101,7 @@ router.get('/', auth, (req, res) => {
   const rows = db.prepare(
     `SELECT c.*,${BAL_COL} AS balance,u.name as salesperson,g.name as group_name,g.nature as group_nature${pgCol} FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups g ON c.group_id=g.id ${pgJoin} ${whereSql} ORDER BY c.created_at DESC${pq.limitSql}`
   ).all(...params, ...pq.limitParams);
+  applyCustomerBalances(db, rows);
   res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 
@@ -213,10 +215,13 @@ router.get('/balances', auth, (req, res) => {
   const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
   let rows;
   if (scope === null) {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE ${BAL_COL}<>0${activeClause} ORDER BY ABS(${BAL_COL}) DESC`).all();
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature,u.name as salesperson FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN users u ON c.user_id=u.id LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE 1=1${activeClause}`).all();
   } else {
-    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE c.user_id=? AND ${BAL_COL}<>0${activeClause} ORDER BY ABS(${BAL_COL}) DESC`).all(scope);
+    rows = db.prepare(`SELECT c.id,c.biz,c.owner,c.city,c.address,${BAL_COL} AS balance,COALESCE(cg.nature,'debit') AS nature FROM customers c ${LEDGER_BAL_JOIN} LEFT JOIN customer_groups cg ON cg.id=c.group_id WHERE c.user_id=?${activeClause}`).all(scope);
   }
+  applyCustomerBalances(db, rows);
+  rows = rows.filter((r) => Math.abs(Number(r.balance) || 0) > 0)
+    .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
   res.json(rows);
 });
 
@@ -230,6 +235,7 @@ router.get('/export/excel', auth, adminOnly, async (req, res) => {
   } else {
     rows = db.prepare(`SELECT c.*,${BAL_COL} AS balance FROM customers c ${LEDGER_BAL_JOIN} WHERE c.user_id=?${activeClause} ORDER BY c.created_at DESC`).all(scope);
   }
+  applyCustomerBalances(db, rows);
   const isAdmin = req.user.role === 'admin';
   const data = rows.map(r => ({
     'نام فروشگاه': r.biz, 'نام کامل': r.owner, 'شهر': r.city,

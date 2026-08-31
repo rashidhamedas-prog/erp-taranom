@@ -5,6 +5,7 @@ const { rialToToman, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/m
 const { DELETED_FILTER } = require('../lib/ledger');
 const { getActiveFiscalYear } = require('../lib/fiscal-period');
 const { firmSaleTypeSql } = require('../lib/sales-document');
+const { glCustomersTafsiliBalance, customerSignedBalanceMap } = require('../lib/customer-books');
 
 function ok(data, message = '') {
   return { success: true, data, message };
@@ -42,7 +43,7 @@ router.get('/summary', auth, (req, res) => {
 
   let receivables = 0, payables = 0;
   try {
-    receivables = db.prepare('SELECT COALESCE(SUM(debit)-SUM(credit),0) b FROM customer_ledger').get()?.b || 0;
+    receivables = glCustomersTafsiliBalance(db).signed;
     payables = db.prepare('SELECT COALESCE(SUM(credit)-SUM(debit),0) b FROM supplier_ledger').get()?.b || 0;
   } catch (_) { /* */ }
 
@@ -63,11 +64,12 @@ router.get('/kpis', auth, adminOrAccounting, (req, res) => {
   const monthPrefix = require('../jalali').todayJalali().slice(0, 7);
   const monthSales = db.prepare(`SELECT COALESCE(SUM(final),0) s, COUNT(*) c FROM invoices WHERE ${firmSaleTypeSql()} AND date LIKE ? AND COALESCE(deleted_at,0)=0`).get(monthPrefix + '%');
 
-  const debtors = db.prepare(`
-    SELECT c.id, c.biz, COALESCE(SUM(cl.debit)-SUM(cl.credit),0) bal
-    FROM customers c JOIN customer_ledger cl ON cl.customer_id=c.id
-    GROUP BY c.id HAVING bal > 0 ORDER BY bal DESC LIMIT 5
-  `).all();
+  const balMap = customerSignedBalanceMap(db);
+  const debtors = db.prepare('SELECT id, biz FROM customers').all()
+    .map((c) => ({ id: c.id, biz: c.biz, bal: Number(balMap.get(c.id) || 0) }))
+    .filter((c) => c.bal > 0)
+    .sort((a, b) => b.bal - a.bal)
+    .slice(0, 5);
 
   res.json(ok({
     month_sales_toman: monthSales?.s || 0,

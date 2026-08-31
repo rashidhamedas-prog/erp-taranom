@@ -428,6 +428,49 @@ function attachMissingInvoiceRows(db, customerId, tagged) {
   return added;
 }
 
+/**
+ * Signed live balance per customer (debit − credit).
+ * Prefers the customer's tafsili in the general ledger; falls back to customer_ledger.
+ * Runs the one-shot book repair first so CRM lists match the statement.
+ */
+function customerSignedBalanceMap(db) {
+  ensureCustomerBooksRepaired(db);
+  const map = new Map();
+  const led = db.prepare(`
+    SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS bal
+    FROM customer_ledger GROUP BY customer_id
+  `).all();
+  for (const r of led) map.set(Number(r.customer_id), Number(r.bal) || 0);
+
+  const glRows = db.prepare(`
+    SELECT c.id AS customer_id,
+      COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) - COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS signed
+    FROM customers c
+    JOIN journal_lines jl ON jl.account_code = c.coa_code
+    JOIN journal_entries je ON je.id = jl.entry_id
+    WHERE c.coa_code IS NOT NULL AND TRIM(c.coa_code)<>''
+      AND ${JE_ALIVE}
+    GROUP BY c.id
+  `).all();
+  for (const r of glRows) map.set(Number(r.customer_id), Number(r.signed) || 0);
+  return map;
+}
+
+function applyCustomerBalances(db, rows) {
+  if (!rows || !rows.length) return rows;
+  const map = customerSignedBalanceMap(db);
+  for (const r of rows) {
+    if (!r || r.id == null) continue;
+    const id = Number(r.id);
+    if (map.has(id)) {
+      r.ledger_balance = r.balance;
+      r.balance = map.get(id);
+      r.balance_source = 'gl';
+    }
+  }
+  return rows;
+}
+
 function glCustomersTafsiliBalance(db, { asOf } = {}) {
   const customers = db.prepare(`
     SELECT id, coa_code FROM customers
@@ -503,6 +546,8 @@ module.exports = {
   reverseInvoiceCustomerLedger,
   attachMissingInvoiceRows,
   glCustomersTafsiliBalance,
+  customerSignedBalanceMap,
+  applyCustomerBalances,
   repairCustomerBooks,
   ensureCustomerBooksRepaired,
   isFirmSale,

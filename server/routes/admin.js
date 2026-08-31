@@ -7,6 +7,7 @@ const { validatePassword } = require('../lib/security');
 const { j2g } = require('../jalali');
 const { ensureUserParty } = require('../lib/user-party');
 const { firmSaleTypeSql } = require('../lib/sales-document');
+const { applyCustomerBalances } = require('../lib/customer-books');
 const ALLOWED_ROLES = new Set(Object.keys(DEFAULT_ROLE_PERMISSIONS));
 
 function jalaliDayBounds(jStr) {
@@ -297,10 +298,11 @@ router.get('/customer-balances', auth, adminOnly, (req, res) => {
     FROM customers c ${LEDGER_BAL_JOIN}
     LEFT JOIN users u ON c.user_id=u.id
     LEFT JOIN customer_groups cg ON cg.id=c.group_id
-    WHERE ${BAL} <> 0
-    ORDER BY ABS(${BAL}) DESC
   `).all();
-  res.json(rows);
+  applyCustomerBalances(db, rows);
+  res.json(rows
+    .filter((r) => Math.abs(Number(r.balance) || 0) > 0)
+    .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0)));
 });
 
 // Repair: restore products.stock / pack_size / price / code wiped by image-only PUT bug

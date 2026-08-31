@@ -1,3 +1,9 @@
+## 2026-08-31T19:20:00+03:30 — CRM customer list uses same GL net as statement
+
+- CRM list / dashboard balances still showed Moein 99,999,000 creditor (raw customer_ledger; repair only on accounting).
+- Overlay GL tafsili on customer APIs; run repair on GET /customers. Footer/cards net debit vs credit (larger side wins).
+- SW v178. Tests 20/20.
+
 ## 2026-08-31T18:50:00+03:30 — Customer statement / red ledger warnings
 
 - **Branch:** `fix/LEDGER-STATEMENT-AR` (workspace `erp-taranom1`)

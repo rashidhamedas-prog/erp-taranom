@@ -367,21 +367,25 @@ function getRepRanking(db, { from, to } = {}) {
 
 function getRepAgingReceivables(db, repId) {
   const today = require('../jalali').todayJalali();
+  const { applyCustomerBalances } = require('./customer-books');
   const rows = db.prepare(`
     SELECT c.id, c.biz, c.owner,
       COALESCE(lb.balance,0) AS balance
     FROM customers c
     LEFT JOIN (SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS balance FROM customer_ledger GROUP BY customer_id) lb ON lb.customer_id=c.id
-    WHERE c.user_id=? AND COALESCE(lb.balance,0) > 0
-    ORDER BY balance DESC
+    WHERE c.user_id=?
+    ORDER BY ABS(COALESCE(lb.balance,0)) DESC
   `).all(repId);
+  applyCustomerBalances(db, rows);
+  const live = rows.filter((r) => Number(r.balance) > 0)
+    .sort((a, b) => Number(b.balance) - Number(a.balance));
   const buckets = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
-  for (const r of rows) {
+  for (const r of live) {
     const lastInv = db.prepare(`SELECT date FROM invoices WHERE cust_id=? AND ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0 ORDER BY date DESC LIMIT 1`).get(r.id);
     buckets.current += r.balance;
     if (lastInv?.date && lastInv.date < today) buckets.d30 += r.balance * 0.3;
   }
-  return { rows, buckets, total: rows.reduce((a, r) => a + r.balance, 0) };
+  return { rows: live, buckets, total: live.reduce((a, r) => a + r.balance, 0) };
 }
 
 function getTeamRollup(db, supervisorId, opts = {}) {

@@ -251,8 +251,21 @@ function balSides(balance){
   const b=Number(balance)||0;
   return { debit: b>0?b:0, credit: b<0?-b:0, net:b };
 }
+/** جمع خانواده‌ها جدا می‌ماند؛ مانده خالص = تفاضل. ماهیت نهایی سمت بزرگ‌تر است. */
 function balTotals(rows){
-  return (rows||[]).reduce((a,c)=>{ const s=balSides(c&&c.balance); a.debit+=s.debit; a.credit+=s.credit; return a; },{debit:0,credit:0});
+  const t=(rows||[]).reduce((a,c)=>{ const s=balSides(c&&c.balance); a.debit+=s.debit; a.credit+=s.credit; return a; },{debit:0,credit:0});
+  const net=t.debit-t.credit;
+  t.net=net;
+  t.netAbs=Math.abs(net);
+  t.nature=net>0?'debit':net<0?'credit':'';
+  t.netDebit=net>0?net:0;
+  t.netCredit=net<0?-net:0;
+  return t;
+}
+function balNetLabel(t){
+  if(t.nature==='debit') return 'بدهکار';
+  if(t.nature==='credit') return 'بستانکار';
+  return '—';
 }
 /** ماهیت نمایشی مانده زنده (اولویت با علامت مانده؛ گروه فقط راهنماست) */
 function natureLabelOf(c){
@@ -290,9 +303,9 @@ function balFooterPairHtml(rows, colsBefore, colsAfter){
   const t=balTotals(rows);
   const after=colsAfter>0?`<td colspan="${colsAfter}"></td>`:'';
   return `<tr class="tbl-footer-sum" data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-    <td data-label="جمع" colspan="${colsBefore}">جمع (${fmt((rows||[]).length)} مورد)</td>
-    <td data-label="جمع بدهکار" class="mono" id="dashBalDebitTotal" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${t.debit?fmt(t.debit):'-'}</td>
-    <td data-label="جمع بستانکار" class="mono" id="dashBalCreditTotal" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${t.credit?fmt(t.credit):'-'}</td>
+    <td data-label="جمع" colspan="${colsBefore}">مانده خالص (${fmt((rows||[]).length)} مورد) — ${balNetLabel(t)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;font-weight:500`)}">بدهکاران ${fmt(t.debit)} · بستانکاران ${fmt(t.credit)} → تفاضل؛ جمع نمی‌شوند</div></td>
+    <td data-label="مانده خالص بدهکار" class="mono" id="dashBalDebitTotal" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${t.netDebit?fmt(t.netDebit):'-'}</td>
+    <td data-label="مانده خالص بستانکار" class="mono" id="dashBalCreditTotal" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${t.netCredit?fmt(t.netCredit):'-'}</td>
     ${after}
   </tr>`;
 }
@@ -2431,8 +2444,9 @@ async function renderDashContent(){
         ${statCard('p','🛍️', fmt(ov.totalProducts),'کالاها')}
         ${statCard('b','📞', fmt(ov.openFollowups),'پیگیری باز')}
         ${statCard('r','📉', fmt(ov.lowStock),'موجودی کم')}
-        ${statCard('r','📤', balT.debit,'مانده جمع بدهکاران')}
-        ${statCard('g','📥', balT.credit,'مانده جمع بستانکاران')}
+        ${statCard(balT.nature==='credit'?'g':'r', balT.nature==='credit'?'📥':'📤', balT.netAbs, 'مانده خالص مشتریان — '+balNetLabel(balT))}
+        ${statCard('r','📤', balT.debit,'جمع بدهکاران (قبل از تهاتر)')}
+        ${statCard('g','📥', balT.credit,'جمع بستانکاران (قبل از تهاتر)')}
       </div>
       <div class="panel">
         <div class="panel-head"><h4>عملکرد کارشناسان${dq?' · بازه':''}</h4></div>
@@ -2503,8 +2517,9 @@ async function renderDashContent(){
         ${statCard('g','🎯', fmt(Math.round(myComm.totalComm||0)),'انگیزه فروش')}
         ${statCard('r','💵', fmt(Math.round(myComm.payable||0)),'مانده انگیزه')}
         ${myComm.monthlyTarget?statCard('b','📊', (myComm.targetPct||0)+'٪','تحقق هدف'):''}
-        ${statCard('r','📤', balT.debit,'مانده جمع بدهکاران')}
-        ${statCard('g','📥', balT.credit,'مانده جمع بستانکاران')}
+        ${statCard(balT.nature==='credit'?'g':'r', balT.nature==='credit'?'📥':'📤', balT.netAbs, 'مانده خالص مشتریان — '+balNetLabel(balT))}
+        ${statCard('r','📤', balT.debit,'جمع بدهکاران (قبل از تهاتر)')}
+        ${statCard('g','📥', balT.credit,'جمع بستانکاران (قبل از تهاتر)')}
       </div>
       ${myComm.basisLabel?`<div class="muted" data-csp-style="${CSP.style(`margin:-4px 0 12px;font-size:11px`)}">مبنا: ${esc(myComm.basisLabel)}${myComm.pendingExpenses?` — ${myComm.pendingExpenses} هزینه در انتظار`:''}</div>`:''}
       ${balRows.length?`<div class="panel">
@@ -2562,8 +2577,8 @@ function filterDashBalances(name){
   const t = balTotals(filtered);
   const dCell = el('dashBalDebitTotal');
   const cCell = el('dashBalCreditTotal');
-  if(dCell){ dCell.textContent = t.debit ? fmt(t.debit) : '-'; dCell.style.color = '#dc2626'; }
-  if(cCell){ cCell.textContent = t.credit ? fmt(t.credit) : '-'; cCell.style.color = 'var(--green)'; }
+  if(dCell){ dCell.textContent = t.netDebit ? fmt(t.netDebit) : '-'; dCell.style.color = '#dc2626'; }
+  if(cCell){ cCell.textContent = t.netCredit ? fmt(t.netCredit) : '-'; cCell.style.color = 'var(--green)'; }
   const tbl = el('dashBalTbl');
   if(tbl && typeof tblRebuildFooter==='function') tblRebuildFooter(tbl);
 }
@@ -2675,15 +2690,15 @@ function renderCustTable(){
     <td>${esc(c.city||'-')}</td>
     ${tdClip(c.address||'-', 200, true)}
     <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" data-csp-style="${CSP.style(`background:#dbeafe;color:#1d4ed8`)}" title="${esc(T('دسترسی پورتال مشتریان فعال'))}">${T('پورتال')}</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" data-csp-style="${CSP.style(`background:#fef2f2;color:#dc2626`)}" title="${esc(T('ریسک ریزش مشتری'))}">⚠️${c.churn_score}٪</span>`:''}</td>
-    <td>${balNatureBadgeHtml(c)}${c.party_group_name?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(c.party_group_name)}</div>`:''}${c.group_name?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(c.group_name)}</div>`:''}</td>
+    <td>${balNatureBadgeHtml(c)}${c.party_group_name?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گروه: ${esc(c.party_group_name)}</div>`:''}${c.group_name?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گروه: ${esc(c.group_name)}</div>`:''}</td>
     ${balDebitTd(c.balance)}${balCreditTd(c.balance)}
     ${isAdm?`<td class="muted">${esc(c.salesperson||'-')}</td>`:''}
   </tr>`;
   }).join('')||emptyRow(colCount)}</tbody>
   <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-    <td colspan="10">جمع (${fmt(rows.length)} مشتری)</td>
-    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.debit?fmt(balT.debit):'-'}</td>
-    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.credit?fmt(balT.credit):'-'}</td>
+    <td colspan="10">مانده خالص (${fmt(rows.length)} مشتری) — ${balNetLabel(balT)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;font-weight:500`)}">بدهکاران ${fmt(balT.debit)} · بستانکاران ${fmt(balT.credit)} → تفاضل؛ جمع نمی‌شوند</div></td>
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.netDebit?fmt(balT.netDebit):'-'}</td>
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.netCredit?fmt(balT.netCredit):'-'}</td>
     ${isAdm?'<td></td>':''}
   </tr></tfoot></table>`;
   if(typeof enhanceAccTables==='function') enhanceAccTables(el('custTable'));
@@ -6664,9 +6679,9 @@ async function renderPartiesTab(body){
           </td>
         </tr>`).join('')||emptyRow(11)}</tbody>
         <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-          <td colspan="8">جمع (${fmt(balRows.length)} نفر)</td>
-          <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.debit?fmt(balT.debit):'-'}</td>
-          <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.credit?fmt(balT.credit):'-'}</td>
+          <td colspan="8">مانده خالص (${fmt(balRows.length)} نفر) — ${balNetLabel(balT)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;font-weight:500`)}">بدهکاران ${fmt(balT.debit)} · بستانکاران ${fmt(balT.credit)} → تفاضل</div></td>
+          <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.netDebit?fmt(balT.netDebit):'-'}</td>
+          <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.netCredit?fmt(balT.netCredit):'-'}</td>
           <td></td>
         </tr></tfoot></table></div>
       </div>
@@ -7018,9 +7033,9 @@ async function renderPersonsTab(body){
       </td>
     </tr>`).join('')||emptyRow(7)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-      <td colspan="3">جمع (${fmt(persons.length)} نفر)</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.debit?fmt(balT.debit):'-'}</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.credit?fmt(balT.credit):'-'}</td>
+      <td colspan="3">مانده خالص (${fmt(persons.length)} نفر) — ${balNetLabel(balT)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;font-weight:500`)}">بدهکاران ${fmt(balT.debit)} · بستانکاران ${fmt(balT.credit)} → تفاضل</div></td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.netDebit?fmt(balT.netDebit):'-'}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.netCredit?fmt(balT.netCredit):'-'}</td>
       <td colspan="2"></td>
     </tr></tfoot></table></div>`;
 }
@@ -18118,7 +18133,8 @@ helpSec('🔑','لایسنس و entitlement',`
     helpSec('📒','حسابداری — دفتر، کدینگ، پورتال و چک',`
       <ul>
         <li><b>مانده پرداختنی داشبورد</b> از حساب کنترل پرداختنی دفتر کل (و تفصیلی‌های زیر آن) است، نه جمع خام دفتر تأمین‌کننده</li>
-        <li><b>مانده مطالبات و بستانکار مشتریان</b> هم از دفتر کل تا تاریخ نوار حسابداری است؛ داشبورد، مطالبات، دفتر کل و صورت‌حساب در یک تاریخ قطع باید یکی باشند</li>
+        <li><b>مانده مطالبات و بستانکار مشتریان</b> هم از دفتر کل تا تاریخ نوار حسابداری است؛ لیست مشتریان، داشبورد CRM، مطالبات، دفتر کل و صورت‌حساب در یک تاریخ قطع باید یکی باشند</li>
+        <li><b>اصل تهاتر مانده:</b> وقتی چند مانده زیر هم جمع می‌شود، ارقام بدهکار با ارقام بستانکار جمع نمی‌شوند؛ تفاضل می‌گیرند و ماهیت ماندهٔ خالص سمت بزرگ‌تر است</li>
         <li>دفتر مشتری فقط <b>نمای دوم</b> است؛ اگر با دفتر کل اختلاف داشت هشدار نارنجی نشان داده می‌شود و خروجی صورت‌حساب عدد دفتر کل را می‌نویسد</li>
         <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها روی کل دوره است؛ جستجوی شرح فقط فهرست ردیف‌ها را محدود می‌کند و مانده را عوض نمی‌کند</li>
         <li><b>دفتر مالی مشترک</b> (حسابداری → گزارشات): یک گزارش برای شخص، بانک، صندوق، تنخواه و حساب دفتر کل. مانده ابتدا + گردش خالص دوره = مانده انتها. منبع پول دفتر کل است؛ اگر شخص فقط دفتر معین داشته باشد همان با برچسب منبع نشان داده می‌شود. کاردکس کالا از <code>/api/ledgers/stock</code> خوانده می‌شود. خروجی CSV همان جمع‌ها را می‌نویسد. ویزیتور (<code>field_sales</code>) دسترسی ندارد</li>
@@ -18546,7 +18562,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v177</b> است و اسکریپت‌ها با <code>?v=177</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v178</b> است و اسکریپت‌ها با <code>?v=178</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -18740,9 +18756,10 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v177</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
-      <div class="tip">مانده مطالبات و صورت‌حساب از تفصیلی همان مشتری است (نه ماندهٔ افتتاحیه روی حساب کل ۱۱۰۳ که مربوط به اشخاص دیگر باشد). فاکتور نقدی هم در صورت‌حساب دیده می‌شود. اگر هنوز هشدار نارنجی دیدید یک‌بار Hard Refresh بزنید.</div>`),
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v178</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
+      <h5>مانده و ماهیت</h5><p>ستون بدهکار/بستانکار ماندهٔ <b>خالص</b> همان مشتری است (تفاضل گردش بدهکار و بستانکار). ماهیت از علامت مانده زنده می‌آید، نه از نام گروه. در جمع پایین جدول و کارت‌های داشبورد، ماندهٔ بدهکاران با ماندهٔ بستانکاران <b>جمع نمی‌شود</b> — تفاضل گرفته می‌شود و سمت بزرگ‌تر ماهیت ماندهٔ خالص است.</p>
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
       <h5>ثبت مشتری جدید</h5><ul>
         <li>دکمه «مشتری جدید» را بزنید</li>
