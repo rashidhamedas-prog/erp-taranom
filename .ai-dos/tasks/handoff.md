@@ -1,3 +1,11 @@
+## 2026-08-31T13:50:00+03:30 — QA-ERP-GAPS claimed; backup create/list/health covered
+
+- **Task:** `QA-ERP-GAPS-NOT-IMPLEMENTED` on `ai/QA-ERP-GAPS-NOT-IMPLEMENTED`
+- **Worktree:** `D:/soft/Claud/porje/Run in the project/erp-taranom-qa-gaps` from Primary `dbd86fc`
+- **Coverage:** Admin batch now hits `/admin/backup-health`, `/admin/backup-now`, `/admin/backups`. Restore stays NOT_IMPLEMENTED (destructive mid-run).
+- **Still product gaps:** RFQ, 3-way match, GRNI, SOD/maker-checker, branch ACL. Reservation + tracking_profile remain coverage/model gaps.
+- **No Primary merge/Iran deploy this child** until qa:full + review.
+
 ## 2026-08-31T13:40:00+03:30 — Primary merge + Iran overlay v173 done
 
 - **Primary push:** `6ce3ac1..be0faec` on `origin/claude/claude-md-docs-2ssrpy`

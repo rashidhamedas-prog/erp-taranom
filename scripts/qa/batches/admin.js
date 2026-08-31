@@ -590,7 +590,25 @@ async function runAdminBatch({ http, rec, gap, ctx }) {
     expected: 'no live tax egress', actual: moadian2.status,
     message: moadian2.body?.error || 'settings moadian_enabled=0',
   });
-  gap('backup.restore', 'backup', 'Backup/restore exercised only if caller uses isolated DB; this batch does not hit /api/admin/backup*');
+  const bakHealth = await http.get('/admin/backup-health', token);
+  rec({
+    id: 'backup.health', suite: 'admin', module: 'backup',
+    status: okStatus(bakHealth) ? 'PASS' : 'FAIL',
+    expected: 200, actual: bakHealth.status, message: bakHealth.body?.error || '',
+  });
+  const bakNow = await http.post('/admin/backup-now', {}, token);
+  rec({
+    id: 'backup.create', suite: 'admin', module: 'backup',
+    status: okStatus(bakNow) ? 'PASS' : 'FAIL',
+    expected: 200, actual: bakNow.status, message: bakNow.body?.error || '',
+  });
+  const bakList = await http.get('/admin/backups', token);
+  rec({
+    id: 'backup.list', suite: 'admin', module: 'backup',
+    status: okStatus(bakList) ? 'PASS' : 'FAIL',
+    expected: 200, actual: bakList.status, message: bakList.body?.error || '',
+  });
+  gap('backup.restore', 'backup', 'POST /admin/backup-restore is destructive mid-run; not invoked. create/list/health are exercised.');
 
   const noParty = await http.post('/invoices', {
     type: 'final', date: QA_DATE, rows: [{ product_id: ctx.productId, qty: 1, price: 1 }],
