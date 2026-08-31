@@ -2370,7 +2370,35 @@ function showModal(title, bodyHtml, lg){
   openModal(`<div class="modal-head"><h3>${title||''}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">${bodyHtml||''}</div>`, lg);
 }
-function closeModal(){ el('modalRoot').innerHTML=''; _bcWedgeHandler=null; }
+function ensureNestedModalRoot(){
+  let root=document.getElementById('nestedModalRoot');
+  if(!root){
+    root=document.createElement('div');
+    root.id='nestedModalRoot';
+    document.body.appendChild(root);
+  }
+  return root;
+}
+function isNestedModalOpen(){
+  const root=document.getElementById('nestedModalRoot');
+  return !!(root && root.querySelector('.overlay.open'));
+}
+function openNestedModal(html, lg){
+  const root=ensureNestedModalRoot();
+  root.innerHTML=`<div class="overlay open nested-overlay" id="nestedModalOverlay" data-csp-click="${CSP.bind('click',function(event){if(event.target===this)closeNestedModal()})}">
+    <div class="modal ${lg?'lg':''}" id="nestedActiveModal">${html}</div></div>`;
+  try{ attachDatepickers(root); }catch(_){}
+  try{ initCustSearches(root); }catch(_){}
+}
+function closeNestedModal(){
+  const root=document.getElementById('nestedModalRoot');
+  if(root) root.innerHTML='';
+}
+function closeModal(){
+  if(isNestedModalOpen()){ closeNestedModal(); return; }
+  el('modalRoot').innerHTML='';
+  _bcWedgeHandler=null;
+}
 
 /* ============================================================
    DASHBOARD
@@ -3881,7 +3909,7 @@ function renderInvPicker(){
   const shown=prods.slice(0,INV_PICK_LIMIT);
   el('invPicker').innerHTML = shown.map(p=>{
     // Real-time available stock = current stock minus qty already reserved in this invoice's cart
-    const reserved=invCart.filter(r=>r.product_id===p.id).reduce((a,r)=>a+r.qty,0);
+    const reserved=invCart.filter(r=>Number(r.product_id)===Number(p.id)).reduce((a,r)=>a+r.qty,0);
     const avail=(p.wh_qty!=null?p.wh_qty:(p.stock||0))-reserved;
     return `
     <div class="pick-card" id="pc-${p.id}" data-csp-click="${CSP.bind('click',function(event){pickCardTap(event,(p.id))})}">
@@ -3901,9 +3929,9 @@ async function reloadInvProductsForWarehouse(){
     const list = Array.isArray(rows) ? rows : (rows.rows || rows.data || []);
     CACHE._invProducts = list;
     // Drop cart lines that are no longer in this warehouse's product set
-    const ids = new Set(list.map(p=>p.id));
+    const ids = new Set(list.map(p=>Number(p.id)));
     const before = invCart.length;
-    invCart = invCart.filter(r => r.row_type==='income' || r.item_kind==='service' || ids.has(r.product_id));
+    invCart = invCart.filter(r => r.row_type==='income' || r.item_kind==='service' || ids.has(Number(r.product_id)));
     if(before !== invCart.length){
       try{ showToast('با تغییر انبار، اقلام ناسازگار از سبد حذف شدند','warning'); }catch(_){}
       try{ renderCart(); }catch(_){}
@@ -3911,10 +3939,21 @@ async function reloadInvProductsForWarehouse(){
     renderInvPicker();
   }catch(e){ try{ showToast(e.message||'خطا در بارگذاری کالاهای انبار','error'); }catch(_){ } }
 }
+function findInvProduct(pid){
+  const id=Number(pid);
+  if(!Number.isFinite(id)) return null;
+  const lists=[CACHE._invProducts, CACHE.allProducts, CACHE.products];
+  for(const list of lists){
+    if(!list||!list.length) continue;
+    const p=list.find(x=>Number(x.id)===id);
+    if(p) return p;
+  }
+  return null;
+}
 async function invProdQuickModal(prefill){
   await ensureProductCategories();
   const name=(prefill||'').trim();
-  openModal(`
+  openNestedModal(`
     <div class="modal-head"><h3>➕ ساخت سریع کالا</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>نام کالا *</label><input id="iq-name" value="${esc(name)}"></div>
@@ -3941,8 +3980,9 @@ async function saveInvProdQuick(){
     });
     if(!CACHE.allProducts) CACHE.allProducts=[];
     if(!CACHE.products) CACHE.products=[];
-    CACHE.allProducts.unshift(p); CACHE.products.unshift(p);
-    addToCart(p.id); closeModal(); showToast('کالا ساخته و به سبد اضافه شد');
+    if(!CACHE._invProducts) CACHE._invProducts=[];
+    CACHE.allProducts.unshift(p); CACHE.products.unshift(p); CACHE._invProducts.unshift(p);
+    closeNestedModal(); addToCart(p.id); showToast('کالا ساخته و به سبد اضافه شد');
   }catch(e){}
 }
 function headerInvoiceWarehouseId(){
@@ -3960,12 +4000,14 @@ function applyHeaderWarehouseToCart(cart, headerId){
   });
 }
 function addToCart(pid){
-  const p = CACHE.products.find(x=>x.id===pid); if(!p) return;
-  const ex = invCart.find(r=>r.product_id===pid && !r.batch_id);
+  const p = findInvProduct(pid);
+  if(!p){ try{ showToast('کالا در فهرست این انبار یافت نشد','error'); }catch(_){ } return; }
+  const pidN = Number(p.id);
+  const ex = invCart.find(r=>Number(r.product_id)===pidN && !r.batch_id);
   const defaultQty = p.pack_size > 1 ? p.pack_size : 1;
   const wh = headerInvoiceWarehouseId();
   if(ex) ex.qty += defaultQty;
-  else invCart.push({product_id:pid,name:p.name,qty:defaultQty,price:p.price,disc:0,warehouse_id:wh});
+  else invCart.push({product_id:pidN,name:p.name,qty:defaultQty,price:p.price,disc:0,warehouse_id:wh});
   renderCart();
   renderInvPicker(); // stock badges must reflect the newly reserved quantity immediately
 }
@@ -4978,7 +5020,9 @@ async function scanBarcodeToCart(code){
   try{
     const p=await api('GET','/products/by-barcode/'+encodeURIComponent(code));
     if(p&&p.id){
-      if(!(CACHE.products||[]).find(x=>x.id===p.id)) (CACHE.products=CACHE.products||[]).push(p);
+      if(!(CACHE.products||[]).find(x=>Number(x.id)===Number(p.id))) (CACHE.products=CACHE.products||[]).push(p);
+      if(!(CACHE._invProducts||[]).find(x=>Number(x.id)===Number(p.id))) (CACHE._invProducts=CACHE._invProducts||[]).push(p);
+      if(!(CACHE.allProducts||[]).find(x=>Number(x.id)===Number(p.id))) (CACHE.allProducts=CACHE.allProducts||[]).push(p);
       addToCart(p.id); showToast('افزوده شد: '+p.name);
     }
   }catch(e){ showToast('کالایی با این بارکد یافت نشد','error'); }
@@ -6523,12 +6567,14 @@ let genCart = [];
 let genCartDiscInputId = null; // set per-modal; null = no overall discount
 let GEN_CART_PRICE_FIELD = 'price'; // 'price' for sales-return, 'cost' for purchases
 function genCartAdd(pid){
-  const p = (CACHE.allProducts||CACHE.products||[]).find(x=>x.id===pid) || CACHE.products.find(x=>x.id===pid); if(!p) return;
-  const ex = genCart.find(r=>r.product_id===pid && !r.batch_id && !r.is_fabric_roll);
+  const p = findInvProduct(pid) || (CACHE.allProducts||[]).find(x=>Number(x.id)===Number(pid)) || (CACHE.products||[]).find(x=>Number(x.id)===Number(pid));
+  if(!p){ try{ showToast('کالا یافت نشد','error'); }catch(_){ } return; }
+  const pidN = Number(p.id);
+  const ex = genCart.find(r=>Number(r.product_id)===pidN && !r.batch_id && !r.is_fabric_roll);
   const defPrice = GEN_CART_PRICE_FIELD==='cost' ? (p.cost||0) : (p.price||0);
   const defaultQty = p.pack_size > 1 ? p.pack_size : 1;
   if(ex) ex.qty += defaultQty;
-  else genCart.push({product_id:pid,name:p.name,qty:defaultQty,price:defPrice,disc:0,disc_amount:0,description:'',warehouse_id:headerPurchaseWarehouseId()});
+  else genCart.push({product_id:pidN,name:p.name,qty:defaultQty,price:defPrice,disc:0,disc_amount:0,description:'',warehouse_id:headerPurchaseWarehouseId()});
   renderGenCart();
 }
 function renderGenCart(){
@@ -7624,8 +7670,8 @@ async function invoiceFabricRollPicker(kind){
   try{ rolls=(await api('GET','/inventory/fabric-rolls?status=active')||{}).rows||[]; }catch(_){ rolls=[]; }
   const prods=CACHE.allProducts||[];
   if(mode==='sale'){
-    openModal(`
-      <div class="modal-head"><h3>افزودن طاقه به فاکتور فروش</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    openNestedModal(`
+      <div class="modal-head"><h3>افزودن طاقه به فاکتور فروش</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
       <div class="modal-body">
         <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه یک ردیف کالا است. انبار فاکتور از انبار سربرگ پر می‌شود.</p>
         <div class="fg full"><label>طاقه موجود</label>
@@ -7634,7 +7680,7 @@ async function invoiceFabricRollPicker(kind){
         <div class="fg"><label>فی فروش (ریال)</label><input id="ifr-price" type="text" inputmode="numeric" class="money" value="0"></div>
       </div>
       <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(){invoiceFabricRollAddSale()})}">افزودن به فاکتور</button>
-        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button></div>`);
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button></div>`);
     const sel=el('ifr-roll');
     const sync=()=>{
       const opt=sel?.selectedOptions?.[0]; if(!opt) return;
@@ -7645,8 +7691,8 @@ async function invoiceFabricRollPicker(kind){
     if(sel) sel.addEventListener('change',sync); sync();
     return;
   }
-  openModal(`
-    <div class="modal-head"><h3>افزودن طاقه به فاکتور خرید</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+  openNestedModal(`
+    <div class="modal-head"><h3>افزودن طاقه به فاکتور خرید</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
     <div class="modal-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه به‌صورت یک کالای ردیفی ثبت می‌شود. انبار مقصد سربرگ روی ردیف کپی می‌شود و هویت طاقه بعد از ثبت فاکتور ساخته می‌شود (بدون سند تکراری).</p>
       <div class="form-grid">
@@ -7660,7 +7706,7 @@ async function invoiceFabricRollPicker(kind){
       </div>
     </div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(){invoiceFabricRollAddPurchase()})}">افزودن به فاکتور</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button></div>`);
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button></div>`);
 }
 function invoiceFabricRollAddSale(){
   const sel=el('ifr-roll'); const opt=sel?.selectedOptions?.[0];
@@ -7677,7 +7723,7 @@ function invoiceFabricRollAddSale(){
     color:opt.getAttribute('data-color')||'', pattern:opt.getAttribute('data-pat')||'',
     roll_no:opt.getAttribute('data-no')||'', unit_cost_rial:+opt.getAttribute('data-cost')||0
   });
-  closeModal(); renderCart(); if(typeof renderInvPicker==='function') renderInvPicker();
+  closeNestedModal(); renderCart(); if(typeof renderInvPicker==='function') renderInvPicker();
   showToast('طاقه به فاکتور اضافه شد');
 }
 function invoiceFabricRollAddPurchase(){
@@ -7693,7 +7739,7 @@ function invoiceFabricRollAddPurchase(){
     width_cm:+el('pfr-w')?.value||0, roll_no:(el('pfr-no')?.value||'').trim(),
     unit_cost_rial:cost
   });
-  closeModal(); renderGenCart();
+  closeNestedModal(); renderGenCart();
   showToast('طاقه به فاکتور خرید اضافه شد');
 }
 async function fabricRollSave(){
@@ -17102,7 +17148,7 @@ async function chequeEndorseIn(id){
   openModal(`
     <div class="modal-head"><h3>خرج / ظهرنویسی چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
     <div class="modal-body">
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">به‌جای واگذاری به بانک، اسناد دریافتنی بسته و بدهی ذینفع تسویه می‌شود: بدهکار پرداختنی ذینفع / بستانکار اسناد دریافتنی. دفتر تأمین‌کننده هم به‌روز می‌شود.</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">به‌جای واگذاری به بانک، اسناد دریافتنی بسته می‌شود. اگر ذینفع مشتری باشد همان مبلغ در دفتر و صورت‌حساب او (تفصیلی) دیده می‌شود؛ اگر تأمین‌کننده باشد دفتر تأمین‌کننده به‌روز می‌شود.</p>
       <div class="form-grid">
         <div class="fg full"><label>ذینفع (تأمین‌کننده)</label>
           <select id="ce-sup"><option value="">— انتخاب تأمین‌کننده —</option>
@@ -17122,7 +17168,7 @@ async function chequeEndorseInSave(id){
   if(!supplier_id && !party_id){ showToast('ذینفع را از تأمین‌کننده یا اشخاص انتخاب کنید','error'); return; }
   try{
     await api('POST','/cheque-records/'+id+'/endorse',{date:el('ce-date')?.value||todayJalali(), supplier_id, party_id});
-    closeModal(); showToast('خرج چک ثبت شد — سند و دفتر ذینفع به‌روز شد'); loadAccTab('cheque-register');
+    closeModal(); showToast('خرج چک ثبت شد — سند و صورت‌حساب/دفتر ذینفع به‌روز شد'); loadAccTab('cheque-register');
   }catch(e){}
 }
 async function voidChequeRegister(id,num){
@@ -18339,9 +18385,10 @@ helpSec('🔑','لایسنس و entitlement',`
     helpSec('📒','حسابداری — دفتر، کدینگ، پورتال و چک',`
       <ul>
         <li><b>مانده پرداختنی داشبورد</b> از حساب کنترل پرداختنی دفتر کل (و تفصیلی‌های زیر آن) است، نه جمع خام دفتر تأمین‌کننده</li>
-        <li><b>مانده مطالبات و بستانکار مشتریان</b> هم از دفتر کل تا تاریخ نوار حسابداری است؛ لیست مشتریان، داشبورد CRM، مطالبات، دفتر کل و صورت‌حساب در یک تاریخ قطع باید یکی باشند</li>
+        <li><b>مانده مطالبات داشبورد</b> جمع ماندهٔ بدهکار هر مشتری از تفصیلی خودش است (بستانکاران جدا جمع می‌شوند) — نه خالص کل پرتفوی. کارت و دفتر مشتری با همین روش مقایسه می‌شوند</li>
+        <li><b>صورت‌حساب مشتری</b> ردیف‌ها را از همان تفصیلی دفتر کل می‌سازد (خرج چک، سند دستی، فاکتور). دفتر مشتری نمای دوم است</li>
         <li><b>اصل تهاتر مانده:</b> وقتی چند مانده زیر هم جمع می‌شود، ارقام بدهکار با ارقام بستانکار جمع نمی‌شوند؛ تفاضل می‌گیرند و ماهیت ماندهٔ خالص سمت بزرگ‌تر است</li>
-        <li>دفتر مشتری فقط <b>نمای دوم</b> است؛ اگر با دفتر کل اختلاف داشت هشدار نارنجی نشان داده می‌شود و خروجی صورت‌حساب عدد دفتر کل را می‌نویسد</li>
+        <li>اگر هنوز هشدار نارنجی دیدید، یک‌بار Hard Refresh بزنید تا تعمیر دفتر از خطوط کل اجرا شود</li>
         <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها روی کل دوره است؛ جستجوی شرح فقط فهرست ردیف‌ها را محدود می‌کند و مانده را عوض نمی‌کند</li>
         <li><b>دفتر مالی مشترک</b> (حسابداری → گزارشات): یک گزارش برای شخص، بانک، صندوق، تنخواه و حساب دفتر کل. مانده ابتدا + گردش خالص دوره = مانده انتها. منبع پول دفتر کل است؛ اگر شخص فقط دفتر معین داشته باشد همان با برچسب منبع نشان داده می‌شود. کاردکس کالا از <code>/api/ledgers/stock</code> خوانده می‌شود. خروجی CSV همان جمع‌ها را می‌نویسد. ویزیتور (<code>field_sales</code>) دسترسی ندارد</li>
         <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است؛ روی هر ستون دکمه ➕ حساب زیر همان والد می‌سازد</li>
@@ -18356,7 +18403,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>پیش‌فاکتور:</b> اعلام قیمت — بدون کسر موجودی و بدون سند حسابداری</li>
         <li><b>فاکتور معمولی:</b> فروش قطعی — موجودی دائمی + سند فروش + بهای تمام‌شده؛ به صف مودیان نمی‌رود</li>
         <li><b>فاکتور رسمی:</b> همان فروش قطعی + در صورت فعال بودن مودیان وارد صف می‌شود</li>
-        <li>قبل از انتخاب کالا باید <b>انبار مبدأ</b> انتخاب شود؛ فقط کالاهای همان انبار نمایش داده می‌شوند</li>
+        <li>قبل از انتخاب کالا باید <b>انبار مبدأ</b> انتخاب شود؛ فقط کالاهای همان انبار نمایش داده می‌شوند. افزودن به سبد از همان فهرست انبار است (نه کاتالوگ ناقص)</li>
+        <li><b>افزودن طاقه</b> روی فاکتور باز، پنجرهٔ جدا می‌آید و فرم فاکتور را نمی‌بندد</li>
         <li>فاکتور <b>معمولی و رسمی</b> بدون انبار مبدأ از سرور رد می‌شود (۴۰۰) — سند قطعی بدون انبار ثبت نمی‌شود</li>
         <li>ابطال فاکتور قطعی سند معکوس می‌زند و موجودی را برمی‌گرداند (حذف فیزیکی نیست)</li>
       </ul>`),
@@ -18593,7 +18641,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
-        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ هنگام انتخاب کالا روی «انبار فاکتور» همان ردیف می‌نشیند. دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
+        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ هنگام انتخاب کالا روی «انبار فاکتور» همان ردیف می‌نشیند. دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس دفتر موجودی؛ موجودی اول دوره کالا (با بها) هم سند افتتاحیه و هم ردیف دفتر موجودی می‌سازد تا با انبار یکی بماند. پر کردن ردیف‌های قدیمی دفتر موجودی فقط روی سرور مرکزی انجام می‌شود تا دستگاه آفلاین ردیف تکراری نسازد</li>
@@ -18602,7 +18650,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. بها طاقه = متر × فی هر متر (اگر فی خالی باشد از بهای کالا). ستون «بها» جمع است نه میانگین واحد. بعد از ثبت، تا وقتی مصرف نشده با <b>ویرایش</b> اصلاح می‌شود (سند و دفتر تأمین‌کننده دوباره زده می‌شود). در فاکتور خرید/فروش هم «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند</li>
         <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید برش تعداد را به انبار محصول می‌برد. همان متر را در حواله سفارش تولید دوباره نزنید — سیستم قفل می‌کند</li>
-        <li><b>دفتر چک</b>: واگذاری به بانک (بانک وصول اجباری، سند در جریان وصول، وضعیت واگذارشده، سپس وصول/برگشت)، خرج/ظهرنویسی با ذینفع و دفتر تأمین‌کننده، ارسال مجدد + <b>ابطال کامل</b></li>
+        <li><b>دفتر چک</b>: واگذاری به بانک (بانک وصول اجباری، سند در جریان وصول، وضعیت واگذارشده، سپس وصول/برگشت)، خرج/ظهرنویسی با ذینفع — اگر مشتری باشد در صورت‌حساب و دفتر او دیده می‌شود؛ اگر تأمین‌کننده باشد دفتر تأمین‌کننده — ارسال مجدد + <b>ابطال کامل</b></li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور می‌سازد؛ ارسالی فاکتور امانت‌گیرنده است و سند بهای تمام‌شده می‌زند بدون کسر دوباره موجودی؛ دریافتی نیازمند خریدار جدا از امانت‌گذار است)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
@@ -18768,7 +18816,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v179</b> است و اسکریپت‌ها با <code>?v=179</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v180</b> است و اسکریپت‌ها با <code>?v=180</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -18962,7 +19010,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v179</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v180</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>مانده و ماهیت</h5><p>ستون بدهکار/بستانکار ماندهٔ <b>خالص</b> همان مشتری است (تفاضل گردش بدهکار و بستانکار). ماهیت از علامت مانده زنده می‌آید، نه از نام گروه. در جمع پایین جدول و کارت‌های داشبورد، ماندهٔ بدهکاران با ماندهٔ بستانکاران <b>جمع نمی‌شود</b> — تفاضل گرفته می‌شود و سمت بزرگ‌تر ماهیت ماندهٔ خالص است.</p>
@@ -19014,7 +19062,7 @@ function renderSalesGuide(){
         <li>«فاکتور جدید» را بزنید</li>
         <li>مشتری را انتخاب کنید</li>
         <li>برای فاکتور قطعی (معمولی/رسمی) ابتدا <b>انبار مبدأ</b> را انتخاب کنید؛ بدون انبار سرور ثبت را رد می‌کند. همان انبار به‌صورت خودکار روی «انبار فاکتور» هر کالای انتخاب‌شده می‌نشیند</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند</li>
+        <li>محصولات را از کاتالوگ همان انبار جستجو و اضافه کنید. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند و صفحهٔ فاکتور باز می‌ماند</li>
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور</li>

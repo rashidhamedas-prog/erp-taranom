@@ -1,3 +1,10 @@
+## 2026-09-01T01:10:00+03:30 — v180 statement GL + dashboard AR + invoice cart/rolls
+
+- Statement rows from live customer tafsili (cheque endorse visible). KPI = Σ max(0, per-customer GL). Repair v2 backfills ledger from GL. Endorse writes customer_ledger; void reverses it.
+- Invoice addToCart uses warehouse product list; fabric/quick-add use nested modal so invoice stays open.
+- SW v180. Do not commit `_deploy-demo-ui-v156`, `_deploy-mdi-v152`, `_diag-moein-ledger*`.
+- Iran overlay next (not git pull / not db.js).
+
 ## 2026-09-01T00:25:00+03:30 — Primary FF merge + complete Iran deploy v179
 
 - Fast-forward `origin/claude/claude-md-docs-2ssrpy` `1b7f2d7` → tip of `fix/LEDGER-STATEMENT-AR` (no checkout: Primary locked in demo-v3-merge worktree at stale `51be279`).

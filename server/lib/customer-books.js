@@ -14,6 +14,35 @@ const IMMEDIATE_PAY = new Set(['cash', 'bank', 'bank_transfer', 'cheque']);
 const JE_ALIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')`;
 const ENTRY_ALIVE = `COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')`;
 const REPAIR_FLAG = 'customer_books_repair_v1';
+const REPAIR_FLAG_V2 = 'customer_books_repair_v2';
+
+const STMT_REF_ALIAS = {
+  invoice_ar_reclass: 'invoice',
+  cheque_endorse: 'cheque',
+  cheque: 'cheque',
+  opening_ledger: 'opening',
+  opening_reclass: 'opening',
+  opening_balance: 'opening',
+  opening_cheque: 'opening',
+};
+
+function normalizeStmtRefType(refType) {
+  const t = String(refType || '');
+  if (STMT_REF_ALIAS[t]) return STMT_REF_ALIAS[t];
+  if (t.includes('reversal') || t.endsWith('_void') || t.endsWith('_cancel')) return 'reversal';
+  return t;
+}
+
+function stmtEntryType(refType, normalized) {
+  const n = normalized || normalizeStmtRefType(refType);
+  if (n === 'invoice') return 'invoice';
+  if (n === 'invoice_payment' || n === 'settlement') return 'settlement';
+  if (n === 'cheque' || n === 'cheque_endorse') return 'cheque';
+  if (n === 'opening') return 'opening';
+  if (n === 'reversal') return 'reversal';
+  if (String(refType || '').includes('reversal')) return 'reversal';
+  return n || 'journal';
+}
 
 function isImmediatePay(payType) {
   return IMMEDIATE_PAY.has(String(payType || 'cash'));
@@ -428,6 +457,142 @@ function attachMissingInvoiceRows(db, customerId, tagged) {
   return added;
 }
 
+function listCustomerGlMovements(db, customerId) {
+  const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(customerId);
+  if (!c || !c.coa_code) return [];
+  const like = String(c.coa_code) + '%';
+  const rows = db.prepare(`
+    SELECT
+      je.id AS journal_id,
+      je.entry_date AS date,
+      je.ref_type,
+      je.ref_id,
+      je.description,
+      je.created_at,
+      je.created_by AS user_id,
+      u.name AS user_name,
+      ${SQL_JL_DEBIT_RIAL} AS debit,
+      ${SQL_JL_CREDIT_RIAL} AS credit
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    LEFT JOIN users u ON u.id = je.created_by
+    WHERE jl.account_code LIKE ?
+      AND ${JE_ALIVE}
+      AND (${SQL_JL_DEBIT_RIAL} > 0 OR ${SQL_JL_CREDIT_RIAL} > 0)
+    ORDER BY je.entry_date ASC, COALESCE(je.created_at,0) ASC, je.id ASC, jl.id ASC
+  `).all(like);
+  return rows.map((r) => {
+    const ref_type = normalizeStmtRefType(r.ref_type);
+    return {
+      id: null,
+      journal_id: r.journal_id,
+      customer_id: customerId,
+      date: r.date || '',
+      entry_type: stmtEntryType(r.ref_type, ref_type),
+      ref_type,
+      raw_ref_type: r.ref_type,
+      ref_id: r.ref_id,
+      description: r.description || '',
+      debit: Math.round(Number(r.debit) || 0),
+      credit: Math.round(Number(r.credit) || 0),
+      created_at: r.created_at || 0,
+      user_id: r.user_id,
+      user_name: r.user_name,
+      source: 'gl',
+    };
+  });
+}
+
+function ledgerMatchKey(refType, refId, debit, credit) {
+  const idPart = refId == null || refId === '' ? '' : String(refId);
+  return `${normalizeStmtRefType(refType)}|${idPart}|${Math.round(Number(debit) || 0)}|${Math.round(Number(credit) || 0)}`;
+}
+
+function openingAmtKey(debit, credit) {
+  return `opening||${Math.round(Number(debit) || 0)}|${Math.round(Number(credit) || 0)}`;
+}
+
+/**
+ * One-shot: every live GL line on a customer tafsili gets a matching customer_ledger row.
+ * Matches invoice_ar_reclass→invoice and opening_*→opening so cash-invoice repair is not doubled.
+ */
+function repairGlLinesToLedger(db) {
+  const flag = db.prepare('SELECT value FROM settings WHERE key=?').get(REPAIR_FLAG_V2);
+  if (flag && flag.value === '1') return { skipped: true, ledgerFromGl: 0 };
+  const { createLedgerEntry } = require('../db');
+  let inserted = 0;
+  const run = db.transaction(() => {
+    const customers = db.prepare(`
+      SELECT id, coa_code FROM customers
+      WHERE coa_code IS NOT NULL AND TRIM(coa_code)<>''
+    `).all();
+    const seen = new Set();
+    for (const c of customers) {
+      const code = String(c.coa_code);
+      if (seen.has(code)) continue;
+      seen.add(code);
+      const ledRows = db.prepare(
+        'SELECT ref_type, ref_id, debit, credit FROM customer_ledger WHERE customer_id=?'
+      ).all(c.id);
+      const counts = new Map();
+      const bump = (key) => { if (key) counts.set(key, (counts.get(key) || 0) + 1); };
+      for (const r of ledRows) {
+        bump(ledgerMatchKey(r.ref_type, r.ref_id, r.debit, r.credit));
+        if (normalizeStmtRefType(r.ref_type) === 'opening') bump(openingAmtKey(r.debit, r.credit));
+      }
+      const used = new Map();
+      const consume = (key) => {
+        if (!key) return false;
+        const have = counts.get(key) || 0;
+        const u = used.get(key) || 0;
+        if (u >= have) return false;
+        used.set(key, u + 1);
+        return true;
+      };
+      const glLines = db.prepare(`
+        SELECT je.ref_type, je.ref_id, je.entry_date, je.created_by, je.description,
+               ${SQL_JL_DEBIT_RIAL} AS debit, ${SQL_JL_CREDIT_RIAL} AS credit
+        FROM journal_lines jl
+        JOIN journal_entries je ON je.id = jl.entry_id
+        WHERE jl.account_code = ?
+          AND ${JE_ALIVE}
+          AND (${SQL_JL_DEBIT_RIAL} > 0 OR ${SQL_JL_CREDIT_RIAL} > 0)
+        ORDER BY je.entry_date, je.id, jl.id
+      `).all(code);
+      for (const g of glLines) {
+        const debit = Math.round(Number(g.debit) || 0);
+        const credit = Math.round(Number(g.credit) || 0);
+        const primary = ledgerMatchKey(g.ref_type, g.ref_id, debit, credit);
+        const opening = normalizeStmtRefType(g.ref_type) === 'opening'
+          ? openingAmtKey(debit, credit) : null;
+        if (consume(primary) || consume(opening)) continue;
+        createLedgerEntry(db, {
+          customer_id: c.id,
+          date: g.entry_date || '',
+          entry_type: stmtEntryType(g.ref_type),
+          ref_type: g.ref_type || 'journal',
+          ref_id: g.ref_id,
+          description: g.description || '',
+          debit,
+          credit,
+          user_id: g.created_by || null,
+        });
+        inserted += 1;
+        bump(primary);
+        consume(primary);
+        if (opening) { bump(opening); consume(opening); }
+      }
+    }
+    db.prepare("INSERT INTO settings (key,value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value='1'")
+      .run(REPAIR_FLAG_V2);
+  });
+  run();
+  if (inserted) {
+    console.log(`✅ دفتر مشتری از خطوط دفتر کل تکمیل شد (${inserted} ردیف)`);
+  }
+  return { ledgerFromGl: inserted };
+}
+
 /**
  * Signed live balance per customer (debit − credit).
  * Prefers the customer's tafsili in the general ledger; falls back to customer_ledger.
@@ -478,6 +643,8 @@ function glCustomersTafsiliBalance(db, { asOf } = {}) {
   `).all();
   let debit = 0;
   let credit = 0;
+  let display = 0;
+  let creditor = 0;
   const seen = new Set();
   for (const c of customers) {
     const code = String(c.coa_code);
@@ -496,14 +663,18 @@ function glCustomersTafsiliBalance(db, { asOf } = {}) {
         AND ${JE_ALIVE}
         ${asOfSql}
     `).get(...params);
-    debit += Number(row.debit || 0);
-    credit += Number(row.credit || 0);
+    const d = Number(row.debit || 0);
+    const cr = Number(row.credit || 0);
+    debit += d;
+    credit += cr;
+    const signed = d - cr;
+    if (signed > 0) display += signed;
+    else if (signed < 0) creditor += -signed;
   }
-  const signed = debit - credit;
   return {
-    debit, credit, signed,
-    display: Math.max(0, signed),
-    creditor: Math.max(0, -signed),
+    debit, credit, signed: debit - credit,
+    display,
+    creditor,
   };
 }
 
@@ -529,12 +700,21 @@ function repairCustomerBooks(db) {
 }
 
 function ensureCustomerBooksRepaired(db) {
+  let v1 = {};
   try {
-    return repairCustomerBooks(db);
+    v1 = repairCustomerBooks(db);
   } catch (e) {
     console.error('customer-books repair:', e.message);
-    return { error: e.message };
+    v1 = { error: e.message };
   }
+  let v2 = {};
+  try {
+    v2 = repairGlLinesToLedger(db);
+  } catch (e) {
+    console.error('customer-books repair v2:', e.message);
+    v2 = { error: e.message };
+  }
+  return { ...v1, v2 };
 }
 
 module.exports = {
@@ -545,10 +725,14 @@ module.exports = {
   postInvoiceCustomerLedger,
   reverseInvoiceCustomerLedger,
   attachMissingInvoiceRows,
+  listCustomerGlMovements,
+  normalizeStmtRefType,
+  stmtEntryType,
   glCustomersTafsiliBalance,
   customerSignedBalanceMap,
   applyCustomerBalances,
   repairCustomerBooks,
+  repairGlLinesToLedger,
   ensureCustomerBooksRepaired,
   isFirmSale,
 };

@@ -543,6 +543,7 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 /* ===== Modal ===== */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;
   justify-content:center;z-index:1100;padding:16px}
+#nestedModalRoot .overlay{z-index:12000}
 .overlay.open{display:flex}
 /* تمام‌صفحه مودال تا بالای نوار وظیفه — دکمه‌های پایین زیر نوار نروند */
 .overlay.open.modal-fs{padding:0;align-items:stretch;justify-content:stretch;bottom:var(--mdi-taskbar-h,0px);inset:auto;top:0;left:0;right:0}

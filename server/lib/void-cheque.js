@@ -63,6 +63,31 @@ function voidChequeRecord(db, chequeId, user) {
         status=CASE WHEN status IS NULL OR status='' THEN 'ابطال‌شده' ELSE status || ' (ابطال)' END
       WHERE id=?
     `).run(lastReversal, user.id, row.id);
+
+    const { createLedgerEntry } = require('../db');
+    const originals = db.prepare(`
+      SELECT * FROM customer_ledger
+      WHERE ref_type='cheque_endorse' AND ref_id=? AND entry_type<>'reversal'
+    `).all(row.id);
+    const revCount = db.prepare(`
+      SELECT COUNT(*) c FROM customer_ledger
+      WHERE ref_type='cheque_endorse' AND ref_id=? AND entry_type='reversal'
+    `).get(row.id).c;
+    if (revCount < originals.length) {
+      for (const led of originals) {
+        createLedgerEntry(db, {
+          customer_id: led.customer_id,
+          date: todayJalali(),
+          entry_type: 'reversal',
+          ref_type: 'cheque_endorse',
+          ref_id: row.id,
+          description: `ابطال خرج چک ${row.cheque_number || row.id}`,
+          debit: led.credit || 0,
+          credit: led.debit || 0,
+          user_id: user.id,
+        });
+      }
+    }
   })();
 
   audit(user.id, 'reverse', 'cheque_record', row.id, `ابطال کامل چک ${row.cheque_number || row.id}`);

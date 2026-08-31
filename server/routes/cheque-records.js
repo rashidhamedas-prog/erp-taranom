@@ -88,6 +88,22 @@ function chequeAmountRial(row) {
   return amountRial;
 }
 
+function findCustomerIdForEndorse(db, { party, debitCode, partyId }) {
+  if (party && party.legacy_table === 'customers' && party.legacy_id) {
+    return Number(party.legacy_id);
+  }
+  const pid = partyId || (party && party.id);
+  if (pid) {
+    const byParty = db.prepare('SELECT id FROM customers WHERE party_id=?').get(pid);
+    if (byParty) return Number(byParty.id);
+  }
+  if (debitCode) {
+    const byCoa = db.prepare('SELECT id FROM customers WHERE coa_code=?').get(debitCode);
+    if (byCoa) return Number(byCoa.id);
+  }
+  return null;
+}
+
 function resolveEndorseDebit(db, body) {
   const supplierId = parseInt(body && body.supplier_id, 10);
   if (Number.isFinite(supplierId) && supplierId > 0) {
@@ -100,9 +116,9 @@ function resolveEndorseDebit(db, body) {
     }
     if (s.coa_code) {
       const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(s.coa_code);
-      if (a) return { debitAcct: a, supplierId: s.id, partyId: null };
+      if (a) return { debitAcct: a, supplierId: s.id, partyId: null, customerId: null };
     }
-    return { debitAcct: acct(db, 'coa_payable'), supplierId: s.id, partyId: null };
+    return { debitAcct: acct(db, 'coa_payable'), supplierId: s.id, partyId: null, customerId: null };
   }
   const partyId = parseInt(body && body.party_id, 10);
   if (Number.isFinite(partyId) && partyId > 0) {
@@ -116,16 +132,39 @@ function resolveEndorseDebit(db, body) {
     if (p.legacy_table === 'suppliers' && p.legacy_id) {
       return resolveEndorseDebit(db, { supplier_id: p.legacy_id, account_key: body && body.account_key });
     }
+    if (p.legacy_table === 'customers' && p.legacy_id) {
+      const { receivableAcct } = require('../lib/customer-books');
+      return {
+        debitAcct: receivableAcct(db, p.legacy_id),
+        supplierId: null,
+        partyId: p.id,
+        customerId: Number(p.legacy_id),
+      };
+    }
     if (p.coa_code) {
       const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(p.coa_code);
-      if (a) return { debitAcct: a, supplierId: null, partyId: p.id };
+      if (a) {
+        const customerId = findCustomerIdForEndorse(db, { party: p, debitCode: a.code, partyId: p.id });
+        return { debitAcct: a, supplierId: null, partyId: p.id, customerId };
+      }
     }
-    return { debitAcct: acct(db, 'coa_payable'), supplierId: null, partyId: p.id };
+    const customerId = findCustomerIdForEndorse(db, { party: p, partyId: p.id });
+    if (customerId) {
+      const { receivableAcct } = require('../lib/customer-books');
+      return {
+        debitAcct: receivableAcct(db, customerId),
+        supplierId: null,
+        partyId: p.id,
+        customerId,
+      };
+    }
+    return { debitAcct: acct(db, 'coa_payable'), supplierId: null, partyId: p.id, customerId: null };
   }
   return {
     debitAcct: resolveNamedAcct(db, body && body.account_key, 'coa_payable'),
     supplierId: null,
     partyId: null,
+    customerId: null,
   };
 }
 
@@ -140,6 +179,28 @@ function postSupplierEndorseLedger(db, { supplierId, date, chequeId, description
   } catch (e) {
     if (db.inTransaction) throw e;
   }
+}
+
+function postCustomerEndorseLedger(db, { customerId, date, chequeId, description, amountRial, userId }) {
+  if (!customerId || !(amountRial > 0)) return;
+  const { createLedgerEntry } = require('../db');
+  const exists = db.prepare(`
+    SELECT 1 FROM customer_ledger
+    WHERE ref_type='cheque_endorse' AND ref_id=? AND customer_id=? AND entry_type<>'reversal'
+    LIMIT 1
+  `).get(chequeId, customerId);
+  if (exists) return;
+  createLedgerEntry(db, {
+    customer_id: customerId,
+    date: date || '',
+    entry_type: 'cheque',
+    ref_type: 'cheque_endorse',
+    ref_id: chequeId,
+    description: description || '',
+    debit: amountRial,
+    credit: 0,
+    user_id: userId || null,
+  });
 }
 
 function resolveNamedAcct(db, key, fallbackKey) {
@@ -416,6 +477,14 @@ router.post('/:id/endorse', auth, adminOrAccounting, (req, res) => {
       `).run(resolved.partyId, resolved.supplierId, row.id);
       postSupplierEndorseLedger(db, {
         supplierId: resolved.supplierId,
+        date: entryDate,
+        chequeId: row.id,
+        description: `خرج/ظهرنویسی چک ${row.cheque_number || row.id}`,
+        amountRial: chequeAmountRial(row),
+        userId: req.user.id,
+      });
+      postCustomerEndorseLedger(db, {
+        customerId: resolved.customerId,
         date: entryDate,
         chequeId: row.id,
         description: `خرج/ظهرنویسی چک ${row.cheque_number || row.id}`,

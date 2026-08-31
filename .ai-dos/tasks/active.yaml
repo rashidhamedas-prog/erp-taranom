@@ -1,5 +1,40 @@
 schema_version: 1
 tasks:
+  - id: "LEDGER-STMT-CHEQUE-V180"
+    title: "Statement from GL + dashboard AR + invoice cart/rolls"
+    status: "completed"
+    completed_at: "2026-09-01T01:20:00+03:30"
+    risk: "high"
+    owner: "cursor:implementer-v180"
+    roles:
+      implementer: "cursor:implementer-v180"
+    branch: "fix/LEDGER-STATEMENT-AR"
+    worktree: "D:/soft/Claud/porje/crm-taranom/erp-taranom1"
+    claimed_at: "2026-09-01T00:50:00+03:30"
+    file_claims: []
+    released_claims:
+      - "server/lib/customer-books.js"
+      - "server/routes/accounting.js"
+      - "server/routes/cheque-records.js"
+      - "server/lib/void-cheque.js"
+      - "server/public/app.js"
+      - "server/public/app.css"
+      - "server/public/sw.js"
+      - "server/public/index.html"
+      - "server/scripts/test-stmt-gl-cheque-v180.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    acceptance_criteria:
+      - "Endorsed cheque appears on customer statement; closing matches GL"
+      - "Dashboard AR is sum of per-customer positive GL; warning only if books still differ"
+      - "Invoice addToCart finds warehouse products; fabric picker does not close invoice"
+      - "node server/scripts/test-stmt-gl-cheque-v180.js"
+    non_goals:
+      - "Wholesale db.js replace"
+      - "Desktop/Android full builds"
+
   - id: "PROD-STITCH-P5C"
     title: "PACK / FG receipt from cutting lay + git hygiene merge to Primary"
     status: "completed"

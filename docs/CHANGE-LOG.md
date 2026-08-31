@@ -13,6 +13,16 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۱۰ — صورت‌حساب از تفصیلی + هشدار داشبورد + سبد/طاقه فاکتور (SW v180)
+
+- **شاخه:** `fix/LEDGER-STATEMENT-AR`
+- **A صورت‌حساب معین:** خرج چک روی تفصیلی ثبت می‌شد ولی ردیف از `customer_ledger` ساخته می‌شد؛ جدول خالی می‌ماند و مانده از کل می‌آمد. حالا ردیف‌ها از خطوط زندهٔ همان تفصیلی هستند و خرج چک در گردش دیده می‌شود.
+- **B هشدار داشبورد:** کارت مطالبات قبلاً خالص کل پرتفوی بود و دفتر جمع بدهکاران جداگانه — حتی با دفاتر درست هشدار می‌داد. KPI حالا `Σ max(0, مانده هر مشتری)` است؛ تعمیر `customer_books_repair_v2` خطوط کل بدون ردیف دفتر را یک‌باره می‌سازد. خرج چک به مشتری دفتر هم می‌نویسد.
+- **فاکتور:** `addToCart` کالا را از فهرست انبار (`_invProducts`) پیدا می‌کند (نه کاتالوگ ناقص). افزودن طاقه/کالای سریع مودال تو در تو است و فرم فاکتور را نمی‌بندد.
+- **فایل‌ها:** `server/lib/customer-books.js`، `server/routes/{accounting,cheque-records}.js`، `server/lib/void-cheque.js`، `server/public/{app.js,app.css,sw.js,index.html}`، `server/scripts/test-stmt-gl-cheque-v180.js`
+- **تست:** `test-stmt-gl-cheque-v180.js` · `test-ledger-statement-repair.js` · `test-ops-pack-v179.js` · `test-sms.js`
+- **Deploy:** ⏳ ایران overlay v180 — پس از push
+
 ### ۱۴۰۵/۰۶/۱۰ — مرج Primary + دیپلوی کامل v179
 
 - **Primary:** FF `1b7f2d7..36dee09` روی `claude/claude-md-docs-2ssrpy` (۲ کامیت OPS pack؛ بدون `--no-ff` چون خط مستقیم بود)

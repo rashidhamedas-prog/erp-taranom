@@ -93,7 +93,7 @@ function escapeHtml(value) {
 }
 
 const {
-  attachMissingInvoiceRows, glCustomersTafsiliBalance, ensureCustomerBooksRepaired,
+  attachMissingInvoiceRows, listCustomerGlMovements, glCustomersTafsiliBalance, ensureCustomerBooksRepaired,
 } = require('../lib/customer-books');
 
 const ENTRY_LABEL = {
@@ -102,6 +102,10 @@ const ENTRY_LABEL = {
   reversal: 'ابطال/اصلاح',
   opening: 'مانده اول دوره',
   invoice_payment: 'دریافت هنگام فاکتور',
+  cheque: 'خرج/ظهرنویسی چک',
+  cheque_endorse: 'خرج/ظهرنویسی چک',
+  journal: 'سند حسابداری',
+  manual: 'سند دستی',
 };
 
 /** Jalali date for parameterized SQL only — never interpolate into the query string. */
@@ -213,9 +217,32 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
     ORDER BY cl.created_at ASC, cl.id ASC
   `).all(customerId);
 
-  const tagged = [];
-  for (const e of all) tagged.push(e);
-  attachMissingInvoiceRows(db, customerId, tagged);
+  const ledgerTagged = [];
+  for (const e of all) ledgerTagged.push(e);
+  attachMissingInvoiceRows(db, customerId, ledgerTagged);
+  let ledgerRun = 0;
+  for (const e of ledgerTagged) {
+    ledgerRun += (e.debit || 0) - (e.credit || 0);
+    e.running_balance = ledgerRun;
+  }
+  let ledger_opening = 0;
+  if (from) {
+    for (const e of ledgerTagged) {
+      if ((e.date || '') < from) ledger_opening = e.running_balance;
+      else break;
+    }
+  }
+  let ledger_closing = from ? ledger_opening : (ledgerTagged.length ? ledgerTagged[ledgerTagged.length - 1].running_balance : 0);
+  for (const e of ledgerTagged) {
+    if (from && (e.date || '') < from) continue;
+    if (to && (e.date || '') > to) continue;
+    ledger_closing = e.running_balance;
+  }
+
+  const glMoves = listCustomerGlMovements(db, customerId);
+  const useGl = glMoves.length > 0;
+  const tagged = useGl ? glMoves : ledgerTagged;
+  if (useGl) attachMissingInvoiceRows(db, customerId, tagged);
   let running = 0;
   for (const e of tagged) {
     running += (e.debit || 0) - (e.credit || 0);
@@ -231,29 +258,29 @@ function buildStatement(db, customerId, { from, to, type } = {}) {
     }
   }
   const entries = [];
-  let ledger_closing = from ? opening : (tagged.length ? tagged[tagged.length - 1].running_balance : 0);
+  let periodClose = from ? opening : (tagged.length ? tagged[tagged.length - 1].running_balance : 0);
   for (const e of tagged) {
     if (from && (e.date || '') < from) continue;
     if (to && (e.date || '') > to) continue;
     if (type && e.entry_type !== type) continue;
     entries.push(e);
-    ledger_closing = e.running_balance;
+    periodClose = e.running_balance;
   }
-  if (!entries.length && (from || to)) ledger_closing = opening;
+  if (!entries.length && (from || to)) periodClose = opening;
   const totalDebit = entries.reduce((a, e) => a + (e.debit || 0), 0);
   const totalCredit = entries.reduce((a, e) => a + (e.credit || 0), 0);
   const gl = glCustomerCoaSummary(db, customerId, { from, to });
   const hasGl = gl.gl_account_code != null && gl.gl_closing_rial != null;
-  const closing = hasGl ? gl.gl_closing_rial : ledger_closing;
-  const books_mismatch = hasGl && Math.abs(Number(gl.gl_closing_rial) - Number(ledger_closing)) > 1;
+  const closing = useGl || hasGl ? (hasGl ? gl.gl_closing_rial : periodClose) : ledger_closing;
+  const books_mismatch = !useGl && hasGl && Math.abs(Number(gl.gl_closing_rial) - Number(ledger_closing)) > 1;
   return {
     customer, entries,
-    opening: hasGl ? gl.gl_opening_rial : opening,
+    opening: (useGl || hasGl) ? (hasGl ? gl.gl_opening_rial : opening) : opening,
     totalDebit, totalCredit, closing,
-    ledger_opening: opening,
+    ledger_opening,
     ledger_closing,
     books_mismatch,
-    source: hasGl ? 'gl' : 'customer_ledger',
+    source: useGl ? 'gl' : (hasGl ? 'gl' : 'customer_ledger'),
     ...gl,
   };
 }
