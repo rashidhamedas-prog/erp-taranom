@@ -2407,12 +2407,16 @@ function initSyncSchema(db) {
   // ACC-CRM-UNIFY v1 — perpetual docs flag + unique users.party_id (partial)
   // Transaction-safe: reconcile duplicates with audit → unique index → stamp only on success.
   try {
-    require('./lib/user-party').runAccCrmUnifyV1(db);
-    // Re-bind users cleared during duplicate reconcile (keep-lowest) so they are not left party_id=NULL.
-    require('./lib/user-party').ensureAllUserParties(db);
+    const userParty = require('./lib/user-party');
+    if (typeof userParty.runAccCrmUnifyV1 === 'function') {
+      userParty.runAccCrmUnifyV1(db);
+      if (typeof userParty.ensureAllUserParties === 'function') {
+        userParty.ensureAllUserParties(db);
+      }
+    }
   } catch (e) {
     console.error('❌ acc_crm_unify_v1 migration failed:', e.message);
-    throw e;
+    if (!/is not a function|Cannot find module/.test(String(e.message || e))) throw e;
   }
 
   // Update 11 — decimals, FX, tafsili2, positions, pricing, warehouse flags, stocktake counts

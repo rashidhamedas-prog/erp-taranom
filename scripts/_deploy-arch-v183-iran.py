@@ -36,6 +36,7 @@ FILES = [
     ".ai-dos/tasks/active.yaml",
     "server/db.js",
     "server/sync/tables.js",
+    "server/lib/user-party.js",
     "server/lib/cheque-party-books.js",
     "server/lib/void-cheque.js",
     "server/lib/customer-books.js",
