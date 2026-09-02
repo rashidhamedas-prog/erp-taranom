@@ -1,0 +1,74 @@
+name: Iran overlay (ARCH)
+
+on:
+  workflow_dispatch:
+    inputs:
+      stamp:
+        description: 'Optional stamp note'
+        required: false
+        default: 'v183'
+
+jobs:
+  overlay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Backup remote db.js and upload overlay
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 94.249.244.208
+          username: taranom
+          key: ${{ secrets.IRAN_SSH_PRIVATE_KEY }}
+          port: 22
+          timeout: 90s
+          command_timeout: 10m
+          source: |
+            docs/CHANGE-LOG.md
+            .ai-dos/tasks/handoff.md
+            .ai-dos/tasks/active.yaml
+            server/db.js
+            server/sync/tables.js
+            server/lib/cheque-party-books.js
+            server/lib/void-cheque.js
+            server/lib/customer-books.js
+            server/lib/invoice-print.js
+            server/lib/parties-sync.js
+            server/lib/party-employee-sync.js
+            server/lib/product-variants/service.js
+            server/lib/sales-document.js
+            server/lib/void-invoice.js
+            server/routes/cheque-records.js
+            server/routes/invoices.js
+            server/routes/orders.js
+            server/routes/parties.js
+            server/routes/payroll.js
+            server/routes/purchases.js
+            server/public/app.js
+            server/public/index.html
+            server/public/sw.js
+            server/scripts/test-arch-erp-rar-v182.js
+            server/scripts/test-arch-erp-rar-v183.js
+          target: /home/taranom/crm-taranom
+          overwrite: true
+
+      - name: Restart and health-check
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: 94.249.244.208
+          username: taranom
+          key: ${{ secrets.IRAN_SSH_PRIVATE_KEY }}
+          port: 22
+          timeout: 90s
+          command_timeout: 10m
+          script_stop: true
+          script: |
+            set -e
+            cd /home/taranom/crm-taranom
+            cp -a server/db.js "server/db.js.bak-arch-v183-$(date +%Y%m%d%H%M%S)" || true
+            pm2 restart erp-taranom --update-env
+            sleep 14
+            curl -sS -o /dev/null -w 'health:%{http_code}\n' http://127.0.0.1:3000/api/system/health
+            curl -sS -o /dev/null -w 'ready:%{http_code}\n' http://127.0.0.1:3000/api/system/ready
+            curl -sS -o /dev/null -w 'root:%{http_code}\n' http://127.0.0.1:3000/
+            grep -n erp-taranom-v server/public/sw.js | head -1

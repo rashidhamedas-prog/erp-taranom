@@ -1,9 +1,12 @@
 # SSH config — روی ویندوز در: %USERPROFILE%\.ssh\config
 # اتصال: ssh taranom-ir
+# کلید خصوصی: D:\proje\.ssh\id_ed25519_taranom یا ~/.ssh/id_ed25519_taranom
+# در گیت فقط کلید عمومی (.github/keys/iran-taranom.pub) و Secret به نام IRAN_SSH_PRIVATE_KEY
 
 Host taranom-ir
   HostName 94.249.244.208
   User taranom
   IdentityFile ~/.ssh/id_ed25519_taranom
   IdentitiesOnly yes
+  IPQoS none
   ServerAliveInterval 60

@@ -1,9 +1,17 @@
+## 2026-09-03T02:50:00+03:30 — Iran SSH key on GitHub + overlay retry
+
+- Private key stored as Actions secret `IRAN_SSH_PRIVATE_KEY` (not in git). Public key committed at `.github/keys/iran-taranom.pub`.
+- Local key copied to `%USERPROFILE%\.ssh\` + Host `taranom-ir`. Deploy script resolves `D:\proje\.ssh\id_ed25519_taranom`.
+- Workflow `.github/workflows/deploy-iran-overlay.yml` for overlay when Windows kex aborts.
+- Do not commit the private key or leftover `_deploy-demo*` / `_diag-moein*` / `motefareqe/`.
+
 ## 2026-09-03T01:20:00+03:30 — ARCH v183 cheque books + live pack
 
 - Remaining archive items closed: cheque_in posts party tafsili + customer/person ledger at register (clear/send-to-bank only backfill); live pack = in-stock colors × sizes; invoice nested color/size qty modal; variant_id on invoice JSON + SKU stock delta.
 - Tests: `test-arch-erp-rar-v183.js` 20, v182 still green, `test-sms.js` 22.
 - Commit `661ce33` pushed. Primary FF `origin/claude/claude-md-docs-2ssrpy` = `661ce33`.
-- Iran overlay script ready (`scripts/_deploy-arch-v183-iran.py`) but this Windows profile has empty `~\.ssh` — no `id_ed25519_taranom`. Do not invent a key. After the key is placed, run that script.
+- Iran private key is GitHub Actions secret `IRAN_SSH_PRIVATE_KEY` (never in git). Public key: `.github/keys/iran-taranom.pub`. Local copies: `D:\proje\.ssh\` and `%USERPROFILE%\.ssh\`.
+- Local Windows SSH to 94.249.244.208 often dies at kex (`Connection aborted`). Retry overlay script or run workflow `Iran overlay (ARCH)`.
 - Do not commit `_deploy-demo*`, `_diag-moein*`, `motefareqe/`.
 
 ## 2026-09-03T01:10:00+03:30 — person_party_unify_v1 backfill
