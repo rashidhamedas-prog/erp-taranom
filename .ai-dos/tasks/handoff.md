@@ -1,3 +1,11 @@
+## 2026-09-03T00:55:00+03:30 — ARCH-ERP-RAR-SYNC v182
+
+- Archive `motefareqe/ERP.rar` mapped to 14 bugs. Implemented surgical set: invoice warehouse/convert/print, receipt XOR + installment dest, orders.warehouse_id, party↔employee + position, purchase-return color.
+- Left for later: live color×size pack on sales invoice; cheque-record clear → گردش شخص; global search/audit leftovers.
+- Tests: `test-arch-erp-rar-v182.js` 29, `test-sms.js` 22, `test-sync.js` 44, `_diag-sync-gaps` mismatches=[].
+- SW v182. Do not commit `_deploy-demo-ui-v156`, `_deploy-mdi-v152`, `_diag-moein-ledger*`, `motefareqe/`.
+- Wave 0: no Iran pull/pm2 this turn.
+
 ## 2026-09-01T02:15:00+03:30 — v181 dashboard align + search + live rolls
 
 - Owner screenshots A/B/C: warning still on, acc nav chapters open, receivables needs party search, all party/product fields need invoice-style search, fabric meters live + circulation.

@@ -115,6 +115,29 @@ function linesDiscTotal(rows) {
   return (rows || []).reduce((a, r) => a + lineDiscOf(r), 0);
 }
 
+function computePrintTotals(inv, rows) {
+  const list = rows || [];
+  const rowsGross = list.reduce((a, r) => a + lineGross(r), 0);
+  const rowsNet = list.reduce((a, r) => a + lineNet(r), 0);
+  const discLines = linesDiscTotal(list);
+  const headerSubtotal = Math.round(Number(inv && inv.subtotal) || 0);
+  const discAmt = Math.round(Number(inv && inv.disc_amt) || 0);
+  const discPct = Number(inv && inv.disc) || 0;
+  const freight = Math.round(Number(inv && inv.freight_amount) || 0);
+  const vat = Math.round(Number(inv && inv.vat_amount) || 0);
+  const vatRate = Number(inv && inv.vat_rate) || 0;
+  const headerFinal = Math.round(Number(inv && inv.final) || 0);
+  const payable = headerFinal || Math.max(0, (headerSubtotal || rowsNet) - discAmt + freight + vat);
+  const mismatch = headerSubtotal > 0 && list.length > 0
+    && Math.abs(headerSubtotal - rowsGross) > 1
+    && Math.abs(headerSubtotal - rowsNet) > 1;
+  return {
+    rowsGross, rowsNet, discLines,
+    subtotal: headerSubtotal || rowsGross,
+    discAmt, discPct, freight, vat, vatRate, payable, mismatch,
+  };
+}
+
 function buildFormalRows(rows, isA5) {
   return (rows || []).map((r, i) => {
     const desc = String(r.description || '').trim();
@@ -362,13 +385,14 @@ function renderInvoicePrintHtml(opts) {
   const isA5 = dims.paper === 'A5';
   const typeLabel = isThermal
     ? 'فاکتور حرارتی'
-    : (inv.type === 'final' ? 'فاکتور رسمی' : 'پیش‌فاکتور');
+    : (inv.type === 'final' ? 'فاکتور رسمی' : inv.type === 'normal' ? 'فاکتور فروش' : 'پیش‌فاکتور');
+  const t = computePrintTotals(inv, rows);
+  const emptyColspan = isA5 ? 6 : 9;
   const isProvisional = String(inv.num || '').startsWith('موقت');
   const companyName = settings.company_name || 'پوشاک ترنم';
   const companyAddr = settings.company_address || '';
   const companyPhone = settings.company_phone || '';
   const subtitle = customize.subtitle || 'تولیدی پوشاک زنانه';
-  const discLines = linesDiscTotal(rows);
   const payTypeLabel = payLabel(inv);
   const logo = logoHtml(customize, dims);
   const expert = expertHtml(inv, customize);
@@ -407,10 +431,13 @@ function renderInvoicePrintHtml(opts) {
 
   const sumBox = `
     <div class="sum-box">
-      <div class="line"><span>جمع ناخالص</span><span class="num">${faNum(inv.subtotal)} ریال</span></div>
-      ${customize.show_discount && discLines ? `<div class="line"><span>جمع تخفیف ردیفی</span><span class="num disc">${faNum(discLines)} ریال</span></div>` : ''}
-      ${customize.show_discount ? `<div class="line"><span>تخفیف کل (${faNum(inv.disc)}٪)</span><span class="num">${faNum(inv.disc_amt)} ریال</span></div>` : ''}
-      <div class="line pay"><span>مبلغ قابل پرداخت</span><span class="num gold">${faNum(inv.final)} ریال</span></div>
+      <div class="line"><span>جمع اقلام</span><span class="num">${faNum(t.rowsNet)} ریال</span></div>
+      ${customize.show_discount && t.discLines ? `<div class="line"><span>جمع تخفیف ردیفی</span><span class="num disc">${faNum(t.discLines)} ریال</span></div>` : ''}
+      ${customize.show_discount && (t.discAmt || t.discPct) ? `<div class="line"><span>تخفیف کل${t.discPct ? ` (${faNum(t.discPct)}٪)` : ''}</span><span class="num">${faNum(t.discAmt)} ریال</span></div>` : ''}
+      ${t.freight ? `<div class="line"><span>کرایه حمل${inv.freight_type ? ` (${esc(inv.freight_type)})` : ''}</span><span class="num">${faNum(t.freight)} ریال</span></div>` : ''}
+      ${t.vat ? `<div class="line"><span>مالیات بر ارزش افزوده${t.vatRate ? ` (${faNum(t.vatRate)}٪)` : ''}</span><span class="num">${faNum(t.vat)} ریال</span></div>` : ''}
+      <div class="line pay"><span>مبلغ قابل پرداخت</span><span class="num gold">${faNum(t.payable)} ریال</span></div>
+      ${t.mismatch ? `<div class="line" style="color:#b45309;font-size:11px"><span>هشدار</span><span>جمع سربرگ (${faNum(t.subtotal)}) با جمع اقلام یکی نیست</span></div>` : ''}
     </div>`;
 
   const stamps = `
@@ -482,7 +509,7 @@ function renderInvoicePrintHtml(opts) {
         <div class="sum-grid">
           ${sumBox}
           <div>
-            <div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(inv.final)} ریال</div>
+            <div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(t.payable)} ریال</div>
             ${noteHtml}
           </div>
         </div>
@@ -520,7 +547,7 @@ function renderInvoicePrintHtml(opts) {
         ${expert}
         <table class="items">
           <thead>${formalHead}</thead>
-          <tbody>${buildFormalRows(rows, isA5) || '<tr><td colspan="9">بدون ردیف</td></tr>'}</tbody>
+          <tbody>${buildFormalRows(rows, isA5) || `<tr><td colspan="${emptyColspan}">بدون ردیف</td></tr>`}</tbody>
         </table>
         <div class="sum-grid">${sumBox}<div class="words">${noteHtml || '<div>با تشکر از اعتماد شما</div>'}</div></div>
         ${stamps}
@@ -563,12 +590,12 @@ function renderInvoicePrintHtml(opts) {
         ${expert}
         <table class="items">
           <thead>${formalHead}</thead>
-          <tbody>${buildFormalRows(rows, isA5) || '<tr><td colspan="9">بدون ردیف</td></tr>'}</tbody>
+          <tbody>${buildFormalRows(rows, isA5) || `<tr><td colspan="${emptyColspan}">بدون ردیف</td></tr>`}</tbody>
         </table>
         <div class="sum-grid">
           ${sumBox}
           <div>
-            <div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(inv.final)} ریال</div>
+            <div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(t.payable)} ریال</div>
             ${noteHtml}
           </div>
         </div>
@@ -604,5 +631,5 @@ function renderInvoicePrintHtml(opts) {
 module.exports = {
   FORMAL_IDS, CASUAL_IDS, THERMAL_ID, DEFAULT_CUSTOMIZE,
   parseCustomize, resolveTemplateId, normalizeCasual, thermalWidthMm,
-  renderInvoicePrintHtml, faNum, esc, paperDims,
+  renderInvoicePrintHtml, computePrintTotals, faNum, esc, paperDims,
 };

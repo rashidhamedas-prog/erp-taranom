@@ -256,6 +256,10 @@ router.get('/employees', auth, adminOrAccounting, (req, res) => {
        OR NULLIF(TRIM(p.employee_no),'') IS NOT NULL
        OR p.employee_group_id IS NOT NULL
        OR (pg.name IS NOT NULL AND pg.name LIKE '%پرسنل%')
+       OR (p.party_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM parties pt WHERE pt.id=p.party_id
+              AND (pt.party_roles LIKE '%"employee"%' OR pt.party_roles LIKE '%employee%')
+          ))
     ORDER BY p.active DESC, p.name
   `).all());
 });
@@ -275,21 +279,25 @@ router.post('/employees', auth, requirePermission('payroll', 'create'), (req, re
       if (exists) throw new Error('کد پرسنلی تکراری است');
     }
     const staffGid = ensurePersonnelPartyGroup(db);
-    const id = db.prepare(`
-      INSERT INTO persons
-        (name,personnel_code,employee_no,first_name,last_name,national_id,insurance_id,tax_id,
-         employment_type,salary_type,hire_date,termination_date,tax_exemption_type,insurance_type,
-         department,bank_iban,party_group_id,employee_group_id,monthly_salary_rial,active)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
-    `).run(
-      name, personnelCode || null, personnelCode || null, firstName, lastName, b.national_id || '',
-      b.insurance_id || '', b.tax_id || '', b.employment_type || 'monthly',
-      b.employment_type || 'monthly', b.hire_date || '', b.termination_date || null,
-      b.tax_exemption_type || 'none', b.insurance_type || 'sso',
-      b.department || '', b.bank_iban || '', staffGid,
-      b.employee_group_id ? Number(b.employee_group_id) : null,
-      Math.max(0, Math.round(Number(b.monthly_salary_rial) || 0))
-    ).lastInsertRowid;
+    const id = db.transaction(() => {
+      const newId = db.prepare(`
+        INSERT INTO persons
+          (name,personnel_code,employee_no,first_name,last_name,national_id,insurance_id,tax_id,
+           employment_type,salary_type,hire_date,termination_date,tax_exemption_type,insurance_type,
+           department,bank_iban,party_group_id,employee_group_id,monthly_salary_rial,active)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+      `).run(
+        name, personnelCode || null, personnelCode || null, firstName, lastName, b.national_id || '',
+        b.insurance_id || '', b.tax_id || '', b.employment_type || 'monthly',
+        b.employment_type || 'monthly', b.hire_date || '', b.termination_date || null,
+        b.tax_exemption_type || 'none', b.insurance_type || 'sso',
+        b.department || '', b.bank_iban || '', staffGid,
+        b.employee_group_id ? Number(b.employee_group_id) : null,
+        Math.max(0, Math.round(Number(b.monthly_salary_rial) || 0))
+      ).lastInsertRowid;
+      try { require('../lib/party-employee-sync').ensurePersonParty(db, newId); } catch (_) {}
+      return newId;
+    })();
     audit(req.user.id, 'create', 'employee', id, `ایجاد کارمند ${name}`);
     res.json({ ok: true, id });
   } catch (e) {
@@ -314,25 +322,28 @@ router.put('/employees/:id', auth, requirePermission('payroll', 'create'), (req,
       if (dup) throw new Error('کد پرسنلی تکراری است');
     }
     const staffGid = current.party_group_id || ensurePersonnelPartyGroup(db);
-    db.prepare(`
-      UPDATE persons SET name=?,personnel_code=?,employee_no=?,first_name=?,last_name=?,
-        national_id=?,insurance_id=?,tax_id=?,employment_type=?,salary_type=?,hire_date=?,
-        termination_date=?,tax_exemption_type=?,insurance_type=?,department=?,bank_iban=?,
-        party_group_id=?,employee_group_id=?,monthly_salary_rial=?,active=?
-      WHERE id=?
-    `).run(
-      name, personnelCode || null, personnelCode || null, firstName, lastName,
-      b.national_id ?? current.national_id ?? '', b.insurance_id ?? current.insurance_id ?? '',
-      b.tax_id ?? current.tax_id ?? '', b.employment_type ?? current.employment_type ?? 'monthly',
-      b.employment_type ?? current.employment_type ?? 'monthly', b.hire_date ?? current.hire_date ?? '',
-      b.termination_date ?? current.termination_date, b.tax_exemption_type ?? current.tax_exemption_type ?? 'none',
-      b.insurance_type ?? current.insurance_type ?? 'sso', b.department ?? current.department ?? '',
-      b.bank_iban ?? current.bank_iban ?? '', staffGid,
-      b.employee_group_id != null ? (b.employee_group_id ? Number(b.employee_group_id) : null) : current.employee_group_id,
-      b.monthly_salary_rial != null ? Math.max(0, Math.round(Number(b.monthly_salary_rial) || 0)) : (current.monthly_salary_rial || 0),
-      b.active == null ? current.active : (b.active ? 1 : 0),
-      req.params.id
-    );
+    db.transaction(() => {
+      db.prepare(`
+        UPDATE persons SET name=?,personnel_code=?,employee_no=?,first_name=?,last_name=?,
+          national_id=?,insurance_id=?,tax_id=?,employment_type=?,salary_type=?,hire_date=?,
+          termination_date=?,tax_exemption_type=?,insurance_type=?,department=?,bank_iban=?,
+          party_group_id=?,employee_group_id=?,monthly_salary_rial=?,active=?
+        WHERE id=?
+      `).run(
+        name, personnelCode || null, personnelCode || null, firstName, lastName,
+        b.national_id ?? current.national_id ?? '', b.insurance_id ?? current.insurance_id ?? '',
+        b.tax_id ?? current.tax_id ?? '', b.employment_type ?? current.employment_type ?? 'monthly',
+        b.employment_type ?? current.employment_type ?? 'monthly', b.hire_date ?? current.hire_date ?? '',
+        b.termination_date ?? current.termination_date, b.tax_exemption_type ?? current.tax_exemption_type ?? 'none',
+        b.insurance_type ?? current.insurance_type ?? 'sso', b.department ?? current.department ?? '',
+        b.bank_iban ?? current.bank_iban ?? '', staffGid,
+        b.employee_group_id != null ? (b.employee_group_id ? Number(b.employee_group_id) : null) : current.employee_group_id,
+        b.monthly_salary_rial != null ? Math.max(0, Math.round(Number(b.monthly_salary_rial) || 0)) : (current.monthly_salary_rial || 0),
+        b.active == null ? current.active : (b.active ? 1 : 0),
+        req.params.id
+      );
+      try { require('../lib/party-employee-sync').ensurePersonParty(db, Number(req.params.id)); } catch (_) {}
+    })();
     audit(req.user.id, 'update', 'employee', req.params.id, `ویرایش کارمند ${personnelCode || name}`);
     res.json({ ok: true });
   } catch (e) {

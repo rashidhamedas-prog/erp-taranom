@@ -470,6 +470,9 @@ const FK_COLUMNS = [
   ['cutting_packs', 'reversal_journal_id'],
   ['cutting_pack_bundles', 'pack_id'],
   ['cutting_pack_bundles', 'product_id'],
+  // ARCH-ERP-RAR persons↔parties (append-only)
+  ['persons', 'party_id'],
+  ['parties', 'position_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

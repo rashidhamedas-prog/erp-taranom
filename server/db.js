@@ -326,6 +326,8 @@ function initDB() {
       status TEXT DEFAULT 'pending',
       note TEXT,
       stock_deducted INTEGER DEFAULT 0,
+      warehouse_id INTEGER,
+      reservation_id INTEGER,
       created_at INTEGER DEFAULT (strftime('%s','now')),
       FOREIGN KEY(user_id) REFERENCES users(id),
       FOREIGN KEY(cust_id) REFERENCES customers(id)
@@ -687,6 +689,8 @@ function initDB() {
   ensureColumn(db, 'invoices', 'approved_by', 'INTEGER');
   ensureColumn(db, 'orders', 'product_id', 'INTEGER');
   ensureColumn(db, 'orders', 'stock_deducted', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'orders', 'warehouse_id', 'INTEGER');
+  ensureColumn(db, 'orders', 'reservation_id', 'INTEGER');
   ensureColumn(db, 'settlements', 'cheque_bank', "TEXT DEFAULT ''");
   ensureColumn(db, 'settlements', 'cheque_sayadi', "TEXT DEFAULT ''");
   ensureColumn(db, 'settlements', 'cheque_number', "TEXT DEFAULT ''");
@@ -2100,6 +2104,11 @@ function initSyncSchema(db) {
     db.prepare('UPDATE customers SET created_by = user_id WHERE created_by IS NULL AND user_id IS NOT NULL').run();
   } catch (_) { /* ignore */ }
   ensureColumn(db, 'suppliers', 'party_id', 'INTEGER');
+  ensureColumn(db, 'persons', 'party_id', 'INTEGER');
+  ensureColumn(db, 'parties', 'position_id', 'INTEGER');
+  try {
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_persons_party_id_unique ON persons(party_id) WHERE party_id IS NOT NULL');
+  } catch (_) { /* ignore */ }
   ensureColumn(db, 'warehouses', 'entity', "TEXT DEFAULT 'distribution_office'");
   ensureColumn(db, 'warehouses', 'cost_center_id', 'INTEGER');
   ensureColumn(db, 'cost_centers', 'entity', 'TEXT');

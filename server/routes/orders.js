@@ -4,6 +4,12 @@ const { auth } = require('../middleware/auth');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
 const { createReservation, releaseReservation } = require('../lib/inventory/reservation');
 
+function ensureOrdersWarehouseCols(db) {
+  const cols = db.prepare('PRAGMA table_info(orders)').all().map((c) => c.name);
+  if (!cols.includes('warehouse_id')) db.exec('ALTER TABLE orders ADD COLUMN warehouse_id INTEGER');
+  if (!cols.includes('reservation_id')) db.exec('ALTER TABLE orders ADD COLUMN reservation_id INTEGER');
+}
+
 function getScope(req) {
   if (req.user.role === 'admin' && req.query.user_id) return parseInt(req.query.user_id);
   if (req.user.role === 'admin') return null;
@@ -45,6 +51,7 @@ router.post('/', auth, (req, res) => {
   if (!cust_id || !total) return res.status(400).json({ error: 'اطلاعات ناقص' });
   const db = getDB();
   try {
+    ensureOrdersWarehouseCols(db);
     const saved = db.transaction(() => {
       const result = db.prepare(
         'INSERT INTO orders (user_id,cust_id,product_id,date,type,qty,total,paid,pay,deliver,status,note,warehouse_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'

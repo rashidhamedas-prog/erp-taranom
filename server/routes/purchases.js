@@ -34,6 +34,24 @@ function createSupplierLedgerEntry(db, { supplier_id, date, entry_type, ref_type
 
 const { parseQty } = require('../lib/round3');
 
+function purchaseLineKey(r) {
+  if (!r) return '';
+  if (r.batch_id) return 'b' + Number(r.batch_id);
+  if (r.variant_id) return 'v' + Number(r.variant_id);
+  const color = String(r.color || r.color_name || '').trim();
+  if (color && r.product_id) return 'p' + Number(r.product_id) + ':c' + color;
+  return r.product_id ? ('p' + Number(r.product_id)) : '';
+}
+
+function findPurchaseOrigLine(invoiceLineMap, r) {
+  if (!invoiceLineMap || !r) return null;
+  if (r.line_key && invoiceLineMap[r.line_key]) return invoiceLineMap[r.line_key];
+  const key = purchaseLineKey(r);
+  if (key && invoiceLineMap[key]) return invoiceLineMap[key];
+  if (r.product_id && invoiceLineMap['p' + Number(r.product_id)]) return invoiceLineMap['p' + Number(r.product_id)];
+  return null;
+}
+
 function buildRows(db, inputRows) {
   const out = [];
   let subtotal = 0;
@@ -333,13 +351,22 @@ router.get('/returns/available/:invoiceId', auth, adminOrAccounting, (req, res) 
   const alreadyReturned = {};
   db.prepare("SELECT rows FROM purchase_returns WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(req.params.invoiceId).forEach(pr => {
     try {
-      JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturned[r.product_id] = (alreadyReturned[r.product_id] || 0) + r.qty; });
+      JSON.parse(pr.rows || '[]').forEach(r => {
+        const key = purchaseLineKey(r);
+        alreadyReturned[key] = (alreadyReturned[key] || 0) + r.qty;
+      });
     } catch (_) { /* ignore bad JSON */ }
   });
-  const rows = invRows.map(r => ({
-    ...r, already_returned: alreadyReturned[r.product_id] || 0,
-    max_returnable: r.qty - (alreadyReturned[r.product_id] || 0)
-  })).filter(r => r.max_returnable > 0);
+  const rows = invRows.map(r => {
+    const key = purchaseLineKey(r);
+    const already = alreadyReturned[key] || 0;
+    return {
+      ...r,
+      line_key: key,
+      already_returned: already,
+      max_returnable: r.qty - already,
+    };
+  }).filter(r => r.max_returnable > 0);
   res.json({ invoice: inv, rows });
 });
 
@@ -356,9 +383,12 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
     const inv = db.prepare('SELECT * FROM purchase_invoices WHERE id=? AND supplier_id=?').get(purchase_invoice_id, supplier_id);
     if (!inv) return res.status(400).json({ error: 'فاکتور خرید یافت نشد یا متعلق به این تأمین‌کننده نیست' });
     invoiceLineMap = {};
-    JSON.parse(inv.rows || '[]').forEach(r => { invoiceLineMap[r.product_id] = r; });
+    JSON.parse(inv.rows || '[]').forEach(r => { invoiceLineMap[purchaseLineKey(r)] = r; });
     db.prepare("SELECT rows FROM purchase_returns WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(purchase_invoice_id).forEach(pr => {
-      JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturnedMap[r.product_id] = (alreadyReturnedMap[r.product_id] || 0) + r.qty; });
+      JSON.parse(pr.rows || '[]').forEach(r => {
+        const key = purchaseLineKey(r);
+        alreadyReturnedMap[key] = (alreadyReturnedMap[key] || 0) + r.qty;
+      });
     });
   }
 
@@ -369,15 +399,29 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
       const pid = parseInt(r.product_id);
       const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
       if (!prod) return res.status(400).json({ error: `محصول یافت نشد (شناسه ${pid})` });
-      const origLine = invoiceLineMap[pid];
+      const origLine = findPurchaseOrigLine(invoiceLineMap, r);
       if (!origLine) return res.status(400).json({ error: `کالای ${prod.name} در این فاکتور خرید وجود ندارد` });
-      const already = alreadyReturnedMap[pid] || 0;
+      const already = alreadyReturnedMap[purchaseLineKey(origLine)] || alreadyReturnedMap[purchaseLineKey(r)] || 0;
       const maxReturnable = origLine.qty - already;
       const qty = Math.max(0.001, parseQty(r.qty, 1));
       if (qty > maxReturnable) return res.status(400).json({ error: `حداکثر مقدار قابل برگشت برای ${prod.name}: ${maxReturnable}` });
       const price = origLine.price;
       const sum = qty * price;
-      built.rows.push({ product_id: pid, name: prod.name, qty, price, sum });
+      built.rows.push({
+        product_id: pid,
+        name: prod.name,
+        qty, price, sum,
+        line_key: purchaseLineKey(origLine),
+        batch_id: origLine.batch_id || null,
+        is_fabric_roll: origLine.is_fabric_roll || 0,
+        color: origLine.color || '',
+        pattern: origLine.pattern || '',
+        width_cm: origLine.width_cm || 0,
+        roll_no: origLine.roll_no || '',
+        unit_cost_rial: origLine.unit_cost_rial || 0,
+        warehouse_id: origLine.warehouse_id || null,
+        variant_id: origLine.variant_id || null,
+      });
       built.subtotal += sum;
     }
     if (!built.rows.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
@@ -412,6 +456,7 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
           note: `برگشت از خرید #${retId}`,
           createdBy: req.user.id,
           updateAvg: true,
+          batchId: r.batch_id || null,
         });
       }
     } else {
@@ -595,4 +640,5 @@ router.get('/ledger/:supplierId', auth, adminOrAccounting, (req, res) => {
   res.json({ supplier, entries, balance });
 });
 
+router.purchaseLineKey = purchaseLineKey;
 module.exports = router;

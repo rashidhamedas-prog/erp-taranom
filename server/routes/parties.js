@@ -258,6 +258,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
         pgid, b.prefix || null, b.birth_date || null, b.referrer || null, b.account_nature || null, coaCode
       );
       const partyId = r.lastInsertRowid;
+      const posId = b.position_id ? parseInt(b.position_id, 10) : null;
+      if (posId) {
+        try { db.prepare('UPDATE parties SET position_id=? WHERE id=?').run(posId, partyId); } catch (_) {}
+      }
       try { syncPartyToLegacy(db, partyId); } catch (_) {}
       if (openRial) {
         const { postPartyOpeningBalance } = require('../lib/opening-post');
@@ -349,6 +353,10 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
         b.account_nature ?? row.account_nature, coaCode, userId,
         req.params.id
       );
+      if (b.position_id !== undefined) {
+        const posId = b.position_id ? parseInt(b.position_id, 10) : null;
+        try { db.prepare('UPDATE parties SET position_id=? WHERE id=?').run(posId, req.params.id); } catch (_) {}
+      }
       try { syncPartyToLegacy(db, req.params.id); } catch (_) {}
       if (req.user.role === 'admin' && openRial !== (row.opening_balance || 0)) {
         const oldJe = db.prepare("SELECT id FROM journal_entries WHERE ref_type='opening_balance' AND ref_id=? AND COALESCE(deleted_at,0)=0 ORDER BY id DESC LIMIT 1").get(req.params.id);
