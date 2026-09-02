@@ -1,3 +1,10 @@
+## 2026-09-03T01:20:00+03:30 — ARCH v183 cheque books + live pack
+
+- Remaining archive items closed: cheque_in posts party tafsili + customer/person ledger at register (clear/send-to-bank only backfill); live pack = in-stock colors × sizes; invoice nested color/size qty modal; variant_id on invoice JSON + SKU stock delta.
+- Tests: `test-arch-erp-rar-v183.js` 20, v182 still green, `test-sms.js` 22.
+- Owner asked commit + merge + Iran deploy this turn. Overlay SFTP (VPS dirty); include db.js with remote backup because v182 schema hooks are required.
+- Do not commit `_deploy-demo*`, `_diag-moein*`, `motefareqe/`.
+
 ## 2026-09-03T01:10:00+03:30 — person_party_unify_v1 backfill
 
 - Late party-HR report: existing persons/parties were only linked on next edit. Added stamped `runPersonPartyUnifyV1` (phone/national_id, then employee projection). Party list/detail now expose `position_name`.

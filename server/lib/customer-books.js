@@ -19,6 +19,8 @@ const REPAIR_FLAG_V2 = 'customer_books_repair_v2';
 const STMT_REF_ALIAS = {
   invoice_ar_reclass: 'invoice',
   cheque_endorse: 'cheque',
+  cheque_in: 'cheque',
+  cheque_clear: 'cheque',
   cheque: 'cheque',
   opening_ledger: 'opening',
   opening_reclass: 'opening',
@@ -37,7 +39,7 @@ function stmtEntryType(refType, normalized) {
   const n = normalized || normalizeStmtRefType(refType);
   if (n === 'invoice') return 'invoice';
   if (n === 'invoice_payment' || n === 'settlement') return 'settlement';
-  if (n === 'cheque' || n === 'cheque_endorse') return 'cheque';
+  if (n === 'cheque' || n === 'cheque_endorse' || n === 'cheque_in' || n === 'cheque_clear') return 'cheque';
   if (n === 'opening') return 'opening';
   if (n === 'reversal') return 'reversal';
   if (String(refType || '').includes('reversal')) return 'reversal';

@@ -38,10 +38,11 @@ tasks:
       - "Party employee role appears in payroll employees and reverse"
       - "Purchase return keeps fabric color"
       - "node server/scripts/test-arch-erp-rar-v182.js"
+      - "Cheque register posts customer/person books (cheque_in)"
+      - "Live pack = colors × sizes; invoice color split modal"
+      - "node server/scripts/test-arch-erp-rar-v183.js"
     non_goals:
-      - "Live SKU pack = colors × sizes on sales invoice"
-      - "Cheque-record clear posting to person circulation"
-      - "Iran git pull / pm2 (Wave 0)"
+      - "inventory_ledger.variant_id perpetual layer"
       - "Committing leftover _deploy/_diag/motefareqe"
 
   - id: "OPS-UI-LEDGER-SEARCH-ROLLS-V181"

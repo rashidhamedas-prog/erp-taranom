@@ -133,6 +133,24 @@ function buildRows(db, inputRows, canDiscount) {
     const sum = Math.max(0, Math.round(gross - discAmt));
     subtotal += sum;
     const wh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : null;
+    let variantId = r.variant_id ? parseInt(r.variant_id, 10) : null;
+    let colorId = r.color_id ? parseInt(r.color_id, 10) : null;
+    let sizeId = r.size_id ? parseInt(r.size_id, 10) : null;
+    let colorName = String(r.color_name || r.color || '').trim();
+    let sizeName = String(r.size_name || '').trim();
+    if (variantId && pid) {
+      try {
+        const v = require('../lib/product-variants').getVariant(db, variantId);
+        if (v && Number(v.product_id) === Number(pid)) {
+          colorId = v.color_id || colorId;
+          sizeId = v.size_id || sizeId;
+          colorName = v.color_name || colorName;
+          sizeName = v.size_name || sizeName;
+        } else {
+          variantId = null;
+        }
+      } catch (_) { variantId = null; }
+    }
     out.push({
       product_id: pid,
       row_type: rowType,
@@ -149,11 +167,16 @@ function buildRows(db, inputRows, canDiscount) {
       allocated_freight: 0,
       batch_id: r.batch_id ? parseInt(r.batch_id, 10) : null,
       is_fabric_roll: r.is_fabric_roll ? 1 : 0,
-      color: String(r.color || '').trim(),
+      color: colorName || String(r.color || '').trim(),
       pattern: String(r.pattern || '').trim(),
       width_cm: Math.round(Number(r.width_cm) || 0),
       roll_no: String(r.roll_no || '').trim(),
       unit_cost_rial: Math.round(Number(r.unit_cost_rial) || 0),
+      variant_id: variantId || null,
+      color_id: colorId || null,
+      size_id: sizeId || null,
+      color_name: colorName,
+      size_name: sizeName,
     });
   }
   return { rows: out, subtotal };

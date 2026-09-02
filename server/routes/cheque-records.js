@@ -7,6 +7,7 @@ const { todayJalali } = require('../jalali');
 const { voidChequeRecord } = require('../lib/void-cheque');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { assertJournalIdempotent } = require('../lib/sales-document');
+const { postChequeInReceipt } = require('../lib/cheque-party-books');
 
 const OPENING_NOTE = 'مانده اول دوره';
 
@@ -369,6 +370,8 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       });
       db.prepare('UPDATE cheque_records SET journal_entry_id=? WHERE id=?').run(journalId, result.lastInsertRowid);
     }
+    const saved = db.prepare('SELECT * FROM cheque_records WHERE id=?').get(result.lastInsertRowid);
+    postChequeInReceipt(db, saved, req.user.id, receive_date || issue_date || todayJalali());
     return result.lastInsertRowid;
   })();
   audit(req.user.id, 'create', 'cheque_record', recordId, `ثبت چک ${cheque_number || recordId}`);
@@ -521,6 +524,7 @@ router.post('/:id/send-to-bank', auth, adminOrAccounting, (req, res) => {
         throw Object.assign(new Error('چک دریافتنی یافت نشد'), { status: 404 });
       }
       assertPosted(row);
+      postChequeInReceipt(db, row, req.user.id, entryDate);
       if (row.lifecycle_status && row.lifecycle_status !== 'registered') {
         throw Object.assign(new Error('وضعیت چرخه این چک اجازه واگذاری به بانک را نمی‌دهد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
@@ -582,6 +586,7 @@ router.post('/:id/clear', auth, adminOrAccounting, (req, res) => {
       if (row.lifecycle_status !== 'in_collection') {
         throw Object.assign(new Error('چک باید در وضعیت «در جریان وصول» باشد'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
+      postChequeInReceipt(db, row, req.user.id, entryDate);
       assertJournalIdempotent(db, 'cheque_clear', row.id);
 
       const cashLine = bankId

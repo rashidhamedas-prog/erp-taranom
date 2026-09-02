@@ -3856,7 +3856,13 @@ async function _openInvBuilder(id){
     invCart = (inv.rows||[]).map(r=>({
       product_id:r.product_id, name:r.name, qty:r.qty, price:r.price,
       disc:r.disc||0, disc_amount:r.disc_amount||0, description:r.description||'',
-      warehouse_id:r.warehouse_id||null, row_type:r.row_type||'product', income_coa:r.income_coa||''
+      warehouse_id:r.warehouse_id||null, row_type:r.row_type||'product', income_coa:r.income_coa||'',
+      batch_id:r.batch_id||null, is_fabric_roll:r.is_fabric_roll?1:0,
+      color:r.color||r.color_name||'', color_name:r.color_name||r.color||'',
+      size_name:r.size_name||'', variant_id:r.variant_id||null,
+      color_id:r.color_id||null, size_id:r.size_id||null,
+      pattern:r.pattern||'', width_cm:r.width_cm||0, roll_no:r.roll_no||'',
+      unit_cost_rial:r.unit_cost_rial||0
     }));
     window.__invCartFromMarketer = false;
   } else if(pendingMk){
@@ -4099,17 +4105,91 @@ function applyHeaderWarehouseToCart(cart, headerId, opts){
     if(force || !r.warehouse_id) r.warehouse_id = wh;
   });
 }
-function addToCart(pid){
+function livePackFromStyle(style){
+  const vars=(style&&style.variants)||[];
+  const matrix=vars.filter(v=>!v.is_default && v.active!==0);
+  const live=matrix.filter(v=>(Number(v.stock)||0)>0);
+  const pool=live.length?live:matrix;
+  const colors=new Set(pool.map(v=>String(v.color_id||v.color_name||'')));
+  const sizes=new Set(pool.map(v=>String(v.size_id||v.size_name||'')));
+  colors.delete(''); sizes.delete('');
+  const auto=Number(style&&style.pack_size_auto)||0;
+  return { matrix, live, pool, pack: Math.max(1, (colors.size*sizes.size)||auto||1) };
+}
+function addCartRow(p, extra){
+  const pidN=Number(p.id);
+  const variantId=extra&&extra.variant_id?Number(extra.variant_id):null;
+  const qty=extra&&extra.qty!=null?Math.max(0.001, Number(extra.qty)||0): (p.pack_size>1?p.pack_size:1);
+  const wh=headerInvoiceWarehouseId();
+  const ex=invCart.find(r=>Number(r.product_id)===pidN && Number(r.variant_id||0)===Number(variantId||0) && !r.batch_id);
+  if(ex) ex.qty += qty;
+  else invCart.push({
+    product_id:pidN, name:p.name, qty, price:(extra&&extra.price!=null)?extra.price:p.price, disc:0, warehouse_id:wh,
+    variant_id:variantId,
+    color_id:extra&&extra.color_id||null,
+    size_id:extra&&extra.size_id||null,
+    color:extra&&(extra.color||extra.color_name)||'',
+    color_name:extra&&extra.color_name||'',
+    size_name:extra&&extra.size_name||''
+  });
+}
+async function addToCart(pid){
   const p = findInvProduct(pid);
   if(!p){ try{ showToast('کالا در فهرست این انبار یافت نشد','error'); }catch(_){ } return; }
-  const pidN = Number(p.id);
-  const ex = invCart.find(r=>Number(r.product_id)===pidN && !r.batch_id);
-  const defaultQty = p.pack_size > 1 ? p.pack_size : 1;
-  const wh = headerInvoiceWarehouseId();
-  if(ex) ex.qty += defaultQty;
-  else invCart.push({product_id:pidN,name:p.name,qty:defaultQty,price:p.price,disc:0,warehouse_id:wh});
+  let style=null;
+  try{ style=await api('GET','/product-variants/style/'+Number(p.id)); }catch(_){ style=null; }
+  const pack=livePackFromStyle(style);
+  if(pack.matrix.length){
+    openInvVariantSplitModal(p, pack);
+    return;
+  }
+  addCartRow(p, { qty: p.pack_size > 1 ? p.pack_size : 1 });
   renderCart();
-  renderInvPicker(); // stock badges must reflect the newly reserved quantity immediately
+  renderInvPicker();
+}
+function openInvVariantSplitModal(p, pack){
+  const rows=pack.pool.length?pack.pool:pack.matrix;
+  openNestedModal(`
+    <div class="modal-head"><h3>انتخاب رنگ / سایز — ${esc(p.name)}</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">پک زنده = ${fmt(pack.pack)} عدد (رنگ‌های موجود × سایزهای موجود). تعداد هر ترکیب را وارد کنید.</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>رنگ</th><th>سایز</th><th>موجودی SKU</th><th>تعداد</th></tr></thead>
+      <tbody>${rows.map(v=>`<tr>
+        <td>${esc(v.color_name||'—')}</td>
+        <td>${esc(v.size_name||'—')}</td>
+        <td class="mono">${fmt(v.stock||0)}</td>
+        <td><input type="number" min="0" step="1" value="1" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}"></td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(){confirmInvVariantSplit((Number(p.id)))})}">افزودن به فاکتور</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button>
+    </div>`);
+}
+function confirmInvVariantSplit(pid){
+  const p=findInvProduct(pid);
+  if(!p){ closeNestedModal(); return; }
+  const inputs=[...document.querySelectorAll('.inv-var-qty')];
+  let added=0;
+  inputs.forEach(inp=>{
+    const qty=Math.max(0, Number(inp.value)||0);
+    if(!qty) return;
+    addCartRow(p, {
+      qty,
+      variant_id: Number(inp.getAttribute('data-vid'))||null,
+      color_id: Number(inp.getAttribute('data-cid'))||null,
+      size_id: Number(inp.getAttribute('data-sid'))||null,
+      color: inp.getAttribute('data-cname')||'',
+      color_name: inp.getAttribute('data-cname')||'',
+      size_name: inp.getAttribute('data-sname')||'',
+    });
+    added++;
+  });
+  if(!added){ showToast('حداقل برای یک رنگ/سایز تعداد وارد کنید','error'); return; }
+  closeNestedModal();
+  renderCart();
+  renderInvPicker();
 }
 let _pickTap={};
 function pickCardTap(e,pid){
@@ -4196,7 +4276,7 @@ function renderCart(){
       const lineSum=Math.max(0,gross-lineDiscAmt);
       return `
       <tr>
-        <td class="cn">${isIncome?'💰 ':''}${esc(r.name)}${r.batch_id||r.is_fabric_roll?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طاقه ${esc(r.roll_no||('#'+(r.batch_id||'')))} ${esc(r.color||'')}</div>`:''}</td>
+        <td class="cn">${isIncome?'💰 ':''}${esc(r.name)}${r.batch_id||r.is_fabric_roll?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طاقه ${esc(r.roll_no||('#'+(r.batch_id||'')))} ${esc(r.color||'')}</div>`:(r.color_name||r.color||r.size_name)?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc([r.color_name||r.color,r.size_name].filter(Boolean).join(' / '))}</div>`:''}</td>
         <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[(i)].qty);if(canAccounting())invSyncLineDisc(invCart,(i),'pct');renderCart();renderInvPicker()})}"></td>
         <td class="col-price"><input type="number" value="${r.price}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].price=+this.value||0;if(canAccounting())invSyncLineDisc(invCart,(i),'pct');renderCart()})}"></td>
         ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].disc=+this.value||0;invSyncLineDisc(invCart,(i),'pct');renderCart()})}"></td>
@@ -4265,8 +4345,10 @@ async function saveInvoice(id){
       row_type:r.row_type||'product',
       income_coa:r.income_coa||'', name:r.name||'',
       batch_id:r.batch_id||null, is_fabric_roll:r.is_fabric_roll?1:0,
-      color:r.color||'', pattern:r.pattern||'', width_cm:r.width_cm||0,
-      roll_no:r.roll_no||'', unit_cost_rial:r.unit_cost_rial||0
+      color:r.color||r.color_name||'', pattern:r.pattern||'', width_cm:r.width_cm||0,
+      roll_no:r.roll_no||'', unit_cost_rial:r.unit_cost_rial||0,
+      variant_id:r.variant_id||null, color_id:r.color_id||null, size_id:r.size_id||null,
+      color_name:r.color_name||'', size_name:r.size_name||''
     }))
   };
   try{
@@ -4540,7 +4622,8 @@ async function prodModal(id){
       <div class="fg"><label>هشدار موجودی ${hlp('وقتی موجودی به این عدد یا کمتر برسد، هشدار قرمز نمایش داده می‌شود.')}</label><input id="p-alert" type="number" value="${p.stock_alert!=null?p.stock_alert:5}"></div>
       <div class="fg"><label>واحد ${hlp('واحد شمارش محصول: عدد، دست، بسته و…')}</label><input id="p-unit" value="${esc(p.unit||'عدد')}"></div>
       <div class="fg"><label>تعداد رنگ ${hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" value="${p.colors!=null?p.colors:1}"></div>
-      <div class="fg"><label>تعداد در پک ${hlp('تعداد پیش‌فرض هر بسته. در فاکتور به صورت خودکار اعمال می‌شود.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
+      <div class="fg"><label>تعداد در پک ${hlp('اگر ماتریس رنگ×سایز ساخته شود، پک فروش = رنگ‌های موجود × سایزهای موجود (زنده). این عدد فقط وقتی ماتریس نیست استفاده می‌شود.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
+      <div class="fg full" id="p-sku-chips"><span class="muted">در حال بارگذاری رنگ و سایز...</span></div>
       <div class="fg full" id="p-variants-wrap">
         <label>SKU مدل × رنگ × سایز ${hlp('هر ترکیب رنگ/سایز یک SKU مستقل با موجودی جدا است. ابتدا کالا را ذخیره کنید، سپس ماتریس بسازید.')}</label>
         ${id?`<div id="p-variants-panel" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">در حال بارگذاری واریانت‌ها...</div>
@@ -4549,7 +4632,7 @@ async function prodModal(id){
           <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){refreshProdVariantsPanel((id))})}">🔄 بروزرسانی</button>
           <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-product-colors');closeModal()})}">🎨 رنگ‌ها</button>
           <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-product-sizes');closeModal()})}">📐 سایزها</button>
-        </div>`:`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">پس از ذخیرهٔ کالا، ویرایش را دوباره باز کنید تا ماتریس SKU ساخته شود.</div>`}
+        </div>`:`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">رنگ و سایز را بالا تیک بزنید؛ با ذخیره، ماتریس SKU ساخته می‌شود.</div>`}
       </div>
       <div class="fg"><label>بارکد (EAN-13) ${hlp('بارکد محصول برای اسکن با دوربین در فاکتورساز و چاپ برچسب. اگر خالی باشد می‌توانید بعد از ذخیره، خودکار تولید کنید.')}</label>
         <div data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}">
@@ -4594,7 +4677,24 @@ async function prodModal(id){
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProduct((id||0))})}">💾 ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   bindProductImageInstantUpload(id||0);
+  setTimeout(()=>{ try{ loadProdSkuChips(id||0); }catch(_){} }, 0);
   if(id) setTimeout(()=>{ try{ refreshProdVariantsPanel(id); }catch(_){} }, 0);
+}
+async function loadProdSkuChips(productId){
+  const box=el('p-sku-chips'); if(!box) return;
+  let colors=[], sizes=[], style=null;
+  try{ colors=listRows(await api('GET','/product-variants/colors'))||[]; }catch(_){ colors=[]; }
+  try{ sizes=listRows(await api('GET','/product-variants/sizes'))||[]; }catch(_){ sizes=[]; }
+  if(productId){ try{ style=await api('GET','/product-variants/style/'+productId); }catch(_){ style=null; } }
+  const usedC=new Set((style&&style.variants||[]).map(v=>Number(v.color_id)).filter(Boolean));
+  const usedS=new Set((style&&style.variants||[]).map(v=>Number(v.size_id)).filter(Boolean));
+  const packHint=style&&style.pack_size_auto?`پک زنده فعلی: ${fmt(style.pack_size_auto)} (${fmt(style.live_colors||0)} رنگ × ${fmt(style.live_sizes||0)} سایز)`:'';
+  box.innerHTML=`
+    <label>رنگ‌های این کالا ${hlp('با ذخیره، از رنگ×سایز تیک‌خورده ماتریس SKU ساخته می‌شود. پک فاکتور = رنگ موجود × سایز موجود.')}</label>
+    <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px`)}">${colors.length?colors.map(c=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="p-chip-color" value="${c.id}" ${usedC.has(Number(c.id))?'checked':''}> ${esc(c.name)}</label>`).join(''):'<span class="muted">رنگی ثبت نشده — از کالا → رنگ‌ها تعریف کنید</span>'}</div>
+    <label>سایزهای این کالا</label>
+    <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;margin:6px 0`)}">${sizes.length?sizes.map(s=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="p-chip-size" value="${s.id}" ${usedS.has(Number(s.id))?'checked':''}> ${esc(s.name)}</label>`).join(''):'<span class="muted">سایزی ثبت نشده — از کالا → سایزها تعریف کنید</span>'}</div>
+    ${packHint?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">${esc(packHint)}</div>`:''}`;
 }
 async function refreshProdVariantsPanel(productId){
   const box=el('p-variants-panel'); if(!box||!productId) return;
@@ -4930,6 +5030,14 @@ async function saveProduct(id){
       showToast((e && ((e.payload&&e.payload.error)||e.message)) || 'خطا در ذخیره کالا','error');
       return;
     }
+  }
+  const savedId = (saved && (saved.id || saved.product_id)) || id || 0;
+  const color_ids=[...document.querySelectorAll('.p-chip-color:checked')].map(n=>Number(n.value)).filter(Boolean);
+  const size_ids=[...document.querySelectorAll('.p-chip-size:checked')].map(n=>Number(n.value)).filter(Boolean);
+  if(savedId && color_ids.length && size_ids.length){
+    try{
+      await api('POST','/product-variants/generate-matrix',{ product_id:Number(savedId), color_ids, size_ids, auto_barcode:true });
+    }catch(e){ showToast((e && e.message) || 'کالا ذخیره شد؛ ساخت ماتریس SKU ناموفق بود','error'); }
   }
   closeModal();
   showToast('ذخیره شد');
@@ -18577,7 +18685,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>مودیان:</b> صف ارسال فقط روی سرور مرکزی (stub/sandbox؛ live خاموش تا SDK واقعی). فاکتور با مهر مالیاتی قفل ویرایش و ابطال محلی است</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>؛ سپس در ویرایش هر کالا دکمه <b>«ساخت ماتریس رنگ×سایز»</b>. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد؛ کد تکراری رد می‌شود و کنتراست متن سفید/سیاه به‌صورت راهنما نشان داده می‌شود</li>
+        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. در فاکتور اگر کالا ماتریس داشته باشد، پنجرهٔ انتخاب رنگ/سایز باز می‌شود. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
         <li><b>صفحه‌بندی:</b> لیست کالاها در حسابداری با <code>limit</code> لود می‌شود و پاسخ envelope را UI باز می‌کند؛ بدون پارامتر page/limit کاتالوگ کامل است</li>
         <li><b>راهنما:</b> در پوستهٔ حسابداری از <b>امکانات → راهنما</b> (پایین سایدبار) باز می‌شود</li>
       </ul>`),
@@ -18859,7 +18967,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
-        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
+        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد پنجرهٔ انتخاب رنگ/سایز را باز می‌کند و پک = رنگ موجود × سایز موجود است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
         <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
         <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. در برگشت خرید، رنگ و شماره طاقه هر ردیف دیده می‌شود و موجودی همان طاقه برمی‌گردد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
         <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس دفتر موجودی؛ موجودی اول دوره کالا (با بها) هم سند افتتاحیه و هم ردیف دفتر موجودی می‌سازد تا با انبار یکی بماند. پر کردن ردیف‌های قدیمی دفتر موجودی فقط روی سرور مرکزی انجام می‌شود تا دستگاه آفلاین ردیف تکراری نسازد</li>
@@ -18868,7 +18976,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
         <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
         <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید برش تعداد را به انبار محصول می‌برد. همان متر را در حواله سفارش تولید دوباره نزنید — سیستم قفل می‌کند</li>
-        <li><b>دفتر چک</b>: واگذاری به بانک (بانک وصول اجباری، سند در جریان وصول، وضعیت واگذارشده، سپس وصول/برگشت)، خرج/ظهرنویسی با ذینفع — اگر مشتری باشد در صورت‌حساب و دفتر او دیده می‌شود؛ اگر تأمین‌کننده باشد دفتر تأمین‌کننده — ارسال مجدد + <b>ابطال کامل</b></li>
+        <li><b>دفتر چک</b>: ثبت چک دریافتنی همان لحظه بستانکار تفصیلی/دفتر طرف حساب می‌شود (گردش شخص و صورت‌حساب مشتری). واگذاری به بانک (بانک وصول اجباری، سند در جریان وصول) و وصول فقط جابه‌جایی اسناد/بانک است و ماندهٔ شخص را دوباره کم نمی‌کند. خرج/ظهرنویسی با ذینفع — اگر مشتری باشد در صورت‌حساب و دفتر او دیده می‌شود؛ اگر تأمین‌کننده باشد دفتر تأمین‌کننده — ارسال مجدد + <b>ابطال کامل</b></li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور می‌سازد؛ ارسالی فاکتور امانت‌گیرنده است و سند بهای تمام‌شده می‌زند بدون کسر دوباره موجودی؛ دریافتی نیازمند خریدار جدا از امانت‌گذار است)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
@@ -19180,9 +19288,10 @@ helpSec('🔑','لایسنس و entitlement',`
     helpSec('📒','چرخه عمر چک (دفتر چک)',`
       <p>در <b>عملیات خاص → دفتر چک</b> برای چک‌های دریافتی:</p>
       <ul>
-        <li><b>واگذاری به بانک</b>: بانک وصول + تاریخ. سند بدهکار «در جریان وصول» / بستانکار اسناد دریافتنی. وضعیت «واگذارشده». بعد از آن وصول و برگشت روی همان ردیف فعال است. چک اول دوره هم همین چرخه را دارد</li>
+        <li><b>ثبت</b>: بدهکار اسناد دریافتنی / بستانکار تفصیلی طرف حساب + ردیف دفتر مشتری یا شخص. گردش از همین لحظه به‌روز است</li>
+        <li><b>واگذاری به بانک</b>: بانک وصول + تاریخ. سند بدهکار «در جریان وصول» / بستانکار اسناد دریافتنی. وضعیت «واگذارشده». بعد از آن وصول و برگشت روی همان ردیف فعال است. چک اول دوره هم همین چرخه را دارد. اگر چک قدیمی بدون سند شخص باشد، همین‌جا گردش شخص هم پر می‌شود</li>
         <li><b>خرج / ظهرنویسی</b>: ذینفع از تأمین‌کننده یا اشخاص. بدهکار پرداختنی ذینفع / بستانکار اسناد دریافتنی + ردیف دفتر تأمین‌کننده</li>
-        <li><b>وصول</b>: وقتی چک در «جریان وصول» است — بستانکار بانک</li>
+        <li><b>وصول</b>: وقتی چک در «جریان وصول» است — بدهکار بانک / بستانکار در جریان وصول (جابه‌جایی دارایی؛ ماندهٔ شخص از ثبت چک کم شده)</li>
         <li><b>برگشت</b>: از «جریان وصول» یا «وصول‌شده» — سند برگشت</li>
         <li><b>ارسال مجدد</b>: پس از برگشت — معکوس سند برگشت و بازگشت به وضعیت قبلی چرخه</li>
       </ul>
@@ -19280,7 +19389,7 @@ function renderSalesGuide(){
         <li>«فاکتور جدید» را بزنید</li>
         <li>مشتری را انتخاب کنید</li>
         <li>برای فاکتور قطعی (معمولی/رسمی) ابتدا <b>انبار مبدأ</b> را انتخاب کنید؛ بدون انبار سرور ثبت را رد می‌کند. انبار سربرگ فقط روی کالای بدون انبار می‌نشیند؛ ردیف انبار دیگر حذف نمی‌شود</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند و صفحهٔ فاکتور باز می‌ماند</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید. اگر کالا رنگ×سایز دارد، پنجرهٔ تو در تو باز می‌شود و هر ترکیب یک ردیف می‌شود. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند و صفحهٔ فاکتور باز می‌ماند</li>
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است</li>
@@ -19290,7 +19399,7 @@ function renderSalesGuide(){
     helpSec('🛒','فروش بازاریاب',`
       <p>از منو «فروش بازاریاب»: کاتالوگ با همان قالب صفحه کاتالوگ، افزودن به سبد، سپس ثبت فاکتور. ترتیب نمایش کالاها از بیشترین موجودی به کمترین است.</p>
       <ul>
-        <li>هر بار «افزودن به سبد» = <b>تعداد در پک</b> آن کالا (مثلاً اگر پک ۶ باشد، ۶ عدد به فاکتور می‌رود)</li>
+        <li>هر بار «افزودن به سبد» = اگر ماتریس رنگ×سایز باشد پنجرهٔ انتخاب رنگ باز می‌شود؛ وگرنه <b>تعداد در پک</b> آن کالا</li>
         <li>اگر دکمه ثبت فاکتور غیرفعال بود، از مدیر بخواهید دسترسی «فاکتورها → ایجاد» را باز کند</li>
       </ul>`),
     helpSec('💬','پیام‌ها',`

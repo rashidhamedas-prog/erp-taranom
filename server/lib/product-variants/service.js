@@ -379,6 +379,39 @@ function softDeleteVariant(db, id) {
   return { ok: true, id: Number(id) };
 }
 
+/** Live pack = distinct in-stock colors × sizes (fallback: all active SKUs, then products.pack_size). */
+function packSizeFor(db, productId) {
+  const product = db.prepare('SELECT pack_size FROM products WHERE id=?').get(productId);
+  const fallback = Math.max(1, Number(product && product.pack_size) || 1);
+  let variants = [];
+  try {
+    variants = listVariants(db, productId, { include_default: false });
+  } catch (_) {
+    variants = [];
+  }
+  if (!variants.length) {
+    return {
+      pack_size: fallback,
+      pack_size_auto: fallback,
+      live_colors: 0,
+      live_sizes: 0,
+      has_matrix: 0,
+    };
+  }
+  const live = variants.filter((v) => (Number(v.stock) || 0) > 0);
+  const pool = live.length ? live : variants;
+  const colors = new Set(pool.map((v) => v.color_id || v.color_name).filter(Boolean));
+  const sizes = new Set(pool.map((v) => v.size_id || v.size_name).filter(Boolean));
+  const auto = Math.max(1, colors.size * sizes.size);
+  return {
+    pack_size: fallback,
+    pack_size_auto: auto,
+    live_colors: colors.size,
+    live_sizes: sizes.size,
+    has_matrix: 1,
+  };
+}
+
 function styleMetadata(db, productId) {
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
   if (!product) return null;
@@ -391,11 +424,16 @@ function styleMetadata(db, productId) {
     : db.prepare(
       'SELECT * FROM product_variants WHERE product_id=? AND is_default=1 LIMIT 1'
     ).get(productId);
+  const pack = packSizeFor(db, productId);
   return {
     is_style: product.is_style != null ? product.is_style : 1,
     has_variants: product.has_variants != null ? product.has_variants : (variantCount > 0 ? 1 : 0),
     default_variant_id: defaultVariant ? defaultVariant.id : null,
     variant_count: variantCount,
+    pack_size: pack.pack_size,
+    pack_size_auto: pack.pack_size_auto,
+    live_colors: pack.live_colors,
+    live_sizes: pack.live_sizes,
   };
 }
 
@@ -413,5 +451,6 @@ module.exports = {
   updateVariant,
   adjustVariantStock,
   softDeleteVariant,
+  packSizeFor,
   styleMetadata,
 };

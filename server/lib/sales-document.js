@@ -211,6 +211,9 @@ function postSaleStockMovements(db, {
       const { consumeFabricRollOnSale } = require('./inventory/fabric-rolls');
       consumeFabricRollOnSale(db, { batchId, qty: Number(r.qty) || 0 });
     }
+    if (r.variant_id) {
+      require('./product-variants').adjustVariantStock(db, r.variant_id, -(Number(r.qty) || 0), 'delta');
+    }
     movements.push(mv);
     cogsRial += Math.round(Number(mv.amount_rial) || 0);
     if (whId) {

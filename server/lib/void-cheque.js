@@ -34,23 +34,31 @@ function voidChequeRecord(db, chequeId, user) {
     }
 
     if (row.journal_entry_id) {
-      // Prefer explicit opening reverse (same as legacy DELETE)
-      const chequeAccount = acct(db, row.direction === 'in' ? 'coa_cheques_receivable' : 'coa_cheques_payable');
-      const openingAccount = acct(db, 'coa_opening_balance');
-      const valueToman = Math.round(Number(row.amount)) / 10;
-      const lines = row.direction === 'in'
-        ? [
-          { code: openingAccount.code, name: openingAccount.name, debit: valueToman, credit: 0 },
-          { code: chequeAccount.code, name: chequeAccount.name, debit: 0, credit: valueToman },
-        ]
-        : [
-          { code: chequeAccount.code, name: chequeAccount.name, debit: valueToman, credit: 0 },
-          { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
-        ];
-      lastReversal = postToLedger(db, {
-        sourceType: 'opening_cheque_reversal', sourceId: row.id, date: todayJalali(),
-        description: `ابطال چک اول دوره ${row.cheque_number || row.id}`, createdBy: user.id, lines,
-      });
+      const { isOpeningCheque } = require('./cheque-party-books');
+      if (isOpeningCheque(row)) {
+        const chequeAccount = acct(db, row.direction === 'in' ? 'coa_cheques_receivable' : 'coa_cheques_payable');
+        const openingAccount = acct(db, 'coa_opening_balance');
+        const valueToman = Math.round(Number(row.amount)) / 10;
+        const lines = row.direction === 'in'
+          ? [
+            { code: openingAccount.code, name: openingAccount.name, debit: valueToman, credit: 0 },
+            { code: chequeAccount.code, name: chequeAccount.name, debit: 0, credit: valueToman },
+          ]
+          : [
+            { code: chequeAccount.code, name: chequeAccount.name, debit: valueToman, credit: 0 },
+            { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
+          ];
+        lastReversal = postToLedger(db, {
+          sourceType: 'opening_cheque_reversal', sourceId: row.id, date: todayJalali(),
+          description: `ابطال چک اول دوره ${row.cheque_number || row.id}`, createdBy: user.id, lines,
+        });
+      } else {
+        lastReversal = reverseJournalEntry(db, row.journal_entry_id, {
+          userId: user.id,
+          reason: `ابطال چک ${row.cheque_number || row.id}`,
+          sourceType: 'cheque_in_reversal',
+        }) || lastReversal;
+      }
     }
 
     db.prepare(`
@@ -67,27 +75,54 @@ function voidChequeRecord(db, chequeId, user) {
     const { createLedgerEntry } = require('../db');
     const originals = db.prepare(`
       SELECT * FROM customer_ledger
-      WHERE ref_type='cheque_endorse' AND ref_id=? AND entry_type<>'reversal'
+      WHERE ref_type IN ('cheque_endorse','cheque_in') AND ref_id=? AND entry_type<>'reversal'
     `).all(row.id);
-    const revCount = db.prepare(`
-      SELECT COUNT(*) c FROM customer_ledger
-      WHERE ref_type='cheque_endorse' AND ref_id=? AND entry_type='reversal'
-    `).get(row.id).c;
-    if (revCount < originals.length) {
-      for (const led of originals) {
-        createLedgerEntry(db, {
-          customer_id: led.customer_id,
+    for (const led of originals) {
+      const rev = db.prepare(`
+        SELECT 1 FROM customer_ledger
+        WHERE ref_type=? AND ref_id=? AND customer_id=? AND entry_type='reversal'
+        LIMIT 1
+      `).get(led.ref_type, row.id, led.customer_id);
+      if (rev) continue;
+      createLedgerEntry(db, {
+        customer_id: led.customer_id,
+        date: todayJalali(),
+        entry_type: 'reversal',
+        ref_type: led.ref_type,
+        ref_id: row.id,
+        description: `ابطال ${led.ref_type === 'cheque_in' ? 'ثبت' : 'خرج'} چک ${row.cheque_number || row.id}`,
+        debit: led.credit || 0,
+        credit: led.debit || 0,
+        user_id: user.id,
+      });
+    }
+    try {
+      const { createPersonLedgerEntry } = require('../db');
+      const personRows = db.prepare(`
+        SELECT * FROM person_ledger
+        WHERE ref_type IN ('cheque_endorse','cheque_in') AND ref_id=?
+          AND COALESCE(entry_type,'')<>'reversal'
+      `).all(row.id);
+      for (const led of personRows) {
+        const rev = db.prepare(`
+          SELECT 1 FROM person_ledger
+          WHERE ref_type=? AND ref_id=? AND person_id=? AND entry_type='reversal'
+          LIMIT 1
+        `).get(led.ref_type, row.id, led.person_id);
+        if (rev) continue;
+        createPersonLedgerEntry(db, {
+          person_id: led.person_id,
           date: todayJalali(),
           entry_type: 'reversal',
-          ref_type: 'cheque_endorse',
+          ref_type: led.ref_type,
           ref_id: row.id,
-          description: `ابطال خرج چک ${row.cheque_number || row.id}`,
+          description: `ابطال چک ${row.cheque_number || row.id}`,
           debit: led.credit || 0,
           credit: led.debit || 0,
           user_id: user.id,
         });
       }
-    }
+    } catch (_) { /* person_ledger optional on older DBs */ }
   })();
 
   audit(user.id, 'reverse', 'cheque_record', row.id, `ابطال کامل چک ${row.cheque_number || row.id}`);

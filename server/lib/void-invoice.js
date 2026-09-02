@@ -109,6 +109,14 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
         const reversed = reverseStockBySource(db, 'invoice', row.id, {
           createdBy: user.id, date: todayJalali(), note: `بازگشت موجودی از لغو فاکتور ${row.num}`,
         });
+        if (invRows.length) {
+          for (const r of invRows) {
+            if (!r.variant_id || r.row_type === 'income') continue;
+            try {
+              require('./product-variants').adjustVariantStock(db, r.variant_id, Number(r.qty) || 0, 'delta');
+            } catch (_) { /* variant row may have been removed */ }
+          }
+        }
         if (!reversed.length) {
           // Legacy firm docs without inventory_ledger rows
           for (const r of invRows) {
@@ -127,6 +135,11 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
       } else {
         for (const r of invRows) {
           if (r.row_type === 'income' || !r.product_id) continue;
+          if (r.variant_id) {
+            try {
+              require('./product-variants').adjustVariantStock(db, r.variant_id, Number(r.qty) || 0, 'delta');
+            } catch (_) { /* optional */ }
+          }
           db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
           db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
             r.product_id, user.id, r.qty, `بازگشت موجودی از لغو فاکتور ${row.num}`
