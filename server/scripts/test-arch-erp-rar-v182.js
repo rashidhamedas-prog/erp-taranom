@@ -91,6 +91,18 @@ const backParty = ensurePersonParty(db, emp.lastInsertRowid);
 const empRow = db.prepare('SELECT party_id FROM persons WHERE id=?').get(emp.lastInsertRowid);
 ok('person→party projection', !!backParty && Number(empRow.party_id) === Number(backParty));
 
+const { runPersonPartyUnifyV1 } = require('../lib/party-employee-sync');
+db.prepare("DELETE FROM settings WHERE key='person_party_unify_v1'").run();
+const orphan = db.prepare(`
+  INSERT INTO persons (name, phone, personnel_code, employee_no, active) VALUES (?,?,?,?,1)
+`).run('یتییم آرچ', '09123333333', 'ORPH-1', 'ORPH-1');
+const unify1 = runPersonPartyUnifyV1(db);
+ok('unify backfill ran', unify1 && unify1.skipped === false);
+const orphanLinked = db.prepare('SELECT party_id FROM persons WHERE id=?').get(orphan.lastInsertRowid);
+ok('unify linked orphan employee', !!orphanLinked && !!orphanLinked.party_id);
+const unify2 = runPersonPartyUnifyV1(db);
+ok('unify is idempotent', unify2 && unify2.skipped === true);
+
 const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 ok('convert button in acc invoices tab', appJs.includes('renderSalesInvoicesTab') && appJs.includes('convertProforma((i.id))'));
 ok('header warehouse does not wipe lines', appJs.includes('if(force || !r.warehouse_id)'));

@@ -112,10 +112,72 @@ function deactivateLinkedPerson(db, partyId) {
   try { db.prepare('UPDATE persons SET active=0 WHERE party_id=?').run(partyId); } catch (_) { /* ignore */ }
 }
 
+function looksLikeEmployee(person) {
+  return !!(
+    (person.personnel_code && String(person.personnel_code).trim())
+    || (person.employee_no && String(person.employee_no).trim())
+    || person.employee_group_id
+  );
+}
+
+function runPersonPartyUnifyV1(db) {
+  const has = (name) => !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name);
+  if (!has('persons') || !has('parties') || !has('party_groups')) {
+    return { skipped: true, reason: 'schema' };
+  }
+  const done = db.prepare("SELECT value FROM settings WHERE key='person_party_unify_v1'").get();
+  if (done && done.value === '1') return { skipped: true };
+
+  return db.transaction(() => {
+    let linked = 0;
+    let created = 0;
+    let forwarded = 0;
+    const orphans = db.prepare('SELECT * FROM persons WHERE party_id IS NULL').all();
+    for (const person of orphans) {
+      let party = null;
+      const nid = String(person.national_id || '').trim();
+      if (nid) {
+        party = db.prepare('SELECT * FROM parties WHERE national_id=? AND is_active=1').get(nid);
+      }
+      const phone = String(person.phone || '').trim();
+      if (!party && phone) {
+        party = db.prepare('SELECT * FROM parties WHERE phone=? AND is_active=1').get(phone);
+      }
+      if (party) {
+        const taken = db.prepare('SELECT id FROM persons WHERE party_id=?').get(party.id);
+        if (!taken) {
+          db.prepare('UPDATE persons SET party_id=? WHERE id=?').run(party.id, person.id);
+          linked += 1;
+          continue;
+        }
+      }
+      if (looksLikeEmployee(person)) {
+        ensurePersonParty(db, person.id);
+        created += 1;
+      }
+    }
+
+    const parties = db.prepare('SELECT id FROM parties WHERE COALESCE(is_active,1)=1').all();
+    for (const row of parties) {
+      const party = db.prepare('SELECT * FROM parties WHERE id=?').get(row.id);
+      if (!isPersonnelParty(db, party)) continue;
+      const has = db.prepare('SELECT id FROM persons WHERE party_id=?').get(party.id);
+      if (!has) {
+        syncPartyToPerson(db, party.id);
+        forwarded += 1;
+      }
+    }
+
+    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('person_party_unify_v1','1')").run();
+    return { skipped: false, linked, created, forwarded };
+  })();
+}
+
 module.exports = {
   syncPartyToPerson,
   ensurePersonParty,
   isPersonnelParty,
   ensurePersonnelPartyGroup,
   deactivateLinkedPerson,
+  runPersonPartyUnifyV1,
 };

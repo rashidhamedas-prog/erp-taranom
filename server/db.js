@@ -2421,6 +2421,7 @@ function initSyncSchema(db) {
     require('./lib/gap-accounting-schema').initGapAccountingSchema(db);
     require('./lib/portal-schema').initPortalSchema(db);
     require('./lib/update-md-schema').ensureUpdateMdSchema(db, ensureColumn);
+    require('./lib/party-employee-sync').runPersonPartyUnifyV1(db);
     require('./lib/license/schema').initLicenseSchema(db);
     require('./lib/b2b/schema').initB2bSchema(db);
   } catch (e) {

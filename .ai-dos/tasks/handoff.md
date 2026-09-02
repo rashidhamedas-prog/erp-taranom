@@ -1,3 +1,9 @@
+## 2026-09-03T01:10:00+03:30 — person_party_unify_v1 backfill
+
+- Late party-HR report: existing persons/parties were only linked on next edit. Added stamped `runPersonPartyUnifyV1` (phone/national_id, then employee projection). Party list/detail now expose `position_name`.
+- SKU live pack and cheque-clear→گردش still deferred (cheque needs credit-at-receipt vs credit-at-clear).
+- Do not commit `_deploy-demo*`, `_diag-moein*`, `motefareqe/`. No Iran pull (Wave 0).
+
 ## 2026-09-03T00:55:00+03:30 — ARCH-ERP-RAR-SYNC v182
 
 - Archive `motefareqe/ERP.rar` mapped to 14 bugs. Implemented surgical set: invoice warehouse/convert/print, receipt XOR + installment dest, orders.warehouse_id, party↔employee + position, purchase-return color.

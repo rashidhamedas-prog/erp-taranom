@@ -164,10 +164,11 @@ router.get('/', auth, (req, res) => {
   const db = getDB();
   const { type, segment, city, search, party_group_id, page = 1, limit = 50 } = req.query;
   let sql = `
-    SELECT p.*, pg.name AS party_group_name, u.name AS expert_name
+    SELECT p.*, pg.name AS party_group_name, u.name AS expert_name, pp.name AS position_name
     FROM parties p
     LEFT JOIN party_groups pg ON p.party_group_id = pg.id
     LEFT JOIN users u ON u.id = p.user_id
+    LEFT JOIN person_positions pp ON pp.id = p.position_id
     WHERE p.is_active=1
   `;
   const params = [];
@@ -194,10 +195,11 @@ router.get('/', auth, (req, res) => {
 router.get('/:id', auth, (req, res) => {
   const db = getDB();
   const row = db.prepare(`
-    SELECT p.*, pg.name AS party_group_name, pg.entity_type AS party_group_entity, u.name AS expert_name
+    SELECT p.*, pg.name AS party_group_name, pg.entity_type AS party_group_entity, u.name AS expert_name, pp.name AS position_name
     FROM parties p
     LEFT JOIN party_groups pg ON p.party_group_id = pg.id
     LEFT JOIN users u ON u.id = p.user_id
+    LEFT JOIN person_positions pp ON pp.id = p.position_id
     WHERE p.id=?
   `).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
