@@ -36,14 +36,21 @@ jobs:
           port: 22
           timeout: 90s
           command_timeout: 10m
-          script_stop: true
           script: |
             set -e
             cd /home/taranom/crm-taranom
-            cp -a server/db.js "server/db.js.bak-arch-v183-$(date +%Y%m%d%H%M%S)" || true
-            pm2 restart erp-taranom --update-env
-            sleep 14
-            curl -sS -o /dev/null -w 'health:%{http_code}\n' http://127.0.0.1:3000/api/system/health
-            curl -sS -o /dev/null -w 'ready:%{http_code}\n' http://127.0.0.1:3000/api/system/ready
-            curl -sS -o /dev/null -w 'root:%{http_code}\n' http://127.0.0.1:3000/
-            grep -n erp-taranom-v server/public/sw.js | head -1
+            pm2 restart erp-taranom --update-env || pm2 start ecosystem.config.js --only erp-taranom || true
+            ok=0
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              sleep 5
+              code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/system/health || true)
+              echo "health_try_$i:$code"
+              if [ "$code" = "200" ]; then ok=1; break; fi
+            done
+            curl -sS -o /dev/null -w 'ready:%{http_code}\n' http://127.0.0.1:3000/api/system/ready || true
+            curl -sS -o /dev/null -w 'root:%{http_code}\n' http://127.0.0.1:3000/ || true
+            grep -n erp-taranom-v server/public/sw.js | head -1 || true
+            if [ "$ok" != "1" ]; then
+              pm2 logs erp-taranom --lines 80 --nostream || true
+              exit 1
+            fi
