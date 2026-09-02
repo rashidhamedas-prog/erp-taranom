@@ -20,8 +20,8 @@
 - **SKU/فاکتور:** در فرم کالا رنگ و سایز تیک می‌شود و با ذخیره ماتریس ساخته می‌شود. پک زنده = رنگ موجود × سایز موجود. افزودن کالا با ماتریس، پنجرهٔ تو در تو برای تعداد هر ترکیب باز می‌کند؛ `variant_id` روی ردیف فاکتور می‌ماند و موجودی SKU کم/برمی‌گردد.
 - **فایل‌ها:** `server/lib/{cheque-party-books,void-cheque,customer-books,product-variants/service,sales-document,void-invoice}.js`، `server/routes/{cheque-records,invoices}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-arch-erp-rar-v183.js`
 - **تست:** `test-arch-erp-rar-v183.js` ۲۰ · `test-arch-erp-rar-v182.js` ۳۲ · `test-sms.js` ۲۲ · `test-sync.js` ۴۴
-- **Merge:** ✅ FF `origin/claude/claude-md-docs-2ssrpy` ← `661ce33`
-- **Deploy:** ⏳ ایران overlay از Actions؛ `db.js` با `user-party.js` جفت می‌شود تا بوت روی VPS کثیف نخوابد.
+- **Merge:** ✅ FF `origin/claude/claude-md-docs-2ssrpy` ← `a977269`
+- **Deploy:** ✅ ایران overlay Actions `33695799009` @ `a977269` — health/ready/root 200؛ SW `erp-taranom-v183`
 - **SW:** `erp-taranom-v183`
 
 ### ۱۴۰۵/۰۶/۱۲ — آرشیو ERP.rar: فاکتور/دریافت/اشخاص/طاقه (SW v182)

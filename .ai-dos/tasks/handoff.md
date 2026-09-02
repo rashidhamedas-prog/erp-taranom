@@ -1,3 +1,8 @@
+## 2026-09-03T03:08:00+03:30 — Iran v183 overlay healthy
+
+- Actions run `33695799009` succeeded: health/ready/root 200, SW `erp-taranom-v183`.
+- Private key remains Actions secret `IRAN_SSH_PRIVATE_KEY`; public key in `.github/keys/iran-taranom.pub`. Local Windows SSH to 94.249.244.208 still kex-aborts.
+
 ## 2026-09-03T02:50:00+03:30 — Iran SSH key on GitHub + overlay retry
 
 - Private key stored as Actions secret `IRAN_SSH_PRIVATE_KEY` (not in git). Public key committed at `.github/keys/iran-taranom.pub`.
