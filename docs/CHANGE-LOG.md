@@ -19,8 +19,9 @@
 - **چک:** ثبت چک دریافتنی همان لحظه بستانکار تفصیلی/دفتر مشتری یا شخص می‌شود (`cheque_in`). واگذاری و وصول جابه‌جایی دارایی‌اند و مانده را دوباره کم نمی‌کنند. چک‌های قدیمی بدون سند، هنگام واگذاری/وصول بک‌فیل می‌شوند. ابطال کامل JE و دفتر را برمی‌گرداند.
 - **SKU/فاکتور:** در فرم کالا رنگ و سایز تیک می‌شود و با ذخیره ماتریس ساخته می‌شود. پک زنده = رنگ موجود × سایز موجود. افزودن کالا با ماتریس، پنجرهٔ تو در تو برای تعداد هر ترکیب باز می‌کند؛ `variant_id` روی ردیف فاکتور می‌ماند و موجودی SKU کم/برمی‌گردد.
 - **فایل‌ها:** `server/lib/{cheque-party-books,void-cheque,customer-books,product-variants/service,sales-document,void-invoice}.js`، `server/routes/{cheque-records,invoices}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-arch-erp-rar-v183.js`
-- **تست:** `test-arch-erp-rar-v183.js` · `test-arch-erp-rar-v182.js` · `test-sms.js`
-- **Deploy:** ⏳
+- **تست:** `test-arch-erp-rar-v183.js` ۲۰ · `test-arch-erp-rar-v182.js` ۳۲ · `test-sms.js` ۲۲ · `test-sync.js` ۴۴
+- **Merge:** ✅ FF `origin/claude/claude-md-docs-2ssrpy` ← `661ce33`
+- **Deploy:** ⏳ ایران — روی این پروفایل ویندوز کلید `~\.ssh\id_ed25519_taranom` نیست؛ overlay آماده است (`scripts/_deploy-arch-v183-iran.py`)
 - **SW:** `erp-taranom-v183`
 
 ### ۱۴۰۵/۰۶/۱۲ — آرشیو ERP.rar: فاکتور/دریافت/اشخاص/طاقه (SW v182)

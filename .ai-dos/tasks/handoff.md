@@ -2,7 +2,8 @@
 
 - Remaining archive items closed: cheque_in posts party tafsili + customer/person ledger at register (clear/send-to-bank only backfill); live pack = in-stock colors × sizes; invoice nested color/size qty modal; variant_id on invoice JSON + SKU stock delta.
 - Tests: `test-arch-erp-rar-v183.js` 20, v182 still green, `test-sms.js` 22.
-- Owner asked commit + merge + Iran deploy this turn. Overlay SFTP (VPS dirty); include db.js with remote backup because v182 schema hooks are required.
+- Commit `661ce33` pushed. Primary FF `origin/claude/claude-md-docs-2ssrpy` = `661ce33`.
+- Iran overlay script ready (`scripts/_deploy-arch-v183-iran.py`) but this Windows profile has empty `~\.ssh` — no `id_ed25519_taranom`. Do not invent a key. After the key is placed, run that script.
 - Do not commit `_deploy-demo*`, `_diag-moein*`, `motefareqe/`.
 
 ## 2026-09-03T01:10:00+03:30 — person_party_unify_v1 backfill
