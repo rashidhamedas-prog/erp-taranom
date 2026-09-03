@@ -80,6 +80,7 @@ const ACC_TAB_RESOLVE = {
   'acc-production-estimate': 'production-estimate',
   'acc-production-kanban': 'production-kanban',
   'acc-production-variance': 'production-variance',
+  'acc-production-reports': 'production-reports',
   'acc-production-mrp': 'production-mrp',
   'acc-production-rates': 'production-rates',
   'acc-production-access': 'production-access',
@@ -279,6 +280,7 @@ const ACC_NAV_SECTIONS = [
       { id: 'acc-production-close', icon: '🔒', label: 'بستن دوره' },
     ]},
     { title: 'گزارشات', items: [
+      { id: 'acc-production-reports', icon: '📊', label: 'مرکز گزارشات تولید' },
       { id: 'acc-production-variance', icon: '🔍', label: 'ماتریس انحراف' },
       { id: 'acc-production-monthly-profit', icon: '💰', label: 'سود ماهانه تولید' },
       { id: 'acc-production-cost-sheet', icon: '📄', label: 'برگه بهای تمام‌شده' },

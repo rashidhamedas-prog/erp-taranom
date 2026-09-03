@@ -1325,7 +1325,7 @@ const LU = (()=> {
     'acc-production-dashboard':'chart', 'acc-production-estimate':'calc',
     'acc-production-mrp':'box', 'acc-production-orders':'factory', 'acc-production-kanban':'clipboard',
     'acc-production-boms':'ruler', 'acc-production-rates':'settings', 'acc-production-access':'lock',
-    'acc-production-variance':'search', 'acc-production-close':'lock',
+    'acc-production-variance':'search', 'acc-production-reports':'chart', 'acc-production-close':'lock',
     'acc-production-monthly-profit':'coins', 'acc-production-cost-sheet':'file',
     'acc-fixed-assets':'building', 'acc-currencies':'banknote', 'acc-fx-rates':'chart',
     'acc-pos-devices':'card', 'acc-pos-report':'card', 'acc-scale-settings':'scale', 'acc-company-profile':'building',
@@ -1449,7 +1449,7 @@ const ACC_MODULE_MAP={
   'acc-production-dashboard':'module_production','acc-production-close':'module_production',
   'acc-production-monthly-profit':'module_production','acc-production-cost-sheet':'module_production',
   'acc-production-estimate':'module_production','acc-production-kanban':'module_production',
-  'acc-production-variance':'module_production','acc-production-mrp':'module_production',
+  'acc-production-variance':'module_production','acc-production-reports':'module_production','acc-production-mrp':'module_production',
   'acc-production-rates':'module_production','acc-production-access':'module_production',
   'acc-payroll':'module_payroll','acc-payroll-employees':'module_payroll',
   'acc-payroll-structures':'module_payroll','acc-payroll-periods':'module_payroll',
@@ -1459,8 +1459,26 @@ const ACC_MODULE_MAP={
   'acc-moadian':'module_moadian','acc-fixed-assets':'module_fixed_assets',
   'acc-portal-units':'module_portal','acc-portal-my-dept':'module_portal'
 };
+const ACC_PROD_PERM_MAP={
+  'acc-production-boms':['production_bom','view'],
+  'acc-production-rates':['production_cost','view'],
+  'acc-production-dashboard':['production_reports','view'],
+  'acc-production-orders':['production_order','view'],
+  'acc-cutting-lays':['production_order','view'],
+  'acc-production-kanban':['production_reports','view'],
+  'acc-production-estimate':['production_cost','view'],
+  'acc-production-mrp':['production_order','view'],
+  'acc-production-close':['production_cost','edit'],
+  'acc-production-reports':['production_reports','view'],
+  'acc-production-variance':['production_reports','view'],
+  'acc-production-monthly-profit':['production_reports','view'],
+  'acc-production-cost-sheet':['production_reports','view'],
+};
 function filterAccNavItem(it){
   if(it.id==='acc-production-access' && ME?.role!=='admin' && ME?.role!=='accounting') return false;
+  if(it.id==='acc-production-monthly-profit' && ME?.role!=='admin' && ME?.role!=='accounting') return false;
+  const pp=ACC_PROD_PERM_MAP[it.id];
+  if(pp && typeof canPerm==='function' && !canPerm(pp[0], pp[1])) return false;
   const key=ACC_MODULE_MAP[it.id];
   const flags=CACHE.moduleFlags||{};
   return !key || flags[key]!=='0';
@@ -6350,7 +6368,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -6620,6 +6638,8 @@ async function loadAccTab(tab){
     await renderProductionKanbanTab(body);
   } else if(tab==='production-variance'){
     await renderProductionVarianceTab(body);
+  } else if(tab==='production-reports'){
+    await renderProductionReportsTab(body);
   } else if(tab==='production-mrp'){
     await renderProductionMrpTab(body);
   } else if(tab==='production-rates'){
@@ -9911,11 +9931,6 @@ async function prodBomSaveLines(id){
   const rows=[...document.querySelectorAll('#pbe-lines tr.pbe-line')];
   if(!rows.length){ showToast('حداقل یک قلم اضافه کنید','error'); return; }
   try{
-    // Replace strategy for draft: delete existing then bulk add fresh from form
-    const bom=await api('GET','/production/boms/'+id);
-    for(const L of (bom.lines||[])){
-      await api('DELETE','/production/boms/'+id+'/lines/'+L.id);
-    }
     const lines=rows.map(tr=>({
       component_product_id:+tr.querySelector('.pbe-comp')?.value,
       qty_per_base:+tr.querySelector('.pbe-qty')?.value||0,
@@ -9923,7 +9938,7 @@ async function prodBomSaveLines(id){
       line_type:tr.querySelector('.pbe-type')?.value||'material'
     })).filter(L=>L.component_product_id&&L.qty_per_base>0);
     if(!lines.length){ showToast('اقلام معتبر نیست','error'); return; }
-    await api('POST','/production/boms/'+id+'/lines/bulk',{lines});
+    await api('POST','/production/boms/'+id+'/lines/bulk',{replace:true, lines});
     showToast(toFa(lines.length)+' قلم ذخیره شد');
     await prodBomEditModal(id);
   }catch(e){ showToast(e.message||e.error||'خطا در ذخیره اقلام','error'); }
@@ -10134,16 +10149,150 @@ function prodJourneyHtml(state){
       </div></div>`:''}`;
 }
 const PROD_QUICK_REPORTS=[
-  { path:'/production/reports/wip', title:'مانده WIP', pri:1 },
-  { path:'/production/reports/period-cost', title:'تحلیل بهای دوره', pri:2 },
-  { path:'/production/reports/material-variance', title:'انحراف مواد', pri:3 },
-  { path:'/production/reports/waste', title:'تحلیل ضایعات', pri:4 },
-  { path:'/production/reports/material-usage', title:'مصرف مواد', pri:5 },
-  { path:'/production/reports/cycle-time', title:'زمان چرخه', pri:6 },
-  { path:'/production/reports/bottleneck', title:'گلوگاه خط', pri:7 },
-  { path:'/production/reports/std-vs-actual', title:'استاندارد vs واقعی', pri:8 },
+  { code:'PR-10', path:'/production/reports/wip', title:'مانده WIP', pri:1, dateMode:true },
+  { code:'PR-06', path:'/production/reports/period-cost', title:'تحلیل بهای دوره', pri:2 },
+  { code:'PR-12', path:'/production/reports/material-variance', title:'انحراف مواد', pri:3 },
+  { code:'PR-15', path:'/production/reports/waste', title:'تحلیل ضایعات', pri:4 },
+  { code:'PR-20', path:'/production/reports/material-usage', title:'مصرف مواد', pri:5 },
+  { code:'PR-05', path:'/production/reports/cycle-time', title:'زمان چرخه', pri:6 },
+  { code:'PR-19', path:'/production/reports/bottleneck', title:'گلوگاه خط', pri:7 },
+  { code:'PR-08', path:'/production/reports/std-vs-actual', title:'استاندارد vs واقعی', pri:8 },
 ];
+const PROD_REPORT_GROUPS=[
+  { title:'تحلیل هزینه و انحراف', codes:['PR-06','PR-10','PR-12','PR-13','PR-14'] },
+  { title:'عملکرد و زمان', codes:['PR-05','PR-16','PR-18','PR-19','PR-20'] },
+  { title:'ضایعات و کیفیت', codes:['PR-15','PR-17'] },
+  { title:'سود و پیمانکار', codes:['PR-08','PR-21','PR-22'] },
+];
+const PROD_REPORT_SPECS={
+  'PR-05':{ code:'PR-05', title:'زمان چرخه مراحل', path:'/production/reports/cycle-time', requiresCost:false,
+    columns:[{key:'seq',label:'مرحله',fmt:'num'},{key:'code',label:'کد مرکز'},{key:'name',label:'مرکز هزینه'},{key:'avg_days',label:'میانگین روز',fmt:'qty'}] },
+  'PR-06':{ code:'PR-06', title:'تحلیل بهای دوره', path:'/production/reports/period-cost', requiresCost:true, custom:'periodCost' },
+  'PR-08':{ code:'PR-08', title:'استاندارد در برابر واقعی', path:'/production/reports/std-vs-actual', requiresCost:true,
+    columns:[{key:'order_no',label:'شماره سفارش'},{key:'qty_produced',label:'تولید',fmt:'qty'},{key:'std_total_rial',label:'بها استاندارد',fmt:'money'},{key:'total_cost_rial',label:'بها واقعی',fmt:'money'},{key:'variance_rial',label:'انحراف',fmt:'variance'},{key:'variance_pct',label:'٪ انحراف',fmt:'pct'}] },
+  'PR-10':{ code:'PR-10', title:'مانده کار در جریان (WIP)', path:'/production/reports/wip', requiresCost:true, dateMode:true,
+    columns:[{key:'order_no',label:'سفارش'},{key:'product_name',label:'محصول'},{key:'status',label:'وضعیت'},{key:'wip_rial',label:'مانده WIP',fmt:'money'},{key:'stages_done',label:'مراحل انجام',fmt:'num'},{key:'stages_total',label:'کل مراحل',fmt:'num'}] },
+  'PR-12':{ code:'PR-12', title:'انحراف مواد', path:'/production/reports/material-variance', requiresCost:true,
+    columns:[{key:'order_no',label:'سفارش'},{key:'product_name',label:'محصول'},{key:'variance_type',label:'نوع'},{key:'amount_rial',label:'مبلغ',fmt:'variance'}] },
+  'PR-13':{ code:'PR-13', title:'پارتو دلایل انحراف', path:'/production/reports/variance-reasons', requiresCost:true,
+    columns:[{key:'reason',label:'دلیل'},{key:'amount_rial',label:'مبلغ',fmt:'money'},{key:'cnt',label:'تعداد',fmt:'num'},{key:'pct',label:'سهم',fmt:'pct'},{key:'cumulative_pct',label:'تجمعی',fmt:'pct'}] },
+  'PR-14':{ code:'PR-14', title:'کسر/اضافه جذب سربار', path:'/production/reports/overhead-variance', requiresCost:true,
+    columns:[{key:'code',label:'کد'},{key:'name',label:'مرکز هزینه'},{key:'budget_total_rial',label:'بودجه',fmt:'money'},{key:'actual_oh_rial',label:'سربار واقعی',fmt:'money'},{key:'applied_oh_rial',label:'جذب‌شده',fmt:'money'},{key:'variance_rial',label:'انحراف',fmt:'variance'}] },
+  'PR-15':{ code:'PR-15', title:'تحلیل ضایعات', path:'/production/reports/waste', requiresCost:true,
+    columns:[{key:'date',label:'تاریخ'},{key:'cc_code',label:'مرکز'},{key:'product_name',label:'محصول'},{key:'waste_type',label:'نوع'},{key:'qty',label:'مقدار',fmt:'qty'},{key:'cost_rial',alt:'amount_rial',label:'بها',fmt:'money'}] },
+  'PR-16':{ code:'PR-16', title:'بهره‌وری تولید', path:'/production/reports/yield', requiresCost:false, custom:'yield' },
+  'PR-17':{ code:'PR-17', title:'دوباره‌کاری', path:'/production/reports/rework', requiresCost:true,
+    columns:[{key:'date',label:'تاریخ'},{key:'order_no',label:'سفارش'},{key:'cc_code',label:'مرکز'},{key:'qty',label:'مقدار',fmt:'qty'},{key:'cost_rial',alt:'amount_rial',label:'بها',fmt:'money'}] },
+  'PR-18':{ code:'PR-18', title:'عملکرد مراکز هزینه', path:'/production/reports/cost-center-performance', requiresCost:true,
+    columns:[{key:'code',label:'کد'},{key:'name',label:'مرکز'},{key:'orders',label:'سفارش',fmt:'num'},{key:'qty_out',label:'خروجی',fmt:'qty'},{key:'labor_rial',label:'دستمزد',fmt:'money'},{key:'overhead_rial',label:'سربار',fmt:'money'}] },
+  'PR-19':{ code:'PR-19', title:'گلوگاه خط تولید', path:'/production/reports/bottleneck', requiresCost:false, custom:'bottleneck' },
+  'PR-20':{ code:'PR-20', title:'مصرف مواد دوره', path:'/production/reports/material-usage', requiresCost:true,
+    columns:[{key:'product_name',label:'کالا'},{key:'qty',label:'مقدار',fmt:'qty'},{key:'amount_rial',label:'مبلغ',fmt:'money'}] },
+  'PR-21':{ code:'PR-21', title:'عملکرد پیمانکاران', path:'/production/reports/subcontractor-performance', requiresCost:true,
+    columns:[{key:'supplier_name',label:'پیمانکار'},{key:'orders',label:'سفارش',fmt:'num'},{key:'qty_sent',label:'ارسال',fmt:'qty'},{key:'qty_received',label:'دریافت',fmt:'qty'},{key:'qty_lost',label:'افت',fmt:'qty'},{key:'fee_rial',label:'کارمزد',fmt:'money'}] },
+  'PR-22':{ code:'PR-22', title:'سودآوری محصول', path:'/production/reports/product-profitability', requiresCost:true,
+    columns:[{key:'product_name',label:'محصول'},{key:'qty_produced',label:'تولید',fmt:'qty'},{key:'production_cost_rial',label:'بهای تولید',fmt:'money'},{key:'revenue_rial',label:'فروش فرضی',fmt:'money'},{key:'profit_rial',label:'سود',fmt:'variance'},{key:'margin_pct',label:'حاشیه',fmt:'pct'}] },
+};
+function prodReportFmtCell(val, fmt){
+  const PU=window.ProdUI;
+  if(val==null||val==='') return '—';
+  if(fmt==='money') return PU?PU.moneyCell(val):prodFmtToman(val);
+  if(fmt==='variance') return PU?PU.varianceCell(val):prodFmtToman(val);
+  if(fmt==='qty') return qtyFmt(val);
+  if(fmt==='pct') return PU?PU.pct(val):String(val)+'٪';
+  if(fmt==='num') return fmt(val);
+  return esc(val);
+}
+function prodReportTableHtml(rows, columns){
+  if(!rows||!rows.length) return '<div class="prod-report-empty">داده‌ای برای این دوره ثبت نشده است.</div>';
+  const head=columns.map(c=>'<th>'+esc(c.label)+'</th>').join('');
+  const body=rows.slice(0,200).map(row=>'<tr>'+columns.map(c=>{
+    const raw=c.alt?(row[c.key]??row[c.alt]):row[c.key];
+  let cell=prodReportFmtCell(raw, c.fmt);
+    if(c.fmt!=='money'&&c.fmt!=='variance'&&c.fmt!=='qty'&&c.fmt!=='pct'&&c.fmt!=='num') cell=esc(raw!=null?String(raw):'');
+    return '<td data-label="'+esc(c.label)+'"'+(c.fmt==='money'||c.fmt==='variance'||c.fmt==='qty'||c.fmt==='pct'||c.fmt==='num'?' class="num"':'')+'>'+cell+'</td>';
+  }).join('')+'</tr>').join('');
+  const more=rows.length>200?'<p class="muted" data-csp-style="'+CSP.style('margin-top:8px;font-size:12px')+'">نمایش ۲۰۰ ردیف اول از '+fmt(rows.length)+'</p>':'';
+  return '<div class="tbl-wrap"><table class="tbl"><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div>'+more;
+}
+function prodReportTotalsHtml(totals, spec){
+  if(!totals||!Object.keys(totals).length) return '';
+  const PU=window.ProdUI;
+  const labels={wip_rial:'جمع WIP',ledger_rial:'دفتر کل',diff_rial:'اختلاف',amount_rial:'جمع مبلغ',cost_rial:'جمع بها',fee_rial:'جمع کارمزد',profit_rial:'جمع سود',total_rial:'جمع کل',variance_rial:'جمع انحراف',qty:'جمع مقدار',count:'تعداد',centers:'مراکز',stages:'مراحل'};
+  const chips=Object.entries(totals).filter(([,v])=>v!=null&&v!=='').map(([k,v])=>{
+    const lbl=labels[k]||k;
+    const isMoney=/rial|cost|fee|profit|amount|variance/i.test(k);
+    const val=isMoney?(PU?PU.moneyCell(v):prodFmtToman(v)):fmt(v);
+    return '<span><b>'+esc(lbl)+':</b> '+val+'</span>';
+  }).join('');
+  return chips?'<div class="prod-report-totals">'+chips+'</div>':'';
+}
+function prodReportRenderPeriodCost(r, spec){
+  const cur=r.data?.current||{};
+  const prev=r.data?.previous;
+  const PU=window.ProdUI;
+  const money=k=>PU?PU.moneyCell(cur[k]):prodFmtToman(cur[k]);
+  const rows=[
+    {label:'مواد اولیه',key:'material_rial'},{label:'بسته‌بندی',key:'packaging_rial'},
+    {label:'دستمزد',key:'labor_rial'},{label:'پیمانکاری',key:'subcontract_rial'},
+    {label:'سربار',key:'overhead_rial'},{label:'جمع',key:'total_rial'},
+  ];
+  const tbl='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>قلم هزینه</th><th>دوره جاری</th>'+(prev?'<th>دوره قبل</th>':'')+'</tr></thead><tbody>'
+    +rows.map(row=>'<tr><td data-label="قلم">'+esc(row.label)+'</td><td data-label="جاری" class="num">'+money(row.key)+'</td>'
+      +(prev?'<td data-label="قبل" class="num">'+(PU?PU.moneyCell(prev.total_rial&&row.key==='total_rial'?prev.total_rial:''):'—')+'</td>':'')
+      +'</tr>').join('')+'</tbody></table></div>';
+  const kpi=PU?[
+    PU.kpiCard({icon:'📦',label:'تولید دوره',value:fmt(cur.qty_produced||0)}),
+    PU.kpiCard({icon:'💰',label:'بهای واحد',value:prodFmtToman(r.totals?.unit_cost_rial||0)}),
+    PU.kpiCard({icon:'📊',label:'جمع هزینه',value:prodFmtToman(r.totals?.total_rial||0)}),
+  ].join(''):'';
+  return (kpi?'<div class="prod-kpi-grid">'+kpi+'</div>':'')+tbl;
+}
+function prodReportRenderYield(r){
+  const byStage=r.data?.by_stage||[];
+  const byOrder=r.data?.by_order||[];
+  const PU=window.ProdUI;
+  const pct=v=>PU?PU.pct(v):String(v||'—')+'٪';
+  const stageTbl=prodReportTableHtml(byStage,[
+    {key:'seq',label:'مرحله',fmt:'num'},{key:'cc_code',label:'کد'},{key:'cc_name',label:'مرکز'},
+    {key:'qty_in',label:'ورودی',fmt:'qty'},{key:'qty_out',label:'خروجی',fmt:'qty'},{key:'yield_pct',label:'بهره‌وری',fmt:'pct'},
+  ]);
+  const orderTbl=prodReportTableHtml(byOrder,[
+    {key:'order_no',label:'سفارش'},{key:'yield_pct',label:'بهره‌وری کل',fmt:'pct'},
+  ]);
+  const avg=r.totals?.avg_yield_pct;
+  return (avg!=null?'<p class="muted" data-csp-style="'+CSP.style('margin-bottom:8px')+'">میانگین بهره‌وری سفارش‌های بسته: <b>'+pct(avg)+'</b></p>':'')
+    +'<h4 data-csp-style="'+CSP.style('margin:12px 0 6px')+'">بر اساس مرحله</h4>'+stageTbl
+    +'<h4 data-csp-style="'+CSP.style('margin:16px 0 6px')+'">بر اساس سفارش</h4>'+orderTbl;
+}
+function prodReportRenderBottleneck(r){
+  const rows=r.data?.rows||[];
+  const PU=window.ProdUI;
+  if(!rows.length) return '<div class="prod-report-empty">داده‌ای برای این دوره نیست.</div>';
+  const bars=rows.map(row=>PU?PU.loadBar(row.load_pct, (row.code||'')+' '+ (row.name||'')):'<div>'+esc(row.name)+' — '+fmt(row.load_pct)+'٪</div>').join('');
+  const tbl=prodReportTableHtml(rows,[
+    {key:'code',label:'کد'},{key:'name',label:'مرکز'},{key:'orders',label:'سفارش',fmt:'num'},
+    {key:'in_progress',label:'در جریان',fmt:'num'},{key:'done_count',label:'انجام‌شده',fmt:'num'},{key:'load_pct',label:'بار',fmt:'pct'},
+  ]);
+  const bn=r.data?.bottleneck;
+  const hint=bn?'<p class="muted" data-csp-style="'+CSP.style('margin-bottom:10px;font-size:13px')+'">◄ گلوگاه محتمل: <b>'+esc(bn.code||'')+' '+esc(bn.name||'')+'</b> ('+fmt(bn.load_pct)+'٪)</p>':'';
+  return hint+'<div data-csp-style="'+CSP.style('margin-bottom:14px')+'">'+bars+'</div>'+tbl;
+}
+function prodReportRenderResult(r, spec){
+  if(spec.custom==='periodCost') return prodReportRenderPeriodCost(r, spec);
+  if(spec.custom==='yield') return prodReportRenderYield(r);
+  if(spec.custom==='bottleneck') return prodReportRenderBottleneck(r);
+  const rows=r.data?.rows||r.rows||[];
+  return prodReportTableHtml(rows, spec.columns||[]);
+}
+function prodOpenReport(code){
+  window._prodReportCode=code;
+  if(typeof go==='function') go('acc-production-reports');
+  else loadAccTab('production-reports');
+}
 async function prodQuickReportModal(path, title){
+  const hit=PROD_QUICK_REPORTS.find(x=>x.path===path);
+  if(hit&&hit.code){ prodOpenReport(hit.code); return; }
   const period=window._prodDashPeriod||todayJalali().slice(0,7);
   showModal(title, '<div class="muted" id="pqr-body">در حال بارگذاری...</div><div class="modal-foot"><button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){closeModal()})+'">بستن</button></div>');
   const box=el('pqr-body');
@@ -10156,8 +10305,85 @@ async function prodQuickReportModal(path, title){
     const body=rows.slice(0,80).map(row=>'<tr>'+keys.map(k=>'<td class="mono">'+esc(row[k]!=null?String(row[k]):'')+'</td>').join('')+'</tr>').join('');
     if(box) box.innerHTML='<div class="tbl-wrap"><table class="tbl"><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div>'
       +(rows.length>80?'<p class="muted">نمایش ۸۰ ردیف اول از '+fmt(rows.length)+'</p>':'')
-      +((r.warnings||[]).length?'<p class="muted">⚠️ '+esc(r.warnings.join(' · '))+'</p>':'');
+      +((r.warnings||[]).length?'<p class="muted">⚠️ '+esc((r.warnings||[]).map(w=>w.code||w).join(' · '))+'</p>':'');
   }catch(e){ if(box) box.innerHTML='<p class="muted">'+esc(e.message||'خطا')+'</p>'; }
+}
+async function renderProductionReportsTab(body){
+  const code=window._prodReportCode||'PR-14';
+  const spec=PROD_REPORT_SPECS[code]||PROD_REPORT_SPECS['PR-14'];
+  const period=(window._prodReportPeriod||window._prodDashPeriod||todayJalali().slice(0,7));
+  const asOf=(window._prodReportDate||todayJalali());
+  window._prodReportPeriod=period;
+  window._prodReportCode=spec.code;
+  const PU=window.ProdUI;
+  const navGroups=PROD_REPORT_GROUPS.map(g=>{
+    const btns=g.codes.map(c=>{
+      const s=PROD_REPORT_SPECS[c];
+      if(!s) return '';
+      const active=c===spec.code?' is-active':'';
+      const bind=CSP.bind('click',function(){window._prodReportCode=c;renderProductionReportsTab(body)});
+      return '<button type="button" class="prod-report-nav-btn'+active+'" data-csp-click="'+bind+'"><span class="mono" data-csp-style="'+CSP.style('font-size:11px;opacity:.7')+'">'+esc(c)+'</span> '+esc(s.title)+'</button>';
+    }).join('');
+    return '<div class="prod-report-nav-group"><h4>'+esc(g.title)+'</h4>'+btns+'</div>';
+  }).join('');
+  const dateField=spec.dateMode
+    ?'<label>تاریخ: <input id="pr-date" value="'+esc(asOf)+'" data-jdate data-csp-style="'+CSP.style('width:110px')+'"></label>'
+    :'<label>دوره: <input id="pr-period" value="'+esc(period)+'" placeholder="1405/04" data-csp-style="'+CSP.style('width:90px')+'"></label>';
+  const exportBind=CSP.bind('click',function(){prodReportExport()});
+  const reloadBind=CSP.bind('click',function(){prodReportReload()});
+  body.innerHTML='<div class="prod-scope"><div class="prod-report-hub">'
+    +'<nav class="prod-report-nav" aria-label="فهرست گزارشات تولید">'+navGroups+'</nav>'
+    +'<div class="prod-report-main"><div class="prod-report-head">'
+    +'<div><h3 data-csp-style="'+CSP.style('margin:0 0 4px')+'">'+esc(spec.title)+'</h3>'
+    +'<span class="muted" data-csp-style="'+CSP.style('font-size:12px')+'">'+esc(spec.code)+(spec.requiresCost?' · نیاز به دسترسی بها':'')+'</span></div>'
+    +'<div class="toolbar" data-csp-style="'+CSP.style('gap:8px;flex-wrap:wrap;margin:0')+'">'
+    +dateField
+    +'<button class="btn" data-csp-click="'+reloadBind+'">🔄 بارگذاری</button>'
+    +'<button class="btn ghost" data-csp-click="'+exportBind+'">⬇ CSV</button>'
+    +'</div></div>'
+    +'<div id="pr-area">'+(PU&&PU.skeletonRows?'<div class="tbl-wrap"><table class="tbl"><tbody>'+PU.skeletonRows(4,5)+'</tbody></table></div>':'<div class="muted">در حال بارگذاری...</div>')+'</div>'
+    +'</div></div></div>';
+  await prodReportReload();
+}
+async function prodReportReload(){
+  const code=window._prodReportCode||'PR-14';
+  const spec=PROD_REPORT_SPECS[code];
+  if(!spec) return;
+  const period=el('pr-period')?.value||window._prodReportPeriod||todayJalali().slice(0,7);
+  const asOf=el('pr-date')?.value||window._prodReportDate||todayJalali();
+  window._prodReportPeriod=period;
+  window._prodReportDate=asOf;
+  const area=el('pr-area');
+  if(area) area.innerHTML=window.ProdUI&&window.ProdUI.skeletonRows?'<div class="tbl-wrap"><table class="tbl"><tbody>'+window.ProdUI.skeletonRows(4,5)+'</tbody></table></div>':'<div class="muted">در حال بارگذاری...</div>';
+  let r=null;
+  try{
+    const q=spec.dateMode?('?date='+encodeURIComponent(asOf)):('?period='+encodeURIComponent(period));
+    r=await api('GET', spec.path+q);
+  }catch(e){
+    if(area) area.innerHTML='<div class="prod-report-empty">'+esc(e.message||'خطا — دسترسی گزارشات تولید یا بها لازم است')+'</div>';
+    return;
+  }
+  if(!area) return;
+  const meta=r.meta;
+  if(meta&&meta.empty&&!((r.data?.rows||[]).length||(r.data?.by_stage||[]).length)){
+    area.innerHTML='<div class="prod-report-empty">'+esc(meta.message||'داده‌ای برای این دوره نیست.')+'</div>';
+    return;
+  }
+  let html=prodReportTotalsHtml(r.totals, spec);
+  html+=prodReportRenderResult(r, spec);
+  if((r.warnings||[]).length){
+    html+='<p class="muted" data-csp-style="'+CSP.style('margin-top:10px;font-size:12px;color:var(--state-warn)')+'">⚠️ '+esc(r.warnings.map(w=>w.code||JSON.stringify(w)).join(' · '))+'</p>';
+  }
+  area.innerHTML=html;
+}
+function prodReportExport(){
+  const code=window._prodReportCode||'PR-14';
+  const spec=PROD_REPORT_SPECS[code];
+  if(!spec) return;
+  const period=el('pr-period')?.value||window._prodReportPeriod||todayJalali().slice(0,7);
+  const asOf=el('pr-date')?.value||window._prodReportDate||todayJalali();
+  const q=spec.dateMode?('date='+encodeURIComponent(asOf)):('period='+encodeURIComponent(period));
+  window.open('/api/production/reports/'+encodeURIComponent(code)+'/export?format=csv&'+q, '_blank');
 }
 
 async function renderProductionHomeTab(body){
@@ -10177,9 +10403,10 @@ async function renderProductionDashboardTab(body){
   const openOrders=dash?.data?.open_orders||[];
   const journeyHtml=journeyState?prodJourneyHtml(journeyState):'';
   const quickBtns=PROD_QUICK_REPORTS.map(rep=>{
-    const bind=CSP.bind('click',function(){prodQuickReportModal(rep.path, rep.title)});
+    const bind=CSP.bind('click',function(){prodOpenReport(rep.code)});
     return '<button type="button" class="btn sm ghost" data-csp-click="'+bind+'">'+esc(rep.title)+'</button>';
   }).join('');
+  const hubBind=CSP.bind('click',function(){go('acc-production-reports')});
   body.innerHTML=`
     <div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
@@ -10199,7 +10426,8 @@ async function renderProductionDashboardTab(body){
         </div></div>
     </div>
     <div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-head"><h4>گزارش‌های سریع (اولویت‌بندی شده)</h4></div>
-      <div class="panel-body" data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">${quickBtns}</div></div>
+      <div class="panel-body" data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;align-items:center`)}">${quickBtns}
+        <button type="button" class="btn sm" data-csp-click="${hubBind}">📊 مرکز گزارشات</button></div></div>
     <div class="panel"><div class="panel-head"><h4>سفارش‌های باز</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>شماره</th><th>محصول</th><th>برنامه</th><th>وضعیت</th></tr></thead><tbody>
         ${openOrders.map(o=>`<tr data-csp-style="${CSP.style(`cursor:pointer`)}" data-csp-click="${CSP.bind('click',function(event){prodOrderOpenFromKanban((o.id))})}"><td>${esc(o.order_no)}</td><td>${esc(o.product_name||'')}</td><td class="num">${o.qty_planned||0}</td><td>${esc(o.status)}</td></tr>`).join('')||emptyRow(4)}
@@ -10230,7 +10458,7 @@ async function renderProductionCloseTab(body){
     window._prodCloseDoPrecheck=false;
   }
   const checks=(pre?.checks||[]).map(c=>`<tr><td>${esc(c.label||c.code)}</td><td>${c.status==='pass'?'✅':'❌'} ${esc(c.message||'')}</td></tr>`).join('');
-  body.innerHTML=`
+  body.innerHTML=`<div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <label>دوره: <input id="pc-period" value="${esc(period)}" placeholder="1405/04" data-csp-style="${CSP.style(`width:90px`)}"></label>
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodCloseReload()})}">بارگذاری وضعیت</button>
@@ -10251,7 +10479,7 @@ async function renderProductionCloseTab(body){
           <p>روش: ${esc(calc.materiality?.method_auto||'—')}</p>`:'<span class="muted">پس از پیش‌بررسی نمایش داده می‌شود</span>'}
         </div></div>
     </div>
-    ${periods.length?`<div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">دوره‌های ثبت‌شده: ${periods.map(p=>esc(p.period_label||p.period)+' ('+esc(p.status)+')').join(' · ')}</div>`:''}`;
+    ${periods.length?`<div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">دوره‌های ثبت‌شده: ${periods.map(p=>esc(p.period_label||p.period)+' ('+esc(p.status)+')').join(' · ')}</div>`:''}</div>`;
 }
 function prodCloseReload(){
   window._prodClosePeriod=el('pc-period')?.value||todayJalali().slice(0,7);
@@ -10296,7 +10524,7 @@ async function renderProductionMonthlyProfitTab(body){
   try{ r=await api('GET','/production/reports/monthly-profit?period='+encodeURIComponent(period)); }catch(e){}
   const d=r?.data||{};
   const chk=d.checks||{};
-  body.innerHTML=`
+  body.innerHTML=`<div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
       <label>دوره: <input id="pp-period" value="${esc(period)}" data-csp-style="${CSP.style(`width:90px`)}"></label>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodProfitLoad()})}">🔄</button>
@@ -10314,7 +10542,7 @@ async function renderProductionMonthlyProfitTab(body){
         <li>${chk.overhead_control_zero?'✅':'🔴'} کنترل سربار ۵۲۰۲</li>
         <li>${chk.overhead_applied_zero?'✅':'🔴'} سربار جذب‌شده ۵۲۰۳</li>
         <li>${chk.wip_matches_ledger?'✅':'🔴'} کار در جریان = دفتر کل</li>
-      </ul></div></div>`:'<div class="muted">گزارش در دسترس نیست (نیاز به نقش admin/accounting)</div>'}`;
+      </ul></div></div>`:'<div class="muted">گزارش در دسترس نیست (نیاز به نقش admin/accounting)</div>'}</div>`;
 }
 function prodProfitLoad(){
   window._prodProfitPeriod=el('pp-period')?.value||todayJalali().slice(0,7);
@@ -10325,7 +10553,7 @@ async function renderProductionCostSheetTab(body){
   const presetId=window._prodCostSheetOrderId||'';
   let orders=[];
   try{ orders=(await api('GET','/production/orders'))?.rows||[]; }catch(e){ orders=[]; }
-  body.innerHTML=`
+  body.innerHTML=`<div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <label>سفارش:
         <select id="pcs-order-id" data-csp-style="${CSP.style(`min-width:220px`)}">
@@ -10337,7 +10565,7 @@ async function renderProductionCostSheetTab(body){
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodCostSheetPrint()})}" disabled id="pcs-btn-print">🖨 چاپ</button>
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodCostSheetExcel()})}" disabled id="pcs-btn-excel">📥 اکسل</button>
     </div>
-    <div id="pcs-sheet-area"><div class="muted">سفارش را انتخاب کنید.</div></div>`;
+    <div id="pcs-sheet-area"><div class="muted">سفارش را انتخاب کنید.</div></div></div>`;
   if(presetId) await prodCostSheetLoad();
 }
 async function prodCostSheetLoad(){
@@ -10543,13 +10771,11 @@ async function prodKanbanLoad(){
     <div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">سفارش‌های باز: ${r.totals?.open_orders??0}</div>`;
 }
 async function prodOrderOpenFromKanban(orderId){
-  go('acc-production-orders');
   try{
-    const o=await api('GET','/production/orders/'+orderId);
-    if(['fixed_adv','variable_adv'].includes(o?.analysis_type)){
-      setTimeout(()=>prodOrderStagesModal(orderId),300);
-    }
-  }catch(e){ /* stay on orders list */ }
+    const data=await api('GET','/production/execution/orders/'+orderId+'/stages');
+    if((data.stages||[]).length){ prodOrderStagesModal(orderId); return; }
+  }catch(_){}
+  go('acc-production-orders');
 }
 let _pkAutoTimer=null;
 function prodKanbanToggleAuto(){
@@ -10780,7 +11006,7 @@ async function prodRateSave(){
 ============================================================ */
 async function renderProductionAccessTab(body){
   if(!isAdmin() && ME.role!=='accounting'){
-    body.innerHTML='<div class="muted">فقط مدیر یا حسابدار می‌تواند دسترسی تولید را تنظیم کند.</div>';
+    body.innerHTML='<div class="prod-scope"><div class="muted">فقط مدیر یا حسابدار می‌تواند دسترسی تولید را تنظیم کند.</div></div>';
     return;
   }
   let listData={users:[]};
@@ -19541,7 +19767,11 @@ helpSec('🔑','لایسنس و entitlement',`
           <br>مسیر ۲ (با سفارش تولید): اگر لایه به سفارش وصل شود فقط WIP همان لایه با PACK صفر می‌شود. دستمزد/سربار سفارش جدا با رسید سفارش می‌ماند و دو بار بستانکار نمی‌شود. سفارش اجباری نیست.
           <br>چک‌لیست فاز ۸ برای صفحهٔ رسید برش (Light/Dark، عرض ~1440 و ~360، RTL، دکمه لمس ۴۴px، چاپ بارکد بدون chrome مرورگر) بعد از overlay ایران به‌صورت دستی باقی است.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
-        <li><b>خانه تولید:</b> ورود پیش‌فرض = <b>داشبورد تولید</b> (KPI + نمودار + مسیر ۶ مرحله‌ای + دو مسیر برش/PACK و سفارش تولید). گزارش‌های سریع اولویت‌بندی‌شده از همان صفحه اجرا می‌شوند.</li>
+        <li><b>خانه تولید:</b> ورود پیش‌فرض = <b>داشبورد تولید</b> (KPI + نمودار + مسیر ۶ مرحله‌ای + دو مسیر برش/PACK و سفارش تولید). گزارش‌های سریع به <b>مرکز گزارشات تولید</b> هدایت می‌شوند.</li>
+        <li><b>مرکز گزارشات تولید:</b> تولید → گزارشات → مرکز گزارشات. UI اختصاصی PR-13 تا PR-22 (سربار، بهره‌وری، گلوگاه با نوار بار، پیمانکار، سود محصول و …) با فیلتر دوره، جمع کل، و خروجی CSV.</li>
+        <li><b>تابلوی خط (کانبان):</b> کلیک روی کارت سفارش مستقیماً مودال مراحل را باز می‌کند (بدون رفتن به لیست سفارش‌ها).</li>
+        <li><b>منوی تولید:</b> آیتم‌های سایدبار بر اساس مجوز کاربر فیلتر می‌شوند (مثلاً بدون <code>production_reports/view</code> گزارشات پنهان است).</li>
+        <li><b>فرمول BOM:</b> ذخیره اقلام با <code>replace:true</code> در یک تراکنش سرور انجام می‌شود (بدون حذف/افزودن جداگانه).</li>
         <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
         <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه و نرخ را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>

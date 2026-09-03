@@ -198,6 +198,54 @@
 @keyframes prod-skeleton { 0%{ background-position: 100% 50%; } 100%{ background-position: 0 50%; } }
 
 /* ============ Mobile-first (§1.5) ============ */
+/* ============ مرکز گزارشات تولید ============ */
+.prod-report-hub {
+  display: grid; grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: var(--sp-4); align-items: start;
+}
+.prod-report-nav {
+  background: var(--prod-bg); border: 1px solid var(--prod-border);
+  border-radius: var(--prod-radius); padding: var(--sp-3);
+  position: sticky; top: var(--sp-3); max-height: calc(100vh - 120px); overflow: auto;
+}
+.prod-report-nav h4 {
+  margin: 0 0 var(--sp-2); font-size: 13px; color: var(--prod-text-mute);
+}
+.prod-report-nav-group { margin-bottom: var(--sp-3); }
+.prod-report-nav-btn {
+  display: block; width: 100%; text-align: right;
+  background: transparent; border: 1px solid transparent;
+  border-radius: var(--prod-radius); padding: 8px 10px;
+  font-size: 13px; cursor: pointer; color: var(--prod-text);
+}
+.prod-report-nav-btn:hover { background: var(--prod-bg-alt); border-color: var(--prod-border); }
+.prod-report-nav-btn.is-active {
+  background: var(--prod-bg-alt); border-color: var(--brand-mid);
+  border-right: 3px solid var(--brand-mid); font-weight: 600;
+}
+.prod-report-main {
+  background: var(--prod-bg); border: 1px solid var(--prod-border);
+  border-radius: var(--prod-radius); padding: var(--sp-4);
+  min-height: 320px;
+}
+.prod-report-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-4);
+  padding-bottom: var(--sp-3); border-bottom: 1px solid var(--prod-border);
+}
+.prod-report-totals {
+  display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-bottom: var(--sp-3);
+  font-size: 13px;
+}
+.prod-report-totals span { background: var(--prod-bg-alt); padding: 6px 10px; border-radius: 6px; }
+.prod-report-empty {
+  text-align: center; padding: var(--sp-8) var(--sp-4); color: var(--prod-text-mute);
+}
+@media (max-width: 900px) {
+  .prod-report-hub { grid-template-columns: 1fr; }
+  .prod-report-nav { position: static; max-height: none; }
+}
+
 @media (max-width: 768px) {
   .prod-scope table.data-table thead,
   .prod-scope table.tbl thead { display: none; }

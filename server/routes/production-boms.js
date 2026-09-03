@@ -147,6 +147,9 @@ router.post('/:id/lines/bulk', auth, requirePermission('production_bom', 'edit')
     const db = getDB();
     const bomId = Number(req.params.id);
     const lines = req.body?.lines || [];
+    if (req.body?.replace) {
+      return bom.replaceLines(db, bomId, lines, req.user.id);
+    }
     return db.transaction(() => {
       const out = [];
       for (const L of lines) out.push(bom.addLine(db, bomId, L, req.user.id));
