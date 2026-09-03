@@ -31,8 +31,7 @@
 - **داشبورد:** دکمه‌های سریع → مرکز گزارشات (نه مودال خام)
 - **فایل‌ها:** `server/public/{app.js,acc-nav.js,prod-ui.css,sw.js}`
 - **تست:** `node --check app.js` ✅
-- **Deploy:** ✅ ایران overlay SFTP @ `0ebb70b` — health/ready/root 200؛ SW `erp-taranom-v189`
-- **SW:** `erp-taranom-v188`
+- **Deploy:** ✅ (ادغام در v189 @ `0ebb70b`)
 
 ### ۱۴۰۵/۰۶/۱۲ — ERP2 + ری‌دیزاین تولید و UX (SW v187)
 
@@ -67,7 +66,7 @@
 - **معماری:** listen قبل از `initDB` (صف TCP در کرنل، نه connection-refused)؛ `boot-gate` با ۵۰۳ `STARTING`/`RESTARTING` و `Retry-After`؛ ورود و GET با backoff روی 502/503/521–524؛ drain با SIGTERM؛ PM2 `1024M` + `wait_ready`؛ `busy_timeout` ۸ ثانیه؛ mmap ۱۲۸MB؛ fallback ستون `branch_id` تا ۴۰۱ خاموش بعد از لاگین ۲۰۰ تکرار نشود.
 - **فایل‌ها:** `server/lib/boot-gate.js`، `server/lib/http-resilience.js`، `server/public/net-resilience.js`، `server/{server,db,ecosystem.config}.js`، `server/middleware/auth.js`، `server/public/{app.js,index.html,sw.js,i18n.js}`، `server/scripts/test-login-resilience.js`، `docs/{CHANGE-LOG,08-deployment}.md`
 - **تست:** `test-login-resilience.js` ۱۴ · `test-sms.js` ۲۲ · `test-sync.js` روی این Node ۲۴ به‌خاطر ABI `better-sqlite3` (کامپایل ۲۲) اجرا نشد
-- **Deploy:** ✅ ایران overlay SFTP @ `0ebb70b` — health/ready/root 200؛ SW `erp-taranom-v189`
+- **Deploy:** ⏳
 - **SW:** `erp-taranom-v185`
 
 ### ۱۴۰۵/۰۶/۱۲ — بسته تنظیمات A–H (SW v184)
@@ -109,7 +108,7 @@
 - **عمداً بعداً:** انتخاب رنگ×سایز زنده روی فاکتور فروش؛ وصول چک در گردش شخص (ثبت مستقل دفتر چک).
 - **فایل‌ها:** `server/public/{app.js,index.html,sw.js}`، `server/lib/{invoice-print,parties-sync,party-employee-sync}.js`، `server/routes/{orders,parties,payroll,purchases}.js`، `server/db.js`، `server/sync/tables.js`، `server/scripts/test-arch-erp-rar-v182.js`
 - **تست:** `test-arch-erp-rar-v182.js`
-- **Deploy:** ✅ ایران overlay SFTP @ `0ebb70b` — health/ready/root 200؛ SW `erp-taranom-v189` push بدون pull ایران (Wave 0)
+- **Deploy:** ✅ ایران overlay SFTP @ `a977269` — health/ready/root 200؛ SW `erp-taranom-v182` push بدون pull ایران (Wave 0)
 - **SW:** `erp-taranom-v182`
 
 ### ۱۴۰۵/۰۶/۱۰ — هشدار دفتر/کل، منوی بسته‌، جستجو سراسری، طاقه زنده (SW v181)
