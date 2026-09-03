@@ -1,9 +1,9 @@
-## 2026-09-03T03:40:00+03:30 — SETTINGS-OPS-V184 in progress
+## 2026-09-03T03:50:00+03:30 — SETTINGS-OPS-V184 deployed
 
-- Branch `feat/SETTINGS-OPS-V184`. Pack A–H: settings/SMS/invoice print/Site-B2B/Gemini/live reports/fabric convert/pencil fields.
-- No Gemini key committed. Do not commit `_deploy-demo*`, `_diag-moein*`, `motefareqe/`.
-- Tests: `node server/scripts/test-settings-ops-v184.js` then sms/sync. SW `erp-taranom-v184`.
-- Iran: overlay (not dirty VPS git pull). Local SSH to 94.249.244.208 often kex-aborts → Actions `Iran overlay`.
+- Commit `9bd5934` on `feat/SETTINGS-OPS-V184` and FF `origin/claude/claude-md-docs-2ssrpy`.
+- Tests: `test-settings-ops-v184.js` 50, `test-sms.js` 22, `test-sync.js` 44.
+- Iran overlay Paramiko SFTP (OpenSSH kex abort). health/ready/root 200, SW `erp-taranom-v184`. `db.js` not replaced.
+- No Gemini key committed. Do not commit leftover `_deploy-demo*`, `_diag-moein*`, `motefareqe/`.
 
 ## 2026-09-03T03:08:00+03:30 — Iran v183 overlay healthy
 

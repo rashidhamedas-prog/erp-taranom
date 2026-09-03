@@ -27,7 +27,7 @@
 - **UI سراسری:** عرض فیلد متناسب محتوا؛ حاشیه نوک‌مدادی `#4A4A4A`.
 - **فایل‌ها:** `server/public/{app.js,app.css,index.html,sw.js}`، `server/lib/{invoice-print,sms-dispatch,website-stock-sync,sales-document,secret-settings,update-md-schema}.js`، `server/lib/inventory/fabric-rolls.js`، `server/services/ai.js`، `server/routes/{settings,reports,invoices,auth,b2b}.js`، `server/server.js`، `server/scripts/test-settings-ops-v184.js`
 - **تست:** `test-settings-ops-v184.js` · `test-sms.js` · `test-sync.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ `9bd5934` — health/ready/root 200؛ SW `erp-taranom-v184`؛ `db.js` عوض نشد
 - **SW:** `erp-taranom-v184`
 
 ### ۱۴۰۵/۰۶/۱۲ — آرشیو ERP.rar تکمیل: گردش چک + پک رنگ×سایز (SW v183)

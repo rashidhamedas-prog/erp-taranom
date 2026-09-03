@@ -2,7 +2,8 @@ schema_version: 1
 tasks:
   - id: "SETTINGS-OPS-V184"
     title: "Settings A–H pack: SMS, invoice print, B2B, Gemini, reports, convert"
-    status: "in_progress"
+    status: "completed"
+    completed_at: "2026-09-03T03:50:00+03:30"
     claimed_at: "2026-09-03T03:20:00+03:30"
     review_status: "SELF_REVIEW_APPROVED"
     security_status: "NOT_REQUIRED"
