@@ -14,10 +14,18 @@ const {
 function invalidateUserCache() {}
 
 function currentUser(db, id) {
-  return db.prepare(`
+  try {
+    return db.prepare(`
     SELECT id,username,name,role,phone,active,must_change_password,auth_epoch,branch_id
     FROM users WHERE id=?
   `).get(Number(id));
+  } catch (error) {
+    if (!/no such column: branch_id/i.test(String(error && error.message))) throw error;
+    return db.prepare(`
+    SELECT id,username,name,role,phone,active,must_change_password,auth_epoch
+    FROM users WHERE id=?
+  `).get(Number(id));
+  }
 }
 
 function exactBearer(req) {

@@ -13,6 +13,16 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۱۲ — ریشه خطای ورود + معماری تحمل قطعی (SW v185)
+
+- **شاخه:** `fix/LOGIN-RESILIENCE-V185`
+- **ریشه:** پیام «خطای ارتباط با سرور» از `fetch` شکست‌خورده است (نه رمز غلط). امروز چند بار `pm2 restart` (دیپلوی v182–v184) مبدأ را چند ثانیه خاموش کرد → Cloudflare 521/502. سقف حافظه PM2 هم `300M` بود در حالی که mmap+کش SQLite به‌تنهایی از این سقف رد می‌شود و فرایند را وسط روز می‌کشد. فرم ورود با اولین شکست تمام می‌شد و خطای `boot()` بعد از لاگین موفق هم همان متن را نشان می‌داد.
+- **معماری:** listen قبل از `initDB` (صف TCP در کرنل، نه connection-refused)؛ `boot-gate` با ۵۰۳ `STARTING`/`RESTARTING` و `Retry-After`؛ ورود و GET با backoff روی 502/503/521–524؛ drain با SIGTERM؛ PM2 `1024M` + `wait_ready`؛ `busy_timeout` ۸ ثانیه؛ mmap ۱۲۸MB؛ fallback ستون `branch_id` تا ۴۰۱ خاموش بعد از لاگین ۲۰۰ تکرار نشود.
+- **فایل‌ها:** `server/lib/boot-gate.js`، `server/lib/http-resilience.js`، `server/public/net-resilience.js`، `server/{server,db,ecosystem.config}.js`، `server/middleware/auth.js`، `server/public/{app.js,index.html,sw.js,i18n.js}`، `server/scripts/test-login-resilience.js`، `docs/{CHANGE-LOG,08-deployment}.md`
+- **تست:** `test-login-resilience.js` ۱۴ · `test-sms.js` ۲۲ · `test-sync.js` روی این Node ۲۴ به‌خاطر ABI `better-sqlite3` (کامپایل ۲۲) اجرا نشد
+- **Deploy:** ⏳
+- **SW:** `erp-taranom-v185`
+
 ### ۱۴۰۵/۰۶/۱۲ — بسته تنظیمات A–H (SW v184)
 
 - **شاخه:** `feat/SETTINGS-OPS-V184`

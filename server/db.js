@@ -25,7 +25,8 @@ function applyConnectionPragmas(database) {
   database.pragma('cache_size = -64000');
   database.pragma('temp_store = MEMORY');
   database.pragma('foreign_keys = ON');
-  try { database.pragma('mmap_size = 268435456'); } catch { /* optional on some builds */ }
+  database.pragma('busy_timeout = 8000');
+  try { database.pragma('mmap_size = 134217728'); } catch { /* optional on some builds */ }
 }
 
 function resolveBootDbPath() {
@@ -49,7 +50,7 @@ function getDB() {
   if (!db) {
     liveDbPath = resolveBootDbPath();
     // timeout: wait on SQLITE_BUSY instead of failing instantly (device sync + UI reads).
-    db = new Database(liveDbPath, { timeout: 5000 });
+    db = new Database(liveDbPath, { timeout: 8000 });
     applyConnectionPragmas(db);
   }
   return db;
@@ -68,7 +69,7 @@ function reopenDatabase(newPath) {
   const resolved = path.resolve(newPath);
   closeDB();
   liveDbPath = resolved;
-  db = new Database(liveDbPath, { timeout: 5000 });
+  db = new Database(liveDbPath, { timeout: 8000 });
   applyConnectionPragmas(db);
   return db;
 }

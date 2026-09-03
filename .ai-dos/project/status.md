@@ -1,10 +1,10 @@
 # Project Status
 
-- Last verified: 2026-09-01
-- **Active:** none — `OPS-UI-LEDGER-SEARCH-ROLLS-V181` completed (SW **v181**)
-- **Iran last:** overlay v180 ✅ code `e073c01`; Origin CA 15y on nginx (to 2041); `users.branch_id` on live `crm.db`; health/ready/root 200; SW `erp-taranom-v180`; `db.js` not wholesale-replaced
-- **In flight:** dashboard books v3 + collapsed acc nav + party/product search + live fabric/circulation
-- Prior verified: 2026-08-31
+- Last verified: 2026-09-03
+- **Active:** `LOGIN-RESILIENCE-V185` — login origin downtime (SW **v185**)
+- **Iran last:** overlay v184 ✅ code `9bd5934`; health/ready/root 200; SW `erp-taranom-v184`
+- **In flight:** early listen + boot-gate + login retry + PM2 1024M
+- Prior verified: 2026-09-01
 - **Primary tip (PACK merge note):** `ai/PROD-STITCH-PACK-MERGE` onto `12b0385` — SW **v176**
 - **Iran:** overlay v176 ✅ health/ready/root 200; SW v176; `db.js` not wholesale-replaced
 - **qa:full (QA gaps):** `qa-20260831T105600-14704` PASS 268 FAIL 0 ERROR 0 · NOT_IMPLEMENTED 0

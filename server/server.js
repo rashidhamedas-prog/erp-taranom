@@ -25,11 +25,17 @@ const {
   checkDbReady,
   jsonLog,
 } = require('./lib/observability');
+const bootGate = require('./lib/boot-gate');
 
 const app = express();
 app.set('trust proxy', 1); // trust Nginx reverse proxy
 const PORT = process.env.PORT || 3000;
 const securityConfig = assertSecurityConfig();
+function resolveListenHost() {
+  if (isDemoMode() && process.env.ERP_DEMO_BIND_PUBLIC !== 'true') return '127.0.0.1';
+  return process.env.LISTEN_HOST || '0.0.0.0';
+}
+let httpServer;
 
 // Request correlation id + access log (method/path/status only — no bodies/secrets)
 app.use(requestIdMiddleware);
@@ -175,7 +181,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
     if (filePath.endsWith('assetlinks.json')) {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-cache');
-    } else if (/(?:^|[\\/])(?:app|acc-nav|tbl-enhance|prod-ui|portal-ui|i18n|marketer-ui|mdi|boot|csp-runtime|barcode-input)\.js$/i.test(filePath)
+    } else if (/(?:^|[\\/])(?:app|acc-nav|tbl-enhance|prod-ui|portal-ui|i18n|marketer-ui|mdi|boot|csp-runtime|barcode-input|net-resilience)\.js$/i.test(filePath)
       || /(?:^|[\\/])(?:app|prod-ui)\.css$/i.test(filePath)) {
       // App shells + CSS must not stick on stale browser/CDN cache (query ?v= alone is not enough behind some proxies)
       res.setHeader('Cache-Control', 'no-store, must-revalidate');
@@ -197,7 +203,7 @@ app.set('internalReplayToken', INTERNAL_REPLAY_TOKEN);
 // General API rate limit (generous — protects against runaway loops)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 1000, standardHeaders: true, legacyHeaders: false,
-  skip: (req) => req.headers['x-internal-replay'] === INTERNAL_REPLAY_TOKEN
+  skip: (req) => req.headers['x-internal-replay'] === INTERNAL_REPLAY_TOKEN || bootGate.isProbeRequest(req)
 });
 app.use('/api', limiter);
 
@@ -209,6 +215,7 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'تعداد تلاش‌های ورود بیش از حد مجاز است. ۱۵ دقیقه دیگر تلاش کنید.' },
   skipSuccessfulRequests: true,
+  skip: () => !bootGate.canServe(),
 });
 const otpSendLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -250,6 +257,55 @@ app.use('/api/admin/backup-restore', heavyLimiter);
 // short synchronous swap window.
 const { requestGuard: companyRequestGuard } = require('./lib/company-switch-guard');
 app.use('/api', companyRequestGuard);
+
+// Liveness/readiness before schema init. Kernel can accept TCP during initDB
+// instead of returning connection-refused (Cloudflare 521 / browser Failed to fetch).
+app.get('/api/system/health', (req, res) => {
+  const demo = refreshMaintenanceFlag();
+  const st = bootGate.state();
+  res.json({
+    ok: true,
+    role: isDevice() ? 'device' : 'central',
+    platform: process.env.APP_PLATFORM || (isDevice() ? 'device' : 'web'),
+    version: process.env.APP_VERSION || '0',
+    demo: !!demo.enabled,
+    maintenance: !!(demo.enabled && demo.maintenance),
+    starting: st.code === 'STARTING',
+    restarting: st.code === 'RESTARTING',
+  });
+});
+app.get('/api/system/ready', (req, res) => {
+  const demo = refreshMaintenanceFlag();
+  if (demo.enabled && demo.maintenance) {
+    res.set('Retry-After', '2');
+    return res.status(503).json({ ok: false, ready: false, demo: true, maintenance: true, code: 'MAINTENANCE' });
+  }
+  if (!bootGate.canServe()) {
+    const st = bootGate.state();
+    res.set('Retry-After', '2');
+    return res.status(503).json({
+      ok: false,
+      ready: false,
+      code: st.code,
+      error: bootGate.startingMessage(st.code),
+    });
+  }
+  if (checkDbReady(getDB)) {
+    return res.status(200).json({ ok: true, ready: true });
+  }
+  jsonLog({
+    level: 'error',
+    msg: 'readiness_failed',
+    requestId: req.requestId,
+  });
+  res.set('Retry-After', '2');
+  return res.status(503).json({ ok: false, ready: false, code: 'DB_NOT_READY' });
+});
+app.use('/api', bootGate.middleware);
+
+httpServer = app.listen(PORT, resolveListenHost(), () => {
+  console.log(`ERP ترنم نسخه ۳ روی پورت ${PORT} در حال راه‌اندازی`);
+});
 
 initDB();
 
@@ -445,36 +501,6 @@ app.get('/api/system/integrity-check/last-result', authMw, adminOnlyMw, (req, re
   const { getDB } = require('./db');
   const data = getLastIntegrityResult(getDB());
   res.json({ success: true, data });
-});
-
-// Lightweight health check — used by Android WebView boot poll (liveness; no DB)
-app.get('/api/system/health', (req, res) => {
-  const demo = refreshMaintenanceFlag();
-  res.json({
-    ok: true,
-    role: isDevice() ? 'device' : 'central',
-    platform: process.env.APP_PLATFORM || (isDevice() ? 'device' : 'web'),
-    version: process.env.APP_VERSION || '0',
-    demo: !!demo.enabled,
-    maintenance: !!(demo.enabled && demo.maintenance),
-  });
-});
-
-// Readiness — SQLite must answer SELECT 1 (load balancers / ops probes)
-app.get('/api/system/ready', (req, res) => {
-  const demo = refreshMaintenanceFlag();
-  if (demo.enabled && demo.maintenance) {
-    return res.status(503).json({ ok: false, ready: false, demo: true, maintenance: true });
-  }
-  if (checkDbReady(getDB)) {
-    return res.status(200).json({ ok: true, ready: true });
-  }
-  jsonLog({
-    level: 'error',
-    msg: 'readiness_failed',
-    requestId: req.requestId,
-  });
-  return res.status(503).json({ ok: false, ready: false });
 });
 
 // Support meta stub (P2-M4 thin) — external ticketing only; no in-app product
@@ -807,22 +833,36 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   res.status(status).json({ error: msg });
 });
 
-function resolveListenHost() {
-  if (isDemoMode() && process.env.ERP_DEMO_BIND_PUBLIC !== 'true') return '127.0.0.1';
-  return process.env.LISTEN_HOST || '0.0.0.0';
+bootGate.markReady();
+console.log(`ERP ترنم نسخه ۳ روی پورت ${PORT} آماده است`);
+if (typeof process.send === 'function') {
+  try { process.send('ready'); } catch (_) { /* not under PM2 */ }
 }
-app.listen(PORT, resolveListenHost(), () => {
-  console.log(`ERP ترنم نسخه ۳ روی پورت ${PORT} اجرا شد`);
-  if (process.env.APP_PLATFORM === 'android' && process.env.DB_PATH) {
-    try {
-      const ready = path.join(path.dirname(process.env.DB_PATH), 'server.ready');
-      fs.writeFileSync(ready, String(Date.now()));
-    } catch (e) { console.error('server.ready write failed:', e.message); }
+if (process.env.APP_PLATFORM === 'android' && process.env.DB_PATH) {
+  try {
+    const ready = path.join(path.dirname(process.env.DB_PATH), 'server.ready');
+    fs.writeFileSync(ready, String(Date.now()));
+  } catch (e) { console.error('server.ready write failed:', e.message); }
+}
+if (isDevice()) {
+  // Offline-first device: background sync loop (push outbox → pull changes)
+  const { startClientLoop } = require('./sync/client');
+  startClientLoop(parseInt(process.env.SYNC_INTERVAL_MS) || 60000);
+  console.log('🔄 حالت دستگاه آفلاین فعال است — همگام‌سازی خودکار با سرور مرکزی');
+}
+
+function beginDrain(signal) {
+  jsonLog({ level: 'info', msg: 'shutdown', signal: String(signal || '') });
+  bootGate.markDraining();
+  const done = () => {
+    try { process.exit(0); } catch (_) { /* */ }
+  };
+  if (httpServer && typeof httpServer.close === 'function') {
+    httpServer.close(done);
+  } else {
+    done();
   }
-  if (isDevice()) {
-    // Offline-first device: background sync loop (push outbox → pull changes)
-    const { startClientLoop } = require('./sync/client');
-    startClientLoop(parseInt(process.env.SYNC_INTERVAL_MS) || 60000);
-    console.log('🔄 حالت دستگاه آفلاین فعال است — همگام‌سازی خودکار با سرور مرکزی');
-  }
-});
+  setTimeout(() => process.exit(1), 8000).unref();
+}
+process.once('SIGINT', () => beginDrain('SIGINT'));
+process.once('SIGTERM', () => beginDrain('SIGTERM'));

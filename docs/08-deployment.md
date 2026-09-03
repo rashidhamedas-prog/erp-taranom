@@ -17,6 +17,22 @@ Short ops notes for safe production apply. Full history lives in `CHANGE-LOG.md`
 
 Prefer **targeted SFTP overlays** of known files + `pm2 restart erp-taranom` **without** `--update-env`, then HTTP smoke.
 
+## Login / origin downtime (v185)
+
+Intermittent «خطای ارتباط با سرور» on the login page is usually **origin restart**, not a bad password:
+
+1. `pm2 restart` or `max_memory_restart` kills the only Node process → Cloudflare **521/502** → browser `fetch` throws.
+2. The login form used to fail on the **first** failed fetch with a generic message.
+
+Mitigations in product:
+
+- PM2 `max_memory_restart: 1024M` + `wait_ready` (process sends `ready` after schema init).
+- HTTP listen **before** `initDB()` so the kernel accept-queue survives schema boot; `/api/system/ready` is 503 `STARTING` until `bootGate.markReady()`.
+- Login and GET APIs retry transient 502/503/521–524 with backoff; login errors are classified (starting vs timeout vs 401).
+- SIGINT/SIGTERM drain: new APIs get 503 `RESTARTING` for a few seconds instead of connection reset.
+
+Nginx origin should keep `proxy_connect_timeout` modest (e.g. 5s) so a dead process fails fast and the **client retry** can hit the new process. Do not enable Authenticated Origin Pulls.
+
 ## Evidence recipes (read-only / non-mutating)
 
 ### 1) Hash probe (local vs VPS)

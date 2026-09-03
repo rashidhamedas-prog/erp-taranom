@@ -1,5 +1,41 @@
 schema_version: 1
 tasks:
+  - id: "LOGIN-RESILIENCE-V185"
+    title: "Login origin downtime: retry, boot-gate, PM2 memory"
+    status: "in_progress"
+    claimed_at: "2026-09-03T15:30:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "high"
+    owner: "cursor:login-resilience-v185"
+    roles:
+      implementer: "cursor:login-resilience-v185"
+    branch: "fix/LOGIN-RESILIENCE-V185"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims:
+      - "server/lib/boot-gate.js"
+      - "server/lib/http-resilience.js"
+      - "server/public/net-resilience.js"
+      - "server/server.js"
+      - "server/db.js"
+      - "server/ecosystem.config.js"
+      - "server/middleware/auth.js"
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "server/public/i18n.js"
+      - "server/scripts/test-login-resilience.js"
+      - "docs/CHANGE-LOG.md"
+      - "docs/08-deployment.md"
+    acceptance_criteria:
+      - "Login retries transient 502/503/521-524 and shows starting vs auth errors"
+      - "Health 200 while STARTING; ready 503 until markReady; drain 503 RESTARTING"
+      - "PM2 max_memory_restart is 1024M not 300M"
+      - "node server/scripts/test-login-resilience.js"
+    non_goals:
+      - "PM2 cluster / second SQLite writer"
+      - "Committing leftover _deploy-demo/_diag-moein/motefareqe"
+
   - id: "SETTINGS-OPS-V184"
     title: "Settings A–H pack: SMS, invoice print, B2B, Gemini, reports, convert"
     status: "completed"

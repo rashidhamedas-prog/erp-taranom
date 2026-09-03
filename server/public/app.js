@@ -139,8 +139,21 @@ async function api(method, path, data, isFormData, silent){
   if(data && !isFormData){ opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(data); }
   else if(isFormData) opts.body = data;
   let r;
-  try { r = await fetch('/api'+path, opts); }
-  catch(e){ if(!silent) showToast('خطای ارتباط با سرور','error'); throw e; }
+  const net = window.NetResilience;
+  try {
+    if(net && String(method).toUpperCase()==='GET'){
+      r = await net.fetchWithRetry('/api'+path, opts, { attempts: 4, timeoutMs: 20000, mode: 'get' });
+    } else if(net && net.fetchOnce){
+      r = await net.fetchOnce('/api'+path, opts, { timeoutMs: 60000 });
+    } else {
+      r = await fetch('/api'+path, opts);
+    }
+  }
+  catch(e){
+    const classified = net && net.classifyTransportError ? net.classifyTransportError(e) : null;
+    if(!silent) showToast((classified && classified.message) || 'خطای ارتباط با سرور','error');
+    throw e;
+  }
   if(r.status === 401){ logout(); return null; }
   const ct = r.headers.get('content-type')||'';
   if(ct.includes('application/json')){
@@ -962,36 +975,53 @@ el('loginForm').addEventListener('submit', async (e)=>{
   const username = el('loginUser').value.trim();
   const password = el('loginPass').value;
   if(!username || !password){ el('loginErr').textContent='نام کاربری و رمز را وارد کنید'; return; }
+  const submitBtn = el('loginForm').querySelector('button[type="submit"]') || el('loginForm').querySelector('button');
+  const submitLabel = submitBtn ? submitBtn.textContent : '';
+  const net = window.NetResilience;
+  const setLoginErr = (msg)=>{ el('loginErr').textContent = msg || ''; };
   try{
+    if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = 'در حال اتصال…'; }
+    setLoginErr('در حال اتصال به سرور…');
+    if(net && net.waitUntilReady){
+      await net.waitUntilReady(null, { attempts: 6, timeoutMs: 4000 });
+    }
     const devicePayload = getLoginDevicePayload();
     const attemptLogin = async (force)=>{
       const body={username,password,...devicePayload};
       if(force) body.force_logout_other=true;
-      const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const headers={'Content-Type':'application/json'};
+      const fetchLogin = net && net.fetchWithRetry
+        ? (u,o)=>net.fetchWithRetry(u,o,{ attempts: 5, timeoutMs: 15000, mode: 'login' })
+        : fetch;
+      const r = await fetchLogin('/api/auth/login',{method:'POST',headers,body:JSON.stringify(body),cache:'no-store'});
       const ct = r.headers.get('content-type')||'';
       let j = null, raw = '';
       try { raw = await r.text(); j = raw ? JSON.parse(raw) : null; } catch(parseErr){ j = null; }
+      if(!j && net && net.classifyHttpFailure){
+        const classified = net.classifyHttpFailure(r.status, null);
+        return {r,j,classified};
+      }
       return {r,j};
     };
-    let {r,j} = await attemptLogin(false);
+    let {r,j,classified} = await attemptLogin(false);
     if(!j){
-      el('loginErr').textContent = 'پاسخ نامعتبر از سرور ('+r.status+')';
+      setLoginErr((classified && classified.message) || ('پاسخ نامعتبر از سرور ('+r.status+') — اگر به‌روزرسانی در جریان است چند ثانیه صبر کنید'));
       return;
     }
     if(r.status===409 && j.code==='DEVICE_SESSION_ACTIVE'){
       const other=j.other_device||{};
       const slotFa={mobile:'موبایل',desktop:'دسکتاپ/ویندوز',web:'وب'}[other.device_slot]||'';
       const ok=confirm((j.error||'نشست دیگری فعال است')+'\n\nدستگاه قبلی'+(slotFa?' ('+slotFa+')':'')+': '+(other.device_name||other.device_kind||'نامشخص')+'\n\nقطع نشست قبلی همین نوع دستگاه و ورود در این دستگاه؟');
-      if(!ok){ el('loginErr').textContent=j.error||'ورود لغو شد'; return; }
-      ({r,j} = await attemptLogin(true));
-      if(!j){ el('loginErr').textContent='پاسخ نامعتبر از سرور'; return; }
+      if(!ok){ setLoginErr(j.error||'ورود لغو شد'); return; }
+      ({r,j,classified} = await attemptLogin(true));
+      if(!j){ setLoginErr((classified && classified.message) || 'پاسخ نامعتبر از سرور'); return; }
     }
     if(!r.ok){
-      let msg = j.error || 'خطا در ورود';
+      let msg = j.error || (classified && classified.message) || 'خطا در ورود';
       if(APP_INFO && APP_INFO.role==='device'){
         msg += ' — اگر اتصال خراب است، لینک «قطع اتصال و اتصال مجدد» پایین همین صفحه را بزنید';
       }
-      el('loginErr').textContent = msg;
+      setLoginErr(msg);
       return;
     }
     if(j.twofa_required){ show2FALogin(j.pre_token); return; }
@@ -1001,9 +1031,17 @@ el('loginForm').addEventListener('submit', async (e)=>{
     if(j.must_change_password){
       el('login').style.display='none'; openForcePassChange(); return;
     }
-    await boot();
+    try {
+      await boot();
+    } catch (bootErr) {
+      console.error(bootErr);
+      setLoginErr('ورود موفق بود ولی بارگذاری برنامه کامل نشد. صفحه را تازه کنید (Ctrl+Shift+R).');
+    }
   }catch(err){
-    el('loginErr').textContent='خطای ارتباط با سرور';
+    const classified = net && net.classifyTransportError ? net.classifyTransportError(err) : null;
+    setLoginErr((classified && classified.message) || 'خطای ارتباط با سرور');
+  } finally {
+    if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = submitLabel || 'ورود به سامانه'; }
   }
 });
 function getLoginDevicePayload(){
@@ -1104,17 +1142,27 @@ async function verify2FALogin(){
   const code = el('tfa-code').value.trim();
   if(!code){ el('tfa-err').textContent='کد را وارد کنید'; return; }
   try{
-    const r = await fetch('/api/auth/2fa/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})});
+    const r = await (window.NetResilience && window.NetResilience.fetchWithRetry
+      ? window.NetResilience.fetchWithRetry('/api/auth/2fa/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})},{attempts:4,timeoutMs:15000,mode:'login'})
+      : fetch('/api/auth/2fa/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})}));
     await finish2FALogin(r);
-  }catch{ el('tfa-err').textContent='خطای ارتباط با سرور'; }
+  }catch(e){
+    const classified = window.NetResilience && window.NetResilience.classifyTransportError ? window.NetResilience.classifyTransportError(e) : null;
+    el('tfa-err').textContent=(classified && classified.message)||'خطای ارتباط با سرور';
+  }
 }
 async function verify2FARecovery(){
   const code = el('tfa-recovery').value.trim();
   if(!code){ el('tfa-err').textContent='کد بازیابی را وارد کنید'; return; }
   try{
-    const r = await fetch('/api/auth/2fa/recovery-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})});
+    const r = await (window.NetResilience && window.NetResilience.fetchWithRetry
+      ? window.NetResilience.fetchWithRetry('/api/auth/2fa/recovery-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})},{attempts:4,timeoutMs:15000,mode:'login'})
+      : fetch('/api/auth/2fa/recovery-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})}));
     await finish2FALogin(r);
-  }catch{ el('tfa-err').textContent='خطای ارتباط با سرور'; }
+  }catch(e){
+    const classified = window.NetResilience && window.NetResilience.classifyTransportError ? window.NetResilience.classifyTransportError(e) : null;
+    el('tfa-err').textContent=(classified && classified.message)||'خطای ارتباط با سرور';
+  }
 }
 
 function openForgotPass(){
@@ -19257,7 +19305,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v184</b> است و اسکریپت‌ها با <code>?v=184</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v185</b> است و اسکریپت‌ها با <code>?v=185</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -19429,7 +19477,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>طاقه پارچه (ADR-007 Accepted):</b> فقط انبار مواد اولیه. کالای آماده فروش بدون Lot/Serial/قفسه. دریافت از منوی انبار ← دریافت طاقه. لایه‌چینی و برش در تولید → عملیات است؛ رسید برش / PACK کالای آماده را بدون Lot به انبار محصول می‌برد.</li>
       </ul>`),
     helpSec('📡','سلامت سرویس و پشتیبانی',`
-      <p><code dir="ltr">/api/system/health</code> زنده بودن فرایند را نشان می‌دهد؛ <code dir="ltr">/api/system/ready</code> آمادگی دیتابیس را بررسی می‌کند. هر درخواست هدر <code dir="ltr">X-Request-Id</code> دارد (برای پیگیری لاگ). متای پشتیبانی در <code dir="ltr">/api/support/meta</code> است — تیکتینگ داخل برنامه فعلاً فعال نیست و از کانال خارجی سازمان استفاده می‌شود.</p>`)
+      <p>ورود به سامانه اگر سرور در حال راه‌اندازی مجدد باشد (به‌روزرسانی یا کمبود لحظه‌ای) چند بار به‌صورت خودکار تلاش می‌کند و پیام دقیق می‌دهد؛ لازم نیست فوراً صفحه را ببندید.</p>
+      <p><code dir="ltr">/api/system/health</code> زنده بودن فرایند را نشان می‌دهد؛ <code dir="ltr">/api/system/ready</code> آمادگی دیتابیس را بررسی می‌کند. اگر ready برابر ۵۰۳ با کد <code>STARTING</code> یا <code>RESTARTING</code> باشد، چند ثانیه صبر کنید. هر درخواست هدر <code dir="ltr">X-Request-Id</code> دارد (برای پیگیری لاگ). متای پشتیبانی در <code dir="ltr">/api/support/meta</code> است — تیکتینگ داخل برنامه فعلاً فعال نیست و از کانال خارجی سازمان استفاده می‌شود.</p>`)
   ].join('');
 }
 function renderSalesGuide(){
@@ -19452,7 +19501,8 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v181</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v185</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
       <h5>مانده و ماهیت</h5><p>ستون بدهکار/بستانکار ماندهٔ <b>خالص</b> همان مشتری است (تفاضل گردش بدهکار و بستانکار). ماهیت از علامت مانده زنده می‌آید، نه از نام گروه. در جمع پایین جدول و کارت‌های داشبورد، ماندهٔ بدهکاران با ماندهٔ بستانکاران <b>جمع نمی‌شود</b> — تفاضل گرفته می‌شود و سمت بزرگ‌تر ماهیت ماندهٔ خالص است.</p>

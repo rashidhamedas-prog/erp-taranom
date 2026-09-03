@@ -1,3 +1,10 @@
+## 2026-09-03T15:40:00+03:30 — LOGIN-RESILIENCE-V185
+
+- Root cause of repeated «خطای ارتباط با سرور»: origin process gone (PM2 restart on today's overlays + 300M memory kill) → Cloudflare 521/502 → first fetch throw. Login catch also swallowed post-login `boot()` failures.
+- Fix: early listen + boot-gate 503 STARTING/RESTARTING, client retry/classify, PM2 1024M + wait_ready, busy_timeout 8s, mmap 128MB, branch_id auth fallback, Help+SW v185.
+- Tests: test-login-resilience 14, test-sms 22. test-sync blocked on this machine (better-sqlite3 ABI node22 vs node24).
+- Do not commit leftover `_deploy-demo*`, `_diag-moein*`, `motefareqe/`.
+
 ## 2026-09-03T03:50:00+03:30 — SETTINGS-OPS-V184 deployed
 
 - Commit `9bd5934` on `feat/SETTINGS-OPS-V184` and FF `origin/claude/claude-md-docs-2ssrpy`.
