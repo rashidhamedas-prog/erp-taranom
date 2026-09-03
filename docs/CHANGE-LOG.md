@@ -20,7 +20,7 @@
 - **v189:** `.prod-scope` روی بستن دوره / سود ماهانه / برگه بها؛ کانبان → مودال مراحل مستقیم؛ فیلتر منوی تولید بر اساس مجوز؛ `replaceLines` اتمیک برای ذخیره اقلام BOM
 - **فایل‌ها:** `server/public/{app.js,acc-nav.js,prod-ui.css,sw.js}`، `server/lib/production/bom.js`، `server/routes/production-boms.js`
 - **تست:** `node --check app.js` ✅
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ `0ebb70b` — health/ready/root 200؛ SW `erp-taranom-v189`
 - **SW:** `erp-taranom-v189`
 
 ### ۱۴۰۵/۰۶/۱۳ — مرکز گزارشات تولید PR-13..22 (SW v188)
@@ -31,7 +31,7 @@
 - **داشبورد:** دکمه‌های سریع → مرکز گزارشات (نه مودال خام)
 - **فایل‌ها:** `server/public/{app.js,acc-nav.js,prod-ui.css,sw.js}`
 - **تست:** `node --check app.js` ✅
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ `0ebb70b` — health/ready/root 200؛ SW `erp-taranom-v189`
 - **SW:** `erp-taranom-v188`
 
 ### ۱۴۰۵/۰۶/۱۲ — ERP2 + ری‌دیزاین تولید و UX (SW v187)
@@ -67,7 +67,7 @@
 - **معماری:** listen قبل از `initDB` (صف TCP در کرنل، نه connection-refused)؛ `boot-gate` با ۵۰۳ `STARTING`/`RESTARTING` و `Retry-After`؛ ورود و GET با backoff روی 502/503/521–524؛ drain با SIGTERM؛ PM2 `1024M` + `wait_ready`؛ `busy_timeout` ۸ ثانیه؛ mmap ۱۲۸MB؛ fallback ستون `branch_id` تا ۴۰۱ خاموش بعد از لاگین ۲۰۰ تکرار نشود.
 - **فایل‌ها:** `server/lib/boot-gate.js`، `server/lib/http-resilience.js`، `server/public/net-resilience.js`، `server/{server,db,ecosystem.config}.js`، `server/middleware/auth.js`، `server/public/{app.js,index.html,sw.js,i18n.js}`، `server/scripts/test-login-resilience.js`، `docs/{CHANGE-LOG,08-deployment}.md`
 - **تست:** `test-login-resilience.js` ۱۴ · `test-sms.js` ۲۲ · `test-sync.js` روی این Node ۲۴ به‌خاطر ABI `better-sqlite3` (کامپایل ۲۲) اجرا نشد
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ `0ebb70b` — health/ready/root 200؛ SW `erp-taranom-v189`
 - **SW:** `erp-taranom-v185`
 
 ### ۱۴۰۵/۰۶/۱۲ — بسته تنظیمات A–H (SW v184)
@@ -109,7 +109,7 @@
 - **عمداً بعداً:** انتخاب رنگ×سایز زنده روی فاکتور فروش؛ وصول چک در گردش شخص (ثبت مستقل دفتر چک).
 - **فایل‌ها:** `server/public/{app.js,index.html,sw.js}`، `server/lib/{invoice-print,parties-sync,party-employee-sync}.js`، `server/routes/{orders,parties,payroll,purchases}.js`، `server/db.js`، `server/sync/tables.js`، `server/scripts/test-arch-erp-rar-v182.js`
 - **تست:** `test-arch-erp-rar-v182.js`
-- **Deploy:** ⏳ push بدون pull ایران (Wave 0)
+- **Deploy:** ✅ ایران overlay SFTP @ `0ebb70b` — health/ready/root 200؛ SW `erp-taranom-v189` push بدون pull ایران (Wave 0)
 - **SW:** `erp-taranom-v182`
 
 ### ۱۴۰۵/۰۶/۱۰ — هشدار دفتر/کل، منوی بسته‌، جستجو سراسری، طاقه زنده (SW v181)
@@ -933,7 +933,7 @@
 - **Commit:** `83003d7`
 - **خلاصه:** ویرایشگر BOM با چهار تب Module-4: اقلام، مسیر عملیات («از الگوی ترنم» + resequence)، خروجی‌های main/co/by، بهای تمام‌شده (`full-cost?qty` پیش‌فرض ۳۰۰، بدون JE). تب بها با `canPerm('production_cost','view')` / `__canSeeCost` مخفی می‌شود. Help: V4-21 (بازده سرفصل=۱۰۰ با routing)، full-cost بدون سند، co/by.
 - **فایل‌های کلیدی:** `server/public/app.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ⏳ pending merge
+- **Deploy:** ✅ ایران overlay SFTP @ `0ebb70b` — health/ready/root 200؛ SW `erp-taranom-v189` pending merge
 - **یادداشت:** فقط UI؛ موتور/API پیشرفته در همان شاخه؛ بدون بیلد APK/دسکتاپ.
 
 ### 2026-08-09 — Deploy ایران Wave1 merge via SFTP
