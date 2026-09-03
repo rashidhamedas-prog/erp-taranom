@@ -19,8 +19,7 @@
 - **اصلاح:** `go()` هنگام رفتن به صفحات سراسری `WinMgr.closeAll()`؛ `acc-settings` برای admin مستقیم `ROUTES.settings`؛ خطای route با `.catch`؛ `ROUTES.settings` با try/catch دسترسی
 - **فاز بعد:** جستجوی سریع بالای جدول‌های حسابداری (۳+ ردیف) در `enhanceAccTables`
 - **فایل‌ها:** `server/public/{app.js,sw.js}`
-- **Deploy:** ⏳
-- **SW:** `erp-taranom-v190`
+- **Deploy:** ✅ ایران overlay SFTP @ `b80be0e` — health/ready 200؛ SW `erp-taranom-v190`
 
 ### ۱۴۰۵/۰۶/۱۳ — مرکز گزارشات + تکمیل UX تولید (SW v189)
 
