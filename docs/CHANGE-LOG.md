@@ -20,8 +20,8 @@
 - **ریشه:** عرض برگه فقط `max-width` پیکسلی بود، `margin:auto` در راست‌به‌چپ وسط‌چین نمی‌شد، و `@media (max-width:640px)` چون A5 از ۶۴۰px باریک‌تر است همهٔ گریدها را تک‌ستونه می‌کرد
 - **اصلاح:** برگه A4=۲۱۰mm و A5=۱۴۸mm، `html` حداقل عرض ویوپورت، `body` فلکس وسط‌چین، استایل کمکی `/invoice-print.css`، و شکستن ستون فقط زیر ۴۲۰px روی صفحه. باز شدن blob یک `<base>` هم‌مبدأ می‌گذارد تا لوگو/فونت/CSS از آدرس ریشه لود شوند
 - **فایل‌ها:** `server/lib/invoice-print.js`، `server/public/{invoice-print.css,csp-runtime.js,app.js,sw.js}`، `server/scripts/test-invoice-print-layout-v195.js`
-- **تست:** test-invoice-print-layout-v195.js؛ test-sms.js؛ test-sync.js
-- **Deploy:** ⏳
+- **تست:** test-invoice-print-layout-v195.js ۱۹ مورد؛ test-sms.js ۲۲. test-sync.js روی این ماشین به‌خاطر ABI better-sqlite3 بالا نیامد
+- **Deploy:** ✅ ایران overlay SFTP @ `67e0f8b` — health/ready 200؛ SW `erp-taranom-v195`
 - **SW:** erp-taranom-v195
 
 ### ۱۴۰۵/۰۶/۱۳ — فاکتور فروش/خرید: طاقه + تراز سند + چاپ (SW v194)
