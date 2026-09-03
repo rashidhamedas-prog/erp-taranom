@@ -1,10 +1,10 @@
 # Project Status
 
 - Last verified: 2026-09-03
-- **Active:** `LOGIN-RESILIENCE-V185` — login origin downtime (SW **v185**)
-- **Iran last:** overlay v184 ✅ code `9bd5934`; health/ready/root 200; SW `erp-taranom-v184`
-- **In flight:** early listen + boot-gate + login retry + PM2 1024M
-- Prior verified: 2026-09-01
+- **Active:** `CHEQUE-OPENING-BOUNCE-STMT` in flight (reclaimed UI from login)
+- **Closed this hour:** `LOGIN-RESILIENCE-V185` — Iran overlay v185 ✅ `2386fd1`; health/ready/root 200; SW `erp-taranom-v185`; PM2 1024M
+- **In flight:** opening cheque bounce → customer statement
+- Prior verified: 2026-09-03 v184
 - **Primary tip (PACK merge note):** `ai/PROD-STITCH-PACK-MERGE` onto `12b0385` — SW **v176**
 - **Iran:** overlay v176 ✅ health/ready/root 200; SW v176; `db.js` not wholesale-replaced
 - **qa:full (QA gaps):** `qa-20260831T105600-14704` PASS 268 FAIL 0 ERROR 0 · NOT_IMPLEMENTED 0

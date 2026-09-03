@@ -7,7 +7,7 @@ const { todayJalali } = require('../jalali');
 const { voidChequeRecord } = require('../lib/void-cheque');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { assertJournalIdempotent } = require('../lib/sales-document');
-const { postChequeInReceipt } = require('../lib/cheque-party-books');
+const { postChequeInReceipt, postChequeBounce, reverseChequeLedgerByRef } = require('../lib/cheque-party-books');
 
 const OPENING_NOTE = 'مانده اول دوره';
 
@@ -630,10 +630,6 @@ router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
     const amountProbe = db.prepare("SELECT amount FROM cheque_records WHERE id=? AND direction='in'").get(req.params.id);
     if (!amountProbe) return res.status(404).json({ error: 'چک دریافتنی یافت نشد' });
 
-    const amountRial = Math.round(Number(amountProbe.amount) || 0);
-    const collection = acct(db, 'coa_cheques_in_collection');
-    const receivable = acct(db, 'coa_cheques_receivable');
-    const amt = amountRial / 10;
     const entryDate = req.body.date || todayJalali();
 
     const jeId = db.transaction(() => {
@@ -643,22 +639,7 @@ router.post('/:id/bounce', auth, adminOrAccounting, (req, res) => {
         throw Object.assign(new Error('فقط چک‌های واگذارشده یا وصول‌شده قابل برگشت هستند'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
       assertJournalIdempotent(db, 'cheque_bounce', row.id);
-
-      const lines = row.lifecycle_status === 'in_collection'
-        ? [
-          { code: receivable.code, name: receivable.name, debit: amt, credit: 0, debit_rial: amountRial },
-          { code: collection.code, name: collection.name, debit: 0, credit: amt, credit_rial: amountRial },
-        ]
-        : [
-          { code: receivable.code, name: receivable.name, debit: amt, credit: 0, debit_rial: amountRial },
-          { code: acct(db, 'coa_bank_default').code, name: acct(db, 'coa_bank_default').name, debit: 0, credit: amt, credit_rial: amountRial },
-        ];
-      const id = postToLedger(db, {
-        sourceType: 'cheque_bounce', sourceId: row.id,
-        date: entryDate,
-        description: `برگشت چک ${row.cheque_number || row.id}`,
-        createdBy: req.user.id, lines,
-      });
+      const id = postChequeBounce(db, row, req.user.id, entryDate);
       const updated = db.prepare(`
         UPDATE cheque_records SET lifecycle_status='bounced', bounced_je_id=?, status='برگشتی'
         WHERE id=? AND lifecycle_status IN ('in_collection','cleared')
@@ -708,6 +689,13 @@ router.post('/:id/resend', auth, adminOrAccounting, (req, res) => {
       if (!id) {
         throw Object.assign(new Error('معکوس سند برگشت ناموفق بود'), { status: 400, code: 'E_CHEQUE_LIFECYCLE' });
       }
+      reverseChequeLedgerByRef(db, {
+        chequeId: row.id,
+        refTypes: ['cheque_bounce'],
+        date: entryDate,
+        userId: req.user.id,
+        descriptionPrefix: 'ارسال مجدد پس از برگشت',
+      });
       const updated = db.prepare(`
         UPDATE cheque_records
         SET lifecycle_status=?, bounced_je_id=NULL, status=?

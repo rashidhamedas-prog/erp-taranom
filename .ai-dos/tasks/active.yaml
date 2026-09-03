@@ -1,9 +1,51 @@
 schema_version: 1
 tasks:
+  - id: "CHEQUE-OPENING-BOUNCE-STMT"
+    title: "Opening cheque bounce must debit customer statement"
+    status: "in_progress"
+    claimed_at: "2026-09-03T15:40:00+03:30"
+    review_status: "PENDING"
+    security_status: "NOT_REQUIRED"
+    risk: "high"
+    owner: "cursor:cheque-opening-bounce"
+    roles:
+      implementer: "cursor:cheque-opening-bounce"
+    branch: "fix/CHEQUE-OPENING-BOUNCE-STMT"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims:
+      - "server/lib/cheque-party-books.js"
+      - "server/routes/cheque-records.js"
+      - "server/lib/void-cheque.js"
+      - "server/lib/customer-books.js"
+      - "server/routes/accounting.js"
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "server/scripts/test-cheque-opening-bounce-v186.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    acceptance_criteria:
+      - "Bounce of opening receivable cheque after collection debits customer tafsili"
+      - "Customer statement closing increases by cheque amount"
+      - "Resend reverses bounce JE and bounce ledger"
+      - "Cleared bounce credits collection bank not generic default when bank known"
+      - "node server/scripts/test-cheque-opening-bounce-v186.js"
+    non_goals:
+      - "Changing opening cheque register JE (still Dr notes / Cr opening equity)"
+      - "Desktop/Android full builds"
+      - "Committing leftover _deploy/_diag/motefareqe"
+    notes: >-
+      Reclaimed app.js/index.html/sw.js/CHANGE-LOG from LOGIN-RESILIENCE-V185:
+      login product commit is already 2386fd1; this task only adds bounce
+      accounting + help/SW v186. LOGIN remaining is Iran overlay.
+
   - id: "LOGIN-RESILIENCE-V185"
     title: "Login origin downtime: retry, boot-gate, PM2 memory"
-    status: "in_progress"
+    status: "completed"
     claimed_at: "2026-09-03T15:30:00+03:30"
+    completed_at: "2026-09-03T15:50:00+03:30"
     review_status: "SELF_REVIEW_APPROVED"
     security_status: "NOT_REQUIRED"
     risk: "high"
@@ -20,13 +62,14 @@ tasks:
       - "server/db.js"
       - "server/ecosystem.config.js"
       - "server/middleware/auth.js"
+      - "server/public/i18n.js"
+      - "server/scripts/test-login-resilience.js"
+      - "docs/08-deployment.md"
+    released_claims:
       - "server/public/app.js"
       - "server/public/index.html"
       - "server/public/sw.js"
-      - "server/public/i18n.js"
-      - "server/scripts/test-login-resilience.js"
       - "docs/CHANGE-LOG.md"
-      - "docs/08-deployment.md"
     acceptance_criteria:
       - "Login retries transient 502/503/521-524 and shows starting vs auth errors"
       - "Health 200 while STARTING; ready 503 until markReady; drain 503 RESTARTING"

@@ -239,6 +239,181 @@ function postChequeInReceipt(db, row, userId, date) {
   return jeId;
 }
 
+function bounceContraAccount(db, row) {
+  if (row && row.lifecycle_status === 'in_collection') {
+    return acct(db, 'coa_cheques_in_collection');
+  }
+  const bankId = row && row.collection_bank_id;
+  if (bankId) {
+    const b = db.prepare('SELECT coa_code, name FROM banks WHERE id=?').get(bankId);
+    if (b && b.coa_code) return { code: b.coa_code, name: b.name };
+  }
+  return acct(db, 'coa_bank_default');
+}
+
+function postChequeBounceBooks(db, {
+  chequeId, customerId, personId, date, description, amountRial, userId,
+}) {
+  const rial = Math.round(Number(amountRial) || 0);
+  if (!(rial > 0) || !chequeId) return;
+  if (customerId) {
+    const exists = db.prepare(`
+      SELECT 1 FROM customer_ledger
+      WHERE ref_type='cheque_bounce' AND ref_id=? AND customer_id=? AND entry_type<>'reversal'
+      LIMIT 1
+    `).get(chequeId, customerId);
+    if (!exists) {
+      const { createLedgerEntry } = require('../db');
+      createLedgerEntry(db, {
+        customer_id: customerId,
+        date: date || '',
+        entry_type: 'cheque',
+        ref_type: 'cheque_bounce',
+        ref_id: chequeId,
+        description: description || '',
+        debit: rial,
+        credit: 0,
+        user_id: userId || null,
+      });
+    }
+  }
+  if (personId) {
+    let exists = null;
+    try {
+      exists = db.prepare(`
+        SELECT 1 FROM person_ledger
+        WHERE ref_type='cheque_bounce' AND ref_id=? AND person_id=? AND COALESCE(entry_type,'')<>'reversal'
+        LIMIT 1
+      `).get(chequeId, personId);
+    } catch (_) { exists = null; }
+    if (!exists) {
+      const { createPersonLedgerEntry } = require('../db');
+      createPersonLedgerEntry(db, {
+        person_id: personId,
+        date: date || '',
+        entry_type: 'cheque',
+        ref_type: 'cheque_bounce',
+        ref_id: chequeId,
+        description: description || '',
+        debit: rial,
+        credit: 0,
+        user_id: userId || null,
+      });
+    }
+  }
+}
+
+function reverseChequeLedgerByRef(db, { chequeId, refTypes, date, userId, descriptionPrefix }) {
+  const types = Array.isArray(refTypes) ? refTypes : [refTypes];
+  if (!chequeId || !types.length) return;
+  const { createLedgerEntry } = require('../db');
+  const originals = db.prepare(`
+    SELECT * FROM customer_ledger
+    WHERE ref_type IN (${types.map(() => '?').join(',')}) AND ref_id=? AND entry_type<>'reversal'
+  `).all(...types, chequeId);
+  for (const led of originals) {
+    const rev = db.prepare(`
+      SELECT 1 FROM customer_ledger
+      WHERE ref_type=? AND ref_id=? AND customer_id=? AND entry_type='reversal'
+      LIMIT 1
+    `).get(led.ref_type, chequeId, led.customer_id);
+    if (rev) continue;
+    createLedgerEntry(db, {
+      customer_id: led.customer_id,
+      date: date || todayJalali(),
+      entry_type: 'reversal',
+      ref_type: led.ref_type,
+      ref_id: chequeId,
+      description: `${descriptionPrefix || 'ابطال'} ${led.ref_type}`,
+      debit: led.credit || 0,
+      credit: led.debit || 0,
+      user_id: userId || null,
+    });
+  }
+  try {
+    const { createPersonLedgerEntry } = require('../db');
+    const personRows = db.prepare(`
+      SELECT * FROM person_ledger
+      WHERE ref_type IN (${types.map(() => '?').join(',')}) AND ref_id=?
+        AND COALESCE(entry_type,'')<>'reversal'
+    `).all(...types, chequeId);
+    for (const led of personRows) {
+      const rev = db.prepare(`
+        SELECT 1 FROM person_ledger
+        WHERE ref_type=? AND ref_id=? AND person_id=? AND entry_type='reversal'
+        LIMIT 1
+      `).get(led.ref_type, chequeId, led.person_id);
+      if (rev) continue;
+      createPersonLedgerEntry(db, {
+        person_id: led.person_id,
+        date: date || todayJalali(),
+        entry_type: 'reversal',
+        ref_type: led.ref_type,
+        ref_id: chequeId,
+        description: `${descriptionPrefix || 'ابطال'} چک`,
+        debit: led.credit || 0,
+        credit: led.debit || 0,
+        user_id: userId || null,
+      });
+    }
+  } catch (_) { /* person_ledger optional on older DBs */ }
+}
+
+/**
+ * Bounce a receivable cheque: restore party AR (Dr tafsili) and reverse
+ * the in-collection or bank asset. Opening cheques never credited customer
+ * GL at register, so this is the line that appears on the statement.
+ */
+function postChequeBounce(db, row, userId, date) {
+  if (!row || row.direction !== 'in') {
+    const err = new Error('چک دریافتنی یافت نشد');
+    err.status = 404;
+    throw err;
+  }
+  const amountRial = chequeAmountRial(row);
+  const party = resolveChequeInCredit(db, {
+    partyId: row.party_id,
+    customerId: row.customer_id,
+  });
+  const contra = bounceContraAccount(db, row);
+  const amt = amountRial / 10;
+  const when = date || todayJalali();
+  const desc = `برگشت چک${isOpeningCheque(row) ? ' اول دوره' : ''} ${row.cheque_number || row.id}`;
+  const jeId = postToLedger(db, {
+    sourceType: 'cheque_bounce',
+    sourceId: row.id,
+    date: when,
+    description: `${desc}${row.party_name ? ' — ' + row.party_name : ''}`,
+    createdBy: userId,
+    lines: [
+      {
+        code: party.creditAcct.code,
+        name: party.creditAcct.name,
+        debit: amt,
+        credit: 0,
+        debit_rial: amountRial,
+      },
+      {
+        code: contra.code,
+        name: contra.name,
+        debit: 0,
+        credit: amt,
+        credit_rial: amountRial,
+      },
+    ],
+  });
+  postChequeBounceBooks(db, {
+    chequeId: row.id,
+    customerId: party.customerId,
+    personId: party.personId,
+    date: when,
+    description: desc,
+    amountRial,
+    userId,
+  });
+  return jeId;
+}
+
 module.exports = {
   OPENING_NOTE,
   isOpeningCheque,
@@ -246,4 +421,8 @@ module.exports = {
   resolveChequeInCredit,
   postChequePartyBooks,
   postChequeInReceipt,
+  bounceContraAccount,
+  postChequeBounceBooks,
+  reverseChequeLedgerByRef,
+  postChequeBounce,
 };

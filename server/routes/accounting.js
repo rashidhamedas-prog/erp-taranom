@@ -105,6 +105,8 @@ const ENTRY_LABEL = {
   invoice_payment: 'دریافت هنگام فاکتور',
   cheque: 'خرج/ظهرنویسی چک',
   cheque_endorse: 'خرج/ظهرنویسی چک',
+  cheque_bounce: 'برگشت چک',
+  cheque_in: 'ثبت چک',
   journal: 'سند حسابداری',
   manual: 'سند دستی',
 };

@@ -1,9 +1,21 @@
+## 2026-09-03T15:50:00+03:30 — LOGIN-RESILIENCE-V185 deployed
+
+- Iran overlay Paramiko @ `2386fd1`. health/ready/root 200; public health has `starting:false`; SW `erp-taranom-v185`.
+- Claims released. Do not commit leftover `_deploy-demo*`, `_diag-moein*`, `motefareqe/`.
+
 ## 2026-09-03T15:40:00+03:30 — LOGIN-RESILIENCE-V185
 
 - Root cause of repeated «خطای ارتباط با سرور»: origin process gone (PM2 restart on today's overlays + 300M memory kill) → Cloudflare 521/502 → first fetch throw. Login catch also swallowed post-login `boot()` failures.
 - Fix: early listen + boot-gate 503 STARTING/RESTARTING, client retry/classify, PM2 1024M + wait_ready, busy_timeout 8s, mmap 128MB, branch_id auth fallback, Help+SW v185.
 - Tests: test-login-resilience 14, test-sms 22. test-sync blocked on this machine (better-sqlite3 ABI node22 vs node24).
 - Do not commit leftover `_deploy-demo*`, `_diag-moein*`, `motefareqe/`.
+
+## 2026-09-03T15:40:00+03:30 — CHEQUE-OPENING-BOUNCE-STMT claimed
+
+- Bug: bouncing an opening-period receivable cheque does not increase customer statement.
+- Root cause: `POST /cheque-records/:id/bounce` Dr notes receivable / Cr collection|bank_default — never hits customer tafsili. Statement is GL-sourced.
+- Reclaimed `app.js` `index.html` `sw.js` `CHANGE-LOG.md` from LOGIN-RESILIENCE-V185 (product already at `2386fd1`; login leftover is Iran overlay).
+- Branch: `fix/CHEQUE-OPENING-BOUNCE-STMT`.
 
 ## 2026-09-03T03:50:00+03:30 — SETTINGS-OPS-V184 deployed
 
