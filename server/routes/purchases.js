@@ -11,6 +11,13 @@ function payableAcct(db, supplierId) {
 }
 const { getDB, audit, resolveCashAccount, allocateNumber, isDevice } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
+const { sendSecureHtml } = require('../lib/secure-html-response');
+const { assertJournalLinesBalanced } = require('../lib/customer-books');
+
+function getSetting(db, key) {
+  const r = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+  return r ? r.value : '';
+}
 const { todayJalali } = require('../jalali');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
@@ -130,6 +137,50 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ ...row, rows: JSON.parse(row.rows || '[]') });
 });
 
+router.get('/:id/print', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const raw = String(req.params.id || '').trim();
+  const asId = parseInt(raw, 10);
+  const row = Number.isFinite(asId)
+    ? db.prepare('SELECT p.*, s.name as supplier_name FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=?').get(asId)
+    : db.prepare('SELECT p.*, s.name as supplier_name FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.num=?').get(raw);
+  if (!row) return res.status(404).send('فاکتور خرید پیدا نشد');
+  let rows = [];
+  try { rows = JSON.parse(row.rows || '[]'); } catch (_) { rows = []; }
+  const settings = {
+    company_name: getSetting(db, 'company_name'),
+    company_address: getSetting(db, 'company_address'),
+    company_phone: getSetting(db, 'company_phone'),
+    invoice_template_formal: getSetting(db, 'invoice_template_formal') || 'formal-official',
+    invoice_template_casual: 'casual-simple',
+    invoice_paper_size: getSetting(db, 'invoice_paper_size') || 'A4',
+    invoice_thermal_width: getSetting(db, 'invoice_thermal_width') || '80',
+    invoice_customize: getSetting(db, 'invoice_customize') || '',
+  };
+  const paperQ = String(req.query.paper || 'A4').toUpperCase();
+  const paper = paperQ === 'A5' ? 'A5' : 'A4';
+  const inv = {
+    ...row,
+    doc_kind: 'purchase',
+    type: 'purchase',
+    cust_biz: row.supplier_name || '',
+    cust_owner: '',
+    cust_city: '',
+    cust_phone: '',
+  };
+  try {
+    const { renderInvoicePrintHtml } = require('../lib/invoice-print');
+    const html = renderInvoicePrintHtml({
+      inv, rows, settings, paper,
+      templateOverride: 'casual-simple',
+    });
+    return sendSecureHtml(res, html, { allowPrintScript: true });
+  } catch (e) {
+    console.error('purchase print:', e && e.message);
+    return res.status(500).send('خطا در ساخت چاپ فاکتور خرید');
+  }
+});
+
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const { supplier_id, date, note, rows, disc, pay_type, bank_id, check_category_id, cash_box_id, warehouse_id,
     freight_amount, freight_type, vat_exempt, cost_center_id,
@@ -219,6 +270,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     const payTypeResolved = pType === 'bank_transfer' ? 'bank' : pType;
     const cr = pType === 'credit' ? payableAcct(db, supplier_id) : resolveCashAccount(db, payTypeResolved, bank_id, cash_box_id);
     jLines.push({ code: cr.code, name: cr.name, debit: 0, credit: rialToLedger(final) });
+    assertJournalLinesBalanced(jLines, 'فاکتور خرید');
     postToLedger(db, {
       sourceType: 'purchase', sourceId: invId, date: entryDate,
       description: `فاکتور خرید ${num}${freightRial ? ' (با کرایه حمل)' : ''}`, createdBy: req.user.id, lines: jLines,

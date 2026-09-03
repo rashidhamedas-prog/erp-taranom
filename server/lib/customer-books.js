@@ -55,6 +55,29 @@ function isImmediatePay(payType) {
   return IMMEDIATE_PAY.has(String(payType || 'cash'));
 }
 
+function sumJournalSides(lines) {
+  let debit = 0;
+  let credit = 0;
+  for (const l of lines || []) {
+    debit += Number(l.debit) || 0;
+    credit += Number(l.credit) || 0;
+  }
+  return { debit, credit, ok: Math.abs(debit - credit) <= 0.05 };
+}
+
+function assertJournalLinesBalanced(lines, context) {
+  const s = sumJournalSides(lines);
+  if (s.ok) return lines;
+  const err = new Error(
+    `سند تراز نیست (بدهکار ${s.debit} ≠ بستانکار ${s.credit})` + (context ? ` — ${context}` : '')
+  );
+  err.status = 409;
+  err.code = 'E_JE_UNBALANCED';
+  err.debit = s.debit;
+  err.credit = s.credit;
+  throw err;
+}
+
 function receivableAcct(db, custId) {
   const c = custId ? db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId) : null;
   if (c && c.coa_code) {
@@ -83,7 +106,8 @@ function salesJournalLines(db, custId, totals, reverse, opts = {}) {
   const salesDisc = acct(db, 'coa_sales_discount');
   const vatPay = acct(db, 'coa_vat_payable');
   const otherIncome = (() => { try { return acct(db, 'coa_other_income'); } catch { return sales; } })();
-  const { discAmt, vatAmount } = totals;
+  const discAmt = Math.round(Number(totals.discAmt) || 0);
+  const vatAmount = Math.round(Number(totals.vatAmount) || 0);
   const L = rialToLedger;
   const freightRial = Math.round(Number(opts.freightRial != null ? opts.freightRial : opts.freight_amount) || 0);
   const freightType = normalizeFreightType(opts.freightType || opts.freight_type);
@@ -107,7 +131,9 @@ function salesJournalLines(db, custId, totals, reverse, opts = {}) {
       incomeBuckets.set(code, prev);
     }
   }
-  const productCredit = Math.max(0, goodsNet - incomeCredit);
+  // Header discount is a separate debit. Credit GROSS goods (net + discount)
+  // or the journal is short on the credit side by discAmt ("سند تراز نیست").
+  const productCredit = Math.max(0, goodsNet + discAmt - incomeCredit);
   const freightInc = otherIncome;
   const freightExp = (() => { try { return acct(db, 'coa_sales_expense'); } catch { return salesDisc; } })();
   const freightPay = (() => { try { return acct(db, 'coa_payable'); } catch { return recv; } })();
@@ -151,7 +177,7 @@ function salesJournalLines(db, custId, totals, reverse, opts = {}) {
       jLines.push({ code: cash.code, name: cash.name, debit: L(final), credit: 0, description: 'دریافت هنگام فاکتور' });
       jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: L(final), description: 'تسویه هنگام فاکتور' });
     }
-    return jLines;
+    return assertJournalLinesBalanced(jLines, 'فاکتور فروش');
   }
 
   const jLines = [];
@@ -167,7 +193,7 @@ function salesJournalLines(db, custId, totals, reverse, opts = {}) {
   if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: L(vatAmount), credit: 0, description: 'ابطال VAT' });
   if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: 0, credit: L(discAmt), description: 'ابطال تخفیف' });
   jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: L(final) });
-  return jLines;
+  return assertJournalLinesBalanced(jLines, 'ابطال فاکتور فروش');
 }
 
 function postInvoiceCustomerLedger(db, {
@@ -867,6 +893,8 @@ module.exports = {
   isImmediatePay,
   receivableAcct,
   salesJournalLines,
+  sumJournalSides,
+  assertJournalLinesBalanced,
   postInvoiceCustomerLedger,
   reverseInvoiceCustomerLedger,
   attachMissingInvoiceRows,

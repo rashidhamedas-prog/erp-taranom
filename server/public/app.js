@@ -3972,6 +3972,24 @@ async function custActivityModal(custId){
 ============================================================ */
 let invCart = [];
 let invFilter = {q:'', type:''};
+let _printDocId = 0;
+function rememberPrintDocId(id){
+  const n = Number(id);
+  if (Number.isFinite(n) && n > 0) _printDocId = n;
+  return _printDocId;
+}
+function resolvePrintDocId(id){
+  const n = Number(id);
+  if (Number.isFinite(n) && n > 0) { _printDocId = n; return n; }
+  return _printDocId || 0;
+}
+async function toastPrintError(r){
+  let txt = '';
+  try { txt = await r.text(); } catch (_) {}
+  const msg = String(txt || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180)
+    || ('خطا در چاپ (' + r.status + ')');
+  showToast(msg, 'error');
+}
 ROUTES.invoices = async function(){
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
   if(!_invoicesFetched){ CACHE.invoices=await api('GET','/invoices')||[]; _invoicesFetched=true; }
@@ -4032,6 +4050,7 @@ function openInvBuilder(id){
   _openInvBuilder(id);
 }
 async function _openInvBuilder(id){
+  rememberPrintDocId(id);
   await ensureProductsCache();
   // Lookup lists for invoice pay fields — soft-fail so sales roles are not blocked
   // if a meta endpoint is temporarily unavailable (banks/cash/checks/cost-centers).
@@ -4045,7 +4064,7 @@ async function _openInvBuilder(id){
   if(!CACHE.costCenters) CACHE.costCenters = await loadMeta('/accounting/cost-centers', []);
   let inv = null;
   if(id){
-    inv = CACHE.invoices.find(x=>x.id===id) || null;
+    inv = (CACHE.invoices||[]).find(x=>Number(x.id)===Number(id)) || null;
     if(!inv?.rows?.length){
       try{ inv = await api('GET','/invoices/'+id); }catch(e){ inv=null; }
     }
@@ -4186,6 +4205,7 @@ async function _openInvBuilder(id){
           <div class="inv-lines-wrap" id="cartRows"></div>
           <div class="cart-tot" id="cartTot"></div>
           <button class="btn green" data-csp-style="${CSP.style(`width:100%;margin-top:12px;padding:12px;font-size:15px`)}" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">💾 ذخیره فاکتور</button>
+          ${id?`<button class="btn ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){printInvoice((id))})}">🖨️ چاپ فاکتور</button>`:''}
           ${id&&inv&&inv.type==='proforma'&&!inv.converted?`<button class="btn orange" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((id))})}">🔄 تبدیل به فاکتور قطعی</button>`:''}
         </div>
       </div>
@@ -4696,18 +4716,23 @@ async function convertProforma(id, targetType){
   }catch(e){}
 }
 async function printInvoice(id, paper, template){
+  const docId = resolvePrintDocId(id);
+  if(!docId){
+    showToast('شناسه فاکتور برای چاپ مشخص نیست — فاکتور را از لیست انتخاب کنید','error');
+    return;
+  }
   const defPaper = ((CACHE.settings||{}).invoice_paper_size||'A4').toUpperCase()==='A5'?'A5':'A4';
   const thermalW = String((CACHE.settings||{}).invoice_thermal_width||'80').replace(/\D/g,'')==='58'?'58':'80';
   const cardStyle=CSP.style(`flex:1;min-width:140px;padding:14px;font-size:13px;text-align:center;line-height:1.6`);
   if(!paper && !template){
-    openModal(`
-      <div class="modal-head"><h3>🖨️ انتخاب چاپ</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    openNestedModal(`
+      <div class="modal-head"><h3>🖨️ انتخاب چاپ</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeNestedModal()})}">×</button></div>
       <div class="modal-body" data-csp-style="${CSP.style(`padding:24px`)}">
         <p data-csp-style="${CSP.style(`margin-bottom:14px;color:var(--muted);line-height:1.8`)}">ابتدا نوع فاکتور چاپی را انتخاب کنید، سپس قالب و اندازه کاغذ.</p>
         <div data-csp-style="${CSP.style(`display:flex;gap:10px;justify-content:center;flex-wrap:wrap`)}">
-          <button class="btn" data-csp-style="${cardStyle}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'KIND_FORMAL')})}">📄 فاکتور رسمی<br><small>سه قالب اداری</small></button>
-          <button class="btn ghost" data-csp-style="${cardStyle}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'KIND_CASUAL')})}">🧾 فاکتور عادی<br><small>پیش‌فاکتور / ساده</small></button>
-          <button class="btn ghost" data-csp-style="${CSP.style(`flex:1;min-width:140px;padding:14px;font-size:13px;text-align:center;line-height:1.6;border-color:var(--gold)`)}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'THERMAL','thermal')})}">🖨️ حرارتی<br><small>${thermalW}mm</small></button>
+          <button class="btn" data-csp-style="${cardStyle}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'KIND_FORMAL')})}">📄 فاکتور رسمی<br><small>سه قالب اداری</small></button>
+          <button class="btn ghost" data-csp-style="${cardStyle}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'KIND_CASUAL')})}">🧾 فاکتور عادی<br><small>پیش‌فاکتور / ساده</small></button>
+          <button class="btn ghost" data-csp-style="${CSP.style(`flex:1;min-width:140px;padding:14px;font-size:13px;text-align:center;line-height:1.6;border-color:var(--gold)`)}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'THERMAL','thermal')})}">🖨️ حرارتی<br><small>${thermalW}mm</small></button>
         </div>
       </div>`);
     return;
@@ -4717,8 +4742,8 @@ async function printInvoice(id, paper, template){
     const tmpls=formal
       ? [['formal-official','رسمی کامل / اداری','سه ستون سربرگ، جدول سبز، مهر'],['formal-modern','رسمی مدرن','سربرگ نواری، چیپ متادیتا'],['formal-premium','رسمی پرمیوم','هیرو برند، نوار متادیتا']]
       : [['casual-simple','عادی ساده','قالب پیش‌فاکتور و فروش داخلی']];
-    openModal(`
-      <div class="modal-head"><h3>🖨️ انتخاب قالب ${formal?'رسمی':'عادی'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    openNestedModal(`
+      <div class="modal-head"><h3>🖨️ انتخاب قالب ${formal?'رسمی':'عادی'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeNestedModal()})}">×</button></div>
       <div class="modal-body" data-csp-style="${CSP.style(`padding:20px`)}">
         <p class="muted" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">قالب و اندازه کاغذ را انتخاب کنید. پیش‌فرض کاغذ: <b>${defPaper}</b></p>
         ${tmpls.map(([tid,title,desc])=>`
@@ -4726,11 +4751,11 @@ async function printInvoice(id, paper, template){
             <div data-csp-style="${CSP.style(`font-weight:700;margin-bottom:4px`)}">${esc(title)}</div>
             <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">${esc(desc)}</div>
             <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
-              <button class="btn sm${defPaper==='A4'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'A4',`${String((tid) ?? '')}`)})}">A4</button>
-              <button class="btn sm${defPaper==='A5'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'A5',`${String((tid) ?? '')}`)})}">A5</button>
+              <button class="btn sm${defPaper==='A4'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'A4',`${String((tid) ?? '')}`)})}">A4</button>
+              <button class="btn sm${defPaper==='A5'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'A5',`${String((tid) ?? '')}`)})}">A5</button>
             </div>
           </div>`).join('')}
-        <button class="btn ghost sm" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id))})}">بازگشت</button>
+        <button class="btn ghost sm" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId))})}">بازگشت</button>
       </div>`);
     return;
   }
@@ -4739,10 +4764,23 @@ async function printInvoice(id, paper, template){
     const q = paper==='THERMAL'
       ? 'paper=THERMAL&template=thermal'
       : ('paper='+encodeURIComponent(paper)+(template?('&template='+encodeURIComponent(template)):''));
-    const r = await fetch('/api/invoices/'+id+'/print?'+q,{headers:{'Authorization':'Bearer '+token}});
-    if(!r.ok){ showToast('خطا در دریافت فاکتور','error'); return; }
+    const r = await fetch('/api/invoices/'+docId+'/print?'+q,{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok){ await toastPrintError(r); return; }
     if(!await CSP.openVerifiedServerDocument(r)) showToast('مرورگر پنجره چاپ را مسدود کرد','error');
-  }catch(e){ showToast('خطا در چاپ','error'); }
+  }catch(e){ showToast((e && e.message) || 'خطا در چاپ','error'); }
+}
+async function printPurchase(id){
+  const docId = Number(id);
+  if(!Number.isFinite(docId) || docId<=0){
+    showToast('شناسه فاکتور خرید برای چاپ مشخص نیست','error');
+    return;
+  }
+  const token = localStorage.getItem('crm_token');
+  try{
+    const r = await fetch('/api/purchases/'+docId+'/print?paper=A4',{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok){ await toastPrintError(r); return; }
+    if(!await CSP.openVerifiedServerDocument(r)) showToast('مرورگر پنجره چاپ را مسدود کرد','error');
+  }catch(e){ showToast((e && e.message) || 'خطا در چاپ فاکتور خرید','error'); }
 }
 
 /* ============================================================
@@ -12787,7 +12825,8 @@ async function renderPurchasesTab(body){
       <td>${esc(r.supplier_name||'-')}</td>
       <td class="mono">${escDate(r.date)}</td><td class="mono">${fmt(r.final)}</td>
       <td>${payLabel[r.pay_type]||r.pay_type}</td><td class="muted">${esc(r.recorder||'-')}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePurchaseInvoice((r.id))})}" title="ابطال">⛔ ابطال</button></td>
+      <td><button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printPurchase((r.id))})}" title="چاپ">🖨️</button>
+        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePurchaseInvoice((r.id))})}" title="ابطال">⛔ ابطال</button></td>
     </tr>`).join('')||emptyRow(8)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
       <td colspan="4">جمع (${fmt(rows.length)} فاکتور)</td>
@@ -19964,7 +20003,10 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>شخص جدید</b> در «کلیه اشخاص» هم باز می‌شود؛ گروه را داخل فرم انتخاب کنید</li>
         <li><b>مطالبات:</b> شخص غیرفعال با مانده صفر از لیست حذف می‌شود؛ اگر مانده باقی مانده باشد با برچسب «غیرفعال» می‌ماند تا تسویه شود</li>
         <li><b>کرایه:</b> سرشکن به نسبت مبلغ/مقدار/مساوی روی ردیف‌ها. عهده خریدار به مبلغ طرف‌حساب و درآمد متفرقه می‌رود؛ عهده فروشنده هزینه توزیع است و به بدهی مشتری/تأمین‌کننده اضافه نمی‌شود</li>
-        <li><b>طاقه:</b> انبار ردیف همان انبار طاقه است. موجودی طاقه از متر زنده دسته است نه موجودی کالای انبار محصول</li>
+        <li><b>طاقه:</b> انبار ردیف همان انبار طاقه است. موجودی طاقه از متر زنده دسته است (رسید خرید حتی اگر در گذشته بدون شناسه دسته ثبت شده باشد با شماره طاقه ترمیم می‌شود). پیام «متر طاقه ۰۰۰۷ کافی نیست» یعنی شماره طاقه، نه شماره فاکتور</li>
+        <li>تخفیف سربرگ فاکتور فروش سند را تراز می‌کند (بستانکار فروش = ناخالص کالا؛ تخفیف جدا بدهکار است). حذف طاقه از سبد و ذخیرهٔ بقیه با تخفیف دیگر «سند تراز نیست» نمی‌دهد</li>
+        <li><b>چاپ:</b> از لیست یا داخل فرم فاکتور. ویزارد چاپ فرم باز را نمی‌بندد. شناسه از فاکتور انتخاب‌شده نگه داشته می‌شود. حسابدار همهٔ فاکتورها را می‌بیند/چاپ می‌کند. اگر سند پیدا نشود همان متن سرور نمایش داده می‌شود</li>
+        <li>فاکتور خرید دکمهٔ چاپ A4 دارد</li>
         <li>اگر ثبت فاکتور موجودی کالا را منفی کند، قبل از ذخیره هشدار تأیید می‌آید</li>
         <li>ستون فی جداکنندهٔ هزارگان دارد. رنگ/سایز یک خط زیر نام کالاست؛ کلیک جزئیات را باز می‌کند</li>
         <li><b>چاپ:</b> ابتدا نوع (رسمی / عادی / حرارتی) سپس قالب و کاغذ A4 یا A5</li>
@@ -20173,10 +20215,11 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاکتور خرید</b> همان الگوی جدول اقلام را دارد (بهای خرید، تخفیف ردیف، انبار مقصد، چک، کرایه، بارکد)</li>
         <li>فی با جداکنندهٔ هزارگان؛ رنگ/سایز یک خط زیر نام — کلیک برای جزئیات</li>
         <li>کرایه: نسبت سرشکن روی ردیف؛ عهده خریدار به مبلغ طرف‌حساب می‌آید، عهده فروشنده هزینه است</li>
-        <li>طاقه از انبار خودش کسر می‌شود؛ اگر کالا منفی شود قبل از ذخیره هشدار می‌آید</li>
+        <li>طاقه از انبار خودش کسر می‌شود؛ مانده از رسید خرید (حتی رسید قدیمی بدون مهر دسته) خوانده می‌شود. اگر کالا منفی شود قبل از ذخیره هشدار می‌آید</li>
+        <li>تخفیف کل فاکتور سند حسابداری را تراز نگه می‌دارد — حتی اگر طاقه را از سبد حذف کنید و بقیه را ذخیره کنید</li>
       </ul>
       <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، فیلدهای تخفیف درصدی و مبلغی فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلدها را نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
-      <h5>چاپ</h5><p>دکمه چاپ ابتدا نوع فاکتور (رسمی / عادی / حرارتی) را می‌پرسد، سپس قالب و کاغذ A4 یا A5. قالب‌های رسمی: کامل، مدرن، پرمیوم. عادی: ساده.</p>
+      <h5>چاپ</h5><p>دکمه چاپ در لیست و داخل فرم فاکتور است. ابتدا نوع فاکتور (رسمی / عادی / حرارتی) را می‌پرسد، سپس قالب و کاغذ A4 یا A5 — بدون بستن فرم فاکتور. قالب‌های رسمی: کامل، مدرن، پرمیوم. عادی: ساده. فاکتور خرید فقط چاپ A4 دارد. اگر «فاکتور پیدا نشد» آمد، متن دقیق خطا در اعلان می‌آید.</p>
       <h5>تبدیل پیش‌فاکتور</h5><p>دکمهٔ <b>تبدیل به فاکتور</b> موجودی طاقه را <b>قبل از ثبت خروج</b> می‌سنجد. اگر متر کافی نباشد پیام به‌صورت «مانده X، نیاز Y» است (نه مانده منفی بعد از کسر). پیش‌فاکتور اثر انبار ندارد؛ کمبود یعنی همان طاقه در انبار کمتر از مقدار فاکتور است.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
     helpSec('🛒','فروش بازاریاب',`
@@ -20658,7 +20701,7 @@ function renderSalesGuide(){
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است. اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
-        <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ چاپ ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب را می‌پرسد</li>
+        <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ چاپ از لیست یا دکمه داخل فرم است و فرم را نمی‌بندد. ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب را می‌پرسد. طاقهٔ خریداری‌شده با متر زنده همان طاقه فروخته می‌شود</li>
         <li>رنگ و سایز یک خط زیر نام کالاست؛ برای جزئیات روی همان خط بزنید</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور رسمی برای ثبت فروش قطعی.</div>`),

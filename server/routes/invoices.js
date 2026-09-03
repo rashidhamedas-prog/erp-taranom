@@ -66,6 +66,30 @@ function getScope(req) {
   return req.user.id;
 }
 
+function canViewInvoice(req, inv) {
+  if (!inv) return false;
+  const role = req.user && req.user.role;
+  if (role === 'admin' || role === 'accounting' || role === 'sales_manager') return true;
+  return Number(inv.user_id) === Number(req.user.id);
+}
+
+const INVOICE_JOIN_SQL = `SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone,
+            u.name as salesperson
+     FROM invoices i
+     LEFT JOIN customers c ON i.cust_id=c.id
+     LEFT JOIN users u ON i.user_id=u.id`;
+
+function loadInvoiceRow(db, key) {
+  const raw = String(key == null ? '' : key).trim();
+  if (!raw || raw === 'undefined' || raw === 'null') return null;
+  const asId = parseInt(raw, 10);
+  if (Number.isFinite(asId) && String(asId) === raw) {
+    const byId = db.prepare(`${INVOICE_JOIN_SQL} WHERE i.id=?`).get(asId);
+    if (byId) return byId;
+  }
+  return db.prepare(`${INVOICE_JOIN_SQL} WHERE i.num=?`).get(raw) || null;
+}
+
 function getSetting(db, key) {
   const r = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
   return r ? r.value : '';
@@ -222,9 +246,8 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
           "SELECT batch_no, qty_on_hand, kind, status FROM inventory_batches WHERE id=?"
         ).get(batchId);
         if (batchRow && batchRow.kind === 'fabric' && !allowNeg) {
-          const { liveBatchMeters } = require('../lib/inventory/fabric-rolls');
-          const live = liveBatchMeters(db, batchId);
-          const onHand = live != null ? live : (Number(batchRow.qty_on_hand) || 0);
+          const { availableBatchMeters } = require('../lib/inventory/fabric-rolls');
+          const onHand = availableBatchMeters(db, batchId);
           if (r.qty - onHand > 1e-9) {
             return `متر طاقه ${batchRow.batch_no} کافی نیست (مانده ${onHand}، نیاز ${r.qty})`;
           }
@@ -349,9 +372,9 @@ router.get('/export/excel', auth, adminOnly, async (req, res) => {
 
 router.get('/:id', auth, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
+  const row = loadInvoiceRow(db, req.params.id);
+  if (!row) return res.status(404).json({ error: 'فاکتور پیدا نشد' });
+  if (!canViewInvoice(req, row)) return res.status(403).json({ error: 'دسترسی ندارید' });
   res.json({ ...row, rows: JSON.parse(row.rows || '[]') });
 });
 
@@ -790,16 +813,9 @@ router.post('/:id/convert', auth, (req, res) => {
 // Standalone printable HTML page — templates from server/lib/invoice-print.js
 router.get('/:id/print', auth, (req, res) => {
   const db = getDB();
-  const inv = db.prepare(
-    `SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone,
-            u.name as salesperson
-     FROM invoices i
-     LEFT JOIN customers c ON i.cust_id=c.id
-     LEFT JOIN users u ON i.user_id=u.id
-     WHERE i.id=?`
-  ).get(req.params.id);
-  if (!inv) return res.status(404).send('فاکتور یافت نشد');
-  if (req.user.role !== 'admin' && inv.user_id !== req.user.id) return res.status(403).send('دسترسی ندارید');
+  const inv = loadInvoiceRow(db, req.params.id);
+  if (!inv) return res.status(404).send('فاکتور پیدا نشد');
+  if (!canViewInvoice(req, inv)) return res.status(403).send('دسترسی ندارید');
   let rows = [];
   try { rows = JSON.parse(inv.rows || '[]'); } catch (_) { rows = []; }
 
@@ -818,12 +834,17 @@ router.get('/:id/print', auth, (req, res) => {
   if (paperQ === 'A5') paper = 'A5';
   else if (paperQ === 'THERMAL' || paperQ === '80MM' || paperQ === '58MM') paper = paperQ === '58MM' ? '58MM' : (paperQ === '80MM' ? '80MM' : 'THERMAL');
   const tmpl = String(req.query.template || '');
-  const { renderInvoicePrintHtml } = require('../lib/invoice-print');
-  const html = renderInvoicePrintHtml({
-    inv, rows, settings, paper,
-    templateOverride: tmpl === 'thermal' ? 'thermal' : (tmpl || undefined),
-  });
-  return sendSecureHtml(res, html, { allowPrintScript: true });
+  try {
+    const { renderInvoicePrintHtml } = require('../lib/invoice-print');
+    const html = renderInvoicePrintHtml({
+      inv, rows, settings, paper,
+      templateOverride: tmpl === 'thermal' ? 'thermal' : (tmpl || undefined),
+    });
+    return sendSecureHtml(res, html, { allowPrintScript: true });
+  } catch (e) {
+    console.error('invoice print:', e && e.message);
+    return res.status(500).send('خطا در ساخت چاپ فاکتور');
+  }
 });
 
 module.exports = router;

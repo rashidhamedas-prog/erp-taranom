@@ -11,24 +11,74 @@ const { assertJournalIdempotent } = require('../sales-document');
 const { postInventoryMovement, reverseInventoryMovement, invErr } = require('./ledger');
 const { createBatch, adjustBatchQty } = require('./batch-serial');
 
+/**
+ * Authoritative roll meters = tagged ledger inbound − outbound.
+ * Purchase identity used to be attached AFTER the receipt movement, so the
+ * inbound row often has batch_id NULL. Reconstruct inbound from qty_received
+ * (or cached on-hand + already-tagged outbound) so a later sale does not see
+ * "0 inbound − this sale" and reject a valid remaining roll.
+ */
 function liveBatchMeters(db, batchId) {
   const id = Number(batchId);
   if (!id) return null;
-  const row = db.prepare(`
-    SELECT COALESCE(SUM(qty_in),0) - COALESCE(SUM(qty_out),0) AS qty
+  const batch = db.prepare(
+    'SELECT qty_on_hand, qty_received FROM inventory_batches WHERE id=?'
+  ).get(id);
+  if (!batch) return null;
+  const agg = db.prepare(`
+    SELECT
+      COALESCE(SUM(qty_in),0) AS qty_in,
+      COALESCE(SUM(qty_out),0) AS qty_out,
+      COUNT(*) AS n
     FROM inventory_ledger
     WHERE batch_id=? AND status='posted'
   `).get(id);
-  if (!row) return null;
-  const has = db.prepare(`
-    SELECT 1 FROM inventory_ledger WHERE batch_id=? AND status='posted' LIMIT 1
-  `).get(id);
-  if (!has) return null;
-  return Number(row.qty) || 0;
+  if (!agg || !Number(agg.n)) return null;
+  const taggedIn = Number(agg.qty_in) || 0;
+  const taggedOut = Number(agg.qty_out) || 0;
+  if (taggedIn > 0) return taggedIn - taggedOut;
+  const received = Number(batch.qty_received);
+  const cached = Number(batch.qty_on_hand) || 0;
+  const inbound = (Number.isFinite(received) && received > 0)
+    ? received
+    : (cached + taggedOut);
+  return inbound - taggedOut;
+}
+
+function healUntaggedBatchReceipt(db, batchId) {
+  const id = Number(batchId);
+  if (!id) return 0;
+  const batch = db.prepare(
+    'SELECT id, ledger_id, source_type, source_id, product_id FROM inventory_batches WHERE id=?'
+  ).get(id);
+  if (!batch) return 0;
+  let n = 0;
+  if (batch.ledger_id) {
+    n += db.prepare(
+      'UPDATE inventory_ledger SET batch_id=? WHERE id=? AND (batch_id IS NULL OR batch_id=0)'
+    ).run(id, batch.ledger_id).changes || 0;
+  }
+  if (batch.source_type && batch.source_id && batch.product_id) {
+    n += db.prepare(`
+      UPDATE inventory_ledger SET batch_id=?
+      WHERE source_type=? AND source_id=? AND product_id=?
+        AND qty_in>0 AND (batch_id IS NULL OR batch_id=0) AND status='posted'
+    `).run(id, batch.source_type, batch.source_id, batch.product_id).changes || 0;
+  }
+  return n;
+}
+
+function availableBatchMeters(db, batchId) {
+  healUntaggedBatchReceipt(db, batchId);
+  const live = liveBatchMeters(db, batchId);
+  if (live != null) return live;
+  const row = db.prepare('SELECT qty_on_hand FROM inventory_batches WHERE id=?').get(Number(batchId));
+  return Number(row?.qty_on_hand) || 0;
 }
 
 function applyLiveRollQty(db, r) {
   if (!r || !r.id) return r;
+  healUntaggedBatchReceipt(db, r.id);
   const live = liveBatchMeters(db, r.id);
   if (live == null) {
     r.qty_live = Number(r.qty_on_hand) || 0;
@@ -244,17 +294,18 @@ function attachFabricIdentityOnPurchase(db, {
     supplierId || null, meters, movement && movement.id || null,
     sourceId || null, batch.id
   );
+  if (movement && movement.id) {
+    db.prepare(
+      'UPDATE inventory_ledger SET batch_id=? WHERE id=? AND (batch_id IS NULL OR batch_id=0)'
+    ).run(batch.id, movement.id);
+  }
   return db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(batch.id);
 }
 
-// ORDER OF OPERATIONS (fabric sale): postSaleStockMovements posts the sale's
-// inventory_ledger qty_out row *before* calling this function, so liveBatchMeters
-// here already reflects the balance AFTER this sale. Re-checking `meters > live`
-// would double-count the sale (subtract the meters twice) and wrongly reject a
-// valid remaining sale — that was the "-20 مانده" bug. Availability is therefore
-// asserted BEFORE the ledger post in postSaleStockMovements. Here we only
-// reconstruct onHandBefore = liveAfter + meters to guard against a true
-// pre-existing oversell, then sync the cached qty_on_hand to the live balance.
+// Availability is asserted BEFORE the sale ledger row in postSaleStockMovements /
+// assertWarehouseLines. After that row is posted, live meters already include
+// this sale's qty_out. Do not re-check remaining vs requested (that rejected
+// valid sales when the purchase receipt was not tagged with batch_id).
 function consumeFabricRollOnSale(db, { batchId, qty }) {
   const id = Number(batchId);
   const meters = Number(qty) || 0;
@@ -268,19 +319,11 @@ function consumeFabricRollOnSale(db, { batchId, qty }) {
   }
   const liveAfter = liveBatchMeters(db, id);
   if (liveAfter != null) {
-    // Ledger already includes this sale's qty_out → reconstruct the pre-sale balance.
-    const onHandBefore = liveAfter + meters;
-    if (meters - onHandBefore > 1e-9) {
-      // Only a genuine oversell (pre-sale balance was already insufficient) fails.
-      throw httpErr(409, `متر طاقه ${row.batch_no} کافی نیست (مانده ${onHandBefore})`, 'E_FABRIC_QTY');
-    }
-    // Sync cached qty_on_hand to the authoritative post-sale live balance.
     if (Math.abs(liveAfter - (Number(row.qty_on_hand) || 0)) > 1e-6) {
       db.prepare('UPDATE inventory_batches SET qty_on_hand=? WHERE id=?').run(liveAfter, id);
     }
     return;
   }
-  // No live ledger info (batch never posted a ledger row): decrement cached qty.
   const onHand = Number(row.qty_on_hand) || 0;
   if (meters - onHand > 1e-9) {
     throw httpErr(409, `متر طاقه ${row.batch_no} کافی نیست (مانده ${onHand})`, 'E_FABRIC_QTY');
@@ -666,6 +709,8 @@ module.exports = {
   listFabricRolls,
   listFabricCirculation,
   liveBatchMeters,
+  availableBatchMeters,
+  healUntaggedBatchReceipt,
   applyLiveRollQty,
   receiveFabricRoll,
   voidFabricRoll,

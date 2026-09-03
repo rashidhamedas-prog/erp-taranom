@@ -32,6 +32,17 @@ function esc(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function faNum(n) {
+  if (n == null || n === '') return '۰';
+  const num = Number(n);
+  if (!Number.isFinite(num)) return String(n);
+  try {
+    return num.toLocaleString('fa-IR');
+  } catch (_) {
+    return String(n);
+  }
+}
+
 function freightTypeFa(t) {
   const n = String(t || '').trim().toLowerCase();
   if (n === 'seller' || n.includes('فروشنده')) return 'عهده فروشنده';
@@ -243,7 +254,8 @@ function themeCss(id, dims) {
   .thermal-number{margin-top:4px}
   .thermal-customer{line-height:1.7}
   .row-desc{font-size:9px;color:#5F7268;margin-top:2px;font-weight:400}
-  .disc{color:#b45309;font-weight:700}
+  .warn-line{color:#b45309;font-size:11px;font-weight:700}
+  .thanks{margin-top:6px;color:#8A7020}
   .logo-box{background:#fff;border:1px solid #c5d6cc;border-radius:10px;padding:3px 8px;display:inline-flex;align-items:center}
   .logo-box img{display:block;height:${dims.logoH};background:transparent;mix-blend-mode:multiply}
   .pbtn{display:block;margin:14px auto 0;background:#1A5C38;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-family:inherit;font-size:13px;cursor:pointer}
@@ -411,7 +423,12 @@ function renderInvoicePrintHtml(opts) {
   const isA5 = dims.paper === 'A5';
   const typeLabel = isThermal
     ? 'فاکتور حرارتی'
-    : (inv.type === 'final' ? 'فاکتور رسمی' : inv.type === 'normal' ? 'فاکتور فروش' : 'پیش‌فاکتور');
+    : (inv.doc_kind === 'purchase' || inv.type === 'purchase'
+      ? 'فاکتور خرید'
+      : (inv.type === 'final' ? 'فاکتور رسمی' : inv.type === 'normal' ? 'فاکتور فروش' : 'پیش‌فاکتور'));
+  const isPurchase = inv.doc_kind === 'purchase' || inv.type === 'purchase';
+  const counterpartyTitle = isPurchase ? 'مشخصات فروشنده' : 'مشخصات خریدار';
+  const companyPartyTitle = isPurchase ? 'مشخصات خریدار' : 'مشخصات فروشنده';
   const t = computePrintTotals(inv, rows);
   const emptyColspan = isA5 ? 6 : 9;
   const isProvisional = String(inv.num || '').startsWith('موقت');
@@ -463,7 +480,7 @@ function renderInvoicePrintHtml(opts) {
       ${t.freight ? `<div class="line"><span>کرایه حمل${inv.freight_type ? ` (${esc(freightTypeFa(inv.freight_type))})` : ''}</span><span class="num">${faNum(t.freight)} ریال</span></div>` : ''}
       ${t.vat ? `<div class="line"><span>مالیات بر ارزش افزوده${t.vatRate ? ` (${faNum(t.vatRate)}٪)` : ''}</span><span class="num">${faNum(t.vat)} ریال</span></div>` : ''}
       <div class="line pay"><span>مبلغ قابل پرداخت</span><span class="num gold">${faNum(t.payable)} ریال</span></div>
-      ${t.mismatch ? `<div class="line" style="color:#b45309;font-size:11px"><span>هشدار</span><span>جمع سربرگ (${faNum(t.subtotal)}) با جمع اقلام یکی نیست</span></div>` : ''}
+      ${t.mismatch ? `<div class="line warn-line"><span>هشدار</span><span>جمع سربرگ (${faNum(t.subtotal)}) با جمع اقلام یکی نیست</span></div>` : ''}
     </div>`;
 
   const stamps = `
@@ -518,8 +535,8 @@ function renderInvoicePrintHtml(opts) {
           </div></div>
         </div>
         <div class="parties">
-          <div class="party"><h4>مشخصات خریدار</h4><div class="b">${buyerBits}</div></div>
-          <div class="party"><h4>مشخصات فروشنده</h4><div class="b">${sellerBits}</div></div>
+          <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
+          <div class="party"><h4>${companyPartyTitle}</h4><div class="b">${sellerBits}</div></div>
         </div>
         <div class="meta-strip">
           <div class="c"><b>نوع</b><span>${esc(typeLabel)}</span></div>
@@ -562,8 +579,8 @@ function renderInvoicePrintHtml(opts) {
       <div class="prem-rule"></div>
       <div class="pad">
         <div class="parties">
-          <div class="party"><h4>مشخصات فروشنده</h4><div class="b">${sellerBits}</div></div>
-          <div class="party"><h4>مشخصات خریدار</h4><div class="b">${buyerBits}</div></div>
+          <div class="party"><h4>${companyPartyTitle}</h4><div class="b">${sellerBits}</div></div>
+          <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
         </div>
         <div class="meta-strip">
           <div class="c"><b>نوع فاکتور</b><span>فروش رسمی</span></div>
@@ -577,7 +594,7 @@ function renderInvoicePrintHtml(opts) {
           <thead>${formalHead}</thead>
           <tbody>${buildFormalRows(rows, isA5) || `<tr><td colspan="${emptyColspan}">بدون ردیف</td></tr>`}</tbody>
         </table>
-        <div class="sum-grid">${sumBox}<div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(t.payable)} ریال${noteHtml || '<div style="margin-top:6px;color:#8A7020">با تشکر از اعتماد شما</div>'}</div></div>
+        <div class="sum-grid">${sumBox}<div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(t.payable)} ریال${noteHtml || '<div class="thanks">با تشکر از اعتماد شما</div>'}</div></div>
         ${stamps}
       </div>
       ${customize.show_footer ? `<div class="footer-bar">${footerText}<br>${esc(contactLine)}</div>` : ''}`;
@@ -601,8 +618,8 @@ function renderInvoicePrintHtml(opts) {
       </div>
       <div class="pad">
         <div class="parties">
-          <div class="party"><h4>مشخصات فروشنده</h4><div class="b">${sellerBits}</div></div>
-          <div class="party"><h4>مشخصات خریدار</h4><div class="b">${buyerBits}</div></div>
+          <div class="party"><h4>${companyPartyTitle}</h4><div class="b">${sellerBits}</div></div>
+          <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
         </div>
         ${expert}
         <table class="items">
@@ -643,8 +660,8 @@ function renderInvoicePrintHtml(opts) {
           </div>
         </div>
         <div class="parties">
-          <div class="party"><h4>مشخصات فروشنده</h4><div class="b">${sellerBits}</div></div>
-          <div class="party"><h4>مشخصات خریدار</h4><div class="b">${buyerBits}</div></div>
+          <div class="party"><h4>${companyPartyTitle}</h4><div class="b">${sellerBits}</div></div>
+          <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
         </div>
         <div class="meta-strip">
           <div class="c"><b>نوع</b><span>${esc(typeLabel)}</span></div>
