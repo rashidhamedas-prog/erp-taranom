@@ -21,7 +21,7 @@
 - **چاپ «فاکتور پیدا نشد»:** faNum تعریف شد؛ استایل اینلاین از قالب چاپ برداشته شد؛ جستجو با id یا شماره؛ حسابدار همه را می‌بیند؛ شناسه چاپ در کلاینت نگه داشته می‌شود؛ ویزارد چاپ فرم فاکتور را نمی‌بندد؛ متن خطای سرور در اعلان می‌آید؛ چاپ فاکتور خرید A4
 - **فایل‌ها:** server/lib/inventory/fabric-rolls.js، server/lib/{sales-document,customer-books,invoice-print}.js، server/routes/{invoices,purchases}.js، server/public/{app.js,sw.js,index.html}، server/scripts/test-invoice-docs-v194.js
 - **تست:** test-invoice-docs-v194.js ۳۶ مورد؛ test-sms.js ۲۲؛ test-sync.js ۴۴
-- **Deploy:** ⏳ در حال استقرار ایران
+- **Deploy:** ✅ ایران overlay SFTP @ `630a8f3` — health/ready 200؛ SW `erp-taranom-v194`
 - **SW:** erp-taranom-v194
 
 ### ۱۴۰۵/۰۶/۱۳ — فاکتور UX + طاقه/کرایه/داشبورد (SW v193)
