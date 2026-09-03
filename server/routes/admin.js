@@ -299,14 +299,21 @@ router.get('/customer-balances', auth, adminOnly, (req, res) => {
   const BAL = 'COALESCE(lb.balance,0)';
   const rows = db.prepare(`
     SELECT c.id, c.biz, c.owner, c.city, c.address, ${BAL} AS balance,
-           COALESCE(cg.nature,'debit') AS nature, u.name as salesperson
+           COALESCE(cg.nature,'debit') AS nature, u.name as salesperson,
+           p.is_active AS party_is_active, p.id AS party_id
     FROM customers c ${LEDGER_BAL_JOIN}
     LEFT JOIN users u ON c.user_id=u.id
     LEFT JOIN customer_groups cg ON cg.id=c.group_id
+    LEFT JOIN parties p ON p.id=c.party_id
   `).all();
   applyCustomerBalances(db, rows);
   res.json(rows
-    .filter((r) => Math.abs(Number(r.balance) || 0) > 0)
+    .filter((r) => {
+      const bal = Math.abs(Number(r.balance) || 0);
+      const inactive = r.party_id != null && Number(r.party_is_active) === 0;
+      if (inactive && bal < 1) return false;
+      return bal > 0;
+    })
     .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0)));
 });
 

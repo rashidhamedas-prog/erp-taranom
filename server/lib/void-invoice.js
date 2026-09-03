@@ -14,7 +14,7 @@ const { reverseSettlementInTx } = require('./void-settlement');
 const { todayJalali } = require('../jalali');
 const notif = require('./notifications');
 const { persistPrivateUpload } = require('./private-uploads');
-const { reverseStockBySource, postCogsFromMovements, isFirmSale, perpetualDocsEnabled } = require('./sales-document');
+const { reverseStockBySource, postCogsFromMovements, isFirmSale, perpetualDocsEnabled, freightChargedToCounterparty } = require('./sales-document');
 const { salesJournalLines, reverseInvoiceCustomerLedger } = require('./customer-books');
 
 function cancelTitleForRole(role) {
@@ -157,7 +157,9 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
       const invTotals = {
         subtotal: row.subtotal, discAmt: row.disc_amt || 0, final: row.final,
         vatAmount: row.vat_amount || 0,
-        netBeforeVat: (row.subtotal || 0) - (row.disc_amt || 0) + Math.round(row.freight_amount || 0),
+        netBeforeVat: (row.subtotal || 0) - (row.disc_amt || 0)
+          + (freightChargedToCounterparty(row.freight_type)
+            ? Math.round(row.freight_amount || 0) : 0),
       };
       postToLedger(db, {
         sourceType: 'invoice_reversal', sourceId: row.id, date: todayJalali(),
@@ -165,6 +167,7 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
         lines: salesJournalLines(db, row.cust_id, invTotals, true, {
           payType: row.pay_type || 'credit', bankId: row.bank_id, cashBoxId: row.cash_box_id,
           rows: JSON.parse(row.rows || '[]'),
+          freightRial: Math.round(row.freight_amount || 0), freightType: row.freight_type,
         }),
       });
       const cogsOrig = db.prepare(

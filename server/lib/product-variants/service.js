@@ -437,6 +437,28 @@ function styleMetadata(db, productId) {
   };
 }
 
+function variantLineSummary(db, productId) {
+  const pack = packSizeFor(db, productId);
+  if (!pack.has_matrix) {
+    return { line: '', colors: [], sizes: [], live_colors: 0, live_sizes: 0, has_matrix: 0 };
+  }
+  let variants = [];
+  try { variants = listVariants(db, productId, { include_default: false }); } catch (_) { variants = []; }
+  const live = variants.filter((v) => (Number(v.stock) || 0) > 0);
+  const pool = live.length ? live : variants;
+  const colors = [...new Set(pool.map((v) => String(v.color_name || '').trim()).filter(Boolean))];
+  const sizes = [...new Set(pool.map((v) => String(v.size_name || '').trim()).filter(Boolean))];
+  const line = [colors.length ? colors.join('، ') : '', sizes.length ? sizes.join(' ') : ''].filter(Boolean).join(' · ');
+  return {
+    line,
+    colors,
+    sizes,
+    live_colors: pack.live_colors,
+    live_sizes: pack.live_sizes,
+    has_matrix: 1,
+  };
+}
+
 module.exports = {
   buildSku,
   upsertColor,
@@ -453,4 +475,6 @@ module.exports = {
   softDeleteVariant,
   packSizeFor,
   styleMetadata,
+  variantLineSummary,
 };
+

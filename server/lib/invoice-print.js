@@ -32,8 +32,11 @@ function esc(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function faNum(n) {
-  return Number(n || 0).toLocaleString('fa-IR');
+function freightTypeFa(t) {
+  const n = String(t || '').trim().toLowerCase();
+  if (n === 'seller' || n.includes('فروشنده')) return 'عهده فروشنده';
+  if (n === 'buyer' || n.includes('خریدار')) return 'عهده خریدار';
+  return t || '';
 }
 
 function parseCustomize(raw) {
@@ -457,7 +460,7 @@ function renderInvoicePrintHtml(opts) {
       <div class="line"><span>جمع اقلام</span><span class="num">${faNum(t.rowsNet)} ریال</span></div>
       ${customize.show_discount && t.discLines ? `<div class="line"><span>جمع تخفیف ردیفی</span><span class="num disc">${faNum(t.discLines)} ریال</span></div>` : ''}
       ${customize.show_discount && (t.discAmt || t.discPct) ? `<div class="line"><span>تخفیف کل${t.discPct ? ` (${faNum(t.discPct)}٪)` : ''}</span><span class="num">${faNum(t.discAmt)} ریال</span></div>` : ''}
-      ${t.freight ? `<div class="line"><span>کرایه حمل${inv.freight_type ? ` (${esc(inv.freight_type)})` : ''}</span><span class="num">${faNum(t.freight)} ریال</span></div>` : ''}
+      ${t.freight ? `<div class="line"><span>کرایه حمل${inv.freight_type ? ` (${esc(freightTypeFa(inv.freight_type))})` : ''}</span><span class="num">${faNum(t.freight)} ریال</span></div>` : ''}
       ${t.vat ? `<div class="line"><span>مالیات بر ارزش افزوده${t.vatRate ? ` (${faNum(t.vatRate)}٪)` : ''}</span><span class="num">${faNum(t.vat)} ریال</span></div>` : ''}
       <div class="line pay"><span>مبلغ قابل پرداخت</span><span class="num gold">${faNum(t.payable)} ریال</span></div>
       ${t.mismatch ? `<div class="line" style="color:#b45309;font-size:11px"><span>هشدار</span><span>جمع سربرگ (${faNum(t.subtotal)}) با جمع اقلام یکی نیست</span></div>` : ''}

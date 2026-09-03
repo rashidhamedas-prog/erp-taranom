@@ -97,11 +97,69 @@ function reservedQty(db, productId, warehouseId) {
  * different warehouse_id (no E_WH_MISMATCH). Missing warehouse_stock rows use
  * legacy seed semantics (product.stock counts as the home-warehouse quantity).
  */
+function isFabricRollLine(r) {
+  if (!r) return false;
+  if (r.is_fabric_roll) return true;
+  const bid = parseInt(r.batch_id, 10);
+  return Number.isFinite(bid) && bid > 0;
+}
+
+function normalizeFreightType(v) {
+  const t = String(v || '').trim().toLowerCase();
+  if (t === 'seller' || t === 'عهده فروشنده' || t === 'فروشنده') return 'seller';
+  if (t === 'buyer' || t === 'عهده خریدار' || t === 'خریدار') return 'buyer';
+  return '';
+}
+
+/** Buyer (or unspecified) charges the counterparty; seller absorbs. */
+function freightChargedToCounterparty(freightType) {
+  return normalizeFreightType(freightType) !== 'seller';
+}
+
+function allocateFreight(rows, freightAmount, method) {
+  const freight = Math.round(Number(freightAmount) || 0);
+  if (freight <= 0) return rows;
+  const targets = (rows || []).filter((r) => r.row_type !== 'income' && r.product_id);
+  if (!targets.length) return rows;
+  const m = method === 'qty' || method === 'equal' ? method : 'amount';
+  let weights;
+  if (m === 'equal') weights = targets.map(() => 1);
+  else if (m === 'qty') weights = targets.map((r) => Number(r.qty) || 0);
+  else weights = targets.map((r) => Number(r.sum) || 0);
+  const totalW = weights.reduce((a, b) => a + b, 0);
+  if (totalW <= 0) return rows;
+  let allocated = 0;
+  targets.forEach((r, i) => {
+    const share = i === targets.length - 1
+      ? freight - allocated
+      : Math.round(freight * weights[i] / totalW);
+    allocated += share;
+    r.allocated_freight = share;
+  });
+  return rows;
+}
+
+function applyFreightToDocTotals(totals, freightAmount, freightType) {
+  const freight = Math.round(Number(freightAmount) || 0);
+  const type = normalizeFreightType(freightType);
+  const charge = freightChargedToCounterparty(type) && freight > 0;
+  return {
+    freight,
+    freightType: type,
+    chargeToParty: charge,
+    final: Math.round(Number(totals.final) || 0) + (charge ? freight : 0),
+    netBeforeVat: Math.round(Number(totals.netBeforeVat) || 0) + (charge ? freight : 0),
+  };
+}
+
 function applyHeaderWarehouseToLines(rows, headerWarehouseId, { force = false } = {}) {
   const wh = parseInt(headerWarehouseId, 10);
   if (!Number.isFinite(wh) || wh <= 0) return;
   for (const r of rows || []) {
     if (r.row_type === 'income' || r.item_kind === 'service') continue;
+    // Fabric rolls live in the roll's warehouse (typically WH-RAW). Never
+    // overwrite that with the invoice header warehouse (often FG).
+    if (isFabricRollLine(r) && r.warehouse_id) continue;
     if (force || !r.warehouse_id) r.warehouse_id = wh;
   }
 }
@@ -142,6 +200,32 @@ function assertWarehouseLines(db, rows, headerWarehouseId, { requirePositive = t
       err.status = 400;
       err.code = 'E_WH_PRODUCT';
       throw err;
+    }
+    const batchId = r.batch_id ? parseInt(r.batch_id, 10) : null;
+    if (batchId) {
+      const batchRow = db.prepare(
+        "SELECT id, batch_no, qty_on_hand, kind, status, warehouse_id FROM inventory_batches WHERE id=?"
+      ).get(batchId);
+      if (batchRow && !r.warehouse_id && batchRow.warehouse_id) {
+        r.warehouse_id = batchRow.warehouse_id;
+      }
+      if (batchRow && batchRow.kind === 'fabric') {
+        if (batchRow.status === 'reversed') {
+          const err = new Error('این طاقه ابطال شده است');
+          err.status = 409; err.code = 'E_FABRIC_REVERSED';
+          throw err;
+        }
+        const { liveBatchMeters } = require('./inventory/fabric-rolls');
+        const live = liveBatchMeters(db, batchId);
+        const onHand = live != null ? live : (Number(batchRow.qty_on_hand) || 0);
+        const qty = Number(r.qty) || 0;
+        if (requirePositive && qty - onHand > 1e-9) {
+          const err = new Error(`متر طاقه ${batchRow.batch_no} کافی نیست (مانده ${onHand}، نیاز ${qty})`);
+          err.status = 409; err.code = 'E_FABRIC_QTY';
+          throw err;
+        }
+        continue;
+      }
     }
     const lineWh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : null;
     const effWh = lineWh || headerWarehouseId || prod.warehouse_id || null;
@@ -219,6 +303,12 @@ function postSaleStockMovements(db, {
         }
       }
     }
+    const isFabric = batchId && db.prepare(
+      "SELECT kind FROM inventory_batches WHERE id=?"
+    ).get(batchId)?.kind === 'fabric';
+    // Fabric meters live on inventory_batches + ledger(batch_id), not products.stock
+    // (often 0 on the FG SKU). skipStock avoids E_NEGATIVE_STOCK while still
+    // writing qty_out so liveBatchMeters stays authoritative.
     const mv = postInventoryMovement(db, {
       eventType: 'sale',
       productId: r.product_id,
@@ -231,6 +321,7 @@ function postSaleStockMovements(db, {
       note: note || 'فروش',
       createdBy: userId,
       updateAvg: false,
+      skipStock: !!isFabric,
     });
     if (batchId) {
       const { consumeFabricRollOnSale } = require('./inventory/fabric-rolls');
@@ -430,6 +521,11 @@ module.exports = {
   invoiceTypeLabel,
   autoApproveNormalInvoice,
   assertJournalIdempotent,
+  isFabricRollLine,
+  normalizeFreightType,
+  freightChargedToCounterparty,
+  allocateFreight,
+  applyFreightToDocTotals,
   applyHeaderWarehouseToLines,
   requireFirmHeaderWarehouse,
   assertWarehouseLines,

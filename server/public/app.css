@@ -658,7 +658,10 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 .inv-lines-tbl tbody td{padding:10px 8px;border-bottom:1px solid var(--border);vertical-align:middle;background:var(--card)}
 .inv-lines-tbl tbody tr:nth-child(even) td{background:rgba(26,92,56,.03)}
 .inv-lines-tbl tbody tr:hover td{background:var(--row-hover)}
-.inv-lines-tbl .cn{font-weight:650;min-width:140px;max-width:220px}
+.pick-var-line,.inv-var-line{font-size:11px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;cursor:pointer;line-height:1.5}
+.pick-var-line:hover,.inv-var-line:hover{color:var(--purple);text-decoration:underline}
+.var-chip-wrap{display:flex;flex-wrap:wrap;gap:6px}
+.var-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:999px;background:var(--purple-light);color:var(--purple);font-size:12px;font-weight:600}
 .inv-lines-tbl input,.inv-lines-tbl select{width:100%;min-width:0;padding:7px 8px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:var(--input-bg,var(--card))}
 .inv-lines-tbl input:focus,.inv-lines-tbl select:focus{outline:none;border-color:var(--purple2);box-shadow:0 0 0 3px rgba(26,92,56,.12)}
 .inv-lines-tbl .col-qty{width:88px}.inv-lines-tbl .col-price{width:118px}

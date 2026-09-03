@@ -8,7 +8,10 @@
 const { acct } = require('./coa-map');
 const { postToLedger } = require('./ledger');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
-const { firmSaleTypeSql, invoiceTypeLabel, isFirmSale, autoApproveNormalInvoice } = require('./sales-document');
+const {
+  firmSaleTypeSql, invoiceTypeLabel, isFirmSale, autoApproveNormalInvoice,
+  normalizeFreightType, freightChargedToCounterparty,
+} = require('./sales-document');
 
 const IMMEDIATE_PAY = new Set(['cash', 'bank', 'bank_transfer', 'cheque']);
 const JE_ALIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')`;
@@ -80,8 +83,16 @@ function salesJournalLines(db, custId, totals, reverse, opts = {}) {
   const salesDisc = acct(db, 'coa_sales_discount');
   const vatPay = acct(db, 'coa_vat_payable');
   const otherIncome = (() => { try { return acct(db, 'coa_other_income'); } catch { return sales; } })();
-  const { discAmt, final, vatAmount, netBeforeVat } = totals;
+  const { discAmt, vatAmount } = totals;
   const L = rialToLedger;
+  const freightRial = Math.round(Number(opts.freightRial != null ? opts.freightRial : opts.freight_amount) || 0);
+  const freightType = normalizeFreightType(opts.freightType || opts.freight_type);
+  const freightToParty = freightChargedToCounterparty(freightType) && freightRial > 0;
+  const freightSeller = freightType === 'seller' && freightRial > 0;
+  const final = Math.round(Number(totals.final) || 0);
+  const netBeforeVat = Math.round(Number(totals.netBeforeVat) || 0);
+  const goodsNet = Math.max(0, netBeforeVat - (freightToParty ? freightRial : 0));
+
 
   let incomeCredit = 0;
   const incomeBuckets = new Map();
@@ -96,7 +107,36 @@ function salesJournalLines(db, custId, totals, reverse, opts = {}) {
       incomeBuckets.set(code, prev);
     }
   }
-  const productCredit = Math.max(0, Math.round(Number(netBeforeVat) || 0) - incomeCredit);
+  const productCredit = Math.max(0, goodsNet - incomeCredit);
+  const freightInc = otherIncome;
+  const freightExp = (() => { try { return acct(db, 'coa_sales_expense'); } catch { return salesDisc; } })();
+  const freightPay = (() => { try { return acct(db, 'coa_payable'); } catch { return recv; } })();
+
+  function freightLines(rev) {
+    const out = [];
+    if (freightToParty) {
+      out.push({
+        code: freightInc.code, name: freightInc.name,
+        debit: rev ? L(freightRial) : 0,
+        credit: rev ? 0 : L(freightRial),
+        description: rev ? 'ابطال کرایه عهده خریدار' : 'کرایه حمل عهده خریدار',
+      });
+    } else if (freightSeller) {
+      out.push({
+        code: freightExp.code, name: freightExp.name,
+        debit: rev ? 0 : L(freightRial),
+        credit: rev ? L(freightRial) : 0,
+        description: rev ? 'ابطال هزینه کرایه عهده فروشنده' : 'هزینه کرایه عهده فروشنده',
+      });
+      out.push({
+        code: freightPay.code, name: freightPay.name,
+        debit: rev ? L(freightRial) : 0,
+        credit: rev ? 0 : L(freightRial),
+        description: rev ? 'ابطال بدهی کرایه عهده فروشنده' : 'بدهی کرایه عهده فروشنده',
+      });
+    }
+    return out;
+  }
 
   if (!reverse) {
     const jLines = [{ code: recv.code, name: recv.name, debit: L(final), credit: 0 }];
@@ -105,6 +145,7 @@ function salesJournalLines(db, custId, totals, reverse, opts = {}) {
     for (const b of incomeBuckets.values()) {
       if (b.amt > 0) jLines.push({ code: b.code, name: b.name, debit: 0, credit: L(b.amt), description: 'درآمد/خدمات' });
     }
+    jLines.push(...freightLines(false));
     if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: 0, credit: L(vatAmount), description: 'مالیات بر ارزش افزوده' });
     if (cash && Number(final) > 0) {
       jLines.push({ code: cash.code, name: cash.name, debit: L(final), credit: 0, description: 'دریافت هنگام فاکتور' });
@@ -122,6 +163,7 @@ function salesJournalLines(db, custId, totals, reverse, opts = {}) {
   for (const b of incomeBuckets.values()) {
     if (b.amt > 0) jLines.push({ code: b.code, name: b.name, debit: L(b.amt), credit: 0, description: 'ابطال درآمد' });
   }
+  jLines.push(...freightLines(true));
   if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: L(vatAmount), credit: 0, description: 'ابطال VAT' });
   if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: 0, credit: L(discAmt), description: 'ابطال تخفیف' });
   jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: L(final) });
@@ -381,10 +423,12 @@ function repairMissingInvoiceBooks(db) {
         lines: salesJournalLines(db, inv.cust_id, {
           subtotal: inv.subtotal, discAmt: inv.disc_amt || 0, final: inv.final,
           vatAmount: inv.vat_amount || 0,
-          netBeforeVat: (inv.subtotal || 0) - (inv.disc_amt || 0) + Math.round(inv.freight_amount || 0),
+          netBeforeVat: (inv.subtotal || 0) - (inv.disc_amt || 0)
+            + (freightChargedToCounterparty(inv.freight_type) ? Math.round(inv.freight_amount || 0) : 0),
         }, false, {
           payType: skipPay ? 'credit' : (inv.pay_type || 'credit'),
           bankId: inv.bank_id, cashBoxId: inv.cash_box_id, rows,
+          freightRial: Math.round(inv.freight_amount || 0), freightType: inv.freight_type,
         }),
       });
       if (inv.type === 'normal') autoApproveNormalInvoice(db, inv.id, inv.user_id);

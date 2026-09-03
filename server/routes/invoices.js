@@ -16,7 +16,8 @@ const {
   assertJournalIdempotent, assertWarehouseLines,
   applyHeaderWarehouseToLines, requireFirmHeaderWarehouse,
   postSaleStockMovements, postCogsFromMovements, perpetualDocsEnabled,
-  autoApproveNormalInvoice,
+  autoApproveNormalInvoice, allocateFreight, applyFreightToDocTotals,
+  isFabricRollLine,
 } = require('../lib/sales-document');
 const {
   salesJournalLines, postInvoiceCustomerLedger,
@@ -182,30 +183,6 @@ function buildRows(db, inputRows, canDiscount) {
   return { rows: out, subtotal };
 }
 
-/** Allocate freight onto product rows (Update 11 / I3). method: amount|qty|equal */
-function allocateFreight(rows, freightAmount, method) {
-  const freight = Math.round(Number(freightAmount) || 0);
-  if (freight <= 0) return rows;
-  const targets = rows.filter(r => r.row_type !== 'income' && r.product_id);
-  if (!targets.length) return rows;
-  const m = method === 'qty' || method === 'equal' ? method : 'amount';
-  let weights;
-  if (m === 'equal') weights = targets.map(() => 1);
-  else if (m === 'qty') weights = targets.map(r => Number(r.qty) || 0);
-  else weights = targets.map(r => Number(r.sum) || 0);
-  const totalW = weights.reduce((a, b) => a + b, 0);
-  if (totalW <= 0) return rows;
-  let allocated = 0;
-  targets.forEach((r, i) => {
-    const share = i === targets.length - 1
-      ? freight - allocated
-      : Math.round(freight * weights[i] / totalW);
-    allocated += share;
-    r.allocated_freight = share;
-  });
-  return rows;
-}
-
 function resolveRowWarehouseId(db, row, headerWarehouseId) {
   if (row && row.warehouse_id) return parseInt(row.warehouse_id, 10);
   if (headerWarehouseId) return parseInt(headerWarehouseId, 10);
@@ -238,6 +215,26 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
     if (!prod) return `محصول شناسه ${r.product_id} یافت نشد`;
     const whId = resolveRowWarehouseId(db, r, warehouseId);
     const allowNeg = warehouseAllowsNegative(db, whId);
+    if (isFabricRollLine(r)) {
+      const batchId = r.batch_id ? parseInt(r.batch_id, 10) : null;
+      if (batchId) {
+        const batchRow = db.prepare(
+          "SELECT batch_no, qty_on_hand, kind, status FROM inventory_batches WHERE id=?"
+        ).get(batchId);
+        if (batchRow && batchRow.kind === 'fabric' && !allowNeg) {
+          const { liveBatchMeters } = require('../lib/inventory/fabric-rolls');
+          const live = liveBatchMeters(db, batchId);
+          const onHand = live != null ? live : (Number(batchRow.qty_on_hand) || 0);
+          if (r.qty - onHand > 1e-9) {
+            return `متر طاقه ${batchRow.batch_no} کافی نیست (مانده ${onHand}، نیاز ${r.qty})`;
+          }
+        }
+      }
+      if (whId) {
+        used.set(whId, (db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId)?.name) || String(whId));
+      }
+      continue;
+    }
     if (!allowNeg && prod.stock < r.qty) {
       return `موجودی ${prod.name} کافی نیست (موجود: ${prod.stock})`;
     }
@@ -252,6 +249,14 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
     }
   }
   for (const r of productRows) {
+    if (isFabricRollLine(r)) {
+      const batchId = r.batch_id ? parseInt(r.batch_id, 10) : null;
+      if (batchId) {
+        const { consumeFabricRollOnSale } = require('../lib/inventory/fabric-rolls');
+        consumeFabricRollOnSale(db, { batchId, qty: r.qty });
+      }
+      continue;
+    }
     const whId = resolveRowWarehouseId(db, r, warehouseId);
     const allowNeg = warehouseAllowsNegative(db, whId);
     // Read the product BEFORE decrementing products.stock so the warehouse_stock
@@ -366,9 +371,9 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   const freightRial = Math.round(parseFloat(freight_amount) || 0);
   const allocMethod = ['amount', 'qty', 'equal'].includes(freight_alloc_method) ? freight_alloc_method : 'amount';
   allocateFreight(built.rows, freightRial, allocMethod);
-  let { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
-  final += freightRial;
-  netBeforeVat += freightRial;
+  const freightAdj = applyFreightToDocTotals(totals, freightRial, freight_type);
+  let { subtotal, discAmt, vatAmount, vatRate } = totals;
+  let { final, netBeforeVat } = freightAdj;
   const entryDate = date || todayJalali();
   const pType = pay_type || 'cash';
 
@@ -401,7 +406,10 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
     whId = seller.sales_warehouse_id;
   }
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
-  const journalOpts = { payType: pType, bankId: bank_id || null, cashBoxId: cash_box_id || null, rows: built.rows };
+  const journalOpts = {
+    payType: pType, bankId: bank_id || null, cashBoxId: cash_box_id || null, rows: built.rows,
+    freightRial, freightType: freight_type,
+  };
 
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
   let invType;
@@ -511,7 +519,10 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       return { id: invId, usedWarehouses: stockMeta.usedWarehouses || [] };
     })();
   } catch (e) {
-    return res.status(400).json({ error: e.message });
+    const msg = e.code === 'E_NEGATIVE_STOCK'
+      ? (`موجودی «${e.name || ''}» کافی نیست` + (e.available != null ? ` (موجود: ${e.available}` + (e.needed != null ? `، نیاز: ${e.needed}` : '') + ')' : ''))
+      : (e.message || 'خطا در ثبت فاکتور');
+    return res.status(e.status || 400).json({ error: msg, code: e.code });
   }
 
   const row = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(created.id);
@@ -571,8 +582,9 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
     ? freight_alloc_method
     : (row.freight_alloc_method || 'amount');
   allocateFreight(built.rows, freightRial, allocMethod);
-  let { subtotal, discAmt, final, vatAmount, vatRate } = totals;
-  final += freightRial;
+  const freightAdj = applyFreightToDocTotals(totals, freightRial, freight_type);
+  let { subtotal, discAmt, vatAmount, vatRate } = totals;
+  let { final } = freightAdj;
 
   let newType;
   try { newType = normalizeInvoiceType(type || 'proforma'); }
@@ -672,6 +684,9 @@ router.post('/:id/convert', auth, (req, res) => {
   const rows = JSON.parse(inv.rows || '[]');
   const built = { rows, subtotal: inv.subtotal };
   const totals = calcDocTotals(db, built, inv.disc || 0);
+  const freightAdj = applyFreightToDocTotals(totals, inv.freight_amount, inv.freight_type);
+  totals.final = freightAdj.final;
+  totals.netBeforeVat = freightAdj.netBeforeVat;
   const owner = db.prepare('SELECT role, sales_warehouse_id FROM users WHERE id=?').get(inv.user_id);
   let convertWhId = req.body?.warehouse_id
     ? parseInt(req.body.warehouse_id, 10)
@@ -731,6 +746,7 @@ router.post('/:id/convert', auth, (req, res) => {
           vatAmount: totals.vatAmount, netBeforeVat: totals.netBeforeVat,
         }, false, {
           payType: inv.pay_type || 'cash', bankId: inv.bank_id, cashBoxId: inv.cash_box_id,
+          rows, freightRial: Math.round(inv.freight_amount || 0), freightType: inv.freight_type,
         }),
       });
       if (perpetualDocsEnabled(db) && saleCogsRial > 0) {

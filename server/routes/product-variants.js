@@ -23,6 +23,7 @@ const {
   decorateColor,
   normalizeAndAssertHex,
   assertUniqueHex,
+  variantLineSummary,
 } = require('../lib/product-variants');
 
 function ensureSchema(db) {
@@ -192,6 +193,21 @@ router.get('/style/:productId', auth, (req, res) => {
     if (!meta) return res.status(404).json({ error: 'مدل یافت نشد' });
     const variants = listVariants(db, productId, { include_default: true });
     res.json({ ...meta, product_id: productId, variants });
+  } catch (e) { sendErr(res, e); }
+});
+
+router.get('/summaries', auth, (req, res) => {
+  try {
+    const db = getDB();
+    ensureSchema(db);
+    const ids = String(req.query.ids || '')
+      .split(',')
+      .map((x) => parseInt(x, 10))
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .slice(0, 80);
+    const out = {};
+    for (const id of ids) out[id] = variantLineSummary(db, id);
+    res.json(out);
   } catch (e) { sendErr(res, e); }
 });
 

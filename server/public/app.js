@@ -360,6 +360,102 @@ function formatMoneyInput(elm){
 function moneyVal(id){ const e=el(id); if(!e) return 0; const raw=parseInt((e.value||'').replace(/[^\d]/g,''))||0; return fromInputAmount(raw); }
 // Pre-fill a money input with a formatted initial value (stored Rial → display unit)
 function moneyInit(v){ v=toDisplayAmount(parseInt(v)||0); return v?Number(v).toLocaleString('en-US'):''; }
+function moneyParseInput(elm){
+  return parseInt(String((elm&&elm.value)||'').replace(/[^\d]/g,''),10)||0;
+}
+function freightTypeIsSeller(v){
+  const t=String(v||'').trim().toLowerCase();
+  return t==='seller' || t==='عهده فروشنده' || t==='فروشنده';
+}
+function allocateFreightShares(rows, freightAmount, method){
+  const freight=Math.round(Number(freightAmount)||0);
+  const shares=rows.map(()=>0);
+  if(freight<=0) return shares;
+  const idx=[];
+  rows.forEach((r,i)=>{ if(r && r.row_type!=='income' && r.product_id) idx.push(i); });
+  if(!idx.length) return shares;
+  const m=method==='qty'||method==='equal'?method:'amount';
+  const weights=idx.map(i=>{
+    const r=rows[i];
+    if(m==='equal') return 1;
+    if(m==='qty') return Number(r.qty)||0;
+    return Math.max(0, Math.round((Number(r.qty)||0)*(Number(r.price)||0) - (Number(r.disc_amount)||0)));
+  });
+  const totalW=weights.reduce((a,b)=>a+b,0);
+  if(totalW<=0) return shares;
+  let allocated=0;
+  idx.forEach((rowIdx,k)=>{
+    const share=k===idx.length-1 ? freight-allocated : Math.round(freight*weights[k]/totalW);
+    allocated+=share;
+    shares[rowIdx]=share;
+  });
+  return shares;
+}
+function invPackOneLine(indices){
+  const colors=[], sizes=[];
+  (indices||[]).forEach(i=>{
+    const r=invCart[i]; if(!r) return;
+    const c=String(r.color_name||r.color||'').trim();
+    const s=String(r.size_name||'').trim();
+    if(c) colors.push(c);
+    if(s) sizes.push(s);
+  });
+  const c=[...new Set(colors)];
+  const s=[...new Set(sizes)];
+  return [c.length?c.join('، '):'', s.length?s.join(' '):''].filter(Boolean).join(' · ');
+}
+function showInvVariantDetail(pid, indices){
+  const p=findInvProduct(pid);
+  const name=p?p.name:'کالا';
+  let body='';
+  if(Array.isArray(indices) && indices.length){
+    const chips=indices.map(i=>{
+      const r=invCart[i]; if(!r) return '';
+      const label=[r.color_name||r.color, r.size_name].filter(Boolean).join(' / ')||'SKU';
+      return `<span class="var-chip">${esc(label)} <b>× ${fmt(r.qty)}</b></span>`;
+    }).filter(Boolean).join('');
+    body=`<div class="var-chip-wrap">${chips}</div>`;
+  } else {
+    const sum=(CACHE._invVarSum&& (CACHE._invVarSum[pid]||CACHE._invVarSum[String(pid)]))||{};
+    const colors=sum.colors||[];
+    const sizes=sum.sizes||[];
+    body=`<div class="var-chip-wrap">${colors.map(c=>`<span class="var-chip">${esc(c)}</span>`).join('')}</div>
+      <div class="var-chip-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}">${sizes.map(s=>`<span class="var-chip">${esc(s)}</span>`).join('')}</div>
+      ${!colors.length && !sizes.length?'<div class="muted">جزئیات رنگ/سایز برای این کالا ثبت نشده</div>':''}`;
+  }
+  openNestedModal(`<div class="modal-head"><h3>رنگ و سایز — ${esc(name)}</h3>
+    <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
+    <div class="modal-body">${body}</div>
+    <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">بستن</button></div>`);
+}
+async function hydrateInvVarSum(ids){
+  const miss=(ids||[]).filter(id=>!(CACHE._invVarSum && Object.prototype.hasOwnProperty.call(CACHE._invVarSum, String(id))));
+  if(!miss.length) return false;
+  CACHE._invVarSum=CACHE._invVarSum||{};
+  try{
+    const data=await api('GET','/product-variants/summaries?ids='+miss.join(','))||{};
+    miss.forEach(id=>{
+      CACHE._invVarSum[String(id)]=data[id]||data[String(id)]||{line:''};
+    });
+  }catch(_){
+    miss.forEach(id=>{ CACHE._invVarSum[String(id)]={line:''}; });
+  }
+  return true;
+}
+function invoiceNegativeStockWarn(cart){
+  const issues=[];
+  (cart||[]).forEach(r=>{
+    if(!r || r.row_type==='income' || r.batch_id || r.is_fabric_roll) return;
+    const p=findInvProduct(r.product_id);
+    if(!p) return;
+    const avail=Number(p.wh_qty!=null?p.wh_qty:(p.stock||0));
+    if(Number(r.qty)>avail+1e-9){
+      issues.push((r.name||p.name||'کالا')+' — نیاز '+fmtQty(r.qty)+'، موجود '+fmt(avail));
+    }
+  });
+  if(!issues.length) return true;
+  return confirm('با ثبت این فاکتور موجودی این کالاها منفی می‌شود:\n'+issues.join('\n')+'\nادامه می‌دهید؟');
+}
 /* ---- Auto-English digits: any field that must hold Latin numerals converts
    Persian/Arabic digits the moment they are typed (hardware keyboards on a
    Persian layout), and inputmode already gives mobile users the digit pad.
@@ -1620,12 +1716,12 @@ async function viewCustStatementFromDash(custId){
   }
   go('acc-statement');
 }
-async function enterAccountingShell(){
+async function enterAccountingShell(nextPage){
   IN_ACC_SHELL = true;
   collapseAllAccNav();
   el('brandRole').textContent = '🧮 '+T('ماژول حسابداری');
   buildNav();
-  go('acc-dash');
+  go(nextPage || 'acc-dash');
   if(!CACHE.moduleFlags){
     api('GET','/settings/modules').then(f=>{ CACHE.moduleFlags=f||{}; buildNav(); }).catch(()=>{});
   }
@@ -2628,8 +2724,13 @@ ROUTES.dash = async function(){
   await renderDashContent();
 };
 function pendingActionClick(route, entityType, entityId){
-  if(route && route.startsWith('acc-')) enterAccountingShell().then(()=>go(route));
-  else if(route) go(route);
+  const openInvoice = entityType==='invoice' && entityId;
+  const dest = openInvoice
+    ? ((route && String(route).startsWith('acc-')) ? route : 'acc-final-invoices')
+    : route;
+  const after = ()=>{ if(openInvoice) setTimeout(()=>openInvBuilder(entityId), 280); };
+  if(dest && String(dest).startsWith('acc-')) enterAccountingShell(dest).then(after);
+  else { if(dest) go(dest); after(); }
   if(entityType&&entityId) api('POST','/notifications/entity-viewed',{entity_type:entityType,entity_id:entityId}).catch(()=>{});
 }
 async function renderDashContent(){
@@ -2638,7 +2739,10 @@ async function renderDashContent(){
     ? '?'+(dashDateFrom?'from='+encodeURIComponent(dashDateFrom):'')+(dashDateFrom&&dashDateTo?'&':'')+(dashDateTo?'to='+encodeURIComponent(dashDateTo):'')
     : '';
   const dk = (dashDateFrom||'')+'|'+(dashDateTo||'')+'|'+ME.role;
-  if(_dashHtmlCache.key===dk && Date.now()-_dashHtmlCache.t<45000){
+  // Interactive widgets (pending actions) must not be restored from HTML cache:
+  // CSP action ids in the snapshot go stale and clicks become no-ops.
+  const skipCache = (window._pendingActions||[]).length>0;
+  if(!skipCache && _dashHtmlCache.key===dk && Date.now()-_dashHtmlCache.t<45000){
     body.innerHTML = _dashHtmlCache.html;
     requestAnimationFrame(fitStatNums);
     return;
@@ -3204,7 +3308,7 @@ function renderAccReceivablesBody(body){
           <td><button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){settlementModal((r.cust_id))})}">💵 ثبت پرداخت</button></td>
         </tr>`;
         return `<tr>
-          <td>${esc(r.biz)}</td><td>${esc(r.owner||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
+          <td>${esc(r.biz)}${r.inactive?` <span class="pill" data-csp-style="${CSP.style(`font-size:10px;background:#f3f4f6;color:#6b7280`)}">غیرفعال</span>`:''}</td><td>${esc(r.owner||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
           <td class="mono">${fmt(r.total_invoiced)}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(r.total_settled)}</td>
           <td class="mono" data-col-kind="debit" data-csp-style="${CSP.style(`color:var(--red);font-weight:700`)}">${deb?fmt(deb):'-'}</td>
@@ -4021,12 +4125,12 @@ async function _openInvBuilder(id){
         <div class="fg"><label>مرکز هزینه</label><select id="inv-cc"><option value="">—</option>
           ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}" ${inv&&inv.cost_center_id==c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
         <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}" data-csp-input="${CSP.bind('input',function(event){renderCart()})}"></div>
-        <div class="fg"><label>سرشکن کرایه</label><select id="inv-freight-alloc">
+        <div class="fg"><label>سرشکن کرایه</label><select id="inv-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
           <option value="amount" ${!inv||inv.freight_alloc_method==='amount'||!inv.freight_alloc_method?'selected':''}>به نسبت مبلغ</option>
           <option value="qty" ${inv&&inv.freight_alloc_method==='qty'?'selected':''}>به نسبت مقدار</option>
           <option value="equal" ${inv&&inv.freight_alloc_method==='equal'?'selected':''}>مساوی</option>
         </select></div>
-        <div class="fg"><label>نوع کرایه</label><select id="inv-freight-type">
+        <div class="fg"><label>نوع کرایه</label><select id="inv-freight-type" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
           <option value="">—</option><option value="buyer" ${inv&&inv.freight_type==='buyer'?'selected':''}>بر عهده خریدار</option>
           <option value="seller" ${inv&&inv.freight_type==='seller'?'selected':''}>بر عهده فروشنده</option></select></div>
         <div class="fg"><label><input type="checkbox" id="inv-vat-exempt" ${inv&&inv.vat_exempt?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> معاف از مالیات</label></div>
@@ -4125,10 +4229,13 @@ function renderInvPicker(){
     <div class="pick-card" id="pc-${p.id}" data-csp-click="${CSP.bind('click',function(event){pickCardTap(event,(p.id))})}">
       <div class="pimg">${p.image?prodImgTag(p.image):'🧥'}</div>
       <div class="pn">${esc(p.name)}</div>
+      ${(()=>{ const s=(CACHE._invVarSum&&(CACHE._invVarSum[p.id]||CACHE._invVarSum[String(p.id)]))||null; if(!s||!s.line) return ''; const det=CSP.bind('click',function(event){event.stopPropagation();showInvVariantDetail((p.id));}); return '<div class="pick-var-line" title="مشاهده جزئیات رنگ و سایز" data-csp-click="'+det+'">'+esc(s.line)+'</div>'; })()}
       <div class="pp">${fmt(p.price)} ریال</div>
       <div class="pst" data-csp-style="${CSP.style(`font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}`)}">موجودی: ${fmt(avail)}</div>
     </div>`;
   }).join('') + (extra?`<div class="muted" data-csp-style="${CSP.style(`padding:10px;text-align:center;font-size:12px`)}">${fmt(extra)} کالای دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" data-csp-style="${CSP.style(`padding:16px;text-align:center`)}">کالایی یافت نشد — از بخش کالاها، کالای جدید اضافه کنید</div>`;
+  const shownIds=shown.map(p=>p.id);
+  hydrateInvVarSum(shownIds).then(changed=>{ if(changed && el('invPicker')) renderInvPicker(); });
 }
 async function reloadInvProductsForWarehouse(){
   const whId = +(el('inv-warehouse')?.value || 0);
@@ -4201,6 +4308,7 @@ function applyHeaderWarehouseToCart(cart, headerId, opts){
   const force = !!(opts && opts.force) || (typeof isRepRole==='function' && isRepRole(ME?.role));
   cart.forEach(r=>{
     if(r.row_type==='income') return;
+    if(r.batch_id || r.is_fabric_roll) return;
     if(force || !r.warehouse_id) r.warehouse_id = wh;
   });
 }
@@ -4259,7 +4367,8 @@ function openInvVariantSplitModal(p, pack, opts){
     <div class="modal-head"><h3>انتخاب رنگ / سایز — ${esc(p.name)}</h3>
       <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
     <div class="modal-body">
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">پک زنده = ${fmt(pack.pack)} عدد (رنگ‌های موجود × سایزهای موجود). تعداد هر ترکیب را وارد کنید. روی فاکتور یک ردیف تجمیعی دیده می‌شود.</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">پک زنده = ${fmt(pack.pack)} عدد. تعداد هر ترکیب را وارد کنید. روی فاکتور یک خط خلاصه زیر نام کالا دیده می‌شود.</p>
+      <div class="var-chip-wrap" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${[...new Set(rows.map(v=>v.color_name).filter(Boolean))].map(c=>`<span class="var-chip">${esc(c)}</span>`).join('')} ${[...new Set(rows.map(v=>v.size_name).filter(Boolean))].map(s=>`<span class="var-chip">${esc(s)}</span>`).join('')}</div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>رنگ</th><th>سایز</th><th>موجودی SKU</th><th>تعداد</th></tr></thead>
       <tbody>${rows.map(v=>`<tr>
         <td>${esc(v.color_name||'—')}</td>
@@ -4421,11 +4530,15 @@ function renderCart(){
   const hideWhCol=typeof isRepRole==='function' && isRepRole(ME?.role);
   const defWh=ME?.sales_warehouse_id||null;
   if(hideWhCol && defWh){
-    invCart.forEach(r=>{ if(r.row_type!=='income') r.warehouse_id=defWh; });
+    invCart.forEach(r=>{ if(r.row_type!=='income' && !r.batch_id && !r.is_fabric_roll) r.warehouse_id=defWh; });
   }
   const groups=invCartGroups();
   const countEl=el('invCartCount'); if(countEl) countEl.textContent=fmt(groups.length)+' ردیف · '+fmt(invCart.length)+' SKU';
   const colSpan=showLineDisc?(hideWhCol?7:8):(hideWhCol?5:6);
+  const freight = typeof moneyVal==='function' ? moneyVal('inv-freight') : 0;
+  const freightMethod=el('inv-freight-alloc')?.value||'amount';
+  const freightSeller=freightTypeIsSeller(el('inv-freight-type')?.value);
+  const freightShares=allocateFreightShares(invCart, freight, freightMethod);
   if(!invCart.length){
     el('cartRows').innerHTML=`<div class="inv-lines-empty">سبد خالی است — از فهرست کالا یک قلم اضافه کنید</div>`;
   } else {
@@ -4447,34 +4560,38 @@ function renderCart(){
       const gross=indices.reduce((a,ix)=>{ const row=invCart[ix]; return a+(Number(row.qty)||0)*(Number(row.price)||0); },0);
       const lineDiscAmt=showLineDisc?indices.reduce((a,ix)=>a+lineDiscApplied(invCart[ix]),0):0;
       const lineSum=Math.max(0,gross-lineDiscAmt);
+      const lineFreight=indices.reduce((a,ix)=>a+(freightShares[ix]||0),0);
       const ixCopy=indices.slice();
-      const packSummaryStyle=CSP.style('font-size:11px;line-height:1.7;margin-top:4px');
+      const packSummaryStyle=CSP.style('font-size:11px;line-height:1.55;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;cursor:pointer');
       const packEditStyle=CSP.style('margin-top:6px;min-height:44px');
-      const muted11Style=CSP.style('font-size:11px');
+      const muted11Style=CSP.style('font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;cursor:pointer');
       const editPackBind=CSP.bind('click',function(){editInvCartPack(ixCopy)});
+      const detailBind=CSP.bind('click',function(event){event.stopPropagation();showInvVariantDetail(Number(r.product_id),ixCopy)});
       const removeGroupBind=CSP.bind('click',function(){removeInvCartGroup(ixCopy)});
-      const priceChangeBind=CSP.bind('change',function(event){const v=+this.value||0;invApplyGroupField(ixCopy,'price',v);ixCopy.forEach(ix=>{if(canAccounting())invSyncLineDisc(invCart,ix,'pct')});renderCart()});
+      const priceChangeBind=CSP.bind('change',function(event){const v=moneyParseInput(this);invApplyGroupField(ixCopy,'price',v);ixCopy.forEach(ix=>{if(canAccounting())invSyncLineDisc(invCart,ix,'pct')});renderCart()});
       const discPctChangeBind=CSP.bind('change',function(event){const v=+this.value||0;invApplyGroupField(ixCopy,'disc',v);ixCopy.forEach(ix=>invSyncLineDisc(invCart,ix,'pct'));renderCart()});
       const discAmtChangeBind=CSP.bind('change',function(event){const v=+this.value||0;invApplyGroupField(ixCopy,'disc_amount',v);ixCopy.forEach(ix=>invSyncLineDisc(invCart,ix,'amt'));renderCart()});
       const whChangeBind=CSP.bind('change',function(event){invApplyGroupField(ixCopy,'warehouse_id',+this.value||null)});
       const descChangeBind=CSP.bind('change',function(event){invApplyGroupField(ixCopy,'description',this.value)});
       const qtyChangeBind=CSP.bind('change',function(event){invCart[i].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[i].qty);if(canAccounting())invSyncLineDisc(invCart,i,'pct');renderCart();renderInvPicker()});
+      const oneLine=isPack?invPackOneLine(indices):([r.color_name||r.color,r.size_name].filter(Boolean).join(' · '));
       const packNote=isPack
-        ? '<div class="muted" data-csp-style="'+packSummaryStyle+'">'+esc(invPackSummary(indices))+'</div>'
+        ? (oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+packSummaryStyle+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':'')
           +'<button type="button" class="btn sm ghost" data-csp-style="'+packEditStyle+'" data-csp-click="'+editPackBind+'">ویرایش رنگ / سایز</button>'
-        : (r.batch_id||r.is_fabric_roll?'<div class="muted" data-csp-style="'+muted11Style+'">طاقه '+esc(r.roll_no||('#'+(r.batch_id||'')))+' '+esc(r.color||'')+'</div>':(r.color_name||r.color||r.size_name)?'<div class="muted" data-csp-style="'+muted11Style+'">'+esc([r.color_name||r.color,r.size_name].filter(Boolean).join(' / '))+'</div>':'');
+        : (r.batch_id||r.is_fabric_roll?'<div class="muted" data-csp-style="'+muted11Style+'">طاقه '+esc(r.roll_no||('#'+(r.batch_id||'')))+' '+esc(r.color||'')+'</div>':(oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+muted11Style+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':''));
       const qtyCell=isPack
         ? '<span class="mono">'+fmtQty(qtySum)+'</span>'
         : '<input type="number" min="0.001" step="0.001" inputmode="decimal" value="'+fmtQty(r.qty)+'" data-csp-change="'+qtyChangeBind+'">';
+      const freightHint=lineFreight?('<div class="muted" data-csp-style="'+CSP.style('font-size:10px;font-weight:500')+'">کرایه '+fmt(lineFreight)+(freight?(' · '+Math.round(lineFreight*100/freight)+'٪'):'')+'</div>'):'';
       return ''
       +'<tr>'
         +'<td class="cn">'+(isIncome?'💰 ':'')+esc(r.name)+packNote+'</td>'
         +'<td class="col-qty">'+qtyCell+'</td>'
-        +'<td class="col-price"><input type="number" value="'+r.price+'" data-csp-change="'+priceChangeBind+'"></td>'
+        +'<td class="col-price"><input type="text" inputmode="numeric" class="money" value="'+moneyInit(r.price)+'" data-csp-change="'+priceChangeBind+'"></td>'
         +(showLineDisc?'<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="'+(r.disc||0)+'" data-csp-change="'+discPctChangeBind+'"></td>'
           +'<td class="col-disc-amt"><input type="number" min="0" value="'+(r.disc_amount||0)+'" data-csp-change="'+discAmtChangeBind+'"></td>':'')
         +(hideWhCol?'':'<td class="col-wh">'+(!isIncome?'<select data-csp-change="'+whChangeBind+'">'+warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')+'</select>':'—')+'</td>')
-        +'<td class="col-sum mono">'+fmt(lineSum)+'</td>'
+        +'<td class="col-sum mono">'+fmt(lineSum)+freightHint+'</td>'
         +'<td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="'+removeGroupBind+'">×</button></td>'
       +'</tr>'
       +'<tr class="desc-row"><td colspan="'+colSpan+'"><input type="text" placeholder="توضیحات ردیف (اختیاری)" value="'+esc(r.description||'')+'" data-csp-change="'+descChangeBind+'"></td></tr>';
@@ -4487,13 +4604,13 @@ function renderCart(){
   let disc = +(el('inv-disc')?.value||0);
   if(discAmtEl && !discAmt && disc){ discAmt=Math.round(subtotal*disc/100); discAmtEl.value=discAmt; }
   else if(discAmtEl && discAmt && subtotal>0){ disc=Math.min(100,Math.round(discAmt*10000/subtotal)/100); const pe=el('inv-disc'); if(pe && document.activeElement!==pe) pe.value=disc; }
-  const freight = typeof moneyVal==='function' ? moneyVal('inv-freight') : 0;
-  const final = subtotal-discAmt+freight;
+  const chargedFreight = freightSeller ? 0 : freight;
+  const final = subtotal-discAmt+chargedFreight;
   el('cartTot').innerHTML = `
     ${linesDiscTotal?`<div class="l"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)} ریال</span></div>`:''}
     <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
     <div class="l"><span>تخفیف کل فاکتور (${fmt(disc)}٪ / مبلغ):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
-    ${freight?`<div class="l"><span>کرایه حمل:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
+    ${freight?`<div class="l"><span>کرایه حمل ${freightSeller?'(عهده فروشنده — روی مبلغ مشتری نمی‌آید)':'(عهده خریدار)'}:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
     <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(final)} ریال</span></div>`;
 }
 function toggleInvPayFields(){
@@ -4509,6 +4626,7 @@ async function saveInvoice(id){
   const cust_id = +el('inv-cust').value;
   if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
   if(invCart.length===0){ showToast('حداقل یک کالا اضافه کنید','error'); return; }
+  if(!invoiceNegativeStockWarn(invCart)) return;
   const pay_type = el('inv-pay-type')?.value || 'cash';
   const data = {
     cust_id, type:el('inv-type').value, date:el('inv-date').value, note:el('inv-note').value,
@@ -4577,26 +4695,50 @@ async function convertProforma(id, targetType){
     showToast('تبدیل به '+label+' انجام شد');
   }catch(e){}
 }
-async function printInvoice(id, paper){
+async function printInvoice(id, paper, template){
   const defPaper = ((CACHE.settings||{}).invoice_paper_size||'A4').toUpperCase()==='A5'?'A5':'A4';
   const thermalW = String((CACHE.settings||{}).invoice_thermal_width||'80').replace(/\D/g,'')==='58'?'58':'80';
-  if(!paper){
+  const cardStyle=CSP.style(`flex:1;min-width:140px;padding:14px;font-size:13px;text-align:center;line-height:1.6`);
+  if(!paper && !template){
     openModal(`
       <div class="modal-head"><h3>🖨️ انتخاب چاپ</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
       <div class="modal-body" data-csp-style="${CSP.style(`padding:24px`)}">
-        <p data-csp-style="${CSP.style(`margin-bottom:12px;color:var(--muted)`)}">نوع چاپ را انتخاب کنید. پیش‌فرض کاغذ: <span data-csp-style="${CSP.style(`color:var(--purple);font-weight:700`)}">${defPaper}</span> · حرارتی: <b>${thermalW}mm</b></p>
-        <p data-csp-style="${CSP.style(`margin-bottom:16px;font-size:12px;color:var(--muted);line-height:1.8`)}">فاکتور رسمی ← قالب رسمی تنظیمات · پیش‌فاکتور ← عادی ساده · حرارتی ← عرض چاپگر در تنظیمات</p>
+        <p data-csp-style="${CSP.style(`margin-bottom:14px;color:var(--muted);line-height:1.8`)}">ابتدا نوع فاکتور چاپی را انتخاب کنید، سپس قالب و اندازه کاغذ.</p>
         <div data-csp-style="${CSP.style(`display:flex;gap:10px;justify-content:center;flex-wrap:wrap`)}">
-          <button class="btn${defPaper==='A4'?'':' ghost'}" data-csp-style="${CSP.style(`flex:1;min-width:120px;padding:14px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'A4')})}">📄 A4<br><small>۲۱ × ۲۹.۷</small></button>
-          <button class="btn${defPaper==='A5'?'':' ghost'}" data-csp-style="${CSP.style(`flex:1;min-width:120px;padding:14px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'A5')})}">📄 A5<br><small>۱۴.۸ × ۲۱</small></button>
-          <button class="btn ghost" data-csp-style="${CSP.style(`flex:1;min-width:120px;padding:14px;font-size:14px;border-color:var(--gold)`)}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'THERMAL')})}">🧾 حرارتی<br><small>${thermalW}mm</small></button>
+          <button class="btn" data-csp-style="${cardStyle}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'KIND_FORMAL')})}">📄 فاکتور رسمی<br><small>سه قالب اداری</small></button>
+          <button class="btn ghost" data-csp-style="${cardStyle}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'KIND_CASUAL')})}">🧾 فاکتور عادی<br><small>پیش‌فاکتور / ساده</small></button>
+          <button class="btn ghost" data-csp-style="${CSP.style(`flex:1;min-width:140px;padding:14px;font-size:13px;text-align:center;line-height:1.6;border-color:var(--gold)`)}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'THERMAL','thermal')})}">🖨️ حرارتی<br><small>${thermalW}mm</small></button>
         </div>
+      </div>`);
+    return;
+  }
+  if(paper==='KIND_FORMAL' || paper==='KIND_CASUAL'){
+    const formal=paper==='KIND_FORMAL';
+    const tmpls=formal
+      ? [['formal-official','رسمی کامل / اداری','سه ستون سربرگ، جدول سبز، مهر'],['formal-modern','رسمی مدرن','سربرگ نواری، چیپ متادیتا'],['formal-premium','رسمی پرمیوم','هیرو برند، نوار متادیتا']]
+      : [['casual-simple','عادی ساده','قالب پیش‌فاکتور و فروش داخلی']];
+    openModal(`
+      <div class="modal-head"><h3>🖨️ انتخاب قالب ${formal?'رسمی':'عادی'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+      <div class="modal-body" data-csp-style="${CSP.style(`padding:20px`)}">
+        <p class="muted" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">قالب و اندازه کاغذ را انتخاب کنید. پیش‌فرض کاغذ: <b>${defPaper}</b></p>
+        ${tmpls.map(([tid,title,desc])=>`
+          <div data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px`)}">
+            <div data-csp-style="${CSP.style(`font-weight:700;margin-bottom:4px`)}">${esc(title)}</div>
+            <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">${esc(desc)}</div>
+            <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
+              <button class="btn sm${defPaper==='A4'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'A4',`${String((tid) ?? '')}`)})}">A4</button>
+              <button class="btn sm${defPaper==='A5'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'A5',`${String((tid) ?? '')}`)})}">A5</button>
+            </div>
+          </div>`).join('')}
+        <button class="btn ghost sm" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id))})}">بازگشت</button>
       </div>`);
     return;
   }
   const token = localStorage.getItem('crm_token');
   try{
-    const q = paper==='THERMAL' ? 'paper=THERMAL&template=thermal' : ('paper='+encodeURIComponent(paper));
+    const q = paper==='THERMAL'
+      ? 'paper=THERMAL&template=thermal'
+      : ('paper='+encodeURIComponent(paper)+(template?('&template='+encodeURIComponent(template)):''));
     const r = await fetch('/api/invoices/'+id+'/print?'+q,{headers:{'Authorization':'Bearer '+token}});
     if(!r.ok){ showToast('خطا در دریافت فاکتور','error'); return; }
     if(!await CSP.openVerifiedServerDocument(r)) showToast('مرورگر پنجره چاپ را مسدود کرد','error');
@@ -7061,6 +7203,10 @@ function renderGenCart(){
   const countEl=el('poCartCount'); if(countEl) countEl.textContent=fmt(genCart.length)+' ردیف';
   const colSpan=showLineDisc?8:6;
   const priceLabel = GEN_CART_PRICE_FIELD==='cost' ? 'بهای خرید (ریال)' : 'فی (ریال)';
+  const freight = (typeof moneyVal==='function' && el('po-freight')) ? moneyVal('po-freight') : 0;
+  const freightSeller=freightTypeIsSeller(el('po-freight-type')?.value);
+  const freightShares=allocateFreightShares(genCart, freight, el('po-freight-alloc')?.value||'amount');
+  const chargedFreight=freightSeller?0:freight;
   if(!genCart.length){
     rowsEl.innerHTML=`<div class="inv-lines-empty">ردیفی اضافه نشده — کالا را از جستجو انتخاب کنید</div>`;
   } else {
@@ -7080,11 +7226,11 @@ function renderGenCart(){
       <tr>
         <td class="cn">${esc(r.name)}${r.is_fabric_roll||r.color?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طاقه ${esc(r.roll_no||'جدید')} ${esc(r.color||'')}</div>`:''}</td>
         <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(genCart[(i)].qty);if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
-        <td class="col-price"><input type="number" value="${r.price}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].price=+this.value||0;if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
+        <td class="col-price"><input type="text" inputmode="numeric" class="money" value="${moneyInit(r.price)}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].price=moneyParseInput(this);if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
         ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].disc=+this.value||0;invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
         <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].disc_amount=+this.value||0;invSyncLineDisc(genCart,(i),'amt');renderGenCart()})}"></td>`:''}
         <td class="col-wh"><select data-csp-change="${CSP.bind('change',function(event){genCart[(i)].warehouse_id=+this.value||null})}">${warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')}</select></td>
-        <td class="col-sum mono">${fmt(lineSum)}</td>
+        <td class="col-sum mono">${fmt(lineSum)}${freightShares[i]?`<div class="muted" data-csp-style="${CSP.style(`font-size:10px;font-weight:500`)}">کرایه ${fmt(freightShares[i])}${freight?(' · '+Math.round(freightShares[i]*100/freight)+'٪'):''}</div>`:''}</td>
         <td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="${CSP.bind('click',function(event){genCart.splice((i),1);renderGenCart()})}">×</button></td>
       </tr>
       <tr class="desc-row"><td colspan="${colSpan}"><input type="text" placeholder="توضیحات ردیف (اختیاری)" value="${esc(r.description||'')}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].description=this.value})}"></td></tr>`;
@@ -7093,7 +7239,6 @@ function renderGenCart(){
   const totEl=el('genCartTot'); if(!totEl) return;
   const linesDiscTotal = showLineDisc ? genCart.reduce((a,r)=>a+lineDiscApplied(r),0) : 0;
   const subtotal=invCartSubtotalAfterLineDisc(genCart);
-  const freight = (typeof moneyVal==='function' && el('po-freight')) ? moneyVal('po-freight') : 0;
   if(genCartDiscInputId){
     const discAmtEl=el('po-disc-amt');
     let discPct=+el(genCartDiscInputId)?.value||0;
@@ -7104,8 +7249,8 @@ function renderGenCart(){
       ${linesDiscTotal?`<div class="l"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)} ریال</span></div>`:''}
       <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
       <div class="l"><span>تخفیف کل فاکتور (${fmt(discPct)}٪ / مبلغ):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
-      ${freight?`<div class="l"><span>کرایه حمل:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
-      <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(subtotal-discAmt+freight)} ریال</span></div>`;
+      ${freight?`<div class="l"><span>کرایه حمل ${freightSeller?'(عهده فروشنده — روی مبلغ تأمین‌کننده نمی‌آید)':'(عهده خریدار)'}:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
+      <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(subtotal-discAmt+chargedFreight)} ریال</span></div>`;
   } else {
     totEl.innerHTML = `<div class="l final"><span>جمع:</span><span class="mono">${fmt(subtotal)} ریال</span></div>`;
   }
@@ -7203,7 +7348,7 @@ async function renderPartiesTab(body){
       </aside>
       <div data-csp-style="${CSP.style(`flex:1;min-width:280px`)}">
         <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
-          <button class="btn" data-csp-click="${CSP.bind('click',function(event){partyModal()})}" ${!groupFilter?'disabled title="ابتدا یک گروه اشخاص انتخاب یا ایجاد کنید"':''}>➕ شخص جدید <span class="muted">F4</span></button>
+          <button class="btn" data-csp-click="${CSP.bind('click',function(event){partyModal()})}">➕ شخص جدید <span class="muted">F4</span></button>
           <input id="partySearch" placeholder="جستجو نام/تلفن/کد... F10" value="${esc(search)}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px`)}">
           <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${fmt(rows.length)}${total>rows.length?' از '+fmt(total):''} نفر</span>
         </div>
@@ -8227,7 +8372,7 @@ async function invoiceFabricRollPicker(kind){
     openNestedModal(`
       <div class="modal-head"><h3>افزودن طاقه به فاکتور فروش</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
       <div class="modal-body">
-        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه یک ردیف کالا است. انبار فاکتور از انبار سربرگ پر می‌شود.</p>
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه یک ردیف است. انبار ردیف همان انبار طاقه است (معمولاً مواد)، نه الزاماً انبار سربرگ فاکتور.</p>
         <div class="fg full"><label>طاقه موجود</label>
           ${rollSelect('ifr-roll', rolls.filter(b=>b.status!=='reversed'&&(Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0)>0).map(b=>{
             const reserved=(invCart||[]).filter(r=>Number(r.batch_id)===Number(b.id)).reduce((a,r)=>a+(Number(r.qty)||0),0);
@@ -8244,7 +8389,7 @@ async function invoiceFabricRollPicker(kind){
       if(!sel||!sel.value) return;
       const p=prods.find(x=>String(x.id)===String(sel.dataset.pid||''));
       if(el('ifr-m') && !el('ifr-m').value) el('ifr-m').value=sel.dataset.qty||'';
-      if(el('ifr-price') && p) el('ifr-price').value=p.price||0;
+      if(el('ifr-price') && p) el('ifr-price').value=moneyInit(p.price||0);
     };
     if(sel) sel.addEventListener('change',sync); sync();
     return;
@@ -8275,7 +8420,7 @@ function invoiceFabricRollAddSale(){
   const qty=Math.max(0.001, Number(el('ifr-m')?.value)||maxQty||1);
   if(maxQty && qty-maxQty>1e-9){ showToast('متر بیشتر از مانده زنده طاقه است ('+fmt(maxQty)+')','error'); return; }
   const price=moneyVal('ifr-price')|| (p&&p.price)||0;
-  const wh=headerInvoiceWarehouseId()|| (+sel.dataset.wh||null);
+  const wh=(+sel.dataset.wh)||headerInvoiceWarehouseId()||null;
   invCart.push({
     product_id:pid, name:p?p.name:('طاقه '+(sel.dataset.no||'')),
     qty, price, disc:0, disc_amount:0, warehouse_id:wh,
@@ -12672,8 +12817,8 @@ async function purchaseInvoiceModal(){
         <div class="fg"><label>تخفیف کل (٪)</label><input id="po-disc" type="number" min="0" max="100" step="0.01" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct','po-disc','po-disc-amt');renderGenCart()})}"></div>
         <div class="fg"><label>تخفیف کل (مبلغ)</label><input id="po-disc-amt" type="number" min="0" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt','po-disc','po-disc-amt');renderGenCart()})}"></div>
         <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="po-freight" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(event){renderGenCart()})}"></div>
-        <div class="fg"><label>نوع کرایه</label><select id="po-freight-type"><option value="">—</option><option value="buyer">بر عهده خریدار</option><option value="seller">بر عهده فروشنده</option></select></div>
-        <div class="fg"><label>سرشکن کرایه</label><select id="po-freight-alloc">
+        <div class="fg"><label>نوع کرایه</label><select id="po-freight-type" data-csp-change="${CSP.bind('change',function(){renderGenCart()})}"><option value="">—</option><option value="buyer">بر عهده خریدار</option><option value="seller">بر عهده فروشنده</option></select></div>
+        <div class="fg"><label>سرشکن کرایه</label><select id="po-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderGenCart()})}">
           <option value="amount">به نسبت مبلغ</option>
           <option value="qty">به نسبت مقدار</option>
           <option value="equal">مساوی</option>
@@ -19815,6 +19960,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>افزودن طاقه</b> روی فاکتور باز، پنجرهٔ جدا می‌آید و فرم فاکتور را نمی‌بندد</li>
         <li>فاکتور <b>معمولی و رسمی</b> بدون انبار مبدأ از سرور رد می‌شود (۴۰۰) — سند قطعی بدون انبار ثبت نمی‌شود</li>
         <li>ابطال فاکتور قطعی سند معکوس می‌زند و موجودی را برمی‌گرداند (حذف فیزیکی نیست)</li>
+        <li><b>داشبورد → اقدامات در انتظار:</b> کلیک روی فاکتور، همان فاکتور را در حسابداری باز می‌کند</li>
+        <li><b>شخص جدید</b> در «کلیه اشخاص» هم باز می‌شود؛ گروه را داخل فرم انتخاب کنید</li>
+        <li><b>مطالبات:</b> شخص غیرفعال با مانده صفر از لیست حذف می‌شود؛ اگر مانده باقی مانده باشد با برچسب «غیرفعال» می‌ماند تا تسویه شود</li>
+        <li><b>کرایه:</b> سرشکن به نسبت مبلغ/مقدار/مساوی روی ردیف‌ها. عهده خریدار به مبلغ طرف‌حساب و درآمد متفرقه می‌رود؛ عهده فروشنده هزینه توزیع است و به بدهی مشتری/تأمین‌کننده اضافه نمی‌شود</li>
+        <li><b>طاقه:</b> انبار ردیف همان انبار طاقه است. موجودی طاقه از متر زنده دسته است نه موجودی کالای انبار محصول</li>
+        <li>اگر ثبت فاکتور موجودی کالا را منفی کند، قبل از ذخیره هشدار تأیید می‌آید</li>
+        <li>ستون فی جداکنندهٔ هزارگان دارد. رنگ/سایز یک خط زیر نام کالاست؛ کلیک جزئیات را باز می‌کند</li>
+        <li><b>چاپ:</b> ابتدا نوع (رسمی / عادی / حرارتی) سپس قالب و کاغذ A4 یا A5</li>
       </ul>`),
     helpSec('📞','پیگیری CRM',`
       <p>منوی <b>پیگیری CRM</b> دو بخش دارد: <b>پیگیری‌ها</b> و <b>داشبورد و گزارش‌های CRM</b>.</p>
@@ -20018,9 +20171,12 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>درصد تخفیف کل فاکتور را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور رسمی</li>
         <li><b>فاکتور خرید</b> همان الگوی جدول اقلام را دارد (بهای خرید، تخفیف ردیف، انبار مقصد، چک، کرایه، بارکد)</li>
+        <li>فی با جداکنندهٔ هزارگان؛ رنگ/سایز یک خط زیر نام — کلیک برای جزئیات</li>
+        <li>کرایه: نسبت سرشکن روی ردیف؛ عهده خریدار به مبلغ طرف‌حساب می‌آید، عهده فروشنده هزینه است</li>
+        <li>طاقه از انبار خودش کسر می‌شود؛ اگر کالا منفی شود قبل از ذخیره هشدار می‌آید</li>
       </ul>
       <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، فیلدهای تخفیف درصدی و مبلغی فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلدها را نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
-      <h5>چاپ</h5><p>از دکمه «چاپ» روی صفحه نمایش فاکتور استفاده کنید. تنها فاکتور چاپ می‌شود، بقیه رابط کاربری پنهان می‌شود. مدل چاپ از تنظیمات → قالب فاکتور است.</p>
+      <h5>چاپ</h5><p>دکمه چاپ ابتدا نوع فاکتور (رسمی / عادی / حرارتی) را می‌پرسد، سپس قالب و کاغذ A4 یا A5. قالب‌های رسمی: کامل، مدرن، پرمیوم. عادی: ساده.</p>
       <h5>تبدیل پیش‌فاکتور</h5><p>دکمهٔ <b>تبدیل به فاکتور</b> موجودی طاقه را <b>قبل از ثبت خروج</b> می‌سنجد. اگر متر کافی نباشد پیام به‌صورت «مانده X، نیاز Y» است (نه مانده منفی بعد از کسر). پیش‌فاکتور اثر انبار ندارد؛ کمبود یعنی همان طاقه در انبار کمتر از مقدار فاکتور است.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
     helpSec('🛒','فروش بازاریاب',`
@@ -20445,7 +20601,7 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v186</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v193</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
       <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
       <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
@@ -20502,7 +20658,8 @@ function renderSalesGuide(){
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است. اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
-        <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ چاپ کرایه و مالیات را جدا نشان می‌دهد</li>
+        <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ چاپ ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب را می‌پرسد</li>
+        <li>رنگ و سایز یک خط زیر نام کالاست؛ برای جزئیات روی همان خط بزنید</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور رسمی برای ثبت فروش قطعی.</div>`),
     helpSec('🛒','فروش بازاریاب',`

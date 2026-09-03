@@ -379,10 +379,13 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
   const rows = db.prepare(`
     SELECT c.id, c.biz, c.owner, c.city, c.phone, c.coa_code,
       u.name as salesperson,
+      p.is_active as party_is_active,
+      p.id as party_id,
       COALESCE(inv.total_invoiced, 0) as total_invoiced,
       COALESCE(stt.total_settled, 0) as total_settled,
       COALESCE(lb.balance, 0) as ledger_balance
     FROM customers c
+    LEFT JOIN parties p ON p.id=c.party_id
     LEFT JOIN (
       SELECT i.cust_id, SUM(i.final) as total_invoiced
       FROM invoices i WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0${invTo}${invFrom}
@@ -413,6 +416,10 @@ router.get('/receivables', auth, adminOrAccounting, (req, res) => {
     r.outstanding = hasGl ? gl.gl_closing_rial : ledgerOut;
     r.source = hasGl ? 'gl' : 'customer_ledger';
     r.books_mismatch = hasGl && Math.abs(Number(gl.gl_closing_rial) - Number(ledgerOut)) > 1;
+    r.inactive = r.party_id != null && Number(r.party_is_active) === 0;
+    const hasBalance = Math.abs(Number(r.outstanding) || 0) > 0.5 || Math.abs(ledgerOut) > 0.5 || Math.abs(invOut) > 0.5;
+    // Soft-deleted / inactive parties stay only while a non-zero receivable remains.
+    if (r.inactive && !hasBalance) continue;
     if (hasGl || ledgerOut || invOut) out.push(r);
   }
   out.sort((a, b) => Math.abs(Number(b.outstanding) || 0) - Math.abs(Number(a.outstanding) || 0));

@@ -599,13 +599,27 @@
     return nativeInsertAdjacentHTML.call(this, position, trusted(value));
   };
 
+  function actionStillLive(id) {
+    if (!id) return false;
+    const escId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : String(id).replace(/"/g, '\\"');
+    try {
+      return !!document.querySelector(`[data-csp-click="${escId}"],[data-csp-change="${escId}"],[data-csp-input="${escId}"],[data-csp-focus="${escId}"],[data-csp-blur="${escId}"],[data-csp-keydown="${escId}"],[data-csp-keyup="${escId}"],[data-csp-mousedown="${escId}"],[data-csp-submit="${escId}"],[data-csp-error="${escId}"],[data-csp-dragstart="${escId}"],[data-csp-dragover="${escId}"],[data-csp-dragleave="${escId}"],[data-csp-drop="${escId}"]`);
+    } catch (_) {
+      return true;
+    }
+  }
+
   function releaseDisconnectedActions(root) {
     if (!(root instanceof Element) || root.isConnected) return;
     const elements = [root, ...root.querySelectorAll('*')];
     for (const element of elements) {
-      for (const attribute of element.attributes) {
+      for (const attribute of [...element.attributes]) {
         if (!attribute.name.startsWith(ACTION_ATTR_PREFIX) || attribute.name === 'data-csp-style') continue;
-        if (attribute.value.startsWith('a_')) actions.delete(attribute.value);
+        if (!attribute.value.startsWith('a_')) continue;
+        // Cached HTML (dashboard) re-injects the same action ids. Deleting them
+        // while the restored nodes still reference them makes clicks no-ops.
+        if (actionStillLive(attribute.value)) continue;
+        actions.delete(attribute.value);
       }
     }
   }

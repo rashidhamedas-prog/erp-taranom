@@ -44,7 +44,7 @@ router.get('/pending-actions', auth, (req, res) => {
     pendingInv.forEach(i => actions.push({
       kind: 'invoice_approval', entity_type: 'invoice', entity_id: i.id,
       title: `تأیید فاکتور ${i.num}`, body: `${i.biz} — ${Number(i.final || 0).toLocaleString('fa-IR')} ت`,
-      route: 'acc-commissions',
+      route: 'acc-final-invoices',
     }));
     const pendingRep = db.prepare(`
       SELECT rp.id, rp.amount, rp.date, c.biz

@@ -18,6 +18,7 @@ const { rialToLedger } = require('../lib/money');
 const {
   postPurchaseStockMovements, reverseStockBySource,
   perpetualDocsEnabled, assertJournalIdempotent,
+  allocateFreight, applyFreightToDocTotals, freightChargedToCounterparty,
 } = require('../lib/sales-document');
 const { postInventoryMovement } = require('../lib/inventory/ledger');
 
@@ -87,28 +88,7 @@ function buildRows(db, inputRows) {
   return { rows: out, subtotal };
 }
 
-function allocateFreight(rows, freightAmount, method) {
-  const freight = Math.round(Number(freightAmount) || 0);
-  if (freight <= 0) return rows;
-  const targets = rows.filter(r => r.product_id);
-  if (!targets.length) return rows;
-  const m = method === 'qty' || method === 'equal' ? method : 'amount';
-  let weights;
-  if (m === 'equal') weights = targets.map(() => 1);
-  else if (m === 'qty') weights = targets.map(r => Number(r.qty) || 0);
-  else weights = targets.map(r => Number(r.sum) || 0);
-  const totalW = weights.reduce((a, b) => a + b, 0);
-  if (totalW <= 0) return rows;
-  let allocated = 0;
-  targets.forEach((r, i) => {
-    const share = i === targets.length - 1 ? freight - allocated : Math.round(freight * weights[i] / totalW);
-    allocated += share;
-    r.allocated_freight = share;
-  });
-  return rows;
-}
-
-function buildInventoryValuationRows(rows, documentDiscountRial) {
+function buildInventoryValuationRows(rows, documentDiscountRial, includeFreight) {
   const discount = Math.round(Number(documentDiscountRial) || 0);
   const total = rows.reduce((sum, row) => sum + Math.round(Number(row.sum) || 0), 0);
   let allocatedDiscount = 0;
@@ -118,7 +98,8 @@ function buildInventoryValuationRows(rows, documentDiscountRial) {
       ? discount - allocatedDiscount
       : (total > 0 ? Math.round(discount * lineValue / total) : 0);
     allocatedDiscount += discountShare;
-    const amountRial = lineValue - discountShare + Math.round(Number(row.allocated_freight) || 0);
+    const amountRial = lineValue - discountShare
+      + (includeFreight ? Math.round(Number(row.allocated_freight) || 0) : 0);
     const qty = Number(row.qty) || 0;
     return {
       ...row,
@@ -165,9 +146,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const allocMethod = ['amount', 'qty', 'equal'].includes(req.body.freight_alloc_method)
     ? req.body.freight_alloc_method : 'amount';
   allocateFreight(built.rows, freightRial, allocMethod);
-  let { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
-  final += freightRial;
-  netBeforeVat += freightRial;
+  const freightAdj = applyFreightToDocTotals(totals, freightRial, freight_type);
+  let { subtotal, discAmt, vatAmount, vatRate } = totals;
+  let { final, netBeforeVat } = freightAdj;
   const entryDate = date || todayJalali();
   const whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
   if (whId) {
@@ -193,7 +174,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     const invId = result.lastInsertRowid;
 
     if (perpetualDocsEnabled(db)) {
-      const priced = buildInventoryValuationRows(built.rows, discAmt);
+      const priced = buildInventoryValuationRows(built.rows, discAmt, freightChargedToCounterparty(freight_type));
       postPurchaseStockMovements(db, {
         rows: priced, warehouseId: whId, sourceType: 'purchase', sourceId: invId,
         userId: req.user.id, date: entryDate, note: `خرید ${num}`,
@@ -307,7 +288,8 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     const cr = row.pay_type === 'credit' ? payableAcct(db, row.supplier_id) : resolveCashAccount(db, payTypeResolved, row.bank_id, row.cash_box_id);
     const invAcct = coaAcct(db, 'coa_inventory');
     const vatRec = coaAcct(db, 'coa_vat_receivable');
-    const netBeforeVat = (row.subtotal || 0) - (row.disc_amt || 0) + Math.round(row.freight_amount || 0);
+    const netBeforeVat = (row.subtotal || 0) - (row.disc_amt || 0)
+      + (freightChargedToCounterparty(row.freight_type) ? Math.round(row.freight_amount || 0) : 0);
     const revLines = [
       { code: cr.code, name: cr.name, debit: rialToLedger(row.final), credit: 0 },
       { code: invAcct.code, name: invAcct.name, debit: 0, credit: rialToLedger(netBeforeVat) },
