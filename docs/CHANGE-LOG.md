@@ -13,6 +13,15 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۱۳ — رفع باز نشدن تنظیمات + جستجوی لیست (SW v190)
+
+- **باگ:** تنظیمات از حسابداری (MDI) باز نمی‌شد — پنجره روی صفحه می‌ماند؛ `acc-settings` فقط استاب بود
+- **اصلاح:** `go()` هنگام رفتن به صفحات سراسری `WinMgr.closeAll()`؛ `acc-settings` برای admin مستقیم `ROUTES.settings`؛ خطای route با `.catch`؛ `ROUTES.settings` با try/catch دسترسی
+- **فاز بعد:** جستجوی سریع بالای جدول‌های حسابداری (۳+ ردیف) در `enhanceAccTables`
+- **فایل‌ها:** `server/public/{app.js,sw.js}`
+- **Deploy:** ⏳
+- **SW:** `erp-taranom-v190`
+
 ### ۱۴۰۵/۰۶/۱۳ — مرکز گزارشات + تکمیل UX تولید (SW v189)
 
 - **شاخه:** `feat/ERP2-PROD-UX-V187`
@@ -932,7 +941,7 @@
 - **Commit:** `83003d7`
 - **خلاصه:** ویرایشگر BOM با چهار تب Module-4: اقلام، مسیر عملیات («از الگوی ترنم» + resequence)، خروجی‌های main/co/by، بهای تمام‌شده (`full-cost?qty` پیش‌فرض ۳۰۰، بدون JE). تب بها با `canPerm('production_cost','view')` / `__canSeeCost` مخفی می‌شود. Help: V4-21 (بازده سرفصل=۱۰۰ با routing)، full-cost بدون سند، co/by.
 - **فایل‌های کلیدی:** `server/public/app.js`, `docs/CHANGE-LOG.md`
-- **Deploy:** ✅ ایران overlay SFTP @ `0ebb70b` — health/ready/root 200؛ SW `erp-taranom-v189` pending merge
+- **Deploy:** ⏳ pending merge
 - **یادداشت:** فقط UI؛ موتور/API پیشرفته در همان شاخه؛ بدون بیلد APK/دسکتاپ.
 
 ### 2026-08-09 — Deploy ایران Wave1 merge via SFTP

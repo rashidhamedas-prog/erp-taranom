@@ -1707,6 +1707,10 @@ function go(page){
     if(PAGE_HISTORY.length>60) PAGE_HISTORY.shift();
   }
   hookWinMgrNav();
+  // صفحات سراسری (تنظیمات، راهنما، …) روی #view اصلی — پنجره MDI حسابداری را ببند
+  if(IN_ACC_SHELL && page!=='exit-acc-shell' && !String(page).startsWith('acc-') && window.WinMgr && typeof WinMgr.closeAll==='function'){
+    WinMgr.closeAll();
+  }
   // چندپنجره‌ای فقط داخل حسابداری — نه داشبورد CRM و نه داشبورد حسابداری
   const openAsMdi = IN_ACC_SHELL && String(page).startsWith('acc-') && page!=='acc-dash'
     && window.WinMgr && WinMgr.enabled() && typeof ROUTES[page]==='function';
@@ -1719,9 +1723,17 @@ function go(page){
     }
   }
   syncChromeForPage(page);
-  // After every page render, shrink stat-card numbers that overflow their card
-  // (large totals like فروش کل on حساب من were spilling out — spec 1.0.9 §4)
-  ROUTES[page] ? Promise.resolve(ROUTES[page]()).finally(()=>{ setTimeout(fitStatNums,60); if(typeof enhanceAccTables==='function') enhanceAccTables(el('view')); }) : (el('view').innerHTML='');
+  const runRoute = ROUTES[page];
+  if(runRoute){
+    Promise.resolve(runRoute()).catch(e=>{
+      console.error('route', page, e);
+      const v=el('view');
+      if(v) v.innerHTML=`<div class="empty" data-csp-style="${CSP.style(`padding:24px`)}">خطا در بارگذاری صفحه: ${esc(e.message||e.code||'نامشخص')}</div>`;
+      showToast(e.message||'خطا در بارگذاری','error');
+    }).finally(()=>{ setTimeout(fitStatNums,60); if(typeof enhanceAccTables==='function') enhanceAccTables(el('view')); });
+  } else {
+    el('view').innerHTML='';
+  }
 }
 /** والد صفحه — رفتار شبیه دکمه Up اکسپلورر ویندوز (نه Back تاریخچه) */
 function pageParent(page){
@@ -6477,6 +6489,14 @@ ROUTES['acc-cost-centers']=()=>renderAccPage('cost-centers','🏷️','مراک�
 ROUTES['acc-customer-groups']=()=>renderAccPage('customer-groups','👥','گروه‌های مشتری (ماهیت حساب)');
 ROUTES['acc-party-groups']=()=>renderAccPage('party-groups','👤','گروه‌های اشخاص');
 ROUTES['acc-product-groups']=()=>renderAccPage('product-groups','🏷️','گروه‌های کالا');
+ROUTES['acc-settings']=()=>{
+  if(window.WinMgr && typeof WinMgr.closeAll==='function') WinMgr.closeAll();
+  if(isAdmin()){
+    syncChromeForPage('settings','تنظیمات برنامه');
+    return Promise.resolve(ROUTES.settings());
+  }
+  return renderAccPage('company-settings','⚙️','تنظیمات سیستم','acc-settings');
+};
 registerAccNavRoutes(ROUTES, renderAccPage);
 
 async function resyncAccounting(){
@@ -6968,6 +6988,33 @@ function syncTblStickyTop(){
 function enhanceAccTables(root){
   if(!root||typeof enhanceDataTable!=='function') return;
   syncTblStickyTop();
+  root.querySelectorAll('.tbl-wrap').forEach(wrap=>{
+    if(wrap.dataset.quickSearch==='1') return;
+    const t=wrap.querySelector('table.tbl');
+    const tb=t&&t.tBodies[0];
+    if(!tb || tb.rows.length<3) return;
+    if(tb.rows.length===1 && tb.rows[0].querySelector('td[colspan]')) return;
+    wrap.dataset.quickSearch='1';
+    const bar=document.createElement('div');
+    bar.className='toolbar tbl-quick-search-bar';
+    bar.setAttribute('data-csp-style', CSP.style('margin-bottom:8px;gap:8px;flex-wrap:wrap'));
+    const inp=document.createElement('input');
+    inp.type='search';
+    inp.className='tbl-quick-search';
+    inp.placeholder='جستجو در این لیست…';
+    inp.setAttribute('autocomplete','off');
+    inp.setAttribute('data-csp-style', CSP.style('min-width:200px;max-width:360px;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px'));
+    inp.addEventListener('input', function(){
+      const q=typeof toAsciiDigits==='function'?toAsciiDigits(this.value.trim().toLowerCase()):this.value.trim().toLowerCase();
+      [...tb.rows].forEach(tr=>{
+        if(tr.querySelector('td[colspan]')) return;
+        const hay=(tr.textContent||'').toLowerCase();
+        tr.style.display=!q || hay.includes(q)?'':'none';
+      });
+    });
+    bar.appendChild(inp);
+    if(wrap.parentNode) wrap.parentNode.insertBefore(bar, wrap);
+  });
   root.querySelectorAll('table.tbl').forEach(t=>{
     if(t.dataset.enhanced==='1') return;
     if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
@@ -10193,14 +10240,14 @@ const PROD_REPORT_SPECS={
   'PR-22':{ code:'PR-22', title:'سودآوری محصول', path:'/production/reports/product-profitability', requiresCost:true,
     columns:[{key:'product_name',label:'محصول'},{key:'qty_produced',label:'تولید',fmt:'qty'},{key:'production_cost_rial',label:'بهای تولید',fmt:'money'},{key:'revenue_rial',label:'فروش فرضی',fmt:'money'},{key:'profit_rial',label:'سود',fmt:'variance'},{key:'margin_pct',label:'حاشیه',fmt:'pct'}] },
 };
-function prodReportFmtCell(val, fmt){
+function prodReportFmtCell(val, kind){
   const PU=window.ProdUI;
   if(val==null||val==='') return '—';
-  if(fmt==='money') return PU?PU.moneyCell(val):prodFmtToman(val);
-  if(fmt==='variance') return PU?PU.varianceCell(val):prodFmtToman(val);
-  if(fmt==='qty') return qtyFmt(val);
-  if(fmt==='pct') return PU?PU.pct(val):String(val)+'٪';
-  if(fmt==='num') return fmt(val);
+  if(kind==='money') return PU?PU.moneyCell(val):prodFmtToman(val);
+  if(kind==='variance') return PU?PU.varianceCell(val):prodFmtToman(val);
+  if(kind==='qty') return qtyFmt(val);
+  if(kind==='pct') return PU?PU.pct(val):String(val)+'٪';
+  if(kind==='num') return fmt(val);
   return esc(val);
 }
 function prodReportTableHtml(rows, columns){
@@ -18732,6 +18779,7 @@ function settShowTab(id){
 }
 function settOpenTab(id){
   try{ sessionStorage.setItem('crm_settings_tab', id); }catch(e){}
+  if(window.WinMgr && typeof WinMgr.closeAll==='function') WinMgr.closeAll();
   go('settings');
 }
 function settFilterSearch(q){
@@ -18761,8 +18809,17 @@ function settToggle(id, checked, title, desc){
 }
 
 ROUTES.settings = async function(){
-  if(!CACHE.settings || !Object.keys(CACHE.settings).length) CACHE.settings=await api('GET','/settings')||{};
-  const s = CACHE.settings;
+  let s = CACHE.settings || {};
+  try{
+    if(!s || !Object.keys(s).length) s = CACHE.settings = await api('GET','/settings') || {};
+  }catch(e){
+    if(!isAdmin()){
+      el('view').innerHTML=`<div class="empty" data-csp-style="${CSP.style(`padding:24px`)}">⚠️ دسترسی به تنظیمات کامل فقط برای <b>مدیر سیستم</b> است.</div>`;
+      return;
+    }
+    showToast(e.message||'خطا در بارگذاری تنظیمات','error');
+    s = CACHE.settings = s || {};
+  }
   const fyData = await api('GET','/fiscal-year').catch(()=>({current:null,years:[]}));
   const curFy = fyData.current;
   const fyRows = (fyData.years||[]).slice(0,8);
@@ -19771,7 +19828,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>مرکز گزارشات تولید:</b> تولید → گزارشات → مرکز گزارشات. UI اختصاصی PR-13 تا PR-22 (سربار، بهره‌وری، گلوگاه با نوار بار، پیمانکار، سود محصول و …) با فیلتر دوره، جمع کل، و خروجی CSV.</li>
         <li><b>تابلوی خط (کانبان):</b> کلیک روی کارت سفارش مستقیماً مودال مراحل را باز می‌کند (بدون رفتن به لیست سفارش‌ها).</li>
         <li><b>منوی تولید:</b> آیتم‌های سایدبار بر اساس مجوز کاربر فیلتر می‌شوند (مثلاً بدون <code>production_reports/view</code> گزارشات پنهان است).</li>
-        <li><b>فرمول BOM:</b> ذخیره اقلام با <code>replace:true</code> در یک تراکنش سرور انجام می‌شود (بدون حذف/افزودن جداگانه).</li>
+        <li><b>جستجوی لیست‌ها:</b> بالای هر جدول حسابداری (۳+ ردیف) کادر «جستجو در این لیست» فیلتر سریع متنی دارد.</li>
         <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
         <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه و نرخ را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
