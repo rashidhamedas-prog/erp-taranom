@@ -19,7 +19,7 @@
 - **گزارشات منوی اصلی:** باکس ثابت `crm-chart-box` + `maintainAspectRatio:false` تا نمودار باد نکند
 - **مودیان:** کلاینت HTTP به `sandboxrc.tax.gov.ir` / `tp.tax.gov.ir`؛ امضای RSA-SHA256 + پکت AES-GCM؛ وضعیت `test_sent` بدون قفل فاکتور؛ APIهای `POST /moadian/ping` و `POST /moadian/test-send`؛ UI تنظیمات fiscal/کلید/آداپتر
 - **فایل‌ها:** `server/public/{csp-runtime.js,app.js,sw.js}`، `server/lib/moadian/{adapter,client,crypto-packet,sign,queue,invoice-hooks,index}.js`، `server/routes/moadian.js`، `server/scripts/test-csp-bind-events.js`، `server/scripts/test-moadian-foundation.js`
-- **Deploy:** ⏳ pending
+- **Deploy:** ✅ ایران overlay SFTP @ `ec403c6` — health/ready 200؛ SW `erp-taranom-v192`
 - **SW:** `erp-taranom-v192`
 
 ### ۱۴۰۵/۰۶/۱۳ — تنظیمات: رویداد CSP submit (SW v191)
