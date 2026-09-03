@@ -1,6 +1,6 @@
 # ┘ä╪º┌» ╪¬╪║█î█î╪▒╪º╪¬ ╪º╪╣┘à╪º┘äΓÇî╪┤╪»┘ç ΓÇö ERP ╪¬╪▒┘å┘à
 
-╪º█î┘å ┘ü╪º█î┘ä ╪¬╪º╪▒█î╪«┌å┘ç┘ö ╪¬╪║█î█î╪▒╪º╪¬█î ╪▒╪º ┌⌐┘ç ╪»╪▒ Cursor / Claude Code ╪º╪╣┘à╪º┘ä ╪┤╪»┘ç ┘å┌»┘ç ┘à█îΓÇî╪»╪º╪▒╪».
+╪º█î┘å ┘ü╪º█î┘ä ╪¬╪º╪▒█î╪«┌å┘ç┘ö ╪¬╪║█î█î╪▒╪º╪¬█î ╪▒╪º ┌⌐┘ç ╪»╪▒ Cursor / Claude Code ╪º╪╣┘à╪ä ╪┤╪»┘ç ┘å┌»┘ç ┘à█îΓÇî╪»╪º╪▒╪».
 **┘é╪¿┘ä ╪º╪▓ ╪┤╪▒┘ê╪╣ ┌⌐╪º╪▒ ╪¼╪»█î╪»╪î ╪º█î┘å ┘ü╪º█î┘ä ╪▒╪º ╪¿╪«┘ê╪º┘å█î╪»** ╪¬╪º ╪¿╪»╪º┘å█î╪» ┌å┘ç ┌å█î╪▓┘ç╪º█î█î ┘é╪¿┘ä╪º┘ï ╪º┘å╪¼╪º┘à ╪┤╪»┘ç ╪º╪│╪¬.
 
 ---
@@ -13,14 +13,22 @@
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
+### ۱۴۰۵/۰۶/۱۳ — CSP ریشه‌ای + نمودار گزارشات + مودیان سندباکس (SW v192)
+
+- **CSP:** `submit` به EVENT_TYPES؛ bind ناشناخته دیگر صفحه را سفید نمی‌کند (fail-soft + auto-listen)؛ تست `test-csp-bind-events.js`
+- **گزارشات منوی اصلی:** باکس ثابت `crm-chart-box` + `maintainAspectRatio:false` تا نمودار باد نکند
+- **مودیان:** کلاینت HTTP به `sandboxrc.tax.gov.ir` / `tp.tax.gov.ir`؛ امضای RSA-SHA256 + پکت AES-GCM؛ وضعیت `test_sent` بدون قفل فاکتور؛ APIهای `POST /moadian/ping` و `POST /moadian/test-send`؛ UI تنظیمات fiscal/کلید/آداپتر
+- **فایل‌ها:** `server/public/{csp-runtime.js,app.js,sw.js}`، `server/lib/moadian/{adapter,client,crypto-packet,sign,queue,invoice-hooks,index}.js`، `server/routes/moadian.js`، `server/scripts/test-csp-bind-events.js`، `server/scripts/test-moadian-foundation.js`
+- **Deploy:** ⏳ pending
+- **SW:** `erp-taranom-v192`
+
 ### ۱۴۰۵/۰۶/۱۳ — تنظیمات: رویداد CSP submit (SW v191)
 
 - **باگ:** صفحه تنظیمات (منوی اصلی و حسابداری) با `Unsupported delegated event: submit` سفید می‌ماند
 - **ریشه:** کادر جستجو داخل `<form data-csp-submit>` بود؛ `CSP.bind` فقط click/change/input/focus/blur/keydown را قبول می‌کند
 - **اصلاح:** جستجو `div` شد + Enter با `keydown` خنثی می‌شود
 - **فایل‌ها:** `server/public/{app.js,sw.js}`
-- **Deploy:** ⏳
-- **SW:** `erp-taranom-v191`
+- **Deploy:** ✅ ایران overlay SFTP @ `c69e3ca` — health/ready 200؛ SW `erp-taranom-v191`
 
 ### ۱۴۰۵/۰۶/۱۳ — رفع باز نشدن تنظیمات + جستجوی لیست (SW v190)
 

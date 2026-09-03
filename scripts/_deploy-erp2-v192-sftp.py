@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""Paramiko overlay: CSP root fix + reports charts + Moadian sandbox HTTP v192."""
+from __future__ import annotations
+
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+import paramiko
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+HOST, USER, APP = "94.249.244.208", "taranom", "/home/taranom/crm-taranom"
+ROOT = Path(__file__).resolve().parents[1]
+STAMP_FILE = ".sftp-deploy-stamp-erp2-v192"
+
+FILES = [
+    "docs/CHANGE-LOG.md",
+    "server/public/app.js",
+    "server/public/csp-runtime.js",
+    "server/public/sw.js",
+    "server/routes/moadian.js",
+    "server/lib/moadian/adapter.js",
+    "server/lib/moadian/client.js",
+    "server/lib/moadian/crypto-packet.js",
+    "server/lib/moadian/index.js",
+    "server/lib/moadian/invoice-hooks.js",
+    "server/lib/moadian/queue.js",
+    "server/lib/moadian/sign.js",
+    "server/scripts/test-csp-bind-events.js",
+    "server/scripts/test-moadian-foundation.js",
+]
+
+
+def resolve_key() -> Path:
+    for p in (
+        Path.home() / ".ssh" / "id_ed25519_taranom",
+        Path(r"D:\proje\.ssh\id_ed25519_taranom"),
+        ROOT.parent / ".ssh" / "id_ed25519_taranom",
+    ):
+        if p.is_file():
+            return p
+    raise SystemExit("SSH key missing")
+
+
+def stamp_hash() -> str:
+    return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True).strip()
+
+
+def run(c, cmd, timeout=300):
+    print("==>", cmd[:280])
+    _i, o, e = c.exec_command(cmd, timeout=timeout, get_pty=True)
+    out = o.read().decode("utf-8", "replace")
+    err = e.read().decode("utf-8", "replace")
+    code = o.channel.recv_exit_status()
+    text = (out + err).strip()
+    print(text[-6000:] if len(text) > 6000 else text)
+    print("EXIT", code)
+    return code, text
+
+
+def ensure_dirs(sftp, remote_file: str) -> None:
+    parts = remote_file.split("/")[:-1]
+    cur = ""
+    for p in parts:
+        if not p:
+            continue
+        cur += "/" + p
+        try:
+            sftp.stat(cur)
+        except OSError:
+            try:
+                sftp.mkdir(cur)
+            except OSError:
+                pass
+
+
+def main() -> None:
+    missing = [rel for rel in FILES if not (ROOT / rel).is_file()]
+    if missing:
+        raise SystemExit(f"missing local files: {missing}")
+    key = resolve_key()
+    h = stamp_hash()
+    pkey = paramiko.Ed25519Key.from_private_key_file(str(key))
+    c = paramiko.SSHClient()
+    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c.connect(HOST, username=USER, pkey=pkey, timeout=45, allow_agent=False, look_for_keys=False)
+    run(c, f"cd {APP} && git rev-parse --short HEAD")
+    print("skip git pull; overlay v192 CSP+charts+moadian sandbox")
+    sftp = c.open_sftp()
+    for rel in FILES:
+        local = ROOT / rel
+        remote = f"{APP}/{rel.replace(chr(92), '/')}"
+        ensure_dirs(sftp, remote)
+        print("PUT", rel, local.stat().st_size)
+        sftp.put(str(local), remote)
+    sftp.close()
+    run(c, "cd /home/taranom/crm-taranom/server && pm2 restart erp-taranom --max-memory-restart 1024M 2>&1 | tail -12")
+    _code, _ = run(
+        c,
+        "ok=0; readyok=0; for i in 1 2 3 4 5 6 7 8 9 10; do sleep 4; "
+        "h=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/system/health || true); "
+        "r=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/system/ready || true); "
+        "echo try_$i:health=$h:ready=$r; if [ \"$h\" = \"200\" ]; then ok=1; fi; "
+        "if [ \"$r\" = \"200\" ]; then readyok=1; break; fi; done; "
+        f"grep -n erp-taranom-v {APP}/server/public/sw.js | head -1; "
+        "echo HEALTH_OK=$ok READY_OK=$readyok; test \"$ok\" = \"1\" && test \"$readyok\" = \"1\"",
+        timeout=80,
+    )
+    if _code != 0:
+        raise SystemExit("health check failed")
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    run(c, f"cd {APP} && echo {STAMP_FILE}={stamp} hash={h} > {STAMP_FILE} && cat {STAMP_FILE}", timeout=30)
+    print("DEPLOY_DONE", h)
+    c.close()
+
+
+if __name__ == "__main__":
+    main()

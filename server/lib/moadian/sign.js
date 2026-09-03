@@ -26,7 +26,7 @@ function resolveMoadianKeyPath(rawPath) {
   return resolved;
 }
 
-/** Sign-ready helper: returns stub signature when no key; never embeds path/size in client payloads. */
+/** Sign with RSA-SHA256 when a key file exists; otherwise stub signature for offline/stub adapter. */
 function signPayload(payload, opts = {}) {
   const keyPath = resolveMoadianKeyPath(opts.privateKeyPath);
   const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
@@ -38,11 +38,12 @@ function signPayload(payload, opts = {}) {
     err.code = 'MOADIAN_KEY_MISSING';
     throw err;
   }
-  // Do not load/parse PKCS here in MVP — mark ready for live adapter.
-  fs.statSync(keyPath);
+  const pem = fs.readFileSync(keyPath, 'utf8');
+  const { normalizeJson, rsaSignBase64 } = require('./crypto-packet');
+  const normalized = typeof payload === 'string' ? payload : normalizeJson(payload);
   return {
-    algorithm: 'rsa-sha256-pending',
-    signature: `PENDING-${Buffer.from(body).toString('base64url').slice(0, 24)}`,
+    algorithm: 'RSA-SHA256',
+    signature: rsaSignBase64(pem, normalized),
     keyPathPresent: true,
   };
 }

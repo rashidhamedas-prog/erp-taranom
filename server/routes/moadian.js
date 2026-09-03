@@ -28,6 +28,13 @@ function readMoadianKeyPath(db) {
   return value;
 }
 
+function adapterOpts(db) {
+  return {
+    fiscalId: getSetting(db, 'moadian_fiscal_id') || '',
+    privateKeyPath: readMoadianKeyPath(db),
+  };
+}
+
 router.get('/queue', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { status } = req.query;
@@ -77,30 +84,29 @@ router.post('/queue/:id/submit', auth, adminOnly, centralOnlyStrict, async (req,
     }
 
     const adapterSetting = getSetting(db, 'moadian_adapter') || 'stub';
-    const fiscalId = getSetting(db, 'moadian_fiscal_id') || '';
-    const keyPath = readMoadianKeyPath(db);
+    const opts = adapterOpts(db);
     const invoiceType = parseInt(inv?.moadian_invoice_type || row.invoice_type, 10) || 1;
 
     let adapter;
     try {
-      adapter = moadian.getAdapter(adapterSetting, { fiscalId, privateKeyPath: keyPath });
+      adapter = moadian.getAdapter(adapterSetting, opts);
     } catch (e) {
       return res.status(e.status || 501).json({ error: e.message, code: e.code || 'MOADIAN_ADAPTER' });
     }
 
     const payload = moadian.buildSalesPayload(inv || { final: 0, rows: [] }, {
-      fiscalId,
+      fiscalId: opts.fiscalId,
       invoiceType,
     });
-    const signed = moadian.signPayload(payload, { privateKeyPath: keyPath || undefined });
+    const signed = moadian.signPayload(payload, { privateKeyPath: opts.privateKeyPath || undefined });
 
     let result;
     try {
       result = await adapter.submit({
         payload,
         signed,
-        fiscalId,
-        privateKeyPath: keyPath,
+        fiscalId: opts.fiscalId,
+        privateKeyPath: opts.privateKeyPath,
       });
     } catch (e) {
       moadian.markFailed(db, row.id, e.message);
@@ -108,28 +114,133 @@ router.post('/queue/:id/submit', auth, adminOnly, centralOnlyStrict, async (req,
     }
 
     const usedAdapter = result.adapter || adapterSetting;
-    // Tax stamp is central-authority-only (this route is centralOnlyStrict).
-    // Stub/sandbox may stamp with explicit adapter; live is rejected above.
-    moadian.markSent(db, row.id, result.taxId, result.response);
+    const isSandbox = usedAdapter === 'sandbox' || usedAdapter === 'sandbox-offline' || usedAdapter === 'stub';
+    if (isSandbox) {
+      moadian.markTestSent(db, row.id, result.taxId, result.response);
+    } else {
+      moadian.markSent(db, row.id, result.taxId, result.response);
+    }
     db.prepare('UPDATE moadian_queue SET invoice_type=?, adapter=? WHERE id=?')
       .run(invoiceType, usedAdapter, row.id);
 
     if (inv) {
+      const invStatus = isSandbox ? 'test_sent' : 'sent';
       db.prepare('UPDATE invoices SET moadian_tax_id=?, moadian_status=? WHERE id=?')
-        .run(result.taxId, 'sent', inv.id);
+        .run(result.taxId, invStatus, inv.id);
     }
     audit(req.user.id, 'moadian_submit', 'moadian_queue', req.params.id, result.taxId);
     res.json({
       success: true,
       data: {
         tax_id: result.taxId,
-        status: 'sent',
+        status: isSandbox ? 'test_sent' : 'sent',
         invoice_type: invoiceType,
         adapter: usedAdapter,
+        response: result.response || null,
       },
     });
   } catch (e) {
     res.status(400).json({ error: e.message });
+  }
+});
+
+/** Ping official tax endpoint (sandbox or live) — no invoice stamp. */
+router.post('/ping', auth, adminOnly, centralOnlyStrict, async (req, res) => {
+  try {
+    const db = getDB();
+    const env = String(req.body?.env || getSetting(db, 'moadian_adapter') || 'sandbox').toLowerCase();
+    const target = env === 'live' ? 'live' : 'sandbox';
+    const info = await moadian.client.getServerInformation(target);
+    audit(req.user.id, 'moadian_ping', 'moadian', null, target);
+    res.json({
+      success: true,
+      data: {
+        ok: !!info.ok,
+        env: target,
+        base: info.base,
+        httpStatus: info.status,
+        hasServerKey: !!(info.serverKey && (info.serverKey.pem || info.serverKey.id)),
+        message: info.ok
+          ? (target === 'sandbox' ? 'ارتباط با سندباکس مودیان برقرار است' : 'ارتباط با سرور عملیاتی مودیان برقرار است')
+          : 'پاسخ ناموفق از سرور مودیان',
+      },
+    });
+  } catch (e) {
+    res.status(422).json({ error: e.message, code: e.code || 'MOADIAN_PING_FAILED' });
+  }
+});
+
+/**
+ * Experimental invoice send to sandbox (ارسال آزمایشی) without requiring queue row lock rules of live.
+ * Body: { queue_id?: number, invoice_id?: number }
+ */
+router.post('/test-send', auth, adminOnly, centralOnlyStrict, async (req, res) => {
+  try {
+    const db = getDB();
+    const opts = adapterOpts(db);
+    if (!opts.fiscalId) {
+      return res.status(422).json({ error: 'شناسه حافظه مالیاتی را در تنظیمات مودیان وارد کنید', code: 'MOADIAN_FISCAL_REQUIRED' });
+    }
+    if (!opts.privateKeyPath) {
+      return res.status(422).json({ error: 'مسیر کلید خصوصی مودیان تنظیم نشده', code: 'MOADIAN_KEY_REQUIRED' });
+    }
+
+    let inv = null;
+    let queueId = req.body?.queue_id ? Number(req.body.queue_id) : null;
+    if (queueId) {
+      const row = db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(queueId);
+      if (!row) return res.status(404).json({ error: 'ردیف صف یافت نشد' });
+      inv = db.prepare('SELECT i.*, c.national_id, c.economic_code, c.biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(row.doc_id);
+    } else if (req.body?.invoice_id) {
+      inv = db.prepare('SELECT i.*, c.national_id, c.economic_code, c.biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(Number(req.body.invoice_id));
+      if (!inv) return res.status(404).json({ error: 'فاکتور یافت نشد' });
+      queueId = moadian.enqueueMoadian(db, 'sales', inv.id)
+        || db.prepare('SELECT id FROM moadian_queue WHERE doc_type=? AND doc_id=?').get('sales', inv.id)?.id;
+    } else {
+      return res.status(400).json({ error: 'queue_id یا invoice_id الزامی است' });
+    }
+
+    const invoiceType = parseInt(inv?.moadian_invoice_type || 1, 10) || 1;
+    const payload = moadian.buildSalesPayload(inv || { final: 0, rows: [] }, {
+      fiscalId: opts.fiscalId,
+      invoiceType,
+    });
+    const signed = moadian.signPayload(payload, { privateKeyPath: opts.privateKeyPath });
+    const adapter = moadian.getAdapter('sandbox', opts);
+    let result;
+    try {
+      result = await adapter.submit({
+        payload,
+        signed,
+        fiscalId: opts.fiscalId,
+        privateKeyPath: opts.privateKeyPath,
+      });
+    } catch (e) {
+      if (queueId) moadian.markFailed(db, queueId, e.message);
+      return res.status(422).json({ error: e.message, code: e.code || 'MOADIAN_TEST_SEND_FAILED', extra: e.extra || null });
+    }
+
+    if (queueId) {
+      moadian.markTestSent(db, queueId, result.taxId, result.response);
+      db.prepare('UPDATE moadian_queue SET invoice_type=?, adapter=? WHERE id=?').run(invoiceType, 'sandbox', queueId);
+    }
+    if (inv) {
+      db.prepare('UPDATE invoices SET moadian_tax_id=?, moadian_status=? WHERE id=?')
+        .run(result.taxId, 'test_sent', inv.id);
+    }
+    audit(req.user.id, 'moadian_test_send', 'moadian_queue', queueId, result.taxId);
+    res.json({
+      success: true,
+      data: {
+        tax_id: result.taxId,
+        status: 'test_sent',
+        adapter: 'sandbox',
+        queue_id: queueId,
+        response: result.response || null,
+      },
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message, code: e.code || 'MOADIAN_TEST_SEND' });
   }
 });
 

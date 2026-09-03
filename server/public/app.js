@@ -6208,9 +6208,9 @@ async function loadReports(){
       ${statCard('b','📥',(summary.collection_rate!=null?fmt(summary.collection_rate):'—')+'٪','نرخ وصول کل (زنده)')}
     </div>
     <div class="panel"><div class="panel-head"><h4>نمودار فروش ماهانه</h4></div>
-      <div class="panel-body"><canvas id="repChart" height="110"></canvas></div></div>
+      <div class="panel-body"><div class="crm-chart-box"><canvas id="repChart"></canvas></div></div></div>
     <div class="panel"><div class="panel-head"><h4>سهم کارشناسان از فروش</h4></div>
-      <div class="panel-body"><canvas id="repShareChart" height="110"></canvas></div></div>
+      <div class="panel-body"><div class="crm-chart-box"><canvas id="repShareChart"></canvas></div></div></div>
     <div class="panel"><div class="panel-head"><h4>مقایسه کارشناسان فروش</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
         <th>کارشناس</th><th>نقش</th><th>مشتریان</th><th>سفارشات</th><th>فروش</th><th>بدهی</th><th>پیگیری باز</th><th>فاکتور</th></tr></thead>
@@ -6242,7 +6242,7 @@ async function drawChart(monthly, sales){
       {type:'bar',label:'فروش (ریال)',data:(monthly||[]).map(m=>m.revenue),backgroundColor:th.bar,borderRadius:6,yAxisID:'y'},
       {type:'line',label:'تعداد فاکتور',data:(monthly||[]).map(m=>m.orders),borderColor:'#C9A843',backgroundColor:'transparent',tension:.3,yAxisID:'y1'}
     ]
-  },options:{responsive:true,plugins:{legend:{labels:{font:{family:'Vazirmatn'},color:th.ticks}}},
+  },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{family:'Vazirmatn'},color:th.ticks}}},
     scales:{
       x:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks}},
       y:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks,callback:v=>fmt(v)}},
@@ -6255,7 +6255,7 @@ async function drawChart(monthly, sales){
     mShareChart=new Chart(share,{type:'doughnut',data:{
       labels:rows.map(s=>s.name),
       datasets:[{data:rows.map(s=>s.revenue),backgroundColor:['#1A5C38','#2E7D4F','#C9A843','#059669','#2563EB','#D97706','#7C3AED','#DC2626']}]
-    },options:{responsive:true,plugins:{legend:{position:'right',labels:{font:{family:'Vazirmatn'},color:th.ticks}}}}});
+    },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{family:'Vazirmatn'},color:th.ticks}}}}});
   }
 }
 
@@ -9370,31 +9370,90 @@ async function renderPartyTurnoverReport(box){
 async function renderMoadianTab(body){
   const queue=await api('GET','/moadian/queue')||{};
   const settings=await api('GET','/moadian/settings')||{};
+  const s=settings.data||{};
   const rows=queue.data||[];
+  const adapter=s.moadian_adapter||'stub';
   body.innerHTML=`
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
-      <label class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">فعال‌سازی مودیان:
-        <select id="moadianEn" data-csp-style="${CSP.style(`padding:6px 8px;border-radius:6px`)}">
-          <option value="0" ${settings.data?.moadian_enabled!=='1'?'selected':''}>خاموش</option>
-          <option value="1" ${settings.data?.moadian_enabled==='1'?'selected':''}>روشن</option>
-        </select>
-      </label>
-      <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){saveMoadianSettings()})}">💾 ذخیره تنظیمات</button>
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+      <div class="panel-head"><h4>تنظیمات اتصال مودیان</h4></div>
+      <div class="panel-body">
+        <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">
+          ارسال آزمایشی روی سندباکس رسمی سازمان امور مالیاتی:
+          <span class="mono" dir="ltr">sandboxrc.tax.gov.ir</span>
+          — برای تست واقعی به شناسه حافظه + کلید خصوصی RSA نیاز است.
+        </div>
+        <div class="form-grid">
+          <div class="fg"><label>فعال‌سازی صف</label>
+            <select id="moadianEn">
+              <option value="0" ${s.moadian_enabled!=='1'?'selected':''}>خاموش</option>
+              <option value="1" ${s.moadian_enabled==='1'?'selected':''}>روشن</option>
+            </select>
+          </div>
+          <div class="fg"><label>آداپتر</label>
+            <select id="moadianAd">
+              <option value="stub" ${adapter==='stub'?'selected':''}>stub (محلی بدون HTTP)</option>
+              <option value="sandbox" ${adapter==='sandbox'?'selected':''}>sandbox — ارسال آزمایشی رسمی</option>
+              <option value="live" ${adapter==='live'?'selected':''}>live — سرور عملیاتی</option>
+            </select>
+          </div>
+          <div class="fg"><label>شناسه حافظه مالیاتی</label>
+            <input id="moadianFid" dir="ltr" class="mono" value="${esc(s.moadian_fiscal_id||'')}" placeholder="Fiscal ID">
+          </div>
+          <div class="fg"><label>مسیر کلید خصوصی (روی سرور)</label>
+            <input id="moadianKey" dir="ltr" class="mono" value="${esc(s.moadian_private_key_path||'')}" placeholder="/home/taranom/secrets/moadian.pem">
+          </div>
+        </div>
+        <div class="toolbar" data-csp-style="${CSP.style(`margin-top:10px;gap:8px;flex-wrap:wrap`)}">
+          <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){saveMoadianSettings()})}">💾 ذخیره تنظیمات</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){pingMoadian()})}">🔌 آزمایش اتصال</button>
+        </div>
+        <div id="moadianPingOut" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}"></div>
+      </div>
     </div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">صف ارسال فاکتورهای رسمی — اتصال SDK واقعی در فاز بعدی</div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>فاکتور</th><th>مشتری</th><th>مبلغ</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+    <div class="panel-head" data-csp-style="${CSP.style(`margin-bottom:8px`)}"><h4>صف ارسال</h4></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>فاکتور</th><th>مشتری</th><th>مبلغ</th><th>وضعیت</th><th>آداپتر</th><th>عملیات</th></tr></thead>
     <tbody>${rows.map(r=>`<tr>
       <td class="mono">${esc(r.invoice_num||r.doc_id)}</td><td>${esc(r.cust_biz||'-')}</td>
       <td class="mono">${fmt(r.final||0)}</td><td>${esc(r.status||'-')}</td>
-      <td>${r.status==='pending'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){submitMoadian((r.id))})}">ارسال</button>`:'-'}</td>
-    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+      <td class="mono">${esc(r.adapter||'-')}</td>
+      <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+        ${(r.status==='pending'||r.status==='failed'||r.status==='test_sent')?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){submitMoadian((r.id))})}">ارسال</button>`:''}
+        ${(r.status==='pending'||r.status==='failed')?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){testSendMoadian((r.id))})}">ارسال آزمایشی</button>`:''}
+      </td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
 }
 async function saveMoadianSettings(){
-  await api('PUT','/moadian/settings',{moadian_enabled:el('moadianEn').value});
+  await api('PUT','/moadian/settings',{
+    moadian_enabled:el('moadianEn').value,
+    moadian_adapter:el('moadianAd').value,
+    moadian_fiscal_id:el('moadianFid').value.trim(),
+    moadian_private_key_path:el('moadianKey').value.trim()
+  });
   showToast('تنظیمات مودیان ذخیره شد');
+  loadAccTab('moadian');
+}
+async function pingMoadian(){
+  const out=el('moadianPingOut');
+  if(out) out.textContent='در حال تماس با سرور مودیان...';
+  try{
+    const env=el('moadianAd')?.value==='live'?'live':'sandbox';
+    const r=await api('POST','/moadian/ping',{env});
+    if(out) out.textContent=(r?.data?.message||'OK')+' · HTTP '+(r?.data?.httpStatus??'?')+(r?.data?.hasServerKey?' · کلید عمومی سرور دریافت شد':'');
+    showToast(r?.data?.ok?'اتصال برقرار است':'پاسخ ناموفق');
+  }catch(e){
+    if(out) out.textContent=e.message||'خطا';
+  }
 }
 async function submitMoadian(id){
-  try{ await api('POST','/moadian/queue/'+id+'/submit',{}); showToast('ارسال آزمایشی انجام شد'); loadAccTab('moadian'); }catch(e){}
+  try{ await api('POST','/moadian/queue/'+id+'/submit',{}); showToast('ارسال انجام شد'); loadAccTab('moadian'); }catch(e){}
+}
+async function testSendMoadian(id){
+  if(!confirm('ارسال آزمایشی به سندباکس رسمی مودیان انجام شود؟ (مهر عملیاتی نیست)')) return;
+  try{
+    const r=await api('POST','/moadian/test-send',{queue_id:id});
+    showToast('آزمایشی: '+(r?.data?.tax_id||'OK'));
+    loadAccTab('moadian');
+  }catch(e){}
 }
 async function renderFixedAssetsTab(body){
   const rows=await api('GET','/fixed-assets')||[];
@@ -19706,7 +19765,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <p>لایسنس آفلاین با امضای <b>Ed25519</b> فعال می‌شود (API مدیریتی <code>/api/license</code>). پس از انقضا و پایان دورهٔ مهلت (grace)، سامانه به حالت <b>فقط‌خواندنی</b> می‌رود — داده‌های مشتری هرگز حذف نمی‌شوند. کلید عمومی تأیید در تنظیمات ذخیره می‌شود؛ کلید خصوصی امضا هرگز در سرور مشتری قرار نمی‌گیرد.</p>`),
     helpSec('🧭','موج یک — انطباق و ظرفیت',`
       <ul>
-        <li><b>مودیان:</b> صف ارسال فقط روی سرور مرکزی (stub/sandbox؛ live خاموش تا SDK واقعی). فاکتور با مهر مالیاتی قفل ویرایش و ابطال محلی است</li>
+        <li><b>مودیان:</b> صف ارسال روی سرور مرکزی؛ آداپتر stub (محلی)، sandbox (HTTP به sandboxrc.tax.gov.ir — ارسال آزمایشی)، یا live (tp.tax.gov.ir). دکمه «آزمایش اتصال» و «ارسال آزمایشی»؛ وضعیت test_sent قفل قانونی فاکتور نیست</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
         <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. در فاکتور اگر کالا ماتریس داشته باشد، پنجرهٔ انتخاب رنگ/سایز باز می‌شود. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
         <li><b>صفحه‌بندی:</b> لیست کالاها در حسابداری با <code>limit</code> لود می‌شود و پاسخ envelope را UI باز می‌کند؛ بدون پارامتر page/limit کاتالوگ کامل است</li>

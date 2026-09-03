@@ -6,6 +6,8 @@ const { signPayload } = require('./sign');
 const queue = require('./queue');
 const hooks = require('./invoice-hooks');
 const schemaSql = require('./schema-sql');
+const client = require('./client');
+const cryptoPacket = require('./crypto-packet');
 
 module.exports = {
   getAdapter,
@@ -14,4 +16,6 @@ module.exports = {
   ...queue,
   ...hooks,
   schemaSql,
+  client,
+  cryptoPacket,
 };

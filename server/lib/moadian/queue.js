@@ -1,6 +1,6 @@
 'use strict';
 
-const VALID = new Set(['pending', 'sent', 'failed', 'cancelled']);
+const VALID = new Set(['pending', 'sent', 'failed', 'cancelled', 'test_sent']);
 
 function readSetting(db, key, fallback = '') {
   try {
@@ -92,11 +92,24 @@ function markSent(db, queueId, taxId, responseObj) {
   return db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(queueId);
 }
 
+/** Sandbox / experimental send — does not lock invoice like live stamp. */
+function markTestSent(db, queueId, taxId, responseObj) {
+  const row = db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(queueId);
+  if (!row) throw new Error('صف مودیان یافت نشد');
+  db.prepare(`
+    UPDATE moadian_queue SET status='test_sent', tax_id=?, sent_at=strftime('%s','now'), response_json=?, last_error=NULL
+    WHERE id=?
+  `).run(taxId, JSON.stringify(responseObj || {}), queueId);
+  appendStatusNote(db, queueId, row.status, 'test_sent', taxId);
+  return db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(queueId);
+}
+
 module.exports = {
   enqueueMoadian,
   transitionStatus,
   markFailed,
   markSent,
+  markTestSent,
   computeNextRetryAt,
   VALID,
 };

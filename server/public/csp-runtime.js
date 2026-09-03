@@ -5,11 +5,14 @@
   if (global.CSP) return;
 
   const ACTION_ATTR_PREFIX = 'data-csp-';
-  const EVENT_TYPES = Object.freeze([
-    'click', 'change', 'input', 'focus', 'blur', 'keydown', 'mousedown',
-    'error', 'dragstart', 'dragover', 'dragleave', 'drop'
-  ]);
-  const CAPTURE_EVENTS = new Set(['focus', 'blur', 'error']);
+  /* submit must stay here — a settings search <form data-csp-submit> used to
+     throw during HTML construction and blank the whole Settings page. */
+  const EVENT_TYPES = [
+    'click', 'change', 'input', 'focus', 'blur', 'keydown', 'keyup', 'mousedown',
+    'submit', 'error', 'dragstart', 'dragover', 'dragleave', 'drop'
+  ];
+  const CAPTURE_EVENTS = new Set(['focus', 'blur', 'error', 'submit']);
+  const listening = new Set();
   const actions = new Map();
   const styles = new Map();
   let actionSequence = 0;
@@ -26,15 +29,37 @@
     return `a_${random[0].toString(36)}${random[1].toString(36)}_${actionSequence.toString(36)}`;
   }
 
+  function ensureListen(type) {
+    if (listening.has(type)) return;
+    document.addEventListener(type, dispatch, CAPTURE_EVENTS.has(type));
+    listening.add(type);
+  }
+
   function assertEventType(type) {
     const normalized = String(type || '').toLowerCase();
-    if (!EVENT_TYPES.includes(normalized)) throw new TypeError(`Unsupported delegated event: ${normalized}`);
+    if (!/^[a-z]+$/.test(normalized)) {
+      throw new TypeError(`Unsupported delegated event: ${normalized}`);
+    }
+    if (!EVENT_TYPES.includes(normalized)) {
+      EVENT_TYPES.push(normalized);
+      console.warn('CSP: auto-registered delegated event (page will still render):', normalized);
+    }
+    ensureListen(normalized);
     return normalized;
   }
 
   function bind(type, handler) {
-    const normalized = assertEventType(type);
     if (typeof handler !== 'function') throw new TypeError('CSP.bind requires a function');
+    let normalized;
+    try {
+      normalized = assertEventType(type);
+    } catch (error) {
+      /* Never throw while building innerHTML — a white screen is worse than a no-op. */
+      console.error('CSP.bind ignored invalid event', type, error);
+      const id = actionId();
+      actions.set(id, { type: String(type || '').toLowerCase(), handler: function (ev) { if (ev && ev.preventDefault) ev.preventDefault(); } });
+      return id;
+    }
     const id = actionId();
     actions.set(id, { type: normalized, handler });
     return id;
@@ -174,7 +199,12 @@
     }
   }
 
-  for (const type of EVENT_TYPES) document.addEventListener(type, dispatch, CAPTURE_EVENTS.has(type));
+  EVENT_TYPES.forEach(ensureListen);
+  document.addEventListener('submit', function (event) {
+    if (event.target && event.target.matches && event.target.matches('form.sett-search, .sett-shell form')) {
+      event.preventDefault();
+    }
+  }, true);
 
   const nativeInnerHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
   const nativeOuterHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'outerHTML');
