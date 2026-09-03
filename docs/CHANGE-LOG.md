@@ -23,7 +23,7 @@
 - **طاقه:** انبار ردیف = انبار طاقه؛ موجودی از متر زنده دسته است نه `products.stock` انبار محصول (ریشهٔ «موجودی کافی نیست» با نمایش ۱۰۰ متر)
 - **UX فاکتور:** هشدار موجودی منفی، فی با جداکننده هزارگان، رنگ/سایز یک‌خط + کلیک جزئیات، چاپ دو مرحله‌ای نوع→قالب
 - **فایل‌ها:** `server/public/{app.js,app.css,sw.js,index.html,csp-runtime.js}`، `server/lib/{sales-document,customer-books,void-invoice,invoice-print,product-variants/service}.js`، `server/routes/{invoices,purchases,accounting,admin,notifications,product-variants}.js`، `server/scripts/test-invoice-ux-v193.js`
-- **Deploy:** ⏳
+- **Deploy:** ✅ Iran overlay SFTP @ `6d096a4` -- health/ready 200; SW `erp-taranom-v193`
 - **SW:** `erp-taranom-v193`
 
 ### ۱۴۰۵/۰۶/۱۳ — CSP ریشه‌ای + نمودار گزارشات + مودیان سندباکس (SW v192)
