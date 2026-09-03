@@ -24,7 +24,7 @@
 - **تنظیمات:** پاک‌سازی `sett-q` هنگام تعویض تب + `autocomplete=off`
 - **فایل‌ها:** `server/public/{app.js,prod-ui.css,index.html,sw.js,acc-nav.js}`، `server/lib/production/cutting.js`، `server/scripts/test-erp2-prod-ux-v187.js`
 - **تست:** `node --check app.js` ✅ · `test-erp2-prod-ux-v187.js` (SQLite روی Node 24 ممکن است ABI خطا بدهد)
-- **Deploy:** ⏳
+- **Deploy:** ✅ ایران overlay SFTP @ `061f86e` — health/ready/root 200؛ SW `erp-taranom-v187`
 - **SW:** `erp-taranom-v187`
 
 ### ۱۴۰۵/۰۶/۱۲ — برگشت چک اول دوره به صورت‌حساب مشتری (SW v186)
