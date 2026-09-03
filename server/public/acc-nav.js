@@ -70,7 +70,7 @@ const ACC_TAB_RESOLVE = {
   'acc-journal-book': 'journal-docs',
   'acc-invoice-list-tax': 'moadian',
   'acc-reconciliation': 'adv-reports',
-  'acc-production': 'production',
+  'acc-production': 'production-dashboard',
   'acc-production-orders': 'production-orders',
   'acc-production-boms': 'production-boms',
   'acc-production-dashboard': 'production-dashboard',
@@ -271,11 +271,11 @@ const ACC_NAV_SECTIONS = [
     ]},
     { title: 'عملیات', items: [
       { id: 'acc-production-dashboard', icon: '📊', label: 'داشبورد تولید' },
-      { id: 'acc-production-estimate', icon: '🧮', label: 'برآورد سریع' },
-      { id: 'acc-production-mrp', icon: '📦', label: 'برنامه‌ریزی مواد (MRP)' },
       { id: 'acc-production-orders', icon: '🏭', label: 'سفارش‌های تولید' },
       { id: 'acc-cutting-lays', icon: '✂️', label: 'لایه‌چینی / رسید برش' },
       { id: 'acc-production-kanban', icon: '📋', label: 'تابلوی خط' },
+      { id: 'acc-production-estimate', icon: '🧮', label: 'برآورد سریع' },
+      { id: 'acc-production-mrp', icon: '📦', label: 'برنامه‌ریزی مواد (MRP)' },
       { id: 'acc-production-close', icon: '🔒', label: 'بستن دوره' },
     ]},
     { title: 'گزارشات', items: [

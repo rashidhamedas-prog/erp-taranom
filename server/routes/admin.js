@@ -274,6 +274,11 @@ router.get('/audit', auth, adminOnly, (req, res) => {
     const b = jalaliDayBounds(req.query.date_to);
     if (b) { where.push('a.created_at<=?'); params.push(b.end); }
   }
+  if (req.query.action) { where.push('a.action=?'); params.push(req.query.action); }
+  if (req.query.deleted_only === '1') {
+    where.push(`(a.action IN ('delete','reverse','void','reject','cancel')
+      OR a.action LIKE '%void%' OR a.action LIKE '%delete%' OR a.action LIKE '%reverse%')`);
+  }
   if (req.query.from) { where.push('a.created_at>=?'); params.push(parseInt(req.query.from)); }
   if (req.query.to) { where.push('a.created_at<=?'); params.push(parseInt(req.query.to)); }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';

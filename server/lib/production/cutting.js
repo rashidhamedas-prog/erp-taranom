@@ -45,19 +45,56 @@ function classifyWasteMeters(started, wNormal, wAbnormal, allowedPct) {
   return { wN: round6(wN), wA: round6(wA), allowed, autoReclass };
 }
 
-function requireRawWarehouse(db, warehouseId) {
-  const id = warehouseId
-    ? Number(warehouseId)
-    : Number(setting(db, 'production_wh_raw_id', '0')) || 0;
-  const wh = id
-    ? db.prepare('SELECT * FROM warehouses WHERE id=?').get(id)
-    : db.prepare("SELECT * FROM warehouses WHERE code='WH-RAW' LIMIT 1").get();
-  if (!wh) throw httpErr(400, 'انبار مواد اولیه یافت نشد', 'E_CUT_WH');
+function isRawWarehouseRow(wh) {
+  if (!wh) return false;
   const code = String(wh.code || '');
   const type = String(wh.warehouse_type || wh.kind || '');
-  const isRaw = code === 'WH-RAW' || type === 'raw_material' || type === 'raw';
-  if (!isRaw) throw httpErr(400, 'لایه‌چینی فقط روی انبار مواد اولیه است', 'E_CUT_WH_RAW');
-  return wh;
+  return code === 'WH-RAW' || type === 'raw_material' || type === 'raw';
+}
+
+function loadWarehouse(db, id) {
+  if (!id) return null;
+  return db.prepare('SELECT * FROM warehouses WHERE id=?').get(Number(id)) || null;
+}
+
+/** Resolve raw warehouse: explicit id → selected rolls → live setting → WH-RAW → any raw_material. */
+function requireRawWarehouse(db, warehouseId, rollWarehouseIds) {
+  const assertRaw = (wh, missingOk) => {
+    if (!wh) {
+      if (missingOk) return null;
+      throw httpErr(400, 'انبار مواد اولیه یافت نشد', 'E_CUT_WH');
+    }
+    if (!isRawWarehouseRow(wh)) throw httpErr(400, 'لایه‌چینی فقط روی انبار مواد اولیه است', 'E_CUT_WH_RAW');
+    return wh;
+  };
+
+  if (warehouseId) return assertRaw(loadWarehouse(db, warehouseId), false);
+
+  const unique = [...new Set((rollWarehouseIds || []).map(Number).filter(Boolean))];
+  if (unique.length > 1) throw httpErr(400, 'طاقه‌ها باید از یک انبار مواد باشند', 'E_CUT_ROLL_WH');
+  if (unique.length === 1) {
+    const fromRoll = assertRaw(loadWarehouse(db, unique[0]), false);
+    if (fromRoll) return fromRoll;
+  }
+
+  const settingId = Number(setting(db, 'production_wh_raw_id', '0')) || 0;
+  const fromSetting = settingId ? loadWarehouse(db, settingId) : null;
+  if (fromSetting && isRawWarehouseRow(fromSetting)) return fromSetting;
+
+  const byCode = db.prepare("SELECT * FROM warehouses WHERE code='WH-RAW' LIMIT 1").get();
+  if (byCode && isRawWarehouseRow(byCode)) return byCode;
+
+  const anyRaw = db.prepare(`
+    SELECT * FROM warehouses
+    WHERE COALESCE(is_active,1)=1
+      AND (
+        code='WH-RAW'
+        OR COALESCE(warehouse_type,'') IN ('raw_material','raw')
+        OR COALESCE(kind,'') IN ('raw_material','raw')
+      )
+    LIMIT 1
+  `).get();
+  return assertRaw(anyRaw, false);
 }
 
 function requireFgWarehouse(db, warehouseId) {
@@ -391,12 +428,12 @@ function postCuttingLay(db, body, user) {
   if (existing) return getCuttingLay(db, existing.id);
 
   const plan = planCutting(db, body);
-  const wh = requireRawWarehouse(db, body.warehouse_id);
   const rollsIn = Array.isArray(body.rolls) ? body.rolls : [];
   if (!rollsIn.length) throw httpErr(400, 'حداقل یک طاقه انتخاب کنید', 'E_CUT_ROLLS');
 
   let rollSum = 0;
   const prepared = [];
+  const rollWarehouseIds = [];
   for (const r of rollsIn) {
     const batchId = Number(r.batch_id);
     const meters = Number(r.meters);
@@ -406,6 +443,15 @@ function postCuttingLay(db, body, user) {
     if (batch.status === 'reversed' || batch.status === 'empty') {
       throw httpErr(409, 'این طاقه قابل مصرف نیست', 'E_CUT_ROLL_STATUS');
     }
+    if (Number(batch.warehouse_id)) rollWarehouseIds.push(Number(batch.warehouse_id));
+    prepared.push({ batch, meters: round6(meters), _metersIn: meters });
+  }
+
+  const wh = requireRawWarehouse(db, body.warehouse_id, rollWarehouseIds);
+
+  for (const item of prepared) {
+    const batch = item.batch;
+    const meters = item._metersIn;
     if (Number(batch.warehouse_id) && Number(batch.warehouse_id) !== Number(wh.id)) {
       throw httpErr(400, 'طاقه باید در انبار مواد باشد', 'E_CUT_ROLL_WH');
     }
@@ -417,12 +463,10 @@ function postCuttingLay(db, body, user) {
     }
     rollSum = round6(rollSum + meters);
     const unit = Math.round(Number(batch.unit_cost_rial) || 0);
-    prepared.push({
-      batch,
-      meters: round6(meters),
-      unit_cost_rial: unit,
-      amount_rial: assertSafeRial(Math.round(unit * meters), 'cut roll'),
-    });
+    item.meters = round6(meters);
+    item.unit_cost_rial = unit;
+    item.amount_rial = assertSafeRial(Math.round(unit * meters), 'cut roll');
+    delete item._metersIn;
   }
   if (Math.abs(rollSum - plan.actual_meters) > 0.01) {
     throw httpErr(400, 'جمع متر طاقه‌ها باید با مصرف واقعی برابر باشد', 'E_CUT_ROLL_SUM', {
@@ -778,4 +822,6 @@ module.exports = {
   voidCuttingPack,
   voidCuttingPackByLay,
   layNetWipRial,
+  requireRawWarehouse,
+  isRawWarehouseRow,
 };

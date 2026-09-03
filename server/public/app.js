@@ -3874,7 +3874,7 @@ function renderInvTable(){
     <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
     <td class="muted">${esc(i.seller_name||'-')}</td>
     <td>
-      ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProforma((i.id))})}">🔄 تبدیل به فاکتور</button>` : ''}
+      ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}">🔄 تبدیل به فاکتور</button>` : ''}
       <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}">🖨️</button>
       <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}">✏️</button>
       ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال">⛔</button>`:''}
@@ -4052,7 +4052,7 @@ async function _openInvBuilder(id){
           <div class="inv-lines-wrap" id="cartRows"></div>
           <div class="cart-tot" id="cartTot"></div>
           <button class="btn green" data-csp-style="${CSP.style(`width:100%;margin-top:12px;padding:12px;font-size:15px`)}" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">💾 ذخیره فاکتور</button>
-          ${id&&inv&&inv.type==='proforma'&&!inv.converted?`<button class="btn orange" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){convertProforma((id))})}">🔄 تبدیل به فاکتور قطعی</button>`:''}
+          ${id&&inv&&inv.type==='proforma'&&!inv.converted?`<button class="btn orange" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((id))})}">🔄 تبدیل به فاکتور قطعی</button>`:''}
         </div>
       </div>
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:10px`)}">قیمت‌ها و تخفیف ردیف‌ها قابل ویرایش هستند. سرستون‌ها راهنمای هر ستون‌اند.</p>
@@ -4216,35 +4216,44 @@ async function addToCart(pid){
   renderCart();
   renderInvPicker();
 }
-function openInvVariantSplitModal(p, pack){
+function openInvVariantSplitModal(p, pack, opts){
+  opts=opts||{};
   const rows=pack.pool.length?pack.pool:pack.matrix;
+  const qtyMap={};
+  (opts.existing||[]).forEach(r=>{ if(r.variant_id) qtyMap[String(r.variant_id)]=Number(r.qty)||0; });
+  const replaceIndices=opts.replaceIndices||null;
+  const splitConfirmBind=CSP.bind('click',function(){
+    confirmInvVariantSplit(Number(p.id), replaceIndices?{replaceIndices:replaceIndices.slice()}: {});
+  });
   openNestedModal(`
     <div class="modal-head"><h3>انتخاب رنگ / سایز — ${esc(p.name)}</h3>
       <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
     <div class="modal-body">
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">پک زنده = ${fmt(pack.pack)} عدد (رنگ‌های موجود × سایزهای موجود). تعداد هر ترکیب را وارد کنید.</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">پک زنده = ${fmt(pack.pack)} عدد (رنگ‌های موجود × سایزهای موجود). تعداد هر ترکیب را وارد کنید. روی فاکتور یک ردیف تجمیعی دیده می‌شود.</p>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>رنگ</th><th>سایز</th><th>موجودی SKU</th><th>تعداد</th></tr></thead>
       <tbody>${rows.map(v=>`<tr>
         <td>${esc(v.color_name||'—')}</td>
         <td>${esc(v.size_name||'—')}</td>
         <td class="mono">${fmt(v.stock||0)}</td>
-        <td><input type="number" min="0" step="1" value="1" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}"></td>
+        <td><input type="number" min="0" step="1" value="${qtyMap[String(v.id)]!=null?qtyMap[String(v.id)]:(opts.existing&&opts.existing.length?0:1)}" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}"></td>
       </tr>`).join('')}</tbody></table></div>
     </div>
     <div class="modal-foot">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(){confirmInvVariantSplit((Number(p.id)))})}">افزودن به فاکتور</button>
+      <button class="btn" data-csp-click="${splitConfirmBind}">${replaceIndices?'اعمال روی فاکتور':'افزودن به فاکتور'}</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button>
     </div>`);
 }
-function confirmInvVariantSplit(pid){
+function confirmInvVariantSplit(pid, opts){
+  opts=opts||{};
   const p=findInvProduct(pid);
   if(!p){ closeNestedModal(); return; }
   const inputs=[...document.querySelectorAll('.inv-var-qty')];
   let added=0;
+  const next=[];
   inputs.forEach(inp=>{
     const qty=Math.max(0, Number(inp.value)||0);
     if(!qty) return;
-    addCartRow(p, {
+    next.push({
       qty,
       variant_id: Number(inp.getAttribute('data-vid'))||null,
       color_id: Number(inp.getAttribute('data-cid'))||null,
@@ -4256,6 +4265,11 @@ function confirmInvVariantSplit(pid){
     added++;
   });
   if(!added){ showToast('حداقل برای یک رنگ/سایز تعداد وارد کنید','error'); return; }
+  if(Array.isArray(opts.replaceIndices) && opts.replaceIndices.length){
+    const drop=opts.replaceIndices.slice().sort((a,b)=>b-a);
+    drop.forEach(i=>{ if(i>=0&&i<invCart.length) invCart.splice(i,1); });
+  }
+  next.forEach(row=>addCartRow(p, row));
   closeNestedModal();
   renderCart();
   renderInvPicker();
@@ -4318,6 +4332,60 @@ function invSyncHeaderDisc(src, discPctId, discAmtId){
     pctEl.value=subtotal>0?Math.min(100,Math.round(amt*10000/subtotal)/100):0;
   }
 }
+function invCartGroupKey(r){
+  return [Number(r.product_id)||0, Number(r.price)||0, Number(r.warehouse_id)||0, Number(r.disc)||0, Number(r.disc_amount)||0].join('|');
+}
+function invCartGroups(){
+  const groups=[];
+  const seen=new Array(invCart.length).fill(false);
+  for(let i=0;i<invCart.length;i++){
+    if(seen[i]) continue;
+    const r=invCart[i];
+    const isPack=!!r.variant_id && !r.batch_id && !r.is_fabric_roll && r.row_type!=='income';
+    if(!isPack){
+      groups.push({kind:'single', indices:[i]});
+      seen[i]=true;
+      continue;
+    }
+    const key=invCartGroupKey(r);
+    const indices=[i];
+    seen[i]=true;
+    for(let j=i+1;j<invCart.length;j++){
+      if(seen[j]) continue;
+      const o=invCart[j];
+      if(!o.variant_id || o.batch_id || o.is_fabric_roll || o.row_type==='income') continue;
+      if(invCartGroupKey(o)===key){ indices.push(j); seen[j]=true; }
+    }
+    groups.push({kind:'pack', indices});
+  }
+  return groups;
+}
+function invPackSummary(indices){
+  const parts=indices.map(i=>{
+    const r=invCart[i]; if(!r) return '';
+    const label=[r.color_name||r.color, r.size_name].filter(Boolean).join(' / ');
+    return (label||'SKU')+' × '+fmt(r.qty);
+  }).filter(Boolean);
+  return parts.join('، ');
+}
+async function editInvCartPack(indices){
+  const rows=indices.map(i=>invCart[i]).filter(Boolean);
+  if(!rows.length) return;
+  const p=findInvProduct(rows[0].product_id);
+  if(!p){ showToast('کالا یافت نشد','error'); return; }
+  let style=null;
+  try{ style=await api('GET','/product-variants/style/'+Number(p.id)); }catch(_){ style=null; }
+  const pack=livePackFromStyle(style);
+  if(!pack.matrix.length && !pack.pool.length){ showToast('ماتریس رنگ/سایز برای این کالا نیست','error'); return; }
+  openInvVariantSplitModal(p, pack, { existing: rows, replaceIndices: indices });
+}
+function removeInvCartGroup(indices){
+  indices.slice().sort((a,b)=>b-a).forEach(i=>{ if(i>=0 && i<invCart.length) invCart.splice(i,1); });
+  renderCart(); renderInvPicker();
+}
+function invApplyGroupField(indices, field, value){
+  indices.forEach(i=>{ if(invCart[i]) invCart[i][field]=value; });
+}
 function renderCart(){
   const showLineDisc=canAccounting();
   const hideWhCol=typeof isRepRole==='function' && isRepRole(ME?.role);
@@ -4325,36 +4393,61 @@ function renderCart(){
   if(hideWhCol && defWh){
     invCart.forEach(r=>{ if(r.row_type!=='income') r.warehouse_id=defWh; });
   }
-  const countEl=el('invCartCount'); if(countEl) countEl.textContent=fmt(invCart.length)+' ردیف';
+  const groups=invCartGroups();
+  const countEl=el('invCartCount'); if(countEl) countEl.textContent=fmt(groups.length)+' ردیف · '+fmt(invCart.length)+' SKU';
   const colSpan=showLineDisc?(hideWhCol?7:8):(hideWhCol?5:6);
   if(!invCart.length){
     el('cartRows').innerHTML=`<div class="inv-lines-empty">سبد خالی است — از فهرست کالا یک قلم اضافه کنید</div>`;
   } else {
     el('cartRows').innerHTML = `<table class="inv-lines-tbl"><thead><tr>
       <th>کالا / خدمت</th>
-      <th class="col-qty">تعداد</th>
+      <th class="col-qty">تعداد قطعه</th>
       <th class="col-price">فی (ریال)</th>
       ${showLineDisc?`<th class="col-disc">تخفیف ٪</th><th class="col-disc-amt">تخفیف مبلغ</th>`:''}
       ${hideWhCol?'':`<th class="col-wh">انبار</th>`}
       <th class="col-sum">جمع ردیف</th>
       <th class="col-rm"></th>
-    </tr></thead><tbody>${invCart.map((r,i)=>{
+    </tr></thead><tbody>${groups.map(g=>{
+      const indices=g.indices;
+      const i=indices[0];
+      const r=invCart[i];
       const isIncome = r.row_type==='income';
-      const gross=r.qty*r.price;
-      const lineDiscAmt=showLineDisc?lineDiscApplied(r):0;
+      const isPack=g.kind==='pack';
+      const qtySum=indices.reduce((a,ix)=>a+(Number(invCart[ix]?.qty)||0),0);
+      const gross=indices.reduce((a,ix)=>{ const row=invCart[ix]; return a+(Number(row.qty)||0)*(Number(row.price)||0); },0);
+      const lineDiscAmt=showLineDisc?indices.reduce((a,ix)=>a+lineDiscApplied(invCart[ix]),0):0;
       const lineSum=Math.max(0,gross-lineDiscAmt);
-      return `
-      <tr>
-        <td class="cn">${isIncome?'💰 ':''}${esc(r.name)}${r.batch_id||r.is_fabric_roll?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طاقه ${esc(r.roll_no||('#'+(r.batch_id||'')))} ${esc(r.color||'')}</div>`:(r.color_name||r.color||r.size_name)?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc([r.color_name||r.color,r.size_name].filter(Boolean).join(' / '))}</div>`:''}</td>
-        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[(i)].qty);if(canAccounting())invSyncLineDisc(invCart,(i),'pct');renderCart();renderInvPicker()})}"></td>
-        <td class="col-price"><input type="number" value="${r.price}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].price=+this.value||0;if(canAccounting())invSyncLineDisc(invCart,(i),'pct');renderCart()})}"></td>
-        ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].disc=+this.value||0;invSyncLineDisc(invCart,(i),'pct');renderCart()})}"></td>
-        <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].disc_amount=+this.value||0;invSyncLineDisc(invCart,(i),'amt');renderCart()})}"></td>`:''}
-        ${hideWhCol?'':`<td class="col-wh">${!isIncome?`<select data-csp-change="${CSP.bind('change',function(event){invCart[(i)].warehouse_id=+this.value||null})}">${warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')}</select>`:'—'}</td>`}
-        <td class="col-sum mono">${fmt(lineSum)}</td>
-        <td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="${CSP.bind('click',function(event){invCart.splice((i),1);renderCart();renderInvPicker()})}">×</button></td>
-      </tr>
-      <tr class="desc-row"><td colspan="${colSpan}"><input type="text" placeholder="توضیحات ردیف (اختیاری)" value="${esc(r.description||'')}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].description=this.value})}"></td></tr>`;
+      const ixCopy=indices.slice();
+      const packSummaryStyle=CSP.style('font-size:11px;line-height:1.7;margin-top:4px');
+      const packEditStyle=CSP.style('margin-top:6px;min-height:44px');
+      const muted11Style=CSP.style('font-size:11px');
+      const editPackBind=CSP.bind('click',function(){editInvCartPack(ixCopy)});
+      const removeGroupBind=CSP.bind('click',function(){removeInvCartGroup(ixCopy)});
+      const priceChangeBind=CSP.bind('change',function(event){const v=+this.value||0;invApplyGroupField(ixCopy,'price',v);ixCopy.forEach(ix=>{if(canAccounting())invSyncLineDisc(invCart,ix,'pct')});renderCart()});
+      const discPctChangeBind=CSP.bind('change',function(event){const v=+this.value||0;invApplyGroupField(ixCopy,'disc',v);ixCopy.forEach(ix=>invSyncLineDisc(invCart,ix,'pct'));renderCart()});
+      const discAmtChangeBind=CSP.bind('change',function(event){const v=+this.value||0;invApplyGroupField(ixCopy,'disc_amount',v);ixCopy.forEach(ix=>invSyncLineDisc(invCart,ix,'amt'));renderCart()});
+      const whChangeBind=CSP.bind('change',function(event){invApplyGroupField(ixCopy,'warehouse_id',+this.value||null)});
+      const descChangeBind=CSP.bind('change',function(event){invApplyGroupField(ixCopy,'description',this.value)});
+      const qtyChangeBind=CSP.bind('change',function(event){invCart[i].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[i].qty);if(canAccounting())invSyncLineDisc(invCart,i,'pct');renderCart();renderInvPicker()});
+      const packNote=isPack
+        ? '<div class="muted" data-csp-style="'+packSummaryStyle+'">'+esc(invPackSummary(indices))+'</div>'
+          +'<button type="button" class="btn sm ghost" data-csp-style="'+packEditStyle+'" data-csp-click="'+editPackBind+'">ویرایش رنگ / سایز</button>'
+        : (r.batch_id||r.is_fabric_roll?'<div class="muted" data-csp-style="'+muted11Style+'">طاقه '+esc(r.roll_no||('#'+(r.batch_id||'')))+' '+esc(r.color||'')+'</div>':(r.color_name||r.color||r.size_name)?'<div class="muted" data-csp-style="'+muted11Style+'">'+esc([r.color_name||r.color,r.size_name].filter(Boolean).join(' / '))+'</div>':'');
+      const qtyCell=isPack
+        ? '<span class="mono">'+fmtQty(qtySum)+'</span>'
+        : '<input type="number" min="0.001" step="0.001" inputmode="decimal" value="'+fmtQty(r.qty)+'" data-csp-change="'+qtyChangeBind+'">';
+      return ''
+      +'<tr>'
+        +'<td class="cn">'+(isIncome?'💰 ':'')+esc(r.name)+packNote+'</td>'
+        +'<td class="col-qty">'+qtyCell+'</td>'
+        +'<td class="col-price"><input type="number" value="'+r.price+'" data-csp-change="'+priceChangeBind+'"></td>'
+        +(showLineDisc?'<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="'+(r.disc||0)+'" data-csp-change="'+discPctChangeBind+'"></td>'
+          +'<td class="col-disc-amt"><input type="number" min="0" value="'+(r.disc_amount||0)+'" data-csp-change="'+discAmtChangeBind+'"></td>':'')
+        +(hideWhCol?'':'<td class="col-wh">'+(!isIncome?'<select data-csp-change="'+whChangeBind+'">'+warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')+'</select>':'—')+'</td>')
+        +'<td class="col-sum mono">'+fmt(lineSum)+'</td>'
+        +'<td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="'+removeGroupBind+'">×</button></td>'
+      +'</tr>'
+      +'<tr class="desc-row"><td colspan="'+colSpan+'"><input type="text" placeholder="توضیحات ردیف (اختیاری)" value="'+esc(r.description||'')+'" data-csp-change="'+descChangeBind+'"></td></tr>';
     }).join('')}</tbody></table>`;
   }
   const linesDiscTotal = showLineDisc ? invCart.reduce((a,r)=>a+lineDiscApplied(r),0) : 0;
@@ -4428,6 +4521,18 @@ async function saveInvoice(id){
     const whNames=(saved?.used_warehouses||[]).map(w=>w.name).filter(Boolean);
     showToast(whNames.length?('فاکتور ذخیره شد — کسر از انبار: '+whNames.join('، ')):'فاکتور ذخیره شد');
   }catch(e){}
+}
+function convertProformaChooser(id){
+  openModal(`
+    <div class="modal-head"><h3>تبدیل پیش‌فاکتور</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`line-height:1.9;margin-bottom:12px`)}">نوع فاکتور مقصد را انتخاب کنید. رسمی وارد صف مودیان می‌شود؛ معمولی برای فروش داخلی است.</p>
+      <div data-csp-style="${CSP.style(`display:flex;flex-direction:column;gap:8px`)}">
+        <button class="btn" data-csp-click="${CSP.bind('click',function(){convertProforma((id),'final')})}">تبدیل به فاکتور رسمی</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){convertProforma((id),'normal')})}">تبدیل به فاکتور معمولی</button>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button></div>`);
 }
 async function convertProforma(id, targetType){
   const target = targetType || 'final';
@@ -6329,7 +6434,7 @@ ROUTES['acc-warehouses']=()=>renderAccPage('warehouses','🏭','انبارها')
 ROUTES['acc-warehouse-ops']=()=>renderAccPage('warehouse-ops','📦','عملیات انبار (رسید / حواله / انتقال)');
 ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای امانی');
 ROUTES['acc-adv-reports']=()=>renderAccPage('adv-reports','📊','گزارشات پیشرفته');
-ROUTES['acc-production']=()=>{ location.hash='acc-production-dashboard'; };
+ROUTES['acc-production']=()=>renderAccPage('production-dashboard','📊','داشبورد تولید');
 ROUTES['acc-production-orders']=()=>renderAccPage('production-orders','🏭','سفارش‌های تولید');
 ROUTES['acc-production-boms']=()=>renderAccPage('production-boms','📋',T('فرمول تولید'));
 ROUTES['acc-production-dashboard']=()=>renderAccPage('production-dashboard','📊','داشبورد تولید');
@@ -6366,6 +6471,7 @@ async function resyncAccounting(){
 }
 
 async function loadAccTab(tab){
+  if(_pkAutoTimer){ clearInterval(_pkAutoTimer); _pkAutoTimer=null; }
   const focused=window.WinMgr&&WinMgr.focusedBody&&WinMgr.focusedBody();
   const viewRoot=document.getElementById('view');
   const body=(focused&&focused.querySelector('#accBody'))
@@ -7641,7 +7747,7 @@ async function renderSalesInvoicesTab(body, typeLock){
       <td>${payLabel[i.pay_type]||i.pay_type||'-'}</td>
       <td class="muted">${esc(i.seller_name||i.salesperson||'-')}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProforma((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
+        ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
         <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="چاپ">🖨️</button>
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش">✏️</button>
         ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال">⛔</button>`:''}
@@ -8187,6 +8293,33 @@ function newCutIdemKey(){
   try{ if(crypto.randomUUID) return crypto.randomUUID(); }catch(_){}
   return 'cut-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);
 }
+async function cuttingSizeLabelsForProduct(pid){
+  const names=[];
+  try{
+    if(pid){
+      const style=await api('GET','/product-variants/style/'+pid);
+      const vars=style&&style.variants||[];
+      vars.forEach(v=>{
+        const n=v.size_name||v.size||v.size_code;
+        if(n && names.indexOf(n)<0) names.push(n);
+      });
+    }
+  }catch(_){}
+  if(!names.length){
+    try{
+      const all=await api('GET','/product-variants/sizes')||[];
+      (Array.isArray(all)?all:[]).filter(s=>s.active!==0).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).forEach(s=>{
+        const n=s.name||s.code; if(n && names.indexOf(n)<0) names.push(n);
+      });
+    }catch(_){}
+  }
+  return names.length?names:CUT_SIZES.slice();
+}
+function cuttingRenderSizeGrid(sizes){
+  window._cutSizes=sizes||CUT_SIZES;
+  const box=el('cl-size-grid'); if(!box) return;
+  box.innerHTML=window._cutSizes.map(s=>`<div class="fg"><label>${esc(s)}</label><input type="number" min="0" step="1" value="0" data-cut-size="${esc(s)}"></div>`).join('');
+}
 async function renderCuttingLaysTab(body){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
   const [lays, rolls]=await Promise.all([
@@ -8195,6 +8328,7 @@ async function renderCuttingLaysTab(body){
   ]);
   window._cutRolls=(rolls.rows||[]).filter(b=>Number(b.qty_on_hand)>0 && b.status!=='reversed' && b.status!=='empty');
   body.innerHTML=`
+    <div class="prod-scope">
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">ویزارد لایه‌چینی: طول مارکر × تعداد لایه = متر پهن‌شده. ماتریس سایز مصرف نظری فرمول را می‌دهد. مازاد تا سقف عادی بدون سند می‌ماند؛ بقیه ضایعات غیرعادی است. طاقه از انبار مواد کم می‌شود. <b>رسید برش / PACK</b> همان تعداد ماتریس را به انبار محصول می‌برد و مانده WIP لایه را صفر می‌کند. حوالهٔ همان متر پارچه در سفارش تولید مسدود است.</div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLayModal()})}">➕ لایه‌چینی جدید</button>
@@ -8222,8 +8356,8 @@ async function renderCuttingLaysTab(body){
         +'<td class="num">'+fmt(r.actual_meters||0)+'</td><td class="num">'+fmt(r.matrix_meters||0)+'</td>'
         +'<td class="num">'+fmt(r.waste_normal_m||0)+' / '+fmt(r.waste_abnormal_m||0)+'</td>'
         +'<td>'+(isPacked?'✅ رسید':'—')+'</td><td>'+acts+'</td></tr>';
-    }).join('')||'<tr><td colspan="8" class="empty">لایه‌چینی ثبت نشده</td></tr>'}
-    </tbody></table></div></div>`;
+    }).join('')||'<tr><td colspan="8" class="empty">لایه‌چینی ثبت نشده — اول طاقه در انبار مواد، سپس «لایه‌چینی جدید»</td></tr>'}
+    </tbody></table></div></div></div>`;
 }
 function cuttingLayModal(){
   window._cutIdemKey=newCutIdemKey();
@@ -8240,19 +8374,25 @@ function cuttingLayModal(){
       <div class="fg"><label>رنگ</label><input id="cl-color"></div>
       <div class="fg"><label>سفارش تولید (اختیاری)</label><input id="cl-po" type="number" min="1" step="1" placeholder="خالی = فقط برش"></div>
     </div>
-    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">ماتریس سایز (تعداد)</div>
-    <div class="form-grid">${CUT_SIZES.map(s=>`<div class="fg"><label>${s}</label><input id="cl-sz-${s}" type="number" min="0" step="1" value="0"></div>`).join('')}</div>
-    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌ها (متر برداشت)</div>
-    <div id="cl-rolls">${rolls.map(b=>`<label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12px`)}"><input type="checkbox" class="cl-roll" data-id="${b.id}" data-max="${b.qty_on_hand||0}"> ${esc(b.batch_no)} ${esc(b.color||'')} — مانده ${fmt(b.qty_on_hand||0)} متر <input type="number" class="cl-roll-m" data-csp-style="${CSP.style(`width:90px`)}" min="0" step="0.01" placeholder="متر"></label>`).join('')||'<span class="muted">طاقه فعالی نیست — اول دریافت طاقه</span>'}</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">ماتریس سایز از سایزبندی همان کالا (تعداد)</div>
+    <div class="form-grid" id="cl-size-grid">${CUT_SIZES.map(s=>`<div class="fg"><label>${s}</label><input type="number" min="0" step="1" value="0" data-cut-size="${s}"></div>`).join('')}</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌ها (متر برداشت) — انبار از طاقهٔ انتخاب‌شده تشخیص داده می‌شود</div>
+    <div id="cl-rolls">${rolls.map(b=>`<label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12px`)}"><input type="checkbox" class="cl-roll" data-id="${b.id}" data-wh="${b.warehouse_id||''}" data-max="${b.qty_on_hand||0}"> ${esc(b.batch_no)} ${esc(b.color||'')} — مانده ${fmt(b.qty_on_hand||0)} متر <input type="number" class="cl-roll-m" data-csp-style="${CSP.style(`width:90px`)}" min="0" step="0.01" placeholder="متر"></label>`).join('')||'<span class="muted">طاقه فعالی نیست — اول دریافت طاقه در انبار مواد</span>'}</div>
     <div id="cl-preview" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}"></div>
     <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;justify-content:flex-end`)}">
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){cuttingLayPreview()})}">پیش‌نمایش</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLaySave()})}">ثبت برش</button>
     </div>`);
+  const prodEl=el('cl-prod');
+  const refreshSizes=async()=>{ cuttingRenderSizeGrid(await cuttingSizeLabelsForProduct(+prodEl?.value||0)); };
+  if(prodEl) prodEl.addEventListener('change', refreshSizes);
+  refreshSizes();
 }
 function cuttingLayBreakdown(){
   const o={};
-  CUT_SIZES.forEach(s=>{ const n=+el('cl-sz-'+s).value||0; if(n) o[s]=n; });
+  document.querySelectorAll('#cl-size-grid [data-cut-size]').forEach(inp=>{
+    const n=+inp.value||0; if(n) o[inp.getAttribute('data-cut-size')]=n;
+  });
   return o;
 }
 async function cuttingLayPreview(){
@@ -8266,7 +8406,7 @@ async function cuttingLayPreview(){
       +'&size_breakdown='+encodeURIComponent(JSON.stringify(bd));
     const p=await api('GET','/production/cutting-lays/preview?'+q);
     el('cl-preview').textContent='مصرف نظری '+fmt(p.matrix_meters||0)+' متر · پهن‌شده '+fmt(p.planned_meters||0)+' · ضایعات عادی '+fmt(p.waste_normal_m||0)+' / غیرعادی '+fmt(p.waste_abnormal_m||0);
-  }catch(e){}
+  }catch(e){ const box=el('cl-preview'); if(box) box.textContent=e.message||e.code||'خطا در پیش‌نمایش'; showToast(e.message||'خطا در پیش‌نمایش','error'); }
 }
 async function cuttingLaySave(){
   const planned=(+el('cl-marker').value||0)*(+el('cl-plies').value||0);
@@ -9461,13 +9601,16 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResequenceOps((id))})}">مرتب‌سازی مجدد</button>`:''}
       <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">V4-21: با مسیر عملیات، بازده سرفصل = ۱۰۰٪</span>
     </div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">دستمزد قطعه‌ای/ساعتی همین‌جا؛ دستمزد ماهانه از <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-rates')})}">نرخ سربار مراکز</button>.</div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>ترتیب</th><th>عملیات</th><th>مرکز هزینه</th><th>بازده٪</th><th>ضایعات٪</th><th>دقیقه/واحد</th>${canMut?'<th>عملیات</th>':''}
+      <th>ترتیب</th><th>عملیات</th><th>مرکز هزینه</th><th>روش</th><th>نرخ (ریال)</th><th>بازده٪</th><th>ضایعات٪</th><th>دقیقه/واحد</th>${canMut?'<th>عملیات</th>':''}
     </tr></thead><tbody>
       ${(ops||[]).map(o=>`<tr>
         <td class="num">${o.seq}</td>
         <td>${esc(o.operation_name||'—')}</td>
         <td class="num">${o.cost_center_id||'—'}</td>
+        <td>${esc({piece:'قطعه‌ای',hourly:'ساعتی',monthly:'ماهانه',contract:'پیمان'}[o.labor_method]||o.labor_method||'قطعه‌ای')}</td>
+        <td class="num">${o.labor_method==='monthly'?'از نرخ مرکز':fmt(o.labor_rate_rial||0)}</td>
         <td class="num">${o.yield_percent??100}</td>
         <td class="num">${o.normal_waste_percent??0}</td>
         <td class="num">${o.run_minutes_per_unit??0}</td>
@@ -9475,7 +9618,7 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
           <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomFillOpForm((o))})}">ویرایش</button>
           <button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomDeleteOperation((id),(o.id))})}">حذف</button>
         </td>`:''}
-      </tr>`).join('')||`<tr><td colspan="${canMut?7:6}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">عملیاتی ثبت نشده — «از الگوی ترنم» یا فرم زیر را بزنید</td></tr>`}
+      </tr>`).join('')||`<tr><td colspan="${canMut?9:8}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">عملیاتی ثبت نشده — «از الگوی ترنم» یا فرم زیر را بزنید</td></tr>`}
     </tbody></table></div>
     ${canMut?`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-top:12px`)}" id="pbe-op-form">
@@ -9483,6 +9626,8 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <div class="fg"><label>ترتیب (seq)</label><input id="pbe-op-seq" type="number" min="1" step="1" value="${nextSeq}"></div>
       <div class="fg"><label>نام عملیات</label><input id="pbe-op-name" placeholder="مثلاً برش"></div>
       <div class="fg"><label>مرکز هزینه مرحله</label><select id="pbe-op-cc">${prodBomStageCcOpts('')}</select></div>
+      <div class="fg"><label>روش دستمزد</label><select id="pbe-op-method"><option value="piece">قطعه‌ای</option><option value="hourly">ساعتی</option><option value="monthly">ماهانه (از نرخ مرکز)</option><option value="contract">پیمان</option></select></div>
+      <div class="fg"><label>نرخ دستمزد (ریال)</label><input id="pbe-op-rate" class="money" inputmode="numeric" value="0"></div>
       <div class="fg"><label>بازده٪</label><input id="pbe-op-yield" type="number" min="0.1" max="100" step="any" value="100"></div>
       <div class="fg"><label>ضایعات٪</label><input id="pbe-op-waste" type="number" min="0" max="99.8" step="any" value="0"></div>
       <div class="fg"><label>دقیقه/واحد</label><input id="pbe-op-run" type="number" min="0" step="any" value="0"></div>
@@ -9491,7 +9636,7 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomSaveOperation((id))})}">💾 ذخیره عملیات</button>
       <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResetOpForm()})}">پاک کردن فرم</button>
     </div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">افزودن/ویرایش دستی از POST/PUT <code>/production/boms/:id/operations</code> — برای ویرایش، «ویرایش» ردیف را بزنید.</p>`:''}`;
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">اگر روش قطعه‌ای یا ساعتی است نرخ باید بزرگ‌تر از صفر باشد وگرنه محاسبه بها خطای نرخ صفر می‌دهد. روش ماهانه نرخ را از صفحهٔ نرخ مراکز می‌گیرد.</p>`:''}`;
 }
 function prodBomFillOpForm(o){
   if(!o) return;
@@ -9502,6 +9647,8 @@ function prodBomFillOpForm(o){
   if(el('pbe-op-yield')) el('pbe-op-yield').value=o.yield_percent??100;
   if(el('pbe-op-waste')) el('pbe-op-waste').value=o.normal_waste_percent??0;
   if(el('pbe-op-run')) el('pbe-op-run').value=o.run_minutes_per_unit??0;
+  if(el('pbe-op-method')) el('pbe-op-method').value=o.labor_method||'piece';
+  if(el('pbe-op-rate')) el('pbe-op-rate').value=o.labor_rate_rial||0;
 }
 function prodBomResetOpForm(){
   if(el('pbe-op-id')) el('pbe-op-id').value='';
@@ -9509,6 +9656,8 @@ function prodBomResetOpForm(){
   if(el('pbe-op-yield')) el('pbe-op-yield').value=100;
   if(el('pbe-op-waste')) el('pbe-op-waste').value=0;
   if(el('pbe-op-run')) el('pbe-op-run').value=0;
+  if(el('pbe-op-method')) el('pbe-op-method').value='piece';
+  if(el('pbe-op-rate')) el('pbe-op-rate').value=0;
 }
 async function prodBomSaveOperation(id){
   const opId=+el('pbe-op-id')?.value||0;
@@ -9522,7 +9671,9 @@ async function prodBomSaveOperation(id){
     operation_name:el('pbe-op-name')?.value||'',
     yield_percent:+el('pbe-op-yield')?.value||100,
     normal_waste_percent:+el('pbe-op-waste')?.value||0,
-    run_minutes_per_unit:+el('pbe-op-run')?.value||0
+    run_minutes_per_unit:+el('pbe-op-run')?.value||0,
+    labor_method:el('pbe-op-method')?.value||'piece',
+    labor_rate_rial: typeof moneyVal==='function'?moneyVal('pbe-op-rate'):(+el('pbe-op-rate')?.value||0)
   };
   try{
     if(opId) await api('PUT','/production/boms/'+id+'/operations/'+opId,body);
@@ -9709,8 +9860,12 @@ async function prodBomComputeFullCost(id){
         </tr>`).join('')||`<tr><td colspan="9" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">مرحله‌ای برای نمایش نیست (فرمول بدون مسیر)</td></tr>`}
       </tbody></table></div>`;
   }catch(e){
-    if(box) box.innerHTML='';
-    showToast(e.message||e.error||'خطا در محاسبه','error');
+    const msg=e.message||e.error||e.code||'خطا در محاسبه';
+    const labor=/نرخ دستمزد|E_LABOR_RATE_ZERO|LABOR_RATE/.test(String(msg)+String(e.code||''));
+    if(box) box.innerHTML=`<div data-csp-style="${CSP.style(`color:var(--red);line-height:1.8`)}">${esc(msg)}${labor?' — در تب مسیر عملیات، روش و نرخ دستمزد را وارد کنید.':''}</div>
+      ${labor?`<button class="btn sm" type="button" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(){prodBomEditModal((id),'ops')})}">رفتن به مسیر عملیات</button>
+      <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(){go('acc-production-rates')})}">نرخ ماهانه مراکز</button>`:''}`;
+    showToast(msg,'error');
   }
 }
 function prodBomLineRowHtml(L, locked, excludeProductId){
@@ -9895,28 +10050,144 @@ async function prodDashRenderCharts(dash){
   }catch(e){ console.warn('prod charts',e); }
 }
 
+async function fetchProdJourneyState(period){
+  let dash=null, lays=null, orders=null, boms=null, kanban=null;
+  try{ dash=await api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)); }catch(_){ dash=null; }
+  try{ lays=await api('GET','/production/cutting-lays'); }catch(_){ lays={rows:[]}; }
+  try{ orders=await api('GET','/production/orders'); }catch(_){ orders={rows:[]}; }
+  try{ boms=await api('GET','/production/boms'); }catch(_){ boms={rows:[]}; }
+  try{ kanban=await api('GET','/production/reports/kanban'); }catch(_){ kanban=null; }
+  const k=dash?.data?.kpis||{};
+  const orderRows=Array.isArray(orders)?orders:(orders.rows||[]);
+  const openOrders=(dash?.data?.open_orders||[]).length || orderRows.filter(o=>o.status!=='closed'&&o.status!=='cancelled'&&o.status!=='completed').length;
+  const bomRows=Array.isArray(boms)?boms:(boms.rows||boms.data||[]);
+  const activeBoms=bomRows.filter(b=>b.status==='active'||b.is_active).length;
+  const layRows=(lays&&lays.rows)||[];
+  const postedLays=layRows.filter(r=>r.status!=='reversed' && ((r.packs||[]).some(p=>p.status==='posted') || Number(r.pack_posted)===1));
+  const pendingPack=layRows.filter(r=>r.status!=='reversed' && !(r.packs||[]).some(p=>p.status==='posted') && Number(r.pack_posted)!==1).length;
+  const kanbanActive=(kanban?.data?.columns||[]).some(c=>(c.cards||[]).some(card=>['in_progress','done'].includes(card.status)));
+  const hasUnitCost=Number(k.unit_cost?.value_rial||0)>0 || orderRows.some(o=>Number(o.unit_cost_rial||0)>0);
+  const steps=[
+    {n:'۱', title:'فرمول ساخت', desc:'مواد، مسیر و نرخ دستمزد', go:'acc-production-boms', cta:'باز کردن BOM', done:activeBoms>0, path:'both'},
+    {n:'۲', title:'سفارش تولید', desc:'برنامه، آزادسازی، مراحل', go:'acc-production-orders', cta:'سفارش‌ها', done:openOrders>0, path:'order'},
+    {n:'۳', title:'لایه‌چینی و برش', desc:'طاقه + ماتریس سایز', go:'acc-cutting-lays', cta:'ثبت برش', done:layRows.some(r=>r.status!=='reversed'), path:'cut'},
+    {n:'۴', title:'تابلوی خط', desc:'پیشرفت کارگاه', go:'acc-production-kanban', cta:'کانبان', done:kanbanActive, path:'order'},
+    {n:'۵', title:'رسید PACK', desc:'ورود به انبار محصول', go:'acc-cutting-lays', cta:pendingPack?'رسید معلق':'رسید برش', done:postedLays.length>0 && pendingPack===0, path:'cut'},
+    {n:'۶', title:'بهای تمام‌شده', desc:'برگه بها و سود', go:'acc-production-cost-sheet', cta:'برگه بها', done:hasUnitCost, path:'both'},
+  ];
+  const nextIdx=steps.findIndex(s=>!s.done);
+  return { dash, k, openOrders, activeBoms, pendingPack, steps, nextIdx, orderRows, layRows };
+}
+function prodJourneyHtml(state){
+  const { steps, nextIdx, k, openOrders, activeBoms, pendingPack }=state;
+  return `
+    <div class="prod-home-hero">
+      <div>
+        <h3 data-csp-style="${CSP.style(`margin:0 0 6px;font-size:20px`)}">داشبورد تولید</h3>
+        <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.8`)}">نمودارها + مسیر کارگاه. هر دو مسیر «برش→PACK» و «سفارش چندمرحله‌ای» پشتیبانی می‌شوند.</p>
+      </div>
+      <div class="prod-home-hero-actions">
+        <button class="btn" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">✂️ لایه‌چینی</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-orders')})}">سفارش جدید</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-kanban')})}">کانبان</button>
+      </div>
+    </div>
+    <div class="prod-kpi-grid">
+      ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'تولید دوره', value:fmt(k.produced?.value||0), icon:'📦'}):statCard('g','📦',fmt(k.produced?.value||0),'تولید')}
+      ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'سفارش باز', value:fmt(openOrders), icon:'🏭'}):statCard('b','🏭',fmt(openOrders),'سفارش باز')}
+      ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'برش بدون رسید', value:fmt(pendingPack), icon:'✂️'}):statCard('o','✂️',fmt(pendingPack),'برش بدون رسید')}
+      ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'فرمول فعال', value:fmt(activeBoms), icon:'📐'}):statCard('r','📐',fmt(activeBoms),'فرمول فعال')}
+    </div>
+    <div class="prod-dual-path">
+      <div class="prod-path-card">
+        <b>✂️ مسیر برش و بسته‌بندی</b>
+        <span class="muted">طاقه → لایه‌چینی → رسید PACK → انبار محصول</span>
+        <div class="prod-path-actions">
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-fabric-rolls')})}">طاقه</button>
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">برش</button>
+          ${pendingPack?`<button type="button" class="btn sm orange" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">${fmt(pendingPack)} رسید معلق</button>`:''}
+        </div>
+      </div>
+      <div class="prod-path-card">
+        <b>🏭 مسیر سفارش تولید</b>
+        <span class="muted">BOM → سفارش → حواله/رسید یا مراحل پیشرفته → بستن</span>
+        <div class="prod-path-actions">
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-production-boms')})}">فرمول</button>
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-production-orders')})}">سفارش</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-kanban')})}">کانبان</button>
+        </div>
+      </div>
+    </div>
+    <div class="prod-journey">
+      ${steps.map((s,i)=>`<button type="button" class="prod-journey-card${s.done?' is-done':''}${i===nextIdx?' is-next':''}" data-csp-click="${CSP.bind('click',function(){go(s.go)})}">
+        <span class="prod-journey-n">${s.n}</span>
+        <b>${esc(s.title)}</b>
+        <span class="muted">${esc(s.desc)}</span>
+        <span class="prod-journey-cta">${s.done?'✓ انجام شده — ':i===nextIdx?'▶ اقدام بعدی — ':''}${esc(s.cta)}</span>
+      </button>`).join('')}
+    </div>
+    ${nextIdx>=0?`<div class="panel" data-csp-style="${CSP.style(`margin:12px 0`)}"><div class="panel-head"><h4>اقدام بعدی</h4></div>
+      <div class="panel-body" data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
+        <button class="btn" data-csp-click="${CSP.bind('click',function(){go(steps[nextIdx].go)})}">▶ ${esc(steps[nextIdx].title)}</button>
+        ${!activeBoms?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-boms')})}">اول فرمول بسازید</button>`:''}
+        ${pendingPack?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">${fmt(pendingPack)} برش منتظر رسید</button>`:''}
+      </div></div>`:''}`;
+}
+const PROD_QUICK_REPORTS=[
+  { path:'/production/reports/wip', title:'مانده WIP', pri:1 },
+  { path:'/production/reports/period-cost', title:'تحلیل بهای دوره', pri:2 },
+  { path:'/production/reports/material-variance', title:'انحراف مواد', pri:3 },
+  { path:'/production/reports/waste', title:'تحلیل ضایعات', pri:4 },
+  { path:'/production/reports/material-usage', title:'مصرف مواد', pri:5 },
+  { path:'/production/reports/cycle-time', title:'زمان چرخه', pri:6 },
+  { path:'/production/reports/bottleneck', title:'گلوگاه خط', pri:7 },
+  { path:'/production/reports/std-vs-actual', title:'استاندارد vs واقعی', pri:8 },
+];
+async function prodQuickReportModal(path, title){
+  const period=window._prodDashPeriod||todayJalali().slice(0,7);
+  showModal(title, '<div class="muted" id="pqr-body">در حال بارگذاری...</div><div class="modal-foot"><button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){closeModal()})+'">بستن</button></div>');
+  const box=el('pqr-body');
+  try{
+    const r=await api('GET', path+'?period='+encodeURIComponent(period));
+    const rows=r.data?.rows||r.rows||[];
+    if(!rows.length){ if(box) box.innerHTML='<p class="muted">داده‌ای برای این دوره نیست.</p>'; return; }
+    const keys=Object.keys(rows[0]);
+    const head=keys.map(k=>'<th>'+esc(k)+'</th>').join('');
+    const body=rows.slice(0,80).map(row=>'<tr>'+keys.map(k=>'<td class="mono">'+esc(row[k]!=null?String(row[k]):'')+'</td>').join('')+'</tr>').join('');
+    if(box) box.innerHTML='<div class="tbl-wrap"><table class="tbl"><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div>'
+      +(rows.length>80?'<p class="muted">نمایش ۸۰ ردیف اول از '+fmt(rows.length)+'</p>':'')
+      +((r.warnings||[]).length?'<p class="muted">⚠️ '+esc(r.warnings.join(' · '))+'</p>':'');
+  }catch(e){ if(box) box.innerHTML='<p class="muted">'+esc(e.message||'خطا')+'</p>'; }
+}
+
+async function renderProductionHomeTab(body){
+  return renderProductionDashboardTab(body);
+}
+
 async function renderProductionDashboardTab(body){
   destroyProdCharts();
   const period=(window._prodDashPeriod||todayJalali().slice(0,7));
-  let dash=null, catalog=[], dashErr='';
-  try{ dash=await api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)); }
+  window._prodDashPeriod=period;
+  let dash=null, catalog=[], dashErr='', journeyState=null;
+  try{ journeyState=await fetchProdJourneyState(period); dash=journeyState.dash; }catch(_){ journeyState=null; }
+  try{ if(!dash) dash=await api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)); }
   catch(e){ dash=null; dashErr=e.message||e.code||'خطا در داشبورد'; }
   try{ catalog=(await api('GET','/production/reports'))?.reports||[]; }catch(e){ catalog=[]; }
-  window._prodDashPeriod=period;
   const k=dash?.data?.kpis||{};
   const openOrders=dash?.data?.open_orders||[];
+  const journeyHtml=journeyState?prodJourneyHtml(journeyState):'';
+  const quickBtns=PROD_QUICK_REPORTS.map(rep=>{
+    const bind=CSP.bind('click',function(){prodQuickReportModal(rep.path, rep.title)});
+    return '<button type="button" class="btn sm ghost" data-csp-click="'+bind+'">'+esc(rep.title)+'</button>';
+  }).join('');
   body.innerHTML=`
+    <div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <label>دوره: <input id="pd-period" value="${esc(period)}" placeholder="1405/04" data-csp-style="${CSP.style(`width:90px`)}"></label>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodDashLoad()})}">🔄 بارگذاری</button>
     </div>
     ${dashErr?`<div class="muted" data-csp-style="${CSP.style(`color:var(--state-danger,#C0392B);margin-bottom:8px`)}">${esc(dashErr)}</div>`:''}
-    <div class="cards" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
-      ${statCard('g','📦',fmt(k.produced?.value||0),'تولید (عدد)')}
-      ${statCard('b','💰',prodFmtToman(k.unit_cost?.value_rial),'بهای واحد (ت)')}
-      ${statCard('o','⚙️',(k.yield?.value_pct??0)+'٪','بهره‌وری')}
-      ${statCard('r','🏗',prodFmtToman(k.wip?.value_rial),'کار در جریان ساخت (ت)')}
-    </div>
+    ${journeyHtml}
     <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px`)}">
       <div class="panel"><div class="panel-head"><h4>روند بهای واحد</h4></div>
         <div class="panel-body" data-csp-style="${CSP.style(`height:220px;position:relative`)}"><canvas id="pd-chart-unit-cost"></canvas>
@@ -9927,14 +10198,16 @@ async function renderProductionDashboardTab(body){
           ${!Object.values(dash?.data?.cost_mix||{}).some(v=>Number(v)>0)?`<div class="muted" data-csp-style="${CSP.style(`position:absolute;inset:0;display:flex;align-items:center;justify-content:center`)}">داده هزینه دوره خالی است</div>`:''}
         </div></div>
     </div>
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-head"><h4>گزارش‌های سریع (اولویت‌بندی شده)</h4></div>
+      <div class="panel-body" data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">${quickBtns}</div></div>
     <div class="panel"><div class="panel-head"><h4>سفارش‌های باز</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>شماره</th><th>محصول</th><th>برنامه</th><th>وضعیت</th></tr></thead><tbody>
         ${openOrders.map(o=>`<tr data-csp-style="${CSP.style(`cursor:pointer`)}" data-csp-click="${CSP.bind('click',function(event){prodOrderOpenFromKanban((o.id))})}"><td>${esc(o.order_no)}</td><td>${esc(o.product_name||'')}</td><td class="num">${o.qty_planned||0}</td><td>${esc(o.status)}</td></tr>`).join('')||emptyRow(4)}
       </tbody></table></div></div>
-    <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>فهرست گزارشات تولید</h4></div>
+    <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>فهرست کامل گزارشات (${fmt(catalog.length)})</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کد</th><th>عنوان</th><th>نیاز به هزینه</th></tr></thead><tbody>
         ${catalog.map(r=>`<tr><td class="mono">${esc(r.code)}</td><td>${esc(r.title)}</td><td>${r.requires_cost?'✓':'—'}</td></tr>`).join('')||emptyRow(3)}
-      </tbody></table></div></div>`;
+      </tbody></table></div></div></div>`;
   if(dash) await prodDashRenderCharts(dash);
 }
 function prodDashLoad(){
@@ -11441,14 +11714,29 @@ function salaryStructureModal(){
   <div class="modal-body"><div class="form-grid">
     <div class="fg full"><label>کارمند *</label>${personSelect('ss-person','',CACHE.payrollEmployees||[])}</div>
     <div class="fg"><label>سال</label><input id="ss-year" type="number" value="${todayJalali().slice(0,4)}"></div>
-    <div class="fg"><label>مبنای مزد</label><select id="ss-basis"><option value="monthly">ماهانه</option><option value="daily">روزانه</option><option value="hourly">ساعتی</option><option value="contractor">پیمانکاری</option></select></div>
-    ${[['ss-base','مزد پایه'],['ss-house','حق مسکن'],['ss-food','بن کارگری'],['ss-child','حق اولاد هر فرزند'],['ss-spouse','حق تأهل'],['ss-other','سایر مزایای ثابت']].map(x=>`<div class="fg"><label>${x[1]} (ریال)</label><input id="${x[0]}" class="money" inputmode="numeric" value="0"></div>`).join('')}
+    <div class="fg"><label>مبنای مزد</label><select id="ss-basis" data-csp-change="${CSP.bind('change',function(){payrollBasisLabels('ss')})}"><option value="monthly">ماهانه</option><option value="daily">روزانه</option><option value="hourly">ساعتی</option><option value="contractor">پیمانکاری</option></select></div>
+    ${[['ss-base','مزد پایه ماهانه'],['ss-house','حق مسکن'],['ss-food','بن کارگری'],['ss-child','حق اولاد هر فرزند'],['ss-spouse','حق تأهل'],['ss-other','سایر مزایای ثابت']].map(x=>`<div class="fg"><label id="${x[0]}-lab">${x[1]} (ریال)</label><input id="${x[0]}" class="money" inputmode="numeric" value="0"></div>`).join('')}
     <div class="fg"><label>تعداد فرزند</label><input id="ss-child-count" type="number" min="0" value="0"></div>
     <div class="fg"><label><input id="ss-married" type="checkbox" data-csp-style="${CSP.style(`width:auto`)}"> متأهل</label></div>
     <div class="fg"><label>نوع بیمه</label><select id="ss-ins"><option value="sso">تأمین اجتماعی</option><option value="armed_forces">نیروهای مسلح</option><option value="none">بدون بیمه</option></select></div>
     <div class="fg"><label>درصد معافیت مالیات</label><input id="ss-tax-ex" type="number" min="0" max="100" value="0"></div>
   </div></div><div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveSalaryStructure()})}">${lucide('save')} ذخیره</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   el('modalRoot')?.querySelectorAll('input').forEach(ensureMoneyField);
+  initCustSearches(el('modalRoot'));
+  payrollBasisLabels('ss');
+}
+function payrollBasisLabels(prefix){
+  const basis=el(prefix+'-basis')?.value||'monthly';
+  const lab=el(prefix+'-base-lab');
+  if(lab){
+    lab.textContent=basis==='daily'?'مزد روزانه (ریال)':basis==='hourly'?'مزد ساعتی (ریال)':basis==='contractor'?'مبلغ پیمان (ریال)':'مزد پایه ماهانه (ریال)';
+  }
+  const daysFg=el('pc-days')?.closest('.fg');
+  const hoursFg=el('pc-hours')?.closest('.fg');
+  if(prefix==='pc' || el('pc-days')){
+    if(daysFg) daysFg.style.display=basis==='hourly'?'none':'flex';
+    if(hoursFg) hoursFg.style.display=basis==='daily'?'none':'flex';
+  }
 }
 function groupSalaryStructureModal(){
   openModal(`<div class="modal-head"><h3>ساختار حقوق گروه کارکنان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -11476,7 +11764,9 @@ async function deleteGroupSalaryStructure(id){
   try{await api('DELETE','/payroll/group-salary-structures/'+id);showToast('حذف شد');loadAccTab('payroll');}catch(e){}
 }
 async function saveSalaryStructure(){
-  try{await api('POST','/payroll/salary-structures',{person_id:+el('ss-person').value,fiscal_year:+el('ss-year').value,wage_basis:el('ss-basis').value,
+  const person_id=+el('ss-person').value;
+  if(!person_id){ showToast('کارمند را از فهرست جستجو انتخاب کنید','error'); return; }
+  try{await api('POST','/payroll/salary-structures',{person_id,fiscal_year:+el('ss-year').value,wage_basis:el('ss-basis').value,
     base_wage_rial:moneyVal('ss-base'),housing_allowance_rial:moneyVal('ss-house'),grocery_allowance_rial:moneyVal('ss-food'),
     child_allowance_rial:moneyVal('ss-child'),spouse_allowance_rial:moneyVal('ss-spouse'),other_fixed_allowance_rial:moneyVal('ss-other'),
     child_count:+el('ss-child-count').value||0,marital_status:el('ss-married').checked,insurance_type:el('ss-ins').value,
@@ -11536,12 +11826,17 @@ async function renderPayrollProcessing(body){
   <div class="toolbar" data-csp-style="${CSP.style(`margin-top:14px`)}"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){previewPayrollCalculation()})}">${lucide('eye')} پیش‌نمایش</button>
   ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){processPayrollCalculation()})}">${lucide('check')} پردازش و ثبت سند</button>`:''}</div><div id="pc-result" data-csp-style="${CSP.style(`margin-top:12px`)}"></div></div></div>`;
   body.querySelectorAll('input').forEach(ensureMoneyField);
+  initCustSearches(body);
+  const hid=el('pc-person');
+  if(hid) hid.addEventListener('change', payrollProcessingPersonChanged);
 }
 function togglePayrollManualFields(){
   const on=!!el('pc-manual')?.checked;
   const box=el('pc-manual-fields'); if(box) box.style.display=on?'':'none';
 }
 function payrollCalcPayload(){
+  if(!el('pc-period')?.value) throw new Error('دوره حقوق را انتخاب کنید');
+  if(!el('pc-person')?.value) throw new Error('کارمند را از فهرست جستجو انتخاب کنید');
   const base={period_id:+el('pc-period').value,person_id:+el('pc-person').value,working_days_x100:Math.round((+el('pc-days').value||0)*100),
     regular_hours_x100:Math.round((+el('pc-hours').value||0)*100),overtime_hours_x100:Math.round((+el('pc-ot').value||0)*100),
     night_shift_hours_x100:Math.round((+el('pc-night').value||0)*100),hardship_allowance_rial:moneyVal('pc-hard'),
@@ -11569,11 +11864,47 @@ async function previewPayrollCalculation(){
       return;
     }
     const r=await api('POST','/payroll/calculate',payrollCalcPayload());const c=r.calculation;el('pc-result').innerHTML=`ناخالص: <b>${fmt(c.gross_earnings_rial)} ریال</b> | بیمه کارگر: ${fmt(c.sso_employee_rial)} | مالیات: ${fmt(c.income_tax_rial)} | خالص: <b>${fmt(c.net_pay_rial)} ریال</b>`;
-  }catch(e){}
+  }catch(e){ payrollShowCalcError(e); }
+}
+function payrollShowCalcError(e){
+  const msg=String(e.message||e.error||e||'خطا');
+  const box=el('pc-result');
+  const missingPerson=/کارمند را از فهرست|انتخاب کنید/.test(msg) && !el('pc-person')?.value;
+  const missingStruct=/ساختار حقوق/.test(msg);
+  let html=`<div data-csp-style="${CSP.style(`color:var(--state-danger,#C0392B);line-height:1.8`)}">${esc(msg)}</div>`;
+  if(missingPerson) html=`<div data-csp-style="${CSP.style(`color:var(--state-danger,#C0392B);line-height:1.8`)}">کارمند را از فهرست جستجو انتخاب کنید — نام را تایپ کنید و از لیست برگزینید.</div>`;
+  if(missingStruct) html+=`<div data-csp-style="${CSP.style(`margin-top:8px`)}"><button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){salaryStructureModal()})}">ثبت ساختار حقوق این کارمند</button>
+    <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-payroll-structures')})}">رفتن به ساختار حقوق</button></div>`;
+  if(box) box.innerHTML=html;
+  showToast(missingPerson?'کارمند انتخاب نشده':(missingStruct?'ساختار حقوق ثبت نشده':msg),'error');
+}
+async function payrollProcessingPersonChanged(){
+  const personId=+el('pc-person')?.value||0;
+  if(!personId){ const box=el('pc-result'); if(box) box.innerHTML='<span class="muted">کارمند را انتخاب کنید</span>'; return; }
+  try{
+    const rows=await api('GET','/payroll/salary-structures')||[];
+    const year=todayJalali().slice(0,4);
+    const st=(Array.isArray(rows)?rows:[]).find(r=>Number(r.person_id)===personId && String(r.fiscal_year)===String(year))
+      || (Array.isArray(rows)?rows:[]).find(r=>Number(r.person_id)===personId);
+    if(!st){
+      const box=el('pc-result');
+      if(box) box.innerHTML=`<div data-csp-style="${CSP.style(`line-height:1.8`)}">برای این کارمند ساختار حقوق سال جاری ثبت نشده.
+        <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){salaryStructureModal()})}">ساخت ساختار</button></div>`;
+      return;
+    }
+    if(el('ss-basis')||true){
+      const fake={value:st.wage_basis||'monthly'};
+      const daysFg=el('pc-days')?.closest('.fg');
+      const hoursFg=el('pc-hours')?.closest('.fg');
+      if(daysFg) daysFg.style.display=fake.value==='hourly'?'none':'flex';
+      if(hoursFg) hoursFg.style.display=fake.value==='daily'?'none':'flex';
+    }
+  }catch(_){}
 }
 async function processPayrollCalculation(){
+  if(!el('pc-person')?.value){ payrollShowCalcError(new Error('کارمند را از فهرست جستجو انتخاب کنید')); return; }
   if(!confirm('حقوق پردازش و سند حسابداری قطعی ثبت شود؟')) return;
-  const p=payrollCalcPayload();try{await api('POST','/payroll/process',{period_id:p.period_id,rows:[p]});showToast('حقوق و سند حسابداری ثبت شد');go('acc-payroll');}catch(e){}
+  const p=payrollCalcPayload();try{await api('POST','/payroll/process',{period_id:p.period_id,rows:[p]});showToast('حقوق و سند حسابداری ثبت شد');go('acc-payroll');}catch(e){ payrollShowCalcError(e); }
 }
 
 async function renderPayrollYearEnd(body){
@@ -11815,12 +12146,12 @@ async function supplierPaymentModal(id,name){
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>تأمین‌کننده</label><input value="${esc(name)}" disabled data-csp-style="${CSP.style(`background:#f9fafb`)}"></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="sp-amount" type="text" inputmode="numeric" class="money" min="1"></div>
-      <div class="fg"><label>نوع پرداخت</label><select id="sp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('sp')})}"><option value="cash">نقد</option><option value="cheque">چک</option></select></div>
-      <div class="fg"><label>پرداخت از بانک ${hlp('این پرداخت از کدام حساب بانکی شرکت انجام می‌شود.')}</label><select id="sp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('sp')})}">
+      <div class="fg"><label>نوع پرداخت</label><select id="sp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('sp')})}">${payTypeOptionsHtml({cheque:true})}</select></div>
+      <div class="fg" id="sp-bank-fg"><label>پرداخت از بانک ${hlp('این پرداخت از کدام حساب بانکی شرکت انجام می‌شود.')}</label><select id="sp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('sp')})}">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
-      <div class="fg"><label>پرداخت از صندوق ${hlp('اگر این پرداخت نقداً از یکی از صندوق‌ها انجام شده — اختیاری.')}</label><select id="sp-cashbox">
+      <div class="fg" id="sp-cashbox-fg"><label>پرداخت از صندوق ${hlp('اگر این پرداخت نقداً از یکی از صندوق‌ها انجام شده — اختیاری.')}</label><select id="sp-cashbox">
         <option value="">— بدون صندوق مشخص —</option>
         ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
@@ -11833,12 +12164,111 @@ async function supplierPaymentModal(id,name){
   attachDatepickers(el('modalRoot'));
   toggleBankFields('sp');
 }
-// Shared: show the دسته چک field only when pay type is cheque
+function payTypeOptionsHtml(opts){
+  opts=opts||{};
+  let h='<option value="cash">نقد / صندوق</option><option value="bank">واریز بانکی</option>';
+  if(opts.cheque!==false) h+='<option value="cheque">چک</option>';
+  if(opts.pos) h+='<option value="pos_card">کارتخوان</option>';
+  return h;
+}
+function payPosFieldHtml(prefix){
+  const terms=CACHE.posTerminals||[];
+  return `<div class="fg" id="${prefix}-pos-fg" data-csp-style="${CSP.style(`display:none`)}"><label>کارتخوان</label>
+    <select id="${prefix}-pos"><option value="">— انتخاب کارتخوان —</option>
+    ${terms.filter(t=>t.active!==0&&t.active!==false).map(t=>`<option value="${t.id}">${esc(t.name||t.terminal_id||'')} — ${esc(t.terminal_id||'')}</option>`).join('')}
+    </select></div>`;
+}
+async function ensurePayCaches(){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
+  if(!CACHE.posTerminals) CACHE.posTerminals=await api('GET','/pos/terminals').catch(()=>[])||[];
+}
+function payFg(prefix, kind){
+  return el(prefix+'-'+kind+'-fg') || el(prefix+'-'+kind)?.closest('.fg');
+}
+function payMultiToggleHtml(prefix){
+  return `<div class="fg full"><label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}">
+    <input type="checkbox" id="${prefix}-multi" data-csp-change="${CSP.bind('change',function(){payToggleMulti(`${String((prefix) ?? '')}`)})}" data-csp-style="${CSP.style(`width:auto`)}"> ثبت چند قسط / مرحله‌ای
+  </label></div>
+  <div id="${prefix}-multi-block" class="fg full" data-csp-style="${CSP.style(`display:none`)}">
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px;line-height:1.8`)}">هر قسط یک سند جدا با همان نوع پرداخت و مقصد بالاست.</div>
+    <div id="${prefix}-dest-summary" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8;color:var(--brand-mid,#2D7A5F);font-weight:600`)}"></div>
+    <div id="${prefix}-multi-rows"></div>
+    <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){payAddInstRow(`${String((prefix) ?? '')}`)})}">➕ قسط دیگر</button>
+  </div>`;
+}
+function payDestSummary(prefix){
+  const pt=el(prefix+'-paytype')?.value||'cash';
+  const bankId=+el(prefix+'-bank')?.value||0;
+  const cashId=+el(prefix+'-cashbox')?.value||0;
+  const posId=+el(prefix+'-pos')?.value||0;
+  const bank=(CACHE.banks||[]).find(b=>Number(b.id)===bankId);
+  const cash=(CACHE.cashBoxes||[]).find(b=>Number(b.id)===cashId);
+  const pos=(CACHE.posTerminals||[]).find(t=>Number(t.id)===posId);
+  const typeLbl={cash:'نقد / صندوق',bank:'واریز بانکی',bank_transfer:'واریز بانکی',cheque:'چک',pos_card:'کارتخوان'}[pt]||pt;
+  let dest='';
+  if(pt==='cash' && cash) dest=' → '+cash.name;
+  else if((pt==='bank'||pt==='bank_transfer'||pt==='cheque') && bank) dest=' → '+bank.name;
+  else if(pt==='pos_card' && pos) dest=' → '+(pos.name||pos.terminal_id||'کارتخوان');
+  else if(pt==='cash') dest=' (صندوق را انتخاب کنید)';
+  else if(pt==='bank'||pt==='bank_transfer'||pt==='cheque') dest=' (بانک را انتخاب کنید)';
+  else if(pt==='pos_card') dest=' (کارتخوان را انتخاب کنید)';
+  const box=el(prefix+'-dest-summary');
+  if(box) box.textContent='مقصد همه اقساط: '+typeLbl+dest;
+}
+let _payInstRows={};
+function payToggleMulti(prefix){
+  const on=!!el(prefix+'-multi')?.checked;
+  const box=el(prefix+'-multi-block');
+  const amtFg=el(prefix+'-amount')?.closest('.fg');
+  if(box) box.style.display=on?'block':'none';
+  if(amtFg) amtFg.style.display=on?'none':'flex';
+  if(on){
+    if(!_payInstRows[prefix]||!_payInstRows[prefix].length) _payInstRows[prefix]=[{amount:''},{amount:''}];
+    payRenderInst(prefix);
+    payDestSummary(prefix);
+  }
+}
+function payAddInstRow(prefix){
+  (_payInstRows[prefix]=_payInstRows[prefix]||[]).push({amount:''});
+  payRenderInst(prefix);
+}
+function payRenderInst(prefix){
+  const box=el(prefix+'-multi-rows'); if(!box) return;
+  const rows=_payInstRows[prefix]||[];
+  box.innerHTML=rows.map((r,i)=>`<div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:6px`)}">
+    <div class="fg"><label>مبلغ قسط ${toFa(i+1)}</label>
+      <input class="money" inputmode="numeric" value="${esc(r.amount||'')}" data-csp-change="${CSP.bind('change',function(){_payInstRows[`${String((prefix) ?? '')}`][(i)].amount=this.value})}">
+    </div>
+    ${rows.length>1?`<div class="fg"><button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(){_payInstRows[`${String((prefix) ?? '')}`].splice((i),1);payRenderInst(`${String((prefix) ?? '')}`)})}">حذف</button></div>`:''}
+  </div>`).join('');
+  if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(box);
+  box.querySelectorAll('input').forEach(inp=>{ if(typeof ensureMoneyField==='function') ensureMoneyField(inp); });
+}
+function payInstAmounts(prefix){
+  if(!el(prefix+'-multi')?.checked) return null;
+  return (_payInstRows[prefix]||[]).map(r=>parseInt(String(r.amount||'').replace(/[^\d]/g,''),10)||0).filter(n=>n>0);
+}
+// XOR: نقد→صندوق، بانک/چک→بانک، کارتخوان→ترمینال
 function toggleBankFields(prefix){
-  const pt=el(prefix+'-paytype')?.value;
-  const wrap=el(prefix+'-cc-wrap'); if(!wrap) return;
-  wrap.style.display=pt==='cheque'?'flex':'none';
-  if(pt==='cheque') updateCheckCategoryOptions(prefix);
+  const pt=el(prefix+'-paytype')?.value||'cash';
+  const isCheque = pt==='cheque';
+  const isBank = pt==='bank' || pt==='bank_transfer';
+  const isCash = pt==='cash';
+  const isPos = pt==='pos_card';
+  const bankFg=payFg(prefix,'bank');
+  const cashFg=payFg(prefix,'cashbox');
+  const posFg=el(prefix+'-pos-fg');
+  const ccWrap=el(prefix+'-cc-wrap');
+  if(bankFg) bankFg.style.display=(isBank||isCheque)?'flex':'none';
+  if(cashFg) cashFg.style.display=isCash?'flex':'none';
+  if(posFg) posFg.style.display=isPos?'flex':'none';
+  if(ccWrap){ ccWrap.style.display=isCheque?'flex':'none'; if(isCheque) updateCheckCategoryOptions(prefix); }
+  if(!(isBank||isCheque) && el(prefix+'-bank')) el(prefix+'-bank').value='';
+  if(!isCash && el(prefix+'-cashbox')) el(prefix+'-cashbox').value='';
+  if(!isPos && el(prefix+'-pos')) el(prefix+'-pos').value='';
+  payDestSummary(prefix);
 }
 // Shared: repopulate the دسته چک select to only show checkbooks for the chosen bank
 function updateCheckCategoryOptions(prefix){
@@ -15096,8 +15526,7 @@ function receiptOpChooser(){
     <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
 }
 async function personReceiptModal(){
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   const partiesResp=await api('GET','/parties?limit=300')||{};
   const parties=(partiesResp.data||partiesResp||[]);
@@ -15106,120 +15535,154 @@ async function personReceiptModal(){
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>شخص *</label>${(()=>{ CACHE.parties=parties; return partySelect('prr-person'); })()}</div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="prr-amount" type="text" inputmode="numeric" class="money"></div>
+      ${payMultiToggleHtml('prr')}
       <div class="fg"><label>تاریخ</label><input id="prr-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>واریز به</label><select id="prr-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('prr')})}"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
-      <div class="fg"><label>بانک</label><select id="prr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
-      <div class="fg"><label>صندوق</label><select id="prr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>واریز به</label><select id="prr-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('prr')})}">${payTypeOptionsHtml({pos:true})}</select></div>
+      <div class="fg" id="prr-bank-fg"><label>بانک</label><select id="prr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg" id="prr-cashbox-fg"><label>صندوق</label><select id="prr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      ${payPosFieldHtml('prr')}
       <div class="fg full"><label>یادداشت</label><input id="prr-note"></div>
     </div></div>
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){savePersonReceipt()})}">💾 ثبت دریافت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
   if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+  initCustSearches(el('modalRoot'));
+  toggleBankFields('prr');
 }
 async function savePersonReceipt(){
   const person_id=+el('prr-person')?.value||0;
-  const amount=moneyVal('prr-amount');
   if(!person_id){ showToast('شخص را انتخاب کنید','error'); return; }
-  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   const pay_type=el('prr-paytype').value;
   const bank_id=+el('prr-bank')?.value||null;
   const cash_box_id=+el('prr-cashbox')?.value||null;
-  // Resolve cash account via a temporary voucher: Dr cash / Cr person
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if((pay_type==='bank'||pay_type==='bank_transfer'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  if(pay_type==='pos_card' && !el('prr-pos')?.value){ showToast('کارتخوان را انتخاب کنید','error'); return; }
+  const parts=payInstAmounts('prr');
+  const amounts=parts && parts.length ? parts : [moneyVal('prr-amount')];
+  if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
     if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
-    // Use account-receipts is for COA; for person use vouchers with person line
-    await api('POST','/accounting/vouchers',{
-      date:el('prr-date').value||todayJalali(),
-      description:el('prr-note').value||'دریافت از شخص',
-      lines:[
-        { target_type:'account', code: await resolveCashCodeForUi(pay_type, bank_id, cash_box_id), debit:amount, credit:0, description:'دریافت' },
-        { target_type:'person', person_id, debit:0, credit:amount, description:'بستانکار شخص' }
-      ]
-    });
-    closeModal(); showToast('دریافت ثبت شد');
+    const code=await resolveCashCodeForUi(pay_type, bank_id, cash_box_id);
+    for(const amount of amounts){
+      await api('POST','/accounting/vouchers',{
+        date:el('prr-date').value||todayJalali(),
+        description:el('prr-note').value||'دریافت از شخص',
+        lines:[
+          { target_type:'account', code, debit:amount, credit:0, description:'دریافت' },
+          { target_type:'person', person_id, debit:0, credit:amount, description:'بستانکار شخص' }
+        ]
+      });
+    }
+    closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'دریافت ثبت شد');
     if(typeof loadAccTab==='function') loadAccTab(accTab||'settlements');
   }catch(e){}
 }
 async function resolveCashCodeForUi(pay_type, bank_id, cash_box_id){
-  // Prefer bank/cash box coa if present in cache; fallback to first cash-like code
   try{
-    if(pay_type==='bank' && bank_id){
+    if(pay_type==='pos_card'){
+      const t=(CACHE.chartOfAccounts||[]).find(a=>a.code==='1118' || /کارتخوان|در راه/.test(a.name||''));
+      if(t?.code) return t.code;
+      return '1118';
+    }
+    if((pay_type==='bank'||pay_type==='bank_transfer'||pay_type==='cheque') && bank_id){
       const b=(CACHE.banks||[]).find(x=>Number(x.id)===Number(bank_id));
       if(b?.coa_code) return b.coa_code;
     }
-    if(cash_box_id){
+    if((pay_type==='cash' || !pay_type) && cash_box_id){
       const c=(CACHE.cashBoxes||[]).find(x=>Number(x.id)===Number(cash_box_id));
       if(c?.coa_code) return c.coa_code;
     }
   }catch(_){}
-  const cashLike=(CACHE.chartOfAccounts||[]).find(a=>/صندوق|نقد|بانک/.test(a.name||''));
+  if(pay_type==='pos_card') return '1118';
+  const cashLike=(CACHE.chartOfAccounts||[]).find(a=>pay_type==='cash' ? /صندوق|نقد/.test(a.name||'') : /بانک/.test(a.name||''))
+    || (CACHE.chartOfAccounts||[]).find(a=>/صندوق|نقد|بانک/.test(a.name||''));
   if(cashLike) return cashLike.code;
   throw new Error('حساب صندوق/بانک یافت نشد — در اطلاعات پایه کدینگ را بررسی کنید');
 }
 async function accountReceiptModal(){
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   openModal(`
     <div class="modal-head"><h3>📒 دریافت از حساب</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       ${coaAcctHtml('arr','حساب مبدأ دریافت — فقط حساب برگ')}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="arr-amount" type="text" inputmode="numeric" class="money"></div>
+      ${payMultiToggleHtml('arr')}
       <div class="fg"><label>تاریخ</label><input id="arr-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>واریز به</label><select id="arr-paytype"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
-      <div class="fg"><label>بانک</label><select id="arr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
-      <div class="fg"><label>صندوق</label><select id="arr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>واریز به</label><select id="arr-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('arr')})}">${payTypeOptionsHtml({cheque:false,pos:false})}</select></div>
+      <div class="fg" id="arr-bank-fg"><label>بانک</label><select id="arr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg" id="arr-cashbox-fg"><label>صندوق</label><select id="arr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
       <div class="fg full"><label>یادداشت</label><input id="arr-note"></div>
     </div></div>
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){saveAccountReceipt()})}">💾 ثبت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot')); if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+  toggleBankFields('arr');
 }
 async function saveAccountReceipt(){
   const account_code=el('arr-account-code')?.value;
-  const amount=moneyVal('arr-amount');
   if(!account_code){ showToast('حساب را انتخاب کنید','error'); return; }
-  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const pay_type=el('arr-paytype').value;
+  const bank_id=+el('arr-bank').value||null;
+  const cash_box_id=+el('arr-cashbox').value||null;
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if(pay_type==='bank' && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  const parts=payInstAmounts('arr');
+  const amounts=parts && parts.length ? parts : [moneyVal('arr-amount')];
+  if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
-    await api('POST','/accounting/account-receipts',{
-      account_code, amount, date:el('arr-date').value, note:el('arr-note').value,
-      pay_type:el('arr-paytype').value, bank_id:+el('arr-bank').value||null, cash_box_id:+el('arr-cashbox').value||null
-    });
-    closeModal(); showToast('دریافت ثبت شد');
+    for(const amount of amounts){
+      await api('POST','/accounting/account-receipts',{
+        account_code, amount, date:el('arr-date').value, note:el('arr-note').value,
+        pay_type, bank_id, cash_box_id
+      });
+    }
+    closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'دریافت ثبت شد');
     if(typeof loadAccTab==='function') loadAccTab(accTab||'settlements');
   }catch(e){}
 }
 async function accountPaymentModal(){
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   openModal(`
     <div class="modal-head"><h3>📒 پرداخت به حساب</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       ${coaAcctHtml('apay','حساب مقصد پرداخت — فقط حساب برگ')}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="apay-amount" type="text" inputmode="numeric" class="money"></div>
+      ${payMultiToggleHtml('apay')}
       <div class="fg"><label>تاریخ</label><input id="apay-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>پرداخت از</label><select id="apay-paytype"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
-      <div class="fg"><label>بانک</label><select id="apay-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
-      <div class="fg"><label>صندوق</label><select id="apay-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>پرداخت از</label><select id="apay-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('apay')})}">${payTypeOptionsHtml({cheque:true})}</select></div>
+      <div class="fg" id="apay-bank-fg"><label>بانک</label><select id="apay-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg" id="apay-cashbox-fg"><label>صندوق</label><select id="apay-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg" id="apay-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="apay-checkcat"><option value="">—</option></select></div>
       <div class="fg full"><label>یادداشت</label><input id="apay-note"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveAccountPayment()})}">💾 ثبت پرداخت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot')); if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+  toggleBankFields('apay');
 }
 async function saveAccountPayment(){
   const account_code=el('apay-account-code')?.value;
-  const amount=moneyVal('apay-amount');
   if(!account_code){ showToast('حساب را انتخاب کنید','error'); return; }
-  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const pay_type=el('apay-paytype').value;
+  const bank_id=+el('apay-bank').value||null;
+  const cash_box_id=+el('apay-cashbox').value||null;
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if((pay_type==='bank'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  const parts=payInstAmounts('apay');
+  const amounts=parts && parts.length ? parts : [moneyVal('apay-amount')];
+  if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
-    await api('POST','/accounting/account-payments',{
-      account_code, amount, date:el('apay-date').value, note:el('apay-note').value,
-      pay_type:el('apay-paytype').value, bank_id:+el('apay-bank').value||null, cash_box_id:+el('apay-cashbox').value||null
-    });
-    closeModal(); showToast('پرداخت ثبت شد');
+    for(const amount of amounts){
+      await api('POST','/accounting/account-payments',{
+        account_code, amount, date:el('apay-date').value, note:el('apay-note').value,
+        pay_type, bank_id, cash_box_id, check_category_id:+el('apay-checkcat')?.value||null
+      });
+    }
+    closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'پرداخت ثبت شد');
     if(typeof loadAccTab==='function') loadAccTab(accTab||'payments');
   }catch(e){}
 }
@@ -15257,11 +15720,12 @@ async function personPaymentModal(){
       <div class="fg full" id="pp-target-wrap"></div>
       ${moayanAcctHtml('pp','حساب معین طرف نقد/بانک در سند پرداخت — سطح معین کدینگ')}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="pp-amount" type="text" inputmode="numeric" class="money"></div>
-      <div class="fg"><label>نوع پرداخت</label><select id="pp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('pp')})}"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">بانکی</option></select></div>
-      <div class="fg"><label>پرداخت از بانک</label><select id="pp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('pp')})}">
+      ${payMultiToggleHtml('pp')}
+      <div class="fg"><label>نوع پرداخت</label><select id="pp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('pp')})}">${payTypeOptionsHtml({cheque:true})}</select></div>
+      <div class="fg" id="pp-bank-fg"><label>پرداخت از بانک</label><select id="pp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('pp')})}">
         <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
-      <div class="fg"><label>پرداخت از صندوق</label><select id="pp-cashbox">
+      <div class="fg" id="pp-cashbox-fg"><label>پرداخت از صندوق</label><select id="pp-cashbox">
         <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
       <div class="fg" id="pp-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="pp-checkcat"><option value="">—</option></select></div>
@@ -15307,25 +15771,34 @@ function ppKindChanged(){
 async function savePersonPayment(){
   const kind=el('pp-kind').value;
   const target=+el('pp-target')?.value||0;
-  const amount=moneyVal('pp-amount');
   if(!target){ showToast('طرف حساب را انتخاب کنید','error'); return; }
-  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
-  const payload={
-    amount:amount, pay_type:el('pp-paytype').value, date:el('pp-date').value, note:el('pp-note').value,
-    bank_id:+el('pp-bank').value||null, cash_box_id:+el('pp-cashbox')?.value||null,
+  const pay_type=el('pp-paytype').value;
+  const bank_id=+el('pp-bank').value||null;
+  const cash_box_id=+el('pp-cashbox')?.value||null;
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if((pay_type==='bank'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  const parts=payInstAmounts('pp');
+  const amounts=parts && parts.length ? parts : [moneyVal('pp-amount')];
+  if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const base={
+    pay_type, date:el('pp-date').value, note:el('pp-note').value,
+    bank_id, cash_box_id,
     check_category_id:+el('pp-checkcat')?.value||null,
     account_code:el('pp-account-code')?.value||''
   };
   try{
-    if(kind==='supplier'){
-      await api('POST','/purchases/payments',{...payload, supplier_id:target});
-    } else if(kind==='incentive'){
-      await api('POST','/accounting/incentive-payments',{...payload, rep_id:target});
-    } else {
-      const name=(el('pp-target').selectedOptions[0]?.textContent||'شخص').trim();
-      await api('POST','/expenses',{...payload, category:'admin', title:'پرداخت به شخص: '+name, account_code:payload.account_code||null});
+    for(const amount of amounts){
+      const payload={...base, amount};
+      if(kind==='supplier'){
+        await api('POST','/purchases/payments',{...payload, supplier_id:target});
+      } else if(kind==='incentive'){
+        await api('POST','/accounting/incentive-payments',{...payload, rep_id:target});
+      } else {
+        const name=(el('pp-target-input')?.value||el('pp-target').selectedOptions?.[0]?.textContent||'شخص').trim();
+        await api('POST','/expenses',{...payload, category:'admin', title:'پرداخت به شخص: '+name, account_code:payload.account_code||null});
+      }
     }
-    closeModal(); showToast('پرداخت ثبت شد'); loadAccTab('settlements');
+    closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'پرداخت ثبت شد'); loadAccTab('settlements');
   }catch(e){}
 }
 async function expensePaymentModal(){
@@ -15347,14 +15820,15 @@ async function expensePaymentModal(){
       </div>
       <div class="fg full"><label>عنوان/بابت *</label><input id="ex-title" placeholder="مثال: اجاره دفتر، قبض برق، ..."></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="ex-amount" type="text" inputmode="numeric" class="money" min="1"></div>
+      ${payMultiToggleHtml('ex')}
       <div class="fg"><label>فاکتور خرید مرتبط (اختیاری)</label><select id="ex-purchase"><option value="">— بدون ارتباط —</option></select></div>
       <div class="fg full"><label><input type="checkbox" id="ex-overhead" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> این هزینه سربار تولید است</label></div>
-      <div class="fg"><label>نوع پرداخت</label><select id="ex-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('ex')})}"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
-      <div class="fg"><label>پرداخت از بانک</label><select id="ex-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('ex')})}">
+      <div class="fg"><label>نوع پرداخت</label><select id="ex-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('ex')})}">${payTypeOptionsHtml({cheque:true})}</select></div>
+      <div class="fg" id="ex-bank-fg"><label>پرداخت از بانک</label><select id="ex-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('ex')})}">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
-      <div class="fg"><label>پرداخت از صندوق</label><select id="ex-cashbox">
+      <div class="fg" id="ex-cashbox-fg"><label>پرداخت از صندوق</label><select id="ex-cashbox">
         <option value="">— بدون صندوق مشخص —</option>
         ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
@@ -15366,6 +15840,7 @@ async function expensePaymentModal(){
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
   loadExpenseModalData();
+  toggleBankFields('ex');
 }
 async function exAddCategory(){
   const name=prompt('نام دستهٔ هزینهٔ جدید:'); if(!name||!name.trim()) return;
@@ -15444,20 +15919,28 @@ function moayanAcctPick(prefix, code){
 }
 async function saveExpensePayment(){
   const title=el('ex-title').value.trim();
-  const amount=moneyVal('ex-amount');
   if(!title){ showToast('عنوان هزینه الزامی است','error'); return; }
-  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const pay_type=el('ex-paytype').value;
+  const bank_id=+el('ex-bank').value||null;
+  const cash_box_id=+el('ex-cashbox')?.value||null;
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if((pay_type==='bank'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  const parts=payInstAmounts('ex');
+  const amounts=parts && parts.length ? parts : [moneyVal('ex-amount')];
+  if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
-    await api('POST','/expenses',{
-      category:el('ex-category').value, title, amount:amount,
-      pay_type:el('ex-paytype').value, date:el('ex-date').value, note:el('ex-note').value,
-      bank_id:+el('ex-bank').value||null, cash_box_id:+el('ex-cashbox')?.value||null,
-      check_category_id:+el('ex-checkcat')?.value||null,
-      account_code:el('ex-account-code')?.value||null,
-      purchase_invoice_id:+el('ex-purchase')?.value||null,
-      is_overhead:el('ex-overhead')?.checked||false
-    });
-    closeModal(); showToast('پرداخت هزینه ثبت شد'); loadAccTab('settlements');
+    for(const amount of amounts){
+      await api('POST','/expenses',{
+        category:el('ex-category').value, title, amount,
+        pay_type, date:el('ex-date').value, note:el('ex-note').value,
+        bank_id, cash_box_id,
+        check_category_id:+el('ex-checkcat')?.value||null,
+        account_code:el('ex-account-code')?.value||null,
+        purchase_invoice_id:+el('ex-purchase')?.value||null,
+        is_overhead:el('ex-overhead')?.checked||false
+      });
+    }
+    closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'پرداخت هزینه ثبت شد'); loadAccTab('settlements');
   }catch(e){}
 }
 async function deletePaymentOp(kind,id){
@@ -15618,8 +16101,7 @@ async function updateChequeStatus(id, status){
 let stlRows = [];
 let stlOpenInvoices = [];
 async function settlementModal(custId){
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   stlRows=[{amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:'',bank_id:'',cash_box_id:''}];
   stlCheques=[stlNewCheque()];
@@ -15640,13 +16122,14 @@ async function settlementModal(custId){
       <div id="stlSingleBlock">
         <div class="form-grid">
           <div class="fg" id="st-amount-fg"><label>مبلغ (ریال) *</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
-          <div class="fg"><label>نوع پرداخت</label><select id="st-paytype" data-csp-change="${CSP.bind('change',function(event){toggleStlCheque()})}"><option value="cash">نقد</option><option value="bank_transfer">واریز بانکی</option><option value="cheque">چک</option></select></div>
+          <div class="fg"><label>نوع پرداخت</label><select id="st-paytype" data-csp-change="${CSP.bind('change',function(event){toggleStlCheque()})}"><option value="cash">نقد</option><option value="bank_transfer">واریز بانکی</option><option value="cheque">چک</option><option value="pos_card">کارتخوان</option></select></div>
           <div class="fg" id="st-bank-fg"><label>واریز به بانک</label><select id="st-bank" data-csp-change="${CSP.bind('change',function(event){stlFxRefresh()})}"><option value="">— بدون بانک —</option>
             ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" data-cur="${esc(b.currency||'IRR')}" data-fx="${b.is_foreign||(b.currency&&b.currency!=='IRR')?1:0}">${esc(b.name)}${(b.is_foreign||(b.currency&&b.currency!=='IRR'))?' ('+esc(b.currency||'')+')':''}</option>`).join('')}
           </select></div>
           <div class="fg" id="st-cashbox-fg"><label>واریز به صندوق</label><select id="st-cashbox" data-csp-change="${CSP.bind('change',function(event){stlFxRefresh()})}"><option value="">— بدون صندوق —</option>
             ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" data-cur="${esc(b.currency||'IRR')}" data-fx="${b.is_foreign||(b.currency&&b.currency!=='IRR')?1:0}">${esc(b.name)}${(b.is_foreign||(b.currency&&b.currency!=='IRR'))?' ('+esc(b.currency||'')+')':''}</option>`).join('')}
           </select></div>
+          ${payPosFieldHtml('st')}
           <div class="fg full" id="st-fx-wrap" data-csp-style="${CSP.style(`display:none`)}">
             <div class="form-grid">
               <div class="fg"><label>مبلغ ارزی</label><input id="st-foreign" type="number" step="0.01" min="0" data-csp-input="${CSP.bind('input',function(event){stlFxCalc()})}"></div>
@@ -15732,12 +16215,18 @@ function stlAddRow(){ stlRows.push({amount:'',pay_type:'cash',date:todayJalali()
 function stlDestCell(r,i){
   const pt=r.pay_type||'cash';
   if(pt==='cash'){
-    return `<select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].cash_box_id=this.value;stlRows[(i)].bank_id=''})}">
+    return `<select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].cash_box_id=this.value;stlRows[(i)].bank_id='';stlRows[(i)].terminal_id=''})}">
       <option value="">— صندوق —</option>
       ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${String(r.cash_box_id)===String(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}
     </select>`;
   }
-  return `<select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].bank_id=this.value;stlRows[(i)].cash_box_id=''})}">
+  if(pt==='pos_card'){
+    return `<select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].terminal_id=this.value;stlRows[(i)].bank_id='';stlRows[(i)].cash_box_id=''})}">
+      <option value="">— کارتخوان —</option>
+      ${(CACHE.posTerminals||[]).filter(t=>t.active!==0&&t.active!==false).map(t=>`<option value="${t.id}" ${String(r.terminal_id)===String(t.id)?'selected':''}>${esc(t.name||t.terminal_id||'')}</option>`).join('')}
+    </select>`;
+  }
+  return `<select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].bank_id=this.value;stlRows[(i)].cash_box_id='';stlRows[(i)].terminal_id=''})}">
     <option value="">— بانک —</option>
     ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${String(r.bank_id)===String(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}
   </select>`;
@@ -15746,7 +16235,7 @@ function renderStlRows(){
   const body=el('stlRowsBody'); if(!body) return;
   body.innerHTML=stlRows.map((r,i)=>`<tr>
     <td><input type="text" inputmode="numeric" class="money" value="${r.amount}" data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].amount=this.value})}" data-csp-style="${CSP.style(`width:110px`)}"></td>
-    <td><select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].pay_type=this.value;if(this.value==='cash'){stlRows[(i)].bank_id='';}else{stlRows[(i)].cash_box_id='';}renderStlRows()})}"><option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option><option value="bank_transfer" ${r.pay_type==='bank_transfer'?'selected':''}>واریز بانکی</option><option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option></select></td>
+    <td><select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].pay_type=this.value;if(this.value==='cash'){stlRows[(i)].bank_id='';stlRows[(i)].terminal_id='';}else if(this.value==='pos_card'){stlRows[(i)].bank_id='';stlRows[(i)].cash_box_id='';}else{stlRows[(i)].cash_box_id='';stlRows[(i)].terminal_id='';}renderStlRows()})}"><option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option><option value="bank_transfer" ${r.pay_type==='bank_transfer'?'selected':''}>واریز بانکی</option><option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option><option value="pos_card" ${r.pay_type==='pos_card'?'selected':''}>کارتخوان</option></select></td>
     <td>${stlDestCell(r,i)}</td>
     <td><input data-jdate value="${esc(r.date)}" data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].date=this.value})}" data-csp-style="${CSP.style(`width:100px`)}"></td>
     <td><select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].invoice_id=this.value})}">${'<option value="">—</option>'+stlOpenInvoices.map(inv=>`<option value="${inv.id}" ${String(r.invoice_id)===String(inv.id)?'selected':''}>${esc(inv.num)} (${fmt(inv.outstanding)} ریال)</option>`).join('')}</select></td>
@@ -15764,13 +16253,16 @@ function toggleStlCheque(){
   const isCheque = pt.value==='cheque' && !el('st-multi')?.checked;
   const isBank = pt.value==='bank_transfer' && !el('st-multi')?.checked;
   const isCash = pt.value==='cash' && !el('st-multi')?.checked;
+  const isPos = pt.value==='pos_card' && !el('st-multi')?.checked;
   const cc=el('stlChequeCards'); if(cc) cc.style.display=isCheque?'block':'none';
   const amtFg=el('st-amount-fg'); if(amtFg) amtFg.style.display=isCheque?'none':'flex';
   const bankRef=el('st-bankref-fg'); if(bankRef) bankRef.style.display=isBank?'block':'none';
   const bankFg=el('st-bank-fg'); if(bankFg) bankFg.style.display=(isBank||isCheque)?'flex':'none';
   const cashFg=el('st-cashbox-fg'); if(cashFg) cashFg.style.display=isCash?'flex':'none';
+  const posFg=el('st-pos-fg'); if(posFg) posFg.style.display=isPos?'flex':'none';
   if(!(isBank||isCheque) && el('st-bank')) el('st-bank').value='';
   if(!isCash && el('st-cashbox')) el('st-cashbox').value='';
+  if(!isPos && el('st-pos')) el('st-pos').value='';
   if(isCheque){ if(!stlCheques.length) stlCheques=[stlNewCheque()]; renderStlCheques(); }
 }
 function stlAddCheque(){ stlCheques.push(stlNewCheque()); renderStlCheques(); }
@@ -15808,6 +16300,20 @@ function stlSyncChequesFromDom(){
     card.querySelectorAll('[data-k]').forEach(inp=>{ stlCheques[i][inp.dataset.k]=inp.value; });
   });
 }
+async function postStlPosReceipt(opts){
+  const terminal_id=+opts.terminal_id||0;
+  if(!terminal_id) throw new Error('کارتخوان الزامی است');
+  return api('POST','/pos/receipts',{
+    terminal_id,
+    amount_rial:opts.amount,
+    cust_id:opts.cust_id,
+    invoice_id:opts.invoice_id||null,
+    date:opts.date||todayJalali(),
+    note:opts.note||'',
+    ref:opts.ref||'',
+    idempotency_key:'stl-pos-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)
+  });
+}
 async function saveSettlement(){
   const cust_id=+el('st-cust').value;
   if(!cust_id){ showToast('مشتری الزامی است','error'); return; }
@@ -15836,26 +16342,58 @@ async function saveSettlement(){
     }catch(e){}
     return;
   }
+  if(pay_type==='pos_card' && !multi){
+    const amount=moneyVal('st-amount');
+    if(!amount){ showToast('مبلغ الزامی است','error'); return; }
+    const terminal_id=+el('st-pos')?.value||0;
+    if(!terminal_id){ showToast('کارتخوان را انتخاب کنید','error'); return; }
+    try{
+      await postStlPosReceipt({
+        cust_id, amount, terminal_id,
+        invoice_id:+el('st-invoice')?.value||null,
+        date:el('st-date').value,
+        note:el('st-note').value||'',
+        ref:el('st-bankref')?.value||''
+      });
+      _accRecvCache=null; closeModal(); showToast('دریافت کارتخوان ثبت شد (در راه)'); loadAccTab(accTab);
+    }catch(e){ showToast(e.message||e.error||'خطا','error'); }
+    return;
+  }
   if(multi){
     const payments=[];
+    const posRows=[];
     for(let i=0;i<stlRows.length;i++){
       const r=stlRows[i];
       const amount=parseInt(String(r.amount).replace(/[^\d]/g,''))||0;
       if(!amount||amount<=0){ showToast('مبلغ هر قسط باید معتبر باشد','error'); return; }
-      payments.push({
-        amount:amount,pay_type:r.pay_type||'cash',date:r.date||todayJalali(),invoice_id:+r.invoice_id||null,note:r.note||'',
-        bank_id:+r.bank_id||null, cash_box_id:+r.cash_box_id||null
-      });
+      if(r.pay_type==='pos_card'){
+        if(!r.terminal_id){ showToast('قسط '+toFa(i+1)+': کارتخوان را انتخاب کنید','error'); return; }
+        posRows.push({amount, terminal_id:r.terminal_id, date:r.date||todayJalali(), invoice_id:+r.invoice_id||null, note:r.note||''});
+      } else {
+        if(r.pay_type==='cash' && !r.cash_box_id){ showToast('قسط '+toFa(i+1)+': صندوق را انتخاب کنید','error'); return; }
+        if((r.pay_type==='bank_transfer'||r.pay_type==='cheque') && !r.bank_id){ showToast('قسط '+toFa(i+1)+': بانک را انتخاب کنید','error'); return; }
+        payments.push({
+          amount:amount,pay_type:r.pay_type||'cash',date:r.date||todayJalali(),invoice_id:+r.invoice_id||null,note:r.note||'',
+          bank_id:+r.bank_id||null, cash_box_id:+r.cash_box_id||null
+        });
+      }
     }
-    if(!payments.length){ showToast('حداقل یک قسط وارد کنید','error'); return; }
+    if(!payments.length && !posRows.length){ showToast('حداقل یک قسط وارد کنید','error'); return; }
     try{
-      await api('POST','/accounting/settlements/batch',{cust_id,payments,note:el('st-note-multi')?.value||''});
-      _accRecvCache=null; closeModal(); showToast(payments.length+' قسط ثبت شد'); loadAccTab(accTab);
+      for(const p of posRows){
+        await postStlPosReceipt({cust_id, amount:p.amount, terminal_id:p.terminal_id, invoice_id:p.invoice_id, date:p.date, note:p.note});
+      }
+      if(payments.length){
+        await api('POST','/accounting/settlements/batch',{cust_id,payments,note:el('st-note-multi')?.value||''});
+      }
+      _accRecvCache=null; closeModal(); showToast((payments.length+posRows.length)+' قسط ثبت شد'); loadAccTab(accTab);
     }catch(e){}
     return;
   }
   const amount=moneyVal('st-amount');
   if(!amount){ showToast('مبلغ الزامی است','error'); return; }
+  if(pay_type==='cash' && !el('st-cashbox')?.value){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if((pay_type==='bank_transfer'||pay_type==='cheque') && !el('st-bank')?.value){ showToast('بانک را انتخاب کنید','error'); return; }
   const invoice_id=+el('st-invoice')?.value||null;
   try{
     await api('POST','/accounting/settlements',{
@@ -17944,6 +18482,13 @@ function settNavHtml(){
 function settShowTab(id){
   SETT_ACTIVE_TAB = id || 'general';
   try{ sessionStorage.setItem('crm_settings_tab', SETT_ACTIVE_TAB); }catch(e){}
+  const sq=el('sett-q');
+  if(sq){
+    sq.value='';
+    sq.setAttribute('readonly','readonly');
+    sq.blur();
+    settFilterSearch('');
+  }
   document.querySelectorAll('.sett-nav-btn').forEach(b=>{
     b.classList.toggle('active', b.getAttribute('data-sett-tab')===SETT_ACTIVE_TAB);
   });
@@ -18147,7 +18692,7 @@ ROUTES.settings = async function(){
           <option value="both" ${s.website_stock_sync_mode==='both'?'selected':''}>هر دو</option>
         </select></div>
         <div class="fg full"><label>آدرس API سایت B2B</label><input id="s-website_b2b_url" value="${esc(s.website_b2b_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
-        <div class="fg"><label>توکن JWT ادمین سایت</label><input id="s-website_b2b_token" type="password" value="${esc(s.website_b2b_token||'')}" dir="ltr" autocomplete="off" placeholder="${s.website_b2b_token_has_value?'********':''}"></div>
+        <div class="fg"><label>توکن JWT ادمین سایت</label><input id="s-website_b2b_token" type="text" value="${esc(s.website_b2b_token||'')}" dir="ltr" autocomplete="off" data-lpignore="true" data-1p-ignore="true" placeholder="${s.website_b2b_token_has_value?'********':''}"></div>
         <div class="fg fg-md"><label>کانال موجودی</label><select id="s-website_b2b_channel">
           <option value="WHOLESALE" ${(s.website_b2b_channel||'WHOLESALE')==='WHOLESALE'?'selected':''}>عمده (WHOLESALE)</option>
           <option value="RETAIL" ${s.website_b2b_channel==='RETAIL'?'selected':''}>خرده‌فروشی (RETAIL)</option>
@@ -18253,7 +18798,7 @@ ROUTES.settings = async function(){
             <option value="auto" ${s.ai_provider==='auto'?'selected':''}>تشخیص از کلید / مدل</option>
           </select></div>
         <div class="fg"><label>کلید سرویس ${hlp('Gemini معمولاً با AIza شروع می‌شود. مقدار ذخیره‌شده نمایش داده نمی‌شود.')}</label>
-          <input id="s-ai_api_key" dir="ltr" type="password" value="${esc(s.ai_api_key||'')}" autocomplete="off" placeholder="${s.ai_api_key_has_value?'********':'AIza… یا sk-ant-…'}"></div>
+          <input id="s-ai_api_key" dir="ltr" type="text" value="${esc(s.ai_api_key||'')}" autocomplete="off" data-lpignore="true" data-1p-ignore="true" placeholder="${s.ai_api_key_has_value?'********':'AIza… یا sk-ant-…'}"></div>
         <div class="fg"><label>نام مدل</label>
           <input id="s-ai_model" dir="ltr" value="${esc(s.ai_model||'')}" placeholder="gemini-2.0-flash" list="s-ai-models">
           <datalist id="s-ai-models">
@@ -18275,8 +18820,10 @@ ROUTES.settings = async function(){
     </div></div>`;
 
   const auditPanel = `
-    <div class="panel"><div class="panel-head" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:8px`)}"><h4>${lucide('clipboard')} گزارش ممیزی (Audit)</h4>
+    <div class="panel"><div class="panel-head" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:8px`)}"><h4>${lucide('clipboard')} ممیزی و سطل‌زباله مدیر</h4>
       <div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap;align-items:center`)}">
+        <button type="button" class="btn sm ghost" id="audit-mode-all" data-csp-click="${CSP.bind('click',function(){window._auditDeletedOnly=0;loadAuditLog()})}">همه رویدادها</button>
+        <button type="button" class="btn sm" id="audit-mode-del" data-csp-style="${CSP.style(`border-color:var(--state-danger,#C0392B)`)}" data-csp-click="${CSP.bind('click',function(){window._auditDeletedOnly=1;loadAuditLog()})}">🗑️ حذف و ابطال</button>
         <input id="auditFrom" data-jdate placeholder="از تاریخ" data-csp-style="${CSP.style(`padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px;background:var(--input-bg);color:var(--text)`)}" value="${todayJalali()}">
         <input id="auditTo" data-jdate placeholder="تا تاریخ" data-csp-style="${CSP.style(`padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px;background:var(--input-bg);color:var(--text)`)}" value="${todayJalali()}">
         <select id="auditUser" data-csp-style="${CSP.style(`padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:var(--input-bg);color:var(--text)`)}">
@@ -18285,6 +18832,7 @@ ROUTES.settings = async function(){
         </select>
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){loadAuditLog()})}">${lucide('search')} بارگذاری</button>
       </div></div>
+      <div class="panel-body muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:8px`)}">حذف فیزیکی انجام نمی‌شود — ابطال/حذف نرم در اینجا با جزئیات کامل برای مدیر قابل ردیابی است.</div>
       <div class="panel-body" id="audit-log-body"><p class="muted">در حال بارگذاری...</p></div></div>`;
 
   el('view').innerHTML=`
@@ -18296,10 +18844,10 @@ ROUTES.settings = async function(){
             <p>همه‌چیز دسته‌بندی شده — جستجو کنید یا از منوی کناری بخش مورد نظر را باز کنید.</p>
           </div>
         </div>
-        <div class="sett-search">
+        <form class="sett-search" autocomplete="off" data-csp-submit="${CSP.bind('submit',function(event){event.preventDefault();return false})}">
           <span class="sett-search-ico">${lucide('search')}</span>
-          <input id="sett-q" type="search" placeholder="جستجو در تنظیمات… مثلاً فاکتور، تلگرام، سال مالی" data-csp-input="${CSP.bind('input',function(event){settFilterSearch(this.value)})}" autocomplete="off">
-        </div>
+          <input id="sett-q" type="text" inputmode="search" name="erp-settings-filter-q" placeholder="جستجو در تنظیمات… مثلاً فاکتور، تلگرام، سال مالی" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" readonly data-csp-focus="${CSP.bind('focus',function(){this.removeAttribute('readonly')})}" data-csp-input="${CSP.bind('input',function(event){settFilterSearch(this.value)})}">
+        </form>
       </div>
       <div class="sett-layout">
         <nav class="sett-nav" aria-label="دسته‌های تنظیمات">${settNavHtml()}</nav>
@@ -18328,6 +18876,12 @@ ROUTES.settings = async function(){
   loadAuditLog();
   renderAppUpdateUI();
   settShowTab(SETT_ACTIVE_TAB);
+  const sq=el('sett-q');
+  if(sq){
+    sq.value='';
+    sq.setAttribute('readonly','readonly');
+    settFilterSearch('');
+  }
 };
 
 ROUTES['desktop-settings'] = async function(){
@@ -18417,24 +18971,52 @@ async function saveSettings(){
 async function loadAuditLog(){
   const body=el('audit-log-body'); if(!body) return;
   body.innerHTML='<p class="muted">در حال بارگذاری...</p>';
+  const delOnly=!!window._auditDeletedOnly;
+  const btnAll=el('audit-mode-all'), btnDel=el('audit-mode-del');
+  if(btnAll) btnAll.className='btn sm'+(delOnly?' ghost':'');
+  if(btnDel) btnDel.className='btn sm'+(delOnly?'':' ghost');
   try{
     const df=el('auditFrom')?.value||todayJalali();
     const dt=el('auditTo')?.value||df;
     const uid=el('auditUser')?.value||'';
     let q='?limit=120&date_from='+encodeURIComponent(df)+'&date_to='+encodeURIComponent(dt);
     if(uid) q+='&user_id='+encodeURIComponent(uid);
+    if(delOnly) q+='&deleted_only=1';
     const r=await api('GET','/admin/audit'+q)||{};
     const rows=r.rows||[];
+    const actLbl={delete:'حذف',reverse:'ابطال',void:'ابطال',reject:'رد',cancel:'لغو',create:'ایجاد',update:'ویرایش'};
     body.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:11px`)}"><thead><tr>
-      <th>زمان</th><th>کاربر</th><th>عملیات</th><th>موجودیت</th><th>جزئیات</th><th>IP</th>
-    </tr></thead><tbody>${rows.map(a=>`<tr>
+      <th>زمان</th><th>کاربر</th><th>عملیات</th><th>موجودیت</th><th>جزئیات</th><th></th>
+    </tr></thead><tbody>${rows.map(a=>{
+      const detail=String(a.detail||'');
+      const bind=CSP.bind('click',function(){auditDetailModal(a)});
+      return `<tr>
       <td class="mono">${a.created_at?new Date(a.created_at*1000).toLocaleString('fa-IR'):'-'}</td>
-      <td>${esc(a.user_name||'-')}</td><td>${esc(a.action||'')}</td>
+      <td>${esc(a.user_name||'-')}</td>
+      <td>${esc(actLbl[a.action]||a.action||'')}</td>
       <td class="muted">${esc(a.entity||'')}${a.entity_id?' #'+a.entity_id:''}</td>
-      <td>${esc(a.detail||'-')}</td>
-      <td class="mono muted" data-csp-style="${CSP.style(`font-size:10px`)}">${esc(a.ip_address||'-')}</td>
-    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+      <td>${esc(detail.length>80?detail.slice(0,80)+'…':detail||'-')}</td>
+      <td><button type="button" class="btn sm ghost" data-csp-click="${bind}">جزئیات</button></td>
+    </tr>`;
+    }).join('')||emptyRow(6)}</tbody></table></div>
+    <p class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}">${delOnly?'فقط حذف/ابطال':'همه رویدادها'} — ${fmt(rows.length)} از ${fmt(r.total||rows.length)}</p>`;
   }catch(e){ body.innerHTML='<p class="muted">خطا در بارگذاری</p>'; }
+}
+function auditDetailModal(a){
+  if(!a) return;
+  const lines=[
+    ['زمان', a.created_at?new Date(a.created_at*1000).toLocaleString('fa-IR'):'-'],
+    ['کاربر', a.user_name||'-'],
+    ['عملیات', a.action||'-'],
+    ['موجودیت', (a.entity||'')+(a.entity_id?' #'+a.entity_id:'')],
+    ['IP', a.ip_address||'-'],
+    ['جزئیات', a.detail||'-'],
+  ];
+  openModal('جزئیات ممیزی',`
+    <div class="modal-body"><table class="tbl"><tbody>
+      ${lines.map(([k,v])=>'<tr><th data-csp-style="'+CSP.style(`width:120px;text-align:right`)+'">'+esc(k)+'</th><td>'+esc(v)+'</td></tr>').join('')}
+    </tbody></table></div>
+    <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">بستن</button></div>`);
 }
 async function testSMS(){
   const phone = (el('sms-test-phone')?.value||'').trim();
@@ -18959,7 +19541,23 @@ helpSec('🔑','لایسنس و entitlement',`
           <br>مسیر ۲ (با سفارش تولید): اگر لایه به سفارش وصل شود فقط WIP همان لایه با PACK صفر می‌شود. دستمزد/سربار سفارش جدا با رسید سفارش می‌ماند و دو بار بستانکار نمی‌شود. سفارش اجباری نیست.
           <br>چک‌لیست فاز ۸ برای صفحهٔ رسید برش (Light/Dark، عرض ~1440 و ~360، RTL، دکمه لمس ۴۴px، چاپ بارکد بدون chrome مرورگر) بعد از overlay ایران به‌صورت دستی باقی است.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
+        <li><b>خانه تولید:</b> ورود پیش‌فرض = <b>داشبورد تولید</b> (KPI + نمودار + مسیر ۶ مرحله‌ای + دو مسیر برش/PACK و سفارش تولید). گزارش‌های سریع اولویت‌بندی‌شده از همان صفحه اجرا می‌شوند.</li>
+        <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
+        <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه و نرخ را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
+      </ul>
+      <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>
+        <li>در هر فرم، نقد فقط صندوق، واریز فقط بانک، چک بانک+دسته‌چک، کارتخوان فقط ترمینال را نشان می‌دهد (هم‌زمان انتخاب نمی‌شوند).</li>
+        <li>دریافت مشتری با کارتخوان از مسیر <b>وجوه در راه (۱۱۱۸)</b> ثبت می‌شود نه بدهکار بانک؛ تسویه دسته‌ای بعداً به بانک می‌رود.</li>
+        <li>اقساط چندمرحله‌ای روی دریافت مشتری (هر قسط مقصد جدا) و روی دریافت/پرداخت شخص، حساب و هزینه (همان مقصد سربرگ) فعال است.</li>
+      </ul>
+      <h5>🧾 فاکتور فروش — ردیف تجمیعی رنگ×سایز</h5><ul>
+        <li>پس از انتخاب ماتریس، روی فاکتور یک ردیف با <b>تعداد قطعه</b> و خلاصه رنگ/سایز دیده می‌شود. دکمه «ویرایش رنگ / سایز» ماتریس را باز می‌کند. ذخیره همچنان برای هر SKU یک خط با <code>variant_id</code> است.</li>
+        <li>تبدیل پیش‌فاکتور: انتخاب <b>رسمی</b> یا <b>معمولی</b>.</li>
+      </ul>
+      <h5>⚙️ جستجوی تنظیمات و ممیزی مدیر</h5><ul>
+        <li>کادر جستجوی بالای تنظیمات فیلتر دسته‌هاست و نباید با نام کاربری مرورگر پر شود. با تعویض تب، خودکار پاک می‌شود.</li>
+        <li>تب <b>ممیزی</b> → دکمه <b>حذف و ابطال</b> فقط رویدادهای delete/reverse/void را نشان می‌دهد. روی «جزئیات» کلیک کنید تا متن کامل قبل از حذف را ببینید.</li>
       </ul>
       <h5>🔎 جستجوی سراسری پیشرفته (Ctrl+K)</h5><ul>
         <li>علاوه بر مشتری/محصول/فاکتور، اکنون <b>همهٔ بخش‌ها و زیرمنوهای برنامه</b> (از جمله تمام زیرماژول‌های حسابداری) قابل جستجو و باز شدن مستقیم هستند.</li>
