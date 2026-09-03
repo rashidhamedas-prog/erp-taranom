@@ -92,7 +92,7 @@ def main() -> None:
         f"grep -n erp-taranom-v {APP}/server/public/sw.js | head -1; "
         f"grep -o 'ترانه اندیشه پردازان ریان' {APP}/server/public/demo.html | head -1; "
         f"grep -o 'app.css' {APP}/server/public/demo.html | head -1; "
-        f"cd {APP} && echo SFTP_DEMO_UI_V157=$(date -u +%Y-%m-%dT%H:%M:%SZ) > {STAMP_FILE} && cat {STAMP_FILE}",
+        f"cd {APP} && echo SFTP_DEMO_UI_V158=$(date -u +%Y-%m-%dT%H:%M:%SZ) > {STAMP_FILE} && cat {STAMP_FILE}",
         timeout=90,
     )
     c.close()

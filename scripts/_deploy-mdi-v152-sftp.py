@@ -61,7 +61,7 @@ def main():
         f"grep -o 'app.js?v=[0-9]*' {APP}/server/public/index.html | head -1; "
         f"grep -c 'renderPageIntoMdiBody' {APP}/server/public/app.js; "
         f"grep -c 'is-hidden' {APP}/server/public/mdi.js; "
-        f"cd {APP} && echo SFTP_MDI_V152=$(date -u +%Y-%m-%dT%H:%M:%SZ) hash=9d5319f > .sftp-deploy-stamp-mdi-v152 && cat .sftp-deploy-stamp-mdi-v152",
+        f"cd {APP} && echo SFTP_MDI_V153=$(date -u +%Y-%m-%dT%H:%M:%SZ) hash=eedd689 > .sftp-deploy-stamp-mdi-v153 && cat .sftp-deploy-stamp-mdi-v153",
         timeout=60,
     )
     c.close()
