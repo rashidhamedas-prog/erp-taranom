@@ -122,6 +122,24 @@ function ensureUpdateMdSchema(db, ensureColumn) {
     seed.run('invoice_approved', 'تأیید فاکتور', 'invoice.approved', 'فاکتور {num} به مبلغ {amount} ریال تأیید شد');
     seed.run('order_ready', 'آماده تحویل', 'order.ready', 'سفارش شما آماده تحویل است');
   }
+
+  // Append-safe templates for newly-wired events. INSERT OR IGNORE keyed on the
+  // UNIQUE `code` column → never overwrites an admin-edited template and never
+  // wipes existing rows. Seeding a template alone does NOT send anything; an
+  // active sms_rule must still link the event to a template.
+  const seedIgnore = db.prepare('INSERT OR IGNORE INTO sms_templates (code,name,event_key,body,active) VALUES (?,?,?,?,1)');
+  const extraTemplates = [
+    ['invoice_created', 'ثبت فاکتور', 'invoice.created', 'فاکتور {num} به مبلغ {amount} ریال برای {name} ثبت شد. پوشاک ترنم'],
+    ['invoice_converted', 'تبدیل به فاکتور قطعی', 'invoice.converted', 'پیش‌فاکتور شما به {status} شماره {num} به مبلغ {amount} ریال تبدیل شد. پوشاک ترنم'],
+    ['followup_reminder', 'یادآوری پیگیری', 'followup.reminder', 'یادآوری پیگیری: {name} — {note} (ساعت {status})'],
+    ['auth_otp', 'کد ورود کاربر', 'auth.otp', 'کد تأیید ERP ترنم: {code}'],
+    ['b2b_otp', 'کد ورود پورتال', 'b2b.otp', 'کد ورود پورتال ترنم: {code}'],
+    ['portal_invite', 'فعال‌سازی پورتال', 'portal.invite', 'دسترسی پورتال ترنم برای {biz} فعال شد. شماره ورود: {phone}'],
+    ['settlement_created', 'ثبت دریافت', 'settlement.created', 'دریافت {amount} ریال از {name} ثبت شد. پوشاک ترنم'],
+    ['payment_created', 'ثبت پرداخت', 'payment.created', 'پرداخت {amount} ریال برای {name} ثبت شد. پوشاک ترنم'],
+    ['party_created', 'ثبت شخص', 'party.created', '{name} در دفتر اشخاص ترنم ثبت شد.'],
+  ];
+  for (const [code, name, ev, body] of extraTemplates) seedIgnore.run(code, name, ev, body);
 }
 
 module.exports = { ensureUpdateMdSchema };

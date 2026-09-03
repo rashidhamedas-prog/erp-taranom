@@ -256,7 +256,18 @@ router.post('/forgot', async (req, res) => {
 
   const settings = getSMSSettings(db);
   const text = `کد بازیابی رمز ERP ترنم: ${code}\nاعتبار: ۱۰ دقیقه`;
-  const sms = await sendSMS(settings, phone, text);
+  let sms;
+  try {
+    const { dispatchSmsOrFallback } = require('../lib/sms-dispatch');
+    sms = await dispatchSmsOrFallback(db, 'auth.otp', {
+      phone,
+      name: user.name || user.username,
+      code,
+      user_id: user.id,
+    }, text);
+  } catch (_) {
+    sms = await sendSMS(settings, phone, text);
+  }
   if (!sms.ok) {
     // Delivery failed: the generated credential must not remain usable.
     db.prepare('DELETE FROM password_reset_otps WHERE user_id=?').run(user.id);

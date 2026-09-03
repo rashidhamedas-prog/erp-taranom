@@ -520,6 +520,23 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       const cust = db.prepare('SELECT biz FROM customers WHERE id=?').get(cust_id);
       notif.notifyNewInvoice(db, row, cust);
     } catch (e) { console.error('notify invoice:', e.message); }
+    try {
+      const cust = db.prepare('SELECT biz,owner,phone,mobile,party_group_id,user_id FROM customers WHERE id=?').get(cust_id);
+      const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+      setImmediate(() => dispatchSmsEvent(db, 'invoice.created', {
+        phone: cust?.mobile || cust?.phone,
+        name: cust?.owner || cust?.biz,
+        biz: cust?.biz,
+        amount: row.final,
+        num: row.num,
+        date: row.date,
+        status: invoiceTypeLabel(row.type),
+        party_group_id: cust?.party_group_id,
+        user_id: cust?.user_id,
+        created_by: req.user.id,
+        user: req.user.name,
+      }));
+    } catch (_) {}
   }
   res.json({ ...row, rows: JSON.parse(row.rows || '[]'), used_warehouses: created.usedWarehouses || [] });
 });
@@ -730,6 +747,26 @@ router.post('/:id/convert', auth, (req, res) => {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
   audit(req.user.id, 'convert', 'invoice', inv.id, `تبدیل پیش‌فاکتور ${inv.num} به ${invoiceTypeLabel(targetType)}`);
+
+  if (!isDevice()) {
+    try {
+      const cust = inv.cust_id ? db.prepare('SELECT biz,owner,phone,mobile,party_group_id,user_id FROM customers WHERE id=?').get(inv.cust_id) : null;
+      const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+      setImmediate(() => dispatchSmsEvent(db, 'invoice.converted', {
+        phone: cust?.mobile || cust?.phone,
+        name: cust?.owner || cust?.biz,
+        biz: cust?.biz,
+        amount: totals.final,
+        num: inv.num,
+        date: inv.date,
+        status: invoiceTypeLabel(targetType),
+        party_group_id: cust?.party_group_id,
+        user_id: cust?.user_id,
+        created_by: req.user.id,
+        user: req.user.name,
+      }));
+    } catch (_) {}
+  }
 
   res.json({ ok: true, type: targetType });
 });

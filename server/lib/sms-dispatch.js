@@ -15,16 +15,28 @@ const SMS_VARS = [
   { key: '{note}', label: 'یادداشت' },
   { key: '{user}', label: 'نام کاربر ثبت‌کننده' },
   { key: '{group}', label: 'گروه اشخاص' },
+  { key: '{status}', label: 'وضعیت (نوع سند / حساب)' },
+  { key: '{tracking}', label: 'کد رهگیری / شماره پیگیری' },
+  { key: '{code}', label: 'کد یک‌بارمصرف (OTP)' },
 ];
 
 const SMS_EVENTS = [
-  { key: 'invoice.approved', label: 'تأیید فاکتور رسمی' },
-  { key: 'invoice.created', label: 'ثبت فاکتور رسمی' },
-  { key: 'settlement.created', label: 'ثبت دریافت / تسویه' },
-  { key: 'payment.created', label: 'ثبت پرداخت' },
-  { key: 'customer.created', label: 'ثبت مشتری جدید' },
-  { key: 'party.created', label: 'ثبت شخص جدید' },
-  { key: 'person.created', label: 'ثبت شخص (legacy)' },
+  { key: 'invoice.approved', label: 'تأیید فاکتور رسمی', kind: 'rule' },
+  { key: 'invoice.created', label: 'ثبت فاکتور رسمی', kind: 'rule' },
+  { key: 'invoice.converted', label: 'تبدیل پیش‌فاکتور به فاکتور قطعی', kind: 'rule' },
+  { key: 'settlement.created', label: 'ثبت دریافت / تسویه', kind: 'rule' },
+  { key: 'payment.created', label: 'ثبت پرداخت', kind: 'rule' },
+  { key: 'customer.created', label: 'ثبت مشتری جدید (قانون قالب)', kind: 'rule' },
+  { key: 'customer.welcome', label: 'پیامک خوش‌آمدگویی ثبت مشتری', kind: 'system' },
+  { key: 'party.created', label: 'ثبت شخص جدید', kind: 'rule' },
+  { key: 'person.created', label: 'ثبت شخص (legacy)', kind: 'rule' },
+  { key: 'followup.reminder', label: 'یادآوری پیگیری زمان‌دار', kind: 'system' },
+  { key: 'followup.group', label: 'یادآور گروهی پیگیری روزانه', kind: 'system' },
+  { key: 'auth.otp', label: 'کد ورود / بازیابی رمز کاربر', kind: 'system' },
+  { key: 'b2b.otp', label: 'کد ورود پورتال مشتری (B2B)', kind: 'system' },
+  { key: 'portal.invite', label: 'فعال‌سازی دسترسی پورتال مشتری', kind: 'rule' },
+  { key: 'portal.dept', label: 'پیامک واحد عملیاتی پورتال', kind: 'system' },
+  { key: 'rep.notify', label: 'اعلان نماینده فروش', kind: 'system' },
 ];
 
 function settingsMap(db) {
@@ -112,6 +124,9 @@ async function dispatchSmsEvent(db, eventKey, payload) {
       '{note}': payload.note || '',
       '{user}': payload.user || '',
       '{group}': payload.group || '',
+      '{status}': payload.status || '',
+      '{tracking}': payload.tracking || '',
+      '{code}': payload.code || '',
     };
 
     const s = settingsMap(db);
@@ -136,11 +151,25 @@ async function dispatchSmsEvent(db, eventKey, payload) {
   }
 }
 
+/**
+ * Prefer an active rule+template; if none, send fallbackText once.
+ * Prevents OTP/reminder double-send when both hardcoded and a rule exist.
+ */
+async function dispatchSmsOrFallback(db, eventKey, payload, fallbackText) {
+  const r = await dispatchSmsEvent(db, eventKey, payload);
+  if (r && r.sent > 0) return { ...r, via: 'rule' };
+  const phone = String((payload && payload.phone) || '').trim();
+  if (!phone || !fallbackText) return { ok: true, sent: 0, via: 'none' };
+  const result = await sendSMS(settingsMap(db), phone, fallbackText);
+  return { ok: !!(result && result.ok), sent: result && result.ok ? 1 : 0, via: 'fallback', result };
+}
+
 module.exports = {
   SMS_VARS,
   SMS_EVENTS,
   applyVars,
   dispatchSmsEvent,
+  dispatchSmsOrFallback,
   ensureSmsRulesTable,
   settingsMap,
 };

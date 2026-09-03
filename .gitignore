@@ -27,6 +27,7 @@ _code-overview-for-ai.md
 
 # Build / IDE / caches
 .tmp-build/
+.tmp-node22/
 .gradle-home/
 .gradle/
 **/build/

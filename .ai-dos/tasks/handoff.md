@@ -1,3 +1,10 @@
+## 2026-09-03T03:40:00+03:30 — SETTINGS-OPS-V184 in progress
+
+- Branch `feat/SETTINGS-OPS-V184`. Pack A–H: settings/SMS/invoice print/Site-B2B/Gemini/live reports/fabric convert/pencil fields.
+- No Gemini key committed. Do not commit `_deploy-demo*`, `_diag-moein*`, `motefareqe/`.
+- Tests: `node server/scripts/test-settings-ops-v184.js` then sms/sync. SW `erp-taranom-v184`.
+- Iran: overlay (not dirty VPS git pull). Local SSH to 94.249.244.208 often kex-aborts → Actions `Iran overlay`.
+
 ## 2026-09-03T03:08:00+03:30 — Iran v183 overlay healthy
 
 - Actions run `33695799009` succeeded: health/ready/root 200, SW `erp-taranom-v183`.

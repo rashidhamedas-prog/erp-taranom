@@ -6,7 +6,7 @@ on:
       stamp:
         description: 'Optional stamp note'
         required: false
-        default: 'v183'
+        default: 'v184'
 
 jobs:
   overlay:
@@ -23,7 +23,7 @@ jobs:
           port: 22
           timeout: 90s
           command_timeout: 10m
-          source: "docs/CHANGE-LOG.md,.ai-dos/tasks/handoff.md,.ai-dos/tasks/active.yaml,server/db.js,server/sync/tables.js,server/lib/user-party.js,server/lib/cheque-party-books.js,server/lib/void-cheque.js,server/lib/customer-books.js,server/lib/invoice-print.js,server/lib/parties-sync.js,server/lib/party-employee-sync.js,server/lib/product-variants/service.js,server/lib/sales-document.js,server/lib/void-invoice.js,server/routes/cheque-records.js,server/routes/invoices.js,server/routes/orders.js,server/routes/parties.js,server/routes/payroll.js,server/routes/purchases.js,server/public/app.js,server/public/index.html,server/public/sw.js,server/scripts/test-arch-erp-rar-v182.js,server/scripts/test-arch-erp-rar-v183.js"
+          source: "docs/CHANGE-LOG.md,.ai-dos/tasks/handoff.md,.ai-dos/tasks/active.yaml,server/lib/invoice-print.js,server/lib/sales-document.js,server/lib/sms-dispatch.js,server/lib/website-stock-sync.js,server/lib/secret-settings.js,server/lib/update-md-schema.js,server/lib/inventory/fabric-rolls.js,server/services/ai.js,server/routes/settings.js,server/routes/reports.js,server/routes/invoices.js,server/routes/auth.js,server/routes/b2b.js,server/server.js,server/public/app.js,server/public/app.css,server/public/index.html,server/public/sw.js,server/scripts/test-settings-ops-v184.js"
           target: /home/taranom/crm-taranom
           overwrite: true
 

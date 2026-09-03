@@ -24,13 +24,14 @@ const ALLOWED_KEYS = [
   'invoice_num_prefix', 'purchase_num_prefix', 'fiscal_year_start_month',
   'module_petty_cash', 'module_trust_checks', 'module_warehouses',
   'module_consignments', 'module_production', 'module_payroll', 'module_reps',
-  'module_moadian', 'module_fixed_assets',
+  'module_moadian', 'module_fixed_assets', 'module_portal',
   'vat_rate', 'moadian_enabled', 'moadian_fiscal_id', 'moadian_private_key_path',
   // AI assistant (v4 port) + B2B customer portal feature flags
-  'feature_ai_assistant', 'ai_api_key', 'ai_model', 'feature_b2b_portal',
+  'feature_ai_assistant', 'ai_api_key', 'ai_model', 'ai_provider', 'feature_b2b_portal',
   // Website stock sync + Rubika invoice
   'website_stock_sync_enabled', 'website_stock_sync_mode', 'website_stock_webhook_url',
   'website_wc_url', 'website_wc_key', 'website_wc_secret',
+  'website_target', 'website_b2b_url', 'website_b2b_token', 'website_b2b_channel',
   'rubika_bot_token', 'rubika_chat_id', 'rubika_invoice_enabled',
   // Invoice print: formal ×3, casual-simple (fixed), thermal width 58/80 + customize JSON
   'invoice_template_formal', 'invoice_template_casual',
@@ -43,16 +44,35 @@ const ALLOWED_KEYS = [
 const MODULE_KEYS = [
   'module_petty_cash', 'module_trust_checks', 'module_warehouses',
   'module_consignments', 'module_production', 'module_payroll', 'module_reps',
-  'module_moadian', 'module_fixed_assets',
+  'module_moadian', 'module_fixed_assets', 'module_portal',
+  'feature_ai_assistant', 'feature_b2b_portal',
   'coa_mode', 'currency_display'
 ];
 router.get('/modules', auth, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`SELECT key,value FROM settings WHERE key IN (${MODULE_KEYS.map(() => '?').join(',')})`).all(...MODULE_KEYS);
   const obj = {};
-  for (const k of MODULE_KEYS) obj[k] = (k === 'coa_mode') ? '' : (k === 'currency_display' ? 'rial' : '1');
+  for (const k of MODULE_KEYS) {
+    if (k === 'coa_mode') obj[k] = '';
+    else if (k === 'currency_display') obj[k] = 'rial';
+    else if (k.startsWith('feature_')) obj[k] = '0';
+    else obj[k] = '1';
+  }
   for (const r of rows) obj[r.key] = r.value;
   res.json(obj);
+});
+
+router.post('/website-test', auth, adminOnly, centralOnly, async (req, res) => {
+  try {
+    const sync = require('../lib/website-stock-sync');
+    if (typeof sync.testWebsiteConnection !== 'function') {
+      return res.status(501).json({ ok: false, error: 'اتصال آزمایشی هنوز آماده نیست' });
+    }
+    const result = await sync.testWebsiteConnection({ db: getDB() });
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message || 'آزمایش اتصال ناموفق' });
+  }
 });
 
 // GET all settings (admin only)
@@ -70,7 +90,7 @@ router.get('/', auth, adminOnly, (req, res) => {
 router.put('/', auth, adminOnly, centralOnly, async (req, res) => {
   const entries = Object.entries(req.body || {});
   for (const [key, value] of entries) {
-    if (!['website_stock_webhook_url', 'website_wc_url'].includes(key) || value == null || String(value).trim() === '') continue;
+    if (!['website_stock_webhook_url', 'website_wc_url', 'website_b2b_url'].includes(key) || value == null || String(value).trim() === '') continue;
     try { await assertSafeOutboundTarget(String(value)); }
     catch (error) { return res.status(400).json({ error: error.message || 'آدرس ارتباط با وب‌سایت مجاز نیست' }); }
   }

@@ -49,8 +49,28 @@ function computeChurnScore(db, cust) {
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-// ── Claude API (optional narrative layer) ────────────────────────────────────
-async function callClaude(apiKey, model, system, userText, maxTokens = 1500) {
+// ── LLM providers (optional narrative layer) ─────────────────────────────────
+// Two providers are supported: Anthropic Claude (default) and Google Gemini.
+// The key/model/provider all come from settings (ai_api_key / ai_model /
+// optional ai_provider) — never hardcode a key. All narrative call-sites go
+// through callLlm(), which routes to the right provider.
+const CLAUDE_DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
+const GEMINI_DEFAULT_MODEL = 'gemini-2.0-flash';
+
+// Provider detection: explicit ai_provider setting wins, else model prefix,
+// else key prefix (Google API keys start with "AIza"). Defaults to claude.
+function detectProvider({ provider, model, apiKey } = {}) {
+  const p = String(provider || '').trim().toLowerCase();
+  if (p === 'gemini' || p === 'google') return 'gemini';
+  if (p === 'claude' || p === 'anthropic') return 'claude';
+  const m = String(model || '').trim().toLowerCase();
+  if (m.startsWith('gemini')) return 'gemini';
+  if (m.startsWith('claude')) return 'claude';
+  if (String(apiKey || '').startsWith('AIza')) return 'gemini';
+  return 'claude';
+}
+
+function ensureNotDemo() {
   const { guardDemoEgress } = require('../lib/demo-egress');
   const blocked = guardDemoEgress('ai');
   if (blocked) {
@@ -58,6 +78,10 @@ async function callClaude(apiKey, model, system, userText, maxTokens = 1500) {
     err.code = 'demo_simulation';
     throw err;
   }
+}
+
+async function callClaude(apiKey, model, system, userText, maxTokens = 1500) {
+  ensureNotDemo();
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -76,8 +100,57 @@ async function callClaude(apiKey, model, system, userText, maxTokens = 1500) {
   return (data.content || []).map(b => b.text || '').join('');
 }
 
+async function callGemini(apiKey, model, system, userText, maxTokens = 1500) {
+  ensureNotDemo();
+  const m = String(model || '').trim() || GEMINI_DEFAULT_MODEL;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`;
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: { maxOutputTokens: maxTokens },
+  };
+  if (system) body.system_instruction = { parts: [{ text: system }] };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'x-goog-api-key': apiKey,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!res.ok) throw new Error(`Gemini API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const cand = (data.candidates || [])[0];
+  const parts = (cand && cand.content && cand.content.parts) || [];
+  return parts.map(p => p.text || '').join('');
+}
+
+// Single routed entry point. Provider is derived from the (already resolved)
+// model/key so the Claude path stays byte-for-byte identical to before.
+async function callLlm(apiKey, model, system, userText, maxTokens = 1500, provider) {
+  const resolved = detectProvider({ provider, model, apiKey });
+  if (resolved === 'gemini') return callGemini(apiKey, model, system, userText, maxTokens);
+  return callClaude(apiKey, model, system, userText, maxTokens);
+}
+
 function getApiKey(db) {
   return getSettingValue(db, 'ai_api_key') || null;
+}
+
+// Resolve the effective model for the active provider. Honors ai_provider, then
+// model/key heuristics; substitutes the provider's default when the configured
+// model is empty or doesn't match the resolved provider.
+function resolveAiModel(db) {
+  const apiKey = getApiKey(db);
+  const providerSetting = getSettingValue(db, 'ai_provider');
+  let model = getSettingValue(db, 'ai_model') || '';
+  const provider = detectProvider({ provider: providerSetting, model, apiKey });
+  if (provider === 'gemini') {
+    if (!model || !model.toLowerCase().startsWith('gemini')) model = GEMINI_DEFAULT_MODEL;
+  } else if (!model) {
+    model = CLAUDE_DEFAULT_MODEL;
+  }
+  return { apiKey, model, provider };
 }
 
 function extractJSON(text) {
@@ -138,9 +211,9 @@ async function runNightlyAnalysis(db, { weekly = false } = {}) {
     }
   }
 
-  // 3) daily action suggestions per salesperson (Claude if configured, else template)
+  // 3) daily action suggestions per salesperson (LLM if configured, else template)
   const apiKey = getSettingValue(db, 'feature_ai_assistant') === '1' ? getApiKey(db) : null;
-  const model = getSettingValue(db, 'ai_model') || 'claude-haiku-4-5-20251001';
+  const model = resolveAiModel(db).model;
   const reps = db.prepare("SELECT id,name FROM users WHERE active=1 AND role IN ('field_sales','inside_sales','sales_manager')").all();
   for (const rep of reps) {
     const repRisk = atRisk.filter(c => c.user_id === rep.id).slice(0, 5);
@@ -153,12 +226,12 @@ async function runNightlyAnalysis(db, { weekly = false } = {}) {
           at_risk: repRisk.map(c => ({ biz: c.biz, churn: c.churn_score, status: c.status })),
           open_followups: openFups,
         });
-        const text = await callClaude(apiKey, model,
+        const text = await callLlm(apiKey, model,
           'تو دستیار فروش یک تولیدی پوشاک عمده هستی. خروجی فقط JSON: {"suggestion": "متن فارسی حداکثر ۳ جمله، مشخص و قابل اقدام"}',
-          `داده امروز کارشناس ${rep.name}: ${context}`, 400);
+          `داده امروز کارشناس ${rep.name}: ${context}`, 400, resolveAiModel(db).provider);
         body = extractJSON(text).suggestion;
       } catch (e) {
-        console.error(`ai daily-action claude error (rep ${rep.id}):`, e.message);
+        console.error(`ai daily-action error (rep ${rep.id}):`, e.message);
       }
     }
     if (!body) {
@@ -184,12 +257,12 @@ async function runNightlyAnalysis(db, { weekly = false } = {}) {
     let body;
     if (apiKey) {
       try {
-        const text = await callClaude(apiKey, model,
+        const text = await callLlm(apiKey, model,
           'تو تحلیلگر فروش یک تولیدی پوشاک عمده هستی. خروجی فقط JSON: {"summary": "خلاصه مدیریتی فارسی در ۴-۶ جمله: روند فروش، وصولی، مشتریان در ریسک، و یک توصیه مشخص"}',
-          `آمار هفته: ${JSON.stringify(stats)}. ۵ مشتری پرریسک: ${JSON.stringify(atRisk.slice(0, 5).map(c => ({ biz: c.biz, churn: c.churn_score })))}`, 700);
+          `آمار هفته: ${JSON.stringify(stats)}. ۵ مشتری پرریسک: ${JSON.stringify(atRisk.slice(0, 5).map(c => ({ biz: c.biz, churn: c.churn_score })))}`, 700, resolveAiModel(db).provider);
         body = extractJSON(text).summary;
       } catch (e) {
-        console.error('ai weekly-summary claude error:', e.message);
+        console.error('ai weekly-summary error:', e.message);
       }
     }
     if (!body) {
@@ -242,15 +315,15 @@ async function buildConsultantReply(db, question) {
 اگر داده کافی نیست، صریح بگویید چه اطلاعاتی لازم است.`;
 
   const apiKey = getSettingValue(db, 'feature_ai_assistant') === '1' ? getApiKey(db) : null;
-  const model = getSettingValue(db, 'ai_model') || 'claude-haiku-4-5-20251001';
+  const { model, provider } = resolveAiModel(db);
 
   if (apiKey) {
     try {
-      const text = await callClaude(apiKey, model, systemPrompt,
-        `داده‌های تجمیع‌شده (بدون نام مشتری خاص در سؤال):\n${JSON.stringify(context)}\n\nسؤال مدیر: ${question}`, 800);
-      return { answer: text, context_summary: context, source: 'claude' };
+      const text = await callLlm(apiKey, model, systemPrompt,
+        `داده‌های تجمیع‌شده (بدون نام مشتری خاص در سؤال):\n${JSON.stringify(context)}\n\nسؤال مدیر: ${question}`, 800, provider);
+      return { answer: text, context_summary: context, source: provider };
     } catch (e) {
-      console.error('ai consult claude error:', e.message);
+      console.error('ai consult error:', e.message);
     }
   }
 
@@ -301,14 +374,14 @@ async function buildMySummary(db, userId, { narrative = false } = {}) {
   let body = null;
   const apiKey = getSettingValue(db, 'feature_ai_assistant') === '1' ? getApiKey(db) : null;
   if (narrative && apiKey) {
-    const model = getSettingValue(db, 'ai_model') || 'claude-haiku-4-5-20251001';
+    const model = resolveAiModel(db).model;
     try {
-      const text = await callClaude(apiKey, model,
+      const text = await callLlm(apiKey, model,
         'تو دستیار فروش شخصی یک کارشناس فروش پوشاک عمده هستی. فقط بر اساس داده‌ای که داده می‌شود تحلیل کن و از خودت عدد نساز. خروجی فقط JSON: {"summary": "تحلیل فارسی عملکرد شخصی در ۳-۵ جمله + یک توصیه مشخص برای این هفته"}',
-        `آمار شخصی این کارشناس: ${JSON.stringify(stats)}`, 600);
+        `آمار شخصی این کارشناس: ${JSON.stringify(stats)}`, 600, resolveAiModel(db).provider);
       body = extractJSON(text).summary;
     } catch (e) {
-      console.error(`ai my-summary claude error (user ${userId}):`, e.message);
+      console.error(`ai my-summary error (user ${userId}):`, e.message);
     }
   }
   if (narrative && !body) {
@@ -320,4 +393,4 @@ async function buildMySummary(db, userId, { narrative = false } = {}) {
   return { stats, narrative: body };
 }
 
-module.exports = { runNightlyAnalysis, computeChurnScore, buildMySummary, buildConsultantReply };
+module.exports = { runNightlyAnalysis, computeChurnScore, buildMySummary, buildConsultantReply, detectProvider, resolveAiModel };

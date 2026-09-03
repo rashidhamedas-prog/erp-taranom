@@ -21,6 +21,7 @@ const SECRET_SETTING_KEYS = Object.freeze([
   'ai_api_key',
   'website_wc_key',
   'website_wc_secret',
+  'website_b2b_token',
   'rubika_bot_token',
 ]);
 

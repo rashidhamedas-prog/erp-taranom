@@ -450,6 +450,15 @@ function syncAcctDrawerUser(){
 }
 function onSettingsLangChange(lang){
   setAppLang(lang);
+  try{ buildNav(); }catch(_){}
+  applyAppLanguage();
+  if(CURRENT_PAGE==='settings') ROUTES.settings();
+}
+function filterMainNavItem(it){
+  const flags=CACHE.moduleFlags||CACHE.settings||{};
+  if(it.id==='ai' && String(flags.feature_ai_assistant||'0')!=='1') return false;
+  if(it.id==='b2bOrders' && String(flags.feature_b2b_portal||'0')!=='1') return false;
+  return true;
 }
 function applyAppLanguage(){
   try{
@@ -1430,6 +1439,7 @@ function navItems(){
   // B2B portal is central-only — hide its admin menu on offline device builds
   if(ME.role==='admin'){
     let items = (APP_INFO&&APP_INFO.role==='device') ? NAV_ADMIN.filter(it=>it.id!=='b2bOrders') : NAV_ADMIN;
+    items = items.filter(filterMainNavItem);
     if(isDeviceClient() && !items.some(it=>it.id==='desktop-settings')){
       const hi=items.findIndex(it=>it.id==='help');
       const entry={ id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' };
@@ -1438,13 +1448,13 @@ function navItems(){
     return items;
   }
   if(ME.role==='accounting' || ME.role==='sales_manager'){
-    let items = NAV_ACCOUNTING;
+    let items = NAV_ACCOUNTING.filter(filterMainNavItem);
     if(isDeviceClient()){
       items = [...items.slice(0, -1), { id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' }, items[items.length - 1]];
     }
     return items;
   }
-  let items = NAV_SALES;
+  let items = NAV_SALES.filter(filterMainNavItem);
   if(isRepRole(ME?.role)){
     items = [{id:'my-rep', icon:'💼', label:'حساب من'}, ...items.slice(0, -1), items[items.length - 1]];
   }
@@ -1480,7 +1490,18 @@ function guardBackupAccess(){
 }
 function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
 
+function ensureModuleFlags(){
+  if(CACHE._moduleFlagsLoading) return;
+  if(CACHE.moduleFlags && Object.keys(CACHE.moduleFlags).length) return;
+  CACHE._moduleFlagsLoading=true;
+  api('GET','/settings/modules').then(f=>{
+    CACHE.moduleFlags=f||{};
+    CACHE._moduleFlagsLoading=false;
+    buildNav();
+  }).catch(()=>{ CACHE._moduleFlagsLoading=false; });
+}
 function buildNav(){
+  ensureModuleFlags();
   const linkHtml = it=>`
     <a href="#" data-page="${it.id}" data-csp-click="${CSP.bind('click',function(event){go(`${String((it.id) ?? '')}`);return false;})}">
       <span class="ico">${navIcon(it)}</span><span>${T(it.label)}</span>
@@ -5986,50 +6007,73 @@ async function loadReports(){
   repRange.from=el('rep-from')?.value||''; repRange.to=el('rep-to')?.value||'';
   const qs=new URLSearchParams(); if(repRange.from)qs.set('from',repRange.from); if(repRange.to)qs.set('to',repRange.to);
   const qk = qs.toString();
-  const cached = cacheGet('reports:'+qk, 60000);
-  if(cached){ el('repBody').innerHTML=cached; if(_lastMonthly.length) drawChart(_lastMonthly); return; }
-  const [summary, monthly, sales, top] = await Promise.all([
-    apiCached('GET','/reports/summary?'+qk),
-    apiCached('GET','/reports/monthly', 120000),
-    apiCached('GET','/reports/salesperson', 60000),
-    apiCached('GET','/reports/top-customers', 60000)
+  const [summary, monthlyRaw, sales, top] = await Promise.all([
+    api('GET','/reports/summary?'+qk),
+    api('GET','/reports/monthly?'+qk),
+    api('GET','/reports/salesperson?'+qk),
+    api('GET','/reports/top-customers?'+qk)
   ]);
+  const monthly = Array.isArray(monthlyRaw) ? monthlyRaw : (monthlyRaw && monthlyRaw.rows) || [];
+  const liveAt = new Date(summary?.generated_at || Date.now()).toLocaleString('fa-IR');
   el('repBody').innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">اعداد زنده از دفتر فروش — بدون کش · ${esc(liveAt)}</div>
     <div class="cards">
       ${statCard('g','💰',fmt(summary.revenue),'فروش کل (ریال)')}
-      ${statCard('b','📦',fmt(summary.orders),'تعداد سفارش')}
-      ${statCard('p','👥',fmt(summary.customers),'مشتریان فعال')}
+      ${statCard('b','📦',fmt(summary.orders),'تعداد فاکتور قطعی')}
+      ${statCard('p','👥',fmt(summary.customers),'مشتریان فعال بازه')}
       ${statCard('r','⚠️',fmt(summary.debt),'بدهی معوق (ریال)')}
+      ${statCard('b','📥',(summary.collection_rate!=null?fmt(summary.collection_rate):'—')+'٪','نرخ وصول کل (زنده)')}
     </div>
     <div class="panel"><div class="panel-head"><h4>نمودار فروش ماهانه</h4></div>
-      <div class="panel-body"><canvas id="repChart" height="90"></canvas></div></div>
+      <div class="panel-body"><canvas id="repChart" height="110"></canvas></div></div>
+    <div class="panel"><div class="panel-head"><h4>سهم کارشناسان از فروش</h4></div>
+      <div class="panel-body"><canvas id="repShareChart" height="110"></canvas></div></div>
     <div class="panel"><div class="panel-head"><h4>مقایسه کارشناسان فروش</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
-        <th>کارشناس</th><th>مشتریان</th><th>سفارشات</th><th>فروش</th><th>بدهی</th><th>پیگیری باز</th><th>فاکتور</th></tr></thead>
-        <tbody>${sales.map(s=>`<tr><td>${esc(s.name)}</td><td>${fmt(s.customers)}</td><td>${fmt(s.orders)}</td>
+        <th>کارشناس</th><th>نقش</th><th>مشتریان</th><th>سفارشات</th><th>فروش</th><th>بدهی</th><th>پیگیری باز</th><th>فاکتور</th></tr></thead>
+        <tbody>${(sales||[]).map(s=>`<tr><td>${esc(s.name)}</td><td>${esc(s.role||'-')}</td><td>${fmt(s.customers)}</td><td>${fmt(s.orders)}</td>
           <td class="mono">${fmt(s.revenue)}</td><td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(s.debt)}</td>
-          <td>${fmt(s.openFollowups)}</td><td>${fmt(s.invoices)}</td></tr>`).join('')||emptyRow(7)}</tbody></table></div></div>
+          <td>${fmt(s.openFollowups)}</td><td>${fmt(s.invoices)}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div></div>
     <div class="panel"><div class="panel-head"><h4>۱۰ مشتری برتر</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
         <th>مشتری</th><th>نام کامل</th><th>تعداد سفارش</th><th>مجموع خرید</th><th>بدهی</th><th>شهر</th><th>آدرس</th></tr></thead>
-        <tbody>${top.map(t=>`<tr><td>${esc(t.biz)}</td><td>${esc(t.owner||'-')}</td><td>${fmt(t.orders)}</td>
+        <tbody>${(top||[]).map(t=>`<tr><td>${esc(t.biz)}</td><td>${esc(t.owner||'-')}</td><td>${fmt(t.orders)}</td>
           <td class="mono">${fmt(t.total)}</td><td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(t.debt)}</td>
           <td>${esc(t.city||'-')}</td>${tdClip(t.address||'-', 200, true)}</tr>`).join('')||emptyRow(7)}</tbody></table></div></div>`;
-  cacheSet('reports:'+qk, el('repBody').innerHTML);
   _lastMonthly = monthly;
-  drawChart(monthly);
+  _lastSales = sales||[];
+  drawChart(monthly, sales||[]);
 }
 let _lastMonthly = [];
-function drawChart(monthly){
+let _lastSales = [];
+let mShareChart = null;
+async function drawChart(monthly, sales){
+  try{ await loadProdChartJs(); }catch(e){ return; }
+  if(typeof Chart==='undefined') return;
   const ctx=el('repChart'); if(!ctx)return;
   if(mChart)mChart.destroy();
   const th=chartTheme();
   mChart=new Chart(ctx,{type:'bar',data:{
-    labels:monthly.map(m=>m.ym),
-    datasets:[{label:'فروش (ریال)',data:monthly.map(m=>m.revenue),backgroundColor:th.bar,borderRadius:6}]
+    labels:(monthly||[]).map(m=>m.ym),
+    datasets:[
+      {type:'bar',label:'فروش (ریال)',data:(monthly||[]).map(m=>m.revenue),backgroundColor:th.bar,borderRadius:6,yAxisID:'y'},
+      {type:'line',label:'تعداد فاکتور',data:(monthly||[]).map(m=>m.orders),borderColor:'#C9A843',backgroundColor:'transparent',tension:.3,yAxisID:'y1'}
+    ]
   },options:{responsive:true,plugins:{legend:{labels:{font:{family:'Vazirmatn'},color:th.ticks}}},
-    scales:{x:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks}},
-            y:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks,callback:v=>fmt(v)}}}}});
+    scales:{
+      x:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks}},
+      y:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks,callback:v=>fmt(v)}},
+      y1:{position:'left',grid:{display:false},ticks:{font:{family:'Vazirmatn'},color:th.ticks}}
+    }}});
+  const share=el('repShareChart');
+  if(share){
+    if(mShareChart) mShareChart.destroy();
+    const rows=(sales||[]).filter(s=>Number(s.revenue)>0).slice(0,8);
+    mShareChart=new Chart(share,{type:'doughnut',data:{
+      labels:rows.map(s=>s.name),
+      datasets:[{data:rows.map(s=>s.revenue),backgroundColor:['#1A5C38','#2E7D4F','#C9A843','#059669','#2563EB','#D97706','#7C3AED','#DC2626']}]
+    },options:{responsive:true,plugins:{legend:{position:'right',labels:{font:{family:'Vazirmatn'},color:th.ticks}}}}});
+  }
 }
 
 /* ============================================================
@@ -17555,9 +17599,22 @@ async function loadSettSmsPanel(){
       <div class="fg"><label>API Key</label><input id="sms-key" value="${esc(provider.sms_api_key||'')}" dir="ltr"></div>
       <div class="fg"><label>فرستنده</label><input id="sms-from" value="${esc(provider.sms_from||'')}" dir="ltr"></div>
       <div class="fg full"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveSmsProvider()})}">ذخیره سرویس</button>
-        <input id="sms-test-phone" placeholder="09…" data-csp-style="${CSP.style(`margin:0 8px;padding:8px;border:1px solid var(--border);border-radius:8px;direction:ltr`)}">
+        <input id="sms-test-phone" placeholder="09…" data-csp-style="${CSP.style(`margin:0 8px;padding:8px;border:1.5px solid var(--input-border,var(--border));border-radius:8px;direction:ltr;max-width:160px`)}">
         <button class="btn orange" data-csp-click="${CSP.bind('click',function(event){testSmsModule()})}">تست</button></div>
     </div></div></div>
+    <div class="panel"><div class="panel-head"><h4>فهرست کامل رویدادهای پیامک سیستم</h4></div>
+      <div class="panel-body">
+        <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">هر جایی که برنامه پیامک می‌فرستد اینجا دیده می‌شود. برای ارسال خودکار: قالب بسازید و یک <b>قانون فعال</b> به همان رویداد وصل کنید. خاموش کردن قانون یا قالب همان مسیر را قطع می‌کند.</div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>رویداد</th><th>کد</th><th>نوع</th><th>قالب پیشنهادی</th><th>قانون فعال</th></tr></thead>
+        <tbody>${(window._smsEvents||[]).map(e=>{
+          const tpl=(templates||[]).find(t=>t.event_key===e.key);
+          const rule=(rules||[]).find(r=>r.event_key===e.key && r.active);
+          return `<tr><td>${esc(e.label)}</td><td class="mono" dir="ltr">${esc(e.key)}</td>
+            <td>${e.kind==='system'?'سیستمی + قالب اختیاری':'فقط با قانون'}</td>
+            <td>${tpl?esc(tpl.name):'<span class="muted">قالب بسازید</span>'}</td>
+            <td>${rule?'✓ فعال':'— خاموش'}</td></tr>`;
+        }).join('')||emptyRow(5)}</tbody></table></div>
+      </div></div>
     <div class="panel"><div class="panel-head"><h4>متغیرهای قابل استفاده در قالب</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>کلید</th><th>معنی فارسی</th></tr></thead>
       <tbody>${(window._smsVars||[]).map(v=>`<tr><td class="mono" dir="ltr">${esc(v.key)}</td><td>${esc(v.label)}</td></tr>`).join('')||emptyRow(2)}</tbody></table>
@@ -17740,14 +17797,19 @@ function invoiceTemplateSettingsHtml(s){
   const paper=(s.invoice_paper_size||'A4').toUpperCase()==='A5'?'A5':'A4';
   const thermalW=String(s.invoice_thermal_width||'80').replace(/\D/g,'')==='58'?'58':'80';
   const formalOpts=[
-    ['formal-official','رسمی کامل / اداری','صورتحساب کامل · فروشنده/خریدار · تخفیف ردیفی · مهر'],
-    ['formal-modern','رسمی مدرن ERP','همان اسکلت رسمی با کارت نرم و هدر گرادیان'],
-    ['formal-premium','رسمی پریمیوم','قاب سبز/طلایی · هدر برند · مناسب فاکتور لوکس']
+    ['formal-official','رسمی کامل / اداری','صورتحساب اداری: سه ستون سربرگ، جعبه فروشنده/خریدار، جدول سبز، مهر سه‌خانه'],
+    ['formal-modern','رسمی مدرن ERP','کارت نرم، هدر گرادیان، گوشه گرد، نوار طلایی بالای مشخصات طرفین'],
+    ['formal-premium','رسمی پریمیوم','قاب سبز/طلایی، نوار برند تیره، مناسب فاکتور لوکس و چاپ رنگی']
   ];
-  const card=(name,val,cur,title,desc)=>`<label data-csp-style="${CSP.style(`display:block;cursor:pointer;border:1.5px solid ${cur===val?'var(--purple)':'var(--border)'};background:${cur===val?'var(--purple-light)':'var(--card)'};border-radius:12px;padding:12px;box-shadow:var(--shadow-card)`)}">
+  const preview=(val)=>{
+    if(val==='formal-official') return `<div data-csp-style="${CSP.style(`margin-top:8px;border:1.5px solid #1A5C38;border-radius:6px;overflow:hidden;background:#fff;font-size:9px`)}"><div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:6px;border-bottom:2px solid #1A5C38`)}"><span>فروشنده</span><b data-csp-style="${CSP.style(`text-align:center;color:#1A5C38`)}">صورتحساب</b><span>شماره</span></div><div data-csp-style="${CSP.style(`height:18px;background:#1A5C38;color:#fff;padding:2px 6px`)}">جدول اقلام</div></div>`;
+    if(val==='formal-modern') return `<div data-csp-style="${CSP.style(`margin-top:8px;border-radius:10px;overflow:hidden;box-shadow:0 6px 14px rgba(18,39,28,.12);background:#fff;font-size:9px`)}"><div data-csp-style="${CSP.style(`background:linear-gradient(90deg,#1A5C38,#2E7D4F);color:#fff;padding:6px`)}">هدر مدرن</div><div data-csp-style="${CSP.style(`height:4px;background:linear-gradient(90deg,#1A5C38,#C9A843)`)}"></div><div data-csp-style="${CSP.style(`padding:6px`)}">کارت طرفین</div></div>`;
+    return `<div data-csp-style="${CSP.style(`margin-top:8px;padding:2px;border-radius:10px;background:linear-gradient(120deg,#1A5C38,#C9A843);font-size:9px`)}"><div data-csp-style="${CSP.style(`background:#fff;border-radius:8px;overflow:hidden`)}"><div data-csp-style="${CSP.style(`background:linear-gradient(115deg,#1A5C38,#C9A843);color:#fff;padding:8px`)}">پریمیوم</div><div data-csp-style="${CSP.style(`padding:6px`)}">قاب طلایی</div></div></div>`;
+  };
+  const card=(name,val,cur,title,desc)=>`<label data-csp-style="${CSP.style(`display:block;cursor:pointer;border:1.5px solid ${cur===val?'var(--purple)':'var(--input-border,var(--border))'};background:${cur===val?'var(--purple-light)':'var(--card)'};border-radius:12px;padding:12px;box-shadow:var(--shadow-card)`)}">
     <div data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:flex-start`)}">
       <input type="radio" name="${name}" value="${val}" ${cur===val?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-top:3px`)}">
-      <div><b data-csp-style="${CSP.style(`color:var(--purple)`)}">${title}</b><div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:4px;line-height:1.7`)}">${desc}</div></div>
+      <div><b data-csp-style="${CSP.style(`color:var(--purple)`)}">${title}</b><div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:4px;line-height:1.7`)}">${desc}</div>${preview(val)}</div>
     </div></label>`;
   const chk=(id,label,on)=>`<label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px`)}"><input type="checkbox" id="${id}" ${on?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> ${label}</label>`;
   return `<div class="panel"><div class="panel-head"><h4>🧾 قالب فاکتور (رسمی / عادی / حرارتی)</h4></div><div class="panel-body">
@@ -17788,7 +17850,7 @@ function invoiceTemplateSettingsHtml(s){
     </div>
     <h5 data-csp-style="${CSP.style(`margin:0 0 8px;color:var(--purple)`)}">۵) شخصی‌سازی چاپ</h5>
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}">
-      <div class="fg"><label>زیرعنوان شرکت</label><input id="s-inv-subtitle" value="${esc(cust.subtitle!=null?cust.subtitle:'تولیدی پوشاک زنانه')}"></div>
+      <div class="fg fg-md"><label>زیرعنوان شرکت</label><input id="s-inv-subtitle" value="${esc(cust.subtitle!=null?cust.subtitle:'تولیدی پوشاک زنانه')}"></div>
       <div class="fg full"><label>متن پاورقی سفارشی ${hlp('اگر خالی باشد متن پیش‌فرض تاریخ صدور چاپ می‌شود.')}</label><input id="s-inv-footer_text" value="${esc(cust.footer_text||'')}" placeholder="مثلاً: با تشکر از حسن انتخاب شما"></div>
     </div>
     <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px`)}">
@@ -17930,14 +17992,14 @@ ROUTES.settings = async function(){
     ${appUpdatePanelHtml()}
     ${companiesPanel}
     <div class="panel"><div class="panel-head"><h4>${lucide('building')} اطلاعات شرکت جاری</h4></div><div class="panel-body"><div class="form-grid">
-      <div class="fg"><label>نام شرکت</label><input id="s-company_name" value="${esc(s.company_name||'')}"></div>
-      <div class="fg"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}"></div>
+      <div class="fg fg-md"><label>نام شرکت</label><input id="s-company_name" value="${esc(s.company_name||'')}"></div>
+      <div class="fg fg-phone"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}" dir="ltr"></div>
       <div class="fg full"><label>آدرس شرکت</label><input id="s-company_address" value="${esc(s.company_address||'')}"></div>
     </div></div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('globe')} ${T('زبان برنامه')}</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">${T('زبان نمایش برنامه را انتخاب کنید. بخش API در هر دو زبان اصطلاحات فنی انگلیسی را نگه می‌دارد.')}</div>
       <div class="form-grid">
-        <div class="fg"><label>${T('زبان برنامه')}</label>
+        <div class="fg fg-md"><label>${T('زبان برنامه')}</label>
           <select id="s-app_lang" data-csp-change="${CSP.bind('change',function(event){onSettingsLangChange(this.value)})}">
             <option value="fa" ${getAppLang()==='fa'?'selected':''}>${T('فارسی')}</option>
             <option value="en" ${getAppLang()==='en'?'selected':''}>${T('انگلیسی')}</option>
@@ -17952,15 +18014,16 @@ ROUTES.settings = async function(){
         ${s.coa_mode==='extended'?`<br><b data-csp-style="${CSP.style(`color:var(--purple)`)}">حالت فعلی: کدینگ تفصیلی</b> — اسناد مرجع به ریال وارد شده‌اند.`:''}
       </div>
       <div class="form-grid">
-        <div class="fg"><label>نمایش مبالغ در برنامه ${hlp('واحد پول برنامه فقط ریال است — مبنای ذخیره‌سازی و نمایش یکسان.')}</label>
-          <select id="s-currency_display" disabled>
+        <div class="fg fg-md"><label>نمایش مبالغ در برنامه ${hlp('عمداً قفل است: کل ERP فقط ریال ذخیره و نمایش می‌دهد.')}</label>
+          <select id="s-currency_display" disabled title="واحد پول برنامه فقط ریال است">
             <option value="rial" selected>ریال (ثابت — کل برنامه)</option>
           </select>
         </div>
-        <div class="fg"><label>مبنای ذخیره‌سازی</label>
+        <div class="fg fg-md"><label>مبنای ذخیره‌سازی</label>
           <input value="ریال (ثابت)" disabled data-csp-style="${CSP.style(`background:var(--well)`)}">
         </div>
       </div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">این فیلد خراب نیست — تعویض واحد عمداً بسته است تا سند و گزارش مخلوط نشود.</div>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('layers')} پنجره‌های چندگانه</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
@@ -18018,24 +18081,43 @@ ROUTES.settings = async function(){
     </div></div>`;
 
   const webPanel = `
-    <div class="panel"><div class="panel-head"><h4>${lucide('plug')} سینک موجودی وب‌سایت (poshaktaranom.com)</h4></div><div class="panel-body">
+    <div class="panel"><div class="panel-head"><h4>${lucide('plug')} سینک موجودی وب‌سایت (Site-B2B / ووکامرس)</h4></div><div class="panel-body">
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
+        مقصد اصلی: پروژه <b>Site-B2B</b> — کد کالای ERP با <code>sku</code> سایت جفت می‌شود و موجودی عمده با
+        <code dir="ltr">PATCH /api/v1/products/:id/stock</code> به‌روز می‌شود. ووکامرس اختیاری است.
+      </div>
       <div data-csp-style="${CSP.style(`margin-bottom:12px`)}">${settToggle('s-website_stock_sync_enabled', s.website_stock_sync_enabled==='1', 'فعال‌سازی سینک موجودی', 'ارتباط ERP با فروشگاه آنلاین')}</div>
       <div class="form-grid">
-        <div class="fg"><label>حالت</label><select id="s-website_stock_sync_mode">
-          <option value="pull" ${(s.website_stock_sync_mode||'pull')==='pull'?'selected':''}>فقط Pull (وب‌سایت از ERP می‌خواند)</option>
-          <option value="push" ${s.website_stock_sync_mode==='push'?'selected':''}>Push به ووکامرس</option>
+        <div class="fg fg-md"><label>مقصد</label><select id="s-website_target">
+          <option value="site_b2b" ${(s.website_target||'site_b2b')==='site_b2b'?'selected':''}>Site-B2B (NestJS)</option>
+          <option value="woo" ${s.website_target==='woo'||s.website_target==='woocommerce'?'selected':''}>ووکامرس</option>
+          <option value="both" ${s.website_target==='both'?'selected':''}>هر دو</option>
+        </select></div>
+        <div class="fg fg-md"><label>حالت</label><select id="s-website_stock_sync_mode">
+          <option value="pull" ${(s.website_stock_sync_mode||'pull')==='pull'?'selected':''}>فقط Pull (سایت از ERP می‌خواند)</option>
+          <option value="push" ${s.website_stock_sync_mode==='push'?'selected':''}>Push از ERP به سایت</option>
           <option value="both" ${s.website_stock_sync_mode==='both'?'selected':''}>هر دو</option>
         </select></div>
-        <div class="fg full"><label>آدرس وب‌هوک موجودی (رویداد موجودی کالا)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com/wp-json/…/stock"></div>
-        <div class="fg"><label>آدرس ووکامرس</label><input id="s-website_wc_url" value="${esc(s.website_wc_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
-        <div class="fg"><label>کلید مصرف‌کننده</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
-        <div class="fg"><label>رمز مصرف‌کننده</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
+        <div class="fg full"><label>آدرس API سایت B2B</label><input id="s-website_b2b_url" value="${esc(s.website_b2b_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
+        <div class="fg"><label>توکن JWT ادمین سایت</label><input id="s-website_b2b_token" type="password" value="${esc(s.website_b2b_token||'')}" dir="ltr" autocomplete="off" placeholder="${s.website_b2b_token_has_value?'********':''}"></div>
+        <div class="fg fg-md"><label>کانال موجودی</label><select id="s-website_b2b_channel">
+          <option value="WHOLESALE" ${(s.website_b2b_channel||'WHOLESALE')==='WHOLESALE'?'selected':''}>عمده (WHOLESALE)</option>
+          <option value="RETAIL" ${s.website_b2b_channel==='RETAIL'?'selected':''}>خرده‌فروشی (RETAIL)</option>
+        </select></div>
+        <div class="fg full"><label>آدرس وب‌هوک موجودی (رویداد موجودی کالا)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com/api/…/stock"></div>
+        <div class="fg"><label>آدرس ووکامرس (اختیاری)</label><input id="s-website_wc_url" value="${esc(s.website_wc_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
+        <div class="fg"><label>کلید مصرف‌کننده ووکامرس</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
+        <div class="fg"><label>رمز مصرف‌کننده ووکامرس</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
+        <div class="fg full">
+          <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){testWebsiteConnection()})}">آزمایش اتصال سایت</button>
+          <span id="s-website-test-status" class="muted" data-csp-style="${CSP.style(`margin-right:8px;font-size:12px`)}"></span>
+        </div>
         <div class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">
-          <b>روش پیشنهادی (Pull):</b> در وب‌سایت با API Key از
+          <b>Pull:</b> سایت با API Key از
           <code dir="ltr">GET /api/v1/stock</code> و
           <code dir="ltr">GET /api/v1/stock/by-sku/:sku</code>
-          موجودی را بگیرید (کد کالا = SKU). رویداد webhook
-          <code>product.stock</code> هم پس از هر تغییر موجودی شلیک می‌شود.
+          موجودی می‌گیرد (کد کالا = SKU).
+          <b>Push Site-B2B:</b> بعد از هر تغییر موجودی، ERP کالا را با SKU پیدا می‌کند و موجودی عمده را می‌نویسد.
         </div>
       </div>
     </div></div>`;
@@ -18047,7 +18129,7 @@ ROUTES.settings = async function(){
         ${s.coa_mode==='extended'?`<br><b data-csp-style="${CSP.style(`color:var(--purple)`)}">حالت فعلی: کدینگ تفصیلی</b> — نگاشت از واردات داده تنظیم شده است.`:''}
       </div>
       <div class="form-grid">
-        ${Object.keys(COA_MAP_LABELS).map(k=>`<div class="fg"><label>${COA_MAP_LABELS[k]} ${hlp('کد معین یا تفصیلی در دفتر کل')}</label>
+        ${Object.keys(COA_MAP_LABELS).map(k=>`<div class="fg fg-code"><label>${COA_MAP_LABELS[k]} ${hlp('کد معین یا تفصیلی در دفتر کل')}</label>
           <input id="s-${k}" dir="ltr" class="mono" value="${esc(s[k]||'')}" placeholder="پیش‌فرض سیستم"></div>`).join('')}
       </div>
       <div data-csp-style="${CSP.style(`margin-top:12px`)}">${settToggle('s-feature_cogs_voucher', s.feature_cogs_voucher==='1', 'سند بهای تمام‌شده خودکار در فاکتور رسمی', 'پس از صدور فاکتور نهایی، سند بهای تمام‌شده ثبت شود')}</div>
@@ -18083,8 +18165,8 @@ ROUTES.settings = async function(){
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('layers')} ماژول‌ها و شماره‌گذاری</h4></div><div class="panel-body">
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-        <div class="fg"><label>پیشوند شماره فاکتور فروش ${hlp('پیش‌فرض: T — مثال: فاکتور شماره T-0001')}</label><input id="s-invoice_num_prefix" value="${esc(s.invoice_num_prefix||'T')}"></div>
-        <div class="fg"><label>پیشوند شماره فاکتور خرید ${hlp('پیش‌فرض: PO')}</label><input id="s-purchase_num_prefix" value="${esc(s.purchase_num_prefix||'PO')}"></div>
+        <div class="fg fg-sm"><label>پیشوند شماره فاکتور فروش ${hlp('پیش‌فرض: T — مثال: فاکتور شماره T-0001')}</label><input id="s-invoice_num_prefix" value="${esc(s.invoice_num_prefix||'T')}" maxlength="8"></div>
+        <div class="fg fg-sm"><label>پیشوند شماره فاکتور خرید ${hlp('پیش‌فرض: PO')}</label><input id="s-purchase_num_prefix" value="${esc(s.purchase_num_prefix||'PO')}" maxlength="8"></div>
         <div class="fg"><label>شروع سال مالی (ماه شمسی) ${hlp('برای گزارش‌های آینده مبتنی بر سال مالی — پیش‌فرض فروردین.')}</label>
           <select id="s-fiscal_year_start_month">
             ${['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'].map((m,i)=>`<option value="${i+1}" ${(+s.fiscal_year_start_month||1)===i+1?'selected':''}>${m}</option>`).join('')}
@@ -18112,14 +18194,26 @@ ROUTES.settings = async function(){
   const featuresPanel = `
     <div class="panel"><div class="panel-head"><h4>${lucide('bot')} ${T('دستیار فروش هوشمند')}</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
-        امتیاز ریسک ریزش، فرصت فروش و اقدام روزانه هر شب محاسبه می‌شود. با کلید Claude، متن پیشنهادها هوشمندتر می‌شود.
+        امتیاز ریسک ریزش و فرصت فروش همیشه داخلی محاسبه می‌شود. اگر کلید بگذارید، متن پیشنهادها از <b>Google Gemini</b> یا Claude می‌آید. کلید را خودتان از Google AI Studio بگذارید — در مخزن ذخیره نمی‌شود.
       </div>
       <div data-csp-style="${CSP.style(`margin-bottom:12px`)}">${settToggle('s-feature_ai_assistant', s.feature_ai_assistant==='1', 'استفاده از سرویس هوش مصنوعی (اختیاری)', 'بدون کلید هم تحلیل‌های داخلی کار می‌کنند')}</div>
       <div class="form-grid">
-        <div class="fg"><label>کلید سرویس هوش مصنوعی ${hlp('اختیاری')}</label>
-          <input id="s-ai_api_key" dir="ltr" value="${esc(s.ai_api_key||'')}" placeholder="sk-ant-..."></div>
-        <div class="fg"><label>نام مدل ${hlp('پیش‌فرض داخلی')}</label>
-          <input id="s-ai_model" dir="ltr" value="${esc(s.ai_model||'')}" placeholder="claude-haiku-4-5-20251001"></div>
+        <div class="fg fg-md"><label>ارائه‌دهنده</label>
+          <select id="s-ai_provider">
+            <option value="gemini" ${(s.ai_provider||'gemini')==='gemini'?'selected':''}>Google Gemini</option>
+            <option value="claude" ${s.ai_provider==='claude'?'selected':''}>Anthropic Claude</option>
+            <option value="auto" ${s.ai_provider==='auto'?'selected':''}>تشخیص از کلید / مدل</option>
+          </select></div>
+        <div class="fg"><label>کلید سرویس ${hlp('Gemini معمولاً با AIza شروع می‌شود. مقدار ذخیره‌شده نمایش داده نمی‌شود.')}</label>
+          <input id="s-ai_api_key" dir="ltr" type="password" value="${esc(s.ai_api_key||'')}" autocomplete="off" placeholder="${s.ai_api_key_has_value?'********':'AIza… یا sk-ant-…'}"></div>
+        <div class="fg"><label>نام مدل</label>
+          <input id="s-ai_model" dir="ltr" value="${esc(s.ai_model||'')}" placeholder="gemini-2.0-flash" list="s-ai-models">
+          <datalist id="s-ai-models">
+            <option value="gemini-2.0-flash"></option>
+            <option value="gemini-2.5-flash"></option>
+            <option value="gemini-1.5-flash"></option>
+            <option value="claude-haiku-4-5-20251001"></option>
+          </datalist></div>
       </div>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('cart')} ${T('پورتال مشتریان')}</h4></div><div class="panel-body">
@@ -18209,8 +18303,19 @@ ROUTES['desktop-settings'] = async function(){
     </div>`;
   renderAppUpdateUI();
 };
+async function testWebsiteConnection(){
+  const st=el('s-website-test-status');
+  if(st) st.textContent='در حال آزمایش…';
+  try{
+    const r=await api('POST','/settings/website-test',{});
+    if(st) st.textContent=r?.ok?('متصل شد'+(r.target?' — '+r.target:'')):(r?.error||r?.reason||'ناموفق');
+    showToast(r?.ok?'اتصال سایت برقرار است':(r?.error||'اتصال برقرار نشد'), r?.ok?'success':'error');
+  }catch(e){
+    if(st) st.textContent=e.message||'خطا';
+  }
+}
 async function saveSettings(){
-  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode'];
+  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','ai_provider','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode','website_target','website_b2b_url','website_b2b_token','website_b2b_channel'];
   const data={};
   keys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value; });
   data.rubika_invoice_enabled = el('s-rubika_invoice_enabled')?.checked ? '1' : '0';
@@ -18253,8 +18358,13 @@ async function saveSettings(){
     subtitle: el('s-inv-subtitle')?.value||'تولیدی پوشاک زنانه'
   });
   CACHE.settings = await api('PUT','/settings',data);
-  CACHE.moduleFlags=null; // force re-fetch next time the Accounting shell is entered
-  showToast('تنظیمات ذخیره شد');
+  CACHE.moduleFlags=null;
+  CACHE._moduleFlagsLoading=false;
+  try{
+    CACHE.moduleFlags = await api('GET','/settings/modules')||{};
+  }catch(_){ CACHE.moduleFlags={}; }
+  buildNav();
+  showToast('تنظیمات ذخیره شد — منو و ماژول‌ها همین الان به‌روز شد');
 }
 async function loadAuditLog(){
   const body=el('audit-log-body'); if(!body) return;
@@ -18918,7 +19028,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاکتور خرید</b> همان الگوی جدول اقلام را دارد (بهای خرید، تخفیف ردیف، انبار مقصد، چک، کرایه، بارکد)</li>
       </ul>
       <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، فیلدهای تخفیف درصدی و مبلغی فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلدها را نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
-      <h5>چاپ</h5><p>از دکمه «چاپ» روی صفحه نمایش فاکتور استفاده کنید. تنها فاکتور چاپ می‌شود، بقیه رابط کاربری پنهان می‌شود.</p>
+      <h5>چاپ</h5><p>از دکمه «چاپ» روی صفحه نمایش فاکتور استفاده کنید. تنها فاکتور چاپ می‌شود، بقیه رابط کاربری پنهان می‌شود. مدل چاپ از تنظیمات → قالب فاکتور است.</p>
+      <h5>تبدیل پیش‌فاکتور</h5><p>دکمهٔ <b>تبدیل به فاکتور</b> موجودی طاقه را <b>قبل از ثبت خروج</b> می‌سنجد. اگر متر کافی نباشد پیام به‌صورت «مانده X، نیاز Y» است (نه مانده منفی بعد از کسر). پیش‌فاکتور اثر انبار ندارد؛ کمبود یعنی همان طاقه در انبار کمتر از مقدار فاکتور است.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>منوی <b>فروش بازاریاب</b> گردش کاتالوگ → سبد → فاکتور است. نمایش کارت کالا دقیقاً مثل قالب <b>کاتالوگ</b> است (نام، کد، گروه، قیمت، موجودی، رنگ، تعداد در پک).</p>
@@ -19019,13 +19130,15 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>بهینه‌سازی برای میلیون‌ها رکورد (کش، صف پردازش، معماری رویدادمحور) — غیرضروری برای این حجم داده</li>
       </ul>`),
     helpSec('📊','گزارشات',`
-      <p>تحلیل عملکرد فروش و کارشناسان.</p><ul>
-        <li><b>گزارش کارشناسان</b>: مقایسه فروش، مشتریان و پیگیری هر نفر</li>
-        <li><b>گزارش مشتریان</b>: بیشترین خرید، آخرین تعامل</li>
-        <li><b>گزارش فاکتور</b>: درآمد دوره، تعداد فاکتور</li>
-        <li><b>فاکتورهای ابطال‌شده در هیچ گزارشی شمرده نمی‌شوند</b> — درآمد، بدهی معوق، برترین مشتریان، روند ماهانه و سود و زیان فقط اسناد زنده را نشان می‌دهند</li>
+      <p>تحلیل راهبردی فروش نسبت به کاربرانی که در سیستم تعریف شده‌اند. اعداد این صفحه <b>زنده‌اند</b> (بدون کش کهنه) و از دفتر فاکتور قطعی خوانده می‌شوند.</p><ul>
+        <li><b>کارت‌ها</b>: فروش کل، تعداد فاکتور قطعی، مشتریان فعال بازه، بدهی معوق، نرخ وصول</li>
+        <li><b>نمودار ماهانه</b>: میله فروش + خط تعداد فاکتور (Chart.js از فایل داخلی برنامه)</li>
+        <li><b>سهم کارشناسان</b>: دونات فروش زنده همان کاربران فعال سیستم</li>
+        <li><b>جدول کارشناسان</b>: نقش، مشتری، سفارش، فروش، بدهی، پیگیری باز، فاکتور</li>
+        <li><b>۱۰ مشتری برتر</b> در همان بازه تاریخ</li>
+        <li><b>فاکتورهای ابطال‌شده در هیچ گزارشی شمرده نمی‌شوند</b></li>
       </ul>
-      <div class="tip">با فیلتر تاریخ، گزارش هر ماه یا فصل را جداگانه ببینید.</div>`),
+      <div class="tip">با فیلتر تاریخ و دکمه «اعمال»، همان لحظه دوباره از سرور خوانده می‌شود.</div>`),
     helpSec('👤','مدیریت کاربران',`
       <p>ساخت و مدیریت حساب‌های کارشناسان از مسیر <b>تنظیمات → کاربران</b> (دیگر در منوی کناری اصلی نیست).</p>
       <h5>نقش‌های کاربری</h5><ul>
@@ -19056,13 +19169,13 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی و شخصی‌سازی چاپ</li>
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
         <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
-        <li><b>وب‌سایت</b>: سینک موجودی ووکامرس</li>
-        <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی، ماژول‌ها</li>
-        <li><b>قابلیت‌ها</b>: دستیار هوشمند و پورتال مشتریان</li>
+        <li><b>وب‌سایت</b>: سینک موجودی Site-B2B (SKU) و در صورت نیاز ووکامرس — آزمایش اتصال از همین صفحه</li>
+        <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی، ماژول‌ها — سوییچ ماژول بلافاصله منو را پنهان/نمایش می‌دهد (داده حذف نمی‌شود)</li>
+        <li><b>قابلیت‌ها</b>: Gemini یا Claude برای متن پیشنهادها؛ پورتال مشتریان</li>
         <li><b>ممیزی</b>: گزارش فعالیت کاربران</li>
       </ul>
       <h5>اطلاعات شرکت</h5><p>نام، تلفن و آدرس شرکت که روی فاکتورها چاپ می‌شود.</p>
-      <h5>قالب فاکتور</h5><p>در تنظیمات: <b>رسمی</b> (۳ مدل — کامل/مدرن/پریمیوم) برای فاکتور نهایی؛ <b>عادی ساده</b> به‌صورت ثابت برای پیش‌فاکتور؛ <b>فاکتور حرارتی</b> با عرض چاپگر ۵۸ یا ۸۰ میلی‌متر. موقع چاپ می‌توانید A4، A5 یا حرارتی را انتخاب کنید. شخصی‌سازی: لوگو (بدون بک مشکی)، تخفیف ردیفی، کارشناس فروش + موبایل، پاورقی و …</p>
+      <h5>قالب فاکتور</h5><p>سه مدل رسمی از هم جدا هستند: <b>اداری</b> (سه ستون + جدول سبز)، <b>مدرن ERP</b> (کارت و گرادیان)، <b>پریمیوم</b> (قاب سبز/طلایی). پیش‌فاکتور فقط <b>عادی ساده</b> است. حرارتی ۵۸/۸۰ میلی‌متر. پیش‌نمایش هر مدل در همین صفحه دیده می‌شود. شخصی‌سازی: لوگو بدون بک مشکی، تخفیف ردیفی، کارشناس + موبایل، پاورقی.</p>
       <h5>تلگرام</h5><p>رمز ربات و شناسه گفتگو برای ارسال اعلان‌های سیستمی.</p>
       <h5>پیامک</h5><ul>
         <li><b>کاوه‌نگار</b>: API Key از پنل کاوه‌نگار</li>
@@ -19071,7 +19184,9 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>شماره فرستنده را از پنل سرویس‌دهنده دریافت کنید (برای SMS.ir اختیاری است)</li>
         <li>با دکمه «ارسال پیامک تست»، پیامک خوش‌آمدگویی به شماره دلخواه ارسال و تنظیمات آزمایش می‌شود</li>
         <li><b>متغیرها</b>: جدول کلیدهای فارسی مثل <code>{name}</code>، <code>{amount}</code>، <code>{num}</code> در تنظیمات/پیامک</li>
-        <li><b>قوانین خودکار</b>: برای هر عملیات (تأیید فاکتور، دریافت، پرداخت، ثبت شخص/مشتری) قالب + گروه اشخاص + کاربر + تأخیر دقیقه‌ای</li>
+        <li><b>فهرست رویدادها</b>: همه مسیرهای پیامک سیستم (فاکتور، تبدیل، دریافت، پرداخت، مشتری، شخص، OTP پورتال/ورود، یادآور پیگیری، نماینده، واحد عملیاتی) در یک جدول با وضعیت قالب و قانون</li>
+        <li><b>رویداد سیستمی</b> (OTP، خوش‌آمد، یادآور): همیشه با متن پیش‌فرض می‌رود؛ اگر قانون+قالب فعال باشد همان متن سفارشی جایگزین می‌شود و پیام دوم نمی‌رود</li>
+        <li><b>قوانین خودکار</b>: برای رویدادهای «فقط با قانون» قالب + گروه اشخاص + کاربر + تأخیر دقیقه‌ای؛ بدون قانون فعال پیامک خودکار نمی‌رود</li>
         <li>تأخیر ۰ = فوری؛ بیشتر = پیامک زمان‌بندی‌شده بعد از عملیات</li>
       </ul>
       <h5>دریافت و پرداخت</h5><ul>
@@ -19142,7 +19257,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v182</b> است و اسکریپت‌ها با <code>?v=182</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v184</b> است و اسکریپت‌ها با <code>?v=184</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -19392,7 +19507,7 @@ function renderSalesGuide(){
         <li>محصولات را از کاتالوگ جستجو و اضافه کنید. اگر کالا رنگ×سایز دارد، پنجرهٔ تو در تو باز می‌شود و هر ترکیب یک ردیف می‌شود. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند و صفحهٔ فاکتور باز می‌ماند</li>
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
-        <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است</li>
+        <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است. اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
         <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ چاپ کرایه و مالیات را جدا نشان می‌دهد</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور رسمی برای ثبت فروش قطعی.</div>`),

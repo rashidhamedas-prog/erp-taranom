@@ -247,6 +247,14 @@ function attachFabricIdentityOnPurchase(db, {
   return db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(batch.id);
 }
 
+// ORDER OF OPERATIONS (fabric sale): postSaleStockMovements posts the sale's
+// inventory_ledger qty_out row *before* calling this function, so liveBatchMeters
+// here already reflects the balance AFTER this sale. Re-checking `meters > live`
+// would double-count the sale (subtract the meters twice) and wrongly reject a
+// valid remaining sale — that was the "-20 مانده" bug. Availability is therefore
+// asserted BEFORE the ledger post in postSaleStockMovements. Here we only
+// reconstruct onHandBefore = liveAfter + meters to guard against a true
+// pre-existing oversell, then sync the cached qty_on_hand to the live balance.
 function consumeFabricRollOnSale(db, { batchId, qty }) {
   const id = Number(batchId);
   const meters = Number(qty) || 0;
@@ -258,13 +266,24 @@ function consumeFabricRollOnSale(db, { batchId, qty }) {
   if (row.status === 'reversed') {
     throw httpErr(409, 'این طاقه ابطال شده است', 'E_FABRIC_REVERSED');
   }
-  const live = liveBatchMeters(db, id);
-  const onHand = live != null ? live : (Number(row.qty_on_hand) || 0);
+  const liveAfter = liveBatchMeters(db, id);
+  if (liveAfter != null) {
+    // Ledger already includes this sale's qty_out → reconstruct the pre-sale balance.
+    const onHandBefore = liveAfter + meters;
+    if (meters - onHandBefore > 1e-9) {
+      // Only a genuine oversell (pre-sale balance was already insufficient) fails.
+      throw httpErr(409, `متر طاقه ${row.batch_no} کافی نیست (مانده ${onHandBefore})`, 'E_FABRIC_QTY');
+    }
+    // Sync cached qty_on_hand to the authoritative post-sale live balance.
+    if (Math.abs(liveAfter - (Number(row.qty_on_hand) || 0)) > 1e-6) {
+      db.prepare('UPDATE inventory_batches SET qty_on_hand=? WHERE id=?').run(liveAfter, id);
+    }
+    return;
+  }
+  // No live ledger info (batch never posted a ledger row): decrement cached qty.
+  const onHand = Number(row.qty_on_hand) || 0;
   if (meters - onHand > 1e-9) {
     throw httpErr(409, `متر طاقه ${row.batch_no} کافی نیست (مانده ${onHand})`, 'E_FABRIC_QTY');
-  }
-  if (live != null && Math.abs(live - (Number(row.qty_on_hand) || 0)) > 1e-6) {
-    db.prepare('UPDATE inventory_batches SET qty_on_hand=? WHERE id=?').run(live, id);
   }
   adjustBatchQty(db, id, -meters);
 }

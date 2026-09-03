@@ -194,11 +194,36 @@ function postSaleStockMovements(db, {
       ).run(r.product_id, whId, seedQty);
     }
     const batchId = r.batch_id ? parseInt(r.batch_id, 10) : null;
+    const need = Number(r.qty) || 0;
+    // Assert fabric-roll availability BEFORE posting the ledger qty_out. Once the
+    // sale row is posted, liveBatchMeters drops by `need`, so the downstream
+    // consumeFabricRollOnSale re-check would see the post-sale balance and reject
+    // a valid sale (the "-20 مانده" bug). Check the pre-sale balance here.
+    if (batchId) {
+      const { liveBatchMeters } = require('./inventory/fabric-rolls');
+      const batchRow = db.prepare(
+        "SELECT batch_no, qty_on_hand, kind, status FROM inventory_batches WHERE id=?"
+      ).get(batchId);
+      if (batchRow && batchRow.kind === 'fabric') {
+        if (batchRow.status === 'reversed') {
+          const err = new Error('این طاقه ابطال شده است');
+          err.status = 409; err.code = 'E_FABRIC_REVERSED';
+          throw err;
+        }
+        const live = liveBatchMeters(db, batchId);
+        const onHand = live != null ? live : (Number(batchRow.qty_on_hand) || 0);
+        if (need - onHand > 1e-9) {
+          const err = new Error(`متر طاقه ${batchRow.batch_no} کافی نیست (مانده ${onHand}، نیاز ${need})`);
+          err.status = 409; err.code = 'E_FABRIC_QTY';
+          throw err;
+        }
+      }
+    }
     const mv = postInventoryMovement(db, {
       eventType: 'sale',
       productId: r.product_id,
       warehouseId: whId,
-      qtyOut: Number(r.qty) || 0,
+      qtyOut: need,
       sourceType,
       sourceId,
       batchId: batchId || null,
@@ -209,7 +234,7 @@ function postSaleStockMovements(db, {
     });
     if (batchId) {
       const { consumeFabricRollOnSale } = require('./inventory/fabric-rolls');
-      consumeFabricRollOnSale(db, { batchId, qty: Number(r.qty) || 0 });
+      consumeFabricRollOnSale(db, { batchId, qty: need });
     }
     if (r.variant_id) {
       require('./product-variants').adjustVariantStock(db, r.variant_id, -(Number(r.qty) || 0), 'delta');

@@ -6,7 +6,8 @@
   --purple:#1A5C38; --purple2:#2E7D4F; --purple-light:#EAF4EE;
   --gold:#C9A843; --gold-light:#FDF3D9;
   --green:#059669; --red:#DC2626; --orange:#D97706; --blue:#2563EB;
-  --bg:#F5F8F4; --card:#FFFFFF; --text:#12271C; --muted:#5F7268; --border:rgba(18,39,28,.11);
+  --bg:#F5F8F4; --card:#FFFFFF; --text:#12271C; --muted:#5F7268; --border:#5C5C5C;
+  --input-border:#4A4A4A;
   --hero:linear-gradient(120deg,#1A5C38 0%,#2E7D4F 55%,#C9A843 135%);
   --on-accent:#FFFFFF;
   /* Soft Bento shell: deeper brand sidebar + soft card elevation */
@@ -29,7 +30,8 @@ html[data-theme="dark"]{
   --purple:#3DDC8C; --purple2:#1A9E63; --purple-light:rgba(61,220,140,.14);
   --gold:#E7C876; --gold-light:rgba(231,200,118,.16);
   --green:#34D399; --red:#F87171; --orange:#FBBF24; --blue:#60A5FA;
-  --bg:#0D1512; --card:#131F1A; --text:#E8F1EB; --muted:#7F978A; --border:rgba(120,220,170,.13);
+  --bg:#0D1512; --card:#131F1A; --text:#E8F1EB; --muted:#7F978A; --border:#8A8A8A;
+  --input-border:#9A9A9A;
   --hero:linear-gradient(160deg,#101A15 0%,#13241B 60%,#1A2E14 135%);
   --on-accent:#04150C;
   --side-bg:linear-gradient(180deg,#101A15,#0D1512);
@@ -568,8 +570,21 @@ table.tbl td.td-clip-wrap > .td-clip-inner{
 .fg{display:flex;flex-direction:column;gap:6px}
 .fg.full{grid-column:1/-1}
 .fg label{font-size:13px;color:var(--muted)}
-.fg input,.fg select,.fg textarea{padding:10px 12px;border:1.5px solid var(--border);border-radius:9px;outline:none;background:var(--input-bg);color:var(--text)}
+.fg input,.fg select,.fg textarea{padding:10px 12px;border:1.5px solid var(--input-border,var(--border));border-radius:9px;outline:none;background:var(--input-bg);color:var(--text);width:100%;max-width:100%;box-sizing:border-box}
 .fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--purple2)}
+.form-grid{align-items:start}
+.fg:not(.full){max-width:320px}
+.fg.fg-sm{max-width:160px}
+.fg.fg-md{max-width:240px}
+.fg.fg-code{max-width:180px}
+.fg.fg-phone{max-width:200px}
+.fg.full{max-width:560px}
+.fg.full textarea{max-width:100%}
+.toolbar input,.toolbar select{border-color:var(--input-border,var(--border));max-width:220px}
+.search,input.search{max-width:280px}
+.sett-main .fg:not(.full){max-width:280px}
+.sett-main .fg.full{max-width:520px}
+.sett-main input[dir="ltr"],.sett-main select[dir="ltr"]{max-width:100%}
 .fg textarea{resize:vertical;min-height:70px}
 .fg input[readonly]{background:var(--bg);color:var(--muted)}
 

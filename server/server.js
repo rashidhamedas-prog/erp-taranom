@@ -634,7 +634,22 @@ async function runTimedFollowupSMS() {
     for (const f of followups) {
       if (!f.uid || !f.user_phone) continue;
       const text = `یادآور پیگیری (۱ ساعت دیگر)\n\n• ${f.cust_biz || '-'}${f.cust_owner ? ' - ' + f.cust_owner : ''}\nساعت پیگیری: ${targetTime}`;
-      const result = await sendSMS(settings, f.user_phone, text);
+      let result;
+      try {
+        const { dispatchSmsOrFallback } = require('./lib/sms-dispatch');
+        result = await dispatchSmsOrFallback(db, 'followup.reminder', {
+          phone: f.user_phone,
+          name: f.cust_owner || f.cust_biz,
+          biz: f.cust_biz,
+          note: f.subject || f.note || '',
+          date: today,
+          status: targetTime,
+          tracking: f.id,
+          user_id: f.uid,
+        }, text);
+      } catch (_) {
+        result = await sendSMS(settings, f.user_phone, text);
+      }
       db.prepare('UPDATE followups SET sms_sent=1 WHERE id=?').run(f.id);
       logSMS(db, f.uid, f.cust_id, f.user_phone, text, result.ok ? 'sent' : 'failed');
       console.log(`📱 SMS ۱ ساعت قبل از پیگیری ${f.id} (ساعت ${targetTime}): ${result.ok ? 'ارسال شد' : 'خطا'}`);
