@@ -19127,10 +19127,10 @@ ROUTES.settings = async function(){
             <p>همه‌چیز دسته‌بندی شده — جستجو کنید یا از منوی کناری بخش مورد نظر را باز کنید.</p>
           </div>
         </div>
-        <form class="sett-search" autocomplete="off" data-csp-submit="${CSP.bind('submit',function(event){event.preventDefault();return false})}">
+        <div class="sett-search" role="search">
           <span class="sett-search-ico">${lucide('search')}</span>
-          <input id="sett-q" type="text" inputmode="search" name="erp-settings-filter-q" placeholder="جستجو در تنظیمات… مثلاً فاکتور، تلگرام، سال مالی" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" readonly data-csp-focus="${CSP.bind('focus',function(){this.removeAttribute('readonly')})}" data-csp-input="${CSP.bind('input',function(event){settFilterSearch(this.value)})}">
-        </form>
+          <input id="sett-q" type="search" inputmode="search" name="erp-settings-filter-q" placeholder="جستجو در تنظیمات… مثلاً فاکتور، تلگرام، سال مالی" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" readonly data-csp-focus="${CSP.bind('focus',function(){this.removeAttribute('readonly')})}" data-csp-keydown="${CSP.bind('keydown',function(event){if(event.key==='Enter') event.preventDefault()})}" data-csp-input="${CSP.bind('input',function(event){settFilterSearch(this.value)})}">
+        </div>
       </div>
       <div class="sett-layout">
         <nav class="sett-nav" aria-label="دسته‌های تنظیمات">${settNavHtml()}</nav>
@@ -19843,7 +19843,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>تبدیل پیش‌فاکتور: انتخاب <b>رسمی</b> یا <b>معمولی</b>.</li>
       </ul>
       <h5>⚙️ جستجوی تنظیمات و ممیزی مدیر</h5><ul>
-        <li>کادر جستجوی بالای تنظیمات فیلتر دسته‌هاست و نباید با نام کاربری مرورگر پر شود. با تعویض تب، خودکار پاک می‌شود.</li>
+        <li>کادر جستجوی بالای تنظیمات فیلتر دسته‌هاست (فرم HTML نیست تا Enter صفحه را نشکند) و نباید با نام کاربری مرورگر پر شود. با تعویض تب، خودکار پاک می‌شود.</li>
         <li>تب <b>ممیزی</b> → دکمه <b>حذف و ابطال</b> فقط رویدادهای delete/reverse/void را نشان می‌دهد. روی «جزئیات» کلیک کنید تا متن کامل قبل از حذف را ببینید.</li>
       </ul>
       <h5>🔎 جستجوی سراسری پیشرفته (Ctrl+K)</h5><ul>
