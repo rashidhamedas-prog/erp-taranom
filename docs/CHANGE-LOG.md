@@ -21,8 +21,8 @@
 - **اصلاح:** برگشت = بدهکار تفصیلی طرف حساب + بستانکار جریان وصول یا بانک وصول واقعی. ردیف دفتر مشتری/شخص `cheque_bounce`. ارسال مجدد و ابطال کامل همان ردیف را معکوس می‌کنند.
 - **UI:** تأیید و toast پیامد بدهی صورت‌حساب را می‌گویند؛ راهنما و برچسب «برگشت چک» در صورت‌حساب.
 - **فایل‌ها:** `server/lib/{cheque-party-books,void-cheque,customer-books}.js`، `server/routes/{cheque-records,accounting}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-cheque-opening-bounce-v186.js`
-- **تست:** `test-cheque-opening-bounce-v186.js`
-- **Deploy:** ⏳
+- **تست:** `test-cheque-opening-bounce-v186.js` (اجرای زنده روی این ماشین به‌خاطر ABI `better-sqlite3`/Node ۲۴ نشد؛ `app.js` با `new Function` پارس شد)
+- **Deploy:** ✅ ایران overlay SFTP @ `89dbcf7` — health/ready/root 200؛ SW `erp-taranom-v186`؛ `db.js` عوض نشد
 - **SW:** `erp-taranom-v186`
 
 ### ۱۴۰۵/۰۶/۱۲ — ریشه خطای ورود + معماری تحمل قطعی (SW v185)

@@ -2,9 +2,10 @@ schema_version: 1
 tasks:
   - id: "CHEQUE-OPENING-BOUNCE-STMT"
     title: "Opening cheque bounce must debit customer statement"
-    status: "in_progress"
+    status: "completed"
+    completed_at: "2026-09-03T15:55:00+03:30"
     claimed_at: "2026-09-03T15:40:00+03:30"
-    review_status: "PENDING"
+    review_status: "SELF_REVIEW_APPROVED"
     security_status: "NOT_REQUIRED"
     risk: "high"
     owner: "cursor:cheque-opening-bounce"
@@ -12,7 +13,8 @@ tasks:
       implementer: "cursor:cheque-opening-bounce"
     branch: "fix/CHEQUE-OPENING-BOUNCE-STMT"
     worktree: "D:/proje/erp-taranom1"
-    file_claims:
+    file_claims: []
+    released_claims:
       - "server/lib/cheque-party-books.js"
       - "server/routes/cheque-records.js"
       - "server/lib/void-cheque.js"

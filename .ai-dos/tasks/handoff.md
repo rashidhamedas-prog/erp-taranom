@@ -3,6 +3,13 @@
 - Iran overlay Paramiko @ `2386fd1`. health/ready/root 200; public health has `starting:false`; SW `erp-taranom-v185`.
 - Claims released. Do not commit leftover `_deploy-demo*`, `_diag-moein*`, `motefareqe/`.
 
+## 2026-09-03T15:55:00+03:30 — CHEQUE-OPENING-BOUNCE-STMT deployed
+
+- Commit `89dbcf7` on `fix/CHEQUE-OPENING-BOUNCE-STMT`; FF `origin/claude/claude-md-docs-2ssrpy`.
+- Iran overlay Paramiko SFTP (no git pull, no db.js). health/ready/root 200, SW `erp-taranom-v186`.
+- SQLite tests not run here (Node 24 vs better-sqlite3 ABI). `app.js` parses with `new Function`.
+- Do not commit leftover `_deploy-demo*`, `_diag-moein*`, `motefareqe/`, `_deploy-cheque-v186-sftp.py`.
+
 ## 2026-09-03T15:40:00+03:30 — LOGIN-RESILIENCE-V185
 
 - Root cause of repeated «خطای ارتباط با سرور»: origin process gone (PM2 restart on today's overlays + 300M memory kill) → Cloudflare 521/502 → first fetch throw. Login catch also swallowed post-login `boot()` failures.

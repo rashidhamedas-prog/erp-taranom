@@ -1,9 +1,10 @@
 # Project Status
 
 - Last verified: 2026-09-03
-- **Active:** `CHEQUE-OPENING-BOUNCE-STMT` in flight (reclaimed UI from login)
-- **Closed this hour:** `LOGIN-RESILIENCE-V185` — Iran overlay v185 ✅ `2386fd1`; health/ready/root 200; SW `erp-taranom-v185`; PM2 1024M
-- **In flight:** opening cheque bounce → customer statement
+- **Active:** none — `CHEQUE-OPENING-BOUNCE-STMT` completed (SW **v186**)
+- **Iran last:** overlay v186 ✅ code `89dbcf7`; health/ready/root 200; SW `erp-taranom-v186`; `db.js` not replaced
+- **Closed this hour:** `CHEQUE-OPENING-BOUNCE-STMT` · `LOGIN-RESILIENCE-V185`
+- **In flight:** none
 - Prior verified: 2026-09-03 v184
 - **Primary tip (PACK merge note):** `ai/PROD-STITCH-PACK-MERGE` onto `12b0385` — SW **v176**
 - **Iran:** overlay v176 ✅ health/ready/root 200; SW v176; `db.js` not wholesale-replaced
