@@ -1,0 +1,60 @@
+/* Invoice print layout — loaded from blob: print pages via style-src 'self'.
+   Keeps A4/A5 sheets full-width and centered in RTL instead of shrinking to the right. */
+html.inv-print {
+  width: 100%;
+  min-width: 100vw;
+  min-height: 100%;
+  direction: rtl;
+}
+html.inv-print body {
+  width: 100%;
+  min-width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+}
+html.inv-print .sheet {
+  width: 100%;
+  margin: 0 auto;
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+html.inv-print.paper-a4 .sheet { max-width: 210mm; }
+html.inv-print.paper-a5 .sheet { max-width: 148mm; }
+html.inv-print.paper-thermal .sheet { max-width: 300px; }
+html.inv-print.paper-thermal-58 .sheet { max-width: 220px; }
+html.inv-print .pad,
+html.inv-print table.items,
+html.inv-print .parties,
+html.inv-print .sum-grid,
+html.inv-print .meta-strip,
+html.inv-print .stamps,
+html.inv-print .sum-box {
+  width: 100%;
+  box-sizing: border-box;
+}
+@media print {
+  html.inv-print,
+  html.inv-print body {
+    display: block;
+    width: auto;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    background: #fff;
+  }
+  html.inv-print .sheet {
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+}
+@media screen and (max-width: 420px) {
+  html.inv-print .parties,
+  html.inv-print .sum-grid,
+  html.inv-print .stamps,
+  html.inv-print .meta-strip {
+    grid-template-columns: 1fr !important;
+  }
+}

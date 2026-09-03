@@ -468,14 +468,31 @@
     return Object.freeze({ html, policy });
   }
 
+  function withSameOriginBase(html) {
+    const parsed = new DOMParser().parseFromString(
+      parserPolicy.createHTML(String(html == null ? '' : html)),
+      'text/html'
+    );
+    parsed.querySelectorAll('base').forEach((node) => node.remove());
+    const base = parsed.createElement('base');
+    const safeBase = new URL('/', location.origin);
+    if (safeBase.origin !== location.origin) throw new TypeError('Print document base must be same-origin');
+    base.href = safeBase.href;
+    const policyMeta = parsed.head && parsed.head.querySelector('meta[http-equiv="Content-Security-Policy" i]');
+    if (policyMeta && policyMeta.nextSibling) parsed.head.insertBefore(base, policyMeta.nextSibling);
+    else if (policyMeta) parsed.head.appendChild(base);
+    else if (parsed.head) parsed.head.prepend(base);
+    return `<!doctype html>\n${nativeOuterHTML.get.call(parsed.documentElement)}`;
+  }
+
   async function openVerifiedServerDocument(response) {
     const verified = await readVerifiedServerDocument(response);
-    return openBlobDocument(verified.html);
+    return openBlobDocument(withSameOriginBase(verified.html));
   }
 
   async function createVerifiedServerFrame(response, options) {
     const verified = await readVerifiedServerDocument(response);
-    const objectUrl = URL.createObjectURL(new Blob([verified.html], { type: 'text/html;charset=utf-8' }));
+    const objectUrl = URL.createObjectURL(new Blob([withSameOriginBase(verified.html)], { type: 'text/html;charset=utf-8' }));
     const iframe = document.createElement('iframe');
     iframe.setAttribute('aria-hidden', 'true');
     iframe.setAttribute('tabindex', '-1');

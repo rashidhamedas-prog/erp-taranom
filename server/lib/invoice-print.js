@@ -102,7 +102,7 @@ function paperDims(paper, settings) {
   return {
     paper: isA5 ? 'A5' : 'A4',
     thermalMm: 0,
-    sheetMax: isA5 ? '520px' : '820px',
+    sheetMax: isA5 ? '148mm' : '210mm',
     pad: isA5 ? '12px' : '16px',
     font: isA5 ? '10px' : '11.5px',
     logoH: isA5 ? '40px' : '52px',
@@ -242,9 +242,10 @@ function themeCss(id, dims) {
 
   const common = `
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Vazirmatn',Tahoma,sans-serif;background:#EEF3EF;color:#12271C;padding:12px;font-size:${dims.font}}
-  .sheet{max-width:${dims.sheetMax};margin:0 auto;background:#fff;position:relative}
-  .pad{padding:${dims.pad}}
+  html{width:100%;min-width:100vw;min-height:100%;direction:rtl}
+  body{font-family:'Vazirmatn',Tahoma,sans-serif;background:#EEF3EF;color:#12271C;padding:16px;font-size:${dims.font};width:100%;min-width:100%;min-height:100vh;display:flex;flex-direction:column;align-items:center;box-sizing:border-box}
+  .sheet{width:100%;max-width:${dims.sheetMax};margin:0 auto;margin-inline:auto;background:#fff;position:relative;box-sizing:border-box}
+  .pad{padding:${dims.pad};width:100%;box-sizing:border-box}
   .num{font-variant-numeric:tabular-nums}
   .rtl{text-align:right}
   .brand-row{display:flex;gap:10px;align-items:center}
@@ -273,32 +274,32 @@ function themeCss(id, dims) {
   .note{margin-top:10px;font-size:.85em;color:#5F7268;background:#EDF3EE;border-radius:8px;padding:8px 10px;line-height:1.7}
   .footer-bar{background:#163F2A;color:#e8f2ec;text-align:center;padding:7px 8px;font-size:.78em;line-height:1.7}
   .footer-bar.light{background:#dce9e1;color:#12271C}
-  .sum-box{border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;font-size:.92em}
+  .sum-box{border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;font-size:.92em;width:100%;box-sizing:border-box}
   .sum-box .line{display:flex;justify-content:space-between;padding:6px 9px;border-bottom:1px solid #c5d6cc}
   .sum-box .line.pay{background:#163F2A;color:#fff;font-weight:800;border:0}
   .sum-box .line.pay .gold{color:#C9A843}
   .words{border:1px solid #c5d6cc;border-radius:8px;padding:8px 10px;line-height:1.8;font-size:.88em;background:#fbfdfb}
-  .stamps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
+  .stamps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;width:100%}
   .stamp{border:1px solid #c5d6cc;border-radius:8px;min-height:70px;text-align:center;padding:8px;font-size:.8em;color:#5F7268}
   .stamp.dash{border-style:dashed;border-color:#2E7D4F}
   .stamp .t{font-weight:800;color:#1A5C38;margin-bottom:4px}
-  .parties{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
-  .party{border:1px solid #c5d6cc;border-radius:8px;overflow:hidden}
+  .parties{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;width:100%}
+  .party{border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;min-width:0}
   .party h4{background:#eef5f0;color:#1A5C38;padding:5px 8px;font-size:.85em;font-weight:800;border-bottom:1px solid #c5d6cc}
   .party .b{padding:7px 8px;line-height:1.75;font-size:.88em}
   .party .b b{color:#5F7268;font-weight:600}
-  .meta-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;margin-bottom:8px;font-size:.78em}
-  .meta-strip .c{padding:6px 7px;border-left:1px solid #c5d6cc;background:#fbfdfb}
+  .meta-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;margin-bottom:8px;font-size:.78em;width:100%}
+  .meta-strip .c{padding:6px 7px;border-left:1px solid #c5d6cc;background:#fbfdfb;min-width:0}
   .meta-strip b{display:block;color:#5F7268;font-weight:600}
   .meta-strip span{font-weight:700}
-  .sum-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:10px;margin-top:10px}
+  .sum-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:10px;margin-top:10px;width:100%}
   @media print{
-    body{background:#fff;padding:0}
-    .sheet{box-shadow:none!important;border-radius:0!important;max-width:100%!important}
+    html,body{display:block;width:auto;min-width:0;min-height:0;background:#fff;padding:0}
+    .sheet{box-shadow:none!important;border-radius:0!important;max-width:100%!important;width:100%!important}
     .pbtn{display:none}
     @page{size:${pageSize};margin:${pageMargin}}
   }
-  @media (max-width:640px){
+  @media screen and (max-width:420px){
     .parties,.sum-grid,.stamps,.meta-strip{grid-template-columns:1fr!important}
   }
   `;
@@ -421,6 +422,11 @@ function renderInvoicePrintHtml(opts) {
   });
   const isThermal = templateId === THERMAL_ID;
   const isA5 = dims.paper === 'A5';
+  const htmlClass = [
+    'inv-print',
+    isThermal ? `paper-thermal paper-thermal-${dims.thermalMm}` : (isA5 ? 'paper-a5' : 'paper-a4'),
+    `tmpl-${templateId}`,
+  ].join(' ');
   const typeLabel = isThermal
     ? 'فاکتور حرارتی'
     : (inv.doc_kind === 'purchase' || inv.type === 'purchase'
@@ -692,12 +698,13 @@ function renderInvoicePrintHtml(opts) {
     : `چاپ فاکتور (${dims.paper})`;
 
   return `<!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html lang="fa" dir="rtl" class="${esc(htmlClass)}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(typeLabel)} ${esc(inv.num || '')}</title>
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
+<link href="/invoice-print.css" rel="stylesheet">
 <style>${themeCss(templateId, dims)}</style>
 </head>
 <body>
