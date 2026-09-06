@@ -14,6 +14,15 @@
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
 
 
+### ۱۴۰۵/۰۶/۱۶ — پیش‌نمایش چاپ فاکتور: طرح گرافیکی روی blob (SW v199)
+
+- **باگ:** چاپ فاکتور HTML قالب را می‌ساخت ولی در تب `blob:` بدون رنگ، بدون جدول و با لوگوی شکسته دیده می‌شد.
+- **ریشه:** `openVerifiedServerDocument` سند را با `DOMParser` دوباره می‌ساخت و `nonce` استایل را حذف می‌کرد؛ CSP `style-src 'nonce-…'` تم داخل `<style>` را بلاک می‌کرد. همزمان `base-uri 'none'` تگ `<base>` را بی‌اثر می‌کرد و `/invoice-print.css` و `/logo-sm.png` روی آدرس blob لود نمی‌شدند.
+- **اصلاح:** بازنویسی `href`/`src` ریشه‌نسبی به URL مطلق هم‌مبدأ بدون DOMParser (nonce می‌ماند). تم کامل قالب‌ها به `invoice-print.css` منتقل شد تا حتی اگر استایل اینلاین بلاک شود طرح دیده شود.
+- **فایل‌ها:** `server/public/{csp-runtime.js,invoice-print.css,sw.js}`، `server/scripts/test-invoice-print-{layout-v195,blob-v199}.js`، `docs/CHANGE-LOG.md`
+- **تست:** test-invoice-print-layout-v195 + test-invoice-print-blob-v199 + test-sms
+- **SW:** erp-taranom-v199
+
 ### ۱۴۰۵/۰۶/۱۵ — رفع ورود admin: قفل نشست وب (SW v198)
 
 - **علت:** ساخت ادمین دوم رمز `admin` را عوض نکرد. ورود با رمز درست با کد `409 DEVICE_SESSION_ACTIVE` رد می‌شد چون یک نشست وب دیگر (مرورگر/دستگاه قبلی) هنوز باز بود؛ پیام شبیه «رمز اشتباه» دیده می‌شد.

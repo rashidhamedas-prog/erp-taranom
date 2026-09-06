@@ -36,6 +36,10 @@ ok(css.includes('max-width: 148mm'), 'layout css A5 paper width');
 ok(css.includes('max-width: 210mm'), 'layout css A4 paper width');
 ok(css.includes('@media screen and (max-width: 420px)'), 'stack only on very small screens');
 ok(!css.includes('max-width:640px') && !css.includes('max-width: 640px'), 'no 640px collapse');
+ok(css.includes('.tmpl-formal-official') && css.includes('.off-banner'), 'layout css has official theme');
+ok(css.includes('.tmpl-formal-modern') && css.includes('.mod-header'), 'layout css has modern theme');
+ok(css.includes('.tmpl-formal-premium') && css.includes('.hero'), 'layout css has premium theme');
+ok(css.includes('table.items th'), 'layout css styles item table headers');
 
 ok(paperDims('A5').sheetMax === '148mm', 'A5 sheetMax is 148mm');
 ok(paperDims('A4').sheetMax === '210mm', 'A4 sheetMax is 210mm');

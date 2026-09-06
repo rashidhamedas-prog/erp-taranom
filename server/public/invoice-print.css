@@ -1,12 +1,23 @@
-/* Invoice print layout — loaded from blob: print pages via style-src 'self'.
-   Keeps A4/A5 sheets full-width and centered in RTL instead of shrinking to the right. */
+/* Invoice print — loaded from blob preview via style-src 'self'.
+   Theme lives here so the design still applies if the blob CSP drops the
+   inline <style nonce> (DOMParser strips nonce; base-uri 'none' kills <base>). */
 html.inv-print {
   width: 100%;
   min-width: 100vw;
   min-height: 100%;
   direction: rtl;
 }
+html.inv-print.paper-a4 { --sheet-max: 210mm; --pad: 16px; --font: 11.5px; --logo-h: 52px; }
+html.inv-print.paper-a5 { --sheet-max: 148mm; --pad: 12px; --font: 10px; --logo-h: 40px; }
+html.inv-print.paper-thermal { --sheet-max: 300px; --pad: 10px; --font: 11px; --logo-h: 42px; }
+html.inv-print.paper-thermal-58 { --sheet-max: 220px; --pad: 8px; --font: 10px; --logo-h: 36px; }
+
 html.inv-print body {
+  font-family: 'Vazirmatn', Tahoma, sans-serif;
+  background: #EEF3EF;
+  color: #12271C;
+  padding: 16px;
+  font-size: var(--font, 11.5px);
   width: 100%;
   min-width: 100%;
   min-height: 100vh;
@@ -17,24 +28,382 @@ html.inv-print body {
 }
 html.inv-print .sheet {
   width: 100%;
+  max-width: var(--sheet-max, 210mm);
   margin: 0 auto;
   margin-inline: auto;
+  background: #fff;
+  position: relative;
   box-sizing: border-box;
+  box-shadow: 0 12px 32px rgba(18, 39, 28, .08);
 }
 html.inv-print.paper-a4 .sheet { max-width: 210mm; }
 html.inv-print.paper-a5 .sheet { max-width: 148mm; }
 html.inv-print.paper-thermal .sheet { max-width: 300px; }
 html.inv-print.paper-thermal-58 .sheet { max-width: 220px; }
+html.inv-print .pad { padding: var(--pad, 16px); width: 100%; box-sizing: border-box; }
+html.inv-print .num { font-variant-numeric: tabular-nums; }
+html.inv-print .rtl { text-align: right; }
+html.inv-print .brand-row { display: flex; gap: 10px; align-items: center; }
+html.inv-print .brand-sub { font-size: .85em; color: #5F7268; }
+html.inv-print .thermal-brand { font-weight: 800; color: #1A5C38; font-size: 1.15em; margin-top: 6px; }
+html.inv-print .thermal-kind { color: #5F7268; margin-top: 3px; }
+html.inv-print .thermal-number { margin-top: 4px; }
+html.inv-print .thermal-customer { line-height: 1.7; }
+html.inv-print .row-desc { font-size: 9px; color: #5F7268; margin-top: 2px; font-weight: 400; }
+html.inv-print .warn-line { color: #b45309; font-size: 11px; font-weight: 700; }
+html.inv-print .thanks { margin-top: 6px; color: #8A7020; font-size: .85em; font-weight: 600; }
+html.inv-print .logo-box {
+  background: #fff;
+  border: 1px solid #c5d6cc;
+  border-radius: 10px;
+  padding: 3px 8px;
+  display: inline-flex;
+  align-items: center;
+}
+html.inv-print .logo-box img {
+  display: block;
+  height: var(--logo-h, 52px);
+  background: transparent;
+  mix-blend-mode: multiply;
+}
+html.inv-print .pbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 16px auto 0;
+  background: linear-gradient(135deg, #1A5C38, #2E7D4F);
+  color: #fff;
+  border: none;
+  padding: 10px 22px;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+html.inv-print .watermark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 5;
+}
+html.inv-print .watermark span {
+  transform: rotate(-25deg);
+  font-size: 32px;
+  font-weight: 800;
+  color: rgba(220, 38, 38, .14);
+  border: 3px solid rgba(220, 38, 38, .14);
+  border-radius: 12px;
+  padding: 6px 18px;
+  white-space: nowrap;
+}
+html.inv-print table.items {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+}
+html.inv-print table.items th,
+html.inv-print table.items td {
+  border: 1px solid #c5d6cc;
+  padding: 6px 4px;
+  text-align: center;
+  vertical-align: middle;
+}
+html.inv-print table.items th {
+  background: #1A5C38;
+  color: #fff;
+  font-weight: 700;
+  font-size: .9em;
+  line-height: 1.3;
+}
+html.inv-print table.items tbody tr:nth-child(even) { background: #f6faf7; }
+html.inv-print .expert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: linear-gradient(90deg, #FDF3D9, #fff 60%);
+  border: 1px solid rgba(201, 168, 67, .55);
+  border-radius: 10px;
+  padding: 7px 10px;
+  margin: 8px 0;
+}
+html.inv-print .expert-l { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+html.inv-print .expert-t {
+  font-size: .7em;
+  font-weight: 800;
+  color: #8A7020;
+  background: #fff;
+  border: 1px solid rgba(201, 168, 67, .45);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+html.inv-print .expert-n { font-weight: 800; color: #1A5C38; }
+html.inv-print .expert-m { font-weight: 700; direction: ltr; }
+html.inv-print .note {
+  margin-top: 10px;
+  font-size: .85em;
+  color: #5F7268;
+  background: #EDF3EE;
+  border-radius: 8px;
+  padding: 8px 10px;
+  line-height: 1.7;
+}
+html.inv-print .footer-bar {
+  background: #163F2A;
+  color: #e8f2ec;
+  text-align: center;
+  padding: 7px 8px;
+  font-size: .78em;
+  line-height: 1.7;
+}
+html.inv-print .footer-bar.light { background: #dce9e1; color: #12271C; }
+html.inv-print .sum-box {
+  border: 1px solid #c5d6cc;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: .92em;
+  width: 100%;
+  box-sizing: border-box;
+}
+html.inv-print .sum-box .line {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 9px;
+  border-bottom: 1px solid #c5d6cc;
+}
+html.inv-print .sum-box .line.pay { background: #163F2A; color: #fff; font-weight: 800; border: 0; }
+html.inv-print .sum-box .line.pay .gold { color: #C9A843; }
+html.inv-print .words {
+  border: 1px solid #c5d6cc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  line-height: 1.8;
+  font-size: .88em;
+  background: #fbfdfb;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+html.inv-print .words-num { font-size: .92em; font-weight: 700; color: #12271C; }
+html.inv-print .words-fa {
+  font-size: .86em;
+  color: #1A5C38;
+  margin-top: 4px;
+  font-weight: 700;
+  line-height: 1.6;
+  border-top: 1px dashed #c5d6cc;
+  padding-top: 4px;
+}
+html.inv-print .stamps { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; width: 100%; }
+html.inv-print .stamp {
+  border: 1px solid #c5d6cc;
+  border-radius: 8px;
+  min-height: 70px;
+  text-align: center;
+  padding: 8px;
+  font-size: .8em;
+  color: #5F7268;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+html.inv-print .stamp.dash { border-style: dashed; border-color: #2E7D4F; }
+html.inv-print .stamp .t { font-weight: 800; color: #1A5C38; margin-bottom: 4px; }
+html.inv-print .stamp-line { border-bottom: 1px dotted #a8c4b8; margin-top: 24px; }
+html.inv-print .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; width: 100%; }
+html.inv-print .party { border: 1px solid #c5d6cc; border-radius: 8px; overflow: hidden; min-width: 0; }
+html.inv-print .party h4 {
+  background: #eef5f0;
+  color: #1A5C38;
+  padding: 5px 8px;
+  font-size: .85em;
+  font-weight: 800;
+  border-bottom: 1px solid #c5d6cc;
+}
+html.inv-print .party .b { padding: 7px 8px; line-height: 1.75; font-size: .88em; }
+html.inv-print .party .b b { color: #5F7268; font-weight: 600; }
+html.inv-print .meta-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
+  border: 1px solid #c5d6cc;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 8px;
+  font-size: .78em;
+  width: 100%;
+}
+html.inv-print .meta-strip .c { padding: 6px 7px; border-left: 1px solid #c5d6cc; background: #fbfdfb; min-width: 0; }
+html.inv-print .meta-strip b { display: block; color: #5F7268; font-weight: 600; }
+html.inv-print .meta-strip span { font-weight: 700; }
+html.inv-print .sum-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 10px; margin-top: 10px; width: 100%; }
 html.inv-print .pad,
 html.inv-print table.items,
 html.inv-print .parties,
 html.inv-print .sum-grid,
 html.inv-print .meta-strip,
 html.inv-print .stamps,
-html.inv-print .sum-box {
-  width: 100%;
-  box-sizing: border-box;
+html.inv-print .sum-box { width: 100%; box-sizing: border-box; }
+
+/* formal-official */
+html.inv-print.tmpl-formal-official .sheet { border: 1.5px solid #1A5C38; border-radius: 0; }
+html.inv-print.tmpl-formal-official .off-banner {
+  background: #1A5C38;
+  color: #fff;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
 }
+html.inv-print.tmpl-formal-official .off-banner .serial { font-size: .8em; line-height: 1.85; }
+html.inv-print.tmpl-formal-official .off-banner .serial b { color: #C9A843; font-weight: 700; }
+html.inv-print.tmpl-formal-official .off-banner .title { text-align: center; font-size: 1.16em; font-weight: 800; }
+html.inv-print.tmpl-formal-official .off-banner .kind { text-align: left; font-size: .86em; font-weight: 800; color: #C9A843; }
+html.inv-print.tmpl-formal-official .off-gold { height: 3px; background: #C9A843; }
+html.inv-print.tmpl-formal-official .off-ident {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 2px solid #1A5C38;
+  padding: 8px 0 9px;
+  margin-bottom: 9px;
+}
+html.inv-print.tmpl-formal-official .off-ident .name { font-size: 1.08em; font-weight: 800; color: #1A5C38; }
+html.inv-print.tmpl-formal-official .off-ident .sub { font-size: .78em; color: #5F7268; margin-top: 2px; }
+html.inv-print.tmpl-formal-official .off-ident .spacer { flex: 1; }
+html.inv-print.tmpl-formal-official .off-ident .co-meta { font-size: .77em; line-height: 1.85; color: #5F7268; text-align: left; }
+html.inv-print.tmpl-formal-official .party h4 { background: #1A5C38; color: #fff; border-bottom: 0; }
+html.inv-print.tmpl-formal-official table.items th { border-color: #0f3d24; }
+
+/* formal-modern */
+html.inv-print.tmpl-formal-modern .sheet {
+  border-radius: 18px;
+  border: 1px solid rgba(18, 39, 28, .1);
+  overflow: hidden;
+  box-shadow: 0 16px 40px rgba(18, 39, 28, .12);
+}
+html.inv-print.tmpl-formal-modern .mod-header {
+  background: linear-gradient(120deg, #123F28, #1A5C38 45%, #2E7D4F);
+  color: #fff;
+  padding: 15px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+html.inv-print.tmpl-formal-modern .mod-header .brand-row .name { font-size: 1.24em; font-weight: 800; color: #fff; }
+html.inv-print.tmpl-formal-modern .mod-header .brand-sub { color: rgba(255, 255, 255, .82); }
+html.inv-print.tmpl-formal-modern .mod-chips { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+html.inv-print.tmpl-formal-modern .mod-chip {
+  background: rgba(255, 255, 255, .15);
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: 14px;
+  padding: 5px 12px;
+  font-size: .8em;
+  min-width: 66px;
+  text-align: center;
+}
+html.inv-print.tmpl-formal-modern .mod-chip b { display: block; font-size: .82em; opacity: .82; font-weight: 600; }
+html.inv-print.tmpl-formal-modern .party { border-radius: 14px; }
+html.inv-print.tmpl-formal-modern .party::before { content: ""; display: block; height: 3px; background: linear-gradient(90deg, #1A5C38, #C9A843); }
+html.inv-print.tmpl-formal-modern table.items th { background: linear-gradient(90deg, #1A5C38, #2E7D4F); }
+html.inv-print.tmpl-formal-modern .sum-box .line.pay { background: linear-gradient(90deg, #1A5C38, #2E7D4F); }
+
+/* formal-premium */
+html.inv-print.tmpl-formal-premium .sheet {
+  border-radius: 16px;
+  overflow: hidden;
+  border: 2.5px solid #C9A843;
+}
+html.inv-print.tmpl-formal-premium .hero {
+  background: linear-gradient(115deg, #123F28, #1A5C38 45%, #2E7D4F);
+  color: #fff;
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+html.inv-print.tmpl-formal-premium .hero .name { font-weight: 800; font-size: 1.3em; }
+html.inv-print.tmpl-formal-premium .hero .meta { text-align: left; font-size: .9em; line-height: 1.75; }
+html.inv-print.tmpl-formal-premium .hero .meta .tag {
+  display: inline-block;
+  background: #C9A843;
+  color: #12271C;
+  font-weight: 800;
+  font-size: .82em;
+  border-radius: 6px;
+  padding: 2px 9px;
+  margin-bottom: 4px;
+}
+html.inv-print.tmpl-formal-premium .prem-rule { height: 4px; background: linear-gradient(90deg, #C9A843, #1A5C38 50%, #C9A843); }
+html.inv-print.tmpl-formal-premium .party h4 { background: linear-gradient(90deg, #1A5C38, #2E7D4F); color: #fff; border-bottom: 0; }
+html.inv-print.tmpl-formal-premium table.items th { background: #163F2A; }
+html.inv-print.tmpl-formal-premium .words { background: #FEFBF2; }
+
+/* casual-simple */
+html.inv-print.tmpl-casual-simple .sheet {
+  border-radius: 12px;
+  border: 1px solid rgba(18, 39, 28, .1);
+  overflow: hidden;
+}
+html.inv-print.tmpl-casual-simple .top-simple {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  border-bottom: 2px solid #C9A843;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+html.inv-print.tmpl-casual-simple .top-simple .title { font-size: 1.15em; font-weight: 800; color: #1A5C38; }
+html.inv-print.tmpl-casual-simple .inv-meta .box { border: 1px solid #c5d6cc; border-radius: 8px; overflow: hidden; min-width: 140px; }
+html.inv-print.tmpl-casual-simple .inv-meta .row {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 8px;
+  border-bottom: 1px solid #c5d6cc;
+  font-size: .9em;
+}
+html.inv-print.tmpl-casual-simple .inv-meta .row:last-child { border-bottom: 0; }
+html.inv-print.tmpl-casual-simple .inv-meta .row span:last-child { font-weight: 800; color: #b91c1c; }
+html.inv-print.tmpl-casual-simple .meta-strip { grid-template-columns: repeat(4, 1fr); }
+
+/* thermal */
+html.inv-print.tmpl-thermal body { background: #fff; padding: 4px; }
+html.inv-print.tmpl-thermal .sheet { border: none; box-shadow: none; }
+html.inv-print.tmpl-thermal .center { text-align: center; }
+html.inv-print.tmpl-thermal .dash { border: 0; border-top: 1px dashed #999; margin: 6px 0; }
+html.inv-print.tmpl-thermal table.items th {
+  background: transparent;
+  color: #1A5C38;
+  border: 0;
+  border-bottom: 1px dashed #999;
+}
+html.inv-print.tmpl-thermal table.items td { border: 0; border-bottom: 1px dotted #ddd; }
+html.inv-print.tmpl-thermal table.items tbody tr:nth-child(even) { background: transparent; }
+html.inv-print.tmpl-thermal .sum-box { border: 0; border-radius: 0; }
+html.inv-print.tmpl-thermal .sum-box .line.pay {
+  background: transparent;
+  color: #1A5C38;
+  border-top: 2px solid #1A5C38;
+}
+html.inv-print.tmpl-thermal .footer-bar { background: transparent; color: #5F7268; border-top: 1px dashed #999; }
+
+html.inv-print.paper-a5 .off-banner,
+html.inv-print.paper-a5 .mod-header,
+html.inv-print.paper-a5 .hero { grid-template-columns: 1fr; flex-direction: column; text-align: center; }
+html.inv-print.paper-a5 .meta-strip,
+html.inv-print.paper-a5 .stamps { grid-template-columns: 1fr 1fr; }
+
 @media print {
   html.inv-print,
   html.inv-print body {
@@ -48,7 +417,17 @@ html.inv-print .sum-box {
   html.inv-print .sheet {
     max-width: 100% !important;
     width: 100% !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
   }
+  html.inv-print .pbtn { display: none !important; }
+  @page { margin: 8mm; }
+  html.inv-print.paper-a5 { }
+}
+html.inv-print.paper-a4 { }
+@media print {
+  html.inv-print.paper-thermal,
+  html.inv-print.paper-thermal-58 { }
 }
 @media screen and (max-width: 420px) {
   html.inv-print .parties,
