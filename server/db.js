@@ -25,7 +25,8 @@ function applyConnectionPragmas(database) {
   database.pragma('cache_size = -64000');
   database.pragma('temp_store = MEMORY');
   database.pragma('foreign_keys = ON');
-  try { database.pragma('mmap_size = 268435456'); } catch { /* optional on some builds */ }
+  database.pragma('busy_timeout = 8000');
+  try { database.pragma('mmap_size = 134217728'); } catch { /* optional on some builds */ }
 }
 
 function resolveBootDbPath() {
@@ -49,7 +50,7 @@ function getDB() {
   if (!db) {
     liveDbPath = resolveBootDbPath();
     // timeout: wait on SQLITE_BUSY instead of failing instantly (device sync + UI reads).
-    db = new Database(liveDbPath, { timeout: 5000 });
+    db = new Database(liveDbPath, { timeout: 8000 });
     applyConnectionPragmas(db);
   }
   return db;
@@ -68,7 +69,7 @@ function reopenDatabase(newPath) {
   const resolved = path.resolve(newPath);
   closeDB();
   liveDbPath = resolved;
-  db = new Database(liveDbPath, { timeout: 5000 });
+  db = new Database(liveDbPath, { timeout: 8000 });
   applyConnectionPragmas(db);
   return db;
 }
@@ -326,6 +327,8 @@ function initDB() {
       status TEXT DEFAULT 'pending',
       note TEXT,
       stock_deducted INTEGER DEFAULT 0,
+      warehouse_id INTEGER,
+      reservation_id INTEGER,
       created_at INTEGER DEFAULT (strftime('%s','now')),
       FOREIGN KEY(user_id) REFERENCES users(id),
       FOREIGN KEY(cust_id) REFERENCES customers(id)
@@ -666,6 +669,7 @@ function initDB() {
   // امنیت: الزام تغییر رمز در اولین ورود (ادمین پیش‌فرض / رمز تعیین‌شده توسط مدیر)
   ensureColumn(db, 'users', 'must_change_password', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'users', 'auth_epoch', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'users', 'branch_id', 'INTEGER');
   ensureColumn(db, 'users', 'commission_cash', 'REAL DEFAULT 0');
   ensureColumn(db, 'users', 'commission_cheque', 'REAL DEFAULT 0');
   ensureColumn(db, 'products', 'image', 'TEXT');
@@ -686,6 +690,8 @@ function initDB() {
   ensureColumn(db, 'invoices', 'approved_by', 'INTEGER');
   ensureColumn(db, 'orders', 'product_id', 'INTEGER');
   ensureColumn(db, 'orders', 'stock_deducted', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'orders', 'warehouse_id', 'INTEGER');
+  ensureColumn(db, 'orders', 'reservation_id', 'INTEGER');
   ensureColumn(db, 'settlements', 'cheque_bank', "TEXT DEFAULT ''");
   ensureColumn(db, 'settlements', 'cheque_sayadi', "TEXT DEFAULT ''");
   ensureColumn(db, 'settlements', 'cheque_number', "TEXT DEFAULT ''");
@@ -992,6 +998,7 @@ function initDB() {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
   `);
+  ensureColumn(db, 'trust_checks', 'party_id', 'INTEGER');
   ensureColumn(db, 'customers', 'group_id', 'INTEGER');
   ensureColumn(db, 'journal_entries', 'cost_center_id', 'INTEGER');
   ensureColumn(db, 'settlements', 'cost_center_id', 'INTEGER');
@@ -1653,6 +1660,22 @@ function initSyncSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_reset_otp_user ON password_reset_otps(user_id);
 
+    -- Staff invite tokens: central-only — NOT in SYNCABLE_TABLES
+    CREATE TABLE IF NOT EXISTS user_invitations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id INTEGER NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at INTEGER NOT NULL,
+      used_at INTEGER,
+      invited_email TEXT,
+      intended_role TEXT,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      FOREIGN KEY(person_id) REFERENCES persons(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_invitations_person ON user_invitations(person_id);
+    CREATE INDEX IF NOT EXISTS idx_user_invitations_hash ON user_invitations(token_hash);
+
     -- 2FA (TOTP): central-only — NOT in SYNCABLE_TABLES, device builds keep it empty
     CREATE TABLE IF NOT EXISTS two_factor_auth (
       user_id INTEGER PRIMARY KEY,
@@ -1852,8 +1875,20 @@ function initSyncSchema(db) {
   ensureColumn(db, 'product_categories', 'description', 'TEXT');
   ensureColumn(db, 'product_categories', 'is_shared', 'INTEGER NOT NULL DEFAULT 1');
   ensureColumn(db, 'product_categories', 'created_by', 'INTEGER');
+  ensureColumn(db, 'product_categories', 'coa_code', 'TEXT');
   ensureColumn(db, 'users', 'party_id', 'INTEGER');
+  ensureColumn(db, 'users', 'person_id', 'INTEGER');
   ensureColumn(db, 'users', 'sales_warehouse_id', 'INTEGER');
+  if (tableExists(db, 'user_invitations')) {
+    ensureColumn(db, 'user_invitations', 'person_id', 'INTEGER');
+    ensureColumn(db, 'user_invitations', 'token_hash', 'TEXT');
+    ensureColumn(db, 'user_invitations', 'expires_at', 'INTEGER');
+    ensureColumn(db, 'user_invitations', 'used_at', 'INTEGER');
+    ensureColumn(db, 'user_invitations', 'invited_email', 'TEXT');
+    ensureColumn(db, 'user_invitations', 'intended_role', 'TEXT');
+    ensureColumn(db, 'user_invitations', 'created_by', 'INTEGER');
+    ensureColumn(db, 'user_invitations', 'created_at', "INTEGER DEFAULT (strftime('%s','now'))");
+  }
   ensureColumn(db, 'customers', 'party_group_id', 'INTEGER');
   ensureColumn(db, 'suppliers', 'party_group_id', 'INTEGER');
   ensureColumn(db, 'persons', 'party_group_id', 'INTEGER');
@@ -1984,6 +2019,13 @@ function initSyncSchema(db) {
   ensureColumn(db, 'cheque_records', 'reversal_journal_id', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'reversed_at', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'reversed_by', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'party_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'customer_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'lifecycle_status', "TEXT DEFAULT ''");
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_party ON cheque_records(party_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_cheque_records_customer ON cheque_records(customer_id)');
+  } catch (_) { /* */ }
 
   // ---- Accounting module foundation (spec phase 1) ----
   db.exec(`
@@ -2063,6 +2105,11 @@ function initSyncSchema(db) {
     db.prepare('UPDATE customers SET created_by = user_id WHERE created_by IS NULL AND user_id IS NOT NULL').run();
   } catch (_) { /* ignore */ }
   ensureColumn(db, 'suppliers', 'party_id', 'INTEGER');
+  ensureColumn(db, 'persons', 'party_id', 'INTEGER');
+  ensureColumn(db, 'parties', 'position_id', 'INTEGER');
+  try {
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_persons_party_id_unique ON persons(party_id) WHERE party_id IS NOT NULL');
+  } catch (_) { /* ignore */ }
   ensureColumn(db, 'warehouses', 'entity', "TEXT DEFAULT 'distribution_office'");
   ensureColumn(db, 'warehouses', 'cost_center_id', 'INTEGER');
   ensureColumn(db, 'cost_centers', 'entity', 'TEXT');
@@ -2331,6 +2378,25 @@ function initSyncSchema(db) {
   }
 
   try {
+    require('./lib/qa-gaps-schema').ensureQaGapsSchema(db);
+  } catch (e) {
+    console.error('❌ qa-gaps schema init failed:', e.message);
+    throw e;
+  }
+
+  try {
+    if (!isDevice()) {
+      const { backfillOpeningInventoryLedger } = require('./lib/opening-post');
+      const bf = backfillOpeningInventoryLedger(db);
+      if (bf && !bf.skipped && bf.count) {
+        console.log('✅ opening_inventory_ledger_backfill_v1:', JSON.stringify(bf));
+      }
+    }
+  } catch (e) {
+    console.warn('opening_inventory_ledger_backfill_v1:', e.message);
+  }
+
+  try {
     require('./lib/payroll/schema').initPayrollSchema(db);
     require('./lib/accounting/reporting-schema').initReportingSchema(db);
     require('./lib/user-party').ensureAllUserParties(db);
@@ -2339,12 +2405,28 @@ function initSyncSchema(db) {
     throw e;
   }
 
+  // ACC-CRM-UNIFY v1 — perpetual docs flag + unique users.party_id (partial)
+  // Transaction-safe: reconcile duplicates with audit → unique index → stamp only on success.
+  try {
+    const userParty = require('./lib/user-party');
+    if (typeof userParty.runAccCrmUnifyV1 === 'function') {
+      userParty.runAccCrmUnifyV1(db);
+      if (typeof userParty.ensureAllUserParties === 'function') {
+        userParty.ensureAllUserParties(db);
+      }
+    }
+  } catch (e) {
+    console.error('❌ acc_crm_unify_v1 migration failed:', e.message);
+    if (!/is not a function|Cannot find module/.test(String(e.message || e))) throw e;
+  }
+
   // Update 11 — decimals, FX, tafsili2, positions, pricing, warehouse flags, stocktake counts
   try {
     require('./lib/update11-schema').initUpdate11Schema(db);
     require('./lib/gap-accounting-schema').initGapAccountingSchema(db);
     require('./lib/portal-schema').initPortalSchema(db);
     require('./lib/update-md-schema').ensureUpdateMdSchema(db, ensureColumn);
+    require('./lib/party-employee-sync').runPersonPartyUnifyV1(db);
     require('./lib/license/schema').initLicenseSchema(db);
     require('./lib/b2b/schema').initB2bSchema(db);
   } catch (e) {
@@ -2355,6 +2437,8 @@ function initSyncSchema(db) {
   // W1-APP1 product variants + W1-F1 moadian queue columns (before sync column pass)
   try {
     require('./lib/product-variants').initProductVariantsSchema(db);
+    require('./lib/crm-pro-schema').initCrmProSchema(db);
+    ensureSyncColumnsForAllTables(db);
     const moadianSql = require('./lib/moadian/schema-sql');
     for (const [table, column, definition] of moadianSql.ENSURE_COLUMNS) {
       ensureColumn(db, table, column, definition);
@@ -2362,6 +2446,14 @@ function initSyncSchema(db) {
     db.exec(moadianSql.STATUS_HISTORY_SQL);
   } catch (e) {
     console.error('❌ product-variants/moadian schema init failed:', e.message);
+    throw e;
+  }
+
+  // POS-01/02 — card terminals / receipts / settlement batches (before sync column pass)
+  try {
+    require('./lib/pos').initPosSchema(db, ensureColumn);
+  } catch (e) {
+    console.error('❌ pos schema init failed:', e.message);
     throw e;
   }
 
@@ -2508,7 +2600,82 @@ function initSyncSchema(db) {
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v8','1')").run();
     }
+    const backfillV9 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v9'").get();
+    if (!backfillV9 || backfillV9.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v9 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v9','1')").run();
+    }
+    const backfillV10 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v10'").get();
+    if (!backfillV10 || backfillV10.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v10 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v10','1')").run();
+    }
+    const backfillV11 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v11'").get();
+    if (!backfillV11 || backfillV11.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v11 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v11','1')").run();
+    }
+    const backfillV12 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v12'").get();
+    if (!backfillV12 || backfillV12.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v12 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v12','1')").run();
+    }
+    const backfillV13 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v13'").get();
+    if (!backfillV13 || backfillV13.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v13 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v13','1')").run();
+    }
   }
+
+  // CON-01/CON-02 — person FK, warehouse, settle metadata (no new table)
+  ensureColumn(db, 'consignments', 'person_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'warehouse_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'invoice_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'settle_path', 'TEXT');
+  ensureColumn(db, 'consignments', 'settle_je_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'issue_ledger_id', 'INTEGER');
+  ensureColumn(db, 'consignments', 'record_status', "TEXT DEFAULT 'active'");
+  ensureColumn(db, 'consignments', 'unit_price_rial', 'INTEGER DEFAULT 0');
 
   // One-shot: restore products.stock wiped by image-only PUT bug (stock→0 while warehouse_stock kept qty).
   // Also restore pack_size/price/code/note from readable backup DBs/archives if available.
@@ -2646,7 +2813,7 @@ function backfillAccounting(db) {
 
       // 2) Final invoices + settlements, inserted in chronological (date) order for a readable statement
       const events = [];
-      for (const inv of db.prepare("SELECT * FROM invoices WHERE type='final'").all()) events.push({ date: inv.date || '', kind: 'invoice', row: inv });
+      for (const inv of db.prepare(`SELECT * FROM invoices WHERE ${require('./lib/sales-document').firmSaleTypeSql()}`).all()) events.push({ date: inv.date || '', kind: 'invoice', row: inv });
       for (const s of db.prepare('SELECT * FROM settlements').all()) events.push({ date: s.date || '', kind: 'settlement', row: s });
       events.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 

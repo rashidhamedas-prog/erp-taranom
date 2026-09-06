@@ -44,6 +44,8 @@ function initGapAccountingSchema(db) {
   ensureColumn(db, 'cheque_records', 'collection_je_id', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'cleared_je_id', 'INTEGER');
   ensureColumn(db, 'cheque_records', 'bounced_je_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'endorse_party_id', 'INTEGER');
+  ensureColumn(db, 'cheque_records', 'endorse_supplier_id', 'INTEGER');
   ensureColumn(db, 'settlements', 'cheque_lifecycle', "TEXT DEFAULT ''");
 
   // ---- Bank reconciliation ----

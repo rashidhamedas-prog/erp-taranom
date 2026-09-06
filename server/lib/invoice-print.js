@@ -32,8 +32,72 @@ function esc(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function numToPersianWords(num) {
+  if (num == null || isNaN(num) || Number(num) === 0) return 'صفر';
+  const yekan = ['', 'یک', 'دو', 'سه', 'چهار', 'پنج', 'شش', 'هفت', 'هشت', 'نه'];
+  const dahgaana = ['', 'یازده', 'دوازده', 'سیزده', 'چهارده', 'پانزده', 'شانزده', 'هفده', 'هیجده', 'نوزده'];
+  const dahgan = ['', 'ده', 'بیست', 'سی', 'چهل', 'پنجاه', 'شصت', 'هفتاد', 'هشتاد', 'نود'];
+  const sadgan = ['', 'صد', 'دویست', 'سیصد', 'چهارصد', 'پانصد', 'ششصد', 'هفتصد', 'هشتصد', 'نهصد'];
+  const basess = ['', 'هزار', 'میلیون', 'میلیارد', 'تریلیون'];
+
+  function threeDigitsToWords(n) {
+    if (n === 0) return '';
+    let s = '';
+    const sad = Math.floor(n / 100);
+    const dah = Math.floor((n % 100) / 10);
+    const yek = n % 10;
+
+    if (sad > 0) s += sadgan[sad];
+    if (dah === 1 && yek > 0) {
+      if (s) s += ' و ';
+      s += dahgaana[yek];
+      return s;
+    }
+    if (dah > 0) {
+      if (s) s += ' و ';
+      s += dahgan[dah];
+    }
+    if (yek > 0) {
+      if (s) s += ' و ';
+      s += yekan[yek];
+    }
+    return s;
+  }
+
+  let n = Math.abs(Math.floor(Number(num)));
+  let result = [];
+  let baseIdx = 0;
+
+  while (n > 0) {
+    const chunk = n % 1000;
+    if (chunk > 0) {
+      const chunkWords = threeDigitsToWords(chunk);
+      const suffix = basess[baseIdx];
+      result.unshift(chunkWords + (suffix ? ' ' + suffix : ''));
+    }
+    n = Math.floor(n / 1000);
+    baseIdx++;
+  }
+
+  return result.join(' و ');
+}
+
 function faNum(n) {
-  return Number(n || 0).toLocaleString('fa-IR');
+  if (n == null || n === '') return '۰';
+  const num = Number(n);
+  if (!Number.isFinite(num)) return String(n);
+  try {
+    return num.toLocaleString('fa-IR');
+  } catch (_) {
+    return String(n);
+  }
+}
+
+function freightTypeFa(t) {
+  const n = String(t || '').trim().toLowerCase();
+  if (n === 'seller' || n.includes('فروشنده')) return 'عهده فروشنده';
+  if (n === 'buyer' || n.includes('خریدار')) return 'عهده خریدار';
+  return t || '';
 }
 
 function parseCustomize(raw) {
@@ -88,7 +152,7 @@ function paperDims(paper, settings) {
   return {
     paper: isA5 ? 'A5' : 'A4',
     thermalMm: 0,
-    sheetMax: isA5 ? '520px' : '820px',
+    sheetMax: isA5 ? '148mm' : '210mm',
     pad: isA5 ? '12px' : '16px',
     font: isA5 ? '10px' : '11.5px',
     logoH: isA5 ? '40px' : '52px',
@@ -113,6 +177,29 @@ function lineNet(r) {
 
 function linesDiscTotal(rows) {
   return (rows || []).reduce((a, r) => a + lineDiscOf(r), 0);
+}
+
+function computePrintTotals(inv, rows) {
+  const list = rows || [];
+  const rowsGross = list.reduce((a, r) => a + lineGross(r), 0);
+  const rowsNet = list.reduce((a, r) => a + lineNet(r), 0);
+  const discLines = linesDiscTotal(list);
+  const headerSubtotal = Math.round(Number(inv && inv.subtotal) || 0);
+  const discAmt = Math.round(Number(inv && inv.disc_amt) || 0);
+  const discPct = Number(inv && inv.disc) || 0;
+  const freight = Math.round(Number(inv && inv.freight_amount) || 0);
+  const vat = Math.round(Number(inv && inv.vat_amount) || 0);
+  const vatRate = Number(inv && inv.vat_rate) || 0;
+  const headerFinal = Math.round(Number(inv && inv.final) || 0);
+  const payable = headerFinal || Math.max(0, (headerSubtotal || rowsNet) - discAmt + freight + vat);
+  const mismatch = headerSubtotal > 0 && list.length > 0
+    && Math.abs(headerSubtotal - rowsGross) > 1
+    && Math.abs(headerSubtotal - rowsNet) > 1;
+  return {
+    rowsGross, rowsNet, discLines,
+    subtotal: headerSubtotal || rowsGross,
+    discAmt, discPct, freight, vat, vatRate, payable, mismatch,
+  };
 }
 
 function buildFormalRows(rows, isA5) {
@@ -205,9 +292,10 @@ function themeCss(id, dims) {
 
   const common = `
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Vazirmatn',Tahoma,sans-serif;background:#EEF3EF;color:#12271C;padding:12px;font-size:${dims.font}}
-  .sheet{max-width:${dims.sheetMax};margin:0 auto;background:#fff;position:relative}
-  .pad{padding:${dims.pad}}
+  html{width:100%;min-width:100vw;min-height:100%;direction:rtl}
+  body{font-family:'Vazirmatn',Tahoma,sans-serif;background:#EEF3EF;color:#12271C;padding:16px;font-size:${dims.font};width:100%;min-width:100%;min-height:100vh;display:flex;flex-direction:column;align-items:center;box-sizing:border-box}
+  .sheet{width:100%;max-width:${dims.sheetMax};margin:0 auto;margin-inline:auto;background:#fff;position:relative;box-sizing:border-box;box-shadow:0 12px 32px rgba(18,39,28,.08)}
+  .pad{padding:${dims.pad};width:100%;box-sizing:border-box}
   .num{font-variant-numeric:tabular-nums}
   .rtl{text-align:right}
   .brand-row{display:flex;gap:10px;align-items:center}
@@ -217,16 +305,18 @@ function themeCss(id, dims) {
   .thermal-number{margin-top:4px}
   .thermal-customer{line-height:1.7}
   .row-desc{font-size:9px;color:#5F7268;margin-top:2px;font-weight:400}
-  .disc{color:#b45309;font-weight:700}
+  .warn-line{color:#b45309;font-size:11px;font-weight:700}
+  .thanks{margin-top:6px;color:#8A7020;font-size:.85em;font-weight:600}
   .logo-box{background:#fff;border:1px solid #c5d6cc;border-radius:10px;padding:3px 8px;display:inline-flex;align-items:center}
   .logo-box img{display:block;height:${dims.logoH};background:transparent;mix-blend-mode:multiply}
-  .pbtn{display:block;margin:14px auto 0;background:#1A5C38;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-family:inherit;font-size:13px;cursor:pointer}
+  .pbtn{display:inline-flex;align-items:center;justify-content:center;gap:6px;margin:16px auto 0;background:linear-gradient(135deg,#1A5C38,#2E7D4F);color:#fff;border:none;padding:10px 22px;border-radius:10px;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(26,92,56,.25);transition:all .15s ease}
+  .pbtn:hover{background:linear-gradient(135deg,#123F28,#1A5C38);transform:translateY(-1px);box-shadow:0 6px 16px rgba(26,92,56,.35)}
   .watermark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:5}
   .watermark span{transform:rotate(-25deg);font-size:32px;font-weight:800;color:rgba(220,38,38,.14);border:3px solid rgba(220,38,38,.14);border-radius:12px;padding:6px 18px;white-space:nowrap}
-  table.items{width:100%;border-collapse:collapse;margin-top:4px}
-  table.items th,table.items td{border:1px solid #c5d6cc;padding:5px 3px;text-align:center;vertical-align:middle}
+  table.items{width:100%;border-collapse:collapse;margin-top:6px}
+  table.items th,table.items td{border:1px solid #c5d6cc;padding:6px 4px;text-align:center;vertical-align:middle}
   table.items th{background:#1A5C38;color:#fff;font-weight:700;font-size:.9em;line-height:1.3}
-  table.items tbody tr:nth-child(even){background:#f3f8f5}
+  table.items tbody tr:nth-child(even){background:#f6faf7}
   .expert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;background:linear-gradient(90deg,#FDF3D9,#fff 60%);border:1px solid rgba(201,168,67,.55);border-radius:10px;padding:7px 10px;margin:8px 0}
   .expert-l{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
   .expert-t{font-size:.7em;font-weight:800;color:#8A7020;background:#fff;border:1px solid rgba(201,168,67,.45);border-radius:999px;padding:2px 8px}
@@ -235,81 +325,107 @@ function themeCss(id, dims) {
   .note{margin-top:10px;font-size:.85em;color:#5F7268;background:#EDF3EE;border-radius:8px;padding:8px 10px;line-height:1.7}
   .footer-bar{background:#163F2A;color:#e8f2ec;text-align:center;padding:7px 8px;font-size:.78em;line-height:1.7}
   .footer-bar.light{background:#dce9e1;color:#12271C}
-  .sum-box{border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;font-size:.92em}
+  .sum-box{border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;font-size:.92em;width:100%;box-sizing:border-box}
   .sum-box .line{display:flex;justify-content:space-between;padding:6px 9px;border-bottom:1px solid #c5d6cc}
   .sum-box .line.pay{background:#163F2A;color:#fff;font-weight:800;border:0}
   .sum-box .line.pay .gold{color:#C9A843}
-  .words{border:1px solid #c5d6cc;border-radius:8px;padding:8px 10px;line-height:1.8;font-size:.88em;background:#fbfdfb}
-  .stamps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
-  .stamp{border:1px solid #c5d6cc;border-radius:8px;min-height:70px;text-align:center;padding:8px;font-size:.8em;color:#5F7268}
+  .words{border:1px solid #c5d6cc;border-radius:8px;padding:8px 10px;line-height:1.8;font-size:.88em;background:#fbfdfb;display:flex;flex-direction:column;justify-content:center}
+  .words-num{font-size:.92em;font-weight:700;color:#12271C}
+  .words-fa{font-size:.86em;color:#1A5C38;margin-top:4px;font-weight:700;line-height:1.6;border-top:1px dashed #c5d6cc;padding-top:4px}
+  .stamps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;width:100%}
+  .stamp{border:1px solid #c5d6cc;border-radius:8px;min-height:70px;text-align:center;padding:8px;font-size:.8em;color:#5F7268;display:flex;flex-direction:column;justify-content:space-between}
   .stamp.dash{border-style:dashed;border-color:#2E7D4F}
   .stamp .t{font-weight:800;color:#1A5C38;margin-bottom:4px}
-  .parties{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
-  .party{border:1px solid #c5d6cc;border-radius:8px;overflow:hidden}
+  .stamp-line{border-bottom:1px dotted #a8c4b8;margin-top:24px}
+  .parties{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;width:100%}
+  .party{border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;min-width:0}
   .party h4{background:#eef5f0;color:#1A5C38;padding:5px 8px;font-size:.85em;font-weight:800;border-bottom:1px solid #c5d6cc}
   .party .b{padding:7px 8px;line-height:1.75;font-size:.88em}
   .party .b b{color:#5F7268;font-weight:600}
-  .meta-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;margin-bottom:8px;font-size:.78em}
-  .meta-strip .c{padding:6px 7px;border-left:1px solid #c5d6cc;background:#fbfdfb}
+  .meta-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;margin-bottom:8px;font-size:.78em;width:100%}
+  .meta-strip .c{padding:6px 7px;border-left:1px solid #c5d6cc;background:#fbfdfb;min-width:0}
   .meta-strip b{display:block;color:#5F7268;font-weight:600}
   .meta-strip span{font-weight:700}
-  .sum-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:10px;margin-top:10px}
+  .sum-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:10px;margin-top:10px;width:100%}
   @media print{
-    body{background:#fff;padding:0}
-    .sheet{box-shadow:none!important;border-radius:0!important;max-width:100%!important}
-    .pbtn{display:none}
+    html,body{display:block;width:auto;min-width:0;min-height:0;background:#fff;padding:0}
+    .sheet{box-shadow:none!important;border-radius:0!important;max-width:100%!important;width:100%!important}
+    .pbtn{display:none!important}
     @page{size:${pageSize};margin:${pageMargin}}
   }
-  @media (max-width:640px){
+  @media screen and (max-width:420px){
     .parties,.sum-grid,.stamps,.meta-strip{grid-template-columns:1fr!important}
   }
   `;
 
   const themes = {
+    // ── اداری / مالیاتی: بنر سبز رسمی، جعبه‌های واضح فروشنده/خریدار، قاب مربع پررنگ
     'formal-official': `
-      .sheet{border:1.5px solid #1A5C38}
-      .top3{display:grid;grid-template-columns:1.1fr .9fr 1fr;gap:10px;align-items:center;border-bottom:2px solid #1A5C38;padding-bottom:10px;margin-bottom:10px}
-      .company-meta{font-size:.78em;line-height:1.8;color:#5F7268}
-      .company-meta b{color:#12271C}
-      .brand-center{text-align:center}
-      .brand-center .name{font-size:1.15em;font-weight:800;color:#1A5C38;margin-top:6px}
-      .brand-center .sub{font-size:.78em;color:#5F7268}
-      .inv-meta{text-align:left}
-      .inv-meta .title{font-size:1.2em;font-weight:800;color:#1A5C38;margin-bottom:6px}
-      .inv-meta .box{border:1px solid #c5d6cc;border-radius:8px;overflow:hidden}
-      .inv-meta .row{display:flex;justify-content:space-between;gap:8px;padding:5px 8px;border-bottom:1px solid #c5d6cc;font-size:.9em}
-      .inv-meta .row:last-child{border-bottom:0}
-      .inv-meta .row span:last-child{font-weight:800;color:#b91c1c}
-      ${dims.paper === 'A5' ? '.top3{grid-template-columns:1fr}.meta-strip{grid-template-columns:1fr 1fr}.stamps{grid-template-columns:1fr 1fr}' : ''}
+      .sheet{border:1.5px solid #1A5C38;border-radius:0}
+      .off-banner{background:#1A5C38;color:#fff;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:9px 12px}
+      .off-banner .serial{font-size:.8em;line-height:1.85}
+      .off-banner .serial b{color:#C9A843;font-weight:700}
+      .off-banner .serial .num{font-weight:800}
+      .off-banner .title{text-align:center;font-size:1.16em;font-weight:800;letter-spacing:.3px}
+      .off-banner .kind{text-align:left;font-size:.86em;font-weight:800;color:#C9A843}
+      .off-gold{height:3px;background:#C9A843}
+      .off-ident{display:flex;align-items:center;gap:12px;border-bottom:2px solid #1A5C38;padding:8px 0 9px;margin-bottom:9px}
+      .off-ident .name{font-size:1.08em;font-weight:800;color:#1A5C38}
+      .off-ident .sub{font-size:.78em;color:#5F7268;margin-top:2px}
+      .off-ident .spacer{flex:1}
+      .off-ident .co-meta{font-size:.77em;line-height:1.85;color:#5F7268;text-align:left}
+      .off-ident .co-meta b{color:#12271C;font-weight:600}
+      .party h4{background:#1A5C38;color:#fff;border-bottom:0}
+      .party .b b{color:#5F7268}
+      table.items th{border-color:#0f3d24}
+      ${dims.paper === 'A5' ? '.off-banner{grid-template-columns:1fr;text-align:center}.off-banner .kind,.off-banner .serial{text-align:center}.off-ident{flex-direction:column;align-items:stretch;text-align:center}.off-ident .co-meta{text-align:center}.meta-strip{grid-template-columns:1fr 1fr}.stamps{grid-template-columns:1fr 1fr}' : ''}
     `,
+    // ── مدرن ERP: هدر گرادیانی، گوشه‌های نرم، چیپ‌های متادیتا، کارت‌های سایه‌دار
     'formal-modern': `
-      .sheet{border-radius:16px;border:1px solid rgba(18,39,28,.12);overflow:hidden;box-shadow:0 12px 28px rgba(18,39,28,.08)}
-      .top3{display:grid;grid-template-columns:1.1fr .9fr 1fr;gap:10px;align-items:center;border-bottom:1px solid #c5d6cc;padding-bottom:10px;margin-bottom:10px}
-      .company-meta{font-size:.78em;line-height:1.8;color:#5F7268}
-      .brand-center{text-align:center}
-      .brand-center .name{font-size:1.15em;font-weight:800;color:#1A5C38;margin-top:6px}
-      .brand-center .sub{font-size:.78em;color:#5F7268}
-      .inv-meta{text-align:left}
-      .inv-meta .title{font-size:1.15em;font-weight:800;color:#1A5C38;margin-bottom:6px}
-      .inv-meta .box{border:1px solid #c5d6cc;border-radius:12px;overflow:hidden;background:#EDF3EE}
-      .inv-meta .row{display:flex;justify-content:space-between;padding:6px 9px;border-bottom:1px solid #c5d6cc;font-size:.9em}
-      .inv-meta .row:last-child{border-bottom:0}
-      .inv-meta .row span:last-child{font-weight:800;color:#b91c1c}
-      .party{border-radius:12px}
+      .sheet{border-radius:18px;border:1px solid rgba(18,39,28,.1);overflow:hidden;box-shadow:0 16px 40px rgba(18,39,28,.12)}
+      .mod-header{background:linear-gradient(120deg,#123F28,#1A5C38 45%,#2E7D4F);color:#fff;padding:15px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+      .mod-header .brand-row .name{font-size:1.24em;font-weight:800;color:#fff}
+      .mod-header .brand-sub{color:rgba(255,255,255,.82)}
+      .mod-header .logo-box{background:rgba(255,255,255,.92);border-color:rgba(255,255,255,.5)}
+      .mod-chips{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+      .mod-chip{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.28);border-radius:14px;padding:5px 12px;font-size:.8em;line-height:1.35;text-align:center;min-width:66px}
+      .mod-chip b{display:block;font-size:.82em;opacity:.82;font-weight:600;margin-bottom:1px}
+      .mod-chip span{font-weight:800}
+      .party{border-radius:14px;border-color:rgba(18,39,28,.12)}
       .party::before{content:"";display:block;height:3px;background:linear-gradient(90deg,#1A5C38,#C9A843)}
-      table.items th{background:linear-gradient(90deg,#1A5C38,#2E7D4F)}
+      .party h4{background:#EDF3EE}
+      .meta-strip{border-radius:12px}
+      table.items{border-radius:12px;overflow:hidden;box-shadow:0 4px 14px rgba(18,39,28,.06)}
+      table.items th{background:linear-gradient(90deg,#1A5C38,#2E7D4F);border-color:rgba(255,255,255,.16)}
+      .sum-box{border-radius:12px}
       .sum-box .line.pay{background:linear-gradient(90deg,#1A5C38,#2E7D4F)}
-      ${dims.paper === 'A5' ? '.top3{grid-template-columns:1fr}.meta-strip{grid-template-columns:1fr 1fr}.stamps{grid-template-columns:1fr 1fr}' : ''}
+      .stamp{border-radius:12px}
+      ${dims.paper === 'A5' ? '.mod-header{flex-direction:column;align-items:stretch}.mod-chips{justify-content:center}.meta-strip{grid-template-columns:1fr 1fr}.stamps{grid-template-columns:1fr 1fr}' : ''}
     `,
+    // ── لوکس: قاب سبز/طلایی، هیرو برند، خط طلایی تزئینی، سرستون تیره
     'formal-premium': `
-      .sheet{border-radius:16px;overflow:hidden;border:2px solid transparent;background:linear-gradient(#fff,#fff) padding-box,linear-gradient(120deg,#1A5C38,#C9A843,#2E7D4F) border-box}
-      .hero{background:linear-gradient(115deg,#1A5C38,#2E7D4F 55%,#C9A843);color:#fff;padding:12px 14px;display:flex;justify-content:space-between;gap:10px;align-items:center}
-      .hero .name{font-weight:800;font-size:1.15em}
-      .hero .sub{opacity:.85;font-size:.8em;margin-top:3px}
-      .hero .meta{text-align:left;font-size:.9em;line-height:1.7}
-      table.items th{background:#163F2A}
+      .sheet{border-radius:16px;overflow:hidden;border:2.5px solid transparent;background:linear-gradient(#fff,#fff) padding-box,linear-gradient(120deg,#1A5C38,#C9A843,#2E7D4F,#C9A843) border-box}
+      .hero{background:linear-gradient(115deg,#123F28,#1A5C38 45%,#2E7D4F);color:#fff;padding:14px 16px;display:flex;justify-content:space-between;gap:10px;align-items:center;position:relative}
+      .hero .name{font-weight:800;font-size:1.3em;letter-spacing:.3px}
+      .hero .sub{opacity:.85;font-size:.82em;margin-top:3px}
+      .hero .logo-box{background:rgba(255,255,255,.94);border-color:rgba(201,168,67,.6)}
+      .hero .meta{text-align:left;font-size:.9em;line-height:1.75}
+      .hero .meta .tag{display:inline-block;background:#C9A843;color:#12271C;font-weight:800;font-size:.82em;border-radius:6px;padding:2px 9px;margin-bottom:4px}
+      .hero .meta .num{font-weight:800}
+      .prem-rule{height:4px;background:linear-gradient(90deg,#C9A843,#1A5C38 50%,#C9A843)}
+      .party{border-color:rgba(201,168,67,.55)}
+      .party h4{background:linear-gradient(90deg,#1A5C38,#2E7D4F);color:#fff;border-bottom:0}
+      .meta-strip{border-color:rgba(201,168,67,.5)}
+      .meta-strip .c{border-left-color:rgba(201,168,67,.35)}
+      table.items th{background:#163F2A;border-color:#0d3320}
+      .sum-box{border-color:rgba(201,168,67,.6)}
+      .sum-box .line{border-bottom-color:rgba(201,168,67,.35)}
       .sum-box .line.pay{background:#163F2A}
-      ${dims.paper === 'A5' ? '.meta-strip{grid-template-columns:1fr 1fr}.stamps{grid-template-columns:1fr 1fr}' : ''}
+      .sum-box .line.pay .gold{color:#C9A843}
+      .words{border-color:rgba(201,168,67,.5);background:#FEFBF2}
+      .stamp{border-color:rgba(201,168,67,.5)}
+      .stamp .t{color:#1A5C38}
+      ${dims.paper === 'A5' ? '.hero{flex-direction:column;align-items:stretch;text-align:center}.hero .meta{text-align:center}.meta-strip{grid-template-columns:1fr 1fr}.stamps{grid-template-columns:1fr 1fr}' : ''}
     `,
     'casual-simple': `
       .sheet{border-radius:12px;border:1px solid rgba(18,39,28,.1);overflow:hidden;box-shadow:0 8px 22px rgba(18,39,28,.06)}
@@ -360,15 +476,26 @@ function renderInvoicePrintHtml(opts) {
   });
   const isThermal = templateId === THERMAL_ID;
   const isA5 = dims.paper === 'A5';
+  const htmlClass = [
+    'inv-print',
+    isThermal ? `paper-thermal paper-thermal-${dims.thermalMm}` : (isA5 ? 'paper-a5' : 'paper-a4'),
+    `tmpl-${templateId}`,
+  ].join(' ');
   const typeLabel = isThermal
     ? 'فاکتور حرارتی'
-    : (inv.type === 'final' ? 'فاکتور رسمی' : 'پیش‌فاکتور');
+    : (inv.doc_kind === 'purchase' || inv.type === 'purchase'
+      ? 'فاکتور خرید'
+      : (inv.type === 'final' ? 'فاکتور رسمی' : inv.type === 'normal' ? 'فاکتور فروش' : 'پیش‌فاکتور'));
+  const isPurchase = inv.doc_kind === 'purchase' || inv.type === 'purchase';
+  const counterpartyTitle = isPurchase ? 'مشخصات فروشنده' : 'مشخصات خریدار';
+  const companyPartyTitle = isPurchase ? 'مشخصات خریدار' : 'مشخصات فروشنده';
+  const t = computePrintTotals(inv, rows);
+  const emptyColspan = isA5 ? 6 : 9;
   const isProvisional = String(inv.num || '').startsWith('موقت');
   const companyName = settings.company_name || 'پوشاک ترنم';
   const companyAddr = settings.company_address || '';
   const companyPhone = settings.company_phone || '';
   const subtitle = customize.subtitle || 'تولیدی پوشاک زنانه';
-  const discLines = linesDiscTotal(rows);
   const payTypeLabel = payLabel(inv);
   const logo = logoHtml(customize, dims);
   const expert = expertHtml(inv, customize);
@@ -390,16 +517,40 @@ function renderInvoicePrintHtml(opts) {
     customize.show_company_phone && companyPhone ? companyPhone : '',
   ].filter(Boolean).join(' · ');
 
+  const companyEconomicCode = settings.company_economic_code || settings.economic_code || '';
+  const companyNationalId = settings.company_national_id || settings.national_id || '';
+  const companyPostalCode = settings.company_postal_code || settings.postal_code || '';
+
+  const custEconomicCode = inv.cust_economic_code || inv.economic_code || '';
+  const custNationalId = inv.cust_national_id || inv.national_id || inv.cust_code || '';
+  const custPostalCode = inv.cust_postal_code || inv.postal_code || '';
+  const custAddr = inv.cust_address || inv.address || '';
+
   const sellerBits = `
     <div><b>نام:</b> ${esc(companyName)}</div>
+    ${companyEconomicCode ? `<div><b>کد اقتصادی:</b> ${esc(companyEconomicCode)}</div>` : ''}
+    ${companyNationalId ? `<div><b>شناسه ملی:</b> ${esc(companyNationalId)}</div>` : ''}
     ${customize.show_company_address ? `<div><b>نشانی:</b> ${esc(companyAddr || '—')}</div>` : ''}
     ${customize.show_company_phone ? `<div><b>تلفن:</b> ${esc(companyPhone || '—')}</div>` : ''}
+    ${companyPostalCode ? `<div><b>کد پستی:</b> ${esc(companyPostalCode)}</div>` : ''}
     ${customize.show_payment ? `<div><b>پرداخت:</b> ${esc(payTypeLabel)}${payExtra}</div>` : ''}`;
 
   const buyerBits = `
     <div><b>نام:</b> ${esc(inv.cust_biz || '—')}${inv.cust_owner ? ' — ' + esc(inv.cust_owner) : ''}</div>
+    ${custEconomicCode ? `<div><b>کد اقتصادی:</b> ${esc(custEconomicCode)}</div>` : ''}
+    ${custNationalId ? `<div><b>شناسه/کد ملی:</b> ${esc(custNationalId)}</div>` : ''}
     <div><b>شهر:</b> ${esc(inv.cust_city || '—')}</div>
-    <div><b>تلفن:</b> ${esc(inv.cust_phone || '—')}</div>`;
+    ${custAddr ? `<div><b>نشانی:</b> ${esc(custAddr)}</div>` : ''}
+    <div><b>تلفن:</b> ${esc(inv.cust_phone || '—')}</div>
+    ${custPostalCode ? `<div><b>کد پستی:</b> ${esc(custPostalCode)}</div>` : ''}`;
+
+  const payableWords = numToPersianWords(t.payable);
+  const wordsHtml = `
+    <div class="words">
+      <div class="words-num"><b>مبلغ قابل پرداخت:</b> <span class="num">${faNum(t.payable)}</span> ریال</div>
+      <div class="words-fa"><b>به حروف:</b> ${esc(payableWords)} ریال</div>
+      ${noteHtml || '<div class="thanks">با تشکر از انتخاب شما</div>'}
+    </div>`;
 
   const formalHead = isA5
     ? `<tr><th>ردیف</th><th>شرح</th><th>تعداد</th><th>فی</th><th>تخفیف ردیف</th><th>جمع</th></tr>`
@@ -407,17 +558,20 @@ function renderInvoicePrintHtml(opts) {
 
   const sumBox = `
     <div class="sum-box">
-      <div class="line"><span>جمع ناخالص</span><span class="num">${faNum(inv.subtotal)} ریال</span></div>
-      ${customize.show_discount && discLines ? `<div class="line"><span>جمع تخفیف ردیفی</span><span class="num disc">${faNum(discLines)} ریال</span></div>` : ''}
-      ${customize.show_discount ? `<div class="line"><span>تخفیف کل (${faNum(inv.disc)}٪)</span><span class="num">${faNum(inv.disc_amt)} ریال</span></div>` : ''}
-      <div class="line pay"><span>مبلغ قابل پرداخت</span><span class="num gold">${faNum(inv.final)} ریال</span></div>
+      <div class="line"><span>جمع اقلام</span><span class="num">${faNum(t.rowsNet)} ریال</span></div>
+      ${customize.show_discount && t.discLines ? `<div class="line"><span>جمع تخفیف ردیفی</span><span class="num disc">${faNum(t.discLines)} ریال</span></div>` : ''}
+      ${customize.show_discount && (t.discAmt || t.discPct) ? `<div class="line"><span>تخفیف کل${t.discPct ? ` (${faNum(t.discPct)}٪)` : ''}</span><span class="num">${faNum(t.discAmt)} ریال</span></div>` : ''}
+      ${t.freight ? `<div class="line"><span>کرایه حمل${inv.freight_type ? ` (${esc(freightTypeFa(inv.freight_type))})` : ''}</span><span class="num">${faNum(t.freight)} ریال</span></div>` : ''}
+      ${t.vat ? `<div class="line"><span>مالیات بر ارزش افزوده${t.vatRate ? ` (${faNum(t.vatRate)}٪)` : ''}</span><span class="num">${faNum(t.vat)} ریال</span></div>` : ''}
+      <div class="line pay"><span>مبلغ قابل پرداخت</span><span class="num gold">${faNum(t.payable)} ریال</span></div>
+      ${t.mismatch ? `<div class="line warn-line"><span>هشدار</span><span>جمع سربرگ (${faNum(t.subtotal)}) با جمع اقلام یکی نیست</span></div>` : ''}
     </div>`;
 
   const stamps = `
     <div class="stamps">
-      <div class="stamp"><div class="t">مهر و امضای خریدار</div></div>
-      <div class="stamp dash"><div class="t">مهر شرکت</div></div>
-      <div class="stamp"><div class="t">مهر و امضای فروشنده</div></div>
+      <div class="stamp"><div class="t">مهر و امضای خریدار</div><div class="stamp-line"></div></div>
+      <div class="stamp dash"><div class="t">مهر شرکت</div><div class="stamp-line"></div></div>
+      <div class="stamp"><div class="t">مهر و امضای فروشنده</div><div class="stamp-line"></div></div>
     </div>`;
 
   let bodyInner = '';
@@ -465,8 +619,8 @@ function renderInvoicePrintHtml(opts) {
           </div></div>
         </div>
         <div class="parties">
-          <div class="party"><h4>مشخصات خریدار</h4><div class="b">${buyerBits}</div></div>
-          <div class="party"><h4>مشخصات فروشنده</h4><div class="b">${sellerBits}</div></div>
+          <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
+          <div class="party"><h4>${companyPartyTitle}</h4><div class="b">${sellerBits}</div></div>
         </div>
         <div class="meta-strip">
           <div class="c"><b>نوع</b><span>${esc(typeLabel)}</span></div>
@@ -481,15 +635,13 @@ function renderInvoicePrintHtml(opts) {
         </table>
         <div class="sum-grid">
           ${sumBox}
-          <div>
-            <div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(inv.final)} ریال</div>
-            ${noteHtml}
-          </div>
+          ${wordsHtml}
         </div>
         ${stamps}
       </div>
       ${customize.show_footer ? `<div class="footer-bar light">${footerText}<br>${esc(contactLine)}</div>` : ''}`;
   } else if (templateId === 'formal-premium') {
+    // لوکس: هیرو برند سبز/طلایی + خط تزئینی طلایی + قاب گرادیانی
     bodyInner = `
       <div class="hero">
         <div class="brand-row">
@@ -500,15 +652,16 @@ function renderInvoicePrintHtml(opts) {
           </div>
         </div>
         <div class="meta">
-          <div><b>${esc(inv.num || '')}</b></div>
-          <div>${esc(inv.date || '—')}</div>
-          <div>${dims.paper}</div>
+          <div class="tag">${esc(typeLabel)}</div>
+          <div><span class="num">${esc(inv.num || '')}</span></div>
+          <div>${esc(inv.date || '—')} · ${dims.paper}</div>
         </div>
       </div>
+      <div class="prem-rule"></div>
       <div class="pad">
         <div class="parties">
-          <div class="party"><h4>مشخصات فروشنده</h4><div class="b">${sellerBits}</div></div>
-          <div class="party"><h4>مشخصات خریدار</h4><div class="b">${buyerBits}</div></div>
+          <div class="party"><h4>${companyPartyTitle}</h4><div class="b">${sellerBits}</div></div>
+          <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
         </div>
         <div class="meta-strip">
           <div class="c"><b>نوع فاکتور</b><span>فروش رسمی</span></div>
@@ -520,57 +673,89 @@ function renderInvoicePrintHtml(opts) {
         ${expert}
         <table class="items">
           <thead>${formalHead}</thead>
-          <tbody>${buildFormalRows(rows, isA5) || '<tr><td colspan="9">بدون ردیف</td></tr>'}</tbody>
+          <tbody>${buildFormalRows(rows, isA5) || `<tr><td colspan="${emptyColspan}">بدون ردیف</td></tr>`}</tbody>
         </table>
-        <div class="sum-grid">${sumBox}<div class="words">${noteHtml || '<div>با تشکر از اعتماد شما</div>'}</div></div>
+        <div class="sum-grid">${sumBox}${wordsHtml}</div>
         ${stamps}
       </div>
-      ${customize.show_footer ? `<div class="footer-bar">${esc(contactLine)}</div>` : ''}`;
-  } else {
-    // formal-official + formal-modern share the Iranian full layout
+      ${customize.show_footer ? `<div class="footer-bar">${footerText}<br>${esc(contactLine)}</div>` : ''}`;
+  } else if (templateId === 'formal-modern') {
+    // مدرن ERP: هدر گرادیانی با چیپ‌های متادیتا + کارت‌های نرم
     bodyInner = `
-      <div class="pad">
-        <div class="top3">
-          <div class="company-meta">
-            ${customize.show_company_phone && companyPhone ? `<div><b>تلفن:</b> ${esc(companyPhone)}</div>` : ''}
-            ${customize.show_company_address && companyAddr ? `<div><b>آدرس:</b> ${esc(companyAddr)}</div>` : ''}
-            <div><b>کاغذ:</b> ${dims.paper}</div>
-          </div>
-          <div class="brand-center">
-            ${logo}
+      <div class="mod-header">
+        <div class="brand-row">
+          ${logo}
+          <div>
             <div class="name">${esc(companyName)}</div>
-            <div class="sub">صورتحساب فروش کالا و خدمات</div>
+            <div class="brand-sub">${esc(subtitle)} · ${esc(typeLabel)}</div>
           </div>
-          <div class="inv-meta">
-            <div class="title">${esc(typeLabel)}</div>
-            <div class="box">
-              <div class="row"><span>شماره فاکتور</span><span class="num">${esc(inv.num || '')}</span></div>
-              <div class="row"><span>تاریخ</span><span>${esc(inv.date || '—')}</span></div>
-            </div>
+        </div>
+        <div class="mod-chips">
+          <div class="mod-chip"><b>شماره</b><span class="num">${esc(inv.num || '')}</span></div>
+          <div class="mod-chip"><b>تاریخ</b><span>${esc(inv.date || '—')}</span></div>
+          <div class="mod-chip"><b>پرداخت</b><span>${esc(payTypeLabel)}</span></div>
+          <div class="mod-chip"><b>کاغذ</b><span>${dims.paper}</span></div>
+        </div>
+      </div>
+      <div class="pad">
+        <div class="parties">
+          <div class="party"><h4>${companyPartyTitle}</h4><div class="b">${sellerBits}</div></div>
+          <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
+        </div>
+        ${expert}
+        <table class="items">
+          <thead>${formalHead}</thead>
+          <tbody>${buildFormalRows(rows, isA5) || `<tr><td colspan="${emptyColspan}">بدون ردیف</td></tr>`}</tbody>
+        </table>
+        <div class="sum-grid">
+          ${sumBox}
+          ${wordsHtml}
+        </div>
+        ${stamps}
+      </div>
+      ${customize.show_footer ? `<div class="footer-bar">${footerText}<br>${esc(contactLine)}</div>` : ''}`;
+  } else {
+    // اداری / مالیاتی (formal-official): بنر سبز رسمی + هویت شرکت + جعبه‌های فروشنده/خریدار
+    bodyInner = `
+      <div class="off-banner">
+        <div class="serial"><b>شماره:</b> <span class="num">${esc(inv.num || '')}</span><br><b>تاریخ:</b> ${esc(inv.date || '—')}</div>
+        <div class="title">صورتحساب فروش کالا و خدمات</div>
+        <div class="kind">${esc(typeLabel)}</div>
+      </div>
+      <div class="off-gold"></div>
+      <div class="pad">
+        <div class="off-ident">
+          ${logo}
+          <div>
+            <div class="name">${esc(companyName)}</div>
+            <div class="sub">${esc(subtitle)}</div>
+          </div>
+          <div class="spacer"></div>
+          <div class="co-meta">
+            ${customize.show_company_phone && companyPhone ? `<div><b>تلفن:</b> ${esc(companyPhone)}</div>` : ''}
+            ${customize.show_company_address && companyAddr ? `<div><b>نشانی:</b> ${esc(companyAddr)}</div>` : ''}
+            <div><b>کاغذ:</b> ${dims.paper}</div>
           </div>
         </div>
         <div class="parties">
-          <div class="party"><h4>مشخصات فروشنده</h4><div class="b">${sellerBits}</div></div>
-          <div class="party"><h4>مشخصات خریدار</h4><div class="b">${buyerBits}</div></div>
+          <div class="party"><h4>${companyPartyTitle}</h4><div class="b">${sellerBits}</div></div>
+          <div class="party"><h4>${counterpartyTitle}</h4><div class="b">${buyerBits}</div></div>
         </div>
         <div class="meta-strip">
           <div class="c"><b>نوع</b><span>${esc(typeLabel)}</span></div>
           <div class="c"><b>پرداخت</b><span>${esc(payTypeLabel)}</span></div>
           <div class="c"><b>سررسید</b><span>${esc(inv.cheque_due_date || '—')}</span></div>
           <div class="c"><b>زیرعنوان</b><span>${esc(subtitle)}</span></div>
-          <div class="c"><b>مدل</b><span>${templateId === 'formal-modern' ? 'مدرن' : 'اداری'}</span></div>
+          <div class="c"><b>مدل</b><span>اداری</span></div>
         </div>
         ${expert}
         <table class="items">
           <thead>${formalHead}</thead>
-          <tbody>${buildFormalRows(rows, isA5) || '<tr><td colspan="9">بدون ردیف</td></tr>'}</tbody>
+          <tbody>${buildFormalRows(rows, isA5) || `<tr><td colspan="${emptyColspan}">بدون ردیف</td></tr>`}</tbody>
         </table>
         <div class="sum-grid">
           ${sumBox}
-          <div>
-            <div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(inv.final)} ریال</div>
-            ${noteHtml}
-          </div>
+          ${wordsHtml}
         </div>
         ${stamps}
       </div>
@@ -582,12 +767,13 @@ function renderInvoicePrintHtml(opts) {
     : `چاپ فاکتور (${dims.paper})`;
 
   return `<!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html lang="fa" dir="rtl" class="${esc(htmlClass)}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(typeLabel)} ${esc(inv.num || '')}</title>
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
+<link href="/invoice-print.css" rel="stylesheet">
 <style>${themeCss(templateId, dims)}</style>
 </head>
 <body>
@@ -604,5 +790,5 @@ function renderInvoicePrintHtml(opts) {
 module.exports = {
   FORMAL_IDS, CASUAL_IDS, THERMAL_ID, DEFAULT_CUSTOMIZE,
   parseCustomize, resolveTemplateId, normalizeCasual, thermalWidthMm,
-  renderInvoicePrintHtml, faNum, esc, paperDims,
+  renderInvoicePrintHtml, computePrintTotals, faNum, esc, paperDims,
 };

@@ -35,7 +35,11 @@
     "backup:verify": "node scripts/verify-backup.js",
     "backup:weekly-drill": "node scripts/weekly-backup-drill.js",
     "test:secret-settings": "node scripts/test-secret-settings-security.js",
-    "audit:gate": "node scripts/check-audit-waivers.js"
+    "audit:gate": "node scripts/check-audit-waivers.js",
+    "qa:admin": "node ../scripts/qa/run-admin-qa.js",
+    "qa:roles": "node ../scripts/qa/run-all-roles-qa.js",
+    "qa:full": "node ../scripts/qa/run-full-erp-qa.js",
+    "qa:report": "node ../scripts/qa/run-report.js"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

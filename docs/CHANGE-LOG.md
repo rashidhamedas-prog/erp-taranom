@@ -1,6 +1,6 @@
-﻿# ┘ä╪º┌» ╪¬╪║█î█î╪▒╪º╪¬ ╪º╪╣┘à╪º┘äΓÇî╪┤╪»┘ç ΓÇö ERP ╪¬╪▒┘å┘à
+# ┘ä╪º┌» ╪¬╪║█î█î╪▒╪º╪¬ ╪º╪╣┘à╪º┘äΓÇî╪┤╪»┘ç ΓÇö ERP ╪¬╪▒┘å┘à
 
-╪º█î┘å ┘ü╪º█î┘ä ╪¬╪º╪▒█î╪«┌å┘ç┘ö ╪¬╪║█î█î╪▒╪º╪¬█î ╪▒╪º ┌⌐┘ç ╪»╪▒ Cursor / Claude Code ╪º╪╣┘à╪º┘ä ╪┤╪»┘ç ┘å┌»┘ç ┘à█îΓÇî╪»╪º╪▒╪».
+╪º█î┘å ┘ü╪º█î┘ä ╪¬╪º╪▒█î╪«┌å┘ç┘ö ╪¬╪║█î█î╪▒╪º╪¬█î ╪▒╪º ┌⌐┘ç ╪»╪▒ Cursor / Claude Code ╪º╪╣┘à╪ä ╪┤╪»┘ç ┘å┌»┘ç ┘à█îΓÇî╪»╪º╪▒╪».
 **┘é╪¿┘ä ╪º╪▓ ╪┤╪▒┘ê╪╣ ┌⌐╪º╪▒ ╪¼╪»█î╪»╪î ╪º█î┘å ┘ü╪º█î┘ä ╪▒╪º ╪¿╪«┘ê╪º┘å█î╪»** ╪¬╪º ╪¿╪»╪º┘å█î╪» ┌å┘ç ┌å█î╪▓┘ç╪º█î█î ┘é╪¿┘ä╪º┘ï ╪º┘å╪¼╪º┘à ╪┤╪»┘ç ╪º╪│╪¬.
 
 ---
@@ -12,6 +12,946 @@
 1. █î┌⌐ ┘ê╪▒┘ê╪»█î ╪¼╪»█î╪» ╪»╪▒ **╪¿╪º┘ä╪º█î ╪¿╪«╪┤ ┬½╪¬╪º╪▒█î╪«┌å┘ç┬╗** (╪▓█î╪▒ ╪º█î┘å ┘é┘ê╪º┘å█î┘å) ╪º╪╢╪º┘ü┘ç ┌⌐┘å.
 2. commit ┘à╪▒╪¿┘ê╪╖┘ç ╪▒╪º ╪¿┘å┘ê█î╪│ (╪º┌»╪▒ commit ╪┤╪»┘ç).
 3. ┘ê╪╢╪╣█î╪¬ deploy ╪▒┘ê█î ╪│╪▒┘ê╪▒ production (`45.90.98.99`) ╪▒╪º ┘à╪┤╪«╪╡ ┌⌐┘å: `Γ£à deploy ╪┤╪»┘ç` / `ΓÅ│ ┘å█î╪º╪▓ ╪¿┘ç pull` / `Γ¥î ╪º╪╣┘à╪º┘ä ┘å╪┤╪»┘ç`.
+
+
+### ۱۴۰۵/۰۶/۱۵ — بازطراحی کامل فاکتور چاپی و پیش‌نمایش (SW v197)
+
+- **بازطراحی گرافیکی فاکتور چاپی:** ارتقای کامل ظاهر پیش‌نمایش و خروجی چاپی فاکتورها بر اساس اصول UI/UX مدرن و استاندارد؛ تبدیل خودکار مبلغ قابل پرداخت به حروف فارسی (با تابع اختصاصی `numToPersianWords`)، نمایش مشخصات جامع خریدار و فروشنده (کد اقتصادی، شناسه/کد ملی، کد پستی، تلفن، نشانی)، مشخصات دقیق طرح/رنگ ردیف‌ها، تایپوگرافی Vazirmatn با اعداد فارسی خوانا (`tabular-nums`)، بهبود و تفکیک گرافیکی هر ۴ قالب چاپ (اداری رسمی، ERP مدرن، پرمیوم لوکس و پیش‌فاکتور ساده) و نسخه حرارتی ۵۸mm/۸۰mm، و بلوک‌های استاندارد مهر و امضای طرفین.
+- **فایل‌ها:** `server/lib/invoice-print.js`، `server/public/{app.js,sw.js}`، `docs/CHANGE-LOG.md`
+- **تست:** `node server/scripts/test-invoice-print-layout-v195.js` (۱۹/۱۹) و `node server/scripts/test-sms.js` (۲۲/۲۲)؛ بررسی نحو `new Function` موفقیت‌آمیز بود.
+- **Commit & Deploy:** Commit `300f352` روی شاخهٔ `feat/ERP2-PROD-UX-V187` + push به `origin`؛ ⏳ نیاز به pull روی سرور (علت: timeout شبکه SSH مانیتورینگ محلی).
+- **SW:** erp-taranom-v197
+
+### ۱۴۰۵/۰۶/۱۵ — بازطراحی کامل UI/UX فاکتورها و گزارشات (SW v196)
+
+- **بازطراحی فاکتورها:** کارت‌های KPI مدیریتی زنده در بالای لیست فاکتورها (فروش کل، پیش‌فاکتورهای فعال، فاکتورهای معمولی و رسمی مودیان)، چیپ‌های فیلتر سریع بر اساس نوع فاکتور با شمارنده زنده، برچسب‌های وضعیت ارتقایافته (پیل‌بدج‌های رنگی و وضعیت ارسال مودیان)، نوار عملیات سریع سطرها و خلاصه مالی مدرن در فرم ثبت فاکتور (`.inv-builder-summary-box`).
+- **بازطراحی مرکز گزارشات:** نوار فیلتر سریع بازه زمانی (امروز، هفته، ماه، فصل، امسال)، ۵ کارت KPI کلیدی عملکردی با ظاهر مدرن و رنگ‌های هارمونیک، نمودار دو محوره روند فروش دوره و نمودار دونات سهم کارشناسان فروش، جدول‌های مقایسه عملکرد کارشناسان و ۱۰ مشتری برتر با قابلیت خروجی اکسل، و ناوبری چیپ-تب آیکون‌دار برای گزارشات پیشرفته (سن مطالبات، جریان وجه نقد، فروش کالا، ارزش‌گذاری موجودی، سلامت موجودی، مالیات و ارزش افزوده).
+- **فایل‌ها:** `server/public/{app.js,app.css,sw.js}`، `docs/CHANGE-LOG.md`
+- **تست:** `node server/scripts/test-sms.js` (۲۲/۲۲) و `node server/scripts/test-invoice-print-layout-v195.js` (۱۹/۱۹)؛ بررسی نحو `new Function` مرورگر موفقیت‌آمیز بود.
+- **Deploy:** ✅ ایران overlay SFTP — ready 200؛ SW `erp-taranom-v196`
+- **SW:** erp-taranom-v196
+
+### ۱۴۰۵/۰۶/۱۳ — چاپ فاکتور: برگه وسط صفحه (SW v195)
+
+- **باگ:** پیش‌نمایش چاپ (blob) فاکتور A5/A4 در سند RTL جمع می‌شد و به راست می‌چسبید؛ جدول و جعبه‌های خریدار/فروشنده ستون‌ستونی و باریک دیده می‌شدند
+- **ریشه:** عرض برگه فقط `max-width` پیکسلی بود، `margin:auto` در راست‌به‌چپ وسط‌چین نمی‌شد، و `@media (max-width:640px)` چون A5 از ۶۴۰px باریک‌تر است همهٔ گریدها را تک‌ستونه می‌کرد
+- **اصلاح:** برگه A4=۲۱۰mm و A5=۱۴۸mm، `html` حداقل عرض ویوپورت، `body` فلکس وسط‌چین، استایل کمکی `/invoice-print.css`، و شکستن ستون فقط زیر ۴۲۰px روی صفحه. باز شدن blob یک `<base>` هم‌مبدأ می‌گذارد تا لوگو/فونت/CSS از آدرس ریشه لود شوند
+- **فایل‌ها:** `server/lib/invoice-print.js`، `server/public/{invoice-print.css,csp-runtime.js,app.js,sw.js}`، `server/scripts/test-invoice-print-layout-v195.js`
+- **تست:** test-invoice-print-layout-v195.js ۱۹ مورد؛ test-sms.js ۲۲. test-sync.js روی این ماشین به‌خاطر ABI better-sqlite3 بالا نیامد
+- **Deploy:** ✅ ایران overlay SFTP @ `67e0f8b` — health/ready 200؛ SW `erp-taranom-v195`
+- **SW:** erp-taranom-v195
+
+### ۱۴۰۵/۰۶/۱۳ — فاکتور فروش/خرید: طاقه + تراز سند + چاپ (SW v194)
+
+
+- **طاقه / «متر طاقه ۰۰۰۷ کافی نیست»:** رسید خرید قبلاً بدون batch_id ثبت می‌شد؛ فروش فقط خروجی tagged می‌دید و مانده را صفر حساب می‌کرد. حالا رسید مهر می‌شود، رسیدهای قدیمی ترمیم می‌شوند، و مصرف طاقه بعد از ثبت خروج دوباره موجودی را رد نمی‌کند
+- **«سند تراز نیست»:** تخفیف سربرگ بدهکار جدا است؛ بستانکار فروش باید ناخالص کالا باشد (goodsNet + discAmt). حذف طاقه و ذخیرهٔ بقیه با تخفیف دیگر سند را به‌هم نمی‌زند. فاکتور خرید هم قبل از ثبت سند تراز را چک می‌کند
+- **چاپ «فاکتور پیدا نشد»:** faNum تعریف شد؛ استایل اینلاین از قالب چاپ برداشته شد؛ جستجو با id یا شماره؛ حسابدار همه را می‌بیند؛ شناسه چاپ در کلاینت نگه داشته می‌شود؛ ویزارد چاپ فرم فاکتور را نمی‌بندد؛ متن خطای سرور در اعلان می‌آید؛ چاپ فاکتور خرید A4
+- **فایل‌ها:** server/lib/inventory/fabric-rolls.js، server/lib/{sales-document,customer-books,invoice-print}.js، server/routes/{invoices,purchases}.js، server/public/{app.js,sw.js,index.html}، server/scripts/test-invoice-docs-v194.js
+- **تست:** test-invoice-docs-v194.js ۳۶ مورد؛ test-sms.js ۲۲؛ test-sync.js ۴۴
+- **Deploy:** ✅ ایران overlay SFTP @ `630a8f3` — health/ready 200؛ SW `erp-taranom-v194`
+- **SW:** erp-taranom-v194
+
+### ۱۴۰۵/۰۶/۱۳ — فاکتور UX + طاقه/کرایه/داشبورد (SW v193)
+
+- **داشبورد اقدامات در انتظار:** کلیک روی فاکتور همان سند را باز می‌کند؛ کش HTML ویجت تعاملی دیگر کلیک را خنثی نمی‌کند (CSP actionStillLive)
+- **اشخاص:** دکمه «شخص جدید» در «کلیه اشخاص» فعال است؛ گروه داخل فرم انتخاب می‌شود
+- **مطالبات:** شخص غیرفعال با مانده صفر از لیست خارج می‌شود؛ مانده غیرصفر با برچسب غیرفعال می‌ماند
+- **کرایه:** نسبت سرشکن روی ردیف؛ عهده خریدار به مبلغ طرف‌حساب + سایر درآمد؛ عهده فروشنده هزینه توزیع / پرداختنی — وارد بهای موجودی خرید نمی‌شود
+- **طاقه:** انبار ردیف = انبار طاقه؛ موجودی از متر زنده دسته است نه `products.stock` انبار محصول (ریشهٔ «موجودی کافی نیست» با نمایش ۱۰۰ متر)
+- **UX فاکتور:** هشدار موجودی منفی، فی با جداکننده هزارگان، رنگ/سایز یک‌خط + کلیک جزئیات، چاپ دو مرحله‌ای نوع→قالب
+- **فایل‌ها:** `server/public/{app.js,app.css,sw.js,index.html,csp-runtime.js}`، `server/lib/{sales-document,customer-books,void-invoice,invoice-print,product-variants/service}.js`، `server/routes/{invoices,purchases,accounting,admin,notifications,product-variants}.js`، `server/scripts/test-invoice-ux-v193.js`
+- **Deploy:** ✅ Iran overlay SFTP @ `6d096a4` -- health/ready 200; SW `erp-taranom-v193`
+- **SW:** `erp-taranom-v193`
+
+### ۱۴۰۵/۰۶/۱۳ — CSP ریشه‌ای + نمودار گزارشات + مودیان سندباکس (SW v192)
+
+- **CSP:** `submit` به EVENT_TYPES؛ bind ناشناخته دیگر صفحه را سفید نمی‌کند (fail-soft + auto-listen)؛ تست `test-csp-bind-events.js`
+- **گزارشات منوی اصلی:** باکس ثابت `crm-chart-box` + `maintainAspectRatio:false` تا نمودار باد نکند
+- **مودیان:** کلاینت HTTP به `sandboxrc.tax.gov.ir` / `tp.tax.gov.ir`؛ امضای RSA-SHA256 + پکت AES-GCM؛ وضعیت `test_sent` بدون قفل فاکتور؛ APIهای `POST /moadian/ping` و `POST /moadian/test-send`؛ UI تنظیمات fiscal/کلید/آداپتر
+- **فایل‌ها:** `server/public/{csp-runtime.js,app.js,sw.js}`، `server/lib/moadian/{adapter,client,crypto-packet,sign,queue,invoice-hooks,index}.js`، `server/routes/moadian.js`، `server/scripts/test-csp-bind-events.js`، `server/scripts/test-moadian-foundation.js`
+- **Deploy:** ✅ ایران overlay SFTP @ `ec403c6` — health/ready 200؛ SW `erp-taranom-v192`
+- **SW:** `erp-taranom-v192`
+
+### ۱۴۰۵/۰۶/۱۳ — تنظیمات: رویداد CSP submit (SW v191)
+
+- **باگ:** صفحه تنظیمات (منوی اصلی و حسابداری) با `Unsupported delegated event: submit` سفید می‌ماند
+- **ریشه:** کادر جستجو داخل `<form data-csp-submit>` بود؛ `CSP.bind` فقط click/change/input/focus/blur/keydown را قبول می‌کند
+- **اصلاح:** جستجو `div` شد + Enter با `keydown` خنثی می‌شود
+- **فایل‌ها:** `server/public/{app.js,sw.js}`
+- **Deploy:** ✅ ایران overlay SFTP @ `c69e3ca` — health/ready 200؛ SW `erp-taranom-v191`
+
+### ۱۴۰۵/۰۶/۱۳ — رفع باز نشدن تنظیمات + جستجوی لیست (SW v190)
+
+- **باگ:** تنظیمات از حسابداری (MDI) باز نمی‌شد — پنجره روی صفحه می‌ماند؛ `acc-settings` فقط استاب بود
+- **اصلاح:** `go()` هنگام رفتن به صفحات سراسری `WinMgr.closeAll()`؛ `acc-settings` برای admin مستقیم `ROUTES.settings`؛ خطای route با `.catch`؛ `ROUTES.settings` با try/catch دسترسی
+- **فاز بعد:** جستجوی سریع بالای جدول‌های حسابداری (۳+ ردیف) در `enhanceAccTables`
+- **فایل‌ها:** `server/public/{app.js,sw.js}`
+- **Deploy:** ✅ ایران overlay SFTP @ `b80be0e` — health/ready 200؛ SW `erp-taranom-v190`
+
+### ۱۴۰۵/۰۶/۱۳ — مرکز گزارشات + تکمیل UX تولید (SW v189)
+
+- **شاخه:** `feat/ERP2-PROD-UX-V187`
+- **v188:** تب «مرکز گزارشات تولید» — UI اختصاصی PR-05..22، CSV، skeleton، گروه‌بندی ناوبری
+- **v189:** `.prod-scope` روی بستن دوره / سود ماهانه / برگه بها؛ کانبان → مودال مراحل مستقیم؛ فیلتر منوی تولید بر اساس مجوز؛ `replaceLines` اتمیک برای ذخیره اقلام BOM
+- **فایل‌ها:** `server/public/{app.js,acc-nav.js,prod-ui.css,sw.js}`، `server/lib/production/bom.js`، `server/routes/production-boms.js`
+- **تست:** `node --check app.js` ✅
+- **Deploy:** ✅ ایران overlay SFTP @ `0ebb70b` — health/ready/root 200؛ SW `erp-taranom-v189`
+- **SW:** `erp-taranom-v189`
+
+### ۱۴۰۵/۰۶/۱۳ — مرکز گزارشات تولید PR-13..22 (SW v188)
+
+- **شاخه:** `feat/ERP2-PROD-UX-V187`
+- **UX:** تب جدید «مرکز گزارشات تولید» با ناوبری گروه‌بندی‌شده، فیلتر دوره/تاریخ، جدول فارسی با `data-label` موبایل، جمع کل، skeleton بارگذاری، خروجی CSV
+- **گزارش‌ها:** PR-05,06,08,10,12,13,14,15,16,17,18,19,20,21,22 — رندر اختصاصی بهای دوره (KPI)، بهره‌وری (دو جدول)، گلوگاه (`loadBar`)
+- **داشبورد:** دکمه‌های سریع → مرکز گزارشات (نه مودال خام)
+- **فایل‌ها:** `server/public/{app.js,acc-nav.js,prod-ui.css,sw.js}`
+- **تست:** `node --check app.js` ✅
+- **Deploy:** ✅ (ادغام در v189 @ `0ebb70b`)
+
+### ۱۴۰۵/۰۶/۱۲ — ERP2 + ری‌دیزاین تولید و UX (SW v187)
+
+- **شاخه:** `feat/ERP2-PROD-UX-V187`
+- **ریشه باگ‌ها (ERP2.rar):** فاکتور رنگ×سایز، XOR دریافت، اقساط، تبدیل پیش‌فاکتور، برش از انبار مواد، جستجوی تنظیمات «ادمین»، حقوق A
+- **تولید:** داشبورد = ورود پیش‌فرض (KPI + نمودار + مسیر ۶ مرحله + دو مسیر برش/PACK و سفارش)؛ ۸ گزارش سریع اولویت‌بندی‌شده
+- **مدیر:** تب ممیزی → فیلتر «حذف و ابطال» + مودال جزئیات (`deleted_only` API)
+- **فاکتور:** ردیف تجمیعی پک + ویرایش ماتریس؛ تبدیل رسمی/معمولی
+- **دریافت:** XOR نقد/بانک/چک/POS؛ خلاصه مقصد در اقساط چندمرحله‌ای
+- **تنظیمات:** پاک‌سازی `sett-q` هنگام تعویض تب + `autocomplete=off`
+- **فایل‌ها:** `server/public/{app.js,prod-ui.css,index.html,sw.js,acc-nav.js}`، `server/lib/production/cutting.js`، `server/scripts/test-erp2-prod-ux-v187.js`
+- **تست:** `node --check app.js` ✅ · `test-erp2-prod-ux-v187.js` (SQLite روی Node 24 ممکن است ABI خطا بدهد)
+- **Deploy:** ✅ ایران overlay SFTP @ `061f86e` — health/ready/root 200؛ SW `erp-taranom-v187`
+- **SW:** `erp-taranom-v187`
+
+### ۱۴۰۵/۰۶/۱۲ — برگشت چک اول دوره به صورت‌حساب مشتری (SW v186)
+
+- **شاخه:** `fix/CHEQUE-OPENING-BOUNCE-STMT`
+- **باگ:** برگشت چک «مانده اول دوره» در دفتر چک وضعیت برگشتی می‌شد ولی مبلغ به صورت‌حساب مشتری اضافه نمی‌شد.
+- **ریشه:** سند `cheque_bounce` بدهکار اسناد دریافتنی / بستانکار جریان وصول یا بانک پیش‌فرض بود؛ تفصیلی مشتری و دفتر مشتری لمس نمی‌شد. صورت‌حساب از دفتر کل تفصیلی خوانده می‌شود.
+- **اصلاح:** برگشت = بدهکار تفصیلی طرف حساب + بستانکار جریان وصول یا بانک وصول واقعی. ردیف دفتر مشتری/شخص `cheque_bounce`. ارسال مجدد و ابطال کامل همان ردیف را معکوس می‌کنند.
+- **UI:** تأیید و toast پیامد بدهی صورت‌حساب را می‌گویند؛ راهنما و برچسب «برگشت چک» در صورت‌حساب.
+- **فایل‌ها:** `server/lib/{cheque-party-books,void-cheque,customer-books}.js`، `server/routes/{cheque-records,accounting}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-cheque-opening-bounce-v186.js`
+- **تست:** `test-cheque-opening-bounce-v186.js` (اجرای زنده روی این ماشین به‌خاطر ABI `better-sqlite3`/Node ۲۴ نشد؛ `app.js` با `new Function` پارس شد)
+- **Deploy:** ✅ ایران overlay SFTP @ `89dbcf7` — health/ready/root 200؛ SW `erp-taranom-v186`؛ `db.js` عوض نشد
+- **SW:** `erp-taranom-v186`
+
+### ۱۴۰۵/۰۶/۱۲ — ریشه خطای ورود + معماری تحمل قطعی (SW v185)
+
+- **شاخه:** `fix/LOGIN-RESILIENCE-V185`
+- **ریشه:** پیام «خطای ارتباط با سرور» از `fetch` شکست‌خورده است (نه رمز غلط). امروز چند بار `pm2 restart` (دیپلوی v182–v184) مبدأ را چند ثانیه خاموش کرد → Cloudflare 521/502. سقف حافظه PM2 هم `300M` بود در حالی که mmap+کش SQLite به‌تنهایی از این سقف رد می‌شود و فرایند را وسط روز می‌کشد. فرم ورود با اولین شکست تمام می‌شد و خطای `boot()` بعد از لاگین موفق هم همان متن را نشان می‌داد.
+- **معماری:** listen قبل از `initDB` (صف TCP در کرنل، نه connection-refused)؛ `boot-gate` با ۵۰۳ `STARTING`/`RESTARTING` و `Retry-After`؛ ورود و GET با backoff روی 502/503/521–524؛ drain با SIGTERM؛ PM2 `1024M` + `wait_ready`؛ `busy_timeout` ۸ ثانیه؛ mmap ۱۲۸MB؛ fallback ستون `branch_id` تا ۴۰۱ خاموش بعد از لاگین ۲۰۰ تکرار نشود.
+- **فایل‌ها:** `server/lib/boot-gate.js`، `server/lib/http-resilience.js`، `server/public/net-resilience.js`، `server/{server,db,ecosystem.config}.js`، `server/middleware/auth.js`، `server/public/{app.js,index.html,sw.js,i18n.js}`، `server/scripts/test-login-resilience.js`، `docs/{CHANGE-LOG,08-deployment}.md`
+- **تست:** `test-login-resilience.js` ۱۴ · `test-sms.js` ۲۲ · `test-sync.js` روی این Node ۲۴ به‌خاطر ABI `better-sqlite3` (کامپایل ۲۲) اجرا نشد
+- **Deploy:** ⏳
+- **SW:** `erp-taranom-v185`
+
+### ۱۴۰۵/۰۶/۱۲ — بسته تنظیمات A–H (SW v184)
+
+- **شاخه:** `feat/SETTINGS-OPS-V184`
+- **A عمومی:** تعویض زبان همان لحظه منو و صفحه را بازسازی می‌کند. واحد پول عمداً قفل ریال است (خراب نیست). فیلد شرکت عرض متناسب دارد.
+- **B قالب فاکتور:** سه مدل رسمی جدا (اداری / مدرن / پریمیوم) + پیش‌فاکتور عادی ساده + حرارتی ۵۸/۸۰؛ پیش‌نمایش در تنظیمات.
+- **C پیامک:** کاتالوگ کامل رویدادها؛ OTP/یادآور با `dispatchSmsOrFallback` (بدون پیامک دوبل). قالب و قانون فعال/خاموش و شخصی‌سازی.
+- **D وب‌سایت:** سینک موجودی Site-B2B با SKU + JWT؛ آزمایش اتصال؛ ووکامرس اختیاری (`woo`/`woocommerce`).
+- **E ماژول:** `module_portal` ذخیره می‌شود؛ سوییچ منو را همان لحظه پنهان می‌کند (داده حذف نمی‌شود). دستیار/پورتال هم از منوی اصلی حذف می‌شوند اگر خاموش باشند.
+- **F جمینای:** `ai_provider` + تشخیص از مدل/کلید `AIza`. کلید گوگل در مخزن نیست — باید در تنظیمات گذاشته شود.
+- **G گزارش:** اعداد زنده بدون کش؛ Chart.js داخلی؛ نمودار میله+خط و سهم کارشناسان؛ نرخ وصول.
+- **H تبدیل طاقه:** موجودی قبل از ثبت دفتر چک می‌شود؛ خطا `مانده X، نیاز Y` است نه مانده منفی بعد از کسر.
+- **UI سراسری:** عرض فیلد متناسب محتوا؛ حاشیه نوک‌مدادی `#4A4A4A`.
+- **فایل‌ها:** `server/public/{app.js,app.css,index.html,sw.js}`، `server/lib/{invoice-print,sms-dispatch,website-stock-sync,sales-document,secret-settings,update-md-schema}.js`، `server/lib/inventory/fabric-rolls.js`، `server/services/ai.js`، `server/routes/{settings,reports,invoices,auth,b2b}.js`، `server/server.js`، `server/scripts/test-settings-ops-v184.js`
+- **تست:** `test-settings-ops-v184.js` · `test-sms.js` · `test-sync.js`
+- **Deploy:** ✅ ایران overlay SFTP @ `9bd5934` — health/ready/root 200؛ SW `erp-taranom-v184`؛ `db.js` عوض نشد
+- **SW:** `erp-taranom-v184`
+
+### ۱۴۰۵/۰۶/۱۲ — آرشیو ERP.rar تکمیل: گردش چک + پک رنگ×سایز (SW v183)
+
+- **شاخه:** `ai/ARCH-ERP-RAR-SYNC`
+- **چک:** ثبت چک دریافتنی همان لحظه بستانکار تفصیلی/دفتر مشتری یا شخص می‌شود (`cheque_in`). واگذاری و وصول جابه‌جایی دارایی‌اند و مانده را دوباره کم نمی‌کنند. چک‌های قدیمی بدون سند، هنگام واگذاری/وصول بک‌فیل می‌شوند. ابطال کامل JE و دفتر را برمی‌گرداند.
+- **SKU/فاکتور:** در فرم کالا رنگ و سایز تیک می‌شود و با ذخیره ماتریس ساخته می‌شود. پک زنده = رنگ موجود × سایز موجود. افزودن کالا با ماتریس، پنجرهٔ تو در تو برای تعداد هر ترکیب باز می‌کند؛ `variant_id` روی ردیف فاکتور می‌ماند و موجودی SKU کم/برمی‌گردد.
+- **فایل‌ها:** `server/lib/{cheque-party-books,void-cheque,customer-books,product-variants/service,sales-document,void-invoice}.js`، `server/routes/{cheque-records,invoices}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-arch-erp-rar-v183.js`
+- **تست:** `test-arch-erp-rar-v183.js` ۲۰ · `test-arch-erp-rar-v182.js` ۳۲ · `test-sms.js` ۲۲ · `test-sync.js` ۴۴
+- **Merge:** ✅ FF `origin/claude/claude-md-docs-2ssrpy` ← `a977269`
+- **Deploy:** ✅ ایران overlay Actions `33695799009` @ `a977269` — health/ready/root 200؛ SW `erp-taranom-v183`
+- **SW:** `erp-taranom-v183`
+
+### ۱۴۰۵/۰۶/۱۲ — آرشیو ERP.rar: فاکتور/دریافت/اشخاص/طاقه (SW v182)
+
+- **شاخه:** `ai/ARCH-ERP-RAR-SYNC`
+- **فاکتور:** تغییر انبار سربرگ اقلام انبار دیگر را حذف نمی‌کند (ادمین/حسابداری). دکمهٔ تبدیل پیش‌فاکتور در لیست حسابداری و فرم ویرایش. چاپ جمع اقلام + کرایه + ارزش افزوده؛ برچسب فاکتور معمولی درست است؛ A5 با colspan=6.
+- **دریافت:** نقد فقط صندوق، واریز/چک فقط بانک. هر قسط مقصد بانک/صندوق خودش را دارد.
+- **سفارش:** `orders.warehouse_id` / `reservation_id` در مسیر اصلی `db.js` و ALTER دفاعی در `POST /orders`.
+- **اشخاص↔کارکنان:** `persons.party_id` + `parties.position_id`؛ نقش کارمند/گروه پرسنل پرونده می‌سازد و برعکس؛ سمت سازمانی (مثل مدیر تولید) روی فرم شخص. بک‌فیل مهرشده `person_party_unify_v1` ردیف‌های قدیمی را با تلفن/کد ملی جفت می‌کند.
+- **برگشت خرید:** رنگ/طاقه حفظ می‌شود و کلید ردیف ترکیبی است.
+- **عمداً بعداً:** انتخاب رنگ×سایز زنده روی فاکتور فروش؛ وصول چک در گردش شخص (ثبت مستقل دفتر چک).
+- **فایل‌ها:** `server/public/{app.js,index.html,sw.js}`، `server/lib/{invoice-print,parties-sync,party-employee-sync}.js`، `server/routes/{orders,parties,payroll,purchases}.js`، `server/db.js`، `server/sync/tables.js`، `server/scripts/test-arch-erp-rar-v182.js`
+- **تست:** `test-arch-erp-rar-v182.js`
+- **Deploy:** ✅ ایران overlay SFTP @ `a977269` — health/ready/root 200؛ SW `erp-taranom-v182` push بدون pull ایران (Wave 0)
+- **SW:** `erp-taranom-v182`
+
+### ۱۴۰۵/۰۶/۱۰ — هشدار دفتر/کل، منوی بسته‌، جستجو سراسری، طاقه زنده (SW v181)
+
+- **شاخه:** `fix/LEDGER-STATEMENT-AR`
+- **A هشدار داشبورد:** کارت مطالبات و دفتر مشتری با همان مجموعهٔ تفصیلی یکتا مقایسه می‌شوند؛ تعمیر افزایشی `repairLedgerSignedToGl` (v3) ماندهٔ کم‌بود دفتر را با ردیف `books_align` هم‌تراز می‌کند (فقط وقتی کل بزرگ‌تر است).
+- **B منو:** با ورود به حسابداری همهٔ سرفصل‌های آکاردئون بسته‌اند.
+- **C مطالبات:** کادر جستجو طرف حساب (فروشگاه / مالک / موبایل / کارشناس).
+- **D جستجو:** انتخاب مشتری، تأمین‌کننده، شخص، کالا و طاقه در فرم‌ها با کادر جستجو (فاکتور، سند دستی، پرداخت، BOM، امانی، کمیسیون، دفتر مالی مشترک، …).
+- **E طاقه:** موجودی متر از دفتر انبار لحظه‌ای است؛ گزارش **گردش طاقه** در انبار → گزارشات؛ برگشت فروش متر طاقه را به دفتر برمی‌گرداند.
+- **فایل‌ها:** `server/lib/{customer-books,sales-document}.js`، `server/lib/inventory/fabric-rolls.js`، `server/routes/{accounting,inventory}.js`، `server/public/{app.js,acc-nav.js,sw.js,index.html}`، `server/scripts/test-ops-v181.js`
+- **تست:** `test-ops-v181.js` · `test-acc-stitch-p2.js` · `test-stmt-gl-cheque-v180.js` · `test-sms.js`
+- **Deploy:** ✅ ایران overlay v181 @ `796a471` — health/ready/root 200؛ SW `erp-taranom-v181`؛ `db.js` عوض نشد
+- **SW:** `erp-taranom-v181`
+
+### ۱۴۰۵/۰۶/۱۰ — بستن چت SSL/ورود: Origin CA ۱۵ساله + `users.branch_id`
+
+- **چت:** ۵۲۶ Cloudflare + لاگین که بعد از رمز بیرون می‌انداخت + نصب Origin Certificate
+- **SSL مبدأ:** گواهی خودامضا → موقت LE → **Cloudflare Origin CA** (RSA، `*.poshaktaranom.com` + apex، تا ۲۰۴۱-۰۸-۲۷) روی `/etc/ssl/taranom/erp.poshaktaranom.com.{crt,key}`؛ nginx reload. حالت CF همان Full (strict). بکاپ LE: `.bak-le`. Authenticated Origin Pulls خاموش.
+- **ورود:** `currentUser` ستون `users.branch_id` را می‌خواند؛ نبود ستون روی ایران → ۴۰۱ بعد از لاگین ۲۰۰. ستون روی `crm.db` ایران اضافه شد. در مخزن `ensureColumn` در `server/db.js` تا بوت بعدی بدون `qa-gaps-schema` هم ستون بسازد.
+- **فایل‌ها:** `server/db.js`، `docs/{CHANGE-LOG,08-deployment,SECURITY-HARDENING,PROJECT-HANDOFF}.md`، `.ai-dos/tasks/{active.yaml,handoff.md}`، `.ai-dos/project/status.md`
+- **عمداً کامیت نشد:** `scripts/_deploy-demo-ui-v156-sftp.py`، `_deploy-mdi-v152-sftp.py`، `_diag-moein-ledger*`
+- **Deploy SSL:** ✅ ایران nginx Origin CA (بدون `git pull` / بدون جایگزینی کامل `db.js` / بدون `--update-env`). سایت از CF صفحه ورود می‌دهد.
+- **SW:** بدون تغییر (`erp-taranom-v180`)
+
+### ۱۴۰۵/۰۶/۱۰ — صورت‌حساب از تفصیلی + هشدار داشبورد + سبد/طاقه فاکتور (SW v180)
+
+- **شاخه:** `fix/LEDGER-STATEMENT-AR`
+- **A صورت‌حساب معین:** خرج چک روی تفصیلی ثبت می‌شد ولی ردیف از `customer_ledger` ساخته می‌شد؛ جدول خالی می‌ماند و مانده از کل می‌آمد. حالا ردیف‌ها از خطوط زندهٔ همان تفصیلی هستند و خرج چک در گردش دیده می‌شود.
+- **B هشدار داشبورد:** کارت مطالبات قبلاً خالص کل پرتفوی بود و دفتر جمع بدهکاران جداگانه — حتی با دفاتر درست هشدار می‌داد. KPI حالا `Σ max(0, مانده هر مشتری)` است؛ تعمیر `customer_books_repair_v2` خطوط کل بدون ردیف دفتر را یک‌باره می‌سازد. خرج چک به مشتری دفتر هم می‌نویسد.
+- **فاکتور:** `addToCart` کالا را از فهرست انبار (`_invProducts`) پیدا می‌کند (نه کاتالوگ ناقص). افزودن طاقه/کالای سریع مودال تو در تو است و فرم فاکتور را نمی‌بندد.
+- **فایل‌ها:** `server/lib/customer-books.js`، `server/routes/{accounting,cheque-records}.js`، `server/lib/void-cheque.js`، `server/public/{app.js,app.css,sw.js,index.html}`، `server/scripts/test-stmt-gl-cheque-v180.js`
+- **تست:** `test-stmt-gl-cheque-v180.js` · `test-ledger-statement-repair.js` · `test-ops-pack-v179.js` · `test-sms.js`
+- **Deploy:** ✅ ایران overlay v180 @ `e073c01` — health/ready/root 200؛ SW `erp-taranom-v180`؛ `db.js` عوض نشد
+
+### ۱۴۰۵/۰۶/۱۰ — مرج Primary + دیپلوی کامل v179
+
+- **Primary:** FF `1b7f2d7..36dee09` روی `claude/claude-md-docs-2ssrpy` (۲ کامیت OPS pack؛ بدون `--no-ff` چون خط مستقیم بود)
+- **ایران:** overlay محصول (نه `git pull` روی درخت کثیف VPS، نه جایگزینی `db.js`) + `pm2 restart` + health/ready/root ۲۰۰
+- **SW:** `erp-taranom-v179`
+
+### ۱۴۰۵/۰۶/۰۹ — بستهٔ عملیات v179: جریان نقد، واگذاری چک، انبار/طاقه، منو، بهای طاقه (SW v179)
+
+- **شاخه:** `fix/LEDGER-STATEMENT-AR` → FF به Primary
+- **A صورت جریان نقد:** ریشهٔ ۵۰۰ تکرارشونده `account_code.startsWith` روی ردیف تهی بود. گزارش به `server/lib/cash-flow.js` منتقل شد — هرگز به HTTP پرتاب نمی‌کند؛ همه صندوق/بانک (`acct` + `banks.coa_code` + `cash_boxes` + `1101%`/`1102%`)؛ JOIN یک‌باره. فرانت هم try/catch دارد.
+- **B واگذاری/خرج چک:** واگذاری بانک وصول اجباری، سند Dr در جریان وصول / Cr اسناد دریافتنی، وضعیت «واگذارشده»، بعد وصول/برگشت. خرج دریافتنی با ذینفع + دفتر تأمین‌کننده (`endorse_party_id` / `endorse_supplier_id` در FK سینک).
+- **C فاکتور:** انبار سربرگ روی ردیف انتخاب‌شده؛ طاقه در فروش و خرید به‌صورت ردیف کالا (خرید هویت طاقه بدون JE دوم؛ فروش مصرف متر).
+- **D منو:** در عملیات فروش فقط «فاکتورهای فروش»؛ معمولی/رسمی/پیش‌فاکتور از سایدبار حذف شدند (بوک‌مارک باقی است).
+- **F طاقه:** بها = متر × فی (اگر فی خالی از بهای کالا)؛ ستون جمع؛ PATCH ویرایش تا مصرف‌نشده.
+- **فایل‌ها:** `server/lib/cash-flow.js`، `server/lib/inventory/{fabric-rolls,schema}.js`، `server/lib/sales-document.js`، `server/lib/gap-accounting-schema.js`، `server/routes/{adv-reports,cheque-records,inventory,invoices,purchases}.js`، `server/sync/tables.js`، `server/public/{app.js,acc-nav.js,portal-ui.js,sw.js,index.html}`، `server/scripts/test-ops-pack-v179.js`
+- **تست:** `test-ops-pack-v179.js` · `test-trs-cheque-out.js` · `test-prod-01-fabric-rolls.js` · `test-sms.js` · `test-sync.js`
+- **Deploy:** ✅ ایران overlay v179 @ `e915292` — health/ready/root 200؛ SW `erp-taranom-v179`؛ `db.js` عوض نشد
+
+### ۱۴۰۵/۰۶/۰۹ — مانده لیست مشتریان = دفتر کل + تهاتر بدهکار/بستانکار (SW v178)
+
+- **شاخه:** `fix/LEDGER-STATEMENT-AR`
+- **ریشه:** لیست مشتریان / داشبورد CRM / اکسل از جمع خام `customer_ledger` می‌خواند و تعمیر فقط با باز شدن حسابداری اجرا می‌شد؛ معین مهدی‌زاده همان ۹۹٬۹۹۹٬۰۰۰ بستانکار مانده بود. جمع پایین جدول هم دو خانواده را جدا نشان می‌داد بدون ماندهٔ خالص تهاتر.
+- **اصلاح:** همان ماندهٔ تفصیلی صورت‌حساب روی `GET /customers`، `/balances`، اکسل، `/admin/customer-balances`، داشبورد و سنی ویزیتور. تعمیر با باز شدن لیست مشتریان هم اجرا می‌شود. جمع نهایی = تفاضل بدهکاران و بستانکاران؛ ماهیت سمت بزرگ‌تر.
+- **فایل‌ها:** `server/lib/customer-books.js`، `server/routes/{customers,admin,dashboard}.js`، `server/lib/rep-ledger.js`، `server/public/{app.js,tbl-enhance.js,sw.js,index.html}`
+- **تست:** `test-ledger-statement-repair.js` ۲۰/۲۰
+- **Deploy:** ✅ ایران overlay v178 @ `c4adf5e` — health/ready/root 200؛ SW `erp-taranom-v178`؛ `db.js` عوض نشد
+
+### ۱۴۰۵/۰۶/۰۹ — فاکتور نقدی در صورت‌حساب + رفع هشدار دفتر/کل (SW v177)
+
+- **شاخه:** `fix/LEDGER-STATEMENT-AR`
+- **ریشه:** فاکتور قطعی فقط وقتی `pay_type=credit` بود به دفتر مشتری و تفصیلی می‌رفت. فاکتور نقدی/بانک/چک (مثل T-0003 معین مهدیزاده) فقط به صندوق می‌خورد؛ صورت‌حساب خالی می‌ماند و تسویه جداگانه مشتری را به‌اشتباه بستانکار می‌کرد. KPI مطالبات از `1103%` حساب کنترل می‌خواند و افتتاحیهٔ اشخاص روی کل ۱۱۰۳ (~۴۰ میلیارد) کارت داشبورد را از دفتر مشتری جدا می‌کرد.
+- **اصلاح:** فاکتور قطعی همیشه Dr تفصیلی مشتری + ردیف دفتر؛ نقدی جفت Dr صندوق / Cr AR (+ ردیف دریافت مگر تسویهٔ جدا روی همان فاکتور). تعمیر یک‌باره `customer_books_repair_v1` (افتتاحیه از ۱۱۰۳ به تفصیلی، بازسازی دفتر/سند، `invoice_ar_reclass` برای نقدی قدیمی، افتتاحیهٔ دفتر بدون سند). KPI = جمع تفصیلی مشتریان. صورت‌حساب فاکتور قطعیِ بدون ردیف را هم نشان می‌دهد.
+- **فایل‌ها:** `server/lib/customer-books.js`، `server/routes/invoices.js`، `server/lib/void-invoice.js`، `server/routes/accounting.js`، `server/lib/opening-post.js`، `server/public/{app.js,sw.js,index.html}`، `server/scripts/test-ledger-statement-repair.js`
+- **تست:** `test-ledger-statement-repair.js` ۱۴/۱۴ · `test-acc-stitch-p2.js` ۷۹ · `test-sms.js` ۲۲/۲۲ · `test-sync.js` ۴۴/۴۴
+- **Deploy:** ✅ ایران overlay v177 @ `1788d1b` — health/ready/root 200؛ SW `erp-taranom-v177`؛ `db.js` کامل عوض نشد؛ تعمیر با اولین overview/statement
+
+### ۱۴۰۵/۰۶/۰۹ — Git hygiene: merge leftover PACK + tidy Primary
+
+- **شاخه:** `ai/PROD-STITCH-PACK-MERGE` از Primary `12b0385` (cherry-pick `aa2367b` + `cb10268`)
+- **خلاصه:** تنها کار محصولیِ نامرج: رسید برش / PACK از لایه‌چینی + قفل طاقه بریده‌شده. SW `erp-taranom-v176`. `sync_seq_backfill_v13`.
+- **عمداً مرج نشد:** wave0-pack docs، stampهای قدیمی ACC-CRM. dirtyهای `app.js` در worktreeهای کهنه کامیت نشد.
+- **Deploy:** ✅ ایران overlay v176 @ `fbf157e` — health/ready/root 200؛ SW `erp-taranom-v176`؛ `schema.js` overlay؛ `db.js` کامل عوض نشد (هوک v13 روی VPS pattern-missing — جدول‌های جدید از schema)
+
+### ۱۴۰۵/۰۶/۰۹ — بستن claim و شاخهٔ محلی `ai/UI-DOCS-STITCH`
+
+- **شاخه:** `chore/UI-DOCS-STITCH-close` از Primary `fd47e86`
+- **خلاصه:** Discovery فاز صفر از قبل نوشته شده بود ولی هرگز commit/push نشده بود (۰ کامیت اختصاصی). پیاده‌سازی Stitch روی شاخه‌های دیگر merge و deploy شده. تسک `UI-STITCH-P0-DISCOVERY` completed؛ `artifacts/` فقط محلی (gitignore)؛ شاخهٔ محلی حذف می‌شود.
+- **فایل‌ها:** `.ai-dos/tasks/active.yaml` `.ai-dos/tasks/handoff.md` `.ai-dos/project/status.md` `.gitignore`
+- **SW:** بدون تغییر
+- **Deploy:** ❌ بدون Iran — فقط registry و gitignore؛ کد محصول نیست
+
+### ۱۴۰۵/۰۶/۰۹ — QA product gaps: RFQ / GRNI / 3-way / SOD / branch / order reserve
+
+- **شاخه:** `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` → FF به Primary
+- **خلاصه:** استعلام فروش/خرید، سفارش و رسید خرید با سند GRNI (`2112`)، فاکتور از رسید، تطبیق سه‌طرفه، maker-checker، ACL شعبه، رزرو موجودی روی `POST /orders`.
+- **qa:full:** `qa-20260831T105600-14704` PASS **268** FAIL 0 ERROR 0 · NOT_IMPLEMENTED **0**
+- **گیت:** SMS 22/22 · sync 44/44 · diag mismatches=[]
+- **SW:** `erp-taranom-v175`
+- **Deploy:** ✅ ایران overlay v175 کد @ `a75ed64` / تیپ Primary `9151483` — health/ready/root 200؛ `db.js`/`server.js` فقط جراحی (bak-v175)؛ SW `erp-taranom-v175`؛ بدون `git pull` روی درخت کثیف VPS
+
+### ۱۴۰۵/۰۶/۰۹ — QA gaps coverage + backup verify ext → Primary + Iran v174
+
+- **شاخه:** `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` سپس FF به `claude/claude-md-docs-2ssrpy`
+- **خلاصه:** پوشش QA برای reservation API، طاقه `kind=fabric`، و تأیید پشتیبان. `POST /admin/backup-restore` پسوند zip آپلود را نگه می‌دارد (قبلاً مسیر multer بدون `.zip` تأیید را می‌شکست). بازیابی زنده همچنان فقط CLI.
+- **qa:full:** `qa-20260831T103426-14980` PASS **258** FAIL 0 ERROR 0 · NOT_IMPLEMENTED **11** · JE/FK/stock 0
+- **شکاف‌های بسته‌شده (پوشش/فیکس کوچک):** `gap.tracking_profile_roll`، `fabric.tracking_profile`، `backup.restore` (verify)
+- **شکاف محصول باقی:** RFQ، 3-way، GRNI، SOD/maker-checker، branch ACL، reservation روی `POST /orders`
+- **SW:** `erp-taranom-v174`
+- **Deploy:** ✅ overlay SFTP hash=`f3318bb` (بدون `db.js`). `server.js` فقط بلوک backup-restore جراحی شد؛ بکاپ `server.js.bak-v174`. health/ready/root **200**.
+
+### ۱۴۰۵/۰۶/۰۹ — QA gaps: backup create/list/health (no Primary/deploy)
+
+- **شاخه:** `ai/QA-ERP-GAPS-NOT-IMPLEMENTED` از Primary `dbd86fc`
+- **خلاصه:** بچ Admin حالا `/admin/backup-health`، `/admin/backup-now` و `/admin/backups` را روی DB ایزوله می‌زند. restore همچنان `NOT_IMPLEMENTED` است (مخرب وسط اجرا).
+- **فایل‌ها:** `scripts/qa/batches/admin.js`
+- **Deploy:** ❌ بدون merge به Primary در این فرزند
+
+### ۱۴۰۵/۰۶/۰۹ — QA-ERP merge to Primary + Iran overlay v173
+
+- **شاخه:** `claude/claude-md-docs-2ssrpy` @ `be0faec` (merge `9f37b46` از Integration)
+- **خلاصه:** مالک merge+deploy را تأیید کرد. harness QA + فیکس‌های High محصول روی Primary رفت. SW `erp-taranom-v173`. ۱۴ شکاف `NOT_IMPLEMENTED` عمداً PASS نشدند.
+- **تست merge:** `qa:full` `qa-20260831T095752-10032` PASS 248 FAIL 0 ERROR 0 · NOT_IMPLEMENTED 14 · JE/FK/stock 0؛ SMS 22/22؛ sync 44/44 (بعد از اصلاح warehouse_id تست)
+- **Deploy ایران:** ✅ overlay SFTP مسیرهای محصول + SW (نه `db.js`). VPS درخت مخلوط overlay روی `8a5cd54` است؛ جایگزینی کامل `db.js` باعث `runAccCrmUnifyV1 is not a function` و downtime شد — `git checkout -- server/db.js` برگرداند. health/ready/root **200**. بک‌فیل افتتاحیه یک‌بار اجرا شد (`count:8`). `trust_checks.party_id` روی DB زنده موجود است.
+- **قانون:** روی ایران `db.js` را کامل overlay نکن مگر helperهای هم‌نسخه هم بروند.
+- **فایل‌های overlay:** `app.js` `index.html` `sw.js` invoices/cheque/payroll/trust-checks/excel/rbac/ledger/opening-post/sales-document/`tables.js` + docs
+- **Rollback overlay:** SW v172 + checkout فایل‌های مسیر از git VPS
+- **پیگیری:** `QA-ERP-GAPS-NOT-IMPLEMENTED`
+
+### ۱۴۰۵/۰۶/۰۴ — QA recon ledger ∪ warehouse_stock (no Primary/deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION`
+- **خلاصه:** `stock.ledger_vs_warehouse` حالا کلیدهای هر دو منبع را با UNION روی company/warehouse/product/variant (در صورت وجود ستون) مقایسه می‌کند: ledger بدون انبار، انبار بدون ledger، و اختلاف مقدار. تست رگرسیون `test-qa-fix-recon-ledger-union.js` ابتدا FAIL بود، بعد از فیکس ۱۲/۱۲. بوت HTTP در `test-crm-pro-rbac.js` تا ۴۵ثانیه صبر می‌کند (قبلاً ۱۵ثانیه و زیر بار flake).
+- **qa:full:** `qa-20260826T135416-20172` بدون `--skip-e2e` · exit **0** · PASS **248** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14** · recon JE=0 · FK=0 · stock=0
+- **فایل‌ها:** `scripts/qa/recon.js`, `server/scripts/test-qa-fix-recon-ledger-union.js`, `server/scripts/test-crm-pro-rbac.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+- **Rollback:** `git checkout -- scripts/qa/recon.js server/scripts/test-crm-pro-rbac.js` روی همین شاخه؛ تست رگرسیون را دوباره باید FAIL ببیند.
+
+### ۱۴۰۵/۰۶/۰۳ — QA-ERP-FULL-CYCLE Integration qa:full GREEN (no Primary/deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` از Primary `6ce3ac1` (والدین `a9a7110` + `7d60258`)
+- **خلاصه:** `NODE_ENV=test node scripts/qa/run-full-erp-qa.js` بدون `--skip-e2e`. `qa-20260825T115815-8164` exit **0** · PASS **248** · FAIL **0** · ERROR **0** · NOT_IMPLEMENTED **14**. Admin + All-Roles + Playwright E2E (channel=chrome). recon JE=0 · FK=0 · انبار/دفتر=0.
+- **Harness:** boot Windows USERPROFILE + timeout 120s؛ E2E اگر chromium باندل نباشد از Chrome سیستم استفاده می‌کند.
+- **فایل‌ها:** `scripts/qa/lib/server.js`, `scripts/qa/batches/e2e.js`, `.ai-dos/*`, `docs/CHANGE-LOG.md`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA-ERP-FULL-CYCLE Integration (no Primary/deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-INTEGRATION` از Primary `6ce3ac1`
+- **خلاصه:** ادغام harness `a9a7110` و محصول `7d60258` بدون حذف Fix/تست. Task/Claims ثبت شد. بدون merge به Primary، بدون push، بدون deploy ایران.
+- **فایل‌ها:** `.ai-dos/tasks/active.yaml`, `.ai-dos/tasks/handoff.md`, `.ai-dos/project/status.md`, `docs/CHANGE-LOG.md` + کد محصول و harness هر دو شاخه
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA reviews C0/H0/M0; cheque harness kept (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles`
+- **خلاصه:** `admin.js` چک با `party_id` حفظ شد. workspace روی `ai/UI-DOCS-STITCH` نرفت. محصول sibling `7d60258`. qa:full PASS 246. Bugbot بدون باگ؛ Independent APPROVED؛ Security C0/H0/M0. پیگیری: `QA-ERP-GAPS-NOT-IMPLEMENTED`.
+- **فایل‌ها:** `.ai-dos/tasks/active.yaml`, `.ai-dos/tasks/handoff.md`, `.ai-dos/project/status.md`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA harness cheque tests kept on admin-roles (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles` @ `60e371f` (worktree والد)
+- **خلاصه:** `scripts/qa/batches/admin.js` چک را با `party_id` واقعی می‌زند؛ متن آزاد بدون شناسه باید ۴۰۰ باشد و ذخیره نشود. workspace `erp-taranom1` روی `ai/UI-DOCS-STITCH` ماند. محصول High/Medium در sibling `88d30ab`. `qa:full` `qa-20260824T224056-6580` روی worktree محصول: PASS 246 FAIL 0 ERROR 0.
+- **فایل‌ها:** `.ai-dos/tasks/handoff.md`, `.ai-dos/project/status.md`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA-FIX payroll master-data RBAC (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** پس از Medium امنیتی، ایجاد/ویرایش پرونده کارمند، گروه، دوره، ساختار حقوق، پلکان مالیات، تنظیمات قانون کار و محاسبه عیدی با `payroll.create` گیت شد. پیش‌نمایش محاسبه و GET همچنان `adminOrAccounting` است.
+- **فایل‌ها:** `server/routes/payroll.js`, `server/public/app.js`, `server/scripts/test-qa-fix-payroll-rbac.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA-FIX skipStock kardex + payroll pay RBAC (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** `skipStock` دیگر ردیف `stock_logs` نمی‌نویسد (افتتاحیه/بک‌فیل کاردکس شبح نمی‌سازد). پرداخت/ابطال پرداخت/ابطال سند حقوق با `payroll.create` گیت شد تا حسابداری فقط-مشاهده سند وجه نزند.
+- **فایل‌ها:** `server/lib/inventory/ledger.js`, `server/routes/payroll.js`, `server/public/app.js`, `server/scripts/test-qa-fix-opening-stock-ledger.js`, `server/scripts/test-qa-fix-payroll-rbac.js`
+- **تست:** opening-stock 10/10 · payroll RBAC 17/17 · SMS 22/22 · `qa:full` `qa-20260824T224056-6580` PASS 246 FAIL 0 ERROR 0 NOT_IMPLEMENTED 14 · recon JE 0
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA-FIX searchable GL account picker on acc-dash (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** انتخاب حساب دفتر کل روی داشبورد حسابداری جستجوپذیر شد (`#glAcctFind` + `data-searchable` روی `#glAccount`).
+- **فایل‌ها:** `server/public/app.js`, `server/scripts/test-qa-fix-party-picker-ui.js`
+- **تست:** `node server/scripts/test-qa-fix-party-picker-ui.js` — 16/16
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۳ — QA-FIX align RBAC matrix with route gates (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** `settings.view` فقط ادمین (GET `/settings` همچنان adminOnly و محرمانه). `accounting.view` فقط admin/accounting/sales_manager تا با `repModuleAdmin` هم‌خوان باشد؛ فروشنده میدانی view حسابداری پیش‌فرض ندارد.
+- **فایل‌ها:** `server/lib/rbac.js`, `server/scripts/test-qa-fix-rbac-matrix.js`
+- **تست:** `node server/scripts/test-qa-fix-rbac-matrix.js` — 23/23
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX opening ledger backfill central-only (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** بک‌فیل `inventory_ledger` اول دوره روی دستگاه (`SYNC_ROLE=device`) اجرا نمی‌شود تا بعد از pull از مرکز ردیف تکراری ساخته نشود.
+- **فایل‌ها:** `server/lib/opening-post.js`, `server/db.js`, `server/public/app.js`, `server/scripts/test-qa-fix-opening-stock-ledger.js`
+- **تست:** `node server/scripts/test-qa-fix-opening-stock-ledger.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX Highs re-run skip-e2e (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product` @ `2b005c7`
+- **خلاصه:** `qa-20260824T162339-14916` با `--skip-e2e` (کرومیوم Playwright در کش sandbox نبود). PASS 182 · FAIL 19 · exit 1. آشتی انبار/دفتر و فاکتور قطعی سبز. High باقی‌مانده FAIL ثابت harness برای `cheque.free_text_party`.
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX payroll.create on sibling POST routes (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** پس از بازبینی امنیتی، `payroll.create` روی `farankenou/commit`، `monthly-batch`، `year-end/:id/post` و `accruals/monthly` هم اعمال شد تا حسابداری فقط-مشاهده نتواند از API سند حقوق بزند.
+- **فایل‌ها:** `server/routes/payroll.js`, `server/public/app.js`, `server/scripts/test-qa-fix-payroll-rbac.js`
+- **تست:** `node server/scripts/test-qa-fix-payroll-rbac.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High5 party picker trust/opening cheques (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** فرم چک امانی و چک اول دوره طرف حساب را از فهرست اشخاص جستجو می‌کند (`tcParty`/`ocParty`). POST `/api/trust-checks` فقط با `party_id` معتبر ثبت می‌شود.
+- **فایل‌ها:** `server/routes/trust-checks.js`, `server/db.js`, `server/sync/tables.js`, `server/public/app.js`, `server/scripts/test-qa-fix-party-picker-ui.js`
+- **تست:** `node server/scripts/test-qa-fix-party-picker-ui.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High4 payroll.create RBAC (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** POST `/api/payroll` و `/process` با `requirePermission('payroll','create')`. حسابداری بدون این مجوز ۴۰۳ می‌گیرد. UI دکمه پردازش را با `canPerm` پنهان می‌کند.
+- **فایل‌ها:** `server/routes/payroll.js`, `server/public/app.js`, `server/scripts/test-qa-fix-payroll-rbac.js`
+- **تست:** `node server/scripts/test-qa-fix-payroll-rbac.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High3 opening inventory_ledger (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** موجودی اول دوره کالا ردیف `inventory_ledger` با `eventType=opening` و `skipStock` می‌نویسد. بک‌فیل additive با فلگ `opening_inventory_ledger_backfill_v1`.
+- **فایل‌ها:** `server/lib/opening-post.js`, `server/db.js`, `server/public/app.js`, `server/scripts/test-qa-fix-opening-stock-ledger.js`
+- **تست:** `node server/scripts/test-qa-fix-opening-stock-ledger.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High2 firm invoice warehouse_id (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** فاکتور قطعی بدون انبار سربرگ ۴۰۰ است؛ انبار سربرگ روی ردیف‌های بدون انبار کپی می‌شود؛ تفاوت انبار ردیف دیگر E_WH_MISMATCH نیست.
+- **فایل‌ها:** `server/routes/invoices.js`, `server/lib/sales-document.js`, `server/public/app.js`, `server/scripts/test-qa-fix-invoice-warehouse.js`
+- **تست:** `node server/scripts/test-qa-fix-invoice-warehouse.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+
+### ۱۴۰۵/۰۶/۰۲ — QA-FIX High1 cheque party_id (no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product`
+- **خلاصه:** POST `/api/cheque-records` فقط با `party_id` معتبر ثبت می‌شود؛ `party_name` از اشخاص مشتق می‌شود. اکسل چک اول دوره طرف حساب را از جدول اشخاص resolve می‌کند.
+- **فایل‌ها:** `server/routes/cheque-records.js`, `server/routes/excel.js`, `server/sync/tables.js`, `server/public/app.js`, `server/scripts/test-qa-fix-cheque-party-id.js`
+- **تست:** `node server/scripts/test-qa-fix-cheque-party-id.js`
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+- **SW:** بدون bump (تا پایان پنج High)
+
+### ۱۴۰۵/۰۶/۰۲ — QA-ERP-FULL-CYCLE first full run (isolated, no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles`
+- **خلاصه:** Runner ایزوله Admin+All-Roles+E2E. Fail-closed، inventory، wrap تست‌های موجود، Playwright crawl. اولین full run `qa-20260824T151001-15880`: PASS 211 · FAIL 24 · NOT_IMPLEMENTED 14 · **exit 3** (High محصول؛ harness crash نیست). Child `QA-ERP-FULL-CYCLE-FIX-HIGHS` برای party_id/انبار فاکتور/ledger/payroll RBAC.
+- **فایل‌ها:** `scripts/qa/**`, `docs/qa/**`, `.cursor/commands/qa-*.md`, `server/package.json` (scripts)
+- **Deploy:** ❌ بدون مجوز — انجام نشد
+- **SW:** بدون تغییر (محصول ویرایش نشد)
+
+### ۱۴۰۵/۰۶/۰۲ — QA-ERP-FULL-CYCLE harness (isolated, no deploy)
+
+- **شاخه:** `ai/QA-ERP-FULL-CYCLE-admin-roles` (worktree جدا از primary `6ce3ac1`)
+- **خلاصه:** Runner ایزوله Admin + All-Roles با fail-closed، inventory از repo، reconciliation، Playwright اختیاری، artifact در `artifacts/qa/<QA_RUN_ID>/`. نقش‌ها از `DEFAULT_ROLE_PERMISSIONS`. بدون Production/Deploy.
+- **فایل‌ها:** `scripts/qa/**`, `docs/qa/**`, `.cursor/commands/qa-*.md`, `server/package.json` (scripts)
+- **اجرا:** `node scripts/qa/run-full-erp-qa.js` — exit 0/1/2/3
+- **Deploy:** ❌ بدون مجوز مالک — انجام نشد
+
+
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `b52a1de` (از `ai/PROD-02-CUTTING`)
+- **خلاصه:** ویزارد لایه‌چینی/ماتریس/ضایعات. برداشت طاقه از انبار مواد. ضایعات عادی بدون سند؛ غیرعادی ۵۲۲۱. رسید کالای آماده نیست. نقش تولید طاقه را بدون بها انتخاب می‌کند.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` عوض نشد؛ `schema.js` overlay شد. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v172` = `2026-08-20T13:54:13Z hash=b52a1de`.
+- **SW:** `erp-taranom-v172`
+- **تست:** PROD-02/03 **39/39** · SMS **22/22**
+
+### 2026-08-20 — PROD-02/03 dual APPROVED (Iran overlay next)
+- **شاخه:** `ai/PROD-02-CUTTING` @ `37f5f1b`
+- **خلاصه:** Independent بدون باگ؛ امنیت C0/H0/M0. ویزارد لایه‌چینی + انتخاب طاقه برای نقش تولید بدون بها.
+- **SW:** `erp-taranom-v172`
+- **تست:** PROD-02/03 **39/39** · SMS **22/22**
+- **Deploy:** در جریان (SFTP overlay؛ `db.js` عوض نمی‌شود؛ `schema.js` overlay می‌شود)
+
+### 2026-08-20 — PROD-02/03 production roll picker (pre-merge)
+- **شاخه:** `ai/PROD-02-CUTTING`
+- **خلاصه:** انتخاب طاقه برای نقش تولید بدون بها (`GET .../cutting-lays/rolls`). دریافت طاقه همچنان فقط مدیر/حسابداری.
+- **SW:** `erp-taranom-v172`
+- **تست:** PROD-02/03 **39/39**
+- **Deploy:** ⏭ تا Dual review
+
+### 2026-08-20 — PROD-02/03 review Highs (pre-merge)
+- **شاخه:** `ai/PROD-02-CUTTING`
+- **خلاصه:** ضایعات غیرعادی از مازاد مصرف بیشتر پذیرفته نمی‌شود؛ خط پارچه از فرمول با واحد متر/ماتریس سایز انتخاب می‌شود نه اولین ماده.
+- **SW:** `erp-taranom-v172`
+- **تست:** PROD-02/03 **35/35**
+- **Deploy:** ⏭ تا Dual review
+
+### 2026-08-20 — PROD-02/03 cutting lay wizard (pre-merge)
+- **شاخه:** `ai/PROD-02-CUTTING`
+- **خلاصه:** ویزارد لایه‌چینی: طول مارکر × لایه، ماتریس سایز فرمول، برداشت طاقه از انبار مواد. ضایعات عادی بدون سند؛ غیرعادی بدهکار ۵۲۲۱. رسید کالای آماده نیست. ابطال R13. کلید تکرارناپذیر اجباری.
+- **فایل‌های کلیدی:** `server/lib/production/cutting.js`, `server/routes/production-cutting.js`, `server/lib/production/schema.js`, `server/public/app.js`
+- **SW:** `erp-taranom-v172`
+- **Deploy:** ⏭ تا Dual review
+
+### 2026-08-20 — PROD-01 fabric rolls WH-RAW + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `db708a8` (از `ai/PROD-STITCH-P5`)
+- **خلاصه:** دریافت طاقه فقط انبار مواد. دفتر تأمین‌کننده + تفصیلی از party_id. کلید تکرارناپذیر. ADR-007 Accepted. FG بدون Lot.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` عوض نشد؛ `schema.js` overlay شد. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v171` = `2026-08-20T13:09:58Z hash=db708a8`.
+- **SW:** `erp-taranom-v171`
+- **تست:** PROD-01 **23/23** · SMS **22/22**
+
+### 2026-08-20 — PROD-01 dual APPROVED (Iran overlay next)
+- **شاخه:** `ai/PROD-STITCH-P5` @ `8ebaca7`
+- **خلاصه:** Independent Bugbot بدون باگ؛ امنیت C0/H0/M0. دریافت طاقه WH-RAW + دفتر تأمین‌کننده + کلید تکرارناپذیر.
+- **SW:** `erp-taranom-v171`
+- **تست:** PROD-01 **23/23** · SMS **22/22**
+- **Deploy:** در جریان (SFTP overlay؛ `db.js` عوض نمی‌شود؛ `schema.js` overlay می‌شود)
+
+### 2026-08-20 — PROD-01 review fixes (pre-merge)
+- **شاخه:** `ai/PROD-STITCH-P5`
+- **خلاصه:** تفصیلی از `suppliers.party_id`؛ بستانکار `supplier_ledger` در دریافت و بدهکار در ابطال؛ کلید تکرارناپذیر اجباری در UI/API (تکرار = همان طاقه). FKهای ledger/journal طاقه append شدند.
+- **SW:** `erp-taranom-v171`
+- **تست:** PROD-01 **23/23** · SMS **22/22**
+- **Deploy:** ⏭ تا Dual review
+
+### 2026-08-20 — PROD-01 fabric rolls WH-RAW (pre-merge)
+- **شاخه:** `ai/PROD-STITCH-P5`
+- **خلاصه:** دریافت طاقه روی انبار مواد با رنگ/طرح/عرض/متر/بها. FG بدون Lot. ابطال R13. ADR-007 Accepted.
+- **SW:** `erp-taranom-v171`
+- **Deploy:** ⏭ تا Dual review
+
+### 2026-08-20 — POS-03 + Phase 8 merge + ADR-007 Accepted + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `4d9bc83` (از `ai/STITCH-P8-POS03-ADR007`)
+- **خلاصه:** گزارش کارتخوان، دروازه فاز ۸، ADR-007 Accepted (طاقه فقط WH-RAW). Schema طاقه در این رلیز نیست.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` عوض نشد. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v170` = `2026-08-20T12:40:04Z hash=4d9bc83`.
+- **SW:** `erp-taranom-v170`
+- **تست:** POS-03 **53/53** · فاز ۸ سبز
+
+### 2026-08-20 — POS-03 unbounded reconcile vs list cap (pre-merge)
+- **شاخه:** `ai/STITCH-P8-POS03-ADR007`
+- **خلاصه:** جمع و آشتی بانک از همهٔ دسته‌هاست؛ جدول نمایش حداکثر ۵۰۰ دسته / ۸۰۰ دریافت. ADR-007 همچنان Proposed.
+- **SW:** `erp-taranom-v169`
+- **Deploy:** ⏭ بدون merge/SFTP تا Independent APPROVED + تأیید مالک
+
+### 2026-08-20 — POS-03 mixed-batch GL allocate + csv token (pre-merge)
+- **شاخه:** `ai/STITCH-P8-POS03-ADR007`
+- **خلاصه:** آشتی دفتر با فیلتر پایانه روی دستهٔ چندپایانه‌ای (`terminal_id` تهی) از سهم `pos_settlement_items` حساب می‌شود. خروجی CSV از `crm_token`. ADR-007 همچنان Proposed.
+- **فایل‌های کلیدی:** `server/lib/pos.js`, `server/public/app.js`, `server/scripts/test-pos-03-report.js`
+- **SW:** `erp-taranom-v168`
+- **Deploy:** ⏭ اعمال نشد — بدون merge/SFTP تا Independent APPROVED + تأیید مالک
+
+### 2026-08-20 — POS-03 report + ADR-007 opened + Phase 8 gates (pre-merge)
+- **شاخه:** `ai/STITCH-P8-POS03-ADR007` @ `210f360`
+- **خلاصه:** گزارش کارتخوان با فیلتر تاریخ/پایانه/بانک/وضعیت/مغایرت؛ آشتی وجوه در راه و خالص بانک. ADR-007 برای طاقه پارچه Proposed باز شد (بدون کد تولید). دروازه فاز ۸ روی POS/LED/SMS/encoding.
+- **فایل‌های کلیدی:** `server/lib/pos.js`, `server/routes/pos.js`, `server/scripts/test-pos-03-report.js`, `server/scripts/run-stitch-phase8-gates.js`, `server/public/app.js`, `acc-nav.js`, `docs/architecture/ADR-007-FABRIC-ROLL.md`
+- **SW:** `erp-taranom-v167`
+- **Deploy:** ⏭ اعمال نشد — بدون merge/SFTP/PM2 تا Dual review + تأیید مالک
+
+### 2026-08-19 — LED-01 dual-gate merge + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `0daf21f` (از `ai/LED-STITCH-P9` @ `a464b2e`)
+- **خلاصه:** دفتر مالی مشترک + کاردکس کالا. امنیت APPROVED؛ مالک merge/deploy خواست. Independent ناتمام ماند.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` عوض نشد. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v166` = `2026-08-19T13:26:45Z hash=0daf21f`.
+- **SW:** `erp-taranom-v166`
+- **تست:** LED-P9 **47/47** · SMS **22/22**
+
+### 2026-08-19 — LED-01 dual-gate merge (Iran SFTP next)
+- **شاخه:** `ai/UI-STITCH-IMPL` ← `ai/LED-STITCH-P9` @ `a464b2e`
+- **خلاصه:** دفتر مالی مشترک + کاردکس کالا. امنیت C0/H0/M0. مالک دستور merge/deploy داد. تست ۴۷/۴۷. SW v166.
+- **Deploy:** در جریان (SFTP overlay؛ `db.js` عوض نمی‌شود)
+
+### 2026-08-19 — LED Security APPROVED (pre-merge)
+- **شاخه:** `ai/LED-STITCH-P9` @ `a464b2e`
+- **خلاصه:** امنیت C0/H0/M0 روی محصول واقعی.
+- **Deploy:** اعمال نشد (pre-merge)
+
+### 2026-08-19 — LED-01 implementer (pre-merge)
+- **شاخه:** `ai/LED-STITCH-P9` @ `a464b2e`
+- **خلاصه:** دفتر مالی مشترک + کاردکس کالا فقط‌خواندنی. تست ۴۷/۴۷. SW v166.
+
+### 2026-08-19 — POS-01/02 dual APPROVED + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `bdcc84a` (از `ai/POS-STITCH-P8` @ `7cab828`)
+- **خلاصه:** پایانه SQLite با بانک فعال؛ دریافت به وجوه در راه؛ تسویه دسته‌ای. Independent + Security محصول APPROVED.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` کامل جایگزین نشد — پچ `initPosSchema`. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v165` = `2026-08-19T03:05:04Z hash=bdcc84a`.
+- **SW:** `erp-taranom-v165`
+- **تست:** POS-P8 **55/55** · SMS **22/22**
+
+### 2026-08-19 — POS-01/02 dual APPROVED merge (Iran SFTP next)
+- **شاخه:** `ai/UI-STITCH-IMPL` ← `ai/POS-STITCH-P8` @ `7cab828`
+- **خلاصه:** پایانه SQLite با بانک فعال؛ دریافت به وجوه در راه ۱۱۱۸؛ تسویه دسته‌ای به بانک. Independent + Security محصول APPROVED. SW v165.
+- **Deploy:** در جریان (SFTP overlay؛ `db.js` کامل جایگزین نمی‌شود)
+
+### 2026-08-19 — POS Independent APPROVED (pre-merge)
+- **شاخه:** `ai/POS-STITCH-P8` @ `7cab828`
+- **خلاصه:** Independent تأیید کرد.
+- **Deploy:** اعمال نشد (pre-merge)
+
+### 2026-08-19 — POS-01/02 implementer (pre-merge)
+- **شاخه:** `ai/POS-STITCH-P8` @ `7cab828`
+- **خلاصه:** پایانه با بانک فعال؛ دریافت به وجوه در راه؛ تسویه دسته‌ای به بانک. تست ۵۵/۵۵. SW v165.
+
+### 2026-08-19 — CON-01/02 dual APPROVED + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `1a1bf0f` (از `ai/CON-STITCH-P7` @ `f79127c`)
+- **خلاصه:** شخص اجباری، چهار مسیر تسویه، خریدار جدا، COGS ارسالی، FK سینک. Independent + Security APPROVED.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` کامل جایگزین نشد — پچ ستون‌های امانی. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v164` = `2026-08-19T02:33:45Z hash=1a1bf0f`.
+- **SW:** `erp-taranom-v164`
+- **تست:** CON-P7 **61/61** · SMS **22/22**
+
+### 2026-08-19 — CON-01/02 dual APPROVED merge (Iran SFTP next)
+- **شاخه:** `ai/UI-STITCH-IMPL` ← `ai/CON-STITCH-P7` @ `f79127c`
+- **خلاصه:** شخص اجباری، چهار مسیر تسویه، خریدار جدا، COGS ارسالی، FK سینک. Independent + Security APPROVED. SW v164.
+- **Deploy:** در جریان (SFTP overlay؛ `db.js` کامل جایگزین نمی‌شود)
+
+### 2026-08-19 — CON Security APPROVED on f79127c
+- **شاخه:** `ai/CON-STITCH-P7` @ `f79127c`
+- **خلاصه:** امنیت C0/H0/M0 روی اصلاح M1–M3.
+- **Deploy:** اعمال نشد (pre-merge)
+
+### 2026-08-19 — CON M1–M3 fix (pre-merge)
+- **شاخه:** `ai/CON-STITCH-P7` @ `f79127c`
+- **خلاصه:** خریدار جدا برای فروش دریافتی؛ COGS فروش ارسالی؛ FK سینک. تست ۶۱/۶۱.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — CON Independent CHANGES_REQUIRED M1–M3
+- **شاخه:** `ai/CON-STITCH-P7` @ `ca6f5a2`
+- **خلاصه:** فروش دریافتی طرف غلط؛ فروش ارسالی بدون COGS؛ FK سینک ناقص. اصلاح شد روی `f79127c`.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — CON-01/02 Security APPROVED (pre-merge)
+- **شاخه:** `ai/CON-STITCH-P7` @ `ca6f5a2`
+- **خلاصه:** امنیت C0/H0/M0. منتظر Independent.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — CON-01/02 implementer (pre-merge)
+- **شاخه:** `ai/CON-STITCH-P7` @ `ca6f5a2`
+- **خلاصه:** طرف‌حساب شخص، چهار مسیر تسویه، فقط فروش فاکتور. تست ۴۷/۴۷. SW v164.
+
+### 2026-08-19 — HR+INV+TRS merge + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `02872a5`
+- **خلاصه:** دعوت امن، رنگ hex، جستجوی انبار ATP، پرداخت/خرج چک پس از dual APPROVED merge و deploy شد.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208`. `db.js` کامل جایگزین نشد — پچ `user_invitations`. `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v163` = `2026-08-19T01:34:41Z hash=02872a5`.
+- **SW:** `erp-taranom-v163`
+- **تست:** invite 51/51 · obs 12/12 · inv-p4 25/25 · cheque-out 36/36 · SMS 22/22
+
+### 2026-08-19 — HR-02 dual APPROVED; merging HR+INV+TRS
+- **شاخه:** `ai/HR-STITCH-P3` @ `6c65660` + `ai/INV-STITCH-P4` @ `d1ea078` + `ai/TRS-STITCH-P6` @ `ca4e22a`
+- **خلاصه:** Independent نقش و لاگ APPROVED. rebase سه موج سپس deploy ایران.
+- **Deploy:** در جریان
+
+### 2026-08-19 — HR-02 Security APPROVED on 6c65660 (pre-merge)
+- **شاخه:** `ai/HR-STITCH-P3` @ `6c65660`
+- **خلاصه:** امنیت C0/H0/M0 برای لاگ و نقش دعوت. منتظر Independent.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — HR-02 log M1 dual APPROVED (pre-merge)
+- **شاخه:** `ai/HR-STITCH-P3` @ `fdb39ae` (جد فعلی `6c65660`)
+- **خلاصه:** توکن دعوت در لاگ مسیر پاک شد. Independent و Security APPROVED. merge بعد از تأیید نقش روی `6c65660`.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — HR-02 intended_role (pre-merge)
+- **شاخه:** `ai/HR-STITCH-P3` @ `6c65660`
+- **خلاصه:** نقش دعوت ذخیره می‌شود؛ مدیر ساخته نمی‌شود. تست ۵۱/۵۱. SW v162. منتظر re-review.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — INV-02/03 dual APPROVED (pre-merge)
+- **شاخه:** `ai/INV-STITCH-P4` @ `d1ea078`
+- **خلاصه:** Independent و Security هر دو APPROVED. منتظر HR و rebase.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — HR-02 Independent: نقش ثابت field_sales (M1)
+- **شاخه:** `ai/HR-STITCH-P3` @ `fdb39ae` (بازبینی روی `bc6b975`)
+- **خلاصه:** دعوت نباید همه را کارشناس فروش کند. نقش از فهرست مجاز در ساخت دعوت. اصلاح در جریان.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — HR-02 M1 log-redact (pre-merge)
+- **شاخه:** `ai/HR-STITCH-P3` @ `fdb39ae`
+- **خلاصه:** توکن خام دعوت از `path` لاگ حذف شد. تست دعوت ۳۸/۳۸ و observability ۱۲/۱۲. منتظر re-review Independent.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — INV-02/03 implementer (pre-merge)
+- **شاخه:** `ai/INV-STITCH-P4` @ `d1ea078`
+- **خلاصه:** اعتبار hex رنگ + جستجوی خط انبار با ATP. تست ۲۵/۲۵. منتظر dual review.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — HR-02 Independent CHANGES_REQUIRED M1; Security APPROVED
+- **شاخه:** `ai/HR-STITCH-P3` @ `bc6b975`
+- **خلاصه:** امنیت C0/H0/M0. Independent: توکن خام دعوت در لاگ `path` (M1). اصلاح در جریان. merge نشد.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — TRS-01 dual APPROVED (pre-merge)
+- **شاخه:** `ai/TRS-STITCH-P6` @ `ca4e22a`
+- **خلاصه:** Independent و Security هر دو APPROVED. منتظر rebase با HR/INV.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — HR-02 invite tokens implementer (pre-merge)
+- **شاخه:** `ai/HR-STITCH-P3` @ `bc6b975`
+- **خلاصه:** دعوت یک‌بارمصرف با هش sha256 و انقضای ۷۲ ساعت. تست ۳۷/۳۷. SW v161. منتظر dual review.
+- **Deploy:** اعمال نشد
+
+### 2026-08-19 — TRS-01 Security APPROVED (pre-merge)
+- **شاخه:** `ai/TRS-STITCH-P6` @ `ca4e22a`
+- **خلاصه:** بازبین امنیت C0/H0/M0. Independent هنوز باز است.
+- **Deploy:** اعمال نشد
+- **SW:** بدون bump تا merge
+
+### 2026-08-19 — UI-STITCH-IMPL merge + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `7dd5481` ← FF `ai/UI-STITCH-IMPL`
+- **خلاصه:** موج حسابداری Stitch (OPS-01، TRS-02، ACC-01..06، INV-01، ACC-04 cutoff) پس از dual APPROVED merge و deploy شد.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208:/home/taranom/crm-taranom` (VPS به GitHub نمی‌رسد؛ `db.js` کامل جایگزین نشد — فقط `ensureColumn` معین گروه کالا). `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-stitch-v160` = `2026-08-19T00:19:57Z hash=7dd5481`.
+- **SW:** `erp-taranom-v160`
+- **Independent:** APPROVED 324293a7 · **Security:** APPROVED e235c782
+
+### 2026-08-19 — Dual APPROVED ACC-04 on 34e1891 (pre-merge)
+- **شاخه:** `ai/UI-STITCH-IMPL` محصول `34e1891`
+- **خلاصه:** Independent و Security هر دو APPROVED. منتظر تأیید مالک برای merge/deploy.
+- **Deploy:** اعمال نشد
+- **SW:** `erp-taranom-v160`
+
+### 2026-08-19 — Independent APPROVED ACC-04 on 34e1891 (pre-merge)
+- **شاخه:** `ai/UI-STITCH-IMPL` @ `34e1891`
+- **خلاصه:** بازبین مستقل H1–H3 و M1–M4 را بست. M5–M7 مشورتی. امنیت روی این نوک هنوز باز است (تأیید قبلی فقط `759a63d`).
+- **Deploy:** اعمال نشد — منتظر Security + تأیید مالک برای merge
+- **SW:** `erp-taranom-v160`
+
+### 2026-08-18 — ACC-04 cutoff reconcile H1–H3 (بدون deploy ایران)
+- **شاخه:** `ai/UI-STITCH-IMPL`
+- **خلاصه:** مطالبات و صورت‌حساب در تاریخ قطع از دفتر کل؛ داشبورد `asOf`/`to`؛ مانده انتهای صورت‌حساب تا `to`؛ هشدار اختلاف دفتر مشتری؛ خروجی صورت‌حساب عدد دفتر کل. جستجوی دفتر کل مانده را عوض نمی‌کند. افزودن حساب در هر ستون کدینگ؛ picker دریافت/پرداخت فقط حساب برگ. SW `erp-taranom-v160`.
+- **فایل‌های کلیدی:** `server/routes/accounting.js`, `server/public/app.js`, `server/public/sw.js`, `server/public/index.html`, `server/scripts/test-acc-stitch-p2.js`
+- **تست:** `test-acc-stitch-p2.js` · `test-portal.js` · `node --check` · encoding
+- **Deploy:** ⏭ اعمال نشد — بدون merge/SFTP/PM2 تا تأیید جداگانه مالک
+- **SW:** `erp-taranom-v160`
+
+### 2026-08-18 — UI-STITCH-IMPL Security APPROVED (pre-merge)
+- **شاخه:** `ai/UI-STITCH-IMPL` @ `759a63d`
+- **خلاصه:** بازبین امنیت روی موج حسابداری APPROVED شد (C0/H0/M0). بازبین مستقل هنوز باز است.
+- **Deploy:** اعمال نشد — منتظر Independent + تأیید مالک برای merge
+- **SW:** `erp-taranom-v159`
+
+### 2026-08-18 — UI-STITCH-IMPL موج حسابداری OPS/TRS/ACC (بدون deploy ایران)
+- **شاخه:** `ai/UI-STITCH-IMPL`
+- **خلاصه:** باگ زنده OPS-01 (بدون دسترسی پورتال بعد از Reload) و TRS-02 (چک پرداختی پیش‌فرض `direction=out`). ACC-02 KPI پرداختنی از GL؛ ACC-03 دفتر کل دوره/صفحه/جستجو؛ ACC-04 مطالبات از GL + `gl_closing` صورتحساب؛ ACC-05 کدینگ چهارستون؛ ACC-06 سند آبشاری و فقط حساب برگ؛ ACC-01 تفصیلی شخص پایدار؛ INV-01 معین گروه کالا. SW `erp-taranom-v159`.
+- **فایل‌های کلیدی:** `server/routes/accounting.js`, `server/routes/parties.js`, `server/routes/product-categories.js`, `server/lib/portal-users.js`, `server/public/app.js`, `server/public/app.css`, `server/public/sw.js`, `server/scripts/test-acc-stitch-p2.js`, `server/scripts/test-portal.js`
+- **تست:** `test-acc-stitch-p2.js` · `test-portal.js` · `node --check` · encoding
+- **Deploy:** ⏭ اعمال نشد — بدون merge/SFTP/PM2 تا تأیید جداگانه مالک
+- **SW:** `erp-taranom-v159`
+
+### 2026-08-15 — DEMO-V3 merge + Iran SFTP ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `bb868c5` ← FF `feat/DEMO-V3-GUIDED-SALES`
+- **خلاصه:** نسخه نمایشی فروش‌محور (خوش‌آمد نقش، چهار تور، محیط آزاد، دادهٔ سپیدارگل) روی `/demo.html` عمومی شد.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208:/home/taranom/crm-taranom` (VPS git کثیف بود؛ pull نشد). `pm2 restart erp-taranom` بدون `--update-env`. health/demo/seed **200**. stamp `.sftp-deploy-stamp-demo-v3` = `2026-08-14T23:46:53Z hash=bb868c5`.
+- **تأیید عمومی:** `https://erp.poshaktaranom.com/demo.html`
+- **SW:** بدون bump (`erp-taranom-v158`) — HTML/JS شبکه-اول؛ `demo.css`/`demo.js` `?v=7`. Hard Refresh اگر صفحهٔ قبلی ماند.
+- **Independent:** APPROVED e84b9701 · **Security:** APPROVED 0e9e56e1
+
+### 2026-08-15 — DEMO-V3 dual APPROVED (pre-merge)
+- **شاخه:** `feat/DEMO-V3-GUIDED-SALES` @ product `dbc2ec4` (docs stamp `f29da49`)
+- **Independent:** APPROVED — [e84b9701](e84b9701-1cbe-4db1-a4c9-0d93b70ae458)
+- **Security:** APPROVED — [0e9e56e1](0e9e56e1-e80e-484e-81d1-289a6d709352) C0/H0/M0/L0
+- **تست:** `test-demo-v3.js` ۶۵/۶۵ · `test-demo-static.js` OK
+- **Deploy:** اعمال نشد — منتظر تأیید مالک برای merge/push
+- **SW:** بدون bump
+
+### 2026-08-15 — DEMO-V3 M7 no-oversell
+- **خلاصه:** پیش‌فاکتور تور کالای با موجودی کافی برمی‌دارد؛ تبدیل مقدار سند/COGS/گردش را به موجودی واقعی محدود می‌کند (بدون `Math.max` پنهان). تست `path-stock-out` دلتای دقیق را می‌سنجد.
+- **بازبینی:** Independent `1e8243c` = CHANGES_REQUIRED (M7). Security `1e8243c` = APPROVED (باید روی نوک جدید تکرار شود).
+- **Deploy:** اعمال نشد — بدون merge/push
+- **SW:** بدون bump
+
+### 2026-08-15 — DEMO-V3 UX follow-up (tour result + pause/resume)
+- **خلاصه:** اقدام تور دیگر مرحله را عوض نمی‌کند تا نتیجه (از جمله drill-down) دیده شود؛ «مرحله بعد» جداست. توقف با نوار «ادامه تور» از سر گرفته می‌شود و رفرش تور متوقف‌شده را به برنامه برمی‌گرداند. منوی حسابداری جمع می‌شود؛ مغایرت بانکی به تراز نمی‌رود؛ تکمیل تولید BOM را مصرف می‌کند؛ هزینه سفارش = فی×مقدار؛ پیگیری به فرصت همان مشتری وصل است؛ میانگین وصول از تاریخ فاکتور/رسید.
+- **Deploy:** اعمال نشد — بدون merge/push
+- **SW:** بدون bump
+
+### 2026-08-15 — DEMO-V3 review-fix (H1–H3 / M1–M6)
+- **خلاصه:** پاسخ به بازبین مستقل: تحویل واقعاً روی فاکتور ثبت می‌شود؛ `init` شنونده را تکرار نمی‌کند؛ تست مسیر فروش state را assert می‌کند؛ تبدیل/وصول به مانده و سند وصل است؛ تراز از اسناد؛ شل حسابداری صفحهٔ غلط نمی‌دهد؛ حلقهٔ تور با viewport؛ شمارندهٔ مرحله دیده می‌شود؛ دیالوگ بازنشانی Escape/فوکوس/aria دارد.
+- **فایل‌ها:** `demo-v3-app.js`, `demo-v3-seed.js`, `demo-v3-tour.js`, `demo.css`, `demo.js`, `test-demo-v3.js`
+- **تست:** `test-demo-v3.js` ۵۲/۵۲ · `test-demo-static.js` OK
+- **بازبینی:** Independent روی `3dd0d11` = CHANGES_REQUIRED؛ این commit برای re-review. Security قبلی روی `3dd0d11` بود و باید دوباره دیده شود.
+- **Deploy:** اعمال نشد — بدون merge/push تا تأیید مالک
+- **SW:** بدون bump
+
+### 2026-08-15 — DEMO-V3-GUIDED-SALES (شاخه feat/DEMO-V3-GUIDED-SALES)
+- **خلاصه:** نسخه نمایشی فروش‌محور با صفحه معرفی نقش، تور هدایت‌شده، دادهٔ نمونه «پوشاک نمونه سپیدارگل»، محیط آزاد و بازنشانی نام‌فضای v3. واترمارک نارنجی حذف شد.
+- **فایل‌ها:** `server/public/demo.html`, `demo.css`, `demo.js`, `demo-v3-seed.js`, `demo-v3-store.js`, `demo-v3-tour.js`, `demo-v3-app.js`, `server/scripts/test-demo-v3.js`, `docs/architecture/DEMO-V3-DESIGN.md`
+- **تست:** `test-demo-v3.js` ۳۴/۳۴ · `test-demo-static.js` OK · encoding PASS
+- **Deploy:** اعمال نشد — بدون merge/push تا تأیید مالک
+- **SW:** بدون bump
+
+### 2026-08-14 — دمو: شل کامل حسابداری از آخرین acc-nav ✅
+- **خلاصه:** `/demo.html` منوی حسابداری را از `acc-nav.js` همین نسخه می‌خواند. زدن «حسابداری» همان شل ماژول (اشخاص، کالا، انبار، بانک، فروش، چک، اسناد، تولید، حقوق، دارایی) را باز می‌کند.
+- **SW:** `erp-taranom-v158`
+- **Deploy:** ✅ SFTP `4a6e04e` ایران. health/demo **200**. stamp `.sftp-deploy-stamp-demo-ui-v158` = `2026-08-14T20:05:05Z`. Hard Refresh لازم است.
+
+### 2026-08-14 — دمو: اندازه لوگو و واترمارک مثل برنامه اصلی ✅
+- **خلاصه:** `logo-sm.png` بدون ارتفاع کارت ورود و سایدبار را می‌ترکاند. همان اندازه برنامه (`110px` ورود / `44px` سایدبار) در `app.css` و `demo.css`. واترمارک مورب حذف شد؛ نوار باریک بالا جای آن است.
+- **SW:** `erp-taranom-v157`
+- **Deploy:** ✅ SFTP `a48ec7f` ایران. health/demo **200**. stamp `.sftp-deploy-stamp-demo-ui-v157` = `2026-08-14T19:18:14Z`. Hard Refresh لازم است.
+
+### 2026-08-14 — دموی ایستا = همان ظاهر برنامه + سازنده ریان ✅
+- **خلاصه:** `/demo.html` دیگر ویترین بنفش جدا نیست. همان شل ERP (کارت ورود زمرد، سایدبار، نوار بالا، `app.css`) با دادهٔ ساختگی. تنها برند اضافه: **شرکت ترانه اندیشه پردازان ریان**.
+- **فایل‌ها:** `server/public/demo.html`, `demo.css`, `demo.js`, `index.html` (سازنده روی ورود), `app.js` (راهنما), `sw.js` v156
+- **SW:** `erp-taranom-v156`
+- **Deploy:** ✅ SFTP overlay `785d565` به ایران. health/demo **200**. stamp `.sftp-deploy-stamp-demo-ui-v156` = `2026-08-14T10:24:44Z`. Hard Refresh لازم است.
+
+### قالب تاریخچه
+
+بعد از **هر تسک** که تغییر می‌دهید یک ورودی در بالای بخش «تاریخچه» اضافه کنید.
+
+---
+
+## قانون برای دستیار (Cursor / Claude Code)
+
+بعد از **هر تسک** که کد یا مستندات را عوض می‌کنید:
+
+1. یک ورودی جدید زیر **بالای بخش «تاریخچه»** (زیر این قوانین) اضافه کنید.
+2. commit مربوطه را با پیام واضح بنویسید.
+3. وضعیت deploy روی سرور production را مشخص کنید: `✅ deploy شد` / `⏳ نیاز به pull` / `⏭ اعمال نشد`.
+
+### 2026-08-14 — DEMO-V2-SECURE-SALES merge + Iran SFTP + SW v155 ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` @ `6f4d24a` ← merge `ai/DEMO-V2-SECURE-SALES` روی CRM-PRO `1287a1a`
+- **خلاصه:** نسخه نمایشی امن (static `/demo.html` + Demo Mode تعاملی) با تأیید مالک merge و deploy شد.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208:/home/taranom/crm-taranom` (VPS git کثیف بود؛ pull نشد). `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root/demo **200**. stamp `.sftp-deploy-stamp-demo-v2-v155` = `2026-08-14T09:51:15Z hash=6f4d24a`.
+- **تأیید عمومی:** `https://erp.poshaktaranom.com/demo.html` و `https://erp.poshaktaranom.com/sw.js` = `erp-taranom-v155`
+- **SW:** `erp-taranom-v155`
+
+### 2026-08-14 — CRM-PRO-ANALYTICS merge + Iran SFTP + SW v154 ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` ← FF `eae0a14..d3b6136` از `ai/CRM-PRO-ANALYTICS-crm-dashboard`
+- **خلاصه:** ادغام داشبورد CRM حرفه‌ای + bump Service Worker به v154 پس از تأیید مالک برای merge و deploy ایران.
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208:/home/taranom/crm-taranom` (VPS git کثیف بود؛ pull نشد). `pm2 restart erp-taranom` بدون `--update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-crm-pro-v154` = `2026-08-14T05:33:42Z hash=d3b6136`.
+- **تأیید عمومی:** `https://erp.poshaktaranom.com/sw.js` = `erp-taranom-v154`؛ `app.js?v=154`
+- **SW:** `erp-taranom-v154`
+
+### 2026-08-14 — CRM-PRO-ANALYTICS (شاخه ai/CRM-PRO-ANALYTICS-crm-dashboard)
+- **commit:** `48ea171`
+- **شاخه:** `ai/CRM-PRO-ANALYTICS-crm-dashboard`
+- **خلاصه:** داشبورد CRM نموداری با داده واقعی؛ پایپ‌لاین از pipeline_stage/فرصت نه followups.status؛ جداول فرصت/فعالیت/تاریخچه مرحله + سگمنت و اتوماسیون idempotent؛ فیلتر سراسری و drill-down reconcile؛ واحد ریال. مهاجرت پس از مهر، فرصت‌های جاافتاده را بدون تکرار backfill می‌کند.
+- **فایل‌های کلیدی:** server/lib/crm-pro*.js, server/lib/crm-analytics.js, server/lib/crm-analytics-scope.js, server/routes/crm.js, server/public/app.js, server/public/app.css, server/db.js, server/sync/tables.js, server/sync/capture.js
+- **تست:** analytics 32/32 · RBAC 17/17 · UI smoke 17/17 · performance 8/8 · ACC-CRM dashboard 21/21 · SMS 22/22 · sync 44/44 · encoding PASS · diag mismatches=[]
+- **بازبینی اول:** Reviewer CHANGES_REQUIRED + Security NOT_APPROVED — Highها بسته شد (فیلتر/دریل مشترک، GET بدون سگمنت، backfill v10، مالکیت پیگیری، اتوماسیون فقط مرکز)
+- **بازبینی نهایی:** Reviewer APPROVED + Security APPROVED — تسک `active` ماند؛ completed نشد
+- **Deploy:** اعمال نشد — نیاز به اجازه جداگانه مالک
+- **SW:** بدون bump تا تأیید UI مرورگر
+
+### 2026-08-14 — DEMO-V2-SECURE-SALES dual Approved (pre-merge)
+- **شاخه:** `ai/DEMO-V2-SECURE-SALES` @ `af9859f` (base `eae0a14`)
+- **خلاصه:** Independent + Security هر دو Approved؛ بدون یافتهٔ باز Critical/High/Medium.
+- **Deploy:** بعداً با تأیید مالک merge+SFTP شد
+- **SW:** سپس v155
+
+### 2026-08-14 — MDI فقط حسابداری + نوار شناور (SW v153)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **خلاصه:** چندپنجره‌ای دوباره فقط برای زیرمنوهای حسابداری است. داشبورد CRM و داشبورد حسابداری تک‌صفحه‌ای ماندند. نوار وظایف شناور پایین صفحه است (روی محتوا، بدون کوتاه کردن سایدبار) و کلیک Chrome حفظ شد.
+- **فایل‌های کلیدی:** `server/public/app.js`, `server/public/mdi.js`, `server/public/app.css`, `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ✅ SFTP overlay ایران؛ health/ready/root **200**؛ stamp `.sftp-deploy-stamp-mdi-v153` = `2026-08-13T22:12:55Z hash=eedd689`
+- **SW:** `erp-taranom-v153`
+
+### 2026-08-14 — MDI taskbar Chrome + کل برنامه (SW v152)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **خلاصه:** نوار چندپنجره‌ای پایین صفحه در Chrome کلیک نمی‌گرفت (لایهٔ `#mdiLayer` بدون اندازه + `pointer-events:none` hit-test زیر‌درخت را در Chromium رد می‌کرد). نوار حالا sibling مستقیم `body` است با z-index مستقل و کلیک delegated. حالت چندپنجره برای **کل برنامه** (CRM + حسابداری) فعال است و نوار با روشن بودن تنظیمات همیشه دیده می‌شود.
+- **فایل‌های کلیدی:** `server/public/mdi.js`, `server/public/app.css`, `server/public/app.js`, `server/public/index.html`, `server/public/sw.js`
+- **Deploy:** ✅ SFTP overlay به `taranom@94.249.244.208:/home/taranom/crm-taranom` (VPS git کثیف بود؛ pull نشد). `pm2 restart erp-taranom --update-env`. health/ready/root **200**. stamp `.sftp-deploy-stamp-mdi-v152` = `2026-08-13T22:05:04Z hash=9d5319f`.
+- **SW:** `erp-taranom-v152`
+
+### 2026-08-13 — ACC-CRM-UNIFY: FF-merge primary + Iran SFTP deploy ✅
+- **شاخه primary:** `claude/claude-md-docs-2ssrpy` ← FF از `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Tip:** `aa1ee64` (merge tip = feature tip)
+- **خلاصه:** با تأیید صریح مالک: FF-merge + push primary؛ overlay SFTP به `taranom@94.249.244.208:/home/taranom/crm-taranom`؛ `pm2 restart erp-taranom` بدون `--update-env`؛ stamp `.sftp-deploy-stamp-acc-crm-unify` = `2026-08-12T21:36:19Z hash=aa1ee64`.
+- **تأیید runtime:** loopback health/ready/root **200**؛ `sw.js` = `erp-taranom-v151`؛ `app.js?v=151`؛ `crm.js` + `sales-document.js` + `firmSaleTypeSql` روی VPS.
+- **تأیید عمومی:** `https://erp.poshaktaranom.com/sw.js` → `CACHE = 'erp-taranom-v151'` (دیگر v148 نیست).
+- **Deploy:** ✅ SFTP overlay (بدون blind git pull روی VPS کثیف)
+- **SW:** `erp-taranom-v151`
+
+### 2026-08-12 — ACC-CRM-UNIFY completed: dual Approved (no deploy)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Code tip:** `c0ed4c9` · **Stamp:** `fe2f1da`
+- **خلاصه:** Independent Reviewer + Security هر دو APPROVED پس از remediation فازهای ۰–۸؛ claims آزاد شد. merge/deploy ایران فقط با مجوز صریح مالک.
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** `erp-taranom-v151`
+
+### 2026-08-12 — ACC-CRM-UNIFY Phase 8a: review remediation (pre-approve)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** `c0ed4c9`
+- **خلاصه:** رفع یافته‌های Reviewer/Security: receivables بدون ×۱۰؛ KPI تاریخ شمسی؛ cheque lifecycle idempotency داخل transaction؛ ensureAllUserParties پس از unify؛ COGS void با fallback toman؛ تست dashboard due تاریخ جلالی.
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** بدون تغییر (منطق سرور)
+
+### 2026-08-12 — ACC-CRM-UNIFY Phase 7: full gates green (no deploy)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit tip:** `0d043fd`
+- **خلاصه:** گیت‌های کامل روی tip تمیز: perpetual/party/dashboard/reports/phase6/sms/sync/production ALL GREEN؛ embedded diff=0؛ encoding PASS؛ بدون deploy.
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** `erp-taranom-v151`
+
+### 2026-08-12 — ACC-CRM-UNIFY Phase 6: Medium edge cases (SW v151)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** `bce9943`
+- **خلاصه:** ADR انبار با fallback صریح؛ مسدودسازی PATCH وضعیت مالی چک (فارسی/انگلیسی) + `POST /resend` پس از برگشت؛ جلوگیری از overwrite شدن `CACHE.allProducts` با subset انبار؛ KPI `new_customers` با from/to روی `created_at`؛ تست **۱۳/۱۳**.
+- **فایل‌های کلیدی:** `cheque-records.js`, `crm-analytics.js`, `app.js`, `ADR-ACC-CRM-UNIFY.md`, `test-acc-crm-phase6.js`, `sw.js`, `index.html`
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** `erp-taranom-v151`
+
+### 2026-08-12 — ACC-CRM-UNIFY Phase 5: گزارش فروش قطعی + ADR فیلترها
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** `cdde2c8`
+- **خلاصه:** helperهای `firmSaleTypeSql` / `commissionEligibleSql`؛ درآمد/AR/P&L/VAT/KPIها با `normal|final`؛ Moadian و pending-approval و seasonal-169 فقط `final`؛ auto-approve برای فاکتور معمولی؛ تست reconciliation **۱۵/۱۵**.
+- **فایل‌های کلیدی:** `sales-document.js`, `reports.js`, `accounting.js`, `adv-reports.js`, `dashboard.js`, `admin.js`, `ai.js`, `crm-analytics.js`, `test-acc-crm-reports.js`, `ADR-ACC-CRM-UNIFY.md`
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** بدون تغییر
+
+### 2026-08-12 — ACC-CRM-UNIFY Phase 4: migration party + E_PARTY_ALREADY_LINKED
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** `294c48f`
+- **خلاصه:** حذف `party_id=NULL` خاموش روی conflict؛ `runAccCrmUnifyV1` تراکنشی (keep lowest user id + audit + UNIQUE index) و stamp فقط روی موفقیت؛ تست party **۱۸/۱۸**.
+- **فایل‌های کلیدی:** `user-party.js`, `db.js`, `test-acc-crm-party.js`
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** بدون تغییر
+
+### 2026-08-12 — ACC-CRM-UNIFY Phase 3: CRM RBAC + cheque scope
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** `dd511fc`
+- **خلاصه:** نادیده گرفتن `user_id` کلاینت وقتی scope فعال است (شامل 0)؛ permission صریح CRM؛ KPI چک scoped؛ timeline چک با party_id/customer_id؛ تست منفی HTTP+unit **۲۱/۲۱**.
+- **فایل‌های کلیدی:** `crm-analytics.js`, `crm.js`, `db.js`, `test-acc-crm-dashboard.js`
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** بدون تغییر
+
+### 2026-08-12 — ACC-CRM-UNIFY Phase 2: واحد پول ریال + تست مبالغ دقیق
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** `016e205`
+- **خلاصه:** حذف `*10` نادرست خرید/برگشت؛ `cost_amount` برگشت فروش ریالی؛ تخفیف خرید با `amount_rial` همسو با JE؛ تست‌های مبلغ‌محور (avg=40000، GL=ledger، COGS، void). perpetual **۴۴/۴۴**.
+- **فایل‌های کلیدی:** `purchases.js`, `sales-document.js`, `accounting.js`, `test-acc-crm-perpetual.js`
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** بدون تغییر
+
+### 2026-08-12 — ACC-CRM-UNIFY Phase 1: بازیابی encoding فارسی index.html + guard (SW v150)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** `f83b00f`
+- **خلاصه:** `index.html` از `448a8c1` با UTF-8/BOM سالم بازگردانی شد؛ فقط bump دارایی‌ها به v150. گارد `check-ui-encoding.js` (حداقل ۴۰۰ نویسه فارسی، رد `???`). اسکرین‌شات‌ها در `docs/architecture/ui-baseline/`. SW → `erp-taranom-v150` پس از تأیید UI.
+- **فایل‌های کلیدی:** `server/public/index.html`, `server/public/sw.js`, `server/scripts/check-ui-encoding.js`, `server/scripts/phase1-ui-screenshots.js`, `docs/architecture/ui-baseline/*`
+- **Deploy:** ⏭ عمداً انجام نشد
+- **SW:** `erp-taranom-v150`
+
+### 2026-08-12 — ACC-CRM-UNIFY Phase 0: تثبیت baseline + پورت قابل‌تنظیم (بدون deploy)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** `8fea0d4`
+- **خلاصه:** پس از Reviewer=`CHANGES_REQUIRED` و Security=`NOT_APPROVED` روی `d5a2f51`، فاز ۰ remediation: helper پورت/cleanup (`test-server-boot.js`)، پورت قابل‌تنظیم در `test-acc-crm-perpetual` (`ACC_CRM_TEST_PORT`) و `test-sync` (`SYNC_TEST_PORT_BASE`)، runner سریال `run-acc-crm-baseline.js`، ثبت مالکیت/claim در AI-DOS. stamp قبلی CHANGE-LOG برای `d5a2f51` حفظ شد.
+- **فایل‌های کلیدی:** `server/scripts/lib/test-server-boot.js`, `test-acc-crm-perpetual.js`, `test-sync.js`, `run-acc-crm-baseline.js`, `.ai-dos/tasks/{active.yaml,handoff.md}`, `.ai-dos/project/status.md`
+- **Deploy:** ⏭ عمداً انجام نشد (مجوز مالک + dual Approved لازم)
+- **SW:** بدون تغییر (Phase 0)
+
+### 2026-08-11 — ACC-CRM-UNIFY wave0–6: فاکتور معمولی + دائمی + CRM + MDI پایین (SW v149)
+- **شاخه:** `ai/ACC-CRM-UNIFY-accounting-crm`
+- **Commit:** `d5a2f51`
+- **خلاصه:** نوع `normal` برای فاکتور فروش؛ فروش/خرید قطعی از مسیر `postInventoryMovement`؛ محدودیت کالا به انبار مبدأ؛ سخت‌سازی `users.party_id`؛ حذف تکرار کاردکس؛ نوار MDI پایین صفحه؛ منوی پیگیری CRM + داشبورد/API واقعی؛ تست‌های `test-acc-crm-*.js`. بدون deploy تولید تا تأیید مالک + Reviewer/Security.
+- **تکمیل موج ۲/۵/۶ (همین روز):** برگشت از فروش هم به مسیر دائمی وصل شد (`postSaleReturnStockMovements` + reverse از `inventory_ledger` در ابطال + بهای واقعی از میانگین انبار)؛ گارد idempotency روی سه گذار چک (`send-to-bank`/`clear`/`bounce`) با کد `E_JE_DUPLICATE`؛ redirect مسیرهای legacy در `go()` (کاردکس/فاکتور معمولی/رسمی/CRM)؛ تاریخچهٔ مشتری از `/api/crm/timeline` (فاکتور+تسویه+برگشت+پیگیری) با fallback به پیگیری‌ها. تست perpetual: **۳۴/۳۴**؛ party ۵/۵؛ dashboard ۸/۸؛ SMS ۲۲/۲۲.
+- **رفع یافته‌های ممیزی دوم:** ۱) PATCH متن‌آزاد وضعیت چک برای «وصول/برگشت/واگذاری» چک دریافتی مسدود شد (`E_CHEQUE_USE_LIFECYCLE`) — گذار مالی فقط از endpointهای چرخه با سند. ۲) `wireModalChrome` دیگر `--mdi-taskbar-h` را صفر نمی‌کند (همگام با `WinMgr.syncTaskbarSpace`). ۳) timeline رویدادهای برگشت فروش و چک را هم برمی‌گرداند. ۴) `NAV_ACCOUNTING` گروه «پیگیری CRM» گرفت. ۵) scope پیگیری‌ها برای `sales_manager`/`accounting` با `crmScopeUserId` هم‌راستا شد. ۶) **سازگاری عقب‌روی گیت انبار:** بدون `warehouse_id` هدر، fallback به انبار خود کالا + معناشناسی seed قدیمی (`products.stock` = موجودی انبار خانگی)؛ `E_WH_MISMATCH` صریح همچنان 409 — رفع شکست replay دستگاه در test-sync. ۷) harness `test-sync`: حذف پروکسی از loopback + مهلت بوت قابل‌تنظیم (`SYNC_TEST_BOOT_TIMEOUT_MS`). ۸) **باگ سینک دائمی:** `tx_no` کاردکس روی دستگاه‌ها با ردیف‌های pull‌شدهٔ مرکز تصادم می‌کرد (`UNIQUE inventory_ledger.tx_no`) — دستگاه حالا مثل شماره فاکتور، `موقت-INV-…` یکتا می‌سازد و شماره واقعی را مرکز در replay صادر می‌کند. **test-sync: ۴۴/۴۴ سبز.**
+- **فایل‌های کلیدی:** `server/lib/sales-document.js`, `server/lib/crm-analytics.js`, `server/routes/{invoices,purchases,crm,products,accounting,cheque-records}.js`, `server/lib/{void-invoice,user-party}.js`, `server/public/{app.js,acc-nav.js,mdi.js,app.css,sw.js,index.html}`, `server/db.js`, `server/scripts/test-acc-crm-*.js`, `docs/architecture/*`
+- **Deploy:** ⏭ عمداً انجام نشد (دستور مالک: بدون deploy تا اجازه صریح)
+- **SW:** `erp-taranom-v149`
+
+### 2026-08-11 — UI fixes: کالاها rows.map + Help در پوسته + SKU + منوی تولید (SW v148)
+- **شاخه:** `claude/claude-md-docs-2ssrpy`
+- **Commit:** `815171b`
+- **خلاصه:** ۱) رفع `rows.map is not a function` در کالاها با `listRows()` برای envelope Wave1. ۲) افزودن «راهنما» به سایدبار پوسته حسابداری (امکانات). ۳) UI ماتریس SKU رنگ×سایز + صفحات رنگ/سایز. ۴) جلوگیری autofill admin روی جستجوی تنظیمات/رمز بکاپ. ۵) باز بودن پیش‌فرض بخش تولید + اصلاح مسیر Help.
+- **فایل‌های کلیدی:** `server/public/app.js`, `server/public/acc-nav.js`, `server/public/sw.js`, `server/public/index.html`
+- **Deploy:** ✅ Iran SFTP `.sftp-deploy-stamp-ui-fix-v148` @ 2026-08-11T12:43:25Z — health/ready/root 200 · SW v148
+- **SW:** `erp-taranom-v148`
 
 ### 2026-08-11 — Fix P0–P5 UI/API frankenstein deploy gap (SW v147)
 - **شاخه:** `claude/claude-md-docs-2ssrpy`

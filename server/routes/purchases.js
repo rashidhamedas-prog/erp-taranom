@@ -11,10 +11,23 @@ function payableAcct(db, supplierId) {
 }
 const { getDB, audit, resolveCashAccount, allocateNumber, isDevice } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
+const { sendSecureHtml } = require('../lib/secure-html-response');
+const { assertJournalLinesBalanced } = require('../lib/customer-books');
+
+function getSetting(db, key) {
+  const r = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+  return r ? r.value : '';
+}
 const { todayJalali } = require('../jalali');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
 const { rialToLedger } = require('../lib/money');
+const {
+  postPurchaseStockMovements, reverseStockBySource,
+  perpetualDocsEnabled, assertJournalIdempotent,
+  allocateFreight, applyFreightToDocTotals, freightChargedToCounterparty,
+} = require('../lib/sales-document');
+const { postInventoryMovement } = require('../lib/inventory/ledger');
 
 // Create a supplier ledger entry (debit = we owe less / paid, credit = we owe more / purchased)
 function createSupplierLedgerEntry(db, { supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id }) {
@@ -28,6 +41,24 @@ function createSupplierLedgerEntry(db, { supplier_id, date, entry_type, ref_type
 }
 
 const { parseQty } = require('../lib/round3');
+
+function purchaseLineKey(r) {
+  if (!r) return '';
+  if (r.batch_id) return 'b' + Number(r.batch_id);
+  if (r.variant_id) return 'v' + Number(r.variant_id);
+  const color = String(r.color || r.color_name || '').trim();
+  if (color && r.product_id) return 'p' + Number(r.product_id) + ':c' + color;
+  return r.product_id ? ('p' + Number(r.product_id)) : '';
+}
+
+function findPurchaseOrigLine(invoiceLineMap, r) {
+  if (!invoiceLineMap || !r) return null;
+  if (r.line_key && invoiceLineMap[r.line_key]) return invoiceLineMap[r.line_key];
+  const key = purchaseLineKey(r);
+  if (key && invoiceLineMap[key]) return invoiceLineMap[key];
+  if (r.product_id && invoiceLineMap['p' + Number(r.product_id)]) return invoiceLineMap['p' + Number(r.product_id)];
+  return null;
+}
 
 function buildRows(db, inputRows) {
   const out = [];
@@ -52,30 +83,38 @@ function buildRows(db, inputRows) {
       product_id: pid, name: prod.name, qty, price, disc, disc_amount: discAmount,
       disc_amt: discAmt, sum, description, allocated_freight: 0,
       warehouse_id: r.warehouse_id ? parseInt(r.warehouse_id, 10) : null,
+      batch_id: r.batch_id ? parseInt(r.batch_id, 10) : null,
+      is_fabric_roll: r.is_fabric_roll ? 1 : 0,
+      color: String(r.color || '').trim(),
+      pattern: String(r.pattern || '').trim(),
+      width_cm: Math.round(Number(r.width_cm) || 0),
+      roll_no: String(r.roll_no || '').trim(),
+      unit_cost_rial: Math.round(Number(r.unit_cost_rial) || 0),
     });
   }
   return { rows: out, subtotal };
 }
 
-function allocateFreight(rows, freightAmount, method) {
-  const freight = Math.round(Number(freightAmount) || 0);
-  if (freight <= 0) return rows;
-  const targets = rows.filter(r => r.product_id);
-  if (!targets.length) return rows;
-  const m = method === 'qty' || method === 'equal' ? method : 'amount';
-  let weights;
-  if (m === 'equal') weights = targets.map(() => 1);
-  else if (m === 'qty') weights = targets.map(r => Number(r.qty) || 0);
-  else weights = targets.map(r => Number(r.sum) || 0);
-  const totalW = weights.reduce((a, b) => a + b, 0);
-  if (totalW <= 0) return rows;
-  let allocated = 0;
-  targets.forEach((r, i) => {
-    const share = i === targets.length - 1 ? freight - allocated : Math.round(freight * weights[i] / totalW);
-    allocated += share;
-    r.allocated_freight = share;
+function buildInventoryValuationRows(rows, documentDiscountRial, includeFreight) {
+  const discount = Math.round(Number(documentDiscountRial) || 0);
+  const total = rows.reduce((sum, row) => sum + Math.round(Number(row.sum) || 0), 0);
+  let allocatedDiscount = 0;
+  return rows.map((row, index) => {
+    const lineValue = Math.round(Number(row.sum) || 0);
+    const discountShare = index === rows.length - 1
+      ? discount - allocatedDiscount
+      : (total > 0 ? Math.round(discount * lineValue / total) : 0);
+    allocatedDiscount += discountShare;
+    const amountRial = lineValue - discountShare
+      + (includeFreight ? Math.round(Number(row.allocated_freight) || 0) : 0);
+    const qty = Number(row.qty) || 0;
+    return {
+      ...row,
+      // Landed unit in rial so inventory_ledger matches purchase JE (netBeforeVat).
+      price_rial: qty > 0 ? Math.round(amountRial / qty) : Math.round(Number(row.price) || 0),
+      amount_rial: amountRial,
+    };
   });
-  return rows;
 }
 
 // ---------------- Purchase invoices ----------------
@@ -98,6 +137,50 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ ...row, rows: JSON.parse(row.rows || '[]') });
 });
 
+router.get('/:id/print', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const raw = String(req.params.id || '').trim();
+  const asId = parseInt(raw, 10);
+  const row = Number.isFinite(asId)
+    ? db.prepare('SELECT p.*, s.name as supplier_name FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=?').get(asId)
+    : db.prepare('SELECT p.*, s.name as supplier_name FROM purchase_invoices p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.num=?').get(raw);
+  if (!row) return res.status(404).send('فاکتور خرید پیدا نشد');
+  let rows = [];
+  try { rows = JSON.parse(row.rows || '[]'); } catch (_) { rows = []; }
+  const settings = {
+    company_name: getSetting(db, 'company_name'),
+    company_address: getSetting(db, 'company_address'),
+    company_phone: getSetting(db, 'company_phone'),
+    invoice_template_formal: getSetting(db, 'invoice_template_formal') || 'formal-official',
+    invoice_template_casual: 'casual-simple',
+    invoice_paper_size: getSetting(db, 'invoice_paper_size') || 'A4',
+    invoice_thermal_width: getSetting(db, 'invoice_thermal_width') || '80',
+    invoice_customize: getSetting(db, 'invoice_customize') || '',
+  };
+  const paperQ = String(req.query.paper || 'A4').toUpperCase();
+  const paper = paperQ === 'A5' ? 'A5' : 'A4';
+  const inv = {
+    ...row,
+    doc_kind: 'purchase',
+    type: 'purchase',
+    cust_biz: row.supplier_name || '',
+    cust_owner: '',
+    cust_city: '',
+    cust_phone: '',
+  };
+  try {
+    const { renderInvoicePrintHtml } = require('../lib/invoice-print');
+    const html = renderInvoicePrintHtml({
+      inv, rows, settings, paper,
+      templateOverride: 'casual-simple',
+    });
+    return sendSecureHtml(res, html, { allowPrintScript: true });
+  } catch (e) {
+    console.error('purchase print:', e && e.message);
+    return res.status(500).send('خطا در ساخت چاپ فاکتور خرید');
+  }
+});
+
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const { supplier_id, date, note, rows, disc, pay_type, bank_id, check_category_id, cash_box_id, warehouse_id,
     freight_amount, freight_type, vat_exempt, cost_center_id,
@@ -114,11 +197,16 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   const allocMethod = ['amount', 'qty', 'equal'].includes(req.body.freight_alloc_method)
     ? req.body.freight_alloc_method : 'amount';
   allocateFreight(built.rows, freightRial, allocMethod);
-  let { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
-  final += freightRial;
-  netBeforeVat += freightRial;
+  const freightAdj = applyFreightToDocTotals(totals, freightRial, freight_type);
+  let { subtotal, discAmt, vatAmount, vatRate } = totals;
+  let { final, netBeforeVat } = freightAdj;
   const entryDate = date || todayJalali();
   const whId = warehouse_id ? parseInt(warehouse_id, 10) : null;
+  if (whId) {
+    for (const r of built.rows) {
+      if (!r.warehouse_id) r.warehouse_id = whId;
+    }
+  }
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='purchase_num_prefix'").get();
   const pType = pay_type || 'credit';
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
@@ -136,18 +224,36 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     ).run(req.user.id, supplier_id, num, entryDate, note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final, vatAmount, vatRate, pType, chqDur, chqDue, chqInfo, bank_id || null, check_category_id || null, cash_box_id || null, whId, freightRial, freight_type || '', allocMethod, vat_exempt ? 1 : 0, ccId);
     const invId = result.lastInsertRowid;
 
-    // Stock increases immediately on purchase (per-row warehouse or header default)
-    for (const r of built.rows) {
-      const rowWh = r.warehouse_id || whId;
-      db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `افزودن موجودی از فاکتور خرید ${num}`);
-      if (rowWh) {
-        db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
-          .run(r.product_id, rowWh, r.qty);
+    if (perpetualDocsEnabled(db)) {
+      const priced = buildInventoryValuationRows(built.rows, discAmt, freightChargedToCounterparty(freight_type));
+      postPurchaseStockMovements(db, {
+        rows: priced, warehouseId: whId, sourceType: 'purchase', sourceId: invId,
+        userId: req.user.id, date: entryDate, note: `خرید ${num}`,
+        supplierId: supplier_id,
+      });
+    } else {
+      for (const r of built.rows) {
+        const rowWh = r.warehouse_id || whId;
+        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `افزودن موجودی از فاکتور خرید ${num}`);
+        if (rowWh) {
+          db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
+            .run(r.product_id, rowWh, r.qty);
+        }
+        try {
+          const fabric = require('../lib/inventory/fabric-rolls');
+          if (fabric.isFabricPurchaseLine(db, r, rowWh)) {
+            fabric.attachFabricIdentityOnPurchase(db, {
+              row: r, movement: null, supplierId: supplier_id,
+              user: req.user, date: entryDate, warehouseId: rowWh, sourceId: invId,
+            });
+          }
+        } catch (e) {
+          if (e && e.code && String(e.code).startsWith('E_FABRIC')) throw e;
+        }
       }
     }
 
-    // Supplier ledger: credit = we now owe the supplier (only tracked for on-account purchases)
     if (pType === 'credit') {
       createSupplierLedgerEntry(db, {
         supplier_id, date: date || '', entry_type: 'purchase', ref_type: 'purchase', ref_id: invId,
@@ -155,7 +261,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       });
     }
 
-    // Journal: Dr Inventory + Dr VAT receivable / Cr Payable or Cash
+    assertJournalIdempotent(db, 'purchase', invId);
     const invAcct = coaAcct(db, 'coa_inventory');
     const vatRec = coaAcct(db, 'coa_vat_receivable');
     const inventoryDebit = rialToLedger(netBeforeVat);
@@ -164,6 +270,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     const payTypeResolved = pType === 'bank_transfer' ? 'bank' : pType;
     const cr = pType === 'credit' ? payableAcct(db, supplier_id) : resolveCashAccount(db, payTypeResolved, bank_id, cash_box_id);
     jLines.push({ code: cr.code, name: cr.name, debit: 0, credit: rialToLedger(final) });
+    assertJournalLinesBalanced(jLines, 'فاکتور خرید');
     postToLedger(db, {
       sourceType: 'purchase', sourceId: invId, date: entryDate,
       description: `فاکتور خرید ${num}${freightRial ? ' (با کرایه حمل)' : ''}`, createdBy: req.user.id, lines: jLines,
@@ -196,13 +303,30 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
 
   db.transaction(() => {
     if (row.stock_added) {
-      const invRows = JSON.parse(row.rows || '[]');
-      for (const r of invRows) {
-        const rowWh = r.warehouse_id || row.warehouse_id;
-        db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `بازگشت موجودی از حذف فاکتور خرید ${row.num}`);
-        if (rowWh) {
-          db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, rowWh);
+      if (perpetualDocsEnabled(db)) {
+        const reversed = reverseStockBySource(db, 'purchase', row.id, {
+          createdBy: req.user.id, date: todayJalali(), note: `بازگشت موجودی از حذف فاکتور خرید ${row.num}`,
+        });
+        if (!reversed.length) {
+          const invRows = JSON.parse(row.rows || '[]');
+          for (const r of invRows) {
+            const rowWh = r.warehouse_id || row.warehouse_id;
+            db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
+            db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `بازگشت موجودی از حذف فاکتور خرید ${row.num}`);
+            if (rowWh) {
+              db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, rowWh);
+            }
+          }
+        }
+      } else {
+        const invRows = JSON.parse(row.rows || '[]');
+        for (const r of invRows) {
+          const rowWh = r.warehouse_id || row.warehouse_id;
+          db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `بازگشت موجودی از حذف فاکتور خرید ${row.num}`);
+          if (rowWh) {
+            db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, rowWh);
+          }
         }
       }
     }
@@ -216,7 +340,8 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     const cr = row.pay_type === 'credit' ? payableAcct(db, row.supplier_id) : resolveCashAccount(db, payTypeResolved, row.bank_id, row.cash_box_id);
     const invAcct = coaAcct(db, 'coa_inventory');
     const vatRec = coaAcct(db, 'coa_vat_receivable');
-    const netBeforeVat = (row.subtotal || 0) - (row.disc_amt || 0) + Math.round(row.freight_amount || 0);
+    const netBeforeVat = (row.subtotal || 0) - (row.disc_amt || 0)
+      + (freightChargedToCounterparty(row.freight_type) ? Math.round(row.freight_amount || 0) : 0);
     const revLines = [
       { code: cr.code, name: cr.name, debit: rialToLedger(row.final), credit: 0 },
       { code: invAcct.code, name: invAcct.name, debit: 0, credit: rialToLedger(netBeforeVat) },
@@ -260,13 +385,22 @@ router.get('/returns/available/:invoiceId', auth, adminOrAccounting, (req, res) 
   const alreadyReturned = {};
   db.prepare("SELECT rows FROM purchase_returns WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(req.params.invoiceId).forEach(pr => {
     try {
-      JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturned[r.product_id] = (alreadyReturned[r.product_id] || 0) + r.qty; });
+      JSON.parse(pr.rows || '[]').forEach(r => {
+        const key = purchaseLineKey(r);
+        alreadyReturned[key] = (alreadyReturned[key] || 0) + r.qty;
+      });
     } catch (_) { /* ignore bad JSON */ }
   });
-  const rows = invRows.map(r => ({
-    ...r, already_returned: alreadyReturned[r.product_id] || 0,
-    max_returnable: r.qty - (alreadyReturned[r.product_id] || 0)
-  })).filter(r => r.max_returnable > 0);
+  const rows = invRows.map(r => {
+    const key = purchaseLineKey(r);
+    const already = alreadyReturned[key] || 0;
+    return {
+      ...r,
+      line_key: key,
+      already_returned: already,
+      max_returnable: r.qty - already,
+    };
+  }).filter(r => r.max_returnable > 0);
   res.json({ invoice: inv, rows });
 });
 
@@ -283,9 +417,12 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
     const inv = db.prepare('SELECT * FROM purchase_invoices WHERE id=? AND supplier_id=?').get(purchase_invoice_id, supplier_id);
     if (!inv) return res.status(400).json({ error: 'فاکتور خرید یافت نشد یا متعلق به این تأمین‌کننده نیست' });
     invoiceLineMap = {};
-    JSON.parse(inv.rows || '[]').forEach(r => { invoiceLineMap[r.product_id] = r; });
+    JSON.parse(inv.rows || '[]').forEach(r => { invoiceLineMap[purchaseLineKey(r)] = r; });
     db.prepare("SELECT rows FROM purchase_returns WHERE purchase_invoice_id=? AND COALESCE(status,'posted')<>'reversed'").all(purchase_invoice_id).forEach(pr => {
-      JSON.parse(pr.rows || '[]').forEach(r => { alreadyReturnedMap[r.product_id] = (alreadyReturnedMap[r.product_id] || 0) + r.qty; });
+      JSON.parse(pr.rows || '[]').forEach(r => {
+        const key = purchaseLineKey(r);
+        alreadyReturnedMap[key] = (alreadyReturnedMap[key] || 0) + r.qty;
+      });
     });
   }
 
@@ -296,15 +433,29 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
       const pid = parseInt(r.product_id);
       const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
       if (!prod) return res.status(400).json({ error: `محصول یافت نشد (شناسه ${pid})` });
-      const origLine = invoiceLineMap[pid];
+      const origLine = findPurchaseOrigLine(invoiceLineMap, r);
       if (!origLine) return res.status(400).json({ error: `کالای ${prod.name} در این فاکتور خرید وجود ندارد` });
-      const already = alreadyReturnedMap[pid] || 0;
+      const already = alreadyReturnedMap[purchaseLineKey(origLine)] || alreadyReturnedMap[purchaseLineKey(r)] || 0;
       const maxReturnable = origLine.qty - already;
       const qty = Math.max(0.001, parseQty(r.qty, 1));
       if (qty > maxReturnable) return res.status(400).json({ error: `حداکثر مقدار قابل برگشت برای ${prod.name}: ${maxReturnable}` });
       const price = origLine.price;
       const sum = qty * price;
-      built.rows.push({ product_id: pid, name: prod.name, qty, price, sum });
+      built.rows.push({
+        product_id: pid,
+        name: prod.name,
+        qty, price, sum,
+        line_key: purchaseLineKey(origLine),
+        batch_id: origLine.batch_id || null,
+        is_fabric_roll: origLine.is_fabric_roll || 0,
+        color: origLine.color || '',
+        pattern: origLine.pattern || '',
+        width_cm: origLine.width_cm || 0,
+        roll_no: origLine.roll_no || '',
+        unit_cost_rial: origLine.unit_cost_rial || 0,
+        warehouse_id: origLine.warehouse_id || null,
+        variant_id: origLine.variant_id || null,
+      });
       built.subtotal += sum;
     }
     if (!built.rows.length) return res.status(400).json({ error: 'حداقل یک ردیف لازم است' });
@@ -321,16 +472,39 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
     ).run(req.user.id, supplier_id, purchase_invoice_id || null, date || todayJalali(), note || '', JSON.stringify(built.rows), amount);
     const retId = result.lastInsertRowid;
 
-    // Returned goods leave inventory
-    for (const r of built.rows) {
-      db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `برگشت از خرید #${retId}`);
+    if (perpetualDocsEnabled(db)) {
+      const parent = purchase_invoice_id
+        ? db.prepare('SELECT warehouse_id FROM purchase_invoices WHERE id=?').get(purchase_invoice_id)
+        : null;
+      for (const r of built.rows) {
+        const whId = r.warehouse_id || parent?.warehouse_id || null;
+        postInventoryMovement(db, {
+          eventType: 'purchase_return',
+          productId: r.product_id,
+          warehouseId: whId,
+          qtyOut: Number(r.qty) || 0,
+          unitCostRial: Math.round(Number(r.price) || 0),
+          sourceType: 'purchase_return',
+          sourceId: retId,
+          date: date || todayJalali(),
+          note: `برگشت از خرید #${retId}`,
+          createdBy: req.user.id,
+          updateAvg: true,
+          batchId: r.batch_id || null,
+        });
+      }
+    } else {
+      for (const r of built.rows) {
+        db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
+        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `برگشت از خرید #${retId}`);
+      }
     }
 
     createSupplierLedgerEntry(db, {
       supplier_id, date: date || todayJalali(), entry_type: 'purchase_return', ref_type: 'purchase_return', ref_id: retId,
       description: `برگشت از خرید #${retId}`, debit: amount, credit: 0, user_id: req.user.id
     });
+    assertJournalIdempotent(db, 'purchase_return', retId);
     postToLedger(db, {
       sourceType: 'purchase_return', sourceId: retId,
       date: date || todayJalali(), description: `برگشت از خرید #${retId}`, createdBy: req.user.id,
@@ -352,10 +526,23 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (row.status === 'reversed') return res.status(400).json({ error: 'این برگشت خرید قبلاً ابطال شده است' });
   db.transaction(() => {
-    const invRows = JSON.parse(row.rows || '[]');
-    for (const r of invRows) {
-      db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `ابطال برگشت از خرید #${row.id}`);
+    if (perpetualDocsEnabled(db)) {
+      const reversed = reverseStockBySource(db, 'purchase_return', row.id, {
+        createdBy: req.user.id, date: todayJalali(), note: `ابطال برگشت از خرید #${row.id}`,
+      });
+      if (!reversed.length) {
+        const invRows = JSON.parse(row.rows || '[]');
+        for (const r of invRows) {
+          db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `ابطال برگشت از خرید #${row.id}`);
+        }
+      }
+    } else {
+      const invRows = JSON.parse(row.rows || '[]');
+      for (const r of invRows) {
+        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `ابطال برگشت از خرید #${row.id}`);
+      }
     }
     createSupplierLedgerEntry(db, {
       supplier_id: row.supplier_id, date: todayJalali(), entry_type: 'reversal', ref_type: 'purchase_return', ref_id: row.id,
@@ -487,4 +674,5 @@ router.get('/ledger/:supplierId', auth, adminOrAccounting, (req, res) => {
   res.json({ supplier, entries, balance });
 });
 
+router.purchaseLineKey = purchaseLineKey;
 module.exports = router;

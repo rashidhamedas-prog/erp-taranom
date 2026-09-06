@@ -43,7 +43,17 @@ function postPartyOpeningBalance(db, {
   const party = db.prepare('SELECT * FROM parties WHERE id=?').get(partyId);
   if (!party) throw new Error('شخص برای سند افتتاحیه یافت نشد');
 
-  const control = controlAccountForParty(db, party);
+  let control = controlAccountForParty(db, party);
+  if (party.legacy_table === 'customers' && party.legacy_id) {
+    const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(party.legacy_id);
+    if (c?.coa_code) {
+      const tafsili = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(c.coa_code);
+      if (tafsili) control = tafsili;
+    }
+  } else if (party.coa_code) {
+    const tafsili = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(party.coa_code);
+    if (tafsili) control = tafsili;
+  }
   const opening = acct(db, 'coa_opening_balance');
   const absToman = rialToLedger(Math.abs(amt));
   const lines = amt > 0
@@ -114,7 +124,7 @@ function postProductOpeningInventory(db, {
   const opening = acct(db, 'coa_opening_balance');
   const amtToman = rialToLedger(totalRial);
 
-  return postToLedger(db, {
+  const entryId = postToLedger(db, {
     sourceType: 'opening_inventory',
     sourceId: productId,
     date: date || todayJalali(),
@@ -127,11 +137,93 @@ function postProductOpeningInventory(db, {
       { code: opening.code, name: opening.name, debit: 0, credit: amtToman },
     ],
   });
+
+  if (product.warehouse_id) {
+    const { postInventoryMovement } = require('./inventory/ledger');
+    postInventoryMovement(db, {
+      eventType: 'opening',
+      productId,
+      warehouseId: product.warehouse_id,
+      qty: q,
+      unitCostRial: unit,
+      sourceType: 'opening_inventory',
+      sourceId: productId,
+      jeId: entryId,
+      date: date || todayJalali(),
+      note: description || `موجودی اول دوره — ${product.name || productId}`,
+      createdBy: userId,
+      updateAvg: false,
+      skipStock: true,
+    });
+  }
+  return entryId;
+}
+
+/**
+ * Additive backfill: for each warehouse_stock row whose qty disagrees with
+ * posted inventory_ledger net, insert an opening movement (skipStock).
+ * Flag: settings.opening_inventory_ledger_backfill_v1
+ * Rollback: DELETE ledger rows with note LIKE '%(backfill)%' then DELETE the setting.
+ */
+function backfillOpeningInventoryLedger(db) {
+  if (process.env.SYNC_ROLE === 'device') {
+    return { skipped: true, reason: 'device' };
+  }
+  const flag = db.prepare("SELECT value FROM settings WHERE key='opening_inventory_ledger_backfill_v1'").get();
+  if (flag && String(flag.value).length) {
+    try {
+      const parsed = JSON.parse(flag.value);
+      if (parsed && parsed.ok) return { skipped: true, count: parsed.count || 0 };
+    } catch (_) {
+      if (flag.value === '1') return { skipped: true };
+    }
+  }
+  const hasLedger = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get();
+  if (!hasLedger) return { skipped: true, count: 0 };
+  const { postInventoryMovement } = require('./inventory/ledger');
+  const rows = db.prepare(`
+    SELECT ws.product_id, ws.warehouse_id, ws.qty,
+           p.average_cost_rial, p.cost, p.name
+    FROM warehouse_stock ws
+    JOIN products p ON p.id = ws.product_id
+    WHERE COALESCE(ws.qty,0) <> 0
+  `).all();
+  const adminId = db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").get()?.id || 1;
+  let count = 0;
+  for (const r of rows) {
+    const net = db.prepare(`
+      SELECT COALESCE(SUM(qty_in - qty_out),0) q
+      FROM inventory_ledger
+      WHERE product_id=? AND warehouse_id=? AND COALESCE(status,'posted')='posted'
+    `).get(r.product_id, r.warehouse_id).q;
+    const gap = Number(r.qty) - Number(net || 0);
+    if (gap <= 0) continue;
+    const unit = Math.round(Number(r.average_cost_rial) || Number(r.cost) || 0);
+    postInventoryMovement(db, {
+      eventType: 'opening',
+      productId: r.product_id,
+      warehouseId: r.warehouse_id,
+      qty: gap,
+      unitCostRial: unit,
+      sourceType: 'opening_inventory',
+      sourceId: r.product_id,
+      date: todayJalali(),
+      note: 'موجودی اول دوره (backfill)',
+      createdBy: adminId,
+      skipStock: true,
+      updateAvg: false,
+    });
+    count += 1;
+  }
+  db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('opening_inventory_ledger_backfill_v1',?)")
+    .run(JSON.stringify({ ok: 1, count }));
+  return { count };
 }
 
 module.exports = {
   postPartyOpeningBalance,
   postProductOpeningInventory,
+  backfillOpeningInventoryLedger,
   controlAccountForParty,
   parseRoles,
 };

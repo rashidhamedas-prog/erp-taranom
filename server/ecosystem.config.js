@@ -32,7 +32,13 @@ module.exports = {
     instances: 1,
     autorestart: true,
     watch: false,
-    max_memory_restart: '300M',
+    // 300M was killing the process during WAL/mmap + reports → Cloudflare 521 on login.
+    max_memory_restart: '1024M',
+    kill_timeout: 10000,
+    listen_timeout: 25000,
+    wait_ready: true,
+    min_uptime: 10000,
+    exp_backoff_restart_delay: 2000,
     env: {
       NODE_ENV: 'production',
       PORT: Number(process.env.PORT) || 3000,

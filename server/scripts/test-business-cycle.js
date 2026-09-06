@@ -173,7 +173,8 @@ async function api(method, p, body) {
     ok(Array.isArray(top2) && !top2.some(r => r.id === cust.id && Number(r.total) > 0), 'top-customers بدون فاکتور ابطالی');
 
     const monthly2 = (await api('GET', '/reports/monthly')).data;
-    const mSum = (monthly2 || []).reduce((a, r) => a + Number(r.revenue || 0), 0);
+    const monthlyRows = Array.isArray(monthly2) ? monthly2 : (monthly2 && monthly2.rows) || [];
+    const mSum = monthlyRows.reduce((a, r) => a + Number(r.revenue || 0), 0);
     ok(mSum === 0, 'گزارش ماهانه بعد از ابطال صفر', mSum);
 
     const gen2 = (await api('GET', '/accounting/general')).data;

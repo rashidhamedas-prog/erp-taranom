@@ -1,0 +1,14 @@
+{
+  "status": 200,
+  "kpis": {
+    "new_customers": 0,
+    "open_followups": 0,
+    "overdue_followups": 0,
+    "inactive_customers_90d": 0,
+    "firm_invoice_count": 0,
+    "firm_sales_rial": 0,
+    "receivables_rial": 0,
+    "cheques_due_14d": 0,
+    "cheques_bounced": 0
+  }
+}

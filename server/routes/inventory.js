@@ -7,6 +7,7 @@ const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { getKardex, reverseInventoryMovement, postInventoryMovement, invErr } = require('../lib/inventory/ledger');
+const { listFabricRolls, listFabricCirculation, receiveFabricRoll, voidFabricRoll, updateFabricRoll } = require('../lib/inventory/fabric-rolls');
 const {
   createBatch, listBatches, createSerial, listSerials, setSerialStatus, pickBatchesFefo,
 } = require('../lib/inventory/batch-serial');
@@ -69,6 +70,47 @@ router.post('/ledger/:id/reverse', auth, adminOrAccounting, (req, res) => {
 });
 
 // ---- Batches / Serials ----
+router.get('/fabric-rolls/circulation', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    res.json(listFabricCirculation(db, req.query));
+  } catch (e) { sendErr(res, e); }
+});
+
+router.get('/fabric-rolls', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    res.json({ rows: listFabricRolls(db, req.query) });
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/fabric-rolls', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const row = receiveFabricRoll(db, req.body || {}, req.user);
+    audit(req.user.id, 'create', 'fabric_roll', row.id, `طاقه ${row.batch_no}`);
+    res.json(row);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/fabric-rolls/:id/void', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const row = voidFabricRoll(db, req.params.id, req.user, { reason: req.body && req.body.reason });
+    audit(req.user.id, 'reverse', 'fabric_roll', row.id, 'ابطال طاقه');
+    res.json(row);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.patch('/fabric-rolls/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const row = updateFabricRoll(db, req.params.id, req.body || {}, req.user);
+    audit(req.user.id, 'update', 'fabric_roll', row.id, `ویرایش طاقه ${row.batch_no}`);
+    res.json(row);
+  } catch (e) { sendErr(res, e); }
+});
+
 router.get('/batches', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   res.json({ rows: listBatches(db, {
@@ -156,6 +198,8 @@ router.get('/reservations', auth, adminOrAccounting, (req, res) => {
     warehouseId: req.query.warehouse_id ? +req.query.warehouse_id : null,
     status: req.query.status || 'active',
     kind: req.query.kind,
+    sourceType: req.query.source_type,
+    sourceId: req.query.source_id,
   }) });
 });
 

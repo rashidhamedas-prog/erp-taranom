@@ -101,7 +101,7 @@ avg_new = (qty_old × avg_old + qty_in × cost_in) / (qty_old + qty_in)
 - محرک‌های پشتیبانی‌شده: `direct_labor_hours`, `direct_labor_rial`, `machine_hours`, `output_qty`, `material_rial`, `manual`.
 
 ### ADR-007 — انبار
-**انبار معمولی** (بدون Lot/Serial/Bin). ولی سه انبار منطقی الزامی است:
+**انبار معمولی** (بدون Serial/Bin). سه انبار منطقی الزامی است:
 | انبار | نقش |
 |-------|-----|
 | `WH-RAW` انبار مواد اولیه | پارچه، نخ، دکمه، زیپ، لیبل، بسته‌بندی |
@@ -109,6 +109,8 @@ avg_new = (qty_old × avg_old + qty_in × cost_in) / (qty_old + qty_in)
 | `WH-SUB` امانی نزد پیمانکار | شستشو / گلدوزی بیرون |
 
 WIP **انبار فیزیکی نیست** — یک حساب کنترلی (`1111`) + جدول `production_orders` است.
+
+**بازگشایی ۱۴۰۵/۰۵/۲۹ (Accepted):** طاقه/Lot فقط برای پارچه در `WH-RAW`؛ FG بدون Lot و بدون Serial/Bin. جزئیات: `docs/architecture/ADR-007-FABRIC-ROLL.md`. Schema طاقه در Task `PROD-STITCH-P5` (نه در رلیز POS-03).
 
 ### ADR-008 — ثبت اسناد
 **کاملاً خودکار.** هیچ سند تولیدی دستی زده نمی‌شود.

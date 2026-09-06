@@ -14,6 +14,7 @@ const {
 const { createSecureUpload, assertNoClientFileReferences } = require('../lib/upload-policy');
 const { persistPrivateUpload, persistPrivateUploadWithCommit, removeStoredFile, sendPrivateFile } = require('../lib/private-uploads');
 const { sendSecureHtml } = require('../lib/secure-html-response');
+const { firmSaleTypeSql } = require('../lib/sales-document');
 const repImageUpload = createSecureUpload('messageImage');
 const repDocumentUpload = createSecureUpload('document');
 
@@ -493,7 +494,7 @@ router.get('/:id/dashboard', auth, adminRepOrSelf, (req, res) => {
   const rep = repGuard(db, +req.params.id);
   if (!rep) return res.status(404).json({ error: 'نماینده یافت نشد' });
   const { from, to } = req.query;
-  let invWhere = "user_id=? AND type='final'";
+  let invWhere = `user_id=? AND ${firmSaleTypeSql()}`;
   const p = [rep.id];
   if (from) { invWhere += ' AND date>=?'; p.push(from); }
   if (to) { invWhere += ' AND date<=?'; p.push(to); }

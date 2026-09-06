@@ -10,6 +10,7 @@ const fs = require('fs');
 const { createSecureUpload } = require('../lib/upload-policy');
 const { sendSecureHtml } = require('../lib/secure-html-response');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
+const { applyNameCodeBarcodeSkuSearch, attachAvailableQty } = require('../lib/inventory/product-line-search');
 
 const { UPLOADS_ROOT } = require('../paths');
 const UPLOAD_DIR = path.join(UPLOADS_ROOT, 'products');
@@ -137,14 +138,9 @@ router.get('/', auth, (req, res) => {
     params.push(parseInt(categoryId, 10));
   }
 
-  const search = (req.query.search || '').trim();
+  const search = (req.query.q || req.query.search || '').trim();
   if (search) {
-    const { sqlTokenSearch } = require('../lib/search-normalize');
-    const tok = sqlTokenSearch(['p.name', 'p.code', 'p.barcode'], search);
-    if (tok) {
-      where.push(tok.clause);
-      params.push(...tok.params);
-    }
+    applyNameCodeBarcodeSkuSearch(db, where, params, search);
   }
 
   const stockStatus = (req.query.stock_status || 'all').trim();
@@ -158,8 +154,21 @@ router.get('/', auth, (req, res) => {
     where.push("(p.approval_status IS NULL OR p.approval_status='' OR p.approval_status='approved')");
   }
 
-  const warehouseId = parseInt(req.query.warehouse_id);
-  if (warehouseId) { where.push('(p.warehouse_id=? OR EXISTS (SELECT 1 FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=? AND ws.qty>0))'); params.push(warehouseId, warehouseId); }
+  const warehouseId = parseInt(req.query.warehouse_id, 10);
+  if (warehouseId) {
+    const includeZero = String(req.query.include_zero || '') === '1';
+    const allowNeg = (() => {
+      try {
+        const wh = db.prepare('SELECT allow_negative FROM warehouses WHERE id=?').get(warehouseId);
+        if (wh?.allow_negative) return true;
+        const g = db.prepare("SELECT value FROM settings WHERE key='inventory_allow_negative'").get();
+        return g && g.value === '1';
+      } catch (_) { return false; }
+    })();
+    // Stocked products must have a warehouse_stock row in the selected WH
+    where.push(`EXISTS (SELECT 1 FROM warehouse_stock ws WHERE ws.product_id=p.id AND ws.warehouse_id=? ${includeZero || allowNeg ? '' : 'AND ws.qty>0'})`);
+    params.push(warehouseId);
+  }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const pq = listQueryPlan(req.query);
@@ -189,6 +198,7 @@ router.get('/', auth, (req, res) => {
     row.images = imgs;
     if (!row.image && imgs[0]) row.image = imgs[0].filename;
   }
+  if (warehouseId) attachAvailableQty(db, rows, warehouseId);
   res.json(listResponse(rows, { page: pq.page, pageSize: pq.pageSize, total: pq.paginate ? total : rows.length }, req.query));
 });
 

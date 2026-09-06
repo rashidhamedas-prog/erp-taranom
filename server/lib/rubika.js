@@ -41,6 +41,15 @@ function getRubikaSettings(db) {
 }
 
 async function sendRubikaText(db, text) {
+  try {
+    const { guardDemoEgressOrBlock } = require('./demo-egress');
+    const blocked = guardDemoEgressOrBlock('rubika');
+    if (blocked) return blocked;
+  } catch {
+    if (/^(true|1|yes)$/i.test(String(process.env.ERP_DEMO_MODE || ''))) {
+      return { ok: false, simulated: true, demo: true, channel: 'rubika', code: 'demo_simulation', reason: 'در نسخه دمو ارسال واقعی انجام نمی‌شود' };
+    }
+  }
   const s = getRubikaSettings(db);
   if (s.rubika_invoice_enabled !== '1') return { ok: false, reason: 'disabled' };
   const token = (s.rubika_bot_token || '').trim();
@@ -59,6 +68,15 @@ async function sendRubikaText(db, text) {
 }
 
 async function sendRubikaImage(db, filePath, caption) {
+  try {
+    const { guardDemoEgressOrBlock } = require('./demo-egress');
+    const blocked = guardDemoEgressOrBlock('rubika');
+    if (blocked) return blocked;
+  } catch {
+    if (/^(true|1|yes)$/i.test(String(process.env.ERP_DEMO_MODE || ''))) {
+      return { ok: false, simulated: true, demo: true, channel: 'rubika', code: 'demo_simulation', reason: 'در نسخه دمو ارسال واقعی انجام نمی‌شود' };
+    }
+  }
   const s = getRubikaSettings(db);
   if (s.rubika_invoice_enabled !== '1') return { ok: false, reason: 'disabled' };
   const token = (s.rubika_bot_token || '').trim();

@@ -43,7 +43,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     accounting: ACC_FULL,
     reports: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
     ai: VIEW_ONLY,
-    settings: VIEW_ONLY,
+    settings: NONE,
     backup: VIEW_ONLY,
     users: VIEW_ONLY,
     stocktaking: ACC_FULL,
@@ -66,7 +66,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     accounting: { view: true, create: false, edit: false, delete: false, approve: true, export: true },
     reports: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
     ai: ALL,
-    settings: VIEW_ONLY,
+    settings: NONE,
     backup: VIEW_ONLY,
     users: VIEW_ONLY,
     stocktaking: VIEW_ONLY,
@@ -83,10 +83,10 @@ const DEFAULT_ROLE_PERMISSIONS = {
     products: { view: true, create: false, edit: false, delete: false, approve: false, export: false },
     invoices: SALES_CRUD,
     followups: SALES_CRUD,
-    accounting: VIEW_ONLY,
+    accounting: NONE,
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
-    settings: VIEW_ONLY,
+    settings: NONE,
     backup: VIEW_ONLY,
     users: VIEW_ONLY,
     stocktaking: VIEW_ONLY,
@@ -103,10 +103,10 @@ const DEFAULT_ROLE_PERMISSIONS = {
     products: { view: true, create: false, edit: false, delete: false, approve: false, export: false },
     invoices: SALES_CRUD,
     followups: SALES_CRUD,
-    accounting: VIEW_ONLY,
+    accounting: NONE,
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
-    settings: VIEW_ONLY,
+    settings: NONE,
     backup: VIEW_ONLY,
     users: VIEW_ONLY,
     stocktaking: VIEW_ONLY,
@@ -118,10 +118,10 @@ const DEFAULT_ROLE_PERMISSIONS = {
     products: VIEW_ONLY,
     invoices: VIEW_ONLY,
     followups: VIEW_ONLY,
-    accounting: VIEW_ONLY,
+    accounting: NONE,
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
-    settings: VIEW_ONLY,
+    settings: NONE,
     backup: VIEW_ONLY,
     users: VIEW_ONLY,
     stocktaking: VIEW_ONLY,
@@ -133,10 +133,10 @@ const DEFAULT_ROLE_PERMISSIONS = {
     products: { view: true, create: true, edit: true, delete: false, approve: false, export: true },
     invoices: VIEW_ONLY,
     followups: VIEW_ONLY,
-    accounting: VIEW_ONLY,
+    accounting: NONE,
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
-    settings: VIEW_ONLY,
+    settings: NONE,
     backup: VIEW_ONLY,
     users: VIEW_ONLY,
     stocktaking: VIEW_ONLY,
@@ -149,10 +149,10 @@ const DEFAULT_ROLE_PERMISSIONS = {
     products: VIEW_ONLY,
     invoices: VIEW_ONLY,
     followups: VIEW_ONLY,
-    accounting: VIEW_ONLY,
+    accounting: NONE,
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
-    settings: VIEW_ONLY,
+    settings: NONE,
     backup: VIEW_ONLY,
     users: VIEW_ONLY,
     stocktaking: VIEW_ONLY,
@@ -166,10 +166,10 @@ const DEFAULT_ROLE_PERMISSIONS = {
     products: { view: true, create: false, edit: false, delete: false, approve: false, export: false },
     invoices: VIEW_ONLY,
     followups: VIEW_ONLY,
-    accounting: VIEW_ONLY,
+    accounting: NONE,
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
-    settings: VIEW_ONLY,
+    settings: NONE,
     backup: VIEW_ONLY,
     users: VIEW_ONLY,
     stocktaking: VIEW_ONLY,
@@ -188,10 +188,10 @@ const DEFAULT_ROLE_PERMISSIONS = {
     products: { view: true, create: false, edit: false, delete: false, approve: false, export: false },
     invoices: VIEW_ONLY,
     followups: VIEW_ONLY,
-    accounting: VIEW_ONLY,
+    accounting: NONE,
     reports: VIEW_ONLY,
     ai: VIEW_ONLY,
-    settings: VIEW_ONLY,
+    settings: NONE,
     backup: VIEW_ONLY,
     users: VIEW_ONLY,
     stocktaking: VIEW_ONLY,
@@ -236,7 +236,52 @@ function isManagerRole(role) {
   return role === 'admin' || role === 'sales_manager';
 }
 
+function sodErr(message) {
+  const e = new Error(message);
+  e.status = 403;
+  e.code = 'E_SOD_MAKER_CHECKER';
+  return e;
+}
+
+/** Segregation of duties / maker-checker / sod_ — creator cannot approve the same document. */
+function assertMakerChecker(user, createdByUserId) {
+  if (!user) throw sodErr('ورود لازم است');
+  if (user.role === 'admin') return;
+  if (createdByUserId == null) return;
+  if (Number(createdByUserId) === Number(user.id)) {
+    throw sodErr('سازنده نمی‌تواند همان سند را تأیید کند (segregation / maker-checker)');
+  }
+}
+
+function branchScopeErr(message) {
+  const e = new Error(message);
+  e.status = 403;
+  e.code = 'E_BRANCH_SCOPE';
+  return e;
+}
+
+/** Staff ACL is branch-scoped via users.branch_id. Admin is unrestricted. */
+function assertBranchScope(user, rowBranchId) {
+  if (!user) throw branchScopeErr('ورود لازم است');
+  if (user.role === 'admin') return;
+  const mine = user.branch_id != null ? Number(user.branch_id) : null;
+  if (mine == null) return;
+  if (rowBranchId == null) return;
+  if (Number(rowBranchId) !== mine) {
+    throw branchScopeErr('این رکورد خارج از شعبه شماست');
+  }
+}
+
+function applyBranchScopeSql(user, alias) {
+  if (!user || user.role === 'admin') return { sql: '', params: [] };
+  const mine = user.branch_id != null ? Number(user.branch_id) : null;
+  if (mine == null) return { sql: '', params: [] };
+  const col = alias ? `${alias}.branch_id` : 'branch_id';
+  return { sql: ` AND (${col} IS NULL OR ${col}=?)`, params: [mine] };
+}
+
 module.exports = {
   ACTIONS, RESOURCES, DEFAULT_ROLE_PERMISSIONS,
   getUserPermissions, hasPermission, isManagerRole, fillRoleDefaults,
+  assertMakerChecker, assertBranchScope, applyBranchScopeSql,
 };

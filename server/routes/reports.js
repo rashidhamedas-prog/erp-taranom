@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { getDB } = require('../db');
 const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
+const { firmSaleTypeSql } = require('../lib/sales-document');
 const { buildVatReturnReport, buildSeasonal169Report } = require('./adv-reports');
 
 // R13: voided invoices are soft-deleted (deleted_at) and dependent settlements
@@ -16,7 +17,7 @@ router.get('/summary', auth, adminOnly, (req, res) => {
   const to = req.query.to || '';
   const invWhere = [];
   const invParams = [];
-  invWhere.push("type='final'");
+  invWhere.push(firmSaleTypeSql());
   invWhere.push(INV_ALIVE);
   if (from) { invWhere.push("date>=?"); invParams.push(from); }
   if (to)   { invWhere.push("date<=?"); invParams.push(to); }
@@ -27,7 +28,7 @@ router.get('/summary', auth, adminOnly, (req, res) => {
   ).get(...invParams);
 
   // Outstanding debt = total invoiced minus total settled (not date-filtered on settlements)
-  const totalInvoiced = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND ${INV_ALIVE}`).get().s;
+  const totalInvoiced = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND ${INV_ALIVE}`).get().s;
   const totalSettled  = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM settlements WHERE ${SETT_ALIVE}`).get().s;
   const debt = Math.max(0, totalInvoiced - totalSettled);
 
@@ -38,33 +39,49 @@ router.get('/summary', auth, adminOnly, (req, res) => {
 
   res.json({
     from, to,
+    generated_at: Date.now(),
+    live: true,
     orders: invAgg.c,       // invoice count (kept field name for UI compat)
     revenue: invAgg.revenue,
     paid: totalSettled,
     debt,
-    customers: custCount
+    customers: custCount,
+    collection_rate: totalInvoiced > 0 ? Math.round((totalSettled / totalInvoiced) * 1000) / 10 : 0
   });
 });
 
 // Revenue grouped by Jalali month from final invoices
 router.get('/monthly', auth, adminOnly, (req, res) => {
   const db = getDB();
+  const from = req.query.from || '';
+  const to = req.query.to || '';
+  const where = [`${firmSaleTypeSql()}`, INV_ALIVE, "date IS NOT NULL", "date<>''", 'length(date)>=7'];
+  const params = [];
+  if (from) { where.push('date>=?'); params.push(from); }
+  if (to) { where.push('date<=?'); params.push(to); }
   const rows = db.prepare(`
     SELECT substr(date,1,7) as ym, COUNT(*) orders, COALESCE(SUM(final),0) revenue
     FROM invoices
-    WHERE type='final' AND ${INV_ALIVE} AND date IS NOT NULL AND date<>'' AND length(date)>=7
+    WHERE ${where.join(' AND ')}
     GROUP BY ym
     ORDER BY ym ASC
-  `).all();
-  res.json(rows);
+  `).all(...params);
+  res.json({ generated_at: Date.now(), from, to, rows });
 });
 
 // Per-salesperson breakdown using invoices
 router.get('/salesperson', auth, adminOnly, (req, res) => {
   const db = getDB();
-  const users = db.prepare("SELECT id,name,username FROM users WHERE active=1 ORDER BY name").all();
+  const from = req.query.from || '';
+  const to = req.query.to || '';
+  const dateFilter = [];
+  const dateParams = [];
+  if (from) { dateFilter.push('date>=?'); dateParams.push(from); }
+  if (to) { dateFilter.push('date<=?'); dateParams.push(to); }
+  const dateSql = dateFilter.length ? ` AND ${dateFilter.join(' AND ')}` : '';
+  const users = db.prepare("SELECT id,name,username,role FROM users WHERE active=1 ORDER BY name").all();
   const invMap = Object.fromEntries(
-    db.prepare(`SELECT user_id, COUNT(*) c, COALESCE(SUM(final),0) revenue FROM invoices WHERE type='final' AND ${INV_ALIVE} GROUP BY user_id`).all()
+    db.prepare(`SELECT user_id, COUNT(*) c, COALESCE(SUM(final),0) revenue FROM invoices WHERE ${firmSaleTypeSql()} AND ${INV_ALIVE}${dateSql} GROUP BY user_id`).all(...dateParams)
       .map(r => [r.user_id, { c: r.c, revenue: r.revenue }])
   );
   const custMap = Object.fromEntries(
@@ -74,10 +91,10 @@ router.get('/salesperson', auth, adminOnly, (req, res) => {
     db.prepare("SELECT user_id, COUNT(*) c FROM followups WHERE status='open' GROUP BY user_id").all().map(r => [r.user_id, r.c])
   );
   const invCountMap = Object.fromEntries(
-    db.prepare(`SELECT user_id, COUNT(*) c FROM invoices WHERE ${INV_ALIVE} GROUP BY user_id`).all().map(r => [r.user_id, r.c])
+    db.prepare(`SELECT user_id, COUNT(*) c FROM invoices WHERE ${INV_ALIVE}${dateSql} GROUP BY user_id`).all(...dateParams).map(r => [r.user_id, r.c])
   );
   const invoicedMap = Object.fromEntries(
-    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND ${INV_ALIVE} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
+    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND ${INV_ALIVE}${dateSql} GROUP BY user_id`).all(...dateParams).map(r => [r.user_id, r.s])
   );
   const settledMap = Object.fromEntries(
     db.prepare(`SELECT i.user_id uid, COALESCE(SUM(s.amount),0) s FROM settlements s JOIN invoices i ON s.invoice_id=i.id WHERE COALESCE(s.status,'posted')<>'reversed' GROUP BY i.user_id`).all().map(r => [r.uid, r.s])
@@ -87,7 +104,7 @@ router.get('/salesperson', auth, adminOnly, (req, res) => {
     const userInvoiced = invoicedMap[u.id] || 0;
     const userSettled = settledMap[u.id] || 0;
     return {
-      id: u.id, name: u.name, username: u.username,
+      id: u.id, name: u.name, username: u.username, role: u.role,
       orders: inv.c, revenue: inv.revenue, debt: Math.max(0, userInvoiced - userSettled),
       customers: custMap[u.id] || 0, openFollowups: fupMap[u.id] || 0, invoices: invCountMap[u.id] || 0
     };
@@ -98,16 +115,23 @@ router.get('/salesperson', auth, adminOnly, (req, res) => {
 // Top 10 customers by total final invoice value
 router.get('/top-customers', auth, adminOnly, (req, res) => {
   const db = getDB();
+  const from = req.query.from || '';
+  const to = req.query.to || '';
+  const dateFilter = [];
+  const dateParams = [];
+  if (from) { dateFilter.push('i.date>=?'); dateParams.push(from); }
+  if (to) { dateFilter.push('i.date<=?'); dateParams.push(to); }
+  const dateSql = dateFilter.length ? ` AND ${dateFilter.join(' AND ')}` : '';
   const rows = db.prepare(`
     SELECT c.id, c.biz, c.city, c.owner, c.address,
            COUNT(i.id) orders, COALESCE(SUM(i.final),0) total,
            COALESCE(SUM(i.final),0) - COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.cust_id=c.id AND ${SETT_ALIVE.replace(/status/g, 's.status')}),0) debt
     FROM customers c
-    JOIN invoices i ON i.cust_id=c.id AND i.type='final' AND COALESCE(i.deleted_at,0)=0
+    JOIN invoices i ON i.cust_id=c.id AND ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0${dateSql}
     GROUP BY c.id
     ORDER BY total DESC
     LIMIT 10
-  `).all();
+  `).all(...dateParams);
   res.json(rows);
 });
 
@@ -119,7 +143,7 @@ router.get('/debt', auth, adminOnly, (req, res) => {
            COALESCE(SUM(i.final),0) as total_invoiced,
            COALESCE((SELECT SUM(s.amount) FROM settlements s WHERE s.cust_id=c.id AND ${SETT_ALIVE.replace(/status/g, 's.status')}),0) as total_settled
     FROM customers c
-    JOIN invoices i ON i.cust_id=c.id AND i.type='final' AND COALESCE(i.deleted_at,0)=0
+    JOIN invoices i ON i.cust_id=c.id AND ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0
     LEFT JOIN users u ON c.user_id=u.id
     GROUP BY c.id
     HAVING total_invoiced > total_settled

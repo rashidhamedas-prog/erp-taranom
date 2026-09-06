@@ -1,5 +1,6 @@
-// End-to-end sync verification: central (:4100) + two devices (:4101, :4102),
-// fresh databases. Covers: pairing, true-offline queueing (central down),
+// End-to-end sync verification: central + two devices on configurable ports
+// (SYNC_TEST_PORT_BASE, default 4100 → base/base+1/base+2), fresh databases.
+// Covers: pairing, true-offline queueing (central down),
 // concurrent numbering from two devices, chained refs, pull propagation of
 // edits + tombstoned deletes, version conflict on concurrent edit, oversell
 // conflict, idempotency — asserting Trial Balance + Balance Sheet stay
@@ -15,9 +16,27 @@ const {
   generateReplaySigningKeyPair,
   signReplayEnvelope,
 } = require('../sync/device-auth');
+const {
+  preferredPort, assertPortsFree, killProcessTree, installCleanupHooks,
+} = require('./lib/test-server-boot');
 const S = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-sync-e2e-'));
 const SERVER = path.join(__dirname, '..', 'server.js');
 const CWD = path.join(__dirname, '..');
+
+// Loopback health checks must never route through a system VPN proxy
+// (Windows: HTTP(S)_PROXY set per-shell breaks 127.0.0.1 fetches).
+for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']) {
+  delete process.env[k];
+}
+process.env.NO_PROXY = '127.0.0.1,localhost';
+process.env.no_proxy = '127.0.0.1,localhost';
+
+// Cold boot of 3 servers on a loaded machine can exceed 60s each — tunable.
+const BOOT_TIMEOUT_MS = Math.max(60000, parseInt(process.env.SYNC_TEST_BOOT_TIMEOUT_MS, 10) || 60000);
+const PORT_BASE = preferredPort('SYNC_TEST_PORT_BASE', 4100);
+const PORT_C = PORT_BASE;
+const PORT_A = PORT_BASE + 1;
+const PORT_B = PORT_BASE + 2;
 
 let passed = 0, failed = 0;
 function ok(cond, label) {
@@ -33,16 +52,20 @@ function start(name, env) {
   procs[name] = p;
   return p;
 }
-function stop(name) { if (procs[name]) { procs[name].kill('SIGKILL'); delete procs[name]; } }
-// Never leave orphan servers holding the test ports (a truncated pipe/SIGINT
-// used to leak children — the next run then talked to stale instances).
-function killAll() { for (const n of Object.keys(procs)) stop(n); }
-process.on('exit', killAll);
-process.on('SIGINT', () => { killAll(); process.exit(130); });
-process.on('SIGTERM', () => { killAll(); process.exit(143); });
+async function stop(name) {
+  if (!procs[name]) return;
+  const child = procs[name];
+  delete procs[name];
+  await killProcessTree(child, { graceMs: 2500 });
+}
+async function killAll() {
+  const names = Object.keys(procs);
+  for (const n of names) await stop(n);
+}
+installCleanupHooks(() => Object.values(procs));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function waitForServer(base, timeoutMs = 60000) {
+async function waitForServer(base, timeoutMs = BOOT_TIMEOUT_MS) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
@@ -57,15 +80,14 @@ async function waitForServer(base, timeoutMs = 60000) {
   throw new Error(`server readiness timeout for ${base}: ${lastError?.message || 'not ready'}`);
 }
 
-// Pre-flight: fail fast if the fixed ports are already taken by stale runs.
-async function assertPortsFree(ports) {
-  for (const port of ports) {
-    try {
-      await fetch(`http://127.0.0.1:${port}/api/system/time`, { signal: AbortSignal.timeout(700) });
-      console.error(`⛔ پورت ${port} اشغال است (اجرای قبلی؟) — با pkill -f "node.*server.js" پاک کنید`);
-      process.exit(2);
-    } catch { /* free */ }
+async function waitPortFree(port, timeoutMs = 15000) {
+  const { isPortFree } = require('./lib/test-server-boot');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isPortFree(port)) return;
+    await sleep(200);
   }
+  throw new Error(`port ${port} still busy after stop`);
 }
 
 async function req(base, method, path, token, body) {
@@ -78,19 +100,40 @@ async function req(base, method, path, token, body) {
   return { status: r.status, body: j };
 }
 
-const C = 'http://127.0.0.1:4100';
-const A = 'http://127.0.0.1:4101';
-const B = 'http://127.0.0.1:4102';
+const C = `http://127.0.0.1:${PORT_C}`;
+const A = `http://127.0.0.1:${PORT_A}`;
+const B = `http://127.0.0.1:${PORT_B}`;
 
-const centralEnv = { JWT_SECRET: 'sync-central-test-secret-at-least-32-bytes', PORT: '4100', DB_PATH: `${S}/e2e-central.db` };
+const centralEnv = {
+  JWT_SECRET: 'sync-central-test-secret-at-least-32-bytes',
+  PORT: String(PORT_C),
+  DB_PATH: `${S}/e2e-central.db`,
+};
 
 (async () => {
 
-  console.log('— boot central + devices —');
-  await assertPortsFree([4100, 4101, 4102]);
+  console.log(`— boot central + devices (ports ${PORT_C}/${PORT_A}/${PORT_B}) —`);
+  try {
+    await assertPortsFree([PORT_C, PORT_A, PORT_B]);
+  } catch (e) {
+    console.error('⛔ ' + e.message);
+    process.exit(2);
+  }
   start('central', centralEnv);
-  start('devA', { JWT_SECRET: 'sync-device-a-test-secret-at-least-32-bytes', PORT: '4101', DB_PATH: `${S}/e2e-devA.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
-  start('devB', { JWT_SECRET: 'sync-device-b-test-secret-at-least-32-bytes', PORT: '4102', DB_PATH: `${S}/e2e-devB.db`, SYNC_ROLE: 'device', SYNC_INTERVAL_MS: '3600000' });
+  start('devA', {
+    JWT_SECRET: 'sync-device-a-test-secret-at-least-32-bytes',
+    PORT: String(PORT_A),
+    DB_PATH: `${S}/e2e-devA.db`,
+    SYNC_ROLE: 'device',
+    SYNC_INTERVAL_MS: '3600000',
+  });
+  start('devB', {
+    JWT_SECRET: 'sync-device-b-test-secret-at-least-32-bytes',
+    PORT: String(PORT_B),
+    DB_PATH: `${S}/e2e-devB.db`,
+    SYNC_ROLE: 'device',
+    SYNC_INTERVAL_MS: '3600000',
+  });
   await Promise.all([waitForServer(C), waitForServer(A), waitForServer(B)]);
 
   let CENTRAL_PASS = 'sync-test-1234';
@@ -155,7 +198,10 @@ const centralEnv = { JWT_SECRET: 'sync-central-test-secret-at-least-32-bytes', P
     'stolen device token cannot change signed user_id to admin');
 
   console.log('— seed central —');
-  await req(C, 'POST', '/api/products', ct, { name: 'کالای اصلی', code: 'M-1', price: 50000, cost: 20000, stock: 100 });
+  const prodC = (await req(C, 'POST', '/api/products', ct, { name: 'کالای اصلی', code: 'M-1', price: 50000, cost: 20000, stock: 100 })).body;
+  // Firm invoices require header warehouse; use the product's own WH (ORDER BY id),
+  // not GET /warehouses[0] which is ORDER BY name and can miss warehouse_stock.
+  const whId = prodC.warehouse_id || 1;
   const custC = (await req(C, 'POST', '/api/customers', ct, { biz: 'مشتری مشترک' })).body;
   await req(C, 'POST', '/api/followups', ct, { cust_id: custC.id, date: '1405/04/01', type: 'تماس', subject: 'برای حذف', status: 'open' });
 
@@ -225,12 +271,17 @@ const centralEnv = { JWT_SECRET: 'sync-central-test-secret-at-least-32-bytes', P
   at = loginANew.body.token;
 
   console.log('— scenario 2: TRUE offline — central down, device A keeps working —');
-  stop('central');
-  await sleep(400);
+  await stop('central');
+  await waitPortFree(PORT_C);
+  await sleep(200);
   const offCust = (await req(A, 'POST', '/api/customers', at, { biz: 'مشتری در قطعی' })).body;
-  const offInv = (await req(A, 'POST', '/api/invoices', at, {
-    cust_id: offCust.id, type: 'final', rows: [{ product_id: 1, qty: 5, price: 50000 }]
-  })).body;
+  const offInvRes = await req(A, 'POST', '/api/invoices', at, {
+    cust_id: offCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: 5, price: 50000 }]
+  });
+  const offInv = offInvRes.body;
+  if (!offInv || !offInv.id) {
+    console.log('   offline invoice status', offInvRes.status, JSON.stringify(offInv));
+  }
   ok(offCust.id >= 1e12 && offInv.id >= 1e12, `offline creates use provisional ids (${offCust.id}, ${offInv.id})`);
   ok(String(offInv.num).startsWith('موقت'), `offline invoice number provisional (${offInv.num})`);
   const syncFail = (await req(A, 'POST', '/api/sync/now', at)).body;
@@ -240,7 +291,7 @@ const centralEnv = { JWT_SECRET: 'sync-central-test-secret-at-least-32-bytes', P
 
   console.log('— scenario 3: central returns; A syncs; chained refs resolve —');
   start('central', centralEnv);
-  await sleep(2500);
+  await waitForServer(C);
   let syncOK = null, totalConfirmed = 0;
   for (let i = 0; i < 4; i++) {
     syncOK = (await req(A, 'POST', '/api/sync/now', at)).body;
@@ -262,8 +313,8 @@ const centralEnv = { JWT_SECRET: 'sync-central-test-secret-at-least-32-bytes', P
 
   console.log('— scenario 4: concurrent invoices from A and B → unique numbers —');
   const abCust = (await req(A, 'GET', '/api/customers', at)).body.find(c => c.biz === 'مشتری مشترک');
-  await req(A, 'POST', '/api/invoices', at, { cust_id: abCust.id, type: 'final', rows: [{ product_id: 1, qty: 1, price: 50000 }] });
-  await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', rows: [{ product_id: 1, qty: 2, price: 50000 }] });
+  await req(A, 'POST', '/api/invoices', at, { cust_id: abCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: 1, price: 50000 }] });
+  await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: 2, price: 50000 }] });
   await req(A, 'POST', '/api/sync/now', at);
   await req(B, 'POST', '/api/sync/now', bt);
   // B has now pulled the password/auth_epoch changed through device A; its
@@ -308,7 +359,8 @@ const centralEnv = { JWT_SECRET: 'sync-central-test-secret-at-least-32-bytes', P
   await req(C, 'PATCH', '/api/products/1/stock', ct, { stock: 1 });
   // B, seeing the stale higher stock, sells more than central now has:
   const oversellQty = Math.min(bStale, 5);
-  const bInv = (await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', rows: [{ product_id: 1, qty: oversellQty, price: 50000 }] })).body;
+  const bInv = (await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', warehouse_id: whId, rows: [{ product_id: 1, qty: oversellQty, price: 50000 }] })).body;
+  if (!(bInv.id >= 1e12)) console.log('   bInv response:', JSON.stringify(bInv));
   ok(bInv.id >= 1e12, `B created invoice locally against stale stock ${bStale} (qty ${oversellQty})`);
   await req(B, 'POST', '/api/sync/now', bt);
   await req(B, 'POST', '/api/sync/now', bt); // idempotent retry
@@ -342,6 +394,10 @@ const centralEnv = { JWT_SECRET: 'sync-central-test-secret-at-least-32-bytes', P
   ok(bs.balanced, `Balance Sheet balanced (assets=${bs.totalAssets})`);
 
   console.log(`\n${failed === 0 ? '🎉' : '💥'} ${passed} passed, ${failed} failed`);
-  for (const n of Object.keys(procs)) stop(n);
+  for (const n of Object.keys(procs)) await stop(n);
   process.exit(failed ? 1 : 0);
-})().catch(e => { console.error('HARNESS ERROR:', e); for (const n of Object.keys(procs)) stop(n); process.exit(1); });
+})().catch(async (e) => {
+  console.error('HARNESS ERROR:', e);
+  for (const n of Object.keys(procs)) await stop(n);
+  process.exit(1);
+});

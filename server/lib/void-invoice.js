@@ -5,7 +5,7 @@
  * - Converted proforma → restores active proforma (un-convert)
  * - Direct final → soft reverse (status=reversed + deleted_at)
  */
-const { createLedgerEntry, resolveCashAccount, audit } = require('../db');
+const { audit } = require('../db');
 const { acct } = require('./coa-map');
 const { postToLedger } = require('./ledger');
 const { rialToLedger } = require('./money');
@@ -14,71 +14,14 @@ const { reverseSettlementInTx } = require('./void-settlement');
 const { todayJalali } = require('../jalali');
 const notif = require('./notifications');
 const { persistPrivateUpload } = require('./private-uploads');
+const { reverseStockBySource, postCogsFromMovements, isFirmSale, perpetualDocsEnabled, freightChargedToCounterparty } = require('./sales-document');
+const { salesJournalLines, reverseInvoiceCustomerLedger } = require('./customer-books');
 
 function cancelTitleForRole(role) {
   if (role === 'admin') return 'فاکتور لغو شده توسط مدیر';
   if (role === 'accounting') return 'فاکتور لغو شده توسط حسابداری';
   if (role === 'sales_manager') return 'فاکتور لغو شده توسط مدیر فروش';
   return 'فاکتور لغو شده توسط کاربر';
-}
-
-function receivableAcct(db, custId) {
-  const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId);
-  if (c && c.coa_code) {
-    const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(c.coa_code);
-    if (a) return a;
-  }
-  return acct(db, 'coa_receivable');
-}
-
-function salesJournalLines(db, custId, totals, reverse, opts = {}) {
-  const payType = opts.payType || 'credit';
-  const bankId = opts.bankId || null;
-  const cashBoxId = opts.cashBoxId || null;
-  const recv = payType === 'credit'
-    ? receivableAcct(db, custId)
-    : resolveCashAccount(db, payType === 'bank_transfer' ? 'bank' : payType, bankId, cashBoxId);
-  const sales = acct(db, 'coa_sales');
-  const salesDisc = acct(db, 'coa_sales_discount');
-  const vatPay = acct(db, 'coa_vat_payable');
-  const otherIncome = (() => { try { return acct(db, 'coa_other_income'); } catch { return sales; } })();
-  const { discAmt, final, vatAmount, netBeforeVat } = totals;
-  const L = rialToLedger;
-
-  let incomeCredit = 0;
-  const incomeBuckets = new Map();
-  for (const r of opts.rows || []) {
-    if (r.row_type === 'income') {
-      const code = r.income_coa || otherIncome.code;
-      const name = r.name || otherIncome.name;
-      const amt = Math.round(Number(r.sum) || 0);
-      incomeCredit += amt;
-      const prev = incomeBuckets.get(code) || { code, name, amt: 0 };
-      prev.amt += amt;
-      incomeBuckets.set(code, prev);
-    }
-  }
-  const productCredit = Math.max(0, Math.round(Number(netBeforeVat) || 0) - incomeCredit);
-
-  if (!reverse) {
-    const jLines = [{ code: recv.code, name: recv.name, debit: L(final), credit: 0 }];
-    if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: L(discAmt), credit: 0, description: 'تخفیف فاکتور' });
-    if (productCredit > 0) jLines.push({ code: sales.code, name: sales.name, debit: 0, credit: L(productCredit) });
-    for (const b of incomeBuckets.values()) {
-      if (b.amt > 0) jLines.push({ code: b.code, name: b.name, debit: 0, credit: L(b.amt), description: 'درآمد/خدمات' });
-    }
-    if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: 0, credit: L(vatAmount), description: 'مالیات بر ارزش افزوده' });
-    return jLines;
-  }
-  const jLines = [];
-  if (productCredit > 0) jLines.push({ code: sales.code, name: sales.name, debit: L(productCredit), credit: 0, description: 'ابطال' });
-  for (const b of incomeBuckets.values()) {
-    if (b.amt > 0) jLines.push({ code: b.code, name: b.name, debit: L(b.amt), credit: 0, description: 'ابطال درآمد' });
-  }
-  if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: L(vatAmount), credit: 0, description: 'ابطال VAT' });
-  if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: 0, credit: L(discAmt), description: 'ابطال تخفیف' });
-  jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: L(final) });
-  return jLines;
 }
 
 function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
@@ -162,32 +105,61 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
 
     if (row.stock_deducted) {
       const invRows = JSON.parse(row.rows || '[]');
-      for (const r of invRows) {
-        if (r.row_type === 'income' || !r.product_id) continue;
-        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
-          r.product_id, user.id, r.qty, `بازگشت موجودی از لغو فاکتور ${row.num}`
-        );
-        if (row.warehouse_id) {
-          db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
-            .run(r.product_id, row.warehouse_id, r.qty);
+      if (perpetualDocsEnabled(db)) {
+        const reversed = reverseStockBySource(db, 'invoice', row.id, {
+          createdBy: user.id, date: todayJalali(), note: `بازگشت موجودی از لغو فاکتور ${row.num}`,
+        });
+        if (invRows.length) {
+          for (const r of invRows) {
+            if (!r.variant_id || r.row_type === 'income') continue;
+            try {
+              require('./product-variants').adjustVariantStock(db, r.variant_id, Number(r.qty) || 0, 'delta');
+            } catch (_) { /* variant row may have been removed */ }
+          }
+        }
+        if (!reversed.length) {
+          // Legacy firm docs without inventory_ledger rows
+          for (const r of invRows) {
+            if (r.row_type === 'income' || !r.product_id) continue;
+            db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+            db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
+              r.product_id, user.id, r.qty, `بازگشت موجودی از لغو فاکتور ${row.num}`
+            );
+            const whId = r.warehouse_id || row.warehouse_id;
+            if (whId) {
+              db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
+                .run(r.product_id, whId, r.qty);
+            }
+          }
+        }
+      } else {
+        for (const r of invRows) {
+          if (r.row_type === 'income' || !r.product_id) continue;
+          if (r.variant_id) {
+            try {
+              require('./product-variants').adjustVariantStock(db, r.variant_id, Number(r.qty) || 0, 'delta');
+            } catch (_) { /* optional */ }
+          }
+          db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
+          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
+            r.product_id, user.id, r.qty, `بازگشت موجودی از لغو فاکتور ${row.num}`
+          );
+          if (row.warehouse_id) {
+            db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
+              .run(r.product_id, row.warehouse_id, r.qty);
+          }
         }
       }
     }
 
-    if (row.type === 'final') {
-      if ((row.pay_type || 'cash') === 'credit') {
-        createLedgerEntry(db, {
-          customer_id: row.cust_id, date: todayJalali(), entry_type: 'reversal',
-          ref_type: 'invoice', ref_id: row.id,
-          description: `ابطال فاکتور ${row.num}`,
-          debit: 0, credit: row.final, user_id: user.id,
-        });
-      }
+    if (isFirmSale(row.type)) {
+      reverseInvoiceCustomerLedger(db, row, user.id, todayJalali());
       const invTotals = {
         subtotal: row.subtotal, discAmt: row.disc_amt || 0, final: row.final,
         vatAmount: row.vat_amount || 0,
-        netBeforeVat: (row.subtotal || 0) - (row.disc_amt || 0) + Math.round(row.freight_amount || 0),
+        netBeforeVat: (row.subtotal || 0) - (row.disc_amt || 0)
+          + (freightChargedToCounterparty(row.freight_type)
+            ? Math.round(row.freight_amount || 0) : 0),
       };
       postToLedger(db, {
         sourceType: 'invoice_reversal', sourceId: row.id, date: todayJalali(),
@@ -195,9 +167,28 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
         lines: salesJournalLines(db, row.cust_id, invTotals, true, {
           payType: row.pay_type || 'credit', bankId: row.bank_id, cashBoxId: row.cash_box_id,
           rows: JSON.parse(row.rows || '[]'),
+          freightRial: Math.round(row.freight_amount || 0), freightType: row.freight_type,
         }),
       });
-      postCogsVoucher(db, row.id, row.num, todayJalali(), JSON.parse(row.rows || '[]'), user.id, true);
+      const cogsOrig = db.prepare(
+        "SELECT id FROM journal_entries WHERE ref_type='invoice_cogs' AND ref_id=? AND COALESCE(deleted_at,0)=0"
+      ).get(row.id);
+      if (cogsOrig) {
+        const cogsLines = db.prepare(`
+          SELECT COALESCE(
+            NULLIF(SUM(COALESCE(debit_rial,0)),0),
+            ROUND(SUM(COALESCE(debit,0))*10),
+            0
+          ) AS d
+          FROM journal_lines WHERE entry_id=?
+        `).get(cogsOrig.id);
+        postCogsFromMovements(db, {
+          invId: row.id, num: row.num, date: todayJalali(), userId: user.id,
+          cogsRial: Number(cogsLines?.d) || 0, reverse: true,
+        });
+      } else {
+        postCogsVoucher(db, row.id, row.num, todayJalali(), JSON.parse(row.rows || '[]'), user.id, true);
+      }
       reverseCommissionAccrual(db, 'invoice', row.id, user.id, todayJalali());
     }
 

@@ -199,8 +199,23 @@ router.post('/auth/otp', async (req, res) => {
   const settings = getSmsSettings(db);
   let delivered = false;
   if (settings.sms_api_key) {
-    const result = await sendSMS(settings, phone, `کد ورود پورتال ترنم: ${otp}\nاعتبار: ۵ دقیقه`);
-    delivered = !!result.ok;
+    const fallback = `کد ورود پورتال ترنم: ${otp}\nاعتبار: ۵ دقیقه`;
+    try {
+      const cust = acc.customer_id ? db.prepare('SELECT biz,owner,party_group_id,user_id FROM customers WHERE id=?').get(acc.customer_id) : null;
+      const { dispatchSmsOrFallback } = require('../lib/sms-dispatch');
+      const result = await dispatchSmsOrFallback(db, 'b2b.otp', {
+        phone,
+        name: cust?.owner || cust?.biz || acc.biz,
+        biz: cust?.biz || acc.biz,
+        code: otp,
+        party_group_id: cust?.party_group_id,
+        user_id: cust?.user_id,
+      }, fallback);
+      delivered = !!result.ok;
+    } catch (_) {
+      const result = await sendSMS(settings, phone, fallback);
+      delivered = !!result.ok;
+    }
   }
   if (!delivered) {
     db.prepare('UPDATE b2b_portal_accounts SET otp_hash=NULL,otp_expires=NULL,otp_attempts=0 WHERE id=?').run(acc.id);
@@ -499,6 +514,22 @@ router.post('/admin/customers/:id/access', internalAuth, adminOnly, (req, res) =
   })();
   audit(req.user.id, enabled ? 'b2b_enabled' : 'b2b_disabled', 'customer', cust.id,
     `پورتال B2B ${cust.biz} — ابطال نشست‌های قبلی`, req);
+  // Optional rule-based invite SMS on activation (gated by an active sms_rule).
+  if (enabled && phone) {
+    try {
+      const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+      setImmediate(() => dispatchSmsEvent(db, 'portal.invite', {
+        phone,
+        name: cust.owner || cust.biz,
+        biz: cust.biz,
+        status: 'فعال',
+        party_group_id: cust.party_group_id,
+        user_id: cust.user_id,
+        created_by: req.user.id,
+        user: req.user.name,
+      }));
+    } catch (_) {}
+  }
   res.json({ ok: true, enabled: !!enabled });
 });
 

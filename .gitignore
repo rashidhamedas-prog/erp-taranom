@@ -9,14 +9,25 @@ android/keystore.properties
 *.jks
 *.keystore
 .env
+id_ed25519_taranom
+id_ed25519_taranom_backup
+**/.ssh/id_ed25519_taranom
+**/.ssh/id_*_taranom
+!**/.ssh/*.pub
+.github/keys/*.pem
+.github/keys/id_ed25519_taranom
 
 # Local AI dumps
 _full-code-for-ai.txt
 _core-code-for-ai.txt
 _code-overview-for-ai.md
 
+# Local Stitch design dumps (HTML/PNG/ZIP). Not product code; stay on disk only.
+/artifacts/
+
 # Build / IDE / caches
 .tmp-build/
+.tmp-node22/
 .gradle-home/
 .gradle/
 **/build/
@@ -55,6 +66,9 @@ server/uploads/
 server/private-uploads/
 server/data/
 
+# Isolated QA run artifacts (keep docs/qa/)
+artifacts/qa/
+
 # OS junk
 Thumbs.db
 Desktop.ini
@@ -65,4 +79,13 @@ __pycache__/
 # Code signing secrets
 desktop/certs/
 *.pfx
+
+# SSH private keys — public keys may live under .github/keys/*.pub
+id_ed25519
+id_ed25519_taranom
+id_rsa
+*.ppk
+**/.ssh/id_*
+!**/.ssh/*.pub
+!**/.github/keys/*.pub
 

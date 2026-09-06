@@ -5,11 +5,14 @@
   if (global.CSP) return;
 
   const ACTION_ATTR_PREFIX = 'data-csp-';
-  const EVENT_TYPES = Object.freeze([
-    'click', 'change', 'input', 'focus', 'blur', 'keydown', 'mousedown',
-    'error', 'dragstart', 'dragover', 'dragleave', 'drop'
-  ]);
-  const CAPTURE_EVENTS = new Set(['focus', 'blur', 'error']);
+  /* submit must stay here — a settings search <form data-csp-submit> used to
+     throw during HTML construction and blank the whole Settings page. */
+  const EVENT_TYPES = [
+    'click', 'change', 'input', 'focus', 'blur', 'keydown', 'keyup', 'mousedown',
+    'submit', 'error', 'dragstart', 'dragover', 'dragleave', 'drop'
+  ];
+  const CAPTURE_EVENTS = new Set(['focus', 'blur', 'error', 'submit']);
+  const listening = new Set();
   const actions = new Map();
   const styles = new Map();
   let actionSequence = 0;
@@ -26,15 +29,37 @@
     return `a_${random[0].toString(36)}${random[1].toString(36)}_${actionSequence.toString(36)}`;
   }
 
+  function ensureListen(type) {
+    if (listening.has(type)) return;
+    document.addEventListener(type, dispatch, CAPTURE_EVENTS.has(type));
+    listening.add(type);
+  }
+
   function assertEventType(type) {
     const normalized = String(type || '').toLowerCase();
-    if (!EVENT_TYPES.includes(normalized)) throw new TypeError(`Unsupported delegated event: ${normalized}`);
+    if (!/^[a-z]+$/.test(normalized)) {
+      throw new TypeError(`Unsupported delegated event: ${normalized}`);
+    }
+    if (!EVENT_TYPES.includes(normalized)) {
+      EVENT_TYPES.push(normalized);
+      console.warn('CSP: auto-registered delegated event (page will still render):', normalized);
+    }
+    ensureListen(normalized);
     return normalized;
   }
 
   function bind(type, handler) {
-    const normalized = assertEventType(type);
     if (typeof handler !== 'function') throw new TypeError('CSP.bind requires a function');
+    let normalized;
+    try {
+      normalized = assertEventType(type);
+    } catch (error) {
+      /* Never throw while building innerHTML — a white screen is worse than a no-op. */
+      console.error('CSP.bind ignored invalid event', type, error);
+      const id = actionId();
+      actions.set(id, { type: String(type || '').toLowerCase(), handler: function (ev) { if (ev && ev.preventDefault) ev.preventDefault(); } });
+      return id;
+    }
     const id = actionId();
     actions.set(id, { type: normalized, handler });
     return id;
@@ -174,7 +199,12 @@
     }
   }
 
-  for (const type of EVENT_TYPES) document.addEventListener(type, dispatch, CAPTURE_EVENTS.has(type));
+  EVENT_TYPES.forEach(ensureListen);
+  document.addEventListener('submit', function (event) {
+    if (event.target && event.target.matches && event.target.matches('form.sett-search, .sett-shell form')) {
+      event.preventDefault();
+    }
+  }, true);
 
   const nativeInnerHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
   const nativeOuterHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'outerHTML');
@@ -438,14 +468,31 @@
     return Object.freeze({ html, policy });
   }
 
+  function withSameOriginBase(html) {
+    const parsed = new DOMParser().parseFromString(
+      parserPolicy.createHTML(String(html == null ? '' : html)),
+      'text/html'
+    );
+    parsed.querySelectorAll('base').forEach((node) => node.remove());
+    const base = parsed.createElement('base');
+    const safeBase = new URL('/', location.origin);
+    if (safeBase.origin !== location.origin) throw new TypeError('Print document base must be same-origin');
+    base.href = safeBase.href;
+    const policyMeta = parsed.head && parsed.head.querySelector('meta[http-equiv="Content-Security-Policy" i]');
+    if (policyMeta && policyMeta.nextSibling) parsed.head.insertBefore(base, policyMeta.nextSibling);
+    else if (policyMeta) parsed.head.appendChild(base);
+    else if (parsed.head) parsed.head.prepend(base);
+    return `<!doctype html>\n${nativeOuterHTML.get.call(parsed.documentElement)}`;
+  }
+
   async function openVerifiedServerDocument(response) {
     const verified = await readVerifiedServerDocument(response);
-    return openBlobDocument(verified.html);
+    return openBlobDocument(withSameOriginBase(verified.html));
   }
 
   async function createVerifiedServerFrame(response, options) {
     const verified = await readVerifiedServerDocument(response);
-    const objectUrl = URL.createObjectURL(new Blob([verified.html], { type: 'text/html;charset=utf-8' }));
+    const objectUrl = URL.createObjectURL(new Blob([withSameOriginBase(verified.html)], { type: 'text/html;charset=utf-8' }));
     const iframe = document.createElement('iframe');
     iframe.setAttribute('aria-hidden', 'true');
     iframe.setAttribute('tabindex', '-1');
@@ -569,13 +616,27 @@
     return nativeInsertAdjacentHTML.call(this, position, trusted(value));
   };
 
+  function actionStillLive(id) {
+    if (!id) return false;
+    const escId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : String(id).replace(/"/g, '\\"');
+    try {
+      return !!document.querySelector(`[data-csp-click="${escId}"],[data-csp-change="${escId}"],[data-csp-input="${escId}"],[data-csp-focus="${escId}"],[data-csp-blur="${escId}"],[data-csp-keydown="${escId}"],[data-csp-keyup="${escId}"],[data-csp-mousedown="${escId}"],[data-csp-submit="${escId}"],[data-csp-error="${escId}"],[data-csp-dragstart="${escId}"],[data-csp-dragover="${escId}"],[data-csp-dragleave="${escId}"],[data-csp-drop="${escId}"]`);
+    } catch (_) {
+      return true;
+    }
+  }
+
   function releaseDisconnectedActions(root) {
     if (!(root instanceof Element) || root.isConnected) return;
     const elements = [root, ...root.querySelectorAll('*')];
     for (const element of elements) {
-      for (const attribute of element.attributes) {
+      for (const attribute of [...element.attributes]) {
         if (!attribute.name.startsWith(ACTION_ATTR_PREFIX) || attribute.name === 'data-csp-style') continue;
-        if (attribute.value.startsWith('a_')) actions.delete(attribute.value);
+        if (!attribute.value.startsWith('a_')) continue;
+        // Cached HTML (dashboard) re-injects the same action ids. Deleting them
+        // while the restored nodes still reference them makes clicks no-ops.
+        if (actionStillLive(attribute.value)) continue;
+        actions.delete(attribute.value);
       }
     }
   }

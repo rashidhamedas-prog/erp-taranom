@@ -95,9 +95,12 @@ function getPortalAccessByPhone(db, phone) {
   const u = db.prepare('SELECT id, username, role, active FROM users WHERE username=?').get(p);
   if (!u) return { has_access: false, portal_role: null, user_id: null };
   const isPortal = PORTAL_ROLES.includes(u.role);
+  const hasAccess = !!(u.active && isPortal);
   return {
-    has_access: !!(u.active && isPortal),
-    portal_role: isPortal ? u.role : null,
+    has_access: hasAccess,
+    // OPS-01: inactive/revoked users must not expose a portal role or the UI
+    // re-selects «مدیر واحد» after reload and a later save re-grants access.
+    portal_role: hasAccess ? u.role : null,
     user_id: u.id,
     active: !!u.active,
     role: u.role,

@@ -380,7 +380,7 @@
             td.style.fontWeight = '700';
           }
         } else if (ci === 0 || (ci === 1 && headerRow.cells[0]?.classList.contains('tbl-sel-th'))) {
-          td.innerHTML = '<span class="muted">تفاضل مانده</span>';
+          td.innerHTML = `<span class="muted">مانده خالص — ${debitWins ? 'بدهکار' : 'بستانکار'}</span>`;
         }
         netRow.appendChild(td);
       }

@@ -164,10 +164,11 @@ router.get('/', auth, (req, res) => {
   const db = getDB();
   const { type, segment, city, search, party_group_id, page = 1, limit = 50 } = req.query;
   let sql = `
-    SELECT p.*, pg.name AS party_group_name, u.name AS expert_name
+    SELECT p.*, pg.name AS party_group_name, u.name AS expert_name, pp.name AS position_name
     FROM parties p
     LEFT JOIN party_groups pg ON p.party_group_id = pg.id
     LEFT JOIN users u ON u.id = p.user_id
+    LEFT JOIN person_positions pp ON pp.id = p.position_id
     WHERE p.is_active=1
   `;
   const params = [];
@@ -194,10 +195,11 @@ router.get('/', auth, (req, res) => {
 router.get('/:id', auth, (req, res) => {
   const db = getDB();
   const row = db.prepare(`
-    SELECT p.*, pg.name AS party_group_name, pg.entity_type AS party_group_entity, u.name AS expert_name
+    SELECT p.*, pg.name AS party_group_name, pg.entity_type AS party_group_entity, u.name AS expert_name, pp.name AS position_name
     FROM parties p
     LEFT JOIN party_groups pg ON p.party_group_id = pg.id
     LEFT JOIN users u ON u.id = p.user_id
+    LEFT JOIN person_positions pp ON pp.id = p.position_id
     WHERE p.id=?
   `).get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
@@ -258,6 +260,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
         pgid, b.prefix || null, b.birth_date || null, b.referrer || null, b.account_nature || null, coaCode
       );
       const partyId = r.lastInsertRowid;
+      const posId = b.position_id ? parseInt(b.position_id, 10) : null;
+      if (posId) {
+        try { db.prepare('UPDATE parties SET position_id=? WHERE id=?').run(posId, partyId); } catch (_) {}
+      }
       try { syncPartyToLegacy(db, partyId); } catch (_) {}
       if (openRial) {
         const { postPartyOpeningBalance } = require('../lib/opening-post');
@@ -312,9 +318,13 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       : (b.opening_balance != null ? Math.round(Number(b.opening_balance) || 0) : row.opening_balance))
     : row.opening_balance;
   const pgid = b.party_group_id != null ? (b.party_group_id ? parseInt(b.party_group_id, 10) : null) : row.party_group_id;
-  let coaCode = b.coa_code != null ? b.coa_code : row.coa_code;
+  // ACC-01: allocated tafsili is the identity. Group changes must not rewrite it.
+  let coaCode = row.coa_code || null;
   if (!coaCode) {
-    try { coaCode = allocTafsili(db, coaKindForRoles(roles), b.full_name || row.full_name); } catch (_) {}
+    coaCode = b.coa_code != null ? b.coa_code : null;
+    if (!coaCode) {
+      try { coaCode = allocTafsili(db, coaKindForRoles(roles), b.full_name || row.full_name); } catch (_) {}
+    }
   }
   const userId = b.user_id != null || b.assigned_to != null
     ? parseInt(b.user_id || b.assigned_to, 10) || row.user_id
@@ -345,6 +355,10 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
         b.account_nature ?? row.account_nature, coaCode, userId,
         req.params.id
       );
+      if (b.position_id !== undefined) {
+        const posId = b.position_id ? parseInt(b.position_id, 10) : null;
+        try { db.prepare('UPDATE parties SET position_id=? WHERE id=?').run(posId, req.params.id); } catch (_) {}
+      }
       try { syncPartyToLegacy(db, req.params.id); } catch (_) {}
       if (req.user.role === 'admin' && openRial !== (row.opening_balance || 0)) {
         const oldJe = db.prepare("SELECT id FROM journal_entries WHERE ref_type='opening_balance' AND ref_id=? AND COALESCE(deleted_at,0)=0 ORDER BY id DESC LIMIT 1").get(req.params.id);

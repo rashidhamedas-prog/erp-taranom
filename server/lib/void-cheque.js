@@ -34,23 +34,31 @@ function voidChequeRecord(db, chequeId, user) {
     }
 
     if (row.journal_entry_id) {
-      // Prefer explicit opening reverse (same as legacy DELETE)
-      const chequeAccount = acct(db, row.direction === 'in' ? 'coa_cheques_receivable' : 'coa_cheques_payable');
-      const openingAccount = acct(db, 'coa_opening_balance');
-      const valueToman = Math.round(Number(row.amount)) / 10;
-      const lines = row.direction === 'in'
-        ? [
-          { code: openingAccount.code, name: openingAccount.name, debit: valueToman, credit: 0 },
-          { code: chequeAccount.code, name: chequeAccount.name, debit: 0, credit: valueToman },
-        ]
-        : [
-          { code: chequeAccount.code, name: chequeAccount.name, debit: valueToman, credit: 0 },
-          { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
-        ];
-      lastReversal = postToLedger(db, {
-        sourceType: 'opening_cheque_reversal', sourceId: row.id, date: todayJalali(),
-        description: `ابطال چک اول دوره ${row.cheque_number || row.id}`, createdBy: user.id, lines,
-      });
+      const { isOpeningCheque } = require('./cheque-party-books');
+      if (isOpeningCheque(row)) {
+        const chequeAccount = acct(db, row.direction === 'in' ? 'coa_cheques_receivable' : 'coa_cheques_payable');
+        const openingAccount = acct(db, 'coa_opening_balance');
+        const valueToman = Math.round(Number(row.amount)) / 10;
+        const lines = row.direction === 'in'
+          ? [
+            { code: openingAccount.code, name: openingAccount.name, debit: valueToman, credit: 0 },
+            { code: chequeAccount.code, name: chequeAccount.name, debit: 0, credit: valueToman },
+          ]
+          : [
+            { code: chequeAccount.code, name: chequeAccount.name, debit: valueToman, credit: 0 },
+            { code: openingAccount.code, name: openingAccount.name, debit: 0, credit: valueToman },
+          ];
+        lastReversal = postToLedger(db, {
+          sourceType: 'opening_cheque_reversal', sourceId: row.id, date: todayJalali(),
+          description: `ابطال چک اول دوره ${row.cheque_number || row.id}`, createdBy: user.id, lines,
+        });
+      } else {
+        lastReversal = reverseJournalEntry(db, row.journal_entry_id, {
+          userId: user.id,
+          reason: `ابطال چک ${row.cheque_number || row.id}`,
+          sourceType: 'cheque_in_reversal',
+        }) || lastReversal;
+      }
     }
 
     db.prepare(`
@@ -63,6 +71,15 @@ function voidChequeRecord(db, chequeId, user) {
         status=CASE WHEN status IS NULL OR status='' THEN 'ابطال‌شده' ELSE status || ' (ابطال)' END
       WHERE id=?
     `).run(lastReversal, user.id, row.id);
+
+    const { reverseChequeLedgerByRef } = require('./cheque-party-books');
+    reverseChequeLedgerByRef(db, {
+      chequeId: row.id,
+      refTypes: ['cheque_endorse', 'cheque_in', 'cheque_bounce'],
+      date: todayJalali(),
+      userId: user.id,
+      descriptionPrefix: `ابطال چک ${row.cheque_number || row.id}`,
+    });
   })();
 
   audit(user.id, 'reverse', 'cheque_record', row.id, `ابطال کامل چک ${row.cheque_number || row.id}`);

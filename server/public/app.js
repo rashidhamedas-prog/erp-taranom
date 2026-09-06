@@ -5,7 +5,7 @@ if(typeof T!=='function'){ window.T=function(s){return s;}; window.tt=function(a
 let ME = null;
 // Master lists (warehouses, groups, …) must be null — NOT [] — so `if(!CACHE.warehouses)`
 // actually fetches. Empty array is truthy and used to block reload until you open that section.
-let CACHE = { customers:[], products:[], allProducts:[], users:[], orders:[], followups:[], invoices:[], settings:{}, productCategories:null, warehouses:null, productCats:null, partyGroups:null, _prodWarehouses:null, _prodCats:null, _prodMetaLoaded:false };
+let CACHE = { customers:[], products:[], allProducts:[], _invProducts:[], users:[], orders:[], followups:[], invoices:[], settings:{}, productCategories:null, warehouses:null, productCats:null, partyGroups:null, _prodWarehouses:null, _prodCats:null, _prodMetaLoaded:false };
 let mChart = null;
 let APP_INFO = null, PENDING_UPDATE = null;
 const _apiCache = {};
@@ -139,8 +139,21 @@ async function api(method, path, data, isFormData, silent){
   if(data && !isFormData){ opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(data); }
   else if(isFormData) opts.body = data;
   let r;
-  try { r = await fetch('/api'+path, opts); }
-  catch(e){ if(!silent) showToast('خطای ارتباط با سرور','error'); throw e; }
+  const net = window.NetResilience;
+  try {
+    if(net && String(method).toUpperCase()==='GET'){
+      r = await net.fetchWithRetry('/api'+path, opts, { attempts: 4, timeoutMs: 20000, mode: 'get' });
+    } else if(net && net.fetchOnce){
+      r = await net.fetchOnce('/api'+path, opts, { timeoutMs: 60000 });
+    } else {
+      r = await fetch('/api'+path, opts);
+    }
+  }
+  catch(e){
+    const classified = net && net.classifyTransportError ? net.classifyTransportError(e) : null;
+    if(!silent) showToast((classified && classified.message) || 'خطای ارتباط با سرور','error');
+    throw e;
+  }
   if(r.status === 401){ logout(); return null; }
   const ct = r.headers.get('content-type')||'';
   if(ct.includes('application/json')){
@@ -195,6 +208,9 @@ async function api(method, path, data, isFormData, silent){
         E_STAGE_NOT_IN_ROUTING:'مرکز مرحلهٔ قلم در مسیر عملیات نیست',
         E_COST_TREE_TIMEOUT:'محاسبهٔ درخت بها زمان‌بر شد — دوباره تلاش کنید',
         'no such column: is_active':'خطای ستون پایگاه‌داده — سرور را به‌روز کنید',
+        demo_operation_blocked:'این عملیات در نسخه نمایشی مجاز نیست',
+        E_COLOR_INVALID_HEX:'کد رنگ باید #RGB یا #RRGGBB باشد',
+        E_COLOR_DUPLICATE:'این کد رنگ قبلاً ثبت شده است',
       };
       if(!silent) showToast(prodFriendly[code] || j.error || 'خطا رخ داد','error');
       const err=new Error(j.error||'error'); err.code=code; err.status=r.status; err.payload=j; throw err;
@@ -217,6 +233,7 @@ function currencyUnitShort(){ return 'ریال'; }
 function toDisplayAmount(stored){ return Math.round(parseFloat(stored)||0); }
 function fromInputAmount(input){ return Math.round(parseFloat(input)||0); }
 function fmt(n){ return Number(toDisplayAmount(n||0)).toLocaleString('fa-IR'); }
+function fmtCrmRial(n){ return fmt(n)+' ریال'; }
 /** مقدار کالا — تا ۳ رقم اعشار، رقم سوم رند می‌شود */
 function round3(n){
   const x=Number(n);
@@ -247,8 +264,21 @@ function balSides(balance){
   const b=Number(balance)||0;
   return { debit: b>0?b:0, credit: b<0?-b:0, net:b };
 }
+/** جمع خانواده‌ها جدا می‌ماند؛ مانده خالص = تفاضل. ماهیت نهایی سمت بزرگ‌تر است. */
 function balTotals(rows){
-  return (rows||[]).reduce((a,c)=>{ const s=balSides(c&&c.balance); a.debit+=s.debit; a.credit+=s.credit; return a; },{debit:0,credit:0});
+  const t=(rows||[]).reduce((a,c)=>{ const s=balSides(c&&c.balance); a.debit+=s.debit; a.credit+=s.credit; return a; },{debit:0,credit:0});
+  const net=t.debit-t.credit;
+  t.net=net;
+  t.netAbs=Math.abs(net);
+  t.nature=net>0?'debit':net<0?'credit':'';
+  t.netDebit=net>0?net:0;
+  t.netCredit=net<0?-net:0;
+  return t;
+}
+function balNetLabel(t){
+  if(t.nature==='debit') return 'بدهکار';
+  if(t.nature==='credit') return 'بستانکار';
+  return '—';
 }
 /** ماهیت نمایشی مانده زنده (اولویت با علامت مانده؛ گروه فقط راهنماست) */
 function natureLabelOf(c){
@@ -286,9 +316,9 @@ function balFooterPairHtml(rows, colsBefore, colsAfter){
   const t=balTotals(rows);
   const after=colsAfter>0?`<td colspan="${colsAfter}"></td>`:'';
   return `<tr class="tbl-footer-sum" data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-    <td data-label="جمع" colspan="${colsBefore}">جمع (${fmt((rows||[]).length)} مورد)</td>
-    <td data-label="جمع بدهکار" class="mono" id="dashBalDebitTotal" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${t.debit?fmt(t.debit):'-'}</td>
-    <td data-label="جمع بستانکار" class="mono" id="dashBalCreditTotal" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${t.credit?fmt(t.credit):'-'}</td>
+    <td data-label="جمع" colspan="${colsBefore}">مانده خالص (${fmt((rows||[]).length)} مورد) — ${balNetLabel(t)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;font-weight:500`)}">بدهکاران ${fmt(t.debit)} · بستانکاران ${fmt(t.credit)} → تفاضل؛ جمع نمی‌شوند</div></td>
+    <td data-label="مانده خالص بدهکار" class="mono" id="dashBalDebitTotal" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${t.netDebit?fmt(t.netDebit):'-'}</td>
+    <td data-label="مانده خالص بستانکار" class="mono" id="dashBalCreditTotal" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${t.netCredit?fmt(t.netCredit):'-'}</td>
     ${after}
   </tr>`;
 }
@@ -330,6 +360,102 @@ function formatMoneyInput(elm){
 function moneyVal(id){ const e=el(id); if(!e) return 0; const raw=parseInt((e.value||'').replace(/[^\d]/g,''))||0; return fromInputAmount(raw); }
 // Pre-fill a money input with a formatted initial value (stored Rial → display unit)
 function moneyInit(v){ v=toDisplayAmount(parseInt(v)||0); return v?Number(v).toLocaleString('en-US'):''; }
+function moneyParseInput(elm){
+  return parseInt(String((elm&&elm.value)||'').replace(/[^\d]/g,''),10)||0;
+}
+function freightTypeIsSeller(v){
+  const t=String(v||'').trim().toLowerCase();
+  return t==='seller' || t==='عهده فروشنده' || t==='فروشنده';
+}
+function allocateFreightShares(rows, freightAmount, method){
+  const freight=Math.round(Number(freightAmount)||0);
+  const shares=rows.map(()=>0);
+  if(freight<=0) return shares;
+  const idx=[];
+  rows.forEach((r,i)=>{ if(r && r.row_type!=='income' && r.product_id) idx.push(i); });
+  if(!idx.length) return shares;
+  const m=method==='qty'||method==='equal'?method:'amount';
+  const weights=idx.map(i=>{
+    const r=rows[i];
+    if(m==='equal') return 1;
+    if(m==='qty') return Number(r.qty)||0;
+    return Math.max(0, Math.round((Number(r.qty)||0)*(Number(r.price)||0) - (Number(r.disc_amount)||0)));
+  });
+  const totalW=weights.reduce((a,b)=>a+b,0);
+  if(totalW<=0) return shares;
+  let allocated=0;
+  idx.forEach((rowIdx,k)=>{
+    const share=k===idx.length-1 ? freight-allocated : Math.round(freight*weights[k]/totalW);
+    allocated+=share;
+    shares[rowIdx]=share;
+  });
+  return shares;
+}
+function invPackOneLine(indices){
+  const colors=[], sizes=[];
+  (indices||[]).forEach(i=>{
+    const r=invCart[i]; if(!r) return;
+    const c=String(r.color_name||r.color||'').trim();
+    const s=String(r.size_name||'').trim();
+    if(c) colors.push(c);
+    if(s) sizes.push(s);
+  });
+  const c=[...new Set(colors)];
+  const s=[...new Set(sizes)];
+  return [c.length?c.join('، '):'', s.length?s.join(' '):''].filter(Boolean).join(' · ');
+}
+function showInvVariantDetail(pid, indices){
+  const p=findInvProduct(pid);
+  const name=p?p.name:'کالا';
+  let body='';
+  if(Array.isArray(indices) && indices.length){
+    const chips=indices.map(i=>{
+      const r=invCart[i]; if(!r) return '';
+      const label=[r.color_name||r.color, r.size_name].filter(Boolean).join(' / ')||'SKU';
+      return `<span class="var-chip">${esc(label)} <b>× ${fmt(r.qty)}</b></span>`;
+    }).filter(Boolean).join('');
+    body=`<div class="var-chip-wrap">${chips}</div>`;
+  } else {
+    const sum=(CACHE._invVarSum&& (CACHE._invVarSum[pid]||CACHE._invVarSum[String(pid)]))||{};
+    const colors=sum.colors||[];
+    const sizes=sum.sizes||[];
+    body=`<div class="var-chip-wrap">${colors.map(c=>`<span class="var-chip">${esc(c)}</span>`).join('')}</div>
+      <div class="var-chip-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}">${sizes.map(s=>`<span class="var-chip">${esc(s)}</span>`).join('')}</div>
+      ${!colors.length && !sizes.length?'<div class="muted">جزئیات رنگ/سایز برای این کالا ثبت نشده</div>':''}`;
+  }
+  openNestedModal(`<div class="modal-head"><h3>رنگ و سایز — ${esc(name)}</h3>
+    <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
+    <div class="modal-body">${body}</div>
+    <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">بستن</button></div>`);
+}
+async function hydrateInvVarSum(ids){
+  const miss=(ids||[]).filter(id=>!(CACHE._invVarSum && Object.prototype.hasOwnProperty.call(CACHE._invVarSum, String(id))));
+  if(!miss.length) return false;
+  CACHE._invVarSum=CACHE._invVarSum||{};
+  try{
+    const data=await api('GET','/product-variants/summaries?ids='+miss.join(','))||{};
+    miss.forEach(id=>{
+      CACHE._invVarSum[String(id)]=data[id]||data[String(id)]||{line:''};
+    });
+  }catch(_){
+    miss.forEach(id=>{ CACHE._invVarSum[String(id)]={line:''}; });
+  }
+  return true;
+}
+function invoiceNegativeStockWarn(cart){
+  const issues=[];
+  (cart||[]).forEach(r=>{
+    if(!r || r.row_type==='income' || r.batch_id || r.is_fabric_roll) return;
+    const p=findInvProduct(r.product_id);
+    if(!p) return;
+    const avail=Number(p.wh_qty!=null?p.wh_qty:(p.stock||0));
+    if(Number(r.qty)>avail+1e-9){
+      issues.push((r.name||p.name||'کالا')+' — نیاز '+fmtQty(r.qty)+'، موجود '+fmt(avail));
+    }
+  });
+  if(!issues.length) return true;
+  return confirm('با ثبت این فاکتور موجودی این کالاها منفی می‌شود:\n'+issues.join('\n')+'\nادامه می‌دهید؟');
+}
 /* ---- Auto-English digits: any field that must hold Latin numerals converts
    Persian/Arabic digits the moment they are typed (hardware keyboards on a
    Persian layout), and inputmode already gives mobile users the digit pad.
@@ -433,6 +559,15 @@ function syncAcctDrawerUser(){
 }
 function onSettingsLangChange(lang){
   setAppLang(lang);
+  try{ buildNav(); }catch(_){}
+  applyAppLanguage();
+  if(CURRENT_PAGE==='settings') ROUTES.settings();
+}
+function filterMainNavItem(it){
+  const flags=CACHE.moduleFlags||CACHE.settings||{};
+  if(it.id==='ai' && String(flags.feature_ai_assistant||'0')!=='1') return false;
+  if(it.id==='b2bOrders' && String(flags.feature_b2b_portal||'0')!=='1') return false;
+  return true;
 }
 function applyAppLanguage(){
   try{
@@ -505,7 +640,7 @@ const STATUS_LABEL = {
   vip:'ویژه', active:'فعال', followup:'پیگیری', silent:'خاموش', new:'جدید',
   pending:'در انتظار', onway:'در راه', done:'تحویل شده', cancel:'لغو شده',
   open:'باز', high:'بالا', mid:'متوسط', low:'پایین',
-  proforma:'پیش‌فاکتور', final:'فاکتور رسمی',
+  proforma:'پیش‌فاکتور', normal:'فاکتور معمولی', final:'فاکتور رسمی',
   lead:'سرنخ', contact:'تماس', proposal:'پیشنهاد', negotiation:'مذاکره', won:'خرید کرد', lost:'از دست رفت',
   very_low:'خیلی کم', very_high:'خیلی زیاد',
   received:'وصول شد', bounced:'برگشت خورد', cancelled:'لغو شد'
@@ -606,12 +741,23 @@ function initCustSearches(scope){
     const inp=el(id+'-input');
     if(!inp||inp.dataset.csBound) return;
     inp.dataset.csBound='1';
-    inp.addEventListener('focus',()=>kind==='supplier'?showSupplierDrop(id,''):showCustDrop(id,''));
-    inp.addEventListener('input',()=>kind==='supplier'?showSupplierDrop(id,inp.value):showCustDrop(id,inp.value));
-    inp.addEventListener('keydown',e=>{
-      if(e.key==='Escape'){kind==='supplier'?hideSupplierDrop(id):hideCustDrop(id);}
-    });
+    const show=()=>{
+      if(kind==='supplier') showSupplierDrop(id, inp.value);
+      else if(kind==='party') showPartyDrop(id, inp.value);
+      else if(kind==='generic'||kind==='product'||kind==='person'||kind==='roll') showGenericDrop(id, inp.value);
+      else showCustDrop(id, inp.value);
+    };
+    const hide=()=>{
+      if(kind==='supplier') hideSupplierDrop(id);
+      else if(kind==='party') hidePartyDrop(id);
+      else if(kind==='generic'||kind==='product'||kind==='person'||kind==='roll') hideGenericDrop(id);
+      else hideCustDrop(id);
+    };
+    inp.addEventListener('focus',()=>show());
+    inp.addEventListener('input',()=>show());
+    inp.addEventListener('keydown',e=>{ if(e.key==='Escape') hide(); });
   });
+  try{ initPartySearches(scope); }catch(_){}
 }
 // Supplier search initializer — alias so purchase/return modals can call either name
 function initSupplierSearches(scope){ initCustSearches(scope); }
@@ -642,6 +788,59 @@ function pickSupplier(id, supId){
   hideSupplierDrop(id);
 }
 function hideSupplierDrop(id){ const drop=el(id+'-drop'); if(drop) drop.style.display='none'; }
+function partyDisplayName(p){
+  return (p&& (p.full_name||p.company_name||p.biz||''))||'';
+}
+function partySelect(id, selectedId){
+  const list=CACHE.parties||[];
+  const sel=selectedId?list.find(p=>p.id===+selectedId):null;
+  return `<div class="cust-sw party-sw" data-cs-id="${esc(id)}" data-kind="party">
+    <input type="hidden" id="${esc(id)}" value="${selectedId||''}">
+    <input type="text" id="${esc(id)}-input" class="cust-si" placeholder="جستجو: نام، تلفن، کد شخص..." value="${sel?esc(partyDisplayName(sel)):''}">
+    <div id="${esc(id)}-drop" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
+  </div>`;
+}
+async function ensurePartiesCache(){
+  if(Array.isArray(CACHE.parties)&&CACHE.parties.length) return;
+  const resp=await api('GET','/parties?limit=500')||{};
+  CACHE.parties=Array.isArray(resp.data)?resp.data:(Array.isArray(resp)?resp:[]);
+}
+function initPartySearches(scope){
+  (scope||document).querySelectorAll('.party-sw').forEach(sw=>{
+    const id=sw.dataset.csId;
+    const inp=el(id+'-input');
+    if(!inp||inp.dataset.psBound) return;
+    inp.dataset.psBound='1';
+    inp.addEventListener('focus',()=>showPartyDrop(id,''));
+    inp.addEventListener('input',()=>showPartyDrop(id,inp.value));
+    inp.addEventListener('keydown',e=>{ if(e.key==='Escape') hidePartyDrop(id); });
+  });
+}
+function showPartyDrop(id, q){
+  const drop=el(id+'-drop'); const inp=el(id+'-input'); if(!drop||!inp) return;
+  const term=(q||'').trim().toLowerCase();
+  let list=CACHE.parties||[];
+  if(term){
+    const words=term.split(/\s+/);
+    list=list.filter(p=>{
+      const hay=((p.full_name||'')+' '+(p.company_name||'')+' '+(p.biz||'')+' '+(p.phone||'')+' '+(p.person_code||'')).toLowerCase();
+      return words.every(w=>hay.includes(w));
+    });
+  }
+  const rect=inp.getBoundingClientRect();
+  drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
+  drop.innerHTML = list.slice(0,40).map(p=>`
+    <div class="cust-si-item" data-csp-click="${CSP.bind('click',function(event){pickParty(`${String((id) ?? '')}`,(p.id))})}">
+      <span>${esc(partyDisplayName(p))}</span><span class="cust-si-meta">${esc(p.phone||p.person_code||'')}</span>
+    </div>`).join('') || '<div class="cust-si-empty">شخص یافت نشد</div>';
+}
+function pickParty(id, partyId){
+  const h=el(id); if(h){ h.value=partyId||''; h.dispatchEvent(new Event('change')); }
+  const inp=el(id+'-input');
+  if(inp){ const p=(CACHE.parties||[]).find(x=>x.id===+partyId); inp.value=p?partyDisplayName(p):''; }
+  hidePartyDrop(id);
+}
+function hidePartyDrop(id){ const drop=el(id+'-drop'); if(drop) drop.style.display='none'; }
 function showCustDrop(id, q){
   const drop=el(id+'-drop'); if(!drop) return;
   const inp=el(id+'-input'); if(!inp) return;
@@ -684,6 +883,90 @@ function pickCust(id, custId){
 function hideCustDrop(id){
   const drop=el(id+'-drop'); if(drop) drop.style.display='none';
 }
+const _searchLists = {};
+function searchSelect(id, items, selectedId, opts){
+  opts=opts||{};
+  _searchLists[id]=items||[];
+  const sel=(items||[]).find(x=>String(x.id)===String(selectedId));
+  const ph=opts.placeholder||'جستجو: نام، کد...';
+  const extraCls=opts.inputClass?esc(opts.inputClass):'';
+  return `<div class="cust-sw search-sw" data-cs-id="${esc(id)}" data-kind="${esc(opts.kind||'generic')}">
+    <input type="hidden" id="${esc(id)}" class="${extraCls}" value="${selectedId||''}">
+    <input type="text" id="${esc(id)}-input" class="cust-si" placeholder="${ph}" value="${sel?esc(sel.label):''}">
+    <div id="${esc(id)}-drop" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
+  </div>`;
+}
+function productSelect(id, selectedId, list, extra){
+  const src=list||CACHE.allProducts||CACHE.products||CACHE._invProducts||[];
+  const items=src.map(p=>({
+    id:p.id,
+    label:p.name||'',
+    meta:(p.code?p.code+' · ':'')+'موجودی '+fmt(p.wh_qty!=null?p.wh_qty:(p.stock||0)),
+    hay:[p.name,p.code,p.barcode,p.sku,p.category].filter(Boolean).join(' ')
+  }));
+  return searchSelect(id, items, selectedId, Object.assign({kind:'product', placeholder:'جستجو: نام، کد کالا...'}, extra||{}));
+}
+function personSelect(id, selectedId, list){
+  const src=list||CACHE.persons||[];
+  const items=(Array.isArray(src)?src:[]).map(p=>({
+    id:p.id,
+    label:p.name||p.full_name||'',
+    meta:p.phone||p.personnel_code||p.category_name||'',
+    hay:[p.name,p.full_name,p.phone,p.personnel_code,p.category_name].filter(Boolean).join(' ')
+  }));
+  return searchSelect(id, items, selectedId, {kind:'person', placeholder:'جستجو: نام، تلفن، کد...'});
+}
+function rollSelect(id, rolls, selectedId){
+  const items=(rolls||[]).map(b=>({
+    id:b.id,
+    label:`${b.batch_no||('#'+b.id)} — ${b.product_name||''} ${b.color||''}`.trim(),
+    meta:`${fmt(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} متر`,
+    hay:[b.batch_no,b.product_name,b.color,b.pattern].filter(Boolean).join(' '),
+    extra:b
+  }));
+  return searchSelect(id, items, selectedId, {kind:'roll', placeholder:'جستجو: شماره طاقه، کالا، رنگ...'});
+}
+function showGenericDrop(id, q){
+  const drop=el(id+'-drop'); const inp=el(id+'-input'); if(!drop||!inp) return;
+  const term=(q||'').trim().toLowerCase();
+  let list=_searchLists[id]||[];
+  if(term){
+    const words=term.split(/\s+/);
+    list=list.filter(it=>{
+      const hay=((it.hay||'')+' '+(it.label||'')+' '+(it.meta||'')).toLowerCase();
+      return words.every(w=>hay.includes(w));
+    });
+  }
+  const rect=inp.getBoundingClientRect();
+  drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=rect.width+'px'; drop.style.display='block';
+  drop.innerHTML = list.slice(0,80).map(it=>`
+    <div class="cust-si-item" data-csp-click="${CSP.bind('click',function(event){pickGeneric(`${String((id) ?? '')}`,(it.id))})}">
+      <span>${esc(it.label)}</span><span class="cust-si-meta">${esc(it.meta||'')}</span>
+    </div>`).join('') || '<div class="cust-si-empty">موردی یافت نشد</div>';
+}
+function pickGeneric(id, itemId){
+  const h=el(id);
+  const items=_searchLists[id]||[];
+  const item=items.find(x=>String(x.id)===String(itemId));
+  if(h){
+    h.value=itemId||'';
+    if(item && item.extra){
+      const x=item.extra;
+      h.dataset.pid=x.product_id||'';
+      h.dataset.qty=x.qty_available!=null?x.qty_available:(x.qty_live!=null?x.qty_live:x.qty_on_hand||0);
+      h.dataset.color=x.color||'';
+      h.dataset.pat=x.pattern||'';
+      h.dataset.no=x.batch_no||'';
+      h.dataset.wh=x.warehouse_id||'';
+      h.dataset.cost=x.unit_cost_rial||0;
+    }
+    h.dispatchEvent(new Event('change'));
+  }
+  const inp=el(id+'-input');
+  if(inp) inp.value=item?item.label:'';
+  hideGenericDrop(id);
+}
+function hideGenericDrop(id){ const drop=el(id+'-drop'); if(drop) drop.style.display='none'; }
 
 /* ---- Datepicker popup ---- */
 let DP = { input:null, y:0, m:0, sel:null };
@@ -788,36 +1071,53 @@ el('loginForm').addEventListener('submit', async (e)=>{
   const username = el('loginUser').value.trim();
   const password = el('loginPass').value;
   if(!username || !password){ el('loginErr').textContent='نام کاربری و رمز را وارد کنید'; return; }
+  const submitBtn = el('loginForm').querySelector('button[type="submit"]') || el('loginForm').querySelector('button');
+  const submitLabel = submitBtn ? submitBtn.textContent : '';
+  const net = window.NetResilience;
+  const setLoginErr = (msg)=>{ el('loginErr').textContent = msg || ''; };
   try{
+    if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = 'در حال اتصال…'; }
+    setLoginErr('در حال اتصال به سرور…');
+    if(net && net.waitUntilReady){
+      await net.waitUntilReady(null, { attempts: 6, timeoutMs: 4000 });
+    }
     const devicePayload = getLoginDevicePayload();
     const attemptLogin = async (force)=>{
       const body={username,password,...devicePayload};
       if(force) body.force_logout_other=true;
-      const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const headers={'Content-Type':'application/json'};
+      const fetchLogin = net && net.fetchWithRetry
+        ? (u,o)=>net.fetchWithRetry(u,o,{ attempts: 5, timeoutMs: 15000, mode: 'login' })
+        : fetch;
+      const r = await fetchLogin('/api/auth/login',{method:'POST',headers,body:JSON.stringify(body),cache:'no-store'});
       const ct = r.headers.get('content-type')||'';
       let j = null, raw = '';
       try { raw = await r.text(); j = raw ? JSON.parse(raw) : null; } catch(parseErr){ j = null; }
+      if(!j && net && net.classifyHttpFailure){
+        const classified = net.classifyHttpFailure(r.status, null);
+        return {r,j,classified};
+      }
       return {r,j};
     };
-    let {r,j} = await attemptLogin(false);
+    let {r,j,classified} = await attemptLogin(false);
     if(!j){
-      el('loginErr').textContent = 'پاسخ نامعتبر از سرور ('+r.status+')';
+      setLoginErr((classified && classified.message) || ('پاسخ نامعتبر از سرور ('+r.status+') — اگر به‌روزرسانی در جریان است چند ثانیه صبر کنید'));
       return;
     }
     if(r.status===409 && j.code==='DEVICE_SESSION_ACTIVE'){
       const other=j.other_device||{};
       const slotFa={mobile:'موبایل',desktop:'دسکتاپ/ویندوز',web:'وب'}[other.device_slot]||'';
       const ok=confirm((j.error||'نشست دیگری فعال است')+'\n\nدستگاه قبلی'+(slotFa?' ('+slotFa+')':'')+': '+(other.device_name||other.device_kind||'نامشخص')+'\n\nقطع نشست قبلی همین نوع دستگاه و ورود در این دستگاه؟');
-      if(!ok){ el('loginErr').textContent=j.error||'ورود لغو شد'; return; }
-      ({r,j} = await attemptLogin(true));
-      if(!j){ el('loginErr').textContent='پاسخ نامعتبر از سرور'; return; }
+      if(!ok){ setLoginErr(j.error||'ورود لغو شد'); return; }
+      ({r,j,classified} = await attemptLogin(true));
+      if(!j){ setLoginErr((classified && classified.message) || 'پاسخ نامعتبر از سرور'); return; }
     }
     if(!r.ok){
-      let msg = j.error || 'خطا در ورود';
+      let msg = j.error || (classified && classified.message) || 'خطا در ورود';
       if(APP_INFO && APP_INFO.role==='device'){
         msg += ' — اگر اتصال خراب است، لینک «قطع اتصال و اتصال مجدد» پایین همین صفحه را بزنید';
       }
-      el('loginErr').textContent = msg;
+      setLoginErr(msg);
       return;
     }
     if(j.twofa_required){ show2FALogin(j.pre_token); return; }
@@ -827,9 +1127,17 @@ el('loginForm').addEventListener('submit', async (e)=>{
     if(j.must_change_password){
       el('login').style.display='none'; openForcePassChange(); return;
     }
-    await boot();
+    try {
+      await boot();
+    } catch (bootErr) {
+      console.error(bootErr);
+      setLoginErr('ورود موفق بود ولی بارگذاری برنامه کامل نشد. صفحه را تازه کنید (Ctrl+Shift+R).');
+    }
   }catch(err){
-    el('loginErr').textContent='خطای ارتباط با سرور';
+    const classified = net && net.classifyTransportError ? net.classifyTransportError(err) : null;
+    setLoginErr((classified && classified.message) || 'خطای ارتباط با سرور');
+  } finally {
+    if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = submitLabel || 'ورود به سامانه'; }
   }
 });
 function getLoginDevicePayload(){
@@ -930,17 +1238,27 @@ async function verify2FALogin(){
   const code = el('tfa-code').value.trim();
   if(!code){ el('tfa-err').textContent='کد را وارد کنید'; return; }
   try{
-    const r = await fetch('/api/auth/2fa/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})});
+    const r = await (window.NetResilience && window.NetResilience.fetchWithRetry
+      ? window.NetResilience.fetchWithRetry('/api/auth/2fa/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})},{attempts:4,timeoutMs:15000,mode:'login'})
+      : fetch('/api/auth/2fa/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})}));
     await finish2FALogin(r);
-  }catch{ el('tfa-err').textContent='خطای ارتباط با سرور'; }
+  }catch(e){
+    const classified = window.NetResilience && window.NetResilience.classifyTransportError ? window.NetResilience.classifyTransportError(e) : null;
+    el('tfa-err').textContent=(classified && classified.message)||'خطای ارتباط با سرور';
+  }
 }
 async function verify2FARecovery(){
   const code = el('tfa-recovery').value.trim();
   if(!code){ el('tfa-err').textContent='کد بازیابی را وارد کنید'; return; }
   try{
-    const r = await fetch('/api/auth/2fa/recovery-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})});
+    const r = await (window.NetResilience && window.NetResilience.fetchWithRetry
+      ? window.NetResilience.fetchWithRetry('/api/auth/2fa/recovery-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})},{attempts:4,timeoutMs:15000,mode:'login'})
+      : fetch('/api/auth/2fa/recovery-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pre_token:_pre2faToken, code})}));
     await finish2FALogin(r);
-  }catch{ el('tfa-err').textContent='خطای ارتباط با سرور'; }
+  }catch(e){
+    const classified = window.NetResilience && window.NetResilience.classifyTransportError ? window.NetResilience.classifyTransportError(e) : null;
+    el('tfa-err').textContent=(classified && classified.message)||'خطای ارتباط با سرور';
+  }
 }
 
 function openForgotPass(){
@@ -1082,14 +1400,18 @@ const LU = (()=> {
     'acc-payroll-processing':'calc', 'acc-payroll-year-end':'gift',
     'acc-payroll-reports':'clipboard',
     'acc-parties':'users', 'acc-party-groups':'folder', 'acc-products':'box',
-    'acc-product-groups':'tags', 'acc-incomes':'trending', 'acc-expenses':'linechart',
+    'acc-product-groups':'tags', 'acc-product-colors':'palette', 'acc-product-sizes':'ruler', 'acc-incomes':'trending', 'acc-expenses':'linechart',
     'acc-expense-categories':'folder', 'acc-person-positions':'tags', 'acc-opening-recv-cheques':'download',
     'acc-opening-pay-cheques':'upload', 'acc-coa-codes':'hash', 'acc-account-groups':'layers',
     'acc-ledger-accounts':'book', 'acc-subsidiary-accounts':'book', 'acc-detail-accounts':'book',
+    'acc-shared-ledger':'book',
     'acc-detail-categories':'tags', 'acc-other-details':'clipboard', 'acc-equity-info':'briefcase',
     'acc-shareholders':'handshake', 'acc-units':'ruler', 'acc-fiscal-period':'file',
     'acc-cheques-recv':'download', 'acc-cheques-pay':'upload', 'acc-proforma':'file',
     'acc-orders-list':'cart', 'acc-stocktaking':'clipboard', 'acc-inv-batches':'tags',
+    'acc-fabric-rolls':'tags',
+    'acc-fabric-roll-kardex':'clipboard',
+    'acc-cutting-lays':'scissors',
     'acc-inv-reservations':'lock', 'acc-inv-landed':'ship', 'acc-account-transfer':'repeat',
     'acc-moadian-hub':'radio', 'acc-petty-cash-ops':'coins', 'acc-cheque-register':'book',
     'acc-journal-docs':'file', 'acc-journal-entry':'pen', 'acc-opening-voucher':'circle',
@@ -1099,10 +1421,10 @@ const LU = (()=> {
     'acc-production-dashboard':'chart', 'acc-production-estimate':'calc',
     'acc-production-mrp':'box', 'acc-production-orders':'factory', 'acc-production-kanban':'clipboard',
     'acc-production-boms':'ruler', 'acc-production-rates':'settings', 'acc-production-access':'lock',
-    'acc-production-variance':'search', 'acc-production-close':'lock',
+    'acc-production-variance':'search', 'acc-production-reports':'chart', 'acc-production-close':'lock',
     'acc-production-monthly-profit':'coins', 'acc-production-cost-sheet':'file',
     'acc-fixed-assets':'building', 'acc-currencies':'banknote', 'acc-fx-rates':'chart',
-    'acc-pos-devices':'card', 'acc-scale-settings':'scale', 'acc-company-profile':'building',
+    'acc-pos-devices':'card', 'acc-pos-report':'card', 'acc-scale-settings':'scale', 'acc-company-profile':'building',
     'acc-settings':'settings', 'acc-backup':'archive', 'acc-fiscal-ops':'file',
     'acc-moadian':'radio', 'acc-incentive-plans':'target',
     'acc-portal-units':'building', 'acc-portal-my-dept':'factory',
@@ -1141,7 +1463,8 @@ const EMO_LU = {
 const NAV_ADMIN = [
   {id:'dash', icon:'📊', label:'داشبورد'},
   {id:'customers', icon:'👥', label:'مشتریان'},
-  {id:'followups', icon:'📞', label:'پیگیری‌ها'},
+  {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
+  {id:'crm-dashboard', icon:'📉', label:'داشبورد و گزارش‌های CRM', group:'پیگیری CRM'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'products', icon:'🛍️', label:'کالاها'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
@@ -1156,7 +1479,8 @@ const NAV_ADMIN = [
 const NAV_SALES = [
   {id:'dash', icon:'🏠', label:'داشبورد'},
   {id:'customers', icon:'👥', label:'مشتریان'},
-  {id:'followups', icon:'📞', label:'پیگیری‌ها'},
+  {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
+  {id:'crm-dashboard', icon:'📉', label:'داشبورد و گزارش‌های CRM', group:'پیگیری CRM'},
   {id:'invoices', icon:'🧾', label:'فاکتور'},
   {id:'catalog', icon:'🛍️', label:'کاتالوگ'},
   {id:'marketer', icon:'🛒', label:'فروش بازاریاب'},
@@ -1168,6 +1492,8 @@ const NAV_SALES = [
 const NAV_ACCOUNTING = [
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'customers', icon:'👥', label:'مشتریان'},
+  {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
+  {id:'crm-dashboard', icon:'📉', label:'داشبورد و گزارش‌های CRM', group:'پیگیری CRM'},
   {id:'ai', icon:'🤖', label:'دستیار هوشمند'},
   {id:'messages', icon:'💬', label:'پیام‌ها'},
   {id:'help', icon:'📖', label:'راهنما'},
@@ -1178,6 +1504,23 @@ const NAV_ACCOUNTING = [
 // ---- Accounting module nav: see /acc-nav.js (ACC_NAV_SECTIONS) ----
 const ACC_NAV = accNavFlat();
 const ACC_NAV_COLLAPSED = new Set(ACC_NAV_SECTIONS.map((_, i) => i));
+function collapseAllAccNav(){
+  ACC_NAV_COLLAPSED.clear();
+  ACC_NAV_SECTIONS.forEach((_, i)=>ACC_NAV_COLLAPSED.add(i));
+}
+function expandAccNavForPage(page){
+  if(!IN_ACC_SHELL || typeof ACC_NAV_SECTIONS==='undefined' || !page) return;
+  if(page==='acc-dash' || page==='exit-acc-shell') return;
+  const idx = ACC_NAV_SECTIONS.findIndex(sec=>{
+    const items = sec.items || (sec.subgroups||[]).flatMap(sg=>sg.items||[]);
+    return items.some(it=>it.id===page);
+  });
+  if(idx<0) return;
+  if(ACC_NAV_COLLAPSED.has(idx)){
+    ACC_NAV_COLLAPSED.delete(idx);
+    buildNav();
+  }
+}
 function toggleAccNavSection(si){
   if(ACC_NAV_COLLAPSED.has(si)) ACC_NAV_COLLAPSED.delete(si); else ACC_NAV_COLLAPSED.add(si);
   buildNav();
@@ -1194,14 +1537,15 @@ const ACC_MODULE_MAP={
   'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
   'acc-warehouse-report':'module_warehouses',
   'acc-stocktaking':'module_warehouses','acc-item-kardex':'module_warehouses',
-  'acc-inv-batches':'module_warehouses','acc-inv-reservations':'module_warehouses',
+  'acc-inv-batches':'module_warehouses','acc-fabric-rolls':'module_warehouses','acc-fabric-roll-kardex':'module_warehouses','acc-inv-reservations':'module_warehouses',
   'acc-inv-landed':'module_warehouses',
   'acc-consignments':'module_consignments','acc-production':'module_production',
   'acc-production-orders':'module_production','acc-production-boms':'module_production',
+  'acc-cutting-lays':'module_production',
   'acc-production-dashboard':'module_production','acc-production-close':'module_production',
   'acc-production-monthly-profit':'module_production','acc-production-cost-sheet':'module_production',
   'acc-production-estimate':'module_production','acc-production-kanban':'module_production',
-  'acc-production-variance':'module_production','acc-production-mrp':'module_production',
+  'acc-production-variance':'module_production','acc-production-reports':'module_production','acc-production-mrp':'module_production',
   'acc-production-rates':'module_production','acc-production-access':'module_production',
   'acc-payroll':'module_payroll','acc-payroll-employees':'module_payroll',
   'acc-payroll-structures':'module_payroll','acc-payroll-periods':'module_payroll',
@@ -1211,8 +1555,26 @@ const ACC_MODULE_MAP={
   'acc-moadian':'module_moadian','acc-fixed-assets':'module_fixed_assets',
   'acc-portal-units':'module_portal','acc-portal-my-dept':'module_portal'
 };
+const ACC_PROD_PERM_MAP={
+  'acc-production-boms':['production_bom','view'],
+  'acc-production-rates':['production_cost','view'],
+  'acc-production-dashboard':['production_reports','view'],
+  'acc-production-orders':['production_order','view'],
+  'acc-cutting-lays':['production_order','view'],
+  'acc-production-kanban':['production_reports','view'],
+  'acc-production-estimate':['production_cost','view'],
+  'acc-production-mrp':['production_order','view'],
+  'acc-production-close':['production_cost','edit'],
+  'acc-production-reports':['production_reports','view'],
+  'acc-production-variance':['production_reports','view'],
+  'acc-production-monthly-profit':['production_reports','view'],
+  'acc-production-cost-sheet':['production_reports','view'],
+};
 function filterAccNavItem(it){
   if(it.id==='acc-production-access' && ME?.role!=='admin' && ME?.role!=='accounting') return false;
+  if(it.id==='acc-production-monthly-profit' && ME?.role!=='admin' && ME?.role!=='accounting') return false;
+  const pp=ACC_PROD_PERM_MAP[it.id];
+  if(pp && typeof canPerm==='function' && !canPerm(pp[0], pp[1])) return false;
   const key=ACC_MODULE_MAP[it.id];
   const flags=CACHE.moduleFlags||{};
   return !key || flags[key]!=='0';
@@ -1220,10 +1582,17 @@ function filterAccNavItem(it){
 function accNavForRole(){
   let nav=accNavFlat().filter(filterAccNavItem);
   if(ME?.role==='sales_manager'){
-    const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements']);
+    const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements','help']);
     nav=nav.filter(it=>allowed.has(it.id));
   }
   return nav;
+}
+/** نرمال‌سازی پاسخ لیست Wave1: آرایه خام یا {data,pagination} */
+function listRows(resp){
+  if(Array.isArray(resp)) return resp;
+  if(resp && Array.isArray(resp.data)) return resp.data;
+  if(resp && Array.isArray(resp.rows)) return resp.rows;
+  return [];
 }
 function navItems(){
   if(IN_ACC_SHELL){
@@ -1232,6 +1601,7 @@ function navItems(){
   // B2B portal is central-only — hide its admin menu on offline device builds
   if(ME.role==='admin'){
     let items = (APP_INFO&&APP_INFO.role==='device') ? NAV_ADMIN.filter(it=>it.id!=='b2bOrders') : NAV_ADMIN;
+    items = items.filter(filterMainNavItem);
     if(isDeviceClient() && !items.some(it=>it.id==='desktop-settings')){
       const hi=items.findIndex(it=>it.id==='help');
       const entry={ id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' };
@@ -1240,13 +1610,13 @@ function navItems(){
     return items;
   }
   if(ME.role==='accounting' || ME.role==='sales_manager'){
-    let items = NAV_ACCOUNTING;
+    let items = NAV_ACCOUNTING.filter(filterMainNavItem);
     if(isDeviceClient()){
       items = [...items.slice(0, -1), { id:'desktop-settings', icon:'⚙️', label:'تنظیمات برنامه' }, items[items.length - 1]];
     }
     return items;
   }
-  let items = NAV_SALES;
+  let items = NAV_SALES.filter(filterMainNavItem);
   if(isRepRole(ME?.role)){
     items = [{id:'my-rep', icon:'💼', label:'حساب من'}, ...items.slice(0, -1), items[items.length - 1]];
   }
@@ -1282,7 +1652,18 @@ function guardBackupAccess(){
 }
 function isRepRole(r){ return r==='field_sales'||r==='inside_sales'; }
 
+function ensureModuleFlags(){
+  if(CACHE._moduleFlagsLoading) return;
+  if(CACHE.moduleFlags && Object.keys(CACHE.moduleFlags).length) return;
+  CACHE._moduleFlagsLoading=true;
+  api('GET','/settings/modules').then(f=>{
+    CACHE.moduleFlags=f||{};
+    CACHE._moduleFlagsLoading=false;
+    buildNav();
+  }).catch(()=>{ CACHE._moduleFlagsLoading=false; });
+}
 function buildNav(){
+  ensureModuleFlags();
   const linkHtml = it=>`
     <a href="#" data-page="${it.id}" data-csp-click="${CSP.bind('click',function(event){go(`${String((it.id) ?? '')}`);return false;})}">
       <span class="ico">${navIcon(it)}</span><span>${T(it.label)}</span>
@@ -1294,7 +1675,7 @@ function buildNav(){
       const secItems = sec.items || (sec.subgroups||[]).flatMap(sg=>sg.items||[]);
       let items = secItems.filter(filterAccNavItem);
       if(ME?.role==='sales_manager'){
-        const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements']);
+        const allowed=new Set(['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements','help']);
         items=items.filter(it=>allowed.has(it.id));
       }
       if(!items.length) return '';
@@ -1302,7 +1683,7 @@ function buildNav(){
       let bodyHtml='';
       if(sec.subgroups && sec.subgroups.length){
         bodyHtml = sec.subgroups.map((sg)=>{
-          const sgItems=(sg.items||[]).filter(filterAccNavItem).filter(it=>!ME||ME.role!=='sales_manager'||['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements'].includes(it.id));
+          const sgItems=(sg.items||[]).filter(filterAccNavItem).filter(it=>!ME||ME.role!=='sales_manager'||['exit-acc-shell','acc-reps','acc-commissions','acc-receivables','acc-sales-invoices','acc-statement','acc-settlements','help'].includes(it.id));
           if(!sgItems.length) return '';
           return `<div class="nav-acc-sub">
             <div class="nav-acc-sub-title">${T(sg.title)}</div>
@@ -1335,73 +1716,120 @@ async function viewCustStatementFromDash(custId){
   }
   go('acc-statement');
 }
-async function enterAccountingShell(){
+async function enterAccountingShell(nextPage){
   IN_ACC_SHELL = true;
+  collapseAllAccNav();
   el('brandRole').textContent = '🧮 '+T('ماژول حسابداری');
   buildNav();
-  go('acc-dash');
+  go(nextPage || 'acc-dash');
   if(!CACHE.moduleFlags){
     api('GET','/settings/modules').then(f=>{ CACHE.moduleFlags=f||{}; buildNav(); }).catch(()=>{});
   }
 }
 function exitAccountingShell(){
   IN_ACC_SHELL = false;
+  if(window.WinMgr) WinMgr.closeAll();
   el('brandRole').textContent = isAdmin()?T('پنل مدیریت'):(ME.role==='accounting'||ME.role==='sales_manager')?T('پنل حسابداری'):T('پنل فروش');
   buildNav();
   go(ME.role==='accounting'||ME.role==='sales_manager'?'customers':'dash');
 }
 
+function mdiPageTitle(page){
+  const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && accNavFlat().find(x=>x.id===page));
+  if(it && it.label) return T(it.label);
+  if(page==='help') return 'راهنما';
+  if(page==='dash') return 'داشبورد';
+  if(page==='acc-dash') return 'داشبورد حسابداری';
+  return page;
+}
+function syncChromeForPage(page, title){
+  CURRENT_PAGE = page;
+  document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
+  const titleEl = el('pageTitle');
+  if(titleEl) titleEl.textContent = title || mdiPageTitle(page) || '';
+  if(window.innerWidth<=900) closeSidebar();
+  updateBackBtn();
+  try{ expandAccNavForPage(page); }catch(_){}
+}
+function hookWinMgrNav(){
+  if(!window.WinMgr || WinMgr._navHooked) return;
+  WinMgr._navHooked = true;
+  WinMgr.onFocus = function(w){
+    if(!w || !w.key) return;
+    syncChromeForPage(w.key, w.title);
+  };
+}
+async function renderPageIntoMdiBody(page, body){
+  body.innerHTML = '';
+  const mainView = el('view');
+  const placeholder = document.createElement('div');
+  placeholder.id = 'view';
+  placeholder.style.display = 'none';
+  const realId = mainView ? mainView.id : 'view';
+  if(mainView) mainView.id = 'view-main-backup';
+  body.appendChild(placeholder);
+  try{
+    CURRENT_PAGE = page;
+    if(ROUTES[page]) await ROUTES[page]();
+    while(placeholder.firstChild) body.appendChild(placeholder.firstChild);
+    if(typeof enhanceAccTables==='function') enhanceAccTables(body);
+  } finally {
+    placeholder.remove();
+    const bak = document.getElementById('view-main-backup');
+    if(bak) bak.id = realId || 'view';
+  }
+}
+
 function go(page){
+  // ACC-CRM-UNIFY — redirects for legacy/duplicate routes
+  const ROUTE_REDIRECTS = {
+    'kardex': 'acc-item-kardex',
+    'item-kardex': 'acc-item-kardex',
+    'acc-kardex': 'acc-item-kardex',
+    'products-kardex': 'acc-item-kardex',
+    'acc-products-kardex': 'acc-item-kardex',
+    'normal-invoices': 'acc-normal-invoices',
+    'final-invoices': 'acc-final-invoices',
+    'crm': 'crm-dashboard',
+    'crm-reports': 'crm-dashboard',
+  };
+  if (ROUTE_REDIRECTS[page]) page = ROUTE_REDIRECTS[page];
   if(page==='accounting'){ enterAccountingShell(); return; }
-  if(page==='exit-acc-shell'){ exitAccountingShell(); if(window.WinMgr) WinMgr.closeAll(); return; }
+  if(page==='exit-acc-shell'){ exitAccountingShell(); return; }
   if(page!=='messages' && typeof stopMsgPoll==='function') stopMsgPoll();
   // تاریخچهٔ ناوبری برای دکمه بازگشت (به‌جز حرکت برگشتی)
   if(!_navGoingBack && CURRENT_PAGE && CURRENT_PAGE!==page){
     PAGE_HISTORY.push(CURRENT_PAGE);
     if(PAGE_HISTORY.length>60) PAGE_HISTORY.shift();
   }
-  // حالت پنجره چندگانه: هر زیرمنوی حسابداری در پنجره جدا
-  if(IN_ACC_SHELL && page.startsWith('acc-') && page!=='acc-dash' && window.WinMgr && WinMgr.enabled()){
-    const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && accNavFlat().find(x=>x.id===page));
-    const title = (it && T(it.label)) || page;
-    const opened = WinMgr.open(page, title, async (body)=>{
-      // پاک‌کردن placeholder بارگذاری تا متن «در حال بارگذاری» روی محتوا نماند
-      body.innerHTML = '';
-      const mainView = el('view');
-      const placeholder = document.createElement('div');
-      placeholder.id = 'view';
-      placeholder.style.display = 'none';
-      const realId = mainView.id;
-      mainView.id = 'view-main-backup';
-      body.appendChild(placeholder);
-      try{
-        CURRENT_PAGE = page;
-        if(ROUTES[page]) await ROUTES[page]();
-        while(placeholder.firstChild) body.appendChild(placeholder.firstChild);
-        if(typeof enhanceAccTables==='function') enhanceAccTables(body);
-      } finally {
-        placeholder.remove();
-        const bak = document.getElementById('view-main-backup');
-        if(bak) bak.id = realId || 'view';
-      }
-    });
+  hookWinMgrNav();
+  // صفحات سراسری (تنظیمات، راهنما، …) روی #view اصلی — پنجره MDI حسابداری را ببند
+  if(IN_ACC_SHELL && page!=='exit-acc-shell' && !String(page).startsWith('acc-') && window.WinMgr && typeof WinMgr.closeAll==='function'){
+    WinMgr.closeAll();
+  }
+  // چندپنجره‌ای فقط داخل حسابداری — نه داشبورد CRM و نه داشبورد حسابداری
+  const openAsMdi = IN_ACC_SHELL && String(page).startsWith('acc-') && page!=='acc-dash'
+    && window.WinMgr && WinMgr.enabled() && typeof ROUTES[page]==='function';
+  if(openAsMdi){
+    const title = mdiPageTitle(page);
+    const opened = WinMgr.open(page, title, (body)=>renderPageIntoMdiBody(page, body));
     if(opened){
-      CURRENT_PAGE = page;
-      document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
-      if(window.innerWidth<=900) closeSidebar();
-      updateBackBtn();
+      syncChromeForPage(page, title);
       return;
     }
   }
-  CURRENT_PAGE = page;
-  document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.page===page));
-  const it = navItems().find(x=>x.id===page) || (typeof ACC_NAV_SECTIONS!=='undefined' && accNavFlat().find(x=>x.id===page));
-  el('pageTitle').textContent = it?T(it.label):'';
-  if(window.innerWidth<=900) closeSidebar();
-  updateBackBtn();
-  // After every page render, shrink stat-card numbers that overflow their card
-  // (large totals like فروش کل on حساب من were spilling out — spec 1.0.9 §4)
-  ROUTES[page] ? Promise.resolve(ROUTES[page]()).finally(()=>{ setTimeout(fitStatNums,60); if(typeof enhanceAccTables==='function') enhanceAccTables(el('view')); }) : (el('view').innerHTML='');
+  syncChromeForPage(page);
+  const runRoute = ROUTES[page];
+  if(runRoute){
+    Promise.resolve(runRoute()).catch(e=>{
+      console.error('route', page, e);
+      const v=el('view');
+      if(v) v.innerHTML=`<div class="empty" data-csp-style="${CSP.style(`padding:24px`)}">خطا در بارگذاری صفحه: ${esc(e.message||e.code||'نامشخص')}</div>`;
+      showToast(e.message||'خطا در بارگذاری','error');
+    }).finally(()=>{ setTimeout(fitStatNums,60); if(typeof enhanceAccTables==='function') enhanceAccTables(el('view')); });
+  } else {
+    el('view').innerHTML='';
+  }
 }
 /** والد صفحه — رفتار شبیه دکمه Up اکسپلورر ویندوز (نه Back تاریخچه) */
 function pageParent(page){
@@ -2186,8 +2614,8 @@ function openModal(html, lg){
 function wireModalChrome(){
   const modal=el('activeModal');
   if(!modal) return;
-  // نوار چپ مخفی است — فضای پایین رزرو نمی‌شود
-  try{ document.documentElement.style.setProperty('--mdi-taskbar-h','0px'); }catch(_){}
+  // ارتفاع واقعی نوار پایین MDI حفظ می‌شود تا modal تمام‌صفحه روی نوار نیفتد
+  try{ if(window.WinMgr && WinMgr.syncTaskbarSpace) WinMgr.syncTaskbarSpace(); }catch(_){}
   let head=modal.querySelector('.modal-head');
   if(!head){
     head=document.createElement('div');
@@ -2234,7 +2662,35 @@ function showModal(title, bodyHtml, lg){
   openModal(`<div class="modal-head"><h3>${title||''}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">${bodyHtml||''}</div>`, lg);
 }
-function closeModal(){ el('modalRoot').innerHTML=''; _bcWedgeHandler=null; }
+function ensureNestedModalRoot(){
+  let root=document.getElementById('nestedModalRoot');
+  if(!root){
+    root=document.createElement('div');
+    root.id='nestedModalRoot';
+    document.body.appendChild(root);
+  }
+  return root;
+}
+function isNestedModalOpen(){
+  const root=document.getElementById('nestedModalRoot');
+  return !!(root && root.querySelector('.overlay.open'));
+}
+function openNestedModal(html, lg){
+  const root=ensureNestedModalRoot();
+  root.innerHTML=`<div class="overlay open nested-overlay" id="nestedModalOverlay" data-csp-click="${CSP.bind('click',function(event){if(event.target===this)closeNestedModal()})}">
+    <div class="modal ${lg?'lg':''}" id="nestedActiveModal">${html}</div></div>`;
+  try{ attachDatepickers(root); }catch(_){}
+  try{ initCustSearches(root); }catch(_){}
+}
+function closeNestedModal(){
+  const root=document.getElementById('nestedModalRoot');
+  if(root) root.innerHTML='';
+}
+function closeModal(){
+  if(isNestedModalOpen()){ closeNestedModal(); return; }
+  el('modalRoot').innerHTML='';
+  _bcWedgeHandler=null;
+}
 
 /* ============================================================
    DASHBOARD
@@ -2268,8 +2724,13 @@ ROUTES.dash = async function(){
   await renderDashContent();
 };
 function pendingActionClick(route, entityType, entityId){
-  if(route && route.startsWith('acc-')) enterAccountingShell().then(()=>go(route));
-  else if(route) go(route);
+  const openInvoice = entityType==='invoice' && entityId;
+  const dest = openInvoice
+    ? ((route && String(route).startsWith('acc-')) ? route : 'acc-final-invoices')
+    : route;
+  const after = ()=>{ if(openInvoice) setTimeout(()=>openInvBuilder(entityId), 280); };
+  if(dest && String(dest).startsWith('acc-')) enterAccountingShell(dest).then(after);
+  else { if(dest) go(dest); after(); }
   if(entityType&&entityId) api('POST','/notifications/entity-viewed',{entity_type:entityType,entity_id:entityId}).catch(()=>{});
 }
 async function renderDashContent(){
@@ -2278,7 +2739,10 @@ async function renderDashContent(){
     ? '?'+(dashDateFrom?'from='+encodeURIComponent(dashDateFrom):'')+(dashDateFrom&&dashDateTo?'&':'')+(dashDateTo?'to='+encodeURIComponent(dashDateTo):'')
     : '';
   const dk = (dashDateFrom||'')+'|'+(dashDateTo||'')+'|'+ME.role;
-  if(_dashHtmlCache.key===dk && Date.now()-_dashHtmlCache.t<45000){
+  // Interactive widgets (pending actions) must not be restored from HTML cache:
+  // CSP action ids in the snapshot go stale and clicks become no-ops.
+  const skipCache = (window._pendingActions||[]).length>0;
+  if(!skipCache && _dashHtmlCache.key===dk && Date.now()-_dashHtmlCache.t<45000){
     body.innerHTML = _dashHtmlCache.html;
     requestAnimationFrame(fitStatNums);
     return;
@@ -2308,8 +2772,9 @@ async function renderDashContent(){
         ${statCard('p','🛍️', fmt(ov.totalProducts),'کالاها')}
         ${statCard('b','📞', fmt(ov.openFollowups),'پیگیری باز')}
         ${statCard('r','📉', fmt(ov.lowStock),'موجودی کم')}
-        ${statCard('r','📤', balT.debit,'مانده جمع بدهکاران')}
-        ${statCard('g','📥', balT.credit,'مانده جمع بستانکاران')}
+        ${statCard(balT.nature==='credit'?'g':'r', balT.nature==='credit'?'📥':'📤', balT.netAbs, 'مانده خالص مشتریان — '+balNetLabel(balT))}
+        ${statCard('r','📤', balT.debit,'جمع بدهکاران (قبل از تهاتر)')}
+        ${statCard('g','📥', balT.credit,'جمع بستانکاران (قبل از تهاتر)')}
       </div>
       <div class="panel">
         <div class="panel-head"><h4>عملکرد کارشناسان${dq?' · بازه':''}</h4></div>
@@ -2380,8 +2845,9 @@ async function renderDashContent(){
         ${statCard('g','🎯', fmt(Math.round(myComm.totalComm||0)),'انگیزه فروش')}
         ${statCard('r','💵', fmt(Math.round(myComm.payable||0)),'مانده انگیزه')}
         ${myComm.monthlyTarget?statCard('b','📊', (myComm.targetPct||0)+'٪','تحقق هدف'):''}
-        ${statCard('r','📤', balT.debit,'مانده جمع بدهکاران')}
-        ${statCard('g','📥', balT.credit,'مانده جمع بستانکاران')}
+        ${statCard(balT.nature==='credit'?'g':'r', balT.nature==='credit'?'📥':'📤', balT.netAbs, 'مانده خالص مشتریان — '+balNetLabel(balT))}
+        ${statCard('r','📤', balT.debit,'جمع بدهکاران (قبل از تهاتر)')}
+        ${statCard('g','📥', balT.credit,'جمع بستانکاران (قبل از تهاتر)')}
       </div>
       ${myComm.basisLabel?`<div class="muted" data-csp-style="${CSP.style(`margin:-4px 0 12px;font-size:11px`)}">مبنا: ${esc(myComm.basisLabel)}${myComm.pendingExpenses?` — ${myComm.pendingExpenses} هزینه در انتظار`:''}</div>`:''}
       ${balRows.length?`<div class="panel">
@@ -2439,8 +2905,8 @@ function filterDashBalances(name){
   const t = balTotals(filtered);
   const dCell = el('dashBalDebitTotal');
   const cCell = el('dashBalCreditTotal');
-  if(dCell){ dCell.textContent = t.debit ? fmt(t.debit) : '-'; dCell.style.color = '#dc2626'; }
-  if(cCell){ cCell.textContent = t.credit ? fmt(t.credit) : '-'; cCell.style.color = 'var(--green)'; }
+  if(dCell){ dCell.textContent = t.netDebit ? fmt(t.netDebit) : '-'; dCell.style.color = '#dc2626'; }
+  if(cCell){ cCell.textContent = t.netCredit ? fmt(t.netCredit) : '-'; cCell.style.color = 'var(--green)'; }
   const tbl = el('dashBalTbl');
   if(tbl && typeof tblRebuildFooter==='function') tblRebuildFooter(tbl);
 }
@@ -2552,15 +3018,15 @@ function renderCustTable(){
     <td>${esc(c.city||'-')}</td>
     ${tdClip(c.address||'-', 200, true)}
     <td>${esc(c.type||'-')}</td><td>${statusTag(c.status)}${c.b2b_enabled?` <span class="tag" data-csp-style="${CSP.style(`background:#dbeafe;color:#1d4ed8`)}" title="${esc(T('دسترسی پورتال مشتریان فعال'))}">${T('پورتال')}</span>`:''}${(c.churn_score||0)>=60?` <span class="tag" data-csp-style="${CSP.style(`background:#fef2f2;color:#dc2626`)}" title="${esc(T('ریسک ریزش مشتری'))}">⚠️${c.churn_score}٪</span>`:''}</td>
-    <td>${balNatureBadgeHtml(c)}${c.party_group_name?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(c.party_group_name)}</div>`:''}${c.group_name?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(c.group_name)}</div>`:''}</td>
+    <td>${balNatureBadgeHtml(c)}${c.party_group_name?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گروه: ${esc(c.party_group_name)}</div>`:''}${c.group_name?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گروه: ${esc(c.group_name)}</div>`:''}</td>
     ${balDebitTd(c.balance)}${balCreditTd(c.balance)}
     ${isAdm?`<td class="muted">${esc(c.salesperson||'-')}</td>`:''}
   </tr>`;
   }).join('')||emptyRow(colCount)}</tbody>
   <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-    <td colspan="10">جمع (${fmt(rows.length)} مشتری)</td>
-    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.debit?fmt(balT.debit):'-'}</td>
-    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.credit?fmt(balT.credit):'-'}</td>
+    <td colspan="10">مانده خالص (${fmt(rows.length)} مشتری) — ${balNetLabel(balT)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;font-weight:500`)}">بدهکاران ${fmt(balT.debit)} · بستانکاران ${fmt(balT.credit)} → تفاضل؛ جمع نمی‌شوند</div></td>
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.netDebit?fmt(balT.netDebit):'-'}</td>
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.netCredit?fmt(balT.netCredit):'-'}</td>
     ${isAdm?'<td></td>':''}
   </tr></tfoot></table>`;
   if(typeof enhanceAccTables==='function') enhanceAccTables(el('custTable'));
@@ -2768,13 +3234,19 @@ function downloadCustTemplate(){ downloadAuth('/customers/template','customers-t
    FOLLOWUPS — ERP Pipeline (redesigned)
 ============================================================ */
 const PIPELINE_STAGES = [
-  {id:'lead',      label:'سرنخ',        icon:'🌱', color:'t-lead'},
-  {id:'contact',   label:'تماس',        icon:'📞', color:'t-contact'},
-  {id:'proposal',  label:'پیشنهاد',     icon:'📋', color:'t-proposal'},
-  {id:'negotiation',label:'مذاکره',     icon:'🤝', color:'t-negotiation'},
-  {id:'won',       label:'خرید کرد',    icon:'✅', color:'t-won'},
-  {id:'lost',      label:'از دست رفت',  icon:'❌', color:'t-lost'}
+  {id:'lead',       label:'سرنخ',           icon:'🌱', color:'t-lead'},
+  {id:'qualified',  label:'واجد شرایط',     icon:'📞', color:'t-contact'},
+  {id:'proposal',   label:'پیشنهاد',        icon:'📋', color:'t-proposal'},
+  {id:'negotiation',label:'مذاکره',         icon:'🤝', color:'t-negotiation'},
+  {id:'first_order',label:'سفارش اول',      icon:'🛒', color:'t-won'},
+  {id:'won',        label:'برنده',          icon:'✅', color:'t-won'},
+  {id:'repeat',     label:'تکراری',         icon:'🔁', color:'t-won'},
+  {id:'lost',       label:'از دست رفته',    icon:'❌', color:'t-lost'}
 ];
+function fupStageId(f){
+  const s=String(f&&f.pipeline_stage||'lead');
+  return s==='contact'?'qualified':s;
+}
 const INTEREST_LEVELS = [
   {id:'very_low',  label:'خیلی کم',     cls:'int-very_low'},
   {id:'low',       label:'کم',          cls:'int-low'},
@@ -2799,10 +3271,16 @@ function renderAccReceivablesBody(body){
   if(!body||!_accRecvCache) return;
   const viewMode=accRecvViewMode||'customer';
   const allRows=_accRecvCache[viewMode]||[];
-  const rows=accHideZero ? allRows.filter(r=>(Number(r.outstanding)||0)!==0) : allRows;
-  const hiddenCount=allRows.length-rows.length;
+  const q=(accRecvQ||'').trim().toLowerCase();
+  const matched=q?allRows.filter(r=>{
+    const hay=[r.biz,r.owner,r.phone,r.salesperson,r.num,r.city].filter(Boolean).join(' ').toLowerCase();
+    return q.split(/\s+/).every(w=>hay.includes(w));
+  }):allRows;
+  const rows=accHideZero ? matched.filter(r=>(Number(r.outstanding)||0)!==0) : matched;
+  const hiddenCount=matched.length-rows.length;
   body.innerHTML=`
       <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap;align-items:center`)}">
+        <input class="search" id="recvSearch" placeholder="جستجو طرف حساب: نام فروشگاه، مالک، موبایل، کارشناس..." value="${esc(accRecvQ||'')}" data-csp-style="${CSP.style(`min-width:260px;flex:1`)}" data-csp-input="${CSP.bind('input',function(event){accRecvQ=this.value;renderAccReceivablesBody()})}">
         <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px`)}">
           <input type="checkbox" id="chkHideZero" ${accHideZero?'checked':''} data-csp-change="${CSP.bind('change',function(event){accHideZero=this.checked;renderAccReceivablesBody()})}">
           فقط با مانده (بدهکار یا بستانکار)
@@ -2830,7 +3308,7 @@ function renderAccReceivablesBody(body){
           <td><button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){settlementModal((r.cust_id))})}">💵 ثبت پرداخت</button></td>
         </tr>`;
         return `<tr>
-          <td>${esc(r.biz)}</td><td>${esc(r.owner||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
+          <td>${esc(r.biz)}${r.inactive?` <span class="pill" data-csp-style="${CSP.style(`font-size:10px;background:#f3f4f6;color:#6b7280`)}">غیرفعال</span>`:''}</td><td>${esc(r.owner||'-')}</td><td class="muted">${esc(r.salesperson||'-')}</td>
           <td class="mono">${fmt(r.total_invoiced)}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmt(r.total_settled)}</td>
           <td class="mono" data-col-kind="debit" data-csp-style="${CSP.style(`color:var(--red);font-weight:700`)}">${deb?fmt(deb):'-'}</td>
@@ -2846,7 +3324,8 @@ function renderAccReceivablesBody(body){
         <td class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:800`)}">${fmt(rows.reduce((a,r)=>{const o=Number(r.outstanding)||0;return a+(o<0?-o:0);},0))}</td>
         <td></td>
       </tr></tfoot></table></div>
-      ${!rows.length?`<div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">مانده از دفتر مشتری (شامل مانده اول دوره) خوانده می‌شود. فیلتر تاریخ فقط ستون‌های «کل فاکتور» و «پرداخت‌شده» را محدود می‌کند — برای دیدن همه مانده‌ها preset را روی «همه» بگذارید.</div>`:''}`;
+      ${rows.some(r=>r.books_mismatch)?`<div class="panel" data-csp-style="${CSP.style(`margin-top:10px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: برای برخی مشتریان مانده دفتر مشتری با دفتر کل یکی نیست. ستون مانده از دفتر کل تا تاریخ قطع است؛ دفتر مشتری فقط نمای دوم است.</div></div>`:''}
+      <div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">مانده بدهکار/بستانکار از دفتر کل (حساب کنترل یا تفصیلی مشتری) تا تاریخ نوار حسابداری خوانده می‌شود. دفتر مشتری فقط وقتی جداگانه نشان داده می‌شود که با دفتر کل اختلاف داشته باشد.</div>`;
 }
 
 ROUTES.followups = async function(){
@@ -2868,6 +3347,7 @@ ROUTES.followups = async function(){
         ${showFolders?`<button id="btnFolders" class="btn sm ${fupFilter.view==='folders'?'':'ghost'}" data-csp-click="${CSP.bind('click',function(event){setFupView('folders')})}">📁 پوشه کارشناسان</button>`:''}
         <button id="btnKanban" class="btn sm ${fupFilter.view==='kanban'?'':'ghost'}" data-csp-click="${CSP.bind('click',function(event){setFupView('kanban')})}">🗂️ پایپ‌لاین</button>
         <button id="btnList" class="btn sm ${fupFilter.view==='list'?'':'ghost'}" data-csp-click="${CSP.bind('click',function(event){setFupView('list')})}">📋 لیست</button>
+        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('crm-dashboard')})}">📉 داشبورد CRM</button>
       </div>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){fupModal()})}">➕ جدید</button>
       ${isAdmin()?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){exportExcel('followups')})}">📥 اکسل</button>`:''}
@@ -2878,6 +3358,293 @@ ROUTES.followups = async function(){
   el('fStage').addEventListener('change',e=>{fupFilter.stage=e.target.value;renderFupView();});
   renderFupView();
 };
+
+let crmDashFilter={preset:'month',from:'',to:'',user_id:'',province:'',city:'',lead_source:'',campaign:'',pipeline_stage:'',segment:'',invoice_type:'',activity_type:''};
+let _crmDashGen=0;
+window._crmCharts=window._crmCharts||{};
+function destroyCrmCharts(){
+  Object.values(window._crmCharts||{}).forEach(c=>{ try{ c.destroy(); }catch(e){} });
+  window._crmCharts={};
+}
+function crmAddDays(jStr, days){
+  const p=String(jStr||'').split('/').map(Number);
+  if(p.length!==3) return jStr;
+  const [gy,gm,gd]=_j2g(p[0],p[1],p[2]);
+  const d=new Date(gy,gm-1,gd); d.setDate(d.getDate()+days);
+  const [jy,jm,jd]=_g2j(d.getFullYear(),d.getMonth()+1,d.getDate());
+  return _jfmt(jy,jm,jd);
+}
+function crmPresetRange(p){
+  const today=todayJalali();
+  const [jy,jm]=today.split('/').map(Number);
+  if(p==='today') return [today,today];
+  if(p==='week') return jPresetRange('week');
+  if(p==='month') return jPresetRange('month');
+  if(p==='quarter'){ const q=Math.floor((jm-1)/3)*3+1; return [_jfmt(jy,q,1), today]; }
+  if(p==='year') return [_jfmt(jy,1,1), today];
+  if(p==='d30') return [crmAddDays(today,-29), today];
+  if(p==='d90') return [crmAddDays(today,-89), today];
+  if(p==='all') return ['',''];
+  return [crmDashFilter.from||'', crmDashFilter.to||''];
+}
+function crmFilterQuery(){
+  const q=new URLSearchParams();
+  const f=crmDashFilter;
+  if(f.from) q.set('from',f.from);
+  if(f.to) q.set('to',f.to);
+  if(f.user_id && (ME.role==='admin'||ME.role==='accounting'||ME.role==='sales_manager')) q.set('user_id',f.user_id);
+  ['province','city','lead_source','campaign','pipeline_stage','segment','invoice_type','activity_type'].forEach(k=>{ if(f[k]) q.set(k,f[k]); });
+  return q;
+}
+function crmReadFilterForm(){
+  const g=id=>el(id)?.value||'';
+  crmDashFilter.from=g('crmFrom'); crmDashFilter.to=g('crmTo');
+  crmDashFilter.user_id=g('crmUser'); crmDashFilter.province=g('crmProvince');
+  crmDashFilter.city=g('crmCity'); crmDashFilter.lead_source=g('crmSource');
+  crmDashFilter.campaign=g('crmCampaign'); crmDashFilter.pipeline_stage=g('crmStage');
+  crmDashFilter.segment=g('crmSegment'); crmDashFilter.invoice_type=g('crmInvType');
+  crmDashFilter.activity_type=g('crmActType');
+}
+function crmClearFilters(){
+  crmDashFilter={preset:'month',from:'',to:'',user_id:'',province:'',city:'',lead_source:'',campaign:'',pipeline_stage:'',segment:'',invoice_type:'',activity_type:''};
+  const [a,b]=crmPresetRange('month'); crmDashFilter.from=a; crmDashFilter.to=b;
+  ROUTES['crm-dashboard']();
+}
+function crmApplyPreset(p){
+  crmDashFilter.preset=p;
+  if(p!=='custom'){ const [a,b]=crmPresetRange(p); crmDashFilter.from=a; crmDashFilter.to=b; }
+  ROUTES['crm-dashboard']();
+}
+function crmKpiDelta(block, invert){
+  if(!block||typeof block!=='object'||!('current' in block)) return {value:block, deltaHtml:''};
+  if(block.current==null) return {value:null, deltaHtml:''};
+  const ch=Number(block.change)||0;
+  const good=invert?ch<0:ch>0;
+  const cls=ch===0?'muted':(good?'ok':'bad');
+  const sign=ch>0?'+':'';
+  const pct=block.change_percent==null?'':` (${sign}${block.change_percent}٪)`;
+  return {value:block.current, deltaHtml:`<div class="crm-delta ${cls}">${sign}${fmt(ch)}${pct} نسبت به دوره قبل</div>`};
+}
+function crmChartEmpty(canvasId, msg){
+  const c=el(canvasId); if(!c) return;
+  const wrap=c.parentElement;
+  if(wrap) wrap.innerHTML=`<div class="empty crm-chart-empty">${esc(msg||'داده‌ای برای نمایش نیست')}</div>`;
+}
+async function crmEnsureChart(){
+  if(window.Chart) return window.Chart;
+  return loadProdChartJs();
+}
+function crmMkChart(id, cfg){
+  const ctx=el(id); if(!ctx) return;
+  if(window._crmCharts[id]){ try{ window._crmCharts[id].destroy(); }catch(e){} }
+  window._crmCharts[id]=new Chart(ctx, cfg);
+}
+ROUTES['crm-dashboard'] = async function(){
+  if(!crmDashFilter.from && crmDashFilter.preset!=='all' && crmDashFilter.preset!=='custom'){
+    const [a,b]=crmPresetRange(crmDashFilter.preset||'month'); crmDashFilter.from=a; crmDashFilter.to=b;
+  }
+  const gen=++_crmDashGen;
+  destroyCrmCharts();
+  el('view').innerHTML='<div class="crm-dash-skel muted">در حال بارگذاری داشبورد CRM...</div>';
+  const scoped=!(ME.role==='admin'||ME.role==='accounting'||ME.role==='sales_manager');
+  const users=(CACHE.users||[]).map(u=>`<option value="${u.id}" ${String(crmDashFilter.user_id)===String(u.id)?'selected':''}>${esc(u.name)}</option>`).join('');
+  const chips=[];
+  if(crmDashFilter.from||crmDashFilter.to) chips.push(`بازه ${crmDashFilter.from||'…'} تا ${crmDashFilter.to||'…'}`);
+  ['lead_source','campaign','pipeline_stage','segment','province','city','invoice_type'].forEach(k=>{ if(crmDashFilter[k]) chips.push(crmDashFilter[k]); });
+  el('view').innerHTML=`
+    <div class="crm-dash">
+      <div class="toolbar crm-dash-head">
+        <div>
+          <h3 data-csp-style="${CSP.style(`margin:0`)}">داشبورد و گزارش‌های CRM</h3>
+          <div class="muted" id="crmUpdatedAt">به‌روزرسانی: —</div>
+        </div>
+        <div class="crm-dash-actions">
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('followups')})}">← پیگیری‌ها</button>
+          <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){ROUTES['crm-dashboard']()})}">↻ بروزرسانی</button>
+          ${(ME.role==='admin'||ME.role==='sales_manager')?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){crmExportDash()})}">📥 اکسل</button>`:''}
+        </div>
+      </div>
+      <div class="panel crm-filter-bar" id="crmFilterForm">
+        <div class="crm-filter-grid">
+          <label>بازه آماده
+            <select id="crmPreset" data-csp-change="${CSP.bind('change',function(event){crmApplyPreset(this.value)})}">
+              ${[['today','امروز'],['week','این هفته'],['month','این ماه'],['quarter','فصل جاری'],['year','سال جاری'],['d30','۳۰ روز اخیر'],['d90','۹۰ روز اخیر'],['custom','بازه دلخواه'],['all','همه']].map(([v,l])=>`<option value="${v}" ${crmDashFilter.preset===v?'selected':''}>${l}</option>`).join('')}
+            </select>
+          </label>
+          <label>از تاریخ<input id="crmFrom" data-jdate value="${esc(crmDashFilter.from)}"></label>
+          <label>تا تاریخ<input id="crmTo" data-jdate value="${esc(crmDashFilter.to)}"></label>
+          ${scoped?'':`<label>کارشناس<select id="crmUser"><option value="">همه</option>${users}</select></label>`}
+          <label>استان<input id="crmProvince" value="${esc(crmDashFilter.province)}"></label>
+          <label>شهر<input id="crmCity" value="${esc(crmDashFilter.city)}"></label>
+          <label>منبع<input id="crmSource" value="${esc(crmDashFilter.lead_source)}"></label>
+          <label>کمپین<input id="crmCampaign" value="${esc(crmDashFilter.campaign)}"></label>
+          <label>مرحله<select id="crmStage"><option value="">همه</option>${PIPELINE_STAGES.map(s=>`<option value="${s.id}" ${crmDashFilter.pipeline_stage===s.id?'selected':''}>${s.label}</option>`).join('')}</select></label>
+          <label>سگمنت<select id="crmSegment"><option value="">همه</option>${['VIP','A','B','C','churn_risk','inactive','new'].map(s=>`<option value="${s}" ${crmDashFilter.segment===s?'selected':''}>${s}</option>`).join('')}</select></label>
+          <label>نوع فاکتور<select id="crmInvType"><option value="">همه</option><option value="proforma" ${crmDashFilter.invoice_type==='proforma'?'selected':''}>پیش‌فاکتور</option><option value="normal" ${crmDashFilter.invoice_type==='normal'?'selected':''}>معمولی</option><option value="final" ${crmDashFilter.invoice_type==='final'?'selected':''}>رسمی</option></select></label>
+          <label>نوع فعالیت<select id="crmActType"><option value="">همه</option>${['call','meeting','message','visit','note','task','complaint','service'].map(s=>`<option value="${s}" ${crmDashFilter.activity_type===s?'selected':''}>${s}</option>`).join('')}</select></label>
+        </div>
+        <div class="crm-filter-actions">
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){crmReadFilterForm();crmDashFilter.preset='custom';ROUTES['crm-dashboard']();})}">اعمال فیلتر</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){crmClearFilters()})}">پاک‌کردن فیلترها</button>
+        </div>
+        ${chips.length?`<div class="crm-chips">${chips.map(c=>`<span class="tag">${esc(c)}</span>`).join('')}</div>`:''}
+      </div>
+      <div id="crmKpiGrid" class="crm-kpi-grid" aria-live="polite"></div>
+      <div class="crm-chart-row">
+        <div class="panel"><div class="panel-head"><h4>قیف تبدیل فروش</h4></div><div class="panel-body crm-chart-box"><canvas id="crmFunnelChart" height="220"></canvas></div></div>
+        <div class="panel"><div class="panel-head"><h4>روند فروش قطعی</h4></div><div class="panel-body crm-chart-box"><canvas id="crmTrendChart" height="220"></canvas></div></div>
+      </div>
+      <div class="crm-chart-row">
+        <div class="panel"><div class="panel-head"><h4>پایپ‌لاین (مرحله فرصت)</h4></div><div class="panel-body crm-chart-box"><canvas id="crmPipeChart" height="220"></canvas></div></div>
+        <div class="panel"><div class="panel-head"><h4>عملکرد کارشناسان</h4></div><div class="panel-body crm-chart-box"><canvas id="crmExpertChart" height="220"></canvas></div></div>
+      </div>
+      <div class="crm-chart-row">
+        <div class="panel"><div class="panel-head"><h4>منابع جذب</h4></div><div class="panel-body crm-chart-box"><canvas id="crmSourceChart" height="220"></canvas></div></div>
+        <div class="panel"><div class="panel-head"><h4>کمپین‌ها</h4></div><div class="panel-body crm-chart-box"><canvas id="crmCampChart" height="220"></canvas></div></div>
+      </div>
+      <div class="crm-chart-row">
+        <div class="panel"><div class="panel-head"><h4>سگمنت مشتریان</h4></div><div class="panel-body crm-chart-box"><canvas id="crmSegChart" height="220"></canvas></div></div>
+        <div class="panel"><div class="panel-head"><h4>ریسک ریزش و مطالبات</h4></div><div class="panel-body" id="crmRecvBox"><div class="muted">در حال بارگذاری...</div></div></div>
+      </div>
+      <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>اقدامات فوری</h4></div><div class="panel-body" id="crmUrgentBox"></div></div>
+      <div id="crmDrill" class="panel" data-csp-style="${CSP.style(`margin-top:12px;display:none`)}"></div>
+    </div>`;
+  attachDatepickers(el('view'));
+  try{
+    const qs=crmFilterQuery().toString();
+    const data=await api('GET','/crm/dashboard'+(qs?'?'+qs:''));
+    if(gen!==_crmDashGen) return;
+    renderCrmDashData(data);
+  }catch(e){
+    if(gen!==_crmDashGen) return;
+    el('crmKpiGrid').innerHTML=`<div class="err">${esc(e.message||'خطا در بارگذاری')}<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){ROUTES['crm-dashboard']()})}">تلاش دوباره</button></div>`;
+  }
+};
+function renderCrmDashData(data){
+  const k=data.kpis||{};
+  const cmp=data.kpis_compare||{};
+  const updated=el('crmUpdatedAt'); if(updated) updated.textContent='به‌روزرسانی: '+new Date().toLocaleString('fa-IR');
+  const cards=[
+    ['سرنخ جدید',cmp.new_leads||k.new_customers,'new_leads',false],
+    ['فرصت باز',cmp.open_opportunities,'open_opportunities',false],
+    ['ارزش پایپ‌لاین',cmp.pipeline_value_rial, '',false,true],
+    ['ارزش موزون',cmp.pipeline_weighted_rial,'',false,true],
+    ['فرصت برنده',cmp.won_opportunities,'won_opportunities',false],
+    ['فرصت باخته',cmp.lost_opportunities,'lost_opportunities',true],
+    ['نرخ برد ٪',cmp.win_rate,'',false],
+    ['فروش قطعی',cmp.firm_invoice_count||k.firm_invoice_count,'firm_sales',false],
+    ['مبلغ فروش قطعی',cmp.firm_sales_rial||k.firm_sales_rial,'firm_sales',false,true],
+    ['میانگین خرید',cmp.avg_order_rial,'',false,true],
+    ['مشتری جدید',cmp.new_customers||k.new_customers,'new_customers',false],
+    ['مشتری تکراری',cmp.repeat_customers,'',false],
+    ['پیگیری باز',cmp.open_followups||k.open_followups,'open_followups',false],
+    ['سررسید امروز',cmp.due_today_followups,'due_today_followups',false],
+    ['عقب‌افتاده',cmp.overdue_followups||k.overdue_followups,'overdue_followups',true],
+    ['فرصت متوقف',cmp.stale_opportunities,'stale_opportunities',true],
+    ['بدون فعالیت',cmp.inactive_customers_90d||k.inactive_customers_90d,'inactive_customers_90d',true],
+    ['ریسک ریزش',cmp.churn_risk_customers,'churn_risk_customers',true],
+    ['مطالبات',cmp.receivables_rial||k.receivables_rial,'',true,true],
+    ['مطالبات معوق',cmp.overdue_receivables_rial,'',true,true],
+    ['چک نزدیک سررسید',cmp.cheques_due||k.cheques_due_14d,'',true],
+    ['چک برگشتی',cmp.cheques_bounced||k.cheques_bounced,'',true],
+    ['تحقق هدف ٪',cmp.sales_target_percent,'',false],
+    ['شکایت باز',cmp.open_complaints,'',true],
+  ];
+  el('crmKpiGrid').innerHTML=cards.map(([label,raw,metric,invert,money])=>{
+    const d=crmKpiDelta(raw,invert);
+    const val=money?fmtCrmRial(d.value||0):(d.value==null?'—':fmt(d.value));
+    const tip=metric?`drill-down ${metric}`:label;
+    return `<button type="button" class="crm-kpi" title="${esc(tip)}" ${metric?`data-csp-click="${CSP.bind('click',function(event){crmDrill('${metric}')})}"`:''}>
+      <div class="muted">${esc(label)}</div>
+      <div class="crm-kpi-val">${val}</div>
+      ${d.deltaHtml||''}
+    </button>`;
+  }).join('');
+  const recv=el('crmRecvBox');
+  if(recv){
+    recv.innerHTML=`<ul class="crm-recv-list">
+      <li>مانده مطالبات: <b>${fmtCrmRial(k.receivables_rial||0)}</b></li>
+      <li>چک نزدیک سررسید: <b>${k.cheques_due_14d||0}</b></li>
+      <li>چک برگشتی: <b>${k.cheques_bounced||0}</b></li>
+    </ul>`;
+  }
+  const urgent=data.urgent||{};
+  const ub=el('crmUrgentBox');
+  if(ub){
+    const rows=[].concat(urgent.overdue_followups||[], urgent.stale_opportunities||[], urgent.churn_risk||[]);
+    ub.innerHTML=rows.length?`<table class="tbl"><thead><tr><th>نوع</th><th>مشتری</th><th>موضوع</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr>
+      <td>${esc(r.kind||'')}</td><td>${esc(r.cust_biz||'')}</td><td>${esc(r.subject||'')}</td>
+      <td>${r.cust_id?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){custActivityModal((r.cust_id))})}">مشتری</button>`:''}</td>
+    </tr>`).join('')}</tbody></table>`:'<div class="empty">اقدام فوری ثبت‌نشده است.</div>';
+  }
+  crmRenderCharts(data);
+}
+async function crmRenderCharts(data){
+  try{ await crmEnsureChart(); }catch(e){ return; }
+  const th=chartTheme();
+  const funnel=(data.funnel||[]).map(s=>({label:s.label,count:s.count,id:s.id}));
+  if(!funnel.some(s=>s.count)) crmChartEmpty('crmFunnelChart','قیف خالی است — هنوز فرصت یا فروش قطعی در این فیلتر نیست.');
+  else crmMkChart('crmFunnelChart',{type:'bar',data:{labels:funnel.map(s=>s.label),datasets:[{label:'تعداد',data:funnel.map(s=>s.count),backgroundColor:th.bar}]},options:{indexAxis:'y',plugins:{legend:{display:true}},onClick:(ev,els)=>{ if(!els[0]) return; const id=funnel[els[0].index].id; crmDrill(id==='firm'?'firm_sales':(id==='repeat'?'repeat_customers':('pipeline_'+id))); }}});
+  const trend=data.sales_trend||[];
+  if(!trend.length) crmChartEmpty('crmTrendChart','روند فروش در این بازه خالی است.');
+  else crmMkChart('crmTrendChart',{type:'line',data:{labels:trend.map(s=>s.bucket),datasets:[{label:'مبلغ ریال',data:trend.map(s=>s.amount_rial),borderColor:th.bar,backgroundColor:th.fill,fill:true,tension:.3},{label:'تعداد فاکتور',data:trend.map(s=>s.invoice_count),borderColor:th.gold,yAxisID:'y1'}]},options:{plugins:{legend:{display:true}},scales:{y1:{position:'right'}},onClick:(ev,els)=>{ if(els[0]) crmDrill('firm_sales'); }}});
+  const pipe=data.pipeline_detail||data.pipeline||[];
+  if(!pipe.length) crmChartEmpty('crmPipeChart','پایپ‌لاین خالی است.');
+  else crmMkChart('crmPipeChart',{type:'bar',data:{labels:pipe.map(s=>s.stage),datasets:[{label:'تعداد',data:pipe.map(s=>s.cnt),backgroundColor:th.bar},{label:'مبلغ موزون ریال',data:pipe.map(s=>s.weighted_amount_rial||0),backgroundColor:th.gold}]},options:{plugins:{legend:{display:true}},onClick:(ev,els)=>{ if(els[0]) crmDrill('pipeline_'+(pipe[els[0].index].stage||'')); }}});
+  const experts=data.experts_detail||data.sales_by_expert||[];
+  if(!experts.length) crmChartEmpty('crmExpertChart','فروش کارشناسی در این فیلتر نیست.');
+  else crmMkChart('crmExpertChart',{type:'bar',data:{labels:experts.map(s=>s.name),datasets:[{label:'فروش ریال',data:experts.map(s=>s.sales_rial||s.amount_rial||0),backgroundColor:th.bar}]},options:{plugins:{legend:{display:true}},onClick:(ev,els)=>{ if(els[0]) crmDrill('firm_sales'); }}});
+  const sources=data.sources||[];
+  if(!sources.length) crmChartEmpty('crmSourceChart','منبع جذب ثبت نشده است.');
+  else crmMkChart('crmSourceChart',{type:'doughnut',data:{labels:sources.map(s=>s.lead_source),datasets:[{data:sources.map(s=>s.sales_rial),backgroundColor:[th.bar,th.gold,th.fill]}]},options:{plugins:{legend:{display:true,position:'bottom'}},onClick:(ev,els)=>{ if(els[0]) crmDrill('firm_sales'); }}});
+  const camps=data.campaigns||[];
+  if(!camps.length) crmChartEmpty('crmCampChart','کمپینی با فروش قطعی در این فیلتر نیست.');
+  else crmMkChart('crmCampChart',{type:'bar',data:{labels:camps.map(s=>s.campaign),datasets:[{label:'فروش ریال',data:camps.map(s=>s.sales_rial),backgroundColor:th.bar}]},options:{plugins:{legend:{display:true}},onClick:(ev,els)=>{ if(els[0]) crmDrill('firm_sales'); }}});
+  const segs=data.segments||[];
+  if(!segs.length) crmChartEmpty('crmSegChart','سگمنت محاسبه‌شده‌ای نیست.');
+  else crmMkChart('crmSegChart',{type:'pie',data:{labels:segs.map(s=>s.segment),datasets:[{data:segs.map(s=>s.cnt),backgroundColor:[th.bar,th.gold,'#2563EB','#D97706','#dc2626','#6b7280','#7c3aed']}]},options:{plugins:{legend:{display:true,position:'bottom'}},onClick:(ev,els)=>{ if(els[0]) crmDrill('churn_risk_customers'); }}});
+}
+function crmExportDash(){
+  const qs=crmFilterQuery().toString();
+  const t=localStorage.getItem('crm_token')||'';
+  fetch('/api/crm/export/excel'+(qs?'?'+qs:''),{headers:{Authorization:'Bearer '+t}}).then(r=>{
+    if(!r.ok) throw new Error('خروجی مجاز نیست');
+    return r.blob();
+  }).then(b=>{
+    const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='crm-dashboard.xlsx'; a.click();
+  }).catch(e=>showToast(e.message||'خطا در خروجی','error'));
+}
+async function crmDrill(metric, page){
+  const box=el('crmDrill'); if(!box) return;
+  window._crmLastMetric=metric;
+  box.style.display='block';
+  box.innerHTML='<div class="muted">در حال بارگذاری جزئیات...</div>';
+  try{
+    const q=crmFilterQuery();
+    q.set('metric',metric);
+    q.set('page',String(page||1));
+    q.set('page_size','50');
+    const data=await api('GET','/crm/drilldown?'+q.toString());
+    const rows=data.rows||[];
+    const total=data.total||rows.length;
+    window._crmLastMetric=metric;
+    const nextPage=(page||1)+1;
+    box.innerHTML=`<div class="panel-head"><h4>جزئیات: ${esc(metric)} (${fmt(total)} مورد)</h4>
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){box.style.display='none'})}">بستن</button></div>
+      <div class="panel-body"><table class="tbl"><thead><tr><th>شناسه</th><th>عنوان</th><th>تاریخ</th><th>مبلغ/وضعیت</th><th></th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td>${r.id||''}</td>
+        <td>${esc(r.num||r.subject||r.title||r.cust_biz||r.type||'')}</td>
+        <td>${esc(r.date||'')}</td>
+        <td>${r.final_rial!=null?fmtCrmRial(r.final_rial):(r.final!=null?fmtCrmRial(r.final):esc(r.status||r.pipeline_stage||''))}</td>
+        <td>${r.cust_id||r.customer_id?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){custActivityModal((r.cust_id||r.customer_id))})}">مشتری</button>`:''}
+          ${r.num?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('invoices')})}">فاکتور</button>`:''}</td>
+      </tr>`).join('')||emptyRow(5)}</tbody></table>
+      ${total>50?`<div class="toolbar"><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){crmDrill(window._crmLastMetric,nextPage)})}">صفحه بعد</button></div>`:''}
+      </div>`;
+    box.scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(e){ box.innerHTML=`<div class="err">${esc(e.message||'خطا')}<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){crmDrill(window._crmLastMetric||'firm_sales')})}">تلاش دوباره</button></div>`; }
+}
 
 function setFupView(v){
   fupFilter.view=v;
@@ -2891,7 +3658,7 @@ function filterFups(){
   let rows=CACHE.followups.slice().sort((a,b)=>(b.created_at||0)-(a.created_at||0));
   if(fupFilter.q){const q=fupFilter.q.toLowerCase();rows=rows.filter(f=>((f.cust_biz||'')+' '+(f.subject||'')+' '+(f.note||'')+' '+(f.tags||'')).toLowerCase().includes(q));}
   if(fupFilter.status)rows=rows.filter(f=>f.status===fupFilter.status);
-  if(fupFilter.stage)rows=rows.filter(f=>(f.pipeline_stage||'lead')===fupFilter.stage);
+  if(fupFilter.stage)rows=rows.filter(f=>fupStageId(f)===fupFilter.stage);
   return rows;
 }
 function renderFupView(){
@@ -2905,7 +3672,7 @@ function fupRowsHtml(rows, showSalesperson){
   return `<table class="tbl" data-bulk-delete="0"><thead><tr>
     <th>مشتری</th><th>مرحله</th><th>تاریخ</th><th>نوع</th><th>موضوع</th><th>احتمال</th><th>اولویت</th><th>بعدی</th><th>وضعیت</th>${showSalesperson?'<th>کارشناس</th>':''}<th class="no-sort">عملیات</th>
   </tr></thead><tbody>${rows.map(f=>{
-    const stage=PIPELINE_STAGES.find(s=>s.id===(f.pipeline_stage||'lead'))||PIPELINE_STAGES[0];
+    const stage=PIPELINE_STAGES.find(s=>s.id===fupStageId(f))||PIPELINE_STAGES[0];
     const prob=parseInt(f.purchase_prob)||0;
     return `<tr data-id="${f.id}">
       <td><b>${esc(f.cust_biz||'-')}</b></td>
@@ -3004,20 +3771,25 @@ function toggleFupFolder(gi){
 
 function renderFupKanban(){
   const rows=filterFups();
+  const today=todayJalali();
   el('fupView').innerHTML=`<div class="pipeline-board">${PIPELINE_STAGES.map(stage=>{
-    const cards=rows.filter(f=>(f.pipeline_stage||'lead')===stage.id);
-    return `<div class="pipeline-col">
+    const cards=rows.filter(f=>fupStageId(f)===stage.id);
+    const weighted=cards.reduce((a,f)=>a+((parseInt(f.purchase_prob,10)||0)/100),0);
+    return `<div class="pipeline-col" data-stage="${stage.id}" data-csp-dragover="${CSP.bind('dragover',function(event){event.preventDefault();this.classList.add('drop-on')})}" data-csp-dragleave="${CSP.bind('dragleave',function(event){this.classList.remove('drop-on')})}" data-csp-drop="${CSP.bind('drop',function(event){event.preventDefault();this.classList.remove('drop-on');crmKanbanDrop(event,this.getAttribute('data-stage'))})}">
       <div class="col-head"><span>${stage.icon} ${stage.label}</span><span class="cnt">${cards.length}</span></div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:11px;padding:0 8px`)}">وزن احتمال: ${fmt(Math.round(weighted*100)/100)}</div>
       ${cards.map(f=>{
         const prob=parseInt(f.purchase_prob)||0;
         const interest=INTEREST_LEVELS.find(l=>l.id===(f.interest_level||'mid'))||INTEREST_LEVELS[2];
-        return `<div class="f-card" data-csp-click="${CSP.bind('click',function(event){fupModal((f.id))})}">
+        const stale=f.next_date && f.status==='open' && f.next_date<today;
+        return `<div class="f-card ${stale?'stale':''}" draggable="true" data-id="${f.id}" data-csp-dragstart="${CSP.bind('dragstart',function(event){event.dataTransfer.setData('text/plain',String(f.id))})}" data-csp-click="${CSP.bind('click',function(event){fupModal((f.id))})}">
           <div class="fc-cust">${esc(f.cust_biz||'-')}</div>
-          ${stage.id==='lead' && (f.account_balance||0)>0?`<div data-csp-style="${CSP.style(`font-size:11px;color:#dc2626;font-weight:600;margin-top:4px`)}">💰 مانده: ${fmt(f.account_balance)} ریال</div>`:''}
+          ${stale?`<div class="tag t-lost">متوقف / عقب‌افتاده</div>`:''}
+          ${stage.id==='lead' && (f.account_balance||0)>0?`<div data-csp-style="${CSP.style(`font-size:11px;color:var(--red);font-weight:600;margin-top:4px`)}">مانده: ${fmtCrmRial(f.account_balance)}</div>`:''}
           ${f.subject?`<div class="fc-sub">${esc(f.subject)}</div>`:''}
           <div class="fc-meta">
             ${statusTag(f.priority)}
-            <span class="tag" data-csp-style="${CSP.style(`background:#f3f4f6;color:var(--muted);gap:3px;display:inline-flex;align-items:center`)}">
+            <span class="tag" data-csp-style="${CSP.style(`background:var(--well);color:var(--muted);gap:3px;display:inline-flex;align-items:center`)}">
               <span class="interest-dot ${interest.cls}"></span>${interest.label}
             </span>
           </div>
@@ -3031,6 +3803,27 @@ function renderFupKanban(){
       <button class="btn ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px;font-size:12px;padding:7px`)}" data-csp-click="${CSP.bind('click',function(event){fupModal(null,`${String((stage.id) ?? '')}`)})}">+ اضافه</button>
     </div>`;
   }).join('')}</div>`;
+}
+async function crmKanbanDrop(ev, stage){
+  const id=parseInt(ev.dataTransfer.getData('text/plain'),10);
+  if(!id||!stage) return;
+  const f=(CACHE.followups||[]).find(x=>x.id===id);
+  if(!f) return;
+  if(fupStageId(f)===stage) return;
+  let lost='';
+  if(stage==='lost'){
+    lost=prompt('دلیل از دست رفتن فرصت؟')||'';
+    if(!lost.trim()){ showToast('دلیل باخت الزامی است','error'); return; }
+  }
+  if(!confirm('مرحله به «'+stage+'» ذخیره شود؟')) return;
+  try{
+    if(f.opportunity_id){
+      await api('PATCH','/crm/opportunities/'+f.opportunity_id+'/stage',{pipeline_stage:stage,lost_reason:lost});
+    }
+    await api('PUT','/followups/'+id,Object.assign({},f,{pipeline_stage:stage,lost_reason:lost||f.lost_reason||''}));
+    CACHE.followups=await api('GET','/followups')||CACHE.followups;
+    renderFupKanban(); showToast('مرحله ذخیره شد');
+  }catch(e){ showToast(e.message||'خطا در ذخیره مرحله','error'); }
 }
 
 function fupModal(id, defaultStage, presetCustId){
@@ -3105,6 +3898,7 @@ function toggleLostReason(){
 async function saveFup(id){
   const cust_id=+el('f-cust').value;
   if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
+  if(el('f-stage')?.value==='lost' && !(el('f-lost')?.value||'').trim()){ showToast('دلیل باخت الزامی است','error'); return; }
   const data={
     cust_id, date:el('f-date').value, type:el('f-type').value,
     priority:el('f-priority').value, subject:el('f-subject').value,
@@ -3128,7 +3922,7 @@ async function saveFup(id){
 async function custActivityModal(custId){
   const cust=CACHE.customers.find(x=>x.id===custId)||{biz:'مشتری',id:custId};
   openModal(`
-    <div class="modal-head"><h3>📋 تاریخچه — ${esc(cust.biz)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-head"><h3>📋 تاریخچه CRM — ${esc(cust.biz)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body" id="activityBody"><div data-csp-style="${CSP.style(`text-align:center;padding:24px;color:var(--muted)`)}">در حال بارگذاری...</div></div>
     <div class="modal-foot">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){closeModal();fupModal(null,null,(custId))})}">➕ پیگیری جدید</button>
@@ -3136,30 +3930,37 @@ async function custActivityModal(custId){
     </div>
   `,true);
   try{
-    const history=await api('GET','/followups/by-customer/'+custId)||[];
+    let events=[];
+    try{
+      const tl=await api('GET','/crm/timeline?customer_id='+custId+'&limit=80');
+      events=(tl&&tl.events)||[];
+    }catch(_){ events=[]; }
+    if(!events.length){
+      const history=await api('GET','/followups/by-customer/'+custId)||[];
+      events=history.map(f=>({kind:'followup',id:f.id,date:f.date,title:f.subject||f.type,status:f.status,note:f.note,type:f.type,meta:f}));
+    }
     const body=el('activityBody');
     if(!body) return;
-    if(!history.length){ body.innerHTML='<div class="empty">هنوز پیگیری‌ای ثبت نشده است.</div>'; return; }
-    const typeIcons={'📱 تلفن':'📱','💬 واتساپ':'💬','📸 اینستاگرام':'📸','📲 تلگرام':'📲','🏪 حضوری':'🏪','✉️ پیامک':'✉️'};
-    body.innerHTML=`<ul class="timeline">${history.map(f=>{
-      const stage=PIPELINE_STAGES.find(s=>s.id===(f.pipeline_stage||'lead'))||PIPELINE_STAGES[0];
-      const icon=typeIcons[f.type]||'📞';
+    if(!events.length){ body.innerHTML='<div class="empty">هنوز رویدادی ثبت نشده است.</div>'; return; }
+    const kindIcon={followup:'📞',invoice:'🧾',invoice_final:'🧾',proforma:'📋',settlement:'💵',sales_return:'↪️',cheque:'🏦',opportunity_stage:'📈',segment:'🏷️'};
+    const kindLabel={followup:'پیگیری',invoice:'فاکتور معمولی',invoice_final:'فاکتور رسمی',proforma:'پیش‌فاکتور',settlement:'تسویه',sales_return:'برگشت فروش',cheque:'چک',opportunity_stage:'تغییر مرحله',segment:'سگمنت'};
+    body.innerHTML=`<ul class="timeline">${events.map(ev=>{
+      const icon=kindIcon[ev.kind]||'•';
+      const label=kindLabel[ev.kind]||ev.kind;
+      const amt=ev.amount_rial!=null?fmtCrmRial(ev.amount_rial):(ev.amount!=null?fmtCrmRial(ev.amount):'');
       return `<li class="timeline-item">
         <div class="timeline-dot">${icon}</div>
         <div class="timeline-body">
           <div class="tm-head">
-            <span class="tm-type">${esc(f.type||'تماس')}</span>
-            <span class="tm-date">${escDate(f.date)}${f.time?' · '+esc(f.time):''}</span>
+            <span class="tm-type">${esc(label)}</span>
+            <span class="tm-date">${escDate(ev.date||'')}</span>
           </div>
-          ${f.subject?`<div data-csp-style="${CSP.style(`font-weight:600;font-size:13px;margin-bottom:4px`)}">${esc(f.subject)}</div>`:''}
-          ${f.note?`<div class="tm-text">${esc(f.note)}</div>`:''}
-          ${f.action?`<div data-csp-style="${CSP.style(`font-size:12px;color:var(--blue);margin-top:4px`)}">⏭️ ${esc(f.action)}</div>`:''}
-          <div class="tm-meta" data-csp-style="${CSP.style(`margin-top:8px`)}">
-            <span class="tag ${stage.color}">${stage.icon} ${stage.label}</span>
-            ${statusTag(f.priority)}${statusTag(f.status)}
-            ${f.purchase_prob?`<span class="tag" data-csp-style="${CSP.style(`background:#e0fdf4;color:#065f46`)}">${f.purchase_prob}٪</span>`:''}
+          <div data-csp-style="${CSP.style(`font-weight:600;font-size:13px;margin-bottom:4px`)}">${esc(ev.title||'')}</div>
+          ${ev.note?`<div class="tm-text">${esc(ev.note)}</div>`:''}
+          <div class="tm-meta" data-csp-style="${CSP.style(`margin-top:6px`)}">
+            ${ev.status?statusTag(ev.status):''}
+            ${amt?`<span class="tag" data-csp-style="${CSP.style(`background:#eef2ff;color:#3730a3`)}">${amt}</span>`:''}
           </div>
-          ${f.next_date?`<div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:6px`)}">📅 پیگیری بعدی: ${escDate(f.next_date)}</div>`:''}
         </div>
       </li>`;
     }).join('')}</ul>`;
@@ -3171,51 +3972,133 @@ async function custActivityModal(custId){
 ============================================================ */
 let invCart = [];
 let invFilter = {q:'', type:''};
+let _printDocId = 0;
+function rememberPrintDocId(id){
+  const n = Number(id);
+  if (Number.isFinite(n) && n > 0) _printDocId = n;
+  return _printDocId;
+}
+function resolvePrintDocId(id){
+  const n = Number(id);
+  if (Number.isFinite(n) && n > 0) { _printDocId = n; return n; }
+  return _printDocId || 0;
+}
+async function toastPrintError(r){
+  let txt = '';
+  try { txt = await r.text(); } catch (_) {}
+  const msg = String(txt || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180)
+    || ('خطا در چاپ (' + r.status + ')');
+  showToast(msg, 'error');
+}
+function invBadgeHtml(type, approved){
+  if(type === 'proforma') return `<span class="inv-badge proforma">📋 پیش‌فاکتور</span>`;
+  if(type === 'normal') return `<span class="inv-badge normal">🧾 معمولی</span>`;
+  if(type === 'final') return `<span class="inv-badge final">📄 رسمی${approved?' <span class="inv-badge moadian-approved">✓ مودیان</span>':' <span class="inv-badge moadian-pending">⏳ صف ارسال</span>'}</span>`;
+  return `<span class="inv-badge">${esc(type||'')}</span>`;
+}
+
+function setInvChipActive(targetEl){
+  document.querySelectorAll('.inv-chip-tabs .inv-chip').forEach(c=>c.classList.remove('active'));
+  targetEl?.classList.add('active');
+}
+
 ROUTES.invoices = async function(){
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
   if(!_invoicesFetched){ CACHE.invoices=await api('GET','/invoices')||[]; _invoicesFetched=true; }
+
+  const allInvs = (CACHE.invoices||[]).filter(i=>!i.deleted_at && i.status!=='reversed');
+  const totalRev = allInvs.filter(i=>i.type!=='proforma').reduce((a,i)=>a+(i.final||0),0);
+  const proformaInvs = allInvs.filter(i=>i.type==='proforma' && !i.converted);
+  const proformaSum = proformaInvs.reduce((a,i)=>a+(i.final||0),0);
+  const normalInvs = allInvs.filter(i=>i.type==='normal');
+  const finalInvs = allInvs.filter(i=>i.type==='final');
+
   el('view').innerHTML=`
+    <div class="inv-kpi-grid">
+      <div class="inv-kpi-card ${invFilter.type===''?'active':''}" data-csp-click="${CSP.bind('click',function(){invFilter.type='';ROUTES.invoices();})}">
+        <div class="kpi-icon">💰</div>
+        <div class="kpi-label">فروش کل قطعی</div>
+        <div class="kpi-val">${fmt(totalRev)} ریال</div>
+        <div class="kpi-sub">${fmt(normalInvs.length + finalInvs.length)} فاکتور صادر شده</div>
+      </div>
+      <div class="inv-kpi-card ${invFilter.type==='proforma'?'active':''}" data-csp-click="${CSP.bind('click',function(){invFilter.type='proforma';ROUTES.invoices();})}">
+        <div class="kpi-icon">📋</div>
+        <div class="kpi-label">پیش‌فاکتورهای فعال</div>
+        <div class="kpi-val">${fmt(proformaSum)} ریال</div>
+        <div class="kpi-sub">${fmt(proformaInvs.length)} در انتظار تبدیل</div>
+      </div>
+      <div class="inv-kpi-card ${invFilter.type==='normal'?'active':''}" data-csp-click="${CSP.bind('click',function(){invFilter.type='normal';ROUTES.invoices();})}">
+        <div class="kpi-icon">🧾</div>
+        <div class="kpi-label">فاکتورهای معمولی</div>
+        <div class="kpi-val">${fmt(normalInvs.reduce((a,i)=>a+(i.final||0),0))} ریال</div>
+        <div class="kpi-sub">${fmt(normalInvs.length)} فاکتور داخلی</div>
+      </div>
+      <div class="inv-kpi-card ${invFilter.type==='final'?'active':''}" data-csp-click="${CSP.bind('click',function(){invFilter.type='final';ROUTES.invoices();})}">
+        <div class="kpi-icon">📄</div>
+        <div class="kpi-label">فاکتورهای رسمی</div>
+        <div class="kpi-val">${fmt(finalInvs.reduce((a,i)=>a+(i.final||0),0))} ریال</div>
+        <div class="kpi-sub">${fmt(finalInvs.length)} فاکتور (ارسال به مودیان)</div>
+      </div>
+    </div>
+
+    <div class="inv-chip-tabs">
+      <div class="inv-chip ${invFilter.type===''?'active':''}" data-csp-click="${CSP.bind('click',function(event){invFilter.type='';renderInvTable();setInvChipActive(event?.currentTarget);})}">
+        همه <span class="chip-count">${fmt(allInvs.length)}</span>
+      </div>
+      <div class="inv-chip ${invFilter.type==='proforma'?'active':''}" data-csp-click="${CSP.bind('click',function(event){invFilter.type='proforma';renderInvTable();setInvChipActive(event?.currentTarget);})}">
+        📋 پیش‌فاکتور <span class="chip-count">${fmt(proformaInvs.length)}</span>
+      </div>
+      <div class="inv-chip ${invFilter.type==='normal'?'active':''}" data-csp-click="${CSP.bind('click',function(event){invFilter.type='normal';renderInvTable();setInvChipActive(event?.currentTarget);})}">
+        🧾 معمولی <span class="chip-count">${fmt(normalInvs.length)}</span>
+      </div>
+      <div class="inv-chip ${invFilter.type==='final'?'active':''}" data-csp-click="${CSP.bind('click',function(event){invFilter.type='final';renderInvTable();setInvChipActive(event?.currentTarget);})}">
+        📄 رسمی <span class="chip-count">${fmt(finalInvs.length)}</span>
+      </div>
+    </div>
+
     <div class="toolbar">
-      <input class="search" id="iSearch" placeholder="جستجوی فاکتور..." value="${esc(invFilter.q)}">
-      <select id="iType">
-        <option value="" ${invFilter.type===''?'selected':''}>همه انواع</option>
-        <option value="proforma" ${invFilter.type==='proforma'?'selected':''}>پیش‌فاکتور</option>
-        <option value="final" ${invFilter.type==='final'?'selected':''}>فاکتور رسمی</option>
-      </select>
+      <input class="search" id="iSearch" placeholder="🔍 جستجو: شماره فاکتور، نام مشتری، تلفن، کارشناس..." value="${esc(invFilter.q)}" data-csp-style="${CSP.style(`min-width:280px`)}">
       ${canCreateInvoice()?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){openInvBuilder()})}">➕ فاکتور جدید</button>`:''}
       ${isAdmin()?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){exportExcel('invoices')})}">📥 اکسل</button>`:''}
     </div>
     <div class="panel"><div class="panel-body tbl-wrap"><div id="invTable"></div></div></div>`;
-  el('iSearch').addEventListener('input',e=>{invFilter.q=e.target.value;debounceInv();});
-  el('iType').addEventListener('change',e=>{invFilter.type=e.target.value;renderInvTable();});
+
+  el('iSearch')?.addEventListener('input',e=>{invFilter.q=e.target.value;debounceInv();});
   renderInvTable();
 };
+
 function renderInvTable(){
   let rows=CACHE.invoices.slice();
   const q=invFilter.q.toLowerCase();
-  if(q)rows=rows.filter(i=>textMatchesQuery((i.num||'')+' '+(i.cust_biz||'')+' '+(i.cust_owner||''), q));
+  if(q)rows=rows.filter(i=>textMatchesQuery((i.num||'')+' '+(i.cust_biz||'')+' '+(i.cust_owner||'')+' '+(i.seller_name||''), q));
   if(invFilter.type)rows=rows.filter(i=>i.type===invFilter.type);
   const isAdmin=ME.role==='admin';
   const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
+  const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'};
+
   el('invTable').innerHTML=`<table class="tbl" id="crmInvTbl" data-bulk-delete="/invoices" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} فاکتور ابطال شود؟ سند معکوس ثبت می‌شود."><thead><tr>
-    <th>شماره</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی</th><th>فروشنده</th><th class="no-sort">عملیات</th>
+    <th>شماره</th><th>خریدار / مشتری</th><th>نوع فاکتور</th><th>تاریخ صدور</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th class="no-sort">عملیات</th>
   </tr></thead><tbody>${rows.map(i=>`<tr data-id="${i.id}">
     <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${invNumCell(i.num)}</td>
-    <td>${esc(i.cust_biz||'-')}${i.cust_owner?`<br><span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(i.cust_owner)}</span>`:''}</td>
-    <td>${statusTag(i.type)}${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" data-csp-style="${CSP.style(`font-size:10px`)}">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
-    <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
+    <td><b>${esc(i.cust_biz||'-')}</b>${i.cust_owner?`<br><span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">👤 ${esc(i.cust_owner)}</span>`:''}</td>
+    <td>${invBadgeHtml(i.type, i.approved)}</td>
+    <td class="mono">${escDate(i.date)}</td>
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--text)`)}">${fmt(i.final)}</td>
+    <td><span class="tag" data-csp-style="${CSP.style(`font-size:11px`)}">${payLabel[i.pay_type]||i.pay_type||'—'}</span></td>
     <td class="muted">${esc(i.seller_name||'-')}</td>
     <td>
-      ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProforma((i.id))})}">🔄 تبدیل به فاکتور</button>` : ''}
-      <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}">🖨️</button>
-      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}">✏️</button>
-      ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال">⛔</button>`:''}
+      <div class="inv-actions-cell">
+        ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
+        <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️</button>
+        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش فاکتور">✏️</button>
+        ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال/لغو فاکتور">⛔</button>`:''}
+      </div>
     </td>
-  </tr>`).join('')||emptyRow(7)}</tbody>
+  </tr>`).join('')||emptyRow(8)}</tbody>
   <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
     <td colspan="4">جمع (${fmt(rows.length)} فاکتور)</td>
-    <td class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
-    <td colspan="2"></td>
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;font-size:15px`)}">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
+    <td colspan="3"></td>
   </tr></tfoot></table>`;
   if(typeof enhanceDataTable==='function'){
     const t=el('crmInvTbl');
@@ -3230,6 +4113,7 @@ function openInvBuilder(id){
   _openInvBuilder(id);
 }
 async function _openInvBuilder(id){
+  rememberPrintDocId(id);
   await ensureProductsCache();
   // Lookup lists for invoice pay fields — soft-fail so sales roles are not blocked
   // if a meta endpoint is temporarily unavailable (banks/cash/checks/cost-centers).
@@ -3243,7 +4127,7 @@ async function _openInvBuilder(id){
   if(!CACHE.costCenters) CACHE.costCenters = await loadMeta('/accounting/cost-centers', []);
   let inv = null;
   if(id){
-    inv = CACHE.invoices.find(x=>x.id===id) || null;
+    inv = (CACHE.invoices||[]).find(x=>Number(x.id)===Number(id)) || null;
     if(!inv?.rows?.length){
       try{ inv = await api('GET','/invoices/'+id); }catch(e){ inv=null; }
     }
@@ -3257,7 +4141,13 @@ async function _openInvBuilder(id){
     invCart = (inv.rows||[]).map(r=>({
       product_id:r.product_id, name:r.name, qty:r.qty, price:r.price,
       disc:r.disc||0, disc_amount:r.disc_amount||0, description:r.description||'',
-      warehouse_id:r.warehouse_id||null, row_type:r.row_type||'product', income_coa:r.income_coa||''
+      warehouse_id:r.warehouse_id||null, row_type:r.row_type||'product', income_coa:r.income_coa||'',
+      batch_id:r.batch_id||null, is_fabric_roll:r.is_fabric_roll?1:0,
+      color:r.color||r.color_name||'', color_name:r.color_name||r.color||'',
+      size_name:r.size_name||'', variant_id:r.variant_id||null,
+      color_id:r.color_id||null, size_id:r.size_id||null,
+      pattern:r.pattern||'', width_cm:r.width_cm||0, roll_no:r.roll_no||'',
+      unit_cost_rial:r.unit_cost_rial||0
     }));
     window.__invCartFromMarketer = false;
   } else if(pendingMk){
@@ -3292,9 +4182,11 @@ async function _openInvBuilder(id){
           <select id="inv-expert"><option value="">— خودکار (کارشناس مشتری / من) —</option>
             ${salesUsers.map(u=>`<option value="${u.id}" ${Number(defExpert)===Number(u.id)?'selected':''}>${esc(u.name||u.username)}</option>`).join('')}
           </select></div>`:`<input type="hidden" id="inv-expert" value="">`}
-        <div class="fg"><label>نوع ${hlp('پیش‌فاکتور: برای اعلام قیمت به مشتری — در درآمد محاسبه نمی‌شود. فاکتور رسمی: فروش قطعی — در گزارش درآمد ثبت می‌شود.')}</label><select id="inv-type">
+        <div class="fg"><label>نوع ${hlp('پیش‌فاکتور: اعلام قیمت بدون اثر موجودی/حسابداری. فاکتور معمولی: فروش قطعی با موجودی و سند — بدون مودیان. فاکتور رسمی: فروش قطعی + صف مودیان در صورت فعال بودن. تبدیل پیش‌فاکتور فقط با دکمه «تبدیل» است، نه با تغییر این فهرست.')}</label><select id="inv-type" ${inv&&inv.type==='proforma'&&!inv.converted?'disabled':''}>
           <option value="proforma" ${inv&&inv.type==='proforma'?'selected':''}>پیش‌فاکتور</option>
-          <option value="final" ${inv&&inv.type==='final'?'selected':''}>فاکتور رسمی</option></select></div>
+          <option value="normal" ${inv&&inv.type==='normal'?'selected':''}>فاکتور معمولی</option>
+          <option value="final" ${inv&&inv.type==='final'?'selected':''}>فاکتور رسمی</option></select>
+          ${inv&&inv.type==='proforma'&&!inv.converted?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">برای قطعی شدن از دکمه «تبدیل به فاکتور» استفاده کنید.</div>`:''}</div>
         <div class="fg"><label>تاریخ ${hlp('تاریخ صدور فاکتور. در گزارش‌های دوره‌ای بر اساس این تاریخ فیلتر می‌شود.')}</label><input id="inv-date" data-jdate value="${esc(inv?inv.date:todayJalali())}"></div>
         <div class="fg"><label>تخفیف کل (٪) ${hlp('درصد تخفیف از مجموع کل فاکتور (پس از تخفیف ردیف‌ها). با تغییر درصد، مبلغ تخفیف به‌روز می‌شود و برعکس.')}</label><input id="inv-disc" type="number" min="0" max="100" step="0.01" value="${inv?inv.disc:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct');renderCart()})}"></div>
         <div class="fg"><label>تخفیف کل (مبلغ) ${hlp('مبلغ تخفیف کل فاکتور به ریال. با تغییر مبلغ، درصد معادل محاسبه می‌شود.')}</label><input id="inv-disc-amt" type="number" min="0" value="${inv?inv.disc_amt:0}" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt');renderCart()})}"></div>
@@ -3315,12 +4207,12 @@ async function _openInvBuilder(id){
         <div class="fg"><label>مرکز هزینه</label><select id="inv-cc"><option value="">—</option>
           ${(CACHE.costCenters||[]).map(c=>`<option value="${c.id}" ${inv&&inv.cost_center_id==c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
         <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="inv-freight" type="text" inputmode="numeric" class="money" value="${moneyInit(inv?inv.freight_amount:0)}" data-csp-input="${CSP.bind('input',function(event){renderCart()})}"></div>
-        <div class="fg"><label>سرشکن کرایه</label><select id="inv-freight-alloc">
+        <div class="fg"><label>سرشکن کرایه</label><select id="inv-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
           <option value="amount" ${!inv||inv.freight_alloc_method==='amount'||!inv.freight_alloc_method?'selected':''}>به نسبت مبلغ</option>
           <option value="qty" ${inv&&inv.freight_alloc_method==='qty'?'selected':''}>به نسبت مقدار</option>
           <option value="equal" ${inv&&inv.freight_alloc_method==='equal'?'selected':''}>مساوی</option>
         </select></div>
-        <div class="fg"><label>نوع کرایه</label><select id="inv-freight-type">
+        <div class="fg"><label>نوع کرایه</label><select id="inv-freight-type" data-csp-change="${CSP.bind('change',function(){renderCart()})}">
           <option value="">—</option><option value="buyer" ${inv&&inv.freight_type==='buyer'?'selected':''}>بر عهده خریدار</option>
           <option value="seller" ${inv&&inv.freight_type==='seller'?'selected':''}>بر عهده فروشنده</option></select></div>
         <div class="fg"><label><input type="checkbox" id="inv-vat-exempt" ${inv&&inv.vat_exempt?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> معاف از مالیات</label></div>
@@ -3371,10 +4263,13 @@ async function _openInvBuilder(id){
           </div>
           <div data-csp-style="${CSP.style(`display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap`)}">
             <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){invCart.push({row_type:'income',product_id:null,name:'درآمد/خدمات',qty:1,price:0,disc:0,disc_amount:0,description:'',income_coa:''});renderCart()})}">➕ ردیف درآمد</button>
+            <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){invoiceFabricRollPicker('sale')})}">🧵 افزودن طاقه</button>
           </div>
           <div class="inv-lines-wrap" id="cartRows"></div>
           <div class="cart-tot" id="cartTot"></div>
           <button class="btn green" data-csp-style="${CSP.style(`width:100%;margin-top:12px;padding:12px;font-size:15px`)}" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">💾 ذخیره فاکتور</button>
+          ${id?`<button class="btn ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){printInvoice((id))})}">🖨️ چاپ فاکتور</button>`:''}
+          ${id&&inv&&inv.type==='proforma'&&!inv.converted?`<button class="btn orange" data-csp-style="${CSP.style(`width:100%;margin-top:8px;padding:12px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((id))})}">🔄 تبدیل به فاکتور قطعی</button>`:''}
         </div>
       </div>
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:10px`)}">قیمت‌ها و تخفیف ردیف‌ها قابل ویرایش هستند. سرستون‌ها راهنمای هر ستون‌اند.</p>
@@ -3382,33 +4277,77 @@ async function _openInvBuilder(id){
   renderInvPicker();
   renderCart();
   toggleInvPayFields();
+  const whSel = el('inv-warehouse');
+  if (whSel && !whSel.dataset.whBound) {
+    whSel.dataset.whBound = '1';
+    whSel.addEventListener('change', () => {
+      applyHeaderWarehouseToCart(invCart, headerInvoiceWarehouseId());
+      renderCart();
+      reloadInvProductsForWarehouse();
+    });
+  }
+  if (+(whSel?.value || 0)) reloadInvProductsForWarehouse();
   _bcWedgeHandler = scanBarcodeToCart;
   const hint=el('mobPickHint'); if(hint) hint.style.display=window.matchMedia('(hover:none)').matches?'block':'none';
 }
 function renderInvPicker(){
+  const whId = +(el('inv-warehouse')?.value || 0);
   const q=(el('invProdSearch')?.value||'').trim();
-  let prods=(CACHE.allProducts.length?CACHE.allProducts:CACHE.products).slice();
+  if(!whId && !(ME.role==='field_sales'||ME.role==='inside_sales')){
+    el('invPicker').innerHTML=`<div class="empty" data-csp-style="${CSP.style(`padding:16px;text-align:center`)}">ابتدا انبار مبدأ را انتخاب کنید</div>`;
+    return;
+  }
+  let prods=(CACHE._invProducts && CACHE._invProducts.length
+    ? CACHE._invProducts
+    : (CACHE.allProducts.length?CACHE.allProducts:CACHE.products)).slice();
   if(q) prods=prods.filter(p=>textMatchesQuery((p.name||'')+' '+(p.code||'')+' '+(p.category||'')+' '+(p.barcode||''), q));
   const INV_PICK_LIMIT=60;
   const extra=Math.max(0,prods.length-INV_PICK_LIMIT);
   const shown=prods.slice(0,INV_PICK_LIMIT);
   el('invPicker').innerHTML = shown.map(p=>{
     // Real-time available stock = current stock minus qty already reserved in this invoice's cart
-    const reserved=invCart.filter(r=>r.product_id===p.id).reduce((a,r)=>a+r.qty,0);
-    const avail=(p.stock||0)-reserved;
+    const reserved=invCart.filter(r=>Number(r.product_id)===Number(p.id)).reduce((a,r)=>a+r.qty,0);
+    const avail=(p.wh_qty!=null?p.wh_qty:(p.stock||0))-reserved;
     return `
     <div class="pick-card" id="pc-${p.id}" data-csp-click="${CSP.bind('click',function(event){pickCardTap(event,(p.id))})}">
       <div class="pimg">${p.image?prodImgTag(p.image):'🧥'}</div>
       <div class="pn">${esc(p.name)}</div>
+      ${(()=>{ const s=(CACHE._invVarSum&&(CACHE._invVarSum[p.id]||CACHE._invVarSum[String(p.id)]))||null; if(!s||!s.line) return ''; const det=CSP.bind('click',function(event){event.stopPropagation();showInvVariantDetail((p.id));}); return '<div class="pick-var-line" title="مشاهده جزئیات رنگ و سایز" data-csp-click="'+det+'">'+esc(s.line)+'</div>'; })()}
       <div class="pp">${fmt(p.price)} ریال</div>
       <div class="pst" data-csp-style="${CSP.style(`font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}`)}">موجودی: ${fmt(avail)}</div>
     </div>`;
   }).join('') + (extra?`<div class="muted" data-csp-style="${CSP.style(`padding:10px;text-align:center;font-size:12px`)}">${fmt(extra)} کالای دیگر — برای یافتن، جستجو کنید</div>`:'') || `<div class="empty" data-csp-style="${CSP.style(`padding:16px;text-align:center`)}">کالایی یافت نشد — از بخش کالاها، کالای جدید اضافه کنید</div>`;
+  const shownIds=shown.map(p=>p.id);
+  hydrateInvVarSum(shownIds).then(changed=>{ if(changed && el('invPicker')) renderInvPicker(); });
+}
+async function reloadInvProductsForWarehouse(){
+  const whId = +(el('inv-warehouse')?.value || 0);
+  // Never overwrite CACHE.allProducts with a WH subset (poisons catalog/BOM pickers).
+  if(!whId){ CACHE._invProducts=[]; renderInvPicker(); return; }
+  try{
+    const rows = await api('GET','/products?warehouse_id='+whId+'&pageSize=500') || [];
+    const list = Array.isArray(rows) ? rows : (rows.rows || rows.data || []);
+    CACHE._invProducts = list;
+    // Header warehouse only refreshes the picker. Per-line warehouse stays;
+    // do not drop cart rows that belong to another warehouse.
+    renderInvPicker();
+  }catch(e){ try{ showToast(e.message||'خطا در بارگذاری کالاهای انبار','error'); }catch(_){ } }
+}
+function findInvProduct(pid){
+  const id=Number(pid);
+  if(!Number.isFinite(id)) return null;
+  const lists=[CACHE._invProducts, CACHE.allProducts, CACHE.products];
+  for(const list of lists){
+    if(!list||!list.length) continue;
+    const p=list.find(x=>Number(x.id)===id);
+    if(p) return p;
+  }
+  return null;
 }
 async function invProdQuickModal(prefill){
   await ensureProductCategories();
   const name=(prefill||'').trim();
-  openModal(`
+  openNestedModal(`
     <div class="modal-head"><h3>➕ ساخت سریع کالا</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>نام کالا *</label><input id="iq-name" value="${esc(name)}"></div>
@@ -3435,17 +4374,127 @@ async function saveInvProdQuick(){
     });
     if(!CACHE.allProducts) CACHE.allProducts=[];
     if(!CACHE.products) CACHE.products=[];
-    CACHE.allProducts.unshift(p); CACHE.products.unshift(p);
-    addToCart(p.id); closeModal(); showToast('کالا ساخته و به سبد اضافه شد');
+    if(!CACHE._invProducts) CACHE._invProducts=[];
+    CACHE.allProducts.unshift(p); CACHE.products.unshift(p); CACHE._invProducts.unshift(p);
+    closeNestedModal(); addToCart(p.id); showToast('کالا ساخته و به سبد اضافه شد');
   }catch(e){}
 }
-function addToCart(pid){
-  const p = CACHE.products.find(x=>x.id===pid); if(!p) return;
-  const ex = invCart.find(r=>r.product_id===pid);
-  const defaultQty = p.pack_size > 1 ? p.pack_size : 1;
-  if(ex) ex.qty += defaultQty; else invCart.push({product_id:pid,name:p.name,qty:defaultQty,price:p.price,disc:0});
+function headerInvoiceWarehouseId(){
+  return +el('inv-warehouse')?.value || ME?.sales_warehouse_id || null;
+}
+function headerPurchaseWarehouseId(){
+  return +el('po-warehouse')?.value || null;
+}
+function applyHeaderWarehouseToCart(cart, headerId, opts){
+  const wh = +headerId || null;
+  if(!wh || !cart) return;
+  const force = !!(opts && opts.force) || (typeof isRepRole==='function' && isRepRole(ME?.role));
+  cart.forEach(r=>{
+    if(r.row_type==='income') return;
+    if(r.batch_id || r.is_fabric_roll) return;
+    if(force || !r.warehouse_id) r.warehouse_id = wh;
+  });
+}
+function livePackFromStyle(style){
+  const vars=(style&&style.variants)||[];
+  const matrix=vars.filter(v=>!v.is_default && v.active!==0);
+  const live=matrix.filter(v=>(Number(v.stock)||0)>0);
+  const pool=live.length?live:matrix;
+  const colors=new Set(pool.map(v=>String(v.color_id||v.color_name||'')));
+  const sizes=new Set(pool.map(v=>String(v.size_id||v.size_name||'')));
+  colors.delete(''); sizes.delete('');
+  const auto=Number(style&&style.pack_size_auto)||0;
+  return { matrix, live, pool, pack: Math.max(1, (colors.size*sizes.size)||auto||1) };
+}
+function addCartRow(p, extra){
+  const pidN=Number(p.id);
+  const variantId=extra&&extra.variant_id?Number(extra.variant_id):null;
+  const qty=extra&&extra.qty!=null?Math.max(0.001, Number(extra.qty)||0): (p.pack_size>1?p.pack_size:1);
+  const wh=headerInvoiceWarehouseId();
+  const ex=invCart.find(r=>Number(r.product_id)===pidN && Number(r.variant_id||0)===Number(variantId||0) && !r.batch_id);
+  if(ex) ex.qty += qty;
+  else invCart.push({
+    product_id:pidN, name:p.name, qty, price:(extra&&extra.price!=null)?extra.price:p.price, disc:0, warehouse_id:wh,
+    variant_id:variantId,
+    color_id:extra&&extra.color_id||null,
+    size_id:extra&&extra.size_id||null,
+    color:extra&&(extra.color||extra.color_name)||'',
+    color_name:extra&&extra.color_name||'',
+    size_name:extra&&extra.size_name||''
+  });
+}
+async function addToCart(pid){
+  const p = findInvProduct(pid);
+  if(!p){ try{ showToast('کالا در فهرست این انبار یافت نشد','error'); }catch(_){ } return; }
+  let style=null;
+  try{ style=await api('GET','/product-variants/style/'+Number(p.id)); }catch(_){ style=null; }
+  const pack=livePackFromStyle(style);
+  if(pack.matrix.length){
+    openInvVariantSplitModal(p, pack);
+    return;
+  }
+  addCartRow(p, { qty: p.pack_size > 1 ? p.pack_size : 1 });
   renderCart();
-  renderInvPicker(); // stock badges must reflect the newly reserved quantity immediately
+  renderInvPicker();
+}
+function openInvVariantSplitModal(p, pack, opts){
+  opts=opts||{};
+  const rows=pack.pool.length?pack.pool:pack.matrix;
+  const qtyMap={};
+  (opts.existing||[]).forEach(r=>{ if(r.variant_id) qtyMap[String(r.variant_id)]=Number(r.qty)||0; });
+  const replaceIndices=opts.replaceIndices||null;
+  const splitConfirmBind=CSP.bind('click',function(){
+    confirmInvVariantSplit(Number(p.id), replaceIndices?{replaceIndices:replaceIndices.slice()}: {});
+  });
+  openNestedModal(`
+    <div class="modal-head"><h3>انتخاب رنگ / سایز — ${esc(p.name)}</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">پک زنده = ${fmt(pack.pack)} عدد. تعداد هر ترکیب را وارد کنید. روی فاکتور یک خط خلاصه زیر نام کالا دیده می‌شود.</p>
+      <div class="var-chip-wrap" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${[...new Set(rows.map(v=>v.color_name).filter(Boolean))].map(c=>`<span class="var-chip">${esc(c)}</span>`).join('')} ${[...new Set(rows.map(v=>v.size_name).filter(Boolean))].map(s=>`<span class="var-chip">${esc(s)}</span>`).join('')}</div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>رنگ</th><th>سایز</th><th>موجودی SKU</th><th>تعداد</th></tr></thead>
+      <tbody>${rows.map(v=>`<tr>
+        <td>${esc(v.color_name||'—')}</td>
+        <td>${esc(v.size_name||'—')}</td>
+        <td class="mono">${fmt(v.stock||0)}</td>
+        <td><input type="number" min="0" step="1" value="${qtyMap[String(v.id)]!=null?qtyMap[String(v.id)]:(opts.existing&&opts.existing.length?0:1)}" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}"></td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-csp-click="${splitConfirmBind}">${replaceIndices?'اعمال روی فاکتور':'افزودن به فاکتور'}</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button>
+    </div>`);
+}
+function confirmInvVariantSplit(pid, opts){
+  opts=opts||{};
+  const p=findInvProduct(pid);
+  if(!p){ closeNestedModal(); return; }
+  const inputs=[...document.querySelectorAll('.inv-var-qty')];
+  let added=0;
+  const next=[];
+  inputs.forEach(inp=>{
+    const qty=Math.max(0, Number(inp.value)||0);
+    if(!qty) return;
+    next.push({
+      qty,
+      variant_id: Number(inp.getAttribute('data-vid'))||null,
+      color_id: Number(inp.getAttribute('data-cid'))||null,
+      size_id: Number(inp.getAttribute('data-sid'))||null,
+      color: inp.getAttribute('data-cname')||'',
+      color_name: inp.getAttribute('data-cname')||'',
+      size_name: inp.getAttribute('data-sname')||'',
+    });
+    added++;
+  });
+  if(!added){ showToast('حداقل برای یک رنگ/سایز تعداد وارد کنید','error'); return; }
+  if(Array.isArray(opts.replaceIndices) && opts.replaceIndices.length){
+    const drop=opts.replaceIndices.slice().sort((a,b)=>b-a);
+    drop.forEach(i=>{ if(i>=0&&i<invCart.length) invCart.splice(i,1); });
+  }
+  next.forEach(row=>addCartRow(p, row));
+  closeNestedModal();
+  renderCart();
+  renderInvPicker();
 }
 let _pickTap={};
 function pickCardTap(e,pid){
@@ -3505,43 +4554,130 @@ function invSyncHeaderDisc(src, discPctId, discAmtId){
     pctEl.value=subtotal>0?Math.min(100,Math.round(amt*10000/subtotal)/100):0;
   }
 }
+function invCartGroupKey(r){
+  return [Number(r.product_id)||0, Number(r.price)||0, Number(r.warehouse_id)||0, Number(r.disc)||0, Number(r.disc_amount)||0].join('|');
+}
+function invCartGroups(){
+  const groups=[];
+  const seen=new Array(invCart.length).fill(false);
+  for(let i=0;i<invCart.length;i++){
+    if(seen[i]) continue;
+    const r=invCart[i];
+    const isPack=!!r.variant_id && !r.batch_id && !r.is_fabric_roll && r.row_type!=='income';
+    if(!isPack){
+      groups.push({kind:'single', indices:[i]});
+      seen[i]=true;
+      continue;
+    }
+    const key=invCartGroupKey(r);
+    const indices=[i];
+    seen[i]=true;
+    for(let j=i+1;j<invCart.length;j++){
+      if(seen[j]) continue;
+      const o=invCart[j];
+      if(!o.variant_id || o.batch_id || o.is_fabric_roll || o.row_type==='income') continue;
+      if(invCartGroupKey(o)===key){ indices.push(j); seen[j]=true; }
+    }
+    groups.push({kind:'pack', indices});
+  }
+  return groups;
+}
+function invPackSummary(indices){
+  const parts=indices.map(i=>{
+    const r=invCart[i]; if(!r) return '';
+    const label=[r.color_name||r.color, r.size_name].filter(Boolean).join(' / ');
+    return (label||'SKU')+' × '+fmt(r.qty);
+  }).filter(Boolean);
+  return parts.join('، ');
+}
+async function editInvCartPack(indices){
+  const rows=indices.map(i=>invCart[i]).filter(Boolean);
+  if(!rows.length) return;
+  const p=findInvProduct(rows[0].product_id);
+  if(!p){ showToast('کالا یافت نشد','error'); return; }
+  let style=null;
+  try{ style=await api('GET','/product-variants/style/'+Number(p.id)); }catch(_){ style=null; }
+  const pack=livePackFromStyle(style);
+  if(!pack.matrix.length && !pack.pool.length){ showToast('ماتریس رنگ/سایز برای این کالا نیست','error'); return; }
+  openInvVariantSplitModal(p, pack, { existing: rows, replaceIndices: indices });
+}
+function removeInvCartGroup(indices){
+  indices.slice().sort((a,b)=>b-a).forEach(i=>{ if(i>=0 && i<invCart.length) invCart.splice(i,1); });
+  renderCart(); renderInvPicker();
+}
+function invApplyGroupField(indices, field, value){
+  indices.forEach(i=>{ if(invCart[i]) invCart[i][field]=value; });
+}
 function renderCart(){
   const showLineDisc=canAccounting();
   const hideWhCol=typeof isRepRole==='function' && isRepRole(ME?.role);
   const defWh=ME?.sales_warehouse_id||null;
   if(hideWhCol && defWh){
-    invCart.forEach(r=>{ if(r.row_type!=='income') r.warehouse_id=defWh; });
+    invCart.forEach(r=>{ if(r.row_type!=='income' && !r.batch_id && !r.is_fabric_roll) r.warehouse_id=defWh; });
   }
-  const countEl=el('invCartCount'); if(countEl) countEl.textContent=fmt(invCart.length)+' ردیف';
+  const groups=invCartGroups();
+  const countEl=el('invCartCount'); if(countEl) countEl.textContent=fmt(groups.length)+' ردیف · '+fmt(invCart.length)+' SKU';
   const colSpan=showLineDisc?(hideWhCol?7:8):(hideWhCol?5:6);
+  const freight = typeof moneyVal==='function' ? moneyVal('inv-freight') : 0;
+  const freightMethod=el('inv-freight-alloc')?.value||'amount';
+  const freightSeller=freightTypeIsSeller(el('inv-freight-type')?.value);
+  const freightShares=allocateFreightShares(invCart, freight, freightMethod);
   if(!invCart.length){
     el('cartRows').innerHTML=`<div class="inv-lines-empty">سبد خالی است — از فهرست کالا یک قلم اضافه کنید</div>`;
   } else {
     el('cartRows').innerHTML = `<table class="inv-lines-tbl"><thead><tr>
       <th>کالا / خدمت</th>
-      <th class="col-qty">تعداد</th>
+      <th class="col-qty">تعداد قطعه</th>
       <th class="col-price">فی (ریال)</th>
       ${showLineDisc?`<th class="col-disc">تخفیف ٪</th><th class="col-disc-amt">تخفیف مبلغ</th>`:''}
       ${hideWhCol?'':`<th class="col-wh">انبار</th>`}
       <th class="col-sum">جمع ردیف</th>
       <th class="col-rm"></th>
-    </tr></thead><tbody>${invCart.map((r,i)=>{
+    </tr></thead><tbody>${groups.map(g=>{
+      const indices=g.indices;
+      const i=indices[0];
+      const r=invCart[i];
       const isIncome = r.row_type==='income';
-      const gross=r.qty*r.price;
-      const lineDiscAmt=showLineDisc?lineDiscApplied(r):0;
+      const isPack=g.kind==='pack';
+      const qtySum=indices.reduce((a,ix)=>a+(Number(invCart[ix]?.qty)||0),0);
+      const gross=indices.reduce((a,ix)=>{ const row=invCart[ix]; return a+(Number(row.qty)||0)*(Number(row.price)||0); },0);
+      const lineDiscAmt=showLineDisc?indices.reduce((a,ix)=>a+lineDiscApplied(invCart[ix]),0):0;
       const lineSum=Math.max(0,gross-lineDiscAmt);
-      return `
-      <tr>
-        <td class="cn">${isIncome?'💰 ':''}${esc(r.name)}</td>
-        <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[(i)].qty);if(canAccounting())invSyncLineDisc(invCart,(i),'pct');renderCart();renderInvPicker()})}"></td>
-        <td class="col-price"><input type="number" value="${r.price}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].price=+this.value||0;if(canAccounting())invSyncLineDisc(invCart,(i),'pct');renderCart()})}"></td>
-        ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].disc=+this.value||0;invSyncLineDisc(invCart,(i),'pct');renderCart()})}"></td>
-        <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].disc_amount=+this.value||0;invSyncLineDisc(invCart,(i),'amt');renderCart()})}"></td>`:''}
-        ${hideWhCol?'':`<td class="col-wh">${!isIncome?`<select data-csp-change="${CSP.bind('change',function(event){invCart[(i)].warehouse_id=+this.value||null})}">${warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')}</select>`:'—'}</td>`}
-        <td class="col-sum mono">${fmt(lineSum)}</td>
-        <td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="${CSP.bind('click',function(event){invCart.splice((i),1);renderCart();renderInvPicker()})}">×</button></td>
-      </tr>
-      <tr class="desc-row"><td colspan="${colSpan}"><input type="text" placeholder="توضیحات ردیف (اختیاری)" value="${esc(r.description||'')}" data-csp-change="${CSP.bind('change',function(event){invCart[(i)].description=this.value})}"></td></tr>`;
+      const lineFreight=indices.reduce((a,ix)=>a+(freightShares[ix]||0),0);
+      const ixCopy=indices.slice();
+      const packSummaryStyle=CSP.style('font-size:11px;line-height:1.55;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;cursor:pointer');
+      const packEditStyle=CSP.style('margin-top:6px;min-height:44px');
+      const muted11Style=CSP.style('font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;cursor:pointer');
+      const editPackBind=CSP.bind('click',function(){editInvCartPack(ixCopy)});
+      const detailBind=CSP.bind('click',function(event){event.stopPropagation();showInvVariantDetail(Number(r.product_id),ixCopy)});
+      const removeGroupBind=CSP.bind('click',function(){removeInvCartGroup(ixCopy)});
+      const priceChangeBind=CSP.bind('change',function(event){const v=moneyParseInput(this);invApplyGroupField(ixCopy,'price',v);ixCopy.forEach(ix=>{if(canAccounting())invSyncLineDisc(invCart,ix,'pct')});renderCart()});
+      const discPctChangeBind=CSP.bind('change',function(event){const v=+this.value||0;invApplyGroupField(ixCopy,'disc',v);ixCopy.forEach(ix=>invSyncLineDisc(invCart,ix,'pct'));renderCart()});
+      const discAmtChangeBind=CSP.bind('change',function(event){const v=+this.value||0;invApplyGroupField(ixCopy,'disc_amount',v);ixCopy.forEach(ix=>invSyncLineDisc(invCart,ix,'amt'));renderCart()});
+      const whChangeBind=CSP.bind('change',function(event){invApplyGroupField(ixCopy,'warehouse_id',+this.value||null)});
+      const descChangeBind=CSP.bind('change',function(event){invApplyGroupField(ixCopy,'description',this.value)});
+      const qtyChangeBind=CSP.bind('change',function(event){invCart[i].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(invCart[i].qty);if(canAccounting())invSyncLineDisc(invCart,i,'pct');renderCart();renderInvPicker()});
+      const oneLine=isPack?invPackOneLine(indices):([r.color_name||r.color,r.size_name].filter(Boolean).join(' · '));
+      const packNote=isPack
+        ? (oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+packSummaryStyle+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':'')
+          +'<button type="button" class="btn sm ghost" data-csp-style="'+packEditStyle+'" data-csp-click="'+editPackBind+'">ویرایش رنگ / سایز</button>'
+        : (r.batch_id||r.is_fabric_roll?'<div class="muted" data-csp-style="'+muted11Style+'">طاقه '+esc(r.roll_no||('#'+(r.batch_id||'')))+' '+esc(r.color||'')+'</div>':(oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+muted11Style+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':''));
+      const qtyCell=isPack
+        ? '<span class="mono">'+fmtQty(qtySum)+'</span>'
+        : '<input type="number" min="0.001" step="0.001" inputmode="decimal" value="'+fmtQty(r.qty)+'" data-csp-change="'+qtyChangeBind+'">';
+      const freightHint=lineFreight?('<div class="muted" data-csp-style="'+CSP.style('font-size:10px;font-weight:500')+'">کرایه '+fmt(lineFreight)+(freight?(' · '+Math.round(lineFreight*100/freight)+'٪'):'')+'</div>'):'';
+      return ''
+      +'<tr>'
+        +'<td class="cn">'+(isIncome?'💰 ':'')+esc(r.name)+packNote+'</td>'
+        +'<td class="col-qty">'+qtyCell+'</td>'
+        +'<td class="col-price"><input type="text" inputmode="numeric" class="money" value="'+moneyInit(r.price)+'" data-csp-change="'+priceChangeBind+'"></td>'
+        +(showLineDisc?'<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="'+(r.disc||0)+'" data-csp-change="'+discPctChangeBind+'"></td>'
+          +'<td class="col-disc-amt"><input type="number" min="0" value="'+(r.disc_amount||0)+'" data-csp-change="'+discAmtChangeBind+'"></td>':'')
+        +(hideWhCol?'':'<td class="col-wh">'+(!isIncome?'<select data-csp-change="'+whChangeBind+'">'+warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')+'</select>':'—')+'</td>')
+        +'<td class="col-sum mono">'+fmt(lineSum)+freightHint+'</td>'
+        +'<td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="'+removeGroupBind+'">×</button></td>'
+      +'</tr>'
+      +'<tr class="desc-row"><td colspan="'+colSpan+'"><input type="text" placeholder="توضیحات ردیف (اختیاری)" value="'+esc(r.description||'')+'" data-csp-change="'+descChangeBind+'"></td></tr>';
     }).join('')}</tbody></table>`;
   }
   const linesDiscTotal = showLineDisc ? invCart.reduce((a,r)=>a+lineDiscApplied(r),0) : 0;
@@ -3551,14 +4687,16 @@ function renderCart(){
   let disc = +(el('inv-disc')?.value||0);
   if(discAmtEl && !discAmt && disc){ discAmt=Math.round(subtotal*disc/100); discAmtEl.value=discAmt; }
   else if(discAmtEl && discAmt && subtotal>0){ disc=Math.min(100,Math.round(discAmt*10000/subtotal)/100); const pe=el('inv-disc'); if(pe && document.activeElement!==pe) pe.value=disc; }
-  const freight = typeof moneyVal==='function' ? moneyVal('inv-freight') : 0;
-  const final = subtotal-discAmt+freight;
+  const chargedFreight = freightSeller ? 0 : freight;
+  const final = subtotal-discAmt+chargedFreight;
   el('cartTot').innerHTML = `
-    ${linesDiscTotal?`<div class="l"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)} ریال</span></div>`:''}
-    <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
-    <div class="l"><span>تخفیف کل فاکتور (${fmt(disc)}٪ / مبلغ):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
-    ${freight?`<div class="l"><span>کرایه حمل:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
-    <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(final)} ریال</span></div>`;
+    <div class="inv-builder-summary-box">
+      ${linesDiscTotal?`<div class="inv-summary-row"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)} ریال</span></div>`:''}
+      <div class="inv-summary-row"><span>جمع ناخالص کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
+      <div class="inv-summary-row"><span>تخفیف کلی فاکتور (${fmt(disc)}٪ / مبلغ):</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(discAmt)} ریال</span></div>
+      ${freight?`<div class="inv-summary-row"><span>کرایه حمل ${freightSeller?'(عهده فروشنده)':'(عهده خریدار)'}:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
+      <div class="inv-summary-row grand-total"><span>مبلغ نهایی قابل پرداخت:</span><span class="mono" data-csp-style="${CSP.style(`font-size:17px`)}">${fmt(final)} ریال</span></div>
+    </div>`;
 }
 function toggleInvPayFields(){
   const pt = el('inv-pay-type')?.value;
@@ -3573,6 +4711,7 @@ async function saveInvoice(id){
   const cust_id = +el('inv-cust').value;
   if(!cust_id){ showToast('مشتری را انتخاب کنید','error'); return; }
   if(invCart.length===0){ showToast('حداقل یک کالا اضافه کنید','error'); return; }
+  if(!invoiceNegativeStockWarn(invCart)) return;
   const pay_type = el('inv-pay-type')?.value || 'cash';
   const data = {
     cust_id, type:el('inv-type').value, date:el('inv-date').value, note:el('inv-note').value,
@@ -3597,9 +4736,14 @@ async function saveInvoice(id){
     rows: invCart.map(r=>({
       product_id:r.product_id, qty:r.qty, price:r.price, disc:r.disc||0,
       disc_amount:r.disc_amount||0, description:r.description||'',
-      warehouse_id:(typeof isRepRole==='function'&&isRepRole(ME?.role))?(ME?.sales_warehouse_id||null):(r.warehouse_id||null),
+      warehouse_id:(typeof isRepRole==='function'&&isRepRole(ME?.role))?(ME?.sales_warehouse_id||null):(r.warehouse_id||headerInvoiceWarehouseId()||null),
       row_type:r.row_type||'product',
-      income_coa:r.income_coa||'', name:r.name||''
+      income_coa:r.income_coa||'', name:r.name||'',
+      batch_id:r.batch_id||null, is_fabric_roll:r.is_fabric_roll?1:0,
+      color:r.color||r.color_name||'', pattern:r.pattern||'', width_cm:r.width_cm||0,
+      roll_no:r.roll_no||'', unit_cost_rial:r.unit_cost_rial||0,
+      variant_id:r.variant_id||null, color_id:r.color_id||null, size_id:r.size_id||null,
+      color_name:r.color_name||'', size_name:r.size_name||''
     }))
   };
   try{
@@ -3611,39 +4755,97 @@ async function saveInvoice(id){
     showToast(whNames.length?('فاکتور ذخیره شد — کسر از انبار: '+whNames.join('، ')):'فاکتور ذخیره شد');
   }catch(e){}
 }
-async function convertProforma(id){
-  if(!confirm('پیش‌فاکتور به فاکتور رسمی تبدیل شود؟')) return;
+function convertProformaChooser(id){
+  openModal(`
+    <div class="modal-head"><h3>تبدیل پیش‌فاکتور</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`line-height:1.9;margin-bottom:12px`)}">نوع فاکتور مقصد را انتخاب کنید. رسمی وارد صف مودیان می‌شود؛ معمولی برای فروش داخلی است.</p>
+      <div data-csp-style="${CSP.style(`display:flex;flex-direction:column;gap:8px`)}">
+        <button class="btn" data-csp-click="${CSP.bind('click',function(){convertProforma((id),'final')})}">تبدیل به فاکتور رسمی</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){convertProforma((id),'normal')})}">تبدیل به فاکتور معمولی</button>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button></div>`);
+}
+async function convertProforma(id, targetType){
+  const target = targetType || 'final';
+  const label = target==='normal'?'فاکتور معمولی':'فاکتور رسمی';
+  if(!confirm('پیش‌فاکتور به '+label+' تبدیل شود؟')) return;
   try{
-    await api('POST','/invoices/'+id+'/convert',{});
+    await api('POST','/invoices/'+id+'/convert',{ target_type: target });
+    try{ closeModal(); }catch(_){}
     CACHE.invoices = await api('GET','/invoices'); _invoicesFetched=true;
-    renderInvTable();
-    showToast('تبدیل شد');
+    if(el('invTable')) renderInvTable();
+    else if(IN_ACC_SHELL) loadAccTab(accTab||'sales-invoices');
+    showToast('تبدیل به '+label+' انجام شد');
   }catch(e){}
 }
-async function printInvoice(id, paper){
+async function printInvoice(id, paper, template){
+  const docId = resolvePrintDocId(id);
+  if(!docId){
+    showToast('شناسه فاکتور برای چاپ مشخص نیست — فاکتور را از لیست انتخاب کنید','error');
+    return;
+  }
   const defPaper = ((CACHE.settings||{}).invoice_paper_size||'A4').toUpperCase()==='A5'?'A5':'A4';
   const thermalW = String((CACHE.settings||{}).invoice_thermal_width||'80').replace(/\D/g,'')==='58'?'58':'80';
-  if(!paper){
-    openModal(`
-      <div class="modal-head"><h3>🖨️ انتخاب چاپ</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+  const cardStyle=CSP.style(`flex:1;min-width:140px;padding:14px;font-size:13px;text-align:center;line-height:1.6`);
+  if(!paper && !template){
+    openNestedModal(`
+      <div class="modal-head"><h3>🖨️ انتخاب چاپ</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeNestedModal()})}">×</button></div>
       <div class="modal-body" data-csp-style="${CSP.style(`padding:24px`)}">
-        <p data-csp-style="${CSP.style(`margin-bottom:12px;color:var(--muted)`)}">نوع چاپ را انتخاب کنید. پیش‌فرض کاغذ: <span data-csp-style="${CSP.style(`color:var(--purple);font-weight:700`)}">${defPaper}</span> · حرارتی: <b>${thermalW}mm</b></p>
-        <p data-csp-style="${CSP.style(`margin-bottom:16px;font-size:12px;color:var(--muted);line-height:1.8`)}">فاکتور رسمی ← قالب رسمی تنظیمات · پیش‌فاکتور ← عادی ساده · حرارتی ← عرض چاپگر در تنظیمات</p>
+        <p data-csp-style="${CSP.style(`margin-bottom:14px;color:var(--muted);line-height:1.8`)}">ابتدا نوع فاکتور چاپی را انتخاب کنید، سپس قالب و اندازه کاغذ.</p>
         <div data-csp-style="${CSP.style(`display:flex;gap:10px;justify-content:center;flex-wrap:wrap`)}">
-          <button class="btn${defPaper==='A4'?'':' ghost'}" data-csp-style="${CSP.style(`flex:1;min-width:120px;padding:14px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'A4')})}">📄 A4<br><small>۲۱ × ۲۹.۷</small></button>
-          <button class="btn${defPaper==='A5'?'':' ghost'}" data-csp-style="${CSP.style(`flex:1;min-width:120px;padding:14px;font-size:14px`)}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'A5')})}">📄 A5<br><small>۱۴.۸ × ۲۱</small></button>
-          <button class="btn ghost" data-csp-style="${CSP.style(`flex:1;min-width:120px;padding:14px;font-size:14px;border-color:var(--gold)`)}" data-csp-click="${CSP.bind('click',function(event){closeModal();printInvoice((id),'THERMAL')})}">🧾 حرارتی<br><small>${thermalW}mm</small></button>
+          <button class="btn" data-csp-style="${cardStyle}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'KIND_FORMAL')})}">📄 فاکتور رسمی<br><small>سه قالب اداری</small></button>
+          <button class="btn ghost" data-csp-style="${cardStyle}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'KIND_CASUAL')})}">🧾 فاکتور عادی<br><small>پیش‌فاکتور / ساده</small></button>
+          <button class="btn ghost" data-csp-style="${CSP.style(`flex:1;min-width:140px;padding:14px;font-size:13px;text-align:center;line-height:1.6;border-color:var(--gold)`)}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'THERMAL','thermal')})}">🖨️ حرارتی<br><small>${thermalW}mm</small></button>
         </div>
+      </div>`);
+    return;
+  }
+  if(paper==='KIND_FORMAL' || paper==='KIND_CASUAL'){
+    const formal=paper==='KIND_FORMAL';
+    const tmpls=formal
+      ? [['formal-official','رسمی کامل / اداری','سه ستون سربرگ، جدول سبز، مهر'],['formal-modern','رسمی مدرن','سربرگ نواری، چیپ متادیتا'],['formal-premium','رسمی پرمیوم','هیرو برند، نوار متادیتا']]
+      : [['casual-simple','عادی ساده','قالب پیش‌فاکتور و فروش داخلی']];
+    openNestedModal(`
+      <div class="modal-head"><h3>🖨️ انتخاب قالب ${formal?'رسمی':'عادی'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeNestedModal()})}">×</button></div>
+      <div class="modal-body" data-csp-style="${CSP.style(`padding:20px`)}">
+        <p class="muted" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.8`)}">قالب و اندازه کاغذ را انتخاب کنید. پیش‌فرض کاغذ: <b>${defPaper}</b></p>
+        ${tmpls.map(([tid,title,desc])=>`
+          <div data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px`)}">
+            <div data-csp-style="${CSP.style(`font-weight:700;margin-bottom:4px`)}">${esc(title)}</div>
+            <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">${esc(desc)}</div>
+            <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
+              <button class="btn sm${defPaper==='A4'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'A4',`${String((tid) ?? '')}`)})}">A4</button>
+              <button class="btn sm${defPaper==='A5'?'':' ghost'}" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId),'A5',`${String((tid) ?? '')}`)})}">A5</button>
+            </div>
+          </div>`).join('')}
+        <button class="btn ghost sm" data-csp-click="${CSP.bind('click',function(event){closeNestedModal();printInvoice((docId))})}">بازگشت</button>
       </div>`);
     return;
   }
   const token = localStorage.getItem('crm_token');
   try{
-    const q = paper==='THERMAL' ? 'paper=THERMAL&template=thermal' : ('paper='+encodeURIComponent(paper));
-    const r = await fetch('/api/invoices/'+id+'/print?'+q,{headers:{'Authorization':'Bearer '+token}});
-    if(!r.ok){ showToast('خطا در دریافت فاکتور','error'); return; }
+    const q = paper==='THERMAL'
+      ? 'paper=THERMAL&template=thermal'
+      : ('paper='+encodeURIComponent(paper)+(template?('&template='+encodeURIComponent(template)):''));
+    const r = await fetch('/api/invoices/'+docId+'/print?'+q,{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok){ await toastPrintError(r); return; }
     if(!await CSP.openVerifiedServerDocument(r)) showToast('مرورگر پنجره چاپ را مسدود کرد','error');
-  }catch(e){ showToast('خطا در چاپ','error'); }
+  }catch(e){ showToast((e && e.message) || 'خطا در چاپ','error'); }
+}
+async function printPurchase(id){
+  const docId = Number(id);
+  if(!Number.isFinite(docId) || docId<=0){
+    showToast('شناسه فاکتور خرید برای چاپ مشخص نیست','error');
+    return;
+  }
+  const token = localStorage.getItem('crm_token');
+  try{
+    const r = await fetch('/api/purchases/'+docId+'/print?paper=A4',{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok){ await toastPrintError(r); return; }
+    if(!await CSP.openVerifiedServerDocument(r)) showToast('مرورگر پنجره چاپ را مسدود کرد','error');
+  }catch(e){ showToast((e && e.message) || 'خطا در چاپ فاکتور خرید','error'); }
 }
 
 /* ============================================================
@@ -3869,7 +5071,18 @@ async function prodModal(id){
       <div class="fg"><label>هشدار موجودی ${hlp('وقتی موجودی به این عدد یا کمتر برسد، هشدار قرمز نمایش داده می‌شود.')}</label><input id="p-alert" type="number" value="${p.stock_alert!=null?p.stock_alert:5}"></div>
       <div class="fg"><label>واحد ${hlp('واحد شمارش محصول: عدد، دست، بسته و…')}</label><input id="p-unit" value="${esc(p.unit||'عدد')}"></div>
       <div class="fg"><label>تعداد رنگ ${hlp('تعداد رنگ‌بندی‌های موجود برای این محصول')}</label><input id="p-colors" type="number" min="1" value="${p.colors!=null?p.colors:1}"></div>
-      <div class="fg"><label>تعداد در پک ${hlp('تعداد پیش‌فرض هر بسته. در فاکتور به صورت خودکار اعمال می‌شود.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
+      <div class="fg"><label>تعداد در پک ${hlp('اگر ماتریس رنگ×سایز ساخته شود، پک فروش = رنگ‌های موجود × سایزهای موجود (زنده). این عدد فقط وقتی ماتریس نیست استفاده می‌شود.')}</label><input id="p-pack_size" type="number" min="1" value="${p.pack_size!=null?p.pack_size:1}"></div>
+      <div class="fg full" id="p-sku-chips"><span class="muted">در حال بارگذاری رنگ و سایز...</span></div>
+      <div class="fg full" id="p-variants-wrap">
+        <label>SKU مدل × رنگ × سایز ${hlp('هر ترکیب رنگ/سایز یک SKU مستقل با موجودی جدا است. ابتدا کالا را ذخیره کنید، سپس ماتریس بسازید.')}</label>
+        ${id?`<div id="p-variants-panel" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">در حال بارگذاری واریانت‌ها...</div>
+        <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;margin-top:8px`)}">
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(event){openProdVariantMatrixModal((id))})}">➕ ساخت ماتریس رنگ×سایز</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){refreshProdVariantsPanel((id))})}">🔄 بروزرسانی</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-product-colors');closeModal()})}">🎨 رنگ‌ها</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-product-sizes');closeModal()})}">📐 سایزها</button>
+        </div>`:`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">رنگ و سایز را بالا تیک بزنید؛ با ذخیره، ماتریس SKU ساخته می‌شود.</div>`}
+      </div>
       <div class="fg"><label>بارکد (EAN-13) ${hlp('بارکد محصول برای اسکن با دوربین در فاکتورساز و چاپ برچسب. اگر خالی باشد می‌توانید بعد از ذخیره، خودکار تولید کنید.')}</label>
         <div data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center`)}">
           <input id="p-barcode" dir="ltr" value="${esc(p.barcode||'')}" placeholder="مثلاً 2000000001234" data-csp-style="${CSP.style(`flex:1`)}">
@@ -3913,6 +5126,237 @@ async function prodModal(id){
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProduct((id||0))})}">💾 ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   bindProductImageInstantUpload(id||0);
+  setTimeout(()=>{ try{ loadProdSkuChips(id||0); }catch(_){} }, 0);
+  if(id) setTimeout(()=>{ try{ refreshProdVariantsPanel(id); }catch(_){} }, 0);
+}
+async function loadProdSkuChips(productId){
+  const box=el('p-sku-chips'); if(!box) return;
+  let colors=[], sizes=[], style=null;
+  try{ colors=listRows(await api('GET','/product-variants/colors'))||[]; }catch(_){ colors=[]; }
+  try{ sizes=listRows(await api('GET','/product-variants/sizes'))||[]; }catch(_){ sizes=[]; }
+  if(productId){ try{ style=await api('GET','/product-variants/style/'+productId); }catch(_){ style=null; } }
+  const usedC=new Set((style&&style.variants||[]).map(v=>Number(v.color_id)).filter(Boolean));
+  const usedS=new Set((style&&style.variants||[]).map(v=>Number(v.size_id)).filter(Boolean));
+  const packHint=style&&style.pack_size_auto?`پک زنده فعلی: ${fmt(style.pack_size_auto)} (${fmt(style.live_colors||0)} رنگ × ${fmt(style.live_sizes||0)} سایز)`:'';
+  box.innerHTML=`
+    <label>رنگ‌های این کالا ${hlp('با ذخیره، از رنگ×سایز تیک‌خورده ماتریس SKU ساخته می‌شود. پک فاکتور = رنگ موجود × سایز موجود.')}</label>
+    <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px`)}">${colors.length?colors.map(c=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="p-chip-color" value="${c.id}" ${usedC.has(Number(c.id))?'checked':''}> ${esc(c.name)}</label>`).join(''):'<span class="muted">رنگی ثبت نشده — از کالا → رنگ‌ها تعریف کنید</span>'}</div>
+    <label>سایزهای این کالا</label>
+    <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;margin:6px 0`)}">${sizes.length?sizes.map(s=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="p-chip-size" value="${s.id}" ${usedS.has(Number(s.id))?'checked':''}> ${esc(s.name)}</label>`).join(''):'<span class="muted">سایزی ثبت نشده — از کالا → سایزها تعریف کنید</span>'}</div>
+    ${packHint?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">${esc(packHint)}</div>`:''}`;
+}
+async function refreshProdVariantsPanel(productId){
+  const box=el('p-variants-panel'); if(!box||!productId) return;
+  box.innerHTML='در حال بارگذاری...';
+  try{
+    const style=await api('GET','/product-variants/style/'+productId);
+    const vars=(style&&style.variants)||[];
+    const matrix=vars.filter(v=>!v.is_default && v.active!==0);
+    if(!matrix.length){
+      box.innerHTML='<span class="muted">هنوز SKU رنگ×سایز ساخته نشده — «ساخت ماتریس» را بزنید.</span>';
+      return;
+    }
+    box.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>SKU</th><th>رنگ</th><th>سایز</th><th>موجودی</th><th>بارکد</th></tr></thead><tbody>
+      ${matrix.map(v=>`<tr>
+        <td class="mono" dir="ltr">${esc(v.sku||'—')}</td>
+        <td>${esc(v.color_name||v.color_code||'—')}</td>
+        <td>${esc(v.size_name||v.size_code||'—')}</td>
+        <td class="mono">${fmt(v.stock||0)}</td>
+        <td class="mono" dir="ltr">${esc(v.barcode||'—')}</td>
+      </tr>`).join('')}
+    </tbody></table></div>
+    <div class="muted" data-csp-style="${CSP.style(`margin-top:6px`)}">${fmt(matrix.length)} ترکیب فعال</div>`;
+  }catch(e){
+    box.innerHTML=`<span style="color:var(--red)">${esc(e.message||'خطا در بارگذاری واریانت')}</span>`;
+  }
+}
+async function openProdVariantMatrixModal(productId){
+  let colors=[], sizes=[];
+  try{ colors=listRows(await api('GET','/product-variants/colors'))||[]; }catch(_){ colors=[]; }
+  try{ sizes=listRows(await api('GET','/product-variants/sizes'))||[]; }catch(_){ sizes=[]; }
+  openModal(`
+    <div class="modal-head"><h3>ساخت ماتریس SKU (رنگ × سایز)</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">رنگ/سایزهای موجود را تیک بزنید، یا در کادر پایین نام جدید (با ویرگول) وارد کنید. ترکیب‌های تکراری ساخته نمی‌شوند.</p>
+      <div class="form-grid">
+        <div class="fg full"><label>رنگ‌های تعریف‌شده</label>
+          <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px`)}">
+            ${colors.length?colors.map(c=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="pv-color" value="${c.id}"> ${esc(c.name)}</label>`).join(''):'<span class="muted">رنگی ثبت نشده</span>'}
+          </div></div>
+        <div class="fg full"><label>سایزهای تعریف‌شده</label>
+          <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px`)}">
+            ${sizes.length?sizes.map(s=>`<label data-csp-style="${CSP.style(`display:flex;gap:4px;align-items:center;font-size:13px`)}"><input type="checkbox" class="pv-size" value="${s.id}"> ${esc(s.name)}</label>`).join(''):'<span class="muted">سایزی ثبت نشده</span>'}
+          </div></div>
+        <div class="fg full"><label>رنگ‌های جدید (ویرگول‌جدا)</label><input id="pv-new-colors" placeholder="مثلاً مشکی, سفید, کرم"></div>
+        <div class="fg full"><label>سایزهای جدید (ویرگول‌جدا)</label><input id="pv-new-sizes" placeholder="مثلاً S, M, L, XL"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){submitProdVariantMatrix((productId))})}">ساخت ماتریس</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`);
+}
+async function submitProdVariantMatrix(productId){
+  const color_ids=[...document.querySelectorAll('.pv-color:checked')].map(el=>Number(el.value)).filter(Boolean);
+  const size_ids=[...document.querySelectorAll('.pv-size:checked')].map(el=>Number(el.value)).filter(Boolean);
+  const colors=String(el('pv-new-colors')?.value||'').split(/[,،]/).map(s=>s.trim()).filter(Boolean).map((name,i)=>({name, code:name, sort_order:i}));
+  const sizes=String(el('pv-new-sizes')?.value||'').split(/[,،]/).map(s=>s.trim()).filter(Boolean).map((name,i)=>({name, code:name, sort_order:i}));
+  if(!color_ids.length && !colors.length){ showToast('حداقل یک رنگ لازم است','error'); return; }
+  if(!size_ids.length && !sizes.length){ showToast('حداقل یک سایز لازم است','error'); return; }
+  try{
+    const body={ product_id:Number(productId), auto_barcode:true };
+    if(color_ids.length) body.color_ids=color_ids; else body.colors=colors;
+    if(size_ids.length) body.size_ids=size_ids; else body.sizes=sizes;
+    // اگر هم id و هم نام جدید داریم، اول نام‌ها را بساز سپس با idها ترکیب کن
+    if(color_ids.length && colors.length){
+      for(const c of colors){ await api('POST','/product-variants/colors',c); }
+      const all=listRows(await api('GET','/product-variants/colors'));
+      body.color_ids=[...new Set([...color_ids, ...all.filter(x=>colors.some(n=>n.name===x.name)).map(x=>x.id)])];
+      delete body.colors;
+    }
+    if(size_ids.length && sizes.length){
+      for(const s of sizes){ await api('POST','/product-variants/sizes',s); }
+      const all=listRows(await api('GET','/product-variants/sizes'));
+      body.size_ids=[...new Set([...size_ids, ...all.filter(x=>sizes.some(n=>n.name===x.name)).map(x=>x.id)])];
+      delete body.sizes;
+    }
+    const r=await api('POST','/product-variants/generate-matrix', body);
+    showToast(`ماتریس: ${fmt(r.created?.length||0)} SKU جدید / ${fmt(r.total_skus||0)} کل`);
+    closeModal();
+    await prodModal(productId);
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function renderProductColorsTab(body){
+  let rows=[];
+  try{ rows=listRows(await api('GET','/product-variants/colors?all=1')); }catch(e){ rows=[]; }
+  const canMut=isAdmin()||ME.role==='accounting';
+  body.innerHTML=`
+    <div class="panel"><div class="panel-head"><h4>🎨 رنگ‌های کالا (برای ماتریس SKU)</h4>
+      ${canMut?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){editProductColorMaster(0)})}">➕ رنگ جدید</button>`:''}
+    </div><div class="panel-body">
+      <p class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;font-size:12px`)}">این فهرست در ویرایش کالا → «ساخت ماتریس رنگ×سایز» استفاده می‌شود.</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>کد</th><th>رنگ</th><th>کنتراست</th><th>وضعیت</th><th></th></tr></thead><tbody>
+        ${rows.map(r=>`<tr>
+          <td>${esc(r.name)}</td><td class="mono" dir="ltr">${esc(r.code||'—')}</td>
+          <td>${r.hex?`<span data-csp-style="${CSP.style(`display:inline-block;width:18px;height:18px;border-radius:4px;background:${esc(r.hex_normalized||r.hex)};border:1px solid #ccc;vertical-align:middle`)}"></span> <code dir="ltr">${esc(r.hex_normalized||r.hex)}</code>`:'—'}</td>
+          <td class="muted">${r.hex?(r.contrast_ok?'قابل‌خواندن':'ضعیف'):'—'}</td>
+          <td>${r.active?'فعال':'غیرفعال'}</td>
+          <td>${canMut?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){editProductColorMaster((r.id))})}">✏️</button>`:'—'}</td>
+        </tr>`).join('')||emptyRow(6)}
+      </tbody></table></div>
+    </div></div>`;
+}
+async function editProductColorMaster(id){
+  let row={};
+  if(id){
+    const all=listRows(await api('GET','/product-variants/colors?all=1'));
+    row=all.find(x=>Number(x.id)===Number(id))||{};
+  }
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش رنگ':'رنگ جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>نام *</label><input id="pc-name" value="${esc(row.name||'')}"></div>
+      <div class="fg"><label>کد</label><input id="pc-code" dir="ltr" value="${esc(row.code||'')}" placeholder="BLK"></div>
+      <div class="fg"><label>کد رنگ (hex)</label>
+        <div data-csp-style="${CSP.style('display:flex;gap:8px;align-items:center')}">
+          <input type="color" id="pc-hex-pick" value="${esc((row.hex_normalized||row.hex||'#000000'))}" data-csp-input="${CSP.bind('input',function(){syncProductColorHexFromPicker()})}">
+          <input id="pc-hex" dir="ltr" value="${esc(row.hex||'')}" placeholder="#000000" data-csp-input="${CSP.bind('input',function(){syncProductColorContrastHint()})}">
+        </div>
+        <div id="pc-contrast" class="muted" data-csp-style="${CSP.style('font-size:11px;margin-top:4px')}"></div>
+      </div>
+      <div class="fg"><label>ترتیب</label><input id="pc-sort" type="number" value="${row.sort_order!=null?row.sort_order:0}"></div>
+      ${id?`<div class="fg"><label><input type="checkbox" id="pc-active" ${row.active!==0?'checked':''}> فعال</label></div>`:''}
+    </div></div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProductColorMaster((id||0))})}">💾 ذخیره</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  syncProductColorContrastHint();
+}
+function syncProductColorHexFromPicker(){
+  const pick=el('pc-hex-pick');
+  const hexInp=el('pc-hex');
+  if(pick&&hexInp) hexInp.value=String(pick.value||'').toUpperCase();
+  syncProductColorContrastHint();
+}
+function syncProductColorContrastHint(){
+  const raw=String(el('pc-hex')?.value||'').trim();
+  const hint=el('pc-contrast');
+  const pick=el('pc-hex-pick');
+  const ok=/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(raw);
+  if(pick&&ok){
+    pick.value=raw.length===4?('#'+raw[1]+raw[1]+raw[2]+raw[2]+raw[3]+raw[3]):raw;
+  }
+  if(!hint) return;
+  if(!raw) hint.textContent='کد رنگ اختیاری است؛ در صورت ورود باید #RGB یا #RRGGBB باشد.';
+  else if(!ok) hint.textContent='کد رنگ نامعتبر است (فقط #RGB یا #RRGGBB).';
+  else hint.textContent='کنتراست متن سفید/سیاه روی نمونه پس از ذخیره محاسبه می‌شود.';
+}
+async function saveProductColorMaster(id){
+  const body={
+    name:el('pc-name')?.value?.trim(),
+    code:el('pc-code')?.value?.trim(),
+    hex:el('pc-hex')?.value?.trim(),
+    sort_order:Number(el('pc-sort')?.value||0)
+  };
+  if(!body.name){ showToast('نام الزامی است','error'); return; }
+  if(body.hex && !/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(body.hex)){
+    showToast('کد رنگ باید #RGB یا #RRGGBB باشد','error'); return;
+  }
+  if(id) body.active=el('pc-active')?.checked?1:0;
+  try{
+    if(id) await api('PUT','/product-variants/colors/'+id, body);
+    else await api('POST','/product-variants/colors', body);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('product-colors');
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function renderProductSizesTab(body){
+  let rows=[];
+  try{ rows=listRows(await api('GET','/product-variants/sizes?all=1')); }catch(e){ rows=[]; }
+  const canMut=isAdmin()||ME.role==='accounting';
+  body.innerHTML=`
+    <div class="panel"><div class="panel-head"><h4>📐 سایزهای کالا (برای ماتریس SKU)</h4>
+      ${canMut?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){editProductSizeMaster(0)})}">➕ سایز جدید</button>`:''}
+    </div><div class="panel-body">
+      <p class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;font-size:12px`)}">این فهرست در ویرایش کالا → «ساخت ماتریس رنگ×سایز» استفاده می‌شود.</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>کد</th><th>ترتیب</th><th>وضعیت</th><th></th></tr></thead><tbody>
+        ${rows.map(r=>`<tr>
+          <td>${esc(r.name)}</td><td class="mono" dir="ltr">${esc(r.code||'—')}</td>
+          <td class="mono">${fmt(r.sort_order||0)}</td>
+          <td>${r.active?'فعال':'غیرفعال'}</td>
+          <td>${canMut?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){editProductSizeMaster((r.id))})}">✏️</button>`:'—'}</td>
+        </tr>`).join('')||emptyRow(5)}
+      </tbody></table></div>
+    </div></div>`;
+}
+async function editProductSizeMaster(id){
+  let row={};
+  if(id){
+    const all=listRows(await api('GET','/product-variants/sizes?all=1'));
+    row=all.find(x=>Number(x.id)===Number(id))||{};
+  }
+  openModal(`
+    <div class="modal-head"><h3>${id?'ویرایش سایز':'سایز جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg"><label>نام *</label><input id="psz-name" value="${esc(row.name||'')}"></div>
+      <div class="fg"><label>کد</label><input id="psz-code" dir="ltr" value="${esc(row.code||'')}" placeholder="M"></div>
+      <div class="fg"><label>ترتیب</label><input id="psz-sort" type="number" value="${row.sort_order!=null?row.sort_order:0}"></div>
+      ${id?`<div class="fg"><label><input type="checkbox" id="psz-active" ${row.active!==0?'checked':''}> فعال</label></div>`:''}
+    </div></div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProductSizeMaster((id||0))})}">💾 ذخیره</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+}
+async function saveProductSizeMaster(id){
+  const body={
+    name:el('psz-name')?.value?.trim(),
+    code:el('psz-code')?.value?.trim(),
+    sort_order:Number(el('psz-sort')?.value||0)
+  };
+  if(!body.name){ showToast('نام الزامی است','error'); return; }
+  if(id) body.active=el('psz-active')?.checked?1:0;
+  try{
+    if(id) await api('PUT','/product-variants/sizes/'+id, body);
+    else await api('POST','/product-variants/sizes', body);
+    closeModal(); showToast('ذخیره شد'); loadAccTab('product-sizes');
+  }catch(e){ showToast(e.message||'خطا','error'); }
 }
 function bindProductImageInstantUpload(productId){
   const inp=el('p-image');
@@ -4035,6 +5479,14 @@ async function saveProduct(id){
       showToast((e && ((e.payload&&e.payload.error)||e.message)) || 'خطا در ذخیره کالا','error');
       return;
     }
+  }
+  const savedId = (saved && (saved.id || saved.product_id)) || id || 0;
+  const color_ids=[...document.querySelectorAll('.p-chip-color:checked')].map(n=>Number(n.value)).filter(Boolean);
+  const size_ids=[...document.querySelectorAll('.p-chip-size:checked')].map(n=>Number(n.value)).filter(Boolean);
+  if(savedId && color_ids.length && size_ids.length){
+    try{
+      await api('POST','/product-variants/generate-matrix',{ product_id:Number(savedId), color_ids, size_ids, auto_barcode:true });
+    }catch(e){ showToast((e && e.message) || 'کالا ذخیره شد؛ ساخت ماتریس SKU ناموفق بود','error'); }
   }
   closeModal();
   showToast('ذخیره شد');
@@ -4226,7 +5678,9 @@ async function scanBarcodeToCart(code){
   try{
     const p=await api('GET','/products/by-barcode/'+encodeURIComponent(code));
     if(p&&p.id){
-      if(!(CACHE.products||[]).find(x=>x.id===p.id)) (CACHE.products=CACHE.products||[]).push(p);
+      if(!(CACHE.products||[]).find(x=>Number(x.id)===Number(p.id))) (CACHE.products=CACHE.products||[]).push(p);
+      if(!(CACHE._invProducts||[]).find(x=>Number(x.id)===Number(p.id))) (CACHE._invProducts=CACHE._invProducts||[]).push(p);
+      if(!(CACHE.allProducts||[]).find(x=>Number(x.id)===Number(p.id))) (CACHE.allProducts=CACHE.allProducts||[]).push(p);
       addToCart(p.id); showToast('افزوده شد: '+p.name);
     }
   }catch(e){ showToast('کالایی با این بارکد یافت نشد','error'); }
@@ -4964,67 +6418,194 @@ async function resetPass(id,name){
    REPORTS (admin)
 ============================================================ */
 let repRange={from:'',to:''};
+let repPreset='all';
+
+function setRepPreset(presetKey){
+  repPreset = presetKey;
+  const tj = todayJalali();
+  if(presetKey === 'today'){
+    repRange.from = tj; repRange.to = tj;
+  } else if(presetKey === 'week'){
+    repRange.from = jDateAddDays(tj, -7); repRange.to = tj;
+  } else if(presetKey === 'month'){
+    const parts = tj.split('/');
+    if(parts.length===3) { repRange.from = `${parts[0]}/${parts[1]}/01`; repRange.to = tj; }
+  } else if(presetKey === 'year'){
+    const parts = tj.split('/');
+    if(parts.length===3) { repRange.from = `${parts[0]}/01/01`; repRange.to = tj; }
+  } else if(presetKey === 'all'){
+    repRange.from = ''; repRange.to = '';
+  }
+  if(el('rep-from')) el('rep-from').value = repRange.from;
+  if(el('rep-to')) el('rep-to').value = repRange.to;
+  loadReports();
+}
+
 ROUTES.reports = async function(){
   el('view').innerHTML=`
+    <div class="rep-preset-bar">
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px;font-weight:600;margin-left:4px`)}">بازه زمانی سریع:</span>
+      <button class="rep-preset-btn ${repPreset==='today'?'active':''}" data-csp-click="${CSP.bind('click',function(){setRepPreset('today')})}">امروز</button>
+      <button class="rep-preset-btn ${repPreset==='week'?'active':''}" data-csp-click="${CSP.bind('click',function(){setRepPreset('week')})}">هفته جاری</button>
+      <button class="rep-preset-btn ${repPreset==='month'?'active':''}" data-csp-click="${CSP.bind('click',function(){setRepPreset('month')})}">ماه جاری</button>
+      <button class="rep-preset-btn ${repPreset==='year'?'active':''}" data-csp-click="${CSP.bind('click',function(){setRepPreset('year')})}">امسال</button>
+      <button class="rep-preset-btn ${repPreset==='all'?'active':''}" data-csp-click="${CSP.bind('click',function(){setRepPreset('all')})}">کل دوره</button>
+    </div>
     <div class="toolbar">
       <label class="muted">از تاریخ</label><input id="rep-from" data-jdate value="${esc(repRange.from)}" placeholder="از">
       <label class="muted">تا تاریخ</label><input id="rep-to" data-jdate value="${esc(repRange.to)}" placeholder="تا">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){loadReports()})}">📊 اعمال</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){loadReports()})}">📊 اعمال فیلتر</button>
+      ${isAdmin()?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){exportExcel('reports')})}">📥 اکسل گزارش</button>`:''}
     </div>
-    <div id="repBody"><div class="muted">در حال بارگذاری...</div></div>`;
+    <div id="repBody"><div class="muted">در حال بارگذاری مرکز گزارشات...</div></div>`;
   attachDatepickers(el('view'));
-  el('rep-from').addEventListener('change',()=>repRange.from=el('rep-from').value);
-  el('rep-to').addEventListener('change',()=>repRange.to=el('rep-to').value);
+  el('rep-from')?.addEventListener('change',()=>repRange.from=el('rep-from').value);
+  el('rep-to')?.addEventListener('change',()=>repRange.to=el('rep-to').value);
   loadReports();
 };
+
 async function loadReports(){
   repRange.from=el('rep-from')?.value||''; repRange.to=el('rep-to')?.value||'';
   const qs=new URLSearchParams(); if(repRange.from)qs.set('from',repRange.from); if(repRange.to)qs.set('to',repRange.to);
   const qk = qs.toString();
-  const cached = cacheGet('reports:'+qk, 60000);
-  if(cached){ el('repBody').innerHTML=cached; if(_lastMonthly.length) drawChart(_lastMonthly); return; }
-  const [summary, monthly, sales, top] = await Promise.all([
-    apiCached('GET','/reports/summary?'+qk),
-    apiCached('GET','/reports/monthly', 120000),
-    apiCached('GET','/reports/salesperson', 60000),
-    apiCached('GET','/reports/top-customers', 60000)
+  const [summary, monthlyRaw, sales, top] = await Promise.all([
+    api('GET','/reports/summary?'+qk),
+    api('GET','/reports/monthly?'+qk),
+    api('GET','/reports/salesperson?'+qk),
+    api('GET','/reports/top-customers?'+qk)
   ]);
+  const monthly = Array.isArray(monthlyRaw) ? monthlyRaw : (monthlyRaw && monthlyRaw.rows) || [];
+  const liveAt = new Date(summary?.generated_at || Date.now()).toLocaleString('fa-IR');
+
   el('repBody').innerHTML=`
-    <div class="cards">
-      ${statCard('g','💰',fmt(summary.revenue),'فروش کل (ریال)')}
-      ${statCard('b','📦',fmt(summary.orders),'تعداد سفارش')}
-      ${statCard('p','👥',fmt(summary.customers),'مشتریان فعال')}
-      ${statCard('r','⚠️',fmt(summary.debt),'بدهی معوق (ریال)')}
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;display:flex;align-items:center;gap:6px`)}">
+      <span class="inv-badge moadian-approved">🟢 اعداد زنده - بدون کش</span>
+      <span>بروزرسانی: ${esc(liveAt)}</span>
     </div>
-    <div class="panel"><div class="panel-head"><h4>نمودار فروش ماهانه</h4></div>
-      <div class="panel-body"><canvas id="repChart" height="90"></canvas></div></div>
-    <div class="panel"><div class="panel-head"><h4>مقایسه کارشناسان فروش</h4></div>
-      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
-        <th>کارشناس</th><th>مشتریان</th><th>سفارشات</th><th>فروش</th><th>بدهی</th><th>پیگیری باز</th><th>فاکتور</th></tr></thead>
-        <tbody>${sales.map(s=>`<tr><td>${esc(s.name)}</td><td>${fmt(s.customers)}</td><td>${fmt(s.orders)}</td>
-          <td class="mono">${fmt(s.revenue)}</td><td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(s.debt)}</td>
-          <td>${fmt(s.openFollowups)}</td><td>${fmt(s.invoices)}</td></tr>`).join('')||emptyRow(7)}</tbody></table></div></div>
-    <div class="panel"><div class="panel-head"><h4>۱۰ مشتری برتر</h4></div>
-      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
-        <th>مشتری</th><th>نام کامل</th><th>تعداد سفارش</th><th>مجموع خرید</th><th>بدهی</th><th>شهر</th><th>آدرس</th></tr></thead>
-        <tbody>${top.map(t=>`<tr><td>${esc(t.biz)}</td><td>${esc(t.owner||'-')}</td><td>${fmt(t.orders)}</td>
-          <td class="mono">${fmt(t.total)}</td><td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(t.debt)}</td>
-          <td>${esc(t.city||'-')}</td>${tdClip(t.address||'-', 200, true)}</tr>`).join('')||emptyRow(7)}</tbody></table></div></div>`;
-  cacheSet('reports:'+qk, el('repBody').innerHTML);
+
+    <div class="rep-kpi-grid">
+      <div class="rep-kpi-card">
+        <div class="kpi-icon">💰</div>
+        <div class="kpi-label">فروش کل دوره</div>
+        <div class="kpi-val">${fmt(summary?.revenue||0)} ریال</div>
+        <div class="kpi-sub">جمع فروش قطعی ناخالص</div>
+      </div>
+      <div class="rep-kpi-card">
+        <div class="kpi-icon">📦</div>
+        <div class="kpi-label">تعداد فاکتورهای قطعی</div>
+        <div class="kpi-val">${fmt(summary?.orders||0)} فاکتور</div>
+        <div class="kpi-sub">فروش‌های ثبت شده</div>
+      </div>
+      <div class="rep-kpi-card">
+        <div class="kpi-icon">👥</div>
+        <div class="kpi-label">مشتریان فعال بازه</div>
+        <div class="kpi-val">${fmt(summary?.customers||0)} خریدار</div>
+        <div class="kpi-sub">طرف‌حساب‌های خریدار</div>
+      </div>
+      <div class="rep-kpi-card">
+        <div class="kpi-icon">⚠️</div>
+        <div class="kpi-label">بدهی معوق مطالبات</div>
+        <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(summary?.debt||0)} ریال</div>
+        <div class="kpi-sub">مانده بدهکار مشتریان</div>
+      </div>
+      <div class="rep-kpi-card">
+        <div class="kpi-icon">📥</div>
+        <div class="kpi-label">نرخ وصول کل (زنده)</div>
+        <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--green)`)}">${summary?.collection_rate!=null?fmt(summary.collection_rate):'—'}٪</div>
+        <div class="kpi-sub">نسبت دریافتی به فروش</div>
+      </div>
+    </div>
+
+    <div class="crm-chart-row" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
+      <div class="panel">
+        <div class="panel-head"><h4>📊 نمودار روند فروش دوره</h4></div>
+        <div class="panel-body"><div class="crm-chart-box"><canvas id="repChart"></canvas></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h4>🍩 سهم کارشناسان از فروش</h4></div>
+        <div class="panel-body"><div class="crm-chart-box"><canvas id="repShareChart"></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
+      <div class="panel-head" data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center`)}">
+        <h4>👔 مقایسه عملکرد کارشناسان فروش</h4>
+      </div>
+      <div class="panel-body tbl-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>کارشناس فروش</th><th>نقش</th><th>مشتریان</th><th>سفارشات</th><th>فروش کل (ریال)</th><th>بدهی معوق (ریال)</th><th>پیگیری باز</th><th>تعداد فاکتور</th>
+          </tr></thead>
+          <tbody>${(sales||[]).map(s=>`<tr>
+            <td><b>${esc(s.name)}</b></td>
+            <td><span class="tag">${esc(s.role||'-')}</span></td>
+            <td class="mono">${fmt(s.customers)}</td>
+            <td class="mono">${fmt(s.orders)}</td>
+            <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(s.revenue)}</td>
+            <td class="mono" data-csp-style="${CSP.style(`color:var(--red);font-weight:700`)}">${fmt(s.debt)}</td>
+            <td>${fmt(s.openFollowups)}</td>
+            <td class="mono">${fmt(s.invoices)}</td>
+          </tr>`).join('')||emptyRow(8)}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head" data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center`)}">
+        <h4>👑 ۱۰ مشتری برتر (حجم خرید)</h4>
+      </div>
+      <div class="panel-body tbl-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>نام فروشگاه / مشتری</th><th>نام مالک</th><th>تعداد سفارش</th><th>مجموع خرید (ریال)</th><th>بدهی (ریال)</th><th>شهر</th><th>آدرس</th>
+          </tr></thead>
+          <tbody>${(top||[]).map(t=>`<tr>
+            <td><b>${esc(t.biz)}</b></td>
+            <td>${esc(t.owner||'-')}</td>
+            <td class="mono">${fmt(t.orders)}</td>
+            <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:var(--purple)`)}">${fmt(t.total)}</td>
+            <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(t.debt)}</td>
+            <td>${esc(t.city||'-')}</td>
+            ${tdClip(t.address||'-', 200, true)}
+          </tr>`).join('')||emptyRow(7)}</tbody>
+        </table>
+      </div>
+    </div>`;
+
   _lastMonthly = monthly;
-  drawChart(monthly);
+  _lastSales = sales||[];
+  drawChart(monthly, sales||[]);
 }
 let _lastMonthly = [];
-function drawChart(monthly){
+let _lastSales = [];
+let mShareChart = null;
+async function drawChart(monthly, sales){
+  try{ await loadProdChartJs(); }catch(e){ return; }
+  if(typeof Chart==='undefined') return;
   const ctx=el('repChart'); if(!ctx)return;
   if(mChart)mChart.destroy();
   const th=chartTheme();
   mChart=new Chart(ctx,{type:'bar',data:{
-    labels:monthly.map(m=>m.ym),
-    datasets:[{label:'فروش (ریال)',data:monthly.map(m=>m.revenue),backgroundColor:th.bar,borderRadius:6}]
-  },options:{responsive:true,plugins:{legend:{labels:{font:{family:'Vazirmatn'},color:th.ticks}}},
-    scales:{x:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks}},
-            y:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks,callback:v=>fmt(v)}}}}});
+    labels:(monthly||[]).map(m=>m.ym),
+    datasets:[
+      {type:'bar',label:'فروش (ریال)',data:(monthly||[]).map(m=>m.revenue),backgroundColor:th.bar,borderRadius:6,yAxisID:'y'},
+      {type:'line',label:'تعداد فاکتور',data:(monthly||[]).map(m=>m.orders),borderColor:'#C9A843',backgroundColor:'transparent',tension:.3,yAxisID:'y1'}
+    ]
+  },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{family:'Vazirmatn'},color:th.ticks}}},
+    scales:{
+      x:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks}},
+      y:{grid:{color:th.grid},ticks:{font:{family:'Vazirmatn'},color:th.ticks,callback:v=>fmt(v)}},
+      y1:{position:'left',grid:{display:false},ticks:{font:{family:'Vazirmatn'},color:th.ticks}}
+    }}});
+  const share=el('repShareChart');
+  if(share){
+    if(mShareChart) mShareChart.destroy();
+    const rows=(sales||[]).filter(s=>Number(s.revenue)>0).slice(0,8);
+    mShareChart=new Chart(share,{type:'doughnut',data:{
+      labels:rows.map(s=>s.name),
+      datasets:[{data:rows.map(s=>s.revenue),backgroundColor:['#1A5C38','#2E7D4F','#C9A843','#059669','#2563EB','#D97706','#7C3AED','#DC2626']}]
+    },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{family:'Vazirmatn'},color:th.ticks}}}}});
+  }
 }
 
 /* ============================================================
@@ -5035,6 +6616,7 @@ let accNavId = '';
 let accDateFrom = '', accDateTo = '', accPreset = 'all';
 let accHideZero = true;
 let accRecvViewMode = 'customer';
+let accRecvQ = '';
 let stmtCustId = '', stmtType = '';
 function applyAccPreset(p){
   accPreset=p;
@@ -5048,20 +6630,33 @@ function applyAccPreset(p){
 ROUTES['acc-dash'] = async function(){
   // Always refetch KPIs (do not serve stale zero-stats page cache)
   try { delete _apiCache['page:acc-dash']; delete _apiCache['GET:/accounting/overview']; } catch (_) {}
+  if(accPreset!=='custom'&&accPreset!=='all'&&!accDateFrom) [accDateFrom,accDateTo]=jPresetRange(accPreset);
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const ov = await api('GET','/accounting/overview');
+  const ovQ=accDateTo?'?asOf='+encodeURIComponent(accDateTo):'';
+  const ov = await api('GET','/accounting/overview'+ovQ);
   if(!ov) return;
   const pendingRep = await api('GET','/reps/payments/pending').catch(()=>[]);
   const totalPayable = ov.totalPayable || 0;
   const tbBalanced = ov.trialBalanced;
-  const recv = Number(ov.outstanding)||0;
+  const recv = Number(ov.totalReceivable != null ? ov.totalReceivable : ov.outstanding)||0;
   const cred = Number(ov.creditorBalance)||0;
+  const cutoffLabel=accDateTo||'آخرین سند (همه)';
+  const booksMismatch=!!ov.books_mismatch;
   el('view').innerHTML=`
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px;align-items:center`)}">
+      ${presetSelect('accPresetSel',accPreset,'applyAccPreset')}
+      ${accPreset==='custom'?`
+      <input id="accFrom" data-jdate placeholder="از تاریخ" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px`)}" value="${accDateFrom}" data-csp-change="${CSP.bind('change',function(event){accDateFrom=this.value})}">
+      <input id="accTo" data-jdate placeholder="تا تاریخ" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px`)}" value="${accDateTo}" data-csp-change="${CSP.bind('change',function(event){accDateTo=this.value})}">
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){ROUTES['acc-dash']()})}">🔍 اعمال</button>`:''}
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">مانده‌ها از دفتر کل تا ${esc(cutoffLabel)}</span>
+    </div>
+    ${booksMismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: مانده دفتر مشتری (${fmt(ov.outstandingLedger||0)}) با دفتر کل (${fmt(recv)}) یکی نیست. عدد کارت‌ها از دفتر کل است.</div></div>`:''}
     <div class="cards">
       ${statCard('g','🧾',fmt(ov.totalInvoiced),'کل فاکتور رسمی (ت)')}
       ${statCard('b','✅',fmt(ov.totalSettled),'تسویه شده (ت)')}
-      ${statCard('r','⏳',fmt(recv),'مانده مطالبات مشتریان (ت)')}
-      ${cred?statCard('g','📥',fmt(cred),'مانده بستانکار مشتریان (ت)'):''}
+      ${statCard('r','⏳',fmt(recv),'مانده مطالبات مشتریان — دفتر کل (ت)')}
+      ${cred?statCard('g','📥',fmt(cred),'مانده بستانکار مشتریان — دفتر کل (ت)'):''}
       ${statCard('o','🚚',fmt(totalPayable),'مانده پرداختنی تأمین‌کنندگان (ت)')}
       ${statCard('p','🔔',fmt(ov.pendingApproval),'فاکتور منتظر تأیید')}
       ${statCard('o','⏳',fmt(ov.pendingSettlements||0),'تسویه منتظر تأیید')}
@@ -5096,10 +6691,14 @@ ROUTES['acc-dash'] = async function(){
     <div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
       <div class="panel-head"><h4>📒 دفتر کل حساب‌ها</h4></div>
       <div class="panel-body">
-        <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-          <select id="glAccount" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px`)}" data-csp-change="${CSP.bind('change',function(event){loadGeneralLedger(this.value)})}">
-            <option value="">-- انتخاب حساب --</option>
-          </select>
+        <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
+          <div data-searchable data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;align-items:center`)}">
+            <input id="glAcctFind" class="search" placeholder="جستجوی حساب (کد یا نام)..." data-csp-input="${CSP.bind('input',function(event){filterGlAccountOptions(this.value)})}" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;min-width:200px`)}">
+            <select id="glAccount" data-searchable="1" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px`)}" data-csp-change="${CSP.bind('change',function(event){loadGeneralLedger(this.value)})}">
+              <option value="">-- انتخاب حساب --</option>
+            </select>
+          </div>
+          <input id="glSearch" class="search" placeholder="جستجو در شرح/مرجع..." data-csp-change="${CSP.bind('change',function(event){const s=el('glAccount');if(s&&s.value)loadGeneralLedger(s.value)})}" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;min-width:180px`)}">
         </div>
         <div id="glBody"><div class="empty" data-csp-style="${CSP.style(`padding:30px`)}">یک حساب را برای مشاهده دفتر کل انتخاب کنید</div></div>
       </div>
@@ -5116,15 +6715,12 @@ ROUTES['acc-dash'] = async function(){
     ? CACHE.chartOfAccounts
     : await apiCached('GET','/accounting/chart-of-accounts', 120000);
   CACHE.chartOfAccounts=accounts||[];
-  const sel=el('glAccount');
-  if(sel){
-    sel.innerHTML='<option value="">-- انتخاب حساب --</option>'+
-      (accounts||[]).map(a=>`<option value="${a.code}">${a.code} — ${esc(a.name)}</option>`).join('');
-  }
+  filterGlAccountOptions(el('glAcctFind')?.value || '');
   requestAnimationFrame(()=>{
     const c=el('accDashChart');
     if(c){ c.innerHTML=chartOfAccountsGroupedHtml(accounts||[]); cacheSet('page:acc-dash', el('view').innerHTML); }
     fitStatNums();
+    attachDatepickers(el('view'));
   });
 };
 
@@ -5133,7 +6729,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -5199,19 +6795,25 @@ ROUTES['acc-parties']=()=>renderAccPage('parties','👥','اشخاص');
 ROUTES['acc-suppliers']=()=>go('acc-parties');
 ROUTES['acc-persons']=()=>go('acc-parties');
 ROUTES['acc-sales-invoices']=()=>renderAccPage('sales-invoices','🧾','فاکتورهای فروش');
+ROUTES['acc-normal-invoices']=()=>renderAccPage('normal-invoices','🧾','فاکتور معمولی');
+ROUTES['acc-final-invoices']=()=>renderAccPage('final-invoices','📜','فاکتور رسمی');
 ROUTES['acc-proforma']=()=>renderAccPage('proforma-invoices','📄','پیش‌فاکتورها');
 ROUTES['acc-purchases']=()=>renderAccPage('purchases','📦','فاکتور خرید');
 ROUTES['acc-purchase-returns']=()=>renderAccPage('purchase-returns','↩️','برگشت از خرید');
 ROUTES['acc-sales-returns']=()=>renderAccPage('sales-returns','↪️','برگشت از فروش');
 ROUTES['acc-item-kardex']=()=>renderAccPage('item-kardex','📋','کاردکس کالا');
+ROUTES['acc-shared-ledger']=()=>renderAccPage('shared-ledger','📒','دفتر مالی مشترک');
 ROUTES['acc-inv-batches']=()=>renderAccPage('inv-batches','🏷️','بچ و سریال');
+ROUTES['acc-fabric-rolls']=()=>renderAccPage('fabric-rolls','🧵','دریافت طاقه پارچه');
+ROUTES['acc-fabric-roll-kardex']=()=>renderAccPage('fabric-roll-kardex','🧵','گردش طاقه');
+ROUTES['acc-cutting-lays']=()=>renderAccPage('cutting-lays','✂️','لایه‌چینی و برش');
 ROUTES['acc-inv-reservations']=()=>renderAccPage('inv-reservations','🔒','رزرو موجودی');
 ROUTES['acc-inv-landed']=()=>renderAccPage('inv-landed','🚢','هزینه حمل (Landed Cost)');
 ROUTES['acc-warehouses']=()=>renderAccPage('warehouses','🏭','انبارها');
 ROUTES['acc-warehouse-ops']=()=>renderAccPage('warehouse-ops','📦','عملیات انبار (رسید / حواله / انتقال)');
 ROUTES['acc-consignments']=()=>renderAccPage('consignments','🔄','کالای امانی');
 ROUTES['acc-adv-reports']=()=>renderAccPage('adv-reports','📊','گزارشات پیشرفته');
-ROUTES['acc-production']=()=>{ location.hash='acc-production-dashboard'; };
+ROUTES['acc-production']=()=>renderAccPage('production-dashboard','📊','داشبورد تولید');
 ROUTES['acc-production-orders']=()=>renderAccPage('production-orders','🏭','سفارش‌های تولید');
 ROUTES['acc-production-boms']=()=>renderAccPage('production-boms','📋',T('فرمول تولید'));
 ROUTES['acc-production-dashboard']=()=>renderAccPage('production-dashboard','📊','داشبورد تولید');
@@ -5236,6 +6838,14 @@ ROUTES['acc-cost-centers']=()=>renderAccPage('cost-centers','🏷️','مراک�
 ROUTES['acc-customer-groups']=()=>renderAccPage('customer-groups','👥','گروه‌های مشتری (ماهیت حساب)');
 ROUTES['acc-party-groups']=()=>renderAccPage('party-groups','👤','گروه‌های اشخاص');
 ROUTES['acc-product-groups']=()=>renderAccPage('product-groups','🏷️','گروه‌های کالا');
+ROUTES['acc-settings']=()=>{
+  if(window.WinMgr && typeof WinMgr.closeAll==='function') WinMgr.closeAll();
+  if(isAdmin()){
+    syncChromeForPage('settings','تنظیمات برنامه');
+    return Promise.resolve(ROUTES.settings());
+  }
+  return renderAccPage('company-settings','⚙️','تنظیمات سیستم','acc-settings');
+};
 registerAccNavRoutes(ROUTES, renderAccPage);
 
 async function resyncAccounting(){
@@ -5248,6 +6858,7 @@ async function resyncAccounting(){
 }
 
 async function loadAccTab(tab){
+  if(_pkAutoTimer){ clearInterval(_pkAutoTimer); _pkAutoTimer=null; }
   const focused=window.WinMgr&&WinMgr.focusedBody&&WinMgr.focusedBody();
   const viewRoot=document.getElementById('view');
   const body=(focused&&focused.querySelector('#accBody'))
@@ -5345,13 +6956,25 @@ async function loadAccTab(tab){
   } else if(tab==='persons'){
     await renderPersonsTab(body);
   } else if(tab==='sales-invoices'){
-    await renderSalesInvoicesTab(body, 'final');
+    await renderSalesInvoicesTab(body, '');
+  } else if(tab==='normal-invoices'){
+    await renderSalesInvoicesTab(body, 'normal');
   } else if(tab==='proforma-invoices'){
     await renderSalesInvoicesTab(body, 'proforma');
+  } else if(tab==='final-invoices'){
+    await renderSalesInvoicesTab(body, 'final');
   } else if(tab==='item-kardex'){
     await renderItemKardexTab(body);
+  } else if(tab==='shared-ledger'){
+    await renderSharedLedgerTab(body);
   } else if(tab==='inv-batches'){
     await renderInvBatchesTab(body);
+  } else if(tab==='fabric-rolls'){
+    await renderFabricRollsTab(body);
+  } else if(tab==='fabric-roll-kardex'){
+    await renderFabricRollKardexTab(body);
+  } else if(tab==='cutting-lays'){
+    await renderCuttingLaysTab(body);
   } else if(tab==='inv-reservations'){
     await renderInvReservationsTab(body);
   } else if(tab==='inv-landed'){
@@ -5384,6 +7007,8 @@ async function loadAccTab(tab){
     await renderProductionKanbanTab(body);
   } else if(tab==='production-variance'){
     await renderProductionVarianceTab(body);
+  } else if(tab==='production-reports'){
+    await renderProductionReportsTab(body);
   } else if(tab==='production-mrp'){
     await renderProductionMrpTab(body);
   } else if(tab==='production-rates'){
@@ -5469,7 +7094,13 @@ async function loadAccTab(tab){
         <td colspan="7"></td>
       </tr></tfoot></table></div>`;
   } else if(tab==='cheque-register'){
-    const dirFilter=el('mchqDir')?.value||'';
+    const dirSelect=el('mchqDir');
+    const payNav=accNavId==='acc-cheques-pay';
+    const recvNav=accNavId==='acc-cheques-recv';
+    const sameView=dirSelect && dirSelect.getAttribute('data-nav')===accNavId;
+    const dirFilter=sameView
+      ? dirSelect.value
+      : (payNav?'out':recvNav?'in':'');
     const statusFilter=el('mchqStatus')?.value||'';
     const qps=[];
     if(dirFilter) qps.push('direction='+encodeURIComponent(dirFilter));
@@ -5478,9 +7109,9 @@ async function loadAccTab(tab){
     const rows=await api('GET','/cheque-records'+qp)||[];
     const dirLabel={in:'📥 دریافتی',out:'📤 پرداختی'};
     body.innerHTML=`
-      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">دفتر چک — واردشده از <code>فایل داده</code> (لیست چک‌های دریافتی/پرداختی)</div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">${accNavId==='acc-cheques-pay'?'چک‌های پرداختی — پیش‌فرض فقط جهت پرداختی.':'دفتر چک — واردشده از فایل داده (لیست چک‌های دریافتی/پرداختی)'}</div>
       <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
-        <select id="mchqDir" data-csp-change="${CSP.bind('change',function(event){loadAccTab('cheque-register')})}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px`)}">
+        <select id="mchqDir" data-nav="${esc(accNavId||'')}" data-csp-change="${CSP.bind('change',function(event){loadAccTab('cheque-register')})}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px`)}">
           <option value="">همه جهت‌ها</option>
           <option value="in" ${dirFilter==='in'?'selected':''}>دریافتی</option>
           <option value="out" ${dirFilter==='out'?'selected':''}>پرداختی</option>
@@ -5503,7 +7134,11 @@ async function loadAccTab(tab){
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){editChequeRegisterStatus((r.id),`${String((CSP.htmlDecode(String(esc(r.status||'')))) ?? '')}`)})}">✏️ وضعیت</button>
           ${r.direction==='in'&&(!r.lifecycle_status||r.lifecycle_status==='registered')?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chequeSendToBank((r.id))})}">🏦 واگذاری</button>`:''}
+          ${r.direction==='in'&&(!r.lifecycle_status||r.lifecycle_status==='registered')?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chequeEndorseIn((r.id))})}">✍️ خرج</button>`:''}
+          ${payNav&&r.direction==='out'&&(!r.lifecycle_status||r.lifecycle_status==='registered')?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){chequePayOut((r.id))})}">💸 پرداخت</button><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chequeExpenseOut((r.id))})}">📤 خرج چک</button>`:''}
           ${r.direction==='in'&&r.lifecycle_status==='in_collection'?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){chequeClear((r.id))})}">✅ وصول</button><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){chequeBounce((r.id))})}">↩️ برگشت</button>`:''}
+          ${r.direction==='in'&&r.lifecycle_status==='cleared'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){chequeBounce((r.id))})}">↩️ برگشت</button>`:''}
+          ${r.direction==='in'&&r.lifecycle_status==='bounced'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){chequeResend((r.id))})}">🔁 ارسال مجدد</button>`:''}
           ${(ME.role==='admin'||ME.role==='accounting')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidChequeRegister((r.id),`${String((CSP.htmlDecode(String(esc(r.cheque_number||'')))) ?? '')}`)})}" title="ابطال کامل">⛔</button>`:''}
         </td>
       </tr>`).join('')||emptyRow(11)}</tbody>
@@ -5623,6 +7258,8 @@ async function loadAccTab(tab){
     await renderFxRatesTab(body);
   } else if(tab==='pos-devices'){
     await renderPosDevicesTab(body);
+  } else if(tab==='pos-report'){
+    await renderPosReportTab(body);
   } else if(tab==='scale-settings'){
     await renderScaleSettingsTab(body);
   } else if(tab==='company-profile'){
@@ -5641,6 +7278,10 @@ async function loadAccTab(tab){
     await renderPartyGroupsTab(body);
   } else if(tab==='product-groups'){
     await renderProductGroupsTab(body);
+  } else if(tab==='product-colors'){
+    await renderProductColorsTab(body);
+  } else if(tab==='product-sizes'){
+    await renderProductSizesTab(body);
   } else if(tab==='banks'){
     await renderBanksTab(body);
   } else if(tab==='check-categories'){
@@ -5696,6 +7337,33 @@ function syncTblStickyTop(){
 function enhanceAccTables(root){
   if(!root||typeof enhanceDataTable!=='function') return;
   syncTblStickyTop();
+  root.querySelectorAll('.tbl-wrap').forEach(wrap=>{
+    if(wrap.dataset.quickSearch==='1') return;
+    const t=wrap.querySelector('table.tbl');
+    const tb=t&&t.tBodies[0];
+    if(!tb || tb.rows.length<3) return;
+    if(tb.rows.length===1 && tb.rows[0].querySelector('td[colspan]')) return;
+    wrap.dataset.quickSearch='1';
+    const bar=document.createElement('div');
+    bar.className='toolbar tbl-quick-search-bar';
+    bar.setAttribute('data-csp-style', CSP.style('margin-bottom:8px;gap:8px;flex-wrap:wrap'));
+    const inp=document.createElement('input');
+    inp.type='search';
+    inp.className='tbl-quick-search';
+    inp.placeholder='جستجو در این لیست…';
+    inp.setAttribute('autocomplete','off');
+    inp.setAttribute('data-csp-style', CSP.style('min-width:200px;max-width:360px;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px'));
+    inp.addEventListener('input', function(){
+      const q=typeof toAsciiDigits==='function'?toAsciiDigits(this.value.trim().toLowerCase()):this.value.trim().toLowerCase();
+      [...tb.rows].forEach(tr=>{
+        if(tr.querySelector('td[colspan]')) return;
+        const hay=(tr.textContent||'').toLowerCase();
+        tr.style.display=!q || hay.includes(q)?'':'none';
+      });
+    });
+    bar.appendChild(inp);
+    if(wrap.parentNode) wrap.parentNode.insertBefore(bar, wrap);
+  });
   root.querySelectorAll('table.tbl').forEach(t=>{
     if(t.dataset.enhanced==='1') return;
     if(!t.tBodies[0]||t.tBodies[0].rows.length===0) return;
@@ -5726,12 +7394,14 @@ let genCart = [];
 let genCartDiscInputId = null; // set per-modal; null = no overall discount
 let GEN_CART_PRICE_FIELD = 'price'; // 'price' for sales-return, 'cost' for purchases
 function genCartAdd(pid){
-  const p = (CACHE.allProducts||CACHE.products||[]).find(x=>x.id===pid) || CACHE.products.find(x=>x.id===pid); if(!p) return;
-  const ex = genCart.find(r=>r.product_id===pid);
+  const p = findInvProduct(pid) || (CACHE.allProducts||[]).find(x=>Number(x.id)===Number(pid)) || (CACHE.products||[]).find(x=>Number(x.id)===Number(pid));
+  if(!p){ try{ showToast('کالا یافت نشد','error'); }catch(_){ } return; }
+  const pidN = Number(p.id);
+  const ex = genCart.find(r=>Number(r.product_id)===pidN && !r.batch_id && !r.is_fabric_roll);
   const defPrice = GEN_CART_PRICE_FIELD==='cost' ? (p.cost||0) : (p.price||0);
   const defaultQty = p.pack_size > 1 ? p.pack_size : 1;
   if(ex) ex.qty += defaultQty;
-  else genCart.push({product_id:pid,name:p.name,qty:defaultQty,price:defPrice,disc:0,disc_amount:0,description:'',warehouse_id:null});
+  else genCart.push({product_id:pidN,name:p.name,qty:defaultQty,price:defPrice,disc:0,disc_amount:0,description:'',warehouse_id:headerPurchaseWarehouseId()});
   renderGenCart();
 }
 function renderGenCart(){
@@ -5740,6 +7410,10 @@ function renderGenCart(){
   const countEl=el('poCartCount'); if(countEl) countEl.textContent=fmt(genCart.length)+' ردیف';
   const colSpan=showLineDisc?8:6;
   const priceLabel = GEN_CART_PRICE_FIELD==='cost' ? 'بهای خرید (ریال)' : 'فی (ریال)';
+  const freight = (typeof moneyVal==='function' && el('po-freight')) ? moneyVal('po-freight') : 0;
+  const freightSeller=freightTypeIsSeller(el('po-freight-type')?.value);
+  const freightShares=allocateFreightShares(genCart, freight, el('po-freight-alloc')?.value||'amount');
+  const chargedFreight=freightSeller?0:freight;
   if(!genCart.length){
     rowsEl.innerHTML=`<div class="inv-lines-empty">ردیفی اضافه نشده — کالا را از جستجو انتخاب کنید</div>`;
   } else {
@@ -5757,13 +7431,13 @@ function renderGenCart(){
       const lineSum=Math.max(0,gross-lineDiscAmt);
       return `
       <tr>
-        <td class="cn">${esc(r.name)}</td>
+        <td class="cn">${esc(r.name)}${r.is_fabric_roll||r.color?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">طاقه ${esc(r.roll_no||'جدید')} ${esc(r.color||'')}</div>`:''}</td>
         <td class="col-qty"><input type="number" min="0.001" step="0.001" inputmode="decimal" value="${fmtQty(r.qty)}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].qty=Math.max(0.001,parseQty(this.value,1));this.value=fmtQty(genCart[(i)].qty);if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
-        <td class="col-price"><input type="number" value="${r.price}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].price=+this.value||0;if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
+        <td class="col-price"><input type="text" inputmode="numeric" class="money" value="${moneyInit(r.price)}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].price=moneyParseInput(this);if(canAccounting())invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
         ${showLineDisc?`<td class="col-disc"><input type="number" min="0" max="100" step="0.01" value="${r.disc||0}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].disc=+this.value||0;invSyncLineDisc(genCart,(i),'pct');renderGenCart()})}"></td>
         <td class="col-disc-amt"><input type="number" min="0" value="${r.disc_amount||0}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].disc_amount=+this.value||0;invSyncLineDisc(genCart,(i),'amt');renderGenCart()})}"></td>`:''}
         <td class="col-wh"><select data-csp-change="${CSP.bind('change',function(event){genCart[(i)].warehouse_id=+this.value||null})}">${warehouseOptionsHtml(r.warehouse_id,'— انبار فاکتور —')}</select></td>
-        <td class="col-sum mono">${fmt(lineSum)}</td>
+        <td class="col-sum mono">${fmt(lineSum)}${freightShares[i]?`<div class="muted" data-csp-style="${CSP.style(`font-size:10px;font-weight:500`)}">کرایه ${fmt(freightShares[i])}${freight?(' · '+Math.round(freightShares[i]*100/freight)+'٪'):''}</div>`:''}</td>
         <td class="col-rm"><button type="button" class="rm" title="حذف" data-csp-click="${CSP.bind('click',function(event){genCart.splice((i),1);renderGenCart()})}">×</button></td>
       </tr>
       <tr class="desc-row"><td colspan="${colSpan}"><input type="text" placeholder="توضیحات ردیف (اختیاری)" value="${esc(r.description||'')}" data-csp-change="${CSP.bind('change',function(event){genCart[(i)].description=this.value})}"></td></tr>`;
@@ -5772,7 +7446,6 @@ function renderGenCart(){
   const totEl=el('genCartTot'); if(!totEl) return;
   const linesDiscTotal = showLineDisc ? genCart.reduce((a,r)=>a+lineDiscApplied(r),0) : 0;
   const subtotal=invCartSubtotalAfterLineDisc(genCart);
-  const freight = (typeof moneyVal==='function' && el('po-freight')) ? moneyVal('po-freight') : 0;
   if(genCartDiscInputId){
     const discAmtEl=el('po-disc-amt');
     let discPct=+el(genCartDiscInputId)?.value||0;
@@ -5783,8 +7456,8 @@ function renderGenCart(){
       ${linesDiscTotal?`<div class="l"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)} ریال</span></div>`:''}
       <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
       <div class="l"><span>تخفیف کل فاکتور (${fmt(discPct)}٪ / مبلغ):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
-      ${freight?`<div class="l"><span>کرایه حمل:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
-      <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(subtotal-discAmt+freight)} ریال</span></div>`;
+      ${freight?`<div class="l"><span>کرایه حمل ${freightSeller?'(عهده فروشنده — روی مبلغ تأمین‌کننده نمی‌آید)':'(عهده خریدار)'}:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
+      <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(subtotal-discAmt+chargedFreight)} ریال</span></div>`;
   } else {
     totEl.innerHTML = `<div class="l final"><span>جمع:</span><span class="mono">${fmt(subtotal)} ریال</span></div>`;
   }
@@ -5882,7 +7555,7 @@ async function renderPartiesTab(body){
       </aside>
       <div data-csp-style="${CSP.style(`flex:1;min-width:280px`)}">
         <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
-          <button class="btn" data-csp-click="${CSP.bind('click',function(event){partyModal()})}" ${!groupFilter?'disabled title="ابتدا یک گروه اشخاص انتخاب یا ایجاد کنید"':''}>➕ شخص جدید <span class="muted">F4</span></button>
+          <button class="btn" data-csp-click="${CSP.bind('click',function(event){partyModal()})}">➕ شخص جدید <span class="muted">F4</span></button>
           <input id="partySearch" placeholder="جستجو نام/تلفن/کد... F10" value="${esc(search)}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;min-width:200px`)}">
           <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${fmt(rows.length)}${total>rows.length?' از '+fmt(total):''} نفر</span>
         </div>
@@ -5906,9 +7579,9 @@ async function renderPartiesTab(body){
           </td>
         </tr>`).join('')||emptyRow(11)}</tbody>
         <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-          <td colspan="8">جمع (${fmt(balRows.length)} نفر)</td>
-          <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.debit?fmt(balT.debit):'-'}</td>
-          <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.credit?fmt(balT.credit):'-'}</td>
+          <td colspan="8">مانده خالص (${fmt(balRows.length)} نفر) — ${balNetLabel(balT)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;font-weight:500`)}">بدهکاران ${fmt(balT.debit)} · بستانکاران ${fmt(balT.credit)} → تفاضل</div></td>
+          <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.netDebit?fmt(balT.netDebit):'-'}</td>
+          <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.netCredit?fmt(balT.netCredit):'-'}</td>
           <td></td>
         </tr></tfoot></table></div>
       </div>
@@ -5962,6 +7635,8 @@ async function showPartyTurnover(id,name){
 }
 async function partyModal(id){
   await ensurePartyGroups();
+  let positions=[];
+  try{ positions=await api('GET','/person-positions')||[]; }catch(_){ positions=[]; }
   const userGroups=(CACHE.partyGroups||[]).filter(g=>g.code!==0);
   if(!id && !PARTY_GROUP_FILTER && !userGroups.length){
     showToast('ابتدا با دکمه ➕ یک گروه اشخاص تعریف کنید','error');
@@ -5981,7 +7656,7 @@ async function partyModal(id){
   }
   const roles=p.party_roles||[];
   const roleChk=(k,l)=>`<label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:13px`)}"><input type="checkbox" class="pty-role" value="${k}" ${roles.includes(k)?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> ${l}</label>`;
-  const prPortal=portalAccess.portal_role||'';
+  const prPortal=portalAccess.has_access?(portalAccess.portal_role||''):'';
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body" data-csp-style="${CSP.style(`max-height:75vh;overflow:auto`)}"><div class="form-grid">
@@ -6015,6 +7690,10 @@ async function partyModal(id){
           ${roleChk('customer','مشتری')} ${roleChk('supplier','تأمین‌کننده')} ${roleChk('employee','کارمند')}
           ${roleChk('partner','شریک/سهامدار')} ${roleChk('marketer','بازاریاب')} ${roleChk('other','سایر')}
         </div></div>
+      <div class="fg"><label>سمت سازمانی ${hlp('از فهرست «سمت و جایگاه» — مثلاً مدیر تولید. جدا از نقش حسابداری (مشتری/کارمند/…) است.')}</label>
+        <select id="pty-position"><option value="">—</option>
+          ${(positions||[]).filter(x=>x.active!=0).map(x=>`<option value="${x.id}" ${String(p.position_id)===String(x.id)?'selected':''}>${esc(x.name)}</option>`).join('')}
+        </select></div>
       <div class="fg full" data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--purple-light,#f5f3ff)`)}">
         <label data-csp-style="${CSP.style(`font-weight:700;margin-bottom:8px;display:block`)}">🏭 دسترسی پورتال عملیاتی ${hlp('با انتخاب نقش، کاربر ورود با تلفن ساخته می‌شود. در اولین ورود تغییر رمز اجباری است. ارسال پیامک رمز موقت اختیاری است.')}</label>
         <select id="pty-portal-role">
@@ -6113,6 +7792,7 @@ async function saveParty(id){
     address:el('pty-address').value,
     party_group_id,
     party_roles:roles,
+    position_id:+el('pty-position')?.value||null,
     credit_limit_rial:moneyVal('pty-credit'), opening_balance_rial:(()=>{const a=Math.abs(moneyVal('pty-opening')||0); const side=el('pty-open-credit')?.checked?'credit':'debit'; return side==='credit'?-a:a;})(),
     account_nature:el('pty-nature').value, notes:el('pty-note').value,
     user_id:+el('pty-expert')?.value||undefined,
@@ -6254,14 +7934,15 @@ async function renderPersonsTab(body){
       <td>${p.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-cancel">غیرفعال</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){personModal((p.id))})}">✏️</button>
+        <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){invitePersonUser((p.id))})}">دعوت ورود</button>
         <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){showPersonLedger((p.id),`${String((CSP.htmlDecode(String(esc(p.name)))) ?? '')}`)})}">📋 دفتر معین</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePerson((p.id))})}">🗑️</button>
       </td>
     </tr>`).join('')||emptyRow(7)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-      <td colspan="3">جمع (${fmt(persons.length)} نفر)</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.debit?fmt(balT.debit):'-'}</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.credit?fmt(balT.credit):'-'}</td>
+      <td colspan="3">مانده خالص (${fmt(persons.length)} نفر) — ${balNetLabel(balT)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;font-weight:500`)}">بدهکاران ${fmt(balT.debit)} · بستانکاران ${fmt(balT.credit)} → تفاضل</div></td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:#dc2626`)}">${balT.netDebit?fmt(balT.netDebit):'-'}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--green)`)}">${balT.netCredit?fmt(balT.netCredit):'-'}</td>
       <td colspan="2"></td>
     </tr></tfoot></table></div>`;
 }
@@ -6276,7 +7957,7 @@ async function personModal(id){
     if(id) portalAccess=await api('GET','/portal/access?person_id='+id)||portalAccess;
     else if(p?.phone) portalAccess=await api('GET','/portal/access?phone='+encodeURIComponent(p.phone))||portalAccess;
   }catch(_){}
-  const prPortal=portalAccess.portal_role||'';
+  const prPortal=portalAccess.has_access?(portalAccess.portal_role||''):'';
   openModal(`
     <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -6328,6 +8009,7 @@ async function personModal(id){
       ${personExtraFieldsHtml(p)}
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePerson((id||0))})}">💾 ذخیره</button>
+      ${id?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){invitePersonUser((id))})}">دعوت به ورود</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
 }
 async function savePerson(id){
@@ -6443,46 +8125,58 @@ async function deletePersonCategory(id){
 async function renderSalesInvoicesTab(body, typeLock){
   if(!CACHE.customers?.length) CACHE.customers=await api('GET','/customers')||[];
   if(!CACHE.allProducts?.length){ CACHE.allProducts=await api('GET','/products')||[]; CACHE.products=CACHE.allProducts; }
-  const lock = typeLock==='proforma' || typeLock==='final' ? typeLock : '';
+  const lock = (typeLock==='proforma' || typeLock==='final' || typeLock==='normal') ? typeLock : '';
   const qType = lock ? ('?type='+lock) : '';
   CACHE.invoices=await api('GET','/invoices'+qType)||[];
   _invoicesFetched=true;
+  const filterType = lock || (el('accInvTypeFilter')?.value || '');
   const rows=CACHE.invoices.filter(i=>{
     if(i.deleted_at) return false;
     if(String(i.status||'')==='reversed') return false;
     if(lock && i.type!==lock) return false;
+    if(!lock && filterType && i.type!==filterType) return false;
     if(accDateFrom && (i.date||'')<accDateFrom) return false;
     if(accDateTo && (i.date||'')>accDateTo) return false;
     return true;
   }).sort((a,b)=>(b.created_at||0)-(a.created_at||0));
-  const typeLabel={proforma:'پیش‌فاکتور',final:'فاکتور رسمی'};
+  const typeLabel={proforma:'پیش‌فاکتور',normal:'فاکتور معمولی',final:'فاکتور رسمی'};
   const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'};
   const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
-  const titleBtn = lock==='proforma' ? '➕ پیش‌فاکتور جدید' : '➕ فاکتور جدید';
+  const titleBtn = lock==='proforma' ? '➕ پیش‌فاکتور جدید' : (lock==='normal' ? '➕ فاکتور معمولی' : '➕ فاکتور جدید');
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
       ${canCreateInvoice()?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){openInvBuilder()})}">${titleBtn}</button>`:''}
-      <input id="accInvSearch" class="search" placeholder="جستجو شماره/مشتری..." data-csp-style="${CSP.style(`min-width:180px`)}" data-csp-input="${CSP.bind('input',function(event){filterAccInvTable()})}">
+      ${!lock?`<select id="accInvTypeFilter" data-csp-change="${CSP.bind('change',function(event){renderSalesInvoicesTab(body,'')})}">
+        <option value="">همه انواع فاکتور</option>
+        <option value="proforma">پیش‌فاکتور</option>
+        <option value="normal">معمولی</option>
+        <option value="final">رسمی</option>
+      </select>`:''}
+      <input id="accInvSearch" class="search" placeholder="🔍 جستجو شماره/مشتری/فروشنده..." data-csp-style="${CSP.style(`min-width:220px`)}" data-csp-input="${CSP.bind('input',function(event){filterAccInvTable()})}">
     </div>
     <div class="tbl-wrap"><table class="tbl" id="accSalesInvTbl" data-bulk-delete="/invoices" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} فاکتور ابطال شود؟ سند معکوس ثبت می‌شود."><thead><tr>
-      <th>شماره</th><th>سند مرجع</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th class="no-sort">عملیات</th>
-    </tr></thead><tbody>${rows.map(i=>`<tr data-id="${i.id}" data-search="${esc((i.num||'')+' '+(i.cust_biz||''))}">
+      <th>شماره</th><th>سند مرجع</th><th>خریدار / مشتری</th><th>نوع فاکتور</th><th>تاریخ صدور</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${rows.map(i=>`<tr data-id="${i.id}" data-search="${esc((i.num||'')+' '+(i.cust_biz||'')+' '+(typeLabel[i.type]||i.type||''))}">
       <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${invNumCell(i.num)}</td>
       <td>${refDocCell(i.ref_doc_no,i.ref_doc_type)}</td>
-      <td>${esc(i.cust_biz||'-')}</td>
-      <td>${typeLabel[i.type]||i.type}${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" data-csp-style="${CSP.style(`font-size:10px`)}">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
-      <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
-      <td>${payLabel[i.pay_type]||i.pay_type||'-'}</td>
+      <td><b>${esc(i.cust_biz||'-')}</b></td>
+      <td>${invBadgeHtml(i.type, i.approved)}</td>
+      <td class="mono">${escDate(i.date)}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--text)`)}">${fmt(i.final)}</td>
+      <td><span class="tag" data-csp-style="${CSP.style(`font-size:11px`)}">${payLabel[i.pay_type]||i.pay_type||'—'}</span></td>
       <td class="muted">${esc(i.seller_name||i.salesperson||'-')}</td>
-      <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="چاپ">🖨️</button>
-        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش">✏️</button>
-        ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال">⛔</button>`:''}
+      <td>
+        <div class="inv-actions-cell">
+          ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
+          <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش فاکتور">✏️</button>
+          ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال/لغو فاکتور">⛔</button>`:''}
+        </div>
       </td>
     </tr>`).join('')||emptyRow(9)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
       <td colspan="5">جمع (${fmt(rows.length)} فاکتور)</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;font-size:15px`)}">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
       <td colspan="3"></td>
     </tr></tfoot></table></div>`;
   if(typeof enhanceDataTable==='function'){
@@ -6564,18 +8258,27 @@ async function renderItemKardexTab(body){
   const products=CACHE.products||CACHE.allProducts||[];
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-      <select id="kardexProduct" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;min-width:260px`)}" data-csp-change="${CSP.bind('change',function(event){loadItemKardex(this.value)})}">
-        <option value="">-- انتخاب کالا (${fmt(products.length)}) --</option>
-        ${products.map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.code||'-')})</option>`).join('')}
-      </select>
+      ${productSelect('kardexProduct','',products)}
     </div>
     <div id="kardexBody">${products.length?'':'<div class="empty">کالایی یافت نشد — دسترسی گروه کالا یا کاتالوگ را بررسی کنید</div>'}</div>`;
+  initCustSearches(body);
+  el('kardexProduct')?.addEventListener('change',function(){ loadItemKardex(this.value); });
 }
 async function loadItemKardex(productId){
   const box=el('kardexBody'); if(!box) return;
   if(!productId){ box.innerHTML=''; return; }
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const d=await api('GET','/products/'+productId+'/kardex');
+  let d=await api('GET','/ledgers/stock?product_id='+encodeURIComponent(productId)).catch(()=>null);
+  if(d && d.lines){
+    d={ product:d.product, logs:d.lines.map(l=>({
+      date:l.date, event_type:l.event_type, note:l.description, warehouse_name:l.warehouse_name,
+      change:(Number(l.qty_in)||0)-(Number(l.qty_out)||0), qty_in:l.qty_in, qty_out:l.qty_out,
+      running_balance:l.running_qty, unit_cost_rial:l.unit_cost_rial, amount_rial:l.amount_rial,
+      user_name:'', status:'posted', source:'inventory_ledger'
+    })), source:'inventory_ledger' };
+  } else {
+    d=await api('GET','/products/'+productId+'/kardex');
+  }
   if(!d){ box.innerHTML='<div class="empty">خطا در دریافت کاردکس</div>'; return; }
   const logs=d.logs||[];
   box.innerHTML=`
@@ -6612,9 +8315,584 @@ async function loadItemKardex(productId){
       </div>
     </div>`;
 }
+
+let _sharedLedgerPrefill=null;
+async function renderSharedLedgerTab(body){
+  const [persons, banks, boxes, accounts]=await Promise.all([
+    api('GET','/persons').catch(()=>[]),
+    api('GET','/banks').catch(()=>[]),
+    api('GET','/cash-boxes').catch(()=>[]),
+    api('GET','/accounting/chart-of-accounts').catch(()=>[])
+  ]);
+  const personList=Array.isArray(persons)?persons:(persons.rows||persons.items||[]);
+  const bankList=Array.isArray(banks)?banks:(banks.rows||[]);
+  const boxList=Array.isArray(boxes)?boxes:(boxes.rows||[]);
+  const accList=Array.isArray(accounts)?accounts:(accounts.rows||[]);
+  const pref=_sharedLedgerPrefill||{};
+  body.innerHTML=`
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
+      <select id="led-type" data-csp-style="${CSP.style(`padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit`)}" data-csp-change="${CSP.bind('change',function(event){fillSharedLedgerEntities()})}">
+        <option value="person" ${pref.type==='person'?'selected':''}>شخص</option>
+        <option value="bank" ${pref.type==='bank'?'selected':''}>بانک</option>
+        <option value="cash" ${pref.type==='cash'?'selected':''}>صندوق</option>
+        <option value="petty" ${pref.type==='petty'?'selected':''}>تنخواه</option>
+        <option value="account" ${pref.type==='account'||!pref.type?'selected':''}>حساب دفتر کل</option>
+      </select>
+      <span id="led-entity-wrap" data-csp-style="${CSP.style(`min-width:220px`)}"></span>
+      <input id="led-from" data-jdate placeholder="از تاریخ" value="${esc(accDateFrom||pref.from||'')}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:130px`)}">
+      <input id="led-to" data-jdate placeholder="تا تاریخ" value="${esc(accDateTo||pref.to||'')}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;width:130px`)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){loadSharedFinancialLedger()})}">نمایش دفتر</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){exportSharedFinancialLedger()})}">خروجی CSV</button>
+    </div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">دفتر مالی مشترک مانده ابتدا / گردش دوره / مانده انتها را از دفتر کل (سند حسابداری) می‌خواند. برای شخص اگر تفصیلی نباشد، دفتر معین همان شخص با برچسب منبع نشان داده می‌شود. کاردکس کالا از دفتر موجودی جداست.</div>
+    <div id="ledFinBody"><div class="empty" data-csp-style="${CSP.style(`padding:30px`)}">نوع و موجودیت را انتخاب کنید</div></div>`;
+  attachDatepickers(body);
+  window._ledPickers={persons:personList,banks:bankList,boxes:boxList,accounts:accList,pref};
+  fillSharedLedgerEntities();
+  if(pref.id||pref.code) loadSharedFinancialLedger();
+}
+function fillSharedLedgerEntities(){
+  const type=el('led-type')?.value||'account';
+  const wrap=el('led-entity-wrap'); if(!wrap) return;
+  const p=window._ledPickers||{};
+  const pref=p.pref||{};
+  let items=[], selected='', ph='جستجو...';
+  if(type==='person'){
+    items=(p.persons||[]).map(x=>({id:x.id,label:x.name||('#'+x.id),meta:x.phone||'',hay:[x.name,x.phone,x.personnel_code].filter(Boolean).join(' ')}));
+    selected=pref.id||''; ph='جستجو: نام، تلفن، کد...';
+  } else if(type==='bank'){
+    items=(p.banks||[]).map(x=>({id:x.id,label:x.name||('#'+x.id),meta:x.account_no||'',hay:[x.name,x.account_no].filter(Boolean).join(' ')}));
+    selected=pref.id||''; ph='جستجو: نام بانک...';
+  } else if(type==='cash' || type==='petty'){
+    const boxes=(p.boxes||[]).filter(x=>type==='petty'?x.is_petty_cash:!x.is_petty_cash);
+    items=boxes.map(x=>({id:x.id,label:x.name||('#'+x.id),meta:'',hay:x.name||''}));
+    selected=pref.id||''; ph='جستجو: نام صندوق...';
+  } else {
+    items=(p.accounts||[]).map(x=>({id:x.code,label:(x.code||'')+' — '+(x.name||''),meta:x.name||'',hay:[x.code,x.name].filter(Boolean).join(' ')}));
+    selected=pref.code||pref.id||''; ph='جستجو: کد یا نام حساب...';
+  }
+  wrap.innerHTML=searchSelect('led-entity', items, selected, {kind:'generic', placeholder:ph});
+  initCustSearches(wrap);
+}
+function sharedLedgerQuery(){
+  const type=el('led-type')?.value||'';
+  const id=el('led-entity')?.value||'';
+  const from=el('led-from')?.value||'';
+  const to=el('led-to')?.value||'';
+  const params=['entity_type='+encodeURIComponent(type),'entity_id='+encodeURIComponent(id)];
+  if(from) params.push('from='+encodeURIComponent(from));
+  if(to) params.push('to='+encodeURIComponent(to));
+  return params.join('&');
+}
+async function loadSharedFinancialLedger(){
+  const box=el('ledFinBody'); if(!box) return;
+  if(!el('led-entity')?.value){ box.innerHTML='<div class="empty">موجودیت را انتخاب کنید</div>'; return; }
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const d=await api('GET','/ledgers/financial?'+sharedLedgerQuery());
+  if(!d){ box.innerHTML='<div class="empty">خطا در دریافت دفتر مالی</div>'; return; }
+  const opening=d.opening_rial??0, periodDr=d.period_debit_rial??0, periodCr=d.period_credit_rial??0, closing=d.closing_rial??0;
+  const src=d.source==='person_ledger'?'دفتر معین شخص':'دفتر کل';
+  box.innerHTML=`
+    <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px`)}">
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">مانده ابتدا</div><div class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(Math.abs(opening))} ریال</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بدهکار</div><div class="mono" data-csp-style="${CSP.style(`color:var(--orange);font-weight:700`)}">${fmt(periodDr)}</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بستانکار</div><div class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">${fmt(periodCr)}</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">مانده انتها</div><div class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(Math.abs(closing))} ریال</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;flex:1`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">منبع</div><div>${esc(src)}${d.account?` · <span class="mono">${esc(d.account.code)}</span>`:''}</div></div>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>تاریخ</th><th>شرح</th><th>سند مبدأ</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th>
+    </tr></thead><tbody>${(d.lines||[]).map(l=>{
+      const ref=l.journal_id?('سند #'+l.journal_id):((l.ref_type||'')+(l.ref_id?'#'+l.ref_id:''));
+      return `<tr>
+        <td class="mono">${esc(l.date||'-')}</td>
+        <td>${esc(l.description||'-')}</td>
+        <td class="mono muted">${esc(ref||'-')}</td>
+        <td class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${l.debit_rial>0?fmt(l.debit_rial):'-'}</td>
+        <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${l.credit_rial>0?fmt(l.credit_rial):'-'}</td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(Math.abs(l.running_balance||0))}</td>
+      </tr>`;
+    }).join('')||'<tr><td colspan="6" class="empty">تراکنشی در این دوره نیست</td></tr>'}</tbody></table></div>
+    <div data-csp-style="${CSP.style(`padding:12px 0;font-weight:700`)}">مانده ابتدا + گردش خالص = مانده انتها: ${fmt(opening)} + ${fmt(d.period_net_rial||0)} = ${fmt(closing)}</div>`;
+}
+async function exportSharedFinancialLedger(){
+  if(!el('led-entity')?.value){ showToast('موجودیت را انتخاب کنید','error'); return; }
+  try{
+    const tok=localStorage.getItem('crm_token')||'';
+    const res=await fetch('/api/ledgers/financial/export?format=csv&'+sharedLedgerQuery(),{headers:{Authorization:'Bearer '+tok}});
+    if(!res.ok){ showToast('خروجی ناموفق','error'); return; }
+    const blob=await res.blob();
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='financial-ledger.csv';
+    a.click();
+    showToast('خروجی CSV آماده شد');
+  }catch(e){ showToast('خروجی ناموفق','error'); }
+}
 /* ============================================================
    INVENTORY — batches / serials / reservations / landed cost UI
 ============================================================ */
+async function renderFabricRollsTab(body){
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  const [rolls, warehouses, suppliers]=await Promise.all([
+    api('GET','/inventory/fabric-rolls')||{rows:[]},
+    api('GET','/warehouses')||[],
+    api('GET','/suppliers')||[]
+  ]);
+  const rawWh=(Array.isArray(warehouses)?warehouses:(warehouses.rows||warehouses.data||[])).filter(w=>w.code==='WH-RAW'||w.warehouse_type==='raw_material'||w.kind==='raw');
+  const sups=Array.isArray(suppliers)?suppliers:(suppliers.rows||suppliers.data||[]);
+  body.innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">دریافت طاقه پارچه فقط روی انبار مواد اولیه. موجودی متر از دفتر انبار لحظه‌ای است. ابطال تا وقتی متر باقی‌مانده برابر متر دریافتی باشد.</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
+      <input class="search" id="frSearch" placeholder="جستجو طاقه / کالا / رنگ..." data-csp-style="${CSP.style(`min-width:220px;flex:1`)}" data-csp-input="${CSP.bind('input',function(){filterFabricRollRows()})}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){fabricRollModal()})}">➕ دریافت طاقه</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-fabric-roll-kardex')})}">گزارش گردش</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('fabric-rolls')})}">🔄</button>
+    </div>
+    <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" id="frTable" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>طاقه</th><th>کالا</th><th>رنگ</th><th>طرح</th><th>عرض</th><th>مانده زنده</th><th>بها</th><th></th>
+    </tr></thead><tbody>
+    ${(rolls.rows||[]).map(b=>{
+      const meters=Number(b.qty_received!=null?b.qty_received:b.qty_on_hand)||0;
+      const total=b.amount_rial!=null?Math.round(Number(b.amount_rial)||0):Math.round((Number(b.unit_cost_rial)||0)*meters);
+      const unused=b.status!=='reversed' && Math.abs((Number(b.qty_on_hand)||0)-meters)<1e-6;
+      const act=b.status==='reversed'?'ابطال‌شده':(
+        (unused?'<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){fabricRollEditModal(b)})+'">ویرایش</button> ':'')
+        +'<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidFabricRollRow(b.id)})+'">ابطال</button>'
+      );
+      return '<tr data-hay="'+esc(((b.batch_no||'')+' '+(b.product_name||'')+' '+(b.color||'')+' '+(b.pattern||'')).toLowerCase())+'"><td class="mono">'+esc(b.batch_no)+'</td><td>'+esc(b.product_name||('#'+b.product_id))+'</td>'
+        +'<td>'+esc(b.color||'')+'</td><td>'+esc(b.pattern||'')+'</td>'
+        +'<td class="num">'+esc(b.width_cm||0)+'</td><td class="num">'+fmt(b.qty_live!=null?b.qty_live:b.qty_on_hand||0)+'</td>'
+        +'<td class="num" data-col-kind="money">'+fmt(total)+'</td><td>'+act+'</td></tr>';
+    }).join('')||'<tr><td colspan="8" class="empty">طاقه‌ای ثبت نشده</td></tr>'}
+    </tbody></table></div></div>`;
+  window._fabricRawWh=rawWh; window._fabricSups=sups;
+}
+function filterFabricRollRows(){
+  const q=(el('frSearch')?.value||'').trim().toLowerCase();
+  document.querySelectorAll('#frTable tbody tr').forEach(tr=>{
+    const hay=tr.getAttribute('data-hay')||'';
+    tr.style.display=!q||hay.includes(q)?'':'none';
+  });
+}
+async function renderFabricRollKardexTab(body){
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  let rolls=[];
+  try{ rolls=(await api('GET','/inventory/fabric-rolls')||{}).rows||[]; }catch(_){ rolls=[]; }
+  body.innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">گردش هر طاقه از دفتر انبار زنده است: دریافت، فروش، برش، برگشت و ابطال. ماندهٔ هر ردیف متر لحظه‌ای همان طاقه است.</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap;align-items:center`)}">
+      ${rollSelect('frk-roll', rolls, '')}
+      ${productSelect('frk-prod','',CACHE.allProducts||[])}
+      <input id="frk-q" class="search" placeholder="جستجو شرح / شماره طاقه..." data-csp-style="${CSP.style(`min-width:180px`)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(){loadFabricRollKardex()})}">نمایش</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-fabric-rolls')})}">دریافت طاقه</button>
+    </div>
+    <div id="frkBody"><div class="empty">طاقه یا کالا را انتخاب کنید</div></div>`;
+  initCustSearches(body);
+  el('frk-roll')?.addEventListener('change', loadFabricRollKardex);
+  el('frk-prod')?.addEventListener('change', loadFabricRollKardex);
+}
+async function loadFabricRollKardex(){
+  const box=el('frkBody'); if(!box) return;
+  const batch_id=el('frk-roll')?.value||'';
+  const product_id=el('frk-prod')?.value||'';
+  const q=el('frk-q')?.value||'';
+  if(!batch_id && !product_id && !q){ box.innerHTML='<div class="empty">طاقه، کالا یا عبارت جستجو را وارد کنید</div>'; return; }
+  box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const qs=new URLSearchParams();
+  if(batch_id) qs.set('batch_id', batch_id);
+  if(product_id) qs.set('product_id', product_id);
+  if(q) qs.set('q', q);
+  const d=await api('GET','/inventory/fabric-rolls/circulation?'+qs.toString());
+  if(!d){ box.innerHTML='<div class="empty">خطا در دریافت گردش</div>'; return; }
+  const rows=d.rows||[];
+  box.innerHTML=`
+    <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>تاریخ</th><th>طاقه</th><th>کالا</th><th>نوع</th><th>شرح</th><th>ورود</th><th>خروج</th><th>مانده</th><th>ثبت‌کننده</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td class="mono">${esc(r.date||'-')}</td>
+      <td class="mono">${esc(r.batch_no||'')} ${esc(r.color||'')}</td>
+      <td>${esc(r.product_name||'-')}</td>
+      <td>${esc(r.event_type||r.source_type||'-')}</td>
+      <td>${esc(r.note||'-')}</td>
+      <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${Number(r.qty_in)?fmt(r.qty_in):'-'}</td>
+      <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${Number(r.qty_out)?fmt(r.qty_out):'-'}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.running_meters||0)}</td>
+      <td class="muted">${esc(r.user_name||'-')}</td>
+    </tr>`).join('')||'<tr><td colspan="9" class="empty">گردشی ثبت نشده</td></tr>'}
+    </tbody></table></div></div>`;
+}
+function newFabricIdemKey(){
+  try{ if(crypto.randomUUID) return crypto.randomUUID(); }catch(_){}
+  return 'fab-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);
+}
+function fabricRollModal(){
+  window._fabricIdemKey=newFabricIdemKey();
+  const prods=CACHE.allProducts||[];
+  const whs=window._fabricRawWh||[];
+  const sups=window._fabricSups||[];
+  if(!CACHE.suppliers||!CACHE.suppliers.length) CACHE.suppliers=sups;
+  showModal('دریافت طاقه',`
+    <div class="form-grid">
+      <div class="fg"><label>کالا</label>${productSelect('fr-prod','',prods)}</div>
+      <div class="fg"><label>انبار مواد</label><select id="fr-wh">${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>شماره طاقه</label><input id="fr-no" placeholder="خودکار"></div>
+      <div class="fg"><label>رنگ</label><input id="fr-color"></div>
+      <div class="fg"><label>طرح</label><input id="fr-pat"></div>
+      <div class="fg"><label>عرض (سم)</label><input id="fr-w" type="number" min="0" value="150"></div>
+      <div class="fg"><label>متر</label><input id="fr-m" type="number" min="0" step="0.01" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
+      <div class="fg"><label>بها هر متر (ریال)</label><input id="fr-cost" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
+      <div class="fg"><label>تأمین‌کننده</label>${supplierSelect('fr-sup','')}</div>
+      <div class="fg full muted" id="fr-cost-hint" data-csp-style="${CSP.style(`font-size:12px`)}">بها طاقه = متر × فی هر متر. اگر فی خالی باشد از بهای کالا محاسبه می‌شود.</div>
+      <div class="fg full"><b>جمع بها: <span class="mono" id="fr-total">0</span> ریال</b></div>
+    </div>
+    <div data-csp-style="${CSP.style(`margin-top:12px;text-align:left`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){fabricRollSave()})}">ثبت</button></div>`);
+  const prodSel=el('fr-prod'); if(prodSel) prodSel.addEventListener('change',fabricRollLiveTotal);
+  fabricRollLiveTotal();
+}
+function fabricRollCostFromForm(){
+  const raw=toEnDigits(String(el('fr-cost')?.value||'')).replace(/[^\d]/g,'');
+  return parseInt(raw,10)||0;
+}
+function fabricRollLiveTotal(){
+  const m=Number(el('fr-m')?.value)||0;
+  const u=fabricRollCostFromForm();
+  const box=el('fr-total');
+  if(box) box.textContent=fmt(Math.round(m*u));
+  if(!u){
+    const pid=+el('fr-prod')?.value;
+    const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===pid);
+    const hint=el('fr-cost-hint');
+    if(hint && p){
+      const auto=Math.round(Number(p.average_cost_rial)||Number(p.cost)||0);
+      hint.textContent=auto?('پیشنهاد از کالای انتخابی: '+fmt(auto)+' ریال/متر'):'اگر خالی بماند از بهای کالای انتخابی محاسبه می‌شود';
+    }
+  }
+}
+async function invoiceFabricRollPicker(kind){
+  const mode=kind==='purchase'?'purchase':'sale';
+  if(!CACHE.allProducts?.length){ try{ CACHE.allProducts=await api('GET','/products')||[]; }catch(_){ CACHE.allProducts=[]; } }
+  let rolls=[];
+  try{ rolls=(await api('GET','/inventory/fabric-rolls?status=active')||{}).rows||[]; }catch(_){ rolls=[]; }
+  const prods=CACHE.allProducts||[];
+  if(mode==='sale'){
+    openNestedModal(`
+      <div class="modal-head"><h3>افزودن طاقه به فاکتور فروش</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
+      <div class="modal-body">
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه یک ردیف است. انبار ردیف همان انبار طاقه است (معمولاً مواد)، نه الزاماً انبار سربرگ فاکتور.</p>
+        <div class="fg full"><label>طاقه موجود</label>
+          ${rollSelect('ifr-roll', rolls.filter(b=>b.status!=='reversed'&&(Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0)>0).map(b=>{
+            const reserved=(invCart||[]).filter(r=>Number(r.batch_id)===Number(b.id)).reduce((a,r)=>a+(Number(r.qty)||0),0);
+            const live=Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0;
+            return Object.assign({}, b, {qty_available:Math.max(0, live-reserved)});
+          }).filter(b=>b.qty_available>0), '')}</div>
+        <div class="fg"><label>متر فروش</label><input id="ifr-m" type="number" min="0.01" step="0.01"></div>
+        <div class="fg"><label>فی فروش (ریال)</label><input id="ifr-price" type="text" inputmode="numeric" class="money" value="0"></div>
+      </div>
+      <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(){invoiceFabricRollAddSale()})}">افزودن به فاکتور</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button></div>`);
+    const sel=el('ifr-roll');
+    const sync=()=>{
+      if(!sel||!sel.value) return;
+      const p=prods.find(x=>String(x.id)===String(sel.dataset.pid||''));
+      if(el('ifr-m') && !el('ifr-m').value) el('ifr-m').value=sel.dataset.qty||'';
+      if(el('ifr-price') && p) el('ifr-price').value=moneyInit(p.price||0);
+    };
+    if(sel) sel.addEventListener('change',sync); sync();
+    return;
+  }
+  openNestedModal(`
+    <div class="modal-head"><h3>افزودن طاقه به فاکتور خرید</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه به‌صورت یک کالای ردیفی ثبت می‌شود. انبار مقصد سربرگ روی ردیف کپی می‌شود و هویت طاقه بعد از ثبت فاکتور ساخته می‌شود (بدون سند تکراری).</p>
+      <div class="form-grid">
+        <div class="fg"><label>کالا</label>${productSelect('pfr-prod','',prods)}</div>
+        <div class="fg"><label>رنگ *</label><input id="pfr-color"></div>
+        <div class="fg"><label>طرح</label><input id="pfr-pat"></div>
+        <div class="fg"><label>عرض (سم)</label><input id="pfr-w" type="number" min="0" value="150"></div>
+        <div class="fg"><label>متر</label><input id="pfr-m" type="number" min="0.01" step="0.01"></div>
+        <div class="fg"><label>بها هر متر (ریال)</label><input id="pfr-cost" type="text" inputmode="numeric" class="money" value="0"></div>
+        <div class="fg"><label>شماره طاقه</label><input id="pfr-no" placeholder="خودکار"></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(){invoiceFabricRollAddPurchase()})}">افزودن به فاکتور</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button></div>`);
+}
+function invoiceFabricRollAddSale(){
+  const sel=el('ifr-roll');
+  const id=+sel?.value; if(!id){ showToast('طاقه را انتخاب کنید','error'); return; }
+  const pid=+sel.dataset.pid;
+  const p=(CACHE.allProducts||CACHE.products||[]).find(x=>Number(x.id)===pid);
+  const maxQty=Number(sel.dataset.qty)||0;
+  const qty=Math.max(0.001, Number(el('ifr-m')?.value)||maxQty||1);
+  if(maxQty && qty-maxQty>1e-9){ showToast('متر بیشتر از مانده زنده طاقه است ('+fmt(maxQty)+')','error'); return; }
+  const price=moneyVal('ifr-price')|| (p&&p.price)||0;
+  const wh=(+sel.dataset.wh)||headerInvoiceWarehouseId()||null;
+  invCart.push({
+    product_id:pid, name:p?p.name:('طاقه '+(sel.dataset.no||'')),
+    qty, price, disc:0, disc_amount:0, warehouse_id:wh,
+    batch_id:id, is_fabric_roll:1,
+    color:sel.dataset.color||'', pattern:sel.dataset.pat||'',
+    roll_no:sel.dataset.no||'', unit_cost_rial:+sel.dataset.cost||0
+  });
+  closeNestedModal(); renderCart(); if(typeof renderInvPicker==='function') renderInvPicker();
+  showToast('طاقه به فاکتور اضافه شد');
+}
+function invoiceFabricRollAddPurchase(){
+  const pid=+el('pfr-prod')?.value; if(!pid){ showToast('کالا را انتخاب کنید','error'); return; }
+  const color=(el('pfr-color')?.value||'').trim(); if(!color){ showToast('رنگ الزامی است','error'); return; }
+  const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===pid);
+  const qty=Math.max(0.001, Number(el('pfr-m')?.value)||1);
+  const cost=moneyVal('pfr-cost') || Math.round(Number(p&& (p.average_cost_rial||p.cost))||0);
+  genCart.push({
+    product_id:pid, name:p?p.name:'طاقه', qty, price:cost, disc:0, disc_amount:0,
+    description:'', warehouse_id:headerPurchaseWarehouseId(),
+    is_fabric_roll:1, color, pattern:(el('pfr-pat')?.value||'').trim(),
+    width_cm:+el('pfr-w')?.value||0, roll_no:(el('pfr-no')?.value||'').trim(),
+    unit_cost_rial:cost
+  });
+  closeNestedModal(); renderGenCart();
+  showToast('طاقه به فاکتور خرید اضافه شد');
+}
+async function fabricRollSave(){
+  if(!el('fr-color').value.trim()){ showToast('رنگ الزامی است','error'); return; }
+  try{
+    await api('POST','/inventory/fabric-rolls',{
+      product_id:+el('fr-prod').value, warehouse_id:+el('fr-wh').value,
+      roll_no:el('fr-no').value||undefined, color:el('fr-color').value.trim(),
+      pattern:el('fr-pat').value.trim(), width_cm:+el('fr-w').value||0,
+      meters:+el('fr-m').value, unit_cost_rial:fabricRollCostFromForm(),
+      supplier_id:el('fr-sup').value?+el('fr-sup').value:undefined, unit:'m',
+      idempotency_key:window._fabricIdemKey||newFabricIdemKey()
+    });
+    closeModal(); showToast('طاقه ثبت شد'); loadAccTab('fabric-rolls');
+  }catch(e){}
+}
+async function voidFabricRollRow(id){
+  if(!confirm('ابطال کامل این طاقه؟')) return;
+  try{ await api('POST','/inventory/fabric-rolls/'+id+'/void',{reason:'ابطال از گزارش'}); loadAccTab('fabric-rolls'); }
+  catch(e){}
+}
+function fabricRollEditModal(b){
+  const prods=CACHE.allProducts||[];
+  const whs=window._fabricRawWh||[];
+  const sups=window._fabricSups||[];
+  if(!CACHE.suppliers||!CACHE.suppliers.length) CACHE.suppliers=sups;
+  const meters=Number(b.qty_received!=null?b.qty_received:b.qty_on_hand)||0;
+  showModal('ویرایش طاقه',`
+    <div class="form-grid">
+      <div class="fg"><label>کالا</label><select id="fr-prod" disabled>${prods.map(p=>`<option value="${p.id}" ${Number(p.id)===Number(b.product_id)?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>انبار مواد</label><select id="fr-wh" disabled>${whs.map(w=>`<option value="${w.id}" ${Number(w.id)===Number(b.warehouse_id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>شماره طاقه</label><input id="fr-no" value="${esc(b.batch_no||'')}"></div>
+      <div class="fg"><label>رنگ</label><input id="fr-color" value="${esc(b.color||'')}"></div>
+      <div class="fg"><label>طرح</label><input id="fr-pat" value="${esc(b.pattern||'')}"></div>
+      <div class="fg"><label>عرض (سم)</label><input id="fr-w" type="number" min="0" value="${esc(b.width_cm||0)}"></div>
+      <div class="fg"><label>متر</label><input id="fr-m" type="number" min="0" step="0.01" value="${meters}" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
+      <div class="fg"><label>بها هر متر (ریال)</label><input id="fr-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(b.unit_cost_rial||0)}" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
+      <div class="fg"><label>تأمین‌کننده</label>${supplierSelect('fr-sup', b.supplier_id||'')}</div>
+      <div class="fg full"><b>جمع بها: <span class="mono" id="fr-total">${fmt(Math.round((Number(b.unit_cost_rial)||0)*meters))}</span> ریال</b></div>
+    </div>
+    <div data-csp-style="${CSP.style(`margin-top:12px;text-align:left`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(){fabricRollUpdateSave((b.id))})}">ذخیره ویرایش</button></div>`);
+  fabricRollLiveTotal();
+}
+async function fabricRollUpdateSave(id){
+  if(!el('fr-color').value.trim()){ showToast('رنگ الزامی است','error'); return; }
+  try{
+    await api('PATCH','/inventory/fabric-rolls/'+id,{
+      roll_no:el('fr-no').value||undefined, color:el('fr-color').value.trim(),
+      pattern:el('fr-pat').value.trim(), width_cm:+el('fr-w').value||0,
+      meters:+el('fr-m').value, unit_cost_rial:fabricRollCostFromForm(),
+      supplier_id:el('fr-sup').value?+el('fr-sup').value:undefined
+    });
+    closeModal(); showToast('طاقه ویرایش شد'); loadAccTab('fabric-rolls');
+  }catch(e){}
+}
+const CUT_SIZES=['38','40','42','44','46','48'];
+function newCutIdemKey(){
+  try{ if(crypto.randomUUID) return crypto.randomUUID(); }catch(_){}
+  return 'cut-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);
+}
+async function cuttingSizeLabelsForProduct(pid){
+  const names=[];
+  try{
+    if(pid){
+      const style=await api('GET','/product-variants/style/'+pid);
+      const vars=style&&style.variants||[];
+      vars.forEach(v=>{
+        const n=v.size_name||v.size||v.size_code;
+        if(n && names.indexOf(n)<0) names.push(n);
+      });
+    }
+  }catch(_){}
+  if(!names.length){
+    try{
+      const all=await api('GET','/product-variants/sizes')||[];
+      (Array.isArray(all)?all:[]).filter(s=>s.active!==0).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).forEach(s=>{
+        const n=s.name||s.code; if(n && names.indexOf(n)<0) names.push(n);
+      });
+    }catch(_){}
+  }
+  return names.length?names:CUT_SIZES.slice();
+}
+function cuttingRenderSizeGrid(sizes){
+  window._cutSizes=sizes||CUT_SIZES;
+  const box=el('cl-size-grid'); if(!box) return;
+  box.innerHTML=window._cutSizes.map(s=>`<div class="fg"><label>${esc(s)}</label><input type="number" min="0" step="1" value="0" data-cut-size="${esc(s)}"></div>`).join('');
+}
+async function renderCuttingLaysTab(body){
+  if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
+  const [lays, rolls]=await Promise.all([
+    api('GET','/production/cutting-lays')||{rows:[]},
+    api('GET','/production/cutting-lays/rolls')||{rows:[]}
+  ]);
+  window._cutRolls=(rolls.rows||[]).filter(b=>Number(b.qty_on_hand)>0 && b.status!=='reversed' && b.status!=='empty');
+  body.innerHTML=`
+    <div class="prod-scope">
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">ویزارد لایه‌چینی: طول مارکر × تعداد لایه = متر پهن‌شده. ماتریس سایز مصرف نظری فرمول را می‌دهد. مازاد تا سقف عادی بدون سند می‌ماند؛ بقیه ضایعات غیرعادی است. طاقه از انبار مواد کم می‌شود. <b>رسید برش / PACK</b> همان تعداد ماتریس را به انبار محصول می‌برد و مانده WIP لایه را صفر می‌کند. حوالهٔ همان متر پارچه در سفارش تولید مسدود است.</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLayModal()})}">➕ لایه‌چینی جدید</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('cutting-lays')})}">🔄</button>
+    </div>
+    <div class="panel"><div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>شماره</th><th>کالا</th><th>لایه</th><th>متر مصرف</th><th>ماتریس</th><th>ضایعات</th><th>رسید</th><th></th>
+    </tr></thead><tbody>
+    ${(lays.rows||[]).map(r=>{
+      const livePack=(r.packs||[]).find(p=>p.status==='posted');
+      const isPacked=!!livePack || Number(r.pack_posted)===1;
+      let acts='';
+      if(r.status==='reversed') acts='ابطال‌شده';
+      else {
+        acts='<button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingLayRow(r.id)})+'">ابطال برش</button>';
+        if(isPacked){
+          acts+=' <button class="btn" data-csp-click="'+CSP.bind('click',function(){cuttingPackPrint(r.id)})+'">چاپ بارکد</button>';
+          acts+=' <button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){voidCuttingPackRow(r.id)})+'">ابطال رسید</button>';
+        } else {
+          acts+=' <button class="btn" data-csp-click="'+CSP.bind('click',function(){cuttingPackSave(r.id)})+'">رسید برش</button>';
+        }
+      }
+      return '<tr><td class="mono">'+esc(r.lay_no)+'</td><td>'+esc(r.product_name||('#'+r.product_id))+'</td>'
+        +'<td class="num">'+fmt(r.ply_count||0)+'×'+fmt(r.marker_length_m||0)+'</td>'
+        +'<td class="num">'+fmt(r.actual_meters||0)+'</td><td class="num">'+fmt(r.matrix_meters||0)+'</td>'
+        +'<td class="num">'+fmt(r.waste_normal_m||0)+' / '+fmt(r.waste_abnormal_m||0)+'</td>'
+        +'<td>'+(isPacked?'✅ رسید':'—')+'</td><td>'+acts+'</td></tr>';
+    }).join('')||'<tr><td colspan="8" class="empty">لایه‌چینی ثبت نشده — اول طاقه در انبار مواد، سپس «لایه‌چینی جدید»</td></tr>'}
+    </tbody></table></div></div></div>`;
+}
+function cuttingLayModal(){
+  window._cutIdemKey=newCutIdemKey();
+  const prods=(CACHE.allProducts||[]).filter(p=>p.is_manufactured||p.item_type==='finished');
+  const list=prods.length?prods:(CACHE.allProducts||[]);
+  const rolls=window._cutRolls||[];
+  showModal('لایه‌چینی و برش',`
+    <div class="form-grid">
+      <div class="fg"><label>کالای دوخته‌شده</label>${productSelect('cl-prod','',list)}</div>
+      <div class="fg"><label>طول مارکر (متر)</label><input id="cl-marker" type="number" min="0" step="0.01" value="2"></div>
+      <div class="fg"><label>تعداد لایه</label><input id="cl-plies" type="number" min="1" step="1" value="10"></div>
+      <div class="fg"><label>متر واقعی (خالی = طول×لایه)</label><input id="cl-actual" type="number" min="0" step="0.01"></div>
+      <div class="fg"><label>عرض (سم)</label><input id="cl-w" type="number" min="0" value="150"></div>
+      <div class="fg"><label>رنگ</label><input id="cl-color"></div>
+      <div class="fg"><label>سفارش تولید (اختیاری)</label><input id="cl-po" type="number" min="1" step="1" placeholder="خالی = فقط برش"></div>
+    </div>
+    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">ماتریس سایز از سایزبندی همان کالا (تعداد)</div>
+    <div class="form-grid" id="cl-size-grid">${CUT_SIZES.map(s=>`<div class="fg"><label>${s}</label><input type="number" min="0" step="1" value="0" data-cut-size="${s}"></div>`).join('')}</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">طاقه‌ها (متر برداشت) — انبار از طاقهٔ انتخاب‌شده تشخیص داده می‌شود</div>
+    <div id="cl-rolls">${rolls.map(b=>`<label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12px`)}"><input type="checkbox" class="cl-roll" data-id="${b.id}" data-wh="${b.warehouse_id||''}" data-max="${b.qty_on_hand||0}"> ${esc(b.batch_no)} ${esc(b.color||'')} — مانده ${fmt(b.qty_on_hand||0)} متر <input type="number" class="cl-roll-m" data-csp-style="${CSP.style(`width:90px`)}" min="0" step="0.01" placeholder="متر"></label>`).join('')||'<span class="muted">طاقه فعالی نیست — اول دریافت طاقه در انبار مواد</span>'}</div>
+    <div id="cl-preview" class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}"></div>
+    <div data-csp-style="${CSP.style(`margin-top:12px;display:flex;gap:8px;justify-content:flex-end`)}">
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){cuttingLayPreview()})}">پیش‌نمایش</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){cuttingLaySave()})}">ثبت برش</button>
+    </div>`);
+  const prodEl=el('cl-prod');
+  const refreshSizes=async()=>{ cuttingRenderSizeGrid(await cuttingSizeLabelsForProduct(+prodEl?.value||0)); };
+  if(prodEl) prodEl.addEventListener('change', refreshSizes);
+  refreshSizes();
+}
+function cuttingLayBreakdown(){
+  const o={};
+  document.querySelectorAll('#cl-size-grid [data-cut-size]').forEach(inp=>{
+    const n=+inp.value||0; if(n) o[inp.getAttribute('data-cut-size')]=n;
+  });
+  return o;
+}
+async function cuttingLayPreview(){
+  const bd=cuttingLayBreakdown();
+  const actual=el('cl-actual').value?+el('cl-actual').value:undefined;
+  try{
+    const q='product_id='+encodeURIComponent(el('cl-prod').value)
+      +'&marker_length_m='+encodeURIComponent(el('cl-marker').value)
+      +'&ply_count='+encodeURIComponent(el('cl-plies').value)
+      +(actual!=null?'&actual_meters='+encodeURIComponent(actual):'')
+      +'&size_breakdown='+encodeURIComponent(JSON.stringify(bd));
+    const p=await api('GET','/production/cutting-lays/preview?'+q);
+    el('cl-preview').textContent='مصرف نظری '+fmt(p.matrix_meters||0)+' متر · پهن‌شده '+fmt(p.planned_meters||0)+' · ضایعات عادی '+fmt(p.waste_normal_m||0)+' / غیرعادی '+fmt(p.waste_abnormal_m||0);
+  }catch(e){ const box=el('cl-preview'); if(box) box.textContent=e.message||e.code||'خطا در پیش‌نمایش'; showToast(e.message||'خطا در پیش‌نمایش','error'); }
+}
+async function cuttingLaySave(){
+  const planned=(+el('cl-marker').value||0)*(+el('cl-plies').value||0);
+  const actual=el('cl-actual').value?+el('cl-actual').value:planned;
+  const checked=[...document.querySelectorAll('.cl-roll:checked')];
+  const rolls=[];
+  checked.forEach(ch=>{
+    const inp=ch.parentElement.querySelector('.cl-roll-m');
+    let m=+(inp&&inp.value);
+    if(!(m>0) && checked.length===1) m=actual;
+    if(m>0) rolls.push({batch_id:+ch.dataset.id, meters:m});
+  });
+  if(!Object.keys(cuttingLayBreakdown()).length){ showToast('ماتریس سایز را وارد کنید','error'); return; }
+  if(!rolls.length){ showToast('طاقه انتخاب کنید','error'); return; }
+  try{
+    await api('POST','/production/cutting-lays',{
+      product_id:+el('cl-prod').value, color:el('cl-color').value.trim(),
+      marker_length_m:+el('cl-marker').value, ply_count:+el('cl-plies').value,
+      actual_meters:actual, width_cm:+el('cl-w').value||0,
+      production_order_id: el('cl-po') && el('cl-po').value ? +el('cl-po').value : undefined,
+      size_breakdown:cuttingLayBreakdown(), rolls,
+      idempotency_key:window._cutIdemKey||newCutIdemKey()
+    });
+    closeModal(); showToast('لایه‌چینی ثبت شد'); loadAccTab('cutting-lays');
+  }catch(e){}
+}
+async function voidCuttingLayRow(id){
+  if(!confirm('ابطال کامل این لایه‌چینی؟ موجودی طاقه و سند برمی‌گردد. اگر رسید برش دارد اول آن را ابطال کنید.')) return;
+  try{ await api('POST','/production/cutting-lays/'+id+'/void',{reason:'ابطال از گزارش'}); loadAccTab('cutting-lays'); }
+  catch(e){}
+}
+function newPackIdemKey(){
+  try{ if(crypto.randomUUID) return crypto.randomUUID(); }catch(_){}
+  return 'pk-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);
+}
+async function cuttingPackSave(layId){
+  if(!confirm('رسید برش: تعداد ماتریس به انبار محصول برود و مانده WIP لایه صفر شود؟')) return;
+  try{
+    await api('POST','/production/cutting-lays/'+layId+'/pack',{ idempotency_key:newPackIdemKey() });
+    showToast('رسید برش ثبت شد'); loadAccTab('cutting-lays');
+  }catch(e){}
+}
+async function voidCuttingPackRow(layId){
+  if(!confirm('ابطال رسید برش؟ موجودی محصول و WIP لایه برمی‌گردد و بارکد بسته‌ها باطل می‌شود.')) return;
+  try{ await api('POST','/production/cutting-lays/'+layId+'/pack/void',{reason:'ابطال از گزارش'}); loadAccTab('cutting-lays'); }
+  catch(e){}
+}
+async function cuttingPackPrint(layId){
+  try{
+    const p=await api('GET','/production/cutting-lays/'+layId+'/pack');
+    const rows=(p.bundles||[]).map(b=>'<tr><td class="mono">'+esc(b.barcode)+'</td><td>'+esc(b.size_code||'—')+'</td><td>'+esc(b.color||'—')+'</td><td class="num">'+fmt(b.qty||0)+'</td></tr>').join('');
+    const w=window.open('','_blank');
+    if(!w){ showToast('پنجره چاپ مسدود شد','error'); return; }
+    w.document.write('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>بارکد بسته</title>'
+      +'<style>body{font-family:Tahoma,sans-serif;padding:16px} table{width:100%;border-collapse:collapse;font-size:14px}'
+      +'th,td{border:1px solid #333;padding:8px;text-align:right} .mono{font-family:monospace;font-size:16px;letter-spacing:.04em}'
+      +'@media print { nav,.chrome,.btn { display:none !important; } }</style></head><body>'
+      +'<h2>بارکد بسته‌های رسید برش '+esc(p.pack_no||'')+'</h2>'
+      +'<p class="muted">هویت عملیاتی بسته است؛ سریال کالای آماده یا Lot نیست.</p>'
+      +'<table><thead><tr><th>بارکد</th><th>سایز</th><th>رنگ</th><th>تعداد</th></tr></thead><tbody>'
+      +(rows||'<tr><td colspan="4">بسته نیست</td></tr>')+'</tbody></table>'
+      +'<script>window.onload=function(){window.print()}<\/script></body></html>');
+    w.document.close();
+  }catch(e){}
+}
 async function renderInvBatchesTab(body){
   if(!CACHE.allProducts?.length) CACHE.allProducts=await api('GET','/products')||[];
   const [batches, serials]=await Promise.all([
@@ -6657,7 +8935,7 @@ function invBatchModal(){
   const prods=CACHE.allProducts||[];
   showModal('بچ جدید',`
     <div class="form-grid">
-      <div class="fg"><label>کالا</label><select id="ib-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>کالا</label>${productSelect('ib-prod','',prods)}</div>
       <div class="fg"><label>شماره بچ (اختیاری)</label><input id="ib-no" placeholder="خودکار"></div>
       <div class="fg"><label>تاریخ انقضا</label><input id="ib-exp" data-jdate></div>
       <div class="fg"><label>تعداد اولیه</label><input id="ib-qty" type="number" min="0" value="0"></div>
@@ -6677,7 +8955,7 @@ function invSerialModal(){
   const prods=CACHE.allProducts||[];
   showModal('سریال جدید',`
     <div class="form-grid">
-      <div class="fg"><label>کالا</label><select id="is-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>کالا</label>${productSelect('is-prod','',prods)}</div>
       <div class="fg"><label>شماره سریال</label><input id="is-no"></div>
       <div class="fg"><label>گارانتی تا</label><input id="is-warr" data-jdate></div>
     </div>
@@ -6721,7 +8999,7 @@ function invRsvModal(){
   const prods=CACHE.allProducts||[];
   showModal('رزرو موجودی',`
     <div class="form-grid">
-      <div class="fg"><label>کالا</label><select id="ir-prod">${prods.map(p=>`<option value="${p.id}">${esc(p.name)} (موجودی ${fmt(p.stock||0)})</option>`).join('')}</select></div>
+      <div class="fg"><label>کالا</label>${productSelect('ir-prod','',prods)}</div>
       <div class="fg"><label>تعداد</label><input id="ir-qty" type="number" min="1" value="1"></div>
       <div class="fg"><label>نوع</label><select id="ir-kind"><option value="sales">فروش</option><option value="production">تولید</option><option value="project">پروژه</option><option value="manual">دستی</option></select></div>
       <div class="fg"><label>یادداشت</label><input id="ir-note"></div>
@@ -6758,7 +9036,7 @@ async function renderInvLandedTab(body){
           <div class="fg"><label>گمرک (ریال)</label><input id="lc-customs" type="number" min="0" value="0"></div>
           <div class="fg"><label>بیمه (ریال)</label><input id="lc-ins" type="number" min="0" value="0"></div>
           <div class="fg"><label>کالا برای تسهیم</label>
-            <select id="lc-prod">${(CACHE.allProducts||[]).slice(0,300).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+            ${productSelect('lc-prod','',(CACHE.allProducts||[]))}
           </div>
           <div class="fg"><label>تعداد مبنا</label><input id="lc-qty" type="number" min="0" value="1"></div>
           <div class="fg"><label>ارزش مبنا (ریال)</label><input id="lc-base" type="number" min="0" value="0"></div>
@@ -6766,6 +9044,7 @@ async function renderInvLandedTab(body){
         <div data-csp-style="${CSP.style(`margin-top:14px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){invLandedPost()})}">ثبت و تسهیم</button></div>
       </div>
     </div>`;
+  initCustSearches(body);
 }
 async function invLandedPost(){
   const lines=[];
@@ -6952,10 +9231,62 @@ async function voidWarehouseMove(id){
   }catch(e){}
 }
 let whDocLines=[{product_id:'',qty:1}];
+let _whSearchTimer=null;
+function whLineWarehouseId(){
+  return Number(el('wi-warehouse')?.value||el('wt-from')?.value||el('wr-warehouse')?.value||0)||0;
+}
+function whProductPickerHtml(i,l){
+  const label=l.product_label||'';
+  const atp=l.available!=null?('موجود قابل‌فروش: '+fmt(l.available)):'';
+  return `<div class="wh-prod-pick" data-csp-style="${CSP.style('position:relative')}">
+    <input id="wh-q-${i}" type="search" autocomplete="off"
+      placeholder="جستجوی کد / بارکد / نام / SKU"
+      value="${esc(label)}"
+      data-csp-input="${CSP.bind('input',function(){whScheduleProductSearch((i),this.value)})}"
+      data-csp-focus="${CSP.bind('focus',function(){whScheduleProductSearch((i),this.value)})}">
+    <div id="wh-dd-${i}" hidden data-csp-style="${CSP.style('position:absolute;z-index:30;right:0;left:0;max-height:220px;overflow:auto;background:#fff;border:1px solid var(--border);border-radius:8px')}"></div>
+    <div id="wh-atp-${i}" class="muted" data-csp-style="${CSP.style('font-size:11px;margin-top:4px')}">${atp}</div>
+  </div>`;
+}
+function whScheduleProductSearch(i,q){
+  clearTimeout(_whSearchTimer);
+  _whSearchTimer=setTimeout(function(){whSearchProduct(i,q);},250);
+}
+async function whSearchProduct(i,q){
+  const box=el('wh-dd-'+i);
+  if(!box) return;
+  const qs=new URLSearchParams({q:String(q||'').trim(),page:'1',pageSize:'20',include_zero:'1'});
+  const wh=whLineWarehouseId();
+  if(wh) qs.set('warehouse_id',String(wh));
+  try{
+    const resp=await api('GET','/warehouses/products/search?'+qs.toString());
+    const rows=listRows(resp);
+    if(!rows.length){
+      box.hidden=false;
+      box.innerHTML='<div class="muted" data-csp-style="'+CSP.style('padding:8px')+'">کالایی یافت نشد</div>';
+      return;
+    }
+    box.hidden=false;
+    box.innerHTML=rows.map(p=>{
+      const label=`${p.name||''} (${p.code||p.sku||'-'})`;
+      const avail=p.available!=null?p.available:0;
+      return `<button type="button" class="btn sm ghost" data-csp-style="${CSP.style('display:block;width:100%;text-align:right')}" data-csp-click="${CSP.bind('click',function(){whPickProduct((i),(p.id),label,p.available)})}">${esc(p.name)} <span class="mono">${esc(p.code||p.sku||'')}</span> — موجود: ${fmt(avail)}</button>`;
+    }).join('');
+  }catch(e){ box.hidden=true; }
+}
+function whPickProduct(i,id,label,available){
+  if(!whDocLines[i]) return;
+  whDocLines[i].product_id=id;
+  whDocLines[i].product_label=label;
+  whDocLines[i].available=available;
+  const inp=el('wh-q-'+i); if(inp) inp.value=label;
+  const dd=el('wh-dd-'+i); if(dd) dd.hidden=true;
+  const atp=el('wh-atp-'+i); if(atp) atp.textContent=available!=null?('موجود قابل‌فروش: '+fmt(available)):'';
+}
 function whDocLinesHtml(){
   return `<div class="tbl-wrap" data-csp-style="${CSP.style(`margin-bottom:8px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کالا</th><th>تعداد</th><th></th></tr></thead>
     <tbody id="whDocBody">${whDocLines.map((l,i)=>`<tr>
-      <td><select data-csp-change="${CSP.bind('change',function(event){whDocLines[(i)].product_id=this.value})}">${productOptions(l.product_id)}</select></td>
+      <td>${whProductPickerHtml(i,l)}</td>
       <td><input type="number" min="1" value="${l.qty||1}" data-csp-change="${CSP.bind('change',function(event){whDocLines[(i)].qty=+this.value||1})}" data-csp-style="${CSP.style(`width:80px`)}"></td>
       <td>${whDocLines.length>1?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){whDocLines.splice((i),1);renderWhDocLines()})}">×</button>`:''}</td>
     </tr>`).join('')}</tbody></table></div>
@@ -7038,10 +9369,13 @@ async function saveWarehouseTransfer(){
    owner until settled. "out" reduces our stock immediately (goods leave
    physically); "in" never touches our stock (never ours to begin with).
 ============================================================ */
-const CS_STATUS_LABEL={open:'باز',settled:'تسویه شده (فروخته شد)',returned:'مسترد شده'};
-const CS_STATUS_COLOR={open:'var(--orange)',settled:'var(--green)',returned:'var(--muted)'};
+const CS_STATUS_LABEL={open:'باز',sold:'فروخته شد',settled:'فروخته شد',returned:'برگشت',purchased:'خرید قطعی',shortage:'کسری',reversed:'ابطال‌شده'};
+const CS_STATUS_COLOR={open:'var(--orange)',sold:'var(--green)',settled:'var(--green)',returned:'var(--muted)',purchased:'var(--green)',shortage:'var(--red)',reversed:'var(--muted)'};
+const CS_SETTLE_LABEL={return:'برگشت',sale:'فروش قطعی',purchase:'خرید قطعی',shortage:'کسری'};
 async function renderConsignmentsTab(body){
   if(!CACHE.allProducts||!CACHE.allProducts.length) CACHE.allProducts=await api('GET','/products')||[];
+  await ensureWarehouses();
+  if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
   const dirFilter=el('csDirFilter')?.value||'';
   const statusFilter=el('csStatusFilter')?.value||'';
   const qp=[]; if(dirFilter) qp.push('direction='+dirFilter); if(statusFilter) qp.push('status='+statusFilter);
@@ -7056,27 +9390,33 @@ async function renderConsignmentsTab(body){
       </select>
       <select id="csStatusFilter" data-csp-change="${CSP.bind('change',function(event){loadAccTab('consignments')})}" data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px`)}">
         <option value="">همه وضعیت‌ها</option>
-        ${Object.entries(CS_STATUS_LABEL).map(([k,v])=>`<option value="${k}" ${statusFilter===k?'selected':''}>${v}</option>`).join('')}
+        ${[['open','باز'],['sold','فروخته شد'],['returned','برگشت'],['purchased','خرید قطعی'],['shortage','کسری'],['reversed','ابطال‌شده']].map(([k,v])=>`<option value="${k}" ${statusFilter===k?'selected':''}>${v}</option>`).join('')}
       </select>
     </div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
-      <th>جهت</th><th>طرف حساب</th><th>کالا</th><th>تعداد</th><th>قیمت واحد (ت)</th><th>تاریخ</th><th>وضعیت</th><th>عملیات</th>
+      <th>جهت</th><th>شخص</th><th>کالا</th><th>تعداد</th><th>قیمت واحد (ریال)</th><th>تاریخ</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr>
       <td>${r.direction==='out'?'📤 ارسالی':'📥 دریافتی'}</td>
-      <td>${esc(r.party_name)}</td><td>${esc(r.product_name||'-')}</td>
-      <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.unit_price)}</td>
+      <td>${esc(r.person_name||r.party_name||'-')}</td><td>${esc(r.product_name||'-')}</td>
+      <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.unit_price_rial||r.unit_price)}</td>
       <td class="mono">${escDate(r.date)}</td>
-      <td><span class="tag" data-csp-style="${CSP.style(`background:${CS_STATUS_COLOR[r.status]};color:#fff`)}">${CS_STATUS_LABEL[r.status]||r.status}</span></td>
+      <td><span class="tag" data-csp-style="${CSP.style(`background:${CS_STATUS_COLOR[r.status]||'var(--muted)'};color:#fff`)}">${CS_STATUS_LABEL[r.status]||r.status}</span></td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
         ${r.status==='open'?`
-          <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){setConsignmentStatus((r.id),'settled')})}">✅ تسویه (فروخته شد)</button>
-          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){setConsignmentStatus((r.id),'returned')})}">↩️ استرداد</button>`:''}
-        <button class="btn sm red icon" data-csp-click="${CSP.bind('click',function(event){deleteConsignment((r.id))})}">🗑️</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'return',(r.direction))})}">↩️ برگشت</button>
+          <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'sale',(r.direction))})}">💰 فروش</button>
+          ${r.direction==='in'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'purchase',(r.direction))})}">🛒 خرید</button>`:''}
+          <button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){settleConsignment((r.id),'shortage',(r.direction))})}">⚠️ کسری</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){previewConsignmentSettle((r.id),(r.direction))})}">👁 پیش‌نمایش</button>`:''}
+        ${r.status!=='reversed'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){cancelConsignment((r.id))})}">🚫 ابطال</button>`:''}
       </td>
     </tr>`).join('')||emptyRow(8)}</tbody></table></div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">با «تسویه»، مالکیت کالا نهایی می‌شود — فروش/پرداخت واقعی را جداگانه از فاکتور فروش یا عملیات پرداخت ثبت کنید. با «استرداد» کالای ارسالی به موجودی انبار بازمی‌گردد.</div>`;
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">شخص از فهرست اشخاص انتخاب می‌شود. فقط مسیر «فروش قطعی» فاکتور صادر می‌کند. ابطال فیزیکی نیست — موجودی و سند معکوس می‌شوند.</div>`;
 }
-function consignmentModal(){
+async function consignmentModal(){
+  await ensureWarehouses();
+  if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
+  const whs=(CACHE.warehouses||[]).filter(w=>w.active!==0);
   openModal(`
     <div class="modal-head"><h3>🔄 ثبت کالای امانی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
@@ -7084,9 +9424,9 @@ function consignmentModal(){
         <option value="out">ارسالی (کالای ما نزد دیگران است)</option>
         <option value="in">دریافتی (کالای دیگران نزد ماست)</option>
       </select></div>
-      <div class="fg"><label>طرف حساب * ${hlp('نام مشتری، تأمین‌کننده یا شخصی که این کالا نزد او امانت است.')}</label><input id="cs-party"></div>
-      <div class="fg"><label>تلفن طرف حساب</label><input id="cs-phone"></div>
-      <div class="fg full"><label>کالا *</label><select id="cs-product">${productOptions()}</select></div>
+      <div class="fg"><label>شخص * ${hlp('منبع حقیقت شخص است؛ نام از کارت شخص کپی می‌شود.')}</label>${personSelect('cs-person')}</div>
+      <div class="fg"><label>انبار *</label><select id="cs-warehouse">${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg full"><label>کالا *</label>${productSelect('cs-product')}</div>
       <div class="fg"><label>تعداد *</label><input id="cs-qty" type="number" min="1"></div>
       <div class="fg"><label>قیمت واحد مرجع (ریال)</label><input id="cs-price" type="number" min="0"></div>
       <div class="fg"><label>تاریخ</label><input id="cs-date" data-jdate value="${todayJalali()}"></div>
@@ -7096,27 +9436,77 @@ function consignmentModal(){
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
 }
+function filterCsPersons(){ /* personSelect روی فرم امانی */ }
 async function saveConsignment(){
-  const party_name=el('cs-party').value.trim();
-  const product_id=+el('cs-product').value, qty=+el('cs-qty').value;
-  if(!party_name){ showToast('نام طرف حساب الزامی است','error'); return; }
+  const person_id=+el('cs-person').value, product_id=+el('cs-product').value, qty=+el('cs-qty').value;
+  const warehouse_id=+el('cs-warehouse').value||undefined;
+  if(!person_id){ showToast('انتخاب شخص الزامی است','error'); return; }
   if(!product_id||!qty){ showToast('کالا و تعداد معتبر الزامی است','error'); return; }
   try{
     await api('POST','/consignments',{
-      direction:el('cs-direction').value, party_name, party_phone:el('cs-phone').value,
-      product_id, qty, unit_price:+el('cs-price').value||0, date:el('cs-date').value, note:el('cs-note').value
+      direction:el('cs-direction').value, person_id, warehouse_id,
+      product_id, qty, unit_price:+el('cs-price').value||0, unit_price_rial:+el('cs-price').value||0,
+      date:el('cs-date').value, note:el('cs-note').value
     });
     closeModal(); showToast('کالای امانی ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('consignments');
   }catch(e){}
 }
-async function setConsignmentStatus(id,status){
-  const labels={settled:'تسویه شود',returned:'مسترد شود'};
-  if(!confirm(`وضعیت این کالای امانی به «${labels[status]||status}» تغییر کند؟`)) return;
-  try{ await api('PATCH','/consignments/'+id+'/status',{status}); showToast('وضعیت به‌روزرسانی شد'); loadAccTab('consignments'); }catch(e){}
+async function settleConsignment(id,path,direction){
+  if(path==='sale' && direction==='in'){
+    return saleInBuyerModal(id);
+  }
+  if(!confirm('مسیر «'+(CS_SETTLE_LABEL[path]||path)+'» برای این امانی اجرا شود؟')) return;
+  try{
+    const r=await api('POST','/consignments/'+id+'/settle',{path});
+    showToast(r && r.invoice_id ? 'فروش قطعی و فاکتور ثبت شد' : 'تسویه ثبت شد');
+    CACHE.allProducts=await api('GET','/products')||[];
+    loadAccTab('consignments');
+  }catch(e){}
 }
-async function deleteConsignment(id){
-  if(!confirm('این رکورد حذف شود؟ در صورت باز بودن و ارسالی بودن، موجودی بازگردانده می‌شود.')) return;
-  try{ await api('DELETE','/consignments/'+id); showToast('حذف شد'); loadAccTab('consignments'); }catch(e){}
+async function saleInBuyerModal(id){
+  if(!CACHE.customers||!CACHE.customers.length) CACHE.customers=listRows(await api('GET','/customers'))||[];
+  if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
+  const custOpts=(CACHE.customers||[]).map(c=>`<option value="${c.id}">${esc(c.biz||c.owner||('#'+c.id))}</option>`).join('');
+  openModal(`
+    <div class="modal-head"><h3>فروش قطعی امانی دریافتی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full muted">خریدار باید غیر از امانت‌گذار باشد.</div>
+      <div class="fg"><label>مشتری خریدار</label>${custSelect('cs-buyer-cust',0,true)}</div>
+      <div class="fg"><label>یا شخص خریدار</label>${personSelect('cs-buyer-person')}</div>
+    </div></div>
+    <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){confirmSaleInBuyer((id))})}">💰 صدور فاکتور</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+}
+async function confirmSaleInBuyer(id){
+  const cust_id=+el('cs-buyer-cust').value||undefined;
+  const buyer_person_id=+el('cs-buyer-person').value||undefined;
+  if(!cust_id && !buyer_person_id){ showToast('خریدار را انتخاب کنید','error'); return; }
+  try{
+    const r=await api('POST','/consignments/'+id+'/settle',{path:'sale',cust_id,buyer_person_id});
+    closeModal();
+    showToast(r && r.invoice_id ? 'فروش قطعی و فاکتور برای خریدار ثبت شد' : 'تسویه ثبت شد');
+    CACHE.allProducts=await api('GET','/products')||[];
+    loadAccTab('consignments');
+  }catch(e){}
+}
+async function previewConsignmentSettle(id,direction){
+  const path=prompt('مسیر پیش‌نمایش: return / sale / purchase / shortage','sale');
+  if(!path) return;
+  const body={path,preview:true};
+  if(path==='sale' && direction==='in'){
+    const cust=prompt('شناسه مشتری خریدار (غیر از امانت‌گذار)','');
+    if(!cust){ showToast('خریدار الزامی است','error'); return; }
+    body.cust_id=+cust;
+  }
+  try{
+    const r=await api('POST','/consignments/'+id+'/settle',body);
+    const je=(r.journal||[]).map(l=>(l.code||'')+' د '+(l.debit||0)+' / ب '+(l.credit||0)).join(' | ');
+    showToast('پیش‌نمایش: وضعیت='+(r.next_status||'')+' فاکتور='+(r.invoice?'بله':'خیر')+(je?(' سند: '+je):''));
+  }catch(e){}
+}
+async function cancelConsignment(id){
+  if(!confirm('این امانی ابطال شود؟ ردیف می‌ماند؛ موجودی و اسناد معکوس می‌شوند (حذف فیزیکی نیست).')) return;
+  try{ await api('POST','/consignments/'+id+'/cancel',{}); showToast('امانی ابطال شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('consignments'); }catch(e){}
 }
 
 /* ============================================================
@@ -7127,23 +9517,27 @@ async function deleteConsignment(id){
 ============================================================ */
 let advReportTab='aging', advReportFrom='', advReportTo='';
 const ADV_REPORT_TABS=[
-  {id:'aging',label:'سنی مطالبات'},
-  {id:'cash-flow',label:'جریان وجه نقد'},
-  {id:'sales-by-product',label:'فروش به تفکیک کالا'},
-  {id:'inventory-valuation',label:'ارزش‌گذاری موجودی'},
-  {id:'inventory-health',label:'سلامت موجودی'},
-  {id:'vat-summary',label:'گزارش VAT'},
-  {id:'vat-ledger',label:'دفتر ارزش افزوده'},
-  {id:'cost-accounting',label:'عناصر بهای صنعتی'},
-  {id:'report-designer',label:'طراح صورت‌های مالی'},
-  {id:'party-turnover',label:'گردش اشخاص'}
+  {id:'aging',label:'⌛ سنی مطالبات'},
+  {id:'cash-flow',label:'💸 جریان وجه نقد'},
+  {id:'sales-by-product',label:'📦 فروش به تفکیک کالا'},
+  {id:'inventory-valuation',label:'🏷️ ارزش‌گذاری موجودی'},
+  {id:'inventory-health',label:'⚠️ سلامت موجودی'},
+  {id:'vat-summary',label:'🏛️ گزارش VAT'},
+  {id:'vat-ledger',label:'📖 دفتر ارزش افزوده'},
+  {id:'cost-accounting',label:'⚙️ عناصر بهای صنعتی'},
+  {id:'report-designer',label:'📐 طراح صورت‌های مالی'},
+  {id:'party-turnover',label:'🤝 گردش اشخاص'}
 ];
 async function renderAdvReportsTab(body){
   body.innerHTML=`
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:6px`)}">
-      ${ADV_REPORT_TABS.map(t=>`<button class="btn ${advReportTab===t.id?'':'ghost'} sm" data-csp-click="${CSP.bind('click',function(event){advReportTab=`${String((t.id) ?? '')}`;renderAdvReportsTab(el('accBody'))})}">${t.label}</button>`).join('')}
+    <div class="rep-chip-tabs" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
+      ${ADV_REPORT_TABS.map(t=>`
+        <div class="rep-chip ${advReportTab===t.id?'active':''}" data-csp-click="${CSP.bind('click',function(event){advReportTab=`${String((t.id) ?? '')}`;renderAdvReportsTab(el('accBody'))})}">
+          ${t.label}
+        </div>
+      `).join('')}
     </div>
-    <div id="advReportBody"><div class="muted">در حال بارگذاری...</div></div>`;
+    <div id="advReportBody"><div class="muted">در حال بارگذاری مرکز گزارشات...</div></div>`;
   await loadAdvReport();
 }
 async function loadAdvReport(){
@@ -7196,7 +9590,9 @@ async function renderAgingReport(box){
 }
 async function renderCashFlowReport(box){
   const qp=[]; if(advReportFrom) qp.push('from='+encodeURIComponent(advReportFrom)); if(advReportTo) qp.push('to='+encodeURIComponent(advReportTo));
-  const d=await api('GET','/adv-reports/cash-flow'+(qp.length?'?'+qp.join('&'):''))||{};
+  let d={};
+  try{ d=await api('GET','/adv-reports/cash-flow'+(qp.length?'?'+qp.join('&'):''),null,false,true)||{}; }
+  catch(e){ d={sections:{},total_net_rial:0,warning:(e&&e.message)||'گزارش در دسترس نیست'}; }
   const sec=(name,s)=>`
       <div class="panel"><div class="panel-head"><h4>${name}</h4></div><div class="panel-body">
         <div data-csp-style="${CSP.style(`display:flex;gap:12px;flex-wrap:wrap;margin-bottom:4px;font-size:13px`)}">
@@ -7206,7 +9602,8 @@ async function renderCashFlowReport(box){
         </div>
       </div></div>`;
   box.innerHTML=advDateFilterBar()+`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">بازه: ${esc(d.from||'—')} تا ${esc(d.to||'—')} — طبقه‌بندی عملیاتی / سرمایه‌گذاری / تأمین مالی</div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">بازه: ${esc(d.from||'—')} تا ${esc(d.to||'—')} — طبقه‌بندی عملیاتی / سرمایه‌گذاری / تأمین مالی از همه صندوق‌ها و بانک‌ها</div>
+    ${d.warning?`<div class="empty" data-csp-style="${CSP.style(`margin-bottom:10px`)}">${esc(d.warning)}</div>`:''}
     <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px`)}">
       ${sec('عملیاتی', d.sections?.operating||{})}
       ${sec('سرمایه‌گذاری', d.sections?.investing||{})}
@@ -7331,31 +9728,90 @@ async function renderPartyTurnoverReport(box){
 async function renderMoadianTab(body){
   const queue=await api('GET','/moadian/queue')||{};
   const settings=await api('GET','/moadian/settings')||{};
+  const s=settings.data||{};
   const rows=queue.data||[];
+  const adapter=s.moadian_adapter||'stub';
   body.innerHTML=`
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
-      <label class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">فعال‌سازی مودیان:
-        <select id="moadianEn" data-csp-style="${CSP.style(`padding:6px 8px;border-radius:6px`)}">
-          <option value="0" ${settings.data?.moadian_enabled!=='1'?'selected':''}>خاموش</option>
-          <option value="1" ${settings.data?.moadian_enabled==='1'?'selected':''}>روشن</option>
-        </select>
-      </label>
-      <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){saveMoadianSettings()})}">💾 ذخیره تنظیمات</button>
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+      <div class="panel-head"><h4>تنظیمات اتصال مودیان</h4></div>
+      <div class="panel-body">
+        <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">
+          ارسال آزمایشی روی سندباکس رسمی سازمان امور مالیاتی:
+          <span class="mono" dir="ltr">sandboxrc.tax.gov.ir</span>
+          — برای تست واقعی به شناسه حافظه + کلید خصوصی RSA نیاز است.
+        </div>
+        <div class="form-grid">
+          <div class="fg"><label>فعال‌سازی صف</label>
+            <select id="moadianEn">
+              <option value="0" ${s.moadian_enabled!=='1'?'selected':''}>خاموش</option>
+              <option value="1" ${s.moadian_enabled==='1'?'selected':''}>روشن</option>
+            </select>
+          </div>
+          <div class="fg"><label>آداپتر</label>
+            <select id="moadianAd">
+              <option value="stub" ${adapter==='stub'?'selected':''}>stub (محلی بدون HTTP)</option>
+              <option value="sandbox" ${adapter==='sandbox'?'selected':''}>sandbox — ارسال آزمایشی رسمی</option>
+              <option value="live" ${adapter==='live'?'selected':''}>live — سرور عملیاتی</option>
+            </select>
+          </div>
+          <div class="fg"><label>شناسه حافظه مالیاتی</label>
+            <input id="moadianFid" dir="ltr" class="mono" value="${esc(s.moadian_fiscal_id||'')}" placeholder="Fiscal ID">
+          </div>
+          <div class="fg"><label>مسیر کلید خصوصی (روی سرور)</label>
+            <input id="moadianKey" dir="ltr" class="mono" value="${esc(s.moadian_private_key_path||'')}" placeholder="/home/taranom/secrets/moadian.pem">
+          </div>
+        </div>
+        <div class="toolbar" data-csp-style="${CSP.style(`margin-top:10px;gap:8px;flex-wrap:wrap`)}">
+          <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){saveMoadianSettings()})}">💾 ذخیره تنظیمات</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){pingMoadian()})}">🔌 آزمایش اتصال</button>
+        </div>
+        <div id="moadianPingOut" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}"></div>
+      </div>
     </div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">صف ارسال فاکتورهای رسمی — اتصال SDK واقعی در فاز بعدی</div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>فاکتور</th><th>مشتری</th><th>مبلغ</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+    <div class="panel-head" data-csp-style="${CSP.style(`margin-bottom:8px`)}"><h4>صف ارسال</h4></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>فاکتور</th><th>مشتری</th><th>مبلغ</th><th>وضعیت</th><th>آداپتر</th><th>عملیات</th></tr></thead>
     <tbody>${rows.map(r=>`<tr>
       <td class="mono">${esc(r.invoice_num||r.doc_id)}</td><td>${esc(r.cust_biz||'-')}</td>
       <td class="mono">${fmt(r.final||0)}</td><td>${esc(r.status||'-')}</td>
-      <td>${r.status==='pending'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){submitMoadian((r.id))})}">ارسال</button>`:'-'}</td>
-    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+      <td class="mono">${esc(r.adapter||'-')}</td>
+      <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
+        ${(r.status==='pending'||r.status==='failed'||r.status==='test_sent')?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){submitMoadian((r.id))})}">ارسال</button>`:''}
+        ${(r.status==='pending'||r.status==='failed')?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){testSendMoadian((r.id))})}">ارسال آزمایشی</button>`:''}
+      </td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
 }
 async function saveMoadianSettings(){
-  await api('PUT','/moadian/settings',{moadian_enabled:el('moadianEn').value});
+  await api('PUT','/moadian/settings',{
+    moadian_enabled:el('moadianEn').value,
+    moadian_adapter:el('moadianAd').value,
+    moadian_fiscal_id:el('moadianFid').value.trim(),
+    moadian_private_key_path:el('moadianKey').value.trim()
+  });
   showToast('تنظیمات مودیان ذخیره شد');
+  loadAccTab('moadian');
+}
+async function pingMoadian(){
+  const out=el('moadianPingOut');
+  if(out) out.textContent='در حال تماس با سرور مودیان...';
+  try{
+    const env=el('moadianAd')?.value==='live'?'live':'sandbox';
+    const r=await api('POST','/moadian/ping',{env});
+    if(out) out.textContent=(r?.data?.message||'OK')+' · HTTP '+(r?.data?.httpStatus??'?')+(r?.data?.hasServerKey?' · کلید عمومی سرور دریافت شد':'');
+    showToast(r?.data?.ok?'اتصال برقرار است':'پاسخ ناموفق');
+  }catch(e){
+    if(out) out.textContent=e.message||'خطا';
+  }
 }
 async function submitMoadian(id){
-  try{ await api('POST','/moadian/queue/'+id+'/submit',{}); showToast('ارسال آزمایشی انجام شد'); loadAccTab('moadian'); }catch(e){}
+  try{ await api('POST','/moadian/queue/'+id+'/submit',{}); showToast('ارسال انجام شد'); loadAccTab('moadian'); }catch(e){}
+}
+async function testSendMoadian(id){
+  if(!confirm('ارسال آزمایشی به سندباکس رسمی مودیان انجام شود؟ (مهر عملیاتی نیست)')) return;
+  try{
+    const r=await api('POST','/moadian/test-send',{queue_id:id});
+    showToast('آزمایشی: '+(r?.data?.tax_id||'OK'));
+    loadAccTab('moadian');
+  }catch(e){}
 }
 async function renderFixedAssetsTab(body){
   const rows=await api('GET','/fixed-assets')||[];
@@ -7460,7 +9916,7 @@ async function renderProductionBomsTab(body){
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       ${canBomCreate?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){prodBomCreateModal()})}">➕ فرمول جدید</button>`:''}
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){loadAccTab('production-boms')})}">🔄 تازه‌سازی</button>
-      <span data-csp-style="${CSP.style(`color:var(--muted);font-size:13px`)}">مسیر: حسابداری → عملیات تولید → فرمول تولید (BOM) → تب‌ها: اقلام | مسیر | خروجی | بها</span>
+      <span data-csp-style="${CSP.style(`color:var(--muted);font-size:13px`)}">مسیر: ماژول حسابداری → سایدبار «تولید» → اطلاعات پایه → فرمول تولید (BOM) → تب‌ها: اقلام | مسیر | خروجی | بها</span>
     </div>
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 10px;line-height:1.7`)}">ویرایشگر چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با <code>production_cost/view</code>). پیش‌نویس بسازید، اقلام/مسیر/خروجی را تکمیل کنید، سپس فعال کنید.</p>
     ${missing.length?`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--well)`)}">
@@ -7505,7 +9961,7 @@ async function prodBomCreateModal(preProductId){
   const mfg=p=>p.is_manufactured==1||p.item_type==='finished'||p.item_type==='semi';
   showModal('فرمول تولید جدید',`
     <div class="form-grid">
-      <div class="fg"><label>محصول ساخته‌شده *</label><select id="pb-product">${prodBomProductOpts(preProductId,mfg)}</select></div>
+      <div class="fg"><label>محصول ساخته‌شده *</label>${productSelect('pb-product',preProductId||'',(CACHE.allProducts||[]).filter(mfg))}</div>
       <div class="fg"><label>نام فرمول</label><input id="pb-name" placeholder="مثلاً بلوز زمستانه — استاندارد"></div>
       <div class="fg"><label>مقدار پایه</label><input id="pb-base" type="number" min="0.001" step="any" value="1"></div>
       <div class="fg"><label>بازده٪</label><input id="pb-yield" type="number" min="1" max="100" value="100"></div>
@@ -7629,13 +10085,16 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <button class="btn sm secondary" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResequenceOps((id))})}">مرتب‌سازی مجدد</button>`:''}
       <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">V4-21: با مسیر عملیات، بازده سرفصل = ۱۰۰٪</span>
     </div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">دستمزد قطعه‌ای/ساعتی همین‌جا؛ دستمزد ماهانه از <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-rates')})}">نرخ سربار مراکز</button>.</div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>ترتیب</th><th>عملیات</th><th>مرکز هزینه</th><th>بازده٪</th><th>ضایعات٪</th><th>دقیقه/واحد</th>${canMut?'<th>عملیات</th>':''}
+      <th>ترتیب</th><th>عملیات</th><th>مرکز هزینه</th><th>روش</th><th>نرخ (ریال)</th><th>بازده٪</th><th>ضایعات٪</th><th>دقیقه/واحد</th>${canMut?'<th>عملیات</th>':''}
     </tr></thead><tbody>
       ${(ops||[]).map(o=>`<tr>
         <td class="num">${o.seq}</td>
         <td>${esc(o.operation_name||'—')}</td>
         <td class="num">${o.cost_center_id||'—'}</td>
+        <td>${esc({piece:'قطعه‌ای',hourly:'ساعتی',monthly:'ماهانه',contract:'پیمان'}[o.labor_method]||o.labor_method||'قطعه‌ای')}</td>
+        <td class="num">${o.labor_method==='monthly'?'از نرخ مرکز':fmt(o.labor_rate_rial||0)}</td>
         <td class="num">${o.yield_percent??100}</td>
         <td class="num">${o.normal_waste_percent??0}</td>
         <td class="num">${o.run_minutes_per_unit??0}</td>
@@ -7643,7 +10102,7 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
           <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomFillOpForm((o))})}">ویرایش</button>
           <button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomDeleteOperation((id),(o.id))})}">حذف</button>
         </td>`:''}
-      </tr>`).join('')||`<tr><td colspan="${canMut?7:6}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">عملیاتی ثبت نشده — «از الگوی ترنم» یا فرم زیر را بزنید</td></tr>`}
+      </tr>`).join('')||`<tr><td colspan="${canMut?9:8}" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">عملیاتی ثبت نشده — «از الگوی ترنم» یا فرم زیر را بزنید</td></tr>`}
     </tbody></table></div>
     ${canMut?`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-top:12px`)}" id="pbe-op-form">
@@ -7651,6 +10110,8 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <div class="fg"><label>ترتیب (seq)</label><input id="pbe-op-seq" type="number" min="1" step="1" value="${nextSeq}"></div>
       <div class="fg"><label>نام عملیات</label><input id="pbe-op-name" placeholder="مثلاً برش"></div>
       <div class="fg"><label>مرکز هزینه مرحله</label><select id="pbe-op-cc">${prodBomStageCcOpts('')}</select></div>
+      <div class="fg"><label>روش دستمزد</label><select id="pbe-op-method"><option value="piece">قطعه‌ای</option><option value="hourly">ساعتی</option><option value="monthly">ماهانه (از نرخ مرکز)</option><option value="contract">پیمان</option></select></div>
+      <div class="fg"><label>نرخ دستمزد (ریال)</label><input id="pbe-op-rate" class="money" inputmode="numeric" value="0"></div>
       <div class="fg"><label>بازده٪</label><input id="pbe-op-yield" type="number" min="0.1" max="100" step="any" value="100"></div>
       <div class="fg"><label>ضایعات٪</label><input id="pbe-op-waste" type="number" min="0" max="99.8" step="any" value="0"></div>
       <div class="fg"><label>دقیقه/واحد</label><input id="pbe-op-run" type="number" min="0" step="any" value="0"></div>
@@ -7659,7 +10120,7 @@ function prodBomOpsPanelHtml(id, ops, locked, stageCCs){
       <button class="btn sm" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomSaveOperation((id))})}">💾 ذخیره عملیات</button>
       <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomResetOpForm()})}">پاک کردن فرم</button>
     </div>
-    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">افزودن/ویرایش دستی از POST/PUT <code>/production/boms/:id/operations</code> — برای ویرایش، «ویرایش» ردیف را بزنید.</p>`:''}`;
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}">اگر روش قطعه‌ای یا ساعتی است نرخ باید بزرگ‌تر از صفر باشد وگرنه محاسبه بها خطای نرخ صفر می‌دهد. روش ماهانه نرخ را از صفحهٔ نرخ مراکز می‌گیرد.</p>`:''}`;
 }
 function prodBomFillOpForm(o){
   if(!o) return;
@@ -7670,6 +10131,8 @@ function prodBomFillOpForm(o){
   if(el('pbe-op-yield')) el('pbe-op-yield').value=o.yield_percent??100;
   if(el('pbe-op-waste')) el('pbe-op-waste').value=o.normal_waste_percent??0;
   if(el('pbe-op-run')) el('pbe-op-run').value=o.run_minutes_per_unit??0;
+  if(el('pbe-op-method')) el('pbe-op-method').value=o.labor_method||'piece';
+  if(el('pbe-op-rate')) el('pbe-op-rate').value=o.labor_rate_rial||0;
 }
 function prodBomResetOpForm(){
   if(el('pbe-op-id')) el('pbe-op-id').value='';
@@ -7677,6 +10140,8 @@ function prodBomResetOpForm(){
   if(el('pbe-op-yield')) el('pbe-op-yield').value=100;
   if(el('pbe-op-waste')) el('pbe-op-waste').value=0;
   if(el('pbe-op-run')) el('pbe-op-run').value=0;
+  if(el('pbe-op-method')) el('pbe-op-method').value='piece';
+  if(el('pbe-op-rate')) el('pbe-op-rate').value=0;
 }
 async function prodBomSaveOperation(id){
   const opId=+el('pbe-op-id')?.value||0;
@@ -7690,7 +10155,9 @@ async function prodBomSaveOperation(id){
     operation_name:el('pbe-op-name')?.value||'',
     yield_percent:+el('pbe-op-yield')?.value||100,
     normal_waste_percent:+el('pbe-op-waste')?.value||0,
-    run_minutes_per_unit:+el('pbe-op-run')?.value||0
+    run_minutes_per_unit:+el('pbe-op-run')?.value||0,
+    labor_method:el('pbe-op-method')?.value||'piece',
+    labor_rate_rial: typeof moneyVal==='function'?moneyVal('pbe-op-rate'):(+el('pbe-op-rate')?.value||0)
   };
   try{
     if(opId) await api('PUT','/production/boms/'+id+'/operations/'+opId,body);
@@ -7754,7 +10221,7 @@ function prodBomOutputsPanelHtml(id, outs, locked, bom){
     ${canMut?`
     <div class="form-grid" data-csp-style="${CSP.style(`margin-top:12px`)}" id="pbe-out-form">
       <input type="hidden" id="pbe-out-id" value="">
-      <div class="fg"><label>کالا</label><select id="pbe-out-prod">${prodBomProductOpts(bom.product_id)}</select></div>
+      <div class="fg"><label>کالا</label>${productSelect('pbe-out-prod',bom.product_id||'',CACHE.allProducts||[])}</div>
       <div class="fg"><label>نوع</label><select id="pbe-out-type">
         <option value="main">اصلی (main)</option>
         <option value="co">هم‌محصول (co)</option>
@@ -7877,8 +10344,12 @@ async function prodBomComputeFullCost(id){
         </tr>`).join('')||`<tr><td colspan="9" class="muted" data-csp-style="${CSP.style(`text-align:center`)}">مرحله‌ای برای نمایش نیست (فرمول بدون مسیر)</td></tr>`}
       </tbody></table></div>`;
   }catch(e){
-    if(box) box.innerHTML='';
-    showToast(e.message||e.error||'خطا در محاسبه','error');
+    const msg=e.message||e.error||e.code||'خطا در محاسبه';
+    const labor=/نرخ دستمزد|E_LABOR_RATE_ZERO|LABOR_RATE/.test(String(msg)+String(e.code||''));
+    if(box) box.innerHTML=`<div data-csp-style="${CSP.style(`color:var(--red);line-height:1.8`)}">${esc(msg)}${labor?' — در تب مسیر عملیات، روش و نرخ دستمزد را وارد کنید.':''}</div>
+      ${labor?`<button class="btn sm" type="button" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(){prodBomEditModal((id),'ops')})}">رفتن به مسیر عملیات</button>
+      <button class="btn sm ghost" type="button" data-csp-click="${CSP.bind('click',function(){go('acc-production-rates')})}">نرخ ماهانه مراکز</button>`:''}`;
+    showToast(msg,'error');
   }
 }
 function prodBomLineRowHtml(L, locked, excludeProductId){
@@ -7894,9 +10365,11 @@ function prodBomLineRowHtml(L, locked, excludeProductId){
       <td></td>
     </tr>`;
   }
+  const cid='pbe-comp-'+(L.id||('n'+Math.random().toString(36).slice(2,8)));
+  const comps=(CACHE.allProducts||[]).filter(p=>Number(p.id)!==Number(exclude));
   return `<tr class="pbe-line">
     <td><select class="pbe-type"><option value="material" ${type==='material'?'selected':''}>مواد</option><option value="packaging" ${type==='packaging'?'selected':''}>بسته‌بندی</option></select></td>
-    <td><select class="pbe-comp" data-csp-style="${CSP.style(`min-width:160px`)}">${prodBomProductOpts(L.component_product_id, p=>Number(p.id)!==Number(exclude))}</select></td>
+    <td>${productSelect(cid, L.component_product_id, comps, {inputClass:'pbe-comp'})}</td>
     <td><input class="pbe-qty" type="number" step="any" min="0" value="${L.qty_per_base??1}" data-csp-style="${CSP.style(`width:90px`)}"></td>
     <td><input class="pbe-scrap" type="number" min="0" max="99.9" step="0.1" value="${L.scrap_percent??0}" data-csp-style="${CSP.style(`width:70px`)}"></td>
     <td>${L.id?`<button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){prodBomDeleteLine((L.bom_id||0),(L.id))})}">×</button>`:`<button class="btn sm red" type="button" data-csp-click="${CSP.bind('click',function(event){this.closest('tr').remove()})}">×</button>`}</td>
@@ -7905,6 +10378,7 @@ function prodBomLineRowHtml(L, locked, excludeProductId){
 function prodBomAddLineRow(){
   const body=el('pbe-lines'); if(!body) return;
   body.insertAdjacentHTML('beforeend', prodBomLineRowHtml(null, false, window._prodBomEditProductId));
+  initCustSearches(body);
 }
 async function prodBomSaveHeader(id){
   try{
@@ -7921,11 +10395,6 @@ async function prodBomSaveLines(id){
   const rows=[...document.querySelectorAll('#pbe-lines tr.pbe-line')];
   if(!rows.length){ showToast('حداقل یک قلم اضافه کنید','error'); return; }
   try{
-    // Replace strategy for draft: delete existing then bulk add fresh from form
-    const bom=await api('GET','/production/boms/'+id);
-    for(const L of (bom.lines||[])){
-      await api('DELETE','/production/boms/'+id+'/lines/'+L.id);
-    }
     const lines=rows.map(tr=>({
       component_product_id:+tr.querySelector('.pbe-comp')?.value,
       qty_per_base:+tr.querySelector('.pbe-qty')?.value||0,
@@ -7933,7 +10402,7 @@ async function prodBomSaveLines(id){
       line_type:tr.querySelector('.pbe-type')?.value||'material'
     })).filter(L=>L.component_product_id&&L.qty_per_base>0);
     if(!lines.length){ showToast('اقلام معتبر نیست','error'); return; }
-    await api('POST','/production/boms/'+id+'/lines/bulk',{lines});
+    await api('POST','/production/boms/'+id+'/lines/bulk',{replace:true, lines});
     showToast(toFa(lines.length)+' قلم ذخیره شد');
     await prodBomEditModal(id);
   }catch(e){ showToast(e.message||e.error||'خطا در ذخیره اقلام','error'); }
@@ -8060,28 +10529,356 @@ async function prodDashRenderCharts(dash){
   }catch(e){ console.warn('prod charts',e); }
 }
 
+async function fetchProdJourneyState(period){
+  let dash=null, lays=null, orders=null, boms=null, kanban=null;
+  try{ dash=await api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)); }catch(_){ dash=null; }
+  try{ lays=await api('GET','/production/cutting-lays'); }catch(_){ lays={rows:[]}; }
+  try{ orders=await api('GET','/production/orders'); }catch(_){ orders={rows:[]}; }
+  try{ boms=await api('GET','/production/boms'); }catch(_){ boms={rows:[]}; }
+  try{ kanban=await api('GET','/production/reports/kanban'); }catch(_){ kanban=null; }
+  const k=dash?.data?.kpis||{};
+  const orderRows=Array.isArray(orders)?orders:(orders.rows||[]);
+  const openOrders=(dash?.data?.open_orders||[]).length || orderRows.filter(o=>o.status!=='closed'&&o.status!=='cancelled'&&o.status!=='completed').length;
+  const bomRows=Array.isArray(boms)?boms:(boms.rows||boms.data||[]);
+  const activeBoms=bomRows.filter(b=>b.status==='active'||b.is_active).length;
+  const layRows=(lays&&lays.rows)||[];
+  const postedLays=layRows.filter(r=>r.status!=='reversed' && ((r.packs||[]).some(p=>p.status==='posted') || Number(r.pack_posted)===1));
+  const pendingPack=layRows.filter(r=>r.status!=='reversed' && !(r.packs||[]).some(p=>p.status==='posted') && Number(r.pack_posted)!==1).length;
+  const kanbanActive=(kanban?.data?.columns||[]).some(c=>(c.cards||[]).some(card=>['in_progress','done'].includes(card.status)));
+  const hasUnitCost=Number(k.unit_cost?.value_rial||0)>0 || orderRows.some(o=>Number(o.unit_cost_rial||0)>0);
+  const steps=[
+    {n:'۱', title:'فرمول ساخت', desc:'مواد، مسیر و نرخ دستمزد', go:'acc-production-boms', cta:'باز کردن BOM', done:activeBoms>0, path:'both'},
+    {n:'۲', title:'سفارش تولید', desc:'برنامه، آزادسازی، مراحل', go:'acc-production-orders', cta:'سفارش‌ها', done:openOrders>0, path:'order'},
+    {n:'۳', title:'لایه‌چینی و برش', desc:'طاقه + ماتریس سایز', go:'acc-cutting-lays', cta:'ثبت برش', done:layRows.some(r=>r.status!=='reversed'), path:'cut'},
+    {n:'۴', title:'تابلوی خط', desc:'پیشرفت کارگاه', go:'acc-production-kanban', cta:'کانبان', done:kanbanActive, path:'order'},
+    {n:'۵', title:'رسید PACK', desc:'ورود به انبار محصول', go:'acc-cutting-lays', cta:pendingPack?'رسید معلق':'رسید برش', done:postedLays.length>0 && pendingPack===0, path:'cut'},
+    {n:'۶', title:'بهای تمام‌شده', desc:'برگه بها و سود', go:'acc-production-cost-sheet', cta:'برگه بها', done:hasUnitCost, path:'both'},
+  ];
+  const nextIdx=steps.findIndex(s=>!s.done);
+  return { dash, k, openOrders, activeBoms, pendingPack, steps, nextIdx, orderRows, layRows };
+}
+function prodJourneyHtml(state){
+  const { steps, nextIdx, k, openOrders, activeBoms, pendingPack }=state;
+  return `
+    <div class="prod-home-hero">
+      <div>
+        <h3 data-csp-style="${CSP.style(`margin:0 0 6px;font-size:20px`)}">داشبورد تولید</h3>
+        <p class="muted" data-csp-style="${CSP.style(`margin:0;line-height:1.8`)}">نمودارها + مسیر کارگاه. هر دو مسیر «برش→PACK» و «سفارش چندمرحله‌ای» پشتیبانی می‌شوند.</p>
+      </div>
+      <div class="prod-home-hero-actions">
+        <button class="btn" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">✂️ لایه‌چینی</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-orders')})}">سفارش جدید</button>
+        <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-kanban')})}">کانبان</button>
+      </div>
+    </div>
+    <div class="prod-kpi-grid">
+      ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'تولید دوره', value:fmt(k.produced?.value||0), icon:'📦'}):statCard('g','📦',fmt(k.produced?.value||0),'تولید')}
+      ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'سفارش باز', value:fmt(openOrders), icon:'🏭'}):statCard('b','🏭',fmt(openOrders),'سفارش باز')}
+      ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'برش بدون رسید', value:fmt(pendingPack), icon:'✂️'}):statCard('o','✂️',fmt(pendingPack),'برش بدون رسید')}
+      ${typeof ProdUI!=='undefined'&&ProdUI.kpiCard?ProdUI.kpiCard({label:'فرمول فعال', value:fmt(activeBoms), icon:'📐'}):statCard('r','📐',fmt(activeBoms),'فرمول فعال')}
+    </div>
+    <div class="prod-dual-path">
+      <div class="prod-path-card">
+        <b>✂️ مسیر برش و بسته‌بندی</b>
+        <span class="muted">طاقه → لایه‌چینی → رسید PACK → انبار محصول</span>
+        <div class="prod-path-actions">
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-fabric-rolls')})}">طاقه</button>
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">برش</button>
+          ${pendingPack?`<button type="button" class="btn sm orange" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">${fmt(pendingPack)} رسید معلق</button>`:''}
+        </div>
+      </div>
+      <div class="prod-path-card">
+        <b>🏭 مسیر سفارش تولید</b>
+        <span class="muted">BOM → سفارش → حواله/رسید یا مراحل پیشرفته → بستن</span>
+        <div class="prod-path-actions">
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-production-boms')})}">فرمول</button>
+          <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){go('acc-production-orders')})}">سفارش</button>
+          <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-kanban')})}">کانبان</button>
+        </div>
+      </div>
+    </div>
+    <div class="prod-journey">
+      ${steps.map((s,i)=>`<button type="button" class="prod-journey-card${s.done?' is-done':''}${i===nextIdx?' is-next':''}" data-csp-click="${CSP.bind('click',function(){go(s.go)})}">
+        <span class="prod-journey-n">${s.n}</span>
+        <b>${esc(s.title)}</b>
+        <span class="muted">${esc(s.desc)}</span>
+        <span class="prod-journey-cta">${s.done?'✓ انجام شده — ':i===nextIdx?'▶ اقدام بعدی — ':''}${esc(s.cta)}</span>
+      </button>`).join('')}
+    </div>
+    ${nextIdx>=0?`<div class="panel" data-csp-style="${CSP.style(`margin:12px 0`)}"><div class="panel-head"><h4>اقدام بعدی</h4></div>
+      <div class="panel-body" data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap`)}">
+        <button class="btn" data-csp-click="${CSP.bind('click',function(){go(steps[nextIdx].go)})}">▶ ${esc(steps[nextIdx].title)}</button>
+        ${!activeBoms?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-production-boms')})}">اول فرمول بسازید</button>`:''}
+        ${pendingPack?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-cutting-lays')})}">${fmt(pendingPack)} برش منتظر رسید</button>`:''}
+      </div></div>`:''}`;
+}
+const PROD_QUICK_REPORTS=[
+  { code:'PR-10', path:'/production/reports/wip', title:'مانده WIP', pri:1, dateMode:true },
+  { code:'PR-06', path:'/production/reports/period-cost', title:'تحلیل بهای دوره', pri:2 },
+  { code:'PR-12', path:'/production/reports/material-variance', title:'انحراف مواد', pri:3 },
+  { code:'PR-15', path:'/production/reports/waste', title:'تحلیل ضایعات', pri:4 },
+  { code:'PR-20', path:'/production/reports/material-usage', title:'مصرف مواد', pri:5 },
+  { code:'PR-05', path:'/production/reports/cycle-time', title:'زمان چرخه', pri:6 },
+  { code:'PR-19', path:'/production/reports/bottleneck', title:'گلوگاه خط', pri:7 },
+  { code:'PR-08', path:'/production/reports/std-vs-actual', title:'استاندارد vs واقعی', pri:8 },
+];
+const PROD_REPORT_GROUPS=[
+  { title:'تحلیل هزینه و انحراف', codes:['PR-06','PR-10','PR-12','PR-13','PR-14'] },
+  { title:'عملکرد و زمان', codes:['PR-05','PR-16','PR-18','PR-19','PR-20'] },
+  { title:'ضایعات و کیفیت', codes:['PR-15','PR-17'] },
+  { title:'سود و پیمانکار', codes:['PR-08','PR-21','PR-22'] },
+];
+const PROD_REPORT_SPECS={
+  'PR-05':{ code:'PR-05', title:'زمان چرخه مراحل', path:'/production/reports/cycle-time', requiresCost:false,
+    columns:[{key:'seq',label:'مرحله',fmt:'num'},{key:'code',label:'کد مرکز'},{key:'name',label:'مرکز هزینه'},{key:'avg_days',label:'میانگین روز',fmt:'qty'}] },
+  'PR-06':{ code:'PR-06', title:'تحلیل بهای دوره', path:'/production/reports/period-cost', requiresCost:true, custom:'periodCost' },
+  'PR-08':{ code:'PR-08', title:'استاندارد در برابر واقعی', path:'/production/reports/std-vs-actual', requiresCost:true,
+    columns:[{key:'order_no',label:'شماره سفارش'},{key:'qty_produced',label:'تولید',fmt:'qty'},{key:'std_total_rial',label:'بها استاندارد',fmt:'money'},{key:'total_cost_rial',label:'بها واقعی',fmt:'money'},{key:'variance_rial',label:'انحراف',fmt:'variance'},{key:'variance_pct',label:'٪ انحراف',fmt:'pct'}] },
+  'PR-10':{ code:'PR-10', title:'مانده کار در جریان (WIP)', path:'/production/reports/wip', requiresCost:true, dateMode:true,
+    columns:[{key:'order_no',label:'سفارش'},{key:'product_name',label:'محصول'},{key:'status',label:'وضعیت'},{key:'wip_rial',label:'مانده WIP',fmt:'money'},{key:'stages_done',label:'مراحل انجام',fmt:'num'},{key:'stages_total',label:'کل مراحل',fmt:'num'}] },
+  'PR-12':{ code:'PR-12', title:'انحراف مواد', path:'/production/reports/material-variance', requiresCost:true,
+    columns:[{key:'order_no',label:'سفارش'},{key:'product_name',label:'محصول'},{key:'variance_type',label:'نوع'},{key:'amount_rial',label:'مبلغ',fmt:'variance'}] },
+  'PR-13':{ code:'PR-13', title:'پارتو دلایل انحراف', path:'/production/reports/variance-reasons', requiresCost:true,
+    columns:[{key:'reason',label:'دلیل'},{key:'amount_rial',label:'مبلغ',fmt:'money'},{key:'cnt',label:'تعداد',fmt:'num'},{key:'pct',label:'سهم',fmt:'pct'},{key:'cumulative_pct',label:'تجمعی',fmt:'pct'}] },
+  'PR-14':{ code:'PR-14', title:'کسر/اضافه جذب سربار', path:'/production/reports/overhead-variance', requiresCost:true,
+    columns:[{key:'code',label:'کد'},{key:'name',label:'مرکز هزینه'},{key:'budget_total_rial',label:'بودجه',fmt:'money'},{key:'actual_oh_rial',label:'سربار واقعی',fmt:'money'},{key:'applied_oh_rial',label:'جذب‌شده',fmt:'money'},{key:'variance_rial',label:'انحراف',fmt:'variance'}] },
+  'PR-15':{ code:'PR-15', title:'تحلیل ضایعات', path:'/production/reports/waste', requiresCost:true,
+    columns:[{key:'date',label:'تاریخ'},{key:'cc_code',label:'مرکز'},{key:'product_name',label:'محصول'},{key:'waste_type',label:'نوع'},{key:'qty',label:'مقدار',fmt:'qty'},{key:'cost_rial',alt:'amount_rial',label:'بها',fmt:'money'}] },
+  'PR-16':{ code:'PR-16', title:'بهره‌وری تولید', path:'/production/reports/yield', requiresCost:false, custom:'yield' },
+  'PR-17':{ code:'PR-17', title:'دوباره‌کاری', path:'/production/reports/rework', requiresCost:true,
+    columns:[{key:'date',label:'تاریخ'},{key:'order_no',label:'سفارش'},{key:'cc_code',label:'مرکز'},{key:'qty',label:'مقدار',fmt:'qty'},{key:'cost_rial',alt:'amount_rial',label:'بها',fmt:'money'}] },
+  'PR-18':{ code:'PR-18', title:'عملکرد مراکز هزینه', path:'/production/reports/cost-center-performance', requiresCost:true,
+    columns:[{key:'code',label:'کد'},{key:'name',label:'مرکز'},{key:'orders',label:'سفارش',fmt:'num'},{key:'qty_out',label:'خروجی',fmt:'qty'},{key:'labor_rial',label:'دستمزد',fmt:'money'},{key:'overhead_rial',label:'سربار',fmt:'money'}] },
+  'PR-19':{ code:'PR-19', title:'گلوگاه خط تولید', path:'/production/reports/bottleneck', requiresCost:false, custom:'bottleneck' },
+  'PR-20':{ code:'PR-20', title:'مصرف مواد دوره', path:'/production/reports/material-usage', requiresCost:true,
+    columns:[{key:'product_name',label:'کالا'},{key:'qty',label:'مقدار',fmt:'qty'},{key:'amount_rial',label:'مبلغ',fmt:'money'}] },
+  'PR-21':{ code:'PR-21', title:'عملکرد پیمانکاران', path:'/production/reports/subcontractor-performance', requiresCost:true,
+    columns:[{key:'supplier_name',label:'پیمانکار'},{key:'orders',label:'سفارش',fmt:'num'},{key:'qty_sent',label:'ارسال',fmt:'qty'},{key:'qty_received',label:'دریافت',fmt:'qty'},{key:'qty_lost',label:'افت',fmt:'qty'},{key:'fee_rial',label:'کارمزد',fmt:'money'}] },
+  'PR-22':{ code:'PR-22', title:'سودآوری محصول', path:'/production/reports/product-profitability', requiresCost:true,
+    columns:[{key:'product_name',label:'محصول'},{key:'qty_produced',label:'تولید',fmt:'qty'},{key:'production_cost_rial',label:'بهای تولید',fmt:'money'},{key:'revenue_rial',label:'فروش فرضی',fmt:'money'},{key:'profit_rial',label:'سود',fmt:'variance'},{key:'margin_pct',label:'حاشیه',fmt:'pct'}] },
+};
+function prodReportFmtCell(val, kind){
+  const PU=window.ProdUI;
+  if(val==null||val==='') return '—';
+  if(kind==='money') return PU?PU.moneyCell(val):prodFmtToman(val);
+  if(kind==='variance') return PU?PU.varianceCell(val):prodFmtToman(val);
+  if(kind==='qty') return qtyFmt(val);
+  if(kind==='pct') return PU?PU.pct(val):String(val)+'٪';
+  if(kind==='num') return fmt(val);
+  return esc(val);
+}
+function prodReportTableHtml(rows, columns){
+  if(!rows||!rows.length) return '<div class="prod-report-empty">داده‌ای برای این دوره ثبت نشده است.</div>';
+  const head=columns.map(c=>'<th>'+esc(c.label)+'</th>').join('');
+  const body=rows.slice(0,200).map(row=>'<tr>'+columns.map(c=>{
+    const raw=c.alt?(row[c.key]??row[c.alt]):row[c.key];
+  let cell=prodReportFmtCell(raw, c.fmt);
+    if(c.fmt!=='money'&&c.fmt!=='variance'&&c.fmt!=='qty'&&c.fmt!=='pct'&&c.fmt!=='num') cell=esc(raw!=null?String(raw):'');
+    return '<td data-label="'+esc(c.label)+'"'+(c.fmt==='money'||c.fmt==='variance'||c.fmt==='qty'||c.fmt==='pct'||c.fmt==='num'?' class="num"':'')+'>'+cell+'</td>';
+  }).join('')+'</tr>').join('');
+  const more=rows.length>200?'<p class="muted" data-csp-style="'+CSP.style('margin-top:8px;font-size:12px')+'">نمایش ۲۰۰ ردیف اول از '+fmt(rows.length)+'</p>':'';
+  return '<div class="tbl-wrap"><table class="tbl"><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div>'+more;
+}
+function prodReportTotalsHtml(totals, spec){
+  if(!totals||!Object.keys(totals).length) return '';
+  const PU=window.ProdUI;
+  const labels={wip_rial:'جمع WIP',ledger_rial:'دفتر کل',diff_rial:'اختلاف',amount_rial:'جمع مبلغ',cost_rial:'جمع بها',fee_rial:'جمع کارمزد',profit_rial:'جمع سود',total_rial:'جمع کل',variance_rial:'جمع انحراف',qty:'جمع مقدار',count:'تعداد',centers:'مراکز',stages:'مراحل'};
+  const chips=Object.entries(totals).filter(([,v])=>v!=null&&v!=='').map(([k,v])=>{
+    const lbl=labels[k]||k;
+    const isMoney=/rial|cost|fee|profit|amount|variance/i.test(k);
+    const val=isMoney?(PU?PU.moneyCell(v):prodFmtToman(v)):fmt(v);
+    return '<span><b>'+esc(lbl)+':</b> '+val+'</span>';
+  }).join('');
+  return chips?'<div class="prod-report-totals">'+chips+'</div>':'';
+}
+function prodReportRenderPeriodCost(r, spec){
+  const cur=r.data?.current||{};
+  const prev=r.data?.previous;
+  const PU=window.ProdUI;
+  const money=k=>PU?PU.moneyCell(cur[k]):prodFmtToman(cur[k]);
+  const rows=[
+    {label:'مواد اولیه',key:'material_rial'},{label:'بسته‌بندی',key:'packaging_rial'},
+    {label:'دستمزد',key:'labor_rial'},{label:'پیمانکاری',key:'subcontract_rial'},
+    {label:'سربار',key:'overhead_rial'},{label:'جمع',key:'total_rial'},
+  ];
+  const tbl='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>قلم هزینه</th><th>دوره جاری</th>'+(prev?'<th>دوره قبل</th>':'')+'</tr></thead><tbody>'
+    +rows.map(row=>'<tr><td data-label="قلم">'+esc(row.label)+'</td><td data-label="جاری" class="num">'+money(row.key)+'</td>'
+      +(prev?'<td data-label="قبل" class="num">'+(PU?PU.moneyCell(prev.total_rial&&row.key==='total_rial'?prev.total_rial:''):'—')+'</td>':'')
+      +'</tr>').join('')+'</tbody></table></div>';
+  const kpi=PU?[
+    PU.kpiCard({icon:'📦',label:'تولید دوره',value:fmt(cur.qty_produced||0)}),
+    PU.kpiCard({icon:'💰',label:'بهای واحد',value:prodFmtToman(r.totals?.unit_cost_rial||0)}),
+    PU.kpiCard({icon:'📊',label:'جمع هزینه',value:prodFmtToman(r.totals?.total_rial||0)}),
+  ].join(''):'';
+  return (kpi?'<div class="prod-kpi-grid">'+kpi+'</div>':'')+tbl;
+}
+function prodReportRenderYield(r){
+  const byStage=r.data?.by_stage||[];
+  const byOrder=r.data?.by_order||[];
+  const PU=window.ProdUI;
+  const pct=v=>PU?PU.pct(v):String(v||'—')+'٪';
+  const stageTbl=prodReportTableHtml(byStage,[
+    {key:'seq',label:'مرحله',fmt:'num'},{key:'cc_code',label:'کد'},{key:'cc_name',label:'مرکز'},
+    {key:'qty_in',label:'ورودی',fmt:'qty'},{key:'qty_out',label:'خروجی',fmt:'qty'},{key:'yield_pct',label:'بهره‌وری',fmt:'pct'},
+  ]);
+  const orderTbl=prodReportTableHtml(byOrder,[
+    {key:'order_no',label:'سفارش'},{key:'yield_pct',label:'بهره‌وری کل',fmt:'pct'},
+  ]);
+  const avg=r.totals?.avg_yield_pct;
+  return (avg!=null?'<p class="muted" data-csp-style="'+CSP.style('margin-bottom:8px')+'">میانگین بهره‌وری سفارش‌های بسته: <b>'+pct(avg)+'</b></p>':'')
+    +'<h4 data-csp-style="'+CSP.style('margin:12px 0 6px')+'">بر اساس مرحله</h4>'+stageTbl
+    +'<h4 data-csp-style="'+CSP.style('margin:16px 0 6px')+'">بر اساس سفارش</h4>'+orderTbl;
+}
+function prodReportRenderBottleneck(r){
+  const rows=r.data?.rows||[];
+  const PU=window.ProdUI;
+  if(!rows.length) return '<div class="prod-report-empty">داده‌ای برای این دوره نیست.</div>';
+  const bars=rows.map(row=>PU?PU.loadBar(row.load_pct, (row.code||'')+' '+ (row.name||'')):'<div>'+esc(row.name)+' — '+fmt(row.load_pct)+'٪</div>').join('');
+  const tbl=prodReportTableHtml(rows,[
+    {key:'code',label:'کد'},{key:'name',label:'مرکز'},{key:'orders',label:'سفارش',fmt:'num'},
+    {key:'in_progress',label:'در جریان',fmt:'num'},{key:'done_count',label:'انجام‌شده',fmt:'num'},{key:'load_pct',label:'بار',fmt:'pct'},
+  ]);
+  const bn=r.data?.bottleneck;
+  const hint=bn?'<p class="muted" data-csp-style="'+CSP.style('margin-bottom:10px;font-size:13px')+'">◄ گلوگاه محتمل: <b>'+esc(bn.code||'')+' '+esc(bn.name||'')+'</b> ('+fmt(bn.load_pct)+'٪)</p>':'';
+  return hint+'<div data-csp-style="'+CSP.style('margin-bottom:14px')+'">'+bars+'</div>'+tbl;
+}
+function prodReportRenderResult(r, spec){
+  if(spec.custom==='periodCost') return prodReportRenderPeriodCost(r, spec);
+  if(spec.custom==='yield') return prodReportRenderYield(r);
+  if(spec.custom==='bottleneck') return prodReportRenderBottleneck(r);
+  const rows=r.data?.rows||r.rows||[];
+  return prodReportTableHtml(rows, spec.columns||[]);
+}
+function prodOpenReport(code){
+  window._prodReportCode=code;
+  if(typeof go==='function') go('acc-production-reports');
+  else loadAccTab('production-reports');
+}
+async function prodQuickReportModal(path, title){
+  const hit=PROD_QUICK_REPORTS.find(x=>x.path===path);
+  if(hit&&hit.code){ prodOpenReport(hit.code); return; }
+  const period=window._prodDashPeriod||todayJalali().slice(0,7);
+  showModal(title, '<div class="muted" id="pqr-body">در حال بارگذاری...</div><div class="modal-foot"><button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){closeModal()})+'">بستن</button></div>');
+  const box=el('pqr-body');
+  try{
+    const r=await api('GET', path+'?period='+encodeURIComponent(period));
+    const rows=r.data?.rows||r.rows||[];
+    if(!rows.length){ if(box) box.innerHTML='<p class="muted">داده‌ای برای این دوره نیست.</p>'; return; }
+    const keys=Object.keys(rows[0]);
+    const head=keys.map(k=>'<th>'+esc(k)+'</th>').join('');
+    const body=rows.slice(0,80).map(row=>'<tr>'+keys.map(k=>'<td class="mono">'+esc(row[k]!=null?String(row[k]):'')+'</td>').join('')+'</tr>').join('');
+    if(box) box.innerHTML='<div class="tbl-wrap"><table class="tbl"><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div>'
+      +(rows.length>80?'<p class="muted">نمایش ۸۰ ردیف اول از '+fmt(rows.length)+'</p>':'')
+      +((r.warnings||[]).length?'<p class="muted">⚠️ '+esc((r.warnings||[]).map(w=>w.code||w).join(' · '))+'</p>':'');
+  }catch(e){ if(box) box.innerHTML='<p class="muted">'+esc(e.message||'خطا')+'</p>'; }
+}
+async function renderProductionReportsTab(body){
+  const code=window._prodReportCode||'PR-14';
+  const spec=PROD_REPORT_SPECS[code]||PROD_REPORT_SPECS['PR-14'];
+  const period=(window._prodReportPeriod||window._prodDashPeriod||todayJalali().slice(0,7));
+  const asOf=(window._prodReportDate||todayJalali());
+  window._prodReportPeriod=period;
+  window._prodReportCode=spec.code;
+  const PU=window.ProdUI;
+  const navGroups=PROD_REPORT_GROUPS.map(g=>{
+    const btns=g.codes.map(c=>{
+      const s=PROD_REPORT_SPECS[c];
+      if(!s) return '';
+      const active=c===spec.code?' is-active':'';
+      const bind=CSP.bind('click',function(){window._prodReportCode=c;renderProductionReportsTab(body)});
+      return '<button type="button" class="prod-report-nav-btn'+active+'" data-csp-click="'+bind+'"><span class="mono" data-csp-style="'+CSP.style('font-size:11px;opacity:.7')+'">'+esc(c)+'</span> '+esc(s.title)+'</button>';
+    }).join('');
+    return '<div class="prod-report-nav-group"><h4>'+esc(g.title)+'</h4>'+btns+'</div>';
+  }).join('');
+  const dateField=spec.dateMode
+    ?'<label>تاریخ: <input id="pr-date" value="'+esc(asOf)+'" data-jdate data-csp-style="'+CSP.style('width:110px')+'"></label>'
+    :'<label>دوره: <input id="pr-period" value="'+esc(period)+'" placeholder="1405/04" data-csp-style="'+CSP.style('width:90px')+'"></label>';
+  const exportBind=CSP.bind('click',function(){prodReportExport()});
+  const reloadBind=CSP.bind('click',function(){prodReportReload()});
+  body.innerHTML='<div class="prod-scope"><div class="prod-report-hub">'
+    +'<nav class="prod-report-nav" aria-label="فهرست گزارشات تولید">'+navGroups+'</nav>'
+    +'<div class="prod-report-main"><div class="prod-report-head">'
+    +'<div><h3 data-csp-style="'+CSP.style('margin:0 0 4px')+'">'+esc(spec.title)+'</h3>'
+    +'<span class="muted" data-csp-style="'+CSP.style('font-size:12px')+'">'+esc(spec.code)+(spec.requiresCost?' · نیاز به دسترسی بها':'')+'</span></div>'
+    +'<div class="toolbar" data-csp-style="'+CSP.style('gap:8px;flex-wrap:wrap;margin:0')+'">'
+    +dateField
+    +'<button class="btn" data-csp-click="'+reloadBind+'">🔄 بارگذاری</button>'
+    +'<button class="btn ghost" data-csp-click="'+exportBind+'">⬇ CSV</button>'
+    +'</div></div>'
+    +'<div id="pr-area">'+(PU&&PU.skeletonRows?'<div class="tbl-wrap"><table class="tbl"><tbody>'+PU.skeletonRows(4,5)+'</tbody></table></div>':'<div class="muted">در حال بارگذاری...</div>')+'</div>'
+    +'</div></div></div>';
+  await prodReportReload();
+}
+async function prodReportReload(){
+  const code=window._prodReportCode||'PR-14';
+  const spec=PROD_REPORT_SPECS[code];
+  if(!spec) return;
+  const period=el('pr-period')?.value||window._prodReportPeriod||todayJalali().slice(0,7);
+  const asOf=el('pr-date')?.value||window._prodReportDate||todayJalali();
+  window._prodReportPeriod=period;
+  window._prodReportDate=asOf;
+  const area=el('pr-area');
+  if(area) area.innerHTML=window.ProdUI&&window.ProdUI.skeletonRows?'<div class="tbl-wrap"><table class="tbl"><tbody>'+window.ProdUI.skeletonRows(4,5)+'</tbody></table></div>':'<div class="muted">در حال بارگذاری...</div>';
+  let r=null;
+  try{
+    const q=spec.dateMode?('?date='+encodeURIComponent(asOf)):('?period='+encodeURIComponent(period));
+    r=await api('GET', spec.path+q);
+  }catch(e){
+    if(area) area.innerHTML='<div class="prod-report-empty">'+esc(e.message||'خطا — دسترسی گزارشات تولید یا بها لازم است')+'</div>';
+    return;
+  }
+  if(!area) return;
+  const meta=r.meta;
+  if(meta&&meta.empty&&!((r.data?.rows||[]).length||(r.data?.by_stage||[]).length)){
+    area.innerHTML='<div class="prod-report-empty">'+esc(meta.message||'داده‌ای برای این دوره نیست.')+'</div>';
+    return;
+  }
+  let html=prodReportTotalsHtml(r.totals, spec);
+  html+=prodReportRenderResult(r, spec);
+  if((r.warnings||[]).length){
+    html+='<p class="muted" data-csp-style="'+CSP.style('margin-top:10px;font-size:12px;color:var(--state-warn)')+'">⚠️ '+esc(r.warnings.map(w=>w.code||JSON.stringify(w)).join(' · '))+'</p>';
+  }
+  area.innerHTML=html;
+}
+function prodReportExport(){
+  const code=window._prodReportCode||'PR-14';
+  const spec=PROD_REPORT_SPECS[code];
+  if(!spec) return;
+  const period=el('pr-period')?.value||window._prodReportPeriod||todayJalali().slice(0,7);
+  const asOf=el('pr-date')?.value||window._prodReportDate||todayJalali();
+  const q=spec.dateMode?('date='+encodeURIComponent(asOf)):('period='+encodeURIComponent(period));
+  window.open('/api/production/reports/'+encodeURIComponent(code)+'/export?format=csv&'+q, '_blank');
+}
+
+async function renderProductionHomeTab(body){
+  return renderProductionDashboardTab(body);
+}
+
 async function renderProductionDashboardTab(body){
   destroyProdCharts();
   const period=(window._prodDashPeriod||todayJalali().slice(0,7));
-  let dash=null, catalog=[], dashErr='';
-  try{ dash=await api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)); }
+  window._prodDashPeriod=period;
+  let dash=null, catalog=[], dashErr='', journeyState=null;
+  try{ journeyState=await fetchProdJourneyState(period); dash=journeyState.dash; }catch(_){ journeyState=null; }
+  try{ if(!dash) dash=await api('GET','/production/reports/dashboard?period='+encodeURIComponent(period)); }
   catch(e){ dash=null; dashErr=e.message||e.code||'خطا در داشبورد'; }
   try{ catalog=(await api('GET','/production/reports'))?.reports||[]; }catch(e){ catalog=[]; }
-  window._prodDashPeriod=period;
   const k=dash?.data?.kpis||{};
   const openOrders=dash?.data?.open_orders||[];
+  const journeyHtml=journeyState?prodJourneyHtml(journeyState):'';
+  const quickBtns=PROD_QUICK_REPORTS.map(rep=>{
+    const bind=CSP.bind('click',function(){prodOpenReport(rep.code)});
+    return '<button type="button" class="btn sm ghost" data-csp-click="'+bind+'">'+esc(rep.title)+'</button>';
+  }).join('');
+  const hubBind=CSP.bind('click',function(){go('acc-production-reports')});
   body.innerHTML=`
+    <div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <label>دوره: <input id="pd-period" value="${esc(period)}" placeholder="1405/04" data-csp-style="${CSP.style(`width:90px`)}"></label>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodDashLoad()})}">🔄 بارگذاری</button>
     </div>
     ${dashErr?`<div class="muted" data-csp-style="${CSP.style(`color:var(--state-danger,#C0392B);margin-bottom:8px`)}">${esc(dashErr)}</div>`:''}
-    <div class="cards" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
-      ${statCard('g','📦',fmt(k.produced?.value||0),'تولید (عدد)')}
-      ${statCard('b','💰',prodFmtToman(k.unit_cost?.value_rial),'بهای واحد (ت)')}
-      ${statCard('o','⚙️',(k.yield?.value_pct??0)+'٪','بهره‌وری')}
-      ${statCard('r','🏗',prodFmtToman(k.wip?.value_rial),'کار در جریان ساخت (ت)')}
-    </div>
+    ${journeyHtml}
     <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px`)}">
       <div class="panel"><div class="panel-head"><h4>روند بهای واحد</h4></div>
         <div class="panel-body" data-csp-style="${CSP.style(`height:220px;position:relative`)}"><canvas id="pd-chart-unit-cost"></canvas>
@@ -8092,14 +10889,17 @@ async function renderProductionDashboardTab(body){
           ${!Object.values(dash?.data?.cost_mix||{}).some(v=>Number(v)>0)?`<div class="muted" data-csp-style="${CSP.style(`position:absolute;inset:0;display:flex;align-items:center;justify-content:center`)}">داده هزینه دوره خالی است</div>`:''}
         </div></div>
     </div>
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-head"><h4>گزارش‌های سریع (اولویت‌بندی شده)</h4></div>
+      <div class="panel-body" data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;align-items:center`)}">${quickBtns}
+        <button type="button" class="btn sm" data-csp-click="${hubBind}">📊 مرکز گزارشات</button></div></div>
     <div class="panel"><div class="panel-head"><h4>سفارش‌های باز</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>شماره</th><th>محصول</th><th>برنامه</th><th>وضعیت</th></tr></thead><tbody>
         ${openOrders.map(o=>`<tr data-csp-style="${CSP.style(`cursor:pointer`)}" data-csp-click="${CSP.bind('click',function(event){prodOrderOpenFromKanban((o.id))})}"><td>${esc(o.order_no)}</td><td>${esc(o.product_name||'')}</td><td class="num">${o.qty_planned||0}</td><td>${esc(o.status)}</td></tr>`).join('')||emptyRow(4)}
       </tbody></table></div></div>
-    <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>فهرست گزارشات تولید</h4></div>
+    <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}"><div class="panel-head"><h4>فهرست کامل گزارشات (${fmt(catalog.length)})</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کد</th><th>عنوان</th><th>نیاز به هزینه</th></tr></thead><tbody>
         ${catalog.map(r=>`<tr><td class="mono">${esc(r.code)}</td><td>${esc(r.title)}</td><td>${r.requires_cost?'✓':'—'}</td></tr>`).join('')||emptyRow(3)}
-      </tbody></table></div></div>`;
+      </tbody></table></div></div></div>`;
   if(dash) await prodDashRenderCharts(dash);
 }
 function prodDashLoad(){
@@ -8122,7 +10922,7 @@ async function renderProductionCloseTab(body){
     window._prodCloseDoPrecheck=false;
   }
   const checks=(pre?.checks||[]).map(c=>`<tr><td>${esc(c.label||c.code)}</td><td>${c.status==='pass'?'✅':'❌'} ${esc(c.message||'')}</td></tr>`).join('');
-  body.innerHTML=`
+  body.innerHTML=`<div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <label>دوره: <input id="pc-period" value="${esc(period)}" placeholder="1405/04" data-csp-style="${CSP.style(`width:90px`)}"></label>
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodCloseReload()})}">بارگذاری وضعیت</button>
@@ -8143,7 +10943,7 @@ async function renderProductionCloseTab(body){
           <p>روش: ${esc(calc.materiality?.method_auto||'—')}</p>`:'<span class="muted">پس از پیش‌بررسی نمایش داده می‌شود</span>'}
         </div></div>
     </div>
-    ${periods.length?`<div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">دوره‌های ثبت‌شده: ${periods.map(p=>esc(p.period_label||p.period)+' ('+esc(p.status)+')').join(' · ')}</div>`:''}`;
+    ${periods.length?`<div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">دوره‌های ثبت‌شده: ${periods.map(p=>esc(p.period_label||p.period)+' ('+esc(p.status)+')').join(' · ')}</div>`:''}</div>`;
 }
 function prodCloseReload(){
   window._prodClosePeriod=el('pc-period')?.value||todayJalali().slice(0,7);
@@ -8188,7 +10988,7 @@ async function renderProductionMonthlyProfitTab(body){
   try{ r=await api('GET','/production/reports/monthly-profit?period='+encodeURIComponent(period)); }catch(e){}
   const d=r?.data||{};
   const chk=d.checks||{};
-  body.innerHTML=`
+  body.innerHTML=`<div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
       <label>دوره: <input id="pp-period" value="${esc(period)}" data-csp-style="${CSP.style(`width:90px`)}"></label>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodProfitLoad()})}">🔄</button>
@@ -8206,7 +11006,7 @@ async function renderProductionMonthlyProfitTab(body){
         <li>${chk.overhead_control_zero?'✅':'🔴'} کنترل سربار ۵۲۰۲</li>
         <li>${chk.overhead_applied_zero?'✅':'🔴'} سربار جذب‌شده ۵۲۰۳</li>
         <li>${chk.wip_matches_ledger?'✅':'🔴'} کار در جریان = دفتر کل</li>
-      </ul></div></div>`:'<div class="muted">گزارش در دسترس نیست (نیاز به نقش admin/accounting)</div>'}`;
+      </ul></div></div>`:'<div class="muted">گزارش در دسترس نیست (نیاز به نقش admin/accounting)</div>'}</div>`;
 }
 function prodProfitLoad(){
   window._prodProfitPeriod=el('pp-period')?.value||todayJalali().slice(0,7);
@@ -8217,7 +11017,7 @@ async function renderProductionCostSheetTab(body){
   const presetId=window._prodCostSheetOrderId||'';
   let orders=[];
   try{ orders=(await api('GET','/production/orders'))?.rows||[]; }catch(e){ orders=[]; }
-  body.innerHTML=`
+  body.innerHTML=`<div class="prod-scope">
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <label>سفارش:
         <select id="pcs-order-id" data-csp-style="${CSP.style(`min-width:220px`)}">
@@ -8229,7 +11029,7 @@ async function renderProductionCostSheetTab(body){
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodCostSheetPrint()})}" disabled id="pcs-btn-print">🖨 چاپ</button>
       <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){prodCostSheetExcel()})}" disabled id="pcs-btn-excel">📥 اکسل</button>
     </div>
-    <div id="pcs-sheet-area"><div class="muted">سفارش را انتخاب کنید.</div></div>`;
+    <div id="pcs-sheet-area"><div class="muted">سفارش را انتخاب کنید.</div></div></div>`;
   if(presetId) await prodCostSheetLoad();
 }
 async function prodCostSheetLoad(){
@@ -8316,7 +11116,7 @@ async function renderProductionEstimateTab(body){
       <div class="prod-panel-body">
         <div class="form-grid">
           <div class="fg"><label>محصول</label>
-            <select id="pe-product">${mfg.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+            ${productSelect('pe-product','',mfg)}</div>
           <div class="fg"><label>تعداد</label><input id="pe-qty" type="number" min="1" value="100"></div>
           <div class="fg"><label>حاشیه سود (٪) — اختیاری</label><input id="pe-markup" type="number" min="0" value="35"></div>
         </div>
@@ -8328,6 +11128,7 @@ async function renderProductionEstimateTab(body){
     </div>
     <div id="pe-result"><div class="muted" data-csp-style="${CSP.style(`font-size:13px`)}">محصول و تعداد را انتخاب کنید — محاسبه خودکار یا دکمه «محاسبه».</div></div>
     </div>`;
+  initCustSearches(body);
   el('pe-product')?.addEventListener('change', prodEstimateScheduleLive);
   el('pe-qty')?.addEventListener('input', prodEstimateScheduleLive);
   el('pe-markup')?.addEventListener('input', prodEstimateScheduleLive);
@@ -8434,13 +11235,11 @@ async function prodKanbanLoad(){
     <div class="muted" data-csp-style="${CSP.style(`margin-top:10px;font-size:12px`)}">سفارش‌های باز: ${r.totals?.open_orders??0}</div>`;
 }
 async function prodOrderOpenFromKanban(orderId){
-  go('acc-production-orders');
   try{
-    const o=await api('GET','/production/orders/'+orderId);
-    if(['fixed_adv','variable_adv'].includes(o?.analysis_type)){
-      setTimeout(()=>prodOrderStagesModal(orderId),300);
-    }
-  }catch(e){ /* stay on orders list */ }
+    const data=await api('GET','/production/execution/orders/'+orderId+'/stages');
+    if((data.stages||[]).length){ prodOrderStagesModal(orderId); return; }
+  }catch(_){}
+  go('acc-production-orders');
 }
 let _pkAutoTimer=null;
 function prodKanbanToggleAuto(){
@@ -8671,7 +11470,7 @@ async function prodRateSave(){
 ============================================================ */
 async function renderProductionAccessTab(body){
   if(!isAdmin() && ME.role!=='accounting'){
-    body.innerHTML='<div class="muted">فقط مدیر یا حسابدار می‌تواند دسترسی تولید را تنظیم کند.</div>';
+    body.innerHTML='<div class="prod-scope"><div class="muted">فقط مدیر یا حسابدار می‌تواند دسترسی تولید را تنظیم کند.</div></div>';
     return;
   }
   let listData={users:[]};
@@ -8829,7 +11628,7 @@ async function prodOrderCreateModal(){
       ${warn?`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;color:var(--state-warn,#E67E22)`)}">${warn}</div>`:''}
       <div class="form-grid">
         <div class="fg"><label>محصول</label>
-          <select id="po-product" data-csp-change="${CSP.bind('change',function(event){prodOrderFilterBoms()})}">${mfg.length?mfg.map(p=>`<option value="${p.id}">${esc(p.name)}${activeBomProductIds.has(Number(p.id))?' ✓فرمول':''}</option>`).join(''):'<option value="">کالایی یافت نشد</option>'}</select>
+          ${productSelect('po-product', mfg[0]&&mfg[0].id, mfg)}
         </div>
         <div class="fg"><label>فرمول ساخت</label>
           <select id="po-bom"><option value="">— خودکار (پیش‌فرض فعال) —</option></select>
@@ -8855,6 +11654,7 @@ async function prodOrderCreateModal(){
         <button class="btn secondary" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
         <button class="btn" data-csp-click="${CSP.bind('click',function(event){prodOrderCreateSave()})}" ${mfg.length?'':'disabled'}>ثبت پیش‌نویس</button>
       </div>`);
+    el('po-product')?.addEventListener('change', prodOrderFilterBoms);
     prodOrderFilterBoms();
   }catch(e){
     showToast(e?.message||e?.error||'خطا در باز کردن فرم سفارش','error');
@@ -9353,7 +12153,7 @@ async function productionModal(){
   openModal(`
     <div class="modal-head"><h3>🏗️ ثبت اجرای تولید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>کالای تولیدی *</label><select id="pd-product">${productOptions()}</select></div>
+      <div class="fg full"><label>کالای تولیدی *</label>${productSelect('pd-product')}</div>
       <div class="fg"><label>انبار مقصد</label>
         <select id="pd-warehouse"><option value="">— انبار محصول —</option>
           ${(CACHE.warehouses||[]).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
@@ -9445,7 +12245,7 @@ async function renderPayrollTab(body){
   const records=await api('GET','/payroll')||[];
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){go('acc-payroll-processing')})}">${lucide('calc')} محاسبه و پردازش حقوق</button>
+      ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){go('acc-payroll-processing')})}">${lucide('calc')} محاسبه و پردازش حقوق</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-payroll-employees')})}">${lucide('users')} پرونده کارکنان</button>
     </div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
@@ -9458,9 +12258,9 @@ async function renderPayrollTab(body){
       <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.net_pay_rial||r.net_pay||0)}</td>
       <td>${r.status==='reversed'?'<span class="tag t-cancel">ابطال‌شده</span>':r.paid?'<span class="tag t-done">پرداخت شده</span>':'<span class="tag t-pending">پرداخت‌نشده</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        ${!r.paid&&r.status!=='reversed'?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){payrollPayModal((r.id),`${String((CSP.htmlDecode(String(esc(r.person_name||'')))) ?? '')}`,(r.net_pay_rial||r.net_pay||0))})}">${lucide('wallet')} پرداخت</button>
+        ${canPerm('payroll','create')&&!r.paid&&r.status!=='reversed'?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){payrollPayModal((r.id),`${String((CSP.htmlDecode(String(esc(r.person_name||'')))) ?? '')}`,(r.net_pay_rial||r.net_pay||0))})}">${lucide('wallet')} پرداخت</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollRecord((r.id))})}">${lucide('repeat')} ابطال</button>`:''}
-        ${r.paid&&r.status!=='reversed'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){voidPayrollPayment((r.id))})}">⛔ ابطال پرداخت</button>`:''}
+        ${canPerm('payroll','create')&&r.paid&&r.status!=='reversed'?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){voidPayrollPayment((r.id))})}">⛔ ابطال پرداخت</button>`:''}
       </td>
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
@@ -9475,8 +12275,8 @@ async function renderPayrollEmployees(body){
   body.innerHTML=`
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">اشخاصی که در گروه اشخاص «پرسنل» باشند اینجا به‌عنوان کارمند دیده می‌شوند. کد پرسنلی و جزئیات را دستی تکمیل کنید.</div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal()})}">${lucide('plus')} کارمند جدید</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){employeeGroupModal()})}">${lucide('users')} گروه کارکنان</button>
+      ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal()})}">${lucide('plus')} کارمند جدید</button>`:''}
+      ${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){employeeGroupModal()})}">${lucide('users')} گروه کارکنان</button>`:''}
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد پرسنلی</th><th>نام</th><th>گروه کارکنان</th><th>گروه اشخاص</th><th>حقوق ماهانه</th><th>وضعیت</th><th class="no-sort">عملیات</th></tr></thead>
     <tbody>${(rows||[]).map(r=>`<tr>
@@ -9485,14 +12285,14 @@ async function renderPayrollEmployees(body){
       <td class="mono">${fmt(r.monthly_salary_rial||0)}</td>
       <td>${r.active?'<span class="tag t-done">فعال</span>':'<span class="tag">غیرفعال</span>'}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal((r.id))})}">✏️</button>
-        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollEmployee((r.id))})}">🗑️</button>
+        ${canPerm('payroll','create')?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){payrollEmployeeModal((r.id))})}">✏️</button>
+        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollEmployee((r.id))})}">🗑️</button>`:''}
       </td></tr>`).join('')||emptyRow(7)}</tbody></table></div>
     ${(groups||[]).length?`<div class="panel" data-csp-style="${CSP.style(`margin-top:16px`)}"><div class="panel-head"><h4>گروه‌های کارکنان</h4></div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>اعضا</th><th>وضعیت</th><th></th></tr></thead>
       <tbody>${groups.map(g=>`<tr><td>${esc(g.name)}</td><td>${fmt(g.member_count||0)}</td>
         <td>${g.active?'فعال':'غیرفعال'}</td>
-        <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteEmployeeGroup((g.id))})}">🗑️</button></td></tr>`).join('')}</tbody></table></div></div>`:''}`;
+        <td>${canPerm('payroll','create')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteEmployeeGroup((g.id))})}">🗑️</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`:''}`;
 }
 function payrollEmployeeModal(id){
   const r=id?(CACHE.payrollEmployees||[]).find(x=>x.id===id):null;
@@ -9549,12 +12349,12 @@ async function deleteEmployeeGroup(id){
 
 async function renderPayrollPeriods(body){
   const rows=await api('GET','/payroll/periods')||[];
-  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollPeriodModal()})}">${lucide('plus')} دوره جدید</button></div>
+  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollPeriodModal()})}">${lucide('plus')} دوره جدید</button>`:''}</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>دوره</th><th>شروع</th><th>پایان</th><th>روز موظفی</th><th>ساعت موظفی</th><th>بیمه کارگر</th><th>بیمه کارفرما</th><th>وضعیت</th><th></th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td class="mono">${esc(r.label)}</td><td>${escDate(r.start_date)}</td><td>${escDate(r.end_date)}</td>
       <td>${fmt(r.standard_days)}</td><td>${fmt(r.standard_hours_x100/100)}</td><td>${fmt(r.employee_insurance_bp/100)}٪</td>
       <td>${fmt(r.employer_insurance_bp/100)}٪</td><td>${esc(r.status)}</td>
-      <td>${r.status==='open'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollPeriod((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
+      <td>${canPerm('payroll','create')&&r.status==='open'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollPeriod((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
 async function deletePayrollPeriod(id){
   if(!confirm('دوره حذف شود؟')) return;
@@ -9585,33 +12385,48 @@ async function renderSalaryStructures(body){
   CACHE.payrollEmployees=employees||[];
   CACHE.employeeGroups=groups||[];
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){salaryStructureModal()})}">${lucide('plus')} ساختار کارمند</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){groupSalaryStructureModal()})}">${lucide('users')} ساختار گروه کارکنان</button>
+      ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){salaryStructureModal()})}">${lucide('plus')} ساختار کارمند</button>`:''}
+      ${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){groupSalaryStructureModal()})}">${lucide('users')} ساختار گروه کارکنان</button>`:''}
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>سال</th><th>کارمند</th><th>مبنا</th><th>مزد پایه (ریال)</th><th>مسکن</th><th>بن</th><th>اولاد</th><th>بیمه</th><th></th></tr></thead>
     <tbody>${(rows||[]).map(r=>`<tr><td>${fmt(r.fiscal_year)}</td><td>${esc(r.person_name)}</td><td>${esc(r.wage_basis)}</td>
       <td class="mono">${fmt(r.base_wage_rial)}</td><td class="mono">${fmt(r.housing_allowance_rial)}</td><td class="mono">${fmt(r.grocery_allowance_rial)}</td>
       <td class="mono">${fmt(r.child_allowance_rial)} × ${fmt(r.child_count)}</td><td>${esc(r.insurance_type)}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSalaryStructure((r.id))})}">🗑️</button></td></tr>`).join('')||emptyRow(9)}</tbody></table></div>
+      <td>${canPerm('payroll','create')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteSalaryStructure((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(9)}</tbody></table></div>
     <h4 data-csp-style="${CSP.style(`margin:18px 0 8px`)}">ساختار حقوق گروه‌های کارکنان</h4>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>سال</th><th>گروه</th><th>مبنا</th><th>مزد پایه</th><th>مسکن</th><th>بن</th><th></th></tr></thead>
     <tbody>${(groupRows||[]).map(r=>`<tr><td>${fmt(r.fiscal_year)}</td><td>${esc(r.group_name)}</td><td>${esc(r.wage_basis)}</td>
       <td class="mono">${fmt(r.base_wage_rial)}</td><td class="mono">${fmt(r.housing_allowance_rial)}</td><td class="mono">${fmt(r.grocery_allowance_rial)}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteGroupSalaryStructure((r.id))})}">🗑️</button></td></tr>`).join('')||emptyRow(7)}</tbody></table></div>`;
+      <td>${canPerm('payroll','create')?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteGroupSalaryStructure((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(7)}</tbody></table></div>`;
 }
 function salaryStructureModal(){
   openModal(`<div class="modal-head"><h3>${lucide('receipt')} ساختار حقوق سالانه</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
   <div class="modal-body"><div class="form-grid">
-    <div class="fg full"><label>کارمند *</label><select id="ss-person"><option value="">—</option>${(CACHE.payrollEmployees||[]).map(p=>`<option value="${p.id}">${esc(p.name)} (${esc(p.personnel_code||'')})</option>`).join('')}</select></div>
+    <div class="fg full"><label>کارمند *</label>${personSelect('ss-person','',CACHE.payrollEmployees||[])}</div>
     <div class="fg"><label>سال</label><input id="ss-year" type="number" value="${todayJalali().slice(0,4)}"></div>
-    <div class="fg"><label>مبنای مزد</label><select id="ss-basis"><option value="monthly">ماهانه</option><option value="daily">روزانه</option><option value="hourly">ساعتی</option><option value="contractor">پیمانکاری</option></select></div>
-    ${[['ss-base','مزد پایه'],['ss-house','حق مسکن'],['ss-food','بن کارگری'],['ss-child','حق اولاد هر فرزند'],['ss-spouse','حق تأهل'],['ss-other','سایر مزایای ثابت']].map(x=>`<div class="fg"><label>${x[1]} (ریال)</label><input id="${x[0]}" class="money" inputmode="numeric" value="0"></div>`).join('')}
+    <div class="fg"><label>مبنای مزد</label><select id="ss-basis" data-csp-change="${CSP.bind('change',function(){payrollBasisLabels('ss')})}"><option value="monthly">ماهانه</option><option value="daily">روزانه</option><option value="hourly">ساعتی</option><option value="contractor">پیمانکاری</option></select></div>
+    ${[['ss-base','مزد پایه ماهانه'],['ss-house','حق مسکن'],['ss-food','بن کارگری'],['ss-child','حق اولاد هر فرزند'],['ss-spouse','حق تأهل'],['ss-other','سایر مزایای ثابت']].map(x=>`<div class="fg"><label id="${x[0]}-lab">${x[1]} (ریال)</label><input id="${x[0]}" class="money" inputmode="numeric" value="0"></div>`).join('')}
     <div class="fg"><label>تعداد فرزند</label><input id="ss-child-count" type="number" min="0" value="0"></div>
     <div class="fg"><label><input id="ss-married" type="checkbox" data-csp-style="${CSP.style(`width:auto`)}"> متأهل</label></div>
     <div class="fg"><label>نوع بیمه</label><select id="ss-ins"><option value="sso">تأمین اجتماعی</option><option value="armed_forces">نیروهای مسلح</option><option value="none">بدون بیمه</option></select></div>
     <div class="fg"><label>درصد معافیت مالیات</label><input id="ss-tax-ex" type="number" min="0" max="100" value="0"></div>
   </div></div><div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveSalaryStructure()})}">${lucide('save')} ذخیره</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   el('modalRoot')?.querySelectorAll('input').forEach(ensureMoneyField);
+  initCustSearches(el('modalRoot'));
+  payrollBasisLabels('ss');
+}
+function payrollBasisLabels(prefix){
+  const basis=el(prefix+'-basis')?.value||'monthly';
+  const lab=el(prefix+'-base-lab');
+  if(lab){
+    lab.textContent=basis==='daily'?'مزد روزانه (ریال)':basis==='hourly'?'مزد ساعتی (ریال)':basis==='contractor'?'مبلغ پیمان (ریال)':'مزد پایه ماهانه (ریال)';
+  }
+  const daysFg=el('pc-days')?.closest('.fg');
+  const hoursFg=el('pc-hours')?.closest('.fg');
+  if(prefix==='pc' || el('pc-days')){
+    if(daysFg) daysFg.style.display=basis==='hourly'?'none':'flex';
+    if(hoursFg) hoursFg.style.display=basis==='daily'?'none':'flex';
+  }
 }
 function groupSalaryStructureModal(){
   openModal(`<div class="modal-head"><h3>ساختار حقوق گروه کارکنان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -9639,7 +12454,9 @@ async function deleteGroupSalaryStructure(id){
   try{await api('DELETE','/payroll/group-salary-structures/'+id);showToast('حذف شد');loadAccTab('payroll');}catch(e){}
 }
 async function saveSalaryStructure(){
-  try{await api('POST','/payroll/salary-structures',{person_id:+el('ss-person').value,fiscal_year:+el('ss-year').value,wage_basis:el('ss-basis').value,
+  const person_id=+el('ss-person').value;
+  if(!person_id){ showToast('کارمند را از فهرست جستجو انتخاب کنید','error'); return; }
+  try{await api('POST','/payroll/salary-structures',{person_id,fiscal_year:+el('ss-year').value,wage_basis:el('ss-basis').value,
     base_wage_rial:moneyVal('ss-base'),housing_allowance_rial:moneyVal('ss-house'),grocery_allowance_rial:moneyVal('ss-food'),
     child_allowance_rial:moneyVal('ss-child'),spouse_allowance_rial:moneyVal('ss-spouse'),other_fixed_allowance_rial:moneyVal('ss-other'),
     child_count:+el('ss-child-count').value||0,marital_status:el('ss-married').checked,insurance_type:el('ss-ins').value,
@@ -9651,8 +12468,8 @@ async function renderPayrollTaxConfig(body){
   const rows=await api('GET','/payroll/tax-brackets/'+year)||[];
   body.dataset.taxYear=year;
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><label>سال <input id="taxYear" type="number" value="${year}" data-csp-style="${CSP.style(`width:100px`)}" data-csp-change="${CSP.bind('change',function(event){el('accBody').dataset.taxYear=this.value;renderPayrollTaxConfig(el('accBody'))})}"></label>
-    <button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollTaxModal((year))})}">${lucide('edit')} تعریف پلکان</button>
-    <button class="btn red ghost" data-csp-click="${CSP.bind('click',function(event){deletePayrollTaxYear((year))})}">🗑️ حذف پلکان سال</button></div>
+    ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollTaxModal((year))})}">${lucide('edit')} تعریف پلکان</button>
+    <button class="btn red ghost" data-csp-click="${CSP.bind('click',function(event){deletePayrollTaxYear((year))})}">🗑️ حذف پلکان سال</button>`:''}</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>ردیف</th><th>از مبلغ (ریال)</th><th>تا مبلغ (ریال)</th><th>نرخ</th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td>${fmt(r.bracket_order)}</td><td class="mono">${fmt(r.bracket_min_rial)}</td><td class="mono">${r.bracket_max_rial==null?'بدون سقف':fmt(r.bracket_max_rial)}</td><td>${fmt(r.tax_rate_bp/100)}٪</td></tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
 }
@@ -9674,10 +12491,10 @@ async function savePayrollTax(year){
 async function renderPayrollProcessing(body){
   const [periods,employees]=await Promise.all([api('GET','/payroll/periods'),api('GET','/payroll/employees')]);
   CACHE.payrollPeriods=periods||[];
-  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){farankenouImportModal()})}">${lucide('upload')} ورود کارکرد فراننکو</button></div>
+  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){farankenouImportModal()})}">${lucide('upload')} ورود کارکرد فراننکو</button>`:''}</div>
   <div class="panel"><div class="panel-body"><div class="form-grid">
     <div class="fg"><label>دوره *</label><select id="pc-period"><option value="">—</option>${(periods||[]).filter(p=>p.status!=='closed').map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></div>
-    <div class="fg"><label>کارمند *</label><select id="pc-person"><option value="">—</option>${(employees||[]).filter(p=>p.active).map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+    <div class="fg"><label>کارمند *</label>${personSelect('pc-person','',(employees||[]).filter(p=>p.active))}</div>
     <div class="fg"><label>روز کارکرد</label><input id="pc-days" type="number" step=".01" value="30"></div>
     <div class="fg"><label>ساعت عادی</label><input id="pc-hours" type="number" step=".01" value="220"></div>
     <div class="fg"><label>اضافه‌کاری</label><input id="pc-ot" type="number" step=".01" value="0"></div>
@@ -9697,14 +12514,19 @@ async function renderPayrollProcessing(body){
     <div class="fg"><label>خالص (ریال)</label><input id="pc-m-net" class="money" inputmode="numeric" value="0" placeholder="خودکار = ناخالص−کسور"></div>
   </div>
   <div class="toolbar" data-csp-style="${CSP.style(`margin-top:14px`)}"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){previewPayrollCalculation()})}">${lucide('eye')} پیش‌نمایش</button>
-  <button class="btn" data-csp-click="${CSP.bind('click',function(event){processPayrollCalculation()})}">${lucide('check')} پردازش و ثبت سند</button></div><div id="pc-result" data-csp-style="${CSP.style(`margin-top:12px`)}"></div></div></div>`;
+  ${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){processPayrollCalculation()})}">${lucide('check')} پردازش و ثبت سند</button>`:''}</div><div id="pc-result" data-csp-style="${CSP.style(`margin-top:12px`)}"></div></div></div>`;
   body.querySelectorAll('input').forEach(ensureMoneyField);
+  initCustSearches(body);
+  const hid=el('pc-person');
+  if(hid) hid.addEventListener('change', payrollProcessingPersonChanged);
 }
 function togglePayrollManualFields(){
   const on=!!el('pc-manual')?.checked;
   const box=el('pc-manual-fields'); if(box) box.style.display=on?'':'none';
 }
 function payrollCalcPayload(){
+  if(!el('pc-period')?.value) throw new Error('دوره حقوق را انتخاب کنید');
+  if(!el('pc-person')?.value) throw new Error('کارمند را از فهرست جستجو انتخاب کنید');
   const base={period_id:+el('pc-period').value,person_id:+el('pc-person').value,working_days_x100:Math.round((+el('pc-days').value||0)*100),
     regular_hours_x100:Math.round((+el('pc-hours').value||0)*100),overtime_hours_x100:Math.round((+el('pc-ot').value||0)*100),
     night_shift_hours_x100:Math.round((+el('pc-night').value||0)*100),hardship_allowance_rial:moneyVal('pc-hard'),
@@ -9732,22 +12554,58 @@ async function previewPayrollCalculation(){
       return;
     }
     const r=await api('POST','/payroll/calculate',payrollCalcPayload());const c=r.calculation;el('pc-result').innerHTML=`ناخالص: <b>${fmt(c.gross_earnings_rial)} ریال</b> | بیمه کارگر: ${fmt(c.sso_employee_rial)} | مالیات: ${fmt(c.income_tax_rial)} | خالص: <b>${fmt(c.net_pay_rial)} ریال</b>`;
-  }catch(e){}
+  }catch(e){ payrollShowCalcError(e); }
+}
+function payrollShowCalcError(e){
+  const msg=String(e.message||e.error||e||'خطا');
+  const box=el('pc-result');
+  const missingPerson=/کارمند را از فهرست|انتخاب کنید/.test(msg) && !el('pc-person')?.value;
+  const missingStruct=/ساختار حقوق/.test(msg);
+  let html=`<div data-csp-style="${CSP.style(`color:var(--state-danger,#C0392B);line-height:1.8`)}">${esc(msg)}</div>`;
+  if(missingPerson) html=`<div data-csp-style="${CSP.style(`color:var(--state-danger,#C0392B);line-height:1.8`)}">کارمند را از فهرست جستجو انتخاب کنید — نام را تایپ کنید و از لیست برگزینید.</div>`;
+  if(missingStruct) html+=`<div data-csp-style="${CSP.style(`margin-top:8px`)}"><button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){salaryStructureModal()})}">ثبت ساختار حقوق این کارمند</button>
+    <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){go('acc-payroll-structures')})}">رفتن به ساختار حقوق</button></div>`;
+  if(box) box.innerHTML=html;
+  showToast(missingPerson?'کارمند انتخاب نشده':(missingStruct?'ساختار حقوق ثبت نشده':msg),'error');
+}
+async function payrollProcessingPersonChanged(){
+  const personId=+el('pc-person')?.value||0;
+  if(!personId){ const box=el('pc-result'); if(box) box.innerHTML='<span class="muted">کارمند را انتخاب کنید</span>'; return; }
+  try{
+    const rows=await api('GET','/payroll/salary-structures')||[];
+    const year=todayJalali().slice(0,4);
+    const st=(Array.isArray(rows)?rows:[]).find(r=>Number(r.person_id)===personId && String(r.fiscal_year)===String(year))
+      || (Array.isArray(rows)?rows:[]).find(r=>Number(r.person_id)===personId);
+    if(!st){
+      const box=el('pc-result');
+      if(box) box.innerHTML=`<div data-csp-style="${CSP.style(`line-height:1.8`)}">برای این کارمند ساختار حقوق سال جاری ثبت نشده.
+        <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){salaryStructureModal()})}">ساخت ساختار</button></div>`;
+      return;
+    }
+    if(el('ss-basis')||true){
+      const fake={value:st.wage_basis||'monthly'};
+      const daysFg=el('pc-days')?.closest('.fg');
+      const hoursFg=el('pc-hours')?.closest('.fg');
+      if(daysFg) daysFg.style.display=fake.value==='hourly'?'none':'flex';
+      if(hoursFg) hoursFg.style.display=fake.value==='daily'?'none':'flex';
+    }
+  }catch(_){}
 }
 async function processPayrollCalculation(){
+  if(!el('pc-person')?.value){ payrollShowCalcError(new Error('کارمند را از فهرست جستجو انتخاب کنید')); return; }
   if(!confirm('حقوق پردازش و سند حسابداری قطعی ثبت شود؟')) return;
-  const p=payrollCalcPayload();try{await api('POST','/payroll/process',{period_id:p.period_id,rows:[p]});showToast('حقوق و سند حسابداری ثبت شد');go('acc-payroll');}catch(e){}
+  const p=payrollCalcPayload();try{await api('POST','/payroll/process',{period_id:p.period_id,rows:[p]});showToast('حقوق و سند حسابداری ثبت شد');go('acc-payroll');}catch(e){ payrollShowCalcError(e); }
 }
 
 async function renderPayrollYearEnd(body){
   const year=todayJalali().slice(0,4);
   const [rows,employees]=await Promise.all([api('GET','/payroll/year-end?fiscal_year='+year),api('GET','/payroll/employees')]);
   CACHE.payrollEmployees=employees||[];
-  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollYearEndModal((year))})}">${lucide('calc')} محاسبه عیدی و سنوات</button></div>
+  body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">${canPerm('payroll','create')?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){payrollYearEndModal((year))})}">${lucide('calc')} محاسبه عیدی و سنوات</button>`:''}</div>
   <div class="muted" data-csp-style="${CSP.style(`margin-bottom:12px`)}">عیدی و سنوات بر مبنای مزد و روزهای خدمت محاسبه می‌شود؛ سقف مزد قانونی هنگام محاسبه دریافت می‌شود.</div>
   <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کارمند</th><th>سال</th><th>روز خدمت</th><th>عیدی</th><th>سنوات</th><th>مالیات</th><th>خالص (ریال)</th><th>وضعیت</th></tr></thead>
   <tbody>${(rows||[]).map(r=>`<tr><td>${esc(r.person_name)}</td><td>${fmt(r.fiscal_year)}</td><td>${fmt(r.service_days)}</td><td>${fmt(r.eidi_rial)}</td><td>${fmt(r.severance_rial)}</td><td>${fmt(r.income_tax_rial)}</td><td>${fmt(r.net_pay_rial)}</td>
-    <td>${esc(r.status)} ${r.status==='draft'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){postPayrollYearEnd((r.id))})}">${lucide('check')} ثبت سند</button> <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollYearEnd((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+    <td>${esc(r.status)} ${canPerm('payroll','create')&&r.status==='draft'?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){postPayrollYearEnd((r.id))})}">${lucide('check')} ثبت سند</button> <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePayrollYearEnd((r.id))})}">🗑️</button>`:''}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
 }
 async function deletePayrollYearEnd(id){
   if(!confirm('پیش‌نویس عیدی/سنوات حذف شود؟')) return;
@@ -9790,7 +12648,7 @@ function payrollModal(){
   openModal(`
     <div class="modal-head"><h3>🧑‍🏭 ثبت حقوق ساعتی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>کارمند * ${hlp('از ماژول «اشخاص» با دسته «کارمند» انتخاب کنید — در صورت نبود، ابتدا از آنجا اضافه کنید.')}</label><select id="pr-person">${personOptions()}</select></div>
+      <div class="fg full"><label>کارمند * ${hlp('از ماژول «اشخاص» با دسته «کارمند» انتخاب کنید — در صورت نبود، ابتدا از آنجا اضافه کنید.')}</label>${personSelect('pr-person')}</div>
       <div class="fg"><label>دوره (مثال: 1403/04)</label><input id="pr-period" placeholder="1403/04"></div>
       <div class="fg"><label>تاریخ</label><input id="pr-date" data-jdate value="${todayJalali()}"></div>
       <div class="fg"><label>ساعت کارکرد عادی</label><input id="pr-reg-hours" type="number" min="0" value="0" data-csp-input="${CSP.bind('input',function(event){updatePayrollPreview()})}"></div>
@@ -9978,12 +12836,12 @@ async function supplierPaymentModal(id,name){
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>تأمین‌کننده</label><input value="${esc(name)}" disabled data-csp-style="${CSP.style(`background:#f9fafb`)}"></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="sp-amount" type="text" inputmode="numeric" class="money" min="1"></div>
-      <div class="fg"><label>نوع پرداخت</label><select id="sp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('sp')})}"><option value="cash">نقد</option><option value="cheque">چک</option></select></div>
-      <div class="fg"><label>پرداخت از بانک ${hlp('این پرداخت از کدام حساب بانکی شرکت انجام می‌شود.')}</label><select id="sp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('sp')})}">
+      <div class="fg"><label>نوع پرداخت</label><select id="sp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('sp')})}">${payTypeOptionsHtml({cheque:true})}</select></div>
+      <div class="fg" id="sp-bank-fg"><label>پرداخت از بانک ${hlp('این پرداخت از کدام حساب بانکی شرکت انجام می‌شود.')}</label><select id="sp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('sp')})}">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
-      <div class="fg"><label>پرداخت از صندوق ${hlp('اگر این پرداخت نقداً از یکی از صندوق‌ها انجام شده — اختیاری.')}</label><select id="sp-cashbox">
+      <div class="fg" id="sp-cashbox-fg"><label>پرداخت از صندوق ${hlp('اگر این پرداخت نقداً از یکی از صندوق‌ها انجام شده — اختیاری.')}</label><select id="sp-cashbox">
         <option value="">— بدون صندوق مشخص —</option>
         ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
@@ -9996,12 +12854,111 @@ async function supplierPaymentModal(id,name){
   attachDatepickers(el('modalRoot'));
   toggleBankFields('sp');
 }
-// Shared: show the دسته چک field only when pay type is cheque
+function payTypeOptionsHtml(opts){
+  opts=opts||{};
+  let h='<option value="cash">نقد / صندوق</option><option value="bank">واریز بانکی</option>';
+  if(opts.cheque!==false) h+='<option value="cheque">چک</option>';
+  if(opts.pos) h+='<option value="pos_card">کارتخوان</option>';
+  return h;
+}
+function payPosFieldHtml(prefix){
+  const terms=CACHE.posTerminals||[];
+  return `<div class="fg" id="${prefix}-pos-fg" data-csp-style="${CSP.style(`display:none`)}"><label>کارتخوان</label>
+    <select id="${prefix}-pos"><option value="">— انتخاب کارتخوان —</option>
+    ${terms.filter(t=>t.active!==0&&t.active!==false).map(t=>`<option value="${t.id}">${esc(t.name||t.terminal_id||'')} — ${esc(t.terminal_id||'')}</option>`).join('')}
+    </select></div>`;
+}
+async function ensurePayCaches(){
+  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
+  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  if(!CACHE.checkCategories) CACHE.checkCategories=await api('GET','/check-categories')||[];
+  if(!CACHE.posTerminals) CACHE.posTerminals=await api('GET','/pos/terminals').catch(()=>[])||[];
+}
+function payFg(prefix, kind){
+  return el(prefix+'-'+kind+'-fg') || el(prefix+'-'+kind)?.closest('.fg');
+}
+function payMultiToggleHtml(prefix){
+  return `<div class="fg full"><label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}">
+    <input type="checkbox" id="${prefix}-multi" data-csp-change="${CSP.bind('change',function(){payToggleMulti(`${String((prefix) ?? '')}`)})}" data-csp-style="${CSP.style(`width:auto`)}"> ثبت چند قسط / مرحله‌ای
+  </label></div>
+  <div id="${prefix}-multi-block" class="fg full" data-csp-style="${CSP.style(`display:none`)}">
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px;line-height:1.8`)}">هر قسط یک سند جدا با همان نوع پرداخت و مقصد بالاست.</div>
+    <div id="${prefix}-dest-summary" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8;color:var(--brand-mid,#2D7A5F);font-weight:600`)}"></div>
+    <div id="${prefix}-multi-rows"></div>
+    <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){payAddInstRow(`${String((prefix) ?? '')}`)})}">➕ قسط دیگر</button>
+  </div>`;
+}
+function payDestSummary(prefix){
+  const pt=el(prefix+'-paytype')?.value||'cash';
+  const bankId=+el(prefix+'-bank')?.value||0;
+  const cashId=+el(prefix+'-cashbox')?.value||0;
+  const posId=+el(prefix+'-pos')?.value||0;
+  const bank=(CACHE.banks||[]).find(b=>Number(b.id)===bankId);
+  const cash=(CACHE.cashBoxes||[]).find(b=>Number(b.id)===cashId);
+  const pos=(CACHE.posTerminals||[]).find(t=>Number(t.id)===posId);
+  const typeLbl={cash:'نقد / صندوق',bank:'واریز بانکی',bank_transfer:'واریز بانکی',cheque:'چک',pos_card:'کارتخوان'}[pt]||pt;
+  let dest='';
+  if(pt==='cash' && cash) dest=' → '+cash.name;
+  else if((pt==='bank'||pt==='bank_transfer'||pt==='cheque') && bank) dest=' → '+bank.name;
+  else if(pt==='pos_card' && pos) dest=' → '+(pos.name||pos.terminal_id||'کارتخوان');
+  else if(pt==='cash') dest=' (صندوق را انتخاب کنید)';
+  else if(pt==='bank'||pt==='bank_transfer'||pt==='cheque') dest=' (بانک را انتخاب کنید)';
+  else if(pt==='pos_card') dest=' (کارتخوان را انتخاب کنید)';
+  const box=el(prefix+'-dest-summary');
+  if(box) box.textContent='مقصد همه اقساط: '+typeLbl+dest;
+}
+let _payInstRows={};
+function payToggleMulti(prefix){
+  const on=!!el(prefix+'-multi')?.checked;
+  const box=el(prefix+'-multi-block');
+  const amtFg=el(prefix+'-amount')?.closest('.fg');
+  if(box) box.style.display=on?'block':'none';
+  if(amtFg) amtFg.style.display=on?'none':'flex';
+  if(on){
+    if(!_payInstRows[prefix]||!_payInstRows[prefix].length) _payInstRows[prefix]=[{amount:''},{amount:''}];
+    payRenderInst(prefix);
+    payDestSummary(prefix);
+  }
+}
+function payAddInstRow(prefix){
+  (_payInstRows[prefix]=_payInstRows[prefix]||[]).push({amount:''});
+  payRenderInst(prefix);
+}
+function payRenderInst(prefix){
+  const box=el(prefix+'-multi-rows'); if(!box) return;
+  const rows=_payInstRows[prefix]||[];
+  box.innerHTML=rows.map((r,i)=>`<div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:6px`)}">
+    <div class="fg"><label>مبلغ قسط ${toFa(i+1)}</label>
+      <input class="money" inputmode="numeric" value="${esc(r.amount||'')}" data-csp-change="${CSP.bind('change',function(){_payInstRows[`${String((prefix) ?? '')}`][(i)].amount=this.value})}">
+    </div>
+    ${rows.length>1?`<div class="fg"><button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(){_payInstRows[`${String((prefix) ?? '')}`].splice((i),1);payRenderInst(`${String((prefix) ?? '')}`)})}">حذف</button></div>`:''}
+  </div>`).join('');
+  if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(box);
+  box.querySelectorAll('input').forEach(inp=>{ if(typeof ensureMoneyField==='function') ensureMoneyField(inp); });
+}
+function payInstAmounts(prefix){
+  if(!el(prefix+'-multi')?.checked) return null;
+  return (_payInstRows[prefix]||[]).map(r=>parseInt(String(r.amount||'').replace(/[^\d]/g,''),10)||0).filter(n=>n>0);
+}
+// XOR: نقد→صندوق، بانک/چک→بانک، کارتخوان→ترمینال
 function toggleBankFields(prefix){
-  const pt=el(prefix+'-paytype')?.value;
-  const wrap=el(prefix+'-cc-wrap'); if(!wrap) return;
-  wrap.style.display=pt==='cheque'?'flex':'none';
-  if(pt==='cheque') updateCheckCategoryOptions(prefix);
+  const pt=el(prefix+'-paytype')?.value||'cash';
+  const isCheque = pt==='cheque';
+  const isBank = pt==='bank' || pt==='bank_transfer';
+  const isCash = pt==='cash';
+  const isPos = pt==='pos_card';
+  const bankFg=payFg(prefix,'bank');
+  const cashFg=payFg(prefix,'cashbox');
+  const posFg=el(prefix+'-pos-fg');
+  const ccWrap=el(prefix+'-cc-wrap');
+  if(bankFg) bankFg.style.display=(isBank||isCheque)?'flex':'none';
+  if(cashFg) cashFg.style.display=isCash?'flex':'none';
+  if(posFg) posFg.style.display=isPos?'flex':'none';
+  if(ccWrap){ ccWrap.style.display=isCheque?'flex':'none'; if(isCheque) updateCheckCategoryOptions(prefix); }
+  if(!(isBank||isCheque) && el(prefix+'-bank')) el(prefix+'-bank').value='';
+  if(!isCash && el(prefix+'-cashbox')) el(prefix+'-cashbox').value='';
+  if(!isPos && el(prefix+'-pos')) el(prefix+'-pos').value='';
+  payDestSummary(prefix);
 }
 // Shared: repopulate the دسته چک select to only show checkbooks for the chosen bank
 function updateCheckCategoryOptions(prefix){
@@ -10043,7 +13000,8 @@ async function renderPurchasesTab(body){
       <td>${esc(r.supplier_name||'-')}</td>
       <td class="mono">${escDate(r.date)}</td><td class="mono">${fmt(r.final)}</td>
       <td>${payLabel[r.pay_type]||r.pay_type}</td><td class="muted">${esc(r.recorder||'-')}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePurchaseInvoice((r.id))})}" title="ابطال">⛔ ابطال</button></td>
+      <td><button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printPurchase((r.id))})}" title="چاپ">🖨️</button>
+        <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePurchaseInvoice((r.id))})}" title="ابطال">⛔ ابطال</button></td>
     </tr>`).join('')||emptyRow(8)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
       <td colspan="4">جمع (${fmt(rows.length)} فاکتور)</td>
@@ -10073,8 +13031,8 @@ async function purchaseInvoiceModal(){
         <div class="fg"><label>تخفیف کل (٪)</label><input id="po-disc" type="number" min="0" max="100" step="0.01" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('pct','po-disc','po-disc-amt');renderGenCart()})}"></div>
         <div class="fg"><label>تخفیف کل (مبلغ)</label><input id="po-disc-amt" type="number" min="0" value="0" data-csp-input="${CSP.bind('input',function(event){invSyncHeaderDisc('amt','po-disc','po-disc-amt');renderGenCart()})}"></div>
         <div class="fg"><label>کرایه حمل ${moneyColLabel()}</label><input id="po-freight" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(event){renderGenCart()})}"></div>
-        <div class="fg"><label>نوع کرایه</label><select id="po-freight-type"><option value="">—</option><option value="buyer">بر عهده خریدار</option><option value="seller">بر عهده فروشنده</option></select></div>
-        <div class="fg"><label>سرشکن کرایه</label><select id="po-freight-alloc">
+        <div class="fg"><label>نوع کرایه</label><select id="po-freight-type" data-csp-change="${CSP.bind('change',function(){renderGenCart()})}"><option value="">—</option><option value="buyer">بر عهده خریدار</option><option value="seller">بر عهده فروشنده</option></select></div>
+        <div class="fg"><label>سرشکن کرایه</label><select id="po-freight-alloc" data-csp-change="${CSP.bind('change',function(){renderGenCart()})}">
           <option value="amount">به نسبت مبلغ</option>
           <option value="qty">به نسبت مقدار</option>
           <option value="equal">مساوی</option>
@@ -10099,6 +13057,7 @@ async function purchaseInvoiceModal(){
       <div class="inv-layout">
         <div>${genProductSearchHtml()}
           <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){openBarcodeScanner(function(code){ const p=(CACHE.allProducts||CACHE.products||[]).find(x=>(x.barcode&&String(x.barcode)===String(code))||(x.code&&String(x.code)===String(code))); if(p) genCartAdd(p.id); else showToast('کالا با این بارکد یافت نشد','error'); })})}">📷 اسکن بارکد</button>
+          <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`width:100%;margin-top:6px`)}" data-csp-click="${CSP.bind('click',function(event){invoiceFabricRollPicker('purchase')})}">🧵 افزودن طاقه</button>
         </div>
         <div class="inv-cart">
           <div class="inv-cart-head">
@@ -10116,6 +13075,14 @@ async function purchaseInvoiceModal(){
     </div>`,true);
   attachDatepickers(el('modalRoot')); initSupplierSearches(el('modalRoot'));
   renderGenCart(); togglePoBankFields();
+  const poWh=el('po-warehouse');
+  if(poWh && !poWh.dataset.whBound){
+    poWh.dataset.whBound='1';
+    poWh.addEventListener('change',()=>{
+      applyHeaderWarehouseToCart(genCart, headerPurchaseWarehouseId());
+      renderGenCart();
+    });
+  }
 }
 // Purchase invoices add a third state (نسیه/credit) where no cash moves at all,
 // so the bank/checkbook fields are hidden entirely rather than just the checkbook.
@@ -10151,7 +13118,10 @@ async function savePurchaseInvoice(){
       rows: genCart.map(r=>({
         product_id:r.product_id, qty:r.qty, price:r.price,
         disc:r.disc||0, disc_amount:r.disc_amount||0,
-        description:r.description||'', warehouse_id:r.warehouse_id||null
+        description:r.description||'', warehouse_id:r.warehouse_id||headerPurchaseWarehouseId()||null,
+        batch_id:r.batch_id||null, is_fabric_roll:r.is_fabric_roll?1:0,
+        color:r.color||'', pattern:r.pattern||'', width_cm:r.width_cm||0,
+        roll_no:r.roll_no||'', unit_cost_rial:r.unit_cost_rial||0
       }))
     });
     closeModal(); showToast('فاکتور خرید ثبت شد'); loadAccTab('purchases');
@@ -10231,11 +13201,13 @@ async function loadPrReturnRows(){
   const d=await api('GET','/purchases/returns/available/'+invId);
   if(!d||!d.rows.length){ box.innerHTML='<div class="empty">همه اقلام این فاکتور قبلاً برگشت داده شده‌اند</div>'; return; }
   box.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
-    <th>کالا</th><th>تعداد خریداری‌شده</th><th>قبلاً برگشتی</th><th>قابل برگشت</th><th>قیمت واحد (ت)</th><th>تعداد برگشتی</th>
+    <th>کالا</th><th>رنگ / طاقه</th><th>تعداد خریداری‌شده</th><th>قبلاً برگشتی</th><th>قابل برگشت</th><th>قیمت واحد (ت)</th><th>تعداد برگشتی</th>
   </tr></thead><tbody>${d.rows.map(r=>`<tr>
-    <td>${esc(r.name)}</td><td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
+    <td>${esc(r.name)}</td>
+    <td>${esc(r.color||r.color_name||'')}${r.roll_no?(' · '+esc(r.roll_no)):''}</td>
+    <td class="mono">${fmt(r.qty)}</td><td class="mono">${fmt(r.already_returned)}</td>
     <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.max_returnable)}</td><td class="mono">${fmt(r.price)}</td>
-    <td><input type="number" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" class="pr-qty-input" data-csp-style="${CSP.style(`width:80px`)}"></td>
+    <td><input type="number" min="0" max="${r.max_returnable}" value="0" data-pid="${r.product_id}" data-key="${esc(r.line_key||'')}" data-batch="${r.batch_id||''}" data-color="${esc(r.color||'')}" class="pr-qty-input" data-csp-style="${CSP.style(`width:80px`)}"></td>
   </tr>`).join('')}</tbody></table></div>`;
 }
 async function savePurchaseReturn(){
@@ -10243,7 +13215,11 @@ async function savePurchaseReturn(){
   const purchase_invoice_id=+el('pr-invoice')?.value||0;
   if(!supplier_id){ showToast('تأمین‌کننده را انتخاب کنید','error'); return; }
   if(!purchase_invoice_id){ showToast('یک فاکتور را انتخاب کنید','error'); return; }
-  const rows=[...document.querySelectorAll('.pr-qty-input')].map(inp=>({product_id:+inp.dataset.pid,qty:+inp.value||0})).filter(r=>r.qty>0);
+  const rows=[...document.querySelectorAll('.pr-qty-input')].map(inp=>({
+    product_id:+inp.dataset.pid, qty:+inp.value||0,
+    line_key:inp.dataset.key||'', batch_id:inp.dataset.batch?+inp.dataset.batch:null,
+    color:inp.dataset.color||''
+  })).filter(r=>r.qty>0);
   if(!rows.length){ showToast('حداقل برای یک کالا تعداد برگشتی وارد کنید','error'); return; }
   try{
     await api('POST','/purchases/returns',{supplier_id,purchase_invoice_id,date:el('pr-date').value,note:el('pr-note').value,rows});
@@ -10402,20 +13378,68 @@ function accountOptions(selectedCode){
 // Searchable account picker for manual-voucher lines (spec item 8).
 // Mirrors the product-search dropdown: a text input filters the chart of
 // accounts by code or name as you type, and picking sets the line's code.
+function vcCoaChildren(parent){
+  const all=CACHE.chartOfAccounts||[];
+  if(!parent) return all.filter(a=>!a.parent_code);
+  return all.filter(a=>a.parent_code===parent);
+}
+function vcCoaIsLeaf(code){
+  return !!(code && !vcCoaChildren(code).length);
+}
+function vcCoaChain(code){
+  const by={};
+  (CACHE.chartOfAccounts||[]).forEach(a=>{ by[a.code]=a; });
+  const chain=[];
+  let cur=by[code];
+  while(cur){ chain.unshift(cur.code); cur=cur.parent_code?by[cur.parent_code]:null; }
+  return chain;
+}
+function vcSyncCascadeFromCode(L){
+  if(!L||!L.code) return;
+  const ch=vcCoaChain(L.code);
+  L.c_group=ch[0]||''; L.c_kol=ch[1]||''; L.c_moin=ch[2]||''; L.c_tafsili=ch[3]||'';
+}
 function acctSearchHtml(i, code){
+  const L=voucherLines[i]||{};
+  if(code && !L.c_group) vcSyncCascadeFromCode(L);
   const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
-  return `<div data-csp-style="${CSP.style(`position:relative`)}">
-    <input type="text" id="vc-acct-${i}" class="search" data-csp-style="${CSP.style(`width:100%`)}" autocomplete="off"
-      placeholder="جستجوی حساب: کد یا نام..." value="${a?esc(a.code+' — '+a.name):''}"
-      data-csp-input="${CSP.bind('input',function(event){vcAcctShow((i),this.value)})}" data-csp-focus="${CSP.bind('focus',function(event){vcAcctShow((i),this.value)})}"
-      data-csp-blur="${CSP.bind('blur',function(event){setTimeout(()=>{const d=el(`vc-acctdrop-${String((i) ?? '')}`);if(d)d.style.display='none'},200)})}">
-    <div id="vc-acctdrop-${i}" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
+  const g=L.c_group||'', k=L.c_kol||'', m=L.c_moin||'', t=L.c_tafsili||'';
+  const opt=(rows,sel)=>`<option value="">—</option>`+(rows||[]).map(x=>`<option value="${esc(x.code)}" ${x.code===sel?'selected':''}>${esc(x.code)} — ${esc(x.name)}</option>`).join('');
+  return `<div>
+    <div class="vc-cascade">
+      <select title="گروه" data-csp-change="${CSP.bind('change',function(event){vcCascadePick((i),'g',this.value)})}">${opt(vcCoaChildren(null),g)}</select>
+      <select title="کل" ${g?'':'disabled'} data-csp-change="${CSP.bind('change',function(event){vcCascadePick((i),'k',this.value)})}">${opt(g?vcCoaChildren(g):[],k)}</select>
+      <select title="معین" ${k?'':'disabled'} data-csp-change="${CSP.bind('change',function(event){vcCascadePick((i),'m',this.value)})}">${opt(k?vcCoaChildren(k):[],m)}</select>
+      <select title="تفصیلی" ${m?'':'disabled'} data-csp-change="${CSP.bind('change',function(event){vcCascadePick((i),'t',this.value)})}">${opt(m?vcCoaChildren(m):[],t)}</select>
+    </div>
+    <div data-csp-style="${CSP.style(`position:relative`)}">
+      <input type="text" id="vc-acct-${i}" class="search" data-csp-style="${CSP.style(`width:100%`)}" autocomplete="off"
+        placeholder="جستجوی حساب برگ: کد یا نام..." value="${a?esc(a.code+' — '+a.name):''}"
+        data-csp-input="${CSP.bind('input',function(event){vcAcctShow((i),this.value)})}" data-csp-focus="${CSP.bind('focus',function(event){vcAcctShow((i),this.value)})}"
+        data-csp-blur="${CSP.bind('blur',function(event){setTimeout(()=>{const d=el(`vc-acctdrop-${String((i) ?? '')}`);if(d)d.style.display='none'},200)})}">
+      <div id="vc-acctdrop-${i}" class="cust-si-drop" data-csp-style="${CSP.style(`display:none;position:fixed;width:280px;max-height:220px`)}"></div>
+    </div>
   </div>`;
+}
+function vcCascadePick(i, level, code){
+  const L=voucherLines[i];
+  if(!L) return;
+  if(level==='g'){ L.c_group=code; L.c_kol=L.c_moin=L.c_tafsili=''; }
+  else if(level==='k'){ L.c_kol=code; L.c_moin=L.c_tafsili=''; }
+  else if(level==='m'){ L.c_moin=code; L.c_tafsili=''; }
+  else L.c_tafsili=code;
+  const pick=L.c_tafsili||L.c_moin||L.c_kol||L.c_group||'';
+  L.code=vcCoaIsLeaf(pick)?pick:'';
+  renderVoucherLines();
 }
 function vcAcctShow(i, q){
   const drop=el('vc-acctdrop-'+i), inp=el('vc-acct-'+i); if(!drop||!inp) return;
   const term=(q||'').trim().toLowerCase();
-  let list=(CACHE.chartOfAccounts||[]);
+  const parentCodes=new Set((CACHE.chartOfAccounts||[]).map(a=>a.parent_code).filter(Boolean));
+  let list=(CACHE.chartOfAccounts||[]).filter(a=>!parentCodes.has(a.code));
+  if(!list.length && (CACHE.chartOfAccounts||[]).length){
+    list=CACHE.chartOfAccounts||[];
+  }
   if(!list.length){ drop.style.display='block'; drop.innerHTML='<div class="cust-si-item muted">کدینگ بارگذاری نشده</div>'; return; }
   if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
   const rect=inp.getBoundingClientRect();
@@ -10423,13 +13447,12 @@ function vcAcctShow(i, q){
   drop.innerHTML = list.slice(0,80).map(a=>`
     <div class="cust-si-item" data-csp-mousedown="${CSP.bind('mousedown',function(event){vcAcctPick((i),(a.code))})}">
       <span>${esc(a.name)}</span><span class="cust-si-meta">${esc(a.code)}${a.type?' · '+esc(ACC_TYPE_FA[a.type]||a.type):''}</span>
-    </div>`).join('') || '<div class="cust-si-item muted">حسابی یافت نشد</div>';
+    </div>`).join('') || '<div class="cust-si-item muted">حساب برگ (قابل ثبت) یافت نشد — گروه/کل را انتخاب نکنید</div>';
 }
 function vcAcctPick(i, code){
   voucherLines[i].code=code;
-  const a=(CACHE.chartOfAccounts||[]).find(x=>x.code===code);
-  const inp=el('vc-acct-'+i); if(inp&&a) inp.value=a.code+' — '+a.name;
-  const drop=el('vc-acctdrop-'+i); if(drop) drop.style.display='none';
+  vcSyncCascadeFromCode(voucherLines[i]);
+  renderVoucherLines();
 }
 const ACC_TYPE_FA={asset:'دارایی',liability:'بدهی',equity:'سرمایه',revenue:'درآمد',cogs:'بهای تمام‌شده',expense:'هزینه'};
 function personOptions(selectedId){
@@ -10490,7 +13513,7 @@ function renderVoucherLines(){
         <option value="person" ${l.target_type==='person'?'selected':''}>شخص</option>
       </select></div>
       <div class="fg">${l.target_type==='person'
-        ?`<label>شخص</label><select data-csp-change="${CSP.bind('change',function(event){voucherLines[(i)].person_id=+this.value})}">${personOptions(l.person_id)}</select>`
+        ?`<label>شخص</label>${personSelect('vc-person-'+i, l.person_id)}`
         :`<label>حساب</label>${acctSearchHtml(i,l.code)}`}</div>
       <div class="fg"><label>بدهکار</label><input type="text" inputmode="numeric" class="money" value="${moneyInit(l.debit)}" data-csp-input="${CSP.bind('input',function(event){voucherLines[(i)].debit=(+this.value.replace(/[^\d]/g,''))||0;voucherLines[(i)].credit=0;updateVoucherBalance()})}"></div>
       <div class="fg"><label>بستانکار</label><input type="text" inputmode="numeric" class="money" value="${moneyInit(l.credit)}" data-csp-input="${CSP.bind('input',function(event){voucherLines[(i)].credit=(+this.value.replace(/[^\d]/g,''))||0;voucherLines[(i)].debit=0;updateVoucherBalance()})}"></div>
@@ -10502,6 +13525,12 @@ function renderVoucherLines(){
       </div>
     </div>`;
   }).join('');
+  initCustSearches(el('vcLines'));
+  voucherLines.forEach((row,i)=>{
+    const h=el('vc-person-'+i);
+    if(!h) return;
+    h.addEventListener('change', function(){ voucherLines[i].person_id=+this.value||''; });
+  });
   updateVoucherBalance();
 }
 function addVoucherLine(){ voucherLines.push({target_type:'account',code:'',person_id:'',debit:0,credit:0,description:'',tafsili2_code:''}); renderVoucherLines(); }
@@ -10603,22 +13632,46 @@ async function deleteVoucher(id){
 /* ============================================================
    GENERAL LEDGER (account-level) — embedded in acc-dash; loadGeneralLedger below
 ============================================================ */
+function filterGlAccountOptions(q){
+  const sel=el('glAccount');
+  if(!sel) return;
+  const term=String(q||'').trim().toLowerCase();
+  const cur=sel.value;
+  const accounts=CACHE.chartOfAccounts||[];
+  const rows=term
+    ? accounts.filter(a=>String(a.code||'').toLowerCase().includes(term)||String(a.name||'').toLowerCase().includes(term))
+    : accounts;
+  sel.innerHTML='<option value="">-- انتخاب حساب --</option>'+
+    rows.map(a=>`<option value="${esc(a.code)}">${esc(a.code)} — ${esc(a.name)}</option>`).join('');
+  if(cur && [...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
 async function loadGeneralLedger(code){
   const box=el('glBody'); if(!box||!code) return;
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
+  const params=[];
+  if(accDateFrom) params.push('from='+encodeURIComponent(accDateFrom));
+  if(accDateTo) params.push('to='+encodeURIComponent(accDateTo));
+  const gq=el('glSearch')?.value?.trim();
+  if(gq) params.push('q='+encodeURIComponent(gq));
+  const qp=params.length?'?'+params.join('&'):'';
   const dq=(accDateFrom||accDateTo)?'?'+(accDateFrom?'from='+encodeURIComponent(accDateFrom):'')+(accDateFrom&&accDateTo?'&':'')+(accDateTo?'to='+encodeURIComponent(accDateTo):''):'';
   const [d, dash]=await Promise.all([
-    api('GET','/accounting/general-ledger/'+encodeURIComponent(code)),
+    api('GET','/accounting/general-ledger/'+encodeURIComponent(code)+qp),
     api('GET','/accounting/account-dashboard/'+encodeURIComponent(code)+dq).catch(()=>null)
   ]);
-  if(!d){ box.innerHTML='<div class="empty">خطا</div>'; return; }
+  if(!d){ box.innerHTML='<div class="empty">خطا در بارگذاری دفتر کل</div>'; return; }
   const period=dash?.period||{};
   const last=(dash?.recent||dash?.last_entries||[]).slice(0,10);
+  const opening=d.opening_rial??0;
+  const periodDr=d.period_debit_rial??period.debit_rial??period.total_debit??0;
+  const periodCr=d.period_credit_rial??period.credit_rial??period.total_credit??0;
+  const closing=d.closing_rial??d.balance??0;
   box.innerHTML=`
     <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px`)}">
-      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">مانده</div><div class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(Math.abs(dash?.balance??d.balance??0))} ریال</div></div>
-      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بدهکار دوره</div><div class="mono" data-csp-style="${CSP.style(`color:var(--orange);font-weight:700`)}">${fmt(period.debit_rial||period.total_debit||0)}</div></div>
-      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بستانکار دوره</div><div class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">${fmt(period.credit_rial||period.total_credit||0)}</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">مانده ابتدا</div><div class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(Math.abs(opening))} ریال</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بدهکار دوره</div><div class="mono" data-csp-style="${CSP.style(`color:var(--orange);font-weight:700`)}">${fmt(periodDr)}</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">گردش بستانکار دوره</div><div class="mono" data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">${fmt(periodCr)}</div></div>
+      <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;min-width:140px`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">مانده انتها</div><div class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(Math.abs(closing))} ریال</div></div>
       <div class="panel" data-csp-style="${CSP.style(`margin:0;padding:10px 14px;flex:1`)}"><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">حساب</div><div data-csp-style="${CSP.style(`font-weight:700`)}">${esc((dash?.account||d.account||{}).name||code)} <span class="mono muted">${esc(code)}</span></div></div>
     </div>
     ${last.length?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:6px`)}">آخرین اسناد</div>
@@ -10637,7 +13690,7 @@ async function loadGeneralLedger(code){
       <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${cr>0?fmt(cr):'-'}</td>
       <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(Math.abs(l.running_balance||0))}</td>
     </tr>`;}).join('')||'<tr><td colspan="6" class="empty">تراکنشی ثبت نشده</td></tr>'}</tbody></table></div>
-    <div data-csp-style="${CSP.style(`padding:12px 0;font-weight:700`)}">مانده نهایی: ${fmt(Math.abs(d.balance||0))} ریال</div>`;
+    <div data-csp-style="${CSP.style(`padding:12px 0;font-weight:700`)}">مانده نهایی: ${fmt(Math.abs(closing))} ریال${d.total!=null?` <span class="muted">· ${fmt(d.total)} ردیف</span>`:''}</div>`;
 }
 
 /* ============================================================
@@ -10777,21 +13830,22 @@ function dashPreselectGL(code){
   };
   trySel();
 }
-function chartAccountModal(){
+function chartAccountModal(parentCode){
   const parents=(CACHE.chartOfAccounts||[]).filter(a=>a.is_active!==0);
+  const pre=parentCode?String(parentCode):'';
+  const parentAcc=pre?(CACHE.chartOfAccounts||[]).find(a=>a.code===pre):null;
+  const defaultType=parentAcc&&parentAcc.type?parentAcc.type:'expense';
   openModal(`
     <div class="modal-head"><h3>➕ حساب جدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>کد حساب *</label><input id="coa-code" placeholder="مثال: 6105" class="mono"></div>
       <div class="fg"><label>نام حساب *</label><input id="coa-name" placeholder="نام حساب"></div>
       <div class="fg"><label>نوع حساب *</label><select id="coa-type">
-        <option value="asset">دارایی</option><option value="liability">بدهی</option>
-        <option value="equity">حقوق صاحبان سرمایه</option><option value="revenue">درآمد</option>
-        <option value="cogs">بهای تمام‌شده</option><option value="expense" selected>هزینه</option>
+        ${['asset','liability','equity','revenue','cogs','expense'].map(t=>`<option value="${t}" ${defaultType===t?'selected':''}>${{asset:'دارایی',liability:'بدهی',equity:'حقوق صاحبان سرمایه',revenue:'درآمد',cogs:'بهای تمام‌شده',expense:'هزینه'}[t]}</option>`).join('')}
       </select></div>
       <div class="fg"><label>حساب والد (اختیاری)</label>
         <select id="coa-parent"><option value="">— بدون والد —</option>
-        ${parents.map(p=>`<option value="${esc(p.code)}">${esc(p.code)} — ${esc(p.name)}</option>`).join('')}
+        ${parents.map(p=>`<option value="${esc(p.code)}" ${pre===p.code?'selected':''}>${esc(p.code)} — ${esc(p.name)}</option>`).join('')}
         </select></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveChartAccount()})}">💾 ذخیره</button>
@@ -11156,7 +14210,8 @@ async function refreshAccProductsTableOnly(){
   let qp=['limit=500'];
   if(catFilter) qp.push('category_id='+encodeURIComponent(catFilter));
   if(search) qp.push('search='+encodeURIComponent(search));
-  const rows=await api('GET','/products?'+qp.join('&'))||[];
+  const resp=await api('GET','/products?'+qp.join('&'))||{};
+  const rows=listRows(resp);
   CACHE.allProducts=rows;
   const canMut=isAdmin()||ME.role==='accounting';
   const tbl=el('accProductsTbl');
@@ -11188,7 +14243,8 @@ async function renderAccProductsTab(body){
   let qp=['limit=500'];
   if(catFilter) qp.push('category_id='+encodeURIComponent(catFilter));
   if(search) qp.push('search='+encodeURIComponent(search));
-  const rows=await api('GET','/products?'+qp.join('&'))||[];
+  const resp=await api('GET','/products?'+qp.join('&'))||{};
+  const rows=listRows(resp);
   CACHE.allProducts=rows;
   const cats=(CACHE.productCategories||[]).filter(g=>g.code!==0);
   const canMut=isAdmin()||ME.role==='accounting';
@@ -11269,7 +14325,7 @@ const REF_TYPE_FA={
   warehouse_receipt_batch:'رسید انبار',warehouse_issue_batch:'حواله انبار',
   expense_payment:'پرداخت هزینه',expense:'هزینه',incentive_payment:'پرداخت انگیزه',incentive_payment_reversal:'ابطال انگیزه',
   bank_transfer:'انتقال بانکی',vat:'مالیات',depreciation:'استهلاک',revaluation:'تسعیر',
-  supplier_payment:'پرداخت تأمین',payroll:'حقوق',cheque_settlement:'عملیات چک'
+  supplier_payment:'پرداخت تأمین',payroll:'حقوق',cheque_settlement:'عملیات چک',cheque_bounce:'برگشت چک',cheque_in:'ثبت چک'
 };
 const OPENING_REF_TYPES=new Set(['opening','opening_balance','opening_cheque','opening_inventory','fiscal_opening']);
 function journalOriginBadge(e){
@@ -11305,18 +14361,85 @@ function filterCoaByMode(accounts, mode){
   return list;
 }
 const COA_SECTION_META={
-  'coa-codes':{title:'کدهای حسابداری (کامل)',hint:'فهرست کامل ساختار کدینگ حساب‌ها — کل، معین و تفصیلی شناور'},
+  'coa-codes':{title:'کدهای حسابداری (کامل)',hint:'چهار ستون از راست: گروه، کل، معین، تفصیلی — انتخاب هر سطح فرزندان بعدی را نشان می‌دهد'},
   'account-groups':{title:'گروه‌های حساب',hint:'سطح اول کدینگ (دارایی، بدهی، حقوق صاحبان سرمایه، درآمد، هزینه)'},
   'ledger-accounts':{title:'حساب‌های کل',hint:'حساب‌های سطح دوم زیر هر گروه — مثال: ۱۱ موجودی نقد و بانک، ۲۱ بدهی‌های جاری'},
   'subsidiary-accounts':{title:'حساب‌های معین',hint:'حساب‌های سطح سوم — تفصیل‌پذیر و قابل گردش در دفاتر'}
 };
+let COA_FOUR={group:null,kol:null,moin:null,tafsili:null,q:['','','','']};
+function coaFourKids(accounts, parent){
+  if(!parent) return (accounts||[]).filter(a=>!a.parent_code);
+  return (accounts||[]).filter(a=>a.parent_code===parent);
+}
+function coaFourMatch(a, q){
+  const term=String(q||'').trim().toLowerCase();
+  if(!term) return true;
+  const hay=((a.code||'')+' '+(a.name||'')).toLowerCase();
+  return term.split(/\s+/).every(w=>hay.includes(w));
+}
+function coaFourPick(level, code){
+  if(level==='group'){ COA_FOUR.group=code; COA_FOUR.kol=COA_FOUR.moin=COA_FOUR.tafsili=null; }
+  else if(level==='kol'){ COA_FOUR.kol=code; COA_FOUR.moin=COA_FOUR.tafsili=null; }
+  else if(level==='moin'){ COA_FOUR.moin=code; COA_FOUR.tafsili=null; }
+  else COA_FOUR.tafsili=code;
+  const body=el('accBody');
+  if(body) renderCoaFourColumn(body, CACHE.chartOfAccounts||[], isAdmin()||ME.role==='accounting');
+}
+function coaFourQuery(idx, val){
+  COA_FOUR.q[idx]=val;
+  const body=el('accBody');
+  if(body) renderCoaFourColumn(body, CACHE.chartOfAccounts||[], isAdmin()||ME.role==='accounting');
+}
+function renderCoaFourColumn(body, accounts, canEdit){
+  const cols=[
+    {key:'group',title:'گروه',parent:null,sel:COA_FOUR.group},
+    {key:'kol',title:'کل',parent:COA_FOUR.group,sel:COA_FOUR.kol},
+    {key:'moin',title:'معین',parent:COA_FOUR.kol,sel:COA_FOUR.moin},
+    {key:'tafsili',title:'تفصیلی',parent:COA_FOUR.moin,sel:COA_FOUR.tafsili},
+  ];
+  const meta=COA_SECTION_META['coa-codes'];
+  body.innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">${meta.hint}</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+      ${canEdit?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){chartAccountModal()})}">➕ حساب جدید</button>`:''}
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-dash')})}">📊 داشبورد</button>
+    </div>
+    <div class="coa-four">
+      ${cols.map((col,ci)=>{
+        const locked=ci>0 && !col.parent;
+        const list=locked?[]:coaFourKids(accounts, col.parent).filter(a=>coaFourMatch(a, COA_FOUR.q[ci]));
+        return `<div class="panel" data-csp-style="${CSP.style(`margin:0;min-width:0`)}">
+          <div class="panel-head" data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap`)}">
+            <h4>${col.title}</h4>
+            ${!locked && canEdit?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){chartAccountModal(`${String((CSP.htmlDecode(String(esc(col.parent||'')))) ?? '')}`)})}">➕</button>`:''}
+          </div>
+          <div class="panel-body">
+            <input class="search" placeholder="جستجو..." value="${esc(COA_FOUR.q[ci]||'')}" ${locked?'disabled':''}
+              data-csp-input="${CSP.bind('input',function(event){coaFourQuery((ci),this.value)})}"
+              data-csp-style="${CSP.style(`width:100%;margin-bottom:8px;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px`)}">
+            <div data-csp-style="${CSP.style(`max-height:min(52vh,420px);overflow:auto`)}">
+              ${locked?`<div class="empty">ابتدا سطح قبلی را انتخاب کنید</div>`:(list.map(a=>`
+                <button type="button" class="btn ${a.code===col.sel?'':'ghost'} sm" data-csp-style="${CSP.style(`display:flex;justify-content:space-between;width:100%;margin-bottom:4px;text-align:right`)}"
+                  data-csp-click="${CSP.bind('click',function(event){coaFourPick(`${String((col.key) ?? '')}`,`${String((CSP.htmlDecode(String(esc(a.code)))) ?? '')}`)})}">
+                  <span>${esc(a.name)}</span><span class="mono muted">${esc(a.code)}</span>
+                </button>`).join('')||`<div class="empty">${ci===3?'تفصیلی ثبت نشده':'موردی نیست'}</div>`)}
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
 async function renderCoaSectionTab(body, mode){
   const accounts=await api('GET','/accounting/chart-of-accounts')||[];
   CACHE.chartOfAccounts=accounts;
+  const canEdit=isAdmin()||ME.role==='accounting';
+  if(mode==='coa-codes'){
+    renderCoaFourColumn(body, accounts, canEdit);
+    return;
+  }
   const meta=COA_SECTION_META[mode]||COA_SECTION_META['coa-codes'];
   const filtered=filterCoaByMode(accounts, mode);
   const typeLabel={asset:'دارایی',liability:'بدهی',equity:'حقوق صاحبان سرمایه',revenue:'درآمد',cogs:'بهای تمام‌شده',expense:'هزینه'};
-  const canEdit=isAdmin()||ME.role==='accounting';
   body.innerHTML=`
     <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">${meta.hint}</div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
@@ -11459,36 +14582,272 @@ async function saveFxRate(){
     closeModal(); showToast('نرخ ثبت شد'); await renderFxRatesTable();
   }catch(e){}
 }
-let POS_DEVICES=JSON.parse(localStorage.getItem('crm_pos_devices')||'[]');
 async function renderPosDevicesTab(body){
+  let terminals=[], receipts=[], batches=[], banks=[];
+  try{ terminals=await api('GET','/pos/terminals?all=1')||[]; }catch(e){ terminals=[]; }
+  try{ receipts=await api('GET','/pos/receipts')||[]; }catch(e){ receipts=[]; }
+  try{ batches=await api('GET','/pos/batches')||[]; }catch(e){ batches=[]; }
+  try{ banks=(await api('GET','/banks')||[]).filter(b=>Number(b.active)!==0); }catch(e){ banks=[]; }
+  const stLabel={open:'باز',partial:'جزئی',settled:'تسویه‌شده',reversed:'ابطال‌شده',posted:'ثبت‌شده'};
   body.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">دستگاه‌های کارت‌خوان (POS) — شماره پایانه، بانک پذیرنده، حساب واریزی</div>
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){posDeviceModal()})}">➕ دستگاه جدید</button></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>شماره پایانه</th><th>بانک</th><th>حساب واریزی</th><th>عملیات</th></tr></thead>
-    <tbody>${POS_DEVICES.map((d,i)=>`<tr>
-      <td>${esc(d.name)}</td><td class="mono">${esc(d.terminal_id)}</td><td>${esc(d.bank||'-')}</td>
-      <td class="mono muted">${esc(d.account||'-')}</td>
-      <td><button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deletePosDevice((i))})}">🗑️</button></td>
-    </tr>`).join('')||emptyRow(5)}</tbody></table></div>`;
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">کارتخوان — تعریف پایانه روی بانک فعال، دریافت به حساب «در راه»، سپس تسویه دسته‌ای به بانک (کارمزد/کسری جدا)</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap`)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){posDeviceModal()})}">➕ کارتخوان جدید</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){posReceiptModal()})}">💳 ثبت دریافت</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){posBatchModal()})}">🏦 تسویه دسته‌ای</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-pos-report')})}">📊 گزارش کارتخوان</button>
+    </div>
+    <h4>پایانه‌ها</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>نام</th><th>شماره پایانه</th><th>بانک / حساب</th><th>پذیرنده</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+    <tbody>${(terminals||[]).map(d=>`<tr>
+      <td>${esc(d.name)}</td><td class="mono">${esc(d.terminal_id)}</td>
+      <td>${esc(d.bank_name||'-')}<div class="mono muted">${esc(d.bank_account||'')}</div></td>
+      <td class="mono muted">${esc(d.merchant_id||'-')}</td>
+      <td>${Number(d.active)?'فعال':'غیرفعال'}</td>
+      <td>${Number(d.active)?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deactivatePosDevice(d.id)})}">غیرفعال</button>`:'—'}</td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>
+    <h4 data-csp-style="${CSP.style(`margin-top:18px`)}">دریافت‌ها</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>پایانه</th><th>مبلغ ${moneyColLabel()}</th><th>مانده</th><th>فاکتور</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+    <tbody>${(receipts||[]).map(r=>`<tr>
+      <td class="mono">${escDate(r.date)}</td><td>${esc(r.terminal_name||r.terminal_code||'-')}</td>
+      <td class="mono">${fmt(r.amount_rial)}</td><td class="mono">${fmt(r.open_rial!=null?r.open_rial:(r.amount_rial-(r.settled_rial||0)))}</td>
+      <td class="mono">${esc(r.invoice_num||r.invoice_id||'-')}</td>
+      <td>${esc(stLabel[r.status]||r.status)}</td>
+      <td>${r.status==='reversed'?'—':`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidPosReceipt(r.id)})}">ابطال</button>`}</td>
+    </tr>`).join('')||emptyRow(7)}</tbody></table></div>
+    <h4 data-csp-style="${CSP.style(`margin-top:18px`)}">تسویه‌های دسته‌ای</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>ناخالص</th><th>کارمزد</th><th>کسری</th><th>خالص به بانک</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+    <tbody>${(batches||[]).map(b=>`<tr>
+      <td class="mono">${escDate(b.date)}</td>
+      <td class="mono">${fmt(b.gross_rial)}</td><td class="mono">${fmt(b.fee_rial)}</td>
+      <td class="mono">${fmt(b.shortage_rial)}</td><td class="mono">${fmt(b.net_rial)}</td>
+      <td>${esc(stLabel[b.status]||b.status)}</td>
+      <td>${b.status==='reversed'?'—':`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidPosBatch(b.id)})}">ابطال</button>`}</td>
+    </tr>`).join('')||emptyRow(7)}</tbody></table></div>
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">بانک‌های فعال برای تعریف پایانه: ${banks.length?banks.map(b=>esc(b.name)+' / '+esc(b.account_number||'—')).join('، '):'هیچ بانک فعالی نیست — ابتدا در منوی بانک‌ها یک حساب فعال بسازید.'}</p>`;
 }
 function posDeviceModal(){
   openModal(`<div class="modal-head"><h3>دستگاه کارت‌خوان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg full"><label>نام / محل *</label><input id="pos-name" placeholder="صندوق فروشگاه"></div>
       <div class="fg"><label>شماره پایانه *</label><input id="pos-term" class="mono"></div>
-      <div class="fg"><label>بانک پذیرنده</label><input id="pos-bank"></div>
-      <div class="fg full"><label>شماره حساب واریزی</label><input id="pos-acct" class="mono"></div>
+      <div class="fg"><label>شناسه پذیرنده</label><input id="pos-mid" class="mono"></div>
+      <div class="fg full"><label>بانک واریزی *</label><select id="pos-bank"><option value="">در حال بارگذاری…</option></select></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePosDevice()})}">💾 ذخیره</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  (async()=>{
+    let banks=[];
+    try{ banks=(await api('GET','/banks')||[]).filter(b=>Number(b.active)!==0); }catch(e){}
+    const sel=el('pos-bank'); if(!sel) return;
+    sel.innerHTML=banks.length
+      ? `<option value="">انتخاب بانک فعال</option>`+banks.map(b=>`<option value="${b.id}">${esc(b.name)} — ${esc(b.account_number||'بدون شماره')}</option>`).join('')
+      : `<option value="">بانک فعالی یافت نشد</option>`;
+  })();
 }
-function savePosDevice(){
-  const name=el('pos-name').value.trim(), terminal_id=el('pos-term').value.trim();
+async function savePosDevice(){
+  const name=el('pos-name').value.trim(), terminal_id=el('pos-term').value.trim(), bank_id=+el('pos-bank').value||0;
   if(!name||!terminal_id){ showToast('نام و شماره پایانه الزامی است','error'); return; }
-  POS_DEVICES.push({name,terminal_id,bank:el('pos-bank').value,account:el('pos-acct').value});
-  localStorage.setItem('crm_pos_devices',JSON.stringify(POS_DEVICES));
-  closeModal(); showToast('ذخیره شد'); loadAccTab('pos-devices');
+  if(!bank_id){ showToast('یک بانک فعال را از فهرست انتخاب کنید','error'); return; }
+  try{
+    await api('POST','/pos/terminals',{name,terminal_id,bank_id,merchant_id:el('pos-mid').value.trim()||null});
+    closeModal(); showToast('کارتخوان ذخیره شد'); loadAccTab('pos-devices');
+  }catch(e){}
 }
-function deletePosDevice(i){ POS_DEVICES.splice(i,1); localStorage.setItem('crm_pos_devices',JSON.stringify(POS_DEVICES)); loadAccTab('pos-devices'); }
+async function deactivatePosDevice(id){
+  if(!confirm('این کارتخوان غیرفعال شود؟ ردیف مالی حذف نمی‌شود.')) return;
+  try{ await api('DELETE','/pos/terminals/'+id); showToast('غیرفعال شد'); loadAccTab('pos-devices'); }catch(e){}
+}
+function posReceiptModal(){
+  openModal(`<div class="modal-head"><h3>دریافت کارتخوان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">
+      <div class="fg full"><label>کارتخوان *</label><select id="posr-term"><option value="">در حال بارگذاری…</option></select></div>
+      <div class="fg"><label>تاریخ *</label><input id="posr-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>مبلغ ${moneyColLabel()} *</label><input id="posr-amt" type="text" inputmode="numeric" class="money"></div>
+      <div class="fg"><label>شناسه فاکتور (اختیاری)</label><input id="posr-inv" type="number" min="1"></div>
+      <div class="fg"><label>شناسه مشتری (اختیاری)</label><input id="posr-cust" type="number" min="1"></div>
+      <div class="fg full"><label>شماره پیگیری</label><input id="posr-ref" class="mono"></div>
+      <div class="fg full"><label>یادداشت</label><input id="posr-note"></div>
+    </div><p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">مبلغ ابتدا به حساب «وجوه در راه کارتخوان» می‌رود، نه بانک. اگر فاکتور پیوند شود مثل تسویه مشتری از همان حساب در راه عمل می‌کند.</p></div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePosReceipt()})}">💾 ثبت دریافت</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+  (async()=>{
+    let terms=[];
+    try{ terms=await api('GET','/pos/terminals')||[]; }catch(e){}
+    const sel=el('posr-term'); if(!sel) return;
+    sel.innerHTML=terms.length
+      ? terms.map(t=>`<option value="${t.id}">${esc(t.name)} — ${esc(t.terminal_id)} / ${esc(t.bank_name||'')}</option>`).join('')
+      : `<option value="">کارتخوان فعالی نیست</option>`;
+  })();
+}
+async function savePosReceipt(){
+  const terminal_id=+el('posr-term').value||0;
+  const amount_rial=Math.round(+(String(el('posr-amt').value).replace(/[^\d.]/g,''))||0);
+  if(!terminal_id||!amount_rial){ showToast('کارتخوان و مبلغ الزامی است','error'); return; }
+  try{
+    await api('POST','/pos/receipts',{
+      terminal_id, date:el('posr-date').value, amount_rial,
+      invoice_id:+el('posr-inv').value||null, cust_id:+el('posr-cust').value||null,
+      ref:el('posr-ref').value.trim(), note:el('posr-note').value.trim(),
+      idempotency_key:'pos-r-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)
+    });
+    closeModal(); showToast('دریافت ثبت شد (در راه)'); loadAccTab('pos-devices');
+  }catch(e){}
+}
+async function voidPosReceipt(id){
+  if(!confirm('ابطال این دریافت؟ سند حسابداری و اثر فاکتور برمی‌گردد؛ ردیف حذف نمی‌شود.')) return;
+  try{ await api('POST','/pos/receipts/'+id+'/void',{reason:'ابطال از UI'}); showToast('ابطال شد'); loadAccTab('pos-devices'); }catch(e){}
+}
+function posBatchModal(){
+  openModal(`<div class="modal-head"><h3>تسویه دسته‌ای کارتخوان</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="fg"><label>تاریخ *</label><input id="posb-date" data-jdate value="${todayJalali()}"></div>
+        <div class="fg"><label>ناخالص ${moneyColLabel()} *</label><input id="posb-gross" type="text" inputmode="numeric" class="money"></div>
+        <div class="fg"><label>کارمزد ${moneyColLabel()}</label><input id="posb-fee" type="text" inputmode="numeric" class="money" value="0"></div>
+        <div class="fg"><label>کسری ${moneyColLabel()}</label><input id="posb-short" type="text" inputmode="numeric" class="money" value="0"></div>
+        <div class="fg full"><label>شماره واریز / پیگیری</label><input id="posb-ref" class="mono"></div>
+        <div class="fg full"><label>یادداشت</label><input id="posb-note"></div>
+      </div>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:10px 0 6px`)}">دریافت‌های باز — سهم هر ردیف تا ماندهٔ همان دریافت؛ تأیید همین ثبت توسط حسابدار/مدیر است.</p>
+      <div id="posb-open" class="muted">در حال بارگذاری…</div>
+    </div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePosBatch()})}">✅ تأیید و تسویه</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  attachDatepickers(el('modalRoot'));
+  (async()=>{
+    let open=[];
+    try{ open=await api('GET','/pos/receipts?open=1')||[]; }catch(e){}
+    const box=el('posb-open'); if(!box) return;
+    box.innerHTML=open.length
+      ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>پایانه</th><th>مانده</th></tr></thead><tbody>${open.map(r=>`<tr>
+          <td><input type="checkbox" class="posb-rec" value="${r.id}" data-open="${Number(r.open_rial!=null?r.open_rial:(r.amount_rial-(r.settled_rial||0)))}"></td>
+          <td>${esc(r.terminal_name||r.terminal_code||'')} <span class="mono muted">#${r.id}</span></td>
+          <td class="mono">${fmt(r.open_rial!=null?r.open_rial:(r.amount_rial-(r.settled_rial||0)))}</td>
+        </tr>`).join('')}</tbody></table></div>`
+      : 'دریافت بازی نیست.';
+  })();
+}
+async function savePosBatch(){
+  const gross_rial=Math.round(+(String(el('posb-gross').value).replace(/[^\d.]/g,''))||0);
+  const fee_rial=Math.round(+(String(el('posb-fee').value).replace(/[^\d.]/g,''))||0);
+  const shortage_rial=Math.round(+(String(el('posb-short').value).replace(/[^\d.]/g,''))||0);
+  const receipt_ids=[...document.querySelectorAll('.posb-rec:checked')].map(x=>+x.value).filter(Boolean);
+  if(!gross_rial){ showToast('مبلغ ناخالص الزامی است','error'); return; }
+  if(!receipt_ids.length){ showToast('حداقل یک دریافت باز را انتخاب کنید','error'); return; }
+  try{
+    await api('POST','/pos/batches',{
+      date:el('posb-date').value, gross_rial, fee_rial, shortage_rial,
+      receipt_ids, ref:el('posb-ref').value.trim(), note:el('posb-note').value.trim(),
+      idempotency_key:'pos-b-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)
+    });
+    closeModal(); showToast('تسویه تأیید و ثبت شد'); loadAccTab('pos-devices');
+  }catch(e){}
+}
+async function voidPosBatch(id){
+  if(!confirm('ابطال این تسویه دسته‌ای؟ سند بانک/کارمزد/کسری برمی‌گردد؛ ردیف حذف نمی‌شود.')) return;
+  try{ await api('POST','/pos/batches/'+id+'/void',{reason:'ابطال از UI'}); showToast('ابطال شد'); loadAccTab('pos-devices'); }catch(e){}
+}
+function posReportQuery(){
+  const from=el('posrep-from')?.value||'';
+  const to=el('posrep-to')?.value||'';
+  const terminal_id=el('posrep-term')?.value||'';
+  const bank_id=el('posrep-bank')?.value||'';
+  const status=el('posrep-st')?.value||'';
+  const variance=el('posrep-var')?.checked?'1':'';
+  const q=new URLSearchParams();
+  if(from) q.set('from',from);
+  if(to) q.set('to',to);
+  if(terminal_id) q.set('terminal_id',terminal_id);
+  if(bank_id) q.set('bank_id',bank_id);
+  if(status) q.set('status',status);
+  if(variance) q.set('variance',variance);
+  return q.toString();
+}
+async function renderPosReportTab(body){
+  let terminals=[], banks=[], report=null, err=null;
+  try{ terminals=await api('GET','/pos/terminals?all=1')||[]; }catch(e){ terminals=[]; }
+  try{ banks=(await api('GET','/banks')||[]).filter(b=>Number(b.active)!==0); }catch(e){ banks=[]; }
+  const prev={
+    from:el('posrep-from')?.value||'',
+    to:el('posrep-to')?.value||'',
+    term:el('posrep-term')?.value||'',
+    bank:el('posrep-bank')?.value||'',
+    st:el('posrep-st')?.value||'',
+    var:!!el('posrep-var')?.checked
+  };
+  const qs=posReportQuery();
+  try{ report=await api('GET','/pos/report'+(qs?'?'+qs:'')); }
+  catch(e){ err=e; }
+  const stLabel={open:'باز',partial:'جزئی',settled:'تسویه‌شده',reversed:'ابطال‌شده',posted:'ثبت‌شده'};
+  const rec=report&&report.reconcile||{};
+  const tot=report&&report.totals||{};
+  const ok=rec.ok===true;
+  const receipts=report&&report.receipts||[];
+  const batches=report&&report.batches||[];
+  body.innerHTML=`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.8`)}">گزارش کارتخوان — فیلتر تاریخ، پایانه، بانک، وضعیت و مغایرت. جمع «وجوه در راه» باید با مانده دفتر کل حساب واسط یکی باشد؛ خالص تسویه هر بانک با سندهای تسویه همان بانک. فیلتر پایانه روی دستهٔ چندپایانه‌ای سهم همان پایانه را می‌سنجد.</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:end`)}">
+      <div class="fg"><label>از</label><input id="posrep-from" data-jdate value="${esc(prev.from)}"></div>
+      <div class="fg"><label>تا</label><input id="posrep-to" data-jdate value="${esc(prev.to)}"></div>
+      <div class="fg"><label>پایانه</label><select id="posrep-term"><option value="">همه</option>${(terminals||[]).map(t=>`<option value="${t.id}" ${String(prev.term)===String(t.id)?'selected':''}>${esc(t.name)} / ${esc(t.terminal_id)}</option>`).join('')}</select></div>
+      <div class="fg"><label>بانک</label><select id="posrep-bank"><option value="">همه</option>${(banks||[]).map(b=>`<option value="${b.id}" ${String(prev.bank)===String(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>وضعیت</label><select id="posrep-st">
+        <option value="">همه</option>
+        <option value="open" ${prev.st==='open'?'selected':''}>باز</option>
+        <option value="partial" ${prev.st==='partial'?'selected':''}>جزئی</option>
+        <option value="settled" ${prev.st==='settled'?'selected':''}>تسویه‌شده</option>
+        <option value="posted" ${prev.st==='posted'?'selected':''}>ثبت‌شده (دسته)</option>
+        <option value="reversed" ${prev.st==='reversed'?'selected':''}>ابطال‌شده</option>
+      </select></div>
+      <label data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center;font-size:12px`)}"><input type="checkbox" id="posrep-var" ${prev.var?'checked':''}> فقط مغایرت/کسری</label>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){loadAccTab('pos-report')})}">اعمال</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){exportPosReport()})}">خروجی CSV</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-pos-devices')})}">پایانه‌ها</button>
+    </div>
+    ${err?`<div class="empty">خطا در دریافت گزارش${err.status===403?' — دسترسی ندارید':''}</div>`:''}
+    ${!err&&report?`
+    <div class="cards" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+      ${statCard('b','💳',fmt(tot.receipt_gross_rial||0),'ناخالص دریافت (ریال)')}
+      ${statCard('o','🏦',fmt(tot.batch_net_rial||0),'خالص تسویه به بانک')}
+      ${statCard('r','📉',fmt(tot.batch_fee_rial||0),'کارمزد')}
+      ${statCard(ok?'g':'r','Δ',fmt(rec.in_transit_delta_rial||0),ok?'آشتی وجوه در راه':'اختلاف وجوه در راه')}
+    </div>
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><div class="panel-body" data-csp-style="${CSP.style(`font-size:13px;line-height:1.8`)}">
+      حساب واسط <span class="mono">${esc(rec.in_transit_account||'1118')}</span>:
+      مانده باز ${fmt(rec.in_transit_open_rial||0)} —
+      دفتر کل ${fmt(rec.in_transit_gl_rial||0)} —
+      اختلاف ${fmt(rec.in_transit_delta_rial||0)} ${ok?'✓':'⚠️'}
+      ${(rec.banks||[]).map(bk=>`<div>بانک ${esc(bk.bank_name||bk.bank_id)}: خالص دسته ${fmt(bk.batch_net_rial)} / سند ${fmt(bk.pos_gl_net_rial)} / اختلاف ${fmt(bk.delta_rial)}</div>`).join('')}
+    </div></div>
+    <h4>دریافت‌ها</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>پایانه</th><th>بانک</th><th>ناخالص</th><th>مانده</th><th>وضعیت</th></tr></thead>
+    <tbody>${receipts.map(r=>`<tr>
+      <td class="mono">${escDate(r.date)}</td><td>${esc(r.terminal_name||r.terminal_code||'-')}</td>
+      <td>${esc(r.bank_name||'-')}</td>
+      <td class="mono">${fmt(r.amount_rial)}</td><td class="mono">${fmt(r.open_rial)}</td>
+      <td>${esc(stLabel[r.status]||r.status)}</td>
+    </tr>`).join('')||emptyRow(6)}</tbody></table></div>
+    <h4 data-csp-style="${CSP.style(`margin-top:18px`)}">دسته‌های تسویه</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>پایانه</th><th>بانک</th><th>ناخالص</th><th>کارمزد</th><th>کسری</th><th>خالص</th><th>وضعیت</th></tr></thead>
+    <tbody>${batches.map(b=>`<tr${Number(b.has_variance)?' data-csp-style="'+CSP.style('background:color-mix(in srgb, var(--bad) 8%, transparent)')+'"':''}>
+      <td class="mono">${escDate(b.date)}</td><td>${esc(b.terminal_name||b.terminal_code||'-')}</td>
+      <td>${esc(b.bank_name||'-')}</td>
+      <td class="mono">${fmt(b.gross_rial)}</td><td class="mono">${fmt(b.fee_rial)}</td>
+      <td class="mono">${fmt(b.shortage_rial)}</td><td class="mono">${fmt(b.net_rial)}</td>
+      <td>${esc(stLabel[b.status]||b.status)}</td>
+    </tr>`).join('')||emptyRow(8)}</tbody></table></div>`:''}`;
+  if(typeof attachDatepickers==='function') attachDatepickers(body);
+  if(typeof fitStatNums==='function') fitStatNums();
+}
+async function exportPosReport(){
+  try{
+    const tok=localStorage.getItem('crm_token')||'';
+    const res=await fetch('/api/pos/report/export?format=csv&'+posReportQuery(),{headers:{Authorization:'Bearer '+tok}});
+    if(!res.ok){ showToast('خروجی ناموفق','error'); return; }
+    const blob=await res.blob();
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='pos-report.csv'; a.click();
+    URL.revokeObjectURL(a.href);
+  }catch(e){ showToast('خروجی ناموفق','error'); }
+}
 let SCALE_SETTINGS=JSON.parse(localStorage.getItem('crm_scale_settings')||'null')||{port:'COM1',baud:9600,unit:'kg',prefix:'',enabled:false};
 async function renderScaleSettingsTab(body){
   const s=SCALE_SETTINGS;
@@ -11532,7 +14891,7 @@ async function renderOpeningChequesTab(body, direction){
   const label=direction==='in'?'دریافتنی':'پرداختنی';
   const rows=await api('GET','/cheque-records?direction='+direction+'&opening=1')||[];
   body.innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">چک‌های ${label} مانده اول دوره — ثبت چک‌های نزد صندوق/بانک قبل از شروع دوره مالی جاری</div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px`)}">چک‌های ${label} مانده اول دوره — ثبت چک‌های نزد صندوق/بانک قبل از شروع دوره مالی جاری. واگذاری، وصول و <b>برگشت</b> از «دفتر چک» است؛ برگشت مبلغ را به بدهی صورت‌حساب طرف حساب برمی‌گرداند.</div>
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){openingChequeModal(`${String((direction) ?? '')}`)})}">➕ ثبت چک اول دوره</button></div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
       <th>شماره چک</th><th>مبلغ ${moneyColLabel()}</th><th>بانک</th><th>شعبه</th><th>طرف حساب</th><th>سررسید</th><th>صیادی</th><th>وضعیت</th><th>عملیات</th>
@@ -11548,27 +14907,32 @@ async function renderOpeningChequesTab(body, direction){
     </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
 }
 function openingChequeModal(direction){
-  openModal(`<div class="modal-head"><h3>چک ${direction==='in'?'دریافتنی':'پرداختنی'} اول دوره</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+  ensurePartiesCache().then(()=>{
+    openModal(`<div class="modal-head"><h3>چک ${direction==='in'?'دریافتنی':'پرداختنی'} اول دوره</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>شماره چک</label><input id="oc-num" class="mono"></div>
       <div class="fg"><label>مبلغ ${moneyColLabel()} *</label><input id="oc-amt" type="text" inputmode="numeric" class="money"></div>
       <div class="fg"><label>بانک</label><input id="oc-bank"></div>
       <div class="fg"><label>شعبه</label><input id="oc-branch"></div>
-      <div class="fg"><label>طرف حساب</label><input id="oc-party"></div>
+      <div class="fg"><label>طرف حساب * ${hlp('از فهرست اشخاص جستجو و انتخاب کنید.')}</label>${partySelect('ocParty')}</div>
       <div class="fg"><label>تاریخ سررسید</label><input id="oc-due" data-jdate></div>
       <div class="fg"><label>شماره صیادی</label><input id="oc-sayadi" class="mono"></div>
       <div class="fg full"><label>شرح</label><input id="oc-note" placeholder="مانده اول دوره"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveOpeningCheque(`${String((direction) ?? '')}`)})}">💾 ثبت</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
-  attachDatepickers(el('modalRoot'));
+    attachDatepickers(el('modalRoot'));
+    initPartySearches(el('modalRoot'));
+  });
 }
 async function saveOpeningCheque(direction){
   const amount=moneyVal('oc-amt');
+  const party_id=+el('ocParty')?.value||0;
   if(!amount){ showToast('مبلغ الزامی است','error'); return; }
+  if(!party_id){ showToast('طرف حساب را از فهرست اشخاص انتخاب کنید','error'); return; }
   try{
-    await api('POST','/cheque-records',{direction,amount,opening:true,
+    await api('POST','/cheque-records',{direction,amount,opening:true,party_id,
       cheque_number:el('oc-num').value,bank_name:el('oc-bank').value,branch:el('oc-branch').value,
-      party_name:el('oc-party').value,due_date:el('oc-due').value,sayadi:el('oc-sayadi').value,note:el('oc-note').value});
+      due_date:el('oc-due').value,sayadi:el('oc-sayadi').value,note:el('oc-note').value});
     closeModal(); showToast('ثبت شد'); loadAccTab(direction==='in'?'opening-recv-cheques':'opening-pay-cheques');
   }catch(e){}
 }
@@ -11998,16 +15362,19 @@ async function productGroupModal(id, parentHint){
         <select id="prg-parent"><option value="">— بدون والد (گروه اصلی) —</option>
         ${list.filter(x=>x.id!==id && x.code!==0).map(x=>`<option value="${x.id}" ${String(parentVal)==String(x.id)?'selected':''}>${esc(x.name)}${x.parent_id?' (زیرگروه)':''}</option>`).join('')}</select></div>
       <div class="fg full">${typeof settToggle==='function'?settToggle('prg-shared', g.is_shared!==0,'اجازه نمایش به سایر کاربران','اگر خاموش باشد فقط ایجادکننده، مدیر و حسابدار می‌بینند'):`<label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer`)}"><input id="prg-shared" type="checkbox" data-csp-style="${CSP.style(`width:auto`)}" ${g.is_shared!==0?'checked':''}> اجازه نمایش به سایر کاربران</label>`}</div>
+      ${moayanAcctHtml('prg','حساب معین این گروه کالا — اختیاری؛ فقط حساب برگ. تغییر نگاشت روی اسناد قبلی اثر ندارد.')}
       <div class="fg full"><label>توضیحات</label><textarea id="prg-desc">${esc(g.description||'')}</textarea></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveProductGroup((id||0))})}">ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   if(needPick && roots.length===1){ const sel=el('prg-parent'); if(sel) sel.value=String(roots[0].id); }
+  if(!CACHE.chartOfAccounts) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
+  if(g.coa_code) moayanAcctPick('prg', g.coa_code);
 }
 async function saveProductGroup(id){
   const name=el('prg-name').value.trim();
   if(!name){ showToast('نام گروه الزامی است','error'); return; }
-  const data={name,code:el('prg-code').value,parent_id:el('prg-parent').value||null,description:el('prg-desc').value,is_shared:el('prg-shared').checked};
+  const data={name,code:el('prg-code').value,parent_id:el('prg-parent').value||null,description:el('prg-desc').value,is_shared:el('prg-shared').checked,coa_code:el('prg-account-code')?.value||''};
   try{
     if(id) await api('PUT','/product-categories/'+id,data); else await api('POST','/product-categories',data);
     CACHE.productCategories=null; CACHE.productCats=null; CACHE._prodCats=null; CACHE._prodMetaLoaded=false; clearPageCache();
@@ -12223,20 +15590,8 @@ async function voidBankOpening(id){
   try{ await api('POST','/banks/'+id+'/void-opening'); showToast('افتتاحیه ابطال شد'); loadAccTab('banks'); }catch(e){}
 }
 function viewBankLedger(id){
-  const b=(CACHE.banks||[]).find(x=>x.id===id);
-  const glCode=(usesExtendedCoa()&&b?.coa_code)?b.coa_code:('1102-'+id);
-  go('acc-dash');
-  let tries=0;
-  const tryPreselect=()=>{
-    const sel=el('glAccount');
-    if(sel && sel.querySelector(`option[value="${glCode}"]`)){
-      sel.value=glCode;
-      loadGeneralLedger(glCode);
-    } else if(tries++<40){
-      setTimeout(tryPreselect,100);
-    }
-  };
-  tryPreselect();
+  _sharedLedgerPrefill={type:'bank',id};
+  go('acc-shared-ledger');
 }
 
 /* ============================================================
@@ -12374,19 +15729,8 @@ async function voidCashOpening(id){
 }
 function viewCashBoxLedger(id){
   const b=(CACHE.cashBoxes||[]).find(x=>x.id===id);
-  const glCode=(usesExtendedCoa()&&b?.coa_code)?b.coa_code:('1101-'+id);
-  go('acc-dash');
-  let tries=0;
-  const tryPreselect=()=>{
-    const sel=el('glAccount');
-    if(sel && sel.querySelector(`option[value="${glCode}"]`)){
-      sel.value=glCode;
-      loadGeneralLedger(glCode);
-    } else if(tries++<40){
-      setTimeout(tryPreselect,100);
-    }
-  };
-  tryPreselect();
+  _sharedLedgerPrefill={type:b?.is_petty_cash?'petty':'cash',id};
+  go('acc-shared-ledger');
 }
 
 /* ============================================================
@@ -12491,14 +15835,15 @@ async function renderTrustChecksTab(body){
     <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">چک‌های امانی صرفاً برای پیگیری امانت هستند و در سند حسابداری ثبت نمی‌شوند — در صورت وصول/پرداخت واقعی، آن را جداگانه از «عملیات دریافت» یا «عملیات پرداخت» ثبت کنید.</div>`;
 }
 function trustCheckModal(){
-  openModal(`
+  ensurePartiesCache().then(()=>{
+    openModal(`
     <div class="modal-head"><h3>🔖 ثبت چک امانی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>جهت چک *</label><select id="tc-direction">
         <option value="in">دریافتی (نزد ما امانت است)</option>
         <option value="out">پرداختی (نزد طرف مقابل امانت است)</option>
       </select></div>
-      <div class="fg"><label>طرف حساب * ${hlp('نام مشتری، تأمین‌کننده یا شخصی که این چک را داده/گرفته است.')}</label><input id="tc-party"></div>
+      <div class="fg"><label>طرف حساب * ${hlp('از فهرست اشخاص جستجو و انتخاب کنید.')}</label>${partySelect('tcParty')}</div>
       <div class="fg"><label>تلفن طرف حساب</label><input id="tc-phone"></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="tc-amount" type="number" min="1"></div>
       <div class="fg"><label>نام بانک</label><input id="tc-bank"></div>
@@ -12511,16 +15856,20 @@ function trustCheckModal(){
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveTrustCheck()})}">💾 ذخیره</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
-  attachDatepickers(el('modalRoot'));
+    attachDatepickers(el('modalRoot'));
+    initPartySearches(el('modalRoot'));
+  });
 }
 async function saveTrustCheck(){
-  const party_name=el('tc-party').value.trim();
+  const party_id=+el('tcParty')?.value||0;
   const amount=+el('tc-amount').value;
-  if(!party_name){ showToast('نام طرف حساب الزامی است','error'); return; }
+  if(!party_id){ showToast('طرف حساب را از فهرست اشخاص انتخاب کنید','error'); return; }
   if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const p=(CACHE.parties||[]).find(x=>x.id===party_id);
   try{
     await api('POST','/trust-checks',{
-      direction:el('tc-direction').value, party_name, party_phone:el('tc-phone').value,
+      direction:el('tc-direction').value, party_id,
+      party_phone:el('tc-phone').value||(p&&p.phone)||'',
       bank_name:el('tc-bank').value, sayadi:el('tc-sayadi').value, cheque_number:el('tc-number').value,
       account_number:el('tc-account').value, amount, owner_name:el('tc-owner').value,
       due_date:el('tc-due').value, note:el('tc-note').value
@@ -12828,7 +16177,7 @@ function coaAllAccounts(){
   return coaDepthOf(CACHE.chartOfAccounts||[]);
 }
 function coaAcctHtml(prefix, help){
-  return `<div class="fg full"><label>حساب (کل تا تفصیلی) ${hlp(help||'انتخاب از تمام سطوح کدینگ')}</label>
+  return `<div class="fg full"><label>حساب برگ (قابل ثبت) ${hlp(help||'فقط حساب بدون فرزند فعال')}</label>
     <input type="hidden" id="${prefix}-account-code" value="">
     <input type="text" id="${prefix}-account-search" class="search" placeholder="جستجوی حساب: کد یا نام..." autocomplete="off"
       data-csp-input="${CSP.bind('input',function(event){coaAcctShow(`${String((prefix) ?? '')}`,this.value)})}" data-csp-focus="${CSP.bind('focus',function(event){coaAcctShow(`${String((prefix) ?? '')}`,this.value)})}"
@@ -12840,7 +16189,7 @@ function coaAcctShow(prefix, q){
   const drop=el(prefix+'-acct-drop'), inp=el(prefix+'-account-search'); if(!drop||!inp) return;
   const term=(q||'').trim().toLowerCase();
   const depthLabel={0:'گروه',1:'کل',2:'معین',3:'تفصیلی'};
-  let list=coaAllAccounts();
+  let list=coaAllAccounts().filter(a=>vcCoaIsLeaf(a.code));
   if(term){ const words=term.split(/\s+/); list=list.filter(a=>{const hay=((a.code||'')+' '+(a.name||'')).toLowerCase(); return words.every(w=>hay.includes(w));}); }
   const rect=inp.getBoundingClientRect();
   drop.style.top=(rect.bottom+2)+'px'; drop.style.left=rect.left+'px'; drop.style.width=Math.max(rect.width,320)+'px'; drop.style.display='block'; drop.style.zIndex='9999';
@@ -12868,132 +16217,163 @@ function receiptOpChooser(){
     <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
 }
 async function personReceiptModal(){
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   const partiesResp=await api('GET','/parties?limit=300')||{};
   const parties=(partiesResp.data||partiesResp||[]);
   openModal(`
     <div class="modal-head"><h3>🧑 دریافت از شخص</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>شخص *</label><select id="prr-person"><option value="">—</option>
-        ${parties.map(p=>`<option value="${p.id}">${esc(p.full_name||p.company_name||p.biz||('#'+p.id))}</option>`).join('')}
-      </select></div>
+      <div class="fg full"><label>شخص *</label>${(()=>{ CACHE.parties=parties; return partySelect('prr-person'); })()}</div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="prr-amount" type="text" inputmode="numeric" class="money"></div>
+      ${payMultiToggleHtml('prr')}
       <div class="fg"><label>تاریخ</label><input id="prr-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>واریز به</label><select id="prr-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('prr')})}"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
-      <div class="fg"><label>بانک</label><select id="prr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
-      <div class="fg"><label>صندوق</label><select id="prr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>واریز به</label><select id="prr-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('prr')})}">${payTypeOptionsHtml({pos:true})}</select></div>
+      <div class="fg" id="prr-bank-fg"><label>بانک</label><select id="prr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg" id="prr-cashbox-fg"><label>صندوق</label><select id="prr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      ${payPosFieldHtml('prr')}
       <div class="fg full"><label>یادداشت</label><input id="prr-note"></div>
     </div></div>
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){savePersonReceipt()})}">💾 ثبت دریافت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
   if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+  initCustSearches(el('modalRoot'));
+  toggleBankFields('prr');
 }
 async function savePersonReceipt(){
   const person_id=+el('prr-person')?.value||0;
-  const amount=moneyVal('prr-amount');
   if(!person_id){ showToast('شخص را انتخاب کنید','error'); return; }
-  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   const pay_type=el('prr-paytype').value;
   const bank_id=+el('prr-bank')?.value||null;
   const cash_box_id=+el('prr-cashbox')?.value||null;
-  // Resolve cash account via a temporary voucher: Dr cash / Cr person
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if((pay_type==='bank'||pay_type==='bank_transfer'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  if(pay_type==='pos_card' && !el('prr-pos')?.value){ showToast('کارتخوان را انتخاب کنید','error'); return; }
+  const parts=payInstAmounts('prr');
+  const amounts=parts && parts.length ? parts : [moneyVal('prr-amount')];
+  if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
     if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
-    // Use account-receipts is for COA; for person use vouchers with person line
-    await api('POST','/accounting/vouchers',{
-      date:el('prr-date').value||todayJalali(),
-      description:el('prr-note').value||'دریافت از شخص',
-      lines:[
-        { target_type:'account', code: await resolveCashCodeForUi(pay_type, bank_id, cash_box_id), debit:amount, credit:0, description:'دریافت' },
-        { target_type:'person', person_id, debit:0, credit:amount, description:'بستانکار شخص' }
-      ]
-    });
-    closeModal(); showToast('دریافت ثبت شد');
+    const code=await resolveCashCodeForUi(pay_type, bank_id, cash_box_id);
+    for(const amount of amounts){
+      await api('POST','/accounting/vouchers',{
+        date:el('prr-date').value||todayJalali(),
+        description:el('prr-note').value||'دریافت از شخص',
+        lines:[
+          { target_type:'account', code, debit:amount, credit:0, description:'دریافت' },
+          { target_type:'person', person_id, debit:0, credit:amount, description:'بستانکار شخص' }
+        ]
+      });
+    }
+    closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'دریافت ثبت شد');
     if(typeof loadAccTab==='function') loadAccTab(accTab||'settlements');
   }catch(e){}
 }
 async function resolveCashCodeForUi(pay_type, bank_id, cash_box_id){
-  // Prefer bank/cash box coa if present in cache; fallback to first cash-like code
   try{
-    if(pay_type==='bank' && bank_id){
+    if(pay_type==='pos_card'){
+      const t=(CACHE.chartOfAccounts||[]).find(a=>a.code==='1118' || /کارتخوان|در راه/.test(a.name||''));
+      if(t?.code) return t.code;
+      return '1118';
+    }
+    if((pay_type==='bank'||pay_type==='bank_transfer'||pay_type==='cheque') && bank_id){
       const b=(CACHE.banks||[]).find(x=>Number(x.id)===Number(bank_id));
       if(b?.coa_code) return b.coa_code;
     }
-    if(cash_box_id){
+    if((pay_type==='cash' || !pay_type) && cash_box_id){
       const c=(CACHE.cashBoxes||[]).find(x=>Number(x.id)===Number(cash_box_id));
       if(c?.coa_code) return c.coa_code;
     }
   }catch(_){}
-  const cashLike=(CACHE.chartOfAccounts||[]).find(a=>/صندوق|نقد|بانک/.test(a.name||''));
+  if(pay_type==='pos_card') return '1118';
+  const cashLike=(CACHE.chartOfAccounts||[]).find(a=>pay_type==='cash' ? /صندوق|نقد/.test(a.name||'') : /بانک/.test(a.name||''))
+    || (CACHE.chartOfAccounts||[]).find(a=>/صندوق|نقد|بانک/.test(a.name||''));
   if(cashLike) return cashLike.code;
   throw new Error('حساب صندوق/بانک یافت نشد — در اطلاعات پایه کدینگ را بررسی کنید');
 }
 async function accountReceiptModal(){
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   openModal(`
     <div class="modal-head"><h3>📒 دریافت از حساب</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      ${coaAcctHtml('arr','حساب مبدأ دریافت — تمام سطوح')}
+      ${coaAcctHtml('arr','حساب مبدأ دریافت — فقط حساب برگ')}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="arr-amount" type="text" inputmode="numeric" class="money"></div>
+      ${payMultiToggleHtml('arr')}
       <div class="fg"><label>تاریخ</label><input id="arr-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>واریز به</label><select id="arr-paytype"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
-      <div class="fg"><label>بانک</label><select id="arr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
-      <div class="fg"><label>صندوق</label><select id="arr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>واریز به</label><select id="arr-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('arr')})}">${payTypeOptionsHtml({cheque:false,pos:false})}</select></div>
+      <div class="fg" id="arr-bank-fg"><label>بانک</label><select id="arr-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg" id="arr-cashbox-fg"><label>صندوق</label><select id="arr-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
       <div class="fg full"><label>یادداشت</label><input id="arr-note"></div>
     </div></div>
     <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){saveAccountReceipt()})}">💾 ثبت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot')); if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+  toggleBankFields('arr');
 }
 async function saveAccountReceipt(){
   const account_code=el('arr-account-code')?.value;
-  const amount=moneyVal('arr-amount');
   if(!account_code){ showToast('حساب را انتخاب کنید','error'); return; }
-  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const pay_type=el('arr-paytype').value;
+  const bank_id=+el('arr-bank').value||null;
+  const cash_box_id=+el('arr-cashbox').value||null;
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if(pay_type==='bank' && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  const parts=payInstAmounts('arr');
+  const amounts=parts && parts.length ? parts : [moneyVal('arr-amount')];
+  if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
-    await api('POST','/accounting/account-receipts',{
-      account_code, amount, date:el('arr-date').value, note:el('arr-note').value,
-      pay_type:el('arr-paytype').value, bank_id:+el('arr-bank').value||null, cash_box_id:+el('arr-cashbox').value||null
-    });
-    closeModal(); showToast('دریافت ثبت شد');
+    for(const amount of amounts){
+      await api('POST','/accounting/account-receipts',{
+        account_code, amount, date:el('arr-date').value, note:el('arr-note').value,
+        pay_type, bank_id, cash_box_id
+      });
+    }
+    closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'دریافت ثبت شد');
     if(typeof loadAccTab==='function') loadAccTab(accTab||'settlements');
   }catch(e){}
 }
 async function accountPaymentModal(){
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   openModal(`
     <div class="modal-head"><h3>📒 پرداخت به حساب</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      ${coaAcctHtml('apay','حساب مقصد پرداخت — تمام سطوح')}
+      ${coaAcctHtml('apay','حساب مقصد پرداخت — فقط حساب برگ')}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="apay-amount" type="text" inputmode="numeric" class="money"></div>
+      ${payMultiToggleHtml('apay')}
       <div class="fg"><label>تاریخ</label><input id="apay-date" data-jdate value="${todayJalali()}"></div>
-      <div class="fg"><label>پرداخت از</label><select id="apay-paytype"><option value="cash">صندوق</option><option value="bank">بانک</option></select></div>
-      <div class="fg"><label>بانک</label><select id="apay-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
-      <div class="fg"><label>صندوق</label><select id="apay-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>پرداخت از</label><select id="apay-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('apay')})}">${payTypeOptionsHtml({cheque:true})}</select></div>
+      <div class="fg" id="apay-bank-fg"><label>بانک</label><select id="apay-bank"><option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg" id="apay-cashbox-fg"><label>صندوق</label><select id="apay-cashbox"><option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="fg" id="apay-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="apay-checkcat"><option value="">—</option></select></div>
       <div class="fg full"><label>یادداشت</label><input id="apay-note"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveAccountPayment()})}">💾 ثبت پرداخت</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot')); if(typeof enhanceMoneyInputs==='function') enhanceMoneyInputs(el('modalRoot'));
+  toggleBankFields('apay');
 }
 async function saveAccountPayment(){
   const account_code=el('apay-account-code')?.value;
-  const amount=moneyVal('apay-amount');
   if(!account_code){ showToast('حساب را انتخاب کنید','error'); return; }
-  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const pay_type=el('apay-paytype').value;
+  const bank_id=+el('apay-bank').value||null;
+  const cash_box_id=+el('apay-cashbox').value||null;
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if((pay_type==='bank'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  const parts=payInstAmounts('apay');
+  const amounts=parts && parts.length ? parts : [moneyVal('apay-amount')];
+  if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
-    await api('POST','/accounting/account-payments',{
-      account_code, amount, date:el('apay-date').value, note:el('apay-note').value,
-      pay_type:el('apay-paytype').value, bank_id:+el('apay-bank').value||null, cash_box_id:+el('apay-cashbox').value||null
-    });
-    closeModal(); showToast('پرداخت ثبت شد');
+    for(const amount of amounts){
+      await api('POST','/accounting/account-payments',{
+        account_code, amount, date:el('apay-date').value, note:el('apay-note').value,
+        pay_type, bank_id, cash_box_id, check_category_id:+el('apay-checkcat')?.value||null
+      });
+    }
+    closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'پرداخت ثبت شد');
     if(typeof loadAccTab==='function') loadAccTab(accTab||'payments');
   }catch(e){}
 }
@@ -13031,11 +16411,12 @@ async function personPaymentModal(){
       <div class="fg full" id="pp-target-wrap"></div>
       ${moayanAcctHtml('pp','حساب معین طرف نقد/بانک در سند پرداخت — سطح معین کدینگ')}
       <div class="fg"><label>مبلغ (ریال) *</label><input id="pp-amount" type="text" inputmode="numeric" class="money"></div>
-      <div class="fg"><label>نوع پرداخت</label><select id="pp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('pp')})}"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">بانکی</option></select></div>
-      <div class="fg"><label>پرداخت از بانک</label><select id="pp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('pp')})}">
+      ${payMultiToggleHtml('pp')}
+      <div class="fg"><label>نوع پرداخت</label><select id="pp-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('pp')})}">${payTypeOptionsHtml({cheque:true})}</select></div>
+      <div class="fg" id="pp-bank-fg"><label>پرداخت از بانک</label><select id="pp-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('pp')})}">
         <option value="">—</option>${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
-      <div class="fg"><label>پرداخت از صندوق</label><select id="pp-cashbox">
+      <div class="fg" id="pp-cashbox-fg"><label>پرداخت از صندوق</label><select id="pp-cashbox">
         <option value="">—</option>${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
       <div class="fg" id="pp-cc-wrap" data-csp-style="${CSP.style(`display:none`)}"><label>دسته چک</label><select id="pp-checkcat"><option value="">—</option></select></div>
@@ -13053,51 +16434,62 @@ function ppKindChanged(){
   const kind=el('pp-kind')?.value||'supplier';
   const wrap=el('pp-target-wrap'); if(!wrap) return;
   if(kind==='supplier'){
-    wrap.innerHTML=`<label>تأمین‌کننده *</label><select id="pp-target"><option value="">— انتخاب —</option>${(window._ppSuppliers||[]).map(s=>{
-      const sid=s.legacy_table==='suppliers'?s.legacy_id:s.id;
-      return `<option value="${s.legacy_table==='suppliers'&&s.legacy_id?s.legacy_id:''}" data-party="${s.id}">${esc(s.full_name||s.biz||'-')}</option>`;
-    }).join('')}</select><div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اگر در لیست نبود، از اطلاعات اشخاص تأمین‌کننده بسازید.</div>`;
-    // Prefer supplier legacy ids via API list
+    wrap.innerHTML=`<label>تأمین‌کننده *</label>${supplierSelect('pp-target','')}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اگر در لیست نبود، از اطلاعات اشخاص تأمین‌کننده بسازید.</div>`;
     api('GET','/suppliers').then(list=>{
-      const sel=el('pp-target'); if(!sel) return;
-      sel.innerHTML='<option value="">— انتخاب —</option>'+(list||[]).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');
+      CACHE.suppliers=list||[];
+      const cur=el('pp-target')?.value||'';
+      wrap.innerHTML=`<label>تأمین‌کننده *</label>${supplierSelect('pp-target',cur)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اگر در لیست نبود، از اطلاعات اشخاص تأمین‌کننده بسازید.</div>`;
+      initCustSearches(wrap);
     }).catch(()=>{});
   } else if(kind==='incentive'){
-    wrap.innerHTML=`<label>کارشناس *</label><select id="pp-target"><option value="">— انتخاب —</option>${(window._ppReps||[]).map(r=>`<option value="${r.id}" data-payable="${Math.round(r.payable||0)}">${esc(r.name)} — مانده: ${fmt(Math.round(r.payable||0))}</option>`).join('')}</select>`;
-    if(!(window._ppReps||[]).length){
+    const reps=window._ppReps||[];
+    wrap.innerHTML=`<label>کارشناس *</label>${searchSelect('pp-target', reps.map(r=>({
+      id:r.id, label:r.name||'', meta:'مانده '+fmt(Math.round(r.payable||0)), hay:r.name||''
+    })), '', {kind:'generic', placeholder:'جستجو: نام کارشناس...'})}`;
+    if(!reps.length){
       api('GET','/accounting/commissions').then(d=>{
-        const rows=d?.reps||d||[];
-        const sel=el('pp-target'); if(!sel) return;
-        sel.innerHTML='<option value="">— انتخاب —</option>'+rows.map(r=>`<option value="${r.id}" data-payable="${Math.round(r.payable||0)}">${esc(r.name)} — ${fmt(Math.round(r.payable||0))}</option>`).join('');
+        window._ppReps=d?.reps||d||[];
+        ppKindChanged();
       }).catch(()=>{});
     }
   } else {
-    wrap.innerHTML=`<label>شخص *</label><select id="pp-target"><option value="">— انتخاب —</option>${(window._ppParties||[]).map(p=>`<option value="${p.id}">${esc(p.full_name||p.biz||'-')}</option>`).join('')}</select>
+    CACHE.parties=window._ppParties||CACHE.parties||[];
+    wrap.innerHTML=`<label>شخص *</label>${partySelect('pp-target')}
       <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">پرداخت سایر اشخاص به‌صورت هزینه ثبت می‌شود.</div>`;
   }
+  initCustSearches(wrap);
 }
 async function savePersonPayment(){
   const kind=el('pp-kind').value;
   const target=+el('pp-target')?.value||0;
-  const amount=moneyVal('pp-amount');
   if(!target){ showToast('طرف حساب را انتخاب کنید','error'); return; }
-  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
-  const payload={
-    amount:amount, pay_type:el('pp-paytype').value, date:el('pp-date').value, note:el('pp-note').value,
-    bank_id:+el('pp-bank').value||null, cash_box_id:+el('pp-cashbox')?.value||null,
+  const pay_type=el('pp-paytype').value;
+  const bank_id=+el('pp-bank').value||null;
+  const cash_box_id=+el('pp-cashbox')?.value||null;
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if((pay_type==='bank'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  const parts=payInstAmounts('pp');
+  const amounts=parts && parts.length ? parts : [moneyVal('pp-amount')];
+  if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const base={
+    pay_type, date:el('pp-date').value, note:el('pp-note').value,
+    bank_id, cash_box_id,
     check_category_id:+el('pp-checkcat')?.value||null,
     account_code:el('pp-account-code')?.value||''
   };
   try{
-    if(kind==='supplier'){
-      await api('POST','/purchases/payments',{...payload, supplier_id:target});
-    } else if(kind==='incentive'){
-      await api('POST','/accounting/incentive-payments',{...payload, rep_id:target});
-    } else {
-      const name=(el('pp-target').selectedOptions[0]?.textContent||'شخص').trim();
-      await api('POST','/expenses',{...payload, category:'admin', title:'پرداخت به شخص: '+name, account_code:payload.account_code||null});
+    for(const amount of amounts){
+      const payload={...base, amount};
+      if(kind==='supplier'){
+        await api('POST','/purchases/payments',{...payload, supplier_id:target});
+      } else if(kind==='incentive'){
+        await api('POST','/accounting/incentive-payments',{...payload, rep_id:target});
+      } else {
+        const name=(el('pp-target-input')?.value||el('pp-target').selectedOptions?.[0]?.textContent||'شخص').trim();
+        await api('POST','/expenses',{...payload, category:'admin', title:'پرداخت به شخص: '+name, account_code:payload.account_code||null});
+      }
     }
-    closeModal(); showToast('پرداخت ثبت شد'); loadAccTab('settlements');
+    closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'پرداخت ثبت شد'); loadAccTab('settlements');
   }catch(e){}
 }
 async function expensePaymentModal(){
@@ -13119,14 +16511,15 @@ async function expensePaymentModal(){
       </div>
       <div class="fg full"><label>عنوان/بابت *</label><input id="ex-title" placeholder="مثال: اجاره دفتر، قبض برق، ..."></div>
       <div class="fg"><label>مبلغ (ریال) *</label><input id="ex-amount" type="text" inputmode="numeric" class="money" min="1"></div>
+      ${payMultiToggleHtml('ex')}
       <div class="fg"><label>فاکتور خرید مرتبط (اختیاری)</label><select id="ex-purchase"><option value="">— بدون ارتباط —</option></select></div>
       <div class="fg full"><label><input type="checkbox" id="ex-overhead" data-csp-style="${CSP.style(`width:auto;margin-left:6px`)}"> این هزینه سربار تولید است</label></div>
-      <div class="fg"><label>نوع پرداخت</label><select id="ex-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('ex')})}"><option value="cash">نقد</option><option value="cheque">چک</option><option value="bank">کارت به کارت / بانکی</option></select></div>
-      <div class="fg"><label>پرداخت از بانک</label><select id="ex-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('ex')})}">
+      <div class="fg"><label>نوع پرداخت</label><select id="ex-paytype" data-csp-change="${CSP.bind('change',function(event){toggleBankFields('ex')})}">${payTypeOptionsHtml({cheque:true})}</select></div>
+      <div class="fg" id="ex-bank-fg"><label>پرداخت از بانک</label><select id="ex-bank" data-csp-change="${CSP.bind('change',function(event){updateCheckCategoryOptions('ex')})}">
         <option value="">— بدون بانک مشخص —</option>
         ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
-      <div class="fg"><label>پرداخت از صندوق</label><select id="ex-cashbox">
+      <div class="fg" id="ex-cashbox-fg"><label>پرداخت از صندوق</label><select id="ex-cashbox">
         <option value="">— بدون صندوق مشخص —</option>
         ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
       </select></div>
@@ -13138,6 +16531,7 @@ async function expensePaymentModal(){
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
   loadExpenseModalData();
+  toggleBankFields('ex');
 }
 async function exAddCategory(){
   const name=prompt('نام دستهٔ هزینهٔ جدید:'); if(!name||!name.trim()) return;
@@ -13216,20 +16610,28 @@ function moayanAcctPick(prefix, code){
 }
 async function saveExpensePayment(){
   const title=el('ex-title').value.trim();
-  const amount=moneyVal('ex-amount');
   if(!title){ showToast('عنوان هزینه الزامی است','error'); return; }
-  if(!amount||amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return; }
+  const pay_type=el('ex-paytype').value;
+  const bank_id=+el('ex-bank').value||null;
+  const cash_box_id=+el('ex-cashbox')?.value||null;
+  if(pay_type==='cash' && !cash_box_id){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if((pay_type==='bank'||pay_type==='cheque') && !bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  const parts=payInstAmounts('ex');
+  const amounts=parts && parts.length ? parts : [moneyVal('ex-amount')];
+  if(!amounts.length || amounts.some(a=>!a||a<=0)){ showToast('مبلغ معتبر وارد کنید','error'); return; }
   try{
-    await api('POST','/expenses',{
-      category:el('ex-category').value, title, amount:amount,
-      pay_type:el('ex-paytype').value, date:el('ex-date').value, note:el('ex-note').value,
-      bank_id:+el('ex-bank').value||null, cash_box_id:+el('ex-cashbox')?.value||null,
-      check_category_id:+el('ex-checkcat')?.value||null,
-      account_code:el('ex-account-code')?.value||null,
-      purchase_invoice_id:+el('ex-purchase')?.value||null,
-      is_overhead:el('ex-overhead')?.checked||false
-    });
-    closeModal(); showToast('پرداخت هزینه ثبت شد'); loadAccTab('settlements');
+    for(const amount of amounts){
+      await api('POST','/expenses',{
+        category:el('ex-category').value, title, amount,
+        pay_type, date:el('ex-date').value, note:el('ex-note').value,
+        bank_id, cash_box_id,
+        check_category_id:+el('ex-checkcat')?.value||null,
+        account_code:el('ex-account-code')?.value||null,
+        purchase_invoice_id:+el('ex-purchase')?.value||null,
+        is_overhead:el('ex-overhead')?.checked||false
+      });
+    }
+    closeModal(); showToast(amounts.length>1?(amounts.length+' قسط ثبت شد'):'پرداخت هزینه ثبت شد'); loadAccTab('settlements');
   }catch(e){}
 }
 async function deletePaymentOp(kind,id){
@@ -13252,7 +16654,9 @@ async function loadStatement(){
   const d=await api('GET','/accounting/statement/'+stmtCustId+stmtQuery());
   if(!d){ box.innerHTML='<div class="empty">خطا در دریافت صورت‌حساب</div>'; return; }
   const bal=v=>`${fmt(Math.abs(v||0))} ${(v||0)>0?'بد':'بس'}`;
+  const mismatchBanner=d.books_mismatch?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:10px;border-color:#f59e0b`)}"><div class="panel-body" data-csp-style="${CSP.style(`color:#92400e;font-size:13px`)}">هشدار: مانده دفتر مشتری (${fmt(Math.abs(d.ledger_closing||0))}) با دفتر کل (${fmt(Math.abs(d.closing||0))}) یکی نیست. عدد اصلی و خروجی از دفتر کل است.</div></div>`:'';
   box.innerHTML=`
+    ${mismatchBanner}
     <div class="panel">
       <div class="panel-head">
         <h4 data-csp-style="${CSP.style(`display:flex;align-items:center;gap:10px`)}"><img src="/logo-sm.png" data-csp-style="${CSP.style(`height:32px`)}" data-csp-error="${CSP.bind('error',function(event){this.style.display='none'})}"> صورت‌حساب: ${esc(d.customer.biz)} ${d.customer.owner?'— '+esc(d.customer.owner):''}</h4>
@@ -13286,7 +16690,8 @@ async function loadStatement(){
         </table>
       </div>
       <div data-csp-style="${CSP.style(`padding:12px 16px;border-top:1px solid var(--border);font-weight:700`)}">
-        مانده نهایی: <span data-csp-style="${CSP.style(`color:${(d.closing||0)>0?'var(--red)':'var(--green)'}`)}">${fmt(Math.abs(d.closing||0))} ریال ${(d.closing||0)>0?'(بدهکار)':'(بستانکار)'}</span>
+        مانده نهایی (دفتر کل): <span data-csp-style="${CSP.style(`color:${(d.closing||0)>0?'var(--red)':'var(--green)'}`)}">${fmt(Math.abs(d.closing||0))} ریال ${(d.closing||0)>0?'(بدهکار)':'(بستانکار)'}</span>
+        ${d.gl_account_code!=null?`<div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">نمای دوم — مانده دفتر مشتری: ${fmt(Math.abs(d.ledger_closing||0))} ریال ${(d.ledger_closing||0)>0?'(بدهکار)':'(بستانکار)'} · حساب ${esc(d.gl_account_code)}</div>`:''}
       </div>
     </div>`;
 }
@@ -13387,10 +16792,9 @@ async function updateChequeStatus(id, status){
 let stlRows = [];
 let stlOpenInvoices = [];
 async function settlementModal(custId){
-  if(!CACHE.banks) CACHE.banks=await api('GET','/banks')||[];
-  if(!CACHE.cashBoxes) CACHE.cashBoxes=await api('GET','/cash-boxes')||[];
+  await ensurePayCaches();
   if(!CACHE.chartOfAccounts?.length) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
-  stlRows=[{amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:''}];
+  stlRows=[{amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:'',bank_id:'',cash_box_id:''}];
   stlCheques=[stlNewCheque()];
   stlOpenInvoices=[];
   if(custId) stlOpenInvoices=await api('GET','/accounting/customers/'+custId+'/open-invoices')||[];
@@ -13409,13 +16813,14 @@ async function settlementModal(custId){
       <div id="stlSingleBlock">
         <div class="form-grid">
           <div class="fg" id="st-amount-fg"><label>مبلغ (ریال) *</label><input id="st-amount" type="text" inputmode="numeric" class="money" placeholder="0"></div>
-          <div class="fg"><label>نوع پرداخت</label><select id="st-paytype" data-csp-change="${CSP.bind('change',function(event){toggleStlCheque()})}"><option value="cash">نقد</option><option value="bank_transfer">واریز بانکی</option><option value="cheque">چک</option></select></div>
+          <div class="fg"><label>نوع پرداخت</label><select id="st-paytype" data-csp-change="${CSP.bind('change',function(event){toggleStlCheque()})}"><option value="cash">نقد</option><option value="bank_transfer">واریز بانکی</option><option value="cheque">چک</option><option value="pos_card">کارتخوان</option></select></div>
           <div class="fg" id="st-bank-fg"><label>واریز به بانک</label><select id="st-bank" data-csp-change="${CSP.bind('change',function(event){stlFxRefresh()})}"><option value="">— بدون بانک —</option>
             ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" data-cur="${esc(b.currency||'IRR')}" data-fx="${b.is_foreign||(b.currency&&b.currency!=='IRR')?1:0}">${esc(b.name)}${(b.is_foreign||(b.currency&&b.currency!=='IRR'))?' ('+esc(b.currency||'')+')':''}</option>`).join('')}
           </select></div>
           <div class="fg" id="st-cashbox-fg"><label>واریز به صندوق</label><select id="st-cashbox" data-csp-change="${CSP.bind('change',function(event){stlFxRefresh()})}"><option value="">— بدون صندوق —</option>
             ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" data-cur="${esc(b.currency||'IRR')}" data-fx="${b.is_foreign||(b.currency&&b.currency!=='IRR')?1:0}">${esc(b.name)}${(b.is_foreign||(b.currency&&b.currency!=='IRR'))?' ('+esc(b.currency||'')+')':''}</option>`).join('')}
           </select></div>
+          ${payPosFieldHtml('st')}
           <div class="fg full" id="st-fx-wrap" data-csp-style="${CSP.style(`display:none`)}">
             <div class="form-grid">
               <div class="fg"><label>مبلغ ارزی</label><input id="st-foreign" type="number" step="0.01" min="0" data-csp-input="${CSP.bind('input',function(event){stlFxCalc()})}"></div>
@@ -13430,7 +16835,7 @@ async function settlementModal(custId){
       </div>
       <div id="stlMultiBlock" data-csp-style="${CSP.style(`display:none`)}">
         <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-bottom:8px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-          <th>مبلغ (ریال)</th><th>نوع</th><th>تاریخ</th><th>فاکتور</th><th></th>
+          <th>مبلغ (ریال)</th><th>نوع</th><th>مقصد</th><th>تاریخ</th><th>فاکتور</th><th></th>
         </tr></thead><tbody id="stlRowsBody"></tbody></table></div>
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){stlAddRow()})}">➕ قسط دیگر</button>
         <div class="fg" data-csp-style="${CSP.style(`margin-top:10px`)}"><label>یادداشت مشترک</label><textarea id="st-note-multi" placeholder="توضیحات..."></textarea></div>
@@ -13497,13 +16902,32 @@ function stlToggleMulti(){
   if(multi){ const cc=el('stlChequeCards'); if(cc) cc.style.display='none'; renderStlRows(); }
   else toggleStlCheque();
 }
-function stlAddRow(){ stlRows.push({amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:''}); renderStlRows(); }
+function stlAddRow(){ stlRows.push({amount:'',pay_type:'cash',date:todayJalali(),invoice_id:'',note:'',bank_id:'',cash_box_id:''}); renderStlRows(); }
+function stlDestCell(r,i){
+  const pt=r.pay_type||'cash';
+  if(pt==='cash'){
+    return `<select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].cash_box_id=this.value;stlRows[(i)].bank_id='';stlRows[(i)].terminal_id=''})}">
+      <option value="">— صندوق —</option>
+      ${(CACHE.cashBoxes||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${String(r.cash_box_id)===String(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}
+    </select>`;
+  }
+  if(pt==='pos_card'){
+    return `<select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].terminal_id=this.value;stlRows[(i)].bank_id='';stlRows[(i)].cash_box_id=''})}">
+      <option value="">— کارتخوان —</option>
+      ${(CACHE.posTerminals||[]).filter(t=>t.active!==0&&t.active!==false).map(t=>`<option value="${t.id}" ${String(r.terminal_id)===String(t.id)?'selected':''}>${esc(t.name||t.terminal_id||'')}</option>`).join('')}
+    </select>`;
+  }
+  return `<select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].bank_id=this.value;stlRows[(i)].cash_box_id='';stlRows[(i)].terminal_id=''})}">
+    <option value="">— بانک —</option>
+    ${(CACHE.banks||[]).filter(b=>b.active).map(b=>`<option value="${b.id}" ${String(r.bank_id)===String(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}
+  </select>`;
+}
 function renderStlRows(){
   const body=el('stlRowsBody'); if(!body) return;
-  const invOpts='<option value="">—</option>'+stlOpenInvoices.map(i=>`<option value="${i.id}">${esc(i.num)} (${fmt(i.outstanding)} ریال)</option>`).join('');
   body.innerHTML=stlRows.map((r,i)=>`<tr>
     <td><input type="text" inputmode="numeric" class="money" value="${r.amount}" data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].amount=this.value})}" data-csp-style="${CSP.style(`width:110px`)}"></td>
-    <td><select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].pay_type=this.value})}"><option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option><option value="bank_transfer" ${r.pay_type==='bank_transfer'?'selected':''}>واریز بانکی</option><option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option></select></td>
+    <td><select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].pay_type=this.value;if(this.value==='cash'){stlRows[(i)].bank_id='';stlRows[(i)].terminal_id='';}else if(this.value==='pos_card'){stlRows[(i)].bank_id='';stlRows[(i)].cash_box_id='';}else{stlRows[(i)].cash_box_id='';stlRows[(i)].terminal_id='';}renderStlRows()})}"><option value="cash" ${r.pay_type==='cash'?'selected':''}>نقد</option><option value="bank_transfer" ${r.pay_type==='bank_transfer'?'selected':''}>واریز بانکی</option><option value="cheque" ${r.pay_type==='cheque'?'selected':''}>چک</option><option value="pos_card" ${r.pay_type==='pos_card'?'selected':''}>کارتخوان</option></select></td>
+    <td>${stlDestCell(r,i)}</td>
     <td><input data-jdate value="${esc(r.date)}" data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].date=this.value})}" data-csp-style="${CSP.style(`width:100px`)}"></td>
     <td><select data-csp-change="${CSP.bind('change',function(event){stlRows[(i)].invoice_id=this.value})}">${'<option value="">—</option>'+stlOpenInvoices.map(inv=>`<option value="${inv.id}" ${String(r.invoice_id)===String(inv.id)?'selected':''}>${esc(inv.num)} (${fmt(inv.outstanding)} ریال)</option>`).join('')}</select></td>
     <td>${stlRows.length>1?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){stlRows.splice((i),1);renderStlRows()})}">×</button>`:''}</td>
@@ -13520,11 +16944,16 @@ function toggleStlCheque(){
   const isCheque = pt.value==='cheque' && !el('st-multi')?.checked;
   const isBank = pt.value==='bank_transfer' && !el('st-multi')?.checked;
   const isCash = pt.value==='cash' && !el('st-multi')?.checked;
+  const isPos = pt.value==='pos_card' && !el('st-multi')?.checked;
   const cc=el('stlChequeCards'); if(cc) cc.style.display=isCheque?'block':'none';
   const amtFg=el('st-amount-fg'); if(amtFg) amtFg.style.display=isCheque?'none':'flex';
   const bankRef=el('st-bankref-fg'); if(bankRef) bankRef.style.display=isBank?'block':'none';
-  const bankFg=el('st-bank-fg'); if(bankFg) bankFg.style.display=(isBank||isCheque)?'flex':'flex';
-  const cashFg=el('st-cashbox-fg'); if(cashFg) cashFg.style.display=isCash?'flex':'flex';
+  const bankFg=el('st-bank-fg'); if(bankFg) bankFg.style.display=(isBank||isCheque)?'flex':'none';
+  const cashFg=el('st-cashbox-fg'); if(cashFg) cashFg.style.display=isCash?'flex':'none';
+  const posFg=el('st-pos-fg'); if(posFg) posFg.style.display=isPos?'flex':'none';
+  if(!(isBank||isCheque) && el('st-bank')) el('st-bank').value='';
+  if(!isCash && el('st-cashbox')) el('st-cashbox').value='';
+  if(!isPos && el('st-pos')) el('st-pos').value='';
   if(isCheque){ if(!stlCheques.length) stlCheques=[stlNewCheque()]; renderStlCheques(); }
 }
 function stlAddCheque(){ stlCheques.push(stlNewCheque()); renderStlCheques(); }
@@ -13562,6 +16991,20 @@ function stlSyncChequesFromDom(){
     card.querySelectorAll('[data-k]').forEach(inp=>{ stlCheques[i][inp.dataset.k]=inp.value; });
   });
 }
+async function postStlPosReceipt(opts){
+  const terminal_id=+opts.terminal_id||0;
+  if(!terminal_id) throw new Error('کارتخوان الزامی است');
+  return api('POST','/pos/receipts',{
+    terminal_id,
+    amount_rial:opts.amount,
+    cust_id:opts.cust_id,
+    invoice_id:opts.invoice_id||null,
+    date:opts.date||todayJalali(),
+    note:opts.note||'',
+    ref:opts.ref||'',
+    idempotency_key:'stl-pos-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)
+  });
+}
 async function saveSettlement(){
   const cust_id=+el('st-cust').value;
   if(!cust_id){ showToast('مشتری الزامی است','error'); return; }
@@ -13590,23 +17033,58 @@ async function saveSettlement(){
     }catch(e){}
     return;
   }
+  if(pay_type==='pos_card' && !multi){
+    const amount=moneyVal('st-amount');
+    if(!amount){ showToast('مبلغ الزامی است','error'); return; }
+    const terminal_id=+el('st-pos')?.value||0;
+    if(!terminal_id){ showToast('کارتخوان را انتخاب کنید','error'); return; }
+    try{
+      await postStlPosReceipt({
+        cust_id, amount, terminal_id,
+        invoice_id:+el('st-invoice')?.value||null,
+        date:el('st-date').value,
+        note:el('st-note').value||'',
+        ref:el('st-bankref')?.value||''
+      });
+      _accRecvCache=null; closeModal(); showToast('دریافت کارتخوان ثبت شد (در راه)'); loadAccTab(accTab);
+    }catch(e){ showToast(e.message||e.error||'خطا','error'); }
+    return;
+  }
   if(multi){
     const payments=[];
+    const posRows=[];
     for(let i=0;i<stlRows.length;i++){
       const r=stlRows[i];
       const amount=parseInt(String(r.amount).replace(/[^\d]/g,''))||0;
       if(!amount||amount<=0){ showToast('مبلغ هر قسط باید معتبر باشد','error'); return; }
-      payments.push({amount:amount,pay_type:r.pay_type||'cash',date:r.date||todayJalali(),invoice_id:+r.invoice_id||null,note:r.note||''});
+      if(r.pay_type==='pos_card'){
+        if(!r.terminal_id){ showToast('قسط '+toFa(i+1)+': کارتخوان را انتخاب کنید','error'); return; }
+        posRows.push({amount, terminal_id:r.terminal_id, date:r.date||todayJalali(), invoice_id:+r.invoice_id||null, note:r.note||''});
+      } else {
+        if(r.pay_type==='cash' && !r.cash_box_id){ showToast('قسط '+toFa(i+1)+': صندوق را انتخاب کنید','error'); return; }
+        if((r.pay_type==='bank_transfer'||r.pay_type==='cheque') && !r.bank_id){ showToast('قسط '+toFa(i+1)+': بانک را انتخاب کنید','error'); return; }
+        payments.push({
+          amount:amount,pay_type:r.pay_type||'cash',date:r.date||todayJalali(),invoice_id:+r.invoice_id||null,note:r.note||'',
+          bank_id:+r.bank_id||null, cash_box_id:+r.cash_box_id||null
+        });
+      }
     }
-    if(!payments.length){ showToast('حداقل یک قسط وارد کنید','error'); return; }
+    if(!payments.length && !posRows.length){ showToast('حداقل یک قسط وارد کنید','error'); return; }
     try{
-      await api('POST','/accounting/settlements/batch',{cust_id,payments,note:el('st-note-multi')?.value||''});
-      _accRecvCache=null; closeModal(); showToast(payments.length+' قسط ثبت شد'); loadAccTab(accTab);
+      for(const p of posRows){
+        await postStlPosReceipt({cust_id, amount:p.amount, terminal_id:p.terminal_id, invoice_id:p.invoice_id, date:p.date, note:p.note});
+      }
+      if(payments.length){
+        await api('POST','/accounting/settlements/batch',{cust_id,payments,note:el('st-note-multi')?.value||''});
+      }
+      _accRecvCache=null; closeModal(); showToast((payments.length+posRows.length)+' قسط ثبت شد'); loadAccTab(accTab);
     }catch(e){}
     return;
   }
   const amount=moneyVal('st-amount');
   if(!amount){ showToast('مبلغ الزامی است','error'); return; }
+  if(pay_type==='cash' && !el('st-cashbox')?.value){ showToast('صندوق را انتخاب کنید','error'); return; }
+  if((pay_type==='bank_transfer'||pay_type==='cheque') && !el('st-bank')?.value){ showToast('بانک را انتخاب کنید','error'); return; }
   const invoice_id=+el('st-invoice')?.value||null;
   try{
     await api('POST','/accounting/settlements',{
@@ -13930,11 +17408,8 @@ async function repCommissionRulesModal(repId,repName){
     <div class="modal-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px`)}">نرخ‌های خاص محصول/دسته بر نرخ پایه کاربر اولویت دارند.</p>
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
-        <div class="fg"><label>نوع</label><select id="rcr-type"><option value="product">محصول</option><option value="category">دسته</option></select></div>
-        <div class="fg"><label>انتخاب</label><select id="rcr-id">
-          <optgroup label="محصولات">${(CACHE.allProducts||[]).slice(0,200).map(p=>`<option value="${p.id}" data-type="product">${esc(p.name)}</option>`).join('')}</optgroup>
-          <optgroup label="دسته‌ها">${(CACHE.productCategories||[]).map(c=>`<option value="${c.id}" data-type="category">${esc(c.name)}</option>`).join('')}</optgroup>
-        </select></div>
+        <div class="fg"><label>نوع</label><select id="rcr-type" data-csp-change="${CSP.bind('change',function(){rcrRebuildTarget()})}"><option value="product">محصول</option><option value="category">دسته</option></select></div>
+        <div class="fg" id="rcr-target-wrap"><label>محصول</label>${productSelect('rcr-id','')}</div>
         <div class="fg"><label>نقد (٪)</label><input id="rcr-cash" type="number" step="0.1"></div>
         <div class="fg"><label>چک (٪)</label><input id="rcr-cheque" type="number" step="0.1"></div>
         <div class="fg"><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){saveRepCommissionRule((repId),(repName))})}">➕ افزودن</button></div>
@@ -13950,6 +17425,16 @@ async function repCommissionRulesModal(repId,repName){
       }).join('')||emptyRow(5)}</tbody></table></div>
     </div>
     <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`,true);
+}
+function rcrRebuildTarget(){
+  const wrap=el('rcr-target-wrap'); if(!wrap) return;
+  const t=el('rcr-type')?.value||'product';
+  if(t==='category'){
+    wrap.innerHTML=`<label>دسته</label><select id="rcr-id">${(CACHE.productCategories||[]).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>`;
+  } else {
+    wrap.innerHTML=`<label>محصول</label>${productSelect('rcr-id','')}`;
+    initCustSearches(wrap);
+  }
 }
 async function saveRepCommissionRule(repId, repName){
   const sel=el('rcr-id'); const opt=sel?.selectedOptions?.[0];
@@ -15249,9 +18734,11 @@ async function chequeSendToBank(id){
   if(!CACHE.banks){ try{ CACHE.banks=await api('GET','/banks')||[]; }catch(_){ CACHE.banks=[]; } }
   openModal(`
     <div class="modal-head"><h3>🏦 واگذاری چک به بانک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body"><div class="form-grid">
-      <div class="fg full"><label>بانک وصول (اختیاری)</label>
-        <select id="csb-bank"><option value="">— بدون انتخاب —</option>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">واگذاری به بانک: بدهکار «اسناد در جریان وصول» و بستانکار «اسناد دریافتنی». بعد از ثبت، وصول و برگشت در همین ردیف فعال می‌شود. چک اول دوره هم همین چرخه را دارد.</p>
+      <div class="form-grid">
+      <div class="fg full"><label>بانک وصول *</label>
+        <select id="csb-bank"><option value="">— انتخاب بانک —</option>
           ${(CACHE.banks||[]).filter(b=>b.active!==0).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
         </select></div>
       <div class="fg"><label>تاریخ</label><input id="csb-date" data-jdate value="${todayJalali()}"></div>
@@ -15262,9 +18749,10 @@ async function chequeSendToBank(id){
 }
 async function chequeSendToBankSave(id){
   const bank_id=+el('csb-bank')?.value||null;
+  if(!bank_id){ showToast('بانک وصول را انتخاب کنید','error'); return; }
   try{
-    await api('POST','/cheque-records/'+id+'/send-to-bank',{collection_bank_id:bank_id||null,date:el('csb-date')?.value||todayJalali()});
-    closeModal(); showToast('چک به بانک واگذار شد'); loadAccTab('cheque-register');
+    await api('POST','/cheque-records/'+id+'/send-to-bank',{collection_bank_id:bank_id,date:el('csb-date')?.value||todayJalali()});
+    closeModal(); showToast('واگذاری ثبت شد — اسناد در جریان وصول + وضعیت واگذارشده'); loadAccTab('cheque-register');
   }catch(e){}
 }
 async function chequeClear(id){
@@ -15275,14 +18763,63 @@ async function chequeClear(id){
   }catch(e){}
 }
 async function chequeBounce(id){
-  if(!confirm('برگشت چک ثبت شود؟')) return;
+  if(!confirm('برگشت چک ثبت شود؟ مبلغ به بدهی طرف حساب در صورت‌حساب اضافه می‌شود.')) return;
   try{
     await api('POST','/cheque-records/'+id+'/bounce',{date:todayJalali()});
-    showToast('برگشت ثبت شد'); loadAccTab('cheque-register');
+    showToast('برگشت ثبت شد — مبلغ به بدهی صورت‌حساب طرف حساب اضافه شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
+async function chequeResend(id){
+  if(!confirm('ارسال مجدد پس از برگشت؟ سند برگشت معکوس و وضعیت قبلی چرخه بازیابی می‌شود.')) return;
+  try{
+    await api('POST','/cheque-records/'+id+'/resend',{date:todayJalali()});
+    showToast('ارسال مجدد ثبت شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
+async function chequePayOut(id){
+  if(!confirm('پرداخت/تحویل چک به ذینفع ثبت شود؟ سند بدهکار پرداختنی و بستانکار اسناد پرداختنی زده می‌شود.')) return;
+  try{
+    await api('POST','/cheque-records/'+id+'/pay',{date:todayJalali()});
+    showToast('پرداخت چک ثبت شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
+async function chequeExpenseOut(id){
+  if(!confirm('خرج چک ثبت شود؟ مبلغ به حساب هزینه اداری می‌رود و اسناد پرداختنی بستانکار می‌شود.')) return;
+  try{
+    await api('POST','/cheque-records/'+id+'/expense',{date:todayJalali()});
+    showToast('خرج چک ثبت شد'); loadAccTab('cheque-register');
+  }catch(e){}
+}
+async function chequeEndorseIn(id){
+  if(!CACHE.suppliers){ try{ CACHE.suppliers=await api('GET','/suppliers')||[]; }catch(_){ CACHE.suppliers=[]; } }
+  if(!CACHE.parties){ try{ CACHE.parties=await api('GET','/parties')||[]; }catch(_){ CACHE.parties=[]; } }
+  const sups=Array.isArray(CACHE.suppliers)?CACHE.suppliers:(CACHE.suppliers.rows||[]);
+  openModal(`
+    <div class="modal-head"><h3>خرج / ظهرنویسی چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">به‌جای واگذاری به بانک، اسناد دریافتنی بسته می‌شود. اگر ذینفع مشتری باشد همان مبلغ در دفتر و صورت‌حساب او (تفصیلی) دیده می‌شود؛ اگر تأمین‌کننده باشد دفتر تأمین‌کننده به‌روز می‌شود.</p>
+      <div class="form-grid">
+        <div class="fg full"><label>ذینفع (تأمین‌کننده)</label>${supplierSelect('ce-sup','')}</div>
+        <div class="fg full"><label>یا شخص از فهرست</label>${partySelect('ce-party')}</div>
+        <div class="fg"><label>تاریخ</label><input id="ce-date" data-jdate value="${todayJalali()}"></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(){chequeEndorseInSave((id))})}">ثبت خرج</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button></div>`);
+  if(typeof initJalaliPickers==='function') initJalaliPickers();
+  if(typeof initPartySearches==='function') initPartySearches(el('modalRoot'));
+}
+async function chequeEndorseInSave(id){
+  const supplier_id=+el('ce-sup')?.value||null;
+  const party_id=+el('ce-party')?.value||null;
+  if(!supplier_id && !party_id){ showToast('ذینفع را از تأمین‌کننده یا اشخاص انتخاب کنید','error'); return; }
+  try{
+    await api('POST','/cheque-records/'+id+'/endorse',{date:el('ce-date')?.value||todayJalali(), supplier_id, party_id});
+    closeModal(); showToast('خرج چک ثبت شد — سند و صورت‌حساب/دفتر ذینفع به‌روز شد'); loadAccTab('cheque-register');
   }catch(e){}
 }
 async function voidChequeRegister(id,num){
-  if(!confirm(`چک «${num||id}» کاملاً ابطال شود؟\nهمهٔ اسناد واگذاری/وصول/برگشت/افتتاحیه معکوس می‌شوند.`)) return;
+  if(!confirm(`چک «${num||id}» کاملاً ابطال شود؟\nهمهٔ اسناد پرداخت/خرج/واگذاری/وصول/برگشت/افتتاحیه معکوس می‌شوند.`)) return;
   try{
     await api('DELETE','/cheque-records/'+id);
     showToast('چک ابطال شد'); loadAccTab('cheque-register');
@@ -15339,9 +18876,22 @@ async function loadSettSmsPanel(){
       <div class="fg"><label>API Key</label><input id="sms-key" value="${esc(provider.sms_api_key||'')}" dir="ltr"></div>
       <div class="fg"><label>فرستنده</label><input id="sms-from" value="${esc(provider.sms_from||'')}" dir="ltr"></div>
       <div class="fg full"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveSmsProvider()})}">ذخیره سرویس</button>
-        <input id="sms-test-phone" placeholder="09…" data-csp-style="${CSP.style(`margin:0 8px;padding:8px;border:1px solid var(--border);border-radius:8px;direction:ltr`)}">
+        <input id="sms-test-phone" placeholder="09…" data-csp-style="${CSP.style(`margin:0 8px;padding:8px;border:1.5px solid var(--input-border,var(--border));border-radius:8px;direction:ltr;max-width:160px`)}">
         <button class="btn orange" data-csp-click="${CSP.bind('click',function(event){testSmsModule()})}">تست</button></div>
     </div></div></div>
+    <div class="panel"><div class="panel-head"><h4>فهرست کامل رویدادهای پیامک سیستم</h4></div>
+      <div class="panel-body">
+        <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.8`)}">هر جایی که برنامه پیامک می‌فرستد اینجا دیده می‌شود. برای ارسال خودکار: قالب بسازید و یک <b>قانون فعال</b> به همان رویداد وصل کنید. خاموش کردن قانون یا قالب همان مسیر را قطع می‌کند.</div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>رویداد</th><th>کد</th><th>نوع</th><th>قالب پیشنهادی</th><th>قانون فعال</th></tr></thead>
+        <tbody>${(window._smsEvents||[]).map(e=>{
+          const tpl=(templates||[]).find(t=>t.event_key===e.key);
+          const rule=(rules||[]).find(r=>r.event_key===e.key && r.active);
+          return `<tr><td>${esc(e.label)}</td><td class="mono" dir="ltr">${esc(e.key)}</td>
+            <td>${e.kind==='system'?'سیستمی + قالب اختیاری':'فقط با قانون'}</td>
+            <td>${tpl?esc(tpl.name):'<span class="muted">قالب بسازید</span>'}</td>
+            <td>${rule?'✓ فعال':'— خاموش'}</td></tr>`;
+        }).join('')||emptyRow(5)}</tbody></table></div>
+      </div></div>
     <div class="panel"><div class="panel-head"><h4>متغیرهای قابل استفاده در قالب</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr><th>کلید</th><th>معنی فارسی</th></tr></thead>
       <tbody>${(window._smsVars||[]).map(v=>`<tr><td class="mono" dir="ltr">${esc(v.key)}</td><td>${esc(v.label)}</td></tr>`).join('')||emptyRow(2)}</tbody></table>
@@ -15524,14 +19074,19 @@ function invoiceTemplateSettingsHtml(s){
   const paper=(s.invoice_paper_size||'A4').toUpperCase()==='A5'?'A5':'A4';
   const thermalW=String(s.invoice_thermal_width||'80').replace(/\D/g,'')==='58'?'58':'80';
   const formalOpts=[
-    ['formal-official','رسمی کامل / اداری','صورتحساب کامل · فروشنده/خریدار · تخفیف ردیفی · مهر'],
-    ['formal-modern','رسمی مدرن ERP','همان اسکلت رسمی با کارت نرم و هدر گرادیان'],
-    ['formal-premium','رسمی پریمیوم','قاب سبز/طلایی · هدر برند · مناسب فاکتور لوکس']
+    ['formal-official','رسمی کامل / اداری','صورتحساب اداری: سه ستون سربرگ، جعبه فروشنده/خریدار، جدول سبز، مهر سه‌خانه'],
+    ['formal-modern','رسمی مدرن ERP','کارت نرم، هدر گرادیان، گوشه گرد، نوار طلایی بالای مشخصات طرفین'],
+    ['formal-premium','رسمی پریمیوم','قاب سبز/طلایی، نوار برند تیره، مناسب فاکتور لوکس و چاپ رنگی']
   ];
-  const card=(name,val,cur,title,desc)=>`<label data-csp-style="${CSP.style(`display:block;cursor:pointer;border:1.5px solid ${cur===val?'var(--purple)':'var(--border)'};background:${cur===val?'var(--purple-light)':'var(--card)'};border-radius:12px;padding:12px;box-shadow:var(--shadow-card)`)}">
+  const preview=(val)=>{
+    if(val==='formal-official') return `<div data-csp-style="${CSP.style(`margin-top:8px;border:1.5px solid #1A5C38;border-radius:6px;overflow:hidden;background:#fff;font-size:9px`)}"><div data-csp-style="${CSP.style(`display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:6px;border-bottom:2px solid #1A5C38`)}"><span>فروشنده</span><b data-csp-style="${CSP.style(`text-align:center;color:#1A5C38`)}">صورتحساب</b><span>شماره</span></div><div data-csp-style="${CSP.style(`height:18px;background:#1A5C38;color:#fff;padding:2px 6px`)}">جدول اقلام</div></div>`;
+    if(val==='formal-modern') return `<div data-csp-style="${CSP.style(`margin-top:8px;border-radius:10px;overflow:hidden;box-shadow:0 6px 14px rgba(18,39,28,.12);background:#fff;font-size:9px`)}"><div data-csp-style="${CSP.style(`background:linear-gradient(90deg,#1A5C38,#2E7D4F);color:#fff;padding:6px`)}">هدر مدرن</div><div data-csp-style="${CSP.style(`height:4px;background:linear-gradient(90deg,#1A5C38,#C9A843)`)}"></div><div data-csp-style="${CSP.style(`padding:6px`)}">کارت طرفین</div></div>`;
+    return `<div data-csp-style="${CSP.style(`margin-top:8px;padding:2px;border-radius:10px;background:linear-gradient(120deg,#1A5C38,#C9A843);font-size:9px`)}"><div data-csp-style="${CSP.style(`background:#fff;border-radius:8px;overflow:hidden`)}"><div data-csp-style="${CSP.style(`background:linear-gradient(115deg,#1A5C38,#C9A843);color:#fff;padding:8px`)}">پریمیوم</div><div data-csp-style="${CSP.style(`padding:6px`)}">قاب طلایی</div></div></div>`;
+  };
+  const card=(name,val,cur,title,desc)=>`<label data-csp-style="${CSP.style(`display:block;cursor:pointer;border:1.5px solid ${cur===val?'var(--purple)':'var(--input-border,var(--border))'};background:${cur===val?'var(--purple-light)':'var(--card)'};border-radius:12px;padding:12px;box-shadow:var(--shadow-card)`)}">
     <div data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:flex-start`)}">
       <input type="radio" name="${name}" value="${val}" ${cur===val?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-top:3px`)}">
-      <div><b data-csp-style="${CSP.style(`color:var(--purple)`)}">${title}</b><div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:4px;line-height:1.7`)}">${desc}</div></div>
+      <div><b data-csp-style="${CSP.style(`color:var(--purple)`)}">${title}</b><div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:4px;line-height:1.7`)}">${desc}</div>${preview(val)}</div>
     </div></label>`;
   const chk=(id,label,on)=>`<label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px`)}"><input type="checkbox" id="${id}" ${on?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> ${label}</label>`;
   return `<div class="panel"><div class="panel-head"><h4>🧾 قالب فاکتور (رسمی / عادی / حرارتی)</h4></div><div class="panel-body">
@@ -15572,7 +19127,7 @@ function invoiceTemplateSettingsHtml(s){
     </div>
     <h5 data-csp-style="${CSP.style(`margin:0 0 8px;color:var(--purple)`)}">۵) شخصی‌سازی چاپ</h5>
     <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:10px`)}">
-      <div class="fg"><label>زیرعنوان شرکت</label><input id="s-inv-subtitle" value="${esc(cust.subtitle!=null?cust.subtitle:'تولیدی پوشاک زنانه')}"></div>
+      <div class="fg fg-md"><label>زیرعنوان شرکت</label><input id="s-inv-subtitle" value="${esc(cust.subtitle!=null?cust.subtitle:'تولیدی پوشاک زنانه')}"></div>
       <div class="fg full"><label>متن پاورقی سفارشی ${hlp('اگر خالی باشد متن پیش‌فرض تاریخ صدور چاپ می‌شود.')}</label><input id="s-inv-footer_text" value="${esc(cust.footer_text||'')}" placeholder="مثلاً: با تشکر از حسن انتخاب شما"></div>
     </div>
     <div data-csp-style="${CSP.style(`display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px`)}">
@@ -15618,6 +19173,13 @@ function settNavHtml(){
 function settShowTab(id){
   SETT_ACTIVE_TAB = id || 'general';
   try{ sessionStorage.setItem('crm_settings_tab', SETT_ACTIVE_TAB); }catch(e){}
+  const sq=el('sett-q');
+  if(sq){
+    sq.value='';
+    sq.setAttribute('readonly','readonly');
+    sq.blur();
+    settFilterSearch('');
+  }
   document.querySelectorAll('.sett-nav-btn').forEach(b=>{
     b.classList.toggle('active', b.getAttribute('data-sett-tab')===SETT_ACTIVE_TAB);
   });
@@ -15635,6 +19197,7 @@ function settShowTab(id){
 }
 function settOpenTab(id){
   try{ sessionStorage.setItem('crm_settings_tab', id); }catch(e){}
+  if(window.WinMgr && typeof WinMgr.closeAll==='function') WinMgr.closeAll();
   go('settings');
 }
 function settFilterSearch(q){
@@ -15664,8 +19227,17 @@ function settToggle(id, checked, title, desc){
 }
 
 ROUTES.settings = async function(){
-  if(!CACHE.settings || !Object.keys(CACHE.settings).length) CACHE.settings=await api('GET','/settings')||{};
-  const s = CACHE.settings;
+  let s = CACHE.settings || {};
+  try{
+    if(!s || !Object.keys(s).length) s = CACHE.settings = await api('GET','/settings') || {};
+  }catch(e){
+    if(!isAdmin()){
+      el('view').innerHTML=`<div class="empty" data-csp-style="${CSP.style(`padding:24px`)}">⚠️ دسترسی به تنظیمات کامل فقط برای <b>مدیر سیستم</b> است.</div>`;
+      return;
+    }
+    showToast(e.message||'خطا در بارگذاری تنظیمات','error');
+    s = CACHE.settings = s || {};
+  }
   const fyData = await api('GET','/fiscal-year').catch(()=>({current:null,years:[]}));
   const curFy = fyData.current;
   const fyRows = (fyData.years||[]).slice(0,8);
@@ -15714,14 +19286,14 @@ ROUTES.settings = async function(){
     ${appUpdatePanelHtml()}
     ${companiesPanel}
     <div class="panel"><div class="panel-head"><h4>${lucide('building')} اطلاعات شرکت جاری</h4></div><div class="panel-body"><div class="form-grid">
-      <div class="fg"><label>نام شرکت</label><input id="s-company_name" value="${esc(s.company_name||'')}"></div>
-      <div class="fg"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}"></div>
+      <div class="fg fg-md"><label>نام شرکت</label><input id="s-company_name" value="${esc(s.company_name||'')}"></div>
+      <div class="fg fg-phone"><label>تلفن شرکت</label><input id="s-company_phone" value="${esc(s.company_phone||'')}" dir="ltr"></div>
       <div class="fg full"><label>آدرس شرکت</label><input id="s-company_address" value="${esc(s.company_address||'')}"></div>
     </div></div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('globe')} ${T('زبان برنامه')}</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">${T('زبان نمایش برنامه را انتخاب کنید. بخش API در هر دو زبان اصطلاحات فنی انگلیسی را نگه می‌دارد.')}</div>
       <div class="form-grid">
-        <div class="fg"><label>${T('زبان برنامه')}</label>
+        <div class="fg fg-md"><label>${T('زبان برنامه')}</label>
           <select id="s-app_lang" data-csp-change="${CSP.bind('change',function(event){onSettingsLangChange(this.value)})}">
             <option value="fa" ${getAppLang()==='fa'?'selected':''}>${T('فارسی')}</option>
             <option value="en" ${getAppLang()==='en'?'selected':''}>${T('انگلیسی')}</option>
@@ -15736,22 +19308,23 @@ ROUTES.settings = async function(){
         ${s.coa_mode==='extended'?`<br><b data-csp-style="${CSP.style(`color:var(--purple)`)}">حالت فعلی: کدینگ تفصیلی</b> — اسناد مرجع به ریال وارد شده‌اند.`:''}
       </div>
       <div class="form-grid">
-        <div class="fg"><label>نمایش مبالغ در برنامه ${hlp('واحد پول برنامه فقط ریال است — مبنای ذخیره‌سازی و نمایش یکسان.')}</label>
-          <select id="s-currency_display" disabled>
+        <div class="fg fg-md"><label>نمایش مبالغ در برنامه ${hlp('عمداً قفل است: کل ERP فقط ریال ذخیره و نمایش می‌دهد.')}</label>
+          <select id="s-currency_display" disabled title="واحد پول برنامه فقط ریال است">
             <option value="rial" selected>ریال (ثابت — کل برنامه)</option>
           </select>
         </div>
-        <div class="fg"><label>مبنای ذخیره‌سازی</label>
+        <div class="fg fg-md"><label>مبنای ذخیره‌سازی</label>
           <input value="ریال (ثابت)" disabled data-csp-style="${CSP.style(`background:var(--well)`)}">
         </div>
       </div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:8px`)}">این فیلد خراب نیست — تعویض واحد عمداً بسته است تا سند و گزارش مخلوط نشود.</div>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('layers')} پنجره‌های چندگانه</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
-        با فعال بودن این گزینه، هر زیرمنوی حسابداری در یک پنجره جدا باز می‌شود (جابجایی، کوچک/بزرگ، بستن).
-        نوار وظایف در لبه چپ است و فقط وقتی موس روی آن می‌رود ظاهر می‌شود.
+        فقط داخل <b>ماژول حسابداری</b>: هر زیرمنو در پنجره جدا باز می‌شود. داشبورد حسابداری و بقیهٔ برنامه تک‌صفحه‌ای می‌مانند.
+        نوار وظایف به‌صورت شناور پایین صفحه است و محتوا را جمع نمی‌کند.
       </div>
-      ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'شبیه ویندوز — هر زیرمنو در پنجره مستقل؛ نوار وظایف در لبه چپ و با هاور موس ظاهر می‌شود')}
+      ${settToggle('s-mdi_windows', typeof WinMgr!=='undefined'&&WinMgr.enabled(), 'فعال‌سازی حالت پنجره چندگانه', 'فقط حسابداری — نوار شناور پایین صفحه')}
     </div></div>
     ${isAdmin()?`<div class="panel"><div class="panel-head"><h4>📱 دستگاه‌های متصل و ورود</h4></div><div class="panel-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.85;margin-bottom:12px`)}">
@@ -15802,24 +19375,43 @@ ROUTES.settings = async function(){
     </div></div>`;
 
   const webPanel = `
-    <div class="panel"><div class="panel-head"><h4>${lucide('plug')} سینک موجودی وب‌سایت (poshaktaranom.com)</h4></div><div class="panel-body">
+    <div class="panel"><div class="panel-head"><h4>${lucide('plug')} سینک موجودی وب‌سایت (Site-B2B / ووکامرس)</h4></div><div class="panel-body">
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
+        مقصد اصلی: پروژه <b>Site-B2B</b> — کد کالای ERP با <code>sku</code> سایت جفت می‌شود و موجودی عمده با
+        <code dir="ltr">PATCH /api/v1/products/:id/stock</code> به‌روز می‌شود. ووکامرس اختیاری است.
+      </div>
       <div data-csp-style="${CSP.style(`margin-bottom:12px`)}">${settToggle('s-website_stock_sync_enabled', s.website_stock_sync_enabled==='1', 'فعال‌سازی سینک موجودی', 'ارتباط ERP با فروشگاه آنلاین')}</div>
       <div class="form-grid">
-        <div class="fg"><label>حالت</label><select id="s-website_stock_sync_mode">
-          <option value="pull" ${(s.website_stock_sync_mode||'pull')==='pull'?'selected':''}>فقط Pull (وب‌سایت از ERP می‌خواند)</option>
-          <option value="push" ${s.website_stock_sync_mode==='push'?'selected':''}>Push به ووکامرس</option>
+        <div class="fg fg-md"><label>مقصد</label><select id="s-website_target">
+          <option value="site_b2b" ${(s.website_target||'site_b2b')==='site_b2b'?'selected':''}>Site-B2B (NestJS)</option>
+          <option value="woo" ${s.website_target==='woo'||s.website_target==='woocommerce'?'selected':''}>ووکامرس</option>
+          <option value="both" ${s.website_target==='both'?'selected':''}>هر دو</option>
+        </select></div>
+        <div class="fg fg-md"><label>حالت</label><select id="s-website_stock_sync_mode">
+          <option value="pull" ${(s.website_stock_sync_mode||'pull')==='pull'?'selected':''}>فقط Pull (سایت از ERP می‌خواند)</option>
+          <option value="push" ${s.website_stock_sync_mode==='push'?'selected':''}>Push از ERP به سایت</option>
           <option value="both" ${s.website_stock_sync_mode==='both'?'selected':''}>هر دو</option>
         </select></div>
-        <div class="fg full"><label>آدرس وب‌هوک موجودی (رویداد موجودی کالا)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com/wp-json/…/stock"></div>
-        <div class="fg"><label>آدرس ووکامرس</label><input id="s-website_wc_url" value="${esc(s.website_wc_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
-        <div class="fg"><label>کلید مصرف‌کننده</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
-        <div class="fg"><label>رمز مصرف‌کننده</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
+        <div class="fg full"><label>آدرس API سایت B2B</label><input id="s-website_b2b_url" value="${esc(s.website_b2b_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
+        <div class="fg"><label>توکن JWT ادمین سایت</label><input id="s-website_b2b_token" type="text" value="${esc(s.website_b2b_token||'')}" dir="ltr" autocomplete="off" data-lpignore="true" data-1p-ignore="true" placeholder="${s.website_b2b_token_has_value?'********':''}"></div>
+        <div class="fg fg-md"><label>کانال موجودی</label><select id="s-website_b2b_channel">
+          <option value="WHOLESALE" ${(s.website_b2b_channel||'WHOLESALE')==='WHOLESALE'?'selected':''}>عمده (WHOLESALE)</option>
+          <option value="RETAIL" ${s.website_b2b_channel==='RETAIL'?'selected':''}>خرده‌فروشی (RETAIL)</option>
+        </select></div>
+        <div class="fg full"><label>آدرس وب‌هوک موجودی (رویداد موجودی کالا)</label><input id="s-website_stock_webhook_url" value="${esc(s.website_stock_webhook_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com/api/…/stock"></div>
+        <div class="fg"><label>آدرس ووکامرس (اختیاری)</label><input id="s-website_wc_url" value="${esc(s.website_wc_url||'')}" dir="ltr" placeholder="https://poshaktaranom.com"></div>
+        <div class="fg"><label>کلید مصرف‌کننده ووکامرس</label><input id="s-website_wc_key" value="${esc(s.website_wc_key||'')}" dir="ltr"></div>
+        <div class="fg"><label>رمز مصرف‌کننده ووکامرس</label><input id="s-website_wc_secret" value="${esc(s.website_wc_secret||'')}" dir="ltr"></div>
+        <div class="fg full">
+          <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){testWebsiteConnection()})}">آزمایش اتصال سایت</button>
+          <span id="s-website-test-status" class="muted" data-csp-style="${CSP.style(`margin-right:8px;font-size:12px`)}"></span>
+        </div>
         <div class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.7`)}">
-          <b>روش پیشنهادی (Pull):</b> در وب‌سایت با API Key از
+          <b>Pull:</b> سایت با API Key از
           <code dir="ltr">GET /api/v1/stock</code> و
           <code dir="ltr">GET /api/v1/stock/by-sku/:sku</code>
-          موجودی را بگیرید (کد کالا = SKU). رویداد webhook
-          <code>product.stock</code> هم پس از هر تغییر موجودی شلیک می‌شود.
+          موجودی می‌گیرد (کد کالا = SKU).
+          <b>Push Site-B2B:</b> بعد از هر تغییر موجودی، ERP کالا را با SKU پیدا می‌کند و موجودی عمده را می‌نویسد.
         </div>
       </div>
     </div></div>`;
@@ -15831,7 +19423,7 @@ ROUTES.settings = async function(){
         ${s.coa_mode==='extended'?`<br><b data-csp-style="${CSP.style(`color:var(--purple)`)}">حالت فعلی: کدینگ تفصیلی</b> — نگاشت از واردات داده تنظیم شده است.`:''}
       </div>
       <div class="form-grid">
-        ${Object.keys(COA_MAP_LABELS).map(k=>`<div class="fg"><label>${COA_MAP_LABELS[k]} ${hlp('کد معین یا تفصیلی در دفتر کل')}</label>
+        ${Object.keys(COA_MAP_LABELS).map(k=>`<div class="fg fg-code"><label>${COA_MAP_LABELS[k]} ${hlp('کد معین یا تفصیلی در دفتر کل')}</label>
           <input id="s-${k}" dir="ltr" class="mono" value="${esc(s[k]||'')}" placeholder="پیش‌فرض سیستم"></div>`).join('')}
       </div>
       <div data-csp-style="${CSP.style(`margin-top:12px`)}">${settToggle('s-feature_cogs_voucher', s.feature_cogs_voucher==='1', 'سند بهای تمام‌شده خودکار در فاکتور رسمی', 'پس از صدور فاکتور نهایی، سند بهای تمام‌شده ثبت شود')}</div>
@@ -15867,8 +19459,8 @@ ROUTES.settings = async function(){
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('layers')} ماژول‌ها و شماره‌گذاری</h4></div><div class="panel-body">
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-        <div class="fg"><label>پیشوند شماره فاکتور فروش ${hlp('پیش‌فرض: T — مثال: فاکتور شماره T-0001')}</label><input id="s-invoice_num_prefix" value="${esc(s.invoice_num_prefix||'T')}"></div>
-        <div class="fg"><label>پیشوند شماره فاکتور خرید ${hlp('پیش‌فرض: PO')}</label><input id="s-purchase_num_prefix" value="${esc(s.purchase_num_prefix||'PO')}"></div>
+        <div class="fg fg-sm"><label>پیشوند شماره فاکتور فروش ${hlp('پیش‌فرض: T — مثال: فاکتور شماره T-0001')}</label><input id="s-invoice_num_prefix" value="${esc(s.invoice_num_prefix||'T')}" maxlength="8"></div>
+        <div class="fg fg-sm"><label>پیشوند شماره فاکتور خرید ${hlp('پیش‌فرض: PO')}</label><input id="s-purchase_num_prefix" value="${esc(s.purchase_num_prefix||'PO')}" maxlength="8"></div>
         <div class="fg"><label>شروع سال مالی (ماه شمسی) ${hlp('برای گزارش‌های آینده مبتنی بر سال مالی — پیش‌فرض فروردین.')}</label>
           <select id="s-fiscal_year_start_month">
             ${['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'].map((m,i)=>`<option value="${i+1}" ${(+s.fiscal_year_start_month||1)===i+1?'selected':''}>${m}</option>`).join('')}
@@ -15896,14 +19488,26 @@ ROUTES.settings = async function(){
   const featuresPanel = `
     <div class="panel"><div class="panel-head"><h4>${lucide('bot')} ${T('دستیار فروش هوشمند')}</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
-        امتیاز ریسک ریزش، فرصت فروش و اقدام روزانه هر شب محاسبه می‌شود. با کلید Claude، متن پیشنهادها هوشمندتر می‌شود.
+        امتیاز ریسک ریزش و فرصت فروش همیشه داخلی محاسبه می‌شود. اگر کلید بگذارید، متن پیشنهادها از <b>Google Gemini</b> یا Claude می‌آید. کلید را خودتان از Google AI Studio بگذارید — در مخزن ذخیره نمی‌شود.
       </div>
       <div data-csp-style="${CSP.style(`margin-bottom:12px`)}">${settToggle('s-feature_ai_assistant', s.feature_ai_assistant==='1', 'استفاده از سرویس هوش مصنوعی (اختیاری)', 'بدون کلید هم تحلیل‌های داخلی کار می‌کنند')}</div>
       <div class="form-grid">
-        <div class="fg"><label>کلید سرویس هوش مصنوعی ${hlp('اختیاری')}</label>
-          <input id="s-ai_api_key" dir="ltr" value="${esc(s.ai_api_key||'')}" placeholder="sk-ant-..."></div>
-        <div class="fg"><label>نام مدل ${hlp('پیش‌فرض داخلی')}</label>
-          <input id="s-ai_model" dir="ltr" value="${esc(s.ai_model||'')}" placeholder="claude-haiku-4-5-20251001"></div>
+        <div class="fg fg-md"><label>ارائه‌دهنده</label>
+          <select id="s-ai_provider">
+            <option value="gemini" ${(s.ai_provider||'gemini')==='gemini'?'selected':''}>Google Gemini</option>
+            <option value="claude" ${s.ai_provider==='claude'?'selected':''}>Anthropic Claude</option>
+            <option value="auto" ${s.ai_provider==='auto'?'selected':''}>تشخیص از کلید / مدل</option>
+          </select></div>
+        <div class="fg"><label>کلید سرویس ${hlp('Gemini معمولاً با AIza شروع می‌شود. مقدار ذخیره‌شده نمایش داده نمی‌شود.')}</label>
+          <input id="s-ai_api_key" dir="ltr" type="text" value="${esc(s.ai_api_key||'')}" autocomplete="off" data-lpignore="true" data-1p-ignore="true" placeholder="${s.ai_api_key_has_value?'********':'AIza… یا sk-ant-…'}"></div>
+        <div class="fg"><label>نام مدل</label>
+          <input id="s-ai_model" dir="ltr" value="${esc(s.ai_model||'')}" placeholder="gemini-2.0-flash" list="s-ai-models">
+          <datalist id="s-ai-models">
+            <option value="gemini-2.0-flash"></option>
+            <option value="gemini-2.5-flash"></option>
+            <option value="gemini-1.5-flash"></option>
+            <option value="claude-haiku-4-5-20251001"></option>
+          </datalist></div>
       </div>
     </div></div>
     <div class="panel"><div class="panel-head"><h4>${lucide('cart')} ${T('پورتال مشتریان')}</h4></div><div class="panel-body">
@@ -15917,8 +19521,10 @@ ROUTES.settings = async function(){
     </div></div>`;
 
   const auditPanel = `
-    <div class="panel"><div class="panel-head" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:8px`)}"><h4>${lucide('clipboard')} گزارش ممیزی (Audit)</h4>
+    <div class="panel"><div class="panel-head" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:8px`)}"><h4>${lucide('clipboard')} ممیزی و سطل‌زباله مدیر</h4>
       <div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap;align-items:center`)}">
+        <button type="button" class="btn sm ghost" id="audit-mode-all" data-csp-click="${CSP.bind('click',function(){window._auditDeletedOnly=0;loadAuditLog()})}">همه رویدادها</button>
+        <button type="button" class="btn sm" id="audit-mode-del" data-csp-style="${CSP.style(`border-color:var(--state-danger,#C0392B)`)}" data-csp-click="${CSP.bind('click',function(){window._auditDeletedOnly=1;loadAuditLog()})}">🗑️ حذف و ابطال</button>
         <input id="auditFrom" data-jdate placeholder="از تاریخ" data-csp-style="${CSP.style(`padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px;background:var(--input-bg);color:var(--text)`)}" value="${todayJalali()}">
         <input id="auditTo" data-jdate placeholder="تا تاریخ" data-csp-style="${CSP.style(`padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;width:120px;font-size:12px;background:var(--input-bg);color:var(--text)`)}" value="${todayJalali()}">
         <select id="auditUser" data-csp-style="${CSP.style(`padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;background:var(--input-bg);color:var(--text)`)}">
@@ -15927,6 +19533,7 @@ ROUTES.settings = async function(){
         </select>
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){loadAuditLog()})}">${lucide('search')} بارگذاری</button>
       </div></div>
+      <div class="panel-body muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:8px`)}">حذف فیزیکی انجام نمی‌شود — ابطال/حذف نرم در اینجا با جزئیات کامل برای مدیر قابل ردیابی است.</div>
       <div class="panel-body" id="audit-log-body"><p class="muted">در حال بارگذاری...</p></div></div>`;
 
   el('view').innerHTML=`
@@ -15938,9 +19545,9 @@ ROUTES.settings = async function(){
             <p>همه‌چیز دسته‌بندی شده — جستجو کنید یا از منوی کناری بخش مورد نظر را باز کنید.</p>
           </div>
         </div>
-        <div class="sett-search">
+        <div class="sett-search" role="search">
           <span class="sett-search-ico">${lucide('search')}</span>
-          <input id="sett-q" type="search" placeholder="جستجو در تنظیمات… مثلاً فاکتور، تلگرام، سال مالی" data-csp-input="${CSP.bind('input',function(event){settFilterSearch(this.value)})}" autocomplete="off">
+          <input id="sett-q" type="search" inputmode="search" name="erp-settings-filter-q" placeholder="جستجو در تنظیمات… مثلاً فاکتور، تلگرام، سال مالی" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" readonly data-csp-focus="${CSP.bind('focus',function(){this.removeAttribute('readonly')})}" data-csp-keydown="${CSP.bind('keydown',function(event){if(event.key==='Enter') event.preventDefault()})}" data-csp-input="${CSP.bind('input',function(event){settFilterSearch(this.value)})}">
         </div>
       </div>
       <div class="sett-layout">
@@ -15970,6 +19577,12 @@ ROUTES.settings = async function(){
   loadAuditLog();
   renderAppUpdateUI();
   settShowTab(SETT_ACTIVE_TAB);
+  const sq=el('sett-q');
+  if(sq){
+    sq.value='';
+    sq.setAttribute('readonly','readonly');
+    settFilterSearch('');
+  }
 };
 
 ROUTES['desktop-settings'] = async function(){
@@ -15993,8 +19606,19 @@ ROUTES['desktop-settings'] = async function(){
     </div>`;
   renderAppUpdateUI();
 };
+async function testWebsiteConnection(){
+  const st=el('s-website-test-status');
+  if(st) st.textContent='در حال آزمایش…';
+  try{
+    const r=await api('POST','/settings/website-test',{});
+    if(st) st.textContent=r?.ok?('متصل شد'+(r.target?' — '+r.target:'')):(r?.error||r?.reason||'ناموفق');
+    showToast(r?.ok?'اتصال سایت برقرار است':(r?.error||'اتصال برقرار نشد'), r?.ok?'success':'error');
+  }catch(e){
+    if(st) st.textContent=e.message||'خطا';
+  }
+}
 async function saveSettings(){
-  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode'];
+  const keys=['company_name','company_phone','company_address','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','ai_provider','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode','website_target','website_b2b_url','website_b2b_token','website_b2b_channel'];
   const data={};
   keys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value; });
   data.rubika_invoice_enabled = el('s-rubika_invoice_enabled')?.checked ? '1' : '0';
@@ -16014,6 +19638,7 @@ async function saveSettings(){
   if(mdiEl && window.WinMgr){
     WinMgr.setEnabled(!!mdiEl.checked);
     if(!mdiEl.checked) WinMgr.closeAll();
+    else if(typeof WinMgr.mount==='function') WinMgr.mount();
   }
   // قالب فاکتور + شخصی‌سازی
   const formalEl=document.querySelector('input[name="s-invoice_template_formal"]:checked');
@@ -16036,30 +19661,63 @@ async function saveSettings(){
     subtitle: el('s-inv-subtitle')?.value||'تولیدی پوشاک زنانه'
   });
   CACHE.settings = await api('PUT','/settings',data);
-  CACHE.moduleFlags=null; // force re-fetch next time the Accounting shell is entered
-  showToast('تنظیمات ذخیره شد');
+  CACHE.moduleFlags=null;
+  CACHE._moduleFlagsLoading=false;
+  try{
+    CACHE.moduleFlags = await api('GET','/settings/modules')||{};
+  }catch(_){ CACHE.moduleFlags={}; }
+  buildNav();
+  showToast('تنظیمات ذخیره شد — منو و ماژول‌ها همین الان به‌روز شد');
 }
 async function loadAuditLog(){
   const body=el('audit-log-body'); if(!body) return;
   body.innerHTML='<p class="muted">در حال بارگذاری...</p>';
+  const delOnly=!!window._auditDeletedOnly;
+  const btnAll=el('audit-mode-all'), btnDel=el('audit-mode-del');
+  if(btnAll) btnAll.className='btn sm'+(delOnly?' ghost':'');
+  if(btnDel) btnDel.className='btn sm'+(delOnly?'':' ghost');
   try{
     const df=el('auditFrom')?.value||todayJalali();
     const dt=el('auditTo')?.value||df;
     const uid=el('auditUser')?.value||'';
     let q='?limit=120&date_from='+encodeURIComponent(df)+'&date_to='+encodeURIComponent(dt);
     if(uid) q+='&user_id='+encodeURIComponent(uid);
+    if(delOnly) q+='&deleted_only=1';
     const r=await api('GET','/admin/audit'+q)||{};
     const rows=r.rows||[];
+    const actLbl={delete:'حذف',reverse:'ابطال',void:'ابطال',reject:'رد',cancel:'لغو',create:'ایجاد',update:'ویرایش'};
     body.innerHTML=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:11px`)}"><thead><tr>
-      <th>زمان</th><th>کاربر</th><th>عملیات</th><th>موجودیت</th><th>جزئیات</th><th>IP</th>
-    </tr></thead><tbody>${rows.map(a=>`<tr>
+      <th>زمان</th><th>کاربر</th><th>عملیات</th><th>موجودیت</th><th>جزئیات</th><th></th>
+    </tr></thead><tbody>${rows.map(a=>{
+      const detail=String(a.detail||'');
+      const bind=CSP.bind('click',function(){auditDetailModal(a)});
+      return `<tr>
       <td class="mono">${a.created_at?new Date(a.created_at*1000).toLocaleString('fa-IR'):'-'}</td>
-      <td>${esc(a.user_name||'-')}</td><td>${esc(a.action||'')}</td>
+      <td>${esc(a.user_name||'-')}</td>
+      <td>${esc(actLbl[a.action]||a.action||'')}</td>
       <td class="muted">${esc(a.entity||'')}${a.entity_id?' #'+a.entity_id:''}</td>
-      <td>${esc(a.detail||'-')}</td>
-      <td class="mono muted" data-csp-style="${CSP.style(`font-size:10px`)}">${esc(a.ip_address||'-')}</td>
-    </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+      <td>${esc(detail.length>80?detail.slice(0,80)+'…':detail||'-')}</td>
+      <td><button type="button" class="btn sm ghost" data-csp-click="${bind}">جزئیات</button></td>
+    </tr>`;
+    }).join('')||emptyRow(6)}</tbody></table></div>
+    <p class="muted" data-csp-style="${CSP.style(`margin-top:8px;font-size:12px`)}">${delOnly?'فقط حذف/ابطال':'همه رویدادها'} — ${fmt(rows.length)} از ${fmt(r.total||rows.length)}</p>`;
   }catch(e){ body.innerHTML='<p class="muted">خطا در بارگذاری</p>'; }
+}
+function auditDetailModal(a){
+  if(!a) return;
+  const lines=[
+    ['زمان', a.created_at?new Date(a.created_at*1000).toLocaleString('fa-IR'):'-'],
+    ['کاربر', a.user_name||'-'],
+    ['عملیات', a.action||'-'],
+    ['موجودیت', (a.entity||'')+(a.entity_id?' #'+a.entity_id:'')],
+    ['IP', a.ip_address||'-'],
+    ['جزئیات', a.detail||'-'],
+  ];
+  openModal('جزئیات ممیزی',`
+    <div class="modal-body"><table class="tbl"><tbody>
+      ${lines.map(([k,v])=>'<tr><th data-csp-style="'+CSP.style(`width:120px;text-align:right`)+'">'+esc(k)+'</th><td>'+esc(v)+'</td></tr>').join('')}
+    </tbody></table></div>
+    <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">بستن</button></div>`);
 }
 async function testSMS(){
   const phone = (el('sms-test-phone')?.value||'').trim();
@@ -16148,7 +19806,9 @@ async function loadSettBackupPanel(){
           ${encOn?'رمزنگاری فعال است — پشتیبان‌های جدید به‌صورت AES-256 رمزنگاری می‌شوند (پسوند .enc)':'رمزنگاری غیرفعال است — تعیین رمز به‌شدت توصیه می‌شود.'}
         </p>
         <div data-csp-style="${CSP.style(`display:flex;gap:10px;flex-wrap:wrap;align-items:center`)}">
-          <input id="bk-enc-pass" type="password" dir="ltr" placeholder="رمز پشتیبان (حداقل ۸ کاراکتر)" data-csp-style="${CSP.style(`max-width:280px`)}">
+          <!-- جلوگیری از autofill مرورگر روی فیلد جستجوی تنظیمات -->
+          <input type="text" name="prevent_autofill_user" autocomplete="username" data-csp-style="${CSP.style(`position:absolute;left:-9999px;width:1px;height:1px;opacity:0`)}" tabindex="-1" aria-hidden="true">
+          <input id="bk-enc-pass" type="password" dir="ltr" name="backup_encryption_pass" autocomplete="new-password" placeholder="رمز پشتیبان (حداقل ۸ کاراکتر)" data-csp-style="${CSP.style(`max-width:280px`)}">
           <button class="btn" data-csp-click="${CSP.bind('click',function(event){saveBackupPassword()})}">ذخیره رمز</button>
           ${encOn?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){clearBackupPassword()})}">حذف رمز</button>`:''}
         </div>
@@ -16453,14 +20113,22 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🎯','نسخه نمایشی',`
+      <p>دو سطح نمایش جدا از هم وجود دارد — با هم وصل نمی‌شوند:</p>
+      <ul>
+        <li><b>نمایش ایستا</b> (<code>/demo.html</code>): همان ظاهر برنامه از آخرین منو — از جمله شل کامل <b>حسابداری</b> (<code>acc-nav.js</code>). دادهٔ ساختگی فقط داخل مرورگر. سازنده: <b>شرکت ترانه اندیشه پردازان ریان</b>.</li>
+        <li><b>حالت تعاملی</b>: همان برنامه روی پایگاه ایزوله؛ نشان «نسخه نمایشی» و واترمارک «داده‌ها واقعی نیستند». برخی عملیات حساس مسدود است.</li>
+      </ul>
+      <p>داده‌های نسخه نمایشی واقعی نیستند و برای جلسهٔ فروش ساخته شده‌اند.</p>`),
 helpSec('🔑','لایسنس و entitlement',`
       <p>لایسنس آفلاین با امضای <b>Ed25519</b> فعال می‌شود (API مدیریتی <code>/api/license</code>). پس از انقضا و پایان دورهٔ مهلت (grace)، سامانه به حالت <b>فقط‌خواندنی</b> می‌رود — داده‌های مشتری هرگز حذف نمی‌شوند. کلید عمومی تأیید در تنظیمات ذخیره می‌شود؛ کلید خصوصی امضا هرگز در سرور مشتری قرار نمی‌گیرد.</p>`),
     helpSec('🧭','موج یک — انطباق و ظرفیت',`
       <ul>
-        <li><b>مودیان:</b> صف ارسال فقط روی سرور مرکزی (stub/sandbox؛ live خاموش تا SDK واقعی). فاکتور با مهر مالیاتی قفل ویرایش و ابطال محلی است</li>
+        <li><b>مودیان:</b> صف ارسال روی سرور مرکزی؛ آداپتر stub (محلی)، sandbox (HTTP به sandboxrc.tax.gov.ir — ارسال آزمایشی)، یا live (tp.tax.gov.ir). دکمه «آزمایش اتصال» و «ارسال آزمایشی»؛ وضعیت test_sent قفل قانونی فاکتور نیست</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک:</b> مدل × رنگ × سایز از مسیر <code>/api/product-variants</code>؛ موجودی هر SKU مستقل است؛ تغییر موجودی واریانت مثل کالا فقط مرکزی</li>
-        <li><b>صفحه‌بندی:</b> با <code>page</code>/<code>pageSize</code> envelope می‌آید؛ بدون پارامتر، کاتالوگ کامل (سازگار با UI فعلی)</li>
+        <li><b>SKU پوشاک:</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در فرم کالا رنگ و سایز را تیک بزنید؛ با ذخیره ماتریس ساخته می‌شود. پک فروش زنده = رنگ‌های موجود × سایزهای موجود. در فاکتور اگر کالا ماتریس داشته باشد، پنجرهٔ انتخاب رنگ/سایز باز می‌شود. API: <code>/api/product-variants</code>. کد رنگ باید <code>#RGB</code> یا <code>#RRGGBB</code> باشد</li>
+        <li><b>صفحه‌بندی:</b> لیست کالاها در حسابداری با <code>limit</code> لود می‌شود و پاسخ envelope را UI باز می‌کند؛ بدون پارامتر page/limit کاتالوگ کامل است</li>
+        <li><b>راهنما:</b> در پوستهٔ حسابداری از <b>امکانات → راهنما</b> (پایین سایدبار) باز می‌شود</li>
       </ul>`),
     helpSec('📥','ورودی اکسل و واحد پول',`
       <p>مبالغ در کل برنامه فقط <b>ریال</b> هستند — ذخیره، نمایش، اکسل و سند حسابداری (با تبدیل داخلی به تومان فقط برای ورودی <code>postToLedger</code>).</p>
@@ -16474,11 +20142,62 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>حذف کالای واردشده از اکسل پس از پاک‌سازی موجودی انبار ممکن است؛ اگر در فاکتور باشد مسدود می‌شود</li>
       </ul>`),
     helpSec('🗔','پنجره‌های چندگانه (شبیه ویندوز)',`
-      <p>فعال/غیرفعال کردن از <b>تنظیمات → عمومی → پنجره‌های چندگانه</b>. با فعال بودن، هر زیرمنوی حسابداری در پنجره جدا باز می‌شود.</p>
+      <p>فعال/غیرفعال کردن از <b>تنظیمات → عمومی → پنجره‌های چندگانه</b>. فقط داخل <b>ماژول حسابداری</b> هر زیرمنو در پنجره جدا باز می‌شود.</p>
       <ul>
-        <li>نوار وظایف در <b>لبه چپ</b> مخفی است؛ با هاور یک <b>ریل باریک (~۴۰px)</b> باز می‌شود (حرف اول عنوان + tooltip نام کامل).</li>
-        <li>چینش و تک‌صفحه/چندپنجره با آیکون‌های کوچک همان ریل در دسترس است.</li>
+        <li><b>داشبورد</b> (CRM و حسابداری) همیشه تک‌صفحه‌ای است — مثل قبل.</li>
+        <li>نوار وظایف <b>شناور</b> پایین صفحه است؛ روی محتوا می‌نشیند و سایدبار را کوتاه نمی‌کند.</li>
+        <li>روی دکمهٔ هر پنجره بزنید تا جلو بیاید؛ چینش و خاموش/روشن از همان نوار.</li>
         <li>نوار عنوان هر پنجره: جابجایی | دکمه‌ها: کوچک / بزرگ / بستن</li>
+      </ul>`),
+    helpSec('📒','حسابداری — دفتر، کدینگ، پورتال و چک',`
+      <ul>
+        <li><b>مانده پرداختنی داشبورد</b> از حساب کنترل پرداختنی دفتر کل (و تفصیلی‌های زیر آن) است، نه جمع خام دفتر تأمین‌کننده</li>
+        <li><b>مانده مطالبات داشبورد</b> جمع ماندهٔ بدهکار هر مشتری از تفصیلی خودش است (بستانکاران جدا جمع می‌شوند) — نه خالص کل پرتفوی. کارت و دفتر مشتری با همین روش مقایسه می‌شوند</li>
+        <li><b>صورت‌حساب مشتری</b> ردیف‌ها را از همان تفصیلی دفتر کل می‌سازد (خرج چک، سند دستی، فاکتور). دفتر مشتری نمای دوم است</li>
+        <li><b>اصل تهاتر مانده:</b> وقتی چند مانده زیر هم جمع می‌شود، ارقام بدهکار با ارقام بستانکار جمع نمی‌شوند؛ تفاضل می‌گیرند و ماهیت ماندهٔ خالص سمت بزرگ‌تر است</li>
+        <li>اگر هنوز هشدار نارنجی دیدید، یک‌بار Hard Refresh بزنید تا تعمیر دفتر از خطوط کل اجرا شود</li>
+        <li><b>دفتر کل:</b> مانده ابتدا / گردش دوره / مانده انتها روی کل دوره است؛ جستجوی شرح فقط فهرست ردیف‌ها را محدود می‌کند و مانده را عوض نمی‌کند</li>
+        <li><b>دفتر مالی مشترک</b> (حسابداری → گزارشات): یک گزارش برای شخص، بانک، صندوق، تنخواه و حساب دفتر کل. مانده ابتدا + گردش خالص دوره = مانده انتها. منبع پول دفتر کل است؛ اگر شخص فقط دفتر معین داشته باشد همان با برچسب منبع نشان داده می‌شود. کاردکس کالا از <code>/api/ledgers/stock</code> خوانده می‌شود. خروجی CSV همان جمع‌ها را می‌نویسد. ویزیتور (<code>field_sales</code>) دسترسی ندارد</li>
+        <li><b>کدینگ:</b> صفحه «کدهای حسابداری» چهار ستون راست‌به‌چپ (گروه → کل → معین → تفصیلی) است؛ روی هر ستون دکمه ➕ حساب زیر همان والد می‌سازد</li>
+        <li><b>سند دستی:</b> انتخاب آبشاری گروه→کل→معین→تفصیلی؛ فقط حساب برگ (بدون فرزند فعال) قابل ثبت است</li>
+        <li><b>دریافت/پرداخت از حساب:</b> فقط حساب برگ در فهرست است</li>
+        <li><b>معین گروه کالا:</b> در فرم گروه کالا حساب معین برگ اختیاری است؛ تغییر آن اسناد قبلی را عوض نمی‌کند</li>
+        <li><b>چک پرداختی:</b> منوی چک‌های پرداختی پیش‌فرض فقط جهت پرداختی را نشان می‌دهد؛ از همان تب می‌توانید <b>پرداخت</b> (تحویل به ذینفع) یا <b>خرج چک</b> بزنید — هر کدام یک سند حسابداری می‌سازد و ابطال کامل همهٔ اثرها را برمی‌گرداند</li>
+        <li><b>پورتال عملیاتی:</b> «بدون دسترسی» بعد از ذخیره و بارگذاری مجدد همان می‌ماند و نقش مدیر واحد برنمی‌گردد</li>
+      </ul>`),
+    helpSec('🧾','انواع فاکتور فروش و موجودی دائمی',`
+      <ul>
+        <li><b>بازطراحی فاکتورها و گزارشات:</b> کارت‌های KPI زنده، چیپ‌های فیلتر سریع (پیش‌فاکتور/معمولی/رسمی)، جستجوی هوشمند، برچسب‌های وضعیت، و مرکز گزارشات با نمودارهای روندی و تحلیل‌های ۳۶۰ درجه.</li>
+        <li><b>پیش‌فاکتور:</b> اعلام قیمت — بدون کسر موجودی و بدون سند حسابداری</li>
+        <li><b>فاکتور معمولی:</b> فروش قطعی — موجودی دائمی + سند فروش + بهای تمام‌شده؛ به صف مودیان نمی‌رود</li>
+        <li><b>فاکتور رسمی:</b> همان فروش قطعی + در صورت فعال بودن مودیان وارد صف می‌شود</li>
+        <li>قبل از انتخاب کالا باید <b>انبار مبدأ</b> انتخاب شود؛ فقط کالاهای همان انبار نمایش داده می‌شوند. افزودن به سبد از همان فهرست انبار است (نه کاتالوگ ناقص)</li>
+        <li><b>افزودن طاقه</b> روی فاکتور باز، پنجرهٔ جدا می‌آید و فرم فاکتور را نمی‌بندد</li>
+        <li>فاکتور <b>معمولی و رسمی</b> بدون انبار مبدأ از سرور رد می‌شود (۴۰۰) — سند قطعی بدون انبار ثبت نمی‌شود</li>
+        <li>ابطال فاکتور قطعی سند معکوس می‌زند و موجودی را برمی‌گرداند (حذف فیزیکی نیست)</li>
+        <li><b>داشبورد → اقدامات در انتظار:</b> کلیک روی فاکتور، همان فاکتور را در حسابداری باز می‌کند</li>
+        <li><b>شخص جدید</b> در «کلیه اشخاص» هم باز می‌شود؛ گروه را داخل فرم انتخاب کنید</li>
+        <li><b>مطالبات:</b> شخص غیرفعال با مانده صفر از لیست حذف می‌شود؛ اگر مانده باقی مانده باشد با برچسب «غیرفعال» می‌ماند تا تسویه شود</li>
+        <li><b>کرایه:</b> سرشکن به نسبت مبلغ/مقدار/مساوی روی ردیف‌ها. عهده خریدار به مبلغ طرف‌حساب و درآمد متفرقه می‌رود؛ عهده فروشنده هزینه توزیع است و به بدهی مشتری/تأمین‌کننده اضافه نمی‌شود</li>
+        <li><b>طاقه:</b> انبار ردیف همان انبار طاقه است. موجودی طاقه از متر زنده دسته است (رسید خرید حتی اگر در گذشته بدون شناسه دسته ثبت شده باشد با شماره طاقه ترمیم می‌شود). پیام «متر طاقه ۰۰۰۷ کافی نیست» یعنی شماره طاقه، نه شماره فاکتور</li>
+        <li>تخفیف سربرگ فاکتور فروش سند را تراز می‌کند (بستانکار فروش = ناخالص کالا؛ تخفیف جدا بدهکار است). حذف طاقه از سبد و ذخیرهٔ بقیه با تخفیف دیگر «سند تراز نیست» نمی‌دهد</li>
+        <li><b>چاپ:</b> از لیست یا داخل فرم فاکتور. ویزارد چاپ فرم باز را نمی‌بندد. شناسه از فاکتور انتخاب‌شده نگه داشته می‌شود. حسابدار همهٔ فاکتورها را می‌بیند/چاپ می‌کند. اگر سند پیدا نشود همان متن سرور نمایش داده می‌شود. پیش‌نمایش A4/A5 وسط صفحه و به عرض کاغذ است (به راست نمی‌چسبد)</li>
+        <li>فاکتور خرید دکمهٔ چاپ A4 دارد</li>
+        <li>اگر ثبت فاکتور موجودی کالا را منفی کند، قبل از ذخیره هشدار تأیید می‌آید</li>
+        <li>ستون فی جداکنندهٔ هزارگان دارد. رنگ/سایز یک خط زیر نام کالاست؛ کلیک جزئیات را باز می‌کند</li>
+        <li><b>چاپ:</b> ابتدا نوع (رسمی / عادی / حرارتی) سپس قالب و کاغذ A4 یا A5</li>
+      </ul>`),
+    helpSec('📞','پیگیری CRM',`
+      <p>منوی <b>پیگیری CRM</b> دو بخش دارد: <b>پیگیری‌ها</b> و <b>داشبورد و گزارش‌های CRM</b>.</p>
+      <ul>
+        <li>داشبورد نموداری از دادهٔ واقعی است (Chart.js محلی). هیچ عدد نمایشی یا نمونه ندارد</li>
+        <li>پایپ‌لاین و قیف بر اساس <b>مرحله فرصت</b> (<code>pipeline_stage</code>) است، نه وضعیت باز/انجام‌شده پیگیری</li>
+        <li>فروش قطعی فقط فاکتور <b>معمولی و رسمی</b> است؛ پیش‌فاکتور و اسناد ابطال‌شده وارد KPI نمی‌شوند</li>
+        <li>مبالغ API و کارت‌ها <b>ریال</b> هستند</li>
+        <li>فیلتر سراسری روی همه KPI، نمودار و drill-down یکسان اعمال می‌شود؛ بازه روی تاریخ ایجاد فرصت و تاریخ فاکتور است — برای کل پایپ‌لاین بازه را «همه» بگذارید</li>
+        <li>کلیک روی کارت یا ستون نمودار جزئیات صفحه‌بندی‌شده و لینک به مشتری/فاکتور را باز می‌کند</li>
+        <li>کارشناس فروش فقط دادهٔ خود را می‌بیند و نمی‌تواند با user_id دامنه را باز کند</li>
+        <li>سگمنت VIP/A/B/C/ریزش از تنظیمات CRM و فاکتور قطعی محاسبه می‌شود</li>
       </ul>`),
     helpSec('↑','دکمه بالا (سطح والد)',`
       <p>دکمه <b>↑</b> کنار عنوان صفحه مثل دکمه <b>Up</b> اکسپلورر ویندوز عمل می‌کند — نه Back تاریخچه:</p>
@@ -16522,7 +20241,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>بارگذاری اولیه سریع‌تر (لیست‌های سنگین به‌صورت lazy)</li>
       </ul>
       <h5>🏭 عملیات تولید — فرمول ساخت و سفارش</h5><ul>
-        <li>مسیر دقیق: <b>حسابداری → عملیات تولید → فرمول تولید (BOM)</b> سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>.</li>
+        <li>مسیر دقیق: در پوستهٔ حسابداری، بخش سایدبار <b>تولید</b> را باز کنید → <b>اطلاعات پایه</b> → <b>فرمول تولید (BOM)</b>؛ سپس در ویرایشگر چهار تب <b>اقلام | مسیر | خروجی | بها</b>. نرخ سربار: همان بخش → <b>نرخ سربار مراکز</b>.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
         <li><b>مسیر عملیات:</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. با مسیر فعال، بازده سرفصل باید ۱۰۰٪ باشد (<b>V4-21</b>).</li>
@@ -16530,8 +20249,32 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بهای تمام‌شده:</b> محاسبه تحلیلی با مقدار هدف (پیش‌فرض ۳۰۰) — <b>بدون ثبت سند حسابداری (JE)</b>.</li>
         <li>فرمول فعال قفل است؛ برای تغییر از «نسخه جدید» استفاده کنید. کالاهای بدون BOM فعال در بالای فهرست هشدار داده می‌شوند.</li>
         <li>سفارش تولید: انتخاب BOM، انبار مواد/محصول، مرکز هزینه، لغو پیش‌نویس/آزادشده، رسید جزئی یا نهایی، بازگشایی سفارش بسته‌شده، و ابطال فقط برای تکمیل‌شده.</li>
+        <li><b>لایه‌چینی و برش (PROD-02/03) + رسید برش / PACK:</b> تولید → عملیات → لایه‌چینی و برش. طول مارکر × تعداد لایه = متر پهن‌شده. ماتریس سایز مصرف نظری فرمول را می‌دهد. مازاد تا سقف ضایعات عادی (٪ مصرف واقعی) سند ندارد؛ اضافه ضایعات غیرعادی (۵۲۲۱) است. طاقه از انبار مواد کم می‌شود. مدیر تولید طاقه را بدون دیدن بها انتخاب می‌کند. ابطال برش موجودی طاقه و سند را برمی‌گرداند. <b>رسید برش</b> تعداد ماتریس را به انبار محصول (بدون Lot/Serial) می‌برد؛ مبلغ رسید = مانده WIP همان لایه (نه بها × تعداد حدسی) و بعد از رسید کامل مانده WIP لایه صفر است. بارکد بسته هویت عملیاتی است نه سریال کالا؛ با ابطال رسید می‌میرد. حواله/backflush همان متر پارچهٔ مصرف‌شده در لایهٔ posted با خطای E_FABRIC_ALREADY_CUT رد می‌شود.
+          <br>مسیر ۱ (فقط برش→بسته‌بندی): ۷ متر پارچه به بها ۲۵۰٬۰۰۰ ریال = ۱٬۷۵۰٬۰۰۰ ریال بدهکار WIP. اگر ضایعات غیرعادی مثلاً ۱٫۱ متر باشد همان نسبت از WIP به ۵۲۲۱ می‌رود؛ رسید برش باقی‌مانده را بدهکار کالای آماده و بستانکار WIP می‌کند تا مانده لایه صفر شود.
+          <br>مسیر ۲ (با سفارش تولید): اگر لایه به سفارش وصل شود فقط WIP همان لایه با PACK صفر می‌شود. دستمزد/سربار سفارش جدا با رسید سفارش می‌ماند و دو بار بستانکار نمی‌شود. سفارش اجباری نیست.
+          <br>چک‌لیست فاز ۸ برای صفحهٔ رسید برش (Light/Dark، عرض ~1440 و ~360، RTL، دکمه لمس ۴۴px، چاپ بارکد بدون chrome مرورگر) بعد از overlay ایران به‌صورت دستی باقی است.</li>
         <li>رسید تولید دیگر نرخ دستمزد ثابت ندارد — از عملیات BOM یا نرخ دستمزد ماهانهٔ مرکز هزینه استفاده می‌کند.</li>
+        <li><b>خانه تولید:</b> ورود پیش‌فرض = <b>داشبورد تولید</b> (KPI + نمودار + مسیر ۶ مرحله‌ای + دو مسیر برش/PACK و سفارش تولید). گزارش‌های سریع به <b>مرکز گزارشات تولید</b> هدایت می‌شوند.</li>
+        <li><b>مرکز گزارشات تولید:</b> تولید → گزارشات → مرکز گزارشات. UI اختصاصی PR-13 تا PR-22 (سربار، بهره‌وری، گلوگاه با نوار بار، پیمانکار، سود محصول و …) با فیلتر دوره، جمع کل، و خروجی CSV.</li>
+        <li><b>تابلوی خط (کانبان):</b> کلیک روی کارت سفارش مستقیماً مودال مراحل را باز می‌کند (بدون رفتن به لیست سفارش‌ها).</li>
+        <li><b>منوی تولید:</b> آیتم‌های سایدبار بر اساس مجوز کاربر فیلتر می‌شوند (مثلاً بدون <code>production_reports/view</code> گزارشات پنهان است).</li>
+        <li><b>جستجوی لیست‌ها:</b> بالای هر جدول حسابداری (۳+ ردیف) کادر «جستجو در این لیست» فیلتر سریع متنی دارد.</li>
+        <li><b>سایز برش</b> از کاتالوگ رنگ/سایز همان کالا خوانده می‌شود نه از لیست ثابت ۳۸–۴۸. انبار برش از طاقهٔ انتخاب‌شده است؛ هر انبار نوع مواد اولیه قبول است.</li>
+        <li><b>نرخ دستمزد مسیر:</b> در تب مسیر BOM روش قطعه‌ای/ساعتی/ماهانه و نرخ را بگذارید. اگر نرخ صفر باشد محاسبه بها خطا می‌دهد و به همین تب یا «نرخ سربار مراکز» هدایت می‌شوید.</li>
         <li><b>آنالیز متغیر:</b> ابتدا «حواله مواد» با مصرف واقعی، سپس «رسید». انحراف نرخ/مقدار مواد فقط اطلاعاتی است و سند حسابداری ندارد (ADR-011). برگشت مواد و قفل نوع آنالیز پس از حواله پشتیبانی می‌شود.</li>
+      </ul>
+      <h5>💵 دریافت و پرداخت — نقد / بانک / چک / کارتخوان</h5><ul>
+        <li>در هر فرم، نقد فقط صندوق، واریز فقط بانک، چک بانک+دسته‌چک، کارتخوان فقط ترمینال را نشان می‌دهد (هم‌زمان انتخاب نمی‌شوند).</li>
+        <li>دریافت مشتری با کارتخوان از مسیر <b>وجوه در راه (۱۱۱۸)</b> ثبت می‌شود نه بدهکار بانک؛ تسویه دسته‌ای بعداً به بانک می‌رود.</li>
+        <li>اقساط چندمرحله‌ای روی دریافت مشتری (هر قسط مقصد جدا) و روی دریافت/پرداخت شخص، حساب و هزینه (همان مقصد سربرگ) فعال است.</li>
+      </ul>
+      <h5>🧾 فاکتور فروش — ردیف تجمیعی رنگ×سایز</h5><ul>
+        <li>پس از انتخاب ماتریس، روی فاکتور یک ردیف با <b>تعداد قطعه</b> و خلاصه رنگ/سایز دیده می‌شود. دکمه «ویرایش رنگ / سایز» ماتریس را باز می‌کند. ذخیره همچنان برای هر SKU یک خط با <code>variant_id</code> است.</li>
+        <li>تبدیل پیش‌فاکتور: انتخاب <b>رسمی</b> یا <b>معمولی</b>.</li>
+      </ul>
+      <h5>⚙️ جستجوی تنظیمات و ممیزی مدیر</h5><ul>
+        <li>کادر جستجوی بالای تنظیمات فیلتر دسته‌هاست (فرم HTML نیست تا Enter صفحه را نشکند) و نباید با نام کاربری مرورگر پر شود. با تعویض تب، خودکار پاک می‌شود.</li>
+        <li>تب <b>ممیزی</b> → دکمه <b>حذف و ابطال</b> فقط رویدادهای delete/reverse/void را نشان می‌دهد. روی «جزئیات» کلیک کنید تا متن کامل قبل از حذف را ببینید.</li>
       </ul>
       <h5>🔎 جستجوی سراسری پیشرفته (Ctrl+K)</h5><ul>
         <li>علاوه بر مشتری/محصول/فاکتور، اکنون <b>همهٔ بخش‌ها و زیرمنوهای برنامه</b> (از جمله تمام زیرماژول‌های حسابداری) قابل جستجو و باز شدن مستقیم هستند.</li>
@@ -16605,16 +20348,14 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>
       <div class="tip">در بخش تنظیمات → پیامک، API سرویس پیامکی را وارد کنید تا یادآورها ارسال شوند.</div>`),
     helpSec('📈','پایپ‌لاین فروش',`
-      <p>پایپ‌لاین مسیر تبدیل یک سرنخ به مشتری را دنبال می‌کند.</p>
-      <h5>مراحل پایپ‌لاین</h5><ul>
-        <li><b>سرنخ</b>: اطلاعات اولیه دریافت شده</li>
-        <li><b>تماس</b>: اولین تماس برقرار شده</li>
-        <li><b>پیشنهاد</b>: قیمت یا نمونه ارائه شده</li>
-        <li><b>مذاکره</b>: در حال توافق</li>
-        <li><b>برنده</b>: فروش انجام شد</li>
-        <li><b>ازدست‌رفته</b>: فروش نشد — دلیل را ثبت کنید</li>
+      <p>پایپ‌لاین مسیر تبدیل سرنخ به فروش قطعی است. مرحله فرصت با وضعیت پیگیری (باز/انجام) قاطی نمی‌شود.</p>
+      <h5>مراحل استاندارد</h5><ul>
+        <li><b>سرنخ</b> → <b>واجد شرایط</b> → <b>پیشنهاد / پیش‌فاکتور</b> → <b>مذاکره</b></li>
+        <li><b>سفارش اول</b> با اولین فاکتور معمولی/رسمی؛ <b>تکراری</b> با خرید بعدی</li>
+        <li><b>برنده</b> فقط با اتصال به فاکتور قطعی معتبر</li>
+        <li><b>از دست رفته</b> فقط با دلیل باخت</li>
       </ul>
-      <div class="tip">احتمال خرید (۰-۱۰۰٪) و سطح علاقه‌مندی را دقیق وارد کنید تا گزارش‌های پیش‌بینی دقیق‌تر باشد.</div>`),
+      <div class="tip">کشیدن کارت کانبان پس از تأیید در سرور ذخیره می‌شود. داشبورد CRM همان مراحل را با مبلغ و مبلغ موزون ریال نشان می‌دهد.</div>`),
     helpSec('🛍️','محصولات و موجودی',`
       <p>صفحه <b>محصولات در ERP فقط برای مشاهده و فیلتر</b> است. افزودن، ویرایش، حذف و دسته‌بندی فقط از <b>ماژول حسابداری → کالاها</b> انجام می‌شود.</p>
       <h5>مشاهده در ERP</h5><ul>
@@ -16648,9 +20389,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>درصد تخفیف کل فاکتور را وارد کنید</li>
         <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور رسمی</li>
         <li><b>فاکتور خرید</b> همان الگوی جدول اقلام را دارد (بهای خرید، تخفیف ردیف، انبار مقصد، چک، کرایه، بارکد)</li>
+        <li>فی با جداکنندهٔ هزارگان؛ رنگ/سایز یک خط زیر نام — کلیک برای جزئیات</li>
+        <li>کرایه: نسبت سرشکن روی ردیف؛ عهده خریدار به مبلغ طرف‌حساب می‌آید، عهده فروشنده هزینه است</li>
+        <li>طاقه از انبار خودش کسر می‌شود؛ مانده از رسید خرید (حتی رسید قدیمی بدون مهر دسته) خوانده می‌شود. اگر کالا منفی شود قبل از ذخیره هشدار می‌آید</li>
+        <li>تخفیف کل فاکتور سند حسابداری را تراز نگه می‌دارد — حتی اگر طاقه را از سبد حذف کنید و بقیه را ذخیره کنید</li>
       </ul>
       <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، فیلدهای تخفیف درصدی و مبلغی فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلدها را نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
-      <h5>چاپ</h5><p>از دکمه «چاپ» روی صفحه نمایش فاکتور استفاده کنید. تنها فاکتور چاپ می‌شود، بقیه رابط کاربری پنهان می‌شود.</p>
+      <h5>چاپ</h5><p>دکمه چاپ در لیست و داخل فرم فاکتور است. پیش‌نمایش و چاپ فاکتور با طراحی گرافیکی حرفه‌ای و متودهای روز انجام می‌شود: سربرگ‌های اختصاصی با ۳ قالب (اداری رسمی، ERP مدرن، پرمیوم لوکس)، محاسبهٔ هوشمند «مبلغ به حروف» به ریال، مشخصات کامل خریدار و فروشنده (کد اقتصادی، شناسه/کد ملی، کد پستی، تلفن و نشانی)، جزئیات طرح و رنگ اقلام، جدول شفاف اقلام با اعداد فارسی و تراز استاندارد، و بلوک‌های مهر و امضای طرفین. پشتیبانی از کاغذ A4 و A5 و چاپگرهای حرارتی (۵۸mm و ۸۰mm) با پیش‌نمایش کاملاً متمرکز در وسط صفحه.</p>
+      <h5>تبدیل پیش‌فاکتور</h5><p>دکمهٔ <b>تبدیل به فاکتور</b> موجودی طاقه را <b>قبل از ثبت خروج</b> می‌سنجد. اگر متر کافی نباشد پیام به‌صورت «مانده X، نیاز Y» است (نه مانده منفی بعد از کسر). پیش‌فاکتور اثر انبار ندارد؛ کمبود یعنی همان طاقه در انبار کمتر از مقدار فاکتور است.</p>
       <div class="warn">فاکتورهای رسمی در گزارش درآمد محاسبه می‌شوند. پیش‌فاکتور فقط برای نمایش قیمت است.</div>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>منوی <b>فروش بازاریاب</b> گردش کاتالوگ → سبد → فاکتور است. نمایش کارت کالا دقیقاً مثل قالب <b>کاتالوگ</b> است (نام، کد، گروه، قیمت، موجودی، رنگ، تعداد در پک).</p>
@@ -16680,45 +20426,48 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>`),
     helpSec('💰','حسابداری — ماژول مستقل',`
       <p>با کلیک روی «حسابداری» در منو، وارد یک <b>ماژول کاملاً مستقل</b> می‌شوید: داشبورد و منوی کناری اختصاصی خودش را دارد، جدا از داشبورد اصلی ERP. برای بازگشت، از دکمه «🔙 بازگشت به ERP» بالای منوی کناری آن استفاده کنید.</p>
-      <p>منوی کناری این ماژول <b>آکاردئونی و ماژول‌محور (مدل A)</b> است: هر ماژول (انبار، بانک، کالا، حسابداری، …) سرگروه است و زیر آن سه بخش <b>اطلاعات پایه / عملیات / گزارشات</b> قرار دارد. سرفصل‌ها با کلیک باز/بسته می‌شوند.</p>
+      <p>منوی کناری این ماژول <b>آکاردئونی و ماژول‌محور (مدل A)</b> است: هر ماژول (انبار، بانک، کالا، حسابداری، …) سرگروه است و زیر آن سه بخش <b>اطلاعات پایه / عملیات / گزارشات</b> قرار دارد. با ورود به حسابداری همهٔ سرفصل‌ها <b>بسته‌اند</b>؛ با کلیک باز می‌شوند. انتخاب طرف‌حساب و کالا در فرم‌ها با کادر جستجو (نام، موبایل، کد) است.</p>
       <p>موتور حسابداری به‌صورت خودکار در پس‌زمینه کار می‌کند: با هر فاکتور فروش/خرید، تسویه، برگشت کالا، پرداخت انگیزه، <b>مانده/موجودی اول دوره</b> (اشخاص، چک، بانک) و ورود اکسل، سند حسابداری دوطرفه خودکار ثبت می‌شود. در فهرست اسناد برچسب <b>اتومات</b> / <b>دستی</b> / <b>افتتاحیه</b> نمایش داده می‌شود.</p>
       <p><b>جداول:</b> سرتیتر ستون‌ها دیگر روی ردیف اول نمی‌افتد (sticky داخل جعبه جدول با top:0). در انتهای اکثر لیست‌ها جمع ستون‌های عددی، میانگین قیمت‌ها، و برای بدهکار/بستانکار تفاضل رنگی نمایش داده می‌شود. انتخاب چندتایی + عملیات گروهی (حذف/ابطال) در جداول دارای چک‌باکس فعال است.</p>
       <p><b>دستگاه‌ها و ورود:</b> از تنظیمات سیستم یا امکانات → مدیریت دستگاه‌ها، دستگاه‌های موبایل/ویندوز همگام‌سازی و نشست‌های ورود را ببینید و قطع کنید. هر کاربر همزمان حداکثر <b>یک موبایل + یک دسکتاپ (+ وب)</b>. اپ‌ها Online-First هستند؛ قطع اینترنت → آفلاین محلی + همگام خودکار هنگام وصل.</p>
       <h5>منوی ماژول حسابداری</h5><ul>
         <li><b>داشبورد و دفتر کل (یکپارچه)</b>: آمار کلی، انتخاب حساب و مشاهده گردش دفتر کل، و فهرست دسته‌بندی‌شده کدینگ حساب‌ها با امکان ساخت/ویرایش حساب جدید — همه در یک صفحه</li>
         <li><b>حسابداری کل</b>: صورت سود و زیان کامل و جریان وجوه</li>
-        <li><b>مطالبات مشتریان</b>: نمایش به تفکیک مشتری یا فاکتور، با دکمه ثبت پرداخت</li>
+        <li><b>مطالبات مشتریان</b>: مانده بدهکار از دفتر کل تا تاریخ نوار حسابداری است. بالای صفحه کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) دارد. اگر بعد از هم‌ترازی هنوز اختلافی باشد هشدار می‌آید</li>
         <li><b>عملیات دریافت (پرداخت)</b>: دریافت نقد/چک — انتخاب فاکتور، ثبت چند قسط، واریز به بانک/صندوق. اگر حسابدار اشتباهاً تسویه‌ای را تأیید کرد و بعد آن را از دفتر حذف کرد، وضعیت پرداخت میدانی مربوطه در «حساب من» نماینده به‌طور خودکار به «رد شده» برمی‌گردد (برای حفظ ردپای حسابرسی)</li>
         <li><b>عملیات پرداخت</b>: نمای یکپارچه همه پرداخت‌های خروجی — پرداخت به تأمین‌کننده، پرداخت انگیزه فروش، و پرداخت هزینه عمومی (اجاره، قبض، ...). دکمه «➕ پرداخت جدید» نوع پرداخت را می‌پرسد و فرم مناسب را باز می‌کند؛ هرکدام سند حسابداری خودکار خودش را ثبت می‌کند</li>
-        <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده</li>
+        <li><b>مدیریت چک‌ها</b>: چک‌های دریافتی، سررسیدها و وضعیت وصول — ورود اکسل چک‌های اول دوره با اعتبارسنجی نوع داده. ثبت چک فقط با انتخاب طرف حساب از فهرست اشخاص است؛ نام آزاد پذیرفته نمی‌شود</li>
         <li><b>بانک‌ها</b>: ساخت و مدیریت بانک‌های شرکت بدون محدودیت در تعداد — هر بانک به‌طور خودکار یک حساب دفتر کل مستقل دارد. فیلد <b>موجودی اول دوره</b> سند افتتاحیه خودکار می‌زند</li>
         <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>
         <li><b>صندوق‌های نقدی</b>: ساخت و مدیریت صندوق‌های نقدی شرکت بدون محدودیت در تعداد (مثلاً صندوق فروشگاه، صندوق دفتر مرکزی) — درست مثل بانک‌ها، هر صندوق یک حساب دفتر کل مستقل دارد. در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب صندوق (مثل بانک) اختیاری است</li>
         <li><b>تنخواه گردان</b>: هر صندوق نقدی را می‌توان با گزینه «این صندوق تنخواه‌گردان است» به‌عنوان صندوق تنخواه مشخص کرد تا در این صفحهٔ جداگانه با موجودی زنده نمایش داده شود — دکمهٔ «ثبت هزینه» یک هزینهٔ نقدی از همان صندوق ثبت می‌کند و دکمهٔ «افزایش تنخواه» یک انتقال وجه به آن صندوق انجام می‌دهد</li>
-        <li><b>چک‌های امانی</b>: پیگیری چک‌های دریافتی/پرداختی که صرفاً به‌عنوان امانت/ضمانت نزد ما یا نزد طرف مقابل هستند — <b>در سند حسابداری ثبت نمی‌شوند</b> چون هنوز پول واقعی جابه‌جا نشده. با تغییر وضعیت به «وصول/پرداخت شد»، «مسترد شد» یا «برگشت خورد» فقط وضعیت پیگیری به‌روز می‌شود؛ ثبت واقعی وجه (در صورت وصول) باید جداگانه از «عملیات دریافت» یا «عملیات پرداخت» انجام شود</li>
+        <li><b>چک‌های امانی</b>: پیگیری چک‌های دریافتی/پرداختی که صرفاً به‌عنوان امانت/ضمانت نزد ما یا نزد طرف مقابل هستند — <b>در سند حسابداری ثبت نمی‌شوند</b> چون هنوز پول واقعی جابه‌جا نشده. طرف حساب فقط از فهرست اشخاص با جستجو انتخاب می‌شود (نام آزاد پذیرفته نمی‌شود). با تغییر وضعیت به «وصول/پرداخت شد»، «مسترد شد» یا «برگشت خورد» فقط وضعیت پیگیری به‌روز می‌شود؛ ثبت واقعی وجه (در صورت وصول) باید جداگانه از «عملیات دریافت» یا «عملیات پرداخت» انجام شود</li>
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ) و در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
-        <li><b>فاکتورهای فروش</b>: لیست همه فاکتورهای فروش (پیش‌فاکتور و رسمی) با فیلتر تاریخ و دکمه چاپ، به‌همراه دکمهٔ «فاکتور جدید» — مدیر/حسابدار می‌تواند در فرم فاکتور «کارشناس» را مشخص کند. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
-        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید (موجودی و سند برمی‌گردند). اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
-        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
-        <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس تاریخچه تغییرات موجودی؛ پس از شروع تمیز، ردیف «موجودی اول دوره» برای کالاهای دارای موجودی ثبت می‌شود</li>
+        <li><b>فاکتورهای فروش</b>: در منوی عملیات فقط همین مورد است (فاکتور معمولی / رسمی / پیش‌فاکتور جدا نیستند). نوع فاکتور داخل فرم یا فیلتر لیست انتخاب می‌شود. انبار سربرگ فقط روی ردیف‌های بدون انبار می‌نشیند و اقلام انبار دیگر را حذف نمی‌کند. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> در لیست CRM و حسابداری است، نه با تغییر نوع در ویرایش. اگر کالا ماتریس رنگ×سایز داشته باشد، افزودن به سبد پنجرهٔ انتخاب رنگ/سایز را باز می‌کند و پک = رنگ موجود × سایز موجود است. چاپ جمع اقلام، کرایه و ارزش افزوده را جدا نشان می‌دهد. دکمهٔ <b>افزودن طاقه</b> هر طاقه را یک ردیف کالا می‌کند و فرم فاکتور را نمی‌بندد. پس از ابطال فاکتور، آمار داشبورد حسابداری به‌روز می‌شود.</li>
+        <li><b>فاکتور خرید</b>: ثبت خرید کالا از تأمین‌کننده (نقد/چک/نسیه) — موجودی انبار خودکار افزایش می‌یابد. انبار مقصد سربرگ روی انبار هر ردیف جدید کپی می‌شود. «افزودن طاقه» هر طاقه را یک ردیف کالا می‌کند (هویت طاقه بدون سند دوم). ویرایش پس از ثبت نیست؛ برای اصلاح از دکمهٔ <b>ابطال</b> استفاده کنید. اگر برگشت از خرید یا پرداخت مرتبط فعال باشد، ابتدا آن‌ها را ابطال کنید</li>
+        <li><b>برگشت از خرید</b> و <b>برگشت از فروش</b>: مبتنی بر فاکتور اصلی — ابتدا مشتری/تأمین‌کننده و سپس فاکتور واقعی او انتخاب می‌شود؛ قیمت و تخفیف از همان فاکتور خوانده می‌شود و تعداد برگشتی نمی‌تواند از «تعداد فروخته‌شده/خریداری‌شده منهای برگشتی‌های قبلی» بیشتر باشد. در برگشت خرید، رنگ و شماره طاقه هر ردیف دیده می‌شود و موجودی همان طاقه برمی‌گردد. کاهش/افزایش موجودی انبار و اصلاح حساب طرف مقابل خودکار است</li>
+        <li><b>کاردکس کالا</b>: انتخاب هر محصول و مشاهده گردش کامل ورود/خروج انبار آن با موجودی لحظه‌ای در هر ردیف — بر اساس دفتر موجودی؛ موجودی اول دوره کالا (با بها) هم سند افتتاحیه و هم ردیف دفتر موجودی می‌سازد تا با انبار یکی بماند. پر کردن ردیف‌های قدیمی دفتر موجودی فقط روی سرور مرکزی انجام می‌شود تا دستگاه آفلاین ردیف تکراری نسازد</li>
         <li><b>انبارها</b>: تعریف انبارهای متعدد (بدون محدودیت) و مشاهده لیست کالاهای هر انبار. بعد از حذف همهٔ انبارها، seed پیش‌فرض (کارگاه/تولید) دوباره ساخته نمی‌شود — خودتان انبار جدید بسازید. <span class="muted">هر کالا در این نسخه فقط در یک انبار قرار دارد — موجودی همان عدد کلی محصول است؛ تفکیک موجودی یک کالای واحد بین چند انبار پشتیبانی نمی‌شود.</span></li>
         <li><b>گزارش جامع انبار</b>: فیلتر انبار/جستجو، موجودی تعدادی و ریالی، میانگین بها، ارزش فروش، و خروجی CSV/اکسل</li>
-        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
-        <li><b>دفتر چک</b>: واگذاری/وصول/برگشت + دکمهٔ <b>ابطال کامل</b> که همهٔ اسناد چرخه و افتتاحیه را معکوس می‌کند</li>
+        <li><b>عملیات انبار</b>: <b>رسید انبار</b>، <b>حواله انبار</b> و <b>انتقال بین انبارها</b>. در خطوط سند، کالا را با کد / بارکد / نام / SKU جستجو کنید؛ موجودی قابل‌فروش انبار مبدأ (ATP) کنار هر نتیجه می‌آید. مدیر/حسابداری می‌تواند هر ردیف را با ⛔ <b>ابطال</b> کامل برگرداند (موجودی + سند دسته‌ای مرتبط). ردیف‌های ابطال‌شده از لیست خارج می‌شوند</li>
+        <li><b>دریافت طاقه پارچه:</b> فقط انبار مواد اولیه. موجودی متر از دفتر انبار <b>لحظه‌ای</b> است (فروش و برش همان لحظه کم می‌شود). بها = متر × فی. در فاکتور، طاقه با جستجو انتخاب می‌شود و بیشتر از مانده زنده فروخته نمی‌شود. گزارش <b>گردش طاقه</b> در انبار → گزارشات است</li>
+        <li><b>لایه‌چینی و برش:</b> تولید → عملیات. مارکر × لایه، ماتریس سایز، برداشت از طاقه. ضایعات عادی بدون سند؛ غیرعادی با سند. رسید برش تعداد را به انبار محصول می‌برد. همان متر را در حواله سفارش تولید دوباره نزنید — سیستم قفل می‌کند</li>
+        <li><b>دفتر چک</b>: ثبت چک دریافتنی همان لحظه بستانکار تفصیلی/دفتر طرف حساب می‌شود (گردش شخص و صورت‌حساب مشتری). واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> (از واگذارشده یا وصول‌شده، از جمله چک اول دوره) مبلغ را دوباره به بدهی صورت‌حساب طرف حساب اضافه می‌کند؛ ارسال مجدد سند برگشت را برمی‌گرداند. خرج/ظهرنویسی با ذینفع + <b>ابطال کامل</b></li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
-        <li><b>کالای امانی</b>: پیگیری کالاهایی که مالکیتشان هنوز نهایی نشده — <b>ارسالی</b> (کالای ما نزد دیگران، بلافاصله از موجودی کسر می‌شود) و <b>دریافتی</b> (کالای دیگران نزد ما، به موجودی خودمان اضافه نمی‌شود). با «تسویه» فروش قطعی می‌شود (فاکتور/پرداخت واقعی را جداگانه ثبت کنید) و با «استرداد» کالای ارسالی به موجودی برمی‌گردد</li>
+        <li><b>کالای امانی</b>: شخص از فهرست اشخاص انتخاب می‌شود (نه نام آزاد). <b>ارسالی</b> حواله از انبار می‌زند؛ <b>دریافتی</b> به موجودی ما اضافه نمی‌شود. چهار مسیر تسویه: <b>برگشت</b> (بازگشت به همان انبار)، <b>فروش قطعی</b> (تنها مسیری که فاکتور می‌سازد؛ ارسالی فاکتور امانت‌گیرنده است و سند بهای تمام‌شده می‌زند بدون کسر دوباره موجودی؛ دریافتی نیازمند خریدار جدا از امانت‌گذار است)، <b>خرید قطعی</b> (فقط دریافتی — رسید انبار + سند موجودی/پرداختنی)، <b>کسری</b> (بدون برگشت کالا + سند هزینه). ابطال فیزیکی نیست — ردیف می‌ماند و موجودی/سند معکوس می‌شود</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b> (باید مجموع بدهکار = مجموع بستانکار باشد). هر ردیف می‌تواند به یک <b>کد حساب</b> یا مستقیماً به یک <b>شخص</b> (از ماژول اشخاص) وصل شود — در حالت دوم علاوه بر سند، در دفتر معین همان شخص هم ثبت می‌شود. برای انتخاب حساب، کافیست در کادر «حساب» بخشی از <b>کد یا نام حساب</b> را تایپ کنید تا فهرست فیلتر شود (جستجوی سریع حساب). امکانات دیگر: <b>ذخیره به‌عنوان پیش‌نویس</b> (بدون نیاز به توازن، بعداً قابل ثبت نهایی)، <b>قالب سند</b> برای اسناد تکراری (مثل اجاره ماهانه)، و افزودن <b>پیوست</b> (تصویر/PDF رسید) به هر سند ثبت‌شده. لیست اسناد شامل <b>پرداخت/دریافت به حساب</b> هم هست و دکمهٔ <b>ابطال</b> سند معکوس می‌زند</li>
         <li><b>ابطال کامل (R13)</b>: برای فاکتور فروش/خرید، تسویه، هزینه، انتقال وجه، چک، عملیات انبار، انبارگردانی اعمال‌شده، پرداخت حقوق، افتتاحیه بانک/صندوق و اسناد دستی — ابطال = سند معکوس + برگرداندن موجودی/مانده/وابستگی‌ها (حذف فیزیکی سند ثبت‌شده نیست)</li>
-        <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب و مشاهده گردش با مانده لحظه‌ای</li>
+        <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب با جستجوی کد/نام و مشاهده گردش با مانده لحظه‌ای</li>
+        <li><b>دفتر مالی مشترک</b>: شخص / بانک / صندوق / تنخواه / حساب + خروجی CSV؛ کاردکس کالا از دفتر موجودی جدا</li>
         <li><b>تراز آزمایشی</b>: جمع بدهکار/بستانکار همه حساب‌ها با نشانگر تراز بودن</li>
         <li><b>ترازنامه</b>: دارایی‌ها در برابر بدهی‌ها + حقوق صاحبان سرمایه در یک تاریخ مشخص</li>
         <li><b>کدینگ حساب‌ها</b>: در همان داشبورد یکپارچه — ساخت، ویرایش و <b>حذف</b> حساب (حذف فقط وقتی فرزند و گردش سند و اتصال موجودیت نداشته باشد). هزینه/درآمد عملیاتی با ساختار کل→معین قابل انتخاب در پرداخت هزینه و سند دستی هستند.</li>
         <li><b>تأیید و انگیزه فروش</b>: تأیید فاکتورهای رسمی برای محاسبه انگیزه، و دکمهٔ <b>لغو فاکتور</b> توسط مدیر/حسابداری. لغو همهٔ اثرات را برمی‌گرداند (سند حسابداری، موجودی، انگیزه، تسویه‌های وابسته). اگر فاکتور از پیش‌فاکتور تبدیل شده باشد دوباره به پیش‌فاکتور فعال برمی‌گردد. پس از لغو، پیام داخل‌برنامه با تیتر «فاکتور لغو شده توسط مدیر/حسابداری» و عکس فاکتور ثبت می‌شود. پرداخت انگیزه (💵) و تاریخچه (📜) هم اینجاست.</li>
         <li><b>مراکز هزینه</b>: تعریف واحد/شعبه/خط تولید برای تفکیک هزینه‌ها در گزارش‌های آینده</li>
         <li><b>گروه‌های مشتری (ماهیت حساب)</b>: تعیین اینکه هر گروه از مشتریان «بدهکار» (پیش‌فرض) یا «بستانکار» باشند — فقط مدیر و حسابدار</li>
-        <li><b>صورت‌حساب مشتری</b>: گردش کامل حساب هر مشتری با مانده اول دوره و مانده لحظه‌ای، خروجی اکسل/CSV/PDF و ارسال تصویری به پیام‌رسان</li>
+        <li><b>صورت‌حساب مشتری</b>: گردش کامل حساب هر مشتری (فاکتور نقدی و نسیه، دریافت، افتتاحیه، ثبت/برگشت چک) با مانده اول دوره و مانده لحظه‌ای. فاکتور قطعی همیشه در دفتر مشتری و تفصیلی همان مشتری ثبت می‌شود — نه فقط فاکتور نسیه. خروجی اکسل/CSV/PDF و ارسال تصویری به پیام‌رسان</li>
         <li><b>گزارشات پیشرفته</b>: پنج گزارش تخصصی در یک صفحه —
           <b>سنی مطالبات</b> (تفکیک مطالبات معوق هر مشتری در بازه‌های ۰-۳۰، ۳۱-۶۰، ۶۱-۹۰ و بیش از ۹۰ روز، با تخصیص FIFO دریافتی‌ها به فاکتورها)،
           <b>جریان وجه نقد</b> (طبقه‌بندی عملیاتی / سرمایه‌گذاری / تأمین مالی با ورودی، خروجی و خالص هر بخش)،
@@ -16728,12 +20477,12 @@ helpSec('🔑','لایسنس و entitlement',`
           <span class="muted">گزارش مالیات/ارزش‌افزوده در این نسخه وجود ندارد چون سیستم فعلاً محاسبه مالیات ندارد.</span>
         </li>
         <li><b>تحلیل هزینه تولید</b>: هزینه مواد، دستمزد، سربار (برچسب‌خورده + نرخ ثابت)، بسته‌بندی و ضایعات. تنظیمات سربار در بالای صفحه — با فعال کردن «پیشنهاد خودکار»، اگر فیلد سربار خالی باشد هنگام ثبت تولید خودکار پر می‌شود. دکمه «🔄 پیشنهاد» نیز دستی در دسترس است. انبار مقصد قابل انتخاب است.</li>
-        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان به گروه اشخاص «پرسنل» متصل است — هر شخصی در آن گروه در لیست کارکنان ظاهر می‌شود و کد پرسنلی/جزئیات را دستی تکمیل می‌کنید. گروه کارکنان و ساختار حقوق گروهی در «ساختار حقوق و مزایا» تعریف می‌شود. امکان حذف ردیف‌ها و ثبت دستی حقوق هر ماه در پردازش وجود دارد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند. دکمه «پرداخت» جداگانه وجه را از صندوق/بانک پرداخت می‌کند. تنظیمات کار سالانه (حداقل مزد روزانه و سقف بیمه) در محاسبه حقوق اعمال می‌شود؛ مزایایی که در ساختار حقوق ثبت شده‌اند دوباره از تنظیمات کار اضافه نمی‌شوند. هنگام پردازش دوره، پارامترها در <code>params_json</code> دوره ذخیره می‌شوند. از گزارشات قانونی می‌توان CSV پیش‌نویس (DRAFT) لیست بیمه و مالیات هر دوره را دریافت کرد — فرمت نهایی پس از تأیید متخصص حقوق است.</li>
+        <li><b>حقوق و دستمزد (ساعتی)</b>: پرونده کارکنان با «اطلاعات اشخاص» یکی است — شخص با نقش کارمند یا گروه «پرسنل» در پرونده کارکنان ظاهر می‌شود و برعکس. سمت سازمانی (مثل مدیر تولید) از فهرست «سمت و جایگاه» روی فرم شخص انتخاب می‌شود و جدا از نقش حسابداری است. ثبت/ویرایش پرونده و ساختار حقوق، دوره، پلکان مالیات، تنظیمات قانون کار، پردازش، ورود فراننکو، دسته ماهانه، عیدی/سنوات، ذخیره ماهانه، پرداخت از صندوق/بانک، ابطال پرداخت و ابطال سند فقط با مجوز <code>payroll.create</code> است — نقش حسابداری به‌صورت پیش‌فرض فقط مشاهده دارد مگر مدیر این مجوز را بدهد. با ثبت حقوق، سند حسابداری خودکار ثبت می‌شود. دکمه «ورود از فراننکو» فایل <code>.lwte</code> را می‌خواند.</li>
       </ul>
       <h5>فیلتر زمانی</h5><p>پیش‌فرض <b>ماه جاری</b> است؛ هفته جاری / ماه قبل / همه / بازه دلخواه هم انتخاب می‌شود. جمع‌ها بلافاصله به‌روز می‌شوند.</p>
       <h5>همگام‌سازی</h5><p>دکمه «🔄 همگام‌سازی» (فقط مدیر، در حسابداری کل) اسناد حسابداری همه عملیات گذشته را بدون ایجاد رکورد تکراری بازسازی می‌کند.</p>
       <div class="tip">برای محاسبه درست سود ناخالص، «بهای تمام‌شده» هر محصول را در بخش محصولات وارد کنید.</div>
-      <div class="tip">در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب «بانک» اختیاری است — اگر انتخاب نشود، تراکنش در حساب عمومی صندوق/بانک ثبت می‌شود؛ با انتخاب بانک، دقیقاً همان حساب بانکی در دفتر کل و گزارش‌ها بالا/پایین می‌رود. فیلد «دسته چک» فقط برای چک‌هایی که خودمان صادر می‌کنیم نمایش داده می‌شود.</div>
+      <div class="tip">در فرم دریافت از مشتری، نقد فقط صندوق را نشان می‌دهد و واریز/چک فقط بانک را؛ در ثبت چندقسطی هر قسط مقصد خودش را دارد. در پرداخت به تأمین‌کننده و فاکتور خرید هم انتخاب بانک یا صندوق مسیر سند را مشخص می‌کند. فیلد «دسته چک» فقط برای چک‌هایی که خودمان صادر می‌کنیم نمایش داده می‌شود.</div>
       <div class="warn">ترازنامه سود انباشته را از مجموع درآمد منهای هزینه‌ها از ابتدای فعالیت محاسبه می‌کند (بدون سند اختتامیه دوره‌ای رسمی) — برای کسب‌وکاری در این مقیاس تقریب مناسبی است.</div>
       <h5>موارد عمداً خارج از محدوده این نسخه</h5>
       <p data-csp-style="${CSP.style(`font-size:12px;color:var(--muted);line-height:2`)}">برای حفظ تناسب با مقیاس واقعی این کسب‌وکار (یک تولیدی پوشاک با تیم کوچک)، موارد زیر عمداً پیاده‌سازی نشده‌اند تا به‌جای نسخهٔ ناقص/نمایشی از یک قابلیت، اصلاً ساخته نشوند:</p>
@@ -16748,13 +20497,15 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>بهینه‌سازی برای میلیون‌ها رکورد (کش، صف پردازش، معماری رویدادمحور) — غیرضروری برای این حجم داده</li>
       </ul>`),
     helpSec('📊','گزارشات',`
-      <p>تحلیل عملکرد فروش و کارشناسان.</p><ul>
-        <li><b>گزارش کارشناسان</b>: مقایسه فروش، مشتریان و پیگیری هر نفر</li>
-        <li><b>گزارش مشتریان</b>: بیشترین خرید، آخرین تعامل</li>
-        <li><b>گزارش فاکتور</b>: درآمد دوره، تعداد فاکتور</li>
-        <li><b>فاکتورهای ابطال‌شده در هیچ گزارشی شمرده نمی‌شوند</b> — درآمد، بدهی معوق، برترین مشتریان، روند ماهانه و سود و زیان فقط اسناد زنده را نشان می‌دهند</li>
+      <p>تحلیل راهبردی فروش نسبت به کاربرانی که در سیستم تعریف شده‌اند. اعداد این صفحه <b>زنده‌اند</b> (بدون کش کهنه) و از دفتر فاکتور قطعی خوانده می‌شوند.</p><ul>
+        <li><b>کارت‌ها</b>: فروش کل، تعداد فاکتور قطعی، مشتریان فعال بازه، بدهی معوق، نرخ وصول</li>
+        <li><b>نمودار ماهانه</b>: میله فروش + خط تعداد فاکتور (Chart.js از فایل داخلی برنامه)</li>
+        <li><b>سهم کارشناسان</b>: دونات فروش زنده همان کاربران فعال سیستم</li>
+        <li><b>جدول کارشناسان</b>: نقش، مشتری، سفارش، فروش، بدهی، پیگیری باز، فاکتور</li>
+        <li><b>۱۰ مشتری برتر</b> در همان بازه تاریخ</li>
+        <li><b>فاکتورهای ابطال‌شده در هیچ گزارشی شمرده نمی‌شوند</b></li>
       </ul>
-      <div class="tip">با فیلتر تاریخ، گزارش هر ماه یا فصل را جداگانه ببینید.</div>`),
+      <div class="tip">با فیلتر تاریخ و دکمه «اعمال»، همان لحظه دوباره از سرور خوانده می‌شود.</div>`),
     helpSec('👤','مدیریت کاربران',`
       <p>ساخت و مدیریت حساب‌های کارشناسان از مسیر <b>تنظیمات → کاربران</b> (دیگر در منوی کناری اصلی نیست).</p>
       <h5>نقش‌های کاربری</h5><ul>
@@ -16764,6 +20515,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>کارشناس داخلی (تلفنی)</b>: فروش و پیگیری تلفنی</li>
       </ul>
       <h5>انگیزه فروش</h5><p>درصد انگیزه فروش نقد و چک هر کارشناس را جداگانه تنظیم کنید. پس از ذخیره اولیه، نرخ قفل می‌شود و تغییر آن نیاز به تأیید مدیر دارد.</p>
+      <h5>دعوت امن کاربر از روی شخص</h5><p>پس از ثبت شخص/کارمند، مدیر یا حسابدار از فهرست اشخاص یا فرم شخص دکمه <b>دعوت ورود</b> را می‌زند و <b>نقش ورود را خودش انتخاب می‌کند</b> (پیش‌فرض کارشناس میدانی). <b>مدیر سیستم را نمی‌توان با دعوت ساخت</b>؛ حسابدار فقط توسط مدیر سیستم دعوت می‌شود و حسابدار نمی‌تواند حسابدار دعوت کند. نقش ذخیره‌شده روی دعوت اعمال می‌شود و دعوت‌شونده نمی‌تواند نقش را در پذیرش عوض کند. لینک یک‌بارمصرف با مسیر <code>/invite?token=</code> و اعتبار پیش‌فرض <b>۷۲ ساعت</b> است. توکن تصادفی است و فقط هش آن ذخیره می‌شود — رمز ثابت یا شناخته‌شده ساخته نمی‌شود. دعوت‌شونده خودش نام کاربری و رمز (حداقل ۸ کاراکتر، حرف و عدد) را انتخاب می‌کند و <code>must_change_password</code> صفر می‌ماند. لینک منقضی یا استفاده‌شده رد می‌شود. دعوت فقط روی سرور مرکزی است و به دستگاه‌ها سینک نمی‌شود.</p>
       <h5>رمز موقت و تغییر اجباری</h5><p>رمزی که هنگام ساخت کاربر، ویرایش (فیلد رمز)، یا بازنشانی رمز تعیین می‌کنید <b>موقتی</b> است و باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد — در غیر این صورت ذخیره نمی‌شود. کاربر در اولین ورود به سرور مرکزی مجبور می‌شود رمز شخصی خودش را انتخاب کند. پس از تغییر رمز روی سرور مرکزی، موبایل/دسکتاپ باید آنلاین باشد تا همگام‌سازی هش جدید را بگیرد (بعد از wipe معمولاً pair مجدد لازم است). کاربر پیش‌فرض <code>admin</code> هم تا وقتی رمز کارخانه‌ای دارد، اجازهٔ هیچ کاری جز تغییر رمز ندارد.</p>
       <h5>گروه مشتری و ماهیت حساب</h5><p>در فرم ویرایش هر مشتری (فقط برای مدیر/حسابدار)، می‌توانید مشتری را به یک «گروه مشتری» نسبت دهید. هر گروه یک ماهیت حساب دارد: <b>بدهکار</b> (پیش‌فرض همه مشتریان) یا <b>بستانکار</b> (برای موارد خاص مثل مشتریانی که پیش‌پرداخت کرده‌اند). مدیریت گروه‌ها از داخل ماژول حسابداری → «گروه‌های مشتری» انجام می‌شود.</p>
       <div class="warn">شماره موبایل کارشناس را حتماً وارد کنید تا یادآور پیامکی دریافت کند.</div>`),
@@ -16784,13 +20536,13 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>قالب فاکتور</b>: رسمی / عادی / حرارتی و شخصی‌سازی چاپ</li>
         <li><b>پیام‌رسان</b>: تلگرام، روبیکا، پیامک خوش‌آمد</li>
         <li><b>پیامک</b> و <b>پشتیبان</b>: فقط از داخل تنظیمات (دیگر در منوی کناری اصلی نیستند)</li>
-        <li><b>وب‌سایت</b>: سینک موجودی ووکامرس</li>
-        <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی، ماژول‌ها</li>
-        <li><b>قابلیت‌ها</b>: دستیار هوشمند و پورتال مشتریان</li>
+        <li><b>وب‌سایت</b>: سینک موجودی Site-B2B (SKU) و در صورت نیاز ووکامرس — آزمایش اتصال از همین صفحه</li>
+        <li><b>حسابداری</b>: نگاشت کدینگ، سال مالی، ماژول‌ها — سوییچ ماژول بلافاصله منو را پنهان/نمایش می‌دهد (داده حذف نمی‌شود)</li>
+        <li><b>قابلیت‌ها</b>: Gemini یا Claude برای متن پیشنهادها؛ پورتال مشتریان</li>
         <li><b>ممیزی</b>: گزارش فعالیت کاربران</li>
       </ul>
       <h5>اطلاعات شرکت</h5><p>نام، تلفن و آدرس شرکت که روی فاکتورها چاپ می‌شود.</p>
-      <h5>قالب فاکتور</h5><p>در تنظیمات: <b>رسمی</b> (۳ مدل — کامل/مدرن/پریمیوم) برای فاکتور نهایی؛ <b>عادی ساده</b> به‌صورت ثابت برای پیش‌فاکتور؛ <b>فاکتور حرارتی</b> با عرض چاپگر ۵۸ یا ۸۰ میلی‌متر. موقع چاپ می‌توانید A4، A5 یا حرارتی را انتخاب کنید. شخصی‌سازی: لوگو (بدون بک مشکی)، تخفیف ردیفی، کارشناس فروش + موبایل، پاورقی و …</p>
+      <h5>قالب فاکتور</h5><p>سه مدل رسمی از هم جدا هستند: <b>اداری</b> (سه ستون + جدول سبز)، <b>مدرن ERP</b> (کارت و گرادیان)، <b>پریمیوم</b> (قاب سبز/طلایی). پیش‌فاکتور فقط <b>عادی ساده</b> است. حرارتی ۵۸/۸۰ میلی‌متر. پیش‌نمایش هر مدل در همین صفحه دیده می‌شود. شخصی‌سازی: لوگو بدون بک مشکی، تخفیف ردیفی، کارشناس + موبایل، پاورقی.</p>
       <h5>تلگرام</h5><p>رمز ربات و شناسه گفتگو برای ارسال اعلان‌های سیستمی.</p>
       <h5>پیامک</h5><ul>
         <li><b>کاوه‌نگار</b>: API Key از پنل کاوه‌نگار</li>
@@ -16799,7 +20551,9 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>شماره فرستنده را از پنل سرویس‌دهنده دریافت کنید (برای SMS.ir اختیاری است)</li>
         <li>با دکمه «ارسال پیامک تست»، پیامک خوش‌آمدگویی به شماره دلخواه ارسال و تنظیمات آزمایش می‌شود</li>
         <li><b>متغیرها</b>: جدول کلیدهای فارسی مثل <code>{name}</code>، <code>{amount}</code>، <code>{num}</code> در تنظیمات/پیامک</li>
-        <li><b>قوانین خودکار</b>: برای هر عملیات (تأیید فاکتور، دریافت، پرداخت، ثبت شخص/مشتری) قالب + گروه اشخاص + کاربر + تأخیر دقیقه‌ای</li>
+        <li><b>فهرست رویدادها</b>: همه مسیرهای پیامک سیستم (فاکتور، تبدیل، دریافت، پرداخت، مشتری، شخص، OTP پورتال/ورود، یادآور پیگیری، نماینده، واحد عملیاتی) در یک جدول با وضعیت قالب و قانون</li>
+        <li><b>رویداد سیستمی</b> (OTP، خوش‌آمد، یادآور): همیشه با متن پیش‌فرض می‌رود؛ اگر قانون+قالب فعال باشد همان متن سفارشی جایگزین می‌شود و پیام دوم نمی‌رود</li>
+        <li><b>قوانین خودکار</b>: برای رویدادهای «فقط با قانون» قالب + گروه اشخاص + کاربر + تأخیر دقیقه‌ای؛ بدون قانون فعال پیامک خودکار نمی‌رود</li>
         <li>تأخیر ۰ = فوری؛ بیشتر = پیامک زمان‌بندی‌شده بعد از عملیات</li>
       </ul>
       <h5>دریافت و پرداخت</h5><ul>
@@ -16833,6 +20587,10 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>مقصد off-server: <code dir="ltr">BACKUP_S3_URI</code> (با تأیید download/SHA) یا volume جدا با <code dir="ltr">BACKUP_OFFSITE_DIR</code> — same-VPS کافی نیست</li>
         <li>تأیید بدون بازیابی: <code dir="ltr">npm run backup:verify -- --file …</code>؛ drill ایزوله: <code dir="ltr">npm run backup:weekly-drill</code></li>
         <li>بازیابی واقعی فقط CLI آفلاین با <code dir="ltr">--confirm-offline</code>؛ API آنلاین فقط verify است</li>
+        <li>دکمهٔ «تأیید بسته» پسوند zip/.enc آپلود را نگه می‌دارد تا بررسی واقعاً اجرا شود (جایگزینی دیتابیس نمی‌کند)</li>
+        <li><b>استعلام بها (RFQ):</b> <code dir="ltr">POST /api/rfq</code> با <code>kind=sales|purchase</code>. تأیید سند را سازنده نمی‌تواند بزند (maker-checker). ابطال نرم است نه حذف فیزیکی.</li>
+        <li><b>سفارش/رسید خرید و GRNI:</b> سفارش <code dir="ltr">/api/purchases/orders</code>، رسید <code dir="ltr">/goods-receipts</code> سند بدهکار موجودی / بستانکار <code>2112</code>، فاکتور از رسید <code dir="ltr">/gr-invoices</code> GRNI را می‌بندد. تطبیق سه‌طرفه: <code dir="ltr">POST /api/purchases/three-way-match</code>.</li>
+        <li><b>شعبه:</b> کاربر غیرمدیر فقط اسناد <code>branch_id</code> خودش را می‌بیند. سفارش فروش روی موجودی رزرو می‌گذارد و با حذف سفارش آزاد می‌شود.</li>
         <li><b>رمزنگاری</b>: <code dir="ltr">BACKUP_ENCRYPTION_KEY</code> / رمز تنظیمات؛ بدون رمز، پشتیبان قابل بازیابی نیست</li>
         <li>آپلود تصویر روی سرور به موتور <code dir="ltr">sharp</code> وابسته است؛ اگر موتور در دسترس نباشد پیام خطای مشخص برمی‌گردد و بقیهٔ سیستم کار می‌کند</li>
       </ul>`),
@@ -16866,7 +20624,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v147</b> است و اسکریپت‌ها با <code>?v=147</code> بارگذاری می‌شوند؛ اگر منو/تولید/مودیان قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v186</b> است و اسکریپت‌ها با <code>?v=186</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -17003,7 +20761,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>اظهارنامه ارزش افزوده</b>: گزارش فصلی مالیات فروش/خرید و خالص قابل پرداخت</li>
         <li><b>فصلی ماده ۱۶۹</b>: لیست فاکتورهای فروش و خرید فصل برای ارسال</li>
-        <li><b>صورت جریان وجوه نقد</b>: تفکیک عملیاتی / سرمایه‌گذاری / تأمین مالی از گردش صندوق و بانک</li>
+        <li><b>صورت جریان وجوه نقد</b>: تفکیک عملیاتی / سرمایه‌گذاری / تأمین مالی از گردش <b>همه</b> صندوق‌ها و بانک‌ها. ردیف سند ناقص گزارش را خراب نمی‌کند</li>
         <li><b>داشبورد KPI</b>: DSO، DIO، DPO، چرخه نقد و تمرکز فروش مشتریان</li>
         <li><b>تطبیق بانک</b>: ثبت مانده صورت‌حساب، واردات ردیف‌های صورتحساب (JSON/CSV)، تطبیق خودکار ۱:۱ با مبلغ دقیق و تاریخ ±۱ روز (اطمینان ۱۰۰)، بستن با سند تعدیل فقط از مسیر تأیید/بستن</li>
         <li><b>بودجه‌بندی</b>: تعریف بودجه سالانه و گزارش انحراف بودجه/واقعی</li>
@@ -17012,16 +20770,45 @@ helpSec('🔑','لایسنس و entitlement',`
     helpSec('📒','چرخه عمر چک (دفتر چک)',`
       <p>در <b>عملیات خاص → دفتر چک</b> برای چک‌های دریافتی:</p>
       <ul>
-        <li><b>واگذاری به بانک</b>: از وضعیت ثبت‌شده — سند انتقال به «در جریان وصول»</li>
-        <li><b>وصول</b>: وقتی چک در «جریان وصول» است — بستانکار بانک</li>
-        <li><b>برگشت</b>: ثبت برگشت از بانک</li>
+        <li><b>ثبت</b>: بدهکار اسناد دریافتنی / بستانکار تفصیلی طرف حساب + ردیف دفتر مشتری یا شخص. گردش از همین لحظه به‌روز است</li>
+        <li><b>واگذاری به بانک</b>: بانک وصول + تاریخ. سند بدهکار «در جریان وصول» / بستانکار اسناد دریافتنی. وضعیت «واگذارشده». بعد از آن وصول و برگشت روی همان ردیف فعال است. چک اول دوره هم همین چرخه را دارد. اگر چک قدیمی بدون سند شخص باشد، همین‌جا گردش شخص هم پر می‌شود</li>
+        <li><b>خرج / ظهرنویسی</b>: ذینفع از تأمین‌کننده یا اشخاص. بدهکار پرداختنی ذینفع / بستانکار اسناد دریافتنی + ردیف دفتر تأمین‌کننده</li>
+        <li><b>وصول</b>: وقتی چک در «جریان وصول» است — بدهکار بانک / بستانکار در جریان وصول (جابه‌جایی دارایی؛ ماندهٔ شخص از ثبت چک کم شده)</li>
+        <li><b>برگشت</b>: از «جریان وصول» یا «وصول‌شده» — بدهکار تفصیلی طرف حساب / بستانکار در جریان وصول یا بانک وصول. مبلغ به بدهی صورت‌حساب مشتری (و گردش شخص) برمی‌گردد؛ چک اول دوره هم همین سند را می‌زند چون افتتاحیهٔ چک روی حساب افتتاحیه بوده نه روی مشتری</li>
+        <li><b>ارسال مجدد</b>: پس از برگشت — معکوس سند برگشت و بازگشت به وضعیت قبلی چرخه؛ بدهی اضافه‌شده از صورت‌حساب برداشته می‌شود</li>
+      </ul>
+      <p>برای چک‌های پرداختی (منوی <b>چک‌های پرداختی</b>، پیش‌فرض فقط جهت پرداختی):</p>
+      <ul>
+        <li><b>پرداخت / تحویل</b>: از ثبت‌شده — بدهکار حساب‌های پرداختنی، بستانکار اسناد پرداختنی</li>
+        <li><b>خرج چک</b>: از ثبت‌شده — بدهکار هزینه (پیش‌فرض هزینه اداری؛ کلید حساب از نگاشت کدینگ)، بستانکار اسناد پرداختنی</li>
+        <li>چک اول دوره پرداختنی سند افتتاحیه دارد و دوباره پرداخت/خرج نمی‌شود. طرف حساب چک اول دوره هم از فهرست اشخاص جستجو و انتخاب می‌شود</li>
+      </ul>
+      <div class="tip">هر گذار چرخه فقط یک‌بار سند می‌زند (تکرار = خطای سند تکراری). تغییر وضعیت با متن آزاد برای گذارهای مالی مسدود است. <b>ابطال کامل</b> همهٔ اسناد چرخه و افتتاحیه را در یک تراکنش معکوس می‌کند (حذف فیزیکی نیست).</div>`),
+    helpSec('💳','کارتخوان (POS)',`
+      <p>منوی حسابداری <b>دستگاه‌های کارت‌خوان</b> دیگر روی حافظه مرورگر نیست؛ پایانه‌ها، دریافت‌ها و تسویه دسته‌ای در پایگاه ذخیره می‌شوند.</p>
+      <ul>
+        <li><b>تعریف پایانه:</b> نام، شماره پایانه یکتا، شناسه پذیرنده اختیاری، و <b>بانک فعال</b> از فهرست (نام + شماره حساب). بدون بانک فعال ذخیره نمی‌شود. حذف فیزیکی نیست — غیرفعال می‌شود.</li>
+        <li><b>دریافت:</b> مبلغ به حساب <b>وجوه در راه کارتخوان</b> می‌رود، نه بانک. اگر فاکتور پیوند شود مثل تسویه مشتری از همان حساب در راه اعمال می‌شود؛ بدون فاکتور/مشتری بستانکار فروش است.</li>
+        <li><b>تسویه دسته‌ای:</b> ناخالص منهای کارمزد و کسری به حساب بانک پایانه می‌رود؛ کارمزد و کسری هزینه جدا. تأیید همان ثبت حسابدار/مدیر است. دریافت می‌تواند جزئی در چند دسته بیاید.</li>
+        <li><b>گزارش کارتخوان:</b> منوی بانک و صندوق ← گزارشات. فیلتر تاریخ، پایانه، بانک، وضعیت و «فقط مغایرت». جمع مانده باز با حساب <b>وجوه در راه</b> و خالص تسویه با سند بانک باید صفر اختلاف باشد. اگر یک دسته چند پایانه داشته باشد، فیلتر پایانه سهم همان پایانه از سند تسویه را می‌سنجد (نه کل دسته). جدول حداکثر ۸۰۰ دریافت / ۵۰۰ دسته نشان می‌دهد ولی جمع‌ها و آشتی دفتر کامل است. خروجی CSV همان جمع‌ها را می‌نویسد.</li>
+        <li><b>ابطال:</b> دریافت یا دسته، همهٔ اسناد و اثر فاکتور را در یک تراکنش برمی‌گرداند؛ ردیف با وضعیت «ابطال‌شده» می‌ماند. کلید تکراری مشتری = خطای تکراری.</li>
+        <li>فقط مدیر و حسابداری؛ فروشنده میدانی دسترسی تغییر ندارد. جداول روی دستگاه‌های حسابداری همگام می‌شوند.</li>
+        <li><b>طاقه پارچه (ADR-007 Accepted):</b> فقط انبار مواد اولیه. کالای آماده فروش بدون Lot/Serial/قفسه. دریافت از منوی انبار ← دریافت طاقه. لایه‌چینی و برش در تولید → عملیات است؛ رسید برش / PACK کالای آماده را بدون Lot به انبار محصول می‌برد.</li>
       </ul>`),
     helpSec('📡','سلامت سرویس و پشتیبانی',`
-      <p><code dir="ltr">/api/system/health</code> زنده بودن فرایند را نشان می‌دهد؛ <code dir="ltr">/api/system/ready</code> آمادگی دیتابیس را بررسی می‌کند. هر درخواست هدر <code dir="ltr">X-Request-Id</code> دارد (برای پیگیری لاگ). متای پشتیبانی در <code dir="ltr">/api/support/meta</code> است — تیکتینگ داخل برنامه فعلاً فعال نیست و از کانال خارجی سازمان استفاده می‌شود.</p>`)
+      <p>ورود به سامانه اگر سرور در حال راه‌اندازی مجدد باشد (به‌روزرسانی یا کمبود لحظه‌ای) چند بار به‌صورت خودکار تلاش می‌کند و پیام دقیق می‌دهد؛ لازم نیست فوراً صفحه را ببندید.</p>
+      <p><code dir="ltr">/api/system/health</code> زنده بودن فرایند را نشان می‌دهد؛ <code dir="ltr">/api/system/ready</code> آمادگی دیتابیس را بررسی می‌کند. اگر ready برابر ۵۰۳ با کد <code>STARTING</code> یا <code>RESTARTING</code> باشد، چند ثانیه صبر کنید. هر درخواست هدر <code dir="ltr">X-Request-Id</code> دارد (برای پیگیری لاگ). متای پشتیبانی در <code dir="ltr">/api/support/meta</code> است — تیکتینگ داخل برنامه فعلاً فعال نیست و از کانال خارجی سازمان استفاده می‌شود.</p>`)
   ].join('');
 }
 function renderSalesGuide(){
   return [
+    helpSec('🎯','نسخه نمایشی',`
+      <p>دو سطح نمایش جدا از هم وجود دارد — با هم وصل نمی‌شوند:</p>
+      <ul>
+        <li><b>نمایش ایستا</b> (<code>/demo.html</code>): همان ظاهر برنامه از آخرین منو — از جمله شل کامل <b>حسابداری</b> (<code>acc-nav.js</code>). دادهٔ ساختگی فقط داخل مرورگر. سازنده: <b>شرکت ترانه اندیشه پردازان ریان</b>.</li>
+        <li><b>حالت تعاملی</b>: همان برنامه روی پایگاه ایزوله؛ نشان «نسخه نمایشی» و واترمارک «داده‌ها واقعی نیستند». برخی عملیات حساس مسدود است.</li>
+      </ul>
+      <p>داده‌های نسخه نمایشی واقعی نیستند و برای جلسهٔ فروش ساخته شده‌اند.</p>`),
     helpSec('🚀','شروع کار',`
       <p>خوش آمدید! این راهنما به شما کمک می‌کند از سیستم ERP ترنم استفاده کنید.</p>
       <h5>اولین ورود</h5><p>اگر رمز شما را مدیر تعیین کرده باشد، در اولین ورود پنجرهٔ «تغییر اجباری رمز عبور» باز می‌شود: باید رمز شخصی جدیدی (حداقل ۸ کاراکتر، شامل حرف و عدد) انتخاب کنید تا بتوانید کار کنید. این رمز را فقط خودتان می‌دانید.</p>
@@ -17033,8 +20820,11 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">صفحه داشبورد آمار شخصی شما را نشان می‌دهد: تعداد مشتری، فروش کل و پیگیری‌های باز. روی موبایل داشبورد و فرم‌ها مینیمال تک‌ستونه هستند تا متن بریده نشود و لمس آسان باشد.</div>
       <div class="tip">در فیلدهای عددی (مبلغ، موبایل، تاریخ و...) لازم نیست زبان صفحه‌کلید را عوض کنید — رقم فارسی همان لحظه به انگلیسی تبدیل می‌شود.</div>
-      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v147</b> است.</div>`),
+      <div class="tip">اگر ظاهر برنامه قدیمی ماند: Ctrl+Shift+R (Hard Refresh). نسخه وب فعلی Service Worker <b>v195</b> است. راهنما داخل حسابداری: امکانات → راهنما.</div>
+      <div class="tip">اگر هنگام ورود پیام «در حال راه‌اندازی» دیدید، چند ثانیه صبر کنید — سامانه خودش چند بار تلاش می‌کند. بستن صفحه لازم نیست.</div>
+      <div class="tip">مانده لیست مشتریان، داشبورد و صورت‌حساب از تفصیلی همان مشتری است. فاکتور نقدی هم در مانده دیده می‌شود. اگر هنوز عدد قدیمی دیدید یک‌بار Hard Refresh بزنید.</div>`),
     helpSec('👥','کار با مشتریان',`
+      <h5>مانده و ماهیت</h5><p>ستون بدهکار/بستانکار ماندهٔ <b>خالص</b> همان مشتری است (تفاضل گردش بدهکار و بستانکار). ماهیت از علامت مانده زنده می‌آید، نه از نام گروه. در جمع پایین جدول و کارت‌های داشبورد، ماندهٔ بدهکاران با ماندهٔ بستانکاران <b>جمع نمی‌شود</b> — تفاضل گرفته می‌شود و سمت بزرگ‌تر ماهیت ماندهٔ خالص است.</p>
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
       <h5>ثبت مشتری جدید</h5><ul>
         <li>دکمه «مشتری جدید» را بزنید</li>
@@ -17047,7 +20837,7 @@ function renderSalesGuide(){
         <li>مشتریانی که مدیر ساخته و به شما تخصیص داده فقط برای مشاهده و پیگیری/فاکتور هستند.</li>
         <li>مانده حساب را نمی‌توانید تغییر دهید.</li>
       </ul>
-      <h5>تاریخچه مشتری</h5><p>روی دکمه «تاریخچه» کنار هر مشتری کلیک کنید تا همه پیگیری‌ها، فاکتورها و تسویه‌های آن مشتری را ببینید.</p>
+      <h5>تاریخچه مشتری</h5><p>روی دکمه «تاریخچه» کنار هر مشتری کلیک کنید تا همه پیگیری‌ها، فاکتورها و تسویه‌های آن مشتری را ببینید. اگر چک دریافتی (حتی چک اول دوره) برگشت بخورد، مبلغ دوباره به بدهی صورت‌حساب او اضافه می‌شود.</p>
       <div class="tip">وضعیت مشتری را به‌روز نگه دارید: VIP، فعال، پیگیری، خاموش.</div>`),
     helpSec('📞','ثبت پیگیری',`
       <p>بعد از هر تماس با مشتری، حتماً یک پیگیری ثبت کنید.</p>
@@ -17062,31 +20852,39 @@ function renderSalesGuide(){
       </ol>
       <div class="tip">اگر ساعت دقیق هم وارد کنید، پیامک یادآور ۱ ساعت قبل از آن ساعت ارسال می‌شود. بدون ساعت، پیامک ساعت ۸ صبح فرستاده می‌شود.</div>`),
     helpSec('📈','پایپ‌لاین فروش',`
-      <p>پایپ‌لاین نشان می‌دهد هر مشتری در چه مرحله‌ای از خرید است.</p>
+      <p>پایپ‌لاین نشان می‌دهد هر فرصت در چه مرحله‌ای از خرید است. وضعیت پیگیری (باز/انجام) با مرحله قاطی نمی‌شود.</p>
       <h5>مراحل</h5><ul>
-        <li><b>سرنخ</b>: اطلاعات گرفتید ولی تماس نگرفتید</li>
-        <li><b>تماس</b>: اول تماس برقرار شده</li>
-        <li><b>پیشنهاد</b>: قیمت یا نمونه دادید</li>
-        <li><b>مذاکره</b>: دارید توافق می‌کنید</li>
-        <li><b>برنده</b>: خرید انجام شد</li>
-        <li><b>ازدست‌رفته</b>: نخرید — دلیلش را ثبت کنید تا یاد بگیرید</li>
+        <li><b>سرنخ</b> → <b>واجد شرایط</b> → <b>پیشنهاد</b> → <b>مذاکره</b></li>
+        <li><b>سفارش اول / برنده / تکراری</b> پس از فاکتور قطعی</li>
+        <li><b>از دست رفته</b> فقط با دلیل باخت</li>
+      </ul>
+      <div class="tip">کشیدن کارت در کانبان پس از تأیید، مرحله را در سرور ذخیره می‌کند. داشبورد CRM همان مراحل را با مبلغ و مبلغ موزون ریال نشان می‌دهد. کارشناس فقط دادهٔ خودش را می‌بیند.</div>`),
+    helpSec('📉','داشبورد CRM',`
+      <p>از منو <b>پیگیری CRM → داشبورد و گزارش‌های CRM</b> قیف، روند فروش قطعی، پایپ‌لاین، عملکرد و اقدامات فوری را ببینید.</p>
+      <ul>
+        <li>اعداد از دادهٔ واقعی است و واحد همه مبالغ <b>ریال</b> است</li>
+        <li>پیش‌فاکتور فروش قطعی نیست؛ فاکتور ابطال‌شده در KPI نمی‌آید</li>
+        <li>فیلتر تاریخ/مرحله را اعمال کنید؛ کلیک روی کارت جزئیات همان شاخص را باز می‌کند</li>
+        <li>شما فقط مشتریان و فروش خودتان را می‌بینید</li>
       </ul>`),
     helpSec('🧾','صدور فاکتور',`
       <h5>مراحل</h5><ol>
         <li>از منو «فاکتور» را باز کنید</li>
         <li>«فاکتور جدید» را بزنید</li>
         <li>مشتری را انتخاب کنید</li>
-        <li>محصولات را از کاتالوگ جستجو و اضافه کنید — مدیر/حسابدار می‌توانند با «➕ ساخت کالای جدید» در همان صفحه کالا بسازند</li>
+        <li>برای فاکتور قطعی (معمولی/رسمی) ابتدا <b>انبار مبدأ</b> را انتخاب کنید؛ بدون انبار سرور ثبت را رد می‌کند. انبار سربرگ فقط روی کالای بدون انبار می‌نشیند؛ ردیف انبار دیگر حذف نمی‌شود</li>
+        <li>محصولات را از کاتالوگ جستجو و اضافه کنید. اگر کالا رنگ×سایز دارد، پنجرهٔ تو در تو باز می‌شود و هر ترکیب یک ردیف می‌شود. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند و صفحهٔ فاکتور باز می‌ماند</li>
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
-        <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور</li>
-        <li>ذخیره کنید و در صورت نیاز چاپ بگیرید</li>
+        <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است. اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
+        <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ چاپ از لیست یا دکمه داخل فرم است و فرم را نمی‌بندد. ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب را می‌پرسد. پیش‌نمایش A4/A5 وسط صفحه و هم‌عرض کاغذ است. طاقهٔ خریداری‌شده با متر زنده همان طاقه فروخته می‌شود</li>
+        <li>رنگ و سایز یک خط زیر نام کالاست؛ برای جزئیات روی همان خط بزنید</li>
       </ol>
       <div class="warn">پیش‌فاکتور برای نمایش قیمت است. فاکتور رسمی برای ثبت فروش قطعی.</div>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>از منو «فروش بازاریاب»: کاتالوگ با همان قالب صفحه کاتالوگ، افزودن به سبد، سپس ثبت فاکتور. ترتیب نمایش کالاها از بیشترین موجودی به کمترین است.</p>
       <ul>
-        <li>هر بار «افزودن به سبد» = <b>تعداد در پک</b> آن کالا (مثلاً اگر پک ۶ باشد، ۶ عدد به فاکتور می‌رود)</li>
+        <li>هر بار «افزودن به سبد» = اگر ماتریس رنگ×سایز باشد پنجرهٔ انتخاب رنگ باز می‌شود؛ وگرنه <b>تعداد در پک</b> آن کالا</li>
         <li>اگر دکمه ثبت فاکتور غیرفعال بود، از مدیر بخواهید دسترسی «فاکتورها → ایجاد» را باز کند</li>
       </ul>`),
     helpSec('💬','پیام‌ها',`
@@ -17112,6 +20910,8 @@ function renderSalesGuide(){
         <li>تعداد پیگیری‌های باز</li>
       </ul>
       <div class="tip">برای دیدن جزئیات بیشتر، از بخش «گزارشات» (فقط مدیر) درخواست دهید.</div>`),
+    helpSec('🧾','مطالبات و صورت‌حساب',`
+      <p>مانده بدهکار/بستانکار مشتریان از <b>دفتر کل</b> تا تاریخ نوار حسابداری خوانده می‌شود. بالای صفحهٔ مطالبات کادر <b>جستجو طرف حساب</b> (نام فروشگاه، مالک، موبایل، کارشناس) هست. انتخاب مشتری/کالا/طاقه در فرم‌ها با همان کادر جستجو است. موجودی طاقه لحظه‌ای است و گزارش گردش طاقه در انبار → گزارشات است.</p>`),
     helpSec('📴','کار آفلاین (نسخه ویندوز/اندروید)',`
       <p>در برنامه دسکتاپ و اندروید، همه کارها (ثبت مشتری، فاکتور، پیگیری و...) <b>بدون اینترنت</b> هم انجام می‌شود و به محض اتصال، خودکار با سرور مرکزی همگام می‌شود.</p>
       <ul>
@@ -17907,6 +21707,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   await syncServerTime();
   // B2B portal deep link (#portal) — customers land here directly
   if(location.hash==='#portal'){ openB2BPortal(); return; }
+  if(typeof maybeShowInviteAccept==='function' && maybeShowInviteAccept()) return;
   // Show the portal link on the staff login page only when the feature is
   // enabled on the central server (app-info is public, returns no secrets)
   fetch('/api/system/app-info').then(r=>r.json()).then(info=>{

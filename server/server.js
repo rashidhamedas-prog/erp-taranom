@@ -11,17 +11,31 @@ const { sendSMS } = require('./sms');
 const { hashKey } = require('./routes/api_keys');
 const { runBackup, listBackups, resolveBackupFile, getLatestBackupFile, getBackupHealth } = require('./backup');
 const { assertSecurityConfig } = require('./lib/security');
+const { assertDemoBoot, refreshMaintenanceFlag, isDemoMode } = require('./lib/demo-mode');
+try {
+  assertDemoBoot();
+} catch (e) {
+  console.error('DEMO BOOT FAILED:', e && e.message ? e.message : 'invalid demo config');
+  process.exit(1);
+}
+const { firmSaleTypeSql } = require('./lib/sales-document');
 const { getSmsSettings } = require('./lib/secret-settings');
 const {
   requestIdMiddleware,
   checkDbReady,
   jsonLog,
 } = require('./lib/observability');
+const bootGate = require('./lib/boot-gate');
 
 const app = express();
 app.set('trust proxy', 1); // trust Nginx reverse proxy
 const PORT = process.env.PORT || 3000;
 const securityConfig = assertSecurityConfig();
+function resolveListenHost() {
+  if (isDemoMode() && process.env.ERP_DEMO_BIND_PUBLIC !== 'true') return '127.0.0.1';
+  return process.env.LISTEN_HOST || '0.0.0.0';
+}
+let httpServer;
 
 // Request correlation id + access log (method/path/status only — no bodies/secrets)
 app.use(requestIdMiddleware);
@@ -167,7 +181,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
     if (filePath.endsWith('assetlinks.json')) {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-cache');
-    } else if (/(?:^|[\\/])(?:app|acc-nav|tbl-enhance|prod-ui|portal-ui|i18n|marketer-ui|mdi|boot|csp-runtime|barcode-input)\.js$/i.test(filePath)
+    } else if (/(?:^|[\\/])(?:app|acc-nav|tbl-enhance|prod-ui|portal-ui|i18n|marketer-ui|mdi|boot|csp-runtime|barcode-input|net-resilience)\.js$/i.test(filePath)
       || /(?:^|[\\/])(?:app|prod-ui)\.css$/i.test(filePath)) {
       // App shells + CSS must not stick on stale browser/CDN cache (query ?v= alone is not enough behind some proxies)
       res.setHeader('Cache-Control', 'no-store, must-revalidate');
@@ -189,7 +203,7 @@ app.set('internalReplayToken', INTERNAL_REPLAY_TOKEN);
 // General API rate limit (generous — protects against runaway loops)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 1000, standardHeaders: true, legacyHeaders: false,
-  skip: (req) => req.headers['x-internal-replay'] === INTERNAL_REPLAY_TOKEN
+  skip: (req) => req.headers['x-internal-replay'] === INTERNAL_REPLAY_TOKEN || bootGate.isProbeRequest(req)
 });
 app.use('/api', limiter);
 
@@ -201,6 +215,7 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'تعداد تلاش‌های ورود بیش از حد مجاز است. ۱۵ دقیقه دیگر تلاش کنید.' },
   skipSuccessfulRequests: true,
+  skip: () => !bootGate.canServe(),
 });
 const otpSendLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -225,6 +240,7 @@ app.post('/api/auth/2fa/recovery-code', otpVerifyLimiter);
 app.post('/api/b2b/auth/otp', otpSendLimiter);
 app.post('/api/b2b/auth/otp/verify', otpVerifyLimiter);
 app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/invite', authLimiter);
 app.use('/api/auth/forgot', authLimiter);
 app.use('/api/auth/forgot-reset', authLimiter);
 app.use('/api/auth/2fa/verify', authLimiter);
@@ -242,11 +258,62 @@ app.use('/api/admin/backup-restore', heavyLimiter);
 const { requestGuard: companyRequestGuard } = require('./lib/company-switch-guard');
 app.use('/api', companyRequestGuard);
 
+// Liveness/readiness before schema init. Kernel can accept TCP during initDB
+// instead of returning connection-refused (Cloudflare 521 / browser Failed to fetch).
+app.get('/api/system/health', (req, res) => {
+  const demo = refreshMaintenanceFlag();
+  const st = bootGate.state();
+  res.json({
+    ok: true,
+    role: isDevice() ? 'device' : 'central',
+    platform: process.env.APP_PLATFORM || (isDevice() ? 'device' : 'web'),
+    version: process.env.APP_VERSION || '0',
+    demo: !!demo.enabled,
+    maintenance: !!(demo.enabled && demo.maintenance),
+    starting: st.code === 'STARTING',
+    restarting: st.code === 'RESTARTING',
+  });
+});
+app.get('/api/system/ready', (req, res) => {
+  const demo = refreshMaintenanceFlag();
+  if (demo.enabled && demo.maintenance) {
+    res.set('Retry-After', '2');
+    return res.status(503).json({ ok: false, ready: false, demo: true, maintenance: true, code: 'MAINTENANCE' });
+  }
+  if (!bootGate.canServe()) {
+    const st = bootGate.state();
+    res.set('Retry-After', '2');
+    return res.status(503).json({
+      ok: false,
+      ready: false,
+      code: st.code,
+      error: bootGate.startingMessage(st.code),
+    });
+  }
+  if (checkDbReady(getDB)) {
+    return res.status(200).json({ ok: true, ready: true });
+  }
+  jsonLog({
+    level: 'error',
+    msg: 'readiness_failed',
+    requestId: req.requestId,
+  });
+  res.set('Retry-After', '2');
+  return res.status(503).json({ ok: false, ready: false, code: 'DB_NOT_READY' });
+});
+app.use('/api', bootGate.middleware);
+
+httpServer = app.listen(PORT, resolveListenHost(), () => {
+  console.log(`ERP ترنم نسخه ۳ روی پورت ${PORT} در حال راه‌اندازی`);
+});
+
 initDB();
 
 // License entitlement: after expiry+grace (or clock rollback) → read-only safe mode.
 const { licenseGuard } = require('./lib/license/middleware');
 app.use('/api', licenseGuard);
+const { demoGuard } = require('./middleware/demo-guard');
+app.use('/api', demoGuard);
 
 // Mirror active company display name from settings → registry (central only)
 if (!isDevice()) {
@@ -267,10 +334,12 @@ if (isDevice()) {
   app.use(captureMiddleware);
 }
 
+app.use('/api/demo', require('./routes/demo'));
 app.use('/api/sync', require('./routes/sync'));
 app.use('/api/license', require('./routes/license'));
 app.use('/api/auth/2fa', require('./routes/twofa'));
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/users', require('./routes/user-invitations'));
 app.use('/api/ai', require('./routes/ai'));
 app.use('/api/search', require('./routes/search'));
 app.use('/api/notifications', require('./routes/notifications'));
@@ -281,6 +350,7 @@ app.use('/api/rbac', require('./routes/rbac'));
 app.use('/api/b2b', require('./routes/b2b'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/followups', require('./routes/followups'));
+app.use('/api/crm', require('./routes/crm'));
 app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/product-variants', require('./routes/product-variants'));
@@ -331,18 +401,27 @@ const backupUpload = multer({
 });
 app.post('/api/admin/backup-restore', auth, adminOnly, centralOnlyStrict, backupUpload.single('backup'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایل پشتیبان الزامی است' });
+  const uploaded = req.file.path;
+  const orig = String(req.file.originalname || 'backup.zip');
+  const ext = /\.zip\.enc$/i.test(orig) ? '.zip.enc'
+    : /\.tar\.gz\.enc$/i.test(orig) ? '.tar.gz.enc'
+    : /\.tar\.gz$/i.test(orig) ? '.tar.gz'
+    : (path.extname(orig) || '.zip');
+  const named = uploaded + ext;
   try {
+    if (named !== uploaded) fs.renameSync(uploaded, named);
     const { verifyBackupPackage } = require('./backup');
-    const result = verifyBackupPackage(req.file.path);
-    audit(req.user.id, 'backup_verify', 'system_backup', null, req.file.originalname || 'uploaded backup', req);
-    try { fs.unlinkSync(req.file.path); } catch { /* */ }
+    const result = verifyBackupPackage(named);
+    audit(req.user.id, 'backup_verify', 'system_backup', null, orig, req);
+    try { fs.unlinkSync(named); } catch { /* */ }
     res.json({
       success: true,
       data: result,
       message: 'تأیید بسته پشتیبان موفق بود — بازیابی واقعی فقط با CLI آفلاین (restore-backup.js) پس از توقف سرویس',
     });
   } catch (e) {
-    try { fs.unlinkSync(req.file.path); } catch { /* */ }
+    try { fs.unlinkSync(named); } catch { /* */ }
+    try { fs.unlinkSync(uploaded); } catch { /* */ }
     res.status(400).json({ error: e.message || 'تأیید پشتیبان ناموفق' });
   }
 });
@@ -356,7 +435,12 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/sms-module', require('./routes/sms-module'));
 app.use('/api/reps', require('./routes/rep-management'));
 app.use('/api/accounting', require('./routes/accounting'));
+app.use('/api/ledgers', require('./routes/ledgers'));
 app.use('/api/suppliers', require('./routes/suppliers'));
+app.use('/api/rfq', require('./routes/rfq')); // RFQ sales/purchase
+app.use('/api/branches', require('./routes/branches'));
+// three-way match + maker-checker / sod_ / segregation of duties
+app.use('/api/purchases', require('./routes/procurement')); // PO / GR / GRNI / 3-way match
 app.use('/api/purchases', require('./routes/purchases'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/banks', require('./routes/banks'));
@@ -374,6 +458,7 @@ app.use('/api/fx', require('./routes/fx'));
 app.use('/api/person-positions', require('./routes/person-positions'));
 app.use('/api/pricing-rules', require('./routes/pricing-rules'));
 app.use('/api/consignments', require('./routes/consignments'));
+app.use('/api/pos', require('./routes/pos'));
 app.use('/api/adv-reports', require('./routes/adv-reports'));
 app.use('/api/portal', require('./routes/portal'));
 app.use('/api/bank-reconciliation', require('./routes/bank-reconciliation'));
@@ -385,6 +470,7 @@ app.use('/api/production/boms', require('./routes/production-boms'));
 app.use('/api/production/orders', require('./routes/production-orders'));
 app.use('/api/production/cost-centers', require('./routes/production-cost-centers'));
 app.use('/api/production/execution', require('./routes/production-execution'));
+app.use('/api/production/cutting-lays', require('./routes/production-cutting'));
 app.use('/api/production/mrp', require('./routes/production-mrp'));
 app.use('/api/production', require('./routes/production-access'));
 app.use('/api/production', require('./routes/production'));
@@ -415,29 +501,6 @@ app.get('/api/system/integrity-check/last-result', authMw, adminOnlyMw, (req, re
   const { getDB } = require('./db');
   const data = getLastIntegrityResult(getDB());
   res.json({ success: true, data });
-});
-
-// Lightweight health check — used by Android WebView boot poll (liveness; no DB)
-app.get('/api/system/health', (req, res) => {
-  res.json({
-    ok: true,
-    role: isDevice() ? 'device' : 'central',
-    platform: process.env.APP_PLATFORM || (isDevice() ? 'device' : 'web'),
-    version: process.env.APP_VERSION || '0',
-  });
-});
-
-// Readiness — SQLite must answer SELECT 1 (load balancers / ops probes)
-app.get('/api/system/ready', (req, res) => {
-  if (checkDbReady(getDB)) {
-    return res.status(200).json({ ok: true, ready: true });
-  }
-  jsonLog({
-    level: 'error',
-    msg: 'readiness_failed',
-    requestId: req.requestId,
-  });
-  return res.status(503).json({ ok: false, ready: false });
 });
 
 // Support meta stub (P2-M4 thin) — external ticketing only; no in-app product
@@ -597,7 +660,22 @@ async function runTimedFollowupSMS() {
     for (const f of followups) {
       if (!f.uid || !f.user_phone) continue;
       const text = `یادآور پیگیری (۱ ساعت دیگر)\n\n• ${f.cust_biz || '-'}${f.cust_owner ? ' - ' + f.cust_owner : ''}\nساعت پیگیری: ${targetTime}`;
-      const result = await sendSMS(settings, f.user_phone, text);
+      let result;
+      try {
+        const { dispatchSmsOrFallback } = require('./lib/sms-dispatch');
+        result = await dispatchSmsOrFallback(db, 'followup.reminder', {
+          phone: f.user_phone,
+          name: f.cust_owner || f.cust_biz,
+          biz: f.cust_biz,
+          note: f.subject || f.note || '',
+          date: today,
+          status: targetTime,
+          tracking: f.id,
+          user_id: f.uid,
+        }, text);
+      } catch (_) {
+        result = await sendSMS(settings, f.user_phone, text);
+      }
       db.prepare('UPDATE followups SET sms_sent=1 WHERE id=?').run(f.id);
       logSMS(db, f.uid, f.cust_id, f.user_phone, text, result.ok ? 'sent' : 'failed');
       console.log(`📱 SMS ۱ ساعت قبل از پیگیری ${f.id} (ساعت ${targetTime}): ${result.ok ? 'ارسال شد' : 'خطا'}`);
@@ -644,7 +722,7 @@ function runActiveToFollowupCheck() {
     const customers = db.prepare("SELECT * FROM customers WHERE status='active'").all();
     let updated = 0;
     for (const c of customers) {
-      const lastInv = db.prepare("SELECT created_at FROM invoices WHERE cust_id=? AND type='final' ORDER BY created_at DESC LIMIT 1").get(c.id);
+      const lastInv = db.prepare(`SELECT created_at FROM invoices WHERE cust_id=? AND ${firmSaleTypeSql()} ORDER BY created_at DESC LIMIT 1`).get(c.id);
       if (!lastInv || lastInv.created_at < cutoff) {
         db.prepare("UPDATE customers SET status='followup' WHERE id=?").run(c.id);
         updated++;
@@ -661,7 +739,7 @@ function runActiveToFollowupCheck() {
 // customer statuses on a schedule, or run the tar-based backup — those are
 // central responsibilities, and running them per-device would duplicate SMS
 // sends and create diverging automated edits that fight the sync engine.
-if (!isDevice()) {
+if (!isDevice() && !isDemoMode()) {
   // Daily at 08:00: batch SMS + silent customer check + active→followup + rep alerts
   cron.schedule('0 8 * * *', () => {
     runFollowupSMSBatch();
@@ -755,18 +833,36 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   res.status(status).json({ error: msg });
 });
 
-app.listen(PORT, process.env.LISTEN_HOST || '0.0.0.0', () => {
-  console.log(`ERP ترنم نسخه ۳ روی پورت ${PORT} اجرا شد`);
-  if (process.env.APP_PLATFORM === 'android' && process.env.DB_PATH) {
-    try {
-      const ready = path.join(path.dirname(process.env.DB_PATH), 'server.ready');
-      fs.writeFileSync(ready, String(Date.now()));
-    } catch (e) { console.error('server.ready write failed:', e.message); }
+bootGate.markReady();
+console.log(`ERP ترنم نسخه ۳ روی پورت ${PORT} آماده است`);
+if (typeof process.send === 'function') {
+  try { process.send('ready'); } catch (_) { /* not under PM2 */ }
+}
+if (process.env.APP_PLATFORM === 'android' && process.env.DB_PATH) {
+  try {
+    const ready = path.join(path.dirname(process.env.DB_PATH), 'server.ready');
+    fs.writeFileSync(ready, String(Date.now()));
+  } catch (e) { console.error('server.ready write failed:', e.message); }
+}
+if (isDevice()) {
+  // Offline-first device: background sync loop (push outbox → pull changes)
+  const { startClientLoop } = require('./sync/client');
+  startClientLoop(parseInt(process.env.SYNC_INTERVAL_MS) || 60000);
+  console.log('🔄 حالت دستگاه آفلاین فعال است — همگام‌سازی خودکار با سرور مرکزی');
+}
+
+function beginDrain(signal) {
+  jsonLog({ level: 'info', msg: 'shutdown', signal: String(signal || '') });
+  bootGate.markDraining();
+  const done = () => {
+    try { process.exit(0); } catch (_) { /* */ }
+  };
+  if (httpServer && typeof httpServer.close === 'function') {
+    httpServer.close(done);
+  } else {
+    done();
   }
-  if (isDevice()) {
-    // Offline-first device: background sync loop (push outbox → pull changes)
-    const { startClientLoop } = require('./sync/client');
-    startClientLoop(parseInt(process.env.SYNC_INTERVAL_MS) || 60000);
-    console.log('🔄 حالت دستگاه آفلاین فعال است — همگام‌سازی خودکار با سرور مرکزی');
-  }
-});
+  setTimeout(() => process.exit(1), 8000).unref();
+}
+process.once('SIGINT', () => beginDrain('SIGINT'));
+process.once('SIGTERM', () => beginDrain('SIGTERM'));

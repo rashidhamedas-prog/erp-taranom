@@ -10,7 +10,7 @@ const {
   savePeriodParamsSnapshot,
   loadPeriodParamsSnapshot,
 } = require('../lib/payroll/schema');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
 const {
@@ -90,7 +90,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
   res.json(rows);
 });
 
-router.post('/', auth, adminOrAccounting, (req, res) => {
+router.post('/', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const { recId, grossPay, netPay, person } = createPayrollRecord(db, req.user.id, req.body);
@@ -189,7 +189,7 @@ router.post('/farankenou/preview', auth, adminOrAccounting, lwteUpload.single('f
 });
 
 // Commit approved Farankenou rows → payroll records + journal entries
-router.post('/farankenou/commit', auth, adminOrAccounting, (req, res) => {
+router.post('/farankenou/commit', auth, requirePermission('payroll', 'create'), (req, res) => {
   const { period_label, date, rows } = req.body;
   if (!Array.isArray(rows) || !rows.length) {
     return res.status(400).json({ error: 'حداقل یک ردیف برای ثبت انتخاب کنید' });
@@ -256,11 +256,15 @@ router.get('/employees', auth, adminOrAccounting, (req, res) => {
        OR NULLIF(TRIM(p.employee_no),'') IS NOT NULL
        OR p.employee_group_id IS NOT NULL
        OR (pg.name IS NOT NULL AND pg.name LIKE '%پرسنل%')
+       OR (p.party_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM parties pt WHERE pt.id=p.party_id
+              AND (pt.party_roles LIKE '%"employee"%' OR pt.party_roles LIKE '%employee%')
+          ))
     ORDER BY p.active DESC, p.name
   `).all());
 });
 
-router.post('/employees', auth, adminOrAccounting, (req, res) => {
+router.post('/employees', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const b = req.body || {};
@@ -275,21 +279,25 @@ router.post('/employees', auth, adminOrAccounting, (req, res) => {
       if (exists) throw new Error('کد پرسنلی تکراری است');
     }
     const staffGid = ensurePersonnelPartyGroup(db);
-    const id = db.prepare(`
-      INSERT INTO persons
-        (name,personnel_code,employee_no,first_name,last_name,national_id,insurance_id,tax_id,
-         employment_type,salary_type,hire_date,termination_date,tax_exemption_type,insurance_type,
-         department,bank_iban,party_group_id,employee_group_id,monthly_salary_rial,active)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
-    `).run(
-      name, personnelCode || null, personnelCode || null, firstName, lastName, b.national_id || '',
-      b.insurance_id || '', b.tax_id || '', b.employment_type || 'monthly',
-      b.employment_type || 'monthly', b.hire_date || '', b.termination_date || null,
-      b.tax_exemption_type || 'none', b.insurance_type || 'sso',
-      b.department || '', b.bank_iban || '', staffGid,
-      b.employee_group_id ? Number(b.employee_group_id) : null,
-      Math.max(0, Math.round(Number(b.monthly_salary_rial) || 0))
-    ).lastInsertRowid;
+    const id = db.transaction(() => {
+      const newId = db.prepare(`
+        INSERT INTO persons
+          (name,personnel_code,employee_no,first_name,last_name,national_id,insurance_id,tax_id,
+           employment_type,salary_type,hire_date,termination_date,tax_exemption_type,insurance_type,
+           department,bank_iban,party_group_id,employee_group_id,monthly_salary_rial,active)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)
+      `).run(
+        name, personnelCode || null, personnelCode || null, firstName, lastName, b.national_id || '',
+        b.insurance_id || '', b.tax_id || '', b.employment_type || 'monthly',
+        b.employment_type || 'monthly', b.hire_date || '', b.termination_date || null,
+        b.tax_exemption_type || 'none', b.insurance_type || 'sso',
+        b.department || '', b.bank_iban || '', staffGid,
+        b.employee_group_id ? Number(b.employee_group_id) : null,
+        Math.max(0, Math.round(Number(b.monthly_salary_rial) || 0))
+      ).lastInsertRowid;
+      try { require('../lib/party-employee-sync').ensurePersonParty(db, newId); } catch (_) {}
+      return newId;
+    })();
     audit(req.user.id, 'create', 'employee', id, `ایجاد کارمند ${name}`);
     res.json({ ok: true, id });
   } catch (e) {
@@ -297,7 +305,7 @@ router.post('/employees', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.put('/employees/:id', auth, adminOrAccounting, (req, res) => {
+router.put('/employees/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const current = db.prepare('SELECT * FROM persons WHERE id=?').get(req.params.id);
@@ -314,25 +322,28 @@ router.put('/employees/:id', auth, adminOrAccounting, (req, res) => {
       if (dup) throw new Error('کد پرسنلی تکراری است');
     }
     const staffGid = current.party_group_id || ensurePersonnelPartyGroup(db);
-    db.prepare(`
-      UPDATE persons SET name=?,personnel_code=?,employee_no=?,first_name=?,last_name=?,
-        national_id=?,insurance_id=?,tax_id=?,employment_type=?,salary_type=?,hire_date=?,
-        termination_date=?,tax_exemption_type=?,insurance_type=?,department=?,bank_iban=?,
-        party_group_id=?,employee_group_id=?,monthly_salary_rial=?,active=?
-      WHERE id=?
-    `).run(
-      name, personnelCode || null, personnelCode || null, firstName, lastName,
-      b.national_id ?? current.national_id ?? '', b.insurance_id ?? current.insurance_id ?? '',
-      b.tax_id ?? current.tax_id ?? '', b.employment_type ?? current.employment_type ?? 'monthly',
-      b.employment_type ?? current.employment_type ?? 'monthly', b.hire_date ?? current.hire_date ?? '',
-      b.termination_date ?? current.termination_date, b.tax_exemption_type ?? current.tax_exemption_type ?? 'none',
-      b.insurance_type ?? current.insurance_type ?? 'sso', b.department ?? current.department ?? '',
-      b.bank_iban ?? current.bank_iban ?? '', staffGid,
-      b.employee_group_id != null ? (b.employee_group_id ? Number(b.employee_group_id) : null) : current.employee_group_id,
-      b.monthly_salary_rial != null ? Math.max(0, Math.round(Number(b.monthly_salary_rial) || 0)) : (current.monthly_salary_rial || 0),
-      b.active == null ? current.active : (b.active ? 1 : 0),
-      req.params.id
-    );
+    db.transaction(() => {
+      db.prepare(`
+        UPDATE persons SET name=?,personnel_code=?,employee_no=?,first_name=?,last_name=?,
+          national_id=?,insurance_id=?,tax_id=?,employment_type=?,salary_type=?,hire_date=?,
+          termination_date=?,tax_exemption_type=?,insurance_type=?,department=?,bank_iban=?,
+          party_group_id=?,employee_group_id=?,monthly_salary_rial=?,active=?
+        WHERE id=?
+      `).run(
+        name, personnelCode || null, personnelCode || null, firstName, lastName,
+        b.national_id ?? current.national_id ?? '', b.insurance_id ?? current.insurance_id ?? '',
+        b.tax_id ?? current.tax_id ?? '', b.employment_type ?? current.employment_type ?? 'monthly',
+        b.employment_type ?? current.employment_type ?? 'monthly', b.hire_date ?? current.hire_date ?? '',
+        b.termination_date ?? current.termination_date, b.tax_exemption_type ?? current.tax_exemption_type ?? 'none',
+        b.insurance_type ?? current.insurance_type ?? 'sso', b.department ?? current.department ?? '',
+        b.bank_iban ?? current.bank_iban ?? '', staffGid,
+        b.employee_group_id != null ? (b.employee_group_id ? Number(b.employee_group_id) : null) : current.employee_group_id,
+        b.monthly_salary_rial != null ? Math.max(0, Math.round(Number(b.monthly_salary_rial) || 0)) : (current.monthly_salary_rial || 0),
+        b.active == null ? current.active : (b.active ? 1 : 0),
+        req.params.id
+      );
+      try { require('../lib/party-employee-sync').ensurePersonParty(db, Number(req.params.id)); } catch (_) {}
+    })();
     audit(req.user.id, 'update', 'employee', req.params.id, `ویرایش کارمند ${personnelCode || name}`);
     res.json({ ok: true });
   } catch (e) {
@@ -340,7 +351,7 @@ router.put('/employees/:id', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/employees/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/employees/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const row = db.prepare('SELECT * FROM persons WHERE id=?').get(req.params.id);
@@ -367,7 +378,7 @@ router.get('/employee-groups', auth, adminOrAccounting, (req, res) => {
   `).all());
 });
 
-router.post('/employee-groups', auth, adminOrAccounting, (req, res) => {
+router.post('/employee-groups', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const name = String(req.body?.name || '').trim();
@@ -381,7 +392,7 @@ router.post('/employee-groups', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.put('/employee-groups/:id', auth, adminOrAccounting, (req, res) => {
+router.put('/employee-groups/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const row = db.prepare('SELECT * FROM employee_groups WHERE id=?').get(req.params.id);
@@ -398,7 +409,7 @@ router.put('/employee-groups/:id', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/employee-groups/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/employee-groups/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const members = db.prepare('SELECT COUNT(*) c FROM persons WHERE employee_group_id=?').get(req.params.id).c;
@@ -425,7 +436,7 @@ router.get('/group-salary-structures', auth, adminOrAccounting, (req, res) => {
   `).all(...params));
 });
 
-router.post('/group-salary-structures', auth, adminOrAccounting, (req, res) => {
+router.post('/group-salary-structures', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const b = req.body || {};
@@ -467,7 +478,7 @@ router.post('/group-salary-structures', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/group-salary-structures/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/group-salary-structures/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     db.prepare('DELETE FROM group_salary_structures WHERE id=?').run(req.params.id);
@@ -478,7 +489,7 @@ router.delete('/group-salary-structures/:id', auth, adminOrAccounting, (req, res
   }
 });
 
-router.delete('/salary-structures/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/salary-structures/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     db.prepare('UPDATE salary_structures SET active=0 WHERE id=?').run(req.params.id);
@@ -489,7 +500,7 @@ router.delete('/salary-structures/:id', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/periods/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/periods/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const period = db.prepare('SELECT * FROM payroll_periods WHERE id=?').get(req.params.id);
@@ -505,7 +516,7 @@ router.delete('/periods/:id', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/tax-brackets/:year', auth, adminOrAccounting, (req, res) => {
+router.delete('/tax-brackets/:year', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const year = Number(req.params.year);
@@ -517,7 +528,7 @@ router.delete('/tax-brackets/:year', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/year-end/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/year-end/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const row = db.prepare('SELECT * FROM payroll_year_end_bonuses WHERE id=?').get(req.params.id);
@@ -538,7 +549,7 @@ router.get('/periods', auth, adminOrAccounting, (req, res) => {
   res.json(db.prepare(`SELECT * FROM payroll_periods ${where} ORDER BY fiscal_year DESC,month_no DESC`).all(...params));
 });
 
-router.post('/periods', auth, adminOrAccounting, (req, res) => {
+router.post('/periods', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const b = req.body || {};
@@ -579,7 +590,7 @@ router.get('/salary-structures', auth, adminOrAccounting, (req, res) => {
   `).all(...params));
 });
 
-router.post('/salary-structures', auth, adminOrAccounting, (req, res) => {
+router.post('/salary-structures', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const b = req.body || {};
@@ -628,7 +639,7 @@ router.get('/tax-brackets/:year', auth, adminOrAccounting, (req, res) => {
   `).all(Number(req.params.year)));
 });
 
-router.put('/tax-brackets/:year', auth, adminOrAccounting, (req, res) => {
+router.put('/tax-brackets/:year', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const year = Number(req.params.year);
@@ -747,7 +758,7 @@ router.post('/calculate', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/process', auth, adminOrAccounting, (req, res) => {
+router.post('/process', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const periodId = Number(req.body.period_id);
@@ -901,7 +912,7 @@ router.get('/year-end', auth, adminOrAccounting, (req, res) => {
   `).all(...params));
 });
 
-router.post('/year-end/calculate', auth, adminOrAccounting, (req, res) => {
+router.post('/year-end/calculate', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const year = Number(req.body.fiscal_year);
@@ -951,7 +962,7 @@ router.post('/year-end/calculate', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/year-end/:id/post', auth, adminOrAccounting, (req, res) => {
+router.post('/year-end/:id/post', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const row = db.prepare(`
@@ -1010,7 +1021,7 @@ router.get('/legal-reports', auth, adminOrAccounting, (req, res) => {
   res.json({ fiscal_year: Number.isInteger(year) ? year : null, rows, totals });
 });
 
-router.post('/:id/pay', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/pay', auth, requirePermission('payroll', 'create'), (req, res) => {
   const { pay_type, bank_id, cash_box_id, date } = req.body;
   const db = getDB();
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
@@ -1043,7 +1054,7 @@ router.post('/:id/pay', auth, adminOrAccounting, (req, res) => {
 });
 
 /** Reverse payroll payment JE (R13) — restores unpaid so accrual can then be voided. */
-router.post('/:id/void-payment', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/void-payment', auth, requirePermission('payroll', 'create'), (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
@@ -1077,7 +1088,7 @@ router.post('/:id/void-payment', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/:id', auth, requirePermission('payroll', 'create'), (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM payroll_records WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
@@ -1125,7 +1136,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 // Monthly salary batch — persons with salary_type=monthly
-router.post('/monthly-batch', auth, adminOrAccounting, (req, res) => {
+router.post('/monthly-batch', auth, requirePermission('payroll', 'create'), (req, res) => {
   const db = getDB();
   const { period_label, date, person_ids } = req.body;
   const period = period_label || todayJalali().slice(0, 7);
@@ -1162,7 +1173,7 @@ router.get('/labor-settings/:year', auth, adminOrAccounting, (req, res) => {
   res.json(row || { year, min_wage_daily_rial: 0, housing_allowance_rial: 0, food_allowance_rial: 0 });
 });
 
-router.put('/labor-settings/:year', auth, adminOrAccounting, (req, res) => {
+router.put('/labor-settings/:year', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const year = parseInt(req.params.year, 10);
@@ -1222,7 +1233,7 @@ function monthlyAccrualAmounts(db, personId, year, laborSettings) {
   };
 }
 
-router.post('/accruals/monthly', auth, adminOrAccounting, (req, res) => {
+router.post('/accruals/monthly', auth, requirePermission('payroll', 'create'), (req, res) => {
   try {
     const db = getDB();
     const periodLabel = req.body.period_label || todayJalali().slice(0, 7);

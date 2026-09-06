@@ -39,10 +39,18 @@ function costingMethod(db, opts = {}) {
 
 function nextTxNo(db) {
   try {
-    const { allocateNumber } = require('../../db');
+    const { allocateNumber, isDevice } = require('../../db');
+    // دستگاه‌ها ردیف‌های مرکز را pull می‌کنند (tx_no مرکزی INV-xxxx)؛ شمارندهٔ
+    // محلی با آن‌ها تصادم می‌کند — مثل شماره فاکتور، شمارهٔ موقت یکتا بده.
+    // بعد از replay روی مرکز، شماره واقعی همان‌جا صادر و pull می‌شود.
+    if (typeof isDevice === 'function' && isDevice()) {
+      return 'موقت-INV-' + Date.now().toString(36).toUpperCase() + '-'
+        + Math.random().toString(36).slice(2, 7).toUpperCase();
+    }
     return allocateNumber(db, 'inventory_tx', 'INV');
   } catch (_) {
-    return 'INV-' + Date.now().toString(36).toUpperCase();
+    return 'INV-' + Date.now().toString(36).toUpperCase()
+      + '-' + Math.random().toString(36).slice(2, 7).toUpperCase();
   }
 }
 
@@ -164,7 +172,8 @@ function applyMovingAverageIn(db, productId, qtyIn, amountRial, qtyBefore, avgBe
  * @param {number} [opts.unitCostRial]  for inbound; outbound defaults to current avg
  * @param {number} [opts.amountRial]    override total
  * @param {boolean} [opts.updateAvg=true]
- * @param {boolean} [opts.skipStock=false]  ledger-only (rare)
+ * @param {boolean} [opts.skipStock=false]  ledger-only: no warehouse_stock/products.stock
+ *   and no stock_logs (opening/backfill already have qty on those tables)
  */
 function postInventoryMovement(db, opts) {
   const {
@@ -264,8 +273,9 @@ function postInventoryMovement(db, opts) {
 
   const ledgerId = result.lastInsertRowid;
 
-  // Keep legacy stock_logs in sync for old kardex consumers (skip value-only)
-  if (!valueOnly && delta !== 0) {
+  // Keep legacy stock_logs in sync for old kardex consumers.
+  // skipStock (opening/backfill) must not invent a second kardex row.
+  if (!valueOnly && !skipStock && delta !== 0) {
     db.prepare(
       'INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)'
     ).run(productId, createdBy, delta, note || eventType);

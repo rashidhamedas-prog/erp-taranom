@@ -1,6 +1,6 @@
 const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const router = require('express').Router();
-const { getDB, audit, createLedgerEntry, allocateNumber, isDevice, resolveCashAccount } = require('../db');
+const { getDB, audit, allocateNumber, isDevice } = require('../db');
 const { acct, coaMode } = require('../lib/coa-map');
 const { calcDocTotals } = require('../lib/vat');
 const { postToLedger } = require('../lib/ledger');
@@ -11,16 +11,17 @@ const { reverseCommissionAccrual } = require('../lib/rep-ledger');
 const { voidInvoiceFully } = require('../lib/void-invoice');
 const { sendSecureHtml } = require('../lib/secure-html-response');
 const { listQueryPlan, listResponse } = require('../lib/pagination');
-
-// دریافتنیِ این مشتری: تفصیلی خودش (coa_code) وگرنه حساب کنترلی نگاشت‌شده
-function receivableAcct(db, custId) {
-  const c = db.prepare('SELECT coa_code FROM customers WHERE id=?').get(custId);
-  if (c && c.coa_code) {
-    const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(c.coa_code);
-    if (a) return a;
-  }
-  return acct(db, 'coa_receivable');
-}
+const {
+  normalizeInvoiceType, isFirmSale, invoiceTypeLabel,
+  assertJournalIdempotent, assertWarehouseLines,
+  applyHeaderWarehouseToLines, requireFirmHeaderWarehouse,
+  postSaleStockMovements, postCogsFromMovements, perpetualDocsEnabled,
+  autoApproveNormalInvoice, allocateFreight, applyFreightToDocTotals,
+  isFabricRollLine,
+} = require('../lib/sales-document');
+const {
+  salesJournalLines, postInvoiceCustomerLedger,
+} = require('../lib/customer-books');
 
 // سند بهای تمام‌شده: Dr بهای تمام‌شده / Cr موجودی هر کالا (با feature_cogs_voucher).
 function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
@@ -56,57 +57,6 @@ const { auth, adminOnly, requirePermission } = require('../middleware/auth');
 const { todayJalali, addDaysToJalali } = require('../jalali');
 const notif = require('../lib/notifications');
 
-function salesJournalLines(db, custId, totals, reverse, opts = {}) {
-  const payType = opts.payType || 'credit';
-  const bankId = opts.bankId || null;
-  const cashBoxId = opts.cashBoxId || null;
-  const recv = payType === 'credit'
-    ? receivableAcct(db, custId)
-    : resolveCashAccount(db, payType === 'bank_transfer' ? 'bank' : payType, bankId, cashBoxId);
-  const sales = acct(db, 'coa_sales');
-  const salesDisc = acct(db, 'coa_sales_discount');
-  const vatPay = acct(db, 'coa_vat_payable');
-  const otherIncome = (() => { try { return acct(db, 'coa_other_income'); } catch { return sales; } })();
-  const { discAmt, final, vatAmount, netBeforeVat } = totals;
-  const L = rialToLedger;
-
-  // Split product vs income row credits (Update 11 / I4)
-  let incomeCredit = 0;
-  const incomeBuckets = new Map();
-  for (const r of opts.rows || []) {
-    if (r.row_type === 'income') {
-      const code = r.income_coa || otherIncome.code;
-      const name = r.name || otherIncome.name;
-      const amt = Math.round(Number(r.sum) || 0);
-      incomeCredit += amt;
-      const prev = incomeBuckets.get(code) || { code, name, amt: 0 };
-      prev.amt += amt;
-      incomeBuckets.set(code, prev);
-    }
-  }
-  const productCredit = Math.max(0, Math.round(Number(netBeforeVat) || 0) - incomeCredit);
-
-  if (!reverse) {
-    const jLines = [{ code: recv.code, name: recv.name, debit: L(final), credit: 0 }];
-    if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: L(discAmt), credit: 0, description: 'تخفیف فاکتور' });
-    if (productCredit > 0) jLines.push({ code: sales.code, name: sales.name, debit: 0, credit: L(productCredit) });
-    for (const b of incomeBuckets.values()) {
-      if (b.amt > 0) jLines.push({ code: b.code, name: b.name, debit: 0, credit: L(b.amt), description: 'درآمد/خدمات' });
-    }
-    if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: 0, credit: L(vatAmount), description: 'مالیات بر ارزش افزوده' });
-    return jLines;
-  }
-  const jLines = [];
-  if (productCredit > 0) jLines.push({ code: sales.code, name: sales.name, debit: L(productCredit), credit: 0, description: 'ابطال' });
-  for (const b of incomeBuckets.values()) {
-    if (b.amt > 0) jLines.push({ code: b.code, name: b.name, debit: L(b.amt), credit: 0, description: 'ابطال درآمد' });
-  }
-  if (vatAmount > 0) jLines.push({ code: vatPay.code, name: vatPay.name, debit: L(vatAmount), credit: 0, description: 'ابطال VAT' });
-  if (discAmt > 0) jLines.push({ code: salesDisc.code, name: salesDisc.name, debit: 0, credit: L(discAmt), description: 'ابطال تخفیف' });
-  jLines.push({ code: recv.code, name: recv.name, debit: 0, credit: L(final) });
-  return jLines;
-}
-
 function getScope(req) {
   // Accounting staff see all invoices (read scope) — needed for the Sales
   // Invoices list inside the Accounting module, same as customers.js's getScope.
@@ -114,6 +64,30 @@ function getScope(req) {
   if (req.user.role === 'admin' && req.query.user_id) return parseInt(req.query.user_id);
   if (seesAll) return null;
   return req.user.id;
+}
+
+function canViewInvoice(req, inv) {
+  if (!inv) return false;
+  const role = req.user && req.user.role;
+  if (role === 'admin' || role === 'accounting' || role === 'sales_manager') return true;
+  return Number(inv.user_id) === Number(req.user.id);
+}
+
+const INVOICE_JOIN_SQL = `SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone,
+            u.name as salesperson
+     FROM invoices i
+     LEFT JOIN customers c ON i.cust_id=c.id
+     LEFT JOIN users u ON i.user_id=u.id`;
+
+function loadInvoiceRow(db, key) {
+  const raw = String(key == null ? '' : key).trim();
+  if (!raw || raw === 'undefined' || raw === 'null') return null;
+  const asId = parseInt(raw, 10);
+  if (Number.isFinite(asId) && String(asId) === raw) {
+    const byId = db.prepare(`${INVOICE_JOIN_SQL} WHERE i.id=?`).get(asId);
+    if (byId) return byId;
+  }
+  return db.prepare(`${INVOICE_JOIN_SQL} WHERE i.num=?`).get(raw) || null;
 }
 
 function getSetting(db, key) {
@@ -184,6 +158,24 @@ function buildRows(db, inputRows, canDiscount) {
     const sum = Math.max(0, Math.round(gross - discAmt));
     subtotal += sum;
     const wh = r.warehouse_id ? parseInt(r.warehouse_id, 10) : null;
+    let variantId = r.variant_id ? parseInt(r.variant_id, 10) : null;
+    let colorId = r.color_id ? parseInt(r.color_id, 10) : null;
+    let sizeId = r.size_id ? parseInt(r.size_id, 10) : null;
+    let colorName = String(r.color_name || r.color || '').trim();
+    let sizeName = String(r.size_name || '').trim();
+    if (variantId && pid) {
+      try {
+        const v = require('../lib/product-variants').getVariant(db, variantId);
+        if (v && Number(v.product_id) === Number(pid)) {
+          colorId = v.color_id || colorId;
+          sizeId = v.size_id || sizeId;
+          colorName = v.color_name || colorName;
+          sizeName = v.size_name || sizeName;
+        } else {
+          variantId = null;
+        }
+      } catch (_) { variantId = null; }
+    }
     out.push({
       product_id: pid,
       row_type: rowType,
@@ -198,33 +190,21 @@ function buildRows(db, inputRows, canDiscount) {
       warehouse_id: wh || null,
       income_coa: incomeCoa,
       allocated_freight: 0,
+      batch_id: r.batch_id ? parseInt(r.batch_id, 10) : null,
+      is_fabric_roll: r.is_fabric_roll ? 1 : 0,
+      color: colorName || String(r.color || '').trim(),
+      pattern: String(r.pattern || '').trim(),
+      width_cm: Math.round(Number(r.width_cm) || 0),
+      roll_no: String(r.roll_no || '').trim(),
+      unit_cost_rial: Math.round(Number(r.unit_cost_rial) || 0),
+      variant_id: variantId || null,
+      color_id: colorId || null,
+      size_id: sizeId || null,
+      color_name: colorName,
+      size_name: sizeName,
     });
   }
   return { rows: out, subtotal };
-}
-
-/** Allocate freight onto product rows (Update 11 / I3). method: amount|qty|equal */
-function allocateFreight(rows, freightAmount, method) {
-  const freight = Math.round(Number(freightAmount) || 0);
-  if (freight <= 0) return rows;
-  const targets = rows.filter(r => r.row_type !== 'income' && r.product_id);
-  if (!targets.length) return rows;
-  const m = method === 'qty' || method === 'equal' ? method : 'amount';
-  let weights;
-  if (m === 'equal') weights = targets.map(() => 1);
-  else if (m === 'qty') weights = targets.map(r => Number(r.qty) || 0);
-  else weights = targets.map(r => Number(r.sum) || 0);
-  const totalW = weights.reduce((a, b) => a + b, 0);
-  if (totalW <= 0) return rows;
-  let allocated = 0;
-  targets.forEach((r, i) => {
-    const share = i === targets.length - 1
-      ? freight - allocated
-      : Math.round(freight * weights[i] / totalW);
-    allocated += share;
-    r.allocated_freight = share;
-  });
-  return rows;
 }
 
 function resolveRowWarehouseId(db, row, headerWarehouseId) {
@@ -259,6 +239,25 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
     if (!prod) return `محصول شناسه ${r.product_id} یافت نشد`;
     const whId = resolveRowWarehouseId(db, r, warehouseId);
     const allowNeg = warehouseAllowsNegative(db, whId);
+    if (isFabricRollLine(r)) {
+      const batchId = r.batch_id ? parseInt(r.batch_id, 10) : null;
+      if (batchId) {
+        const batchRow = db.prepare(
+          "SELECT batch_no, qty_on_hand, kind, status FROM inventory_batches WHERE id=?"
+        ).get(batchId);
+        if (batchRow && batchRow.kind === 'fabric' && !allowNeg) {
+          const { availableBatchMeters } = require('../lib/inventory/fabric-rolls');
+          const onHand = availableBatchMeters(db, batchId);
+          if (r.qty - onHand > 1e-9) {
+            return `متر طاقه ${batchRow.batch_no} کافی نیست (مانده ${onHand}، نیاز ${r.qty})`;
+          }
+        }
+      }
+      if (whId) {
+        used.set(whId, (db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId)?.name) || String(whId));
+      }
+      continue;
+    }
     if (!allowNeg && prod.stock < r.qty) {
       return `موجودی ${prod.name} کافی نیست (موجود: ${prod.stock})`;
     }
@@ -273,6 +272,14 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
     }
   }
   for (const r of productRows) {
+    if (isFabricRollLine(r)) {
+      const batchId = r.batch_id ? parseInt(r.batch_id, 10) : null;
+      if (batchId) {
+        const { consumeFabricRollOnSale } = require('../lib/inventory/fabric-rolls');
+        consumeFabricRollOnSale(db, { batchId, qty: r.qty });
+      }
+      continue;
+    }
     const whId = resolveRowWarehouseId(db, r, warehouseId);
     const allowNeg = warehouseAllowsNegative(db, whId);
     // Read the product BEFORE decrementing products.stock so the warehouse_stock
@@ -312,7 +319,7 @@ router.get('/', auth, (req, res) => {
     i.seller_name,i.mahak_doc_no,i.mahak_doc_type,i.mahak_invoice_code,i.atf_no,i.visitor,i.freight_amount,
     i.settled_amount,i.balance_due,i.settlement_status,i.delivered,i.freight_alloc_method`;
   const typeFilter = String(req.query.type || '').trim();
-  const typeSql = (typeFilter === 'proforma' || typeFilter === 'final') ? ' AND i.type=?' : '';
+  const typeSql = (typeFilter === 'proforma' || typeFilter === 'final' || typeFilter === 'normal') ? ' AND i.type=?' : '';
   const typeArgs = typeSql ? [typeFilter] : [];
   const baseWhere = scope === null
     ? `WHERE COALESCE(i.deleted_at,0)=0${typeSql}`
@@ -343,7 +350,7 @@ router.get('/export/excel', auth, adminOnly, async (req, res) => {
   const data = rows.map(r => ({
     'شماره': r.num || '',
     'مشتری': r.cust_biz || '',
-    'نوع': r.type === 'final' ? 'فاکتور رسمی' : 'پیش‌فاکتور',
+    'نوع': invoiceTypeLabel(r.type),
     'تاریخ': r.date || '',
     'مبلغ کل (ت)': r.subtotal || 0,
     'تخفیف (٪)': r.disc || 0,
@@ -365,9 +372,9 @@ router.get('/export/excel', auth, adminOnly, async (req, res) => {
 
 router.get('/:id', auth, (req, res) => {
   const db = getDB();
-  const row = db.prepare('SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  if (req.user.role !== 'admin' && row.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
+  const row = loadInvoiceRow(db, req.params.id);
+  if (!row) return res.status(404).json({ error: 'فاکتور پیدا نشد' });
+  if (!canViewInvoice(req, row)) return res.status(403).json({ error: 'دسترسی ندارید' });
   res.json({ ...row, rows: JSON.parse(row.rows || '[]') });
 });
 
@@ -387,9 +394,9 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   const freightRial = Math.round(parseFloat(freight_amount) || 0);
   const allocMethod = ['amount', 'qty', 'equal'].includes(freight_alloc_method) ? freight_alloc_method : 'amount';
   allocateFreight(built.rows, freightRial, allocMethod);
-  let { subtotal, discAmt, final, vatAmount, vatRate, netBeforeVat } = totals;
-  final += freightRial;
-  netBeforeVat += freightRial;
+  const freightAdj = applyFreightToDocTotals(totals, freightRial, freight_type);
+  let { subtotal, discAmt, vatAmount, vatRate } = totals;
+  let { final, netBeforeVat } = freightAdj;
   const entryDate = date || todayJalali();
   const pType = pay_type || 'cash';
 
@@ -422,10 +429,23 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
     whId = seller.sales_warehouse_id;
   }
   const ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
-  const journalOpts = { payType: pType, bankId: bank_id || null, cashBoxId: cash_box_id || null, rows: built.rows };
+  const journalOpts = {
+    payType: pType, bankId: bank_id || null, cashBoxId: cash_box_id || null, rows: built.rows,
+    freightRial, freightType: freight_type,
+  };
 
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
-  const invType = type || 'proforma';
+  let invType;
+  try { invType = normalizeInvoiceType(type || 'proforma'); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+
+  if (isFirmSale(invType)) {
+    try {
+      whId = requireFirmHeaderWarehouse(whId);
+      applyHeaderWarehouseToLines(built.rows, whId, { force: isSalesRep });
+      assertWarehouseLines(db, built.rows, whId, { requirePositive: true });
+    } catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+  }
 
   let created;
   try {
@@ -433,14 +453,6 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       const num = isDevice()
         ? ('موقت-' + Date.now().toString(36).toUpperCase())
         : allocateNumber(db, 'invoice', prefixRow?.value || 'T');
-
-      let stockDeducted = 0;
-      const stockMeta = {};
-      if (invType === 'final') {
-        const stockErr = deductStock(db, built.rows, whId, req.user.id, stockMeta);
-        if (stockErr) throw new Error(stockErr);
-        stockDeducted = 1;
-      }
 
       const result = db.prepare(
         `INSERT INTO invoices (user_id,cust_id,num,type,date,note,rows,subtotal,disc,disc_amt,final,vat_amount,vat_rate,subtotal_rial,final_rial,vat_amount_rial,
@@ -452,30 +464,49 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             Math.round(subtotal), Math.round(final), Math.round(vatAmount),
             seller ? seller.name : '', seller ? (seller.phone || '') : '',
             pType, cheque_duration || '', cheque_due_date || '', cheque_info || '',
-            stockDeducted, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '',
+            0, resolveSalesChannel(req), req.body.lead_source || '', req.body.campaign || '',
             bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
             allocMethod, vat_exempt ? 1 : 0, ccId,
             parseInt(moadian_invoice_type, 10) || 1);
       const invId = result.lastInsertRowid;
+      const stockMeta = {};
+      let saleCogsRial = 0;
 
-      if (invType === 'final') {
-        db.prepare("UPDATE customers SET status='active' WHERE id=?").run(cust_id);
-        if (pType === 'credit') {
-          createLedgerEntry(db, {
-            customer_id: cust_id, date: entryDate, entry_type: 'invoice',
-            ref_type: 'invoice', ref_id: invId,
-            description: `فاکتور رسمی ${num}`,
-            debit: final, credit: 0, user_id: req.user.id
+      if (isFirmSale(invType)) {
+        if (perpetualDocsEnabled(db)) {
+          const stocked = postSaleStockMovements(db, {
+            rows: built.rows, warehouseId: whId, sourceType: 'invoice', sourceId: invId,
+            userId: req.user.id, date: entryDate, note: `فروش ${invoiceTypeLabel(invType)} ${num}`,
           });
+          saleCogsRial = stocked.cogsRial;
+          stockMeta.usedWarehouses = stocked.usedWarehouses;
+        } else {
+          const stockErr = deductStock(db, built.rows, whId, req.user.id, stockMeta);
+          if (stockErr) throw new Error(stockErr);
         }
+        db.prepare('UPDATE invoices SET stock_deducted=1 WHERE id=?').run(invId);
+
+        db.prepare("UPDATE customers SET status='active' WHERE id=?").run(cust_id);
+        postInvoiceCustomerLedger(db, {
+          customerId: cust_id, date: entryDate, invId, num, invType,
+          final, userId: req.user.id, payType: pType,
+        });
+        assertJournalIdempotent(db, 'invoice', invId);
         postToLedger(db, {
           sourceType: 'invoice', sourceId: invId, date: entryDate,
-          description: `فاکتور رسمی ${num}${freightRial ? ' (با کرایه حمل)' : ''}`, createdBy: req.user.id,
+          description: `${invoiceTypeLabel(invType)} ${num}${freightRial ? ' (با کرایه حمل)' : ''}`, createdBy: req.user.id,
           lines: salesJournalLines(db, cust_id, { subtotal, discAmt, final, vatAmount, netBeforeVat }, false, journalOpts),
           costCenterId: ccId,
         });
-        postCogsVoucher(db, invId, num, entryDate, built.rows, req.user.id, false);
-        enqueueMoadian(db, 'sales', invId);
+        if (perpetualDocsEnabled(db) && saleCogsRial > 0) {
+          postCogsFromMovements(db, {
+            invId, num, date: entryDate, userId: req.user.id, cogsRial: saleCogsRial,
+          });
+        } else {
+          postCogsVoucher(db, invId, num, entryDate, built.rows, req.user.id, false);
+        }
+        if (invType === 'final') enqueueMoadian(db, 'sales', invId);
+        if (invType === 'normal') autoApproveNormalInvoice(db, invId, req.user.id);
       }
 
       // Auto-create a 7-day quality follow-up — only if the customer has
@@ -500,11 +531,21 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       } catch (e) {
         console.error('auto-followup error:', e.message);
       }
+      try {
+        require('../lib/crm-pro').onInvoiceCreated(db, {
+          invoiceId: invId, custId: cust_id, userId: ownerUserId, type: invType,
+          amountRial: built.final_rial || built.final || 0,
+          leadSource: req.body.lead_source || '', campaign: req.body.campaign || '',
+        });
+      } catch (e) { console.error('crm invoice stage:', e.message); }
 
       return { id: invId, usedWarehouses: stockMeta.usedWarehouses || [] };
     })();
   } catch (e) {
-    return res.status(400).json({ error: e.message });
+    const msg = e.code === 'E_NEGATIVE_STOCK'
+      ? (`موجودی «${e.name || ''}» کافی نیست` + (e.available != null ? ` (موجود: ${e.available}` + (e.needed != null ? `، نیاز: ${e.needed}` : '') + ')' : ''))
+      : (e.message || 'خطا در ثبت فاکتور');
+    return res.status(e.status || 400).json({ error: msg, code: e.code });
   }
 
   const row = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(created.id);
@@ -513,6 +554,23 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       const cust = db.prepare('SELECT biz FROM customers WHERE id=?').get(cust_id);
       notif.notifyNewInvoice(db, row, cust);
     } catch (e) { console.error('notify invoice:', e.message); }
+    try {
+      const cust = db.prepare('SELECT biz,owner,phone,mobile,party_group_id,user_id FROM customers WHERE id=?').get(cust_id);
+      const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+      setImmediate(() => dispatchSmsEvent(db, 'invoice.created', {
+        phone: cust?.mobile || cust?.phone,
+        name: cust?.owner || cust?.biz,
+        biz: cust?.biz,
+        amount: row.final,
+        num: row.num,
+        date: row.date,
+        status: invoiceTypeLabel(row.type),
+        party_group_id: cust?.party_group_id,
+        user_id: cust?.user_id,
+        created_by: req.user.id,
+        user: req.user.name,
+      }));
+    } catch (_) {}
   }
   res.json({ ...row, rows: JSON.parse(row.rows || '[]'), used_warehouses: created.usedWarehouses || [] });
 });
@@ -530,11 +588,11 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   const { cust_id, type, date, note, rows, disc, pay_type, cheque_duration, cheque_due_date, cheque_info, sales_channel, lead_source, campaign,
     bank_id, cash_box_id, check_category_id, warehouse_id, freight_amount, freight_type, freight_alloc_method, vat_exempt, cost_center_id,
     moadian_invoice_type, expert_user_id } = req.body;
-  if (row.type === 'final') {
-    return res.status(409).json({ error: 'فاکتور رسمی ثبت حسابداری شده است؛ برای اصلاح، آن را ابطال و فاکتور جدید ثبت کنید' });
+  if (isFirmSale(row.type)) {
+    return res.status(409).json({ error: 'فاکتور قطعی ثبت حسابداری شده است؛ برای اصلاح، آن را ابطال و فاکتور جدید ثبت کنید' });
   }
-  if ((type || row.type) === 'final') {
-    return res.status(409).json({ error: 'تبدیل پیش‌فاکتور به رسمی فقط از عملیات «تبدیل به فاکتور» انجام می‌شود' });
+  if (isFirmSale(type || row.type)) {
+    return res.status(409).json({ error: 'تبدیل پیش‌فاکتور به فاکتور قطعی فقط از عملیات «تبدیل» انجام می‌شود' });
   }
   let built;
   const canDiscount = req.user.role === 'admin' || req.user.role === 'accounting';
@@ -547,10 +605,16 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
     ? freight_alloc_method
     : (row.freight_alloc_method || 'amount');
   allocateFreight(built.rows, freightRial, allocMethod);
-  let { subtotal, discAmt, final, vatAmount, vatRate } = totals;
-  final += freightRial;
+  const freightAdj = applyFreightToDocTotals(totals, freightRial, freight_type);
+  let { subtotal, discAmt, vatAmount, vatRate } = totals;
+  let { final } = freightAdj;
 
-  const newType = type || 'proforma';
+  let newType;
+  try { newType = normalizeInvoiceType(type || 'proforma'); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+  if (isFirmSale(newType)) {
+    return res.status(409).json({ error: 'تبدیل پیش‌فاکتور به فاکتور قطعی فقط از عملیات «تبدیل» انجام می‌شود' });
+  }
   const isSalesRep = req.user.role === 'field_sales' || req.user.role === 'inside_sales';
   let whId = warehouse_id != null && warehouse_id !== '' ? parseInt(warehouse_id, 10) : (row.warehouse_id || null);
   const uWh = db.prepare('SELECT sales_warehouse_id FROM users WHERE id=?').get(req.user.id);
@@ -569,12 +633,6 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
 
   try {
     db.transaction(() => {
-      let stockDeducted = row.stock_deducted || 0;
-      if (newType === 'final' && !stockDeducted) {
-        const stockErr = deductStock(db, built.rows, whId, req.user.id);
-        if (stockErr) throw new Error(stockErr);
-        stockDeducted = 1;
-      }
       const moadianType = moadian_invoice_type != null && moadian_invoice_type !== ''
         ? (parseInt(moadian_invoice_type, 10) || 1)
         : (row.moadian_invoice_type != null ? row.moadian_invoice_type : 1);
@@ -585,7 +643,7 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
         .run(cust_id, newType, date || '', note || '', JSON.stringify(built.rows), subtotal, discPct, discAmt, final,
              vatAmount, vatRate, Math.round(subtotal), Math.round(final), Math.round(vatAmount),
              pay_type || row.pay_type || 'cash', cheque_duration || '', cheque_due_date || '', cheque_info || '',
-             stockDeducted, resolveSalesChannel(req), lead_source || '', campaign || '',
+             row.stock_deducted || 0, resolveSalesChannel(req), lead_source || '', campaign || '',
              bank_id || null, cash_box_id || null, check_category_id || null, whId, freightRial, freight_type || '',
              allocMethod, vat_exempt ? 1 : 0, ccId, moadianType, req.params.id);
       if ((req.user.role === 'admin' || req.user.role === 'accounting') && expert_user_id) {
@@ -630,90 +688,134 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
   }
 });
 
-// Convert proforma to official invoice (type='final')
+// Convert proforma → normal|final (default final for backward compatibility)
 router.post('/:id/convert', auth, (req, res) => {
   const db = getDB();
   const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'یافت نشد' });
   if (req.user.role !== 'admin' && inv.user_id !== req.user.id) return res.status(403).json({ error: 'دسترسی ندارید' });
   if (inv.converted) return res.status(400).json({ error: 'قبلاً تبدیل شده' });
-  if (inv.type === 'final') return res.status(400).json({ error: 'این فاکتور رسمی است' });
+  if (isFirmSale(inv.type)) return res.status(400).json({ error: 'این فاکتور قبلاً قطعی است' });
+
+  let targetType;
+  try { targetType = normalizeInvoiceType(req.body?.target_type || req.body?.type || 'final'); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+  if (!isFirmSale(targetType)) {
+    return res.status(400).json({ error: 'هدف تبدیل باید فاکتور معمولی یا رسمی باشد' });
+  }
 
   const rows = JSON.parse(inv.rows || '[]');
   const built = { rows, subtotal: inv.subtotal };
   const totals = calcDocTotals(db, built, inv.disc || 0);
+  const freightAdj = applyFreightToDocTotals(totals, inv.freight_amount, inv.freight_type);
+  totals.final = freightAdj.final;
+  totals.netBeforeVat = freightAdj.netBeforeVat;
   const owner = db.prepare('SELECT role, sales_warehouse_id FROM users WHERE id=?').get(inv.user_id);
-  let convertWhId = inv.warehouse_id || null;
+  let convertWhId = req.body?.warehouse_id
+    ? parseInt(req.body.warehouse_id, 10)
+    : (inv.warehouse_id || null);
   if (owner && (owner.role === 'field_sales' || owner.role === 'inside_sales')) {
     if (!owner.sales_warehouse_id) {
       return res.status(400).json({ error: 'انبار فروش برای کاربر صادرکننده تعریف نشده' });
     }
     convertWhId = owner.sales_warehouse_id;
-    for (const r of rows) {
-      if (r.row_type !== 'income') r.warehouse_id = convertWhId;
-    }
+    applyHeaderWarehouseToLines(rows, convertWhId, { force: true });
   } else if (!convertWhId && owner?.sales_warehouse_id) {
     convertWhId = owner.sales_warehouse_id;
   }
 
   try {
+    convertWhId = requireFirmHeaderWarehouse(convertWhId);
+    applyHeaderWarehouseToLines(rows, convertWhId, { force: false });
+    assertWarehouseLines(db, rows, convertWhId, { requirePositive: true });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+
+  try {
     db.transaction(() => {
-      // Stock deduction if not already done
       let stockDeducted = inv.stock_deducted || 0;
+      let saleCogsRial = 0;
       if (!stockDeducted) {
-        const stockErr = deductStock(db, rows, convertWhId, req.user.id);
-        if (stockErr) throw new Error(stockErr);
+        if (perpetualDocsEnabled(db)) {
+          const stocked = postSaleStockMovements(db, {
+            rows, warehouseId: convertWhId, sourceType: 'invoice', sourceId: inv.id,
+            userId: req.user.id, date: inv.date || '', note: `تبدیل به ${invoiceTypeLabel(targetType)} ${inv.num}`,
+          });
+          saleCogsRial = stocked.cogsRial;
+        } else {
+          const stockErr = deductStock(db, rows, convertWhId, req.user.id);
+          if (stockErr) throw new Error(stockErr);
+        }
         stockDeducted = 1;
       }
 
       db.prepare('UPDATE invoices SET type=?,converted=1,stock_deducted=?,final=?,vat_amount=?,vat_rate=?,final_rial=?,vat_amount_rial=?,warehouse_id=COALESCE(?,warehouse_id),rows=? WHERE id=?')
-        .run('final', stockDeducted, totals.final, totals.vatAmount, totals.vatRate,
+        .run(targetType, stockDeducted, totals.final, totals.vatAmount, totals.vatRate,
           Math.round(totals.final), Math.round(totals.vatAmount), convertWhId, JSON.stringify(rows), inv.id);
-      // Auto-update customer status to 'active' when proforma is converted to final
       db.prepare("UPDATE customers SET status='active' WHERE id=?").run(inv.cust_id);
 
-      if ((inv.pay_type || 'cash') === 'credit') {
-        createLedgerEntry(db, {
-          customer_id: inv.cust_id, date: inv.date || '', entry_type: 'invoice',
-          ref_type: 'invoice', ref_id: inv.id,
-          description: `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`,
-          debit: totals.final, credit: 0, user_id: req.user.id
-        });
-      }
+      postInvoiceCustomerLedger(db, {
+        customerId: inv.cust_id, date: inv.date || '', invId: inv.id, num: inv.num,
+        invType: targetType, final: totals.final, userId: req.user.id,
+        payType: inv.pay_type || 'cash',
+      });
+      assertJournalIdempotent(db, 'invoice', inv.id);
       postToLedger(db, {
         sourceType: 'invoice', sourceId: inv.id, date: inv.date || '',
-        description: `فاکتور رسمی ${inv.num} (تبدیل از پیش‌فاکتور)`,
+        description: `${invoiceTypeLabel(targetType)} ${inv.num} (تبدیل از پیش‌فاکتور)`,
         createdBy: req.user.id, lines: salesJournalLines(db, inv.cust_id, {
           subtotal: totals.subtotal, discAmt: totals.discAmt, final: totals.final,
           vatAmount: totals.vatAmount, netBeforeVat: totals.netBeforeVat,
         }, false, {
           payType: inv.pay_type || 'cash', bankId: inv.bank_id, cashBoxId: inv.cash_box_id,
+          rows, freightRial: Math.round(inv.freight_amount || 0), freightType: inv.freight_type,
         }),
       });
-      postCogsVoucher(db, inv.id, inv.num, inv.date, rows, req.user.id, false);
-      enqueueMoadian(db, 'sales', inv.id);
+      if (perpetualDocsEnabled(db) && saleCogsRial > 0) {
+        postCogsFromMovements(db, {
+          invId: inv.id, num: inv.num, date: inv.date, userId: req.user.id, cogsRial: saleCogsRial,
+        });
+      } else {
+        postCogsVoucher(db, inv.id, inv.num, inv.date, rows, req.user.id, false);
+      }
+      if (targetType === 'final') enqueueMoadian(db, 'sales', inv.id);
+      if (targetType === 'normal') autoApproveNormalInvoice(db, inv.id, req.user.id);
     })();
   } catch (e) {
-    return res.status(400).json({ error: e.message });
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  audit(req.user.id, 'convert', 'invoice', inv.id, `تبدیل پیش‌فاکتور ${inv.num} به فاکتور رسمی`);
+  audit(req.user.id, 'convert', 'invoice', inv.id, `تبدیل پیش‌فاکتور ${inv.num} به ${invoiceTypeLabel(targetType)}`);
 
-  res.json({ ok: true });
+  if (!isDevice()) {
+    try {
+      const cust = inv.cust_id ? db.prepare('SELECT biz,owner,phone,mobile,party_group_id,user_id FROM customers WHERE id=?').get(inv.cust_id) : null;
+      const { dispatchSmsEvent } = require('../lib/sms-dispatch');
+      setImmediate(() => dispatchSmsEvent(db, 'invoice.converted', {
+        phone: cust?.mobile || cust?.phone,
+        name: cust?.owner || cust?.biz,
+        biz: cust?.biz,
+        amount: totals.final,
+        num: inv.num,
+        date: inv.date,
+        status: invoiceTypeLabel(targetType),
+        party_group_id: cust?.party_group_id,
+        user_id: cust?.user_id,
+        created_by: req.user.id,
+        user: req.user.name,
+      }));
+    } catch (_) {}
+  }
+
+  res.json({ ok: true, type: targetType });
 });
 
 // Standalone printable HTML page — templates from server/lib/invoice-print.js
 router.get('/:id/print', auth, (req, res) => {
   const db = getDB();
-  const inv = db.prepare(
-    `SELECT i.*,c.biz as cust_biz,c.owner as cust_owner,c.city as cust_city,c.phone as cust_phone,
-            u.name as salesperson
-     FROM invoices i
-     LEFT JOIN customers c ON i.cust_id=c.id
-     LEFT JOIN users u ON i.user_id=u.id
-     WHERE i.id=?`
-  ).get(req.params.id);
-  if (!inv) return res.status(404).send('فاکتور یافت نشد');
-  if (req.user.role !== 'admin' && inv.user_id !== req.user.id) return res.status(403).send('دسترسی ندارید');
+  const inv = loadInvoiceRow(db, req.params.id);
+  if (!inv) return res.status(404).send('فاکتور پیدا نشد');
+  if (!canViewInvoice(req, inv)) return res.status(403).send('دسترسی ندارید');
   let rows = [];
   try { rows = JSON.parse(inv.rows || '[]'); } catch (_) { rows = []; }
 
@@ -732,12 +834,17 @@ router.get('/:id/print', auth, (req, res) => {
   if (paperQ === 'A5') paper = 'A5';
   else if (paperQ === 'THERMAL' || paperQ === '80MM' || paperQ === '58MM') paper = paperQ === '58MM' ? '58MM' : (paperQ === '80MM' ? '80MM' : 'THERMAL');
   const tmpl = String(req.query.template || '');
-  const { renderInvoicePrintHtml } = require('../lib/invoice-print');
-  const html = renderInvoicePrintHtml({
-    inv, rows, settings, paper,
-    templateOverride: tmpl === 'thermal' ? 'thermal' : (tmpl || undefined),
-  });
-  return sendSecureHtml(res, html, { allowPrintScript: true });
+  try {
+    const { renderInvoicePrintHtml } = require('../lib/invoice-print');
+    const html = renderInvoicePrintHtml({
+      inv, rows, settings, paper,
+      templateOverride: tmpl === 'thermal' ? 'thermal' : (tmpl || undefined),
+    });
+    return sendSecureHtml(res, html, { allowPrintScript: true });
+  } catch (e) {
+    console.error('invoice print:', e && e.message);
+    return res.status(500).send('خطا در ساخت چاپ فاکتور');
+  }
 });
 
 module.exports = router;

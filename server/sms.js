@@ -29,6 +29,15 @@ function postJSON(hostname, path, body, headers = {}) {
 }
 
 async function sendSMS(settings, to, text) {
+  try {
+    const { guardDemoEgressOrBlock } = require('./lib/demo-egress');
+    const blocked = guardDemoEgressOrBlock('sms');
+    if (blocked) return blocked;
+  } catch {
+    if (/^(true|1|yes)$/i.test(String(process.env.ERP_DEMO_MODE || ''))) {
+      return { ok: false, simulated: true, demo: true, channel: 'sms', code: 'demo_simulation', reason: 'در نسخه دمو ارسال واقعی انجام نمی‌شود' };
+    }
+  }
   const provider = (settings.sms_provider || 'kavenegar').trim();
   const apiKey = (settings.sms_api_key || '').trim();
   const from = (settings.sms_from || '').trim();

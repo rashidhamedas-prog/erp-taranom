@@ -112,6 +112,8 @@ function syncPartyToLegacy(db, partyId) {
       `).run(name, p.phone || '', p.address || '', p.notes || '', partyId, p.party_group_id || null, p.coa_code || '', sup.id);
     }
   }
+
+  try { require('./party-employee-sync').syncPartyToPerson(db, partyId); } catch (_) { /* persons projection is best-effort */ }
 }
 
 /** Resolve CRM customer ids linked to a party (party_id and/or legacy pointer). */
@@ -184,6 +186,7 @@ function deactivatePartyCascade(db, partyId, opts = {}) {
   const suppIds = linkedSupplierIds(db, partyId);
   for (const id of custIds) removeCrmCustomerSide(db, id);
   for (const id of suppIds) removeSupplierSide(db, id);
+  try { require('./party-employee-sync').deactivateLinkedPerson(db, partyId); } catch (_) {}
   releasePartyCoaIfIdle(db, row);
   return { ok: true, customers: custIds, suppliers: suppIds };
 }

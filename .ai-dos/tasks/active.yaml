@@ -1,73 +1,1008 @@
 schema_version: 1
 tasks:
+  - id: "CHEQUE-OPENING-BOUNCE-STMT"
+    title: "Opening cheque bounce must debit customer statement"
+    status: "completed"
+    completed_at: "2026-09-03T15:55:00+03:30"
+    claimed_at: "2026-09-03T15:40:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "high"
+    owner: "cursor:cheque-opening-bounce"
+    roles:
+      implementer: "cursor:cheque-opening-bounce"
+    branch: "fix/CHEQUE-OPENING-BOUNCE-STMT"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims: []
+    released_claims:
+      - "server/lib/cheque-party-books.js"
+      - "server/routes/cheque-records.js"
+      - "server/lib/void-cheque.js"
+      - "server/lib/customer-books.js"
+      - "server/routes/accounting.js"
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "server/scripts/test-cheque-opening-bounce-v186.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    acceptance_criteria:
+      - "Bounce of opening receivable cheque after collection debits customer tafsili"
+      - "Customer statement closing increases by cheque amount"
+      - "Resend reverses bounce JE and bounce ledger"
+      - "Cleared bounce credits collection bank not generic default when bank known"
+      - "node server/scripts/test-cheque-opening-bounce-v186.js"
+    non_goals:
+      - "Changing opening cheque register JE (still Dr notes / Cr opening equity)"
+      - "Desktop/Android full builds"
+      - "Committing leftover _deploy/_diag/motefareqe"
+    notes: >-
+      Reclaimed app.js/index.html/sw.js/CHANGE-LOG from LOGIN-RESILIENCE-V185:
+      login product commit is already 2386fd1; this task only adds bounce
+      accounting + help/SW v186. LOGIN remaining is Iran overlay.
+
+  - id: "LOGIN-RESILIENCE-V185"
+    title: "Login origin downtime: retry, boot-gate, PM2 memory"
+    status: "completed"
+    claimed_at: "2026-09-03T15:30:00+03:30"
+    completed_at: "2026-09-03T15:50:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "high"
+    owner: "cursor:login-resilience-v185"
+    roles:
+      implementer: "cursor:login-resilience-v185"
+    branch: "fix/LOGIN-RESILIENCE-V185"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims:
+      - "server/lib/boot-gate.js"
+      - "server/lib/http-resilience.js"
+      - "server/public/net-resilience.js"
+      - "server/server.js"
+      - "server/db.js"
+      - "server/ecosystem.config.js"
+      - "server/middleware/auth.js"
+      - "server/public/i18n.js"
+      - "server/scripts/test-login-resilience.js"
+      - "docs/08-deployment.md"
+    released_claims:
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "docs/CHANGE-LOG.md"
+    acceptance_criteria:
+      - "Login retries transient 502/503/521-524 and shows starting vs auth errors"
+      - "Health 200 while STARTING; ready 503 until markReady; drain 503 RESTARTING"
+      - "PM2 max_memory_restart is 1024M not 300M"
+      - "node server/scripts/test-login-resilience.js"
+    non_goals:
+      - "PM2 cluster / second SQLite writer"
+      - "Committing leftover _deploy-demo/_diag-moein/motefareqe"
+
+  - id: "SETTINGS-OPS-V184"
+    title: "Settings A–H pack: SMS, invoice print, B2B, Gemini, reports, convert"
+    status: "completed"
+    completed_at: "2026-09-03T03:50:00+03:30"
+    claimed_at: "2026-09-03T03:20:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "high"
+    owner: "cursor:settings-ops-v184"
+    roles:
+      implementer: "cursor:settings-ops-v184"
+    branch: "feat/SETTINGS-OPS-V184"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims:
+      - "server/routes/settings.js"
+      - "server/lib/sms-dispatch.js"
+      - "server/lib/website-stock-sync.js"
+      - "server/services/ai.js"
+      - "server/lib/inventory/fabric-rolls.js"
+      - "server/lib/sales-document.js"
+      - "server/routes/reports.js"
+      - "server/routes/invoices.js"
+      - "server/public/app.js"
+      - "server/public/app.css"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "docs/CHANGE-LOG.md"
+    acceptance_criteria:
+      - "Module toggles persist including module_portal and hide nav immediately"
+      - "Invoice templates have distinct professional print themes + settings previews"
+      - "SMS event catalog covers all send sites with enable/customize"
+      - "Website sync can push stock to Site-B2B by SKU (no secrets committed)"
+      - "AI settings accept Gemini keys/models without embedding a key"
+      - "Reports load Chart.js and show live uncached numbers"
+      - "Convert fabric check uses meters before ledger post; error shows مانده واقعی"
+      - "Fields use pencil-gray borders and content-sized max-width"
+      - "node server/scripts/test-settings-ops-v184.js"
+    non_goals:
+      - "Committing a Google/Gemini API key"
+      - "Desktop/Android full builds"
+      - "Committing leftover _deploy/_diag/motefareqe"
+
+  - id: "ARCH-ERP-RAR-SYNC"
+    title: "Fix ERP.rar archive bugs: invoice/receipt/party/return"
+    status: "completed"
+    claimed_at: "2026-09-03T00:20:00+03:30"
+    completed_at: "2026-09-03T00:55:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "high"
+    owner: "cursor:arch-erp-rar"
+    roles:
+      implementer: "cursor:arch-erp-rar"
+    branch: "ai/ARCH-ERP-RAR-SYNC"
+    worktree: "D:/proje/erp-taranom1"
+    file_claims: []
+    released_claims:
+      - "server/public/app.js"
+      - "server/public/index.html"
+      - "server/public/sw.js"
+      - "server/lib/invoice-print.js"
+      - "server/lib/parties-sync.js"
+      - "server/lib/party-employee-sync.js"
+      - "server/routes/orders.js"
+      - "server/routes/parties.js"
+      - "server/routes/payroll.js"
+      - "server/routes/purchases.js"
+      - "server/db.js"
+      - "server/sync/tables.js"
+      - "server/scripts/test-arch-erp-rar-v182.js"
+      - "docs/CHANGE-LOG.md"
+    acceptance_criteria:
+      - "Changing invoice header warehouse does not drop other-warehouse lines"
+      - "Convert button visible in accounting invoice list"
+      - "Print shows line totals + freight + VAT"
+      - "Receipt cash XOR bank; installment has destination"
+      - "orders.warehouse_id exists without qa-gaps overlay"
+      - "Party employee role appears in payroll employees and reverse"
+      - "Purchase return keeps fabric color"
+      - "node server/scripts/test-arch-erp-rar-v182.js"
+      - "Cheque register posts customer/person books (cheque_in)"
+      - "Live pack = colors × sizes; invoice color split modal"
+      - "node server/scripts/test-arch-erp-rar-v183.js"
+    non_goals:
+      - "inventory_ledger.variant_id perpetual layer"
+      - "Committing leftover _deploy/_diag/motefareqe"
+
+  - id: "OPS-UI-LEDGER-SEARCH-ROLLS-V181"
+    title: "Fix dashboard books warning + collapse nav + search + live rolls"
+    status: "completed"
+    claimed_at: "2026-09-01T02:10:00+03:30"
+    completed_at: "2026-09-01T02:40:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "high"
+    owner: "cursor:implementer-v181"
+    roles:
+      implementer: "cursor:implementer-v181"
+    branch: "fix/LEDGER-STATEMENT-AR"
+    worktree: "D:/soft/Claud/porje/crm-taranom/erp-taranom1"
+    file_claims: []
+    released_claims:
+      - "server/lib/customer-books.js"
+      - "server/lib/sales-document.js"
+      - "server/lib/inventory/fabric-rolls.js"
+      - "server/routes/accounting.js"
+      - "server/routes/inventory.js"
+      - "server/public/app.js"
+      - "server/public/acc-nav.js"
+      - "server/public/sw.js"
+      - "server/public/index.html"
+      - "server/scripts/test-ops-v181.js"
+      - "server/scripts/test-acc-stitch-p2.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    acceptance_criteria:
+      - "Overview books_mismatch false after v3 align of GL-only AR"
+      - "Accounting nav chapters collapsed on enter"
+      - "Receivables page has party search"
+      - "Party/product/roll pickers use search widgets"
+      - "Fabric list qty_live from inventory_ledger; circulation report exists"
+      - "node server/scripts/test-ops-v181.js"
+    non_goals:
+      - "Wholesale db.js replace"
+      - "Desktop/Android full builds"
+      - "Committing leftover _deploy-demo/_diag-moein scripts"
+
+  - id: "OPS-SSL-ORIGIN-CA-CLOSE"
+    title: "Close SSL 526 + login branch_id chat (Origin CA 15y)"
+    status: "completed"
+    completed_at: "2026-09-01T01:57:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "medium"
+    owner: "cursor:ops-ssl-close"
+    roles:
+      implementer: "cursor:ops-ssl-close"
+    branch: "fix/LEDGER-STATEMENT-AR"
+    worktree: "D:/soft/Claud/porje/crm-taranom/erp-taranom1"
+    file_claims: []
+    released_claims:
+      - "server/db.js"
+      - "docs/CHANGE-LOG.md"
+      - "docs/08-deployment.md"
+      - "docs/SECURITY-HARDENING.md"
+      - "docs/PROJECT-HANDOFF.md"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    notes: >-
+      Origin CA installed on Iran nginx to 2041. users.branch_id on live crm.db
+      and ensureColumn in repo db.js. Chat closed. No AOP. No wholesale db.js.
+    acceptance_criteria:
+      - "erp.poshaktaranom.com login page over Cloudflare (no 526)"
+      - "Origin cert issuer CloudFlare Origin SSL CA until 2041"
+      - "ensureColumn users.branch_id in server/db.js"
+    non_goals:
+      - "Authenticated Origin Pulls"
+      - "Iran git pull or wholesale db.js replace"
+
+  - id: "LEDGER-STMT-CHEQUE-V180"
+    title: "Statement from GL + dashboard AR + invoice cart/rolls"
+    status: "completed"
+    completed_at: "2026-09-01T01:20:00+03:30"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "high"
+    owner: "cursor:implementer-v180"
+    roles:
+      implementer: "cursor:implementer-v180"
+    branch: "fix/LEDGER-STATEMENT-AR"
+    worktree: "D:/soft/Claud/porje/crm-taranom/erp-taranom1"
+    claimed_at: "2026-09-01T00:50:00+03:30"
+    file_claims: []
+    released_claims:
+      - "server/lib/customer-books.js"
+      - "server/routes/accounting.js"
+      - "server/routes/cheque-records.js"
+      - "server/lib/void-cheque.js"
+      - "server/public/app.js"
+      - "server/public/app.css"
+      - "server/public/sw.js"
+      - "server/public/index.html"
+      - "server/scripts/test-stmt-gl-cheque-v180.js"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    acceptance_criteria:
+      - "Endorsed cheque appears on customer statement; closing matches GL"
+      - "Dashboard AR is sum of per-customer positive GL; warning only if books still differ"
+      - "Invoice addToCart finds warehouse products; fabric picker does not close invoice"
+      - "node server/scripts/test-stmt-gl-cheque-v180.js"
+    non_goals:
+      - "Wholesale db.js replace"
+      - "Desktop/Android full builds"
+
+  - id: "PROD-STITCH-P5C"
+    title: "PACK / FG receipt from cutting lay + git hygiene merge to Primary"
+    status: "completed"
+    completed_at: "2026-08-31T15:20:00+03:30"
+    review_status: "PENDING"
+    security_status: "NOT_REQUIRED"
+    risk: "high"
+    owner: "cursor:orchestrator-git-hygiene"
+    roles:
+      orchestrator: "cursor:orchestrator-git-hygiene"
+      implementer: "cursor:implementer-git-hygiene"
+    branch: "ai/PROD-STITCH-PACK-MERGE"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-pack-merge"
+    claimed_at: "2026-08-31T15:10:00+03:30"
+    file_claims: []
+    released_claims:
+      - "server/lib/production/cutting.js"
+      - "server/lib/production/schema.js"
+      - "server/routes/production-cutting.js"
+      - "server/scripts/test-prod-stitch-pack.js"
+      - "server/sync/tables.js"
+      - "server/sync/capture.js"
+      - "server/db.js"
+      - "server/public/app.js"
+      - "server/public/sw.js"
+      - "server/public/index.html"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+    notes: >-
+      Owner asked 2026-08-31 to finish leftover commit/merge/deploy.
+      Cherry-pick onto 12b0385. Primary FF fbf157e. Iran v176 health 200.
+      PACK 48/48 SMS 22/22 sync 44/44.
+    acceptance_criteria:
+      - "node server/scripts/test-prod-stitch-pack.js"
+      - "FF or merge to origin/claude/claude-md-docs-2ssrpy"
+      - "Iran overlay without wholesale db.js replace; health 200"
+    non_goals:
+      - "Merging erp-taranom1 product code"
+      - "Committing truncated app.js in stale worktrees"
+
+  - id: "UI-STITCH-P0-DISCOVERY"
+    title: "Phase 0 Stitch discovery + STITCH-TO-CODE-MAP (no product code)"
+    status: "completed"
+    review_status: "SELF_REVIEW_APPROVED"
+    security_status: "NOT_REQUIRED"
+    risk: "low"
+    owner: "cursor:orchestrator"
+    roles:
+      orchestrator: "cursor:orchestrator"
+    branch: "ai/UI-DOCS-STITCH"
+    worktree: "D:/soft/Claud/porje/crm-taranom/erp-taranom1"
+    claimed_at: "2026-08-18T14:51:00+03:30"
+    completed_at: "2026-08-31T14:55:00+03:30"
+    file_claims: []
+    notes: >-
+      Phase 0 map written locally 2026-08-18; never committed on ai/UI-DOCS-STITCH
+      (0 unique commits, never pushed, 102 behind Primary). Implementation landed
+      on ai/UI-STITCH-IMPL and later stitch phases, merged+deployed. Owner closed
+      the leftover local claim 2026-08-31. Design dumps remain untracked under
+      /artifacts/ (gitignored). Local branch ai/UI-DOCS-STITCH deleted. No product
+      code, no Iran deploy.
+    acceptance_criteria:
+      - "MASTER-CURSOR-COMMAND.md Phase 0 items 1-10 complete"
+      - "STITCH-TO-CODE-MAP.md covers all requirement IDs and 30 frames"
+      - "No server/public or server/routes product code edited"
+      - "Owner stop-gate presented before implementation"
+      - "Stale local branch and claims released; Primary registry closed"
+
+  - id: "QA-ERP-FULL-CYCLE-INTEGRATION"
+    title: "Integrate admin-roles harness + product Highs; isolated qa:full; no Primary/deploy"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-qa-erp"
+    parent: "QA-ERP-FULL-CYCLE"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      architect: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-integration"
+      reviewer: "cursor:independent-reviewer-qa-erp"
+      security: "cursor:independent-security-qa-erp"
+    branch: "ai/QA-ERP-FULL-CYCLE-INTEGRATION"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-integration"
+    base_commit: "6ce3ac1"
+    claimed_at: "2026-08-25T14:15:00+03:30"
+    completed_at: "2026-08-31T13:40:00+03:30"
+    file_claims: []
+    released_claims:
+      - "scripts/qa/**"
+      - "docs/qa/**"
+      - ".cursor/commands/qa-admin.md"
+      - ".cursor/commands/qa-roles.md"
+      - ".cursor/commands/qa-full.md"
+      - ".cursor/commands/qa-fix.md"
+      - ".cursor/commands/qa-report.md"
+      - ".cursor/commands/qa-clean.md"
+      - ".cursor/commands/qa-resume.md"
+      - "server/package.json"
+      - ".gitignore"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+      - "docs/CHANGE-LOG.md"
+      - "server/routes/cheque-records.js"
+      - "server/routes/trust-checks.js"
+      - "server/routes/invoices.js"
+      - "server/routes/payroll.js"
+      - "server/lib/opening-post.js"
+      - "server/lib/inventory/ledger.js"
+      - "server/lib/sales-document.js"
+      - "server/lib/rbac.js"
+      - "server/db.js"
+      - "server/sync/tables.js"
+      - "server/public/app.js"
+      - "server/routes/excel.js"
+      - "server/scripts/test-qa-fix-cheque-party-id.js"
+      - "server/scripts/test-qa-fix-invoice-warehouse.js"
+      - "server/scripts/test-qa-fix-opening-stock-ledger.js"
+      - "server/scripts/test-qa-fix-recon-ledger-union.js"
+      - "server/scripts/test-qa-fix-payroll-rbac.js"
+      - "server/scripts/test-qa-fix-party-picker-ui.js"
+      - "server/scripts/test-qa-fix-rbac-matrix.js"
+      - "server/scripts/test-trs-cheque-out.js"
+      - "server/scripts/lib/seed-demo-v2.js"
+      - "server/scripts/test-sync.js"
+      - "server/scripts/test-wave0-financial-hostile.js"
+      - "server/scripts/test-mahak-phase2.js"
+    notes: >-
+      Owner approved 2026-08-31: merge to Primary + Iran deploy.
+      Integration of a9a7110 + 7d60258 onto Primary 6ce3ac1.
+      erp-taranom1 (UI-STITCH-P0-DISCOVERY) not edited.
+      Follow-up after deploy: QA-ERP-GAPS-NOT-IMPLEMENTED.
+    acceptance_criteria:
+      - "Both source tips merged without dropping product fixes or QA tests"
+      - "NODE_ENV=test node scripts/qa/run-full-erp-qa.js without --skip-e2e"
+      - "FAIL=0 ERROR=0 unbalanced JE=0 FK/orphan=0 stock-GL recon=0"
+      - "Admin + All-Roles + Playwright E2E batches ran"
+      - "14 NOT_IMPLEMENTED classified; owner-approved Primary merge+deploy"
+    non_goals:
+      - "Implementing the 14 NOT_IMPLEMENTED gaps in this merge"
+      - "Checking out or editing erp-taranom1 / UI-STITCH"
+
+  - id: "QA-ERP-FULL-CYCLE"
+    title: "Isolated Admin + All-Roles QA harness (no production, no deploy)"
+    status: "completed"
+    review_status: "PENDING"
+    security_status: "NOT_REQUIRED"
+    risk: "medium"
+    owner: "cursor:orchestrator-qa-erp"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      architect: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-erp"
+      reviewer: "cursor:independent-reviewer-qa-erp"
+      security: "cursor:independent-security-qa-erp"
+    branch: "ai/QA-ERP-FULL-CYCLE-admin-roles"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-full-cycle"
+    base_commit: "6ce3ac1"
+    claimed_at: "2026-08-24T17:59:00+03:30"
+    completed_at: "2026-08-25T14:15:00+03:30"
+    file_claims: []
+    notes: >-
+      Harness delivered @ a9a7110. Claims transferred to
+      QA-ERP-FULL-CYCLE-INTEGRATION. Cheque admin.js kept at 50e8269.
+      Authoritative sibling qa:full qa-20260824T224056-6580 PASS 246.
+      Follow-up: QA-ERP-GAPS-NOT-IMPLEMENTED. NO merge/deploy.
+    acceptance_criteria:
+      - "Admin and All-Roles batches runnable from zero on temp DB"
+      - "Fail-closed: NODE_ENV=test + unique QA_RUN_ID; production-like paths exit 2"
+      - "Roles discovered from Object.keys(DEFAULT_ROLE_PERMISSIONS)"
+      - "Gaps reported as NOT_IMPLEMENTED/BLOCKED not fake PASS"
+      - "Exit 0/1/2/3; artifacts under artifacts/qa/<QA_RUN_ID>/"
+      - "No production deploy or merge"
+    non_goals:
+      - "Iran VPS deploy / merge to primary"
+      - "Product-code fixes inside this claim"
+      - "Real SMS / Moadian / bank / webhook"
+
+  - id: "QA-ERP-FULL-CYCLE-FIX-HIGHS"
+    title: "Product Highs from QA-ERP-FULL-CYCLE (party_id, firm WH, stock ledger, payroll RBAC)"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-qa-erp"
+    parent: "QA-ERP-FULL-CYCLE"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-fix-highs"
+      reviewer: "cursor:independent-reviewer-qa-erp"
+      security: "cursor:independent-security-qa-erp"
+    branch: "ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-fix-highs"
+    base_commit: "aeb5d06"
+    claimed_at: "2026-08-24T18:57:00+03:30"
+    completed_at: "2026-08-25T02:45:00+03:30"
+    file_claims: []
+    notes: >-
+      Tip 7d60258. Bugbot no bugs; Independent APPROVED; Security C0/H0/M0
+      after payroll master-data gate. skipStock no stock_logs; payroll
+      pay/void/delete + master-data payroll.create. qa:full PASS 246.
+      Claims transferred to INTEGRATION. NO merge/deploy.
+    acceptance_criteria:
+      - "cheque_records POST accepts party_id (not only party_name)"
+      - "firm invoice without warehouse_id is 4xx"
+      - "inventory_ledger qty matches warehouse_stock after opening+movements"
+      - "POST /payroll denied when fillRoleDefaults(role).payroll.create is false"
+      - "Regression covered by scripts/qa; Highs need Independent Reviewer+Security"
+    non_goals:
+      - "Harness rewrite"
+      - "Iran deploy"
+
+  - id: "QA-ERP-RBAC-MATRIX-ALIGN"
+    title: "Align RBAC matrix settings/accounting.view with actual route gates"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-qa-erp"
+    parent: "QA-ERP-FULL-CYCLE"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-fix-highs"
+      reviewer: "cursor:independent-reviewer-qa-erp"
+      security: "cursor:independent-security-qa-erp"
+    branch: "ai/QA-ERP-FULL-CYCLE-FIX-HIGHS-product"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-erp-fix-highs"
+    claimed_at: "2026-08-25T01:20:00+03:30"
+    completed_at: "2026-08-25T02:45:00+03:30"
+    file_claims: []
+    notes: >-
+      Included in product tip 7d60258. GET /settings stays adminOnly.
+      GET /reps is repModuleAdmin. Claims transferred to INTEGRATION.
+      No merge/deploy.
+    acceptance_criteria:
+      - "fillRoleDefaults non-admin settings.view is false"
+      - "fillRoleDefaults accounting.view only admin|accounting|sales_manager"
+      - "GET /settings 403 for accounting and field_sales; 200 for admin"
+      - "GET /reps 403 for field_sales; allow accounting and sales_manager"
+    non_goals:
+      - "Opening GET /settings to non-admin"
+      - "Iran deploy"
+
+  - id: "QA-ERP-GAPS-NOT-IMPLEMENTED"
+    title: "Follow-up product gaps reported as NOT_IMPLEMENTED by QA-ERP-FULL-CYCLE"
+    status: "completed"
+    review_status: "PENDING"
+    security_status: "NOT_REQUIRED"
+    risk: "medium"
+    owner: "cursor:orchestrator-qa-erp"
+    parent: "QA-ERP-FULL-CYCLE"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-gaps"
+    branch: "ai/QA-ERP-GAPS-NOT-IMPLEMENTED"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-gaps"
+    claimed_at: "2026-08-31T13:40:00+03:30"
+    completed_at: "2026-08-31T14:40:00+03:30"
+    file_claims: []
+    released_claims:
+      - "scripts/qa/batches/admin.js"
+      - "scripts/qa/batches/roles.js"
+      - "scripts/qa/inventory.js"
+      - "scripts/qa/lib/http.js"
+      - "scripts/qa/lib/server.js"
+      - "scripts/qa/run.js"
+      - "docs/qa/FIRST-RUN.md"
+      - "docs/CHANGE-LOG.md"
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+      - "server/lib/qa-gaps-schema.js"
+      - "server/routes/rfq.js"
+      - "server/routes/procurement.js"
+      - "server/routes/branches.js"
+      - "server/lib/rbac.js"
+      - "server/routes/orders.js"
+    notes: >-
+      Owner asked 2026-08-31: implement remaining product gaps in order.
+      qa:full qa-20260831T105600-14704 PASS 268 NOT_IMPLEMENTED 0.
+      Primary FF 9151483. Iran overlay v175 health/ready/root 200.
+    acceptance_criteria:
+      - "Each gap is either implemented with tests or remains an explicit NOT_IMPLEMENTED task"
+      - "Branch merged to origin/claude/claude-md-docs-2ssrpy after qa:full FAIL=0"
+    non_goals:
+      - "Fake PASS in the QA harness"
+
+  - id: "QA-ERP-GAPS-BACKUP-VERIFY-EXT"
+    title: "Preserve upload extension so POST /admin/backup-restore can verify zip"
+    status: "completed"
+    review_status: "PENDING"
+    security_status: "NOT_REQUIRED"
+    risk: "medium"
+    owner: "cursor:orchestrator-qa-erp"
+    parent: "QA-ERP-GAPS-NOT-IMPLEMENTED"
+    roles:
+      orchestrator: "cursor:orchestrator-qa-erp"
+      implementer: "cursor:implementer-qa-gaps"
+    branch: "ai/QA-ERP-GAPS-NOT-IMPLEMENTED"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-qa-gaps"
+    claimed_at: "2026-08-31T14:00:00+03:30"
+    completed_at: "2026-08-31T14:15:00+03:30"
+    file_claims: []
+    released_claims:
+      - "server/server.js"
+      - "server/public/app.js"
+      - "server/public/sw.js"
+      - "server/public/index.html"
+      - "scripts/_deploy-qa-erp-v174-iran.py"
+    notes: >-
+      /qa-fix: multer dest has no .zip suffix; verifyBackupPackage rejects
+      extensionless path. Rename uploaded file to original extension before verify.
+      Still verify-only; no live restore.
+    acceptance_criteria:
+      - "POST /admin/backup-restore of a backup-now zip returns 200 success"
+    non_goals:
+      - "Live DB restore mid-process"
+      - "RFQ / 3-way / GRNI / SOD / branch ACL"
+
+  - id: "PROD-STITCH-P5B"
+    title: "PROD-02/03 cutting lay wizard (spreading / size matrix / waste)"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-prod-p5b"
+    roles:
+      orchestrator: "cursor:orchestrator-prod-p5b"
+      architect: "cursor:orchestrator-prod-p5b"
+      implementer: "cursor:implementer-prod-p5b"
+      reviewer: "cursor:independent-reviewer-prod-p5b"
+      security: "cursor:independent-security-prod-p5b"
+    branch: "ai/PROD-02-CUTTING"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-stitch-impl"
+    base_commit: "be76a5c"
+    claimed_at: "2026-08-20T16:42:00+03:30"
+    completed_at: "2026-08-20T17:25:00+03:30"
+    file_claims: []
+    notes: >-
+      Merged FF to primary @ b52a1de. Iran SFTP overlay v172.
+      stamp .sftp-deploy-stamp-stitch-v172 = 2026-08-20T13:54:13Z hash=b52a1de.
+      db.js not replaced. schema.js overlaid. SW erp-taranom-v172.
+    acceptance_criteria:
+      - "Preview: marker×plies, size_breakdown×BOM size_matrix → matrix_meters (qty_net)"
+      - "Leftover=max(0,actual-matrix); normal waste cap % of actual; excess abnormal"
+      - "Consume selected fabric rolls via inventory ledger + adjustBatchQty; JE Dr WIP / Cr RAW"
+      - "Abnormal waste JE Dr 5221 / Cr WIP; normal waste no JE; FG stock unchanged"
+      - "R13 void restores meters + JEs; idempotency_key required; field_sales 403"
+      - "Vanilla UI acc-cutting-lays; Help warns against PO backflush of same fabric; SW v172"
+    non_goals:
+      - "PACK / FG receipt / bundle barcodes"
+      - "Lot/Serial on FG or Bin"
+      - "postEvent PRD-01/09 with sourceId=lay.id"
+  - id: "PROD-STITCH-P5"
+    title: "PROD-01 fabric roll receipt on WH-RAW (ADR-007 Accepted)"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-prod-p5"
+    roles:
+      orchestrator: "cursor:orchestrator-prod-p5"
+      architect: "cursor:orchestrator-prod-p5"
+      implementer: "cursor:implementer-prod-p5"
+      reviewer: "cursor:independent-reviewer-prod-p5"
+      security: "cursor:independent-security-prod-p5"
+    branch: "ai/PROD-STITCH-P5"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-stitch-impl"
+    base_commit: "9b16876"
+    claimed_at: "2026-08-20T16:45:00+03:30"
+    completed_at: "2026-08-20T17:50:00+03:30"
+    file_claims: []
+    notes: >-
+      Merged FF to primary @ db708a8. Iran SFTP overlay v171.
+      stamp .sftp-deploy-stamp-stitch-v171 = 2026-08-20T13:09:58Z hash=db708a8.
+      db.js not replaced. schema.js overlaid. SW erp-taranom-v171.
+    acceptance_criteria:
+      - "POST /api/inventory/fabric-rolls WH-RAW only; color+meters; stock via ledger; JE 1110/2101 when valued"
+      - "R13 void; field_sales 403; FG warehouse 400; vanilla UI acc-fabric-rolls"
+      - "No new SYNCABLE table; columns on inventory_batches; PATH_TABLE_MAP fabric-rolls"
+      - "Valued receive posts supplier_ledger credit and JE tafsili via party_id; void reverses both"
+      - "UI+API idempotency_key required; replay returns same roll"
+
+  - id: "STITCH-P8-POS03-ADR007"
+    title: "POS-03 card report + open ADR-007 + Phase 8 hardening gates"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-stitch-p8"
+    roles:
+      orchestrator: "cursor:orchestrator-stitch-p8"
+      architect: "cursor:orchestrator-stitch-p8"
+      implementer: "cursor:implementer-stitch-p8"
+      reviewer: "cursor:independent-reviewer-stitch-p8"
+      security: "cursor:independent-security-stitch-p8"
+    branch: "ai/STITCH-P8-POS03-ADR007"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-stitch-impl"
+    base_commit: "210f360"
+    claimed_at: "2026-08-20T15:10:00+03:30"
+    completed_at: "2026-08-20T16:40:00+03:30"
+    file_claims: []
+    notes: >-
+      Merged FF to primary @ 4d9bc83. Iran SFTP overlay v170.
+      stamp .sftp-deploy-stamp-stitch-v170 = 2026-08-20T12:40:04Z hash=4d9bc83.
+      ADR-007 Accepted. Next: PROD-STITCH-P5 fabric receipt.
+    acceptance_criteria:
+      - "GET /api/pos/report filters date/terminal/bank/status/variance; totals reconcile in-transit GL and bank POS net"
+      - "Vanilla UI acc-pos-report; field_sales 403; CSV matches JSON totals"
+      - "ADR-007 amendment opened as Proposed for fabric rolls only; no Lot on FG; no Serial/Bin"
+      - "Phase 8 runner executes POS+LED+SMS+encoding+parse; Help+CHANGE-LOG+SW bump"
+      - "No React/Tailwind; no production deploy this commit"
+
+  - id: "UI-STITCH-IMPL"
+    title: "Stitch MASTER wave: OPS-01, TRS-02, ACC-01..06, INV-01"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-stitch-impl"
+    roles:
+      orchestrator: "cursor:orchestrator-stitch-impl"
+      architect: "cursor:orchestrator-stitch-impl"
+      implementer: "cursor:implementer-stitch-impl"
+      reviewer: "cursor:independent-reviewer-stitch-impl"
+      security: "cursor:independent-security-stitch-impl"
+    branch: "ai/UI-STITCH-IMPL"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-stitch-impl"
+    base_commit: "51be279"
+    claimed_at: "2026-08-18T15:00:00+03:30"
+    completed_at: "2026-08-19T03:50:00+03:30"
+    file_claims: []
+    notes: >-
+      Merged FF to claude/claude-md-docs-2ssrpy @ 7dd5481. Iran SFTP overlay v160;
+      stamp .sftp-deploy-stamp-stitch-v160. Dual APPROVED. ADR-007 still closed.
+    acceptance_criteria:
+      - "OPS-01 none persists after reload; portal_role null when !has_access"
+      - "TRS-02 payable cheque menu defaults to direction=out"
+      - "ACC-02..06 APIs and UI as mapped; ACC-01 identity lock; INV-01 group coa leaf"
+      - "ACC-04: Dashboard KPI = GL control/tafsili close = Receivables debit = Statement close at one cutoff; customer_ledger labeled when it differs"
+      - "Tests recorded; Help + CHANGE-LOG + SW v160"
+      - "Owner merge + Iran deploy completed"
+    non_goals:
+      - "PROD/PACK (ADR-007)"
+      - "React/Tailwind/CDN Stitch HTML copy"
+
+  - id: "HR-STITCH-P3"
+    title: "HR-02 secure user invitation tokens"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:implementer-hr-02"
+    branch: "ai/HR-STITCH-P3"
+    base_commit: "7dd5481"
+    claimed_at: "2026-08-19T03:50:00+03:30"
+    completed_at: "2026-08-19T04:55:00+03:30"
+    file_claims: []
+    notes: >-
+      Dual APPROVED 6c65660. Merged into ai/UI-STITCH-IMPL with INV/TRS. SW v163. Iran SFTP next.
+    acceptance_criteria:
+      - "user_invitations table; hashed token; expiry; used_at"
+      - "Invite creates no known password; accept sets user + person link"
+      - "Tests cover expiry/reuse; Help updated; no secrets committed"
+
+  - id: "INV-STITCH-P4"
+    title: "INV-02 color picker + INV-03 warehouse product search"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "medium"
+    owner: "cursor:implementer-inv-04"
+    branch: "ai/INV-STITCH-P4"
+    base_commit: "7dd5481"
+    claimed_at: "2026-08-19T03:50:00+03:30"
+    completed_at: "2026-08-19T04:55:00+03:30"
+    file_claims: []
+    notes: >-
+      Dual APPROVED d1ea078. Merged into ai/UI-STITCH-IMPL with HR/TRS. SW v163.
+    acceptance_criteria:
+      - "Invalid hex rejected; duplicate hex warned"
+      - "Receipt/issue/transfer can search products with available qty at source"
+      - "Tests + Help; vanilla UI only"
+
+  - id: "TRS-STITCH-P6"
+    title: "TRS-01 payable cheque pay/expense state machine"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:implementer-trs-06"
+    branch: "ai/TRS-STITCH-P6"
+    base_commit: "7dd5481"
+    claimed_at: "2026-08-19T03:50:00+03:30"
+    completed_at: "2026-08-19T04:55:00+03:30"
+    file_claims: []
+    notes: >-
+      Dual APPROVED ca4e22a. Merged into ai/UI-STITCH-IMPL with HR/INV. POS-01/02 still deferred.
+    acceptance_criteria:
+      - "Out-cheque lifecycle APIs + JE in transaction"
+      - "Idempotent / reverse on cancel"
+      - "Regression tests; TRS-02 default out remains"
+
+  - id: "CON-STITCH-P7"
+    title: "CON-01 person FK + CON-02 four-path consignment settle"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:implementer-con-07"
+    branch: "ai/CON-STITCH-P7"
+    base_commit: "e16d681"
+    claimed_at: "2026-08-19T05:20:00+03:30"
+    completed_at: "2026-08-19T06:00:00+03:30"
+    file_claims: []
+    notes: >-
+      Dual APPROVED f79127c (Independent 73cd20d1 + Security e69a57e1).
+      Merged into ai/UI-STITCH-IMPL @ 1a1bf0f. Claims released. SW v164.
+      Iran SFTP stamp .sftp-deploy-stamp-stitch-v164 = 2026-08-19T02:33:45Z hash=1a1bf0f.
+    acceptance_criteria:
+      - "Create requires person_id; party_name snapshot"
+      - "Settle paths: return, sale, purchase, shortage; sale-only invoice"
+      - "Idempotent + transactional + cancel reverse; tests + Help"
+
+  - id: "POS-STITCH-P8"
+    title: "POS-01 terminal bank FK + POS-02 card in-transit settle"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:implementer-pos-08"
+    branch: "ai/POS-STITCH-P8"
+    base_commit: "bca393e"
+    claimed_at: "2026-08-19T06:05:00+03:30"
+    completed_at: "2026-08-19T06:35:00+03:30"
+    file_claims: []
+    notes: >-
+      Dual APPROVED 7cab828 (Independent c5058adb + Security product f97371e8).
+      Merged into ai/UI-STITCH-IMPL @ bdcc84a. Claims released. SW v165.
+      Iran SFTP stamp .sftp-deploy-stamp-stitch-v165 = 2026-08-19T03:05:04Z hash=bdcc84a.
+    acceptance_criteria:
+      - "Terminal requires active bank FK; unique terminal_id; not localStorage"
+      - "Card receipt posts in-transit not bank; batch settle net to bank; idempotent"
+      - "R13 void; tests + Help; SW bump; vanilla UI"
+
+  - id: "LED-STITCH-P9"
+    title: "LED-01 unified financial + stock ledger API"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:implementer-led-09"
+    branch: "ai/LED-STITCH-P9"
+    base_commit: "a6530a5"
+    claimed_at: "2026-08-19T06:40:00+03:30"
+    completed_at: "2026-08-19T16:55:00+03:30"
+    file_claims: []
+    notes: >-
+      Security APPROVED 9ac12419. Independent stalled; owner authorized merge/deploy.
+      Tests re-run 47/47. Merged @ 0daf21f. Claims released. SW v166.
+      Iran SFTP stamp .sftp-deploy-stamp-stitch-v166 = 2026-08-19T13:26:45Z hash=0daf21f.
+    acceptance_criteria:
+      - "Financial ledger: person, bank, cash, petty, COA account — opening/period/end"
+      - "Stock ledger separate; secure source-doc drill-down; export reconcilable"
+      - "Tests + Help; vanilla UI; no new money type; acct() posting unchanged"
+
+  - id: "DEMO-V3-GUIDED-SALES"
+    title: "Guided, role-based, sales-oriented Demo V3"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-demo-v3"
+    roles:
+      orchestrator: "cursor:orchestrator-demo-v3"
+      architect: "cursor:orchestrator-demo-v3"
+      implementer: "cursor:implementer-demo-v3"
+      reviewer: "cursor:independent-reviewer-demo-v3"
+      security: "cursor:independent-security-demo-v3"
+    branch: "feat/DEMO-V3-GUIDED-SALES"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-demo-v3"
+    base_commit: "8a1d699"
+    claimed_at: "2026-08-15T00:34:00+03:30"
+    file_claims:
+      - ".ai-dos/tasks/active.yaml"
+      - ".ai-dos/tasks/handoff.md"
+      - ".ai-dos/project/status.md"
+      - "docs/CHANGE-LOG.md"
+      - "docs/architecture/DEMO-V3-DESIGN.md"
+      - "server/public/demo.html"
+      - "server/public/demo.css"
+      - "server/public/demo.js"
+      - "server/public/demo-v3-seed.js"
+      - "server/public/demo-v3-store.js"
+      - "server/public/demo-v3-tour.js"
+      - "server/public/demo-v3-app.js"
+      - "server/scripts/test-demo-v3.js"
+      - "server/scripts/test-demo-static.js"
+    notes: >-
+      Static sales-oriented Demo V3. NO merge/push/deploy/PM2 until explicit owner approval.
+      Do not touch dirty user files in erp-taranom1
+      (scripts/_deploy-demo-ui-v156-sftp.py, scripts/_deploy-mdi-v152-sftp.py).
+      Reviewer and Security identities are independent of Implementer.
+    acceptance_criteria:
+      - "Welcome experience before login with 4 role tours + free entry"
+      - "Guided role tours with dock, skip/pause/restart, local progress, a11y"
+      - "Coherent sample company data meeting numeric minima and cross-links"
+      - "Interactive sandbox with positive demo toast; namespaced reset only"
+      - "No placeholder-only important modules; no orange full-width watermark"
+      - "No credentials, no production DB/API, no new deps, no invented contact"
+      - "Dedicated Demo V3 tests cover behavior + security invariants"
+      - "Independent Reviewer + Security APPROVED; no open High/Medium"
+      - "NO production deploy / merge / push until explicit owner approval"
+    non_goals:
+      - "Iran VPS deploy, PM2, SW bump, merge to primary"
+      - "Changing production auth/RBAC or Demo Mode server env"
+      - "Copying entire app.js"
+
+  - id: "DEMO-V2-SECURE-SALES"
+    title: "Secure independent resettable sales demo (static + interactive)"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator"
+    roles:
+      orchestrator: "cursor:orchestrator"
+      architect: "cursor:orchestrator"
+      implementer: "cursor:implementer-demo-v2"
+      reviewer: "cursor:independent-reviewer-demo-v2"
+      security: "cursor:independent-security-demo-v2"
+    branch: "ai/DEMO-V2-SECURE-SALES"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-demo-v2"
+    base_commit: "eae0a14"
+    claimed_at: "2026-08-14T11:05:00+03:30"
+    completed_at: "2026-08-14T13:05:00+03:30"
+    file_claims: []
+    notes: >-
+      Dual Approved on tip af9859f. Owner approved merge + Iran deploy.
+      Independent [a925eb95] APPROVED; Security [1471cb54] APPROVED.
+      Dirty file scripts/_deploy-mdi-v152-sftp.py was never touched.
+    acceptance_criteria:
+      - "Task/branch/worktree/claims recorded before edit"
+      - "User dirty deploy script untouched"
+      - "Static showcase offline, no credentials, watermark"
+      - "Interactive demo only with explicit fail-closed env"
+      - "No Production DB/uploads/companies fallback"
+      - "Atomic path-safe reset; no wildcard delete"
+      - "External integrations zero network in demo"
+      - "Sensitive APIs 403 demo_operation_blocked"
+      - "No unrestricted public admin; no hardcoded secrets"
+      - "Seed deterministic + current schema + invariants"
+      - "Accounting-only MDI and dashboard single-page unchanged"
+      - "Independent Reviewer + Security Approved; no open C/H/M"
+      - "NO production deploy until explicit owner approval"
+
+  - id: "CRM-PRO-ANALYTICS"
+    title: "تکمیل CRM حرفه‌ای، نموداری و یکپارچه ERP Taranom"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator-crm-pro"
+    roles:
+      implementer: "cursor:implementer-crm-pro"
+      reviewer: "cursor:independent-reviewer-crm-pro"
+      security: "cursor:independent-security-crm-pro"
+    branch: "ai/CRM-PRO-ANALYTICS-crm-dashboard"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-crm-pro-analytics"
+    base_commit: "eae0a14"
+    claimed_at: "2026-08-14T03:10:00+03:30"
+    file_claims: []
+    notes: >-
+      Merged + Iran deployed (SW v154). Reviewer a092902a + Security 16b3d555 APPROVED.
+
+  - id: "ACC-CRM-UNIFY"
+    title: "Accounting perpetual unify + normal invoice + CRM dashboard"
+    status: "completed"
+    review_status: "APPROVED"
+    security_status: "APPROVED"
+    risk: "high"
+    owner: "cursor:orchestrator"
+    roles:
+      implementer: "cursor:implementer-acc-crm"
+      reviewer: "cursor:independent-reviewer-acc-crm"
+      security: "cursor:independent-security-acc-crm"
+    branch: "ai/ACC-CRM-UNIFY-accounting-crm"
+    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-acc-crm-unify"
+    file_claims: []
+
   - id: "PROD-P5-R2"
     title: "Reopen invalid PROD-P5 completion; restore P0–P5 gates and secure sensitivity"
     status: "completed"
     risk: "high"
     owner: "cursor:implementer"
-    roles:
-      implementer: "cursor:implementer"
-      reviewer: "cursor:independent-reviewer"
-      security: "cursor:independent-security"
-    branch: "fix/PROD-P5-R2-review-remediation"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5-r2"
-    base_commit: "a152086"
-    claimed_at: "2026-08-10T15:40:00+03:30"
-    completed_at: "2026-08-10T19:15:00+03:30"
     file_claims: []
-    acceptance_criteria:
-      - "P0/P1/P2/P3/P4/P5 all green on one commit"
-      - "No T2-05/T2-07/T2-08 failures; health 5201/5202/5203 zero and ok=true"
-      - "sensitivity is DB side-effect-free (no product/production UPDATE)"
-      - "embedded desktop/android SHA diff=0 after prepare"
-      - "BOM editor CRUD+template+resequence; role UI/API cost strip; browser smoke"
-      - "Independent Reviewer Approved; Security Approved; no open High/Medium"
-      - "NO deploy and NO completed until both reviewers approve"
-    notes: >-
-      Completed after Independent Approved-with-comments + Security Approved.
-      Tip code 1728626; primary FF a1f219b lineage; Iran SFTP stamp .sftp-deploy-stamp-prod-p5-r2;
-      hashes match; health/ready/root 200. Claims released.
-      2026-08-10T20:10 re-verification: Independent Reviewer APPROVED + Security Approved;
-      no open High/Medium; gates re-run green (sync 44/44 on retry).
 
   - id: "PROD-P5"
     title: "Production Module P5 — advanced BOM + routing + co/by-products (Module 4)"
     status: "superseded"
     risk: "high"
     owner: "cursor:orchestrator"
-    branch: "ai/PROD-P5-advanced-bom"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p5"
     file_claims: []
-    notes: >-
-      Completion invalidated by Independent Reviewer (High/Medium open).
-      Remediation tracked under PROD-P5-R2 (now completed). Claims released.
 
   - id: "PROD-P4"
     title: "Production Module P4 — overhead + labor + cost centers"
     status: "completed"
     risk: "high"
     owner: "cursor:orchestrator"
-    branch: "ai/PROD-P4-overhead-labor"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p4"
     file_claims: []
-    notes: "38/38 PASS. Merged; claims released."
 
   - id: "PROD-P3"
     title: "Complete Production Module P3 — variable analysis + ADR-011"
     status: "completed"
     risk: "high"
     owner: "cursor:implementer"
-    branch: "ai/PROD-P3-variable-analysis"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-prod-p3"
     file_claims: []
-    notes: "27/27 PASS. Merged; claims released."
 
   - id: "W2-ORCH"
     title: "Wave 2 orchestration — آماده فروش کنترل‌شده"
     status: "completed"
     risk: "high"
     owner: "cursor:implementer"
-    branch: "ai/W2-ORCH-wave2"
-    worktree: "D:/soft/Claud/porje/Run in the project/erp-taranom-w2-orch"
     file_claims: []
-    notes: "MVP integration complete. Claims released."

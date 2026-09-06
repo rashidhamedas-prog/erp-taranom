@@ -1,6 +1,6 @@
 'use strict';
 /**
- * W1-F1 Moadian foundation tests (temp SQLite, no live SDK).
+ * W1-F1 Moadian foundation tests (temp SQLite; sandbox HTTP needs key — offline path covered).
  */
 const path = require('path');
 const fs = require('fs');
@@ -82,20 +82,28 @@ const stub = moadian.getAdapter('stub');
   }
   ok('sandbox rejects without fiscal id', rejected);
 
-  const sbxOk = await sandbox.submit({
+  let keyRejected = false;
+  try {
+    await sandbox.submit({
+      payload: moadian.buildSalesPayload({ final: 1, rows: [] }, { fiscalId: 'ABC' }),
+      signed,
+      fiscalId: 'ABC',
+    });
+  } catch (e) {
+    keyRejected = e.code === 'MOADIAN_KEY_REQUIRED' || e.code === 'MOADIAN_KEY_MISSING' || e.code === 'MOADIAN_NETWORK';
+  }
+  ok('sandbox HTTP needs key or network', keyRejected);
+
+  const offline = moadian.getAdapter('sandbox-offline');
+  const sbxOk = await offline.submit({
     payload: moadian.buildSalesPayload({ final: 1, rows: [] }, { fiscalId: 'ABC' }),
     signed,
     fiscalId: 'ABC',
   });
-  ok('sandbox accepts with fiscal id', sbxOk.ok && String(sbxOk.taxId).startsWith('SBX-'));
+  ok('sandbox-offline accepts with fiscal id', sbxOk.ok && String(sbxOk.taxId).startsWith('SBX-'));
 
-  let liveRejected = false;
-  try {
-    moadian.getAdapter('live');
-  } catch (e) {
-    liveRejected = e.code === 'MOADIAN_LIVE_UNAVAILABLE';
-  }
-  ok('live adapter unavailable', liveRejected);
+  const live = moadian.getAdapter('live');
+  ok('live adapter available', live && live.name === 'live');
 
   const { resolveMoadianKeyPath } = require('../lib/moadian/sign');
   let pathRejected = false;
@@ -106,12 +114,25 @@ const stub = moadian.getAdapter('stub');
   }
   ok('key path traversal rejected', pathRejected);
 
+  const { normalizeJson } = require('../lib/moadian/crypto-packet');
+  ok('normalizeJson sorts keys', normalizeJson({ b: 1, a: 2 }) === '{"a":2,"b":1}');
+
   moadian.markSent(db, id1, stubRes.taxId, stubRes.response);
   const sent = db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(id1);
   ok('status sent', sent.status === 'sent' && sent.tax_id === stubRes.taxId);
 
-  const idFail = moadian.enqueueMoadian(db, 'sales', 99);
-  // force new doc without existing — insert fake invoice id 99 not needed for queue
+  const qTest = db.prepare("INSERT INTO moadian_queue(doc_type,doc_id,status,invoice_type,adapter) VALUES('sales',10,'pending',1,'sandbox')").run().lastInsertRowid;
+  moadian.markTestSent(db, qTest, 'SBX-TEST', { message: 'x' });
+  const testRow = db.prepare('SELECT * FROM moadian_queue WHERE id=?').get(qTest);
+  ok('status test_sent', testRow.status === 'test_sent');
+
+  try {
+    moadian.assertInvoiceEditableForMoadian({ moadian_status: 'test_sent', moadian_tax_id: 'SBX' });
+    ok('test_sent not locked', true);
+  } catch (e) {
+    ok('test_sent not locked', false);
+  }
+
   db.prepare("INSERT INTO moadian_queue(doc_type,doc_id,status,invoice_type,adapter) VALUES('sales',99,'pending',1,'stub')").run();
   const failId = db.prepare("SELECT id FROM moadian_queue WHERE doc_id=99 ORDER BY id DESC LIMIT 1").get().id;
   moadian.markFailed(db, failId, 'boom');
@@ -124,6 +145,8 @@ const stub = moadian.getAdapter('stub');
   } catch (e) {
     ok('lock throws', e.code === 'MOADIAN_LOCKED');
   }
+
+  ok('client BASE sandbox', !!moadian.client.BASE.sandbox && moadian.client.BASE.sandbox.includes('sandboxrc.tax.gov.ir'));
 
   db.close();
   try { fs.unlinkSync(dbPath); } catch (_) {}

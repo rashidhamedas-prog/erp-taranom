@@ -8,7 +8,9 @@ function assertInvoiceEditableForMoadian(invoice) {
     err.status = 404;
     throw err;
   }
-  if (invoice.moadian_status === 'sent' || invoice.moadian_tax_id) {
+  /* test_sent = sandbox experimental — still editable; only live stamp locks */
+  const locked = invoice.moadian_status === 'sent' || invoice.moadian_status === 'accepted';
+  if (locked) {
     const err = new Error('فاکتور ارسال‌شده به مودیان قابل ویرایش نیست — فقط سند اصلاحی/ابطالی');
     err.status = 422;
     err.code = 'MOADIAN_LOCKED';

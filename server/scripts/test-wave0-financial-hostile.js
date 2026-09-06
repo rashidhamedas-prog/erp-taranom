@@ -134,6 +134,7 @@ async function main() {
     const inv = await req('POST', '/invoices', {
       cust_id: custId,
       type: 'final',
+      warehouse_id: prod.body?.warehouse_id || (await req('GET', '/warehouses', null, token)).body?.[0]?.id,
       rows: [{ product_id: prodId, qty: 2, price: 100000 }],
       pay_type: 'credit',
     }, token);

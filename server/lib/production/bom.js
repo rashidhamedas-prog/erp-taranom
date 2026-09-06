@@ -482,6 +482,25 @@ function deleteLine(db, bomId, lineId, userId) {
   })();
 }
 
+/** جایگزینی اتمیک همهٔ اقلام پیش‌نویس — یک تراکنش */
+function replaceLines(db, bomId, lines, userId) {
+  return db.transaction(() => {
+    const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
+    assertDraft(b);
+    const existing = db.prepare('SELECT id FROM bom_lines WHERE bom_id=?').all(bomId);
+    for (const row of existing) {
+      db.prepare('DELETE FROM bom_lines WHERE id=? AND bom_id=?').run(row.id, bomId);
+    }
+    const out = [];
+    for (const L of lines) {
+      out.push(addLine(db, bomId, L, userId, { skipLock: true }));
+    }
+    logBomChange(db, bomId, 'lines_replace', { count: out.length }, userId);
+    audit(userId, 'edit', 'bom', bomId, `جایگزینی ${out.length} قلم فرمول`);
+    return { ok: true, count: out.length, ids: out.map(x => x.id) };
+  })();
+}
+
 function activateBom(db, bomId, validFrom, userId) {
   return db.transaction(() => {
     const b = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(bomId);
@@ -759,7 +778,7 @@ module.exports = {
   err, resolveBom, explodeBom, resolveSubstitutes, getPrice,
   validateBom, detectCircular,
   activateBom, deactivateBom, archiveBom, versionUpBom, cloneBom, createAlternative,
-  createBom, updateBomHeader, softDeleteBom, addLine, updateLine, deleteLine,
+  createBom, updateBomHeader, softDeleteBom, addLine, updateLine, deleteLine, replaceLines,
   getBom, listBoms, whereUsed, stdCost, compareBoms, bomTree, logBomChange,
   assertProductNotInBom, round6,
 };

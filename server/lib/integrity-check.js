@@ -1,6 +1,7 @@
 // System integrity checks — spec §10.19
 
 const { DELETED_FILTER } = require('./ledger');
+const { firmSaleTypeSql } = require('./sales-document');
 
 function runIntegrityCheck(db) {
   const issues = [];
@@ -23,7 +24,7 @@ function runIntegrityCheck(db) {
   // (b) Final invoices should have journal
   const invNoJournal = db.prepare(`
     SELECT i.id, i.num FROM invoices i
-    WHERE i.type='final' AND COALESCE(i.deleted_at,0)=0 AND COALESCE(i.stock_deducted,0)=1
+    WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0 AND COALESCE(i.stock_deducted,0)=1
     AND NOT EXISTS (
       SELECT 1 FROM journal_entries je
       WHERE je.ref_type='invoice' AND je.ref_id=i.id AND ${DELETED_FILTER}

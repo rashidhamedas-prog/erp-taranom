@@ -27,12 +27,13 @@ const { PRIVATE_UPLOADS_ROOT } = require('../lib/private-uploads');
 //  - bulk Excel imports (multipart bodies that can't replay as JSON)
 //  - direct message/SMS sends (replaying would double-send)
 const BLOCKLIST = [
-  '/api/auth', '/api/sync', '/api/api-keys',
+  '/api/auth', '/api/users', '/api/sync', '/api/api-keys',
   '/api/messages', '/api/v1', '/api/ai', '/api/b2b',
   '/api/onboarding',
   '/api/admin/backup', '/api/admin/backups', '/api/admin/backup-now',
   '/api/admin/backup-download', '/api/admin/backup-restore',
   '/api/admin/restore-product-stock-wipe',
+  '/api/crm/automations',
 ];
 const BLOCK_PATTERNS = [/\/import/, /\/export/, /\/backup/, /\/backfill/, /\/stock$/];
 
@@ -58,13 +59,22 @@ const PATH_TABLE_MAP = [
   ['/api/accounting/customer-groups', 'customer_groups'],
   ['/api/purchases/returns', 'purchase_returns'],
   ['/api/purchases/payments', 'supplier_payments'],
+  ['/api/purchases/goods-receipts', 'goods_receipts'],
+  ['/api/purchases/orders', 'purchase_orders'],
+  ['/api/purchases/three-way-match', 'three_way_matches'],
+  ['/api/purchases/gr-invoices', 'purchase_invoices'],
   ['/api/purchases', 'purchase_invoices'],
+  ['/api/rfq', 'rfqs'],
+  ['/api/branches', 'branches'],
   ['/api/persons/categories', 'person_categories'],
   ['/api/persons', 'persons'],
   ['/api/customers', 'customers'],
   ['/api/parties', 'parties'],
   ['/api/invoices', 'invoices'],
   ['/api/followups', 'followups'],
+  ['/api/crm/opportunities', 'crm_opportunities'],
+  ['/api/crm/activities', 'crm_activities'],
+  ['/api/crm/segmentation', 'crm_customer_segments'],
   // Product variants — specific prefixes BEFORE generic /api/product-variants
   ['/api/product-variants/colors', 'product_colors'],
   ['/api/product-variants/sizes', 'product_sizes'],
@@ -86,7 +96,11 @@ const PATH_TABLE_MAP = [
   ['/api/warehouses/stock', 'warehouse_stock'],
   ['/api/warehouses', 'warehouses'],
   ['/api/stocktaking', 'stocktaking_sessions'],
-  ['/api/consignments', 'consignments'],
+  ['/api/consignments', 'consignments'], // settle/cancel share this prefix
+  // POS — longer prefixes first (receipts/batches before terminals)
+  ['/api/pos/receipts', 'pos_receipts'],
+  ['/api/pos/batches', 'pos_settlement_batches'],
+  ['/api/pos/terminals', 'pos_terminals'],
   // Detail accounts — categories before generic
   ['/api/detail-accounts/categories', 'detail_categories'],
   ['/api/detail-accounts', 'detail_accounts'],
@@ -99,12 +113,14 @@ const PATH_TABLE_MAP = [
   ['/api/production/boms', 'bom_headers'],
   ['/api/production/orders', 'production_orders'],
   ['/api/production/execution', 'production_orders'],
+  ['/api/production/cutting-lays', 'cutting_lays'],
   ['/api/production/mrp', 'mrp_runs'],
   ['/api/production/cost-centers', 'cost_centers'],
   ['/api/production/user-cost-centers', 'user_cost_centers'],
   ['/api/production/close', 'production_period_close'],
   ['/api/production', 'production_runs'],
   // Inventory — specific before generic
+  ['/api/inventory/fabric-rolls', 'inventory_batches'],
   ['/api/inventory/batches', 'inventory_batches'],
   ['/api/inventory/serials', 'inventory_serials'],
   ['/api/inventory/reservations', 'inventory_reservations'],
@@ -148,6 +164,8 @@ function tableForPath(path) {
   // PATH_TABLE_MAP prefixes cannot distinguish them from bom_headers.
   if (path.startsWith('/api/production/boms/') && path.includes('/operations')) return 'bom_operations';
   if (path.startsWith('/api/production/boms/') && path.includes('/outputs')) return 'bom_outputs';
+  if (path.startsWith('/api/production/cutting-lays/') && /\/pack/.test(path)) return 'cutting_packs';
+  if (path.startsWith('/api/production/cutting-lays/') && /\/link-order/.test(path)) return 'cutting_lays';
   for (const [prefix, tbl] of PATH_TABLE_MAP) {
     if (path === prefix || path.startsWith(prefix + '/')) return tbl;
   }

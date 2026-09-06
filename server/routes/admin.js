@@ -6,6 +6,8 @@ const { DEFAULT_ROLE_PERMISSIONS } = require('../lib/rbac');
 const { validatePassword } = require('../lib/security');
 const { j2g } = require('../jalali');
 const { ensureUserParty } = require('../lib/user-party');
+const { firmSaleTypeSql } = require('../lib/sales-document');
+const { applyCustomerBalances } = require('../lib/customer-books');
 const ALLOWED_ROLES = new Set(Object.keys(DEFAULT_ROLE_PERMISSIONS));
 
 function jalaliDayBounds(jStr) {
@@ -20,7 +22,7 @@ function jalaliDayBounds(jStr) {
 router.get('/users', auth, adminOnly, (req, res) => {
   const db = getDB();
   const users = db.prepare(`
-    SELECT u.id,u.name,u.username,u.role,u.phone,u.active,u.last_login,u.commission_cash,u.commission_cheque,
+    SELECT u.id,u.name,u.username,u.role,u.phone,u.active,u.last_login,u.commission_cash,u.commission_cheque,u.branch_id,
       u.commission_basis,u.monthly_target,u.incentive_locked,u.created_at,u.party_id,u.sales_warehouse_id,
       p.person_code,p.legal_type,p.company_name,p.national_id,p.economic_code,
       p.secondary_phone AS person_secondary_phone,p.mobile AS person_mobile,p.fax AS person_fax,
@@ -64,8 +66,11 @@ router.post('/users', auth, adminOnly, centralOnly, (req, res) => {
     ensureUserParty(db, result.lastInsertRowid, req.body);
     return result;
   })();
+  if (req.body.branch_id != null && req.body.branch_id !== '') {
+    getDB().prepare('UPDATE users SET branch_id=? WHERE id=?').run(parseInt(req.body.branch_id, 10) || null, created.lastInsertRowid);
+  }
   audit(req.user.id, 'create', 'user', created.lastInsertRowid, `ساخت کاربر ${name} با انگیزه فروش نقد ${commission_cash}٪ چک ${commission_cheque}٪`);
-  res.json({ id: created.lastInsertRowid, name, username, phone: phone || '', role, commission_cash: parseFloat(commission_cash) || 0, commission_cheque: parseFloat(commission_cheque) || 0, incentive_locked: 1 });
+  res.json({ id: created.lastInsertRowid, name, username, phone: phone || '', role, commission_cash: parseFloat(commission_cash) || 0, commission_cheque: parseFloat(commission_cheque) || 0, incentive_locked: 1, branch_id: req.body.branch_id || null });
 });
 
 // Update user — if incentive rate changed on a locked user, require force:true
@@ -138,6 +143,12 @@ router.put('/users/:id', auth, adminOnly, centralOnly, (req, res) => {
           req.params.id);
     }
     ensureUserParty(db, Number(req.params.id), req.body);
+    if (req.body.branch_id !== undefined) {
+      db.prepare('UPDATE users SET branch_id=? WHERE id=?').run(
+        req.body.branch_id === '' || req.body.branch_id == null ? null : parseInt(req.body.branch_id, 10),
+        req.params.id
+      );
+    }
   })();
   invalidateUserCache(+req.params.id);
   if (authChanged) {
@@ -197,7 +208,7 @@ router.get('/dashboard', auth, adminOnly, (req, res) => {
     db.prepare('SELECT user_id, COUNT(*) c FROM customers GROUP BY user_id').all().map(r => [r.user_id, r.c])
   );
   const salesMap = Object.fromEntries(
-    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE type='final' AND COALESCE(deleted_at,0)=0${dateClause} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
+    db.prepare(`SELECT user_id, COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()} AND COALESCE(deleted_at,0)=0${dateClause} GROUP BY user_id`).all().map(r => [r.user_id, r.s])
   );
   const fupMap = Object.fromEntries(
     db.prepare("SELECT user_id, COUNT(*) c FROM followups WHERE status='open' GROUP BY user_id").all().map(r => [r.user_id, r.c])
@@ -222,8 +233,8 @@ router.get('/stats/overview', auth, adminOnly, (req, res) => {
     : '';
   const totalCustomers = db.prepare('SELECT COUNT(*) c FROM customers').get().c;
   const notDeleted = ` AND COALESCE(deleted_at,0)=0`;
-  const totalRevenue = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE type='final'${notDeleted}${dateClause}`).get().s;
-  const totalInvoices = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE type='final'${notDeleted}${dateClause}`).get().c;
+  const totalRevenue = db.prepare(`SELECT COALESCE(SUM(final),0) s FROM invoices WHERE ${firmSaleTypeSql()}${notDeleted}${dateClause}`).get().s;
+  const totalInvoices = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE ${firmSaleTypeSql()}${notDeleted}${dateClause}`).get().c;
   const totalProforma = db.prepare(`SELECT COUNT(*) c FROM invoices WHERE type='proforma'${notDeleted}${dateClause}`).get().c
   const totalProducts = db.prepare('SELECT COUNT(*) c FROM products').get().c;
   const openFollowups = db.prepare("SELECT COUNT(*) c FROM followups WHERE status='open'").get().c;
@@ -263,6 +274,11 @@ router.get('/audit', auth, adminOnly, (req, res) => {
     const b = jalaliDayBounds(req.query.date_to);
     if (b) { where.push('a.created_at<=?'); params.push(b.end); }
   }
+  if (req.query.action) { where.push('a.action=?'); params.push(req.query.action); }
+  if (req.query.deleted_only === '1') {
+    where.push(`(a.action IN ('delete','reverse','void','reject','cancel')
+      OR a.action LIKE '%void%' OR a.action LIKE '%delete%' OR a.action LIKE '%reverse%')`);
+  }
   if (req.query.from) { where.push('a.created_at>=?'); params.push(parseInt(req.query.from)); }
   if (req.query.to) { where.push('a.created_at<=?'); params.push(parseInt(req.query.to)); }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
@@ -283,14 +299,22 @@ router.get('/customer-balances', auth, adminOnly, (req, res) => {
   const BAL = 'COALESCE(lb.balance,0)';
   const rows = db.prepare(`
     SELECT c.id, c.biz, c.owner, c.city, c.address, ${BAL} AS balance,
-           COALESCE(cg.nature,'debit') AS nature, u.name as salesperson
+           COALESCE(cg.nature,'debit') AS nature, u.name as salesperson,
+           p.is_active AS party_is_active, p.id AS party_id
     FROM customers c ${LEDGER_BAL_JOIN}
     LEFT JOIN users u ON c.user_id=u.id
     LEFT JOIN customer_groups cg ON cg.id=c.group_id
-    WHERE ${BAL} <> 0
-    ORDER BY ABS(${BAL}) DESC
+    LEFT JOIN parties p ON p.id=c.party_id
   `).all();
-  res.json(rows);
+  applyCustomerBalances(db, rows);
+  res.json(rows
+    .filter((r) => {
+      const bal = Math.abs(Number(r.balance) || 0);
+      const inactive = r.party_id != null && Number(r.party_is_active) === 0;
+      if (inactive && bal < 1) return false;
+      return bal > 0;
+    })
+    .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0)));
 });
 
 // Repair: restore products.stock / pack_size / price / code wiped by image-only PUT bug

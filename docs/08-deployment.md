@@ -6,6 +6,7 @@ Short ops notes for safe production apply. Full history lives in `CHANGE-LOG.md`
 
 - **HTTPS base:** `https://erp.poshaktaranom.com`
 - Deploy / smoke defaults (e.g. `scripts/deploy-sharp-production.ps1` `-PublicBaseUrl`) must use this host — not legacy `erp.taranom.app`.
+- **Origin TLS (Cloudflare Full strict):** nginx uses Cloudflare Origin CA (15y, `*.poshaktaranom.com` + apex) at `/etc/ssl/taranom/erp.poshaktaranom.com.{crt,key}`. Do not revert to self-signed (CF 526) and do not enable Authenticated Origin Pulls without the AOP client CA. Iran VPS cannot reliably reach Let's Encrypt API.
 
 ## Hard rules on Iran VPS (`taranom@94.249.244.208`)
 
@@ -15,6 +16,22 @@ Short ops notes for safe production apply. Full history lives in `CHANGE-LOG.md`
 | `pm2 restart … --update-env` | Can wipe curated PM2 env (JWT, backup paths, etc.) |
 
 Prefer **targeted SFTP overlays** of known files + `pm2 restart erp-taranom` **without** `--update-env`, then HTTP smoke.
+
+## Login / origin downtime (v185)
+
+Intermittent «خطای ارتباط با سرور» on the login page is usually **origin restart**, not a bad password:
+
+1. `pm2 restart` or `max_memory_restart` kills the only Node process → Cloudflare **521/502** → browser `fetch` throws.
+2. The login form used to fail on the **first** failed fetch with a generic message.
+
+Mitigations in product:
+
+- PM2 `max_memory_restart: 1024M` + `wait_ready` (process sends `ready` after schema init).
+- HTTP listen **before** `initDB()` so the kernel accept-queue survives schema boot; `/api/system/ready` is 503 `STARTING` until `bootGate.markReady()`.
+- Login and GET APIs retry transient 502/503/521–524 with backoff; login errors are classified (starting vs timeout vs 401).
+- SIGINT/SIGTERM drain: new APIs get 503 `RESTARTING` for a few seconds instead of connection reset.
+
+Nginx origin should keep `proxy_connect_timeout` modest (e.g. 5s) so a dead process fails fast and the **client retry** can hit the new process. Do not enable Authenticated Origin Pulls.
 
 ## Evidence recipes (read-only / non-mutating)
 
