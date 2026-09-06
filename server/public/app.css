@@ -1162,3 +1162,215 @@ body.erp-demo-mode{padding-top:32px}
 @media(max-width:900px){
   .coa-four,.vc-cascade{grid-template-columns:1fr}
 }
+
+/* ===== Redesigned Modern UI/UX for Invoices & Reports ===== */
+.inv-kpi-grid, .rep-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.inv-kpi-card, .rep-kpi-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+.inv-kpi-card:hover, .rep-kpi-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--purple);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+}
+.inv-kpi-card.active, .rep-kpi-card.active {
+  border-color: var(--purple2);
+  background: var(--well);
+  outline: 2px solid var(--purple2);
+}
+.inv-kpi-card .kpi-icon, .rep-kpi-card .kpi-icon {
+  font-size: 22px;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+.inv-kpi-card .kpi-label, .rep-kpi-card .kpi-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.inv-kpi-card .kpi-val, .rep-kpi-card .kpi-val {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  font-family: inherit;
+  letter-spacing: -0.3px;
+}
+.inv-kpi-card .kpi-sub, .rep-kpi-card .kpi-sub {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.inv-chip-tabs, .rep-chip-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.inv-chip, .rep-chip {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.inv-chip:hover, .rep-chip:hover {
+  border-color: var(--purple2);
+  background: var(--well);
+}
+.inv-chip.active, .rep-chip.active {
+  background: var(--purple);
+  color: var(--on-accent);
+  border-color: var(--purple);
+  box-shadow: 0 2px 8px rgba(26, 92, 56, 0.25);
+}
+.inv-chip .chip-count, .rep-chip .chip-count {
+  background: rgba(0,0,0,0.08);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.inv-chip.active .chip-count, .rep-chip.active .chip-count {
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+}
+
+.inv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.inv-badge.proforma {
+  background: var(--amber-bg, #FEF3C7);
+  color: var(--amber-fg, #D97706);
+  border: 1px solid rgba(217, 119, 6, 0.3);
+}
+.inv-badge.normal {
+  background: var(--info-bg, #DBEAFE);
+  color: var(--info-fg, #2563EB);
+  border: 1px solid rgba(37, 99, 235, 0.3);
+}
+.inv-badge.final {
+  background: var(--ok-bg, #D1FAE5);
+  color: var(--ok-fg, #059669);
+  border: 1px solid rgba(5, 150, 105, 0.3);
+}
+.inv-badge.moadian-approved {
+  background: rgba(5, 150, 105, 0.15);
+  color: #059669;
+  border: 1px solid #059669;
+}
+.inv-badge.moadian-pending {
+  background: rgba(217, 119, 6, 0.15);
+  color: #D97706;
+}
+
+.inv-builder-header-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  background: var(--well);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.inv-builder-summary-box {
+  background: var(--card);
+  border: 1.5px solid var(--purple);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: var(--shadow-card);
+}
+.inv-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px dashed var(--border);
+}
+.inv-summary-row:last-child {
+  border-bottom: none;
+}
+.inv-summary-row.grand-total {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--purple);
+  padding-top: 10px;
+  border-top: 2px solid var(--purple);
+}
+
+.inv-actions-cell {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+.inv-actions-cell .btn {
+  padding: 5px 9px;
+  font-size: 11.5px;
+  border-radius: 6px;
+}
+
+.rep-preset-bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.rep-preset-btn {
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.rep-preset-btn:hover {
+  background: var(--well);
+  border-color: var(--purple2);
+}
+.rep-preset-btn.active {
+  background: var(--purple);
+  color: var(--on-accent);
+  border-color: var(--purple);
+}
+

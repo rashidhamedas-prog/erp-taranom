@@ -3990,52 +3990,115 @@ async function toastPrintError(r){
     || ('خطا در چاپ (' + r.status + ')');
   showToast(msg, 'error');
 }
+function invBadgeHtml(type, approved){
+  if(type === 'proforma') return `<span class="inv-badge proforma">📋 پیش‌فاکتور</span>`;
+  if(type === 'normal') return `<span class="inv-badge normal">🧾 معمولی</span>`;
+  if(type === 'final') return `<span class="inv-badge final">📄 رسمی${approved?' <span class="inv-badge moadian-approved">✓ مودیان</span>':' <span class="inv-badge moadian-pending">⏳ صف ارسال</span>'}</span>`;
+  return `<span class="inv-badge">${esc(type||'')}</span>`;
+}
+
+function setInvChipActive(targetEl){
+  document.querySelectorAll('.inv-chip-tabs .inv-chip').forEach(c=>c.classList.remove('active'));
+  targetEl?.classList.add('active');
+}
+
 ROUTES.invoices = async function(){
   el('view').innerHTML='<div class="muted">در حال بارگذاری...</div>';
   if(!_invoicesFetched){ CACHE.invoices=await api('GET','/invoices')||[]; _invoicesFetched=true; }
+
+  const allInvs = (CACHE.invoices||[]).filter(i=>!i.deleted_at && i.status!=='reversed');
+  const totalRev = allInvs.filter(i=>i.type!=='proforma').reduce((a,i)=>a+(i.final||0),0);
+  const proformaInvs = allInvs.filter(i=>i.type==='proforma' && !i.converted);
+  const proformaSum = proformaInvs.reduce((a,i)=>a+(i.final||0),0);
+  const normalInvs = allInvs.filter(i=>i.type==='normal');
+  const finalInvs = allInvs.filter(i=>i.type==='final');
+
   el('view').innerHTML=`
+    <div class="inv-kpi-grid">
+      <div class="inv-kpi-card ${invFilter.type===''?'active':''}" data-csp-click="${CSP.bind('click',function(){invFilter.type='';ROUTES.invoices();})}">
+        <div class="kpi-icon">💰</div>
+        <div class="kpi-label">فروش کل قطعی</div>
+        <div class="kpi-val">${fmt(totalRev)} ریال</div>
+        <div class="kpi-sub">${fmt(normalInvs.length + finalInvs.length)} فاکتور صادر شده</div>
+      </div>
+      <div class="inv-kpi-card ${invFilter.type==='proforma'?'active':''}" data-csp-click="${CSP.bind('click',function(){invFilter.type='proforma';ROUTES.invoices();})}">
+        <div class="kpi-icon">📋</div>
+        <div class="kpi-label">پیش‌فاکتورهای فعال</div>
+        <div class="kpi-val">${fmt(proformaSum)} ریال</div>
+        <div class="kpi-sub">${fmt(proformaInvs.length)} در انتظار تبدیل</div>
+      </div>
+      <div class="inv-kpi-card ${invFilter.type==='normal'?'active':''}" data-csp-click="${CSP.bind('click',function(){invFilter.type='normal';ROUTES.invoices();})}">
+        <div class="kpi-icon">🧾</div>
+        <div class="kpi-label">فاکتورهای معمولی</div>
+        <div class="kpi-val">${fmt(normalInvs.reduce((a,i)=>a+(i.final||0),0))} ریال</div>
+        <div class="kpi-sub">${fmt(normalInvs.length)} فاکتور داخلی</div>
+      </div>
+      <div class="inv-kpi-card ${invFilter.type==='final'?'active':''}" data-csp-click="${CSP.bind('click',function(){invFilter.type='final';ROUTES.invoices();})}">
+        <div class="kpi-icon">📄</div>
+        <div class="kpi-label">فاکتورهای رسمی</div>
+        <div class="kpi-val">${fmt(finalInvs.reduce((a,i)=>a+(i.final||0),0))} ریال</div>
+        <div class="kpi-sub">${fmt(finalInvs.length)} فاکتور (ارسال به مودیان)</div>
+      </div>
+    </div>
+
+    <div class="inv-chip-tabs">
+      <div class="inv-chip ${invFilter.type===''?'active':''}" data-csp-click="${CSP.bind('click',function(event){invFilter.type='';renderInvTable();setInvChipActive(event?.currentTarget);})}">
+        همه <span class="chip-count">${fmt(allInvs.length)}</span>
+      </div>
+      <div class="inv-chip ${invFilter.type==='proforma'?'active':''}" data-csp-click="${CSP.bind('click',function(event){invFilter.type='proforma';renderInvTable();setInvChipActive(event?.currentTarget);})}">
+        📋 پیش‌فاکتور <span class="chip-count">${fmt(proformaInvs.length)}</span>
+      </div>
+      <div class="inv-chip ${invFilter.type==='normal'?'active':''}" data-csp-click="${CSP.bind('click',function(event){invFilter.type='normal';renderInvTable();setInvChipActive(event?.currentTarget);})}">
+        🧾 معمولی <span class="chip-count">${fmt(normalInvs.length)}</span>
+      </div>
+      <div class="inv-chip ${invFilter.type==='final'?'active':''}" data-csp-click="${CSP.bind('click',function(event){invFilter.type='final';renderInvTable();setInvChipActive(event?.currentTarget);})}">
+        📄 رسمی <span class="chip-count">${fmt(finalInvs.length)}</span>
+      </div>
+    </div>
+
     <div class="toolbar">
-      <input class="search" id="iSearch" placeholder="جستجوی فاکتور..." value="${esc(invFilter.q)}">
-      <select id="iType">
-        <option value="" ${invFilter.type===''?'selected':''}>همه انواع</option>
-        <option value="proforma" ${invFilter.type==='proforma'?'selected':''}>پیش‌فاکتور</option>
-        <option value="normal" ${invFilter.type==='normal'?'selected':''}>فاکتور معمولی</option>
-        <option value="final" ${invFilter.type==='final'?'selected':''}>فاکتور رسمی</option>
-      </select>
+      <input class="search" id="iSearch" placeholder="🔍 جستجو: شماره فاکتور، نام مشتری، تلفن، کارشناس..." value="${esc(invFilter.q)}" data-csp-style="${CSP.style(`min-width:280px`)}">
       ${canCreateInvoice()?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){openInvBuilder()})}">➕ فاکتور جدید</button>`:''}
       ${isAdmin()?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){exportExcel('invoices')})}">📥 اکسل</button>`:''}
     </div>
     <div class="panel"><div class="panel-body tbl-wrap"><div id="invTable"></div></div></div>`;
-  el('iSearch').addEventListener('input',e=>{invFilter.q=e.target.value;debounceInv();});
-  el('iType').addEventListener('change',e=>{invFilter.type=e.target.value;renderInvTable();});
+
+  el('iSearch')?.addEventListener('input',e=>{invFilter.q=e.target.value;debounceInv();});
   renderInvTable();
 };
+
 function renderInvTable(){
   let rows=CACHE.invoices.slice();
   const q=invFilter.q.toLowerCase();
-  if(q)rows=rows.filter(i=>textMatchesQuery((i.num||'')+' '+(i.cust_biz||'')+' '+(i.cust_owner||''), q));
+  if(q)rows=rows.filter(i=>textMatchesQuery((i.num||'')+' '+(i.cust_biz||'')+' '+(i.cust_owner||'')+' '+(i.seller_name||''), q));
   if(invFilter.type)rows=rows.filter(i=>i.type===invFilter.type);
   const isAdmin=ME.role==='admin';
   const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
+  const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'};
+
   el('invTable').innerHTML=`<table class="tbl" id="crmInvTbl" data-bulk-delete="/invoices" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} فاکتور ابطال شود؟ سند معکوس ثبت می‌شود."><thead><tr>
-    <th>شماره</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی</th><th>فروشنده</th><th class="no-sort">عملیات</th>
+    <th>شماره</th><th>خریدار / مشتری</th><th>نوع فاکتور</th><th>تاریخ صدور</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th class="no-sort">عملیات</th>
   </tr></thead><tbody>${rows.map(i=>`<tr data-id="${i.id}">
     <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${invNumCell(i.num)}</td>
-    <td>${esc(i.cust_biz||'-')}${i.cust_owner?`<br><span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(i.cust_owner)}</span>`:''}</td>
-    <td>${statusTag(i.type)}${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" data-csp-style="${CSP.style(`font-size:10px`)}">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
-    <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
+    <td><b>${esc(i.cust_biz||'-')}</b>${i.cust_owner?`<br><span class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">👤 ${esc(i.cust_owner)}</span>`:''}</td>
+    <td>${invBadgeHtml(i.type, i.approved)}</td>
+    <td class="mono">${escDate(i.date)}</td>
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--text)`)}">${fmt(i.final)}</td>
+    <td><span class="tag" data-csp-style="${CSP.style(`font-size:11px`)}">${payLabel[i.pay_type]||i.pay_type||'—'}</span></td>
     <td class="muted">${esc(i.seller_name||'-')}</td>
     <td>
-      ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}">🔄 تبدیل به فاکتور</button>` : ''}
-      <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}">🖨️</button>
-      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}">✏️</button>
-      ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال">⛔</button>`:''}
+      <div class="inv-actions-cell">
+        ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
+        <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️</button>
+        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش فاکتور">✏️</button>
+        ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال/لغو فاکتور">⛔</button>`:''}
+      </div>
     </td>
-  </tr>`).join('')||emptyRow(7)}</tbody>
+  </tr>`).join('')||emptyRow(8)}</tbody>
   <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
     <td colspan="4">جمع (${fmt(rows.length)} فاکتور)</td>
-    <td class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
-    <td colspan="2"></td>
+    <td class="mono" data-csp-style="${CSP.style(`font-weight:800;font-size:15px`)}">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
+    <td colspan="3"></td>
   </tr></tfoot></table>`;
   if(typeof enhanceDataTable==='function'){
     const t=el('crmInvTbl');
@@ -4627,11 +4690,13 @@ function renderCart(){
   const chargedFreight = freightSeller ? 0 : freight;
   const final = subtotal-discAmt+chargedFreight;
   el('cartTot').innerHTML = `
-    ${linesDiscTotal?`<div class="l"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)} ریال</span></div>`:''}
-    <div class="l"><span>جمع کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
-    <div class="l"><span>تخفیف کل فاکتور (${fmt(disc)}٪ / مبلغ):</span><span class="mono">${fmt(discAmt)} ریال</span></div>
-    ${freight?`<div class="l"><span>کرایه حمل ${freightSeller?'(عهده فروشنده — روی مبلغ مشتری نمی‌آید)':'(عهده خریدار)'}:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
-    <div class="l final"><span>مبلغ نهایی:</span><span class="mono">${fmt(final)} ریال</span></div>`;
+    <div class="inv-builder-summary-box">
+      ${linesDiscTotal?`<div class="inv-summary-row"><span>جمع تخفیف ردیف‌ها:</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(linesDiscTotal)} ریال</span></div>`:''}
+      <div class="inv-summary-row"><span>جمع ناخالص کل (پس از تخفیف ردیف‌ها):</span><span class="mono">${fmt(subtotal)} ریال</span></div>
+      <div class="inv-summary-row"><span>تخفیف کلی فاکتور (${fmt(disc)}٪ / مبلغ):</span><span class="mono" data-csp-style="${CSP.style(`color:var(--orange)`)}">${fmt(discAmt)} ریال</span></div>
+      ${freight?`<div class="inv-summary-row"><span>کرایه حمل ${freightSeller?'(عهده فروشنده)':'(عهده خریدار)'}:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
+      <div class="inv-summary-row grand-total"><span>مبلغ نهایی قابل پرداخت:</span><span class="mono" data-csp-style="${CSP.style(`font-size:17px`)}">${fmt(final)} ریال</span></div>
+    </div>`;
 }
 function toggleInvPayFields(){
   const pt = el('inv-pay-type')?.value;
@@ -6353,19 +6418,52 @@ async function resetPass(id,name){
    REPORTS (admin)
 ============================================================ */
 let repRange={from:'',to:''};
+let repPreset='all';
+
+function setRepPreset(presetKey){
+  repPreset = presetKey;
+  const tj = todayJalali();
+  if(presetKey === 'today'){
+    repRange.from = tj; repRange.to = tj;
+  } else if(presetKey === 'week'){
+    repRange.from = jDateAddDays(tj, -7); repRange.to = tj;
+  } else if(presetKey === 'month'){
+    const parts = tj.split('/');
+    if(parts.length===3) { repRange.from = `${parts[0]}/${parts[1]}/01`; repRange.to = tj; }
+  } else if(presetKey === 'year'){
+    const parts = tj.split('/');
+    if(parts.length===3) { repRange.from = `${parts[0]}/01/01`; repRange.to = tj; }
+  } else if(presetKey === 'all'){
+    repRange.from = ''; repRange.to = '';
+  }
+  if(el('rep-from')) el('rep-from').value = repRange.from;
+  if(el('rep-to')) el('rep-to').value = repRange.to;
+  loadReports();
+}
+
 ROUTES.reports = async function(){
   el('view').innerHTML=`
+    <div class="rep-preset-bar">
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px;font-weight:600;margin-left:4px`)}">بازه زمانی سریع:</span>
+      <button class="rep-preset-btn ${repPreset==='today'?'active':''}" data-csp-click="${CSP.bind('click',function(){setRepPreset('today')})}">امروز</button>
+      <button class="rep-preset-btn ${repPreset==='week'?'active':''}" data-csp-click="${CSP.bind('click',function(){setRepPreset('week')})}">هفته جاری</button>
+      <button class="rep-preset-btn ${repPreset==='month'?'active':''}" data-csp-click="${CSP.bind('click',function(){setRepPreset('month')})}">ماه جاری</button>
+      <button class="rep-preset-btn ${repPreset==='year'?'active':''}" data-csp-click="${CSP.bind('click',function(){setRepPreset('year')})}">امسال</button>
+      <button class="rep-preset-btn ${repPreset==='all'?'active':''}" data-csp-click="${CSP.bind('click',function(){setRepPreset('all')})}">کل دوره</button>
+    </div>
     <div class="toolbar">
       <label class="muted">از تاریخ</label><input id="rep-from" data-jdate value="${esc(repRange.from)}" placeholder="از">
       <label class="muted">تا تاریخ</label><input id="rep-to" data-jdate value="${esc(repRange.to)}" placeholder="تا">
-      <button class="btn" data-csp-click="${CSP.bind('click',function(event){loadReports()})}">📊 اعمال</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){loadReports()})}">📊 اعمال فیلتر</button>
+      ${isAdmin()?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){exportExcel('reports')})}">📥 اکسل گزارش</button>`:''}
     </div>
-    <div id="repBody"><div class="muted">در حال بارگذاری...</div></div>`;
+    <div id="repBody"><div class="muted">در حال بارگذاری مرکز گزارشات...</div></div>`;
   attachDatepickers(el('view'));
-  el('rep-from').addEventListener('change',()=>repRange.from=el('rep-from').value);
-  el('rep-to').addEventListener('change',()=>repRange.to=el('rep-to').value);
+  el('rep-from')?.addEventListener('change',()=>repRange.from=el('rep-from').value);
+  el('rep-to')?.addEventListener('change',()=>repRange.to=el('rep-to').value);
   loadReports();
 };
+
 async function loadReports(){
   repRange.from=el('rep-from')?.value||''; repRange.to=el('rep-to')?.value||'';
   const qs=new URLSearchParams(); if(repRange.from)qs.set('from',repRange.from); if(repRange.to)qs.set('to',repRange.to);
@@ -6378,31 +6476,102 @@ async function loadReports(){
   ]);
   const monthly = Array.isArray(monthlyRaw) ? monthlyRaw : (monthlyRaw && monthlyRaw.rows) || [];
   const liveAt = new Date(summary?.generated_at || Date.now()).toLocaleString('fa-IR');
+
   el('repBody').innerHTML=`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">اعداد زنده از دفتر فروش — بدون کش · ${esc(liveAt)}</div>
-    <div class="cards">
-      ${statCard('g','💰',fmt(summary.revenue),'فروش کل (ریال)')}
-      ${statCard('b','📦',fmt(summary.orders),'تعداد فاکتور قطعی')}
-      ${statCard('p','👥',fmt(summary.customers),'مشتریان فعال بازه')}
-      ${statCard('r','⚠️',fmt(summary.debt),'بدهی معوق (ریال)')}
-      ${statCard('b','📥',(summary.collection_rate!=null?fmt(summary.collection_rate):'—')+'٪','نرخ وصول کل (زنده)')}
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;display:flex;align-items:center;gap:6px`)}">
+      <span class="inv-badge moadian-approved">🟢 اعداد زنده - بدون کش</span>
+      <span>بروزرسانی: ${esc(liveAt)}</span>
     </div>
-    <div class="panel"><div class="panel-head"><h4>نمودار فروش ماهانه</h4></div>
-      <div class="panel-body"><div class="crm-chart-box"><canvas id="repChart"></canvas></div></div></div>
-    <div class="panel"><div class="panel-head"><h4>سهم کارشناسان از فروش</h4></div>
-      <div class="panel-body"><div class="crm-chart-box"><canvas id="repShareChart"></canvas></div></div></div>
-    <div class="panel"><div class="panel-head"><h4>مقایسه کارشناسان فروش</h4></div>
-      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
-        <th>کارشناس</th><th>نقش</th><th>مشتریان</th><th>سفارشات</th><th>فروش</th><th>بدهی</th><th>پیگیری باز</th><th>فاکتور</th></tr></thead>
-        <tbody>${(sales||[]).map(s=>`<tr><td>${esc(s.name)}</td><td>${esc(s.role||'-')}</td><td>${fmt(s.customers)}</td><td>${fmt(s.orders)}</td>
-          <td class="mono">${fmt(s.revenue)}</td><td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(s.debt)}</td>
-          <td>${fmt(s.openFollowups)}</td><td>${fmt(s.invoices)}</td></tr>`).join('')||emptyRow(8)}</tbody></table></div></div>
-    <div class="panel"><div class="panel-head"><h4>۱۰ مشتری برتر</h4></div>
-      <div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
-        <th>مشتری</th><th>نام کامل</th><th>تعداد سفارش</th><th>مجموع خرید</th><th>بدهی</th><th>شهر</th><th>آدرس</th></tr></thead>
-        <tbody>${(top||[]).map(t=>`<tr><td>${esc(t.biz)}</td><td>${esc(t.owner||'-')}</td><td>${fmt(t.orders)}</td>
-          <td class="mono">${fmt(t.total)}</td><td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(t.debt)}</td>
-          <td>${esc(t.city||'-')}</td>${tdClip(t.address||'-', 200, true)}</tr>`).join('')||emptyRow(7)}</tbody></table></div></div>`;
+
+    <div class="rep-kpi-grid">
+      <div class="rep-kpi-card">
+        <div class="kpi-icon">💰</div>
+        <div class="kpi-label">فروش کل دوره</div>
+        <div class="kpi-val">${fmt(summary?.revenue||0)} ریال</div>
+        <div class="kpi-sub">جمع فروش قطعی ناخالص</div>
+      </div>
+      <div class="rep-kpi-card">
+        <div class="kpi-icon">📦</div>
+        <div class="kpi-label">تعداد فاکتورهای قطعی</div>
+        <div class="kpi-val">${fmt(summary?.orders||0)} فاکتور</div>
+        <div class="kpi-sub">فروش‌های ثبت شده</div>
+      </div>
+      <div class="rep-kpi-card">
+        <div class="kpi-icon">👥</div>
+        <div class="kpi-label">مشتریان فعال بازه</div>
+        <div class="kpi-val">${fmt(summary?.customers||0)} خریدار</div>
+        <div class="kpi-sub">طرف‌حساب‌های خریدار</div>
+      </div>
+      <div class="rep-kpi-card">
+        <div class="kpi-icon">⚠️</div>
+        <div class="kpi-label">بدهی معوق مطالبات</div>
+        <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(summary?.debt||0)} ریال</div>
+        <div class="kpi-sub">مانده بدهکار مشتریان</div>
+      </div>
+      <div class="rep-kpi-card">
+        <div class="kpi-icon">📥</div>
+        <div class="kpi-label">نرخ وصول کل (زنده)</div>
+        <div class="kpi-val" data-csp-style="${CSP.style(`color:var(--green)`)}">${summary?.collection_rate!=null?fmt(summary.collection_rate):'—'}٪</div>
+        <div class="kpi-sub">نسبت دریافتی به فروش</div>
+      </div>
+    </div>
+
+    <div class="crm-chart-row" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
+      <div class="panel">
+        <div class="panel-head"><h4>📊 نمودار روند فروش دوره</h4></div>
+        <div class="panel-body"><div class="crm-chart-box"><canvas id="repChart"></canvas></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h4>🍩 سهم کارشناسان از فروش</h4></div>
+        <div class="panel-body"><div class="crm-chart-box"><canvas id="repShareChart"></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="panel" data-csp-style="${CSP.style(`margin-bottom:16px`)}">
+      <div class="panel-head" data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center`)}">
+        <h4>👔 مقایسه عملکرد کارشناسان فروش</h4>
+      </div>
+      <div class="panel-body tbl-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>کارشناس فروش</th><th>نقش</th><th>مشتریان</th><th>سفارشات</th><th>فروش کل (ریال)</th><th>بدهی معوق (ریال)</th><th>پیگیری باز</th><th>تعداد فاکتور</th>
+          </tr></thead>
+          <tbody>${(sales||[]).map(s=>`<tr>
+            <td><b>${esc(s.name)}</b></td>
+            <td><span class="tag">${esc(s.role||'-')}</span></td>
+            <td class="mono">${fmt(s.customers)}</td>
+            <td class="mono">${fmt(s.orders)}</td>
+            <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(s.revenue)}</td>
+            <td class="mono" data-csp-style="${CSP.style(`color:var(--red);font-weight:700`)}">${fmt(s.debt)}</td>
+            <td>${fmt(s.openFollowups)}</td>
+            <td class="mono">${fmt(s.invoices)}</td>
+          </tr>`).join('')||emptyRow(8)}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head" data-csp-style="${CSP.style(`display:flex;justify-content:space-between;align-items:center`)}">
+        <h4>👑 ۱۰ مشتری برتر (حجم خرید)</h4>
+      </div>
+      <div class="panel-body tbl-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>نام فروشگاه / مشتری</th><th>نام مالک</th><th>تعداد سفارش</th><th>مجموع خرید (ریال)</th><th>بدهی (ریال)</th><th>شهر</th><th>آدرس</th>
+          </tr></thead>
+          <tbody>${(top||[]).map(t=>`<tr>
+            <td><b>${esc(t.biz)}</b></td>
+            <td>${esc(t.owner||'-')}</td>
+            <td class="mono">${fmt(t.orders)}</td>
+            <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:var(--purple)`)}">${fmt(t.total)}</td>
+            <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmt(t.debt)}</td>
+            <td>${esc(t.city||'-')}</td>
+            ${tdClip(t.address||'-', 200, true)}
+          </tr>`).join('')||emptyRow(7)}</tbody>
+        </table>
+      </div>
+    </div>`;
+
   _lastMonthly = monthly;
   _lastSales = sales||[];
   drawChart(monthly, sales||[]);
@@ -7971,7 +8140,6 @@ async function renderSalesInvoicesTab(body, typeLock){
     return true;
   }).sort((a,b)=>(b.created_at||0)-(a.created_at||0));
   const typeLabel={proforma:'پیش‌فاکتور',normal:'فاکتور معمولی',final:'فاکتور رسمی'};
-  const typeBadge=(t)=>t==='final'?'t-done':(t==='normal'?'t-active':'t-pending');
   const payLabel={cash:'نقد',cheque:'چک',credit:'نسیه',bank_transfer:'واریز بانکی'};
   const canDel=canPerm('invoices','delete')||ME.role==='admin'||ME.role==='accounting';
   const titleBtn = lock==='proforma' ? '➕ پیش‌فاکتور جدید' : (lock==='normal' ? '➕ فاکتور معمولی' : '➕ فاکتور جدید');
@@ -7979,33 +8147,36 @@ async function renderSalesInvoicesTab(body, typeLock){
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
       ${canCreateInvoice()?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){openInvBuilder()})}">${titleBtn}</button>`:''}
       ${!lock?`<select id="accInvTypeFilter" data-csp-change="${CSP.bind('change',function(event){renderSalesInvoicesTab(body,'')})}">
-        <option value="">همه</option>
+        <option value="">همه انواع فاکتور</option>
         <option value="proforma">پیش‌فاکتور</option>
         <option value="normal">معمولی</option>
         <option value="final">رسمی</option>
       </select>`:''}
-      <input id="accInvSearch" class="search" placeholder="جستجو شماره/مشتری..." data-csp-style="${CSP.style(`min-width:180px`)}" data-csp-input="${CSP.bind('input',function(event){filterAccInvTable()})}">
+      <input id="accInvSearch" class="search" placeholder="🔍 جستجو شماره/مشتری/فروشنده..." data-csp-style="${CSP.style(`min-width:220px`)}" data-csp-input="${CSP.bind('input',function(event){filterAccInvTable()})}">
     </div>
     <div class="tbl-wrap"><table class="tbl" id="accSalesInvTbl" data-bulk-delete="/invoices" data-bulk-label="ابطال" data-bulk-perm="invoices" data-bulk-confirm="{n} فاکتور ابطال شود؟ سند معکوس ثبت می‌شود."><thead><tr>
-      <th>شماره</th><th>سند مرجع</th><th>مشتری</th><th>نوع</th><th>تاریخ</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th class="no-sort">عملیات</th>
+      <th>شماره</th><th>سند مرجع</th><th>خریدار / مشتری</th><th>نوع فاکتور</th><th>تاریخ صدور</th><th>مبلغ نهایی ${moneyColLabel()}</th><th>نوع پرداخت</th><th>فروشنده</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${rows.map(i=>`<tr data-id="${i.id}" data-search="${esc((i.num||'')+' '+(i.cust_biz||'')+' '+(typeLabel[i.type]||i.type||''))}">
       <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${invNumCell(i.num)}</td>
       <td>${refDocCell(i.ref_doc_no,i.ref_doc_type)}</td>
-      <td>${esc(i.cust_biz||'-')}</td>
-      <td><span class="tag ${typeBadge(i.type)}" data-csp-style="${CSP.style(`font-size:11px`)}">${typeLabel[i.type]||i.type}</span>${i.type==='final'?` <span class="tag ${i.approved?'t-done':'t-pending'}" data-csp-style="${CSP.style(`font-size:10px`)}">${i.approved?'✓ تأیید شده':'⏳ در انتظار'}</span>`:''}</td>
-      <td class="mono">${escDate(i.date)}</td><td class="mono">${fmt(i.final)}</td>
-      <td>${payLabel[i.pay_type]||i.pay_type||'-'}</td>
+      <td><b>${esc(i.cust_biz||'-')}</b></td>
+      <td>${invBadgeHtml(i.type, i.approved)}</td>
+      <td class="mono">${escDate(i.date)}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;color:var(--text)`)}">${fmt(i.final)}</td>
+      <td><span class="tag" data-csp-style="${CSP.style(`font-size:11px`)}">${payLabel[i.pay_type]||i.pay_type||'—'}</span></td>
       <td class="muted">${esc(i.seller_name||i.salesperson||'-')}</td>
-      <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
-        <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="چاپ">🖨️</button>
-        <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش">✏️</button>
-        ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال">⛔</button>`:''}
+      <td>
+        <div class="inv-actions-cell">
+          ${i.type==='proforma' && !i.converted ? `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){convertProformaChooser((i.id))})}" title="تبدیل به فاکتور قطعی">🔄 تبدیل</button>` : ''}
+          <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){printInvoice((i.id))})}" title="پیش‌نمایش و چاپ">🖨️</button>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openInvBuilder((i.id))})}" title="ویرایش فاکتور">✏️</button>
+          ${canDel?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){voidInvoiceDoc((i.id),`${String((CSP.htmlDecode(String(esc(i.num||'')))) ?? '')}`)})}" title="ابطال/لغو فاکتور">⛔</button>`:''}
+        </div>
       </td>
     </tr>`).join('')||emptyRow(9)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
       <td colspan="5">جمع (${fmt(rows.length)} فاکتور)</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:800`)}">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:800;font-size:15px`)}">${fmt(rows.reduce((a,i)=>a+(i.final||0),0))}</td>
       <td colspan="3"></td>
     </tr></tfoot></table></div>`;
   if(typeof enhanceDataTable==='function'){
@@ -9346,23 +9517,27 @@ async function cancelConsignment(id){
 ============================================================ */
 let advReportTab='aging', advReportFrom='', advReportTo='';
 const ADV_REPORT_TABS=[
-  {id:'aging',label:'سنی مطالبات'},
-  {id:'cash-flow',label:'جریان وجه نقد'},
-  {id:'sales-by-product',label:'فروش به تفکیک کالا'},
-  {id:'inventory-valuation',label:'ارزش‌گذاری موجودی'},
-  {id:'inventory-health',label:'سلامت موجودی'},
-  {id:'vat-summary',label:'گزارش VAT'},
-  {id:'vat-ledger',label:'دفتر ارزش افزوده'},
-  {id:'cost-accounting',label:'عناصر بهای صنعتی'},
-  {id:'report-designer',label:'طراح صورت‌های مالی'},
-  {id:'party-turnover',label:'گردش اشخاص'}
+  {id:'aging',label:'⌛ سنی مطالبات'},
+  {id:'cash-flow',label:'💸 جریان وجه نقد'},
+  {id:'sales-by-product',label:'📦 فروش به تفکیک کالا'},
+  {id:'inventory-valuation',label:'🏷️ ارزش‌گذاری موجودی'},
+  {id:'inventory-health',label:'⚠️ سلامت موجودی'},
+  {id:'vat-summary',label:'🏛️ گزارش VAT'},
+  {id:'vat-ledger',label:'📖 دفتر ارزش افزوده'},
+  {id:'cost-accounting',label:'⚙️ عناصر بهای صنعتی'},
+  {id:'report-designer',label:'📐 طراح صورت‌های مالی'},
+  {id:'party-turnover',label:'🤝 گردش اشخاص'}
 ];
 async function renderAdvReportsTab(body){
   body.innerHTML=`
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:6px`)}">
-      ${ADV_REPORT_TABS.map(t=>`<button class="btn ${advReportTab===t.id?'':'ghost'} sm" data-csp-click="${CSP.bind('click',function(event){advReportTab=`${String((t.id) ?? '')}`;renderAdvReportsTab(el('accBody'))})}">${t.label}</button>`).join('')}
+    <div class="rep-chip-tabs" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
+      ${ADV_REPORT_TABS.map(t=>`
+        <div class="rep-chip ${advReportTab===t.id?'active':''}" data-csp-click="${CSP.bind('click',function(event){advReportTab=`${String((t.id) ?? '')}`;renderAdvReportsTab(el('accBody'))})}">
+          ${t.label}
+        </div>
+      `).join('')}
     </div>
-    <div id="advReportBody"><div class="muted">در حال بارگذاری...</div></div>`;
+    <div id="advReportBody"><div class="muted">در حال بارگذاری مرکز گزارشات...</div></div>`;
   await loadAdvReport();
 }
 async function loadAdvReport(){
@@ -19992,6 +20167,7 @@ helpSec('🔑','لایسنس و entitlement',`
       </ul>`),
     helpSec('🧾','انواع فاکتور فروش و موجودی دائمی',`
       <ul>
+        <li><b>بازطراحی فاکتورها و گزارشات:</b> کارت‌های KPI زنده، چیپ‌های فیلتر سریع (پیش‌فاکتور/معمولی/رسمی)، جستجوی هوشمند، برچسب‌های وضعیت، و مرکز گزارشات با نمودارهای روندی و تحلیل‌های ۳۶۰ درجه.</li>
         <li><b>پیش‌فاکتور:</b> اعلام قیمت — بدون کسر موجودی و بدون سند حسابداری</li>
         <li><b>فاکتور معمولی:</b> فروش قطعی — موجودی دائمی + سند فروش + بهای تمام‌شده؛ به صف مودیان نمی‌رود</li>
         <li><b>فاکتور رسمی:</b> همان فروش قطعی + در صورت فعال بودن مودیان وارد صف می‌شود</li>
