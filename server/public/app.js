@@ -1104,11 +1104,15 @@ el('loginForm').addEventListener('submit', async (e)=>{
       setLoginErr((classified && classified.message) || ('پاسخ نامعتبر از سرور ('+r.status+') — اگر به‌روزرسانی در جریان است چند ثانیه صبر کنید'));
       return;
     }
-    if(r.status===409 && j.code==='DEVICE_SESSION_ACTIVE'){
-      const other=j.other_device||{};
-      const slotFa={mobile:'موبایل',desktop:'دسکتاپ/ویندوز',web:'وب'}[other.device_slot]||'';
-      const ok=confirm((j.error||'نشست دیگری فعال است')+'\n\nدستگاه قبلی'+(slotFa?' ('+slotFa+')':'')+': '+(other.device_name||other.device_kind||'نامشخص')+'\n\nقطع نشست قبلی همین نوع دستگاه و ورود در این دستگاه؟');
-      if(!ok){ setLoginErr(j.error||'ورود لغو شد'); return; }
+    if(r.status===409 && (!j || j.code==='DEVICE_SESSION_ACTIVE')){
+      const other=(j && j.other_device) || {};
+      const slotFa={mobile:'موبایل',desktop:'دسکتاپ/ویندوز',web:'وب'}[other.device_slot]||'وب';
+      const otherName=other.device_name||other.device_kind||'مرورگر دیگر';
+      const ok=confirm('این حساب الان روی دستگاه دیگری از نوع «'+slotFa+'» وارد است ('+otherName+').\n\nرمز درست است. اگر همان شما هستید، OK را بزنید تا نشست قبلی قطع شود و اینجا وارد شوید.');
+      if(!ok){
+        setLoginErr('رمز درست است؛ نشست قبلی روی '+slotFa+' هنوز فعال است. دوباره ورود بزنید و قطع نشست قبلی را تأیید کنید.');
+        return;
+      }
       ({r,j,classified} = await attemptLogin(true));
       if(!j){ setLoginErr((classified && classified.message) || 'پاسخ نامعتبر از سرور'); return; }
     }
@@ -20664,6 +20668,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>ورود در برنامه‌های آفلاین ویندوز/اندروید بدون کد 2FA است (خود دستگاه پس از اتصال اولیه، امن و معتمد است)</li>
         <li><b>وب کروم:</b> همهٔ رویدادهای رابط کاربری از registry امن و فایل‌های اسکریپت محلی اجرا می‌شوند؛ CSP استفاده از رویداد و اسکریپت inline را مسدود می‌کند. اگر دکمه‌ای واکنش نداشت، Console و گزارش CSP را برای پشتیبانی ارسال کنید.</li>
         <li><b>ورود وب:</b> آدرس درست <code dir="ltr">https://erp.poshaktaranom.com</code> است — اگر با http باز شود خودکار به https می‌رود. اولین ورود مدیر: <b>admin / admin123</b> — بعد از ورود، تغییر رمز اجباری است.</li>
+        <li><b>ساخت ادمین دوم رمز ادمین اول را عوض نمی‌کند.</b> هر مدیر فقط روی یک مرورگر وب همزمان وارد می‌ماند. اگر بعد از ساخت کاربر جدید، ورود <code>admin</code> خطا داد، معمولاً نشست وب قبلی هنوز باز است — در پنجره تأیید، قطع نشست قبلی را بپذیرید؛ این یعنی رمز اشتباه نیست.</li>
       </ul>`),
     helpSec('🤖','دستیار فروش AI',`
       <p>سیستم هر شب ساعت ۲ بامداد رفتار خرید همه مشتریان را تحلیل می‌کند و نتیجه در منوی «🤖 دستیار هوشمند» نمایش داده می‌شود.</p>
