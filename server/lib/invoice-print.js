@@ -32,6 +32,56 @@ function esc(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function numToPersianWords(num) {
+  if (num == null || isNaN(num) || Number(num) === 0) return 'صفر';
+  const yekan = ['', 'یک', 'دو', 'سه', 'چهار', 'پنج', 'شش', 'هفت', 'هشت', 'نه'];
+  const dahgaana = ['', 'یازده', 'دوازده', 'سیزده', 'چهارده', 'پانزده', 'شانزده', 'هفده', 'هیجده', 'نوزده'];
+  const dahgan = ['', 'ده', 'بیست', 'سی', 'چهل', 'پنجاه', 'شصت', 'هفتاد', 'هشتاد', 'نود'];
+  const sadgan = ['', 'صد', 'دویست', 'سیصد', 'چهارصد', 'پانصد', 'ششصد', 'هفتصد', 'هشتصد', 'نهصد'];
+  const basess = ['', 'هزار', 'میلیون', 'میلیارد', 'تریلیون'];
+
+  function threeDigitsToWords(n) {
+    if (n === 0) return '';
+    let s = '';
+    const sad = Math.floor(n / 100);
+    const dah = Math.floor((n % 100) / 10);
+    const yek = n % 10;
+
+    if (sad > 0) s += sadgan[sad];
+    if (dah === 1 && yek > 0) {
+      if (s) s += ' و ';
+      s += dahgaana[yek];
+      return s;
+    }
+    if (dah > 0) {
+      if (s) s += ' و ';
+      s += dahgan[dah];
+    }
+    if (yek > 0) {
+      if (s) s += ' و ';
+      s += yekan[yek];
+    }
+    return s;
+  }
+
+  let n = Math.abs(Math.floor(Number(num)));
+  let result = [];
+  let baseIdx = 0;
+
+  while (n > 0) {
+    const chunk = n % 1000;
+    if (chunk > 0) {
+      const chunkWords = threeDigitsToWords(chunk);
+      const suffix = basess[baseIdx];
+      result.unshift(chunkWords + (suffix ? ' ' + suffix : ''));
+    }
+    n = Math.floor(n / 1000);
+    baseIdx++;
+  }
+
+  return result.join(' و ');
+}
+
 function faNum(n) {
   if (n == null || n === '') return '۰';
   const num = Number(n);
@@ -244,7 +294,7 @@ function themeCss(id, dims) {
   *{box-sizing:border-box;margin:0;padding:0}
   html{width:100%;min-width:100vw;min-height:100%;direction:rtl}
   body{font-family:'Vazirmatn',Tahoma,sans-serif;background:#EEF3EF;color:#12271C;padding:16px;font-size:${dims.font};width:100%;min-width:100%;min-height:100vh;display:flex;flex-direction:column;align-items:center;box-sizing:border-box}
-  .sheet{width:100%;max-width:${dims.sheetMax};margin:0 auto;margin-inline:auto;background:#fff;position:relative;box-sizing:border-box}
+  .sheet{width:100%;max-width:${dims.sheetMax};margin:0 auto;margin-inline:auto;background:#fff;position:relative;box-sizing:border-box;box-shadow:0 12px 32px rgba(18,39,28,.08)}
   .pad{padding:${dims.pad};width:100%;box-sizing:border-box}
   .num{font-variant-numeric:tabular-nums}
   .rtl{text-align:right}
@@ -256,16 +306,17 @@ function themeCss(id, dims) {
   .thermal-customer{line-height:1.7}
   .row-desc{font-size:9px;color:#5F7268;margin-top:2px;font-weight:400}
   .warn-line{color:#b45309;font-size:11px;font-weight:700}
-  .thanks{margin-top:6px;color:#8A7020}
+  .thanks{margin-top:6px;color:#8A7020;font-size:.85em;font-weight:600}
   .logo-box{background:#fff;border:1px solid #c5d6cc;border-radius:10px;padding:3px 8px;display:inline-flex;align-items:center}
   .logo-box img{display:block;height:${dims.logoH};background:transparent;mix-blend-mode:multiply}
-  .pbtn{display:block;margin:14px auto 0;background:#1A5C38;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-family:inherit;font-size:13px;cursor:pointer}
+  .pbtn{display:inline-flex;align-items:center;justify-content:center;gap:6px;margin:16px auto 0;background:linear-gradient(135deg,#1A5C38,#2E7D4F);color:#fff;border:none;padding:10px 22px;border-radius:10px;font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(26,92,56,.25);transition:all .15s ease}
+  .pbtn:hover{background:linear-gradient(135deg,#123F28,#1A5C38);transform:translateY(-1px);box-shadow:0 6px 16px rgba(26,92,56,.35)}
   .watermark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:5}
   .watermark span{transform:rotate(-25deg);font-size:32px;font-weight:800;color:rgba(220,38,38,.14);border:3px solid rgba(220,38,38,.14);border-radius:12px;padding:6px 18px;white-space:nowrap}
-  table.items{width:100%;border-collapse:collapse;margin-top:4px}
-  table.items th,table.items td{border:1px solid #c5d6cc;padding:5px 3px;text-align:center;vertical-align:middle}
+  table.items{width:100%;border-collapse:collapse;margin-top:6px}
+  table.items th,table.items td{border:1px solid #c5d6cc;padding:6px 4px;text-align:center;vertical-align:middle}
   table.items th{background:#1A5C38;color:#fff;font-weight:700;font-size:.9em;line-height:1.3}
-  table.items tbody tr:nth-child(even){background:#f3f8f5}
+  table.items tbody tr:nth-child(even){background:#f6faf7}
   .expert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;background:linear-gradient(90deg,#FDF3D9,#fff 60%);border:1px solid rgba(201,168,67,.55);border-radius:10px;padding:7px 10px;margin:8px 0}
   .expert-l{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
   .expert-t{font-size:.7em;font-weight:800;color:#8A7020;background:#fff;border:1px solid rgba(201,168,67,.45);border-radius:999px;padding:2px 8px}
@@ -278,11 +329,14 @@ function themeCss(id, dims) {
   .sum-box .line{display:flex;justify-content:space-between;padding:6px 9px;border-bottom:1px solid #c5d6cc}
   .sum-box .line.pay{background:#163F2A;color:#fff;font-weight:800;border:0}
   .sum-box .line.pay .gold{color:#C9A843}
-  .words{border:1px solid #c5d6cc;border-radius:8px;padding:8px 10px;line-height:1.8;font-size:.88em;background:#fbfdfb}
+  .words{border:1px solid #c5d6cc;border-radius:8px;padding:8px 10px;line-height:1.8;font-size:.88em;background:#fbfdfb;display:flex;flex-direction:column;justify-content:center}
+  .words-num{font-size:.92em;font-weight:700;color:#12271C}
+  .words-fa{font-size:.86em;color:#1A5C38;margin-top:4px;font-weight:700;line-height:1.6;border-top:1px dashed #c5d6cc;padding-top:4px}
   .stamps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;width:100%}
-  .stamp{border:1px solid #c5d6cc;border-radius:8px;min-height:70px;text-align:center;padding:8px;font-size:.8em;color:#5F7268}
+  .stamp{border:1px solid #c5d6cc;border-radius:8px;min-height:70px;text-align:center;padding:8px;font-size:.8em;color:#5F7268;display:flex;flex-direction:column;justify-content:space-between}
   .stamp.dash{border-style:dashed;border-color:#2E7D4F}
   .stamp .t{font-weight:800;color:#1A5C38;margin-bottom:4px}
+  .stamp-line{border-bottom:1px dotted #a8c4b8;margin-top:24px}
   .parties{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;width:100%}
   .party{border:1px solid #c5d6cc;border-radius:8px;overflow:hidden;min-width:0}
   .party h4{background:#eef5f0;color:#1A5C38;padding:5px 8px;font-size:.85em;font-weight:800;border-bottom:1px solid #c5d6cc}
@@ -296,7 +350,7 @@ function themeCss(id, dims) {
   @media print{
     html,body{display:block;width:auto;min-width:0;min-height:0;background:#fff;padding:0}
     .sheet{box-shadow:none!important;border-radius:0!important;max-width:100%!important;width:100%!important}
-    .pbtn{display:none}
+    .pbtn{display:none!important}
     @page{size:${pageSize};margin:${pageMargin}}
   }
   @media screen and (max-width:420px){
@@ -463,16 +517,40 @@ function renderInvoicePrintHtml(opts) {
     customize.show_company_phone && companyPhone ? companyPhone : '',
   ].filter(Boolean).join(' · ');
 
+  const companyEconomicCode = settings.company_economic_code || settings.economic_code || '';
+  const companyNationalId = settings.company_national_id || settings.national_id || '';
+  const companyPostalCode = settings.company_postal_code || settings.postal_code || '';
+
+  const custEconomicCode = inv.cust_economic_code || inv.economic_code || '';
+  const custNationalId = inv.cust_national_id || inv.national_id || inv.cust_code || '';
+  const custPostalCode = inv.cust_postal_code || inv.postal_code || '';
+  const custAddr = inv.cust_address || inv.address || '';
+
   const sellerBits = `
     <div><b>نام:</b> ${esc(companyName)}</div>
+    ${companyEconomicCode ? `<div><b>کد اقتصادی:</b> ${esc(companyEconomicCode)}</div>` : ''}
+    ${companyNationalId ? `<div><b>شناسه ملی:</b> ${esc(companyNationalId)}</div>` : ''}
     ${customize.show_company_address ? `<div><b>نشانی:</b> ${esc(companyAddr || '—')}</div>` : ''}
     ${customize.show_company_phone ? `<div><b>تلفن:</b> ${esc(companyPhone || '—')}</div>` : ''}
+    ${companyPostalCode ? `<div><b>کد پستی:</b> ${esc(companyPostalCode)}</div>` : ''}
     ${customize.show_payment ? `<div><b>پرداخت:</b> ${esc(payTypeLabel)}${payExtra}</div>` : ''}`;
 
   const buyerBits = `
     <div><b>نام:</b> ${esc(inv.cust_biz || '—')}${inv.cust_owner ? ' — ' + esc(inv.cust_owner) : ''}</div>
+    ${custEconomicCode ? `<div><b>کد اقتصادی:</b> ${esc(custEconomicCode)}</div>` : ''}
+    ${custNationalId ? `<div><b>شناسه/کد ملی:</b> ${esc(custNationalId)}</div>` : ''}
     <div><b>شهر:</b> ${esc(inv.cust_city || '—')}</div>
-    <div><b>تلفن:</b> ${esc(inv.cust_phone || '—')}</div>`;
+    ${custAddr ? `<div><b>نشانی:</b> ${esc(custAddr)}</div>` : ''}
+    <div><b>تلفن:</b> ${esc(inv.cust_phone || '—')}</div>
+    ${custPostalCode ? `<div><b>کد پستی:</b> ${esc(custPostalCode)}</div>` : ''}`;
+
+  const payableWords = numToPersianWords(t.payable);
+  const wordsHtml = `
+    <div class="words">
+      <div class="words-num"><b>مبلغ قابل پرداخت:</b> <span class="num">${faNum(t.payable)}</span> ریال</div>
+      <div class="words-fa"><b>به حروف:</b> ${esc(payableWords)} ریال</div>
+      ${noteHtml || '<div class="thanks">با تشکر از انتخاب شما</div>'}
+    </div>`;
 
   const formalHead = isA5
     ? `<tr><th>ردیف</th><th>شرح</th><th>تعداد</th><th>فی</th><th>تخفیف ردیف</th><th>جمع</th></tr>`
@@ -491,9 +569,9 @@ function renderInvoicePrintHtml(opts) {
 
   const stamps = `
     <div class="stamps">
-      <div class="stamp"><div class="t">مهر و امضای خریدار</div></div>
-      <div class="stamp dash"><div class="t">مهر شرکت</div></div>
-      <div class="stamp"><div class="t">مهر و امضای فروشنده</div></div>
+      <div class="stamp"><div class="t">مهر و امضای خریدار</div><div class="stamp-line"></div></div>
+      <div class="stamp dash"><div class="t">مهر شرکت</div><div class="stamp-line"></div></div>
+      <div class="stamp"><div class="t">مهر و امضای فروشنده</div><div class="stamp-line"></div></div>
     </div>`;
 
   let bodyInner = '';
@@ -557,10 +635,7 @@ function renderInvoicePrintHtml(opts) {
         </table>
         <div class="sum-grid">
           ${sumBox}
-          <div>
-            <div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(t.payable)} ریال</div>
-            ${noteHtml}
-          </div>
+          ${wordsHtml}
         </div>
         ${stamps}
       </div>
@@ -600,7 +675,7 @@ function renderInvoicePrintHtml(opts) {
           <thead>${formalHead}</thead>
           <tbody>${buildFormalRows(rows, isA5) || `<tr><td colspan="${emptyColspan}">بدون ردیف</td></tr>`}</tbody>
         </table>
-        <div class="sum-grid">${sumBox}<div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(t.payable)} ریال${noteHtml || '<div class="thanks">با تشکر از اعتماد شما</div>'}</div></div>
+        <div class="sum-grid">${sumBox}${wordsHtml}</div>
         ${stamps}
       </div>
       ${customize.show_footer ? `<div class="footer-bar">${footerText}<br>${esc(contactLine)}</div>` : ''}`;
@@ -634,10 +709,7 @@ function renderInvoicePrintHtml(opts) {
         </table>
         <div class="sum-grid">
           ${sumBox}
-          <div>
-            <div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(t.payable)} ریال</div>
-            ${noteHtml}
-          </div>
+          ${wordsHtml}
         </div>
         ${stamps}
       </div>
@@ -683,10 +755,7 @@ function renderInvoicePrintHtml(opts) {
         </table>
         <div class="sum-grid">
           ${sumBox}
-          <div>
-            <div class="words"><b>مبلغ قابل پرداخت:</b> ${faNum(t.payable)} ریال</div>
-            ${noteHtml}
-          </div>
+          ${wordsHtml}
         </div>
         ${stamps}
       </div>
