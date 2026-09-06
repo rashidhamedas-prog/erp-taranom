@@ -469,20 +469,24 @@
   }
 
   function withSameOriginBase(html) {
-    const parsed = new DOMParser().parseFromString(
-      parserPolicy.createHTML(String(html == null ? '' : html)),
-      'text/html'
+    // Blob documents keep CSP base-uri 'none', so an injected <base> is ignored.
+    // DOMParser also strips style/script nonce, which then blocks the theme <style>.
+    // Rewrite root-relative href/src to absolute same-origin URLs in the raw HTML
+    // so CSS, logo, font and print-page.js load, and the nonce survives.
+    const origin = String(location.origin || '');
+    const originUrl = new URL(origin);
+    if (!/^https?:$/i.test(originUrl.protocol)) {
+      throw new TypeError('Print document origin must be http(s)');
+    }
+    return String(html == null ? '' : html).replace(
+      /\b(href|src)=(["'])(\/[^"'>\s]*)\2/gi,
+      (whole, attr, quote, assetPath) => {
+        if (assetPath.startsWith('//')) return whole;
+        const abs = new URL(assetPath, originUrl.href.endsWith('/') ? originUrl.href : originUrl.href + '/');
+        if (abs.origin !== originUrl.origin) return whole;
+        return `${attr}=${quote}${abs.href}${quote}`;
+      }
     );
-    parsed.querySelectorAll('base').forEach((node) => node.remove());
-    const base = parsed.createElement('base');
-    const safeBase = new URL('/', location.origin);
-    if (safeBase.origin !== location.origin) throw new TypeError('Print document base must be same-origin');
-    base.href = safeBase.href;
-    const policyMeta = parsed.head && parsed.head.querySelector('meta[http-equiv="Content-Security-Policy" i]');
-    if (policyMeta && policyMeta.nextSibling) parsed.head.insertBefore(base, policyMeta.nextSibling);
-    else if (policyMeta) parsed.head.appendChild(base);
-    else if (parsed.head) parsed.head.prepend(base);
-    return `<!doctype html>\n${nativeOuterHTML.get.call(parsed.documentElement)}`;
   }
 
   async function openVerifiedServerDocument(response) {
