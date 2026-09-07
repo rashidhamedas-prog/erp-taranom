@@ -103,12 +103,12 @@ function inventoryAccountForWarehouse(db, warehouseId) {
  * Apply qty delta to products.stock + warehouse_stock.
  * Returns { qtyBefore, qtyAfter, avgBefore }.
  */
-function applyStockDelta(db, { productId, warehouseId, qtyDelta }) {
+function applyStockDelta(db, { productId, warehouseId, qtyDelta, allowNegative: allowNegOpt }) {
   const prod = getProduct(db, productId);
   const qtyBefore = Number(prod.stock) || 0;
   const avgBefore = Math.round(Number(prod.average_cost_rial) || 0);
   const qtyAfter = qtyBefore + qtyDelta;
-  const allowNeg = allowNegative(db, warehouseId);
+  const allowNeg = allowNegOpt === true || allowNegative(db, warehouseId);
 
   if (qtyAfter < -1e-9 && !allowNeg) {
     throw invErr('E_NEGATIVE_STOCK', 409, {
@@ -201,7 +201,9 @@ function postInventoryMovement(db, opts) {
   const delta = qtyIn - qtyOut;
   let stockInfo = { qtyBefore: 0, qtyAfter: 0, avgBefore: 0, product: null };
   if (!skipStock && !valueOnly) {
-    stockInfo = applyStockDelta(db, { productId, warehouseId, qtyDelta: delta });
+    stockInfo = applyStockDelta(db, {
+      productId, warehouseId, qtyDelta: delta, allowNegative: opts.allowNegative,
+    });
   } else {
     const p = getProduct(db, productId);
     stockInfo = {
@@ -351,4 +353,5 @@ module.exports = {
   costingMethod,
   invErr,
   ensureWhRow,
+  applyStockDelta,
 };

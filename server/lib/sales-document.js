@@ -175,7 +175,7 @@ function requireFirmHeaderWarehouse(headerWarehouseId) {
   return whId;
 }
 
-function assertWarehouseLines(db, rows, headerWarehouseId, { requirePositive = true } = {}) {
+function assertWarehouseLines(db, rows, headerWarehouseId, { requirePositive = true, allowNegativeProduct = false } = {}) {
   const productRows = (rows || []).filter((r) => {
     if (r.row_type === 'income') return false;
     if (r.item_kind === 'service') return false;
@@ -243,7 +243,7 @@ function assertWarehouseLines(db, rows, headerWarehouseId, { requirePositive = t
     const baseQty = ws ? Number(ws.qty) : (prod.warehouse_id === effWh ? Number(prod.stock) || 0 : 0);
     const avail = baseQty - reservedQty(db, r.product_id, effWh);
     const qty = Number(r.qty) || 0;
-    if (requirePositive && !allowNeg && avail < qty) {
+    if (requirePositive && !allowNeg && !allowNegativeProduct && avail < qty) {
       const err = new Error(
         `موجودی قابل فروش «${r.name || prod.name}» در انبار کافی نیست (قابل فروش: ${avail})`
       );
@@ -328,6 +328,8 @@ function postSaleStockMovements(db, {
       createdBy: userId,
       updateAvg: false,
       skipStock,
+      // Firm sales: product/SKU may go negative (UI warning only). Fabric lots stay hard-checked above.
+      allowNegative: !isFabric,
     });
     if (batchId) {
       const { consumeFabricRollOnSale } = require('./inventory/fabric-rolls');

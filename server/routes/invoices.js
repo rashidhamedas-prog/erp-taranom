@@ -262,16 +262,8 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
       }
       continue;
     }
-    if (!allowNeg && prod.stock < r.qty) {
-      return `موجودی ${prod.name} کافی نیست (موجود: ${prod.stock})`;
-    }
+    // Firm sales: insufficient product stock is warning-only. Do not block the invoice.
     if (whId) {
-      const ws = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(r.product_id, whId);
-      const avail = ws ? ws.qty : (prod.warehouse_id === whId ? prod.stock : 0);
-      if (!allowNeg && avail < r.qty) {
-        const wh = db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId);
-        return `موجودی انبار «${wh?.name || whId}» برای ${prod.name} کافی نیست (موجود: ${avail})`;
-      }
       used.set(whId, (db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId)?.name) || String(whId));
     }
   }
@@ -285,7 +277,6 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
       continue;
     }
     const whId = resolveRowWarehouseId(db, r, warehouseId);
-    const allowNeg = warehouseAllowsNegative(db, whId);
     // Read the product BEFORE decrementing products.stock so the warehouse_stock
     // row can be seeded consistently with the read path's fallback below.
     const prod = db.prepare('SELECT stock, warehouse_id FROM products WHERE id=?').get(r.product_id);
@@ -300,13 +291,8 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
         INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)
         ON CONFLICT(product_id,warehouse_id) DO NOTHING
       `).run(r.product_id, whId, seedQty);
-      if (allowNeg) {
-        db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?')
-          .run(r.qty, r.product_id, whId);
-      } else {
-        db.prepare('UPDATE warehouse_stock SET qty=CASE WHEN qty-? < 0 THEN 0 ELSE qty-? END WHERE product_id=? AND warehouse_id=?')
-          .run(r.qty, r.qty, r.product_id, whId);
-      }
+      db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?')
+        .run(r.qty, r.product_id, whId);
     }
     if (r.variant_id) {
       require('../lib/product-variants').adjustVariantStock(db, r.variant_id, -(Number(r.qty) || 0), 'delta');
@@ -463,7 +449,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
     try {
       whId = requireFirmHeaderWarehouse(whId);
       applyHeaderWarehouseToLines(built.rows, whId, { force: isSalesRep });
-      assertWarehouseLines(db, built.rows, whId, { requirePositive: true });
+      assertWarehouseLines(db, built.rows, whId, { requirePositive: true, allowNegativeProduct: true });
     } catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
   }
 
@@ -759,7 +745,7 @@ router.post('/:id/convert', auth, (req, res) => {
   try {
     convertWhId = requireFirmHeaderWarehouse(convertWhId);
     applyHeaderWarehouseToLines(rows, convertWhId, { force: false });
-    assertWarehouseLines(db, rows, convertWhId, { requirePositive: true });
+    assertWarehouseLines(db, rows, convertWhId, { requirePositive: true, allowNegativeProduct: true });
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }

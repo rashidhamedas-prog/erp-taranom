@@ -442,19 +442,67 @@ async function hydrateInvVarSum(ids){
   }
   return true;
 }
-function invoiceNegativeStockWarn(cart){
+function collectInvoiceStockWarnings(cart){
   const issues=[];
+  const byProd={};
+  const bySku={};
   (cart||[]).forEach(r=>{
     if(!r || r.row_type==='income' || r.batch_id || r.is_fabric_roll) return;
-    const p=findInvProduct(r.product_id);
-    if(!p) return;
-    const avail=Number(p.wh_qty!=null?p.wh_qty:(p.stock||0));
-    if(Number(r.qty)>avail+1e-9){
-      issues.push((r.name||p.name||'کالا')+' — نیاز '+fmtQty(r.qty)+'، موجود '+fmt(avail));
+    const pid=Number(r.product_id);
+    if(!Number.isFinite(pid)) return;
+    const qty=Number(r.qty)||0;
+    if(!byProd[pid]) byProd[pid]={name:r.name||'', qty:0};
+    byProd[pid].qty+=qty;
+    if(!byProd[pid].name && r.name) byProd[pid].name=r.name;
+    if(r.variant_id && r.sku_stock!=null){
+      const vid=String(r.variant_id);
+      if(!bySku[vid]){
+        const sku=[r.color_name||r.color, r.size_name].filter(Boolean).join(' / ');
+        bySku[vid]={name:(r.name||'')+(sku?(' — '+sku):''), qty:0, avail:Number(r.sku_stock)||0};
+      }
+      bySku[vid].qty+=qty;
     }
   });
-  if(!issues.length) return true;
-  return confirm('با ثبت این فاکتور موجودی این کالاها منفی می‌شود:\n'+issues.join('\n')+'\nادامه می‌دهید؟');
+  Object.keys(byProd).forEach(pid=>{
+    const g=byProd[pid];
+    const p=typeof findInvProduct==='function'?findInvProduct(pid):null;
+    const avail=p?Number(p.wh_qty!=null?p.wh_qty:(p.stock||0)):0;
+    if(g.qty>avail+1e-9){
+      issues.push({
+        kind:'product', product_id:Number(pid),
+        name:g.name||(p&&p.name)||'کالا',
+        need:g.qty, avail, after:avail-g.qty
+      });
+    }
+  });
+  Object.keys(bySku).forEach(vid=>{
+    const g=bySku[vid];
+    if(g.qty>g.avail+1e-9){
+      issues.push({kind:'sku', name:g.name||'SKU', need:g.qty, avail:g.avail, after:g.avail-g.qty});
+    }
+  });
+  return issues;
+}
+function renderInvoiceStockWarn(){
+  const box=el('invStockWarn'); if(!box) return;
+  const issues=collectInvoiceStockWarnings(invCart);
+  if(!issues.length){ box.innerHTML=''; box.hidden=true; return; }
+  const firm=el('inv-type')?.value!=='proforma';
+  const title=firm
+    ? 'پس از ثبت این فاکتور موجودی این کالاها منفی می‌شود. ذخیره مسدود نیست — فقط هشدار است.'
+    : 'اگر این پیش‌فاکتور به فاکتور قطعی تبدیل شود، موجودی این کالاها منفی می‌شود. ذخیره مسدود نیست.';
+  box.hidden=false;
+  box.innerHTML=`<div class="inv-stock-warn" role="status">
+    <div class="inv-stock-warn-title">⚠️ ${esc(title)}</div>
+    <ul>${issues.map(i=>'<li><b>'+esc(i.name)+'</b> — نیاز '+fmtQty(i.need)+'، موجود '+fmt(i.avail)+'، پس از فاکتور <b>'+fmt(i.after)+'</b></li>').join('')}</ul>
+  </div>`;
+}
+function invoiceNegativeStockWarn(cart){
+  const issues=collectInvoiceStockWarnings(cart);
+  if(issues.length){
+    try{ showToast('هشدار: پس از ثبت، موجودی برخی کالاها منفی می‌شود — فاکتور ثبت می‌شود','info'); }catch(_){}
+  }
+  return true;
 }
 /* ---- Auto-English digits: any field that must hold Latin numerals converts
    Persian/Arabic digits the moment they are typed (hardware keyboards on a
@@ -920,7 +968,7 @@ function rollSelect(id, rolls, selectedId){
   const items=(rolls||[]).map(b=>({
     id:b.id,
     label:`${b.batch_no||('#'+b.id)} — ${b.product_name||''} ${b.color||''}`.trim(),
-    meta:`${fmt(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} متر`,
+    meta:`مانده زنده ${fmt(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} متر`,
     hay:[b.batch_no,b.product_name,b.color,b.pattern].filter(Boolean).join(' '),
     extra:b
   }));
@@ -954,6 +1002,7 @@ function pickGeneric(id, itemId){
       const x=item.extra;
       h.dataset.pid=x.product_id||'';
       h.dataset.qty=x.qty_available!=null?x.qty_available:(x.qty_live!=null?x.qty_live:x.qty_on_hand||0);
+      h.dataset.qtyLive=x.qty_live!=null?x.qty_live:(x.qty_on_hand||0);
       h.dataset.color=x.color||'';
       h.dataset.pat=x.pattern||'';
       h.dataset.no=x.batch_no||'';
@@ -4286,6 +4335,7 @@ async function _openInvBuilder(id){
             <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){invCart.push({row_type:'income',product_id:null,name:'درآمد/خدمات',qty:1,price:0,disc:0,disc_amount:0,description:'',income_coa:''});renderCart()})}">➕ ردیف درآمد</button>
             <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){invoiceFabricRollPicker('sale')})}">🧵 افزودن طاقه</button>
           </div>
+          <div id="invStockWarn" hidden></div>
           <div class="inv-lines-wrap" id="cartRows"></div>
           <div class="cart-tot" id="cartTot"></div>
           <button class="btn green" data-csp-style="${CSP.style(`width:100%;margin-top:12px;padding:12px;font-size:15px`)}" data-csp-click="${CSP.bind('click',function(event){saveInvoice((id||0))})}">💾 ذخیره فاکتور</button>
@@ -4309,6 +4359,12 @@ async function _openInvBuilder(id){
     });
   }
   if (+(whSel?.value || 0)) reloadInvProductsForWarehouse();
+  const typeSel=el('inv-type');
+  if(typeSel && !typeSel.dataset.warnBound){
+    typeSel.dataset.warnBound='1';
+    typeSel.addEventListener('change', ()=>{ renderInvoiceStockWarn(); });
+  }
+  if((invCart||[]).some(r=>r && (r.batch_id||r.is_fabric_roll))) ensureInvoiceLiveRolls().then(()=>{ if(el('cartRows')) renderCart(); });
   _bcWedgeHandler = scanBarcodeToCart;
   const hint=el('mobPickHint'); if(hint) hint.style.display=window.matchMedia('(hover:none)').matches?'block':'none';
 }
@@ -4443,7 +4499,9 @@ function addCartRow(p, extra){
     size_id:extra&&extra.size_id||null,
     color:extra&&(extra.color||extra.color_name)||'',
     color_name:extra&&extra.color_name||'',
-    size_name:extra&&extra.size_name||''
+    size_name:extra&&extra.size_name||'',
+    sku_stock:extra&&extra.sku_stock!=null?Number(extra.sku_stock):null,
+    stock_on_hand:extra&&extra.stock_on_hand!=null?Number(extra.stock_on_hand):(p.wh_qty!=null?p.wh_qty:(p.stock||0))
   });
 }
 async function addToCart(pid){
@@ -4480,7 +4538,7 @@ function openInvVariantSplitModal(p, pack, opts){
         <td>${esc(v.color_name||'—')}</td>
         <td>${esc(v.size_name||'—')}</td>
         <td class="mono">${fmt(v.stock||0)}</td>
-        <td><input type="number" min="0" step="1" value="${qtyMap[String(v.id)]!=null?qtyMap[String(v.id)]:(opts.existing&&opts.existing.length?0:1)}" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}"></td>
+        <td><input type="number" min="0" step="1" value="${qtyMap[String(v.id)]!=null?qtyMap[String(v.id)]:(opts.existing&&opts.existing.length?0:1)}" class="inv-var-qty" data-vid="${v.id}" data-cid="${v.color_id||''}" data-sid="${v.size_id||''}" data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}" data-stock="${v.stock||0}"></td>
       </tr>`).join('')}</tbody></table></div>
     </div>
     <div class="modal-foot">
@@ -4506,6 +4564,7 @@ function confirmInvVariantSplit(pid, opts){
       color: inp.getAttribute('data-cname')||'',
       color_name: inp.getAttribute('data-cname')||'',
       size_name: inp.getAttribute('data-sname')||'',
+      sku_stock: Number(inp.getAttribute('data-stock'))||0,
     });
     added++;
   });
@@ -4645,6 +4704,8 @@ function renderCart(){
   const freightMethod=el('inv-freight-alloc')?.value||'amount';
   const freightSeller=freightTypeIsSeller(el('inv-freight-type')?.value);
   const freightShares=allocateFreightShares(invCart, freight, freightMethod);
+  const stockWarns=typeof collectInvoiceStockWarnings==='function'?collectInvoiceStockWarnings(invCart):[];
+  const negProd=new Set(stockWarns.filter(w=>w.kind==='product').map(w=>Number(w.product_id)));
   if(!invCart.length){
     el('cartRows').innerHTML=`<div class="inv-lines-empty">سبد خالی است — از فهرست کالا یک قلم اضافه کنید</div>`;
   } else {
@@ -4684,10 +4745,12 @@ function renderCart(){
       const packNote=isPack
         ? (oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+packSummaryStyle+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':'')
           +'<button type="button" class="btn sm ghost" data-csp-style="'+packEditStyle+'" data-csp-click="'+editPackBind+'">ویرایش رنگ / سایز</button>'
-        : (r.batch_id||r.is_fabric_roll?'<div class="muted" data-csp-style="'+muted11Style+'">طاقه '+esc(r.roll_no||('#'+(r.batch_id||'')))+' '+esc(r.color||'')+'</div>':(oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+muted11Style+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':''));
-      const qtyCell=isPack
+        : (r.batch_id||r.is_fabric_roll?'<div class="muted" data-csp-style="'+muted11Style+'">طاقه '+esc(r.roll_no||('#'+(r.batch_id||'')))+' '+esc(r.color||'')+(function(){ const live=invoiceRollLiveMeters(r.batch_id); return live==null?'':' · مانده زنده '+fmt(live)+' متر'; })()+'</div>':(oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+muted11Style+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':''));
+      const lineNeg=!isIncome && !r.batch_id && !r.is_fabric_roll && negProd.has(Number(r.product_id));
+      const qtyCell=(isPack
         ? '<span class="mono">'+fmtQty(qtySum)+'</span>'
-        : '<input type="number" min="0.001" step="0.001" inputmode="decimal" value="'+fmtQty(r.qty)+'" data-csp-change="'+qtyChangeBind+'">';
+        : '<input type="number" min="0.001" step="0.001" inputmode="decimal" value="'+fmtQty(r.qty)+'" data-csp-change="'+qtyChangeBind+'">')
+        +(lineNeg?'<div class="inv-line-neg">پس از فاکتور موجودی منفی می‌شود</div>':'');
       const freightHint=lineFreight?('<div class="muted" data-csp-style="'+CSP.style('font-size:10px;font-weight:500')+'">کرایه '+fmt(lineFreight)+(freight?(' · '+Math.round(lineFreight*100/freight)+'٪'):'')+'</div>'):'';
       return ''
       +'<tr>'
@@ -4725,6 +4788,7 @@ function renderCart(){
       ${freight?`<div class="inv-summary-row"><span>کرایه حمل ${freightSeller?'(عهده فروشنده)':'(عهده خریدار)'}:</span><span class="mono">${fmt(freight)} ریال</span></div>`:''}
       <div class="inv-summary-row grand-total"><span>مبلغ نهایی قابل پرداخت:</span><span class="mono" data-csp-style="${CSP.style(`font-size:17px`)}">${fmt(final)} ریال</span></div>
     </div>`;
+  if(typeof renderInvoiceStockWarn==='function') renderInvoiceStockWarn();
 }
 let invPayRows=[];
 function parseInvMoney(v){
@@ -8777,36 +8841,109 @@ function fabricRollLiveTotal(){
     }
   }
 }
+let _ifrLiveRolls=[];
+function invoiceCartReservedMeters(batchId){
+  return (invCart||[]).filter(r=>Number(r.batch_id)===Number(batchId)).reduce((a,r)=>a+(Number(r.qty)||0),0);
+}
+function invoiceRollLiveMeters(batchId){
+  if(!batchId) return null;
+  const b=(_ifrLiveRolls||[]).find(x=>Number(x.id)===Number(batchId));
+  if(!b) return null;
+  return Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0;
+}
+async function ensureInvoiceLiveRolls(force){
+  if(!force && _ifrLiveRolls && _ifrLiveRolls.length) return _ifrLiveRolls;
+  try{ _ifrLiveRolls=(await api('GET','/inventory/fabric-rolls?status=active')||{}).rows||[]; }catch(_){ _ifrLiveRolls=_ifrLiveRolls||[]; }
+  return _ifrLiveRolls;
+}
+function invoiceFabricSaleRolls(){
+  return (_ifrLiveRolls||[]).filter(b=>b && b.status!=='reversed').map(b=>{
+    const live=Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0;
+    return Object.assign({}, b, {qty_available:live-invoiceCartReservedMeters(b.id)});
+  });
+}
+function syncInvoiceFabricRollLive(){
+  const sel=el('ifr-roll');
+  const box=el('ifr-live');
+  if(!box) return;
+  if(!sel||!sel.value){
+    box.className='ifr-live-box';
+    box.innerHTML='طاقه را انتخاب کنید. مانده از دفتر انبار لحظه‌ای است و رزرو همین فاکتور کم می‌شود.';
+    return;
+  }
+  const live=invoiceRollLiveMeters(sel.value);
+  const warehouseLive=live!=null?live:(Number(sel.dataset.qtyLive)||0);
+  const reserved=invoiceCartReservedMeters(sel.value);
+  const now=warehouseLive-reserved;
+  const typed=Number(el('ifr-m')?.value)||0;
+  const after=now-typed;
+  const tone=after<-1e-9?'bad':(after<=1e-9?'warn':'ok');
+  box.className='ifr-live-box ifr-live-'+tone;
+  box.setAttribute('aria-live','polite');
+  box.innerHTML='<div><b>مانده زنده انبار:</b> '+fmt(warehouseLive)+' متر</div>'
+    +'<div>رزرو در این فاکتور: '+fmt(reserved)+' متر</div>'
+    +'<div>قابل فروش الان: <b>'+fmt(now)+'</b> متر</div>'
+    +(typed?'<div>پس از این ردیف: <b>'+fmt(after)+'</b> متر</div>':'')
+    +(after<-1e-9?'<div class="ifr-live-alert">این مقدار مانده طاقه را منفی می‌کند.</div>':'');
+  sel.dataset.qty=String(now);
+}
+function refreshInvoiceFabricRollSelect(){
+  const mapped=invoiceFabricSaleRolls();
+  const items=(mapped||[]).map(b=>({
+    id:b.id,
+    label:`${b.batch_no||('#'+b.id)} — ${b.product_name||''} ${b.color||''}`.trim(),
+    meta:`مانده زنده ${fmt(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} متر`,
+    hay:[b.batch_no,b.product_name,b.color,b.pattern].filter(Boolean).join(' '),
+    extra:b
+  }));
+  _searchLists['ifr-roll']=items;
+  const sel=el('ifr-roll');
+  if(sel && sel.value){
+    const item=items.find(x=>String(x.id)===String(sel.value));
+    if(item && item.extra){
+      const x=item.extra;
+      sel.dataset.qty=x.qty_available!=null?x.qty_available:(x.qty_live!=null?x.qty_live:x.qty_on_hand||0);
+      sel.dataset.qtyLive=x.qty_live!=null?x.qty_live:(x.qty_on_hand||0);
+    }
+  }
+  syncInvoiceFabricRollLive();
+}
 async function invoiceFabricRollPicker(kind){
   const mode=kind==='purchase'?'purchase':'sale';
   if(!CACHE.allProducts?.length){ try{ CACHE.allProducts=await api('GET','/products')||[]; }catch(_){ CACHE.allProducts=[]; } }
-  let rolls=[];
-  try{ rolls=(await api('GET','/inventory/fabric-rolls?status=active')||{}).rows||[]; }catch(_){ rolls=[]; }
   const prods=CACHE.allProducts||[];
   if(mode==='sale'){
+    await ensureInvoiceLiveRolls(true);
+    const mapped=invoiceFabricSaleRolls();
     openNestedModal(`
       <div class="modal-head"><h3>افزودن طاقه به فاکتور فروش</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
       <div class="modal-body">
-        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه یک ردیف است. انبار ردیف همان انبار طاقه است (معمولاً مواد)، نه الزاماً انبار سربرگ فاکتور.</p>
+        <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه یک ردیف است. انبار ردیف همان انبار طاقه است (معمولاً مواد)، نه الزاماً انبار سربرگ فاکتور. مانده متر از دفتر انبار زنده است.</p>
         <div class="fg full"><label>طاقه موجود</label>
-          ${rollSelect('ifr-roll', rolls.filter(b=>b.status!=='reversed'&&(Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0)>0).map(b=>{
-            const reserved=(invCart||[]).filter(r=>Number(r.batch_id)===Number(b.id)).reduce((a,r)=>a+(Number(r.qty)||0),0);
-            const live=Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0;
-            return Object.assign({}, b, {qty_available:Math.max(0, live-reserved)});
-          }).filter(b=>b.qty_available>0), '')}</div>
+          ${rollSelect('ifr-roll', mapped, '')}</div>
         <div class="fg"><label>متر فروش</label><input id="ifr-m" type="number" min="0.01" step="0.01"></div>
         <div class="fg"><label>فی فروش (ریال)</label><input id="ifr-price" type="text" inputmode="numeric" class="money" value="0"></div>
+        <div id="ifr-live" class="ifr-live-box" role="status">طاقه را انتخاب کنید. مانده از دفتر انبار لحظه‌ای است و رزرو همین فاکتور کم می‌شود.</div>
+        <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(){ensureInvoiceLiveRolls(true).then(function(){ refreshInvoiceFabricRollSelect(); showToast('مانده طاقه‌ها تازه شد');})})}">بروزرسانی مانده زنده</button>
       </div>
       <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(){invoiceFabricRollAddSale()})}">افزودن به فاکتور</button>
         <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button></div>`);
     const sel=el('ifr-roll');
+    const meters=el('ifr-m');
     const sync=()=>{
-      if(!sel||!sel.value) return;
-      const p=prods.find(x=>String(x.id)===String(sel.dataset.pid||''));
-      if(el('ifr-m') && !el('ifr-m').value) el('ifr-m').value=sel.dataset.qty||'';
-      if(el('ifr-price') && p) el('ifr-price').value=moneyInit(p.price||0);
+      if(sel&&sel.value){
+        const p=prods.find(x=>String(x.id)===String(sel.dataset.pid||''));
+        if(meters && !meters.dataset.userTyped) meters.value=sel.dataset.qty||'';
+        if(el('ifr-price') && p && !el('ifr-price').dataset.userTyped) el('ifr-price').value=moneyInit(p.price||0);
+      }
+      syncInvoiceFabricRollLive();
     };
-    if(sel) sel.addEventListener('change',sync); sync();
+    if(sel) sel.addEventListener('change',sync);
+    if(meters){
+      meters.addEventListener('input',function(){ this.dataset.userTyped='1'; syncInvoiceFabricRollLive(); });
+    }
+    if(el('ifr-price')) el('ifr-price').addEventListener('input',function(){ this.dataset.userTyped='1'; });
+    sync();
     return;
   }
   openNestedModal(`
@@ -20405,7 +20542,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>تخفیف سربرگ فاکتور فروش سند را تراز می‌کند (بستانکار فروش = ناخالص کالا؛ تخفیف جدا بدهکار است). حذف طاقه از سبد و ذخیرهٔ بقیه با تخفیف دیگر «سند تراز نیست» نمی‌دهد</li>
         <li><b>چاپ:</b> از لیست یا داخل فرم فاکتور. ویزارد چاپ فرم باز را نمی‌بندد. شناسه از فاکتور انتخاب‌شده نگه داشته می‌شود. حسابدار همهٔ فاکتورها را می‌بیند/چاپ می‌کند. اگر سند پیدا نشود همان متن سرور نمایش داده می‌شود. پیش‌نمایش A4/A5 وسط صفحه و به عرض کاغذ است (به راست نمی‌چسبد)</li>
         <li>فاکتور خرید دکمهٔ چاپ A4 دارد</li>
-        <li>اگر ثبت فاکتور موجودی کالا را منفی کند، قبل از ذخیره هشدار تأیید می‌آید</li>
+        <li>اگر ثبت فاکتور موجودی کالا را منفی کند، نوار هشدار زنده در سبد دیده می‌شود (نیاز / موجود / مانده پس از فاکتور). ذخیره مسدود نیست — فقط هشدار است. طاقهٔ پارچه همچنان بیشتر از مانده زنده فروخته نمی‌شود</li>
         <li>ستون فی جداکنندهٔ هزارگان دارد. رنگ/سایز یک خط زیر نام کالاست؛ کلیک جزئیات را باز می‌کند</li>
         <li><b>نوع پرداخت:</b> نسیه، نقد، چک، واریز بانکی، و <b>کارتخوان</b>. بعد از انتخاب نوع، فیلد <b>مبلغ این پرداخت</b> می‌آید (پیش‌فرض = مبلغ فاکتور). کمتر از کل یعنی بقیه نسیه می‌ماند. صندوق فقط برای نقد، بانک برای واریز/چک، کارتخوان برای POS است</li>
         <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب مثلاً بخشی نقد و بخشی کارت؛ هر ردیف مبلغ و مقصد جدا دارد. جمع ردیف‌ها نباید از مبلغ فاکتور بیشتر شود</li>
@@ -20618,7 +20755,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>فاکتور خرید</b> همان الگوی جدول اقلام را دارد (بهای خرید، تخفیف ردیف، انبار مقصد، چک، کرایه، بارکد)</li>
         <li>فی با جداکنندهٔ هزارگان؛ رنگ/سایز یک خط زیر نام — کلیک برای جزئیات</li>
         <li>کرایه: نسبت سرشکن روی ردیف؛ عهده خریدار به مبلغ طرف‌حساب می‌آید، عهده فروشنده هزینه است</li>
-        <li>طاقه از انبار خودش کسر می‌شود؛ مانده از رسید خرید (حتی رسید قدیمی بدون مهر دسته) خوانده می‌شود. اگر کالا منفی شود قبل از ذخیره هشدار می‌آید</li>
+        <li>طاقه از انبار خودش کسر می‌شود؛ مانده از رسید خرید (حتی رسید قدیمی بدون مهر دسته) خوانده می‌شود. اگر کالا منفی شود نوار هشدار زنده می‌آید و فاکتور مسدود نمی‌شود</li>
+        <li>در «افزودن طاقه» مانده زنده انبار، رزرو همین فاکتور و مانده پس از متر واردشده لحظه‌ای به‌روز می‌شود</li>
         <li>تخفیف کل فاکتور سند حسابداری را تراز نگه می‌دارد — حتی اگر طاقه را از سبد حذف کنید و بقیه را ذخیره کنید</li>
       </ul>
       <h5>تخفیف ردیفی (فقط مدیر و حسابدار)</h5><p>کنار هر ردیف سبد، فیلدهای تخفیف درصدی و مبلغی فقط برای نقش‌های مدیر و حسابدار نمایش داده می‌شود — سایر کاربران این فیلدها را نمی‌بینند. تخفیف ردیفی پیش از تخفیف کل فاکتور اعمال می‌شود.</p>
@@ -20851,7 +20989,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ویندوز:</b> فقط از همان دکمه نصب کنید. برنامه URL، اندازه و SHA-256 را بررسی می‌کند و در نسخه بسته‌بندی‌شده امضای نصب‌کننده اجباری است؛ فایل یا لینک دستی ناشناس اجرا نمی‌شود</li>
         <li><b>اندروید:</b> فقط از تنظیمات → «بررسی به‌روزرسانی» نصب کنید. APK پیش از بازشدن نصب‌کننده از نظر URL امن، اندازه، SHA-256، نام بسته، نسخه و یکسان‌بودن امضا با برنامه نصب‌شده بررسی می‌شود؛ فایل نامعتبر حذف خواهد شد. اگر امضای نصب خیلی قدیمی فرق کند، یک‌بار حذف و نصب مجدد لازم است</li>
         <li>کلید داخلی دستگاه و توکن اتصال به‌صورت محافظت‌شده در AndroidKeyStore/Windows DPAPI و رمز‌شده در دیتابیس محلی نگه‌داری می‌شوند؛ فایل دادهٔ برنامه را بین دستگاه‌ها کپی نکنید</li>
-        <li>وب: Service Worker فعلی <b>erp-taranom-v186</b> است و اسکریپت‌ها با <code>?v=186</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
+        <li>وب: Service Worker فعلی <b>erp-taranom-v203</b> است و اسکریپت‌ها با <code>?v=203</code> بارگذاری می‌شوند؛ اگر منو/CRM/حسابداری قدیمی ماند، یک‌بار Hard Refresh (Ctrl+Shift+R) یا پاک‌کردن کش سایت را بزنید</li>
         <li>نسخه جدید در <b>زنگوله اعلان‌ها</b> برای همه نقش‌ها دیده می‌شود</li>
       </ul>
       <h5>اعداد انگلیسی خودکار</h5><p>در همه فیلدهای عددی (مبلغ، تعداد، موبایل، تاریخ، بارکد، کد و...) اگر با صفحه‌کلید فارسی رقم تایپ کنید، همان لحظه به رقم انگلیسی تبدیل می‌شود — نیازی به عوض کردن زبان صفحه‌کلید نیست. روی موبایل نیز صفحه‌کلید عددی خودکار باز می‌شود.</p>
@@ -21104,7 +21242,7 @@ function renderSalesGuide(){
         <li>محصولات را از کاتالوگ جستجو و اضافه کنید. اگر کالا رنگ×سایز دارد، پنجرهٔ تو در تو باز می‌شود و فقط ترکیب‌های با موجودی (پک زنده) دیده می‌شوند — رنگ تمام‌شده یا لغوشده مثل مشکی در پک نمی‌ماند. هر ترکیب یک ردیف می‌شود. برای پارچه، «افزودن طاقه» هر طاقه را یک ردیف جدا می‌کند و صفحهٔ فاکتور باز می‌ماند</li>
         <li>کانال فروش (میدانی/تلفنی) خودکار از حساب شما ثبت می‌شود</li>
         <li>تعداد هر محصول را وارد کنید</li>
-        <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است. اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
+        <li>نوع را انتخاب کنید: پیش‌فاکتور یا فاکتور. تبدیل پیش‌فاکتور فقط با دکمهٔ <b>تبدیل</b> است. کمبود کالای آماده فقط هشدار است و فاکتور ثبت می‌شود؛ اگر طاقه کم باشد پیام «مانده X، نیاز Y» می‌آید</li>
         <li>ذخیره کنید و در صورت نیاز چاپ بگیرید؛ چاپ از لیست یا دکمه داخل فرم است و فرم را نمی‌بندد. ابتدا نوع فاکتور (رسمی/عادی/حرارتی) سپس قالب را می‌پرسد. پیش‌نمایش A4/A5 وسط صفحه و هم‌عرض کاغذ است. طاقهٔ خریداری‌شده با متر زنده همان طاقه فروخته می‌شود</li>
         <li>رنگ و سایز یک خط زیر نام کالاست؛ برای جزئیات روی همان خط بزنید</li>
       </ol>

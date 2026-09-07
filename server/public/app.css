@@ -1374,3 +1374,30 @@ body.erp-demo-mode{padding-top:32px}
   border-color: var(--purple);
 }
 
+.inv-stock-warn{
+  background: var(--warnbox-bg);
+  border: 1px solid var(--orange);
+  border-inline-start-width: 4px;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.inv-stock-warn-title{font-weight:700;color:var(--orange);margin-bottom:6px}
+.inv-stock-warn ul{margin:0;padding-inline-start:18px}
+.inv-line-neg{font-size:11px;color:var(--red);font-weight:700;margin-top:4px;line-height:1.5}
+.ifr-live-box{
+  margin-top:10px;
+  padding:10px 12px;
+  border-radius:10px;
+  background:var(--well);
+  border:1px solid var(--border);
+  font-size:12px;
+  line-height:1.8;
+}
+.ifr-live-box.ifr-live-ok{border-color:var(--green);background:var(--tip-bg)}
+.ifr-live-box.ifr-live-warn{border-color:var(--orange);background:var(--warnbox-bg)}
+.ifr-live-box.ifr-live-bad{border-color:var(--red);background:var(--bad-bg)}
+.ifr-live-alert{color:var(--red);font-weight:700}
+
